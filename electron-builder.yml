@@ -1,0 +1,49 @@
+appId: com.modelmash.app
+productName: ModelMash
+directories:
+  output: dist
+  buildResources: build
+
+# 应用图标配置
+icon: assets/logo.png
+
+files:
+  - from: out/main
+    to: out/main
+  - from: out/preload
+    to: out/preload
+  - from: out/renderer
+    to: out/renderer
+  - from: assets
+    to: assets
+  - package.json
+  - "!**/*.map"
+
+# ============ Windows 打包配置 ============
+win:
+  target:
+    # 安装版：不包含 portable.txt 标记文件
+    - target: nsis
+      arch:
+        - x64
+    # 便携版 ZIP：包含 portable.txt，需手动解压
+    - target: zip
+      arch:
+        - x64
+
+# ============ NSIS 安装包配置 ============
+nsis:
+  oneClick: false                              # 允许自定义安装路径
+  perMachine: false                            # 单用户安装（不需管理员权限）
+  allowToChangeInstallationDirectory: true     # 允许用户选择安装目录
+  deleteAppDataOnUninstall: false              # 卸载时不默认删除用户数据（由卸载流程勾选控制）
+  createDesktopShortcut: true                  # 创建桌面快捷方式（安装时可选择）
+  createStartMenuShortcut: true                # 创建开始菜单快捷方式
+  shortcutName: ModelMash 模方                 # 快捷方式名称
+  displayLanguageSelector: false               # 不显示语言选择
+  include: build/installer.nsh
+
+# ============ 便携版配置 ============
+# 注意：便携版的标记文件通过 electron-builder-portable.yml 配置添加
+portable:
+  artifactName: ${productName}-Portable-${version}.${ext}

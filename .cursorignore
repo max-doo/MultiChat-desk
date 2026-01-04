@@ -1,0 +1,32 @@
+# 排除依赖库 (防止 Context 污染)
+node_modules/
+venv/
+.venv/
+target/
+vendor/
+
+# 排除构建产物
+dist/
+build/
+out/
+
+# 排除缓存和临时文件
+.cache/
+tmp/
+*.log
+.DS_Store
+
+# 排除敏感配置或大文件
+*.lock
+package-lock.json
+yarn.lock
+
+# 排除项目特定文件
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.development
+.env.test
+.env.production

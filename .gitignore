@@ -1,0 +1,37 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+out/
+dist/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Runtime data / caches
+.cache/
+tmp/
+temp/
+.eslintcache
+*.tsbuildinfo
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# IDE / OS
+.vscode/
+.idea/
+.fleet/
+.DS_Store
+Thumbs.db
+
+# Secrets
+*.pem
+*.pfx
+*.key

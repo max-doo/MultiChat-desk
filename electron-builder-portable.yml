@@ -1,0 +1,25 @@
+# ============================================
+# ModelMash 便携版专用打包配置
+# ============================================
+# 此配置继承 electron-builder.yml 的所有配置
+# 并添加便携版特有的标记文件
+# ============================================
+
+extends: electron-builder.yml
+
+# 便携版额外资源：添加标记文件到 resources 目录
+# 运行时通过检测此文件来判断是否为便携模式
+extraResources:
+  - from: build/portable.txt
+    to: portable.txt
+
+# 自定义输出文件名
+artifactName: ${productName}-Portable-${version}.${ext}
+
+# 便携版使用 ZIP 格式，需要用户手动解压
+win:
+  target:
+    - target: zip
+      arch:
+        - x64
+
