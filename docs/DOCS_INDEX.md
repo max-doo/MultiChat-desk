@@ -48,6 +48,12 @@
 - 实用技巧和自定义函数
 - 常见错误解决方案
 
+**[GITHUB_GUIDE.md](GITHUB_GUIDE.md)** - GitHub 仓库管理指南
+- 初始化与连接
+- 常用开发工作流 (Pull, Branch, Commit, Push)
+- 分支管理策略与提交规范
+- 版本发布流程
+
 **[PORTABLE_MODE_EXPLAINED.md](PORTABLE_MODE_EXPLAINED.md)** - 便携模式说明
 - 为什么改用 ZIP 格式
 - 使用方法和验证
@@ -79,7 +85,7 @@
 ### ❓ 我遇到了问题
 1. 查看 [README.md](README.md#常见问题)
 2. 查看 [BUILD_GUIDE.md](BUILD_GUIDE.md#常见问题)
-3. 搜索 [GitHub Issues](https://github.com/your-username/modelmash/issues)
+3. 搜索 [GitHub Issues](https://github.com/max-doo/model-mash/issues)
 4. 提交新 Issue
 
 ---
@@ -90,6 +96,7 @@
 - 项目结构：[README.md](README.md#项目结构)
 - 技术栈：[README.md](README.md#技术栈)
 - 开发环境：[README.md](README.md#快速开始)
+- **版本控制：[GITHUB_GUIDE.md](GITHUB_GUIDE.md)**
 
 ### 构建相关
 - 构建命令：[BUILD_GUIDE.md](BUILD_GUIDE.md#构建命令详解)
@@ -117,6 +124,7 @@
 📄 PORTABLE_BUILD_GUIDE.md        # 便携版详解
 📄 QUICK_BUILD_REFERENCE.md       # 快速参考
 📄 API_CONFIG_GUIDE.md            # API 配置指南
+📄 GITHUB_GUIDE.md                # GitHub 仓库管理指南
 📄 DOCS_INDEX.md                  # 文档索引（本文件）
 ```
 
@@ -170,12 +178,12 @@
    - 查看相关章节的"常见问题"部分
 
 2. **搜索 Issues**
-   - [已有 Issues](https://github.com/your-username/modelmash/issues?q=is%3Aissue)
+   - [已有 Issues](https://github.com/max-doo/model-mash/issues?q=is%3Aissue)
    - 可能已经有人遇到相同问题
 
 3. **提问**
-   - [Discussions](https://github.com/your-username/modelmash/discussions) - 一般性讨论
-   - [New Issue](https://github.com/your-username/modelmash/issues/new) - 报告 Bug
+   - [Discussions](https://github.com/max-doo/model-mash/discussions) - 一般性讨论
+   - [New Issue](https://github.com/max-doo/model-mash/issues/new) - 报告 Bug
 
 4. **联系方式**
    - Email: your-email@example.com
@@ -210,6 +218,7 @@
 - [x] PORTABLE_BUILD_GUIDE.md
 - [x] QUICK_BUILD_REFERENCE.md
 - [x] API_CONFIG_GUIDE.md
+- [x] GITHUB_GUIDE.md
 - [x] DOCS_INDEX.md
 
 ---
