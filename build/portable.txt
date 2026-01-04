@@ -29,4 +29,4 @@ Usage:
 4. Your data will be stored in the 'resources/data/' folder
 
 Version: 1.0.0
-Created: 2026-01-03T11:03:17.855Z
+Created: 2026-01-04T05:26:26.924Z

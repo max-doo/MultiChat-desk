@@ -444,11 +444,49 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
           setTimeout(
             () => {
               if (item.urls) {
+                // 获取当前 Gemini 模型的 URL（可能包含账号信息如 /u/1/）
+                const currentGeminiModel = models.find(m => m.id === 'gemini')
+                const currentGeminiUrl = currentGeminiModel?.url || 'https://gemini.google.com/app'
+
+                // 解析当前 Gemini URL 获取账号前缀
+                let geminiUrlPrefix = 'https://gemini.google.com/app'
+                try {
+                  const u = new URL(currentGeminiUrl)
+                  const parts = u.pathname.split('/').filter(Boolean)
+                  if (parts[0] === 'u' && parts[2] === 'app') {
+                    // 当前是多账号格式：/u/N/app
+                    geminiUrlPrefix = `https://gemini.google.com/u/${parts[1]}/app`
+                  }
+                } catch {
+                  // URL 解析失败，使用默认前缀
+                }
+
                 Object.entries(item.urls).forEach(([modelId, url]) => {
                   const webviewRef = useAppStore.getState().webviewRefs.get(modelId)
                   if (webviewRef && url) {
-                    console.log(`[MainPage] 历史记录：正在为 ${modelId} 加载 URL: ${url}`)
-                    webviewRef.loadURL(url)
+                    let finalUrl = url
+                    // 对 Gemini URL 进行转换，使用当前账号的 URL 前缀
+                    if (modelId === 'gemini' && url.includes('gemini.google.com')) {
+                      try {
+                        const u = new URL(url)
+                        const parts = u.pathname.split('/').filter(Boolean)
+                        // 提取对话 ID
+                        let conversationId: string | undefined
+                        if (parts[0] === 'app' && parts[1]) {
+                          conversationId = parts[1]
+                        } else if (parts[0] === 'u' && parts[2] === 'app' && parts[3]) {
+                          conversationId = parts[3]
+                        }
+                        if (conversationId) {
+                          finalUrl = `${geminiUrlPrefix}/${conversationId}`
+                          console.log(`[MainPage] 历史记录：转换 Gemini URL: ${url} -> ${finalUrl}`)
+                        }
+                      } catch {
+                        // URL 解析失败，使用原始 URL
+                      }
+                    }
+                    console.log(`[MainPage] 历史记录：正在为 ${modelId} 加载 URL: ${finalUrl}`)
+                    webviewRef.loadURL(finalUrl)
                   }
                 })
               }

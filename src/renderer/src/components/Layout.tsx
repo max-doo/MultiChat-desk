@@ -71,7 +71,7 @@ function Layout({ children }: LayoutProps): JSX.Element {
         return
       }
       console.log('[Layout] 剪贴板内容:', text.substring(0, 30))
-      
+
       if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
         // 先让输入框获得焦点
         target.focus()
@@ -140,7 +140,7 @@ function Layout({ children }: LayoutProps): JSX.Element {
 
   useEffect(() => {
     console.log('[Layout] 初始化 themed-contextmenu 监听器, electron:', !!window.electron)
-    
+
     const sub = (event: any, payload: {
       x: number; y: number; selectionText?: string; isEditable?: boolean; linkURL?: string; srcURL?: string; hasImageContents?: boolean; mediaType?: string; wcId: number
     }): void => {
@@ -149,35 +149,38 @@ function Layout({ children }: LayoutProps): JSX.Element {
       const editable = !!payload.isEditable
       const hasSelection = !!payload.selectionText
       if (hasSelection || editable) {
-        items.push({ key: 'copy', label: '复制', icon: 'content_copy', action: async () => {
-          // 直接使用已捕获的选中文本写入剪贴板，这是最可靠的方式
-          if (payload.selectionText) {
-            try {
-              await navigator.clipboard.writeText(payload.selectionText)
-              console.log('[Layout] 复制成功')
-            } catch (err) {
-              console.error('[Layout] 复制失败:', err)
+        items.push({
+          key: 'copy', label: '复制', icon: 'content_copy', action: async () => {
+            // 直接使用已捕获的选中文本写入剪贴板，这是最可靠的方式
+            if (payload.selectionText) {
+              try {
+                await navigator.clipboard.writeText(payload.selectionText)
+                console.log('[Layout] 复制成功')
+              } catch (err) {
+                console.error('[Layout] 复制失败:', err)
+              }
             }
           }
-        } })
+        })
         if (editable) {
-          items.push({ key: 'paste', label: '粘贴', icon: 'content_paste', action: async () => {
-            try {
-              // 读取剪贴板内容
-              const clipText = await navigator.clipboard.readText()
-              if (!clipText) {
-                console.log('[Layout] 剪贴板为空')
-                return
-              }
-              
-              // 找到对应的 webview 元素并执行粘贴
-              const webviews = Array.from(document.querySelectorAll('webview')) as Electron.WebviewTag[]
-              for (const wv of webviews) {
-                // 通过比较 webContentsId 找到目标 webview
-                if ((wv as any).getWebContentsId?.() === payload.wcId) {
-                  console.log('[Layout] 找到目标 webview, 执行粘贴')
-                  // 在 webview 中执行 JavaScript 插入文本
-                  await wv.executeJavaScript(`
+          items.push({
+            key: 'paste', label: '粘贴', icon: 'content_paste', action: async () => {
+              try {
+                // 读取剪贴板内容
+                const clipText = await navigator.clipboard.readText()
+                if (!clipText) {
+                  console.log('[Layout] 剪贴板为空')
+                  return
+                }
+
+                // 找到对应的 webview 元素并执行粘贴
+                const webviews = Array.from(document.querySelectorAll('webview')) as Electron.WebviewTag[]
+                for (const wv of webviews) {
+                  // 通过比较 webContentsId 找到目标 webview
+                  if ((wv as any).getWebContentsId?.() === payload.wcId) {
+                    console.log('[Layout] 找到目标 webview, 执行粘贴')
+                    // 在 webview 中执行 JavaScript 插入文本
+                    await wv.executeJavaScript(`
                     (function() {
                       const clipText = ${JSON.stringify(clipText)};
                       
@@ -209,23 +212,26 @@ function Layout({ children }: LayoutProps): JSX.Element {
                       return { success: false, error: '未找到可编辑元素' };
                     })();
                   `)
-                  return
+                    return
+                  }
                 }
+                console.log('[Layout] 未找到匹配的 webview')
+              } catch (err) {
+                console.error('[Layout] 粘贴失败:', err)
               }
-              console.log('[Layout] 未找到匹配的 webview')
-            } catch (err) {
-              console.error('[Layout] 粘贴失败:', err)
             }
-          } })
+          })
         }
       }
       if (payload.linkURL) {
         items.push({ key: 'copy_link', label: '复制链接', icon: 'link', action: () => { navigator.clipboard.writeText(payload.linkURL as string) } })
       }
       if (payload.srcURL && (payload.mediaType === 'image' || payload.hasImageContents)) {
-        items.push({ key: 'save_image', label: '图片另存为...', icon: 'download', action: () => {
-          window.electron?.ipcRenderer?.invoke('perform-contextmenu-action', { wcId: payload.wcId, action: 'save-image', data: { url: payload.srcURL } })
-        } })
+        items.push({
+          key: 'save_image', label: '图片另存为...', icon: 'download', action: () => {
+            window.electron?.ipcRenderer?.invoke('perform-contextmenu-action', { wcId: payload.wcId, action: 'save-image', data: { url: payload.srcURL } })
+          }
+        })
       }
       if (!items.length) return
       const menuWidth = 180
@@ -245,8 +251,8 @@ function Layout({ children }: LayoutProps): JSX.Element {
 
   const menu = useMemo(() => (
     menuVisible ? (
-      <div 
-        className="fixed z-50" 
+      <div
+        className="fixed z-50"
         style={{ left: menuX, top: menuY }}
         onMouseDown={(e) => e.stopPropagation()} // 阻止冒泡，防止触发 document 的 mousedown 关闭菜单
       >

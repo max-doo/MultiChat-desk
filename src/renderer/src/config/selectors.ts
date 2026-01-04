@@ -111,13 +111,19 @@ export const defaultSelectors: SelectorsConfig = {
       customCSS: ``,
       researchMode: {
         steps: [
+          // 宽屏：直接点击 radio 按钮切换到研究模式
           { selector: 'button[role="radio"][value="research"]:not([aria-disabled="true"])', delay: 300, optional: true },
-          { selector: ['button:has(use[xlink\\:href="#pplx-icon-chevron-down"])', 'use[xlink\\:href="#pplx-icon-chevron-down"]'], delay: 300, optional: true, countsAsSuccess: false },
+          // 窄屏：点击包含"研究"文字的按钮（研究按钮有 border class，来源按钮没有）
+          { selector: 'button.border.rounded-lg.h-8:not([aria-haspopup])', text: '研究', delay: 300, optional: true },
+          // 从下拉菜单选择研究选项（如果有菜单出现）
           { selector: '[role="menuitemradio"][value="research"], [role="menuitemradio"][data-value="research"], [role="menuitem"][data-value="research"], [role="menuitemradio"][aria-label*="研究"], [role="menuitemradio"][aria-label*="Research"], [role="menuitem"][aria-label*="研究"], [role="menuitem"][aria-label*="Research"]', delay: 300, optional: true }
         ],
         cancelSteps: [
+          // 宽屏：直接点击 radio 按钮切换回搜索模式
           { selector: 'button[role="radio"][value="search"]:not([aria-disabled="true"])', delay: 300, optional: true },
-          { selector: ['button:has(use[xlink\\:href="#pplx-icon-chevron-down"])', 'use[xlink\\:href="#pplx-icon-chevron-down"]'], delay: 300, optional: true, countsAsSuccess: false },
+          // 窄屏：点击包含"搜索"文字的按钮
+          { selector: 'button.border.rounded-lg.h-8:not([aria-haspopup])', text: '搜索', delay: 300, optional: true },
+          // 从下拉菜单选择搜索选项
           { selector: '[role="menuitemradio"][value="search"], [role="menuitemradio"][data-value="search"], [role="menuitem"][data-value="search"], [role="menuitemradio"][aria-label*="搜索"], [role="menuitemradio"][aria-label*="Search"], [role="menuitem"][aria-label*="搜索"], [role="menuitem"][aria-label*="Search"]', delay: 300, optional: true }
         ]
       }

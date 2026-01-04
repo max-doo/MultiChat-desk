@@ -504,13 +504,13 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
                     onClick={() => {
                       setTemperature(0.7)
                       setTopP(1.0)
-                      setMaxTokens(4000)
+                      setMaxTokens(8000)
                       setIncludeReasoning(false)
                       setContextRounds(5)
                       updateStoreConfig({
                         temperature: 0.7,
                         topP: 1.0,
-                        maxTokens: 4000,
+                        maxTokens: 8000,
                         includeReasoning: false,
                         contextRounds: 5
                       })

@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { useAppStore, HistoryItem, SummaryHistoryItem } from '../store/appStore'
+import { Virtuoso } from 'react-virtuoso'
+import { useAppStore, HistoryItem, SummaryHistoryItem, ModelConfig } from '../store/appStore'
 import ConfirmModal from './ConfirmModal'
 import RenameModal from './RenameModal'
 
@@ -48,7 +49,7 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
   const getSummaryPreviewText = (item: SummaryHistoryItem) => {
     const firstUserMessage = item.messages.find(msg => msg.role === 'user')
     if (firstUserMessage) {
-      return firstUserMessage.content.length > 100 
+      return firstUserMessage.content.length > 100
         ? firstUserMessage.content.substring(0, 100) + '...'
         : firstUserMessage.content
     }
@@ -93,7 +94,7 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
   // 处理选择对话历史
   const handleSelect = (item: HistoryItem) => {
     if (isSelectionMode) {
-      setSelectedIds(prev => 
+      setSelectedIds(prev =>
         prev.includes(item.id) ? prev.filter(i => i !== item.id) : [...prev, item.id]
       )
       return
@@ -107,7 +108,7 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
   // 处理选择总结历史
   const handleSelectSummary = (item: SummaryHistoryItem) => {
     if (isSelectionMode) {
-      setSelectedIds(prev => 
+      setSelectedIds(prev =>
         prev.includes(item.id) ? prev.filter(i => i !== item.id) : [...prev, item.id]
       )
       return
@@ -122,9 +123,8 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
     <>
       {/* 遮罩层 */}
       <div
-        className={`fixed inset-0 overlay z-40 transition-opacity duration-200 ${
-          isOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
-        }`}
+        className={`fixed inset-0 overlay z-40 transition-opacity duration-200 ${isOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+          }`}
         onClick={isOpen ? onClose : undefined}
       />
       <RenameModal
@@ -145,9 +145,8 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
 
       {/* 抽屉面板 */}
       <div
-        className={`fixed left-0 top-0 bottom-0 w-[400px] bg-background-dark border-r border-gray-800 z-50 flex flex-col transform transition-transform duration-300 ${
-          isOpen ? 'translate-x-0' : '-translate-x-full'
-        }`}
+        className={`fixed left-0 top-0 bottom-0 w-[400px] bg-background-dark border-r border-gray-800 z-50 flex flex-col transform transition-transform duration-300 ${isOpen ? 'translate-x-0' : '-translate-x-full'
+          }`}
       >
         {/* 头部 */}
         <div className="flex items-center justify-between p-6 border-b border-gray-800">
@@ -214,11 +213,10 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
               setIsSelectionMode(false)
               setSelectedIds([])
             }}
-            className={`py-3 text-sm font-medium transition-all border-b-2 ${
-              activeTab === 'conversation'
-                ? 'border-primary text-primary'
-                : 'border-transparent text-gray-400 hover:text-gray-200'
-            }`}
+            className={`py-3 text-sm font-medium transition-all border-b-2 ${activeTab === 'conversation'
+              ? 'border-primary text-primary'
+              : 'border-transparent text-gray-400 hover:text-gray-200'
+              }`}
           >
             对话历史
           </button>
@@ -228,17 +226,16 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
               setIsSelectionMode(false)
               setSelectedIds([])
             }}
-            className={`py-3 text-sm font-medium transition-all border-b-2 ${
-              activeTab === 'summary'
-                ? 'border-primary text-primary'
-                : 'border-transparent text-gray-400 hover:text-gray-200'
-            }`}
+            className={`py-3 text-sm font-medium transition-all border-b-2 ${activeTab === 'summary'
+              ? 'border-primary text-primary'
+              : 'border-transparent text-gray-400 hover:text-gray-200'
+              }`}
           >
             总结历史
           </button>
         </div>
 
-         {/* 历史记录列表 */}
+        {/* 历史记录列表 */}
         <div className="flex-1 overflow-y-auto p-4">
           {activeTab === 'conversation' ? (
             /* 对话历史列表 */
@@ -248,82 +245,82 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
                 <p>{searchQuery ? '未找到匹配的对话' : '暂无对话历史'}</p>
               </div>
             ) : (
-              <div className="space-y-3">
-                {filteredHistory.map((item) => {
+              <Virtuoso
+                data={filteredHistory}
+                itemContent={(_index, item) => {
                   const isSelected = selectedIds.includes(item.id)
                   return (
-                    <div
-                      key={item.id}
-                      onClick={() => handleSelect(item)}
-                      className={`group p-4 rounded-lg bg-gray-800/50 border transition-all ${
-                        isSelected 
-                          ? 'border-primary bg-primary/5' 
+                    <div className="pb-3">
+                      <div
+                        onClick={() => handleSelect(item)}
+                        className={`group p-4 rounded-lg bg-gray-800/50 border transition-all ${isSelected
+                          ? 'border-primary bg-primary/5'
                           : 'border-gray-700 hover:border-primary/50'
-                      } cursor-pointer flex items-center gap-3`}
-                    >
-                      {isSelectionMode && (
-                        <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors flex-shrink-0 ${
-                          isSelected ? 'bg-primary border-primary' : 'border-gray-500'
-                        }`}>
-                          {isSelected && <span className="material-symbols-outlined text-xs text-black font-bold">check</span>}
-                        </div>
-                      )}
-                      <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between gap-2">
-                        <p className={`line-clamp-2 flex-1 transition-colors ${isSelected ? 'text-primary' : 'text-gray-300'}`}>
-                          {item.message}
-                        </p>
-                        {!isSelectionMode && (
-                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                openRename('conversation', item.id, item.message)
-                              }}
-                              className="text-gray-500 hover:text-primary transition-all p-1"
-                              title="重命名"
-                            >
-                              <span className="material-symbols-outlined text-xl">edit</span>
-                            </button>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                setSelectedIds([item.id])
-                                setShowConfirmDelete(true)
-                              }}
-                              className="text-gray-500 hover:text-red-400 transition-all p-1"
-                              title="删除记录"
-                            >
-                              <span className="material-symbols-outlined text-xl">delete</span>
-                            </button>
+                          } cursor-pointer flex items-center gap-3`}
+                      >
+                        {isSelectionMode && (
+                          <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors flex-shrink-0 ${isSelected ? 'bg-primary border-primary' : 'border-gray-500'
+                            }`}>
+                            {isSelected && <span className="material-symbols-outlined text-xs text-black font-bold">check</span>}
                           </div>
-                          )}
-                      </div>
-                        <div className="flex items-center justify-between text-xs text-gray-500 mt-2">
-                          <span>{new Date(item.timestamp).toLocaleString('zh-CN')}</span>
-                          <div className="flex items-center gap-2" title={getModelNames(item.models)}>
-                            <span className="whitespace-nowrap">{item.models.length} 个模型</span>
-                            <div className="flex -space-x-1.5 overflow-hidden">
-                              {item.models.map((modelId) => {
-                                const model = models.find((m) => m.id === modelId)
-                                if (!model) return null
-                                return (
-                                  <img
-                                    key={modelId}
-                                    src={model.logo}
-                                    alt={model.name}
-                                    className="inline-block h-6 w-6 rounded-full ring-1 ring-gray-800 bg-gray-700 object-contain p-0.5"
-                                  />
-                                )
-                              })}
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-start justify-between gap-2">
+                            <p className={`line-clamp-2 flex-1 transition-colors ${isSelected ? 'text-primary' : 'text-gray-300'}`}>
+                              {item.message}
+                            </p>
+                            {!isSelectionMode && (
+                              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    openRename('conversation', item.id, item.message)
+                                  }}
+                                  className="text-gray-500 hover:text-primary transition-all p-1"
+                                  title="重命名"
+                                >
+                                  <span className="material-symbols-outlined text-xl">edit</span>
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setSelectedIds([item.id])
+                                    setShowConfirmDelete(true)
+                                  }}
+                                  className="text-gray-500 hover:text-red-400 transition-all p-1"
+                                  title="删除记录"
+                                >
+                                  <span className="material-symbols-outlined text-xl">delete</span>
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex items-center justify-between text-xs text-gray-500 mt-2">
+                            <span>{new Date(item.timestamp).toLocaleString('zh-CN')}</span>
+                            <div className="flex items-center gap-2" title={getModelNames(item.models)}>
+                              <span className="whitespace-nowrap">{item.models.length} 个模型</span>
+                              <div className="flex -space-x-1.5 overflow-hidden">
+                                {item.models.map((modelId) => {
+                                  const model = models.find((m) => m.id === modelId)
+                                  if (!model) return null
+                                  return (
+                                    <img
+                                      key={modelId}
+                                      src={model.logo}
+                                      alt={model.name}
+                                      className="inline-block h-6 w-6 rounded-full ring-1 ring-gray-800 bg-gray-700 object-contain p-0.5"
+                                    />
+                                  )
+                                })}
+                              </div>
                             </div>
                           </div>
                         </div>
                       </div>
                     </div>
                   )
-                })}
-              </div>
+                }}
+              />
             )
           ) : (
             /* 总结历史列表 */
@@ -333,115 +330,115 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
                 <p>{searchQuery ? '未找到匹配的总结' : '暂无总结历史'}</p>
               </div>
             ) : (
-              <div className="space-y-3">
-                {filteredSummaryHistory.map((item) => {
+              <Virtuoso
+                data={filteredSummaryHistory}
+                itemContent={(_index, item) => {
                   const isSelected = selectedIds.includes(item.id)
                   return (
-                    <div
-                      key={item.id}
-                      onClick={() => handleSelectSummary(item)}
-                      className={`group p-4 rounded-lg bg-gray-800/50 border transition-all ${
-                        isSelected 
-                          ? 'border-primary bg-primary/5' 
+                    <div className="pb-3">
+                      <div
+                        onClick={() => handleSelectSummary(item)}
+                        className={`group p-4 rounded-lg bg-gray-800/50 border transition-all ${isSelected
+                          ? 'border-primary bg-primary/5'
                           : 'border-gray-700 hover:border-primary/50'
-                      } cursor-pointer flex items-center gap-3`}
-                    >
-                      {isSelectionMode && (
-                        <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors flex-shrink-0 ${
-                          isSelected ? 'bg-primary border-primary' : 'border-gray-500'
-                        }`}>
-                          {isSelected && <span className="material-symbols-outlined text-xs text-black font-bold">check</span>}
-                        </div>
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="flex-1 min-w-0">
-                            <h3 className={`font-medium mb-1 line-clamp-1 ${isSelected ? 'text-primary' : 'text-white'}`}>
-                              {item.title}
-                            </h3>
-                            <p className="text-gray-400 text-sm line-clamp-2">{getSummaryPreviewText(item)}</p>
+                          } cursor-pointer flex items-center gap-3`}
+                      >
+                        {isSelectionMode && (
+                          <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors flex-shrink-0 ${isSelected ? 'bg-primary border-primary' : 'border-gray-500'
+                            }`}>
+                            {isSelected && <span className="material-symbols-outlined text-xs text-black font-bold">check</span>}
                           </div>
-                           {!isSelectionMode && (
-                             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0">
-                               <button
-                                 onClick={(e) => {
-                                   e.stopPropagation()
-                                   openRename('summary', item.id, item.title)
-                                 }}
-                                 className="text-gray-500 hover:text-primary transition-all p-1"
-                                 title="重命名"
-                               >
-                                 <span className="material-symbols-outlined text-xl">edit</span>
-                               </button>
-                               <button
-                                 onClick={(e) => {
-                                   e.stopPropagation()
-                                   setSelectedIds([item.id])
-                                   setShowConfirmDelete(true)
-                                 }}
-                                 className="text-gray-500 hover:text-red-400 transition-all p-1"
-                                 title="删除记录"
-                               >
-                                 <span className="material-symbols-outlined text-xl">delete</span>
-                               </button>
-                             </div>
-                           )}
-                        </div>
-                        <div className="flex items-center justify-between text-xs text-gray-500 mt-3">
-                          <span>{new Date(item.timestamp).toLocaleString('zh-CN')}</span>
-                          <div className="flex items-center gap-2" title={getModelNames(item.selectedModels)}>
-                            <span className="whitespace-nowrap">{item.selectedModels.length} 个模型</span>
-                            <div className="flex -space-x-1.5 overflow-hidden">
-                              {item.selectedModels.slice(0, 5).map((modelId) => {
-                                const model = models.find((m) => m.id === modelId)
-                                if (!model) return null
-                                return (
-                                  <img
-                                    key={modelId}
-                                    src={model.logo}
-                                    alt={model.name}
-                                    className="inline-block h-6 w-6 rounded-full ring-1 ring-gray-800 bg-gray-700 object-contain p-0.5"
-                                  />
-                                )
-                              })}
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex-1 min-w-0">
+                              <h3 className={`font-medium mb-1 line-clamp-1 ${isSelected ? 'text-primary' : 'text-white'}`}>
+                                {item.title}
+                              </h3>
+                              <p className="text-gray-400 text-sm line-clamp-2">{getSummaryPreviewText(item)}</p>
+                            </div>
+                            {!isSelectionMode && (
+                              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    openRename('summary', item.id, item.title)
+                                  }}
+                                  className="text-gray-500 hover:text-primary transition-all p-1"
+                                  title="重命名"
+                                >
+                                  <span className="material-symbols-outlined text-xl">edit</span>
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setSelectedIds([item.id])
+                                    setShowConfirmDelete(true)
+                                  }}
+                                  className="text-gray-500 hover:text-red-400 transition-all p-1"
+                                  title="删除记录"
+                                >
+                                  <span className="material-symbols-outlined text-xl">delete</span>
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex items-center justify-between text-xs text-gray-500 mt-3">
+                            <span>{new Date(item.timestamp).toLocaleString('zh-CN')}</span>
+                            <div className="flex items-center gap-2" title={getModelNames(item.selectedModels)}>
+                              <span className="whitespace-nowrap">{item.selectedModels.length} 个模型</span>
+                              <div className="flex -space-x-1.5 overflow-hidden">
+                                {item.selectedModels.slice(0, 5).map((modelId) => {
+                                  const model = models.find((m) => m.id === modelId)
+                                  if (!model) return null
+                                  return (
+                                    <img
+                                      key={modelId}
+                                      src={model.logo}
+                                      alt={model.name}
+                                      className="inline-block h-6 w-6 rounded-full ring-1 ring-gray-800 bg-gray-700 object-contain p-0.5"
+                                    />
+                                  )
+                                })}
+                              </div>
                             </div>
                           </div>
                         </div>
                       </div>
                     </div>
                   )
-                })}
-              </div>
+                }}
+              />
             )
           )}
         </div>
 
         {/* 底部统计 */}
         <div className="p-4 border-t border-gray-800 text-xs text-gray-500 text-center">
-          {isSelectionMode 
-            ? `已选择 ${selectedIds.length} 条记录` 
+          {isSelectionMode
+            ? `已选择 ${selectedIds.length} 条记录`
             : `共 ${activeTab === 'conversation' ? history.length : summaryHistory.length} 条记录`
           }
         </div>
       </div>
 
-       <ConfirmModal
-         isOpen={showConfirmDelete}
-         title="确认删除"
-         message={selectedIds.length === 1 
-           ? `确定要删除这条${activeTab === 'conversation' ? '对话' : '总结'}记录吗？此操作无法撤销。`
-           : `确定要删除选中的 ${selectedIds.length} 条${activeTab === 'conversation' ? '对话' : '总结'}记录吗？此操作无法撤销。`
-         }
-         confirmText="确认删除"
-         onConfirm={confirmDelete}
-         onCancel={() => {
-           setShowConfirmDelete(false)
-           // 如果不是在复选模式下取消的，清空选中
-           if (!isSelectionMode) {
-             setSelectedIds([])
-           }
-         }}
-       />
+      <ConfirmModal
+        isOpen={showConfirmDelete}
+        title="确认删除"
+        message={selectedIds.length === 1
+          ? `确定要删除这条${activeTab === 'conversation' ? '对话' : '总结'}记录吗？此操作无法撤销。`
+          : `确定要删除选中的 ${selectedIds.length} 条${activeTab === 'conversation' ? '对话' : '总结'}记录吗？此操作无法撤销。`
+        }
+        confirmText="确认删除"
+        onConfirm={confirmDelete}
+        onCancel={() => {
+          setShowConfirmDelete(false)
+          // 如果不是在复选模式下取消的，清空选中
+          if (!isSelectionMode) {
+            setSelectedIds([])
+          }
+        }}
+      />
     </>
   )
 }

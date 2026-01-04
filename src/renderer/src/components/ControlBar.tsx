@@ -355,6 +355,7 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
       const { setNewSession } = useAppStore.getState()
       setMessage('')
       setTextInserted(false)
+      setDeepResearch(false) // 重置深度研究状态
       setNewSession(true) // 显式标记开启新会话
       const refs = Array.from(webviewRefs.values())
       if (refs.length === 0) {
@@ -497,10 +498,10 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
             >
               <span
                 className={`flex items-center justify-center w-10 h-10 rounded-full border transition-all duration-200 ${isDeepResearch
-                    ? 'bg-primary/20 text-primary border-primary/50 shadow-[0_0_12px_rgba(132,204,22,0.5)] scale-105'
-                    : isActivatingResearch
-                      ? 'bg-gray-800 border-primary/30 animate-pulse text-gray-300'
-                      : 'bg-gray-800 border-transparent group-hover:bg-primary/20 group-hover:text-primary group-hover:border-primary/50'
+                  ? 'bg-primary/20 text-primary border-primary/50 shadow-[0_0_12px_rgba(132,204,22,0.5)] scale-105'
+                  : isActivatingResearch
+                    ? 'bg-gray-800 border-primary/30 animate-pulse text-gray-300'
+                    : 'bg-gray-800 border-transparent group-hover:bg-primary/20 group-hover:text-primary group-hover:border-primary/50'
                   }`}
               >
                 <span className={`material-symbols-outlined text-2xl ${(isActivatingResearch || isCancellingResearch) ? 'animate-spin' : ''}`}>
@@ -545,10 +546,10 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
             {/* 通知弹窗 - 在输入框上方居中显示 */}
             {notification && (
               <div className={`absolute bottom-full left-1/2 transform -translate-x-1/2 mb-3 px-4 py-3 rounded-lg text-sm flex items-center gap-2 shadow-2xl z-50 notification-popup ${notification.type === 'success'
-                  ? 'bg-gray-900/95 text-green-300 border-2 border-green-500/70 shadow-green-500/30'
-                  : notification.type === 'error'
-                    ? 'bg-gray-900/95 text-red-300 border-2 border-red-500/70 shadow-red-500/30'
-                    : 'bg-gray-900/95 text-blue-300 border-2 border-blue-500/70 shadow-blue-500/30'
+                ? 'bg-gray-900/95 text-green-300 border-2 border-green-500/70 shadow-green-500/30'
+                : notification.type === 'error'
+                  ? 'bg-gray-900/95 text-red-300 border-2 border-red-500/70 shadow-red-500/30'
+                  : 'bg-gray-900/95 text-blue-300 border-2 border-blue-500/70 shadow-blue-500/30'
                 }`}>
                 <span className="material-symbols-outlined text-base flex-shrink-0">
                   {notification.type === 'success' ? 'check_circle' :
@@ -615,10 +616,10 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
               onClick={handleSend}
               disabled={!message.trim() || isSending}
               className={`rounded-full disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex-shrink-0 self-end ${message.trim()
-                  ? textInserted
-                    ? 'bg-primary text-black hover:opacity-90 px-3 py-3'
-                    : 'bg-primary text-black hover:opacity-90 h-12 w-12 p-3'
-                  : 'h-12 w-12 bg-gray-700 hover:bg-gray-600 text-gray-300 p-3'
+                ? textInserted
+                  ? 'bg-primary text-black hover:opacity-90 px-3 py-3'
+                  : 'bg-primary text-black hover:opacity-90 h-12 w-12 p-3'
+                : 'h-12 w-12 bg-gray-700 hover:bg-gray-600 text-gray-300 p-3'
                 }`}
               title={textInserted ? '点击发送消息' : message.trim() ? '点击输入文字到所有模型' : '输入消息后点击发送'}
             >

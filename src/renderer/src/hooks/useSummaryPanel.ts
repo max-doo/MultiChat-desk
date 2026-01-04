@@ -104,7 +104,7 @@ export function useSummaryPanel({ selectedModels, modelResponses, restoreHistory
   // 模型参数状态 - 优先使用 apiConfig 中的配置，否则使用默认值
   const [temperature, setTemperature] = useState(apiConfig.temperature ?? 0.7)
   const [topP, setTopP] = useState(apiConfig.topP ?? 1.0)
-  const [maxTokens, setMaxTokens] = useState(apiConfig.maxTokens ?? 4000)
+  const [maxTokens, setMaxTokens] = useState(apiConfig.maxTokens ?? 8000)
   const [includeReasoning, setIncludeReasoning] = useState(apiConfig.includeReasoning ?? false)
   const [contextRounds, setContextRounds] = useState(apiConfig.contextRounds ?? 5)  // 默认保留5轮对话
   const [showSettings, setShowSettings] = useState(false)

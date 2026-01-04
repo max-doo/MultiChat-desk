@@ -354,7 +354,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   history: [],
   addHistory: (item) => set((state) => {
-    const newHistory = [item, ...state.history].slice(0, 100)
+    const newHistory = [item, ...state.history].slice(0, 1000)
     if (window.api?.storeSet) window.api.storeSet('history', newHistory)
     return { history: newHistory }
   }),
@@ -378,7 +378,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   summaryHistory: [],
   addSummaryHistory: (item) => set((state) => {
-    const newHistory = [item, ...state.summaryHistory].slice(0, 100)
+    const newHistory = [item, ...state.summaryHistory].slice(0, 1000)
     if (window.api?.storeSet) window.api.storeSet('summaryHistory', newHistory)
     return { summaryHistory: newHistory }
   }),
@@ -498,7 +498,16 @@ export const useAppStore = create<AppState>((set, get) => ({
           const u = new URL(rawUrl)
           if (u.origin !== 'https://gemini.google.com') return false
           const parts = u.pathname.split('/').filter(Boolean)
-          return parts[0] === 'app' && typeof parts[1] === 'string' && parts[1].length > 0
+          // 支持两种格式：
+          // 1. /app/对话ID（默认账号）
+          // 2. /u/N/app/对话ID（多账号）
+          if (parts[0] === 'app' && typeof parts[1] === 'string' && parts[1].length > 0) {
+            return true
+          }
+          if (parts[0] === 'u' && parts[2] === 'app' && typeof parts[3] === 'string' && parts[3].length > 0) {
+            return true
+          }
+          return false
         } catch {
           return false
         }
@@ -508,8 +517,15 @@ export const useAppStore = create<AppState>((set, get) => ({
         try {
           const u = new URL(rawUrl)
           const parts = u.pathname.split('/').filter(Boolean)
-          const conversationId = parts[1]
+          let conversationId: string | undefined
+          // 支持两种格式提取对话 ID
+          if (parts[0] === 'app') {
+            conversationId = parts[1]
+          } else if (parts[0] === 'u' && parts[2] === 'app') {
+            conversationId = parts[3]
+          }
           if (!conversationId) return ''
+          // 保存时统一使用不含账号索引的格式，加载时会使用当前账号的 URL
           return `https://gemini.google.com/app/${conversationId}`
         } catch {
           return ''

@@ -1,5 +1,6 @@
 
-import { app, BrowserWindow } from 'electron'
+
+import { app, BrowserWindow, globalShortcut } from 'electron'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { join } from 'path'
 import Store from 'electron-store'
@@ -83,6 +84,18 @@ app.whenReady().then(() => {
   // 创建主窗口
   createWindow()
 
+  // 注册刷新快捷键 (Ctrl+R / Cmd+R / F5)
+  // 在生产环境中 Ctrl+R 默认被禁用，这里手动注册
+  const refreshShortcuts = ['CommandOrControl+R', 'F5']
+  refreshShortcuts.forEach((shortcut) => {
+    globalShortcut.register(shortcut, () => {
+      const focusedWindow = BrowserWindow.getFocusedWindow()
+      if (focusedWindow) {
+        focusedWindow.webContents.reload()
+      }
+    })
+  })
+
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
@@ -90,6 +103,8 @@ app.whenReady().then(() => {
 
 // 所有窗口关闭时退出应用 (macOS 除外)
 app.on('window-all-closed', () => {
+  // 注销所有全局快捷键
+  globalShortcut.unregisterAll()
   if (process.platform !== 'darwin') {
     app.quit()
   }

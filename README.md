@@ -5,6 +5,15 @@
   <img src="https://img.shields.io/badge/React-18.2.0-61DAFB?style=flat-square&logo=react" alt="React">
   <img src="https://img.shields.io/badge/TypeScript-5.3.3-3178C6?style=flat-square&logo=typescript" alt="TypeScript">
   <img src="https://img.shields.io/badge/Tailwind_CSS-3.3.6-38B2AC?style=flat-square&logo=tailwind-css" alt="Tailwind CSS">
+  <br>
+  <!-- GitHub Release -->
+  <a href="https://github.com/max-doo/model-mash/releases">
+    <img src="https://img.shields.io/github/v/release/max-doo/model-mash?style=flat-square&color=blue" alt="GitHub release (latest by date)">
+  </a>
+  <!-- Download Count -->
+  <a href="https://github.com/max-doo/model-mash/releases">
+    <img src="https://img.shields.io/github/downloads/max-doo/model-mash/total?style=flat-square&color=success" alt="GitHub all releases download">
+  </a>
 </p>
 
 **ModelMash（模方）** 是一款强大的桌面端 AI 模型并行对话与智能总结工具。支持同时向多个主流 AI 平台发送相同问题，并通过先进的 AI Agent 生成深度分析报告。适用于模型对比、答案验证、多角度分析、学术研究、决策辅助等场景。
@@ -293,14 +302,15 @@ modelmash/
 │           │   ├── ModelOutputCard.tsx       # 模型输出卡片
 │           │   ├── CustomDropdown.tsx        # 自定义下拉选择框
 │           │   ├── ConfirmModal.tsx          # 确认弹窗
-│           │   ├── Layout.tsx                # 主布局
-│           │   └── TitleBar.tsx              # 标题栏
+│           │   ├── RenameModal.tsx           # 重命名弹窗
+│           │   └── Layout.tsx                # 主布局
 │           ├── pages/                  # 页面组件
 │           │   ├── MainPage.tsx              # 主页面（多模型对话）
 │           │   ├── SummaryPage.tsx           # 总结页面
 │           │   └── BrowserPage.tsx           # 独立浏览器窗口
 │           ├── store/                  # 状态管理
-│           │   └── appStore.ts               # Zustand 全局状态
+│           │   ├── appStore.ts               # Zustand 全局状态
+│           │   └── agent-prompts-defaults/   # 默认 Agent 提示词模板
 │           ├── hooks/                  # 自定义 Hooks
 │           │   └── useSummaryPanel.ts        # 总结面板业务逻辑
 │           ├── types/                  # TypeScript 类型定义
@@ -576,10 +586,11 @@ ModelMash 支持所有兼容 OpenAI API 格式的供应商，已测试的供应�
   - [x] Gemini Canvas 内容提取
   - [x] 右键菜单增强
 
-- [ ] **Phase 6: 性能优化与发布**
-  - [ ] Webview 内存优化
-  - [ ] 大量历史记录性能优化
-  - [ ] Windows 安装包发布
+- [x] **Phase 6: 性能优化与发布**
+  - [x] Webview 内存优化
+  - [x] 大量历史记录虚拟滚动优化
+  - [x] Windows 安装包发布（NSIS + 便携版）
+  - [x] 全局刷新快捷键支持（Ctrl+R / F5）
   - [ ] macOS 版本适配
   - [ ] Linux 版本适配
   - [ ] 自动更新机制
