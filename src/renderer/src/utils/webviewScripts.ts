@@ -1395,6 +1395,34 @@ export function generateGetLatestResponseScript(selectors: ModelSelector): strin
         if (!lastMessage) {
           return '';
         }
+
+        function findMergedContentRoot(el) {
+          try {
+            let cur = el;
+            let steps = 0;
+            while (cur && steps < 20) {
+              const id = (cur.id || '').trim();
+              if (id && /^markdown-content-[0-9]+$/i.test(id)) {
+                return cur;
+              }
+              cur = cur.parentElement;
+              steps++;
+            }
+          } catch {}
+          return null;
+        }
+
+        try {
+          const root = findMergedContentRoot(lastMessage);
+          if (root && root !== lastMessage) {
+            const rootText = ((root.innerText || root.textContent || '') + '').replace(/\\u200B/g, '').trim();
+            const lastText = ((lastMessage.innerText || lastMessage.textContent || '') + '').replace(/\\u200B/g, '').trim();
+            const childCount = root.children ? root.children.length : 0;
+            if (childCount >= 2 && rootText.length >= Math.max(50, Math.floor(lastText.length * 1.5))) {
+              lastMessage = root;
+            }
+          }
+        } catch {}
         
         // 尝试将 HTML 转换为 Markdown
         let content = htmlToMarkdown(lastMessage);
