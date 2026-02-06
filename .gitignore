@@ -35,3 +35,6 @@ Thumbs.db
 *.pem
 *.pfx
 *.key
+
+# Generated files
+build/portable.txt
