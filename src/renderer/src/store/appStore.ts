@@ -785,18 +785,162 @@ export const useAppStore = create<AppState>((set, get) => ({
     startTime: 0,
   },
 
-  startMonitoring: (_conversationId: string, _turnId: string, _userMessage: string, _models: string[]) => {
-    // TODO: implement
+  startMonitoring: (conversationId: string, turnId: string, userMessage: string, models: string[]) => {
+    const { monitor } = get()
+
+    // 如果已有轮询器在运行，先停止
+    if (monitor.intervalId) {
+      clearInterval(monitor.intervalId)
+    }
+
+    // 初始化各平台监控状态
+    const platforms: Record<string, PlatformMonitorState> = {}
+    for (const modelId of models) {
+      platforms[modelId] = {
+        lastContent: '',
+        stableCount: 0,
+        isComplete: false,
+      }
+    }
+
+    const turnMonitor: TurnMonitor = {
+      turnId,
+      userMessage,
+      platforms,
+    }
+
+    // 启动轮询
+    const intervalId = setInterval(() => {
+      get().pollPlatforms()
+    }, MONITOR_CONFIG.pollIntervalMs)
+
+    set({
+      monitor: {
+        isMonitoring: true,
+        currentConversationId: conversationId,
+        currentTurn: turnMonitor,
+        intervalId,
+        startTime: Date.now(),
+      },
+    })
   },
+
   stopMonitoring: () => {
-    // TODO: implement
+    const { monitor } = get()
+    if (monitor.intervalId) {
+      clearInterval(monitor.intervalId)
+    }
+    set({
+      monitor: {
+        isMonitoring: false,
+        currentConversationId: null,
+        currentTurn: null,
+        intervalId: null,
+        startTime: 0,
+      },
+    })
   },
+
   pollPlatforms: async () => {
-    // TODO: implement
+    const { monitor, webviewRefs, models, displayMode } = get()
+    if (!monitor.isMonitoring || !monitor.currentTurn) return
+
+    // 超时检测
+    if (Date.now() - monitor.startTime > MONITOR_CONFIG.maxMonitorDurationMs) {
+      get().saveCurrentTurn()
+      get().stopMonitoring()
+      return
+    }
+
+    const displayedModels = getDisplayedModels(models, displayMode)
+    let allComplete = true
+
+    for (const model of displayedModels) {
+      const state = monitor.currentTurn.platforms[model.id]
+      if (!state || state.isComplete) continue
+
+      const ref = webviewRefs.get(model.id)
+      if (!ref) {
+        state.isComplete = true
+        continue
+      }
+
+      try {
+        const content = await ref.getLatestResponse()
+
+        if (content !== state.lastContent) {
+          state.lastContent = content
+          state.stableCount = 0
+        } else {
+          state.stableCount++
+          if (state.stableCount >= MONITOR_CONFIG.stableThreshold) {
+            state.isComplete = true
+          }
+        }
+      } catch {
+        // 获取失败，不影响其他平台，继续轮询
+      }
+
+      if (!state.isComplete) {
+        allComplete = false
+      }
+    }
+
+    // 保存当前进度（即使未全部完成）
+    get().saveCurrentTurn()
+
+    if (allComplete) {
+      get().stopMonitoring()
+    }
   },
+
   saveCurrentTurn: () => {
-    // TODO: implement
-  }
+    const { monitor, history } = get()
+    if (!monitor.currentTurn || !monitor.currentConversationId) return
+
+    const { currentConversationId, currentTurn } = monitor
+    const historyItem = history.find(h => h.id === currentConversationId)
+    if (!historyItem) return
+
+    // 构建 responses（只包含有内容的平台）
+    const responses: Record<string, string> = {}
+    for (const [modelId, state] of Object.entries(currentTurn.platforms)) {
+      if (state.lastContent) {
+        responses[modelId] = state.lastContent
+      }
+    }
+
+    // 查找是否已有同 turn
+    const existingTurnIndex = historyItem.turns.findIndex(
+      t => t.turnId === currentTurn.turnId
+    )
+
+    const turn: ConversationTurn = {
+      turnId: currentTurn.turnId,
+      userMessage: currentTurn.userMessage,
+      timestamp: Date.now(),
+      responses,
+    }
+
+    const newTurns = existingTurnIndex >= 0
+      ? historyItem.turns.map((t, i) => (i === existingTurnIndex ? turn : t))
+      : [...historyItem.turns, turn]
+
+    const updatedItem: HistoryItem = {
+      ...historyItem,
+      turns: newTurns,
+      updatedAt: Date.now(),
+    }
+
+    const newHistory = history.map(h =>
+      h.id === currentConversationId ? updatedItem : h
+    )
+
+    set({ history: newHistory })
+    if (window.api?.storeSet) {
+      window.api.storeSet('history', newHistory)
+    }
+  },
 }))
 
 // 初始化：从本地存储加载配置
