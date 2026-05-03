@@ -700,4 +700,20 @@ export function registerIpcHandlers(
         console.log('[Main] Request to open new window:', url)
         openBrowserWindowInternal(url)
     })
+
+    // IPC 处理器：将内容写入临时 markdown 文件
+    ipcMain.handle('write-temp-markdown', async (_event, params: {
+        content: string
+        fileName?: string
+    }) => {
+        try {
+            const tempDir = await mkdtemp(join(tmpdir(), 'modelmash-uploads-'))
+            const fileName = params.fileName || `modelmash-summary-${Date.now()}.md`
+            const filePath = join(tempDir, fileName)
+            await writeFile(filePath, params.content, 'utf-8')
+            return { success: true, filePath }
+        } catch (error) {
+            return { success: false, error: String(error) }
+        }
+    })
 }
