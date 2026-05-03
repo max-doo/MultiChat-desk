@@ -125,7 +125,23 @@
 📄 QUICK_BUILD_REFERENCE.md       # 快速参考
 📄 API_CONFIG_GUIDE.md            # API 配置指南
 📄 GITHUB_GUIDE.md                # GitHub 仓库管理指南
+📄 USER_GUIDE.md                  # 用户指南
+📄 WINDOWS_COMMANDS.md            # Windows PowerShell 命令参考
 📄 DOCS_INDEX.md                  # 文档索引（本文件）
+```
+
+### 设计笔记与 DOM 选择器文档
+```
+📄 Gemini canvas dom.md           # Gemini Canvas DOM 结构
+📄 输入框dom.md                    # 输入框 DOM 选择器
+📄 输出内容dom.md                  # 输出内容 DOM 选择器
+📄 上传文件dom.md                  # 上传文件 DOM 选择器
+📄 深度研究dom.md                  # 深度研究 DOM 选择器
+📄 研究报告dom选择器.md            # 研究报告 DOM 选择器
+📄 gemin开启推理.md                # Gemini 开启推理说明
+📄 总结模块提示词架构方案.md        # 总结模块提示词架构
+📄 ModelMashPRD 3 simple.md       # 产品需求文档
+📄 清空开发服务器本地储存.md        # 清空本地存储方法
 ```
 
 ### 配置文件
