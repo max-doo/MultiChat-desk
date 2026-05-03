@@ -32,6 +32,17 @@
 - [ ] AI 生图 DOM 适配：`selectors.ts` 中各平台 `imageGeneration` 选择器基于推测，需在 `npm run dev` 中逐一打开各平台 webview 验证实际 DOM 结构并修正（chatgpt/gemini/grok/qwen/kimi/doubao/yuanbao/chatglm/yiyan）
 - [ ] arena.ai DOM 适配：在 `npm run dev` 中打开 arena webview，验证输入框/发送按钮/消息容器选择器是否匹配实际 DOM 结构并修正 (`selectors.ts`)
 - [ ] Webview 总结自适应传输：在 `npm run dev` 中手动验证短文本直接粘贴和长文本文件上传两种模式
+- [ ] Webview 总结 composer 重构待验收：`SummaryPanel.tsx` Webview 模式右栏改为 WebviewCard 全高 + 底部单行 composer + 首发后锁定。lint/build 已通过，需在 `npm run dev` 中按 spec 验收清单 13 项手动验证（spec：`docs/superpowers/specs/2026-05-04-summary-page-webview-composer-redesign.md`，plan：`docs/superpowers/plans/2026-05-04-summary-page-webview-composer-redesign.md`）：
+  - [ ] 进入总结页 Webview 模式：右栏只剩 WebviewCard + 底部单行 composer，无顶部模式行/textarea/底部状态行
+  - [ ] textarea 默认 1 行高度，输入多行向上撑高至最多 5 行（120px）后出现内部滚动
+  - [ ] Enter 发送、Shift+Enter 换行
+  - [ ] 点发送后 composer 立刻 disabled（透明度 60%）、textarea/模式 pill/发送按钮全部 disabled
+  - [ ] 流式完成后 composer 仍 disabled，placeholder 切到「已发送，请在右侧对话窗口继续追问」
+  - [ ] 在 WebView 自带输入框可正常追问
+  - [ ] 返回主页再进入总结页：composer 重新 enabled，placeholder 恢复
+  - [ ] 切到 API 模式：右栏与改动前完全一致（顶部供应商/模型工具条 + 双行 composer）
+  - [ ] 切回 Webview 模式：新布局立即出现
+  - [ ] 左栏模型输出卡片视觉无变化
 - [ ] macOS 打包：在 macOS 系统上运行 `npm run build:mac` 验证 DMG 产物
 - [ ] macOS 打包：配置 Apple Developer ID 签名与公证（Notarization），正式分发必需
 - [ ] Electron OTA 自动更新：实施计划见 `docs/superpowers/plans/2026-05-04-electron-ota.md`，设计见 `docs/superpowers/specs/2026-05-04-electron-ota-design.md`（NSIS 安装版 + GitHub Releases + Settings Drawer 内交互，便携版/macOS 优雅降级）
