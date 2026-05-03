@@ -34,3 +34,4 @@
 - [ ] Webview 总结自适应传输：在 `npm run dev` 中手动验证短文本直接粘贴和长文本文件上传两种模式
 - [ ] macOS 打包：在 macOS 系统上运行 `npm run build:mac` 验证 DMG 产物
 - [ ] macOS 打包：配置 Apple Developer ID 签名与公证（Notarization），正式分发必需
+- [ ] Electron OTA 自动更新：实施计划见 `docs/superpowers/plans/2026-05-04-electron-ota.md`，设计见 `docs/superpowers/specs/2026-05-04-electron-ota-design.md`（NSIS 安装版 + GitHub Releases + Settings Drawer 内交互，便携版/macOS 优雅降级）
