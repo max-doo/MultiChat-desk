@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle, type DragEvent } from 'react'
-import { useAppStore, DEEP_RESEARCH_UNSUPPORTED_ERROR } from '../store/appStore'
+import { useAppStore, DEEP_RESEARCH_UNSUPPORTED_ERROR, IMAGE_GENERATION_UNSUPPORTED_ERROR } from '../store/appStore'
 import logo from '../../../../assets/logo.png'
 
 interface ControlBarProps {
@@ -24,6 +24,8 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
     const [message, setMessage] = useState('')
     const [isActivatingResearch, setIsActivatingResearch] = useState(false)
     const [isCancellingResearch, setIsCancellingResearch] = useState(false)
+    const [isActivatingImageGeneration, setIsActivatingImageGeneration] = useState(false)
+    const [isCancellingImageGeneration, setIsCancellingImageGeneration] = useState(false)
     const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null)
     const [isFileDragOver, setIsFileDragOver] = useState(false)
     const dragCounterRef = useRef(0)
@@ -41,6 +43,8 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
       uploadFileToAll,
       enableDeepResearchForAll,
       disableDeepResearchForAll,
+      enableImageGenerationForAll,
+      disableImageGenerationForAll,
       isSending,
       lastSendResults,
       models,
@@ -49,6 +53,8 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
       isUploading,
       isDeepResearch,
       setDeepResearch,
+      isImageGeneration,
+      setImageGeneration,
       webviewRefs
     } = useAppStore()
 
@@ -425,6 +431,7 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
       setMessage('')
       setTextInserted(false)
       setDeepResearch(false) // 重置深度研究状态
+      setImageGeneration(false) // 重置 AI 生图状态
       setNewSession(true) // 显式标记开启新会话
       const refs = Array.from(webviewRefs.values())
       if (refs.length === 0) {
@@ -579,6 +586,86 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
               </span>
               <span className={isDeepResearch ? 'text-white' : ''}>
                 {isActivatingResearch ? '开启中...' : isCancellingResearch ? '关闭中...' : '深度研究'}
+              </span>
+            </button>
+
+            {/* AI 生图切换 */}
+            <button
+              onClick={async () => {
+                if (isImageGeneration) {
+                  setIsCancellingImageGeneration(true)
+                  showNotification('info', '正在关闭 AI 生图模式...')
+                  try {
+                    const results = await disableImageGenerationForAll()
+                    const actionableResults = results.filter(r => r.error !== IMAGE_GENERATION_UNSUPPORTED_ERROR)
+                    if (actionableResults.length === 0) {
+                      setImageGeneration(false)
+                      showNotification('info', '当前页面模型不支持 AI 生图，无需关闭')
+                      return
+                    }
+                    const successCount = results.filter(r => r.success).length
+                    if (successCount > 0) {
+                      setImageGeneration(false)
+                      showNotification('success', `已在 ${successCount} 个模型中关闭 AI 生图`)
+                    } else {
+                      setImageGeneration(false)
+                      showNotification('info', '未检测到取消按钮，已手动关闭')
+                    }
+                  } catch (error) {
+                    console.error('关闭 AI 生图失败:', error)
+                    setImageGeneration(false)
+                    showNotification('error', '关闭 AI 生图模式时发生错误')
+                  } finally {
+                    setIsCancellingImageGeneration(false)
+                  }
+                  return
+                }
+
+                setIsActivatingImageGeneration(true)
+                showNotification('info', '正在启用 AI 生图模式...')
+
+                try {
+                  const results = await enableImageGenerationForAll()
+                  const actionableResults = results.filter(r => r.error !== IMAGE_GENERATION_UNSUPPORTED_ERROR)
+                  if (actionableResults.length === 0) {
+                    setImageGeneration(false)
+                    showNotification('info', '当前页面模型不支持 AI 生图')
+                    return
+                  }
+                  const successCount = results.filter(r => r.success).length
+
+                  if (successCount > 0) {
+                    setImageGeneration(true)
+                    showNotification('success', `已在 ${successCount} 个模型中启用 AI 生图`)
+                  } else {
+                    setImageGeneration(false)
+                    showNotification('info', '未能自动开启 AI 生图，请手动操作')
+                  }
+                } catch (error) {
+                  console.error('开启 AI 生图失败:', error)
+                  showNotification('error', '开启 AI 生图模式时发生错误')
+                  setImageGeneration(false)
+                } finally {
+                  setIsActivatingImageGeneration(false)
+                }
+              }}
+              disabled={textInserted || isSending || isActivatingImageGeneration || isCancellingImageGeneration}
+              className="flex flex-col items-center justify-center gap-2 text-xs font-medium text-gray-400 hover:text-white group transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <span
+                className={`flex items-center justify-center w-10 h-10 rounded-full border transition-all duration-200 ${isImageGeneration
+                  ? 'bg-purple-500/20 text-purple-400 border-purple-500/50 shadow-[0_0_12px_rgba(168,85,247,0.5)] scale-105'
+                  : isActivatingImageGeneration
+                    ? 'bg-gray-800 border-purple-500/30 animate-pulse text-gray-300'
+                    : 'bg-gray-800 border-transparent group-hover:bg-purple-500/20 group-hover:text-purple-400 group-hover:border-purple-500/50'
+                  }`}
+              >
+                <span className={`material-symbols-outlined text-2xl ${(isActivatingImageGeneration || isCancellingImageGeneration) ? 'animate-spin' : ''}`}>
+                  {(isActivatingImageGeneration || isCancellingImageGeneration) ? 'sync' : 'image'}
+                </span>
+              </span>
+              <span className={isImageGeneration ? 'text-white' : ''}>
+                {isActivatingImageGeneration ? '开启中...' : isCancellingImageGeneration ? '关闭中...' : 'AI 生图'}
               </span>
             </button>
           </div>

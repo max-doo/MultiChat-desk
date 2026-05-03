@@ -35,3 +35,19 @@
 - [ ] macOS 打包：在 macOS 系统上运行 `npm run build:mac` 验证 DMG 产物
 - [ ] macOS 打包：配置 Apple Developer ID 签名与公证（Notarization），正式分发必需
 - [ ] Electron OTA 自动更新：实施计划见 `docs/superpowers/plans/2026-05-04-electron-ota.md`，设计见 `docs/superpowers/specs/2026-05-04-electron-ota-design.md`（NSIS 安装版 + GitHub Releases + Settings Drawer 内交互，便携版/macOS 优雅降级）
+- [ ] 启动 Webview 空白问题（需 Ctrl+R 才能加载）：评估报告见 `docs/superpowers/specs/2026-05-04-webview-blank-on-startup-analysis.md`
+  - [ ] 诊断 #D1：DevTools 观察启动是否触发 `初始化超时,强制完成` 警告 + `did-attach-webview` 输出次数（确认根因 H1/H5）
+  - [ ] 诊断 #D2：临时禁用 `<React.StrictMode>` (`src/renderer/src/main.tsx:6-9`) 看复现率变化（确认根因 H4 是否为放大因素）
+  - [ ] 修复 #F1（P0）：去掉 `App.tsx:64-72` 的 3 秒强制 `setIsInitialized(true)` fallback，改为 init 异常时走错误页
+  - [ ] 修复 #F2（P0）：`appStore.ts:1158-1168` 合并 `geminiAccountUrl` 与 `storedModels` 的 `setState`，避免 Gemini URL 二次更新
+  - [ ] 修复 #F3（P1）：`WebviewCard.tsx:777-785` 改用 `loadURL()` 主动导航替代 `<webview src={...}>`，规避 Electron `<webview>` `src` prop 中途变化的不可靠行为；需回归 11 个平台挂载 / `swapModelInSlot` / `resetToInitial` / 历史记录恢复 4 条路径
+
+- [ ] 总结页面 Webview 模式下的的总结对话保存还存在以下问题。正确的链路是：主页面对话结束 -> 点击总结按钮 -> 爬取模型输出结果-> 点击总结 -> 监控webview窗口中的输出（类似于主界面）-> 保存爬取到的结果+对话url，不同的总结session之间保持数据的隔离
+    - bug：在webview模式下总结历史记录没有记录对话的url，直记录了爬取到的内容
+    - bug：总结对话后再返回主界面开启新的对话，不能成功爬取回答内容，总结页面显示的模型回答结果还是上次的。
+
+- [ ] 项目新增需求：
+    - 用快捷键直接召唤出一个小弹窗，然后这个小弹窗就是一个webview窗口，直接复用现在主界面中的窗口组件，方便用户直接在桌面快捷地使用各种原生的AI网页应用
+    - 开发一个光标选中之后悬浮的toolbar功能，类似于桌面板的豆包，上面有总结、润色、翻译等快捷操作，点击后打开弹窗，自动将选中的文字注入到webview窗口的输入框当中，拼接提示词之后，自动发送，执行这些操作。同时，这个工具栏中也有一个快捷键能够直接召唤出弹窗
+    - 在关闭主页面之后常驻系统托盘，点击托盘可以打开主页面
+    

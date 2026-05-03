@@ -422,9 +422,9 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
           // 记录当前激活的历史记录 ID
           setActiveHistoryId(item.id)
 
-          // 1. 设置输入框内容
+          // 1. 清空输入框（历史消息已存在于 turns 中，恢复后直接续写）
           if (controlBarRef.current) {
-            controlBarRef.current.setMessage(item.message)
+            controlBarRef.current.setMessage('')
           }
 
           // 2. 检查并切换模型到当前视图

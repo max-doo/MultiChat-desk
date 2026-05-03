@@ -341,19 +341,19 @@ function buildContentEditableInputScript(messageText: string): string {
 }
 
 /**
- * 生成处理 textarea/input 元素的脚本片段（豆包和千问特殊处理）
+ * 生成处理 textarea/input 元素的脚本片段
  */
 function buildTextareaInputScript(messageText: string, modelId: string): string {
   return `
     else if (textarea.tagName === 'TEXTAREA' || textarea.tagName === 'INPUT') {
       // 对于 textarea/input 元素
       textarea.focus();
-      
+
       // 针对豆包和千问：模拟完整的用户输入流程，兼容 React/Semi/Ant Design 受控组件
       if (${JSON.stringify(modelId)} === 'doubao' || ${JSON.stringify(modelId)} === 'qwen') {
         // 选中所有现有内容
         textarea.select();
-        
+
         // 1. 先触发 beforeinput 事件
         const beforeInputEvent = new InputEvent('beforeinput', {
           bubbles: true,
@@ -362,18 +362,18 @@ function buildTextareaInputScript(messageText: string, modelId: string): string 
           inputType: 'insertText'
         });
         textarea.dispatchEvent(beforeInputEvent);
-        
+
         // 2. 使用原生 setter 设置值
         const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
           window.HTMLTextAreaElement.prototype, 'value'
         )?.set;
-        
+
         if (nativeInputValueSetter) {
           nativeInputValueSetter.call(textarea, ${JSON.stringify(messageText)});
         } else {
           textarea.value = ${JSON.stringify(messageText)};
         }
-        
+
         // 3. 触发 input 事件（React 监听这个）
         const inputEvent = new InputEvent('input', {
           bubbles: true,
@@ -382,16 +382,16 @@ function buildTextareaInputScript(messageText: string, modelId: string): string 
           inputType: 'insertText'
         });
         textarea.dispatchEvent(inputEvent);
-        
+
         // 4. 触发 change 事件
         textarea.dispatchEvent(new Event('change', { bubbles: true }));
-        
+
         // 5. 模拟输入法结束（Semi UI 可能监听这个）
         textarea.dispatchEvent(new CompositionEvent('compositionend', {
           bubbles: true,
           data: ${JSON.stringify(messageText)}
         }));
-        
+
         // 6. 触发 blur 再 focus，强制 React 更新
         textarea.blur();
         await new Promise(resolve => setTimeout(resolve, 50));
@@ -922,7 +922,21 @@ export function generateSendMessageScript(
             textarea.dispatchEvent(new Event('change', { bubbles: true }));
           }
         }
-        
+
+        // 对 textarea/input 强制同步受控组件框架状态
+        // insertTextToAll 使用的简单 value= 赋值只能写入 DOM，无法触发 React/Vue
+        // 的受控状态更新。此处补发一个 InputEvent，让框架读取 event.target.value
+        // 并同步内部状态，确保发送按钮可用。
+        if (textarea.tagName === 'TEXTAREA' || textarea.tagName === 'INPUT') {
+          textarea.dispatchEvent(new InputEvent('input', {
+            bubbles: true,
+            cancelable: false,
+            data: messageText,
+            inputType: 'insertText'
+          }));
+          textarea.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+
         const postInputDelay = (currentModelId === 'doubao' || currentModelId === 'qwen') ? 350 : 80;
         await new Promise(resolve => setTimeout(resolve, postInputDelay));
         
@@ -1106,6 +1120,86 @@ export function generateDisableDeepResearchScript(config: any): string {
           return { success: true };
         }
         
+        return { success: false, error: '无效的取消配置' };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    })();
+  `
+}
+
+/**
+ * 生成启用 AI 生图功能的注入脚本
+ * @param config Image Generation 配置
+ */
+export function generateEnableImageGenerationScript(config: any): string {
+  const helpers = buildDeepResearchHelperFunctions()
+  const steps = buildDeepResearchStepsScript(config.steps || [])
+
+  return `
+    (async function() {
+      try {
+        const config = ${JSON.stringify(config)};
+
+        ${helpers}
+        ${steps}
+
+        return { success: false, error: '无效的生图配置' };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    })();
+  `
+}
+
+/**
+ * 生成禁用 AI 生图功能的注入脚本
+ * @param config Image Generation 配置
+ */
+export function generateDisableImageGenerationScript(config: any): string {
+  const helpers = buildDeepResearchHelperFunctions()
+
+  return `
+    (async function() {
+      try {
+        const config = ${JSON.stringify(config)};
+
+        ${helpers}
+
+        if (config.cancelSteps && config.cancelSteps.length > 0) {
+          let didSuccessStep = false;
+          for (const step of config.cancelSteps) {
+            let element = null;
+            let attempts = 0;
+            const maxAttempts = 10;
+            while (!element && attempts < maxAttempts) {
+              element = findElement(step.selector, step.text, step && step.exact === true);
+              if (!element) {
+                await new Promise(r => setTimeout(r, 200));
+                attempts++;
+              }
+            }
+            if (!element) {
+              if (step && step.optional) {
+                continue;
+              }
+              return { success: false, error: '步骤执行失败: 未找到元素 ' + step.selector };
+            }
+            element.scrollIntoView({ block: 'center', inline: 'center' });
+            element.focus();
+            simulateClick(element);
+            if (!step || step.countsAsSuccess !== false) {
+              didSuccessStep = true;
+            }
+            const delay = step.delay || 500;
+            await new Promise(r => setTimeout(r, delay));
+          }
+          if (!didSuccessStep) {
+            return { success: false, error: '未完成目标操作' };
+          }
+          return { success: true };
+        }
+
         return { success: false, error: '无效的取消配置' };
       } catch (error) {
         return { success: false, error: error.message };

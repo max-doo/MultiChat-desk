@@ -10,6 +10,8 @@ import {
   generateClearInputScript,
   generateEnableDeepResearchScript,
   generateDisableDeepResearchScript,
+  generateEnableImageGenerationScript,
+  generateDisableImageGenerationScript,
   generateGetLatestResponseScript,
   type FileUploadData
 } from '../utils/webviewScripts'
@@ -48,6 +50,8 @@ export interface WebviewCardRef {
   uploadFile: (fileData: FileUploadData) => Promise<{ success: boolean; error?: string }>
   enableDeepResearch: () => Promise<{ success: boolean; error?: string }>
   disableDeepResearch: () => Promise<{ success: boolean; error?: string }>
+  enableImageGeneration: () => Promise<{ success: boolean; error?: string }>
+  disableImageGeneration: () => Promise<{ success: boolean; error?: string }>
   getLatestResponse: () => Promise<string>
   reload: () => void
   resetToInitial: () => Promise<{ success: boolean; error?: string }>
@@ -393,6 +397,50 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
 
         try {
           const code = generateDisableDeepResearchScript(selectors.researchMode)
+          const result = await webview.executeJavaScript(code)
+          return { success: result.success, error: result.error }
+        } catch (error) {
+          return { success: false, error: String(error) }
+        }
+      },
+
+      /**
+       * 启用 AI 生图功能
+       */
+      enableImageGeneration: async (): Promise<{ success: boolean; error?: string }> => {
+        const webview = webviewRef.current
+        if (!webview || !isReady || !selectors) {
+          return { success: false, error: 'Webview 未就绪' }
+        }
+
+        if (!selectors.imageGeneration?.steps) {
+          return { success: false, error: '此模型不支持 AI 生图' }
+        }
+
+        try {
+          const code = generateEnableImageGenerationScript(selectors.imageGeneration)
+          const result = await webview.executeJavaScript(code)
+          return { success: result.success, error: result.error }
+        } catch (error) {
+          return { success: false, error: String(error) }
+        }
+      },
+
+      /**
+       * 禁用 AI 生图功能
+       */
+      disableImageGeneration: async (): Promise<{ success: boolean; error?: string }> => {
+        const webview = webviewRef.current
+        if (!webview || !isReady || !selectors) {
+          return { success: false, error: 'Webview 未就绪' }
+        }
+
+        if (!selectors.imageGeneration?.cancelSteps) {
+          return { success: false, error: '此模型不支持取消 AI 生图' }
+        }
+
+        try {
+          const code = generateDisableImageGenerationScript(selectors.imageGeneration)
           const result = await webview.executeJavaScript(code)
           return { success: result.success, error: result.error }
         } catch (error) {
