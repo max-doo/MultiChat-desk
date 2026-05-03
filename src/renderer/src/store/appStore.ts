@@ -230,6 +230,12 @@ interface AppState {
   enableDeepResearchForAll: () => Promise<SendResult[]>
   disableDeepResearchForAll: () => Promise<SendResult[]>
 
+  // AI 生图模式
+  isImageGeneration: boolean
+  setImageGeneration: (enabled: boolean) => void
+  enableImageGenerationForAll: () => Promise<SendResult[]>
+  disableImageGenerationForAll: () => Promise<SendResult[]>
+
   // 会话状态
   isNewSession: boolean
   setNewSession: (isNew: boolean) => void
@@ -266,6 +272,20 @@ export const DEEP_RESEARCH_SUPPORTED_MODEL_IDS = new Set([
 
 export const DEEP_RESEARCH_UNSUPPORTED_ERROR = '此模型不支持深度研究'
 
+export const IMAGE_GENERATION_SUPPORTED_MODEL_IDS = new Set([
+  'gemini',
+  'grok',
+  'chatgpt',
+  'qwen',
+  'kimi',
+  'doubao',
+  'yuanbao',
+  'chatglm',
+  'yiyan'
+])
+
+export const IMAGE_GENERATION_UNSUPPORTED_ERROR = '此模型不支持 AI 生图'
+
 // 默认模型配置
 const defaultModels: ModelConfig[] = [
   { id: 'gemini', name: 'Gemini', url: 'https://gemini.google.com/app', logo: 'https://www.gstatic.com/lamda/images/gemini_favicon_f069958c85030456e93de685481c559f160ea06b.png', enabled: true },
@@ -278,7 +298,8 @@ const defaultModels: ModelConfig[] = [
   { id: 'chatglm', name: '智谱清言', url: 'https://chatglm.cn/main/alltoolsdetail?lang=zh', logo: 'https://chatglm.cn/favicon.ico', enabled: false },
   { id: 'yuanbao', name: '元宝', url: 'https://yuanbao.tencent.com/chat', logo: 'https://cdn-bot.hunyuan.tencent.com/logo.png', enabled: false },
   { id: 'kimi', name: 'Kimi', url: 'https://kimi.moonshot.cn', logo: 'https://statics.moonshot.cn/kimi-chat/favicon.ico', enabled: false },
-  { id: 'yiyan', name: '文心一言', url: 'https://yiyan.baidu.com/', logo: 'https://eb-static.cdn.bcebos.com/logo/favicon.ico', enabled: false }
+  { id: 'yiyan', name: '文心一言', url: 'https://yiyan.baidu.com/', logo: 'https://eb-static.cdn.bcebos.com/logo/favicon.ico', enabled: false },
+  { id: 'arena', name: 'Arena', url: 'https://arena.ai/', logo: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABwAAAAcCAAAAABXZoBIAAAAp0lEQVR4AdWSLwjEIBSH7Xm9l/WyaGdlzWIXLphWbOvtFatRLiy/ZjILdjAJ9uod3LG5O1gc7OO1j/eHH4/UE24oM+HsACd572TosMEha8YW7L3b8D2WdudK5WND0rU9KKgIGr5oiCo2EsKAquSU31UUDgEOnRaNpHWaKpUGrQrtTjt2SVi/LN6I1I3PnxBMFOYjo/lLSO9SXyUhcO3m2Wke4K4/dMIL1Ne5UmnGphQAAAAASUVORK5CYII=', enabled: false }
 ]
 
 export const DEFAULT_MODEL_ORDER = defaultModels.map(m => m.id)
@@ -780,6 +801,53 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (!webviewRef) return { modelId: model.id, success: false, error: 'Webview 未注册' }
       try {
         const result = await webviewRef.disableDeepResearch()
+        return { modelId: model.id, success: result.success, error: result.error }
+      } catch (error) {
+        return { modelId: model.id, success: false, error: String(error) }
+      }
+    })
+    const disableResults = await Promise.all(disablePromises)
+    results.push(...disableResults)
+    return results
+  },
+
+  isImageGeneration: false,
+  setImageGeneration: (enabled: boolean) => set({ isImageGeneration: enabled }),
+
+  enableImageGenerationForAll: async (): Promise<SendResult[]> => {
+    const { models, webviewRefs, displayMode } = get()
+    const displayedModels = getDisplayedModels(models, displayMode)
+    const results: SendResult[] = []
+    const enablePromises = displayedModels.map(async (model) => {
+      if (!IMAGE_GENERATION_SUPPORTED_MODEL_IDS.has(model.id)) {
+        return { modelId: model.id, success: false, error: IMAGE_GENERATION_UNSUPPORTED_ERROR }
+      }
+      const webviewRef = webviewRefs.get(model.id)
+      if (!webviewRef) return { modelId: model.id, success: false, error: 'Webview 未注册' }
+      try {
+        const result = await webviewRef.enableImageGeneration()
+        return { modelId: model.id, success: result.success, error: result.error }
+      } catch (error) {
+        return { modelId: model.id, success: false, error: String(error) }
+      }
+    })
+    const enableResults = await Promise.all(enablePromises)
+    results.push(...enableResults)
+    return results
+  },
+
+  disableImageGenerationForAll: async (): Promise<SendResult[]> => {
+    const { models, webviewRefs, displayMode } = get()
+    const displayedModels = getDisplayedModels(models, displayMode)
+    const results: SendResult[] = []
+    const disablePromises = displayedModels.map(async (model) => {
+      if (!IMAGE_GENERATION_SUPPORTED_MODEL_IDS.has(model.id)) {
+        return { modelId: model.id, success: false, error: IMAGE_GENERATION_UNSUPPORTED_ERROR }
+      }
+      const webviewRef = webviewRefs.get(model.id)
+      if (!webviewRef) return { modelId: model.id, success: false, error: 'Webview 未注册' }
+      try {
+        const result = await webviewRef.disableImageGeneration()
         return { modelId: model.id, success: result.success, error: result.error }
       } catch (error) {
         return { modelId: model.id, success: false, error: String(error) }
