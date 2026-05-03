@@ -91,6 +91,8 @@ export interface SummaryHistoryItem {
   }>
   selectedModels: string[] // 参与总结的模型 ID 列表
   modelResponses?: Record<string, string> // 各模型的原始回复
+  summarySource?: 'api' | 'webview' // 总结来源：api 或 webview
+  webviewPlatformId?: string // webview 模式时对应的平台 ID
 }
 
 // 发送结果类型
