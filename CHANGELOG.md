@@ -5,6 +5,9 @@
 ## 2026-05-04
 
 - 00:10 | feat: src/renderer/src/store/appStore.ts, src/renderer/src/config/selectors.ts - 将 arena.ai 接入 Webview 平台列表：添加模型配置（id: arena, logo: base64 PNG, 默认不启用）和 DOM 选择器配置，更新选择器版本至 11
+- 00:25 | fix: src/renderer/src/utils/webviewScripts.ts:924 - 修复 textarea 平台（Grok 等）多行文字发送失败：React/Vue 受控组件在 insertText 阶段只收到普通 Event('input')，内部状态未同步，导致发送时框架认为输入框为空。第一次尝试将完整事件模拟（native setter + blur/focus）推广到所有平台，引入 regression 导致完全无法注入文字；回滚后改为仅在 generateSendMessageScript 发送阶段对 textarea/input 补发 InputEvent('input') 强制状态同步，不改动 insertText 流程
+- 02:30 | docs: docs/superpowers/specs/2026-05-04-webview-blank-on-startup-analysis.md, TODO.md - 输出"启动时 Webview 空白需 Ctrl+R 修复"问题评估报告：定位根因为 `App.tsx` 3 秒强制初始化 fallback + `appStore.ts` Gemini URL 二次 setState 引发的 `<webview>` `src` prop 中途变化（H1/H2 主因，H3/H4/H5 放大因素），给出 P0/P1 修复方案与诊断步骤；TODO 拆为 D1/D2 诊断与 F1/F2/F3 修复任务
+- 00:57 | feat: src/renderer/src/components/SummaryPanel.tsx - Webview 总结模式右栏重构为 WebviewCard 全高 + 底部单行 composer（模式 pill + 自动增长输入框 + 发送按钮，max 5 行 120px）；首次发送后 composer 永久锁定（phase=error/aborted 时自动解锁允许重试），追问改由 WebView 自带输入框承担；移除"已选 N 个模型"/"正在上传文件"/"正在发送"/"正在生成回复"四段冗余状态文字；API 模式与左栏不变
 
 ## 2026-05-03
 
