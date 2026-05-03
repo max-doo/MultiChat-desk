@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo, useCallback } from 'react'
+import { useState, useRef, useMemo, useCallback, useEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { Components } from 'react-markdown'
@@ -53,7 +53,6 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
     setMessages,
     streamingContent,
     streamingReasoningContent,
-    persistSummaryHistory,
     hasStartedChat,
     isReasoningExpanded,
     setIsReasoningExpanded,
@@ -103,15 +102,18 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
     cancelEditingRegenerate
   } = useSummaryPanel({ selectedModels, modelResponses, restoreHistoryData })
 
-  const { apiConfig, models, setApiConfig } = useAppStore()
+  const { apiConfig, models, setApiConfig, addSummaryHistory, updateSummaryHistory } = useAppStore()
 
   // 从 store 读取当前模式，缺省 'webview'
   const summarySource: 'api' | 'webview' = apiConfig.summarySource ?? 'webview'
   const firstEnabledModel = models.find(m => m.enabled)
   const lastWebviewPlatform = apiConfig.lastWebviewSummaryPlatform ?? firstEnabledModel?.id ?? 'chatgpt'
   const [webviewPlatformId, setWebviewPlatformId] = useState<string>(lastWebviewPlatform)
+  // Webview composer 锁定标记：首次发送后置 true，组件卸载或 phase 进入 error/aborted 时归零
+  const [summaryFired, setSummaryFired] = useState(false)
 
   const webviewSummaryRef = useRef<WebviewCardRef>(null)
+  const webviewHistoryIdRef = useRef<string | null>(null)
 
   const webviewPlatformInfo = useMemo(() => {
     const m = models.find(x => x.id === webviewPlatformId)
@@ -129,7 +131,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
   }
 
   const buildWebviewPrompt = useCallback(() => {
-    const agentTemplate = (apiConfig.agentPrompts || []).find(a => a.id === selectedAgent)
+    const agentTemplate = (apiConfig.agentPrompts || []).find(a => a.id === summaryMode)
     const systemPrompt = agentTemplate?.prompt || apiConfig.systemPrompt || ''
     const contextBlock = selectedModels
       .map(id => {
@@ -151,28 +153,90 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
       '[用户要求]',
       requirement
     ].join('\n')
-  }, [selectedAgent, apiConfig.agentPrompts, apiConfig.systemPrompt, selectedModels, models, modelResponses, customPrompt])
+  }, [summaryMode, apiConfig.agentPrompts, apiConfig.systemPrompt, selectedModels, models, modelResponses, customPrompt])
 
   const handleWebviewAssistantMessage = useCallback((msg: ChatMessage) => {
-    const userMsg: ChatMessage = {
-      id: `webview-user-${Date.now()}`,
-      role: 'user',
-      content: customPrompt || '请生成标准总结报告。',
-      timestamp: Date.now() - 1
-    }
-    const next = [userMsg, msg]
-    setMessages(prev => [...prev, ...next])
-    persistSummaryHistory([...messages, ...next], {
-      summarySource: 'webview',
-      webviewPlatformId
+    setMessages(prev => {
+      const updated = [...prev, msg]
+      const historyId = webviewHistoryIdRef.current
+      if (historyId) {
+        updateSummaryHistory(historyId, {
+          messages: updated.map(m => ({
+            id: m.id,
+            role: m.role,
+            content: m.content,
+            reasoningContent: m.reasoningContent,
+            timestamp: m.timestamp,
+            modeName: m.modeName,
+            versions: m.versions,
+            currentVersionIndex: m.currentVersionIndex
+          }))
+        })
+      }
+      return updated
     })
-  }, [customPrompt, messages, setMessages, persistSummaryHistory, webviewPlatformId])
+  }, [setMessages, updateSummaryHistory])
 
   const webviewSummary = useWebviewSummary({
     webviewRef: webviewSummaryRef,
     buildPrompt: buildWebviewPrompt,
     onAssistantMessage: handleWebviewAssistantMessage
   })
+
+  // phase 进入 error / aborted 时解锁 composer，允许重试；'done' 不解锁，引导用户去 WebView 自带输入框追问
+  useEffect(() => {
+    if (webviewSummary.phase === 'error' || webviewSummary.phase === 'aborted') {
+      setSummaryFired(false)
+    }
+  }, [webviewSummary.phase])
+
+  const handleWebviewSend = useCallback(() => {
+    if (selectedModels.length === 0) return
+
+    const agentTemplate = agentPrompts.find(a => a.id === summaryMode)
+    const modeName = agentTemplate?.name || '总结'
+    const modelNames = selectedModels
+      .map(id => models.find(m => m.id === id)?.name || id)
+      .join('、')
+    const requirement = customPrompt?.trim() || ''
+
+    const userContent = requirement
+      ? `${requirement}，采用【${modeName}】模式，根据${modelNames}的回答生成报告。`
+      : `采用${modeName}模式，根据${modelNames}的回答生成报告。`
+
+    const userMessage: ChatMessage = {
+      id: `webview-user-${Date.now()}`,
+      role: 'user',
+      content: userContent,
+      timestamp: Date.now(),
+      modeName
+    }
+
+    setMessages(prev => [...prev, userMessage])
+
+    const historyId = Date.now().toString()
+    webviewHistoryIdRef.current = historyId
+
+    addSummaryHistory({
+      id: historyId,
+      title: userContent.length > 15 ? userContent.substring(0, 15) + '...' : userContent,
+      timestamp: Date.now(),
+      messages: [{
+        id: userMessage.id,
+        role: userMessage.role,
+        content: userMessage.content,
+        timestamp: userMessage.timestamp,
+        modeName: userMessage.modeName
+      }],
+      selectedModels: [...selectedModels],
+      modelResponses: { ...modelResponses },
+      summarySource: 'webview',
+      webviewPlatformId
+    })
+
+    webviewSummary.startSummary()
+    setSummaryFired(true)
+  }, [summaryMode, agentPrompts, selectedModels, models, customPrompt, setMessages, addSummaryHistory, webviewPlatformId, webviewSummary, modelResponses, setSummaryFired])
 
   // 获取收藏的模型ID列表
   const favoriteModelIds = apiConfig.favoriteModelIds || []
@@ -952,7 +1016,45 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
 
       {summarySource === 'webview' && (
         <div className="flex-1 flex flex-col overflow-hidden gap-3 min-h-0">
-          {/* WebviewCard —— 完整版（含 header：平台选择器 + 刷新 + 状态） */}
+          {/* 模式选择器和用户指令 */}
+          <div className="shrink-0 flex flex-col gap-2">
+            <CustomDropdown
+              options={agentPrompts.map(p => ({ value: p.id, label: p.name, description: p.description }))}
+              value={summaryMode}
+              onChange={setSummaryMode}
+              placeholder="总结模式"
+              dropdownWidth="min-w-max"
+              className="min-w-max"
+              buttonClassName={`px-3 py-1.5 rounded-full text-sm flex items-center justify-between gap-2 transition-colors min-w-max ${summaryMode && agentPrompts.find(p => p.id === summaryMode)
+                ? 'bg-primary/10 border border-primary/50 text-primary hover:border-primary'
+                : 'bg-gray-700/50 border border-gray-600 text-gray-300 hover:border-gray-500'
+                }`}
+              renderOption={(option, isSelected, onSelect) => (
+                <button
+                  onClick={onSelect}
+                  className={`block w-full px-4 py-2 text-left text-sm transition-colors hover:bg-gray-700 ${isSelected ? 'text-primary bg-primary/5' : 'text-gray-300'
+                    }`}
+                >
+                  <div className="flex flex-col items-start">
+                    <div className="whitespace-nowrap">{option.label}</div>
+                    {option.description && (
+                      <div className={`text-[11px] ${isSelected ? 'text-primary/70' : 'text-gray-500'}`}>
+                        {option.description}
+                      </div>
+                    )}
+                  </div>
+                </button>
+              )}
+            />
+            <textarea
+              value={customPrompt}
+              onChange={(e) => setCustomPrompt(e.target.value)}
+              placeholder="输入额外的分析要求（可选）"
+              className="w-full h-16 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-300 placeholder-gray-500 focus:outline-none focus:border-primary/50 resize-none text-sm"
+            />
+          </div>
+
+          {/* WebviewCard */}
           <div className="flex-1 min-h-0">
             <WebviewCard
               ref={webviewSummaryRef}
@@ -969,26 +1071,15 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
 
           {/* 操作栏 */}
           <div className="shrink-0 flex items-center gap-2">
-            {!webviewSummary.isGenerating ? (
-              <button
-                type="button"
-                onClick={() => webviewSummary.startSummary()}
-                disabled={selectedModels.length === 0}
-                className="px-4 py-2 rounded bg-primary hover:bg-primary/90 text-black text-sm font-medium disabled:opacity-50"
-              >
-                开始 Webview 总结
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => webviewSummary.abortSummary()}
-                className="px-4 py-2 rounded bg-red-600 hover:bg-red-700 text-white text-sm font-medium"
-              >
-                停止
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={handleWebviewSend}
+              disabled={webviewSummary.isGenerating || selectedModels.length === 0}
+              className="px-4 py-2 rounded bg-primary hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed text-black text-sm font-medium"
+            >
+              {webviewSummary.isGenerating ? '已发送' : '开始 Webview 总结'}
+            </button>
             <span className="text-xs text-gray-500">{`已选 ${selectedModels.length} 个模型`}</span>
-            {/* 传输策略提示 */}
             {webviewSummary.phase === 'uploading-file' && (
               <span className="text-xs text-primary flex items-center gap-1">
                 <span className="material-symbols-outlined text-sm">upload_file</span>
