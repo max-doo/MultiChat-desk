@@ -334,6 +334,48 @@ export const defaultSummaryModels: SummaryModel[] = []
 // 默认供应商
 const defaultProviders: ApiProvider[] = []
 
+/**
+ * 归一化 URL：只保留 origin + pathname，忽略 query 参数
+ */
+function normalizeUrl(url: string): string {
+  if (!url || url === 'about:blank') return ''
+  try {
+    const u = new URL(url)
+    return `${u.origin}${u.pathname}`
+  } catch {
+    return url
+  }
+}
+
+/**
+ * 判定是否应该开始新对话
+ * @param currentUrls 当前各平台 URL
+ * @param previousUrls 上次保存的 URL
+ * @param isNewSession 是否显式标记为新会话
+ */
+function shouldStartNewConversation(
+  currentUrls: Record<string, string>,
+  previousUrls: Record<string, string> | undefined,
+  isNewSession: boolean
+): boolean {
+  if (isNewSession) return true
+  if (!previousUrls || Object.keys(previousUrls).length === 0) return true
+
+  const currentKeys = Object.keys(currentUrls)
+  const previousKeys = Object.keys(previousUrls)
+
+  if (currentKeys.length !== previousKeys.length) return true
+  if (!currentKeys.every(k => previousKeys.includes(k))) return true
+
+  for (const modelId of currentKeys) {
+    const curr = normalizeUrl(currentUrls[modelId])
+    const prev = normalizeUrl(previousUrls[modelId])
+    if (curr && prev && curr !== prev) return true
+  }
+
+  return false
+}
+
 // 创建状态存储
 export const useAppStore = create<AppState>((set, get) => ({
   displayMode: 'three',
