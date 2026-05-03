@@ -122,6 +122,13 @@ const api = {
   }): Promise<{ success: boolean; filePath?: string; error?: string }> =>
     ipcRenderer.invoke('export-report', params),
 
+  // 写入临时 markdown 文件
+  writeTempMarkdown: (params: {
+    content: string
+    fileName?: string
+  }): Promise<{ success: boolean; filePath?: string; error?: string }> =>
+    ipcRenderer.invoke('write-temp-markdown', params),
+
   // 打开新浏览器窗口
   openBrowserWindow: (url: string): Promise<void> => ipcRenderer.invoke('open-browser-window', url),
 

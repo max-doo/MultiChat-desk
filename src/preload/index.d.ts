@@ -77,6 +77,10 @@ declare global {
       }) => Promise<{ success: boolean; filePath?: string; error?: string }>
       openBrowserWindow: (url: string) => Promise<void>
       saveImageFromURL: (url: string) => Promise<{ success: boolean; filePath?: string; error?: string }>
+      writeTempMarkdown: (params: {
+        content: string
+        fileName?: string
+      }) => Promise<{ success: boolean; filePath?: string; error?: string }>
       onGeminiAccountSwitched: (callback: (url: string) => void) => () => void
     }
   }
