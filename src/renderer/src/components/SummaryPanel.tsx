@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { Components } from 'react-markdown'
@@ -92,7 +93,21 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
     handleConfirmExport
   } = useSummaryPanel({ selectedModels, modelResponses, restoreHistoryData })
 
-  const { apiConfig } = useAppStore()
+  const { apiConfig, models, setApiConfig } = useAppStore()
+
+  // 从 store 读取当前模式，缺省 'api'
+  const summarySource: 'api' | 'webview' = apiConfig.summarySource ?? 'api'
+  const firstEnabledModel = models.find(m => m.enabled)
+  const lastWebviewPlatform = apiConfig.lastWebviewSummaryPlatform ?? firstEnabledModel?.id ?? 'chatgpt'
+  const [webviewPlatformId, setWebviewPlatformId] = useState<string>(lastWebviewPlatform)
+
+  const setSummarySource = (next: 'api' | 'webview') => {
+    setApiConfig({ ...apiConfig, summarySource: next })
+  }
+  const setLastWebviewPlatform = (id: string) => {
+    setWebviewPlatformId(id)
+    setApiConfig({ ...apiConfig, lastWebviewSummaryPlatform: id })
+  }
 
   // 获取收藏的模型ID列表
   const favoriteModelIds = apiConfig.favoriteModelIds || []
@@ -185,7 +200,30 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
         </div>
       )}
 
-      {/* 头部：供应商和模型选择 */}
+      {/* 模式开关：API / Webview */}
+      <div className="flex items-center gap-1 mb-3 shrink-0 bg-gray-800 border border-gray-700 rounded-md p-1 w-fit">
+        <button
+          type="button"
+          onClick={() => setSummarySource('api')}
+          className={`px-3 py-1 text-xs rounded transition-colors ${
+            summarySource === 'api' ? 'bg-primary text-white' : 'text-gray-400 hover:text-white'
+          }`}
+        >
+          API
+        </button>
+        <button
+          type="button"
+          onClick={() => setSummarySource('webview')}
+          className={`px-3 py-1 text-xs rounded transition-colors ${
+            summarySource === 'webview' ? 'bg-primary text-white' : 'text-gray-400 hover:text-white'
+          }`}
+        >
+          Webview
+        </button>
+      </div>
+
+      {/* 头部：供应商和模型选择 — API 模式 */}
+      {summarySource === 'api' && (
       <div className="flex items-center gap-2 relative shrink-0 mb-4">
         {/* 供应商选择 */}
         <CustomDropdown
@@ -525,6 +563,38 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
           )}
         </div>
       </div>
+      )}
+
+      {/* 头部：平台选择 — Webview 模式 */}
+      {summarySource === 'webview' && (
+        <div className="flex items-center gap-2 relative shrink-0 mb-4">
+          <CustomDropdown
+            value={webviewPlatformId}
+            onChange={(id) => setLastWebviewPlatform(id)}
+            placeholder="选择平台"
+            className="min-w-[120px]"
+            dropdownWidth="min-w-[200px]"
+            buttonClassName="w-full px-3 py-1.5 rounded-md text-sm flex items-center justify-between gap-2 bg-primary/10 border border-primary/50 text-primary hover:border-primary"
+            displayText={models.find(m => m.id === webviewPlatformId)?.name || '选择平台'}
+            renderContent={(onClose) => (
+              <>
+                {models.filter(m => m.enabled).map(m => (
+                  <button
+                    type="button"
+                    key={m.id}
+                    onClick={() => { setLastWebviewPlatform(m.id); onClose() }}
+                    className={`block w-full px-3 py-2 text-left text-sm transition-colors hover:bg-gray-700 ${
+                      webviewPlatformId === m.id ? 'text-primary bg-primary/5' : 'text-gray-300'
+                    }`}
+                  >
+                    {m.name}
+                  </button>
+                ))}
+              </>
+            )}
+          />
+        </div>
+      )}
 
       {/* 错误提示 */}
       {error && (
