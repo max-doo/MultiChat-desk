@@ -3,6 +3,8 @@
 import { app, BrowserWindow, globalShortcut } from 'electron'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { join } from 'path'
+import { readdir, rm } from 'fs/promises'
+import { tmpdir } from 'os'
 import Store from 'electron-store'
 import { initAgentPrompts } from './agentPrompts'
 import { registerIpcHandlers } from './ipcHandlers'
@@ -48,6 +50,28 @@ function configureSessionPath(): void {
   }
 }
 
+// 清理应用遗留的临时上传目录
+async function cleanupTempUploadDirs(): Promise<void> {
+  try {
+    const tempRoot = tmpdir()
+    const entries = await readdir(tempRoot, { withFileTypes: true })
+    const modelmashDirs = entries
+      .filter(e => e.isDirectory() && e.name.startsWith('modelmash-uploads-'))
+      .map(e => join(tempRoot, e.name))
+
+    for (const dir of modelmashDirs) {
+      try {
+        await rm(dir, { recursive: true, force: true })
+        console.log('[Main] 清理临时目录:', dir)
+      } catch (e) {
+        console.warn('[Main] 清理临时目录失败:', dir, e)
+      }
+    }
+  } catch (e) {
+    console.warn('[Main] 读取临时目录失败:', e)
+  }
+}
+
 // ============ 初始化 ============
 
 // 在应用启动前配置路径
@@ -69,6 +93,9 @@ const store = new Store({
 // ============ 应用生命周期 ============
 
 app.whenReady().then(() => {
+  // 清理遗留的临时文件
+  void cleanupTempUploadDirs()
+
   // 设置应用 ID
   electronApp.setAppUserModelId('com.modelmash.app')
 
