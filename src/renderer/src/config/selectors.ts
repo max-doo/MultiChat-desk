@@ -38,6 +38,26 @@ export interface ModelSelector {
     // Backward compatibility (optional, can be removed if all updated)
     button?: string
   }
+  // AI Image Generation mode configuration
+  imageGeneration?: {
+    // Steps to enable image generation
+    steps: Array<{
+      selector: string | string[]
+      text?: string | string[]
+      delay?: number
+      exact?: boolean
+      optional?: boolean
+      countsAsSuccess?: boolean
+    }>
+    cancelSteps?: Array<{
+      selector: string | string[]
+      text?: string | string[]
+      delay?: number
+      exact?: boolean
+      optional?: boolean
+      countsAsSuccess?: boolean
+    }>
+  }
 }
 
 export interface SelectorsConfig {
@@ -51,8 +71,8 @@ export interface SelectorsConfig {
  * 如需调整请选择器配置，直接修改本文件后重启应用生效
  */
 export const defaultSelectors: SelectorsConfig = {
-  version: 9,
-  lastUpdated: '2026-05-03',
+  version: 11,
+  lastUpdated: '2026-05-04',
   models: {
     chatgpt: {
       textarea: [
@@ -97,6 +117,15 @@ export const defaultSelectors: SelectorsConfig = {
         ],
         cancelSteps: [
           { selector: '[class*="__composer-pill-remove"]', delay: 200 }
+        ]
+      },
+      imageGeneration: {
+        steps: [
+          { selector: '[data-testid="composer-plus-btn"], #composer-plus-btn, button.composer-btn', delay: 1000 },
+          { selector: 'div[role="menuitemradio"], div[role="menuitem"]', text: ['Create image', 'DALL-E', '图像生成', '生图'], delay: 500 }
+        ],
+        cancelSteps: [
+          { selector: '[class*="__composer-pill-remove"], [class*="composer-pill-remove"]', delay: 200 }
         ]
       }
     },
@@ -204,6 +233,14 @@ export const defaultSelectors: SelectorsConfig = {
         cancelSteps: [
           { selector: ['button', '[role="button"]', '[role="menuitem"]', '[role="menuitemradio"]', '[role="tab"]'], text: ['深度研究', '联网研究', '研究模式', 'Deep Research', 'Research'], delay: 300 }
         ]
+      },
+      imageGeneration: {
+        steps: [
+          { selector: ['button', '[role="button"]', '[role="menuitem"]', '[role="menuitemradio"]'], text: ['生图', '画图', '图像生成', 'Image'], delay: 700 }
+        ],
+        cancelSteps: [
+          { selector: ['button[aria-label*="删除"]', 'button[aria-label*="remove"]'], delay: 200, optional: true }
+        ]
       }
     },
     yiyan: {
@@ -235,7 +272,15 @@ export const defaultSelectors: SelectorsConfig = {
         '[class*="markdown"]'
       ],
       customCSS: ``,
-      newConversationUrl: 'https://yiyan.baidu.com/'
+      newConversationUrl: 'https://yiyan.baidu.com/',
+      imageGeneration: {
+        steps: [
+          { selector: ['button', '[role="button"]', '[role="menuitem"]', '[role="menuitemradio"]'], text: ['生图', '画图', '图像生成', 'Image'], delay: 500 }
+        ],
+        cancelSteps: [
+          { selector: ['button[aria-label*="删除"]', 'button[aria-label*="remove"]'], delay: 200, optional: true }
+        ]
+      }
     },
     gemini: {
       textarea: [
@@ -269,6 +314,15 @@ export const defaultSelectors: SelectorsConfig = {
         cancelSteps: [
           { selector: 'button.toolbox-drawer-item-deselect-button', text: 'Deep Research', delay: 200 }
         ]
+      },
+      imageGeneration: {
+        steps: [
+          { selector: 'button.toolbox-drawer-button', delay: 500 },
+          { selector: 'button.toolbox-drawer-item-list-button', text: ['Imagen', 'Image generation', '图像生成', '生图'], delay: 500 }
+        ],
+        cancelSteps: [
+          { selector: 'button.toolbox-drawer-item-deselect-button', text: ['Imagen', 'Image generation', '图像生成', '生图'], delay: 200 }
+        ]
       }
     },
     grok: {
@@ -297,6 +351,15 @@ export const defaultSelectors: SelectorsConfig = {
         ],
         cancelSteps: [
           { selector: 'button[aria-label*="删除"]', delay: 200 }
+        ]
+      },
+      imageGeneration: {
+        steps: [
+          { selector: 'button', text: ['Aurora', 'Image Gen', '生图', '画图', '图像生成'], delay: 500, optional: true },
+          { selector: 'button[aria-label*="image"], button[aria-label*="图片"], button[aria-label*="生图"]', delay: 500, optional: true }
+        ],
+        cancelSteps: [
+          { selector: 'button[aria-label*="删除"], button[aria-label*="remove"]', delay: 200, optional: true }
         ]
       }
     },
@@ -337,6 +400,14 @@ export const defaultSelectors: SelectorsConfig = {
         cancelSteps: [
           { selector: 'button.selected-OsA38F[data-log-params*="deepResearch"] div.flex.items-center.justify-center.overflow-hidden', delay: 200, exact: true }
         ]
+      },
+      imageGeneration: {
+        steps: [
+          { selector: ['button[data-log-name="tool_bar"]', 'button.tagBtn-OADWVI', 'button[data-component-type="tool-item"]'], text: ['生图', '画图', '图像生成', 'Image'], delay: 500 }
+        ],
+        cancelSteps: [
+          { selector: ['button.selected-OsA38F div.flex.items-center.justify-center.overflow-hidden', 'button[data-log-name="tool_bar"] div.flex.items-center.justify-center.overflow-hidden'], delay: 200, exact: true, optional: true }
+        ]
       }
     },
     kimi: {
@@ -362,7 +433,15 @@ export const defaultSelectors: SelectorsConfig = {
         '.message-content'
       ],
       customCSS: ``,
-      newConversationUrl: 'https://www.kimi.com/'
+      newConversationUrl: 'https://www.kimi.com/',
+      imageGeneration: {
+        steps: [
+          { selector: ['button', '[role="button"]'], text: ['生图', '画图', '图像生成', 'Image'], delay: 500 }
+        ],
+        cancelSteps: [
+          { selector: ['button[aria-label*="删除"]', 'button[aria-label*="remove"]'], delay: 200, optional: true }
+        ]
+      }
     },
     doubao: {
       textarea: [
@@ -410,6 +489,14 @@ export const defaultSelectors: SelectorsConfig = {
         cancelSteps: [
           { selector: ['[data-testid="skill_input_exit_button"]', 'div[data-testid="skill_input_exit_button"]'], text: ['深入研究', '深度研究'], delay: 200 }
         ]
+      },
+      imageGeneration: {
+        steps: [
+          { selector: ['button.skill-bar-button[data-component-type="skill-item"]', 'button[data-component-type="skill-item"][data-testid^="skill_bar_button_"]'], text: ['生图', '画图', '图像生成', 'Image'], delay: 500 }
+        ],
+        cancelSteps: [
+          { selector: ['[data-testid="skill_input_exit_button"]', 'div[data-testid="skill_input_exit_button"]'], text: ['生图', '画图', '图像生成', 'Image'], delay: 200, optional: true }
+        ]
       }
     },
     yuanbao: {
@@ -434,7 +521,38 @@ export const defaultSelectors: SelectorsConfig = {
         '.message-content'
       ],
       customCSS: ``,
-      newConversationUrl: 'https://yuanbao.tencent.com/chat'
+      newConversationUrl: 'https://yuanbao.tencent.com/chat',
+      imageGeneration: {
+        steps: [
+          { selector: ['button', '[role="button"]', '[role="menuitem"]'], text: ['生图', '画图', '图像生成', 'Image'], delay: 500 }
+        ],
+        cancelSteps: [
+          { selector: ['button[aria-label*="删除"]', 'button[aria-label*="remove"]'], delay: 200, optional: true }
+        ]
+      }
+    },
+    arena: {
+      textarea: [
+        'textarea[placeholder*="Message"]',
+        'textarea[placeholder*="message"]',
+        'textarea',
+        '[contenteditable="true"]'
+      ],
+      sendButton: [
+        'button[type="submit"]',
+        'button[aria-label*="Send"]',
+        'button[aria-label*="send"]',
+        'form button:last-child'
+      ],
+      messageContainer: [
+        '.prose',
+        '[class*="markdown"]',
+        '.message-content',
+        '[data-testid*="message"]',
+        '.chat-message'
+      ],
+      customCSS: '',
+      newConversationUrl: 'https://arena.ai/'
     }
   }
 }
