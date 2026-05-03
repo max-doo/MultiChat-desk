@@ -209,6 +209,13 @@ interface AppState {
   // 获取所有模型的最新回复
   getAllResponses: () => Promise<Record<string, string>>
 
+  // 监控状态（不持久化）
+  monitor: MonitorState
+  startMonitoring: (conversationId: string, turnId: string, userMessage: string, models: string[]) => void
+  stopMonitoring: () => void
+  pollPlatforms: () => Promise<void>
+  saveCurrentTurn: () => void
+
   // 文件上传状态
   isUploading: boolean
   uploadProgress: Record<string, 'pending' | 'uploading' | 'success' | 'error'>
