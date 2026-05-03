@@ -556,50 +556,73 @@ export const useAppStore = create<AppState>((set, get) => ({
     })
     const sendResults = await Promise.all(sendPromises)
     results.push(...sendResults)
-    const successModels = results.filter((r) => r.success).map((r) => r.modelId)
+    const successModels = sendResults.filter((r) => r.success).map((r) => r.modelId)
 
     if (successModels.length > 0) {
-      // 检查是否可以更新现有记录
-      const lastItem = history.length > 0 ? history[0] : null
-      const isSameModels = lastItem &&
-        lastItem.models.length === successModels.length &&
-        lastItem.models.every(id => successModels.includes(id))
+      // 立即获取当前各平台 URL（用于判定新/旧对话）
+      const currentUrls: Record<string, string> = {}
+      await Promise.all(
+        successModels.map(async (modelId) => {
+          const ref = webviewRefs.get(modelId)
+          if (!ref) return
+          try {
+            const url = ref.getCurrentUrl()
+            if (url && url !== 'about:blank') {
+              currentUrls[modelId] = url
+            }
+          } catch {
+            // 忽略获取失败
+          }
+        })
+      )
 
-      let historyId: string
-      if (!isNewSession && isSameModels && lastItem) {
-        // 更新现有记录（只更新时间戳和可能的 URL，保持原标题/第一条消息不变）
-        historyId = lastItem.id
-        updateHistory(historyId, {
-          timestamp: Date.now()
-        })
+      const lastItem = history.length > 0 ? history[0] : null
+      const isNewConv = shouldStartNewConversation(
+        currentUrls,
+        lastItem?.urls,
+        isNewSession
+      )
+
+      let conversationId: string
+
+      if (isNewConv) {
+        // 新对话
+        conversationId = Date.now().toString()
+        const newItem: HistoryItem = {
+          id: conversationId,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          models: successModels,
+          turns: [],
+          urls: currentUrls,
+        }
+        addHistory(newItem)
+        setNewSession(false)
       } else {
-        // 新增记录
-        historyId = Date.now().toString()
-        addHistory({
-          id: historyId,
-          message,
-          timestamp: Date.now(),
-          models: successModels
+        // 继续现有对话
+        conversationId = lastItem!.id
+        const updatedUrls = { ...lastItem!.urls, ...currentUrls }
+        updateHistory(conversationId, {
+          urls: updatedUrls,
+          updatedAt: Date.now(),
         })
-        setNewSession(false) // 发送成功后，标记当前不再是新会话的开始
       }
 
-      const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+      // 创建新 turn 并启动监控
+      const turnId = `${conversationId}-${Date.now()}`
+      get().startMonitoring(conversationId, turnId, message, successModels)
+
+      // 异步获取可保存的 URL（兼容现有 Gemini URL 处理逻辑）
+      const sleep = (ms: number): Promise<void> =>
+        new Promise((resolve) => setTimeout(resolve, ms))
 
       const isGeminiConversationUrl = (rawUrl: string): boolean => {
         try {
           const u = new URL(rawUrl)
           if (u.origin !== 'https://gemini.google.com') return false
           const parts = u.pathname.split('/').filter(Boolean)
-          // 支持两种格式：
-          // 1. /app/对话ID（默认账号）
-          // 2. /u/N/app/对话ID（多账号）
-          if (parts[0] === 'app' && typeof parts[1] === 'string' && parts[1].length > 0) {
-            return true
-          }
-          if (parts[0] === 'u' && parts[2] === 'app' && typeof parts[3] === 'string' && parts[3].length > 0) {
-            return true
-          }
+          if (parts[0] === 'app' && typeof parts[1] === 'string' && parts[1].length > 0) return true
+          if (parts[0] === 'u' && parts[2] === 'app' && typeof parts[3] === 'string' && parts[3].length > 0) return true
           return false
         } catch {
           return false
@@ -611,14 +634,12 @@ export const useAppStore = create<AppState>((set, get) => ({
           const u = new URL(rawUrl)
           const parts = u.pathname.split('/').filter(Boolean)
           let conversationId: string | undefined
-          // 支持两种格式提取对话 ID
           if (parts[0] === 'app') {
             conversationId = parts[1]
           } else if (parts[0] === 'u' && parts[2] === 'app') {
             conversationId = parts[3]
           }
           if (!conversationId) return ''
-          // 保存时统一使用不含账号索引的格式，加载时会使用当前账号的 URL
           return `https://gemini.google.com/app/${conversationId}`
         } catch {
           return ''
@@ -628,7 +649,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       const waitForSavableUrl = async (modelId: string, ref: WebviewCardRef): Promise<string> => {
         const timeoutMs = modelId === 'gemini' ? 30000 : 10000
         const deadline = Date.now() + timeoutMs
-
         while (Date.now() < deadline) {
           const currentUrl = ref.getCurrentUrl()
           if (currentUrl && currentUrl !== 'about:blank') {
@@ -642,32 +662,31 @@ export const useAppStore = create<AppState>((set, get) => ({
           }
           await sleep(1000)
         }
-
         return ''
       }
 
-        ; (async () => {
-          await sleep(5000)
-          const { webviewRefs } = get()
-          const urls: Record<string, string> = {}
+      ;(async () => {
+        await sleep(5000)
+        const { webviewRefs: currentRefs } = get()
+        const urls: Record<string, string> = {}
 
-          await Promise.all(
-            successModels.map(async (modelId) => {
-              const webviewRef = webviewRefs.get(modelId)
-              if (!webviewRef) return
-              try {
-                const savableUrl = await waitForSavableUrl(modelId, webviewRef)
-                if (savableUrl) urls[modelId] = savableUrl
-              } catch (error) {
-                console.error(`获取模型 ${modelId} 的 URL 失败:`, error)
-              }
-            })
-          )
+        await Promise.all(
+          successModels.map(async (modelId) => {
+            const ref = currentRefs.get(modelId)
+            if (!ref) return
+            try {
+              const savableUrl = await waitForSavableUrl(modelId, ref)
+              if (savableUrl) urls[modelId] = savableUrl
+            } catch (error) {
+              console.error(`获取模型 ${modelId} 的 URL 失败:`, error)
+            }
+          })
+        )
 
-          if (Object.keys(urls).length > 0) {
-            updateHistory(historyId, { urls })
-          }
-        })().catch((error) => console.error('异步获取 URL 失败:', error))
+        if (Object.keys(urls).length > 0) {
+          updateHistory(conversationId, { urls })
+        }
+      })().catch((error) => console.error('异步获取 URL 失败:', error))
     }
 
     set({ isSending: false, lastSendResults: results })
