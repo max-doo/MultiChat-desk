@@ -74,7 +74,10 @@ export function useSummaryPanel({ selectedModels, modelResponses, restoreHistory
       : firstUserMessage.content
   }
 
-  const persistSummaryHistory = (source: ChatMessage[]) => {
+  const persistSummaryHistory = (
+    source: ChatMessage[],
+    extra?: { summarySource?: 'api' | 'webview'; webviewPlatformId?: string }
+  ) => {
     if (source.length === 0) return
 
     const title = getSummaryTitle(source)
@@ -84,12 +87,13 @@ export function useSummaryPanel({ selectedModels, modelResponses, restoreHistory
       timestamp: now,
       messages: serializeMessages(source),
       selectedModels: [...selectedModels],
-      modelResponses: { ...modelResponses }
+      modelResponses: { ...modelResponses },
+      ...extra
     }
 
     const existingId = currentSummaryHistoryIdRef.current
     if (existingId) {
-      updateSummaryHistory(existingId, updates)
+      updateSummaryHistory(existingId, { ...updates })
       return
     }
 
@@ -826,6 +830,7 @@ ${content}
     selectedProviderId,
     setSelectedProviderId,
     messages,
+    setMessages,
     streamingContent,
     streamingReasoningContent,
     hasStartedChat,
@@ -871,6 +876,9 @@ ${content}
     handleSwitchVersion,
     handleOpenExportDialog,
     handleSelectExportDirectory,
-    handleConfirmExport
+    handleConfirmExport,
+
+    // Webview summary 需要
+    persistSummaryHistory
   }
 }

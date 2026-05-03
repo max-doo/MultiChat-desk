@@ -1,3 +1,4 @@
+import { useState, useRef, useMemo, useCallback } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { Components } from 'react-markdown'
@@ -6,7 +7,10 @@ import { gfm } from 'turndown-plugin-gfm'
 import { useAppStore } from '../store/appStore'
 import CustomDropdown from './CustomDropdown'
 import { useSummaryPanel } from '../hooks/useSummaryPanel'
-import type { SummaryPanelProps } from '../types/summary'
+import { useWebviewSummary } from '../hooks/useWebviewSummary'
+import WebviewCard, { WebviewCardRef } from './WebviewCard'
+import { defaultSelectors } from '../config/selectors'
+import type { SummaryPanelProps, ChatMessage } from '../types/summary'
 
 const turndownService = new TurndownService({
   headingStyle: 'atx',
@@ -46,8 +50,10 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
     selectedProviderId,
     setSelectedProviderId,
     messages,
+    setMessages,
     streamingContent,
     streamingReasoningContent,
+    persistSummaryHistory,
     hasStartedChat,
     isReasoningExpanded,
     setIsReasoningExpanded,
@@ -92,7 +98,79 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
     handleConfirmExport
   } = useSummaryPanel({ selectedModels, modelResponses, restoreHistoryData })
 
-  const { apiConfig } = useAppStore()
+  const { apiConfig, models, setApiConfig } = useAppStore()
+
+  // 从 store 读取当前模式，缺省 'api'
+  const summarySource: 'api' | 'webview' = apiConfig.summarySource ?? 'api'
+  const firstEnabledModel = models.find(m => m.enabled)
+  const lastWebviewPlatform = apiConfig.lastWebviewSummaryPlatform ?? firstEnabledModel?.id ?? 'chatgpt'
+  const [webviewPlatformId, setWebviewPlatformId] = useState<string>(lastWebviewPlatform)
+
+  const webviewSummaryRef = useRef<WebviewCardRef>(null)
+
+  const webviewPlatformInfo = useMemo(() => {
+    const m = models.find(x => x.id === webviewPlatformId)
+    const sel = defaultSelectors.models[webviewPlatformId]
+    return {
+      name: m?.name || webviewPlatformId,
+      logo: m?.logo,
+      url: sel?.newConversationUrl || m?.url || ''
+    }
+  }, [models, webviewPlatformId])
+
+  const setSummarySource = (next: 'api' | 'webview') => {
+    setApiConfig({ ...apiConfig, summarySource: next })
+  }
+  const setLastWebviewPlatform = (id: string) => {
+    setWebviewPlatformId(id)
+    setApiConfig({ ...apiConfig, lastWebviewSummaryPlatform: id })
+  }
+
+  const buildWebviewPrompt = useCallback(() => {
+    const agentTemplate = (apiConfig.agentPrompts || []).find(a => a.id === selectedAgent)
+    const systemPrompt = agentTemplate?.prompt || apiConfig.systemPrompt || ''
+    const contextBlock = selectedModels
+      .map(id => {
+        const name = models.find(m => m.id === id)?.name || id
+        const content = modelResponses[id] || ''
+        return `<model_output name="${name}">\n${content}\n</model_output>`
+      })
+      .join('\n')
+    const requirement = customPrompt?.trim() || '请生成标准总结报告。'
+    return [
+      '[系统指令]',
+      systemPrompt,
+      '',
+      '[待分析内容]',
+      '<context>',
+      contextBlock,
+      '</context>',
+      '',
+      '[用户要求]',
+      requirement
+    ].join('\n')
+  }, [selectedAgent, apiConfig.agentPrompts, apiConfig.systemPrompt, selectedModels, models, modelResponses, customPrompt])
+
+  const handleWebviewAssistantMessage = useCallback((msg: ChatMessage) => {
+    const userMsg: ChatMessage = {
+      id: `webview-user-${Date.now()}`,
+      role: 'user',
+      content: customPrompt || '请生成标准总结报告。',
+      timestamp: Date.now() - 1
+    }
+    const next = [userMsg, msg]
+    setMessages(prev => [...prev, ...next])
+    persistSummaryHistory([...messages, ...next], {
+      summarySource: 'webview',
+      webviewPlatformId
+    })
+  }, [customPrompt, messages, setMessages, persistSummaryHistory, webviewPlatformId])
+
+  const webviewSummary = useWebviewSummary({
+    webviewRef: webviewSummaryRef,
+    buildPrompt: buildWebviewPrompt,
+    onAssistantMessage: handleWebviewAssistantMessage
+  })
 
   // 获取收藏的模型ID列表
   const favoriteModelIds = apiConfig.favoriteModelIds || []
@@ -185,7 +263,30 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
         </div>
       )}
 
-      {/* 头部：供应商和模型选择 */}
+      {/* 模式开关：API / Webview */}
+      <div className="flex items-center gap-1 mb-3 shrink-0 bg-gray-800 border border-gray-700 rounded-md p-1 w-fit">
+        <button
+          type="button"
+          onClick={() => setSummarySource('api')}
+          className={`px-3 py-1 text-xs rounded transition-colors ${
+            summarySource === 'api' ? 'bg-primary text-white' : 'text-gray-400 hover:text-white'
+          }`}
+        >
+          API
+        </button>
+        <button
+          type="button"
+          onClick={() => setSummarySource('webview')}
+          className={`px-3 py-1 text-xs rounded transition-colors ${
+            summarySource === 'webview' ? 'bg-primary text-white' : 'text-gray-400 hover:text-white'
+          }`}
+        >
+          Webview
+        </button>
+      </div>
+
+      {/* 头部：供应商和模型选择 — API 模式 */}
+      {summarySource === 'api' && (
       <div className="flex items-center gap-2 relative shrink-0 mb-4">
         {/* 供应商选择 */}
         <CustomDropdown
@@ -525,6 +626,38 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
           )}
         </div>
       </div>
+      )}
+
+      {/* 头部：平台选择 — Webview 模式 */}
+      {summarySource === 'webview' && (
+        <div className="flex items-center gap-2 relative shrink-0 mb-4">
+          <CustomDropdown
+            value={webviewPlatformId}
+            onChange={(id) => setLastWebviewPlatform(id)}
+            placeholder="选择平台"
+            className="min-w-[120px]"
+            dropdownWidth="min-w-[200px]"
+            buttonClassName="w-full px-3 py-1.5 rounded-md text-sm flex items-center justify-between gap-2 bg-primary/10 border border-primary/50 text-primary hover:border-primary"
+            displayText={models.find(m => m.id === webviewPlatformId)?.name || '选择平台'}
+            renderContent={(onClose) => (
+              <>
+                {models.filter(m => m.enabled).map(m => (
+                  <button
+                    type="button"
+                    key={m.id}
+                    onClick={() => { setLastWebviewPlatform(m.id); onClose() }}
+                    className={`block w-full px-3 py-2 text-left text-sm transition-colors hover:bg-gray-700 ${
+                      webviewPlatformId === m.id ? 'text-primary bg-primary/5' : 'text-gray-300'
+                    }`}
+                  >
+                    {m.name}
+                  </button>
+                ))}
+              </>
+            )}
+          />
+        </div>
+      )}
 
       {/* 错误提示 */}
       {error && (
@@ -533,311 +666,374 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
         </div>
       )}
 
-      {/* 对话消息区域 */}
-      <div className="flex-1 mb-4 overflow-y-auto">
-        {messages.length === 0 && !isGenerating && (
-          <div className="flex flex-col items-center justify-center text-gray-500 h-full">
-            <span className="material-symbols-outlined text-5xl mb-3 opacity-50">forum</span>
-            <p className="text-sm">选择模型和总结模式，开始对话</p>
-          </div>
-        )}
-
-        {messages.map((message) => (
-          <div key={message.id}>
-            {message.role === 'user' ? (
-              // 用户消息 - 右侧气泡
-              <div className="flex justify-end mb-4">
-                <div className="max-w-[80%] bg-primary/20 border border-primary/30 rounded-2xl rounded-tr-sm px-4 py-3">
-                  <p className="text-gray-200 text-sm whitespace-pre-wrap">{message.content}</p>
-                </div>
+      {summarySource === 'api' && (
+        <>
+          {/* 对话消息区域 */}
+          <div className="flex-1 mb-4 overflow-y-auto">
+            {messages.length === 0 && !isGenerating && (
+              <div className="flex flex-col items-center justify-center text-gray-500 h-full">
+                <span className="material-symbols-outlined text-5xl mb-3 opacity-50">forum</span>
+                <p className="text-sm">选择模型和总结模式，开始对话</p>
               </div>
-            ) : (
-              // 助手消息 - 带机器人头像
+            )}
+
+            {messages.map((message) => (
+              <div key={message.id}>
+                {message.role === 'user' ? (
+                  // 用户消息 - 右侧气泡
+                  <div className="flex justify-end mb-4">
+                    <div className="max-w-[80%] bg-primary/20 border border-primary/30 rounded-2xl rounded-tr-sm px-4 py-3">
+                      <p className="text-gray-200 text-sm whitespace-pre-wrap">{message.content}</p>
+                    </div>
+                  </div>
+                ) : (
+                  // 助手消息 - 带机器人头像
+                  <div className="flex gap-3 mb-4">
+                    {/* 机器人头像 */}
+                    <div className="shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-primary/30 to-primary/10 border border-primary/30 flex items-center justify-center">
+                      <span className="material-symbols-outlined text-primary text-lg">smart_toy</span>
+                    </div>
+                    {/* 消息内容 */}
+                    <div className="flex-1 min-w-0">
+                      {/* 模型名称 */}
+                      {message.versions && message.versions.length > 0 && (
+                        <div className="mb-2 text-xs text-gray-500">
+                          <span className="text-gray-400">
+                            {message.versions[message.currentVersionIndex || 0]?.modelName || '未知模型'}
+                          </span>
+                        </div>
+                      )}
+                      {/* 思考内容 - 可折叠 */}
+                      {(() => {
+                        const currentVersion = message.versions?.[message.currentVersionIndex || 0]
+                        const reasoningToShow = currentVersion?.reasoningContent || message.reasoningContent
+                        if (!reasoningToShow) return null
+
+                        const isExpanded = expandedReasoningIds.has(message.id)
+                        return (
+                          <div className="mb-3 bg-gray-800/50 border border-gray-700 rounded-lg overflow-hidden">
+                            <button
+                              onClick={() => {
+                                setExpandedReasoningIds(prev => {
+                                  const newSet = new Set(prev)
+                                  if (isExpanded) {
+                                    newSet.delete(message.id)
+                                  } else {
+                                    newSet.add(message.id)
+                                  }
+                                  return newSet
+                                })
+                              }}
+                              className="w-full px-3 py-2 flex items-center gap-2 text-xs text-gray-400 hover:text-gray-300 hover:bg-gray-700/50 transition-colors"
+                            >
+                              <span className="material-symbols-outlined text-base transition-transform" style={{ transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>
+                                chevron_right
+                              </span>
+                              <span className="material-symbols-outlined text-base text-yellow-500">psychology</span>
+                              <span>思考过程</span>
+                              <span className="text-gray-500">({reasoningToShow.length} 字)</span>
+                            </button>
+                            {isExpanded && (
+                              <div className="px-3 pb-3 text-xs text-gray-400 leading-relaxed max-h-64 overflow-y-auto border-t border-gray-700">
+                                <div className="pt-2 whitespace-pre-wrap">{reasoningToShow}</div>
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })()}
+                      <div className={markdownStyles}>
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          components={markdownComponents}
+                        >
+                          {message.content}
+                        </ReactMarkdown>
+                      </div>
+                      {/* 操作按钮 */}
+                      <div className="mt-3 flex items-center justify-between border-t border-gray-700 pt-3">
+                        <div className="flex items-center gap-3">
+                          {!isGenerating && messages.filter(m => m.role === 'assistant').slice(-1)[0]?.id === message.id && (
+                            <button
+                              onClick={() => handleRegenerate(message.id)}
+                              className="p-1 text-gray-400 hover:text-white transition-colors"
+                              title="重新生成"
+                              aria-label="重新生成"
+                            >
+                              <span className="material-symbols-outlined text-xl">refresh</span>
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleCopyMessageMarkdown(message.content)}
+                            className="p-1 text-gray-400 hover:text-white transition-colors"
+                            title="复制 Markdown"
+                            aria-label="复制 Markdown"
+                          >
+                            <span className="material-symbols-outlined text-xl">content_copy</span>
+                          </button>
+                          <button
+                            onClick={() => handleOpenExportDialog(message.content)}
+                            className="p-1 text-gray-400 hover:text-white transition-colors"
+                            title="导出 Markdown"
+                            aria-label="导出 Markdown"
+                          >
+                            <span className="material-symbols-outlined text-xl">download</span>
+                          </button>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {message.versions && message.versions.length > 1 && (
+                            <div className="flex items-center gap-1 text-gray-400">
+                              <button
+                                onClick={() => handleSwitchVersion(message.id, 'prev')}
+                                className="p-1.5 hover:text-white transition-colors"
+                                title="上一个版本"
+                                aria-label="上一个版本"
+                              >
+                                <span className="material-symbols-outlined text-lg">chevron_left</span>
+                              </button>
+                              <span className="text-gray-300 font-mono min-w-[44px] text-center text-base">
+                                {(message.currentVersionIndex || 0) + 1}/{message.versions.length}
+                              </span>
+                              <button
+                                onClick={() => handleSwitchVersion(message.id, 'next')}
+                                className="p-1.5 hover:text-white transition-colors"
+                                title="下一个版本"
+                                aria-label="下一个版本"
+                              >
+                                <span className="material-symbols-outlined text-lg">chevron_right</span>
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+
+            {/* 流式输出中的内容 */}
+            {isGenerating && (streamingContent || streamingReasoningContent) && (
               <div className="flex gap-3 mb-4">
                 {/* 机器人头像 */}
                 <div className="shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-primary/30 to-primary/10 border border-primary/30 flex items-center justify-center">
                   <span className="material-symbols-outlined text-primary text-lg">smart_toy</span>
                 </div>
-                {/* 消息内容 */}
+                {/* 流式内容 */}
                 <div className="flex-1 min-w-0">
-                  {/* 模型名称 */}
-                  {message.versions && message.versions.length > 0 && (
-                    <div className="mb-2 text-xs text-gray-500">
-                      <span className="text-gray-400">
-                        {message.versions[message.currentVersionIndex || 0]?.modelName || '未知模型'}
-                      </span>
-                    </div>
-                  )}
                   {/* 思考内容 - 可折叠 */}
-                  {(() => {
-                    const currentVersion = message.versions?.[message.currentVersionIndex || 0]
-                    const reasoningToShow = currentVersion?.reasoningContent || message.reasoningContent
-                    if (!reasoningToShow) return null
-
-                    const isExpanded = expandedReasoningIds.has(message.id)
-                    return (
-                      <div className="mb-3 bg-gray-800/50 border border-gray-700 rounded-lg overflow-hidden">
-                        <button
-                          onClick={() => {
-                            setExpandedReasoningIds(prev => {
-                              const newSet = new Set(prev)
-                              if (isExpanded) {
-                                newSet.delete(message.id)
-                              } else {
-                                newSet.add(message.id)
-                              }
-                              return newSet
-                            })
-                          }}
-                          className="w-full px-3 py-2 flex items-center gap-2 text-xs text-gray-400 hover:text-gray-300 hover:bg-gray-700/50 transition-colors"
-                        >
-                          <span className="material-symbols-outlined text-base transition-transform" style={{ transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>
-                            chevron_right
-                          </span>
-                          <span className="material-symbols-outlined text-base text-yellow-500">psychology</span>
-                          <span>思考过程</span>
-                          <span className="text-gray-500">({reasoningToShow.length} 字)</span>
-                        </button>
-                        {isExpanded && (
-                          <div className="px-3 pb-3 text-xs text-gray-400 leading-relaxed max-h-64 overflow-y-auto border-t border-gray-700">
-                            <div className="pt-2 whitespace-pre-wrap">{reasoningToShow}</div>
+                  {streamingReasoningContent && (
+                    <div className="mb-3 bg-gray-800/50 border border-gray-700 rounded-lg overflow-hidden">
+                      <button
+                        onClick={() => setIsReasoningExpanded(!isReasoningExpanded)}
+                        className="w-full px-3 py-2 flex items-center gap-2 text-xs text-gray-400 hover:text-gray-300 hover:bg-gray-700/50 transition-colors"
+                      >
+                        <span className="material-symbols-outlined text-base transition-transform" style={{ transform: isReasoningExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>
+                          chevron_right
+                        </span>
+                        <span className="material-symbols-outlined text-base text-yellow-500">psychology</span>
+                        <span>思考过程</span>
+                        <span className="text-gray-500">({streamingReasoningContent.length} 字)</span>
+                        {!streamingContent && (
+                          <div className="ml-auto flex items-center gap-1">
+                            <div className="w-1.5 h-1.5 bg-yellow-500 rounded-full animate-pulse"></div>
+                            <span className="text-yellow-500/70">思考中...</span>
                           </div>
                         )}
-                      </div>
-                    )
-                  })()}
-                  <div className={markdownStyles}>
-                    <ReactMarkdown
-                      remarkPlugins={[remarkGfm]}
-                      components={markdownComponents}
-                    >
-                      {message.content}
-                    </ReactMarkdown>
-                  </div>
-                  {/* 操作按钮 */}
-                  <div className="mt-3 flex items-center justify-between border-t border-gray-700 pt-3">
-                    <div className="flex items-center gap-3">
-                      {!isGenerating && messages.filter(m => m.role === 'assistant').slice(-1)[0]?.id === message.id && (
-                        <button
-                          onClick={() => handleRegenerate(message.id)}
-                          className="p-1 text-gray-400 hover:text-white transition-colors"
-                          title="重新生成"
-                          aria-label="重新生成"
-                        >
-                          <span className="material-symbols-outlined text-xl">refresh</span>
-                        </button>
-                      )}
-                      <button
-                        onClick={() => handleCopyMessageMarkdown(message.content)}
-                        className="p-1 text-gray-400 hover:text-white transition-colors"
-                        title="复制 Markdown"
-                        aria-label="复制 Markdown"
-                      >
-                        <span className="material-symbols-outlined text-xl">content_copy</span>
                       </button>
-                      <button
-                        onClick={() => handleOpenExportDialog(message.content)}
-                        className="p-1 text-gray-400 hover:text-white transition-colors"
-                        title="导出 Markdown"
-                        aria-label="导出 Markdown"
-                      >
-                        <span className="material-symbols-outlined text-xl">download</span>
-                      </button>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {message.versions && message.versions.length > 1 && (
-                        <div className="flex items-center gap-1 text-gray-400">
-                          <button
-                            onClick={() => handleSwitchVersion(message.id, 'prev')}
-                            className="p-1.5 hover:text-white transition-colors"
-                            title="上一个版本"
-                            aria-label="上一个版本"
-                          >
-                            <span className="material-symbols-outlined text-lg">chevron_left</span>
-                          </button>
-                          <span className="text-gray-300 font-mono min-w-[44px] text-center text-base">
-                            {(message.currentVersionIndex || 0) + 1}/{message.versions.length}
-                          </span>
-                          <button
-                            onClick={() => handleSwitchVersion(message.id, 'next')}
-                            className="p-1.5 hover:text-white transition-colors"
-                            title="下一个版本"
-                            aria-label="下一个版本"
-                          >
-                            <span className="material-symbols-outlined text-lg">chevron_right</span>
-                          </button>
+                      {isReasoningExpanded && (
+                        <div className="px-3 pb-3 text-xs text-gray-400 leading-relaxed max-h-64 overflow-y-auto border-t border-gray-700">
+                          <div className="pt-2 whitespace-pre-wrap">{streamingReasoningContent}</div>
                         </div>
                       )}
                     </div>
+                  )}
+                  {/* 正文内容 */}
+                  {streamingContent && (
+                    <div className={markdownStyles}>
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        components={markdownComponents}
+                      >
+                        {streamingContent}
+                      </ReactMarkdown>
+                    </div>
+                  )}
+                  <div className="mt-2 flex items-center gap-2 text-gray-500 text-xs">
+                    <div className="w-2 h-2 bg-primary rounded-full animate-pulse"></div>
+                    <span>{streamingContent ? '正在生成...' : '正在思考...'}</span>
                   </div>
                 </div>
               </div>
             )}
-          </div>
-        ))}
 
-        {/* 流式输出中的内容 */}
-        {isGenerating && (streamingContent || streamingReasoningContent) && (
-          <div className="flex gap-3 mb-4">
-            {/* 机器人头像 */}
-            <div className="shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-primary/30 to-primary/10 border border-primary/30 flex items-center justify-center">
-              <span className="material-symbols-outlined text-primary text-lg">smart_toy</span>
-            </div>
-            {/* 流式内容 */}
-            <div className="flex-1 min-w-0">
-              {/* 思考内容 - 可折叠 */}
-              {streamingReasoningContent && (
-                <div className="mb-3 bg-gray-800/50 border border-gray-700 rounded-lg overflow-hidden">
-                  <button
-                    onClick={() => setIsReasoningExpanded(!isReasoningExpanded)}
-                    className="w-full px-3 py-2 flex items-center gap-2 text-xs text-gray-400 hover:text-gray-300 hover:bg-gray-700/50 transition-colors"
-                  >
-                    <span className="material-symbols-outlined text-base transition-transform" style={{ transform: isReasoningExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>
-                      chevron_right
-                    </span>
-                    <span className="material-symbols-outlined text-base text-yellow-500">psychology</span>
-                    <span>思考过程</span>
-                    <span className="text-gray-500">({streamingReasoningContent.length} 字)</span>
-                    {!streamingContent && (
-                      <div className="ml-auto flex items-center gap-1">
-                        <div className="w-1.5 h-1.5 bg-yellow-500 rounded-full animate-pulse"></div>
-                        <span className="text-yellow-500/70">思考中...</span>
-                      </div>
-                    )}
-                  </button>
-                  {isReasoningExpanded && (
-                    <div className="px-3 pb-3 text-xs text-gray-400 leading-relaxed max-h-64 overflow-y-auto border-t border-gray-700">
-                      <div className="pt-2 whitespace-pre-wrap">{streamingReasoningContent}</div>
-                    </div>
-                  )}
+            {/* 加载指示器（无内容时） */}
+            {isGenerating && !streamingContent && !streamingReasoningContent && (
+              <div className="flex gap-3 mb-4">
+                {/* 机器人头像 */}
+                <div className="shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-primary/30 to-primary/10 border border-primary/30 flex items-center justify-center">
+                  <span className="material-symbols-outlined text-primary text-lg">smart_toy</span>
                 </div>
-              )}
-              {/* 正文内容 */}
-              {streamingContent && (
-                <div className={markdownStyles}>
-                  <ReactMarkdown
-                    remarkPlugins={[remarkGfm]}
-                    components={markdownComponents}
-                  >
-                    {streamingContent}
-                  </ReactMarkdown>
+                {/* 加载状态 */}
+                <div className="flex items-center gap-3 text-gray-400">
+                  <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
+                  <span className="text-sm">正在思考...</span>
                 </div>
-              )}
-              <div className="mt-2 flex items-center gap-2 text-gray-500 text-xs">
-                <div className="w-2 h-2 bg-primary rounded-full animate-pulse"></div>
-                <span>{streamingContent ? '正在生成...' : '正在思考...'}</span>
               </div>
-            </div>
+            )}
+
+            <div ref={messagesEndRef} />
           </div>
-        )}
 
-        {/* 加载指示器（无内容时） */}
-        {isGenerating && !streamingContent && !streamingReasoningContent && (
-          <div className="flex gap-3 mb-4">
-            {/* 机器人头像 */}
-            <div className="shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-primary/30 to-primary/10 border border-primary/30 flex items-center justify-center">
-              <span className="material-symbols-outlined text-primary text-lg">smart_toy</span>
-            </div>
-            {/* 加载状态 */}
-            <div className="flex items-center gap-3 text-gray-400">
-              <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
-              <span className="text-sm">正在思考...</span>
-            </div>
-          </div>
-        )}
-
-        <div ref={messagesEndRef} />
-      </div>
-
-      {/* 底部：输入和控制 */}
-      <div className="flex flex-col bg-gray-800 border border-gray-700 rounded-lg focus-within:border-primary/50 transition-colors shrink-0">
-        <textarea
-          value={customPrompt}
-          onChange={(e) => setCustomPrompt(e.target.value)}
-          placeholder={hasStartedChat ? "继续追问..." : "输入额外的分析要求（可选），按 Enter 发送"}
-          disabled={!isApiConfigured || isGenerating}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault()
-              handleGenerateSummary()
-            }
-          }}
-          className="w-full h-20 px-3 py-2 bg-transparent text-gray-300 placeholder-gray-500 focus:outline-none disabled:opacity-50 resize-none text-sm border-none rounded-t-lg"
-        />
-        <div className="flex items-center justify-between p-2 bg-gray-800/50 border-t border-gray-700/30 gap-3 rounded-b-lg">
-          {/* 模式选择 */}
-          {!hasStartedChat ? (
-            <CustomDropdown
-              options={agentPrompts.map(p => ({ value: p.id, label: p.name, description: p.description }))}
-              value={summaryMode}
-              onChange={setSummaryMode}
-              placeholder="总结模式"
-              disabled={!isApiConfigured}
-              direction="up"
-              dropdownWidth="min-w-max"
-              className="min-w-max"
-              buttonClassName={`px-3 py-1.5 rounded-full text-sm flex items-center justify-between gap-2 transition-colors disabled:opacity-50 min-w-max ${summaryMode && agentPrompts.find(p => p.id === summaryMode)
-                ? 'bg-primary/10 border border-primary/50 text-primary hover:border-primary'
-                : 'bg-gray-700/50 border border-gray-600 text-gray-300 hover:border-gray-500'
-                }`}
-              renderOption={(option, isSelected, onSelect) => (
-                <button
-                  onClick={onSelect}
-                  className={`block w-full px-4 py-2 text-left text-sm transition-colors hover:bg-gray-700 ${isSelected ? 'text-primary bg-primary/5' : 'text-gray-300'
+          {/* 底部：输入和控制 */}
+          <div className="flex flex-col bg-gray-800 border border-gray-700 rounded-lg focus-within:border-primary/50 transition-colors shrink-0">
+            <textarea
+              value={customPrompt}
+              onChange={(e) => setCustomPrompt(e.target.value)}
+              placeholder={hasStartedChat ? "继续追问..." : "输入额外的分析要求（可选），按 Enter 发送"}
+              disabled={!isApiConfigured || isGenerating}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault()
+                  handleGenerateSummary()
+                }
+              }}
+              className="w-full h-20 px-3 py-2 bg-transparent text-gray-300 placeholder-gray-500 focus:outline-none disabled:opacity-50 resize-none text-sm border-none rounded-t-lg"
+            />
+            <div className="flex items-center justify-between p-2 bg-gray-800/50 border-t border-gray-700/30 gap-3 rounded-b-lg">
+              {/* 模式选择 */}
+              {!hasStartedChat ? (
+                <CustomDropdown
+                  options={agentPrompts.map(p => ({ value: p.id, label: p.name, description: p.description }))}
+                  value={summaryMode}
+                  onChange={setSummaryMode}
+                  placeholder="总结模式"
+                  disabled={!isApiConfigured}
+                  direction="up"
+                  dropdownWidth="min-w-max"
+                  className="min-w-max"
+                  buttonClassName={`px-3 py-1.5 rounded-full text-sm flex items-center justify-between gap-2 transition-colors disabled:opacity-50 min-w-max ${summaryMode && agentPrompts.find(p => p.id === summaryMode)
+                    ? 'bg-primary/10 border border-primary/50 text-primary hover:border-primary'
+                    : 'bg-gray-700/50 border border-gray-600 text-gray-300 hover:border-gray-500'
                     }`}
-                >
-                  <div className="flex flex-col items-start">
-                    <div className="whitespace-nowrap">{option.label}</div>
-                    {option.description && (
-                      <div className={`text-[11px] ${isSelected ? 'text-primary/70' : 'text-gray-500'}`}>
-                        {option.description}
+                  renderOption={(option, isSelected, onSelect) => (
+                    <button
+                      onClick={onSelect}
+                      className={`block w-full px-4 py-2 text-left text-sm transition-colors hover:bg-gray-700 ${isSelected ? 'text-primary bg-primary/5' : 'text-gray-300'
+                        }`}
+                    >
+                      <div className="flex flex-col items-start">
+                        <div className="whitespace-nowrap">{option.label}</div>
+                        {option.description && (
+                          <div className={`text-[11px] ${isSelected ? 'text-primary/70' : 'text-gray-500'}`}>
+                            {option.description}
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
+                    </button>
+                  )}
+                />
+              ) : (
+                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gray-700/30 border border-gray-700 text-gray-400 text-sm select-none">
+                  <span className="whitespace-nowrap">
+                    {agentPrompts.find(p => p.id === summaryMode)?.name || '总结模式'}
+                  </span>
+                </div>
+              )}
+
+              {isGenerating ? (
+                // 生成中显示终止按钮
+                <button
+                  onClick={handleAbortGeneration}
+                  className="flex items-center justify-center gap-2 px-4 py-1.5 bg-red-600 text-white font-medium rounded-md hover:bg-red-500 transition-all text-sm shrink-0"
+                  title="终止生成"
+                >
+                  <span className="material-symbols-outlined text-lg">stop</span>
+                  <span>终止</span>
+                </button>
+              ) : (
+                <button
+                  onClick={handleGenerateSummary}
+                  disabled={(!hasStartedChat && selectedModels.length === 0) || !isApiConfigured || summaryModels.length === 0 || (hasStartedChat && !customPrompt.trim())}
+                  className={`flex items-center justify-center bg-primary text-black font-medium rounded-md hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all
+                    text-sm shrink-0 gap-2 px-4 py-1.5`}
+                  title={hasStartedChat ? '发送' : '生成总结'}
+                >
+                  {hasStartedChat ? (
+                    <>
+                      <span>发送</span>
+                      <span className="material-symbols-outlined text-2xl">send</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>生成总结</span>
+                      <span className="material-symbols-outlined text-2xl">send</span>
+                    </>
+                  )}
                 </button>
               )}
-            />
-          ) : (
-            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gray-700/30 border border-gray-700 text-gray-400 text-sm select-none">
-              <span className="whitespace-nowrap">
-                {agentPrompts.find(p => p.id === summaryMode)?.name || '总结模式'}
-              </span>
             </div>
-          )}
+          </div>
+        </>
+      )}
 
-          {isGenerating ? (
-            // 生成中显示终止按钮
-            <button
-              onClick={handleAbortGeneration}
-              className="flex items-center justify-center gap-2 px-4 py-1.5 bg-red-600 text-white font-medium rounded-md hover:bg-red-500 transition-all text-sm shrink-0"
-              title="终止生成"
-            >
-              <span className="material-symbols-outlined text-lg">stop</span>
-              <span>终止</span>
-            </button>
-          ) : (
-            <button
-              onClick={handleGenerateSummary}
-              disabled={(!hasStartedChat && selectedModels.length === 0) || !isApiConfigured || summaryModels.length === 0 || (hasStartedChat && !customPrompt.trim())}
-              className={`flex items-center justify-center bg-primary text-black font-medium rounded-md hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all 
-                text-sm shrink-0 gap-2 px-4 py-1.5`}
-              title={hasStartedChat ? '发送' : '生成总结'}
-            >
-              {hasStartedChat ? (
-                <>
-                  <span>发送</span>
-                  <span className="material-symbols-outlined text-2xl">send</span>
-                </>
-              ) : (
-                <>
-                  <span>生成总结</span>
-                  <span className="material-symbols-outlined text-2xl">send</span>
-                </>
-              )}
-            </button>
-          )}
+      {summarySource === 'webview' && (
+        <div className="flex-1 flex flex-col overflow-hidden gap-3">
+          {/* 上半：streamingContent / messages 镜像区 */}
+          <div className="flex-1 min-h-[200px] overflow-y-auto bg-gray-900/40 rounded p-3 text-sm text-gray-200">
+            {webviewSummary.error && (
+              <div className="text-red-400 mb-2">{webviewSummary.error}</div>
+            )}
+            {webviewSummary.streamingContent ? (
+              <pre className="whitespace-pre-wrap font-sans">{webviewSummary.streamingContent}</pre>
+            ) : (
+              <div className="text-gray-500 text-xs">
+                {webviewSummary.phase === 'idle' && '点击下方"开始 Webview 总结"'}
+                {webviewSummary.phase === 'loading-page' && '正在加载平台页面...'}
+                {webviewSummary.phase === 'sending' && '正在注入 prompt...'}
+                {webviewSummary.phase === 'streaming' && '等待回复...'}
+                {webviewSummary.phase === 'done' && '已完成'}
+                {webviewSummary.phase === 'aborted' && '已停止'}
+              </div>
+            )}
+          </div>
+
+          {/* 下半：嵌入的 WebviewCard */}
+          <div className="flex-[2] min-h-[300px]">
+            <WebviewCard
+              ref={webviewSummaryRef}
+              id={`summary-${webviewPlatformId}`}
+              name={webviewPlatformInfo.name}
+              url={webviewPlatformInfo.url}
+              logo={webviewPlatformInfo.logo || ''}
+              enabled={true}
+              slotIndex={0}
+            />
+          </div>
+
+          {/* 操作栏 */}
+          <div className="shrink-0 flex items-center gap-2">
+            {!webviewSummary.isGenerating ? (
+              <button
+                type="button"
+                onClick={() => webviewSummary.startSummary()}
+                disabled={selectedModels.length === 0}
+                className="px-4 py-2 rounded bg-primary hover:bg-primary/90 text-white text-sm disabled:opacity-50"
+              >
+                开始 Webview 总结
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => webviewSummary.abortSummary()}
+                className="px-4 py-2 rounded bg-red-600 hover:bg-red-700 text-white text-sm"
+              >
+                停止
+              </button>
+            )}
+            <span className="text-xs text-gray-500">{`已选 ${selectedModels.length} 个模型`}</span>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* 导出确认对话框 */}
       {showExportDialog && (
