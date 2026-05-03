@@ -988,6 +988,25 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
               </button>
             )}
             <span className="text-xs text-gray-500">{`已选 ${selectedModels.length} 个模型`}</span>
+            {/* 传输策略提示 */}
+            {webviewSummary.phase === 'uploading-file' && (
+              <span className="text-xs text-primary flex items-center gap-1">
+                <span className="material-symbols-outlined text-sm">upload_file</span>
+                正在上传文件...
+              </span>
+            )}
+            {webviewSummary.phase === 'sending' && (
+              <span className="text-xs text-gray-500 flex items-center gap-1">
+                <span className="material-symbols-outlined text-sm">send</span>
+                正在发送...
+              </span>
+            )}
+            {webviewSummary.phase === 'streaming' && (
+              <span className="text-xs text-gray-500 flex items-center gap-1">
+                <span className="material-symbols-outlined text-sm">psychology</span>
+                正在生成回复...
+              </span>
+            )}
           </div>
         </div>
       )}
