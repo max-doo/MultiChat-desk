@@ -83,6 +83,7 @@ export interface HistoryItem {
   createdAt: number
   updatedAt: number
   models: string[]
+  title?: string
   turns: ConversationTurn[]
   urls?: Record<string, string>
 }

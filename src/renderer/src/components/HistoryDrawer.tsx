@@ -30,7 +30,7 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
 
   // 过滤对话历史记录
   const filteredHistory = history.filter(item =>
-    item.message.toLowerCase().includes(searchQuery.toLowerCase())
+    (item.title ?? item.turns[0]?.userMessage ?? '').toLowerCase().includes(searchQuery.toLowerCase())
   )
 
   // 过滤总结历史记录
@@ -136,7 +136,7 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
         onCancel={closeRename}
         onConfirm={async (value) => {
           if (renameType === 'conversation') {
-            updateHistory(renameTargetId, { message: value })
+            updateHistory(renameTargetId, { title: value })
           } else {
             updateSummaryHistory(renameTargetId, { title: value })
           }
@@ -274,14 +274,14 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
                         <div className="flex-1 min-w-0">
                           <div className="flex items-start justify-between gap-2">
                             <p className={`line-clamp-2 flex-1 transition-colors ${isSelected ? 'text-primary' : 'text-gray-300'}`}>
-                              {item.message}
+                              {item.title ?? item.turns[0]?.userMessage ?? '(无消息)'}
                             </p>
                             {!isSelectionMode && (
                               <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation()
-                                    openRename('conversation', item.id, item.message)
+                                    openRename('conversation', item.id, item.title ?? item.turns[0]?.userMessage ?? '')
                                   }}
                                   className="text-gray-500 hover:text-primary transition-all p-1"
                                   title="重命名"
@@ -303,7 +303,8 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
                             )}
                           </div>
                           <div className="flex items-center justify-between text-xs text-gray-500 mt-2">
-                            <span>{new Date(item.timestamp).toLocaleString('zh-CN')}</span>
+                            <span>{new Date(item.createdAt).toLocaleString('zh-CN')}</span>
+                            <span className="ml-2 text-gray-600">{item.turns.length} 轮</span>
                             <div className="flex items-center gap-2" title={getModelNames(item.models)}>
                               <span className="whitespace-nowrap">{item.models.length} 个模型</span>
                               <div className="flex -space-x-1.5 overflow-hidden">
