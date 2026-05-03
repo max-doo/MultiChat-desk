@@ -2,6 +2,10 @@
 
 <!--此文件在每次对话结束后更新。每条记录精确到分钟级时间戳。-->
 
+## 2026-05-04
+
+- 00:10 | feat: src/renderer/src/store/appStore.ts, src/renderer/src/config/selectors.ts - 将 arena.ai 接入 Webview 平台列表：添加模型配置（id: arena, logo: base64 PNG, 默认不启用）和 DOM 选择器配置，更新选择器版本至 11
+
 ## 2026-05-03
 
 - 17:39 | feat: src/main/ipcHandlers.ts, src/preload/index.ts, src/renderer/src/components/SettingsDrawer.tsx - 新增缓存数据导出功能：在设置面板导出所有应用配置和历史记录为 JSON，API Key 自动脱敏
@@ -25,11 +29,12 @@
 - 22:06 | feat: src/main/index.ts - 应用启动时自动清理 `modelmash-uploads-*` 临时目录
 - 22:18 | refactor: src/renderer/src/hooks/useWebviewSummary.ts:137 - 文件上传模式下，系统指令和用户要求从文件中分离，改为通过对话框发送；文件仅包含模型回答数据
 - 22:50 | feat: electron-builder.yml, package.json, assets/logo.icns, build/entitlements.mac.plist - 补齐 macOS 打包配置：新增 mac/dmg target（x64 + arm64）、entitlements、`.icns` 图标；修复 `build:mac` 脚本缺失 config 文件参数
-## 格式
-
-## YYYY-MM-DD
-
-- HH:MM | 修改: [文件] - 描述；新增: [文件] - 描述
-- HH:MM | 新增: [文件] - 描述
-- HH:MM | 修复: - 描述
-- HH:MM | 待解决: - 描述
+- 23:30 | feat: src/renderer/src/store/appStore.ts - 实现 webview AI 输出实时监控：发送消息后自动轮询各平台回复，内容连续稳定后判定完成并保存完整对话数据
+- 23:30 | feat: src/renderer/src/store/appStore.ts - 新 HistoryItem 数据模型（turns[] 累积多轮对话），替代旧 flat 格式；自动迁移旧格式历史记录
+- 23:30 | feat: src/renderer/src/store/appStore.ts - 新增新对话判定逻辑（URL 变化检测 + isNewSession 信号），同一对话多轮累积到单条记录
+- 23:30 | feat: src/renderer/src/components/WebviewCard.tsx - 点击"新对话"按钮时重置 isNewSession，确保下次发送创建新 HistoryItem
+- 23:30 | feat: src/renderer/src/components/HistoryDrawer.tsx - 适配 turns[] 格式：显示首轮用户消息为标题、轮次数、createdAt 时间；重命名功能更新 title 字段
+- 23:36 | fix: src/renderer/src/pages/MainPage.tsx:427 - 修复点击对话历史恢复时白屏：HistoryItem 已迁移至 turns[] 多轮格式，旧的 item.message 为 undefined，传入 setMessage 后触发 ControlBar 中 message.trim() 抛错；改为传入空字符串
+- 23:38 | fix: src/renderer/src/components/SummaryPanel.tsx:225 - 修复点击生成总结时白屏：handleWebviewSend 在 useCallback 中引用 webviewSummary 并加入依赖数组，但 useWebviewSummary 声明在该 callback 之后，触发 TDZ ReferenceError；将 useWebviewSummary 调用上移至 handleWebviewSend 之前
+- 23:45 | fix: src/renderer/src/components/SummaryPanel.tsx - Webview 总结模式修复：添加缺失的模式选择器和用户指令输入框；buildWebviewPrompt 改用 summaryMode 替代 selectedAgent 以正确填充系统指令；发送后按钮变灰禁用替代停止按钮；发送时立即创建历史记录，轮询完成后自动追加助手回复
+- 23:55 | feat: src/renderer/src/config/selectors.ts, webviewScripts.ts, WebviewCard.tsx, appStore.ts, ControlBar.tsx - 新增 AI 生图一键切换按钮：支持 9 个平台（chatgpt/gemini/grok/qwen/kimi/doubao/yuanbao/chatglm/yiyan），复用 DeepResearch 的注入脚本架构；按钮使用紫色主题，位于深度研究按钮右侧
