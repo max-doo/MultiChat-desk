@@ -14,6 +14,8 @@ export interface ModelSelector {
   reportContainer?: string[]
   // Custom CSS
   customCSS: string
+  /** Webview 总结模式专用：打开此 URL 进入一个全新的对话页 */
+  newConversationUrl?: string
   // Deep Research mode configuration
   researchMode?: {
     // Steps to enable Deep Research
@@ -49,8 +51,8 @@ export interface SelectorsConfig {
  * 如需调整请选择器配置，直接修改本文件后重启应用生效
  */
 export const defaultSelectors: SelectorsConfig = {
-  version: 8,
-  lastUpdated: new Date().toISOString().split('T')[0],
+  version: 9,
+  lastUpdated: '2026-05-03',
   models: {
     chatgpt: {
       textarea: [
@@ -78,6 +80,7 @@ export const defaultSelectors: SelectorsConfig = {
         [class*="sidebar"] { display: none !important; }
         .xl\\:pl-\\[260px\\] { padding-left: 0 !important; }
       `,
+      newConversationUrl: 'https://chat.openai.com/?temporary-chat=true',
       researchMode: {
         steps: [
           { selector: '[data-testid="composer-plus-btn"], #composer-plus-btn, button.composer-btn', delay: 1000 },
@@ -109,6 +112,7 @@ export const defaultSelectors: SelectorsConfig = {
         'div[class*="markdown"]'
       ],
       customCSS: ``,
+      newConversationUrl: 'https://www.perplexity.ai/',
       researchMode: {
         steps: [
           // 宽屏：直接点击 radio 按钮切换到研究模式
@@ -149,7 +153,8 @@ export const defaultSelectors: SelectorsConfig = {
         nav { display: none !important; }
         [class*="sidebar"] { display: none !important; }
         .lg\\:pl-\\[260px\\] { padding-left: 0 !important; }
-      `
+      `,
+      newConversationUrl: 'https://claude.ai/new'
     },
     chatglm: {
       textarea: [
@@ -182,6 +187,7 @@ export const defaultSelectors: SelectorsConfig = {
         'div.task-aside-container'
       ],
       customCSS: ``,
+      newConversationUrl: 'https://chatglm.cn/main/alltoolsdetail',
       researchMode: {
         steps: [
           { selector: ['button', '[role="button"]', '[role="menuitem"]', '[role="menuitemradio"]', '[role="tab"]'], text: ['深度研究', '联网研究', '研究模式', 'Deep Research', 'Research'], delay: 700 }
@@ -219,7 +225,8 @@ export const defaultSelectors: SelectorsConfig = {
         '.prose',
         '[class*="markdown"]'
       ],
-      customCSS: ``
+      customCSS: ``,
+      newConversationUrl: 'https://yiyan.baidu.com/'
     },
     gemini: {
       textarea: [
@@ -244,6 +251,7 @@ export const defaultSelectors: SelectorsConfig = {
         '.model-response'
       ],
       customCSS: ``,
+      newConversationUrl: 'https://gemini.google.com/app',
       researchMode: {
         steps: [
           { selector: 'button.toolbox-drawer-button', delay: 500 },
@@ -273,6 +281,7 @@ export const defaultSelectors: SelectorsConfig = {
         '.prose'
       ],
       customCSS: ``,
+      newConversationUrl: 'https://grok.com/',
       researchMode: {
         steps: [
           { selector: 'button', text: 'DeepSearch', delay: 500 }
@@ -311,6 +320,7 @@ export const defaultSelectors: SelectorsConfig = {
         '.viewResults-D_wP0H .tongyi-markdown'
       ],
       customCSS: ``,
+      newConversationUrl: 'https://chat.qwen.ai/',
       researchMode: {
         steps: [
           { selector: ['button[data-log-name="tool_bar"][data-log-params*="deepResearch"]', 'button[data-log-params*="deepResearch"]', 'button.tagBtn-OADWVI'], text: '深度研究', delay: 500 }
@@ -342,7 +352,8 @@ export const defaultSelectors: SelectorsConfig = {
         '.chat-message',
         '.message-content'
       ],
-      customCSS: ``
+      customCSS: ``,
+      newConversationUrl: 'https://www.kimi.com/'
     },
     doubao: {
       textarea: [
@@ -382,6 +393,7 @@ export const defaultSelectors: SelectorsConfig = {
         'div.zone-container.editor-kit-container'
       ],
       customCSS: ``,
+      newConversationUrl: 'https://www.doubao.com/chat/',
       researchMode: {
         steps: [
           { selector: ['button.skill-bar-button[data-component-type="skill-item"]', 'button[data-component-type="skill-item"][data-testid^="skill_bar_button_"]'], text: ['深入研究', '深度研究'], delay: 500 }
@@ -412,7 +424,8 @@ export const defaultSelectors: SelectorsConfig = {
         '.markdown-body',
         '.message-content'
       ],
-      customCSS: ``
+      customCSS: ``,
+      newConversationUrl: 'https://yuanbao.tencent.com/chat'
     }
   }
 }

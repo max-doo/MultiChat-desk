@@ -56,6 +56,10 @@ export interface ApiConfig {
   includeReasoning?: boolean
   contextRounds?: number  // 多轮对话的上下文轮数，0 表示不保留上下文
   favoriteModelIds?: string[] // 收藏的模型 ID 列表
+  /** 'api'（接 OpenAI 兼容）或 'webview'（嵌入式厂商页面） */
+  summarySource?: 'api' | 'webview'
+  /** Webview 模式下上次选中的目标平台 id */
+  lastWebviewSummaryPlatform?: string
 }
 
 // 历史记录类型
@@ -91,6 +95,10 @@ export interface SummaryHistoryItem {
   }>
   selectedModels: string[] // 参与总结的模型 ID 列表
   modelResponses?: Record<string, string> // 各模型的原始回复
+  /** 'api' 或 'webview'，缺省视为 'api'（兼容旧记录） */
+  summarySource?: 'api' | 'webview'
+  /** summarySource = 'webview' 时记录目标平台 id */
+  webviewPlatformId?: string
 }
 
 // 发送结果类型
