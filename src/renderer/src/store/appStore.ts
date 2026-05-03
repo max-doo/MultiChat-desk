@@ -1034,8 +1034,37 @@ export async function initializeStore(): Promise<void> {
       }
     }
 
-    const storedHistory = await window.api.storeGet('history') as HistoryItem[] | undefined
-    if (storedHistory) useAppStore.setState({ history: storedHistory })
+    const storedHistory = await window.api.storeGet('history') as any[] | undefined
+    if (storedHistory && storedHistory.length > 0) {
+      // 检测是否为旧格式并迁移
+      const isOldFormat = storedHistory.some(
+        (item) => item && typeof item.message === 'string' && !Array.isArray(item.turns)
+      )
+
+      if (isOldFormat) {
+        const migratedHistory: HistoryItem[] = storedHistory.map((old: any) => ({
+          id: old.id || Date.now().toString(),
+          createdAt: old.timestamp || Date.now(),
+          updatedAt: old.timestamp || Date.now(),
+          models: old.models || [],
+          turns: [
+            {
+              turnId: `${old.id || Date.now()}-0`,
+              userMessage: old.message || '',
+              timestamp: old.timestamp || Date.now(),
+              responses: old.responses || {},
+            },
+          ],
+          urls: old.urls,
+        }))
+        useAppStore.setState({ history: migratedHistory })
+        // 立即持久化新格式
+        window.api?.storeSet('history', migratedHistory)
+        console.log('[Store] History migrated from old format to turns-based format')
+      } else {
+        useAppStore.setState({ history: storedHistory as HistoryItem[] })
+      }
+    }
 
     const storedSummaryHistory = await window.api.storeGet('summaryHistory') as SummaryHistoryItem[] | undefined
     if (storedSummaryHistory) useAppStore.setState({ summaryHistory: storedSummaryHistory })
