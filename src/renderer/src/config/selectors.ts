@@ -75,6 +75,15 @@ export const defaultSelectors: SelectorsConfig = {
         '.markdown.prose',
         '.agent-turn .markdown'
       ],
+      reportContainer: [
+        'section.popover > section',
+        '[class*="popover"] > section',
+        '[class*="popover"] [class*="report"]',
+        '[role="dialog"] [class*="markdown"]',
+        '[role="dialog"] article',
+        '[class*="deep-research"] [class*="markdown"]',
+        '[class*="research"] article'
+      ],
       customCSS: `
         nav[aria-label*="Chat history"] { display: none !important; }
         [class*="sidebar"] { display: none !important; }

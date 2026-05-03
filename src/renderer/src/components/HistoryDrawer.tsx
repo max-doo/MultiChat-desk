@@ -9,13 +9,14 @@ interface HistoryDrawerProps {
   onClose: () => void
   onSelectHistory?: (item: HistoryItem) => void
   onSelectSummaryHistory?: (item: SummaryHistoryItem) => void
+  activeHistoryId?: string
 }
 
 /**
  * 历史记录抽屉组件
  * 从左侧滑出，显示对话历史记录和总结历史记录
  */
-function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistory }: HistoryDrawerProps): JSX.Element {
+function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistory, activeHistoryId }: HistoryDrawerProps): JSX.Element {
   const [searchQuery, setSearchQuery] = useState('')
   const [isSelectionMode, setIsSelectionMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
@@ -249,15 +250,21 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
                 data={filteredHistory}
                 itemContent={(_index, item) => {
                   const isSelected = selectedIds.includes(item.id)
+                  const isActive = activeHistoryId === item.id
                   return (
                     <div className="pb-3">
                       <div
                         onClick={() => handleSelect(item)}
                         className={`group p-4 rounded-lg bg-gray-800/50 border transition-all ${isSelected
                           ? 'border-primary bg-primary/5'
-                          : 'border-gray-700 hover:border-primary/50'
-                          } cursor-pointer flex items-center gap-3`}
+                          : isActive
+                            ? 'border-primary/60 bg-primary/10'
+                            : 'border-gray-700 hover:border-primary/50'
+                          } cursor-pointer flex items-center gap-3 relative`}
                       >
+                        {isActive && (
+                          <div className="absolute left-0 top-3 bottom-3 w-1 rounded-r-full bg-primary" />
+                        )}
                         {isSelectionMode && (
                           <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors flex-shrink-0 ${isSelected ? 'bg-primary border-primary' : 'border-gray-500'
                             }`}>
@@ -334,15 +341,21 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
                 data={filteredSummaryHistory}
                 itemContent={(_index, item) => {
                   const isSelected = selectedIds.includes(item.id)
+                  const isActive = activeHistoryId === item.id
                   return (
                     <div className="pb-3">
                       <div
                         onClick={() => handleSelectSummary(item)}
                         className={`group p-4 rounded-lg bg-gray-800/50 border transition-all ${isSelected
                           ? 'border-primary bg-primary/5'
-                          : 'border-gray-700 hover:border-primary/50'
-                          } cursor-pointer flex items-center gap-3`}
+                          : isActive
+                            ? 'border-primary/60 bg-primary/10'
+                            : 'border-gray-700 hover:border-primary/50'
+                          } cursor-pointer flex items-center gap-3 relative`}
                       >
+                        {isActive && (
+                          <div className="absolute left-0 top-3 bottom-3 w-1 rounded-r-full bg-primary" />
+                        )}
                         {isSelectionMode && (
                           <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors flex-shrink-0 ${isSelected ? 'bg-primary border-primary' : 'border-gray-500'
                             }`}>

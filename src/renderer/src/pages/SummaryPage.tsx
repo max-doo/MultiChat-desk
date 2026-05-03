@@ -14,8 +14,15 @@ interface SummaryPageProps {
  * 显示各模型输出和 AI 总结面板
  */
 function SummaryPage({ onNavigateBack, initialHistoryItem }: SummaryPageProps): JSX.Element {
-  const { models, displayMode, reportData } = useAppStore()
+  const { models, displayMode, reportData, apiConfig, setApiConfig } = useAppStore()
+
+  // 从 store 读取当前总结模式，缺省 'webview'
+  const summarySource: 'api' | 'webview' = apiConfig.summarySource ?? 'webview'
+  const setSummarySource = (next: 'api' | 'webview') => {
+    setApiConfig({ ...apiConfig, summarySource: next })
+  }
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [activeHistoryId, setActiveHistoryId] = useState<string | undefined>(undefined)
   
   // 获取当前实际显示的模型（根据 displayMode）
   const displayedModels = useMemo(() => {
@@ -111,7 +118,10 @@ function SummaryPage({ onNavigateBack, initialHistoryItem }: SummaryPageProps): 
   // 抽取恢复历史记录的逻辑
   const handleRestoreHistory = (item: SummaryHistoryItem) => {
     console.log('[SummaryPage] 恢复历史记录:', item)
-    
+
+    // 记录当前激活的历史记录 ID
+    setActiveHistoryId(item.id)
+
     // 设置恢复标记，防止 reportData 的 useEffect 覆盖恢复的数据
     setIsRestoringHistory(true)
     setIsLoadingResponses(true)
@@ -138,13 +148,11 @@ function SummaryPage({ onNavigateBack, initialHistoryItem }: SummaryPageProps): 
       selectedModels: item.selectedModels,
       modelResponses: item.modelResponses || {}
     })
-    
-    // 完成恢复后清除标记
+
+    // 仅清除 loading 状态，保持 isRestoringHistory 为 true，
+    // 防止 reportData 的 useEffect 在恢复后覆盖历史记录的模型回复
     setTimeout(() => {
       setIsLoadingResponses(false)
-      setIsRestoringHistory(false)
-      // 清除恢复数据标记，避免重复恢复
-      setRestoreHistoryData(null)
     }, 200)
   }
 
@@ -159,6 +167,29 @@ function SummaryPage({ onNavigateBack, initialHistoryItem }: SummaryPageProps): 
           <span className="material-symbols-outlined">arrow_back</span>
           <span>返回对话窗口</span>
         </button>
+
+        {/* 模式开关：API / Webview */}
+        <div className="flex items-center gap-1 shrink-0 bg-gray-800 border border-gray-700 rounded-md p-1">
+          <button
+            type="button"
+            onClick={() => setSummarySource('api')}
+            className={`px-3 py-1 text-xs rounded transition-colors ${
+              summarySource === 'api' ? 'bg-primary text-black' : 'text-gray-400 hover:text-white'
+            }`}
+          >
+            API
+          </button>
+          <button
+            type="button"
+            onClick={() => setSummarySource('webview')}
+            className={`px-3 py-1 text-xs rounded transition-colors ${
+              summarySource === 'webview' ? 'bg-primary text-black' : 'text-gray-400 hover:text-white'
+            }`}
+          >
+            Webview
+          </button>
+        </div>
+
         <div className="flex items-center gap-4">
           <h1 className="text-xl font-semibold text-white">ModelMash</h1>
           {/* 历史记录按钮 */}
@@ -216,6 +247,7 @@ function SummaryPage({ onNavigateBack, initialHistoryItem }: SummaryPageProps): 
         isOpen={historyOpen}
         onClose={() => setHistoryOpen(false)}
         onSelectHistory={handleRestoreHistory}
+        activeHistoryId={activeHistoryId}
       />
     </div>
   )

@@ -34,6 +34,7 @@ declare global {
       getFileInfo: (filePath: string) => Promise<GetFileInfoResult>
       readClipboardText: () => Promise<string>
       readClipboardHTML: () => Promise<string>
+      readClipboardImage: () => Promise<GetFileInfoResult>
       sendMouseClick: (webContentsId: number, x: number, y: number) => Promise<{ success: boolean; error?: string }>
       dispatchFileDrop: (webContentsId: number, filePath: string, x: number, y: number) => Promise<{ success: boolean; error?: string }>
       storeGet: (key: string) => Promise<unknown>
@@ -68,6 +69,7 @@ declare global {
         apiKey: string
         baseUrl: string
       }) => Promise<{ success: boolean; error?: string }>
+      exportCache: () => Promise<{ success: boolean; filePath?: string; error?: string }>
       exportReport: (params: {
         content: string
         fileName: string

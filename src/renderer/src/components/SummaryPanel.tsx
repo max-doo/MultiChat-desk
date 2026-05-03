@@ -78,6 +78,9 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
     setContextRounds,
     showSettings,
     setShowSettings,
+    editingRegenerateMessageId,
+    editingRegenerateText,
+    setEditingRegenerateText,
 
     // 计算值
     agentPrompts,
@@ -95,13 +98,15 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
     handleSwitchVersion,
     handleOpenExportDialog,
     handleSelectExportDirectory,
-    handleConfirmExport
+    handleConfirmExport,
+    startEditingRegenerate,
+    cancelEditingRegenerate
   } = useSummaryPanel({ selectedModels, modelResponses, restoreHistoryData })
 
   const { apiConfig, models, setApiConfig } = useAppStore()
 
-  // 从 store 读取当前模式，缺省 'api'
-  const summarySource: 'api' | 'webview' = apiConfig.summarySource ?? 'api'
+  // 从 store 读取当前模式，缺省 'webview'
+  const summarySource: 'api' | 'webview' = apiConfig.summarySource ?? 'webview'
   const firstEnabledModel = models.find(m => m.enabled)
   const lastWebviewPlatform = apiConfig.lastWebviewSummaryPlatform ?? firstEnabledModel?.id ?? 'chatgpt'
   const [webviewPlatformId, setWebviewPlatformId] = useState<string>(lastWebviewPlatform)
@@ -118,9 +123,6 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
     }
   }, [models, webviewPlatformId])
 
-  const setSummarySource = (next: 'api' | 'webview') => {
-    setApiConfig({ ...apiConfig, summarySource: next })
-  }
   const setLastWebviewPlatform = (id: string) => {
     setWebviewPlatformId(id)
     setApiConfig({ ...apiConfig, lastWebviewSummaryPlatform: id })
@@ -253,38 +255,6 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
 
   return (
     <div className="flex flex-col h-full">
-      {/* 未配置 API 时显示提示 */}
-      {!isApiConfigured && (
-        <div className="mb-4 px-4 py-3 bg-amber-900/20 border border-amber-700/50 rounded-lg shrink-0">
-          <div className="flex items-center gap-2 text-amber-400">
-            <span className="material-symbols-outlined text-lg">warning</span>
-            <span className="text-sm">请先在设置中配置 API Key 以使用总结功能</span>
-          </div>
-        </div>
-      )}
-
-      {/* 模式开关：API / Webview */}
-      <div className="flex items-center gap-1 mb-3 shrink-0 bg-gray-800 border border-gray-700 rounded-md p-1 w-fit">
-        <button
-          type="button"
-          onClick={() => setSummarySource('api')}
-          className={`px-3 py-1 text-xs rounded transition-colors ${
-            summarySource === 'api' ? 'bg-primary text-white' : 'text-gray-400 hover:text-white'
-          }`}
-        >
-          API
-        </button>
-        <button
-          type="button"
-          onClick={() => setSummarySource('webview')}
-          className={`px-3 py-1 text-xs rounded transition-colors ${
-            summarySource === 'webview' ? 'bg-primary text-white' : 'text-gray-400 hover:text-white'
-          }`}
-        >
-          Webview
-        </button>
-      </div>
-
       {/* 头部：供应商和模型选择 — API 模式 */}
       {summarySource === 'api' && (
       <div className="flex items-center gap-2 relative shrink-0 mb-4">
@@ -628,37 +598,6 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
       </div>
       )}
 
-      {/* 头部：平台选择 — Webview 模式 */}
-      {summarySource === 'webview' && (
-        <div className="flex items-center gap-2 relative shrink-0 mb-4">
-          <CustomDropdown
-            value={webviewPlatformId}
-            onChange={(id) => setLastWebviewPlatform(id)}
-            placeholder="选择平台"
-            className="min-w-[120px]"
-            dropdownWidth="min-w-[200px]"
-            buttonClassName="w-full px-3 py-1.5 rounded-md text-sm flex items-center justify-between gap-2 bg-primary/10 border border-primary/50 text-primary hover:border-primary"
-            displayText={models.find(m => m.id === webviewPlatformId)?.name || '选择平台'}
-            renderContent={(onClose) => (
-              <>
-                {models.filter(m => m.enabled).map(m => (
-                  <button
-                    type="button"
-                    key={m.id}
-                    onClick={() => { setLastWebviewPlatform(m.id); onClose() }}
-                    className={`block w-full px-3 py-2 text-left text-sm transition-colors hover:bg-gray-700 ${
-                      webviewPlatformId === m.id ? 'text-primary bg-primary/5' : 'text-gray-300'
-                    }`}
-                  >
-                    {m.name}
-                  </button>
-                ))}
-              </>
-            )}
-          />
-        </div>
-      )}
-
       {/* 错误提示 */}
       {error && (
         <div className="mb-4 px-4 py-2 bg-red-900/30 border border-red-700 rounded-md text-red-400 text-sm shrink-0">
@@ -754,7 +693,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
                         <div className="flex items-center gap-3">
                           {!isGenerating && messages.filter(m => m.role === 'assistant').slice(-1)[0]?.id === message.id && (
                             <button
-                              onClick={() => handleRegenerate(message.id)}
+                              onClick={() => startEditingRegenerate(message.id)}
                               className="p-1 text-gray-400 hover:text-white transition-colors"
                               title="重新生成"
                               aria-label="重新生成"
@@ -805,6 +744,41 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
                           )}
                         </div>
                       </div>
+                      {/* 重新生成编辑区域 */}
+                      {editingRegenerateMessageId === message.id && (
+                        <div className="mt-3 bg-gray-800/80 border border-gray-600 rounded-lg p-3">
+                          <label className="block text-xs text-gray-400 mb-1.5">
+                            修改要求后重新生成
+                          </label>
+                          <textarea
+                            value={editingRegenerateText}
+                            onChange={(e) => setEditingRegenerateText(e.target.value)}
+                            placeholder="输入新的要求..."
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && !e.shiftKey) {
+                                e.preventDefault()
+                                handleRegenerate(message.id, editingRegenerateText)
+                              }
+                            }}
+                            className="w-full h-16 px-3 py-2 bg-gray-900 border border-gray-700 rounded text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:border-primary/50 resize-none"
+                            autoFocus
+                          />
+                          <div className="flex items-center justify-end gap-2 mt-2">
+                            <button
+                              onClick={cancelEditingRegenerate}
+                              className="px-3 py-1 text-xs text-gray-400 hover:text-gray-200 transition-colors"
+                            >
+                              取消
+                            </button>
+                            <button
+                              onClick={() => handleRegenerate(message.id, editingRegenerateText)}
+                              className="px-3 py-1 bg-primary text-black text-xs font-medium rounded hover:opacity-90 transition-colors"
+                            >
+                              重新生成
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -977,36 +951,19 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
       )}
 
       {summarySource === 'webview' && (
-        <div className="flex-1 flex flex-col overflow-hidden gap-3">
-          {/* 上半：streamingContent / messages 镜像区 */}
-          <div className="flex-1 min-h-[200px] overflow-y-auto bg-gray-900/40 rounded p-3 text-sm text-gray-200">
-            {webviewSummary.error && (
-              <div className="text-red-400 mb-2">{webviewSummary.error}</div>
-            )}
-            {webviewSummary.streamingContent ? (
-              <pre className="whitespace-pre-wrap font-sans">{webviewSummary.streamingContent}</pre>
-            ) : (
-              <div className="text-gray-500 text-xs">
-                {webviewSummary.phase === 'idle' && '点击下方"开始 Webview 总结"'}
-                {webviewSummary.phase === 'loading-page' && '正在加载平台页面...'}
-                {webviewSummary.phase === 'sending' && '正在注入 prompt...'}
-                {webviewSummary.phase === 'streaming' && '等待回复...'}
-                {webviewSummary.phase === 'done' && '已完成'}
-                {webviewSummary.phase === 'aborted' && '已停止'}
-              </div>
-            )}
-          </div>
-
-          {/* 下半：嵌入的 WebviewCard */}
-          <div className="flex-[2] min-h-[300px]">
+        <div className="flex-1 flex flex-col overflow-hidden gap-3 min-h-0">
+          {/* WebviewCard —— 完整版（含 header：平台选择器 + 刷新 + 状态） */}
+          <div className="flex-1 min-h-0">
             <WebviewCard
               ref={webviewSummaryRef}
-              id={`summary-${webviewPlatformId}`}
+              id={webviewPlatformId}
               name={webviewPlatformInfo.name}
               url={webviewPlatformInfo.url}
               logo={webviewPlatformInfo.logo || ''}
               enabled={true}
               slotIndex={0}
+              compact
+              onModelChange={(modelId) => setLastWebviewPlatform(modelId)}
             />
           </div>
 
@@ -1017,7 +974,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
                 type="button"
                 onClick={() => webviewSummary.startSummary()}
                 disabled={selectedModels.length === 0}
-                className="px-4 py-2 rounded bg-primary hover:bg-primary/90 text-white text-sm disabled:opacity-50"
+                className="px-4 py-2 rounded bg-primary hover:bg-primary/90 text-black text-sm font-medium disabled:opacity-50"
               >
                 开始 Webview 总结
               </button>
@@ -1025,7 +982,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
               <button
                 type="button"
                 onClick={() => webviewSummary.abortSummary()}
-                className="px-4 py-2 rounded bg-red-600 hover:bg-red-700 text-white text-sm"
+                className="px-4 py-2 rounded bg-red-600 hover:bg-red-700 text-white text-sm font-medium"
               >
                 停止
               </button>

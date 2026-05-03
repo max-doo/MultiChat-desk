@@ -522,6 +522,21 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
     }
   }
 
+  // 处理导出缓存数据
+  const handleExportCache = async (): Promise<void> => {
+    if (!window.api?.exportCache) {
+      console.error('exportCache API 不可用')
+      return
+    }
+    const result = await window.api.exportCache()
+    if (result.success) {
+      console.log('缓存数据已导出:', result.filePath)
+    } else if (result.error !== '用户取消') {
+      console.error('导出缓存数据失败:', result.error)
+      alert(`导出失败: ${result.error}`)
+    }
+  }
+
   // 提示词管理
   const handleEditPrompt = (prompt: AgentPrompt): void => {
     setEditingPrompt(prompt)
@@ -649,7 +664,10 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
 
   // 确认删除供应商
   const handleConfirmDeleteProvider = (): void => {
-    setApiConfig({ ...apiConfig, providers: providers.filter(p => p.id !== confirmModal.id) })
+    const deletedProviderId = confirmModal.id
+    setApiConfig({ ...apiConfig, providers: providers.filter(p => p.id !== deletedProviderId) })
+    // 同时删除该供应商下的所有总结模型，避免配置与模型列表不一致
+    setSummaryModels(summaryModels.filter(m => m.providerId !== deletedProviderId))
     setConfirmModal({ ...confirmModal, isOpen: false })
   }
 
@@ -893,22 +911,35 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
           {/* 文件目录设置 */}
           <div>
             <h3 className="font-medium text-gray-300 mb-4">文件目录设置</h3>
-            <div className="p-4 rounded-lg bg-gray-800/50 border border-gray-700">
-              <label className="block text-sm text-gray-400 mb-2">总结导出文件夹</label>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  placeholder="选择导出目录..."
-                  value={apiConfig.exportDirectory || ''}
-                  readOnly
-                  className="flex-1 px-3 py-2 bg-gray-900 border border-gray-700 rounded-md text-gray-300 placeholder-gray-500 text-sm"
-                />
+            <div className="p-4 rounded-lg bg-gray-800/50 border border-gray-700 space-y-4">
+              <div>
+                <label className="block text-sm text-gray-400 mb-2">总结导出文件夹</label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="选择导出目录..."
+                    value={apiConfig.exportDirectory || ''}
+                    readOnly
+                    className="flex-1 px-3 py-2 bg-gray-900 border border-gray-700 rounded-md text-gray-300 placeholder-gray-500 text-sm"
+                  />
+                  <button
+                    onClick={handleSelectDirectory}
+                    className="px-4 py-2 bg-gray-700 text-gray-300 rounded-md hover:bg-gray-600 transition-colors text-sm"
+                  >
+                    浏览
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm text-gray-400 mb-2">应用缓存数据</label>
                 <button
-                  onClick={handleSelectDirectory}
-                  className="px-4 py-2 bg-gray-700 text-gray-300 rounded-md hover:bg-gray-600 transition-colors text-sm"
+                  onClick={handleExportCache}
+                  className="flex items-center gap-2 px-4 py-2 bg-gray-700 text-gray-300 rounded-md hover:bg-gray-600 transition-colors text-sm"
                 >
-                  浏览
+                  <span className="material-symbols-outlined text-sm">download</span>
+                  导出缓存数据
                 </button>
+                <p className="text-xs text-gray-500 mt-1">导出为 JSON 文件，API Key 等敏感信息将被自动脱敏</p>
               </div>
             </div>
           </div>

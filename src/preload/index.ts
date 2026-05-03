@@ -31,6 +31,7 @@ const api = {
   // 剪贴板操作
   readClipboardText: (): Promise<string> => ipcRenderer.invoke('read-clipboard-text'),
   readClipboardHTML: (): Promise<string> => ipcRenderer.invoke('read-clipboard-html'),
+  readClipboardImage: (): Promise<GetFileInfoResult> => ipcRenderer.invoke('read-clipboard-image'),
 
   // 发送鼠标点击事件到 webview（用于触发 Gemini 复制按钮等）
   sendMouseClick: (webContentsId: number, x: number, y: number): Promise<{ success: boolean; error?: string }> =>
@@ -108,6 +109,10 @@ const api = {
     baseUrl: string
   }): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('fetch-models', params),
+
+  // 导出缓存数据
+  exportCache: (): Promise<{ success: boolean; filePath?: string; error?: string }> =>
+    ipcRenderer.invoke('export-cache'),
 
   // 导出报告
   exportReport: (params: {

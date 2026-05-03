@@ -8,13 +8,14 @@ interface SummaryHistoryDrawerProps {
   isOpen: boolean
   onClose: () => void
   onSelectHistory?: (item: SummaryHistoryItem) => void
+  activeHistoryId?: string
 }
 
 /**
  * 总结历史记录抽屉组件
  * 从右侧滑出，显示总结对话历史记录
  */
-function SummaryHistoryDrawer({ isOpen, onClose, onSelectHistory }: SummaryHistoryDrawerProps): JSX.Element {
+function SummaryHistoryDrawer({ isOpen, onClose, onSelectHistory, activeHistoryId }: SummaryHistoryDrawerProps): JSX.Element {
   const [searchQuery, setSearchQuery] = useState('')
   const [itemToDelete, setItemToDelete] = useState<string | null>(null)
   const [showRenameModal, setShowRenameModal] = useState(false)
@@ -144,12 +145,20 @@ function SummaryHistoryDrawer({ isOpen, onClose, onSelectHistory }: SummaryHisto
           ) : (
             <Virtuoso
               data={filteredHistory}
-              itemContent={(_index, item) => (
+              itemContent={(_index, item) => {
+                const isActive = activeHistoryId === item.id
+                return (
                 <div className="pb-3">
                   <div
                     onClick={() => handleSelect(item)}
-                    className="group p-4 rounded-lg bg-gray-800/50 border border-gray-700 hover:border-primary/50 cursor-pointer transition-colors"
+                    className={`group p-4 rounded-lg bg-gray-800/50 border cursor-pointer transition-all ${isActive
+                      ? 'border-primary/60 bg-primary/10'
+                      : 'border-gray-700 hover:border-primary/50'
+                    } relative`}
                   >
+                    {isActive && (
+                      <div className="absolute left-0 top-3 bottom-3 w-1 rounded-r-full bg-primary" />
+                    )}
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
@@ -209,7 +218,7 @@ function SummaryHistoryDrawer({ isOpen, onClose, onSelectHistory }: SummaryHisto
                     </div>
                   </div>
                 </div>
-              )}
+              )}}
             />
           )}
         </div>

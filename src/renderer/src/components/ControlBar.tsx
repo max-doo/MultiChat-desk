@@ -170,6 +170,75 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
       }
     }))
 
+    // 监听粘贴事件，支持从剪贴板直接粘贴图片
+    useEffect(() => {
+      const handlePaste = async (event: ClipboardEvent): Promise<void> => {
+        // 如果当前正在发送或上传，忽略粘贴
+        if (isSending || isUploading) return
+
+        const clipboardData = event.clipboardData
+        if (!clipboardData) return
+
+        // 检查剪贴板中是否有图片
+        const items = Array.from(clipboardData.items)
+        const imageItem = items.find((item) => item.type.startsWith('image/'))
+
+        if (!imageItem) {
+          // 剪贴板中没有图片，让浏览器默认处理（文本粘贴等）
+          return
+        }
+
+        // 阻止默认行为，防止图片被插入到输入框
+        event.preventDefault()
+
+        if (!window.api?.readClipboardImage) {
+          showNotification('error', '剪贴板图片读取 API 不可用')
+          return
+        }
+
+        showNotification('info', '正在读取剪贴板图片...')
+
+        const result = await window.api.readClipboardImage()
+        if (!result.success || !result.data) {
+          showNotification('error', `读取剪贴板图片失败: ${result.error}`)
+          return
+        }
+
+        const fileData = result.data
+        showNotification('info', `正在上传 ${fileData.fileName} 到所有模型...`)
+
+        const results = await uploadFileToAll(fileData)
+
+        const successCount = results.filter(r => r.success).length
+        const failCount = results.filter(r => !r.success).length
+
+        if (failCount === 0) {
+          showNotification('success', `图片已粘贴并上传到 ${successCount} 个模型`)
+        } else if (successCount === 0) {
+          const failed = results
+            .filter(r => !r.success)
+            .map(r => {
+              const name = models.find(m => m.id === r.modelId)?.name || r.modelId
+              const err = (r.error || '').toString().slice(0, 120)
+              return err ? `${name}: ${err}` : name
+            })
+            .join(' | ')
+          showNotification('error', failed ? `所有模型上传失败：${failed}` : '所有模型上传失败')
+        } else {
+          const failedModels = results
+            .filter(r => !r.success)
+            .map(r => models.find(m => m.id === r.modelId)?.name || r.modelId)
+            .join(', ')
+          showNotification('info', `${successCount} 个成功，${failCount} 个失败 (${failedModels})`)
+        }
+      }
+
+      window.addEventListener('paste', handlePaste)
+      return () => {
+        window.removeEventListener('paste', handlePaste)
+      }
+    }, [isSending, isUploading, uploadFileToAll, models, showNotification])
+
     // 监听发送结果
     useEffect(() => {
       if (lastSendResults.length > 0 && !isSending) {

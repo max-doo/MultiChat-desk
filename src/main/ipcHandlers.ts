@@ -5,7 +5,8 @@
 
 import { ipcMain, dialog, clipboard, BrowserWindow, shell } from 'electron'
 import { basename, extname, join } from 'path'
-import { stat } from 'fs/promises'
+import { stat, writeFile, mkdtemp } from 'fs/promises'
+import { tmpdir } from 'os'
 import type Store from 'electron-store'
 import { generateSummary, fetchModels } from './api/summaryApi'
 import {
@@ -315,6 +316,33 @@ export function registerIpcHandlers(
         return clipboard.readHTML()
     })
 
+    // IPC 处理器：读取剪贴板图片并保存为临时文件
+    ipcMain.handle('read-clipboard-image', async () => {
+        try {
+            const image = clipboard.readImage()
+            if (image.isEmpty()) {
+                return { success: false, error: '剪贴板中没有图片' }
+            }
+
+            const buffer = image.toPNG()
+            const tempDir = await mkdtemp(join(tmpdir(), 'modelmash-paste-'))
+            const filePath = join(tempDir, 'pasted-image.png')
+            await writeFile(filePath, buffer)
+
+            return {
+                success: true,
+                data: {
+                    filePath,
+                    fileName: 'pasted-image.png',
+                    mimeType: 'image/png',
+                    size: buffer.length
+                }
+            }
+        } catch (error) {
+            return { success: false, error: String(error) }
+        }
+    })
+
     // IPC 处理器：向 webview 发送鼠标点击事件（用于触发 Gemini 复制按钮）
     ipcMain.handle('send-mouse-click', async (_event, params: {
         webContentsId: number,
@@ -501,6 +529,80 @@ export function registerIpcHandlers(
         return await fetchModels(params)
     })
 
+    // IPC 处理器：导出缓存数据到 JSON 文件
+    ipcMain.handle('export-cache', async () => {
+        try {
+            const { writeFile } = await import('fs/promises')
+
+            // 读取所有相关 store 键
+            const keys = [
+                'displayMode',
+                'models',
+                'apiConfig',
+                'summaryModels',
+                'history',
+                'summaryHistory',
+                'geminiAccountUrl'
+            ]
+
+            const exportData: Record<string, unknown> = {
+                _meta: {
+                    app: 'ModelMash',
+                    exportedAt: new Date().toISOString(),
+                    version: '1.0'
+                }
+            }
+
+            for (const key of keys) {
+                const value = store.get(key)
+                if (value !== undefined) {
+                    exportData[key] = value
+                }
+            }
+
+            // 安全处理：将 apiConfig 中的 API Key 替换为 REDACTED
+            if (exportData.apiConfig && typeof exportData.apiConfig === 'object') {
+                const apiConfig = exportData.apiConfig as Record<string, unknown>
+                if (Array.isArray(apiConfig.providers)) {
+                    apiConfig.providers = apiConfig.providers.map((provider: unknown) => {
+                        if (provider && typeof provider === 'object') {
+                            const p = { ...provider as Record<string, unknown> }
+                            if (p.apiKey && typeof p.apiKey === 'string' && p.apiKey.length > 0) {
+                                p.apiKey = '<REDACTED>'
+                            }
+                            return p
+                        }
+                        return provider
+                    })
+                }
+            }
+
+            const result = await dialog.showSaveDialog({
+                title: '导出缓存数据',
+                defaultPath: `modelmash-cache-${new Date().toISOString().slice(0, 10)}.json`,
+                filters: [
+                    { name: 'JSON 文件', extensions: ['json'] }
+                ]
+            })
+
+            if (result.canceled || !result.filePath) {
+                return { success: false, error: '用户取消' }
+            }
+
+            await writeFile(result.filePath, JSON.stringify(exportData, null, 2), 'utf-8')
+
+            return {
+                success: true,
+                filePath: result.filePath
+            }
+        } catch (error) {
+            return {
+                success: false,
+                error: String(error)
+            }
+        }
+    })
+
     // IPC 处理器：导出报告到文件
     ipcMain.handle('export-report', async (_event, params: {
         content: string
@@ -529,6 +631,10 @@ export function registerIpcHandlers(
                 }
 
                 filePath = result.filePath
+                // 如果用户在对话框中删除了后缀名，自动补回 .md
+                if (!extname(filePath)) {
+                    filePath = filePath + '.md'
+                }
             }
 
             await writeFile(filePath, params.content, 'utf-8')

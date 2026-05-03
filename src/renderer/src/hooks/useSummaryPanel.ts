@@ -40,6 +40,9 @@ export function useSummaryPanel({ selectedModels, modelResponses, restoreHistory
   const [isReasoningExpanded, setIsReasoningExpanded] = useState(false)
   // 已完成消息的思考内容展开状态
   const [expandedReasoningIds, setExpandedReasoningIds] = useState<Set<string>>(new Set())
+  // 快照：在首次生成总结时捕获的 modelResponses，后续重新生成均使用此快照
+  // 避免新对话的模型输出覆盖历史总结中的模型输出
+  const [capturedModelResponses, setCapturedModelResponses] = useState<Record<string, string>>({})
 
   // 导出对话框状态
   const [showExportDialog, setShowExportDialog] = useState(false)
@@ -47,11 +50,17 @@ export function useSummaryPanel({ selectedModels, modelResponses, restoreHistory
   const [exportDirectory, setExportDirectory] = useState('')
   const [exportContent, setExportContent] = useState('')
 
+  // 重新生成编辑状态
+  const [editingRegenerateMessageId, setEditingRegenerateMessageId] = useState<string | null>(null)
+  const [editingRegenerateText, setEditingRegenerateText] = useState('')
+
   // 消息列表滚动引用
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const { models, apiConfig, summaryModels: allSummaryModels, setApiConfig, addSummaryHistory, updateSummaryHistory } = useAppStore()
   const currentSummaryHistoryIdRef = useRef<string | null>(null)
+  // 标记是否已为此对话生成过 AI 标题（避免重复生成）
+  const hasGeneratedTitleRef = useRef<boolean>(false)
 
   const serializeMessages = (source: ChatMessage[]) => {
     return source.map(msg => ({
@@ -80,18 +89,27 @@ export function useSummaryPanel({ selectedModels, modelResponses, restoreHistory
   ) => {
     if (source.length === 0) return
 
-    const title = getSummaryTitle(source)
+    let title = getSummaryTitle(source)
     const now = Date.now()
+
+    // 更新已有记录时，保留用户可能手动重命名的标题
+    const existingId = currentSummaryHistoryIdRef.current
+    if (existingId) {
+      const existing = useAppStore.getState().summaryHistory.find(h => h.id === existingId)
+      if (existing?.title) {
+        title = existing.title
+      }
+    }
+
     const updates = {
       title,
       timestamp: now,
       messages: serializeMessages(source),
       selectedModels: [...selectedModels],
-      modelResponses: { ...modelResponses },
+      modelResponses: { ...capturedModelResponses },
       ...extra
     }
 
-    const existingId = currentSummaryHistoryIdRef.current
     if (existingId) {
       updateSummaryHistory(existingId, { ...updates })
       return
@@ -103,6 +121,68 @@ export function useSummaryPanel({ selectedModels, modelResponses, restoreHistory
       ...updates
     })
     currentSummaryHistoryIdRef.current = id
+  }
+
+  /**
+   * 异步生成 AI 标题并更新历史记录
+   * 仅在首次总结成功后调用，不阻塞主流程
+   */
+  const generateAITitle = async (summaryContent: string): Promise<void> => {
+    if (!activeProvider || !activeProvider.apiKey || !selectedAgent) return
+    if (hasGeneratedTitleRef.current) return
+
+    const historyId = currentSummaryHistoryIdRef.current
+    if (!historyId) return
+
+    // 截取前 500 字作为标题生成素材，避免过长
+    const truncatedContent = summaryContent.length > 500
+      ? summaryContent.substring(0, 500) + '...'
+      : summaryContent
+
+    const titleSystemPrompt = '你是一个标题生成助手。请根据用户提供的对话内容，生成一个简短、准确的中文标题。标题不超过15个字，不要加引号，不要添加任何解释。'
+    const titleUserContent = `请为以下对话生成一个简短的中文标题（不超过15字）：\n\n${truncatedContent}`
+
+    try {
+      console.log('[SummaryPanel] 开始异步生成 AI 标题...')
+      const result = await window.api.generateSummary({
+        apiKey: activeProvider.apiKey,
+        baseUrl: activeProvider.baseUrl,
+        model: selectedAgent,
+        systemPrompt: titleSystemPrompt,
+        userContent: titleUserContent,
+        temperature: 0.3,
+        topP: 1.0,
+        maxTokens: 50,
+        includeReasoning: false
+      })
+
+      if (result.success && result.data) {
+        // 清理生成的标题：去除引号、换行、多余空格
+        let generatedTitle = result.data.trim()
+          .replace(/^[""''`]+|[""''`]+$/g, '')
+          .replace(/\n/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+
+        // 限制长度
+        if (generatedTitle.length > 20) {
+          generatedTitle = generatedTitle.substring(0, 20)
+        }
+
+        if (generatedTitle) {
+          console.log('[SummaryPanel] AI 标题生成成功:', generatedTitle)
+          updateSummaryHistory(historyId, { title: generatedTitle })
+          hasGeneratedTitleRef.current = true
+        } else {
+          console.log('[SummaryPanel] AI 标题生成结果为空，保留默认标题')
+        }
+      } else {
+        console.log('[SummaryPanel] AI 标题生成失败:', result.error || '未知错误')
+      }
+    } catch (err) {
+      console.error('[SummaryPanel] AI 标题生成异常:', err)
+      // 失败时静默处理，保留默认的截断标题
+    }
   }
 
   // 模型参数状态 - 优先使用 apiConfig 中的配置，否则使用默认值
@@ -189,6 +269,10 @@ export function useSummaryPanel({ selectedModels, modelResponses, restoreHistory
         currentVersionIndex: msg.currentVersionIndex
       })))
       setHasStartedChat(restoreHistoryData.messages.length > 0)
+      // 恢复历史记录时，从历史数据中捕获 modelResponses 快照
+      if (restoreHistoryData.modelResponses) {
+        setCapturedModelResponses({ ...restoreHistoryData.modelResponses })
+      }
     }
   }, [restoreHistoryData])
 
@@ -219,6 +303,8 @@ export function useSummaryPanel({ selectedModels, modelResponses, restoreHistory
     setError(null)
     setIsReasoningExpanded(false)
     currentSummaryHistoryIdRef.current = null
+    hasGeneratedTitleRef.current = false
+    setCapturedModelResponses({})
   }
 
   // 生成总结或追问
@@ -269,11 +355,15 @@ export function useSummaryPanel({ selectedModels, modelResponses, restoreHistory
     let userRequirement: string | undefined
 
     if (!hasStartedChat) {
+      // 首次发送：捕获当前 modelResponses 快照，后续重新生成均使用此快照
+      const snapshot = { ...modelResponses }
+      setCapturedModelResponses(snapshot)
+
       // 首次发送：显示 agent 提示词内容，发送完整的模型回答分析
       modelOutputs = selectedModels
         .map(id => {
           const model = models.find(m => m.id === id)
-          const response = modelResponses[id]
+          const response = snapshot[id]
           if (model && response) {
             return { name: model.name, content: response }
           }
@@ -425,6 +515,8 @@ export function useSummaryPanel({ selectedModels, modelResponses, restoreHistory
         // 标记已开始对话
         if (!hasStartedChat) {
           setHasStartedChat(true)
+          // 首次总结成功后，异步生成 AI 标题（不阻塞主流程）
+          generateAITitle(result.data)
         }
       } else if (result.aborted) {
         // 用户主动终止，保留已生成的内容作为消息（如果有的话）
@@ -499,8 +591,46 @@ export function useSummaryPanel({ selectedModels, modelResponses, restoreHistory
     }
   }
 
+  // 开始编辑重新生成的要求
+  const startEditingRegenerate = (messageId: string): void => {
+    const messageIndex = messages.findIndex(m => m.id === messageId)
+    if (messageIndex === -1) return
+
+    // 找到这条助手消息对应的用户消息（前一条）
+    let userMessageIndex = messageIndex - 1
+    while (userMessageIndex >= 0 && messages[userMessageIndex].role !== 'user') {
+      userMessageIndex--
+    }
+    if (userMessageIndex < 0) return
+
+    const originalUserMessage = messages[userMessageIndex]
+    const isFirstSummary = userMessageIndex === 0
+
+    const extractUserRequirementFromDisplay = (content: string): string => {
+      const trimmed = (content || '').trim()
+      if (!trimmed) return ''
+      const marker = '，采用'
+      const idx = trimmed.indexOf(marker)
+      if (idx > 0) return trimmed.slice(0, idx).trim()
+      return trimmed
+    }
+
+    const originalRequirement = isFirstSummary
+      ? extractUserRequirementFromDisplay(originalUserMessage.content)
+      : originalUserMessage.content
+
+    setEditingRegenerateMessageId(messageId)
+    setEditingRegenerateText(originalRequirement)
+  }
+
+  // 取消编辑重新生成
+  const cancelEditingRegenerate = (): void => {
+    setEditingRegenerateMessageId(null)
+    setEditingRegenerateText('')
+  }
+
   // 重新生成助手消息（添加新版本，保留原版本）
-  const handleRegenerate = async (messageId: string): Promise<void> => {
+  const handleRegenerate = async (messageId: string, editedRequirement?: string): Promise<void> => {
     // 找到要重新生成的消息及其之前的用户消息
     const messageIndex = messages.findIndex(m => m.id === messageId)
     if (messageIndex === -1) return
@@ -536,6 +666,7 @@ export function useSummaryPanel({ selectedModels, modelResponses, restoreHistory
     let userContent: string
     let modelOutputs: Array<{ name: string; content: string }> | undefined
     let userRequirement: string | undefined
+    let userDisplayMessage: string
 
     const extractUserRequirementFromDisplay = (content: string): string => {
       const trimmed = (content || '').trim()
@@ -550,12 +681,13 @@ export function useSummaryPanel({ selectedModels, modelResponses, restoreHistory
       // 首次总结的重新生成：使用原始的模型回答
       const selectedPromptConfig = agentPrompts.find(p => p.id === summaryMode)
       const agentPromptContent = selectedPromptConfig?.prompt || ''
+      const currentModeName = selectedPromptConfig?.name || '总结'
       const originalUserMessage = messages[userMessageIndex]
 
       modelOutputs = selectedModels
         .map(id => {
           const model = models.find(m => m.id === id)
-          const response = modelResponses[id]
+          const response = capturedModelResponses[id] ?? modelResponses[id]
           if (model && response) {
             return { name: model.name, content: response }
           }
@@ -573,21 +705,46 @@ export function useSummaryPanel({ selectedModels, modelResponses, restoreHistory
         systemPrompt += `\n\n额外要求：${apiConfig.systemPrompt}`
       }
       userContent = ''
-      userRequirement = extractUserRequirementFromDisplay(originalUserMessage?.content || '') || undefined
+      // 优先使用用户编辑后的要求，否则提取原始要求
+      const originalRequirement = extractUserRequirementFromDisplay(originalUserMessage?.content || '')
+      userRequirement = (editedRequirement !== undefined ? editedRequirement : originalRequirement) || undefined
+
+      const modelNames = modelOutputs.map(m => m.name).join('、')
+      userDisplayMessage = userRequirement
+        ? `${userRequirement}，采用【${currentModeName}】模式，根据${modelNames}的回答生成报告。`
+        : `采用${currentModeName}模式，根据${modelNames}的回答生成报告。`
     } else {
-      // 追问的重新生成：使用原始追问内容
+      // 追问的重新生成：使用原始追问内容（或编辑后的）
       const originalUserMessage = messages[userMessageIndex]
       systemPrompt = '你是一个专业的AI助手，请根据之前的对话上下文回答用户的问题。'
       if (apiConfig.systemPrompt) {
         systemPrompt += `\n\n额外要求：${apiConfig.systemPrompt}`
       }
-      userContent = originalUserMessage.content
+      // 优先使用用户编辑后的要求，否则使用原始内容
+      userContent = editedRequirement !== undefined ? editedRequirement : originalUserMessage.content
+      userDisplayMessage = userContent
     }
+
+    // 如果用户编辑了要求，更新对应的用户消息显示内容
+    let messagesToUse = messages
+    if (editedRequirement !== undefined) {
+      messagesToUse = messages.map((m, idx) => {
+        if (idx === userMessageIndex) {
+          return { ...m, content: userDisplayMessage }
+        }
+        return m
+      })
+      setMessages(messagesToUse)
+    }
+
+    // 清除编辑状态
+    setEditingRegenerateMessageId(null)
+    setEditingRegenerateText('')
 
     // 构建对话历史
     let conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }> = []
     if (!isFirstSummary && contextRounds > 0) {
-      const historyMessages = messages.slice(0, userMessageIndex)
+      const historyMessages = messagesToUse.slice(0, userMessageIndex)
       const recentMessages = historyMessages.slice(-(contextRounds * 2))
       conversationHistory = recentMessages.map(m => ({
         role: m.role,
@@ -653,7 +810,7 @@ export function useSummaryPanel({ selectedModels, modelResponses, restoreHistory
           modelName: modelName
         }
 
-        const updatedMessages = messages.map(m => {
+        const updatedMessages = messagesToUse.map(m => {
           if (m.id === regeneratingMessageId) {
             const existingVersions = m.versions || [{
               content: m.content,
@@ -693,7 +850,7 @@ export function useSummaryPanel({ selectedModels, modelResponses, restoreHistory
             modelName: modelName
           }
 
-          const updatedMessages = messages.map(m => {
+          const updatedMessages = messagesToUse.map(m => {
             if (m.id === regeneratingMessageId) {
               const existingVersions = m.versions || [{
                 content: m.content,
@@ -866,6 +1023,14 @@ ${content}
     summaryModels,
     allSummaryModels,
     isApiConfigured,
+
+    // 重新生成编辑
+    editingRegenerateMessageId,
+    setEditingRegenerateMessageId,
+    editingRegenerateText,
+    setEditingRegenerateText,
+    startEditingRegenerate,
+    cancelEditingRegenerate,
 
     // 方法
     updateStoreConfig,

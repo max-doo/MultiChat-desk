@@ -32,6 +32,9 @@ interface WebviewCardProps {
   logo: string
   enabled: boolean
   slotIndex: number  // 当前卡片所在的位置索引
+  compact?: boolean  // 紧凑模式：去掉 min-h 限制，适合嵌套在 flex 容器中
+  hideHeader?: boolean  // 隐藏头部（平台名称、刷新、状态等），适合嵌套在已有控制栏的容器中
+  onModelChange?: (modelId: string) => void  // 自定义平台切换回调，覆盖默认的 swapModelInSlot
 }
 
 // 重新导出 FileUploadData 类型供其他组件使用
@@ -57,7 +60,7 @@ export interface WebviewCardRef {
  * 嵌入 AI 平台的 Web 界面，支持消息发送和响应抓取
  */
 const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
-  ({ id, name, url, logo, enabled, slotIndex }, ref) => {
+  ({ id, name, url, logo, enabled, slotIndex, compact, hideHeader, onModelChange }, ref) => {
     const webviewRef = useRef<Electron.WebviewTag>(null)
     const [isLoading, setIsLoading] = useState(true)
     const [isReady, setIsReady] = useState(false)
@@ -321,6 +324,8 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
             return { success: false, error: dropResult?.error || '文件拖拽上传失败' }
           }
 
+          // 信任 dispatchFileDrop 的成功结果；DOM 检测仅作为辅助确认，
+          // 不再因 DOM 中未出现文件名而判定失败（部分平台上传 UI 延迟或不显示文件名）
           const detected = await webview.executeJavaScript(`
             (async function () {
               const fileName = ${JSON.stringify(fileData.fileName)};
@@ -343,10 +348,10 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
             })();
           `)
 
-          if (detected) {
-            return { success: true }
+          if (!detected) {
+            console.warn(`[${name}] uploadFile: 未在 DOM 中检测到文件名，但 debugger 拖拽已成功，视为上传成功`)
           }
-          return { success: false, error: '未检测到上传结果（已触发受信任拖拽）' }
+          return { success: true }
         } catch (error) {
           return { success: false, error: String(error) }
         }
@@ -557,9 +562,19 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
       }
     }
 
+    const handleNewConversation = () => {
+      const webview = webviewRef.current
+      if (!webview) return
+      const newUrl = selectors?.newConversationUrl
+      if (!newUrl) return
+      setLoadError(null)
+      setIsLoading(true)
+      webview.loadURL(newUrl)
+    }
+
     if (!enabled) {
       return (
-        <div className="flex flex-col h-full min-h-[480px] rounded-lg bg-gray-800/30 ring-1 ring-inset ring-gray-700 opacity-50">
+        <div className={`flex flex-col h-full rounded-lg bg-gray-800/30 ring-1 ring-inset ring-gray-700 opacity-50 ${compact ? '' : 'min-h-[480px]'}`}>
           <div className="p-4 border-b border-gray-700 flex justify-between items-center">
             <div className="flex items-center gap-3">
               <img alt={`${name} logo`} className="w-6 h-6" src={logo} />
@@ -580,79 +595,97 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
     }
 
     return (
-      <div className="flex flex-col h-full min-h-[480px] rounded-lg bg-gray-800/30 ring-1 ring-inset ring-primary/50 neon-border">
-        {/* 卡片头部 */}
-        <div className="p-4 border-b border-primary/20 flex justify-between items-center">
-          {/* 左侧：模型信息和下拉选择器 */}
-          <CustomDropdown
-            value={id}
-            onChange={(modelId) => {
-              swapModelInSlot(slotIndex, modelId)
-            }}
-            placeholder={name}
-            className="relative"
-            dropdownWidth="w-48"
-            buttonClassName="flex items-center justify-between gap-2 hover:bg-gray-700/50 rounded-lg px-2 py-1 -ml-2 transition-colors"
-            renderButton={() => (
-              <div className="flex items-center gap-2">
-                <img alt={`${name} logo`} className="w-6 h-6" src={logo} />
-                <h2 className="font-semibold text-white">{name}</h2>
-              </div>
-            )}
-            renderOption={(option, isSelected, onSelect) => {
-              const model = availableModels.find(m => m.id === option.value)
-              return (
-                <button
-                  onClick={onSelect}
-                  className="w-full flex items-center gap-3 px-3 py-2 hover:bg-gray-700 transition-colors text-left"
-                >
-                  <img alt={model?.name || option.label} className="w-5 h-5" src={model?.logo || option.logo} />
-                  <span className="text-gray-300 text-sm">{option.label}</span>
-                </button>
-              )
-            }}
-            options={modelOptions}
-          />
-
-          {/* 右侧：刷新按钮 + 状态指示器 */}
-          <div className="flex items-center gap-3 group">
-            <button
-              type="button"
-              onClick={handleGoBack}
-              disabled={!canGoBack}
-              className={`flex items-center justify-center rounded-full transition-all opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto ${canGoBack ? 'text-gray-300 hover:text-primary' : 'text-gray-600'}`}
-              title="后退"
-            >
-              <span className="material-symbols-outlined text-xl">arrow_back</span>
-            </button>
-            <button
-              type="button"
-              onClick={handleGoForward}
-              disabled={!canGoForward}
-              className={`flex items-center justify-center rounded-full transition-all opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto ${canGoForward ? 'text-gray-300 hover:text-primary' : 'text-gray-600'}`}
-              title="前进"
-            >
-              <span className="material-symbols-outlined text-xl">arrow_forward</span>
-            </button>
-            <button
-              type="button"
-              onClick={handleRefresh}
-              className="flex items-center justify-center rounded-full text-gray-300 hover:text-primary transition-colors"
-              title="刷新当前窗口"
-            >
-              <span className="material-symbols-outlined text-xl">refresh</span>
-            </button>
-            <div className={`flex items-center gap-2 text-xs ${status.color}`}>
-              <span className="relative flex h-2 w-2">
-                {status.pulse && (
-                  <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${status.dot} opacity-75`}></span>
+      <div className={`flex flex-col h-full rounded-lg bg-gray-800/30 ring-1 ring-inset ring-primary/50 neon-border ${compact ? '' : 'min-h-[480px]'}`}>
+        {!hideHeader && (
+          <>
+            {/* 卡片头部 */}
+            <div className="p-4 border-b border-primary/20 flex justify-between items-center">
+              {/* 左侧：模型信息和下拉选择器 */}
+              <CustomDropdown
+                value={id}
+                onChange={(modelId) => {
+                  if (onModelChange) {
+                    onModelChange(modelId)
+                  } else {
+                    swapModelInSlot(slotIndex, modelId)
+                  }
+                }}
+                placeholder={name}
+                className="relative"
+                dropdownWidth="w-48"
+                buttonClassName="flex items-center justify-between gap-2 hover:bg-gray-700/50 rounded-lg px-2 py-1 -ml-2 transition-colors"
+                renderButton={() => (
+                  <div className="flex items-center gap-2">
+                    <img alt={`${name} logo`} className="w-6 h-6" src={logo} />
+                    <h2 className="font-semibold text-white">{name}</h2>
+                  </div>
                 )}
-                <span className={`relative inline-flex rounded-full h-2 w-2 ${status.dot}`}></span>
-              </span>
-              {status.text}
+                renderOption={(option, isSelected, onSelect) => {
+                  const model = availableModels.find(m => m.id === option.value)
+                  return (
+                    <button
+                      onClick={onSelect}
+                      className="w-full flex items-center gap-3 px-3 py-2 hover:bg-gray-700 transition-colors text-left"
+                    >
+                      <img alt={model?.name || option.label} className="w-5 h-5" src={model?.logo || option.logo} />
+                      <span className="text-gray-300 text-sm">{option.label}</span>
+                    </button>
+                  )
+                }}
+                options={modelOptions}
+              />
+
+              {/* 右侧：刷新按钮 + 状态指示器 */}
+              <div className="flex items-center gap-3 group">
+                <button
+                  type="button"
+                  onClick={handleGoBack}
+                  disabled={!canGoBack}
+                  className={`flex items-center justify-center rounded-full transition-all opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto ${canGoBack ? 'text-gray-300 hover:text-primary' : 'text-gray-600'}`}
+                  title="后退"
+                >
+                  <span className="material-symbols-outlined text-xl">arrow_back</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleGoForward}
+                  disabled={!canGoForward}
+                  className={`flex items-center justify-center rounded-full transition-all opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto ${canGoForward ? 'text-gray-300 hover:text-primary' : 'text-gray-600'}`}
+                  title="前进"
+                >
+                  <span className="material-symbols-outlined text-xl">arrow_forward</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRefresh}
+                  className="flex items-center justify-center rounded-full text-gray-300 hover:text-primary transition-colors"
+                  title="刷新当前窗口"
+                >
+                  <span className="material-symbols-outlined text-xl">refresh</span>
+                </button>
+                {selectors?.newConversationUrl && (
+                  <button
+                    type="button"
+                    onClick={handleNewConversation}
+                    className="flex items-center justify-center rounded-full text-gray-300 hover:text-primary transition-colors"
+                    title="新对话"
+                  >
+                    <span className="material-symbols-outlined text-xl">add_comment</span>
+                  </button>
+                )}
+                <div className={`flex items-center gap-2 text-xs ${status.color}`}>
+                  <span className="relative flex h-2 w-2">
+                    {status.pulse && (
+                      <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${status.dot} opacity-75`}></span>
+                    )}
+                    <span className={`relative inline-flex rounded-full h-2 w-2 ${status.dot}`}></span>
+                  </span>
+                  {status.text}
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
+          </>
+        )}
 
         {/* Webview 容器 */}
         <div className="flex-1 relative min-h-0">

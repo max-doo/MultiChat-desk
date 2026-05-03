@@ -17,6 +17,7 @@ interface MainPageProps {
 function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [activeHistoryId, setActiveHistoryId] = useState<string | undefined>(undefined)
   const [containerWidth, setContainerWidth] = useState(0)
   const [isResizing, setIsResizing] = useState(false)
   const [suppressPaneTransition, setSuppressPaneTransition] = useState(false)
@@ -413,9 +414,13 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
       <HistoryDrawer
         isOpen={historyOpen}
         onClose={() => setHistoryOpen(false)}
+        activeHistoryId={activeHistoryId}
         onSelectHistory={(item) => {
           // 标记不再是新会话，因为我们是从历史记录加载的
           useAppStore.getState().setNewSession(false)
+
+          // 记录当前激活的历史记录 ID
+          setActiveHistoryId(item.id)
 
           // 1. 设置输入框内容
           if (controlBarRef.current) {
