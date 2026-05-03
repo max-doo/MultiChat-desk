@@ -570,6 +570,8 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
       setLoadError(null)
       setIsLoading(true)
       webview.loadURL(newUrl)
+      // 标记为新会话，下次发送时创建新 HistoryItem
+      useAppStore.getState().setNewSession(true)
     }
 
     if (!enabled) {
