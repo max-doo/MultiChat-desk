@@ -7,6 +7,13 @@ import brainstormPrompt from './agent-prompts-defaults/创意发散.md?raw'
 import debatePrompt from './agent-prompts-defaults/辩论对决.md?raw'
 import practicalPrompt from './agent-prompts-defaults/实践指南.md?raw'
 
+// 监控配置常量
+const MONITOR_CONFIG = {
+  pollIntervalMs: 3000,                 // 每 3 秒轮询一次
+  stableThreshold: 3,                   // 连续 3 次不变即判定完成（约 9 秒）
+  maxMonitorDurationMs: 5 * 60 * 1000,  // 最长监控 5 分钟（防死等）
+}
+
 // 模型配置类型
 export interface ModelConfig {
   id: string
@@ -62,14 +69,22 @@ export interface ApiConfig {
   lastWebviewSummaryPlatform?: string
 }
 
-// 历史记录类型
+// 对话轮次（一问一答）
+export interface ConversationTurn {
+  turnId: string
+  userMessage: string
+  timestamp: number
+  responses: Record<string, string>  // modelId -> Markdown
+}
+
+// 历史记录（新格式，替代现有 HistoryItem）
 export interface HistoryItem {
   id: string
-  message: string
-  timestamp: number
+  createdAt: number
+  updatedAt: number
   models: string[]
-  responses?: Record<string, string>
-  urls?: Record<string, string> // 模型 ID 到 URL 的映射
+  turns: ConversationTurn[]
+  urls?: Record<string, string>
 }
 
 // 总结历史记录类型
@@ -110,6 +125,27 @@ export interface SendResult {
 
 // 显示模式类型：单列、双列、三列、四窗口（田字格）
 export type DisplayMode = 'one' | 'two' | 'three' | 'four'
+
+// 监控状态类型（内部使用，不对外暴露）
+interface PlatformMonitorState {
+  lastContent: string
+  stableCount: number
+  isComplete: boolean
+}
+
+interface TurnMonitor {
+  turnId: string
+  userMessage: string
+  platforms: Record<string, PlatformMonitorState>
+}
+
+interface MonitorState {
+  isMonitoring: boolean
+  currentConversationId: string | null
+  currentTurn: TurnMonitor | null
+  intervalId: ReturnType<typeof setInterval> | null
+  startTime: number
+}
 
 // 应用状态类型
 interface AppState {
