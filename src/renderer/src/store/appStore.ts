@@ -774,7 +774,29 @@ export const useAppStore = create<AppState>((set, get) => ({
   setNewSession: (isNew: boolean) => set({ isNewSession: isNew }),
 
   reportData: {},
-  setReportData: (data: Record<string, string>) => set({ reportData: data })
+  setReportData: (data: Record<string, string>) => set({ reportData: data }),
+
+  // 监控状态（不持久化）
+  monitor: {
+    isMonitoring: false,
+    currentConversationId: null,
+    currentTurn: null,
+    intervalId: null,
+    startTime: 0,
+  },
+
+  startMonitoring: (_conversationId: string, _turnId: string, _userMessage: string, _models: string[]) => {
+    // TODO: implement
+  },
+  stopMonitoring: () => {
+    // TODO: implement
+  },
+  pollPlatforms: async () => {
+    // TODO: implement
+  },
+  saveCurrentTurn: () => {
+    // TODO: implement
+  }
 }))
 
 // 初始化：从本地存储加载配置
