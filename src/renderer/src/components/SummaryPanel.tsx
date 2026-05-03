@@ -114,6 +114,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
 
   const webviewSummaryRef = useRef<WebviewCardRef>(null)
   const webviewHistoryIdRef = useRef<string | null>(null)
+  const webviewComposerTextareaRef = useRef<HTMLTextAreaElement>(null)
 
   const webviewPlatformInfo = useMemo(() => {
     const m = models.find(x => x.id === webviewPlatformId)
@@ -189,6 +190,16 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
       setSummaryFired(false)
     }
   }, [webviewSummary.phase])
+
+  // 让 Webview 模式 composer 的 textarea 高度跟随内容增长，最多 5 行（120px）
+  // 依赖 summarySource：当用户从 API 模式切回 Webview 时，textarea 重新挂载，
+  // 需要触发一次重新计算高度，避免多行内容显示成单行。
+  useEffect(() => {
+    const ta = webviewComposerTextareaRef.current
+    if (!ta) return
+    ta.style.height = 'auto'
+    ta.style.height = Math.min(ta.scrollHeight, 120) + 'px'
+  }, [customPrompt, summarySource])
 
   const handleWebviewSend = useCallback(() => {
     if (selectedModels.length === 0) return
@@ -1014,93 +1025,103 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
         </>
       )}
 
-      {summarySource === 'webview' && (
-        <div className="flex-1 flex flex-col overflow-hidden gap-3 min-h-0">
-          {/* 模式选择器和用户指令 */}
-          <div className="shrink-0 flex flex-col gap-2">
-            <CustomDropdown
-              options={agentPrompts.map(p => ({ value: p.id, label: p.name, description: p.description }))}
-              value={summaryMode}
-              onChange={setSummaryMode}
-              placeholder="总结模式"
-              dropdownWidth="min-w-max"
-              className="min-w-max"
-              buttonClassName={`px-3 py-1.5 rounded-full text-sm flex items-center justify-between gap-2 transition-colors min-w-max ${summaryMode && agentPrompts.find(p => p.id === summaryMode)
-                ? 'bg-primary/10 border border-primary/50 text-primary hover:border-primary'
-                : 'bg-gray-700/50 border border-gray-600 text-gray-300 hover:border-gray-500'
-                }`}
-              renderOption={(option, isSelected, onSelect) => (
-                <button
-                  onClick={onSelect}
-                  className={`block w-full px-4 py-2 text-left text-sm transition-colors hover:bg-gray-700 ${isSelected ? 'text-primary bg-primary/5' : 'text-gray-300'
-                    }`}
-                >
-                  <div className="flex flex-col items-start">
-                    <div className="whitespace-nowrap">{option.label}</div>
-                    {option.description && (
-                      <div className={`text-[11px] ${isSelected ? 'text-primary/70' : 'text-gray-500'}`}>
-                        {option.description}
-                      </div>
-                    )}
-                  </div>
-                </button>
-              )}
-            />
-            <textarea
-              value={customPrompt}
-              onChange={(e) => setCustomPrompt(e.target.value)}
-              placeholder="输入额外的分析要求（可选）"
-              className="w-full h-16 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-300 placeholder-gray-500 focus:outline-none focus:border-primary/50 resize-none text-sm"
-            />
-          </div>
+      {summarySource === 'webview' && (() => {
+        const composerLocked = summaryFired || webviewSummary.isGenerating
+        const showLockedHint = summaryFired && !webviewSummary.isGenerating
+        const placeholder = showLockedHint
+          ? '已发送，请在右侧对话窗口继续追问'
+          : '输入额外的分析要求（可选），按 Enter 发送'
+        const sendDisabled = composerLocked || selectedModels.length === 0
 
-          {/* WebviewCard */}
-          <div className="flex-1 min-h-0">
-            <WebviewCard
-              ref={webviewSummaryRef}
-              id={webviewPlatformId}
-              name={webviewPlatformInfo.name}
-              url={webviewPlatformInfo.url}
-              logo={webviewPlatformInfo.logo || ''}
-              enabled={true}
-              slotIndex={0}
-              compact
-              onModelChange={(modelId) => setLastWebviewPlatform(modelId)}
-            />
-          </div>
+        return (
+          <div className="flex-1 flex flex-col overflow-hidden gap-2 min-h-0">
+            {/* WebviewCard 占据除 composer 外的全部高度 */}
+            <div className="flex-1 min-h-0">
+              <WebviewCard
+                ref={webviewSummaryRef}
+                id={webviewPlatformId}
+                name={webviewPlatformInfo.name}
+                url={webviewPlatformInfo.url}
+                logo={webviewPlatformInfo.logo || ''}
+                enabled={true}
+                slotIndex={0}
+                compact
+                onModelChange={(modelId) => setLastWebviewPlatform(modelId)}
+              />
+            </div>
 
-          {/* 操作栏 */}
-          <div className="shrink-0 flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleWebviewSend}
-              disabled={webviewSummary.isGenerating || selectedModels.length === 0}
-              className="px-4 py-2 rounded bg-primary hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed text-black text-sm font-medium"
+            {/* 底部单行 composer */}
+            <div
+              className={`flex items-end gap-2 p-2 bg-gray-800 border border-gray-700 rounded-lg shrink-0 transition-colors ${
+                composerLocked ? 'opacity-60' : 'focus-within:border-primary/50'
+              }`}
             >
-              {webviewSummary.isGenerating ? '已发送' : '开始 Webview 总结'}
-            </button>
-            <span className="text-xs text-gray-500">{`已选 ${selectedModels.length} 个模型`}</span>
-            {webviewSummary.phase === 'uploading-file' && (
-              <span className="text-xs text-primary flex items-center gap-1">
-                <span className="material-symbols-outlined text-sm">upload_file</span>
-                正在上传文件...
-              </span>
-            )}
-            {webviewSummary.phase === 'sending' && (
-              <span className="text-xs text-gray-500 flex items-center gap-1">
-                <span className="material-symbols-outlined text-sm">send</span>
-                正在发送...
-              </span>
-            )}
-            {webviewSummary.phase === 'streaming' && (
-              <span className="text-xs text-gray-500 flex items-center gap-1">
-                <span className="material-symbols-outlined text-sm">psychology</span>
-                正在生成回复...
-              </span>
-            )}
+              {/* 模式选择 pill */}
+              <CustomDropdown
+                options={agentPrompts.map(p => ({ value: p.id, label: p.name, description: p.description }))}
+                value={summaryMode}
+                onChange={setSummaryMode}
+                placeholder="总结模式"
+                disabled={composerLocked}
+                direction="up"
+                dropdownWidth="min-w-max"
+                className="min-w-max shrink-0"
+                buttonClassName={`px-3 py-1.5 rounded-full text-sm flex items-center justify-between gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-w-max ${
+                  summaryMode && agentPrompts.find(p => p.id === summaryMode)
+                    ? 'bg-primary/10 border border-primary/50 text-primary hover:border-primary'
+                    : 'bg-gray-700/50 border border-gray-600 text-gray-300 hover:border-gray-500'
+                }`}
+                renderOption={(option, isSelected, onSelect) => (
+                  <button
+                    onClick={onSelect}
+                    className={`block w-full px-4 py-2 text-left text-sm transition-colors hover:bg-gray-700 ${
+                      isSelected ? 'text-primary bg-primary/5' : 'text-gray-300'
+                    }`}
+                  >
+                    <div className="flex flex-col items-start">
+                      <div className="whitespace-nowrap">{option.label}</div>
+                      {option.description && (
+                        <div className={`text-[11px] ${isSelected ? 'text-primary/70' : 'text-gray-500'}`}>
+                          {option.description}
+                        </div>
+                      )}
+                    </div>
+                  </button>
+                )}
+              />
+
+              {/* 输入框 - 自动增长，单行 → 最多 5 行 */}
+              <textarea
+                ref={webviewComposerTextareaRef}
+                value={customPrompt}
+                onChange={(e) => setCustomPrompt(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault()
+                    if (!sendDisabled) handleWebviewSend()
+                  }
+                }}
+                placeholder={placeholder}
+                disabled={composerLocked}
+                rows={1}
+                className="flex-1 resize-none bg-transparent text-sm text-gray-300 placeholder-gray-500 focus:outline-none disabled:cursor-not-allowed leading-5 py-1.5 max-h-[120px] overflow-y-auto"
+              />
+
+              {/* 发送按钮 */}
+              <button
+                type="button"
+                onClick={handleWebviewSend}
+                disabled={sendDisabled}
+                className="shrink-0 flex items-center justify-center w-9 h-9 rounded-md bg-primary text-black hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                title={composerLocked ? '已发送' : '发送'}
+                aria-label="发送"
+              >
+                <span className="material-symbols-outlined text-xl">send</span>
+              </button>
+            </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {/* 导出确认对话框 */}
       {showExportDialog && (
