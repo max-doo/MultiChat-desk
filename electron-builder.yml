@@ -43,6 +43,32 @@ nsis:
   displayLanguageSelector: false               # 不显示语言选择
   include: build/installer.nsh
 
+# ============ macOS 打包配置 ============
+mac:
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+  category: public.app-category.productivity
+  icon: assets/logo.icns
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  darkModeSupport: true
+
+# ============ DMG 配置 ============
+dmg:
+  sign: false
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
+
 # ============ 便携版配置 ============
 # 注意：便携版的标记文件通过 electron-builder-portable.yml 配置添加
 portable:

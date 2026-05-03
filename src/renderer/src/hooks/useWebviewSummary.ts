@@ -135,8 +135,30 @@ export function useWebviewSummary({
   }, [finish])
 
   const sendViaFileUpload = async (ref: WebviewCardRef, promptText: string): Promise<{ success: boolean; error?: string }> => {
-    // 将提示词包装为 markdown 文件内容
-    const markdownContent = `# ModelMash 模型回答汇总\n\n${promptText}`
+    // 拆分系统指令、待分析内容、用户要求
+    // promptText 格式：[系统指令]\n{systemPrompt}\n\n[待分析内容]\n<context>...\n\n[用户要求]\n{requirement}
+    const SYSTEM_MARKER = '[系统指令]\n'
+    const CONTENT_MARKER = '\n\n[待分析内容]\n'
+    const REQUIREMENT_MARKER = '\n\n[用户要求]\n'
+    const systemStart = promptText.indexOf(SYSTEM_MARKER)
+    const contentStart = promptText.indexOf(CONTENT_MARKER)
+    const requirementStart = promptText.indexOf(REQUIREMENT_MARKER)
+
+    let systemPrompt = ''
+    let modelOutputs = ''
+    let userRequirement = ''
+
+    if (systemStart === 0 && contentStart !== -1 && requirementStart !== -1) {
+      systemPrompt = promptText.slice(SYSTEM_MARKER.length, contentStart)
+      modelOutputs = promptText.slice(contentStart + CONTENT_MARKER.length, requirementStart)
+      userRequirement = promptText.slice(requirementStart + REQUIREMENT_MARKER.length)
+    } else {
+      // 如果格式不匹配，fallback：全部内容放文件中，对话框只发分析指令
+      modelOutputs = promptText
+    }
+
+    // 文件内容：仅模型回答
+    const markdownContent = `# ModelMash 模型回答汇总\n\n${modelOutputs}`
 
     // 写入临时文件
     let filePath: string
@@ -169,8 +191,13 @@ export function useWebviewSummary({
       return { success: false, error: uploadResult.error || '文件上传失败' }
     }
 
-    // 上传成功后，发送分析指令
-    const instruction = '请分析附件中的内容，按照其中的系统指令要求生成总结报告。'
+    // 上传成功后，发送系统指令 + 用户要求 + 分析指令到对话框
+    const parts: string[] = []
+    if (systemPrompt) parts.push(systemPrompt)
+    if (userRequirement) parts.push(userRequirement)
+    parts.push('请分析附件中的模型回答，按照上述要求生成总结报告。')
+    const instruction = parts.join('\n\n')
+
     return await ref.sendMessage(instruction)
   }
 

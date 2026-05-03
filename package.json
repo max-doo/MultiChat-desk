@@ -18,7 +18,7 @@
     "build:win:nsis": "npm run build && electron-builder --win nsis --config electron-builder.yml",
     "build:win:portable": "npm run build && npm run add-portable-marker && electron-builder --win zip --config electron-builder-portable.yml",
     "build:win:all": "npm run build && npm run add-portable-marker && electron-builder --win nsis --config electron-builder.yml && electron-builder --win zip --config electron-builder-portable.yml",
-    "build:mac": "npm run clean:store && npm run build && electron-builder --mac --config",
+    "build:mac": "npm run clean:store && npm run build && electron-builder --mac --config electron-builder.yml",
     "build:linux": "npm run clean:store && npm run build && electron-builder --linux --config"
   },
   "dependencies": {

@@ -24,7 +24,10 @@
 - [x] 新增 #7: Webview 顶部工具栏增加新建对话按钮 (`WebviewCard.tsx`)
 - [x] 新增 #12: 设置面板增加缓存数据导出功能，API Key 自动脱敏 (`ipcHandlers.ts`, `SettingsDrawer.tsx`)
 - [x] 新增 #15: 支持从剪贴板直接粘贴图片并上传到各模型 (`ControlBar.tsx`, `ipcHandlers.ts`)
+- [x] 补齐 macOS 打包配置：新增 `mac`/`dmg` 配置、entitlements、`.icns` 图标 (`electron-builder.yml`, `package.json`)
 
 ## 待处理
 
-- [ ] 无
+- [ ] Webview 总结自适应传输：在 `npm run dev` 中手动验证短文本直接粘贴和长文本文件上传两种模式
+- [ ] macOS 打包：在 macOS 系统上运行 `npm run build:mac` 验证 DMG 产物
+- [ ] macOS 打包：配置 Apple Developer ID 签名与公证（Notarization），正式分发必需
