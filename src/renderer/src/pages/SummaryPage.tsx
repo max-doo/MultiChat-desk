@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import ModelOutputCard from '../components/ModelOutputCard'
 import SummaryPanel from '../components/SummaryPanel'
 import SummaryHistoryDrawer from '../components/SummaryHistoryDrawer'
@@ -14,7 +14,7 @@ interface SummaryPageProps {
  * 显示各模型输出和 AI 总结面板
  */
 function SummaryPage({ onNavigateBack, initialHistoryItem }: SummaryPageProps): JSX.Element {
-  const { models, displayMode, reportData, apiConfig, setApiConfig } = useAppStore()
+  const { models, displayMode, apiConfig, setApiConfig, pendingSummarySession, setPendingSummarySession, history } = useAppStore()
 
   // 从 store 读取当前总结模式，缺省 'webview'
   const summarySource: 'api' | 'webview' = apiConfig.summarySource ?? 'webview'
@@ -35,7 +35,6 @@ function SummaryPage({ onNavigateBack, initialHistoryItem }: SummaryPageProps): 
   )
   const [modelResponses, setModelResponses] = useState<Record<string, string>>({})
   const [isLoadingResponses, setIsLoadingResponses] = useState(true)
-  const [isRestoringHistory, setIsRestoringHistory] = useState(false) // 标记是否正在恢复历史记录
   const [restoreHistoryData, setRestoreHistoryData] = useState<{
     historyId?: string
     messages: Array<{
@@ -58,53 +57,46 @@ function SummaryPage({ onNavigateBack, initialHistoryItem }: SummaryPageProps): 
     modelResponses: Record<string, string>
   } | null>(null)
 
-  // 处理外部传入的初始历史记录（例如从 MainPage 的 HistoryDrawer 选中）
+  // 初始化：挂载时从 pendingSummarySession 或 history 加载模型回复（只执行一次）
+  const initDoneRef = useRef(false)
   useEffect(() => {
+    if (initDoneRef.current) return
+    initDoneRef.current = true
+
     if (initialHistoryItem) {
       handleRestoreHistory(initialHistoryItem)
-    }
-  }, [initialHistoryItem])
-
-  // 当 reportData 更新时，同步更新选中的模型列表（仅在非恢复状态下）
-  useEffect(() => {
-    // 如果正在恢复历史记录，跳过自动更新
-    if (isRestoringHistory) {
       return
     }
-    
-    // 只选中有回复数据的模型
-    const modelsWithData = displayedModels
-      .filter(m => reportData[m.id] && reportData[m.id].trim().length > 0)
-      .map(m => m.id)
-    setSelectedModels(modelsWithData.length > 0 ? modelsWithData : displayedModels.map(m => m.id))
-  }, [displayedModels, reportData, isRestoringHistory])
 
-  // 加载各模型的最新回复（仅在非恢复状态下）
-  useEffect(() => {
-    // 如果正在恢复历史记录，跳过自动加载
-    if (isRestoringHistory) {
-      return
-    }
-    
-    // 直接从 Store 中的 reportData 读取数据
-    const loadResponses = () => {
-      setIsLoadingResponses(true)
-      try {
-        if (reportData && Object.keys(reportData).length > 0) {
-          setModelResponses(reportData)
-          console.log('[SummaryPage] 加载报告数据:', Object.keys(reportData))
-        } else {
-          console.warn('[SummaryPage] 未找到报告数据')
-        }
-      } catch (error) {
-        console.error('加载模型回复失败:', error)
-      } finally {
-        setIsLoadingResponses(false)
+    setIsLoadingResponses(true)
+
+    const session = pendingSummarySession
+    let data: Record<string, string> = {}
+
+    if (session) {
+      data = session.modelResponses || {}
+      setPendingSummarySession(null)
+      console.log('[SummaryPage] 从 pendingSummarySession 加载:', Object.keys(data))
+    } else {
+      // Fallback：从 history 最新 turn 读取
+      const latestItem = history[0]
+      const latestTurn = latestItem?.turns?.[latestItem.turns.length - 1]
+      if (latestTurn?.responses && Object.keys(latestTurn.responses).length > 0) {
+        data = latestTurn.responses
+        console.log('[SummaryPage] 从 history fallback 加载:', Object.keys(data))
       }
     }
-    
-    loadResponses()
-  }, [reportData, isRestoringHistory])
+
+    setModelResponses(data)
+
+    // 同步选中模型：有数据的默认选中，否则全选
+    const modelsWithData = displayedModels
+      .filter(m => data[m.id]?.trim().length > 0)
+      .map(m => m.id)
+    setSelectedModels(modelsWithData.length > 0 ? modelsWithData : displayedModels.map(m => m.id))
+
+    setIsLoadingResponses(false)
+  }, []) // 只在挂载时执行一次
 
   // 切换模型选择状态
   const toggleModelSelection = (modelId: string): void => {
@@ -121,17 +113,14 @@ function SummaryPage({ onNavigateBack, initialHistoryItem }: SummaryPageProps): 
 
     // 记录当前激活的历史记录 ID
     setActiveHistoryId(item.id)
-
-    // 设置恢复标记，防止 reportData 的 useEffect 覆盖恢复的数据
-    setIsRestoringHistory(true)
     setIsLoadingResponses(true)
-    
+
     // 恢复选中的模型
     if (item.selectedModels && item.selectedModels.length > 0) {
       setSelectedModels(item.selectedModels)
       console.log('[SummaryPage] 恢复选中模型:', item.selectedModels)
     }
-    
+
     // 恢复模型回复数据
     if (item.modelResponses && Object.keys(item.modelResponses).length > 0) {
       setModelResponses(item.modelResponses)
@@ -140,7 +129,7 @@ function SummaryPage({ onNavigateBack, initialHistoryItem }: SummaryPageProps): 
       console.warn('[SummaryPage] 历史记录中没有模型回复数据')
       setModelResponses({})
     }
-    
+
     // 恢复对话消息
     setRestoreHistoryData({
       historyId: item.id,
@@ -149,8 +138,6 @@ function SummaryPage({ onNavigateBack, initialHistoryItem }: SummaryPageProps): 
       modelResponses: item.modelResponses || {}
     })
 
-    // 仅清除 loading 状态，保持 isRestoringHistory 为 true，
-    // 防止 reportData 的 useEffect 在恢复后覆盖历史记录的模型回复
     setTimeout(() => {
       setIsLoadingResponses(false)
     }, 200)

@@ -57,7 +57,7 @@ export function useSummaryPanel({ selectedModels, modelResponses, restoreHistory
   // 消息列表滚动引用
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
-  const { models, apiConfig, summaryModels: allSummaryModels, setApiConfig, addSummaryHistory, updateSummaryHistory } = useAppStore()
+  const { models, apiConfig, summaryModels: allSummaryModels, setApiConfig, addSummaryHistory, updateSummaryHistory, history } = useAppStore()
   const currentSummaryHistoryIdRef = useRef<string | null>(null)
   // 标记是否已为此对话生成过 AI 标题（避免重复生成）
   const hasGeneratedTitleRef = useRef<boolean>(false)
@@ -85,7 +85,7 @@ export function useSummaryPanel({ selectedModels, modelResponses, restoreHistory
 
   const persistSummaryHistory = (
     source: ChatMessage[],
-    extra?: { summarySource?: 'api' | 'webview'; webviewPlatformId?: string }
+    extra?: { summarySource?: 'api' | 'webview'; webviewPlatformId?: string; urls?: Record<string, string> }
   ) => {
     if (source.length === 0) return
 
@@ -107,6 +107,7 @@ export function useSummaryPanel({ selectedModels, modelResponses, restoreHistory
       messages: serializeMessages(source),
       selectedModels: [...selectedModels],
       modelResponses: { ...capturedModelResponses },
+      urls: history[0]?.urls,
       ...extra
     }
 

@@ -72,6 +72,8 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
     const [loadError, setLoadError] = useState<string | null>(null)
     const [canGoBack, setCanGoBack] = useState(false)
     const [canGoForward, setCanGoForward] = useState(false)
+    // 跟踪已加载的 URL，避免重复 loadURL
+    const loadedUrlRef = useRef<string | null>(null)
 
     // 从 store 获取所有模型和切换方法
     const models = useAppStore((state) => state.models)
@@ -193,6 +195,43 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
         webview.removeEventListener('did-finish-load', handleDidFinishLoad)
       }
     }, [enabled, name, selectors])
+
+    // F3: 使用 loadURL() 主动导航，替代不可靠的 <webview src> 属性
+    // Electron <webview> 的 src 属性在冷启动时经常不触发导航，导致页面空白
+    useEffect(() => {
+      const webview = webviewRef.current
+      if (!webview || !enabled || !url) return
+      // URL 没变则跳过
+      if (loadedUrlRef.current === url) return
+
+      const doLoad = (): void => {
+        try {
+          console.log(`[${name}] loadURL: ${url}`)
+          loadedUrlRef.current = url
+          setIsLoading(true)
+          setLoadError(null)
+          webview.loadURL(url)
+        } catch (e) {
+          console.error(`[${name}] loadURL failed:`, e)
+        }
+      }
+
+      // 如果 webview 已挂载（有 getURL 方法），直接加载
+      // 否则等一个 tick 让 Electron 完成内部初始化
+      if (typeof webview.getURL === 'function') {
+        try {
+          webview.getURL() // 测试是否已就绪
+          doLoad()
+        } catch {
+          // webview 尚未就绪，等待 did-attach
+          const timer = setTimeout(doLoad, 200)
+          return () => clearTimeout(timer)
+        }
+      } else {
+        const timer = setTimeout(doLoad, 200)
+        return () => clearTimeout(timer)
+      }
+    }, [url, enabled, name])
 
     // 暴露方法给父组件
     useImperativeHandle(ref, () => ({
@@ -510,6 +549,7 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
         setLoadError(null)
         setIsLoading(true)
         clearNavigationState()
+        loadedUrlRef.current = url // 同步 ref，防止 F3 effect 重复导航
 
         return await new Promise<{ success: boolean; error?: string }>((resolve) => {
           const handleStop = (): void => {
@@ -553,10 +593,11 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
       /**
        * 加载指定的 URL
        */
-      loadURL: (url: string): void => {
+      loadURL: (targetUrl: string): void => {
         if (webviewRef.current) {
+          loadedUrlRef.current = targetUrl // 同步 ref
           setIsLoading(true)
-          webviewRef.current.loadURL(url)
+          webviewRef.current.loadURL(targetUrl)
         }
       }
     }))
@@ -777,7 +818,7 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
           <webview
             ref={webviewRef}
             id={`webview-${id}`}
-            src={url}
+            src="about:blank"
             partition="persist:shared"
             className="w-full h-full"
             allowpopups

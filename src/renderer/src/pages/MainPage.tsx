@@ -27,7 +27,8 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
   const registerWebviewRef = useAppStore((state) => state.registerWebviewRef)
   const reorderModels = useAppStore((state) => state.reorderModels)
   const getAllResponses = useAppStore((state) => state.getAllResponses)
-  const setReportData = useAppStore((state) => state.setReportData)
+  const setPendingSummarySession = useAppStore((state) => state.setPendingSummarySession)
+  const history = useAppStore((state) => state.history)
   const paneRatios = useAppStore((state) => state.paneRatios)
   const setPaneRatios = useAppStore((state) => state.setPaneRatios)
   const resetPaneRatios = useAppStore((state) => state.resetPaneRatios)
@@ -89,18 +90,26 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
         if (controlBarRef.current) {
           controlBarRef.current.showNotification('success', `成功爬取 ${modelCount} 个模型的回答`)
         }
-        setReportData(validResponses)
-        // 延迟一下再跳转，让用户看到成功提示
-        setTimeout(() => {
-          onNavigateToSummary()
-        }, 500)
       } else {
         // 没有获取到有效回复
         if (controlBarRef.current) {
           controlBarRef.current.showNotification('error', '未获取到有效的模型回复')
         }
-        onNavigateToSummary()
       }
+
+      // 构建一次性导航数据包（无论是否抓到内容都设置，空对象表示本次无数据）
+      const latestHistoryItem = history[0]
+      setPendingSummarySession({
+        modelResponses: validResponses,
+        urls: latestHistoryItem?.urls,
+        sourceHistoryId: latestHistoryItem?.id,
+        timestamp: Date.now()
+      })
+
+      // 延迟一下再跳转，让用户看到提示
+      setTimeout(() => {
+        onNavigateToSummary()
+      }, 500)
     } catch (error) {
       console.error('[MainPage] 生成报告失败:', error)
       // 清除"正在爬取"通知
@@ -111,6 +120,14 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
       if (controlBarRef.current) {
         controlBarRef.current.showNotification('error', '爬取模型回答失败')
       }
+      // 异常时也设置空数据包，避免残留旧数据
+      const latestHistoryItem = history[0]
+      setPendingSummarySession({
+        modelResponses: {},
+        urls: latestHistoryItem?.urls,
+        sourceHistoryId: latestHistoryItem?.id,
+        timestamp: Date.now()
+      })
       onNavigateToSummary()
     }
   }

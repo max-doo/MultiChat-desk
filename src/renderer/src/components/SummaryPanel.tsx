@@ -102,7 +102,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
     cancelEditingRegenerate
   } = useSummaryPanel({ selectedModels, modelResponses, restoreHistoryData })
 
-  const { apiConfig, models, setApiConfig, addSummaryHistory, updateSummaryHistory } = useAppStore()
+  const { apiConfig, models, setApiConfig, addSummaryHistory, updateSummaryHistory, history } = useAppStore()
 
   // 从 store 读取当前模式，缺省 'webview'
   const summarySource: 'api' | 'webview' = apiConfig.summarySource ?? 'webview'
@@ -242,12 +242,13 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
       selectedModels: [...selectedModels],
       modelResponses: { ...modelResponses },
       summarySource: 'webview',
-      webviewPlatformId
+      webviewPlatformId,
+      urls: history[0]?.urls
     })
 
     webviewSummary.startSummary()
     setSummaryFired(true)
-  }, [summaryMode, agentPrompts, selectedModels, models, customPrompt, setMessages, addSummaryHistory, webviewPlatformId, webviewSummary, modelResponses, setSummaryFired])
+  }, [summaryMode, agentPrompts, selectedModels, models, customPrompt, setMessages, addSummaryHistory, webviewPlatformId, webviewSummary, modelResponses, setSummaryFired, history])
 
   // 获取收藏的模型ID列表
   const favoriteModelIds = apiConfig.favoriteModelIds || []

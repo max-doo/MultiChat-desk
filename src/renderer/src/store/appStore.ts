@@ -115,6 +115,16 @@ export interface SummaryHistoryItem {
   summarySource?: 'api' | 'webview'
   /** summarySource = 'webview' 时记录目标平台 id */
   webviewPlatformId?: string
+  /** 主界面对话时各模型的 URL（用于追溯原始对话） */
+  urls?: Record<string, string>
+}
+
+/** 从主界面导航到总结页时携带的一次性初始化数据 */
+export interface SummarySessionInit {
+  modelResponses: Record<string, string>
+  urls?: Record<string, string>
+  sourceHistoryId?: string
+  timestamp: number
 }
 
 // 发送结果类型
@@ -240,9 +250,9 @@ interface AppState {
   isNewSession: boolean
   setNewSession: (isNew: boolean) => void
 
-  // 报告数据
-  reportData: Record<string, string>
-  setReportData: (data: Record<string, string>) => void
+  // 一次性导航数据：从主界面进入总结页时携带，消费后立即清空
+  pendingSummarySession: SummarySessionInit | null
+  setPendingSummarySession: (data: SummarySessionInit | null) => void
 }
 
 /**
@@ -861,8 +871,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   isNewSession: true,
   setNewSession: (isNew: boolean) => set({ isNewSession: isNew }),
 
-  reportData: {},
-  setReportData: (data: Record<string, string>) => set({ reportData: data }),
+  pendingSummarySession: null,
+  setPendingSummarySession: (data: SummarySessionInit | null) => set({ pendingSummarySession: data }),
 
   // 监控状态（不持久化）
   monitor: {
@@ -1140,7 +1150,14 @@ export async function initializeStore(): Promise<void> {
     const storedSummaryModels = await window.api.storeGet('summaryModels') as SummaryModel[] | undefined
     if (storedSummaryModels) useAppStore.setState({ summaryModels: storedSummaryModels })
 
-    const storedModels = await window.api.storeGet('models') as ModelConfig[] | undefined
+    // 同时加载 storedModels 和 geminiAccountUrl，合并成一次 setState
+    // 避免两次 setState({ models }) 导致 webview src 中途变化而白屏
+    const [storedModels, geminiAccountUrl] = await Promise.all([
+      window.api.storeGet('models') as Promise<ModelConfig[] | undefined>,
+      window.api.storeGet('geminiAccountUrl') as Promise<string | undefined>
+    ])
+
+    let finalModels: ModelConfig[] | null = null
     if (storedModels) {
       const mergedModels: ModelConfig[] = []
       const defaultModelMap = new Map(defaultModels.map(m => [m.id, m]))
@@ -1152,19 +1169,21 @@ export async function initializeStore(): Promise<void> {
         }
       })
       defaultModelMap.forEach(model => mergedModels.push(model))
-      useAppStore.setState({ models: mergedModels })
+      finalModels = mergedModels
     }
 
-    // 加载保存的 Gemini 账号 URL
-    const geminiAccountUrl = await window.api.storeGet('geminiAccountUrl') as string | undefined
+    // 将 Gemini 账号 URL 合并到同一批 models 中
     if (geminiAccountUrl) {
       console.log('[AppStore] 加载保存的 Gemini 账号 URL:', geminiAccountUrl)
-      // 更新 Gemini 模型的 URL
-      const currentModels = useAppStore.getState().models
-      const updatedModels = currentModels.map(m =>
+      const base = finalModels ?? defaultModels
+      finalModels = base.map(m =>
         m.id === 'gemini' ? { ...m, url: geminiAccountUrl } : m
       )
-      useAppStore.setState({ models: updatedModels })
+    }
+
+    // 一次性 setState，避免 webview src 中途变化
+    if (finalModels) {
+      useAppStore.setState({ models: finalModels })
     }
 
     // 监听 Gemini 账号切换事件

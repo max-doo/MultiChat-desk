@@ -60,14 +60,15 @@ function App(): JSX.Element {
     }
   }, [isInitialized])
 
-  // 显示加载状态（最多显示 3 秒）
+  // 初始化超时保护：超时后显示错误界面而非用未初始化状态渲染
   useEffect(() => {
+    if (isInitialized) return
     const timeout = setTimeout(() => {
       if (!isInitialized) {
-        console.warn('初始化超时，强制完成')
-        setIsInitialized(true)
+        console.warn('初始化超时，显示错误界面')
+        setError('初始化超时，请点击重新加载')
       }
-    }, 3000)
+    }, 10000) // 放宽到 10 秒，冷启动磁盘 IO 可能较慢
     return () => clearTimeout(timeout)
   }, [isInitialized])
 
