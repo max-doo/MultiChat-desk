@@ -67,9 +67,11 @@ Handlers return `{ success: boolean, data?: T, error?: string }`. New handlers m
 - Design notes and DOM-extraction rationale (per platform): `docs/`.
 - Default Agent prompt templates: `src/renderer/src/store/agent-prompts-defaults/`.
 
-## Changelog
+## Tracking files
 
-- End of every session, append one line per change to `CHANGELOG.md` as `HH:MM | type: path - summary`; group same-day entries under `## YYYY-MM-DD`.
+- `SESSION_LOG.md`: per-session operational log. End of every session, append one line per change as `HH:MM | type: path - summary`; group same-day entries under `## YYYY-MM-DD`. For bugfixes, record reusable debugging context (symptom, root cause, pitfall, final fix) when worth keeping.
+- `TODO.md`: user-governed, agent-assisted backlog for important pending and completed work. Do not read or edit by default; suggest updates and apply only after user approval. Sections: `待处理` / `已完成`.
+- `CHANGELOG.md`: release-facing changelog. Only update for user-visible or release-relevant changes; do not put per-session minute timestamps here.
 
 ## Done criteria
 
