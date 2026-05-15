@@ -62,6 +62,11 @@ ModelMash 是基于 Electron 的桌面应用，通过多个 Webview 并行接入
 - 改动后跑与改动直接相关的最小验证；无法验证时明确说明未验证项与风险，不要在未验证下声称完成。
 - 如果规则与当前代码冲突，以代码事实为准，并先修正本文件。规则改动需与影响目录边界 / 分层 / IPC / Webview / 总结链路 / 构建命令的代码改动同批提交。
 
+## Dates & Document Headers
+
+- 在写入任何时间戳之前，必须通过终端命令（如 `Get-Date` 或 `date`）获取系统当前真实时间，绝不要凭记忆捏造。
+- 独立文档（如评估报告、计划书、分析报告等）在落盘时，必须在文档顶部包含 `> Created: YYYY-MM-DD HH:MM (TZ)` 格式的时间戳行。
+
 ## Tracking Files
 
 - `SESSION_LOG.md`：会话级操作日志，会话结束后追加 `HH:MM | type: path - summary` 条目，按 `## YYYY-MM-DD` 分组。修 bug 时如有复用价值，记录现象、根因、踩坑点和最终修复。

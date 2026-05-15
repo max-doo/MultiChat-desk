@@ -11,6 +11,10 @@
 - 条目按日期分组，最新日期在最上方。
 -->
 
+## 2026-05-15
+
+- 10:44 | docs: docs/feedback_analysis_report.md - 输出问卷反馈实现状态分析报告：对比了 17 条反馈意见与当前最新代码库（包含 UI 与 IPC），分类归纳出 7 项已实现、5 项被修复/规避的 BUG，以及 5 项尚未实现的功能或缺陷，为后续优化提供依据
+
 ## 2026-05-04
 
 - 01:34 | fix: src/renderer/src/components/WebviewCard.tsx - 修复冷启动 Webview 空白问题(F3)：将 `<webview src={url}>` 改为 `src="about:blank"` + `useEffect` 内 `loadURL(url)` 主动导航，彻底规避 Electron webview src 属性在冷启动时不触发导航的问题；同步 loadedUrlRef 防止 resetToInitial/loadURL 重复导航

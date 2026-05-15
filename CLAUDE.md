@@ -51,7 +51,7 @@ All Webviews use `persist:shared`. Cookie/login state is global — any change t
 
 Handlers return `{ success: boolean, data?: T, error?: string }`. New handlers must follow this shape so renderer error handling stays uniform.
 
-## Project rules (distilled from `.agent/rules/project-rule.md`)
+## Project rules (distilled from `.agents/skills/project-rule.md`)
 
 - Edit only under `src/`. Never hand-edit `out/` or `dist/` — they are regenerated.
 - Keep TypeScript strict; do not introduce `any` to silence errors. ESLint warns on `@typescript-eslint/no-explicit-any` and unused vars (prefix with `_` to suppress when intentional).
@@ -66,6 +66,11 @@ Handlers return `{ success: boolean, data?: T, error?: string }`. New handlers m
 - Reference docs (build, packaging, Windows commands, API config): `docs/`.
 - Design notes and DOM-extraction rationale (per platform): `docs/`.
 - Default Agent prompt templates: `src/renderer/src/store/agent-prompts-defaults/`.
+
+## Dates & Document Headers
+
+- Always obtain the current date and time from the shell (e.g., `Get-Date` or `date`) before writing any timestamp; never invent timestamps from memory.
+- Standalone documents (reports, plans, assessments) must carry a `> Created: YYYY-MM-DD HH:MM (TZ)` line near the top. 
 
 ## Tracking files
 
