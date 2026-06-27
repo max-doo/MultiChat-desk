@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import Layout from './components/Layout'
 import MainPage from './pages/MainPage'
 import SummaryPage from './pages/SummaryPage'
+import QuickPage from './pages/QuickPage'
 import { initializeStore, useAppStore, SummaryHistoryItem } from './store/appStore'
 
 function App(): JSX.Element {
@@ -11,6 +12,18 @@ function App(): JSX.Element {
   // 记录是否曾经打开过 SummaryPage，用于延迟渲染
   const [hasSummaryOpened, setHasSummaryOpened] = useState(false)
   const [initialSummaryItem, setInitialSummaryItem] = useState<SummaryHistoryItem | undefined>(undefined)
+
+  // 监听 location hash 自动进入 quick 页
+  useEffect(() => {
+    const checkHash = () => {
+      if (window.location.hash === '#quick') {
+        setCurrentPage('quick')
+      }
+    }
+    checkHash()
+    window.addEventListener('hashchange', checkHash)
+    return () => window.removeEventListener('hashchange', checkHash)
+  }, [setCurrentPage])
 
   // 初始化应用状态
   useEffect(() => {
@@ -53,6 +66,10 @@ function App(): JSX.Element {
       setHasSummaryOpened(true)
     }
   }, [currentPage, hasSummaryOpened])
+
+  if (currentPage === 'quick') {
+    return <QuickPage />
+  }
 
   // 显示错误状态
   if (error) {

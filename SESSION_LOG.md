@@ -2,6 +2,18 @@
 
 ## 2026-06-27
 
+### 23:58 | Antigravity
+
+- done: Task 4: QuickPage renderer and #quick routing
+- added:
+  - `src/renderer/src/pages/QuickPage.tsx`
+- modified:
+  - `src/renderer/src/App.tsx`
+  - `src/renderer/src/store/appStore.ts`
+  - `src/preload/index.ts`
+  - `src/preload/index.d.ts`
+  - `CHANGELOG.md`
+
 ### 23:55 | Antigravity
 
 - done: Task 3: quick window lifecycle and global summon shortcut

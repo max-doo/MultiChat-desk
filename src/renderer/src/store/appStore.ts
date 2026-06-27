@@ -275,8 +275,8 @@ interface AppState {
   setNewSession: (isNew: boolean) => void
 
   // 页面导航状态
-  currentPage: 'main' | 'summary'
-  setCurrentPage: (page: 'main' | 'summary') => void
+  currentPage: 'main' | 'summary' | 'quick'
+  setCurrentPage: (page: 'main' | 'summary' | 'quick') => void
 
   // UI 抽屉状态
   isSettingsOpen: boolean
@@ -1050,7 +1050,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
 
   currentPage: 'main',
-  setCurrentPage: (page: 'main' | 'summary') => set({ currentPage: page }),
+  setCurrentPage: (page: 'main' | 'summary' | 'quick') => set({ currentPage: page }),
 
   isSettingsOpen: false,
   setSettingsOpen: (open: boolean) => set({ isSettingsOpen: open }),

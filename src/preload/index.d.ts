@@ -34,6 +34,8 @@ declare global {
       trayQuitApp: () => Promise<{ success: boolean; error?: string }>
       quickShow: (opts?: { focus?: boolean }) => Promise<{ success: boolean; error?: string }>
       quickHide: () => Promise<{ success: boolean; error?: string }>
+      quickInjectPrompt: (payload: { text: string; action: 'summarize'|'polish'|'translate'|'raw' }) => void
+      onQuickInject: (cb: (payload: { text: string; action: 'summarize'|'polish'|'translate'|'raw' }) => void) => () => void
       selectFile: () => Promise<string | null>
       selectDirectory: () => Promise<string | null>
       getFileInfo: (filePath: string) => Promise<GetFileInfoResult>

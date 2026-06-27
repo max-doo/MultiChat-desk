@@ -30,6 +30,12 @@ const api = {
   // 快捷弹窗控制
   quickShow: (opts?: { focus?: boolean }) => ipcRenderer.invoke('quick:show', opts),
   quickHide: () => ipcRenderer.invoke('quick:hide'),
+  quickInjectPrompt: (payload: { text: string; action: 'summarize'|'polish'|'translate'|'raw' }) => ipcRenderer.send('quick:inject-prompt', payload),
+  onQuickInject: (cb: (payload: { text: string; action: 'summarize'|'polish'|'translate'|'raw' }) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, payload: { text: string; action: 'summarize'|'polish'|'translate'|'raw' }): void => cb(payload)
+    ipcRenderer.on('quick:inject-prompt', handler)
+    return () => { ipcRenderer.removeListener('quick:inject-prompt', handler) }
+  },
 
   // 文件操作
   selectFile: (): Promise<string | null> => ipcRenderer.invoke('select-file'),
