@@ -287,7 +287,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
     prose-tr:border-b prose-tr:border-gray-200`
 
   /**
-   * 自定义链接组件：处理外部链接点击，在新窗口（BrowserPage）中打开
+   * 自定义链接组件：处理外部链接点击，在系统默认浏览器中打开
    */
   const customLinkComponent: Components['a'] = ({ href, children, ...props }) => {
     const handleClick = async (e: React.MouseEvent<HTMLAnchorElement>) => {

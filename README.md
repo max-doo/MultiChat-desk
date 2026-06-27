@@ -306,8 +306,7 @@ multichat/
 │           │   └── Layout.tsx                # 主布局
 │           ├── pages/                  # 页面组件
 │           │   ├── MainPage.tsx              # 主页面（多模型对话）
-│           │   ├── SummaryPage.tsx           # 总结页面
-│           │   └── BrowserPage.tsx           # 独立浏览器窗口
+│           │   └── SummaryPage.tsx           # 总结页面
 │           ├── store/                  # 状态管理
 │           │   ├── appStore.ts               # Zustand 全局状态
 │           │   └── agent-prompts-defaults/   # 默认 Agent 提示词模板

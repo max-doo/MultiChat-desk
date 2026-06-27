@@ -2,6 +2,18 @@
 
 ## 2026-06-27
 
+### 23:45 | Antigravity
+
+- done: Clean up obsolete BrowserPage legacy component and associated routing/state
+- modified:
+  - `README.md`
+  - `src/renderer/src/App.tsx`
+  - `src/renderer/src/components/ModelOutputCard.tsx`
+  - `src/renderer/src/components/SummaryPanel.tsx`
+  - `src/renderer/src/store/appStore.ts`
+- removed:
+  - `src/renderer/src/pages/BrowserPage.tsx`
+
 ### 23:39 | Antigravity
 
 - done: 将抽屉 Header 内的 Logo 尺寸由 w-8 h-8 进一步放大至 w-10 h-10

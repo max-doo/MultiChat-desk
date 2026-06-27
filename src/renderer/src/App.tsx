@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react'
 import Layout from './components/Layout'
 import MainPage from './pages/MainPage'
 import SummaryPage from './pages/SummaryPage'
-import BrowserPage from './pages/BrowserPage'
 import { initializeStore, useAppStore, SummaryHistoryItem } from './store/appStore'
 
 function App(): JSX.Element {
@@ -15,23 +14,6 @@ function App(): JSX.Element {
 
   // 初始化应用状态
   useEffect(() => {
-    // 检查初始 hash 状态
-    const checkHash = () => {
-      if (window.location.hash.startsWith('#browser')) {
-        setCurrentPage('browser')
-        if (!isInitialized) {
-          setIsInitialized(true) // Browser page doesn't need full store init immediately
-        }
-        return true
-      }
-      return false
-    }
-
-    // 初始检查
-    if (checkHash()) {
-      return
-    }
-
     const init = async () => {
       try {
         console.log('开始初始化...')
@@ -48,15 +30,8 @@ function App(): JSX.Element {
     // 延迟执行，确保 DOM 和 API 准备好
     const timer = setTimeout(init, 100)
     
-    // 监听 hash 变化，用于从 SummaryPage 跳转到 BrowserPage
-    const handleHashChange = () => {
-      checkHash()
-    }
-    window.addEventListener('hashchange', handleHashChange)
-    
     return () => {
       clearTimeout(timer)
-      window.removeEventListener('hashchange', handleHashChange)
     }
   }, [isInitialized])
 
@@ -108,15 +83,6 @@ function App(): JSX.Element {
             <p className="text-gray-400">正在加载...</p>
           </div>
         </div>
-      </Layout>
-    )
-  }
-
-  // 处理 BrowserPage 的情况（单独渲染）
-  if (currentPage === 'browser') {
-    return (
-      <Layout>
-        <BrowserPage />
       </Layout>
     )
   }
