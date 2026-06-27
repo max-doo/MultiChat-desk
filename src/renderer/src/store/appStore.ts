@@ -1396,7 +1396,6 @@ export async function initializeStore(): Promise<void> {
       useAppStore.setState({ models: finalModels })
     }
 
-    // 监听 Gemini 账号切换事件
     if (window.api?.onGeminiAccountSwitched) {
       window.api.onGeminiAccountSwitched((url: string) => {
         console.log('[AppStore] 收到 Gemini 账号切换通知，保存 URL:', url)
@@ -1415,4 +1414,36 @@ export async function initializeStore(): Promise<void> {
   } catch (error) {
     console.error('初始化 store 失败:', error)
   }
+}
+
+// 跨窗口状态同步
+let isApplyingRemote = false
+if (typeof window !== 'undefined') {
+  useAppStore.subscribe((state, prevState) => {
+    if (isApplyingRemote) return
+    if (!window.api?.stateSync) return
+    const keysToSync: (keyof typeof state)[] = ['activeModels', 'currentModelId']
+    const diff: Record<string, unknown> = {}
+    let changed = false
+    for (const k of keysToSync) {
+      if (state[k] !== prevState[k]) {
+        diff[k] = state[k]
+        changed = true
+      }
+    }
+    if (changed) {
+      window.api.stateSync(diff)
+    }
+  })
+
+  // 延迟监听，确保 api 就绪
+  setTimeout(() => {
+    if (window.api?.onStateChangedRemote) {
+      window.api.onStateChangedRemote((remoteDiff) => {
+        isApplyingRemote = true
+        useAppStore.setState(remoteDiff)
+        isApplyingRemote = false
+      })
+    }
+  }, 100)
 }

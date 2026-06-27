@@ -36,6 +36,8 @@ declare global {
       quickHide: () => Promise<{ success: boolean; error?: string }>
       quickInjectPrompt: (payload: { text: string; action: 'summarize'|'polish'|'translate'|'raw' }) => void
       onQuickInject: (cb: (payload: { text: string; action: 'summarize'|'polish'|'translate'|'raw' }) => void) => () => void
+      stateSync: (partialState: Record<string, unknown>) => void
+      onStateChangedRemote: (cb: (state: Record<string, unknown>) => void) => () => void
       selectFile: () => Promise<string | null>
       selectDirectory: () => Promise<string | null>
       getFileInfo: (filePath: string) => Promise<GetFileInfoResult>

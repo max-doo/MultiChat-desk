@@ -37,6 +37,14 @@ const api = {
     return () => { ipcRenderer.removeListener('quick:inject-prompt', handler) }
   },
 
+  // 跨窗口同步
+  stateSync: (partialState: Record<string, unknown>): void => ipcRenderer.send('state:sync', partialState),
+  onStateChangedRemote: (cb: (state: Record<string, unknown>) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, s: Record<string, unknown>): void => cb(s)
+    ipcRenderer.on('state-changed-remote', handler)
+    return () => { ipcRenderer.removeListener('state-changed-remote', handler) }
+  },
+
   // 文件操作
   selectFile: (): Promise<string | null> => ipcRenderer.invoke('select-file'),
   selectDirectory: (): Promise<string | null> => ipcRenderer.invoke('select-directory'),

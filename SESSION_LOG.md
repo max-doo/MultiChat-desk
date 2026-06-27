@@ -1,5 +1,19 @@
 # Session Log
 
+## 2026-06-28
+
+### 00:01 | Antigravity
+
+- done: Task 5: cross-window state broadcast via stateBus and Zustand subscribe
+- added:
+  - `src/main/stateBus.ts`
+- modified:
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/preload/index.d.ts`
+  - `src/renderer/src/store/appStore.ts`
+  - `CHANGELOG.md`
+
 ## 2026-06-27
 
 ### 23:58 | Antigravity

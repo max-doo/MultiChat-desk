@@ -14,6 +14,9 @@ Release-facing changelog. 仅记录用户可见或与发布相关的变化。
 
 ## [Unreleased]
 
+## 2026-06-28
+- 00:00 | feat: src/main/stateBus.ts, src/main/ipcHandlers.ts, src/preload/index.ts, src/renderer/src/store/appStore.ts - 跨窗口状态同步广播
+
 ## 2026-06-27
 - 23:58 | feat: src/renderer/src/App.tsx, src/renderer/src/pages/QuickPage.tsx, src/renderer/src/store/appStore.ts - #quick 路由与 QuickPage 极简助手页
 - 23:54 | feat: src/main/webviewManager.ts, src/main/index.ts, src/main/ipcHandlers.ts, src/preload/index.ts - 快捷弹窗预创建与全局召唤快捷键
