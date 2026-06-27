@@ -38,3 +38,6 @@ Thumbs.db
 
 # Generated files
 build/portable.txt
+
+# Python
+__pycache__/

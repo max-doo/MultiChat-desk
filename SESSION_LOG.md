@@ -44,7 +44,7 @@
 - 22:06 | feat: src/main/ipcHandlers.ts, src/preload/index.ts, src/preload/index.d.ts - 新增 `write-temp-markdown` IPC handler 和 preload 桥接，支持将 markdown 内容写入临时目录并返回文件路径
 - 22:06 | feat: src/renderer/src/hooks/useWebviewSummary.ts - 实现 webview 总结自适应传输：提示词长度 >= 8000 字符时自动切换为临时 markdown 文件上传模式，上传失败自动降级回直接粘贴；新增 `uploading-file` phase
 - 22:06 | feat: src/renderer/src/components/SummaryPanel.tsx - 在 webview 总结操作栏显示传输策略提示（正在上传文件/正在发送/正在生成回复）
-- 22:06 | feat: src/main/index.ts - 应用启动时自动清理 `modelmash-uploads-*` 临时目录
+- 22:06 | feat: src/main/index.ts - 应用启动时自动清理 `multichat-uploads-*` 临时目录
 - 22:18 | refactor: src/renderer/src/hooks/useWebviewSummary.ts:137 - 文件上传模式下，系统指令和用户要求从文件中分离，改为通过对话框发送；文件仅包含模型回答数据
 - 22:50 | feat: electron-builder.yml, package.json, assets/logo.icns, build/entitlements.mac.plist - 补齐 macOS 打包配置：新增 mac/dmg target（x64 + arm64）、entitlements、`.icns` 图标；修复 `build:mac` 脚本缺失 config 文件参数
 - 23:30 | feat: src/renderer/src/store/appStore.ts - 实现 webview AI 输出实时监控：发送消息后自动轮询各平台回复，内容连续稳定后判定完成并保存完整对话数据
