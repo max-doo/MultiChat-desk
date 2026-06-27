@@ -107,55 +107,10 @@ function getWindowIcon(): string | Electron.NativeImage {
 
 export function openBrowserWindowInternal(url: string): void {
     if (!url || !(url.startsWith('http://') || url.startsWith('https://'))) return
-    console.log('[Main] openBrowserWindowInternal:', url)
-    const win = new BrowserWindow({
-        width: 1200,
-        height: 800,
-        minWidth: 800,
-        minHeight: 600,
-        show: true,
-        autoHideMenuBar: true,
-        titleBarStyle: 'hidden',
-        titleBarOverlay: {
-            color: '#E0EFFF',
-            symbolColor: '#333333',
-            height: 38
-        },
-        backgroundColor: 'rgba(0,0,0,0)',
-        icon: getWindowIcon(),
-        webPreferences: {
-            preload: join(__dirname, '../preload/index.js'),
-            nodeIntegration: false,
-            contextIsolation: true,
-            sandbox: false,
-            webviewTag: true,
-            partition: 'persist:shared'
-        }
-    })
-    browserWindows.add(win)
-    win.on('closed', () => {
-        browserWindows.delete(win)
-    })
-    win.show()
-    win.focus()
-
-    const hash = `browser?url=${encodeURIComponent(url)}`
-    if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-        win.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/#${hash}`).catch((err) => {
-            console.error('[Main] Failed to load URL:', err)
-        })
-    } else {
-        win.loadFile(join(__dirname, '../renderer/index.html'), { hash: hash }).catch((err) => {
-            console.error('[Main] Failed to load file:', err)
-        })
-    }
-
-    win.setMenuBarVisibility(false)
-    win.webContents.setWindowOpenHandler((details) => {
-        shell.openExternal(details.url)
-        return { action: 'deny' }
-    })
+    console.log('[Main] openBrowserWindowInternal -> shell.openExternal:', url)
+    shell.openExternal(url)
 }
+
 
 // ============ 注入脚本 ============
 
@@ -242,7 +197,8 @@ function getWebviewClickInterceptorScript(): string {
           if (link && link.href) {
             // 检查是否是 Google 账号相关链接
             const isGoogleAuth = link.href.includes('accounts.google.com') || 
-                                (link.href.includes('.google.com') && link.href.includes('/accounts'));
+                                (link.href.includes('.google.com') && link.href.includes('/accounts')) ||
+                                (link.href.includes('.google.com') && link.href.includes('/signin'));
             
             if (isGoogleAuth) {
               // 对于 Google 账号链接，直接在当前页面导航
@@ -479,7 +435,18 @@ export function createWindow(): void {
             if (message.startsWith('__OPEN_LINK__:')) {
                 const url = message.substring(14)
                 console.log('[Webview]', webContents.id, 'open link:', url)
-                openBrowserWindowInternal(url)
+
+                // 登录/认证 URL 应留在 webview 内，确保 persist:shared session 共享
+                const isAuthUrl = url.includes('accounts.google.com') ||
+                    (url.includes('.google.com') && url.includes('/signin')) ||
+                    (url.includes('.google.com') && url.includes('/accounts'))
+
+                if (isAuthUrl) {
+                    console.log('[Main] Auth URL detected, navigating webview internally:', url)
+                    webContents.loadURL(url)
+                } else {
+                    openBrowserWindowInternal(url)
+                }
             }
         })
 
