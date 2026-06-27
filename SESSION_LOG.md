@@ -2,6 +2,13 @@
 
 ## 2026-06-28
 
+### 00:04 | Antigravity
+
+- done: Task 6: clipboard text summon and prompt injection MVP shortcuts
+- modified:
+  - `src/main/index.ts`
+  - `CHANGELOG.md`
+
 ### 00:01 | Antigravity
 
 - done: Task 5: cross-window state broadcast via stateBus and Zustand subscribe

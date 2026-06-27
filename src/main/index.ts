@@ -1,6 +1,6 @@
 
 
-import { app, BrowserWindow, globalShortcut, nativeTheme } from 'electron'
+import { app, BrowserWindow, globalShortcut, nativeTheme, clipboard } from 'electron'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { join } from 'path'
 import { readdir, rm } from 'fs/promises'
@@ -138,6 +138,31 @@ app.whenReady().then(() => {
   })
   if (!summonOk) console.warn(`[Main] 召唤快捷键注册失败: ${summonAccelerator}`)
 
+  // 剪贴板文本召唤与动作注入 (MVP 快捷键)
+  const defaultActions = [
+    { accelerator: 'CommandOrControl+Shift+S', action: 'summarize' as const },
+    { accelerator: 'CommandOrControl+Shift+E', action: 'polish' as const },
+    { accelerator: 'CommandOrControl+Shift+T', action: 'translate' as const },
+    { accelerator: 'CommandOrControl+Shift+Q', action: 'raw' as const }
+  ]
+  defaultActions.forEach(({ accelerator, action }) => {
+    const ok = globalShortcut.register(accelerator, () => {
+      const text = clipboard.readText().trim()
+      const qw = getQuickWindow()
+      if (!qw) return
+      qw.show()
+      qw.focus()
+      if (text) {
+        setTimeout(() => {
+          if (!qw.isDestroyed()) {
+            qw.webContents.send('quick:inject-prompt', { text, action })
+          }
+        }, 300)
+      }
+    })
+    if (!ok) console.warn(`[Main] 快捷操作注册失败: ${accelerator}`)
+  })
+
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
@@ -151,5 +176,5 @@ app.on('before-quit', () => {
 
 // 所有窗口关闭时不再直接退出应用（让应用保留在系统托盘/后台运行）
 app.on('window-all-closed', () => {
-  globalShortcut.unregisterAll()
+  // 不注销全局快捷键，以便在后台或托盘模式下随时唤醒
 })
