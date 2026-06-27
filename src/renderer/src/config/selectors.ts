@@ -71,8 +71,8 @@ export interface SelectorsConfig {
  * 如需调整请选择器配置，直接修改本文件后重启应用生效
  */
 export const defaultSelectors: SelectorsConfig = {
-  version: 11,
-  lastUpdated: '2026-05-04',
+  version: 13,
+  lastUpdated: '2026-06-27',
   models: {
     chatgpt: {
       textarea: [
@@ -272,7 +272,7 @@ export const defaultSelectors: SelectorsConfig = {
         '[class*="markdown"]'
       ],
       customCSS: ``,
-      newConversationUrl: 'https://yiyan.baidu.com/',
+      newConversationUrl: 'https://chat.baidu.com/',
       imageGeneration: {
         steps: [
           { selector: ['button', '[role="button"]', '[role="menuitem"]', '[role="menuitemradio"]'], text: ['生图', '画图', '图像生成', 'Image'], delay: 500 }
@@ -553,6 +553,39 @@ export const defaultSelectors: SelectorsConfig = {
       ],
       customCSS: '',
       newConversationUrl: 'https://arena.ai/'
+    },
+    deepseek: {
+      textarea: [
+        '#chat-input',
+        'textarea[placeholder*="DeepSeek"]',
+        'textarea[placeholder*="发送"]',
+        'textarea[placeholder*="Message"]',
+        'textarea'
+      ],
+      sendButton: [
+        '.ds-textarea-send-button',
+        'div[class*="send-button"]',
+        'button[class*="send-button"]',
+        '#chat-input + button',
+        '#chat-input ~ button'
+      ],
+      messageContainer: [
+        '.ds-markdown',
+        '.ds-markdown.ds-markdown--block',
+        'div[class*="ds-markdown"]',
+        '.prose',
+        '[class*="markdown"]'
+      ],
+      customCSS: ``,
+      newConversationUrl: 'https://chat.deepseek.com/',
+      researchMode: {
+        steps: [
+          { selector: ['button', '[role="button"]', 'div'], text: ['深度思考', 'Deep Thinking'], delay: 300 }
+        ],
+        cancelSteps: [
+          { selector: ['button', '[role="button"]', 'div'], text: ['深度思考', 'Deep Thinking'], delay: 300 }
+        ]
+      }
     }
   }
 }

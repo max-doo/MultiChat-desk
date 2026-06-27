@@ -349,8 +349,8 @@ function buildTextareaInputScript(messageText: string, modelId: string): string 
       // 对于 textarea/input 元素
       textarea.focus();
 
-      // 针对豆包和千问：模拟完整的用户输入流程，兼容 React/Semi/Ant Design 受控组件
-      if (${JSON.stringify(modelId)} === 'doubao' || ${JSON.stringify(modelId)} === 'qwen') {
+      // 针对豆包和千问和 DeepSeek：模拟完整的用户输入流程，兼容 React/Semi/Ant Design 受控组件
+      if (${JSON.stringify(modelId)} === 'doubao' || ${JSON.stringify(modelId)} === 'qwen' || ${JSON.stringify(modelId)} === 'deepseek') {
         // 选中所有现有内容
         textarea.select();
 
@@ -483,7 +483,7 @@ function buildSimulateEnterKeyScript(modelId: string): string {
     // 点击发送按钮
     // 对于 Angular Material 按钮，可能需要先触发 focus
     button.focus();
-    const clickDelay = (${JSON.stringify(modelId)} === 'doubao' || ${JSON.stringify(modelId)} === 'qwen') ? 500 : 50;
+    const clickDelay = (${JSON.stringify(modelId)} === 'doubao' || ${JSON.stringify(modelId)} === 'qwen' || ${JSON.stringify(modelId)} === 'deepseek') ? 500 : 50;
     await new Promise(resolve => setTimeout(resolve, clickDelay));
     button.click();
     
@@ -937,7 +937,7 @@ export function generateSendMessageScript(
           textarea.dispatchEvent(new Event('change', { bubbles: true }));
         }
 
-        const postInputDelay = (currentModelId === 'doubao' || currentModelId === 'qwen') ? 350 : 80;
+        const postInputDelay = (currentModelId === 'doubao' || currentModelId === 'qwen' || currentModelId === 'deepseek') ? 350 : 80;
         await new Promise(resolve => setTimeout(resolve, postInputDelay));
         
         ${findButton}
