@@ -38,6 +38,9 @@ interface WebviewCardProps {
   hideHeader?: boolean  // 隐藏头部（平台名称、刷新、状态等），适合嵌套在已有控制栏的容器中
   onModelChange?: (modelId: string) => void  // 自定义平台切换回调，覆盖默认的 swapModelInSlot
   isolated?: boolean // 隔离模式：不受主界面对话状态（会话锁定、模型阵容锁定）的影响
+  headerActions?: React.ReactNode // 自定义头部操作区按钮
+  draggableHeader?: boolean // 是否允许头部拖拽窗口
+  flat?: boolean // 扁平无边框模式：去除圆角、外边框与阴影，占满整个容器
 }
 
 // 重新导出 FileUploadData 类型供其他组件使用
@@ -65,7 +68,7 @@ export interface WebviewCardRef {
  * 嵌入 AI 平台的 Web 界面，支持消息发送和响应抓取
  */
 const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
-  ({ id, name, url, logo, enabled, slotIndex, compact, hideHeader, onModelChange, isolated }, ref) => {
+  ({ id, name, url, logo, enabled, slotIndex, compact, hideHeader, onModelChange, isolated, headerActions, draggableHeader, flat }, ref) => {
     const webviewRef = useRef<Electron.WebviewTag>(null)
     const [isLoading, setIsLoading] = useState(true)
     const [isReady, setIsReady] = useState(false)
@@ -678,8 +681,8 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
 
     if (!enabled) {
       return (
-        <div className={`flex flex-col h-full rounded-2xl glass-panel shadow-soft opacity-50 overflow-hidden ${compact ? '' : 'min-h-[480px]'}`}>
-          <div className="p-4 border-b border-white/40 flex justify-between items-center">
+        <div className={`flex flex-col h-full opacity-50 overflow-hidden ${flat ? 'bg-white' : 'rounded-2xl glass-panel shadow-soft'} ${compact ? '' : 'min-h-[480px]'}`}>
+          <div className={`p-4 border-b ${flat ? 'border-gray-200/60 bg-white' : 'border-white/40'} flex justify-between items-center`}>
             <div className="flex items-center gap-3 opacity-50">
               <img alt={`${name} logo`} className="w-6 h-6" src={logo} />
               <h2 className="font-semibold text-text-secondary">{name}</h2>
@@ -693,13 +696,23 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
     }
 
     return (
-      <div className={`flex flex-col h-full rounded-2xl glass-panel shadow-soft overflow-hidden ${compact ? '' : 'min-h-[480px]'}`}>
+      <div className={`flex flex-col h-full overflow-hidden ${flat ? 'bg-white' : 'rounded-2xl glass-panel shadow-soft'} ${compact ? '' : 'min-h-[480px]'}`}>
         {!hideHeader && (
           <>
             {/* 卡片头部 */}
-            <div className="p-4 border-b border-white/40 flex justify-between items-center">
+            <div 
+              className={`p-3 border-b ${flat ? 'border-gray-200/60 bg-white' : 'border-white/40 p-4'} flex justify-between items-center ${draggableHeader ? 'drag-region select-none' : ''}`}
+              onPointerDown={draggableHeader ? (e) => {
+                const target = e.target as HTMLElement
+                if (target.closest('button') || target.closest('.no-drag') || target.closest('input') || target.closest('select')) return
+                if (target.closest('.drag-region') || target === e.currentTarget) {
+                  e.currentTarget.setPointerCapture(e.pointerId)
+                  window.api.windowDragStart()
+                }
+              } : undefined}
+            >
               {/* 左侧：模型信息和下拉选择器 */}
-              <div title={isSessionActive ? '当前对话进行中，需开启新对话才可更换模型' : ''}>
+              <div className={draggableHeader ? 'no-drag' : ''} title={isSessionActive ? '当前对话进行中，需开启新对话才可更换模型' : ''}>
                 <CustomDropdown
                   value={id}
                   disabled={isSessionActive}
@@ -761,7 +774,7 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
               </div>
 
               {/* 右侧：刷新按钮 + 状态指示器 */}
-              <div className="flex items-center gap-3 group">
+              <div className={`flex items-center gap-3 group ${draggableHeader ? 'no-drag' : ''}`}>
                 <button
                   type="button"
                   onClick={handleGoBack}
@@ -799,6 +812,7 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
                     <span className="material-symbols-outlined text-xl">add_comment</span>
                   </button>
                 )}
+                {headerActions}
               </div>
             </div>
           </>

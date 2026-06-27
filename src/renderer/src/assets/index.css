@@ -4,7 +4,7 @@
 
 /* 自定义样式 */
 :root {
-  --app-bg: radial-gradient(ellipse at bottom, #FFFCF0 0%, #FFECF2 30%, #F0F7FF 65%, #E0EFFF 100%);
+  --app-bg: radial-gradient(ellipse at bottom, #FFFEF5 0%, #FFF2F5 30%, #F5F9FF 65%, #EBF4FF 100%);
   --sidebar-bg: rgba(255, 255, 255, 0.8);
   --text-primary: #1f2937;
   --text-secondary: #6b7280;

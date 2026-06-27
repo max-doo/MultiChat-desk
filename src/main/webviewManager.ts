@@ -308,7 +308,7 @@ export function createWindow(): void {
         frame: false,
         titleBarStyle: 'hidden',
         titleBarOverlay: {
-            color: '#E0EFFF',
+            color: '#EBF4FF',
             symbolColor: '#333333',
             height: 38
         },

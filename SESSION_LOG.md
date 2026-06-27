@@ -2,6 +2,41 @@
 
 ## 2026-06-28
 
+### 00:51 | Antigravity
+
+- done: 同步修改主进程中主窗口控件背景色，消除标题栏与渐变背景色差
+- modified:
+  - `src/main/webviewManager.ts`
+
+### 00:48 | Antigravity
+
+- done: 将应用背景渐变色调淡一点
+- modified:
+  - `src/renderer/src/assets/index.css`
+
+### 00:41 | Antigravity
+
+- done: 修复快捷助手模型切换受限 Bug，并增加 flat 属性彻底去除 WebviewCard 外层容器视觉
+- decision: QuickPage 放开已开启模型过滤查询全量 models；WebviewCard 支持 flat 无边框模式，外层 padding 设为 p-0。
+- modified:
+  - `src/renderer/src/components/WebviewCard.tsx`
+  - `src/renderer/src/pages/QuickPage.tsx`
+
+### 00:36 | Antigravity
+
+- done: 直接复用 WebviewCard 渲染快捷助手窗口，移除外层包装容器，并将主界面与关闭操作按钮直接无缝嵌入 WebviewCard 头部。
+- decision: WebviewCard 扩展 headerActions 与 draggableHeader 属性；QuickPage 根节点直接渲染 WebviewCard。
+- modified:
+  - `src/renderer/src/components/WebviewCard.tsx`
+  - `src/renderer/src/pages/QuickPage.tsx`
+
+### 00:28 | Antigravity
+
+- done: 重构快捷助手弹窗 (QuickPage)，直接复用 WebviewCard 组件，移除底部多余输入框，支持将提示词直接注入目标 AI 网页输入框，并对齐应用浅色毛玻璃主题风格。
+- decision: 直接复用 WebviewCard (设置 compact, hideHeader, isolated)；增加 15 次/500ms 的异步重试注入机制以应对 Webview 初始启动延迟。
+- modified:
+  - `src/renderer/src/pages/QuickPage.tsx`
+
 ### 00:12 | Antigravity
 
 - done: Mark all checkboxes complete in Desktop Quick Access plan
