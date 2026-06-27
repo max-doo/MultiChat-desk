@@ -197,7 +197,8 @@ function getWebviewClickInterceptorScript(): string {
           if (link && link.href) {
             // 检查是否是 Google 账号相关链接
             const isGoogleAuth = link.href.includes('accounts.google.com') || 
-                                (link.href.includes('.google.com') && link.href.includes('/accounts'));
+                                (link.href.includes('.google.com') && link.href.includes('/accounts')) ||
+                                (link.href.includes('.google.com') && link.href.includes('/signin'));
             
             if (isGoogleAuth) {
               // 对于 Google 账号链接，直接在当前页面导航
@@ -434,7 +435,18 @@ export function createWindow(): void {
             if (message.startsWith('__OPEN_LINK__:')) {
                 const url = message.substring(14)
                 console.log('[Webview]', webContents.id, 'open link:', url)
-                openBrowserWindowInternal(url)
+
+                // 登录/认证 URL 应留在 webview 内，确保 persist:shared session 共享
+                const isAuthUrl = url.includes('accounts.google.com') ||
+                    (url.includes('.google.com') && url.includes('/signin')) ||
+                    (url.includes('.google.com') && url.includes('/accounts'))
+
+                if (isAuthUrl) {
+                    console.log('[Main] Auth URL detected, navigating webview internally:', url)
+                    webContents.loadURL(url)
+                } else {
+                    openBrowserWindowInternal(url)
+                }
             }
         })
 
