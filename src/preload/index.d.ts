@@ -38,6 +38,8 @@ declare global {
       onQuickInject: (cb: (payload: { text: string; action: 'summarize'|'polish'|'translate'|'raw' }) => void) => () => void
       stateSync: (partialState: Record<string, unknown>) => void
       onStateChangedRemote: (cb: (state: Record<string, unknown>) => void) => () => void
+      shortcutGet: () => Promise<{ success: boolean; data?: Record<string, string>; error?: string }>
+      shortcutSet: (config: Record<string, string>) => Promise<{ success: boolean; error?: string }>
       selectFile: () => Promise<string | null>
       selectDirectory: () => Promise<string | null>
       getFileInfo: (filePath: string) => Promise<GetFileInfoResult>

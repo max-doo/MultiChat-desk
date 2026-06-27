@@ -11,6 +11,7 @@ import type Store from 'electron-store'
 import { generateSummary, fetchModels } from './api/summaryApi'
 import { setQuitting, getQuickWindow } from './webviewManager'
 import { broadcastStateChange } from './stateBus'
+import { getShortcuts, updateShortcuts, type ShortcutConfig } from './shortcutManager'
 import {
     listAgentPrompts,
     bootstrapAgentPrompts,
@@ -63,6 +64,12 @@ export function registerIpcHandlers(
     })
     ipcMain.on('state:sync', (event, partialState: Record<string, unknown>) => {
         broadcastStateChange(event.sender.id, partialState)
+    })
+    ipcMain.handle('shortcut:get', () => {
+        return { success: true, data: getShortcuts() }
+    })
+    ipcMain.handle('shortcut:set', (_event, config: Partial<ShortcutConfig>) => {
+        return updateShortcuts(config)
     })
 
     // 窗口拖拽状态

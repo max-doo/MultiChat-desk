@@ -441,6 +441,33 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
 
   const [modelEditorOpen, setModelEditorOpen] = useState(false)
 
+  // 快捷键设置状态
+  const [shortcuts, setShortcuts] = useState<Record<string, string>>({
+    summon: 'CommandOrControl+Shift+Space',
+    summarize: 'CommandOrControl+Shift+S',
+    polish: 'CommandOrControl+Shift+E',
+    translate: 'CommandOrControl+Shift+T',
+    raw: 'CommandOrControl+Shift+Q'
+  })
+
+  useEffect(() => {
+    if (isOpen && window.api?.shortcutGet) {
+      window.api.shortcutGet().then(res => {
+        if (res.success && res.data) {
+          setShortcuts(res.data)
+        }
+      })
+    }
+  }, [isOpen])
+
+  const handleShortcutChange = async (key: string, val: string): Promise<void> => {
+    const updated = { ...shortcuts, [key]: val }
+    setShortcuts(updated)
+    if (window.api?.shortcutSet) {
+      await window.api.shortcutSet({ [key]: val })
+    }
+  }
+
   // 确认弹窗状态
   const [confirmModal, setConfirmModal] = useState<{
     isOpen: boolean
@@ -844,6 +871,32 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
                   ))}
                 </div>
               </div>
+            </div>
+          </div>
+
+          {/* 全局快捷键设置 */}
+          <div>
+            <h3 className="font-medium text-text-secondary mb-4">全局快捷键设置</h3>
+            <div className="p-4 rounded-lg bg-sidebar/50 border border-gray-200 space-y-3">
+              {[
+                { key: 'summon', label: '唤醒快捷助手' },
+                { key: 'summarize', label: '划词召唤 - 总结' },
+                { key: 'polish', label: '划词召唤 - 润色' },
+                { key: 'translate', label: '划词召唤 - 翻译' },
+                { key: 'raw', label: '划词召唤 - 纯文本入框' }
+              ].map(({ key, label }) => (
+                <div key={key} className="flex items-center justify-between gap-4">
+                  <label className="text-sm text-text-secondary">{label}</label>
+                  <input
+                    type="text"
+                    value={shortcuts[key] || ''}
+                    onChange={(e) => handleShortcutChange(key, e.target.value)}
+                    placeholder="如 CommandOrControl+Shift+Space"
+                    className="w-64 px-3 py-1.5 bg-app border border-gray-200 rounded-md text-text-secondary text-xs focus:outline-none focus:border-primary"
+                  />
+                </div>
+              ))}
+              <p className="text-xs text-gray-500 mt-2">支持组合键名称（修饰键用 CommandOrControl、Shift、Alt 等连接）</p>
             </div>
           </div>
 

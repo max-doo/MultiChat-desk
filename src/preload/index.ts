@@ -45,6 +45,10 @@ const api = {
     return () => { ipcRenderer.removeListener('state-changed-remote', handler) }
   },
 
+  // 快捷键管理
+  shortcutGet: (): Promise<{ success: boolean; data?: Record<string, string>; error?: string }> => ipcRenderer.invoke('shortcut:get'),
+  shortcutSet: (config: Record<string, string>): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('shortcut:set', config),
+
   // 文件操作
   selectFile: (): Promise<string | null> => ipcRenderer.invoke('select-file'),
   selectDirectory: (): Promise<string | null> => ipcRenderer.invoke('select-directory'),

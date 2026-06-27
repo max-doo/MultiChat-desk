@@ -15,6 +15,7 @@ Release-facing changelog. 仅记录用户可见或与发布相关的变化。
 ## [Unreleased]
 
 ## 2026-06-28
+- 00:10 | feat: src/main/shortcutManager.ts, src/main/index.ts, src/main/ipcHandlers.ts, src/preload/index.ts, src/renderer/src/components/SettingsDrawer.tsx - 快捷键管理模块与设置面板自定义配置
 - 00:03 | feat: src/main/index.ts - 剪贴板文本召唤与自动注入快捷键 (MVP)
 - 00:00 | feat: src/main/stateBus.ts, src/main/ipcHandlers.ts, src/preload/index.ts, src/renderer/src/store/appStore.ts - 跨窗口状态同步广播
 

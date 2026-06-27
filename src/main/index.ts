@@ -1,6 +1,6 @@
 
 
-import { app, BrowserWindow, globalShortcut, nativeTheme, clipboard } from 'electron'
+import { app, BrowserWindow, globalShortcut, nativeTheme } from 'electron'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { join } from 'path'
 import { readdir, rm } from 'fs/promises'
@@ -8,7 +8,8 @@ import { tmpdir } from 'os'
 import Store from 'electron-store'
 import { initAgentPrompts } from './agentPrompts'
 import { registerIpcHandlers } from './ipcHandlers'
-import { createWindow, getMainWindow, openBrowserWindowInternal, setQuitting, createTray, destroyTray, createQuickWindow, getQuickWindow } from './webviewManager'
+import { initShortcutManager } from './shortcutManager'
+import { createWindow, getMainWindow, openBrowserWindowInternal, setQuitting, createTray, destroyTray, createQuickWindow } from './webviewManager'
 
 // ============ 便携模式支持 ============
 
@@ -116,52 +117,8 @@ app.whenReady().then(() => {
   createQuickWindow()
   createTray()
 
-  // 注册刷新快捷键 (Ctrl+R / Cmd+R / F5)
-  // 在生产环境中 Ctrl+R 默认被禁用，这里手动注册
-  const refreshShortcuts = ['CommandOrControl+R', 'F5']
-  refreshShortcuts.forEach((shortcut) => {
-    globalShortcut.register(shortcut, () => {
-      const focusedWindow = BrowserWindow.getFocusedWindow()
-      if (focusedWindow) {
-        focusedWindow.webContents.reload()
-      }
-    })
-  })
-
-  // 召唤 Quick Window
-  const summonAccelerator = 'CommandOrControl+Shift+Space'
-  const summonOk = globalShortcut.register(summonAccelerator, () => {
-    const qw = getQuickWindow()
-    if (!qw) return
-    if (qw.isVisible()) qw.hide()
-    else { qw.show(); qw.focus() }
-  })
-  if (!summonOk) console.warn(`[Main] 召唤快捷键注册失败: ${summonAccelerator}`)
-
-  // 剪贴板文本召唤与动作注入 (MVP 快捷键)
-  const defaultActions = [
-    { accelerator: 'CommandOrControl+Shift+S', action: 'summarize' as const },
-    { accelerator: 'CommandOrControl+Shift+E', action: 'polish' as const },
-    { accelerator: 'CommandOrControl+Shift+T', action: 'translate' as const },
-    { accelerator: 'CommandOrControl+Shift+Q', action: 'raw' as const }
-  ]
-  defaultActions.forEach(({ accelerator, action }) => {
-    const ok = globalShortcut.register(accelerator, () => {
-      const text = clipboard.readText().trim()
-      const qw = getQuickWindow()
-      if (!qw) return
-      qw.show()
-      qw.focus()
-      if (text) {
-        setTimeout(() => {
-          if (!qw.isDestroyed()) {
-            qw.webContents.send('quick:inject-prompt', { text, action })
-          }
-        }, 300)
-      }
-    })
-    if (!ok) console.warn(`[Main] 快捷操作注册失败: ${accelerator}`)
-  })
+  // 初始化全局快捷键管理
+  initShortcutManager(store)
 
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

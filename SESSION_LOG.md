@@ -2,6 +2,19 @@
 
 ## 2026-06-28
 
+### 00:10 | Antigravity
+
+- done: Task 7: shortcutManager module and custom shortcuts setting drawer UI
+- added:
+  - `src/main/shortcutManager.ts`
+- modified:
+  - `src/main/index.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/preload/index.d.ts`
+  - `src/renderer/src/components/SettingsDrawer.tsx`
+  - `CHANGELOG.md`
+
 ### 00:04 | Antigravity
 
 - done: Task 6: clipboard text summon and prompt injection MVP shortcuts
