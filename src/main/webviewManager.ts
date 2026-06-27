@@ -107,55 +107,10 @@ function getWindowIcon(): string | Electron.NativeImage {
 
 export function openBrowserWindowInternal(url: string): void {
     if (!url || !(url.startsWith('http://') || url.startsWith('https://'))) return
-    console.log('[Main] openBrowserWindowInternal:', url)
-    const win = new BrowserWindow({
-        width: 1200,
-        height: 800,
-        minWidth: 800,
-        minHeight: 600,
-        show: true,
-        autoHideMenuBar: true,
-        titleBarStyle: 'hidden',
-        titleBarOverlay: {
-            color: '#E0EFFF',
-            symbolColor: '#333333',
-            height: 38
-        },
-        backgroundColor: 'rgba(0,0,0,0)',
-        icon: getWindowIcon(),
-        webPreferences: {
-            preload: join(__dirname, '../preload/index.js'),
-            nodeIntegration: false,
-            contextIsolation: true,
-            sandbox: false,
-            webviewTag: true,
-            partition: 'persist:shared'
-        }
-    })
-    browserWindows.add(win)
-    win.on('closed', () => {
-        browserWindows.delete(win)
-    })
-    win.show()
-    win.focus()
-
-    const hash = `browser?url=${encodeURIComponent(url)}`
-    if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-        win.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/#${hash}`).catch((err) => {
-            console.error('[Main] Failed to load URL:', err)
-        })
-    } else {
-        win.loadFile(join(__dirname, '../renderer/index.html'), { hash: hash }).catch((err) => {
-            console.error('[Main] Failed to load file:', err)
-        })
-    }
-
-    win.setMenuBarVisibility(false)
-    win.webContents.setWindowOpenHandler((details) => {
-        shell.openExternal(details.url)
-        return { action: 'deny' }
-    })
+    console.log('[Main] openBrowserWindowInternal -> shell.openExternal:', url)
+    shell.openExternal(url)
 }
+
 
 // ============ 注入脚本 ============
 
