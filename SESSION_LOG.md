@@ -2,6 +2,67 @@
 
 ## 2026-06-27
 
+### 23:39 | Antigravity
+
+- done: 将抽屉 Header 内的 Logo 尺寸由 w-8 h-8 进一步放大至 w-10 h-10
+- modified:
+  - `src/renderer/src/components/HistoryDrawer.tsx`
+  - `src/renderer/src/components/SettingsDrawer.tsx`
+  - `src/renderer/src/components/SummaryHistoryDrawer.tsx`
+
+### 23:38 | Antigravity
+
+- done: 将历史记录抽屉宽度改为500px，统一放大 Logo 图标尺寸至 w-8 h-8
+- modified:
+  - `src/renderer/src/components/HistoryDrawer.tsx`
+  - `src/renderer/src/components/SettingsDrawer.tsx`
+  - `src/renderer/src/components/SummaryHistoryDrawer.tsx`
+
+### 23:37 | Antigravity
+
+- done: 调整抽屉面板 UI 布局，添加 Logo 及产品名称，标题居中，设置页使用说明移至选项内并去除 footer
+- modified:
+  - `src/renderer/src/components/HistoryDrawer.tsx`
+  - `src/renderer/src/components/SettingsDrawer.tsx`
+  - `src/renderer/src/components/SummaryHistoryDrawer.tsx`
+
+### 23:36 | claude-code
+
+- done: 修正 Desktop Quick Access Plan 文档中的 8 项技术问题
+- context: 评估 desktop-quick-access-plan 合理性后修正文档
+- modified:
+  - `docs/superpowers/plans/2026-05-04-desktop-quick-access-plan.md`
+- lesson: Electron webview 内部点击触发父 BrowserWindow blur;setTemplateImage 是 Tray 方法而非 NativeImage 方法;Quick Window 不应包裹主窗 Layout 组件;Ctrl+Shift+C 与 Chrome DevTools 冲突需全局拦截
+
+### 23:35 | Antigravity
+
+- done: 为抽屉组件添加圆角，抽屉打开时，遮罩去掉模糊效果
+- modified:
+  - `src/renderer/src/assets/index.css`
+  - `src/renderer/src/components/HistoryDrawer.tsx`
+  - `src/renderer/src/components/SettingsDrawer.tsx`
+  - `src/renderer/src/components/SummaryHistoryDrawer.tsx`
+
+### 23:30 | Antigravity
+
+- done: 调整 WebView 卡片和底部 control bar 之间的间距为最初的1/2 (pb-3 -> pb-5)
+- modified:
+  - `src/renderer/src/pages/MainPage.tsx`
+
+### 23:29 | Antigravity
+
+- done: 修复主界面会话锁定（模型锁定）污染并导致总结页 Webview 模式下模型切换下拉框被禁用的 Bug
+- decision: 为 WebviewCard 增加 isolated 属性，使得总结页等独立工作区的 Webview 组件不受主界面会话锁定的影响
+- modified:
+  - `src/renderer/src/components/WebviewCard.tsx`
+  - `src/renderer/src/components/SummaryPanel.tsx`
+
+### 23:29 | Antigravity
+
+- done: 减小 WebView 卡片和底部 control bar 之间的间距 (pb-10 -> pb-3)
+- modified:
+  - `src/renderer/src/pages/MainPage.tsx`
+
 ### 22:57 | Antigravity
 
 - done: Lock layout mode buttons when restoring a history session

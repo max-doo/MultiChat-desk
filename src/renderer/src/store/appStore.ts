@@ -86,6 +86,8 @@ export interface HistoryItem {
   title?: string
   turns: ConversationTurn[]
   urls?: Record<string, string>
+  productMode?: ProductMode
+  displayMode?: DisplayMode
 }
 
 // 总结历史记录类型
@@ -174,8 +176,13 @@ interface AppState {
   // 任务分配模式下的各个槽位选中的模型 ID 列表
   taskAssignmentSlots: string[]
   setTaskAssignmentSlot: (slotIndex: number, modelId: string) => void
+  setTaskAssignmentSlots: (slots: string[]) => void
 
-  // 显示模式：单列、双列、三列、四窗口（田字格）
+  // 专属模式窗口布局记录
+  multiAiDisplayMode: DisplayMode
+  taskAssignmentDisplayMode: DisplayMode
+
+  // 当前激活的显示模式
   displayMode: DisplayMode
   setDisplayMode: (mode: DisplayMode) => void
 
@@ -472,22 +479,22 @@ export const useAppStore = create<AppState>((set, get) => ({
     // 只要切换模式，就重置当前会话锁，防止锁机制污染其他模式
     get().setNewSession(true)
 
-    const currentDisplayMode = get().displayMode
-    if (mode === 'task_assignment' && currentDisplayMode === 'one') {
-      set({ productMode: mode, displayMode: 'two', paneRatios: null })
-      if (window.api?.storeSet) {
-        window.api.storeSet('productMode', mode)
-        window.api.storeSet('displayMode', 'two')
-      }
-    } else if (mode === 'debate' && currentDisplayMode !== 'two') {
-      set({ productMode: mode, displayMode: 'two', paneRatios: null })
-      if (window.api?.storeSet) {
-        window.api.storeSet('productMode', mode)
-        window.api.storeSet('displayMode', 'two')
-      }
-    } else {
-      set({ productMode: mode })
-      if (window.api?.storeSet) window.api.storeSet('productMode', mode)
+    // 读取目标模式保存的布局偏好
+    let targetDisplayMode = get().displayMode
+    if (mode === 'multi_ai') {
+      targetDisplayMode = get().multiAiDisplayMode
+    } else if (mode === 'task_assignment') {
+      targetDisplayMode = get().taskAssignmentDisplayMode
+      if (targetDisplayMode === 'one') targetDisplayMode = 'two' // 任务分发不能是单窗口
+    } else if (mode === 'debate') {
+      targetDisplayMode = 'two' // 辩论模式强制双窗口
+    }
+
+    set({ productMode: mode, displayMode: targetDisplayMode, paneRatios: null })
+    
+    if (window.api?.storeSet) {
+      window.api.storeSet('productMode', mode)
+      window.api.storeSet('displayMode', targetDisplayMode)
     }
   },
 
@@ -504,7 +511,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (window.api?.storeSet) window.api.storeSet('taskAssignmentSlots', newSlots)
     return { taskAssignmentSlots: newSlots }
   }),
+  setTaskAssignmentSlots: (slots) => set((state) => {
+    if (window.api?.storeSet) window.api.storeSet('taskAssignmentSlots', slots)
+    return { taskAssignmentSlots: slots }
+  }),
 
+  multiAiDisplayMode: 'three',
+  taskAssignmentDisplayMode: 'two',
   displayMode: 'three',
   setDisplayMode: (mode) => {
     const currentProductMode = get().productMode
@@ -514,7 +527,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (currentProductMode === 'debate' && mode !== 'two') {
       return
     }
-    set({ displayMode: mode, paneRatios: null })
+    
+    const updates: Partial<AppState> = { displayMode: mode, paneRatios: null }
+    if (currentProductMode === 'multi_ai') {
+      updates.multiAiDisplayMode = mode
+      if (window.api?.storeSet) window.api.storeSet('multiAiDisplayMode', mode)
+    } else if (currentProductMode === 'task_assignment') {
+      updates.taskAssignmentDisplayMode = mode
+      if (window.api?.storeSet) window.api.storeSet('taskAssignmentDisplayMode', mode)
+    }
+
+    set(updates)
     if (window.api?.storeSet) window.api.storeSet('displayMode', mode)
   },
 
@@ -759,6 +782,8 @@ export const useAppStore = create<AppState>((set, get) => ({
           models: successModels,
           turns: [],
           urls: currentUrls,
+          productMode,
+          displayMode,
         }
         addHistory(newItem)
         setNewSession(false)
@@ -1216,6 +1241,8 @@ export async function initializeStore(): Promise<void> {
     }
 
     const storedDisplayMode = await window.api.storeGet('displayMode') as DisplayMode | undefined
+    const storedMultiAiDisplayMode = await window.api.storeGet('multiAiDisplayMode') as DisplayMode | undefined
+    const storedTaskAssignmentDisplayMode = await window.api.storeGet('taskAssignmentDisplayMode') as DisplayMode | undefined
     const storedProductMode = await window.api.storeGet('productMode') as ProductMode | undefined
     const storedTaskAssignmentSlots = await window.api.storeGet('taskAssignmentSlots') as string[] | undefined
     const storedMultiAiSlots = await window.api.storeGet('multiAiSlots') as string[] | undefined
@@ -1229,6 +1256,8 @@ export async function initializeStore(): Promise<void> {
 
     if (storedProductMode) useAppStore.setState({ productMode: storedProductMode })
     if (initialDisplayMode) useAppStore.setState({ displayMode: initialDisplayMode })
+    if (storedMultiAiDisplayMode) useAppStore.setState({ multiAiDisplayMode: storedMultiAiDisplayMode })
+    if (storedTaskAssignmentDisplayMode) useAppStore.setState({ taskAssignmentDisplayMode: storedTaskAssignmentDisplayMode })
     if (storedTaskAssignmentSlots && Array.isArray(storedTaskAssignmentSlots)) {
       useAppStore.setState({ taskAssignmentSlots: storedTaskAssignmentSlots })
     }

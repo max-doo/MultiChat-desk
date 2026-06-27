@@ -21,7 +21,7 @@
 | 划词文本提取 | 同时声称"无 C++ 依赖"和"用 robotjs"(自相矛盾) | 仅依赖剪贴板:用户先 `Ctrl+C`,再按召唤键自动读 `clipboard.readText()`。悬浮 Toolbar 拆到独立计划 |
 | 状态映射字段 | "slotModelIds"(项目不存在) | 用真实存在的 `models: ModelConfig[]` 数组顺序 + `enabled` |
 | 状态同步 | "用 zustand-ipc"(未装) | 主进程作总线,新增 `state:broadcast` IPC + Zustand `subscribe` 监听变更 |
-| 默认快捷键 | `Alt+Space`(Windows 系统占用) | `CommandOrControl+Shift+Space`(召唤)、`CommandOrControl+Shift+C`(带文本召唤) |
+| 默认快捷键 | `Alt+Space`(Windows 系统占用) | `CommandOrControl+Shift+Space`(召唤)、`CommandOrControl+Shift+V`(带文本召唤) |
 | Quick Window Session | 未指定 | 显式 `partition: 'persist:shared'`,与主窗 Webview 共用登录态 |
 | 退出守卫 | "提供一个 flag"(模糊) | 显式 `let isQuitting = false` + setter,`before-quit` 中翻转 |
 | IPC 契约 | 文字描述 | 直接列签名表,与 `preload/index.d.ts` 强制对齐 |
@@ -48,7 +48,7 @@
 
 **资源**
 - 创建 `assets/tray-icon.png`(Windows/Linux 用,32x32 PNG)
-- 创建 `assets/tray-iconTemplate.png`(macOS 用,16x16 黑白模板)
+- 创建 `assets/tray-iconTemplate.png`(macOS 用,22x22 黑白模板,@2x 亦可提供 44x44 版本)
   - 资源缺失时主进程回退到 `assets/logo.png`,保证不阻塞实施
 
 ## 2. IPC 契约(必须 main + preload + d.ts 三处同步)
@@ -112,10 +112,24 @@ import { createWindow, getMainWindow, openBrowserWindowInternal, setQuitting } f
 app.on('before-quit', () => {
   setQuitting(true)
   globalShortcut.unregisterAll()
+  destroyTray()
 })
 ```
 
-`window-all-closed` 保持现状,因为 `hide()` 不会触发它(没有窗口被销毁)。
+- [ ] **Step 3b: 修改 `window-all-closed` 处理,移除 `app.quit()` 调用**
+
+原代码 `app.on('window-all-closed', () => { globalShortcut.unregisterAll(); if (process.platform !== 'darwin') app.quit() })` 中,`app.quit()` 会在 Quick Window 真被关闭(而非 hide)时意外触发整体退出。改为仅做资源清理:
+
+```ts
+app.on('window-all-closed', () => {
+  globalShortcut.unregisterAll()
+  // macOS 下 app 不退出,靠托盘菜单"退出"控制
+  // Windows/Linux 下也不退出,因为主窗 close 已改为 hide()
+  // 真正退出通过 tray:quit-app 或 Cmd+Q / Alt+F4 (isQuitting=true → before-quit → close 不拦截 → 窗口真关闭)
+})
+```
+
+说明:macOS 的 Cmd+Q 会触发 `before-quit` → `isQuitting=true` → `close` 不拦截 → 窗口真关闭 → `window-all-closed` → 但此时 `isQuitting` 已为 true,所以不再需要 quit。
 
 - [ ] **Step 4: `npm run lint` + `npm run build`**
 
@@ -160,6 +174,7 @@ export function getTray(): Tray | null { return tray }
 
 ```ts
 function getTrayIconPath(): string {
+  // macOS tray 推荐 22x22 (@1x), 44x44 (@2x); 当前仅提供 @1x
   const file = process.platform === 'darwin' ? 'tray-iconTemplate.png' : 'tray-icon.png'
   const candidate = join(app.getAppPath(), 'assets', file)
   try { require('fs').accessSync(candidate); return candidate } catch { return getIconPngPath() }
@@ -169,8 +184,8 @@ export function createTray(): void {
   if (tray) return
   const iconPath = getTrayIconPath()
   const image = nativeImage.createFromPath(iconPath)
-  if (process.platform === 'darwin') image.setTemplateImage(true)
   tray = new Tray(image)
+  if (process.platform === 'darwin') tray.setTemplateImage(true)
   tray.setToolTip('MultiChat')
 
   const contextMenu = Menu.buildFromTemplate([
@@ -326,8 +341,22 @@ export function createQuickWindow(): void {
     }
   })
 
+  // 失焦隐藏：用延迟 + 焦点检查，避免 webview 内部点击触发 blur 导致意外隐藏
+  let blurHideTimeout: ReturnType<typeof setTimeout> | null = null
+
   quickWindow.on('blur', () => {
-    if (quickWindow && !quickWindow.isDestroyed()) quickWindow.hide()
+    blurHideTimeout = setTimeout(() => {
+      // 检查焦点是否仍在本 app 的任意 webContents（含 webview 子进程）
+      const allWindows = BrowserWindow.getAllWindows()
+      const anyFocused = allWindows.some(w => w.isFocused() || w.webContents.isFocused())
+      if (!anyFocused && quickWindow && !quickWindow.isDestroyed()) {
+        quickWindow.hide()
+      }
+    }, 150)
+  })
+
+  quickWindow.on('focus', () => {
+    if (blurHideTimeout) { clearTimeout(blurHideTimeout); blurHideTimeout = null }
   })
 
   quickWindow.on('close', (e) => {
@@ -480,13 +509,11 @@ const checkHash = (): boolean => {
 `return` 块中,在 `if (currentPage === 'browser')` 之后追加:
 ```tsx
 if (currentPage === 'quick') {
-  return (
-    <Layout>
-      <QuickPage />
-    </Layout>
-  )
+  return <QuickPage />
 }
 ```
+
+QuickPage **不包裹 `<Layout>`**,自行实现极简标题栏(含拖拽区域、模型下拉、隐藏按钮),避免主窗 38px 标题栏(含模式选择器、设置/历史按钮)在 Quick Window 精简场景下的冗余。
 
 并在文件顶部 `import QuickPage from './pages/QuickPage'`。
 
@@ -509,34 +536,94 @@ export default function QuickPage(): JSX.Element {
     setActiveId(first?.id ?? null)
   }, [models, activeId])
 
+  // 监听注入事件
+  useEffect(() => {
+    const unsub = window.api.onQuickInject(async ({ text, action }) => {
+      if (!cardRef.current) return
+      const prefixMap: Record<string, string> = {
+        summarize: '请总结以下内容:\n\n',
+        polish: '请润色以下文本:\n\n',
+        translate: '请将以下内容翻译为中文:\n\n',
+        raw: ''
+      }
+      const finalText = (prefixMap[action] ?? '') + text
+      await new Promise((r) => setTimeout(r, 200))
+      await cardRef.current.insertText(finalText)
+    })
+    return unsub
+  }, [])
+
+  // ESC 键隐藏 Quick Window
+  useEffect(() => {
+    const handler = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') void window.api.quickHide()
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [])
+
   if (!activeId) {
     return (
-      <div className="flex items-center justify-center h-full text-gray-400">
+      <div className="flex items-center justify-center h-screen text-gray-400 select-none">
         无可用模型,请到主界面启用至少一个模型
       </div>
     )
   }
 
   const model = models.find((m) => m.id === activeId)
-  if (!model) return <div className="h-full"></div>
+  if (!model) return <div className="h-screen"></div>
 
   return (
-    <div className="h-full w-full">
-      <WebviewCard
-        ref={cardRef}
-        id={model.id}
-        name={model.name}
-        url={model.url}
-        logo={model.logo}
-        enabled={model.enabled}
-        slotIndex={0}
-        compact
-        onModelChange={(modelId) => setActiveId(modelId)}
-      />
+    <div className="flex flex-col h-screen select-none">
+      {/* 极简标题栏：32px 高,仅含模型下拉 + 拖拽区域 + 隐藏按钮 */}
+      <div
+        className="h-[32px] shrink-0 flex items-center px-2 gap-2 bg-gray-100 border-b border-gray-200"
+        style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
+      >
+        <select
+          value={activeId}
+          onChange={(e) => setActiveId(e.target.value)}
+          className="px-2 py-1 bg-white rounded text-sm border border-gray-300 max-w-[200px]"
+          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+        >
+          {models.filter(m => m.enabled).map(m => (
+            <option key={m.id} value={m.id}>{m.name}</option>
+          ))}
+        </select>
+        <div className="flex-1" />
+        <button
+          onClick={() => void window.api.quickHide()}
+          className="px-2 py-1 text-xs text-gray-500 hover:text-gray-800"
+          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+        >
+          隐藏
+        </button>
+      </div>
+
+      {/* Webview 主体 */}
+      <div className="flex-1 overflow-hidden">
+        <WebviewCard
+          ref={cardRef}
+          id={model.id}
+          name={model.name}
+          url={model.url}
+          logo={model.logo}
+          enabled={model.enabled}
+          slotIndex={0}
+          compact
+          hideHeader
+          onModelChange={(modelId) => setActiveId(modelId)}
+        />
+      </div>
     </div>
   )
 }
 ```
+
+- QuickPage 自行实现极简标题栏(32px,含模型下拉+拖拽区域+隐藏按钮),不包裹 `<Layout>`,避免主窗 38px 标题栏(含模式选择器、设置/历史按钮)在精简窗口下的冗余。
+- `hideHeader` prop(已存在于 `WebviewCardProps:38`)隐藏 WebviewCard 自身的平台名称/刷新/状态行,由 QuickPage 的极简标题栏统一控制。
+- ESC 键隐藏 Quick Window,补充 `frame: false` 无原生关闭按钮的交互缺口。
+- `onQuickInject` 监听已从原 Task 6 Step 4 移入此处,避免 QuickPage 在 Task 4→6 之间的中间态缺少注入逻辑。
 
 `onModelChange` 覆写后 Quick Window 切换模型只改自身 activeId,不调用 `swapModelInSlot`,与主窗解耦。
 
@@ -545,7 +632,8 @@ export default function QuickPage(): JSX.Element {
 - [ ] **Step 6: 在 `npm run dev` 验证**
 
 - 主窗启动,主进程已预创建 Quick Window 加载 `#quick`
-- 按 `Ctrl+Shift+Space`,Quick Window 显示一张 WebviewCard(默认主窗第一个 enabled 模型)
+- 按 `Ctrl+Shift+Space`,Quick Window 显示一张 WebviewCard(默认主窗第一个 enabled 模型),无主窗标题栏(模式选择器/设置按钮等),仅有极简 32px 标题栏(模型下拉+隐藏按钮)
+- 按 ESC 键可隐藏 Quick Window
 - 切换 WebviewCard 顶部下拉,可在不同平台间切换
 - 在 Quick Window 内登录(如 Gemini 选账号),关闭后回主窗,主窗的 Gemini 也是登录态(`persist:shared` 验证点)
 
@@ -596,11 +684,18 @@ import { broadcastState } from './stateBus'
 
 handler:
 ```ts
+const BROADCASTABLE_KEYS = ['models', 'apiConfig'] as const
+
 ipcMain.handle('state:broadcast', (event, key: string, value: unknown) => {
+  if (!BROADCASTABLE_KEYS.includes(key as typeof BROADCASTABLE_KEYS[number])) {
+    return { success: false, error: `key "${key}" is not broadcastable` }
+  }
   broadcastState(event.sender.id, key, value)
   return { success: true }
 })
 ```
+
+白名单限制广播范围,防止意外广播大量数据(如 `history`、`summaryHistory`)造成 IPC 风暴。
 
 - [ ] **Step 3: preload + d.ts**
 
@@ -689,9 +784,10 @@ git commit -m "feat: cross-window state broadcast bus for models and apiConfig"
 - Modify: `src/main/index.ts`
 - Modify: `src/preload/index.ts`
 - Modify: `src/preload/index.d.ts`
-- Modify: `src/renderer/src/pages/QuickPage.tsx`
 
-工作流:用户在外部应用 `Ctrl+C` → 按 `Ctrl+Shift+C` → 主进程 `clipboard.readText()` → 显示 Quick Window → `webContents.send('quick:inject-prompt', {text, action: 'raw'})` → QuickPage 收到后调 `cardRef.insertText(text)`(**不自动发送**,留给用户校对)。
+(注: `QuickPage.tsx` 的 `onQuickInject` 监听已在 Task 4 Step 4 实现,此处不再修改)
+
+工作流:用户在外部应用 `Ctrl+C` → 按 `Ctrl+Shift+V` → 主进程 `clipboard.readText()` → 显示 Quick Window → `webContents.send('quick:inject-prompt', {text, action: 'raw'})` → QuickPage 收到后调 `cardRef.insertText(text)`(**不自动发送**,留给用户校对)。
 
 - [ ] **Step 1: 在 `index.ts` 顶部 import `clipboard`**
 
@@ -704,7 +800,7 @@ import { app, BrowserWindow, globalShortcut, clipboard } from 'electron'
 在 Task 3 注册的召唤快捷键之后追加:
 
 ```ts
-const summonWithTextAccelerator = 'CommandOrControl+Shift+C'
+const summonWithTextAccelerator = 'CommandOrControl+Shift+V'
 const summonWithTextOk = globalShortcut.register(summonWithTextAccelerator, () => {
   const text = clipboard.readText().trim()
   const qw = getQuickWindow()
@@ -734,28 +830,9 @@ onQuickInject: (cb: (payload: { text: string; action: 'summarize'|'polish'|'tran
 onQuickInject: (cb: (payload: {text: string; action: 'summarize'|'polish'|'translate'|'raw'}) => void) => () => void
 ```
 
-- [ ] **Step 4: 修改 `QuickPage.tsx` 监听注入事件**
+- [ ] **Step 4: ~~修改 `QuickPage.tsx` 监听注入事件~~ 已在 Task 4 Step 4 实现**
 
-在 `QuickPage` 函数体内增加:
-
-```tsx
-useEffect(() => {
-  const unsub = window.api.onQuickInject(async ({ text, action }) => {
-    if (!cardRef.current) return
-    const prefixMap: Record<string, string> = {
-      summarize: '请总结以下内容:\n\n',
-      polish: '请润色以下文本:\n\n',
-      translate: '请将以下内容翻译为中文:\n\n',
-      raw: ''
-    }
-    const finalText = (prefixMap[action] ?? '') + text
-    // 给 Webview 200ms 让其内部输入框焦点稳定
-    await new Promise((r) => setTimeout(r, 200))
-    await cardRef.current.insertText(finalText)
-    // MVP 阶段不自动 send,让用户校对后手动发送
-  })
-  return unsub
-}, [])
+> **注意:** `onQuickInject` 监听逻辑已在 Task 4 Step 4 的 QuickPage 中一并实现(连同极简标题栏和 ESC 键)。此 Step 仅确认 `QuickPage.tsx` 中已包含注入监听的 `useEffect`,无需再追加代码。
 ```
 
 - [ ] **Step 5: lint + build**
@@ -763,15 +840,15 @@ useEffect(() => {
 - [ ] **Step 6: 在 `npm run dev` 验证**
 
 - 在外部记事本输入"今天天气真好",`Ctrl+A` `Ctrl+C`
-- 按 `Ctrl+Shift+C`,Quick Window 召唤,WebviewCard 输入框已含"今天天气真好"
+- 按 `Ctrl+Shift+V`,Quick Window 召唤,WebviewCard 输入框已含"今天天气真好"
 - 不自动发送(用户可改可发)
 - 剪贴板为空时仍召唤,只是不注入
-- `Ctrl+Shift+C` 在某些应用是"打开开发者工具"或"复制",验证若注册失败时控制台有 warn(实施者按需降级到 `Ctrl+Shift+V`)
+- `Ctrl+Shift+V` 在某些终端是粘贴快捷键,验证若注册失败时控制台有 warn(实施者按需在设置面板改为其他组合)
 
 - [ ] **Step 7: Commit**
 
 ```
-git add src/main/index.ts src/preload/index.ts src/preload/index.d.ts src/renderer/src/pages/QuickPage.tsx
+git add src/main/index.ts src/preload/index.ts src/preload/index.d.ts
 git commit -m "feat: clipboard-based summon with text injection"
 ```
 
@@ -800,7 +877,7 @@ export type ShortcutMap = Record<ShortcutId, string>
 
 const DEFAULT_SHORTCUTS: ShortcutMap = {
   summon: 'CommandOrControl+Shift+Space',
-  summonWithText: 'CommandOrControl+Shift+C'
+  summonWithText: 'CommandOrControl+Shift+V'
 }
 
 const STORE_KEY = 'shortcuts'
@@ -852,7 +929,7 @@ export function updateShortcut(
 
 - [ ] **Step 2: 在 `index.ts` 用 shortcutManager 替换硬编码**
 
-删除 Task 3/6 中硬编码的 `globalShortcut.register('CommandOrControl+Shift+Space', ...)` 与 `'CommandOrControl+Shift+C'`,改为:
+删除 Task 3/6 中硬编码的 `globalShortcut.register('CommandOrControl+Shift+Space', ...)` 与 `'CommandOrControl+Shift+V'`,改为:
 
 ```ts
 import { setShortcutHandler, registerAll } from './shortcutManager'
@@ -968,7 +1045,7 @@ UI(放在合适分组下,Tailwind 与项目其他分组保持一致):
       value={shortcuts?.summonWithText ?? ''}
       onChange={(e) => setShortcuts((s) => s ? { ...s, summonWithText: e.target.value } : s)}
       className="flex-1 px-2 py-1 bg-gray-800 rounded text-sm font-mono"
-      placeholder="CommandOrControl+Shift+C"
+      placeholder="CommandOrControl+Shift+V"
     />
     <button
       onClick={() => shortcuts && void applyShortcut('summonWithText', shortcuts.summonWithText)}
@@ -1013,7 +1090,7 @@ git commit -m "feat: customizable global shortcuts in settings drawer"
 - [ ] 按 Ctrl+Shift+Space 召唤 Quick Window:无边框、置顶、800×600、共享 `persist:shared` Session(主窗已登录的 Gemini 在 Quick Window 中也是登录态)
 - [ ] Quick Window 失焦自动隐藏,再按召唤键重新出现
 - [ ] Quick Window 切换模型只影响自身,主窗模型不变;反之主窗启用/禁用模型,Quick Window 下拉同步
-- [ ] 在外部应用 Ctrl+C 文本后按 Ctrl+Shift+C,Quick Window 召唤且输入框已含文本(剪贴板为空时仍召唤,只是不注入)
+- [ ] 在外部应用 Ctrl+C 文本后按 Ctrl+Shift+V,Quick Window 召唤且输入框已含文本(剪贴板为空时仍召唤,只是不注入)
 - [ ] 设置面板修改召唤快捷键并应用后立即生效;无效/被占用的快捷键报错且不破坏现有快捷键
 - [ ] 重启应用后自定义快捷键持久化
 - [ ] 整个改动只触动 main / preload / renderer,不触动 `out/`、`dist/`,不引入新的 npm 依赖,不引入 `any`,`npm run lint` 与 `npm run build` 全绿
@@ -1031,7 +1108,7 @@ git commit -m "feat: customizable global shortcuts in settings drawer"
 - 剪贴板恢复保险机制
 - CI 与打包流程要预编译三平台 native binary
 
-这超出了本计划"零 C++ 依赖"的边界,需独立评估。本计划交付后 Task 6 的"剪贴板召唤"已能覆盖大部分场景:用户先 `Ctrl+C` → 按 `Ctrl+Shift+C` → 在 Quick Window 内手动选 Agent 提示词。
+这超出了本计划"零 C++ 依赖"的边界,需独立评估。本计划交付后 Task 6 的"剪贴板召唤"已能覆盖大部分场景:用户先 `Ctrl+C` → 按 `Ctrl+Shift+V` → 在 Quick Window 内手动选 Agent 提示词。
 
 后续若决定做悬浮条,新计划应包含:
 - `uiohook-napi` 集成与三平台编译验证
@@ -1044,16 +1121,17 @@ git commit -m "feat: customizable global shortcuts in settings drawer"
 
 | 风险 | 缓解 |
 |---|---|
-| `Ctrl+Shift+C` 与浏览器/终端"复制"冲突 | shortcutManager 注册失败时 console.warn,提示用户在设置面板改 |
+| `Ctrl+Shift+V` 与某些终端"粘贴"冲突 | shortcutManager 注册失败时 console.warn,提示用户在设置面板改;注册成功时全局拦截,需在设置面板提示文案中注明 |
 | `Alt+Space` 在 Windows 是窗口控制菜单 | 默认值已避开,使用 `Ctrl+Shift+Space` |
-| Quick Window blur 自动隐藏冲突 | `WebviewCard` 内的 webview 子内容焦点变化不会触发外层 BrowserWindow 的 `blur`(blur 仅当焦点离开整个 BrowserWindow 才触发);若实测有意外隐藏,在 QuickPage 暂时按下 `Esc` 时主动 `quickHide` 替代 |
+| Quick Window blur 自动隐藏冲突 | webview 内部点击会触发父 BrowserWindow `blur`;已用 150ms 延迟 + `isFocused()/webContents.isFocused()` 焦点检查解决:仅当本 app 所有窗口(含 webview 子进程)均失去焦点时才 hide;`focus` 事件到达时取消延迟 |
 | 状态广播回环 | `state:broadcast` 用 `event.sender.id` 排除发送方;接收端 `applyRemoteState` 用 `isApplyingRemote` 标志位避免触发 subscribe 又广播 |
-| `frame: false` Quick Window 无关闭按钮 | 失焦自动隐藏 + 召唤键 toggle;Alt+F4 被 `close` 拦截转 `hide()`;真正销毁通过托盘"退出" |
+| `frame: false` Quick Window 无关闭按钮 | ESC 键隐藏 + 失焦延迟隐藏 + 召唤键 toggle 三重保障;Alt+F4 被 `close` 拦截转 `hide()`;真正退出通过托盘"退出" |
 | Tray 资源缺失导致启动失败 | `getTrayIconPath()` 在文件不存在时回退到 `assets/logo.png`,确保 `new Tray(...)` 不抛 |
 | `state:remote-update` 在 store 未初始化时到达 | `subscribeRemoteState` 仅在 `initializeStore` 成功路径调用,早于此到达的事件丢弃;后续 setter 触发的广播会重放 |
 | Quick Window 与主窗 React app 各自一个 Zustand 实例 | 已通过 §Task 5 的广播实现关键 state 同步;非关键 state(对话历史、临时输入)不广播以避免 IPC 风暴 |
 | `subscribe(state, prev)` 签名差异 | 项目用 zustand v4,`subscribe(listener)` 接收 `(state, prevState) => void`。若实施时报类型错误,改用 `subscribe(selector, listener)` 形态(若已装 `subscribeWithSelector` middleware)或仅用 `subscribe(listener)` 内部手动做引用比较 |
 | 主窗未 ready 时 broadcastState 报错 | `getMainWindow()?.webContents` 已用可选链,`undefined` 时 for 循环跳过 |
+| `window-all-closed` 保留 `app.quit()` 可能意外退出 | 已移除 `app.quit()`;`window-all-closed` 仅做 `globalShortcut.unregisterAll()`;真正退出通过托盘"退出"或 `before-quit`(`isQuitting=true` → `close` 不拦截 → 窗口真关闭) |
 
 ## 7. 实施约定(项目通用,从 CLAUDE.md 摘录)
 

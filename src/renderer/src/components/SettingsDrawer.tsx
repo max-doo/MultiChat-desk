@@ -654,16 +654,26 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
 
       {/* 抽屉面板 */}
       <div
-        className={`fixed left-0 top-0 bottom-0 w-[500px] glass-panel-heavy border-r border-white/40 z-50 flex flex-col transform transition-all duration-300 ease-in-out ${isOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full shadow-none'
+        className={`fixed left-0 top-0 bottom-0 w-[500px] glass-panel-heavy border-r border-white/40 z-50 flex flex-col rounded-r-3xl overflow-hidden transform transition-all duration-300 ease-in-out ${isOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full shadow-none'
           }`}
         style={{ WebkitAppRegion: 'no-drag' } as any}
       >
         {/* 头部 */}
-        <div className="flex items-center justify-between p-4 border-b border-white/40">
-          <h2 className="text-xl font-semibold text-text-primary">设置面板</h2>
+        <div className="relative flex items-center justify-between p-4 border-b border-white/40">
+          {/* 左侧 Logo 和产品名称 */}
+          <div className="flex items-center gap-2 text-text-primary">
+            <img src={logo} alt="MultiChat Logo" className="w-10 h-10 object-contain" />
+            <span className="font-semibold text-primary text-base">MultiChat</span>
+          </div>
+
+          {/* 中间标题 */}
+          <div className="absolute left-1/2 transform -translate-x-1/2">
+            <h2 className="text-lg font-semibold text-text-primary">设置面板</h2>
+          </div>
+
           <button
             onClick={onClose}
-            className="text-text-secondary hover:text-text-primary transition-colors"
+            className="text-text-secondary hover:text-text-primary transition-colors z-10"
           >
             <span className="material-symbols-outlined text-2xl">close</span>
           </button>
@@ -873,23 +883,30 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
             </div>
           </div>
 
-        </div>
-
-        {/* 底部固定区域 */}
-        <div className="p-4 border-t border-gray-200 flex items-center justify-between">
-          <div className="flex items-center gap-2 text-text-primary">
-            <img src={logo} alt="MultiChat Logo" className="w-10" />
-            <span className="font-medium text-primary text-xl">MultiChat</span>
+          {/* 使用说明 */}
+          <div>
+            <h3 className="font-medium text-text-secondary mb-4">使用说明</h3>
+            <div className="p-4 rounded-lg bg-sidebar/50 border border-gray-200">
+              <a
+                href="https://ai.feishu.cn/docx/TiLFdnaPjo7ZnQx7J5JcFMLInsd"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-between p-3 bg-app/50 border border-gray-200 rounded-md hover:bg-app transition-all group"
+              >
+                <div className="flex items-center gap-3">
+                  <span className="material-symbols-outlined text-text-secondary text-xl">help</span>
+                  <div className="flex flex-col">
+                    <span className="text-text-primary text-sm font-medium">查看使用说明</span>
+                    <span className="text-gray-500 text-[10px]">了解如何配置、使用和管理 API Key</span>
+                  </div>
+                </div>
+                <span className="material-symbols-outlined text-gray-400 group-hover:text-primary transition-colors">
+                  open_in_new
+                </span>
+              </a>
+            </div>
           </div>
-          <a
-            href="https://ai.feishu.cn/docx/TiLFdnaPjo7ZnQx7J5JcFMLInsd"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-2 text-text-secondary hover:text-text-primary transition-colors text-sm"
-          >
-            <span className="material-symbols-outlined text-base">help</span>
-            <span>使用说明</span>
-          </a>
+
         </div>
       </div>
 

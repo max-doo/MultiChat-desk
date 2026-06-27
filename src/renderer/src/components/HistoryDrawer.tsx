@@ -3,6 +3,7 @@ import { Virtuoso } from 'react-virtuoso'
 import { useAppStore, HistoryItem, SummaryHistoryItem } from '../store/appStore'
 import ConfirmModal from './ConfirmModal'
 import RenameModal from './RenameModal'
+import logo from '../assets/logo.svg'
 
 interface HistoryDrawerProps {
   isOpen: boolean
@@ -147,54 +148,64 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
 
         {/* 抽屉面板 */}
         <div 
-          className={`fixed left-0 top-0 bottom-0 w-[400px] glass-panel-heavy border-r border-white/40 z-50 flex flex-col transform transition-all duration-300 ease-in-out ${
+          className={`fixed left-0 top-0 bottom-0 w-[500px] glass-panel-heavy border-r border-white/40 z-50 flex flex-col rounded-r-3xl overflow-hidden transform transition-all duration-300 ease-in-out ${
             isOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full shadow-none'
           }`}
           style={{ WebkitAppRegion: 'no-drag' } as any}
           onClick={e => e.stopPropagation()}
         >
           {/* 头部 */}
-          <div className="flex items-center justify-between p-6 border-b border-white/40">
-          <h2 className="text-xl font-semibold text-text-primary">历史记录</h2>
-          <div className="flex items-center gap-2">
-            {!isSelectionMode ? (
-              <>
-                {(activeTab === 'conversation' ? history.length > 0 : summaryHistory.length > 0) && (
+          <div className="relative flex items-center justify-between p-6 border-b border-white/40">
+            {/* 左侧 Logo 和产品名称 */}
+            <div className="flex items-center gap-2 text-text-primary">
+              <img src={logo} alt="MultiChat Logo" className="w-10 h-10 object-contain" />
+              <span className="font-semibold text-primary text-base">MultiChat</span>
+            </div>
+
+            {/* 中间标题 */}
+            <div className="absolute left-1/2 transform -translate-x-1/2">
+              <h2 className="text-lg font-semibold text-text-primary">历史记录</h2>
+            </div>
+
+            <div className="flex items-center gap-2 z-10">
+              {!isSelectionMode ? (
+                <>
+                  {(activeTab === 'conversation' ? history.length > 0 : summaryHistory.length > 0) && (
+                    <button
+                      onClick={toggleSelectionMode}
+                      className="text-text-secondary hover:text-red-400 transition-colors p-1"
+                      title="开启多选删除"
+                    >
+                      <span className="material-symbols-outlined">delete</span>
+                    </button>
+                  )}
+                </>
+              ) : (
+                <>
                   <button
                     onClick={toggleSelectionMode}
-                    className="text-text-secondary hover:text-red-400 transition-colors p-1"
-                    title="开启多选删除"
+                    className="text-sm px-3 py-1.5 rounded-lg bg-sidebar text-text-secondary hover:text-text-primary hover:bg-gray-100 transition-all border border-gray-200"
                   >
-                    <span className="material-symbols-outlined">delete</span>
+                    取消
                   </button>
-                )}
-              </>
-            ) : (
-              <>
-                <button
-                  onClick={toggleSelectionMode}
-                  className="text-sm px-3 py-1.5 rounded-lg bg-sidebar text-text-secondary hover:text-text-primary hover:bg-gray-100 transition-all border border-gray-200"
-                >
-                  取消
-                </button>
-                <button
-                  disabled={selectedIds.length === 0}
-                  onClick={() => setShowConfirmDelete(true)}
-                  className="text-sm px-3 py-1.5 rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-text-primary border border-red-500/20 hover:border-red-500 transition-all disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-1.5"
-                >
-                  <span className="material-symbols-outlined text-sm">delete</span>
-                  确认删除 {selectedIds.length > 0 && `(${selectedIds.length})`}
-                </button>
-              </>
-            )}
-            <button
-              onClick={onClose}
-              className="text-text-secondary hover:text-text-primary transition-colors ml-1"
-            >
-              <span className="material-symbols-outlined text-2xl">close</span>
-            </button>
+                  <button
+                    disabled={selectedIds.length === 0}
+                    onClick={() => setShowConfirmDelete(true)}
+                    className="text-sm px-3 py-1.5 rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-text-primary border border-red-500/20 hover:border-red-500 transition-all disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-1.5"
+                  >
+                    <span className="material-symbols-outlined text-sm">delete</span>
+                    确认删除 {selectedIds.length > 0 && `(${selectedIds.length})`}
+                  </button>
+                </>
+              )}
+              <button
+                onClick={onClose}
+                className="text-text-secondary hover:text-text-primary transition-colors ml-1"
+              >
+                <span className="material-symbols-outlined text-2xl">close</span>
+              </button>
+            </div>
           </div>
-        </div>
 
         {/* 搜索框 */}
         <div className="p-4">
@@ -307,8 +318,15 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
                             )}
                           </div>
                           <div className="flex items-center justify-between text-xs text-gray-500 mt-2">
-                            <span>{new Date(item.createdAt).toLocaleString('zh-CN')}</span>
-                            <span className="ml-2 text-gray-600">{item.turns.length} 轮</span>
+                            <div className="flex items-center gap-2">
+                              <span>{new Date(item.createdAt).toLocaleString('zh-CN')}</span>
+                              {item.productMode && (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] bg-primary/10 text-primary border border-primary/20 leading-none">
+                                  {item.productMode === 'multi_ai' ? '多模型' : item.productMode === 'task_assignment' ? '任务分发' : '双主辩论'}
+                                </span>
+                              )}
+                              <span className="text-gray-600">{item.turns.length} 轮</span>
+                            </div>
                             <div className="flex items-center gap-2" title={getModelNames(item.models)}>
                               <span className="whitespace-nowrap">{item.models.length} 个模型</span>
                               <div className="flex -space-x-1.5 overflow-hidden">

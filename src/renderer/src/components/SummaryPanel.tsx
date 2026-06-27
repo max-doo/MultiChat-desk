@@ -1047,6 +1047,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
                 enabled={true}
                 slotIndex={0}
                 compact
+                isolated
                 onModelChange={(modelId) => setLastWebviewPlatform(modelId)}
               />
             </div>

@@ -37,6 +37,7 @@ interface WebviewCardProps {
   compact?: boolean  // 紧凑模式：去掉 min-h 限制，适合嵌套在 flex 容器中
   hideHeader?: boolean  // 隐藏头部（平台名称、刷新、状态等），适合嵌套在已有控制栏的容器中
   onModelChange?: (modelId: string) => void  // 自定义平台切换回调，覆盖默认的 swapModelInSlot
+  isolated?: boolean // 隔离模式：不受主界面对话状态（会话锁定、模型阵容锁定）的影响
 }
 
 // 重新导出 FileUploadData 类型供其他组件使用
@@ -64,7 +65,7 @@ export interface WebviewCardRef {
  * 嵌入 AI 平台的 Web 界面，支持消息发送和响应抓取
  */
 const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
-  ({ id, name, url, logo, enabled, slotIndex, compact, hideHeader, onModelChange }, ref) => {
+  ({ id, name, url, logo, enabled, slotIndex, compact, hideHeader, onModelChange, isolated }, ref) => {
     const webviewRef = useRef<Electron.WebviewTag>(null)
     const [isLoading, setIsLoading] = useState(true)
     const [isReady, setIsReady] = useState(false)
@@ -84,10 +85,10 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
     const textInserted = useAppStore((state) => state.textInserted)
     const activeModels = useAppStore((state) => state.activeModels)
 
-    // 判断会话是否在进行中：如果不是新会话，或者输入框已经有内容（准备发送），则锁定当前阵容
-    const isSessionActive = !isNewSession || textInserted
-    // 如果当前处于活动会话，且当前模型在活动阵容中，则当前窗口被锁死
-    const isLockedModel = isSessionActive && activeModels.some(m => m.id === id)
+    // 判断会话是否在进行中：如果不是新会话，或者输入框已经有内容（准备发送），则锁定当前阵容；处于隔离模式（如总结页）则不锁定
+    const isSessionActive = !isolated && (!isNewSession || textInserted)
+    // 如果当前处于活动会话，且当前模型在活动阵容中，则当前窗口被锁死；处于隔离模式则不锁死
+    const isLockedModel = !isolated && isSessionActive && activeModels.some(m => m.id === id)
 
     // 获取当前模型的选择器配置
     const selectors = defaultSelectors.models[id]
@@ -104,8 +105,8 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
       }
     }
 
-    // 任务分配模式支持不同窗口选择同一个 AI，因此可选列表为全量模型；多 AI 模式下排除自身
-    const availableModels = productMode === 'task_assignment' ? models : models.filter(m => m.id !== id)
+    // 任务分配模式或隔离模式支持选择所有 AI，因此可选列表为全量模型；多 AI 模式下排除自身
+    const availableModels = (productMode === 'task_assignment' || isolated || !!onModelChange) ? models : models.filter(m => m.id !== id)
 
     // 将模型列表转换为下拉菜单选项格式
     const modelOptions: DropdownOption<string>[] = availableModels.map(m => ({

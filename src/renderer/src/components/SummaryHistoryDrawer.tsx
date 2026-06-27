@@ -3,6 +3,7 @@ import { Virtuoso } from 'react-virtuoso'
 import { useAppStore, SummaryHistoryItem } from '../store/appStore'
 import ConfirmModal from './ConfirmModal'
 import RenameModal from './RenameModal'
+import logo from '../assets/logo.svg'
 
 interface SummaryHistoryDrawerProps {
   isOpen: boolean
@@ -106,14 +107,24 @@ function SummaryHistoryDrawer({ isOpen, onClose, onSelectHistory, activeHistoryI
 
       {/* 抽屉面板 - 从左侧弹出 */}
       <div
-        className={`fixed left-0 top-0 bottom-0 w-[400px] bg-app border-r border-gray-200 z-50 flex flex-col transform transition-transform duration-300 ${isOpen ? 'translate-x-0' : '-translate-x-full'
+        className={`fixed left-0 top-0 bottom-0 w-[500px] bg-app border-r border-gray-200 z-50 flex flex-col rounded-r-3xl overflow-hidden transform transition-transform duration-300 ${isOpen ? 'translate-x-0' : '-translate-x-full'
           }`}
         style={{ WebkitAppRegion: 'no-drag' } as any}
       >
         {/* 头部 */}
-        <div className="flex items-center justify-between p-6 border-b border-gray-200">
-          <h2 className="text-xl font-semibold text-text-primary">总结历史记录</h2>
-          <div className="flex items-center gap-2">
+        <div className="relative flex items-center justify-between p-6 border-b border-gray-200">
+          {/* 左侧 Logo 和产品名称 */}
+          <div className="flex items-center gap-2 text-text-primary">
+            <img src={logo} alt="MultiChat Logo" className="w-10 h-10 object-contain" />
+            <span className="font-semibold text-primary text-base">MultiChat</span>
+          </div>
+
+          {/* 中间标题 */}
+          <div className="absolute left-1/2 transform -translate-x-1/2">
+            <h2 className="text-lg font-semibold text-text-primary">总结历史记录</h2>
+          </div>
+
+          <div className="flex items-center gap-2 z-10">
             <button
               onClick={onClose}
               className="text-text-secondary hover:text-text-primary transition-colors"

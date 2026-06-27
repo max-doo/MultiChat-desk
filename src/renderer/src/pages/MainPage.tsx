@@ -514,7 +514,7 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
   return (
     <div className="flex flex-col h-full">
       {/* Webview 卡片区域的外层滚动容器，处理 padding 以防阴影被裁切 */}
-      <div className="flex-grow min-h-0 overflow-y-auto px-4 pt-4 sm:px-6 sm:pt-6 pb-10">
+      <div className="flex-grow min-h-0 overflow-y-auto px-4 pt-4 sm:px-6 sm:pt-6 pb-5">
         {/* 用于计算宽度和 CSS Grid 布局的内层无 padding 容器 */}
         <div ref={containerRef} style={containerStyle}>
           {renderLayoutChildren()}
@@ -551,8 +551,36 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
             controlBarRef.current.setMessage('')
           }
 
-          // 2. 检查并切换模型到当前视图
-          const currentDisplayedIds = getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots, multiAiSlots).map(m => m.id)
+          // 2. 自动恢复产品模式与窗口数量
+          let targetProductMode = productMode;
+          let targetDisplayMode = displayMode;
+
+          if (item.productMode) {
+            targetProductMode = item.productMode;
+            appStore.setProductMode(targetProductMode);
+          }
+
+          if (item.displayMode) {
+            targetDisplayMode = item.displayMode;
+            appStore.setDisplayMode(targetDisplayMode);
+          } else {
+            // 兼容旧历史记录：根据模型数量推断
+            if (targetProductMode === 'multi_ai' || targetProductMode === 'task_assignment') {
+              const modelCount = item.models.length;
+              if (modelCount === 1) targetDisplayMode = 'one';
+              else if (modelCount === 2) targetDisplayMode = 'two';
+              else if (modelCount === 3) targetDisplayMode = 'three';
+              else if (modelCount >= 4) targetDisplayMode = 'four';
+              
+              if (targetDisplayMode !== displayMode) {
+                console.log(`[MainPage] 旧历史记录：发现模型数量(${modelCount})与当前视图不匹配，正在切换布局到 ${targetDisplayMode}`)
+                appStore.setDisplayMode(targetDisplayMode);
+              }
+            }
+          }
+
+          // 3. 检查并切换模型到当前视图
+          const currentDisplayedIds = getDisplayedModels(models, targetDisplayMode, targetProductMode, taskAssignmentSlots, multiAiSlots).map(m => m.id)
           const missingModelIds = item.models.filter((id) => !currentDisplayedIds.includes(id))
 
           if (missingModelIds.length > 0) {
@@ -565,8 +593,13 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
                 newOrder.push(m.id)
               }
             })
-            // 取代原本的 reorderModels(newOrder)，改为直接更新 multiAiSlots
-            setMultiAiSlots(newOrder)
+            
+            // 根据目标模式更新对应的槽位
+            if (targetProductMode === 'task_assignment') {
+              appStore.setTaskAssignmentSlots(newOrder)
+            } else {
+              setMultiAiSlots(newOrder)
+            }
           }
 
           // 3. 如果有保存的 URL，自动加载

@@ -128,7 +128,6 @@ webview[tabindex="-1"] {
 /* 遮罩层 */
 .overlay {
   background-color: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(2px);
 }
 
 /* 通知弹窗动画 */
