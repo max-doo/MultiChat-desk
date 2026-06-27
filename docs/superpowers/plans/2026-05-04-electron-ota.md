@@ -74,7 +74,7 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 publish:
   provider: github
   owner: max-doo
-  repo: model-mash
+  repo: multichat
 
 differentialPackage: true
 ```
@@ -683,7 +683,7 @@ export default function UpdateSection(): JSX.Element {
   }, [])
 
   const handleOpenReleases = useCallback(() => {
-    window.api.openBrowserWindow('https://github.com/max-doo/model-mash/releases')
+    window.api.openBrowserWindow('https://github.com/max-doo/multichat/releases')
   }, [])
 
   const { status, currentVersion, info, progress, error, disabledReason } = updater

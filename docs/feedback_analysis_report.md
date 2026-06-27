@@ -1,8 +1,8 @@
 > Created: 2026-05-15 10:44 (+08:00)
 
-# ModelMash 问卷反馈实现状态分析报告
+# MultiChat 问卷反馈实现状态分析报告
 
-基于当前最新的代码库状态（包含 `src/main` IPC 处理器、`src/renderer` React 视图和 Store 等），对 `ModelMash反馈收集问卷_问卷_收集结果.csv` 中的 17 条反馈意见进行了系统性代码溯源。以下是各个建议/BUG的当前状态分类汇总：
+基于当前最新的代码库状态（包含 `src/main` IPC 处理器、`src/renderer` React 视图和 Store 等），对 `MultiChat反馈收集问卷_问卷_收集结果.csv` 中的 17 条反馈意见进行了系统性代码溯源。以下是各个建议/BUG的当前状态分类汇总：
 
 ## 🟢 已完全实现 (Implemented)
 

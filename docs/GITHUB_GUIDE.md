@@ -12,7 +12,7 @@
 git init
 
 # 关联远程仓库（请替换为实际地址）
-git remote add origin https://github.com/max-doo/model-mash.git
+git remote add origin https://github.com/max-doo/multichat.git
 
 # 验证关联
 git remote -v

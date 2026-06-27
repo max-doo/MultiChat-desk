@@ -1,5 +1,5 @@
-appId: com.modelmash.app
-productName: ModelMash
+appId: com.multichat.app
+productName: MultiChat
 directories:
   output: dist
   buildResources: build
@@ -39,7 +39,7 @@ nsis:
   deleteAppDataOnUninstall: false              # 卸载时不默认删除用户数据（由卸载流程勾选控制）
   createDesktopShortcut: true                  # 创建桌面快捷方式（安装时可选择）
   createStartMenuShortcut: true                # 创建开始菜单快捷方式
-  shortcutName: ModelMash 模方                 # 快捷方式名称
+  shortcutName: MultiChat                 # 快捷方式名称
   displayLanguageSelector: false               # 不显示语言选择
   include: build/installer.nsh
 
@@ -51,7 +51,7 @@ mac:
         - x64
         - arm64
   category: public.app-category.productivity
-  icon: assets/logo.icns
+  icon: assets/logo.png
   hardenedRuntime: true
   gatekeeperAssess: false
   entitlements: build/entitlements.mac.plist

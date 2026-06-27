@@ -8,7 +8,7 @@ const shouldObfuscate = process.env.MM_OBFUSCATE !== '0'
 
 function createObfuscationPlugin(target: 'browser' | 'node'): Plugin {
   return {
-    name: `modelmash:obfuscate:${target}`,
+    name: `multichat:obfuscate:${target}`,
     apply: 'build',
     enforce: 'post',
     generateBundle(_options, bundle) {

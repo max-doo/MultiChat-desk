@@ -54,12 +54,12 @@ buildModelResponsesMarkdown() ──► writeTempMarkdown(content) ──► IPC
 
 ## 临时 Markdown 文件格式
 
-文件名：`modelmash-summary-{timestamp}.md`
+文件名：`multichat-summary-{timestamp}.md`
 
 内容结构：
 
 ```markdown
-# ModelMash 模型回答汇总
+# MultiChat 模型回答汇总
 
 ## 系统指令
 
@@ -114,7 +114,7 @@ type WebviewSummaryPhase =
 
 新增 IPC handler `write-temp-markdown`：
 - 接收参数：`{ content: string, fileName: string }`
-- 行为：在 `os.tmpdir()` 下创建 `modelmash-uploads-{random}` 目录，写入 `.md` 文件
+- 行为：在 `os.tmpdir()` 下创建 `multichat-uploads-{random}` 目录，写入 `.md` 文件
 - 返回：`{ success: boolean, filePath?: string, error?: string }`
 
 ### 2. src/preload/index.ts + src/preload/index.d.ts
@@ -150,7 +150,7 @@ type WebviewSummaryPhase =
 
 ## 清理策略
 
-临时文件写入 `os.tmpdir()` 下以 `modelmash-` 为前缀的目录。应用启动时由主进程清理所有 `modelmash-*` 临时目录（在 `index.ts` app ready 时执行）。单次总结流程不实时删除（简化逻辑，依赖启动清理）。
+临时文件写入 `os.tmpdir()` 下以 `multichat-` 为前缀的目录。应用启动时由主进程清理所有 `multichat-*` 临时目录（在 `index.ts` app ready 时执行）。单次总结流程不实时删除（简化逻辑，依赖启动清理）。
 
 ## 兼容性
 

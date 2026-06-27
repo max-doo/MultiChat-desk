@@ -153,8 +153,8 @@ export async function generateSummary(
         'Authorization': `Bearer ${params.apiKey}`,
         // OpenRouter 需要额外的 headers（可选，但推荐）
         ...(params.baseUrl?.includes('openrouter') ? {
-          'HTTP-Referer': 'https://modelmash.app',
-          'X-Title': 'ModelMash'
+          'HTTP-Referer': 'https://multichat.app',
+          'X-Title': 'MultiChat'
         } : {})
       },
       body: JSON.stringify(requestBody),

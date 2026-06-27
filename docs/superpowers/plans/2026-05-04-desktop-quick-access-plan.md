@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 让 ModelMash 成为可常驻桌面的 AI 助手:关闭主窗后留存系统托盘;按全局快捷键瞬时召唤共享会话的精简 Webview 弹窗;选中文本后用快捷键召唤并自动注入文本(MVP)。
+**Goal:** 让 MultiChat 成为可常驻桌面的 AI 助手:关闭主窗后留存系统托盘;按全局快捷键瞬时召唤共享会话的精简 Webview 弹窗;选中文本后用快捷键召唤并自动注入文本(MVP)。
 
 **Architecture:** Electron 主进程统一管理两个 BrowserWindow(主窗、Quick Window)和 Tray;Quick Window 是无边框置顶窗口,加载 `#quick` hash 路由复用现有 React 应用,共用 `persist:shared` Session;新增几条 IPC 通道实现召唤、文本注入、跨窗口状态广播。**不引入任何 C++ 扩展**(robotjs / uiohook-napi)。
 
@@ -124,7 +124,7 @@ app.on('before-quit', () => {
 - [ ] **Step 5: `npm run dev` 验证**
 
 - 主窗启动后点击右上 X,主窗隐藏不退出
-- Windows 任务管理器可看到 ModelMash 进程仍存在
+- Windows 任务管理器可看到 MultiChat 进程仍存在
 - 在终端 `Ctrl+C` 终止 dev,清理重启
 
 - [ ] **Step 6: Commit**
@@ -171,7 +171,7 @@ export function createTray(): void {
   const image = nativeImage.createFromPath(iconPath)
   if (process.platform === 'darwin') image.setTemplateImage(true)
   tray = new Tray(image)
-  tray.setToolTip('ModelMash')
+  tray.setToolTip('MultiChat')
 
   const contextMenu = Menu.buildFromTemplate([
     { label: '显示主界面', click: () => { mainWindow?.show(); mainWindow?.focus() } },
@@ -271,7 +271,7 @@ trayQuitApp: () => Promise<{success: boolean; error?: string}>
 
 - [ ] **Step 8: 在 `npm run dev` 验证**
 
-- 启动后系统托盘出现 ModelMash 图标(用 logo 回退即可)
+- 启动后系统托盘出现 MultiChat 图标(用 logo 回退即可)
 - 单击托盘:主窗显示/隐藏切换
 - 右键三项菜单:"显示主界面 / 召唤快捷弹窗(暂无效) / 退出"
 - 点击"退出"后任务管理器进程消失
@@ -1007,7 +1007,7 @@ git commit -m "feat: customizable global shortcuts in settings drawer"
 
 完成全部 Task 后逐条核对(对应 §3 各 Task 的 dev 验证步骤):
 
-- [ ] 关闭主窗后任务管理器仍有 ModelMash 进程,系统托盘出现图标
+- [ ] 关闭主窗后任务管理器仍有 MultiChat 进程,系统托盘出现图标
 - [ ] 托盘菜单"显示主界面 / 召唤快捷弹窗 / 退出"三项均工作
 - [ ] 托盘"退出"后进程消失,Ctrl+Shift+Space 在其他应用按下不会触发任何东西(`unregisterAll` 验证)
 - [ ] 按 Ctrl+Shift+Space 召唤 Quick Window:无边框、置顶、800×600、共享 `persist:shared` Session(主窗已登录的 Gemini 在 Quick Window 中也是登录态)

@@ -1,6 +1,6 @@
-# ModelMash 打包发布指南
+# MultiChat 打包发布指南
 
-本指南详细说明如何构建和发布 ModelMash 的各种版本。
+本指南详细说明如何构建和发布 MultiChat 的各种版本。
 
 ---
 
@@ -31,8 +31,8 @@
 
 ```bash
 # 克隆项目
-git clone https://github.com/your-username/modelmash.git
-cd modelmash
+git clone https://github.com/your-username/multichat.git
+cd multichat
 
 # 安装依赖
 npm install
@@ -62,8 +62,8 @@ npm run build:win:all
 
 **输出文件：**
 - 输出目录以 `electron-builder.yml` 的 `directories.output` 为准（本仓库当前默认：`dist-build-run/`）
-- `dist-build-run/ModelMash Setup 1.0.0.exe` - 安装版（NSIS）
-- `dist-build-run/ModelMash-Portable-1.0.0.zip` - 便携版（ZIP）
+- `dist-build-run/MultiChat Setup 1.0.0.exe` - 安装版（NSIS）
+- `dist-build-run/MultiChat-Portable-1.0.0.zip` - 便携版（ZIP）
 
 **耗时：** 约 3-5 分钟（取决于机器性能）
 
@@ -89,8 +89,8 @@ npm run preview
 | 命令 | 说明 | 输出 | 耗时 |
 |------|------|------|------|
 | `npm run build:win` | 构建所有 Windows 版本 | NSIS + Portable + ZIP | ~5分钟 |
-| `npm run build:win:nsis` | 只构建安装版 | ModelMash Setup 1.0.0.exe | ~3分钟 |
-| `npm run build:win:portable` | 只构建便携版 | ModelMash-Portable-1.0.0.zip | ~3分钟 |
+| `npm run build:win:nsis` | 只构建安装版 | MultiChat Setup 1.0.0.exe | ~3分钟 |
+| `npm run build:win:portable` | 只构建便携版 | MultiChat-Portable-1.0.0.zip | ~3分钟 |
 | `npm run build:win:all` | 构建安装版和便携版 | Setup + Portable | ~4分钟 |
 
 ### 其他平台命令
@@ -117,7 +117,7 @@ npm run add-portable-marker
 
 ## 🎯 两种打包模式
 
-ModelMash 支持两种打包模式，满足不同用户需求：
+MultiChat 支持两种打包模式，满足不同用户需求：
 
 ### 1️⃣ 安装版（NSIS）- 推荐大多数用户
 
@@ -130,7 +130,7 @@ ModelMash 支持两种打包模式，满足不同用户需求：
 
 **数据存储位置：**
 ```
-%APPDATA%\ModelMash\
+%APPDATA%\MultiChat\
 ├── config.json         # 用户配置
 ├── Session\            # Cookie、登录状态
 ├── Cache\              # 缓存文件
@@ -160,8 +160,8 @@ npm run build:win:nsis
 
 **数据存储位置：**
 ```
-ModelMash-Portable-1.0.0\
-├── ModelMash.exe
+MultiChat-Portable-1.0.0\
+├── MultiChat.exe
 ├── resources\
 │   ├── app.asar
 │   ├── portable.txt    # 便携模式标记文件
@@ -287,15 +287,15 @@ electron-builder --win zip --config electron-builder-portable.yml
 ls -lh dist-build-run/
 
 # 应该看到：
-# ModelMash Setup 1.0.0.exe        (安装版)
-# ModelMash-Portable-1.0.0.zip     (便携版)
-# ModelMash-1.0.0-win.zip          (可选)
+# MultiChat Setup 1.0.0.exe        (安装版)
+# MultiChat-Portable-1.0.0.zip     (便携版)
+# MultiChat-1.0.0-win.zip          (可选)
 ```
 
 ### 2. 验证安装版
 
 #### 安装测试
-1. 双击 `ModelMash Setup 1.0.0.exe`
+1. 双击 `MultiChat Setup 1.0.0.exe`
 2. 选择安装路径（或使用默认）
 3. 在安装过程可勾选“创建桌面快捷方式”
 4. 完成安装，结束页可勾选“固定到任务栏”
@@ -306,12 +306,12 @@ ls -lh dist-build-run/
 3. 查看控制台日志：
    ```
    [Main] 运行模式: 💿 安装版
-   [Main] 数据目录: C:\Users\YourName\AppData\Roaming\ModelMash
+   [Main] 数据目录: C:\Users\YourName\AppData\Roaming\MultiChat
    ```
 
 #### 数据位置验证
 1. 按 `Win+R` 打开运行
-2. 输入 `%APPDATA%\ModelMash`
+2. 输入 `%APPDATA%\MultiChat`
 3. 应该看到：
    ```
    config.json
@@ -321,15 +321,15 @@ ls -lh dist-build-run/
    ```
 
 #### 快捷方式验证
-- ✅ 如果安装时勾选了“创建桌面快捷方式”，桌面上会出现 "ModelMash 模方"
-- ✅ 开始菜单中可以搜索到 "ModelMash"
+- ✅ 如果安装时勾选了“创建桌面快捷方式”，桌面上会出现 "MultiChat 模方"
+- ✅ 开始菜单中可以搜索到 "MultiChat"
 - ✅ 如果结束页勾选了“固定到任务栏”，任务栏会出现固定项（可能受系统策略影响）
 
 ### 3. 验证便携版
 
 #### 解压测试
-1. 解压 `ModelMash-Portable-1.0.0.zip` 到测试目录
-2. 双击 `ModelMash.exe` 运行
+1. 解压 `MultiChat-Portable-1.0.0.zip` 到测试目录
+2. 双击 `MultiChat.exe` 运行
 
 #### 标记文件验证
 检查 `resources/` 目录：
@@ -339,7 +339,7 @@ resources/portable.txt
 ```
 
 #### 运行验证
-1. 双击 `ModelMash.exe`
+1. 双击 `MultiChat.exe`
 2. 按 `F12` 打开开发者工具
 3. 查看控制台日志：
    ```
@@ -448,14 +448,14 @@ ls -lh dist-build-run/
 
 #### 方法一：通过 GitHub 网页
 
-1. 访问 `https://github.com/your-username/modelmash/releases`
+1. 访问 `https://github.com/your-username/multichat/releases`
 2. 点击 "Draft a new release"
 3. 选择标签：`v1.0.1`
-4. 填写 Release 标题：`ModelMash v1.0.1`
+4. 填写 Release 标题：`MultiChat v1.0.1`
 5. 填写 Release 说明（参考下方模板）
 6. 上传文件：
-   - `dist-build-run/ModelMash Setup 1.0.0.exe`
-   - `dist-build-run/ModelMash-Portable-1.0.0.zip`
+   - `dist-build-run/MultiChat Setup 1.0.0.exe`
+   - `dist-build-run/MultiChat-Portable-1.0.0.zip`
 7. 点击 "Publish release"
 
 #### 方法二：使用 GitHub CLI
@@ -466,9 +466,9 @@ ls -lh dist-build-run/
 
 # 创建 Release
 gh release create v1.0.1 \
-  "dist-build-run/ModelMash Setup 1.0.1.exe" \
-  dist-build-run/ModelMash-Portable-1.0.1.zip \
-  --title "ModelMash v1.0.1" \
+  "dist-build-run/MultiChat Setup 1.0.1.exe" \
+  dist-build-run/MultiChat-Portable-1.0.1.zip \
+  --title "MultiChat v1.0.1" \
   --notes-file RELEASE_NOTES.md
 ```
 
@@ -477,22 +477,22 @@ gh release create v1.0.1 \
 创建 `RELEASE_NOTES.md`：
 
 ```markdown
-# ModelMash v1.0.1
+# MultiChat v1.0.1
 
 ## 📦 下载
 
 ### 🎯 推荐：安装版
-**[ModelMash Setup 1.0.1.exe](link)** (约 150MB)
+**[MultiChat Setup 1.0.1.exe](link)** (约 150MB)
 - ✅ 符合 Windows 标准安装流程
 - ✅ 自动创建桌面快捷方式
 - ✅ 支持开始菜单搜索
 - ✅ 支持自动更新
 - ✅ 卸载时可选清理数据
-- 📂 数据位置：`%APPDATA%\ModelMash\`
+- 📂 数据位置：`%APPDATA%\MultiChat\`
 - 👥 **适合大多数用户**
 
 ### 💼 便携版
-**[ModelMash-Portable-1.0.1.zip](link)** (约 150MB)
+**[MultiChat-Portable-1.0.1.zip](link)** (约 150MB)
 - ✅ 无需安装，解压即用
 - ✅ 数据存储在程序目录
 - ✅ 真正便携，可放 U 盘
@@ -525,16 +525,16 @@ gh release create v1.0.1 \
 ## 📝 安装说明
 
 ### 安装版
-1. 下载 `ModelMash Setup 1.0.1.exe`
+1. 下载 `MultiChat Setup 1.0.1.exe`
 2. 双击运行安装程序
 3. 选择安装路径（或使用默认）
 4. 完成安装后启动应用
 
 ### 便携版
-1. 下载 `ModelMash-Portable-1.0.1.zip`
+1. 下载 `MultiChat-Portable-1.0.1.zip`
 2. 解压到任意目录（建议非系统盘）
 3. 确保目录有写入权限
-4. 双击 `ModelMash.exe` 运行
+4. 双击 `MultiChat.exe` 运行
 
 ---
 
@@ -549,7 +549,7 @@ gh release create v1.0.1 \
 
 ## 📖 完整文档
 
-- [README.md](https://github.com/your-username/modelmash#readme) - 项目介绍
+- [README.md](https://github.com/your-username/multichat#readme) - 项目介绍
 - [API_CONFIG_GUIDE.md](link) - API 配置指南
 - [BUILD_GUIDE.md](link) - 构建打包指南
 
@@ -558,9 +558,9 @@ gh release create v1.0.1 \
 ## 🐛 问题反馈
 
 如遇到问题，请：
-1. 查看 [常见问题](https://github.com/your-username/modelmash#常见问题)
-2. 搜索 [Issues](https://github.com/your-username/modelmash/issues)
-3. 提交新的 [Issue](https://github.com/your-username/modelmash/issues/new)
+1. 查看 [常见问题](https://github.com/your-username/multichat#常见问题)
+2. 搜索 [Issues](https://github.com/your-username/multichat/issues)
+3. 提交新的 [Issue](https://github.com/your-username/multichat/issues/new)
 
 ---
 
@@ -588,12 +588,12 @@ remove ...\\resources\\app.asar: The process cannot access the file because it i
 **原因：** 上一次打包输出目录里生成的 `win-unpacked`/`app.asar` 被正在运行的应用、杀毒软件或索引服务占用。
 
 **解决方案：**
-1. 关闭正在运行的 ModelMash（包括从 `dist-build-run/win-unpacked/ModelMash.exe` 启动的情况）
+1. 关闭正在运行的 MultiChat（包括从 `dist-build-run/win-unpacked/MultiChat.exe` 启动的情况）
 2. 清理输出目录后重试构建
 
 ```powershell
 # 1) 结束可能占用的进程
-taskkill /IM ModelMash.exe /F 2>$null | Out-Null
+taskkill /IM MultiChat.exe /F 2>$null | Out-Null
 taskkill /IM electron.exe /F 2>$null | Out-Null
 
 # 2) 删除输出目录（以 electron-builder.yml 的 directories.output 为准）
@@ -650,10 +650,10 @@ Error: EPERM: operation not permitted
 **迁移方法：**
 ```bash
 # 从安装版复制到便携版
-xcopy /E /I "%APPDATA%\ModelMash" "便携版路径\resources\data"
+xcopy /E /I "%APPDATA%\MultiChat" "便携版路径\resources\data"
 
 # 从便携版复制到安装版
-xcopy /E /I "便携版路径\resources\data" "%APPDATA%\ModelMash"
+xcopy /E /I "便携版路径\resources\data" "%APPDATA%\MultiChat"
 ```
 
 ### Q5: 如何同时运行安装版和便携版？

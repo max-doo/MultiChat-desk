@@ -19,7 +19,7 @@
 | `src/preload/index.d.ts` | `window.api` 类型声明增加 `writeTempMarkdown` |
 | `src/renderer/src/hooks/useWebviewSummary.ts` | 核心：增加长度判断、`uploading-file` phase、文件上传分支、fallback 逻辑 |
 | `src/renderer/src/components/SummaryPanel.tsx` | 在操作栏显示当前传输策略（直接输入 / 文件上传） |
-| `src/main/index.ts` | 应用启动时清理 `modelmash-*` 临时目录 |
+| `src/main/index.ts` | 应用启动时清理 `multichat-*` 临时目录 |
 
 ---
 
@@ -51,8 +51,8 @@ import { join } from 'path'
     fileName?: string
   }) => {
     try {
-      const tempDir = await mkdtemp(join(tmpdir(), 'modelmash-uploads-'))
-      const fileName = params.fileName || `modelmash-summary-${Date.now()}.md`
+      const tempDir = await mkdtemp(join(tmpdir(), 'multichat-uploads-'))
+      const fileName = params.fileName || `multichat-summary-${Date.now()}.md`
       const filePath = join(tempDir, fileName)
       await writeFile(filePath, params.content, 'utf-8')
       return { success: true, filePath }
@@ -156,7 +156,7 @@ export type WebviewSummaryPhase =
 ```typescript
   const sendViaFileUpload = async (ref: WebviewCardRef, promptText: string): Promise<{ success: boolean; error?: string }> => {
     // 将提示词包装为 markdown 文件内容
-    const markdownContent = `# ModelMash 模型回答汇总\n\n${promptText}`
+    const markdownContent = `# MultiChat 模型回答汇总\n\n${promptText}`
 
     // 写入临时文件
     let filePath: string
@@ -389,7 +389,7 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 **Files:**
 - Modify: `src/main/index.ts`
 
-**上下文：** 临时文件写入 `os.tmpdir()` 后不会自动删除。在应用启动时清理所有 `modelmash-uploads-*` 目录，避免磁盘堆积。
+**上下文：** 临时文件写入 `os.tmpdir()` 后不会自动删除。在应用启动时清理所有 `multichat-uploads-*` 目录，避免磁盘堆积。
 
 - [ ] **Step 1: 导入所需模块**
 
@@ -411,11 +411,11 @@ async function cleanupTempUploadDirs(): Promise<void> {
   try {
     const tempRoot = tmpdir()
     const entries = await readdir(tempRoot, { withFileTypes: true })
-    const modelmashDirs = entries
-      .filter(e => e.isDirectory() && e.name.startsWith('modelmash-uploads-'))
+    const multichatDirs = entries
+      .filter(e => e.isDirectory() && e.name.startsWith('multichat-uploads-'))
       .map(e => join(tempRoot, e.name))
 
-    for (const dir of modelmashDirs) {
+    for (const dir of multichatDirs) {
       try {
         await rm(dir, { recursive: true, force: true })
         console.log('[Main] 清理临时目录:', dir)
@@ -442,7 +442,7 @@ async function cleanupTempUploadDirs(): Promise<void> {
 git add src/main/index.ts
 git commit -m "feat: cleanup temp upload dirs on app startup
 
-Removes modelmash-uploads-* directories from os.tmpdir() at launch.
+Removes multichat-uploads-* directories from os.tmpdir() at launch.
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 ```
@@ -502,7 +502,7 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 | 阈值 8000 字符 | Task 3, Step 1 (`FILE_UPLOAD_THRESHOLD`) |
 | 短文本直接粘贴 | Task 3, Step 3 (原有逻辑保留) |
 | 长文本文件上传 | Task 3, Step 2-3 (`sendViaFileUpload`) |
-| markdown 文件格式 | Task 3, Step 2 (`# ModelMash 模型回答汇总` 前缀) |
+| markdown 文件格式 | Task 3, Step 2 (`# MultiChat 模型回答汇总` 前缀) |
 | XML 标签隔离 | 复用现有 `buildWebviewPrompt` 中的 `<model_output>` 标签 |
 | 发送指令 | Task 3, Step 2 (`请分析附件中的内容...`) |
 | uploading-file phase | Task 3, Step 1 + Task 4 |

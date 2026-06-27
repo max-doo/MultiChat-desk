@@ -1,4 +1,4 @@
-# ModelMash 文档索引
+# MultiChat 文档索引
 
 > 快速找到你需要的文档
 
@@ -85,7 +85,7 @@
 ### ❓ 我遇到了问题
 1. 查看 [README.md](README.md#常见问题)
 2. 查看 [BUILD_GUIDE.md](BUILD_GUIDE.md#常见问题)
-3. 搜索 [GitHub Issues](https://github.com/max-doo/model-mash/issues)
+3. 搜索 [GitHub Issues](https://github.com/max-doo/multichat/issues)
 4. 提交新 Issue
 
 ---
@@ -140,7 +140,7 @@
 📄 研究报告dom选择器.md            # 研究报告 DOM 选择器
 📄 gemin开启推理.md                # Gemini 开启推理说明
 📄 总结模块提示词架构方案.md        # 总结模块提示词架构
-📄 ModelMashPRD 3 simple.md       # 产品需求文档
+📄 MultiChatPRD 3 simple.md       # 产品需求文档
 📄 清空开发服务器本地储存.md        # 清空本地存储方法
 ```
 
@@ -194,12 +194,12 @@
    - 查看相关章节的"常见问题"部分
 
 2. **搜索 Issues**
-   - [已有 Issues](https://github.com/max-doo/model-mash/issues?q=is%3Aissue)
+   - [已有 Issues](https://github.com/max-doo/multichat/issues?q=is%3Aissue)
    - 可能已经有人遇到相同问题
 
 3. **提问**
-   - [Discussions](https://github.com/max-doo/model-mash/discussions) - 一般性讨论
-   - [New Issue](https://github.com/max-doo/model-mash/issues/new) - 报告 Bug
+   - [Discussions](https://github.com/max-doo/multichat/discussions) - 一般性讨论
+   - [New Issue](https://github.com/max-doo/multichat/issues/new) - 报告 Bug
 
 4. **联系方式**
    - Email: your-email@example.com
@@ -211,7 +211,7 @@
 
 - **最后更新**：2025-12-25
 - **版本**：1.0.0
-- **维护者**：ModelMash Team
+- **维护者**：MultiChat Team
 
 ### 贡献文档
 

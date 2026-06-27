@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 将 arena.ai 作为第 12 个 Webview 聊天平台接入 ModelMash。
+**Goal:** 将 arena.ai 作为第 12 个 Webview 聊天平台接入 MultiChat。
 
 **Architecture:** 在现有 `defaultModels` 和 `defaultSelectors` 配置中添加 arena 的条目，完全复用现有的 Webview 通用机制（`WebviewCard` 通过 `modelId` 动态查表），无需新增组件或数据流。
 

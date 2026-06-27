@@ -2,7 +2,7 @@
 
 ## 背景
 
-当前 ModelMash 通过 electron-builder 发布三种发行物：Windows NSIS 安装版、Windows 便携 ZIP、macOS DMG。用户获取新版本完全依赖手动前往 GitHub Releases 下载重装，体验不佳。本设计在仅覆盖 NSIS 安装版的前提下，引入 electron-updater 实现应用内自动检测、下载、安装更新。
+当前 MultiChat 通过 electron-builder 发布三种发行物：Windows NSIS 安装版、Windows 便携 ZIP、macOS DMG。用户获取新版本完全依赖手动前往 GitHub Releases 下载重装，体验不佳。本设计在仅覆盖 NSIS 安装版的前提下，引入 electron-updater 实现应用内自动检测、下载、安装更新。
 
 ## 目标
 
@@ -213,7 +213,7 @@ export function onUpdateStateChange(
 publish:
   provider: github
   owner: max-doo
-  repo: model-mash
+  repo: multichat
 
 differentialPackage: true
 ```

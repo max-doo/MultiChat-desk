@@ -95,6 +95,6 @@ F3 需要在 `npm run dev` 下完整跑一遍 11 个平台的挂载流程,以及
 
 ## 验收
 
-- 冷启动后(包括清理 `%APPDATA%\ModelMash{,-dev}\config*.json` 之后的首启)三个默认 webview 必须直接加载出页面,不再需要 Ctrl+R
+- 冷启动后(包括清理 `%APPDATA%\MultiChat{,-dev}\config*.json` 之后的首启)三个默认 webview 必须直接加载出页面,不再需要 Ctrl+R
 - 切换 Google 账号、从历史记录恢复对话、平台切换、新对话 4 条路径不回归
 - `npm run lint` + `npm run build` 通过

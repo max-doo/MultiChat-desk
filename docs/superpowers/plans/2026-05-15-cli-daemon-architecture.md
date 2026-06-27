@@ -24,8 +24,8 @@
 ## Open Questions
 
 > [!NOTE]
-> 1. CLI 的执行是否需要独立的二进制产物（如 `modelmash-cli.exe`），还是复用现有的 Node 环境（如在安装包中附带 `.cmd` 脚本调用内部绑定的 Node 运行 CLI）？当前计划采用后者（配置 `package.json` 的 `bin`）。
-> 2. CLI 命令调用时，如果 Daemon (主应用) 未启动，是否应该由 CLI 尝试拉起隐藏的主应用？当前计划为：若未启动则提示需先运行 `modelmash daemon start`。
+> 1. CLI 的执行是否需要独立的二进制产物（如 `multichat-cli.exe`），还是复用现有的 Node 环境（如在安装包中附带 `.cmd` 脚本调用内部绑定的 Node 运行 CLI）？当前计划采用后者（配置 `package.json` 的 `bin`）。
+> 2. CLI 命令调用时，如果 Daemon (主应用) 未启动，是否应该由 CLI 尝试拉起隐藏的主应用？当前计划为：若未启动则提示需先运行 `multichat daemon start`。
 
 ---
 
@@ -96,7 +96,7 @@
 - [MODIFY] `src/main/index.ts`
 
 - [ ] **Step 1: 创建 Named Pipe Server**
-  在 `ipcServer.ts` 中使用 Node `net.createServer` 监听特定路径（Windows 下如 `\\\\.\\pipe\\modelmash-daemon`）。
+  在 `ipcServer.ts` 中使用 Node `net.createServer` 监听特定路径（Windows 下如 `\\\\.\\pipe\\multichat-daemon`）。
 
 - [ ] **Step 2: 定义请求/响应协议**
   实现基于 JSON 行的简单协议。解析传入的 `{ action: 'exec', model: 'gemini', prompt: '...' }`，映射至 `AutomationService`。

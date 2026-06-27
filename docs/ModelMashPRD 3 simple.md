@@ -1,8 +1,8 @@
-# **产品需求文档 (PRD): ModelMash (模方)**
+# **产品需求文档 (PRD): MultiChat (模方)**
 
 | 文档属性 | 详情 |
 | :---- | :---- |
-| **产品名称** | EN: ModelMash / CN: 模方 |
+| **产品名称** | EN: MultiChat / CN: 模方 |
 | **版本号** | V3.0 (桌面应用方案) |
 | **状态** | 待开发 (Ready for Dev) |
 | **文档作者** | AI Product Manager |
@@ -41,7 +41,7 @@
 
 ### **1.2 产品愿景**
 
-**ModelMash (模方)** 是一款基于 **Electron 桌面应用** 的专业 AI 研究工具。通过并排嵌入多个 AI 平台的 Web 端，实现真正的并行对话、Deep Research 对比和统一文件分发，结合 AI Agent 自动生成验证报告，帮助用户做出更可靠的决策。
+**MultiChat (模方)** 是一款基于 **Electron 桌面应用** 的专业 AI 研究工具。通过并排嵌入多个 AI 平台的 Web 端，实现真正的并行对话、Deep Research 对比和统一文件分发，结合 AI Agent 自动生成验证报告，帮助用户做出更可靠的决策。
 
 **核心价值主张：**
 > **"Ask Once, Compare All, Decide Better"**  
@@ -76,7 +76,7 @@
 
 ### **1.4 竞争优势**
 
-| 竞品 | 缺失的能力 | ModelMash 的优势 |
+| 竞品 | 缺失的能力 | MultiChat 的优势 |
 |------|----------|----------------|
 | **Poe** | 不支持并行对比，无 Deep Research | ✅ 多模型并行 + Deep Research |
 | **ChatHub (插件)** | 技术不稳定，文件上传困难 | ✅ 桌面应用稳定 + 原生文件上传 |
@@ -200,7 +200,7 @@ let selectors = {};
 async function loadSelectors() {
   try {
     // 优先从云端拉取
-    const response = await fetch('https://api.modelmash.ai/selectors.json');
+    const response = await fetch('https://api.multichat.ai/selectors.json');
     selectors = await response.json();
     
     // 缓存到本地
@@ -958,7 +958,7 @@ async function captureAllOutputs() {
 
 // 调用后端 API 生成报告
 async function callReportAPI(data) {
-  const response = await fetch('https://api.modelmash.ai/generate-report', {
+  const response = await fetch('https://api.multichat.ai/generate-report', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -1332,7 +1332,7 @@ setInterval(updateSelectors, 24 * 60 * 60 * 1000);
 
 async function updateSelectors() {
   try {
-    const response = await fetch('https://api.modelmash.ai/selectors.json?v=' + Date.now());
+    const response = await fetch('https://api.multichat.ai/selectors.json?v=' + Date.now());
     const latestSelectors = await response.json();
     
     // 检查版本号

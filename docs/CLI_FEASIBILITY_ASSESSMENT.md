@@ -1,4 +1,4 @@
-# ModelMash CLI 与轻量化架构评估
+# MultiChat CLI 与轻量化架构评估
 
 ## 1. 结论摘要
 
@@ -43,7 +43,7 @@ Webview Sessions + Existing DOM Automation
 
 ## 3. 当前项目的真实架构约束
 
-从现有代码可以看出，ModelMash 的核心价值并不是“桌面 UI”，而是：
+从现有代码可以看出，MultiChat 的核心价值并不是“桌面 UI”，而是：
 
 - 同时承载多个目标站点的真实页面会话
 - 通过选择器和注入脚本操作输入框、发送按钮、上传、Deep Research 等交互
@@ -79,9 +79,9 @@ Webview Sessions + Existing DOM Automation
 典型调用：
 
 ```powershell
-modelmash exec --model gemini --prompt "总结这篇网页"
-modelmash collect --session s-001 --json
-modelmash summarize --input outputs.json --provider openrouter --model openai/gpt-4o-mini
+multichat exec --model gemini --prompt "总结这篇网页"
+multichat collect --session s-001 --json
+multichat summarize --input outputs.json --provider openrouter --model openai/gpt-4o-mini
 ```
 
 特点：
@@ -145,10 +145,10 @@ modelmash summarize --input outputs.json --provider openrouter --model openai/gp
 典型调用：
 
 ```powershell
-modelmash daemon start
-modelmash daemon status
-modelmash exec --model claude --prompt "..."
-modelmash session list --json
+multichat daemon start
+multichat daemon status
+multichat exec --model claude --prompt "..."
+multichat session list --json
 ```
 
 特点：
@@ -250,13 +250,13 @@ Browser Engine
 
 ### 6.2 推荐首批命令
 
-- `modelmash daemon start`
-- `modelmash daemon status`
-- `modelmash exec`
-- `modelmash collect`
-- `modelmash summarize`
-- `modelmash session list`
-- `modelmash session reset`
+- `multichat daemon start`
+- `multichat daemon status`
+- `multichat exec`
+- `multichat collect`
+- `multichat summarize`
+- `multichat session list`
+- `multichat session reset`
 
 ### 6.3 推荐首批输出规范
 
@@ -354,7 +354,7 @@ Browser Engine
 
 ### 8.2 为什么 Tauri 现在不适合优先迁移
 
-当前 ModelMash 的困难点不是“桌面壳太重”，而是：
+当前 MultiChat 的困难点不是“桌面壳太重”，而是：
 
 - 需要多个真实网页会话并存
 - 需要持续操控外部站点 DOM
@@ -386,7 +386,7 @@ Tauri 的问题不在于“不能做桌面应用”，而在于：
 - 页面容器数量大幅减少
 - 自动化行为从“重 Webview 操作”转向“轻命令调度”
 
-如果未来的 ModelMash 是：
+如果未来的 MultiChat 是：
 
 - 一个本地控制台
 - 背后主要调 API 和本地服务
@@ -484,7 +484,7 @@ Tauri 的问题不在于“不能做桌面应用”，而在于：
 3. 用本地 IPC 暴露 daemon
 4. 用 CLI 作为 agent 的统一入口
 
-对当前 ModelMash 来说，`Electron -> Tauri` 不是第一优先级，`UI 驱动 -> 服务驱动` 才是第一优先级。
+对当前 MultiChat 来说，`Electron -> Tauri` 不是第一优先级，`UI 驱动 -> 服务驱动` 才是第一优先级。
 
 ---
 

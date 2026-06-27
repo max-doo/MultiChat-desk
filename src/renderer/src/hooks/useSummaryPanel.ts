@@ -922,7 +922,7 @@ export function useSummaryPanel({ selectedModels, modelResponses, restoreHistory
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
     const currentPromptName = agentPrompts.find(p => p.id === summaryMode)?.name || summaryMode
 
-    const fullReport = `# ModelMash AI 验证报告
+    const fullReport = `# MultiChat AI 验证报告
 
 **生成时间**: ${new Date().toLocaleString('zh-CN')}
 **总结模式**: ${currentPromptName}
@@ -934,10 +934,10 @@ ${content}
 
 ---
 
-*由 ModelMash 生成*
+*由 MultiChat 生成*
 `
 
-    setExportFileName(`ModelMash_Report_${timestamp}.md`)
+    setExportFileName(`MultiChat_Report_${timestamp}.md`)
     setExportDirectory(apiConfig.exportDirectory || '')
     setExportContent(fullReport)
     setShowExportDialog(true)

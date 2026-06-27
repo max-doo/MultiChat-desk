@@ -1,4 +1,4 @@
-# ModelMash CLI + Daemon Implementation Plan
+# MultiChat CLI + Daemon Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -539,7 +539,7 @@ import {
 } from '../../../shared/automation/protocol'
 import { AUTOMATION_ERROR_CODES, toErrorPayload } from '../../../shared/automation/errors'
 
-const PIPE_NAME = '\\\\.\\pipe\\modelmash-daemon'
+const PIPE_NAME = '\\\\.\\pipe\\multichat-daemon'
 
 export class DaemonServer {
   private server: net.Server | null = null
@@ -705,7 +705,7 @@ import {
   type DaemonResponse
 } from '../shared/automation/protocol'
 
-const PIPE_NAME = '\\\\.\\pipe\\modelmash-daemon'
+const PIPE_NAME = '\\\\.\\pipe\\multichat-daemon'
 
 async function send(request: DaemonRequest): Promise<DaemonResponse> {
   return await new Promise((resolve, reject) => {
@@ -767,7 +767,7 @@ async function main(): Promise<void> {
     process.exit(response.ok ? 0 : 1)
   }
 
-  console.error('Usage: modelmash <daemon status|exec|collect> [options]')
+  console.error('Usage: multichat <daemon status|exec|collect> [options]')
   process.exit(1)
 }
 
@@ -868,11 +868,11 @@ automationCollect: (payload: { modelId: string }) => Promise<unknown>
 Create `docs/CLI_USAGE_GUIDE.md`:
 
 ```md
-# ModelMash CLI Usage Guide
+# MultiChat CLI Usage Guide
 
 ## Start the desktop app
 
-The daemon runs inside the Electron main process. Start ModelMash first:
+The daemon runs inside the Electron main process. Start MultiChat first:
 
 ```powershell
 cmd /c npm run dev

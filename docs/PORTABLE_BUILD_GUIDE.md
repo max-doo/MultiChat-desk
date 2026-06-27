@@ -1,12 +1,12 @@
-# ModelMash 便携版构建指南
+# MultiChat 便携版构建指南
 
 ## 📦 概述
 
-ModelMash 现在支持两种打包方式：
+MultiChat 现在支持两种打包方式：
 
 | 类型 | 特点 | 数据位置 | 适用场景 |
 |------|------|---------|---------|
-| **安装版 (NSIS)** | 需要安装，集成系统 | `%APPDATA%\ModelMash\` | 长期使用，推荐大多数用户 |
+| **安装版 (NSIS)** | 需要安装，集成系统 | `%APPDATA%\MultiChat\` | 长期使用，推荐大多数用户 |
 | **便携版 (Portable)** | 无需安装，解压即用 | `程序目录\resources\data\` | U盘运行，多版本共存 |
 
 两种版本使用**完全相同的代码**，通过**运行时检测**自动切换数据存储位置。
@@ -24,7 +24,7 @@ ModelMash 现在支持两种打包方式：
 if (存在 portable.txt) {
   数据目录 = "程序目录/resources/data/"  // 便携模式
 } else {
-  数据目录 = "%APPDATA%/ModelMash/"      // 安装模式
+  数据目录 = "%APPDATA%/MultiChat/"      // 安装模式
 }
 ```
 
@@ -32,8 +32,8 @@ if (存在 portable.txt) {
 
 **便携版目录结构：**
 ```
-ModelMash-Portable-1.0.0/
-├── ModelMash.exe
+MultiChat-Portable-1.0.0/
+├── MultiChat.exe
 ├── resources/
 │   ├── app.asar
 │   ├── portable.txt          # 🔑 标记文件
@@ -48,7 +48,7 @@ ModelMash-Portable-1.0.0/
 
 **安装版数据位置：**
 ```
-%APPDATA%\ModelMash\
+%APPDATA%\MultiChat\
 ├── config.json
 ├── Session/
 ├── Cache/
@@ -66,7 +66,7 @@ npm run build:win:nsis
 ```
 
 **输出：**
-- `dist/ModelMash-Setup-1.0.0.exe` （约 150MB）
+- `dist/MultiChat-Setup-1.0.0.exe` （约 150MB）
 
 **特点：**
 - ✅ 符合 Windows 安装规范
@@ -83,7 +83,7 @@ npm run build:win:portable
 ```
 
 **输出：**
-- `dist/ModelMash-Portable-1.0.0.exe` （约 150MB）
+- `dist/MultiChat-Portable-1.0.0.exe` （约 150MB）
 
 **特点：**
 - ✅ 无需安装，解压即用
@@ -106,8 +106,8 @@ npm run build:win:all
 ```
 
 **输出：**
-- `dist/ModelMash-Setup-1.0.0.exe` （安装版）
-- `dist/ModelMash-Portable-1.0.0.exe` （便携版）
+- `dist/MultiChat-Setup-1.0.0.exe` （安装版）
+- `dist/MultiChat-Portable-1.0.0.exe` （便携版）
 
 ---
 
@@ -118,9 +118,9 @@ npm run build:win
 ```
 
 **输出：**
-- `dist/ModelMash-Setup-1.0.0.exe` （NSIS 安装包）
-- `dist/ModelMash-Portable-1.0.0.exe` （便携版）
-- `dist/ModelMash-1.0.0-win.zip` （压缩包，按安装版处理）
+- `dist/MultiChat-Setup-1.0.0.exe` （NSIS 安装包）
+- `dist/MultiChat-Portable-1.0.0.exe` （便携版）
+- `dist/MultiChat-1.0.0-win.zip` （压缩包，按安装版处理）
 
 ---
 
@@ -132,17 +132,17 @@ npm run build:win
 ## 📦 下载
 
 ### 🎯 推荐：安装版
-**[ModelMash-Setup-1.0.0.exe](link)** (约 150MB)
+**[MultiChat-Setup-1.0.0.exe](link)** (约 150MB)
 - ✅ 符合 Windows 标准安装流程
 - ✅ 自动创建桌面快捷方式
 - ✅ 支持开始菜单搜索
 - ✅ 支持自动更新
 - ✅ 卸载时可选清理数据
-- 📂 数据位置：`%APPDATA%\ModelMash\`
+- 📂 数据位置：`%APPDATA%\MultiChat\`
 - 👥 适合：长期使用的用户（推荐）
 
 ### 💼 便携版
-**[ModelMash-Portable-1.0.0.exe](link)** (约 150MB)
+**[MultiChat-Portable-1.0.0.exe](link)** (约 150MB)
 - ✅ 无需安装，解压即用
 - ✅ 数据存储在程序目录
 - ✅ 真正便携，可放 U 盘
@@ -185,7 +185,7 @@ npm run build:win
 3. **查看控制台日志：**
    - 确认显示 "💿 安装版"
 4. **检查数据位置：**
-   - 打开文件管理器：`%APPDATA%\ModelMash\`
+   - 打开文件管理器：`%APPDATA%\MultiChat\`
    - 应该看到 `config.json`、`Session/` 等文件夹
 
 ---
@@ -207,7 +207,7 @@ npm run build:win
 
 可以手动复制：
 ```
-从：%APPDATA%\ModelMash\
+从：%APPDATA%\MultiChat\
 到：程序目录\resources\data\
 ```
 
@@ -232,7 +232,7 @@ npm run build:win
 
 **解决：**
 1. 将便携版移动到有写入权限的目录（如桌面）
-2. 或右键 ModelMash.exe → 属性 → 兼容性 → 以管理员身份运行
+2. 或右键 MultiChat.exe → 属性 → 兼容性 → 以管理员身份运行
 
 ### 控制台看不到运行模式日志
 
@@ -274,8 +274,8 @@ npm run build:win
    - 提供便携版（20% 特殊需求）
 
 2. **清晰的版本命名**
-   - `ModelMash-Setup-1.0.0.exe` （安装版）
-   - `ModelMash-Portable-1.0.0.exe` （便携版）
+   - `MultiChat-Setup-1.0.0.exe` （安装版）
+   - `MultiChat-Portable-1.0.0.exe` （便携版）
 
 3. **明确说明数据位置**
    - 在 Release 说明中注明数据存储位置
@@ -290,7 +290,7 @@ npm run build:win
 
 ## 🎉 总结
 
-通过这套实现，ModelMash 现在可以：
+通过这套实现，MultiChat 现在可以：
 - ✅ 一套代码支持两种打包方式
 - ✅ 自动检测运行模式
 - ✅ 数据位置完全可控

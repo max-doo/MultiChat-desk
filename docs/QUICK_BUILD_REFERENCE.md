@@ -1,4 +1,4 @@
-# ModelMash 构建快速参考
+# MultiChat 构建快速参考
 
 > 快速查阅常用构建命令和发布流程
 
@@ -27,9 +27,9 @@ npm run build:win              # 构建所有 Windows 版本
 
 | 文件名 | 类型 | 大小 | 推荐 |
 |--------|------|------|------|
-| `ModelMash-Setup-1.0.0.exe` | 安装版 | ~150MB | ⭐⭐⭐⭐⭐ |
-| `ModelMash-Portable-1.0.0.exe` | 便携版 | ~150MB | ⭐⭐⭐ |
-| `ModelMash-1.0.0-win.zip` | 压缩包 | ~150MB | ⭐⭐ |
+| `MultiChat-Setup-1.0.0.exe` | 安装版 | ~150MB | ⭐⭐⭐⭐⭐ |
+| `MultiChat-Portable-1.0.0.exe` | 便携版 | ~150MB | ⭐⭐⭐ |
+| `MultiChat-1.0.0-win.zip` | 压缩包 | ~150MB | ⭐⭐ |
 
 ---
 
@@ -107,10 +107,10 @@ Get-ChildItem dist
 # 2. 按 F12 打开控制台
 # 3. 查看日志：
 #    [Main] 运行模式: 💿 安装版
-#    [Main] 数据目录: C:\Users\...\AppData\Roaming\ModelMash
+#    [Main] 数据目录: C:\Users\...\AppData\Roaming\MultiChat
 
 # 4. 验证数据位置
-# Win+R → 输入 %APPDATA%\ModelMash
+# Win+R → 输入 %APPDATA%\MultiChat
 ```
 
 ### 验证便携版

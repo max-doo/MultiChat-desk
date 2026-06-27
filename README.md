@@ -1,4 +1,4 @@
-# ModelMash 模方
+# MultiChat Desk
 
 <p align="center">
   <img src="https://img.shields.io/badge/Electron-28.0.0-47848F?style=flat-square&logo=electron" alt="Electron">
@@ -7,16 +7,16 @@
   <img src="https://img.shields.io/badge/Tailwind_CSS-3.3.6-38B2AC?style=flat-square&logo=tailwind-css" alt="Tailwind CSS">
   <br>
   <!-- GitHub Release -->
-  <a href="https://github.com/max-doo/model-mash/releases">
-    <img src="https://img.shields.io/github/v/release/max-doo/model-mash?style=flat-square&color=blue" alt="GitHub release (latest by date)">
+  <a href="https://github.com/max-doo/multichat/releases">
+    <img src="https://img.shields.io/github/v/release/max-doo/multichat?style=flat-square&color=blue" alt="GitHub release (latest by date)">
   </a>
   <!-- Download Count -->
-  <a href="https://github.com/max-doo/model-mash/releases">
-    <img src="https://img.shields.io/github/downloads/max-doo/model-mash/total?style=flat-square&color=success" alt="GitHub all releases download">
+  <a href="https://github.com/max-doo/multichat/releases">
+    <img src="https://img.shields.io/github/downloads/max-doo/multichat/total?style=flat-square&color=success" alt="GitHub all releases download">
   </a>
 </p>
 
-**ModelMash（模方）** 是一款强大的桌面端 AI 模型并行对话与智能总结工具。支持同时向多个主流 AI 平台发送相同问题，并通过先进的 AI Agent 生成深度分析报告。适用于模型对比、答案验证、多角度分析、学术研究、决策辅助等场景。
+**MultiChat Desk** 是一款强大的桌面端 AI 模型并行对话与智能总结工具。支持同时向多个主流 AI 平台发送相同问题，并通过先进的 AI Agent 生成深度分析报告。适用于模型对比、答案验证、多角度分析、学术研究、决策辅助等场景。
 
 ## 📑 目录
 
@@ -58,7 +58,7 @@
 - 💾 **完整历史记录**：对话历史、总结历史、URL 记录全保存
 - 🌐 **独立浏览器**：内置完整浏览器窗口，方便深度查看
 
-![ModelMash Screenshot](docs/screenshot.png)
+![MultiChat Desk Screenshot](docs/screenshot.png)
 
 ---
 
@@ -167,8 +167,8 @@
 
 ```bash
 # 克隆项目
-git clone https://github.com/max-doo/model-mash.git
-cd modelmash
+git clone https://github.com/max-doo/multichat.git
+cd multichat
 
 # 安装依赖
 npm install
@@ -244,8 +244,8 @@ npm run build:linux
 
 | 文件 | 说明 | 大小 |
 |------|------|------|
-| `ModelMash-Setup-1.0.0.exe` | 安装版（NSIS） | ~150MB |
-| `ModelMash-Portable-1.0.0.zip` | 便携版（ZIP 压缩包） | ~150MB |
+| `MultiChat Desk-Setup-1.0.0.exe` | 安装版（NSIS） | ~150MB |
+| `MultiChat Desk-Portable-1.0.0.zip` | 便携版（ZIP 压缩包） | ~150MB |
 
 #### 两种打包模式
 
@@ -253,14 +253,14 @@ npm run build:linux
 - ✅ 自动创建快捷方式
 - ✅ 集成到系统
 - ✅ 支持卸载
-- 📂 数据位置：`%APPDATA%\ModelMash\`
+- 📂 数据位置：`%APPDATA%\MultiChat Desk\`
 
 **便携版：**
 - ✅ 解压即用，无需安装
 - ✅ 数据跟随程序，真正便携
 - ✅ 可放 U 盘、移动硬盘
 - 📂 数据位置：`程序目录\resources\data\`
-- 📝 使用：解压后运行 `ModelMash.exe`
+- 📝 使用：解压后运行 `MultiChat Desk.exe`
 
 #### 打包注意事项
 
@@ -276,7 +276,7 @@ npm run build:linux
 ## 📁 项目结构
 
 ```
-modelmash/
+multichat/
 ├── src/
 │   ├── main/                           # Electron 主进程
 │   │   ├── index.ts                    # 入口文件（生命周期、模块组装）
@@ -441,8 +441,8 @@ modelmash/
 ### Q: 历史记录丢失？
 
 历史记录保存在本地配置文件中：
-- **开发环境**：`%APPDATA%/modelmash-dev/`
-- **生产环境**：`%APPDATA%/modelmash/`
+- **开发环境**：`%APPDATA%/multichat-dev/`
+- **生产环境**：`%APPDATA%/multichat/`
 
 如需清空配置，可运行 `npm run clean:store`。
 
@@ -510,7 +510,7 @@ modelmash/
 
 ## 🔌 支持的 API 供应商
 
-ModelMash 支持所有兼容 OpenAI API 格式的供应商，已测试的供应商包括：
+MultiChat Desk 支持所有兼容 OpenAI API 格式的供应商，已测试的供应商包括：
 
 ### 国际供应商
 
@@ -534,7 +534,7 @@ ModelMash 支持所有兼容 OpenAI API 格式的供应商，已测试的供应�
 
 ### 思考内容支持
 
-部分模型支持推理过程可视化（Reasoning/Thinking），ModelMash 会自动识别并适配：
+部分模型支持推理过程可视化（Reasoning/Thinking），MultiChat Desk 会自动识别并适配：
 
 - **OpenAI o1/o3 系列**：原生支持 `reasoning_content`
 - **DeepSeek-R1**：支持 `reasoning_content`
@@ -623,8 +623,8 @@ ModelMash 支持所有兼容 OpenAI API 格式的供应商，已测试的供应�
 1. **Fork 本仓库**
 2. **克隆到本地**
    ```bash
-   git clone https://github.com/your-username/modelmash.git
-   cd modelmash
+   git clone https://github.com/your-username/multichat.git
+   cd multichat
    ```
 3. **创建特性分支**
    ```bash
@@ -693,8 +693,8 @@ ModelMash 支持所有兼容 OpenAI API 格式的供应商，已测试的供应�
 
 ## 📮 联系我们
 
-- **Issues**: [GitHub Issues](https://github.com/max-doo/model-mash/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/max-doo/model-mash/discussions)
+- **Issues**: [GitHub Issues](https://github.com/max-doo/multichat/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/max-doo/multichat/discussions)
 - **Email**: your-email@example.com
 
 ---
@@ -706,7 +706,7 @@ ModelMash 支持所有兼容 OpenAI API 格式的供应商，已测试的供应�
 ---
 
 <p align="center">
-  <strong>Made with ❤️ by ModelMash Team</strong>
+  <strong>Made with ❤️ by MultiChat Desk Team</strong>
   <br>
   <sub>让 AI 对比更简单，让分析更智能</sub>
 </p>

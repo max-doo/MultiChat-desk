@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 在 ModelMash 中实现后台静默监控 webview AI 输出，并在输出完成后自动将对话数据保存到本地，替代现有 history 存储方式。
+**Goal:** 在 MultiChat 中实现后台静默监控 webview AI 输出，并在输出完成后自动将对话数据保存到本地，替代现有 history 存储方式。
 
 **Architecture:** Store 中心化轮询方案。由 Zustand appStore 统一管理对各 webview 的定时轮询，通过内容稳定判定检测输出完成，完成后保存完整对话记录（用户问题 + 各平台 AI 回复 Markdown）。零 IPC 改动，零主进程改动。
 

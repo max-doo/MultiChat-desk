@@ -23,14 +23,14 @@
   !macroend
 
   Function PinToTaskbar
-    StrCpy $0 "$INSTDIR\ModelMash.exe"
+    StrCpy $0 "$INSTDIR\MultiChat.exe"
     StrCpy $1 "$PLUGINSDIR\pin_to_taskbar.ps1"
 
     FileOpen $2 $1 w
     FileWrite $2 "param([string]$$ExePath)$\r$\n"
     FileWrite $2 "$$ErrorActionPreference = 'SilentlyContinue'$\r$\n"
     FileWrite $2 "if (-not (Test-Path -LiteralPath $$ExePath)) { exit 0 }$\r$\n"
-    FileWrite $2 "$$lnkPath = Join-Path $$env:TEMP 'ModelMash-taskbar-pin.lnk'$\r$\n"
+    FileWrite $2 "$$lnkPath = Join-Path $$env:TEMP 'MultiChat-taskbar-pin.lnk'$\r$\n"
     FileWrite $2 "$$wsh = New-Object -ComObject WScript.Shell$\r$\n"
     FileWrite $2 "$$s = $$wsh.CreateShortcut($$lnkPath)$\r$\n"
     FileWrite $2 "$$s.TargetPath = $$ExePath$\r$\n"
@@ -43,7 +43,7 @@
     FileWrite $2 "Remove-Item -LiteralPath $$lnkPath -Force$\r$\n"
     FileClose $2
 
-    ExecWait '"$WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\pin_to_taskbar.ps1" -ExePath "$INSTDIR\ModelMash.exe"'
+    ExecWait '"$WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\pin_to_taskbar.ps1" -ExePath "$INSTDIR\MultiChat.exe"'
   FunctionEnd
 !else
   !include nsDialogs.nsh

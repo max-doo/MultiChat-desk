@@ -18,7 +18,7 @@ const buildDir = path.join(rootDir, 'build')
 const portableMarker = path.join(buildDir, 'portable.txt')
 
 console.log('========================================')
-console.log('  ModelMash 便携版标记文件生成工具')
+console.log('  MultiChat 便携版标记文件生成工具')
 console.log('========================================\n')
 
 // 1. 确保 build 目录存在
@@ -34,7 +34,7 @@ if (!fs.existsSync(buildDir)) {
 const timestamp = new Date().toISOString()
 const version = require(path.join(rootDir, 'package.json')).version || '1.0.0'
 
-const content = `ModelMash Portable Edition
+const content = `MultiChat Portable Edition
 ==========================
 
 This file indicates that the application is running in portable mode.
@@ -61,7 +61,7 @@ Usage:
 ------
 1. Extract the portable package to any folder
 2. Ensure the folder has write permissions
-3. Double-click ModelMash.exe to run
+3. Double-click MultiChat.exe to run
 4. Your data will be stored in the 'resources/data/' folder
 
 Version: ${version}

@@ -1,6 +1,6 @@
 # Windows PowerShell 命令参考
 
-> ModelMash 开发和构建的 Windows PowerShell 命令速查
+> MultiChat 开发和构建的 Windows PowerShell 命令速查
 
 ---
 
@@ -20,7 +20,7 @@
 
 ---
 
-## 🚀 ModelMash 开发命令
+## 🚀 MultiChat 开发命令
 
 ### 清理构建目录
 
@@ -83,7 +83,7 @@ if (Test-Path dist) {
 }
 
 # 检查文件
-if (Test-Path "dist\ModelMash-Setup-1.0.0.exe") {
+if (Test-Path "dist\MultiChat-Setup-1.0.0.exe") {
     Write-Host "安装包已生成"
 }
 ```
@@ -283,17 +283,17 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned
 
 ```powershell
 # 使用引号包裹路径
-Remove-Item -Recurse -Force "C:\Program Files\ModelMash"
+Remove-Item -Recurse -Force "C:\Program Files\MultiChat"
 
 # 或使用转义
-Remove-Item -Recurse -Force C:\Program` Files\ModelMash
+Remove-Item -Recurse -Force C:\Program` Files\MultiChat
 ```
 
 ---
 
 ## 📚 快速参考
 
-### ModelMash 开发一键命令
+### MultiChat 开发一键命令
 
 ```powershell
 # 开发环境
@@ -315,7 +315,7 @@ Get-ChildItem dist | Select-Object Name, @{Name="Size(MB)";Expression={[math]::R
 ### 创建自定义函数（添加到 $PROFILE）
 
 ```powershell
-# ModelMash 开发助手函数
+# MultiChat 开发助手函数
 function mm-clean {
     Remove-Item -Recurse -Force dist, out -ErrorAction SilentlyContinue
     Write-Host "已清理构建目录" -ForegroundColor Green

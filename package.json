@@ -1,9 +1,9 @@
 {
-  "name": "modelmash",
+  "name": "multichat",
   "version": "1.0.0",
-  "description": "ModelMash - AI Model Comparison Tool",
+  "description": "MultiChat - Parallel AI Chat Assistant",
   "main": "./out/main/index.js",
-  "author": "ModelMash",
+  "author": "MultiChat",
   "license": "MIT",
   "scripts": {
     "lint": "eslint src --ext .ts,.tsx --report-unused-disable-directives",

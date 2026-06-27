@@ -325,7 +325,7 @@ export function registerIpcHandlers(
             }
 
             const buffer = image.toPNG()
-            const tempDir = await mkdtemp(join(tmpdir(), 'modelmash-paste-'))
+            const tempDir = await mkdtemp(join(tmpdir(), 'multichat-paste-'))
             const filePath = join(tempDir, 'pasted-image.png')
             await writeFile(filePath, buffer)
 
@@ -547,7 +547,7 @@ export function registerIpcHandlers(
 
             const exportData: Record<string, unknown> = {
                 _meta: {
-                    app: 'ModelMash',
+                    app: 'MultiChat',
                     exportedAt: new Date().toISOString(),
                     version: '1.0'
                 }
@@ -579,7 +579,7 @@ export function registerIpcHandlers(
 
             const result = await dialog.showSaveDialog({
                 title: '导出缓存数据',
-                defaultPath: `modelmash-cache-${new Date().toISOString().slice(0, 10)}.json`,
+                defaultPath: `multichat-cache-${new Date().toISOString().slice(0, 10)}.json`,
                 filters: [
                     { name: 'JSON 文件', extensions: ['json'] }
                 ]
@@ -707,8 +707,8 @@ export function registerIpcHandlers(
         fileName?: string
     }) => {
         try {
-            const tempDir = await mkdtemp(join(tmpdir(), 'modelmash-uploads-'))
-            const fileName = params.fileName || `modelmash-summary-${Date.now()}.md`
+            const tempDir = await mkdtemp(join(tmpdir(), 'multichat-uploads-'))
+            const fileName = params.fileName || `multichat-summary-${Date.now()}.md`
             const filePath = join(tempDir, fileName)
             await writeFile(filePath, params.content, 'utf-8')
             return { success: true, filePath }

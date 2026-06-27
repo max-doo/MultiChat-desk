@@ -158,7 +158,7 @@ export function useWebviewSummary({
     }
 
     // 文件内容：仅模型回答
-    const markdownContent = `# ModelMash 模型回答汇总\n\n${modelOutputs}`
+    const markdownContent = `# MultiChat 模型回答汇总\n\n${modelOutputs}`
 
     // 写入临时文件
     let filePath: string

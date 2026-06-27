@@ -2,7 +2,7 @@
 
 ## 背景
 
-将 [arena.ai](https://arena.ai/)（LMSYS Chatbot Arena）接入 ModelMash 的 Webview 平台列表，作为第 12 个可用的聊天平台。Arena 是一个 AI 模型比较/竞技场平台，用户可以在其中与不同模型进行对话、盲测对战和并排比较。
+将 [arena.ai](https://arena.ai/)（LMSYS Chatbot Arena）接入 MultiChat 的 Webview 平台列表，作为第 12 个可用的聊天平台。Arena 是一个 AI 模型比较/竞技场平台，用户可以在其中与不同模型进行对话、盲测对战和并排比较。
 
 ## 方案
 
