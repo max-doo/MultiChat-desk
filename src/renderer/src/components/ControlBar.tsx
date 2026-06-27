@@ -431,15 +431,15 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
       setDeepResearch(false) // 重置深度研究状态
       setImageGeneration(false) // 重置 AI 生图状态
       setNewSession(true) // 显式标记开启新会话
-      const refs = Array.from(webviewRefs.values())
-      if (refs.length === 0) {
+      const uniqueRefs = Array.from(new Set(webviewRefs.values()))
+      if (uniqueRefs.length === 0) {
         showNotification('error', '未找到可用的模型窗口')
         return
       }
       setIsNewChatLoading(true)
       showNotification('info', '正在重新加载模型的初始页面...')
       try {
-        const results = await Promise.all(refs.map(ref => ref.resetToInitial()))
+        const results = await Promise.all(uniqueRefs.map(ref => ref.resetToInitial()))
         const successCount = results.filter(r => r.success).length
         const failCount = results.length - successCount
         if (failCount === 0) {

@@ -222,6 +222,8 @@ interface AppState {
   lastSendResults: SendResult[]
   textInserted: boolean // 文字是否已输入到 webview
   setTextInserted: (inserted: boolean) => void
+  activeModels: ModelConfig[]
+  setActiveModels: (models: ModelConfig[]) => void
 
   // 只输入文字到所有模型的输入框，不发送
   insertTextToAll: (message: string) => Promise<SendResult[]>
@@ -464,6 +466,12 @@ function shouldStartNewConversation(
 export const useAppStore = create<AppState>((set, get) => ({
   productMode: 'multi_ai',
   setProductMode: (mode) => {
+    const currentMode = get().productMode
+    if (currentMode === mode) return
+    
+    // 只要切换模式，就重置当前会话锁，防止锁机制污染其他模式
+    get().setNewSession(true)
+
     const currentDisplayMode = get().displayMode
     if (mode === 'task_assignment' && currentDisplayMode === 'one') {
       set({ productMode: mode, displayMode: 'two', paneRatios: null })
@@ -636,12 +644,24 @@ export const useAppStore = create<AppState>((set, get) => ({
   lastSendResults: [],
   textInserted: false,
   setTextInserted: (inserted: boolean) => set({ textInserted: inserted }),
+  activeModels: [],
+  setActiveModels: (models: ModelConfig[]) => set({ activeModels: models }),
+  isNewSession: true,
+  setNewSession: (isNew: boolean) => {
+    set({ isNewSession: isNew })
+    if (isNew) set({ activeModels: [], textInserted: false })
+  },
 
   insertTextToAll: async (message: string): Promise<SendResult[]> => {
-    const { models, webviewRefs, displayMode, productMode, taskAssignmentSlots, multiAiSlots } = get()
-    const displayedModels = getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots, multiAiSlots)
+    const state = get()
+    const { models, webviewRefs, displayMode, productMode, taskAssignmentSlots, multiAiSlots } = state
+    const isSessionActive = !state.isNewSession || state.textInserted
+    const targetModels = isSessionActive && state.activeModels.length > 0
+      ? state.activeModels
+      : getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots, multiAiSlots)
+    if (state.activeModels.length === 0) state.setActiveModels(targetModels)
     const results: SendResult[] = []
-    const insertPromises = displayedModels.map(async (model, index) => {
+    const insertPromises = targetModels.map(async (model, index) => {
       const webviewRef = webviewRefs.get(`slot-${index}`) || webviewRefs.get(model.id)
       if (!webviewRef) return { modelId: model.id, success: false, error: 'Webview 未注册' }
       try {
@@ -679,11 +699,16 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   sendMessageToAll: async (message: string): Promise<SendResult[]> => {
-    const { models, webviewRefs, addHistory, updateHistory, history, isNewSession, setNewSession, displayMode, productMode, taskAssignmentSlots, multiAiSlots } = get()
+    const state = get()
+    const { models, webviewRefs, addHistory, updateHistory, history, isNewSession, setNewSession, displayMode, productMode, taskAssignmentSlots, multiAiSlots } = state
     set({ isSending: true, lastSendResults: [] })
-    const displayedModels = getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots, multiAiSlots)
+    const isSessionActive = !state.isNewSession || state.textInserted
+    const targetModels = isSessionActive && state.activeModels.length > 0
+      ? state.activeModels
+      : getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots, multiAiSlots)
+    if (state.activeModels.length === 0) state.setActiveModels(targetModels)
     const results: SendResult[] = []
-    const sendPromises = displayedModels.map(async (model, index) => {
+    const sendPromises = targetModels.map(async (model, index) => {
       const webviewRef = webviewRefs.get(`slot-${index}`) || webviewRefs.get(model.id)
       if (!webviewRef) return { modelId: model.id, success: false, error: 'Webview 未注册' }
       try {
@@ -833,14 +858,18 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   getAllResponses: async (options?: { signal?: AbortSignal; timeoutMs?: number }): Promise<Record<string, string>> => {
-    const { models, webviewRefs, displayMode } = get()
+    const state = get()
+    const { models, webviewRefs, displayMode, productMode, taskAssignmentSlots, multiAiSlots } = state
     const responses: Record<string, string> = {}
-    const displayedModels = getDisplayedModels(models, displayMode)
+    const isSessionActive = !state.isNewSession || state.textInserted
+    const targetModels = isSessionActive && state.activeModels.length > 0
+      ? state.activeModels
+      : getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots, multiAiSlots)
     const timeoutMs = options?.timeoutMs ?? 10000
     const signal = options?.signal
 
     await Promise.all(
-      displayedModels.map(async (model) => {
+      targetModels.map(async (model) => {
         if (signal?.aborted) return
         const webviewRef = webviewRefs.get(model.id)
         if (webviewRef) {
@@ -994,8 +1023,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     return results
   },
 
-  isNewSession: true,
-  setNewSession: (isNew: boolean) => set({ isNewSession: isNew }),
 
   currentPage: 'main',
   setCurrentPage: (page: 'main' | 'summary' | 'browser') => set({ currentPage: page }),

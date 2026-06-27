@@ -42,7 +42,7 @@ function Layout({ children }: LayoutProps): JSX.Element {
     }
   }, [])
   
-  const { displayMode, setDisplayMode, resetPaneRatios, isSettingsOpen, setSettingsOpen, setHistoryOpen, productMode, setProductMode, currentPage, apiConfig, setApiConfig } = useAppStore()
+  const { displayMode, setDisplayMode, resetPaneRatios, isSettingsOpen, setSettingsOpen, setHistoryOpen, productMode, setProductMode, currentPage, apiConfig, setApiConfig, isNewSession, textInserted, activeModels } = useAppStore()
 
   const summarySource: 'api' | 'webview' = apiConfig?.summarySource ?? 'webview'
   const setSummarySource = (next: 'api' | 'webview') => {
@@ -398,17 +398,28 @@ function Layout({ children }: LayoutProps): JSX.Element {
               }`}
               title={productMode === 'debate' ? '辩论模式固定为双窗口' : '切换窗口数量'}
             >
-              {['one', 'two', 'three', 'four'].map(mode => (
+              {['one', 'two', 'three', 'four'].map(mode => {
+                const isSessionActive = !isNewSession || textInserted
+                let isDisabled = false
+                if (isSessionActive && activeModels.length > 0) {
+                  const modeCount = mode === 'one' ? 1 : mode === 'two' ? 2 : mode === 'three' ? 3 : 4
+                  if (modeCount > activeModels.length) {
+                    isDisabled = true
+                  }
+                }
+                return (
                 <button
                   key={mode}
                   type="button"
+                  disabled={isDisabled}
+                  title={isDisabled ? `当前会话锁定了 ${activeModels.length} 个模型，无法增加窗口` : ''}
                   onClick={() => {
                     setDisplayMode(mode as any)
                     resetPaneRatios()
                   }}
                   className={`w-8 h-[22px] flex flex-col items-center justify-center rounded-full transition-all duration-200 border ${displayMode === mode
                       ? 'bg-blue-50/80 text-primary border-blue-200 shadow-sm'
-                      : 'border-transparent text-text-secondary hover:text-primary hover:bg-white/50'
+                      : isDisabled ? 'opacity-30 cursor-not-allowed border-transparent text-text-secondary' : 'border-transparent text-text-secondary hover:text-primary hover:bg-white/50'
                     }`}
                 >
                   <div className={`w-[18px] h-2.5 border-[1.5px] border-current rounded-[2px] ${mode === 'four' ? 'grid grid-cols-2 grid-rows-2' : mode === 'two' ? 'flex' : mode === 'three' ? 'flex' : ''}`}>
@@ -417,7 +428,7 @@ function Layout({ children }: LayoutProps): JSX.Element {
                     {mode === 'four' && <><div className="border-r-[1.5px] border-b-[1.5px] border-current" /><div className="border-b-[1.5px] border-current" /><div className="border-r-[1.5px] border-current" /><div /></>}
                   </div>
                 </button>
-              ))}
+              )})}
             </div>
           ) : currentPage === 'summary' ? (
             <div 

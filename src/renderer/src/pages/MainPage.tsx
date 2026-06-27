@@ -27,7 +27,6 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
   const taskAssignmentSlots = useAppStore((state) => state.taskAssignmentSlots)
   const multiAiSlots = useAppStore((state) => state.multiAiSlots)
   const setMultiAiSlots = useAppStore((state) => state.setMultiAiSlots)
-  const registerWebviewRef = useAppStore((state) => state.registerWebviewRef)
   const getAllResponses = useAppStore((state) => state.getAllResponses)
   const setPendingSummarySession = useAppStore((state) => state.setPendingSummarySession)
   const history = useAppStore((state) => state.history)
@@ -52,22 +51,28 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
 
   const scrapingControllerRef = useRef<AbortController | null>(null)
 
-  // 为每个模型创建 ref
-  const webviewRefs = useRef<Map<string, WebviewCardRef>>(new Map())
-
-  // 注册 webview ref 的回调 - 增加 slotIndex
-  const createRefCallback = useCallback((id: string, slotIndex: number) => (ref: WebviewCardRef | null) => {
-    const slotKey = `slot-${slotIndex}`
-    if (ref) {
-      webviewRefs.current.set(slotKey, ref)
-      webviewRefs.current.set(id, ref)
-      registerWebviewRef(slotKey, ref)
-      registerWebviewRef(id, ref)
-    } else {
-      webviewRefs.current.delete(slotKey)
-      webviewRefs.current.delete(id)
+  // 注册 webview ref 的回调，并使用 refCallbacks 缓存引用以避免闭包陷阱
+  const refCallbacks = useRef<Record<string, (ref: WebviewCardRef | null) => void>>({})
+  const getRefCallback = useCallback((id: string, slotIndex: number) => {
+    const key = `${slotIndex}-${id}`
+    if (!refCallbacks.current[key]) {
+      let lastRef: WebviewCardRef | null = null
+      refCallbacks.current[key] = (ref: WebviewCardRef | null) => {
+        const slotKey = `slot-${slotIndex}`
+        const state = useAppStore.getState()
+        if (ref) {
+          lastRef = ref
+          state.registerWebviewRef(slotKey, ref)
+          state.registerWebviewRef(id, ref)
+        } else {
+          state.unregisterWebviewRef(slotKey, lastRef)
+          state.unregisterWebviewRef(id, lastRef)
+          lastRef = null
+        }
+      }
     }
-  }, [registerWebviewRef])
+    return refCallbacks.current[key]
+  }, [])
 
   const handleGenerateReport = async () => {
     if (scrapingControllerRef.current) {
@@ -174,32 +179,37 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
     return getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots, multiAiSlots)
   }, [models, displayMode, productMode, taskAssignmentSlots, multiAiSlots])
 
-  // 获取全量至多4个位置的配置列表，确保已打开的窗口有稳定的配置可复用
-  const allLayoutModels = useMemo(() => {
-    return getDisplayedModels(models, 'four', productMode, taskAssignmentSlots, multiAiSlots)
-  }, [models, productMode, taskAssignmentSlots, multiAiSlots])
+  // 获取各个模式下的模型列表，确保切走后保留会话
+  const modeModels = useMemo(() => ({
+    multi_ai: getDisplayedModels(models, 'four', 'multi_ai', taskAssignmentSlots, multiAiSlots),
+    task_assignment: getDisplayedModels(models, 'four', 'task_assignment', taskAssignmentSlots, multiAiSlots),
+    debate: getDisplayedModels(models, 'two', 'debate', taskAssignmentSlots, multiAiSlots)
+  }), [models, taskAssignmentSlots, multiAiSlots])
 
-  // 跟踪曾挂载过的 Slot（避免单窗口时无谓加载，同时切走后保留会话）
-  const [mountedSlots, setMountedSlots] = useState<boolean[]>(() => {
-    const init = [false, false, false, false]
+  // 跟踪曾挂载过的 Webview（组合键：mode-index）
+  const [mountedWebviews, setMountedWebviews] = useState<Set<string>>(() => {
+    const init = new Set<string>()
     const count = getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots, multiAiSlots).length
-    for (let i = 0; i < count; i++) init[i] = true
+    for (let i = 0; i < count; i++) {
+      init.add(`${productMode}-${i}`)
+    }
     return init
   })
 
   useEffect(() => {
-    setMountedSlots((prev) => {
-      const next = [...prev]
+    setMountedWebviews((prev) => {
+      const next = new Set(prev)
       let changed = false
       for (let i = 0; i < displayedModels.length; i++) {
-        if (!next[i]) {
-          next[i] = true
+        const key = `${productMode}-${i}`
+        if (!next.has(key)) {
+          next.add(key)
           changed = true
         }
       }
       return changed ? next : prev
     })
-  }, [displayedModels.length])
+  }, [displayedModels.length, productMode])
 
   const gutterWidthPx = 16
   const MIN_PANE_WIDTH = 320
@@ -473,22 +483,28 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
           </div>
         )
       }
-      const model = allLayoutModels[i]
-      const isMounted = mountedSlots[i] && !!model
       children.push(
         <div key={`slot-wrapper-${i}`} style={getSlotWrapperStyle(i)}>
-          {isMounted && model && (
-            <WebviewCard
-              key={`slot-${i}-${model.id}`}
-              ref={createRefCallback(model.id, i)}
-              id={model.id}
-              name={model.name}
-              url={model.url}
-              logo={model.logo}
-              enabled={true}
-              slotIndex={i}
-            />
-          )}
+          {['multi_ai', 'task_assignment', 'debate'].map((mode) => {
+            const isMounted = mountedWebviews.has(`${mode}-${i}`)
+            const model = modeModels[mode as keyof typeof modeModels][i]
+            if (!isMounted || !model) return null
+
+            return (
+              <div key={`mode-wrapper-${mode}-${i}`} style={{ display: productMode === mode ? 'block' : 'none', width: '100%', height: '100%' }}>
+                <WebviewCard
+                  key={`webview-${mode}-${i}-${model.id}`}
+                  ref={productMode === mode ? getRefCallback(model.id, i) : undefined}
+                  id={model.id}
+                  name={model.name}
+                  url={model.url}
+                  logo={model.logo}
+                  enabled={true}
+                  slotIndex={i}
+                />
+              </div>
+            )
+          })}
         </div>
       )
     }
@@ -520,7 +536,12 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
         activeHistoryId={activeHistoryId}
         onSelectHistory={(item) => {
           // 标记不再是新会话，因为我们是从历史记录加载的
-          useAppStore.getState().setNewSession(false)
+          const appStore = useAppStore.getState()
+          appStore.setNewSession(false)
+
+          // 锁定恢复的模型，确保顶部分段控件能正确锁定窗口数量
+          const historyModels = item.models.map(id => models.find(m => m.id === id)).filter(Boolean) as typeof models
+          appStore.setActiveModels(historyModels)
 
           // 记录当前激活的历史记录 ID
           setActiveHistoryId(item.id)

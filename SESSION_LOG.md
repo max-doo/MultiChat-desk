@@ -2,6 +2,36 @@
 
 ## 2026-06-27
 
+### 22:57 | Antigravity
+
+- done: Lock layout mode buttons when restoring a history session
+- modified:
+  - `src/renderer/src/pages/MainPage.tsx`
+
+### 22:55 | Antigravity
+
+- done: Hide individual 'New Conversation' button in multi_ai and debate modes to enforce global session consistency
+- modified:
+  - `src/renderer/src/components/WebviewCard.tsx`
+
+### 22:46 | Antigravity
+
+- done: Preserve Webview states in the background when switching productMode to prevent conversation loss
+- modified:
+  - `src/renderer/src/pages/MainPage.tsx`
+
+### 22:31 | Antigravity
+
+- done: Decouple sending logic from displayMode and lock layout switcher
+- modified:
+  - `src/renderer/src/store/appStore.ts src/renderer/src/components/Layout.tsx`
+
+### 22:24 | Antigravity
+
+- done: Fix webview ref leak and duplicate refreshes, lock session model choices
+- modified:
+  - `src/renderer/src/store/appStore.ts src/renderer/src/pages/MainPage.tsx src/renderer/src/components/ControlBar.tsx src/renderer/src/components/WebviewCard.tsx`
+
 ### 22:20 | Antigravity
 
 - done: Implement pointer-capture IPC window dragging, independent Multi-AI slots configuration, and Google login UA bypass

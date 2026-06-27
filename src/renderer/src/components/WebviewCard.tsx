@@ -75,11 +75,19 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
     // 跟踪已加载的 URL，避免重复 loadURL
     const loadedUrlRef = useRef<string | null>(null)
 
-    // 从 store 获取所有模型和切换方法
+    // 从 store 获取所有模型、状态和切换方法
     const models = useAppStore((state) => state.models)
     const swapModelInSlot = useAppStore((state) => state.swapModelInSlot)
     const productMode = useAppStore((state) => state.productMode)
     const setTaskAssignmentSlot = useAppStore((state) => state.setTaskAssignmentSlot)
+    const isNewSession = useAppStore((state) => state.isNewSession)
+    const textInserted = useAppStore((state) => state.textInserted)
+    const activeModels = useAppStore((state) => state.activeModels)
+
+    // 判断会话是否在进行中：如果不是新会话，或者输入框已经有内容（准备发送），则锁定当前阵容
+    const isSessionActive = !isNewSession || textInserted
+    // 如果当前处于活动会话，且当前模型在活动阵容中，则当前窗口被锁死
+    const isLockedModel = isSessionActive && activeModels.some(m => m.id === id)
 
     // 获取当前模型的选择器配置
     const selectors = defaultSelectors.models[id]
@@ -661,8 +669,10 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
       setLoadError(null)
       setIsLoading(true)
       webview.loadURL(newUrl)
-      // 标记为新会话，下次发送时创建新 HistoryItem
-      useAppStore.getState().setNewSession(true)
+      // 只有在非活动状态下才允许其重置全局会话标志，防止破坏其他窗口的锁
+      if (!useAppStore.getState().activeModels.length) {
+        useAppStore.getState().setNewSession(true)
+      }
     }
 
     if (!enabled) {
@@ -688,27 +698,29 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
             {/* 卡片头部 */}
             <div className="p-4 border-b border-white/40 flex justify-between items-center">
               {/* 左侧：模型信息和下拉选择器 */}
-              <CustomDropdown
-                value={id}
-                onChange={(modelId) => {
-                  if (onModelChange) {
-                    onModelChange(modelId)
-                  } else if (productMode === 'task_assignment') {
-                    setTaskAssignmentSlot(slotIndex, modelId)
-                  } else {
-                    swapModelInSlot(slotIndex, modelId)
-                  }
-                }}
-                placeholder={name}
-                className="relative"
-                dropdownWidth="w-48"
-                buttonClassName="flex items-center justify-between gap-2 hover:bg-gray-100 rounded-lg px-2 py-1 -ml-2 transition-colors"
-                renderButton={() => (
-                  <div className="flex items-center gap-2">
-                    <img alt={`${name} logo`} className="w-6 h-6" src={logo} />
-                    <h2 className="font-semibold text-text-primary">{name}</h2>
-                  </div>
-                )}
+              <div title={isSessionActive ? '当前对话进行中，需开启新对话才可更换模型' : ''}>
+                <CustomDropdown
+                  value={id}
+                  disabled={isSessionActive}
+                  onChange={(modelId) => {
+                    if (onModelChange) {
+                      onModelChange(modelId)
+                    } else if (productMode === 'task_assignment') {
+                      setTaskAssignmentSlot(slotIndex, modelId)
+                    } else {
+                      swapModelInSlot(slotIndex, modelId)
+                    }
+                  }}
+                  placeholder={name}
+                  className="relative"
+                  dropdownWidth="w-48"
+                  buttonClassName={`flex items-center justify-between gap-2 rounded-lg px-2 py-1 -ml-2 transition-colors ${isSessionActive ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-100'}`}
+                  renderButton={() => (
+                    <div className="flex items-center gap-2">
+                      <img alt={`${name} logo`} className="w-6 h-6" src={logo} />
+                      <h2 className="font-semibold text-text-primary">{name}</h2>
+                    </div>
+                  )}
                 renderOption={(option, isSelected, onSelect) => {
                   const model = models.find(m => m.id === option.value)
                   const hasDeepResearch = model && DEEP_RESEARCH_SUPPORTED_MODEL_IDS.has(model.id)
@@ -745,6 +757,7 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
                 }}
                 options={modelOptions}
               />
+              </div>
 
               {/* 右侧：刷新按钮 + 状态指示器 */}
               <div className="flex items-center gap-3 group">
@@ -774,12 +787,13 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
                 >
                   <span className="material-symbols-outlined text-xl">refresh</span>
                 </button>
-                {selectors?.newConversationUrl && (
+                {selectors?.newConversationUrl && productMode === 'task_assignment' && (
                   <button
                     type="button"
                     onClick={handleNewConversation}
-                    className="flex items-center justify-center rounded-full text-text-secondary hover:text-primary transition-colors"
-                    title="新对话"
+                    disabled={isLockedModel}
+                    className={`flex items-center justify-center rounded-full transition-colors ${isLockedModel ? 'opacity-30 cursor-not-allowed text-text-secondary' : 'text-text-secondary hover:text-primary'}`}
+                    title={isLockedModel ? '当前模型参与了全局会话，请使用底部的全局新对话按钮' : '新对话'}
                   >
                     <span className="material-symbols-outlined text-xl">add_comment</span>
                   </button>
