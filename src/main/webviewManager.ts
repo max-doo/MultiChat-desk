@@ -3,8 +3,9 @@
  * 负责主窗口创建、Webview 注入脚本、上下文菜单以及新窗口管理
  */
 
-import { app, session, BrowserWindow, shell, nativeImage, type WebFrameMain } from 'electron'
+import { app, session, BrowserWindow, shell, nativeImage, Tray, Menu, type WebFrameMain } from 'electron'
 import { join } from 'path'
+import { accessSync } from 'fs'
 import { is } from '@electron-toolkit/utils'
 import { startAgentPromptsWatcher } from './agentPrompts'
 
@@ -13,6 +14,9 @@ import { startAgentPromptsWatcher } from './agentPrompts'
 // 主窗口引用
 let mainWindow: BrowserWindow | null = null
 const browserWindows = new Set<BrowserWindow>()
+
+let tray: Tray | null = null
+export function getTray(): Tray | null { return tray }
 
 let isQuitting = false
 export function setQuitting(v: boolean): void { isQuitting = v }
@@ -105,6 +109,40 @@ function getWindowIcon(): string | Electron.NativeImage {
         return createWin32IconFromPng(pngPath)
     }
     return pngPath
+}
+
+function getTrayIconPath(): string {
+    const file = process.platform === 'darwin' ? 'tray-iconTemplate.png' : 'tray-icon.png'
+    const candidate = join(app.getAppPath(), 'assets', file)
+    try { accessSync(candidate); return candidate } catch { return getIconPngPath() }
+}
+
+export function createTray(): void {
+    if (tray) return
+    const iconPath = getTrayIconPath()
+    const image = nativeImage.createFromPath(iconPath)
+    tray = new Tray(image)
+    if (process.platform === 'darwin') tray.setTemplateImage(true)
+    tray.setToolTip('MultiChat')
+
+    const contextMenu = Menu.buildFromTemplate([
+        { label: '显示主界面', click: () => { mainWindow?.show(); mainWindow?.focus() } },
+        { label: '召唤快捷弹窗', click: () => { console.log('quick window not yet implemented') } },
+        { type: 'separator' },
+        { label: '退出', click: () => { setQuitting(true); app.quit() } }
+    ])
+    tray.setContextMenu(contextMenu)
+
+    tray.on('click', () => {
+        if (!mainWindow) return
+        if (mainWindow.isVisible()) mainWindow.hide()
+        else { mainWindow.show(); mainWindow.focus() }
+    })
+}
+
+export function destroyTray(): void {
+    tray?.destroy()
+    tray = null
 }
 
 // ============ Browser Window 管理 ============

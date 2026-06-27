@@ -8,7 +8,7 @@ import { tmpdir } from 'os'
 import Store from 'electron-store'
 import { initAgentPrompts } from './agentPrompts'
 import { registerIpcHandlers } from './ipcHandlers'
-import { createWindow, getMainWindow, openBrowserWindowInternal, setQuitting } from './webviewManager'
+import { createWindow, getMainWindow, openBrowserWindowInternal, setQuitting, createTray, destroyTray } from './webviewManager'
 
 // ============ 便携模式支持 ============
 
@@ -113,6 +113,7 @@ app.whenReady().then(() => {
 
   // 创建主窗口
   createWindow()
+  createTray()
 
   // 注册刷新快捷键 (Ctrl+R / Cmd+R / F5)
   // 在生产环境中 Ctrl+R 默认被禁用，这里手动注册
@@ -134,6 +135,7 @@ app.whenReady().then(() => {
 app.on('before-quit', () => {
   setQuitting(true)
   globalShortcut.unregisterAll()
+  destroyTray()
 })
 
 // 所有窗口关闭时不再直接退出应用（让应用保留在系统托盘/后台运行）

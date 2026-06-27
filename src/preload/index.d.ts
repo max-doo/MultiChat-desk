@@ -29,6 +29,9 @@ declare global {
       minimizeWindow: () => void
       maximizeWindow: () => void
       closeWindow: () => void
+      trayShowMain: () => Promise<{ success: boolean; error?: string }>
+      trayHideMain: () => Promise<{ success: boolean; error?: string }>
+      trayQuitApp: () => Promise<{ success: boolean; error?: string }>
       selectFile: () => Promise<string | null>
       selectDirectory: () => Promise<string | null>
       getFileInfo: (filePath: string) => Promise<GetFileInfoResult>

@@ -3,12 +3,13 @@
  * 负责处理主进程与渲染进程之间的 IPC 通信
  */
 
-import { ipcMain, dialog, clipboard, BrowserWindow, shell } from 'electron'
+import { app, ipcMain, dialog, clipboard, BrowserWindow, shell } from 'electron'
 import { basename, extname, join } from 'path'
 import { stat, writeFile, mkdtemp } from 'fs/promises'
 import { tmpdir } from 'os'
 import type Store from 'electron-store'
 import { generateSummary, fetchModels } from './api/summaryApi'
+import { setQuitting } from './webviewManager'
 import {
     listAgentPrompts,
     bootstrapAgentPrompts,
@@ -33,6 +34,21 @@ export function registerIpcHandlers(
     getMainWindow: () => BrowserWindow | null,
     openBrowserWindowInternal: (url: string) => void
 ): void {
+
+    ipcMain.handle('tray:show-main', () => {
+        const w = getMainWindow()
+        if (w) { w.show(); w.focus() }
+        return { success: true }
+    })
+    ipcMain.handle('tray:hide-main', () => {
+        getMainWindow()?.hide()
+        return { success: true }
+    })
+    ipcMain.handle('tray:quit-app', () => {
+        setQuitting(true)
+        app.quit()
+        return { success: true }
+    })
 
     // 窗口拖拽状态
     let dragStartMousePoint: { x: number, y: number } | null = null

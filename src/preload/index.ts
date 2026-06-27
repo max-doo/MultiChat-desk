@@ -22,6 +22,11 @@ const api = {
   maximizeWindow: (): void => ipcRenderer.send('window-maximize'),
   closeWindow: (): void => ipcRenderer.send('window-close'),
 
+  // 系统托盘控制
+  trayShowMain: () => ipcRenderer.invoke('tray:show-main'),
+  trayHideMain: () => ipcRenderer.invoke('tray:hide-main'),
+  trayQuitApp: () => ipcRenderer.invoke('tray:quit-app'),
+
   // 文件操作
   selectFile: (): Promise<string | null> => ipcRenderer.invoke('select-file'),
   selectDirectory: (): Promise<string | null> => ipcRenderer.invoke('select-directory'),

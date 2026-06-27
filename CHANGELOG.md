@@ -15,6 +15,7 @@ Release-facing changelog. 仅记录用户可见或与发布相关的变化。
 ## [Unreleased]
 
 ## 2026-06-27
+- 23:51 | feat: src/main/webviewManager.ts, src/main/index.ts, src/main/ipcHandlers.ts, src/preload/index.ts - 系统托盘与三项菜单
 - 23:48 | feat: src/main/webviewManager.ts, src/main/index.ts - 主窗关闭转隐藏与 isQuitting 退出守卫
 
 ### Added
