@@ -85,7 +85,7 @@ type QuickInjectAction = 'summarize' | 'polish' | 'translate' | 'raw'
 - Modify: `src/main/webviewManager.ts`(模块状态 + `createWindow` 关闭监听)
 - Modify: `src/main/index.ts`(`before-quit` 钩子)
 
-- [ ] **Step 1: 在 `webviewManager.ts` 模块状态区(`webviewManager.ts:14` 附近)增加退出标志和 setter/getter**
+- [x] **Step 1: 在 `webviewManager.ts` 模块状态区(`webviewManager.ts:14` 附近)增加退出标志和 setter/getter**
 
 ```ts
 let isQuitting = false
@@ -93,7 +93,7 @@ export function setQuitting(v: boolean): void { isQuitting = v }
 export function getIsQuitting(): boolean { return isQuitting }
 ```
 
-- [ ] **Step 2: 修改 `createWindow()`,在 `mainWindow.on('ready-to-show', ...)` 之后追加 close 拦截**
+- [x] **Step 2: 修改 `createWindow()`,在 `mainWindow.on('ready-to-show', ...)` 之后追加 close 拦截**
 
 ```ts
 mainWindow.on('close', (e) => {
@@ -104,7 +104,7 @@ mainWindow.on('close', (e) => {
 })
 ```
 
-- [ ] **Step 3: 在 `index.ts` 顶部 import `setQuitting`,并在 `app.whenReady().then(...)` 之外增加 `before-quit` 钩子**
+- [x] **Step 3: 在 `index.ts` 顶部 import `setQuitting`,并在 `app.whenReady().then(...)` 之外增加 `before-quit` 钩子**
 
 ```ts
 import { createWindow, getMainWindow, openBrowserWindowInternal, setQuitting } from './webviewManager'
@@ -116,7 +116,7 @@ app.on('before-quit', () => {
 })
 ```
 
-- [ ] **Step 3b: 修改 `window-all-closed` 处理,移除 `app.quit()` 调用**
+- [x] **Step 3b: 修改 `window-all-closed` 处理,移除 `app.quit()` 调用**
 
 原代码 `app.on('window-all-closed', () => { globalShortcut.unregisterAll(); if (process.platform !== 'darwin') app.quit() })` 中,`app.quit()` 会在 Quick Window 真被关闭(而非 hide)时意外触发整体退出。改为仅做资源清理:
 
@@ -131,17 +131,17 @@ app.on('window-all-closed', () => {
 
 说明:macOS 的 Cmd+Q 会触发 `before-quit` → `isQuitting=true` → `close` 不拦截 → 窗口真关闭 → `window-all-closed` → 但此时 `isQuitting` 已为 true,所以不再需要 quit。
 
-- [ ] **Step 4: `npm run lint` + `npm run build`**
+- [x] **Step 4: `npm run lint` + `npm run build`**
 
 预期:lint 0 警告;build 输出 `out/main/index.js`、`out/preload/index.js`、`out/renderer/index.html`。
 
-- [ ] **Step 5: `npm run dev` 验证**
+- [x] **Step 5: `npm run dev` 验证**
 
 - 主窗启动后点击右上 X,主窗隐藏不退出
 - Windows 任务管理器可看到 MultiChat 进程仍存在
 - 在终端 `Ctrl+C` 终止 dev,清理重启
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```
 git add src/main/webviewManager.ts src/main/index.ts
@@ -161,7 +161,7 @@ git commit -m "feat: intercept main window close to hide instead of quit"
 
 托盘资源缺失时回退到 `assets/logo.png`。等本 Task 验收时再让用户/设计提供专用托盘图标。
 
-- [ ] **Step 1: 在 `webviewManager.ts` 顶部 import,模块状态增加 tray**
+- [x] **Step 1: 在 `webviewManager.ts` 顶部 import,模块状态增加 tray**
 
 ```ts
 import { app, BrowserWindow, shell, nativeImage, Tray, Menu, type WebFrameMain } from 'electron'
@@ -170,7 +170,7 @@ let tray: Tray | null = null
 export function getTray(): Tray | null { return tray }
 ```
 
-- [ ] **Step 2: 在 `webviewManager.ts` 增加 `getTrayIconPath()` 与 `createTray()` / `destroyTray()`**
+- [x] **Step 2: 在 `webviewManager.ts` 增加 `getTrayIconPath()` 与 `createTray()` / `destroyTray()`**
 
 ```ts
 function getTrayIconPath(): string {
@@ -217,7 +217,7 @@ export function destroyTray(): void {
 
 > 简化:Task 2 此处的"召唤快捷弹窗"先写 `console.log('quick window not yet implemented')`,Task 3 完成后再修正为 `quickWindow.show()`。
 
-- [ ] **Step 3: 在 `index.ts` 启动时 `createTray()`,`before-quit` 中销毁**
+- [x] **Step 3: 在 `index.ts` 启动时 `createTray()`,`before-quit` 中销毁**
 
 ```ts
 import { createTray, destroyTray, setQuitting } from './webviewManager'
@@ -237,7 +237,7 @@ app.on('before-quit', () => {
 })
 ```
 
-- [ ] **Step 4: 在 `ipcHandlers.ts` 注册三个托盘 handler**
+- [x] **Step 4: 在 `ipcHandlers.ts` 注册三个托盘 handler**
 
 文件顶部 import:
 ```ts
@@ -264,7 +264,7 @@ ipcMain.handle('tray:quit-app', () => {
 
 注意 `app` 在文件顶部已经 import;若没有就从 `electron` 加上。
 
-- [ ] **Step 5: preload 暴露**
+- [x] **Step 5: preload 暴露**
 
 `src/preload/index.ts`:
 ```ts
@@ -273,7 +273,7 @@ trayHideMain: () => ipcRenderer.invoke('tray:hide-main'),
 trayQuitApp: () => ipcRenderer.invoke('tray:quit-app'),
 ```
 
-- [ ] **Step 6: d.ts 同步**
+- [x] **Step 6: d.ts 同步**
 
 `src/preload/index.d.ts`,在 `api: { ... }` 内追加:
 ```ts
@@ -282,16 +282,16 @@ trayHideMain: () => Promise<{success: boolean; error?: string}>
 trayQuitApp: () => Promise<{success: boolean; error?: string}>
 ```
 
-- [ ] **Step 7: lint + build**
+- [x] **Step 7: lint + build**
 
-- [ ] **Step 8: 在 `npm run dev` 验证**
+- [x] **Step 8: 在 `npm run dev` 验证**
 
 - 启动后系统托盘出现 MultiChat 图标(用 logo 回退即可)
 - 单击托盘:主窗显示/隐藏切换
 - 右键三项菜单:"显示主界面 / 召唤快捷弹窗(暂无效) / 退出"
 - 点击"退出"后任务管理器进程消失
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```
 git add src/main/webviewManager.ts src/main/index.ts src/main/ipcHandlers.ts src/preload/index.ts src/preload/index.d.ts
@@ -309,7 +309,7 @@ git commit -m "feat: system tray with show/hide/quit menu"
 - Modify: `src/preload/index.ts`
 - Modify: `src/preload/index.d.ts`
 
-- [ ] **Step 1: 在 `webviewManager.ts` 模块状态增加 `quickWindow` 与 getter**
+- [x] **Step 1: 在 `webviewManager.ts` 模块状态增加 `quickWindow` 与 getter**
 
 放在 `let mainWindow: BrowserWindow | null = null` 之下:
 ```ts
@@ -317,7 +317,7 @@ let quickWindow: BrowserWindow | null = null
 export function getQuickWindow(): BrowserWindow | null { return quickWindow }
 ```
 
-- [ ] **Step 2: 实现 `createQuickWindow()`**
+- [x] **Step 2: 实现 `createQuickWindow()`**
 
 ```ts
 export function createQuickWindow(): void {
@@ -374,7 +374,7 @@ export function createQuickWindow(): void {
 }
 ```
 
-- [ ] **Step 3: 在 `index.ts` 启动时预创建 Quick Window 并修正 Task 2 的占位**
+- [x] **Step 3: 在 `index.ts` 启动时预创建 Quick Window 并修正 Task 2 的占位**
 
 ```ts
 import { createWindow, createTray, destroyTray, createQuickWindow, getQuickWindow, setQuitting } from './webviewManager'
@@ -397,7 +397,7 @@ app.whenReady().then(() => {
   } },
 ```
 
-- [ ] **Step 4: 在 `index.ts` 注册全局召唤快捷键**
+- [x] **Step 4: 在 `index.ts` 注册全局召唤快捷键**
 
 替换原有快捷键注册块(`index.ts:114-124`):
 ```ts
@@ -422,7 +422,7 @@ if (!summonOk) console.warn(`[Main] 召唤快捷键注册失败: ${summonAcceler
 
 (Task 7 会替换为 shortcutManager,这里先硬编码以确保 Task 3 可独立验证)
 
-- [ ] **Step 5: 实现 `quick:show` / `quick:hide` IPC handler**
+- [x] **Step 5: 实现 `quick:show` / `quick:hide` IPC handler**
 
 `ipcHandlers.ts`,顶部 import 增加 `getQuickWindow`,registerIpcHandlers 函数体内追加:
 ```ts
@@ -439,7 +439,7 @@ ipcMain.handle('quick:hide', () => {
 })
 ```
 
-- [ ] **Step 6: preload + d.ts**
+- [x] **Step 6: preload + d.ts**
 
 `preload/index.ts`:
 ```ts
@@ -453,9 +453,9 @@ quickShow: (opts?: {focus?: boolean}) => Promise<{success: boolean; error?: stri
 quickHide: () => Promise<{success: boolean; error?: string}>
 ```
 
-- [ ] **Step 7: lint + build**
+- [x] **Step 7: lint + build**
 
-- [ ] **Step 8: 在 `npm run dev` 验证**
+- [x] **Step 8: 在 `npm run dev` 验证**
 
 (此时 `#quick` 路由还没实现,Quick Window 显示主页面是预期的——下个 Task 修)
 - 启动后无可见 Quick Window
@@ -464,7 +464,7 @@ quickHide: () => Promise<{success: boolean; error?: string}>
 - 再按 `Ctrl+Shift+Space` 重新召唤
 - 托盘菜单"召唤快捷弹窗"也能召唤
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```
 git add src/main/webviewManager.ts src/main/index.ts src/main/ipcHandlers.ts src/preload/index.ts src/preload/index.d.ts
@@ -479,13 +479,13 @@ git commit -m "feat: quick window lifecycle and global summon shortcut"
 - Modify: `src/renderer/src/App.tsx`
 - Create: `src/renderer/src/pages/QuickPage.tsx`
 
-- [ ] **Step 1: 修改 `App.tsx` currentPage 类型**
+- [x] **Step 1: 修改 `App.tsx` currentPage 类型**
 
 ```tsx
 const [currentPage, setCurrentPage] = useState<'main' | 'summary' | 'browser' | 'quick'>('main')
 ```
 
-- [ ] **Step 2: 修改 `checkHash` 增加 `#quick` 分支**
+- [x] **Step 2: 修改 `checkHash` 增加 `#quick` 分支**
 
 注意 quick 仍需要走 init,因此 return false 不阻断后续 init:
 
@@ -504,7 +504,7 @@ const checkHash = (): boolean => {
 }
 ```
 
-- [ ] **Step 3: 在 `App.tsx` 渲染分支增加 quick 页**
+- [x] **Step 3: 在 `App.tsx` 渲染分支增加 quick 页**
 
 `return` 块中,在 `if (currentPage === 'browser')` 之后追加:
 ```tsx
@@ -517,7 +517,7 @@ QuickPage **不包裹 `<Layout>`**,自行实现极简标题栏(含拖拽区域�
 
 并在文件顶部 `import QuickPage from './pages/QuickPage'`。
 
-- [ ] **Step 4: 创建 `src/renderer/src/pages/QuickPage.tsx`**
+- [x] **Step 4: 创建 `src/renderer/src/pages/QuickPage.tsx`**
 
 ```tsx
 import { useRef, useEffect, useState } from 'react'
@@ -627,9 +627,9 @@ export default function QuickPage(): JSX.Element {
 
 `onModelChange` 覆写后 Quick Window 切换模型只改自身 activeId,不调用 `swapModelInSlot`,与主窗解耦。
 
-- [ ] **Step 5: lint + build**
+- [x] **Step 5: lint + build**
 
-- [ ] **Step 6: 在 `npm run dev` 验证**
+- [x] **Step 6: 在 `npm run dev` 验证**
 
 - 主窗启动,主进程已预创建 Quick Window 加载 `#quick`
 - 按 `Ctrl+Shift+Space`,Quick Window 显示一张 WebviewCard(默认主窗第一个 enabled 模型),无主窗标题栏(模式选择器/设置按钮等),仅有极简 32px 标题栏(模型下拉+隐藏按钮)
@@ -637,7 +637,7 @@ export default function QuickPage(): JSX.Element {
 - 切换 WebviewCard 顶部下拉,可在不同平台间切换
 - 在 Quick Window 内登录(如 Gemini 选账号),关闭后回主窗,主窗的 Gemini 也是登录态(`persist:shared` 验证点)
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```
 git add src/renderer/src/App.tsx src/renderer/src/pages/QuickPage.tsx
@@ -657,7 +657,7 @@ git commit -m "feat: #quick hash route renders single WebviewCard"
 
 策略:用 Zustand 的 `subscribe` 监听 `models` 与 `apiConfig` 的变更并通过 `state:broadcast` 转发,避免逐个包装 setter。接收端用 `setState` 写入,**不再触发 broadcast**(因为只有 setter 走 set,subscribe 监听的也是 set,这里要用一个 `isApplyingRemote` 标志位避免回环)。
 
-- [ ] **Step 1: 创建 `src/main/stateBus.ts`**
+- [x] **Step 1: 创建 `src/main/stateBus.ts`**
 
 ```ts
 import type { WebContents } from 'electron'
@@ -675,7 +675,7 @@ export function broadcastState(originWebContentsId: number, key: string, value: 
 }
 ```
 
-- [ ] **Step 2: 在 `ipcHandlers.ts` 注册 `state:broadcast`**
+- [x] **Step 2: 在 `ipcHandlers.ts` 注册 `state:broadcast`**
 
 文件顶部 import:
 ```ts
@@ -697,7 +697,7 @@ ipcMain.handle('state:broadcast', (event, key: string, value: unknown) => {
 
 白名单限制广播范围,防止意外广播大量数据(如 `history`、`summaryHistory`)造成 IPC 风暴。
 
-- [ ] **Step 3: preload + d.ts**
+- [x] **Step 3: preload + d.ts**
 
 `preload/index.ts`:
 ```ts
@@ -715,7 +715,7 @@ stateBroadcast: (key: string, value: unknown) => Promise<{success: boolean}>
 onRemoteStateUpdate: (cb: (payload: {key: string; value: unknown}) => void) => () => void
 ```
 
-- [ ] **Step 4: 在 `appStore.ts` 末尾增加广播订阅与远程接收**
+- [x] **Step 4: 在 `appStore.ts` 末尾增加广播订阅与远程接收**
 
 文件末尾(在 store 创建之后)追加:
 
@@ -749,7 +749,7 @@ function applyRemoteState(payload: { key: string; value: unknown }): void {
 
 (注:zustand v4 的 `subscribe` 默认监听整个 state,回调签名 `(state, prev) => void`。若项目用了 `subscribeWithSelector` middleware 则用 `subscribe(selector, listener)` 形态;实施时按 `appStore.ts` 实际 import 调整。)
 
-- [ ] **Step 5: 在 `initializeStore` 末尾(成功路径)订阅远程更新**
+- [x] **Step 5: 在 `initializeStore` 末尾(成功路径)订阅远程更新**
 
 找到 `initializeStore` 函数结束前(成功 return 路径),增加:
 ```ts
@@ -758,18 +758,18 @@ const unsub = window.api.onRemoteStateUpdate(applyRemoteState)
 ;(window as unknown as { __mmStateUnsub?: () => void }).__mmStateUnsub = unsub
 ```
 
-- [ ] **Step 6: lint + build**
+- [x] **Step 6: lint + build**
 
 注意 TS 严格模式下 `subscribe` 的回调签名要明确;若 lint 报 `@typescript-eslint/no-explicit-any`,把 `as ModelConfig[]` 等强转保留即可,不要用 any。
 
-- [ ] **Step 7: 在 `npm run dev` 验证**
+- [x] **Step 7: 在 `npm run dev` 验证**
 
 - 主窗启用/禁用 Kimi(改变 `models[].enabled`)
 - 召唤 Quick Window,Kimi 出现/消失对应的下拉项
 - 在 Quick Window 切换模型(只改 activeId,不广播),关掉再开主窗,主窗 slot 0 模型不变(QuickPage 与主窗解耦的验证点)
 - 在主窗"设置→添加 API 供应商",保存。关掉主窗(隐藏到托盘),从托盘"显示主界面"重开,API 供应商列表保留(electron-store 持久化)。同时召唤 Quick Window,若有需要 apiConfig 的逻辑也能拿到最新值
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```
 git add src/main/stateBus.ts src/main/ipcHandlers.ts src/preload/index.ts src/preload/index.d.ts src/renderer/src/store/appStore.ts
@@ -789,13 +789,13 @@ git commit -m "feat: cross-window state broadcast bus for models and apiConfig"
 
 工作流:用户在外部应用 `Ctrl+C` → 按 `Ctrl+Shift+V` → 主进程 `clipboard.readText()` → 显示 Quick Window → `webContents.send('quick:inject-prompt', {text, action: 'raw'})` → QuickPage 收到后调 `cardRef.insertText(text)`(**不自动发送**,留给用户校对)。
 
-- [ ] **Step 1: 在 `index.ts` 顶部 import `clipboard`**
+- [x] **Step 1: 在 `index.ts` 顶部 import `clipboard`**
 
 ```ts
 import { app, BrowserWindow, globalShortcut, clipboard } from 'electron'
 ```
 
-- [ ] **Step 2: 注册带文本召唤快捷键**
+- [x] **Step 2: 注册带文本召唤快捷键**
 
 在 Task 3 注册的召唤快捷键之后追加:
 
@@ -814,7 +814,7 @@ const summonWithTextOk = globalShortcut.register(summonWithTextAccelerator, () =
 if (!summonWithTextOk) console.warn(`[Main] 带文本召唤快捷键注册失败: ${summonWithTextAccelerator}`)
 ```
 
-- [ ] **Step 3: preload + d.ts**
+- [x] **Step 3: preload + d.ts**
 
 `preload/index.ts`:
 ```ts
@@ -830,14 +830,14 @@ onQuickInject: (cb: (payload: { text: string; action: 'summarize'|'polish'|'tran
 onQuickInject: (cb: (payload: {text: string; action: 'summarize'|'polish'|'translate'|'raw'}) => void) => () => void
 ```
 
-- [ ] **Step 4: ~~修改 `QuickPage.tsx` 监听注入事件~~ 已在 Task 4 Step 4 实现**
+- [x] **Step 4: ~~修改 `QuickPage.tsx` 监听注入事件~~ 已在 Task 4 Step 4 实现**
 
 > **注意:** `onQuickInject` 监听逻辑已在 Task 4 Step 4 的 QuickPage 中一并实现(连同极简标题栏和 ESC 键)。此 Step 仅确认 `QuickPage.tsx` 中已包含注入监听的 `useEffect`,无需再追加代码。
 ```
 
-- [ ] **Step 5: lint + build**
+- [x] **Step 5: lint + build**
 
-- [ ] **Step 6: 在 `npm run dev` 验证**
+- [x] **Step 6: 在 `npm run dev` 验证**
 
 - 在外部记事本输入"今天天气真好",`Ctrl+A` `Ctrl+C`
 - 按 `Ctrl+Shift+V`,Quick Window 召唤,WebviewCard 输入框已含"今天天气真好"
@@ -845,7 +845,7 @@ onQuickInject: (cb: (payload: {text: string; action: 'summarize'|'polish'|'trans
 - 剪贴板为空时仍召唤,只是不注入
 - `Ctrl+Shift+V` 在某些终端是粘贴快捷键,验证若注册失败时控制台有 warn(实施者按需在设置面板改为其他组合)
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```
 git add src/main/index.ts src/preload/index.ts src/preload/index.d.ts
@@ -866,7 +866,7 @@ git commit -m "feat: clipboard-based summon with text injection"
 
 把 Task 3 / Task 6 中硬编码的快捷键迁移到 shortcutManager,并暴露设置 UI。
 
-- [ ] **Step 1: 创建 `src/main/shortcutManager.ts`**
+- [x] **Step 1: 创建 `src/main/shortcutManager.ts`**
 
 ```ts
 import { globalShortcut } from 'electron'
@@ -927,7 +927,7 @@ export function updateShortcut(
 }
 ```
 
-- [ ] **Step 2: 在 `index.ts` 用 shortcutManager 替换硬编码**
+- [x] **Step 2: 在 `index.ts` 用 shortcutManager 替换硬编码**
 
 删除 Task 3/6 中硬编码的 `globalShortcut.register('CommandOrControl+Shift+Space', ...)` 与 `'CommandOrControl+Shift+V'`,改为:
 
@@ -959,7 +959,7 @@ if (!result.ok) console.warn('[Main] 部分快捷键注册失败:', result.failu
 
 (`F5` / `CommandOrControl+R` 刷新快捷键保留独立的硬编码,不进 shortcutManager)
 
-- [ ] **Step 3: 注册 IPC handler**
+- [x] **Step 3: 注册 IPC handler**
 
 `ipcHandlers.ts` 顶部 import:
 ```ts
@@ -976,7 +976,7 @@ ipcMain.handle('shortcut:update', (_e, id: ShortcutId, accelerator: string) => {
 })
 ```
 
-- [ ] **Step 4: preload + d.ts**
+- [x] **Step 4: preload + d.ts**
 
 `preload/index.ts`:
 ```ts
@@ -991,7 +991,7 @@ shortcutGetAll: () => Promise<{success: boolean; data?: Record<'summon'|'summonW
 shortcutUpdate: (id: 'summon'|'summonWithText', accelerator: string) => Promise<{success: boolean; error?: string}>
 ```
 
-- [ ] **Step 5: 在 `SettingsDrawer.tsx` 增加"快捷键与系统托盘"分组**
+- [x] **Step 5: 在 `SettingsDrawer.tsx` 增加"快捷键与系统托盘"分组**
 
 在 SettingsDrawer 现有分组(API/外观/导出 等)同级位置追加。先在组件顶部增加 state + 加载:
 
@@ -1062,16 +1062,16 @@ UI(放在合适分组下,Tailwind 与项目其他分组保持一致):
 
 具体插入位置参考 `SettingsDrawer.tsx` 现有分组分隔的 className(项目样式约定)。
 
-- [ ] **Step 6: lint + build**
+- [x] **Step 6: lint + build**
 
-- [ ] **Step 7: 在 `npm run dev` 验证**
+- [x] **Step 7: 在 `npm run dev` 验证**
 
 - 设置面板可见两条快捷键,默认值正确
 - 把"召唤弹窗"改为 `Alt+W` 应用 → 立刻 `Alt+W` 能召唤,`Ctrl+Shift+Space` 失效
 - 把"召唤弹窗"改为 `F5`(已被刷新占用 → 注册失败)→ 弹错误提示,UI 回滚到上一次值
 - 完全退出应用并重启,自定义值持久化(electron-store 落盘)
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```
 git add src/main/shortcutManager.ts src/main/index.ts src/main/ipcHandlers.ts src/preload/index.ts src/preload/index.d.ts src/renderer/src/components/SettingsDrawer.tsx
@@ -1084,17 +1084,17 @@ git commit -m "feat: customizable global shortcuts in settings drawer"
 
 完成全部 Task 后逐条核对(对应 §3 各 Task 的 dev 验证步骤):
 
-- [ ] 关闭主窗后任务管理器仍有 MultiChat 进程,系统托盘出现图标
-- [ ] 托盘菜单"显示主界面 / 召唤快捷弹窗 / 退出"三项均工作
-- [ ] 托盘"退出"后进程消失,Ctrl+Shift+Space 在其他应用按下不会触发任何东西(`unregisterAll` 验证)
-- [ ] 按 Ctrl+Shift+Space 召唤 Quick Window:无边框、置顶、800×600、共享 `persist:shared` Session(主窗已登录的 Gemini 在 Quick Window 中也是登录态)
-- [ ] Quick Window 失焦自动隐藏,再按召唤键重新出现
-- [ ] Quick Window 切换模型只影响自身,主窗模型不变;反之主窗启用/禁用模型,Quick Window 下拉同步
-- [ ] 在外部应用 Ctrl+C 文本后按 Ctrl+Shift+V,Quick Window 召唤且输入框已含文本(剪贴板为空时仍召唤,只是不注入)
-- [ ] 设置面板修改召唤快捷键并应用后立即生效;无效/被占用的快捷键报错且不破坏现有快捷键
-- [ ] 重启应用后自定义快捷键持久化
-- [ ] 整个改动只触动 main / preload / renderer,不触动 `out/`、`dist/`,不引入新的 npm 依赖,不引入 `any`,`npm run lint` 与 `npm run build` 全绿
-- [ ] CHANGELOG.md 已按"HH:MM | feat: 路径 - 摘要"追加每个 Task 一条;TODO.md 项目新增需求三条已标记完成或拆分
+- [x] 关闭主窗后任务管理器仍有 MultiChat 进程,系统托盘出现图标
+- [x] 托盘菜单"显示主界面 / 召唤快捷弹窗 / 退出"三项均工作
+- [x] 托盘"退出"后进程消失,Ctrl+Shift+Space 在其他应用按下不会触发任何东西(`unregisterAll` 验证)
+- [x] 按 Ctrl+Shift+Space 召唤 Quick Window:无边框、置顶、800×600、共享 `persist:shared` Session(主窗已登录的 Gemini 在 Quick Window 中也是登录态)
+- [x] Quick Window 失焦自动隐藏,再按召唤键重新出现
+- [x] Quick Window 切换模型只影响自身,主窗模型不变;反之主窗启用/禁用模型,Quick Window 下拉同步
+- [x] 在外部应用 Ctrl+C 文本后按 Ctrl+Shift+V,Quick Window 召唤且输入框已含文本(剪贴板为空时仍召唤,只是不注入)
+- [x] 设置面板修改召唤快捷键并应用后立即生效;无效/被占用的快捷键报错且不破坏现有快捷键
+- [x] 重启应用后自定义快捷键持久化
+- [x] 整个改动只触动 main / preload / renderer,不触动 `out/`、`dist/`,不引入新的 npm 依赖,不引入 `any`,`npm run lint` 与 `npm run build` 全绿
+- [x] CHANGELOG.md 已按"HH:MM | feat: 路径 - 摘要"追加每个 Task 一条;TODO.md 项目新增需求三条已标记完成或拆分
 
 ## 5. 推迟到独立计划:全局划词悬浮 Toolbar
 
