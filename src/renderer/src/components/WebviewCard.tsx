@@ -665,17 +665,11 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
 
     if (!enabled) {
       return (
-        <div className={`flex flex-col h-full rounded-lg bg-gray-800/30 ring-1 ring-inset ring-gray-700 opacity-50 ${compact ? '' : 'min-h-[480px]'}`}>
-          <div className="p-4 border-b border-gray-700 flex justify-between items-center">
-            <div className="flex items-center gap-3">
+        <div className={`flex flex-col h-full rounded-2xl glass-panel shadow-soft opacity-50 overflow-hidden ${compact ? '' : 'min-h-[480px]'}`}>
+          <div className="p-4 border-b border-white/40 flex justify-between items-center">
+            <div className="flex items-center gap-3 opacity-50">
               <img alt={`${name} logo`} className="w-6 h-6" src={logo} />
-              <h2 className="font-semibold text-gray-500">{name}</h2>
-            </div>
-            <div className="flex items-center gap-2 text-xs text-gray-500">
-              <span className="relative flex h-2 w-2">
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-gray-500"></span>
-              </span>
-              已禁用
+              <h2 className="font-semibold text-text-secondary">{name}</h2>
             </div>
           </div>
           <div className="flex-1 p-4 flex items-center justify-center text-gray-600 min-h-0">
@@ -686,11 +680,11 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
     }
 
     return (
-      <div className={`flex flex-col h-full rounded-lg bg-gray-800/30 ring-1 ring-inset ring-primary/50 neon-border ${compact ? '' : 'min-h-[480px]'}`}>
+      <div className={`flex flex-col h-full rounded-2xl glass-panel shadow-soft overflow-hidden ${compact ? '' : 'min-h-[480px]'}`}>
         {!hideHeader && (
           <>
             {/* 卡片头部 */}
-            <div className="p-4 border-b border-primary/20 flex justify-between items-center">
+            <div className="p-4 border-b border-white/40 flex justify-between items-center">
               {/* 左侧：模型信息和下拉选择器 */}
               <CustomDropdown
                 value={id}
@@ -704,11 +698,11 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
                 placeholder={name}
                 className="relative"
                 dropdownWidth="w-48"
-                buttonClassName="flex items-center justify-between gap-2 hover:bg-gray-700/50 rounded-lg px-2 py-1 -ml-2 transition-colors"
+                buttonClassName="flex items-center justify-between gap-2 hover:bg-gray-100 rounded-lg px-2 py-1 -ml-2 transition-colors"
                 renderButton={() => (
                   <div className="flex items-center gap-2">
                     <img alt={`${name} logo`} className="w-6 h-6" src={logo} />
-                    <h2 className="font-semibold text-white">{name}</h2>
+                    <h2 className="font-semibold text-text-primary">{name}</h2>
                   </div>
                 )}
                 renderOption={(option, isSelected, onSelect) => {
@@ -716,10 +710,10 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
                   return (
                     <button
                       onClick={onSelect}
-                      className="w-full flex items-center gap-3 px-3 py-2 hover:bg-gray-700 transition-colors text-left"
+                      className="w-full flex items-center gap-3 px-3 py-2 hover:bg-gray-100 transition-colors text-left"
                     >
                       <img alt={model?.name || option.label} className="w-5 h-5" src={model?.logo || option.logo} />
-                      <span className="text-gray-300 text-sm">{option.label}</span>
+                      <span className="text-text-primary text-sm">{option.label}</span>
                     </button>
                   )
                 }}
@@ -732,7 +726,7 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
                   type="button"
                   onClick={handleGoBack}
                   disabled={!canGoBack}
-                  className={`flex items-center justify-center rounded-full transition-all opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto ${canGoBack ? 'text-gray-300 hover:text-primary' : 'text-gray-600'}`}
+                  className={`flex items-center justify-center rounded-full transition-all opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto ${canGoBack ? 'text-text-secondary hover:text-primary' : 'text-text-secondary'}`}
                   title="后退"
                 >
                   <span className="material-symbols-outlined text-xl">arrow_back</span>
@@ -741,7 +735,7 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
                   type="button"
                   onClick={handleGoForward}
                   disabled={!canGoForward}
-                  className={`flex items-center justify-center rounded-full transition-all opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto ${canGoForward ? 'text-gray-300 hover:text-primary' : 'text-gray-600'}`}
+                  className={`flex items-center justify-center rounded-full transition-all opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto ${canGoForward ? 'text-text-secondary hover:text-primary' : 'text-text-secondary'}`}
                   title="前进"
                 >
                   <span className="material-symbols-outlined text-xl">arrow_forward</span>
@@ -749,7 +743,7 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
                 <button
                   type="button"
                   onClick={handleRefresh}
-                  className="flex items-center justify-center rounded-full text-gray-300 hover:text-primary transition-colors"
+                  className="flex items-center justify-center rounded-full text-text-secondary hover:text-primary transition-colors"
                   title="刷新当前窗口"
                 >
                   <span className="material-symbols-outlined text-xl">refresh</span>
@@ -758,21 +752,12 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
                   <button
                     type="button"
                     onClick={handleNewConversation}
-                    className="flex items-center justify-center rounded-full text-gray-300 hover:text-primary transition-colors"
+                    className="flex items-center justify-center rounded-full text-text-secondary hover:text-primary transition-colors"
                     title="新对话"
                   >
                     <span className="material-symbols-outlined text-xl">add_comment</span>
                   </button>
                 )}
-                <div className={`flex items-center gap-2 text-xs ${status.color}`}>
-                  <span className="relative flex h-2 w-2">
-                    {status.pulse && (
-                      <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${status.dot} opacity-75`}></span>
-                    )}
-                    <span className={`relative inline-flex rounded-full h-2 w-2 ${status.dot}`}></span>
-                  </span>
-                  {status.text}
-                </div>
               </div>
             </div>
           </>
@@ -781,16 +766,16 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
         {/* Webview 容器 */}
         <div className="flex-1 relative min-h-0">
           {isLoading && !loadError && (
-            <div className="absolute inset-0 flex items-center justify-center bg-gray-900/50 z-10">
+            <div className="absolute inset-0 flex items-center justify-center bg-app/50 z-10">
               <div className="flex flex-col items-center gap-2">
                 <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
-                <span className="text-sm text-gray-400">加载中...</span>
+                <span className="text-sm text-text-secondary">加载中...</span>
               </div>
             </div>
           )}
 
           {loadError && (
-            <div className="absolute inset-0 flex items-center justify-center bg-gray-900/50 z-10">
+            <div className="absolute inset-0 flex items-center justify-center bg-app/50 z-10">
               <div className="flex flex-col items-center gap-3 p-4">
                 <span className="material-symbols-outlined text-red-500 text-4xl">error</span>
                 <p className="text-sm text-red-400 text-center">{loadError}</p>
@@ -800,7 +785,7 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
                     setIsLoading(true)
                     webviewRef.current?.reload()
                   }}
-                  className="px-4 py-2 bg-gray-700 text-gray-300 rounded hover:bg-gray-600 transition-colors text-sm"
+                  className="px-4 py-2 bg-gray-100 text-text-secondary rounded hover:bg-gray-200 transition-colors text-sm"
                 >
                   重试
                 </button>

@@ -1,6 +1,6 @@
 
 
-import { app, BrowserWindow, globalShortcut } from 'electron'
+import { app, BrowserWindow, globalShortcut, nativeTheme } from 'electron'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { join } from 'path'
 import { readdir, rm } from 'fs/promises'
@@ -55,11 +55,11 @@ async function cleanupTempUploadDirs(): Promise<void> {
   try {
     const tempRoot = tmpdir()
     const entries = await readdir(tempRoot, { withFileTypes: true })
-    const modelmashDirs = entries
-      .filter(e => e.isDirectory() && e.name.startsWith('modelmash-uploads-'))
+    const multichatDirs = entries
+      .filter(e => e.isDirectory() && e.name.startsWith('multichat-uploads-'))
       .map(e => join(tempRoot, e.name))
 
-    for (const dir of modelmashDirs) {
+    for (const dir of multichatDirs) {
       try {
         await rm(dir, { recursive: true, force: true })
         console.log('[Main] 清理临时目录:', dir)
@@ -93,11 +93,14 @@ const store = new Store({
 // ============ 应用生命周期 ============
 
 app.whenReady().then(() => {
+  // 强制所有 Webview 和原生控件使用浅色模式，与应用 UI 保持一致
+  nativeTheme.themeSource = 'light'
+
   // 清理遗留的临时文件
   void cleanupTempUploadDirs()
 
   // 设置应用 ID
-  electronApp.setAppUserModelId('com.modelmash.app')
+  electronApp.setAppUserModelId('com.multichat.app')
 
   // 优化快捷键
   app.on('browser-window-created', (_, window) => {

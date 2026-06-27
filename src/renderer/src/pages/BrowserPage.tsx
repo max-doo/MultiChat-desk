@@ -161,13 +161,13 @@ const BrowserPage = (): JSX.Element => {
   }
 
   return (
-    <div className="flex flex-col h-full bg-gray-900 text-white overflow-hidden">
+    <div className="flex flex-col h-full bg-app text-text-primary overflow-hidden">
       {/* Toolbar */}
-      <div className="flex items-center gap-2 p-2 bg-gray-800 border-b border-gray-700">
+      <div className="flex items-center gap-2 p-2 bg-sidebar border-b border-gray-200">
         <button
           onClick={handleGoBack}
           disabled={!canGoBack}
-          className={`p-2 rounded-full hover:bg-gray-700 transition-colors ${!canGoBack ? 'opacity-30 cursor-not-allowed' : ''}`}
+          className={`p-2 rounded-full hover:bg-gray-100 transition-colors ${!canGoBack ? 'opacity-30 cursor-not-allowed' : ''}`}
           title="后退"
         >
           <span className="material-symbols-outlined text-xl">arrow_back</span>
@@ -176,7 +176,7 @@ const BrowserPage = (): JSX.Element => {
         <button
           onClick={handleGoForward}
           disabled={!canGoForward}
-          className={`p-2 rounded-full hover:bg-gray-700 transition-colors ${!canGoForward ? 'opacity-30 cursor-not-allowed' : ''}`}
+          className={`p-2 rounded-full hover:bg-gray-100 transition-colors ${!canGoForward ? 'opacity-30 cursor-not-allowed' : ''}`}
           title="前进"
         >
           <span className="material-symbols-outlined text-xl">arrow_forward</span>
@@ -184,7 +184,7 @@ const BrowserPage = (): JSX.Element => {
 
         <button
           onClick={handleReload}
-          className="p-2 rounded-full hover:bg-gray-700 transition-colors"
+          className="p-2 rounded-full hover:bg-gray-100 transition-colors"
           title="刷新"
         >
           <span className={`material-symbols-outlined text-xl ${isLoading ? 'animate-spin' : ''}`}>
@@ -193,21 +193,21 @@ const BrowserPage = (): JSX.Element => {
         </button>
 
         {/* Address Bar */}
-        <div className="flex-grow flex items-center bg-gray-900 rounded-full px-3 py-1.5 border border-gray-700 focus-within:border-primary focus-within:ring-1 focus-within:ring-primary transition-all">
+        <div className="flex-grow flex items-center bg-app rounded-full px-3 py-1.5 border border-gray-200 focus-within:border-primary focus-within:ring-1 focus-within:ring-primary transition-all">
           <span className="material-symbols-outlined text-gray-500 text-sm mr-2">lock</span>
           <input
             type="text"
             value={inputUrl}
             onChange={(e) => setInputUrl(e.target.value)}
             onKeyDown={handleInputKeyDown}
-            className="flex-grow bg-transparent border-none outline-none text-base text-gray-200 placeholder-gray-500"
+            className="flex-grow bg-transparent border-none outline-none text-base text-text-primary placeholder-gray-500"
             placeholder="输入网址..."
           />
         </div>
 
         <button
           onClick={handleCopyUrl}
-          className="p-2 rounded-full hover:bg-gray-700 transition-colors text-gray-400 hover:text-white"
+          className="p-2 rounded-full hover:bg-gray-100 transition-colors text-text-secondary hover:text-text-primary"
           title="复制网址"
         >
           <span className="material-symbols-outlined text-xl">content_copy</span>

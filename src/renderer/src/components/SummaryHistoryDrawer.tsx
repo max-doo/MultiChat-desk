@@ -105,16 +105,16 @@ function SummaryHistoryDrawer({ isOpen, onClose, onSelectHistory, activeHistoryI
 
       {/* 抽屉面板 - 从右侧弹出 */}
       <div
-        className={`fixed right-0 top-0 bottom-0 w-[400px] bg-background-dark border-l border-gray-800 z-50 flex flex-col transform transition-transform duration-300 ${isOpen ? 'translate-x-0' : 'translate-x-full'
+        className={`fixed right-0 top-0 bottom-0 w-[400px] bg-app border-l border-gray-200 z-50 flex flex-col transform transition-transform duration-300 ${isOpen ? 'translate-x-0' : 'translate-x-full'
           }`}
       >
         {/* 头部 */}
-        <div className="flex items-center justify-between p-6 border-b border-gray-800">
-          <h2 className="text-xl font-semibold text-white">总结历史记录</h2>
+        <div className="flex items-center justify-between p-6 border-b border-gray-200">
+          <h2 className="text-xl font-semibold text-text-primary">总结历史记录</h2>
           <div className="flex items-center gap-2">
             <button
               onClick={onClose}
-              className="text-gray-400 hover:text-white transition-colors"
+              className="text-text-secondary hover:text-text-primary transition-colors"
             >
               <span className="material-symbols-outlined text-2xl">close</span>
             </button>
@@ -122,16 +122,16 @@ function SummaryHistoryDrawer({ isOpen, onClose, onSelectHistory, activeHistoryI
         </div>
 
         {/* 搜索框 */}
-        <div className="p-4 border-b border-gray-800">
-          <div className="flex items-center gap-3 px-4 py-2 bg-gray-800 rounded-lg border border-gray-700 focus-within:border-primary/50">
+        <div className="p-4 border-b border-gray-200">
+          <div className="flex items-center gap-3 px-4 py-2 bg-sidebar rounded-lg border border-gray-200 focus-within:border-primary/50">
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="搜索历史记录..."
-              className="flex-1 bg-transparent border-0 focus:outline-none text-gray-300 placeholder-gray-500"
+              className="flex-1 bg-transparent border-0 focus:outline-none text-text-secondary placeholder-gray-500"
             />
-            <span className="material-symbols-outlined text-gray-400">search</span>
+            <span className="material-symbols-outlined text-text-secondary">search</span>
           </div>
         </div>
 
@@ -151,9 +151,9 @@ function SummaryHistoryDrawer({ isOpen, onClose, onSelectHistory, activeHistoryI
                 <div className="pb-3">
                   <div
                     onClick={() => handleSelect(item)}
-                    className={`group p-4 rounded-lg bg-gray-800/50 border cursor-pointer transition-all ${isActive
+                    className={`group p-4 rounded-lg bg-sidebar/50 border cursor-pointer transition-all ${isActive
                       ? 'border-primary/60 bg-primary/10'
-                      : 'border-gray-700 hover:border-primary/50'
+                      : 'border-gray-200 hover:border-primary/50'
                     } relative`}
                   >
                     {isActive && (
@@ -162,14 +162,14 @@ function SummaryHistoryDrawer({ isOpen, onClose, onSelectHistory, activeHistoryI
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
-                          <h3 className="text-white font-medium line-clamp-1">{item.title}</h3>
+                          <h3 className="text-text-primary font-medium line-clamp-1">{item.title}</h3>
                           {item.summarySource === 'webview' && (
                             <span className="px-1.5 py-0.5 text-[10px] rounded bg-blue-500/20 text-blue-300 border border-blue-500/40 flex-shrink-0">
                               Webview · {item.webviewPlatformId || '未知'}
                             </span>
                           )}
                         </div>
-                        <p className="text-gray-400 text-sm line-clamp-2">{getPreviewText(item)}</p>
+                        <p className="text-text-secondary text-sm line-clamp-2">{getPreviewText(item)}</p>
                       </div>
                       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0">
                         <button
@@ -201,12 +201,12 @@ function SummaryHistoryDrawer({ isOpen, onClose, onSelectHistory, activeHistoryI
                                 key={modelId}
                                 src={model.logo}
                                 alt={model.name}
-                                className="inline-block h-6 w-6 rounded-full ring-1 ring-gray-800 bg-gray-700 object-contain p-0.5"
+                                className="inline-block h-6 w-6 rounded-full ring-1 ring-gray-800 bg-gray-100 object-contain p-0.5"
                               />
                             )
                           })}
                           {item.selectedModels.length > 5 && (
-                            <div className="inline-block h-6 w-6 rounded-full ring-1 ring-gray-800 bg-gray-700 flex items-center justify-center text-xs">
+                            <div className="inline-block h-6 w-6 rounded-full ring-1 ring-gray-800 bg-gray-100 flex items-center justify-center text-xs">
                               +{item.selectedModels.length - 5}
                             </div>
                           )}
@@ -225,7 +225,7 @@ function SummaryHistoryDrawer({ isOpen, onClose, onSelectHistory, activeHistoryI
 
         {/* 底部统计 */}
         {summaryHistory.length > 0 && (
-          <div className="p-4 border-t border-gray-800 text-xs text-gray-500 text-center">
+          <div className="p-4 border-t border-gray-200 text-xs text-gray-500 text-center">
             共 {summaryHistory.length} 条记录
           </div>
         )}

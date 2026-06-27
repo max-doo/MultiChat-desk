@@ -303,14 +303,16 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
       onPointerUp={handleGutterPointerUp}
       onPointerCancel={handleGutterPointerUp}
     >
-      <div className="w-0.5 my-2 rounded-full bg-gray-700/60 transition-colors hover:bg-primary/60" />
+      <div className="w-0.5 my-2 rounded-full bg-gray-100/60 transition-colors hover:bg-primary/60" />
     </div>
   )
 
   return (
-    <div className="flex flex-col h-full p-4 sm:p-6">
-      {/* Webview 卡片区域 */}
-      <div ref={containerRef} className="flex-grow min-h-0 overflow-y-auto overflow-x-hidden">
+    <div className="flex flex-col h-full">
+      {/* Webview 卡片区域的外层滚动容器，处理 padding 以防阴影被裁切 */}
+      <div className="flex-grow min-h-0 overflow-y-auto px-4 pt-4 sm:px-6 sm:pt-6 pb-10">
+        {/* 用于计算宽度和 flex 布局的内层无 padding 容器 */}
+        <div ref={containerRef} className="h-full">
         {displayMode === 'one' && displayedModels[0] && (
           <div className="w-full h-full">
             <WebviewCard
@@ -411,15 +413,17 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
             </div>
           </div>
         )}
-      </div>
+      </div></div>
 
       {/* 底部控制栏 */}
-      <ControlBar
-        ref={controlBarRef}
-        onOpenSettings={() => setSettingsOpen(true)}
-        onOpenHistory={() => setHistoryOpen(true)}
-        onGenerateReport={handleGenerateReport}
-      />
+      <div className="px-4 pb-4 sm:px-6 sm:pb-6 bg-transparent">
+        <ControlBar
+          ref={controlBarRef}
+          onOpenSettings={() => setSettingsOpen(true)}
+          onOpenHistory={() => setHistoryOpen(true)}
+          onGenerateReport={handleGenerateReport}
+        />
+      </div>
 
       {/* 设置抽屉 */}
       <SettingsDrawer

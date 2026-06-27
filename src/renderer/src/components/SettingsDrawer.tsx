@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react'
 import { useAppStore, DEFAULT_MODEL_ORDER, DEEP_RESEARCH_SUPPORTED_MODEL_IDS, type AgentPrompt, type SummaryModel, type ApiProvider } from '../store/appStore'
-import logo from '../../../../assets/logo.png'
+import logo from '../assets/logo.svg'
 import CustomDropdown, { type DropdownOption } from './CustomDropdown'
 import ConfirmModal from './ConfirmModal'
 
@@ -64,15 +64,15 @@ function PromptEditorModal({ isOpen, onClose, prompt, onSave, isNew }: PromptEdi
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
 
       {/* 弹窗内容 */}
-      <div className="relative w-[600px] max-h-[80vh] bg-gray-900 border border-gray-700 rounded-lg shadow-2xl flex flex-col">
+      <div className="relative w-[600px] max-h-[80vh] bg-app border border-gray-200 rounded-lg shadow-2xl flex flex-col">
         {/* 头部 */}
-        <div className="flex items-center justify-between p-4 border-b border-gray-700">
-          <h3 className="text-lg font-semibold text-white">
+        <div className="flex items-center justify-between p-4 border-b border-gray-200">
+          <h3 className="text-lg font-semibold text-text-primary">
             {isNew ? '新增 Agent 提示词' : '编辑提示词'}
           </h3>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-white transition-colors"
+            className="text-text-secondary hover:text-text-primary transition-colors"
           >
             <span className="material-symbols-outlined">close</span>
           </button>
@@ -81,49 +81,49 @@ function PromptEditorModal({ isOpen, onClose, prompt, onSave, isNew }: PromptEdi
         {/* 表单内容 */}
         <div className="flex-1 p-4 space-y-4 overflow-y-auto">
           <div>
-            <label className="block text-sm text-gray-400 mb-2">名称</label>
+            <label className="block text-sm text-text-secondary mb-2">名称</label>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="输入提示词名称"
-              className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-md text-gray-300 placeholder-gray-500 focus:outline-none focus:border-primary/50"
+              className="w-full px-3 py-2 bg-sidebar border border-gray-200 rounded-md text-text-secondary placeholder-gray-500 focus:outline-none focus:border-primary/50"
             />
           </div>
           <div>
-            <label className="block text-sm text-gray-400 mb-2">描述</label>
+            <label className="block text-sm text-text-secondary mb-2">描述</label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="一句话描述这个提示词的用途（可选）"
               rows={3}
-              className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-md text-gray-300 placeholder-gray-500 focus:outline-none focus:border-primary/50 resize-none text-sm"
+              className="w-full px-3 py-2 bg-sidebar border border-gray-200 rounded-md text-text-secondary placeholder-gray-500 focus:outline-none focus:border-primary/50 resize-none text-sm"
             />
           </div>
           <div>
-            <label className="block text-sm text-gray-400 mb-2">提示词内容</label>
+            <label className="block text-sm text-text-secondary mb-2">提示词内容</label>
             <textarea
               value={promptText}
               onChange={(e) => setPromptText(e.target.value)}
               placeholder="输入提示词内容..."
               rows={12}
-              className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-md text-gray-300 placeholder-gray-500 focus:outline-none focus:border-primary/50 resize-none font-mono text-sm"
+              className="w-full px-3 py-2 bg-sidebar border border-gray-200 rounded-md text-text-secondary placeholder-gray-500 focus:outline-none focus:border-primary/50 resize-none font-mono text-sm"
             />
           </div>
         </div>
 
         {/* 底部操作按钮 */}
-        <div className="flex justify-end gap-3 p-4 border-t border-gray-700">
+        <div className="flex justify-end gap-3 p-4 border-t border-gray-200">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-gray-400 hover:text-white transition-colors"
+            className="px-4 py-2 text-text-secondary hover:text-text-primary transition-colors"
           >
             取消
           </button>
           <button
             onClick={handleSave}
             disabled={!name.trim() || isSaving}
-            className="px-4 py-2 bg-primary text-black font-medium rounded-md hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="px-4 py-2 bg-primary text-white font-medium rounded-md hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             保存
           </button>
@@ -172,43 +172,43 @@ function ProviderEditorModal({ isOpen, onClose, provider, onSave, isNew }: Provi
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center">
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
-      <div className="relative w-[450px] bg-gray-900 border border-gray-700 rounded-lg shadow-2xl flex flex-col p-4 space-y-4">
-        <h3 className="text-lg font-semibold text-white">{isNew ? '新增供应商' : '编辑供应商'}</h3>
+      <div className="relative w-[450px] bg-app border border-gray-200 rounded-lg shadow-2xl flex flex-col p-4 space-y-4">
+        <h3 className="text-lg font-semibold text-text-primary">{isNew ? '新增供应商' : '编辑供应商'}</h3>
         <div className="space-y-3">
           <div>
-            <label className="block text-sm text-gray-400 mb-1">名称</label>
+            <label className="block text-sm text-text-secondary mb-1">名称</label>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="例如：OpenRouter"
-              className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-md text-gray-300 focus:outline-none focus:border-primary/50 text-sm"
+              className="w-full px-3 py-2 bg-sidebar border border-gray-200 rounded-md text-text-secondary focus:outline-none focus:border-primary/50 text-sm"
             />
           </div>
           <div>
-            <label className="block text-sm text-gray-400 mb-1">Base URL</label>
+            <label className="block text-sm text-text-secondary mb-1">Base URL</label>
             <input
               type="text"
               value={baseUrl}
               onChange={(e) => setBaseUrl(e.target.value)}
               placeholder="https://api.openai.com/v1"
-              className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-md text-gray-300 focus:outline-none focus:border-primary/50 text-sm"
+              className="w-full px-3 py-2 bg-sidebar border border-gray-200 rounded-md text-text-secondary focus:outline-none focus:border-primary/50 text-sm"
             />
           </div>
           <div>
-            <label className="block text-sm text-gray-400 mb-1">API Key</label>
+            <label className="block text-sm text-text-secondary mb-1">API Key</label>
             <input
               type="password"
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
               placeholder="sk-..."
-              className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-md text-gray-300 focus:outline-none focus:border-primary/50 text-sm"
+              className="w-full px-3 py-2 bg-sidebar border border-gray-200 rounded-md text-text-secondary focus:outline-none focus:border-primary/50 text-sm"
             />
           </div>
         </div>
         <div className="flex justify-end gap-3 pt-2">
-          <button onClick={onClose} className="px-4 py-2 text-gray-400 hover:text-white transition-colors text-sm">取消</button>
-          <button onClick={handleSave} className="px-4 py-2 bg-primary text-black font-medium rounded-md hover:opacity-90 transition-colors text-sm">保存</button>
+          <button onClick={onClose} className="px-4 py-2 text-text-secondary hover:text-text-primary transition-colors text-sm">取消</button>
+          <button onClick={handleSave} className="px-4 py-2 bg-primary text-white font-medium rounded-md hover:opacity-90 transition-colors text-sm">保存</button>
         </div>
       </div>
     </div>
@@ -321,10 +321,10 @@ function ModelEditorModal({ isOpen, onClose, models, onSave, providers }: ModelE
     <div className="fixed inset-0 z-[100] flex items-center justify-center">
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
 
-      <div className="relative w-[550px] max-h-[85vh] bg-gray-900 border border-gray-700 rounded-lg shadow-2xl flex flex-col">
-        <div className="flex items-center justify-between p-4 border-b border-gray-700">
-          <h3 className="text-lg font-semibold text-white">配置可用模型</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors">
+      <div className="relative w-[550px] max-h-[85vh] bg-app border border-gray-200 rounded-lg shadow-2xl flex flex-col">
+        <div className="flex items-center justify-between p-4 border-b border-gray-200">
+          <h3 className="text-lg font-semibold text-text-primary">配置可用模型</h3>
+          <button onClick={onClose} className="text-text-secondary hover:text-text-primary transition-colors">
             <span className="material-symbols-outlined">close</span>
           </button>
         </div>
@@ -344,7 +344,7 @@ function ModelEditorModal({ isOpen, onClose, models, onSave, providers }: ModelE
             <button
               onClick={handleSyncModels}
               disabled={isSyncing || !selectedProviderId}
-              className="px-4 py-2 bg-primary text-black font-medium rounded-md hover:opacity-90 disabled:opacity-50 flex items-center gap-2 transition-colors text-sm"
+              className="px-4 py-2 bg-primary text-white font-medium rounded-md hover:opacity-90 disabled:opacity-50 flex items-center gap-2 transition-colors text-sm"
             >
               <span className={`material-symbols-outlined text-sm ${isSyncing ? 'animate-spin' : ''}`}>sync</span>
               {isSyncing ? '同步中' : '自动同步'}
@@ -358,11 +358,11 @@ function ModelEditorModal({ isOpen, onClose, models, onSave, providers }: ModelE
               .map((model) => {
                 const provider = providers.find(p => p.id === model.providerId)
                 return (
-                  <div key={`${model.providerId}-${model.id}`} className="flex items-center justify-between p-2 bg-gray-800/50 border border-gray-700 rounded-md group">
+                  <div key={`${model.providerId}-${model.id}`} className="flex items-center justify-between p-2 bg-sidebar/50 border border-gray-200 rounded-md group">
                     <div className="flex flex-col">
                       <div className="flex items-center gap-2">
-                        <span className="text-gray-200 text-sm font-medium">{model.name}</span>
-                        <span className="px-1.5 py-0.5 bg-gray-700 text-gray-400 text-[10px] rounded">
+                        <span className="text-text-primary text-sm font-medium">{model.name}</span>
+                        <span className="px-1.5 py-0.5 bg-gray-100 text-text-secondary text-[10px] rounded">
                           {provider?.name || '未知供应商'}
                         </span>
                       </div>
@@ -385,37 +385,37 @@ function ModelEditorModal({ isOpen, onClose, models, onSave, providers }: ModelE
           </div>
 
           {/* 手动添加 */}
-          <div className="p-3 bg-gray-800/30 border border-gray-700 rounded-lg space-y-3">
-            <div className="text-xs text-gray-400">手动添加模型</div>
+          <div className="p-3 bg-sidebar/30 border border-gray-200 rounded-lg space-y-3">
+            <div className="text-xs text-text-secondary">手动添加模型</div>
             <div className="grid grid-cols-2 gap-2">
               <input
                 type="text"
                 value={newModelId}
                 onChange={(e) => setNewModelId(e.target.value)}
                 placeholder="模型 ID (如 gpt-4)"
-                className="px-3 py-2 bg-gray-900 border border-gray-700 rounded-md text-gray-300 placeholder-gray-600 text-sm focus:outline-none focus:border-primary/50"
+                className="px-3 py-2 bg-app border border-gray-200 rounded-md text-text-secondary placeholder-gray-600 text-sm focus:outline-none focus:border-primary/50"
               />
               <input
                 type="text"
                 value={newModelName}
                 onChange={(e) => setNewModelName(e.target.value)}
                 placeholder="显示名称 (如 GPT-4)"
-                className="px-3 py-2 bg-gray-900 border border-gray-700 rounded-md text-gray-300 placeholder-gray-600 text-sm focus:outline-none focus:border-primary/50"
+                className="px-3 py-2 bg-app border border-gray-200 rounded-md text-text-secondary placeholder-gray-600 text-sm focus:outline-none focus:border-primary/50"
               />
             </div>
             <button
               onClick={handleAddModel}
               disabled={!newModelId.trim() || !newModelName.trim()}
-              className="w-full px-3 py-2 bg-gray-700 text-gray-300 rounded-md hover:bg-gray-600 disabled:opacity-50 transition-colors text-sm"
+              className="w-full px-3 py-2 bg-gray-100 text-text-secondary rounded-md hover:bg-gray-200 disabled:opacity-50 transition-colors text-sm"
             >
               添加
             </button>
           </div>
         </div>
 
-        <div className="flex justify-end gap-3 p-4 border-t border-gray-700">
-          <button onClick={onClose} className="px-4 py-2 text-gray-400 hover:text-white transition-colors text-sm">取消</button>
-          <button onClick={handleSave} className="px-4 py-2 bg-primary text-black font-medium rounded-md hover:opacity-90 transition-colors text-sm">保存配置</button>
+        <div className="flex justify-end gap-3 p-4 border-t border-gray-200">
+          <button onClick={onClose} className="px-4 py-2 text-text-secondary hover:text-text-primary transition-colors text-sm">取消</button>
+          <button onClick={handleSave} className="px-4 py-2 bg-primary text-white font-medium rounded-md hover:opacity-90 transition-colors text-sm">保存配置</button>
         </div>
       </div>
     </div>
@@ -694,15 +694,15 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
 
       {/* 抽屉面板 */}
       <div
-        className={`fixed left-0 top-0 bottom-0 w-[500px] bg-background-dark border-r border-gray-800 z-50 flex flex-col transform transition-transform duration-300 ${isOpen ? 'translate-x-0' : '-translate-x-full'
+        className={`fixed left-0 top-0 bottom-0 w-[500px] glass-panel-heavy border-r border-white/40 z-50 flex flex-col transform transition-all duration-300 ease-in-out ${isOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full shadow-none'
           }`}
       >
         {/* 头部 */}
-        <div className="flex items-center justify-between p-4 border-b border-gray-800">
-          <h2 className="text-xl font-semibold text-white">设置面板</h2>
+        <div className="flex items-center justify-between p-4 border-b border-white/40">
+          <h2 className="text-xl font-semibold text-text-primary">设置面板</h2>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-white transition-colors"
+            className="text-text-secondary hover:text-text-primary transition-colors"
           >
             <span className="material-symbols-outlined text-2xl">close</span>
           </button>
@@ -713,7 +713,7 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
           {/* 显示模式 */}
           <div>
             <div className="flex items-center justify-between gap-4">
-              <span className="text-gray-300 font-medium whitespace-nowrap">窗口布局</span>
+              <span className="text-text-secondary font-medium whitespace-nowrap">窗口布局</span>
               <div className="flex items-center gap-2">
                 {/* 模式按钮逻辑保持不变 */}
                 {['one', 'two', 'three', 'four'].map(mode => (
@@ -722,8 +722,8 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
                     type="button"
                     onClick={() => setDisplayMode(mode as any)}
                     className={`w-9 h-7 flex flex-col items-center justify-center rounded-md border transition-colors ${displayMode === mode
-                        ? 'bg-primary text-black border-primary'
-                        : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700'
+                        ? 'bg-primary text-white border-primary'
+                        : 'bg-sidebar border-gray-200 text-text-secondary hover:bg-gray-100'
                       }`}
                   >
                     <div className={`w-6 h-3.5 border border-current rounded-sm ${mode === 'four' ? 'grid grid-cols-2 grid-rows-2' : mode === 'two' ? 'flex' : mode === 'three' ? 'flex' : ''}`}>
@@ -736,7 +736,7 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
                 <button
                   type="button"
                   onClick={resetPaneRatios}
-                  className="ml-2 px-2 h-7 rounded-md border border-gray-700 bg-gray-800 text-gray-300 hover:bg-gray-700 transition-colors text-xs"
+                  className="ml-2 px-2 h-7 rounded-md border border-gray-200 bg-sidebar text-text-secondary hover:bg-gray-100 transition-colors text-xs"
                 >
                   重置占比
                 </button>
@@ -746,13 +746,13 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
 
           {/* 总结 Agent 配置 */}
           <div>
-            <h3 className="font-medium text-gray-300 mb-4">总结Agent配置</h3>
+            <h3 className="font-medium text-text-secondary mb-4">总结Agent配置</h3>
 
             <div className="space-y-4">
               {/* API 供应商管理 */}
-              <div className="p-4 rounded-lg bg-gray-800/50 border border-gray-700">
+              <div className="p-4 rounded-lg bg-sidebar/50 border border-gray-200">
                 <div className="flex items-center justify-between mb-3">
-                  <label className="text-sm text-gray-400">API 供应商 (多 Key 管理)</label>
+                  <label className="text-sm text-text-secondary">API 供应商 (多 Key 管理)</label>
                   <button
                     onClick={handleAddProvider}
                     className="flex items-center gap-1 text-xs text-primary hover:opacity-80 transition-colors"
@@ -765,18 +765,18 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
                   {providers.map(provider => (
                     <div
                       key={provider.id}
-                      className="flex items-center justify-between p-2 bg-gray-900/50 border border-gray-700 rounded-md group"
+                      className="flex items-center justify-between p-2 bg-app/50 border border-gray-200 rounded-md group"
                     >
                       <div className="flex items-center gap-3">
                         <input
                           type="checkbox"
                           checked={provider.enabled}
                           onChange={() => handleToggleProvider(provider.id)}
-                          className="w-4 h-4 rounded border-gray-600 bg-gray-800 text-primary focus:ring-primary/20"
+                          className="w-4 h-4 rounded border-gray-300 bg-sidebar text-primary focus:ring-primary/20"
                         />
                         <div className="flex flex-col">
                           <div className="flex items-center gap-2">
-                            <span className="text-gray-200 text-sm font-medium">{provider.name}</span>
+                            <span className="text-text-primary text-sm font-medium">{provider.name}</span>
                             {provider.validated && (
                               <span className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]" title="校验通过" />
                             )}
@@ -816,9 +816,9 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
               </div>
 
               {/* 可用模型配置 */}
-              <div className="p-4 rounded-lg bg-gray-800/50 border border-gray-700">
+              <div className="p-4 rounded-lg bg-sidebar/50 border border-gray-200">
                 <div className="flex items-center justify-between mb-2">
-                  <label className="text-sm text-gray-400">可用总结模型 ({summaryModels.length})</label>
+                  <label className="text-sm text-text-secondary">可用总结模型 ({summaryModels.length})</label>
                   <button
                     onClick={() => setModelEditorOpen(true)}
                     className="text-xs text-primary hover:opacity-80 transition-colors"
@@ -828,7 +828,7 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
                 </div>
                 <div className="flex flex-wrap gap-1">
                   {summaryModels.slice(0, 5).map((model: SummaryModel) => (
-                    <span key={`${model.providerId}-${model.id}`} className="px-2 py-0.5 bg-gray-900 text-gray-400 text-[10px] rounded">
+                    <span key={`${model.providerId}-${model.id}`} className="px-2 py-0.5 bg-app text-text-secondary text-[10px] rounded">
                       {model.name}
                     </span>
                   ))}
@@ -839,13 +839,13 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
               </div>
 
               {/* Agent 提示词列表 */}
-              <div className="p-4 rounded-lg bg-gray-800/50 border border-gray-700">
+              <div className="p-4 rounded-lg bg-sidebar/50 border border-gray-200">
                 <div className="flex items-center justify-between mb-3">
-                  <label className="text-sm text-gray-400">Agent 提示词</label>
+                  <label className="text-sm text-text-secondary">Agent 提示词</label>
                   <div className="flex items-center gap-3">
                     <button
                       onClick={() => window.api?.agentPromptsOpenFolder?.()}
-                      className="p-1 text-gray-500 hover:text-gray-200 transition-colors"
+                      className="p-1 text-gray-500 hover:text-text-primary transition-colors"
                       title="打开文件夹"
                       aria-label="打开文件夹"
                     >
@@ -853,7 +853,7 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
                     </button>
                     <button
                       onClick={() => refreshAgentPrompts().catch(() => { })}
-                      className="p-1 text-gray-500 hover:text-gray-200 transition-colors"
+                      className="p-1 text-gray-500 hover:text-text-primary transition-colors"
                       title="刷新"
                       aria-label="刷新"
                     >
@@ -872,13 +872,13 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
                   {sortedAgentPrompts.map(prompt => (
                     <div
                       key={prompt.id}
-                      className="flex items-center justify-between py-2 px-3 bg-gray-900/50 rounded-md hover:bg-gray-900 transition-colors group"
+                      className="flex items-center justify-between py-2 px-3 bg-app/50 rounded-md hover:bg-app transition-colors group"
                     >
                       <div className="flex flex-col gap-0.5 min-w-0">
                         <div className="flex items-center gap-2 min-w-0">
-                          <span className="text-gray-300 text-sm truncate">{prompt.name}</span>
+                          <span className="text-text-secondary text-sm truncate">{prompt.name}</span>
                           {prompt.isDefault && (
-                            <span className="px-1.5 py-0.5 bg-gray-800 text-gray-500 text-[10px] rounded shrink-0">预设</span>
+                            <span className="px-1.5 py-0.5 bg-sidebar text-gray-500 text-[10px] rounded shrink-0">预设</span>
                           )}
                         </div>
                         <div className="text-[11px] text-gray-500 truncate h-[14px] leading-[14px]">
@@ -910,31 +910,31 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
 
           {/* 文件目录设置 */}
           <div>
-            <h3 className="font-medium text-gray-300 mb-4">文件目录设置</h3>
-            <div className="p-4 rounded-lg bg-gray-800/50 border border-gray-700 space-y-4">
+            <h3 className="font-medium text-text-secondary mb-4">文件目录设置</h3>
+            <div className="p-4 rounded-lg bg-sidebar/50 border border-gray-200 space-y-4">
               <div>
-                <label className="block text-sm text-gray-400 mb-2">总结导出文件夹</label>
+                <label className="block text-sm text-text-secondary mb-2">总结导出文件夹</label>
                 <div className="flex gap-2">
                   <input
                     type="text"
                     placeholder="选择导出目录..."
                     value={apiConfig.exportDirectory || ''}
                     readOnly
-                    className="flex-1 px-3 py-2 bg-gray-900 border border-gray-700 rounded-md text-gray-300 placeholder-gray-500 text-sm"
+                    className="flex-1 px-3 py-2 bg-app border border-gray-200 rounded-md text-text-secondary placeholder-gray-500 text-sm"
                   />
                   <button
                     onClick={handleSelectDirectory}
-                    className="px-4 py-2 bg-gray-700 text-gray-300 rounded-md hover:bg-gray-600 transition-colors text-sm"
+                    className="px-4 py-2 bg-gray-100 text-text-secondary rounded-md hover:bg-gray-200 transition-colors text-sm"
                   >
                     浏览
                   </button>
                 </div>
               </div>
               <div>
-                <label className="block text-sm text-gray-400 mb-2">应用缓存数据</label>
+                <label className="block text-sm text-text-secondary mb-2">应用缓存数据</label>
                 <button
                   onClick={handleExportCache}
-                  className="flex items-center gap-2 px-4 py-2 bg-gray-700 text-gray-300 rounded-md hover:bg-gray-600 transition-colors text-sm"
+                  className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-text-secondary rounded-md hover:bg-gray-200 transition-colors text-sm"
                 >
                   <span className="material-symbols-outlined text-sm">download</span>
                   导出缓存数据
@@ -947,17 +947,17 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
           {/* 可用模型排序逻辑保持不变 */}
           <div>
             <div className="flex items-center justify-between mb-2">
-              <h3 className="font-medium text-gray-300">模型排序 (主界面)</h3>
+              <h3 className="font-medium text-text-secondary">模型排序 (主界面)</h3>
               <button
                 type="button"
                 onClick={handleRestoreDefaultModelOrder}
-                className="px-2 h-7 rounded-md border border-gray-700 bg-gray-800 text-gray-300 hover:bg-gray-700 transition-colors text-xs"
+                className="px-2 h-7 rounded-md border border-gray-200 bg-sidebar text-text-secondary hover:bg-gray-100 transition-colors text-xs"
               >
                 恢复默认
               </button>
             </div>
             <p className="text-sm text-gray-500 mb-4">拖拽调整主界面 Webview 的显示顺序</p>
-            <div className="p-4 rounded-lg bg-gray-800/50 border border-gray-700">
+            <div className="p-4 rounded-lg bg-sidebar/50 border border-gray-200">
               <div className="space-y-1">
                 {models.map((model, index) => {
                   const displayCount = displayMode === 'one' ? 1 : displayMode === 'two' ? 2 : displayMode === 'four' ? 4 : 3
@@ -970,16 +970,16 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
                       onDragOver={(e) => handleDragOver(e, index)}
                       onDrop={() => handleDrop(index)}
                       onDragEnd={handleDragEnd}
-                      className={`flex items-center justify-between py-2 px-3 rounded-lg cursor-move transition-all ${draggedIndex === index ? 'opacity-50 bg-gray-700' : dragOverIndex === index ? 'bg-primary/20 border border-primary/50' : 'hover:bg-gray-700/50'
+                      className={`flex items-center justify-between py-2 px-3 rounded-lg cursor-move transition-all ${draggedIndex === index ? 'opacity-50 bg-gray-100' : dragOverIndex === index ? 'bg-primary/20 border border-primary/50' : 'hover:bg-gray-100/50'
                         } ${isDisplayed ? 'border-l-2 border-l-primary' : ''}`}
                     >
                       <div className="flex items-center gap-3">
                         <span className="material-symbols-outlined text-gray-500 text-base">drag_indicator</span>
-                        <span className={`w-5 h-5 rounded-full text-xs flex items-center justify-center ${isDisplayed ? 'bg-primary text-black font-medium' : 'bg-gray-700 text-gray-400'}`}>
+                        <span className={`w-5 h-5 rounded-full text-xs flex items-center justify-center ${isDisplayed ? 'bg-primary text-white font-medium' : 'bg-gray-100 text-text-secondary'}`}>
                           {index + 1}
                         </span>
                         <img src={model.logo} alt={model.name} className="w-5 h-5" />
-                        <span className="text-gray-300 text-sm">{model.name}</span>
+                        <span className="text-text-secondary text-sm">{model.name}</span>
                         {DEEP_RESEARCH_SUPPORTED_MODEL_IDS.has(model.id) && (
                           <span className="text-[10px] text-primary px-1.5 py-0.5 bg-primary/10 rounded">深度研究</span>
                         )}
@@ -993,16 +993,16 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
         </div>
 
         {/* 底部固定区域 */}
-        <div className="p-4 border-t border-gray-800 flex items-center justify-between">
-          <div className="flex items-center gap-2 text-gray-200">
-            <img src={logo} alt="ModelMash Logo" className="w-10" />
-            <span className="font-medium text-primary text-xl">ModelMash</span>
+        <div className="p-4 border-t border-gray-200 flex items-center justify-between">
+          <div className="flex items-center gap-2 text-text-primary">
+            <img src={logo} alt="MultiChat Logo" className="w-10" />
+            <span className="font-medium text-primary text-xl">MultiChat</span>
           </div>
           <a
             href="https://ai.feishu.cn/docx/TiLFdnaPjo7ZnQx7J5JcFMLInsd"
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors text-sm"
+            className="flex items-center gap-2 text-text-secondary hover:text-text-primary transition-colors text-sm"
           >
             <span className="material-symbols-outlined text-base">help</span>
             <span>使用说明</span>

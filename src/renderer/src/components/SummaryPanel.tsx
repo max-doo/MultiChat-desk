@@ -273,18 +273,18 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
 
   // Markdown 渲染样式
   const markdownStyles = `prose prose-invert prose-sm max-w-none
-    prose-headings:text-gray-200 prose-headings:font-semibold prose-headings:mt-4 prose-headings:mb-2
-    prose-p:text-gray-300 prose-p:leading-relaxed prose-p:my-2
+    prose-headings:text-text-primary prose-headings:font-semibold prose-headings:mt-4 prose-headings:mb-2
+    prose-p:text-text-secondary prose-p:leading-relaxed prose-p:my-2
     prose-a:text-primary prose-a:no-underline hover:prose-a:underline
-    prose-strong:text-gray-200
-    prose-code:text-primary prose-code:bg-gray-800/50 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-xs
-    prose-pre:bg-gray-900/50 prose-pre:border prose-pre:border-gray-700/50 prose-pre:rounded-lg
-    prose-ul:text-gray-300 prose-ol:text-gray-300 prose-ul:my-2 prose-ol:my-2
+    prose-strong:text-text-primary
+    prose-code:text-primary prose-code:bg-sidebar/50 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-xs
+    prose-pre:bg-app/50 prose-pre:border prose-pre:border-gray-200/50 prose-pre:rounded-lg
+    prose-ul:text-text-secondary prose-ol:text-text-secondary prose-ul:my-2 prose-ol:my-2
     prose-li:marker:text-gray-500 prose-li:my-0.5
-    prose-table:text-gray-300 prose-table:border-collapse prose-table:my-4
-    prose-th:text-gray-200 prose-th:font-semibold prose-th:border prose-th:border-gray-600 prose-th:px-3 prose-th:py-2 prose-th:bg-gray-800/30
-    prose-td:text-gray-300 prose-td:border prose-td:border-gray-700 prose-td:px-3 prose-td:py-2
-    prose-tr:border-b prose-tr:border-gray-700`
+    prose-table:text-text-secondary prose-table:border-collapse prose-table:my-4
+    prose-th:text-text-primary prose-th:font-semibold prose-th:border prose-th:border-gray-300 prose-th:px-3 prose-th:py-2 prose-th:bg-sidebar/30
+    prose-td:text-text-secondary prose-td:border prose-td:border-gray-200 prose-td:px-3 prose-td:py-2
+    prose-tr:border-b prose-tr:border-gray-200`
 
   /**
    * 自定义链接组件：处理外部链接点击，在新窗口（BrowserPage）中打开
@@ -355,7 +355,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
           dropdownWidth="min-w-[200px]"
           buttonClassName={`w-full px-3 py-1.5 rounded-md text-sm flex items-center justify-between gap-2 transition-colors ${selectedProviderId
             ? 'bg-primary/10 border border-primary/50 text-primary hover:border-primary'
-            : 'bg-gray-800 border border-gray-700 text-gray-300 hover:border-gray-600'
+            : 'bg-sidebar border border-gray-200 text-text-secondary hover:border-gray-300'
             }`}
           displayText={providers.find(p => p.id === selectedProviderId)?.name || '选择供应商'}
           renderContent={(onClose) => {
@@ -381,7 +381,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
                   <button
                     key={p.id}
                     onClick={() => handleProviderSelect(p.id)}
-                    className={`block w-full px-3 py-2 text-left text-sm transition-colors hover:bg-gray-700 whitespace-nowrap ${selectedProviderId === p.id ? 'text-primary bg-primary/5' : 'text-gray-300'
+                    className={`block w-full px-3 py-2 text-left text-sm transition-colors hover:bg-gray-100 whitespace-nowrap ${selectedProviderId === p.id ? 'text-primary bg-primary/5' : 'text-text-secondary'
                       }`}
                   >
                     {p.name}
@@ -404,7 +404,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
 
                   return (
                     <>
-                      <div className="border-t border-gray-700 my-1"></div>
+                      <div className="border-t border-gray-200 my-1"></div>
                       <div className="px-3 py-1.5 text-xs text-gray-500 font-medium">常用模型</div>
                       {favoriteModels.map(model => {
                         const provider = providers.find(p => p.id === model.providerId)
@@ -422,11 +422,11 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
                                 setSelectedAgent(model.id)
                               }
                             }}
-                            className="block w-full px-3 py-2 text-left text-sm transition-colors hover:bg-gray-700 group"
+                            className="block w-full px-3 py-2 text-left text-sm transition-colors hover:bg-gray-100 group"
                           >
                             <div className="flex items-center gap-2">
                               <span className="material-symbols-outlined text-yellow-500 text-base shrink-0">star</span>
-                              <span className="text-gray-300 flex-1 truncate">{model.name}</span>
+                              <span className="text-text-secondary flex-1 truncate">{model.name}</span>
                               <span className="text-gray-500 text-xs shrink-0">{provider?.name}</span>
                             </div>
                           </button>
@@ -452,7 +452,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
           dropdownWidth="min-w-[200px]"
           buttonClassName={`w-full px-3 py-1.5 rounded-md text-sm flex items-center justify-between gap-2 transition-colors ${selectedAgent
             ? 'bg-primary/10 border border-primary/50 text-primary hover:border-primary'
-            : 'bg-gray-800 border border-gray-700 text-gray-300 hover:border-gray-600'
+            : 'bg-sidebar border border-gray-200 text-text-secondary hover:border-gray-300'
             }`}
           displayText={summaryModels.find(m => m.id === selectedAgent)?.name || '选择模型'}
           renderContent={(onClose) => (
@@ -462,7 +462,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
                 return (
                   <div
                     key={model.id}
-                    className={`flex items-center gap-2 px-3 py-2 text-sm transition-colors hover:bg-gray-700 group ${selectedAgent === model.id ? 'bg-primary/5' : ''
+                    className={`flex items-center gap-2 px-3 py-2 text-sm transition-colors hover:bg-gray-100 group ${selectedAgent === model.id ? 'bg-primary/5' : ''
                       }`}
                   >
                     <button
@@ -471,7 +471,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
                         updateStoreConfig({ lastSelectedAgentId: model.id })
                         onClose()
                       }}
-                      className={`flex-1 text-left whitespace-nowrap ${selectedAgent === model.id ? 'text-primary' : 'text-gray-300'
+                      className={`flex-1 text-left whitespace-nowrap ${selectedAgent === model.id ? 'text-primary' : 'text-text-secondary'
                         }`}
                     >
                       {model.name}
@@ -502,7 +502,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
         <button
           onClick={handleResetChat}
           disabled={messages.length === 0 && !streamingContent}
-          className="p-1 text-gray-400 hover:text-white hover:bg-gray-700 rounded-md transition-colors disabled:opacity-30 disabled:cursor-not-allowed ml-auto"
+          className="p-1 text-text-secondary hover:text-text-primary hover:bg-gray-100 rounded-md transition-colors disabled:opacity-30 disabled:cursor-not-allowed ml-auto"
           title="开启新对话"
         >
           <span className="material-symbols-outlined text-2xl">add_circle</span>
@@ -514,7 +514,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
             onClick={() => setShowSettings(!showSettings)}
             className={`p-1 rounded-md transition-colors flex items-center justify-center ${showSettings
               ? 'bg-primary/20 text-primary'
-              : 'text-gray-400 hover:text-white hover:bg-gray-700'
+              : 'text-text-secondary hover:text-text-primary hover:bg-gray-100'
               }`}
             title="模型参数设置"
           >
@@ -524,10 +524,10 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
           {showSettings && (
             <>
               <div className="fixed inset-0 z-20" onClick={() => setShowSettings(false)} />
-              <div className="absolute top-full right-0 mt-2 w-64 bg-gray-800 border border-gray-700 rounded-lg shadow-2xl z-30 p-4">
+              <div className="absolute top-full right-0 mt-2 w-64 bg-sidebar border border-gray-200 rounded-lg shadow-2xl z-30 p-4">
                 <div className="flex items-center justify-between mb-4">
-                  <span className="text-sm font-medium text-gray-200">模型参数设置</span>
-                  <button onClick={() => setShowSettings(false)} className="text-gray-500 hover:text-gray-300">
+                  <span className="text-sm font-medium text-text-primary">模型参数设置</span>
+                  <button onClick={() => setShowSettings(false)} className="text-gray-500 hover:text-text-secondary">
                     <span className="material-symbols-outlined text-sm">close</span>
                   </button>
                 </div>
@@ -536,7 +536,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
                   {/* Temperature */}
                   <div>
                     <div className="flex justify-between mb-1.5">
-                      <label className="text-xs text-gray-400">Temperature (温度)</label>
+                      <label className="text-xs text-text-secondary">Temperature (温度)</label>
                       <span className="text-xs text-primary font-mono">{temperature.toFixed(1)}</span>
                     </div>
                     <input
@@ -550,7 +550,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
                         setTemperature(val)
                         updateStoreConfig({ temperature: val })
                       }}
-                      className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-primary"
+                      className="w-full h-1.5 bg-gray-100 rounded-lg appearance-none cursor-pointer accent-primary"
                     />
                     <div className="flex justify-between mt-1">
                       <span className="text-[10px] text-gray-600">精确 (0)</span>
@@ -561,7 +561,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
                   {/* Top P */}
                   <div>
                     <div className="flex justify-between mb-1.5">
-                      <label className="text-xs text-gray-400">Top P (核采样)</label>
+                      <label className="text-xs text-text-secondary">Top P (核采样)</label>
                       <span className="text-xs text-primary font-mono">{topP.toFixed(1)}</span>
                     </div>
                     <input
@@ -575,13 +575,13 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
                         setTopP(val)
                         updateStoreConfig({ topP: val })
                       }}
-                      className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-primary"
+                      className="w-full h-1.5 bg-gray-100 rounded-lg appearance-none cursor-pointer accent-primary"
                     />
                   </div>
 
                   {/* Max Tokens */}
                   <div>
-                    <label className="block text-xs text-gray-400 mb-1.5">最大 Token 数</label>
+                    <label className="block text-xs text-text-secondary mb-1.5">最大 Token 数</label>
                     <input
                       type="number"
                       value={maxTokens}
@@ -590,15 +590,15 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
                         setMaxTokens(val)
                         updateStoreConfig({ maxTokens: val })
                       }}
-                      className="w-full px-2 py-1.5 bg-gray-900 border border-gray-700 rounded text-sm text-gray-200 focus:outline-none focus:border-primary/50 font-mono"
+                      className="w-full px-2 py-1.5 bg-app border border-gray-200 rounded text-sm text-text-primary focus:outline-none focus:border-primary/50 font-mono"
                     />
                   </div>
 
                   {/* Include Reasoning */}
-                  <div className="pt-2 border-t border-gray-700">
+                  <div className="pt-2 border-t border-gray-200">
                     <label className="flex items-center justify-between cursor-pointer group">
                       <div className="flex flex-col">
-                        <span className="text-xs text-gray-300 group-hover:text-white transition-colors">显示思考过程</span>
+                        <span className="text-xs text-text-secondary group-hover:text-text-primary transition-colors">显示思考过程</span>
                         <span className="text-[10px] text-gray-500">支持拥有推理能力的模型</span>
                       </div>
                       <div className="relative inline-flex items-center">
@@ -612,16 +612,16 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
                           }}
                           className="sr-only peer"
                         />
-                        <div className="w-8 h-4 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-primary"></div>
+                        <div className="w-8 h-4 bg-gray-100 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-primary"></div>
                       </div>
                     </label>
                   </div>
 
                   {/* Context Rounds - 多轮对话 */}
-                  <div className="pt-2 border-t border-gray-700">
+                  <div className="pt-2 border-t border-gray-200">
                     <div className="flex justify-between mb-1.5">
                       <div className="flex flex-col">
-                        <label className="text-xs text-gray-400">对话轮数</label>
+                        <label className="text-xs text-text-secondary">对话轮数</label>
                         <span className="text-[10px] text-gray-500">追问时保留的上下文轮数</span>
                       </div>
                       <span className="text-xs text-primary font-mono">{contextRounds}</span>
@@ -637,7 +637,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
                         setContextRounds(val)
                         updateStoreConfig({ contextRounds: val })
                       }}
-                      className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-primary"
+                      className="w-full h-1.5 bg-gray-100 rounded-lg appearance-none cursor-pointer accent-primary"
                     />
                     <div className="flex justify-between mt-1">
                       <span className="text-[10px] text-gray-600">无记忆 (0)</span>
@@ -646,7 +646,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
                   </div>
                 </div>
 
-                <div className="mt-4 pt-3 border-t border-gray-700 flex justify-end">
+                <div className="mt-4 pt-3 border-t border-gray-200 flex justify-end">
                   <button
                     onClick={() => {
                       setTemperature(0.7)
@@ -698,7 +698,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
                   // 用户消息 - 右侧气泡
                   <div className="flex justify-end mb-4">
                     <div className="max-w-[80%] bg-primary/20 border border-primary/30 rounded-2xl rounded-tr-sm px-4 py-3">
-                      <p className="text-gray-200 text-sm whitespace-pre-wrap">{message.content}</p>
+                      <p className="text-text-primary text-sm whitespace-pre-wrap">{message.content}</p>
                     </div>
                   </div>
                 ) : (
@@ -713,7 +713,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
                       {/* 模型名称 */}
                       {message.versions && message.versions.length > 0 && (
                         <div className="mb-2 text-xs text-gray-500">
-                          <span className="text-gray-400">
+                          <span className="text-text-secondary">
                             {message.versions[message.currentVersionIndex || 0]?.modelName || '未知模型'}
                           </span>
                         </div>
@@ -726,7 +726,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
 
                         const isExpanded = expandedReasoningIds.has(message.id)
                         return (
-                          <div className="mb-3 bg-gray-800/50 border border-gray-700 rounded-lg overflow-hidden">
+                          <div className="mb-3 bg-sidebar/50 border border-gray-200 rounded-lg overflow-hidden">
                             <button
                               onClick={() => {
                                 setExpandedReasoningIds(prev => {
@@ -739,7 +739,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
                                   return newSet
                                 })
                               }}
-                              className="w-full px-3 py-2 flex items-center gap-2 text-xs text-gray-400 hover:text-gray-300 hover:bg-gray-700/50 transition-colors"
+                              className="w-full px-3 py-2 flex items-center gap-2 text-xs text-text-secondary hover:text-text-secondary hover:bg-gray-100/50 transition-colors"
                             >
                               <span className="material-symbols-outlined text-base transition-transform" style={{ transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>
                                 chevron_right
@@ -749,7 +749,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
                               <span className="text-gray-500">({reasoningToShow.length} 字)</span>
                             </button>
                             {isExpanded && (
-                              <div className="px-3 pb-3 text-xs text-gray-400 leading-relaxed max-h-64 overflow-y-auto border-t border-gray-700">
+                              <div className="px-3 pb-3 text-xs text-text-secondary leading-relaxed max-h-64 overflow-y-auto border-t border-gray-200">
                                 <div className="pt-2 whitespace-pre-wrap">{reasoningToShow}</div>
                               </div>
                             )}
@@ -765,12 +765,12 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
                         </ReactMarkdown>
                       </div>
                       {/* 操作按钮 */}
-                      <div className="mt-3 flex items-center justify-between border-t border-gray-700 pt-3">
+                      <div className="mt-3 flex items-center justify-between border-t border-gray-200 pt-3">
                         <div className="flex items-center gap-3">
                           {!isGenerating && messages.filter(m => m.role === 'assistant').slice(-1)[0]?.id === message.id && (
                             <button
                               onClick={() => startEditingRegenerate(message.id)}
-                              className="p-1 text-gray-400 hover:text-white transition-colors"
+                              className="p-1 text-text-secondary hover:text-text-primary transition-colors"
                               title="重新生成"
                               aria-label="重新生成"
                             >
@@ -779,7 +779,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
                           )}
                           <button
                             onClick={() => handleCopyMessageMarkdown(message.content)}
-                            className="p-1 text-gray-400 hover:text-white transition-colors"
+                            className="p-1 text-text-secondary hover:text-text-primary transition-colors"
                             title="复制 Markdown"
                             aria-label="复制 Markdown"
                           >
@@ -787,7 +787,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
                           </button>
                           <button
                             onClick={() => handleOpenExportDialog(message.content)}
-                            className="p-1 text-gray-400 hover:text-white transition-colors"
+                            className="p-1 text-text-secondary hover:text-text-primary transition-colors"
                             title="导出 Markdown"
                             aria-label="导出 Markdown"
                           >
@@ -796,21 +796,21 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
                         </div>
                         <div className="flex items-center gap-2">
                           {message.versions && message.versions.length > 1 && (
-                            <div className="flex items-center gap-1 text-gray-400">
+                            <div className="flex items-center gap-1 text-text-secondary">
                               <button
                                 onClick={() => handleSwitchVersion(message.id, 'prev')}
-                                className="p-1.5 hover:text-white transition-colors"
+                                className="p-1.5 hover:text-text-primary transition-colors"
                                 title="上一个版本"
                                 aria-label="上一个版本"
                               >
                                 <span className="material-symbols-outlined text-lg">chevron_left</span>
                               </button>
-                              <span className="text-gray-300 font-mono min-w-[44px] text-center text-base">
+                              <span className="text-text-secondary font-mono min-w-[44px] text-center text-base">
                                 {(message.currentVersionIndex || 0) + 1}/{message.versions.length}
                               </span>
                               <button
                                 onClick={() => handleSwitchVersion(message.id, 'next')}
-                                className="p-1.5 hover:text-white transition-colors"
+                                className="p-1.5 hover:text-text-primary transition-colors"
                                 title="下一个版本"
                                 aria-label="下一个版本"
                               >
@@ -822,8 +822,8 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
                       </div>
                       {/* 重新生成编辑区域 */}
                       {editingRegenerateMessageId === message.id && (
-                        <div className="mt-3 bg-gray-800/80 border border-gray-600 rounded-lg p-3">
-                          <label className="block text-xs text-gray-400 mb-1.5">
+                        <div className="mt-3 bg-sidebar/80 border border-gray-300 rounded-lg p-3">
+                          <label className="block text-xs text-text-secondary mb-1.5">
                             修改要求后重新生成
                           </label>
                           <textarea
@@ -836,19 +836,19 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
                                 handleRegenerate(message.id, editingRegenerateText)
                               }
                             }}
-                            className="w-full h-16 px-3 py-2 bg-gray-900 border border-gray-700 rounded text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:border-primary/50 resize-none"
+                            className="w-full h-16 px-3 py-2 bg-app border border-gray-200 rounded text-sm text-text-primary placeholder-gray-500 focus:outline-none focus:border-primary/50 resize-none"
                             autoFocus
                           />
                           <div className="flex items-center justify-end gap-2 mt-2">
                             <button
                               onClick={cancelEditingRegenerate}
-                              className="px-3 py-1 text-xs text-gray-400 hover:text-gray-200 transition-colors"
+                              className="px-3 py-1 text-xs text-text-secondary hover:text-text-primary transition-colors"
                             >
                               取消
                             </button>
                             <button
                               onClick={() => handleRegenerate(message.id, editingRegenerateText)}
-                              className="px-3 py-1 bg-primary text-black text-xs font-medium rounded hover:opacity-90 transition-colors"
+                              className="px-3 py-1 bg-primary text-white text-xs font-medium rounded hover:opacity-90 transition-colors"
                             >
                               重新生成
                             </button>
@@ -872,10 +872,10 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
                 <div className="flex-1 min-w-0">
                   {/* 思考内容 - 可折叠 */}
                   {streamingReasoningContent && (
-                    <div className="mb-3 bg-gray-800/50 border border-gray-700 rounded-lg overflow-hidden">
+                    <div className="mb-3 bg-sidebar/50 border border-gray-200 rounded-lg overflow-hidden">
                       <button
                         onClick={() => setIsReasoningExpanded(!isReasoningExpanded)}
-                        className="w-full px-3 py-2 flex items-center gap-2 text-xs text-gray-400 hover:text-gray-300 hover:bg-gray-700/50 transition-colors"
+                        className="w-full px-3 py-2 flex items-center gap-2 text-xs text-text-secondary hover:text-text-secondary hover:bg-gray-100/50 transition-colors"
                       >
                         <span className="material-symbols-outlined text-base transition-transform" style={{ transform: isReasoningExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>
                           chevron_right
@@ -891,7 +891,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
                         )}
                       </button>
                       {isReasoningExpanded && (
-                        <div className="px-3 pb-3 text-xs text-gray-400 leading-relaxed max-h-64 overflow-y-auto border-t border-gray-700">
+                        <div className="px-3 pb-3 text-xs text-text-secondary leading-relaxed max-h-64 overflow-y-auto border-t border-gray-200">
                           <div className="pt-2 whitespace-pre-wrap">{streamingReasoningContent}</div>
                         </div>
                       )}
@@ -924,7 +924,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
                   <span className="material-symbols-outlined text-primary text-lg">smart_toy</span>
                 </div>
                 {/* 加载状态 */}
-                <div className="flex items-center gap-3 text-gray-400">
+                <div className="flex items-center gap-3 text-text-secondary">
                   <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
                   <span className="text-sm">正在思考...</span>
                 </div>
@@ -935,7 +935,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
           </div>
 
           {/* 底部：输入和控制 */}
-          <div className="flex flex-col bg-gray-800 border border-gray-700 rounded-lg focus-within:border-primary/50 transition-colors shrink-0">
+          <div className="flex flex-col bg-sidebar border border-gray-200 rounded-lg focus-within:border-primary/50 transition-colors shrink-0">
             <textarea
               value={customPrompt}
               onChange={(e) => setCustomPrompt(e.target.value)}
@@ -947,9 +947,9 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
                   handleGenerateSummary()
                 }
               }}
-              className="w-full h-20 px-3 py-2 bg-transparent text-gray-300 placeholder-gray-500 focus:outline-none disabled:opacity-50 resize-none text-sm border-none rounded-t-lg"
+              className="w-full h-20 px-3 py-2 bg-transparent text-text-secondary placeholder-gray-500 focus:outline-none disabled:opacity-50 resize-none text-sm border-none rounded-t-lg"
             />
-            <div className="flex items-center justify-between p-2 bg-gray-800/50 border-t border-gray-700/30 gap-3 rounded-b-lg">
+            <div className="flex items-center justify-between p-2 bg-sidebar/50 border-t border-gray-200/30 gap-3 rounded-b-lg">
               {/* 模式选择 */}
               {!hasStartedChat ? (
                 <CustomDropdown
@@ -963,12 +963,12 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
                   className="min-w-max"
                   buttonClassName={`px-3 py-1.5 rounded-full text-sm flex items-center justify-between gap-2 transition-colors disabled:opacity-50 min-w-max ${summaryMode && agentPrompts.find(p => p.id === summaryMode)
                     ? 'bg-primary/10 border border-primary/50 text-primary hover:border-primary'
-                    : 'bg-gray-700/50 border border-gray-600 text-gray-300 hover:border-gray-500'
+                    : 'bg-gray-100/50 border border-gray-300 text-text-secondary hover:border-gray-500'
                     }`}
                   renderOption={(option, isSelected, onSelect) => (
                     <button
                       onClick={onSelect}
-                      className={`block w-full px-4 py-2 text-left text-sm transition-colors hover:bg-gray-700 ${isSelected ? 'text-primary bg-primary/5' : 'text-gray-300'
+                      className={`block w-full px-4 py-2 text-left text-sm transition-colors hover:bg-gray-100 ${isSelected ? 'text-primary bg-primary/5' : 'text-text-secondary'
                         }`}
                     >
                       <div className="flex flex-col items-start">
@@ -983,7 +983,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
                   )}
                 />
               ) : (
-                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gray-700/30 border border-gray-700 text-gray-400 text-sm select-none">
+                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gray-100/30 border border-gray-200 text-text-secondary text-sm select-none">
                   <span className="whitespace-nowrap">
                     {agentPrompts.find(p => p.id === summaryMode)?.name || '总结模式'}
                   </span>
@@ -994,7 +994,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
                 // 生成中显示终止按钮
                 <button
                   onClick={handleAbortGeneration}
-                  className="flex items-center justify-center gap-2 px-4 py-1.5 bg-red-600 text-white font-medium rounded-md hover:bg-red-500 transition-all text-sm shrink-0"
+                  className="flex items-center justify-center gap-2 px-4 py-1.5 bg-red-600 text-text-primary font-medium rounded-md hover:bg-red-500 transition-all text-sm shrink-0"
                   title="终止生成"
                 >
                   <span className="material-symbols-outlined text-lg">stop</span>
@@ -1004,7 +1004,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
                 <button
                   onClick={handleGenerateSummary}
                   disabled={(!hasStartedChat && selectedModels.length === 0) || !isApiConfigured || summaryModels.length === 0 || (hasStartedChat && !customPrompt.trim())}
-                  className={`flex items-center justify-center bg-primary text-black font-medium rounded-md hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all
+                  className={`flex items-center justify-center bg-primary text-white font-medium rounded-md hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all
                     text-sm shrink-0 gap-2 px-4 py-1.5`}
                   title={hasStartedChat ? '发送' : '生成总结'}
                 >
@@ -1053,7 +1053,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
 
             {/* 底部单行 composer */}
             <div
-              className={`flex items-end gap-2 p-2 bg-gray-800 border border-gray-700 rounded-lg shrink-0 transition-colors ${
+              className={`flex items-end gap-2 p-2 bg-sidebar border border-gray-200 rounded-lg shrink-0 transition-colors ${
                 composerLocked ? 'opacity-60' : 'focus-within:border-primary/50'
               }`}
             >
@@ -1070,13 +1070,13 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
                 buttonClassName={`px-3 py-1.5 rounded-full text-sm flex items-center justify-between gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-w-max ${
                   summaryMode && agentPrompts.find(p => p.id === summaryMode)
                     ? 'bg-primary/10 border border-primary/50 text-primary hover:border-primary'
-                    : 'bg-gray-700/50 border border-gray-600 text-gray-300 hover:border-gray-500'
+                    : 'bg-gray-100/50 border border-gray-300 text-text-secondary hover:border-gray-500'
                 }`}
                 renderOption={(option, isSelected, onSelect) => (
                   <button
                     onClick={onSelect}
-                    className={`block w-full px-4 py-2 text-left text-sm transition-colors hover:bg-gray-700 ${
-                      isSelected ? 'text-primary bg-primary/5' : 'text-gray-300'
+                    className={`block w-full px-4 py-2 text-left text-sm transition-colors hover:bg-gray-100 ${
+                      isSelected ? 'text-primary bg-primary/5' : 'text-text-secondary'
                     }`}
                   >
                     <div className="flex flex-col items-start">
@@ -1105,7 +1105,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
                 placeholder={placeholder}
                 disabled={composerLocked}
                 rows={1}
-                className="flex-1 resize-none bg-transparent text-sm text-gray-300 placeholder-gray-500 focus:outline-none disabled:cursor-not-allowed leading-5 py-1.5 max-h-[120px] overflow-y-auto"
+                className="flex-1 resize-none bg-transparent text-sm text-text-secondary placeholder-gray-500 focus:outline-none disabled:cursor-not-allowed leading-5 py-1.5 max-h-[120px] overflow-y-auto"
               />
 
               {/* 发送按钮 */}
@@ -1113,7 +1113,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
                 type="button"
                 onClick={handleWebviewSend}
                 disabled={sendDisabled}
-                className="shrink-0 flex items-center justify-center w-9 h-9 rounded-md bg-primary text-black hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                className="shrink-0 flex items-center justify-center w-9 h-9 rounded-md bg-primary text-white hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                 title={composerLocked ? '已发送' : '发送'}
                 aria-label="发送"
               >
@@ -1127,40 +1127,40 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
       {/* 导出确认对话框 */}
       {showExportDialog && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="bg-gray-800 border border-gray-700 rounded-xl shadow-2xl w-[480px] max-w-[90vw] p-6">
+          <div className="bg-sidebar border border-gray-200 rounded-xl shadow-2xl w-[480px] max-w-[90vw] p-6">
             <div className="flex items-center gap-3 mb-6">
               <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center">
                 <span className="material-symbols-outlined text-primary text-xl">download</span>
               </div>
-              <h3 className="text-lg font-semibold text-white">导出报告</h3>
+              <h3 className="text-lg font-semibold text-text-primary">导出报告</h3>
             </div>
 
             {/* 文件名输入 */}
             <div className="mb-4">
-              <label className="block text-sm text-gray-400 mb-2">文件名</label>
+              <label className="block text-sm text-text-secondary mb-2">文件名</label>
               <input
                 type="text"
                 value={exportFileName}
                 onChange={(e) => setExportFileName(e.target.value)}
-                className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-gray-200 text-sm focus:outline-none focus:border-primary/50"
+                className="w-full px-3 py-2 bg-app border border-gray-200 rounded-lg text-text-primary text-sm focus:outline-none focus:border-primary/50"
                 placeholder="输入文件名"
               />
             </div>
 
             {/* 导出目录选择 */}
             <div className="mb-6">
-              <label className="block text-sm text-gray-400 mb-2">导出目录</label>
+              <label className="block text-sm text-text-secondary mb-2">导出目录</label>
               <div className="flex gap-2">
                 <input
                   type="text"
                   value={exportDirectory}
                   onChange={(e) => setExportDirectory(e.target.value)}
-                  className="flex-1 px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-gray-200 text-sm focus:outline-none focus:border-primary/50"
+                  className="flex-1 px-3 py-2 bg-app border border-gray-200 rounded-lg text-text-primary text-sm focus:outline-none focus:border-primary/50"
                   placeholder="选择导出目录（留空将弹出选择框）"
                 />
                 <button
                   onClick={handleSelectExportDirectory}
-                  className="px-3 py-2 bg-gray-700 hover:bg-gray-600 border border-gray-600 rounded-lg text-gray-300 text-sm transition-colors flex items-center gap-1.5"
+                  className="px-3 py-2 bg-gray-100 hover:bg-gray-200 border border-gray-300 rounded-lg text-text-secondary text-sm transition-colors flex items-center gap-1.5"
                 >
                   <span className="material-symbols-outlined text-lg">folder_open</span>
                   <span>浏览</span>
@@ -1172,7 +1172,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
             <div className="flex justify-end gap-3">
               <button
                 onClick={() => setShowExportDialog(false)}
-                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 border border-gray-600 rounded-lg text-gray-300 text-sm transition-colors"
+                className="px-4 py-2 bg-gray-100 hover:bg-gray-200 border border-gray-300 rounded-lg text-text-secondary text-sm transition-colors"
               >
                 取消
               </button>

@@ -4,17 +4,44 @@
 
 /* 自定义样式 */
 :root {
-  --neon-color: #4dff88;
+  --app-bg: radial-gradient(ellipse at bottom, #FFFCF0 0%, #FFECF2 30%, #F0F7FF 65%, #E0EFFF 100%);
+  --sidebar-bg: rgba(255, 255, 255, 0.8);
+  --text-primary: #1f2937;
+  --text-secondary: #6b7280;
 }
 
-/* 霓虹发光效果 */
-.neon-glow {
-  box-shadow: 0 0 5px var(--neon-color), 0 0 10px var(--neon-color), 0 0 15px var(--neon-color);
+body {
+  font-family: "Google Sans Flex", "Google Sans", "Noto Sans SC", "Helvetica Neue", sans-serif;
+  font-size: 17px;
+  line-height: 24px;
+  background: var(--app-bg);
+  color: var(--text-primary);
 }
 
-.neon-border {
-  border: 1px solid var(--neon-color);
-  box-shadow: 0 0 2px var(--neon-color), 0 0 5px var(--neon-color) inset;
+.gemini-gradient {
+  background: linear-gradient(135deg, #FFF5D6 0%, #FFC8DA 35%, #D2E8FF 65%, #3b82f6 100%);
+}
+
+.shadow-soft {
+  box-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.15), 0 4px 12px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.05);
+}
+
+.shadow-float {
+  box-shadow: 0 12px 32px rgba(83, 156, 254, 0.12), 0 4px 12px rgba(0, 0, 0, 0.04);
+}
+
+.glass-panel {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+}
+
+.glass-panel-heavy {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.9);
 }
 
 /* 滚动条样式 */
@@ -24,17 +51,17 @@
 }
 
 ::-webkit-scrollbar-track {
-  background: #1a1d21;
+  background: transparent;
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #3a3f47;
+  background: rgba(31, 31, 31, 0.15);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #4a4f57;
+  background: rgba(31, 31, 31, 0.3);
 }
 
 /* 窗口拖拽区域 */

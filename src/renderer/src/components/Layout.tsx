@@ -256,7 +256,7 @@ function Layout({ children }: LayoutProps): JSX.Element {
         style={{ left: menuX, top: menuY }}
         onMouseDown={(e) => e.stopPropagation()} // 阻止冒泡，防止触发 document 的 mousedown 关闭菜单
       >
-        <div className="min-w-[60px] rounded-xl bg-gray-900/95 backdrop-blur-sm border border-gray-700 shadow-2xl ring-1 ring-primary/30 overflow-hidden">
+        <div className="min-w-[60px] rounded-xl bg-sidebar/95 backdrop-blur-sm border border-gray-200 shadow-float overflow-hidden">
           {menuItems.map((item) => (
             <button
               key={item.key}
@@ -267,9 +267,9 @@ function Layout({ children }: LayoutProps): JSX.Element {
                 setMenuVisible(false)
                 item.action()
               }}
-              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-200 hover:text-white hover:bg-gray-800 focus:outline-none"
+              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-text-primary hover:text-primary hover:bg-gray-100 focus:outline-none"
             >
-              <span className="material-symbols-outlined text-base text-gray-400">{item.icon || ''}</span>
+              <span className="material-symbols-outlined text-base text-text-secondary">{item.icon || ''}</span>
               <span className="flex-1 text-left">{item.label}</span>
             </button>
           ))}
@@ -279,7 +279,17 @@ function Layout({ children }: LayoutProps): JSX.Element {
   ), [menuVisible, menuX, menuY, menuItems])
 
   return (
-    <div className="flex flex-col h-screen bg-background-dark">
+    <div className="flex flex-col h-screen bg-transparent">
+      {/* 自定义标题栏拖拽区域 */}
+      <div 
+        className="h-[38px] w-full shrink-0 flex items-center px-4" 
+        style={{ WebkitAppRegion: 'drag' } as any}
+      >
+        <div className="flex items-center gap-2 select-none">
+          <img src="./assets/logo.png" alt="logo" className="w-4 h-4 opacity-80" onError={(e) => e.currentTarget.style.display = 'none'} />
+          <span className="text-xs font-semibold text-text-secondary">MultiChat</span>
+        </div>
+      </div>
       <main className="flex-1 overflow-hidden">
         {children}
       </main>

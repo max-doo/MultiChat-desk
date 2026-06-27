@@ -72,15 +72,15 @@ function ConfirmModal({
       />
       
       {/* 弹窗内容 */}
-      <div className="relative w-full max-w-sm bg-gray-900 border border-gray-800 rounded-xl shadow-2xl p-6 animate-in zoom-in-95 duration-200">
+      <div className="relative w-full max-w-sm bg-app border border-gray-200 rounded-xl shadow-2xl p-6 animate-in zoom-in-95 duration-200">
         <div className="flex items-center gap-3 mb-4">
           <span className={`material-symbols-outlined text-3xl ${theme.icon}`}>
             {theme.iconName}
           </span>
-          <h3 className="text-xl font-semibold text-white">{title}</h3>
+          <h3 className="text-xl font-semibold text-text-primary">{title}</h3>
         </div>
         
-        <p className="text-gray-300 mb-8 leading-relaxed">
+        <p className="text-text-secondary mb-8 leading-relaxed">
           {message}
         </p>
         
@@ -88,14 +88,14 @@ function ConfirmModal({
           <button
             onClick={onCancel}
             disabled={isConfirming}
-            className="flex-1 px-4 py-2 bg-gray-800 text-gray-300 rounded-lg hover:bg-gray-700 transition-colors font-medium"
+            className="flex-1 px-4 py-2 bg-sidebar text-text-secondary rounded-lg hover:bg-gray-100 transition-colors font-medium"
           >
             {cancelText}
           </button>
           <button
             onClick={handleConfirm}
             disabled={isConfirming}
-            className={`flex-1 px-4 py-2 text-white rounded-lg transition-colors font-medium ${theme.button}`}
+            className={`flex-1 px-4 py-2 text-text-primary rounded-lg transition-colors font-medium ${theme.button}`}
           >
             {confirmText}
           </button>

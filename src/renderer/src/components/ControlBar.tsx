@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle, type DragEvent } from 'react'
 import { useAppStore, DEEP_RESEARCH_UNSUPPORTED_ERROR, IMAGE_GENERATION_UNSUPPORTED_ERROR } from '../store/appStore'
-import logo from '../../../../assets/logo.png'
+import logo from '../assets/logo.svg'
 
 interface ControlBarProps {
   onOpenSettings: () => void
@@ -459,7 +459,7 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
     }
 
     return (
-      <footer className="mt-6 flex flex-col gap-4 w-full">
+      <footer className="mt-0 flex flex-col gap-4 w-full">
         {/* 控制栏主体 */}
         <div className="relative flex items-center gap-6">
           {/* 左侧：Logo 和功能按钮 */}
@@ -475,15 +475,15 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
                 alt="设置"
                 className="w-full object-cover"
               />
-              <span className="text-xs text-gray-400 group-hover:text-white">设置</span>
+              <span className="text-xs text-text-secondary group-hover:text-primary">设置</span>
             </button>
 
             {/* 历史记录按钮 */}
             <button
               onClick={onOpenHistory}
-              className="flex flex-col items-center justify-center gap-2 text-xs font-medium text-gray-400 hover:text-white group transition-colors duration-200"
+              className="flex flex-col items-center justify-center gap-2 text-xs font-medium text-text-secondary hover:text-primary group transition-colors duration-200"
             >
-              <span className="flex items-center justify-center w-10 h-10 bg-gray-800 rounded-full group-hover:bg-primary/20 group-hover:text-primary border border-transparent group-hover:border-primary/50 transition-all duration-200">
+              <span className="flex items-center justify-center w-10 h-10 glass-panel shadow-soft rounded-full group-hover:bg-blue-50/50 group-hover:text-primary border border-transparent group-hover:border-blue-200 transition-all duration-200">
                 <span className="material-symbols-outlined text-2xl">history</span>
               </span>
               历史记录
@@ -493,9 +493,9 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
             <button
               onClick={handleNewChat}
               disabled={isNewChatLoading}
-              className="flex flex-col items-center justify-center gap-2 text-xs font-medium text-gray-400 hover:text-white group transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex flex-col items-center justify-center gap-2 text-xs font-medium text-text-secondary hover:text-primary group transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <span className="flex items-center justify-center w-10 h-10 bg-gray-800 rounded-full group-hover:bg-primary/20 group-hover:text-primary border border-transparent group-hover:border-primary/50 transition-all duration-200">
+              <span className="flex items-center justify-center w-10 h-10 glass-panel shadow-soft rounded-full group-hover:bg-blue-50/50 group-hover:text-primary border border-transparent group-hover:border-blue-200 transition-all duration-200">
                 <span className={`material-symbols-outlined text-2xl ${isNewChatLoading ? 'animate-spin' : ''}`}>{isNewChatLoading ? 'sync' : 'add'}</span>
               </span>
               开启新对话
@@ -570,21 +570,21 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
                 }
               }}
               disabled={textInserted || isSending || isActivatingResearch || isCancellingResearch}
-              className="flex flex-col items-center justify-center gap-2 text-xs font-medium text-gray-400 hover:text-white group transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex flex-col items-center justify-center gap-2 text-xs font-medium text-text-secondary hover:text-primary group transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <span
-                className={`flex items-center justify-center w-10 h-10 rounded-full border transition-all duration-200 ${isDeepResearch
-                  ? 'bg-primary/20 text-primary border-primary/50 shadow-[0_0_12px_rgba(132,204,22,0.5)] scale-105'
+                className={`flex items-center justify-center w-10 h-10 rounded-full border shadow-soft transition-all duration-200 ${isDeepResearch
+                  ? 'bg-blue-50/80 text-primary border-blue-200 scale-105 glass-panel'
                   : isActivatingResearch
-                    ? 'bg-gray-800 border-primary/30 animate-pulse text-gray-300'
-                    : 'bg-gray-800 border-transparent group-hover:bg-primary/20 group-hover:text-primary group-hover:border-primary/50'
+                    ? 'glass-panel border-gray-200 animate-pulse text-text-primary'
+                    : 'glass-panel border-transparent group-hover:bg-blue-50/50 group-hover:text-primary group-hover:border-blue-200'
                   }`}
               >
                 <span className={`material-symbols-outlined text-2xl ${(isActivatingResearch || isCancellingResearch) ? 'animate-spin' : ''}`}>
                   {(isActivatingResearch || isCancellingResearch) ? 'sync' : 'science'}
                 </span>
               </span>
-              <span className={isDeepResearch ? 'text-white' : ''}>
+              <span className={isDeepResearch ? 'text-primary' : ''}>
                 {isActivatingResearch ? '开启中...' : isCancellingResearch ? '关闭中...' : '深度研究'}
               </span>
             </button>
@@ -650,21 +650,21 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
                 }
               }}
               disabled={textInserted || isSending || isActivatingImageGeneration || isCancellingImageGeneration}
-              className="flex flex-col items-center justify-center gap-2 text-xs font-medium text-gray-400 hover:text-white group transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex flex-col items-center justify-center gap-2 text-xs font-medium text-text-secondary hover:text-text-primary group transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <span
-                className={`flex items-center justify-center w-10 h-10 rounded-full border transition-all duration-200 ${isImageGeneration
-                  ? 'bg-purple-500/20 text-purple-400 border-purple-500/50 shadow-[0_0_12px_rgba(168,85,247,0.5)] scale-105'
+                className={`flex items-center justify-center w-10 h-10 rounded-full border shadow-soft transition-all duration-200 ${isImageGeneration
+                  ? 'bg-purple-500/10 text-purple-400 border-purple-500/50 shadow-[0_0_12px_rgba(168,85,247,0.3)] scale-105 glass-panel'
                   : isActivatingImageGeneration
-                    ? 'bg-gray-800 border-purple-500/30 animate-pulse text-gray-300'
-                    : 'bg-gray-800 border-transparent group-hover:bg-purple-500/20 group-hover:text-purple-400 group-hover:border-purple-500/50'
+                    ? 'glass-panel border-purple-500/30 animate-pulse text-text-secondary'
+                    : 'glass-panel border-transparent group-hover:bg-purple-500/10 group-hover:text-purple-400 group-hover:border-purple-500/50'
                   }`}
               >
                 <span className={`material-symbols-outlined text-2xl ${(isActivatingImageGeneration || isCancellingImageGeneration) ? 'animate-spin' : ''}`}>
                   {(isActivatingImageGeneration || isCancellingImageGeneration) ? 'sync' : 'image'}
                 </span>
               </span>
-              <span className={isImageGeneration ? 'text-white' : ''}>
+              <span className={isImageGeneration ? 'text-text-primary' : ''}>
                 {isActivatingImageGeneration ? '开启中...' : isCancellingImageGeneration ? '关闭中...' : 'AI 生图'}
               </span>
             </button>
@@ -672,7 +672,7 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
 
           {/* 中间：输入框 */}
           <div
-            className={`relative flex-grow flex gap-4 p-3 rounded-lg bg-gray-900/50 border border-gray-700 focus-within:border-primary/50 focus-within:ring-1 focus-within:ring-primary/50 ${isFileDragOver ? 'border-primary/70 ring-2 ring-primary/30 bg-primary/5' : ''
+            className={`relative flex-grow flex gap-4 p-3 rounded-[24px] glass-panel-heavy shadow-float focus-within:border-gray-200 focus-within:ring-1 focus-within:ring-gray-200 ${isFileDragOver ? 'border-primary/70 ring-2 ring-primary/30 bg-blue-50/50' : ''
               } ${message.trim() && !textInserted ? 'items-start' : 'items-center'}`}
             onDragEnter={(event) => {
               if (!hasFileInDragEvent(event)) return
@@ -702,10 +702,10 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
             {/* 通知弹窗 - 在输入框上方居中显示 */}
             {notification && (
               <div className={`absolute bottom-full left-1/2 transform -translate-x-1/2 mb-3 px-4 py-3 rounded-lg text-sm flex items-center gap-2 shadow-2xl z-50 notification-popup ${notification.type === 'success'
-                ? 'bg-gray-900/95 text-green-300 border-2 border-green-500/70 shadow-green-500/30'
+                ? 'bg-app/95 text-green-300 border-2 border-green-500/70 shadow-green-500/30'
                 : notification.type === 'error'
-                  ? 'bg-gray-900/95 text-red-300 border-2 border-red-500/70 shadow-red-500/30'
-                  : 'bg-gray-900/95 text-blue-300 border-2 border-blue-500/70 shadow-blue-500/30'
+                  ? 'bg-app/95 text-red-300 border-2 border-red-500/70 shadow-red-500/30'
+                  : 'bg-app/95 text-blue-300 border-2 border-blue-500/70 shadow-blue-500/30'
                 }`}>
                 <span className="material-symbols-outlined text-base flex-shrink-0">
                   {notification.type === 'success' ? 'check_circle' :
@@ -718,7 +718,7 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
             <button
               onClick={handleFileSelect}
               disabled={isUploading || isSending}
-              className={`transition-colors flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed self-end ${isUploading ? 'text-primary animate-pulse' : 'text-gray-400 hover:text-white'
+              className={`transition-colors flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed self-end ${isUploading ? 'text-primary animate-pulse' : 'text-text-secondary hover:text-primary'
                 }`}
               title={isUploading ? '正在上传文件...' : '上传文件'}
             >
@@ -734,7 +734,7 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
               placeholder={textInserted ? "文字已输入到所有模型，按 Enter 确认发送或点击取消" : "向 AI 模型提问..."}
-              className={`flex-grow bg-transparent border-0 focus:ring-0 focus:outline-none text-gray-300 placeholder-gray-400 p-0 resize-none disabled:cursor-not-allowed disabled:caret-transparent ${textInserted ? 'cursor-not-allowed caret-transparent' : ''
+              className={`flex-grow bg-transparent border-0 focus:ring-0 focus:outline-none text-text-primary placeholder-text-secondary p-0 resize-none disabled:cursor-not-allowed disabled:caret-transparent ${textInserted ? 'cursor-not-allowed caret-transparent' : ''
                 }`}
               disabled={isSending}
               readOnly={textInserted}
@@ -760,7 +760,7 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
               <button
                 onClick={handleCancel}
                 disabled={isSending}
-                className="px-3 py-1.5 rounded-xl bg-gray-700 text-gray-300 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm flex-shrink-0 self-end"
+                className="px-3 py-1.5 rounded-xl bg-gray-200 text-gray-600 hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm flex-shrink-0 self-end"
                 title="取消发送，清空所有输入框"
               >
                 取消
@@ -773,9 +773,9 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
               disabled={!message.trim() || isSending}
               className={`rounded-full disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex-shrink-0 self-end ${message.trim()
                 ? textInserted
-                  ? 'bg-primary text-black hover:opacity-90 px-3 py-3'
-                  : 'bg-primary text-black hover:opacity-90 h-12 w-12 p-3'
-                : 'h-12 w-12 bg-gray-700 hover:bg-gray-600 text-gray-300 p-3'
+                  ? 'bg-primary text-white hover:opacity-90 px-3 py-3'
+                  : 'bg-primary text-white hover:opacity-90 h-12 w-12 p-3'
+                : 'h-12 w-12 bg-gray-100 hover:bg-gray-200 text-text-secondary p-3'
                 }`}
               title={textInserted ? '点击发送消息' : message.trim() ? '点击输入文字到所有模型' : '输入消息后点击发送'}
             >
@@ -795,7 +795,7 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
           {/* 右侧：生成总结报告按钮 */}
           <button
             onClick={onGenerateReport}
-            className="flex-shrink-0 px-4 py-2 text-sm font-bold rounded-lg bg-primary text-black hover:opacity-90 transition-opacity whitespace-nowrap flex items-center gap-2"
+            className="flex-shrink-0 px-4 py-2 text-sm font-bold rounded-[24px] bg-primary text-white hover:opacity-90 shadow-soft transition-opacity whitespace-nowrap flex items-center gap-2"
           >
             <span className="material-symbols-outlined text-xl">auto_awesome</span>
             生成总结报告

@@ -101,14 +101,14 @@ function CustomDropdown<T = string>({
     : 'top-full mt-1'
 
   // 默认按钮样式
-  const defaultButtonClass = `w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-md text-gray-300 text-sm focus:outline-none flex items-center justify-between hover:bg-gray-700 transition-colors ${disabled ? 'opacity-50 cursor-not-allowed' : ''
+  const defaultButtonClass = `w-full px-3 py-2 bg-sidebar border border-gray-200 rounded-md text-text-secondary text-sm focus:outline-none flex items-center justify-between hover:bg-gray-100 transition-colors ${disabled ? 'opacity-50 cursor-not-allowed' : ''
     }`
 
   return (
     <div className={`relative ${className}`} ref={dropdownRef}>
       {/* 标签 */}
       {label && (
-        <label className="block text-xs text-gray-400 mb-1">{label}</label>
+        <label className="block text-xs text-text-secondary mb-1">{label}</label>
       )}
 
       {/* 下拉选择按钮 */}
@@ -121,14 +121,14 @@ function CustomDropdown<T = string>({
         {renderButton ? (
           <>
             {renderButton()}
-            <span className="material-symbols-outlined text-base text-gray-400">
+            <span className="material-symbols-outlined text-base text-text-secondary">
               {isOpen ? (direction === 'up' ? 'expand_more' : 'expand_less') : (direction === 'up' ? 'expand_less' : 'expand_more')}
             </span>
           </>
         ) : (
           <>
             <span>{displayText}</span>
-            <span className="material-symbols-outlined text-base text-gray-400">
+            <span className="material-symbols-outlined text-base text-text-secondary">
               {isOpen ? (direction === 'up' ? 'expand_more' : 'expand_less') : (direction === 'up' ? 'expand_less' : 'expand_more')}
             </span>
           </>
@@ -143,7 +143,7 @@ function CustomDropdown<T = string>({
             className="fixed inset-0 z-20"
             onClick={() => setIsOpen(false)}
           />
-          <div className={`absolute ${dropdownPositionClass} left-0 ${dropdownWidth} bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-30 py-1 max-h-64 overflow-y-auto`}>
+          <div className={`absolute ${dropdownPositionClass} left-0 ${dropdownWidth} bg-sidebar border border-gray-200 rounded-lg shadow-xl z-30 py-1 max-h-64 overflow-y-auto`}>
             {renderContent ? (
               // 使用自定义内容渲染，传入关闭函数
               renderContent(() => setIsOpen(false))
@@ -165,9 +165,9 @@ function CustomDropdown<T = string>({
                       key={String(option.value)}
                       type="button"
                       onClick={() => handleSelect(option.value)}
-                      className="w-full flex items-center gap-3 px-3 py-2 hover:bg-gray-700 transition-colors text-left"
+                      className="w-full flex items-center gap-3 px-3 py-2 hover:bg-gray-100 transition-colors text-left"
                     >
-                      <span className={`text-sm ${isSelected ? 'text-primary' : 'text-gray-300'}`}>
+                      <span className={`text-sm ${isSelected ? 'text-primary' : 'text-text-secondary'}`}>
                         {option.label}
                       </span>
                       {isSelected && (

@@ -144,21 +144,23 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
         }}
       />
 
-      {/* 抽屉面板 */}
-      <div
-        className={`fixed left-0 top-0 bottom-0 w-[400px] bg-background-dark border-r border-gray-800 z-50 flex flex-col transform transition-transform duration-300 ${isOpen ? 'translate-x-0' : '-translate-x-full'
+        {/* 抽屉面板 */}
+        <div 
+          className={`fixed left-0 top-0 bottom-0 w-[400px] glass-panel-heavy border-r border-white/40 z-50 flex flex-col transform transition-all duration-300 ease-in-out ${
+            isOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full shadow-none'
           }`}
-      >
-        {/* 头部 */}
-        <div className="flex items-center justify-between p-6 border-b border-gray-800">
-          <h2 className="text-xl font-semibold text-white">历史记录</h2>
+          onClick={e => e.stopPropagation()}
+        >
+          {/* 头部 */}
+          <div className="flex items-center justify-between p-6 border-b border-white/40">
+          <h2 className="text-xl font-semibold text-text-primary">历史记录</h2>
           <div className="flex items-center gap-2">
             {!isSelectionMode ? (
               <>
                 {(activeTab === 'conversation' ? history.length > 0 : summaryHistory.length > 0) && (
                   <button
                     onClick={toggleSelectionMode}
-                    className="text-gray-400 hover:text-red-400 transition-colors p-1"
+                    className="text-text-secondary hover:text-red-400 transition-colors p-1"
                     title="开启多选删除"
                   >
                     <span className="material-symbols-outlined">delete</span>
@@ -169,14 +171,14 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
               <>
                 <button
                   onClick={toggleSelectionMode}
-                  className="text-sm px-3 py-1.5 rounded-lg bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700 transition-all border border-gray-700"
+                  className="text-sm px-3 py-1.5 rounded-lg bg-sidebar text-text-secondary hover:text-text-primary hover:bg-gray-100 transition-all border border-gray-200"
                 >
                   取消
                 </button>
                 <button
                   disabled={selectedIds.length === 0}
                   onClick={() => setShowConfirmDelete(true)}
-                  className="text-sm px-3 py-1.5 rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white border border-red-500/20 hover:border-red-500 transition-all disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-1.5"
+                  className="text-sm px-3 py-1.5 rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-text-primary border border-red-500/20 hover:border-red-500 transition-all disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-1.5"
                 >
                   <span className="material-symbols-outlined text-sm">delete</span>
                   确认删除 {selectedIds.length > 0 && `(${selectedIds.length})`}
@@ -185,7 +187,7 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
             )}
             <button
               onClick={onClose}
-              className="text-gray-400 hover:text-white transition-colors ml-1"
+              className="text-text-secondary hover:text-text-primary transition-colors ml-1"
             >
               <span className="material-symbols-outlined text-2xl">close</span>
             </button>
@@ -194,20 +196,20 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
 
         {/* 搜索框 */}
         <div className="p-4">
-          <div className="flex items-center gap-3 px-4 py-2 bg-gray-800 rounded-lg border border-gray-700 focus-within:border-primary/50">
+          <div className="flex items-center gap-3 px-4 py-2 bg-sidebar rounded-lg border border-gray-200 focus-within:border-primary/50">
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="搜索历史记录..."
-              className="flex-1 bg-transparent border-0 focus:outline-none text-gray-300 placeholder-gray-500"
+              className="flex-1 bg-transparent border-0 focus:outline-none text-text-secondary placeholder-gray-500"
             />
-            <span className="material-symbols-outlined text-gray-400">search</span>
+            <span className="material-symbols-outlined text-text-secondary">search</span>
           </div>
         </div>
 
         {/* 标签页 */}
-        <div className="flex px-6 gap-8 border-b border-gray-800">
+        <div className="flex px-6 gap-8 border-b border-gray-200">
           <button
             onClick={() => {
               setActiveTab('conversation')
@@ -216,7 +218,7 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
             }}
             className={`py-3 text-sm font-medium transition-all border-b-2 ${activeTab === 'conversation'
               ? 'border-primary text-primary'
-              : 'border-transparent text-gray-400 hover:text-gray-200'
+              : 'border-transparent text-text-secondary hover:text-text-primary'
               }`}
           >
             对话历史
@@ -229,7 +231,7 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
             }}
             className={`py-3 text-sm font-medium transition-all border-b-2 ${activeTab === 'summary'
               ? 'border-primary text-primary'
-              : 'border-transparent text-gray-400 hover:text-gray-200'
+              : 'border-transparent text-text-secondary hover:text-text-primary'
               }`}
           >
             总结历史
@@ -255,11 +257,11 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
                     <div className="pb-3">
                       <div
                         onClick={() => handleSelect(item)}
-                        className={`group p-4 rounded-lg bg-gray-800/50 border transition-all ${isSelected
+                        className={`group p-4 rounded-lg bg-sidebar/50 border transition-all ${isSelected
                           ? 'border-primary bg-primary/5'
                           : isActive
                             ? 'border-primary/60 bg-primary/10'
-                            : 'border-gray-700 hover:border-primary/50'
+                            : 'border-gray-200 hover:border-primary/50'
                           } cursor-pointer flex items-center gap-3 relative`}
                       >
                         {isActive && (
@@ -273,7 +275,7 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
                         )}
                         <div className="flex-1 min-w-0">
                           <div className="flex items-start justify-between gap-2">
-                            <p className={`line-clamp-2 flex-1 transition-colors ${isSelected ? 'text-primary' : 'text-gray-300'}`}>
+                            <p className={`line-clamp-2 flex-1 transition-colors ${isSelected ? 'text-primary' : 'text-text-secondary'}`}>
                               {item.title ?? item.turns[0]?.userMessage ?? '(无消息)'}
                             </p>
                             {!isSelectionMode && (
@@ -316,7 +318,7 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
                                       key={modelId}
                                       src={model.logo}
                                       alt={model.name}
-                                      className="inline-block h-6 w-6 rounded-full ring-1 ring-gray-800 bg-gray-700 object-contain p-0.5"
+                                      className="inline-block h-6 w-6 rounded-full ring-1 ring-gray-800 bg-gray-100 object-contain p-0.5"
                                     />
                                   )
                                 })}
@@ -347,11 +349,11 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
                     <div className="pb-3">
                       <div
                         onClick={() => handleSelectSummary(item)}
-                        className={`group p-4 rounded-lg bg-gray-800/50 border transition-all ${isSelected
+                        className={`group p-4 rounded-lg bg-sidebar/50 border transition-all ${isSelected
                           ? 'border-primary bg-primary/5'
                           : isActive
                             ? 'border-primary/60 bg-primary/10'
-                            : 'border-gray-700 hover:border-primary/50'
+                            : 'border-gray-200 hover:border-primary/50'
                           } cursor-pointer flex items-center gap-3 relative`}
                       >
                         {isActive && (
@@ -366,10 +368,10 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
                         <div className="flex-1 min-w-0">
                           <div className="flex items-start justify-between gap-2">
                             <div className="flex-1 min-w-0">
-                              <h3 className={`font-medium mb-1 line-clamp-1 ${isSelected ? 'text-primary' : 'text-white'}`}>
+                              <h3 className={`font-medium mb-1 line-clamp-1 ${isSelected ? 'text-primary' : 'text-text-primary'}`}>
                                 {item.title}
                               </h3>
-                              <p className="text-gray-400 text-sm line-clamp-2">{getSummaryPreviewText(item)}</p>
+                              <p className="text-text-secondary text-sm line-clamp-2">{getSummaryPreviewText(item)}</p>
                             </div>
                             {!isSelectionMode && (
                               <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0">
@@ -410,7 +412,7 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
                                       key={modelId}
                                       src={model.logo}
                                       alt={model.name}
-                                      className="inline-block h-6 w-6 rounded-full ring-1 ring-gray-800 bg-gray-700 object-contain p-0.5"
+                                      className="inline-block h-6 w-6 rounded-full ring-1 ring-gray-800 bg-gray-100 object-contain p-0.5"
                                     />
                                   )
                                 })}
@@ -428,7 +430,7 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
         </div>
 
         {/* 底部统计 */}
-        <div className="p-4 border-t border-gray-800 text-xs text-gray-500 text-center">
+        <div className="p-4 border-t border-gray-200 text-xs text-gray-500 text-center">
           {isSelectionMode
             ? `已选择 ${selectedIds.length} 条记录`
             : `共 ${activeTab === 'conversation' ? history.length : summaryHistory.length} 条记录`

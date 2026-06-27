@@ -55,9 +55,9 @@ function RenameModal({
         className="absolute inset-0 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
         onClick={onCancel}
       />
-      <div className="relative w-full max-w-md bg-gray-900 border border-gray-800 rounded-xl shadow-2xl animate-in zoom-in-95 duration-200">
-        <div className="px-6 pt-5 pb-4 border-b border-gray-800">
-          <h3 className="text-lg font-semibold text-white">{title}</h3>
+      <div className="relative w-full max-w-md bg-app border border-gray-200 rounded-xl shadow-2xl animate-in zoom-in-95 duration-200">
+        <div className="px-6 pt-5 pb-4 border-b border-gray-200">
+          <h3 className="text-lg font-semibold text-text-primary">{title}</h3>
         </div>
         <div className="px-6 py-5">
           <input
@@ -70,7 +70,7 @@ function RenameModal({
               if (e.key === 'Enter') handleConfirm()
               if (e.key === 'Escape') onCancel()
             }}
-            className="w-full px-4 py-2.5 rounded-lg bg-gray-800 border border-gray-700 focus:outline-none focus:border-primary/60 text-gray-200 placeholder-gray-500"
+            className="w-full px-4 py-2.5 rounded-lg bg-sidebar border border-gray-200 focus:outline-none focus:border-primary/60 text-text-primary placeholder-gray-500"
             placeholder={placeholder}
             autoFocus
           />
@@ -82,14 +82,14 @@ function RenameModal({
           <button
             onClick={onCancel}
             disabled={isConfirming}
-            className="text-sm px-4 py-2 rounded-lg bg-gray-800 text-gray-300 hover:bg-gray-700 transition-all border border-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="text-sm px-4 py-2 rounded-lg bg-sidebar text-text-secondary hover:bg-gray-100 transition-all border border-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {cancelText}
           </button>
           <button
             onClick={handleConfirm}
             disabled={isConfirming}
-            className="text-sm px-4 py-2 rounded-lg bg-primary text-black hover:opacity-90 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            className="text-sm px-4 py-2 rounded-lg bg-primary text-white hover:opacity-90 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {confirmText}
           </button>

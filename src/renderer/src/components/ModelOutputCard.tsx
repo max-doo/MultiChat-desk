@@ -146,8 +146,8 @@ function ModelOutputCard({
   return (
     <div className={`relative rounded-lg border transition-colors ${
       selected 
-        ? 'bg-gray-800/50 border-primary/50' 
-        : 'bg-gray-800/30 border-gray-700'
+        ? 'bg-sidebar/50 border-primary/50' 
+        : 'bg-sidebar/30 border-gray-200'
     }`}>
       {toast && (
         <div className={`absolute top-3 left-1/2 -translate-x-1/2 px-4 py-2 rounded-lg text-sm flex items-center gap-2 shadow-2xl z-50 notification-popup ${
@@ -162,7 +162,7 @@ function ModelOutputCard({
         </div>
       )}
       {/* 卡片头部 */}
-      <div className="flex items-center justify-between p-4 border-b border-gray-700">
+      <div className="flex items-center justify-between p-4 border-b border-gray-200">
         <div className="flex items-center gap-3">
           {/* 勾选框 */}
           <button
@@ -180,12 +180,12 @@ function ModelOutputCard({
 
           {/* Logo 和名称 */}
           <img src={logo} alt={name} className="w-5 h-5" />
-          <span className="font-medium text-white">{name}</span>
+          <span className="font-medium text-text-primary">{name}</span>
         </div>
 
         <button
           onClick={handleCopyMarkdown}
-          className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-300 hover:text-white hover:bg-gray-700/50 transition-colors"
+          className="w-8 h-8 rounded-lg flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-gray-100/50 transition-colors"
           title="复制 Markdown"
           aria-label="复制 Markdown"
         >
@@ -198,19 +198,19 @@ function ModelOutputCard({
         <div className={shouldShowExpand && !isExpanded ? 'relative' : ''}>
           <div 
             ref={contentRef}
-            className={`text-gray-300 prose prose-invert prose-sm max-w-none 
-              prose-headings:text-gray-200 prose-headings:font-semibold
-              prose-p:text-gray-300 prose-p:leading-relaxed
+            className={`text-text-secondary prose prose-invert prose-sm max-w-none 
+              prose-headings:text-text-primary prose-headings:font-semibold
+              prose-p:text-text-secondary prose-p:leading-relaxed
               prose-a:text-primary prose-a:no-underline hover:prose-a:underline
-              prose-strong:text-gray-200
-              prose-code:text-primary prose-code:bg-gray-800 prose-code:px-1 prose-code:rounded
-              prose-pre:bg-gray-900 prose-pre:border prose-pre:border-gray-700
-              prose-ul:text-gray-300 prose-ol:text-gray-300
+              prose-strong:text-text-primary
+              prose-code:text-primary prose-code:bg-sidebar prose-code:px-1 prose-code:rounded
+              prose-pre:bg-app prose-pre:border prose-pre:border-gray-200
+              prose-ul:text-text-secondary prose-ol:text-text-secondary
               prose-li:marker:text-gray-500
-              prose-table:text-gray-300 prose-table:border-collapse
-              prose-th:text-gray-200 prose-th:font-semibold prose-th:border prose-th:border-gray-600 prose-th:px-4 prose-th:py-2 prose-th:bg-gray-800/50
-              prose-td:text-gray-300 prose-td:border prose-td:border-gray-700 prose-td:px-4 prose-td:py-2
-              prose-tr:border-b prose-tr:border-gray-700 hover:prose-tr:bg-gray-800/30
+              prose-table:text-text-secondary prose-table:border-collapse
+              prose-th:text-text-primary prose-th:font-semibold prose-th:border prose-th:border-gray-300 prose-th:px-4 prose-th:py-2 prose-th:bg-sidebar/50
+              prose-td:text-text-secondary prose-td:border prose-td:border-gray-200 prose-td:px-4 prose-td:py-2
+              prose-tr:border-b prose-tr:border-gray-200 hover:prose-tr:bg-sidebar/30
               transition-all duration-300 ${
                 shouldShowExpand && !isExpanded 
                   ? 'max-h-[200px] overflow-y-auto' 

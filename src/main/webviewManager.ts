@@ -113,7 +113,13 @@ export function openBrowserWindowInternal(url: string): void {
         height: 800,
         show: true,
         autoHideMenuBar: true,
-        backgroundColor: '#ffffff',
+        titleBarStyle: 'hidden',
+        titleBarOverlay: {
+            color: '#E0EFFF',
+            symbolColor: '#333333',
+            height: 38
+        },
+        backgroundColor: 'rgba(0,0,0,0)',
         icon: getWindowIcon(),
         webPreferences: {
             preload: join(__dirname, '../preload/index.js'),
@@ -275,7 +281,13 @@ export function createWindow(): void {
         height: 900,
         show: false,
         autoHideMenuBar: true,
-        backgroundColor: '#ffffff',
+        titleBarStyle: 'hidden',
+        titleBarOverlay: {
+            color: '#E0EFFF',
+            symbolColor: '#333333',
+            height: 38
+        },
+        backgroundColor: 'rgba(0,0,0,0)',
         icon: getWindowIcon(),
         webPreferences: {
             preload: join(__dirname, '../preload/index.js'),
