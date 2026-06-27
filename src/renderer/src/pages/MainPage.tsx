@@ -25,8 +25,9 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
   const displayMode = useAppStore((state) => state.displayMode)
   const productMode = useAppStore((state) => state.productMode)
   const taskAssignmentSlots = useAppStore((state) => state.taskAssignmentSlots)
+  const multiAiSlots = useAppStore((state) => state.multiAiSlots)
+  const setMultiAiSlots = useAppStore((state) => state.setMultiAiSlots)
   const registerWebviewRef = useAppStore((state) => state.registerWebviewRef)
-  const reorderModels = useAppStore((state) => state.reorderModels)
   const getAllResponses = useAppStore((state) => state.getAllResponses)
   const setPendingSummarySession = useAppStore((state) => state.setPendingSummarySession)
   const history = useAppStore((state) => state.history)
@@ -170,18 +171,18 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
 
   // 获取要显示的模型列表
   const displayedModels = useMemo(() => {
-    return getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots)
-  }, [models, displayMode, productMode, taskAssignmentSlots])
+    return getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots, multiAiSlots)
+  }, [models, displayMode, productMode, taskAssignmentSlots, multiAiSlots])
 
   // 获取全量至多4个位置的配置列表，确保已打开的窗口有稳定的配置可复用
   const allLayoutModels = useMemo(() => {
-    return getDisplayedModels(models, 'four', productMode, taskAssignmentSlots)
-  }, [models, productMode, taskAssignmentSlots])
+    return getDisplayedModels(models, 'four', productMode, taskAssignmentSlots, multiAiSlots)
+  }, [models, productMode, taskAssignmentSlots, multiAiSlots])
 
   // 跟踪曾挂载过的 Slot（避免单窗口时无谓加载，同时切走后保留会话）
   const [mountedSlots, setMountedSlots] = useState<boolean[]>(() => {
     const init = [false, false, false, false]
-    const count = getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots).length
+    const count = getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots, multiAiSlots).length
     for (let i = 0; i < count; i++) init[i] = true
     return init
   })
@@ -530,20 +531,21 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
           }
 
           // 2. 检查并切换模型到当前视图
-          const currentDisplayedIds = models.slice(0, displayCount).map((m) => m.id)
+          const currentDisplayedIds = getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots, multiAiSlots).map(m => m.id)
           const missingModelIds = item.models.filter((id) => !currentDisplayedIds.includes(id))
 
           if (missingModelIds.length > 0) {
             console.log(`[MainPage] 历史记录：发现缺失模型 ${missingModelIds.join(', ')}，正在调整顺序`)
             // 将历史记录中的模型排到前面
             const newOrder = [...item.models]
-            // 添加其他模型保持原样
+            // 添加其他模型保持原样，填充可能剩下的槽位
             models.forEach((m) => {
               if (!newOrder.includes(m.id)) {
                 newOrder.push(m.id)
               }
             })
-            reorderModels(newOrder)
+            // 取代原本的 reorderModels(newOrder)，改为直接更新 multiAiSlots
+            setMultiAiSlots(newOrder)
           }
 
           // 3. 如果有保存的 URL，自动加载

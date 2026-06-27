@@ -142,7 +142,12 @@ const api = {
     return () => {
       ipcRenderer.removeListener('gemini-account-switched', listener)
     }
-  }
+  },
+
+  // 窗口拖拽
+  windowDragStart: (): void => ipcRenderer.send('window-drag-start'),
+  windowDragMove: (): void => ipcRenderer.send('window-drag-move'),
+  windowDragEnd: (): void => ipcRenderer.send('window-drag-end')
 }
 
 // 暴露 API 到渲染进程

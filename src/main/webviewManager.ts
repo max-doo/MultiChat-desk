@@ -3,7 +3,7 @@
  * 负责主窗口创建、Webview 注入脚本、上下文菜单以及新窗口管理
  */
 
-import { app, BrowserWindow, shell, nativeImage, type WebFrameMain } from 'electron'
+import { app, session, BrowserWindow, shell, nativeImage, type WebFrameMain } from 'electron'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
 import { startAgentPromptsWatcher } from './agentPrompts'
@@ -231,9 +231,25 @@ function getWebviewClickInterceptorScript(): string {
   `
 }
 
+// ============ 共享 Session User-Agent 伪装 ============
+
+/**
+ * 为共享 Session 设置伪装 User-Agent，移除 Electron 特征标识，
+ * 避免部分平台（如 Google）因检测到非标准浏览器环境而拦截登录
+ */
+export function setupSharedSessionUserAgent(): void {
+    const sharedSession = session.fromPartition('persist:shared')
+    const currentUA = sharedSession.getUserAgent()
+    const cleanUA = currentUA.replace(/Electron\/[0-9.]+\s/, '')
+    sharedSession.setUserAgent(cleanUA)
+}
+
 // ============ 主窗口创建 ============
 
 export function createWindow(): void {
+    // 在窗口创建前伪装共享 Session 的 User-Agent，使所有 webview 自动继承
+    setupSharedSessionUserAgent()
+
     mainWindow = new BrowserWindow({
         width: 1400,
         height: 900,
@@ -241,6 +257,7 @@ export function createWindow(): void {
         minHeight: 600,
         show: true,
         autoHideMenuBar: true,
+        frame: false,
         titleBarStyle: 'hidden',
         titleBarOverlay: {
             color: '#E0EFFF',

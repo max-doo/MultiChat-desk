@@ -1,4 +1,4 @@
-import { ReactNode, useEffect, useMemo, useState } from 'react'
+import { ReactNode, useEffect, useMemo, useState, useRef } from 'react'
 import { useAppStore } from '../store/appStore'
 import SettingsDrawer from './SettingsDrawer'
 
@@ -15,6 +15,32 @@ function Layout({ children }: LayoutProps): JSX.Element {
   const [menuX, setMenuX] = useState(0)
   const [menuY, setMenuY] = useState(0)
   const [menuItems, setMenuItems] = useState<Array<{ key: string; label: string; icon?: string; action: () => void }>>([])
+  
+  // 窗口拖拽状态引用
+  const isDraggingRef = useRef(false)
+  
+  useEffect(() => {
+    const handlePointerMove = (_e: PointerEvent) => {
+      if (isDraggingRef.current) {
+        window.api.windowDragMove()
+      }
+    }
+    
+    const handlePointerUp = (_e: PointerEvent) => {
+      if (isDraggingRef.current) {
+        isDraggingRef.current = false
+        window.api.windowDragEnd()
+      }
+    }
+    
+    window.addEventListener('pointermove', handlePointerMove)
+    window.addEventListener('pointerup', handlePointerUp)
+    
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', handlePointerUp)
+    }
+  }, [])
   
   const { displayMode, setDisplayMode, resetPaneRatios, isSettingsOpen, setSettingsOpen, setHistoryOpen, productMode, setProductMode, currentPage, apiConfig, setApiConfig } = useAppStore()
 
@@ -291,10 +317,22 @@ function Layout({ children }: LayoutProps): JSX.Element {
 
   return (
     <div className="flex flex-col h-screen bg-transparent">
-      {/* 自定义标题栏拖拽区域 */}
+      {/* 自定义标题栏 */}
       <div 
-        className="h-[38px] w-full shrink-0 grid items-center px-4 drag-region" 
+        className="relative h-[38px] w-full shrink-0 grid items-center px-4 drag-region" 
         style={{ gridTemplateColumns: '1fr auto 1fr' }}
+        onPointerDown={(e) => {
+          // 只在点击 drag-region 且不在 no-drag 内部时触发拖拽
+          const target = e.target as HTMLElement
+          if (target.closest('.no-drag')) return
+          if (target.closest('.drag-region') || target === e.currentTarget) {
+            isDraggingRef.current = true
+            // Capture pointer to ensure we get pointermove even if mouse leaves window
+            const currentTarget = e.currentTarget
+            currentTarget.setPointerCapture(e.pointerId)
+            window.api.windowDragStart()
+          }
+        }}
       >
         <div className="flex items-center gap-3 select-none drag-region h-full">
           <div className="flex items-center gap-3 drag-region">

@@ -2,6 +2,31 @@
 
 ## 2026-06-27
 
+### 22:20 | Antigravity
+
+- done: Implement pointer-capture IPC window dragging, independent Multi-AI slots configuration, and Google login UA bypass
+- added:
+  - `docs/drag-fix-experience.md`
+  - `scripts/verify-titlebar-drag-contract.js`
+- modified:
+  - `src/main/ipcHandlers.ts`
+  - `src/main/webviewManager.ts`
+  - `src/preload/index.d.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/src/assets/index.css`
+  - `src/renderer/src/components/Layout.tsx`
+  - `src/renderer/src/env.d.ts`
+  - `src/renderer/src/pages/MainPage.tsx`
+  - `src/renderer/src/store/appStore.ts`
+- lesson: Complex Electron titlebar dragging with app-region:drag on Windows can cause hit-test click-through issues and recursive window-resizing bugs; use JS pointer capture and IPC win.setContentBounds as a reliable workaround.
+
+### 21:51 | Antigravity
+
+- done: Fix webview refs memory leak causing New Chat to refresh historic and duplicate model windows
+- modified:
+  - `src/renderer/src/pages/MainPage.tsx`
+  - `src/renderer/src/components/ControlBar.tsx`
+
 ### 21:04 | Antigravity
 
 - done: Fixed window dragging functionality by replacing inline WebkitAppRegion styles with explicit CSS classes on all header layout components to bypass React style stripping and Chromium bubbling bugs.

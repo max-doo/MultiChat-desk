@@ -34,6 +34,41 @@ export function registerIpcHandlers(
     openBrowserWindowInternal: (url: string) => void
 ): void {
 
+    // 窗口拖拽状态
+    let dragStartMousePoint: { x: number, y: number } | null = null
+    let dragStartContentBounds: Electron.Rectangle | null = null
+
+    ipcMain.on('window-drag-start', (event) => {
+        const win = BrowserWindow.fromWebContents(event.sender)
+        if (!win) return
+        const { screen } = require('electron')
+        dragStartMousePoint = screen.getCursorScreenPoint()
+        dragStartContentBounds = win.getContentBounds()
+    })
+
+    ipcMain.on('window-drag-move', (event) => {
+        if (!dragStartMousePoint || !dragStartContentBounds) return
+        const win = BrowserWindow.fromWebContents(event.sender)
+        if (!win) return
+        
+        const { screen } = require('electron')
+        const currentMousePoint = screen.getCursorScreenPoint()
+        const deltaX = currentMousePoint.x - dragStartMousePoint.x
+        const deltaY = currentMousePoint.y - dragStartMousePoint.y
+        
+        win.setContentBounds({
+            x: dragStartContentBounds.x + deltaX,
+            y: dragStartContentBounds.y + deltaY,
+            width: dragStartContentBounds.width,
+            height: dragStartContentBounds.height
+        })
+    })
+
+    ipcMain.on('window-drag-end', () => {
+        dragStartMousePoint = null
+        dragStartContentBounds = null
+    })
+
     // IPC 处理器：右键菜单操作
     ipcMain.handle('perform-contextmenu-action', async (_event, args: { wcId: number, action: 'copy' | 'paste' | 'save-image', data?: { url?: string } }) => {
         try {

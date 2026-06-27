@@ -82,6 +82,9 @@ declare global {
         fileName?: string
       }) => Promise<{ success: boolean; filePath?: string; error?: string }>
       onGeminiAccountSwitched: (callback: (url: string) => void) => () => void
+      windowDragStart: () => void
+      windowDragMove: () => void
+      windowDragEnd: () => void
     }
   }
 }

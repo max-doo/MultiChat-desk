@@ -31,6 +31,9 @@ declare global {
       minimizeWindow: () => void
       maximizeWindow: () => void
       closeWindow: () => void
+      startWindowDrag: (point: { screenX: number; screenY: number }) => Promise<{ success: boolean; error?: string }>
+      moveWindowDrag: (point: { screenX: number; screenY: number }) => void
+      endWindowDrag: () => void
       selectFile: () => Promise<string | null>
       selectDirectory: () => Promise<string | null>
       getFileInfo: (filePath: string) => Promise<GetFileInfoResult>

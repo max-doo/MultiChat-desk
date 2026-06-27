@@ -64,13 +64,14 @@ body {
   background: rgba(31, 31, 31, 0.3);
 }
 
-/* 窗口拖拽区域 */
+/* 窗口拖拽区域标志类 (用于 JS IPC 拖拽) */
 .drag-region {
-  -webkit-app-region: drag;
+  /* -webkit-app-region 已被移除，防止 Windows 系统 Bug */
 }
 
+/* 禁止拖拽区域 */
 .no-drag {
-  -webkit-app-region: no-drag;
+  /* 仅作 JS 识别标记 */
 }
 
 /* Webview 样式 */
