@@ -30,6 +30,8 @@ const api = {
   // 快捷弹窗控制
   quickShow: (opts?: { focus?: boolean }) => ipcRenderer.invoke('quick:show', opts),
   quickHide: () => ipcRenderer.invoke('quick:hide'),
+  quickGetAlwaysOnTop: (): Promise<boolean> => ipcRenderer.invoke('quick:get-always-on-top'),
+  quickSetAlwaysOnTop: (flag: boolean): Promise<void> => ipcRenderer.invoke('quick:set-always-on-top', flag),
   quickInjectPrompt: (payload: { text: string; action: 'summarize'|'polish'|'translate'|'raw' }) => ipcRenderer.send('quick:inject-prompt', payload),
   onQuickInject: (cb: (payload: { text: string; action: 'summarize'|'polish'|'translate'|'raw' }) => void) => {
     const handler = (_e: Electron.IpcRendererEvent, payload: { text: string; action: 'summarize'|'polish'|'translate'|'raw' }): void => cb(payload)

@@ -7,6 +7,32 @@ export default function QuickPage(): JSX.Element {
   const [selectedModelId, setSelectedModelId] = useState<string>('')
   const cardRef = useRef<WebviewCardRef | null>(null)
   const isDraggingRef = useRef(false)
+  const [isPinned, setIsPinned] = useState(false)
+
+  // 获取初始置顶状态
+  useEffect(() => {
+    if (window.api?.quickGetAlwaysOnTop) {
+      window.api.quickGetAlwaysOnTop()
+        .then((pinned) => {
+          setIsPinned(pinned)
+        })
+        .catch((err) => {
+          console.error('[QuickPage] Failed to get always-on-top state:', err)
+        })
+    }
+  }, [])
+
+  const toggleAlwaysOnTop = async () => {
+    if (window.api?.quickSetAlwaysOnTop) {
+      const nextState = !isPinned
+      try {
+        await window.api.quickSetAlwaysOnTop(nextState)
+        setIsPinned(nextState)
+      } catch (err) {
+        console.error('[QuickPage] Failed to set always-on-top state:', err)
+      }
+    }
+  }
 
   // 窗口拖拽监听
   useEffect(() => {
@@ -103,16 +129,36 @@ export default function QuickPage(): JSX.Element {
           isolated={true}
           draggableHeader={true}
           flat={true}
+          onDragStart={() => {
+            isDraggingRef.current = true
+          }}
           onModelChange={(modelId) => handleModelChange(modelId)}
           headerActions={
             <div className="flex items-center gap-2 pl-2 border-l border-gray-200/60 ml-1 no-drag">
+              <button
+                type="button"
+                onClick={toggleAlwaysOnTop}
+                className={`w-7 h-7 flex items-center justify-center rounded-full transition-all duration-200 ${
+                  isPinned 
+                    ? 'text-primary bg-blue-50 hover:bg-blue-100' 
+                    : 'text-text-secondary hover:text-text-primary hover:bg-gray-100'
+                }`}
+                title={isPinned ? '取消固定' : '固定窗口'}
+              >
+                <span 
+                  className="material-symbols-outlined text-base"
+                  style={isPinned ? { fontVariationSettings: "'FILL' 1" } : undefined}
+                >
+                  push_pin
+                </span>
+              </button>
               <button
                 type="button"
                 onClick={() => void window.api.trayShowMain()}
                 className="text-xs px-2.5 py-1 bg-gray-100 hover:bg-gray-200 border border-gray-200/60 rounded-md text-text-primary transition-all duration-200 flex items-center gap-1"
                 title="展开至主窗口"
               >
-                <span>↗</span> 主界面
+                <span className="material-symbols-outlined text-xs">open_in_new</span> 主界面
               </button>
               <button
                 type="button"

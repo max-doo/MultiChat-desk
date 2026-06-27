@@ -40,6 +40,7 @@ export function registerIpcHandlers(
     ipcMain.handle('tray:show-main', () => {
         const w = getMainWindow()
         if (w) { w.show(); w.focus() }
+        getQuickWindow()?.hide()
         return { success: true }
     })
     ipcMain.handle('tray:hide-main', () => {
@@ -60,6 +61,17 @@ export function registerIpcHandlers(
     })
     ipcMain.handle('quick:hide', () => {
         getQuickWindow()?.hide()
+        return { success: true }
+    })
+    ipcMain.handle('quick:get-always-on-top', () => {
+        const qw = getQuickWindow()
+        return qw ? qw.isAlwaysOnTop() : false
+    })
+    ipcMain.handle('quick:set-always-on-top', (_e, flag: boolean) => {
+        const qw = getQuickWindow()
+        if (qw) {
+            qw.setAlwaysOnTop(flag)
+        }
         return { success: true }
     })
     ipcMain.on('state:sync', (event, partialState: Record<string, unknown>) => {

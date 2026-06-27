@@ -41,6 +41,7 @@ interface WebviewCardProps {
   headerActions?: React.ReactNode // 自定义头部操作区按钮
   draggableHeader?: boolean // 是否允许头部拖拽窗口
   flat?: boolean // 扁平无边框模式：去除圆角、外边框与阴影，占满整个容器
+  onDragStart?: (e: React.PointerEvent<HTMLDivElement>) => void // 开始拖拽窗口的回调
 }
 
 // 重新导出 FileUploadData 类型供其他组件使用
@@ -68,7 +69,7 @@ export interface WebviewCardRef {
  * 嵌入 AI 平台的 Web 界面，支持消息发送和响应抓取
  */
 const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
-  ({ id, name, url, logo, enabled, slotIndex, compact, hideHeader, onModelChange, isolated, headerActions, draggableHeader, flat }, ref) => {
+  ({ id, name, url, logo, enabled, slotIndex, compact, hideHeader, onModelChange, isolated, headerActions, draggableHeader, flat, onDragStart }, ref) => {
     const webviewRef = useRef<Electron.WebviewTag>(null)
     const [isLoading, setIsLoading] = useState(true)
     const [isReady, setIsReady] = useState(false)
@@ -708,6 +709,9 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
                 if (target.closest('.drag-region') || target === e.currentTarget) {
                   e.currentTarget.setPointerCapture(e.pointerId)
                   window.api.windowDragStart()
+                  if (onDragStart) {
+                    onDragStart(e)
+                  }
                 }
               } : undefined}
             >

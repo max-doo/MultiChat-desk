@@ -34,6 +34,8 @@ declare global {
       trayQuitApp: () => Promise<{ success: boolean; error?: string }>
       quickShow: (opts?: { focus?: boolean }) => Promise<{ success: boolean; error?: string }>
       quickHide: () => Promise<{ success: boolean; error?: string }>
+      quickGetAlwaysOnTop: () => Promise<boolean>
+      quickSetAlwaysOnTop: (flag: boolean) => Promise<void>
       quickInjectPrompt: (payload: { text: string; action: 'summarize'|'polish'|'translate'|'raw' }) => void
       onQuickInject: (cb: (payload: { text: string; action: 'summarize'|'polish'|'translate'|'raw' }) => void) => () => void
       stateSync: (partialState: Record<string, unknown>) => void

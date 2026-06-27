@@ -128,7 +128,7 @@ export function createTray(): void {
     tray.setToolTip('MultiChat')
 
     const contextMenu = Menu.buildFromTemplate([
-        { label: '显示主界面', click: () => { mainWindow?.show(); mainWindow?.focus() } },
+        { label: '显示主界面', click: () => { mainWindow?.show(); mainWindow?.focus(); getQuickWindow()?.hide() } },
         { label: '召唤快捷弹窗', click: () => {
             const qw = getQuickWindow()
             if (!qw) return
@@ -142,7 +142,7 @@ export function createTray(): void {
     tray.on('click', () => {
         if (!mainWindow) return
         if (mainWindow.isVisible()) mainWindow.hide()
-        else { mainWindow.show(); mainWindow.focus() }
+        else { mainWindow.show(); mainWindow.focus(); getQuickWindow()?.hide() }
     })
 }
 
@@ -371,229 +371,244 @@ export function createWindow(): void {
     // 监听 webview 创建子窗口
     mainWindow.webContents.on('did-attach-webview', (_event, webContents) => {
         console.log('[Main] did-attach-webview 触发, wcId:', webContents.id)
-        setupContextMenu(webContents)
+        registerWebviewHandlers(webContents)
+    })
+}
 
-        // ============ Google 账号切换检测 ============
-        // 追踪是否正在进行 Google 认证流程
-        // 当用户完成账号切换后，自动刷新页面以应用新的 session cookie
-        let isInGoogleAuthFlow = false
-        let authFlowStartTime = 0 // 进入认证流程的时间戳
-        const AUTH_MIN_DURATION = 800 // 最少停留 800ms 才认为是真正的账号切换（立即重定向约 500ms）
+// ============ Webview 通用事件处理器 ============
 
-        // 监听导航开始，检测是否进入 Google 认证流程
-        webContents.on('will-navigate', (_e, url) => {
-            console.log('[Main][DEBUG] will-navigate:', url, '| isInAuthFlow:', isInGoogleAuthFlow)
-            if (url.includes('accounts.google.com')) {
-                isInGoogleAuthFlow = true
-                authFlowStartTime = Date.now()
-                console.log('[Main] ✅ Entered Google Auth flow, wcId:', webContents.id)
+/**
+ * 为挂载到任意宿主窗口的 Webview 注册通用事件处理器：
+ * - 右键上下文菜单
+ * - Google 账号认证流程检测与自动刷新
+ * - 链接拦截脚本注入（外部链接通过 shell.openExternal 在系统浏览器打开）
+ * - Webview 内部弹窗拦截
+ *
+ * 同时适用于主窗口和快捷弹窗，避免重复逻辑。
+ */
+function registerWebviewHandlers(webContents: Electron.WebContents): void {
+    setupContextMenu(webContents)
+
+    // ============ Google 账号切换检测 ============
+    // 追踪是否正在进行 Google 认证流程
+    // 当用户完成账号切换后，自动刷新页面以应用新的 session cookie
+    let isInGoogleAuthFlow = false
+    let authFlowStartTime = 0 // 进入认证流程的时间戳
+    const AUTH_MIN_DURATION = 800 // 最少停留 800ms 才认为是真正的账号切换（立即重定向约 500ms）
+
+    // 监听导航开始，检测是否进入 Google 认证流程
+    webContents.on('will-navigate', (_e, url) => {
+        console.log('[Main][DEBUG] will-navigate:', url, '| isInAuthFlow:', isInGoogleAuthFlow)
+        if (url.includes('accounts.google.com')) {
+            isInGoogleAuthFlow = true
+            authFlowStartTime = Date.now()
+            console.log('[Main] ✅ Entered Google Auth flow, wcId:', webContents.id)
+        }
+    })
+
+    // 监听导航完成，检测认证流程结束
+    webContents.on('did-navigate', (_e, url) => {
+        console.log('[Main][DEBUG] did-navigate:', url, '| isInAuthFlow:', isInGoogleAuthFlow)
+        // 检测从 Google 认证回到 Gemini
+        if (isInGoogleAuthFlow && url.includes('gemini.google.com')) {
+            const duration = Date.now() - authFlowStartTime
+            console.log('[Main][DEBUG] Auth flow duration:', duration, 'ms')
+
+            // 只有在认证页面停留足够时间，才认为是真正完成了账号切换
+            if (duration >= AUTH_MIN_DURATION) {
+                console.log('[Main] ✅ Auth flow completed! Duration:', duration, 'ms, reloading...')
+                isInGoogleAuthFlow = false
+
+                // 保存当前 URL（切换后的账号 URL），用于持久化
+                const switchedUrl = url
+                console.log('[Main] ✅ Switched account URL:', switchedUrl)
+
+                // 延迟刷新，确保 cookie 完全写入
+                setTimeout(() => {
+                    try {
+                        console.log('[Main] ✅ Reloading now, wcId:', webContents.id)
+                        webContents.reload()
+
+                        // 刷新后，通知渲染进程保存切换后的账号 URL
+                        // 延迟发送，确保页面刷新完成
+                        setTimeout(() => {
+                            if (mainWindow && !mainWindow.isDestroyed()) {
+                                console.log('[Main] ✅ Notifying renderer to save Gemini account URL:', switchedUrl)
+                                mainWindow.webContents.send('gemini-account-switched', switchedUrl)
+                            }
+                        }, 2000)
+                    } catch (err) {
+                        console.error('[Main] Failed to reload after auth:', err)
+                    }
+                }, 500)
+            } else {
+                console.log('[Main][DEBUG] Auth flow too short (', duration, 'ms), ignoring - likely a redirect')
+                isInGoogleAuthFlow = false
             }
-        })
+        }
+    })
 
-        // 监听导航完成，检测认证流程结束
-        webContents.on('did-navigate', (_e, url) => {
-            console.log('[Main][DEBUG] did-navigate:', url, '| isInAuthFlow:', isInGoogleAuthFlow)
-            // 检测从 Google 认证回到 Gemini
+    // 同时监听 did-navigate-in-page（单页应用内部导航）
+    webContents.on('did-navigate-in-page', (_e, url, isMainFrame) => {
+        if (isMainFrame) {
+            console.log('[Main][DEBUG] did-navigate-in-page:', url, '| isInAuthFlow:', isInGoogleAuthFlow)
+            // 对于 SPA 内部导航，也检测是否从认证回到 Gemini
             if (isInGoogleAuthFlow && url.includes('gemini.google.com')) {
                 const duration = Date.now() - authFlowStartTime
-                console.log('[Main][DEBUG] Auth flow duration:', duration, 'ms')
-
-                // 只有在认证页面停留足够时间，才认为是真正完成了账号切换
                 if (duration >= AUTH_MIN_DURATION) {
-                    console.log('[Main] ✅ Auth flow completed! Duration:', duration, 'ms, reloading...')
+                    console.log('[Main] ✅ Auth flow completed (in-page)! Duration:', duration, 'ms, reloading...')
                     isInGoogleAuthFlow = false
-
-                    // 保存当前 URL（切换后的账号 URL），用于持久化
-                    const switchedUrl = url
-                    console.log('[Main] ✅ Switched account URL:', switchedUrl)
-
-                    // 延迟刷新，确保 cookie 完全写入
                     setTimeout(() => {
                         try {
-                            console.log('[Main] ✅ Reloading now, wcId:', webContents.id)
                             webContents.reload()
-
-                            // 刷新后，通知渲染进程保存切换后的账号 URL
-                            // 延迟发送，确保页面刷新完成
-                            setTimeout(() => {
-                                if (mainWindow && !mainWindow.isDestroyed()) {
-                                    console.log('[Main] ✅ Notifying renderer to save Gemini account URL:', switchedUrl)
-                                    mainWindow.webContents.send('gemini-account-switched', switchedUrl)
-                                }
-                            }, 2000)
                         } catch (err) {
-                            console.error('[Main] Failed to reload after auth:', err)
+                            console.error('[Main] Failed to reload after auth (in-page):', err)
                         }
                     }, 500)
                 } else {
-                    console.log('[Main][DEBUG] Auth flow too short (', duration, 'ms), ignoring - likely a redirect')
+                    console.log('[Main][DEBUG] Auth flow too short (in-page), ignoring')
                     isInGoogleAuthFlow = false
                 }
             }
-        })
+        }
+    })
 
-        // 同时监听 did-navigate-in-page（单页应用内部导航）
-        webContents.on('did-navigate-in-page', (_e, url, isMainFrame) => {
-            if (isMainFrame) {
-                console.log('[Main][DEBUG] did-navigate-in-page:', url, '| isInAuthFlow:', isInGoogleAuthFlow)
-                // 对于 SPA 内部导航，也检测是否从认证回到 Gemini
-                if (isInGoogleAuthFlow && url.includes('gemini.google.com')) {
-                    const duration = Date.now() - authFlowStartTime
-                    if (duration >= AUTH_MIN_DURATION) {
-                        console.log('[Main] ✅ Auth flow completed (in-page)! Duration:', duration, 'ms, reloading...')
-                        isInGoogleAuthFlow = false
-                        setTimeout(() => {
-                            try {
-                                webContents.reload()
-                            } catch (err) {
-                                console.error('[Main] Failed to reload after auth (in-page):', err)
-                            }
-                        }, 500)
-                    } else {
-                        console.log('[Main][DEBUG] Auth flow too short (in-page), ignoring')
-                        isInGoogleAuthFlow = false
-                    }
+    // 注入脚本
+    const tryInject = async (source: string): Promise<void> => {
+        const script = getWebviewClickInterceptorScript()
+
+        const getAllFrames = (root: WebFrameMain): WebFrameMain[] => {
+            const result: WebFrameMain[] = []
+            const stack: WebFrameMain[] = [root]
+            while (stack.length) {
+                const frame = stack.pop()
+                if (!frame) continue
+                result.push(frame)
+                const children = (frame as WebFrameMain & { frames?: WebFrameMain[] }).frames
+                if (Array.isArray(children) && children.length) {
+                    for (const child of children) stack.push(child)
                 }
             }
-        })
-
-        // 注入脚本
-        const tryInject = async (source: string): Promise<void> => {
-            const script = getWebviewClickInterceptorScript()
-
-            const getAllFrames = (root: WebFrameMain): WebFrameMain[] => {
-                const result: WebFrameMain[] = []
-                const stack: WebFrameMain[] = [root]
-                while (stack.length) {
-                    const frame = stack.pop()
-                    if (!frame) continue
-                    result.push(frame)
-                    const children = (frame as WebFrameMain & { frames?: WebFrameMain[] }).frames
-                    if (Array.isArray(children) && children.length) {
-                        for (const child of children) stack.push(child)
-                    }
-                }
-                return result
-            }
-
-            const frames = getAllFrames(webContents.mainFrame)
-            const _settled = await Promise.allSettled(
-                frames.map((frame) => frame.executeJavaScript(script, true))
-            )
-
-            // 日志记录...
-            console.log(`[Main] webview inject: ${webContents.id} source=${source} frames=${frames.length}`)
+            return result
         }
 
-        webContents.on('dom-ready', () => {
-            void tryInject('dom-ready')
-        })
-        webContents.on('did-finish-load', () => {
-            void tryInject('did-finish-load')
-        })
-        webContents.on('did-frame-finish-load', (_e, isMainFrame: boolean) => {
-            void tryInject(`did-frame-finish-load:${isMainFrame ? 'main' : 'sub'}`)
-        })
-        setTimeout(() => {
-            void tryInject('attach-timeout')
-        }, 3000)
+        const frames = getAllFrames(webContents.mainFrame)
+        const _settled = await Promise.allSettled(
+            frames.map((frame) => frame.executeJavaScript(script, true))
+        )
 
-        webContents.on('console-message', (_e, _level, message) => {
-            if (typeof message !== 'string') return
-            if (message.startsWith('__MM_LOG__:')) {
-                console.log('[Webview]', webContents.id, message.substring(9))
-                return
+        // 日志记录...
+        console.log(`[Main] webview inject: ${webContents.id} source=${source} frames=${frames.length}`)
+    }
+
+    webContents.on('dom-ready', () => {
+        void tryInject('dom-ready')
+    })
+    webContents.on('did-finish-load', () => {
+        void tryInject('did-finish-load')
+    })
+    webContents.on('did-frame-finish-load', (_e, isMainFrame: boolean) => {
+        void tryInject(`did-frame-finish-load:${isMainFrame ? 'main' : 'sub'}`)
+    })
+    setTimeout(() => {
+        void tryInject('attach-timeout')
+    }, 3000)
+
+    webContents.on('console-message', (_e, _level, message) => {
+        if (typeof message !== 'string') return
+        if (message.startsWith('__MM_LOG__:')) {
+            console.log('[Webview]', webContents.id, message.substring(9))
+            return
+        }
+        if (message.startsWith('__OPEN_LINK__:')) {
+            const url = message.substring(14)
+            console.log('[Webview]', webContents.id, 'open link:', url)
+
+            // 登录/认证 URL 应留在 webview 内，确保 persist:shared session 共享
+            const isAuthUrl = url.includes('accounts.google.com') ||
+                (url.includes('.google.com') && url.includes('/signin')) ||
+                (url.includes('.google.com') && url.includes('/accounts'))
+
+            if (isAuthUrl) {
+                console.log('[Main] Auth URL detected, navigating webview internally:', url)
+                webContents.loadURL(url)
+            } else {
+                openBrowserWindowInternal(url)
             }
-            if (message.startsWith('__OPEN_LINK__:')) {
-                const url = message.substring(14)
-                console.log('[Webview]', webContents.id, 'open link:', url)
+        }
+    })
 
-                // 登录/认证 URL 应留在 webview 内，确保 persist:shared session 共享
-                const isAuthUrl = url.includes('accounts.google.com') ||
-                    (url.includes('.google.com') && url.includes('/signin')) ||
-                    (url.includes('.google.com') && url.includes('/accounts'))
-
-                if (isAuthUrl) {
-                    console.log('[Main] Auth URL detected, navigating webview internally:', url)
-                    webContents.loadURL(url)
-                } else {
-                    openBrowserWindowInternal(url)
-                }
-            }
+    // 处理 Webview 内部的窗口创建
+    webContents.on('did-create-window', (childWindow, details) => {
+        console.log('[Main] webview did-create-window:', details?.url)
+        browserWindows.add(childWindow)
+        childWindow.on('closed', () => {
+            browserWindows.delete(childWindow)
         })
+        childWindow.setMenuBarVisibility(false)
+        childWindow.show()
+        childWindow.focus()
 
-        // 处理 Webview 内部的窗口创建
-        webContents.on('did-create-window', (childWindow, details) => {
-            console.log('[Main] webview did-create-window:', details?.url)
-            browserWindows.add(childWindow)
-            childWindow.on('closed', () => {
-                browserWindows.delete(childWindow)
-            })
-            childWindow.setMenuBarVisibility(false)
-            childWindow.show()
-            childWindow.focus()
-
-            const handleNavigation = (e: Electron.Event, url: string): void => {
-                const isGoogleAuthUrl = url.includes('accounts.google.com') ||
-                    (url.includes('.google.com') && url.includes('/accounts'))
-                if (isGoogleAuthUrl) {
-                    console.log('[Main] Intercepting Google Auth navigation in child window:', url)
-                    e.preventDefault()
-                    // 在原 webview 中导航
-                    webContents.loadURL(url)
-                    // 关闭弹窗
-                    childWindow.close()
-                }
-            }
-
-            childWindow.webContents.on('will-navigate', handleNavigation)
-            childWindow.webContents.on('will-redirect', handleNavigation)
-
-            // 对于其他弹窗的链接请求
-            childWindow.webContents.setWindowOpenHandler((d) => {
-                shell.openExternal(d.url)
-                return { action: 'deny' }
-            })
-        })
-
-        webContents.setWindowOpenHandler((details) => {
-            console.log('[Main] webview setWindowOpenHandler:', details.url)
-            const isGoogleAuthUrl = (() => {
-                if (!details.url) return false
-                if (details.url.includes('accounts.google.com')) return true
-                try {
-                    const u = new URL(details.url)
-                    if (u.hostname === 'accounts.google.com') return true
-                    if (u.hostname.endsWith('.google.com') && u.pathname.startsWith('/accounts')) return true
-                } catch {
-                    // URL 解析失败时返回 false
-                }
-                return false
-            })()
-
-            if (details.url === 'about:blank') {
-                console.log('[Main] Blocking about:blank popup, will navigate to Google account page in webview')
-                const currentUrl = webContents.getURL()
-                const continueUrl = encodeURIComponent(currentUrl || 'https://gemini.google.com/app')
-                const accountUrl = `https://accounts.google.com/AccountChooser?continue=${continueUrl}`
-                setImmediate(() => {
-                    webContents.loadURL(accountUrl)
-                })
-                return { action: 'deny' }
-            }
-
+        const handleNavigation = (e: Electron.Event, url: string): void => {
+            const isGoogleAuthUrl = url.includes('accounts.google.com') ||
+                (url.includes('.google.com') && url.includes('/accounts'))
             if (isGoogleAuthUrl) {
-                console.log('[Main] Intercepting Google Auth URL, navigating in webview:', details.url)
-                setImmediate(() => {
-                    webContents.loadURL(details.url)
-                })
-                return { action: 'deny' }
+                console.log('[Main] Intercepting Google Auth navigation in child window:', url)
+                e.preventDefault()
+                // 在原 webview 中导航
+                webContents.loadURL(url)
+                // 关闭弹窗
+                childWindow.close()
             }
+        }
 
-            // 对于其他 URL，只阻止弹窗
-            console.log('[Main] Blocking popup for non-auth URL:', details.url)
+        childWindow.webContents.on('will-navigate', handleNavigation)
+        childWindow.webContents.on('will-redirect', handleNavigation)
+
+        // 对于其他弹窗的链接请求
+        childWindow.webContents.setWindowOpenHandler((d) => {
+            shell.openExternal(d.url)
             return { action: 'deny' }
         })
+    })
+
+    webContents.setWindowOpenHandler((details) => {
+        console.log('[Main] webview setWindowOpenHandler:', details.url)
+        const isGoogleAuthUrl = (() => {
+            if (!details.url) return false
+            if (details.url.includes('accounts.google.com')) return true
+            try {
+                const u = new URL(details.url)
+                if (u.hostname === 'accounts.google.com') return true
+                if (u.hostname.endsWith('.google.com') && u.pathname.startsWith('/accounts')) return true
+            } catch {
+                // URL 解析失败时返回 false
+            }
+            return false
+        })()
+
+        if (details.url === 'about:blank') {
+            console.log('[Main] Blocking about:blank popup, will navigate to Google account page in webview')
+            const currentUrl = webContents.getURL()
+            const continueUrl = encodeURIComponent(currentUrl || 'https://gemini.google.com/app')
+            const accountUrl = `https://accounts.google.com/AccountChooser?continue=${continueUrl}`
+            setImmediate(() => {
+                webContents.loadURL(accountUrl)
+            })
+            return { action: 'deny' }
+        }
+
+        if (isGoogleAuthUrl) {
+            console.log('[Main] Intercepting Google Auth URL, navigating in webview:', details.url)
+            setImmediate(() => {
+                webContents.loadURL(details.url)
+            })
+            return { action: 'deny' }
+        }
+
+        // 对于其他 URL，只阻止弹窗
+        console.log('[Main] Blocking popup for non-auth URL:', details.url)
+        return { action: 'deny' }
     })
 }
 
@@ -604,10 +619,12 @@ export function createQuickWindow(): void {
     quickWindow = new BrowserWindow({
         width: 800,
         height: 600,
+        minWidth: 320,
+        minHeight: 480,
         show: false,
         frame: false,
-        alwaysOnTop: true,
-        skipTaskbar: true,
+        alwaysOnTop: false,
+        skipTaskbar: false,
         backgroundColor: '#ffffff',
         icon: getWindowIcon(),
         webPreferences: {
@@ -620,29 +637,35 @@ export function createQuickWindow(): void {
         }
     })
 
-    // 失焦隐藏：用延迟 + 焦点检查，避免 webview 内部点击触发 blur 导致意外隐藏
-    let blurHideTimeout: ReturnType<typeof setTimeout> | null = null
+    // 失焦隐藏已被禁用（用户要求不要自动隐藏，只能手动关闭）
+    // let blurHideTimeout: ReturnType<typeof setTimeout> | null = null
 
-    quickWindow.on('blur', () => {
-        blurHideTimeout = setTimeout(() => {
-            // 检查焦点是否仍在本 app 的任意 webContents（含 webview 子进程）
-            const allWindows = BrowserWindow.getAllWindows()
-            const anyFocused = allWindows.some(w => w.isFocused() || w.webContents.isFocused())
-            if (!anyFocused && quickWindow && !quickWindow.isDestroyed()) {
-                quickWindow.hide()
-            }
-        }, 150)
-    })
+    // quickWindow.on('blur', () => {
+    //     blurHideTimeout = setTimeout(() => {
+    //         // 检查焦点是否仍在本 app 的任意 webContents（含 webview 子进程）
+    //         const allWindows = BrowserWindow.getAllWindows()
+    //         const anyFocused = allWindows.some(w => w.isFocused() || w.webContents.isFocused())
+    //         if (!anyFocused && quickWindow && !quickWindow.isDestroyed()) {
+    //             quickWindow.hide()
+    //         }
+    //     }, 150)
+    // })
 
-    quickWindow.on('focus', () => {
-        if (blurHideTimeout) { clearTimeout(blurHideTimeout); blurHideTimeout = null }
-    })
+    // quickWindow.on('focus', () => {
+    //     if (blurHideTimeout) { clearTimeout(blurHideTimeout); blurHideTimeout = null }
+    // })
 
     quickWindow.on('close', (e) => {
         if (!isQuitting) { e.preventDefault(); quickWindow?.hide() }
     })
 
     quickWindow.on('closed', () => { quickWindow = null })
+
+    // 为快捷窗口内的 Webview 注册相同的链接拦截与脚本注入处理器
+    quickWindow.webContents.on('did-attach-webview', (_event, webContents) => {
+        console.log('[Main] quickWindow did-attach-webview 触发, wcId:', webContents.id)
+        registerWebviewHandlers(webContents)
+    })
 
     const hash = 'quick'
     if (is.dev && process.env['ELECTRON_RENDERER_URL']) {

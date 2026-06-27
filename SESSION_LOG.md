@@ -2,6 +2,68 @@
 
 ## 2026-06-28
 
+### 01:26 | claude-code
+
+- done: 提交综合 commit：快捷窗口 pin 切换、拖拽支持、尺寸约束、修复剪贴板自动复制焦点顺序 Bug、提取 webview 处理器公共函数
+- modified:
+  - `src/main/ipcHandlers.ts src/main/shortcutManager.ts src/main/webviewManager.ts src/preload/index.d.ts src/preload/index.ts src/renderer/src/components/WebviewCard.tsx src/renderer/src/pages/QuickPage.tsx .memory/KNOWLEDGE.md SESSION_LOG.md`
+
+### 01:20 | Antigravity
+
+- done: 修复快捷窗口自动复制 Bug：焦点顺序错误导致 SendKeys 打到错误窗口
+- decision: 改用 execFileSync + Atomics.wait 实现同步阻塞式等待：确保按键模拟、剪贴板读取全部在 show/focus 之前完成
+- modified:
+  - `src/main/shortcutManager.ts`
+- lesson(promoted): 全局快捷键触发后若立即 show/focus 自身窗口，焦点会从用户原始窗口转移，导致 SendKeys 模拟 Ctrl+C 打到 Electron 自己而非目标应用；必须先完成 SendKeys+读剪贴板，再 show/focus 窗口
+
+### 01:16 | Antigravity
+
+- done: 快捷窗口自动复制选中文本：去掉手动 Ctrl+C 步骤
+- decision: 用 PowerShell SendKeys 模拟 Ctrl+C 自动复制，零新依赖，Windows 专属；非 Windows 降级读现有剪贴板
+- modified:
+  - `src/main/shortcutManager.ts`
+- lesson(promoted): PowerShell execFile 方式比 exec 字符串更安全，避免引号转义问题；先清空剪贴板再模拟复制，可以可靠地检测是否真的有内容被选中
+
+### 01:14 | Antigravity
+
+- done: 修复快捷窗口外部链接无法打开系统浏览器的 Bug
+- modified:
+  - `src/main/webviewManager.ts`
+- lesson(promoted): 快捷窗口（quickWindow）是独立的 BrowserWindow，主窗口的 did-attach-webview 监听器不会自动继承给快捷窗口；任何新增窗口都需要单独为其 webContents 注册 did-attach-webview 事件，否则该窗口内 Webview 的脚本注入和链接拦截将完全失效
+
+### 01:10 | Antigravity
+
+- done: Fix quick window: default alwaysOnTop=false, skipTaskbar=false, isPinned=false
+- modified:
+  - `src/main/webviewManager.ts`
+  - `src/renderer/src/pages/QuickPage.tsx`
+- lesson(promoted): quickWindow 初始配置 alwaysOnTop 和 skipTaskbar 应默认关闭，让用户通过 pin 按钮自行决定；skipTaskbar=true 会导致被遮挡后无任务栏入口找不回窗口
+
+### 01:05 | Antigravity
+
+- done: Implement shortcut window size constraints (320x480), window pinning toggle, and icon updates
+- modified:
+  - `src/main/webviewManager.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/preload/index.d.ts`
+  - `src/renderer/src/pages/QuickPage.tsx`
+
+### 00:59 | Antigravity
+
+- done: Implement dragging functionality for the shortcut window header blank area by integrating WebviewCard onDragStart with QuickPage isDraggingRef
+- modified:
+  - `src/renderer/src/components/WebviewCard.tsx`
+  - `src/renderer/src/pages/QuickPage.tsx`
+
+### 00:56 | Antigravity
+
+- done: Disable quick window auto-hide on blur/loss of focus
+- modified:
+  - `src/main/webviewManager.ts`
+  - `src/main/ipcHandlers.ts`
+  - `docs/superpowers/plans/2026-06-28-disable-quick-window-blur-hide.md`
+
 ### 00:51 | Antigravity
 
 - done: 同步修改主进程中主窗口控件背景色，消除标题栏与渐变背景色差
