@@ -2,6 +2,14 @@
 
 ## 2026-06-27
 
+### 23:48 | Antigravity
+
+- done: Task 1: intercept main window close to hide instead of quit
+- modified:
+  - `src/main/webviewManager.ts`
+  - `src/main/index.ts`
+  - `CHANGELOG.md`
+
 ### 23:45 | Antigravity
 
 - done: Clean up obsolete BrowserPage legacy component and associated routing/state

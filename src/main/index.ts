@@ -8,7 +8,7 @@ import { tmpdir } from 'os'
 import Store from 'electron-store'
 import { initAgentPrompts } from './agentPrompts'
 import { registerIpcHandlers } from './ipcHandlers'
-import { createWindow, getMainWindow, openBrowserWindowInternal } from './webviewManager'
+import { createWindow, getMainWindow, openBrowserWindowInternal, setQuitting } from './webviewManager'
 
 // ============ 便携模式支持 ============
 
@@ -131,11 +131,12 @@ app.whenReady().then(() => {
   })
 })
 
-// 所有窗口关闭时退出应用 (macOS 除外)
-app.on('window-all-closed', () => {
-  // 注销所有全局快捷键
+app.on('before-quit', () => {
+  setQuitting(true)
   globalShortcut.unregisterAll()
-  if (process.platform !== 'darwin') {
-    app.quit()
-  }
+})
+
+// 所有窗口关闭时不再直接退出应用（让应用保留在系统托盘/后台运行）
+app.on('window-all-closed', () => {
+  globalShortcut.unregisterAll()
 })

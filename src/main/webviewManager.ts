@@ -14,6 +14,10 @@ import { startAgentPromptsWatcher } from './agentPrompts'
 let mainWindow: BrowserWindow | null = null
 const browserWindows = new Set<BrowserWindow>()
 
+let isQuitting = false
+export function setQuitting(v: boolean): void { isQuitting = v }
+export function getIsQuitting(): boolean { return isQuitting }
+
 export function getMainWindow(): BrowserWindow | null {
     return mainWindow
 }
@@ -282,6 +286,13 @@ export function createWindow(): void {
     mainWindow.on('ready-to-show', () => {
         console.log('[Main] ready-to-show fired')
         mainWindow?.show()
+    })
+
+    mainWindow.on('close', (e) => {
+        if (!isQuitting) {
+            e.preventDefault()
+            mainWindow?.hide()
+        }
     })
 
     // 捕获 Renderer 的控制台日志，以便在终端中排查黑屏报错
