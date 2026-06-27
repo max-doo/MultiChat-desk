@@ -27,6 +27,10 @@ const api = {
   trayHideMain: () => ipcRenderer.invoke('tray:hide-main'),
   trayQuitApp: () => ipcRenderer.invoke('tray:quit-app'),
 
+  // 快捷弹窗控制
+  quickShow: (opts?: { focus?: boolean }) => ipcRenderer.invoke('quick:show', opts),
+  quickHide: () => ipcRenderer.invoke('quick:hide'),
+
   // 文件操作
   selectFile: (): Promise<string | null> => ipcRenderer.invoke('select-file'),
   selectDirectory: (): Promise<string | null> => ipcRenderer.invoke('select-directory'),

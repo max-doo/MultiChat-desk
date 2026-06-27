@@ -9,7 +9,7 @@ import { stat, writeFile, mkdtemp } from 'fs/promises'
 import { tmpdir } from 'os'
 import type Store from 'electron-store'
 import { generateSummary, fetchModels } from './api/summaryApi'
-import { setQuitting } from './webviewManager'
+import { setQuitting, getQuickWindow } from './webviewManager'
 import {
     listAgentPrompts,
     bootstrapAgentPrompts,
@@ -47,6 +47,17 @@ export function registerIpcHandlers(
     ipcMain.handle('tray:quit-app', () => {
         setQuitting(true)
         app.quit()
+        return { success: true }
+    })
+    ipcMain.handle('quick:show', (_e, opts?: { focus?: boolean }) => {
+        const qw = getQuickWindow()
+        if (!qw) return { success: false, error: 'Quick Window not initialized' }
+        qw.show()
+        if (opts?.focus !== false) qw.focus()
+        return { success: true }
+    })
+    ipcMain.handle('quick:hide', () => {
+        getQuickWindow()?.hide()
         return { success: true }
     })
 

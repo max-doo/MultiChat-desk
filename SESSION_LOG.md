@@ -2,6 +2,17 @@
 
 ## 2026-06-27
 
+### 23:55 | Antigravity
+
+- done: Task 3: quick window lifecycle and global summon shortcut
+- modified:
+  - `src/main/webviewManager.ts`
+  - `src/main/index.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/preload/index.d.ts`
+  - `CHANGELOG.md`
+
 ### 23:52 | Antigravity
 
 - done: Task 2: system tray with show/hide/quit menu

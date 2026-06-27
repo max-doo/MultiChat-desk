@@ -13,6 +13,8 @@ import { startAgentPromptsWatcher } from './agentPrompts'
 
 // 主窗口引用
 let mainWindow: BrowserWindow | null = null
+let quickWindow: BrowserWindow | null = null
+export function getQuickWindow(): BrowserWindow | null { return quickWindow }
 const browserWindows = new Set<BrowserWindow>()
 
 let tray: Tray | null = null
@@ -127,7 +129,11 @@ export function createTray(): void {
 
     const contextMenu = Menu.buildFromTemplate([
         { label: '显示主界面', click: () => { mainWindow?.show(); mainWindow?.focus() } },
-        { label: '召唤快捷弹窗', click: () => { console.log('quick window not yet implemented') } },
+        { label: '召唤快捷弹窗', click: () => {
+            const qw = getQuickWindow()
+            if (!qw) return
+            qw.show(); qw.focus()
+        } },
         { type: 'separator' },
         { label: '退出', click: () => { setQuitting(true); app.quit() } }
     ])
@@ -589,6 +595,61 @@ export function createWindow(): void {
             return { action: 'deny' }
         })
     })
+}
+
+// ============ 快捷弹窗创建 ============
+
+export function createQuickWindow(): void {
+    if (quickWindow) return
+    quickWindow = new BrowserWindow({
+        width: 800,
+        height: 600,
+        show: false,
+        frame: false,
+        alwaysOnTop: true,
+        skipTaskbar: true,
+        backgroundColor: '#ffffff',
+        icon: getWindowIcon(),
+        webPreferences: {
+            preload: join(__dirname, '../preload/index.js'),
+            sandbox: false,
+            contextIsolation: true,
+            nodeIntegration: false,
+            webviewTag: true,
+            partition: 'persist:shared'
+        }
+    })
+
+    // 失焦隐藏：用延迟 + 焦点检查，避免 webview 内部点击触发 blur 导致意外隐藏
+    let blurHideTimeout: ReturnType<typeof setTimeout> | null = null
+
+    quickWindow.on('blur', () => {
+        blurHideTimeout = setTimeout(() => {
+            // 检查焦点是否仍在本 app 的任意 webContents（含 webview 子进程）
+            const allWindows = BrowserWindow.getAllWindows()
+            const anyFocused = allWindows.some(w => w.isFocused() || w.webContents.isFocused())
+            if (!anyFocused && quickWindow && !quickWindow.isDestroyed()) {
+                quickWindow.hide()
+            }
+        }, 150)
+    })
+
+    quickWindow.on('focus', () => {
+        if (blurHideTimeout) { clearTimeout(blurHideTimeout); blurHideTimeout = null }
+    })
+
+    quickWindow.on('close', (e) => {
+        if (!isQuitting) { e.preventDefault(); quickWindow?.hide() }
+    })
+
+    quickWindow.on('closed', () => { quickWindow = null })
+
+    const hash = 'quick'
+    if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+        void quickWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/#${hash}`)
+    } else {
+        void quickWindow.loadFile(join(__dirname, '../renderer/index.html'), { hash })
+    }
 }
 
 // ============ 上下文菜单 ============

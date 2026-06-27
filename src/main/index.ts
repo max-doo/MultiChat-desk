@@ -8,7 +8,7 @@ import { tmpdir } from 'os'
 import Store from 'electron-store'
 import { initAgentPrompts } from './agentPrompts'
 import { registerIpcHandlers } from './ipcHandlers'
-import { createWindow, getMainWindow, openBrowserWindowInternal, setQuitting, createTray, destroyTray } from './webviewManager'
+import { createWindow, getMainWindow, openBrowserWindowInternal, setQuitting, createTray, destroyTray, createQuickWindow, getQuickWindow } from './webviewManager'
 
 // ============ 便携模式支持 ============
 
@@ -113,6 +113,7 @@ app.whenReady().then(() => {
 
   // 创建主窗口
   createWindow()
+  createQuickWindow()
   createTray()
 
   // 注册刷新快捷键 (Ctrl+R / Cmd+R / F5)
@@ -126,6 +127,16 @@ app.whenReady().then(() => {
       }
     })
   })
+
+  // 召唤 Quick Window
+  const summonAccelerator = 'CommandOrControl+Shift+Space'
+  const summonOk = globalShortcut.register(summonAccelerator, () => {
+    const qw = getQuickWindow()
+    if (!qw) return
+    if (qw.isVisible()) qw.hide()
+    else { qw.show(); qw.focus() }
+  })
+  if (!summonOk) console.warn(`[Main] 召唤快捷键注册失败: ${summonAccelerator}`)
 
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

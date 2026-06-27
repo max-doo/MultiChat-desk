@@ -32,6 +32,8 @@ declare global {
       trayShowMain: () => Promise<{ success: boolean; error?: string }>
       trayHideMain: () => Promise<{ success: boolean; error?: string }>
       trayQuitApp: () => Promise<{ success: boolean; error?: string }>
+      quickShow: (opts?: { focus?: boolean }) => Promise<{ success: boolean; error?: string }>
+      quickHide: () => Promise<{ success: boolean; error?: string }>
       selectFile: () => Promise<string | null>
       selectDirectory: () => Promise<string | null>
       getFileInfo: (filePath: string) => Promise<GetFileInfoResult>
