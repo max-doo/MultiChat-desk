@@ -1,9 +1,8 @@
 import { type CSSProperties, type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import WebviewCard, { WebviewCardRef } from '../components/WebviewCard'
 import ControlBar, { ControlBarRef } from '../components/ControlBar'
-import SettingsDrawer from '../components/SettingsDrawer'
 import HistoryDrawer from '../components/HistoryDrawer'
-import { useAppStore, SummaryHistoryItem } from '../store/appStore'
+import { useAppStore, getDisplayedModels, SummaryHistoryItem } from '../store/appStore'
 
 interface MainPageProps {
   onNavigateToSummary: (historyItem?: SummaryHistoryItem) => void
@@ -15,8 +14,8 @@ interface MainPageProps {
  * 包含 Webview 卡片、控制栏和抽屉组件
  */
 function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element {
-  const [settingsOpen, setSettingsOpen] = useState(false)
-  const [historyOpen, setHistoryOpen] = useState(false)
+  const isHistoryOpen = useAppStore((state) => state.isHistoryOpen)
+  const setHistoryOpen = useAppStore((state) => state.setHistoryOpen)
   const [activeHistoryId, setActiveHistoryId] = useState<string | undefined>(undefined)
   const [containerWidth, setContainerWidth] = useState(0)
   const [isResizing, setIsResizing] = useState(false)
@@ -24,6 +23,8 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
 
   const models = useAppStore((state) => state.models)
   const displayMode = useAppStore((state) => state.displayMode)
+  const productMode = useAppStore((state) => state.productMode)
+  const taskAssignmentSlots = useAppStore((state) => state.taskAssignmentSlots)
   const registerWebviewRef = useAppStore((state) => state.registerWebviewRef)
   const reorderModels = useAppStore((state) => state.reorderModels)
   const getAllResponses = useAppStore((state) => state.getAllResponses)
@@ -51,16 +52,17 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
   // 为每个模型创建 ref
   const webviewRefs = useRef<Map<string, WebviewCardRef>>(new Map())
 
-  // 注册 webview ref 的回调 - 使用 useCallback 避免重复创建
-  const createRefCallback = useCallback((id: string) => (ref: WebviewCardRef | null) => {
+  // 注册 webview ref 的回调 - 增加 slotIndex
+  const createRefCallback = useCallback((id: string, slotIndex: number) => (ref: WebviewCardRef | null) => {
+    const slotKey = `slot-${slotIndex}`
     if (ref) {
+      webviewRefs.current.set(slotKey, ref)
       webviewRefs.current.set(id, ref)
+      registerWebviewRef(slotKey, ref)
       registerWebviewRef(id, ref)
-      console.log(`[MainPage] 注册 webview ref: ${id}`)
     } else {
-      // 当 ref 变为 null 时，从本地 Map 中移除（但不调用 unregisterWebviewRef，避免无限循环）
+      webviewRefs.current.delete(slotKey)
       webviewRefs.current.delete(id)
-      console.log(`[MainPage] 移除 webview ref: ${id}`)
     }
   }, [registerWebviewRef])
 
@@ -132,36 +134,23 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
     }
   }
 
-  // 根据显示模式决定网格列数和显示的模型数量
-  let displayCount: number
-
-  // 说明：
-  // - one  : 单列大窗口
-  // - two  : 两列布局
-  // - three: 三列布局（默认）
-  // - four : 四窗口田字格（2x2）
-  switch (displayMode) {
-    case 'one':
-      displayCount = 1
-      break
-    case 'two':
-      displayCount = 2
-      break
-    case 'four':
-      displayCount = 4
-      break
-    case 'three':
-    default:
-      displayCount = 3
-      break
-  }
-
-  // 获取要显示的模型（按排序取前几个）
-  const displayedModels = models.slice(0, displayCount)
-
-  const paneCount = displayMode === 'four' ? 2 : displayedModels.length
+  // 获取要显示的模型列表
+  const displayedModels = useMemo(() => {
+    return getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots)
+  }, [models, displayMode, productMode, taskAssignmentSlots])
 
   const gutterWidthPx = 16
+  const MIN_PANE_WIDTH = 320
+  
+  // 估计容器宽度，未初始化时使用 window.innerWidth 估算
+  const estimatedContainerWidth = containerWidth || (window.innerWidth - 48)
+  
+  // 判断四个窗口时是否需要田字格布局：四个窗口并排的平均宽度小于最小宽度
+  const useGridForFour = displayMode === 'four' && 
+    ((estimatedContainerWidth - 3 * gutterWidthPx) / 4 < MIN_PANE_WIDTH)
+
+  const paneCount = useGridForFour ? 2 : displayedModels.length
+
   const availableWidth = useMemo(() => {
     if (paneCount <= 1) return 0
     const width = Math.max(0, containerWidth - (paneCount - 1) * gutterWidthPx)
@@ -229,7 +218,7 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
     const startLeftPx = ratios[gutterIndex] * available
     const startRightPx = ratios[gutterIndex + 1] * available
     const totalPx = startLeftPx + startRightPx
-    const mobileMinPx = 360
+    const mobileMinPx = 320
     const minPx = Math.min(mobileMinPx, Math.floor(totalPx / 2))
 
     dragRef.current = {
@@ -316,8 +305,8 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
         {displayMode === 'one' && displayedModels[0] && (
           <div className="w-full h-full">
             <WebviewCard
-              key={displayedModels[0].id}
-              ref={createRefCallback(displayedModels[0].id)}
+              key={`slot-0-${displayedModels[0].id}`}
+              ref={createRefCallback(displayedModels[0].id, 0)}
               id={displayedModels[0].id}
               name={displayedModels[0].name}
               url={displayedModels[0].url}
@@ -328,12 +317,12 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
           </div>
         )}
 
-        {displayMode !== 'one' && displayMode !== 'four' && (
+        {displayMode !== 'one' && !useGridForFour && (
           <div className="flex w-full min-h-full items-stretch">
             {displayedModels.map((model, index) => (
-              <div key={model.id} className="min-w-0" style={paneStyle(index)}>
+              <div key={`slot-${index}-${model.id}`} className="min-w-0" style={paneStyle(index)}>
                 <WebviewCard
-                  ref={createRefCallback(model.id)}
+                  ref={createRefCallback(model.id, index)}
                   id={model.id}
                   name={model.name}
                   url={model.url}
@@ -350,14 +339,14 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
           </div>
         )}
 
-        {displayMode === 'four' && (
+        {useGridForFour && (
           <div className="flex w-full min-h-full items-stretch">
             <div className="min-w-0" style={paneStyle(0)}>
               <div className="grid grid-rows-[minmax(480px,1fr)_minmax(480px,1fr)] gap-4 min-h-full">
                 {displayedModels[0] && (
                   <WebviewCard
-                    key={displayedModels[0].id}
-                    ref={createRefCallback(displayedModels[0].id)}
+                    key={`slot-0-${displayedModels[0].id}`}
+                    ref={createRefCallback(displayedModels[0].id, 0)}
                     id={displayedModels[0].id}
                     name={displayedModels[0].name}
                     url={displayedModels[0].url}
@@ -368,8 +357,8 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
                 )}
                 {displayedModels[2] && (
                   <WebviewCard
-                    key={displayedModels[2].id}
-                    ref={createRefCallback(displayedModels[2].id)}
+                    key={`slot-2-${displayedModels[2].id}`}
+                    ref={createRefCallback(displayedModels[2].id, 2)}
                     id={displayedModels[2].id}
                     name={displayedModels[2].name}
                     url={displayedModels[2].url}
@@ -387,8 +376,8 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
               <div className="grid grid-rows-[minmax(480px,1fr)_minmax(480px,1fr)] gap-4 min-h-full">
                 {displayedModels[1] && (
                   <WebviewCard
-                    key={displayedModels[1].id}
-                    ref={createRefCallback(displayedModels[1].id)}
+                    key={`slot-1-${displayedModels[1].id}`}
+                    ref={createRefCallback(displayedModels[1].id, 1)}
                     id={displayedModels[1].id}
                     name={displayedModels[1].name}
                     url={displayedModels[1].url}
@@ -399,8 +388,8 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
                 )}
                 {displayedModels[3] && (
                   <WebviewCard
-                    key={displayedModels[3].id}
-                    ref={createRefCallback(displayedModels[3].id)}
+                    key={`slot-3-${displayedModels[3].id}`}
+                    ref={createRefCallback(displayedModels[3].id, 3)}
                     id={displayedModels[3].id}
                     name={displayedModels[3].name}
                     url={displayedModels[3].url}
@@ -419,21 +408,13 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
       <div className="px-4 pb-4 sm:px-6 sm:pb-6 bg-transparent">
         <ControlBar
           ref={controlBarRef}
-          onOpenSettings={() => setSettingsOpen(true)}
-          onOpenHistory={() => setHistoryOpen(true)}
           onGenerateReport={handleGenerateReport}
         />
       </div>
 
-      {/* 设置抽屉 */}
-      <SettingsDrawer
-        isOpen={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-      />
-
       {/* 历史记录抽屉 */}
       <HistoryDrawer
-        isOpen={historyOpen}
+        isOpen={isHistoryOpen && isActive}
         onClose={() => setHistoryOpen(false)}
         activeHistoryId={activeHistoryId}
         onSelectHistory={(item) => {

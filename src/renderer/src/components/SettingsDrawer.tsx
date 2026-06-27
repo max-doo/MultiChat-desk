@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react'
-import { useAppStore, DEFAULT_MODEL_ORDER, DEEP_RESEARCH_SUPPORTED_MODEL_IDS, type AgentPrompt, type SummaryModel, type ApiProvider } from '../store/appStore'
+import { useAppStore, type AgentPrompt, type SummaryModel, type ApiProvider } from '../store/appStore'
 import logo from '../assets/logo.svg'
 import CustomDropdown, { type DropdownOption } from './CustomDropdown'
 import ConfirmModal from './ConfirmModal'
@@ -427,11 +427,7 @@ function ModelEditorModal({ isOpen, onClose, models, onSave, providers }: ModelE
  * 从左侧滑出，包含显示模式、API 配置、文件目录等设置
  */
 function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
-  const { displayMode, setDisplayMode, resetPaneRatios, models, apiConfig, setApiConfig, reorderModels, summaryModels, setSummaryModels } = useAppStore()
-
-  // 拖拽状态
-  const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
-  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
+  const { apiConfig, setApiConfig, summaryModels, setSummaryModels } = useAppStore()
 
   // 弹窗状态
   const [promptEditorOpen, setPromptEditorOpen] = useState(false)
@@ -471,44 +467,7 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
   // 获取供应商列表
   const providers = apiConfig.providers || []
 
-  // 处理拖拽开始
-  const handleDragStart = useCallback((index: number) => {
-    setDraggedIndex(index)
-  }, [])
 
-  // 处理拖拽经过
-  const handleDragOver = useCallback((e: React.DragEvent, index: number) => {
-    e.preventDefault()
-    setDragOverIndex(index)
-  }, [])
-
-  // 处理放置
-  const handleDrop = useCallback((targetIndex: number) => {
-    if (draggedIndex === null || draggedIndex === targetIndex) {
-      setDraggedIndex(null)
-      setDragOverIndex(null)
-      return
-    }
-
-    // 重新排序
-    const newOrder = [...models.map(m => m.id)]
-    const [draggedId] = newOrder.splice(draggedIndex, 1)
-    newOrder.splice(targetIndex, 0, draggedId)
-    reorderModels(newOrder)
-
-    setDraggedIndex(null)
-    setDragOverIndex(null)
-  }, [draggedIndex, models, reorderModels])
-
-  // 处理拖拽结束
-  const handleDragEnd = useCallback(() => {
-    setDraggedIndex(null)
-    setDragOverIndex(null)
-  }, [])
-
-  const handleRestoreDefaultModelOrder = useCallback(() => {
-    reorderModels(DEFAULT_MODEL_ORDER)
-  }, [reorderModels])
 
   // 处理选择导出目录
   const handleSelectDirectory = async (): Promise<void> => {
@@ -689,6 +648,7 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
       <div
         className={`fixed inset-0 overlay z-40 transition-opacity duration-200 ${isOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
           }`}
+        style={{ WebkitAppRegion: 'no-drag' } as any}
         onClick={isOpen ? onClose : undefined}
       />
 
@@ -696,6 +656,7 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
       <div
         className={`fixed left-0 top-0 bottom-0 w-[500px] glass-panel-heavy border-r border-white/40 z-50 flex flex-col transform transition-all duration-300 ease-in-out ${isOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full shadow-none'
           }`}
+        style={{ WebkitAppRegion: 'no-drag' } as any}
       >
         {/* 头部 */}
         <div className="flex items-center justify-between p-4 border-b border-white/40">
@@ -710,39 +671,7 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
 
         {/* 设置内容：可滚动区域 */}
         <div className="flex-1 p-6 space-y-8 overflow-y-auto">
-          {/* 显示模式 */}
-          <div>
-            <div className="flex items-center justify-between gap-4">
-              <span className="text-text-secondary font-medium whitespace-nowrap">窗口布局</span>
-              <div className="flex items-center gap-2">
-                {/* 模式按钮逻辑保持不变 */}
-                {['one', 'two', 'three', 'four'].map(mode => (
-                  <button
-                    key={mode}
-                    type="button"
-                    onClick={() => setDisplayMode(mode as any)}
-                    className={`w-9 h-7 flex flex-col items-center justify-center rounded-md border transition-colors ${displayMode === mode
-                        ? 'bg-primary text-white border-primary'
-                        : 'bg-sidebar border-gray-200 text-text-secondary hover:bg-gray-100'
-                      }`}
-                  >
-                    <div className={`w-6 h-3.5 border border-current rounded-sm ${mode === 'four' ? 'grid grid-cols-2 grid-rows-2' : mode === 'two' ? 'flex' : mode === 'three' ? 'flex' : ''}`}>
-                      {mode === 'two' && <><div className="flex-1 border-r border-current" /><div className="flex-1" /></>}
-                      {mode === 'three' && <><div className="flex-1 border-r border-current" /><div className="flex-1 border-r border-current" /><div className="flex-1" /></>}
-                      {mode === 'four' && <><div className="border-r border-b border-current" /><div className="border-b border-current" /><div className="border-r border-current" /><div /></>}
-                    </div>
-                  </button>
-                ))}
-                <button
-                  type="button"
-                  onClick={resetPaneRatios}
-                  className="ml-2 px-2 h-7 rounded-md border border-gray-200 bg-sidebar text-text-secondary hover:bg-gray-100 transition-colors text-xs"
-                >
-                  重置占比
-                </button>
-              </div>
-            </div>
-          </div>
+
 
           {/* 总结 Agent 配置 */}
           <div>
@@ -944,52 +873,6 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
             </div>
           </div>
 
-          {/* 可用模型排序逻辑保持不变 */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="font-medium text-text-secondary">模型排序 (主界面)</h3>
-              <button
-                type="button"
-                onClick={handleRestoreDefaultModelOrder}
-                className="px-2 h-7 rounded-md border border-gray-200 bg-sidebar text-text-secondary hover:bg-gray-100 transition-colors text-xs"
-              >
-                恢复默认
-              </button>
-            </div>
-            <p className="text-sm text-gray-500 mb-4">拖拽调整主界面 Webview 的显示顺序</p>
-            <div className="p-4 rounded-lg bg-sidebar/50 border border-gray-200">
-              <div className="space-y-1">
-                {models.map((model, index) => {
-                  const displayCount = displayMode === 'one' ? 1 : displayMode === 'two' ? 2 : displayMode === 'four' ? 4 : 3
-                  const isDisplayed = index < displayCount
-                  return (
-                    <div
-                      key={model.id}
-                      draggable
-                      onDragStart={() => handleDragStart(index)}
-                      onDragOver={(e) => handleDragOver(e, index)}
-                      onDrop={() => handleDrop(index)}
-                      onDragEnd={handleDragEnd}
-                      className={`flex items-center justify-between py-2 px-3 rounded-lg cursor-move transition-all ${draggedIndex === index ? 'opacity-50 bg-gray-100' : dragOverIndex === index ? 'bg-primary/20 border border-primary/50' : 'hover:bg-gray-100/50'
-                        } ${isDisplayed ? 'border-l-2 border-l-primary' : ''}`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <span className="material-symbols-outlined text-gray-500 text-base">drag_indicator</span>
-                        <span className={`w-5 h-5 rounded-full text-xs flex items-center justify-center ${isDisplayed ? 'bg-primary text-white font-medium' : 'bg-gray-100 text-text-secondary'}`}>
-                          {index + 1}
-                        </span>
-                        <img src={model.logo} alt={model.name} className="w-5 h-5" />
-                        <span className="text-text-secondary text-sm">{model.name}</span>
-                        {DEEP_RESEARCH_SUPPORTED_MODEL_IDS.has(model.id) && (
-                          <span className="text-[10px] text-primary px-1.5 py-0.5 bg-primary/10 rounded">深度研究</span>
-                        )}
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          </div>
         </div>
 
         {/* 底部固定区域 */}

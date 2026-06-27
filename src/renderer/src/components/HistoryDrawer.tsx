@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Virtuoso } from 'react-virtuoso'
-import { useAppStore, HistoryItem, SummaryHistoryItem, ModelConfig } from '../store/appStore'
+import { useAppStore, HistoryItem, SummaryHistoryItem } from '../store/appStore'
 import ConfirmModal from './ConfirmModal'
 import RenameModal from './RenameModal'
 
@@ -126,6 +126,7 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
       <div
         className={`fixed inset-0 overlay z-40 transition-opacity duration-200 ${isOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
           }`}
+        style={{ WebkitAppRegion: 'no-drag' } as any}
         onClick={isOpen ? onClose : undefined}
       />
       <RenameModal
@@ -149,6 +150,7 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
           className={`fixed left-0 top-0 bottom-0 w-[400px] glass-panel-heavy border-r border-white/40 z-50 flex flex-col transform transition-all duration-300 ease-in-out ${
             isOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full shadow-none'
           }`}
+          style={{ WebkitAppRegion: 'no-drag' } as any}
           onClick={e => e.stopPropagation()}
         >
           {/* 头部 */}

@@ -134,6 +134,9 @@ export interface SendResult {
   error?: string
 }
 
+// 产品模式类型：多AI（默认）、任务分配（支持多个窗口选择同一AI）、辩论（目前支持2个AI）
+export type ProductMode = 'multi_ai' | 'task_assignment' | 'debate'
+
 // 显示模式类型：单列、双列、三列、四窗口（田字格）
 export type DisplayMode = 'one' | 'two' | 'three' | 'four'
 
@@ -160,6 +163,14 @@ interface MonitorState {
 
 // 应用状态类型
 interface AppState {
+  // 产品运行模式
+  productMode: ProductMode
+  setProductMode: (mode: ProductMode) => void
+
+  // 任务分配模式下的各个槽位选中的模型 ID 列表
+  taskAssignmentSlots: string[]
+  setTaskAssignmentSlot: (slotIndex: number, modelId: string) => void
+
   // 显示模式：单列、双列、三列、四窗口（田字格）
   displayMode: DisplayMode
   setDisplayMode: (mode: DisplayMode) => void
@@ -250,23 +261,46 @@ interface AppState {
   isNewSession: boolean
   setNewSession: (isNew: boolean) => void
 
+  // UI 抽屉状态
+  isSettingsOpen: boolean
+  setSettingsOpen: (open: boolean) => void
+  isHistoryOpen: boolean
+  setHistoryOpen: (open: boolean) => void
+
   // 一次性导航数据：从主界面进入总结页时携带，消费后立即清空
   pendingSummarySession: SummarySessionInit | null
   setPendingSummarySession: (data: SummarySessionInit | null) => void
 }
 
 /**
- * 根据显示模式获取要显示的模型列表
+ * 根据显示模式和产品运行模式获取要显示的模型列表
  */
-export function getDisplayedModels(models: ModelConfig[], displayMode: DisplayMode): ModelConfig[] {
+export function getDisplayedModels(
+  models: ModelConfig[],
+  displayMode: DisplayMode,
+  productMode?: ProductMode,
+  taskAssignmentSlots?: string[]
+): ModelConfig[] {
   let displayCount: number
-  switch (displayMode) {
-    case 'one': displayCount = 1; break
-    case 'two': displayCount = 2; break
-    case 'four': displayCount = 4; break
-    case 'three':
-    default: displayCount = 3; break
+  if (productMode === 'debate') {
+    displayCount = 2
+  } else {
+    switch (displayMode) {
+      case 'one': displayCount = 1; break
+      case 'two': displayCount = 2; break
+      case 'four': displayCount = 4; break
+      case 'three':
+      default: displayCount = 3; break
+    }
   }
+
+  if (productMode === 'task_assignment' && taskAssignmentSlots) {
+    return Array.from({ length: displayCount }, (_, index) => {
+      const slotId = taskAssignmentSlots[index]
+      return models.find(m => m.id === slotId) || models[index % models.length]
+    })
+  }
+
   return models.slice(0, displayCount)
 }
 
@@ -277,7 +311,8 @@ export const DEEP_RESEARCH_SUPPORTED_MODEL_IDS = new Set([
   'perplexity',
   'chatglm',
   'qwen',
-  'doubao'
+  'doubao',
+  'deepseek'
 ])
 
 export const DEEP_RESEARCH_UNSUPPORTED_ERROR = '此模型不支持深度研究'
@@ -298,18 +333,19 @@ export const IMAGE_GENERATION_UNSUPPORTED_ERROR = '此模型不支持 AI 生图'
 
 // 默认模型配置
 const defaultModels: ModelConfig[] = [
+  { id: 'chatgpt', name: 'ChatGPT', url: 'https://chatgpt.com', logo: 'https://cdn.oaistatic.com/assets/favicon-o20kmmos.svg', enabled: true },
   { id: 'gemini', name: 'Gemini', url: 'https://gemini.google.com/app', logo: 'https://www.gstatic.com/lamda/images/gemini_favicon_f069958c85030456e93de685481c559f160ea06b.png', enabled: true },
-  { id: 'grok', name: 'Grok', url: 'https://grok.com', logo: 'https://registry.npmmirror.com/@lobehub/icons-static-png/1.74.0/files/dark/grok.png', enabled: true },
-  { id: 'chatgpt', name: 'ChatGPT', url: 'https://chatgpt.com', logo: 'https://cdn.oaistatic.com/assets/favicon-o20kmmos.svg', enabled: false },
+  { id: 'grok', name: 'Grok', url: 'https://grok.com', logo: 'https://cdn.jsdelivr.net/npm/@lobehub/icons-static-png/light/grok.png', enabled: true },
+  { id: 'claude', name: 'Claude', url: 'https://claude.ai', logo: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="%23d97757"><path d="m19.6 66.5 19.7-11 .3-1-.3-.5h-1l-3.3-.2-11.2-.3L14 53l-9.5-.5-2.4-.5L0 49l.2-1.5 2-1.3 2.9.2 6.3.5 9.5.6 6.9.4L38 49.1h1.6l.2-.7-.5-.4-.4-.4L29 41l-10.6-7-5.6-4.1-3-2-1.5-2-.6-4.2 2.7-3 3.7.3.9.2 3.7 2.9 8 6.1L37 36l1.5 1.2.6-.4.1-.3-.7-1.1L33 25l-6-10.4-2.7-4.3-.7-2.6c-.3-1-.4-2-.4-3l3-4.2L28 0l4.2.6L33.8 2l2.6 6 4.1 9.3L47 29.9l2 3.8 1 3.4.3 1h.7v-.5l.5-7.2 1-8.7 1-11.2.3-3.2 1.6-3.8 3-2L61 2.6l2 2.9-.3 1.8-1.1 7.7L59 27.1l-1.5 8.2h.9l1-1.1 4.1-5.4 6.9-8.6 3-3.5L77 13l2.3-1.8h4.3l3.1 4.7-1.4 4.9-4.4 5.6-3.7 4.7-5.3 7.1-3.2 5.7.3.4h.7l12-2.6 6.4-1.1 7.6-1.3 3.5 1.6.4 1.6-1.4 3.4-8.2 2-9.6 2-14.3 3.3-.2.1.2.3 6.4.6 2.8.2h6.8l12.6 1 3.3 2 1.9 2.7-.3 2-5.1 2.6-6.8-1.6-16-3.8-5.4-1.3h-.8v.4l4.6 4.5 8.3 7.5L89 80.1l.5 2.4-1.3 2-1.4-.2-9.2-7-3.6-3-8-6.8h-.5v.7l1.8 2.7 9.8 14.7.5 4.5-.7 1.4-2.6 1-2.7-.6-5.8-8-6-9-4.7-8.2-.5.4-2.9 30.2-1.3 1.5-3 1.2-2.5-2-1.4-3 1.4-6.2 1.6-8 1.3-6.4 1.2-7.9.7-2.6v-.2H49L43 72l-9 12.3-7.2 7.6-1.7.7-3-1.5.3-2.8L24 86l10-12.8 6-7.9 4-4.6-.1-.5h-.3L17.2 77.4l-4.7.6-2-2 .2-3 1-1 8-5.5Z"></path></svg>', enabled: false },
   { id: 'perplexity', name: 'Perplexity', url: 'https://www.perplexity.ai/', logo: 'https://cdn-avatars.huggingface.co/v1/production/uploads/64b89bf66b5ee8c38859cbd6/l_27fD52uFMZUXdFdY9fR.png', enabled: false },
-  { id: 'claude', name: 'Claude', url: 'https://claude.ai', logo: 'https://www.anthropic.com/images/icons/apple-touch-icon.png', enabled: true },
-  { id: 'qwen', name: '通义千问', url: 'https://tongyi.aliyun.com/qianwen', logo: 'https://img.alicdn.com/imgextra/i3/O1CN01utrBy31Tu1t8oOgUy_!!6000000002441-55-tps-32-32.svg', enabled: false },
+  { id: 'arena', name: 'Arena', url: 'https://arena.ai/', logo: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABwAAAAcCAAAAABXZoBIAAAAp0lEQVR4AdWSLwjEIBSH7Xm9l/WyaGdlzWIXLphWbOvtFatRLiy/ZjILdjAJ9uod3LG5O1gc7OO1j/eHH4/UE24oM+HsACd572TosMEha8YW7L3b8D2WdudK5WND0rU9KKgIGr5oiCo2EsKAquSU31UUDgEOnRaNpHWaKpUGrQrtTjt2SVi/LN6I1I3PnxBMFOYjo/lLSO9SXyUhcO3m2Wke4K4/dMIL1Ne5UmnGphQAAAAASUVORK5CYII=', enabled: false },
   { id: 'doubao', name: '豆包', url: 'https://www.doubao.com/chat', logo: 'https://lf-flow-web-cdn.doubao.com/obj/flow-doubao/doubao/logo-doubao-overflow.png', enabled: false },
-  { id: 'chatglm', name: '智谱清言', url: 'https://chatglm.cn/main/alltoolsdetail?lang=zh', logo: 'https://chatglm.cn/favicon.ico', enabled: false },
   { id: 'yuanbao', name: '元宝', url: 'https://yuanbao.tencent.com/chat', logo: 'https://cdn-bot.hunyuan.tencent.com/logo.png', enabled: false },
+  { id: 'qwen', name: '通义千问', url: 'https://tongyi.aliyun.com/qianwen', logo: 'https://img.alicdn.com/imgextra/i3/O1CN01utrBy31Tu1t8oOgUy_!!6000000002441-55-tps-32-32.svg', enabled: false },
+  { id: 'deepseek', name: 'DeepSeek', url: 'https://chat.deepseek.com', logo: 'https://registry.npmmirror.com/@lobehub/icons-static-png/latest/files/dark/deepseek-color.png', enabled: false },
   { id: 'kimi', name: 'Kimi', url: 'https://kimi.moonshot.cn', logo: 'https://statics.moonshot.cn/kimi-chat/favicon.ico', enabled: false },
-  { id: 'yiyan', name: '文心一言', url: 'https://yiyan.baidu.com/', logo: 'https://eb-static.cdn.bcebos.com/logo/favicon.ico', enabled: false },
-  { id: 'arena', name: 'Arena', url: 'https://arena.ai/', logo: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABwAAAAcCAAAAABXZoBIAAAAp0lEQVR4AdWSLwjEIBSH7Xm9l/WyaGdlzWIXLphWbOvtFatRLiy/ZjILdjAJ9uod3LG5O1gc7OO1j/eHH4/UE24oM+HsACd572TosMEha8YW7L3b8D2WdudK5WND0rU9KKgIGr5oiCo2EsKAquSU31UUDgEOnRaNpHWaKpUGrQrtTjt2SVi/LN6I1I3PnxBMFOYjo/lLSO9SXyUhcO3m2Wke4K4/dMIL1Ne5UmnGphQAAAAASUVORK5CYII=', enabled: false }
+  { id: 'chatglm', name: '智谱清言', url: 'https://chatglm.cn/main/alltoolsdetail?lang=zh', logo: 'https://chatglm.cn/favicon.ico', enabled: false },
+  { id: 'yiyan', name: '文心一言', url: 'https://chat.baidu.com/', logo: 'https://chat.baidu.com/favicon.ico', enabled: false }
 ]
 
 export const DEFAULT_MODEL_ORDER = defaultModels.map(m => m.id)
@@ -410,6 +446,20 @@ function shouldStartNewConversation(
 
 // 创建状态存储
 export const useAppStore = create<AppState>((set, get) => ({
+  productMode: 'multi_ai',
+  setProductMode: (mode) => {
+    set({ productMode: mode })
+    if (window.api?.storeSet) window.api.storeSet('productMode', mode)
+  },
+
+  taskAssignmentSlots: ['chatgpt', 'gemini', 'grok', 'claude'],
+  setTaskAssignmentSlot: (slotIndex, modelId) => set((state) => {
+    const newSlots = [...state.taskAssignmentSlots]
+    newSlots[slotIndex] = modelId
+    if (window.api?.storeSet) window.api.storeSet('taskAssignmentSlots', newSlots)
+    return { taskAssignmentSlots: newSlots }
+  }),
+
   displayMode: 'three',
   setDisplayMode: (mode) => {
     set({ displayMode: mode, paneRatios: null })
@@ -531,11 +581,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   setTextInserted: (inserted: boolean) => set({ textInserted: inserted }),
 
   insertTextToAll: async (message: string): Promise<SendResult[]> => {
-    const { models, webviewRefs, displayMode } = get()
-    const displayedModels = getDisplayedModels(models, displayMode)
+    const { models, webviewRefs, displayMode, productMode, taskAssignmentSlots } = get()
+    const displayedModels = getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots)
     const results: SendResult[] = []
-    const insertPromises = displayedModels.map(async (model) => {
-      const webviewRef = webviewRefs.get(model.id)
+    const insertPromises = displayedModels.map(async (model, index) => {
+      const webviewRef = webviewRefs.get(`slot-${index}`) || webviewRefs.get(model.id)
       if (!webviewRef) return { modelId: model.id, success: false, error: 'Webview 未注册' }
       try {
         const result = await webviewRef.insertText(message)
@@ -552,11 +602,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   clearInputToAll: async (): Promise<SendResult[]> => {
-    const { models, webviewRefs, displayMode } = get()
-    const displayedModels = getDisplayedModels(models, displayMode)
+    const { models, webviewRefs, displayMode, productMode, taskAssignmentSlots } = get()
+    const displayedModels = getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots)
     const results: SendResult[] = []
-    const clearPromises = displayedModels.map(async (model) => {
-      const webviewRef = webviewRefs.get(model.id)
+    const clearPromises = displayedModels.map(async (model, index) => {
+      const webviewRef = webviewRefs.get(`slot-${index}`) || webviewRefs.get(model.id)
       if (!webviewRef) return { modelId: model.id, success: false, error: 'Webview 未注册' }
       try {
         const result = await webviewRef.clearInput()
@@ -572,12 +622,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   sendMessageToAll: async (message: string): Promise<SendResult[]> => {
-    const { models, webviewRefs, addHistory, updateHistory, history, isNewSession, setNewSession, displayMode } = get()
+    const { models, webviewRefs, addHistory, updateHistory, history, isNewSession, setNewSession, displayMode, productMode, taskAssignmentSlots } = get()
     set({ isSending: true, lastSendResults: [] })
-    const displayedModels = getDisplayedModels(models, displayMode)
+    const displayedModels = getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots)
     const results: SendResult[] = []
-    const sendPromises = displayedModels.map(async (model) => {
-      const webviewRef = webviewRefs.get(model.id)
+    const sendPromises = displayedModels.map(async (model, index) => {
+      const webviewRef = webviewRefs.get(`slot-${index}`) || webviewRefs.get(model.id)
       if (!webviewRef) return { modelId: model.id, success: false, error: 'Webview 未注册' }
       try {
         const result = await webviewRef.sendMessage(message)
@@ -588,7 +638,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     })
     const sendResults = await Promise.all(sendPromises)
     results.push(...sendResults)
-    const successModels = sendResults.filter((r) => r.success).map((r) => r.modelId)
+    const successModels = Array.from(new Set(sendResults.filter((r) => r.success).map((r) => r.modelId)))
 
     if (successModels.length > 0) {
       // 立即获取当前各平台 URL（用于判定新/旧对话）
@@ -749,14 +799,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   uploadProgress: {},
 
   uploadFileToAll: async (fileData: FileUploadData): Promise<SendResult[]> => {
-    const { models, webviewRefs, displayMode } = get()
-    const displayedModels = getDisplayedModels(models, displayMode)
+    const { models, webviewRefs, displayMode, productMode, taskAssignmentSlots } = get()
+    const displayedModels = getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots)
     const results: SendResult[] = []
     const initialProgress: Record<string, 'pending' | 'uploading' | 'success' | 'error'> = {}
     displayedModels.forEach((model) => { initialProgress[model.id] = 'pending' })
     set({ isUploading: true, uploadProgress: initialProgress })
-    const uploadPromises = displayedModels.map(async (model) => {
-      const webviewRef = webviewRefs.get(model.id)
+    const uploadPromises = displayedModels.map(async (model, index) => {
+      const webviewRef = webviewRefs.get(`slot-${index}`) || webviewRefs.get(model.id)
       if (!webviewRef) return { modelId: model.id, success: false, error: 'Webview 未注册' }
       try {
         set((state) => ({ uploadProgress: { ...state.uploadProgress, [model.id]: 'uploading' } }))
@@ -778,14 +828,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   setDeepResearch: (enabled: boolean) => set({ isDeepResearch: enabled }),
 
   enableDeepResearchForAll: async (): Promise<SendResult[]> => {
-    const { models, webviewRefs, displayMode } = get()
-    const displayedModels = getDisplayedModels(models, displayMode)
+    const { models, webviewRefs, displayMode, productMode, taskAssignmentSlots } = get()
+    const displayedModels = getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots)
     const results: SendResult[] = []
-    const enablePromises = displayedModels.map(async (model) => {
+    const enablePromises = displayedModels.map(async (model, index) => {
       if (!DEEP_RESEARCH_SUPPORTED_MODEL_IDS.has(model.id)) {
         return { modelId: model.id, success: false, error: DEEP_RESEARCH_UNSUPPORTED_ERROR }
       }
-      const webviewRef = webviewRefs.get(model.id)
+      const webviewRef = webviewRefs.get(`slot-${index}`) || webviewRefs.get(model.id)
       if (!webviewRef) return { modelId: model.id, success: false, error: 'Webview 未注册' }
       try {
         const result = await webviewRef.enableDeepResearch()
@@ -800,14 +850,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   disableDeepResearchForAll: async (): Promise<SendResult[]> => {
-    const { models, webviewRefs, displayMode } = get()
-    const displayedModels = getDisplayedModels(models, displayMode)
+    const { models, webviewRefs, displayMode, productMode, taskAssignmentSlots } = get()
+    const displayedModels = getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots)
     const results: SendResult[] = []
-    const disablePromises = displayedModels.map(async (model) => {
+    const disablePromises = displayedModels.map(async (model, index) => {
       if (!DEEP_RESEARCH_SUPPORTED_MODEL_IDS.has(model.id)) {
         return { modelId: model.id, success: false, error: DEEP_RESEARCH_UNSUPPORTED_ERROR }
       }
-      const webviewRef = webviewRefs.get(model.id)
+      const webviewRef = webviewRefs.get(`slot-${index}`) || webviewRefs.get(model.id)
       if (!webviewRef) return { modelId: model.id, success: false, error: 'Webview 未注册' }
       try {
         const result = await webviewRef.disableDeepResearch()
@@ -825,14 +875,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   setImageGeneration: (enabled: boolean) => set({ isImageGeneration: enabled }),
 
   enableImageGenerationForAll: async (): Promise<SendResult[]> => {
-    const { models, webviewRefs, displayMode } = get()
-    const displayedModels = getDisplayedModels(models, displayMode)
+    const { models, webviewRefs, displayMode, productMode, taskAssignmentSlots } = get()
+    const displayedModels = getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots)
     const results: SendResult[] = []
-    const enablePromises = displayedModels.map(async (model) => {
+    const enablePromises = displayedModels.map(async (model, index) => {
       if (!IMAGE_GENERATION_SUPPORTED_MODEL_IDS.has(model.id)) {
         return { modelId: model.id, success: false, error: IMAGE_GENERATION_UNSUPPORTED_ERROR }
       }
-      const webviewRef = webviewRefs.get(model.id)
+      const webviewRef = webviewRefs.get(`slot-${index}`) || webviewRefs.get(model.id)
       if (!webviewRef) return { modelId: model.id, success: false, error: 'Webview 未注册' }
       try {
         const result = await webviewRef.enableImageGeneration()
@@ -847,14 +897,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   disableImageGenerationForAll: async (): Promise<SendResult[]> => {
-    const { models, webviewRefs, displayMode } = get()
-    const displayedModels = getDisplayedModels(models, displayMode)
+    const { models, webviewRefs, displayMode, productMode, taskAssignmentSlots } = get()
+    const displayedModels = getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots)
     const results: SendResult[] = []
-    const disablePromises = displayedModels.map(async (model) => {
+    const disablePromises = displayedModels.map(async (model, index) => {
       if (!IMAGE_GENERATION_SUPPORTED_MODEL_IDS.has(model.id)) {
         return { modelId: model.id, success: false, error: IMAGE_GENERATION_UNSUPPORTED_ERROR }
       }
-      const webviewRef = webviewRefs.get(model.id)
+      const webviewRef = webviewRefs.get(`slot-${index}`) || webviewRefs.get(model.id)
       if (!webviewRef) return { modelId: model.id, success: false, error: 'Webview 未注册' }
       try {
         const result = await webviewRef.disableImageGeneration()
@@ -870,6 +920,11 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   isNewSession: true,
   setNewSession: (isNew: boolean) => set({ isNewSession: isNew }),
+
+  isSettingsOpen: false,
+  setSettingsOpen: (open: boolean) => set({ isSettingsOpen: open }),
+  isHistoryOpen: false,
+  setHistoryOpen: (open: boolean) => set({ isHistoryOpen: open }),
 
   pendingSummarySession: null,
   setPendingSummarySession: (data: SummarySessionInit | null) => set({ pendingSummarySession: data }),
@@ -940,7 +995,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   pollPlatforms: async () => {
-    const { monitor, webviewRefs, models, displayMode } = get()
+    const { monitor, webviewRefs, models, displayMode, productMode, taskAssignmentSlots } = get()
     if (!monitor.isMonitoring || !monitor.currentTurn) return
 
     // 超时检测
@@ -950,14 +1005,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       return
     }
 
-    const displayedModels = getDisplayedModels(models, displayMode)
+    const displayedModels = getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots)
     let allComplete = true
 
-    for (const model of displayedModels) {
+    for (let index = 0; index < displayedModels.length; index++) {
+      const model = displayedModels[index]
       const state = monitor.currentTurn.platforms[model.id]
       if (!state || state.isComplete) continue
 
-      const ref = webviewRefs.get(model.id)
+      const ref = webviewRefs.get(`slot-${index}`) || webviewRefs.get(model.id)
       if (!ref) {
         state.isComplete = true
         continue

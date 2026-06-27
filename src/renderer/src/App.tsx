@@ -145,6 +145,7 @@ function App(): JSX.Element {
           <SummaryPage 
             onNavigateBack={() => setCurrentPage('main')} 
             initialHistoryItem={initialSummaryItem}
+            isActive={currentPage === 'summary'}
           />
         </div>
       )}

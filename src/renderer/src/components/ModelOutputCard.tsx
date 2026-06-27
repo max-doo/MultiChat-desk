@@ -150,12 +150,14 @@ function ModelOutputCard({
         : 'bg-sidebar/30 border-gray-200'
     }`}>
       {toast && (
-        <div className={`absolute top-3 left-1/2 -translate-x-1/2 px-4 py-2 rounded-lg text-sm flex items-center gap-2 shadow-2xl z-50 notification-popup ${
+        <div className={`absolute top-3 left-1/2 -translate-x-1/2 px-4 py-2.5 rounded-xl text-sm font-medium flex items-center gap-2 shadow-float z-50 notification-popup backdrop-blur-md transition-all ${
           toast.type === 'success'
-            ? 'bg-primary/20 border border-primary/40 text-primary'
-            : 'bg-red-500/20 border border-red-500/40 text-red-300'
+            ? 'bg-white/90 border border-green-200 text-green-700'
+            : 'bg-white/90 border border-red-200 text-red-700'
         }`}>
-          <span className="material-symbols-outlined text-base">
+          <span className={`material-symbols-outlined text-base flex-shrink-0 ${
+            toast.type === 'success' ? 'text-green-500' : 'text-red-500'
+          }`}>
             {toast.type === 'success' ? 'check_circle' : 'error'}
           </span>
           <span className="whitespace-nowrap">{toast.message}</span>

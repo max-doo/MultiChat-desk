@@ -143,7 +143,7 @@ function CustomDropdown<T = string>({
             className="fixed inset-0 z-20"
             onClick={() => setIsOpen(false)}
           />
-          <div className={`absolute ${dropdownPositionClass} left-0 ${dropdownWidth} bg-sidebar border border-gray-200 rounded-lg shadow-xl z-30 py-1 max-h-64 overflow-y-auto`}>
+          <div className={`absolute ${dropdownPositionClass} left-0 ${dropdownWidth} bg-sidebar backdrop-blur-md border border-gray-200/50 rounded-lg shadow-xl z-30 py-1 max-h-64 overflow-y-auto`}>
             {renderContent ? (
               // 使用自定义内容渲染，传入关闭函数
               renderContent(() => setIsOpen(false))

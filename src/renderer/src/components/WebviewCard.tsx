@@ -2,7 +2,7 @@ import { useRef, useEffect, useState, useImperativeHandle, forwardRef } from 're
 import TurndownService from 'turndown'
 import { gfm } from 'turndown-plugin-gfm'
 import { defaultSelectors } from '../config/selectors'
-import { useAppStore } from '../store/appStore'
+import { useAppStore, DEEP_RESEARCH_SUPPORTED_MODEL_IDS, IMAGE_GENERATION_SUPPORTED_MODEL_IDS } from '../store/appStore'
 import CustomDropdown, { type DropdownOption } from './CustomDropdown'
 import {
   generateSendMessageScript,
@@ -78,6 +78,8 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
     // 从 store 获取所有模型和切换方法
     const models = useAppStore((state) => state.models)
     const swapModelInSlot = useAppStore((state) => state.swapModelInSlot)
+    const productMode = useAppStore((state) => state.productMode)
+    const setTaskAssignmentSlot = useAppStore((state) => state.setTaskAssignmentSlot)
 
     // 获取当前模型的选择器配置
     const selectors = defaultSelectors.models[id]
@@ -94,8 +96,8 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
       }
     }
 
-    // 获取可切换的其他模型（排除当前模型）
-    const availableModels = models.filter(m => m.id !== id)
+    // 任务分配模式支持不同窗口选择同一个 AI，因此可选列表为全量模型；多 AI 模式下排除自身
+    const availableModels = productMode === 'task_assignment' ? models : models.filter(m => m.id !== id)
 
     // 将模型列表转换为下拉菜单选项格式
     const modelOptions: DropdownOption<string>[] = availableModels.map(m => ({
@@ -691,6 +693,8 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
                 onChange={(modelId) => {
                   if (onModelChange) {
                     onModelChange(modelId)
+                  } else if (productMode === 'task_assignment') {
+                    setTaskAssignmentSlot(slotIndex, modelId)
                   } else {
                     swapModelInSlot(slotIndex, modelId)
                   }
@@ -706,14 +710,36 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
                   </div>
                 )}
                 renderOption={(option, isSelected, onSelect) => {
-                  const model = availableModels.find(m => m.id === option.value)
+                  const model = models.find(m => m.id === option.value)
+                  const hasDeepResearch = model && DEEP_RESEARCH_SUPPORTED_MODEL_IDS.has(model.id)
+                  const hasImageGen = model && IMAGE_GENERATION_SUPPORTED_MODEL_IDS.has(model.id)
                   return (
                     <button
                       onClick={onSelect}
-                      className="w-full flex items-center gap-3 px-3 py-2 hover:bg-gray-100 transition-colors text-left"
+                      className="w-full flex items-center justify-between gap-3 px-3 py-2 hover:bg-gray-100 transition-colors text-left"
                     >
-                      <img alt={model?.name || option.label} className="w-5 h-5" src={model?.logo || option.logo} />
-                      <span className="text-text-primary text-sm">{option.label}</span>
+                      <div className="flex items-center gap-3">
+                        <img alt={model?.name || option.label} className="w-5 h-5" src={model?.logo || option.logo} />
+                        <span className="text-text-primary text-sm">{option.label}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {hasDeepResearch && (
+                          <span
+                            className="material-symbols-outlined text-base text-primary/80 hover:text-primary transition-colors"
+                            title="深度研究"
+                          >
+                            biotech
+                          </span>
+                        )}
+                        {hasImageGen && (
+                          <span
+                            className="material-symbols-outlined text-base text-purple-500/80 hover:text-purple-500 transition-colors"
+                            title="AI 生图"
+                          >
+                            image
+                          </span>
+                        )}
+                      </div>
                     </button>
                   )
                 }}

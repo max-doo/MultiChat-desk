@@ -1,4 +1,6 @@
 import { ReactNode, useEffect, useMemo, useState } from 'react'
+import { useAppStore } from '../store/appStore'
+import SettingsDrawer from './SettingsDrawer'
 
 interface LayoutProps {
   children: ReactNode
@@ -13,6 +15,8 @@ function Layout({ children }: LayoutProps): JSX.Element {
   const [menuX, setMenuX] = useState(0)
   const [menuY, setMenuY] = useState(0)
   const [menuItems, setMenuItems] = useState<Array<{ key: string; label: string; icon?: string; action: () => void }>>([])
+  
+  const { displayMode, setDisplayMode, resetPaneRatios, isSettingsOpen, setSettingsOpen, setHistoryOpen, productMode, setProductMode } = useAppStore()
 
   const isEditableEl = (el: HTMLElement | null): boolean => {
     if (!el) return false
@@ -282,18 +286,105 @@ function Layout({ children }: LayoutProps): JSX.Element {
     <div className="flex flex-col h-screen bg-transparent">
       {/* 自定义标题栏拖拽区域 */}
       <div 
-        className="h-[38px] w-full shrink-0 flex items-center px-4" 
+        className="relative h-[38px] w-full shrink-0 flex items-center justify-between px-4" 
         style={{ WebkitAppRegion: 'drag' } as any}
       >
-        <div className="flex items-center gap-2 select-none">
-          <img src="./assets/logo.png" alt="logo" className="w-4 h-4 opacity-80" onError={(e) => e.currentTarget.style.display = 'none'} />
-          <span className="text-xs font-semibold text-text-secondary">MultiChat</span>
+        <div className="flex items-center gap-3 select-none z-10">
+          <div className="flex items-center gap-3">
+            <img src="./assets/logo.png" alt="logo" className="w-4 h-4 opacity-80" onError={(e) => e.currentTarget.style.display = 'none'} />
+            
+            {/* 模式选择分段控件 */}
+            <div 
+              className="flex items-center p-0.5 bg-gray-200/60 dark:bg-gray-700/60 rounded-lg text-xs gap-0.5"
+              style={{ WebkitAppRegion: 'no-drag' } as any}
+            >
+              {[
+                { key: 'multi_ai', label: '多AI', title: '默认模式：多个平台展示不同AI' },
+                { key: 'task_assignment', label: '任务分配', title: '支持多个窗口选择同一个AI分配不同任务' },
+                { key: 'debate', label: '辩论', title: '辩论模式：支持2个AI交互对抗' }
+              ].map(item => (
+                <button
+                  key={item.key}
+                  type="button"
+                  title={item.title}
+                  onClick={() => {
+                    setProductMode(item.key as any)
+                    if (item.key === 'debate') {
+                      setDisplayMode('two')
+                      resetPaneRatios()
+                    }
+                  }}
+                  className={`px-2.5 py-1 rounded-md font-medium transition-all duration-200 ${
+                    productMode === item.key 
+                      ? 'bg-white dark:bg-gray-800 text-primary shadow-xs' 
+                      : 'text-text-secondary hover:text-text-primary hover:bg-white/30'
+                  }`}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex items-center gap-1" style={{ WebkitAppRegion: 'no-drag' } as any}>
+            <button
+              type="button"
+              onClick={() => setSettingsOpen(true)}
+              className="w-7 h-7 flex items-center justify-center text-text-secondary hover:text-primary hover:bg-white/60 rounded-full transition-all duration-200"
+              title="设置"
+            >
+              <span className="material-symbols-outlined text-lg">settings</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setHistoryOpen(true)}
+              className="w-7 h-7 flex items-center justify-center text-text-secondary hover:text-primary hover:bg-white/60 rounded-full transition-all duration-200"
+              title="历史记录"
+            >
+              <span className="material-symbols-outlined text-lg">history</span>
+            </button>
+          </div>
         </div>
+
+        {/* 居中的窗口布局按钮 */}
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <div 
+            className={`flex items-center p-[2px] gap-[2px] glass-panel shadow-soft rounded-full pointer-events-auto transition-opacity ${
+              productMode === 'debate' ? 'opacity-40 pointer-events-none' : ''
+            }`}
+            style={{ WebkitAppRegion: 'no-drag' } as any}
+            title={productMode === 'debate' ? '辩论模式固定为双窗口' : '切换窗口数量'}
+          >
+            {['one', 'two', 'three', 'four'].map(mode => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => {
+                  setDisplayMode(mode as any)
+                  resetPaneRatios()
+                }}
+                className={`w-8 h-[22px] flex flex-col items-center justify-center rounded-full transition-all duration-200 border ${displayMode === mode
+                    ? 'bg-blue-50/80 text-primary border-blue-200 shadow-sm'
+                    : 'border-transparent text-text-secondary hover:text-primary hover:bg-white/50'
+                  }`}
+              >
+                <div className={`w-[18px] h-2.5 border-[1.5px] border-current rounded-[2px] ${mode === 'four' ? 'grid grid-cols-2 grid-rows-2' : mode === 'two' ? 'flex' : mode === 'three' ? 'flex' : ''}`}>
+                  {mode === 'two' && <><div className="flex-1 border-r-[1.5px] border-current" /><div className="flex-1" /></>}
+                  {mode === 'three' && <><div className="flex-1 border-r-[1.5px] border-current" /><div className="flex-1 border-r-[1.5px] border-current" /><div className="flex-1" /></>}
+                  {mode === 'four' && <><div className="border-r-[1.5px] border-b-[1.5px] border-current" /><div className="border-b-[1.5px] border-current" /><div className="border-r-[1.5px] border-current" /><div /></>}
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+        
+        {/* 预留右侧窗口控件空间，避免点击冲突 */}
+        <div className="w-[120px]"></div>
       </div>
       <main className="flex-1 overflow-hidden">
         {children}
       </main>
       {menu}
+      <SettingsDrawer isOpen={isSettingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   )
 }

@@ -7,21 +7,21 @@ import { useAppStore, getDisplayedModels, SummaryHistoryItem } from '../store/ap
 interface SummaryPageProps {
   onNavigateBack: () => void
   initialHistoryItem?: SummaryHistoryItem
+  isActive?: boolean
 }
 
 /**
  * 总结页面组件
  * 显示各模型输出和 AI 总结面板
  */
-function SummaryPage({ onNavigateBack, initialHistoryItem }: SummaryPageProps): JSX.Element {
-  const { models, displayMode, apiConfig, setApiConfig, pendingSummarySession, setPendingSummarySession, history } = useAppStore()
+function SummaryPage({ onNavigateBack, initialHistoryItem, isActive }: SummaryPageProps): JSX.Element {
+  const { models, displayMode, apiConfig, setApiConfig, pendingSummarySession, setPendingSummarySession, history, isHistoryOpen, setHistoryOpen } = useAppStore()
 
   // 从 store 读取当前总结模式，缺省 'webview'
   const summarySource: 'api' | 'webview' = apiConfig.summarySource ?? 'webview'
   const setSummarySource = (next: 'api' | 'webview') => {
     setApiConfig({ ...apiConfig, summarySource: next })
   }
-  const [historyOpen, setHistoryOpen] = useState(false)
   const [activeHistoryId, setActiveHistoryId] = useState<string | undefined>(undefined)
   
   // 获取当前实际显示的模型（根据 displayMode）
@@ -231,7 +231,7 @@ function SummaryPage({ onNavigateBack, initialHistoryItem }: SummaryPageProps): 
 
       {/* 总结历史记录抽屉 */}
       <SummaryHistoryDrawer
-        isOpen={historyOpen}
+        isOpen={isHistoryOpen && (isActive ?? true)}
         onClose={() => setHistoryOpen(false)}
         onSelectHistory={handleRestoreHistory}
         activeHistoryId={activeHistoryId}

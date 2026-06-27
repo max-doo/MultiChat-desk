@@ -1,10 +1,8 @@
 import { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle, type DragEvent } from 'react'
 import { useAppStore, DEEP_RESEARCH_UNSUPPORTED_ERROR, IMAGE_GENERATION_UNSUPPORTED_ERROR } from '../store/appStore'
-import logo from '../assets/logo.svg'
+
 
 interface ControlBarProps {
-  onOpenSettings: () => void
-  onOpenHistory: () => void
   onGenerateReport: () => void
 }
 
@@ -17,10 +15,10 @@ export interface ControlBarRef {
 
 /**
  * 底部控制栏组件
- * 包含 Logo、历史记录、新对话、输入框和生成报告按钮
+ * 包含新对话、输入框和生成报告等按钮
  */
 const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
-  function ControlBar({ onOpenSettings, onOpenHistory, onGenerateReport }, ref) {
+  function ControlBar({ onGenerateReport }, ref) {
     const [message, setMessage] = useState('')
     const [isActivatingResearch, setIsActivatingResearch] = useState(false)
     const [isCancellingResearch, setIsCancellingResearch] = useState(false)
@@ -462,33 +460,8 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
       <footer className="mt-0 flex flex-col gap-4 w-full">
         {/* 控制栏主体 */}
         <div className="relative flex items-center gap-6">
-          {/* 左侧：Logo 和功能按钮 */}
+          {/* 左侧：功能按钮 */}
           <div className="flex items-center gap-6">
-            {/* Logo - 点击打开设置 */}
-            <button
-              onClick={onOpenSettings}
-              className="relative flex flex-col items-center gap-2 w-12 overflow-hidden transition-all duration-200 hover:scale-110"
-              title="设置"
-            >
-              <img
-                src={logo}
-                alt="设置"
-                className="w-full object-cover"
-              />
-              <span className="text-xs text-text-secondary group-hover:text-primary">设置</span>
-            </button>
-
-            {/* 历史记录按钮 */}
-            <button
-              onClick={onOpenHistory}
-              className="flex flex-col items-center justify-center gap-2 text-xs font-medium text-text-secondary hover:text-primary group transition-colors duration-200"
-            >
-              <span className="flex items-center justify-center w-10 h-10 glass-panel shadow-soft rounded-full group-hover:bg-blue-50/50 group-hover:text-primary border border-transparent group-hover:border-blue-200 transition-all duration-200">
-                <span className="material-symbols-outlined text-2xl">history</span>
-              </span>
-              历史记录
-            </button>
-
             {/* 新对话按钮 */}
             <button
               onClick={handleNewChat}
@@ -581,7 +554,7 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
                   }`}
               >
                 <span className={`material-symbols-outlined text-2xl ${(isActivatingResearch || isCancellingResearch) ? 'animate-spin' : ''}`}>
-                  {(isActivatingResearch || isCancellingResearch) ? 'sync' : 'science'}
+                  {(isActivatingResearch || isCancellingResearch) ? 'sync' : 'biotech'}
                 </span>
               </span>
               <span className={isDeepResearch ? 'text-primary' : ''}>
@@ -701,13 +674,16 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
           >
             {/* 通知弹窗 - 在输入框上方居中显示 */}
             {notification && (
-              <div className={`absolute bottom-full left-1/2 transform -translate-x-1/2 mb-3 px-4 py-3 rounded-lg text-sm flex items-center gap-2 shadow-2xl z-50 notification-popup ${notification.type === 'success'
-                ? 'bg-app/95 text-green-300 border-2 border-green-500/70 shadow-green-500/30'
+              <div className={`absolute bottom-full left-1/2 transform -translate-x-1/2 mb-3 px-4 py-2.5 rounded-xl text-sm font-medium flex items-center gap-2 shadow-float z-50 notification-popup backdrop-blur-md transition-all ${notification.type === 'success'
+                ? 'bg-white/90 border border-green-200 text-green-700'
                 : notification.type === 'error'
-                  ? 'bg-app/95 text-red-300 border-2 border-red-500/70 shadow-red-500/30'
-                  : 'bg-app/95 text-blue-300 border-2 border-blue-500/70 shadow-blue-500/30'
+                  ? 'bg-white/90 border border-red-200 text-red-700'
+                  : 'bg-white/90 border border-blue-200 text-blue-700'
                 }`}>
-                <span className="material-symbols-outlined text-base flex-shrink-0">
+                <span className={`material-symbols-outlined text-base flex-shrink-0 ${
+                  notification.type === 'success' ? 'text-green-500' :
+                  notification.type === 'error' ? 'text-red-500' : 'text-blue-500'
+                }`}>
                   {notification.type === 'success' ? 'check_circle' :
                     notification.type === 'error' ? 'error' : 'info'}
                 </span>
@@ -798,7 +774,7 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
             className="flex-shrink-0 px-4 py-2 text-sm font-bold rounded-[24px] bg-primary text-white hover:opacity-90 shadow-soft transition-opacity whitespace-nowrap flex items-center gap-2"
           >
             <span className="material-symbols-outlined text-xl">auto_awesome</span>
-            生成总结报告
+            生成总结
           </button>
         </div>
       </footer>

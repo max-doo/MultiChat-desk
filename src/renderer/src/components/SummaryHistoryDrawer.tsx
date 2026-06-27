@@ -88,6 +88,7 @@ function SummaryHistoryDrawer({ isOpen, onClose, onSelectHistory, activeHistoryI
       <div
         className={`fixed inset-0 overlay z-40 transition-opacity duration-200 ${isOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
           }`}
+        style={{ WebkitAppRegion: 'no-drag' } as any}
         onClick={isOpen ? onClose : undefined}
       />
 
@@ -107,6 +108,7 @@ function SummaryHistoryDrawer({ isOpen, onClose, onSelectHistory, activeHistoryI
       <div
         className={`fixed right-0 top-0 bottom-0 w-[400px] bg-app border-l border-gray-200 z-50 flex flex-col transform transition-transform duration-300 ${isOpen ? 'translate-x-0' : 'translate-x-full'
           }`}
+        style={{ WebkitAppRegion: 'no-drag' } as any}
       >
         {/* 头部 */}
         <div className="flex items-center justify-between p-6 border-b border-gray-200">
