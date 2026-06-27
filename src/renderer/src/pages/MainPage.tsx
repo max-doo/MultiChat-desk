@@ -49,6 +49,8 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
     paneCount: number
   } | null>(null)
 
+  const scrapingControllerRef = useRef<AbortController | null>(null)
+
   // 为每个模型创建 ref
   const webviewRefs = useRef<Map<string, WebviewCardRef>>(new Map())
 
@@ -67,13 +69,34 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
   }, [registerWebviewRef])
 
   const handleGenerateReport = async () => {
+    if (scrapingControllerRef.current) {
+      scrapingControllerRef.current.abort()
+    }
+    const controller = new AbortController()
+    scrapingControllerRef.current = controller
+
     // 显示"正在爬取"通知（不自动清除）
     if (controlBarRef.current) {
-      controlBarRef.current.showNotification('info', '正在爬取模型回答...', 0)
+      controlBarRef.current.showNotification('info', '正在爬取模型回答... (按 ESC 强行退出)', 0)
     }
 
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && scrapingControllerRef.current === controller) {
+        controller.abort()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+
     try {
-      const responses = await getAllResponses()
+      const responses = await getAllResponses({ signal: controller.signal, timeoutMs: 10000 })
+
+      if (controller.signal.aborted) {
+        if (controlBarRef.current) {
+          controlBarRef.current.showNotification('info', '已强行退出爬取模型回答')
+        }
+        return
+      }
+
       const validResponses: Record<string, string> = {}
       Object.entries(responses).forEach(([id, content]) => {
         if (content && content.trim().length > 0) {
@@ -113,6 +136,12 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
         onNavigateToSummary()
       }, 500)
     } catch (error) {
+      if (controller.signal.aborted) {
+        if (controlBarRef.current) {
+          controlBarRef.current.showNotification('info', '已强行退出爬取模型回答')
+        }
+        return
+      }
       console.error('[MainPage] 生成报告失败:', error)
       // 清除"正在爬取"通知
       if (controlBarRef.current) {
@@ -131,6 +160,11 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
         timestamp: Date.now()
       })
       onNavigateToSummary()
+    } finally {
+      window.removeEventListener('keydown', handleKeyDown)
+      if (scrapingControllerRef.current === controller) {
+        scrapingControllerRef.current = null
+      }
     }
   }
 

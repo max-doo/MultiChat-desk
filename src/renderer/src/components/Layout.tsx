@@ -16,7 +16,14 @@ function Layout({ children }: LayoutProps): JSX.Element {
   const [menuY, setMenuY] = useState(0)
   const [menuItems, setMenuItems] = useState<Array<{ key: string; label: string; icon?: string; action: () => void }>>([])
   
-  const { displayMode, setDisplayMode, resetPaneRatios, isSettingsOpen, setSettingsOpen, setHistoryOpen, productMode, setProductMode } = useAppStore()
+  const { displayMode, setDisplayMode, resetPaneRatios, isSettingsOpen, setSettingsOpen, setHistoryOpen, productMode, setProductMode, currentPage, apiConfig, setApiConfig } = useAppStore()
+
+  const summarySource: 'api' | 'webview' = apiConfig?.summarySource ?? 'webview'
+  const setSummarySource = (next: 'api' | 'webview') => {
+    if (apiConfig) {
+      setApiConfig({ ...apiConfig, summarySource: next })
+    }
+  }
 
   const isEditableEl = (el: HTMLElement | null): boolean => {
     if (!el) return false
@@ -345,36 +352,66 @@ function Layout({ children }: LayoutProps): JSX.Element {
           </div>
         </div>
 
-        {/* 居中的窗口布局按钮 */}
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <div 
-            className={`flex items-center p-[2px] gap-[2px] glass-panel shadow-soft rounded-full pointer-events-auto transition-opacity ${
-              productMode === 'debate' ? 'opacity-40 pointer-events-none' : ''
-            }`}
-            style={{ WebkitAppRegion: 'no-drag' } as any}
-            title={productMode === 'debate' ? '辩论模式固定为双窗口' : '切换窗口数量'}
-          >
-            {['one', 'two', 'three', 'four'].map(mode => (
+        {/* 居中的窗口布局或总结模式控件 */}
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none drag-region">
+          {currentPage === 'main' ? (
+            <div 
+              className={`flex items-center p-[2px] gap-[2px] glass-panel shadow-soft rounded-full pointer-events-auto transition-opacity ${
+                productMode === 'debate' ? 'opacity-40 pointer-events-none' : ''
+              }`}
+              style={{ WebkitAppRegion: 'no-drag' } as any}
+              title={productMode === 'debate' ? '辩论模式固定为双窗口' : '切换窗口数量'}
+            >
+              {['one', 'two', 'three', 'four'].map(mode => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => {
+                    setDisplayMode(mode as any)
+                    resetPaneRatios()
+                  }}
+                  className={`w-8 h-[22px] flex flex-col items-center justify-center rounded-full transition-all duration-200 border ${displayMode === mode
+                      ? 'bg-blue-50/80 text-primary border-blue-200 shadow-sm'
+                      : 'border-transparent text-text-secondary hover:text-primary hover:bg-white/50'
+                    }`}
+                >
+                  <div className={`w-[18px] h-2.5 border-[1.5px] border-current rounded-[2px] ${mode === 'four' ? 'grid grid-cols-2 grid-rows-2' : mode === 'two' ? 'flex' : mode === 'three' ? 'flex' : ''}`}>
+                    {mode === 'two' && <><div className="flex-1 border-r-[1.5px] border-current" /><div className="flex-1" /></>}
+                    {mode === 'three' && <><div className="flex-1 border-r-[1.5px] border-current" /><div className="flex-1 border-r-[1.5px] border-current" /><div className="flex-1" /></>}
+                    {mode === 'four' && <><div className="border-r-[1.5px] border-b-[1.5px] border-current" /><div className="border-b-[1.5px] border-current" /><div className="border-r-[1.5px] border-current" /><div /></>}
+                  </div>
+                </button>
+              ))}
+            </div>
+          ) : currentPage === 'summary' ? (
+            <div 
+              className="flex items-center p-[2px] gap-[2px] glass-panel shadow-soft rounded-full text-xs pointer-events-auto transition-opacity"
+              style={{ WebkitAppRegion: 'no-drag' } as any}
+            >
               <button
-                key={mode}
                 type="button"
-                onClick={() => {
-                  setDisplayMode(mode as any)
-                  resetPaneRatios()
-                }}
-                className={`w-8 h-[22px] flex flex-col items-center justify-center rounded-full transition-all duration-200 border ${displayMode === mode
-                    ? 'bg-blue-50/80 text-primary border-blue-200 shadow-sm'
+                onClick={() => setSummarySource('api')}
+                className={`px-3 h-[22px] flex items-center justify-center rounded-full font-medium transition-all duration-200 border ${
+                  summarySource === 'api' 
+                    ? 'bg-blue-50/80 text-primary border-blue-200 shadow-sm' 
                     : 'border-transparent text-text-secondary hover:text-primary hover:bg-white/50'
-                  }`}
+                }`}
               >
-                <div className={`w-[18px] h-2.5 border-[1.5px] border-current rounded-[2px] ${mode === 'four' ? 'grid grid-cols-2 grid-rows-2' : mode === 'two' ? 'flex' : mode === 'three' ? 'flex' : ''}`}>
-                  {mode === 'two' && <><div className="flex-1 border-r-[1.5px] border-current" /><div className="flex-1" /></>}
-                  {mode === 'three' && <><div className="flex-1 border-r-[1.5px] border-current" /><div className="flex-1 border-r-[1.5px] border-current" /><div className="flex-1" /></>}
-                  {mode === 'four' && <><div className="border-r-[1.5px] border-b-[1.5px] border-current" /><div className="border-b-[1.5px] border-current" /><div className="border-r-[1.5px] border-current" /><div /></>}
-                </div>
+                API
               </button>
-            ))}
-          </div>
+              <button
+                type="button"
+                onClick={() => setSummarySource('webview')}
+                className={`px-3 h-[22px] flex items-center justify-center rounded-full font-medium transition-all duration-200 border ${
+                  summarySource === 'webview' 
+                    ? 'bg-blue-50/80 text-primary border-blue-200 shadow-sm' 
+                    : 'border-transparent text-text-secondary hover:text-primary hover:bg-white/50'
+                }`}
+              >
+                Webview
+              </button>
+            </div>
+          ) : null}
         </div>
         
         {/* 预留右侧窗口控件空间，避免点击冲突 */}

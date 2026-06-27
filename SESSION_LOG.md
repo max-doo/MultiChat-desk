@@ -2,6 +2,30 @@
 
 ## 2026-06-27
 
+### 20:47 | Antigravity
+
+- done: 恢复此前因冲突丢失的 MainPage.tsx 关于生成总结时爬取模型回答的 10 秒超时限制和 ESC 按键强行退出机制修改
+- modified:
+  - `src/renderer/src/pages/MainPage.tsx`
+
+### 20:45 | Antigravity
+
+- done: 修复因为缺少 currentPage 和 apiConfig 解构导致应用白屏崩溃的问题
+- modified:
+  - `src/renderer/src/components/Layout.tsx`
+
+### 20:43 | Antigravity
+
+- done: 恢复了被意外删除的总结页顶部 API/Webview 切换控件并对齐了样式
+- modified:
+  - `src/renderer/src/components/Layout.tsx`
+
+### 20:37 | Antigravity
+
+- done: 应用户要求，回滚 MainPage.tsx 代码至修改前的状态
+- modified:
+  - `src/renderer/src/pages/MainPage.tsx`
+
 ### 17:38 | Antigravity
 
 - done: Prepare batch commits and clean up unused imports

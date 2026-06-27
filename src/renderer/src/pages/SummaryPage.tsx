@@ -15,13 +15,8 @@ interface SummaryPageProps {
  * 显示各模型输出和 AI 总结面板
  */
 function SummaryPage({ onNavigateBack, initialHistoryItem, isActive }: SummaryPageProps): JSX.Element {
-  const { models, displayMode, apiConfig, setApiConfig, pendingSummarySession, setPendingSummarySession, history, isHistoryOpen, setHistoryOpen } = useAppStore()
+  const { models, displayMode, pendingSummarySession, setPendingSummarySession, history, isHistoryOpen, setHistoryOpen } = useAppStore()
 
-  // 从 store 读取当前总结模式，缺省 'webview'
-  const summarySource: 'api' | 'webview' = apiConfig.summarySource ?? 'webview'
-  const setSummarySource = (next: 'api' | 'webview') => {
-    setApiConfig({ ...apiConfig, summarySource: next })
-  }
   const [activeHistoryId, setActiveHistoryId] = useState<string | undefined>(undefined)
   
   // 获取当前实际显示的模型（根据 displayMode）
@@ -144,89 +139,47 @@ function SummaryPage({ onNavigateBack, initialHistoryItem, isActive }: SummaryPa
   }
 
   return (
-    <div className="flex flex-col h-full">
-      {/* 顶部导航栏 */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+    <div className="flex h-full overflow-hidden">
+      {/* 左侧：返回按钮 + 模型回复内容 */}
+      <div className="w-3/5 p-6 flex flex-col h-full border-r border-gray-200 overflow-hidden">
         <button
           onClick={onNavigateBack}
-          className="flex items-center gap-2 text-text-secondary hover:text-text-primary transition-colors"
+          className="flex items-center gap-2 text-text-secondary hover:text-text-primary transition-colors mb-4 shrink-0 self-start"
         >
           <span className="material-symbols-outlined">arrow_back</span>
           <span>返回对话窗口</span>
         </button>
 
-        {/* 模式开关：API / Webview */}
-        <div className="flex items-center gap-1 shrink-0 bg-sidebar border border-gray-200 rounded-md p-1">
-          <button
-            type="button"
-            onClick={() => setSummarySource('api')}
-            className={`px-3 py-1 text-xs rounded transition-colors ${
-              summarySource === 'api' ? 'bg-primary text-white' : 'text-text-secondary hover:text-text-primary'
-            }`}
-          >
-            API
-          </button>
-          <button
-            type="button"
-            onClick={() => setSummarySource('webview')}
-            className={`px-3 py-1 text-xs rounded transition-colors ${
-              summarySource === 'webview' ? 'bg-primary text-white' : 'text-text-secondary hover:text-text-primary'
-            }`}
-          >
-            Webview
-          </button>
-        </div>
-
-        <div className="flex items-center gap-4">
-          <h1 className="text-xl font-semibold text-text-primary">MultiChat</h1>
-          {/* 历史记录按钮 */}
-          <button
-            onClick={() => setHistoryOpen(true)}
-            className="flex flex-col items-center justify-center gap-2 text-xs font-medium text-text-secondary hover:text-text-primary group transition-colors duration-200"
-            title="总结历史记录"
-          >
-            <span className="flex items-center justify-center w-10 h-10 bg-sidebar rounded-full group-hover:bg-primary/20 group-hover:text-primary border border-transparent group-hover:border-primary/50 transition-all duration-200">
-              <span className="material-symbols-outlined text-2xl">history</span>
-            </span>
-          </button>
-        </div>
+        {isLoadingResponses ? (
+          <div className="flex flex-col items-center justify-center h-full text-text-secondary">
+            <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mb-3"></div>
+            <p>正在加载模型回复...</p>
+          </div>
+        ) : (
+          <div className="flex-1 overflow-y-auto space-y-4 pr-2 min-h-0">
+            {/* 只显示当前实际显示的模型（根据 displayMode） */}
+            {displayedModels.map((model) => (
+              <ModelOutputCard
+                key={model.id}
+                id={model.id}
+                name={model.name}
+                logo={model.logo}
+                content={modelResponses[model.id] || '暂无回复内容'}
+                selected={selectedModels.includes(model.id)}
+                onToggle={() => toggleModelSelection(model.id)}
+              />
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* 主内容区域 */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* 左侧：模型输出列表 */}
-        <div className="w-3/5 p-6 overflow-y-auto border-r border-gray-200">
-          {isLoadingResponses ? (
-            <div className="flex flex-col items-center justify-center h-full text-text-secondary">
-              <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mb-3"></div>
-              <p>正在加载模型回复...</p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {/* 只显示当前实际显示的模型（根据 displayMode） */}
-              {displayedModels.map((model) => (
-                <ModelOutputCard
-                  key={model.id}
-                  id={model.id}
-                  name={model.name}
-                  logo={model.logo}
-                  content={modelResponses[model.id] || '暂无回复内容'}
-                  selected={selectedModels.includes(model.id)}
-                  onToggle={() => toggleModelSelection(model.id)}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* 右侧：总结面板 */}
-        <div className="w-2/5 p-6 overflow-y-auto">
-          <SummaryPanel 
-            selectedModels={selectedModels} 
-            modelResponses={modelResponses}
-            restoreHistoryData={restoreHistoryData}
-          />
-        </div>
+      {/* 右侧：总结的对话框 + 底部输入框 */}
+      <div className="w-2/5 p-6 flex flex-col h-full overflow-hidden">
+        <SummaryPanel 
+          selectedModels={selectedModels} 
+          modelResponses={modelResponses}
+          restoreHistoryData={restoreHistoryData}
+        />
       </div>
 
       {/* 总结历史记录抽屉 */}

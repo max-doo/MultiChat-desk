@@ -3,10 +3,10 @@ import Layout from './components/Layout'
 import MainPage from './pages/MainPage'
 import SummaryPage from './pages/SummaryPage'
 import BrowserPage from './pages/BrowserPage'
-import { initializeStore, SummaryHistoryItem } from './store/appStore'
+import { initializeStore, useAppStore, SummaryHistoryItem } from './store/appStore'
 
 function App(): JSX.Element {
-  const [currentPage, setCurrentPage] = useState<'main' | 'summary' | 'browser'>('main')
+  const { currentPage, setCurrentPage } = useAppStore()
   const [isInitialized, setIsInitialized] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // 记录是否曾经打开过 SummaryPage，用于延迟渲染

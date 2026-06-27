@@ -229,7 +229,7 @@ interface AppState {
   sendMessageToAll: (message: string) => Promise<SendResult[]>
 
   // 获取所有模型的最新回复
-  getAllResponses: () => Promise<Record<string, string>>
+  getAllResponses: (options?: { signal?: AbortSignal; timeoutMs?: number }) => Promise<Record<string, string>>
 
   // 监控状态（不持久化）
   monitor: MonitorState
@@ -260,6 +260,10 @@ interface AppState {
   // 会话状态
   isNewSession: boolean
   setNewSession: (isNew: boolean) => void
+
+  // 页面导航状态
+  currentPage: 'main' | 'summary' | 'browser'
+  setCurrentPage: (page: 'main' | 'summary' | 'browser') => void
 
   // UI 抽屉状态
   isSettingsOpen: boolean
@@ -448,8 +452,23 @@ function shouldStartNewConversation(
 export const useAppStore = create<AppState>((set, get) => ({
   productMode: 'multi_ai',
   setProductMode: (mode) => {
-    set({ productMode: mode })
-    if (window.api?.storeSet) window.api.storeSet('productMode', mode)
+    const currentDisplayMode = get().displayMode
+    if (mode === 'task_assignment' && currentDisplayMode === 'one') {
+      set({ productMode: mode, displayMode: 'two', paneRatios: null })
+      if (window.api?.storeSet) {
+        window.api.storeSet('productMode', mode)
+        window.api.storeSet('displayMode', 'two')
+      }
+    } else if (mode === 'debate' && currentDisplayMode !== 'two') {
+      set({ productMode: mode, displayMode: 'two', paneRatios: null })
+      if (window.api?.storeSet) {
+        window.api.storeSet('productMode', mode)
+        window.api.storeSet('displayMode', 'two')
+      }
+    } else {
+      set({ productMode: mode })
+      if (window.api?.storeSet) window.api.storeSet('productMode', mode)
+    }
   },
 
   taskAssignmentSlots: ['chatgpt', 'gemini', 'grok', 'claude'],
@@ -462,6 +481,13 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   displayMode: 'three',
   setDisplayMode: (mode) => {
+    const currentProductMode = get().productMode
+    if (currentProductMode === 'task_assignment' && mode === 'one') {
+      return
+    }
+    if (currentProductMode === 'debate' && mode !== 'two') {
+      return
+    }
     set({ displayMode: mode, paneRatios: null })
     if (window.api?.storeSet) window.api.storeSet('displayMode', mode)
   },
@@ -775,19 +801,38 @@ export const useAppStore = create<AppState>((set, get) => ({
     return results
   },
 
-  getAllResponses: async (): Promise<Record<string, string>> => {
+  getAllResponses: async (options?: { signal?: AbortSignal; timeoutMs?: number }): Promise<Record<string, string>> => {
     const { models, webviewRefs, displayMode } = get()
     const responses: Record<string, string> = {}
     const displayedModels = getDisplayedModels(models, displayMode)
+    const timeoutMs = options?.timeoutMs ?? 10000
+    const signal = options?.signal
+
     await Promise.all(
       displayedModels.map(async (model) => {
+        if (signal?.aborted) return
         const webviewRef = webviewRefs.get(model.id)
         if (webviewRef) {
           try {
-            const response = await webviewRef.getLatestResponse()
-            if (response) responses[model.id] = response
+            const fetchPromise = webviewRef.getLatestResponse()
+            const timeoutPromise = new Promise<string>((_, reject) => {
+              const timer = setTimeout(() => reject(new Error(`获取 ${model.name} 回复超时`)), timeoutMs)
+              if (signal) {
+                const abortHandler = () => {
+                  clearTimeout(timer)
+                  reject(new Error('已取消获取'))
+                }
+                signal.addEventListener('abort', abortHandler, { once: true })
+              }
+            })
+            const response = await Promise.race([fetchPromise, timeoutPromise])
+            if (!signal?.aborted && response) {
+              responses[model.id] = response
+            }
           } catch (error) {
-            console.error(`获取 ${model.name} 回复失败:`, error)
+            if (!signal?.aborted) {
+              console.error(`获取 ${model.name} 回复失败或超时:`, error)
+            }
           }
         }
       })
@@ -920,6 +965,9 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   isNewSession: true,
   setNewSession: (isNew: boolean) => set({ isNewSession: isNew }),
+
+  currentPage: 'main',
+  setCurrentPage: (page: 'main' | 'summary' | 'browser') => set({ currentPage: page }),
 
   isSettingsOpen: false,
   setSettingsOpen: (open: boolean) => set({ isSettingsOpen: open }),
@@ -1110,7 +1158,21 @@ export async function initializeStore(): Promise<void> {
     }
 
     const storedDisplayMode = await window.api.storeGet('displayMode') as DisplayMode | undefined
-    if (storedDisplayMode) useAppStore.setState({ displayMode: storedDisplayMode })
+    const storedProductMode = await window.api.storeGet('productMode') as ProductMode | undefined
+    const storedTaskAssignmentSlots = await window.api.storeGet('taskAssignmentSlots') as string[] | undefined
+
+    let initialDisplayMode = storedDisplayMode || useAppStore.getState().displayMode
+    if (storedProductMode === 'task_assignment' && initialDisplayMode === 'one') {
+      initialDisplayMode = 'two'
+    } else if (storedProductMode === 'debate') {
+      initialDisplayMode = 'two'
+    }
+
+    if (storedProductMode) useAppStore.setState({ productMode: storedProductMode })
+    if (initialDisplayMode) useAppStore.setState({ displayMode: initialDisplayMode })
+    if (storedTaskAssignmentSlots && Array.isArray(storedTaskAssignmentSlots)) {
+      useAppStore.setState({ taskAssignmentSlots: storedTaskAssignmentSlots })
+    }
 
     const storedApiConfig = await window.api.storeGet('apiConfig') as any
     const seedAgentPrompts = (storedApiConfig?.agentPrompts && Array.isArray(storedApiConfig.agentPrompts) && storedApiConfig.agentPrompts.length > 0)

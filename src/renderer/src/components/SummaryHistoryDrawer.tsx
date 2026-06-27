@@ -104,9 +104,9 @@ function SummaryHistoryDrawer({ isOpen, onClose, onSelectHistory, activeHistoryI
         }}
       />
 
-      {/* 抽屉面板 - 从右侧弹出 */}
+      {/* 抽屉面板 - 从左侧弹出 */}
       <div
-        className={`fixed right-0 top-0 bottom-0 w-[400px] bg-app border-l border-gray-200 z-50 flex flex-col transform transition-transform duration-300 ${isOpen ? 'translate-x-0' : 'translate-x-full'
+        className={`fixed left-0 top-0 bottom-0 w-[400px] bg-app border-r border-gray-200 z-50 flex flex-col transform transition-transform duration-300 ${isOpen ? 'translate-x-0' : '-translate-x-full'
           }`}
         style={{ WebkitAppRegion: 'no-drag' } as any}
       >
