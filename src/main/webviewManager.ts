@@ -111,6 +111,8 @@ export function openBrowserWindowInternal(url: string): void {
     const win = new BrowserWindow({
         width: 1200,
         height: 800,
+        minWidth: 800,
+        minHeight: 600,
         show: true,
         autoHideMenuBar: true,
         titleBarStyle: 'hidden',
@@ -279,7 +281,9 @@ export function createWindow(): void {
     mainWindow = new BrowserWindow({
         width: 1400,
         height: 900,
-        show: false,
+        minWidth: 900,
+        minHeight: 600,
+        show: true,
         autoHideMenuBar: true,
         titleBarStyle: 'hidden',
         titleBarOverlay: {
@@ -303,18 +307,22 @@ export function createWindow(): void {
     startAgentPromptsWatcher(mainWindow)
 
     mainWindow.on('ready-to-show', () => {
+        console.log('[Main] ready-to-show fired')
         mainWindow?.show()
     })
 
+    // 捕获 Renderer 的控制台日志，以便在终端中排查黑屏报错
+    mainWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
+        const levels = ['DEBUG', 'INFO', 'WARNING', 'ERROR']
+        console.log(`[Renderer ${levels[level] || 'LOG'}] ${message} (${sourceId}:${line})`)
+    })
+
+
+    // ... 省略了 setWindowOpenHandler 等 ...
     mainWindow.webContents.setWindowOpenHandler((details) => {
         console.log('[Main] mainWindow setWindowOpenHandler:', details.url)
-        // 阻止所有弹窗，对于 Google 相关 URL 使用外部浏览器
         if (details.url.includes('accounts.google.com') || details.url === 'about:blank') {
-            console.log('[Main] Blocking popup for:', details.url)
-            // 对于 about:blank 直接阻止，对于 google 使用外部浏览器
-            if (details.url !== 'about:blank') {
-                shell.openExternal(details.url)
-            }
+            if (details.url !== 'about:blank') shell.openExternal(details.url)
             return { action: 'deny' }
         }
         shell.openExternal(details.url)
@@ -322,9 +330,14 @@ export function createWindow(): void {
     })
 
     if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-        mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
+        console.log('[Main] Loading Dev URL:', process.env['ELECTRON_RENDERER_URL'])
+        mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL']).catch(err => {
+            console.error('[Main] Failed to load DEV URL:', err)
+        })
     } else {
-        mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+        mainWindow.loadFile(join(__dirname, '../renderer/index.html')).catch(err => {
+            console.error('[Main] Failed to load index.html:', err)
+        })
     }
 
     // 监听 webview 创建子窗口
