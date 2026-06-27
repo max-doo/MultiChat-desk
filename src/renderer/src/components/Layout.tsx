@@ -293,17 +293,16 @@ function Layout({ children }: LayoutProps): JSX.Element {
     <div className="flex flex-col h-screen bg-transparent">
       {/* 自定义标题栏拖拽区域 */}
       <div 
-        className="relative h-[38px] w-full shrink-0 flex items-center justify-between px-4" 
-        style={{ WebkitAppRegion: 'drag' } as any}
+        className="h-[38px] w-full shrink-0 grid items-center px-4 drag-region" 
+        style={{ gridTemplateColumns: '1fr auto 1fr' }}
       >
-        <div className="flex items-center gap-3 select-none z-10">
-          <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 select-none drag-region h-full">
+          <div className="flex items-center gap-3 drag-region">
             <img src="./assets/logo.png" alt="logo" className="w-4 h-4 opacity-80" onError={(e) => e.currentTarget.style.display = 'none'} />
             
             {/* 模式选择分段控件 */}
             <div 
-              className="flex items-center p-0.5 bg-gray-200/60 dark:bg-gray-700/60 rounded-lg text-xs gap-0.5"
-              style={{ WebkitAppRegion: 'no-drag' } as any}
+              className="flex items-center p-0.5 bg-gray-200/60 dark:bg-gray-700/60 rounded-lg text-xs gap-0.5 no-drag"
             >
               {[
                 { key: 'multi_ai', label: '多AI', title: '默认模式：多个平台展示不同AI' },
@@ -332,7 +331,7 @@ function Layout({ children }: LayoutProps): JSX.Element {
               ))}
             </div>
           </div>
-          <div className="flex items-center gap-1" style={{ WebkitAppRegion: 'no-drag' } as any}>
+          <div className="flex items-center gap-1 no-drag">
             <button
               type="button"
               onClick={() => setSettingsOpen(true)}
@@ -353,13 +352,12 @@ function Layout({ children }: LayoutProps): JSX.Element {
         </div>
 
         {/* 居中的窗口布局或总结模式控件 */}
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none drag-region">
+        <div className="flex justify-center drag-region h-full items-center">
           {currentPage === 'main' ? (
             <div 
-              className={`flex items-center p-[2px] gap-[2px] glass-panel shadow-soft rounded-full pointer-events-auto transition-opacity ${
+              className={`flex items-center p-[2px] gap-[2px] glass-panel shadow-soft rounded-full transition-opacity no-drag ${
                 productMode === 'debate' ? 'opacity-40 pointer-events-none' : ''
               }`}
-              style={{ WebkitAppRegion: 'no-drag' } as any}
               title={productMode === 'debate' ? '辩论模式固定为双窗口' : '切换窗口数量'}
             >
               {['one', 'two', 'three', 'four'].map(mode => (
@@ -385,8 +383,7 @@ function Layout({ children }: LayoutProps): JSX.Element {
             </div>
           ) : currentPage === 'summary' ? (
             <div 
-              className="flex items-center p-[2px] gap-[2px] glass-panel shadow-soft rounded-full text-xs pointer-events-auto transition-opacity"
-              style={{ WebkitAppRegion: 'no-drag' } as any}
+              className="flex items-center p-[2px] gap-[2px] glass-panel shadow-soft rounded-full text-xs transition-opacity no-drag"
             >
               <button
                 type="button"
@@ -415,7 +412,7 @@ function Layout({ children }: LayoutProps): JSX.Element {
         </div>
         
         {/* 预留右侧窗口控件空间，避免点击冲突 */}
-        <div className="w-[120px]"></div>
+        <div className="min-w-[120px] drag-region h-full"></div>
       </div>
       <main className="flex-1 overflow-hidden">
         {children}

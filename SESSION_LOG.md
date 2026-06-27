@@ -2,6 +2,18 @@
 
 ## 2026-06-27
 
+### 21:04 | Antigravity
+
+- done: Fixed window dragging functionality by replacing inline WebkitAppRegion styles with explicit CSS classes on all header layout components to bypass React style stripping and Chromium bubbling bugs.
+- modified:
+  - `src/renderer/src/components/Layout.tsx`
+
+### 20:52 | Antigravity
+
+- done: 基于全 CSS Grid 的统一布局重构完成，利用 position: absolute 及 visibility: hidden 安全隐藏 Webview 插槽以实现零重载瞬间切换
+- modified:
+  - `src/renderer/src/pages/MainPage.tsx`
+
 ### 20:47 | Antigravity
 
 - done: 恢复此前因冲突丢失的 MainPage.tsx 关于生成总结时爬取模型回答的 10 秒超时限制和 ESC 按键强行退出机制修改

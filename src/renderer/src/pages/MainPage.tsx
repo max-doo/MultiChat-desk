@@ -173,6 +173,33 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
     return getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots)
   }, [models, displayMode, productMode, taskAssignmentSlots])
 
+  // 获取全量至多4个位置的配置列表，确保已打开的窗口有稳定的配置可复用
+  const allLayoutModels = useMemo(() => {
+    return getDisplayedModels(models, 'four', productMode, taskAssignmentSlots)
+  }, [models, productMode, taskAssignmentSlots])
+
+  // 跟踪曾挂载过的 Slot（避免单窗口时无谓加载，同时切走后保留会话）
+  const [mountedSlots, setMountedSlots] = useState<boolean[]>(() => {
+    const init = [false, false, false, false]
+    const count = getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots).length
+    for (let i = 0; i < count; i++) init[i] = true
+    return init
+  })
+
+  useEffect(() => {
+    setMountedSlots((prev) => {
+      const next = [...prev]
+      let changed = false
+      for (let i = 0; i < displayedModels.length; i++) {
+        if (!next[i]) {
+          next[i] = true
+          changed = true
+        }
+      }
+      return changed ? next : prev
+    })
+  }, [displayedModels.length])
+
   const gutterWidthPx = 16
   const MIN_PANE_WIDTH = 320
   
@@ -305,138 +332,177 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
     }
   }, [])
 
-  const paneStyle = useCallback((index: number): CSSProperties => {
-    const ratios = paneRatiosRef.current
-    const ratio = ratios && ratios.length === paneCount ? ratios[index] : (paneCount > 0 ? 1 / paneCount : 1)
-    const basisPx = paneCount > 1 ? (availableWidth * ratio) : availableWidth
-    return {
-      flexBasis: `${basisPx}px`,
-      flexGrow: 0,
-      flexShrink: 0,
-      transition: (isResizing || suppressPaneTransition || !isActive) ? 'none' : 'flex-basis 160ms ease'
-    }
-  }, [availableWidth, isActive, isResizing, paneCount, suppressPaneTransition])
+  const columnWidths = useMemo(() => {
+    const ratios = paneRatios || Array.from({ length: paneCount }, () => 1 / paneCount)
+    return ratios.map((ratio) => availableWidth * ratio)
+  }, [paneRatios, paneCount, availableWidth])
 
-  const gutter = (index: number): JSX.Element => (
-    <div
-      key={`gutter-${index}`}
-      className="relative flex items-stretch justify-center w-4 cursor-col-resize select-none"
-      onPointerDown={handleGutterPointerDown(index)}
-      onPointerMove={handleGutterPointerMove}
-      onPointerUp={handleGutterPointerUp}
-      onPointerCancel={handleGutterPointerUp}
-    >
-      <div className="w-0.5 my-2 rounded-full bg-gray-100/60 transition-colors hover:bg-primary/60" />
-    </div>
-  )
+  const containerStyle = useMemo<CSSProperties>(() => {
+    if (displayMode === 'one') {
+      return {
+        display: 'grid',
+        gridTemplateColumns: '1fr',
+        gridTemplateRows: '1fr',
+        width: '100%',
+        height: '100%'
+      }
+    }
+    const widths = columnWidths
+    if (useGridForFour) {
+      return {
+        display: 'grid',
+        gridTemplateColumns: `${widths[0] ?? 0}px 16px ${widths[1] ?? 0}px`,
+        gridTemplateRows: 'minmax(480px, 1fr) minmax(480px, 1fr)',
+        rowGap: '1rem',
+        width: '100%',
+        height: '100%',
+        transition: (isResizing || suppressPaneTransition || !isActive) ? 'none' : 'grid-template-columns 160ms ease'
+      }
+    }
+    const cols: string[] = []
+    for (let i = 0; i < displayedModels.length; i++) {
+      if (i > 0) cols.push('16px')
+      cols.push(`${widths[i] ?? 0}px`)
+    }
+    return {
+      display: 'grid',
+      gridTemplateColumns: cols.join(' '),
+      gridTemplateRows: '1fr',
+      width: '100%',
+      height: '100%',
+      transition: (isResizing || suppressPaneTransition || !isActive) ? 'none' : 'grid-template-columns 160ms ease'
+    }
+  }, [displayMode, useGridForFour, columnWidths, displayedModels.length, isResizing, suppressPaneTransition, isActive])
+
+  const getSlotWrapperStyle = useCallback((index: number): CSSProperties => {
+    if (index >= displayedModels.length) {
+      return {
+        position: 'absolute',
+        visibility: 'hidden',
+        width: 0,
+        height: 0,
+        overflow: 'hidden',
+        pointerEvents: 'none'
+      }
+    }
+    if (useGridForFour) {
+      const col = (index === 0 || index === 2) ? 1 : 3
+      const row = (index === 0 || index === 1) ? 1 : 2
+      return {
+        gridColumn: `${col}`,
+        gridRow: `${row}`,
+        position: 'relative',
+        visibility: 'visible',
+        width: '100%',
+        height: '100%',
+        minWidth: 0,
+        minHeight: 0
+      }
+    }
+    const col = 2 * index + 1
+    return {
+      gridColumn: `${col}`,
+      gridRow: '1',
+      position: 'relative',
+      visibility: 'visible',
+      width: '100%',
+      height: '100%',
+      minWidth: 0,
+      minHeight: 0
+    }
+  }, [displayedModels.length, useGridForFour])
+
+  const getGutterWrapperStyle = useCallback((index: number): CSSProperties => {
+    if (useGridForFour) {
+      if (index === 0) {
+        return {
+          gridColumn: '2',
+          gridRow: '1 / span 2',
+          position: 'relative',
+          visibility: 'visible',
+          width: '16px',
+          height: '100%'
+        }
+      }
+      return {
+        position: 'absolute',
+        visibility: 'hidden',
+        width: 0,
+        height: 0,
+        overflow: 'hidden',
+        pointerEvents: 'none'
+      }
+    }
+    if (index < displayedModels.length - 1) {
+      const col = 2 * index + 2
+      return {
+        gridColumn: `${col}`,
+        gridRow: '1',
+        position: 'relative',
+        visibility: 'visible',
+        width: '16px',
+        height: '100%'
+      }
+    }
+    return {
+      position: 'absolute',
+      visibility: 'hidden',
+      width: 0,
+      height: 0,
+      overflow: 'hidden',
+      pointerEvents: 'none'
+    }
+  }, [useGridForFour, displayedModels.length])
+
+  const renderLayoutChildren = () => {
+    const children: JSX.Element[] = []
+    for (let i = 0; i < 4; i++) {
+      if (i > 0) {
+        children.push(
+          <div
+            key={`gutter-${i - 1}`}
+            className="relative flex items-stretch justify-center cursor-col-resize select-none"
+            style={getGutterWrapperStyle(i - 1)}
+            onPointerDown={handleGutterPointerDown(i - 1)}
+            onPointerMove={handleGutterPointerMove}
+            onPointerUp={handleGutterPointerUp}
+            onPointerCancel={handleGutterPointerUp}
+          >
+            <div className="w-0.5 my-2 rounded-full bg-gray-100/60 transition-colors hover:bg-primary/60" />
+          </div>
+        )
+      }
+      const model = allLayoutModels[i]
+      const isMounted = mountedSlots[i] && !!model
+      children.push(
+        <div key={`slot-wrapper-${i}`} style={getSlotWrapperStyle(i)}>
+          {isMounted && model && (
+            <WebviewCard
+              key={`slot-${i}-${model.id}`}
+              ref={createRefCallback(model.id, i)}
+              id={model.id}
+              name={model.name}
+              url={model.url}
+              logo={model.logo}
+              enabled={true}
+              slotIndex={i}
+            />
+          )}
+        </div>
+      )
+    }
+    return children
+  }
 
   return (
     <div className="flex flex-col h-full">
       {/* Webview 卡片区域的外层滚动容器，处理 padding 以防阴影被裁切 */}
       <div className="flex-grow min-h-0 overflow-y-auto px-4 pt-4 sm:px-6 sm:pt-6 pb-10">
-        {/* 用于计算宽度和 flex 布局的内层无 padding 容器 */}
-        <div ref={containerRef} className="h-full">
-        {displayMode === 'one' && displayedModels[0] && (
-          <div className="w-full h-full">
-            <WebviewCard
-              key={`slot-0-${displayedModels[0].id}`}
-              ref={createRefCallback(displayedModels[0].id, 0)}
-              id={displayedModels[0].id}
-              name={displayedModels[0].name}
-              url={displayedModels[0].url}
-              logo={displayedModels[0].logo}
-              enabled={true}
-              slotIndex={0}
-            />
-          </div>
-        )}
-
-        {displayMode !== 'one' && !useGridForFour && (
-          <div className="flex w-full min-h-full items-stretch">
-            {displayedModels.map((model, index) => (
-              <div key={`slot-${index}-${model.id}`} className="min-w-0" style={paneStyle(index)}>
-                <WebviewCard
-                  ref={createRefCallback(model.id, index)}
-                  id={model.id}
-                  name={model.name}
-                  url={model.url}
-                  logo={model.logo}
-                  enabled={true}
-                  slotIndex={index}
-                />
-              </div>
-            )).reduce<JSX.Element[]>((acc, pane, index) => {
-              if (index > 0) acc.push(gutter(index - 1))
-              acc.push(pane)
-              return acc
-            }, [])}
-          </div>
-        )}
-
-        {useGridForFour && (
-          <div className="flex w-full min-h-full items-stretch">
-            <div className="min-w-0" style={paneStyle(0)}>
-              <div className="grid grid-rows-[minmax(480px,1fr)_minmax(480px,1fr)] gap-4 min-h-full">
-                {displayedModels[0] && (
-                  <WebviewCard
-                    key={`slot-0-${displayedModels[0].id}`}
-                    ref={createRefCallback(displayedModels[0].id, 0)}
-                    id={displayedModels[0].id}
-                    name={displayedModels[0].name}
-                    url={displayedModels[0].url}
-                    logo={displayedModels[0].logo}
-                    enabled={true}
-                    slotIndex={0}
-                  />
-                )}
-                {displayedModels[2] && (
-                  <WebviewCard
-                    key={`slot-2-${displayedModels[2].id}`}
-                    ref={createRefCallback(displayedModels[2].id, 2)}
-                    id={displayedModels[2].id}
-                    name={displayedModels[2].name}
-                    url={displayedModels[2].url}
-                    logo={displayedModels[2].logo}
-                    enabled={true}
-                    slotIndex={2}
-                  />
-                )}
-              </div>
-            </div>
-
-            {gutter(0)}
-
-            <div className="min-w-0" style={paneStyle(1)}>
-              <div className="grid grid-rows-[minmax(480px,1fr)_minmax(480px,1fr)] gap-4 min-h-full">
-                {displayedModels[1] && (
-                  <WebviewCard
-                    key={`slot-1-${displayedModels[1].id}`}
-                    ref={createRefCallback(displayedModels[1].id, 1)}
-                    id={displayedModels[1].id}
-                    name={displayedModels[1].name}
-                    url={displayedModels[1].url}
-                    logo={displayedModels[1].logo}
-                    enabled={true}
-                    slotIndex={1}
-                  />
-                )}
-                {displayedModels[3] && (
-                  <WebviewCard
-                    key={`slot-3-${displayedModels[3].id}`}
-                    ref={createRefCallback(displayedModels[3].id, 3)}
-                    id={displayedModels[3].id}
-                    name={displayedModels[3].name}
-                    url={displayedModels[3].url}
-                    logo={displayedModels[3].logo}
-                    enabled={true}
-                    slotIndex={3}
-                  />
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-      </div></div>
+        {/* 用于计算宽度和 CSS Grid 布局的内层无 padding 容器 */}
+        <div ref={containerRef} style={containerStyle}>
+          {renderLayoutChildren()}
+        </div>
+      </div>
 
       {/* 底部控制栏 */}
       <div className="px-4 pb-4 sm:px-6 sm:pb-6 bg-transparent">
