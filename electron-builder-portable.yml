@@ -12,6 +12,8 @@ extends: electron-builder.yml
 extraResources:
   - from: build/portable.txt
     to: portable.txt
+  - from: out/cli/index.js
+    to: cli/index.js
 
 # 自定义输出文件名
 artifactName: ${productName}-Portable-${version}.${ext}

@@ -2,6 +2,63 @@
 
 ## 2026-06-28
 
+### 20:11 | Antigravity
+
+- done: 实现 CLI Daemon 架构 (Tasks 1-5): SessionManager, AutomationService, Named Pipe Server, CLI Client, IPC Bridge
+- decision: automation:send-prompt uses fixed 5s delay between exec and collect; callers needing precise completion should use exec+poll pattern instead
+- added:
+  - `src/main/services/SessionManager.ts`
+  - `src/main/services/AutomationService.ts`
+  - `src/main/daemon/ipcServer.ts`
+  - `src/cli/index.ts`
+  - `src/cli/commands.ts`
+  - `src/cli/client.ts`
+  - `src/shared/config/selectors.ts`
+  - `src/shared/utils/webviewScripts.ts`
+  - `src/shared/utils/htmlToMarkdown.ts`
+  - `build/multichat-cli.cmd`
+  - `build/multichat-cli.sh`
+- modified:
+  - `src/main/index.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/main/webviewManager.ts`
+  - `src/preload/index.ts`
+  - `src/preload/index.d.ts`
+  - `src/renderer/src/store/appStore.ts`
+  - `src/renderer/src/config/selectors.ts`
+  - `src/renderer/src/utils/webviewScripts.ts`
+  - `src/renderer/src/utils/htmlToMarkdown.ts`
+  - `package.json`
+  - `electron-builder.yml`
+  - `tsconfig.node.json`
+- lesson: CLI --json mode: ALL output (including errors) must use process.stderr.write for errors; only final successful data goes to stdout via console.log
+
+### 20:06 | Antigravity
+
+- done: Task 5: 重构 Renderer 与 Main 的通信桥梁
+- decision: appStore.sendMessageToAll 使用 WebviewCardRef 抽象层而非直接 executeJavaScript，无需迁移；新的 automationSendPrompt/automationCollect 是独立的 CLI 驱动接口
+- modified:
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/preload/index.d.ts`
+  - `src/renderer/src/store/appStore.ts`
+
+### 19:49 | Antigravity
+
+- done: Implement CLI client and packaging scripts
+- added:
+  - `src/cli/index.ts`
+  - `src/cli/commands.ts`
+  - `src/cli/client.ts`
+  - `build/multichat-cli.cmd`
+  - `build/multichat-cli.sh`
+- modified:
+  - `package.json`
+  - `package-lock.json`
+  - `electron-builder.yml`
+  - `electron-builder-portable.yml`
+  - `tsconfig.node.json`
+
 ### 19:47 | claude-code
 
 - done: 按二级菜单/正则区分搜索反馈重做方案二：step schema 扩展 regex/exclude/wordBoundary/caseSensitive/menuOpenerFallback；findElement 匹配层升级为 matchText(单词边界解决Search/Research误匹配)；新增跨步菜单兜底 findMenuOpener；selectors.ts 易误匹配条目改用 regex+exclude；记录非DOM替代方案调研(网络改写/CDP输入)经评估暂不采用
@@ -9,11 +66,67 @@
 - modified:
   - `docs/superpowers/plans/2026-06-28-resilient-webview-automation.md`
 
+### 19:34 | Antigravity
+
+- done: Resolve stream buffering race condition and improve parameter fallback in ipcServer
+- modified:
+  - `src/main/daemon/ipcServer.ts`
+
+### 19:26 | Antigravity
+
+- done: Implement Named Pipe daemon server for CLI commands
+- added:
+  - `src/main/daemon/ipcServer.ts`
+- modified:
+  - `src/main/index.ts`
+
 ### 19:21 | claude-code
 
 - done: 按评审意见修订 Resilient Webview Automation 方案：方案二改为最小增量兜底并收紧匹配；方案三补多平台 payload 适配/行缓冲/流完成判定/降级日志；Task3 锚点精确化、commit 改为需用户确认
 - modified:
   - `docs/superpowers/plans/2026-06-28-resilient-webview-automation.md`
+
+### 19:15 | Antigravity
+
+- done: Fix Code Quality Reviewer issues in AutomationService
+- decision: Inject electron-store into AutomationService to support reading custom selectors in main process, and clean up load listeners on timeout.
+- modified:
+  - `src/main/index.ts`
+  - `src/main/services/AutomationService.ts`
+
+### 18:59 | Antigravity
+
+- done: Task 2: 抽取执行内核 - Automation Service (Main Process)
+- decision: Move selectors and webviewScripts (with htmlToMarkdown) to src/shared and re-export in renderer to maintain backward compatibility.
+- added:
+  - `src/shared/config/selectors.ts`
+  - `src/shared/utils/webviewScripts.ts`
+  - `src/shared/utils/htmlToMarkdown.ts`
+  - `src/main/services/AutomationService.ts`
+- modified:
+  - `src/renderer/src/config/selectors.ts`
+  - `src/renderer/src/utils/webviewScripts.ts`
+  - `src/renderer/src/utils/htmlToMarkdown.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/preload/index.d.ts`
+
+### 18:38 | Antigravity
+
+- done: Code Review fixes for Task 1: disable backgroundThrottling and handle about:blank
+- decision: 在后台 BrowserWindow 设置 backgroundThrottling: false 确保定时器和DOM轮询不被降频；完善页面初始状态 URL 为 '' 或 'about:blank' 时的导航判断
+- modified:
+  - `src/main/services/SessionManager.ts`
+
+### 18:31 | Antigravity
+
+- done: Task 1: 抽取执行内核 - Session Manager (Main Process)
+- decision: 使用 BrowserWindow(show: false, partition: 'persist:shared') 构建后台长驻会话管理单例，复用现有 webview 拦截与脚本注入逻辑
+- added:
+  - `src/main/services/SessionManager.ts`
+- modified:
+  - `src/main/webviewManager.ts`
+  - `src/main/index.ts`
 
 ### 18:26 | Antigravity
 

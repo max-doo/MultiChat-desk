@@ -11,6 +11,9 @@ import { registerIpcHandlers } from './ipcHandlers'
 import { initShortcutManager } from './shortcutManager'
 import { createWindow, getMainWindow, openBrowserWindowInternal, setQuitting, createTray, destroyTray, createQuickWindow, createToolbarWindow } from './webviewManager'
 import { startInputHook, stopInputHook } from './inputHookManager'
+import { sessionManager } from './services/SessionManager'
+import { automationService } from './services/AutomationService'
+import { startDaemonServer, stopDaemonServer } from './daemon/ipcServer'
 
 // ============ 便携模式支持 ============
 
@@ -121,6 +124,13 @@ app.whenReady().then(() => {
   // 初始化全局快捷键管理
   initShortcutManager(store)
 
+  // 初始化后台会话管理与自动化内核
+  sessionManager.init()
+  automationService.init(store)
+
+  // 启动本地 CLI 守护服务
+  startDaemonServer()
+
   // 启动全局输入钩子（划词悬浮工具条）
   if (store.get('selectionToolbarEnabled', true) !== false) {
     // 预建隐藏工具条窗口，避免首次触发时现场建窗的瞬时激活抖动（挤掉 Word 迷你工具条等）
@@ -135,7 +145,9 @@ app.whenReady().then(() => {
 
 app.on('before-quit', () => {
   setQuitting(true)
+  stopDaemonServer()
   stopInputHook()
+  sessionManager.destroyAllSessions()
   globalShortcut.unregisterAll()
   destroyTray()
 })

@@ -183,7 +183,7 @@ export function openBrowserWindowInternal(url: string): void {
 
 // ============ 注入脚本 ============
 
-function getWebviewClickInterceptorScript(): string {
+export function getWebviewClickInterceptorScript(): string {
     return `
     (function() {
       try {
@@ -407,7 +407,7 @@ export function createWindow(): void {
  *
  * 同时适用于主窗口和快捷弹窗，避免重复逻辑。
  */
-function registerWebviewHandlers(webContents: Electron.WebContents): void {
+export function registerWebviewHandlers(webContents: Electron.WebContents): void {
     setupContextMenu(webContents)
 
     // ============ Google 账号切换检测 ============
