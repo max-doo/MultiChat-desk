@@ -41,3 +41,9 @@ Agents may suggest or promote a lesson into the `Known Gotchas` section of `AGEN
 - 快捷操作快捷键（Ctrl+Shift+S/E/T/Q）的提示词注入流程：先通过 VBScript 模拟 `Ctrl+C` 自动复制选中文本，读取成功后，再展示并聚焦快捷窗口，最后发送 `quick:inject-prompt` IPC 完成一键总结。
 
 - quickWindow 初始配置 `alwaysOnTop: false, skipTaskbar: false`，让用户通过 pin 按钮自行决定是否置顶。`skipTaskbar: true` 会导致窗口被其他窗口遮挡后无法通过任务栏找回，用户体验差。isPinned 状态由前端 toggle 按钮驱动，通过 `quick:get-always-on-top` / `quick:set-always-on-top` IPC 控制。
+
+- **Headless BrowserWindow 后台限流**：通过 `new BrowserWindow({ show: false, ... })` 创建的隐藏 Daemon 会话窗口，Chromium 默认开启 `backgroundThrottling: true`，会将后台 tab 的 `setTimeout/setInterval` 降频至 ≤1Hz。必须在 `webPreferences` 中显式设置 `backgroundThrottling: false`，否则 `AutomationService` 注入的轮询脚本会严重超时。
+
+- **Named Pipe Server 异步事件循环竞态**：Node `net.Socket` 的 `'data'` 事件回调在 `async` 函数中，当 `await handleRequest(...)` 暂停时，后续到达的数据包仍会同步触发新的 `'data'` 事件，修改共享的 `buffer` 变量，造成 lines 跳行或乱序。**正确模式**：在同步的 `'data'` 回调中仅做行分割，将完整行推入 per-socket `requestQueue: string[]`，然后用 `processQueue(socket)` 串行消费（加一个 `processing` flag 防止重入）。
+
+- **CLI `--json` 模式 stdout/stderr 分离**：在 `--json` 模式下，凡是连接失败、解析错误等错误信息都必须走 `process.stderr.write(...)`，而不是 `console.log`（会写 stdout）。只有最终成功的结构化数据才输出到 `stdout`，这样外部脚本才能安全地管道解析 stdout。

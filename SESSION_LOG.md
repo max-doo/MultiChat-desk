@@ -2,6 +2,47 @@
 
 ## 2026-06-28
 
+### 20:11 | Antigravity
+
+- done: 实现 CLI Daemon 架构 (Tasks 1-5): SessionManager, AutomationService, Named Pipe Server, CLI Client, IPC Bridge
+- decision: automation:send-prompt uses fixed 5s delay between exec and collect; callers needing precise completion should use exec+poll pattern instead
+- added:
+  - `src/main/services/SessionManager.ts`
+  - `src/main/services/AutomationService.ts`
+  - `src/main/daemon/ipcServer.ts`
+  - `src/cli/index.ts`
+  - `src/cli/commands.ts`
+  - `src/cli/client.ts`
+  - `src/shared/config/selectors.ts`
+  - `src/shared/utils/webviewScripts.ts`
+  - `src/shared/utils/htmlToMarkdown.ts`
+  - `build/multichat-cli.cmd`
+  - `build/multichat-cli.sh`
+- modified:
+  - `src/main/index.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/main/webviewManager.ts`
+  - `src/preload/index.ts`
+  - `src/preload/index.d.ts`
+  - `src/renderer/src/store/appStore.ts`
+  - `src/renderer/src/config/selectors.ts`
+  - `src/renderer/src/utils/webviewScripts.ts`
+  - `src/renderer/src/utils/htmlToMarkdown.ts`
+  - `package.json`
+  - `electron-builder.yml`
+  - `tsconfig.node.json`
+- lesson: CLI --json mode: ALL output (including errors) must use process.stderr.write for errors; only final successful data goes to stdout via console.log
+
+### 20:06 | Antigravity
+
+- done: Task 5: 重构 Renderer 与 Main 的通信桥梁
+- decision: appStore.sendMessageToAll 使用 WebviewCardRef 抽象层而非直接 executeJavaScript，无需迁移；新的 automationSendPrompt/automationCollect 是独立的 CLI 驱动接口
+- modified:
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/preload/index.d.ts`
+  - `src/renderer/src/store/appStore.ts`
+
 ### 19:49 | Antigravity
 
 - done: Implement CLI client and packaging scripts
