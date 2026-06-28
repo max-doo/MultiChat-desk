@@ -886,7 +886,7 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
                       <div className="flex items-center gap-1.5 shrink-0">
                         {hasDeepResearch && (
                           <span
-                            className="material-symbols-outlined text-base text-primary/80 hover:text-primary transition-colors"
+                            className="material-symbols-outlined text-base text-gray-400 hover:text-gray-600 transition-colors"
                             title="深度研究"
                           >
                             biotech
@@ -894,7 +894,7 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
                         )}
                         {hasImageGen && (
                           <span
-                            className="material-symbols-outlined text-base text-purple-500/80 hover:text-purple-500 transition-colors"
+                            className="material-symbols-outlined text-base text-gray-400 hover:text-gray-600 transition-colors"
                             title="AI 生图"
                           >
                             image

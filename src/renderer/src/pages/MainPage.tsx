@@ -521,13 +521,15 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
         </div>
       </div>
 
-      {/* 底部控制栏 */}
-      <div className="px-4 pb-4 sm:px-6 sm:pb-6 bg-transparent">
-        <ControlBar
-          ref={controlBarRef}
-          onGenerateReport={handleGenerateReport}
-        />
-      </div>
+      {/* 底部控制栏（单窗口模式下隐藏） */}
+      {displayMode !== 'one' && (
+        <div className="px-4 pb-4 sm:px-6 sm:pb-6 bg-transparent">
+          <ControlBar
+            ref={controlBarRef}
+            onGenerateReport={handleGenerateReport}
+          />
+        </div>
+      )}
 
       {/* 历史记录抽屉 */}
       <HistoryDrawer

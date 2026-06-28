@@ -2,6 +2,38 @@
 
 ## 2026-06-28
 
+### 17:55 | Antigravity
+
+- done: 在生图模式下将总结按钮动态切换为一键下载按钮，并在 TODO.md 中记录后续具体下载功能实现的待办项
+- modified:
+  - `src/renderer/src/components/ControlBar.tsx`
+  - `TODO.md`
+
+### 17:42 | Antigravity
+
+- done: 重构 AI 生图模式为提示词注入（Prompt Injection）模式，大幅优化交互响应和鲁棒性
+- decision: 弃用容易因 UI 改版或多语言定位失效的 DOM 模拟点击开启生图菜单逻辑，改为在发送时判断开启状态自动追加生图指令前缀
+- modified:
+  - `src/renderer/src/components/ControlBar.tsx`
+
+### 17:30 | Antigravity
+
+- done: 交换新建对话与AI生图按钮位置，增加二选一互斥逻辑并统一AI生图的主题高亮样式
+- modified:
+  - `src/renderer/src/components/ControlBar.tsx`
+
+### 17:27 | Antigravity
+
+- done: Change the deep research and image generation icon colors to gray in the model selection dropdown menu
+- modified:
+  - `src/renderer/src/components/WebviewCard.tsx`
+
+### 17:24 | Antigravity
+
+- done: 在主页面单窗口模式下隐藏底部工具栏
+- modified:
+  - `src/renderer/src/pages/MainPage.tsx`
+
 ### 17:18 | claude-code
 
 - done: 划词悬浮工具条改用 UI Automation 读取选区替代 Ctrl+C：新增常驻 PowerShell UIA helper（行JSON协议+base64传文本+UTF-8），inputHookManager 按下/松手两次 UIA 读取对比实现拖拽+新选区双条件触发，toolbar:trigger-action 改用缓存文本不发 Ctrl+C，启动预建工具条窗口。修复终端选词杀进程/Word迷你工具条被抢占/拖窗口误弹三个bug

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle, type DragEvent } from 'react'
-import { useAppStore, DEEP_RESEARCH_UNSUPPORTED_ERROR, IMAGE_GENERATION_UNSUPPORTED_ERROR } from '../store/appStore'
+import { useAppStore, DEEP_RESEARCH_UNSUPPORTED_ERROR } from '../store/appStore'
 
 
 interface ControlBarProps {
@@ -22,8 +22,6 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
     const [message, setMessage] = useState('')
     const [isActivatingResearch, setIsActivatingResearch] = useState(false)
     const [isCancellingResearch, setIsCancellingResearch] = useState(false)
-    const [isActivatingImageGeneration, setIsActivatingImageGeneration] = useState(false)
-    const [isCancellingImageGeneration, setIsCancellingImageGeneration] = useState(false)
     const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null)
     const [isFileDragOver, setIsFileDragOver] = useState(false)
     const dragCounterRef = useRef(0)
@@ -41,8 +39,6 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
       uploadFileToAll,
       enableDeepResearchForAll,
       disableDeepResearchForAll,
-      enableImageGenerationForAll,
-      disableImageGenerationForAll,
       isSending,
       lastSendResults,
       models,
@@ -267,7 +263,10 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
     const handleSend = useCallback(async (): Promise<void> => {
       if (!message.trim() || isSending) return
 
-      const messageToSend = message.trim()
+      let messageToSend = message.trim()
+      if (isImageGeneration) {
+        messageToSend = `请严格按照以下要求生成一张或多张高质量图片：\n\n${messageToSend}`
+      }
 
       // 第一步：如果文字还未输入到 webview，先输入
       if (!textInserted) {
@@ -293,7 +292,7 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
 
       await sendMessageToAll(messageToSend)
       textareaRef.current?.focus()
-    }, [message, isSending, textInserted, insertTextToAll, sendMessageToAll, setMessage, setTextInserted, showNotification])
+    }, [message, isSending, textInserted, isImageGeneration, insertTextToAll, sendMessageToAll, setMessage, setTextInserted, showNotification])
 
     // 监听全局键盘事件，支持在确认发送状态下使用 Enter 键发送
     useEffect(() => {
@@ -462,16 +461,42 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
         <div className="relative flex items-center gap-6">
           {/* 左侧：功能按钮 */}
           <div className="flex items-center gap-6">
-            {/* 新对话按钮 */}
+            {/* AI 生图切换 */}
             <button
-              onClick={handleNewChat}
-              disabled={isNewChatLoading}
+              onClick={() => {
+                if (isImageGeneration) {
+                  setImageGeneration(false)
+                  showNotification('info', '已关闭 AI 生图模式')
+                } else {
+                  // 互斥逻辑：如果当前开启了深度研究，先关闭深度研究
+                  if (isDeepResearch) {
+                    setIsCancellingResearch(true)
+                    showNotification('info', '正在切换至 AI 生图模式（关闭深度研究）...')
+                    disableDeepResearchForAll().catch(error => console.error('自动关闭深度研究失败:', error)).finally(() => {
+                      setDeepResearch(false)
+                      setIsCancellingResearch(false)
+                    })
+                  }
+                  setImageGeneration(true)
+                  showNotification('success', '已启用 AI 生图模式（提示词自动增强）')
+                }
+              }}
+              disabled={textInserted || isSending || isActivatingResearch || isCancellingResearch}
               className="flex flex-col items-center justify-center gap-2 text-xs font-medium text-text-secondary hover:text-primary group transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <span className="flex items-center justify-center w-10 h-10 glass-panel shadow-soft rounded-full group-hover:bg-blue-50/50 group-hover:text-primary border border-transparent group-hover:border-blue-200 transition-all duration-200">
-                <span className={`material-symbols-outlined text-2xl ${isNewChatLoading ? 'animate-spin' : ''}`}>{isNewChatLoading ? 'sync' : 'add'}</span>
+              <span
+                className={`flex items-center justify-center w-10 h-10 rounded-full border shadow-soft transition-all duration-200 ${isImageGeneration
+                  ? 'bg-blue-50/80 text-primary border-blue-200 scale-105 glass-panel'
+                  : 'glass-panel border-transparent group-hover:bg-blue-50/50 group-hover:text-primary group-hover:border-blue-200'
+                  }`}
+              >
+                <span className="material-symbols-outlined text-2xl">
+                  image
+                </span>
               </span>
-              开启新对话
+              <span className={isImageGeneration ? 'text-primary' : ''}>
+                AI 生图
+              </span>
             </button>
 
             {/* 深度研究切换 */}
@@ -506,6 +531,12 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
                     setIsCancellingResearch(false)
                   }
                   return
+                }
+
+                // 互斥逻辑：如果当前开启了AI生图，直接关闭AI生图
+                if (isImageGeneration) {
+                  setImageGeneration(false)
+                  showNotification('info', '正在切换至深度研究模式（已关闭 AI 生图）...')
                 }
 
                 // 如果当前是关闭状态，点击则开启
@@ -562,84 +593,16 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
               </span>
             </button>
 
-            {/* AI 生图切换 */}
+            {/* 新对话按钮 */}
             <button
-              onClick={async () => {
-                if (isImageGeneration) {
-                  setIsCancellingImageGeneration(true)
-                  showNotification('info', '正在关闭 AI 生图模式...')
-                  try {
-                    const results = await disableImageGenerationForAll()
-                    const actionableResults = results.filter(r => r.error !== IMAGE_GENERATION_UNSUPPORTED_ERROR)
-                    if (actionableResults.length === 0) {
-                      setImageGeneration(false)
-                      showNotification('info', '当前页面模型不支持 AI 生图，无需关闭')
-                      return
-                    }
-                    const successCount = results.filter(r => r.success).length
-                    if (successCount > 0) {
-                      setImageGeneration(false)
-                      showNotification('success', `已在 ${successCount} 个模型中关闭 AI 生图`)
-                    } else {
-                      setImageGeneration(false)
-                      showNotification('info', '未检测到取消按钮，已手动关闭')
-                    }
-                  } catch (error) {
-                    console.error('关闭 AI 生图失败:', error)
-                    setImageGeneration(false)
-                    showNotification('error', '关闭 AI 生图模式时发生错误')
-                  } finally {
-                    setIsCancellingImageGeneration(false)
-                  }
-                  return
-                }
-
-                setIsActivatingImageGeneration(true)
-                showNotification('info', '正在启用 AI 生图模式...')
-
-                try {
-                  const results = await enableImageGenerationForAll()
-                  const actionableResults = results.filter(r => r.error !== IMAGE_GENERATION_UNSUPPORTED_ERROR)
-                  if (actionableResults.length === 0) {
-                    setImageGeneration(false)
-                    showNotification('info', '当前页面模型不支持 AI 生图')
-                    return
-                  }
-                  const successCount = results.filter(r => r.success).length
-
-                  if (successCount > 0) {
-                    setImageGeneration(true)
-                    showNotification('success', `已在 ${successCount} 个模型中启用 AI 生图`)
-                  } else {
-                    setImageGeneration(false)
-                    showNotification('info', '未能自动开启 AI 生图，请手动操作')
-                  }
-                } catch (error) {
-                  console.error('开启 AI 生图失败:', error)
-                  showNotification('error', '开启 AI 生图模式时发生错误')
-                  setImageGeneration(false)
-                } finally {
-                  setIsActivatingImageGeneration(false)
-                }
-              }}
-              disabled={textInserted || isSending || isActivatingImageGeneration || isCancellingImageGeneration}
-              className="flex flex-col items-center justify-center gap-2 text-xs font-medium text-text-secondary hover:text-text-primary group transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={handleNewChat}
+              disabled={isNewChatLoading}
+              className="flex flex-col items-center justify-center gap-2 text-xs font-medium text-text-secondary hover:text-primary group transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <span
-                className={`flex items-center justify-center w-10 h-10 rounded-full border shadow-soft transition-all duration-200 ${isImageGeneration
-                  ? 'bg-purple-500/10 text-purple-400 border-purple-500/50 shadow-[0_0_12px_rgba(168,85,247,0.3)] scale-105 glass-panel'
-                  : isActivatingImageGeneration
-                    ? 'glass-panel border-purple-500/30 animate-pulse text-text-secondary'
-                    : 'glass-panel border-transparent group-hover:bg-purple-500/10 group-hover:text-purple-400 group-hover:border-purple-500/50'
-                  }`}
-              >
-                <span className={`material-symbols-outlined text-2xl ${(isActivatingImageGeneration || isCancellingImageGeneration) ? 'animate-spin' : ''}`}>
-                  {(isActivatingImageGeneration || isCancellingImageGeneration) ? 'sync' : 'image'}
-                </span>
+              <span className="flex items-center justify-center w-10 h-10 glass-panel shadow-soft rounded-full group-hover:bg-blue-50/50 group-hover:text-primary border border-transparent group-hover:border-blue-200 transition-all duration-200">
+                <span className={`material-symbols-outlined text-2xl ${isNewChatLoading ? 'animate-spin' : ''}`}>{isNewChatLoading ? 'sync' : 'add'}</span>
               </span>
-              <span className={isImageGeneration ? 'text-text-primary' : ''}>
-                {isActivatingImageGeneration ? '开启中...' : isCancellingImageGeneration ? '关闭中...' : 'AI 生图'}
-              </span>
+              开启新对话
             </button>
           </div>
 
@@ -768,13 +731,21 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
             </button>
           </div>
 
-          {/* 右侧：生成总结报告按钮 */}
+          {/* 右侧：生成总结 / 一键下载按钮 */}
           <button
-            onClick={onGenerateReport}
+            onClick={() => {
+              if (isImageGeneration) {
+                showNotification('info', '一键下载图片功能已记录 TODO，将在后续版本中支持')
+              } else {
+                onGenerateReport()
+              }
+            }}
             className="flex-shrink-0 px-4 py-2 text-sm font-bold rounded-[24px] bg-primary text-white hover:opacity-90 shadow-soft transition-opacity whitespace-nowrap flex items-center gap-2"
           >
-            <span className="material-symbols-outlined text-xl">auto_awesome</span>
-            生成总结
+            <span className="material-symbols-outlined text-xl">
+              {isImageGeneration ? 'download' : 'auto_awesome'}
+            </span>
+            {isImageGeneration ? '一键下载' : '生成总结'}
           </button>
         </div>
       </footer>
