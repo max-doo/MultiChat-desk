@@ -2,7 +2,7 @@ import { Command } from 'commander'
 import { sendDaemonRequest, type DaemonResponse } from './client'
 
 function isJsonMode(cmd: Command): boolean {
-  return Boolean(cmd.optsWithGlobals().json || process.argv.includes('--json'))
+  return Boolean(cmd.optsWithGlobals().json)
 }
 
 function handleCommandResponse(res: DaemonResponse, jsonMode: boolean): void {
@@ -33,12 +33,10 @@ export function registerCommands(program: Command): void {
   const daemonCmd = program
     .command('daemon')
     .description('Manage MultiChat daemon')
-    .option('--json', 'Output results in JSON format')
 
   daemonCmd
     .command('status')
     .description('Check if Daemon is running')
-    .option('--json', 'Output results in JSON format')
     .action(async (_options: Record<string, unknown>, cmd: Command) => {
       const jsonMode = isJsonMode(cmd)
       const res = await sendDaemonRequest({ action: 'status' }, jsonMode)
@@ -48,13 +46,12 @@ export function registerCommands(program: Command): void {
   program
     .command('exec')
     .description('Execute a prompt on a specified AI model')
-    .option('-m, --model <model>', 'AI model or platform ID')
-    .option('-p, --prompt <prompt>', 'Prompt text to execute')
-    .option('--json', 'Output results in JSON format')
-    .action(async (options: { model?: string; prompt?: string }, cmd: Command) => {
+    .requiredOption('-m, --model <model>', 'AI model or platform ID')
+    .requiredOption('-p, --prompt <prompt>', 'Prompt text to execute')
+    .action(async (options: { model: string; prompt: string }, cmd: Command) => {
       const jsonMode = isJsonMode(cmd)
       const res = await sendDaemonRequest(
-        { action: 'exec', model: options.model || '', prompt: options.prompt || '' },
+        { action: 'exec', model: options.model, prompt: options.prompt },
         jsonMode
       )
       handleCommandResponse(res, jsonMode)
@@ -65,7 +62,6 @@ export function registerCommands(program: Command): void {
     .description('Collect the latest response from a session or model')
     .option('-s, --session <session>', 'Session ID')
     .option('-m, --model <model>', 'AI model or platform ID')
-    .option('--json', 'Output results in JSON format')
     .action(async (options: { session?: string; model?: string }, cmd: Command) => {
       const jsonMode = isJsonMode(cmd)
       const res = await sendDaemonRequest(

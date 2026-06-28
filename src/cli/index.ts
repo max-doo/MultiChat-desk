@@ -1,12 +1,13 @@
 import { Command } from 'commander'
 import { registerCommands } from './commands'
+const { version } = require('../../package.json') as { version: string }
 
 const program = new Command()
 
 program
   .name('multichat')
   .description('MultiChat CLI Client')
-  .version('1.0.0')
+  .version(version)
 
 registerCommands(program)
 
