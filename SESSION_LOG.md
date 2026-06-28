@@ -2,6 +2,23 @@
 
 ## 2026-06-28
 
+### 18:59 | Antigravity
+
+- done: Task 2: 抽取执行内核 - Automation Service (Main Process)
+- decision: Move selectors and webviewScripts (with htmlToMarkdown) to src/shared and re-export in renderer to maintain backward compatibility.
+- added:
+  - `src/shared/config/selectors.ts`
+  - `src/shared/utils/webviewScripts.ts`
+  - `src/shared/utils/htmlToMarkdown.ts`
+  - `src/main/services/AutomationService.ts`
+- modified:
+  - `src/renderer/src/config/selectors.ts`
+  - `src/renderer/src/utils/webviewScripts.ts`
+  - `src/renderer/src/utils/htmlToMarkdown.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/preload/index.d.ts`
+
 ### 18:38 | Antigravity
 
 - done: Code Review fixes for Task 1: disable backgroundThrottling and handle about:blank

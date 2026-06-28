@@ -23,6 +23,7 @@ import {
     getAgentPromptsDir,
     type AgentPromptFileItem
 } from './agentPrompts'
+import { automationService } from './services/AutomationService'
 
 // 存储当前的 AbortController，用于终止请求
 let currentSummaryAbortController: AbortController | null = null
@@ -870,5 +871,16 @@ export function registerIpcHandlers(
                 })
             }
         }, 300)
+    })
+
+    // 自动化执行内核接口
+    ipcMain.handle('automation:execute', async (_event, platformId: string, prompt: string) => {
+        return await automationService.executeCommand(platformId, prompt)
+    })
+    ipcMain.handle('automation:collect-result', async (_event, platformId: string) => {
+        return await automationService.collectResult(platformId)
+    })
+    ipcMain.handle('automation:dev-test-exec', async (_event, platformId: string, prompt: string) => {
+        return await automationService.executeCommand(platformId, prompt)
     })
 }

@@ -102,6 +102,9 @@ declare global {
       toolbarHide: () => void
       selectionToolbarGet: () => Promise<{ success: boolean; data?: boolean; error?: string }>
       selectionToolbarSet: (enabled: boolean) => Promise<{ success: boolean; error?: string }>
+      automationExecute: (platformId: string, prompt: string) => Promise<{ success: boolean; data?: unknown; error?: string }>
+      automationCollectResult: (platformId: string) => Promise<{ success: boolean; data?: string; error?: string }>
+      automationDevTestExec: (platformId: string, prompt: string) => Promise<{ success: boolean; data?: unknown; error?: string }>
     }
   }
 }
