@@ -25,7 +25,8 @@ export class SessionManager {
   public getOrCreateSession(platformId: string, url?: string): BrowserWindow {
     let win = this.sessions.get(platformId)
     if (win && !win.isDestroyed()) {
-      if (url && win.webContents.getURL() === '') {
+      const currentUrl = win.webContents.getURL()
+      if (url && (currentUrl === '' || currentUrl === 'about:blank')) {
         void win.loadURL(url)
       }
       return win
@@ -43,7 +44,8 @@ export class SessionManager {
         partition: 'persist:shared',
         sandbox: false,
         contextIsolation: true,
-        nodeIntegration: false
+        nodeIntegration: false,
+        backgroundThrottling: false
       }
     })
 
