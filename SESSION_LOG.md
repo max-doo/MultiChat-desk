@@ -2,6 +2,36 @@
 
 ## 2026-06-28
 
+### 19:49 | Antigravity
+
+- done: Implement CLI client and packaging scripts
+- added:
+  - `src/cli/index.ts`
+  - `src/cli/commands.ts`
+  - `src/cli/client.ts`
+  - `build/multichat-cli.cmd`
+  - `build/multichat-cli.sh`
+- modified:
+  - `package.json`
+  - `package-lock.json`
+  - `electron-builder.yml`
+  - `electron-builder-portable.yml`
+  - `tsconfig.node.json`
+
+### 19:34 | Antigravity
+
+- done: Resolve stream buffering race condition and improve parameter fallback in ipcServer
+- modified:
+  - `src/main/daemon/ipcServer.ts`
+
+### 19:26 | Antigravity
+
+- done: Implement Named Pipe daemon server for CLI commands
+- added:
+  - `src/main/daemon/ipcServer.ts`
+- modified:
+  - `src/main/index.ts`
+
 ### 19:15 | Antigravity
 
 - done: Fix Code Quality Reviewer issues in AutomationService

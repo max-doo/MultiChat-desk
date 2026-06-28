@@ -23,6 +23,16 @@ files:
   - package.json
   - "!**/*.map"
 
+extraResources:
+  - from: out/cli/index.js
+    to: cli/index.js
+
+extraFiles:
+  - from: build/multichat-cli.cmd
+    to: multichat-cli.cmd
+  - from: build/multichat-cli.sh
+    to: multichat-cli.sh
+
 # ============ Windows 打包配置 ============
 win:
   target:
