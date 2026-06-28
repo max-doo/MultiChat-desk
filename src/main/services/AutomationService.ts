@@ -1,5 +1,6 @@
+import type Store from 'electron-store'
 import { sessionManager } from './SessionManager'
-import { getSelectors, defaultSelectors, type ModelSelector } from '../../shared/config/selectors'
+import { getSelectors, defaultSelectors, type ModelSelector, type SelectorsConfig } from '../../shared/config/selectors'
 import { generateSendMessageScript, generateGetLatestResponseScript } from '../../shared/utils/webviewScripts'
 
 const PLATFORM_DEFAULT_URLS: Record<string, string> = {
@@ -29,12 +30,35 @@ export interface AutomationResponse<T = unknown> {
  * 负责在无头或长驻的会话 WebContents 中执行发送输入、点击按钮以及提取结果
  */
 export class AutomationService {
+  private store: Store<Record<string, unknown>> | null = null
+
+  /**
+   * 初始化自动化服务并注入 store
+   */
+  public init(store: Store<Record<string, unknown>>): void {
+    this.store = store
+  }
+
   /**
    * 获取指定平台的选择器配置
    */
   private async getPlatformSelectors(platformId: string): Promise<ModelSelector> {
+    let customModelSelector: ModelSelector | undefined
+
+    if (this.store) {
+      try {
+        const stored = this.store.get('selectors') as SelectorsConfig | undefined
+        if (stored && stored.models && stored.models[platformId]) {
+          customModelSelector = stored.models[platformId]
+        }
+      } catch (err) {
+        console.warn(`[AutomationService] 从 store 读取自定义选择器失败 (${platformId}):`, err)
+      }
+    }
+
     const selectorsConfig = await getSelectors()
-    const selectors = selectorsConfig.platforms[platformId] || defaultSelectors.platforms[platformId]
+    const selectors = customModelSelector || (selectorsConfig.models ? selectorsConfig.models[platformId] : undefined) || (defaultSelectors.models ? defaultSelectors.models[platformId] : undefined)
+
     if (!selectors) {
       throw new Error(`平台选择器未配置: ${platformId}`)
     }
@@ -73,6 +97,8 @@ export class AutomationService {
 
         const timeout = setTimeout(() => {
           // 即使加载超时也尝试解析，某些动态网页可能在超时时已部分可用
+          webContents.removeListener('did-finish-load', didFinishLoad)
+          webContents.removeListener('did-fail-load', didFailLoad)
           resolve()
         }, 20000)
 

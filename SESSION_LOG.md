@@ -2,6 +2,14 @@
 
 ## 2026-06-28
 
+### 19:15 | Antigravity
+
+- done: Fix Code Quality Reviewer issues in AutomationService
+- decision: Inject electron-store into AutomationService to support reading custom selectors in main process, and clean up load listeners on timeout.
+- modified:
+  - `src/main/index.ts`
+  - `src/main/services/AutomationService.ts`
+
 ### 18:59 | Antigravity
 
 - done: Task 2: 抽取执行内核 - Automation Service (Main Process)

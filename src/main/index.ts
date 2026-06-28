@@ -12,6 +12,7 @@ import { initShortcutManager } from './shortcutManager'
 import { createWindow, getMainWindow, openBrowserWindowInternal, setQuitting, createTray, destroyTray, createQuickWindow, createToolbarWindow } from './webviewManager'
 import { startInputHook, stopInputHook } from './inputHookManager'
 import { sessionManager } from './services/SessionManager'
+import { automationService } from './services/AutomationService'
 
 // ============ 便携模式支持 ============
 
@@ -122,8 +123,9 @@ app.whenReady().then(() => {
   // 初始化全局快捷键管理
   initShortcutManager(store)
 
-  // 初始化后台会话管理
+  // 初始化后台会话管理与自动化内核
   sessionManager.init()
+  automationService.init(store)
 
   // 启动全局输入钩子（划词悬浮工具条）
   if (store.get('selectionToolbarEnabled', true) !== false) {
