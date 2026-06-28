@@ -22,9 +22,11 @@
     "build:linux": "npm run clean:store && npm run build && electron-builder --linux --config"
   },
   "dependencies": {
+    "@fontsource/roboto": "^5.2.10",
     "@tailwindcss/typography": "^0.5.19",
     "@types/turndown": "^5.0.6",
     "electron-store": "^8.1.0",
+    "material-symbols": "^0.45.4",
     "monio-napi": "^1.0.13",
     "react-markdown": "^10.1.0",
     "react-virtuoso": "^4.18.1",
