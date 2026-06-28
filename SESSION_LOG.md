@@ -2,6 +2,13 @@
 
 ## 2026-06-28
 
+### 18:38 | Antigravity
+
+- done: Code Review fixes for Task 1: disable backgroundThrottling and handle about:blank
+- decision: 在后台 BrowserWindow 设置 backgroundThrottling: false 确保定时器和DOM轮询不被降频；完善页面初始状态 URL 为 '' 或 'about:blank' 时的导航判断
+- modified:
+  - `src/main/services/SessionManager.ts`
+
 ### 18:31 | Antigravity
 
 - done: Task 1: 抽取执行内核 - Session Manager (Main Process)
