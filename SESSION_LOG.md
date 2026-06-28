@@ -2,6 +2,40 @@
 
 ## 2026-06-28
 
+### 19:47 | claude-code
+
+- done: 按二级菜单/正则区分搜索反馈重做方案二：step schema 扩展 regex/exclude/wordBoundary/caseSensitive/menuOpenerFallback；findElement 匹配层升级为 matchText(单词边界解决Search/Research误匹配)；新增跨步菜单兜底 findMenuOpener；selectors.ts 易误匹配条目改用 regex+exclude；记录非DOM替代方案调研(网络改写/CDP输入)经评估暂不采用
+- context: 用户选定 DOM 强化路线、CDP 暂不纳入
+- modified:
+  - `docs/superpowers/plans/2026-06-28-resilient-webview-automation.md`
+
+### 19:21 | claude-code
+
+- done: 按评审意见修订 Resilient Webview Automation 方案：方案二改为最小增量兜底并收紧匹配；方案三补多平台 payload 适配/行缓冲/流完成判定/降级日志；Task3 锚点精确化、commit 改为需用户确认
+- modified:
+  - `docs/superpowers/plans/2026-06-28-resilient-webview-automation.md`
+
+### 18:26 | Antigravity
+
+- done: 移除 Google Fonts 远程 CDN 依赖，通过 npm 内置 Material Symbols Outlined 和 Roboto 字体
+- modified:
+  - `package.json`
+  - `package-lock.json`
+  - `src/renderer/index.html`
+  - `src/renderer/src/main.tsx`
+
+### 18:21 | Antigravity
+
+- done: Create git worktree for CLI daemon development at ../MultiChat-desk-cli
+- added:
+  - `../MultiChat-desk-cli (worktree)`
+
+### 18:12 | Antigravity
+
+- done: Update git remote origin URL to the new repository address https://github.com/max-doo/MultiChat-desk.git
+- modified:
+  - `.git/config`
+
 ### 17:55 | Antigravity
 
 - done: 在生图模式下将总结按钮动态切换为一键下载按钮，并在 TODO.md 中记录后续具体下载功能实现的待办项
