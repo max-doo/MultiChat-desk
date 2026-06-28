@@ -2,6 +2,12 @@
 
 ## 2026-06-28
 
+### 20:24 | claude-code
+
+- done: 测试 CLI 功能：daemon status/exec/collect 命令，验证参数校验、错误处理、JSON 输出。CLI 通信正常，豆包 exec 成功，collect 返回空（选择器过期）
+- context: 在 feature/cli-daemon worktree 中测试 CLI，开发服务器已启动
+- unresolved: ['豆包 collect 选择器过期；ChatGPT/DeepSeek 输入框选择器过期']
+
 ### 20:11 | Antigravity
 
 - done: 实现 CLI Daemon 架构 (Tasks 1-5): SessionManager, AutomationService, Named Pipe Server, CLI Client, IPC Bridge
@@ -42,6 +48,14 @@
   - `src/preload/index.ts`
   - `src/preload/index.d.ts`
   - `src/renderer/src/store/appStore.ts`
+
+### 20:03 | claude-code
+
+- done: 新增 Task 4 事件驱动自动保存：sniffer 推送 __MM_REPLY_DONE__(含请求体提取的 prompt)→WebviewCard console-message 接收→appStore.recordSniffedTurn(活跃monitor直接落库+跳过DOM轮询；手动聊天续接同平台同URL历史)。消除 pollPlatforms 反复 DOM 爬取、补齐单webview手动聊天盲区。无新增 IPC
+- context: 复用既有 __MM_LOG__ console-message 通道与 shouldStartNewConversation URL 判定；用户选定手动聊天续接同平台最近一条
+- decision: 请求体解析 prompt 只读不改、低风险不触 TOS；pollPlatforms 降级为 sniffer 失效站点兜底
+- modified:
+  - `docs/superpowers/plans/2026-06-28-resilient-webview-automation.md`
 
 ### 19:49 | Antigravity
 
