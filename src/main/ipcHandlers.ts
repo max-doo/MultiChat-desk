@@ -11,7 +11,7 @@ import type Store from 'electron-store'
 import { generateSummary, fetchModels } from './api/summaryApi'
 import { setQuitting, getQuickWindow, showAndFocusWindow, hideToolbarWindow } from './webviewManager'
 import { broadcastStateChange } from './stateBus'
-import { getShortcuts, updateShortcuts, type ShortcutConfig } from './shortcutManager'
+import { getShortcuts, updateShortcuts, getSelectedTextAsync, type ShortcutConfig } from './shortcutManager'
 import {
     listAgentPrompts,
     bootstrapAgentPrompts,
@@ -811,7 +811,37 @@ export function registerIpcHandlers(
         hideToolbarWindow()
     })
 
-    ipcMain.on('toolbar:trigger-action', (_event, payload: { action: string }) => {
-        console.log('[IPC] toolbar:trigger-action payload:', payload)
+    ipcMain.on('toolbar:trigger-action', async (_event, payload: { action: 'summarize' | 'translate' | 'copy' }) => {
+        // 1. 立即隐藏悬浮工具栏
+        hideToolbarWindow()
+
+        // 2. 复用成熟方案按需提取文本。
+        // 对于 copy 动作传入 true 保持更新；对于 summarize/translate 传入 false 还原剪贴板
+        const keepClipboard = payload.action === 'copy'
+        const text = await getSelectedTextAsync(keepClipboard)
+        if (!text || text.trim().length === 0) {
+            console.warn('[Toolbar] Failed to retrieve selected text on action click')
+            return
+        }
+
+        if (payload.action === 'copy') {
+            return
+        }
+
+        // 3. 召唤并聚焦快捷窗口 (严格遵循先复制后 focus 规则)
+        const qw = getQuickWindow()
+        if (!qw) return
+
+        showAndFocusWindow(qw)
+
+        // 4. 延迟 300ms 注入 Prompt
+        setTimeout(() => {
+            if (!qw.isDestroyed()) {
+                qw.webContents.send('quick:inject-prompt', {
+                    text,
+                    action: payload.action
+                })
+            }
+        }, 300)
     })
 }
