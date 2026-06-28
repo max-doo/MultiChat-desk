@@ -12,14 +12,16 @@ export interface ShortcutConfig {
   polish: string
   translate: string
   raw: string
+  search: string
 }
 
 export const defaultShortcuts: ShortcutConfig = {
   summon: 'CommandOrControl+Shift+Space',
-  summarize: 'CommandOrControl+Shift+S',
-  polish: 'CommandOrControl+Shift+E',
-  translate: 'CommandOrControl+Shift+T',
-  raw: 'CommandOrControl+Shift+Q'
+  summarize: '',
+  polish: '',
+  translate: '',
+  raw: '',
+  search: ''
 }
 
 let appStore: Store | null = null
@@ -61,7 +63,8 @@ export function registerAllShortcuts(): void {
     { key: config.summarize, action: 'summarize' as const },
     { key: config.polish, action: 'polish' as const },
     { key: config.translate, action: 'translate' as const },
-    { key: config.raw, action: 'raw' as const }
+    { key: config.raw, action: 'raw' as const },
+    { key: config.search, action: 'search' as const }
   ]
   actions.forEach(({ key, action }) => {
     if (key) {

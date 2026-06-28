@@ -3,6 +3,7 @@ import { useAppStore, type AgentPrompt, type SummaryModel, type ApiProvider } fr
 import logo from '../assets/logo.svg'
 import CustomDropdown, { type DropdownOption } from './CustomDropdown'
 import ConfirmModal from './ConfirmModal'
+import ShortcutRecorder from './ShortcutRecorder'
 
 interface SettingsDrawerProps {
   isOpen: boolean
@@ -444,10 +445,11 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
   // 快捷键设置状态
   const [shortcuts, setShortcuts] = useState<Record<string, string>>({
     summon: 'CommandOrControl+Shift+Space',
-    summarize: 'CommandOrControl+Shift+S',
-    polish: 'CommandOrControl+Shift+E',
-    translate: 'CommandOrControl+Shift+T',
-    raw: 'CommandOrControl+Shift+Q'
+    summarize: '',
+    polish: '',
+    translate: '',
+    raw: '',
+    search: ''
   })
 
   useEffect(() => {
@@ -465,6 +467,26 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
     setShortcuts(updated)
     if (window.api?.shortcutSet) {
       await window.api.shortcutSet({ [key]: val })
+    }
+  }
+
+  // 划词悬浮工具条状态
+  const [selectionToolbarEnabled, setSelectionToolbarEnabled] = useState<boolean>(true)
+
+  useEffect(() => {
+    if (isOpen && window.api?.selectionToolbarGet) {
+      window.api.selectionToolbarGet().then(res => {
+        if (res.success && res.data !== undefined) {
+          setSelectionToolbarEnabled(res.data)
+        }
+      })
+    }
+  }, [isOpen])
+
+  const handleSelectionToolbarChange = async (enabled: boolean): Promise<void> => {
+    setSelectionToolbarEnabled(enabled)
+    if (window.api?.selectionToolbarSet) {
+      await window.api.selectionToolbarSet(enabled)
     }
   }
 
@@ -874,29 +896,49 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
             </div>
           </div>
 
+          {/* 划词悬浮工具条设置 */}
+          <div>
+            <h3 className="font-medium text-text-secondary mb-4">划词悬浮工具条设置</h3>
+            <div className="p-4 rounded-lg bg-sidebar/50 border border-gray-200 flex items-center justify-between">
+              <div>
+                <div className="text-sm text-text-secondary font-medium">启用划词悬浮工具条</div>
+                <div className="text-xs text-gray-500 mt-1">开启后，选中文本松开鼠标将自动出现快捷操作栏</div>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={selectionToolbarEnabled}
+                  onChange={(e) => handleSelectionToolbarChange(e.target.checked)}
+                  className="sr-only peer"
+                />
+                <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
+              </label>
+            </div>
+          </div>
+
           {/* 全局快捷键设置 */}
           <div>
             <h3 className="font-medium text-text-secondary mb-4">全局快捷键设置</h3>
             <div className="p-4 rounded-lg bg-sidebar/50 border border-gray-200 space-y-3">
               {[
-                { key: 'summon', label: '唤醒快捷助手' },
-                { key: 'summarize', label: '划词召唤 - 总结' },
-                { key: 'polish', label: '划词召唤 - 润色' },
-                { key: 'translate', label: '划词召唤 - 翻译' },
-                { key: 'raw', label: '划词召唤 - 纯文本入框' }
-              ].map(({ key, label }) => (
+                { key: 'summon', label: '唤醒快捷助手', placeholder: 'CommandOrControl+Shift+Space' },
+                { key: 'summarize', label: '划词召唤 - 总结', placeholder: 'CommandOrControl+Shift+S' },
+                { key: 'polish', label: '划词召唤 - 润色', placeholder: 'CommandOrControl+Shift+E' },
+                { key: 'translate', label: '划词召唤 - 翻译', placeholder: 'CommandOrControl+Shift+T' },
+                { key: 'raw', label: '划词召唤 - 纯文本入框', placeholder: 'CommandOrControl+Shift+Q' },
+                { key: 'search', label: '划词召唤 - 搜索', placeholder: 'CommandOrControl+Shift+F' }
+              ].map(({ key, label, placeholder }) => (
                 <div key={key} className="flex items-center justify-between gap-4">
                   <label className="text-sm text-text-secondary">{label}</label>
-                  <input
-                    type="text"
+                  <ShortcutRecorder
                     value={shortcuts[key] || ''}
-                    onChange={(e) => handleShortcutChange(key, e.target.value)}
-                    placeholder="如 CommandOrControl+Shift+Space"
-                    className="w-64 px-3 py-1.5 bg-app border border-gray-200 rounded-md text-text-secondary text-xs focus:outline-none focus:border-primary"
+                    onChange={(val) => handleShortcutChange(key, val)}
+                    placeholder={placeholder}
+                    defaultShortcut={key === 'summon' ? 'CommandOrControl+Shift+Space' : ''}
                   />
                 </div>
               ))}
-              <p className="text-xs text-gray-500 mt-2">支持组合键名称（修饰键用 CommandOrControl、Shift、Alt 等连接）</p>
+              <p className="text-xs text-gray-500 mt-2">点击设置框后，直接在键盘上按下组合快捷键即可自动录制（按 Esc 取消）</p>
             </div>
           </div>
 

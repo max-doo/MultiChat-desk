@@ -1,45 +1,86 @@
-import React from 'react'
+import React, { useEffect } from 'react'
+import logo from '../assets/logo.svg'
 
 export default function ToolbarPage(): JSX.Element {
-  const handleAction = (action: 'summarize' | 'translate' | 'copy'): void => {
+  useEffect(() => {
+    // 强制清除全局 body/html 带来的默认矩形实体背景，实现真正的悬浮窗
+    document.documentElement.style.setProperty('background', 'transparent', 'important')
+    document.body.style.setProperty('background', 'transparent', 'important')
+    const rootEl = document.getElementById('root')
+    if (rootEl) {
+      rootEl.style.setProperty('background', 'transparent', 'important')
+    }
+    return () => {
+      document.documentElement.style.removeProperty('background')
+      document.body.style.removeProperty('background')
+      if (rootEl) {
+        rootEl.style.removeProperty('background')
+      }
+    }
+  }, [])
+
+  const handleAction = (action: 'quick' | 'summarize' | 'translate' | 'copy' | 'search'): void => {
     if (window.api?.toolbarAction) {
       window.api.toolbarAction(action)
     }
   }
 
   return (
-    <div className="h-screen w-screen flex items-center justify-center bg-transparent overflow-hidden">
-      <div className="flex items-center gap-1 px-2.5 py-1 bg-white/95 border border-gray-200 shadow-md rounded-full backdrop-blur-md transition-all duration-200">
+    <div className="w-full h-full flex items-center justify-center bg-transparent overflow-hidden select-none">
+      <div className="flex items-center gap-0.5 px-1.5 py-1 bg-white/95 dark:bg-neutral-900/95 border border-black/10 dark:border-white/10 shadow-md rounded-xl transition-all duration-200">
+        {/* 快捷窗口 (问问) */}
+        <button
+          type="button"
+          onClick={() => handleAction('quick')}
+          className="flex items-center gap-1 px-2 py-1 rounded-lg text-neutral-700 dark:text-neutral-200 hover:text-neutral-950 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/10 transition-colors duration-150 cursor-pointer"
+          title="问问"
+        >
+          <img src={logo} alt="问问" className="w-7 h-7 object-contain" />
+          <span className="text-xs font-medium leading-none">问问</span>
+        </button>
+
+        {/* 搜索按钮 */}
+        <button
+          type="button"
+          onClick={() => handleAction('search')}
+          className="flex items-center gap-1 px-2 py-1 rounded-lg text-neutral-700 dark:text-neutral-200 hover:text-neutral-950 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/10 transition-colors duration-150 cursor-pointer"
+          title="搜索"
+        >
+          <span className="material-symbols-outlined text-[20px]">search</span>
+          <span className="text-xs font-medium leading-none">搜索</span>
+        </button>
+
+        {/* 总结按钮 */}
+        <button
+          type="button"
+          onClick={() => handleAction('summarize')}
+          className="flex items-center gap-1 px-2 py-1 rounded-lg text-neutral-700 dark:text-neutral-200 hover:text-neutral-950 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/10 transition-colors duration-150 cursor-pointer"
+          title="总结"
+        >
+          <span className="material-symbols-outlined text-[20px]">compress</span>
+          <span className="text-xs font-medium leading-none">总结</span>
+        </button>
+
+        {/* 翻译按钮 */}
+        <button
+          type="button"
+          onClick={() => handleAction('translate')}
+          className="flex items-center gap-1 px-2 py-1 rounded-lg text-neutral-700 dark:text-neutral-200 hover:text-neutral-950 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/10 transition-colors duration-150 cursor-pointer"
+          title="翻译"
+        >
+          <span className="material-symbols-outlined text-[20px]">translate</span>
+          <span className="text-xs font-medium leading-none">翻译</span>
+        </button>
+
         {/* 复制按钮 */}
         <button
           type="button"
           onClick={() => handleAction('copy')}
-          className="w-7 h-7 flex items-center justify-center rounded-full text-gray-500 hover:text-gray-800 hover:bg-gray-100 transition-colors duration-150"
+          className="flex items-center gap-1 px-2 py-1 rounded-lg text-neutral-700 dark:text-neutral-200 hover:text-neutral-950 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/10 transition-colors duration-150 cursor-pointer"
           title="复制"
         >
-          <span className="material-symbols-outlined text-base">content_copy</span>
-        </button>
-
-        <div className="w-[1px] h-3 bg-gray-200/80 mx-0.5" />
-
-        {/* AI 总结按钮 */}
-        <button
-          type="button"
-          onClick={() => handleAction('summarize')}
-          className="w-7 h-7 flex items-center justify-center rounded-full text-blue-500 hover:text-blue-700 hover:bg-blue-50 transition-colors duration-150"
-          title="AI总结"
-        >
-          <span className="material-symbols-outlined text-base">summarize</span>
-        </button>
-
-        {/* AI 翻译按钮 */}
-        <button
-          type="button"
-          onClick={() => handleAction('translate')}
-          className="w-7 h-7 flex items-center justify-center rounded-full text-purple-500 hover:text-purple-700 hover:bg-purple-50 transition-colors duration-150"
-          title="翻译"
-        >
-          <span className="material-symbols-outlined text-base">translate</span>
+          <span className="material-symbols-outlined text-[20px]">content_copy</span>
+          <span className="text-xs font-medium leading-none">复制</span>
         </button>
       </div>
     </div>

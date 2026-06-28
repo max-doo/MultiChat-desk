@@ -2,6 +2,148 @@
 
 ## 2026-06-28
 
+### 14:55 | Antigravity
+
+- done: Slightly increased other action icon sizes (search, compress, translate, copy) from 16px to 20px on selection floating toolbar.
+- modified:
+  - `src/renderer/src/pages/ToolbarPage.tsx`
+
+### 14:51 | Antigravity
+
+- done: Increased size of '问问' icon on selection floating toolbar to twice as large (w-7 h-7 / 28px).
+- modified:
+  - `src/renderer/src/pages/ToolbarPage.tsx`
+
+### 14:50 | Antigravity
+
+- done: Adjusted selection floating toolbar UI: removed capsule pill rounded corners, removed button divider lines, reduced padding/spacing for compactness, added '问问' button with product logo to copy selected text into quick window input, adjusted button order (quick, search, summarize, translate, copy), and updated summarize icon to compress.
+- modified:
+  - `src/renderer/src/pages/ToolbarPage.tsx`
+  - `src/renderer/src/pages/QuickPage.tsx`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/preload/index.d.ts`
+
+### 14:49 | claude-code
+
+- done: 修复划词悬浮工具条无选中文本也弹出的问题：松手后先用 getSelectedTextAsync(false) 探测选区，空则不弹；恢复 isAppFocused 守卫与收紧手势阈值
+- modified:
+  - `src/main/inputHookManager.ts`
+- lesson(promoted): 划词工具条不能仅凭鼠标手势弹窗：全局鼠标钩子无法判断光标下是否为可文本选区，唯一可靠的跨进程选区信号是模拟 Ctrl+C 探测剪贴板；手势→直接弹窗 必然导致拖窗口/滚动条/空白也误弹
+
+### 14:30 | Antigravity
+
+- done: 优化工具条阴影使其更加轻盈，并修复点击外部需要等待2-3s才消失的BUG，实现取消划词时点击外部区域秒级立即隐藏
+- modified:
+  - `src/renderer/src/pages/ToolbarPage.tsx`
+  - `src/main/webviewManager.ts`
+  - `src/main/inputHookManager.ts`
+
+### 14:29 | Antigravity
+
+- done: 修复快捷键录制组件在Windows中文输入法下按住Ctrl+Shift会被过早截断只能记录2个键的Bug
+- modified:
+  - `src/renderer/src/components/ShortcutRecorder.tsx`
+- lesson(promoted): Windows Chrome/Electron中中文输入法对Ctrl+Shift热键响应时会发送e.key='Process'或keyCode=229事件，快捷键录制组件必须将其过滤并视为暂态修饰事件，防止过早触发提交
+
+### 14:24 | Antigravity
+
+- done: 优化快捷键设置UX为业界标准的交互式捕获录制组件，支持按键徽章展示、一键清空与重置默认值
+- added:
+  - `src/renderer/src/components/ShortcutRecorder.tsx`
+- modified:
+  - `src/renderer/src/components/SettingsDrawer.tsx`
+
+### 14:22 | Antigravity
+
+- done: 修复划词工具条外部矩形容器问题：在ToolbarPage挂载时强制清除全局 body/html/root 的背景样式，实现真正无边框纯圆角胶囊悬浮效果
+- modified:
+  - `src/renderer/src/pages/ToolbarPage.tsx`
+
+### 14:19 | Antigravity
+
+- done: 设置其他快捷键默认值为空时 placeholder 采用之前默认设置组合键
+- modified:
+  - `src/renderer/src/components/SettingsDrawer.tsx`
+
+### 14:13 | Antigravity
+
+- done: 优化划词工具条UI：去除了所有Icon的高亮颜色采用统一无色文字说明，去除了包裹外部容器使页面呈现出只有毛玻璃样态工具条的纯粹UI效果，调整窗口宽高适配文本按钮
+- modified:
+  - `src/renderer/src/pages/ToolbarPage.tsx`
+  - `src/main/webviewManager.ts`
+
+### 14:10 | Antigravity
+
+- done: 为快捷窗口增加搜索提示词及搜索动作支持，默认关闭除召唤以外的全局快捷键，并在设置中增加划词悬浮工具条开启/关闭开关与搜索按钮
+- modified:
+  - `src/main/shortcutManager.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/main/index.ts`
+  - `src/preload/index.d.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/src/pages/QuickPage.tsx`
+  - `src/renderer/src/pages/ToolbarPage.tsx`
+  - `src/renderer/src/components/SettingsDrawer.tsx`
+
+### 14:00 | claude-code
+
+- done: 清除划词工具条 inputHookManager.ts 中两条每次触发都打印的调试日志（MouseReleased / Double click detected），逻辑与判定不变。
+- context: 上一条会话条目的收尾清理；保留 start/stop/Failed/Detected selection gesture 等关键节点日志。
+- modified:
+  - `src/main/inputHookManager.ts`
+
+### 13:56 | claude-code
+
+- done: 修复划词悬浮工具条永不触发：monio-napi 的 startListen 回调运行时按 EventJs[] 数组批量派发（d.ts 标注为单个 EventJs，与运行时不符），直接读 event.eventType/event.mouse 全得 undefined，导致探针条件永不命中、button=undefined、distance=NaN。改为 Array.isArray(payload)?payload:[payload] 解包后逐条 processEvent。实测工具条可正常触发。
+- context: 本轮用 systematic-debugging 证伪了交接报告里的 4 个假设（原生二进制缺失/eventMask 漏发/out bundle 陈旧/electron-vite 打包破坏），并用 console.log(JSON.stringify(event)) 揭示 raw=[{...}] 即数组真身，定位真因。同时纠正 KNOWLEDGE.md 中前一会话误写的“嵌套对象”教训（实为数组）。临时诊断脚本 scripts/diag-monio.js 与 index.ts 临时 process 异常监听均为本轮创建后删除/还原，净零未留存。
+- decision: 保留 startListen 单回调用法（而非退回 InputHook），因为 eventMask=2047、isRunning=true 已证实库在 Electron 内正常工作，真因仅在载荷形状。
+- modified:
+  - `src/main/inputHookManager.ts`
+  - `.memory/KNOWLEDGE.md`
+- lesson(promoted): monio-napi startListen 回调实为 EventJs[] 数组派发，d.ts 与运行时不符；回调字段全 undefined 时，先用 JSON.stringify(event) 看输出是否以方括号开头（数组），勿猜嵌套字段名、勿归咎 OS 消息循环或库损坏。修复：Array.isArray(payload)?payload:[payload] 逐条处理。
+- unresolved: ['InputHook.onMouseXxx 是否同样按数组派发未单独验证（仅见历史 button=undefined 症状）；如未来用回 InputHook 需先确认。']
+
+### 13:08 | Antigravity
+
+- done: 全面迁移 monio-napi 的 InputHook 至官方主推的 startListen API，解决底层事件包装结构差异导致坐标为 0 的问题
+- decision: 废弃偏差较多的 InputHook 类，改用官方 README 中提供完整结构保证和实战示例的全局 startListen 回调
+- modified:
+  - `src/main/inputHookManager.ts`
+
+### 13:04 | Antigravity
+
+- done: 修复 monio-napi 底层嵌套结构导致划词坐标与按键为 undefined 从而计算出 distance=NaN 的Bug
+- modified:
+  - `src/main/inputHookManager.ts`
+- lesson(promoted): 在使用 monio-napi 的 InputHook (如 onMouseDown / onMouseUp) 时，虽然 TypeScript 声明为扁平结构 MouseButtonEventJs { x, y, button }，但运行时实际传递的是嵌套的 EventJs { mouse: { x, y, button } } 对象，必须使用兼容函数优先从 e.mouse 中解包获取坐标与按键
+
+### 13:02 | Antigravity
+
+- done: 修复划词悬浮工具条无法触发的问题：移除应用内焦点拦截、放宽手势判定门槛并增强按键兼容性
+- decision: 放宽左键判定以兼容 N-API 跨层传递的 button 字段差异；移除 duration 上限以支持长文本慢速划选；移除 isAppFocused 拦截支持全局触发
+- modified:
+  - `src/main/inputHookManager.ts`
+
+### 12:54 | Antigravity
+
+- done: 实现类似豆包与桌面划词翻译的悬浮工具条（Selection Floating Toolbar）
+- decision: 采用无焦点（focusable: false）和 showInactive() 悬浮工具条，避免抢夺外部应用焦点导致选区高亮丢失；基于 screen 逻辑坐标系定位消除高 DPI 错位风险；动作触发时严格遵循先复制后 focus 规则
+- added:
+  - `src/main/inputHookManager.ts`
+  - `src/renderer/src/pages/ToolbarPage.tsx`
+- modified:
+  - `package.json`
+  - `package-lock.json`
+  - `electron-builder.yml`
+  - `src/main/index.ts`
+  - `src/main/shortcutManager.ts`
+  - `src/main/webviewManager.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/preload/index.d.ts`
+  - `src/renderer/src/App.tsx`
+
 ### 12:07 | Antigravity
 
 - done: 修复快捷键注入内容时重复注入及发送后继续注入的Bug

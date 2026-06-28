@@ -99,14 +99,15 @@ export default function QuickPage(): JSX.Element {
   useEffect(() => {
     const unsub = window.api.onQuickInject(async ({ text, action }) => {
       if (!text) return
-      if (action === 'raw') {
+      if (action === 'raw' || action === 'quick') {
         injectTextWithRetry(text)
         return
       }
       const promptMap: Record<string, string> = {
         summarize: `总结以下内容:\n\n${text}`,
         polish: `润色以下文本，使其更流畅自然:\n\n${text}`,
-        translate: `翻译一下内容：如果是英文则翻译成中文，如果是中文则翻译成英文，不得更改原意:\n\n${text}`
+        translate: `翻译以下内容：如果是英文则翻译成中文，如果是中文则翻译成英文，不得更改原意:\n\n${text}`,
+        search: `搜索以下内容:\n\n${text}`
       }
       const finalPrompt = promptMap[action] || text
       injectTextWithRetry(finalPrompt)

@@ -32,9 +32,9 @@ const api = {
   quickHide: () => ipcRenderer.invoke('quick:hide'),
   quickGetAlwaysOnTop: (): Promise<boolean> => ipcRenderer.invoke('quick:get-always-on-top'),
   quickSetAlwaysOnTop: (flag: boolean): Promise<void> => ipcRenderer.invoke('quick:set-always-on-top', flag),
-  quickInjectPrompt: (payload: { text: string; action: 'summarize'|'polish'|'translate'|'raw' }) => ipcRenderer.send('quick:inject-prompt', payload),
-  onQuickInject: (cb: (payload: { text: string; action: 'summarize'|'polish'|'translate'|'raw' }) => void) => {
-    const handler = (_e: Electron.IpcRendererEvent, payload: { text: string; action: 'summarize'|'polish'|'translate'|'raw' }): void => cb(payload)
+  quickInjectPrompt: (payload: { text: string; action: 'quick'|'summarize'|'polish'|'translate'|'raw'|'search' }) => ipcRenderer.send('quick:inject-prompt', payload),
+  onQuickInject: (cb: (payload: { text: string; action: 'quick'|'summarize'|'polish'|'translate'|'raw'|'search' }) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, payload: { text: string; action: 'quick'|'summarize'|'polish'|'translate'|'raw'|'search' }): void => cb(payload)
     ipcRenderer.on('quick:inject-prompt', handler)
     return () => { ipcRenderer.removeListener('quick:inject-prompt', handler) }
   },
@@ -179,12 +179,14 @@ const api = {
   windowDragEnd: (): void => ipcRenderer.send('window-drag-end'),
 
   // 悬浮工具条
-  toolbarAction: (action: 'summarize' | 'translate' | 'copy'): void => {
+  toolbarAction: (action: 'quick' | 'summarize' | 'translate' | 'copy' | 'search'): void => {
     ipcRenderer.send('toolbar:trigger-action', { action })
   },
   toolbarHide: (): void => {
     ipcRenderer.send('toolbar:hide')
-  }
+  },
+  selectionToolbarGet: (): Promise<{ success: boolean; data?: boolean; error?: string }> => ipcRenderer.invoke('selection-toolbar:get'),
+  selectionToolbarSet: (enabled: boolean): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('selection-toolbar:set', enabled)
 }
 
 // 暴露 API 到渲染进程

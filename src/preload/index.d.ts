@@ -36,8 +36,8 @@ declare global {
       quickHide: () => Promise<{ success: boolean; error?: string }>
       quickGetAlwaysOnTop: () => Promise<boolean>
       quickSetAlwaysOnTop: (flag: boolean) => Promise<void>
-      quickInjectPrompt: (payload: { text: string; action: 'summarize'|'polish'|'translate'|'raw' }) => void
-      onQuickInject: (cb: (payload: { text: string; action: 'summarize'|'polish'|'translate'|'raw' }) => void) => () => void
+      quickInjectPrompt: (payload: { text: string; action: 'quick'|'summarize'|'polish'|'translate'|'raw'|'search' }) => void
+      onQuickInject: (cb: (payload: { text: string; action: 'quick'|'summarize'|'polish'|'translate'|'raw'|'search' }) => void) => () => void
       stateSync: (partialState: Record<string, unknown>) => void
       onStateChangedRemote: (cb: (state: Record<string, unknown>) => void) => () => void
       shortcutGet: () => Promise<{ success: boolean; data?: Record<string, string>; error?: string }>
@@ -98,8 +98,10 @@ declare global {
       windowDragStart: () => void
       windowDragMove: () => void
       windowDragEnd: () => void
-      toolbarAction: (action: 'summarize' | 'translate' | 'copy') => void
+      toolbarAction: (action: 'quick' | 'summarize' | 'translate' | 'copy' | 'search') => void
       toolbarHide: () => void
+      selectionToolbarGet: () => Promise<{ success: boolean; data?: boolean; error?: string }>
+      selectionToolbarSet: (enabled: boolean) => Promise<{ success: boolean; error?: string }>
     }
   }
 }

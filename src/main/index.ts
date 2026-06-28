@@ -122,7 +122,9 @@ app.whenReady().then(() => {
   initShortcutManager(store)
 
   // 启动全局输入钩子（划词悬浮工具条）
-  startInputHook()
+  if (store.get('selectionToolbarEnabled', true) !== false) {
+    startInputHook()
+  }
 
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

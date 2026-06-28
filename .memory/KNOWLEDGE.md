@@ -27,6 +27,13 @@ Agents may suggest or promote a lesson into the `Known Gotchas` section of `AGEN
 
 - **Webview 富文本框提示词注入校验坑**：在向第三方 AI 平台富文本输入框（`contenteditable` / Slate / Lexical 等）注入带有换行符或多行格式的提示词（如 `总结以下内容:\n\n文本`）时，编辑器会自动将其格式化为 `<p>` 等 HTML 节点。若通过 `textarea.textContent` 读取当前值进行 `rawCurrent === rawExpected` 全等比对，由于 `textContent` 会丢失换行符，比对结果将永远为 `false`。这会导致前端重试轮询（如 15 次 500ms 重试）误判为注入失败并疯狂重复注入，干扰用户编辑和发送。解决方案：寻找输入框和执行插入成功后，直接返回 `{ success: true }` 立即终止前端轮询。
 
+- **[已纠正] monio-napi 回调参数是数组，不是单个对象（也非嵌套对象）**：`monio-napi` 的 `startListen(callback)` 回调，d.ts 声明参数为单个 `EventJs`，但**运行时实际按 `EventJs[]` 数组批量派发**（NAPI-RS 侧用 `Vec<EventJs>` 调用 ThreadsafeFunction）。直接读 `event.eventType` / `event.mouse` 会得到 `undefined`，导致：探针条件 `type===5` 永不命中（看起来"没事件"）、`button=undefined`、`x/y=0`、`distance=NaN`。这正是"划词工具条永不触发"的真因。**正确修复**：`const events = Array.isArray(payload) ? payload : [payload]; for (const e of events) processEvent(e)`。`InputHook.onMouseXxx` 回调也出现过同样的 `button=undefined` 症状，疑似同样按数组派发（未单独验证，但"嵌套对象"的旧解释已被证伪，勿再沿用）。
+  - **判别手法（关键）**：回调里 `console.log(JSON.stringify(event))`，若输出以方括号 `[{...}]` 开头即为数组。看到所有字段 `undefined` 时，**先怀疑载荷形状不匹配（数组/嵌套），用 `JSON.stringify` 看真身，再动手**——不要猜字段名、不要归咎于 OS 消息循环或库损坏。
+  - **隔离测试的陷阱**：用纯 `node` 跑 `monio-napi` 做隔离诊断时，能收到库自家的 `HookEnabled`(eventType=0) 事件，但纯 node 无 Win32 消息泵，真实鼠标事件可能不触发；且隔离脚本本身若也犯了"未解包数组"的错，会得到"0 事件"的假象。故隔离测试的"0 事件"结论必须排除测试代码自身的形状 bug 后才可信。
+  - **教训之上的教训**：前一个会话把未经验证的"嵌套对象"猜测当成稳定教训写进了本文件，直接误导后续 3 轮排查。**写入 KNOWLEDGE.md 的根因必须由运行时证据（`JSON.stringify` 真身）证实，未经证实的猜测只能留在 SESSION_LOG，不得升级为 KNOWLEDGE。**
+
+- **划词悬浮工具条不可仅凭鼠标手势弹窗**：全局鼠标钩子（`monio-napi`）只能拿到坐标与按键，无法判断光标下是否为可文本选区。若"拖拽距离/时长命中 → 直接 `showToolbarAt`"，则拖窗口标题栏、拖滚动条、拖图片、在空白处拖动都会误弹工具条。**唯一可靠的跨进程选区信号是模拟 `Ctrl+C` 探测剪贴板**（复用 `getSelectedTextAsync(false)`，空则不弹）。代价：每次合格拖拽多发一次 Ctrl+C、约 150ms 延迟、瞬间触碰剪贴板（会还原）。同时必须保留 `isAppFocused()` 守卫（避免在本应用窗口内划词也弹）与收紧手势阈值（减少不必要的 Ctrl+C 探测）。相关：上方「monio-napi 回调参数是数组」条目。：在 Windows Chromium / Electron 应用中，由于中文输入法（如微软拼音、搜狗等）系统级占用 `Ctrl+Shift` 或 `Alt+Shift` 作为中英文/输入法切换热键，当用户在快捷键录制组件中按住 `Ctrl+Shift` 准备去敲击第三个主键（如 `S`）时，输入法会向 DOM 发送 `e.key = 'Process'` / `'Unidentified'` / `'Dead'` 或 `e.keyCode === 229` 的虚拟事件。若录制组件仅把 `['Control', 'Shift', 'Alt', 'Meta']` 认定为修饰键，会将 `Process` 误判为有效主键并立即触发提交，造成“刚按住 Ctrl+Shift 就强行终止并保存了 2 个键”的严重 BUG。**解决方案**：必须在 `onKeyDown` 中将 `Process`、`Unidentified`、`Dead` 以及 `keyCode === 229` 的事件一律识别为暂态修饰事件并进行过滤，确保最终提交的主键为真正有效的物理按键或功能键。
+
 ## Stable Decisions
 
 - 快捷操作快捷键（Ctrl+Shift+S/E/T/Q）的提示词注入流程：先通过 VBScript 模拟 `Ctrl+C` 自动复制选中文本，读取成功后，再展示并聚焦快捷窗口，最后发送 `quick:inject-prompt` IPC 完成一键总结。

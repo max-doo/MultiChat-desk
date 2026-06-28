@@ -10,6 +10,7 @@ import { tmpdir } from 'os'
 import type Store from 'electron-store'
 import { generateSummary, fetchModels } from './api/summaryApi'
 import { setQuitting, getQuickWindow, showAndFocusWindow, hideToolbarWindow } from './webviewManager'
+import { startInputHook, stopInputHook } from './inputHookManager'
 import { broadcastStateChange } from './stateBus'
 import { getShortcuts, updateShortcuts, getSelectedTextAsync, type ShortcutConfig } from './shortcutManager'
 import {
@@ -807,17 +808,32 @@ export function registerIpcHandlers(
 
     // ============ 悬浮工具条 IPC 处理器 ============
 
+    ipcMain.handle('selection-toolbar:get', () => {
+        return { success: true, data: store.get('selectionToolbarEnabled', true) as boolean }
+    })
+
+    ipcMain.handle('selection-toolbar:set', (_event, enabled: boolean) => {
+        store.set('selectionToolbarEnabled', enabled)
+        if (enabled) {
+            startInputHook()
+        } else {
+            stopInputHook()
+            hideToolbarWindow()
+        }
+        return { success: true }
+    })
+
     ipcMain.on('toolbar:hide', () => {
         hideToolbarWindow()
     })
 
-    ipcMain.on('toolbar:trigger-action', async (_event, payload: { action: 'summarize' | 'translate' | 'copy' }) => {
+    ipcMain.on('toolbar:trigger-action', async (_event, payload: { action: 'quick' | 'summarize' | 'translate' | 'copy' | 'search' }) => {
         // 1. 立即隐藏悬浮工具栏
         hideToolbarWindow()
 
         // 2. 复用成熟方案按需提取文本。
-        // 对于 copy 动作传入 true 保持更新；对于 summarize/translate 传入 false 还原剪贴板
-        const keepClipboard = payload.action === 'copy'
+        // 对于 copy 和 quick 动作传入 true 保持更新；对于 summarize/translate/search 传入 false 还原剪贴板
+        const keepClipboard = payload.action === 'copy' || payload.action === 'quick'
         const text = await getSelectedTextAsync(keepClipboard)
         if (!text || text.trim().length === 0) {
             console.warn('[Toolbar] Failed to retrieve selected text on action click')

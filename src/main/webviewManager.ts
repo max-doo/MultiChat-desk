@@ -732,8 +732,8 @@ export function getToolbarWindow(): BrowserWindow | null { return toolbarWindow 
 export function createToolbarWindow(): void {
     if (toolbarWindow) return
     toolbarWindow = new BrowserWindow({
-        width: 180,
-        height: 38,
+        width: 360,
+        height: 48,
         frame: false,
         transparent: true,
         alwaysOnTop: true,
@@ -776,8 +776,8 @@ export function showToolbarAt(physX: number, physY: number): void {
     const logicalX = physX / scale
     const logicalY = physY / scale
 
-    const width = 180
-    const height = 38
+    const width = 360
+    const height = 48
 
     let targetX = logicalX - width / 2
     let targetY = logicalY - height - 12 // 在鼠标上方 12 逻辑像素弹出
@@ -802,4 +802,18 @@ export function hideToolbarWindow(): void {
     if (toolbarWindow && toolbarWindow.isVisible()) {
         toolbarWindow.hide()
     }
+}
+
+export function isPointInToolbar(physX: number, physY: number): boolean {
+    if (!toolbarWindow || !toolbarWindow.isVisible()) return false
+    const bounds = toolbarWindow.getBounds()
+    const display = screen.getDisplayNearestPoint({ x: physX, y: physY })
+    const scale = display.scaleFactor || 1
+
+    const left = bounds.x * scale - 10
+    const right = (bounds.x + bounds.width) * scale + 10
+    const top = bounds.y * scale - 10
+    const bottom = (bounds.y + bounds.height) * scale + 10
+
+    return physX >= left && physX <= right && physY >= top && physY <= bottom
 }
