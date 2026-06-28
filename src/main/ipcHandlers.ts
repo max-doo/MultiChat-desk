@@ -9,7 +9,7 @@ import { stat, writeFile, mkdtemp } from 'fs/promises'
 import { tmpdir } from 'os'
 import type Store from 'electron-store'
 import { generateSummary, fetchModels } from './api/summaryApi'
-import { setQuitting, getQuickWindow } from './webviewManager'
+import { setQuitting, getQuickWindow, showAndFocusWindow } from './webviewManager'
 import { broadcastStateChange } from './stateBus'
 import { getShortcuts, updateShortcuts, type ShortcutConfig } from './shortcutManager'
 import {
@@ -39,7 +39,7 @@ export function registerIpcHandlers(
 
     ipcMain.handle('tray:show-main', () => {
         const w = getMainWindow()
-        if (w) { w.show(); w.focus() }
+        if (w) showAndFocusWindow(w)
         getQuickWindow()?.hide()
         return { success: true }
     })
@@ -55,8 +55,11 @@ export function registerIpcHandlers(
     ipcMain.handle('quick:show', (_e, opts?: { focus?: boolean }) => {
         const qw = getQuickWindow()
         if (!qw) return { success: false, error: 'Quick Window not initialized' }
-        qw.show()
-        if (opts?.focus !== false) qw.focus()
+        if (opts?.focus === false) {
+            qw.show()
+        } else {
+            showAndFocusWindow(qw)
+        }
         return { success: true }
     })
     ipcMain.handle('quick:hide', () => {

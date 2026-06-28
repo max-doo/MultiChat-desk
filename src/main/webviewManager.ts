@@ -15,6 +15,27 @@ import { startAgentPromptsWatcher } from './agentPrompts'
 let mainWindow: BrowserWindow | null = null
 let quickWindow: BrowserWindow | null = null
 export function getQuickWindow(): BrowserWindow | null { return quickWindow }
+
+export function showAndFocusWindow(win: BrowserWindow | null): void {
+    if (!win || win.isDestroyed()) return
+    if (win.isMinimized()) {
+        win.restore()
+    }
+    win.show()
+    win.moveTop()
+    const wasAlwaysOnTop = win.isAlwaysOnTop()
+    if (!wasAlwaysOnTop) {
+        win.setAlwaysOnTop(true)
+    }
+    win.focus()
+    if (!wasAlwaysOnTop) {
+        setTimeout(() => {
+            if (!win || win.isDestroyed()) return
+            win.setAlwaysOnTop(false)
+        }, 50)
+    }
+}
+
 const browserWindows = new Set<BrowserWindow>()
 
 let tray: Tray | null = null
@@ -128,11 +149,11 @@ export function createTray(): void {
     tray.setToolTip('MultiChat')
 
     const contextMenu = Menu.buildFromTemplate([
-        { label: '显示主界面', click: () => { mainWindow?.show(); mainWindow?.focus(); getQuickWindow()?.hide() } },
+        { label: '显示主界面', click: () => { showAndFocusWindow(mainWindow); getQuickWindow()?.hide() } },
         { label: '召唤快捷弹窗', click: () => {
             const qw = getQuickWindow()
             if (!qw) return
-            qw.show(); qw.focus()
+            showAndFocusWindow(qw)
         } },
         { type: 'separator' },
         { label: '退出', click: () => { setQuitting(true); app.quit() } }
@@ -142,7 +163,7 @@ export function createTray(): void {
     tray.on('click', () => {
         if (!mainWindow) return
         if (mainWindow.isVisible()) mainWindow.hide()
-        else { mainWindow.show(); mainWindow.focus(); getQuickWindow()?.hide() }
+        else { showAndFocusWindow(mainWindow); getQuickWindow()?.hide() }
     })
 }
 
@@ -546,8 +567,7 @@ function registerWebviewHandlers(webContents: Electron.WebContents): void {
             browserWindows.delete(childWindow)
         })
         childWindow.setMenuBarVisibility(false)
-        childWindow.show()
-        childWindow.focus()
+        showAndFocusWindow(childWindow)
 
         const handleNavigation = (e: Electron.Event, url: string): void => {
             const isGoogleAuthUrl = url.includes('accounts.google.com') ||

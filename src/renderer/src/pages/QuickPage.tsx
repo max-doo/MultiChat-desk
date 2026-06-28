@@ -104,9 +104,9 @@ export default function QuickPage(): JSX.Element {
         return
       }
       const promptMap: Record<string, string> = {
-        summarize: `请用精炼的语言总结以下内容:\n\n${text}`,
-        polish: `请修改并润色以下文本，使其更流畅自然:\n\n${text}`,
-        translate: `请将以下内容翻译成中文(若已经是中文则翻译成英文):\n\n${text}`
+        summarize: `总结以下内容:\n\n${text}`,
+        polish: `润色以下文本，使其更流畅自然:\n\n${text}`,
+        translate: `翻译一下内容：如果是英文则翻译成中文，如果是中文则翻译成英文，不得更改原意:\n\n${text}`
       }
       const finalPrompt = promptMap[action] || text
       injectTextWithRetry(finalPrompt)

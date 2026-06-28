@@ -24,13 +24,16 @@
 - [ ] macOS 打包：在 macOS 系统上运行 `npm run build:mac` 验证 DMG 产物
 - [ ] macOS 打包：配置 Apple Developer ID 签名与公证（Notarization），正式分发必需
 - [ ] Electron OTA 自动更新：实施计划见 `docs/superpowers/plans/2026-05-04-electron-ota.md`，设计见 `docs/superpowers/specs/2026-05-04-electron-ota-design.md`（NSIS 安装版 + GitHub Releases + Settings Drawer 内交互，便携版/macOS 优雅降级）
-- [ ] 桌面端快捷访问特性：实施计划见 `docs/superpowers/plans/2026-05-04-desktop-quick-access-plan.md`（7 个 Task，零 C++ 依赖，含完整 IPC 通道清单与 lint/build/dev 验证清单）
-  - [ ] Task 1-2：系统托盘 + 主窗关闭转隐藏（关闭主页面后常驻系统托盘，托盘菜单"显示主界面/召唤快捷弹窗/退出"）
-  - [ ] Task 3-4：全局快捷键 `Ctrl+Shift+Space` 召唤无边框 Quick Window，新增 `#quick` hash 路由复用 `WebviewCard`，共享 `persist:shared` Session
-  - [ ] Task 5：主窗 ↔ Quick Window 跨窗口状态广播（`models` / `apiConfig` 同步，主进程 `stateBus` + Zustand `subscribe`，`isApplyingRemote` 防回环）
-  - [ ] Task 6：剪贴板召唤 MVP —— `Ctrl+Shift+C` 读 `clipboard.readText()` 注入 Quick Window 当前 WebviewCard 输入框（不自动发送，用户校对后手动发）
-  - [ ] Task 7：`shortcutManager` + `SettingsDrawer` "快捷键与系统托盘"分组（自定义召唤键，持久化到 electron-store，注册失败回滚旧值）
+- [x] 桌面端快捷访问特性：实施计划见 `docs/superpowers/plans/2026-05-04-desktop-quick-access-plan.md`（7 个 Task，零 C++ 依赖，含完整 IPC 通道清单与 lint/build/dev 验证清单）
+  - [x] Task 1-2：系统托盘 + 主窗关闭转隐藏（关闭主页面后常驻系统托盘，托盘菜单"显示主界面/召唤快捷弹窗/退出"）
+  - [x] Task 3-4：全局快捷键 `Ctrl+Shift+Space` 召唤无边框 Quick Window，新增 `#quick` hash 路由复用 `WebviewCard`，共享 `persist:shared` Session
+  - [x] Task 5：主窗 ↔ Quick Window 跨窗口状态广播（`models` / `apiConfig` 同步，主进程 `stateBus` + Zustand `subscribe`，`isApplyingRemote` 防回环）
+  - [x] Task 6：剪贴板召唤 MVP —— `Ctrl+Shift+C` 读 `clipboard.readText()` 注入 Quick Window 当前 WebviewCard 输入框（不自动发送，用户校对后手动发）
+  - [x] Task 7：`shortcutManager` + `SettingsDrawer` "快捷键与系统托盘"分组（自定义召唤键，持久化到 electron-store，注册失败回滚旧值）
 - [ ] 全局划词悬浮 Toolbar（**推迟到独立计划**）：原需求"豆包式划词悬浮条"需引入 `uiohook-napi`（C++ 扩展）或平台 Accessibility API，跨平台编译/杀软误报/剪贴板备份恢复成本高。本期由"剪贴板召唤"（上面 Task 6）弱化版替代——用户先 `Ctrl+C` 再按 `Ctrl+Shift+C` 即可。后续若决定做悬浮条，新计划须包含 `uiohook-napi` 三平台编译验证、ToolbarWindow `focusable+ignoreMouseEvents` 设计、剪贴板备份恢复、macOS Accessibility 权限引导
+- [ ] **调研划词弹出工具条**：调研是否可实现类似豆包（Doubao）的划词即弹出工具条功能——用户在任何应用中划选文本后，自动弹出悬浮工具条，通过工具条实现文本复制、注入到 MultiChat 并打开窗口。需调研：系统级划词事件监听方案（`uiohook-napi` / 平台 Accessibility API / 剪贴板轮询）、跨平台可行性、悬浮窗口实现方案、与现有快捷窗口的整合方式
+- [ ] **注入 DOM 选择器全面更新**：当前 `selectors.ts` 中各平台注入 DOM 选择器大量失效（网站改版导致），需逐平台验证并修正。同时探索让 Agent 自动读取网页原始 DOM 并自行更新选择器的自动化方案——例如通过 MCP/脚本抓取各平台实际 DOM 结构，由 Agent 分析并生成修正后的选择器配置，减少手动维护成本
+- [ ] **项目改名 MultiChat + CLI 开发**：将项目从 "MultiChat Desk" 更名为 "MultiChat"，同步更新所有相关命名（package.json、窗口标题、文档、构建产物名等）。同时启动 CLI 工具开发，提供命令行入口以支持脚本化操作、批量任务、CI/CD 集成等场景
 
 ## 已完成
 

@@ -2,6 +2,34 @@
 
 ## 2026-06-28
 
+### 11:45 | Antigravity
+
+- done: 优化快捷弹窗召唤置顶逻辑，解决 Windows 下后台召唤仅闪烁和不可见隐藏问题
+- modified:
+  - `src/main/webviewManager.ts`
+  - `src/main/shortcutManager.ts`
+  - `src/main/ipcHandlers.ts`
+- lesson(promoted): 在 Windows 平台下，Electron 后台窗口直接调用 focus() 会被操作系统防抢焦点机制拦截导致任务栏闪烁，通过临时开启 alwaysOnTop 置顶再取消可实现稳定强行聚焦置顶
+
+### 11:36 | Antigravity
+
+- done: 修改了快捷弹窗的翻译提示词，调整为如果是英文则翻译成中文，如果是中文则翻译成英文
+- modified:
+  - `src/renderer/src/pages/QuickPage.tsx`
+
+### 11:33 | Antigravity
+
+- done: 快捷键自动复制文本优化：采用 VBScript 与按键释放缓冲方案解决修饰键冲突与焦点抢占问题
+- modified:
+  - `src/main/shortcutManager.ts`
+- lesson: 在全局快捷键触发自动复制时，必须：1) 延迟250ms等待用户释放物理按键以防Ctrl+Shift+C冲突；2) 在展示/聚焦快捷窗口前执行复制以防焦点被抢占；3) 采用 VBS 脚本启动速度更快(约10ms)且不抢焦点。
+
+### 01:31 | claude-code
+
+- done: 添加三个 TODO 到 TODO.md
+- modified:
+  - `TODO.md`
+
 ### 01:26 | claude-code
 
 - done: 提交综合 commit：快捷窗口 pin 切换、拖拽支持、尺寸约束、修复剪贴板自动复制焦点顺序 Bug、提取 webview 处理器公共函数
