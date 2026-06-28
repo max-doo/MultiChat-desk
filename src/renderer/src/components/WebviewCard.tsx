@@ -27,6 +27,59 @@ const turndownService = new TurndownService({
 // 使用 GFM 插件支持表格、删除线、任务列表等
 turndownService.use(gfm)
 
+// ── Webview 初始加载诊断 ──────────────────────────────────────────
+// 仅覆盖 loadURL() 首次加载到 dom-ready 之间的生命周期
+const LOAD_TIMEOUT_MS = 30_000 // 首次加载超时阈值
+
+// Electron did-fail-load errorCode 分类集合（基于 Chromium net error）
+const NO_NETWORK_CODES = new Set<number>([-106]) // ERR_INTERNET_DISCONNECTED
+const DNS_CODES = new Set<number>([-105, -137]) // ERR_NAME_NOT_RESOLVED / ERR_NAME_RESOLUTION_FAILED
+const TIMEOUT_CODES = new Set<number>([-118]) // ERR_CONNECTION_TIMED_OUT
+
+type ErrorCategory = 'no_network' | 'dns' | 'timeout' | 'connection'
+
+interface LoadErrorInfo {
+  category: ErrorCategory
+  icon: string
+  title: string
+  subtitle: string
+  errorCode: number | null
+  hostname: string
+}
+
+// 从 URL 中提取 hostname，失败时回退为原字符串
+function getHostname(urlStr: string): string {
+  try {
+    return new URL(urlStr).hostname || urlStr
+  } catch {
+    return urlStr
+  }
+}
+
+// 判断当前是否离线（渲染层 navigator.onLine）
+function isOffline(): boolean {
+  return typeof navigator !== 'undefined' && navigator.onLine === false
+}
+
+/**
+ * 将 Electron did-fail-load 的 errorCode（或超时场景下的 null）归类为
+ * 用户可理解的错误信息。
+ * - errorCode === null 表示由 30s 超时计时器触发
+ * - errorCode === -3（用户主动取消）应在调用前过滤，不进入本函数
+ */
+function classifyError(errorCode: number | null, hostname: string): LoadErrorInfo {
+  if (errorCode !== null && NO_NETWORK_CODES.has(errorCode) || (errorCode !== null && isOffline())) {
+    return { category: 'no_network', icon: 'wifi_off', title: '网络连接已断开', subtitle: '请检查网络后重试', errorCode, hostname }
+  }
+  if (errorCode !== null && DNS_CODES.has(errorCode)) {
+    return { category: 'dns', icon: 'dns', title: '无法解析域名', subtitle: '请检查地址是否正确', errorCode, hostname }
+  }
+  if (errorCode === null || (errorCode !== null && TIMEOUT_CODES.has(errorCode))) {
+    return { category: 'timeout', icon: 'hourglass_empty', title: '页面加载超时', subtitle: '请检查网络或稍后重试', errorCode, hostname }
+  }
+  return { category: 'connection', icon: 'cloud_off', title: `无法连接到 ${hostname}`, subtitle: `错误码: ${errorCode}`, errorCode, hostname }
+}
+
 interface WebviewCardProps {
   id: string
   name: string
@@ -74,11 +127,21 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
     const [isLoading, setIsLoading] = useState(true)
     const [isReady, setIsReady] = useState(false)
     const [sendStatus, setSendStatus] = useState<'idle' | 'sending' | 'success' | 'error'>('idle')
-    const [loadError, setLoadError] = useState<string | null>(null)
+    const [loadError, setLoadError] = useState<LoadErrorInfo | null>(null)
     const [canGoBack, setCanGoBack] = useState(false)
     const [canGoForward, setCanGoForward] = useState(false)
     // 跟踪已加载的 URL，避免重复 loadURL
     const loadedUrlRef = useRef<string | null>(null)
+
+    // ── 加载诊断状态 / refs ──
+    // elapsedSeconds：用于在 spinner 下方动态显示 "已等待 Ns..."
+    const [elapsedSeconds, setElapsedSeconds] = useState(0)
+    // 首次加载超时计时器（仅 isFirstLoad 时启用）
+    const loadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+    // 已等待秒数 interval
+    const elapsedIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+    // 是否处于首次加载（dom-ready 后置 false；resetToInitial 重新置 true）
+    const isFirstLoadRef = useRef<boolean>(true)
 
     // 从 store 获取所有模型、状态和切换方法
     const models = useAppStore((state) => state.models)
@@ -109,6 +172,42 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
       }
     }
 
+    // ── 加载诊断计时器辅助 ──
+    // 清除超时与已等待秒数计时器
+    const clearLoadTimers = (): void => {
+      if (loadTimeoutRef.current) {
+        clearTimeout(loadTimeoutRef.current)
+        loadTimeoutRef.current = null
+      }
+      if (elapsedIntervalRef.current) {
+        clearInterval(elapsedIntervalRef.current)
+        elapsedIntervalRef.current = null
+      }
+    }
+
+    // 超时触发：停止 webview、清计时器、设置 timeout 错误覆盖层
+    const triggerLoadTimeout = (): void => {
+      try { webviewRef.current?.stop() } catch { /* ignore */ }
+      clearLoadTimers()
+      setIsLoading(false)
+      const hostname = getHostname(loadedUrlRef.current || '')
+      setLoadError(classifyError(null, hostname))
+    }
+
+    // 在 did-start-loading 时启动：已等待秒数 interval（始终）+ 30s 超时（仅首次加载）
+    const startLoadTimers = (): void => {
+      clearLoadTimers()
+      setElapsedSeconds(0)
+      elapsedIntervalRef.current = setInterval(() => {
+        setElapsedSeconds((s) => s + 1)
+      }, 1000)
+      if (isFirstLoadRef.current) {
+        loadTimeoutRef.current = setTimeout(() => {
+          triggerLoadTimeout()
+        }, LOAD_TIMEOUT_MS)
+      }
+    }
+
     // 任务分配模式或隔离模式支持选择所有 AI，因此可选列表为全量模型；多 AI 模式下排除自身
     const availableModels = (productMode === 'task_assignment' || isolated || !!onModelChange) ? models : models.filter(m => m.id !== id)
 
@@ -125,6 +224,8 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
 
       // 监听加载事件
       const handleDomReady = (): void => {
+        clearLoadTimers()
+        isFirstLoadRef.current = false // 首次加载完成，后续导航不再启用超时
         setIsLoading(false)
         setIsReady(true)
         setLoadError(null)
@@ -134,16 +235,19 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
       const handleLoadStart = (): void => {
         setLoadError(null)
         setIsLoading(true)
+        startLoadTimers()
       }
 
       const handleLoadStop = (): void => {
+        clearLoadTimers()
         setIsLoading(false)
         syncNavigationState()
       }
 
       const handleLoadFail = (event: Electron.DidFailLoadEvent): void => {
         if (!event.isMainFrame) return
-        if (event.errorCode === -3) return
+        if (event.errorCode === -3) return // 用户主动取消，静默忽略
+        clearLoadTimers()
         const errorInfo = {
           errorCode: event.errorCode,
           errorDescription: event.errorDescription,
@@ -152,7 +256,8 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
         }
         console.error(`${name} 加载失败:`, errorInfo)
         setIsLoading(false)
-        setLoadError(`加载失败: ${event.errorDescription || `错误代码 ${event.errorCode}`}`)
+        const failHost = getHostname(event.validatedURL || loadedUrlRef.current || '')
+        setLoadError(classifyError(event.errorCode, failHost))
       }
 
       const handleConsoleMessage = (event: Electron.ConsoleMessageEvent): void => {
@@ -200,6 +305,7 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
       webview.addEventListener('did-finish-load', handleDidFinishLoad)
 
       return () => {
+        clearLoadTimers()
         webview.removeEventListener('dom-ready', handleDomReady)
         webview.removeEventListener('did-start-loading', handleLoadStart)
         webview.removeEventListener('did-stop-loading', handleLoadStop)
@@ -563,6 +669,8 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
 
         setLoadError(null)
         setIsLoading(true)
+        setElapsedSeconds(0)
+        isFirstLoadRef.current = true // resetToInitial 视为首次加载，复用超时逻辑
         clearNavigationState()
         loadedUrlRef.current = url // 同步 ref，防止 F3 effect 重复导航
 
@@ -576,10 +684,16 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
             cleanup()
             resolve({ success: true })
           }
-          const handleFail = (event: any): void => {
-            setIsLoading(false)
-            setLoadError(`加载失败: ${event?.errorDescription || `错误代码 ${event?.errorCode}`}`)
+          const handleFail = (event: Electron.DidFailLoadEvent): void => {
             cleanup()
+            if (event?.errorCode === -3) {
+              // 用户主动取消：不展示错误覆盖层，直接结束
+              resolve({ success: false, error: 'aborted' })
+              return
+            }
+            setIsLoading(false)
+            const failHost = getHostname(event?.validatedURL || url)
+            setLoadError(classifyError(event?.errorCode ?? null, failHost))
             resolve({ success: false, error: event?.errorDescription || String(event?.errorCode) })
           }
           const cleanup = (): void => {
@@ -641,9 +755,26 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
 
     // 单独刷新当前 webview 窗口
     const handleRefresh = () => {
+      clearLoadTimers()
       setLoadError(null)
       setIsLoading(true)
+      setElapsedSeconds(0)
       webviewRef.current?.reload()
+    }
+
+    // 错误覆盖层“重试”：清除错误并重新加载（保持首次加载超时保护）
+    const handleRetry = (): void => {
+      clearLoadTimers()
+      setLoadError(null)
+      setIsLoading(true)
+      setElapsedSeconds(0)
+      isFirstLoadRef.current = true
+      webviewRef.current?.reload()
+    }
+
+    // 加载中“取消”：手动触发超时错误展示
+    const handleCancelLoad = (): void => {
+      triggerLoadTimeout()
     }
 
     const handleGoBack = () => {
@@ -826,25 +957,36 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
         <div className="flex-1 relative min-h-0">
           {isLoading && !loadError && (
             <div className="absolute inset-0 flex items-center justify-center bg-app/50 z-10">
-              <div className="flex flex-col items-center gap-2">
+              <div className="flex flex-col items-center gap-3 p-4">
                 <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
-                <span className="text-sm text-text-secondary">加载中...</span>
+                <span className="text-sm text-text-secondary">
+                  {elapsedSeconds >= 15 ? '页面加载较慢，请耐心等待...' : `已等待 ${elapsedSeconds}s...`}
+                </span>
+                {elapsedSeconds >= 25 && (
+                  <button
+                    type="button"
+                    onClick={handleCancelLoad}
+                    className="px-4 py-1.5 bg-gray-100 text-text-secondary rounded-lg hover:bg-gray-200 transition-colors text-sm"
+                  >
+                    取消
+                  </button>
+                )}
               </div>
             </div>
           )}
 
           {loadError && (
-            <div className="absolute inset-0 flex items-center justify-center bg-app/50 z-10">
-              <div className="flex flex-col items-center gap-3 p-4">
-                <span className="material-symbols-outlined text-red-500 text-4xl">error</span>
-                <p className="text-sm text-red-400 text-center">{loadError}</p>
+            <div className="absolute inset-0 flex items-center justify-center bg-app/80 z-10">
+              <div className="flex flex-col items-center gap-3 p-6 max-w-sm bg-white rounded-2xl shadow-soft">
+                <span className="material-symbols-outlined text-red-500" style={{ fontSize: 48 }}>
+                  {loadError.icon}
+                </span>
+                <p className="text-sm text-text-primary text-center font-medium">{loadError.title}</p>
+                <p className="text-xs text-text-secondary text-center font-mono">{loadError.subtitle}</p>
                 <button
-                  onClick={() => {
-                    setLoadError(null)
-                    setIsLoading(true)
-                    webviewRef.current?.reload()
-                  }}
-                  className="px-4 py-2 bg-gray-100 text-text-secondary rounded hover:bg-gray-200 transition-colors text-sm"
+                  type="button"
+                  onClick={handleRetry}
+                  className="mt-1 px-4 py-2 bg-primary text-white rounded-lg hover:opacity-90 transition-opacity text-sm"
                 >
                   重试
                 </button>
