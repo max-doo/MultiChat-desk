@@ -3,7 +3,7 @@
  * 负责主窗口创建、Webview 注入脚本、上下文菜单以及新窗口管理
  */
 
-import { app, session, BrowserWindow, shell, nativeImage, Tray, Menu, type WebFrameMain } from 'electron'
+import { app, screen, session, BrowserWindow, shell, nativeImage, Tray, Menu, type WebFrameMain } from 'electron'
 import { join } from 'path'
 import { accessSync } from 'fs'
 import { is } from '@electron-toolkit/utils'
@@ -724,8 +724,82 @@ function setupContextMenu(wc: Electron.WebContents): void {
     })
 }
 
-// ============ 悬浮工具条窗口（临时占位，Task 3 中替换为完整实现） ============
+// ============ 悬浮工具条窗口 ============
 
-export function showToolbarAt(x: number, y: number): void {
-    console.log(`[Temp] showToolbarAt called with: x=${x}, y=${y}`)
+let toolbarWindow: BrowserWindow | null = null
+export function getToolbarWindow(): BrowserWindow | null { return toolbarWindow }
+
+export function createToolbarWindow(): void {
+    if (toolbarWindow) return
+    toolbarWindow = new BrowserWindow({
+        width: 180,
+        height: 38,
+        frame: false,
+        transparent: true,
+        alwaysOnTop: true,
+        skipTaskbar: true,
+        resizable: false,
+        minimizable: false,
+        maximizable: false,
+        focusable: false, // 核心：不夺取焦点，保持外部软件选区高亮
+        show: false,
+        backgroundColor: '#00000000',
+        icon: getWindowIcon(),
+        webPreferences: {
+            preload: join(__dirname, '../preload/index.js'),
+            sandbox: false,
+            contextIsolation: true,
+            nodeIntegration: false
+        }
+    })
+
+    toolbarWindow.on('closed', () => { toolbarWindow = null })
+
+    const hash = 'toolbar'
+    if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+        void toolbarWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/#${hash}`)
+    } else {
+        void toolbarWindow.loadFile(join(__dirname, '../renderer/index.html'), { hash })
+    }
+}
+
+export function showToolbarAt(physX: number, physY: number): void {
+    if (!toolbarWindow) {
+        createToolbarWindow()
+    }
+    if (!toolbarWindow) return
+
+    // 定位与边界适配统一使用 Electron screen 逻辑坐标系，消除高DPI错位风险
+    const display = screen.getDisplayNearestPoint({ x: physX, y: physY })
+    const scale = display.scaleFactor || 1
+
+    const logicalX = physX / scale
+    const logicalY = physY / scale
+
+    const width = 180
+    const height = 38
+
+    let targetX = logicalX - width / 2
+    let targetY = logicalY - height - 12 // 在鼠标上方 12 逻辑像素弹出
+
+    const { x, y, width: dispW } = display.bounds
+    if (targetY < y) {
+        targetY = logicalY + 20 // 顶部溢出时翻转到下方
+    }
+    targetX = Math.max(x, Math.min(targetX, x + dispW - width))
+
+    toolbarWindow.setBounds({
+        x: Math.round(targetX),
+        y: Math.round(targetY),
+        width,
+        height
+    })
+
+    toolbarWindow.showInactive() // ⚠️ 必须 showInactive()，不夺焦
+}
+
+export function hideToolbarWindow(): void {
+    if (toolbarWindow && toolbarWindow.isVisible()) {
+        toolbarWindow.hide()
+    }
 }
