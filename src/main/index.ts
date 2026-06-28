@@ -10,6 +10,7 @@ import { initAgentPrompts } from './agentPrompts'
 import { registerIpcHandlers } from './ipcHandlers'
 import { initShortcutManager } from './shortcutManager'
 import { createWindow, getMainWindow, openBrowserWindowInternal, setQuitting, createTray, destroyTray, createQuickWindow } from './webviewManager'
+import { startInputHook, stopInputHook } from './inputHookManager'
 
 // ============ 便携模式支持 ============
 
@@ -120,6 +121,9 @@ app.whenReady().then(() => {
   // 初始化全局快捷键管理
   initShortcutManager(store)
 
+  // 启动全局输入钩子（划词悬浮工具条）
+  startInputHook()
+
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
@@ -127,6 +131,7 @@ app.whenReady().then(() => {
 
 app.on('before-quit', () => {
   setQuitting(true)
+  stopInputHook()
   globalShortcut.unregisterAll()
   destroyTray()
 })

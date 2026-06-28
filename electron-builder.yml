@@ -4,6 +4,10 @@ directories:
   output: dist
   buildResources: build
 
+# 原生模块解压配置（monio-napi 等 .node 文件需要从 asar 解压才能加载）
+asarUnpack:
+  - "**/*.node"
+
 # 应用图标配置
 icon: assets/logo.png
 
