@@ -2,6 +2,16 @@
 
 ## 2026-06-28
 
+### 18:31 | Antigravity
+
+- done: Task 1: 抽取执行内核 - Session Manager (Main Process)
+- decision: 使用 BrowserWindow(show: false, partition: 'persist:shared') 构建后台长驻会话管理单例，复用现有 webview 拦截与脚本注入逻辑
+- added:
+  - `src/main/services/SessionManager.ts`
+- modified:
+  - `src/main/webviewManager.ts`
+  - `src/main/index.ts`
+
 ### 17:55 | Antigravity
 
 - done: 在生图模式下将总结按钮动态切换为一键下载按钮，并在 TODO.md 中记录后续具体下载功能实现的待办项
