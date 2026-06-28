@@ -883,4 +883,32 @@ export function registerIpcHandlers(
     ipcMain.handle('automation:dev-test-exec', async (_event, platformId: string, prompt: string) => {
         return await automationService.executeCommand(platformId, prompt)
     })
+
+    /**
+     * automation:send-prompt
+     * 高层接口：发送 prompt 并等待一段时间后自动收集结果
+     * 适合 UI 层（如 appStore）在不关心底层会话创建细节时调用
+     * 参数：platformId, prompt, collectDelayMs（可选，默认 5000ms）
+     * 返回：{ success, data?: string, error? }
+     */
+    ipcMain.handle('automation:send-prompt', async (_event, platformId: string, prompt: string, collectDelayMs?: number) => {
+        const execResult = await automationService.executeCommand(platformId, prompt)
+        if (!execResult.success) {
+            return { success: false, error: execResult.error }
+        }
+        // 等待模型响应生成
+        const delay = typeof collectDelayMs === 'number' && collectDelayMs >= 0 ? collectDelayMs : 5000
+        await new Promise<void>((resolve) => setTimeout(resolve, delay))
+        const collectResult = await automationService.collectResult(platformId)
+        return collectResult
+    })
+
+    /**
+     * automation:collect
+     * 高层接口：仅收集指定平台的最新回复（automation:collect-result 的语义别名）
+     * 适合 appStore 在分步轮询场景中调用
+     */
+    ipcMain.handle('automation:collect', async (_event, platformId: string) => {
+        return await automationService.collectResult(platformId)
+    })
 }

@@ -302,6 +302,12 @@ interface AppState {
   // 一次性导航数据：从主界面进入总结页时携带，消费后立即清空
   pendingSummarySession: SummarySessionInit | null
   setPendingSummarySession: (data: SummarySessionInit | null) => void
+
+  // 自动化 IPC 核心（供 CLI 驱动场景使用，不覆盖 UI Webview 递法）
+  /** 向指定平台发送 prompt 并延迟收集结果 */
+  automationSendPrompt: (platformId: string, prompt: string, collectDelayMs?: number) => Promise<{ success: boolean; data?: string; error?: string }>
+  /** 仅收集指定平台的最新回复 */
+  automationCollect: (platformId: string) => Promise<{ success: boolean; data?: string; error?: string }>
 }
 
 /**
@@ -1074,6 +1080,22 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   pendingSummarySession: null,
   setPendingSummarySession: (data: SummarySessionInit | null) => set({ pendingSummarySession: data }),
+
+  // 自动化 IPC 核心实现（供 CLI 驱动场景使用，不影响 UI Webview 发送路径）
+  automationSendPrompt: async (platformId: string, prompt: string, collectDelayMs?: number): Promise<{ success: boolean; data?: string; error?: string }> => {
+    if (!window.api?.automationSendPrompt) {
+      return { success: false, error: 'automationSendPrompt IPC 未就绪' }
+    }
+    return window.api.automationSendPrompt(platformId, prompt, collectDelayMs)
+  },
+
+  automationCollect: async (platformId: string): Promise<{ success: boolean; data?: string; error?: string }> => {
+    if (!window.api?.automationCollect) {
+      return { success: false, error: 'automationCollect IPC 未就绪' }
+    }
+    return window.api.automationCollect(platformId)
+  },
+
 
   // 监控状态（不持久化）
   monitor: {
