@@ -9,7 +9,7 @@ import { stat, writeFile, mkdtemp } from 'fs/promises'
 import { tmpdir } from 'os'
 import type Store from 'electron-store'
 import { generateSummary, fetchModels } from './api/summaryApi'
-import { setQuitting, getQuickWindow, showAndFocusWindow } from './webviewManager'
+import { setQuitting, getQuickWindow, showAndFocusWindow, hideToolbarWindow } from './webviewManager'
 import { broadcastStateChange } from './stateBus'
 import { getShortcuts, updateShortcuts, type ShortcutConfig } from './shortcutManager'
 import {
@@ -803,5 +803,15 @@ export function registerIpcHandlers(
         } catch (error) {
             return { success: false, error: String(error) }
         }
+    })
+
+    // ============ 悬浮工具条 IPC 处理器 ============
+
+    ipcMain.on('toolbar:hide', () => {
+        hideToolbarWindow()
+    })
+
+    ipcMain.on('toolbar:trigger-action', (_event, payload: { action: string }) => {
+        console.log('[IPC] toolbar:trigger-action payload:', payload)
     })
 }

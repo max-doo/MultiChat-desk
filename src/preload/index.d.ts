@@ -98,6 +98,8 @@ declare global {
       windowDragStart: () => void
       windowDragMove: () => void
       windowDragEnd: () => void
+      toolbarAction: (action: 'summarize' | 'translate' | 'copy') => void
+      toolbarHide: () => void
     }
   }
 }

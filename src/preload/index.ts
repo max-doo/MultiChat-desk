@@ -176,7 +176,15 @@ const api = {
   // 窗口拖拽
   windowDragStart: (): void => ipcRenderer.send('window-drag-start'),
   windowDragMove: (): void => ipcRenderer.send('window-drag-move'),
-  windowDragEnd: (): void => ipcRenderer.send('window-drag-end')
+  windowDragEnd: (): void => ipcRenderer.send('window-drag-end'),
+
+  // 悬浮工具条
+  toolbarAction: (action: 'summarize' | 'translate' | 'copy'): void => {
+    ipcRenderer.send('toolbar:trigger-action', { action })
+  },
+  toolbarHide: (): void => {
+    ipcRenderer.send('toolbar:hide')
+  }
 }
 
 // 暴露 API 到渲染进程
