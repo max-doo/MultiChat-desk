@@ -28,12 +28,14 @@ const activeSockets = new Set<net.Socket>()
  * 向 Socket 发送响应，添加统一的分行符 (\n)
  */
 function sendResponse(socket: net.Socket, response: DaemonResponse): void {
-  if (socket.writable && !socket.destroyed) {
-    try {
-      socket.write(JSON.stringify(response) + '\n')
-    } catch (err) {
-      console.error('[Daemon] 发送响应失败:', err)
-    }
+  if (!socket.writable || socket.destroyed) {
+    console.warn('[Daemon] Socket 已断开，响应未发送:', response)
+    return
+  }
+  try {
+    socket.write(JSON.stringify(response) + '\n')
+  } catch (err) {
+    console.error('[Daemon] 发送响应失败:', err)
   }
 }
 
@@ -54,7 +56,10 @@ async function handleRequest(socket: net.Socket, line: string): Promise<void> {
   if (action === 'status') {
     sendResponse(socket, { success: true, data: 'Daemon is running' })
   } else if (action === 'exec') {
-    const model = typeof req.model === 'string' ? req.model : ''
+    const model =
+      (typeof req.model === 'string' && req.model) ||
+      (typeof req.session === 'string' && req.session) ||
+      ''
     const prompt = typeof req.prompt === 'string' ? req.prompt : ''
     try {
       const result = await automationService.executeCommand(model, prompt)
@@ -65,11 +70,9 @@ async function handleRequest(socket: net.Socket, line: string): Promise<void> {
     }
   } else if (action === 'collect') {
     const target =
-      typeof req.session === 'string' && req.session
-        ? req.session
-        : typeof req.model === 'string' && req.model
-          ? req.model
-          : ''
+      (typeof req.session === 'string' && req.session) ||
+      (typeof req.model === 'string' && req.model) ||
+      ''
     try {
       const result = await automationService.collectResult(target)
       sendResponse(socket, result)
@@ -104,16 +107,33 @@ export function startDaemonServer(): void {
   server = net.createServer((socket) => {
     activeSockets.add(socket)
     let buffer = ''
+    const requestQueue: string[] = []
+    let processing = false
 
-    socket.on('data', async (chunk) => {
+    const processQueue = async () => {
+      if (processing) return
+      processing = true
+      while (requestQueue.length > 0) {
+        const line = requestQueue.shift()
+        if (line) {
+          await handleRequest(socket, line)
+        }
+      }
+      processing = false
+    }
+
+    socket.on('data', (chunk) => {
       buffer += chunk.toString('utf8')
       let newlineIndex: number
       while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
         const line = buffer.slice(0, newlineIndex).trim()
         buffer = buffer.slice(newlineIndex + 1)
-        if (!line) continue
-
-        await handleRequest(socket, line)
+        if (line) {
+          requestQueue.push(line)
+        }
+      }
+      if (requestQueue.length > 0) {
+        void processQueue()
       }
     })
 
