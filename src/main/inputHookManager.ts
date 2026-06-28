@@ -1,7 +1,7 @@
 import { startListen, HookJs, EventJs } from 'monio-napi'
 import { BrowserWindow } from 'electron'
-import { showToolbarAt, hideToolbarWindow, getToolbarWindow, isPointInToolbar } from './webviewManager'
-import { getSelectedTextAsync } from './shortcutManager'
+import { showToolbarAt, hideToolbarWindow, getToolbarWindow, isPointInToolbar, setCachedSelectionText } from './webviewManager'
+import { startUiaHelper, stopUiaHelper, readSelection } from './uiaSelectionHelper'
 
 let hook: HookJs | null = null
 let isMouseDown = false
@@ -14,8 +14,13 @@ let lastClickTime = 0
 let currentToolbarPhysX = 0
 let currentToolbarPhysY = 0
 
-// 防止松手探测与工具条按钮触发并发执行，避免并发操作剪贴板导致旧值错乱还原
-let isProbing = false
+// 防止松手读取与上一次读取并发执行（UIA helper 单槽，并发会返回 null）
+let isReading = false
+
+// 鼠标按下时异步读取的"拖拽前选区快照"promise。松手时 await 它得到真值，
+// 与松手时的选区对比：相同则视为旧选区未变（如拖窗口标题栏），不弹工具条。
+// 存 promise 而非值：避免短拖拽在"读取未完成"时被当成无旧选区而误弹。
+let selAtDownPromise: Promise<string | null> = Promise.resolve(null)
 
 // 判断当前激活窗口是否属于本应用，避免在本应用内划词弹窗
 function isAppFocused(): boolean {
@@ -50,6 +55,10 @@ function processEvent(event: EventJs): void {
       startX = event.mouse.x ?? 0
       startY = event.mouse.y ?? 0
       startTime = Date.now()
+      // 拖拽开始前先异步快照当前选区，松手时对比以判定是否产生了"新"选区
+      if (!isAppFocused()) {
+        selAtDownPromise = readSelection().then((r) => r?.text ?? null)
+      }
     }
   }
   // MouseReleased (6)
@@ -109,6 +118,9 @@ function processEvent(event: EventJs): void {
 export function startInputHook(): void {
   if (hook) return
 
+  // 启动 UIA 选区读取助手（随工具条开关与 before-quit 联动）
+  startUiaHelper()
+
   try {
     // 兼容 d.ts 与运行时不符：payload 运行时为 EventJs[]，这里统一解包成单事件逐条处理
     hook = startListen((payload: EventJs | EventJs[]) => {
@@ -124,27 +136,35 @@ export function startInputHook(): void {
 }
 
 async function handleTextSelection(x: number, y: number): Promise<void> {
-  // 并发守卫：上一次探测尚未结束时忽略新手势，避免并发清空/还原剪贴板
-  if (isProbing) return
-  isProbing = true
+  // 并发守卫：上一次读取尚未结束时忽略新手势（UIA helper 单槽）
+  if (isReading) return
+  isReading = true
   try {
-    // 松手后先探测是否真的有选中文本，无选中则不弹工具条。
-    // keepClipboard=false：探测成功也不污染剪贴板（还原原值）；
-    // 真正的复制/总结在用户点击工具条按钮时由 toolbar:trigger-action 再次触发。
-    const text = await getSelectedTextAsync(false)
-    if (!text || text.trim().length === 0) {
+    // 松手后用 UIA 非侵入读取当前选区（不发 Ctrl+C，不杀终端进程、不抢 Word 工具条）
+    const selAtUp = (await readSelection())?.text ?? ''
+    // 拿到按下时的选区真值（promise 多半已 resolve，即时返回）
+    const selAtDown = await selAtDownPromise
+
+    // 旧选区未变（如拖窗口标题栏，应用里旧选区仍在）→ 不弹
+    if (selAtDown !== null && selAtUp === selAtDown) {
       return
     }
-    console.log(`[InputHook] Detected text selection at x=${x}, y=${y}, len=${text.length}`)
+    // 无选区（UIA 读不到，如 VS Code 编辑器/记事本）→ 不弹，安全降级
+    if (!selAtUp || selAtUp.trim().length === 0) {
+      return
+    }
+    console.log(`[InputHook] Detected text selection at x=${x}, y=${y}, len=${selAtUp.length}`)
+    setCachedSelectionText(selAtUp)
     currentToolbarPhysX = x
     currentToolbarPhysY = y
     showToolbarAt(x, y)
   } finally {
-    isProbing = false
+    isReading = false
   }
 }
 
 export function stopInputHook(): void {
+  stopUiaHelper()
   if (hook) {
     try {
       hook.stop()

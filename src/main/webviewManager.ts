@@ -729,11 +729,17 @@ function setupContextMenu(wc: Electron.WebContents): void {
 let toolbarWindow: BrowserWindow | null = null
 export function getToolbarWindow(): BrowserWindow | null { return toolbarWindow }
 
+// 最近一次触发工具条的选中文本缓存。按钮点击时由 toolbar:trigger-action 读取，
+// 全程不发 Ctrl+C。hideToolbarWindow 时清空（避免残留旧选区被后续动作误用）。
+let cachedSelectionText = ''
+export function setCachedSelectionText(text: string): void { cachedSelectionText = text }
+export function getCachedSelectionText(): string { return cachedSelectionText }
+
 export function createToolbarWindow(): void {
     if (toolbarWindow) return
     toolbarWindow = new BrowserWindow({
         width: 360,
-        height: 48,
+        height: 40,
         frame: false,
         transparent: true,
         alwaysOnTop: true,
@@ -777,7 +783,7 @@ export function showToolbarAt(physX: number, physY: number): void {
     const logicalY = physY / scale
 
     const width = 360
-    const height = 48
+    const height = 40
 
     let targetX = logicalX - width / 2
     let targetY = logicalY - height - 12 // 在鼠标上方 12 逻辑像素弹出
@@ -802,6 +808,7 @@ export function hideToolbarWindow(): void {
     if (toolbarWindow && toolbarWindow.isVisible()) {
         toolbarWindow.hide()
     }
+    cachedSelectionText = ''
 }
 
 export function isPointInToolbar(physX: number, physY: number): boolean {

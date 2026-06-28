@@ -9,7 +9,7 @@ import Store from 'electron-store'
 import { initAgentPrompts } from './agentPrompts'
 import { registerIpcHandlers } from './ipcHandlers'
 import { initShortcutManager } from './shortcutManager'
-import { createWindow, getMainWindow, openBrowserWindowInternal, setQuitting, createTray, destroyTray, createQuickWindow } from './webviewManager'
+import { createWindow, getMainWindow, openBrowserWindowInternal, setQuitting, createTray, destroyTray, createQuickWindow, createToolbarWindow } from './webviewManager'
 import { startInputHook, stopInputHook } from './inputHookManager'
 
 // ============ 便携模式支持 ============
@@ -123,6 +123,8 @@ app.whenReady().then(() => {
 
   // 启动全局输入钩子（划词悬浮工具条）
   if (store.get('selectionToolbarEnabled', true) !== false) {
+    // 预建隐藏工具条窗口，避免首次触发时现场建窗的瞬时激活抖动（挤掉 Word 迷你工具条等）
+    createToolbarWindow()
     startInputHook()
   }
 

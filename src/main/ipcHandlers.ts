@@ -9,10 +9,11 @@ import { stat, writeFile, mkdtemp } from 'fs/promises'
 import { tmpdir } from 'os'
 import type Store from 'electron-store'
 import { generateSummary, fetchModels } from './api/summaryApi'
-import { setQuitting, getQuickWindow, showAndFocusWindow, hideToolbarWindow } from './webviewManager'
+import { setQuitting, getQuickWindow, showAndFocusWindow, hideToolbarWindow, getCachedSelectionText } from './webviewManager'
 import { startInputHook, stopInputHook } from './inputHookManager'
 import { broadcastStateChange } from './stateBus'
-import { getShortcuts, updateShortcuts, getSelectedTextAsync, type ShortcutConfig } from './shortcutManager'
+import { getShortcuts, updateShortcuts, type ShortcutConfig } from './shortcutManager'
+import { readSelection } from './uiaSelectionHelper'
 import {
     listAgentPrompts,
     bootstrapAgentPrompts,
@@ -828,23 +829,33 @@ export function registerIpcHandlers(
     })
 
     ipcMain.on('toolbar:trigger-action', async (_event, payload: { action: 'quick' | 'summarize' | 'translate' | 'copy' | 'search' }) => {
-        // 1. 立即隐藏悬浮工具栏
+        // 1. 先读缓存再隐藏（hideToolbarWindow 会清空缓存）。
+        // 缓存即本次触发工具条的选区；外部新拖选会先经"点外部即隐藏"收起旧工具条再写入新缓存，故按钮点击时缓存总是新鲜。
+        let text = getCachedSelectionText()
         hideToolbarWindow()
 
-        // 2. 复用成熟方案按需提取文本。
-        // 对于 copy 和 quick 动作传入 true 保持更新；对于 summarize/translate/search 传入 false 还原剪贴板
-        const keepClipboard = payload.action === 'copy' || payload.action === 'quick'
-        const text = await getSelectedTextAsync(keepClipboard)
+        // 兜底：缓存为空时现读一次（选区仍高亮，工具条 focusable:false 不夺焦）
         if (!text || text.trim().length === 0) {
-            console.warn('[Toolbar] Failed to retrieve selected text on action click')
+            const fresh = (await readSelection())?.text ?? ''
+            if (fresh && fresh.trim().length > 0) {
+                text = fresh
+            }
+        }
+        if (!text || text.trim().length === 0) {
+            console.warn('[Toolbar] No selected text on action click')
             return
         }
 
+        // 2. copy/quick：把文本写入剪贴板（替代旧 Ctrl+C 的 keepClipboard=true）。
+        //    summarize/translate/search：不触碰剪贴板（旧 keepClipboard=false 还原，新行为压根没动剪贴板，等价且更干净）。
+        if (payload.action === 'copy' || payload.action === 'quick') {
+            clipboard.writeText(text)
+        }
         if (payload.action === 'copy') {
             return
         }
 
-        // 3. 召唤并聚焦快捷窗口 (严格遵循先复制后 focus 规则)
+        // 3. 召唤并聚焦快捷窗口
         const qw = getQuickWindow()
         if (!qw) return
 

@@ -12,6 +12,8 @@ Agents may suggest or promote a lesson into the `Known Gotchas` section of `AGEN
 
 ## Debugging Lessons
 
+- **划词工具条读取选区用 UI Automation 替代 Ctrl+C 模拟复制**：跨进程读外部应用选中文本，Ctrl+C(`SendKeys "^c"`)有三宗罪——终端里是中断信号会杀进程、Word 里会抢掉其自带迷你工具条、复制的是"当前选区"分不清新旧（拖窗口时旧选区常驻也误弹）。改用 UIA 的 `TextPattern.GetSelection`（经 `AutomationElement.FocusedElement`）非侵入读取，不发任何按键。配合"鼠标按下时异步快照 selAtDown + 松手时读 selAtUp，二者相同则判为旧选区未变不弹"实现"拖拽+本次新选区"双条件触发。实现需常驻 PowerShell helper（行 JSON 协议）：①文本走 base64 传输——PS 5.1 的 `ConvertTo-Json -Compress` 不转义换行会断行，手工转义又难在 JS 模板字符串里写 PS 反引号（`` `r `` 与模板定界符冲突）；②顶部必须显式 `[Console]::OutputEncoding=[Console]::InputEncoding=$OutputEncoding=[System.Text.Encoding]::UTF8`，否则中文 Windows 默认 GBK 输出导致 CJK 乱码；③用 `[Console]::Out.WriteLine`+`Flush`（`Write-Host` 在 PS 5.1 不进 stdout 管道）；④stdin 关闭即 `exit`+Node 侧 `child.on('exit')` 懒重启，防僵尸。覆盖：Word/Windows Terminal/Chrome 可读；VS Code 编辑器(Monaco 画布)/记事本(老 Edit 控件)读不到→安全降级不弹，这些场景的 AI 划词由全局快捷键(Ctrl+C 路径)覆盖。参见上方「monio-napi 回调参数是数组」条目的判别手法。
+
 - **Windows 后台窗口抢焦与置顶闪烁**：在 Windows 平台下，当 Electron 后台窗口或隐藏窗口试图直接调用 `window.show()` / `window.focus()` 时，操作系统防抢焦点机制（SetForegroundWindow 限制）会阻止其置顶并引发任务栏或窗口边框闪烁。解决方案：通过临时开启 `win.setAlwaysOnTop(true)` 再调用 `win.focus()`，并在 50ms 后自动恢复 `setAlwaysOnTop(false)`（需注意保存并尊重用户原本的 isAlwaysOnTop 状态），即可实现稳定强行聚焦与置顶。
 
 - 快捷窗口（quickWindow）是独立的 `BrowserWindow`，主窗口的 `did-attach-webview` 监听器不会自动继承给快捷窗口。任何新增窗口都必须单独为其 `webContents` 注册 `did-attach-webview` 事件，否则该窗口内 Webview 的脚本注入与链接拦截将完全失效，导致外部链接无法在系统浏览器中打开。修复方案：将注册逻辑提取为 `registerWebviewHandlers(webContents)` 公共函数，在所有宿主窗口中复用。

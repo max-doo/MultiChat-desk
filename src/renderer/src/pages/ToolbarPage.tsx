@@ -27,12 +27,12 @@ export default function ToolbarPage(): JSX.Element {
 
   return (
     <div className="w-full h-full flex items-center justify-center bg-transparent overflow-hidden select-none">
-      <div className="flex items-center gap-0.5 px-1.5 py-1 bg-white/95 dark:bg-neutral-900/95 border border-black/10 dark:border-white/10 shadow-md rounded-xl transition-all duration-200">
+      <div className="flex items-center gap-0.5 px-1.5 py-0.5 bg-white/95 dark:bg-neutral-900/95 border border-black/10 dark:border-white/10 shadow-md rounded-xl transition-all duration-200">
         {/* 快捷窗口 (问问) */}
         <button
           type="button"
           onClick={() => handleAction('quick')}
-          className="flex items-center gap-1 px-2 py-1 rounded-lg text-neutral-700 dark:text-neutral-200 hover:text-neutral-950 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/10 transition-colors duration-150 cursor-pointer"
+          className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-neutral-700 dark:text-neutral-200 hover:text-neutral-950 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/10 transition-colors duration-150 cursor-pointer"
           title="问问"
         >
           <img src={logo} alt="问问" className="w-7 h-7 object-contain" />
@@ -43,7 +43,7 @@ export default function ToolbarPage(): JSX.Element {
         <button
           type="button"
           onClick={() => handleAction('search')}
-          className="flex items-center gap-1 px-2 py-1 rounded-lg text-neutral-700 dark:text-neutral-200 hover:text-neutral-950 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/10 transition-colors duration-150 cursor-pointer"
+          className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-neutral-700 dark:text-neutral-200 hover:text-neutral-950 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/10 transition-colors duration-150 cursor-pointer"
           title="搜索"
         >
           <span className="material-symbols-outlined text-[20px]">search</span>
@@ -54,7 +54,7 @@ export default function ToolbarPage(): JSX.Element {
         <button
           type="button"
           onClick={() => handleAction('summarize')}
-          className="flex items-center gap-1 px-2 py-1 rounded-lg text-neutral-700 dark:text-neutral-200 hover:text-neutral-950 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/10 transition-colors duration-150 cursor-pointer"
+          className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-neutral-700 dark:text-neutral-200 hover:text-neutral-950 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/10 transition-colors duration-150 cursor-pointer"
           title="总结"
         >
           <span className="material-symbols-outlined text-[20px]">compress</span>
@@ -65,7 +65,7 @@ export default function ToolbarPage(): JSX.Element {
         <button
           type="button"
           onClick={() => handleAction('translate')}
-          className="flex items-center gap-1 px-2 py-1 rounded-lg text-neutral-700 dark:text-neutral-200 hover:text-neutral-950 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/10 transition-colors duration-150 cursor-pointer"
+          className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-neutral-700 dark:text-neutral-200 hover:text-neutral-950 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/10 transition-colors duration-150 cursor-pointer"
           title="翻译"
         >
           <span className="material-symbols-outlined text-[20px]">translate</span>
@@ -76,7 +76,7 @@ export default function ToolbarPage(): JSX.Element {
         <button
           type="button"
           onClick={() => handleAction('copy')}
-          className="flex items-center gap-1 px-2 py-1 rounded-lg text-neutral-700 dark:text-neutral-200 hover:text-neutral-950 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/10 transition-colors duration-150 cursor-pointer"
+          className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-neutral-700 dark:text-neutral-200 hover:text-neutral-950 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/10 transition-colors duration-150 cursor-pointer"
           title="复制"
         >
           <span className="material-symbols-outlined text-[20px]">content_copy</span>

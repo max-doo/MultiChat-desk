@@ -2,6 +2,66 @@
 
 ## 2026-06-28
 
+### 17:18 | claude-code
+
+- done: 划词悬浮工具条改用 UI Automation 读取选区替代 Ctrl+C：新增常驻 PowerShell UIA helper（行JSON协议+base64传文本+UTF-8），inputHookManager 按下/松手两次 UIA 读取对比实现拖拽+新选区双条件触发，toolbar:trigger-action 改用缓存文本不发 Ctrl+C，启动预建工具条窗口。修复终端选词杀进程/Word迷你工具条被抢占/拖窗口误弹三个bug
+- added:
+  - `src/main/uiaSelectionHelper.ts`
+- modified:
+  - `src/main/inputHookManager.ts`
+  - `src/main/webviewManager.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/main/index.ts`
+- removed:
+  - `scripts/diag-uia-selection.ps1`
+- lesson(promoted): 划词工具条读取选区应用 UI Automation(TextPattern.GetSelection)替代 Ctrl+C 模拟复制：非侵入、不杀终端进程、不抢Word工具条、可对比新旧选区避免拖窗口误弹。需常驻 PowerShell helper(行JSON协议，文本走base64规避 PS5.1 ConvertTo-Json不转义换行 与中文Windows GBK乱码)，stdin关闭即exit+懒重启防僵尸。覆盖:Word/WindowsTerminal/Chrome可读;VS Code编辑器/记事本不可读→安全降级不弹(其AI划词由全局快捷键Ctrl+C路径覆盖)
+
+### 15:27 | claude-code
+
+- done: 为 WebviewCard 增加初始加载诊断：错误分类(无网络/DNS/超时/连接失败)、30s 首次加载超时、动态计时与取消按钮、分类驱动的错误覆盖层
+- modified:
+  - `src/renderer/src/components/WebviewCard.tsx`
+
+### 15:20 | claude-code
+
+- done: 排查划词工具条是否会让 Word 迷你工具条消失：用 MM_TOOLBAR_SKIP_PROBE 诊断开关对比，两种方式无差异且 Word 工具条均正常显示，证伪 Ctrl+C 探测与窗口显示两个假设；问题在当前构建未复现。移除临时诊断开关，保留选区探测
+- context: 用户报告 Word 弹窗被覆盖/消失；诊断未复现，疑为中途 UI 调整(14:13/14:30)顺带缓解或偶发。如再次复现需补充具体场景(应用/选区方式/时序)
+- modified:
+  - `src/main/inputHookManager.ts`
+
+### 15:09 | Antigravity
+
+- done: 优化快捷工具条的UI，减少padding，降低工具条及窗口高度，且不改变图标和文字大小
+- modified:
+  - `src/renderer/src/pages/ToolbarPage.tsx`
+  - `src/main/webviewManager.ts`
+
+### 15:08 | claude-code
+
+- done: 完成划词悬浮工具条完整功能：ToolbarPage UI 重构、文本选区探测、ShortcutRecorder 组件、搜索/快捷动作、monio-napi 数组派发修复、工具条开关设置
+- added:
+  - `src/renderer/src/components/ShortcutRecorder.tsx`
+- modified:
+  - `src/main/index.ts`
+  - `src/main/inputHookManager.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/main/shortcutManager.ts`
+  - `src/main/webviewManager.ts`
+  - `src/preload/index.d.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/src/components/SettingsDrawer.tsx`
+  - `src/renderer/src/pages/QuickPage.tsx`
+  - `src/renderer/src/pages/ToolbarPage.tsx`
+  - `.memory/KNOWLEDGE.md`
+  - `SESSION_LOG.md`
+
+### 15:07 | Antigravity
+
+- done: Optimize floating selection toolbar UI by reducing padding and sizes to decrease its overall height from 48px to 36px
+- modified:
+  - `src/renderer/src/pages/ToolbarPage.tsx`
+  - `src/main/webviewManager.ts`
+
 ### 14:55 | Antigravity
 
 - done: Slightly increased other action icon sizes (search, compress, translate, copy) from 16px to 20px on selection floating toolbar.
