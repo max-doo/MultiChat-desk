@@ -19,7 +19,7 @@ Agents may suggest or promote a lesson into the `Known Gotchas` section of `AGEN
 - Electron 快捷键自动复制选中文本（Windows）：
   1. **等待按键释放**：触发全局快捷键时先 `sleep(250)`，以防用户的物理手指仍按在 `Ctrl/Shift` 上导致模拟按键冲突（触发 `Ctrl+Shift+C`）。
   2. **轻量模拟脚本**：使用 VBScript 写入 `.vbs` 文件并使用 `execFile('cscript.exe', ['//NoLogo', path])` 异步执行。VBS 启动仅需 ~10ms 且完全隐藏，比 PowerShell 更快且绝不抢焦。
-  3. **精确监测**：先 `clipboard.clear()` 再模拟按键，等待 150ms 写入缓冲后读取，若无新数据则还原旧剪贴板。
+  3. **精确监测与兜底**：先 `clipboard.clear()` 再模拟按键，等待 150ms 写入缓冲后读取；若无新数据写入（说明用户未选中文本），将旧数据写回剪贴板还原，**但必须返回空字符串 `''`**，切勿将陈旧的旧剪贴板内容作为选中文本返回；且划词操作回调中必须拦截空文本，不唤起弹窗。
 
 - **[关键陷阱] 全局快捷键 + SendKeys 焦点顺序**：在全局快捷键回调中必须先执行模拟复制动作，**最后**再执行 `qw.show() / qw.focus()` 唤起并聚焦 Electron 快捷窗口。若顺序相反，焦点会立即被 Electron 夺走，按键模拟将打在 Electron 自身，导致外部文本复制失效。
 

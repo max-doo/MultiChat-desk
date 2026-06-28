@@ -7,6 +7,21 @@ import brainstormPrompt from './agent-prompts-defaults/创意发散.md?raw'
 import debatePrompt from './agent-prompts-defaults/辩论对决.md?raw'
 import practicalPrompt from './agent-prompts-defaults/实践指南.md?raw'
 
+// AI 平台 logo 本地资源
+import chatgptLogo from '../assets/logos/chatgpt.svg'
+import geminiLogo from '../assets/logos/gemini.png'
+import grokLogo from '../assets/logos/grok.png'
+import claudeLogo from '../assets/logos/claude.svg'
+import perplexityLogo from '../assets/logos/perplexity.png'
+import arenaLogo from '../assets/logos/arena.png'
+import doubaoLogo from '../assets/logos/doubao.png'
+import yuanbaoLogo from '../assets/logos/yuanbao.png'
+import qwenLogo from '../assets/logos/qwen.svg'
+import deepseekLogo from '../assets/logos/deepseek.png'
+import kimiLogo from '../assets/logos/kimi.ico'
+import chatglmLogo from '../assets/logos/chatglm.ico'
+import yiyanLogo from '../assets/logos/yiyan.ico'
+
 // 监控配置常量
 const MONITOR_CONFIG = {
   pollIntervalMs: 3000,                 // 每 3 秒轮询一次
@@ -358,19 +373,19 @@ export const IMAGE_GENERATION_UNSUPPORTED_ERROR = '此模型不支持 AI 生图'
 
 // 默认模型配置
 const defaultModels: ModelConfig[] = [
-  { id: 'chatgpt', name: 'ChatGPT', url: 'https://chatgpt.com', logo: 'https://cdn.oaistatic.com/assets/favicon-o20kmmos.svg', enabled: true },
-  { id: 'gemini', name: 'Gemini', url: 'https://gemini.google.com/app', logo: 'https://www.gstatic.com/lamda/images/gemini_favicon_f069958c85030456e93de685481c559f160ea06b.png', enabled: true },
-  { id: 'grok', name: 'Grok', url: 'https://grok.com', logo: 'https://cdn.jsdelivr.net/npm/@lobehub/icons-static-png/light/grok.png', enabled: true },
-  { id: 'claude', name: 'Claude', url: 'https://claude.ai', logo: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="%23d97757"><path d="m19.6 66.5 19.7-11 .3-1-.3-.5h-1l-3.3-.2-11.2-.3L14 53l-9.5-.5-2.4-.5L0 49l.2-1.5 2-1.3 2.9.2 6.3.5 9.5.6 6.9.4L38 49.1h1.6l.2-.7-.5-.4-.4-.4L29 41l-10.6-7-5.6-4.1-3-2-1.5-2-.6-4.2 2.7-3 3.7.3.9.2 3.7 2.9 8 6.1L37 36l1.5 1.2.6-.4.1-.3-.7-1.1L33 25l-6-10.4-2.7-4.3-.7-2.6c-.3-1-.4-2-.4-3l3-4.2L28 0l4.2.6L33.8 2l2.6 6 4.1 9.3L47 29.9l2 3.8 1 3.4.3 1h.7v-.5l.5-7.2 1-8.7 1-11.2.3-3.2 1.6-3.8 3-2L61 2.6l2 2.9-.3 1.8-1.1 7.7L59 27.1l-1.5 8.2h.9l1-1.1 4.1-5.4 6.9-8.6 3-3.5L77 13l2.3-1.8h4.3l3.1 4.7-1.4 4.9-4.4 5.6-3.7 4.7-5.3 7.1-3.2 5.7.3.4h.7l12-2.6 6.4-1.1 7.6-1.3 3.5 1.6.4 1.6-1.4 3.4-8.2 2-9.6 2-14.3 3.3-.2.1.2.3 6.4.6 2.8.2h6.8l12.6 1 3.3 2 1.9 2.7-.3 2-5.1 2.6-6.8-1.6-16-3.8-5.4-1.3h-.8v.4l4.6 4.5 8.3 7.5L89 80.1l.5 2.4-1.3 2-1.4-.2-9.2-7-3.6-3-8-6.8h-.5v.7l1.8 2.7 9.8 14.7.5 4.5-.7 1.4-2.6 1-2.7-.6-5.8-8-6-9-4.7-8.2-.5.4-2.9 30.2-1.3 1.5-3 1.2-2.5-2-1.4-3 1.4-6.2 1.6-8 1.3-6.4 1.2-7.9.7-2.6v-.2H49L43 72l-9 12.3-7.2 7.6-1.7.7-3-1.5.3-2.8L24 86l10-12.8 6-7.9 4-4.6-.1-.5h-.3L17.2 77.4l-4.7.6-2-2 .2-3 1-1 8-5.5Z"></path></svg>', enabled: false },
-  { id: 'perplexity', name: 'Perplexity', url: 'https://www.perplexity.ai/', logo: 'https://cdn-avatars.huggingface.co/v1/production/uploads/64b89bf66b5ee8c38859cbd6/l_27fD52uFMZUXdFdY9fR.png', enabled: false },
-  { id: 'arena', name: 'Arena', url: 'https://arena.ai/', logo: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABwAAAAcCAAAAABXZoBIAAAAp0lEQVR4AdWSLwjEIBSH7Xm9l/WyaGdlzWIXLphWbOvtFatRLiy/ZjILdjAJ9uod3LG5O1gc7OO1j/eHH4/UE24oM+HsACd572TosMEha8YW7L3b8D2WdudK5WND0rU9KKgIGr5oiCo2EsKAquSU31UUDgEOnRaNpHWaKpUGrQrtTjt2SVi/LN6I1I3PnxBMFOYjo/lLSO9SXyUhcO3m2Wke4K4/dMIL1Ne5UmnGphQAAAAASUVORK5CYII=', enabled: false },
-  { id: 'doubao', name: '豆包', url: 'https://www.doubao.com/chat', logo: 'https://lf-flow-web-cdn.doubao.com/obj/flow-doubao/doubao/logo-doubao-overflow.png', enabled: false },
-  { id: 'yuanbao', name: '元宝', url: 'https://yuanbao.tencent.com/chat', logo: 'https://cdn-bot.hunyuan.tencent.com/logo.png', enabled: false },
-  { id: 'qwen', name: '通义千问', url: 'https://tongyi.aliyun.com/qianwen', logo: 'https://img.alicdn.com/imgextra/i3/O1CN01utrBy31Tu1t8oOgUy_!!6000000002441-55-tps-32-32.svg', enabled: false },
-  { id: 'deepseek', name: 'DeepSeek', url: 'https://chat.deepseek.com', logo: 'https://registry.npmmirror.com/@lobehub/icons-static-png/latest/files/dark/deepseek-color.png', enabled: false },
-  { id: 'kimi', name: 'Kimi', url: 'https://kimi.moonshot.cn', logo: 'https://statics.moonshot.cn/kimi-chat/favicon.ico', enabled: false },
-  { id: 'chatglm', name: '智谱清言', url: 'https://chatglm.cn/main/alltoolsdetail?lang=zh', logo: 'https://chatglm.cn/favicon.ico', enabled: false },
-  { id: 'yiyan', name: '文心一言', url: 'https://chat.baidu.com/', logo: 'https://chat.baidu.com/favicon.ico', enabled: false }
+  { id: 'chatgpt', name: 'ChatGPT', url: 'https://chatgpt.com', logo: chatgptLogo, enabled: true },
+  { id: 'gemini', name: 'Gemini', url: 'https://gemini.google.com/app', logo: geminiLogo, enabled: true },
+  { id: 'grok', name: 'Grok', url: 'https://grok.com', logo: grokLogo, enabled: true },
+  { id: 'claude', name: 'Claude', url: 'https://claude.ai', logo: claudeLogo, enabled: false },
+  { id: 'perplexity', name: 'Perplexity', url: 'https://www.perplexity.ai/', logo: perplexityLogo, enabled: false },
+  { id: 'arena', name: 'Arena', url: 'https://arena.ai/', logo: arenaLogo, enabled: false },
+  { id: 'doubao', name: '豆包', url: 'https://www.doubao.com/chat', logo: doubaoLogo, enabled: false },
+  { id: 'yuanbao', name: '元宝', url: 'https://yuanbao.tencent.com/chat', logo: yuanbaoLogo, enabled: false },
+  { id: 'qwen', name: '通义千问', url: 'https://tongyi.aliyun.com/qianwen', logo: qwenLogo, enabled: false },
+  { id: 'deepseek', name: 'DeepSeek', url: 'https://chat.deepseek.com', logo: deepseekLogo, enabled: false },
+  { id: 'kimi', name: 'Kimi', url: 'https://kimi.moonshot.cn', logo: kimiLogo, enabled: false },
+  { id: 'chatglm', name: '智谱清言', url: 'https://chatglm.cn/main/alltoolsdetail?lang=zh', logo: chatglmLogo, enabled: false },
+  { id: 'yiyan', name: '文心一言', url: 'https://chat.baidu.com/', logo: yiyanLogo, enabled: false }
 ]
 
 export const DEFAULT_MODEL_ORDER = defaultModels.map(m => m.id)

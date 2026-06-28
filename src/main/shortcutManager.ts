@@ -75,6 +75,9 @@ export function registerAllShortcuts(): void {
         // 2. 模拟 Ctrl+C 获取当前选中文本（此时焦点仍在外部活动窗口）
         const text = await getSelectedTextAsync()
 
+        // 未获取到选中文本时，不通过划词快捷键召唤弹窗
+        if (!text) return
+
         // 3. 展示并聚焦快捷窗口
         showAndFocusWindow(qw)
 
@@ -125,11 +128,11 @@ async function getSelectedTextAsync(): Promise<string> {
     return newText
   }
 
-  // 无新内容，还原旧剪贴板并返回
+  // 无新内容，还原旧剪贴板并返回空字符串
   if (prevText) {
     clipboard.writeText(prevText)
   }
-  return prevText.trim()
+  return ''
 }
 
 /**

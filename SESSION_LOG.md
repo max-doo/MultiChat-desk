@@ -2,6 +2,33 @@
 
 ## 2026-06-28
 
+### 12:02 | claude-code
+
+- done: 将 AI 平台 logo 从外部 CDN 链接迁移为本地资源，支持离线显示
+- added:
+  - `src/renderer/src/assets/logos/ (13 个 logo 文件: chatgpt.svg`
+  - `gemini.png`
+  - `grok.png`
+  - `claude.svg`
+  - `perplexity.png`
+  - `arena.png`
+  - `doubao.png`
+  - `yuanbao.png`
+  - `qwen.svg`
+  - `deepseek.png`
+  - `kimi.ico`
+  - `chatglm.ico`
+  - `yiyan.ico)`
+- modified:
+  - `src/renderer/src/store/appStore.ts (logo 引用从外部 URL/base64 改为 Vite 静态资源 import)`
+
+### 11:58 | Antigravity
+
+- done: 修复划词快捷键未选中内容时呼出弹窗及误把陈旧剪贴板当做选中文本的Bug
+- modified:
+  - `src/main/shortcutManager.ts`
+- lesson(promoted): 遇到划词快捷键时需区分主动呼出和划词操作，获取选中文本失败后切勿兜底返回陈旧剪贴板数据
+
 ### 11:45 | Antigravity
 
 - done: 优化快捷弹窗召唤置顶逻辑，解决 Windows 下后台召唤仅闪烁和不可见隐藏问题
