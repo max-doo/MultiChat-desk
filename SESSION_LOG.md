@@ -2,6 +2,13 @@
 
 ## 2026-06-28
 
+### 12:07 | Antigravity
+
+- done: 修复快捷键注入内容时重复注入及发送后继续注入的Bug
+- modified:
+  - `src/renderer/src/utils/webviewScripts.ts`
+- lesson(promoted): 在往富文本编辑器（如 Slate/Lexical/contenteditable）注入带有换行符或多行文本时，编辑器会将其格式化为 HTML 标签，读取 textContent 会丢失换行导致全等校验失败，因此执行完插入后应直接返回成功从而停止重试轮询
+
 ### 12:02 | claude-code
 
 - done: 将 AI 平台 logo 从外部 CDN 链接迁移为本地资源，支持离线显示

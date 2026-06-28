@@ -25,6 +25,8 @@ Agents may suggest or promote a lesson into the `Known Gotchas` section of `AGEN
 
 - Electron titlebar 拖拽（Windows）：`app-region:drag` CSS 方式会引发点击穿透和递归 resize 等 BUG；应使用 JS pointer capture + IPC `win.setContentBounds` 实现可靠的无边框窗口拖拽。
 
+- **Webview 富文本框提示词注入校验坑**：在向第三方 AI 平台富文本输入框（`contenteditable` / Slate / Lexical 等）注入带有换行符或多行格式的提示词（如 `总结以下内容:\n\n文本`）时，编辑器会自动将其格式化为 `<p>` 等 HTML 节点。若通过 `textarea.textContent` 读取当前值进行 `rawCurrent === rawExpected` 全等比对，由于 `textContent` 会丢失换行符，比对结果将永远为 `false`。这会导致前端重试轮询（如 15 次 500ms 重试）误判为注入失败并疯狂重复注入，干扰用户编辑和发送。解决方案：寻找输入框和执行插入成功后，直接返回 `{ success: true }` 立即终止前端轮询。
+
 ## Stable Decisions
 
 - 快捷操作快捷键（Ctrl+Shift+S/E/T/Q）的提示词注入流程：先通过 VBScript 模拟 `Ctrl+C` 自动复制选中文本，读取成功后，再展示并聚焦快捷窗口，最后发送 `quick:inject-prompt` IPC 完成一键总结。
