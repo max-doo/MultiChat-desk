@@ -3,9 +3,10 @@ import Layout from './components/Layout'
 import MainPage from './pages/MainPage'
 import SummaryPage from './pages/SummaryPage'
 import QuickPage from './pages/QuickPage'
+import ToolbarPage from './pages/ToolbarPage'
 import { initializeStore, useAppStore, SummaryHistoryItem } from './store/appStore'
 
-function App(): JSX.Element {
+function MainApp(): JSX.Element {
   const { currentPage, setCurrentPage } = useAppStore()
   const [isInitialized, setIsInitialized] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -136,4 +137,10 @@ function App(): JSX.Element {
   )
 }
 
-export default App
+// 顶层短路拦截：#toolbar 窗口跳过所有 Store 初始化，实现毫秒级渲染
+export default function App(): JSX.Element {
+  if (window.location.hash === '#toolbar') {
+    return <ToolbarPage />
+  }
+  return <MainApp />
+}
