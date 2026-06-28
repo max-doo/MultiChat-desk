@@ -723,3 +723,9 @@ function setupContextMenu(wc: Electron.WebContents): void {
         owner.webContents.send('themed-contextmenu', payload)
     })
 }
+
+// ============ 悬浮工具条窗口（临时占位，Task 3 中替换为完整实现） ============
+
+export function showToolbarAt(x: number, y: number): void {
+    console.log(`[Temp] showToolbarAt called with: x=${x}, y=${y}`)
+}

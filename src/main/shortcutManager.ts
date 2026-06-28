@@ -104,8 +104,11 @@ export function registerAllShortcuts(): void {
  * 3. 运行轻量级 VBScript 发送 Ctrl+C 按键
  * 4. 等待 150ms 允许外部应用向剪贴板写入内容
  * 5. 读取剪贴板：有新内容则直接返回；否则还原剪贴板并兜底
+ *
+ * @param keepClipboard 若为 true（默认），获取成功后保持新内容在剪贴板；
+ *                      若为 false，获取成功后还原原本的剪贴板内容。
  */
-async function getSelectedTextAsync(): Promise<string> {
+export async function getSelectedTextAsync(keepClipboard = true): Promise<string> {
   if (process.platform !== 'win32') {
     return clipboard.readText().trim()
   }
@@ -125,6 +128,9 @@ async function getSelectedTextAsync(): Promise<string> {
   // 5. 读新剪贴板
   const newText = clipboard.readText().trim()
   if (newText) {
+    if (!keepClipboard && prevText) {
+      clipboard.writeText(prevText)
+    }
     return newText
   }
 
