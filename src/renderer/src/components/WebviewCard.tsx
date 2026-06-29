@@ -196,18 +196,16 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
       setLoadError(classifyError(null, hostname))
     }
 
-    // 在 did-start-loading 时启动：已等待秒数 interval（始终）+ 30s 超时（仅首次加载）
+    // 在 did-start-loading 时启动：已等待秒数 interval + 30s 超时（覆盖首次加载与后续导航）
     const startLoadTimers = (): void => {
       clearLoadTimers()
       setElapsedSeconds(0)
       elapsedIntervalRef.current = setInterval(() => {
         setElapsedSeconds((s) => s + 1)
       }, 1000)
-      if (isFirstLoadRef.current) {
-        loadTimeoutRef.current = setTimeout(() => {
-          triggerLoadTimeout()
-        }, LOAD_TIMEOUT_MS)
-      }
+      loadTimeoutRef.current = setTimeout(() => {
+        triggerLoadTimeout()
+      }, LOAD_TIMEOUT_MS)
     }
 
     // 任务分配模式或隔离模式支持选择所有 AI，因此可选列表为全量模型；多 AI 模式下排除自身
@@ -248,7 +246,12 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
 
       const handleLoadFail = (event: Electron.DidFailLoadEvent): void => {
         if (!event.isMainFrame) return
-        if (event.errorCode === -3) return // 用户主动取消，静默忽略
+        if (event.errorCode === -3) {
+          // 用户主动取消或网卡路由切换（如 TUN 模式）导致中断时，清除计时器与加载状态
+          clearLoadTimers()
+          setIsLoading(false)
+          return
+        }
         clearLoadTimers()
         const errorInfo = {
           errorCode: event.errorCode,
@@ -274,13 +277,28 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
         }
       }
 
-
+      const handleRenderProcessGone = (event: any): void => {
+        const details = event?.details || event
+        console.error(`[${name}] 渲染进程崩溃/退出! reason: ${details?.reason || 'unknown'}, exitCode: ${details?.exitCode ?? 'none'}`, details)
+        clearLoadTimers()
+        setIsLoading(false)
+        setLoadError({
+          category: 'connection',
+          icon: 'error',
+          title: '页面渲染进程意外退出',
+          subtitle: '点击重试重新加载页面',
+          errorCode: -1,
+          hostname: getHostname(loadedUrlRef.current || url)
+        })
+      }
 
       webview.addEventListener('dom-ready', handleDomReady)
       webview.addEventListener('did-start-loading', handleLoadStart)
       webview.addEventListener('did-stop-loading', handleLoadStop)
       webview.addEventListener('did-fail-load', handleLoadFail)
       webview.addEventListener('console-message', handleConsoleMessage)
+      webview.addEventListener('render-process-gone', handleRenderProcessGone)
+      webview.addEventListener('crashed', handleRenderProcessGone)
 
       // 监听导航事件
       const handleDidNavigate = (_event: any): void => {
@@ -313,6 +331,8 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
         webview.removeEventListener('did-stop-loading', handleLoadStop)
         webview.removeEventListener('did-fail-load', handleLoadFail)
         webview.removeEventListener('console-message', handleConsoleMessage)
+        webview.removeEventListener('render-process-gone', handleRenderProcessGone)
+        webview.removeEventListener('crashed', handleRenderProcessGone)
         webview.removeEventListener('did-navigate', handleDidNavigate)
         webview.removeEventListener('did-navigate-in-page', handleDidNavigateInPage)
         webview.removeEventListener('did-finish-load', handleDidFinishLoad)
@@ -1033,7 +1053,7 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
             id={`webview-${id}`}
             src="about:blank"
             partition="persist:shared"
-            className="w-full h-full"
+            className={`w-full h-full ${loadError ? 'invisible pointer-events-none' : ''}`}
             allowpopups
             tabIndex={-1}
           />

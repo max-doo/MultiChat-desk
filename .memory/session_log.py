@@ -8,7 +8,7 @@ import os
 import re
 import time
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Iterable
@@ -26,6 +26,7 @@ class AppendResult:
     log_path: Path
     archived_dates: list[str]
     lesson_candidates: list[str]
+    index_gaps: list[str] = field(default_factory=list)
 
 
 @contextmanager
@@ -107,10 +108,12 @@ def append_session_note(
         lesson_candidates.extend(recent_lessons)
     lesson_candidates.extend(archived_lessons)
 
+    gaps = validate_memory_index(root)
     return AppendResult(
         log_path=log_path,
         archived_dates=archived_dates,
         lesson_candidates=_dedupe_preserving_order(lesson_candidates),
+        index_gaps=gaps,
     )
 
 
@@ -200,9 +203,18 @@ def _append_entry(*, content: str, now: datetime, agent: str, fields: dict[str, 
             entry_lines.extend(f"  - `{value}`" for value in values)
 
     for key in ("lesson", "unresolved"):
-        value = fields.get(key)
-        if value:
-            entry_lines.append(f"- {key}: {value}")
+        values = fields.get(key)
+        if isinstance(values, str):
+            if values.strip():
+                entry_lines.append(f"- {key}: {values.strip()}")
+        elif isinstance(values, Iterable):
+            for v in values:
+                if isinstance(v, str) and v.strip():
+                    entry_lines.append(f"- {key}: {v.strip()}")
+                elif v:
+                    entry_lines.append(f"- {key}: {v}")
+        elif values:
+            entry_lines.append(f"- {key}: {values}")
 
     entry_str = "\n".join(entry_lines).rstrip() + "\n"
 
@@ -249,11 +261,51 @@ def _dedupe_preserving_order(values: Iterable[str]) -> list[str]:
     return result
 
 
-def _csv_or_repeated(values: list[str] | None) -> list[str]:
+def _csv_or_repeated(values: object) -> list[str]:
     result = []
-    for value in values or []:
-        result.extend(part.strip() for part in value.split(",") if part.strip())
-    return result
+    if not values:
+        return result
+    if isinstance(values, str):
+        for part in values.split(","):
+            part = part.strip()
+            if part:
+                result.append(part)
+        return _dedupe_preserving_order(result)
+    if isinstance(values, Iterable):
+        for item in values:
+            result.extend(_csv_or_repeated(item))
+        return _dedupe_preserving_order(result)
+    return [str(values).strip()]
+
+
+def _text_or_repeated(values: object) -> list[str]:
+    result = []
+    if not values:
+        return result
+    if isinstance(values, str):
+        val = values.strip()
+        return [val] if val else []
+    if isinstance(values, Iterable):
+        for item in values:
+            result.extend(_text_or_repeated(item))
+        return _dedupe_preserving_order(result)
+    val = str(values).strip()
+    return [val] if val else []
+
+
+def validate_memory_index(root: Path) -> list[str]:
+    knowledge_file = root / ".memory" / "KNOWLEDGE.md"
+    index_file = root / ".memory" / "INDEX.md"
+    if not knowledge_file.exists() or not index_file.exists():
+        return []
+    try:
+        k_text = knowledge_file.read_text(encoding="utf-8")
+        k_sections = {s.strip() for s in re.findall(r"^###\s+(.+)$", k_text, re.MULTILINE)}
+        i_text = index_file.read_text(encoding="utf-8")
+        i_routed = {s.strip() for s in re.findall(r"###\s+([^\|\r\n]+)", i_text)}
+        return sorted(list(k_sections - i_routed))
+    except Exception:
+        return []
 
 
 def get_default_agent() -> str:
@@ -277,11 +329,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--done", required=True, help="What was completed.")
     parser.add_argument("--context", help="Relevant context or constraints.")
     parser.add_argument("--decision", help="Decision or tradeoff made in this session.")
-    parser.add_argument("--added", action="append", help="Added file path. May repeat or use comma-separated values.")
-    parser.add_argument("--modified", action="append", help="Modified file path. May repeat or use comma-separated values.")
-    parser.add_argument("--removed", action="append", help="Removed file path. May repeat or use comma-separated values.")
-    parser.add_argument("--lesson", help="Reusable lesson or pitfall.")
-    parser.add_argument("--unresolved", help="Unresolved follow-up item.")
+    parser.add_argument("--added", action="append", nargs="*", help="Added file path. May repeat, use space-separated, or comma-separated values.")
+    parser.add_argument("--modified", action="append", nargs="*", help="Modified file path. May repeat, use space-separated, or comma-separated values.")
+    parser.add_argument("--removed", action="append", nargs="*", help="Removed file path. May repeat, use space-separated, or comma-separated values.")
+    parser.add_argument("--lesson", action="append", nargs="*", help="Reusable lesson or pitfall. May repeat or pass multiple items.")
+    parser.add_argument("--unresolved", action="append", nargs="*", help="Unresolved follow-up item. May repeat or pass multiple items.")
     parser.add_argument("--agent", default=get_default_agent(), help="Agent label for the entry.")
     return parser.parse_args()
 
@@ -298,8 +350,8 @@ def main() -> int:
             added=_csv_or_repeated(args.added),
             modified=_csv_or_repeated(args.modified),
             removed=_csv_or_repeated(args.removed),
-            lesson=args.lesson,
-            unresolved=_csv_or_repeated([args.unresolved]) if args.unresolved else [],
+            lesson=_text_or_repeated(args.lesson),
+            unresolved=_text_or_repeated(args.unresolved),
             agent=args.agent,
         )
     except TimeoutError as exc:
@@ -319,6 +371,14 @@ def main() -> int:
         for item in result.lesson_candidates:
             print(f"- {item}")
         print("Consider promoting stable lessons to `.memory/KNOWLEDGE.md`.")
+    if result.index_gaps:
+        print("\n" + "=" * 68)
+        print("⚠️  [MEMORY INDEX MISMATCH DETECTED]")
+        print("The following sections in KNOWLEDGE.md lack routing entries in INDEX.md:")
+        for s in result.index_gaps:
+            print(f"  - ### {s}")
+        print("👉 Action Required: Add corresponding routing triggers to .memory/INDEX.md!")
+        print("=" * 68 + "\n")
     return 0
 
 

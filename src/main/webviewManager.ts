@@ -3,7 +3,7 @@
  * 负责主窗口创建、Webview 注入脚本、上下文菜单以及新窗口管理
  */
 
-import { app, screen, session, BrowserWindow, shell, nativeImage, Tray, Menu, type WebFrameMain } from 'electron'
+import { app, screen, session, BrowserWindow, shell, nativeImage, Tray, Menu } from 'electron'
 import { join } from 'path'
 import { accessSync } from 'fs'
 import { is } from '@electron-toolkit/utils'
@@ -217,31 +217,31 @@ export function getWebviewClickInterceptorScript(): string {
           window.open = function(url, target, features) {
             mmLog('window.open intercepted: ' + url);
             
+            const isCurrentGoogle = location.hostname.includes('google.com') || location.hostname.includes('gemini');
+            
             // 检查是否是 Google 账号相关 URL
             const isGoogleAuth = url && (
               url.includes('accounts.google.com') ||
-              url === 'about:blank' ||
               (url.includes('.google.com') && url.includes('/accounts'))
             );
             
-            if (isGoogleAuth || url === 'about:blank') {
-              // 对于 about:blank 或 Google 账号页面，直接在当前页面导航
-              // 构造一个账号选择器 URL
+            if (isCurrentGoogle && (isGoogleAuth || url === 'about:blank')) {
+              // 对于 Google 页面下的 about:blank 或 Google 账号页面，直接在当前页面导航
               const currentUrl = location.href;
               const continueUrl = encodeURIComponent(currentUrl);
-              const accountUrl = 'https://accounts.google.com/AccountChooser?continue=' + continueUrl;
-              mmLog('Redirecting to AccountChooser: ' + accountUrl);
+              const accountUrl = isGoogleAuth ? url : ('https://accounts.google.com/AccountChooser?continue=' + continueUrl);
+              mmLog('Redirecting Google Auth: ' + accountUrl);
               location.href = accountUrl;
               return null;
             }
             
             // 对于其他 URL，通过 IPC 打开（由主进程处理）
-            if (url && url.startsWith('http')) {
+            if (url && url.startsWith('http') && !url.includes(location.host)) {
               openUrl(url);
               return null;
             }
             
-            // 回退到原始行为（虽然会被阻止）
+            // 回退到原始行为
             return originalOpen.call(this, url, target, features);
           };
           mmLog('window.open interceptor installed');
@@ -270,7 +270,6 @@ export function getWebviewClickInterceptorScript(): string {
                                 (link.href.includes('.google.com') && link.href.includes('/signin'));
             
             if (isGoogleAuth) {
-              // 对于 Google 账号链接，直接在当前页面导航
               e.preventDefault();
               e.stopPropagation();
               mmLog('Google Auth link clicked, navigating in webview: ' + link.href);
@@ -279,8 +278,7 @@ export function getWebviewClickInterceptorScript(): string {
             }
             
             const isExternal = link.href.startsWith('http') && !link.href.includes(window.location.host);
-            const isBlank = link.target === '_blank';
-            if (isBlank || isExternal) {
+            if (isExternal) {
               e.preventDefault();
               e.stopPropagation();
               openUrl(link.href);
@@ -309,7 +307,7 @@ export function getWebviewClickInterceptorScript(): string {
 export function setupSharedSessionUserAgent(): void {
     const sharedSession = session.fromPartition('persist:shared')
     const currentUA = sharedSession.getUserAgent()
-    const cleanUA = currentUA.replace(/Electron\/[0-9.]+\s/, '')
+    const cleanUA = currentUA.replace(/\s*Electron\/[0-9.]+/g, '')
     sharedSession.setUserAgent(cleanUA)
 }
 
@@ -494,32 +492,17 @@ export function registerWebviewHandlers(webContents: Electron.WebContents): void
         }
     })
 
-    // 注入脚本
+    // 注入脚本（仅向主框架 mainFrame 注入，避免第三方防爬或安全检测 iframe 动态销毁导致 0xC0000005 崩溃）
     const tryInject = async (source: string): Promise<void> => {
         const script = getWebviewClickInterceptorScript()
 
-        const getAllFrames = (root: WebFrameMain): WebFrameMain[] => {
-            const result: WebFrameMain[] = []
-            const stack: WebFrameMain[] = [root]
-            while (stack.length) {
-                const frame = stack.pop()
-                if (!frame) continue
-                result.push(frame)
-                const children = (frame as WebFrameMain & { frames?: WebFrameMain[] }).frames
-                if (Array.isArray(children) && children.length) {
-                    for (const child of children) stack.push(child)
-                }
-            }
-            return result
+        if (!webContents.mainFrame) return
+        try {
+            await webContents.mainFrame.executeJavaScript(script, true)
+            console.log(`[Main] webview inject: ${webContents.id} source=${source}`)
+        } catch (err) {
+            // 忽略主框架加载过程中的轻微错位
         }
-
-        const frames = getAllFrames(webContents.mainFrame)
-        const _settled = await Promise.allSettled(
-            frames.map((frame) => frame.executeJavaScript(script, true))
-        )
-
-        // 日志记录...
-        console.log(`[Main] webview inject: ${webContents.id} source=${source} frames=${frames.length}`)
     }
 
     webContents.on('dom-ready', () => {
@@ -529,7 +512,9 @@ export function registerWebviewHandlers(webContents: Electron.WebContents): void
         void tryInject('did-finish-load')
     })
     webContents.on('did-frame-finish-load', (_e, isMainFrame: boolean) => {
-        void tryInject(`did-frame-finish-load:${isMainFrame ? 'main' : 'sub'}`)
+        if (isMainFrame) {
+            void tryInject('did-frame-finish-load:main')
+        }
     })
     setTimeout(() => {
         void tryInject('attach-timeout')

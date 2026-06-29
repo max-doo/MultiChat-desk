@@ -15,6 +15,9 @@ import { sessionManager } from './services/SessionManager'
 import { automationService } from './services/AutomationService'
 import { startDaemonServer, stopDaemonServer } from './daemon/ipcServer'
 
+// 优化 GPU 渲染后端为 OpenGL，解决 Windows 平台下 Electron Webview GPU 合成黑屏及点击穿透问题，避免完全关闭硬件加速导致的软件渲染黑屏
+app.commandLine.appendSwitch('use-angle', 'gl')
+
 // ============ 便携模式支持 ============
 
 // 检测是否为便携版运行模式
@@ -77,82 +80,106 @@ async function cleanupTempUploadDirs(): Promise<void> {
   }
 }
 
-// ============ 初始化 ============
+// ============ 单实例锁定 ============
+const gotTheLock = app.requestSingleInstanceLock()
 
-// 在应用启动前配置路径
-configureSessionPath()
-
-const dataPath = getDataPath()
-console.log('[Main] 数据目录:', dataPath)
-console.log('[Main] 运行模式:', isPortableMode() ? '🎒 便携版' : '💿 安装版')
-
-// 初始化数据目录
-initAgentPrompts(dataPath)
-
-// 初始化 electron-store
-const store = new Store({
-  name: is.dev ? 'config-dev' : 'config',
-  cwd: dataPath
-})
-
-// ============ 应用生命周期 ============
-
-app.whenReady().then(() => {
-  // 强制所有 Webview 和原生控件使用浅色模式，与应用 UI 保持一致
-  nativeTheme.themeSource = 'light'
-
-  // 清理遗留的临时文件
-  void cleanupTempUploadDirs()
-
-  // 设置应用 ID
-  electronApp.setAppUserModelId('com.multichat.app')
-
-  // 优化快捷键
-  app.on('browser-window-created', (_, window) => {
-    optimizer.watchWindowShortcuts(window)
+if (!gotTheLock) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    const mainWindow = getMainWindow()
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.show()
+      mainWindow.focus()
+    } else {
+      createWindow()
+    }
   })
 
-  // 注册所有 IPC 处理器
-  // 注入依赖：Store 实例，获取主窗口函数，打开浏览器窗口函数
-  registerIpcHandlers(store, getMainWindow, openBrowserWindowInternal)
+  // ============ 初始化 ============
 
-  // 创建主窗口
-  createWindow()
-  createQuickWindow()
-  createTray()
+  // 在应用启动前配置路径
+  configureSessionPath()
 
-  // 初始化全局快捷键管理
-  initShortcutManager(store)
+  const dataPath = getDataPath()
+  console.log('[Main] 数据目录:', dataPath)
+  console.log('[Main] 运行模式:', isPortableMode() ? '🎒 便携版' : '💿 安装版')
 
-  // 初始化后台会话管理与自动化内核
-  sessionManager.init()
-  automationService.init(store)
+  // 初始化数据目录
+  initAgentPrompts(dataPath)
 
-  // 启动本地 CLI 守护服务
-  startDaemonServer()
-
-  // 启动全局输入钩子（划词悬浮工具条）
-  if (store.get('selectionToolbarEnabled', true) !== false) {
-    // 预建隐藏工具条窗口，避免首次触发时现场建窗的瞬时激活抖动（挤掉 Word 迷你工具条等）
-    createToolbarWindow()
-    startInputHook()
-  }
-
-  app.on('activate', function () {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+  // 初始化 electron-store
+  const store = new Store({
+    name: is.dev ? 'config-dev' : 'config',
+    cwd: dataPath
   })
-})
 
-app.on('before-quit', () => {
-  setQuitting(true)
-  stopDaemonServer()
-  stopInputHook()
-  sessionManager.destroyAllSessions()
-  globalShortcut.unregisterAll()
-  destroyTray()
-})
+  // ============ 应用生命周期 ============
 
-// 所有窗口关闭时不再直接退出应用（让应用保留在系统托盘/后台运行）
-app.on('window-all-closed', () => {
-  // 不注销全局快捷键，以便在后台或托盘模式下随时唤醒
-})
+  // 1. 禁用 Blink Automation 控制标识，避免被 Cloudflare Turnstile 等真人验证拦截
+  app.commandLine.appendSwitch('disable-blink-features', 'AutomationControlled')
+  // 2. 禁用 QUIC (HTTP/3) 协议，避免在 Clash Verge/TUN 虚拟网卡模式下 UDP 443 转发丢包导致页面假死空白
+  app.commandLine.appendSwitch('disable-quic')
+
+  app.whenReady().then(() => {
+    // 强制所有 Webview 和原生控件使用浅色模式，与应用 UI 保持一致
+    nativeTheme.themeSource = 'light'
+
+    // 清理遗留的临时文件
+    void cleanupTempUploadDirs()
+
+    // 设置应用 ID
+    electronApp.setAppUserModelId('com.multichat.app')
+
+    // 优化快捷键
+    app.on('browser-window-created', (_, window) => {
+      optimizer.watchWindowShortcuts(window)
+    })
+
+    // 注册所有 IPC 处理器
+    // 注入依赖：Store 实例，获取主窗口函数，打开浏览器窗口函数
+    registerIpcHandlers(store, getMainWindow, openBrowserWindowInternal)
+
+    // 创建主窗口
+    createWindow()
+    createQuickWindow()
+    createTray()
+
+    // 初始化全局快捷键管理
+    initShortcutManager(store)
+
+    // 初始化后台会话管理与自动化内核
+    sessionManager.init()
+    automationService.init(store)
+
+    // 启动本地 CLI 守护服务
+    startDaemonServer()
+
+    // 启动全局输入钩子（划词悬浮工具条）
+    if (store.get('selectionToolbarEnabled', true) !== false) {
+      // 预建隐藏工具条窗口，避免首次触发时现场建窗的瞬时激活抖动（挤掉 Word 迷你工具条等）
+      createToolbarWindow()
+      startInputHook()
+    }
+
+    app.on('activate', function () {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    })
+  })
+
+  app.on('before-quit', () => {
+    setQuitting(true)
+    stopDaemonServer()
+    stopInputHook()
+    sessionManager.destroyAllSessions()
+    globalShortcut.unregisterAll()
+    destroyTray()
+  })
+
+  // 所有窗口关闭时不再直接退出应用（让应用保留在系统托盘/后台运行）
+  app.on('window-all-closed', () => {
+    // 不注销全局快捷键，以便在后台或托盘模式下随时唤醒
+  })
+}
+

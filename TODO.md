@@ -24,6 +24,7 @@
   - [ ] 左栏模型输出卡片视觉无变化
 - [ ] macOS 打包：在 macOS 系统上运行 `npm run build:mac` 验证 DMG 产物
 - [ ] macOS 打包：配置 Apple Developer ID 签名与公证（Notarization），正式分发必需
+- [ ] macOS UI 适配与包验收：根据主窗口标题栏防重叠计划完成 UI 改造，并落实 macOS 安装包的验证与验收方案（解决无 Mac 物理设备时的打包测试痛点）
 - [ ] Electron OTA 自动更新：实施计划见 `docs/superpowers/plans/2026-05-04-electron-ota.md`，设计见 `docs/superpowers/specs/2026-05-04-electron-ota-design.md`（NSIS 安装版 + GitHub Releases + Settings Drawer 内交互，便携版/macOS 优雅降级）
 - [x] 桌面端快捷访问特性：实施计划见 `docs/superpowers/plans/2026-05-04-desktop-quick-access-plan.md`（7 个 Task，零 C++ 依赖，含完整 IPC 通道清单与 lint/build/dev 验证清单）
   - [x] Task 1-2：系统托盘 + 主窗关闭转隐藏（关闭主页面后常驻系统托盘，托盘菜单"显示主界面/召唤快捷弹窗/退出"）
@@ -31,12 +32,25 @@
   - [x] Task 5：主窗 ↔ Quick Window 跨窗口状态广播（`models` / `apiConfig` 同步，主进程 `stateBus` + Zustand `subscribe`，`isApplyingRemote` 防回环）
   - [x] Task 6：剪贴板召唤 MVP —— `Ctrl+Shift+C` 读 `clipboard.readText()` 注入 Quick Window 当前 WebviewCard 输入框（不自动发送，用户校对后手动发）
   - [x] Task 7：`shortcutManager` + `SettingsDrawer` "快捷键与系统托盘"分组（自定义召唤键，持久化到 electron-store，注册失败回滚旧值）
-- [ ] 全局划词悬浮 Toolbar（**推迟到独立计划**）：原需求"豆包式划词悬浮条"需引入 `uiohook-napi`（C++ 扩展）或平台 Accessibility API，跨平台编译/杀软误报/剪贴板备份恢复成本高。本期由"剪贴板召唤"（上面 Task 6）弱化版替代——用户先 `Ctrl+C` 再按 `Ctrl+Shift+C` 即可。后续若决定做悬浮条，新计划须包含 `uiohook-napi` 三平台编译验证、ToolbarWindow `focusable+ignoreMouseEvents` 设计、剪贴板备份恢复、macOS Accessibility 权限引导
-- [ ] **调研划词弹出工具条**：调研是否可实现类似豆包（Doubao）的划词即弹出工具条功能——用户在任何应用中划选文本后，自动弹出悬浮工具条，通过工具条实现文本复制、注入到 MultiChat 并打开窗口。需调研：系统级划词事件监听方案（`uiohook-napi` / 平台 Accessibility API / 剪贴板轮询）、跨平台可行性、悬浮窗口实现方案、与现有快捷窗口的整合方式
+- [x] 全局划词悬浮 Toolbar（**已实现**）：已通过 monio-napi + UI Automation 实现划词弹出工具条，支持"问问"/搜索/总结/翻译/复制等动作，详见 SESSION_LOG 2026-06-27 12:54 ~ 06-28 17:18 多条记录
+- [x] **调研划词弹出工具条**（**已实现**）：调研已完成，实现方案已落地——采用 monio-napi 全局鼠标钩子 + UI Automation 读取选区 + 无焦点悬浮窗口，已覆盖 Word/Chrome/WindowsTerminal 等场景
+- [ ] **任务分配模式（task_assignment）待设计**：UI 已有 mode 切换入口（`Layout.tsx` 三选一分段控件），支持同模型多窗口分配不同任务，但具体行为逻辑（任务拆分、分发、结果聚合）尚未设计
+- [ ] **辩论模式（debate）待设计**：UI 已有 mode 切换入口（固定双窗口），但辩论交互逻辑（双方对抗、裁判机制、回合控制）尚未设计
+- [ ] **CLI 待进一步验收**：daemon 通信正常，但选择器大量过期（豆包 collect 返回空、ChatGPT/DeepSeek 输入框选择器过期），需逐平台验证并修正 `selectors.ts`
+- [ ] **CLI exec 命令改进**：当前 `exec` 发送提示词后立即返回，需再手动 `collect` 取结果。期望行为：发送提示词后终端挂起，轮询等待 AI 回复完成，流式输出或完成后返回完整结果，而非分两步操作
 - [ ] **注入 DOM 选择器全面更新**：当前 `selectors.ts` 中各平台注入 DOM 选择器大量失效（网站改版导致），需逐平台验证并修正。同时探索让 Agent 自动读取网页原始 DOM 并自行更新选择器的自动化方案——例如通过 MCP/脚本抓取各平台实际 DOM 结构，由 Agent 分析并生成修正后的选择器配置，减少手动维护成本
-- [ ] **项目改名 MultiChat + CLI 开发**：将项目从 "MultiChat Desk" 更名为 "MultiChat"，同步更新所有相关命名（package.json、窗口标题、文档、构建产物名等）。同时启动 CLI 工具开发，提供命令行入口以支持脚本化操作、批量任务、CI/CD 集成等场景
+- [ ] **DOM选择器鲁棒性提升**：详见 `docs\superpowers\plans\2026-06-28-resilient-webview-automation.md`
+- [x] **项目改名 MultiChat**：将项目从 "MultiChat Desk" 更名为 "MultiChat"，同步更新所有相关命名（package.json、窗口标题、文档、构建产物名等）
+- [x] **CLI Daemon 基础架构**（**已实现**）：Named Pipe 通信、SessionManager、AutomationService、CLI Client（`daemon status/exec/collect`）已落地，详见 SESSION_LOG 2026-06-28 多条记录。剩余工作：选择器更新、exec 挂起轮询改进（见上方 CLI 相关 TODO）
 
 ## 已完成
+
+### 2026-06-28
+
+- [x] CLI Daemon 基础架构（Tasks 1-5）：SessionManager（后台 BrowserWindow 会话管理）、AutomationService（主进程自动化执行内核）、Named Pipe Server（`\\.\pipe\multichat-daemon`）、CLI Client（`daemon status/exec/collect`）、IPC Bridge（main↔renderer 通信桥梁）
+- [x] 划词悬浮 Toolbar 完整体验：monio-napi 全局鼠标钩子 + UI Automation 选区读取 + 无焦点悬浮 ToolbarWindow，支持"问问"/搜索/总结/翻译/复制等动作
+- [x] 全局快捷键设置 UX 重构：ShortcutRecorder 交互式捕获录制组件，按键徽章展示、一键清空与重置默认值
+- [x] 修复 electron-builder Windows 打包失败（winCodeSign 符号链接需开发者模式）
 
 ### 2026-05-04
 

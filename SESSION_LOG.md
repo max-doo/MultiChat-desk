@@ -1,6 +1,120 @@
 # Session Log
 
+## 2026-06-29
+
+### 20:33 | Antigravity
+
+- done: Fix multiple instances issue on double click by implementing app.requestSingleInstanceLock() and second-instance event handler
+- modified:
+  - `src/main/index.ts`
+
+### 20:30 | Antigravity
+
+- done: Summarize all debugging attempts and root cause analysis for Tongyi Qianwen webview click black screen issue for handover to next AI
+- modified:
+  - `src/main/index.ts`
+  - `src/main/webviewManager.ts`
+
+### 20:27 | Antigravity
+
+- done: Systematic debugging: replace app.disableHardwareAcceleration with --use-angle=gl switch to resolve software rendering black screen on Windows and keep GPU renderer stable
+- modified:
+  - `src/main/index.ts`
+
+### 20:18 | Antigravity
+
+- done: Systematic debugging: restrict script injection to webContents.mainFrame only to prevent 0xC0000005 access violation crash when Aliyun Qwen dynamic subframes are disposed
+- modified:
+  - `src/main/webviewManager.ts`
+
+### 20:12 | Antigravity
+
+- done: Fix Qwen black screen on click caused by global about:blank window.open interceptor redirecting non-Google domains to Google Account chooser
+- modified:
+  - `src/main/webviewManager.ts`
+
+### 20:03 | Antigravity
+
+- done: Systematic debugging: replaced disable-gpu-compositing with app.disableHardwareAcceleration() and added reason/exitCode logging to fix Qwen webview crash on click
+- modified:
+  - `src/main/index.ts`
+  - `src/renderer/src/components/WebviewCard.tsx`
+
+### 19:57 | Antigravity
+
+- done: Fix Qwen click causing black screen and renderer crash by disabling GPU compositing and hiding crashed webview
+- modified:
+  - `src/main/index.ts`
+  - `src/renderer/src/components/WebviewCard.tsx`
+
+### 13:19 | Antigravity
+
+- done: Fix Clash Verge TUN mode blank page issue and ChatGPT Cloudflare Turnstile verification loop
+- modified:
+  - `src/main/index.ts`
+  - `src/main/webviewManager.ts`
+  - `src/renderer/src/components/WebviewCard.tsx`
+- lesson(promoted): Clash Verge TUN 模式与 Cloudflare Turnstile 验证在 Electron Webview 下的通用修复：1. TUN 虚拟网卡代理拦截 UDP 443 易导致 QUIC 握手挂起或丢包致白屏，需注入 app.commandLine.appendSwitch('disable-quic') 强制走 TCP；2. Cloudflare Turnstile 会探测 Blink 自动化特征（navigator.webdriver），需注入 app.commandLine.appendSwitch('disable-blink-features', 'AutomationControlled') 并在 Session 层面通过正则替换彻底移除 User-Agent 中的 Electron 标识；3. WebviewCard 需对所有导航启用超时检测并监听 render-process-gone 与 errorCode === -3 异常中断。
+
+### 13:12 | Antigravity
+
+- done: Fix bug where switching models in QuickPage blocked or failed if current webview was not fully loaded
+- modified:
+  - `src/renderer/src/pages/QuickPage.tsx`
+  - `src/renderer/src/components/WebviewCard.tsx`
+
+### 13:03 | Antigravity
+
+- done: Task 4: verified build and lint for quick window cache and text carry-over
+
+### 13:02 | Antigravity
+
+- done: Task 3: QuickPage webview caching + input text carry-over on model switch
+- modified:
+  - `src/renderer/src/pages/QuickPage.tsx`
+
+### 13:01 | Antigravity
+
+- done: Task 2: add getInputText method to WebviewCardRef interface
+- modified:
+  - `src/renderer/src/components/WebviewCard.tsx`
+
+### 13:00 | Antigravity
+
+- done: Task 1: add generateGetInputTextScript for reading webview input text
+- modified:
+  - `src/shared/utils/webviewScripts.ts`
+
+### 12:45 | Antigravity
+
+- done: Updated unpromoted lesson tags to promoted
+- modified:
+  - `SESSION_LOG.md`
+
+### 12:45 | Antigravity
+
+- done: Created macOS title bar adaptation plan and added macOS verification task to TODO
+- added:
+  - `docs/superpowers/plans/2026-06-29-macos-titlebar-adaptation.md`
+- modified:
+  - `TODO.md`
+
+### 00:02 | claude-code
+
+- done: 更新 TODO.md：check 掉已实现的划词悬浮 Toolbar 和调研任务，新增 4 个 TODO（任务分配模式待设计、辩论模式待设计、CLI 待验收、CLI exec 挂起轮询改进），补充 2026-06-28 已完成条目
+- decision: 任务分配和辩论模式 UI 入口已存在（Layout.tsx 三选一分段控件），但具体行为逻辑尚未设计；CLI exec 当前为异步两步操作（exec + collect），应改为发送后挂起轮询输出
+- modified:
+  - `TODO.md`
+
 ## 2026-06-28
+
+### 21:07 | claude-code
+
+- done: 排查并修复 electron-builder 打包 Windows 安装包失败问题（winCodeSign 符号链接解压需开发者模式）
+- context: 用户要求打包 exe 安装文件并保证以后不再出此问题
+- modified:
+  - `.memory/KNOWLEDGE.md`
+- lesson(promoted): electron-builder 打包 Windows 失败根因：winCodeSign-2.6.0.7z 含 macOS 符号链接，7za 在 Windows 解压需 SeCreateSymbolicLink 权限（管理员或开发者模式），否则 exit 2 致打包失败。根因修复=开启 Windows 开发者模式（注册表 AllowDevelopmentWithoutDevLicense=1），已用清空缓存从零重打验证。勿用 .cmd 包装 7za：Node v24 CVE-2024-27980 禁止 shell:false spawn .cmd 会抛 EINVAL；且解压走 app-builder.exe(Go) 能跑 .cmd、打包走 Node execFile 不能跑 .cmd，造成迷惑假象。winCodeSign 版本号硬编码在 app-builder.exe 内、JS 读不到；缓存目录存在时 app-builder.exe 跳过解压，故缓存偶然生成时能蒙混但清空即复发。
 
 ### 20:24 | claude-code
 
@@ -37,7 +151,7 @@
   - `package.json`
   - `electron-builder.yml`
   - `tsconfig.node.json`
-- lesson: CLI --json mode: ALL output (including errors) must use process.stderr.write for errors; only final successful data goes to stdout via console.log
+- lesson(promoted): CLI --json mode: ALL output (including errors) must use process.stderr.write for errors; only final successful data goes to stdout via console.log
 
 ### 20:06 | Antigravity
 
@@ -451,7 +565,7 @@
 - done: 快捷键自动复制文本优化：采用 VBScript 与按键释放缓冲方案解决修饰键冲突与焦点抢占问题
 - modified:
   - `src/main/shortcutManager.ts`
-- lesson: 在全局快捷键触发自动复制时，必须：1) 延迟250ms等待用户释放物理按键以防Ctrl+Shift+C冲突；2) 在展示/聚焦快捷窗口前执行复制以防焦点被抢占；3) 采用 VBS 脚本启动速度更快(约10ms)且不抢焦点。
+- lesson(promoted): 在全局快捷键触发自动复制时，必须：1) 延迟250ms等待用户释放物理按键以防Ctrl+Shift+C冲突；2) 在展示/聚焦快捷窗口前执行复制以防焦点被抢占；3) 采用 VBS 脚本启动速度更快(约10ms)且不抢焦点。
 
 ### 01:31 | claude-code
 
@@ -680,7 +794,7 @@
 - context: 评估 desktop-quick-access-plan 合理性后修正文档
 - modified:
   - `docs/superpowers/plans/2026-05-04-desktop-quick-access-plan.md`
-- lesson: Electron webview 内部点击触发父 BrowserWindow blur;setTemplateImage 是 Tray 方法而非 NativeImage 方法;Quick Window 不应包裹主窗 Layout 组件;Ctrl+Shift+C 与 Chrome DevTools 冲突需全局拦截
+- lesson(promoted): Electron webview 内部点击触发父 BrowserWindow blur;setTemplateImage 是 Tray 方法而非 NativeImage 方法;Quick Window 不应包裹主窗 Layout 组件;Ctrl+Shift+C 与 Chrome DevTools 冲突需全局拦截
 
 ### 23:35 | Antigravity
 
@@ -757,7 +871,7 @@
   - `src/renderer/src/env.d.ts`
   - `src/renderer/src/pages/MainPage.tsx`
   - `src/renderer/src/store/appStore.ts`
-- lesson: Complex Electron titlebar dragging with app-region:drag on Windows can cause hit-test click-through issues and recursive window-resizing bugs; use JS pointer capture and IPC win.setContentBounds as a reliable workaround.
+- lesson(promoted): Complex Electron titlebar dragging with app-region:drag on Windows can cause hit-test click-through issues and recursive window-resizing bugs; use JS pointer capture and IPC win.setContentBounds as a reliable workaround.
 
 ### 21:51 | Antigravity
 
