@@ -12,8 +12,6 @@ export default function QuickPage(): JSX.Element {
 
   // 已挂载的模型集合（只增不减，实现懒加载缓存）
   const [mountedModelIds, setMountedModelIds] = useState<Set<string>>(new Set())
-  // 待注入到目标模型的文本（切换时携带）
-  const pendingTextRef = useRef<string>('')
 
   // 为每个模型生成稳定的 ref 回调
   const getCardRefCallback = useCallback((modelId: string) => {
@@ -80,66 +78,51 @@ export default function QuickPage(): JSX.Element {
   const handleModelChange = async (newModelId: string): Promise<void> => {
     const oldModelId = selectedModelId
 
-    // 1. 从当前 webview 提取未发送的输入文本
-    if (oldModelId) {
-      const oldRef = cardRefs.current.get(oldModelId)
-      if (oldRef) {
-        try {
-          const result = await oldRef.getInputText()
-          if (result.success && result.text) {
-            pendingTextRef.current = result.text
-            // 提取后清空原输入框，避免用户回切时看到重复内容
-            await oldRef.clearInput()
-          } else {
-            pendingTextRef.current = ''
-          }
-        } catch {
-          pendingTextRef.current = ''
-        }
-      }
-    }
-
-    // 2. 切换到新模型
+    // 1. 立即同步更新 UI 和选中的模型，绝不因任何异步操作或旧 webview 未完成加载而阻塞切换
     setSelectedModelId(newModelId)
     selectedModelIdRef.current = newModelId
     window.api.storeSet('quickModelId', newModelId)
 
-    // 3. 确保新模型被加入已挂载集合
     setMountedModelIds(prev => {
       if (prev.has(newModelId)) return prev
       return new Set(prev).add(newModelId)
     })
-  }
 
-  // 当选中模型变化且有待注入文本时，尝试注入到目标 webview
-  useEffect(() => {
-    if (!selectedModelId || !pendingTextRef.current) return
+    // 2. 异步提取旧 webview 的未发送文本（设置 300ms 超时，防止旧 webview 卡住）
+    if (oldModelId && oldModelId !== newModelId) {
+      const oldRef = cardRefs.current.get(oldModelId)
+      if (oldRef) {
+        try {
+          const result = await Promise.race([
+            oldRef.getInputText(),
+            new Promise<{ success: boolean; text?: string }>((r) => setTimeout(() => r({ success: false }), 300))
+          ])
+          if (result.success && result.text) {
+            void oldRef.clearInput()
+            const textToCarry = result.text
 
-    const text = pendingTextRef.current
-    pendingTextRef.current = '' // 立即清空，防止重复注入
-
-    const tryInject = async (attempts = 0): Promise<void> => {
-      if (attempts >= 20) {
-        console.warn('[QuickPage] 文本携带注入超时')
-        return
-      }
-
-      const ref = cardRefs.current.get(selectedModelId)
-      if (ref) {
-        const result = await ref.insertText(text)
-        if (result.success) {
-          console.log('[QuickPage] 成功携带文本到新模型输入框')
-          return
+            // 3. 尝试注入到目标新 webview
+            const tryInject = async (attempts = 0): Promise<void> => {
+              if (selectedModelIdRef.current !== newModelId || attempts >= 20) return
+              const newRef = cardRefs.current.get(newModelId)
+              if (newRef) {
+                const res = await newRef.insertText(textToCarry)
+                if (res.success) {
+                  console.log('[QuickPage] 成功携带文本到新模型输入框')
+                  return
+                }
+              }
+              await new Promise(r => setTimeout(r, 300))
+              return tryInject(attempts + 1)
+            }
+            void tryInject()
+          }
+        } catch {
+          // 忽略提取异常或超时
         }
       }
-
-      // webview 可能还未就绪，等待后重试
-      await new Promise(r => setTimeout(r, 300))
-      return tryInject(attempts + 1)
     }
-
-    void tryInject()
-  }, [selectedModelId])
+  }
 
   // 加载上次选中的快捷模型 ID
   useEffect(() => {

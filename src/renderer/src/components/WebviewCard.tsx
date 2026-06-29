@@ -439,7 +439,10 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
 
         try {
           const code = generateClearInputScript(selectors)
-          const result = await webview.executeJavaScript(code)
+          const result = await Promise.race([
+            webview.executeJavaScript(code),
+            new Promise<any>((_, reject) => setTimeout(() => reject(new Error('执行超时')), 400))
+          ])
           return { success: result.success, error: result.error }
         } catch (error) {
           return { success: false, error: String(error) }
@@ -457,7 +460,10 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
 
         try {
           const code = generateGetInputTextScript(selectors)
-          const result = await webview.executeJavaScript(code)
+          const result = await Promise.race([
+            webview.executeJavaScript(code),
+            new Promise<any>((_, reject) => setTimeout(() => reject(new Error('执行超时')), 400))
+          ])
           return { success: result.success, text: result.text || '', error: result.error }
         } catch (error) {
           console.error(`[${name}] getInputText 异常:`, error)
