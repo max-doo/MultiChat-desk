@@ -249,6 +249,14 @@ interface AppState {
   activeModels: ModelConfig[]
   setActiveModels: (models: ModelConfig[]) => void
 
+  // 细粒度的覆盖层开启状态，用于实现局部 Webview 隐藏，提升交互体验
+  leftOverlayOpen: boolean
+  setLeftOverlayOpen: (open: boolean) => void
+  rightOverlayOpen: boolean
+  setRightOverlayOpen: (open: boolean) => void
+  modalOpen: boolean
+  setModalOpen: (open: boolean) => void
+
   // 只输入文字到所有模型的输入框，不发送
   insertTextToAll: (message: string) => Promise<SendResult[]>
 
@@ -764,6 +772,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (window.api?.storeSet) window.api.storeSet('summaryHistory', newHistory)
     return { summaryHistory: newHistory }
   }),
+
+  leftOverlayOpen: false,
+  setLeftOverlayOpen: (open) => set({ leftOverlayOpen: open }),
+  rightOverlayOpen: false,
+  setRightOverlayOpen: (open) => set({ rightOverlayOpen: open }),
+  modalOpen: false,
+  setModalOpen: (open) => set({ modalOpen: open }),
 
   isSending: false,
   lastSendResults: [],

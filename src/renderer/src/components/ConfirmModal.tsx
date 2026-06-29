@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useAppStore } from '../store/appStore'
 
 interface ConfirmModalProps {
   isOpen: boolean
@@ -25,6 +26,16 @@ function ConfirmModal({
   onCancel,
   type = 'danger'
 }: ConfirmModalProps): JSX.Element | null {
+  const setModalOpen = useAppStore(state => state.setModalOpen)
+
+  useEffect(() => {
+    if (isOpen) {
+      setModalOpen(true)
+      return () => setModalOpen(false)
+    }
+    return undefined
+  }, [isOpen, setModalOpen])
+
   if (!isOpen) return null
   const [isConfirming, setIsConfirming] = useState(false)
 
@@ -39,6 +50,7 @@ function ConfirmModal({
   }
 
   const getThemeClasses = () => {
+
     switch (type) {
       case 'danger':
         return {

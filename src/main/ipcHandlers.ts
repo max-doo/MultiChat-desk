@@ -3,7 +3,7 @@
  * 负责处理主进程与渲染进程之间的 IPC 通信
  */
 
-import { app, ipcMain, dialog, clipboard, BrowserWindow, shell } from 'electron'
+import { app, ipcMain, dialog, clipboard, BrowserWindow, shell, webContents } from 'electron'
 import { basename, extname, join } from 'path'
 import { stat, writeFile, mkdtemp } from 'fs/promises'
 import { tmpdir } from 'os'
@@ -24,6 +24,7 @@ import {
     type AgentPromptFileItem
 } from './agentPrompts'
 import { automationService } from './services/AutomationService'
+import * as viewManager from './webContentsViewManager'
 
 // 存储当前的 AbortController，用于终止请求
 let currentSummaryAbortController: AbortController | null = null
@@ -920,6 +921,301 @@ export function registerIpcHandlers(
     ipcMain.handle('automation:collect', async (_event, platformId: string) => {
         try {
             return await automationService.collectResult(platformId)
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    // ============ WebContentsView IPC（Task 2.3–2.6, 2.8） ============
+
+    /**
+     * webview:create-view
+     * 在当前窗口创建一个 WebContentsView 并挂载
+     */
+    ipcMain.handle('webview:create-view', (event, params: {
+        slotKey: string
+        partition?: string
+    }) => {
+        try {
+            const win = BrowserWindow.fromWebContents(event.sender)
+            if (!win) throw new Error('No window found for sender')
+            const result = viewManager.createView(win.id, {
+                slotKey: params.slotKey,
+                partition: params.partition
+            })
+            return { success: true, data: result }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    /**
+     * webview:remove-view
+     * 移除并销毁指定的 WebContentsView
+     */
+    ipcMain.handle('webview:remove-view', (event, params: {
+        viewId: string
+    }) => {
+        try {
+            const win = BrowserWindow.fromWebContents(event.sender)
+            if (!win) throw new Error('No window found for sender')
+            viewManager.removeView(win.id, params.viewId)
+            return { success: true }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    /**
+     * webview:show-view
+     * 显示（挂载）指定的 WebContentsView
+     */
+    ipcMain.handle('webview:show-view', (event, params: {
+        viewId: string
+    }) => {
+        try {
+            const win = BrowserWindow.fromWebContents(event.sender)
+            if (!win) throw new Error('No window found for sender')
+            viewManager.showView(win.id, params.viewId)
+            return { success: true }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    /**
+     * webview:hide-view
+     * 隐藏（卸载）指定的 WebContentsView
+     */
+    ipcMain.handle('webview:hide-view', (event, params: {
+        viewId: string
+    }) => {
+        try {
+            const win = BrowserWindow.fromWebContents(event.sender)
+            if (!win) throw new Error('No window found for sender')
+            viewManager.hideView(win.id, params.viewId)
+            return { success: true }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    /**
+     * webview:focus-view
+     * 聚焦指定的 WebContentsView
+     */
+    ipcMain.handle('webview:focus-view', (event, params: {
+        viewId: string
+    }) => {
+        try {
+            const win = BrowserWindow.fromWebContents(event.sender)
+            if (!win) throw new Error('No window found for sender')
+            viewManager.focusView(win.id, params.viewId)
+            return { success: true }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    /**
+     * webview:set-bounds (Task 2.3)
+     * 设置 WebContentsView 的位置和大小
+     */
+    ipcMain.handle('webview:set-bounds', (event, params: {
+        viewId: string
+        bounds: { x: number; y: number; width: number; height: number }
+    }) => {
+        try {
+            const win = BrowserWindow.fromWebContents(event.sender)
+            if (!win) throw new Error('No window found for sender')
+            viewManager.setViewBounds(win.id, params.viewId, params.bounds)
+            return { success: true }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    /**
+     * webview:execute-script (Task 2.4)
+     * 在指定 WebContentsView 中执行 JavaScript 脚本
+     */
+    ipcMain.handle('webview:execute-script', async (_event, params: {
+        viewId: string
+        code: string
+        userGesture?: boolean
+    }) => {
+        try {
+            const view = viewManager.getViewById(params.viewId)
+            if (!view) {
+                return { success: false, error: `View ${params.viewId} not found` }
+            }
+            if (view.webContents.isDestroyed()) {
+                return { success: false, error: `View ${params.viewId} webContents destroyed` }
+            }
+            const result = await view.webContents.executeJavaScript(
+                params.code,
+                params.userGesture ?? false
+            )
+            return { success: true, data: result }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    /**
+     * webview:load-url (Task 2.5)
+     * 在指定 WebContentsView 中加载 URL
+     */
+    ipcMain.handle('webview:load-url', async (_event, params: {
+        viewId: string
+        url: string
+    }) => {
+        try {
+            const view = viewManager.getViewById(params.viewId)
+            if (!view) {
+                return { success: false, error: `View ${params.viewId} not found` }
+            }
+            await view.webContents.loadURL(params.url)
+            return { success: true }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    /**
+     * webview:reload
+     */
+    ipcMain.handle('webview:reload', (_event, params: { viewId: string }) => {
+        try {
+            const view = viewManager.getViewById(params.viewId)
+            if (!view) return { success: false, error: `View ${params.viewId} not found` }
+            view.webContents.reload()
+            return { success: true }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    /**
+     * webview:go-back
+     */
+    ipcMain.handle('webview:go-back', (_event, params: { viewId: string }) => {
+        try {
+            const view = viewManager.getViewById(params.viewId)
+            if (!view) return { success: false, error: `View ${params.viewId} not found` }
+            if (view.webContents.canGoBack()) {
+                view.webContents.goBack()
+            }
+            return { success: true, data: { canGoBack: view.webContents.canGoBack() } }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    /**
+     * webview:go-forward
+     */
+    ipcMain.handle('webview:go-forward', (_event, params: { viewId: string }) => {
+        try {
+            const view = viewManager.getViewById(params.viewId)
+            if (!view) return { success: false, error: `View ${params.viewId} not found` }
+            if (view.webContents.canGoForward()) {
+                view.webContents.goForward()
+            }
+            return { success: true, data: { canGoForward: view.webContents.canGoForward() } }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    /**
+     * webview:stop
+     */
+    ipcMain.handle('webview:stop', (_event, params: { viewId: string }) => {
+        try {
+            const view = viewManager.getViewById(params.viewId)
+            if (!view) return { success: false, error: `View ${params.viewId} not found` }
+            view.webContents.stop()
+            return { success: true }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    /**
+     * webview:get-url
+     */
+    ipcMain.handle('webview:get-url', (_event, params: { viewId: string }) => {
+        try {
+            const view = viewManager.getViewById(params.viewId)
+            if (!view) return { success: false, error: `View ${params.viewId} not found` }
+            return { success: true, data: { url: view.webContents.getURL() } }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    /**
+     * webview:get-nav-state
+     * 获取导航状态（canGoBack, canGoForward）
+     */
+    ipcMain.handle('webview:get-nav-state', (_event, params: { viewId: string }) => {
+        try {
+            const view = viewManager.getViewById(params.viewId)
+            if (!view) return { success: false, error: `View ${params.viewId} not found` }
+            return {
+                success: true,
+                data: {
+                    canGoBack: view.webContents.canGoBack(),
+                    canGoForward: view.webContents.canGoForward()
+                }
+            }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    /**
+     * webview:clear-history
+     */
+    ipcMain.handle('webview:clear-history', (_event, params: { viewId: string }) => {
+        try {
+            const view = viewManager.getViewById(params.viewId)
+            if (!view) return { success: false, error: `View ${params.viewId} not found` }
+            view.webContents.clearHistory()
+            return { success: true }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    /**
+     * webview:get-webcontents-id
+     * 通过 viewId 获取 webContentsId（供 sendMouseClick / dispatchFileDrop 使用）
+     */
+    ipcMain.handle('webview:get-webcontents-id', (_event, params: { viewId: string }) => {
+        try {
+            const wcId = viewManager.getWebContentsIdByViewId(params.viewId)
+            if (wcId === undefined) {
+                return { success: false, error: `View ${params.viewId} not found` }
+            }
+            return { success: true, data: { webContentsId: wcId } }
         } catch (err: unknown) {
             const error = err instanceof Error ? err.message : String(err)
             return { success: false, error }

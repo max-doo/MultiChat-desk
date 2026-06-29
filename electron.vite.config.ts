@@ -1,5 +1,5 @@
 import { resolve } from 'path'
-import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
+import { defineConfig } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 import type { Plugin } from 'vite'
 import JavaScriptObfuscator from 'javascript-obfuscator'
@@ -43,10 +43,16 @@ function createObfuscationPlugin(target: 'browser' | 'node'): Plugin {
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin(), createObfuscationPlugin('node')]
+    build: {
+      externalizeDeps: true
+    },
+    plugins: [createObfuscationPlugin('node')]
   },
   preload: {
-    plugins: [externalizeDepsPlugin(), createObfuscationPlugin('node')]
+    build: {
+      externalizeDeps: true
+    },
+    plugins: [createObfuscationPlugin('node')]
   },
   renderer: {
     resolve: {

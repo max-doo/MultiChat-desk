@@ -132,7 +132,7 @@ function Layout({ children }: LayoutProps): JSX.Element {
   useEffect(() => {
     const handler = (e: MouseEvent): void => {
       const target = e.target as HTMLElement
-      const inWebview = !!target.closest('webview')
+      const inWebview = !!target.closest('[data-mm-view-id]')
       if (inWebview) return
       e.preventDefault()
       const selectionText = window.getSelection()?.toString() || ''
@@ -210,49 +210,9 @@ function Layout({ children }: LayoutProps): JSX.Element {
                   return
                 }
 
-                // 找到对应的 webview 元素并执行粘贴
-                const webviews = Array.from(document.querySelectorAll('webview')) as Electron.WebviewTag[]
-                for (const wv of webviews) {
-                  // 通过比较 webContentsId 找到目标 webview
-                  if ((wv as any).getWebContentsId?.() === payload.wcId) {
-                    console.log('[Layout] 找到目标 webview, 执行粘贴')
-                    // 在 webview 中执行 JavaScript 插入文本
-                    await wv.executeJavaScript(`
-                    (function() {
-                      const clipText = ${JSON.stringify(clipText)};
-                      
-                      // 查找可编辑元素（优先查找之前有焦点的元素）
-                      const editables = document.querySelectorAll(
-                        'textarea, input[type="text"], input:not([type]), [contenteditable="true"], [contenteditable=""]'
-                      );
-                      
-                      // 找到可见且可编辑的元素
-                      for (const el of editables) {
-                        const rect = el.getBoundingClientRect();
-                        const isVisible = rect.width > 0 && rect.height > 0;
-                        const isDisabled = el.disabled || el.readOnly;
-                        
-                        if (isVisible && !isDisabled) {
-                          el.focus();
-                          
-                          if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') {
-                            const start = el.selectionStart || el.value.length;
-                            const end = el.selectionEnd || el.value.length;
-                            el.setRangeText(clipText, start, end, 'end');
-                            el.dispatchEvent(new Event('input', { bubbles: true }));
-                          } else {
-                            document.execCommand('insertText', false, clipText);
-                          }
-                          return { success: true };
-                        }
-                      }
-                      return { success: false, error: '未找到可编辑元素' };
-                    })();
-                  `)
-                    return
-                  }
-                }
-                console.log('[Layout] 未找到匹配的 webview')
+                // 请求主进程执行粘贴
+                console.log('[Layout] 请求主进程执行粘贴, wcId:', payload.wcId)
+                await window.electron?.ipcRenderer?.invoke('perform-contextmenu-action', { wcId: payload.wcId, action: 'paste' })
               } catch (err) {
                 console.error('[Layout] 粘贴失败:', err)
               }

@@ -195,7 +195,80 @@ const api = {
   /** 发送 prompt 并延迟收集结果（collectDelayMs 默认 5000ms） */
   automationSendPrompt: (platformId: string, prompt: string, collectDelayMs?: number): Promise<{ success: boolean; data?: string; error?: string }> => ipcRenderer.invoke('automation:send-prompt', platformId, prompt, collectDelayMs),
   /** 仅收集指定平台的最新回复 */
-  automationCollect: (platformId: string): Promise<{ success: boolean; data?: string; error?: string }> => ipcRenderer.invoke('automation:collect', platformId)
+  automationCollect: (platformId: string): Promise<{ success: boolean; data?: string; error?: string }> => ipcRenderer.invoke('automation:collect', platformId),
+
+  // ============ WebContentsView 管理（Task 2.8） ============
+
+  /** 创建并挂载 WebContentsView */
+  createWebviewView: (params: { slotKey: string; partition?: string }): Promise<{ success: boolean; data?: { viewId: string; webContentsId: number }; error?: string }> =>
+    ipcRenderer.invoke('webview:create-view', params),
+
+  /** 移除并销毁 WebContentsView */
+  removeWebviewView: (params: { viewId: string }): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('webview:remove-view', params),
+
+  /** 显示 WebContentsView（挂载到窗口） */
+  showWebviewView: (params: { viewId: string }): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('webview:show-view', params),
+
+  /** 隐藏 WebContentsView（从窗口卸载） */
+  hideWebviewView: (params: { viewId: string }): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('webview:hide-view', params),
+
+  /** 聚焦 WebContentsView */
+  focusWebviewView: (params: { viewId: string }): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('webview:focus-view', params),
+
+  /** 设置 WebContentsView 的位置和大小 */
+  setWebviewBounds: (params: { viewId: string; bounds: { x: number; y: number; width: number; height: number } }): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('webview:set-bounds', params),
+
+  /** 在 WebContentsView 中执行 JavaScript 脚本 */
+  executeWebviewScript: (viewId: string, code: string, options?: { userGesture?: boolean }): Promise<{ success: boolean; data?: unknown; error?: string }> =>
+    ipcRenderer.invoke('webview:execute-script', { viewId, code, userGesture: options?.userGesture }),
+
+  /** 加载 URL */
+  loadWebviewURL: (viewId: string, url: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('webview:load-url', { viewId, url }),
+
+  /** 重新加载 */
+  reloadWebview: (viewId: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('webview:reload', { viewId }),
+
+  /** 后退 */
+  webviewGoBack: (viewId: string): Promise<{ success: boolean; data?: { canGoBack: boolean }; error?: string }> =>
+    ipcRenderer.invoke('webview:go-back', { viewId }),
+
+  /** 前进 */
+  webviewGoForward: (viewId: string): Promise<{ success: boolean; data?: { canGoForward: boolean }; error?: string }> =>
+    ipcRenderer.invoke('webview:go-forward', { viewId }),
+
+  /** 停止加载 */
+  webviewStop: (viewId: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('webview:stop', { viewId }),
+
+  /** 获取当前 URL */
+  getWebviewURL: (viewId: string): Promise<{ success: boolean; data?: { url: string }; error?: string }> =>
+    ipcRenderer.invoke('webview:get-url', { viewId }),
+
+  /** 获取导航状态 */
+  getWebviewNavState: (viewId: string): Promise<{ success: boolean; data?: { canGoBack: boolean; canGoForward: boolean }; error?: string }> =>
+    ipcRenderer.invoke('webview:get-nav-state', { viewId }),
+
+  /** 清空导航历史 */
+  clearWebviewHistory: (viewId: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('webview:clear-history', { viewId }),
+
+  /** 获取 webContentsId（供 sendMouseClick/dispatchFileDrop 使用） */
+  getWebviewWebContentsId: (viewId: string): Promise<{ success: boolean; data?: { webContentsId: number }; error?: string }> =>
+    ipcRenderer.invoke('webview:get-webcontents-id', { viewId }),
+
+  /** 订阅 WebContentsView 事件（主进程 → 渲染进程推送） */
+  onWebviewEvent: (cb: (payload: { viewId: string; type: string; data?: Record<string, unknown> }) => void): (() => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, payload: { viewId: string; type: string; data?: Record<string, unknown> }): void => cb(payload)
+    ipcRenderer.on('webview:event', handler)
+    return () => { ipcRenderer.removeListener('webview:event', handler) }
+  }
 }
 
 // 暴露 API 到渲染进程

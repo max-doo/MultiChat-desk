@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, Fragment } from 'react'
+import { useAppStore } from '../store/appStore'
 import type React from 'react'
 
 /**
@@ -44,6 +45,8 @@ interface CustomDropdownProps<T = string> {
   displayText?: string
   /** 自定义渲染按钮内容，如果提供则使用此函数渲染按钮内部内容 */
   renderButton?: () => React.ReactNode
+  /** 下拉打开状态改变时的回调 */
+  onOpenChange?: (open: boolean) => void
 }
 
 /**
@@ -64,10 +67,15 @@ function CustomDropdown<T = string>({
   renderContent,
   renderOption,
   displayText: customDisplayText,
-  renderButton
+  renderButton,
+  onOpenChange
 }: CustomDropdownProps<T>): JSX.Element {
   const [isOpen, setIsOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    onOpenChange?.(isOpen)
+  }, [isOpen, onOpenChange])
 
   // 获取当前选中项的显示文本
   const selectedOption = options.find(opt => opt.value === value)

@@ -260,58 +260,6 @@ export function getWebviewClickInterceptorScript(): string {
           };
         })();
 
-        // ============ 通义千问/阿里云 音频指纹崩溃缓解 ============
-        // Chromium 120（Electron 28）在 ScriptProcessorNode::Process() 中存在
-        // use-after-free（STATUS_ACCESS_VIOLATION / 0xC0000005，退出码 -1073741819），
-        // 已在 Chrome 121 修复。阿里云风控 SDK 在用户点击（手势）时创建
-        // ScriptProcessorNode 做音频指纹，首次触发原生音频线程回调即命中该崩溃，
-        // 表现为点击即黑屏/渲染进程退出。此处仅对阿里云/通义域名将
-        // createScriptProcessor 替换为纯 JS 桩对象，永不进入原生音频线程，
-        // 从而消除崩溃路径；指纹仍可得到确定性结果（零缓冲），不影响页面功能。
-        (function() {
-          try {
-            var host = location.hostname || '';
-            var isAliyun = host.indexOf('aliyun.com') !== -1 || host.indexOf('qwen.ai') !== -1;
-            if (!isAliyun) return;
-            var NATIVE_STR = 'function createScriptProcessor() { [native code] }';
-            function makeStub(self) {
-              return {
-                context: self,
-                bufferSize: 4096,
-                numberOfInputs: 1,
-                numberOfOutputs: 1,
-                channelCount: 1,
-                channelCountMode: 'explicit',
-                channelInterpretation: 'speakers',
-                onaudioprocess: null,
-                connect: function() { return this; },
-                disconnect: function() {},
-                addEventListener: function() {},
-                removeEventListener: function() {},
-                dispatchEvent: function() { return true; }
-              };
-            }
-            function patchCtor(ctorName) {
-              var ctor = window[ctorName];
-              if (!ctor || !ctor.prototype) return;
-              var proto = ctor.prototype;
-              if (typeof proto.createScriptProcessor !== 'function') return;
-              var override = function(/*bufferSize, numIn, numOut*/) {
-                try { mmLog('createScriptProcessor neutralized: ' + ctorName); } catch {}
-                return makeStub(this);
-              };
-              try { Object.defineProperty(override, 'toString', { value: function() { return NATIVE_STR; } }); } catch {}
-              try { Object.defineProperty(proto, 'createScriptProcessor', { value: override, writable: true, configurable: true }); } catch (e) { mmLog('patch failed ' + ctorName + ': ' + String(e)); }
-            }
-            patchCtor('AudioContext');
-            patchCtor('webkitAudioContext');
-            patchCtor('OfflineAudioContext');
-            patchCtor('webkitOfflineAudioContext');
-            mmLog('Aliyun audio-fingerprint crash mitigation installed');
-          } catch (e) {
-            try { mmLog('audio mitigation failed: ' + String(e)); } catch {}
-          }
-        })();
 
         function onUserGesture(e) {
           if (tryHandleGeminiAddAccount(e)) return;
@@ -391,7 +339,7 @@ export function createWindow(): void {
             sandbox: false,
             contextIsolation: true,
             nodeIntegration: false,
-            webviewTag: true,
+
             partition: 'persist:shared'
         }
     })
@@ -690,7 +638,7 @@ export function createQuickWindow(): void {
             sandbox: false,
             contextIsolation: true,
             nodeIntegration: false,
-            webviewTag: true,
+
             partition: 'persist:shared'
         }
     })

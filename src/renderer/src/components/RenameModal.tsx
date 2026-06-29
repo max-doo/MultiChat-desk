@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useAppStore } from '../store/appStore'
 
 interface RenameModalProps {
   isOpen: boolean
@@ -24,6 +25,15 @@ function RenameModal({
   const [value, setValue] = useState('')
   const [error, setError] = useState('')
   const [isConfirming, setIsConfirming] = useState(false)
+  const setModalOpen = useAppStore(state => state.setModalOpen)
+
+  useEffect(() => {
+    if (isOpen) {
+      setModalOpen(true)
+      return () => setModalOpen(false)
+    }
+    return undefined
+  }, [isOpen, setModalOpen])
 
   useEffect(() => {
     if (!isOpen) return
