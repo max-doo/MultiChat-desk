@@ -3,7 +3,7 @@
  * 负责处理主进程与渲染进程之间的 IPC 通信
  */
 
-import { app, ipcMain, dialog, clipboard, BrowserWindow, shell, webContents } from 'electron'
+import { app, ipcMain, dialog, clipboard, BrowserWindow, shell, webContents, Menu } from 'electron'
 import { basename, extname, join } from 'path'
 import { stat, writeFile, mkdtemp } from 'fs/promises'
 import { tmpdir } from 'os'
@@ -1220,5 +1220,49 @@ export function registerIpcHandlers(
             const error = err instanceof Error ? err.message : String(err)
             return { success: false, error }
         }
+    })
+
+    /**
+     * webview:capture-page
+     * 截取 WebContentsView 当前的图像，供 React 端做假象覆盖
+     */
+    ipcMain.handle('webview:capture-page', async (_event, params: { viewId: string }) => {
+        try {
+            const view = viewManager.getViewById(params.viewId)
+            if (!view) return { success: false, error: `View ${params.viewId} not found` }
+            const image = await view.webContents.capturePage()
+            return { success: true, data: { dataUrl: image.toDataURL() } }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    /**
+     * webview:show-model-menu
+     * 显示原生模型选择菜单
+     */
+    ipcMain.handle('webview:show-model-menu', async (event, params: { options: Array<{id: string, label: string, icon?: string}>, currentId?: string, x: number, y: number }) => {
+        return new Promise((resolve) => {
+            const template = params.options.map(opt => ({
+                label: opt.label,
+                type: 'checkbox' as const,
+                checked: opt.id === params.currentId,
+                click: () => {
+                    resolve({ success: true, data: { selectedId: opt.id } })
+                }
+            }))
+
+            const menu = Menu.buildFromTemplate(template)
+            menu.popup({
+                window: BrowserWindow.fromWebContents(event.sender) || undefined,
+                x: Math.round(params.x),
+                y: Math.round(params.y),
+                callback: () => {
+                    // 如果用户点击了外面取消了菜单，resolve undefined
+                    setTimeout(() => resolve({ success: true }), 100)
+                }
+            })
+        })
     })
 }

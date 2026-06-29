@@ -127,6 +127,8 @@ declare global {
       getWebviewNavState: (viewId: string) => Promise<{ success: boolean; data?: { canGoBack: boolean; canGoForward: boolean }; error?: string }>
       clearWebviewHistory: (viewId: string) => Promise<{ success: boolean; error?: string }>
       getWebviewWebContentsId: (viewId: string) => Promise<{ success: boolean; data?: { webContentsId: number }; error?: string }>
+      captureWebviewPage: (viewId: string) => Promise<{ success: boolean; data?: { dataUrl: string }; error?: string }>
+      showModelMenu: (params: { options: Array<{id: string, label: string, icon?: string}>, currentId?: string, x: number, y: number }) => Promise<{ success: boolean; data?: { selectedId: string }; error?: string }>
       onWebviewEvent: (cb: (payload: { viewId: string; type: string; data?: Record<string, unknown> }) => void) => () => void
     }
   }

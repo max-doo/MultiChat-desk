@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle, type DragEvent } from 'react'
+import { createPortal } from 'react-dom'
 import { useAppStore, DEEP_RESEARCH_UNSUPPORTED_ERROR } from '../store/appStore'
 
 
@@ -636,8 +637,8 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
             onDrop={handleFileDrop}
           >
             {/* 通知弹窗 - 在输入框上方居中显示 */}
-            {notification && (
-              <div className={`absolute bottom-full left-1/2 transform -translate-x-1/2 mb-3 px-4 py-2.5 rounded-xl text-sm font-medium flex items-center gap-2 shadow-float z-50 notification-popup backdrop-blur-md transition-all ${notification.type === 'success'
+            {notification && createPortal(
+              <div className={`fixed top-12 left-1/2 transform -translate-x-1/2 px-4 py-2.5 rounded-xl text-sm font-medium flex items-center gap-2 shadow-float z-[9999] notification-popup backdrop-blur-md transition-all ${notification.type === 'success'
                 ? 'bg-white/90 border border-green-200 text-green-700'
                 : notification.type === 'error'
                   ? 'bg-white/90 border border-red-200 text-red-700'
@@ -651,7 +652,8 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
                     notification.type === 'error' ? 'error' : 'info'}
                 </span>
                 <span className="whitespace-nowrap">{notification.message}</span>
-              </div>
+              </div>,
+              document.body
             )}
             {/* 附件按钮 */}
             <button

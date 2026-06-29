@@ -263,6 +263,14 @@ const api = {
   getWebviewWebContentsId: (viewId: string): Promise<{ success: boolean; data?: { webContentsId: number }; error?: string }> =>
     ipcRenderer.invoke('webview:get-webcontents-id', { viewId }),
 
+  /** 截取 WebContentsView 快照 */
+  captureWebviewPage: (viewId: string): Promise<{ success: boolean; data?: { dataUrl: string }; error?: string }> =>
+    ipcRenderer.invoke('webview:capture-page', { viewId }),
+
+  /** 呼出原生模型选择菜单 */
+  showModelMenu: (params: { options: Array<{id: string, label: string, icon?: string}>, currentId?: string, x: number, y: number }): Promise<{ success: boolean; data?: { selectedId: string }; error?: string }> =>
+    ipcRenderer.invoke('webview:show-model-menu', params),
+
   /** 订阅 WebContentsView 事件（主进程 → 渲染进程推送） */
   onWebviewEvent: (cb: (payload: { viewId: string; type: string; data?: Record<string, unknown> }) => void): (() => void) => {
     const handler = (_e: Electron.IpcRendererEvent, payload: { viewId: string; type: string; data?: Record<string, unknown> }): void => cb(payload)

@@ -3,7 +3,7 @@ import TurndownService from 'turndown'
 import { gfm } from 'turndown-plugin-gfm'
 import { defaultSelectors } from '../config/selectors'
 import { useAppStore, DEEP_RESEARCH_SUPPORTED_MODEL_IDS, IMAGE_GENERATION_SUPPORTED_MODEL_IDS } from '../store/appStore'
-import CustomDropdown, { type DropdownOption } from './CustomDropdown'
+import CustomDropdown from './CustomDropdown'
 import {
   generateSendMessageScript,
   generateInsertTextScript,
@@ -133,6 +133,8 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
     const [loadError, setLoadError] = useState<LoadErrorInfo | null>(null)
     const [canGoBack, setCanGoBack] = useState(false)
     const [canGoForward, setCanGoForward] = useState(false)
+    const [screenshotDataUrl, setScreenshotDataUrl] = useState<string | null>(null)
+    const [overlayActive, setOverlayActive] = useState(false)
     const [isDropdownOpen, setIsDropdownOpen] = useState(false)
 
     const leftOverlayOpen = useAppStore(state => state.leftOverlayOpen)
@@ -156,13 +158,38 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
       return false
     }
 
-    const shouldHideWebview = 
-      loadError || 
-      isLoading || 
-      isDropdownOpen || 
+    const needsOverlay = 
       modalOpen ||
-      (leftOverlayOpen && isLeftSlot(slotIndex, displayMode)) ||
-      (rightOverlayOpen && isRightSlot(slotIndex, displayMode))
+      leftOverlayOpen ||
+      rightOverlayOpen ||
+      isDropdownOpen
+
+    useEffect(() => {
+      let active = true;
+      if (needsOverlay && viewId && isReady) {
+        window.api.captureWebviewPage(viewId).then(res => {
+          if (!active) return;
+          if (res.success && res.data?.dataUrl) {
+            setScreenshotDataUrl(res.data.dataUrl)
+          }
+          setOverlayActive(true)
+        }).catch(() => {
+          if (active) setOverlayActive(true)
+        })
+      } else {
+        // 当关闭抽屉时，延迟300ms等待CSS过渡动画结束再销毁截图
+        const t = setTimeout(() => {
+          if (active) {
+            setScreenshotDataUrl(null)
+            setOverlayActive(false)
+          }
+        }, 300)
+        return () => { active = false; clearTimeout(t) }
+      }
+      return () => { active = false }
+    }, [needsOverlay, viewId, isReady])
+
+    const shouldHideWebview = loadError || isLoading || overlayActive
 
     // 跟踪已加载 of URL，避免重复 loadURL
     const loadedUrlRef = useRef<string | null>(null)
@@ -307,15 +334,6 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
       }, LOAD_TIMEOUT_MS)
     }
 
-    // 任务分配模式或隔离模式支持选择所有 AI，因此可选列表为全量模型；多 AI 模式下排除自身
-    const availableModels = (productMode === 'task_assignment' || isolated || !!onModelChange) ? models : models.filter(m => m.id !== id)
-
-    // 将模型列表转换为下拉菜单选项格式
-    const modelOptions: DropdownOption<string>[] = availableModels.map(m => ({
-      value: m.id,
-      label: m.name,
-      logo: m.logo // 保存 logo 信息
-    }))
 
     // ── 事件订阅 ──
     useEffect(() => {
@@ -635,7 +653,7 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
         const clearNavigationState = (): void => {
           setCanGoBack(false)
           setCanGoForward(false)
-          try { window.api.clearWebviewHistory(viewId) } catch {}
+          try { window.api.clearWebviewHistory(viewId) } catch { /* ignore */ }
         }
         setLoadError(null)
         setIsLoading(true)
@@ -644,7 +662,7 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
         clearNavigationState()
         loadedUrlRef.current = url
         return await new Promise<{ success: boolean; error?: string }>((resolve) => {
-          let timeoutHandle: any;
+          let timeoutHandle: ReturnType<typeof setTimeout>
           const unsubscribe = window.api.onWebviewEvent((payload) => {
             if (payload.viewId !== viewId) return
             if (payload.type === 'did-stop-loading') {
@@ -693,27 +711,6 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
         }
       }
     }))
-    // 获取状态指示器的显示内容
-    const getStatusDisplay = () => {
-      if (!enabled) {
-        return { text: '已禁用', color: 'text-gray-500', dot: 'bg-gray-500' }
-      }
-      if (isLoading) {
-        return { text: '加载中...', color: 'text-yellow-500', dot: 'bg-yellow-500', pulse: true }
-      }
-      switch (sendStatus) {
-        case 'sending':
-          return { text: '发送中...', color: 'text-yellow-500', dot: 'bg-yellow-500', pulse: true }
-        case 'success':
-          return { text: '发送成功', color: 'text-primary', dot: 'bg-primary' }
-        case 'error':
-          return { text: '发送失败', color: 'text-red-500', dot: 'bg-red-500' }
-        default:
-          return { text: '已启用', color: 'text-primary', dot: 'bg-primary', pulse: true }
-      }
-    }
-
-    const status = getStatusDisplay()
 
     // 单独刷新当前 webview 窗口
     const handleRefresh = () => {
@@ -770,6 +767,8 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
       }
     }
 
+    // Replaced native menu with CustomDropdown
+
     if (!enabled) {
       return (
         <div className={`flex flex-col h-full opacity-50 overflow-hidden ${flat ? 'bg-white' : 'rounded-2xl glass-panel shadow-soft'} ${compact ? '' : 'min-h-[480px]'}`}>
@@ -808,20 +807,23 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
               {/* 左侧：模型信息和下拉选择器 */}
               <div className={draggableHeader ? 'no-drag' : ''} title={isSessionActive ? '当前对话进行中，需开启新对话才可更换模型' : ''}>
                 <CustomDropdown
+                  options={(productMode === 'task_assignment' || isolated || !!onModelChange ? models : models.filter(m => m.id !== id)).map((opt: any) => ({
+                    value: opt.id,
+                    label: opt.name,
+                    logo: opt.logo
+                  }))}
                   value={id}
-                  disabled={isSessionActive}
                   onChange={(modelId) => {
                     if (onModelChange) {
-                      onModelChange(modelId)
+                      onModelChange(modelId as string)
                     } else if (productMode === 'task_assignment') {
-                      setTaskAssignmentSlot(slotIndex, modelId)
+                      setTaskAssignmentSlot(slotIndex, modelId as string)
                     } else {
-                      swapModelInSlot(slotIndex, modelId)
+                      swapModelInSlot(slotIndex, modelId as string)
                     }
                   }}
-                  placeholder={name}
-                  className="relative"
-                  dropdownWidth="w-48"
+                  disabled={isSessionActive}
+                  onOpenChange={setIsDropdownOpen}
                   buttonClassName={`flex items-center justify-between gap-2 rounded-lg px-2 py-1 -ml-2 transition-colors ${isSessionActive ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-100'}`}
                   renderButton={() => (
                     <div className="flex items-center gap-2">
@@ -829,43 +831,42 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
                       <h2 className="font-semibold text-text-primary">{name}</h2>
                     </div>
                   )}
-                renderOption={(option, isSelected, onSelect) => {
-                  const model = models.find(m => m.id === option.value)
-                  const hasDeepResearch = model && DEEP_RESEARCH_SUPPORTED_MODEL_IDS.has(model.id)
-                  const hasImageGen = model && IMAGE_GENERATION_SUPPORTED_MODEL_IDS.has(model.id)
-                  return (
-                    <button
-                      onClick={onSelect}
-                      className="w-full flex items-center justify-between gap-3 px-3 py-2 hover:bg-gray-100 transition-colors text-left"
-                    >
-                      <div className="flex items-center gap-3">
-                        <img alt={model?.name || option.label} className="w-5 h-5" src={model?.logo || option.logo} />
-                        <span className="text-text-primary text-sm">{option.label}</span>
-                      </div>
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        {hasDeepResearch && (
-                          <span
-                            className="material-symbols-outlined text-base text-gray-400 hover:text-gray-600 transition-colors"
-                            title="深度研究"
-                          >
-                            biotech
-                          </span>
-                        )}
-                        {hasImageGen && (
-                          <span
-                            className="material-symbols-outlined text-base text-gray-400 hover:text-gray-600 transition-colors"
-                            title="AI 生图"
-                          >
-                            image
-                          </span>
-                        )}
-                      </div>
-                    </button>
-                  )
-                }}
-                options={modelOptions}
-                onOpenChange={setIsDropdownOpen}
-              />
+                  renderOption={(option, isSelected, onSelect) => {
+                    const model = models.find(m => m.id === option.value)
+                    const hasDeepResearch = model && DEEP_RESEARCH_SUPPORTED_MODEL_IDS.has(model.id)
+                    const hasImageGen = model && IMAGE_GENERATION_SUPPORTED_MODEL_IDS.has(model.id)
+                    return (
+                      <button
+                        onClick={onSelect}
+                        className="w-full flex items-center justify-between gap-3 px-3 py-2 hover:bg-gray-100 transition-colors text-left"
+                      >
+                        <div className="flex items-center gap-3">
+                          <img alt={model?.name || option.label} className="w-5 h-5" src={model?.logo || option.logo} />
+                          <span className="text-text-primary text-sm">{option.label}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {hasDeepResearch && (
+                            <span
+                              className="material-symbols-outlined text-base text-gray-400 hover:text-gray-600 transition-colors"
+                              title="深度研究"
+                            >
+                              biotech
+                            </span>
+                          )}
+                          {hasImageGen && (
+                            <span
+                              className="material-symbols-outlined text-base text-gray-400 hover:text-gray-600 transition-colors"
+                              title="AI 生图"
+                            >
+                              image
+                            </span>
+                          )}
+                        </div>
+                      </button>
+                    )
+                  }}
+                  dropdownWidth="w-48"
+                />
               </div>
 
               {/* 右侧：刷新按钮 + 状态指示器 */}
@@ -914,7 +915,15 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
         )}
 
         {/* Webview 容器 */}
-        <div className="flex-1 relative min-h-0 px-1.5 pb-1.5 rounded-b-2xl">
+        <div className="flex-1 relative min-h-0 rounded-b-2xl overflow-hidden bg-white">
+          {/* 截屏障眼法图层 */}
+          {screenshotDataUrl && (
+            <div 
+              className="absolute inset-0 z-0 bg-white"
+              style={{ backgroundImage: `url(${screenshotDataUrl})`, backgroundSize: '100% 100%', backgroundRepeat: 'no-repeat' }}
+            />
+          )}
+
           {isLoading && !loadError && (
             <div className="absolute inset-0 flex items-center justify-center bg-app/50 z-10 rounded-b-2xl">
               <div className="flex flex-col items-center gap-3 p-4">

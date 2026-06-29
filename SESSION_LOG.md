@@ -1,5 +1,17 @@
 # Session Log
 
+## 2026-06-30
+
+### 00:24 | Antigravity
+
+- done: Reverted back to CustomDropdown, fixed the WebContentsView overlay issue by broadening needsOverlay to cover all slots, and implemented a CSS-based border-radius clipping mechanism for WebContentsView since setBorderRadius has no effect on Windows.
+- lesson: 1. setBorderRadius on WebContentsView is a no-op on Windows. To achieve zero-margin rounded corners for WebContentsView, set the view's background color to transparent (#00000000) and inject CSS to apply border-radius and overflow:hidden to the html tag. 2. When a modal or drawer is absolute-positioned and overlays multiple elements, tracking which specific slots it overlays can be error-prone; it is safer to apply the Screenshot Illusion to ALL WebContentsView instances when any overlay is active.
+
+### 00:17 | Antigravity
+
+- done: Implemented screenshot illusion for drawers and native menus for model selection to fix WebContentsView UI layout issues without reverting the architecture.
+- lesson: When moving from <webview> to WebContentsView, DOM UI elements (like dropdowns and drawers) will be obscured by the native view. To fix this without breaking responsive web layouts: (1) Use native Menus for dropdowns to escape the DOM z-index context. (2) For complex overlays like side drawers, capture the native view as an image (capturePage), set it as a background, and temporarily hide the native view so DOM elements can render on top.
+
 ## 2026-06-29
 
 ### 22:06 | Antigravity
