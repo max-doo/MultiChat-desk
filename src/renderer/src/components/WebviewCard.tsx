@@ -8,6 +8,7 @@ import {
   generateSendMessageScript,
   generateInsertTextScript,
   generateClearInputScript,
+  generateGetInputTextScript,
   generateEnableDeepResearchScript,
   generateDisableDeepResearchScript,
   generateEnableImageGenerationScript,
@@ -105,6 +106,7 @@ export interface WebviewCardRef {
   sendMessage: (message: string) => Promise<{ success: boolean; error?: string }>
   insertText: (message: string) => Promise<{ success: boolean; error?: string }>
   clearInput: () => Promise<{ success: boolean; error?: string }>
+  getInputText: () => Promise<{ success: boolean; text?: string; error?: string }>
   uploadFile: (fileData: FileUploadData) => Promise<{ success: boolean; error?: string }>
   enableDeepResearch: () => Promise<{ success: boolean; error?: string }>
   disableDeepResearch: () => Promise<{ success: boolean; error?: string }>
@@ -441,6 +443,25 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
           return { success: result.success, error: result.error }
         } catch (error) {
           return { success: false, error: String(error) }
+        }
+      },
+
+      /**
+       * 读取输入框中的当前文本内容（不清空、不发送）
+       */
+      getInputText: async (): Promise<{ success: boolean; text?: string; error?: string }> => {
+        const webview = webviewRef.current
+        if (!webview || !isReady || !selectors) {
+          return { success: false, text: '', error: 'Webview 未就绪' }
+        }
+
+        try {
+          const code = generateGetInputTextScript(selectors)
+          const result = await webview.executeJavaScript(code)
+          return { success: result.success, text: result.text || '', error: result.error }
+        } catch (error) {
+          console.error(`[${name}] getInputText 异常:`, error)
+          return { success: false, text: '', error: String(error) }
         }
       },
 
