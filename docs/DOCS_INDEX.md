@@ -59,6 +59,12 @@
 - 使用方法和验证
 - 迁移指南
 
+**[WEBCONTENTSVIEW_MIGRATION_ASSESSMENT.md](WEBCONTENTSVIEW_MIGRATION_ASSESSMENT.md)** - WebView 到 WebContentsView 迁移评估
+- 架构对比（WebView vs BrowserView vs WebContentsView）
+- 项目现状及受影响文件
+- 升级收益与技术挑战（CSS布局转Bounds管理等）
+- 18-23天的工作量估算与分阶段推荐路径
+
 ---
 
 ## 📖 按用途查找
@@ -127,6 +133,7 @@
 📄 GITHUB_GUIDE.md                # GitHub 仓库管理指南
 📄 USER_GUIDE.md                  # 用户指南
 📄 WINDOWS_COMMANDS.md            # Windows PowerShell 命令参考
+📄 WEBCONTENTSVIEW_MIGRATION_ASSESSMENT.md # WebContentsView 迁移可行性评估
 📄 DOCS_INDEX.md                  # 文档索引（本文件）
 ```
 
@@ -235,6 +242,7 @@
 - [x] QUICK_BUILD_REFERENCE.md
 - [x] API_CONFIG_GUIDE.md
 - [x] GITHUB_GUIDE.md
+- [x] WEBCONTENTSVIEW_MIGRATION_ASSESSMENT.md
 - [x] DOCS_INDEX.md
 
 ---

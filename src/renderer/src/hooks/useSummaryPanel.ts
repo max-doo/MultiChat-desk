@@ -10,14 +10,18 @@ interface UseSummaryPanelProps {
     messages: ChatMessage[]
     selectedModels: string[]
     modelResponses: Record<string, string>
+    summarySource?: 'api' | 'webview'
+    webviewPlatformId?: string
+    webviewUrl?: string
   } | null
+  onReset?: () => void
 }
 
 /**
  * SummaryPanel 的自定义 Hook
  * 管理总结面板的所有状态和业务逻辑
  */
-export function useSummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: UseSummaryPanelProps) {
+export function useSummaryPanel({ selectedModels, modelResponses, restoreHistoryData, onReset }: UseSummaryPanelProps) {
   const [summaryMode, setSummaryMode] = useState('1')
   const [customPrompt, setCustomPrompt] = useState('')
   const [isGenerating, setIsGenerating] = useState(false)
@@ -57,7 +61,7 @@ export function useSummaryPanel({ selectedModels, modelResponses, restoreHistory
   // 消息列表滚动引用
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
-  const { models, apiConfig, summaryModels: allSummaryModels, setApiConfig, addSummaryHistory, updateSummaryHistory, history } = useAppStore()
+  const { models, apiConfig, summaryModels: allSummaryModels, setApiConfig, addSummaryHistory, updateSummaryHistory, history, chatSessionVersion } = useAppStore()
   const currentSummaryHistoryIdRef = useRef<string | null>(null)
   // 标记是否已为此对话生成过 AI 标题（避免重复生成）
   const hasGeneratedTitleRef = useRef<boolean>(false)
@@ -277,6 +281,14 @@ export function useSummaryPanel({ selectedModels, modelResponses, restoreHistory
     }
   }, [restoreHistoryData])
 
+  const lastChatSessionVersionRef = useRef(chatSessionVersion)
+  useEffect(() => {
+    if (chatSessionVersion !== lastChatSessionVersionRef.current) {
+      lastChatSessionVersionRef.current = chatSessionVersion
+      doResetChat()
+    }
+  }, [chatSessionVersion])
+
   // 自动滚动到底部
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -306,6 +318,7 @@ export function useSummaryPanel({ selectedModels, modelResponses, restoreHistory
     currentSummaryHistoryIdRef.current = null
     hasGeneratedTitleRef.current = false
     setCapturedModelResponses({})
+    onReset?.()
   }
 
   // 生成总结或追问

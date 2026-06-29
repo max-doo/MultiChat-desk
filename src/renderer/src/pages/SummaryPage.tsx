@@ -15,14 +15,14 @@ interface SummaryPageProps {
  * 显示各模型输出和 AI 总结面板
  */
 function SummaryPage({ onNavigateBack, initialHistoryItem, isActive }: SummaryPageProps): JSX.Element {
-  const { models, displayMode, pendingSummarySession, setPendingSummarySession, history, isHistoryOpen, setHistoryOpen } = useAppStore()
+  const { models, displayMode, productMode, taskAssignmentSlots, multiAiSlots, pendingSummarySession, setPendingSummarySession, history, isHistoryOpen, setHistoryOpen } = useAppStore()
 
   const [activeHistoryId, setActiveHistoryId] = useState<string | undefined>(undefined)
   
-  // 获取当前实际显示的模型（根据 displayMode）
+  // 获取当前实际显示的模型（根据 displayMode 和产品模式插槽配置）
   const displayedModels = useMemo(() => {
-    return getDisplayedModels(models, displayMode)
-  }, [models, displayMode])
+    return getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots, multiAiSlots)
+  }, [models, displayMode, productMode, taskAssignmentSlots, multiAiSlots])
   
   // 默认选中所有显示的模型
   const [selectedModels, setSelectedModels] = useState<string[]>(
@@ -50,48 +50,10 @@ function SummaryPage({ onNavigateBack, initialHistoryItem, isActive }: SummaryPa
     }>
     selectedModels: string[]
     modelResponses: Record<string, string>
+    summarySource?: 'api' | 'webview'
+    webviewPlatformId?: string
+    webviewUrl?: string
   } | null>(null)
-
-  // 初始化：挂载时从 pendingSummarySession 或 history 加载模型回复（只执行一次）
-  const initDoneRef = useRef(false)
-  useEffect(() => {
-    if (initDoneRef.current) return
-    initDoneRef.current = true
-
-    if (initialHistoryItem) {
-      handleRestoreHistory(initialHistoryItem)
-      return
-    }
-
-    setIsLoadingResponses(true)
-
-    const session = pendingSummarySession
-    let data: Record<string, string> = {}
-
-    if (session) {
-      data = session.modelResponses || {}
-      setPendingSummarySession(null)
-      console.log('[SummaryPage] 从 pendingSummarySession 加载:', Object.keys(data))
-    } else {
-      // Fallback：从 history 最新 turn 读取
-      const latestItem = history[0]
-      const latestTurn = latestItem?.turns?.[latestItem.turns.length - 1]
-      if (latestTurn?.responses && Object.keys(latestTurn.responses).length > 0) {
-        data = latestTurn.responses
-        console.log('[SummaryPage] 从 history fallback 加载:', Object.keys(data))
-      }
-    }
-
-    setModelResponses(data)
-
-    // 同步选中模型：有数据的默认选中，否则全选
-    const modelsWithData = displayedModels
-      .filter(m => data[m.id]?.trim().length > 0)
-      .map(m => m.id)
-    setSelectedModels(modelsWithData.length > 0 ? modelsWithData : displayedModels.map(m => m.id))
-
-    setIsLoadingResponses(false)
-  }, []) // 只在挂载时执行一次
 
   // 切换模型选择状态
   const toggleModelSelection = (modelId: string): void => {
@@ -103,7 +65,7 @@ function SummaryPage({ onNavigateBack, initialHistoryItem, isActive }: SummaryPa
   }
 
   // 抽取恢复历史记录的逻辑
-  const handleRestoreHistory = (item: SummaryHistoryItem) => {
+  const handleRestoreHistory = (item: SummaryHistoryItem): void => {
     console.log('[SummaryPage] 恢复历史记录:', item)
 
     // 记录当前激活的历史记录 ID
@@ -130,13 +92,66 @@ function SummaryPage({ onNavigateBack, initialHistoryItem, isActive }: SummaryPa
       historyId: item.id,
       messages: item.messages,
       selectedModels: item.selectedModels,
-      modelResponses: item.modelResponses || {}
+      modelResponses: item.modelResponses || {},
+      summarySource: item.summarySource,
+      webviewPlatformId: item.webviewPlatformId,
+      webviewUrl: item.webviewUrl
     })
 
     setTimeout(() => {
       setIsLoadingResponses(false)
     }, 200)
   }
+
+  // 初始化：响应 pendingSummarySession 或 initialHistoryItem 变化以更新模型回复
+  const initDoneRef = useRef(false)
+  const lastHistoryItemRef = useRef<SummaryHistoryItem | undefined>(undefined)
+
+  useEffect(() => {
+    if (initialHistoryItem && initialHistoryItem !== lastHistoryItemRef.current) {
+      lastHistoryItemRef.current = initialHistoryItem
+      initDoneRef.current = true
+      handleRestoreHistory(initialHistoryItem)
+      return
+    }
+
+    const session = pendingSummarySession
+    if (session) {
+      initDoneRef.current = true
+      lastHistoryItemRef.current = undefined
+      setIsLoadingResponses(true)
+      const data = session.modelResponses || {}
+      setPendingSummarySession(null)
+      console.log('[SummaryPage] 从 pendingSummarySession 加载:', Object.keys(data))
+      setModelResponses(data)
+
+      const modelsWithData = displayedModels
+        .filter(m => data[m.id]?.trim().length > 0)
+        .map(m => m.id)
+      setSelectedModels(modelsWithData.length > 0 ? modelsWithData : displayedModels.map(m => m.id))
+      setRestoreHistoryData(null)
+      setIsLoadingResponses(false)
+      return
+    }
+
+    if (!initDoneRef.current) {
+      initDoneRef.current = true
+      setIsLoadingResponses(true)
+      let data: Record<string, string> = {}
+      const latestItem = history[0]
+      const latestTurn = latestItem?.turns?.[latestItem.turns.length - 1]
+      if (latestTurn?.responses && Object.keys(latestTurn.responses).length > 0) {
+        data = latestTurn.responses
+        console.log('[SummaryPage] 从 history fallback 加载:', Object.keys(data))
+      }
+      setModelResponses(data)
+      const modelsWithData = displayedModels
+        .filter(m => data[m.id]?.trim().length > 0)
+        .map(m => m.id)
+      setSelectedModels(modelsWithData.length > 0 ? modelsWithData : displayedModels.map(m => m.id))
+      setIsLoadingResponses(false)
+    }
+  }, [initialHistoryItem, pendingSummarySession, displayedModels, history, setPendingSummarySession])
 
   return (
     <div className="flex h-full overflow-hidden">

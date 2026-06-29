@@ -224,6 +224,14 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
 
       // 监听加载事件
       const handleDomReady = (): void => {
+        try {
+          const currentUrl = webview.getURL()
+          if (currentUrl && (currentUrl.startsWith('chrome-error://') || currentUrl.startsWith('data:text/html'))) {
+            return
+          }
+        } catch {
+          // 忽略获取 URL 异常
+        }
         clearLoadTimers()
         isFirstLoadRef.current = false // 首次加载完成，后续导航不再启用超时
         setIsLoading(false)
@@ -233,7 +241,7 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
       }
 
       const handleLoadStart = (): void => {
-        setLoadError(null)
+        // 不在这里清空 setLoadError(null)，防止 did-fail-load 报网络错误后 Chromium 内部尝试跳转错误页时触发 start-loading 导致错误弹窗消失
         setIsLoading(true)
         startLoadTimers()
       }
@@ -250,6 +258,17 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
           // 用户主动取消或网卡路由切换（如 TUN 模式）导致中断时，清除计时器与加载状态
           clearLoadTimers()
           setIsLoading(false)
+          if (isFirstLoadRef.current) {
+            const failHost = getHostname(event.validatedURL || loadedUrlRef.current || '')
+            setLoadError({
+              category: 'connection',
+              icon: 'cloud_off',
+              title: '网络连接或路由切换中断',
+              subtitle: 'TUN 代理切网卡中或请求中断 (-3)，请点击重试',
+              errorCode: -3,
+              hostname: failHost
+            })
+          }
           return
         }
         clearLoadTimers()
@@ -302,7 +321,7 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
 
       // 监听导航事件
       const handleDidNavigate = (_event: any): void => {
-        setLoadError(null) // 清除之前的错误
+        // 不在这里清空 setLoadError(null)，由 handleDomReady、主动 loadURL 或重试操作负责清空
         syncNavigationState()
       }
 

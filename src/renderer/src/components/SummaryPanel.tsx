@@ -4,7 +4,7 @@ import remarkGfm from 'remark-gfm'
 import type { Components } from 'react-markdown'
 import TurndownService from 'turndown'
 import { gfm } from 'turndown-plugin-gfm'
-import { useAppStore } from '../store/appStore'
+import { useAppStore, waitForSavableUrl } from '../store/appStore'
 import CustomDropdown from './CustomDropdown'
 import { useSummaryPanel } from '../hooks/useSummaryPanel'
 import { useWebviewSummary } from '../hooks/useWebviewSummary'
@@ -37,6 +37,20 @@ function toMarkdown(content: string): string {
  * 对话形式显示 AI 总结结果
  */
 function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: SummaryPanelProps): JSX.Element {
+  const { apiConfig, models, setApiConfig, addSummaryHistory, updateSummaryHistory, history } = useAppStore()
+
+  // 从 store 读取当前模式，缺省 'webview'
+  const summarySource: 'api' | 'webview' = apiConfig.summarySource ?? 'webview'
+  const firstEnabledModel = models.find(m => m.enabled)
+  const lastWebviewPlatform = apiConfig.lastWebviewSummaryPlatform ?? firstEnabledModel?.id ?? 'chatgpt'
+  const [webviewPlatformId, setWebviewPlatformId] = useState<string>(lastWebviewPlatform)
+  // Webview composer 锁定标记：首次发送后置 true，组件卸载或 phase 进入 error/aborted 时归零
+  const [summaryFired, setSummaryFired] = useState(false)
+
+  const webviewSummaryRef = useRef<WebviewCardRef>(null)
+  const webviewHistoryIdRef = useRef<string | null>(null)
+  const webviewComposerTextareaRef = useRef<HTMLTextAreaElement>(null)
+
   const {
     // 状态
     summaryMode,
@@ -100,21 +114,18 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
     handleConfirmExport,
     startEditingRegenerate,
     cancelEditingRegenerate
-  } = useSummaryPanel({ selectedModels, modelResponses, restoreHistoryData })
-
-  const { apiConfig, models, setApiConfig, addSummaryHistory, updateSummaryHistory, history } = useAppStore()
-
-  // 从 store 读取当前模式，缺省 'webview'
-  const summarySource: 'api' | 'webview' = apiConfig.summarySource ?? 'webview'
-  const firstEnabledModel = models.find(m => m.enabled)
-  const lastWebviewPlatform = apiConfig.lastWebviewSummaryPlatform ?? firstEnabledModel?.id ?? 'chatgpt'
-  const [webviewPlatformId, setWebviewPlatformId] = useState<string>(lastWebviewPlatform)
-  // Webview composer 锁定标记：首次发送后置 true，组件卸载或 phase 进入 error/aborted 时归零
-  const [summaryFired, setSummaryFired] = useState(false)
-
-  const webviewSummaryRef = useRef<WebviewCardRef>(null)
-  const webviewHistoryIdRef = useRef<string | null>(null)
-  const webviewComposerTextareaRef = useRef<HTMLTextAreaElement>(null)
+  } = useSummaryPanel({
+    selectedModels,
+    modelResponses,
+    restoreHistoryData,
+    onReset: () => {
+      webviewHistoryIdRef.current = null
+      setSummaryFired(false)
+      if (summarySource === 'webview') {
+        webviewSummaryRef.current?.resetToInitial()
+      }
+    }
+  })
 
   const webviewPlatformInfo = useMemo(() => {
     const m = models.find(x => x.id === webviewPlatformId)
@@ -125,6 +136,13 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
       url: sel?.newConversationUrl || m?.url || ''
     }
   }, [models, webviewPlatformId])
+
+  const currentWebviewUrl = useMemo(() => {
+    if (restoreHistoryData && restoreHistoryData.summarySource === 'webview' && restoreHistoryData.webviewPlatformId === webviewPlatformId && restoreHistoryData.webviewUrl) {
+      return restoreHistoryData.webviewUrl
+    }
+    return webviewPlatformInfo.url
+  }, [restoreHistoryData, webviewPlatformId, webviewPlatformInfo.url])
 
   const setLastWebviewPlatform = (id: string) => {
     setWebviewPlatformId(id)
@@ -190,6 +208,41 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
       setSummaryFired(false)
     }
   }, [webviewSummary.phase])
+
+  useEffect(() => {
+    if (restoreHistoryData) {
+      if (restoreHistoryData.webviewPlatformId) {
+        setWebviewPlatformId(restoreHistoryData.webviewPlatformId)
+      }
+      if (restoreHistoryData.historyId) {
+        webviewHistoryIdRef.current = restoreHistoryData.historyId
+      }
+      if (restoreHistoryData.summarySource === 'webview') {
+        setSummaryFired(restoreHistoryData.messages.length > 0)
+      }
+    }
+  }, [restoreHistoryData])
+
+  useEffect(() => {
+    if (restoreHistoryData && restoreHistoryData.summarySource === 'webview' && restoreHistoryData.webviewPlatformId === webviewPlatformId && restoreHistoryData.webviewUrl) {
+      webviewSummaryRef.current?.loadURL(restoreHistoryData.webviewUrl)
+    }
+  }, [restoreHistoryData, webviewPlatformId])
+
+  useEffect(() => {
+    if (summarySource === 'webview' && (webviewSummary.phase === 'streaming' || webviewSummary.phase === 'done') && webviewPlatformId && webviewHistoryIdRef.current) {
+      const historyId = webviewHistoryIdRef.current
+      const ref = webviewSummaryRef.current
+      if (ref) {
+        waitForSavableUrl(webviewPlatformId, ref).then((url) => {
+          if (url && webviewHistoryIdRef.current === historyId) {
+            console.log(`[SummaryPanel] 记录 webview 会话 URL: ${url}`)
+            updateSummaryHistory(historyId, { webviewUrl: url })
+          }
+        }).catch(e => console.error('[SummaryPanel] 获取 webview 会话 URL 失败:', e))
+      }
+    }
+  }, [summarySource, webviewSummary.phase, webviewPlatformId, updateSummaryHistory])
 
   // 让 Webview 模式 composer 的 textarea 高度跟随内容增长，最多 5 行（120px）
   // 依赖 summarySource：当用户从 API 模式切回 Webview 时，textarea 重新挂载，
@@ -1042,7 +1095,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
                 ref={webviewSummaryRef}
                 id={webviewPlatformId}
                 name={webviewPlatformInfo.name}
-                url={webviewPlatformInfo.url}
+                url={currentWebviewUrl}
                 logo={webviewPlatformInfo.logo || ''}
                 enabled={true}
                 slotIndex={0}

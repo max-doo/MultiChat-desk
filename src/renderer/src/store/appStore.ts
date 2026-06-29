@@ -132,6 +132,8 @@ export interface SummaryHistoryItem {
   summarySource?: 'api' | 'webview'
   /** summarySource = 'webview' 时记录目标平台 id */
   webviewPlatformId?: string
+  /** summarySource = 'webview' 时记录总结会话的 URL */
+  webviewUrl?: string
   /** 主界面对话时各模型的 URL（用于追溯原始对话） */
   urls?: Record<string, string>
 }
@@ -288,6 +290,7 @@ interface AppState {
   // 会话状态
   isNewSession: boolean
   setNewSession: (isNew: boolean) => void
+  chatSessionVersion: number
 
   // 页面导航状态
   currentPage: 'main' | 'summary' | 'quick'
@@ -387,7 +390,7 @@ const defaultModels: ModelConfig[] = [
   { id: 'arena', name: 'Arena', url: 'https://arena.ai/', logo: arenaLogo, enabled: false },
   { id: 'doubao', name: '豆包', url: 'https://www.doubao.com/chat', logo: doubaoLogo, enabled: false },
   { id: 'yuanbao', name: '元宝', url: 'https://yuanbao.tencent.com/chat', logo: yuanbaoLogo, enabled: false },
-  { id: 'qwen', name: '通义千问', url: 'https://tongyi.aliyun.com/qianwen', logo: qwenLogo, enabled: false },
+  { id: 'qwen', name: '千问', url: 'https://tongyi.aliyun.com/qianwen', logo: qwenLogo, enabled: false },
   { id: 'deepseek', name: 'DeepSeek', url: 'https://chat.deepseek.com', logo: deepseekLogo, enabled: false },
   { id: 'kimi', name: 'Kimi', url: 'https://kimi.moonshot.cn', logo: kimiLogo, enabled: false },
   { id: 'chatglm', name: '智谱清言', url: 'https://chatglm.cn/main/alltoolsdetail?lang=zh', logo: chatglmLogo, enabled: false },
@@ -489,6 +492,84 @@ function shouldStartNewConversation(
 
   return false
 }
+
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms))
+
+const isGeminiConversationUrl = (rawUrl: string): boolean => {
+  try {
+    const u = new URL(rawUrl)
+    if (u.origin !== 'https://gemini.google.com') return false
+    const parts = u.pathname.split('/').filter(Boolean)
+    if (parts[0] === 'app' && typeof parts[1] === 'string' && parts[1].length > 0) return true
+    if (parts[0] === 'u' && parts[2] === 'app' && typeof parts[3] === 'string' && parts[3].length > 0) return true
+    return false
+  } catch {
+    return false
+  }
+}
+
+const normalizeGeminiConversationUrl = (rawUrl: string): string => {
+  try {
+    const u = new URL(rawUrl)
+    const parts = u.pathname.split('/').filter(Boolean)
+    let conversationId: string | undefined
+    if (parts[0] === 'app') {
+      conversationId = parts[1]
+    } else if (parts[0] === 'u' && parts[2] === 'app') {
+      conversationId = parts[3]
+    }
+    if (!conversationId) return ''
+    return `https://gemini.google.com/app/${conversationId}`
+  } catch {
+    return ''
+  }
+}
+
+function isSavableSessionUrl(modelId: string, url: string): boolean {
+  if (!url || url === 'about:blank') return false
+  if (modelId === 'gemini') {
+    return isGeminiConversationUrl(url)
+  }
+
+  const cleanUrl = url.split('?')[0].replace(/\/+$/, '')
+
+  // 排除各个平台的典型新建对话初始页路径
+  if (modelId === 'claude' && cleanUrl.endsWith('/new')) return false
+  if (modelId === 'doubao' && cleanUrl.endsWith('/chat')) return false
+  if (modelId === 'yuanbao' && cleanUrl.endsWith('/chat')) return false
+  if (modelId === 'chatglm' && cleanUrl.endsWith('/alltoolsdetail')) return false
+
+  try {
+    const parsed = new URL(url)
+    const path = parsed.pathname.replace(/\/+$/, '')
+    // 如果只有域名首页（如 https://chatgpt.com 或 https://chat.deepseek.com 等），非历史独立会话
+    if (!path || path === '') return false
+    // 排除通用新建对话页面
+    if (path === '/new' || path === '/chat' || path === '/app' || path === '/main/alltoolsdetail') return false
+  } catch {
+    return false
+  }
+
+  return true
+}
+
+export const waitForSavableUrl = async (modelId: string, ref: WebviewCardRef): Promise<string> => {
+  const timeoutMs = modelId === 'gemini' ? 30000 : 20000
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    const currentUrl = ref.getCurrentUrl()
+    if (currentUrl && isSavableSessionUrl(modelId, currentUrl)) {
+      if (modelId === 'gemini') {
+        return normalizeGeminiConversationUrl(currentUrl) || currentUrl
+      }
+      return currentUrl
+    }
+    await sleep(1000)
+  }
+  return ''
+}
+
 
 // 创建状态存储
 export const useAppStore = create<AppState>((set, get) => ({
@@ -691,9 +772,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   activeModels: [],
   setActiveModels: (models: ModelConfig[]) => set({ activeModels: models }),
   isNewSession: true,
+  chatSessionVersion: Date.now(),
   setNewSession: (isNew: boolean) => {
     set({ isNewSession: isNew })
-    if (isNew) set({ activeModels: [], textInserted: false })
+    if (isNew) set({ activeModels: [], textInserted: false, chatSessionVersion: Date.now() })
   },
 
   insertTextToAll: async (message: string): Promise<SendResult[]> => {
@@ -821,59 +903,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       // 创建新 turn 并启动监控
       const turnId = `${conversationId}-${Date.now()}`
       get().startMonitoring(conversationId, turnId, message, successModels)
-
-      // 异步获取可保存的 URL（兼容现有 Gemini URL 处理逻辑）
-      const sleep = (ms: number): Promise<void> =>
-        new Promise((resolve) => setTimeout(resolve, ms))
-
-      const isGeminiConversationUrl = (rawUrl: string): boolean => {
-        try {
-          const u = new URL(rawUrl)
-          if (u.origin !== 'https://gemini.google.com') return false
-          const parts = u.pathname.split('/').filter(Boolean)
-          if (parts[0] === 'app' && typeof parts[1] === 'string' && parts[1].length > 0) return true
-          if (parts[0] === 'u' && parts[2] === 'app' && typeof parts[3] === 'string' && parts[3].length > 0) return true
-          return false
-        } catch {
-          return false
-        }
-      }
-
-      const normalizeGeminiConversationUrl = (rawUrl: string): string => {
-        try {
-          const u = new URL(rawUrl)
-          const parts = u.pathname.split('/').filter(Boolean)
-          let conversationId: string | undefined
-          if (parts[0] === 'app') {
-            conversationId = parts[1]
-          } else if (parts[0] === 'u' && parts[2] === 'app') {
-            conversationId = parts[3]
-          }
-          if (!conversationId) return ''
-          return `https://gemini.google.com/app/${conversationId}`
-        } catch {
-          return ''
-        }
-      }
-
-      const waitForSavableUrl = async (modelId: string, ref: WebviewCardRef): Promise<string> => {
-        const timeoutMs = modelId === 'gemini' ? 30000 : 10000
-        const deadline = Date.now() + timeoutMs
-        while (Date.now() < deadline) {
-          const currentUrl = ref.getCurrentUrl()
-          if (currentUrl && currentUrl !== 'about:blank') {
-            if (modelId === 'gemini') {
-              if (isGeminiConversationUrl(currentUrl)) {
-                return normalizeGeminiConversationUrl(currentUrl) || currentUrl
-              }
-            } else {
-              return currentUrl
-            }
-          }
-          await sleep(1000)
-        }
-        return ''
-      }
 
       ;(async () => {
         await sleep(5000)

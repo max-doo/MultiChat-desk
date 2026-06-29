@@ -43,6 +43,8 @@ Agents may suggest or promote a lesson into the `Known Gotchas` section of `AGEN
   2. **Cloudflare 真人验证拦截**：Turnstile 脚本会探测 Blink 自动化探针（如 `navigator.webdriver`）。需通过 `app.commandLine.appendSwitch('disable-blink-features', 'AutomationControlled')` 消除探针，并在 Session 拦截中用正则 `/\s*Electron\/[0-9.]+/g` 干净移除 User-Agent 中的 Electron 标识。
   3. **Webview 异常容错与超时**：不可仅对首次加载配置超时，需对每次 `did-start-loading` 均开启 30s 超时；同时需捕获 `errorCode === -3` 中断并监听 `render-process-gone` / `crashed`，避免网卡切路由或进程崩溃时无提示白屏。
 
+- **通义千问点击即黑屏/渲染进程崩溃（0xC0000005）= Chromium 120 ScriptProcessorNode use-after-free**：Electron 28（Chromium 120）在 `ScriptProcessorNode::Process()` 中存在 use-after-free，崩溃码 `STATUS_ACCESS_VIOLATION / 0xC0000005`（退出码 `-1073741819`），上游已在 Chrome 121 修复。阿里云风控 SDK 在**用户点击（手势）**时创建 `ScriptProcessorNode` 做音频指纹——因 `AudioContext` 只能在手势后创建/恢复，故崩溃表现为"点击即黑屏"而非"加载即崩"。**干扰项**：控制台 `gyroscope/accelerometer ... not allowed` 与 `deviceorientation blocked by permissions policy` 只是 Permissions-Policy 阻断告警（已被策略挡掉，不会崩），且 Electron 无 `sensors` 权限类型，故 `setPermissionRequestHandler` 对此无效；`use-angle=gl` / `disableHardwareAcceleration` 等 GPU 开关也不对症（非 GPU/合成崩溃）。**正确修复**：在 webview 注入脚本（`getWebviewClickInterceptorScript`，`dom-ready` 即注入、先于点击）中对阿里云/通义域名（`hostname` 含 `aliyun.com` 或 `qwen.ai`）patch `AudioContext`/`webkitAudioContext`/`OfflineAudioContext`/`webkitOfflineAudioContext` 的 `createScriptProcessor` 为纯 JS 桩对象（含 `connect/disconnect/onaudioprocess/addEventListener` 等接口），永不进入原生音频线程，崩溃路径消除；指纹仍得确定性零缓冲结果，不影响页面功能。**彻底方案**：升级 Electron 28→29+（Chromium 121+ 含上游修复）。判别要点：点击触发 + 退出码 `-1073741819` + `ScriptProcessorNode is deprecated` 告警 = 命中本坑。
+
 ## Stable Decisions
 
 - 快捷操作快捷键（Ctrl+Shift+S/E/T/Q）的提示词注入流程：先通过 VBScript 模拟 `Ctrl+C` 自动复制选中文本，读取成功后，再展示并聚焦快捷窗口，最后发送 `quick:inject-prompt` IPC 完成一键总结。

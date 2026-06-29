@@ -2,6 +2,72 @@
 
 ## 2026-06-29
 
+### 22:02 | Antigravity
+
+- done: 深化修复Webview总结会话URL的捕获与重载逻辑，排除通用新建对话首页的干扰，确保准确捕获独立会话ID链接并在重新加载历史时精准加载
+- modified:
+  - `src/renderer/src/store/appStore.ts`
+  - `src/renderer/src/components/SummaryPanel.tsx`
+
+### 21:38 | Antigravity
+
+- done: 修复了总结页Webview模式下会话URL持久化记录与恢复的Bug，以及主页面开启新对话后总结会话未刷新的Bug
+- modified:
+  - `src/renderer/src/store/appStore.ts`
+  - `src/renderer/src/pages/SummaryPage.tsx`
+  - `src/renderer/src/components/SummaryPanel.tsx`
+  - `src/renderer/src/hooks/useSummaryPanel.ts`
+
+### 21:29 | claude-code
+
+- done: 基于 WEBCONTENTSVIEW_MIGRATION_ASSESSMENT 评估制定 WebContentsView 完整迁移任务级开发计划
+- context: 用户选定范围=仅完整迁移(option C)，粒度=任务级；用 context7 核验 WebContentsView/BaseWindow.contentView API 与 Electron 30+ 前提
+- decision: 计划分 5 阶段(升级/主进程基建/渲染层适配/缓存池打磨/集成回归)；保留 WebviewCardRef 与 appStore.webviewRefs 结构以压缩上层改动面；项目无测试运行器故每任务验证门=lint+build+dev
+- added:
+  - `docs/superpowers/plans/2026-06-29-webcontentsview-migration.md`
+
+### 21:13 | Antigravity
+
+- done: Saved the WebContentsView migration assessment to the docs/ directory and updated DOCS_INDEX.md
+- added:
+  - `docs/WEBCONTENTSVIEW_MIGRATION_ASSESSMENT.md`
+- modified:
+  - `docs/DOCS_INDEX.md`
+
+### 21:10 | Antigravity
+
+- done: 修复生成总结页面展示和选中的模型与当前窗口实际打开的网页不匹配的问题
+- modified:
+  - `src/renderer/src/pages/SummaryPage.tsx`
+- lesson: 总结页计算显示模型时需完整传入 productMode 和 slot 参数以确保与当前主窗口插槽配置一致；复用挂载的页面需避免用静态 ref 阻断数据加载的 useEffect
+
+### 20:53 | Antigravity
+
+- done: Prevent error prompt overlay from disappearing and causing white blank screen during TUN mode startup errors
+- modified:
+  - `src/renderer/src/components/WebviewCard.tsx`
+
+### 20:46 | claude-code
+
+- done: 修复通义千问点击黑屏/渲染进程崩溃(0xC0000005): 定位为Chromium 120 ScriptProcessorNode::Process() use-after-free,在webview注入脚本中对阿里云/通义域名将createScriptProcessor替换为纯JS桩消除原生音频线程崩溃路径
+- modified:
+  - `src/main/webviewManager.ts`
+- lesson(promoted): Electron 28(Chromium 120)存在ScriptProcessorNode::Process()的use-after-free(STATUS_ACCESS_VIOLATION/0xC0000005,退出码-1073741819),已在Chrome121修复;阿里云风控SDK在用户点击手势时创建ScriptProcessorNode做音频指纹会命中该崩溃,表现为点击即黑屏。传感器的Permissions-Policy告警是干扰项(已被策略阻断且Electron无sensors权限类型,setPermissionRequestHandler无效),GPU开关也不对症。修复方式:对阿里云/通义域名在dom-ready注入时patch AudioContext/OfflineAudioContext(含webkit变体)的createScriptProcessor为纯JS桩,避免进入原生音频线程。彻底方案是升级Electron到29+(Chromium121+)。
+- unresolved: 需在npm run dev中手动点击通义千问页面验证崩溃是否消除;长期应评估升级Electron28到29+
+
+### 20:45 | Antigravity
+
+- done: Adjust Qwen SVG viewBox to remove excess padding and crop empty margins so the icon renders at full scale matching other model logos
+- modified:
+  - `src/renderer/src/assets/logos/qwen.svg`
+
+### 20:42 | Antigravity
+
+- done: Replace Tongyi Qianwen logo with new SVG asset and rename model configuration name to Qianwen
+- modified:
+  - `src/renderer/src/assets/logos/qwen.svg`
+  - `src/renderer/src/store/appStore.ts`
+
 ### 20:33 | Antigravity
 
 - done: Fix multiple instances issue on double click by implementing app.requestSingleInstanceLock() and second-instance event handler
