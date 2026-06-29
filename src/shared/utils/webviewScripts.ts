@@ -1025,6 +1025,44 @@ export function generateClearInputScript(selectors: ModelSelector): string {
 }
 
 /**
+ * 生成读取输入框当前文本内容的注入脚本
+ * @param selectors 选择器配置
+ */
+export function generateGetInputTextScript(selectors: ModelSelector): string {
+  const findTextarea = buildFindTextareaScript(selectors)
+
+  return `
+    (async function() {
+      try {
+        ${findTextarea}
+
+        if (!textarea) {
+          return { success: false, text: '', error: '未找到输入框' };
+        }
+
+        let text = '';
+        try {
+          if (textarea.value !== undefined && textarea.value !== '') {
+            text = textarea.value;
+          }
+        } catch (e) {}
+
+        if (!text) {
+          text = textarea.innerText || textarea.textContent || '';
+        }
+
+        // 清理零宽字符
+        text = (text || '').replace(/\\u200B/g, '').trim();
+
+        return { success: true, text: text };
+      } catch (error) {
+        return { success: false, text: '', error: error.message };
+      }
+    })();
+  `
+}
+
+/**
  * 生成启用 Deep Research 的注入脚本
  * @param config Deep Research 配置
  */
