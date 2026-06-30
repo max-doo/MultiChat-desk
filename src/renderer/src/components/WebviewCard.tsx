@@ -241,6 +241,8 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
 
       let activeViewId: string | null = null
       let resizeObserver: ResizeObserver | null = null
+      let scrollCleanup: (() => void) | null = null
+      let animationFrameId: number | null = null
 
       const initView = async () => {
         const res = await window.api.createWebviewView({
@@ -251,33 +253,60 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
           activeViewId = res.data.viewId
           setViewId(activeViewId)
 
-          // 绑定 ResizeObserver
-          if (hostRef.current) {
-            resizeObserver = new ResizeObserver((entries) => {
-              for (const entry of entries) {
-                const rect = entry.target.getBoundingClientRect()
-                const width = Math.round(rect.width)
-                const height = Math.round(rect.height)
-                
-                if (width <= 0 || height <= 0) {
-                  // If host div is hidden (e.g., display: none), hide the WebContentsView
-                  window.api.hideWebviewView({ viewId: activeViewId! })
-                } else {
-                  // If host div is visible, ensure WebContentsView is shown and set bounds
-                  window.api.showWebviewView({ viewId: activeViewId! })
-                  window.api.setWebviewBounds({
-                    viewId: activeViewId!,
-                    bounds: {
-                      x: Math.round(rect.left),
-                      y: Math.round(rect.top),
-                      width,
-                      height
-                    }
-                  })
-                }
+          // 使用 requestAnimationFrame 节流更新边界并限制溢出
+          const requestUpdateBounds = () => {
+            if (animationFrameId !== null) return
+            animationFrameId = requestAnimationFrame(() => {
+              animationFrameId = null
+              if (!hostRef.current || !activeViewId) return
+              const rect = hostRef.current.getBoundingClientRect()
+              
+              let x = Math.round(rect.left)
+              let y = Math.round(rect.top)
+              let width = Math.round(rect.width)
+              let height = Math.round(rect.height)
+              
+              // 限制垂直方向溢出，不覆盖顶部 Toolbar(38px)
+              const topToolbarHeight = 38
+              if (y < topToolbarHeight) {
+                const overflow = topToolbarHeight - y
+                y = topToolbarHeight
+                height = Math.max(0, height - overflow)
+              }
+              
+              // 限制底部不溢出窗口
+              const windowHeight = window.innerHeight
+              if (y + height > windowHeight) {
+                height = Math.max(0, windowHeight - y)
+              }
+              
+              if (width <= 0 || height <= 0) {
+                window.api.hideWebviewView({ viewId: activeViewId })
+              } else {
+                window.api.showWebviewView({ viewId: activeViewId })
+                window.api.setWebviewBounds({
+                  viewId: activeViewId,
+                  bounds: { x, y, width, height }
+                })
               }
             })
+          }
+
+          // 绑定 ResizeObserver
+          if (hostRef.current) {
+            resizeObserver = new ResizeObserver(() => {
+              requestUpdateBounds()
+            })
             resizeObserver.observe(hostRef.current)
+          }
+
+          // 监听滚动事件实时更新
+          window.addEventListener('scroll', requestUpdateBounds, true)
+          window.addEventListener('resize', requestUpdateBounds)
+
+          scrollCleanup = () => {
+            window.removeEventListener('scroll', requestUpdateBounds, true)
+            window.removeEventListener('resize', requestUpdateBounds)
           }
 
           // 初始加载 URL
@@ -293,7 +322,11 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
       initView()
 
       return () => {
+        if (animationFrameId !== null) {
+          cancelAnimationFrame(animationFrameId)
+        }
         if (resizeObserver) resizeObserver.disconnect()
+        if (scrollCleanup) scrollCleanup()
         if (activeViewId) {
           window.api.removeWebviewView({ viewId: activeViewId })
         }
@@ -771,7 +804,7 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
 
     if (!enabled) {
       return (
-        <div className={`flex flex-col h-full opacity-50 overflow-hidden ${flat ? 'bg-white' : 'rounded-2xl glass-panel shadow-soft'} ${compact ? '' : 'min-h-[480px]'}`}>
+        <div className={`flex flex-col h-full opacity-50 overflow-hidden ${flat ? 'bg-white' : 'rounded-2xl glass-panel shadow-soft'} min-h-0`}>
           <div className={`p-4 border-b ${flat ? 'border-gray-200/60 bg-white' : 'border-white/40'} flex justify-between items-center`}>
             <div className="flex items-center gap-3 opacity-50">
               <img alt={`${name} logo`} className="w-6 h-6" src={logo} />
@@ -786,7 +819,7 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
     }
 
     return (
-      <div className={`flex flex-col h-full overflow-hidden ${flat ? 'bg-white' : 'rounded-2xl glass-panel shadow-soft'} ${compact ? '' : 'min-h-[480px]'}`}>
+      <div className={`flex flex-col h-full overflow-hidden ${flat ? 'bg-white' : 'rounded-2xl glass-panel shadow-soft'} min-h-0`}>
         {!hideHeader && (
           <>
             {/* 卡片头部 */}
