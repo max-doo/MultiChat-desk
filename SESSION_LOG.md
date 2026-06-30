@@ -2,6 +2,12 @@
 
 ## 2026-06-30
 
+### 21:57 | Antigravity
+
+- done: Clean up unused useAppStore import in CustomDropdown.tsx
+- modified:
+  - `src/renderer/src/components/CustomDropdown.tsx`
+
 ### 21:54 | Antigravity
 
 - done: Revert WebContentsView architecture back to original <webview> tag implementation
