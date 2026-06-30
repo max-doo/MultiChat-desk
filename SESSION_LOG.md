@@ -2,6 +2,36 @@
 
 ## 2026-06-30
 
+### 09:04 | Antigravity
+
+- done: Optimize WebContentsView bounds sync during resize by switching to fire-and-forget IPC and requestAnimationFrame throttling
+- modified:
+  - `src/preload/index.d.ts`
+  - `src/preload/index.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/renderer/src/components/WebviewCard.tsx`
+
+### 01:27 | Antigravity
+
+- done: 优化四窗模式下宽度不足时的布局：不再出现田字格模式，而是使用横向滚动条滑动查看
+- modified:
+  - `src/renderer/src/pages/MainPage.tsx`
+
+### 01:25 | Antigravity
+
+- done: Remove WebviewCard min-height limit and increase desktop window minHeight limits
+- modified:
+  - `src/renderer/src/components/WebviewCard.tsx`
+  - `src/renderer/src/pages/MainPage.tsx`
+  - `src/main/webviewManager.ts`
+
+### 01:18 | Antigravity
+
+- done: Fix WebContentsView vertical overflow over toolbar and update to official rounded corners API
+- modified:
+  - `src/main/webContentsViewManager.ts`
+  - `src/renderer/src/components/WebviewCard.tsx`
+
 ### 00:24 | Antigravity
 
 - done: Reverted back to CustomDropdown, fixed the WebContentsView overlay issue by broadening needsOverlay to cover all slots, and implemented a CSS-based border-radius clipping mechanism for WebContentsView since setBorderRadius has no effect on Windows.

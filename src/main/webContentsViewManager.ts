@@ -89,18 +89,9 @@ export function createView(windowId: number, opts: CreateViewOptions): CreateVie
     }
   })
 
-  // 在 Windows 上 setBorderRadius 无效，通过透明背景 + CSS 注入实现圆角
-  view.setBackgroundColor('#00000000')
-  view.webContents.on('dom-ready', () => {
-    view.webContents.insertCSS(`
-      html {
-        border-bottom-left-radius: 16px !important;
-        border-bottom-right-radius: 16px !important;
-        overflow: hidden !important;
-      }
-    `).catch(() => {})
-  })
-
+  // 使用官方 API 设置圆角
+  view.setBorderRadius(16)
+  
   const webContentsId = view.webContents.id
 
   // 复用现有的 UA/权限/注入/弹窗拦截逻辑

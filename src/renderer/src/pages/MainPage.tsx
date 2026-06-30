@@ -214,12 +214,8 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
   const gutterWidthPx = 16
   const MIN_PANE_WIDTH = 320
   
-  // 估计容器宽度，未初始化时使用 window.innerWidth 估算
-  const estimatedContainerWidth = containerWidth || (window.innerWidth - 48)
-  
-  // 判断四个窗口时是否需要田字格布局：四个窗口并排的平均宽度小于最小宽度
-  const useGridForFour = displayMode === 'four' && 
-    ((estimatedContainerWidth - 3 * gutterWidthPx) / 4 < MIN_PANE_WIDTH)
+  // 优化UI：当四窗模式下，页面宽度不够时，不再出现田字格模式，允许左右溢出，通过滚动条滑动查看
+  const useGridForFour = false
 
   const paneCount = useGridForFour ? 2 : displayedModels.length
 
@@ -363,7 +359,7 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
       return {
         display: 'grid',
         gridTemplateColumns: `${widths[0] ?? 0}px 16px ${widths[1] ?? 0}px`,
-        gridTemplateRows: 'minmax(480px, 1fr) minmax(480px, 1fr)',
+        gridTemplateRows: '1fr 1fr',
         rowGap: '1rem',
         width: '100%',
         height: '100%',
@@ -380,6 +376,7 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
       gridTemplateColumns: cols.join(' '),
       gridTemplateRows: '1fr',
       width: '100%',
+      minWidth: displayMode === 'four' ? `${4 * MIN_PANE_WIDTH + 3 * gutterWidthPx}px` : '100%',
       height: '100%',
       transition: (isResizing || suppressPaneTransition || !isActive) ? 'none' : 'grid-template-columns 160ms ease'
     }
@@ -514,7 +511,7 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
   return (
     <div className="flex flex-col h-full">
       {/* Webview 卡片区域的外层滚动容器，处理 padding 以防阴影被裁切 */}
-      <div className="flex-grow min-h-0 overflow-y-auto px-4 pt-4 sm:px-6 sm:pt-6 pb-5">
+      <div className="flex-grow min-h-0 overflow-auto px-4 pt-4 sm:px-6 sm:pt-6 pb-5">
         {/* 用于计算宽度和 CSS Grid 布局的内层无 padding 容器 */}
         <div ref={containerRef} style={containerStyle}>
           {renderLayoutChildren()}
