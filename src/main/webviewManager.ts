@@ -339,7 +339,7 @@ export function createWindow(): void {
             sandbox: false,
             contextIsolation: true,
             nodeIntegration: false,
-
+            webviewTag: true,
             partition: 'persist:shared'
         }
     })
@@ -638,7 +638,7 @@ export function createQuickWindow(): void {
             sandbox: false,
             contextIsolation: true,
             nodeIntegration: false,
-
+            webviewTag: true,
             partition: 'persist:shared'
         }
     })

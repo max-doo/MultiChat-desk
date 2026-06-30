@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { Virtuoso } from 'react-virtuoso'
 import { useAppStore, SummaryHistoryItem } from '../store/appStore'
 import ConfirmModal from './ConfirmModal'
@@ -22,15 +22,7 @@ function SummaryHistoryDrawer({ isOpen, onClose, onSelectHistory, activeHistoryI
   const [showRenameModal, setShowRenameModal] = useState(false)
   const [renameTargetId, setRenameTargetId] = useState<string>('')
   const [renameValue, setRenameValue] = useState('')
-  const { summaryHistory, removeSummaryHistory, updateSummaryHistory, models, setRightOverlayOpen } = useAppStore()
-
-  useEffect(() => {
-    if (isOpen) {
-      setRightOverlayOpen(true)
-      return () => setRightOverlayOpen(false)
-    }
-    return undefined
-  }, [isOpen, setRightOverlayOpen])
+  const { summaryHistory, removeSummaryHistory, updateSummaryHistory, models } = useAppStore()
 
   // 过滤历史记录
   const filteredHistory = summaryHistory.filter(item =>

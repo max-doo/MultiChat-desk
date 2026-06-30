@@ -3,7 +3,7 @@ import TurndownService from 'turndown'
 import { gfm } from 'turndown-plugin-gfm'
 import { defaultSelectors } from '../config/selectors'
 import { useAppStore, DEEP_RESEARCH_SUPPORTED_MODEL_IDS, IMAGE_GENERATION_SUPPORTED_MODEL_IDS } from '../store/appStore'
-import CustomDropdown from './CustomDropdown'
+import CustomDropdown, { type DropdownOption } from './CustomDropdown'
 import {
   generateSendMessageScript,
   generateInsertTextScript,
@@ -125,73 +125,14 @@ export interface WebviewCardRef {
  */
 const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
   ({ id, name, url, logo, enabled, slotIndex, compact, hideHeader, onModelChange, isolated, headerActions, draggableHeader, flat, onDragStart }, ref) => {
-    const hostRef = useRef<HTMLDivElement>(null)
-    const [viewId, setViewId] = useState<string | null>(null)
+    const webviewRef = useRef<Electron.WebviewTag>(null)
     const [isLoading, setIsLoading] = useState(true)
     const [isReady, setIsReady] = useState(false)
     const [sendStatus, setSendStatus] = useState<'idle' | 'sending' | 'success' | 'error'>('idle')
     const [loadError, setLoadError] = useState<LoadErrorInfo | null>(null)
     const [canGoBack, setCanGoBack] = useState(false)
     const [canGoForward, setCanGoForward] = useState(false)
-    const [screenshotDataUrl, setScreenshotDataUrl] = useState<string | null>(null)
-    const [overlayActive, setOverlayActive] = useState(false)
-    const [isDropdownOpen, setIsDropdownOpen] = useState(false)
-
-    const leftOverlayOpen = useAppStore(state => state.leftOverlayOpen)
-    const rightOverlayOpen = useAppStore(state => state.rightOverlayOpen)
-    const modalOpen = useAppStore(state => state.modalOpen)
-    const displayMode = useAppStore(state => state.displayMode)
-
-    const isLeftSlot = (sIdx: number, mode: string): boolean => {
-      if (mode === 'one') return true
-      if (mode === 'two') return sIdx === 0
-      if (mode === 'three') return sIdx === 0
-      if (mode === 'four') return sIdx === 0 || sIdx === 2
-      return false
-    }
-
-    const isRightSlot = (sIdx: number, mode: string): boolean => {
-      if (mode === 'one') return true
-      if (mode === 'two') return sIdx === 1
-      if (mode === 'three') return sIdx === 2
-      if (mode === 'four') return sIdx === 1 || sIdx === 3
-      return false
-    }
-
-    const needsOverlay = 
-      modalOpen ||
-      leftOverlayOpen ||
-      rightOverlayOpen ||
-      isDropdownOpen
-
-    useEffect(() => {
-      let active = true;
-      if (needsOverlay && viewId && isReady) {
-        window.api.captureWebviewPage(viewId).then(res => {
-          if (!active) return;
-          if (res.success && res.data?.dataUrl) {
-            setScreenshotDataUrl(res.data.dataUrl)
-          }
-          setOverlayActive(true)
-        }).catch(() => {
-          if (active) setOverlayActive(true)
-        })
-      } else {
-        // 当关闭抽屉时，延迟300ms等待CSS过渡动画结束再销毁截图
-        const t = setTimeout(() => {
-          if (active) {
-            setScreenshotDataUrl(null)
-            setOverlayActive(false)
-          }
-        }, 300)
-        return () => { active = false; clearTimeout(t) }
-      }
-      return () => { active = false }
-    }, [needsOverlay, viewId, isReady])
-
-    const shouldHideWebview = loadError || isLoading || overlayActive
-
-    // 跟踪已加载 of URL，避免重复 loadURL
+    // 跟踪已加载的 URL，避免重复 loadURL
     const loadedUrlRef = useRef<string | null>(null)
 
     // ── 加载诊断状态 / refs ──
@@ -221,117 +162,17 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
     // 获取当前模型的选择器配置
     const selectors = defaultSelectors.models[id]
 
-    const syncNavigationState = async (): Promise<void> => {
-      if (!viewId) return
+    const syncNavigationState = (): void => {
+      const webview = webviewRef.current
+      if (!webview) return
       try {
-        const state = await window.api.getWebviewNavState(viewId)
-        if (state.success && state.data) {
-          setCanGoBack(state.data.canGoBack)
-          setCanGoForward(state.data.canGoForward)
-        }
+        setCanGoBack(webview.canGoBack())
+        setCanGoForward(webview.canGoForward())
       } catch {
         setCanGoBack(false)
         setCanGoForward(false)
       }
     }
-
-    // ── WebContentsView 生命周期与布局同步 ──
-    useEffect(() => {
-      if (!enabled) return
-
-      let activeViewId: string | null = null
-      let resizeObserver: ResizeObserver | null = null
-      let scrollCleanup: (() => void) | null = null
-      let animationFrameId: number | null = null
-
-      const initView = async () => {
-        const res = await window.api.createWebviewView({
-          slotKey: `slot-${slotIndex}-${id}`,
-          partition: 'persist:shared'
-        })
-        if (res.success && res.data?.viewId) {
-          activeViewId = res.data.viewId
-          setViewId(activeViewId)
-
-          // 使用 requestAnimationFrame 节流更新边界并限制溢出
-          const requestUpdateBounds = () => {
-            if (animationFrameId !== null) return
-            animationFrameId = requestAnimationFrame(() => {
-              animationFrameId = null
-              if (!hostRef.current || !activeViewId) return
-              const rect = hostRef.current.getBoundingClientRect()
-              
-              let x = Math.round(rect.left)
-              let y = Math.round(rect.top)
-              let width = Math.round(rect.width)
-              let height = Math.round(rect.height)
-              
-              // 限制垂直方向溢出，不覆盖顶部 Toolbar(38px)
-              const topToolbarHeight = 38
-              if (y < topToolbarHeight) {
-                const overflow = topToolbarHeight - y
-                y = topToolbarHeight
-                height = Math.max(0, height - overflow)
-              }
-              
-              // 限制底部不溢出窗口
-              const windowHeight = window.innerHeight
-              if (y + height > windowHeight) {
-                height = Math.max(0, windowHeight - y)
-              }
-              
-              if (width <= 0 || height <= 0) {
-                window.api.hideWebviewView({ viewId: activeViewId })
-              } else {
-                window.api.showWebviewView({ viewId: activeViewId })
-                window.api.setWebviewBounds({
-                  viewId: activeViewId,
-                  bounds: { x, y, width, height }
-                })
-              }
-            })
-          }
-
-          // 绑定 ResizeObserver
-          if (hostRef.current) {
-            resizeObserver = new ResizeObserver(() => {
-              requestUpdateBounds()
-            })
-            resizeObserver.observe(hostRef.current)
-          }
-
-          // 监听滚动事件实时更新
-          window.addEventListener('scroll', requestUpdateBounds, true)
-          window.addEventListener('resize', requestUpdateBounds)
-
-          scrollCleanup = () => {
-            window.removeEventListener('scroll', requestUpdateBounds, true)
-            window.removeEventListener('resize', requestUpdateBounds)
-          }
-
-          // 初始加载 URL
-          if (url) {
-            window.api.loadWebviewURL(activeViewId, url)
-            loadedUrlRef.current = url
-            setIsLoading(true)
-            setLoadError(null)
-          }
-        }
-      }
-
-      initView()
-
-      return () => {
-        if (animationFrameId !== null) {
-          cancelAnimationFrame(animationFrameId)
-        }
-        if (resizeObserver) resizeObserver.disconnect()
-        if (scrollCleanup) scrollCleanup()
-        if (activeViewId) {
-          window.api.removeWebviewView({ viewId: activeViewId })
-        }
-      }
-    }, [enabled, id, slotIndex])
 
     // ── 加载诊断计时器辅助 ──
     // 清除超时与已等待秒数计时器
@@ -347,8 +188,8 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
     }
 
     // 超时触发：停止 webview、清计时器、设置 timeout 错误覆盖层
-    const triggerLoadTimeout = async (): Promise<void> => {
-      try { if (viewId) await window.api.webviewStop(viewId) } catch { /* ignore */ }
+    const triggerLoadTimeout = (): void => {
+      try { webviewRef.current?.stop() } catch { /* ignore */ }
       clearLoadTimers()
       setIsLoading(false)
       const hostname = getHostname(loadedUrlRef.current || '')
@@ -367,16 +208,24 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
       }, LOAD_TIMEOUT_MS)
     }
 
+    // 任务分配模式或隔离模式支持选择所有 AI，因此可选列表为全量模型；多 AI 模式下排除自身
+    const availableModels = (productMode === 'task_assignment' || isolated || !!onModelChange) ? models : models.filter(m => m.id !== id)
 
-    // ── 事件订阅 ──
+    // 将模型列表转换为下拉菜单选项格式
+    const modelOptions: DropdownOption<string>[] = availableModels.map(m => ({
+      value: m.id,
+      label: m.name,
+      logo: m.logo // 保存 logo 信息
+    }))
+
     useEffect(() => {
-      if (!enabled || !viewId) return
+      const webview = webviewRef.current
+      if (!webview || !enabled) return
 
       // 监听加载事件
-      const handleDomReady = async (): Promise<void> => {
+      const handleDomReady = (): void => {
         try {
-          const currentUrlRes = await window.api.getWebviewURL(viewId)
-          const currentUrl = currentUrlRes.success && currentUrlRes.data ? currentUrlRes.data.url : ''
+          const currentUrl = webview.getURL()
           if (currentUrl && (currentUrl.startsWith('chrome-error://') || currentUrl.startsWith('data:text/html'))) {
             return
           }
@@ -392,6 +241,7 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
       }
 
       const handleLoadStart = (): void => {
+        // 不在这里清空 setLoadError(null)，防止 did-fail-load 报网络错误后 Chromium 内部尝试跳转错误页时触发 start-loading 导致错误弹窗消失
         setIsLoading(true)
         startLoadTimers()
       }
@@ -402,13 +252,14 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
         syncNavigationState()
       }
 
-      const handleLoadFail = (data: any): void => {
-        if (!data.isMainFrame) return
-        if (data.errorCode === -3) {
+      const handleLoadFail = (event: Electron.DidFailLoadEvent): void => {
+        if (!event.isMainFrame) return
+        if (event.errorCode === -3) {
+          // 用户主动取消或网卡路由切换（如 TUN 模式）导致中断时，清除计时器与加载状态
           clearLoadTimers()
           setIsLoading(false)
           if (isFirstLoadRef.current) {
-            const failHost = getHostname(data.validatedURL || loadedUrlRef.current || '')
+            const failHost = getHostname(event.validatedURL || loadedUrlRef.current || '')
             setLoadError({
               category: 'connection',
               icon: 'cloud_off',
@@ -421,24 +272,33 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
           return
         }
         clearLoadTimers()
+        const errorInfo = {
+          errorCode: event.errorCode,
+          errorDescription: event.errorDescription,
+          validatedURL: event.validatedURL,
+          isMainFrame: event.isMainFrame
+        }
+        console.error(`${name} 加载失败:`, errorInfo)
         setIsLoading(false)
-        const failHost = getHostname(data.validatedURL || loadedUrlRef.current || '')
-        setLoadError(classifyError(data.errorCode, failHost))
+        const failHost = getHostname(event.validatedURL || loadedUrlRef.current || '')
+        setLoadError(classifyError(event.errorCode, failHost))
       }
 
-      const handleConsoleMessage = (data: any): void => {
-        if (!data || !data.message) return
-        if (data.message.startsWith('__MM_LOG__:')) {
-          console.log(`[${name}] ${data.message.substring(9)}`)
+      const handleConsoleMessage = (event: Electron.ConsoleMessageEvent): void => {
+        if (event.message.startsWith('__MM_LOG__:')) {
+          console.log(`[${name}] ${event.message.substring(9)}`)
           return
         }
-        if (data.level >= 2) {
-          console.log(`[${name}] Level ${data.level}: ${data.message}`)
+
+        // 记录所有级别的消息（0=verbose, 1=info, 2=warning, 3=error）
+        if (event.level >= 2) { // 只记录警告和错误
+          console.log(`[${name}] Level ${event.level}: ${event.message}`)
         }
       }
 
-      const handleRenderProcessGone = (data: any): void => {
-        console.error(`[${name}] 渲染进程崩溃/退出! reason: ${data?.reason || 'unknown'}`, data)
+      const handleRenderProcessGone = (event: any): void => {
+        const details = event?.details || event
+        console.error(`[${name}] 渲染进程崩溃/退出! reason: ${details?.reason || 'unknown'}, exitCode: ${details?.exitCode ?? 'none'}`, details)
         clearLoadTimers()
         setIsLoading(false)
         setLoadError({
@@ -451,35 +311,59 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
         })
       }
 
-      const handleDidNavigate = (): void => syncNavigationState()
-      const handleDidNavigateInPage = (): void => syncNavigationState()
-      const handleDidFinishLoad = (): void => syncNavigationState()
+      webview.addEventListener('dom-ready', handleDomReady)
+      webview.addEventListener('did-start-loading', handleLoadStart)
+      webview.addEventListener('did-stop-loading', handleLoadStop)
+      webview.addEventListener('did-fail-load', handleLoadFail)
+      webview.addEventListener('console-message', handleConsoleMessage)
+      webview.addEventListener('render-process-gone', handleRenderProcessGone)
+      webview.addEventListener('crashed', handleRenderProcessGone)
 
-      const unsubscribe = window.api.onWebviewEvent((payload) => {
-        if (payload.viewId !== viewId) return
-        switch (payload.type) {
-          case 'dom-ready': handleDomReady(); break;
-          case 'did-start-loading': handleLoadStart(); break;
-          case 'did-stop-loading': handleLoadStop(); break;
-          case 'did-fail-load': handleLoadFail(payload.data); break;
-          case 'console-message': handleConsoleMessage(payload.data); break;
-          case 'render-process-gone': handleRenderProcessGone(payload.data); break;
-          case 'did-navigate': handleDidNavigate(); break;
-          case 'did-navigate-in-page': handleDidNavigateInPage(); break;
-          case 'did-finish-load': handleDidFinishLoad(); break;
-        }
-      })
+      // 监听导航事件
+      const handleDidNavigate = (_event: any): void => {
+        // 不在这里清空 setLoadError(null)，由 handleDomReady、主动 loadURL 或重试操作负责清空
+        syncNavigationState()
+      }
+
+      const handleDidNavigateInPage = (_event: any): void => {
+        syncNavigationState()
+      }
+
+      const handleDidFinishLoad = (): void => {
+        syncNavigationState()
+      }
+
+      webview.addEventListener('did-navigate', handleDidNavigate)
+      webview.addEventListener('did-navigate-in-page', handleDidNavigateInPage)
+
+      // 注意：移除了 handleNewWindow 事件监听器
+      // 外部链接打开功能由主进程的注入脚本 (openUrl -> __OPEN_LINK__) 和 setWindowOpenHandler 处理
+      // 保留 handleNewWindow 会导致重复打开窗口
+
+      // 页面加载完成后检查内容
+      webview.addEventListener('did-finish-load', handleDidFinishLoad)
 
       return () => {
         clearLoadTimers()
-        unsubscribe()
+        webview.removeEventListener('dom-ready', handleDomReady)
+        webview.removeEventListener('did-start-loading', handleLoadStart)
+        webview.removeEventListener('did-stop-loading', handleLoadStop)
+        webview.removeEventListener('did-fail-load', handleLoadFail)
+        webview.removeEventListener('console-message', handleConsoleMessage)
+        webview.removeEventListener('render-process-gone', handleRenderProcessGone)
+        webview.removeEventListener('crashed', handleRenderProcessGone)
+        webview.removeEventListener('did-navigate', handleDidNavigate)
+        webview.removeEventListener('did-navigate-in-page', handleDidNavigateInPage)
+        webview.removeEventListener('did-finish-load', handleDidFinishLoad)
       }
-    }, [enabled, name, selectors, viewId])
+    }, [enabled, name, selectors])
 
     // F3: 使用 loadURL() 主动导航，替代不可靠的 <webview src> 属性
     // Electron <webview> 的 src 属性在冷启动时经常不触发导航，导致页面空白
     useEffect(() => {
-      if (!viewId || !enabled || !url) return
+      const webview = webviewRef.current
+      if (!webview || !enabled || !url) return
+      // URL 没变则跳过
       if (loadedUrlRef.current === url) return
 
       const doLoad = (): void => {
@@ -488,28 +372,58 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
           loadedUrlRef.current = url
           setIsLoading(true)
           setLoadError(null)
-          window.api.loadWebviewURL(viewId, url)
+          webview.loadURL(url)
         } catch (e) {
           console.error(`[${name}] loadURL failed:`, e)
         }
       }
 
-      doLoad()
-    }, [url, enabled, name, viewId])
+      // 如果 webview 已挂载（有 getURL 方法），直接加载
+      // 否则等一个 tick 让 Electron 完成内部初始化
+      if (typeof webview.getURL === 'function') {
+        try {
+          webview.getURL() // 测试是否已就绪
+          doLoad()
+        } catch {
+          // webview 尚未就绪，等待 did-attach
+          const timer = setTimeout(doLoad, 200)
+          return () => clearTimeout(timer)
+        }
+      } else {
+        const timer = setTimeout(doLoad, 200)
+        return () => clearTimeout(timer)
+      }
+    }, [url, enabled, name])
 
     // 暴露方法给父组件
-    // 暴露方法给父组件
     useImperativeHandle(ref, () => ({
+      /**
+       * 发送消息到当前平台
+       */
       sendMessage: async (message: string): Promise<{ success: boolean; error?: string }> => {
-        if (!viewId) return { success: false, error: 'viewId 为空' }
-        if (!isReady) return { success: false, error: 'Webview 未就绪' }
-        if (!selectors) return { success: false, error: '选择器配置不存在' }
+        const webview = webviewRef.current
+        if (!webview) {
+          console.warn(`[${name}] sendMessage: webview ref 为空`)
+          return { success: false, error: `Webview ref 为空` }
+        }
+        if (!isReady) {
+          console.warn(`[${name}] sendMessage: webview 未就绪 (isReady: ${isReady}, isLoading: ${isLoading})`)
+          return { success: false, error: `Webview 未就绪 (加载中: ${isLoading})` }
+        }
+        if (!selectors) {
+          console.warn(`[${name}] sendMessage: 选择器配置不存在`)
+          return { success: false, error: `选择器配置不存在` }
+        }
+
         setSendStatus('sending')
+
         try {
           const code = generateSendMessageScript(message, id, selectors)
-          const result = await window.api.executeWebviewScript(viewId, code)
+          const result = await webview.executeJavaScript(code)
+
           if (result.success) {
             setSendStatus('success')
+            // 3秒后恢复状态
             setTimeout(() => setSendStatus('idle'), 3000)
             return { success: true }
           } else {
@@ -518,61 +432,106 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
             return { success: false, error: result.error }
           }
         } catch (error) {
+          console.error(`[${name}] sendMessage 异常:`, error)
           setSendStatus('error')
           setTimeout(() => setSendStatus('idle'), 3000)
           return { success: false, error: String(error) }
         }
       },
+
+      /**
+       * 只输入文字到输入框，不发送
+       */
       insertText: async (message: string): Promise<{ success: boolean; error?: string }> => {
-        if (!viewId) return { success: false, error: 'viewId 为空' }
-        if (!isReady) return { success: false, error: 'Webview 未就绪' }
-        if (!selectors) return { success: false, error: '选择器配置不存在' }
+        const webview = webviewRef.current
+        if (!webview) {
+          console.warn(`[${name}] insertText: webview ref 为空`)
+          return { success: false, error: `Webview ref 为空` }
+        }
+        if (!isReady) {
+          console.warn(`[${name}] insertText: webview 未就绪 (isReady: ${isReady}, isLoading: ${isLoading})`)
+          return { success: false, error: `Webview 未就绪 (加载中: ${isLoading})` }
+        }
+        if (!selectors) {
+          console.warn(`[${name}] insertText: 选择器配置不存在`)
+          return { success: false, error: `选择器配置不存在` }
+        }
+
         try {
           const code = generateInsertTextScript(message, id, selectors)
-          const result = await window.api.executeWebviewScript(viewId, code)
-          const data = result.data as any || {}
-          return { success: result.success && (data.success !== false), error: result.error || data.error }
+          const result = await webview.executeJavaScript(code)
+          return { success: result.success, error: result.error }
         } catch (error) {
+          console.error(`[${name}] insertText 异常:`, error)
           return { success: false, error: String(error) }
         }
       },
+
+      /**
+       * 清空输入框内容
+       */
       clearInput: async (): Promise<{ success: boolean; error?: string }> => {
-        if (!viewId || !isReady || !selectors) return { success: false, error: 'Webview 未就绪' }
+        const webview = webviewRef.current
+        if (!webview || !isReady || !selectors) {
+          return { success: false, error: 'Webview 未就绪' }
+        }
+
         try {
           const code = generateClearInputScript(selectors)
           const result = await Promise.race([
-            window.api.executeWebviewScript(viewId, code),
+            webview.executeJavaScript(code),
             new Promise<any>((_, reject) => setTimeout(() => reject(new Error('执行超时')), 400))
           ])
-          const data = result.data as any || {}
-          return { success: result.success && (data.success !== false), error: result.error || data.error }
+          return { success: result.success, error: result.error }
         } catch (error) {
           return { success: false, error: String(error) }
         }
       },
+
+      /**
+       * 读取输入框中的当前文本内容（不清空、不发送）
+       */
       getInputText: async (): Promise<{ success: boolean; text?: string; error?: string }> => {
-        if (!viewId || !isReady || !selectors) return { success: false, text: '', error: 'Webview 未就绪' }
+        const webview = webviewRef.current
+        if (!webview || !isReady || !selectors) {
+          return { success: false, text: '', error: 'Webview 未就绪' }
+        }
+
         try {
           const code = generateGetInputTextScript(selectors)
           const result = await Promise.race([
-            window.api.executeWebviewScript(viewId, code),
+            webview.executeJavaScript(code),
             new Promise<any>((_, reject) => setTimeout(() => reject(new Error('执行超时')), 400))
           ])
-          const data = result.data as any || {}
-          return { success: result.success && (data.success !== false), text: data.text || '', error: result.error || data.error }
+          return { success: result.success, text: result.text || '', error: result.error }
         } catch (error) {
+          console.error(`[${name}] getInputText 异常:`, error)
           return { success: false, text: '', error: String(error) }
         }
       },
+
+      /**
+       * 上传文件到 webview
+       */
       uploadFile: async (fileData: FileUploadData): Promise<{ success: boolean; error?: string }> => {
-        if (!viewId || !isReady || !selectors) return { success: false, error: 'Webview 未就绪' }
+        const webview = webviewRef.current
+        if (!webview || !isReady || !selectors) {
+          return { success: false, error: 'Webview 未就绪' }
+        }
+
         try {
-          const wcRes = await window.api.getWebviewWebContentsId(viewId)
-          const webContentsId = wcRes.success && wcRes.data ? wcRes.data.webContentsId : null
-          if (!window.api?.dispatchFileDrop) return { success: false, error: '缺少 dispatchFileDrop，无法拖拽上传' }
-          if (!fileData?.filePath) return { success: false, error: '缺少 filePath，无法拖拽上传' }
-          if (typeof webContentsId !== 'number') return { success: false, error: '无法获取 webContentsId，无法拖拽上传' }
-          const pointRes = await window.api.executeWebviewScript(viewId, `
+          const webContentsId = typeof (webview as any).getWebContentsId === 'function' ? (webview as any).getWebContentsId() : null
+          if (!window.api?.dispatchFileDrop) {
+            return { success: false, error: '缺少 dispatchFileDrop，无法拖拽上传' }
+          }
+          if (!fileData?.filePath) {
+            return { success: false, error: '缺少 filePath，无法拖拽上传' }
+          }
+          if (typeof webContentsId !== 'number') {
+            return { success: false, error: '无法获取 webContentsId，无法拖拽上传' }
+          }
+
+          const point = await webview.executeJavaScript(`
             (function () {
               const textareaSelectors = ${JSON.stringify(selectors.textarea || [])};
               let target = null;
@@ -589,10 +548,15 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
               return { x, y };
             })();
           `)
-          const point = pointRes.success ? (pointRes.data as any) : null
+
           const dropResult = await window.api.dispatchFileDrop(webContentsId, fileData.filePath, point?.x ?? 10, point?.y ?? 10)
-          if (!dropResult?.success) return { success: false, error: dropResult?.error || '文件拖拽上传失败' }
-          const detectedRes = await window.api.executeWebviewScript(viewId, `
+          if (!dropResult?.success) {
+            return { success: false, error: dropResult?.error || '文件拖拽上传失败' }
+          }
+
+          // 信任 dispatchFileDrop 的成功结果；DOM 检测仅作为辅助确认，
+          // 不再因 DOM 中未出现文件名而判定失败（部分平台上传 UI 延迟或不显示文件名）
+          const detected = await webview.executeJavaScript(`
             (async function () {
               const fileName = ${JSON.stringify(fileData.fileName)};
               const deadline = Date.now() + 8000;
@@ -604,146 +568,256 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
                   const aria = (node.getAttribute && node.getAttribute('aria-label')) || '';
                   const title = (node.getAttribute && node.getAttribute('title')) || '';
                   const dataName = (node.getAttribute && node.getAttribute('data-file-name')) || '';
-                  if ((aria && aria.includes(fileName)) || (title && title.includes(fileName)) || (dataName && dataName.includes(fileName))) return true;
+                  if ((aria && aria.includes(fileName)) || (title && title.includes(fileName)) || (dataName && dataName.includes(fileName))) {
+                    return true;
+                  }
                 }
                 await new Promise(r => setTimeout(r, 200));
               }
               return false;
             })();
           `)
+
+          if (!detected) {
+            console.warn(`[${name}] uploadFile: 未在 DOM 中检测到文件名，但 debugger 拖拽已成功，视为上传成功`)
+          }
           return { success: true }
         } catch (error) {
           return { success: false, error: String(error) }
         }
       },
+
+      /**
+       * 启用 Deep Research 模式
+       */
       enableDeepResearch: async (): Promise<{ success: boolean; error?: string }> => {
-        if (!viewId || !isReady || !selectors) return { success: false, error: 'Webview 未就绪' }
-        if (!selectors.researchMode?.button && !selectors.researchMode?.steps) return { success: false, error: '不支持 Deep Research' }
+        const webview = webviewRef.current
+        if (!webview || !isReady || !selectors) {
+          return { success: false, error: 'Webview 未就绪' }
+        }
+
+        // 检查是否有 Deep Research 配置
+        if (!selectors.researchMode?.button && !selectors.researchMode?.steps) {
+          return { success: false, error: '此模型不支持 Deep Research' }
+        }
+
         try {
+          // 传递整个 researchMode 配置
           const code = generateEnableDeepResearchScript(selectors.researchMode)
-          const result = await window.api.executeWebviewScript(viewId, code)
-          const data = result.data as any || {}
-          return { success: result.success && (data.success !== false), error: result.error || data.error }
+          const result = await webview.executeJavaScript(code)
+          return { success: result.success, error: result.error }
         } catch (error) {
           return { success: false, error: String(error) }
         }
       },
+
       disableDeepResearch: async (): Promise<{ success: boolean; error?: string }> => {
-        if (!viewId || !isReady || !selectors) return { success: false, error: 'Webview 未就绪' }
-        if (!selectors.researchMode?.cancelSteps) return { success: false, error: '不支持取消' }
+        const webview = webviewRef.current
+        if (!webview || !isReady || !selectors) {
+          return { success: false, error: 'Webview 未就绪' }
+        }
+
+        if (!selectors.researchMode?.cancelSteps) {
+          return { success: false, error: '此模型不支持取消 Deep Research' }
+        }
+
         try {
           const code = generateDisableDeepResearchScript(selectors.researchMode)
-          const result = await window.api.executeWebviewScript(viewId, code)
-          const data = result.data as any || {}
-          return { success: result.success && (data.success !== false), error: result.error || data.error }
+          const result = await webview.executeJavaScript(code)
+          return { success: result.success, error: result.error }
         } catch (error) {
           return { success: false, error: String(error) }
         }
       },
+
+      /**
+       * 启用 AI 生图功能
+       */
       enableImageGeneration: async (): Promise<{ success: boolean; error?: string }> => {
-        if (!viewId || !isReady || !selectors) return { success: false, error: 'Webview 未就绪' }
-        if (!selectors.imageGeneration?.steps) return { success: false, error: '不支持生图' }
+        const webview = webviewRef.current
+        if (!webview || !isReady || !selectors) {
+          return { success: false, error: 'Webview 未就绪' }
+        }
+
+        if (!selectors.imageGeneration?.steps) {
+          return { success: false, error: '此模型不支持 AI 生图' }
+        }
+
         try {
           const code = generateEnableImageGenerationScript(selectors.imageGeneration)
-          const result = await window.api.executeWebviewScript(viewId, code)
-          const data = result.data as any || {}
-          return { success: result.success && (data.success !== false), error: result.error || data.error }
+          const result = await webview.executeJavaScript(code)
+          return { success: result.success, error: result.error }
         } catch (error) {
           return { success: false, error: String(error) }
         }
       },
+
+      /**
+       * 禁用 AI 生图功能
+       */
       disableImageGeneration: async (): Promise<{ success: boolean; error?: string }> => {
-        if (!viewId || !isReady || !selectors) return { success: false, error: 'Webview 未就绪' }
-        if (!selectors.imageGeneration?.cancelSteps) return { success: false, error: '不支持取消' }
+        const webview = webviewRef.current
+        if (!webview || !isReady || !selectors) {
+          return { success: false, error: 'Webview 未就绪' }
+        }
+
+        if (!selectors.imageGeneration?.cancelSteps) {
+          return { success: false, error: '此模型不支持取消 AI 生图' }
+        }
+
         try {
           const code = generateDisableImageGenerationScript(selectors.imageGeneration)
-          const result = await window.api.executeWebviewScript(viewId, code)
-          const data = result.data as any || {}
-          return { success: result.success && (data.success !== false), error: result.error || data.error }
+          const result = await webview.executeJavaScript(code)
+          return { success: result.success, error: result.error }
         } catch (error) {
           return { success: false, error: String(error) }
         }
       },
+
+      /**
+       * 获取最新的 AI 回复
+       * 对于 Gemini Canvas 模式，通过点击复制按钮并读取剪贴板获取内容
+       */
       getLatestResponse: async (): Promise<string> => {
-        if (!viewId || !isReady || !selectors) return ''
+        const webview = webviewRef.current
+        if (!webview || !isReady || !selectors) {
+          return ''
+        }
+
         try {
+          // 对于 Gemini，先尝试 Canvas 模式的复制方式（使用真实鼠标点击）
           if (id === 'gemini') {
-            const canvasContent = await extractGeminiCanvasContent(viewId as any, window.api as any, turndownService)
-            if (canvasContent) return canvasContent
+            const canvasContent = await extractGeminiCanvasContent(
+              webview,
+              window.api as any,
+              turndownService
+            )
+            if (canvasContent) {
+              return canvasContent
+            }
+            // Canvas 模式提取失败，回退到普通 DOM 爬取
           }
+
+          // 普通模式：使用 HTML 转 Markdown
           const code = generateGetLatestResponseScript(selectors)
-          const result = await window.api.executeWebviewScript(viewId, code)
-          return result.success ? String(result.data || '') : ''
+          return await webview.executeJavaScript(code)
         } catch (error) {
+          console.error('获取回复失败:', error)
           return ''
         }
       },
+
+      /**
+       * 重新加载 webview
+       */
       reload: (): void => {
-        if (viewId) window.api.reloadWebview(viewId)
+        webviewRef.current?.reload()
       },
+
+      /**
+       * 跳转到初始 URL 并在加载完成后返回
+       */
       resetToInitial: async (): Promise<{ success: boolean; error?: string }> => {
-        if (!viewId) return { success: false, error: 'viewId 为空' }
+        const webview = webviewRef.current
+        if (!webview) {
+          return { success: false, error: 'Webview ref 为空' }
+        }
+
         const clearNavigationState = (): void => {
           setCanGoBack(false)
           setCanGoForward(false)
-          try { window.api.clearWebviewHistory(viewId) } catch { /* ignore */ }
+          try {
+            webview.clearHistory()
+          } catch {
+            // clearHistory 可能在某些情况下失败，忽略错误
+          }
         }
+
         setLoadError(null)
         setIsLoading(true)
         setElapsedSeconds(0)
-        isFirstLoadRef.current = true
+        isFirstLoadRef.current = true // resetToInitial 视为首次加载，复用超时逻辑
         clearNavigationState()
-        loadedUrlRef.current = url
+        loadedUrlRef.current = url // 同步 ref，防止 F3 effect 重复导航
+
         return await new Promise<{ success: boolean; error?: string }>((resolve) => {
-          let timeoutHandle: ReturnType<typeof setTimeout>
-          const unsubscribe = window.api.onWebviewEvent((payload) => {
-            if (payload.viewId !== viewId) return
-            if (payload.type === 'did-stop-loading') {
-              setIsLoading(false)
+          const handleStop = (): void => {
+            setIsLoading(false)
+            clearNavigationState()
+            setTimeout(() => {
               clearNavigationState()
-              setTimeout(() => clearNavigationState(), 300)
-              cleanup()
-              resolve({ success: true })
-            } else if (payload.type === 'did-fail-load') {
-              const event = payload.data as any
-              cleanup()
-              if (event?.errorCode === -3) {
-                resolve({ success: false, error: 'aborted' })
-                return
-              }
-              setIsLoading(false)
-              const failHost = getHostname(event?.validatedURL || url)
-              setLoadError(classifyError(event?.errorCode ?? null, failHost))
-              resolve({ success: false, error: event?.errorDescription || String(event?.errorCode) })
-            }
-          })
-          const cleanup = (): void => {
-            if (timeoutHandle) clearTimeout(timeoutHandle)
-            unsubscribe()
-          }
-          timeoutHandle = setTimeout(() => {
+            }, 300)
             cleanup()
-            resolve({ success: false, error: '加载超时' })
-          }, LOAD_TIMEOUT_MS)
+            resolve({ success: true })
+          }
+          const handleFail = (event: Electron.DidFailLoadEvent): void => {
+            cleanup()
+            if (event?.errorCode === -3) {
+              // 用户主动取消：不展示错误覆盖层，直接结束
+              resolve({ success: false, error: 'aborted' })
+              return
+            }
+            setIsLoading(false)
+            const failHost = getHostname(event?.validatedURL || url)
+            setLoadError(classifyError(event?.errorCode ?? null, failHost))
+            resolve({ success: false, error: event?.errorDescription || String(event?.errorCode) })
+          }
+          const cleanup = (): void => {
+            webview.removeEventListener('did-stop-loading', handleStop as any)
+            webview.removeEventListener('did-fail-load', handleFail as any)
+          }
+
+          webview.addEventListener('did-stop-loading', handleStop as any)
+          webview.addEventListener('did-fail-load', handleFail as any)
           try {
-            window.api.loadWebviewURL(viewId, url)
+            webview.loadURL(url)
           } catch (error) {
             cleanup()
             resolve({ success: false, error: String(error) })
           }
         })
       },
+
+      /**
+       * 获取当前 webview 的 URL
+       */
       getCurrentUrl: (): string => {
-        return loadedUrlRef.current || ''
+        return webviewRef.current?.getURL() || ''
       },
+
+      /**
+       * 加载指定的 URL
+       */
       loadURL: (targetUrl: string): void => {
-        if (viewId) {
-          loadedUrlRef.current = targetUrl
+        if (webviewRef.current) {
+          loadedUrlRef.current = targetUrl // 同步 ref
           setIsLoading(true)
-          window.api.loadWebviewURL(viewId, targetUrl)
+          webviewRef.current.loadURL(targetUrl)
         }
       }
     }))
+
+    // 获取状态指示器的显示内容
+    const getStatusDisplay = () => {
+      if (!enabled) {
+        return { text: '已禁用', color: 'text-gray-500', dot: 'bg-gray-500' }
+      }
+      if (isLoading) {
+        return { text: '加载中...', color: 'text-yellow-500', dot: 'bg-yellow-500', pulse: true }
+      }
+      switch (sendStatus) {
+        case 'sending':
+          return { text: '发送中...', color: 'text-yellow-500', dot: 'bg-yellow-500', pulse: true }
+        case 'success':
+          return { text: '发送成功', color: 'text-primary', dot: 'bg-primary' }
+        case 'error':
+          return { text: '发送失败', color: 'text-red-500', dot: 'bg-red-500' }
+        default:
+          return { text: '已启用', color: 'text-primary', dot: 'bg-primary', pulse: true }
+      }
+    }
+
+    const _status = getStatusDisplay()
 
     // 单独刷新当前 webview 窗口
     const handleRefresh = () => {
@@ -751,7 +825,7 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
       setLoadError(null)
       setIsLoading(true)
       setElapsedSeconds(0)
-      if (viewId) window.api.reloadWebview(viewId)
+      webviewRef.current?.reload()
     }
 
     // 错误覆盖层“重试”：清除错误并重新加载（保持首次加载超时保护）
@@ -761,7 +835,7 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
       setIsLoading(true)
       setElapsedSeconds(0)
       isFirstLoadRef.current = true
-      if (viewId) window.api.reloadWebview(viewId)
+      webviewRef.current?.reload()
     }
 
     // 加载中“取消”：手动触发超时错误展示
@@ -770,41 +844,42 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
     }
 
     const handleGoBack = () => {
-      if (!viewId) return
+      const webview = webviewRef.current
+      if (!webview) return
       setLoadError(null)
-      if (canGoBack) {
+      if (webview.canGoBack()) {
         setIsLoading(true)
-        window.api.webviewGoBack(viewId)
+        webview.goBack()
       }
     }
 
     const handleGoForward = () => {
-      if (!viewId) return
+      const webview = webviewRef.current
+      if (!webview) return
       setLoadError(null)
-      if (canGoForward) {
+      if (webview.canGoForward()) {
         setIsLoading(true)
-        window.api.webviewGoForward(viewId)
+        webview.goForward()
       }
     }
 
     const handleNewConversation = () => {
-      if (!viewId) return
+      const webview = webviewRef.current
+      if (!webview) return
       const newUrl = selectors?.newConversationUrl
       if (!newUrl) return
       setLoadError(null)
       setIsLoading(true)
-      window.api.loadWebviewURL(viewId, newUrl)
+      webview.loadURL(newUrl)
       // 只有在非活动状态下才允许其重置全局会话标志，防止破坏其他窗口的锁
       if (!useAppStore.getState().activeModels.length) {
         useAppStore.getState().setNewSession(true)
       }
     }
 
-    // Replaced native menu with CustomDropdown
-
     if (!enabled) {
       return (
-        <div className={`flex flex-col h-full opacity-50 overflow-hidden ${flat ? 'bg-white' : 'rounded-2xl glass-panel shadow-soft'} min-h-0`}>
+        <div className={`flex flex-col h-full opacity-50 overflow-hidden ${flat ? 'bg-white' : 'rounded-2xl glass-panel shadow-soft'} ${compact ? '' : 'min-h-[480px]'}`}>
           <div className={`p-4 border-b ${flat ? 'border-gray-200/60 bg-white' : 'border-white/40'} flex justify-between items-center`}>
             <div className="flex items-center gap-3 opacity-50">
               <img alt={`${name} logo`} className="w-6 h-6" src={logo} />
@@ -819,7 +894,7 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
     }
 
     return (
-      <div className={`flex flex-col h-full overflow-hidden ${flat ? 'bg-white' : 'rounded-2xl glass-panel shadow-soft'} min-h-0`}>
+      <div className={`flex flex-col h-full overflow-hidden ${flat ? 'bg-white' : 'rounded-2xl glass-panel shadow-soft'} ${compact ? '' : 'min-h-[480px]'}`}>
         {!hideHeader && (
           <>
             {/* 卡片头部 */}
@@ -840,23 +915,20 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
               {/* 左侧：模型信息和下拉选择器 */}
               <div className={draggableHeader ? 'no-drag' : ''} title={isSessionActive ? '当前对话进行中，需开启新对话才可更换模型' : ''}>
                 <CustomDropdown
-                  options={(productMode === 'task_assignment' || isolated || !!onModelChange ? models : models.filter(m => m.id !== id)).map((opt: any) => ({
-                    value: opt.id,
-                    label: opt.name,
-                    logo: opt.logo
-                  }))}
                   value={id}
+                  disabled={isSessionActive}
                   onChange={(modelId) => {
                     if (onModelChange) {
-                      onModelChange(modelId as string)
+                      onModelChange(modelId)
                     } else if (productMode === 'task_assignment') {
-                      setTaskAssignmentSlot(slotIndex, modelId as string)
+                      setTaskAssignmentSlot(slotIndex, modelId)
                     } else {
-                      swapModelInSlot(slotIndex, modelId as string)
+                      swapModelInSlot(slotIndex, modelId)
                     }
                   }}
-                  disabled={isSessionActive}
-                  onOpenChange={setIsDropdownOpen}
+                  placeholder={name}
+                  className="relative"
+                  dropdownWidth="w-48"
                   buttonClassName={`flex items-center justify-between gap-2 rounded-lg px-2 py-1 -ml-2 transition-colors ${isSessionActive ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-100'}`}
                   renderButton={() => (
                     <div className="flex items-center gap-2">
@@ -864,42 +936,42 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
                       <h2 className="font-semibold text-text-primary">{name}</h2>
                     </div>
                   )}
-                  renderOption={(option, isSelected, onSelect) => {
-                    const model = models.find(m => m.id === option.value)
-                    const hasDeepResearch = model && DEEP_RESEARCH_SUPPORTED_MODEL_IDS.has(model.id)
-                    const hasImageGen = model && IMAGE_GENERATION_SUPPORTED_MODEL_IDS.has(model.id)
-                    return (
-                      <button
-                        onClick={onSelect}
-                        className="w-full flex items-center justify-between gap-3 px-3 py-2 hover:bg-gray-100 transition-colors text-left"
-                      >
-                        <div className="flex items-center gap-3">
-                          <img alt={model?.name || option.label} className="w-5 h-5" src={model?.logo || option.logo} />
-                          <span className="text-text-primary text-sm">{option.label}</span>
-                        </div>
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          {hasDeepResearch && (
-                            <span
-                              className="material-symbols-outlined text-base text-gray-400 hover:text-gray-600 transition-colors"
-                              title="深度研究"
-                            >
-                              biotech
-                            </span>
-                          )}
-                          {hasImageGen && (
-                            <span
-                              className="material-symbols-outlined text-base text-gray-400 hover:text-gray-600 transition-colors"
-                              title="AI 生图"
-                            >
-                              image
-                            </span>
-                          )}
-                        </div>
-                      </button>
-                    )
-                  }}
-                  dropdownWidth="w-48"
-                />
+                renderOption={(option, isSelected, onSelect) => {
+                  const model = models.find(m => m.id === option.value)
+                  const hasDeepResearch = model && DEEP_RESEARCH_SUPPORTED_MODEL_IDS.has(model.id)
+                  const hasImageGen = model && IMAGE_GENERATION_SUPPORTED_MODEL_IDS.has(model.id)
+                  return (
+                    <button
+                      onClick={onSelect}
+                      className="w-full flex items-center justify-between gap-3 px-3 py-2 hover:bg-gray-100 transition-colors text-left"
+                    >
+                      <div className="flex items-center gap-3">
+                        <img alt={model?.name || option.label} className="w-5 h-5" src={model?.logo || option.logo} />
+                        <span className="text-text-primary text-sm">{option.label}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {hasDeepResearch && (
+                          <span
+                            className="material-symbols-outlined text-base text-gray-400 hover:text-gray-600 transition-colors"
+                            title="深度研究"
+                          >
+                            biotech
+                          </span>
+                        )}
+                        {hasImageGen && (
+                          <span
+                            className="material-symbols-outlined text-base text-gray-400 hover:text-gray-600 transition-colors"
+                            title="AI 生图"
+                          >
+                            image
+                          </span>
+                        )}
+                      </div>
+                    </button>
+                  )
+                }}
+                options={modelOptions}
+              />
               </div>
 
               {/* 右侧：刷新按钮 + 状态指示器 */}
@@ -948,17 +1020,9 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
         )}
 
         {/* Webview 容器 */}
-        <div className="flex-1 relative min-h-0 rounded-b-2xl overflow-hidden bg-white">
-          {/* 截屏障眼法图层 */}
-          {screenshotDataUrl && (
-            <div 
-              className="absolute inset-0 z-0 bg-white"
-              style={{ backgroundImage: `url(${screenshotDataUrl})`, backgroundSize: '100% 100%', backgroundRepeat: 'no-repeat' }}
-            />
-          )}
-
+        <div className="flex-1 relative min-h-0">
           {isLoading && !loadError && (
-            <div className="absolute inset-0 flex items-center justify-center bg-app/50 z-10 rounded-b-2xl">
+            <div className="absolute inset-0 flex items-center justify-center bg-app/50 z-10">
               <div className="flex flex-col items-center gap-3 p-4">
                 <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
                 <span className="text-sm text-text-secondary">
@@ -978,7 +1042,7 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
           )}
 
           {loadError && (
-            <div className="absolute inset-0 flex items-center justify-center bg-app/80 z-10 rounded-b-2xl">
+            <div className="absolute inset-0 flex items-center justify-center bg-app/80 z-10">
               <div className="flex flex-col items-center gap-3 p-6 max-w-sm bg-white rounded-2xl shadow-soft">
                 <span className="material-symbols-outlined text-red-500" style={{ fontSize: 48 }}>
                   {loadError.icon}
@@ -996,12 +1060,21 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
             </div>
           )}
 
-          {/* 主进程 WebContentsView 容器 */}
-          <div
-            ref={hostRef}
-            id={`webview-host-${id}`}
-            data-mm-view-id={viewId}
-            className={`w-full h-full ${shouldHideWebview ? 'hidden' : ''}`}
+          {/* 
+            partition: 使用共享的 partition 名称，让所有 webview 共享 cookie 和 session
+            - 在一个窗口中登录 Google 账户后，其他窗口也能自动使用已登录状态
+            - persist: 前缀确保 session 持久化，关闭应用再打开不需要重新登录
+            注意：需要 allowpopups 以便 setWindowOpenHandler 能够拦截弹窗请求
+            实际的弹窗控制由主进程的 setWindowOpenHandler 处理
+          */}
+          <webview
+            ref={webviewRef}
+            id={`webview-${id}`}
+            src="about:blank"
+            partition="persist:shared"
+            className={`w-full h-full ${loadError ? 'invisible pointer-events-none' : ''}`}
+            allowpopups
+            tabIndex={-1}
           />
         </div>
       </div>

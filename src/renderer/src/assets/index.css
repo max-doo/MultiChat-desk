@@ -131,3 +131,21 @@ body {
   backdrop-filter: blur(10px);
   transform-origin: center bottom;
 }
+
+/* Webview 样式 */
+webview {
+  width: 100%;
+  height: 100%;
+  border: none;
+  /* 防止 webview 拦截键盘焦点 */
+  outline: none;
+  /* 禁用 webview 的焦点 */
+  pointer-events: auto;
+}
+
+/* 防止 webview 获得输入法焦点 */
+webview[tabindex="-1"] {
+  /* webview 不应该获得键盘焦点 */
+  -webkit-user-select: none;
+  user-select: none;
+}

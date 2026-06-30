@@ -109,27 +109,6 @@ declare global {
       automationSendPrompt: (platformId: string, prompt: string, collectDelayMs?: number) => Promise<{ success: boolean; data?: string; error?: string }>
       /** 仅收集指定平台的最新回复 */
       automationCollect: (platformId: string) => Promise<{ success: boolean; data?: string; error?: string }>
-
-      // ============ WebContentsView 管理 ============
-      createWebviewView: (params: { slotKey: string; partition?: string }) => Promise<{ success: boolean; data?: { viewId: string; webContentsId: number }; error?: string }>
-      removeWebviewView: (params: { viewId: string }) => Promise<{ success: boolean; error?: string }>
-      showWebviewView: (params: { viewId: string }) => Promise<{ success: boolean; error?: string }>
-      hideWebviewView: (params: { viewId: string }) => Promise<{ success: boolean; error?: string }>
-      focusWebviewView: (params: { viewId: string }) => Promise<{ success: boolean; error?: string }>
-      setWebviewBounds: (params: { viewId: string; bounds: { x: number; y: number; width: number; height: number } }) => void
-      executeWebviewScript: (viewId: string, code: string, options?: { userGesture?: boolean }) => Promise<{ success: boolean; data?: unknown; error?: string }>
-      loadWebviewURL: (viewId: string, url: string) => Promise<{ success: boolean; error?: string }>
-      reloadWebview: (viewId: string) => Promise<{ success: boolean; error?: string }>
-      webviewGoBack: (viewId: string) => Promise<{ success: boolean; data?: { canGoBack: boolean }; error?: string }>
-      webviewGoForward: (viewId: string) => Promise<{ success: boolean; data?: { canGoForward: boolean }; error?: string }>
-      webviewStop: (viewId: string) => Promise<{ success: boolean; error?: string }>
-      getWebviewURL: (viewId: string) => Promise<{ success: boolean; data?: { url: string }; error?: string }>
-      getWebviewNavState: (viewId: string) => Promise<{ success: boolean; data?: { canGoBack: boolean; canGoForward: boolean }; error?: string }>
-      clearWebviewHistory: (viewId: string) => Promise<{ success: boolean; error?: string }>
-      getWebviewWebContentsId: (viewId: string) => Promise<{ success: boolean; data?: { webContentsId: number }; error?: string }>
-      captureWebviewPage: (viewId: string) => Promise<{ success: boolean; data?: { dataUrl: string }; error?: string }>
-      showModelMenu: (params: { options: Array<{id: string, label: string, icon?: string}>, currentId?: string, x: number, y: number }) => Promise<{ success: boolean; data?: { selectedId: string }; error?: string }>
-      onWebviewEvent: (cb: (payload: { viewId: string; type: string; data?: Record<string, unknown> }) => void) => () => void
     }
   }
 }

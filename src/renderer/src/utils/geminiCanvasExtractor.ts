@@ -32,6 +32,10 @@ interface ReferenceLink {
   title: string
 }
 
+interface WebviewAPI {
+  executeJavaScript: (script: string) => Promise<any>
+  getWebContentsId: () => number
+}
 
 interface WindowAPI {
   readClipboardText?: () => Promise<string>
@@ -197,9 +201,9 @@ const CLOSE_MENU_SCRIPT = `
 /**
  * 检测是否为 Canvas 模式
  */
-async function checkCanvasMode(viewId: string): Promise<CanvasCheckResult | null> {
+async function checkCanvasMode(webview: WebviewAPI): Promise<CanvasCheckResult | null> {
   try {
-    const result = (await window.api.executeWebviewScript(viewId, CHECK_CANVAS_SCRIPT)).data
+    const result = await webview.executeJavaScript(CHECK_CANVAS_SCRIPT)
     console.log('[GeminiCanvasExtractor] Canvas 检测结果:', result)
     return result as CanvasCheckResult
   } catch (error) {
@@ -276,7 +280,7 @@ async function findAndClickCopyButton(
 /**
  * 等待复制完成的 Toast 消息
  */
-async function waitForCopyToast(viewId: string): Promise<boolean> {
+async function waitForCopyToast(webview: WebviewAPI): Promise<boolean> {
   try {
     const result = await webview.executeJavaScript(WAIT_FOR_COPY_TOAST_SCRIPT)
     console.log('[GeminiCanvasExtractor] 等待复制结果:', result)
@@ -340,9 +344,9 @@ async function readClipboardAndConvert(
 /**
  * 提取引用链接
  */
-async function extractReferenceLinks(viewId: string): Promise<ReferenceLink[]> {
+async function extractReferenceLinks(webview: WebviewAPI): Promise<ReferenceLink[]> {
   try {
-    const links = (await window.api.executeWebviewScript(viewId, EXTRACT_LINKS_SCRIPT)).data as ReferenceLink[]
+    const links = await webview.executeJavaScript(EXTRACT_LINKS_SCRIPT) as ReferenceLink[]
     console.log('[GeminiCanvasExtractor] 提取到引用链接数量:', links?.length || 0)
     return links || []
   } catch (error) {
@@ -380,13 +384,13 @@ function formatReferenceLinks(links: ReferenceLink[]): string {
  * @returns Promise<string | null> - 提取的 Markdown 内容，失败或非 Canvas 模式返回 null
  */
 export async function extractGeminiCanvasContent(
-  viewId: string,
-  windowApi: any,
+  webview: WebviewAPI,
+  windowApi: WindowAPI,
   turndownService: TurndownService
 ): Promise<string | null> {
   try {
     // 1. 检测 Canvas 模式
-    const canvasCheck = await checkCanvasMode(viewId)
+    const canvasCheck = await checkCanvasMode(webview)
     if (!canvasCheck?.isCanvas || !canvasCheck?.hasExportBtn || !canvasCheck?.exportBtnPos) {
       return null
     }
@@ -399,8 +403,7 @@ export async function extractGeminiCanvasContent(
     }
 
     // 3. 获取 webContents ID
-    const wcRes = await window.api.getWebviewWebContentsId(viewId)
-    const webContentsId = wcRes.success && wcRes.data ? wcRes.data.webContentsId : -1
+    const webContentsId = webview.getWebContentsId()
     console.log('[GeminiCanvasExtractor] webContentsId:', webContentsId)
 
     // 4. 点击导出按钮
@@ -414,14 +417,14 @@ export async function extractGeminiCanvasContent(
     }
 
     // 5. 查找并点击复制按钮
-    const copyClicked = await findAndClickCopyButton(viewId, windowApi, webContentsId)
+    const copyClicked = await findAndClickCopyButton(webview, windowApi, webContentsId)
     if (!copyClicked) {
       console.log('[GeminiCanvasExtractor] 复制按钮点击失败，回退到 DOM 爬取')
       return null
     }
 
     // 6. 等待复制完成
-    await waitForCopyToast(viewId)
+    await waitForCopyToast(webview)
 
     // 7. 读取剪贴板并转换为 Markdown
     const markdown = await readClipboardAndConvert(windowApi, turndownService, clipboardBefore)
@@ -431,7 +434,7 @@ export async function extractGeminiCanvasContent(
     }
 
     // 8. 提取并拼接引用链接
-    const links = await extractReferenceLinks(viewId)
+    const links = await extractReferenceLinks(webview)
     if (links.length > 0) {
       const linksMarkdown = formatReferenceLinks(links)
       const finalMarkdown = markdown.trim() + linksMarkdown

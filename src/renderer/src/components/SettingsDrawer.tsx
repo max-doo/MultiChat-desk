@@ -428,19 +428,11 @@ function ModelEditorModal({ isOpen, onClose, models, onSave, providers }: ModelE
  * 从左侧滑出，包含显示模式、API 配置、文件目录等设置
  */
 function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
-  const { apiConfig, setApiConfig, summaryModels, setSummaryModels, setLeftOverlayOpen } = useAppStore()
+  const { apiConfig, setApiConfig, summaryModels, setSummaryModels } = useAppStore()
 
   // 弹窗状态
   const [promptEditorOpen, setPromptEditorOpen] = useState(false)
   const [editingPrompt, setEditingPrompt] = useState<AgentPrompt | null>(null)
-
-  useEffect(() => {
-    if (isOpen) {
-      setLeftOverlayOpen(true)
-      return () => setLeftOverlayOpen(false)
-    }
-    return undefined
-  }, [isOpen, setLeftOverlayOpen])
   const [isNewPrompt, setIsNewPrompt] = useState(false)
 
   const [providerEditorOpen, setProviderEditorOpen] = useState(false)

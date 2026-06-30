@@ -132,7 +132,7 @@ function Layout({ children }: LayoutProps): JSX.Element {
   useEffect(() => {
     const handler = (e: MouseEvent): void => {
       const target = e.target as HTMLElement
-      const inWebview = !!target.closest('[data-mm-view-id]')
+      const inWebview = !!target.closest('webview')
       if (inWebview) return
       e.preventDefault()
       const selectionText = window.getSelection()?.toString() || ''

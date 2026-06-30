@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { Virtuoso } from 'react-virtuoso'
 import { useAppStore, HistoryItem, SummaryHistoryItem } from '../store/appStore'
 import ConfirmModal from './ConfirmModal'
@@ -27,16 +27,7 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
   const [renameType, setRenameType] = useState<'conversation' | 'summary'>('conversation')
   const [renameTargetId, setRenameTargetId] = useState<string>('')
   const [renameValue, setRenameValue] = useState('')
-  const { history, summaryHistory, removeHistories, removeSummaryHistories, updateHistory, updateSummaryHistory, models, setLeftOverlayOpen } = useAppStore()
-
-  // 监听 Drawer 打开状态
-  useEffect(() => {
-    if (isOpen) {
-      setLeftOverlayOpen(true)
-      return () => setLeftOverlayOpen(false)
-    }
-    return undefined
-  }, [isOpen, setLeftOverlayOpen])
+  const { history, summaryHistory, removeHistories, removeSummaryHistories, updateHistory, updateSummaryHistory, models } = useAppStore()
 
   // 过滤对话历史记录
   const filteredHistory = history.filter(item =>
