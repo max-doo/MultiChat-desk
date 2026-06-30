@@ -1027,7 +1027,7 @@ export function registerIpcHandlers(
      * webview:set-bounds (Task 2.3)
      * 设置 WebContentsView 的位置和大小
      */
-    ipcMain.handle('webview:set-bounds', (event, params: {
+    ipcMain.on('webview:set-bounds', (event, params: {
         viewId: string
         bounds: { x: number; y: number; width: number; height: number }
     }) => {
@@ -1035,10 +1035,8 @@ export function registerIpcHandlers(
             const win = BrowserWindow.fromWebContents(event.sender)
             if (!win) throw new Error('No window found for sender')
             viewManager.setViewBounds(win.id, params.viewId, params.bounds)
-            return { success: true }
         } catch (err: unknown) {
-            const error = err instanceof Error ? err.message : String(err)
-            return { success: false, error }
+            console.error('[IPC] webview:set-bounds error:', err)
         }
     })
 
