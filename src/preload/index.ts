@@ -220,8 +220,8 @@ const api = {
     ipcRenderer.invoke('webview:focus-view', params),
 
   /** 设置 WebContentsView 的位置和大小 */
-  setWebviewBounds: (params: { viewId: string; bounds: { x: number; y: number; width: number; height: number } }): Promise<{ success: boolean; error?: string }> =>
-    ipcRenderer.invoke('webview:set-bounds', params),
+  setWebviewBounds: (params: { viewId: string; bounds: { x: number; y: number; width: number; height: number } }): void =>
+    ipcRenderer.send('webview:set-bounds', params),
 
   /** 在 WebContentsView 中执行 JavaScript 脚本 */
   executeWebviewScript: (viewId: string, code: string, options?: { userGesture?: boolean }): Promise<{ success: boolean; data?: unknown; error?: string }> =>

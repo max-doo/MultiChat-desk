@@ -116,7 +116,7 @@ declare global {
       showWebviewView: (params: { viewId: string }) => Promise<{ success: boolean; error?: string }>
       hideWebviewView: (params: { viewId: string }) => Promise<{ success: boolean; error?: string }>
       focusWebviewView: (params: { viewId: string }) => Promise<{ success: boolean; error?: string }>
-      setWebviewBounds: (params: { viewId: string; bounds: { x: number; y: number; width: number; height: number } }) => Promise<{ success: boolean; error?: string }>
+      setWebviewBounds: (params: { viewId: string; bounds: { x: number; y: number; width: number; height: number } }) => void
       executeWebviewScript: (viewId: string, code: string, options?: { userGesture?: boolean }) => Promise<{ success: boolean; data?: unknown; error?: string }>
       loadWebviewURL: (viewId: string, url: string) => Promise<{ success: boolean; error?: string }>
       reloadWebview: (viewId: string) => Promise<{ success: boolean; error?: string }>
