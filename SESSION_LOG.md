@@ -2,6 +2,33 @@
 
 ## 2026-06-30
 
+### 21:54 | Antigravity
+
+- done: Revert WebContentsView architecture back to original <webview> tag implementation
+- added:
+  - `docs/superpowers/plans/2026-06-30-webview-revert.md`
+- modified:
+  - `src/main/ipcHandlers.ts`
+  - `src/main/webviewManager.ts`
+  - `src/preload/index.d.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/src/assets/index.css`
+  - `src/renderer/src/components/ConfirmModal.tsx`
+  - `src/renderer/src/components/ControlBar.tsx`
+  - `src/renderer/src/components/HistoryDrawer.tsx`
+  - `src/renderer/src/components/Layout.tsx`
+  - `src/renderer/src/components/RenameModal.tsx`
+  - `src/renderer/src/components/SettingsDrawer.tsx`
+  - `src/renderer/src/components/SummaryHistoryDrawer.tsx`
+  - `src/renderer/src/components/WebviewCard.tsx`
+  - `src/renderer/src/store/appStore.ts`
+  - `src/renderer/src/utils/geminiCanvasExtractor.ts`
+- removed:
+  - `src/main/webContentsViewManager.ts`
+  - `refactor_extractor.py`
+  - `refactor_webview.py`
+  - `test-corners.js`
+
 ### 20:58 | Antigravity
 
 - done: Enhance Webview automation selectors and logic robustness with regex matching, menu opener fallbacks, and network sniffer support; fix dropdown overlay closing on resize
@@ -21,7 +48,7 @@
 - done: Restore capturePage DPI resizing logic to fix screenshot jump
 - modified:
   - `src/main/ipcHandlers.ts`
-- lesson: When faking a native window with a screenshot, rely on main process image.resize() to force 1:1 DIP dimensions, rather than relying on browser CSS background-size: 100% 100% to downscale physical pixels, which introduces visible resampling jumps.
+- lesson(promoted): When faking a native window with a screenshot, rely on main process image.resize() to force 1:1 DIP dimensions, rather than relying on browser CSS background-size: 100% 100% to downscale physical pixels, which introduces visible resampling jumps.
 
 ### 09:04 | Antigravity
 
@@ -56,12 +83,12 @@
 ### 00:24 | Antigravity
 
 - done: Reverted back to CustomDropdown, fixed the WebContentsView overlay issue by broadening needsOverlay to cover all slots, and implemented a CSS-based border-radius clipping mechanism for WebContentsView since setBorderRadius has no effect on Windows.
-- lesson: 1. setBorderRadius on WebContentsView is a no-op on Windows. To achieve zero-margin rounded corners for WebContentsView, set the view's background color to transparent (#00000000) and inject CSS to apply border-radius and overflow:hidden to the html tag. 2. When a modal or drawer is absolute-positioned and overlays multiple elements, tracking which specific slots it overlays can be error-prone; it is safer to apply the Screenshot Illusion to ALL WebContentsView instances when any overlay is active.
+- lesson(promoted): 1. setBorderRadius on WebContentsView is a no-op on Windows. To achieve zero-margin rounded corners for WebContentsView, set the view's background color to transparent (#00000000) and inject CSS to apply border-radius and overflow:hidden to the html tag. 2. When a modal or drawer is absolute-positioned and overlays multiple elements, tracking which specific slots it overlays can be error-prone; it is safer to apply the Screenshot Illusion to ALL WebContentsView instances when any overlay is active.
 
 ### 00:17 | Antigravity
 
 - done: Implemented screenshot illusion for drawers and native menus for model selection to fix WebContentsView UI layout issues without reverting the architecture.
-- lesson: When moving from <webview> to WebContentsView, DOM UI elements (like dropdowns and drawers) will be obscured by the native view. To fix this without breaking responsive web layouts: (1) Use native Menus for dropdowns to escape the DOM z-index context. (2) For complex overlays like side drawers, capture the native view as an image (capturePage), set it as a background, and temporarily hide the native view so DOM elements can render on top.
+- lesson(promoted): When moving from <webview> to WebContentsView, DOM UI elements (like dropdowns and drawers) will be obscured by the native view. To fix this without breaking responsive web layouts: (1) Use native Menus for dropdowns to escape the DOM z-index context. (2) For complex overlays like side drawers, capture the native view as an image (capturePage), set it as a background, and temporarily hide the native view so DOM elements can render on top.
 
 ## 2026-06-29
 

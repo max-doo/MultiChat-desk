@@ -45,7 +45,15 @@ Agents may suggest or promote a lesson into the `Known Gotchas` section of `AGEN
 
 - **通义千问点击即黑屏/渲染进程崩溃（0xC0000005）= Chromium 120 ScriptProcessorNode use-after-free**：Electron 28（Chromium 120）在 `ScriptProcessorNode::Process()` 中存在 use-after-free，崩溃码 `STATUS_ACCESS_VIOLATION / 0xC0000005`（退出码 `-1073741819`），上游已在 Chrome 121 修复。阿里云风控 SDK 在**用户点击（手势）**时创建 `ScriptProcessorNode` 做音频指纹——因 `AudioContext` 只能在手势后创建/恢复，故崩溃表现为"点击即黑屏"而非"加载即崩"。**干扰项**：控制台 `gyroscope/accelerometer ... not allowed` 与 `deviceorientation blocked by permissions policy` 只是 Permissions-Policy 阻断告警（已被策略挡掉，不会崩），且 Electron 无 `sensors` 权限类型，故 `setPermissionRequestHandler` 对此无效；`use-angle=gl` / `disableHardwareAcceleration` 等 GPU 开关也不对症（非 GPU/合成崩溃）。**正确修复**：在 webview 注入脚本（`getWebviewClickInterceptorScript`，`dom-ready` 即注入、先于点击）中对阿里云/通义域名（`hostname` 含 `aliyun.com` 或 `qwen.ai`）patch `AudioContext`/`webkitAudioContext`/`OfflineAudioContext`/`webkitOfflineAudioContext` 的 `createScriptProcessor` 为纯 JS 桩对象（含 `connect/disconnect/onaudioprocess/addEventListener` 等接口），永不进入原生音频线程，崩溃路径消除；指纹仍得确定性零缓冲结果，不影响页面功能。**彻底方案**：升级 Electron 28→29+（Chromium 121+ 含上游修复）。判别要点：点击触发 + 退出码 `-1073741819` + `ScriptProcessorNode is deprecated` 告警 = 命中本坑。
 
-- **Webview 自动化定位弹性降级与正则过滤**：在为第三方 AI 平台（如 OpenAI、Gemini、Perplexity 等）注入自动化脚本时，由于前端页面频繁更新 DOM，硬编码的静态 CSS 选择器链容易失效或误匹配。解决方案：(1) 在 `selectors.ts` 中引入包含 `regex` 匹配、`exclude` 排除模式和边界字检测的 `AutomationStep`；(2) 遇到主步骤元素缺失时，利用语义化正则（如 `/\b(menu|true)\b/i` 或 `/plus|more|tools|menu|更多|菜单/i`）匹配“更多/菜单”类型按钮作为跨步兜底（`menuOpenerFallback`）；(3) 结合全局 fetch/XHR 拦截（网络 Sniffer 嗅探）直接提取平台底层响应内容作为兜底数据源，大幅提升提取的成功率与鲁棒性。
+- **Webview 自动化定位弹性降级与正则过滤**：在为第三方 AI 平台（如 OpenAI、Gemini、Perplexity 等）注入自动化脚本时，由于前端页面频繁更新 DOM，硬编码的静态 CSS 选择器链容易失效或误匹配。解决方案：(1) 在 `selectors.ts` 中引入包含 `regex` 匹配、`exclude` 排除模式 and 边界字检测的 `AutomationStep`；(2) 遇到主步骤元素缺失时，利用语义化正则（如 `/\b(menu|true)\b/i` 或 `/plus|more|tools|menu|更多|菜单/i`）匹配“更多/菜单”类型按钮作为跨步兜底（`menuOpenerFallback`）；(3) 结合全局 fetch/XHR 拦截（网络 Sniffer 嗅探）直接提取平台底层响应内容作为兜底数据源，大幅提升提取的成功率与鲁棒性。
+
+- **Webview 假象覆盖层截图 DPI 缩放比例跳跃**：当使用截图做 native window 的遮罩层时，应在主进程中使用 `image.resize()` 强制将图片尺寸调整为 1:1 DIP 物理尺寸，而非依靠浏览器 CSS 的 `background-size: 100% 100%` 让浏览器拉伸，否则会在高分屏（DPI > 1）下产生明显的重采样锯齿和尺寸抖动。
+
+- **Windows 平台 WebContentsView 圆角与遮挡漏洞**：(1) `setBorderRadius` 方法在 Windows 平台下为 no-op。若要实现 WebContentsView 无缝圆角裁剪，必须将 native view 设为透明（`#00000000`）并向 web 页面注入 CSS 样式，给 `html` 容器设置 `border-radius` 和 `overflow: hidden`。(2) 当 modal 框或抽屉组件等 DOM 覆盖物处于激活状态时，它们会被 native view 遮挡。相较于为每个插槽单独配置截图，最稳健的做法是在任何覆盖层打开时，统一对所有 active WebContentsView 启用“截屏障眼法”。
+
+- **DOM 覆盖 native 窗口的截图还原机制**：在将 `<webview>` 迁移至 WebContentsView 架构时，页面的 HTML dropdown 或侧滑菜单等会被 native view 挡住。修复方法：(1) 使用 Electron 原生 Menu 来重构 model 选项，避开 z-index 冲突；(2) 对于复杂侧拉抽屉（如历史、设置等），在触发打开时利用 `capturePage` 截取 native 视图作为静态背景图显示，同时将真实的 WebContentsView 隐藏，待抽屉关闭 300ms 动画结束后再恢复显示，达成无缝视觉欺骗。
+
+- **总结页模型获取的上下文一致性**：在总结面板加载或切换模型时，必须显式传入当前的 `productMode` 和插槽 `slot` 信息，保证插槽切换和模型变更在不同面板和窗口下的行为对齐；复用同一渲染面板时，应避免使用静态 ref 产生加载锁，否则会导致生命周期 `useEffect` 的状态更新流被静默拦截。
 
 ## Stable Decisions
 
