@@ -45,6 +45,8 @@ Agents may suggest or promote a lesson into the `Known Gotchas` section of `AGEN
 
 - **通义千问点击即黑屏/渲染进程崩溃（0xC0000005）= Chromium 120 ScriptProcessorNode use-after-free**：Electron 28（Chromium 120）在 `ScriptProcessorNode::Process()` 中存在 use-after-free，崩溃码 `STATUS_ACCESS_VIOLATION / 0xC0000005`（退出码 `-1073741819`），上游已在 Chrome 121 修复。阿里云风控 SDK 在**用户点击（手势）**时创建 `ScriptProcessorNode` 做音频指纹——因 `AudioContext` 只能在手势后创建/恢复，故崩溃表现为"点击即黑屏"而非"加载即崩"。**干扰项**：控制台 `gyroscope/accelerometer ... not allowed` 与 `deviceorientation blocked by permissions policy` 只是 Permissions-Policy 阻断告警（已被策略挡掉，不会崩），且 Electron 无 `sensors` 权限类型，故 `setPermissionRequestHandler` 对此无效；`use-angle=gl` / `disableHardwareAcceleration` 等 GPU 开关也不对症（非 GPU/合成崩溃）。**正确修复**：在 webview 注入脚本（`getWebviewClickInterceptorScript`，`dom-ready` 即注入、先于点击）中对阿里云/通义域名（`hostname` 含 `aliyun.com` 或 `qwen.ai`）patch `AudioContext`/`webkitAudioContext`/`OfflineAudioContext`/`webkitOfflineAudioContext` 的 `createScriptProcessor` 为纯 JS 桩对象（含 `connect/disconnect/onaudioprocess/addEventListener` 等接口），永不进入原生音频线程，崩溃路径消除；指纹仍得确定性零缓冲结果，不影响页面功能。**彻底方案**：升级 Electron 28→29+（Chromium 121+ 含上游修复）。判别要点：点击触发 + 退出码 `-1073741819` + `ScriptProcessorNode is deprecated` 告警 = 命中本坑。
 
+- **Webview 自动化定位弹性降级与正则过滤**：在为第三方 AI 平台（如 OpenAI、Gemini、Perplexity 等）注入自动化脚本时，由于前端页面频繁更新 DOM，硬编码的静态 CSS 选择器链容易失效或误匹配。解决方案：(1) 在 `selectors.ts` 中引入包含 `regex` 匹配、`exclude` 排除模式和边界字检测的 `AutomationStep`；(2) 遇到主步骤元素缺失时，利用语义化正则（如 `/\b(menu|true)\b/i` 或 `/plus|more|tools|menu|更多|菜单/i`）匹配“更多/菜单”类型按钮作为跨步兜底（`menuOpenerFallback`）；(3) 结合全局 fetch/XHR 拦截（网络 Sniffer 嗅探）直接提取平台底层响应内容作为兜底数据源，大幅提升提取的成功率与鲁棒性。
+
 ## Stable Decisions
 
 - 快捷操作快捷键（Ctrl+Shift+S/E/T/Q）的提示词注入流程：先通过 VBScript 模拟 `Ctrl+C` 自动复制选中文本，读取成功后，再展示并聚焦快捷窗口，最后发送 `quick:inject-prompt` IPC 完成一键总结。

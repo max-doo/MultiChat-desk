@@ -275,6 +275,7 @@ interface AppState {
   stopMonitoring: () => void
   pollPlatforms: () => Promise<void>
   saveCurrentTurn: () => void
+  updatePlatformAnswer: (modelId: string, text: string, isComplete?: boolean) => void
 
   // 文件上传状态
   isUploading: boolean
@@ -1258,6 +1259,32 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (allComplete) {
       get().stopMonitoring()
     }
+  },
+
+  updatePlatformAnswer: (modelId: string, text: string, isComplete?: boolean) => {
+    const { monitor, saveCurrentTurn } = get()
+    if (!monitor.isMonitoring || !monitor.currentTurn) return
+    const platform = monitor.currentTurn.platforms[modelId]
+    if (!platform) return
+
+    set({
+      monitor: {
+        ...monitor,
+        currentTurn: {
+          ...monitor.currentTurn,
+          platforms: {
+            ...monitor.currentTurn.platforms,
+            [modelId]: {
+              ...platform,
+              lastContent: text,
+              isComplete: isComplete ?? platform.isComplete,
+              stableCount: 0 // Reset stable count since it just updated via network
+            }
+          }
+        }
+      }
+    })
+    saveCurrentTurn()
   },
 
   saveCurrentTurn: () => {

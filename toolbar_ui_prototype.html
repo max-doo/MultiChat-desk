@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Toolbar UI Design V2 - MultiChat Desk</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Inter', system-ui, sans-serif; }
+    /* 隐藏滚动条 */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+  </style>
+</head>
+<body class="bg-[#f0f4f8] h-screen flex flex-col overflow-hidden relative selection:bg-blue-100">
+
+  <!-- 模拟顶部导航 (只为展示上下文) -->
+  <div class="flex items-center px-6 py-3 bg-white/50 backdrop-blur-md border-b border-gray-100 z-10 shrink-0">
+    <div class="flex gap-6 text-sm font-medium text-gray-500">
+      <div id="tab-normal" class="text-blue-600 font-semibold cursor-pointer relative after:content-[''] after:absolute after:bottom-[-13px] after:left-0 after:w-full after:h-0.5 after:bg-blue-600 after:rounded-t-md transition-colors">多 AI</div>
+      <div id="tab-task" class="cursor-pointer hover:text-gray-900 transition-colors relative">任务分配</div>
+      <div id="tab-debate" class="cursor-pointer hover:text-gray-900 transition-colors relative">辩论</div>
+    </div>
+  </div>
+
+  <!-- 模拟主区域视图 (Webviews) -->
+  <div class="flex-1 flex gap-4 p-6 pt-4 pb-32 overflow-hidden select-none">
+    
+    <!-- Card 1 -->
+    <div id="webview-1" class="flex-1 bg-white rounded-xl shadow-sm border border-gray-100 p-4 relative transition-all duration-300 flex flex-col">
+      <!-- 辩论徽章 (默认隐藏) -->
+      <div class="debate-badge absolute -top-3 left-1/2 -translate-x-1/2 hidden bg-green-50 text-green-700 px-4 py-1 rounded-full text-xs font-bold border border-green-200 shadow-sm z-10 items-center gap-1.5">
+        <div class="w-1.5 h-1.5 bg-green-500 rounded-full"></div> 正方 (Pro)
+      </div>
+      
+      <div class="flex items-center justify-between mb-4 opacity-70 border-b border-gray-50 pb-2">
+         <div class="font-bold text-gray-700 flex items-center gap-2">✨ Gemini</div>
+         <div class="bg-blue-100 text-blue-600 text-xs px-3 py-1 rounded-full">登录</div>
+      </div>
+      <div class="bg-gradient-to-b from-blue-50 to-white rounded-lg flex-1 flex flex-col items-center justify-center text-gray-400">
+        <div class="text-lg font-medium text-gray-800 mb-8">认识 Gemini: 你的私人 AI 助理</div>
+        <div class="bg-white rounded-full px-6 py-3 shadow-sm border border-gray-100 w-3/4 flex items-center text-sm">
+          + 问问 Gemini
+        </div>
+      </div>
+    </div>
+
+    <!-- Card 2 -->
+    <div id="webview-2" class="flex-1 bg-white rounded-xl shadow-sm border border-gray-100 p-4 relative transition-all duration-300 flex flex-col">
+      <!-- 辩论徽章 (默认隐藏) -->
+      <div class="debate-badge absolute -top-3 left-1/2 -translate-x-1/2 hidden bg-red-50 text-red-600 px-4 py-1 rounded-full text-xs font-bold border border-red-200 shadow-sm z-10 items-center gap-1.5">
+        <div class="w-1.5 h-1.5 bg-red-500 rounded-full"></div> 反方 (Con)
+      </div>
+      
+      <div class="flex items-center justify-between mb-4 opacity-70 border-b border-gray-50 pb-2">
+         <div class="font-bold text-gray-700 flex items-center gap-2">🤖 ChatGPT</div>
+         <div class="bg-gray-800 text-white text-xs px-3 py-1 rounded-full">登录</div>
+      </div>
+      <div class="bg-gradient-to-b from-gray-50 to-white rounded-lg flex-1 flex flex-col items-center justify-center text-gray-400">
+        <div class="text-lg font-medium text-gray-800 mb-8">准备好了，随时开始</div>
+        <div class="bg-white rounded-3xl px-4 py-4 shadow-sm border border-gray-100 w-3/4 flex flex-col text-sm h-24">
+          有问题，尽管问...
+        </div>
+      </div>
+    </div>
+
+    <!-- Card 3 -->
+    <div id="webview-3" class="flex-1 bg-white rounded-xl shadow-sm border border-gray-100 p-4 relative transition-all duration-300 flex flex-col">
+      <div class="debate-badge absolute -top-3 left-1/2 -translate-x-1/2 hidden bg-gray-50 text-gray-500 px-4 py-1 rounded-full text-xs font-bold border border-gray-200 shadow-sm z-10 items-center gap-1.5">
+        裁判 / 旁观
+      </div>
+      
+      <div class="flex items-center justify-between mb-4 opacity-70 border-b border-gray-50 pb-2">
+         <div class="font-bold text-gray-700 flex items-center gap-2">✨ Gemini</div>
+         <div class="bg-blue-100 text-blue-600 text-xs px-3 py-1 rounded-full">登录</div>
+      </div>
+      <div class="bg-gradient-to-b from-blue-50 to-white rounded-lg flex-1 flex flex-col items-center justify-center text-gray-400">
+        <div class="text-lg font-medium text-gray-800 mb-8">认识 Gemini: 你的私人 AI 助理</div>
+        <div class="bg-white rounded-full px-6 py-3 shadow-sm border border-gray-100 w-3/4 flex items-center text-sm">
+          + 问问 Gemini
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- 底部 Toolbar (全局固定) -->
+  <div class="absolute bottom-0 left-0 right-0 p-6 pt-16 flex items-end gap-4 bg-gradient-to-t from-white via-white/95 to-transparent z-20">
+    
+    <!-- 左侧快捷功能区 -->
+    <div class="flex gap-4 mb-2 shrink-0">
+      <div id="tool-draw" class="flex flex-col items-center gap-1.5 cursor-pointer group">
+        <div class="w-10 h-10 bg-white rounded-full flex items-center justify-center shadow-sm border border-gray-100 group-hover:shadow-md transition-all">
+          <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+        </div>
+        <span class="text-[11px] text-gray-500 font-medium">AI 生图</span>
+      </div>
+      
+      <div id="tool-research" class="flex flex-col items-center gap-1.5 cursor-pointer group">
+        <div class="w-10 h-10 bg-white rounded-full flex items-center justify-center shadow-sm border border-gray-100 group-hover:shadow-md transition-all">
+          <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7"></path></svg>
+        </div>
+        <span class="text-[11px] text-gray-500 font-medium">深度研究</span>
+      </div>
+
+      <div class="flex flex-col items-center gap-1.5 cursor-pointer group">
+        <div class="w-10 h-10 bg-white rounded-full flex items-center justify-center shadow-sm border border-gray-100 group-hover:shadow-md transition-all">
+          <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+        </div>
+        <span class="text-[11px] text-gray-500 font-medium">开启新对话</span>
+      </div>
+    </div>
+
+    <!-- 中间输入区 -->
+    <div class="flex-1 relative">
+      <div class="bg-white rounded-3xl shadow-sm border border-gray-100 flex items-center p-1.5 pl-4 transition-all focus-within:border-blue-300 focus-within:ring-2 focus-within:ring-blue-50 focus-within:shadow-md h-[60px]">
+        
+        <button class="text-gray-400 hover:text-gray-600 p-2 transition-colors">
+          <svg class="w-5 h-5 transform -rotate-45" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"></path></svg>
+        </button>
+        
+        <textarea id="main-input" class="flex-1 resize-none bg-transparent outline-none px-3 py-[18px] text-gray-700 text-[15px] placeholder-gray-400 leading-tight" rows="1" placeholder="向 AI 模型提问..."></textarea>
+        
+        <!-- 常规状态的发送按钮 -->
+        <button id="btn-send" class="text-gray-400 bg-gray-50 hover:bg-gray-200 hover:text-gray-700 rounded-full h-10 w-10 flex items-center justify-center transition-colors ml-2 mr-1">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 10l7-7m0 0l7 7m-7-7v18"></path></svg>
+        </button>
+
+        <!-- 任务分配模式下的按钮 (取代上方发送) -->
+        <button id="btn-assign" onclick="openModal()" class="hidden bg-blue-100 hover:bg-blue-200 text-blue-600 px-4 py-2 rounded-full font-medium text-[13px] transition-colors ml-2 mr-1 items-center gap-1.5">
+          <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M19 3h-2.25a.75.75 0 000 1.5H19a1.5 1.5 0 011.5 1.5v1.5a.75.75 0 001.5 0V6A3 3 0 0019 3zM4.25 4.5A.75.75 0 005 3H2.75A.75.75 0 002 3.75v2.5a.75.75 0 001.5 0v-1.75h.75zM20.5 18a.75.75 0 00-1.5 0v1.5a1.5 1.5 0 01-1.5 1.5h-1.5a.75.75 0 000 1.5H19a3 3 0 003-3v-1.5zM4.25 19.5a.75.75 0 01-.75-.75v-1.5a.75.75 0 00-1.5 0V19A3 3 0 005 22h2.25a.75.75 0 000-1.5H5a1.5 1.5 0 01-.75-.75z"/><path d="M11 7a.75.75 0 00-1.5 0v4.25H5.25a.75.75 0 000 1.5h4.25V17a.75.75 0 001.5 0v-4.25h4.25a.75.75 0 000-1.5H11V7z"/></svg>
+          分解与分配
+        </button>
+      </div>
+    </div>
+
+    <!-- 右侧总结按钮 (任何模式均保留) -->
+    <div class="flex flex-col justify-end shrink-0">
+      <button class="bg-[#3b82f6] hover:bg-blue-600 text-white h-[60px] px-6 rounded-3xl font-medium shadow-md shadow-blue-500/20 flex items-center gap-2 transition-all active:scale-95 whitespace-nowrap">
+        <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M19 3h-2.25a.75.75 0 000 1.5H19a1.5 1.5 0 011.5 1.5v1.5a.75.75 0 001.5 0V6A3 3 0 0019 3zM4.25 4.5A.75.75 0 005 3H2.75A.75.75 0 002 3.75v2.5a.75.75 0 001.5 0v-1.75h.75zM20.5 18a.75.75 0 00-1.5 0v1.5a1.5 1.5 0 01-1.5 1.5h-1.5a.75.75 0 000 1.5H19a3 3 0 003-3v-1.5zM4.25 19.5a.75.75 0 01-.75-.75v-1.5a.75.75 0 00-1.5 0V19A3 3 0 005 22h2.25a.75.75 0 000-1.5H5a1.5 1.5 0 01-.75-.75z"/><path d="M11 7a.75.75 0 00-1.5 0v4.25H5.25a.75.75 0 000 1.5h4.25V17a.75.75 0 001.5 0v-4.25h4.25a.75.75 0 000-1.5H11V7z"/></svg>
+        <span class="text-[14px] font-semibold">生成总结</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- 任务拆解与分配 Modal -->
+  <div id="task-modal" class="fixed inset-0 bg-gray-900/40 backdrop-blur-sm z-50 flex items-center justify-center opacity-0 pointer-events-none transition-opacity duration-300">
+    <div id="task-modal-content" class="bg-white rounded-[24px] shadow-2xl w-full max-w-2xl flex flex-col transform scale-95 transition-transform duration-300 max-h-[85vh]">
+      <div class="px-6 py-4 border-b border-gray-100 flex justify-between items-center">
+        <div class="flex items-center gap-3">
+          <div class="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center text-blue-600">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
+          </div>
+          <h2 class="text-base font-semibold text-gray-800">任务拆解与分配</h2>
+        </div>
+        <div class="flex items-center gap-4">
+          <span class="text-[11px] text-gray-400 italic" id="cache-hint">上次拆解于 10:42，可继续编辑</span>
+          <button onclick="closeModal()" class="text-gray-400 hover:text-gray-600 bg-gray-50 hover:bg-gray-100 rounded-full p-1.5 transition-colors">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="p-6 overflow-y-auto flex-1 bg-gray-50/50 space-y-4">
+        <!-- 子任务 1 -->
+        <div class="bg-white border border-gray-200 rounded-xl p-4 shadow-sm hover:border-blue-200 transition-colors">
+          <div class="flex justify-between items-start mb-2">
+            <span class="inline-flex items-center bg-gray-100 text-gray-600 text-[11px] font-bold px-2 py-0.5 rounded">子任务 1</span>
+          </div>
+          <textarea class="w-full bg-transparent resize-none outline-none text-gray-700 text-sm mb-3" rows="2">检索关于 AGI 发展趋势的学术文献。</textarea>
+          <div class="flex items-center justify-between border-t border-gray-100 pt-3">
+            <span class="text-xs text-gray-500 font-medium">执行模型</span>
+            <select class="bg-gray-50 border border-gray-200 text-gray-700 text-xs rounded-lg p-1.5 outline-none cursor-pointer">
+              <option selected>Gemini 1.5 Pro</option>
+              <option>ChatGPT-4o</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="px-6 py-4 border-t border-gray-100 flex justify-end items-center bg-white rounded-b-[24px]">
+        <div class="flex gap-3">
+          <button onclick="closeModal()" class="px-4 py-2 rounded-xl border border-gray-200 text-gray-700 font-medium hover:bg-gray-50 transition-colors text-sm">稍后继续</button>
+          <button onclick="closeModal()" class="px-4 py-2 rounded-xl bg-blue-600 text-white font-medium hover:bg-blue-700 shadow-md shadow-blue-500/20 transition-colors text-sm">确认分配发送</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // 简易交互逻辑
+    const tabNormal = document.getElementById('tab-normal');
+    const tabTask = document.getElementById('tab-task');
+    const tabDebate = document.getElementById('tab-debate');
+    
+    const toolDraw = document.getElementById('tool-draw');
+    const toolResearch = document.getElementById('tool-research');
+    const mainInput = document.getElementById('main-input');
+    const btnSend = document.getElementById('btn-send');
+    const btnAssign = document.getElementById('btn-assign');
+    
+    const badges = document.querySelectorAll('.debate-badge');
+
+    function resetTabs() {
+      [tabNormal, tabTask, tabDebate].forEach(t => {
+        t.className = "cursor-pointer hover:text-gray-900 transition-colors relative";
+      });
+      badges.forEach(b => {
+        b.classList.remove('flex');
+        b.classList.add('hidden');
+      });
+    }
+    function activeTab(el) {
+      el.className = "text-blue-600 font-semibold cursor-pointer relative after:content-[''] after:absolute after:bottom-[-13px] after:left-0 after:w-full after:h-0.5 after:bg-blue-600 after:rounded-t-md transition-colors";
+    }
+
+    tabNormal.addEventListener('click', () => {
+      resetTabs(); activeTab(tabNormal);
+      toolDraw.style.display = 'flex'; toolResearch.style.display = 'flex';
+      btnSend.classList.remove('hidden'); btnSend.classList.add('flex');
+      btnAssign.classList.remove('flex'); btnAssign.classList.add('hidden');
+      mainInput.placeholder = "向 AI 模型提问...";
+    });
+
+    tabTask.addEventListener('click', () => {
+      resetTabs(); activeTab(tabTask);
+      toolDraw.style.display = 'none'; toolResearch.style.display = 'none';
+      btnSend.classList.remove('flex'); btnSend.classList.add('hidden');
+      btnAssign.classList.remove('hidden'); btnAssign.classList.add('flex');
+      mainInput.placeholder = "输入你要分配拆解的复杂任务...";
+    });
+
+    tabDebate.addEventListener('click', () => {
+      resetTabs(); activeTab(tabDebate);
+      toolDraw.style.display = 'none'; toolResearch.style.display = 'none';
+      btnSend.classList.remove('hidden'); btnSend.classList.add('flex');
+      btnAssign.classList.remove('flex'); btnAssign.classList.add('hidden');
+      mainInput.placeholder = "输入辩论主题...";
+      
+      // 显示 Webview 上的徽章
+      badges.forEach(b => {
+        b.classList.remove('hidden');
+        b.classList.add('flex');
+      });
+    });
+
+    function openModal() {
+      document.getElementById('task-modal').classList.remove('opacity-0', 'pointer-events-none');
+      document.getElementById('task-modal').classList.add('opacity-100', 'pointer-events-auto');
+      setTimeout(() => {
+        document.getElementById('task-modal-content').classList.remove('scale-95');
+        document.getElementById('task-modal-content').classList.add('scale-100');
+      }, 10);
+    }
+    function closeModal() {
+      document.getElementById('task-modal-content').classList.remove('scale-100');
+      document.getElementById('task-modal-content').classList.add('scale-95');
+      setTimeout(() => {
+        document.getElementById('task-modal').classList.remove('opacity-100', 'pointer-events-auto');
+        document.getElementById('task-modal').classList.add('opacity-0', 'pointer-events-none');
+      }, 300);
+    }
+  </script>
+</body>
+</html>

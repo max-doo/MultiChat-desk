@@ -632,68 +632,116 @@ function buildClearTextareaScript(): string {
  */
 function buildDeepResearchHelperFunctions(): string {
   return `
-    // 辅助函数：查找元素
-    function findElement(selector, text, exact) {
-      function normalizeClickable(el) {
-        if (!el) return el;
-        if (exact) return el;
-        if (el.tagName === 'BUTTON') return el;
-        try {
-          const clickable = el.closest && el.closest('button,[role="button"],[role="radio"],[role="menuitem"],[role="menuitemradio"]');
-          return clickable || el;
-        } catch (e) {
-          return el;
-        }
+    // 辅助函数：标准化可点击元素
+    function normalizeClickable(el, exact) {
+      if (!el) return el;
+      if (exact) return el;
+      if (el.tagName === 'BUTTON') return el;
+      try {
+        var clickable = el.closest && el.closest('button,[role="button"],[role="radio"],[role="menuitem"],[role="menuitemradio"]');
+        return clickable || el;
+      } catch (e) {
+        return el;
       }
-      const selectorList = Array.isArray(selector) ? selector : [selector];
-      for (const sel of selectorList) {
-        let elements = null;
+    }
+
+    // 辅助函数：查找元素（策略二：regex + 单词边界 + exclude + 语义化兜底）
+    function findElement(selector, text, opts) {
+      // opts 兼容旧 boolean（exact）与新 step 对象
+      var o = (opts && typeof opts === 'object') ? opts : { exact: !!opts };
+
+      // 统一文本匹配：regex 优先，否则 text includes；先过 exclude
+      function matchText(content, ariaLabel) {
+        var flags = o.caseSensitive ? '' : 'i';
+        var targets = o.regex
+          ? [o.regex]
+          : (text != null ? (Array.isArray(text) ? text : [text]) : []);
+        var excludeList = o.exclude || [];
+        // exclude 命中任一即否（区分 Search/Research 的关键）
+        for (var ei = 0; ei < excludeList.length; ei++) {
+          try { if (new RegExp(excludeList[ei], flags).test(content) || new RegExp(excludeList[ei], flags).test(ariaLabel)) return false; } catch (e) {}
+        }
+        for (var ti = 0; ti < targets.length; ti++) {
+          var t = targets[ti];
+          if (o.regex) {
+            var pat = t;
+            if (o.wordBoundary !== false) {
+              if (!/^\\^/.test(pat)) pat = '\\b(?:' + pat + ')';
+              if (!/\\$$/.test(pat)) pat = pat + '\\b';
+            }
+            try {
+              var re = new RegExp(pat, flags);
+              if (re.test(content) || re.test(ariaLabel)) return true;
+            } catch (e) {}
+          } else if (o.exact) {
+            if (content === t || ariaLabel === t) return true;
+          } else {
+            var lc = (content || '').toLowerCase();
+            var la = (ariaLabel || '').toLowerCase();
+            var lt = String(t).toLowerCase();
+            if (lc.includes(lt) || la.includes(lt)) return true;
+          }
+        }
+        return false;
+      }
+
+      var selectorList = Array.isArray(selector) ? selector : [selector];
+      for (var si = 0; si < selectorList.length; si++) {
+        var sel = selectorList[si];
+        var elements = null;
         try {
           elements = document.querySelectorAll(sel);
         } catch (e) {
           continue;
         }
       
-        // 如果没有文本要求，返回第一个可见元素
-        if (!text) {
-          for (const el of elements) {
-            // 检查是否可见 (简单检查)
-            if (el.getBoundingClientRect().width > 0 || el.offsetParent !== null) {
-              return normalizeClickable(el);
+        // 如果没有文本要求且无 regex，返回第一个可见元素
+        if (!text && !o.regex) {
+          for (var vi = 0; vi < elements.length; vi++) {
+            var vel = elements[vi];
+            if (vel.getBoundingClientRect().width > 0 || vel.offsetParent !== null) {
+              return normalizeClickable(vel, o.exact);
             }
           }
-          // 如果没有可见的，返回第一个存在的
-          if (elements && elements[0]) return normalizeClickable(elements[0]);
+          if (elements && elements[0]) return normalizeClickable(elements[0], o.exact);
           continue;
         }
       
-        // 如果有文本要求
-        const textArray = Array.isArray(text) ? text : [text];
-      
-        for (const el of elements) {
-          // 必须是可见元素
+        // 如果有文本/regex 要求
+        for (var mi = 0; mi < elements.length; mi++) {
+          var el = elements[mi];
           if (el.getBoundingClientRect().width === 0 && el.offsetParent === null) {
             continue;
           }
-
-          const content = (el.innerText || el.textContent || '').trim();
-          // 检查是否包含任意一个目标文本
-          for (const t of textArray) {
-            if (content.includes(t)) {
-              return normalizeClickable(el);
-            }
-          }
-        
-          // 同时也检查 aria-label
-          const ariaLabel = el.getAttribute('aria-label') || '';
-          for (const t of textArray) {
-            if (ariaLabel.includes(t)) {
-              return normalizeClickable(el);
-            }
+          var content = (el.innerText || el.textContent || '').trim();
+          var ariaLabel = el.getAttribute('aria-label') || el.getAttribute('title') || '';
+          if (matchText(content, ariaLabel)) {
+            return normalizeClickable(el, o.exact);
           }
         }
       }
-      
+
+      // 策略二降级：静态选择器全部失效且指定了目标文本时，遍历全局交互类语义元素
+      if (text || (o && o.regex)) {
+        var semanticSelectors = 'button, [role="button"], [role="radio"], [role="switch"], [role="checkbox"], [role="menuitem"], [role="menuitemradio"], [role="tab"], label, input[type="checkbox"], input[type="radio"]';
+        var semanticElements = [];
+        try {
+          semanticElements = document.querySelectorAll(semanticSelectors);
+        } catch (e) {}
+
+        for (var sei = 0; sei < semanticElements.length; sei++) {
+          var sel2 = semanticElements[sei];
+          if (sel2.getBoundingClientRect().width === 0 && sel2.offsetParent === null) {
+            continue;
+          }
+          var content2 = (sel2.innerText || sel2.textContent || '').trim();
+          var ariaLabel2 = sel2.getAttribute('aria-label') || sel2.getAttribute('title') || '';
+          if (matchText(content2, ariaLabel2)) {
+            return normalizeClickable(sel2, o.exact);
+          }
+        }
+      }
+
        return null;
     }
     
@@ -709,6 +757,25 @@ function buildDeepResearchHelperFunctions(): string {
         el.dispatchEvent(new MouseEvent('mouseup', opts));
       } catch (e) {}
       el.click();
+    }
+
+    // 跨步菜单兜底：按语义找开菜单按钮（策略二 Step 4）
+    function findMenuOpener() {
+      var openerRegex = /\\+|plus|more|tools?|menu|菜单|更多|工具|附加|添加/i;
+      var all = document.querySelectorAll('[aria-haspopup="menu"], [aria-haspopup="true"], button, [role="button"]');
+      var candidates = [];
+      for (var i = 0; i < all.length; i++) {
+        var el = all[i];
+        if (el.getBoundingClientRect().width === 0 && el.offsetParent === null) continue;
+        var aria = el.getAttribute('aria-label') || el.getAttribute('title') || '';
+        var txt = (el.innerText || el.textContent || '').trim();
+        var hasMenu = /^(menu|true)$/i.test(el.getAttribute('aria-haspopup') || '');
+        var score = (hasMenu ? 2 : 0) + (openerRegex.test(aria) ? 2 : 0) + (openerRegex.test(txt) ? 1 : 0);
+        if (score > 0) candidates.push({ el: el, score: score, top: el.getBoundingClientRect().top });
+      }
+      if (!candidates.length) return null;
+      candidates.sort(function(a, b) { return b.score - a.score || (b.top - a.top); });
+      return normalizeClickable(candidates[0].el, false);
     }
   `
 }
@@ -728,13 +795,16 @@ function buildDeepResearchStepsScript(_steps: unknown[]): string {
          const maxAttempts = 10; // 2秒超时
          
          while (!element && attempts < maxAttempts) {
-           element = findElement(step.selector, step.text, step && step.exact === true);
+           element = findElement(step.selector, step.text, step);
            if (!element) {
              await new Promise(r => setTimeout(r, 200));
              attempts++;
            }
          }
          
+         if (!element && step && step.menuOpenerFallback) {
+           element = findMenuOpener();
+         }
          if (!element) {
            if (step && step.optional) {
              continue;
@@ -1120,11 +1190,14 @@ export function generateDisableDeepResearchScript(config: any): string {
             let attempts = 0;
             const maxAttempts = 10;
             while (!element && attempts < maxAttempts) {
-              element = findElement(step.selector, step.text, step && step.exact === true);
+              element = findElement(step.selector, step.text, step);
               if (!element) {
                 await new Promise(r => setTimeout(r, 200));
                 attempts++;
               }
+            }
+            if (!element && step && step.menuOpenerFallback) {
+              element = findMenuOpener();
             }
             if (!element) {
               if (step && step.optional) {
@@ -1200,11 +1273,14 @@ export function generateDisableImageGenerationScript(config: any): string {
             let attempts = 0;
             const maxAttempts = 10;
             while (!element && attempts < maxAttempts) {
-              element = findElement(step.selector, step.text, step && step.exact === true);
+              element = findElement(step.selector, step.text, step);
               if (!element) {
                 await new Promise(r => setTimeout(r, 200));
                 attempts++;
               }
+            }
+            if (!element && step && step.menuOpenerFallback) {
+              element = findMenuOpener();
             }
             if (!element) {
               if (step && step.optional) {
@@ -1581,4 +1657,44 @@ export function generateGetLatestResponseScript(selectors: ModelSelector): strin
       }
     })();
   `
+}
+
+/**
+ * 注入网络响应拦截脚本（策略三）
+ * 通过重写 fetch 和 XHR，在控制台抛出 'NETWORK_RESPONSE:' 前缀的消息
+ */
+export function getNetworkSnifferScript(): string {
+  return `
+    (function() {
+      if (window.__sniffer_injected) return;
+      window.__sniffer_injected = true;
+      var originalFetch = window.fetch;
+      window.fetch = async function(...args) {
+        var response = await originalFetch.apply(this, args);
+        var clone = response.clone();
+        clone.text().then(function(text) {
+          try {
+            var url = typeof args[0] === 'string' ? args[0] : (args[0] && args[0].url ? args[0].url : 'unknown');
+            console.log('NETWORK_RESPONSE: ' + JSON.stringify({ url: url, body: text, type: 'fetch' }));
+          } catch(e) {}
+        }).catch(function(e) {});
+        return response;
+      };
+
+      var originalXhrOpen = XMLHttpRequest.prototype.open;
+      var originalXhrSend = XMLHttpRequest.prototype.send;
+      XMLHttpRequest.prototype.open = function(method, url) {
+        this._sniffer_url = url;
+        return originalXhrOpen.apply(this, arguments);
+      };
+      XMLHttpRequest.prototype.send = function() {
+        this.addEventListener('load', function() {
+          try {
+            console.log('NETWORK_RESPONSE: ' + JSON.stringify({ url: this._sniffer_url, body: this.responseText, type: 'xhr' }));
+          } catch(e) {}
+        });
+        return originalXhrSend.apply(this, arguments);
+      };
+    })();
+  `;
 }

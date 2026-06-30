@@ -2,6 +2,27 @@
 
 ## 2026-06-30
 
+### 20:58 | Antigravity
+
+- done: Enhance Webview automation selectors and logic robustness with regex matching, menu opener fallbacks, and network sniffer support; fix dropdown overlay closing on resize
+- modified:
+  - `src/renderer/src/components/CustomDropdown.tsx`
+  - `src/renderer/src/store/appStore.ts`
+  - `src/shared/config/selectors.ts`
+  - `src/shared/utils/webviewScripts.ts`
+- lesson(promoted): When elements in third-party AI web pages are dynamically loaded or change structure, regex exclusions and semantic menu opener fallbacks are much more resilient than static DOM selector lists.
+
+### 20:51 | Antigravity
+
+- done: Restore git to previous state
+
+### 19:42 | Antigravity
+
+- done: Restore capturePage DPI resizing logic to fix screenshot jump
+- modified:
+  - `src/main/ipcHandlers.ts`
+- lesson: When faking a native window with a screenshot, rely on main process image.resize() to force 1:1 DIP dimensions, rather than relying on browser CSS background-size: 100% 100% to downscale physical pixels, which introduces visible resampling jumps.
+
 ### 09:04 | Antigravity
 
 - done: Optimize WebContentsView bounds sync during resize by switching to fire-and-forget IPC and requestAnimationFrame throttling

@@ -3,6 +3,20 @@
  * 用于定位各平台的输入框、发送按钮等 DOM 元素
  */
 
+export interface AutomationStep {
+  selector: string | string[]
+  text?: string | string[]      // 旧：部分匹配文本，向后兼容
+  regex?: string                // 新：正则模式，设定后优先于 text
+  exclude?: string[]            // 新：正则数组，命中任一则排除该元素（用于区分 Search/Research）
+  wordBoundary?: boolean        // 新：regex 为真时默认 true，自动加 \b 边界
+  caseSensitive?: boolean       // 新：默认 false（匹配不区分大小写）
+  delay?: number
+  exact?: boolean
+  optional?: boolean
+  countsAsSuccess?: boolean
+  menuOpenerFallback?: boolean  // 新：本步元素找不到时，按语义找"开菜单"按钮
+}
+
 export interface ModelSelector {
   // 输入框选择器（按优先级排列）
   textarea: string[]
@@ -19,44 +33,16 @@ export interface ModelSelector {
   // Deep Research mode configuration
   researchMode?: {
     // Steps to enable Deep Research
-    steps: Array<{
-      selector: string | string[]
-      text?: string | string[] // Text to match (partial match, can be array of strings)
-      delay?: number // Delay after action in ms (default: 500)
-      exact?: boolean
-      optional?: boolean
-      countsAsSuccess?: boolean
-    }>
-    cancelSteps?: Array<{
-      selector: string | string[]
-      text?: string | string[]
-      delay?: number
-      exact?: boolean
-      optional?: boolean
-      countsAsSuccess?: boolean
-    }>
+    steps: AutomationStep[]
+    cancelSteps?: AutomationStep[]
     // Backward compatibility (optional, can be removed if all updated)
     button?: string
   }
   // AI Image Generation mode configuration
   imageGeneration?: {
     // Steps to enable image generation
-    steps: Array<{
-      selector: string | string[]
-      text?: string | string[]
-      delay?: number
-      exact?: boolean
-      optional?: boolean
-      countsAsSuccess?: boolean
-    }>
-    cancelSteps?: Array<{
-      selector: string | string[]
-      text?: string | string[]
-      delay?: number
-      exact?: boolean
-      optional?: boolean
-      countsAsSuccess?: boolean
-    }>
+    steps: AutomationStep[]
+    cancelSteps?: AutomationStep[]
   }
 }
 
@@ -112,8 +98,8 @@ export const defaultSelectors: SelectorsConfig = {
       newConversationUrl: 'https://chat.openai.com/?temporary-chat=true',
       researchMode: {
         steps: [
-          { selector: '[data-testid="composer-plus-btn"], #composer-plus-btn, button.composer-btn', delay: 1000 },
-          { selector: 'div[role="menuitemradio"]', text: ['Deep Research', '深度研究'], delay: 500 }
+          { selector: '[data-testid="composer-plus-btn"], #composer-plus-btn, button.composer-btn', delay: 1000, menuOpenerFallback: true },
+          { selector: 'div[role="menuitemradio"]', regex: 'Deep\\s*Research', exclude: ['\\bSearch\\b', '搜索'], delay: 500 }
         ],
         cancelSteps: [
           { selector: '[class*="__composer-pill-remove"]', delay: 200 }
@@ -121,7 +107,7 @@ export const defaultSelectors: SelectorsConfig = {
       },
       imageGeneration: {
         steps: [
-          { selector: '[data-testid="composer-plus-btn"], #composer-plus-btn, button.composer-btn', delay: 1000 },
+          { selector: '[data-testid="composer-plus-btn"], #composer-plus-btn, button.composer-btn', delay: 1000, menuOpenerFallback: true },
           { selector: 'div[role="menuitemradio"], div[role="menuitem"]', text: ['Create image', 'DALL-E', '图像生成', '生图'], delay: 500 }
         ],
         cancelSteps: [
@@ -156,7 +142,7 @@ export const defaultSelectors: SelectorsConfig = {
           // 宽屏：直接点击 radio 按钮切换到研究模式
           { selector: 'button[role="radio"][value="research"]:not([aria-disabled="true"])', delay: 300, optional: true },
           // 窄屏：点击包含"研究"文字的按钮（研究按钮有 border class，来源按钮没有）
-          { selector: 'button.border.rounded-lg.h-8:not([aria-haspopup])', text: '研究', delay: 300, optional: true },
+          { selector: 'button.border.rounded-lg.h-8:not([aria-haspopup])', regex: '研究', exclude: ['搜索', '\\bSearch\\b'], delay: 300, optional: true },
           // 从下拉菜单选择研究选项（如果有菜单出现）
           { selector: '[role="menuitemradio"][value="research"], [role="menuitemradio"][data-value="research"], [role="menuitem"][data-value="research"], [role="menuitemradio"][aria-label*="研究"], [role="menuitemradio"][aria-label*="Research"], [role="menuitem"][aria-label*="研究"], [role="menuitem"][aria-label*="Research"]', delay: 300, optional: true }
         ],
@@ -164,7 +150,7 @@ export const defaultSelectors: SelectorsConfig = {
           // 宽屏：直接点击 radio 按钮切换回搜索模式
           { selector: 'button[role="radio"][value="search"]:not([aria-disabled="true"])', delay: 300, optional: true },
           // 窄屏：点击包含"搜索"文字的按钮
-          { selector: 'button.border.rounded-lg.h-8:not([aria-haspopup])', text: '搜索', delay: 300, optional: true },
+          { selector: 'button.border.rounded-lg.h-8:not([aria-haspopup])', regex: '搜索|\\bSearch\\b', exclude: ['研究', '\\bResearch\\b'], delay: 300, optional: true },
           // 从下拉菜单选择搜索选项
           { selector: '[role="menuitemradio"][value="search"], [role="menuitemradio"][data-value="search"], [role="menuitem"][data-value="search"], [role="menuitemradio"][aria-label*="搜索"], [role="menuitemradio"][aria-label*="Search"], [role="menuitem"][aria-label*="搜索"], [role="menuitem"][aria-label*="Search"]', delay: 300, optional: true }
         ]
@@ -308,7 +294,7 @@ export const defaultSelectors: SelectorsConfig = {
       newConversationUrl: 'https://gemini.google.com/app',
       researchMode: {
         steps: [
-          { selector: 'button.toolbox-drawer-button', delay: 500 },
+          { selector: 'button.toolbox-drawer-button', delay: 500, menuOpenerFallback: true },
           { selector: 'button.toolbox-drawer-item-list-button', text: 'Deep Research', delay: 500 }
         ],
         cancelSteps: [
@@ -317,7 +303,7 @@ export const defaultSelectors: SelectorsConfig = {
       },
       imageGeneration: {
         steps: [
-          { selector: 'button.toolbox-drawer-button', delay: 500 },
+          { selector: 'button.toolbox-drawer-button', delay: 500, menuOpenerFallback: true },
           { selector: 'button.toolbox-drawer-item-list-button', text: ['Imagen', 'Image generation', '图像生成', '生图'], delay: 500 }
         ],
         cancelSteps: [

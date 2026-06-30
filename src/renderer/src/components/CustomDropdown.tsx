@@ -81,7 +81,7 @@ function CustomDropdown<T = string>({
   const selectedOption = options.find(opt => opt.value === value)
   const displayText = customDisplayText || selectedOption?.label || placeholder
 
-  // 点击外部关闭下拉菜单
+  // 点击外部及窗口尺寸改变时关闭下拉菜单
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent): void => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
@@ -89,12 +89,18 @@ function CustomDropdown<T = string>({
       }
     }
 
+    const handleResize = (): void => {
+      setIsOpen(false)
+    }
+
     if (isOpen) {
       document.addEventListener('mousedown', handleClickOutside)
+      window.addEventListener('resize', handleResize)
     }
 
     return () => {
       document.removeEventListener('mousedown', handleClickOutside)
+      window.removeEventListener('resize', handleResize)
     }
   }, [isOpen])
 
