@@ -54,6 +54,7 @@ Agents may suggest or promote a lesson into the `Known Gotchas` section of `AGEN
 - **DOM 覆盖 native 窗口的截图还原机制**：在将 `<webview>` 迁移至 WebContentsView 架构时，页面的 HTML dropdown 或侧滑菜单等会被 native view 挡住。修复方法：(1) 使用 Electron 原生 Menu 来重构 model 选项，避开 z-index 冲突；(2) 对于复杂侧拉抽屉（如历史、设置等），在触发打开时利用 `capturePage` 截取 native 视图作为静态背景图显示，同时将真实的 WebContentsView 隐藏，待抽屉关闭 300ms 动画结束后再恢复显示，达成无缝视觉欺骗。
 
 - **总结页模型获取的上下文一致性**：在总结面板加载或切换模型时，必须显式传入当前的 `productMode` 和插槽 `slot` 信息，保证插槽切换和模型变更在不同面板和窗口下的行为对齐；复用同一渲染面板时，应避免使用静态 ref 产生加载锁，否则会导致生命周期 `useEffect` 的状态更新流被静默拦截。
+- **辩论模式与任务分配模式的实现复用原则**：辩论轮转可直接复用 `webviewRefs.get('slot-N')` 单槽位发送能力，无需修改 `WebviewCard` 组件本身；任务拆解可复用 `generate-summary` 的 `AbortController` 全局中止器，避免重复实现中止逻辑。新增模式功能时，优先评估现有 IPC 和组件能力的复用性，减少侵入式改动。
 
 ## Stable Decisions
 

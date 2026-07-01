@@ -1,0 +1,1244 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>MultiChat Desk — 任务分配 & 辩论模式 UI 设计</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/icon?family=Material+Symbols+Outlined" rel="stylesheet" />
+
+<!--
+  状态：已落地实现（2026-07-01）
+  实现位置：
+    - 任务模式：src/renderer/src/components/modes/TaskModePanel.tsx + SubtaskList.tsx
+    - 辩论模式：src/renderer/src/components/modes/DebateModePanel.tsx
+    - 状态机：src/renderer/src/store/appStore.ts（taskState / debateState）
+    - 拆解后端：src/main/api/taskSplitApi.ts + split-task IPC
+  本文件保留为交互设计参考。
+-->
+
+<style>
+  /* ============ 完全复刻 assets/index.css ============ */
+  :root {
+    --app-bg: radial-gradient(ellipse at bottom,
+      #FFFEF5 0%, #FFF2F5 30%, #F5F9FF 65%, #EBF4FF 100%);
+    --sidebar-bg: rgba(255, 255, 255, 0.8);
+    --text-primary: #1f2937;
+    --text-secondary: #6b7280;
+    --primary: #3b82f6;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: "Roboto", "Noto Sans SC", "Helvetica Neue", sans-serif;
+    font-size: 17px;
+    line-height: 24px;
+    background: var(--app-bg);
+    background-attachment: fixed;
+    color: var(--text-primary);
+    overflow: hidden;
+  }
+  .material-symbols-outlined {
+    font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+    vertical-align: middle;
+    user-select: none;
+    line-height: 1;
+  }
+
+  /* 项目自定义工具类 */
+  .shadow-soft { box-shadow: 0 10px 40px -10px rgba(0,0,0,0.15), 0 2px 6px -2px rgba(0,0,0,0.05); }
+  .shadow-float { box-shadow: 0 12px 32px rgba(83,156,254,0.12); }
+  .glass-panel { background: rgba(255,255,255,0.7); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.8); }
+  .glass-panel-heavy { background: rgba(255,255,255,0.85); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); border: 1px solid rgba(255,255,255,0.9); }
+
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; border-radius: 4px; }
+  ::-webkit-scrollbar-thumb { background: rgba(31,31,31,0.15); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(31,31,31,0.3); }
+
+  /* ============ 应用骨架：复刻 Layout.tsx flex flex-col h-screen ============ */
+  .app-shell { display: flex; flex-direction: column; height: 100vh; background: transparent; }
+
+  /* 标题栏 h-[38px] grid 1fr auto 1fr */
+  .titlebar {
+    position: relative; height: 38px; width: 100%; flex-shrink: 0;
+    display: grid; align-items: center; padding: 0 16px;
+    grid-template-columns: 1fr auto 1fr;
+  }
+  .tb-left { display: flex; align-items: center; gap: 12px; height: 100%; }
+  .tb-center { display: flex; justify-content: center; align-items: center; height: 100%; }
+  .tb-right { min-width: 120px; height: 100%; } /* 预留右侧窗口控件空间 */
+
+  .logo {
+    width: 16px; height: 16px; opacity: 0.8;
+    background: linear-gradient(135deg, #FFF5D6, #FFC8DA, #D2E8FF, #3b82f6);
+    border-radius: 4px; flex-shrink: 0;
+  }
+
+  /* 模式分段控件 —— 纯文字，复刻 Layout.tsx */
+  .mode-seg {
+    display: flex; align-items: center;
+    padding: 2px; background: rgba(229,231,235,0.6);
+    border-radius: 8px; font-size: 12px; gap: 2px;
+  }
+  .mode-seg button {
+    padding: 4px 10px; border-radius: 6px; font-weight: 500;
+    border: none; background: transparent; color: var(--text-secondary);
+    cursor: pointer; transition: all .2s; font-family: inherit;
+  }
+  .mode-seg button:hover { color: var(--text-primary); background: rgba(255,255,255,0.3); }
+  .mode-seg button.active {
+    background: #fff; color: var(--primary);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+  }
+
+  .icon-btn {
+    width: 28px; height: 28px; border-radius: 9999px; border: none;
+    background: transparent; color: var(--text-secondary); cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: all .2s;
+  }
+  .icon-btn:hover { color: var(--primary); background: rgba(255,255,255,0.6); }
+  .icon-btn .material-symbols-outlined { font-size: 18px; }
+
+  /* 窗口数量分段 —— 复刻 Layout.tsx 带可视化小方格 */
+  .count-seg {
+    display: flex; align-items: center; padding: 2px; gap: 2px;
+    border-radius: 9999px; transition: opacity .2s;
+  }
+  .count-seg.disabled { opacity: 0.4; pointer-events: none; }
+  .count-seg button {
+    width: 32px; height: 22px; border-radius: 9999px;
+    border: 1px solid transparent; background: transparent;
+    color: var(--text-secondary); cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: all .2s; padding: 0;
+  }
+  .count-seg button:hover { color: var(--primary); background: rgba(255,255,255,0.5); }
+  .count-seg button.active {
+    background: rgba(239,246,255,0.8); color: var(--primary);
+    border-color: #bfdbfe; box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+  }
+  .count-seg button .grid-icon {
+    width: 18px; height: 10px; border: 1.5px solid currentColor;
+    border-radius: 2px; display: flex;
+  }
+  .count-seg button[data-c="one"] .grid-icon { background: transparent; }
+  .count-seg button[data-c="two"] .grid-icon { }
+  .count-seg button[data-c="two"] .grid-icon::before { content:""; flex:1; border-right:1.5px solid currentColor; }
+  .count-seg button[data-c="two"] .grid-icon::after { content:""; flex:1; }
+  .count-seg button[data-c="three"] .grid-icon::before { content:""; flex:1; border-right:1.5px solid currentColor; }
+  .count-seg button[data-c="three"] .grid-icon span { flex:1; border-right:1.5px solid currentColor; }
+  .count-seg button[data-c="three"] .grid-icon span:last-child { border-right:none; }
+  .count-seg button[data-c="four"] .grid-icon {
+    display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr;
+  }
+  .count-seg button[data-c="four"] .grid-icon span { border: none; }
+
+  /* main 区域 */
+  main { flex: 1; overflow: hidden; }
+
+  /* ============ MainPage: flex flex-col h-full ============ */
+  .main-page { display: flex; flex-direction: column; height: 100%; }
+
+  /* Webview 区：flex-grow min-h-0 overflow-auto + padding */
+  .webview-area {
+    flex-grow: 1; min-height: 0; overflow: auto;
+    padding: 16px 16px 0 16px;
+  }
+  .webview-grid { width: 100%; height: calc(100% - 0px); }
+  .grid-two { display: grid; grid-template-columns: 1fr 16px 1fr; grid-template-rows: 1fr; }
+  .grid-three { display: grid; grid-template-columns: 1fr 16px 1fr 16px 1fr; grid-template-rows: 1fr; }
+  .grid-four { display: grid; grid-template-columns: 1fr 16px 1fr 16px 1fr 16px 1fr; grid-template-rows: 1fr; min-width: 1328px; }
+  .grid-one { display: grid; grid-template-columns: 1fr; grid-template-rows: 1fr; }
+
+  .gutter {
+    position: relative; display: flex; align-items: stretch; justify-content: center;
+    cursor: col-resize; user-select: none;
+  }
+  .gutter::before {
+    content: ""; width: 2px; margin: 8px 0; border-radius: 9999px;
+    background: rgba(229,231,235,0.6); transition: background .2s;
+  }
+  .gutter:hover::before { background: rgba(59,130,246,0.6); }
+
+  /* ============ WebviewCard 卡片 ============ */
+  .card {
+    border-radius: 16px; display: flex; flex-direction: column;
+    overflow: hidden; min-height: 0; min-width: 0;
+  }
+  .card-header {
+    padding: 16px; border-bottom: 1px solid rgba(255,255,255,0.4);
+    display: flex; align-items: center; gap: 8px; flex-shrink: 0;
+  }
+  .card-model {
+    font-weight: 600; color: var(--text-primary); font-size: 17px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .model-dot { width: 8px; height: 8px; border-radius: 9999px; flex-shrink: 0; }
+  .card-model-arrow { color: var(--text-secondary); font-size: 18px; }
+  .card-header-icons {
+    margin-left: auto; display: flex; gap: 4px; opacity: 0;
+    transition: opacity .2s;
+  }
+  .card:hover .card-header-icons { opacity: 1; }
+  .card-header-icons .material-symbols-outlined { font-size: 18px; color: var(--text-secondary); cursor: pointer; }
+  .card-header-icons .material-symbols-outlined:hover { color: var(--primary); }
+
+  .card-body {
+    flex: 1; padding: 14px 16px; overflow: auto;
+    font-size: 14px; line-height: 20px; color: var(--text-primary);
+    background: rgba(255,255,255,0.3);
+  }
+  .placeholder { color: var(--text-secondary); font-size: 13px; }
+  .bubble {
+    background: rgba(255,255,255,0.7); border: 1px solid rgba(229,231,235,0.6);
+    border-radius: 12px; padding: 10px 12px; margin-bottom: 8px;
+    font-size: 13px; line-height: 19px;
+  }
+  .bubble.pro { border-left: 3px solid #ef4444; }
+  .bubble.con { border-left: 3px solid #3b82f6; }
+  .bubble strong { font-size: 11px; color: var(--text-secondary); font-weight: 600; display:block; margin-bottom: 4px; }
+
+  /* 角色标签（辩论用） */
+  .role-tag {
+    font-size: 11px; font-weight: 600; padding: 2px 8px;
+    border-radius: 9999px; display: inline-flex; align-items: center; gap: 3px;
+  }
+  .role-pro { background: rgba(239,68,68,0.1); color: #dc2626; border: 1px solid rgba(239,68,68,0.2); }
+  .role-con { background: rgba(59,130,246,0.1); color: var(--primary); border: 1px solid rgba(59,130,246,0.2); }
+  .role-tag .material-symbols-outlined { font-size: 13px; }
+
+  /* 辩论卡片头部模型选择按钮（点击循环切换辩手） */
+  .debate-model-pick {
+    display: flex; align-items: center; gap: 6px; cursor: pointer;
+    background: rgba(255,255,255,0.5); border: 1px solid rgba(229,231,235,0.6);
+    border-radius: 8px; padding: 4px 8px; font-family: inherit;
+    font-size: 13px; font-weight: 600; color: var(--text-primary);
+    transition: all .2s;
+  }
+  .debate-model-pick:hover { border-color: #bfdbfe; background: rgba(239,246,255,0.6); color: var(--primary); }
+  .debate-model-pick .card-model-arrow { font-size: 18px; color: var(--text-secondary); }
+
+  /* 任务标签（任务分配用） */
+  .task-tag {
+    font-size: 11px; color: var(--text-secondary);
+    background: rgba(59,130,246,0.06); border: 1px solid rgba(59,130,246,0.15);
+    padding: 2px 8px; border-radius: 6px; max-width: 220px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .task-tag.idle { color: #9ca3af; background: transparent; border-style: dashed; border-color: #d1d5db; }
+
+  /* 状态点 */
+  .status-dot { width: 8px; height: 8px; border-radius: 9999px; flex-shrink: 0; }
+  .st-idle { background: #d1d5db; }
+  .st-sending { background: #f59e0b; }
+  .st-done { background: #22c55e; }
+  @keyframes pulse { 0%,100% { box-shadow: 0 0 0 3px rgba(245,158,11,0.2);} 50% { box-shadow: 0 0 0 6px rgba(245,158,11,0.05);} }
+  .st-live { background: #f59e0b; animation: pulse 1.5s infinite; }
+
+  .typing-cursor { display: inline-block; width: 6px; height: 14px; background: var(--primary); margin-left: 2px; vertical-align: middle; animation: blink 1s infinite; }
+  @keyframes blink { 0%,100% { opacity:1; } 50% { opacity:0; } }
+
+  /* ============ ControlBar：footer flex flex-col gap-4 ============ */
+  .controlbar-wrap { padding: 0 16px 16px 16px; background: transparent; min-width: 0; }
+  .controlbar { margin-top: 0; display: flex; flex-direction: column; gap: 16px; width: 100%; }
+  .controlbar-row {
+    position: relative; display: flex; align-items: center; gap: 24px;
+  }
+
+  /* 左侧功能按钮组 */
+  .func-group { display: flex; align-items: center; gap: 24px; }
+  .func-btn {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 8px; font-size: 12px; font-weight: 500; color: var(--text-secondary);
+    cursor: pointer; background: none; border: none; transition: color .2s;
+    font-family: inherit;
+  }
+  .func-btn:hover { color: var(--primary); }
+  .func-btn.disabled { opacity: 0.5; cursor: not-allowed; }
+  .func-icon {
+    width: 40px; height: 40px; border-radius: 9999px;
+    display: flex; align-items: center; justify-content: center;
+    border: 1px solid transparent; transition: all .2s;
+  }
+  .func-btn:hover .func-icon { background: rgba(239,246,255,0.5); color: var(--primary); border-color: #bfdbfe; }
+  .func-btn.active .func-icon { background: rgba(239,246,255,0.8); color: var(--primary); border-color: #bfdbfe; transform: scale(1.05); }
+  .func-btn.active { color: var(--primary); }
+  .func-icon .material-symbols-outlined { font-size: 24px; }
+
+  /* 中间输入区：flex-grow glass-panel-heavy rounded-[24px] */
+  .input-area {
+    position: relative; flex-grow: 1; display: flex; gap: 16px; padding: 12px;
+    border-radius: 24px; align-items: flex-end;
+  }
+  .input-area.has-text { align-items: flex-start; }
+  .attach-btn {
+    flex-shrink: 0; align-self: flex-end; color: var(--text-secondary);
+    cursor: pointer; background: none; border: none; transition: color .2s;
+  }
+  .attach-btn:hover { color: var(--primary); }
+  .attach-btn .material-symbols-outlined { font-size: 24px; transform: rotate(-90deg); }
+
+  .textarea {
+    flex-grow: 1; background: transparent; border: none; outline: none;
+    resize: none; font-family: inherit; font-size: 17px; line-height: 24px;
+    color: var(--text-primary); height: 72px; overflow-y: auto; padding: 0;
+  }
+  .textarea::placeholder { color: var(--text-secondary); }
+
+  .send-btn {
+    border-radius: 9999px; border: none; cursor: pointer; flex-shrink: 0;
+    align-self: flex-end; transition: opacity .2s; background: var(--primary); color: #fff;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .send-btn.icon { width: 48px; height: 48px; padding: 12px; }
+  .send-btn.pill { padding: 12px; gap: 6px; }
+  .send-btn:hover { opacity: 0.9; }
+  .send-btn.disabled { background: #f3f4f6; color: var(--text-secondary); cursor: not-allowed; }
+  .send-btn .material-symbols-outlined { font-size: 24px; }
+  .send-btn.pill .label { font-size: 14px; font-weight: 700; }
+
+  /* 右侧生成总结按钮 */
+  .summary-btn {
+    flex-shrink: 0; padding: 8px 16px; font-size: 14px; font-weight: 700;
+    border-radius: 24px; border: none; background: var(--primary); color: #fff;
+    cursor: pointer; box-shadow: 0 10px 40px -10px rgba(0,0,0,0.15);
+    transition: opacity .2s; white-space: nowrap;
+    display: flex; align-items: center; gap: 8px; font-family: inherit;
+  }
+  .summary-btn:hover { opacity: 0.9; }
+  .summary-btn.disabled { background: #e5e7eb; color: var(--text-secondary); cursor: not-allowed; box-shadow: none; opacity: 0.7; }
+  .summary-btn.disabled:hover { opacity: 0.7; }
+  .summary-btn .material-symbols-outlined { font-size: 20px; }
+
+  /* ============ 任务分配专属：输入框 + 上拉拆解列表 ============ */
+  /* 复用 .input-area 玻璃面板，任务模式用同一容器，只是上拉弹出拆解结果 */
+  .task-popup {
+    position: absolute; bottom: 100%; left: 0; right: 0; margin-bottom: 8px;
+    background: rgba(255,255,255,0.92); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
+    border: 1px solid rgba(255,255,255,0.9); border-radius: 20px;
+    box-shadow: 0 -12px 40px rgba(83,156,254,0.15), 0 4px 12px rgba(0,0,0,0.06);
+    z-index: 40; overflow: hidden;
+    transition: max-height .25s ease, opacity .2s ease;
+    max-height: 340px;
+  }
+  .task-popup.collapsed { max-height: 44px; }
+  .task-popup-header {
+    display: flex; align-items: center; gap: 8px; padding: 10px 14px;
+    border-bottom: 1px solid rgba(229,231,235,0.6); cursor: pointer; user-select: none;
+    flex-shrink: 0;
+  }
+  .task-popup-header:hover { background: rgba(59,130,246,0.04); }
+  .task-popup-header .title { font-size: 13px; font-weight: 600; color: var(--text-primary); display: flex; align-items: center; gap: 6px; }
+  .task-popup-header .title .material-symbols-outlined { font-size: 16px; color: var(--primary); }
+  .task-popup-header .count { font-size: 11px; color: var(--text-secondary); background: rgba(59,130,246,0.08); padding: 2px 8px; border-radius: 9999px; }
+  .task-popup-header .chev { margin-left: auto; color: var(--text-secondary); transition: transform .2s; font-size: 20px; }
+  .task-popup.collapsed .task-popup-header .chev { transform: rotate(180deg); }
+  .task-popup-body { display: flex; flex-direction: column; gap: 6px; padding: 10px 14px; max-height: 280px; overflow-y: auto; }
+  .task-popup.collapsed .task-popup-body { display: none; }
+
+  .subtask-row {
+    display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+    background: rgba(255,255,255,0.7); border: 1px solid rgba(229,231,235,0.6);
+    border-radius: 12px;
+  }
+  .slot-label { font-size: 12px; font-weight: 600; color: var(--text-secondary); display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+  .slot-num { width: 20px; height: 20px; border-radius: 9999px; background: rgba(59,130,246,0.1); color: var(--primary); font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+  .subtask-input { flex: 1; background: transparent; border: none; outline: none; font-family: inherit; font-size: 13px; color: var(--text-primary); }
+  .subtask-input::placeholder { color: #9ca3af; }
+  .mini-btn { width: 24px; height: 24px; border-radius: 6px; border: none; background: transparent; color: var(--text-secondary); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all .2s; }
+  .mini-btn:hover { background: rgba(59,130,246,0.1); color: var(--primary); }
+  .mini-btn .material-symbols-outlined { font-size: 16px; }
+
+  /* 拆解态下输入框只读，并显示原始 query */
+  .textarea.readonly { cursor: default; }
+
+  /* ============ 辩论专属：主题输入区（只输入 query，配置在左侧） ============ */
+  .debate-input {
+    position: relative; flex-grow: 1; display: flex; align-items: center; gap: 16px;
+    padding: 12px 16px; border-radius: 24px; align-self: stretch;
+    height: 96px; flex-shrink: 0; box-sizing: border-box;
+  }
+  .debate-input .material-symbols-outlined.icon { font-size: 24px; color: var(--primary); flex-shrink: 0; }
+  .topic-input {
+    flex: 1; background: transparent; border: none; outline: none;
+    font-family: inherit; font-size: 17px; color: var(--text-primary); padding: 0;
+    height: 72px; line-height: 24px; overflow-y: auto; resize: none;
+  }
+  .topic-input::placeholder { color: var(--text-secondary); }
+  .topic-input.readonly { cursor: default; }
+
+  /* 左侧轮次加减输入控件 */
+  .round-stepper {
+    display: flex; align-items: center; gap: 4px;
+    padding: 4px; border-radius: 9999px;
+    background: rgba(255,255,255,0.6); border: 1px solid #e5e7eb;
+  }
+  .round-stepper .step-btn {
+    width: 32px; height: 32px; border-radius: 9999px; border: none;
+    background: transparent; color: var(--text-secondary); cursor: pointer;
+    font-size: 18px; font-weight: 600; line-height: 1;
+    display: flex; align-items: center; justify-content: center;
+    transition: all .2s; font-family: inherit;
+  }
+  .round-stepper .step-btn:hover { background: rgba(59,130,246,0.1); color: var(--primary); }
+  .round-stepper .step-btn:active { transform: scale(0.92); }
+  .round-stepper .step-field {
+    display: flex; align-items: center; gap: 3px; padding: 0 4px;
+    min-width: 56px; justify-content: center;
+  }
+  .round-stepper .step-input {
+    width: 32px; text-align: center; background: transparent; border: none; outline: none;
+    font-family: inherit; font-size: 16px; font-weight: 700; color: var(--text-primary);
+    -moz-appearance: textfield;
+  }
+  .round-stepper .step-input::-webkit-outer-spin-button,
+  .round-stepper .step-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .round-stepper .step-label { font-size: 12px; color: var(--text-secondary); }
+  .round-stepper.disabled { opacity: 0.45; pointer-events: none; }
+
+  /* 辩论进行中面板（占据输入区位置） */
+  .debate-area {
+    position: relative; flex-grow: 1; min-width: 0; display: flex; align-items: center; gap: 16px;
+    padding: 12px 16px; border-radius: 24px; overflow: hidden;
+    height: 96px; flex-shrink: 0; box-sizing: border-box;
+  }
+  .debate-status { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+  .debate-status .label { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+  .round-info { font-size: 13px; color: var(--text-secondary); display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+  .round-info .now { color: var(--primary); font-weight: 500; }
+  /* 圆点容器：占据中间剩余空间，超出横向滚动，不挤压两侧按钮 */
+  .round-dots {
+    display: flex; align-items: center; gap: 6px;
+    flex: 1 1 auto; min-width: 0; overflow-x: auto;
+    padding: 2px 0;
+    scrollbar-width: thin;
+  }
+  .round-dots::-webkit-scrollbar { height: 4px; }
+  .round-dots::-webkit-scrollbar-thumb { background: rgba(59,130,246,0.25); border-radius: 9999px; }
+  .round-dot { display: flex; align-items: center; gap: 3px; font-size: 11px; padding: 3px 8px; border-radius: 9999px; border: 1px solid #e5e7eb; background: rgba(255,255,255,0.5); flex-shrink: 0; white-space: nowrap; }
+  .round-dot.done { color: #22c55e; border-color: rgba(34,197,94,0.3); background: rgba(34,197,94,0.06); }
+  .round-dot.active { color: var(--primary); border-color: #bfdbfe; background: rgba(59,130,246,0.08); }
+  .round-dot.todo { color: #9ca3af; }
+  .round-dot .material-symbols-outlined { font-size: 13px; }
+  .debate-actions { display: flex; gap: 8px; flex-shrink: 0; }
+  .pill-btn {
+    padding: 6px 14px; border-radius: 9999px; border: 1px solid #e5e7eb;
+    background: rgba(255,255,255,0.6); color: var(--text-secondary); font-size: 13px;
+    font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;
+    transition: all .2s; font-family: inherit;
+  }
+  .pill-btn:hover { color: var(--primary); border-color: #bfdbfe; background: rgba(239,246,255,0.5); }
+  .pill-btn .material-symbols-outlined { font-size: 16px; }
+
+  .divider { width: 1px; height: 20px; background: #e5e7eb; flex-shrink: 0; }
+
+  /* 模式视图显隐 */
+  .mode-view { display: none; }
+  .mode-view.active { display: contents; }
+
+  /* 底部说明浮层 */
+  .mode-hint {
+    position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+    background: rgba(255,255,255,0.9); backdrop-filter: blur(10px);
+    border: 1px solid #e5e7eb; border-radius: 9999px; padding: 6px 14px;
+    font-size: 12px; color: var(--text-secondary); box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+    z-index: 50; display: flex; align-items: center; gap: 6px; max-width: 90vw;
+  }
+  .mode-hint .material-symbols-outlined { font-size: 14px; color: var(--primary); }
+</style>
+</head>
+<body>
+
+<div class="app-shell">
+
+  <!-- ===== 自定义标题栏（复刻 Layout.tsx） ===== -->
+  <div class="titlebar">
+    <div class="tb-left">
+      <div class="logo"></div>
+      <div class="mode-seg" id="modeSeg">
+        <button data-mode="multi_ai" class="active" title="默认模式：多个平台展示不同AI">多AI</button>
+        <button data-mode="task_assignment" title="支持多个窗口选择同一个AI分配不同任务">任务分配</button>
+        <button data-mode="debate" title="辩论模式：支持2个AI交互对抗">辩论</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:4px;">
+        <button class="icon-btn" title="设置"><span class="material-symbols-outlined">settings</span></button>
+        <button class="icon-btn" title="历史记录"><span class="material-symbols-outlined">history</span></button>
+      </div>
+    </div>
+
+    <div class="tb-center">
+      <div class="count-seg glass-panel shadow-soft" id="countSeg">
+        <button data-c="one" title="1 窗口"><div class="grid-icon"></div></button>
+        <button data-c="two" title="2 窗口"><div class="grid-icon"></div></button>
+        <button data-c="three" class="active" title="3 窗口"><div class="grid-icon"><span></span><span></span><span></span></div></button>
+        <button data-c="four" title="4 窗口"><div class="grid-icon"><span></span><span></span><span></span><span></span></div></button>
+      </div>
+    </div>
+
+    <div class="tb-right"></div>
+  </div>
+
+  <main>
+    <div class="main-page">
+
+      <!-- Webview 卡片区（共用，内容由模式决定） -->
+      <div class="webview-area">
+        <div class="webview-grid grid-three" id="webviewGrid">
+          <!-- 由 JS 注入 -->
+        </div>
+      </div>
+
+      <!-- ControlBar（共用 footer，内容由模式决定） -->
+      <div class="controlbar-wrap">
+        <div class="controlbar" id="controlbar">
+          <!-- 由 JS 注入 -->
+        </div>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<div class="mode-hint" id="modeHint">
+  <span class="material-symbols-outlined">info</span>
+  <span id="hintText"></span>
+</div>
+
+<script>
+  // ============ 模型定义 ============
+  const MODELS = {
+    claude:  { name: 'Claude',  color: '#f59e0b' },
+    gpt4:    { name: 'GPT-4',   color: '#22c55e' },
+    gemini:  { name: 'Gemini',  color: '#3b82f6' },
+    grok:    { name: 'Grok',    color: '#1f2937' },
+  };
+
+  // 各模式的卡片内容（WebviewCard 体内展示）
+  function cardBody(mode, slot, totalSlots) {
+    if (mode === 'multi_ai') {
+      return `<div class="placeholder">等待发送…</div>`;
+    }
+    if (mode === 'task_assignment') {
+      const st = taskState.subtasks[slot];
+      const sent = taskState.phase === 'sent';
+      if (!st) {
+        return { taskTag: `<span class="task-tag idle">待派发</span>`,
+                 status: `<span class="status-dot st-idle"></span><span style="font-size:11px;color:var(--text-secondary);">待派发</span>`,
+                 body: `<div class="placeholder">尚未收到任务</div>` };
+      }
+      const stCls = sent ? 'st-sending' : 'st-done';
+      const stTxt = sent ? '生成中…' : '已派发';
+      const tag = sent ? st.text : st.text; // 派发前也显示子任务文本
+      return { taskTag: `<span class="task-tag">${escapeHtml(tag)}</span>`,
+               status: `<span class="status-dot ${sent?'st-sending':'st-done'}"></span><span style="font-size:11px;color:var(--text-secondary);">${stTxt}</span>`,
+               body: sent ? `<div class="bubble">正在执行：${escapeHtml(st.text)}<span class="typing-cursor"></span></div>` : `<div class="placeholder">等待发送后执行…</div>` };
+    }
+    if (mode === 'debate') {
+      // slot 0 = 正方, slot 1 = 反方
+      if (slot === 0) {
+        return {
+          roleTag: `<span class="role-tag role-pro"><span class="material-symbols-outlined">flag</span>正方</span>`,
+          view: `<span style="font-size:11px;color:var(--text-secondary);">观点：会取代</span>`,
+          body: `
+            <div class="bubble pro"><strong>第 1 轮 · 正方</strong>AI 编程能力已能独立完成多数 CRUD 与样板代码，随着上下文窗口扩大，中初级程序员的重复性工作将被替代……</div>
+            <div class="bubble pro"><strong>第 2 轮 · 正方</strong>对方提到"创造力不可替代"，但 AI 已在架构选型、代码评审中展现出超越平均工程师的判断力……<span class="typing-cursor"></span></div>
+          `
+        };
+      } else {
+        return {
+          roleTag: `<span class="role-tag role-con"><span class="material-symbols-outlined">shield</span>反方</span>`,
+          view: `<span style="font-size:11px;color:var(--text-secondary);">观点：不会取代</span>`,
+          body: `
+            <div class="bubble con"><strong>第 1 轮 · 反方</strong>AI 本质是工具增强而非替代：需求澄清、跨团队协作、系统权衡仍需人类。历史证明工具革命创造的新岗位多于消失的……</div>
+            <div class="bubble con"><strong>第 2 轮 · 反方</strong>对方以"代码评审判断力"论证替代，但评审价值在于业务语境对齐，AI 缺乏对真实业务约束的长期记忆……<span class="typing-cursor"></span></div>
+          `
+        };
+      }
+    }
+  }
+
+  // ============ 渲染 Webview 卡片网格 ============
+  function renderWebviews(mode, count) {
+    const grid = document.getElementById('webviewGrid');
+    if (mode === 'debate') count = 2;
+    let modelIds;
+    if (mode === 'debate') {
+      modelIds = [debateState.proponentId, debateState.opponentId];
+    } else if (mode === 'task_assignment' && taskState.subtasks.length > 0) {
+      // 拆解后跟随子任务指定的模型
+      modelIds = [];
+      for (let i = 0; i < count; i++) modelIds.push(taskState.subtasks[i]?.modelId || ['claude','gpt4','gemini','grok'][i]);
+    } else {
+      modelIds = ['claude','gpt4','gemini','grok'].slice(0, count);
+    }
+
+    let gridClass = 'grid-one';
+    if (count === 2) gridClass = 'grid-two';
+    else if (count === 3) gridClass = 'grid-three';
+    else if (count === 4) gridClass = 'grid-four';
+    grid.className = 'webview-grid ' + gridClass;
+
+    let html = '';
+    for (let i = 0; i < count; i++) {
+      const id = modelIds[i];
+      const m = MODELS[id];
+
+      let headerExtra = '';
+      let bodyHtml = '';
+      if (mode === 'task_assignment') {
+        const info = cardBody(mode, i, count);
+        headerExtra = info.taskTag + `<div style="margin-left:auto;display:flex;align-items:center;gap:6px;">${info.status}</div>`;
+        bodyHtml = info.body;
+      } else if (mode === 'debate') {
+        if (i === 0) {
+          headerExtra = `<span class="role-tag role-pro"><span class="material-symbols-outlined">flag</span>正方</span><button class="debate-model-pick" data-pick="pro" style="margin-left:auto;" title="点击切换正方模型"><span class="model-dot" style="background:${m.color};"></span>${m.name}<span class="material-symbols-outlined card-model-arrow">expand_more</span></button>`;
+        } else {
+          headerExtra = `<span class="role-tag role-con"><span class="material-symbols-outlined">shield</span>反方</span><button class="debate-model-pick" data-pick="con" style="margin-left:auto;" title="点击切换反方模型"><span class="model-dot" style="background:${m.color};"></span>${m.name}<span class="material-symbols-outlined card-model-arrow">expand_more</span></button>`;
+        }
+        bodyHtml = ''; // 由辩论引擎动态填充
+      } else {
+        headerExtra = `<div style="margin-left:auto;" class="card-header-icons">
+          <span class="material-symbols-outlined">refresh</span>
+          <span class="material-symbols-outlined">open_in_new</span>
+        </div>`;
+        bodyHtml = `<div class="placeholder">等待发送…</div>`;
+      }
+
+      html += `
+        <div class="card glass-panel shadow-soft" data-slot="${i}">
+          <div class="card-header">
+            <div class="card-model"><span class="model-dot" style="background:${m.color};"></span>${m.name}<span class="material-symbols-outlined card-model-arrow">expand_more</span></div>
+            ${headerExtra}
+          </div>
+          <div class="card-body" data-body-slot="${i}">${bodyHtml}</div>
+        </div>
+      `;
+      if (i < count - 1) html += `<div class="gutter"></div>`;
+    }
+    grid.innerHTML = html;
+
+    // 辩论模式：卡片头部模型点击循环切换辩手（仅 idle 阶段）
+    if (mode === 'debate' && debateState.phase === 'idle') {
+      grid.querySelectorAll('.debate-model-pick').forEach(btn => {
+        btn.onclick = () => {
+          const which = btn.dataset.pick;
+          const cur = which === 'pro' ? debateState.proponentId : debateState.opponentId;
+          const idx = MODEL_OPTIONS.findIndex(m => m.id === cur);
+          const next = MODEL_OPTIONS[(idx + 1) % MODEL_OPTIONS.length].id;
+          if (which === 'pro') debateState.proponentId = next;
+          else debateState.opponentId = next;
+          renderWebviews('debate', 2);
+        };
+      });
+    }
+  }
+
+  // ============ 渲染 ControlBar ============
+  function renderControlbar(mode) {
+    const cb = document.getElementById('controlbar');
+
+    // 左侧功能按钮组：辩论模式不要生图/深度研究
+    // idle 阶段左侧含：新辩论 + 总轮次（加减/直接输入），辩手由卡片头部模型下拉决定
+    let funcGroup = '';
+    if (mode === 'debate') {
+      // 轮次 stepper 始终显示；非 idle 阶段置灰禁用
+      const stepperDisabled = debateState.phase !== 'idle';
+      const cfg = `
+        <div class="round-stepper ${stepperDisabled?'disabled':''}" id="roundStepper">
+          <button class="step-btn" id="roundDec" title="减少轮次" ${stepperDisabled?'disabled':''}>−</button>
+          <div class="step-field">
+            <input type="number" class="step-input" id="roundInput" value="${debateState.totalRounds}" min="1" max="10" ${stepperDisabled?'disabled':''} />
+            <span class="step-label">轮</span>
+          </div>
+          <button class="step-btn" id="roundInc" title="增加轮次" ${stepperDisabled?'disabled':''}>+</button>
+        </div>
+      `;
+      const newDisabled = debateState.phase === 'running';
+      funcGroup = `
+        <div class="func-group">
+          <button class="func-btn ${newDisabled?'disabled':''}" id="newDebateBtn"><div class="func-icon"><span class="material-symbols-outlined">add</span></div>新辩论</button>
+          ${cfg}
+        </div>
+      `;
+    } else {
+      funcGroup = `
+        <div class="func-group">
+          <button class="func-btn"><div class="func-icon"><span class="material-symbols-outlined">image</span></div>AI 生图</button>
+          <button class="func-btn ${mode==='task_assignment'?'active':''}"><div class="func-icon"><span class="material-symbols-outlined">biotech</span></div>深度研究</button>
+          <button class="func-btn"><div class="func-icon"><span class="material-symbols-outlined">add</span></div>开启新对话</button>
+        </div>
+      `;
+    }
+
+    // 中间区域（按模式 + 辩论阶段变形）
+    let middle = '';
+    if (mode === 'multi_ai') {
+      middle = `
+        <div class="input-area glass-panel-heavy shadow-float">
+          <button class="attach-btn"><span class="material-symbols-outlined">attachment</span></button>
+          <textarea class="textarea" placeholder="向 AI 模型提问..."></textarea>
+          <button class="send-btn icon"><span class="material-symbols-outlined">arrow_upward</span></button>
+        </div>
+      `;
+    } else if (mode === 'task_assignment') {
+      middle = renderTaskMiddle();
+    } else if (mode === 'debate') {
+      middle = renderDebateMiddle();
+    }
+
+    // 右侧生成总结（辩论模式文案为"裁判评析"，辩论进行中禁用）
+    const summaryLabel = mode === 'debate' ? '裁判评析' : '生成总结';
+    const summaryIcon = mode === 'debate' ? 'gavel' : 'auto_awesome';
+    const summaryDisabled = mode === 'debate' && debateState.phase !== 'finished';
+    const summaryBtn = `
+      <button class="summary-btn ${summaryDisabled?'disabled':''}" ${summaryDisabled?'disabled':''}><span class="material-symbols-outlined">${summaryIcon}</span>${summaryLabel}</button>
+    `;
+
+    cb.innerHTML = `<div class="controlbar-row">${funcGroup}${middle}${summaryBtn}</div>`;
+    bindDebateEvents();
+    bindTaskEvents();
+  }
+
+  // ============ 任务分配引擎状态 ============
+  // phase: idle(输入query) | split(已拆解，输入框只读，可编辑子任务) | sent(已发送)
+  const taskState = {
+    phase: 'idle',
+    query: '',
+    subtasks: [],   // [{ modelId, text }]
+    collapsed: false,
+  };
+  const TASK_MODELS = [
+    { id: 'claude', name: 'Claude', color: '#f59e0b' },
+    { id: 'gpt4',   name: 'GPT-4',  color: '#22c55e' },
+    { id: 'gemini', name: 'Gemini', color: '#3b82f6' },
+    { id: 'grok',   name: 'Grok',   color: '#1f2937' },
+  ];
+
+  // mock 拆解：根据 query 生成 N 个子任务（N = 当前窗口数）
+  function mockSplitTask(query, count) {
+    const templates = [
+      t => `分析「${t}」的需求与关键要素`,
+      t => `拆解「${t}」的核心步骤与依赖`,
+      t => `针对「${t}」产出主体内容草稿`,
+      t => `审校并优化「${t}」的输出`,
+    ];
+    const out = [];
+    for (let i = 0; i < count; i++) {
+      out.push({ modelId: TASK_MODELS[i % TASK_MODELS.length].id, text: templates[i % templates.length](query) });
+    }
+    return out;
+  }
+
+  function renderTaskMiddle() {
+    const split = taskState.phase === 'split';
+    const inputVal = split ? taskState.query : (taskState.query || '');
+    const placeholder = split ? '' : '输入要拆解的总任务，例如：帮我把这篇论文翻译并做成技术分享 PPT';
+    let actionBtn = '';
+    if (split) {
+      // 已拆解：按钮变发送
+      actionBtn = `
+        <button class="pill-btn" id="taskCancelBtn" style="padding:8px 14px;background:rgba(229,231,235,0.6);"><span class="material-symbols-outlined">close</span>取消</button>
+        <button class="send-btn pill" id="taskSendBtn"><span class="material-symbols-outlined">send</span><span class="label">一键发送</span></button>
+      `;
+    } else {
+      const canSplit = (taskState.query || '').trim().length > 0;
+      actionBtn = `
+        <button class="send-btn pill ${canSplit?'':'disabled'}" id="taskSplitBtn" ${canSplit?'':'disabled'}><span class="material-symbols-outlined">auto_awesome</span><span class="label">拆解</span></button>
+      `;
+    }
+
+    // 上拉列表（仅 split 态显示）
+    let popup = '';
+    if (split) {
+      const rows = taskState.subtasks.map((st, i) => {
+        const m = TASK_MODELS.find(x => x.id === st.modelId) || TASK_MODELS[0];
+        return `
+          <div class="subtask-row" data-st-idx="${i}">
+            <div class="slot-label"><span class="slot-num">${i+1}</span><span class="model-dot" style="background:${m.color};"></span><span class="st-model" data-st-idx="${i}">${m.name}</span></div>
+            <input class="subtask-input" value="${escapeHtml(st.text)}" data-st-idx="${i}" />
+            <button class="mini-btn" data-cycle-idx="${i}" title="切换模型"><span class="material-symbols-outlined">swap_horiz</span></button>
+            <button class="mini-btn" data-del-idx="${i}" title="删除"><span class="material-symbols-outlined">close</span></button>
+          </div>
+        `;
+      }).join('');
+      popup = `
+        <div class="task-popup ${taskState.collapsed?'collapsed':''}" id="taskPopup">
+          <div class="task-popup-header" id="taskPopupToggle">
+            <span class="title"><span class="material-symbols-outlined">account_tree</span>拆解结果</span>
+            <span class="count">${taskState.subtasks.length} 个子任务</span>
+            <span class="material-symbols-outlined chev">expand_more</span>
+          </div>
+          <div class="task-popup-body">
+            ${rows}
+            <button class="mini-btn" id="taskAddBtn" style="width:100%;height:30px;border:1px dashed #d1d5db;border-radius:10px;margin-top:2px;color:var(--text-secondary);"><span class="material-symbols-outlined" style="font-size:18px;">add</span></button>
+          </div>
+        </div>
+      `;
+    }
+
+    return `
+      <div class="input-area glass-panel-heavy shadow-float" style="position:relative;">
+        ${popup}
+        <button class="attach-btn"><span class="material-symbols-outlined">attachment</span></button>
+        <textarea class="textarea ${split?'readonly':''}" id="taskQueryInput" placeholder="${placeholder}" ${split?'readonly':''}>${escapeHtml(inputVal)}</textarea>
+        ${actionBtn}
+      </div>
+    `;
+  }
+
+  // 绑定任务模式事件
+  function bindTaskEvents() {
+    if (currentMode !== 'task_assignment') return;
+    const queryInput = document.getElementById('taskQueryInput');
+    if (queryInput) {
+      queryInput.oninput = (e) => {
+        if (taskState.phase !== 'idle') return;
+        taskState.query = e.target.value;
+        // 切换拆解按钮可用态
+        const btn = document.getElementById('taskSplitBtn');
+        if (btn) {
+          const ok = taskState.query.trim().length > 0;
+          btn.classList.toggle('disabled', !ok);
+          btn.disabled = !ok;
+        }
+      };
+      queryInput.onkeydown = (e) => {
+        if (e.key === 'Enter' && !e.shiftKey && taskState.phase === 'idle') {
+          e.preventDefault();
+          doSplit();
+        }
+      };
+    }
+    const splitBtn = document.getElementById('taskSplitBtn');
+    if (splitBtn) splitBtn.onclick = doSplit;
+    const cancelBtn = document.getElementById('taskCancelBtn');
+    if (cancelBtn) cancelBtn.onclick = doCancel;
+    const sendBtn = document.getElementById('taskSendBtn');
+    if (sendBtn) sendBtn.onclick = doSend;
+
+    // 上拉列表折叠
+    const toggle = document.getElementById('taskPopupToggle');
+    if (toggle) toggle.onclick = () => { taskState.collapsed = !taskState.collapsed; renderControlbar('task_assignment'); };
+
+    // 子任务文本编辑
+    document.querySelectorAll('.subtask-input').forEach(inp => {
+      inp.oninput = (e) => {
+        const idx = parseInt(e.target.dataset.stIdx, 10);
+        if (taskState.subtasks[idx]) taskState.subtasks[idx].text = e.target.value;
+      };
+    });
+    // 循环切换模型
+    document.querySelectorAll('[data-cycle-idx]').forEach(b => {
+      b.onclick = (e) => {
+        const idx = parseInt(e.currentTarget.dataset.cycleIdx, 10);
+        const cur = TASK_MODELS.findIndex(m => m.id === taskState.subtasks[idx].modelId);
+        taskState.subtasks[idx].modelId = TASK_MODELS[(cur + 1) % TASK_MODELS.length].id;
+        renderControlbar('task_assignment');
+        renderWebviews('task_assignment', currentCount);
+      };
+    });
+    // 删除子任务
+    document.querySelectorAll('[data-del-idx]').forEach(b => {
+      b.onclick = (e) => {
+        const idx = parseInt(e.currentTarget.dataset.delIdx, 10);
+        taskState.subtasks.splice(idx, 1);
+        renderControlbar('task_assignment');
+      };
+    });
+    // 添加子任务
+    const addBtn = document.getElementById('taskAddBtn');
+    if (addBtn) addBtn.onclick = () => {
+      const nextIdx = taskState.subtasks.length;
+      taskState.subtasks.push({ modelId: TASK_MODELS[nextIdx % TASK_MODELS.length].id, text: '新增子任务' });
+      renderControlbar('task_assignment');
+    };
+  }
+
+  function doSplit() {
+    if (!taskState.query.trim()) return;
+    taskState.subtasks = mockSplitTask(taskState.query.trim(), currentCount);
+    taskState.phase = 'split';
+    taskState.collapsed = false;
+    renderControlbar('task_assignment');
+    renderWebviews('task_assignment', currentCount); // 更新卡片任务标签
+  }
+  function doCancel() {
+    taskState.phase = 'idle';
+    taskState.subtasks = [];
+    taskState.collapsed = false;
+    renderControlbar('task_assignment');
+    renderWebviews('task_assignment', currentCount);
+  }
+  function doSend() {
+    if (taskState.subtasks.length === 0) return;
+    taskState.phase = 'sent';
+    // mock：发送后更新卡片状态为"已派发/生成中"
+    renderWebviews('task_assignment', currentCount);
+    renderControlbar('task_assignment');
+    // 演示：短暂显示发送态后回到 idle
+    setTimeout(() => {
+      taskState.phase = 'idle';
+      taskState.query = '';
+      taskState.subtasks = [];
+      renderControlbar('task_assignment');
+    }, 1500);
+  }
+
+  // ============ 辩论引擎状态 ============
+  // phase: idle(待开始) | running(进行中) | paused(暂停) | finished(已结束)
+  const debateState = {
+    phase: 'idle',
+    proponentId: 'claude',   // 左 = 正方
+    opponentId: 'gpt4',      // 右 = 反方
+    totalRounds: 3,          // 1 轮 = 正方+反方各发言一次
+    currentRound: 0,         // 已完成的全轮数（正+反算 1 轮）
+    currentTurn: 0,          // 0 = 正方发言中, 1 = 反方发言中
+    topic: '',
+    rounds: [],              // [{ proponent: '...', opponent: '...' }]
+    timer: null,
+  };
+
+  const MODEL_OPTIONS = [
+    { id: 'claude', name: 'Claude', color: '#f59e0b' },
+    { id: 'gpt4',   name: 'GPT-4',  color: '#22c55e' },
+    { id: 'gemini', name: 'Gemini', color: '#3b82f6' },
+    { id: 'grok',   name: 'Grok',   color: '#1f2937' },
+  ];
+
+  // 模拟某模型针对某角色的发言内容
+  function generateSpeech(role, round, opponentSpeech) {
+    const proFirst = [
+      'AI 编程能力已能独立完成多数 CRUD 与样板代码，随着上下文窗口扩大，中初级程序员的重复性工作将被替代。',
+      '从历史看，每次工具革命都把人类推向更高抽象层——汇编→高级语言→框架，AI 是下一层抽象，原有岗位会被重塑而非保留。',
+    ];
+    const conFirst = [
+      'AI 本质是工具增强而非替代：需求澄清、跨团队协作、系统权衡仍需人类。工具革命创造的新岗位多于消失的。',
+      '所谓"独立完成"依赖高质量 prompt 与上下文，这恰恰需要资深工程师的判断力，AI 没有真正的需求理解能力。',
+    ];
+    const proRebuttal = [
+      '对方提到"需求澄清仍需人类"，但 AI 已能基于代码库与文档主动追问，需求理解正在被规模化复制。',
+      '对方强调"新岗位多于消失"，可这些新岗位本身也在被 AI 适配——AI 训练 AI 的闭环正在形成。',
+    ];
+    const conRebuttal = [
+      '主动追问 ≠ 理解业务语境，AI 缺乏对真实业务约束的长期记忆与权衡，只能模仿提问形态。',
+      'AI 训练 AI 的闭环恰恰会放大偏差与模式坍缩，没有人类校验反而更不稳定，离不开工程师。',
+    ];
+    if (round === 0) {
+      const arr = role === 'pro' ? proFirst : conFirst;
+      return arr[0];
+    }
+    const arr = role === 'pro' ? proRebuttal : conRebuttal;
+    return arr[Math.min(round - 1, arr.length - 1)];
+  }
+
+  // 渲染辩论中间区
+  function renderDebateMiddle() {
+    if (debateState.phase === 'idle') {
+      // 输入框只负责输入主题 query，辩手/轮次配置已在左侧 funcGroup
+      return `
+        <div class="debate-input glass-panel-heavy shadow-float">
+          <span class="material-symbols-outlined icon">forum</span>
+          <textarea class="topic-input" id="topicInput" placeholder="输入辩论主题，例如：AI 是否会取代程序员？">${escapeHtml(debateState.topic)}</textarea>
+          <button class="send-btn pill" id="startDebateBtn"><span class="material-symbols-outlined">play_arrow</span><span class="label">开始辩论</span></button>
+        </div>
+      `;
+    }
+    // 进行中 / 暂停 / 已结束：回合面板
+    const dots = [];
+    for (let r = 0; r < debateState.totalRounds; r++) {
+      for (let s = 0; s < 2; s++) {
+        const idx = r * 2 + s;
+        const role = s === 0 ? '正方' : '反方';
+        const numCirc = ['①','②','③','④','⑤','⑥','⑦','⑧'][idx];
+        const doneIdx = debateState.currentRound * 2 + (debateState.currentTurn === 1 && debateState.phase !== 'idle' ? 1 : 0);
+        let cls = 'todo', icon = 'radio_button_unchecked';
+        if (idx < doneIdx || debateState.phase === 'finished') { cls = 'done'; icon = 'check'; }
+        else if (idx === doneIdx && (debateState.phase === 'running' || debateState.phase === 'paused')) { cls = 'active'; icon = 'radio_button_checked'; }
+        dots.push(`<div class="round-dot ${cls}"><span class="material-symbols-outlined">${icon}</span>${numCirc}${role}</div>`);
+      }
+    }
+    let statusLabel = '辩论进行中', statusDot = 'st-live';
+    if (debateState.phase === 'paused') { statusLabel = '已暂停'; statusDot = 'st-sending'; }
+    if (debateState.phase === 'finished') { statusLabel = '辩论已结束'; statusDot = 'st-done'; }
+    const speakingRole = debateState.currentTurn === 0 ? '正方' : '反方';
+    const speakingModel = MODELS[debateState.currentTurn === 0 ? debateState.proponentId : debateState.opponentId];
+    const nowText = debateState.phase === 'running' ? `· ${speakingRole}(${speakingModel.name})发言中…`
+                  : debateState.phase === 'paused' ? `· 暂停于第 ${debateState.currentRound + 1} 轮 ${speakingRole}`
+                  : `· 共 ${debateState.totalRounds} 轮完成`;
+    let actions = '';
+    if (debateState.phase === 'running') {
+      actions = `<button class="pill-btn" id="pauseBtn"><span class="material-symbols-outlined">pause</span>暂停</button>
+                 <button class="pill-btn" id="stopBtn"><span class="material-symbols-outlined">stop</span>终止</button>`;
+    } else if (debateState.phase === 'paused') {
+      actions = `<button class="pill-btn" id="resumeBtn"><span class="material-symbols-outlined">play_arrow</span>继续</button>
+                 <button class="pill-btn" id="stopBtn"><span class="material-symbols-outlined">stop</span>终止</button>`;
+    } else if (debateState.phase === 'finished') {
+      actions = `<button class="pill-btn" id="newDebateBtn2"><span class="material-symbols-outlined">restart_alt</span>再来一场</button>`;
+    }
+    return `
+      <div class="debate-area glass-panel-heavy shadow-float">
+        <div class="debate-status">
+          <span class="status-dot ${statusDot}"></span>
+          <span class="label">${statusLabel}</span>
+        </div>
+        <div class="divider"></div>
+        <div class="round-info">轮次 ${Math.min(debateState.currentRound + 1, debateState.totalRounds)}/${debateState.totalRounds} <span class="now">${nowText}</span></div>
+        <div class="divider"></div>
+        <div class="round-dots">${dots.join('')}</div>
+        <div class="debate-actions">${actions}</div>
+      </div>
+    `;
+  }
+
+  function escapeHtml(s) { return (s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+  // 绑定辩论模式事件
+  function bindDebateEvents() {
+    // 自动把当前 active 圆点滚动到可视区，避免轮次多时看不到进度
+    const activeDot = document.querySelector('.round-dot.active');
+    if (activeDot) activeDot.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
+    const startBtn = document.getElementById('startDebateBtn');
+    if (startBtn) startBtn.onclick = startDebate;
+    const topicInput = document.getElementById('topicInput');
+    if (topicInput) {
+      topicInput.oninput = (e) => { debateState.topic = e.target.value; };
+      topicInput.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); startDebate(); } };
+    }
+    const pauseBtn = document.getElementById('pauseBtn');
+    if (pauseBtn) pauseBtn.onclick = pauseDebate;
+    const resumeBtn = document.getElementById('resumeBtn');
+    if (resumeBtn) resumeBtn.onclick = resumeDebate;
+    const stopBtn = document.getElementById('stopBtn');
+    if (stopBtn) stopBtn.onclick = stopDebate;
+    const newDebateBtn = document.getElementById('newDebateBtn');
+    if (newDebateBtn) newDebateBtn.onclick = resetDebate;
+    const newDebateBtn2 = document.getElementById('newDebateBtn2');
+    if (newDebateBtn2) newDebateBtn2.onclick = resetDebate;
+    // 轮次加减 / 直接输入
+    const setRounds = (v) => {
+      if (debateState.phase !== 'idle') return;
+      let n = parseInt(v, 10);
+      if (isNaN(n)) n = debateState.totalRounds;
+      n = Math.max(1, Math.min(10, n));
+      if (n === debateState.totalRounds) {
+        // 值未变也要把输入框同步回合法值
+        const inp = document.getElementById('roundInput');
+        if (inp) inp.value = n;
+        return;
+      }
+      debateState.totalRounds = n;
+      renderControlbar('debate');
+    };
+    const decBtn = document.getElementById('roundDec');
+    if (decBtn) decBtn.onclick = () => setRounds(debateState.totalRounds - 1);
+    const incBtn = document.getElementById('roundInc');
+    if (incBtn) incBtn.onclick = () => setRounds(debateState.totalRounds + 1);
+    const roundInput = document.getElementById('roundInput');
+    if (roundInput) {
+      roundInput.onchange = (e) => setRounds(e.target.value);
+      roundInput.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } };
+      // 阻止滚轮误改
+      roundInput.onwheel = (e) => e.preventDefault();
+    }
+  }
+
+  // 追加一条发言气泡到对应卡片
+  function appendSpeech(turn, round, text) {
+    const slot = turn === 0 ? 0 : 1; // 0 正方=左, 1 反方=右
+    const body = document.querySelector(`[data-body-slot="${slot}"]`);
+    if (!body) return;
+    const role = turn === 0 ? 'pro' : 'con';
+    const roleName = turn === 0 ? '正方' : '反方';
+    const model = MODELS[turn === 0 ? debateState.proponentId : debateState.opponentId];
+    const bubble = document.createElement('div');
+    bubble.className = `bubble ${role}`;
+    bubble.innerHTML = `<strong>第 ${round + 1} 轮 · ${roleName}（${model.name}）</strong><span class="speech-text"></span><span class="typing-cursor"></span>`;
+    body.appendChild(bubble);
+    body.scrollTop = body.scrollHeight;
+    // 打字机效果
+    const textSpan = bubble.querySelector('.speech-text');
+    let i = 0;
+    const cursor = bubble.querySelector('.typing-cursor');
+    return new Promise(resolve => {
+      const typer = () => {
+        if (i >= text.length) {
+          if (cursor) cursor.remove();
+          resolve();
+          return;
+        }
+        textSpan.textContent += text[i];
+        i++;
+        body.scrollTop = body.scrollHeight;
+        debateState.typer = setTimeout(typer, 24);
+      };
+      typer();
+    });
+  }
+
+  // 开始辩论
+  function startDebate() {
+    if (!debateState.topic.trim()) {
+      const input = document.getElementById('topicInput');
+      if (input) { input.focus(); input.placeholder = '请先输入辩论主题…'; }
+      return;
+    }
+    debateState.phase = 'running';
+    debateState.currentRound = 0;
+    debateState.currentTurn = 0;
+    debateState.rounds = [];
+    // 清空两个卡片体
+    document.querySelectorAll('[data-body-slot]').forEach(b => b.innerHTML = '');
+    renderControlbar('debate');
+    runNextTurn();
+  }
+
+  // 推进下一轮发言
+  async function runNextTurn() {
+    if (debateState.phase !== 'running') return;
+    renderControlbar('debate'); // 刷新圆点为 active
+    const turn = debateState.currentTurn;
+    const round = debateState.currentRound;
+    // 对手上一条发言（用于反驳）；首轮正方无对手发言
+    let opponentSpeech = '';
+    if (!(turn === 0 && round === 0)) {
+      const lastRound = debateState.rounds[round] || debateState.rounds[round - 1];
+      if (turn === 0) {
+        // 正方反驳反方上一轮
+        opponentSpeech = (debateState.rounds[round - 1] && debateState.rounds[round - 1].opponent) || '';
+      } else {
+        opponentSpeech = (debateState.rounds[round] && debateState.rounds[round].proponent) || '';
+      }
+    }
+    const role = turn === 0 ? 'pro' : 'con';
+    const speech = generateSpeech(role, round, opponentSpeech);
+    await appendSpeech(turn, round, speech);
+    // 记录
+    if (!debateState.rounds[round]) debateState.rounds[round] = {};
+    if (turn === 0) debateState.rounds[round].proponent = speech;
+    else debateState.rounds[round].opponent = speech;
+
+    // 切换发言方
+    if (turn === 0) {
+      debateState.currentTurn = 1;
+      debateState.timer = setTimeout(runNextTurn, 600);
+    } else {
+      // 一整轮完成
+      debateState.currentTurn = 0;
+      debateState.currentRound += 1;
+      if (debateState.currentRound >= debateState.totalRounds) {
+        debateState.phase = 'finished';
+        renderControlbar('debate');
+      } else {
+        debateState.timer = setTimeout(runNextTurn, 800);
+      }
+    }
+  }
+
+  function pauseDebate() {
+    if (debateState.phase !== 'running') return;
+    debateState.phase = 'paused';
+    if (debateState.timer) { clearTimeout(debateState.timer); debateState.timer = null; }
+    if (debateState.typer) { clearTimeout(debateState.typer); debateState.typer = null; }
+    renderControlbar('debate');
+  }
+  function resumeDebate() {
+    if (debateState.phase !== 'paused') return;
+    debateState.phase = 'running';
+    renderControlbar('debate');
+    runNextTurn();
+  }
+  function stopDebate() {
+    if (debateState.phase === 'finished' || debateState.phase === 'idle') return;
+    debateState.phase = 'finished';
+    if (debateState.timer) { clearTimeout(debateState.timer); debateState.timer = null; }
+    if (debateState.typer) { clearTimeout(debateState.typer); debateState.typer = null; }
+    renderControlbar('debate');
+  }
+  function resetDebate() {
+    if (debateState.timer) { clearTimeout(debateState.timer); debateState.timer = null; }
+    if (debateState.typer) { clearTimeout(debateState.typer); debateState.typer = null; }
+    debateState.phase = 'idle';
+    debateState.currentRound = 0;
+    debateState.currentTurn = 0;
+    debateState.rounds = [];
+    debateState.topic = '';
+    renderControlbar('debate');
+    renderWebviews('debate', 2);
+  }
+
+  // ============ 模式状态 ============
+  const modeCounts = {
+    multi_ai: { default: 3, allowed: [1,2,3,4] },
+    task_assignment: { default: 3, allowed: [2,3,4] },
+    debate: { default: 2, allowed: [2] },
+  };
+  const hints = {
+    multi_ai: '多 AI 模式：同一消息统一广播到所有平台，适合横向对比回答。',
+    task_assignment: '任务分配模式：输入总目标 → 大模型 API 拆解子任务 → 可编辑 → 一键分发到各槽位。',
+    debate: '辩论模式：左正方 / 右反方，输入主题后开始，全自动轮流反驳，结束后生成裁判评析。',
+  };
+
+  let currentMode = 'multi_ai';
+  let currentCount = 3;
+
+  function setMode(mode) {
+    currentMode = mode;
+    const conf = modeCounts[mode];
+    currentCount = conf.default;
+
+    // 模式分段高亮
+    document.querySelectorAll('#modeSeg button').forEach(b => {
+      b.classList.toggle('active', b.dataset.mode === mode);
+    });
+
+    // 窗口数分段
+    const countSeg = document.getElementById('countSeg');
+    countSeg.classList.toggle('disabled', mode === 'debate');
+    document.querySelectorAll('#countSeg button').forEach(b => {
+      const c = parseInt(b.dataset.c, 10);
+      const ok = conf.allowed.includes(c);
+      b.classList.toggle('active', c === currentCount);
+      b.style.opacity = ok ? '' : '0.3';
+      b.style.cursor = ok ? '' : 'not-allowed';
+      b.disabled = !ok;
+    });
+
+    // 切换到非任务模式时，重置任务态（避免残留拆解态）
+    if (mode !== 'task_assignment' && taskState.phase !== 'idle') {
+      taskState.phase = 'idle';
+      taskState.subtasks = [];
+      taskState.collapsed = false;
+      taskState.query = '';
+    }
+
+    renderWebviews(mode, currentCount);
+    renderControlbar(mode);
+    document.getElementById('hintText').textContent = hints[mode];
+  }
+
+  // 事件
+  document.getElementById('modeSeg').addEventListener('click', e => {
+    const b = e.target.closest('button[data-mode]');
+    if (b) setMode(b.dataset.mode);
+  });
+  document.getElementById('countSeg').addEventListener('click', e => {
+    const b = e.target.closest('button[data-c]');
+    if (b && !b.disabled) {
+      currentCount = parseInt(b.dataset.c, 10);
+      document.querySelectorAll('#countSeg button').forEach(x => x.classList.remove('active'));
+      b.classList.add('active');
+      renderWebviews(currentMode, currentCount);
+    }
+  });
+
+  // 初始化
+  setMode('multi_ai');
+</script>
+
+</body>
+</html>

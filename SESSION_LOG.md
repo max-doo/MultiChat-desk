@@ -2,6 +2,73 @@
 
 ## 2026-07-01
 
+### 22:35 | claude-code
+
+- done: 实现任务分配模式与辩论模式
+- context: Task 8: 文档与收尾
+- added:
+  - `src/main/config/taskSplitPrompt.ts`
+  - `src/main/api/taskSplitApi.ts`
+  - `src/renderer/src/components/modes/TaskModePanel.tsx`
+  - `src/renderer/src/components/modes/SubtaskList.tsx`
+  - `src/renderer/src/components/modes/DebateModePanel.tsx`
+  - `src/renderer/src/hooks/useTaskSplit.ts`
+  - `src/renderer/src/hooks/useDebateRunner.ts`
+- modified:
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/preload/index.d.ts`
+  - `src/renderer/src/store/appStore.ts`
+  - `src/renderer/src/components/ControlBar.tsx`
+  - `src/renderer/src/components/Layout.tsx`
+  - `src/renderer/src/pages/MainPage.tsx`
+  - `docs/mode-design-mock.html`
+- lesson(promoted): 辩论轮转复用 webviewRefs.get('slot-N') 单槽位发送，无需改 WebviewCard；任务拆解复用 generate-summary 的 AbortController 全局中止器
+
+### 22:35 | claude-code
+
+- done: 实现任务分配模式与辩论模式
+- added:
+  - `src/main/config/taskSplitPrompt.ts`
+  - `src/main/api/taskSplitApi.ts`
+  - `src/renderer/src/components/modes/TaskModePanel.tsx`
+  - `src/renderer/src/components/modes/SubtaskList.tsx`
+  - `src/renderer/src/components/modes/DebateModePanel.tsx`
+  - `src/renderer/src/hooks/useTaskSplit.ts`
+  - `src/renderer/src/hooks/useDebateRunner.ts`
+- modified:
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/preload/index.d.ts`
+  - `src/renderer/src/store/appStore.ts`
+  - `src/renderer/src/components/ControlBar.tsx`
+  - `src/renderer/src/components/Layout.tsx`
+  - `src/renderer/src/pages/MainPage.tsx`
+  - `docs/mode-design-mock.html`
+- lesson(promoted): 辩论轮转复用 webviewRefs.get('slot-N') 单槽位发送，无需改 WebviewCard；任务拆解复用 generate-summary 的 AbortController 全局中止器
+
+### 22:35 | claude-code
+
+- done: 实现任务分配模式与辩论模式
+- added:
+  - `src/main/config/taskSplitPrompt.ts`
+  - `src/main/api/taskSplitApi.ts`
+  - `src/renderer/src/components/modes/TaskModePanel.tsx`
+  - `src/renderer/src/components/modes/SubtaskList.tsx`
+  - `src/renderer/src/components/modes/DebateModePanel.tsx`
+  - `src/renderer/src/hooks/useTaskSplit.ts`
+  - `src/renderer/src/hooks/useDebateRunner.ts`
+- modified:
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/preload/index.d.ts`
+  - `src/renderer/src/store/appStore.ts`
+  - `src/renderer/src/components/ControlBar.tsx`
+  - `src/renderer/src/components/Layout.tsx`
+  - `src/renderer/src/pages/MainPage.tsx`
+  - `docs/mode-design-mock.html`
+- lesson(promoted): 辩论轮转复用 webviewRefs.get('slot-N') 单槽位发送，无需改 WebviewCard；任务拆解复用 generate-summary 的 AbortController 全局中止器
+
 ### 13:17 | claude-code
 
 - done: 内存占用性能优化（第一阶段）：summaryApi 流式日志加 is.dev 守卫、history/summaryHistory 上限 1000→100 并在加载时裁剪、网络嗅探器加 dev 守卫 + 主进程 console-message 过滤 NETWORK_RESPONSE
