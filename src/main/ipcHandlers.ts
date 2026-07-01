@@ -621,12 +621,20 @@ export function registerIpcHandlers(
         // 创建 AbortController 用于支持终止请求
         currentSummaryAbortController = new AbortController()
         const { signal } = currentSummaryAbortController
+        // 取本地引用：onChunk 闭包中止的应是“自己这次”的 controller，
+        // 即使后续模块变量被其他请求覆盖也不会错位（配合 T4 的覆盖前 abort）
+        const controller = currentSummaryAbortController
 
         try {
             const result = await generateSummary(
                 params,
                 signal,
                 (chunk) => {
+                    // 渲染进程已销毁（窗口关闭等）：中止请求，避免对死 sender 持续 send + 空转 reader
+                    if (event.sender.isDestroyed()) {
+                        controller.abort()
+                        return
+                    }
                     // 通过 IPC 发送流式数据块到渲染进程
                     event.sender.send('summary-stream-chunk', chunk)
                 }
