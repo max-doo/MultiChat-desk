@@ -34,8 +34,12 @@
   - [x] Task 7：`shortcutManager` + `SettingsDrawer` "快捷键与系统托盘"分组（自定义召唤键，持久化到 electron-store，注册失败回滚旧值）
 - [x] 全局划词悬浮 Toolbar（**已实现**）：已通过 monio-napi + UI Automation 实现划词弹出工具条，支持"问问"/搜索/总结/翻译/复制等动作，详见 SESSION_LOG 2026-06-27 12:54 ~ 06-28 17:18 多条记录
 - [x] **调研划词弹出工具条**（**已实现**）：调研已完成，实现方案已落地——采用 monio-napi 全局鼠标钩子 + UI Automation 读取选区 + 无焦点悬浮窗口，已覆盖 Word/Chrome/WindowsTerminal 等场景
-- [ ] **任务分配模式（task_assignment）待设计**：UI 已有 mode 切换入口（`Layout.tsx` 三选一分段控件），支持同模型多窗口分配不同任务，但具体行为逻辑（任务拆分、分发、结果聚合）尚未设计
-- [ ] **辩论模式（debate）待设计**：UI 已有 mode 切换入口（固定双窗口），但辩论交互逻辑（双方对抗、裁判机制、回合控制）尚未设计
+- [x] **任务分配模式（task_assignment）已实现**：UI + 交互已落地（`TaskModePanel.tsx` + `SubtaskList.tsx` + `useTaskSplit.ts` + `split-task` IPC + `taskSplitApi.ts`），输入总目标 → 拆解 → 上拉可编辑子任务列表 → 一键发送，复用总结 API 供应商。详见 `docs/superpowers/plans/2026-07-01-task-assignment-and-debate-modes.md`。剩余 follow-up：
+  - [ ] 任务/辩论发送绕过 `sendMessageToAll`/`addHistory`：`TaskModePanel.handleSend` 与 `useDebateRunner` 直接调 `webviewRefs.get('slot-N').sendMessage`，不经 store 的 `sendMessageToAll`，导致这两种模式的发送不写入历史记录。需补历史落盘（或在 store 增加单槽位发送的 history 钩子）
+- [x] **辩论模式（debate）已实现**：UI + 交互已落地（`DebateModePanel.tsx` + `useDebateRunner.ts` + `appStore.debateState` 状态机 + `swapModelInSlot` debate 分支 + `Layout` 进行中禁模式切换），左正方/右反方固定双窗、轮次 stepper、全自动轮转、裁判评析总结。详见同上 plan。剩余 follow-up：
+  - [ ] `debateSlots`/`debateTotalRounds` 未持久化：重启后回到默认值（`['chatgpt','gemini']` / `3`），需补 `window.api.storeSet`
+  - [ ] `getResponseFromSlot` 轮询可靠性因平台而异：辩论发言回传依赖 `WebviewCardRef.getLatestResponse()` 轮询等稳定，不同平台回复抓取稳定性不一，超时取空时会写入「（无回复）」。需在 `selectors.ts` 增量补强不稳平台的回复选择器
+  - [ ] 辩论进行中模式切换加固：`Layout.tsx` 已做 `debateState.phase==='running'||'paused'` 时禁用模式 seg 的可选加固，需在 `npm run dev` 中验证切换确实被阻断、会话不丢失
 - [ ] **CLI 待进一步验收**：daemon 通信正常，但选择器大量过期（豆包 collect 返回空、ChatGPT/DeepSeek 输入框选择器过期），需逐平台验证并修正 `selectors.ts`
 - [ ] **CLI exec 命令改进**：当前 `exec` 发送提示词后立即返回，需再手动 `collect` 取结果。期望行为：发送提示词后终端挂起，轮询等待 AI 回复完成，流式输出或完成后返回完整结果，而非分两步操作
 - [ ] **注入 DOM 选择器全面更新**：当前 `selectors.ts` 中各平台注入 DOM 选择器大量失效（网站改版导致），需逐平台验证并修正。同时探索让 Agent 自动读取网页原始 DOM 并自行更新选择器的自动化方案——例如通过 MCP/脚本抓取各平台实际 DOM 结构，由 Agent 分析并生成修正后的选择器配置，减少手动维护成本
