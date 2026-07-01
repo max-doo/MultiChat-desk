@@ -5,7 +5,8 @@
 
 import type { ModelSelector } from '../config/selectors'
 import { getHtmlToMarkdownScript } from './htmlToMarkdown'
-import { is } from '@electron-toolkit/utils'
+
+const IS_DEV = process.env.NODE_ENV !== 'production'
 
 /**
  * 文件上传数据类型
@@ -1671,7 +1672,7 @@ export function generateGetLatestResponseScript(selectors: ModelSelector): strin
  */
 export function getNetworkSnifferScript(): string {
   // 仅 dev 环境允许注入；生产环境直接返回空脚本，避免内存泄漏
-  if (!is.dev) return ''
+  if (!IS_DEV) return ''
   return `
     (function() {
       if (window.__sniffer_injected) return;

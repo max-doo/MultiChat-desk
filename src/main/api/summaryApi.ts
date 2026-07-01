@@ -4,7 +4,8 @@
  */
 
 import { buildRequestBody } from '../config/requestBodyConfig'
-import { is } from '@electron-toolkit/utils'
+
+const IS_DEV = process.env.NODE_ENV !== 'production'
 
 export interface SummaryModelOutput {
   name: string
@@ -91,7 +92,7 @@ export async function generateSummary(
   const startTime = Date.now()
   console.log('[Summary API] 开始生成总结')
   console.log(`[Summary API] 模型: ${params.model}`)
-  if (is.dev) {
+  if (IS_DEV) {
     console.log(`[Summary API] 时间: ${new Date().toISOString()}`)
     console.log(`[Summary API] 参数: temperature=${params.temperature ?? 0.7}, top_p=${params.topP ?? 1}, max_tokens=${params.maxTokens ?? 4000}`)
     console.log(`[Summary API] 开启思考: ${params.includeReasoning ? '是' : '否'}`)
@@ -104,7 +105,7 @@ export async function generateSummary(
     const baseUrl = params.baseUrl?.replace(/\/+$/, '') || 'https://api.openai.com/v1'
     const apiUrl = `${baseUrl}/chat/completions`
 
-    if (is.dev) {
+    if (IS_DEV) {
       console.log(`[Summary API] 请求地址: ${apiUrl}`)
       console.log(`[Summary API] API Key: ${params.apiKey ? params.apiKey.substring(0, 8) + '...' : '未设置'}`)
     }
@@ -142,7 +143,7 @@ export async function generateSummary(
     })
 
     // 专门打印思考相关参数
-    if (is.dev) {
+    if (IS_DEV) {
       console.log(`[Summary API] 🧠 思考参数:`, {
         enable_thinking: requestBody.enable_thinking,
         extra_body: requestBody.extra_body,
@@ -168,7 +169,7 @@ export async function generateSummary(
       signal
     })
 
-    if (is.dev) {
+    if (IS_DEV) {
       console.log(`[Summary API] 响应状态: ${response.status} ${response.statusText}`)
       console.log(`[Summary API] Content-Type: ${response.headers.get('content-type')}`)
 
@@ -184,14 +185,14 @@ export async function generateSummary(
       const errorText = await response.text()
       console.error(`[Summary API] ❌ 请求失败!`)
       console.error(`[Summary API] 状态码: ${response.status}`)
-      if (is.dev) {
+      if (IS_DEV) {
         console.error(`[Summary API] 错误响应原始文本:`, errorText)
       }
 
       let errorMessage = `API 错误 (${response.status})`
       try {
         const errorData = JSON.parse(errorText)
-        if (is.dev) {
+        if (IS_DEV) {
           console.error(`[Summary API] ❌ 错误响应 JSON:`, JSON.stringify(errorData, null, 2))
         }
         errorMessage = errorData?.error?.message || errorData?.message || errorData?.detail || errorText.substring(0, 200)
@@ -217,7 +218,7 @@ export async function generateSummary(
       }
     }
 
-    if (is.dev) {
+    if (IS_DEV) {
       console.log(`[Summary API] ✓ 开始读取流式响应...`)
     }
 
@@ -265,7 +266,7 @@ export async function generateSummary(
               const json = JSON.parse(data)
 
               // 打印每个数据块的完整 JSON（调试用）
-              if (is.dev) {
+              if (IS_DEV) {
                 console.log(`[Summary API] 📦 数据块 #${chunkCount}:`, JSON.stringify(json, null, 2))
 
                 // 记录第一个数据块的完整结构，帮助调试
@@ -288,7 +289,7 @@ export async function generateSummary(
               const reasoning = reasoningRaw || ''
 
               // 详细打印 delta 内容（包括空值，便于调试）
-              if (is.dev) {
+              if (IS_DEV) {
                 const hasReasoningField = 'reasoning_content' in delta || 'reasoning' in delta || 'thinking' in delta
                 if (content || reasoning || hasReasoningField) {
                   console.log(`[Summary API] 📝 Delta 内容:`, {
@@ -351,7 +352,7 @@ export async function generateSummary(
 
               if (!reasoning && !content) {
                 // 如果没有内容，也记录一下（可能是 finish_reason 等元数据）
-                if (is.dev) {
+                if (IS_DEV) {
                   console.log(`[Summary API] ℹ️ 空内容数据块，可能包含元数据:`, {
                     finish_reason: json.choices?.[0]?.finish_reason,
                     index: json.choices?.[0]?.index,
@@ -375,7 +376,7 @@ export async function generateSummary(
 
       // 处理剩余的 buffer
       if (buffer.trim()) {
-        if (is.dev) {
+        if (IS_DEV) {
           console.log(`[Summary API] 处理剩余 buffer: ${buffer.length} 字符`)
         }
         try {
