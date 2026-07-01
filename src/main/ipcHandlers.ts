@@ -13,6 +13,7 @@ import { splitTask } from './api/taskSplitApi'
 import { setQuitting, getQuickWindow, showAndFocusWindow, hideToolbarWindow, getCachedSelectionText } from './webviewManager'
 import { startInputHook, stopInputHook } from './inputHookManager'
 import { broadcastStateChange } from './stateBus'
+import { HistoryManager } from './api/historyManager'
 import { getShortcuts, updateShortcuts, type ShortcutConfig } from './shortcutManager'
 import { readSelection } from './uiaSelectionHelper'
 import {
@@ -529,16 +530,44 @@ export function registerIpcHandlers(
     })
 
     // IPC 处理器：存储操作
+    // History 分页与磁盘上限管理（只读分页 + store-set 后 enforce）
+    const historyManager = new HistoryManager(store)
+
     ipcMain.handle('store-get', (_event, key: string) => {
         return store.get(key)
     })
 
     ipcMain.handle('store-set', (_event, key: string, value: unknown) => {
         store.set(key, value)
+        // 写 history/summaryHistory 后 enforce 磁盘上限 1000
+        if (key === 'history' || key === 'summaryHistory') {
+            try {
+                historyManager.enforceDiskLimit()
+            } catch (err) {
+                console.error('[historyManager] enforceDiskLimit failed:', err)
+            }
+        }
     })
 
     ipcMain.handle('store-delete', (_event, key: string) => {
         store.delete(key)
+    })
+
+    // History 分页（只读）
+    ipcMain.handle('history:get-page', (_event, offset: number, limit: number) => {
+        return { success: true, data: historyManager.getHistoryPage(offset, limit) }
+    })
+
+    ipcMain.handle('history:get-total-count', () => {
+        return { success: true, data: historyManager.getHistoryTotalCount() }
+    })
+
+    ipcMain.handle('summary-history:get-page', (_event, offset: number, limit: number) => {
+        return { success: true, data: historyManager.getSummaryHistoryPage(offset, limit) }
+    })
+
+    ipcMain.handle('summary-history:get-total-count', () => {
+        return { success: true, data: historyManager.getSummaryHistoryTotalCount() }
     })
 
     // Agent Prompts 相关

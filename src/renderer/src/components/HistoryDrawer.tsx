@@ -27,7 +27,42 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
   const [renameType, setRenameType] = useState<'conversation' | 'summary'>('conversation')
   const [renameTargetId, setRenameTargetId] = useState<string>('')
   const [renameValue, setRenameValue] = useState('')
-  const { history, summaryHistory, removeHistories, removeSummaryHistories, updateHistory, updateSummaryHistory, models } = useAppStore()
+  const [isLoadingMore, setIsLoadingMore] = useState(false)
+  const {
+    history,
+    summaryHistory,
+    historyTotalCount,
+    summaryHistoryTotalCount,
+    loadMoreHistory,
+    loadMoreSummaryHistory,
+    removeHistories,
+    removeSummaryHistories,
+    updateHistory,
+    updateSummaryHistory,
+    models
+  } = useAppStore()
+
+  // 是否还有更老的磁盘记录未加载进内存
+  const hasMoreHistory = history.length < historyTotalCount
+  const hasMoreSummaryHistory = summaryHistory.length < summaryHistoryTotalCount
+
+  const handleLoadMore = async (type: 'conversation' | 'summary'): Promise<void> => {
+    if (isLoadingMore) return
+    // 搜索激活时分页会与过滤索引错位，禁用加载更多
+    if (searchQuery.trim() !== '') return
+    setIsLoadingMore(true)
+    try {
+      if (type === 'conversation') {
+        await loadMoreHistory()
+      } else {
+        await loadMoreSummaryHistory()
+      }
+    } catch (err) {
+      console.error('[HistoryDrawer] loadMore failed:', err)
+    } finally {
+      setIsLoadingMore(false)
+    }
+  }
 
   // 过滤对话历史记录
   const filteredHistory = history.filter(item =>
@@ -261,6 +296,7 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
                 <p>{searchQuery ? '未找到匹配的对话' : '暂无对话历史'}</p>
               </div>
             ) : (
+              <>
               <Virtuoso
                 data={filteredHistory}
                 itemContent={(_index, item) => {
@@ -351,6 +387,16 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
                   )
                 }}
               />
+                {hasMoreHistory && (
+                  <button
+                    onClick={() => handleLoadMore('conversation')}
+                    disabled={isLoadingMore || searchQuery.trim() !== ''}
+                    className="w-full mt-2 py-2 text-sm text-text-secondary hover:text-primary border border-gray-200 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isLoadingMore ? '加载中...' : searchQuery.trim() !== '' ? '搜索时不支持加载更多' : '加载更多历史记录'}
+                  </button>
+                )}
+              </>
             )
           ) : (
             /* 总结历史列表 */
@@ -360,6 +406,7 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
                 <p>{searchQuery ? '未找到匹配的总结' : '暂无总结历史'}</p>
               </div>
             ) : (
+              <>
               <Virtuoso
                 data={filteredSummaryHistory}
                 itemContent={(_index, item) => {
@@ -445,6 +492,16 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
                   )
                 }}
               />
+                {hasMoreSummaryHistory && (
+                  <button
+                    onClick={() => handleLoadMore('summary')}
+                    disabled={isLoadingMore || searchQuery.trim() !== ''}
+                    className="w-full mt-2 py-2 text-sm text-text-secondary hover:text-primary border border-gray-200 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isLoadingMore ? '加载中...' : searchQuery.trim() !== '' ? '搜索时不支持加载更多' : '加载更多总结历史'}
+                  </button>
+                )}
+              </>
             )
           )}
         </div>

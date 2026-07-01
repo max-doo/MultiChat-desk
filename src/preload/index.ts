@@ -74,6 +74,16 @@ const api = {
   storeSet: (key: string, value: unknown): Promise<void> => ipcRenderer.invoke('store-set', key, value),
   storeDelete: (key: string): Promise<void> => ipcRenderer.invoke('store-delete', key),
 
+  // History 分页（只读，磁盘 1000 / 内存 100 分层）
+  historyGetPage: (offset: number, limit: number): Promise<{ success: boolean; data?: Array<{ id: string; createdAt: number; updatedAt: number; models: string[]; title?: string; turns: Array<{ turnId: string; userMessage: string; timestamp: number; responses: Record<string, string> }>; urls?: Record<string, string>; productMode?: string; displayMode?: string }>; error?: string }> =>
+    ipcRenderer.invoke('history:get-page', offset, limit),
+  historyGetTotalCount: (): Promise<{ success: boolean; data?: number; error?: string }> =>
+    ipcRenderer.invoke('history:get-total-count'),
+  summaryHistoryGetPage: (offset: number, limit: number): Promise<{ success: boolean; data?: Array<{ id: string; title: string; timestamp: number; messages: Array<{ role: string; content: string }>; selectedModels: string[] }>; error?: string }> =>
+    ipcRenderer.invoke('summary-history:get-page', offset, limit),
+  summaryHistoryGetTotalCount: (): Promise<{ success: boolean; data?: number; error?: string }> =>
+    ipcRenderer.invoke('summary-history:get-total-count'),
+
   agentPromptsBootstrap: (prompts: Array<{ id: string; name: string; description?: string; prompt: string; isDefault?: boolean }>): Promise<void> =>
     ipcRenderer.invoke('agent-prompts-bootstrap', prompts),
   agentPromptsList: (): Promise<Array<{ id: string; name: string; description?: string; prompt: string; isDefault?: boolean }>> =>

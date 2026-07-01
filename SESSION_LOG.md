@@ -1,5 +1,16 @@
 # Session Log
 
+## 2026-07-02
+
+### 00:00 | claude-code
+
+- done: history 分层存储：磁盘 1000/内存 100 + 加载更多按钮（基于 develop 新开 worktree 执行）
+- context: 执行 docs/superpowers/plans/2026-07-01-history-tiered-storage.md，worktree: .worktrees/history-tiered-storage 分支 feature/history-tiered-storage
+- modified:
+  - `src/main/api/historyManager.ts src/main/ipcHandlers.ts src/preload/index.ts src/preload/index.d.ts src/renderer/src/store/appStore.ts src/renderer/src/components/HistoryDrawer.tsx`
+- lesson: 新 worktree 的 electron postinstall 不会自动下载二进制：node_modules/electron/path.txt 为空、dist/ 缺失，npm run dev 报 Error: Electron uninstall。需手动 node node_modules/electron/install.js 拉取。计划行号引用会随分支漂移，执行计划前必须用 grep 核对锚点。
+- unresolved: 端到端手动验证（发送产生 history、>300 条加载更多、搜索隔离）需在 dev 桌面窗口人工点击完成，本会话仅完成启动冒烟（app 成功启动无崩溃）
+
 ## 2026-07-01
 
 ### 23:59 | claude-code
