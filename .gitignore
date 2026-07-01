@@ -44,3 +44,6 @@ build/portable.txt
 
 # Python
 __pycache__/
+
+# Claude Code local workspace
+.claude/
