@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle, type DragEvent } from 'react'
 import { useAppStore, DEEP_RESEARCH_UNSUPPORTED_ERROR } from '../store/appStore'
+import TaskModePanel from './modes/TaskModePanel'
 
 
 interface ControlBarProps {
@@ -31,6 +32,8 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
 
     // 用于追踪输入法状态（必须在 handleKeyDown 之前定义）
     const isComposingRef = useRef(false)
+
+    const productMode = useAppStore((s) => s.productMode)
 
     const {
       sendMessageToAll,
@@ -606,130 +609,134 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
             </button>
           </div>
 
-          {/* 中间：输入框 */}
-          <div
-            className={`relative flex-grow flex gap-4 p-3 rounded-[24px] glass-panel-heavy shadow-float focus-within:border-gray-200 focus-within:ring-1 focus-within:ring-gray-200 ${isFileDragOver ? 'border-primary/70 ring-2 ring-primary/30 bg-blue-50/50' : ''
-              } ${message.trim() && !textInserted ? 'items-start' : 'items-center'}`}
-            onDragEnter={(event) => {
-              if (!hasFileInDragEvent(event)) return
-              event.preventDefault()
-              event.stopPropagation()
-              dragCounterRef.current += 1
-              setIsFileDragOver(true)
-            }}
-            onDragOver={(event) => {
-              if (!hasFileInDragEvent(event)) return
-              event.preventDefault()
-              event.stopPropagation()
-              setIsFileDragOver(true)
-            }}
-            onDragLeave={(event) => {
-              if (!hasFileInDragEvent(event)) return
-              event.preventDefault()
-              event.stopPropagation()
-              dragCounterRef.current -= 1
-              if (dragCounterRef.current <= 0) {
-                dragCounterRef.current = 0
-                setIsFileDragOver(false)
-              }
-            }}
-            onDrop={handleFileDrop}
-          >
-            {/* 通知弹窗 - 在输入框上方居中显示 */}
-            {notification && (
-              <div className={`absolute bottom-full left-1/2 transform -translate-x-1/2 mb-3 px-4 py-2.5 rounded-xl text-sm font-medium flex items-center gap-2 shadow-float z-50 notification-popup backdrop-blur-md transition-all ${notification.type === 'success'
-                ? 'bg-white/90 border border-green-200 text-green-700'
-                : notification.type === 'error'
-                  ? 'bg-white/90 border border-red-200 text-red-700'
-                  : 'bg-white/90 border border-blue-200 text-blue-700'
-                }`}>
-                <span className={`material-symbols-outlined text-base flex-shrink-0 ${
-                  notification.type === 'success' ? 'text-green-500' :
-                  notification.type === 'error' ? 'text-red-500' : 'text-blue-500'
-                }`}>
-                  {notification.type === 'success' ? 'check_circle' :
-                    notification.type === 'error' ? 'error' : 'info'}
-                </span>
-                <span className="whitespace-nowrap">{notification.message}</span>
-              </div>
-            )}
-            {/* 附件按钮 */}
-            <button
-              onClick={handleFileSelect}
-              disabled={isUploading || isSending}
-              className={`transition-colors flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed self-end ${isUploading ? 'text-primary animate-pulse' : 'text-text-secondary hover:text-primary'
-                }`}
-              title={isUploading ? '正在上传文件...' : '上传文件'}
+          {/* 中间：输入框（按模式分流） */}
+          {productMode === 'task_assignment' ? (
+            <TaskModePanel showNotification={showNotification} />
+          ) : (
+            <div
+              className={`relative flex-grow flex gap-4 p-3 rounded-[24px] glass-panel-heavy shadow-float focus-within:border-gray-200 focus-within:ring-1 focus-within:ring-gray-200 ${isFileDragOver ? 'border-primary/70 ring-2 ring-primary/30 bg-blue-50/50' : ''
+                } ${message.trim() && !textInserted ? 'items-start' : 'items-center'}`}
+              onDragEnter={(event) => {
+                if (!hasFileInDragEvent(event)) return
+                event.preventDefault()
+                event.stopPropagation()
+                dragCounterRef.current += 1
+                setIsFileDragOver(true)
+              }}
+              onDragOver={(event) => {
+                if (!hasFileInDragEvent(event)) return
+                event.preventDefault()
+                event.stopPropagation()
+                setIsFileDragOver(true)
+              }}
+              onDragLeave={(event) => {
+                if (!hasFileInDragEvent(event)) return
+                event.preventDefault()
+                event.stopPropagation()
+                dragCounterRef.current -= 1
+                if (dragCounterRef.current <= 0) {
+                  dragCounterRef.current = 0
+                  setIsFileDragOver(false)
+                }
+              }}
+              onDrop={handleFileDrop}
             >
-              <span className={`material-symbols-outlined ${isUploading ? '' : '-rotate-90'}`}>
-                {isUploading ? 'upload' : 'attachment'}
-              </span>
-            </button>
-
-            {/* 输入框 */}
-            <textarea
-              ref={textareaRef}
-              value={message}
-              onChange={handleInputChange}
-              onKeyDown={handleKeyDown}
-              placeholder={textInserted ? "文字已输入到所有模型，按 Enter 确认发送或点击取消" : "向 AI 模型提问..."}
-              className={`flex-grow bg-transparent border-0 focus:ring-0 focus:outline-none text-text-primary placeholder-text-secondary p-0 resize-none disabled:cursor-not-allowed disabled:caret-transparent ${textInserted ? 'cursor-not-allowed caret-transparent' : ''
-                }`}
-              disabled={isSending}
-              readOnly={textInserted}
-              rows={1}
-              tabIndex={0}
-              onCompositionStart={() => {
-                // 标记 IME 正在组合输入
-                isComposingRef.current = true
-              }}
-              onCompositionEnd={() => {
-                isComposingRef.current = false
-              }}
-              style={{
-                lineHeight: '24px',
-                // 使用固定高度，禁用动态调整，解决 Electron IME 问题
-                height: '72px',
-                overflowY: 'auto'
-              }}
-            />
-
-            {/* 取消按钮（仅在文字已输入时显示） */}
-            {textInserted && (
-              <button
-                onClick={handleCancel}
-                disabled={isSending}
-                className="px-3 py-1.5 rounded-xl bg-gray-200 text-gray-600 hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm flex-shrink-0 self-end"
-                title="取消发送，清空所有输入框"
-              >
-                取消
-              </button>
-            )}
-
-            {/* 发送按钮 */}
-            <button
-              onClick={handleSend}
-              disabled={!message.trim() || isSending}
-              className={`rounded-full disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex-shrink-0 self-end ${message.trim()
-                ? textInserted
-                  ? 'bg-primary text-white hover:opacity-90 px-3 py-3'
-                  : 'bg-primary text-white hover:opacity-90 h-12 w-12 p-3'
-                : 'h-12 w-12 bg-gray-100 hover:bg-gray-200 text-text-secondary p-3'
-                }`}
-              title={textInserted ? '点击发送消息' : message.trim() ? '点击输入文字到所有模型' : '输入消息后点击发送'}
-            >
-              {isSending ? (
-                <span className="material-symbols-outlined">hourglass_empty</span>
-              ) : textInserted ? (
-                <span className="flex items-center gap-1.5 text-sm font-bold">
-                  <span className="material-symbols-outlined">arrow_upward</span>
-                  <span>确认发送</span>
-                </span>
-              ) : (
-                <span className="material-symbols-outlined">arrow_upward</span>
+              {/* 通知弹窗 - 在输入框上方居中显示 */}
+              {notification && (
+                <div className={`absolute bottom-full left-1/2 transform -translate-x-1/2 mb-3 px-4 py-2.5 rounded-xl text-sm font-medium flex items-center gap-2 shadow-float z-50 notification-popup backdrop-blur-md transition-all ${notification.type === 'success'
+                  ? 'bg-white/90 border border-green-200 text-green-700'
+                  : notification.type === 'error'
+                    ? 'bg-white/90 border border-red-200 text-red-700'
+                    : 'bg-white/90 border border-blue-200 text-blue-700'
+                  }`}>
+                  <span className={`material-symbols-outlined text-base flex-shrink-0 ${
+                    notification.type === 'success' ? 'text-green-500' :
+                    notification.type === 'error' ? 'text-red-500' : 'text-blue-500'
+                  }`}>
+                    {notification.type === 'success' ? 'check_circle' :
+                      notification.type === 'error' ? 'error' : 'info'}
+                  </span>
+                  <span className="whitespace-nowrap">{notification.message}</span>
+                </div>
               )}
-            </button>
-          </div>
+              {/* 附件按钮 */}
+              <button
+                onClick={handleFileSelect}
+                disabled={isUploading || isSending}
+                className={`transition-colors flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed self-end ${isUploading ? 'text-primary animate-pulse' : 'text-text-secondary hover:text-primary'
+                  }`}
+                title={isUploading ? '正在上传文件...' : '上传文件'}
+              >
+                <span className={`material-symbols-outlined ${isUploading ? '' : '-rotate-90'}`}>
+                  {isUploading ? 'upload' : 'attachment'}
+                </span>
+              </button>
+
+              {/* 输入框 */}
+              <textarea
+                ref={textareaRef}
+                value={message}
+                onChange={handleInputChange}
+                onKeyDown={handleKeyDown}
+                placeholder={textInserted ? "文字已输入到所有模型，按 Enter 确认发送或点击取消" : "向 AI 模型提问..."}
+                className={`flex-grow bg-transparent border-0 focus:ring-0 focus:outline-none text-text-primary placeholder-text-secondary p-0 resize-none disabled:cursor-not-allowed disabled:caret-transparent ${textInserted ? 'cursor-not-allowed caret-transparent' : ''
+                  }`}
+                disabled={isSending}
+                readOnly={textInserted}
+                rows={1}
+                tabIndex={0}
+                onCompositionStart={() => {
+                  // 标记 IME 正在组合输入
+                  isComposingRef.current = true
+                }}
+                onCompositionEnd={() => {
+                  isComposingRef.current = false
+                }}
+                style={{
+                  lineHeight: '24px',
+                  // 使用固定高度，禁用动态调整，解决 Electron IME 问题
+                  height: '72px',
+                  overflowY: 'auto'
+                }}
+              />
+
+              {/* 取消按钮（仅在文字已输入时显示） */}
+              {textInserted && (
+                <button
+                  onClick={handleCancel}
+                  disabled={isSending}
+                  className="px-3 py-1.5 rounded-xl bg-gray-200 text-gray-600 hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm flex-shrink-0 self-end"
+                  title="取消发送，清空所有输入框"
+                >
+                  取消
+                </button>
+              )}
+
+              {/* 发送按钮 */}
+              <button
+                onClick={handleSend}
+                disabled={!message.trim() || isSending}
+                className={`rounded-full disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex-shrink-0 self-end ${message.trim()
+                  ? textInserted
+                    ? 'bg-primary text-white hover:opacity-90 px-3 py-3'
+                    : 'bg-primary text-white hover:opacity-90 h-12 w-12 p-3'
+                  : 'h-12 w-12 bg-gray-100 hover:bg-gray-200 text-text-secondary p-3'
+                  }`}
+                title={textInserted ? '点击发送消息' : message.trim() ? '点击输入文字到所有模型' : '输入消息后点击发送'}
+              >
+                {isSending ? (
+                  <span className="material-symbols-outlined">hourglass_empty</span>
+                ) : textInserted ? (
+                  <span className="flex items-center gap-1.5 text-sm font-bold">
+                    <span className="material-symbols-outlined">arrow_upward</span>
+                    <span>确认发送</span>
+                  </span>
+                ) : (
+                  <span className="material-symbols-outlined">arrow_upward</span>
+                )}
+              </button>
+            </div>
+          )}
 
           {/* 右侧：生成总结 / 一键下载按钮 */}
           <button
