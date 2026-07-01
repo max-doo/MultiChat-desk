@@ -31,12 +31,17 @@ export function sendDaemonRequest<T = unknown>(
       resolved = true
       cleanup()
       if (jsonMode) {
-        console.log(JSON.stringify({ success: false, error: errorMsg }, null, 2))
+        process.stderr.write(JSON.stringify({ success: false, error: errorMsg }, null, 2) + '\n')
       } else {
         console.error(errorMsg)
       }
       process.exit(1)
     }
+
+    socket.setTimeout(10_000)
+    socket.on('timeout', () => {
+      handleErrorExit('连接超时，请确认 MultiChat 正在运行')
+    })
 
     socket.on('error', (err: NodeJS.ErrnoException) => {
       if (err.code === 'ENOENT' || err.code === 'ECONNREFUSED' || err.code === 'EPIPE') {
