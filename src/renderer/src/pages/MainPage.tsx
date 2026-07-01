@@ -31,6 +31,9 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
   const getAllResponses = useAppStore((state) => state.getAllResponses)
   const setPendingSummarySession = useAppStore((state) => state.setPendingSummarySession)
   const history = useAppStore((state) => state.history)
+  const isNewSession = useAppStore((state) => state.isNewSession)
+  const textInserted = useAppStore((state) => state.textInserted)
+  const activeModels = useAppStore((state) => state.activeModels)
   const paneRatios = useAppStore((state) => state.paneRatios)
   const setPaneRatios = useAppStore((state) => state.setPaneRatios)
   const resetPaneRatios = useAppStore((state) => state.resetPaneRatios)
@@ -51,6 +54,19 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
   } | null>(null)
 
   const scrapingControllerRef = useRef<AbortController | null>(null)
+
+  // 回溯历史时，预计算各模型最后一轮 turn 的快照 + 历史原始 URL，
+  // 供 WebviewCard 做 URL 不匹配检测与只读快照显示。非回溯态（无 activeHistoryId）返回空。
+  const { historySnapshots, historyUrls } = useMemo(() => {
+    if (!activeHistoryId) return { historySnapshots: {} as Record<string, string>, historyUrls: {} as Record<string, string> }
+    const item = history.find((h) => h.id === activeHistoryId)
+    if (!item || item.turns.length === 0) return { historySnapshots: {}, historyUrls: {} }
+    const lastTurn = item.turns[item.turns.length - 1]
+    return {
+      historySnapshots: lastTurn.responses ?? {},
+      historyUrls: item.urls ?? {}
+    }
+  }, [activeHistoryId, history])
 
   // 注册 webview ref 的回调，并使用 refCallbacks 缓存引用以避免闭包陷阱
   const refCallbacks = useRef<Record<string, (ref: WebviewCardRef | null) => void>>({})
@@ -111,6 +127,32 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
         }
       })
 
+      // 兜底：对实时抓空的模型，用当前会话最后一轮 turn 的历史快照补上。
+      // 这是三层兜底里最可靠的一层——不依赖任何 URL 判定，只要 getAllResponses 抓空且 history 有该模型回复就补。
+      // 注意：兜底针对 webview 抓空（未登录/打不开/被重定向到非会话页导致 getLatestResponse 返回空），
+      // 不是"抓到了旧内容"——回溯历史时 webview 显示旧会话，实时值与 history 最后一轮同源，
+      // 兜底仅在 webview 真正不可用时才有意义。
+      const snapshotModelIds: string[] = []
+      const latestHistoryItem = history.find((h) => h.id === activeHistoryId) ?? history[0]
+      const lastTurn = latestHistoryItem?.turns?.[latestHistoryItem.turns.length - 1]
+      const lastResponses = lastTurn?.responses ?? {}
+      // ⚠️ 目标模型列表必须与 getAllResponses 内部选取逻辑完全一致：
+      // getAllResponses（appStore.ts:1146-1149）在会话活跃（!isNewSession || textInserted）且
+      // activeModels 非空时用 state.activeModels，否则才回落到 getDisplayedModels。
+      // 若这里用 getDisplayedModels 而 getAllResponses 用 activeModels，会遍历到本次根本没参与
+      // 对话的模型（其 validResponses[id] 本就 undefined），把它误判为"抓空"并补上多余快照。
+      // 因此这里复刻同一判定：
+      const isSessionActive = !isNewSession || textInserted
+      const targetModelList = isSessionActive && activeModels.length > 0
+        ? activeModels
+        : getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots)
+      for (const model of targetModelList) {
+        if (!validResponses[model.id] && lastResponses[model.id]?.trim()) {
+          validResponses[model.id] = lastResponses[model.id]
+          snapshotModelIds.push(model.id)
+        }
+      }
+
       // 清除"正在爬取"通知
       if (controlBarRef.current) {
         controlBarRef.current.clearNotification()
@@ -118,9 +160,12 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
 
       const modelCount = Object.keys(validResponses).length
       if (modelCount > 0) {
-        // 显示成功通知
         if (controlBarRef.current) {
-          controlBarRef.current.showNotification('success', `成功爬取 ${modelCount} 个模型的回答`)
+          const snapshotNote =
+            snapshotModelIds.length > 0
+              ? `（含 ${snapshotModelIds.length} 个历史快照）`
+              : ''
+          controlBarRef.current.showNotification('success', `成功获取 ${modelCount} 个模型的回答${snapshotNote}`)
         }
       } else {
         // 没有获取到有效回复
@@ -130,12 +175,12 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
       }
 
       // 构建一次性导航数据包（无论是否抓到内容都设置，空对象表示本次无数据）
-      const latestHistoryItem = history[0]
       setPendingSummarySession({
         modelResponses: validResponses,
         urls: latestHistoryItem?.urls,
         sourceHistoryId: latestHistoryItem?.id,
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        snapshotModelIds
       })
 
       // 延迟一下再跳转，让用户看到提示
@@ -159,7 +204,7 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
         controlBarRef.current.showNotification('error', '爬取模型回答失败')
       }
       // 异常时也设置空数据包，避免残留旧数据
-      const latestHistoryItem = history[0]
+      const latestHistoryItem = history.find((h) => h.id === activeHistoryId) ?? history[0]
       setPendingSummarySession({
         modelResponses: {},
         urls: latestHistoryItem?.urls,
@@ -499,6 +544,12 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
                   logo={model.logo}
                   enabled={true}
                   slotIndex={i}
+                  expectedUrl={historyUrls[model.id]}
+                  readonlySnapshot={
+                    historySnapshots[model.id]
+                      ? { content: historySnapshots[model.id], reason: 'url_mismatch' as const }
+                      : { content: '', reason: 'no_snapshot' as const }
+                  }
                 />
               </div>
             )
