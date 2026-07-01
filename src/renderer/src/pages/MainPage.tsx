@@ -257,6 +257,44 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
     })
   }, [displayedModels.length, productMode])
 
+  // 跟踪每插槽 modelId 的变化：换模型时回收旧 (slotIndex-oldModelId) 的 ref 回调，
+  // 避免 refCallbacks.current 只增不减、陈旧 webview ref 无法 GC
+  const prevSlotModelIds = useRef<string[]>([])
+  useEffect(() => {
+    const currentIds = displayedModels.map(m => m?.id ?? '').filter(Boolean)
+    const prev = prevSlotModelIds.current
+
+    // 对每个插槽，若 modelId 变了，回收旧键
+    currentIds.forEach((modelId, slotIndex) => {
+      const oldId = prev[slotIndex]
+      if (oldId && oldId !== modelId) {
+        const oldKey = `${slotIndex}-${oldId}`
+        const oldCb = refCallbacks.current[oldKey]
+        if (oldCb) {
+          // 以 null 触发旧回调：unregister 旧 webview ref + 置空 lastRef
+          oldCb(null)
+          delete refCallbacks.current[oldKey]
+        }
+      }
+    })
+
+    // 处理插槽数减少：prev 比 current 长的部分，回收所有旧键
+    if (prev.length > currentIds.length) {
+      for (let slotIndex = currentIds.length; slotIndex < prev.length; slotIndex++) {
+        const oldId = prev[slotIndex]
+        if (!oldId) continue
+        const oldKey = `${slotIndex}-${oldId}`
+        const oldCb = refCallbacks.current[oldKey]
+        if (oldCb) {
+          oldCb(null)
+          delete refCallbacks.current[oldKey]
+        }
+      }
+    }
+
+    prevSlotModelIds.current = currentIds
+  }, [displayedModels])
+
   const gutterWidthPx = 16
   const MIN_PANE_WIDTH = 320
   
