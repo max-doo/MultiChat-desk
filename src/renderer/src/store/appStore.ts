@@ -297,6 +297,10 @@ interface AppState {
   // History 分页：磁盘总量 + 加载更多
   historyTotalCount: number
   summaryHistoryTotalCount: number
+  // 已从磁盘加载到内存（含被裁剪掉的）的条数游标，用作 loadMore 的 offset。
+  // 内存只保留最新 100，用 history.length 作 offset 会重复取已裁剪的旧页。
+  historyLoadedCount: number
+  summaryHistoryLoadedCount: number
   loadMoreHistory: () => Promise<void>
   loadMoreSummaryHistory: () => Promise<void>
 
@@ -876,6 +880,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   summaryHistory: [],
   historyTotalCount: 0,
   summaryHistoryTotalCount: 0,
+  historyLoadedCount: 0,
+  summaryHistoryLoadedCount: 0,
   addSummaryHistory: (item) => set((state) => {
     const newHistory = [item, ...state.summaryHistory].slice(0, 100)
     if (window.api?.storeSet) window.api.storeSet('summaryHistory', newHistory)
@@ -902,11 +908,20 @@ export const useAppStore = create<AppState>((set, get) => ({
   loadMoreHistory: async () => {
     const state = get()
     if (!window.api?.historyGetPage) return
-    const result = await window.api.historyGetPage(state.history.length, 100)
-    if (result.success && result.data) {
-      set((s) => ({
-        history: [...s.history, ...result.data!],
-      }))
+    // 用“已加载游标”作 offset，而非 history.length——内存只保留最新 100，
+    // 用 history.length 会重复取已被裁剪的旧页
+    const offset = state.historyLoadedCount
+    const result = await window.api.historyGetPage(offset, 100)
+    if (result.success && result.data && result.data.length > 0) {
+      set((s) => {
+        // 拼接后裁剪：内存硬上限 100，超出从最旧端裁掉（更旧的仍可再次 loadMore 翻页取回）
+        const merged = [...s.history, ...result.data!]
+        const trimmed = merged.length > 100 ? merged.slice(merged.length - 100) : merged
+        return {
+          history: trimmed,
+          historyLoadedCount: s.historyLoadedCount + result.data!.length
+        }
+      })
       // 刷新 totalCount，防止边界变化导致按钮态错位
       const countResult = await window.api.historyGetTotalCount()
       if (countResult.success && countResult.data !== undefined) {
@@ -918,11 +933,17 @@ export const useAppStore = create<AppState>((set, get) => ({
   loadMoreSummaryHistory: async () => {
     const state = get()
     if (!window.api?.summaryHistoryGetPage) return
-    const result = await window.api.summaryHistoryGetPage(state.summaryHistory.length, 100)
-    if (result.success && result.data) {
-      set((s) => ({
-        summaryHistory: [...s.summaryHistory, ...result.data!],
-      }))
+    const offset = state.summaryHistoryLoadedCount
+    const result = await window.api.summaryHistoryGetPage(offset, 100)
+    if (result.success && result.data && result.data.length > 0) {
+      set((s) => {
+        const merged = [...s.summaryHistory, ...result.data!]
+        const trimmed = merged.length > 100 ? merged.slice(merged.length - 100) : merged
+        return {
+          summaryHistory: trimmed,
+          summaryHistoryLoadedCount: s.summaryHistoryLoadedCount + result.data!.length
+        }
+      })
       const countResult = await window.api.summaryHistoryGetTotalCount()
       if (countResult.success && countResult.data !== undefined) {
         set({ summaryHistoryTotalCount: countResult.data })
@@ -1656,14 +1677,14 @@ export async function initializeStore(): Promise<void> {
           ],
           urls: old.urls,
         })).slice(0, 100)
-        useAppStore.setState({ history: migratedHistory })
+        useAppStore.setState({ history: migratedHistory, historyLoadedCount: migratedHistory.length })
         // 立即持久化新格式
         window.api?.storeSet('history', migratedHistory)
         console.log('[Store] History migrated from old format to turns-based format')
       } else {
         // 内存热区上限 100；磁盘上限 1000 由 store-set handler 的 enforceDiskLimit 兜底，启动不再回写裁剪磁盘。
         const hotHistory = (storedHistory as HistoryItem[]).slice(0, 100)
-        useAppStore.setState({ history: hotHistory })
+        useAppStore.setState({ history: hotHistory, historyLoadedCount: hotHistory.length })
       }
     }
 
@@ -1677,7 +1698,7 @@ export async function initializeStore(): Promise<void> {
     if (storedSummaryHistory) {
       // 内存热区上限 100；磁盘上限 1000 由 store-set handler 兜底，启动不再回写裁剪磁盘。
       const hotSummary = storedSummaryHistory.slice(0, 100)
-      useAppStore.setState({ summaryHistory: hotSummary })
+      useAppStore.setState({ summaryHistory: hotSummary, summaryHistoryLoadedCount: hotSummary.length })
     }
 
     // 读取磁盘总结历史总量
