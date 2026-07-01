@@ -1,7 +1,45 @@
 import { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle, type DragEvent } from 'react'
 import { useAppStore, DEEP_RESEARCH_UNSUPPORTED_ERROR } from '../store/appStore'
 import TaskModePanel from './modes/TaskModePanel'
+import DebateModePanel from './modes/DebateModePanel'
 
+/** 辩论轮次 stepper：input + 减号 + 加号；非 idle 置灰禁用但不消失 */
+function DebateRoundStepper(): JSX.Element {
+  const totalRounds = useAppStore((s) => s.debateTotalRounds)
+  const setDebateTotalRounds = useAppStore((s) => s.setDebateTotalRounds)
+  const phase = useAppStore((s) => s.debateState.phase)
+  const disabled = phase !== 'idle'
+  return (
+    <div className={`flex flex-col items-center justify-center gap-2 text-xs font-medium ${disabled ? 'opacity-45 pointer-events-none' : 'text-text-secondary hover:text-primary'}`}>
+      <div className="flex items-center gap-1.5">
+        <button
+          onClick={() => setDebateTotalRounds(totalRounds - 1)}
+          disabled={disabled}
+          className="w-7 h-7 rounded-full glass-panel shadow-soft flex items-center justify-center border border-transparent hover:border-blue-200 disabled:cursor-not-allowed"
+        >
+          <span className="material-symbols-outlined text-base">remove</span>
+        </button>
+        <input
+          type="number"
+          min={1}
+          max={10}
+          value={totalRounds}
+          disabled={disabled}
+          onChange={(e) => setDebateTotalRounds(parseInt(e.target.value, 10) || 1)}
+          className="w-12 text-center bg-transparent border-0 focus:ring-0 focus:outline-none text-text-primary font-bold disabled:cursor-not-allowed"
+        />
+        <button
+          onClick={() => setDebateTotalRounds(totalRounds + 1)}
+          disabled={disabled}
+          className="w-7 h-7 rounded-full glass-panel shadow-soft flex items-center justify-center border border-transparent hover:border-blue-200 disabled:cursor-not-allowed"
+        >
+          <span className="material-symbols-outlined text-base">add</span>
+        </button>
+      </div>
+      <span>辩论轮次</span>
+    </div>
+  )
+}
 
 interface ControlBarProps {
   onGenerateReport: () => void
@@ -34,6 +72,7 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
     const isComposingRef = useRef(false)
 
     const productMode = useAppStore((s) => s.productMode)
+    const debateState = useAppStore((s) => s.debateState)
 
     const {
       sendMessageToAll,
@@ -464,154 +503,162 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
         <div className="relative flex items-center gap-6">
           {/* 左侧：功能按钮 */}
           <div className="flex items-center gap-6">
-            {/* AI 生图切换 */}
-            <button
-              onClick={() => {
-                if (isImageGeneration) {
-                  setImageGeneration(false)
-                  showNotification('info', '已关闭 AI 生图模式')
-                } else {
-                  // 互斥逻辑：如果当前开启了深度研究，先关闭深度研究
-                  if (isDeepResearch) {
-                    setIsCancellingResearch(true)
-                    showNotification('info', '正在切换至 AI 生图模式（关闭深度研究）...')
-                    disableDeepResearchForAll().catch(error => console.error('自动关闭深度研究失败:', error)).finally(() => {
-                      setDeepResearch(false)
-                      setIsCancellingResearch(false)
-                    })
-                  }
-                  setImageGeneration(true)
-                  showNotification('success', '已启用 AI 生图模式（提示词自动增强）')
-                }
-              }}
-              disabled={textInserted || isSending || isActivatingResearch || isCancellingResearch}
-              className="flex flex-col items-center justify-center gap-2 text-xs font-medium text-text-secondary hover:text-primary group transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <span
-                className={`flex items-center justify-center w-10 h-10 rounded-full border shadow-soft transition-all duration-200 ${isImageGeneration
-                  ? 'bg-blue-50/80 text-primary border-blue-200 scale-105 glass-panel'
-                  : 'glass-panel border-transparent group-hover:bg-blue-50/50 group-hover:text-primary group-hover:border-blue-200'
-                  }`}
-              >
-                <span className="material-symbols-outlined text-2xl">
-                  image
-                </span>
-              </span>
-              <span className={isImageGeneration ? 'text-primary' : ''}>
-                AI 生图
-              </span>
-            </button>
+            {productMode === 'debate' ? (
+              <DebateRoundStepper />
+            ) : (
+              <>
+                {/* AI 生图切换 */}
+                <button
+                  onClick={() => {
+                    if (isImageGeneration) {
+                      setImageGeneration(false)
+                      showNotification('info', '已关闭 AI 生图模式')
+                    } else {
+                      // 互斥逻辑：如果当前开启了深度研究，先关闭深度研究
+                      if (isDeepResearch) {
+                        setIsCancellingResearch(true)
+                        showNotification('info', '正在切换至 AI 生图模式（关闭深度研究）...')
+                        disableDeepResearchForAll().catch(error => console.error('自动关闭深度研究失败:', error)).finally(() => {
+                          setDeepResearch(false)
+                          setIsCancellingResearch(false)
+                        })
+                      }
+                      setImageGeneration(true)
+                      showNotification('success', '已启用 AI 生图模式（提示词自动增强）')
+                    }
+                  }}
+                  disabled={textInserted || isSending || isActivatingResearch || isCancellingResearch}
+                  className="flex flex-col items-center justify-center gap-2 text-xs font-medium text-text-secondary hover:text-primary group transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <span
+                    className={`flex items-center justify-center w-10 h-10 rounded-full border shadow-soft transition-all duration-200 ${isImageGeneration
+                      ? 'bg-blue-50/80 text-primary border-blue-200 scale-105 glass-panel'
+                      : 'glass-panel border-transparent group-hover:bg-blue-50/50 group-hover:text-primary group-hover:border-blue-200'
+                      }`}
+                  >
+                    <span className="material-symbols-outlined text-2xl">
+                      image
+                    </span>
+                  </span>
+                  <span className={isImageGeneration ? 'text-primary' : ''}>
+                    AI 生图
+                  </span>
+                </button>
 
-            {/* 深度研究切换 */}
-            <button
-              onClick={async () => {
-                if (isDeepResearch) {
-                  setIsCancellingResearch(true)
-                  showNotification('info', '正在关闭深度研究模式...')
-                  try {
-                    const results = await disableDeepResearchForAll()
-                    const actionableResults = results.filter(r => r.error !== DEEP_RESEARCH_UNSUPPORTED_ERROR)
-                    if (actionableResults.length === 0) {
-                      setDeepResearch(false)
-                      showNotification('info', '当前页面模型不支持深度研究，无需关闭')
+                {/* 深度研究切换 */}
+                <button
+                  onClick={async () => {
+                    if (isDeepResearch) {
+                      setIsCancellingResearch(true)
+                      showNotification('info', '正在关闭深度研究模式...')
+                      try {
+                        const results = await disableDeepResearchForAll()
+                        const actionableResults = results.filter(r => r.error !== DEEP_RESEARCH_UNSUPPORTED_ERROR)
+                        if (actionableResults.length === 0) {
+                          setDeepResearch(false)
+                          showNotification('info', '当前页面模型不支持深度研究，无需关闭')
+                          return
+                        }
+                        const successCount = results.filter(r => r.success).length
+                        if (successCount > 0) {
+                          setDeepResearch(false)
+                          showNotification('success', `已在 ${successCount} 个模型中关闭深度研究`)
+                        } else {
+                          // 关闭失败时，也将按钮状态置为 false，让用户可以重新点击
+                          setDeepResearch(false)
+                          showNotification('info', '未检测到取消按钮，已手动关闭')
+                        }
+                      } catch (error) {
+                        console.error('关闭深度研究失败:', error)
+                        // 发生错误时，也重置按钮状态，让用户可以重新尝试
+                        setDeepResearch(false)
+                        showNotification('error', '关闭深度研究模式时发生错误')
+                      } finally {
+                        setIsCancellingResearch(false)
+                      }
                       return
                     }
-                    const successCount = results.filter(r => r.success).length
-                    if (successCount > 0) {
-                      setDeepResearch(false)
-                      showNotification('success', `已在 ${successCount} 个模型中关闭深度研究`)
-                    } else {
-                      // 关闭失败时，也将按钮状态置为 false，让用户可以重新点击
-                      setDeepResearch(false)
-                      showNotification('info', '未检测到取消按钮，已手动关闭')
+
+                    // 互斥逻辑：如果当前开启了AI生图，直接关闭AI生图
+                    if (isImageGeneration) {
+                      setImageGeneration(false)
+                      showNotification('info', '正在切换至深度研究模式（已关闭 AI 生图）...')
                     }
-                  } catch (error) {
-                    console.error('关闭深度研究失败:', error)
-                    // 发生错误时，也重置按钮状态，让用户可以重新尝试
-                    setDeepResearch(false)
-                    showNotification('error', '关闭深度研究模式时发生错误')
-                  } finally {
-                    setIsCancellingResearch(false)
-                  }
-                  return
-                }
 
-                // 互斥逻辑：如果当前开启了AI生图，直接关闭AI生图
-                if (isImageGeneration) {
-                  setImageGeneration(false)
-                  showNotification('info', '正在切换至深度研究模式（已关闭 AI 生图）...')
-                }
+                    // 如果当前是关闭状态，点击则开启
+                    // 1. 设置为"正在激活"状态，并禁用按钮防止重复点击
+                    setIsActivatingResearch(true)
+                    showNotification('info', '正在启用深度研究模式...')
 
-                // 如果当前是关闭状态，点击则开启
-                // 1. 设置为“正在激活”状态，并禁用按钮防止重复点击
-                setIsActivatingResearch(true)
-                showNotification('info', '正在启用深度研究模式...')
+                    try {
+                      // 2. 尝试在各 webview 中激活
+                      const results = await enableDeepResearchForAll()
+                      const actionableResults = results.filter(r => r.error !== DEEP_RESEARCH_UNSUPPORTED_ERROR)
+                      if (actionableResults.length === 0) {
+                        setDeepResearch(false)
+                        showNotification('info', '当前页面模型不支持深度研究')
+                        return
+                      }
+                      const successCount = results.filter(r => r.success).length
 
-                try {
-                  // 2. 尝试在各 webview 中激活
-                  const results = await enableDeepResearchForAll()
-                  const actionableResults = results.filter(r => r.error !== DEEP_RESEARCH_UNSUPPORTED_ERROR)
-                  if (actionableResults.length === 0) {
-                    setDeepResearch(false)
-                    showNotification('info', '当前页面模型不支持深度研究')
-                    return
-                  }
-                  const successCount = results.filter(r => r.success).length
+                      // 3. 只有当至少一个模型成功激活时，才将状态置为 true 并高亮按钮
+                      if (successCount > 0) {
+                        setDeepResearch(true)
+                        showNotification('success', `已在 ${successCount} 个模型中启用深度研究`)
+                      } else {
+                        // 如果全部失败，保持关闭状态
+                        setDeepResearch(false)
+                        showNotification('info', '未能自动开启深度研究，请手动操作')
+                      }
+                    } catch (error) {
+                      console.error('开启深度研究失败:', error)
+                      showNotification('error', '开启深度研究模式时发生错误')
+                      setDeepResearch(false)
+                    } finally {
+                      // 4. 恢复按钮可点击状态
+                      setIsActivatingResearch(false)
+                    }
+                  }}
+                  disabled={textInserted || isSending || isActivatingResearch || isCancellingResearch}
+                  className="flex flex-col items-center justify-center gap-2 text-xs font-medium text-text-secondary hover:text-primary group transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <span
+                    className={`flex items-center justify-center w-10 h-10 rounded-full border shadow-soft transition-all duration-200 ${isDeepResearch
+                      ? 'bg-blue-50/80 text-primary border-blue-200 scale-105 glass-panel'
+                      : isActivatingResearch
+                        ? 'glass-panel border-gray-200 animate-pulse text-text-primary'
+                        : 'glass-panel border-transparent group-hover:bg-blue-50/50 group-hover:text-primary group-hover:border-blue-200'
+                      }`}
+                  >
+                    <span className={`material-symbols-outlined text-2xl ${(isActivatingResearch || isCancellingResearch) ? 'animate-spin' : ''}`}>
+                      {(isActivatingResearch || isCancellingResearch) ? 'sync' : 'biotech'}
+                    </span>
+                  </span>
+                  <span className={isDeepResearch ? 'text-primary' : ''}>
+                    {isActivatingResearch ? '开启中...' : isCancellingResearch ? '关闭中...' : '深度研究'}
+                  </span>
+                </button>
 
-                  // 3. 只有当至少一个模型成功激活时，才将状态置为 true 并高亮按钮
-                  if (successCount > 0) {
-                    setDeepResearch(true)
-                    showNotification('success', `已在 ${successCount} 个模型中启用深度研究`)
-                  } else {
-                    // 如果全部失败，保持关闭状态
-                    setDeepResearch(false)
-                    showNotification('info', '未能自动开启深度研究，请手动操作')
-                  }
-                } catch (error) {
-                  console.error('开启深度研究失败:', error)
-                  showNotification('error', '开启深度研究模式时发生错误')
-                  setDeepResearch(false)
-                } finally {
-                  // 4. 恢复按钮可点击状态
-                  setIsActivatingResearch(false)
-                }
-              }}
-              disabled={textInserted || isSending || isActivatingResearch || isCancellingResearch}
-              className="flex flex-col items-center justify-center gap-2 text-xs font-medium text-text-secondary hover:text-primary group transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <span
-                className={`flex items-center justify-center w-10 h-10 rounded-full border shadow-soft transition-all duration-200 ${isDeepResearch
-                  ? 'bg-blue-50/80 text-primary border-blue-200 scale-105 glass-panel'
-                  : isActivatingResearch
-                    ? 'glass-panel border-gray-200 animate-pulse text-text-primary'
-                    : 'glass-panel border-transparent group-hover:bg-blue-50/50 group-hover:text-primary group-hover:border-blue-200'
-                  }`}
-              >
-                <span className={`material-symbols-outlined text-2xl ${(isActivatingResearch || isCancellingResearch) ? 'animate-spin' : ''}`}>
-                  {(isActivatingResearch || isCancellingResearch) ? 'sync' : 'biotech'}
-                </span>
-              </span>
-              <span className={isDeepResearch ? 'text-primary' : ''}>
-                {isActivatingResearch ? '开启中...' : isCancellingResearch ? '关闭中...' : '深度研究'}
-              </span>
-            </button>
-
-            {/* 新对话按钮 */}
-            <button
-              onClick={handleNewChat}
-              disabled={isNewChatLoading}
-              className="flex flex-col items-center justify-center gap-2 text-xs font-medium text-text-secondary hover:text-primary group transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <span className="flex items-center justify-center w-10 h-10 glass-panel shadow-soft rounded-full group-hover:bg-blue-50/50 group-hover:text-primary border border-transparent group-hover:border-blue-200 transition-all duration-200">
-                <span className={`material-symbols-outlined text-2xl ${isNewChatLoading ? 'animate-spin' : ''}`}>{isNewChatLoading ? 'sync' : 'add'}</span>
-              </span>
-              开启新对话
-            </button>
+                {/* 新对话按钮 */}
+                <button
+                  onClick={handleNewChat}
+                  disabled={isNewChatLoading}
+                  className="flex flex-col items-center justify-center gap-2 text-xs font-medium text-text-secondary hover:text-primary group transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <span className="flex items-center justify-center w-10 h-10 glass-panel shadow-soft rounded-full group-hover:bg-blue-50/50 group-hover:text-primary border border-transparent group-hover:border-blue-200 transition-all duration-200">
+                    <span className={`material-symbols-outlined text-2xl ${isNewChatLoading ? 'animate-spin' : ''}`}>{isNewChatLoading ? 'sync' : 'add'}</span>
+                  </span>
+                  开启新对话
+                </button>
+              </>
+            )}
           </div>
 
           {/* 中间：输入框（按模式分流） */}
           {productMode === 'task_assignment' ? (
             <TaskModePanel showNotification={showNotification} />
+          ) : productMode === 'debate' ? (
+            <DebateModePanel showNotification={showNotification} />
           ) : (
             <div
               className={`relative flex-grow flex gap-4 p-3 rounded-[24px] glass-panel-heavy shadow-float focus-within:border-gray-200 focus-within:ring-1 focus-within:ring-gray-200 ${isFileDragOver ? 'border-primary/70 ring-2 ring-primary/30 bg-blue-50/50' : ''
@@ -738,21 +785,27 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
             </div>
           )}
 
-          {/* 右侧：生成总结 / 一键下载按钮 */}
+          {/* 右侧：生成总结 / 裁判评析按钮 */}
           <button
             onClick={() => {
-              if (isImageGeneration) {
-                showNotification('info', '一键下载图片功能已记录 TODO，将在后续版本中支持')
+              if (productMode === 'debate') {
+                if (debateState.phase !== 'finished') return
+                onGenerateReport()
+              } else if (isImageGeneration) {
+                showNotification('info', '一键下载图片功能已记录 TODO')
               } else {
                 onGenerateReport()
               }
             }}
-            className="flex-shrink-0 px-4 py-2 text-sm font-bold rounded-[24px] bg-primary text-white hover:opacity-90 shadow-soft transition-opacity whitespace-nowrap flex items-center gap-2"
+            disabled={productMode === 'debate' && debateState.phase !== 'finished'}
+            className={`flex-shrink-0 px-4 py-2 text-sm font-bold rounded-[24px] shadow-soft transition-opacity whitespace-nowrap flex items-center gap-2 ${
+              productMode === 'debate' && debateState.phase !== 'finished'
+                ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                : 'bg-primary text-white hover:opacity-90'
+            }`}
           >
-            <span className="material-symbols-outlined text-xl">
-              {isImageGeneration ? 'download' : 'auto_awesome'}
-            </span>
-            {isImageGeneration ? '一键下载' : '生成总结'}
+            <span className="material-symbols-outlined text-xl">{productMode === 'debate' ? 'gavel' : isImageGeneration ? 'download' : 'auto_awesome'}</span>
+            {productMode === 'debate' ? '裁判评析' : isImageGeneration ? '一键下载' : '生成总结'}
           </button>
         </div>
       </footer>

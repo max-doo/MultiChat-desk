@@ -789,6 +789,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     return { models: reorderedModels }
   }),
   swapModelInSlot: (slotIndex: number, newModelId: string) => set((state) => {
+    if (state.productMode === 'debate') {
+      const slots = [...state.debateSlots] as [string, string]
+      if (slotIndex === 0 || slotIndex === 1) slots[slotIndex] = newModelId
+      return { debateSlots: slots }
+    }
     if (state.productMode === 'task_assignment') {
       const newSlots = [...state.taskAssignmentSlots]
       newSlots[slotIndex] = newModelId
@@ -797,7 +802,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     } else {
       const newSlots = [...state.multiAiSlots]
       const existingIndex = newSlots.findIndex(id => id === newModelId)
-      
+
       if (existingIndex !== -1 && existingIndex !== slotIndex) {
         // 模型已在其他槽位，执行对调
         const oldModelId = newSlots[slotIndex]

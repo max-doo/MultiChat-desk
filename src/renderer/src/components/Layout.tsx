@@ -42,7 +42,7 @@ function Layout({ children }: LayoutProps): JSX.Element {
     }
   }, [])
   
-  const { displayMode, setDisplayMode, resetPaneRatios, isSettingsOpen, setSettingsOpen, setHistoryOpen, productMode, setProductMode, currentPage, apiConfig, setApiConfig, isNewSession, textInserted, activeModels } = useAppStore()
+  const { displayMode, setDisplayMode, resetPaneRatios, isSettingsOpen, setSettingsOpen, setHistoryOpen, productMode, setProductMode, currentPage, apiConfig, setApiConfig, isNewSession, textInserted, activeModels, debateState } = useAppStore()
 
   const summarySource: 'api' | 'webview' = apiConfig?.summarySource ?? 'webview'
   const setSummarySource = (next: 'api' | 'webview') => {
@@ -299,8 +299,8 @@ function Layout({ children }: LayoutProps): JSX.Element {
             <img src="./assets/logo.png" alt="logo" className="w-4 h-4 opacity-80" onError={(e) => e.currentTarget.style.display = 'none'} />
             
             {/* 模式选择分段控件 */}
-            <div 
-              className="flex items-center p-0.5 bg-gray-200/60 dark:bg-gray-700/60 rounded-lg text-xs gap-0.5 no-drag"
+            <div
+              className={`flex items-center p-0.5 bg-gray-200/60 dark:bg-gray-700/60 rounded-lg text-xs gap-0.5 no-drag ${debateState.phase === 'running' || debateState.phase === 'paused' ? 'opacity-50 pointer-events-none' : ''}`}
             >
               {[
                 { key: 'multi_ai', label: '多AI', title: '默认模式：多个平台展示不同AI' },
