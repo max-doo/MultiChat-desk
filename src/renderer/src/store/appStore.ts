@@ -905,11 +905,11 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   insertTextToAll: async (message: string): Promise<SendResult[]> => {
     const state = get()
-    const { models, webviewRefs, displayMode, productMode, taskAssignmentSlots, multiAiSlots } = state
+    const { models, webviewRefs, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots } = state
     const isSessionActive = !state.isNewSession || state.textInserted
     const targetModels = isSessionActive && state.activeModels.length > 0
       ? state.activeModels
-      : getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots, multiAiSlots)
+      : getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots)
     if (state.activeModels.length === 0) state.setActiveModels(targetModels)
     const results: SendResult[] = []
     const insertPromises = targetModels.map(async (model, index) => {
@@ -930,8 +930,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   clearInputToAll: async (): Promise<SendResult[]> => {
-    const { models, webviewRefs, displayMode, productMode, taskAssignmentSlots, multiAiSlots } = get()
-    const displayedModels = getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots, multiAiSlots)
+    const { models, webviewRefs, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots } = get()
+    const displayedModels = getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots)
     const results: SendResult[] = []
     const clearPromises = displayedModels.map(async (model, index) => {
       const webviewRef = webviewRefs.get(`slot-${index}`) || webviewRefs.get(model.id)
@@ -951,12 +951,12 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   sendMessageToAll: async (message: string): Promise<SendResult[]> => {
     const state = get()
-    const { models, webviewRefs, addHistory, updateHistory, history, isNewSession, setNewSession, displayMode, productMode, taskAssignmentSlots, multiAiSlots } = state
+    const { models, webviewRefs, addHistory, updateHistory, history, isNewSession, setNewSession, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots } = state
     set({ isSending: true, lastSendResults: [] })
     const isSessionActive = !state.isNewSession || state.textInserted
     const targetModels = isSessionActive && state.activeModels.length > 0
       ? state.activeModels
-      : getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots, multiAiSlots)
+      : getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots)
     if (state.activeModels.length === 0) state.setActiveModels(targetModels)
     const results: SendResult[] = []
     const sendPromises = targetModels.map(async (model, index) => {
@@ -1102,12 +1102,12 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   getAllResponses: async (options?: { signal?: AbortSignal; timeoutMs?: number }): Promise<Record<string, string>> => {
     const state = get()
-    const { models, webviewRefs, displayMode, productMode, taskAssignmentSlots, multiAiSlots } = state
+    const { models, webviewRefs, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots } = state
     const responses: Record<string, string> = {}
     const isSessionActive = !state.isNewSession || state.textInserted
     const targetModels = isSessionActive && state.activeModels.length > 0
       ? state.activeModels
-      : getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots, multiAiSlots)
+      : getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots)
     const timeoutMs = options?.timeoutMs ?? 10000
     const signal = options?.signal
 
@@ -1147,8 +1147,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   uploadProgress: {},
 
   uploadFileToAll: async (fileData: FileUploadData): Promise<SendResult[]> => {
-    const { models, webviewRefs, displayMode, productMode, taskAssignmentSlots, multiAiSlots } = get()
-    const displayedModels = getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots, multiAiSlots)
+    const { models, webviewRefs, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots } = get()
+    const displayedModels = getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots)
     const results: SendResult[] = []
     const initialProgress: Record<string, 'pending' | 'uploading' | 'success' | 'error'> = {}
     displayedModels.forEach((model) => { initialProgress[model.id] = 'pending' })
@@ -1176,8 +1176,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   setDeepResearch: (enabled: boolean) => set({ isDeepResearch: enabled }),
 
   enableDeepResearchForAll: async (): Promise<SendResult[]> => {
-    const { models, webviewRefs, displayMode, productMode, taskAssignmentSlots, multiAiSlots } = get()
-    const displayedModels = getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots, multiAiSlots)
+    const { models, webviewRefs, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots } = get()
+    const displayedModels = getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots)
     const results: SendResult[] = []
     const enablePromises = displayedModels.map(async (model, index) => {
       if (!DEEP_RESEARCH_SUPPORTED_MODEL_IDS.has(model.id)) {
@@ -1198,8 +1198,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   disableDeepResearchForAll: async (): Promise<SendResult[]> => {
-    const { models, webviewRefs, displayMode, productMode, taskAssignmentSlots, multiAiSlots } = get()
-    const displayedModels = getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots, multiAiSlots)
+    const { models, webviewRefs, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots } = get()
+    const displayedModels = getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots)
     const results: SendResult[] = []
     const disablePromises = displayedModels.map(async (model, index) => {
       if (!DEEP_RESEARCH_SUPPORTED_MODEL_IDS.has(model.id)) {
@@ -1223,8 +1223,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   setImageGeneration: (enabled: boolean) => set({ isImageGeneration: enabled }),
 
   enableImageGenerationForAll: async (): Promise<SendResult[]> => {
-    const { models, webviewRefs, displayMode, productMode, taskAssignmentSlots, multiAiSlots } = get()
-    const displayedModels = getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots, multiAiSlots)
+    const { models, webviewRefs, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots } = get()
+    const displayedModels = getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots)
     const results: SendResult[] = []
     const enablePromises = displayedModels.map(async (model, index) => {
       if (!IMAGE_GENERATION_SUPPORTED_MODEL_IDS.has(model.id)) {
@@ -1245,8 +1245,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   disableImageGenerationForAll: async (): Promise<SendResult[]> => {
-    const { models, webviewRefs, displayMode, productMode, taskAssignmentSlots, multiAiSlots } = get()
-    const displayedModels = getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots, multiAiSlots)
+    const { models, webviewRefs, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots } = get()
+    const displayedModels = getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots)
     const results: SendResult[] = []
     const disablePromises = displayedModels.map(async (model, index) => {
       if (!IMAGE_GENERATION_SUPPORTED_MODEL_IDS.has(model.id)) {
@@ -1360,7 +1360,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   pollPlatforms: async () => {
-    const { monitor, webviewRefs, models, displayMode, productMode, taskAssignmentSlots, multiAiSlots } = get()
+    const { monitor, webviewRefs, models, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots } = get()
     if (!monitor.isMonitoring || !monitor.currentTurn) return
 
     // 超时检测
@@ -1370,7 +1370,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       return
     }
 
-    const displayedModels = getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots, multiAiSlots)
+    const displayedModels = getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots)
     let allComplete = true
 
     for (let index = 0; index < displayedModels.length; index++) {
