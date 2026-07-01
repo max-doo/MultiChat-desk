@@ -2,6 +2,22 @@
 
 ## 2026-07-01
 
+### 23:59 | claude-code
+
+- done: check output
+
+### 23:58 | claude-code
+
+- done: 审核并实施会话轮询保存去重计划：pollPlatforms 引入 anyChanged 脏标记（稳定期不再每 3s 全量写盘），完成分支显式写终态；stopMonitoring 兜底写当前 turn；startMonitoring 重置与超时分支统一收口到 stopMonitoring 消除双写。舍弃 Task 1（updatePlatformAnswer 为死代码）。
+- context: I/O 放大优化，仅改 src/renderer/src/store/appStore.ts，不碰 IPC/主进程/分层边界，存储引擎保持 electron-store(JSON)。项目无自动化测试，验证=lint+build+dev 手动。
+- decision: 1) 舍弃 Task 1：updatePlatformAnswer 无调用方，优化死路径零收益。2) startMonitoring 重置路径改调 stopMonitoring() 而非裸 clearInterval，真正统一停止出口；前提已核实（唯一调用点 sendMessage 不提前改 monitor.currentConversationId）。3) 超时分支去掉冗余 saveCurrentTurn 依赖 stopMonitoring 内部兜底写消除双写；完成分支保留显式写（低频，换取最终态必落盘确定性）。4) 补原计划遗漏：!ref 分支也置 anyChanged=true。
+- modified:
+  - `src/renderer/src/store/appStore.ts`
+  - `docs/superpowers/plans/2026-07-01-history-polling-save-dedup.md`
+- lesson: 改前先 grep 函数调用点：计划若基于某函数'高频被调'做优化，必须先验证它真的有调用方——updatePlatformAnswer 被当成网络流式去重目标，实则整个 src/ 无调用方（死代码），优化它零收益。
+- lesson: stopMonitoring 类停止函数加兜底写时，注意调用顺序：必须在 set 重置 monitor.currentTurn=null 之前调 saveCurrentTurn，否则拿到 null 直接 early return；startMonitoring 重置路径要复用停止出口也同理（在 set 新 turn 之前调）。
+- unresolved: updatePlatformAnswer 是否本应被接入网络流式推送回调而漏接——若未来需要实时（非轮询）落盘，需另立项核实其设计意图。
+
 ### 22:35 | claude-code
 
 - done: 实现任务分配模式与辩论模式

@@ -2,6 +2,13 @@
 
 > Created: 2026-07-01 21:59 (+08:00)
 
+> **实施状态（2026-07-02 审核 + 落地）**：本计划经代码核查后调整实施：
+> - **Task 1 已舍弃**：`updatePlatformAnswer` 在整个 `src/` 中无任何调用方（仅类型声明 + 定义），是死代码路径。其前提“网络流式高频调用 `updatePlatformAnswer` 写盘”不成立——实际内容流是 `pollPlatforms` 每 3s 调 `getLatestResponse()` 轮询爬 DOM。优化死路径零收益，故不改。
+> - **Task 2 已实施**：`anyChanged` 脏标记 + 完成分支显式写终态。补充了原计划遗漏的 `!ref` 分支 `anyChanged = true`（完成态翻转需落盘）。
+> - **Task 3 已实施并简化**：`stopMonitoring` 兜底写已加；进一步把 `startMonitoring` 重置路径从裸 `clearInterval` 改为调 `stopMonitoring()`（在 `set` 新 turn 之前，`currentConversationId` 仍指向旧会话，可正确定位旧 `historyItem`），真正统一三个停止出口；超时分支去掉冗余 `saveCurrentTurn()` 消除双写。原计划的“Step 3 需核实否则跳过”分支已通过核实（唯一调用点 `appStore.ts:1030` 调用前不改 `monitor.currentConversationId`），照做。
+> - 行号已以当前文件为准（计划原文行号偏移约 +5）。
+> - 验证：`npm run lint`（0 error，37 均为既有 `no-explicit-any` 警告，无新增）+ `npm run build` 通过。单 commit `9975d25` 合入（两任务在完成路径上耦合，未拆分）。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 消除"会话监控轮询每次都全量覆盖写盘"的 I/O 放大——内容未变不写、网络流式同内容跳过、完成/停止时显式写一次终态，存储引擎仍沿用 electron-store (JSON)。

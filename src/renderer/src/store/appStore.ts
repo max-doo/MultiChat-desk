@@ -1306,9 +1306,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   startMonitoring: (conversationId: string, turnId: string, userMessage: string, models: string[]) => {
     const { monitor } = get()
 
-    // 如果已有轮询器在运行，先停止
+    // 如果已有轮询器在运行，先停止并兜底写上一轮
+    // stopMonitoring 读取的是旧 monitor.currentConversationId（指向旧会话），
+    // 在下方 set 新 turn 之前调用，故能正确定位旧 historyItem 落盘
     if (monitor.intervalId) {
-      clearInterval(monitor.intervalId)
+      get().stopMonitoring()
     }
 
     // 初始化各平台监控状态
@@ -1348,6 +1350,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (monitor.intervalId) {
       clearInterval(monitor.intervalId)
     }
+    // 兜底：停止前补写一次当前 turn，防止最后一次内容变化未落盘
+    // 必须在 set 重置 currentTurn=null 之前调用；saveCurrentTurn 对 currentTurn 为 null 时安全 early return
+    get().saveCurrentTurn()
     set({
       monitor: {
         isMonitoring: false,
@@ -1363,15 +1368,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     const { monitor, webviewRefs, models, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots } = get()
     if (!monitor.isMonitoring || !monitor.currentTurn) return
 
-    // 超时检测
+    // 超时检测：统一收口到 stopMonitoring（其内部已兜底写），避免双写
     if (Date.now() - monitor.startTime > MONITOR_CONFIG.maxMonitorDurationMs) {
-      get().saveCurrentTurn()
       get().stopMonitoring()
       return
     }
 
     const displayedModels = getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots)
     let allComplete = true
+    let anyChanged = false // 脏标记：本轮是否有平台内容/完成态变化
 
     for (let index = 0; index < displayedModels.length; index++) {
       const model = displayedModels[index]
@@ -1381,6 +1386,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const ref = webviewRefs.get(`slot-${index}`) || webviewRefs.get(model.id)
       if (!ref) {
         state.isComplete = true
+        anyChanged = true // 完成态翻转也视为变化，需落盘
         continue
       }
 
@@ -1390,10 +1396,12 @@ export const useAppStore = create<AppState>((set, get) => ({
         if (content !== state.lastContent) {
           state.lastContent = content
           state.stableCount = 0
+          anyChanged = true
         } else {
           state.stableCount++
           if (state.stableCount >= MONITOR_CONFIG.stableThreshold) {
             state.isComplete = true
+            anyChanged = true // 完成态翻转也视为变化，需落盘
           }
         }
       } catch {
@@ -1405,10 +1413,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
     }
 
-    // 保存当前进度（即使未全部完成）
-    get().saveCurrentTurn()
+    // 仅本轮有内容/完成态变化时才落盘，稳定等待期跳过冗余全量写
+    if (anyChanged) {
+      get().saveCurrentTurn()
+    }
 
     if (allComplete) {
+      get().saveCurrentTurn() // 完成时显式写终态，保证最后一帧落盘
       get().stopMonitoring()
     }
   },
