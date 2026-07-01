@@ -426,6 +426,15 @@ export async function generateSummary(
       console.error(`[Summary API] ❌ 流读取异常:`, streamError)
       onChunk({ done: true, content: '' })
       throw streamError
+    } finally {
+      // 释放 reader 锁并取消底层流，避免 abort/异常路径下 TCP 连接与缓冲区挂起。
+      // 正常结束时 cancel() 是 no-op，安全。
+      try {
+        await reader.cancel()
+      } catch (cancelErr) {
+        // reader 可能已关闭/释放，忽略
+        console.warn('[Summary API] reader.cancel 失败（可能已关闭）:', String(cancelErr))
+      }
     }
   } catch (error) {
     // 检查是否是用户主动中断
