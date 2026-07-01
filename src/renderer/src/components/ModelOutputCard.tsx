@@ -10,6 +10,7 @@ interface ModelOutputCardProps {
   content: string
   selected: boolean
   onToggle: () => void
+  badge?: string
 }
 
 /**
@@ -21,7 +22,8 @@ function ModelOutputCard({
   logo,
   content,
   selected,
-  onToggle
+  onToggle,
+  badge
 }: ModelOutputCardProps): JSX.Element {
   const [isExpanded, setIsExpanded] = useState(false)
   const [shouldShowExpand, setShouldShowExpand] = useState(false)
@@ -183,6 +185,11 @@ function ModelOutputCard({
           {/* Logo 和名称 */}
           <img src={logo} alt={name} className="w-5 h-5" />
           <span className="font-medium text-text-primary">{name}</span>
+          {badge && (
+            <span className="ml-2 px-1.5 py-0.5 text-xs bg-amber-100 text-amber-700 rounded">
+              {badge}
+            </span>
+          )}
         </div>
 
         <button
