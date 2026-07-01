@@ -2,6 +2,16 @@
 
 ## 2026-07-02
 
+### 01:54 | claude-code
+
+- done: 内存泄漏审核修复：覆盖 10 处发现（AbortController 覆盖前 abort / reader finally 释放 / onChunk isDestroyed 守卫 / paste 临时目录即时+启动清理 / VBS 兜底清理 / registerWebviewHandlers 幂等 / loadMore 内存上限 100+游标 / saveCurrentTurn 写盘节流 / refCallbacks 旧键回收 / navigate setTimeout 清理）。#4 mountedWebviews 按用户决定不处理、记录为已知取舍。
+- context: worktree-memory-leak-fixes，rebase 到本地 main(4198400) 后基于其执行计划；执行中使用 executing-plans skill
+- decision: #4 mountedWebviews 模式切换保留 webview 进程为有意取舍（会话连续性），暂不处理；#6 加载更多语义定为内存硬上限 100+游标翻页，超出裁最旧；T9 registerWebviewHandlers 幂等守卫采用 WeakSet 方案（类型安全、不污染 webContents 实例、无 any）
+- modified:
+  - `src/main/api/summaryApi.ts src/main/ipcHandlers.ts src/main/index.ts src/main/shortcutManager.ts src/main/webviewManager.ts src/preload/index.ts src/preload/index.d.ts src/renderer/src/store/appStore.ts src/renderer/src/pages/MainPage.tsx src/renderer/src/components/ControlBar.tsx docs/superpowers/plans/2026-07-02-memory-leak-fixes.md`
+- lesson(promoted): AbortController 覆盖前必须 abort 旧实例+共享同一控制器的多个入口要互斥；ReadableStream getReader() 的 abort/异常路径必须有 finally { reader.cancel() } 释放锁；Electron 流式 onChunk 必须检查 sender.isDestroyed() 否则关窗后空转消费整条流；EnterWorktree 默认 baseRef=fresh 基于 origin/main，本地 main 若有未 push 提交会导致 worktree 落后于计划所基于的代码状态，需 rebase 到本地 main
+- unresolved: #4 若后续需回收渲染进程，另起计划评估'新建会话时清空 mountedWebviews Set'方案；#10 发现预存架构问题：history 写路径 storeSet('history', inMemory100) 整数组覆写磁盘，使稳态下磁盘也仅 ≤100 条，与分层存储设计（磁盘 1000）矛盾、loadMore 稳态拉不到老数据；修复需改造写路径让磁盘保留全量+内存只覆写热区，属分层存储后续工作
+
 ### 00:34 | Antigravity
 
 - done: Investigated Electron 42 bundle size increase
