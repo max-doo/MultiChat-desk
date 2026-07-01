@@ -31,6 +31,18 @@ import { automationService } from './services/AutomationService'
 let currentSummaryAbortController: AbortController | null = null
 
 /**
+ * 中止并清理当前的 AbortController。
+ * 在发起新的 summary / split-task 之前调用，确保上一个请求的流被真正取消，
+ * 避免 fetch + reader 挂起（旧 controller 被覆盖而不 abort 会泄漏连接）。
+ */
+function abortCurrentSummaryRequest(): void {
+    if (currentSummaryAbortController) {
+        currentSummaryAbortController.abort()
+        currentSummaryAbortController = null
+    }
+}
+
+/**
  * 注册所有 IPC 处理器
  * @param store Electron Store 实例
  * @param getMainWindow 获取主窗口的函数
@@ -596,8 +608,7 @@ export function registerIpcHandlers(
     ipcMain.handle('abort-summary', async () => {
         if (currentSummaryAbortController) {
             console.log('[Summary API] ⏹️ 收到终止请求，正在中断...')
-            currentSummaryAbortController.abort()
-            currentSummaryAbortController = null
+            abortCurrentSummaryRequest()
             return { success: true }
         }
         return { success: false, error: '没有正在进行的请求' }
@@ -618,6 +629,8 @@ export function registerIpcHandlers(
         maxTokens?: number
         includeReasoning?: boolean
     }) => {
+        // 先中止上一个进行中的请求（覆盖而不 abort 会泄漏 fetch + reader），再创建新的
+        abortCurrentSummaryRequest()
         // 创建 AbortController 用于支持终止请求
         currentSummaryAbortController = new AbortController()
         const { signal } = currentSummaryAbortController
@@ -659,6 +672,9 @@ export function registerIpcHandlers(
         temperature?: number
         maxTokens?: number
     }) => {
+        // 与 generate-summary 共用同一 controller：先 abort 上一个（可能是正在进行的 summary），
+        // 避免旧流挂起；这也是 split-task 能正确获得中止能力的前提
+        abortCurrentSummaryRequest()
         currentSummaryAbortController = new AbortController()
         const { signal } = currentSummaryAbortController
         try {
@@ -674,8 +690,7 @@ export function registerIpcHandlers(
     // IPC 处理器：中止任务拆解
     ipcMain.handle('abort-split-task', async () => {
         if (currentSummaryAbortController) {
-            currentSummaryAbortController.abort()
-            currentSummaryAbortController = null
+            abortCurrentSummaryRequest()
             return { success: true }
         }
         return { success: false, error: '没有正在进行的拆解请求' }
