@@ -4,8 +4,8 @@
  */
 
 import { app, ipcMain, dialog, clipboard, BrowserWindow, shell } from 'electron'
-import { basename, extname, join } from 'path'
-import { stat, writeFile, mkdtemp } from 'fs/promises'
+import { basename, extname, join, dirname, resolve } from 'path'
+import { stat, writeFile, mkdtemp, rm } from 'fs/promises'
 import { tmpdir } from 'os'
 import type Store from 'electron-store'
 import { generateSummary, fetchModels } from './api/summaryApi'
@@ -445,6 +445,28 @@ export function registerIpcHandlers(
             }
         } catch (error) {
             return { success: false, error: String(error) }
+        }
+    })
+
+    // IPC 处理器：清理粘贴图片产生的临时目录（multichat-paste-*）
+    // 渲染层传入 readClipboardImage 返回的 filePath，main 层自行 dirname 取目录
+    ipcMain.handle('cleanup-paste-temp', async (_event, filePath: string) => {
+        if (!filePath || typeof filePath !== 'string') {
+            return { success: false, error: 'invalid filePath' }
+        }
+        const targetDir = dirname(filePath)
+        // 仅允许清理本应用 tmpdir 下的 multichat-paste-* 目录，防止任意路径删除
+        const tempRoot = tmpdir()
+        const resolved = resolve(targetDir)
+        const base = resolve(join(tempRoot, 'multichat-paste-'))
+        if (!resolved.startsWith(base)) {
+            return { success: false, error: 'path not under multichat-paste temp root' }
+        }
+        try {
+            await rm(resolved, { recursive: true, force: true })
+            return { success: true }
+        } catch (e) {
+            return { success: false, error: String(e) }
         }
     })
 
