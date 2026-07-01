@@ -17,6 +17,7 @@ import {
   type FileUploadData
 } from '../utils/webviewScripts'
 import { extractGeminiCanvasContent } from '../utils/geminiCanvasExtractor'
+import ModelOutputCard from './ModelOutputCard'
 
 // 创建 Turndown 实例用于 HTML 转 Markdown
 const turndownService = new TurndownService({
@@ -94,6 +95,10 @@ interface WebviewCardProps {
   isolated?: boolean // 隔离模式：不受主界面对话状态（会话锁定、模型阵容锁定）的影响
   headerActions?: React.ReactNode // 自定义头部操作区按钮
   draggableHeader?: boolean // 是否允许头部拖拽窗口
+  /** 只读历史快照：URL 不匹配/网页打不开时，用本地存的该模型历史回复替代真实页面。reason 表示触发原因。 */
+  readonlySnapshot?: { content: string; reason: 'url_mismatch' | 'load_error' | 'no_snapshot' } | null
+  /** 历史记录里该模型的原始 URL，用于检测 webview 是否仍停在历史会话页。为空则跳过检测。 */
+  expectedUrl?: string
   flat?: boolean // 扁平无边框模式：去除圆角、外边框与阴影，占满整个容器
   onDragStart?: (e: React.PointerEvent<HTMLDivElement>) => void // 开始拖拽窗口的回调
 }
@@ -124,12 +129,13 @@ export interface WebviewCardRef {
  * 嵌入 AI 平台的 Web 界面，支持消息发送和响应抓取
  */
 const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
-  ({ id, name, url, logo, enabled, slotIndex, compact, hideHeader, onModelChange, isolated, headerActions, draggableHeader, flat, onDragStart }, ref) => {
+  ({ id, name, url, logo, enabled, slotIndex, compact, hideHeader, onModelChange, isolated, headerActions, draggableHeader, flat, onDragStart, readonlySnapshot, expectedUrl }, ref) => {
     const webviewRef = useRef<Electron.WebviewTag>(null)
     const [isLoading, setIsLoading] = useState(true)
     const [isReady, setIsReady] = useState(false)
     const [sendStatus, setSendStatus] = useState<'idle' | 'sending' | 'success' | 'error'>('idle')
     const [loadError, setLoadError] = useState<LoadErrorInfo | null>(null)
+    const [urlMismatch, setUrlMismatch] = useState(false)
     const [canGoBack, setCanGoBack] = useState(false)
     const [canGoForward, setCanGoForward] = useState(false)
     // 跟踪已加载的 URL，避免重复 loadURL
@@ -171,6 +177,42 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
       } catch {
         setCanGoBack(false)
         setCanGoForward(false)
+      }
+    }
+
+    /**
+     * 规范化 URL：只保留 origin + pathname，去掉 query/hash。
+     * 用于和历史记录的 expectedUrl 比较——query/hash 常含无关参数（ref/utm/continued 等），
+     * 直接字符串比较会误判。会话 ID 在 chatgpt/gemini/claude 均在 pathname 中，此规范够用。
+     * ⚠️ 若实测某平台会话 ID 在 query，需在此函数对该平台做特例保留——见计划「阻塞项与后续」。
+     */
+    const normalizeUrl = (raw: string): string => {
+      if (!raw) return ''
+      try {
+        const u = new URL(raw)
+        return u.origin + u.pathname
+      } catch {
+        return raw
+      }
+    }
+
+    // 检测当前 webview URL 是否偏离历史会话页（被重定向到登录页/错误页/别的会话等）。
+    // 仅作提醒信号：SPA 正常的 URL normalize 也可能触发不一致，故不静默切换，只设 urlMismatch 供覆盖层提示。
+    const checkUrlMismatch = (): void => {
+      if (!expectedUrl) {
+        setUrlMismatch(false)
+        return
+      }
+      const webview = webviewRef.current
+      if (!webview) {
+        setUrlMismatch(false)
+        return
+      }
+      try {
+        const currentUrl = webview.getURL() || ''
+        setUrlMismatch(normalizeUrl(currentUrl) !== normalizeUrl(expectedUrl))
+      } catch {
+        setUrlMismatch(false)
       }
     }
 
@@ -237,6 +279,7 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
         setIsLoading(false)
         setIsReady(true)
         setLoadError(null)
+        checkUrlMismatch()
         syncNavigationState()
       }
 
@@ -323,10 +366,12 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
       const handleDidNavigate = (_event: any): void => {
         // 不在这里清空 setLoadError(null)，由 handleDomReady、主动 loadURL 或重试操作负责清空
         syncNavigationState()
+        checkUrlMismatch()
       }
 
       const handleDidNavigateInPage = (_event: any): void => {
         syncNavigationState()
+        checkUrlMismatch()
       }
 
       const handleDidFinishLoad = (): void => {
@@ -1041,7 +1086,50 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
             </div>
           )}
 
-          {loadError && (
+          {(urlMismatch || loadError) && readonlySnapshot && (
+            <div className="absolute inset-0 z-20 bg-app flex flex-col">
+              <div className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 border-b border-amber-200 text-amber-800 text-xs">
+                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>history</span>
+                <span className="font-medium">历史快照模式</span>
+                <span className="text-amber-600">
+                  {loadError
+                    ? '· 页面加载失败'
+                    : readonlySnapshot.reason === 'no_snapshot'
+                      ? '· URL 与历史不符且无本地快照'
+                      : '· URL 与历史记录不符，显示本地历史回复'}
+                </span>
+              </div>
+              {readonlySnapshot.content ? (
+                <div className="flex-1 min-h-0 overflow-auto">
+                  <ModelOutputCard
+                    id={id}
+                    name={name}
+                    logo={logo}
+                    content={readonlySnapshot.content}
+                    selected={true}
+                    onToggle={() => {}}
+                  />
+                </div>
+              ) : (
+                <div className="flex-1 flex items-center justify-center text-text-secondary text-sm">
+                  无该模型的本地历史快照，请刷新页面或重试加载
+                </div>
+              )}
+              {loadError && (
+                <div className="flex justify-center py-2 border-t border-gray-100">
+                  <button
+                    type="button"
+                    onClick={handleRetry}
+                    className="px-4 py-1.5 bg-primary text-white rounded-lg hover:opacity-90 transition-opacity text-sm"
+                  >
+                    重试加载
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {loadError && !readonlySnapshot && (
             <div className="absolute inset-0 flex items-center justify-center bg-app/80 z-10">
               <div className="flex flex-col items-center gap-3 p-6 max-w-sm bg-white rounded-2xl shadow-soft">
                 <span className="material-symbols-outlined text-red-500" style={{ fontSize: 48 }}>
@@ -1072,7 +1160,7 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
             id={`webview-${id}`}
             src="about:blank"
             partition="persist:shared"
-            className={`w-full h-full ${loadError ? 'invisible pointer-events-none' : ''}`}
+            className={`w-full h-full ${loadError || readonlySnapshot || urlMismatch ? 'invisible pointer-events-none' : ''}`}
             allowpopups
             tabIndex={-1}
           />
