@@ -125,6 +125,19 @@ const api = {
   abortSummary: (): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('abort-summary'),
 
+  // 任务拆解（非流式）
+  splitTask: (params: {
+    apiKey: string
+    baseUrl?: string
+    model: string
+    goal: string
+    temperature?: number
+    maxTokens?: number
+  }): Promise<{ success: boolean; data?: Array<{ text: string; suggestedModelId?: string }>; error?: string; aborted?: boolean }> =>
+    ipcRenderer.invoke('split-task', params),
+  abortSplitTask: (): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('abort-split-task'),
+
   // 获取模型列表
   fetchModels: (params: {
     apiKey: string

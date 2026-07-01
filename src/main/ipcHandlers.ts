@@ -9,6 +9,7 @@ import { stat, writeFile, mkdtemp } from 'fs/promises'
 import { tmpdir } from 'os'
 import type Store from 'electron-store'
 import { generateSummary, fetchModels } from './api/summaryApi'
+import { splitTask } from './api/taskSplitApi'
 import { setQuitting, getQuickWindow, showAndFocusWindow, hideToolbarWindow, getCachedSelectionText } from './webviewManager'
 import { startInputHook, stopInputHook } from './inputHookManager'
 import { broadcastStateChange } from './stateBus'
@@ -610,6 +611,37 @@ export function registerIpcHandlers(
             currentSummaryAbortController = null
             throw error
         }
+    })
+
+    // IPC 处理器：任务拆解（复用总结的 AbortController 以支持中止）
+    ipcMain.handle('split-task', async (_event, params: {
+        apiKey: string
+        baseUrl?: string
+        model: string
+        goal: string
+        temperature?: number
+        maxTokens?: number
+    }) => {
+        currentSummaryAbortController = new AbortController()
+        const { signal } = currentSummaryAbortController
+        try {
+            const result = await splitTask(params, signal)
+            currentSummaryAbortController = null
+            return result
+        } catch (error) {
+            currentSummaryAbortController = null
+            throw error
+        }
+    })
+
+    // IPC 处理器：中止任务拆解
+    ipcMain.handle('abort-split-task', async () => {
+        if (currentSummaryAbortController) {
+            currentSummaryAbortController.abort()
+            currentSummaryAbortController = null
+            return { success: true }
+        }
+        return { success: false, error: '没有正在进行的拆解请求' }
     })
 
     // IPC 处理器：获取模型列表

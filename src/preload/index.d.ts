@@ -74,6 +74,15 @@ declare global {
         includeReasoning?: boolean
       }, onChunk?: (chunk: string, isReasoning?: boolean) => void) => Promise<{ success: boolean; data?: string; reasoningContent?: string; error?: string; aborted?: boolean }>
       abortSummary: () => Promise<{ success: boolean; error?: string }>
+      splitTask: (params: {
+        apiKey: string
+        baseUrl?: string
+        model: string
+        goal: string
+        temperature?: number
+        maxTokens?: number
+      }) => Promise<{ success: boolean; data?: Array<{ text: string; suggestedModelId?: string }>; error?: string; aborted?: boolean }>
+      abortSplitTask: () => Promise<{ success: boolean; error?: string }>
       fetchModels: (params: {
         apiKey: string
         baseUrl: string
