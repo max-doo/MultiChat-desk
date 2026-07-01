@@ -721,7 +721,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   history: [],
   addHistory: (item) => set((state) => {
-    const newHistory = [item, ...state.history].slice(0, 1000)
+    const newHistory = [item, ...state.history].slice(0, 100)
     if (window.api?.storeSet) window.api.storeSet('history', newHistory)
     return { history: newHistory }
   }),
@@ -745,7 +745,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   summaryHistory: [],
   addSummaryHistory: (item) => set((state) => {
-    const newHistory = [item, ...state.summaryHistory].slice(0, 1000)
+    const newHistory = [item, ...state.summaryHistory].slice(0, 100)
     if (window.api?.storeSet) window.api.storeSet('summaryHistory', newHistory)
     return { summaryHistory: newHistory }
   }),
@@ -1438,18 +1438,32 @@ export async function initializeStore(): Promise<void> {
             },
           ],
           urls: old.urls,
-        }))
+        })).slice(0, 100)
         useAppStore.setState({ history: migratedHistory })
         // 立即持久化新格式
         window.api?.storeSet('history', migratedHistory)
         console.log('[Store] History migrated from old format to turns-based format')
       } else {
-        useAppStore.setState({ history: storedHistory as HistoryItem[] })
+        // 历史记录上限统一为 100 条（原上限 1000 会导致稳态内存偏高）。
+        // 老用户首次加载时若已超过上限，仅取最近 100 条进内存，并回写磁盘淘汰旧数据。
+        const trimmed = (storedHistory as HistoryItem[]).slice(0, 100)
+        useAppStore.setState({ history: trimmed })
+        if ((storedHistory as HistoryItem[]).length > trimmed.length) {
+          window.api?.storeSet('history', trimmed)
+          console.log(`[Store] History trimmed from ${storedHistory.length} to ${trimmed.length} items`)
+        }
       }
     }
 
     const storedSummaryHistory = await window.api.storeGet('summaryHistory') as SummaryHistoryItem[] | undefined
-    if (storedSummaryHistory) useAppStore.setState({ summaryHistory: storedSummaryHistory })
+    if (storedSummaryHistory) {
+      const trimmedSummary = storedSummaryHistory.slice(0, 100)
+      useAppStore.setState({ summaryHistory: trimmedSummary })
+      if (storedSummaryHistory.length > trimmedSummary.length) {
+        window.api?.storeSet('summaryHistory', trimmedSummary)
+        console.log(`[Store] SummaryHistory trimmed from ${storedSummaryHistory.length} to ${trimmedSummary.length} items`)
+      }
+    }
 
     const storedSummaryModels = await window.api.storeGet('summaryModels') as SummaryModel[] | undefined
     if (storedSummaryModels) useAppStore.setState({ summaryModels: storedSummaryModels })

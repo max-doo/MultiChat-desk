@@ -361,6 +361,8 @@ export function createWindow(): void {
 
     // 捕获 Renderer 的控制台日志，以便在终端中排查黑屏报错
     mainWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
+        // 丢弃网络嗅探器全量响应体日志，避免主进程 stdout 缓冲膨胀
+        if (typeof message === 'string' && message.startsWith('NETWORK_RESPONSE:')) return
         const levels = ['DEBUG', 'INFO', 'WARNING', 'ERROR']
         console.log(`[Renderer ${levels[level] || 'LOG'}] ${message} (${sourceId}:${line})`)
     })
@@ -523,6 +525,9 @@ export function registerWebviewHandlers(webContents: Electron.WebContents): void
 
     webContents.on('console-message', (_e, _level, message) => {
         if (typeof message !== 'string') return
+        // 丢弃网络嗅探器的全量响应体日志，避免主进程控制台缓冲区与内存膨胀
+        // （嗅探器本身已在生产环境禁用，此处为兜底，防止 dev 误注入后泄漏到生产）
+        if (message.startsWith('NETWORK_RESPONSE:')) return
         if (message.startsWith('__MM_LOG__:')) {
             console.log('[Webview]', webContents.id, message.substring(9))
             return

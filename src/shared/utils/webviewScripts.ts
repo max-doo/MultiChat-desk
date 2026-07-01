@@ -5,6 +5,7 @@
 
 import type { ModelSelector } from '../config/selectors'
 import { getHtmlToMarkdownScript } from './htmlToMarkdown'
+import { is } from '@electron-toolkit/utils'
 
 /**
  * 文件上传数据类型
@@ -1662,8 +1663,15 @@ export function generateGetLatestResponseScript(selectors: ModelSelector): strin
 /**
  * 注入网络响应拦截脚本（策略三）
  * 通过重写 fetch 和 XHR，在控制台抛出 'NETWORK_RESPONSE:' 前缀的消息
+ *
+ * ⚠️ 性能注意：该脚本会把每个 fetch/XHR 的完整响应体通过 console.log
+ * 输出（含 AI 平台动辄数十 KB 的 JSON），在生产环境会导致主进程控制台
+ * 缓冲区与内存稳步上涨。因此仅允许在 dev 模式注入；主进程的
+ * console-message 处理器也会显式丢弃 NETWORK_RESPONSE 前缀消息作为兜底。
  */
 export function getNetworkSnifferScript(): string {
+  // 仅 dev 环境允许注入；生产环境直接返回空脚本，避免内存泄漏
+  if (!is.dev) return ''
   return `
     (function() {
       if (window.__sniffer_injected) return;

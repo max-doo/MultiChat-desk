@@ -63,6 +63,10 @@ Agents may suggest or promote a lesson into the `Known Gotchas` section of `AGEN
 
 - **Headless BrowserWindow 后台限流**：通过 `new BrowserWindow({ show: false, ... })` 创建的隐藏 Daemon 会话窗口，Chromium 默认开启 `backgroundThrottling: true`，会将后台 tab 的 `setTimeout/setInterval` 降频至 ≤1Hz。必须在 `webPreferences` 中显式设置 `backgroundThrottling: false`，否则 `AutomationService` 注入的轮询脚本会严重超时。
 
+- **Electron 内存优化的固有 vs 可优化边界**：每个 `<webview>` 是独立渲染进程（site isolation），3-4 个 AI 平台 SPA 各 80-150MB 是**固有开销**，无法通过代码优化降低；`persist:shared` session 共享是架构约束（AGENTS.md 禁止动）。真正可优化的是：① main 进程日志量（`summaryApi.ts` 流式逐 chunk `JSON.stringify` 全量打印是运行时峰值主因，必须用 `is.dev` 包住）；② Zustand 全量常驻数据（`history`/`summaryHistory` `slice(0,1000)` 全量常驻 + 每 3 秒全量 `storeSet` 持久化是稳态主因，上限改 100 且 `initializeStore` 加载时对老数据裁剪回写）；③ 隐藏未销毁的 webview（`mountedWebviews` Set 只增不减，模式切换靠 `display:none` 隐藏，每个仍占完整渲染进程——牺牲会话连续性才能省）；④ Chromium 命令行开关（`--js-flags=--max-old-space-size`，待实测）。
+
+- **Electron main 进程日志泄漏的隐蔽性**：`console.log(JSON.stringify(bigObj, null, 2))` 在流式场景下会按 chunk 数量（数百-数千次）放大，每个大字符串在 main 进程 stdout 缓冲区累积，导致稳态内存上涨且不触发 GC。生产构建必须用 `is.dev` 守卫所有调试级日志，仅保留错误级别和低频生命周期日志（开始/完成/耗时/字符数）。配套：main 进程 `console-message` 处理器要显式过滤高危前缀（如嗅探器的 `NETWORK_RESPONSE:`），避免 webview 内的全量响应体日志回流主进程。
+
 - **Named Pipe Server 异步事件循环竞态**：Node `net.Socket` 的 `'data'` 事件回调在 `async` 函数中，当 `await handleRequest(...)` 暂停时，后续到达的数据包仍会同步触发新的 `'data'` 事件，修改共享的 `buffer` 变量，造成 lines 跳行或乱序。**正确模式**：在同步的 `'data'` 回调中仅做行分割，将完整行推入 per-socket `requestQueue: string[]`，然后用 `processQueue(socket)` 串行消费（加一个 `processing` flag 防止重入）。
 
 - **CLI `--json` 模式 stdout/stderr 分离**：在 `--json` 模式下，凡是连接失败、解析错误等错误信息都必须走 `process.stderr.write(...)`，而不是 `console.log`（会写 stdout）。只有最终成功的结构化数据才输出到 `stdout`，这样外部脚本才能安全地管道解析 stdout。

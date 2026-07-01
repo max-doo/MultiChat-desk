@@ -1,6 +1,28 @@
 # Session Log
 
+## 2026-07-01
+
+### 13:17 | claude-code
+
+- done: 内存占用性能优化（第一阶段）：summaryApi 流式日志加 is.dev 守卫、history/summaryHistory 上限 1000→100 并在加载时裁剪、网络嗅探器加 dev 守卫 + 主进程 console-message 过滤 NETWORK_RESPONSE
+- context: 用户报告安装版峰值 1G、稳态 800MB，要求研究性能优化。用户决策：webview 销毁策略选「全部保留现状」，立即落地选 ROI 1+2+6 三步。
+- decision: history 上限从 1000 收紧到 100（Zustand 常驻 + electron-store 持久化）。webview 模式切换不销毁（用户选择保留会话连续性，牺牲内存）。
+- modified:
+  - `src/main/api/summaryApi.ts`
+  - `src/main/webviewManager.ts`
+  - `src/renderer/src/store/appStore.ts`
+  - `src/shared/utils/webviewScripts.ts`
+- lesson(promoted): Electron 安装版稳态内存 800MB/峰值 1G 的三大可优化热点：(1) summaryApi.ts 每个流式 chunk 都 JSON.stringify 全量打印到 main 进程 stdout，是运行时峰值主因——必须用 is.dev 包住；(2) appStore history/summaryHistory slice(0,1000) 全量常驻 Zustand + 每 3 秒全量 storeSet 持久化，是稳态主因——上限改 100 且 initializeStore 加载时对老数据裁剪回写；(3) getNetworkSnifferScript 会把所有 fetch/XHR 响应体 console.log，是潜伏泄漏——生产环境返回空脚本。诊断结论：多 webview 独立渲染进程（300-500MB）是固有开销不可优化，真正可省的是日志和全量历史。
+- lesson(promoted): Electron 内存优化的固有 vs 可优化边界：每个 <webview> 是独立渲染进程（site isolation），3-4 个 AI 平台 SPA 各 80-150MB 是固有开销，无法通过代码优化降低；persist:shared session 共享是架构约束（AGENTS.md 禁止动）。可优化的是：main 进程日志量、Zustand 全量常驻数据、隐藏未销毁的 webview（本次未动，用户要求保留会话）、Chromium 命令行开关（--js-flags=--max-old-space-size，本次未动待实测）。
+- unresolved: ROI 3（webview 销毁策略）用户选保留现状，未实施。ROI 5（main 进程 --js-flags 内存开关、SessionManager backgroundThrottling）未实施，需实测。Material Symbols woff2 字体 3.95MB 全量打包，可子集化但未动。
+
 ## 2026-06-30
+
+### 22:24 | Antigravity
+
+- done: Updated Gemini Deep Research selector to support Chinese text
+- modified:
+  - `src/shared/config/selectors.ts`
 
 ### 21:57 | Antigravity
 

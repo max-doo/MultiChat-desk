@@ -4,6 +4,7 @@
  */
 
 import { buildRequestBody } from '../config/requestBodyConfig'
+import { is } from '@electron-toolkit/utils'
 
 export interface SummaryModelOutput {
   name: string
@@ -88,22 +89,25 @@ export async function generateSummary(
   onChunk: StreamChunkCallback
 ): Promise<GenerateSummaryResult> {
   const startTime = Date.now()
-  console.log('\n========== [Summary API] 开始生成总结 ==========')
-  console.log(`[Summary API] 时间: ${new Date().toISOString()}`)
+  console.log('[Summary API] 开始生成总结')
   console.log(`[Summary API] 模型: ${params.model}`)
-  console.log(`[Summary API] 参数: temperature=${params.temperature ?? 0.7}, top_p=${params.topP ?? 1}, max_tokens=${params.maxTokens ?? 4000}`)
-  console.log(`[Summary API] 开启思考: ${params.includeReasoning ? '是' : '否'}`)
-  console.log(`[Summary API] 对话历史: ${params.messages?.length || 0} 轮`)
-  console.log(`[Summary API] 三明治结构: ${params.modelOutputs?.length ? `是（${params.modelOutputs.length} 个模型输出）` : '否'}`)
+  if (is.dev) {
+    console.log(`[Summary API] 时间: ${new Date().toISOString()}`)
+    console.log(`[Summary API] 参数: temperature=${params.temperature ?? 0.7}, top_p=${params.topP ?? 1}, max_tokens=${params.maxTokens ?? 4000}`)
+    console.log(`[Summary API] 开启思考: ${params.includeReasoning ? '是' : '否'}`)
+    console.log(`[Summary API] 对话历史: ${params.messages?.length || 0} 轮`)
+    console.log(`[Summary API] 三明治结构: ${params.modelOutputs?.length ? `是（${params.modelOutputs.length} 个模型输出）` : '否'}`)
+  }
 
   try {
     // 支持自定义 API 端点（如 OpenRouter: https://openrouter.ai/api/v1）
     const baseUrl = params.baseUrl?.replace(/\/+$/, '') || 'https://api.openai.com/v1'
     const apiUrl = `${baseUrl}/chat/completions`
 
-    console.log(`[Summary API] 请求地址: ${apiUrl}`)
-    console.log(`[Summary API] API Key: ${params.apiKey ? params.apiKey.substring(0, 8) + '...' : '未设置'}`)
-
+    if (is.dev) {
+      console.log(`[Summary API] 请求地址: ${apiUrl}`)
+      console.log(`[Summary API] API Key: ${params.apiKey ? params.apiKey.substring(0, 8) + '...' : '未设置'}`)
+    }
     const effectiveSystemPrompt = buildEffectiveSystemPrompt(params.systemPrompt)
     const effectiveUserContent = buildSandwichUserContent(params)
     if (!params.modelOutputs?.length && !effectiveUserContent.trim()) {
@@ -138,12 +142,15 @@ export async function generateSummary(
     })
 
     // 专门打印思考相关参数
-    console.log(`[Summary API] 🧠 思考参数:`, {
-      enable_thinking: requestBody.enable_thinking,
-      extra_body: requestBody.extra_body,
-      includeReasoningRequested: params.includeReasoning
-    })
-    console.log(`[Summary API] 请求体:`, JSON.stringify(requestBody, null, 2))
+    if (is.dev) {
+      console.log(`[Summary API] 🧠 思考参数:`, {
+        enable_thinking: requestBody.enable_thinking,
+        extra_body: requestBody.extra_body,
+        includeReasoningRequested: params.includeReasoning
+      })
+      // 请求体可能含完整对话历史，体积大，仅在 dev 下打印
+      console.log(`[Summary API] 请求体:`, JSON.stringify(requestBody, null, 2))
+    }
     console.log(`[Summary API] 正在发送请求...`)
 
     const response = await fetch(apiUrl, {
@@ -161,26 +168,32 @@ export async function generateSummary(
       signal
     })
 
-    console.log(`[Summary API] 响应状态: ${response.status} ${response.statusText}`)
-    console.log(`[Summary API] Content-Type: ${response.headers.get('content-type')}`)
+    if (is.dev) {
+      console.log(`[Summary API] 响应状态: ${response.status} ${response.statusText}`)
+      console.log(`[Summary API] Content-Type: ${response.headers.get('content-type')}`)
 
-    // 打印所有响应头（调试用）
-    const responseHeaders: Record<string, string> = {}
-    response.headers.forEach((value, key) => {
-      responseHeaders[key] = value
-    })
-    console.log(`[Summary API] 📋 响应头:`, JSON.stringify(responseHeaders, null, 2))
+      // 打印所有响应头（调试用）
+      const responseHeaders: Record<string, string> = {}
+      response.headers.forEach((value, key) => {
+        responseHeaders[key] = value
+      })
+      console.log(`[Summary API] 📋 响应头:`, JSON.stringify(responseHeaders, null, 2))
+    }
 
     if (!response.ok) {
       const errorText = await response.text()
       console.error(`[Summary API] ❌ 请求失败!`)
       console.error(`[Summary API] 状态码: ${response.status}`)
-      console.error(`[Summary API] 错误响应原始文本:`, errorText)
+      if (is.dev) {
+        console.error(`[Summary API] 错误响应原始文本:`, errorText)
+      }
 
       let errorMessage = `API 错误 (${response.status})`
       try {
         const errorData = JSON.parse(errorText)
-        console.error(`[Summary API] ❌ 错误响应 JSON:`, JSON.stringify(errorData, null, 2))
+        if (is.dev) {
+          console.error(`[Summary API] ❌ 错误响应 JSON:`, JSON.stringify(errorData, null, 2))
+        }
         errorMessage = errorData?.error?.message || errorData?.message || errorData?.detail || errorText.substring(0, 200)
       } catch {
         errorMessage = errorText.substring(0, 200) || response.statusText
@@ -204,7 +217,9 @@ export async function generateSummary(
       }
     }
 
-    console.log(`[Summary API] ✓ 开始读取流式响应...`)
+    if (is.dev) {
+      console.log(`[Summary API] ✓ 开始读取流式响应...`)
+    }
 
     let buffer = ''
     let fullContent = ''      // 纯正文内容（不含思考）
@@ -222,9 +237,6 @@ export async function generateSummary(
 
         if (done) {
           console.log(`[Summary API] 流读取完成，共接收 ${chunkCount} 个数据块`)
-          if (reasoningContent) {
-            console.log(`[Summary API] 思考内容长度: ${reasoningContent.length} 字符`)
-          }
           break
         }
 
@@ -239,13 +251,7 @@ export async function generateSummary(
             const data = line.slice(6)
             if (data === '[DONE]') {
               // 流结束
-              console.log(`[Summary API] ✓ 收到 [DONE] 信号`)
-              console.log(`[Summary API] 正文字符数: ${fullContent.length}`)
-              if (reasoningContent) {
-                console.log(`[Summary API] 思考内容字符数: ${reasoningContent.length}`)
-              }
-              console.log(`[Summary API] 耗时: ${Date.now() - startTime}ms`)
-              console.log('========== [Summary API] 生成完成 ==========\n')
+              console.log(`[Summary API] 收到 [DONE] 信号，正文字符数: ${fullContent.length}，耗时: ${Date.now() - startTime}ms`)
 
               onChunk({ done: true, content: '' })
               return {
@@ -259,12 +265,14 @@ export async function generateSummary(
               const json = JSON.parse(data)
 
               // 打印每个数据块的完整 JSON（调试用）
-              console.log(`[Summary API] 📦 数据块 #${chunkCount}:`, JSON.stringify(json, null, 2))
+              if (is.dev) {
+                console.log(`[Summary API] 📦 数据块 #${chunkCount}:`, JSON.stringify(json, null, 2))
 
-              // 记录第一个数据块的完整结构，帮助调试
-              if (!hasLoggedFirstChunk && json.choices?.[0]) {
-                console.log('[Summary API] 首个数据块结构:', JSON.stringify(json.choices[0], null, 2))
-                hasLoggedFirstChunk = true
+                // 记录第一个数据块的完整结构，帮助调试
+                if (!hasLoggedFirstChunk && json.choices?.[0]) {
+                  console.log('[Summary API] 首个数据块结构:', JSON.stringify(json.choices[0], null, 2))
+                  hasLoggedFirstChunk = true
+                }
               }
 
               const delta = json.choices?.[0]?.delta || {}
@@ -280,19 +288,21 @@ export async function generateSummary(
               const reasoning = reasoningRaw || ''
 
               // 详细打印 delta 内容（包括空值，便于调试）
-              const hasReasoningField = 'reasoning_content' in delta || 'reasoning' in delta || 'thinking' in delta
-              if (content || reasoning || hasReasoningField) {
-                console.log(`[Summary API] 📝 Delta 内容:`, {
-                  content: content ? `"${content.substring(0, 50)}${content.length > 50 ? '...' : ''}"` : (content === '' ? '""(空)' : null),
-                  reasoning: reasoning ? `"${reasoning.substring(0, 50)}${reasoning.length > 50 ? '...' : ''}"` : (hasReasoningField ? '""(字段存在但为空)' : null),
-                  reasoning_content_raw: delta.reasoning_content,
-                  deltaKeys: Object.keys(delta)
-                })
+              if (is.dev) {
+                const hasReasoningField = 'reasoning_content' in delta || 'reasoning' in delta || 'thinking' in delta
+                if (content || reasoning || hasReasoningField) {
+                  console.log(`[Summary API] 📝 Delta 内容:`, {
+                    content: content ? `"${content.substring(0, 50)}${content.length > 50 ? '...' : ''}"` : (content === '' ? '""(空)' : null),
+                    reasoning: reasoning ? `"${reasoning.substring(0, 50)}${reasoning.length > 50 ? '...' : ''}"` : (hasReasoningField ? '""(字段存在但为空)' : null),
+                    reasoning_content_raw: delta.reasoning_content,
+                    deltaKeys: Object.keys(delta)
+                  })
+                }
               }
 
               // 检查是否有错误信息
               if (json.error) {
-                console.error(`[Summary API] ❌ 流中收到错误:`, JSON.stringify(json.error, null, 2))
+                console.error(`[Summary API] ❌ 流中收到错误:`, json.error.message || JSON.stringify(json.error))
                 onChunk({ done: true, content: '' })
                 return {
                   success: false,
@@ -341,12 +351,14 @@ export async function generateSummary(
 
               if (!reasoning && !content) {
                 // 如果没有内容，也记录一下（可能是 finish_reason 等元数据）
-                console.log(`[Summary API] ℹ️ 空内容数据块，可能包含元数据:`, {
-                  finish_reason: json.choices?.[0]?.finish_reason,
-                  index: json.choices?.[0]?.index,
-                  hasDelta: !!delta,
-                  deltaKeys: Object.keys(delta)
-                })
+                if (is.dev) {
+                  console.log(`[Summary API] ℹ️ 空内容数据块，可能包含元数据:`, {
+                    finish_reason: json.choices?.[0]?.finish_reason,
+                    index: json.choices?.[0]?.index,
+                    hasDelta: !!delta,
+                    deltaKeys: Object.keys(delta)
+                  })
+                }
               }
             } catch (e) {
               // 记录解析错误但不中断
@@ -363,7 +375,9 @@ export async function generateSummary(
 
       // 处理剩余的 buffer
       if (buffer.trim()) {
-        console.log(`[Summary API] 处理剩余 buffer: ${buffer.length} 字符`)
+        if (is.dev) {
+          console.log(`[Summary API] 处理剩余 buffer: ${buffer.length} 字符`)
+        }
         try {
           const json = JSON.parse(buffer.replace('data: ', ''))
 
@@ -387,13 +401,7 @@ export async function generateSummary(
         }
       }
 
-      console.log(`[Summary API] ✓ 流式读取结束`)
-      console.log(`[Summary API] 总字符数: ${fullContent.length}`)
-      if (reasoningContent) {
-        console.log(`[Summary API] 思考内容: ${reasoningContent.length} 字符`)
-      }
-      console.log(`[Summary API] 耗时: ${Date.now() - startTime}ms`)
-      console.log('========== [Summary API] 生成完成 ==========\n')
+      console.log(`[Summary API] 流式读取结束，总字符数: ${fullContent.length}，耗时: ${Date.now() - startTime}ms`)
 
       onChunk({ done: true, content: '' })
       return {
@@ -403,10 +411,7 @@ export async function generateSummary(
     } catch (streamError) {
       // 检查是否是用户主动中断
       if (streamError instanceof Error && streamError.name === 'AbortError') {
-        console.log(`[Summary API] ⏹️ 请求被用户终止`)
-        console.log(`[Summary API] 已生成字符数: ${fullContent.length}`)
-        console.log(`[Summary API] 耗时: ${Date.now() - startTime}ms`)
-        console.log('========== [Summary API] 已终止 ==========\n')
+        console.log(`[Summary API] 请求被用户终止，已生成 ${fullContent.length} 字符，耗时: ${Date.now() - startTime}ms`)
 
         onChunk({ done: true, content: '' })
         return {
@@ -418,16 +423,13 @@ export async function generateSummary(
       }
 
       console.error(`[Summary API] ❌ 流读取异常:`, streamError)
-      console.log(`[Summary API] 耗时: ${Date.now() - startTime}ms`)
       onChunk({ done: true, content: '' })
       throw streamError
     }
   } catch (error) {
     // 检查是否是用户主动中断
     if (error instanceof Error && error.name === 'AbortError') {
-      console.log(`[Summary API] ⏹️ 请求被用户终止`)
-      console.log(`[Summary API] 耗时: ${Date.now() - startTime}ms`)
-      console.log('========== [Summary API] 已终止 ==========\n')
+      console.log(`[Summary API] 请求被用户终止，耗时: ${Date.now() - startTime}ms`)
 
       onChunk({ done: true, content: '' })
       return {
@@ -438,8 +440,6 @@ export async function generateSummary(
     }
 
     console.error(`[Summary API] ❌ 请求异常:`, error)
-    console.log(`[Summary API] 耗时: ${Date.now() - startTime}ms`)
-    console.log('========== [Summary API] 生成失败 ==========\n')
 
     const errorMessage = error instanceof Error ? error.message : String(error)
     return {
