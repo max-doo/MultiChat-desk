@@ -42,6 +42,8 @@
 - [ ] **DOM选择器鲁棒性提升**：详见 `docs\superpowers\plans\2026-06-28-resilient-webview-automation.md`
 - [x] **项目改名 MultiChat**：将项目从 "MultiChat Desk" 更名为 "MultiChat"，同步更新所有相关命名（package.json、窗口标题、文档、构建产物名等）
 - [x] **CLI Daemon 基础架构**（**已实现**）：Named Pipe 通信、SessionManager、AutomationService、CLI Client（`daemon status/exec/collect`）已落地，详见 SESSION_LOG 2026-06-28 多条记录。剩余工作：选择器更新、exec 挂起轮询改进（见上方 CLI 相关 TODO）
+- [ ] **`updatePlatformAnswer` 设计意图核实**：该 store action（`appStore.ts`）在整个 `src/` 中无任何调用方（仅类型声明 + 定义），疑似漏接网络流式推送回调。当前监控内容流全靠 `pollPlatforms` 每 3s 轮询爬 DOM。若未来需要实时（非轮询）落盘流式内容，需另立项核实其是否本应被 webview 注入脚本 / IPC 回调接入，并补接入点；否则考虑移除该死代码。来源：2026-07-02 会话轮询保存去重任务（plan：`docs/superpowers/plans/2026-07-01-history-polling-save-dedup.md`）
+- [ ] **会话轮询去重 dev 验收**：`appStore.ts` 轮询保存去重已实施（commit `9975d25`，lint/build 通过），但未在 `npm run dev` 中手动验收。最小等价检查：发消息触发监控，观察 `%APPDATA%\MultiChat Desk-dev\config-dev.json` 的 `history` 字段写盘频率——稳定等待期（内容不变约 9s）应不再每 3s 写一次；并验证三个停止出口（全部完成 / 超时 5 分钟 / 新消息重置）终态完整不丢数据
 
 ## 已完成
 
