@@ -301,7 +301,7 @@ import ModelOutputCard from './ModelOutputCard'
 改为：
 
 ```tsx
-            className={`w-full h-full ${loadError || readonlySnapshot || urlMismatch ? 'invisible pointer-events-none' : ''}`}
+            className={`w-full h-full ${(loadError || urlMismatch) && readonlySnapshot ? 'invisible pointer-events-none' : ''}`}
 ```
 
 - [ ] **Step 10: 类型检查**
@@ -411,7 +411,21 @@ git commit -m "feat: add URL mismatch detection and readonly snapshot overlay to
                   }
 ```
 
-> 注意 `expectedUrl` 仍按 Step 3 传 `historyUrls[model.id]`；非回溯态（无 `activeHistoryId`）`historyUrls` 为空对象，`expectedUrl` 为 undefined，Task 2 Step 4 的 `checkUrlMismatch` 会跳过检测、`urlMismatch` 恒为 false。但此时 `readonlySnapshot` 仍被传了 `no_snapshot` 占位——**必须确保覆盖层条件 `(urlMismatch || loadError)` 在非回溯态为 false**，否则正常对话也会弹覆盖层。`loadError` 在正常对话时本就 false，`urlMismatch` 因 `expectedUrl` 为空而 false，故安全。
+> 注意 `expectedUrl` 仍按 Step 3 传 `historyUrls[model.id]`；非回溯态（无 `activeHistoryId`）`historyUrls` 为空对象，`expectedUrl` 为 undefined，Task 2 Step 4 的 `checkUrlMismatch` 会跳过检测、`urlMismatch` 恒为 false。
+>
+> ⚠️ **非回溯态必须传 `readonlySnapshot={null}`**（见下方传法）。若在非回溯态传了 `no_snapshot` 占位对象，则 `readonlySnapshot` 恒为 truthy，WebviewCard 的 webview 可见性条件会误把 webview 永久 `invisible` → 白屏。覆盖层条件 `(urlMismatch || loadError) && readonlySnapshot` 只保证不弹覆盖层，但**可见性条件也用 `readonlySnapshot`**，故必须靠 `null` 而非「覆盖层不弹」来保安全。
+>
+> **正确传法（含非回溯态 null 门控）：**
+>
+> ```tsx
+>                  readonlySnapshot={
+>                    !activeHistoryId
+>                      ? null
+>                      : historySnapshots[model.id]
+>                        ? { content: historySnapshots[model.id], reason: 'url_mismatch' as const }
+>                        : { content: '', reason: 'no_snapshot' as const }
+>                  }
+> ```
 
 - [ ] **Step 5: 修复 history[0] 误取**
 

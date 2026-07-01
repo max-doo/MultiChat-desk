@@ -546,9 +546,11 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
                   slotIndex={i}
                   expectedUrl={historyUrls[model.id]}
                   readonlySnapshot={
-                    historySnapshots[model.id]
-                      ? { content: historySnapshots[model.id], reason: 'url_mismatch' as const }
-                      : { content: '', reason: 'no_snapshot' as const }
+                    !activeHistoryId
+                      ? null
+                      : historySnapshots[model.id]
+                        ? { content: historySnapshots[model.id], reason: 'url_mismatch' as const }
+                        : { content: '', reason: 'no_snapshot' as const }
                   }
                 />
               </div>

@@ -1160,7 +1160,7 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
             id={`webview-${id}`}
             src="about:blank"
             partition="persist:shared"
-            className={`w-full h-full ${loadError || readonlySnapshot || urlMismatch ? 'invisible pointer-events-none' : ''}`}
+            className={`w-full h-full ${(loadError || urlMismatch) && readonlySnapshot ? 'invisible pointer-events-none' : ''}`}
             allowpopups
             tabIndex={-1}
           />
