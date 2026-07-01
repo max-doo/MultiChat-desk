@@ -868,6 +868,7 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
     const handleRefresh = () => {
       clearLoadTimers()
       setLoadError(null)
+      setUrlMismatch(false)
       setIsLoading(true)
       setElapsedSeconds(0)
       webviewRef.current?.reload()
@@ -877,6 +878,7 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
     const handleRetry = (): void => {
       clearLoadTimers()
       setLoadError(null)
+      setUrlMismatch(false)
       setIsLoading(true)
       setElapsedSeconds(0)
       isFirstLoadRef.current = true
