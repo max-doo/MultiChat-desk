@@ -2,6 +2,10 @@
 
 ## 2026-07-02
 
+### 00:34 | Antigravity
+
+- done: Investigated Electron 42 bundle size increase
+
 ### 00:00 | claude-code
 
 - done: history 分层存储：磁盘 1000/内存 100 + 加载更多按钮（基于 develop 新开 worktree 执行）
@@ -10,6 +14,15 @@
   - `src/main/api/historyManager.ts src/main/ipcHandlers.ts src/preload/index.ts src/preload/index.d.ts src/renderer/src/store/appStore.ts src/renderer/src/components/HistoryDrawer.tsx`
 - lesson: 新 worktree 的 electron postinstall 不会自动下载二进制：node_modules/electron/path.txt 为空、dist/ 缺失，npm run dev 报 Error: Electron uninstall。需手动 node node_modules/electron/install.js 拉取。计划行号引用会随分支漂移，执行计划前必须用 grep 核对锚点。
 - unresolved: 端到端手动验证（发送产生 history、>300 条加载更多、搜索隔离）需在 dev 桌面窗口人工点击完成，本会话仅完成启动冒烟（app 成功启动无崩溃）
+
+### 00:12 | claude-code
+
+- done: 将轮询去重代码合并到 develop 分支：rebase 本分支到 develop（无冲突），主仓库 develop 干净后执行 git merge worktree-history-polling-dedup。仅 plan 文档 add/add 冲突，取本分支版本（含审核实施状态注释）解决。合并后 lint+build 通过，merge commit 8a3b1e4。
+- context: 主仓库 develop 有用户并行工作（任务分配/辩论模式 TODO + 3 个 plan 文档），分叉点 309377e。本分支独有 b0161fa 代码 + 2 文档；develop 独有 3 提交。develop 上 3dea51b 也加了同名 polling-save-dedup plan 文档（早期无注释版），与本分支 21dbadd（含审核注释）冲突。
+- decision: plan 文档 add/add 冲突取本分支版本（theirs）：本分支版是 386 行含实施状态注释的 superset，develop 版是 379 行早期版。未推送 origin/develop（领先 19 提交，按规则待用户决定推送时机）。
+- modified:
+  - `merge develop: src/renderer/src/store/appStore.ts TODO.md SESSION_LOG.md docs/superpowers/plans/2026-07-01-history-polling-save-dedup.md`
+- lesson(promoted): 跨 worktree 合并：主仓库 worktree 检出的分支不能在本 worktree 用 git branch -f 强移指针（fatal: cannot force update branch used by worktree）。需用 git -C <主仓库路径> 在主仓库侧操作，或推远程分支。
 
 ## 2026-07-01
 

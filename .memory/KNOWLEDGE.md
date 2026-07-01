@@ -56,6 +56,8 @@ Agents may suggest or promote a lesson into the `Known Gotchas` section of `AGEN
 - **总结页模型获取的上下文一致性**：在总结面板加载或切换模型时，必须显式传入当前的 `productMode` 和插槽 `slot` 信息，保证插槽切换和模型变更在不同面板和窗口下的行为对齐；复用同一渲染面板时，应避免使用静态 ref 产生加载锁，否则会导致生命周期 `useEffect` 的状态更新流被静默拦截。
 - **辩论模式与任务分配模式的实现复用原则**：辩论轮转可直接复用 `webviewRefs.get('slot-N')` 单槽位发送能力，无需修改 `WebviewCard` 组件本身；任务拆解可复用 `generate-summary` 的 `AbortController` 全局中止器，避免重复实现中止逻辑。新增模式功能时，优先评估现有 IPC 和组件能力的复用性，减少侵入式改动。
 
+- **跨 worktree 合并分支的正确姿势**：本项目用 `.claude/worktrees/` 隔离开发，合并某 worktree 分支回 `develop` 时，`develop` 通常被主仓库 worktree（`C:/Project/MultiChat-desk`）检出。在本 worktree 里 `git branch -f develop HEAD` 会报 `fatal: cannot force update the branch 'develop' used by worktree at '...'`——被其他 worktree 检出的分支无法强移指针。**正确做法**：用 `git -C "C:/Project/MultiChat-desk" merge <worktree分支>` 在主仓库侧合并；合并前务必先确认主仓库工作区干净（`git -C <主仓库> status`），若主仓库有未提交的并行工作，需用户先提交或 stash，否则会与其工作区混淆。冲突典型形态：同名 plan 文档 add/add（主仓库与 worktree 各自新建了同一 plan），取内容更全的一方（通常是含审核/实施状态注释的 worktree 版本）。
+
 ## Stable Decisions
 
 - 快捷操作快捷键（Ctrl+Shift+S/E/T/Q）的提示词注入流程：先通过 VBScript 模拟 `Ctrl+C` 自动复制选中文本，读取成功后，再展示并聚焦快捷窗口，最后发送 `quick:inject-prompt` IPC 完成一键总结。
