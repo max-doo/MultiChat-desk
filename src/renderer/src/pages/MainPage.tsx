@@ -26,6 +26,7 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
   const productMode = useAppStore((state) => state.productMode)
   const taskAssignmentSlots = useAppStore((state) => state.taskAssignmentSlots)
   const multiAiSlots = useAppStore((state) => state.multiAiSlots)
+  const debateSlots = useAppStore((state) => state.debateSlots)
   const setMultiAiSlots = useAppStore((state) => state.setMultiAiSlots)
   const getAllResponses = useAppStore((state) => state.getAllResponses)
   const setPendingSummarySession = useAppStore((state) => state.setPendingSummarySession)
@@ -176,20 +177,20 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
 
   // 获取要显示的模型列表
   const displayedModels = useMemo(() => {
-    return getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots, multiAiSlots)
-  }, [models, displayMode, productMode, taskAssignmentSlots, multiAiSlots])
+    return getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots)
+  }, [models, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots])
 
   // 获取各个模式下的模型列表，确保切走后保留会话
   const modeModels = useMemo(() => ({
-    multi_ai: getDisplayedModels(models, 'four', 'multi_ai', taskAssignmentSlots, multiAiSlots),
-    task_assignment: getDisplayedModels(models, 'four', 'task_assignment', taskAssignmentSlots, multiAiSlots),
-    debate: getDisplayedModels(models, 'two', 'debate', taskAssignmentSlots, multiAiSlots)
-  }), [models, taskAssignmentSlots, multiAiSlots])
+    multi_ai: getDisplayedModels(models, 'four', 'multi_ai', taskAssignmentSlots, multiAiSlots, debateSlots),
+    task_assignment: getDisplayedModels(models, 'four', 'task_assignment', taskAssignmentSlots, multiAiSlots, debateSlots),
+    debate: getDisplayedModels(models, 'two', 'debate', taskAssignmentSlots, multiAiSlots, debateSlots)
+  }), [models, taskAssignmentSlots, multiAiSlots, debateSlots])
 
   // 跟踪曾挂载过的 Webview（组合键：mode-index）
   const [mountedWebviews, setMountedWebviews] = useState<Set<string>>(() => {
     const init = new Set<string>()
-    const count = getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots, multiAiSlots).length
+    const count = getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots).length
     for (let i = 0; i < count; i++) {
       init.add(`${productMode}-${i}`)
     }

@@ -159,6 +159,34 @@ export type ProductMode = 'multi_ai' | 'task_assignment' | 'debate'
 // 显示模式类型：单列、双列、三列、四窗口（田字格）
 export type DisplayMode = 'one' | 'two' | 'three' | 'four'
 
+// 任务分配模式状态机
+export type TaskPhase = 'idle' | 'split' | 'sent'
+export interface TaskSubtask {
+  text: string
+  modelId: string // 指派到的模型 id（槽位对应）
+}
+export interface TaskState {
+  phase: TaskPhase
+  query: string
+  subtasks: TaskSubtask[]
+  collapsed: boolean // 子任务弹层是否折叠
+}
+
+// 辩论模式状态机
+export type DebatePhase = 'idle' | 'running' | 'paused' | 'finished'
+export interface DebateRound {
+  proponent?: string  // 正方发言
+  opponent?: string   // 反方发言
+}
+export interface DebateState {
+  phase: DebatePhase
+  topic: string
+  totalRounds: number
+  currentRound: number // 已完成的全轮数
+  currentTurn: 0 | 1   // 0=正方发言中, 1=反方发言中
+  rounds: DebateRound[]
+}
+
 // 监控状态类型（内部使用，不对外暴露）
 interface PlatformMonitorState {
   lastContent: string
@@ -194,6 +222,29 @@ interface AppState {
   taskAssignmentSlots: string[]
   setTaskAssignmentSlot: (slotIndex: number, modelId: string) => void
   setTaskAssignmentSlots: (slots: string[]) => void
+
+  // 任务分配状态机（不持久化）
+  taskState: TaskState
+  setTaskPhase: (phase: TaskPhase) => void
+  setTaskQuery: (query: string) => void
+  setTaskSubtasks: (subtasks: TaskSubtask[]) => void
+  updateSubtask: (index: number, patch: Partial<TaskSubtask>) => void
+  addSubtask: () => void
+  removeSubtask: (index: number) => void
+  toggleTaskCollapsed: () => void
+  resetTask: () => void
+
+  // 辩论状态机（不持久化）
+  debateSlots: [string, string] // [正方 modelId, 反方 modelId]
+  setDebateSlot: (side: 0 | 1, modelId: string) => void
+  debateTotalRounds: number
+  setDebateTotalRounds: (n: number) => void
+  debateState: DebateState
+  setDebatePhase: (phase: DebatePhase) => void
+  setDebateTopic: (topic: string) => void
+  appendDebateSpeech: (round: number, turn: 0 | 1, speech: string) => void
+  advanceDebateTurn: () => void
+  resetDebate: () => void
 
   // 专属模式窗口布局记录
   multiAiDisplayMode: DisplayMode
@@ -259,6 +310,12 @@ interface AppState {
   // 发送消息到所有启用的模型（从已输入的文本发送）
   sendMessageToAll: (message: string) => Promise<SendResult[]>
 
+  // 单槽位 webview 编排（辩论轮转用）
+  sendToSlot: (slotIndex: number, message: string) => Promise<{ success: boolean; error?: string }>
+  insertTextToSlot: (slotIndex: number, message: string) => Promise<{ success: boolean; error?: string }>
+  getResponseFromSlot: (slotIndex: number, timeoutMs?: number) => Promise<string>
+  clearInputOfSlot: (slotIndex: number) => Promise<void>
+
   // 获取所有模型的最新回复
   getAllResponses: (options?: { signal?: AbortSignal; timeoutMs?: number }) => Promise<Record<string, string>>
 
@@ -323,7 +380,8 @@ export function getDisplayedModels(
   displayMode: DisplayMode,
   productMode?: ProductMode,
   taskAssignmentSlots?: string[],
-  multiAiSlots?: string[]
+  multiAiSlots?: string[],
+  debateSlots?: [string, string]
 ): ModelConfig[] {
   let displayCount: number
   if (productMode === 'debate') {
@@ -336,6 +394,13 @@ export function getDisplayedModels(
       case 'three':
       default: displayCount = 3; break
     }
+  }
+
+  if (productMode === 'debate' && debateSlots) {
+    return Array.from({ length: 2 }, (_, index) => {
+      const slotId = debateSlots[index]
+      return models.find(m => m.id === slotId) || models[index % models.length]
+    })
   }
 
   if (productMode === 'task_assignment' && taskAssignmentSlots) {
@@ -619,6 +684,58 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (window.api?.storeSet) window.api.storeSet('taskAssignmentSlots', slots)
     return { taskAssignmentSlots: slots }
   }),
+
+  taskState: { phase: 'idle', query: '', subtasks: [], collapsed: false },
+  setTaskPhase: (phase) => set((s) => ({ taskState: { ...s.taskState, phase } })),
+  setTaskQuery: (query) => set((s) => ({ taskState: { ...s.taskState, query } })),
+  setTaskSubtasks: (subtasks) => set((s) => ({ taskState: { ...s.taskState, subtasks } })),
+  updateSubtask: (index, patch) => set((s) => {
+    const subtasks = s.taskState.subtasks.map((st, i) => i === index ? { ...st, ...patch } : st)
+    return { taskState: { ...s.taskState, subtasks } }
+  }),
+  addSubtask: () => set((s) => {
+    const enabledModels = s.models.filter(m => m.enabled)
+    const fallback = s.models[0]
+    const modelId = (enabledModels[s.taskState.subtasks.length % Math.max(1, enabledModels.length)] || fallback)?.id || ''
+    return { taskState: { ...s.taskState, subtasks: [...s.taskState.subtasks, { text: '新增子任务', modelId }] } }
+  }),
+  removeSubtask: (index) => set((s) => ({
+    taskState: { ...s.taskState, subtasks: s.taskState.subtasks.filter((_, i) => i !== index) }
+  })),
+  toggleTaskCollapsed: () => set((s) => ({ taskState: { ...s.taskState, collapsed: !s.taskState.collapsed } })),
+  resetTask: () => set({ taskState: { phase: 'idle', query: '', subtasks: [], collapsed: false } }),
+
+  debateSlots: ['chatgpt', 'gemini'],
+  setDebateSlot: (side, modelId) => set((s) => {
+    const slots = [...s.debateSlots] as [string, string]
+    slots[side] = modelId
+    return { debateSlots: slots }
+  }),
+  debateTotalRounds: 3,
+  setDebateTotalRounds: (n) => set({ debateTotalRounds: Math.max(1, Math.min(10, Math.floor(n) || 1)) }),
+  debateState: { phase: 'idle', topic: '', totalRounds: 3, currentRound: 0, currentTurn: 0, rounds: [] },
+  setDebatePhase: (phase) => set((s) => ({ debateState: { ...s.debateState, phase } })),
+  setDebateTopic: (topic) => set((s) => ({ debateState: { ...s.debateState, topic } })),
+  appendDebateSpeech: (round, turn, speech) => set((s) => {
+    const rounds = [...s.debateState.rounds]
+    if (!rounds[round]) rounds[round] = {}
+    rounds[round] = { ...rounds[round], [turn === 0 ? 'proponent' : 'opponent']: speech }
+    return { debateState: { ...s.debateState, rounds } }
+  }),
+  advanceDebateTurn: () => set((s) => {
+    const { currentTurn, currentRound, totalRounds } = s.debateState
+    if (currentTurn === 0) {
+      return { debateState: { ...s.debateState, currentTurn: 1 } }
+    }
+    const nextRound = currentRound + 1
+    if (nextRound >= totalRounds) {
+      return { debateState: { ...s.debateState, currentTurn: 0, currentRound: totalRounds, phase: 'finished' } }
+    }
+    return { debateState: { ...s.debateState, currentTurn: 0, currentRound: nextRound } }
+  }),
+  resetDebate: () => set((s) => ({
+    debateState: { phase: 'idle', topic: '', totalRounds: s.debateTotalRounds, currentRound: 0, currentTurn: 0, rounds: [] }
+  })),
 
   multiAiDisplayMode: 'three',
   taskAssignmentDisplayMode: 'two',
@@ -933,6 +1050,49 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     set({ isSending: false, lastSendResults: results })
     return results
+  },
+
+  sendToSlot: async (slotIndex, message) => {
+    const { webviewRefs } = get()
+    const ref = webviewRefs.get(`slot-${slotIndex}`)
+    if (!ref) return { success: false, error: `slot-${slotIndex} 未注册` }
+    try {
+      const r = await ref.sendMessage(message)
+      return { success: r.success, error: r.error }
+    } catch (err) {
+      return { success: false, error: String(err) }
+    }
+  },
+  insertTextToSlot: async (slotIndex, message) => {
+    const { webviewRefs } = get()
+    const ref = webviewRefs.get(`slot-${slotIndex}`)
+    if (!ref) return { success: false, error: `slot-${slotIndex} 未注册` }
+    try {
+      const r = await ref.insertText(message)
+      return { success: r.success, error: r.error }
+    } catch (err) {
+      return { success: false, error: String(err) }
+    }
+  },
+  getResponseFromSlot: async (slotIndex, timeoutMs = 8000) => {
+    const { webviewRefs } = get()
+    const ref = webviewRefs.get(`slot-${slotIndex}`)
+    if (!ref) return ''
+    const deadline = Date.now() + timeoutMs
+    let last = ''
+    // 轮询：等回复稳定（与 monitor 思路一致，但只针对单槽位、轻量）
+    while (Date.now() < deadline) {
+      const cur = await ref.getLatestResponse().catch(() => '')
+      if (cur && cur.trim().length > 0 && cur === last) break
+      last = cur
+      await new Promise((r) => setTimeout(r, 1000))
+    }
+    return last
+  },
+  clearInputOfSlot: async (slotIndex) => {
+    const { webviewRefs } = get()
+    const ref = webviewRefs.get(`slot-${slotIndex}`)
+    if (ref) await ref.clearInput().catch(() => {})
   },
 
   getAllResponses: async (options?: { signal?: AbortSignal; timeoutMs?: number }): Promise<Record<string, string>> => {
