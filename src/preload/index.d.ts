@@ -22,6 +22,32 @@ interface AgentPromptFileItem {
   isDefault?: boolean
 }
 
+// History 分页 IPC 用到的只读结构（与 appStore.ts 的 HistoryItem/SummaryHistoryItem 对齐）
+interface HistoryPageItem {
+  id: string
+  createdAt: number
+  updatedAt: number
+  models: string[]
+  title?: string
+  turns: Array<{
+    turnId: string
+    userMessage: string
+    timestamp: number
+    responses: Record<string, string>
+  }>
+  urls?: Record<string, string>
+  productMode?: string
+  displayMode?: string
+}
+
+interface SummaryHistoryPageItem {
+  id: string
+  title: string
+  timestamp: number
+  messages: Array<{ role: string; content: string }>
+  selectedModels: string[]
+}
+
 declare global {
   interface Window {
     electron: ElectronAPI
@@ -53,6 +79,10 @@ declare global {
       storeGet: (key: string) => Promise<unknown>
       storeSet: (key: string, value: unknown) => Promise<void>
       storeDelete: (key: string) => Promise<void>
+      historyGetPage: (offset: number, limit: number) => Promise<{ success: boolean; data?: HistoryPageItem[]; error?: string }>
+      historyGetTotalCount: () => Promise<{ success: boolean; data?: number; error?: string }>
+      summaryHistoryGetPage: (offset: number, limit: number) => Promise<{ success: boolean; data?: SummaryHistoryPageItem[]; error?: string }>
+      summaryHistoryGetTotalCount: () => Promise<{ success: boolean; data?: number; error?: string }>
       agentPromptsBootstrap: (prompts: AgentPromptFileItem[]) => Promise<void>
       agentPromptsList: () => Promise<AgentPromptFileItem[]>
       agentPromptsWrite: (prompt: AgentPromptFileItem) => Promise<void>
