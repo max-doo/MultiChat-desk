@@ -29,6 +29,11 @@ const MONITOR_CONFIG = {
   maxMonitorDurationMs: 5 * 60 * 1000,  // 最长监控 5 分钟（防死等）
 }
 
+// saveCurrentTurn 写盘节流：监控期间每 10s 落盘一次，避免每轮（~3s）全量写盘放大。
+// forceFlush=true（监控结束/中止/完成）时绕过节流立即写。
+let historyPersistLastTs = 0
+const HISTORY_PERSIST_MIN_INTERVAL = 10_000
+
 // 模型配置类型
 export interface ModelConfig {
   id: string
@@ -336,7 +341,7 @@ interface AppState {
   startMonitoring: (conversationId: string, turnId: string, userMessage: string, models: string[]) => void
   stopMonitoring: () => void
   pollPlatforms: () => Promise<void>
-  saveCurrentTurn: () => void
+  saveCurrentTurn: (forceFlush?: boolean) => void
   updatePlatformAnswer: (modelId: string, text: string, isComplete?: boolean) => void
 
   // 文件上传状态
@@ -1414,7 +1419,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
     // 兜底：停止前补写一次当前 turn，防止最后一次内容变化未落盘
     // 必须在 set 重置 currentTurn=null 之前调用；saveCurrentTurn 对 currentTurn 为 null 时安全 early return
-    get().saveCurrentTurn()
+    // forceFlush=true：停止/中止时绕过节流立即落盘，不丢数据
+    get().saveCurrentTurn(true)
     set({
       monitor: {
         isMonitoring: false,
@@ -1481,7 +1487,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
 
     if (allComplete) {
-      get().saveCurrentTurn() // 完成时显式写终态，保证最后一帧落盘
+      get().saveCurrentTurn(true) // 完成时显式写终态，保证最后一帧落盘
       get().stopMonitoring()
     }
   },
@@ -1512,7 +1518,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     saveCurrentTurn()
   },
 
-  saveCurrentTurn: () => {
+  saveCurrentTurn: (forceFlush) => {
     const { monitor, history } = get()
     if (!monitor.currentTurn || !monitor.currentConversationId) return
 
@@ -1554,9 +1560,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       h.id === currentConversationId ? updatedItem : h
     )
 
+    // 内存始终更新（UI 需要实时反映最新内容）
     set({ history: newHistory })
-    if (window.api?.storeSet) {
+
+    // 节流写盘：流式中每 10s 落盘一次；forceFlush=true（监控结束/中止/完成）时立即写
+    const now = Date.now()
+    const shouldPersist = forceFlush || (now - historyPersistLastTs >= HISTORY_PERSIST_MIN_INTERVAL)
+    if (shouldPersist && window.api?.storeSet) {
       window.api.storeSet('history', newHistory)
+      historyPersistLastTs = now
     }
   },
 }))
