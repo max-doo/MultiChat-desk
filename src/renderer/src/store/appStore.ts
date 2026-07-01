@@ -292,6 +292,12 @@ interface AppState {
   removeSummaryHistory: (id: string) => void
   removeSummaryHistories: (ids: string[]) => void
 
+  // History 分页：磁盘总量 + 加载更多
+  historyTotalCount: number
+  summaryHistoryTotalCount: number
+  loadMoreHistory: () => Promise<void>
+  loadMoreSummaryHistory: () => Promise<void>
+
   // 发送状态
   isSending: boolean
   lastSendResults: SendResult[]
@@ -866,6 +872,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   }),
 
   summaryHistory: [],
+  historyTotalCount: 0,
+  summaryHistoryTotalCount: 0,
   addSummaryHistory: (item) => set((state) => {
     const newHistory = [item, ...state.summaryHistory].slice(0, 100)
     if (window.api?.storeSet) window.api.storeSet('summaryHistory', newHistory)
@@ -888,6 +896,37 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (window.api?.storeSet) window.api.storeSet('summaryHistory', newHistory)
     return { summaryHistory: newHistory }
   }),
+
+  loadMoreHistory: async () => {
+    const state = get()
+    if (!window.api?.historyGetPage) return
+    const result = await window.api.historyGetPage(state.history.length, 100)
+    if (result.success && result.data) {
+      set((s) => ({
+        history: [...s.history, ...result.data!],
+      }))
+      // 刷新 totalCount，防止边界变化导致按钮态错位
+      const countResult = await window.api.historyGetTotalCount()
+      if (countResult.success && countResult.data !== undefined) {
+        set({ historyTotalCount: countResult.data })
+      }
+    }
+  },
+
+  loadMoreSummaryHistory: async () => {
+    const state = get()
+    if (!window.api?.summaryHistoryGetPage) return
+    const result = await window.api.summaryHistoryGetPage(state.summaryHistory.length, 100)
+    if (result.success && result.data) {
+      set((s) => ({
+        summaryHistory: [...s.summaryHistory, ...result.data!],
+      }))
+      const countResult = await window.api.summaryHistoryGetTotalCount()
+      if (countResult.success && countResult.data !== undefined) {
+        set({ summaryHistoryTotalCount: countResult.data })
+      }
+    }
+  },
 
 
   isSending: false,
@@ -1609,25 +1648,29 @@ export async function initializeStore(): Promise<void> {
         window.api?.storeSet('history', migratedHistory)
         console.log('[Store] History migrated from old format to turns-based format')
       } else {
-        // 历史记录上限统一为 100 条（原上限 1000 会导致稳态内存偏高）。
-        // 老用户首次加载时若已超过上限，仅取最近 100 条进内存，并回写磁盘淘汰旧数据。
-        const trimmed = (storedHistory as HistoryItem[]).slice(0, 100)
-        useAppStore.setState({ history: trimmed })
-        if ((storedHistory as HistoryItem[]).length > trimmed.length) {
-          window.api?.storeSet('history', trimmed)
-          console.log(`[Store] History trimmed from ${storedHistory.length} to ${trimmed.length} items`)
-        }
+        // 内存热区上限 100；磁盘上限 1000 由 store-set handler 的 enforceDiskLimit 兜底，启动不再回写裁剪磁盘。
+        const hotHistory = (storedHistory as HistoryItem[]).slice(0, 100)
+        useAppStore.setState({ history: hotHistory })
       }
+    }
+
+    // 读取磁盘历史总量（用于"加载更多"按钮可见性）
+    const historyCountResult = await window.api.historyGetTotalCount()
+    if (historyCountResult.success && historyCountResult.data !== undefined) {
+      useAppStore.setState({ historyTotalCount: historyCountResult.data })
     }
 
     const storedSummaryHistory = await window.api.storeGet('summaryHistory') as SummaryHistoryItem[] | undefined
     if (storedSummaryHistory) {
-      const trimmedSummary = storedSummaryHistory.slice(0, 100)
-      useAppStore.setState({ summaryHistory: trimmedSummary })
-      if (storedSummaryHistory.length > trimmedSummary.length) {
-        window.api?.storeSet('summaryHistory', trimmedSummary)
-        console.log(`[Store] SummaryHistory trimmed from ${storedSummaryHistory.length} to ${trimmedSummary.length} items`)
-      }
+      // 内存热区上限 100；磁盘上限 1000 由 store-set handler 兜底，启动不再回写裁剪磁盘。
+      const hotSummary = storedSummaryHistory.slice(0, 100)
+      useAppStore.setState({ summaryHistory: hotSummary })
+    }
+
+    // 读取磁盘总结历史总量
+    const summaryCountResult = await window.api.summaryHistoryGetTotalCount()
+    if (summaryCountResult.success && summaryCountResult.data !== undefined) {
+      useAppStore.setState({ summaryHistoryTotalCount: summaryCountResult.data })
     }
 
     const storedSummaryModels = await window.api.storeGet('summaryModels') as SummaryModel[] | undefined
