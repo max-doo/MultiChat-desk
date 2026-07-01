@@ -144,6 +144,8 @@ export interface SummarySessionInit {
   urls?: Record<string, string>
   sourceHistoryId?: string
   timestamp: number
+  /** 哪些模型的回复来自本地历史快照兜底（实时页面不可用），供总结页标注 */
+  snapshotModelIds?: string[]
 }
 
 // 发送结果类型
