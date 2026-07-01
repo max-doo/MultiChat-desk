@@ -29,6 +29,7 @@ function SummaryPage({ onNavigateBack, initialHistoryItem, isActive }: SummaryPa
     displayedModels.map(m => m.id)
   )
   const [modelResponses, setModelResponses] = useState<Record<string, string>>({})
+  const [snapshotModelIds, setSnapshotModelIds] = useState<string[]>([])
   const [isLoadingResponses, setIsLoadingResponses] = useState(true)
   const [restoreHistoryData, setRestoreHistoryData] = useState<{
     historyId?: string
@@ -124,6 +125,7 @@ function SummaryPage({ onNavigateBack, initialHistoryItem, isActive }: SummaryPa
       setPendingSummarySession(null)
       console.log('[SummaryPage] 从 pendingSummarySession 加载:', Object.keys(data))
       setModelResponses(data)
+      setSnapshotModelIds(session.snapshotModelIds ?? [])
 
       const modelsWithData = displayedModels
         .filter(m => data[m.id]?.trim().length > 0)
@@ -165,6 +167,15 @@ function SummaryPage({ onNavigateBack, initialHistoryItem, isActive }: SummaryPa
           <span>返回对话窗口</span>
         </button>
 
+        {snapshotModelIds.length > 0 && (
+          <div className="flex items-center gap-2 px-4 py-2 bg-amber-50 border-b border-amber-200 text-amber-800 text-sm mb-4 shrink-0">
+            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>history</span>
+            <span>
+              本次总结包含 {snapshotModelIds.length} 个模型的本地历史快照（实时页面不可用）
+            </span>
+          </div>
+        )}
+
         {isLoadingResponses ? (
           <div className="flex flex-col items-center justify-center h-full text-text-secondary">
             <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mb-3"></div>
@@ -182,6 +193,7 @@ function SummaryPage({ onNavigateBack, initialHistoryItem, isActive }: SummaryPa
                 content={modelResponses[model.id] || '暂无回复内容'}
                 selected={selectedModels.includes(model.id)}
                 onToggle={() => toggleModelSelection(model.id)}
+                badge={snapshotModelIds.includes(model.id) ? '快照' : undefined}
               />
             ))}
           </div>
