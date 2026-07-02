@@ -68,6 +68,10 @@ Agents may suggest or promote a lesson into the `Known Gotchas` section of `AGEN
 
 - **跨 worktree 合并分支的正确姿势**：本项目用 `.claude/worktrees/` 隔离开发，合并某 worktree 分支回 `develop` 时，`develop` 通常被主仓库 worktree（`C:/Project/MultiChat-desk`）检出。在本 worktree 里 `git branch -f develop HEAD` 会报 `fatal: cannot force update the branch 'develop' used by worktree at '...'`——被其他 worktree 检出的分支无法强移指针。**正确做法**：用 `git -C "C:/Project/MultiChat-desk" merge <worktree分支>` 在主仓库侧合并；合并前务必先确认主仓库工作区干净（`git -C <主仓库> status`），若主仓库有未提交的并行工作，需用户先提交或 stash，否则会与其工作区混淆。冲突典型形态：同名 plan 文档 add/add（主仓库与 worktree 各自新建了同一 plan），取内容更全的一方（通常是含审核/实施状态注释的 worktree 版本）。
 
+- **轮询「等回复稳定」必须对比发送前基线，否则会把旧回复误判为新回复**：`getResponseFromSlot` 早期实现只用「连续两次 `getLatestResponse()` 内容相同」判定回复完成，缺少与发送前状态的对比。点发送后对方还在思考、新回复气泡未渲染时，DOM 里仍是上一轮旧回复，连续两次读到同一份旧文本即满足「稳定」→ 把**旧回复当成新回复**记下并推进下一轮。`sendMessage` 在「点发送」即 resolve、不保证对方已回复，进一步放大此问题。**正确模式**：发送成功后立即取一次基线 `baseline = await ref.getLatestResponse()`（此刻新回复尚未渲染，读到的是旧回复或空），轮询时必须先观察到 `cur && cur !== baseline` 才进入稳定计数阶段（`sawNew` 闸门），再连续 N 次相同才判定完成；到 deadline 仍未稳定则返回空串，交由调用方中止当前流程而非拿旧回复凑数。判别：辩论/任务链等「轮转发送+读回复」场景若出现回合内容不递进、拿上一轮旧话当本轮，即命中此坑。
+
+- **轮转驱动的空回复应中止流程而非写占位继续推进**：`useDebateRunner.runNextTurn` 早期在 `getResponseFromSlot` 返回空时用 `appendDebateSpeech(..., speech || '（无回复）')` 写一条占位发言再 `advanceDebateTurn()` 继续下一轮——这会让没回复的空轮串起来，掩盖故障。**正确做法**：检测到空回复（`!speech || !speech.trim()`）时立即 `setDebatePhase('finished')` 并 `return`，不 `append`、不 `advance`，保留已完成的真实回合供用户查看。适用于一切「自动轮转、依赖对方真回复」的驱动场景。
+
 ## Stable Decisions
 
 - 快捷操作快捷键（Ctrl+Shift+S/E/T/Q）的提示词注入流程：先通过 VBScript 模拟 `Ctrl+C` 自动复制选中文本，读取成功后，再展示并聚焦快捷窗口，最后发送 `quick:inject-prompt` IPC 完成一键总结。
@@ -85,3 +89,9 @@ Agents may suggest or promote a lesson into the `Known Gotchas` section of `AGEN
 - **CLI `--json` 模式 stdout/stderr 分离**：在 `--json` 模式下，凡是连接失败、解析错误等错误信息都必须走 `process.stderr.write(...)`，而不是 `console.log`（会写 stdout）。只有最终成功的结构化数据才输出到 `stdout`，这样外部脚本才能安全地管道解析 stdout。
 
 - **`@electron-toolkit/utils` 的 `is.dev` 在 Vite HMR 开发服务器中会崩溃**：`@electron-toolkit/utils` 的 `is` 对象内部使用了 `__dirname`、`child_process.spawnSync`、`path.join` 等 Node.js 特有 API。当 `shared/` 目录下的文件（如 `webviewScripts.ts`）被渲染进程引用时，`@electron-toolkit/utils` 会被 Vite 的依赖预构建（dependency pre-bundling）加载到浏览器环境中，触发 `__dirname is not defined` 和 `child_process has been externalized` 致命错误，导致开发服务器黑屏。**正确做法**：任何可能被渲染进程引用的代码（`shared/`、`renderer/` 目录），必须使用 `process.env.NODE_ENV !== 'production'` 替代 `is.dev`。`process.env.NODE_ENV` 是 Vite 等构建工具在编译时静态替换的环境变量，不依赖任何运行时模块，在主进程和渲染进程都能正确工作。`src/main/` 下的纯主进程文件使用 `is.dev` 是安全的，但为保持一致性也可统一使用 `process.env.NODE_ENV`。判别：若报错堆栈指向 `node_modules/.vite/deps/@electron-toolkit_utils.js` 且含 `__dirname`/`child_process` 字样，即命中本坑。
+
+- **Webview 休眠必须 `loadURL('about:blank')` 才真省内存**：仅 `setIsHibernated(true)` + className `invisible` 隐藏（57efc27/eb4791d 原始版即如此）渲染进程页面层并未卸载，与 KNOWLEDGE「隐藏未销毁 webview 仍占完整渲染进程」结论一致，与「优化性能」初衷冲突。**正确做法（决策 D1）**：`suspend()` 在保存 URL+草稿后、置 `isHibernated` 前调 `webview.loadURL('about:blank')` 释放 V8 堆/DOM；`resume()` 调 `loadURL(targetUrl)` 重载 + 恢复草稿。注意：`loadURL('about:blank')` 后 webview 仍挂载 DOM（渲染进程对象不立即销毁），但页面层卸载已显著降内存；彻底释放需从 DOM 移除 `<webview>` 但会破坏 ref 稳定性与 persist:shared 绑定，不采用。
+
+- **总结页 webview 在 SummaryPanel 而非 SummaryPage**：`SummaryPage.tsx` 只渲染纯 React 的 `ModelOutputCard` + `SummaryPanel`，不嵌入任何 `<webview>`；真正持有 summary webview 的是 `SummaryPanel.tsx` 的 `webviewSummaryRef`（仅 `summarySource==='webview'` 模式渲染，用于让 AI 平台网页直接做总结而非走 LLM API）。**教训**：计划/文档对「某组件管理某 webview」的断言必须以代码事实核对，不能照搬——执行计划前 grep `<webview`/`WebviewCard`/`useRef<WebviewCardRef` 确认落点。
+
+- **本地 useState 在 useCallback 闭包中的最新值读取**：当组件持有本地 `useState`（如 MainPage 的 `activeHistoryId`）而某个 `useCallback` 调度器需在定时器触发时读取其最新值时，不能把它放进依赖数组（会重建定时器/失去 useCallback 意义），也不能直接闭包捕获（读到旧值）。**正确模式**：建一个同名 `useRef` 镜像 + 一个 `useEffect(() => { ref.current = state }, [state])` 同步，调度器读 `ref.current`。本项目休眠白名单第 4 项（回溯态跳过休眠）即用 `activeHistoryIdRef` 实现。

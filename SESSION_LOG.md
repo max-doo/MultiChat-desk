@@ -2,6 +2,64 @@
 
 ## 2026-07-02
 
+### 13:15 | claude-code
+
+- done: 按休眠迁移评估计划的 5 个片段实施 webview 智能休眠：WebviewCard 休眠能力(片段A)+MainPage 5min调度器(片段B)+主窗口hide/show IPC 15min(片段B')+SummaryPanel 10min调度器(片段D,修正计划笔误:webview在SummaryPanel非SummaryPage)+QuickPage 5min旧模型调度器(片段E)。真卸载页面层(loadURL about:blank)+唤醒重载草稿恢复,登录态靠persist:shared。lint 0 errors,build三bundle通过,待dev手动验证真值表与各场景延迟。
+- context: worktree webview-hibernation-recover 基于 main d8c22ba,前面2个doc提交(b40fa43/7c7e078)
+- modified:
+  - `src/main/webviewManager.ts;src/preload/index.ts;src/preload/index.d.ts;src/renderer/src/components/WebviewCard.tsx;src/renderer/src/components/SummaryPanel.tsx;src/renderer/src/pages/MainPage.tsx;src/renderer/src/pages/QuickPage.tsx;src/renderer/src/pages/SummaryPage.tsx;src/renderer/src/types/summary.ts`
+- lesson(promoted): 休眠 suspend 必须补 loadURL('about:blank') 才真省内存——57efc27/eb4791d 原始版只 setIsHibernated+className 隐藏,渲染进程未卸载,与'优化性能'初衷冲突(决策D1)
+- lesson(promoted): SummaryPage.tsx 不嵌入 WebviewCard,总结页 webview 实际在 SummaryPanel.tsx 的 webviewSummaryRef(用于webview平台总结模式)——计划文档笔误,实施时需以代码事实为准
+- lesson(promoted): activeHistoryId 是 MainPage 本地 useState 而非 store 字段,useCallback 调度器要读最新回溯态需用 ref 镜像(activeHistoryIdRef)+useEffect 同步,不能直接进依赖数组
+- unresolved: dev 手动验证未完成:12种真值表case+5/10/15min各场景延迟(需临时调小常量或控制台手动suspend)+内存实测(4 webview全休眠应降200-400MB)
+
+### 13:10 | claude-code
+
+- done: 辩论模式回复检测修复：getResponseFromSlot 增加基线快照对比，必须先观察到与发送前基线不同的新内容、再连续稳定 3 次才判定回复完成；超时返回空，useDebateRunner 在空回复时中止辩论而非记占位回合继续推进。根除旧回复被误判为新回复导致没等真回复就发下一轮的问题。
+- context: 辩论模式 runNextTurn 单轮驱动
+- added:
+  - `docs/superpowers/specs/2026-07-02-debate-reply-detection-design.md`
+  - `docs/superpowers/plans/2026-07-02-debate-reply-detection.md`
+- modified:
+  - `src/renderer/src/store/appStore.ts`
+  - `src/renderer/src/hooks/useDebateRunner.ts`
+- lesson(promoted): getResponseFromSlot 旧轮询只用「连续两次内容相同」判完成，缺少与发送前基线对比，会把上一轮旧回复误判为本轮新回复。修复：发送后立即取基线，轮询必须先观察到 cur!==base 才进入稳定计数，超时返回空交由调用方中止。
+
+### 13:02 | claude-code
+
+- done: SDD Task 3: 改造 useDebateRunner.runNextTurn 取基线并空回复中止
+- context: Task 3 of 4 in debate reply detection. Tasks 1-2 already updated getResponseFromSlot signature and polling logic. This change connects the caller side.
+- decision: getResponseFromSlot 超时从 30s 改为 120s 以匹配基线对比新逻辑
+- modified:
+  - `src/renderer/src/hooks/useDebateRunner.ts`
+- lesson(promoted): 空回复不应写入占位发言然后继续推进；应在检测到空回复时立即结束辩论并展示已有回合。
+
+### 12:58 | claude-code
+
+- done: Replaced getResponseFromSlot implementation with baseline-comparison polling logic for debate-mode reply detection
+- context: Task 2 of 4 in debate reply-detection plan: baseline-aware polling with sawNew/sawNew gating, stableThreshold=3, pollInterval=500ms, timeout=120s
+- modified:
+  - `src/renderer/src/store/appStore.ts`
+
+### 12:53 | claude-code
+
+- done: Task 1: Extend getResponseFromSlot signature with optional baseline parameter
+- context: SDD Task 1/4: Type-only change to appStore action type declaration for debate reply detection
+- decision: Added baseline?: string as third optional parameter; new arg is optional so no existing call sites break
+- modified:
+  - `src/renderer/src/store/appStore.ts`
+
+### 10:55 | claude-code
+
+- done: 评估 webview 休眠机制移植回 main 的可行性：建保护分支 recover-hibernation(eb4791d) 后，对照当前 main 审阅休眠实现，产出移植评估文档
+- context: eb4791d 休眠实现是 merge commit，含已删 .agent/.trae 目录，不能整体 cherry-pick；其休眠逻辑曾引发白屏回归(cc975a5 已修复)，main 现有 readonlySnapshot/urlMismatch 可见性门控与休眠 isHibernated 逻辑共存于同一段 className
+- decision: 移植采用选择性重写而非 cherry-pick：片段A(WebviewCard suspend/resume/isHibernated+覆盖层UI)几乎原样移植，片段B(MainPage 调度器)重写 key 解析复用 slot-i 键，片段C(.agent/.trae/.memory 早期文件)不移植
+- added:
+  - `docs/superpowers/plans/2026-07-02-webview-hibernation-migration-assessment.md`
+- lesson: 休眠 suspend 实现只 setIsHibernated+invisible 隐藏，并未 loadURL('about:blank')，渲染进程未真正释放，只省活跃 JS/网络轮询——与 KNOWLEDGE 第79条「隐藏未销毁 webview 仍占完整渲染进程」一致；真要省进程内存需改 suspend 主动卸载，但会与「保留会话连续性」决策冲突
+- lesson: 移植 eb4791d 休眠调度到 main 的关键不兼容：recovery 用 ${productMode}-${i} 作休眠 key 并 split('-') 解析，但 main 的 getRefCallback 把 ref 注册到 slot-${i} 和 model.id 两个键，没有 ${productMode}-${i} 键——照搬 executeHibernate 会因 modeModels['slot'] 为 undefined 直接 return，休眠永不触发，必须重写 key→ref 查找
+- unresolved: 休眠内存目标待用户确认：仅降活跃度(现状)vs真正释放渲染进程(需改suspend主动loadURL about:blank，但与保留会话连续性决策冲突)；白名单是否加第4项(回溯态activeHistoryId跳过休眠)以消除真值表case10-12重叠
+
 ### 01:54 | claude-code
 
 - done: 内存泄漏审核修复：覆盖 10 处发现（AbortController 覆盖前 abort / reader finally 释放 / onChunk isDestroyed 守卫 / paste 临时目录即时+启动清理 / VBS 兜底清理 / registerWebviewHandlers 幂等 / loadMore 内存上限 100+游标 / saveCurrentTurn 写盘节流 / refCallbacks 旧键回收 / navigate setTimeout 清理）。#4 mountedWebviews 按用户决定不处理、记录为已知取舍。
