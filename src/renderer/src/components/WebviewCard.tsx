@@ -17,6 +17,7 @@ import {
   type FileUploadData
 } from '../utils/webviewScripts'
 import { extractGeminiCanvasContent } from '../utils/geminiCanvasExtractor'
+import { buildProbeScript, parseProbeResult, type ProbeReport } from '../utils/selectorDiagnostics'
 import ModelOutputCard from './ModelOutputCard'
 
 // 创建 Turndown 实例用于 HTML 转 Markdown
@@ -128,6 +129,8 @@ export interface WebviewCardRef {
   resume: () => Promise<{ success: boolean; error?: string }>
   /** 查询是否处于休眠状态 */
   isHibernated: () => boolean
+  /** dev-only：对当前页面跑 messageContainer 探针，返回每候选命中报告 */
+  probeMessageContainer: () => Promise<ProbeReport>
 }
 
 /**
@@ -850,6 +853,26 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
           loadedUrlRef.current = targetUrl // 同步 ref
           setIsLoading(true)
           webviewRef.current.loadURL(targetUrl)
+        }
+      },
+
+      /**
+       * dev-only：对当前页面跑 messageContainer 探针，返回每候选命中报告
+       */
+      probeMessageContainer: async (): Promise<ProbeReport> => {
+        const webview = webviewRef.current
+        if (!webview) {
+          return { ok: false, candidates: [], error: 'Webview ref 为空' }
+        }
+        const list = selectors?.messageContainer ?? []
+        if (list.length === 0) {
+          return { ok: false, candidates: [], error: '该平台无 messageContainer 配置' }
+        }
+        try {
+          const raw = await webview.executeJavaScript(buildProbeScript(list))
+          return parseProbeResult(raw)
+        } catch (error) {
+          return { ok: false, candidates: [], error: `页面未就绪或执行失败: ${String(error)}` }
         }
       },
 
