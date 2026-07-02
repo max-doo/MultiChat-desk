@@ -82,20 +82,18 @@ function TaskSplitModal({ open, initialError, onClose, showNotification }: TaskS
   const canSplit = !!providerId && !!agentId && !isLoading
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-      {/* 遮罩层 */}
-      <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
-        onClick={closeWithAbort}
-      />
-      {/* 弹窗内容 */}
-      <div className="relative w-[480px] max-w-[90vw] bg-app border border-gray-200 rounded-2xl shadow-2xl p-6 animate-in zoom-in-95 duration-200">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-bold text-text-primary">任务拆解</h2>
-          <button onClick={closeWithAbort} className="text-text-secondary hover:text-text-primary">
-            <span className="material-symbols-outlined">close</span>
-          </button>
-        </div>
+    // 上拉面板：绝对定位于 TaskModePanel 输入容器上方，居中悬浮（对齐 SubtaskList 的 bottom-full 范式）。
+    // 非模态——无全屏遮罩，外部点击不强制关闭；靠 Esc / 关闭按钮 / 取消按钮关闭。
+    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-40 w-[480px] max-w-[90vw] glass-panel-heavy shadow-float border border-gray-200 rounded-2xl p-4 animate-in fade-in duration-150">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-sm font-bold text-text-primary flex items-center gap-1.5">
+          <span className="material-symbols-outlined text-base text-primary">call_split</span>
+          任务拆解
+        </h2>
+        <button onClick={closeWithAbort} className="text-text-secondary hover:text-primary" title="关闭">
+          <span className="material-symbols-outlined text-base">close</span>
+        </button>
+      </div>
 
         {/* 进度 / 错误 */}
         {isLoading && (
@@ -222,7 +220,6 @@ function TaskSplitModal({ open, initialError, onClose, showNotification }: TaskS
           </button>
         </div>
       </div>
-    </div>
   )
 }
 
