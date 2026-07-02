@@ -10,7 +10,7 @@ import { tmpdir } from 'os'
 import type Store from 'electron-store'
 import { generateSummary, fetchModels } from './api/summaryApi'
 import { splitTask } from './api/taskSplitApi'
-import { setQuitting, getQuickWindow, showAndFocusWindow, hideToolbarWindow, getCachedSelectionText } from './webviewManager'
+import { setQuitting, getQuickWindow, showAndFocusWindow, hideToolbarWindow, getCachedSelectionText, openDiagnosticsWindow } from './webviewManager'
 import { startInputHook, stopInputHook } from './inputHookManager'
 import { broadcastStateChange } from './stateBus'
 import { HistoryManager } from './api/historyManager'
@@ -29,6 +29,10 @@ import { automationService } from './services/AutomationService'
 
 // 存储当前的 AbortController，用于终止请求
 let currentSummaryAbortController: AbortController | null = null
+
+// 诊断窗口 probe/run-research 透传请求挂起表
+const pendingProbeRequests = new Map<string, { resolve: (v: unknown) => void; reject: (e: unknown) => void; timer: ReturnType<typeof setTimeout> }>()
+const pendingRunResearchRequests = new Map<string, { resolve: (v: unknown) => void; timer: ReturnType<typeof setTimeout> }>()
 
 /**
  * 中止并清理当前的 AbortController。
@@ -94,6 +98,60 @@ export function registerIpcHandlers(
         }
         return { success: true }
     })
+
+    ipcMain.handle('diagnostics:open-window', () => {
+        openDiagnosticsWindow()
+        return { success: true }
+    })
+
+    ipcMain.handle('diagnostics:probe', async (_e, payload: { modelId: string; type: 'message' | 'research' }) => {
+        const mainWin = getMainWindow()
+        if (!mainWin || mainWin.isDestroyed()) {
+            return { success: false, error: '主窗口未就绪' }
+        }
+        const reqId = `probe-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+        return new Promise((resolve) => {
+            const timer = setTimeout(() => {
+                pendingProbeRequests.delete(reqId)
+                resolve({ success: false, error: '主窗口响应超时' })
+            }, 5000)
+            pendingProbeRequests.set(reqId, { resolve, reject: resolve as never, timer })
+            mainWin.webContents.send('diagnostics:probe-request', { reqId, ...payload })
+        })
+    })
+
+    ipcMain.on('diagnostics:probe-response', (_e, payload: { reqId: string; result: unknown }) => {
+        const pending = pendingProbeRequests.get(payload.reqId)
+        if (!pending) return
+        clearTimeout(pending.timer)
+        pendingProbeRequests.delete(payload.reqId)
+        pending.resolve({ success: true, data: payload.result })
+    })
+
+    ipcMain.handle('diagnostics:run-research', async (_e, payload: { modelId: string }) => {
+        const mainWin = getMainWindow()
+        if (!mainWin || mainWin.isDestroyed()) {
+            return { success: false, error: '主窗口未就绪' }
+        }
+        const reqId = `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+        return new Promise((resolve) => {
+            const timer = setTimeout(() => {
+                pendingRunResearchRequests.delete(reqId)
+                resolve({ success: false, error: '主窗口响应超时' })
+            }, 15000)
+            pendingRunResearchRequests.set(reqId, { resolve, timer })
+            mainWin.webContents.send('diagnostics:run-research-request', { reqId, ...payload })
+        })
+    })
+
+    ipcMain.on('diagnostics:run-research-response', (_e, payload: { reqId: string; result: { success: boolean; error?: string } }) => {
+        const pending = pendingRunResearchRequests.get(payload.reqId)
+        if (!pending) return
+        clearTimeout(pending.timer)
+        pendingRunResearchRequests.delete(payload.reqId)
+        pending.resolve({ success: true, data: payload.result })
+    })
+
     ipcMain.on('state:sync', (event, partialState: Record<string, unknown>) => {
         broadcastStateChange(event.sender.id, partialState)
     })

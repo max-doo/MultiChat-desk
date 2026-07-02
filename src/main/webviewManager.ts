@@ -19,6 +19,8 @@ const registeredWebContentsSet = new WeakSet<Electron.WebContents>()
 let mainWindow: BrowserWindow | null = null
 let quickWindow: BrowserWindow | null = null
 export function getQuickWindow(): BrowserWindow | null { return quickWindow }
+let diagnosticsWindow: BrowserWindow | null = null
+export function getDiagnosticsWindow(): BrowserWindow | null { return diagnosticsWindow }
 
 export function showAndFocusWindow(win: BrowserWindow | null): void {
     if (!win || win.isDestroyed()) return
@@ -709,6 +711,45 @@ export function createQuickWindow(): void {
     } else {
         void quickWindow.loadFile(join(__dirname, '../renderer/index.html'), { hash })
     }
+}
+
+export function openDiagnosticsWindow(): void {
+    if (diagnosticsWindow && !diagnosticsWindow.isDestroyed()) {
+        if (diagnosticsWindow.isMinimized()) diagnosticsWindow.restore()
+        diagnosticsWindow.show()
+        diagnosticsWindow.focus()
+        return
+    }
+    diagnosticsWindow = new BrowserWindow({
+        width: 900,
+        height: 700,
+        minWidth: 480,
+        minHeight: 400,
+        show: false,
+        frame: false,
+        alwaysOnTop: false,
+        skipTaskbar: false,
+        backgroundColor: '#ffffff',
+        icon: getWindowIcon(),
+        webPreferences: {
+            preload: join(__dirname, '../preload/index.js'),
+            sandbox: false,
+            contextIsolation: true,
+            nodeIntegration: false,
+            webviewTag: false,
+            partition: 'persist:shared'
+        }
+    })
+    diagnosticsWindow.on('closed', () => { diagnosticsWindow = null })
+    const hash = 'diagnostics'
+    if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+        void diagnosticsWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/#${hash}`)
+    } else {
+        void diagnosticsWindow.loadFile(join(__dirname, '../renderer/index.html'), { hash })
+    }
+    diagnosticsWindow.once('ready-to-show', () => {
+        diagnosticsWindow?.show()
+    })
 }
 
 // ============ 上下文菜单 ============
