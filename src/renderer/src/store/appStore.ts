@@ -330,7 +330,7 @@ interface AppState {
   // 单槽位 webview 编排（辩论轮转用）
   sendToSlot: (slotIndex: number, message: string) => Promise<{ success: boolean; error?: string }>
   insertTextToSlot: (slotIndex: number, message: string) => Promise<{ success: boolean; error?: string }>
-  getResponseFromSlot: (slotIndex: number, timeoutMs?: number) => Promise<string>
+  getResponseFromSlot: (slotIndex: number, timeoutMs?: number, baseline?: string) => Promise<string>
   clearInputOfSlot: (slotIndex: number) => Promise<void>
 
   // 获取所有模型的最新回复
