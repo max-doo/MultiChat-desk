@@ -55,6 +55,7 @@ MultiChat Desk 是基于 Electron 的桌面应用，通过多个 Webview 并行�
 - End implementation tasks with: changed files, what changed, validation commands run, and any follow-up items.
 - 改动前先检索现有实现，避免重复实现。
 - 如果规则与当前代码冲突，以代码事实为准，并先修正本文件。规则改动需与影响目录边界 / 分层 / IPC / Webview / 总结链路 / 构建命令的代码改动同批提交。
+- **禁止擅自切分支**：不允许创建、切换或删除分支（包括 `git checkout -b`、`git switch`、`git branch -d` 等），除非用户明确同意。在用户未主动要求切分支的情况下，只能在当前分支上工作。
 
 ## Testing Guidelines
 
