@@ -1,4 +1,4 @@
-import { useAppStore, type TaskSubtask } from '../../store/appStore'
+import { useAppStore, getDisplayedModels, type TaskSubtask } from '../../store/appStore'
 
 interface SubtaskListProps {
   subtasks: TaskSubtask[]
@@ -8,13 +8,19 @@ interface SubtaskListProps {
 /**
  * 任务模式的子任务上拉列表：每项可编辑文本、cycle 切换指派模型、删除、底部新增。
  * 列表绝对定位在输入框上方（bottom:100%），折叠时不占垂直空间。
+ * cycle 切换只在当前 webview 槽位模型之间循环（槽位 = 屏幕上实际显示的 webview）。
  */
 function SubtaskList({ subtasks, collapsed }: SubtaskListProps): JSX.Element | null {
   const models = useAppStore((s) => s.models)
+  const displayMode = useAppStore((s) => s.displayMode)
+  const taskAssignmentSlots = useAppStore((s) => s.taskAssignmentSlots)
   const updateSubtask = useAppStore((s) => s.updateSubtask)
   const removeSubtask = useAppStore((s) => s.removeSubtask)
   const addSubtask = useAppStore((s) => s.addSubtask)
   const toggleTaskCollapsed = useAppStore((s) => s.toggleTaskCollapsed)
+
+  // 当前 webview 槽位模型（顺序对应屏幕排列），cycle 只在这些模型间切
+  const slotModels = getDisplayedModels(models, displayMode, 'task_assignment', taskAssignmentSlots)
 
   if (collapsed) {
     return (
@@ -66,13 +72,12 @@ function SubtaskList({ subtasks, collapsed }: SubtaskListProps): JSX.Element | n
               <div className="flex flex-col items-center gap-1 flex-shrink-0">
                 <button
                   onClick={() => {
-                    const enabled = models.filter(m => m.enabled)
-                    const cur = enabled.findIndex(m => m.id === st.modelId)
-                    const next = enabled[(cur + 1) % Math.max(1, enabled.length)]
+                    const cur = slotModels.findIndex(m => m.id === st.modelId)
+                    const next = slotModels[(cur + 1) % Math.max(1, slotModels.length)]
                     if (next) updateSubtask(i, { modelId: next.id })
                   }}
                   className="flex items-center gap-1 px-2 py-1 rounded-lg bg-blue-50 text-primary text-xs font-medium hover:bg-blue-100"
-                  title="切换指派模型"
+                  title="切换指派模型（当前 webview 槽位）"
                 >
                   <img src={assigned?.logo} alt="" className="w-3.5 h-3.5" onError={(e) => e.currentTarget.style.display = 'none'} />
                   {assigned?.name || '未指派'}

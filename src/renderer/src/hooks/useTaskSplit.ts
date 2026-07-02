@@ -1,18 +1,20 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { useAppStore } from '../store/appStore'
+import { useAppStore, getDisplayedModels } from '../store/appStore'
 
 /**
  * 封装任务拆解 IPC：复用总结供应商配置，调用 split-task。
- * 成功后写入 store 的 taskState.subtasks（按槽位顺序指派默认模型）。
+ * 成功后写入 store 的 taskState.subtasks（按当前 webview 槽位轮询指派默认模型）。
+ * 错误经返回值 { ok, error? } 传递，不维护内部 error state。
  */
 export function useTaskSplit() {
   const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const abortRef = useRef(false)
 
   const apiConfig = useAppStore((s) => s.apiConfig)
   const summaryModels = useAppStore((s) => s.summaryModels)
   const models = useAppStore((s) => s.models)
+  const displayMode = useAppStore((s) => s.displayMode)
+  const taskAssignmentSlots = useAppStore((s) => s.taskAssignmentSlots)
   const setTaskSubtasks = useAppStore((s) => s.setTaskSubtasks)
   const setTaskPhase = useAppStore((s) => s.setTaskPhase)
   const toggleTaskCollapsed = useAppStore((s) => s.toggleTaskCollapsed)
@@ -29,15 +31,13 @@ export function useTaskSplit() {
     return { apiKey: provider.apiKey, baseUrl: provider.baseUrl, model }
   }, [apiConfig, summaryModels])
 
-  const split = useCallback(async (goal: string) => {
-    if (!goal.trim() || isLoading) return
+  const split = useCallback(async (goal: string): Promise<{ ok: boolean; error?: string }> => {
+    if (!goal.trim() || isLoading) return { ok: false, error: '目标为空或正在拆解中' }
     const provider = resolveProvider()
     if (!provider) {
-      setError('未配置可用的总结 API 供应商，请先在设置中配置')
-      return
+      return { ok: false, error: '未配置可用的总结 API 供应商，请在弹窗中选择或先在设置中配置' }
     }
     setIsLoading(true)
-    setError(null)
     abortRef.current = false
     try {
       const result = await window.api.splitTask({
@@ -48,27 +48,39 @@ export function useTaskSplit() {
         temperature: 0.4,
         maxTokens: 1500
       })
-      if (abortRef.current) return
+      if (abortRef.current) return { ok: false, error: '已中止' }
       if (!result.success || !result.data) {
-        setError(result.error || '拆解失败')
-        return
+        return { ok: false, error: result.error || '拆解失败' }
       }
-      // 按槽位顺序指派默认模型（启用模型优先）
-      const enabled = models.filter(m => m.enabled)
+      // 按当前 webview 槽位轮询指派默认模型（槽位 = 屏幕上实际显示的 webview，顺序对应排列）
+      const slotModels = getDisplayedModels(models, displayMode, 'task_assignment', taskAssignmentSlots)
+      const slotCount = Math.max(1, slotModels.length)
       const subtasks = result.data.map((st, i) => ({
         text: st.text,
-        modelId: (enabled[i % Math.max(1, enabled.length)] || models[0])?.id || ''
+        modelId: slotModels[i % slotCount]?.id || models[0]?.id || ''
       }))
       setTaskSubtasks(subtasks)
       setTaskPhase('split')
       // 展开弹层
       if (useAppStore.getState().taskState.collapsed) toggleTaskCollapsed()
+      return { ok: true }
     } catch (err) {
-      if (!abortRef.current) setError(String(err))
+      return { ok: false, error: String(err) }
     } finally {
       setIsLoading(false)
     }
-  }, [isLoading, resolveProvider, models, setTaskSubtasks, setTaskPhase, toggleTaskCollapsed])
+  }, [isLoading, resolveProvider, models, displayMode, taskAssignmentSlots, setTaskSubtasks, setTaskPhase, toggleTaskCollapsed])
+
+  // 写回拆解供应商+模型到 apiConfig（setApiConfig 已内置 storeSet 持久化，会剥离 agentPrompts）
+  const persistProvider = useCallback((providerId: string, agentId: string) => {
+    const setApiConfig = useAppStore.getState().setApiConfig
+    const current = useAppStore.getState().apiConfig
+    setApiConfig({
+      ...current,
+      activeProviderId: providerId,
+      lastSelectedAgentId: agentId
+    })
+  }, [])
 
   const abort = useCallback(async () => {
     abortRef.current = true
@@ -78,5 +90,5 @@ export function useTaskSplit() {
 
   useEffect(() => () => { abortRef.current = true }, [])
 
-  return { split, abort, isLoading, error }
+  return { split, abort, isLoading, persistProvider }
 }

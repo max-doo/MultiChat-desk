@@ -49,6 +49,16 @@
 - modified:
   - `src/renderer/src/store/appStore.ts`
 
+### 11:05 | claude-code
+
+- done: 任务分发拆解失败弹窗（TaskSplitModal）代码落地：拆解失败不再静默，弹窗内可选拆解模型并写回 apiConfig、可编辑槽位并写回 taskAssignmentSlots、可重试；移除 useTaskSplit 内部 error state 统一经返回值传递；Esc/遮罩关闭时显式中止；happy path 不变。自动验证通过（lint 0 错误 / build 通过 / dev 干净启动）；GUI 交互验证 7 场景待用户手动执行
+- added:
+  - `src/renderer/src/components/modes/TaskSplitModal.tsx`
+- modified:
+  - `src/renderer/src/hooks/useTaskSplit.ts`
+  - `src/renderer/src/components/modes/TaskModePanel.tsx`
+- unresolved: Task 4 七个 GUI 交互验证场景需用户在 npm run dev 桌面环境手动验证：未配置供应商路径、选模型重试成功、Key 错误重试、槽位编辑、中止与 Esc、happy path 不回归
+
 ### 10:55 | claude-code
 
 - done: 评估 webview 休眠机制移植回 main 的可行性：建保护分支 recover-hibernation(eb4791d) 后，对照当前 main 审阅休眠实现，产出移植评估文档
@@ -80,7 +90,7 @@
 - context: 执行 docs/superpowers/plans/2026-07-01-history-tiered-storage.md，worktree: .worktrees/history-tiered-storage 分支 feature/history-tiered-storage
 - modified:
   - `src/main/api/historyManager.ts src/main/ipcHandlers.ts src/preload/index.ts src/preload/index.d.ts src/renderer/src/store/appStore.ts src/renderer/src/components/HistoryDrawer.tsx`
-- lesson: 新 worktree 的 electron postinstall 不会自动下载二进制：node_modules/electron/path.txt 为空、dist/ 缺失，npm run dev 报 Error: Electron uninstall。需手动 node node_modules/electron/install.js 拉取。计划行号引用会随分支漂移，执行计划前必须用 grep 核对锚点。
+- lesson(promoted): 新 worktree 的 electron postinstall 不会自动下载二进制：node_modules/electron/path.txt 为空、dist/ 缺失，npm run dev 报 Error: Electron uninstall。需手动 node node_modules/electron/install.js 拉取。计划行号引用会随分支漂移，执行计划前必须用 grep 核对锚点。
 - unresolved: 端到端手动验证（发送产生 history、>300 条加载更多、搜索隔离）需在 dev 桌面窗口人工点击完成，本会话仅完成启动冒烟（app 成功启动无崩溃）
 
 ### 00:12 | claude-code

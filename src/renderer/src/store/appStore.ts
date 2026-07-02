@@ -711,9 +711,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     return { taskState: { ...s.taskState, subtasks } }
   }),
   addSubtask: () => set((s) => {
-    const enabledModels = s.models.filter(m => m.enabled)
+    // 默认指派到当前 webview 槽位模型（与分解指派、cycle 一致），fallback 用第一个模型
+    const slotModels = getDisplayedModels(s.models, s.displayMode, 'task_assignment', s.taskAssignmentSlots)
     const fallback = s.models[0]
-    const modelId = (enabledModels[s.taskState.subtasks.length % Math.max(1, enabledModels.length)] || fallback)?.id || ''
+    const modelId = (slotModels[s.taskState.subtasks.length % Math.max(1, slotModels.length)] || fallback)?.id || ''
     return { taskState: { ...s.taskState, subtasks: [...s.taskState.subtasks, { text: '新增子任务', modelId }] } }
   }),
   removeSubtask: (index) => set((s) => ({

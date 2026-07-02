@@ -1,7 +1,8 @@
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { useAppStore } from '../../store/appStore'
 import { useTaskSplit } from '../../hooks/useTaskSplit'
 import SubtaskList from './SubtaskList'
+import TaskSplitModal from './TaskSplitModal'
 
 interface TaskModePanelProps {
   showNotification: (type: 'success' | 'error' | 'info', msg: string, autoHide?: number) => void
@@ -24,13 +25,19 @@ function TaskModePanel({ showNotification }: TaskModePanelProps): JSX.Element {
   const taskAssignmentSlots = useAppStore((s) => s.taskAssignmentSlots)
   const webviewRefs = useAppStore((s) => s.webviewRefs)
   const { split, isLoading } = useTaskSplit()
+  const [modalOpen, setModalOpen] = useState(false)
+  const [modalError, setModalError] = useState<string | null>(null)
 
   const isSplit = taskState.phase === 'split'
   const isSent = taskState.phase === 'sent'
 
   const handleSplit = async () => {
     if (!taskState.query.trim() || isLoading) return
-    await split(taskState.query)
+    const r = await split(taskState.query)
+    if (!r.ok) {
+      setModalError(r.error ?? '拆解失败')
+      setModalOpen(true)
+    }
   }
 
   const handleCancel = () => {
@@ -146,6 +153,12 @@ function TaskModePanel({ showNotification }: TaskModePanelProps): JSX.Element {
           </button>
         )}
       </div>
+      <TaskSplitModal
+        open={modalOpen}
+        initialError={modalError}
+        onClose={() => setModalOpen(false)}
+        showNotification={showNotification}
+      />
     </div>
   )
 }
