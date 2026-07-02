@@ -17,7 +17,7 @@ import {
   type FileUploadData
 } from '../utils/webviewScripts'
 import { extractGeminiCanvasContent } from '../utils/geminiCanvasExtractor'
-import { buildProbeScript, parseProbeResult, type ProbeReport } from '../utils/selectorDiagnostics'
+import { buildProbeScript, parseProbeResult, type ProbeReport, buildResearchProbeScript, parseResearchProbeResult, type ResearchProbeReport } from '../utils/selectorDiagnostics'
 import ModelOutputCard from './ModelOutputCard'
 
 // 创建 Turndown 实例用于 HTML 转 Markdown
@@ -131,6 +131,8 @@ export interface WebviewCardRef {
   isHibernated: () => boolean
   /** dev-only：对当前页面跑 messageContainer 探针，返回每候选命中报告 */
   probeMessageContainer: () => Promise<ProbeReport>
+  /** dev-only：对当前页面跑 researchMode 探针，返回每步命中报告（只读） */
+  probeResearchMode: () => Promise<ResearchProbeReport>
 }
 
 /**
@@ -873,6 +875,26 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
           return parseProbeResult(raw)
         } catch (error) {
           return { ok: false, candidates: [], error: `页面未就绪或执行失败: ${String(error)}` }
+        }
+      },
+
+      /**
+       * dev-only：对当前页面跑 researchMode 探针，返回每步命中报告（只读）
+       */
+      probeResearchMode: async (): Promise<ResearchProbeReport> => {
+        const webview = webviewRef.current
+        if (!webview) {
+          return { ok: false, steps: [], error: 'Webview ref 为空' }
+        }
+        const steps = selectors?.researchMode?.steps ?? []
+        if (steps.length === 0) {
+          return { ok: false, steps: [], error: '该平台无 researchMode 配置' }
+        }
+        try {
+          const raw = await webview.executeJavaScript(buildResearchProbeScript(steps))
+          return parseResearchProbeResult(raw)
+        } catch (error) {
+          return { ok: false, steps: [], error: `页面未就绪或执行失败: ${String(error)}` }
         }
       },
 
