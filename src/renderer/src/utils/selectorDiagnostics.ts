@@ -197,20 +197,20 @@ export function buildResearchProbeScript(steps: AutomationStep[]): string {
 
     // 来源: webviewScripts.ts:640-748 findElement（只读复刻，去掉 normalizeClickable 的点击相关）
     function matchText(content, ariaLabel, o) {
-      var text = o.text;
-      var textList = Array.isArray(text) ? text : [text];
+      var flags = o.caseSensitive ? '' : 'i';
+      var targets = o.regex
+        ? [o.regex]
+        : (o.text != null ? (Array.isArray(o.text) ? o.text : [o.text]) : []);
       // 来源: webviewScripts.ts:662-665 exclude 命中任一即否（区分 Search/Research 的关键，同源）
       var excludeList = o.exclude || [];
-      var exFlags = o.caseSensitive ? '' : 'i';
       for (var exi = 0; exi < excludeList.length; exi++) {
-        try { if (new RegExp(excludeList[exi], exFlags).test(content) || new RegExp(excludeList[exi], exFlags).test(ariaLabel)) return false; } catch (e) {}
+        try { if (new RegExp(excludeList[exi], flags).test(content) || new RegExp(excludeList[exi], flags).test(ariaLabel)) return false; } catch (e) {}
       }
-      for (var ti = 0; ti < textList.length; ti++) {
-        var t = textList[ti];
+      for (var ti = 0; ti < targets.length; ti++) {
+        var t = targets[ti];
         if (!t) continue;
         if (o.regex) {
-          var pat = String(o.regex);
-          var flags = o.caseSensitive ? '' : 'i';
+          var pat = t;
           if (o.wordBoundary !== false) {
             if (!/^\\^/.test(pat)) pat = '\\\\b(?:' + pat + ')';
             if (!/\\$$/.test(pat)) pat = pat + '\\\\b';
