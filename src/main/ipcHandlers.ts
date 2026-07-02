@@ -31,7 +31,7 @@ import { automationService } from './services/AutomationService'
 let currentSummaryAbortController: AbortController | null = null
 
 // 诊断窗口 probe/run-research 透传请求挂起表
-const pendingProbeRequests = new Map<string, { resolve: (v: unknown) => void; reject: (e: unknown) => void; timer: ReturnType<typeof setTimeout> }>()
+const pendingProbeRequests = new Map<string, { resolve: (v: unknown) => void; timer: ReturnType<typeof setTimeout> }>()
 const pendingRunResearchRequests = new Map<string, { resolve: (v: unknown) => void; timer: ReturnType<typeof setTimeout> }>()
 
 /**
@@ -115,7 +115,7 @@ export function registerIpcHandlers(
                 pendingProbeRequests.delete(reqId)
                 resolve({ success: false, error: '主窗口响应超时' })
             }, 5000)
-            pendingProbeRequests.set(reqId, { resolve, reject: resolve as never, timer })
+            pendingProbeRequests.set(reqId, { resolve, timer })
             mainWin.webContents.send('diagnostics:probe-request', { reqId, ...payload })
         })
     })
