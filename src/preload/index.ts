@@ -30,6 +30,28 @@ const api = {
   // 快捷弹窗控制
   quickShow: (opts?: { focus?: boolean }) => ipcRenderer.invoke('quick:show', opts),
   quickHide: () => ipcRenderer.invoke('quick:hide'),
+
+  // 诊断窗口 IPC
+  diagnosticsOpenWindow: (): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('diagnostics:open-window'),
+  diagnosticsProbe: (modelId: string, type: 'message' | 'research'): Promise<{ success: boolean; data?: unknown; error?: string }> =>
+    ipcRenderer.invoke('diagnostics:probe', { modelId, type }),
+  diagnosticsRunResearch: (modelId: string): Promise<{ success: boolean; data?: { success: boolean; error?: string }; error?: string }> =>
+    ipcRenderer.invoke('diagnostics:run-research', { modelId }),
+  onDiagnosticsProbeRequest: (cb: (payload: { reqId: string; modelId: string; type: 'message' | 'research' }) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, payload: { reqId: string; modelId: string; type: 'message' | 'research' }): void => cb(payload)
+    ipcRenderer.on('diagnostics:probe-request', handler)
+    return () => { ipcRenderer.removeListener('diagnostics:probe-request', handler) }
+  },
+  diagnosticsProbeResponse: (reqId: string, result: unknown): void =>
+    ipcRenderer.send('diagnostics:probe-response', { reqId, result }),
+  onDiagnosticsRunResearchRequest: (cb: (payload: { reqId: string; modelId: string }) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, payload: { reqId: string; modelId: string }): void => cb(payload)
+    ipcRenderer.on('diagnostics:run-research-request', handler)
+    return () => { ipcRenderer.removeListener('diagnostics:run-research-request', handler) }
+  },
+  diagnosticsRunResearchResponse: (reqId: string, result: { success: boolean; error?: string }): void =>
+    ipcRenderer.send('diagnostics:run-research-response', { reqId, result }),
   quickGetAlwaysOnTop: (): Promise<boolean> => ipcRenderer.invoke('quick:get-always-on-top'),
   quickSetAlwaysOnTop: (flag: boolean): Promise<void> => ipcRenderer.invoke('quick:set-always-on-top', flag),
   quickInjectPrompt: (payload: { text: string; action: 'quick'|'summarize'|'polish'|'translate'|'raw'|'search' }) => ipcRenderer.send('quick:inject-prompt', payload),
