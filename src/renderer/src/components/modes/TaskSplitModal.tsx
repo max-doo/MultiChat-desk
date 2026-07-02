@@ -13,9 +13,6 @@ interface TaskSplitModalProps {
 function TaskSplitModal({ open, initialError, onClose, showNotification }: TaskSplitModalProps): JSX.Element | null {
   const apiConfig = useAppStore((s) => s.apiConfig)
   const summaryModels = useAppStore((s) => s.summaryModels)
-  const models = useAppStore((s) => s.models)
-  const taskAssignmentSlots = useAppStore((s) => s.taskAssignmentSlots)
-  const setTaskAssignmentSlot = useAppStore((s) => s.setTaskAssignmentSlot)
   const setSettingsOpen = useAppStore((s) => s.setSettingsOpen)
   const query = useAppStore((s) => s.taskState.query)
   const { split, abort, isLoading, persistProvider } = useTaskSplit()
@@ -165,41 +162,6 @@ function TaskSplitModal({ open, initialError, onClose, showNotification }: TaskS
           >
             管理供应商…
           </button>
-        </div>
-
-        {/* 槽位分配区 */}
-        <div className="mb-4">
-          <div className="text-xs font-medium text-text-secondary mb-2">槽位分配（每个槽位 = 一个 webview 窗口）</div>
-          <div className="flex flex-col gap-2">
-            {taskAssignmentSlots.map((slotModelId, i) => {
-              const slotModel = models.find(m => m.id === slotModelId)
-              return (
-                <div key={i} className="flex items-center gap-2">
-                  <span className="text-sm text-text-secondary w-12">槽位 {i}</span>
-                  <CustomDropdown
-                    value={slotModelId}
-                    onChange={(newId) => setTaskAssignmentSlot(i, newId)}
-                    placeholder="选择 AI"
-                    className="min-w-[160px]"
-                    displayText={slotModel?.name || '选择 AI'}
-                    renderContent={(onCloseDropdown) => (
-                      <>
-                        {models.map(m => (
-                          <button
-                            key={m.id}
-                            onClick={() => { setTaskAssignmentSlot(i, m.id); onCloseDropdown() }}
-                            className={`block w-full px-3 py-2 text-left text-sm transition-colors hover:bg-gray-100 whitespace-nowrap ${slotModelId === m.id ? 'text-primary bg-primary/5' : 'text-text-secondary'}`}
-                          >
-                            {m.name}
-                          </button>
-                        ))}
-                      </>
-                    )}
-                  />
-                </div>
-              )
-            })}
-          </div>
         </div>
 
         {/* 底部 */}

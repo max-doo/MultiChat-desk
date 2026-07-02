@@ -1,9 +1,9 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { useAppStore } from '../store/appStore'
+import { useAppStore, getDisplayedModels } from '../store/appStore'
 
 /**
  * 封装任务拆解 IPC：复用总结供应商配置，调用 split-task。
- * 成功后写入 store 的 taskState.subtasks（按槽位顺序指派默认模型）。
+ * 成功后写入 store 的 taskState.subtasks（按当前 webview 槽位轮询指派默认模型）。
  * 错误经返回值 { ok, error? } 传递，不维护内部 error state。
  */
 export function useTaskSplit() {
@@ -13,6 +13,8 @@ export function useTaskSplit() {
   const apiConfig = useAppStore((s) => s.apiConfig)
   const summaryModels = useAppStore((s) => s.summaryModels)
   const models = useAppStore((s) => s.models)
+  const displayMode = useAppStore((s) => s.displayMode)
+  const taskAssignmentSlots = useAppStore((s) => s.taskAssignmentSlots)
   const setTaskSubtasks = useAppStore((s) => s.setTaskSubtasks)
   const setTaskPhase = useAppStore((s) => s.setTaskPhase)
   const toggleTaskCollapsed = useAppStore((s) => s.toggleTaskCollapsed)
@@ -50,11 +52,12 @@ export function useTaskSplit() {
       if (!result.success || !result.data) {
         return { ok: false, error: result.error || '拆解失败' }
       }
-      // 按槽位顺序指派默认模型（启用模型优先）
-      const enabled = models.filter(m => m.enabled)
+      // 按当前 webview 槽位轮询指派默认模型（槽位 = 屏幕上实际显示的 webview，顺序对应排列）
+      const slotModels = getDisplayedModels(models, displayMode, 'task_assignment', taskAssignmentSlots)
+      const slotCount = Math.max(1, slotModels.length)
       const subtasks = result.data.map((st, i) => ({
         text: st.text,
-        modelId: (enabled[i % Math.max(1, enabled.length)] || models[0])?.id || ''
+        modelId: slotModels[i % slotCount]?.id || models[0]?.id || ''
       }))
       setTaskSubtasks(subtasks)
       setTaskPhase('split')
@@ -66,7 +69,7 @@ export function useTaskSplit() {
     } finally {
       setIsLoading(false)
     }
-  }, [isLoading, resolveProvider, models, setTaskSubtasks, setTaskPhase, toggleTaskCollapsed])
+  }, [isLoading, resolveProvider, models, displayMode, taskAssignmentSlots, setTaskSubtasks, setTaskPhase, toggleTaskCollapsed])
 
   // 写回拆解供应商+模型到 apiConfig（setApiConfig 已内置 storeSet 持久化，会剥离 agentPrompts）
   const persistProvider = useCallback((providerId: string, agentId: string) => {
