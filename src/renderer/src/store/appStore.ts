@@ -1146,20 +1146,37 @@ export const useAppStore = create<AppState>((set, get) => ({
       return { success: false, error: String(err) }
     }
   },
-  getResponseFromSlot: async (slotIndex, timeoutMs = 8000) => {
+  getResponseFromSlot: async (slotIndex, timeoutMs = 120000, baseline) => {
     const { webviewRefs } = get()
     const ref = webviewRefs.get(`slot-${slotIndex}`)
     if (!ref) return ''
+    const base = (baseline ?? '').trim()
     const deadline = Date.now() + timeoutMs
+    const pollInterval = 500
+    const stableThreshold = 3 // 连续 3 次相同 ≈ 1.5s 无变化
     let last = ''
-    // 轮询：等回复稳定（与 monitor 思路一致，但只针对单槽位、轻量）
+    let stableCount = 0
+    let sawNew = false // 是否出现过与基线不同的内容
     while (Date.now() < deadline) {
-      const cur = await ref.getLatestResponse().catch(() => '')
-      if (cur && cur.trim().length > 0 && cur === last) break
+      const cur = (await ref.getLatestResponse().catch(() => '')).trim()
+      if (cur && cur !== base) {
+        sawNew = true
+      }
+      if (sawNew) {
+        // 进入「等稳定」阶段：连续 stableThreshold 次相同即完成
+        if (cur && cur === last) {
+          stableCount++
+          if (stableCount >= stableThreshold) return cur
+        } else {
+          stableCount = 0
+        }
+      }
+      // sawNew 仍为 false 时：继续等新回复出现，不记稳定
       last = cur
-      await new Promise((r) => setTimeout(r, 1000))
+      await new Promise((r) => setTimeout(r, pollInterval))
     }
-    return last
+    // 超时：到 deadline 仍未稳定 → 一律返回空，交由调用方中止
+    return ''
   },
   clearInputOfSlot: async (slotIndex) => {
     const { webviewRefs } = get()
