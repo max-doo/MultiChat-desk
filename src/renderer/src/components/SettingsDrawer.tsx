@@ -1002,6 +1002,20 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
             </div>
           </div>
 
+          {/* Dev-only 诊断入口 */}
+          {import.meta.env.DEV && (
+            <div>
+              <h3 className="font-medium text-text-secondary mb-4">开发工具</h3>
+              <button
+                type="button"
+                onClick={() => { void window.api.diagnosticsOpenWindow() }}
+                className="px-3 py-2 text-sm rounded-lg border border-border text-text-primary hover:bg-white/60 w-full"
+              >
+                🔬 选择器诊断 (dev)
+              </button>
+            </div>
+          )}
+
         </div>
       </div>
 
