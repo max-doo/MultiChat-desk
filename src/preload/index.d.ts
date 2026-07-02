@@ -135,6 +135,8 @@ declare global {
         fileName?: string
       }) => Promise<{ success: boolean; filePath?: string; error?: string }>
       onGeminiAccountSwitched: (callback: (url: string) => void) => () => void
+      /** 监听主窗口 hide/show 事件（片段 B'，决策 R4）；visible=true 表示窗口已显示 */
+      onWindowVisibility: (callback: (visible: boolean) => void) => () => void
       windowDragStart: () => void
       windowDragMove: () => void
       windowDragEnd: () => void

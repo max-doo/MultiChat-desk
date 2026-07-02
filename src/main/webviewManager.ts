@@ -363,6 +363,17 @@ export function createWindow(): void {
         }
     })
 
+    // 主窗口 hide/show 事件广播给渲染层（片段 B'，决策 R4）：
+    // 渲染层在窗口隐藏后对显示中的模型启动 15min 休眠倒计时，重新显示时立即唤醒。
+    // 监听 BrowserWindow 的 hide/show 事件可覆盖所有路径（close 按钮→hide、tray:hide-main、
+    // tray:show-main、托盘切换、ready-to-show），无需在每个 IPC handler 内分别广播。
+    mainWindow.on('hide', () => {
+        mainWindow?.webContents.send('window-visibility', false)
+    })
+    mainWindow.on('show', () => {
+        mainWindow?.webContents.send('window-visibility', true)
+    })
+
     // 捕获 Renderer 的控制台日志，以便在终端中排查黑屏报错
     mainWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
         // 丢弃网络嗅探器全量响应体日志，避免主进程 stdout 缓冲膨胀

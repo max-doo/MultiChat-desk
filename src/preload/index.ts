@@ -197,6 +197,15 @@ const api = {
     }
   },
 
+  // 监听主窗口 hide/show 事件（片段 B'，决策 R4）：visible=true 表示窗口已显示
+  onWindowVisibility: (callback: (visible: boolean) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, visible: boolean): void => callback(visible)
+    ipcRenderer.on('window-visibility', listener)
+    return () => {
+      ipcRenderer.removeListener('window-visibility', listener)
+    }
+  },
+
   // 窗口拖拽
   windowDragStart: (): void => ipcRenderer.send('window-drag-start'),
   windowDragMove: (): void => ipcRenderer.send('window-drag-move'),

@@ -43,4 +43,6 @@ export interface SummaryPanelProps {
     selectedModels: string[]
     modelResponses: Record<string, string>
   } | null
+  /** 总结页是否处于前台（用于休眠调度，决策 R3） */
+  isActive?: boolean
 }

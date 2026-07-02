@@ -122,6 +122,12 @@ export interface WebviewCardRef {
   resetToInitial: () => Promise<{ success: boolean; error?: string }>
   getCurrentUrl: () => string
   loadURL: (url: string) => void
+  /** 休眠 webview：保存输入草稿与当前 URL，导航到 about:blank 以释放页面层 V8 堆/DOM（决策 D1：真卸载） */
+  suspend: () => Promise<{ success: boolean; savedUrl?: string; savedDraft?: string; error?: string }>
+  /** 唤醒 webview：重新加载保存的 URL 并恢复输入草稿 */
+  resume: () => Promise<{ success: boolean; error?: string }>
+  /** 查询是否处于休眠状态 */
+  isHibernated: () => boolean
 }
 
 /**
@@ -150,6 +156,12 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
     const elapsedIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
     // 是否处于首次加载（dom-ready 后置 false；resetToInitial 重新置 true）
     const isFirstLoadRef = useRef<boolean>(true)
+
+    // ── 休眠状态管理（片段 A）──
+    const [isHibernated, setIsHibernated] = useState(false)
+    const hibernatedUrlRef = useRef<string | null>(null)
+    const hibernatedDraftRef = useRef<string>('')
+    const isResumingRef = useRef(false)
 
     // 从 store 获取所有模型、状态和切换方法
     const models = useAppStore((state) => state.models)
@@ -839,6 +851,149 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
           setIsLoading(true)
           webviewRef.current.loadURL(targetUrl)
         }
+      },
+
+      /**
+       * 休眠 webview：保存输入草稿与当前 URL，然后导航到 about:blank 以释放页面层内存。
+       * 决策 D1：必须 loadURL('about:blank') 才真正卸载页面层 V8 堆/DOM，仅靠 className 隐藏不省内存。
+       */
+      suspend: async (): Promise<{ success: boolean; savedUrl?: string; savedDraft?: string; error?: string }> => {
+        const webview = webviewRef.current
+        if (!webview) {
+          return { success: false, error: 'Webview ref 为空' }
+        }
+        if (isHibernated) {
+          return { success: false, error: 'Already hibernated' }
+        }
+
+        try {
+          // Phase 1: 保存输入框草稿
+          let savedDraft = ''
+          if (isReady && selectors) {
+            try {
+              const code = generateGetInputTextScript(selectors)
+              const result = await webview.executeJavaScript(code)
+              if (result && result.text) {
+                savedDraft = result.text
+              }
+            } catch (e) {
+              console.warn(`[${name}] 休眠时保存输入草稿失败:`, e)
+            }
+          }
+
+          // Phase 2: 保存当前 URL（优先用真实当前 URL，回退到 props.url）
+          let savedUrl = ''
+          try {
+            savedUrl = webview.getURL() || url
+          } catch (e) {
+            console.warn(`[${name}] 休眠时获取 URL 失败:`, e)
+            savedUrl = url
+          }
+
+          // Phase 3: 先保存状态再导航，避免导航事件回调读到已清空的状态
+          hibernatedUrlRef.current = savedUrl
+          hibernatedDraftRef.current = savedDraft
+
+          // Phase 4: 真卸载页面层 —— 导航到 about:blank 释放 V8 堆/DOM（D1）
+          try {
+            webview.loadURL('about:blank')
+          } catch (e) {
+            console.warn(`[${name}] 休眠时导航到 about:blank 失败:`, e)
+          }
+
+          setIsHibernated(true)
+          // 休眠后页面层已卸载，loadedUrlRef 置空，唤醒时由 resume 重新 loadURL
+          loadedUrlRef.current = null
+
+          console.log(`[${name}] Webview 已休眠:`, {
+            url: savedUrl,
+            draftLength: savedDraft.length,
+          })
+
+          return { success: true, savedUrl, savedDraft }
+        } catch (error) {
+          console.error(`[${name}] 休眠失败:`, error)
+          return { success: false, error: String(error) }
+        }
+      },
+
+      /**
+       * 唤醒 webview：重新加载保存的 URL 并恢复输入草稿
+       */
+      resume: async (): Promise<{ success: boolean; error?: string }> => {
+        const webview = webviewRef.current
+        if (!webview) {
+          return { success: false, error: 'Webview ref 为空' }
+        }
+        if (!isHibernated) {
+          return { success: false, error: 'Not hibernated' }
+        }
+        if (isResumingRef.current) {
+          return { success: false, error: 'Already resuming' }
+        }
+
+        isResumingRef.current = true
+
+        try {
+          setIsHibernated(false)
+          setIsLoading(true)
+          setIsReady(false)
+
+          const targetUrl = hibernatedUrlRef.current || url
+          const draftToRestore = hibernatedDraftRef.current
+
+          console.log(`[${name}] Webview 恢复中:`, targetUrl)
+
+          // 同步 ref，防止 F3 的 loadURL effect 因 loadedUrlRef 为 null 而重复导航
+          loadedUrlRef.current = targetUrl
+          webview.loadURL(targetUrl)
+
+          // 页面就绪后恢复输入草稿（轮询 isReady，最多约 30s）
+          if (draftToRestore) {
+            const tryInsertText = async (attempts = 0): Promise<void> => {
+              if (attempts > 30) {
+                console.warn(`[${name}] 恢复输入草稿超时`)
+                return
+              }
+              if (isReady) {
+                try {
+                  const code = generateInsertTextScript(draftToRestore, id, selectors)
+                  const result = await webview.executeJavaScript(code)
+                  if (result && result.success) {
+                    console.log(`[${name}] 输入草稿已恢复`)
+                    return
+                  }
+                } catch (e) {
+                  console.warn(`[${name}] 恢复输入草稿失败:`, e)
+                }
+              }
+              await new Promise(r => setTimeout(r, 1000))
+              return tryInsertText(attempts + 1)
+            }
+            // 延迟开始恢复，给页面加载时间
+            setTimeout(() => {
+              void tryInsertText()
+            }, 2000)
+          }
+
+          // 清理休眠状态
+          hibernatedUrlRef.current = null
+          hibernatedDraftRef.current = ''
+
+          return { success: true }
+        } catch (error) {
+          console.error(`[${name}] 唤醒失败:`, error)
+          return { success: false, error: String(error) }
+        } finally {
+          isResumingRef.current = false
+        }
+      },
+
+      /**
+       * 查询是否处于休眠状态
+       */
+      isHibernated: (): boolean => {
+        return isHibernated
       }
     }))
 
@@ -1150,7 +1305,30 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
             </div>
           )}
 
-          {/* 
+          {/* 休眠覆盖层（片段 A，决策 D1）：真卸载页面层后展示，点击唤醒重新 loadURL + 恢复草稿。
+              回溯态(readonlySnapshot)优先显示快照覆盖层，休眠调度器白名单(D3)也会在回溯态跳过休眠，此处 && !readonlySnapshot 为防御性兜底。 */}
+          {isHibernated && !readonlySnapshot && (
+            <div className="absolute inset-0 flex items-center justify-center bg-app/90 z-20 backdrop-blur-sm">
+              <div className="flex flex-col items-center gap-3 p-6 max-w-xs">
+                <span className="material-symbols-outlined text-text-secondary text-4xl">bedtime</span>
+                <p className="text-sm text-text-primary font-medium text-center">已休眠以节省内存</p>
+                <p className="text-xs text-text-secondary text-center">点击唤醒以继续使用</p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (ref && typeof ref === 'object' && 'current' in ref) {
+                      void (ref.current as WebviewCardRef | null)?.resume()
+                    }
+                  }}
+                  className="mt-2 px-4 py-2 bg-primary text-white rounded-lg hover:opacity-90 transition-opacity text-sm"
+                >
+                  立即唤醒
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/*
             partition: 使用共享的 partition 名称，让所有 webview 共享 cookie 和 session
             - 在一个窗口中登录 Google 账户后，其他窗口也能自动使用已登录状态
             - persist: 前缀确保 session 持久化，关闭应用再打开不需要重新登录
@@ -1162,7 +1340,7 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
             id={`webview-${id}`}
             src="about:blank"
             partition="persist:shared"
-            className={`w-full h-full ${(loadError || urlMismatch) && readonlySnapshot ? 'invisible pointer-events-none' : ''}`}
+            className={`w-full h-full ${((loadError || urlMismatch) && readonlySnapshot) || isHibernated ? 'invisible pointer-events-none' : ''}`}
             allowpopups
             tabIndex={-1}
           />

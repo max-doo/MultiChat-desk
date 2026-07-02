@@ -10,6 +10,58 @@ export default function QuickPage(): JSX.Element {
   const isDraggingRef = useRef(false)
   const [isPinned, setIsPinned] = useState(false)
 
+  // ── 休眠调度（片段 E，决策 R2）──
+  // 快捷窗口当前模型永不休眠；被切走的旧模型 5 分钟后真卸载（D1）。
+  const HIBERNATE_DELAY_QUICK_MS = 5 * 60 * 1000 // 5 分钟
+  const hibernateTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+
+  // 清理某模型的休眠倒计时
+  const clearHibernateTimer = useCallback((modelId: string) => {
+    const timer = hibernateTimersRef.current.get(modelId)
+    if (timer) {
+      clearTimeout(timer)
+      hibernateTimersRef.current.delete(modelId)
+    }
+  }, [])
+
+  // 执行休眠：当前模型保护 —— 定时器触发时再次确认非当前模型，防止竞态
+  const executeHibernate = useCallback(async (modelId: string) => {
+    if (modelId === selectedModelIdRef.current) {
+      console.log(`[QuickPage] ${modelId} 已是当前模型，跳过休眠`)
+      return
+    }
+    const ref = cardRefs.current.get(modelId)
+    if (ref && !ref.isHibernated()) {
+      console.log(`[QuickPage] 休眠旧模型 webview: ${modelId}`)
+      const result = await ref.suspend()
+      if (!result.success) {
+        console.warn(`[QuickPage] ${modelId} 休眠失败:`, result.error)
+      }
+    }
+  }, [])
+
+  const scheduleHibernate = useCallback((modelId: string) => {
+    clearHibernateTimer(modelId)
+    const timer = setTimeout(() => {
+      void executeHibernate(modelId)
+    }, HIBERNATE_DELAY_QUICK_MS)
+    hibernateTimersRef.current.set(modelId, timer)
+    console.log(`[QuickPage] ${modelId} 休眠倒计时启动: ${HIBERNATE_DELAY_QUICK_MS}ms`)
+  }, [clearHibernateTimer, executeHibernate])
+
+  // 唤醒：切回旧模型时立即唤醒
+  const wakeModel = useCallback(async (modelId: string) => {
+    clearHibernateTimer(modelId)
+    const ref = cardRefs.current.get(modelId)
+    if (ref && ref.isHibernated()) {
+      console.log(`[QuickPage] 唤醒模型 webview: ${modelId}`)
+      const result = await ref.resume()
+      if (!result.success) {
+        console.warn(`[QuickPage] ${modelId} 唤醒失败:`, result.error)
+      }
+    }
+  }, [clearHibernateTimer])
+
   // 已挂载的模型集合（只增不减，实现懒加载缓存）
   const [mountedModelIds, setMountedModelIds] = useState<Set<string>>(new Set())
 
@@ -75,6 +127,16 @@ export default function QuickPage(): JSX.Element {
     }
   }, [])
 
+  // 卸载时清理所有休眠倒计时，避免卸载后仍触发 suspend
+  useEffect(() => {
+    return () => {
+      for (const [, timer] of hibernateTimersRef.current.entries()) {
+        clearTimeout(timer)
+      }
+      hibernateTimersRef.current.clear()
+    }
+  }, [])
+
   const handleModelChange = async (newModelId: string): Promise<void> => {
     const oldModelId = selectedModelId
 
@@ -87,6 +149,12 @@ export default function QuickPage(): JSX.Element {
       if (prev.has(newModelId)) return prev
       return new Set(prev).add(newModelId)
     })
+
+    // 休眠调度（片段 E）：唤醒新模型；被切走的旧模型 5 分钟后休眠
+    void wakeModel(newModelId)
+    if (oldModelId && oldModelId !== newModelId) {
+      scheduleHibernate(oldModelId)
+    }
 
     // 2. 异步提取旧 webview 的未发送文本（设置 300ms 超时，防止旧 webview 卡住）
     if (oldModelId && oldModelId !== newModelId) {

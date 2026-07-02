@@ -17,6 +17,11 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
   const isHistoryOpen = useAppStore((state) => state.isHistoryOpen)
   const setHistoryOpen = useAppStore((state) => state.setHistoryOpen)
   const [activeHistoryId, setActiveHistoryId] = useState<string | undefined>(undefined)
+  // activeHistoryId 的 ref 镜像，供休眠调度器 useCallback 在不增加依赖的前提下读到最新回溯态
+  const activeHistoryIdRef = useRef<string | undefined>(undefined)
+  useEffect(() => {
+    activeHistoryIdRef.current = activeHistoryId
+  }, [activeHistoryId])
   const [containerWidth, setContainerWidth] = useState(0)
   const [isResizing, setIsResizing] = useState(false)
   const [suppressPaneTransition, setSuppressPaneTransition] = useState(false)
@@ -56,6 +61,16 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
   const scrapingControllerRef = useRef<AbortController | null>(null)
   // 延迟跳转 SummaryPage 的定时器；重入与 unmount 时需清理，避免叠加跳转 / 卸载后触发
   const navigateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // ── 休眠调度器状态（片段 B）──
+  // R1: 主页面切换模型后，被切走的旧模型 5 分钟后真卸载（D1）
+  const HIBERNATE_DELAY_MS = 5 * 60 * 1000 // 5 分钟
+  // R4: 主窗口关闭(托盘隐藏)后，显示中的模型 15 分钟后休眠（片段 B'）
+  const HIBERNATE_DELAY_HIDE_MS = 15 * 60 * 1000 // 15 分钟
+  // 各模型的休眠倒计时定时器；key = model.id
+  const hibernateTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+  // 跟踪上一轮显示的模型 id，用于判定「被切走」启动倒计时 vs「仍显示」保持唤醒
+  const prevDisplayedIdsRef = useRef<string[]>([])
 
   // 回溯历史时，预计算各模型最后一轮 turn 的快照 + 历史原始 URL，
   // 供 WebviewCard 做 URL 不匹配检测与只读快照显示。非回溯态（无 activeHistoryId）返回空。
@@ -102,6 +117,78 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
       }
     }
   }, [])
+
+  // ── 休眠调度器（片段 B）──
+  // 清理某模型的休眠倒计时
+  const clearHibernateTimer = useCallback((modelId: string) => {
+    const timer = hibernateTimersRef.current.get(modelId)
+    if (timer) {
+      clearTimeout(timer)
+      hibernateTimersRef.current.delete(modelId)
+    }
+  }, [])
+
+  // 执行休眠：白名单检查通过后调用 ref.suspend()（D1 真卸载）
+  const executeHibernate = useCallback(async (modelId: string) => {
+    const state = useAppStore.getState()
+
+    // 白名单 1: 活动会话中的模型不休眠（避免误销毁活跃对话）
+    if (state.activeModels.length > 0) {
+      console.log(`[MainPage] ${modelId} 处于活动会话中，跳过休眠`)
+      return
+    }
+    // 白名单 2: 监控进行中不休眠
+    if (state.monitor?.isMonitoring) {
+      console.log(`[MainPage] 监控进行中，跳过休眠`)
+      return
+    }
+    // 白名单 3: 发送进行中不休眠
+    if (state.isSending) {
+      console.log(`[MainPage] 发送进行中，跳过休眠`)
+      return
+    }
+    // 白名单 4（决策 D3）: 回溯历史态不休眠 —— 回溯是用户主动查看历史，属活跃操作，从源头消除真值表 case 10-12
+    if (activeHistoryIdRef.current) {
+      console.log(`[MainPage] 回溯历史态，跳过休眠`)
+      return
+    }
+
+    const ref = state.webviewRefs.get(modelId)
+    if (ref && !ref.isHibernated()) {
+      console.log(`[MainPage] 休眠 webview: ${modelId}`)
+      const result = await ref.suspend()
+      if (result.success) {
+        console.log(`[MainPage] ${modelId} 已休眠，保存 URL: ${result.savedUrl}`)
+      } else {
+        console.warn(`[MainPage] ${modelId} 休眠失败:`, result.error)
+      }
+    }
+  }, [])
+
+  // 调度休眠：delayMs 后执行（默认 5min；主窗口关闭用 15min）
+  const scheduleHibernate = useCallback((modelId: string, delayMs: number = HIBERNATE_DELAY_MS) => {
+    clearHibernateTimer(modelId)
+    const timer = setTimeout(() => {
+      void executeHibernate(modelId)
+    }, delayMs)
+    hibernateTimersRef.current.set(modelId, timer)
+    console.log(`[MainPage] ${modelId} 休眠倒计时启动: ${delayMs}ms`)
+  }, [clearHibernateTimer, executeHibernate])
+
+  // 唤醒 webview：清理倒计时并在确实休眠时 resume
+  const wakeWebview = useCallback(async (modelId: string) => {
+    clearHibernateTimer(modelId)
+    const ref = useAppStore.getState().webviewRefs.get(modelId)
+    if (ref && ref.isHibernated()) {
+      console.log(`[MainPage] 唤醒 webview: ${modelId}`)
+      const result = await ref.resume()
+      if (result.success) {
+        console.log(`[MainPage] ${modelId} 已唤醒`)
+      } else {
+        console.warn(`[MainPage] ${modelId} 唤醒失败:`, result.error)
+      }
+    }
+  }, [clearHibernateTimer])
 
   const handleGenerateReport = async () => {
     if (scrapingControllerRef.current) {
@@ -310,6 +397,77 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
 
     prevSlotModelIds.current = currentIds
   }, [displayedModels])
+
+  // ── 休眠调度触发（片段 B）──
+  // 显示模型变化：新显示的唤醒，被切走的启动 5min 倒计时（R1）
+  useEffect(() => {
+    const currentIds = displayedModels.map(m => m.id)
+    const prevIds = prevDisplayedIdsRef.current
+
+    // 新显示的模型：唤醒（若曾休眠）
+    for (const modelId of currentIds) {
+      if (!prevIds.includes(modelId)) {
+        void wakeWebview(modelId)
+      } else {
+        // 仍显示，保持唤醒、清掉倒计时
+        clearHibernateTimer(modelId)
+      }
+    }
+    // 不再显示的模型：启动 5min 休眠倒计时
+    for (const modelId of prevIds) {
+      if (!currentIds.includes(modelId)) {
+        scheduleHibernate(modelId)
+      }
+    }
+
+    prevDisplayedIdsRef.current = currentIds
+  }, [displayedModels, scheduleHibernate, wakeWebview, clearHibernateTimer])
+
+  // 页面激活态变化：切回主页面唤醒所有显示模型；切走（去总结页）启动倒计时
+  useEffect(() => {
+    if (isActive) {
+      for (const model of displayedModels) {
+        void wakeWebview(model.id)
+      }
+    } else {
+      for (const model of displayedModels) {
+        scheduleHibernate(model.id)
+      }
+    }
+  }, [isActive, displayedModels, scheduleHibernate, wakeWebview])
+
+  // 主窗口 hide/show 事件（片段 B'，决策 R4）：
+  // 隐藏到托盘后 15 分钟休眠显示中的模型；重新显示时立即唤醒。
+  // 注意：必须读到「订阅时刻的」displayedModels，故用 displayedModelsRef 镜像避免闭包过期。
+  const displayedModelsRef = useRef(displayedModels)
+  useEffect(() => {
+    displayedModelsRef.current = displayedModels
+  }, [displayedModels])
+  useEffect(() => {
+    const off = window.api.onWindowVisibility((visible) => {
+      const models = displayedModelsRef.current
+      if (visible) {
+        for (const model of models) {
+          void wakeWebview(model.id)
+        }
+      } else {
+        for (const model of models) {
+          scheduleHibernate(model.id, HIBERNATE_DELAY_HIDE_MS)
+        }
+      }
+    })
+    return () => { off() }
+  }, [scheduleHibernate, wakeWebview])
+
+  // 组件卸载时清理所有休眠倒计时，避免卸载后仍触发 suspend
+  useEffect(() => {
+    return () => {
+      for (const [, timer] of hibernateTimersRef.current.entries()) {
+        clearTimeout(timer)
+      }
+      hibernateTimersRef.current.clear()
+    }
+  }, [])
 
   const gutterWidthPx = 16
   const MIN_PANE_WIDTH = 320

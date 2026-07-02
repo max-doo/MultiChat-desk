@@ -36,7 +36,7 @@ function toMarkdown(content: string): string {
  * 总结面板组件
  * 对话形式显示 AI 总结结果
  */
-function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: SummaryPanelProps): JSX.Element {
+function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isActive = true }: SummaryPanelProps): JSX.Element {
   const { apiConfig, models, setApiConfig, addSummaryHistory, updateSummaryHistory, history } = useAppStore()
 
   // 从 store 读取当前模式，缺省 'webview'
@@ -208,6 +208,87 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData }: Su
       setSummaryFired(false)
     }
   }, [webviewSummary.phase])
+
+  // ── 休眠调度（片段 D，决策 R3）──
+  // 总结页 webview 仅在 webview 模式下存在；切走总结页 10 分钟后真卸载（D1），切回立即唤醒。
+  const HIBERNATE_DELAY_SUMMARY_MS = 10 * 60 * 1000 // 10 分钟
+  const summaryHibernateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // phase 镜像：executeHibernate 在定时器触发时读取，避免闭包过期
+  const summaryPhaseRef = useRef(webviewSummary.phase)
+  useEffect(() => {
+    summaryPhaseRef.current = webviewSummary.phase
+  }, [webviewSummary.phase])
+  // summarySource 镜像：定时器触发时判断是否仍处于 webview 模式
+  const summarySourceRef = useRef(summarySource)
+  useEffect(() => {
+    summarySourceRef.current = summarySource
+  }, [summarySource])
+
+  const executeSummaryHibernate = useCallback(async () => {
+    // 白名单：非 webview 模式无 webview；streaming/生成中不休眠（避免打断正在进行的总结/抓取）
+    if (summarySourceRef.current !== 'webview') return
+    if (summaryPhaseRef.current === 'streaming' || webviewSummary.isGenerating) {
+      console.log('[SummaryPanel] 总结进行中，跳过休眠')
+      return
+    }
+    const ref = webviewSummaryRef.current
+    if (ref && !ref.isHibernated()) {
+      console.log('[SummaryPanel] 休眠总结页 webview')
+      const result = await ref.suspend()
+      if (!result.success) {
+        console.warn('[SummaryPanel] 总结页 webview 休眠失败:', result.error)
+      }
+    }
+  }, [webviewSummary.isGenerating])
+
+  const scheduleSummaryHibernate = useCallback(() => {
+    if (summaryHibernateTimerRef.current) {
+      clearTimeout(summaryHibernateTimerRef.current)
+    }
+    summaryHibernateTimerRef.current = setTimeout(() => {
+      void executeSummaryHibernate()
+    }, HIBERNATE_DELAY_SUMMARY_MS)
+    console.log(`[SummaryPanel] 总结页 webview 休眠倒计时启动: ${HIBERNATE_DELAY_SUMMARY_MS}ms`)
+  }, [executeSummaryHibernate])
+
+  const wakeSummaryWebview = useCallback(async () => {
+    if (summaryHibernateTimerRef.current) {
+      clearTimeout(summaryHibernateTimerRef.current)
+      summaryHibernateTimerRef.current = null
+    }
+    const ref = webviewSummaryRef.current
+    if (ref && ref.isHibernated()) {
+      console.log('[SummaryPanel] 唤醒总结页 webview')
+      const result = await ref.resume()
+      if (!result.success) {
+        console.warn('[SummaryPanel] 总结页 webview 唤醒失败:', result.error)
+      }
+    }
+  }, [])
+
+  // 页面激活态变化：切回唤醒；切走启动 10min 倒计时
+  useEffect(() => {
+    if (isActive) {
+      void wakeSummaryWebview()
+    } else if (summarySource === 'webview') {
+      scheduleSummaryHibernate()
+    }
+    // 切回时若之前在倒计时，wakeSummaryWebview 已清理；这里再兜底清理
+    if (isActive && summaryHibernateTimerRef.current) {
+      clearTimeout(summaryHibernateTimerRef.current)
+      summaryHibernateTimerRef.current = null
+    }
+  }, [isActive, summarySource, scheduleSummaryHibernate, wakeSummaryWebview])
+
+  // 卸载时清理定时器
+  useEffect(() => {
+    return () => {
+      if (summaryHibernateTimerRef.current) {
+        clearTimeout(summaryHibernateTimerRef.current)
+        summaryHibernateTimerRef.current = null
+      }
+    }
+  }, [])
 
   useEffect(() => {
     if (restoreHistoryData) {

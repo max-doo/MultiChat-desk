@@ -202,10 +202,11 @@ function SummaryPage({ onNavigateBack, initialHistoryItem, isActive }: SummaryPa
 
       {/* 右侧：总结的对话框 + 底部输入框 */}
       <div className="w-2/5 p-6 flex flex-col h-full overflow-hidden">
-        <SummaryPanel 
-          selectedModels={selectedModels} 
+        <SummaryPanel
+          selectedModels={selectedModels}
           modelResponses={modelResponses}
           restoreHistoryData={restoreHistoryData}
+          isActive={isActive}
         />
       </div>
 
