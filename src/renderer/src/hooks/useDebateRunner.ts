@@ -57,10 +57,22 @@ export function useDebateRunner() {
       store.setDebatePhase('finished')
       return
     }
-    const speech = await store.getResponseFromSlot(slotIndex, 30000)
+    // 发送后立即取基线：此刻新回复尚未渲染，getLatestResponse 读到的是上一轮旧回复或空，
+    // 作为「必须出现与之不同的新内容」的参照，避免把旧回复误判为新回复。
+    const baselineRef = useAppStore.getState().webviewRefs.get(`slot-${slotIndex}`)
+    const baseline = baselineRef ? await baselineRef.getLatestResponse().catch(() => '') : ''
     if (abortRef.current || useAppStore.getState().debateState.phase !== 'running') return
 
-    store.appendDebateSpeech(currentRound, currentTurn, speech || '（无回复）')
+    const speech = await store.getResponseFromSlot(slotIndex, 120000, baseline)
+    if (abortRef.current || useAppStore.getState().debateState.phase !== 'running') return
+
+    // 空回复（超时未出现新回复或未稳定）→ 中止辩论，不再写占位回合继续推进
+    if (!speech || !speech.trim()) {
+      store.setDebatePhase('finished')
+      return
+    }
+
+    store.appendDebateSpeech(currentRound, currentTurn, speech)
     store.advanceDebateTurn()
 
     // 下一轮稍作延迟
