@@ -68,6 +68,13 @@ function MainApp(): JSX.Element {
     }
   }, [currentPage, hasSummaryOpened])
 
+  // 注册诊断窗口透传监听
+  const registerDiagnosticsRelay = useAppStore((s) => s.registerDiagnosticsRelay)
+  useEffect(() => {
+    const off = registerDiagnosticsRelay()
+    return off
+  }, [registerDiagnosticsRelay])
+
   if (currentPage === 'quick') {
     return <QuickPage />
   }
