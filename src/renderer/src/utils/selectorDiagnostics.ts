@@ -300,10 +300,10 @@ export function buildResearchProbeScript(steps: AutomationStep[]): string {
         var txt = (el.innerText || el.textContent || '').trim();
         var hasMenu = /^(menu|true)$/i.test(el.getAttribute('aria-haspopup') || '');
         var score = (hasMenu ? 2 : 0) + (openerRegex.test(aria) ? 2 : 0) + (openerRegex.test(txt) ? 1 : 0);
-        if (score > 0) candidates.push({ el: el, score: score });
+        if (score > 0) candidates.push({ el: el, score: score, top: el.getBoundingClientRect().top });
       }
       if (!candidates.length) return null;
-      candidates.sort(function(a, b) { return b.score - a.score; });
+      candidates.sort(function(a, b) { return b.score - a.score || (b.top - a.top); });
       return { el: candidates[0].el, via: 'menu-opener-fallback' };
     }
 
