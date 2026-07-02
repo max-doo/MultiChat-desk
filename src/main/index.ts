@@ -63,8 +63,10 @@ async function cleanupTempUploadDirs(): Promise<void> {
   try {
     const tempRoot = tmpdir()
     const entries = await readdir(tempRoot, { withFileTypes: true })
+
+    // 1) multichat-uploads-* 与 multichat-paste-* 目录
     const multichatDirs = entries
-      .filter(e => e.isDirectory() && e.name.startsWith('multichat-uploads-'))
+      .filter(e => e.isDirectory() && (e.name.startsWith('multichat-uploads-') || e.name.startsWith('multichat-paste-')))
       .map(e => join(tempRoot, e.name))
 
     for (const dir of multichatDirs) {
@@ -73,6 +75,20 @@ async function cleanupTempUploadDirs(): Promise<void> {
         console.log('[Main] 清理临时目录:', dir)
       } catch (e) {
         console.warn('[Main] 清理临时目录失败:', dir, e)
+      }
+    }
+
+    // 2) 残留的 multichat-copy-*.vbs 文件（shortcutManager VBS，AV 锁定/崩溃残留）
+    const multichatVbs = entries
+      .filter(e => e.isFile() && e.name.startsWith('multichat-copy-') && e.name.endsWith('.vbs'))
+      .map(e => join(tempRoot, e.name))
+
+    for (const file of multichatVbs) {
+      try {
+        await rm(file, { force: true })
+        console.log('[Main] 清理残留 VBS:', file)
+      } catch (e) {
+        console.warn('[Main] 清理 VBS 失败:', file, e)
       }
     }
   } catch (e) {

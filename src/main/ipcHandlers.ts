@@ -4,8 +4,8 @@
  */
 
 import { app, ipcMain, dialog, clipboard, BrowserWindow, shell } from 'electron'
-import { basename, extname, join } from 'path'
-import { stat, writeFile, mkdtemp } from 'fs/promises'
+import { basename, extname, join, dirname, resolve } from 'path'
+import { stat, writeFile, mkdtemp, rm } from 'fs/promises'
 import { tmpdir } from 'os'
 import type Store from 'electron-store'
 import { generateSummary, fetchModels } from './api/summaryApi'
@@ -29,6 +29,18 @@ import { automationService } from './services/AutomationService'
 
 // 存储当前的 AbortController，用于终止请求
 let currentSummaryAbortController: AbortController | null = null
+
+/**
+ * 中止并清理当前的 AbortController。
+ * 在发起新的 summary / split-task 之前调用，确保上一个请求的流被真正取消，
+ * 避免 fetch + reader 挂起（旧 controller 被覆盖而不 abort 会泄漏连接）。
+ */
+function abortCurrentSummaryRequest(): void {
+    if (currentSummaryAbortController) {
+        currentSummaryAbortController.abort()
+        currentSummaryAbortController = null
+    }
+}
 
 /**
  * 注册所有 IPC 处理器
@@ -436,6 +448,28 @@ export function registerIpcHandlers(
         }
     })
 
+    // IPC 处理器：清理粘贴图片产生的临时目录（multichat-paste-*）
+    // 渲染层传入 readClipboardImage 返回的 filePath，main 层自行 dirname 取目录
+    ipcMain.handle('cleanup-paste-temp', async (_event, filePath: string) => {
+        if (!filePath || typeof filePath !== 'string') {
+            return { success: false, error: 'invalid filePath' }
+        }
+        const targetDir = dirname(filePath)
+        // 仅允许清理本应用 tmpdir 下的 multichat-paste-* 目录，防止任意路径删除
+        const tempRoot = tmpdir()
+        const resolved = resolve(targetDir)
+        const base = resolve(join(tempRoot, 'multichat-paste-'))
+        if (!resolved.startsWith(base)) {
+            return { success: false, error: 'path not under multichat-paste temp root' }
+        }
+        try {
+            await rm(resolved, { recursive: true, force: true })
+            return { success: true }
+        } catch (e) {
+            return { success: false, error: String(e) }
+        }
+    })
+
     // IPC 处理器：向 webview 发送鼠标点击事件（用于触发 Gemini 复制按钮）
     ipcMain.handle('send-mouse-click', async (_event, params: {
         webContentsId: number,
@@ -596,8 +630,7 @@ export function registerIpcHandlers(
     ipcMain.handle('abort-summary', async () => {
         if (currentSummaryAbortController) {
             console.log('[Summary API] ⏹️ 收到终止请求，正在中断...')
-            currentSummaryAbortController.abort()
-            currentSummaryAbortController = null
+            abortCurrentSummaryRequest()
             return { success: true }
         }
         return { success: false, error: '没有正在进行的请求' }
@@ -618,15 +651,25 @@ export function registerIpcHandlers(
         maxTokens?: number
         includeReasoning?: boolean
     }) => {
+        // 先中止上一个进行中的请求（覆盖而不 abort 会泄漏 fetch + reader），再创建新的
+        abortCurrentSummaryRequest()
         // 创建 AbortController 用于支持终止请求
         currentSummaryAbortController = new AbortController()
         const { signal } = currentSummaryAbortController
+        // 取本地引用：onChunk 闭包中止的应是“自己这次”的 controller，
+        // 即使后续模块变量被其他请求覆盖也不会错位（配合 T4 的覆盖前 abort）
+        const controller = currentSummaryAbortController
 
         try {
             const result = await generateSummary(
                 params,
                 signal,
                 (chunk) => {
+                    // 渲染进程已销毁（窗口关闭等）：中止请求，避免对死 sender 持续 send + 空转 reader
+                    if (event.sender.isDestroyed()) {
+                        controller.abort()
+                        return
+                    }
                     // 通过 IPC 发送流式数据块到渲染进程
                     event.sender.send('summary-stream-chunk', chunk)
                 }
@@ -651,6 +694,9 @@ export function registerIpcHandlers(
         temperature?: number
         maxTokens?: number
     }) => {
+        // 与 generate-summary 共用同一 controller：先 abort 上一个（可能是正在进行的 summary），
+        // 避免旧流挂起；这也是 split-task 能正确获得中止能力的前提
+        abortCurrentSummaryRequest()
         currentSummaryAbortController = new AbortController()
         const { signal } = currentSummaryAbortController
         try {
@@ -666,8 +712,7 @@ export function registerIpcHandlers(
     // IPC 处理器：中止任务拆解
     ipcMain.handle('abort-split-task', async () => {
         if (currentSummaryAbortController) {
-            currentSummaryAbortController.abort()
-            currentSummaryAbortController = null
+            abortCurrentSummaryRequest()
             return { success: true }
         }
         return { success: false, error: '没有正在进行的拆解请求' }

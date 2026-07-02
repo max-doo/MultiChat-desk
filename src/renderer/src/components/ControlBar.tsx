@@ -249,29 +249,35 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
         const fileData = result.data
         showNotification('info', `正在上传 ${fileData.fileName} 到所有模型...`)
 
-        const results = await uploadFileToAll(fileData)
+        try {
+          const results = await uploadFileToAll(fileData)
 
-        const successCount = results.filter(r => r.success).length
-        const failCount = results.filter(r => !r.success).length
+          const successCount = results.filter(r => r.success).length
+          const failCount = results.filter(r => !r.success).length
 
-        if (failCount === 0) {
-          showNotification('success', `图片已粘贴并上传到 ${successCount} 个模型`)
-        } else if (successCount === 0) {
-          const failed = results
-            .filter(r => !r.success)
-            .map(r => {
-              const name = models.find(m => m.id === r.modelId)?.name || r.modelId
-              const err = (r.error || '').toString().slice(0, 120)
-              return err ? `${name}: ${err}` : name
-            })
-            .join(' | ')
-          showNotification('error', failed ? `所有模型上传失败：${failed}` : '所有模型上传失败')
-        } else {
-          const failedModels = results
-            .filter(r => !r.success)
-            .map(r => models.find(m => m.id === r.modelId)?.name || r.modelId)
-            .join(', ')
-          showNotification('info', `${successCount} 个成功，${failCount} 个失败 (${failedModels})`)
+          if (failCount === 0) {
+            showNotification('success', `图片已粘贴并上传到 ${successCount} 个模型`)
+          } else if (successCount === 0) {
+            const failed = results
+              .filter(r => !r.success)
+              .map(r => {
+                const name = models.find(m => m.id === r.modelId)?.name || r.modelId
+                const err = (r.error || '').toString().slice(0, 120)
+                return err ? `${name}: ${err}` : name
+              })
+              .join(' | ')
+            showNotification('error', failed ? `所有模型上传失败：${failed}` : '所有模型上传失败')
+          } else {
+            const failedModels = results
+              .filter(r => !r.success)
+              .map(r => models.find(m => m.id === r.modelId)?.name || r.modelId)
+              .join(', ')
+            showNotification('info', `${successCount} 个成功，${failCount} 个失败 (${failedModels})`)
+          }
+        } finally {
+          // 上传完成（成功或失败）后清理 paste 临时目录，避免 %TEMP% 堆积 multichat-paste-*
+          const pasteFilePath = fileData.filePath
+          if (pasteFilePath) window.api?.cleanupPasteTemp?.(pasteFilePath)
         }
       }
 

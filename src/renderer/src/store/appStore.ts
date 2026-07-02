@@ -29,6 +29,11 @@ const MONITOR_CONFIG = {
   maxMonitorDurationMs: 5 * 60 * 1000,  // 最长监控 5 分钟（防死等）
 }
 
+// saveCurrentTurn 写盘节流：监控期间每 10s 落盘一次，避免每轮（~3s）全量写盘放大。
+// forceFlush=true（监控结束/中止/完成）时绕过节流立即写。
+let historyPersistLastTs = 0
+const HISTORY_PERSIST_MIN_INTERVAL = 10_000
+
 // 模型配置类型
 export interface ModelConfig {
   id: string
@@ -297,6 +302,10 @@ interface AppState {
   // History 分页：磁盘总量 + 加载更多
   historyTotalCount: number
   summaryHistoryTotalCount: number
+  // 已从磁盘加载到内存（含被裁剪掉的）的条数游标，用作 loadMore 的 offset。
+  // 内存只保留最新 100，用 history.length 作 offset 会重复取已裁剪的旧页。
+  historyLoadedCount: number
+  summaryHistoryLoadedCount: number
   loadMoreHistory: () => Promise<void>
   loadMoreSummaryHistory: () => Promise<void>
 
@@ -332,7 +341,7 @@ interface AppState {
   startMonitoring: (conversationId: string, turnId: string, userMessage: string, models: string[]) => void
   stopMonitoring: () => void
   pollPlatforms: () => Promise<void>
-  saveCurrentTurn: () => void
+  saveCurrentTurn: (forceFlush?: boolean) => void
   updatePlatformAnswer: (modelId: string, text: string, isComplete?: boolean) => void
 
   // 文件上传状态
@@ -876,6 +885,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   summaryHistory: [],
   historyTotalCount: 0,
   summaryHistoryTotalCount: 0,
+  historyLoadedCount: 0,
+  summaryHistoryLoadedCount: 0,
   addSummaryHistory: (item) => set((state) => {
     const newHistory = [item, ...state.summaryHistory].slice(0, 100)
     if (window.api?.storeSet) window.api.storeSet('summaryHistory', newHistory)
@@ -902,11 +913,20 @@ export const useAppStore = create<AppState>((set, get) => ({
   loadMoreHistory: async () => {
     const state = get()
     if (!window.api?.historyGetPage) return
-    const result = await window.api.historyGetPage(state.history.length, 100)
-    if (result.success && result.data) {
-      set((s) => ({
-        history: [...s.history, ...result.data!],
-      }))
+    // 用“已加载游标”作 offset，而非 history.length——内存只保留最新 100，
+    // 用 history.length 会重复取已被裁剪的旧页
+    const offset = state.historyLoadedCount
+    const result = await window.api.historyGetPage(offset, 100)
+    if (result.success && result.data && result.data.length > 0) {
+      set((s) => {
+        // 拼接后裁剪：内存硬上限 100，超出从最旧端裁掉（更旧的仍可再次 loadMore 翻页取回）
+        const merged = [...s.history, ...result.data!]
+        const trimmed = merged.length > 100 ? merged.slice(merged.length - 100) : merged
+        return {
+          history: trimmed,
+          historyLoadedCount: s.historyLoadedCount + result.data!.length
+        }
+      })
       // 刷新 totalCount，防止边界变化导致按钮态错位
       const countResult = await window.api.historyGetTotalCount()
       if (countResult.success && countResult.data !== undefined) {
@@ -918,11 +938,17 @@ export const useAppStore = create<AppState>((set, get) => ({
   loadMoreSummaryHistory: async () => {
     const state = get()
     if (!window.api?.summaryHistoryGetPage) return
-    const result = await window.api.summaryHistoryGetPage(state.summaryHistory.length, 100)
-    if (result.success && result.data) {
-      set((s) => ({
-        summaryHistory: [...s.summaryHistory, ...result.data!],
-      }))
+    const offset = state.summaryHistoryLoadedCount
+    const result = await window.api.summaryHistoryGetPage(offset, 100)
+    if (result.success && result.data && result.data.length > 0) {
+      set((s) => {
+        const merged = [...s.summaryHistory, ...result.data!]
+        const trimmed = merged.length > 100 ? merged.slice(merged.length - 100) : merged
+        return {
+          summaryHistory: trimmed,
+          summaryHistoryLoadedCount: s.summaryHistoryLoadedCount + result.data!.length
+        }
+      })
       const countResult = await window.api.summaryHistoryGetTotalCount()
       if (countResult.success && countResult.data !== undefined) {
         set({ summaryHistoryTotalCount: countResult.data })
@@ -1393,7 +1419,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
     // 兜底：停止前补写一次当前 turn，防止最后一次内容变化未落盘
     // 必须在 set 重置 currentTurn=null 之前调用；saveCurrentTurn 对 currentTurn 为 null 时安全 early return
-    get().saveCurrentTurn()
+    // forceFlush=true：停止/中止时绕过节流立即落盘，不丢数据
+    get().saveCurrentTurn(true)
     set({
       monitor: {
         isMonitoring: false,
@@ -1460,7 +1487,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
 
     if (allComplete) {
-      get().saveCurrentTurn() // 完成时显式写终态，保证最后一帧落盘
+      get().saveCurrentTurn(true) // 完成时显式写终态，保证最后一帧落盘
       get().stopMonitoring()
     }
   },
@@ -1491,7 +1518,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     saveCurrentTurn()
   },
 
-  saveCurrentTurn: () => {
+  saveCurrentTurn: (forceFlush) => {
     const { monitor, history } = get()
     if (!monitor.currentTurn || !monitor.currentConversationId) return
 
@@ -1533,9 +1560,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       h.id === currentConversationId ? updatedItem : h
     )
 
+    // 内存始终更新（UI 需要实时反映最新内容）
     set({ history: newHistory })
-    if (window.api?.storeSet) {
+
+    // 节流写盘：流式中每 10s 落盘一次；forceFlush=true（监控结束/中止/完成）时立即写
+    const now = Date.now()
+    const shouldPersist = forceFlush || (now - historyPersistLastTs >= HISTORY_PERSIST_MIN_INTERVAL)
+    if (shouldPersist && window.api?.storeSet) {
       window.api.storeSet('history', newHistory)
+      historyPersistLastTs = now
     }
   },
 }))
@@ -1656,14 +1689,14 @@ export async function initializeStore(): Promise<void> {
           ],
           urls: old.urls,
         })).slice(0, 100)
-        useAppStore.setState({ history: migratedHistory })
+        useAppStore.setState({ history: migratedHistory, historyLoadedCount: migratedHistory.length })
         // 立即持久化新格式
         window.api?.storeSet('history', migratedHistory)
         console.log('[Store] History migrated from old format to turns-based format')
       } else {
         // 内存热区上限 100；磁盘上限 1000 由 store-set handler 的 enforceDiskLimit 兜底，启动不再回写裁剪磁盘。
         const hotHistory = (storedHistory as HistoryItem[]).slice(0, 100)
-        useAppStore.setState({ history: hotHistory })
+        useAppStore.setState({ history: hotHistory, historyLoadedCount: hotHistory.length })
       }
     }
 
@@ -1677,7 +1710,7 @@ export async function initializeStore(): Promise<void> {
     if (storedSummaryHistory) {
       // 内存热区上限 100；磁盘上限 1000 由 store-set handler 兜底，启动不再回写裁剪磁盘。
       const hotSummary = storedSummaryHistory.slice(0, 100)
-      useAppStore.setState({ summaryHistory: hotSummary })
+      useAppStore.setState({ summaryHistory: hotSummary, summaryHistoryLoadedCount: hotSummary.length })
     }
 
     // 读取磁盘总结历史总量

@@ -11,6 +11,10 @@ import { startAgentPromptsWatcher } from './agentPrompts'
 
 // ============ 状态管理 ============
 
+// 已注册 handler 的 webContents 集合，用于幂等守卫
+// （re-attach / guest 重 parent / OAuth 重定向循环时避免监听线性累积）
+const registeredWebContentsSet = new WeakSet<Electron.WebContents>()
+
 // 主窗口引用
 let mainWindow: BrowserWindow | null = null
 let quickWindow: BrowserWindow | null = null
@@ -409,6 +413,16 @@ export function createWindow(): void {
  * 同时适用于主窗口和快捷弹窗，避免重复逻辑。
  */
 export function registerWebviewHandlers(webContents: Electron.WebContents): void {
+    // 幂等守卫：同一 webContents 只注册一次，避免 re-attach（OAuth 重定向/guest 重 parent）时
+    // 监听线性累积导致内存与 CPU 增长
+    if (registeredWebContentsSet.has(webContents)) {
+        if (process.env.NODE_ENV === 'development') {
+            console.log('[Main][WebviewHandlers] 已注册，跳过重复注册 wcId:', webContents.id)
+        }
+        return
+    }
+    registeredWebContentsSet.add(webContents)
+
     setupContextMenu(webContents)
 
     // ============ Google 账号切换检测 ============

@@ -1,5 +1,6 @@
 import { globalShortcut, clipboard, BrowserWindow } from 'electron'
-import { writeFileSync, unlinkSync } from 'fs'
+import { writeFileSync } from 'fs'
+import { rm } from 'fs/promises'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import { execFile } from 'child_process'
@@ -156,17 +157,24 @@ function simulateCopyWin32VBS(): Promise<void> {
       writeFileSync(tempVbsPath, 'Set w = CreateObject("WScript.Shell")\nw.SendKeys "^c"\n')
 
       // 使用 cscript 运行并隐藏窗口
-      execFile('cscript.exe', ['//NoLogo', tempVbsPath], { timeout: 1500, windowsHide: true }, (err) => {
+      const child = execFile('cscript.exe', ['//NoLogo', tempVbsPath], { timeout: 1500, windowsHide: true }, (err) => {
         if (err) {
           console.warn('[ShortcutManager] VBS 模拟复制执行出错:', err.message)
         }
-        // 清理临时文件
-        try {
-          unlinkSync(tempVbsPath)
-        } catch (cleanupErr) {
-          console.warn('[ShortcutManager] 无法删除临时 VBS 文件:', cleanupErr)
-        }
+        // 异步清理临时文件（unlinkSync 在 AV 锁定时阻塞事件循环；改异步且忽略失败，
+        // 残留由启动时 cleanupTempUploadDirs 兜底）
+        rm(tempVbsPath, { force: true }).catch((cleanupErr) => {
+          console.warn('[ShortcutManager] 无法删除临时 VBS 文件:', String(cleanupErr))
+        })
         resolve()
+      })
+
+      // execFile 的 timeout 仅发 SIGTERM，Windows 下不一定杀掉 cscript.exe；
+      // 超时后强制 kill 整个进程树，避免僵尸 cscript 占用
+      child.on('exit', (code, _signal) => {
+        if (code === null) {
+          try { child.kill() } catch { /* 已退出 */ }
+        }
       })
     } catch (writeErr) {
       console.warn('[ShortcutManager] 写入/模拟复制脚本出错:', writeErr)

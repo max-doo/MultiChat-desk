@@ -56,6 +56,16 @@ Agents may suggest or promote a lesson into the `Known Gotchas` section of `AGEN
 - **总结页模型获取的上下文一致性**：在总结面板加载或切换模型时，必须显式传入当前的 `productMode` 和插槽 `slot` 信息，保证插槽切换和模型变更在不同面板和窗口下的行为对齐；复用同一渲染面板时，应避免使用静态 ref 产生加载锁，否则会导致生命周期 `useEffect` 的状态更新流被静默拦截。
 - **辩论模式与任务分配模式的实现复用原则**：辩论轮转可直接复用 `webviewRefs.get('slot-N')` 单槽位发送能力，无需修改 `WebviewCard` 组件本身；任务拆解可复用 `generate-summary` 的 `AbortController` 全局中止器，避免重复实现中止逻辑。新增模式功能时，优先评估现有 IPC 和组件能力的复用性，减少侵入式改动。
 
+- **Electron 流式总结链路的三条内存/连接生命周期铁律**（内存泄漏审核修复实证）：
+  1. **AbortController 覆盖前必须 abort 旧实例**：`currentSummaryAbortController = new AbortController()` 直接覆盖旧引用而不 `.abort()`，会让旧 `fetch` + `ReadableStream` reader 挂起到服务端超时（连接+缓冲区泄漏）。共享同一模块级控制器的多个入口（`generate-summary` 与 `split-task`）必须互斥——任一新请求到来前先 `abortCurrentSummaryRequest()` 再建新 controller。`onChunk` 闭包若需中止，应捕获**本地 `const controller = currentSummaryAbortController` 引用**，否则模块变量被后续请求覆盖后闭包会中止错对象。
+  2. **`getReader()` 的 abort/异常路径必须有 `finally { await reader.cancel() }`**：`reader.read()` 在 `try` 内消费，若 `catch` 的 AbortError 分支直接 `return`，reader 锁未释放、底层 TCP 连接挂起。`finally` 里 `try { await reader.cancel() } catch {}`（cancel 在流已正常结束时是 no-op，安全）。正常完成路径的多个 early `return` 也会触发 finally，安全。
+  3. **流式 `onChunk` 必须检查 `event.sender.isDestroyed()`**：渲染窗口中途关闭后，主进程仍继续 `reader.read()` 并对死 sender `event.sender.send(...)`，整条流被空转消费到结束。守卫：`if (event.sender.isDestroyed()) { controller.abort(); return }`——不止跳过 send，还要中止整个请求（否则 reader 继续读）。
+  注意 `split-task` 是 `stream:false` 一次性 fetch（无 `getReader()`/`onChunk`/reader 锁），不适用第 2、3 条，但适用第 1 条（共享 controller 互斥）。
+
+- **EnterWorktree / git worktree 的 baseRef 默认陷阱**：Claude Code 的 `EnterWorktree` 工具 `worktree.baseRef` 默认 `fresh`，即从 `origin/<default-branch>` 拉新分支，**不是**本地 `main`。当本地 `main` 有未 push 的提交时，新 worktree 会落后于计划所基于的代码状态——计划文档引用的行号/代码上下文会失准，且缺失本地 main 上的关键修复（如白屏修复）。**判别**：worktree 内 `git log --oneline origin/main..main` 若有输出即本地 main 领先 origin。**修复**：在 worktree 分支上 `git stash` → `git rebase main` → `git stash pop`（rebase 不算切分支，仍在当前 worktree 分支）。或改 `worktree.baseRef=head` 配置从本地 HEAD 拉。执行任何计划前先核对 worktree 基线与计划所基于的分支一致。
+
+- **新 worktree 的 electron 二进制不会随 `npm install` 自动下载**：在 `.claude/worktrees/` 新建 worktree 后跑 `npm install`，`@electron/rebuild` 会执行原生依赖重建（看似正常完成），但 electron 自身的 postinstall（下载平台二进制到 `node_modules/electron/dist/`）常被跳过——结果 `node_modules/electron/path.txt` 缺失、`dist/` 为空，`npm run dev` 启动时报 `Error: Electron uninstall` 或直接退出。**判别**：`cat node_modules/electron/path.txt` 为空/缺失即命中。**修复**：手动 `node node_modules/electron/install.js` 拉取二进制（从缓存或网络），之后 `path.txt` 含 `electron.exe` 即可 `npm run dev`。每个新 worktree 都要重复此步（除非 node_modules 是从主仓库硬链接/复制来的）。
+
 - **跨 worktree 合并分支的正确姿势**：本项目用 `.claude/worktrees/` 隔离开发，合并某 worktree 分支回 `develop` 时，`develop` 通常被主仓库 worktree（`C:/Project/MultiChat-desk`）检出。在本 worktree 里 `git branch -f develop HEAD` 会报 `fatal: cannot force update the branch 'develop' used by worktree at '...'`——被其他 worktree 检出的分支无法强移指针。**正确做法**：用 `git -C "C:/Project/MultiChat-desk" merge <worktree分支>` 在主仓库侧合并；合并前务必先确认主仓库工作区干净（`git -C <主仓库> status`），若主仓库有未提交的并行工作，需用户先提交或 stash，否则会与其工作区混淆。冲突典型形态：同名 plan 文档 add/add（主仓库与 worktree 各自新建了同一 plan），取内容更全的一方（通常是含审核/实施状态注释的 worktree 版本）。
 
 ## Stable Decisions

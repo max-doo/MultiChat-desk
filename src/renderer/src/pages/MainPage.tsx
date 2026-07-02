@@ -54,6 +54,8 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
   } | null>(null)
 
   const scrapingControllerRef = useRef<AbortController | null>(null)
+  // 延迟跳转 SummaryPage 的定时器；重入与 unmount 时需清理，避免叠加跳转 / 卸载后触发
+  const navigateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // 回溯历史时，预计算各模型最后一轮 turn 的快照 + 历史原始 URL，
   // 供 WebviewCard 做 URL 不匹配检测与只读快照显示。非回溯态（无 activeHistoryId）返回空。
@@ -89,6 +91,16 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
       }
     }
     return refCallbacks.current[key]
+  }, [])
+
+  // 组件卸载时清理未触发的跳转定时器，避免卸载后仍触发 onNavigateToSummary
+  useEffect(() => {
+    return () => {
+      if (navigateTimerRef.current) {
+        clearTimeout(navigateTimerRef.current)
+        navigateTimerRef.current = null
+      }
+    }
   }, [])
 
   const handleGenerateReport = async () => {
@@ -184,7 +196,11 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
       })
 
       // 延迟一下再跳转，让用户看到提示
-      setTimeout(() => {
+      if (navigateTimerRef.current) {
+        clearTimeout(navigateTimerRef.current)
+      }
+      navigateTimerRef.current = setTimeout(() => {
+        navigateTimerRef.current = null
         onNavigateToSummary()
       }, 500)
     } catch (error) {
@@ -256,6 +272,44 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
       return changed ? next : prev
     })
   }, [displayedModels.length, productMode])
+
+  // 跟踪每插槽 modelId 的变化：换模型时回收旧 (slotIndex-oldModelId) 的 ref 回调，
+  // 避免 refCallbacks.current 只增不减、陈旧 webview ref 无法 GC
+  const prevSlotModelIds = useRef<string[]>([])
+  useEffect(() => {
+    const currentIds = displayedModels.map(m => m?.id ?? '').filter(Boolean)
+    const prev = prevSlotModelIds.current
+
+    // 对每个插槽，若 modelId 变了，回收旧键
+    currentIds.forEach((modelId, slotIndex) => {
+      const oldId = prev[slotIndex]
+      if (oldId && oldId !== modelId) {
+        const oldKey = `${slotIndex}-${oldId}`
+        const oldCb = refCallbacks.current[oldKey]
+        if (oldCb) {
+          // 以 null 触发旧回调：unregister 旧 webview ref + 置空 lastRef
+          oldCb(null)
+          delete refCallbacks.current[oldKey]
+        }
+      }
+    })
+
+    // 处理插槽数减少：prev 比 current 长的部分，回收所有旧键
+    if (prev.length > currentIds.length) {
+      for (let slotIndex = currentIds.length; slotIndex < prev.length; slotIndex++) {
+        const oldId = prev[slotIndex]
+        if (!oldId) continue
+        const oldKey = `${slotIndex}-${oldId}`
+        const oldCb = refCallbacks.current[oldKey]
+        if (oldCb) {
+          oldCb(null)
+          delete refCallbacks.current[oldKey]
+        }
+      }
+    }
+
+    prevSlotModelIds.current = currentIds
+  }, [displayedModels])
 
   const gutterWidthPx = 16
   const MIN_PANE_WIDTH = 320
