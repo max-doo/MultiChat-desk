@@ -1,6 +1,29 @@
 # Session Log
 
+## 2026-07-03
+
+### 00:30 | claude-code
+
+- done: 选择器诊断独立窗口 v2（8 task SDD：独立 BrowserWindow 双 Tab + researchMode 探针 + 实跑按钮，跨窗口 IPC 代理）
+- decision: researchMode 探针同源铁律：findElement/matchText(含 exclude)/findMenuOpener 逐字复刻 webviewScripts.ts:640-781，只读不点击；任何行为分歧（如漏 exclude、漏 top 排序）即使只读不影响 found 判定也要修，否则探针可信度受损。
+- added:
+  - `src/renderer/src/pages/DiagnosticsPage.tsx`
+- modified:
+  - `src/renderer/src/utils/selectorDiagnostics.ts;src/renderer/src/components/WebviewCard.tsx;src/main/webviewManager.ts;src/main/ipcHandlers.ts;src/preload/index.ts;src/preload/index.d.ts;src/renderer/src/env.d.ts;src/renderer/src/store/appStore.ts;src/renderer/src/App.tsx;src/renderer/src/components/SettingsDrawer.tsx;src/renderer/src/components/Layout.tsx;docs/选择器维护方法论.md`
+- removed:
+  - `src/renderer/src/components/SelectorDiagnosticsPanel.tsx`
+- lesson(promoted): Electron 跨窗口访问主窗口 webview：诊断窗口不持有 webview，须经主进程 reqId Map + 超时兜底透传给主窗口 renderer 查 webviewRefs；返回结构统一 {success,data?,error?}。
+- lesson(promoted): renderer 的 window.api 类型有双源：src/preload/index.d.ts 与 src/renderer/src/env.d.ts 各自 declare global Window.api，tsconfig.web.json 同时引用两者——加 IPC 方法必须两边都补，否则 renderer tsc 报缺方法。
+- lesson(promoted): ipcHandlers.ts 的 getMainWindow 是 registerIpcHandlers 的参数而非 webviewManager import；新增依赖 getMainWindow 的 handler 必须注册在函数体内，Map 等持久状态放模块顶层。
+- unresolved: 手动 dev 示范（Task 8 Step2）需 npm run dev + 人工开 ChatGPT/Kimi 触发回复 + 点诊断观察，未自主完成；已做等价自动化验证（build exit 0、DEV-gate grep=0、同源核对、IPC 契约 parity、tsc/lint 无新错）。
+
 ## 2026-07-02
+
+### 23:42 | claude-code
+
+- done: Task 2: Added probeResearchMode to WebviewCardRef (interface + useImperativeHandle impl), extended selectorDiagnostics import
+- modified:
+  - `src/renderer/src/components/WebviewCard.tsx`
 
 ### 13:15 | claude-code
 
