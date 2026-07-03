@@ -371,8 +371,8 @@ interface AppState {
   chatSessionVersion: number
 
   // 页面导航状态
-  currentPage: 'main' | 'summary' | 'quick'
-  setCurrentPage: (page: 'main' | 'summary' | 'quick') => void
+  currentPage: 'main' | 'summary' | 'quick' | 'diagnostics'
+  setCurrentPage: (page: 'main' | 'summary' | 'quick' | 'diagnostics') => void
 
   // UI 抽屉状态
   isSettingsOpen: boolean
@@ -389,6 +389,9 @@ interface AppState {
   automationSendPrompt: (platformId: string, prompt: string, collectDelayMs?: number) => Promise<{ success: boolean; data?: string; error?: string }>
   /** 仅收集指定平台的最新回复 */
   automationCollect: (platformId: string) => Promise<{ success: boolean; data?: string; error?: string }>
+
+  // 诊断窗口透传监听
+  registerDiagnosticsRelay: () => () => void
 }
 
 /**
@@ -1356,7 +1359,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
 
   currentPage: 'main',
-  setCurrentPage: (page: 'main' | 'summary' | 'quick') => set({ currentPage: page }),
+  setCurrentPage: (page: 'main' | 'summary' | 'quick' | 'diagnostics') => set({ currentPage: page }),
 
   isSettingsOpen: false,
   setSettingsOpen: (open: boolean) => set({ isSettingsOpen: open }),
@@ -1591,6 +1594,40 @@ export const useAppStore = create<AppState>((set, get) => ({
       window.api.storeSet('history', newHistory)
       historyPersistLastTs = now
     }
+  },
+
+  registerDiagnosticsRelay: () => {
+    const offProbe = window.api.onDiagnosticsProbeRequest(async ({ reqId, modelId, type }) => {
+      const { webviewRefs } = get()
+      const ref = webviewRefs.get(modelId)
+      let result: unknown
+      if (!ref) {
+        result = { ok: false, error: '平台未加载' }
+      } else {
+        try {
+          result = type === 'message' ? await ref.probeMessageContainer() : await ref.probeResearchMode()
+        } catch (error) {
+          result = { ok: false, error: String(error) }
+        }
+      }
+      window.api.diagnosticsProbeResponse(reqId, result)
+    })
+    const offRun = window.api.onDiagnosticsRunResearchRequest(async ({ reqId, modelId }) => {
+      const { webviewRefs } = get()
+      const ref = webviewRefs.get(modelId)
+      let result: { success: boolean; error?: string }
+      if (!ref) {
+        result = { success: false, error: '平台未加载' }
+      } else {
+        try {
+          result = await ref.enableDeepResearch()
+        } catch (error) {
+          result = { success: false, error: String(error) }
+        }
+      }
+      window.api.diagnosticsRunResearchResponse(reqId, result)
+    })
+    return () => { offProbe(); offRun() }
   },
 }))
 

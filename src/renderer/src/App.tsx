@@ -4,6 +4,7 @@ import MainPage from './pages/MainPage'
 import SummaryPage from './pages/SummaryPage'
 import QuickPage from './pages/QuickPage'
 import ToolbarPage from './pages/ToolbarPage'
+import DiagnosticsPage from './pages/DiagnosticsPage'
 import { initializeStore, useAppStore, SummaryHistoryItem } from './store/appStore'
 
 function MainApp(): JSX.Element {
@@ -19,6 +20,9 @@ function MainApp(): JSX.Element {
     const checkHash = () => {
       if (window.location.hash === '#quick') {
         setCurrentPage('quick')
+      }
+      if (window.location.hash === '#diagnostics') {
+        setCurrentPage('diagnostics')
       }
     }
     checkHash()
@@ -68,8 +72,19 @@ function MainApp(): JSX.Element {
     }
   }, [currentPage, hasSummaryOpened])
 
+  // 注册诊断窗口透传监听
+  const registerDiagnosticsRelay = useAppStore((s) => s.registerDiagnosticsRelay)
+  useEffect(() => {
+    const off = registerDiagnosticsRelay()
+    return off
+  }, [registerDiagnosticsRelay])
+
   if (currentPage === 'quick') {
     return <QuickPage />
+  }
+
+  if (currentPage === 'diagnostics') {
+    return <DiagnosticsPage />
   }
 
   // 显示错误状态

@@ -1,7 +1,6 @@
 import { ReactNode, useEffect, useMemo, useState, useRef } from 'react'
 import { useAppStore } from '../store/appStore'
 import SettingsDrawer from './SettingsDrawer'
-import SelectorDiagnosticsPanel from './SelectorDiagnosticsPanel'
 
 interface LayoutProps {
   children: ReactNode
@@ -16,9 +15,7 @@ function Layout({ children }: LayoutProps): JSX.Element {
   const [menuX, setMenuX] = useState(0)
   const [menuY, setMenuY] = useState(0)
   const [menuItems, setMenuItems] = useState<Array<{ key: string; label: string; icon?: string; action: () => void }>>([])
-  const [isDiagnosticsOpen, setDiagnosticsOpen] = useState(false)
-  const isDev = import.meta.env.DEV === true
-  
+
   // 窗口拖拽状态引用
   const isDraggingRef = useRef(false)
   
@@ -333,16 +330,6 @@ function Layout({ children }: LayoutProps): JSX.Element {
             </div>
           </div>
           <div className="flex items-center gap-1 no-drag">
-            {isDev && (
-              <button
-                type="button"
-                onClick={() => setDiagnosticsOpen(true)}
-                className="w-7 h-7 flex items-center justify-center text-text-secondary hover:text-primary hover:bg-white/60 rounded-full transition-all duration-200"
-                title="选择器诊断 (dev)"
-              >
-                <span className="material-symbols-outlined text-lg">science</span>
-              </button>
-            )}
             <button
               type="button"
               onClick={() => setSettingsOpen(true)}
@@ -441,12 +428,6 @@ function Layout({ children }: LayoutProps): JSX.Element {
       </main>
       {menu}
       <SettingsDrawer isOpen={isSettingsOpen} onClose={() => setSettingsOpen(false)} />
-      {isDev && (
-        <SelectorDiagnosticsPanel
-          isOpen={isDiagnosticsOpen}
-          onClose={() => setDiagnosticsOpen(false)}
-        />
-      )}
     </div>
   )
 }
