@@ -15,14 +15,16 @@ interface UseSummaryPanelProps {
     webviewUrl?: string
   } | null
   onReset?: () => void
+  /** 预选的总结模板 id；仅首次挂载时生效，用于辩论→总结自动选 '5' */
+  presetSummaryMode?: string
 }
 
 /**
  * SummaryPanel 的自定义 Hook
  * 管理总结面板的所有状态和业务逻辑
  */
-export function useSummaryPanel({ selectedModels, modelResponses, restoreHistoryData, onReset }: UseSummaryPanelProps) {
-  const [summaryMode, setSummaryMode] = useState('1')
+export function useSummaryPanel({ selectedModels, modelResponses, restoreHistoryData, onReset, presetSummaryMode }: UseSummaryPanelProps) {
+  const [summaryMode, setSummaryMode] = useState(() => presetSummaryMode ?? '1')
   const [customPrompt, setCustomPrompt] = useState('')
   const [isGenerating, setIsGenerating] = useState(false)
   const [error, setError] = useState<string | null>(null)

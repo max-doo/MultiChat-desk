@@ -96,6 +96,8 @@ interface WebviewCardProps {
   isolated?: boolean // 隔离模式：不受主界面对话状态（会话锁定、模型阵容锁定）的影响
   headerActions?: React.ReactNode // 自定义头部操作区按钮
   draggableHeader?: boolean // 是否允许头部拖拽窗口
+  /** 辩论模式下的阵营标签（正方/反方），仅 productMode='debate' 时传入 */
+  sideLabel?: '正方' | '反方'
   /** 只读历史快照：URL 不匹配/网页打不开时，用本地存的该模型历史回复替代真实页面。reason 表示触发原因。 */
   readonlySnapshot?: { content: string; reason: 'url_mismatch' | 'load_error' | 'no_snapshot' } | null
   /** 历史记录里该模型的原始 URL，用于检测 webview 是否仍停在历史会话页。为空则跳过检测。 */
@@ -138,7 +140,7 @@ export interface WebviewCardRef {
  * 嵌入 AI 平台的 Web 界面，支持消息发送和响应抓取
  */
 const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
-  ({ id, name, url, logo, enabled, slotIndex, compact, hideHeader, onModelChange, isolated, headerActions, draggableHeader, flat, onDragStart, readonlySnapshot, expectedUrl }, ref) => {
+  ({ id, name, url, logo, enabled, slotIndex, compact, hideHeader, onModelChange, isolated, headerActions, draggableHeader, flat, onDragStart, readonlySnapshot, expectedUrl, sideLabel }, ref) => {
     const webviewRef = useRef<Electron.WebviewTag>(null)
     const [isLoading, setIsLoading] = useState(true)
     const [isReady, setIsReady] = useState(false)
@@ -1159,6 +1161,17 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
                     <div className="flex items-center gap-2">
                       <img alt={`${name} logo`} className="w-6 h-6" src={logo} />
                       <h2 className="font-semibold text-text-primary">{name}</h2>
+                      {sideLabel && (
+                        <span
+                          className={`text-xs font-bold px-1.5 py-0.5 rounded-md ${
+                            sideLabel === '正方'
+                              ? 'bg-blue-100 text-blue-700'
+                              : 'bg-orange-100 text-orange-700'
+                          }`}
+                        >
+                          {sideLabel}
+                        </span>
+                      )}
                     </div>
                   )}
                 renderOption={(option, isSelected, onSelect) => {

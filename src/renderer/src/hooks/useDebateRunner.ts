@@ -1,5 +1,6 @@
 import { useRef, useCallback, useEffect } from 'react'
 import { useAppStore } from '../store/appStore'
+import { buildDebatePrompt } from '../utils/debatePrompts'
 
 /**
  * 辩论轮转驱动：正方(slot-0) ↔ 反方(slot-1) 自动交替。
@@ -17,22 +18,22 @@ export function useDebateRunner() {
 
   const buildPrompt = (topic: string, round: number, turn: 0 | 1): string => {
     const state = useAppStore.getState().debateState
-    const role = turn === 0 ? '正方' : '反方'
-    const oppRole = turn === 0 ? '反方' : '正方'
     // 找对手最近一次发言
-    let oppSpeech = ''
+    let opponentSpeech = ''
     if (turn === 0) {
       // 正方发言：对手是上一轮的反方
-      oppSpeech = state.rounds[round - 1]?.opponent || ''
+      opponentSpeech = state.rounds[round - 1]?.opponent || ''
     } else {
       // 反方发言：对手是本轮的正方
-      oppSpeech = state.rounds[round]?.proponent || ''
+      opponentSpeech = state.rounds[round]?.proponent || ''
     }
-    const header = `你是辩论的${role}。辩论主题：${topic}\n\n`
-    if (round === 0 && turn === 0) {
-      return `${header}请作为正方开场，陈述你的核心立场与论据（300 字以内）。`
-    }
-    return `${header}${oppRole}刚刚的发言：\n"""\n${oppSpeech}\n"""\n\n请作为${role}进行反驳（300 字以内）。`
+    return buildDebatePrompt({
+      topic,
+      round,
+      turn,
+      totalRounds: state.totalRounds,
+      opponentSpeech
+    })
   }
 
   const runNextTurn = useCallback(async () => {

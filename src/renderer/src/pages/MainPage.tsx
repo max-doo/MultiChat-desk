@@ -210,6 +210,49 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
     window.addEventListener('keydown', handleKeyDown)
 
     try {
+      // 辩论模式：裁判评析直接读 debateState.rounds，绕开 webview 抓取与快照兜底。
+      // 否则 getAllResponses 会沿用上一次多AI会话的 activeModels 抓到错误 webview 的回复。
+      if (productMode === 'debate') {
+        const ds = useAppStore.getState().debateState
+        const [proId, oppId] = debateSlots
+        const proName = models.find((m) => m.id === proId)?.name ?? '正方'
+        const oppName = models.find((m) => m.id === oppId)?.name ?? '反方'
+        const proText = ds.rounds
+          .map((r, i) => `【第${i + 1}轮·正方】\n${r.proponent ?? ''}`)
+          .filter((s) => s.trim())
+          .join('\n\n')
+        const oppText = ds.rounds
+          .map((r, i) => `【第${i + 1}轮·反方】\n${r.opponent ?? ''}`)
+          .filter((s) => s.trim())
+          .join('\n\n')
+        const validResponses: Record<string, string> = {}
+        if (proText) validResponses[proId] = `（正方：${proName}）\n${proText}`
+        if (oppText) validResponses[oppId] = `（反方：${oppName}）\n${oppText}`
+        if (controlBarRef.current) {
+          controlBarRef.current.clearNotification()
+          const n = Object.keys(validResponses).length
+          if (n > 0) {
+            controlBarRef.current.showNotification('success', `成功获取 ${n} 个辩论方发言`)
+          } else {
+            controlBarRef.current.showNotification('error', '未获取到辩论发言')
+          }
+        }
+        setPendingSummarySession({
+          modelResponses: validResponses,
+          urls: undefined,
+          sourceHistoryId: undefined,
+          timestamp: Date.now(),
+          snapshotModelIds: [],
+          presetSummaryMode: '5' // 辩论对决：辩论模式进入总结时默认选中
+        })
+        if (navigateTimerRef.current) clearTimeout(navigateTimerRef.current)
+        navigateTimerRef.current = setTimeout(() => {
+          navigateTimerRef.current = null
+          onNavigateToSummary()
+        }, 500)
+        return
+      }
+
       const responses = await getAllResponses({ signal: controller.signal, timeoutMs: 10000 })
 
       if (controller.signal.aborted) {
@@ -756,6 +799,7 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
                   logo={model.logo}
                   enabled={true}
                   slotIndex={i}
+                  sideLabel={mode === 'debate' ? (i === 0 ? '正方' : '反方') : undefined}
                   expectedUrl={historyUrls[model.id]}
                   readonlySnapshot={
                     !activeHistoryId

@@ -151,6 +151,8 @@ export interface SummarySessionInit {
   timestamp: number
   /** 哪些模型的回复来自本地历史快照兜底（实时页面不可用），供总结页标注 */
   snapshotModelIds?: string[]
+  /** 预选的总结模板 id（如从辩论模式进入时预选 '5' 辩论对决）。useSummaryPanel 在首次挂载时读取。 */
+  presetSummaryMode?: string
 }
 
 // 发送结果类型
@@ -515,8 +517,8 @@ export const defaultAgentPrompts: AgentPrompt[] = [
   },
   {
     id: '5',
-    name: '辩论对决',
-    description: '把回答当作辩手观点，评分论证强度并给出裁决。',
+    name: '辩论裁判',
+    description: '作为辩论赛主席按轮次追踪攻防、评分并给出最终裁决（辩论模式专用）。',
     isDefault: true,
     prompt: debatePrompt
   },
@@ -727,6 +729,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   setDebateSlot: (side, modelId) => set((s) => {
     const slots = [...s.debateSlots] as [string, string]
     slots[side] = modelId
+    if (window.api?.storeSet) window.api.storeSet('debateSlots', slots)
     return { debateSlots: slots }
   }),
   debateTotalRounds: 3,
@@ -810,6 +813,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (state.productMode === 'debate') {
       const slots = [...state.debateSlots] as [string, string]
       if (slotIndex === 0 || slotIndex === 1) slots[slotIndex] = newModelId
+      if (window.api?.storeSet) window.api.storeSet('debateSlots', slots)
       return { debateSlots: slots }
     }
     if (state.productMode === 'task_assignment') {
@@ -1157,26 +1161,25 @@ export const useAppStore = create<AppState>((set, get) => ({
     const stableThreshold = 3 // 连续 3 次相同 ≈ 1.5s 无变化
     let last = ''
     let stableCount = 0
-    let sawNew = false // 是否出现过与基线不同的内容
     while (Date.now() < deadline) {
       const cur = (await ref.getLatestResponse().catch(() => '')).trim()
+      // 仅当 cur 非空且与基线不同才视为新回复候选，避免把上一轮旧回复（或瞬时空值）
+      // 误判为新回复。基线为空时要求 cur 非空；基线为旧回复时 cur===base 不计入稳定。
       if (cur && cur !== base) {
-        sawNew = true
-      }
-      if (sawNew) {
-        // 进入「等稳定」阶段：连续 stableThreshold 次相同即完成
-        if (cur && cur === last) {
+        if (cur === last) {
           stableCount++
           if (stableCount >= stableThreshold) return cur
         } else {
           stableCount = 0
         }
+      } else {
+        // cur 为空或等于基线：尚未出现新回复，重置稳定计数继续等
+        stableCount = 0
       }
-      // sawNew 仍为 false 时：继续等新回复出现，不记稳定
       last = cur
       await new Promise((r) => setTimeout(r, pollInterval))
     }
-    // 超时：到 deadline 仍未稳定 → 一律返回空，交由调用方中止
+    // 超时：到 deadline 仍未出现「不同于基线且稳定」的新回复 → 一律返回空，交由调用方中止
     return ''
   },
   clearInputOfSlot: async (slotIndex) => {
@@ -1609,6 +1612,7 @@ export async function initializeStore(): Promise<void> {
     const storedProductMode = await window.api.storeGet('productMode') as ProductMode | undefined
     const storedTaskAssignmentSlots = await window.api.storeGet('taskAssignmentSlots') as string[] | undefined
     const storedMultiAiSlots = await window.api.storeGet('multiAiSlots') as string[] | undefined
+    const storedDebateSlots = await window.api.storeGet('debateSlots') as [string, string] | undefined
 
     let initialDisplayMode = storedDisplayMode || useAppStore.getState().displayMode
     if (storedProductMode === 'task_assignment' && initialDisplayMode === 'one') {
@@ -1626,6 +1630,9 @@ export async function initializeStore(): Promise<void> {
     }
     if (storedMultiAiSlots && Array.isArray(storedMultiAiSlots)) {
       useAppStore.setState({ multiAiSlots: storedMultiAiSlots })
+    }
+    if (storedDebateSlots && Array.isArray(storedDebateSlots) && storedDebateSlots.length === 2) {
+      useAppStore.setState({ debateSlots: storedDebateSlots as [string, string] })
     }
 
     const storedApiConfig = await window.api.storeGet('apiConfig') as any

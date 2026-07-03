@@ -15,6 +15,7 @@ function DebateModePanel({ showNotification }: DebateModePanelProps): JSX.Elemen
   const debateState = useAppStore((s) => s.debateState)
   const debateSlots = useAppStore((s) => s.debateSlots)
   const models = useAppStore((s) => s.models)
+  const productMode = useAppStore((s) => s.productMode)
   const { start, pause, resume, stop, reset } = useDebateRunner()
   const dotsRef = useRef<HTMLDivElement>(null)
 
@@ -30,10 +31,12 @@ function DebateModePanel({ showNotification }: DebateModePanelProps): JSX.Elemen
     if (active) active.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' })
   }, [currentRound, currentTurn, phase])
 
-  // 完成时通知
+  // 完成时通知：仅在辩论模式内显示，且自动消失，避免泄漏到 multi_ai 等模式
   useEffect(() => {
-    if (phase === 'finished') showNotification('success', '辩论已结束，可生成裁判评析', 0)
-  }, [phase, showNotification])
+    if (phase === 'finished' && productMode === 'debate') {
+      showNotification('success', '辩论已结束，可生成裁判评析', 4000)
+    }
+  }, [phase, productMode, showNotification])
 
   const handleStart = () => {
     if (!topic.trim()) { showNotification('error', '请输入辩论主题'); return }

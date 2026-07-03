@@ -15,21 +15,37 @@ interface SummaryPageProps {
  * 显示各模型输出和 AI 总结面板
  */
 function SummaryPage({ onNavigateBack, initialHistoryItem, isActive }: SummaryPageProps): JSX.Element {
-  const { models, displayMode, productMode, taskAssignmentSlots, multiAiSlots, pendingSummarySession, setPendingSummarySession, history, isHistoryOpen, setHistoryOpen } = useAppStore()
+  const { models, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots, pendingSummarySession, setPendingSummarySession, history, isHistoryOpen, setHistoryOpen } = useAppStore()
 
   const [activeHistoryId, setActiveHistoryId] = useState<string | undefined>(undefined)
-  
+
   // 获取当前实际显示的模型（根据 displayMode 和产品模式插槽配置）
   const displayedModels = useMemo(() => {
-    return getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots, multiAiSlots)
-  }, [models, displayMode, productMode, taskAssignmentSlots, multiAiSlots])
-  
+    return getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots)
+  }, [models, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots])
+
   // 默认选中所有显示的模型
   const [selectedModels, setSelectedModels] = useState<string[]>(
     displayedModels.map(m => m.id)
   )
   const [modelResponses, setModelResponses] = useState<Record<string, string>>({})
+
+  // 仅渲染真正有回复内容的模型卡片。
+  // getDisplayedModels 的槽位兜底（models[index % models.length]）与历史会话恢复时的
+  // 「未参与模型回填进槽位」（MainPage.tsx 历史恢复 newOrder）会把用户当前页面根本没打开的模型
+  // （如 gemini/claude 等禁用模型）也列入 displayedModels。若直接渲染全部，这些模型
+  // 在 modelResponses 中无内容，会显示成「暂无回复内容」的空回复框 —— 即多 AI 模式下的 phantom 空框。
+  // 这里复用 selectedModels 已采用的过滤口径（见下方 modelsWithData），保持渲染与选中口径一致。
+  // 注意：必须声明在 modelResponses 的 useState 之后，否则 useMemo 在渲染期访问会触发 TDZ。
+  // 回落分支不返回 displayedModels：当 modelResponses 全空（抓取全失败 / 异常 / 未发消息即点总结）
+  // 时，displayedModels 仍含被 newOrder 回填的未参与模型，回落会把这些模型渲染成 phantom 空框。
+  // 无数据时返回空数组，由外层空态承载，比一排假空框更诚实。
+  const renderableModels = useMemo(() => {
+    return displayedModels.filter(m => (modelResponses[m.id] || '').trim().length > 0)
+  }, [displayedModels, modelResponses])
   const [snapshotModelIds, setSnapshotModelIds] = useState<string[]>([])
+  // 从辩论模式进入总结页时预选的总结模板 id（仅首次挂载消费一次）
+  const [presetSummaryMode, setPresetSummaryMode] = useState<string | undefined>(undefined)
   const [isLoadingResponses, setIsLoadingResponses] = useState(true)
   const [restoreHistoryData, setRestoreHistoryData] = useState<{
     historyId?: string
@@ -122,6 +138,7 @@ function SummaryPage({ onNavigateBack, initialHistoryItem, isActive }: SummaryPa
       lastHistoryItemRef.current = undefined
       setIsLoadingResponses(true)
       const data = session.modelResponses || {}
+      if (session.presetSummaryMode) setPresetSummaryMode(session.presetSummaryMode)
       setPendingSummarySession(null)
       console.log('[SummaryPage] 从 pendingSummarySession 加载:', Object.keys(data))
       setModelResponses(data)
@@ -183,8 +200,8 @@ function SummaryPage({ onNavigateBack, initialHistoryItem, isActive }: SummaryPa
           </div>
         ) : (
           <div className="flex-1 overflow-y-auto space-y-4 pr-2 min-h-0">
-            {/* 只显示当前实际显示的模型（根据 displayMode） */}
-            {displayedModels.map((model) => (
+            {/* 只显示真正有回复内容的模型卡片，避免 phantom 空回复框 */}
+            {renderableModels.map((model) => (
               <ModelOutputCard
                 key={model.id}
                 id={model.id}
@@ -207,6 +224,7 @@ function SummaryPage({ onNavigateBack, initialHistoryItem, isActive }: SummaryPa
           modelResponses={modelResponses}
           restoreHistoryData={restoreHistoryData}
           isActive={isActive}
+          presetSummaryMode={presetSummaryMode}
         />
       </div>
 

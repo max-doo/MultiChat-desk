@@ -45,4 +45,6 @@ export interface SummaryPanelProps {
   } | null
   /** 总结页是否处于前台（用于休眠调度，决策 R3） */
   isActive?: boolean
+  /** 预选的总结模板 id；仅首次挂载时生效，用于辩论→总结自动选 '5' */
+  presetSummaryMode?: string
 }

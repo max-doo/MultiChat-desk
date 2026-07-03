@@ -36,7 +36,7 @@ function toMarkdown(content: string): string {
  * 总结面板组件
  * 对话形式显示 AI 总结结果
  */
-function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isActive = true }: SummaryPanelProps): JSX.Element {
+function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isActive = true, presetSummaryMode }: SummaryPanelProps): JSX.Element {
   const { apiConfig, models, setApiConfig, addSummaryHistory, updateSummaryHistory, history } = useAppStore()
 
   // 从 store 读取当前模式，缺省 'webview'
@@ -124,7 +124,8 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
       if (summarySource === 'webview') {
         webviewSummaryRef.current?.resetToInitial()
       }
-    }
+    },
+    presetSummaryMode
   })
 
   const webviewPlatformInfo = useMemo(() => {

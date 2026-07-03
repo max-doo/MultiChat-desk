@@ -303,7 +303,7 @@ function Layout({ children }: LayoutProps): JSX.Element {
             
             {/* 模式选择分段控件 */}
             <div
-              className={`flex items-center p-0.5 bg-gray-200/60 dark:bg-gray-700/60 rounded-lg text-xs gap-0.5 no-drag ${debateState.phase === 'running' || debateState.phase === 'paused' ? 'opacity-50 pointer-events-none' : ''}`}
+              className={`flex items-center p-0.5 bg-gray-200/60 dark:bg-gray-700/60 rounded-lg text-xs gap-0.5 no-drag ${currentPage === 'summary' || debateState.phase === 'running' || debateState.phase === 'paused' ? 'opacity-50 pointer-events-none' : ''}`}
             >
               {[
                 { key: 'multi_ai', label: '多AI', title: '默认模式：多个平台展示不同AI' },

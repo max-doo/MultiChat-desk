@@ -121,6 +121,12 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
       }
     }
 
+    // 切换产品模式时立即清除残留通知（如辩论结束 toast 泄漏到 multi_ai）。
+    // 仅依赖 productMode：clearNotification 每次渲染重建，不应入 deps，否则每次渲染都清通知。
+    useEffect(() => {
+      clearNotification()
+    }, [productMode])
+
     const hasFileInDragEvent = (event: DragEvent): boolean => {
       const types = Array.from(event.dataTransfer?.types || [])
       if (types.includes('Files')) return true
