@@ -104,17 +104,19 @@ export function registerIpcHandlers(
         return { success: true }
     })
 
-    ipcMain.handle('diagnostics:probe', async (_e, payload: { modelId: string; type: 'message' | 'research' }) => {
+    ipcMain.handle('diagnostics:probe', async (_e, payload: { modelId: string; type: 'message' | 'research' | 'pick'; options?: { ancestorDepth?: number; childDepth?: number } }) => {
         const mainWin = getMainWindow()
         if (!mainWin || mainWin.isDestroyed()) {
             return { success: false, error: '主窗口未就绪' }
         }
         const reqId = `probe-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+        // pick 模式需用户手动点选平台页元素，超时放宽到 60s（其余维持 5s）
+        const timeoutMs = payload.type === 'pick' ? 60000 : 5000
         return new Promise((resolve) => {
             const timer = setTimeout(() => {
                 pendingProbeRequests.delete(reqId)
                 resolve({ success: false, error: '主窗口响应超时' })
-            }, 5000)
+            }, timeoutMs)
             pendingProbeRequests.set(reqId, { resolve, timer })
             mainWin.webContents.send('diagnostics:probe-request', { reqId, ...payload })
         })

@@ -82,9 +82,9 @@ declare global {
       openBrowserWindow: (url: string) => Promise<void>
       saveImageFromURL: (url: string) => Promise<{ success: boolean; filePath?: string; error?: string }>
       diagnosticsOpenWindow: () => Promise<{ success: boolean; error?: string }>
-      diagnosticsProbe: (modelId: string, type: 'message' | 'research') => Promise<{ success: boolean; data?: unknown; error?: string }>
+      diagnosticsProbe: (modelId: string, type: 'message' | 'research' | 'pick', options?: { ancestorDepth?: number; childDepth?: number }) => Promise<{ success: boolean; data?: unknown; error?: string }>
       diagnosticsRunResearch: (modelId: string) => Promise<{ success: boolean; data?: { success: boolean; error?: string }; error?: string }>
-      onDiagnosticsProbeRequest: (cb: (payload: { reqId: string; modelId: string; type: 'message' | 'research' }) => void) => () => void
+      onDiagnosticsProbeRequest: (cb: (payload: { reqId: string; modelId: string; type: 'message' | 'research' | 'pick'; options?: { ancestorDepth?: number; childDepth?: number } }) => void) => () => void
       diagnosticsProbeResponse: (reqId: string, result: unknown) => void
       onDiagnosticsRunResearchRequest: (cb: (payload: { reqId: string; modelId: string }) => void) => () => void
       diagnosticsRunResearchResponse: (reqId: string, result: { success: boolean; error?: string }) => void

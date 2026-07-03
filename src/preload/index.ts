@@ -35,12 +35,12 @@ const api = {
   // 诊断窗口 IPC
   diagnosticsOpenWindow: (): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('diagnostics:open-window'),
-  diagnosticsProbe: (modelId: string, type: 'message' | 'research'): Promise<{ success: boolean; data?: unknown; error?: string }> =>
-    ipcRenderer.invoke('diagnostics:probe', { modelId, type }),
+  diagnosticsProbe: (modelId: string, type: 'message' | 'research' | 'pick', options?: { ancestorDepth?: number; childDepth?: number }): Promise<{ success: boolean; data?: unknown; error?: string }> =>
+    ipcRenderer.invoke('diagnostics:probe', { modelId, type, options }),
   diagnosticsRunResearch: (modelId: string): Promise<{ success: boolean; data?: { success: boolean; error?: string }; error?: string }> =>
     ipcRenderer.invoke('diagnostics:run-research', { modelId }),
-  onDiagnosticsProbeRequest: (cb: (payload: { reqId: string; modelId: string; type: 'message' | 'research' }) => void) => {
-    const handler = (_e: Electron.IpcRendererEvent, payload: { reqId: string; modelId: string; type: 'message' | 'research' }): void => cb(payload)
+  onDiagnosticsProbeRequest: (cb: (payload: { reqId: string; modelId: string; type: 'message' | 'research' | 'pick'; options?: { ancestorDepth?: number; childDepth?: number } }) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, payload: { reqId: string; modelId: string; type: 'message' | 'research' | 'pick'; options?: { ancestorDepth?: number; childDepth?: number } }): void => cb(payload)
     ipcRenderer.on('diagnostics:probe-request', handler)
     return () => { ipcRenderer.removeListener('diagnostics:probe-request', handler) }
   },
