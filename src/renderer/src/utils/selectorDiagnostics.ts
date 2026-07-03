@@ -507,10 +507,17 @@ export function buildDomProbeScript(opts: { selector: string; ancestorDepth?: nu
 
 /**
  * 解析 executeJavaScript 返回的 DOM 探测结果。
+ * picker 脚本返回 Promise<DomProbeReport>（resolve 的是对象，不是 JSON 字符串），
+ * 因此 executeJavaScript 拿到的是结构化对象；只有 buildDomProbeScript 这类
+ * 同步脚本才返回 JSON 字符串。两种形态都接受。
  */
 export function parseDomProbeResult(raw: unknown): DomProbeReport {
+  // picker 路径：resolve 的是结构化对象，直接校验后返回
+  if (raw && typeof raw === 'object') {
+    return raw as DomProbeReport
+  }
   if (typeof raw !== 'string') {
-    return { ok: false, error: '探针返回非字符串' }
+    return { ok: false, error: '探针返回非字符串/非对象' }
   }
   try {
     const parsed = JSON.parse(raw)
@@ -641,7 +648,9 @@ export function buildPickerScript(opts: DomProbeOptions = {}): string {
 
     var overlay = document.createElement('div');
     overlay.id = 'mc-picker-overlay';
-    overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483647;cursor:crosshair;background:transparent;';
+    // pointer-events:none：覆盖层纯做视觉遮罩，不拦截事件，使 document 上的 capture
+    // 监听能通过 elementFromPoint 拿到下层平台元素（否则 elementFromPoint 永远返回 overlay 自身）。
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483647;cursor:crosshair;background:transparent;pointer-events:none;';
 
     var highlight = document.createElement('div');
     highlight.id = 'mc-picker-highlight';
@@ -689,6 +698,8 @@ export function buildPickerScript(opts: DomProbeOptions = {}): string {
       e.stopPropagation();
       var el = currentEl;
       cleanup();
+      document.removeEventListener('mousemove', onMove, true);
+      document.removeEventListener('click', onClick, true);
       document.removeEventListener('keydown', onKey, true);
       if (!el) {
         window.__mcPickerResolve({ ok: false, error: '未选中任何元素' });
@@ -715,15 +726,17 @@ export function buildPickerScript(opts: DomProbeOptions = {}): string {
         e.preventDefault();
         e.stopPropagation();
         cleanup();
-        overlay.removeEventListener('mousemove', onMove);
-        overlay.removeEventListener('click', onClick);
+        document.removeEventListener('mousemove', onMove, true);
+        document.removeEventListener('click', onClick, true);
         document.removeEventListener('keydown', onKey, true);
         window.__mcPickerResolve({ ok: false, cancelled: true });
       }
     }
 
-    overlay.addEventListener('mousemove', onMove);
-    overlay.addEventListener('click', onClick);
+    // overlay 已设 pointer-events:none，事件挂 document（capture 阶段）：
+    // 先于平台元素拿到 mousemove/click，既能高亮下层元素、又能用 stopPropagation 拦住点击默认行为（只读）。
+    document.addEventListener('mousemove', onMove, true);
+    document.addEventListener('click', onClick, true);
     document.addEventListener('keydown', onKey, true);
 
     // 超时自清
@@ -731,6 +744,8 @@ export function buildPickerScript(opts: DomProbeOptions = {}): string {
       var ol = document.getElementById('mc-picker-overlay');
       if (!ol) return; // 已通过 click/Esc 清理
       cleanup();
+      document.removeEventListener('mousemove', onMove, true);
+      document.removeEventListener('click', onClick, true);
       document.removeEventListener('keydown', onKey, true);
       window.__mcPickerResolve({ ok: false, error: '检拾超时' });
     }, PICKER_TIMEOUT_MS);
