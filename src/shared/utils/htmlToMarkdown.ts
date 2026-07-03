@@ -119,6 +119,35 @@ export function getHtmlToMarkdownScript(): string {
         ) {
           return '';
         }
+
+        // ========== 千问(Qwen) 多模态卡片跳过 ==========
+        // 千问回复末尾常带视频/笔记卡片(.qk-md-has-multi-modal, [data-card-type])
+        // 这些卡片的标题/作者名会污染正文，跳过整块。
+        if (node.classList && (
+          node.classList.contains('qk-md-has-multi-modal') ||
+          node.getAttribute && node.getAttribute('data-card-type')
+        )) {
+          return '';
+        }
+
+        // ========== 千问(Qwen) 引用上标转 [N] ==========
+        // 正文内引用上标形如 <span data-index="6" class="options-item-...">6</span>
+        // 转成 [6] 嵌入正文，保留引用语义。来源详情由 webviewScripts 的来源脚本追加。
+        if (node.getAttribute && node.getAttribute('data-index') &&
+            node.classList && (node.classList.contains('options-item') || (node.className && String(node.className).indexOf('options-item') !== -1))) {
+          const idx = node.getAttribute('data-index');
+          if (idx) return '[' + idx + ']';
+        }
+
+        // ========== 千问(Qwen) 来源汇总区跳过 ==========
+        // .reference-wrap 是文末"9篇来源"汇总卡片，其文字会与下方来源列表重复，
+        // 跳过整块；真实来源由 webviewScripts 从悬停 tooltip 单独提取。
+        if (node.classList && (
+          node.classList.contains('reference-wrap') ||
+          (node.className && String(node.className).indexOf('reference-wrap') !== -1)
+        )) {
+          return '';
+        }
         
         let content = '';
         

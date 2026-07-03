@@ -364,7 +364,17 @@ export const defaultSelectors: SelectorsConfig = {
         'button[type="submit"]',
         'button.primary'
       ],
+      // 注意：候选只保留"整条回复"容器级，不要放段落级（如 .qk-md-paragraph）。
+      // 抓取逻辑取"最后一个可见候选"，段落级会命中视频卡片块(.qk-md-has-multi-modal)
+      // 导致只抓到视频标题而丢失正文。
       messageContainer: [
+        '[class*="message-select-wrapper-answer"] [data-chat-answers-wrap]',
+        '[class*="message-select-wrapper-answer"] .answer-common-card',
+        '[data-chat-answers-wrap]',
+        '.answer-common-card',
+        '#qk-markdown-react',
+        '.qk-markdown-react',
+        '[class*="qk-markdown"]',
         '.tongyi-markdown',
         '[class*="tongyi-markdown"]',
         '.response-content',
@@ -452,6 +462,9 @@ export const defaultSelectors: SelectorsConfig = {
         'button[type="submit"]'
       ],
       messageContainer: [
+        '[data-streaming]',
+        '[data-streaming] .md-box-root',
+        '.md-box-root',
         '[data-testid="message_content"] [data-testid="message_text_content"]',
         '[data-testid="message_text_content"]',
         '.flow-markdown-body',

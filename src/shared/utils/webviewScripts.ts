@@ -911,27 +911,107 @@ function buildGeminiSourceLinksScript(): string {
           sourceItems.forEach((item) => {
             const link = item.querySelector('a[href]');
             if (!link) return;
-            
+
             const href = link.getAttribute('href') || '';
             if (!href || href.startsWith('javascript:')) return;
-            
+
             // 获取网站域名
             const displayName = item.querySelector('.display-name, [data-test-id="domain-name"]');
             const domainText = displayName ? displayName.textContent.trim() : '';
-            
+
             // 获取文章标题
             const subTitle = item.querySelector('.sub-title, [data-test-id="sub-title"]');
             const titleText = subTitle ? subTitle.textContent.trim() : '';
-            
+
             // 组合链接
             const linkText = titleText || domainText || href;
             sourcesMarkdown += '- [' + linkText + '](' + href + ')' + (domainText && titleText ? ' - ' + domainText : '') + '\\n';
           });
-          
+
           if (sourcesMarkdown.includes('[')) {
             content += sourcesMarkdown;
           }
         }
+      }
+    }
+  `
+}
+
+/**
+ * 千问(Qwen) 引用来源链接脚本
+ *
+ * 千问正文引用上标形如 <span data-index="6">6</span>，已在 htmlToMarkdown 中转成 [6]。
+ * 来源详情只在用户悬停上标后才以 .source-card-item tooltip 形式渲染到 document（不在
+ * 回复容器内），故需从 document 全局扫描 tooltip，按编号拼成来源列表追加到正文末尾。
+ *
+ * tooltip DOM 结构：
+ *   .source-card-item > .content-title (文本: "6. 标题 - 站名")
+ *                   > .hover-top-content > .content-url (文本: "www.kepu.gov.cn")
+ * 编号从标题前缀 "N. " 解析，与正文 [N] 配对。
+ *
+ * 非千问页面没有 .source-card-item，自然 miss，零影响。
+ */
+function buildQwenSourceLinksScript(): string {
+  return `
+    // ========== 千问(Qwen) 引用来源特殊处理 ==========
+    // 正文已含 [N] 上标；此处扫描悬停 tooltip 补来源列表。仅在尚未追加时执行，避免重复。
+    if (!content.includes('参考来源') && !content.includes('📚')) {
+      try {
+        // 注意：tooltip 来源卡 class 为 source-card-item-<hash>（如 source-card-item-mo9ULH），
+        // 不能用精确 .source-card-item（会因 hash 后缀 miss），必须用 [class*="source-card-item"]。
+        var tooltipItems = document.querySelectorAll('[class*="source-card-item"]');
+        if (tooltipItems && tooltipItems.length > 0) {
+          // 收集并按编号去重排序
+          var entries = {};
+          var order = [];
+          for (var ti = 0; ti < tooltipItems.length; ti++) {
+            var card = tooltipItems[ti];
+            var titleEl = card.querySelector('.content-title, [class*="content-title"]');
+            var urlEl = card.querySelector('.content-url, [class*="content-url"]');
+            var titleText = titleEl ? (titleEl.textContent || '').trim() : '';
+            var domainText = urlEl ? (urlEl.textContent || '').trim() : '';
+            if (!titleText && !domainText) continue;
+            // 从标题前缀解析编号，如 "6. 睡觉时..." -> "6"
+            var numMatch = titleText.match(/^\\s*(\\d+)\\s*[.、)]?/);
+            var num = numMatch ? numMatch[1] : '';
+            // 去掉标题里的编号前缀，得到纯标题
+            var cleanTitle = titleText.replace(/^\\s*\\d+\\s*[.、)]?\\s*/, '').trim();
+            var key = num || (cleanTitle || domainText);
+            if (!entries[key]) {
+              entries[key] = { num: num, title: cleanTitle, domain: domainText };
+              order.push(key);
+            } else if (!entries[key].domain && domainText) {
+              entries[key].domain = domainText;
+            }
+          }
+          if (order.length > 0) {
+            // 按编号数值排序（无编号的排后面）
+            order.sort(function(a, b) {
+              var na = parseInt(a, 10), nb = parseInt(b, 10);
+              if (isNaN(na) && isNaN(nb)) return 0;
+              if (isNaN(na)) return 1;
+              if (isNaN(nb)) return -1;
+              return na - nb;
+            });
+            var sourcesMarkdown = '\\n\\n---\\n\\n**📚 参考来源：**\\n\\n';
+            for (var oi = 0; oi < order.length; oi++) {
+              var e = entries[order[oi]];
+              var label = e.num ? ('[' + e.num + '] ') : '';
+              var main = e.title || e.domain || '';
+              if (e.domain && e.title && e.title.indexOf(e.domain) === -1) {
+                main = e.title + ' - ' + e.domain;
+              } else if (!e.title) {
+                main = e.domain;
+              }
+              sourcesMarkdown += '- ' + label + main + '\\n';
+            }
+            if (sourcesMarkdown.replace(/[\\n\\-\\s*📚参考来源：\\[\\]]/g, '').length > 0) {
+              content += sourcesMarkdown;
+            }
+          }
+        }
+      } catch (e) {
+        // 来源提取失败不影响正文返回
       }
     }
   `
@@ -1323,6 +1403,7 @@ export function generateGetLatestResponseScript(selectors: ModelSelector): strin
   const htmlToMarkdownScript = getHtmlToMarkdownScript()
   const findSourceList = buildFindSourceListFunction()
   const geminiSources = buildGeminiSourceLinksScript()
+  const qwenSources = buildQwenSourceLinksScript()
 
   return `
     (async function() {
@@ -1617,6 +1698,41 @@ export function generateGetLatestResponseScript(selectors: ModelSelector): strin
           return null;
         }
 
+        // 豆包(Doubao) 多块合并：豆包现在把一条助手回复拆成多个并列的渲染块
+        // （每个块形如 <div data-render-engine="node">...<div data-streaming>...），
+        // 末块常常只是"需要我帮你…"之类的收尾提示。取"最后一个可见候选"会命中末块
+        // 导致只抓到最后一句。这里在选定的 lastMessage 基础上向上找它的"最近公共
+        // 祖先"——第一个 querySelectorAll('[data-streaming],.md-box-root') >= 2 的
+        // 祖先即为单轮容器。关键：在最近公共祖先层就停，绝不再向上——更上层是跨多轮
+        // (含历史对话+用户query)的根容器，爬过去就会把全部对话抓下来。
+        // 不做长度守卫：最近公共祖先是"含 >=2 个本回复块的最近祖先"这一数学事实的
+        // 直接结果——更近的祖先只含 1 块(末块自己)，所以第一个 >=2 的层就是单轮容器，
+        // 跨轮根容器在它之上、永远不会被先命中。豆包每轮 block-v2 容器相互隔离，
+        // 末块不会落在一个"本就跨轮"的最近祖先里。
+        function findDoubaoMultiBlockRoot(el) {
+          try {
+            const blockSel = '[data-streaming], .md-box-root';
+            let cur = el;
+            let steps = 0;
+            while (cur && steps < 6) {
+              cur = cur.parentElement;
+              steps++;
+              if (!cur) break;
+              let blockCount = 0;
+              try {
+                blockCount = cur.querySelectorAll(blockSel).length;
+              } catch {
+                blockCount = 0;
+              }
+              // 最近公共祖先：第一个 >=2 的层即返回，不再向上。
+              if (blockCount >= 2) {
+                return cur;
+              }
+            }
+          } catch {}
+          return null;
+        }
+
         try {
           const root = findMergedContentRoot(lastMessage);
           if (root && root !== lastMessage) {
@@ -1628,7 +1744,15 @@ export function generateGetLatestResponseScript(selectors: ModelSelector): strin
             }
           }
         } catch {}
-        
+
+        // 豆包多块合并：若 markdown-content-N 合并未命中，尝试按"多回复块同轮容器"合并
+        try {
+          const dbRoot = findDoubaoMultiBlockRoot(lastMessage);
+          if (dbRoot && dbRoot !== lastMessage) {
+            lastMessage = dbRoot;
+          }
+        } catch {}
+
         // 尝试将 HTML 转换为 Markdown
         let content = htmlToMarkdown(lastMessage);
         
@@ -1651,7 +1775,9 @@ export function generateGetLatestResponseScript(selectors: ModelSelector): strin
         }
         
         ${geminiSources}
-        
+
+        ${qwenSources}
+
         return content.trim();
       } catch (error) {
         console.error('获取回复失败:', error);
