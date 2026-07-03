@@ -31,6 +31,7 @@ declare global {
       minimizeWindow: () => void
       maximizeWindow: () => void
       closeWindow: () => void
+      setWindowAlwaysOnTop: (pinned: boolean) => Promise<{ success: boolean; data?: boolean; error?: string }>
       startWindowDrag: (point: { screenX: number; screenY: number }) => Promise<{ success: boolean; error?: string }>
       moveWindowDrag: (point: { screenX: number; screenY: number }) => void
       endWindowDrag: () => void

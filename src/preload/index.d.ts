@@ -147,6 +147,7 @@ declare global {
       windowDragStart: () => void
       windowDragMove: () => void
       windowDragEnd: () => void
+      setWindowAlwaysOnTop: (pinned: boolean) => Promise<{ success: boolean; data?: boolean; error?: string }>
       toolbarAction: (action: 'quick' | 'summarize' | 'translate' | 'copy' | 'search') => void
       toolbarHide: () => void
       selectionToolbarGet: () => Promise<{ success: boolean; data?: boolean; error?: string }>
