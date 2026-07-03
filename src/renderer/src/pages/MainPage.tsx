@@ -43,6 +43,13 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
   const setPaneRatios = useAppStore((state) => state.setPaneRatios)
   const resetPaneRatios = useAppStore((state) => state.resetPaneRatios)
 
+  // 当开启新对话时，清除当前回溯的历史快照状态，防止遗留的 activeHistoryId 导致加载快照而非真实页面
+  useEffect(() => {
+    if (isNewSession) {
+      setActiveHistoryId(undefined)
+    }
+  }, [isNewSession])
+
   // ControlBar 的 ref
   const controlBarRef = useRef<ControlBarRef>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -74,14 +81,18 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
 
   // 回溯历史时，预计算各模型最后一轮 turn 的快照 + 历史原始 URL，
   // 供 WebviewCard 做 URL 不匹配检测与只读快照显示。非回溯态（无 activeHistoryId）返回空。
-  const { historySnapshots, historyUrls } = useMemo(() => {
-    if (!activeHistoryId) return { historySnapshots: {} as Record<string, string>, historyUrls: {} as Record<string, string> }
+  // 同时带出该历史条目所属 productMode：快照/URL 只应作用于与之匹配的模式，
+  // 否则同一 modelId 在 multi_ai/task_assignment/debate 三套常驻 webview 间会串扰
+  // （隐藏模式的 WebviewCard 仍会跑 checkUrlMismatch 并武装快照覆盖层）。
+  const { historySnapshots, historyUrls, activeHistoryMode } = useMemo(() => {
+    if (!activeHistoryId) return { historySnapshots: {} as Record<string, string>, historyUrls: {} as Record<string, string>, activeHistoryMode: undefined }
     const item = history.find((h) => h.id === activeHistoryId)
-    if (!item || item.turns.length === 0) return { historySnapshots: {}, historyUrls: {} }
+    if (!item || item.turns.length === 0) return { historySnapshots: {}, historyUrls: {} as Record<string, string>, activeHistoryMode: item?.productMode }
     const lastTurn = item.turns[item.turns.length - 1]
     return {
       historySnapshots: lastTurn.responses ?? {},
-      historyUrls: item.urls ?? {}
+      historyUrls: item.urls ?? {},
+      activeHistoryMode: item.productMode
     }
   }, [activeHistoryId, history])
 
@@ -787,6 +798,9 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
             const isMounted = mountedWebviews.has(`${mode}-${i}`)
             const model = modeModels[mode as keyof typeof modeModels][i]
             if (!isMounted || !model) return null
+            // 快照/URL 只作用于该历史条目所属的模式，避免跨模式串扰
+            // （隐藏模式的 webview 仍会消费这些 prop 并武装覆盖层）
+            const isHistoryMode = mode === activeHistoryMode
 
             return (
               <div key={`mode-wrapper-${mode}-${i}`} style={{ display: productMode === mode ? 'block' : 'none', width: '100%', height: '100%' }}>
@@ -800,9 +814,9 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
                   enabled={true}
                   slotIndex={i}
                   sideLabel={mode === 'debate' ? (i === 0 ? '正方' : '反方') : undefined}
-                  expectedUrl={historyUrls[model.id]}
+                  expectedUrl={isHistoryMode ? historyUrls[model.id] : undefined}
                   readonlySnapshot={
-                    !activeHistoryId
+                    !isHistoryMode || !activeHistoryId
                       ? null
                       : historySnapshots[model.id]
                         ? { content: historySnapshots[model.id], reason: 'url_mismatch' as const }
@@ -933,8 +947,25 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
                   // URL 解析失败，使用默认前缀
                 }
 
+                // 按目标模式的槽位顺序定位 webview（slot-${i}），而非按 modelId 取 ref。
+                // 原因：webviewRefs 在 model.id 键上跨模式共享（仅激活模式注册），
+                // 用 modelId 取 ref 可能落到其他模式的 webview，造成跨模式 URL 串扰。
+                const storeState = useAppStore.getState()
+                let modeSlots: string[]
+                if (targetProductMode === 'task_assignment') {
+                  modeSlots = storeState.taskAssignmentSlots
+                } else if (targetProductMode === 'debate') {
+                  modeSlots = storeState.debateSlots
+                } else {
+                  modeSlots = storeState.multiAiSlots
+                }
+                // 槽位顺序兜底：若 store 槽位为空或长度不足，退回历史记录的 models 顺序
+                const slotsForLookup = modeSlots.length >= item.models.length ? modeSlots : item.models
+
                 Object.entries(item.urls).forEach(([modelId, url]) => {
-                  const webviewRef = useAppStore.getState().webviewRefs.get(modelId)
+                  const slotIndex = slotsForLookup.indexOf(modelId)
+                  if (slotIndex === -1) return
+                  const webviewRef = useAppStore.getState().webviewRefs.get(`slot-${slotIndex}`)
                   if (webviewRef && url) {
                     let finalUrl = url
                     // 对 Gemini URL 进行转换，使用当前账号的 URL 前缀

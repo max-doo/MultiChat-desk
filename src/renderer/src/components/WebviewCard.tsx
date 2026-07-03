@@ -300,7 +300,9 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
         setIsLoading(false)
         setIsReady(true)
         setLoadError(null)
-        checkUrlMismatch()
+        // 不在此处 checkUrlMismatch()：dom-ready 时 SPA 可能仍处于中间重定向 URL，
+        // 此刻比较会先误报「URL 与历史不符」、加载完成后再消失，造成覆盖层闪烁。
+        // 最终判定交给 handleLoadStop（页面稳定、URL 已落定）。
         syncNavigationState()
       }
 
@@ -314,6 +316,8 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
         clearLoadTimers()
         setIsLoading(false)
         syncNavigationState()
+        // 加载结束、URL 已落定，此时做最终的不匹配判定，避免加载中途的中间 URL 误报闪烁。
+        checkUrlMismatch()
       }
 
       const handleLoadFail = (event: Electron.DidFailLoadEvent): void => {
@@ -387,7 +391,9 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
       const handleDidNavigate = (_event: any): void => {
         // 不在这里清空 setLoadError(null)，由 handleDomReady、主动 loadURL 或重试操作负责清空
         syncNavigationState()
-        checkUrlMismatch()
+        // 不在此处 checkUrlMismatch()：did-navigate 在重定向链的每一跳都触发，
+        // 中间跳的 URL 与历史 expectedUrl 必然不一致，会触发覆盖层闪烁；
+        // 最终 URL 的判定由 handleLoadStop 负责。
       }
 
       const handleDidNavigateInPage = (_event: any): void => {

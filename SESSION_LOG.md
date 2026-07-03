@@ -2,6 +2,40 @@
 
 ## 2026-07-03
 
+### 21:19 | Antigravity
+
+- done: Fix bug: history snapshot overlay persists when starting a new chat
+- modified:
+  - `src/renderer/src/pages/MainPage.tsx`
+
+### 19:37 | claude-code
+
+- done: 诊断窗口新增 DOM 检拾模式 Tab（检拾→点选→祖先链+子树 DOM 结构回传，用于确认 selectors.ts 目标元素层级与属性）
+- modified:
+  - `src/renderer/src/utils/selectorDiagnostics.ts`
+  - `src/renderer/src/components/WebviewCard.tsx`
+  - `src/renderer/src/store/appStore.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/preload/index.d.ts`
+  - `src/renderer/src/env.d.ts`
+  - `src/renderer/src/pages/DiagnosticsPage.tsx`
+- unresolved: picker 自身超时 120s 与 relay 超时 60s 不匹配：用户在 60-120s 间点选时 relay 已超时返回错误，平台页 picker 覆盖层仍存活至 120s（plan 明确规定此值，dev-only，picker 120s setTimeout 兜底自清）；120s 超时极端路径未手动触发验证；DOM 检拾全链路（executeJavaScript await 页内 Promise、overlay 渲染、Esc、双击重入）需 npm run dev 手动验证
+
+### 17:45 | claude-code
+
+- done: 修复历史快照覆盖层加载途中误闪：checkUrlMismatch 不再在 dom-ready/did-navigate 触发，改在 did-stop-loading 做最终判定，保留 did-navigate-in-page
+- modified:
+  - `src/renderer/src/components/WebviewCard.tsx`
+- lesson(promoted): 历史快照 urlMismatch 检测不能在加载途中的中间导航事件触发：dom-ready 与 did-navigate 在 SPA 重定向链每一跳都会触发，中途 URL 必然偏离 expectedUrl，先误报后纠正造成覆盖层闪烁。最终判定应放在 did-stop-loading（URL 已落定）；did-navigate-in-page 是首屏之后的 SPA 路由变化（isLoading=false），保留它可捕获加载后被重定向到登录页的真实偏离且不会闪。
+
+### 15:44 | claude-code
+
+- done: Task 3: WebviewCard 新增 probeDomStructure 检拾方法
+- context: SDD Task 3: Added probeDomStructure method to WebviewCardRef (useImperativeHandle). 3 edits: import line, ref interface, implementation between probeResearchMode and suspend. Uses buildPickerScript/parseDomProbeResult from Task 1. Types: DomProbeReport, DomProbeOptions.
+- modified:
+  - `src/renderer/src/components/WebviewCard.tsx`
+
 ### 14:22 | claude-code
 
 - done: 修复任务分配模式两个 bug：拆解按实时窗口数（提示词注入 windowCount）+ 一键派发按 slotIndex 分发（不再用 modelId 反查槽位，根除多窗口同模型全打 slot0）
