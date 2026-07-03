@@ -36,7 +36,7 @@
 - [x] **调研划词弹出工具条**（**已实现**）：调研已完成，实现方案已落地——采用 monio-napi 全局鼠标钩子 + UI Automation 读取选区 + 无焦点悬浮窗口，已覆盖 Word/Chrome/WindowsTerminal 等场景
 - [x] **任务分配模式（task_assignment）已实现**：UI + 交互已落地（`TaskModePanel.tsx` + `SubtaskList.tsx` + `useTaskSplit.ts` + `split-task` IPC + `taskSplitApi.ts`），输入总目标 → 拆解 → 上拉可编辑子任务列表 → 一键发送，复用总结 API 供应商。详见 `docs/superpowers/plans/2026-07-01-task-assignment-and-debate-modes.md`。剩余 follow-up：
   - [ ] 任务/辩论发送绕过 `sendMessageToAll`/`addHistory`：`TaskModePanel.handleSend` 与 `useDebateRunner` 直接调 `webviewRefs.get('slot-N').sendMessage`，不经 store 的 `sendMessageToAll`，导致这两种模式的发送不写入历史记录。需补历史落盘（或在 store 增加单槽位发送的 history 钩子）
-  - [ ] **TaskSplitModal 拆解失败弹窗 dev 验收**：拆解失败恢复弹窗已落地（commit `a751132`，基于 plan `docs/superpowers/plans/2026-07-02-task-split-modal.md`），lint/build/dev 启动通过，但 7 个 GUI 交互场景待 `npm run dev` 手动验证：
+  - [x] **TaskSplitModal 拆解失败弹窗代码已落地**（commit `a751132`，基于 plan `docs/superpowers/plans/2026-07-02-task-split-modal.md`）：拆解失败弹窗内可选拆解模型写回 `apiConfig`、可编辑槽位写回 `taskAssignmentSlots`、可重试；Esc/遮罩关闭显式中止；`useTaskSplit` error state 统一经返回值传递。lint/build/dev 启动通过。**7 个 GUI 交互场景待 `npm run dev` 手动验收**：
     - [ ] 未配置供应商路径：禁用所有供应商 → 拆解 → 弹窗提示未配置，"管理供应商…"能打开设置抽屉，"拆解"按钮禁用
     - [ ] 选模型 + 重试成功：弹窗内选供应商+模型 → 拆解 → 成功后弹窗关闭、ControlBar 出现 inline 子任务列表、通知"拆解完成"
     - [ ] Key 错误重试：配无效 Key 供应商 → 拆解 → 弹窗显示错误（如 `拆解请求失败 (401)`）→ 改正确模型重试成功
@@ -47,7 +47,8 @@
   - [ ] ⚠️ `clean:store` 验证后需重新配置供应商/Key 再继续后续步骤
 - [x] **辩论模式（debate）已实现**：UI + 交互已落地（`DebateModePanel.tsx` + `useDebateRunner.ts` + `appStore.debateState` 状态机 + `swapModelInSlot` debate 分支 + `Layout` 进行中禁模式切换），左正方/右反方固定双窗、轮次 stepper、全自动轮转、裁判评析总结。详见同上 plan。剩余 follow-up：
   - [ ] `debateSlots`/`debateTotalRounds` 未持久化：重启后回到默认值（`['chatgpt','gemini']` / `3`），需补 `window.api.storeSet`
-  - [ ] `getResponseFromSlot` 轮询可靠性因平台而异：辩论发言回传依赖 `WebviewCardRef.getLatestResponse()` 轮询等稳定，不同平台回复抓取稳定性不一，超时取空时会写入「（无回复）」。需在 `selectors.ts` 增量补强不稳平台的回复选择器
+  - [x] `getResponseFromSlot` 轮询可靠性修复（**已实现**）：2026-07-02 重写为基线快照对比 + 连续稳定 3 次判定 + 超时 120s 返回空 + 空回复中止辩论（`appStore.ts` + `useDebateRunner.ts`），根除旧回复被误判为新回复导致没等真回复就发下一轮的问题。详见 `docs/superpowers/specs/2026-07-02-debate-reply-detection-design.md`
+  - [ ] **辩论回复检测 dev 验收**：基线对比逻辑已落地（lint/build/dev 启动通过），但未在 `npm run dev` 中按场景手动验收：正常多轮辩论推进 / 空回复中止 / 超时中止 / 长回复稳定判定
   - [ ] 辩论进行中模式切换加固：`Layout.tsx` 已做 `debateState.phase==='running'||'paused'` 时禁用模式 seg 的可选加固，需在 `npm run dev` 中验证切换确实被阻断、会话不丢失
 - [ ] **CLI 待进一步验收**：daemon 通信正常，但选择器大量过期（豆包 collect 返回空、ChatGPT/DeepSeek 输入框选择器过期），需逐平台验证并修正 `selectors.ts`
 - [ ] **CLI exec 命令改进**：当前 `exec` 发送提示词后立即返回，需再手动 `collect` 取结果。期望行为：发送提示词后终端挂起，轮询等待 AI 回复完成，流式输出或完成后返回完整结果，而非分两步操作
@@ -57,6 +58,13 @@
 - [x] **CLI Daemon 基础架构**（**已实现**）：Named Pipe 通信、SessionManager、AutomationService、CLI Client（`daemon status/exec/collect`）已落地，详见 SESSION_LOG 2026-06-28 多条记录。剩余工作：选择器更新、exec 挂起轮询改进（见上方 CLI 相关 TODO）
 - [ ] **`updatePlatformAnswer` 设计意图核实**：该 store action（`appStore.ts`）在整个 `src/` 中无任何调用方（仅类型声明 + 定义），疑似漏接网络流式推送回调。当前监控内容流全靠 `pollPlatforms` 每 3s 轮询爬 DOM。若未来需要实时（非轮询）落盘流式内容，需另立项核实其是否本应被 webview 注入脚本 / IPC 回调接入，并补接入点；否则考虑移除该死代码。来源：2026-07-02 会话轮询保存去重任务（plan：`docs/superpowers/plans/2026-07-01-history-polling-save-dedup.md`）
 - [ ] **会话轮询去重 dev 验收**：`appStore.ts` 轮询保存去重已实施（commit `9975d25`，lint/build 通过），但未在 `npm run dev` 中手动验收。最小等价检查：发消息触发监控，观察 `%APPDATA%\MultiChat Desk-dev\config-dev.json` 的 `history` 字段写盘频率——稳定等待期（内容不变约 9s）应不再每 3s 写一次；并验证三个停止出口（全部完成 / 超时 5 分钟 / 新消息重置）终态完整不丢数据
+- [ ] **webview 智能休眠代码已落地，dev 验收未完成**（2026-07-02，commit 含 `69580a9`）：按休眠迁移评估计划 5 片段实施——WebviewCard suspend/resume+`isHibernated` 覆盖层（片段A）、MainPage 5min 调度器（片段B）、主窗 hide/show IPC 15min（片段B'）、SummaryPanel 10min 调度器（片段D，修正计划笔误：webview 在 SummaryPanel 非 SummaryPage）、QuickPage 5min 旧模型调度器（片段E）。真卸载页面层（`loadURL('about:blank')`）+ 唤醒重载草稿恢复，登录态靠 `persist:shared`。lint 0 errors / build 三 bundle 通过。**待 dev 手动验收**：
+  - [ ] 12 种真值表 case（休眠白名单：当前活跃 slot / 回溯态 activeHistoryId / 总结页 webview 等跳过条件组合）
+  - [ ] 5/10/15min 各场景延迟（可临时调小常量或控制台手动 suspend 触发）
+  - [ ] 内存实测：4 webview 全休眠应降 200-400MB（任务管理器对比）
+- [ ] **内存泄漏审核修复代码已落地，2 项 follow-up 未完成**（2026-07-02，worktree `memory-leak-fixes`）：覆盖 10 处——AbortController 覆盖前 abort / reader finally 释放 / onChunk `isDestroyed` 守卫 / paste 临时目录即时+启动清理 / VBS 兜底清理 / `registerWebviewHandlers` 幂等（WeakSet）/ loadMore 内存上限 100+游标 / `saveCurrentTurn` 写盘节流 / refCallbacks 旧键回收 / navigate setTimeout 清理。`#4 mountedWebviews` 按用户决定保留为有意取舍（会话连续性）。剩余：
+  - [ ] #4 后续若需回收渲染进程：另起计划评估「新建会话时清空 mountedWebviews Set」方案
+  - [ ] #10 history 写路径架构问题：`storeSet('history', inMemory100)` 整数组覆写磁盘，稳态下磁盘也仅 ≤100 条，与分层存储设计（磁盘 1000）矛盾、`loadMore` 稳态拉不到老数据。需改造写路径让磁盘保留全量 + 内存只覆写热区（属分层存储后续工作）
 
 ## 已完成
 

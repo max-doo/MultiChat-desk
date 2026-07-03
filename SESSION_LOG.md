@@ -2,6 +2,103 @@
 
 ## 2026-07-02
 
+### 23:16 | claude-code
+
+- done: 修复豆包多块合并回归：上次用1.5x下限长度守卫方向反了，末块极短时跳过单轮容器继续向上爬到跨轮根容器，把全部历史对话+用户query抓下。改为最近公共祖先：第一个queryAll([data-streaming],.md-box-root)>=2的祖先立即返回不再向上，去掉长度守卫，向上层数收紧到6
+- context: 回归由上一次修复findDoubaoMultiBlockRoot引入
+- modified:
+  - `src/shared/utils/webviewScripts.ts`
+- lesson(promoted): 豆包多块合并防过并不能用下限长度守卫(1.5x)：方向反了，只挡比正文短的容器，挡不住爬过头到跨轮根容器(全部历史+query)。正确做法是最近公共祖先——第一个blockCount>=2的祖先立即返回不再向上，无需长度守卫，因为含>=2个本回复块的最近祖先必是单轮容器
+- unresolved: 需npm run dev实测：豆包多轮对话只抓最新回复全文、不含query和历史
+
+### 22:43 | claude-code
+
+- done: 修复豆包回复抓取不完整：豆包现把一条助手回复拆成多个并列[data-streaming]渲染块，末块常为收尾提示，原'取最后可见候选'逻辑命中末块导致只抓到最后一句。新增findDoubaoMultiBlockRoot合并同轮多块容器
+- context: 豆包DOM: <div data-container-type=block-v2>包多个<data-render-engine=node>块，每块含.md-box-root[data-streaming=false]
+- decision: 豆包多块合并放在findMergedContentRoot之后作为补充启发式，沿用1.5倍长度+>=2块守卫，不改动既有markdown-content-N逻辑以免影响其他平台
+- modified:
+  - `src/shared/utils/webviewScripts.ts`
+- lesson(promoted): 豆包单轮回复已被拆成多个并列渲染块(<div data-render-engine=node>...<div data-streaming>)，末块常是收尾提示而非正文；抓取'取最后可见候选'会命中末块。判别手法：选定块向上找queryAll([data-streaming],.md-box-root)>=2且文本1.5倍长的祖先即为单轮容器
+- lesson(promoted): findMergedContentRoot只认markdown-content-N的id正则，对豆包无该id的hash后缀容器(container-qX9Csx等)失效；多块合并需另设按'多回复块同轮容器'的启发式，并复用1.5倍长度守卫防过并
+- unresolved: 需npm run dev实测：豆包多块回复确认抓全正文、收尾提示并入正文末尾、其他平台回复不受影响
+
+### 22:32 | claude-code
+
+- done: 辩论机制分层提示词改造 + 辩论专用总结模板(辩论裁判)自动选中 + 完成toast泄漏修复
+- context: 用户反馈辩论提示词太机械,要求分开始/进行中/收尾,并加辩论专用总结模板,辩论模式进总结时默认选中;并报完成toast永久显示且泄漏到多AI模式的bug
+- decision: 不切模式时resetDebate(会清rounds导致裁判评析拿不到发言),改用productMode门控+autoHide=4000+ControlBar切模式清通知
+- added:
+  - `src/renderer/src/utils/debatePrompts.ts`
+- modified:
+  - `src/renderer/src/utils/debatePrompts.ts(新建) src/renderer/src/hooks/useDebateRunner.ts src/renderer/src/store/agent-prompts-defaults/辩论对决.md src/renderer/src/store/appStore.ts src/renderer/src/pages/MainPage.tsx src/renderer/src/pages/SummaryPage.tsx src/renderer/src/types/summary.ts src/renderer/src/components/SummaryPanel.tsx src/renderer/src/hooks/useSummaryPanel.ts src/renderer/src/components/modes/DebateModePanel.tsx src/renderer/src/components/ControlBar.tsx`
+- lesson(promoted): 辩论轮转prompt分层(立论/交锋/结辩)放代码内常量(debatePrompts.ts)而非AgentPrompt磁盘模板系统，因带变量插值与阶段分派;总结模板改名(辩论对决→辩论裁判)只改name不改id(仍'5'),MainPage presetSummaryMode:'5' 仍有效;现有用户磁盘agent-prompts/目录为空时bootstrap才会写入新默认,否则保留旧name/prompt(本机当前为空,下次dev生效)
+- unresolved: 需npm run dev手动验证各轮prompt分层/默认选中辩论裁判/toast不泄漏;1轮与2轮辩论边界行为
+
+### 22:32 | claude-code
+
+- done: 修复豆包+千问回复选择器失效：豆包改用[data-streaming]/.md-box-root候选；千问改用qk-markdown体系容器级候选并删除段落级候选(.qk-md-paragraph导致命中视频卡丢失正文)；htmlToMarkdown跳过千问多模态卡片与来源汇总区；新增千问引用上标转[N]标记+tooltip来源提取([class*=source-card-item]兼容hash后缀)；降级结论：React:hover tooltip无法程序化触发挂载，来源靠手动悬停，不强求完整
+- context: 豆包/千问选择器失效修复，用户要求保留正文引用链接
+- decision: 千问来源明细降级方案:保留[N]上标标记+tooltip提取代码(无速度影响则留)，不做文末计数提示，不做CDP真实鼠标自动悬停(违反脆弱依赖约束)
+- modified:
+  - `src/shared/config/selectors.ts;src/shared/utils/htmlToMarkdown.ts;src/shared/utils/webviewScripts.ts;.memory/KNOWLEDGE.md`
+- lesson(promoted): hash后缀class必须用[class*=...]属性子串选择器，不能用精确class(.source-card-item不匹配source-card-item-mo9ULH)，判别手法:精确选择器length=0但子串选择器length>0则必是hash后缀
+- lesson(promoted): 平台改名class是选择器失效首要根因而非写法错：豆包mdbox-theme-next→md-box-root、千问tongyi-markdown→qk-markdown，排查第一步永远是先Console查当前真实class再写候选，不要凭旧DOM记忆改
+- lesson(promoted): 抓取逻辑取最后可见候选时段落级候选(.qk-md-paragraph)会命中回复末尾多模态卡片块(.qk-md-has-multi-modal)导致只抓到卡片标题丢正文，messageContainer候选应容器级优先段落级靠后或不用
+- lesson(promoted): React:hover/合成事件驱动的tooltip无法用程序化dispatchEvent触发挂载(实测increased:false)，千问来源明细只能靠手动悬停或CDP真实硬件鼠标(重且违反避免脆弱DOM依赖)，可接受降级:上标转[N]标记+尽力抓已挂载tooltip
+- unresolved: 千问reportContainer仍依赖失效的.tongyi-markdown/viewResults-D_wP0H，需深度研究结果DOM才能修；豆包/千问选择器dev实测验证待用户跑npm run dev确认
+
+### 22:13 | claude-code
+
+- done: 修复 SummaryPage 黑屏：renderableModels 的 useMemo 引用了尚未声明的 modelResponses useState，触发 TDZ，移到其后
+- context: 上一轮 phantom 空框修复引入的回归；const 不像 var 提升初始化。
+- modified:
+  - `src/renderer/src/pages/SummaryPage.tsx`
+- lesson: useMemo 引用同组件 useState 变量时必须声明在其后，否则渲染期访问 const TDZ 抛 'Cannot access X before initialization' 致整页黑屏；eslint react-hooks 与 tsc 均不报此顺序错，必须 npm run dev 实跑确认。
+
+### 22:08 | claude-code
+
+- done: 修复多AI模式下总结页出现无关webview空回复框（phantom空框）的bug
+- context: getDisplayedModels 的兜底逻辑与历史恢复回填是 phantom 模型进入总结页的两条路径；渲染口径需与 selectedModels/getAllResponses targetModelList 对齐。
+- modified:
+  - `src/renderer/src/pages/SummaryPage.tsx`
+- lesson(promoted): SummaryPage 无条件渲染 getDisplayedModels 全部槽位模型，而该函数的 models[index % models.length] 兜底 + 历史恢复 newOrder 回填未参与模型（含禁用模型）会把用户当前页面没打开的模型也列入 displayedModels，无回复内容时渲染成「暂无回复内容」空框。修复：渲染前按 modelResponses 有内容过滤（与 selectedModels 口径一致）。
+
+### 21:29 | claude-code
+
+- done: Task 3: Added probeMessageContainer to WebviewCardRef interface and useImperativeHandle in WebviewCard.tsx. Added import for buildProbeScript, parseProbeResult, and ProbeReport from ../utils/selectorDiagnostics.
+- added:
+  - `src/renderer/src/components/WebviewCard.tsx`
+
+### 21:28 | claude-code
+
+- done: 辩论模式两 bug 修复：Bug1 getResponseFromSlot 去掉 sawNew 单向闩锁，每次循环要求 cur 非空且 !==base 才计入稳定计数，超时返回空，根除基线读空/闩锁后回稳到旧值导致旧回复被当成新回复发给对方；Bug2 裁判评析在 productMode==='debate' 时直接读 debateState.rounds 构造 modelResponses，绕开 getAllResponses/activeModels 污染与快照兜底，SummaryPage 解构并传入 debateSlots 给 getDisplayedModels 保证渲染 2 个辩论槽卡片。
+- context: 辩论模式慢 AI 旧回复误发 + 裁判评析抓错 webview 两 bug
+- modified:
+  - `src/renderer/src/store/appStore.ts`
+  - `src/renderer/src/pages/MainPage.tsx`
+  - `src/renderer/src/pages/SummaryPage.tsx`
+- lesson(promoted): getResponseFromSlot 的 sawNew 单向闩锁是错误抽象：一旦因瞬时空值/基线读空触发就永久 true，之后 cur 回稳到旧基线即返回旧回复。正确做法是每次循环都重新校验 cur 非空且 !==base 才计入稳定计数，不用闩锁。
+
+### 21:22 | claude-code
+
+- done: Task 2: Created selectorDiagnostics.ts with buildProbeScript and parseProbeResult pure functions
+- context: Task 2 of 6 in the selector diagnostics panel plan. Created the probe script builder and result parser as pure functions.
+- decision: Used indexOf-based dedup (Step 3 fix) instead of Set-based dedup for injected environment compatibility. Used ​ escape instead of literal ZWSP to avoid ESLint no-irregular-whitespace.
+- added:
+  - `src/renderer/src/utils/selectorDiagnostics.ts`
+
+### 21:03 | claude-code
+
+- done: Task 1: Added vite/client types to tsconfig.web.json compilerOptions for import.meta.env.DEV type support
+- modified:
+  - `tsconfig.web.json`
+
+### 19:37 | claude-code
+
+- done: 据 SESSION_LOG 更新 TODO：勾掉辩论回复检测代码落地、TaskSplitModal 代码落地；新增 webview 智能休眠(代码落地/dev验收未完成)与内存泄漏修复(10处已修/2项follow-up)条目
+- modified:
+  - `TODO.md`
+
 ### 13:15 | claude-code
 
 - done: 按休眠迁移评估计划的 5 个片段实施 webview 智能休眠：WebviewCard 休眠能力(片段A)+MainPage 5min调度器(片段B)+主窗口hide/show IPC 15min(片段B')+SummaryPanel 10min调度器(片段D,修正计划笔误:webview在SummaryPanel非SummaryPage)+QuickPage 5min旧模型调度器(片段E)。真卸载页面层(loadURL about:blank)+唤醒重载草稿恢复,登录态靠persist:shared。lint 0 errors,build三bundle通过,待dev手动验证真值表与各场景延迟。
