@@ -17,7 +17,7 @@ import {
   type FileUploadData
 } from '../utils/webviewScripts'
 import { extractGeminiCanvasContent } from '../utils/geminiCanvasExtractor'
-import { buildProbeScript, parseProbeResult, type ProbeReport, buildResearchProbeScript, parseResearchProbeResult, type ResearchProbeReport } from '../utils/selectorDiagnostics'
+import { buildProbeScript, parseProbeResult, type ProbeReport, buildResearchProbeScript, parseResearchProbeResult, type ResearchProbeReport, buildPickerScript, parseDomProbeResult, type DomProbeReport, type DomProbeOptions } from '../utils/selectorDiagnostics'
 import ModelOutputCard from './ModelOutputCard'
 
 // 创建 Turndown 实例用于 HTML 转 Markdown
@@ -135,6 +135,8 @@ export interface WebviewCardRef {
   probeMessageContainer: () => Promise<ProbeReport>
   /** dev-only：对当前页面跑 researchMode 探针，返回每步命中报告（只读） */
   probeResearchMode: () => Promise<ResearchProbeReport>
+  /** dev-only：进入检拾模式，鼠标点选平台页元素后返回其 DOM 结构（祖先链 + 子树） */
+  probeDomStructure: (mode: 'pick', opts?: DomProbeOptions) => Promise<DomProbeReport>
 }
 
 /**
@@ -897,6 +899,24 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
           return parseResearchProbeResult(raw)
         } catch (error) {
           return { ok: false, steps: [], error: `页面未就绪或执行失败: ${String(error)}` }
+        }
+      },
+
+      /**
+       * dev-only：进入检拾模式，鼠标点选平台页元素后返回其 DOM 结构（祖先链 + 子树）。
+       * 注入 picker 脚本（覆盖层 + 高亮 + click 选中 + Esc/超时取消），单次 executeJavaScript 往返。
+       * mode 参数预留扩展（当前仅 'pick'）。
+       */
+      probeDomStructure: async (_mode: 'pick', opts?: DomProbeOptions): Promise<DomProbeReport> => {
+        const webview = webviewRef.current
+        if (!webview) {
+          return { ok: false, error: 'Webview ref 为空' }
+        }
+        try {
+          const raw = await webview.executeJavaScript(buildPickerScript(opts))
+          return parseDomProbeResult(raw)
+        } catch (error) {
+          return { ok: false, error: `页面未就绪或执行失败: ${String(error)}` }
         }
       },
 
