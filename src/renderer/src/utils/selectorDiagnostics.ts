@@ -539,7 +539,8 @@ export function buildPickerScript(opts: DomProbeOptions = {}): string {
     var ATTR_WHITELIST = ${JSON.stringify(DOM_ATTR_WHITELIST)};
     var PICKER_TIMEOUT_MS = 120000;
 
-    // 防重入：先清理旧注入物
+    // 清理注入物（移除 overlay/highlight/tip）。仅操作 DOM，不触碰 resolve ——
+    // 退出路径（click/Esc/超时）会在 cleanup() 之后自行 resolve。
     function cleanup() {
       var ids = ['mc-picker-overlay', 'mc-picker-highlight', 'mc-picker-tip'];
       for (var i = 0; i < ids.length; i++) {
@@ -547,7 +548,14 @@ export function buildPickerScript(opts: DomProbeOptions = {}): string {
         if (el && el.parentNode) el.parentNode.removeChild(el);
       }
     }
+    // 防重入：若存在尚未 resolve 的旧 picker，先移除其 overlay 再以错误 reject，
+    // 避免旧 executeJavaScript Promise 永久挂起（旧 overlay 已移除，旧 resolve 不会再被用户触发）。
+    // 必须在安装新 resolve 之前完成，否则会误 reject 本会话。
     cleanup();
+    if (typeof window.__mcPickerResolve === 'function' && !window.__mcPickerResolved) {
+      window.__mcPickerResolved = true;
+      try { window.__mcPickerResolve({ ok: false, error: '检拾被新会话覆盖' }); } catch (e) {}
+    }
 
     var currentEl = null;
 
@@ -728,6 +736,8 @@ export function buildPickerScript(opts: DomProbeOptions = {}): string {
     }, PICKER_TIMEOUT_MS);
 
     return new Promise(function (resolve) {
+      // 新 picker 重置已 resolve 标志，使本会话的 click/Esc/超时能正常 resolve
+      window.__mcPickerResolved = false;
       window.__mcPickerResolve = resolve;
     });
   })();`
