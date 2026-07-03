@@ -1599,7 +1599,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   registerDiagnosticsRelay: () => {
-    const offProbe = window.api.onDiagnosticsProbeRequest(async ({ reqId, modelId, type }) => {
+    const offProbe = window.api.onDiagnosticsProbeRequest(async ({ reqId, modelId, type, options }) => {
       const { webviewRefs } = get()
       const ref = webviewRefs.get(modelId)
       let result: unknown
@@ -1607,7 +1607,14 @@ export const useAppStore = create<AppState>((set, get) => ({
         result = { ok: false, error: '平台未加载' }
       } else {
         try {
-          result = type === 'message' ? await ref.probeMessageContainer() : await ref.probeResearchMode()
+          if (type === 'message') {
+            result = await ref.probeMessageContainer()
+          } else if (type === 'research') {
+            result = await ref.probeResearchMode()
+          } else {
+            // type === 'pick'：进入检拾模式，options 透传给 picker（缺省 ancestorDepth:8 / childDepth:3）
+            result = await ref.probeDomStructure('pick', options)
+          }
         } catch (error) {
           result = { ok: false, error: String(error) }
         }
