@@ -358,8 +358,17 @@ export function registerIpcHandlers(
         }
     })
 
-    ipcMain.on('window-close', () => {
-        getMainWindow()?.close()
+    ipcMain.on('window-close', (event) => {
+        // 作用于 sender 窗口：主窗口与诊断窗口等所有无边框窗口共用此 IPC
+        BrowserWindow.fromWebContents(event.sender)?.close()
+    })
+
+    // 作用于 sender 窗口的置顶切换（诊断窗口等独立窗口用）
+    ipcMain.handle('window-set-always-on-top', (event, pinned: boolean) => {
+        const win = BrowserWindow.fromWebContents(event.sender)
+        if (!win || win.isDestroyed()) return { success: false, error: '窗口已销毁' }
+        win.setAlwaysOnTop(pinned)
+        return { success: true, data: win.isAlwaysOnTop() }
     })
 
     // IPC 处理器：文件选择

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { defaultSelectors } from '../config/selectors'
 import type { CandidateReport, ProbeReport, ResearchProbeReport, StepReport } from '../utils/selectorDiagnostics'
 
@@ -6,9 +6,73 @@ function DiagnosticsPage(): JSX.Element {
   const [tab, setTab] = useState<'message' | 'research'>('message')
   const platformIds = Object.keys(defaultSelectors.models)
   const [selectedId, setSelectedId] = useState<string>(platformIds[0] ?? '')
+  const [pinned, setPinned] = useState(true) // 窗口默认 alwaysOnTop:true 打开
+  const isDraggingRef = useRef(false)
+
+  // 复用主窗口的无边框拖拽范式：pointer capture + windowDrag* IPC
+  useEffect(() => {
+    const onMove = (): void => {
+      if (isDraggingRef.current) window.api.windowDragMove()
+    }
+    const onUp = (): void => {
+      if (isDraggingRef.current) {
+        isDraggingRef.current = false
+        window.api.windowDragEnd()
+      }
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    return () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+    }
+  }, [])
+
+  const togglePin = async (): Promise<void> => {
+    const next = !pinned
+    const res = await window.api.setWindowAlwaysOnTop(next)
+    setPinned(res.success && res.data === true)
+  }
 
   return (
     <div className="w-full h-full flex flex-col bg-bg-secondary">
+      {/* 自定义标题栏：拖拽 + 置顶 + 关闭 */}
+      <div
+        className="relative h-9 w-full shrink-0 grid items-center px-2 drag-region select-none border-b border-border"
+        style={{ gridTemplateColumns: '1fr auto' }}
+        onPointerDown={(e) => {
+          const target = e.target as HTMLElement
+          if (target.closest('.no-drag')) return
+          if (target.closest('.drag-region') || target === e.currentTarget) {
+            isDraggingRef.current = true
+            ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+            window.api.windowDragStart()
+          }
+        }}
+      >
+        <div className="flex items-center gap-2 drag-region h-full min-w-0">
+          <span className="material-symbols-outlined text-base text-text-secondary">science</span>
+          <span className="text-xs text-text-secondary truncate">选择器诊断</span>
+        </div>
+        <div className="flex items-center gap-1 no-drag">
+          <button
+            type="button"
+            onClick={() => { void togglePin() }}
+            className={`w-6 h-6 flex items-center justify-center rounded-full transition-all ${pinned ? 'text-primary bg-blue-50/80' : 'text-text-secondary hover:text-text-primary hover:bg-white/60'}`}
+            title={pinned ? '取消置顶' : '置顶于主窗口之上'}
+          >
+            <span className="material-symbols-outlined text-base">{pinned ? 'push_pin' : 'pin_drop'}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => window.api.closeWindow()}
+            className="w-6 h-6 flex items-center justify-center rounded-full text-text-secondary hover:text-red-600 hover:bg-red-50 transition-all"
+            title="关闭"
+          >
+            <span className="material-symbols-outlined text-base">close</span>
+          </button>
+        </div>
+      </div>
       <div className="flex border-b border-border">
         <TabButton active={tab === 'message'} onClick={() => setTab('message')} label="消息容器 (messageContainer)" />
         <TabButton active={tab === 'research'} onClick={() => setTab('research')} label="深度研究 (researchMode)" />

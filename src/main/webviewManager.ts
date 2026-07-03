@@ -727,7 +727,7 @@ export function openDiagnosticsWindow(): void {
         minHeight: 400,
         show: false,
         frame: false,
-        alwaysOnTop: false,
+        alwaysOnTop: true,
         skipTaskbar: false,
         backgroundColor: '#ffffff',
         icon: getWindowIcon(),
