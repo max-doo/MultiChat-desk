@@ -167,6 +167,7 @@ const api = {
     goal: string
     temperature?: number
     maxTokens?: number
+    windowCount?: number
   }): Promise<{ success: boolean; data?: Array<{ text: string; suggestedModelId?: string }>; error?: string; aborted?: boolean }> =>
     ipcRenderer.invoke('split-task', params),
   abortSplitTask: (): Promise<{ success: boolean; error?: string }> =>

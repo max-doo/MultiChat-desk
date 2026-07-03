@@ -49,6 +49,14 @@ export function useSummaryPanel({ selectedModels, modelResponses, restoreHistory
   // 快照：在首次生成总结时捕获的 modelResponses，后续重新生成均使用此快照
   // 避免新对话的模型输出覆盖历史总结中的模型输出
   const [capturedModelResponses, setCapturedModelResponses] = useState<Record<string, string>>({})
+  // ref 镜像：persistSummaryHistory 在首次总结时与 setCapturedModelResponses 同一 tick 内被调用，
+  // 此时闭包里的 capturedModelResponses 仍是旧值（{}），直接读会写入空 modelResponses，
+  // 导致 API 模式历史恢复时左侧模型回复卡片为空。ref 同步更新以避开闭包陈旧值。
+  const capturedModelResponsesRef = useRef<Record<string, string>>({})
+  const setCapturedModelResponsesBoth = (next: Record<string, string>) => {
+    capturedModelResponsesRef.current = next
+    setCapturedModelResponses(next)
+  }
 
   // 导出对话框状态
   const [showExportDialog, setShowExportDialog] = useState(false)
@@ -112,7 +120,7 @@ export function useSummaryPanel({ selectedModels, modelResponses, restoreHistory
       timestamp: now,
       messages: serializeMessages(source),
       selectedModels: [...selectedModels],
-      modelResponses: { ...capturedModelResponses },
+      modelResponses: { ...capturedModelResponsesRef.current },
       urls: history[0]?.urls,
       ...extra
     }
@@ -278,7 +286,7 @@ export function useSummaryPanel({ selectedModels, modelResponses, restoreHistory
       setHasStartedChat(restoreHistoryData.messages.length > 0)
       // 恢复历史记录时，从历史数据中捕获 modelResponses 快照
       if (restoreHistoryData.modelResponses) {
-        setCapturedModelResponses({ ...restoreHistoryData.modelResponses })
+        setCapturedModelResponsesBoth({ ...restoreHistoryData.modelResponses })
       }
     }
   }, [restoreHistoryData])
@@ -319,7 +327,7 @@ export function useSummaryPanel({ selectedModels, modelResponses, restoreHistory
     setIsReasoningExpanded(false)
     currentSummaryHistoryIdRef.current = null
     hasGeneratedTitleRef.current = false
-    setCapturedModelResponses({})
+    setCapturedModelResponsesBoth({})
     onReset?.()
   }
 
@@ -373,7 +381,7 @@ export function useSummaryPanel({ selectedModels, modelResponses, restoreHistory
     if (!hasStartedChat) {
       // 首次发送：捕获当前 modelResponses 快照，后续重新生成均使用此快照
       const snapshot = { ...modelResponses }
-      setCapturedModelResponses(snapshot)
+      setCapturedModelResponsesBoth(snapshot)
 
       // 首次发送：显示 agent 提示词内容，发送完整的模型回答分析
       modelOutputs = selectedModels

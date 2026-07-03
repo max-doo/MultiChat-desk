@@ -72,12 +72,14 @@ function SubtaskList({ subtasks, collapsed }: SubtaskListProps): JSX.Element | n
               <div className="flex flex-col items-center gap-1 flex-shrink-0">
                 <button
                   onClick={() => {
-                    const cur = slotModels.findIndex(m => m.id === st.modelId)
-                    const next = slotModels[(cur + 1) % Math.max(1, slotModels.length)]
-                    if (next) updateSubtask(i, { modelId: next.id })
+                    // cycle 切换目标槽位（不是 modelId）：在 0..slotCount-1 间 +1 取模，
+                    // 避免「多窗口同模型」时 findIndex 命中错误槽位
+                    const slotCount = Math.max(1, slotModels.length)
+                    const next = (st.slotIndex + 1) % slotCount
+                    updateSubtask(i, { slotIndex: next, modelId: slotModels[next]?.id || '' })
                   }}
                   className="flex items-center gap-1 px-2 py-1 rounded-lg bg-blue-50 text-primary text-xs font-medium hover:bg-blue-100"
-                  title="切换指派模型（当前 webview 槽位）"
+                  title={`切换指派槽位（当前 slot ${st.slotIndex + 1}）`}
                 >
                   <img src={assigned?.logo} alt="" className="w-3.5 h-3.5" onError={(e) => e.currentTarget.style.display = 'none'} />
                   {assigned?.name || '未指派'}

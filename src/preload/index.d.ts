@@ -119,6 +119,7 @@ declare global {
         goal: string
         temperature?: number
         maxTokens?: number
+        windowCount?: number
       }) => Promise<{ success: boolean; data?: Array<{ text: string; suggestedModelId?: string }>; error?: string; aborted?: boolean }>
       abortSplitTask: () => Promise<{ success: boolean; error?: string }>
       fetchModels: (params: {

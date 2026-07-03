@@ -12,9 +12,6 @@ export function useTaskSplit() {
 
   const apiConfig = useAppStore((s) => s.apiConfig)
   const summaryModels = useAppStore((s) => s.summaryModels)
-  const models = useAppStore((s) => s.models)
-  const displayMode = useAppStore((s) => s.displayMode)
-  const taskAssignmentSlots = useAppStore((s) => s.taskAssignmentSlots)
   const setTaskSubtasks = useAppStore((s) => s.setTaskSubtasks)
   const setTaskPhase = useAppStore((s) => s.setTaskPhase)
   const toggleTaskCollapsed = useAppStore((s) => s.toggleTaskCollapsed)
@@ -23,10 +20,12 @@ export function useTaskSplit() {
     const providerId = apiConfig.activeProviderId
     const provider = apiConfig.providers.find(p => p.id === providerId && p.enabled)
     if (!provider) return null
-    // 解析 model：优先 lastSelectedAgentId 对应的 summaryModel，否则取该供应商下第一个 summaryModel
+    // 解析 model：API 的 model 字段必须用 summaryModel.id（= 平台真实模型标识，如 xopdeepseekv4pro），
+    // 与总结链路 useSummaryPanel 传 selectedAgent(=id) 保持一致。
+    // 切勿用 .name——那是用户起的别名（如 "DeepSeek"），讯飞等 MaaS 网关会返回 PathDomainError:Model Not Found。
     const agentId = apiConfig.lastSelectedAgentId
-    let model = summaryModels.find(m => m.id === agentId && m.providerId === provider.id)?.name
-    if (!model) model = summaryModels.find(m => m.providerId === provider.id)?.name
+    let model = summaryModels.find(m => m.id === agentId && m.providerId === provider.id)?.id
+    if (!model) model = summaryModels.find(m => m.providerId === provider.id)?.id
     if (!model) return null
     return { apiKey: provider.apiKey, baseUrl: provider.baseUrl, model }
   }, [apiConfig, summaryModels])
@@ -40,25 +39,35 @@ export function useTaskSplit() {
     setIsLoading(true)
     abortRef.current = false
     try {
+      // 实时读取当前窗口槽位（屏幕上实际显示的 webview），用于告知模型拆解数量与派发指派
+      const curState = useAppStore.getState()
+      const slotModels = getDisplayedModels(
+        curState.models, curState.displayMode, 'task_assignment', curState.taskAssignmentSlots
+      )
+      const slotCount = Math.max(1, slotModels.length)
       const result = await window.api.splitTask({
         apiKey: provider.apiKey,
         baseUrl: provider.baseUrl,
         model: provider.model,
         goal,
         temperature: 0.4,
-        maxTokens: 1500
+        maxTokens: 1500,
+        windowCount: slotCount
       })
       if (abortRef.current) return { ok: false, error: '已中止' }
       if (!result.success || !result.data) {
         return { ok: false, error: result.error || '拆解失败' }
       }
-      // 按当前 webview 槽位轮询指派默认模型（槽位 = 屏幕上实际显示的 webview，顺序对应排列）
-      const slotModels = getDisplayedModels(models, displayMode, 'task_assignment', taskAssignmentSlots)
-      const slotCount = Math.max(1, slotModels.length)
-      const subtasks = result.data.map((st, i) => ({
-        text: st.text,
-        modelId: slotModels[i % slotCount]?.id || models[0]?.id || ''
-      }))
+      // 按槽位轮询指派：每个子任务携带目标 slotIndex，一键派发按 slotIndex 分发，
+      // 不再靠 modelId 反查槽位（避免多窗口同模型时全部命中 slot 0）
+      const subtasks = result.data.map((st, i) => {
+        const slotIndex = i % slotCount
+        return {
+          text: st.text,
+          slotIndex,
+          modelId: slotModels[slotIndex]?.id || curState.taskAssignmentSlots[slotIndex] || curState.models[0]?.id || ''
+        }
+      })
       setTaskSubtasks(subtasks)
       setTaskPhase('split')
       // 展开弹层
@@ -69,7 +78,7 @@ export function useTaskSplit() {
     } finally {
       setIsLoading(false)
     }
-  }, [isLoading, resolveProvider, models, displayMode, taskAssignmentSlots, setTaskSubtasks, setTaskPhase, toggleTaskCollapsed])
+  }, [isLoading, resolveProvider, setTaskSubtasks, setTaskPhase, toggleTaskCollapsed])
 
   // 写回拆解供应商+模型到 apiConfig（setApiConfig 已内置 storeSet 持久化，会剥离 agentPrompts）
   const persistProvider = useCallback((providerId: string, agentId: string) => {

@@ -172,7 +172,8 @@ export type DisplayMode = 'one' | 'two' | 'three' | 'four'
 export type TaskPhase = 'idle' | 'split' | 'sent'
 export interface TaskSubtask {
   text: string
-  modelId: string // 指派到的模型 id（槽位对应）
+  modelId: string // 派生展示用：= taskAssignmentSlots[slotIndex] 对应的模型 id
+  slotIndex: number // 目标窗口槽位（0..slotCount-1），一键派发按此分发
 }
 export interface TaskState {
   phase: TaskPhase
@@ -718,9 +719,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   addSubtask: () => set((s) => {
     // 默认指派到当前 webview 槽位模型（与分解指派、cycle 一致），fallback 用第一个模型
     const slotModels = getDisplayedModels(s.models, s.displayMode, 'task_assignment', s.taskAssignmentSlots)
-    const fallback = s.models[0]
-    const modelId = (slotModels[s.taskState.subtasks.length % Math.max(1, slotModels.length)] || fallback)?.id || ''
-    return { taskState: { ...s.taskState, subtasks: [...s.taskState.subtasks, { text: '新增子任务', modelId }] } }
+    const slotCount = Math.max(1, slotModels.length)
+    const slotIndex = s.taskState.subtasks.length % slotCount
+    const modelId = (slotModels[slotIndex] || s.models[0])?.id || ''
+    return { taskState: { ...s.taskState, subtasks: [...s.taskState.subtasks, { text: '新增子任务', modelId, slotIndex }] } }
   }),
   removeSubtask: (index) => set((s) => ({
     taskState: { ...s.taskState, subtasks: s.taskState.subtasks.filter((_, i) => i !== index) }

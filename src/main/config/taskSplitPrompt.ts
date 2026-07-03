@@ -1,11 +1,17 @@
 /**
  * 任务拆解系统提示词
  * 要求模型将用户目标拆解为可独立分配给不同 AI 的子任务，输出严格 JSON。
+ * windowCount = 当前实际窗口数；模型必须输出恰好 windowCount 个子任务，每个对应一个并行窗口。
+ * windowCount 缺省时回退到「2 到 6 个」自由拆分（向后兼容）。
  */
-export const TASK_SPLIT_SYSTEM_PROMPT = `你是一个任务拆解助手。用户会给出一个总目标，你需要把它拆解成若干个可以分别交给不同 AI 平台并行处理的独立子任务。
+export function buildTaskSplitSystemPrompt(windowCount?: number): string {
+  const countRule = windowCount && windowCount > 0
+    ? `1. 必须输出恰好 ${windowCount} 个子任务——每个子任务对应一个并行处理窗口，不得多出或少于 ${windowCount} 个。`
+    : `1. 子任务数量在 2 到 6 之间，依据目标复杂度合理拆分。`
+  return `你是一个任务拆解助手。用户会给出一个总目标，你需要把它拆解成若干个可以分别交给不同 AI 平台并行处理的独立子任务。
 
 规则：
-1. 子任务数量在 2 到 6 之间，依据目标复杂度合理拆分。
+${countRule}
 2. 每个子任务必须自带足够上下文，能脱离原目标独立理解（即把必要的背景写进子任务文本里）。
 3. 子任务之间尽量互不依赖，可并行执行。
 4. 只输出 JSON，禁止输出任何解释、markdown 代码块或多余文字。
@@ -15,6 +21,10 @@ export const TASK_SPLIT_SYSTEM_PROMPT = `你是一个任务拆解助手。用户
   { "text": "子任务1的完整描述" },
   { "text": "子任务2的完整描述" }
 ]`
+}
+
+/** 向后兼容：无窗口数时的默认系统提示词（2~6 自由拆分）。 */
+export const TASK_SPLIT_SYSTEM_PROMPT = buildTaskSplitSystemPrompt()
 
 /** 从模型输出中提取 JSON 子任务数组（容忍代码块包裹与前后多余文字） */
 export function parseSubtasks(raw: string): { text: string; suggestedModelId?: string }[] {

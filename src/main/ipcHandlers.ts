@@ -760,6 +760,7 @@ export function registerIpcHandlers(
         goal: string
         temperature?: number
         maxTokens?: number
+        windowCount?: number
     }) => {
         // 与 generate-summary 共用同一 controller：先 abort 上一个（可能是正在进行的 summary），
         // 避免旧流挂起；这也是 split-task 能正确获得中止能力的前提

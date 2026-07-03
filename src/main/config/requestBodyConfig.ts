@@ -11,6 +11,11 @@ export interface RequestBodyConfigParams {
   maxTokens?: number
   includeReasoning?: boolean
   baseUrl?: string
+  /**
+   * 是否流式输出。默认 true（总结链路）。
+   * 任务拆解等一次性 JSON 解析场景需传 false，避免供应商网关对非流式请求路由差异导致的 Model Not Found。
+   */
+  stream?: boolean
 }
 
 /**
@@ -24,7 +29,7 @@ export function buildRequestBody(params: RequestBodyConfigParams): Record<string
     temperature: params.temperature ?? 0.7,
     top_p: params.topP ?? 1,
     max_tokens: params.maxTokens ?? 4000,
-    stream: true  // 启用流式输出
+    stream: params.stream ?? true  // 默认流式；任务拆解等一次性场景传 false 覆盖
   }
 
   // 根据供应商和模型添加思考过程相关参数

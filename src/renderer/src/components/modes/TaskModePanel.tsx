@@ -22,7 +22,6 @@ function TaskModePanel({ showNotification }: TaskModePanelProps): JSX.Element {
   const setTaskPhase = useAppStore((s) => s.setTaskPhase)
   const setTaskSubtasks = useAppStore((s) => s.setTaskSubtasks)
   const resetTask = useAppStore((s) => s.resetTask)
-  const taskAssignmentSlots = useAppStore((s) => s.taskAssignmentSlots)
   const webviewRefs = useAppStore((s) => s.webviewRefs)
   const { split, isLoading } = useTaskSplit()
   const [modalOpen, setModalOpen] = useState(false)
@@ -47,16 +46,15 @@ function TaskModePanel({ showNotification }: TaskModePanelProps): JSX.Element {
     showNotification('info', '已取消拆解，可继续编辑')
   }
 
-  // 一键发送：按子任务 modelId 分组，每个槽位发送其指派的子任务文本
+  // 一键发送：按子任务 slotIndex 分组，每个槽位发送其指派的子任务文本。
+  // 直接用 slotIndex（而非 modelId 反查 taskAssignmentSlots）——多窗口选同一模型时
+  // modelId 无法区分槽位，靠 slotIndex 才能保证每个窗口各收一条。
   const handleSend = async () => {
     if (taskState.subtasks.length === 0) return
     setTaskPhase('sent')
-    // 按槽位 index（0..n）聚合文本；槽位模型 = taskAssignmentSlots[index]
     const bySlot = new Map<number, string[]>()
     taskState.subtasks.forEach((st) => {
-      // 找到该 modelId 对应的槽位 index
-      let slotIndex = taskAssignmentSlots.findIndex(id => id === st.modelId)
-      if (slotIndex === -1) slotIndex = 0
+      const slotIndex = Math.max(0, st.slotIndex)
       if (!bySlot.has(slotIndex)) bySlot.set(slotIndex, [])
       bySlot.get(slotIndex)!.push(st.text)
     })
