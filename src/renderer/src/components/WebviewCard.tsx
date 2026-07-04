@@ -13,6 +13,7 @@ import {
   generateDisableDeepResearchScript,
   generateEnableImageGenerationScript,
   generateDisableImageGenerationScript,
+  generateExtractImagesScript,
   generateGetLatestResponseScript,
   type FileUploadData
 } from '../utils/webviewScripts'
@@ -120,6 +121,8 @@ export interface WebviewCardRef {
   disableDeepResearch: () => Promise<{ success: boolean; error?: string }>
   enableImageGeneration: () => Promise<{ success: boolean; error?: string }>
   disableImageGeneration: () => Promise<{ success: boolean; error?: string }>
+  /** 提取当前 webview 最新回复中的生图（img/canvas/a[href]/blob→data），返回 src 列表与 wcId */
+  extractGeneratedImages: () => Promise<{ images: Array<{ src: string; mime?: string }>; wcId: number | null; error?: string }>
   getLatestResponse: () => Promise<string>
   reload: () => void
   resetToInitial: () => Promise<{ success: boolean; error?: string }>
@@ -743,6 +746,27 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
           return { success: result.success, error: result.error }
         } catch (error) {
           return { success: false, error: String(error) }
+        }
+      },
+
+      /**
+       * 提取当前 webview 最新回复中的生图（img/canvas/a[href]/blob→data），返回 src 列表与 wcId
+       */
+      extractGeneratedImages: async () => {
+        const webview = webviewRef.current
+        if (!webview || !isReady || !selectors) {
+          return { images: [], wcId: null, error: 'Webview 未就绪' }
+        }
+        const wcId = typeof (webview as any).getWebContentsId === 'function' ? (webview as any).getWebContentsId() : null
+        try {
+          const code = generateExtractImagesScript(selectors)
+          const result = await webview.executeJavaScript(code)
+          if (result && result.success) {
+            return { images: result.images || [], wcId }
+          }
+          return { images: [], wcId, error: result?.error || '提取失败' }
+        } catch (error) {
+          return { images: [], wcId, error: String(error) }
         }
       },
 
