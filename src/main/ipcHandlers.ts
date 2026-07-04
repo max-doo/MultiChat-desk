@@ -4,6 +4,7 @@
  */
 
 import { app, ipcMain, dialog, clipboard, BrowserWindow, shell } from 'electron'
+import { is } from '@electron-toolkit/utils'
 import { basename, extname, join, dirname, resolve } from 'path'
 import { stat, writeFile, mkdtemp, rm } from 'fs/promises'
 import { tmpdir } from 'os'
@@ -100,11 +101,13 @@ export function registerIpcHandlers(
     })
 
     ipcMain.handle('diagnostics:open-window', () => {
+        if (!is.dev) return { success: false, error: 'dev-only' }
         openDiagnosticsWindow()
         return { success: true }
     })
 
     ipcMain.handle('diagnostics:probe', async (_e, payload: { modelId: string; type: 'message' | 'research' | 'pick'; options?: { ancestorDepth?: number; childDepth?: number } }) => {
+        if (!is.dev) return { success: false, error: 'dev-only' }
         const mainWin = getMainWindow()
         if (!mainWin || mainWin.isDestroyed()) {
             return { success: false, error: '主窗口未就绪' }
@@ -131,6 +134,7 @@ export function registerIpcHandlers(
     })
 
     ipcMain.handle('diagnostics:run-research', async (_e, payload: { modelId: string }) => {
+        if (!is.dev) return { success: false, error: 'dev-only' }
         const mainWin = getMainWindow()
         if (!mainWin || mainWin.isDestroyed()) {
             return { success: false, error: '主窗口未就绪' }

@@ -1,11 +1,16 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, lazy, Suspense } from 'react'
 import Layout from './components/Layout'
 import MainPage from './pages/MainPage'
 import SummaryPage from './pages/SummaryPage'
 import QuickPage from './pages/QuickPage'
 import ToolbarPage from './pages/ToolbarPage'
-import DiagnosticsPage from './pages/DiagnosticsPage'
 import { initializeStore, useAppStore, SummaryHistoryItem } from './store/appStore'
+
+// 诊断页仅在 dev 构建 reachable：生产构建里 import.meta.env.DEV=false，
+// 下面的动态 import 会被 Rollup 当作死代码剔除，DiagnosticsPage 不会进包。
+const DiagnosticsPage = import.meta.env.DEV
+  ? lazy(() => import('./pages/DiagnosticsPage'))
+  : null
 
 function MainApp(): JSX.Element {
   const { currentPage, setCurrentPage } = useAppStore()
@@ -21,7 +26,7 @@ function MainApp(): JSX.Element {
       if (window.location.hash === '#quick') {
         setCurrentPage('quick')
       }
-      if (window.location.hash === '#diagnostics') {
+      if (import.meta.env.DEV && window.location.hash === '#diagnostics') {
         setCurrentPage('diagnostics')
       }
     }
@@ -72,9 +77,10 @@ function MainApp(): JSX.Element {
     }
   }, [currentPage, hasSummaryOpened])
 
-  // 注册诊断窗口透传监听
+  // 注册诊断窗口透传监听（仅 dev，生产构建不注册无入口的空监听）
   const registerDiagnosticsRelay = useAppStore((s) => s.registerDiagnosticsRelay)
   useEffect(() => {
+    if (!import.meta.env.DEV) return
     const off = registerDiagnosticsRelay()
     return off
   }, [registerDiagnosticsRelay])
@@ -83,8 +89,12 @@ function MainApp(): JSX.Element {
     return <QuickPage />
   }
 
-  if (currentPage === 'diagnostics') {
-    return <DiagnosticsPage />
+  if (import.meta.env.DEV && currentPage === 'diagnostics' && DiagnosticsPage) {
+    return (
+      <Suspense fallback={null}>
+        <DiagnosticsPage />
+      </Suspense>
+    )
   }
 
   // 显示错误状态

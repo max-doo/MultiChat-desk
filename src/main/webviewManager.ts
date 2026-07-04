@@ -329,7 +329,10 @@ export function createWindow(): void {
         height: 900,
         minWidth: 900,
         minHeight: 700,
-        show: true,
+        // 启动时先隐藏窗口，待 ready-to-show（首帧渲染完成）后再 show，
+        // 避免窗口立即显示透明背景在 Windows 上合成成黑色导致的启动黑屏。
+        // 底色与 titleBarOverlay 一致作为兜底，防止透明合成黑屏。
+        show: false,
         autoHideMenuBar: true,
         frame: false,
         titleBarStyle: 'hidden',
@@ -338,7 +341,7 @@ export function createWindow(): void {
             symbolColor: '#333333',
             height: 38
         },
-        backgroundColor: 'rgba(0,0,0,0)',
+        backgroundColor: '#EBF4FF',
         icon: getWindowIcon(),
         webPreferences: {
             preload: join(__dirname, '../preload/index.js'),
@@ -714,6 +717,8 @@ export function createQuickWindow(): void {
 }
 
 export function openDiagnosticsWindow(): void {
+    // 生产构建禁止打开诊断窗口：渲染层入口已剔除，主进程再加一道运行时守卫
+    if (!is.dev) return
     if (diagnosticsWindow && !diagnosticsWindow.isDestroyed()) {
         if (diagnosticsWindow.isMinimized()) diagnosticsWindow.restore()
         diagnosticsWindow.show()
