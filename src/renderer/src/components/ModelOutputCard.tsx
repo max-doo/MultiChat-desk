@@ -220,10 +220,10 @@ function ModelOutputCard({
               prose-th:text-text-primary prose-th:font-semibold prose-th:border prose-th:border-gray-300 prose-th:px-4 prose-th:py-2 prose-th:bg-sidebar/50
               prose-td:text-text-secondary prose-td:border prose-td:border-gray-200 prose-td:px-4 prose-td:py-2
               prose-tr:border-b prose-tr:border-gray-200 hover:prose-tr:bg-sidebar/30
-              transition-all duration-300 ${
+              transition-all duration-300 overflow-y-auto custom-scrollbar ${
                 shouldShowExpand && !isExpanded 
-                  ? 'max-h-[200px] overflow-y-auto' 
-                  : ''
+                  ? 'max-h-[200px]' 
+                  : 'max-h-[60vh]'
               }`}
           >
             <ReactMarkdown 
@@ -233,11 +233,6 @@ function ModelOutputCard({
               {content}
             </ReactMarkdown>
           </div>
-          
-          {/* 渐变遮罩层（仅在折叠状态且需要展开时显示，固定在容器底部） */}
-          {shouldShowExpand && !isExpanded && (
-            <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-gray-800/50 via-gray-800/30 to-transparent pointer-events-none z-10"></div>
-          )}
         </div>
 
         {/* 展开/收起按钮 */}

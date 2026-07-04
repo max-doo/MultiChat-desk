@@ -18,14 +18,14 @@ import { HistoryManager } from './api/historyManager'
 import { getShortcuts, updateShortcuts, type ShortcutConfig } from './shortcutManager'
 import { readSelection } from './uiaSelectionHelper'
 import {
-    listAgentPrompts,
-    bootstrapAgentPrompts,
-    writeAgentPrompt,
-    deleteAgentPrompt,
-    ensureAgentPromptsDir,
-    getAgentPromptsDir,
-    type AgentPromptFileItem
-} from './agentPrompts'
+    listSummaryPrompts,
+    bootstrapSummaryPrompts,
+    writeSummaryPrompt,
+    deleteSummaryPrompt,
+    ensureSummaryPromptsDir,
+    getSummaryPromptsDir,
+    type SummaryPromptFileItem
+} from './summaryPrompts'
 import { automationService } from './services/AutomationService'
 
 // 存储当前的 AbortController，用于终止请求
@@ -677,26 +677,93 @@ export function registerIpcHandlers(
         return { success: true, data: historyManager.getSummaryHistoryTotalCount() }
     })
 
-    // Agent Prompts 相关
-    ipcMain.handle('agent-prompts-bootstrap', async (_event, prompts: AgentPromptFileItem[]) => {
-        await bootstrapAgentPrompts(Array.isArray(prompts) ? prompts : [])
+    // Summary Prompts 相关
+    ipcMain.handle('summary-prompts-bootstrap', async (_event, prompts: SummaryPromptFileItem[]) => {
+        await bootstrapSummaryPrompts(Array.isArray(prompts) ? prompts : [])
     })
 
-    ipcMain.handle('agent-prompts-list', async () => {
-        return await listAgentPrompts()
+    ipcMain.handle('summary-prompts-list', async () => {
+        return await listSummaryPrompts()
     })
 
-    ipcMain.handle('agent-prompts-write', async (_event, prompt: AgentPromptFileItem) => {
-        await writeAgentPrompt(prompt)
+    ipcMain.handle('summary-prompts-write', async (_event, prompt: SummaryPromptFileItem) => {
+        await writeSummaryPrompt(prompt)
     })
 
-    ipcMain.handle('agent-prompts-delete', async (_event, id: string) => {
-        await deleteAgentPrompt(id)
+    ipcMain.handle('summary-prompts-delete', async (_event, id: string) => {
+        await deleteSummaryPrompt(id)
     })
 
-    ipcMain.handle('agent-prompts-open-folder', async () => {
-        await ensureAgentPromptsDir()
-        await shell.openPath(getAgentPromptsDir())
+    ipcMain.handle('summary-prompts-open-folder', async () => {
+        await ensureSummaryPromptsDir()
+        await shell.openPath(getSummaryPromptsDir())
+    })
+
+    // 用系统资源管理器打开指定路径（如导出文件夹）
+    // shell.openPath 成功返回空串，失败返回错误描述字符串
+    ipcMain.handle('open-path', async (_event, path: string) => {
+        if (!path || typeof path !== 'string') {
+            return { success: false, error: '路径为空' }
+        }
+        const err = await shell.openPath(path)
+        return err ? { success: false, error: err } : { success: true }
+    })
+
+    // 导入缓存数据：读取用户选择的 JSON → 校验 _meta.app → 返回预览数据（不直接写入）
+    ipcMain.handle('import-cache', async () => {
+        try {
+            const { readFile } = await import('fs/promises')
+
+            const result = await dialog.showOpenDialog({
+                title: '导入缓存数据',
+                properties: ['openFile'],
+                filters: [{ name: 'JSON 文件', extensions: ['json'] }]
+            })
+            if (result.canceled || result.filePaths.length === 0) {
+                return { success: false, error: '用户取消' }
+            }
+
+            const raw = await readFile(result.filePaths[0], 'utf-8')
+            let parsed: Record<string, unknown>
+            try {
+                parsed = JSON.parse(raw)
+            } catch {
+                return { success: false, error: '文件不是合法的 JSON' }
+            }
+
+            const meta = parsed._meta as { app?: string } | undefined
+            if (!meta || meta.app !== 'MultiChat') {
+                return { success: false, error: '非本应用缓存文件' }
+            }
+
+            // 复用导出键列表，找出文件中存在哪些键
+            const knownKeys = [
+                'displayMode', 'models', 'apiConfig', 'summaryModels',
+                'history', 'summaryHistory', 'geminiAccountUrl'
+            ]
+            const keys = knownKeys.filter(k => parsed[k] !== undefined)
+            // 冲突 = 文件中存在且本地也非空的键（即会覆盖的键）
+            const conflicts = keys.filter(k => {
+                const local = store.get(k)
+                if (local === undefined) return false
+                if (typeof local === 'string') return local.length > 0
+                if (Array.isArray(local)) return local.length > 0
+                return true
+            })
+
+            // 返回完整解析数据，供渲染层预览确认后逐键 storeSet 写入
+            const data: Record<string, unknown> = {}
+            for (const k of keys) {
+                data[k] = parsed[k]
+            }
+
+            return {
+                success: true,
+                data: { keys, conflicts, file: result.filePaths[0], values: data }
+            }
+        } catch (error) {
+            return { success: false, error: String(error) }
+        }
     })
 
     // IPC 处理器：终止当前的总结生成

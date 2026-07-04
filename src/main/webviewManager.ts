@@ -7,7 +7,7 @@ import { app, screen, session, BrowserWindow, shell, nativeImage, Tray, Menu } f
 import { join } from 'path'
 import { accessSync } from 'fs'
 import { is } from '@electron-toolkit/utils'
-import { startAgentPromptsWatcher } from './agentPrompts'
+import { startSummaryPromptsWatcher } from './summaryPrompts'
 
 // ============ 状态管理 ============
 
@@ -353,8 +353,8 @@ export function createWindow(): void {
         }
     })
 
-    // 监听 Agent Prompts 文件变更
-    startAgentPromptsWatcher(mainWindow)
+    // 监听 Summary Prompts 文件变更
+    startSummaryPromptsWatcher(mainWindow)
 
     mainWindow.on('ready-to-show', () => {
         console.log('[Main] ready-to-show fired')

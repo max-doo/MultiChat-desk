@@ -6,7 +6,7 @@ import { join } from 'path'
 import { readdir, rm } from 'fs/promises'
 import { tmpdir } from 'os'
 import Store from 'electron-store'
-import { initAgentPrompts } from './agentPrompts'
+import { initSummaryPrompts } from './summaryPrompts'
 import { registerIpcHandlers } from './ipcHandlers'
 import { initShortcutManager } from './shortcutManager'
 import { createWindow, getMainWindow, openBrowserWindowInternal, setQuitting, createTray, destroyTray, createQuickWindow, createToolbarWindow } from './webviewManager'
@@ -122,8 +122,8 @@ if (!gotTheLock) {
   console.log('[Main] 数据目录:', dataPath)
   console.log('[Main] 运行模式:', isPortableMode() ? '🎒 便携版' : '💿 安装版')
 
-  // 初始化数据目录
-  initAgentPrompts(dataPath)
+  // 初始化数据目录（含旧 agent-prompts → summary-prompts 目录迁移）
+  initSummaryPrompts(dataPath)
 
   // 初始化 electron-store
   const store = new Store({

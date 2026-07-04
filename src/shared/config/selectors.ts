@@ -57,8 +57,8 @@ export interface SelectorsConfig {
  * 如需调整请选择器配置，直接修改本文件后重启应用生效
  */
 export const defaultSelectors: SelectorsConfig = {
-  version: 13,
-  lastUpdated: '2026-06-27',
+  version: 15,
+  lastUpdated: '2026-07-04',
   models: {
     chatgpt: {
       textarea: [
@@ -295,19 +295,19 @@ export const defaultSelectors: SelectorsConfig = {
       researchMode: {
         steps: [
           { selector: 'button.toolbox-drawer-button', delay: 500, menuOpenerFallback: true },
-          { selector: 'button.toolbox-drawer-item-list-button', text: 'Deep Research', delay: 500 }
+          { selector: ['mat-list-item.mat-mdc-list-item', 'button.toolbox-drawer-item-list-button'], text: 'Deep Research', delay: 500 }
         ],
         cancelSteps: [
-          { selector: 'button.toolbox-drawer-item-deselect-button', text: 'Deep Research', delay: 200 }
+          { selector: ['mat-list-item.mat-mdc-list-item', 'button.toolbox-drawer-item-deselect-button'], text: 'Deep Research', delay: 200 }
         ]
       },
       imageGeneration: {
         steps: [
           { selector: 'button.toolbox-drawer-button', delay: 500, menuOpenerFallback: true },
-          { selector: 'button.toolbox-drawer-item-list-button', text: ['Imagen', 'Image generation', '图像生成', '生图'], delay: 500 }
+          { selector: ['mat-list-item.mat-mdc-list-item', 'button.toolbox-drawer-item-list-button'], text: ['Imagen', 'Image generation', '图像生成', '生图'], delay: 500 }
         ],
         cancelSteps: [
-          { selector: 'button.toolbox-drawer-item-deselect-button', text: ['Imagen', 'Image generation', '图像生成', '生图'], delay: 200 }
+          { selector: ['mat-list-item.mat-mdc-list-item', 'button.toolbox-drawer-item-deselect-button'], text: ['Imagen', 'Image generation', '图像生成', '生图'], delay: 200 }
         ]
       }
     },
@@ -391,10 +391,10 @@ export const defaultSelectors: SelectorsConfig = {
       newConversationUrl: 'https://chat.qwen.ai/',
       researchMode: {
         steps: [
-          { selector: ['button[data-log-name="tool_bar"][data-log-params*="deepResearch"]', 'button[data-log-params*="deepResearch"]', 'button.tagBtn-OADWVI'], text: '深度研究', delay: 500 }
+          { selector: ['button[aria-label="研究"]', 'button.relative', 'button[data-log-name="tool_bar"][data-log-params*="deepResearch"]', 'button[data-log-params*="deepResearch"]', 'button.tagBtn-OADWVI'], text: ['深度研究', '研究'], delay: 500 }
         ],
         cancelSteps: [
-          { selector: 'button.selected-OsA38F[data-log-params*="deepResearch"] div.flex.items-center.justify-center.overflow-hidden', delay: 200, exact: true }
+          { selector: ['button[aria-label="研究"]', 'button.selected-OsA38F[data-log-params*="deepResearch"] div.flex.items-center.justify-center.overflow-hidden'], delay: 200, optional: true }
         ]
       },
       imageGeneration: {

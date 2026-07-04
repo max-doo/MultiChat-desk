@@ -1,11 +1,21 @@
 import { create } from 'zustand'
 import type { WebviewCardRef, FileUploadData } from '../components/WebviewCard'
-import synthesizerPrompt from './agent-prompts-defaults/综合最佳.md?raw'
-import criticPrompt from './agent-prompts-defaults/裁判找茬.md?raw'
-import academicPrompt from './agent-prompts-defaults/学术分析.md?raw'
-import brainstormPrompt from './agent-prompts-defaults/创意发散.md?raw'
-import debatePrompt from './agent-prompts-defaults/辩论对决.md?raw'
-import practicalPrompt from './agent-prompts-defaults/实践指南.md?raw'
+import synthesizerPrompt from './summary-prompts-defaults/综合最佳.md?raw'
+import criticPrompt from './summary-prompts-defaults/裁判找茬.md?raw'
+import debatePrompt from './summary-prompts-defaults/辩论裁决.md?raw'
+import synthesisPrompt from './summary-prompts-defaults/成稿汇总.md?raw'
+
+function stripFrontmatter(raw: string): string {
+  const yamlMatch = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n/i)
+  if (yamlMatch) {
+    return raw.slice(yamlMatch[0].length).trim()
+  }
+  const htmlMatch = raw.match(/^<!--\s*(\{[\s\S]*?\})\s*-->\s*(?:\r?\n)?/i)
+  if (htmlMatch) {
+    return raw.slice(htmlMatch[0].length).trim()
+  }
+  return raw.trim()
+}
 
 // AI 平台 logo 本地资源
 import chatgptLogo from '../assets/logos/chatgpt.svg'
@@ -43,13 +53,14 @@ export interface ModelConfig {
   enabled: boolean
 }
 
-// Agent 提示词配置类型
-export interface AgentPrompt {
+// 总结提示词配置类型
+export interface SummaryPrompt {
   id: string
   name: string
   description?: string
   prompt: string
   isDefault?: boolean  // 是否为系统预设
+  schemaVersion?: number
 }
 
 // API 供应商配置
@@ -59,7 +70,11 @@ export interface ApiProvider {
   baseUrl: string
   apiKey: string
   enabled: boolean
-  validated?: boolean // 是否校验通过
+  validated?: boolean // 是否校验通过（旧字段，保留兼容）
+  /** 校验三态：unknown 未校验 / valid 通过 / invalid 失败。读取时若 validated===true 视为 valid */
+  validatedStatus?: 'unknown' | 'valid' | 'invalid'
+  /** 校验失败时的错误摘要（validatedStatus === 'invalid' 时填充） */
+  validatedError?: string
 }
 
 // 模型配置（用于总结 Agent）
@@ -74,7 +89,7 @@ export interface ApiConfig {
   providers: ApiProvider[] // 供应商列表
   activeProviderId?: string // 当前选中的供应商 ID
   lastSelectedAgentId?: string // 上次选中的总结模型 ID
-  agentPrompts?: AgentPrompt[] // 用户配置的 Agent 提示词
+  summaryPrompts?: SummaryPrompt[] // 用户配置的总结提示词
   exportDirectory?: string
   systemPrompt?: string
   temperature?: number
@@ -504,49 +519,39 @@ const defaultModels: ModelConfig[] = [
 
 export const DEFAULT_MODEL_ORDER = defaultModels.map(m => m.id)
 
-// 默认 Agent 提示词预设
-export const defaultAgentPrompts: AgentPrompt[] = [
+// 默认总结提示词预设
+export const defaultSummaryPrompts: SummaryPrompt[] = [
   {
     id: '1',
     name: '综合最佳',
-    description: '综合多模型共识与差异，输出最佳答案。',
+    description: '多模型去重互补纠错，输出最可信答案。',
     isDefault: true,
-    prompt: synthesizerPrompt
+    schemaVersion: 1,
+    prompt: stripFrontmatter(synthesizerPrompt)
   },
   {
     id: '2',
     name: '裁判找茬',
-    description: '审查错误与漏洞，提炼最可靠信息与改进建议。',
-    isDefault: true,
-    prompt: criticPrompt
+    description: '事实核查与逻辑纠错，剔除幻觉废话。',
+    isDefault: false,
+    schemaVersion: 1,
+    prompt: stripFrontmatter(criticPrompt)
   },
   {
     id: '3',
-    name: '学术分析',
-    description: '以学术方式评估来源、方法论、证据强度，并给出总结与延伸阅读。',
-    isDefault: true,
-    prompt: academicPrompt
+    name: '辩论裁决',
+    description: '多轮辩论后的主席裁决（仅辩论模式用）。',
+    isDefault: false,
+    schemaVersion: 1,
+    prompt: stripFrontmatter(debatePrompt)
   },
   {
     id: '4',
-    name: '创意发散',
-    description: '基于回答进行头脑风暴，拓展场景与创新方案。',
-    isDefault: true,
-    prompt: brainstormPrompt
-  },
-  {
-    id: '5',
-    name: '辩论裁判',
-    description: '作为辩论赛主席按轮次追踪攻防、评分并给出最终裁决（辩论模式专用）。',
-    isDefault: true,
-    prompt: debatePrompt
-  },
-  {
-    id: '6',
-    name: '实践指南',
-    description: '提炼可执行行动点，给出步骤、障碍与成功标准。',
-    isDefault: true,
-    prompt: practicalPrompt
+    name: '成稿汇总',
+    description: '任务拆解后多子任务结果合成可交付成品。',
+    isDefault: false,
+    schemaVersion: 1,
+    prompt: synthesisPrompt
   }
 ]
 
@@ -867,12 +872,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   apiConfig: {
     providers: defaultProviders,
     activeProviderId: undefined,
-    agentPrompts: defaultAgentPrompts
+    summaryPrompts: defaultSummaryPrompts
   },
   setApiConfig: (config) => {
     set({ apiConfig: config })
     if (window.api?.storeSet) {
-      const { agentPrompts: _agentPrompts, ...persisted } = (config || {}) as any
+      const { summaryPrompts: _summaryPrompts, ...persisted } = (config || {}) as any
       window.api.storeSet('apiConfig', persisted)
     }
   },
@@ -1676,11 +1681,11 @@ export async function initializeStore(): Promise<void> {
   if (typeof window === 'undefined' || !window.api) return
 
   try {
-    const refreshAgentPromptsFromDisk = async (): Promise<void> => {
-      if (!window.api?.agentPromptsList) return
-      const prompts = await window.api.agentPromptsList() as AgentPrompt[]
+    const refreshSummaryPromptsFromDisk = async (): Promise<void> => {
+      if (!window.api?.summaryPromptsList) return
+      const prompts = await window.api.summaryPromptsList() as SummaryPrompt[]
       const currentApiConfig = useAppStore.getState().apiConfig
-      useAppStore.setState({ apiConfig: { ...currentApiConfig, agentPrompts: prompts } })
+      useAppStore.setState({ apiConfig: { ...currentApiConfig, summaryPrompts: prompts } })
     }
 
     const storedDisplayMode = await window.api.storeGet('displayMode') as DisplayMode | undefined
@@ -1713,9 +1718,9 @@ export async function initializeStore(): Promise<void> {
     }
 
     const storedApiConfig = await window.api.storeGet('apiConfig') as any
-    const seedAgentPrompts = (storedApiConfig?.agentPrompts && Array.isArray(storedApiConfig.agentPrompts) && storedApiConfig.agentPrompts.length > 0)
-      ? storedApiConfig.agentPrompts
-      : defaultAgentPrompts
+    const seedSummaryPrompts = (storedApiConfig?.summaryPrompts && Array.isArray(storedApiConfig.summaryPrompts) && storedApiConfig.summaryPrompts.length > 0)
+      ? storedApiConfig.summaryPrompts
+      : defaultSummaryPrompts
     if (storedApiConfig) {
       if (!storedApiConfig.providers) {
         // 迁移旧版配置：如果没有 providers，创建一个默认的
@@ -1737,33 +1742,33 @@ export async function initializeStore(): Promise<void> {
         const migratedConfig: ApiConfig = {
           providers: providers,
           activeProviderId: activeProviderId,
-          agentPrompts: defaultAgentPrompts,
+          summaryPrompts: defaultSummaryPrompts,
           exportDirectory: storedApiConfig.exportDirectory,
           systemPrompt: storedApiConfig.systemPrompt
         }
         useAppStore.setState({ apiConfig: migratedConfig })
         if (window.api?.storeSet) {
-          const { agentPrompts: _agentPrompts, ...persisted } = migratedConfig as any
+          const { summaryPrompts: _summaryPrompts, ...persisted } = migratedConfig as any
           window.api.storeSet('apiConfig', persisted)
         }
       } else {
-        // 确保 agentPrompts 存在，如果不存在则使用默认值
+        // 确保 summaryPrompts 存在，如果不存在则使用默认值
         const apiConfig = storedApiConfig as ApiConfig
-        const migratedConfig: ApiConfig = { ...apiConfig, agentPrompts: defaultAgentPrompts }
+        const migratedConfig: ApiConfig = { ...apiConfig, summaryPrompts: defaultSummaryPrompts }
         useAppStore.setState({ apiConfig: migratedConfig })
         if (window.api?.storeSet) {
-          const { agentPrompts: _agentPrompts, ...persisted } = migratedConfig as any
+          const { summaryPrompts: _summaryPrompts, ...persisted } = migratedConfig as any
           window.api.storeSet('apiConfig', persisted)
         }
       }
     }
 
-    if (window.api?.agentPromptsBootstrap) {
-      await window.api.agentPromptsBootstrap(seedAgentPrompts)
-      await refreshAgentPromptsFromDisk()
-      if (window.api?.onAgentPromptsChanged) {
-        window.api.onAgentPromptsChanged(() => {
-          refreshAgentPromptsFromDisk().catch(() => { })
+    if (window.api?.summaryPromptsBootstrap) {
+      await window.api.summaryPromptsBootstrap(seedSummaryPrompts)
+      await refreshSummaryPromptsFromDisk()
+      if (window.api?.onSummaryPromptsChanged) {
+        window.api.onSummaryPromptsChanged(() => {
+          refreshSummaryPromptsFromDisk().catch(() => { })
         })
       }
     }

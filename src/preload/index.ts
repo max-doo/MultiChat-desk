@@ -108,21 +108,21 @@ const api = {
   summaryHistoryGetTotalCount: (): Promise<{ success: boolean; data?: number; error?: string }> =>
     ipcRenderer.invoke('summary-history:get-total-count'),
 
-  agentPromptsBootstrap: (prompts: Array<{ id: string; name: string; description?: string; prompt: string; isDefault?: boolean }>): Promise<void> =>
-    ipcRenderer.invoke('agent-prompts-bootstrap', prompts),
-  agentPromptsList: (): Promise<Array<{ id: string; name: string; description?: string; prompt: string; isDefault?: boolean }>> =>
-    ipcRenderer.invoke('agent-prompts-list'),
-  agentPromptsWrite: (prompt: { id: string; name: string; description?: string; prompt: string; isDefault?: boolean }): Promise<void> =>
-    ipcRenderer.invoke('agent-prompts-write', prompt),
-  agentPromptsDelete: (id: string): Promise<void> =>
-    ipcRenderer.invoke('agent-prompts-delete', id),
-  agentPromptsOpenFolder: (): Promise<void> =>
-    ipcRenderer.invoke('agent-prompts-open-folder'),
-  onAgentPromptsChanged: (callback: () => void): (() => void) => {
+  summaryPromptsBootstrap: (prompts: Array<{ id: string; name: string; description?: string; prompt: string; isDefault?: boolean; schemaVersion?: number }>): Promise<void> =>
+    ipcRenderer.invoke('summary-prompts-bootstrap', prompts),
+  summaryPromptsList: (): Promise<Array<{ id: string; name: string; description?: string; prompt: string; isDefault?: boolean; schemaVersion?: number }>> =>
+    ipcRenderer.invoke('summary-prompts-list'),
+  summaryPromptsWrite: (prompt: { id: string; name: string; description?: string; prompt: string; isDefault?: boolean; schemaVersion?: number }): Promise<void> =>
+    ipcRenderer.invoke('summary-prompts-write', prompt),
+  summaryPromptsDelete: (id: string): Promise<void> =>
+    ipcRenderer.invoke('summary-prompts-delete', id),
+  summaryPromptsOpenFolder: (): Promise<void> =>
+    ipcRenderer.invoke('summary-prompts-open-folder'),
+  onSummaryPromptsChanged: (callback: () => void): (() => void) => {
     const listener = () => callback()
-    ipcRenderer.on('agent-prompts-changed', listener)
+    ipcRenderer.on('summary-prompts-changed', listener)
     return () => {
-      ipcRenderer.removeListener('agent-prompts-changed', listener)
+      ipcRenderer.removeListener('summary-prompts-changed', listener)
     }
   },
 
@@ -190,6 +190,22 @@ const api = {
   // 导出缓存数据
   exportCache: (): Promise<{ success: boolean; filePath?: string; error?: string }> =>
     ipcRenderer.invoke('export-cache'),
+
+  // 用系统资源管理器打开指定路径
+  openPath: (path: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('open-path', path),
+
+  // 导入缓存数据（返回预览，不直接写入）
+  importCache: (): Promise<{
+    success: boolean
+    data?: {
+      keys: string[]
+      conflicts: string[]
+      file: string
+      values: Record<string, unknown>
+    }
+    error?: string
+  }> => ipcRenderer.invoke('import-cache'),
 
   // 导出报告
   exportReport: (params: {

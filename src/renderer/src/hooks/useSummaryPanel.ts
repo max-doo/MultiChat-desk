@@ -217,14 +217,14 @@ export function useSummaryPanel({ selectedModels, modelResponses, restoreHistory
   }
 
   // 获取用户配置的提示词列表
-  const agentPrompts = apiConfig.agentPrompts || []
+  const summaryPrompts = apiConfig.summaryPrompts || []
 
   // 确保 summaryMode 在提示词列表更新后仍然有效
   useEffect(() => {
-    if (agentPrompts.length > 0 && !agentPrompts.find(p => p.id === summaryMode)) {
-      setSummaryMode(agentPrompts[0].id)
+    if (summaryPrompts.length > 0 && !summaryPrompts.find(p => p.id === summaryMode)) {
+      setSummaryMode(summaryPrompts[0].id)
     }
-  }, [agentPrompts, summaryMode])
+  }, [summaryPrompts, summaryMode])
 
   // 获取已启用的供应商
   const providers = (apiConfig.providers || []).filter(p => p.enabled)
@@ -358,9 +358,9 @@ export function useSummaryPanel({ selectedModels, modelResponses, restoreHistory
     }
 
     // 获取当前模式配置
-    const selectedPromptConfig = agentPrompts.find(p => p.id === summaryMode)
+    const selectedPromptConfig = summaryPrompts.find(p => p.id === summaryMode)
     const currentModeName = selectedPromptConfig?.name || '总结'
-    const agentPromptContent = selectedPromptConfig?.prompt || ''
+    const summaryPromptContent = selectedPromptConfig?.prompt || ''
 
     const extractUserRequirementFromDisplay = (content: string): string => {
       const trimmed = (content || '').trim()
@@ -406,7 +406,7 @@ export function useSummaryPanel({ selectedModels, modelResponses, restoreHistory
         ? `${requirement}，采用【${currentModeName}】模式，根据${modelNames}的回答生成报告。`
         : `采用${currentModeName}模式，根据${modelNames}的回答生成报告。`
 
-      systemPrompt = agentPromptContent
+      systemPrompt = summaryPromptContent
       if (apiConfig.systemPrompt) {
         systemPrompt += `\n\n额外要求：${apiConfig.systemPrompt}`
       }
@@ -703,8 +703,8 @@ export function useSummaryPanel({ selectedModels, modelResponses, restoreHistory
 
     if (isFirstSummary) {
       // 首次总结的重新生成：使用原始的模型回答
-      const selectedPromptConfig = agentPrompts.find(p => p.id === summaryMode)
-      const agentPromptContent = selectedPromptConfig?.prompt || ''
+      const selectedPromptConfig = summaryPrompts.find(p => p.id === summaryMode)
+      const summaryPromptContent = selectedPromptConfig?.prompt || ''
       const currentModeName = selectedPromptConfig?.name || '总结'
       const originalUserMessage = messages[userMessageIndex]
 
@@ -724,7 +724,7 @@ export function useSummaryPanel({ selectedModels, modelResponses, restoreHistory
         return
       }
 
-      systemPrompt = agentPromptContent
+      systemPrompt = summaryPromptContent
       if (apiConfig.systemPrompt) {
         systemPrompt += `\n\n额外要求：${apiConfig.systemPrompt}`
       }
@@ -943,7 +943,7 @@ export function useSummaryPanel({ selectedModels, modelResponses, restoreHistory
   // 打开导出对话框
   const handleOpenExportDialog = (content: string): void => {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
-    const currentPromptName = agentPrompts.find(p => p.id === summaryMode)?.name || summaryMode
+    const currentPromptName = summaryPrompts.find(p => p.id === summaryMode)?.name || summaryMode
 
     const fullReport = `# MultiChat AI 验证报告
 
@@ -1041,7 +1041,7 @@ ${content}
     setShowSettings,
 
     // 计算值
-    agentPrompts,
+    summaryPrompts,
     providers,
     activeProvider,
     summaryModels,

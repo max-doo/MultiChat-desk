@@ -2,6 +2,70 @@
 
 ## 2026-07-04
 
+### 22:50 | Antigravity
+
+- done: Resolved merge conflicts in SESSION_LOG.md and committed all outstanding code and configuration changes
+- modified:
+  - `SESSION_LOG.md`
+
+### 22:47 | Antigravity
+
+- done: 撤回：修复 webview 模式下完成总结后发送框锁死、无法重新生成报告的问题
+- modified:
+  - `src/renderer/src/components/SummaryPanel.tsx`
+  - `src/renderer/src/hooks/useSummaryPanel.ts`
+
+### 22:21 | Antigravity
+
+- done: Reduced expanded ModelOutputCard height to 60vh to allow following cards to remain visible
+- modified:
+  - `src/renderer/src/components/ModelOutputCard.tsx`
+
+### 22:16 | Antigravity
+
+- done: Updated ModelOutputCard: removed gradient mask in collapsed mode, and limited expanded height to 80vh with internal scrolling
+- modified:
+  - `src/renderer/src/components/ModelOutputCard.tsx`
+
+### 22:15 | Antigravity
+
+- done: Fix frontmatter bleeding into summary prompts and clean up corrupted local storage files
+- modified:
+  - `src/renderer/src/store/appStore.ts`
+  - `src/main/summaryPrompts.ts`
+
+### 22:13 | Antigravity
+
+- done: 修复 webview 模式下完成总结后发送框锁死、无法重新生成报告的问题
+- modified:
+  - `src/renderer/src/components/SummaryPanel.tsx`
+  - `src/renderer/src/hooks/useSummaryPanel.ts`
+
+### 22:05 | Antigravity
+
+- done: Optimized SummaryPage UI to allow dragging to resize the summary panel
+- modified:
+  - `src/renderer/src/pages/SummaryPage.tsx`
+
+### 22:04 | Antigravity
+
+- done: Migrated summary prompts metadata from HTML comments to YAML frontmatter
+- modified:
+  - `src/main/summaryPrompts.ts`
+  - `src/renderer/src/store/summary-prompts-defaults/*.md`
+
+### 21:34 | Antigravity
+
+- done: 更新千问 (Qwen) 的 Deep Research DOM 选择器，并升级版本至 15
+- modified:
+  - `src/shared/config/selectors.ts`
+
+### 21:25 | Antigravity
+
+- done: 更新 Gemini 的 Deep Research 和 Imagen 选择器，修复失效问题
+- modified:
+  - `src/shared/config/selectors.ts`
+
 ### 11:58 | claude-code
 
 - done: 将选择器诊断组件从生产构建中剔除：渲染层 DiagnosticsPage 改为 import.meta.env.DEV 守卫的 React.lazy 动态 import，生产构建不再打包；主进程 openDiagnosticsWindow 与三个 diagnostics IPC handler 加 is.dev 运行时守卫。
@@ -181,7 +245,7 @@
 - context: 上一轮 phantom 空框修复引入的回归；const 不像 var 提升初始化。
 - modified:
   - `src/renderer/src/pages/SummaryPage.tsx`
-- lesson: useMemo 引用同组件 useState 变量时必须声明在其后，否则渲染期访问 const TDZ 抛 'Cannot access X before initialization' 致整页黑屏；eslint react-hooks 与 tsc 均不报此顺序错，必须 npm run dev 实跑确认。
+- lesson(promoted): useMemo 引用同组件 useState 变量时必须声明在其后，否则渲染期访问 const TDZ 抛 'Cannot access X before initialization' 致整页黑屏；eslint react-hooks 与 tsc 均不报此顺序错，必须 npm run dev 实跑确认。
 
 ### 22:08 | claude-code
 
@@ -291,8 +355,8 @@
 - decision: 移植采用选择性重写而非 cherry-pick：片段A(WebviewCard suspend/resume/isHibernated+覆盖层UI)几乎原样移植，片段B(MainPage 调度器)重写 key 解析复用 slot-i 键，片段C(.agent/.trae/.memory 早期文件)不移植
 - added:
   - `docs/superpowers/plans/2026-07-02-webview-hibernation-migration-assessment.md`
-- lesson: 休眠 suspend 实现只 setIsHibernated+invisible 隐藏，并未 loadURL('about:blank')，渲染进程未真正释放，只省活跃 JS/网络轮询——与 KNOWLEDGE 第79条「隐藏未销毁 webview 仍占完整渲染进程」一致；真要省进程内存需改 suspend 主动卸载，但会与「保留会话连续性」决策冲突
-- lesson: 移植 eb4791d 休眠调度到 main 的关键不兼容：recovery 用 ${productMode}-${i} 作休眠 key 并 split('-') 解析，但 main 的 getRefCallback 把 ref 注册到 slot-${i} 和 model.id 两个键，没有 ${productMode}-${i} 键——照搬 executeHibernate 会因 modeModels['slot'] 为 undefined 直接 return，休眠永不触发，必须重写 key→ref 查找
+- lesson(promoted): 休眠 suspend 实现只 setIsHibernated+invisible 隐藏，并未 loadURL('about:blank')，渲染进程未真正释放，只省活跃 JS/网络轮询——与 KNOWLEDGE 第79条「隐藏未销毁 webview 仍占完整渲染进程」一致；真要省进程内存需改 suspend 主动卸载，但会与「保留会话连续性」决策冲突
+- lesson(promoted): 移植 eb4791d 休眠调度到 main 的关键不兼容：recovery 用 ${productMode}-${i} 作休眠 key 并 split('-') 解析，但 main 的 getRefCallback 把 ref 注册到 slot-${i} 和 model.id 两个键，没有 ${productMode}-${i} 键——照搬 executeHibernate 会因 modeModels['slot'] 为 undefined 直接 return，休眠永不触发，必须重写 key→ref 查找
 - unresolved: 休眠内存目标待用户确认：仅降活跃度(现状)vs真正释放渲染进程(需改suspend主动loadURL about:blank，但与保留会话连续性决策冲突)；白名单是否加第4项(回溯态activeHistoryId跳过休眠)以消除真值表case10-12重叠
 
 ### 01:54 | claude-code
@@ -341,8 +405,8 @@
 - modified:
   - `src/renderer/src/store/appStore.ts`
   - `docs/superpowers/plans/2026-07-01-history-polling-save-dedup.md`
-- lesson: 改前先 grep 函数调用点：计划若基于某函数'高频被调'做优化，必须先验证它真的有调用方——updatePlatformAnswer 被当成网络流式去重目标，实则整个 src/ 无调用方（死代码），优化它零收益。
-- lesson: stopMonitoring 类停止函数加兜底写时，注意调用顺序：必须在 set 重置 monitor.currentTurn=null 之前调 saveCurrentTurn，否则拿到 null 直接 early return；startMonitoring 重置路径要复用停止出口也同理（在 set 新 turn 之前调）。
+- lesson(promoted): 改前先 grep 函数调用点：计划若基于某函数'高频被调'做优化，必须先验证它真的有调用方——updatePlatformAnswer 被当成网络流式去重目标，实则整个 src/ 无调用方（死代码），优化它零收益。
+- lesson(promoted): stopMonitoring 类停止函数加兜底写时，注意调用顺序：必须在 set 重置 monitor.currentTurn=null 之前调 saveCurrentTurn，否则拿到 null 直接 early return；startMonitoring 重置路径要复用停止出口也同理（在 set 新 turn 之前调）。
 - unresolved: updatePlatformAnswer 是否本应被接入网络流式推送回调而漏接——若未来需要实时（非轮询）落盘，需另立项核实其设计意图。
 
 ### 22:35 | claude-code
@@ -571,7 +635,7 @@
 - done: 修复生成总结页面展示和选中的模型与当前窗口实际打开的网页不匹配的问题
 - modified:
   - `src/renderer/src/pages/SummaryPage.tsx`
-- lesson: 总结页计算显示模型时需完整传入 productMode 和 slot 参数以确保与当前主窗口插槽配置一致；复用挂载的页面需避免用静态 ref 阻断数据加载的 useEffect
+- lesson(promoted): 总结页计算显示模型时需完整传入 productMode 和 slot 参数以确保与当前主窗口插槽配置一致；复用挂载 of 页面需避免用静态 ref 阻断数据加载的 useEffect
 
 ### 20:53 | Antigravity
 
@@ -713,7 +777,6 @@
 - modified:
   - `.memory/KNOWLEDGE.md`
 - lesson(promoted): electron-builder 打包 Windows 失败根因：winCodeSign-2.6.0.7z 含 macOS 符号链接，7za 在 Windows 解压需 SeCreateSymbolicLink 权限（管理员或开发者模式），否则 exit 2 致打包失败。根因修复=开启 Windows 开发者模式（注册表 AllowDevelopmentWithoutDevLicense=1），已用清空缓存从零重打验证。勿用 .cmd 包装 7za：Node v24 CVE-2024-27980 禁止 shell:false spawn .cmd 会抛 EINVAL；且解压走 app-builder.exe(Go) 能跑 .cmd、打包走 Node execFile 不能跑 .cmd，造成迷惑假象。winCodeSign 版本号硬编码在 app-builder.exe 内、JS 读不到；缓存目录存在时 app-builder.exe 跳过解压，故缓存偶然生成时能蒙混但清空即复发。
-
 ### 20:24 | claude-code
 
 - done: 测试 CLI 功能：daemon status/exec/collect 命令，验证参数校验、错误处理、JSON 输出。CLI 通信正常，豆包 exec 成功，collect 返回空（选择器过期）
@@ -760,7 +823,6 @@
   - `src/preload/index.ts`
   - `src/preload/index.d.ts`
   - `src/renderer/src/store/appStore.ts`
-
 ### 20:03 | claude-code
 
 - done: 新增 Task 4 事件驱动自动保存：sniffer 推送 __MM_REPLY_DONE__(含请求体提取的 prompt)→WebviewCard console-message 接收→appStore.recordSniffedTurn(活跃monitor直接落库+跳过DOM轮询；手动聊天续接同平台同URL历史)。消除 pollPlatforms 反复 DOM 爬取、补齐单webview手动聊天盲区。无新增 IPC
@@ -784,7 +846,6 @@
   - `electron-builder.yml`
   - `electron-builder-portable.yml`
   - `tsconfig.node.json`
-
 ### 19:47 | claude-code
 
 - done: 按二级菜单/正则区分搜索反馈重做方案二：step schema 扩展 regex/exclude/wordBoundary/caseSensitive/menuOpenerFallback；findElement 匹配层升级为 matchText(单词边界解决Search/Research误匹配)；新增跨步菜单兜底 findMenuOpener；selectors.ts 易误匹配条目改用 regex+exclude；记录非DOM替代方案调研(网络改写/CDP输入)经评估暂不采用

@@ -254,7 +254,7 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
           sourceHistoryId: undefined,
           timestamp: Date.now(),
           snapshotModelIds: [],
-          presetSummaryMode: '5' // 辩论对决：辩论模式进入总结时默认选中
+          presetSummaryMode: '3' // 辩论裁决：辩论模式进入总结时默认选中
         })
         if (navigateTimerRef.current) clearTimeout(navigateTimerRef.current)
         navigateTimerRef.current = setTimeout(() => {

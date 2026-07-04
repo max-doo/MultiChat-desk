@@ -16,12 +16,13 @@ interface GetFileInfoResult {
   error?: string
 }
 
-interface AgentPromptFileItem {
+interface SummaryPromptFileItem {
   id: string
   name: string
   description?: string
   prompt: string
   isDefault?: boolean
+  schemaVersion?: number
 }
 
 declare global {
@@ -45,12 +46,12 @@ declare global {
       storeGet: (key: string) => Promise<unknown>
       storeSet: (key: string, value: unknown) => Promise<void>
       storeDelete: (key: string) => Promise<void>
-      agentPromptsBootstrap: (prompts: AgentPromptFileItem[]) => Promise<void>
-      agentPromptsList: () => Promise<AgentPromptFileItem[]>
-      agentPromptsWrite: (prompt: AgentPromptFileItem) => Promise<void>
-      agentPromptsDelete: (id: string) => Promise<void>
-      agentPromptsOpenFolder: () => Promise<void>
-      onAgentPromptsChanged: (callback: () => void) => () => void
+      summaryPromptsBootstrap: (prompts: SummaryPromptFileItem[]) => Promise<void>
+      summaryPromptsList: () => Promise<SummaryPromptFileItem[]>
+      summaryPromptsWrite: (prompt: SummaryPromptFileItem) => Promise<void>
+      summaryPromptsDelete: (id: string) => Promise<void>
+      summaryPromptsOpenFolder: () => Promise<void>
+      onSummaryPromptsChanged: (callback: () => void) => () => void
       generateSummary: (params: {
         apiKey: string
         baseUrl?: string
