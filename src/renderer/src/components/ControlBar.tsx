@@ -91,6 +91,7 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
       setDeepResearch,
       isImageGeneration,
       setImageGeneration,
+      extractImagesFromAll,
       webviewRefs
     } = useAppStore()
 
@@ -347,6 +348,34 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
       await sendMessageToAll(messageToSend)
       textareaRef.current?.focus()
     }, [message, isSending, textInserted, isImageGeneration, insertTextToAll, sendMessageToAll, setMessage, setTextInserted, showNotification])
+
+    // 一键下载所有窗口生图
+    const handleDownloadAllImages = async () => {
+      try {
+        const results = await extractImagesFromAll()
+        const items = results
+          .filter(r => r.images.length > 0)
+          .map(r => ({ modelId: r.modelId, wcId: r.wcId, images: r.images }))
+        const noImageCount = results.length - items.length
+        if (items.length === 0) {
+          showNotification('info', '未检测到生图，请确认图片已生成')
+          return
+        }
+        const res = await window.api?.downloadAllImages?.({ items })
+        if (!res?.success) {
+          showNotification('error', res?.error || '下载失败')
+          return
+        }
+        const saved = res.data!.perModel.reduce((s, p) => s + p.saved, 0)
+        const failed = res.data!.perModel.reduce((s, p) => s + p.failed, 0)
+        showNotification(
+          saved && !failed ? 'success' : 'info',
+          `已下载 ${saved} 张${failed ? `，失败 ${failed} 张` : ''}${noImageCount ? `，${noImageCount} 个窗口无图` : ''}`
+        )
+      } catch (error) {
+        showNotification('error', `下载异常: ${String(error)}`)
+      }
+    }
 
     // 监听全局键盘事件，支持在确认发送状态下使用 Enter 键发送
     useEffect(() => {
@@ -804,7 +833,7 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
                 if (debateState.phase !== 'finished') return
                 onGenerateReport()
               } else if (isImageGeneration) {
-                showNotification('info', '一键下载图片功能已记录 TODO')
+                handleDownloadAllImages()
               } else {
                 onGenerateReport()
               }
