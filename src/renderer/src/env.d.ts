@@ -81,6 +81,9 @@ declare global {
       }) => Promise<{ success: boolean; filePath?: string; error?: string }>
       openBrowserWindow: (url: string) => Promise<void>
       saveImageFromURL: (url: string) => Promise<{ success: boolean; filePath?: string; error?: string }>
+      downloadAllImages: (payload: {
+        items: Array<{ modelId: string; wcId: number | null; images: Array<{ src: string; mime?: string }> }>
+      }) => Promise<{ success: boolean; data?: { perModel: Array<{ modelId: string; saved: number; failed: number; errors: string[] }> }; error?: string }>
       diagnosticsOpenWindow: () => Promise<{ success: boolean; error?: string }>
       diagnosticsProbe: (modelId: string, type: 'message' | 'research' | 'pick', options?: { ancestorDepth?: number; childDepth?: number }) => Promise<{ success: boolean; data?: unknown; error?: string }>
       diagnosticsRunResearch: (modelId: string) => Promise<{ success: boolean; data?: { success: boolean; error?: string }; error?: string }>

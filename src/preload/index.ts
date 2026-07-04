@@ -211,6 +211,10 @@ const api = {
 
   saveImageFromURL: (url: string): Promise<{ success: boolean; filePath?: string; error?: string }> =>
     ipcRenderer.invoke('save-image-from-url', url),
+  downloadAllImages: (payload: {
+    items: Array<{ modelId: string; wcId: number | null; images: Array<{ src: string; mime?: string }> }>
+  }): Promise<{ success: boolean; data?: { perModel: Array<{ modelId: string; saved: number; failed: number; errors: string[] }> }; error?: string }> =>
+    ipcRenderer.invoke('image:download-all', payload),
 
   // 监听 Gemini 账号切换事件
   onGeminiAccountSwitched: (callback: (url: string) => void): (() => void) => {

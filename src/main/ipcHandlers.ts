@@ -966,6 +966,68 @@ export function registerIpcHandlers(
         }
     })
 
+    ipcMain.handle('image:download-all', async (_event, payload: {
+      items: Array<{ modelId: string; wcId: number | null; images: Array<{ src: string; mime?: string }> }>
+    }) => {
+      try {
+        if (!payload?.items?.length) {
+          return { success: false, error: '无可下载的图片' }
+        }
+        const dirResult = await dialog.showOpenDialog({
+          title: '选择图片保存目录',
+          properties: ['openDirectory']
+        })
+        if (dirResult.canceled || !dirResult.filePaths?.length) {
+          return { success: false, error: '用户取消' }
+        }
+        const dir = dirResult.filePaths[0]
+        const now = new Date()
+        const pad = (n: number) => String(n).padStart(2, '0')
+        const ts = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`
+        const { writeFile } = await import('fs/promises')
+        const extByMime: Record<string, string> = {
+          'image/png': 'png',
+          'image/jpeg': 'jpg',
+          'image/webp': 'webp',
+          'image/gif': 'gif',
+          'image/bmp': 'bmp'
+        }
+        const perModel: Array<{ modelId: string; saved: number; failed: number; errors: string[] }> = []
+        for (const item of payload.items) {
+          let saved = 0
+          let failed = 0
+          const errors: string[] = []
+          for (let idx = 0; idx < item.images.length; idx++) {
+            const img = item.images[idx]
+            const mime = img.mime || 'image/png'
+            const ext = extByMime[mime] || 'png'
+            const fileName = `${item.modelId}-${ts}-${idx + 1}.${ext}`
+            const filePath = join(dir, fileName)
+            try {
+              if (img.src.startsWith('data:')) {
+                const match = img.src.match(/^data:.*?;base64,(.*)$/)
+                if (!match) throw new Error('无效 data URL')
+                await writeFile(filePath, Buffer.from(match[1], 'base64'))
+              } else {
+                const resp = await fetch(img.src)
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+                const buf = Buffer.from(await resp.arrayBuffer())
+                await writeFile(filePath, buf)
+              }
+              saved++
+            } catch (e) {
+              failed++
+              errors.push(`图 ${idx + 1}: ${String(e)}`)
+            }
+          }
+          perModel.push({ modelId: item.modelId, saved, failed, errors })
+        }
+        return { success: true, data: { perModel } }
+      } catch (error) {
+        return { success: false, error: String(error) }
+      }
+    })
+
     // IPC 处理器：打开新浏览器窗口
     ipcMain.handle('open-browser-window', (_event, url: string) => {
         console.log('[Main] Request to open new window:', url)

@@ -138,6 +138,9 @@ declare global {
       }) => Promise<{ success: boolean; filePath?: string; error?: string }>
       openBrowserWindow: (url: string) => Promise<void>
       saveImageFromURL: (url: string) => Promise<{ success: boolean; filePath?: string; error?: string }>
+      downloadAllImages: (payload: {
+        items: Array<{ modelId: string; wcId: number | null; images: Array<{ src: string; mime?: string }> }>
+      }) => Promise<{ success: boolean; data?: { perModel: Array<{ modelId: string; saved: number; failed: number; errors: string[] }> }; error?: string }>
       writeTempMarkdown: (params: {
         content: string
         fileName?: string
