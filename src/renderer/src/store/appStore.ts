@@ -366,6 +366,9 @@ interface AppState {
   enableImageGenerationForAll: () => Promise<SendResult[]>
   disableImageGenerationForAll: () => Promise<SendResult[]>
 
+  // 一键提取所有窗口生图
+  extractImagesFromAll: () => Promise<ExtractImagesResult[]>
+
   // 会话状态
   isNewSession: boolean
   setNewSession: (isNew: boolean) => void
@@ -469,6 +472,18 @@ export const IMAGE_GENERATION_SUPPORTED_MODEL_IDS = new Set([
 ])
 
 export const IMAGE_GENERATION_UNSUPPORTED_ERROR = '此模型不支持 AI 生图'
+
+export interface ExtractedImage {
+  src: string
+  mime?: string
+}
+
+export interface ExtractImagesResult {
+  modelId: string
+  wcId: number | null
+  images: ExtractedImage[]
+  error?: string
+}
 
 // 默认模型配置
 const defaultModels: ModelConfig[] = [
@@ -1357,6 +1372,22 @@ export const useAppStore = create<AppState>((set, get) => ({
     const disableResults = await Promise.all(disablePromises)
     results.push(...disableResults)
     return results
+  },
+
+  extractImagesFromAll: async (): Promise<ExtractImagesResult[]> => {
+    const { models, webviewRefs, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots } = get()
+    const displayedModels = getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots)
+    const extractPromises = displayedModels.map(async (model, index) => {
+      const webviewRef = webviewRefs.get(`slot-${index}`) || webviewRefs.get(model.id)
+      if (!webviewRef) return { modelId: model.id, wcId: null, images: [], error: 'Webview 未注册' }
+      try {
+        const result = await webviewRef.extractGeneratedImages()
+        return { modelId: model.id, wcId: result.wcId, images: result.images, error: result.error }
+      } catch (error) {
+        return { modelId: model.id, wcId: null, images: [], error: String(error) }
+      }
+    })
+    return Promise.all(extractPromises)
   },
 
 
