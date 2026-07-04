@@ -1495,7 +1495,7 @@ export function generateExtractImagesScript(selectors: ModelSelector): string {
 
         return { success: true, images: images };
       } catch (error) {
-        return { success: false, images: [], error: String(error && error.message || error) };
+        return { success: false, images: [], error: String(error?.message ?? error) };
       }
     })();
   `;

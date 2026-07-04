@@ -366,8 +366,8 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
           showNotification('error', res?.error || '下载失败')
           return
         }
-        const saved = res.data!.perModel.reduce((s, p) => s + p.saved, 0)
-        const failed = res.data!.perModel.reduce((s, p) => s + p.failed, 0)
+        const saved = (res.data?.perModel ?? []).reduce((s, p) => s + p.saved, 0)
+        const failed = (res.data?.perModel ?? []).reduce((s, p) => s + p.failed, 0)
         showNotification(
           saved && !failed ? 'success' : 'info',
           `已下载 ${saved} 张${failed ? `，失败 ${failed} 张` : ''}${noImageCount ? `，${noImageCount} 个窗口无图` : ''}`
