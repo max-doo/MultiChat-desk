@@ -1394,6 +1394,114 @@ export function generateDisableImageGenerationScript(config: any): string {
 }
 
 /**
+ * 生成"提取当前 webview 最新回复中生图"的注入脚本。
+ * 在页内把 img.src / canvas / a[download] / blob: 统一转成 {src, mime?} 数组返回。
+ * @param selectors 平台选择器配置（用 messageContainer 定位最新回复气泡）
+ */
+export function generateExtractImagesScript(selectors: ModelSelector): string {
+  const messageContainer = JSON.stringify(selectors.messageContainer || [])
+  return `
+    (async function() {
+      try {
+        const messageContainerSelectors = ${messageContainer};
+        function isElementVisible(el) {
+          if (!el) return false;
+          const rect = el.getBoundingClientRect();
+          const style = window.getComputedStyle(el);
+          return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none' && style.opacity !== '0';
+        }
+        function findLatestContainer() {
+          for (const sel of messageContainerSelectors) {
+            const all = document.querySelectorAll(sel);
+            for (let i = all.length - 1; i >= 0; i--) {
+              if (isElementVisible(all[i])) return all[i];
+            }
+          }
+          return document.body;
+        }
+        function inferMime(src) {
+          const dataMatch = src.match(/^data:(image\\/[a-zA-Z0-9.+-]+);/);
+          if (dataMatch) return dataMatch[1];
+          const extMatch = src.match(/\\.(png|jpe?g|webp|gif|bmp|svg)(?:\\?|#|$)/i);
+          if (extMatch) {
+            const e = extMatch[1].toLowerCase();
+            if (e === 'jpg') return 'image/jpeg';
+            return 'image/' + e;
+          }
+          return 'image/png';
+        }
+        function blobToDataUrl(blobUrl) {
+          return fetch(blobUrl).then(function(r){ return r.blob(); }).then(function(b){
+            return new Promise(function(resolve, reject){
+              var fr = new FileReader();
+              fr.onload = function(){ resolve(fr.result); };
+              fr.onerror = function(){ reject(fr.error); };
+              fr.readAsDataURL(b);
+            });
+          });
+        }
+
+        var root = findLatestContainer();
+        var seen = Object.create(null);
+        var images = [];
+
+        // 1) img 元素
+        var imgs = root.querySelectorAll('img');
+        for (var i = 0; i < imgs.length; i++) {
+          var img = imgs[i];
+          var src = img.currentSrc || img.src || img.getAttribute('data-src') || '';
+          if (!src) continue;
+          // 过滤小图标/头像（data:/blob: 不过滤尺寸，因为是生成的图）
+          var nw = img.naturalWidth || 0;
+          if (nw && nw < 100 && !/^data:/.test(src) && !/^blob:/.test(src)) continue;
+          if (seen[src]) continue;
+          seen[src] = true;
+          images.push({ src: src, mime: inferMime(src) });
+        }
+
+        // 2) canvas
+        var canvases = root.querySelectorAll('canvas');
+        for (var c = 0; c < canvases.length; c++) {
+          try {
+            var dataUrl = canvases[c].toDataURL('image/png');
+            if (dataUrl && !seen[dataUrl]) {
+              seen[dataUrl] = true;
+              images.push({ src: dataUrl, mime: 'image/png' });
+            }
+          } catch (e) { /* canvas 跨域 tainted，跳过 */ }
+        }
+
+        // 3) a[download] / a[href$=图片]
+        var anchors = root.querySelectorAll('a[download], a[href$=".png" i], a[href$=".jpg" i], a[href$=".jpeg" i], a[href$=".webp" i]');
+        for (var a = 0; a < anchors.length; a++) {
+          var href = anchors[a].href || '';
+          if (!href || seen[href]) continue;
+          seen[href] = true;
+          images.push({ src: href, mime: inferMime(href) });
+        }
+
+        // 4) blob: 转 data:（必须在页内做，主进程跨进程拿不到 blob）
+        for (var k = 0; k < images.length; k++) {
+          if (/^blob:/.test(images[k].src)) {
+            try {
+              var dataUrl2 = await blobToDataUrl(images[k].src);
+              images[k].src = dataUrl2;
+              images[k].mime = inferMime(dataUrl2);
+            } catch (e) {
+              // 转换失败，保留 blob: src，主进程会记录失败
+            }
+          }
+        }
+
+        return { success: true, images: images };
+      } catch (error) {
+        return { success: false, images: [], error: String(error && error.message || error) };
+      }
+    })();
+  `;
+}
+
+/**
  * 生成获取最新回复的注入脚本
  * 将 HTML 内容转换为 Markdown 格式
  * @param selectors 选择器配置
