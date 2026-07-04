@@ -80,7 +80,7 @@ export function useTaskSplit() {
     }
   }, [isLoading, resolveProvider, setTaskSubtasks, setTaskPhase, toggleTaskCollapsed])
 
-  // 写回拆解供应商+模型到 apiConfig（setApiConfig 已内置 storeSet 持久化，会剥离 agentPrompts）
+  // 写回拆解供应商+模型到 apiConfig（setApiConfig 已内置 storeSet 持久化，会剥离 summaryPrompts）
   const persistProvider = useCallback((providerId: string, agentId: string) => {
     const setApiConfig = useAppStore.getState().setApiConfig
     const current = useAppStore.getState().apiConfig

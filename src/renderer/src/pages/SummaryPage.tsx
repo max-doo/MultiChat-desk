@@ -72,6 +72,34 @@ function SummaryPage({ onNavigateBack, initialHistoryItem, isActive }: SummaryPa
     webviewUrl?: string
   } | null>(null)
 
+  // 拖拽调整宽度状态
+  const [rightPanelWidth, setRightPanelWidth] = useState(40) // 默认 40%
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault()
+    
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      if (containerRef.current) {
+        const containerWidth = containerRef.current.offsetWidth
+        const newWidth = ((containerWidth - moveEvent.clientX) / containerWidth) * 100
+        // 限制宽度在 40% 到 60% 之间（最小和默认宽度为 40%，最大为 60%）
+        setRightPanelWidth(Math.min(Math.max(newWidth, 40), 60))
+      }
+    }
+    
+    const handleMouseUp = () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+      document.body.style.cursor = 'default'
+    }
+    
+    document.body.style.cursor = 'col-resize'
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+  }
+
+
   // 切换模型选择状态
   const toggleModelSelection = (modelId: string): void => {
     setSelectedModels(prev => 
@@ -173,9 +201,9 @@ function SummaryPage({ onNavigateBack, initialHistoryItem, isActive }: SummaryPa
   }, [initialHistoryItem, pendingSummarySession, displayedModels, history, setPendingSummarySession])
 
   return (
-    <div className="flex h-full overflow-hidden">
+    <div className="flex h-full overflow-hidden" ref={containerRef}>
       {/* 左侧：返回按钮 + 模型回复内容 */}
-      <div className="w-3/5 p-6 flex flex-col h-full border-r border-gray-200 overflow-hidden">
+      <div className="p-6 flex flex-col h-full overflow-hidden flex-1">
         <button
           onClick={onNavigateBack}
           className="flex items-center gap-2 text-text-secondary hover:text-text-primary transition-colors mb-4 shrink-0 self-start"
@@ -217,8 +245,18 @@ function SummaryPage({ onNavigateBack, initialHistoryItem, isActive }: SummaryPa
         )}
       </div>
 
+      {/* 拖拽调整宽度的把手 */}
+      <div
+        className="w-1 cursor-col-resize hover:bg-primary/50 active:bg-primary bg-gray-200 transition-colors z-10 shrink-0"
+        onMouseDown={handleMouseDown}
+        title="拖拽调整宽度"
+      />
+
       {/* 右侧：总结的对话框 + 底部输入框 */}
-      <div className="w-2/5 p-6 flex flex-col h-full overflow-hidden">
+      <div 
+        className="p-6 flex flex-col h-full overflow-hidden"
+        style={{ width: `${rightPanelWidth}%` }}
+      >
         <SummaryPanel
           selectedModels={selectedModels}
           modelResponses={modelResponses}

@@ -96,7 +96,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
     setEditingRegenerateText,
 
     // 计算值
-    agentPrompts,
+    summaryPrompts,
     providers,
     summaryModels,
     allSummaryModels,
@@ -151,8 +151,8 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
   }
 
   const buildWebviewPrompt = useCallback(() => {
-    const agentTemplate = (apiConfig.agentPrompts || []).find(a => a.id === summaryMode)
-    const systemPrompt = agentTemplate?.prompt || apiConfig.systemPrompt || ''
+    const summaryTemplate = (apiConfig.summaryPrompts || []).find(a => a.id === summaryMode)
+    const systemPrompt = summaryTemplate?.prompt || apiConfig.systemPrompt || ''
     const contextBlock = selectedModels
       .map(id => {
         const name = models.find(m => m.id === id)?.name || id
@@ -173,7 +173,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
       '[用户要求]',
       requirement
     ].join('\n')
-  }, [summaryMode, apiConfig.agentPrompts, apiConfig.systemPrompt, selectedModels, models, modelResponses, customPrompt])
+  }, [summaryMode, apiConfig.summaryPrompts, apiConfig.systemPrompt, selectedModels, models, modelResponses, customPrompt])
 
   const handleWebviewAssistantMessage = useCallback((msg: ChatMessage) => {
     setMessages(prev => {
@@ -339,8 +339,8 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
   const handleWebviewSend = useCallback(() => {
     if (selectedModels.length === 0) return
 
-    const agentTemplate = agentPrompts.find(a => a.id === summaryMode)
-    const modeName = agentTemplate?.name || '总结'
+    const summaryTemplate = summaryPrompts.find(a => a.id === summaryMode)
+    const modeName = summaryTemplate?.name || '总结'
     const modelNames = selectedModels
       .map(id => models.find(m => m.id === id)?.name || id)
       .join('、')
@@ -383,7 +383,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
 
     webviewSummary.startSummary()
     setSummaryFired(true)
-  }, [summaryMode, agentPrompts, selectedModels, models, customPrompt, setMessages, addSummaryHistory, webviewPlatformId, webviewSummary, modelResponses, setSummaryFired, history])
+  }, [summaryMode, summaryPrompts, selectedModels, models, customPrompt, setMessages, addSummaryHistory, webviewPlatformId, webviewSummary, modelResponses, setSummaryFired, history])
 
   // 获取收藏的模型ID列表
   const favoriteModelIds = apiConfig.favoriteModelIds || []
@@ -1088,7 +1088,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
               {/* 模式选择 */}
               {!hasStartedChat ? (
                 <CustomDropdown
-                  options={agentPrompts.map(p => ({ value: p.id, label: p.name, description: p.description }))}
+                  options={summaryPrompts.map(p => ({ value: p.id, label: p.name, description: p.description }))}
                   value={summaryMode}
                   onChange={setSummaryMode}
                   placeholder="总结模式"
@@ -1096,7 +1096,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
                   direction="up"
                   dropdownWidth="min-w-max"
                   className="min-w-max"
-                  buttonClassName={`px-3 py-1.5 rounded-full text-sm flex items-center justify-between gap-2 transition-colors disabled:opacity-50 min-w-max ${summaryMode && agentPrompts.find(p => p.id === summaryMode)
+                  buttonClassName={`px-3 py-1.5 rounded-full text-sm flex items-center justify-between gap-2 transition-colors disabled:opacity-50 min-w-max ${summaryMode && summaryPrompts.find(p => p.id === summaryMode)
                     ? 'bg-primary/10 border border-primary/50 text-primary hover:border-primary'
                     : 'bg-gray-100/50 border border-gray-300 text-text-secondary hover:border-gray-500'
                     }`}
@@ -1120,7 +1120,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
               ) : (
                 <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gray-100/30 border border-gray-200 text-text-secondary text-sm select-none">
                   <span className="whitespace-nowrap">
-                    {agentPrompts.find(p => p.id === summaryMode)?.name || '总结模式'}
+                    {summaryPrompts.find(p => p.id === summaryMode)?.name || '总结模式'}
                   </span>
                 </div>
               )}
@@ -1195,7 +1195,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
             >
               {/* 模式选择 pill */}
               <CustomDropdown
-                options={agentPrompts.map(p => ({ value: p.id, label: p.name, description: p.description }))}
+                options={summaryPrompts.map(p => ({ value: p.id, label: p.name, description: p.description }))}
                 value={summaryMode}
                 onChange={setSummaryMode}
                 placeholder="总结模式"
@@ -1204,7 +1204,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
                 dropdownWidth="min-w-max"
                 className="min-w-max shrink-0"
                 buttonClassName={`px-3 py-1.5 rounded-full text-sm flex items-center justify-between gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-w-max ${
-                  summaryMode && agentPrompts.find(p => p.id === summaryMode)
+                  summaryMode && summaryPrompts.find(p => p.id === summaryMode)
                     ? 'bg-primary/10 border border-primary/50 text-primary hover:border-primary'
                     : 'bg-gray-100/50 border border-gray-300 text-text-secondary hover:border-gray-500'
                 }`}

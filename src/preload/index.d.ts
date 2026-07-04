@@ -14,12 +14,13 @@ interface GetFileInfoResult {
   error?: string
 }
 
-interface AgentPromptFileItem {
+interface SummaryPromptFileItem {
   id: string
   name: string
   description?: string
   prompt: string
   isDefault?: boolean
+  schemaVersion?: number
 }
 
 // History 分页 IPC 用到的只读结构（与 appStore.ts 的 HistoryItem/SummaryHistoryItem 对齐）
@@ -91,12 +92,12 @@ declare global {
       historyGetTotalCount: () => Promise<{ success: boolean; data?: number; error?: string }>
       summaryHistoryGetPage: (offset: number, limit: number) => Promise<{ success: boolean; data?: SummaryHistoryPageItem[]; error?: string }>
       summaryHistoryGetTotalCount: () => Promise<{ success: boolean; data?: number; error?: string }>
-      agentPromptsBootstrap: (prompts: AgentPromptFileItem[]) => Promise<void>
-      agentPromptsList: () => Promise<AgentPromptFileItem[]>
-      agentPromptsWrite: (prompt: AgentPromptFileItem) => Promise<void>
-      agentPromptsDelete: (id: string) => Promise<void>
-      agentPromptsOpenFolder: () => Promise<void>
-      onAgentPromptsChanged: (callback: () => void) => () => void
+      summaryPromptsBootstrap: (prompts: SummaryPromptFileItem[]) => Promise<void>
+      summaryPromptsList: () => Promise<SummaryPromptFileItem[]>
+      summaryPromptsWrite: (prompt: SummaryPromptFileItem) => Promise<void>
+      summaryPromptsDelete: (id: string) => Promise<void>
+      summaryPromptsOpenFolder: () => Promise<void>
+      onSummaryPromptsChanged: (callback: () => void) => () => void
       generateSummary: (params: {
         apiKey: string
         baseUrl?: string
@@ -131,6 +132,17 @@ declare global {
         baseUrl: string
       }) => Promise<{ success: boolean; error?: string }>
       exportCache: () => Promise<{ success: boolean; filePath?: string; error?: string }>
+      openPath: (path: string) => Promise<{ success: boolean; error?: string }>
+      importCache: () => Promise<{
+        success: boolean
+        data?: {
+          keys: string[]
+          conflicts: string[]
+          file: string
+          values: Record<string, unknown>
+        }
+        error?: string
+      }>
       exportReport: (params: {
         content: string
         fileName: string
