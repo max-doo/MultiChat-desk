@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react'
-import logo from '../assets/logo.svg'
+import logo from '../assets/logo.png'
 
 export default function ToolbarPage(): JSX.Element {
   useEffect(() => {

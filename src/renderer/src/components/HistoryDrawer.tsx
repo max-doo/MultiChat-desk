@@ -3,7 +3,7 @@ import { Virtuoso } from 'react-virtuoso'
 import { useAppStore, HistoryItem, SummaryHistoryItem } from '../store/appStore'
 import ConfirmModal from './ConfirmModal'
 import RenameModal from './RenameModal'
-import logo from '../assets/logo.svg'
+import logo from '../assets/logo.png'
 
 interface HistoryDrawerProps {
   isOpen: boolean

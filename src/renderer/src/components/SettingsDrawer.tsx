@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react'
 import { useAppStore, type AgentPrompt, type SummaryModel, type ApiProvider } from '../store/appStore'
-import logo from '../assets/logo.svg'
+import logo from '../assets/logo.png'
 import CustomDropdown, { type DropdownOption } from './CustomDropdown'
 import ConfirmModal from './ConfirmModal'
 import ShortcutRecorder from './ShortcutRecorder'
