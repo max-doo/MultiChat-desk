@@ -66,6 +66,20 @@
 - modified:
   - `src/shared/config/selectors.ts`
 
+### 13:38 | claude-code
+
+- done: Task 5: ControlBar 一键下载按钮接线 -- wired extractImagesFromAll + downloadAllImages to the one-click download button, replaced TODO toast with real handler
+- context: Final task (5/5) in batch-download-images chain. All 5 tasks now complete on worktree-batch-download-images branch.
+- modified:
+  - `src/renderer/src/components/ControlBar.tsx`
+
+### 13:18 | claude-code
+
+- done: Task 3: appStore 新增 extractImagesFromAll 遍历方法 — 添加 ExtractedImage/ExtractImagesResult 类型定义、AppStore 接口声明、以及遍历所有 displayedModels 提取生图的 store 方法实现
+- context: Task 3 of 5-task batch-download-images plan. Added extractImagesFromAll() to Zustand store. Uses same traversal pattern as enableImageGenerationForAll but without IMAGE_GENERATION_SUPPORTED_MODEL_IDS filter.
+- modified:
+  - `src/renderer/src/store/appStore.ts`
+
 ### 11:58 | claude-code
 
 - done: 将选择器诊断组件从生产构建中剔除：渲染层 DiagnosticsPage 改为 import.meta.env.DEV 守卫的 React.lazy 动态 import，生产构建不再打包；主进程 openDiagnosticsWindow 与三个 diagnostics IPC handler 加 is.dev 运行时守卫。
