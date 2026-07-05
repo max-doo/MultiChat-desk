@@ -302,6 +302,14 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
                 itemContent={(_index, item) => {
                   const isSelected = selectedIds.includes(item.id)
                   const isActive = activeHistoryId === item.id
+                  const displayTitle = (() => {
+                    if (item.title) return item.title
+                    if (item.productMode === 'debate' && item.debateTurns && item.debateTurns.length > 0) {
+                      const first = item.debateTurns[0].proponent?.speech || item.debateTurns[0].opponent?.speech || ''
+                      return first ? `辩论：${first.slice(0, 60)}` : '(无辩题)'
+                    }
+                    return item.turns[0]?.userMessage ?? '(无消息)'
+                  })()
                   return (
                     <div className="pb-3">
                       <div
@@ -325,14 +333,14 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
                         <div className="flex-1 min-w-0">
                           <div className="flex items-start justify-between gap-2">
                             <p className={`line-clamp-2 flex-1 transition-colors ${isSelected ? 'text-primary' : 'text-text-secondary'}`}>
-                              {item.title ?? item.turns[0]?.userMessage ?? '(无消息)'}
+                              {displayTitle}
                             </p>
                             {!isSelectionMode && (
                               <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation()
-                                    openRename('conversation', item.id, item.title ?? item.turns[0]?.userMessage ?? '')
+                                    openRename('conversation', item.id, displayTitle)
                                   }}
                                   className="text-gray-500 hover:text-primary transition-all p-1"
                                   title="重命名"
@@ -361,7 +369,11 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
                                   {item.productMode === 'multi_ai' ? '多模型' : item.productMode === 'task_assignment' ? '任务分发' : '双主辩论'}
                                 </span>
                               )}
-                              <span className="text-gray-600">{item.turns.length} 轮</span>
+                              <span className="text-gray-600">
+                                {item.productMode === 'debate' && item.debateTurns
+                                  ? `${item.debateTurns.length} 轮辩论`
+                                  : `${item.turns.length} 轮`}
+                              </span>
                             </div>
                             <div className="flex items-center gap-2" title={getModelNames(item.models)}>
                               <span className="whitespace-nowrap">{item.models.length} 个模型</span>
