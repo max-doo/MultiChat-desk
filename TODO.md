@@ -8,6 +8,7 @@
 ## 待完成
 
 - [ ] AI 生图一键下载：支持在 AI 生图模式下点击底部“一键下载”按钮，从各 Webview 中抓取并批量下载最新生成图片的功能实现
+- [ ] AI 生图一键下载 Bug：当前一键下载图片对豆包、gemini、gpt、智谱不生效
 - [ ] AI 生图 DOM 适配：`selectors.ts` 中各平台 `imageGeneration` 选择器基于推测，需在 `npm run dev` 中逐一打开各平台 webview 验证实际 DOM 结构并修正（chatgpt/gemini/grok/qwen/kimi/doubao/yuanbao/chatglm/yiyan）
 - [ ] arena.ai DOM 适配：在 `npm run dev` 中打开 arena webview，验证输入框/发送按钮/消息容器选择器是否匹配实际 DOM 结构并修正 (`selectors.ts`)
 - [ ] Webview 总结自适应传输：在 `npm run dev` 中手动验证短文本直接粘贴和长文本文件上传两种模式
@@ -56,6 +57,7 @@
 - [ ] **DOM选择器鲁棒性提升**：详见 `docs\superpowers\plans\2026-06-28-resilient-webview-automation.md`
 - [x] **项目改名 MultiChat**：将项目从 "MultiChat Desk" 更名为 "MultiChat"，同步更新所有相关命名（package.json、窗口标题、文档、构建产物名等）
 - [x] **CLI Daemon 基础架构**（**已实现**）：Named Pipe 通信、SessionManager、AutomationService、CLI Client（`daemon status/exec/collect`）已落地，详见 SESSION_LOG 2026-06-28 多条记录。剩余工作：选择器更新、exec 挂起轮询改进（见上方 CLI 相关 TODO）
+- [ ] **ModalShell 统一与 SettingsDrawer 拆分**（计划已审核修正，待执行）：抽取通用 `ModalShell` 壳组件（双 variant `glass`/`solid` + Esc/遮罩关闭统一），把 6 个居中模态（3 settings 内嵌 + 3 独立）收敛到统一壳，并把 SettingsDrawer 内 3 个 Editor Modal 拆到 `components/settings/`，使 `SettingsDrawer.tsx` 从 1503 行降至约 600 行。纯表现层重构，不碰 main/preload/IPC/Store。计划：`docs/superpowers/plans/2026-07-05-modal-shell-unification.md`（10 个 Task，行号已校验为当前 1503 行版本、删除指令改为函数名锚定、`maxHeight`/`width` 支持字符串保留视口相对语义）。建议用 subagent-driven-development 逐 task 执行。
 - [ ] **`updatePlatformAnswer` 设计意图核实**：该 store action（`appStore.ts`）在整个 `src/` 中无任何调用方（仅类型声明 + 定义），疑似漏接网络流式推送回调。当前监控内容流全靠 `pollPlatforms` 每 3s 轮询爬 DOM。若未来需要实时（非轮询）落盘流式内容，需另立项核实其是否本应被 webview 注入脚本 / IPC 回调接入，并补接入点；否则考虑移除该死代码。来源：2026-07-02 会话轮询保存去重任务（plan：`docs/superpowers/plans/2026-07-01-history-polling-save-dedup.md`）
 - [ ] **会话轮询去重 dev 验收**：`appStore.ts` 轮询保存去重已实施（commit `9975d25`，lint/build 通过），但未在 `npm run dev` 中手动验收。最小等价检查：发消息触发监控，观察 `%APPDATA%\MultiChat Desk-dev\config-dev.json` 的 `history` 字段写盘频率——稳定等待期（内容不变约 9s）应不再每 3s 写一次；并验证三个停止出口（全部完成 / 超时 5 分钟 / 新消息重置）终态完整不丢数据
 - [ ] **webview 智能休眠代码已落地，dev 验收未完成**（2026-07-02，commit 含 `69580a9`）：按休眠迁移评估计划 5 片段实施——WebviewCard suspend/resume+`isHibernated` 覆盖层（片段A）、MainPage 5min 调度器（片段B）、主窗 hide/show IPC 15min（片段B'）、SummaryPanel 10min 调度器（片段D，修正计划笔误：webview 在 SummaryPanel 非 SummaryPage）、QuickPage 5min 旧模型调度器（片段E）。真卸载页面层（`loadURL('about:blank')`）+ 唤醒重载草稿恢复，登录态靠 `persist:shared`。lint 0 errors / build 三 bundle 通过。**待 dev 手动验收**：

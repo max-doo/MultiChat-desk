@@ -2,6 +2,49 @@
 
 ## 2026-07-05
 
+### 14:48 | Antigravity
+
+- done: Fix summary page white screen ReferenceError TDZ bug
+- decision: Moved renderableModels useMemo declaration to be after restoreHistoryData useState definition to avoid Temporal Dead Zone ReferenceError
+- modified:
+  - `src/renderer/src/pages/SummaryPage.tsx`
+
+### 14:41 | Antigravity
+
+- done: Restore summary history model rendering bug fix
+- decision: Derived renderableModels from restoreHistoryData when history is restored, and added fallback naming for missing models
+- modified:
+  - `src/renderer/src/pages/SummaryPage.tsx`
+  - `src/renderer/src/hooks/useSummaryPanel.ts`
+
+### 14:41 | Antigravity
+
+- done: 在待办事项中记录了当前一键下载图片对豆包、gemini、gpt、智谱不生效的Bug
+- modified:
+  - `TODO.md`
+
+### 14:30 | claude-code
+
+- done: x
+
+### 14:30 | claude-code
+
+- done: 修复总结页 webview↔api 模式切换两个 bug：Bug#1 两模式共享 messages 导致 webview 用户气泡串到 API 模式 → webview 模式改用独立 webviewMessagesRef/webviewCustomPrompt；Bug#2 切模式卸载 <webview> 丢会话 → WebviewCard 提升为常驻渲染，API 模式 hidden 隐藏保活 WebContents。handleWebviewSend 对齐 currentConversationId/crypto.randomUUID 口径。
+- modified:
+  - `src/renderer/src/components/SummaryPanel.tsx;src/renderer/src/hooks/useSummaryPanel.ts`
+- lesson(promoted): Electron <webview> 设 display:none 不销毁 WebContents，只有 React 卸载 <webview> 元素才销毁；故模式切换保活 webview 会话应隐藏容器而非条件渲染卸载。WebviewCard.suspend()/resume() 会导航到 about:blank 再重载，丢失 live 流式回复，仅适合长时离开释放内存，不适用于短暂模式切换。
+
+### 12:53 | claude-code
+
+- done: 按计划修复历史记录/总结链路跨对话串台：P0-1 引入持久化 currentConversationId store 字段(setNewSession 同步清空、sendMessageToAll lastItem 选取改 ID 查找含复审补充的第5处 appStore:1091、新对话/续写分支 set 锚点、startMonitoring 同步写、removeHistory/removeHistories 删当前对话时置 null)；P0-1b onSelectHistory 双 set 同步 activeHistoryId 与 currentConversationId；P0-2 移除 MainPage 289/364、useSummaryPanel 124、SummaryPage 188 全部 history[0] 兜底改 ID 查找；P0-3 SummaryPage init effect 依赖移除 history；P1-1 全部 ID 改 crypto.randomUUID()(appStore 2处 + useSummaryPanel 4处)；P1-2 MainPage 906 补 debateSlots 漏参；P1-3 unregisterWebviewRef 加 ref 校验
+- context: executing-plans 技能实施历史总结串台修复计划，lint 0 error / build 通过，回归脚本 1-8 与 crypto.randomUUID sandbox 需在 dev 手动验证
+- added:
+  - `docs/superpowers/plans/2026-07-05-history-summary-mixing-fix.md(补 appStore:1091 第5处 history[0] 出现点 + Done Criteria 行为变更标注)`
+- modified:
+  - `src/renderer/src/store/appStore.ts; src/renderer/src/pages/MainPage.tsx; src/renderer/src/pages/SummaryPage.tsx; src/renderer/src/hooks/useSummaryPanel.ts; docs/superpowers/plans/2026-07-05-history-summary-mixing-fix.md`
+- lesson: 复审计划时发现 §3.2 表遗漏了 history[0] 的第5处出现点(appStore.ts sendMessageToAll 内的 lastItem 选取)，该处是续写分支 conversationId=lastItem!.id 的来源，若不修则恢复非 history[0] 的历史后续写仍串台——executing-plans 的 STOP-when-block 规则触发用户确认后并入 P0-1 修复
+- unresolved: 回归脚本 1-8 需在 npm run dev 桌面环境手动验证；crypto.randomUUID() sandbox 需 dev console 确认；当前在 main 分支未提交，待用户决定提交/切分支
+
 ### 11:33 | claude-code
 
 - done: 回滚前次 webview-resummarize 三 commit（composer 加按钮+setError+空文本走error），改为复用 WebviewCard 头部已有新对话按钮：WebviewCard 新增 onNewConversation prop，渲染条件改为 task_assignment || onNewConversation，点击 onNewConversation ?? handleNewConversation；SummaryPanel 传 onNewConversation={handleResetChat}。多任务模式行为不变
