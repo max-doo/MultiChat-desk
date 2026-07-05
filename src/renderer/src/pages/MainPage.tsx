@@ -906,6 +906,32 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
             }
           }
 
+          // —— 辩论模式专用恢复：先重填 debateSlots + debateState，再让下方 missingModelIds 用正确槽位判空 ——
+          if (targetProductMode === 'debate' && item.debateTurns) {
+            // 恢复两 slot 模型（item.models 至少 2 个；不足则补空串，避免 as cast 越界）
+            const slot0 = item.models[0] ?? ''
+            const slot1 = item.models[1] ?? ''
+            useAppStore.setState({ debateSlots: [slot0, slot1] as [string, string] })
+            // 重填辩论面板（只读浏览，phase='finished'）；topic 取已持久化的 HistoryItem.title（Task 4 Step 8 写入）
+            useAppStore.getState().restoreDebateState({
+              topic: item.title ?? '',
+              totalRounds: item.debateTurns.length,
+              debateTurns: item.debateTurns,
+            })
+            // 按 slotUrls 加载两 slot（若辩论未 finalize 则 slotUrls 缺失，跳过 URL 加载）
+            if (item.slotUrls) {
+              setTimeout(() => {
+                for (const slotIndex of [0, 1] as const) {
+                  const url = item.slotUrls?.[slotIndex]
+                  if (!url) continue
+                  const ref = useAppStore.getState().webviewRefs.get(`slot-${slotIndex}`)
+                  if (ref) ref.loadURL(url)
+                }
+              }, 0)
+            }
+            return // 辩论恢复不走下方普通 item.urls 加载（辩论 URL 在 slotUrls，不在 urls）
+          }
+
           // 3. 检查并切换模型到当前视图
           const currentDisplayedIds = getDisplayedModels(models, targetDisplayMode, targetProductMode, taskAssignmentSlots, multiAiSlots, debateSlots).map(m => m.id)
           const missingModelIds = item.models.filter((id) => !currentDisplayedIds.includes(id))
