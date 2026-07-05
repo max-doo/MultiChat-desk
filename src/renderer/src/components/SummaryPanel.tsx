@@ -1184,6 +1184,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
                 compact
                 isolated
                 onModelChange={(modelId) => setLastWebviewPlatform(modelId)}
+                onNewConversation={handleResetChat}
               />
             </div>
 

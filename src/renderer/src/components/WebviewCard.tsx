@@ -96,6 +96,7 @@ interface WebviewCardProps {
   onModelChange?: (modelId: string) => void  // 自定义平台切换回调，覆盖默认的 swapModelInSlot
   isolated?: boolean // 隔离模式：不受主界面对话状态（会话锁定、模型阵容锁定）的影响
   headerActions?: React.ReactNode // 自定义头部操作区按钮
+  onNewConversation?: () => void // 自定义「新对话」点击回调（如总结页接 handleResetChat 重开总结 session）；未传则 fallback 到默认 loadURL(newConversationUrl) 行为
   draggableHeader?: boolean // 是否允许头部拖拽窗口
   /** 辩论模式下的阵营标签（正方/反方），仅 productMode='debate' 时传入 */
   sideLabel?: '正方' | '反方'
@@ -147,7 +148,7 @@ export interface WebviewCardRef {
  * 嵌入 AI 平台的 Web 界面，支持消息发送和响应抓取
  */
 const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
-  ({ id, name, url, logo, enabled, slotIndex, compact, hideHeader, onModelChange, isolated, headerActions, draggableHeader, flat, onDragStart, readonlySnapshot, expectedUrl, sideLabel }, ref) => {
+  ({ id, name, url, logo, enabled, slotIndex, compact, hideHeader, onModelChange, isolated, headerActions, onNewConversation, draggableHeader, flat, onDragStart, readonlySnapshot, expectedUrl, sideLabel }, ref) => {
     const webviewRef = useRef<Electron.WebviewTag>(null)
     const [isLoading, setIsLoading] = useState(true)
     const [isReady, setIsReady] = useState(false)
@@ -1312,10 +1313,10 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
                 >
                   <span className="material-symbols-outlined text-xl">refresh</span>
                 </button>
-                {selectors?.newConversationUrl && productMode === 'task_assignment' && (
+                {selectors?.newConversationUrl && (productMode === 'task_assignment' || onNewConversation) && (
                   <button
                     type="button"
-                    onClick={handleNewConversation}
+                    onClick={onNewConversation ?? handleNewConversation}
                     disabled={isLockedModel}
                     className={`flex items-center justify-center rounded-full transition-colors ${isLockedModel ? 'opacity-30 cursor-not-allowed text-text-secondary' : 'text-text-secondary hover:text-primary'}`}
                     title={isLockedModel ? '当前模型参与了全局会话，请使用底部的全局新对话按钮' : '新对话'}
