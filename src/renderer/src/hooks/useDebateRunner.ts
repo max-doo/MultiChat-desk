@@ -1,5 +1,6 @@
 import { useRef, useCallback, useEffect } from 'react'
-import { useAppStore } from '../store/appStore'
+import { useAppStore, waitForSavableUrl } from '../store/appStore'
+import type { DebateTurnRecord } from '../store/appStore'
 import { buildDebatePrompt } from '../utils/debatePrompts'
 
 /**
@@ -9,10 +10,38 @@ import { buildDebatePrompt } from '../utils/debatePrompts'
 export function useDebateRunner() {
   const abortRef = useRef(false)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const conversationIdRef = useRef<string | null>(null)
+  const finalizeDebateHistoryRef = useRef<() => void>(() => {})
 
   const clearTimer = () => {
     if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null }
   }
+
+  // 采集两 slot 的最终 URL（按 slotIndex，避开同 modelId 冲突）
+  const collectSlotUrls = async (): Promise<Record<number, string>> => {
+    const { webviewRefs, debateSlots } = useAppStore.getState()
+    const result: Record<number, string> = {}
+    for (const slotIndex of [0, 1] as const) {
+      const ref = webviewRefs.get(`slot-${slotIndex}`)
+      const modelId = debateSlots[slotIndex]
+      if (!ref || !modelId) continue
+      try {
+        const savable = await waitForSavableUrl(modelId, ref)
+        if (savable) result[slotIndex] = savable
+      } catch { /* 忽略 */ }
+    }
+    return result
+  }
+
+  // 辩论结束兜底：采集两 slot 最终 URL 写入历史
+  const finalizeDebateHistory = async () => {
+    const cid = conversationIdRef.current
+    if (!cid) return
+    const slotUrls = await collectSlotUrls()
+    useAppStore.getState().finalizeDebateHistory(cid, slotUrls)
+    conversationIdRef.current = null
+  }
+  useEffect(() => { finalizeDebateHistoryRef.current = finalizeDebateHistory })
 
   useEffect(() => () => { abortRef.current = true; clearTimer() }, [])
 
@@ -44,6 +73,7 @@ export function useDebateRunner() {
     const { currentRound, currentTurn, topic, totalRounds } = store.debateState
     if (currentRound >= totalRounds) {
       store.setDebatePhase('finished')
+      void finalizeDebateHistoryRef.current()
       return
     }
 
@@ -56,6 +86,7 @@ export function useDebateRunner() {
     if (!sendRes.success) {
       // 发送失败：标记 finished 并通知（通知由 UI 层读 phase 处理）
       store.setDebatePhase('finished')
+      void finalizeDebateHistoryRef.current()
       return
     }
     // 发送后立即取基线：此刻新回复尚未渲染，getLatestResponse 读到的是上一轮旧回复或空，
@@ -70,11 +101,27 @@ export function useDebateRunner() {
     // 空回复（超时未出现新回复或未稳定）→ 中止辩论，不再写占位回合继续推进
     if (!speech || !speech.trim()) {
       store.setDebatePhase('finished')
+      void finalizeDebateHistoryRef.current()
       return
     }
 
     store.appendDebateSpeech(currentRound, currentTurn, speech)
     store.advanceDebateTurn()
+
+    // 落库本轮发言（按 round upsert；currentTurn=0 写 proponent，=1 写 opponent）
+    const cid = conversationIdRef.current
+    if (cid) {
+      const modelId = useAppStore.getState().debateSlots[slotIndex]
+      const record: DebateTurnRecord = {
+        round: currentRound,
+        ...(currentTurn === 0
+          ? { proponent: { modelId, speech, timestamp: Date.now() } }
+          : { opponent: { modelId, speech, timestamp: Date.now() } }),
+      }
+      useAppStore.getState().appendDebateTurnToHistory(cid, record)
+    } else {
+      console.warn('[useDebateRunner] appendDebateTurnToHistory 跳过：conversationId 未就绪', { currentRound, currentTurn })
+    }
 
     // 下一轮稍作延迟
     const next = useAppStore.getState().debateState
@@ -93,7 +140,33 @@ export function useDebateRunner() {
     useAppStore.setState((s) => ({
       debateState: { ...s.debateState, phase: 'running', currentRound: 0, currentTurn: 0, rounds: [], totalRounds: s.debateTotalRounds }
     }))
-    runNextTurn()
+    // 创建/续写历史会话：必须 await 完成再 runNextTurn，否则首轮 appendDebateTurnToHistory
+    // 会因 conversationIdRef 未就绪被守卫丢弃（Spec §6 半成品辩论恢复依赖每轮落盘完整）。
+    void (async () => {
+      const { webviewRefs, debateSlots } = useAppStore.getState()
+      const currentUrls: Record<string, string> = {}
+      for (const slotIndex of [0, 1] as const) {
+        const ref = webviewRefs.get(`slot-${slotIndex}`)
+        const modelId = debateSlots[slotIndex]
+        if (!ref || !modelId) continue
+        try {
+          const url = ref.getCurrentUrl()
+          if (url && url !== 'about:blank') currentUrls[modelId] = url
+        } catch { /* 忽略 */ }
+      }
+      const successModelIds = debateSlots.filter(Boolean) as string[]
+      const { conversationId } = await useAppStore.getState().beginConversation({
+        successModelIds,
+        currentUrls,
+        productMode: 'debate',
+        displayMode: 'two', // 辩论 displayMode 恒为 'two'（appStore.ts:799 强制）
+      })
+      conversationIdRef.current = conversationId
+      // 把辩题写入历史标题，供 HistoryDrawer 与恢复时使用（Spec §5.6）
+      useAppStore.getState().updateHistory(conversationId, { title: topic })
+      // conversationId 已就位，启动首轮流转
+      runNextTurn()
+    })()
   }, [runNextTurn])
 
   const pause = useCallback(() => {
@@ -118,6 +191,7 @@ export function useDebateRunner() {
     abortRef.current = true
     clearTimer()
     store.setDebatePhase('finished')
+    void finalizeDebateHistoryRef.current()
   }, [])
 
   const reset = useCallback(() => {
