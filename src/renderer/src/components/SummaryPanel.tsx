@@ -122,6 +122,11 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
       webviewHistoryIdRef.current = null
       setSummaryFired(false)
       if (summarySource === 'webview') {
+        // 若总结正在轮询（streaming/loading/sending），先中止以清掉轮询定时器并置 phase=aborted，
+        // 否则 isGenerating 仍为 true 会导致 composerLocked 卡住、发送按钮不解锁。
+        if (webviewSummary.isGenerating) {
+          webviewSummary.abortSummary()
+        }
         webviewSummaryRef.current?.resetToInitial()
       }
     },
