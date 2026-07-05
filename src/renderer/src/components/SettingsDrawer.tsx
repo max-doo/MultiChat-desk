@@ -5,6 +5,7 @@ import CustomDropdown, { type DropdownOption } from './CustomDropdown'
 import ConfirmModal from './ConfirmModal'
 import ShortcutRecorder from './ShortcutRecorder'
 import ImportCacheConfirmModal from './ImportCacheConfirmModal'
+import AboutSection from './AboutSection'
 
 interface SettingsDrawerProps {
   isOpen: boolean
@@ -1378,11 +1379,11 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
             </div>
           </div>
 
-          {/* 使用说明 */}
+          {/* 关于 */}
           <div>
             <h3 className="flex items-center gap-2 font-semibold text-text-primary mb-4">
-              <span className="material-symbols-outlined text-primary text-xl">menu_book</span>
-              使用说明
+              <span className="material-symbols-outlined text-primary text-xl">info</span>
+              关于
             </h3>
             <div className="p-4 rounded-xl glass-panel">
               <a
@@ -1402,6 +1403,7 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
                   open_in_new
                 </span>
               </a>
+              <AboutSection />
             </div>
           </div>
 

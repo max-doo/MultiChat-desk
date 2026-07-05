@@ -225,6 +225,14 @@ const api = {
   // 打开新浏览器窗口
   openBrowserWindow: (url: string): Promise<void> => ipcRenderer.invoke('open-browser-window', url),
 
+  // 更新检查（纯提醒版）
+  updateCheck: (): Promise<{ success: boolean; data?: UpdateCheckResult; error?: string }> =>
+    ipcRenderer.invoke('update:check'),
+
+  // 应用当前版本号（package.json version）
+  getAppVersion: (): Promise<{ success: boolean; data?: string; error?: string }> =>
+    ipcRenderer.invoke('app:get-version'),
+
   saveImageFromURL: (url: string): Promise<{ success: boolean; filePath?: string; error?: string }> =>
     ipcRenderer.invoke('save-image-from-url', url),
   downloadAllImages: (payload: {

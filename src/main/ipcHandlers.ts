@@ -27,6 +27,7 @@ import {
     type SummaryPromptFileItem
 } from './summaryPrompts'
 import { automationService } from './services/AutomationService'
+import { checkForUpdate } from './updater/checker'
 
 // 存储当前的 AbortController，用于终止请求
 let currentSummaryAbortController: AbortController | null = null
@@ -1233,6 +1234,21 @@ export function registerIpcHandlers(
             const error = err instanceof Error ? err.message : String(err)
             return { success: false, error }
         }
+    })
+
+    // ============ 更新检查 IPC（纯提醒版） ============
+    ipcMain.handle('update:check', async () => {
+        try {
+            return await checkForUpdate()
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    // 返回应用当前版本号（package.json version），供「关于」区块静态展示
+    ipcMain.handle('app:get-version', () => {
+        return { success: true, data: app.getVersion() }
     })
 
 }
