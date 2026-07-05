@@ -57,7 +57,6 @@ function DebateModePanel({ showNotification }: DebateModePanelProps): JSX.Elemen
   if (isIdle) {
     return (
       <div className="relative flex-grow flex items-center gap-4 p-3 rounded-[24px] glass-panel-heavy shadow-float focus-within:border-gray-200 focus-within:ring-1 focus-within:ring-gray-200" style={{ height: '96px', flexShrink: 0, boxSizing: 'border-box' }}>
-        <span className="material-symbols-outlined text-text-secondary flex-shrink-0">forum</span>
         <textarea
           value={topic}
           onChange={(e) => useAppStore.getState().setDebateTopic(e.target.value)}
