@@ -65,7 +65,7 @@ function TaskModePanel({ showNotification }: TaskModePanelProps): JSX.Element {
       if (!ref) { failCount++; continue }
       const combined = texts.map((t, i) => `【子任务${i + 1}】\n${t}`).join('\n\n')
       try {
-        const r = await ref.sendMessage(combined)
+        const r = await ref.sendMessage(combined, true)
         if (r.success) okCount++; else failCount++
       } catch {
         failCount++
