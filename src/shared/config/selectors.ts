@@ -99,7 +99,7 @@ export const defaultSelectors: SelectorsConfig = {
       researchMode: {
         steps: [
           { selector: '[data-testid="composer-plus-btn"], #composer-plus-btn, button.composer-btn', delay: 1000, menuOpenerFallback: true },
-          { selector: 'div[role="menuitemradio"]', regex: 'Deep\\s*Research', exclude: ['\\bSearch\\b', '搜索'], delay: 500 }
+          { selector: 'div[role="menuitemradio"]', regex: 'Deep\\s*Research|深度研究', wordBoundary: false, exclude: ['\\bSearch\\b', '搜索'], delay: 500 }
         ],
         cancelSteps: [
           { selector: '[class*="__composer-pill-remove"]', delay: 200 }
@@ -142,7 +142,7 @@ export const defaultSelectors: SelectorsConfig = {
           // 宽屏：直接点击 radio 按钮切换到研究模式
           { selector: 'button[role="radio"][value="research"]:not([aria-disabled="true"])', delay: 300, optional: true },
           // 窄屏：点击包含"研究"文字的按钮（研究按钮有 border class，来源按钮没有）
-          { selector: 'button.border.rounded-lg.h-8:not([aria-haspopup])', regex: '研究', exclude: ['搜索', '\\bSearch\\b'], delay: 300, optional: true },
+          { selector: 'button.border.rounded-lg.h-8:not([aria-haspopup])', regex: '研究', wordBoundary: false, exclude: ['搜索', '\\bSearch\\b'], delay: 300, optional: true },
           // 从下拉菜单选择研究选项（如果有菜单出现）
           { selector: '[role="menuitemradio"][value="research"], [role="menuitemradio"][data-value="research"], [role="menuitem"][data-value="research"], [role="menuitemradio"][aria-label*="研究"], [role="menuitemradio"][aria-label*="Research"], [role="menuitem"][aria-label*="研究"], [role="menuitem"][aria-label*="Research"]', delay: 300, optional: true }
         ],
@@ -150,7 +150,7 @@ export const defaultSelectors: SelectorsConfig = {
           // 宽屏：直接点击 radio 按钮切换回搜索模式
           { selector: 'button[role="radio"][value="search"]:not([aria-disabled="true"])', delay: 300, optional: true },
           // 窄屏：点击包含"搜索"文字的按钮
-          { selector: 'button.border.rounded-lg.h-8:not([aria-haspopup])', regex: '搜索|\\bSearch\\b', exclude: ['研究', '\\bResearch\\b'], delay: 300, optional: true },
+          { selector: 'button.border.rounded-lg.h-8:not([aria-haspopup])', regex: '搜索|\\bSearch\\b', wordBoundary: false, exclude: ['研究', '\\bResearch\\b'], delay: 300, optional: true },
           // 从下拉菜单选择搜索选项
           { selector: '[role="menuitemradio"][value="search"], [role="menuitemradio"][data-value="search"], [role="menuitem"][data-value="search"], [role="menuitemradio"][aria-label*="搜索"], [role="menuitemradio"][aria-label*="Search"], [role="menuitem"][aria-label*="搜索"], [role="menuitem"][aria-label*="Search"]', delay: 300, optional: true }
         ]
