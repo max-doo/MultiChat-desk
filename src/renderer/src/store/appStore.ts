@@ -279,6 +279,12 @@ interface AppState {
   appendDebateSpeech: (round: number, turn: 0 | 1, speech: string) => void
   advanceDebateTurn: () => void
   resetDebate: () => void
+  // 辩论历史：按 round upsert 一轮发言（同轮第二次调用补齐 opponent，不覆盖 proponent）
+  appendDebateTurnToHistory: (conversationId: string, record: DebateTurnRecord) => void
+  // 辩论结束：写两 slot 最终 URL + updatedAt
+  finalizeDebateHistory: (conversationId: string, slotUrls: Record<number, string>) => void
+  // 恢复历史：把落库的 debateTurns 反序列化回运行态 debateState（phase='finished'，只读浏览）
+  restoreDebateState: (input: { topic: string; totalRounds: number; debateTurns: DebateTurnRecord[] }) => void
 
   // 专属模式窗口布局记录
   multiAiDisplayMode: DisplayMode
@@ -805,6 +811,59 @@ export const useAppStore = create<AppState>((set, get) => ({
   resetDebate: () => set((s) => ({
     debateState: { phase: 'idle', topic: '', totalRounds: s.debateTotalRounds, currentRound: 0, currentTurn: 0, rounds: [] }
   })),
+
+  appendDebateTurnToHistory: (conversationId, record) => set((state) => {
+    const item = state.history.find(h => h.id === conversationId)
+    if (!item) return {} // 会话不存在（半成品/被删），静默丢弃
+    const existing = item.debateTurns ?? []
+    const idx = existing.findIndex(t => t.round === record.round)
+    let nextTurns: DebateTurnRecord[]
+    if (idx === -1) {
+      nextTurns = [...existing, record]
+    } else {
+      // upsert：补齐另一方，不覆盖已有方
+      const prev = existing[idx]
+      nextTurns = existing.slice()
+      nextTurns[idx] = {
+        round: record.round,
+        proponent: record.proponent ?? prev.proponent,
+        opponent: record.opponent ?? prev.opponent,
+      }
+    }
+    const newHistory = state.history.map(h =>
+      h.id === conversationId ? { ...h, debateTurns: nextTurns, updatedAt: Date.now() } : h
+    )
+    if (window.api?.storeSet) window.api.storeSet('history', newHistory)
+    return { history: newHistory }
+  }),
+
+  finalizeDebateHistory: (conversationId, slotUrls) => set((state) => {
+    const newHistory = state.history.map(h =>
+      h.id === conversationId ? { ...h, slotUrls, updatedAt: Date.now() } : h
+    )
+    if (window.api?.storeSet) window.api.storeSet('history', newHistory)
+    return { history: newHistory }
+  }),
+
+  restoreDebateState: ({ topic, totalRounds, debateTurns }) => set(() => {
+    // 落库结构 -> 运行态 DebateRound（只取文本，丢弃 modelId/timestamp）
+    const rounds: DebateRound[] = debateTurns
+      .slice().sort((a, b) => a.round - b.round)
+      .map(t => ({ proponent: t.proponent?.speech, opponent: t.opponent?.speech }))
+    const lastRound = debateTurns.length > 0
+      ? Math.max(...debateTurns.map(t => t.round))
+      : -1
+    return {
+      debateState: {
+        phase: 'finished',
+        topic,
+        totalRounds,
+        currentRound: lastRound + 1,
+        currentTurn: 0,
+        rounds,
+      }
+    }
+  }),
 
   multiAiDisplayMode: 'three',
   taskAssignmentDisplayMode: 'two',
