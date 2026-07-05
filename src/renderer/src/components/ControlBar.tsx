@@ -73,6 +73,12 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
 
     const productMode = useAppStore((s) => s.productMode)
     const debateState = useAppStore((s) => s.debateState)
+    // 任务分配模式：是否已发出过任务（当前对话锚点存在且由 task_assignment 发起）。
+    // currentConversationId 跨模式共享，需叠加 productMode 校验，避免 multi_ai 会话残留误点亮。
+    const currentConversationId = useAppStore((s) => s.currentConversationId)
+    const history = useAppStore((s) => s.history)
+    const taskHasSent = !!currentConversationId
+      && history.find((h) => h.id === currentConversationId)?.productMode === 'task_assignment'
 
     const {
       sendMessageToAll,
@@ -840,8 +846,15 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
           )}
 
           {/* 右侧：生成总结 / 裁判评析按钮 */}
+          {/* 任务分配模式：未发送任何任务时置灰（taskHasSent 仍为 false），避免空爬取报错 */}
+          {(() => {
+            const debateDisabled = productMode === 'debate' && debateState.phase !== 'finished'
+            const taskDisabled = productMode === 'task_assignment' && !taskHasSent
+            const summaryDisabled = debateDisabled || taskDisabled
+            return (
           <button
             onClick={() => {
+              if (summaryDisabled) return
               if (productMode === 'debate') {
                 if (debateState.phase !== 'finished') return
                 onGenerateReport()
@@ -851,9 +864,9 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
                 onGenerateReport()
               }
             }}
-            disabled={productMode === 'debate' && debateState.phase !== 'finished'}
+            disabled={summaryDisabled}
             className={`flex-shrink-0 px-4 py-2 text-sm font-bold rounded-[24px] shadow-soft transition-opacity whitespace-nowrap flex items-center gap-2 ${
-              productMode === 'debate' && debateState.phase !== 'finished'
+              summaryDisabled
                 ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
                 : 'bg-primary text-white hover:opacity-90'
             }`}
@@ -861,6 +874,8 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
             <span className="material-symbols-outlined text-xl">{productMode === 'debate' ? 'gavel' : isImageGeneration ? 'download' : 'auto_awesome'}</span>
             {productMode === 'debate' ? '裁判评析' : isImageGeneration ? '一键下载' : '生成总结'}
           </button>
+            )
+          })()}
         </div>
       </footer>
     )

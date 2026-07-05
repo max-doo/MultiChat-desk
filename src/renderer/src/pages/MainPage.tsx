@@ -334,7 +334,8 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
         urls: latestHistoryItem?.urls,
         sourceHistoryId: latestHistoryItem?.id,
         timestamp: Date.now(),
-        snapshotModelIds
+        snapshotModelIds,
+        presetSummaryMode: productMode === 'task_assignment' ? '4' : undefined // 成稿汇总：任务分配模式进入总结时默认选中
       })
 
       // 延迟一下再跳转，让用户看到提示

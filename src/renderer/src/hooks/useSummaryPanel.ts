@@ -226,6 +226,20 @@ export function useSummaryPanel({ selectedModels, modelResponses, restoreHistory
     }
   }, [summaryPrompts, summaryMode])
 
+  // 消费预选模板：presetSummaryMode 经由 SummaryPage 的 useEffect 从 pendingSummarySession
+  // 异步落入本地 state（首次挂载时仍为 undefined，导致上面 useState 初始化为 '1'）。
+  // 因此在此用一次性 ref 在 preset 首次可用时同步进 summaryMode，且只生效一次，
+  // 不覆盖用户后续手动切换；同时校验 id 确实在当前 summaryPrompts 中存在。
+  const presetConsumedRef = useRef(false)
+  useEffect(() => {
+    if (presetConsumedRef.current) return
+    if (!presetSummaryMode) return
+    if (summaryPrompts.length === 0) return
+    if (!summaryPrompts.find(p => p.id === presetSummaryMode)) return
+    presetConsumedRef.current = true
+    setSummaryMode(presetSummaryMode)
+  }, [presetSummaryMode, summaryPrompts])
+
   // 获取已启用的供应商
   const providers = (apiConfig.providers || []).filter(p => p.enabled)
   const activeProvider = providers.find(p => p.id === selectedProviderId) || providers[0]
