@@ -351,6 +351,15 @@ interface AppState {
   // 清空所有模型的输入框
   clearInputToAll: () => Promise<SendResult[]>
 
+  // 共享历史原语：判定新/旧对话并写入历史头部，返回 conversationId。
+  // turnId 由调用方自行生成，本方法只管会话生命周期。
+  beginConversation: (input: {
+    successModelIds: string[]
+    currentUrls: Record<string, string>
+    productMode: ProductMode
+    displayMode: DisplayMode
+  }) => Promise<{ conversationId: string; isNew: boolean; lastItem: HistoryItem | null }>
+
   // 发送消息到所有启用的模型（从已输入的文本发送）
   sendMessageToAll: (message: string) => Promise<SendResult[]>
 
@@ -1069,9 +1078,51 @@ export const useAppStore = create<AppState>((set, get) => ({
     return results
   },
 
+  beginConversation: async ({ successModelIds, currentUrls, productMode, displayMode }) => {
+    const state = get()
+    const { addHistory, updateHistory, history, isNewSession, setNewSession } = state
+
+    // 续写判定基准：按 currentConversationId 查找当前对话，而非 history[0]。
+    const lastItem = state.currentConversationId
+      ? history.find(h => h.id === state.currentConversationId) ?? null
+      : null
+    const isNewConv = shouldStartNewConversation(
+      currentUrls,
+      lastItem?.urls,
+      isNewSession
+    )
+
+    if (isNewConv) {
+      const conversationId = crypto.randomUUID()
+      const newItem: HistoryItem = {
+        id: conversationId,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        models: successModelIds,
+        turns: [],
+        urls: currentUrls,
+        productMode,
+        displayMode,
+      }
+      addHistory(newItem)
+      setNewSession(false)
+      set({ currentConversationId: conversationId })
+      return { conversationId, isNew: true, lastItem: null }
+    }
+
+    const conversationId = lastItem!.id
+    const updatedUrls = { ...lastItem!.urls, ...currentUrls }
+    updateHistory(conversationId, {
+      urls: updatedUrls,
+      updatedAt: Date.now(),
+    })
+    set({ currentConversationId: conversationId })
+    return { conversationId, isNew: false, lastItem }
+  },
+
   sendMessageToAll: async (message: string): Promise<SendResult[]> => {
     const state = get()
-    const { models, webviewRefs, addHistory, updateHistory, history, isNewSession, setNewSession, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots } = state
+    const { models, webviewRefs, updateHistory, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots } = state
     set({ isSending: true, lastSendResults: [] })
     const isSessionActive = !state.isNewSession || state.textInserted
     const targetModels = isSessionActive && state.activeModels.length > 0
@@ -1111,47 +1162,13 @@ export const useAppStore = create<AppState>((set, get) => ({
         })
       )
 
-      // 续写判定基准：按 currentConversationId 查找当前对话，而非 history[0]。
-      // history[0] 会因新增/删除/分页裁剪随时重排，恢复非首位历史后续写会串到 history[0]。
-      const lastItem = state.currentConversationId
-        ? history.find(h => h.id === state.currentConversationId) ?? null
-        : null
-      const isNewConv = shouldStartNewConversation(
+      // 共享原语：判定新/旧对话 + 写历史头部
+      const { conversationId } = await get().beginConversation({
+        successModelIds: successModels,
         currentUrls,
-        lastItem?.urls,
-        isNewSession
-      )
-
-      let conversationId: string
-
-      if (isNewConv) {
-        // 新对话
-        conversationId = crypto.randomUUID()
-        const newItem: HistoryItem = {
-          id: conversationId,
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-          models: successModels,
-          turns: [],
-          urls: currentUrls,
-          productMode,
-          displayMode,
-        }
-        addHistory(newItem)
-        setNewSession(false)
-        // 持久化当前对话锚点，监控结束后仍可查询（替代 history[0] 兜底）
-        set({ currentConversationId: conversationId })
-      } else {
-        // 继续现有对话
-        conversationId = lastItem!.id
-        const updatedUrls = { ...lastItem!.urls, ...currentUrls }
-        updateHistory(conversationId, {
-          urls: updatedUrls,
-          updatedAt: Date.now(),
-        })
-        // 同步锚点（恢复历史后续写时 lastItem 已按 currentConversationId 正确取到）
-        set({ currentConversationId: conversationId })
-      }
+        productMode,
+        displayMode,
+      })
 
       // 创建新 turn 并启动监控
       const turnId = `${conversationId}-${crypto.randomUUID()}`
