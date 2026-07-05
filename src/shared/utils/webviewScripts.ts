@@ -155,6 +155,29 @@ function buildContentEditableInputScript(messageText: string): string {
           textarea.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
         }
 
+        // 派发 paste 事件，让 Slate 的 paste handler 接管换行文本插入。
+        // 根因：execCommand('insertText') 对含 \\n 的文本走浏览器默认 contentEditable
+        // 行为，绕过 Slate 的 beforeinput/paste 拦截，破坏 Slate model 与 DOM 一致性，
+        // 触发 "Cannot resolve a Slate node from DOM node"。派发 paste 事件走 Slate
+        // 原生 paste 路径，Slate 会按 \\n 拆分并正确插入 block 节点。
+        // 返回 true 表示事件已派发且被 Slate 拦截（preventDefault）。
+        function dispatchPasteEvent(textValue) {
+          try {
+            const dt = new DataTransfer();
+            dt.setData('text/plain', textValue);
+            const pasteEvent = new ClipboardEvent('paste', {
+              bubbles: true,
+              cancelable: true,
+              clipboardData: dt
+            });
+            const notPrevented = textarea.dispatchEvent(pasteEvent);
+            // Slate 拦截 paste 会 preventDefault；未拦截说明 Slate 没接管
+            return !notPrevented;
+          } catch (e) {
+            return false;
+          }
+        }
+
         for (let attempt = 0; attempt < 4 && !inserted; attempt++) {
           try {
             textarea.focus();
@@ -163,20 +186,34 @@ function buildContentEditableInputScript(messageText: string): string {
 
           await new Promise(resolve => setTimeout(resolve, 30));
 
-          let execOk = false;
+          // 清空已有内容（不涉及 \\n，安全）
           if (document.execCommand) {
             try {
               document.execCommand('selectAll', false, null);
               document.execCommand('delete', false, null);
+            } catch (e) {}
+          }
+
+          // 优先派发 paste 事件（Slate 能正确处理 \\n）
+          const pasteHandled = dispatchPasteEvent(expectedText);
+
+          // paste 未被接管时，退回 execCommand（单行可用，多行可能失败）
+          let execOk = false;
+          if (!pasteHandled && document.execCommand) {
+            try {
               execOk = document.execCommand('insertText', false, expectedText);
             } catch (e) {}
           }
 
-          if (!execOk) {
+          // 都失败才手搓 DOM（兜底，可能触发 Slate 报错）
+          if (!pasteHandled && !execOk) {
             setSlateDomValue(expectedText);
           }
 
-          dispatchSlateValueEvents(expectedText);
+          // paste 接管时不补发 insertText 事件（Slate 已自行处理），避免干扰
+          if (!pasteHandled) {
+            dispatchSlateValueEvents(expectedText);
+          }
 
           await new Promise(resolve => setTimeout(resolve, 60));
           const currentText = normalizeText(textarea.innerText || textarea.textContent || '');
@@ -604,7 +641,7 @@ function buildClearContentEditableScript(): string {
       }
       
       textarea.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
-      
+
     }
   `
 }
@@ -1124,23 +1161,45 @@ export function generateInsertTextScript(
         function normalizeText(s) {
           return (s || '').replace(/\\u200B/g, '').trim();
         }
-        
+
         // 查找输入框
         ${findTextarea}
-        
-        // 设置值（兼容 contenteditable 和 textarea）
-        ${contentEditableInput}
-        ${textareaInput}
-        else {
-          // 尝试通用方法
-          const textNode = document.createTextNode(messageText);
-          textarea.appendChild(textNode);
-          textarea.dispatchEvent(new Event('input', { bubbles: true }));
+
+        textarea.focus();
+        await new Promise(resolve => setTimeout(resolve, 80));
+
+        // 守卫：若输入框已是目标文本（或其重复），跳过注入。
+        // 对 Slate/Lexical 等 contenteditable 框架尤其关键——
+        // 重复执行 setSlateDomValue 会手搓 Slate 内部 DOM span，触发
+        // "Cannot resolve a Slate node from DOM node" 报错。
+        // 此守卫与 generateSendMessageScript 的 isAlreadySame/isRepeated 对齐。
+        function readCurrentInputValue() {
+          try {
+            if (textarea && textarea.value !== undefined) return textarea.value;
+          } catch (e) {}
+          return textarea.innerText || textarea.textContent || '';
+        }
+
+        const expected = normalizeText(messageText);
+        const current = normalizeText(readCurrentInputValue());
+        const isAlreadySame = expected ? current === expected : current === '';
+        const isRepeated = expected && current && current.length > expected.length && current.split(expected).join('') === '';
+
+        if (!isAlreadySame || isRepeated) {
+          // 设置值（兼容 contenteditable 和 textarea）
+          ${contentEditableInput}
+          ${textareaInput}
+          else {
+            // 尝试通用方法
+            const textNode = document.createTextNode(messageText);
+            textarea.appendChild(textNode);
+            textarea.dispatchEvent(new Event('input', { bubbles: true }));
+          }
         }
 
         await new Promise(resolve => setTimeout(resolve, 50));
         return { success: true };
-        
+
       } catch (error) {
         return { success: false, error: error.message };
       }
