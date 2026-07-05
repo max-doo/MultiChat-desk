@@ -2,6 +2,13 @@
 
 ## 2026-07-05
 
+### 11:33 | claude-code
+
+- done: 回滚前次 webview-resummarize 三 commit（composer 加按钮+setError+空文本走error），改为复用 WebviewCard 头部已有新对话按钮：WebviewCard 新增 onNewConversation prop，渲染条件改为 task_assignment || onNewConversation，点击 onNewConversation ?? handleNewConversation；SummaryPanel 传 onNewConversation={handleResetChat}。多任务模式行为不变
+- decision: 用户偏好复用已有 UI 入口而非新增按钮+复杂守卫逻辑；总结模式新对话=重开总结 session（清对话+解锁+resetToInitial）走 handleResetChat 闭环，不加 setError/hasAnyReply/错误展示
+- modified:
+  - `src/renderer/src/components/WebviewCard.tsx src/renderer/src/components/SummaryPanel.tsx`
+
 ### 00:57 | claude-code
 
 - done: 合并 batch-download-images 分支到 main:一键下载所有窗口生图功能(注入脚本+WebviewCardRef+appStore+IPC+ControlBar 全链路)整合进 main,与 summaryPrompts 重构(b02b012)无冲突合并,合并后 build/lint 通过
