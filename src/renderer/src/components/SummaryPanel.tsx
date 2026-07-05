@@ -37,7 +37,7 @@ function toMarkdown(content: string): string {
  * 对话形式显示 AI 总结结果
  */
 function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isActive = true, presetSummaryMode }: SummaryPanelProps): JSX.Element {
-  const { apiConfig, models, setApiConfig, addSummaryHistory, updateSummaryHistory, history } = useAppStore()
+  const { apiConfig, models, setApiConfig, addSummaryHistory, updateSummaryHistory, history, currentConversationId } = useAppStore()
 
   // 从 store 读取当前模式，缺省 'webview'
   const summarySource: 'api' | 'webview' = apiConfig.summarySource ?? 'webview'
@@ -46,6 +46,14 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
   const [webviewPlatformId, setWebviewPlatformId] = useState<string>(lastWebviewPlatform)
   // Webview composer 锁定标记：首次发送后置 true，组件卸载或 phase 进入 error/aborted 时归零
   const [summaryFired, setSummaryFired] = useState(false)
+
+  // Webview 模式独立的 transcript / 输入状态。
+  // 不能与 useSummaryPanel 的 messages/customPrompt 共用：否则 webview 模式发送的用户气泡
+  // 会串到 API 模式消息列表（API 区块读同一份 messages）。live 平台回复在常驻 <webview> DOM 里，
+  // React 侧不渲染 webview 气泡（对话展示在平台页内），故 transcript 用 ref 追踪仅供持久化，
+  // 不触发渲染。
+  const webviewMessagesRef = useRef<ChatMessage[]>([])
+  const [webviewCustomPrompt, setWebviewCustomPrompt] = useState('')
 
   const webviewSummaryRef = useRef<WebviewCardRef>(null)
   const webviewHistoryIdRef = useRef<string | null>(null)
@@ -64,7 +72,6 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
     selectedProviderId,
     setSelectedProviderId,
     messages,
-    setMessages,
     streamingContent,
     streamingReasoningContent,
     hasStartedChat,
@@ -121,6 +128,9 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
     onReset: () => {
       webviewHistoryIdRef.current = null
       setSummaryFired(false)
+      // 清 webview 模式独立 transcript / 输入（API 模式的 messages/customPrompt 由 doResetChat 清）
+      webviewMessagesRef.current = []
+      setWebviewCustomPrompt('')
       if (summarySource === 'webview') {
         // 若总结正在轮询（streaming/loading/sending），先中止以清掉轮询定时器并置 phase=aborted，
         // 否则 isGenerating 仍为 true 会导致 composerLocked 卡住、发送按钮不解锁。
@@ -181,26 +191,24 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
   }, [summaryMode, apiConfig.summaryPrompts, apiConfig.systemPrompt, selectedModels, models, modelResponses, customPrompt])
 
   const handleWebviewAssistantMessage = useCallback((msg: ChatMessage) => {
-    setMessages(prev => {
-      const updated = [...prev, msg]
-      const historyId = webviewHistoryIdRef.current
-      if (historyId) {
-        updateSummaryHistory(historyId, {
-          messages: updated.map(m => ({
-            id: m.id,
-            role: m.role,
-            content: m.content,
-            reasoningContent: m.reasoningContent,
-            timestamp: m.timestamp,
-            modeName: m.modeName,
-            versions: m.versions,
-            currentVersionIndex: m.currentVersionIndex
-          }))
-        })
-      }
-      return updated
-    })
-  }, [setMessages, updateSummaryHistory])
+    const updated = [...webviewMessagesRef.current, msg]
+    webviewMessagesRef.current = updated
+    const historyId = webviewHistoryIdRef.current
+    if (historyId) {
+      updateSummaryHistory(historyId, {
+        messages: updated.map(m => ({
+          id: m.id,
+          role: m.role,
+          content: m.content,
+          reasoningContent: m.reasoningContent,
+          timestamp: m.timestamp,
+          modeName: m.modeName,
+          versions: m.versions,
+          currentVersionIndex: m.currentVersionIndex
+        }))
+      })
+    }
+  }, [updateSummaryHistory])
 
   const webviewSummary = useWebviewSummary({
     webviewRef: webviewSummaryRef,
@@ -306,6 +314,17 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
       }
       if (restoreHistoryData.summarySource === 'webview') {
         setSummaryFired(restoreHistoryData.messages.length > 0)
+        // 恢复 webview 模式独立 transcript（useSummaryPanel 的 restore effect 已对 webview 跳过 setMessages）
+        webviewMessagesRef.current = restoreHistoryData.messages.map(msg => ({
+          id: msg.id,
+          role: msg.role,
+          content: msg.content,
+          reasoningContent: msg.reasoningContent,
+          timestamp: msg.timestamp,
+          modeName: msg.modeName,
+          versions: msg.versions,
+          currentVersionIndex: msg.currentVersionIndex
+        }))
       }
     }
   }, [restoreHistoryData])
@@ -339,7 +358,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
     if (!ta) return
     ta.style.height = 'auto'
     ta.style.height = Math.min(ta.scrollHeight, 120) + 'px'
-  }, [customPrompt, summarySource])
+  }, [webviewCustomPrompt, summarySource])
 
   const handleWebviewSend = useCallback(() => {
     if (selectedModels.length === 0) return
@@ -349,29 +368,30 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
     const modelNames = selectedModels
       .map(id => models.find(m => m.id === id)?.name || id)
       .join('、')
-    const requirement = customPrompt?.trim() || ''
+    const requirement = webviewCustomPrompt?.trim() || ''
 
     const userContent = requirement
       ? `${requirement}，采用【${modeName}】模式，根据${modelNames}的回答生成报告。`
       : `采用${modeName}模式，根据${modelNames}的回答生成报告。`
 
+    const now = Date.now()
     const userMessage: ChatMessage = {
-      id: `webview-user-${Date.now()}`,
+      id: `webview-user-${crypto.randomUUID()}`,
       role: 'user',
       content: userContent,
-      timestamp: Date.now(),
+      timestamp: now,
       modeName
     }
 
-    setMessages(prev => [...prev, userMessage])
+    webviewMessagesRef.current = [...webviewMessagesRef.current, userMessage]
 
-    const historyId = Date.now().toString()
+    const historyId = crypto.randomUUID()
     webviewHistoryIdRef.current = historyId
 
     addSummaryHistory({
       id: historyId,
       title: userContent.length > 15 ? userContent.substring(0, 15) + '...' : userContent,
-      timestamp: Date.now(),
+      timestamp: now,
       messages: [{
         id: userMessage.id,
         role: userMessage.role,
@@ -383,12 +403,12 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
       modelResponses: { ...modelResponses },
       summarySource: 'webview',
       webviewPlatformId,
-      urls: history[0]?.urls
+      urls: history.find(h => h.id === currentConversationId)?.urls
     })
 
     webviewSummary.startSummary()
     setSummaryFired(true)
-  }, [summaryMode, summaryPrompts, selectedModels, models, customPrompt, setMessages, addSummaryHistory, webviewPlatformId, webviewSummary, modelResponses, setSummaryFired, history])
+  }, [summaryMode, summaryPrompts, selectedModels, models, webviewCustomPrompt, addSummaryHistory, webviewPlatformId, webviewSummary, modelResponses, setSummaryFired, history, currentConversationId])
 
   // 获取收藏的模型ID列表
   const favoriteModelIds = apiConfig.favoriteModelIds || []
@@ -1166,6 +1186,28 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
         </>
       )}
 
+      {/*
+        WebviewCard 常驻渲染：不随 summarySource 切换卸载，避免切到 API 模式时 <webview> DOM
+        被销毁、切回时重载 newConversationUrl 丢失平台正在进行的 AI 会话（Bug #2）。
+        Electron <webview> 设 display:none 不销毁 WebContents，仅卸载元素才销毁；故 API 模式下
+        用 hidden 隐藏容器，卡与已加载会话 URL 保活。
+      */}
+      <div className={summarySource === 'webview' ? 'flex-1 min-h-0' : 'hidden'}>
+        <WebviewCard
+          ref={webviewSummaryRef}
+          id={webviewPlatformId}
+          name={webviewPlatformInfo.name}
+          url={currentWebviewUrl}
+          logo={webviewPlatformInfo.logo || ''}
+          enabled={true}
+          slotIndex={0}
+          compact
+          isolated
+          onModelChange={(modelId) => setLastWebviewPlatform(modelId)}
+          onNewConversation={handleResetChat}
+        />
+      </div>
+
       {summarySource === 'webview' && (() => {
         const composerLocked = summaryFired || webviewSummary.isGenerating
         const showLockedHint = summaryFired && !webviewSummary.isGenerating
@@ -1175,27 +1217,10 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
         const sendDisabled = composerLocked || selectedModels.length === 0
 
         return (
-          <div className="flex-1 flex flex-col overflow-hidden gap-2 min-h-0">
-            {/* WebviewCard 占据除 composer 外的全部高度 */}
-            <div className="flex-1 min-h-0">
-              <WebviewCard
-                ref={webviewSummaryRef}
-                id={webviewPlatformId}
-                name={webviewPlatformInfo.name}
-                url={currentWebviewUrl}
-                logo={webviewPlatformInfo.logo || ''}
-                enabled={true}
-                slotIndex={0}
-                compact
-                isolated
-                onModelChange={(modelId) => setLastWebviewPlatform(modelId)}
-                onNewConversation={handleResetChat}
-              />
-            </div>
-
+          <div className="shrink-0">
             {/* 底部单行 composer */}
             <div
-              className={`flex items-end gap-2 p-2 bg-sidebar border border-gray-200 rounded-lg shrink-0 transition-colors ${
+              className={`flex items-end gap-2 p-2 bg-sidebar border border-gray-200 rounded-lg transition-colors ${
                 composerLocked ? 'opacity-60' : 'focus-within:border-primary/50'
               }`}
             >
@@ -1236,8 +1261,8 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
               {/* 输入框 - 自动增长，单行 → 最多 5 行 */}
               <textarea
                 ref={webviewComposerTextareaRef}
-                value={customPrompt}
-                onChange={(e) => setCustomPrompt(e.target.value)}
+                value={webviewCustomPrompt}
+                onChange={(e) => setWebviewCustomPrompt(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault()

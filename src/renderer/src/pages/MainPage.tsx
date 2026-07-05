@@ -36,6 +36,7 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
   const getAllResponses = useAppStore((state) => state.getAllResponses)
   const setPendingSummarySession = useAppStore((state) => state.setPendingSummarySession)
   const history = useAppStore((state) => state.history)
+  const currentConversationId = useAppStore((state) => state.currentConversationId)
   const isNewSession = useAppStore((state) => state.isNewSession)
   const textInserted = useAppStore((state) => state.textInserted)
   const activeModels = useAppStore((state) => state.activeModels)
@@ -286,7 +287,7 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
       // 不是"抓到了旧内容"——回溯历史时 webview 显示旧会话，实时值与 history 最后一轮同源，
       // 兜底仅在 webview 真正不可用时才有意义。
       const snapshotModelIds: string[] = []
-      const latestHistoryItem = history.find((h) => h.id === activeHistoryId) ?? history[0]
+      const latestHistoryItem = history.find((h) => h.id === currentConversationId) ?? null
       const lastTurn = latestHistoryItem?.turns?.[latestHistoryItem.turns.length - 1]
       const lastResponses = lastTurn?.responses ?? {}
       // ⚠️ 目标模型列表必须与 getAllResponses 内部选取逻辑完全一致：
@@ -361,7 +362,7 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
         controlBarRef.current.showNotification('error', '爬取模型回答失败')
       }
       // 异常时也设置空数据包，避免残留旧数据
-      const latestHistoryItem = history.find((h) => h.id === activeHistoryId) ?? history[0]
+      const latestHistoryItem = history.find((h) => h.id === currentConversationId) ?? null
       setPendingSummarySession({
         modelResponses: {},
         urls: latestHistoryItem?.urls,
@@ -868,6 +869,9 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
 
           // 记录当前激活的历史记录 ID
           setActiveHistoryId(item.id)
+          // 同步持久化"当前对话"锚点（P0-1b）：恢复历史后发新消息/生成报告需走 ID 查找而非 history[0]，
+          // 否则 currentConversationId 仍指向上一次对话，发新消息会串到错误 historyItem
+          appStore.setCurrentConversationId(item.id)
 
           // 1. 清空输入框（历史消息已存在于 turns 中，恢复后直接续写）
           if (controlBarRef.current) {
@@ -903,7 +907,7 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
           }
 
           // 3. 检查并切换模型到当前视图
-          const currentDisplayedIds = getDisplayedModels(models, targetDisplayMode, targetProductMode, taskAssignmentSlots, multiAiSlots).map(m => m.id)
+          const currentDisplayedIds = getDisplayedModels(models, targetDisplayMode, targetProductMode, taskAssignmentSlots, multiAiSlots, debateSlots).map(m => m.id)
           const missingModelIds = item.models.filter((id) => !currentDisplayedIds.includes(id))
 
           if (missingModelIds.length > 0) {

@@ -293,7 +293,7 @@ interface AppState {
   // Webview 引用（用于发送消息）
   webviewRefs: Map<string, WebviewCardRef>
   registerWebviewRef: (id: string, ref: WebviewCardRef) => void
-  unregisterWebviewRef: (id: string) => void
+  unregisterWebviewRef: (id: string, ref: WebviewCardRef) => void
 
   // API 配置
   apiConfig: ApiConfig
@@ -388,6 +388,11 @@ interface AppState {
   isNewSession: boolean
   setNewSession: (isNew: boolean) => void
   chatSessionVersion: number
+  // 持久化的"当前对话"锚点：监控结束后仍存活，所有"当前对话"查询走 ID 查找而非 history[0]。
+  // 与 monitor.currentConversationId（监控态，监控结束即清空）语义不同但同源——
+  // startMonitoring 时两者同步写入，stopMonitoring 时只清 monitor 字段，本字段保留。
+  currentConversationId: string | null
+  setCurrentConversationId: (id: string | null) => void
 
   // 页面导航状态
   currentPage: 'main' | 'summary' | 'quick' | 'diagnostics'
@@ -867,7 +872,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   webviewRefs: new Map(),
   registerWebviewRef: (id, ref) => get().webviewRefs.set(id, ref),
-  unregisterWebviewRef: (id) => get().webviewRefs.delete(id),
+  unregisterWebviewRef: (id, ref) => {
+    // 仅当当前注册的 ref 就是要注销的那个才删，避免新 ref 已覆盖后旧回调误删新 ref
+    if (get().webviewRefs.get(id) === ref) get().webviewRefs.delete(id)
+  },
 
   apiConfig: {
     providers: defaultProviders,
@@ -904,12 +912,15 @@ export const useAppStore = create<AppState>((set, get) => ({
   removeHistory: (id: string) => set((state) => {
     const newHistory = state.history.filter(item => item.id !== id)
     if (window.api?.storeSet) window.api.storeSet('history', newHistory)
-    return { history: newHistory }
+    // 删除的恰是当前对话锚点时清空，避免残留脏 ID 触发 find 不到退回 null（无串台但语义更干净）
+    const cleared = state.currentConversationId === id
+    return { history: newHistory, ...(cleared ? { currentConversationId: null } : {}) }
   }),
   removeHistories: (ids: string[]) => set((state) => {
     const newHistory = state.history.filter(item => !ids.includes(item.id))
     if (window.api?.storeSet) window.api.storeSet('history', newHistory)
-    return { history: newHistory }
+    const cleared = state.currentConversationId !== null && ids.includes(state.currentConversationId)
+    return { history: newHistory, ...(cleared ? { currentConversationId: null } : {}) }
   }),
 
   summaryHistory: [],
@@ -995,8 +1006,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   setActiveModels: (models: ModelConfig[]) => set({ activeModels: models }),
   isNewSession: true,
   chatSessionVersion: Date.now(),
+  currentConversationId: null,
+  setCurrentConversationId: (id) => set({ currentConversationId: id }),
   setNewSession: (isNew: boolean) => {
-    set({ isNewSession: isNew })
+    // 新会话标记时同步清空当前对话锚点，防止 history[0] 兜底串台（症状 6 根因）
+    set({ isNewSession: isNew, ...(isNew ? { currentConversationId: null } : {}) })
     if (isNew) set({ activeModels: [], textInserted: false, chatSessionVersion: Date.now() })
   },
 
@@ -1088,7 +1102,11 @@ export const useAppStore = create<AppState>((set, get) => ({
         })
       )
 
-      const lastItem = history.length > 0 ? history[0] : null
+      // 续写判定基准：按 currentConversationId 查找当前对话，而非 history[0]。
+      // history[0] 会因新增/删除/分页裁剪随时重排，恢复非首位历史后续写会串到 history[0]。
+      const lastItem = state.currentConversationId
+        ? history.find(h => h.id === state.currentConversationId) ?? null
+        : null
       const isNewConv = shouldStartNewConversation(
         currentUrls,
         lastItem?.urls,
@@ -1099,7 +1117,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       if (isNewConv) {
         // 新对话
-        conversationId = Date.now().toString()
+        conversationId = crypto.randomUUID()
         const newItem: HistoryItem = {
           id: conversationId,
           createdAt: Date.now(),
@@ -1112,6 +1130,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         }
         addHistory(newItem)
         setNewSession(false)
+        // 持久化当前对话锚点，监控结束后仍可查询（替代 history[0] 兜底）
+        set({ currentConversationId: conversationId })
       } else {
         // 继续现有对话
         conversationId = lastItem!.id
@@ -1120,10 +1140,12 @@ export const useAppStore = create<AppState>((set, get) => ({
           urls: updatedUrls,
           updatedAt: Date.now(),
         })
+        // 同步锚点（恢复历史后续写时 lastItem 已按 currentConversationId 正确取到）
+        set({ currentConversationId: conversationId })
       }
 
       // 创建新 turn 并启动监控
-      const turnId = `${conversationId}-${Date.now()}`
+      const turnId = `${conversationId}-${crypto.randomUUID()}`
       get().startMonitoring(conversationId, turnId, message, successModels)
 
       ;(async () => {
@@ -1471,6 +1493,9 @@ export const useAppStore = create<AppState>((set, get) => ({
         intervalId,
         startTime: Date.now(),
       },
+      // 持久态锚点与监控态同步：监控结束后 monitor.currentConversationId 会清空，
+      // 但本字段保留，供后续"当前对话"查询（替代 history[0] 兜底）
+      currentConversationId: conversationId,
     })
   },
 

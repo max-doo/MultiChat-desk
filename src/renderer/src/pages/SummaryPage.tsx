@@ -15,7 +15,7 @@ interface SummaryPageProps {
  * 显示各模型输出和 AI 总结面板
  */
 function SummaryPage({ onNavigateBack, initialHistoryItem, isActive }: SummaryPageProps): JSX.Element {
-  const { models, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots, pendingSummarySession, setPendingSummarySession, history, isHistoryOpen, setHistoryOpen } = useAppStore()
+  const { models, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots, pendingSummarySession, setPendingSummarySession, history, currentConversationId, isHistoryOpen, setHistoryOpen } = useAppStore()
 
   const [activeHistoryId, setActiveHistoryId] = useState<string | undefined>(undefined)
 
@@ -40,9 +40,6 @@ function SummaryPage({ onNavigateBack, initialHistoryItem, isActive }: SummaryPa
   // 回落分支不返回 displayedModels：当 modelResponses 全空（抓取全失败 / 异常 / 未发消息即点总结）
   // 时，displayedModels 仍含被 newOrder 回填的未参与模型，回落会把这些模型渲染成 phantom 空框。
   // 无数据时返回空数组，由外层空态承载，比一排假空框更诚实。
-  const renderableModels = useMemo(() => {
-    return displayedModels.filter(m => (modelResponses[m.id] || '').trim().length > 0)
-  }, [displayedModels, modelResponses])
   const [snapshotModelIds, setSnapshotModelIds] = useState<string[]>([])
   // 从辩论模式进入总结页时预选的总结模板 id（仅首次挂载消费一次）
   const [presetSummaryMode, setPresetSummaryMode] = useState<string | undefined>(undefined)
@@ -71,6 +68,28 @@ function SummaryPage({ onNavigateBack, initialHistoryItem, isActive }: SummaryPa
     webviewPlatformId?: string
     webviewUrl?: string
   } | null>(null)
+
+  const renderableModels = useMemo(() => {
+    if (restoreHistoryData) {
+      // 恢复历史记录时，不受当前主页面窗口显示的 displayedModels 限制，而是使用历史记录中实际有回复的模型
+      const historicalModelIds = Object.keys(restoreHistoryData.modelResponses || {})
+      return historicalModelIds
+        .map(id => {
+          const found = models.find(m => m.id === id)
+          if (found) return found
+          // 兜底，避免历史记录中的模型在当前配置中不存在
+          return {
+            id,
+            name: id,
+            url: '',
+            logo: '',
+            enabled: true
+          }
+        })
+        .filter(m => (modelResponses[m.id] || '').trim().length > 0)
+    }
+    return displayedModels.filter(m => (modelResponses[m.id] || '').trim().length > 0)
+  }, [displayedModels, modelResponses, restoreHistoryData, models])
 
   // 拖拽调整宽度状态
   const [rightPanelWidth, setRightPanelWidth] = useState(40) // 默认 40%
@@ -116,6 +135,8 @@ function SummaryPage({ onNavigateBack, initialHistoryItem, isActive }: SummaryPa
     // 记录当前激活的历史记录 ID
     setActiveHistoryId(item.id)
     setIsLoadingResponses(true)
+    // 恢复历史记录时，清空当前激活的本地历史快照 ID 列表，避免旧快照横幅依然显示
+    setSnapshotModelIds([])
 
     // 恢复选中的模型
     if (item.selectedModels && item.selectedModels.length > 0) {
@@ -176,6 +197,8 @@ function SummaryPage({ onNavigateBack, initialHistoryItem, isActive }: SummaryPa
         .filter(m => data[m.id]?.trim().length > 0)
         .map(m => m.id)
       setSelectedModels(modelsWithData.length > 0 ? modelsWithData : displayedModels.map(m => m.id))
+      // 新进入总结页（非历史恢复）必须清空 restoreHistoryData，否则 renderableModels 会一直走历史分支，
+      // 且 useSummaryPanel 的 useEffect([restoreHistoryData]) 会让新总结写回旧历史。
       setRestoreHistoryData(null)
       setIsLoadingResponses(false)
       return
@@ -185,7 +208,7 @@ function SummaryPage({ onNavigateBack, initialHistoryItem, isActive }: SummaryPa
       initDoneRef.current = true
       setIsLoadingResponses(true)
       let data: Record<string, string> = {}
-      const latestItem = history[0]
+      const latestItem = history.find(h => h.id === currentConversationId)
       const latestTurn = latestItem?.turns?.[latestItem.turns.length - 1]
       if (latestTurn?.responses && Object.keys(latestTurn.responses).length > 0) {
         data = latestTurn.responses
@@ -198,7 +221,7 @@ function SummaryPage({ onNavigateBack, initialHistoryItem, isActive }: SummaryPa
       setSelectedModels(modelsWithData.length > 0 ? modelsWithData : displayedModels.map(m => m.id))
       setIsLoadingResponses(false)
     }
-  }, [initialHistoryItem, pendingSummarySession, displayedModels, history, setPendingSummarySession])
+  }, [initialHistoryItem, pendingSummarySession, displayedModels, setPendingSummarySession])
 
   return (
     <div className="flex h-full overflow-hidden" ref={containerRef}>

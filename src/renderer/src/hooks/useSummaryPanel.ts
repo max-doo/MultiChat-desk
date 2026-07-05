@@ -71,7 +71,7 @@ export function useSummaryPanel({ selectedModels, modelResponses, restoreHistory
   // 消息列表滚动引用
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
-  const { models, apiConfig, summaryModels: allSummaryModels, setApiConfig, addSummaryHistory, updateSummaryHistory, history, chatSessionVersion } = useAppStore()
+  const { models, apiConfig, summaryModels: allSummaryModels, setApiConfig, addSummaryHistory, updateSummaryHistory, history, currentConversationId, chatSessionVersion } = useAppStore()
   const currentSummaryHistoryIdRef = useRef<string | null>(null)
   // 标记是否已为此对话生成过 AI 标题（避免重复生成）
   const hasGeneratedTitleRef = useRef<boolean>(false)
@@ -121,7 +121,7 @@ export function useSummaryPanel({ selectedModels, modelResponses, restoreHistory
       messages: serializeMessages(source),
       selectedModels: [...selectedModels],
       modelResponses: { ...capturedModelResponsesRef.current },
-      urls: history[0]?.urls,
+      urls: history.find(h => h.id === currentConversationId)?.urls,
       ...extra
     }
 
@@ -130,7 +130,7 @@ export function useSummaryPanel({ selectedModels, modelResponses, restoreHistory
       return
     }
 
-    const id = now.toString()
+    const id = crypto.randomUUID()
     addSummaryHistory({
       id,
       ...updates
@@ -273,20 +273,24 @@ export function useSummaryPanel({ selectedModels, modelResponses, restoreHistory
       if (restoreHistoryData.historyId) {
         currentSummaryHistoryIdRef.current = restoreHistoryData.historyId
       }
-      setMessages(restoreHistoryData.messages.map(msg => ({
-        id: msg.id,
-        role: msg.role,
-        content: msg.content,
-        reasoningContent: msg.reasoningContent,
-        timestamp: msg.timestamp,
-        modeName: msg.modeName,
-        versions: msg.versions,
-        currentVersionIndex: msg.currentVersionIndex
-      })))
-      setHasStartedChat(restoreHistoryData.messages.length > 0)
-      // 恢复历史记录时，从历史数据中捕获 modelResponses 快照
-      if (restoreHistoryData.modelResponses) {
-        setCapturedModelResponsesBoth({ ...restoreHistoryData.modelResponses })
+      // webview 模式有自己的独立 transcript（SummaryPanel 的 webviewMessages），
+      // 不写共享 messages，否则会串到 API 模式消息列表。
+      if (restoreHistoryData.summarySource !== 'webview') {
+        setMessages(restoreHistoryData.messages.map(msg => ({
+          id: msg.id,
+          role: msg.role,
+          content: msg.content,
+          reasoningContent: msg.reasoningContent,
+          timestamp: msg.timestamp,
+          modeName: msg.modeName,
+          versions: msg.versions,
+          currentVersionIndex: msg.currentVersionIndex
+        })))
+        setHasStartedChat(restoreHistoryData.messages.length > 0)
+        // 恢复历史记录时，从历史数据中捕获 modelResponses 快照
+        if (restoreHistoryData.modelResponses) {
+          setCapturedModelResponsesBoth({ ...restoreHistoryData.modelResponses })
+        }
       }
     }
   }, [restoreHistoryData])
@@ -388,8 +392,8 @@ export function useSummaryPanel({ selectedModels, modelResponses, restoreHistory
         .map(id => {
           const model = models.find(m => m.id === id)
           const response = snapshot[id]
-          if (model && response) {
-            return { name: model.name, content: response }
+          if (response) {
+            return { name: model?.name || id, content: response }
           }
           return null
         })
@@ -428,7 +432,7 @@ export function useSummaryPanel({ selectedModels, modelResponses, restoreHistory
 
     // 添加用户消息
     const userMessage: ChatMessage = {
-      id: Date.now().toString(),
+      id: crypto.randomUUID(),
       role: 'user',
       content: userDisplayMessage,
       timestamp: Date.now(),
@@ -513,7 +517,7 @@ export function useSummaryPanel({ selectedModels, modelResponses, restoreHistory
 
         // 添加助手消息（带版本信息和思考内容）
         const assistantMessage: ChatMessage = {
-          id: (Date.now() + 1).toString(),
+          id: crypto.randomUUID(),
           role: 'assistant',
           content: result.data,
           reasoningContent: result.reasoningContent,
@@ -556,7 +560,7 @@ export function useSummaryPanel({ selectedModels, modelResponses, restoreHistory
           const finalContent = (partialContent || '（无正文内容）') + '\n\n---\n*（生成已终止）*'
 
           const assistantMessage: ChatMessage = {
-            id: (Date.now() + 1).toString(),
+            id: crypto.randomUUID(),
             role: 'assistant',
             content: finalContent,
             reasoningContent: partialReasoning || undefined,
@@ -712,8 +716,8 @@ export function useSummaryPanel({ selectedModels, modelResponses, restoreHistory
         .map(id => {
           const model = models.find(m => m.id === id)
           const response = capturedModelResponses[id] ?? modelResponses[id]
-          if (model && response) {
-            return { name: model.name, content: response }
+          if (response) {
+            return { name: model?.name || id, content: response }
           }
           return null
         })
