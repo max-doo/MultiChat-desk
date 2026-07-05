@@ -263,8 +263,6 @@ interface AppState {
   setTaskQuery: (query: string) => void
   setTaskSubtasks: (subtasks: TaskSubtask[]) => void
   updateSubtask: (index: number, patch: Partial<TaskSubtask>) => void
-  addSubtask: () => void
-  removeSubtask: (index: number) => void
   toggleTaskCollapsed: () => void
   resetTask: () => void
 
@@ -768,17 +766,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     const subtasks = s.taskState.subtasks.map((st, i) => i === index ? { ...st, ...patch } : st)
     return { taskState: { ...s.taskState, subtasks } }
   }),
-  addSubtask: () => set((s) => {
-    // 默认指派到当前 webview 槽位模型（与分解指派、cycle 一致），fallback 用第一个模型
-    const slotModels = getDisplayedModels(s.models, s.displayMode, 'task_assignment', s.taskAssignmentSlots)
-    const slotCount = Math.max(1, slotModels.length)
-    const slotIndex = s.taskState.subtasks.length % slotCount
-    const modelId = (slotModels[slotIndex] || s.models[0])?.id || ''
-    return { taskState: { ...s.taskState, subtasks: [...s.taskState.subtasks, { text: '新增子任务', modelId, slotIndex }] } }
-  }),
-  removeSubtask: (index) => set((s) => ({
-    taskState: { ...s.taskState, subtasks: s.taskState.subtasks.filter((_, i) => i !== index) }
-  })),
   toggleTaskCollapsed: () => set((s) => ({ taskState: { ...s.taskState, collapsed: !s.taskState.collapsed } })),
   resetTask: () => set({ taskState: { phase: 'idle', query: '', subtasks: [], collapsed: false } }),
 

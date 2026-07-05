@@ -245,7 +245,7 @@ function TaskModePanel({ showNotification }: TaskModePanelProps): JSX.Element {
             <span className="text-sm font-bold">确认</span>
           ) : isInserted ? (
             <>
-              <span className="material-symbols-outlined">send</span>
+              <span className="material-symbols-outlined">arrow_upward</span>
               <span className="text-sm font-bold">确认发送</span>
             </>
           ) : (
