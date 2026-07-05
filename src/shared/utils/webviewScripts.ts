@@ -1149,6 +1149,49 @@ export function generateInsertTextScript(
 }
 
 /**
+ * 生成"仅点击发送按钮"的注入脚本（不重新设值）。
+ * 用于任务分配两段式发送的第二段：第一段已用 generateInsertTextScript 注入文本，
+ * 本段只查找发送按钮并点击。
+ *
+ * 设计决策：
+ * - 不调用 buildFindTextareaScript：该函数找不到 textarea 时会
+ *   `return { success:false }` 终止整个 IIFE，而第二段只需按钮，
+ *   不应被 textarea 选择器未命中拖累。
+ * - 不调用 buildSimulateEnterKeyScript：它含 Enter 回退分支且依赖
+ *   textarea 变量；为避免扩散改动共享函数，改为内联"按钮存在即 click，
+ *   否则失败"。
+ * - clickDelay 与 buildSimulateEnterKeyScript 一致，保留
+ *   doubao/qwen/deepseek 500ms、其他 50ms 的分平台策略。
+ *
+ * @param modelId 模型 ID
+ * @param selectors 选择器配置
+ */
+export function generateSendOnlyScript(
+  modelId: string,
+  selectors: ModelSelector
+): string {
+  const findButton = buildFindSendButtonScript(selectors)
+  return `
+    (async function() {
+      try {
+        ${findButton}
+        if (!button) {
+          return { success: false, error: '未找到发送按钮' };
+        }
+        button.focus();
+        const clickDelay = (${JSON.stringify(modelId)} === 'doubao' || ${JSON.stringify(modelId)} === 'qwen' || ${JSON.stringify(modelId)} === 'deepseek') ? 500 : 50;
+        await new Promise(resolve => setTimeout(resolve, clickDelay));
+        button.click();
+        await new Promise(resolve => setTimeout(resolve, 200));
+        return { success: true, method: 'button' };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    })();
+  `
+}
+
+/**
  * 生成清空输入框的注入脚本
  * @param selectors 选择器配置
  */
