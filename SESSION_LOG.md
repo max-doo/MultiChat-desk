@@ -2,6 +2,81 @@
 
 ## 2026-07-05
 
+### 19:34 | Antigravity
+
+- done: 优化任务拆解提示词，强制模型仅按独立且并行的横向维度进行拆解，严禁拆解成有先后依赖的串行步骤
+- modified:
+  - `src/main/config/taskSplitPrompt.ts`
+
+### 18:15 | Antigravity
+
+- done: 为任务拆解按钮添加文字‘拆解任务’
+- modified:
+  - `src/renderer/src/components/modes/TaskModePanel.tsx`
+
+### 18:11 | claude-code
+
+- done: 二次审核 modes-history-persist 计划与最新代码的冲突：任务分配已重构为 handleInsert+handleConfirmSend 两步流程，重写 Task 3 挂载点到 handleConfirmSend，翻转 v2 的 twoPhase 结论
+- context: 代码重构：TaskModePanel 单步 handleSend→两步 handleInsert(注入)/handleConfirmSend(发送)，TaskPhase 增 inserted，sendMessage 不再传 twoPhase
+- modified:
+  - `docs/superpowers/plans/2026-07-05-modes-history-persist.md`
+- lesson(promoted): 实施计划审核后若代码继续演进，必须对每个 Find/Replace 块重新 grep 核对：本次 twoPhase 参数被移除、函数名 handleSend→handleConfirmSend 变化，v2 结论直接作废，靠重新核对才避免计划带病执行
+
+### 18:06 | claude-code
+
+- done: 任务分配模式改为人工两步触发：第一步注入(insertText)、第二步确认发送(sendMessage单脚本)，复用多AI模式已验证路径；generateInsertTextScript 加 isAlreadySame 守卫防 Slate 重复注入报错
+- modified:
+  - `src/shared/utils/webviewScripts.ts`
+  - `src/renderer/src/store/appStore.ts`
+  - `src/renderer/src/components/modes/TaskModePanel.tsx`
+- lesson(promoted): 任务分配两段式自动发送(twoPhase)失败根因：phase1 用 generateInsertTextScript 缺旧 generateSendMessageScript 的强制 InputEvent 同步受控组件状态，按钮 disabled；且 Slate 编辑器(千问)走 setSlateDomValue 手搓 DOM span 触发 Cannot resolve a Slate node from DOM node 报错。改为人工两步复用多AI insertText/sendMessage 单脚本路径解决
+- unresolved: 任务分配第一步注入仍触发千问报错，但多AI模式注入不报错——两条路径据代码应相同，需排查运行时差异
+
+### 17:50 | Antigravity
+
+- done: 删除辩论模式输入框中的论坛/气泡图标(forum icon)
+- modified:
+  - `src/renderer/src/components/modes/DebateModePanel.tsx`
+
+### 16:52 | claude-code
+
+- done: 审核并修订 modes-history-persist 实施计划：回填代码事实核对，修正 5 处实质问题（twoPhase 丢失/updateHistory 误删/辩题未持久化/辩论恢复块位置/首轮竞态丢轮）与若干小瑕疵
+- context: spec: docs/superpowers/specs/2026-07-05-modes-history-persist-design.md
+- decision: 辩论辩题写入 HistoryItem.title（非 debateState.topic），折中 spec §3 不持久化与 §5.6 取辩题作标题两处要求
+- modified:
+  - `docs/superpowers/plans/2026-07-05-modes-history-persist.md`
+- lesson(promoted): 审核实施计划前必须 grep 实际代码核对 Find/Replace 块的行号与签名：本例 sendMessage 第二参 twoPhase、5 秒兜底用 updateHistory、debateSlots 无 setter 均靠核对才避免计划带病执行
+
+### 16:22 | Antigravity
+
+- done: 删除分配模式下输入框中多余的 '+' 按钮并实现发送后自动重置状态
+- decision: 去除 isSent 状态的手动 '+' 重置流程，采用更符合普通聊天习惯的发送后自动 resetTask 逻辑，移除了多余的 '+' 按钮
+- modified:
+  - `src/renderer/src/components/modes/TaskModePanel.tsx`
+
+### 15:52 | Antigravity
+
+- done: 任务分配模式发送拆为两段式注入（注入→1000ms→点发送），消除千问网页报错
+- added:
+  - `docs/superpowers/specs/2026-07-05-task-assignment-two-phase-send-design.md`
+  - `docs/superpowers/plans/2026-07-05-task-assignment-two-phase-send.md`
+- modified:
+  - `src/shared/utils/webviewScripts.ts`
+  - `src/renderer/src/components/WebviewCard.tsx`
+  - `src/renderer/src/components/modes/TaskModePanel.tsx`
+
+### 15:00 | Antigravity
+
+- done: Increase quick toolbar outer padding
+- modified:
+  - `src/renderer/src/pages/ToolbarPage.tsx`
+
+### 14:59 | Antigravity
+
+- done: Resize quick toolbar logo
+- modified:
+  - `src/renderer/src/pages/ToolbarPage.tsx`
+
 ### 14:48 | Antigravity
 
 - done: Fix summary page white screen ReferenceError TDZ bug
@@ -42,7 +117,7 @@
   - `docs/superpowers/plans/2026-07-05-history-summary-mixing-fix.md(补 appStore:1091 第5处 history[0] 出现点 + Done Criteria 行为变更标注)`
 - modified:
   - `src/renderer/src/store/appStore.ts; src/renderer/src/pages/MainPage.tsx; src/renderer/src/pages/SummaryPage.tsx; src/renderer/src/hooks/useSummaryPanel.ts; docs/superpowers/plans/2026-07-05-history-summary-mixing-fix.md`
-- lesson: 复审计划时发现 §3.2 表遗漏了 history[0] 的第5处出现点(appStore.ts sendMessageToAll 内的 lastItem 选取)，该处是续写分支 conversationId=lastItem!.id 的来源，若不修则恢复非 history[0] 的历史后续写仍串台——executing-plans 的 STOP-when-block 规则触发用户确认后并入 P0-1 修复
+- lesson(promoted): 复审计划时发现 §3.2 表遗漏了 history[0] 的第5处出现点(appStore.ts sendMessageToAll 内的 lastItem 选取)，该处是续写分支 conversationId=lastItem!.id 的来源，若不修则恢复非 history[0] 的历史后续写仍串台——executing-plans 的 STOP-when-block 规则触发用户确认后并入 P0-1 修复
 - unresolved: 回归脚本 1-8 需在 npm run dev 桌面环境手动验证；crypto.randomUUID() sandbox 需 dev console 确认；当前在 main 分支未提交，待用户决定提交/切分支
 
 ### 11:33 | claude-code
