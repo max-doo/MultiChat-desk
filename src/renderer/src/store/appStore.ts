@@ -408,6 +408,9 @@ interface AppState {
   // 一键提取所有窗口生图
   extractImagesFromAll: () => Promise<ExtractImagesResult[]>
 
+  // 一键原生触发所有窗口生图下载；dryRun=true 只校验配置+拿 wcId 不点击（供主进程先建 ctx）
+  triggerNativeDownloads: (dryRun?: boolean) => Promise<Array<{ modelId: string; wcId: number | null; clicked: number; error?: string }>>
+
   // 会话状态
   isNewSession: boolean
   setNewSession: (isNew: boolean) => void
@@ -1500,6 +1503,22 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
     })
     return Promise.all(extractPromises)
+  },
+
+  triggerNativeDownloads: async (dryRun = false): Promise<Array<{ modelId: string; wcId: number | null; clicked: number; error?: string }>> => {
+    const { models, webviewRefs, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots } = get()
+    const displayedModels = getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots)
+    const downloadPromises = displayedModels.map(async (model, index) => {
+      const webviewRef = webviewRefs.get(`slot-${index}`) || webviewRefs.get(model.id)
+      if (!webviewRef) return { modelId: model.id, wcId: null, clicked: 0, error: 'Webview 未注册' }
+      try {
+        const result = await webviewRef.clickDownloadButtons(dryRun)
+        return { modelId: model.id, wcId: result.wcId, clicked: result.clicked, error: result.error }
+      } catch (error) {
+        return { modelId: model.id, wcId: null, clicked: 0, error: String(error) }
+      }
+    })
+    return Promise.all(downloadPromises)
   },
 
 

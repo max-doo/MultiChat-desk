@@ -1437,6 +1437,141 @@ export function generateDisableImageGenerationScript(config: any): string {
 }
 
 /**
+ * 生成"按 imageDownload.steps 触发网页内置下载"的注入脚本。
+ * 复用 imageGeneration 的 findElement/simulateClick；支持 step.hover 模式。
+ * 跑完 steps 后若配置了 closePreviewSelector，自动关预览（best-effort）。
+ * 返回 { success, clicked } —— clicked 表示下载按钮步骤是否执行成功；
+ * 真正落盘由主进程 will-download 统计。
+ */
+export function generateClickDownloadButtonsScript(selectors: ModelSelector): string {
+  const helpers = buildDeepResearchHelperFunctions()
+  const config = selectors.imageDownload || { steps: [] }
+
+  return `
+    (async function() {
+      try {
+        const config = ${JSON.stringify(config)};
+        ${helpers}
+
+        // 自定义 findLatestElement：从后往前查找元素，从而自动锁定最新的消息或生图
+        function findLatestElement(selector, text, opts) {
+          var o = (opts && typeof opts === 'object') ? opts : { exact: !!opts };
+
+          function matchText(content, ariaLabel) {
+            var flags = o.caseSensitive ? '' : 'i';
+            var targets = o.regex
+              ? [o.regex]
+              : (text != null ? (Array.isArray(text) ? text : [text]) : []);
+            var excludeList = o.exclude || [];
+            for (var ei = 0; ei < excludeList.length; ei++) {
+              try { if (new RegExp(excludeList[ei], flags).test(content) || new RegExp(excludeList[ei], flags).test(ariaLabel)) return false; } catch (e) {}
+            }
+            for (var ti = 0; ti < targets.length; ti++) {
+              var t = targets[ti];
+              if (o.regex) {
+                var pat = t;
+                if (o.wordBoundary !== false) {
+                  if (!/^\\^/.test(pat)) pat = '\\b(?:' + pat + ')';
+                  if (!/\\$$/.test(pat)) pat = pat + '\\b';
+                }
+                try {
+                  var re = new RegExp(pat, flags);
+                  if (re.test(content) || re.test(ariaLabel)) return true;
+                } catch (e) {}
+              } else if (o.exact) {
+                if (content === t || ariaLabel === t) return true;
+              } else {
+                var lc = (content || '').toLowerCase();
+                var la = (ariaLabel || '').toLowerCase();
+                var lt = String(t).toLowerCase();
+                if (lc.includes(lt) || la.includes(lt)) return true;
+              }
+            }
+            return false;
+          }
+
+          var selectorList = Array.isArray(selector) ? selector : [selector];
+          for (var si = 0; si < selectorList.length; si++) {
+            var sel = selectorList[si];
+            var elements = null;
+            try {
+              elements = document.querySelectorAll(sel);
+            } catch (e) {
+              continue;
+            }
+          
+            if (!text && !o.regex) {
+              for (var vi = elements.length - 1; vi >= 0; vi--) {
+                var vel = elements[vi];
+                if (vel.getBoundingClientRect().width > 0 || vel.offsetParent !== null) {
+                  return normalizeClickable(vel, o.exact);
+                }
+              }
+              if (elements && elements[0]) return normalizeClickable(elements[elements.length - 1], o.exact);
+              continue;
+            }
+          
+            for (var mi = elements.length - 1; mi >= 0; mi--) {
+              var el = elements[mi];
+              if (el.getBoundingClientRect().width === 0 && el.offsetParent === null) {
+                continue;
+              }
+              var content = (el.innerText || el.textContent || '').trim();
+              var ariaLabel = el.getAttribute('aria-label') || el.getAttribute('title') || '';
+              if (matchText(content, ariaLabel)) {
+                return normalizeClickable(el, o.exact);
+              }
+            }
+          }
+          return null;
+        }
+
+        if (!config.steps || !config.steps.length) return { success: false, error: '未配置下载步骤', clicked: 0 };
+
+        let downloadClicked = false;
+        for (let i = 0; i < config.steps.length; i++) {
+          const step = config.steps[i];
+          let element = null;
+          let attempts = 0;
+          while (!element && attempts < 10) {
+            element = findLatestElement(step.selector, step.text, step);
+            if (!element) {
+              await new Promise(r => setTimeout(r, 200));
+              attempts++;
+            }
+          }
+          if (!element) {
+            if (step.optional) continue;
+            return { success: false, error: '未找到元素: ' + (Array.isArray(step.selector) ? step.selector.join(', ') : step.selector), clicked: downloadClicked ? 1 : 0 };
+          }
+          element.scrollIntoView({ block: 'center', inline: 'center' });
+          if (step.hover) {
+            element.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
+            element.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+            element.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
+          } else {
+            simulateClick(element);
+            downloadClicked = true;
+          }
+          await new Promise(r => setTimeout(r, step.delay || 300));
+        }
+
+        if (config.closePreviewSelector) {
+          try {
+            const closeBtn = document.querySelector(config.closePreviewSelector);
+            if (closeBtn) closeBtn.click();
+          } catch (e) { /* 忽略 */ }
+        }
+
+        return { success: downloadClicked, clicked: downloadClicked ? 1 : 0 };
+      } catch (error) {
+        return { success: false, clicked: 0, error: String(error?.message ?? error) };
+      }
+    })();
+  `
+}
+
+/**
  * 生成"提取当前 webview 最新回复中生图"的注入脚本。
  * 在页内把 img.src / canvas / a[download] / blob: 统一转成 {src, mime?} 数组返回。
  * @param selectors 平台选择器配置（用 messageContainer 定位最新回复气泡）

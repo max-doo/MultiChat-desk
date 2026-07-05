@@ -239,6 +239,14 @@ const api = {
     items: Array<{ modelId: string; wcId: number | null; images: Array<{ src: string; mime?: string }> }>
   }): Promise<{ success: boolean; data?: { perModel: Array<{ modelId: string; saved: number; failed: number; errors: string[] }> }; error?: string }> =>
     ipcRenderer.invoke('image:download-all', payload),
+  triggerNativeDownloads: (payload: {
+    items: Array<{ modelId: string; wcId: number | null; clicked: number }>
+  }): Promise<{ success: boolean; data?: { dir: string; ts: string; wcIds: number[] }; error?: string }> =>
+    ipcRenderer.invoke('image:download-via-native:prepare', payload),
+  waitNativeDownloads: (payload: {
+    wcIds: number[]
+  }): Promise<{ success: boolean; data?: { perModel: Array<{ modelId: string; saved: number; failed: number; errors: string[] }> }; error?: string }> =>
+    ipcRenderer.invoke('image:download-via-native:wait', payload),
 
   // 监听 Gemini 账号切换事件
   onGeminiAccountSwitched: (callback: (url: string) => void): (() => void) => {

@@ -15,6 +15,7 @@ export interface AutomationStep {
   optional?: boolean
   countsAsSuccess?: boolean
   menuOpenerFallback?: boolean  // 新：本步元素找不到时，按语义找"开菜单"按钮
+  hover?: boolean               // 新：本步不 click 而是 dispatch mouseenter/mouseover/mousemove 触发 hover 浮层
 }
 
 export interface ModelSelector {
@@ -44,6 +45,11 @@ export interface ModelSelector {
     steps: AutomationStep[]
     cancelSteps?: AutomationStep[]
   }
+  // 生图结果"下载"自动化步骤序列
+  imageDownload?: {
+    steps: AutomationStep[]
+    closePreviewSelector?: string
+  }
 }
 
 export interface SelectorsConfig {
@@ -57,8 +63,8 @@ export interface SelectorsConfig {
  * 如需调整请选择器配置，直接修改本文件后重启应用生效
  */
 export const defaultSelectors: SelectorsConfig = {
-  version: 15,
-  lastUpdated: '2026-07-04',
+  version: 17,
+  lastUpdated: '2026-07-05',
   models: {
     chatgpt: {
       textarea: [
@@ -113,6 +119,15 @@ export const defaultSelectors: SelectorsConfig = {
         cancelSteps: [
           { selector: '[class*="__composer-pill-remove"], [class*="composer-pill-remove"]', delay: 200 }
         ]
+      },
+      imageDownload: {
+        steps: [
+          // 步骤1：点最新生图，打开全屏预览
+          { selector: 'div[class*="imagegen-image"] img, div.group\\/imagegen-image img, img[id^="_r_"]', delay: 600 },
+          // 步骤2：点预览 header 里的"保存"按钮（aria-label="保存" = 中文环境下载原图）
+          { selector: 'header[data-testid="fullscreen-shell-header"] button[aria-label="保存"], button[aria-label="保存"]', delay: 300 }
+        ],
+        closePreviewSelector: 'header[data-testid="fullscreen-shell-header"] button[aria-label="关闭全屏显示"]'
       }
     },
     perplexity: {
@@ -309,6 +324,14 @@ export const defaultSelectors: SelectorsConfig = {
         cancelSteps: [
           { selector: ['mat-list-item.mat-mdc-list-item', 'button.toolbox-drawer-item-deselect-button'], text: ['Imagen', 'Image generation', '图像生成', '生图'], delay: 200 }
         ]
+      },
+      imageDownload: {
+        steps: [
+          // 步骤1：hover 最新 generated-image，触发 on-hover-button 显示
+          { selector: 'generated-image, single-image.generated-image, div.generated-images generated-image', delay: 300, hover: true },
+          // 步骤2：点"下载完整尺寸的图片"按钮（双候选：aria-label + 语义 tag）
+          { selector: 'button[aria-label="下载完整尺寸的图片"], download-generated-image-button button', delay: 300 }
+        ]
       }
     },
     grok: {
@@ -495,6 +518,14 @@ export const defaultSelectors: SelectorsConfig = {
         ],
         cancelSteps: [
           { selector: ['[data-testid="skill_input_exit_button"]', 'div[data-testid="skill_input_exit_button"]'], text: ['生图', '画图', '图像生成', 'Image'], delay: 200, optional: true }
+        ]
+      },
+      imageDownload: {
+        steps: [
+          // 步骤1：hover 最新 image-box-grid 内的图片，触发 hover-actions-slot 浮层
+          { selector: 'div.image-box-grid-EYaIcP img, div[class*="image-box-grid"] img', delay: 300, hover: true },
+          // 步骤2：点浮层最后一个 action（下载）—— DOM 证实下载是最后一个 action-nxGadz
+          { selector: 'div.hover-actions-slot-_hVW2k div.action-nxGadz:last-of-type, div[class*="hover-actions-slot"] div.action-nxGadz:last-of-type', delay: 300 }
         ]
       }
     },

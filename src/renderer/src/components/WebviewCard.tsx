@@ -15,6 +15,7 @@ import {
   generateEnableImageGenerationScript,
   generateDisableImageGenerationScript,
   generateExtractImagesScript,
+  generateClickDownloadButtonsScript,
   generateGetLatestResponseScript,
   type FileUploadData
 } from '../utils/webviewScripts'
@@ -129,6 +130,9 @@ export interface WebviewCardRef {
   disableImageGeneration: () => Promise<{ success: boolean; error?: string }>
   /** 提取当前 webview 最新回复中的生图（img/canvas/a[href]/blob→data），返回 src 列表与 wcId */
   extractGeneratedImages: () => Promise<{ images: Array<{ src: string; mime?: string }>; wcId: number | null; error?: string }>
+  /** 按平台 imageDownload.steps 触发网页内置下载（hover/click），返回 {clicked, wcId}
+   *  dryRun=true 时只校验配置并返回 wcId，不执行点击（用于主进程建 ctx 必须先于点击的时序） */
+  clickDownloadButtons: (dryRun?: boolean) => Promise<{ clicked: number; wcId: number | null; error?: string }>
   getLatestResponse: () => Promise<string>
   reload: () => void
   resetToInitial: () => Promise<{ success: boolean; error?: string }>
@@ -799,6 +803,32 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
           return { images: [], wcId, error: result?.error || '提取失败' }
         } catch (error) {
           return { images: [], wcId, error: String(error) }
+        }
+      },
+
+      /**
+       * 按平台 imageDownload.steps 触发网页内置下载（hover/click），返回 {clicked, wcId}
+       * dryRun=true 时只校验配置并返回 wcId，不执行点击（主进程 ctx 必须先于点击建立）
+       */
+      clickDownloadButtons: async (dryRun = false): Promise<{ clicked: number; wcId: number | null; error?: string }> => {
+        const webview = webviewRef.current
+        if (!webview || !isReady || !selectors) {
+          return { clicked: 0, wcId: null, error: 'Webview 未就绪' }
+        }
+        if (!selectors.imageDownload?.steps?.length) {
+          return { clicked: 0, wcId: null, error: '此模型未配置下载步骤' }
+        }
+        const wcId = typeof (webview as any).getWebContentsId === 'function' ? (webview as any).getWebContentsId() : null
+        if (dryRun) {
+          // 只校验配置 + 拿 wcId，不点击；clicked 用 1 表示"配置就绪可触发"
+          return { clicked: 1, wcId, error: undefined }
+        }
+        try {
+          const code = generateClickDownloadButtonsScript(selectors)
+          const result = await webview.executeJavaScript(code)
+          return { clicked: result?.clicked ?? 0, wcId, error: result?.error }
+        } catch (error) {
+          return { clicked: 0, wcId, error: String(error) }
         }
       },
 

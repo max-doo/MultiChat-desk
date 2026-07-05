@@ -3,7 +3,7 @@
  * 负责处理主进程与渲染进程之间的 IPC 通信
  */
 
-import { app, ipcMain, dialog, clipboard, BrowserWindow, shell } from 'electron'
+import { app, ipcMain, dialog, clipboard, BrowserWindow, shell, session } from 'electron'
 import { is } from '@electron-toolkit/utils'
 import { basename, extname, join, dirname, resolve } from 'path'
 import { stat, writeFile, mkdtemp, rm } from 'fs/promises'
@@ -35,6 +35,92 @@ let currentSummaryAbortController: AbortController | null = null
 // 诊断窗口 probe/run-research 透传请求挂起表
 const pendingProbeRequests = new Map<string, { resolve: (v: unknown) => void; timer: ReturnType<typeof setTimeout> }>()
 const pendingRunResearchRequests = new Map<string, { resolve: (v: unknown) => void; timer: ReturnType<typeof setTimeout> }>()
+
+interface NativeDownloadResult {
+  modelId: string
+  saved: number
+  failed: number
+  errors: string[]
+}
+interface NativeDownloadCtx {
+  dir: string
+  modelId: string
+  ts: string
+  seq: number
+  saved: number
+  failed: number
+  errors: string[]
+  timer: NodeJS.Timeout
+  expectedFromClick: number
+  arrived: number
+}
+// 活动上下文：will-download 命中这里即拦截 + setSavePath
+const nativeCtxByWcId = new Map<number, NativeDownloadCtx>()
+// 已完成结果暂存：finalize 后移到这里，wait 来取。消除"will-download 早于 wait 完成"的时序竞态。
+const nativeDoneByWcId = new Map<number, NativeDownloadResult>()
+
+function finalizeIfDone(wcId: number): void {
+  const ctx = nativeCtxByWcId.get(wcId)
+  if (!ctx) return
+  if (ctx.arrived >= ctx.expectedFromClick) {
+    clearTimeout(ctx.timer)
+    nativeDoneByWcId.set(wcId, {
+      modelId: ctx.modelId,
+      saved: ctx.saved,
+      failed: ctx.failed,
+      errors: ctx.errors
+    })
+    nativeCtxByWcId.delete(wcId)
+  }
+}
+
+function finalizeForce(wcId: number): void {
+  const ctx = nativeCtxByWcId.get(wcId)
+  if (!ctx) return
+  clearTimeout(ctx.timer)
+  nativeDoneByWcId.set(wcId, {
+    modelId: ctx.modelId,
+    saved: ctx.saved,
+    failed: ctx.failed,
+    errors: ctx.errors
+  })
+  nativeCtxByWcId.delete(wcId)
+}
+
+let willDownloadRegistered = false
+function ensureWillDownloadListener(): void {
+  if (willDownloadRegistered) return
+  willDownloadRegistered = true
+  const shared = session.fromPartition('persist:shared')
+  shared.on('will-download', (event, item, webContents) => {
+    const wcId = webContents?.id
+    const ctx = wcId ? nativeCtxByWcId.get(wcId) : undefined
+    if (!ctx) return
+
+    event.preventDefault()
+    const seq = ++ctx.seq
+
+    const url = item.getURL() || ''
+    const fn = item.getFilename() || ''
+    const ext = /\.(png|jpe?g|webp|gif|bmp)$/i.test(fn) ? fn.match(/\.(png|jpe?g|webp|gif|bmp)$/i)![1].toLowerCase()
+             : /\.(png|jpe?g|webp|gif|bmp)$/i.test(url) ? (url.match(/\.(png|jpe?g|webp|gif|bmp)$/i)![1].toLowerCase())
+             : 'png'
+
+    const fileName = `${ctx.modelId}-${ctx.ts}-${seq}.${ext === 'jpg' ? 'jpg' : ext}`
+    item.setSavePath(join(ctx.dir, fileName))
+
+    item.on('done', (_e, state) => {
+      ctx.arrived++
+      if (state === 'completed') {
+        ctx.saved++
+      } else {
+        ctx.failed++
+        ctx.errors.push(`图 ${seq}: ${state}`)
+      }
+      finalizeIfDone(wcId!)
+    })
+  })
+}
 
 /**
  * 中止并清理当前的 AbortController。
@@ -1090,6 +1176,113 @@ export function registerIpcHandlers(
           }
           perModel.push({ modelId: item.modelId, saved, failed, errors })
         }
+        return { success: true, data: { perModel } }
+      } catch (error) {
+        return { success: false, error: String(error) }
+      }
+    })
+
+    // 生图原生下载：拆成 prepare → wait 两步。
+    // 必须先 prepare（建 ctx + 弹目录）→ 渲染层再注入点击 → 最后 wait 等回执。
+    // 若合并成一步，ctx 尚未建立时点击已触发 will-download，会被当"非批量下载"放行弹系统框。
+    ipcMain.handle('image:download-via-native:prepare', async (_event, payload: {
+      items: Array<{ modelId: string; wcId: number | null; clicked: number }>
+    }) => {
+      try {
+        if (!payload?.items?.length) {
+          return { success: false, error: '无可下载的图片' }
+        }
+        // 过滤无效 wcId（getWebContentsId 失败或 0）
+        const valid = payload.items.filter(it => it.wcId && it.clicked)
+        if (!valid.length) {
+          return { success: false, error: '无效的 WebContents ID 或未成功触发点击' }
+        }
+        const dirResult = await dialog.showOpenDialog({
+          title: '选择图片保存目录',
+          properties: ['openDirectory']
+        })
+        if (dirResult.canceled || !dirResult.filePaths?.length) {
+          return { success: false, error: '用户取消' }
+        }
+        const dir = dirResult.filePaths[0]
+        const now = new Date()
+        const pad = (n: number) => String(n).padStart(2, '0')
+        const ts = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`
+
+        ensureWillDownloadListener()
+
+        // 为每个 wcId 建上下文（ctx 已建 → 后续 will-download 命中标记位 → setSavePath 跳弹窗）
+        for (const it of valid) {
+          const wcId = it.wcId!
+          // 清理同 wcId 残留（防御性，避免上次未 finalize 的 ctx/done 残留）
+          const stale = nativeCtxByWcId.get(wcId)
+          if (stale) {
+            clearTimeout(stale.timer)
+            nativeCtxByWcId.delete(wcId)
+          }
+          nativeDoneByWcId.delete(wcId)
+          const timer = setTimeout(() => {
+            const ctx = nativeCtxByWcId.get(wcId)
+            if (ctx) {
+              ctx.failed += (it.clicked - ctx.arrived)
+              ctx.errors.push('超时未触发下载')
+              finalizeForce(wcId)
+            }
+          }, 30000)
+          nativeCtxByWcId.set(wcId, {
+            dir,
+            modelId: it.modelId,
+            ts,
+            seq: 0,
+            saved: 0,
+            failed: 0,
+            errors: [],
+            timer,
+            expectedFromClick: it.clicked,
+            arrived: 0
+          })
+        }
+        return { success: true, data: { dir, ts, wcIds: valid.map(it => it.wcId!) } }
+      } catch (error) {
+        return { success: false, error: String(error) }
+      }
+    })
+
+    ipcMain.handle('image:download-via-native:wait', async (_event, payload: {
+      wcIds: number[]
+    }) => {
+      try {
+        const wcIds = payload?.wcIds?.filter(id => typeof id === 'number') ?? []
+        if (!wcIds.length) {
+          return { success: true, data: { perModel: [] } }
+        }
+        const perModel = await Promise.all(wcIds.map(async (wcId) => {
+          // 若已完成（暂存区有），立即返回
+          const done = nativeDoneByWcId.get(wcId)
+          if (done) {
+            nativeDoneByWcId.delete(wcId)
+            return done
+          }
+          // 否则等 will-download 的 finalize 把结果推进暂存区
+          return await new Promise<NativeDownloadResult>(resolve => {
+            const check = () => {
+              const d = nativeDoneByWcId.get(wcId)
+              if (d) {
+                nativeDoneByWcId.delete(wcId)
+                resolve(d)
+                return
+              }
+              const ctx = nativeCtxByWcId.get(wcId)
+              if (!ctx) {
+                // ctx 已被超时清掉但暂存区也没（理论上 finalizeForce 会推暂存区，这里是兜底）
+                resolve({ modelId: String(wcId), saved: 0, failed: 1, errors: ['上下文已失效'] })
+                return
+              }
+              setTimeout(check, 200)
+            }
+            check()
+          })
+        }))
         return { success: true, data: { perModel } }
       } catch (error) {
         return { success: false, error: String(error) }

@@ -91,7 +91,7 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
       setDeepResearch,
       isImageGeneration,
       setImageGeneration,
-      extractImagesFromAll,
+      triggerNativeDownloads,
       webviewRefs
     } = useAppStore()
 
@@ -350,18 +350,31 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
     }, [message, isSending, textInserted, isImageGeneration, insertTextToAll, sendMessageToAll, setMessage, setTextInserted, showNotification])
 
     // 一键下载所有窗口生图
+    // 时序：dryRun 收集 wcId → 主进程 prepare（建 ctx + 弹目录）→ 真点击 → wait 等回执
+    // ctx 必须先于点击建立，否则 will-download 早于 ctx 触发会放行弹系统框
     const handleDownloadAllImages = async () => {
       try {
-        const results = await extractImagesFromAll()
-        const items = results
-          .filter(r => r.images.length > 0)
-          .map(r => ({ modelId: r.modelId, wcId: r.wcId, images: r.images }))
-        const noImageCount = results.length - items.length
+        // 1. dryRun：只校验配置 + 拿 wcId，不点击
+        const readiness = await triggerNativeDownloads(true)
+        const items = readiness
+          .filter(r => r.clicked > 0 && r.wcId != null)
+          .map(r => ({ modelId: r.modelId, wcId: r.wcId as number, clicked: r.clicked }))
+        const noImageCount = readiness.length - items.length
         if (items.length === 0) {
-          showNotification('info', '未检测到生图，请确认图片已生成')
+          showNotification('info', '未检测到生图（或该平台不支持一键下载按钮）')
           return
         }
-        const res = await window.api?.downloadAllImages?.({ items })
+        // 2. prepare：主进程弹目录 + 为每个 wcId 建 ctx（此刻起 will-download 会被拦截）
+        const prep = await window.api?.triggerNativeDownloads?.({ items })
+        if (!prep?.success) {
+          showNotification('error', prep?.error || '下载失败')
+          return
+        }
+        const wcIds = prep.data?.wcIds ?? []
+        // 3. 真点击：注入脚本点网页下载按钮（ctx 已就绪，will-download 命中标记位）
+        await triggerNativeDownloads(false)
+        // 4. wait：等所有 will-download done 回执
+        const res = await window.api?.waitNativeDownloads?.({ wcIds })
         if (!res?.success) {
           showNotification('error', res?.error || '下载失败')
           return
@@ -370,7 +383,7 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
         const failed = (res.data?.perModel ?? []).reduce((s, p) => s + p.failed, 0)
         showNotification(
           saved && !failed ? 'success' : 'info',
-          `已下载 ${saved} 张${failed ? `，失败 ${failed} 张` : ''}${noImageCount ? `，${noImageCount} 个窗口无图` : ''}`
+          `已下载 ${saved} 张${failed ? `，失败 ${failed} 张` : ''}${noImageCount ? `，${noImageCount} 个窗口未触发` : ''}`
         )
       } catch (error) {
         showNotification('error', `下载异常: ${String(error)}`)

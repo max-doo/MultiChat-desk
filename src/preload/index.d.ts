@@ -166,6 +166,12 @@ declare global {
       downloadAllImages: (payload: {
         items: Array<{ modelId: string; wcId: number | null; images: Array<{ src: string; mime?: string }> }>
       }) => Promise<{ success: boolean; data?: { perModel: Array<{ modelId: string; saved: number; failed: number; errors: string[] }> }; error?: string }>
+      triggerNativeDownloads: (payload: {
+        items: Array<{ modelId: string; wcId: number | null; clicked: number }>
+      }) => Promise<{ success: boolean; data?: { dir: string; ts: string; wcIds: number[] }; error?: string }>
+      waitNativeDownloads: (payload: {
+        wcIds: number[]
+      }) => Promise<{ success: boolean; data?: { perModel: Array<{ modelId: string; saved: number; failed: number; errors: string[] }> }; error?: string }>
       writeTempMarkdown: (params: {
         content: string
         fileName?: string
