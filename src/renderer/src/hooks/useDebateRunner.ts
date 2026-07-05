@@ -125,6 +125,12 @@ export function useDebateRunner() {
 
     // 下一轮稍作延迟
     const next = useAppStore.getState().debateState
+    if (next.phase === 'finished') {
+      // 自然跑完所有轮：advanceDebateTurn 已把 phase 置 finished，runNextTurn 入口守卫会拦截
+      // 下一轮调用，所以 finalize 必须在此处补——否则 slotUrls 不落盘、恢复时不加载 URL。
+      void finalizeDebateHistoryRef.current()
+      return
+    }
     if (next.phase === 'running') {
       timerRef.current = setTimeout(() => { runNextTurn() }, 600)
     }
@@ -134,6 +140,9 @@ export function useDebateRunner() {
     if (!topic.trim()) return
     abortRef.current = false
     clearTimer()
+    // 防御：清掉上一场可能残留的 conversationId（正常路径 finalize 已置 null，
+    // 但若上一场异常中断未走 finalize，残留旧 id 会在 IIFE 覆盖前被误用）
+    conversationIdRef.current = null
     const store = useAppStore.getState()
     store.setDebateTopic(topic)
     // 重置回合
