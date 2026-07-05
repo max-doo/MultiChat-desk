@@ -7,6 +7,7 @@ import CustomDropdown, { type DropdownOption } from './CustomDropdown'
 import {
   generateSendMessageScript,
   generateInsertTextScript,
+  generateSendOnlyScript,
   generateClearInputScript,
   generateGetInputTextScript,
   generateEnableDeepResearchScript,
@@ -20,6 +21,10 @@ import {
 import { extractGeminiCanvasContent } from '../utils/geminiCanvasExtractor'
 import { buildProbeScript, parseProbeResult, type ProbeReport, buildResearchProbeScript, parseResearchProbeResult, type ResearchProbeReport, buildPickerScript, parseDomProbeResult, type DomProbeReport, type DomProbeOptions } from '../utils/selectorDiagnostics'
 import ModelOutputCard from './ModelOutputCard'
+
+/** 任务分配两段式发送：注入后等待 host 端延时，再点发送按钮（给千问 React 收敛窗口） */
+const TWO_PHASE_SEND_DELAY_MS = 1000
+
 
 // 创建 Turndown 实例用于 HTML 转 Markdown
 const turndownService = new TurndownService({
@@ -113,7 +118,7 @@ export type { FileUploadData }
 
 // 暴露给父组件的方法
 export interface WebviewCardRef {
-  sendMessage: (message: string) => Promise<{ success: boolean; error?: string }>
+  sendMessage: (message: string, twoPhase?: boolean) => Promise<{ success: boolean; error?: string }>
   insertText: (message: string) => Promise<{ success: boolean; error?: string }>
   clearInput: () => Promise<{ success: boolean; error?: string }>
   getInputText: () => Promise<{ success: boolean; text?: string; error?: string }>
@@ -476,7 +481,10 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
       /**
        * 发送消息到当前平台
        */
-      sendMessage: async (message: string): Promise<{ success: boolean; error?: string }> => {
+      sendMessage: async (
+        message: string,
+        twoPhase = false
+      ): Promise<{ success: boolean; error?: string }> => {
         const webview = webviewRef.current
         if (!webview) {
           console.warn(`[${name}] sendMessage: webview ref 为空`)
@@ -494,6 +502,29 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
         setSendStatus('sending')
 
         try {
+          if (twoPhase) {
+            // 两段式发送：先注入文本，等待 1000ms 给千问等平台 React 收敛，再点发送按钮
+            const insertCode = generateInsertTextScript(message, id, selectors)
+            const insertResult = await webview.executeJavaScript(insertCode)
+            if (!insertResult?.success) {
+              setSendStatus('error')
+              setTimeout(() => setSendStatus('idle'), 3000)
+              return { success: false, error: insertResult?.error || '注入失败' }
+            }
+            await new Promise((resolve) => setTimeout(resolve, TWO_PHASE_SEND_DELAY_MS))
+            const sendCode = generateSendOnlyScript(id, selectors)
+            const result = await webview.executeJavaScript(sendCode)
+            if (result.success) {
+              setSendStatus('success')
+              setTimeout(() => setSendStatus('idle'), 3000)
+              return { success: true }
+            }
+            setSendStatus('error')
+            setTimeout(() => setSendStatus('idle'), 3000)
+            return { success: false, error: result.error }
+          }
+
+          // 原单脚本路径（multi_ai / summary 等默认走此路径）
           const code = generateSendMessageScript(message, id, selectors)
           const result = await webview.executeJavaScript(code)
 
