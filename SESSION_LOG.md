@@ -2,6 +2,17 @@
 
 ## 2026-07-05
 
+### 19:38 | Antigravity
+
+- done: 任务分配与辩论模式历史持久化实现并验证
+- context: spec: docs/superpowers/specs/2026-07-05-modes-history-persist-design.md
+- modified:
+  - `src/renderer/src/store/appStore.ts`
+  - `src/renderer/src/components/modes/TaskModePanel.tsx`
+  - `src/renderer/src/hooks/useDebateRunner.ts`
+  - `src/renderer/src/pages/MainPage.tsx`
+  - `src/renderer/src/components/HistoryDrawer.tsx`
+
 ### 19:34 | Antigravity
 
 - done: 优化任务拆解提示词，强制模型仅按独立且并行的横向维度进行拆解，严禁拆解成有先后依赖的串行步骤
