@@ -63,6 +63,9 @@
 | `MainPage.tsx:364` | 同上 | 同上 |
 | `useSummaryPanel.ts:124` | `urls: history[0]?.urls` | `urls: history.find(h => h.id === currentConversationId)?.urls` |
 | `SummaryPage.tsx:188` | `const latestItem = history[0]` | `history.find(h => h.id === currentConversationId)` |
+| `appStore.ts:1091` | `const lastItem = history.length > 0 ? history[0] : null`（`sendMessageToAll` 续写判定基准） | `history.find(h => h.id === state.currentConversationId) ?? null` |
+
+> **补充（2026-07-05 12:23）**：`appStore.ts:1091` 是实施前复审发现的第 5 处 `history[0]` 出现点，原 §3.2 表遗漏。`lastItem` 同时用于 (a) `isNewConv` 判定、(b) 续写分支 `conversationId = lastItem!.id`、(c) `updateHistory(conversationId, ...)`。若不修，恢复非 `history[0]` 的历史对话后续写仍会串到 `history[0]`，回归脚本第 7 条会失败。归入 P0-1 一并修复。
 
 ### 3.2b `activeHistoryId` —— 与 `currentConversationId` 并行的另一标识源（P0-1b 的事实基础）
 
@@ -151,9 +154,16 @@
        set({ isNewSession: isNew, ...(isNew ? { currentConversationId: null } : {}) })
      },
      ```
-   - `sendMessageToAll`（1098-1123）：
+   - `sendMessageToAll`（1091-1123）：
+     - **续写判定基准（1091 行）**：`const lastItem = history.length > 0 ? history[0] : null` 改为按 `currentConversationId` 查找：
+       ```ts
+       const lastItem = state.currentConversationId
+         ? history.find(h => h.id === state.currentConversationId) ?? null
+         : null
+       ```
+       `isNewConv` 判定语义不变（`lastItem` 为 null 时走新对话分支，符合"无当前对话则开新对话"）。这是 P0-1 的核心补丁——不修则恢复非 `history[0]` 的对话续写仍串台。
      - 新对话分支：`addHistory(newItem)` 后 `set({ currentConversationId: conversationId })`（紧接 `setNewSession(false)` 之后）
-     - 续写分支：`set({ currentConversationId: lastItem!.id })`（在 `updateHistory` 之前或之后）
+     - 续写分支：`set({ currentConversationId: lastItem!.id })`（在 `updateHistory` 之前或之后；此时 `lastItem` 已按 `currentConversationId` 正确取到）
    - `startMonitoring`（1466-1474）：`set` 块内同步写 `currentConversationId: conversationId`（与 `monitor.currentConversationId` 并存，前者持久态，后者监控态）
    - `stopMonitoring`（1486-1494）：**不**清空 `currentConversationId`（监控结束 ≠ 对话结束），只清 monitor 字段
    - `removeHistories` / `removeHistory`（904-913）：若被删 id === `currentConversationId`，置 null
@@ -428,5 +438,6 @@ P0-1/P0-1b/P0-2 三者强耦合：`currentConversationId` 字段是 P0-1b 同步
 - `crypto.randomUUID()` 在 dev console 验证不抛错（P1-1 sandbox 确认）。
 - 回归脚本 1-8 在 dev 中实际触发通过；无法验证的项（ID 时钟回拨）已说明原因并给出等价检查。
 - **已知限制已注明**：删除当前对话后 `activeHistoryId` 残留脏 ID（无串台风险，彻底修留 P2）。
+- **行为变更已标注**：P0-3 移除 SummaryPage init effect 的 `history` 依赖后，停留在 SummaryPage 期间主对话监控写盘不再触发 SummaryPage 自动刷新——这是修复覆盖 bug 的预期行为，但属用户可感知的变化。
 - 风险评估完成，blast radius 已界定。
 - `python .memory/session_log.py` 在任务结束时记录。
