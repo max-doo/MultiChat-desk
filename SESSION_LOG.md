@@ -2,6 +2,66 @@
 
 ## 2026-07-05
 
+### 20:56 | claude-code
+
+- done: 优化任务分配模式总结逻辑:未发送任务时生成总结按钮置灰禁用;从任务分配进入总结页预设提示词改为成稿汇总(id='4')
+- modified:
+  - `src/renderer/src/components/ControlBar.tsx src/renderer/src/pages/MainPage.tsx docs/superpowers/specs/2026-07-05-task-assignment-summary-gate-design.md`
+
+### 20:44 | Antigravity
+
+- done: Dynamically link subtask model badges to the active taskAssignmentSlots
+- modified:
+  - `src/renderer/src/components/modes/SubtaskList.tsx`
+
+### 20:43 | Antigravity
+
+- done: Change subtask slot selector badge to static text in SubtaskList
+- modified:
+  - `src/renderer/src/components/modes/SubtaskList.tsx`
+
+### 20:40 | Antigravity
+
+- done: Change subtask textarea to have at least 2 rows height
+- modified:
+  - `src/renderer/src/components/modes/SubtaskList.tsx`
+
+### 20:39 | Antigravity
+
+- done: Remove add task and delete task buttons/actions from Task Assignment popup
+- modified:
+  - `src/renderer/src/components/modes/SubtaskList.tsx`
+  - `src/renderer/src/store/appStore.ts`
+
+### 20:36 | Antigravity
+
+- done: Change send icon in Task Mode to match Multi-AI Mode
+- modified:
+  - `src/renderer/src/components/modes/TaskModePanel.tsx`
+
+### 20:20 | Antigravity
+
+- done: 更新 ChatGPT 深度研究（Deep Research）与 Perplexity 的选择器正则以支持中文环境并过滤其他按钮
+- decision: 为了兼容英文和中文的深度研究模式，将 ChatGPT 的选择器 regex 从 Deep\\s*Research 升级为 Deep\\s*Research|深度研究，且添加 wordBoundary: false，并同步更新 Perplexity 的中文按钮正则（搜索、研究）为 wordBoundary: false 结构；bump 选择器 config version 至 17。
+- modified:
+  - `src/shared/config/selectors.ts`
+- lesson: 在匹配包含中文等非单词字符（non-word characters）的正则时，需注意默认开启 wordBoundary 时自动添加的 \b（单词边界）会导致匹配失败。此时必须显式指定 wordBoundary: false。
+
+### 19:52 | Antigravity
+
+- done: 实现 AI 生图一键下载功能，通过注入脚本模拟网页内置下载并由主进程 will-download 拦截静默落盘
+- decision: 利用 webContents id 在 will-download 回调中精准识别批量下载任务，绕过 blob 跨进程和鉴权问题；脚本采用自后往前查找的 findLatestElement 避免误触历史回复中的下载按钮
+- modified:
+  - `src/shared/config/selectors.ts`
+  - `src/shared/utils/webviewScripts.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/preload/index.d.ts`
+  - `src/renderer/src/components/WebviewCard.tsx`
+  - `src/renderer/src/store/appStore.ts`
+  - `src/renderer/src/components/ControlBar.tsx`
+- lesson: will-download 事件是 session 级的，应该只在主进程模块初始化时注册一次，以避免在 IPC 处理器内多次注册导致逻辑冲突
+
 ### 19:38 | Antigravity
 
 - done: 任务分配与辩论模式历史持久化实现并验证
