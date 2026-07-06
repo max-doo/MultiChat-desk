@@ -224,8 +224,8 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
   }, [webviewSummary.phase])
 
   // ── 休眠调度（片段 D，决策 R3）──
-  // 总结页 webview 仅在 webview 模式下存在；切走总结页 10 分钟后真卸载（D1），切回立即唤醒。
-  const HIBERNATE_DELAY_SUMMARY_MS = 10 * 60 * 1000 // 10 分钟
+  // 总结页 webview 仅在 webview 模式下存在；切走总结页 30 秒后真卸载（D1），切回立即唤醒。
+  const HIBERNATE_DELAY_SUMMARY_MS = 30 * 1000 // 30 秒
   const summaryHibernateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // phase 镜像：executeHibernate 在定时器触发时读取，避免闭包过期
   const summaryPhaseRef = useRef(webviewSummary.phase)
@@ -280,7 +280,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
     }
   }, [])
 
-  // 页面激活态变化：切回唤醒；切走启动 10min 倒计时
+  // 页面激活态变化：切回唤醒；切走启动 30秒 倒计时
   useEffect(() => {
     if (isActive) {
       void wakeSummaryWebview()
@@ -293,6 +293,28 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
       summaryHibernateTimerRef.current = null
     }
   }, [isActive, summarySource, scheduleSummaryHibernate, wakeSummaryWebview])
+
+  // 监听主窗口 hide/show 事件：隐藏后 5 分钟休眠总结页 webview，重新显示且 isActive 时立即唤醒。
+  const isWindowVisibleRef = useRef(true)
+  useEffect(() => {
+    const off = window.api.onWindowVisibility((visible) => {
+      isWindowVisibleRef.current = visible
+      if (visible) {
+        if (isActive) {
+          void wakeSummaryWebview()
+        }
+      } else if (summarySource === 'webview') {
+        if (summaryHibernateTimerRef.current) {
+          clearTimeout(summaryHibernateTimerRef.current)
+        }
+        summaryHibernateTimerRef.current = setTimeout(() => {
+          void executeSummaryHibernate()
+        }, 5 * 60 * 1000) // 5 分钟
+        console.log('[SummaryPanel] 窗口隐藏，总结页 webview 5 分钟休眠倒计时启动')
+      }
+    })
+    return () => { off() }
+  }, [isActive, summarySource, executeSummaryHibernate, wakeSummaryWebview])
 
   // 卸载时清理定时器
   useEffect(() => {
