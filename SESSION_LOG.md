@@ -2,6 +2,12 @@
 
 ## 2026-07-06
 
+### 13:21 | Antigravity
+
+- done: 更新 README.md 中的截图为用户提供的新截图，并保存至 docs/screenshot.png
+- added:
+  - `docs/screenshot.png`
+
 ### 13:16 | Antigravity
 
 - done: Audit and update README.md badges and update checker URLs to use the new MultiChat-desk repository
