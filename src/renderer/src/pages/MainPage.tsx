@@ -81,6 +81,11 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
   const prevDisplayedIdsRef = useRef<string[]>([])
   // 追踪主窗口是否可见，以便在窗口隐藏时即使在回溯历史态也允许休眠
   const isWindowVisibleRef = useRef<boolean>(true)
+  // 追踪当前页面是否激活，以便在切换到总结页等其他模式时允许模型休眠
+  const isActiveRef = useRef<boolean>(isActive)
+  useEffect(() => {
+    isActiveRef.current = isActive
+  }, [isActive])
 
   // 回溯历史时，预计算各模型最后一轮 turn 的快照 + 历史原始 URL，
   // 供 WebviewCard 做 URL 不匹配检测与只读快照显示。非回溯态（无 activeHistoryId）返回空。
@@ -158,17 +163,17 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
       return
     }
 
-    // 只有在主窗口可见时，才应用以下白名单保护：
+    // 只有在主窗口可见且当前页面激活时，才应用以下白名单保护：
     // 1. 回溯历史态（用户在主动浏览历史，属于活跃交互）
     // 2. 属于当前活跃会话的模型（避免后台被休眠导致漏收接下来的消息）
-    // 如果主窗口已隐藏（关闭至托盘），则允许它们休眠以释放内存。
-    if (isWindowVisibleRef.current) {
+    // 如果主窗口已隐藏（关闭至托盘）或切换到了其他页面（如总结页），则允许它们休眠以释放内存。
+    if (isWindowVisibleRef.current && isActiveRef.current) {
       if (activeHistoryIdRef.current) {
-        console.log(`[MainPage] 主窗口可见且处于回溯历史态，跳过 ${modelId} 休眠`)
+        console.log(`[MainPage] 主窗口可见、页面激活且处于回溯历史态，跳过 ${modelId} 休眠`)
         return
       }
       if (state.activeModels.some(m => m.id === modelId)) {
-        console.log(`[MainPage] 主窗口可见且 ${modelId} 属于当前活跃会话，跳过休眠`)
+        console.log(`[MainPage] 主窗口可见、页面激活且 ${modelId} 属于当前活跃会话，跳过休眠`)
         return
       }
     }
