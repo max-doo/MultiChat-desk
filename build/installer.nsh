@@ -7,7 +7,18 @@
         ${else}
           StrCpy $1 ""
         ${endif}
-        ${StdUtils.ExecShellAsUser} $0 "$launchLink" "open" "$1"
+        
+        # 检查安装程序当前的权限级别
+        UserInfo::GetAccountType
+        Pop $0
+        ${If} $0 == "Admin"
+          # 如果以管理员权限运行安装包，使用 ExecShellAsUser 降权启动
+          # 这里改用直接的可执行文件路径，避免使用快捷方式链接 $launchLink 时由于 Shell 刷新延迟或 COM 降权通信超时导致安装程序卡死 1 分钟左右
+          ${StdUtils.ExecShellAsUser} $0 "$INSTDIR\MultiChat.exe" "open" "$1"
+        ${Else}
+          # 如果是普通用户权限运行，则直接使用普通 ExecShell 启动，不触发降权逻辑
+          ExecShell "open" "$INSTDIR\MultiChat.exe" "$1"
+        ${EndIf}
       FunctionEnd
 
       !define MUI_FINISHPAGE_RUN

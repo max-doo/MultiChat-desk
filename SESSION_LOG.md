@@ -2,6 +2,30 @@
 
 ## 2026-07-06
 
+### 20:38 | Antigravity
+
+- done: 修复安装包完成后点击启动应用卡死 1 分钟左右的问题
+- modified:
+  - `build/installer.nsh`
+- lesson(promoted): 在 Windows NSIS 安装包中，当安装程序以管理员提权运行并尝试通过 ExecShellAsUser 结合快捷方式 Lnk 路径  唤起应用时，会因为 Shell 刷新未完成或 DCOM 降权通信超时而导致安装程序窗口卡死 1 分钟（即 COM 的 60 秒默认超时）。通过 UserInfo::GetAccountType 判断当前权限：如果是 Admin，使用 ExecShellAsUser 并把路径改为绝对路径 \MultiChat.exe 避开快捷方式锁；非 Admin 时则直接用标准的 ExecShell 启动，从而彻底解决不同权限及普通用户安装下的启动卡死问题。
+
+### 20:24 | Antigravity
+
+- done: Merge version info into Check Updates card and match layout styling with View Usage Guide card
+- modified:
+  - `src/renderer/src/components/AboutSection.tsx`
+
+### 20:22 | Antigravity
+
+- done: Downgrade update checking to a direct browser link to avoid API rate limiting, and beautify the About section UI
+- modified:
+  - `src/renderer/src/components/AboutSection.tsx`
+  - `src/preload/index.ts`
+  - `src/preload/index.d.ts`
+  - `src/main/ipcHandlers.ts`
+- removed:
+  - `src/main/updater/checker.ts`
+
 ### 13:21 | Antigravity
 
 - done: 更新 README.md 中的截图为用户提供的新截图，并保存至 docs/screenshot.png

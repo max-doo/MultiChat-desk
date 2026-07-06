@@ -49,14 +49,6 @@ interface SummaryHistoryPageItem {
   selectedModels: string[]
 }
 
-/** 更新检查结果（纯提醒版：仅检测与提示，不下载不安装） */
-interface UpdateCheckResult {
-  hasUpdate: boolean
-  currentVersion: string
-  latestVersion: string
-  releaseUrl: string
-  releaseNotes?: string
-}
 
 declare global {
   interface Window {
@@ -158,8 +150,6 @@ declare global {
         directory?: string
       }) => Promise<{ success: boolean; filePath?: string; error?: string }>
       openBrowserWindow: (url: string) => Promise<void>
-      // 更新检查（纯提醒版）
-      updateCheck: () => Promise<{ success: boolean; data?: UpdateCheckResult; error?: string }>
       // 应用当前版本号（package.json version）
       getAppVersion: () => Promise<{ success: boolean; data?: string; error?: string }>
       saveImageFromURL: (url: string) => Promise<{ success: boolean; filePath?: string; error?: string }>
