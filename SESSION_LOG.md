@@ -2,6 +2,27 @@
 
 ## 2026-07-06
 
+### 22:53 | Antigravity
+
+- done: Fix webview hibernation on mode switch and fix ReferenceError on refCallbacks
+- modified:
+  - `src/renderer/src/pages/MainPage.tsx`
+
+### 22:51 | Antigravity
+
+- done: Fix webview hibernation on mode switch
+- modified:
+  - `src/renderer/src/pages/MainPage.tsx`
+
+### 21:54 | Antigravity
+
+- done: Implement Webview hibernation optimization and LRU eviction control (8 maximum active webviews)
+- modified:
+  - `src/renderer/src/pages/MainPage.tsx`
+  - `src/renderer/src/pages/QuickPage.tsx`
+  - `src/renderer/src/components/SummaryPanel.tsx`
+  - `src/renderer/src/store/appStore.ts`
+
 ### 20:38 | Antigravity
 
 - done: 修复安装包完成后点击启动应用卡死 1 分钟左右的问题

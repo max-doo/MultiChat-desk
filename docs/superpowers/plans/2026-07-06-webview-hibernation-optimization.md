@@ -4,7 +4,7 @@
 
 **Goal:** 优化多 Webview 在切换模式、切换模型及主窗口隐藏/关闭到托盘时的休眠（挂起）时间与白名单策略，解决应用闲置和运行中内存占用过大（高达2G）的问题。
 
-**Architecture:** 将处于隐藏状态的 Webview 的休眠延迟从 5 分钟缩短为 1 分钟；主页面显示的 Webview 在主窗口隐藏后由 15 分钟改为 5 分钟自动休眠。休眠白名单排除空闲活跃会话（`activeModels` 检查），仅保留真正运行中任务（发送、监控抓取、文件上传、辩论运行中）。在主页面、快捷窗口和总结页面同步应用此优化。
+**Architecture:** 将处于隐藏状态的 Webview 的休眠延迟从 5 分钟缩短为 30 秒；主页面显示的 Webview 在主窗口隐藏后由 15 分钟改为 5 分钟自动休眠。休眠白名单排除空闲活跃会话（`activeModels` 检查），仅保留真正运行中任务（发送、监控抓取、文件上传、辩论运行中）。在主页面、快捷窗口和总结页面同步应用此优化。
 
 **Tech Stack:** TypeScript (strict), React 18, Zustand, Electron
 
@@ -25,7 +25,7 @@
 
 - [ ] **Step 1: 修改休眠延迟常量及添加窗口可见性 Ref 追踪**
 
-修改 `src/renderer/src/pages/MainPage.tsx` 中的常量定义，将 `HIBERNATE_DELAY_MS` 修改为 1 分钟，`HIBERNATE_DELAY_HIDE_MS` 修改为 5 分钟，并新增 `isWindowVisibleRef` 用于追踪窗口是否可见。
+修改 `src/renderer/src/pages/MainPage.tsx` 中的常量定义，将 `HIBERNATE_DELAY_MS` 修改为 30 秒，`HIBERNATE_DELAY_HIDE_MS` 修改为 5 分钟，并新增 `isWindowVisibleRef` 用于追踪窗口是否可见。
 
 原代码范围（第 75 至 82 行）：
 ```typescript
@@ -41,8 +41,8 @@
 
 修改为：
 ```typescript
-  // R1: 主页面切换模型后，被切走的旧模型 1 分钟后真卸载（D1）
-  const HIBERNATE_DELAY_MS = 1 * 60 * 1000 // 1 分钟
+  // R1: 主页面切换模型后，被切走的旧模型 30 秒后真卸载（D1）
+  const HIBERNATE_DELAY_MS = 30 * 1000 // 30 秒
   // R4: 主窗口关闭(托盘隐藏)后，显示中的模型 5 分钟后休眠（片段 B'）
   const HIBERNATE_DELAY_HIDE_MS = 5 * 60 * 1000 // 5 分钟
   // 各模型的休眠倒计时定时器；key = model.id
@@ -118,11 +118,19 @@
       return
     }
 
-    // 只有在主窗口可见时，回溯历史态才作为白名单不休眠（因为这是用户在主动浏览历史，属于活跃交互）
-    // 如果主窗口已隐藏（关闭至托盘），回溯态下也允许休眠以节省内存
-    if (activeHistoryIdRef.current && isWindowVisibleRef.current) {
-      console.log(`[MainPage] 主窗口可见且处于回溯历史态，跳过 ${modelId} 休眠`)
-      return
+    // 只有在主窗口可见时，才应用以下白名单保护：
+    // 1. 回溯历史态（用户在主动浏览历史，属于活跃交互）
+    // 2. 属于当前活跃会话的模型（避免后台被休眠导致漏收接下来的消息）
+    // 如果主窗口已隐藏（关闭至托盘），则允许它们休眠以释放内存。
+    if (isWindowVisibleRef.current) {
+      if (activeHistoryIdRef.current) {
+        console.log(`[MainPage] 主窗口可见且处于回溯历史态，跳过 ${modelId} 休眠`)
+        return
+      }
+      if (state.activeModels.some(m => m.id === modelId)) {
+        console.log(`[MainPage] 主窗口可见且 ${modelId} 属于当前活跃会话，跳过休眠`)
+        return
+      }
     }
 
     const ref = state.webviewRefs.get(modelId)
@@ -166,14 +174,22 @@
   useEffect(() => {
     const off = window.api.onWindowVisibility((visible) => {
       isWindowVisibleRef.current = visible
-      const models = displayedModelsRef.current
+      const state = useAppStore.getState()
+      
+      // 合并显示的 Webview 和属于活跃会话的 Webview
+      // 避免后台隐藏的 activeModels 错过休眠调度或唤醒
+      const modelsToHandle = Array.from(new Set([
+        ...displayedModelsRef.current.map(m => m.id),
+        ...state.activeModels.map(m => m.id)
+      ]))
+      
       if (visible) {
-        for (const model of models) {
-          void wakeWebview(model.id)
+        for (const id of modelsToHandle) {
+          void wakeWebview(id)
         }
       } else {
-        for (const model of models) {
-          scheduleHibernate(model.id, HIBERNATE_DELAY_HIDE_MS)
+        for (const id of modelsToHandle) {
+          scheduleHibernate(id, HIBERNATE_DELAY_HIDE_MS)
         }
       }
     })
@@ -205,7 +221,7 @@ git commit -m "perf(webview): optimize hibernation timeouts and whitelist logic 
 
 - [ ] **Step 1: 修改 Quick 页面休眠延迟常量**
 
-将被切走的旧模型的休眠倒计时时间从 5 分钟缩短为 1 分钟。
+将被切走的旧模型的休眠倒计时时间从 5 分钟缩短为 30 秒。
 
 原代码范围（第 13 至 17 行）：
 ```typescript
@@ -217,8 +233,8 @@ git commit -m "perf(webview): optimize hibernation timeouts and whitelist logic 
 修改为：
 ```typescript
   // ── 休眠调度（片段 E，决策 R2）──
-  // 快捷窗口当前模型永不休眠；被切走的旧模型 1 分钟后真卸载（D1）。
-  const HIBERNATE_DELAY_QUICK_MS = 1 * 60 * 1000 // 1 分钟
+  // 快捷窗口当前模型永不休眠；被切走的旧模型 30 秒后真卸载（D1）。
+  const HIBERNATE_DELAY_QUICK_MS = 30 * 1000 // 30 秒
 ```
 
 - [ ] **Step 2: 本地编译与检查**
@@ -242,7 +258,7 @@ git commit -m "perf(webview): shorten quick page webview hibernation delay to 1 
 
 - [ ] **Step 1: 修改总结页面 webview 休眠延迟常量**
 
-将总结 Webview 被切走时的休眠时间缩短到 1 分钟。
+将总结 Webview 被切走时的休眠时间缩短到 30 秒。
 
 原代码范围（第 226 至 229 行）：
 ```typescript
@@ -254,8 +270,8 @@ git commit -m "perf(webview): shorten quick page webview hibernation delay to 1 
 修改为：
 ```typescript
   // ── 休眠调度（片段 D，决策 R3）──
-  // 总结页 webview 仅在 webview 模式下存在；切走总结页 1 分钟后真卸载（D1），切回立即唤醒。
-  const HIBERNATE_DELAY_SUMMARY_MS = 1 * 60 * 1000 // 1 分钟
+  // 总结页 webview 仅在 webview 模式下存在；切走总结页 30 秒后真卸载（D1），切回立即唤醒。
+  const HIBERNATE_DELAY_SUMMARY_MS = 30 * 1000 // 30 秒
 ```
 
 - [ ] **Step 2: 订阅主窗口隐藏/显示事件**
@@ -320,6 +336,8 @@ git commit -m "perf(webview): optimize summary panel webview hibernation delay a
 
 在 `appStore.ts` 实现 `enforceWebviewCapacity` 时，需要抽离出全局统一的“活动任务判定逻辑”（包含发送中、监控中、辩论中、上传中），不仅供给容量淘汰检查使用，也可替换 `MainPage.tsx` 中分散的校验。
 
+**关键约束**：在挑选被强制淘汰的旧 Webview 时，**必须豁免**当前在 `activeModels` 中且主窗口处于可见状态的模型。否则如果它们被强制淘汰休眠，后续发送消息时会因未就绪而导致丢失。
+
 - [ ] **Step 3: 修改全局唤醒逻辑 (wakeWebview 等)**
 
 在 `MainPage.tsx`、`QuickPage.tsx`、`SummaryPanel.tsx` 的相关唤醒函数中，成功调用 `ref.resume()` 之后，立即调用 `useAppStore.getState().markWebviewActive(modelId)` 记录活跃时间，随后调用 `useAppStore.getState().enforceWebviewCapacity()` 触发一次容量淘汰检查。
@@ -340,10 +358,10 @@ git commit -m "perf(webview): enforce maximum of 8 active webviews via LRU evict
 - [ ] **Step 1: 运行本地开发应用**
   运行：`npm run dev` 并开启开发工具控制台与系统资源管理器。
 
-- [ ] **Step 2: 验证切模式与模型休眠 (1 分钟)**
+- [ ] **Step 2: 验证切模式与模型休眠 (30 秒)**
   - 在 MultiChat 应用中打开多个模型，并发送测试对话。
   - 在侧边栏切换运行模式或更换插槽的模型，打开控制台检查休眠日志。
-  - 观察 1 分钟后控制台是否输出 `[MainPage] 休眠 webview: <modelId>` 以及系统任务管理器中 Electron webview 渲染进程内存下降。
+  - 观察 30 秒后控制台是否输出 `[MainPage] 休眠 webview: <modelId>` 以及系统任务管理器中 Electron webview 渲染进程内存下降。
   - 切换回原模型，确认其正常 `resume` 唤醒并恢复之前的对话 URL 及草稿。
 
 - [ ] **Step 3: 验证窗口隐藏自动休眠 (5 分钟)**

@@ -2,7 +2,7 @@ import { type CSSProperties, type PointerEvent as ReactPointerEvent, useEffect, 
 import WebviewCard, { WebviewCardRef } from '../components/WebviewCard'
 import ControlBar, { ControlBarRef } from '../components/ControlBar'
 import HistoryDrawer from '../components/HistoryDrawer'
-import { useAppStore, getDisplayedModels, SummaryHistoryItem } from '../store/appStore'
+import { useAppStore, getDisplayedModels, SummaryHistoryItem, ModelConfig } from '../store/appStore'
 
 interface MainPageProps {
   onNavigateToSummary: (historyItem?: SummaryHistoryItem) => void
@@ -79,6 +79,44 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
   const hibernateTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
   // 跟踪上一轮显示的模型 id，用于判定「被切走」启动倒计时 vs「仍显示」保持唤醒
   const prevDisplayedIdsRef = useRef<string[]>([])
+
+  // ── 模式感知休眠追踪 ──
+  // 休眠专用 ref 追踪：key = `${mode}-${slotIndex}`，所有已挂载模式的 WebviewCard 都在此注册
+  // 独立于 store.webviewRefs，确保后台模式（display: none）下的 webview 在被切走后仍能通过 ref 调用 suspend 进入休眠
+  const hibernationRefsMap = useRef<Map<string, WebviewCardRef>>(new Map())
+  const productModeRef = useRef<string>(productMode)
+  const modeModelsRef = useRef<Record<string, ModelConfig[]>>({})
+
+  // 获取模式感知的休眠 ref 回调，使用 ref 缓存防止重复创建导致 react re-render 时冲突
+  const hibernationRefCallbacks = useRef<Record<string, (ref: WebviewCardRef | null) => void>>({})
+  const getHibernationRefCallback = useCallback((mode: string, slotIndex: number, modelId: string) => {
+    const key = `${mode}-${slotIndex}-${modelId}`
+    if (!hibernationRefCallbacks.current[key]) {
+      let lastRef: WebviewCardRef | null = null
+      hibernationRefCallbacks.current[key] = (ref: WebviewCardRef | null) => {
+        const state = useAppStore.getState()
+        const currentProductMode = productModeRef.current
+
+        if (ref) {
+          lastRef = ref
+          hibernationRefsMap.current.set(`${mode}-${slotIndex}`, ref)
+          if (currentProductMode === mode) {
+            state.registerWebviewRef(`slot-${slotIndex}`, ref)
+            state.registerWebviewRef(modelId, ref)
+          }
+        } else {
+          hibernationRefsMap.current.delete(`${mode}-${slotIndex}`)
+          if (currentProductMode === mode && lastRef) {
+            state.unregisterWebviewRef(`slot-${slotIndex}`, lastRef)
+            state.unregisterWebviewRef(modelId, lastRef)
+          }
+          lastRef = null
+        }
+      }
+    }
+    return hibernationRefCallbacks.current[key]
+  }, [])
+
   // 追踪主窗口是否可见，以便在窗口隐藏时即使在回溯历史态也允许休眠
   const isWindowVisibleRef = useRef<boolean>(true)
   // 追踪当前页面是否激活，以便在切换到总结页等其他模式时允许模型休眠
@@ -104,28 +142,6 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
     }
   }, [activeHistoryId, history])
 
-  // 注册 webview ref 的回调，并使用 refCallbacks 缓存引用以避免闭包陷阱
-  const refCallbacks = useRef<Record<string, (ref: WebviewCardRef | null) => void>>({})
-  const getRefCallback = useCallback((id: string, slotIndex: number) => {
-    const key = `${slotIndex}-${id}`
-    if (!refCallbacks.current[key]) {
-      let lastRef: WebviewCardRef | null = null
-      refCallbacks.current[key] = (ref: WebviewCardRef | null) => {
-        const slotKey = `slot-${slotIndex}`
-        const state = useAppStore.getState()
-        if (ref) {
-          lastRef = ref
-          state.registerWebviewRef(slotKey, ref)
-          state.registerWebviewRef(id, ref)
-        } else {
-          state.unregisterWebviewRef(slotKey, lastRef)
-          state.unregisterWebviewRef(id, lastRef)
-          lastRef = null
-        }
-      }
-    }
-    return refCallbacks.current[key]
-  }, [])
 
   // 组件卸载时清理未触发的跳转定时器，避免卸载后仍触发 onNavigateToSummary
   useEffect(() => {
@@ -221,6 +237,66 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
       }
     }
   }, [clearHibernateTimer])
+
+  // 各 mode-slot 的休眠倒计时定时器；key = `${mode}-${slotIndex}`
+  const hibernateModeTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+
+  // 清理指定 mode-slot 的休眠定时器
+  const clearHibernateModeTimer = useCallback((modeSlotKey: string) => {
+    const timer = hibernateModeTimersRef.current.get(modeSlotKey)
+    if (timer) {
+      clearTimeout(timer)
+      hibernateModeTimersRef.current.delete(modeSlotKey)
+    }
+  }, [])
+
+  // 执行指定 mode-slot 的休眠（D1 真卸载）
+  const executeHibernateByModeSlot = useCallback(async (modeSlotKey: string) => {
+    const state = useAppStore.getState()
+
+    // 活动任务判断：发送中、抓取监控中、辩论运行中、上传文件进行中（跳过休眠）
+    const isTaskRunning =
+      state.isSending ||
+      !!state.monitor?.isMonitoring ||
+      state.debateState?.phase === 'running' ||
+      state.isUploading
+
+    if (isTaskRunning) {
+      console.log(`[MainPage] 活动任务运行中，跳过模式休眠: ${modeSlotKey}`)
+      return
+    }
+
+    const ref = hibernationRefsMap.current.get(modeSlotKey)
+    if (ref && !ref.isHibernated()) {
+      console.log(`[MainPage] 休眠 webview (mode-slot): ${modeSlotKey}`)
+      const result = await ref.suspend()
+      if (result.success) {
+        console.log(`[MainPage] ${modeSlotKey} 已休眠，保存 URL: ${result.savedUrl}`)
+      } else {
+        console.warn(`[MainPage] ${modeSlotKey} 休眠失败:`, result.error)
+      }
+    }
+  }, [])
+
+  // 调度模式休眠
+  const scheduleHibernateByModeSlot = useCallback((modeSlotKey: string, delayMs: number = HIBERNATE_DELAY_MS) => {
+    clearHibernateModeTimer(modeSlotKey)
+    const timer = setTimeout(() => {
+      void executeHibernateByModeSlot(modeSlotKey)
+    }, delayMs)
+    hibernateModeTimersRef.current.set(modeSlotKey, timer)
+    console.log(`[MainPage] ${modeSlotKey} 模式休眠倒计时启动: ${delayMs}ms`)
+  }, [clearHibernateModeTimer, executeHibernateByModeSlot])
+
+  // 唤醒模式 webview
+  const wakeWebviewByModeSlot = useCallback(async (modeSlotKey: string) => {
+    clearHibernateModeTimer(modeSlotKey)
+    const ref = hibernationRefsMap.current.get(modeSlotKey)
+    if (ref && ref.isHibernated()) {
+      console.log(`[MainPage] 唤醒 webview (mode-slot): ${modeSlotKey}`)
+      await ref.resume()
+    }
+  }, [clearHibernateModeTimer])
 
   const handleGenerateReport = async () => {
     if (scrapingControllerRef.current) {
@@ -411,6 +487,70 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
     debate: getDisplayedModels(models, 'two', 'debate', taskAssignmentSlots, multiAiSlots, debateSlots)
   }), [models, taskAssignmentSlots, multiAiSlots, debateSlots])
 
+  // ── 更新 productModeRef 和 modeModelsRef ──
+  useEffect(() => {
+    productModeRef.current = productMode
+  }, [productMode])
+
+  useEffect(() => {
+    modeModelsRef.current = modeModels
+  }, [modeModels])
+
+  // 当产品模式切换时，动态更新 store 中的 webviewRefs（供 sendMessage/getAllResponses 等使用）
+  useEffect(() => {
+    const state = useAppStore.getState()
+    const currentModeModels = modeModels[productMode as keyof typeof modeModels]
+    
+    // 1. 注册当前活跃模式的所有 slots 实例
+    for (let i = 0; i < currentModeModels.length; i++) {
+      const ref = hibernationRefsMap.current.get(`${productMode}-${i}`)
+      if (ref) {
+        state.registerWebviewRef(`slot-${i}`, ref)
+        state.registerWebviewRef(currentModeModels[i].id, ref)
+      }
+    }
+
+    return () => {
+      // 2. 清理注销（在下一次切换模式前触发）
+      const prevModeModels = modeModels[productMode as keyof typeof modeModels]
+      for (let i = 0; i < prevModeModels.length; i++) {
+        const ref = hibernationRefsMap.current.get(`${productMode}-${i}`)
+        if (ref) {
+          state.unregisterWebviewRef(`slot-${i}`, ref)
+          state.unregisterWebviewRef(prevModeModels[i].id, ref)
+        }
+      }
+    }
+  }, [productMode, modeModels])
+
+  // ── 模式切换休眠调度 ──
+  const prevProductModeRef = useRef<string>(productMode)
+
+  useEffect(() => {
+    const prevMode = prevProductModeRef.current
+    prevProductModeRef.current = productMode
+
+    if (prevMode === productMode) return
+
+    // 1. 旧模式的所有 webview 启动休眠倒计时
+    const oldModeModels = modeModels[prevMode as keyof typeof modeModels]
+    if (oldModeModels) {
+      for (let i = 0; i < oldModeModels.length; i++) {
+        const modeSlotKey = `${prevMode}-${i}`
+        scheduleHibernateByModeSlot(modeSlotKey)
+      }
+    }
+
+    // 2. 新模式的所有 webview 立即唤醒
+    const newModeModels = modeModels[productMode as keyof typeof modeModels]
+    if (newModeModels) {
+      for (let i = 0; i < newModeModels.length; i++) {
+        const modeSlotKey = `${productMode}-${i}`
+        void wakeWebviewByModeSlot(modeSlotKey)
+      }
+    }
+  }, [productMode, modeModels, scheduleHibernateByModeSlot, wakeWebviewByModeSlot])
+
   // 跟踪曾挂载过的 Webview（组合键：mode-index）
   const [mountedWebviews, setMountedWebviews] = useState<Set<string>>(() => {
     const init = new Set<string>()
@@ -436,8 +576,8 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
     })
   }, [displayedModels.length, productMode])
 
-  // 跟踪每插槽 modelId 的变化：换模型时回收旧 (slotIndex-oldModelId) 的 ref 回调，
-  // 避免 refCallbacks.current 只增不减、陈旧 webview ref 无法 GC
+  // 跟踪每插槽 modelId 的变化：换模型时回收旧 (mode-slotIndex-oldModelId) 的 ref 回调，
+  // 避免 hibernationRefCallbacks.current 只增不减、陈旧 webview ref 无法 GC
   const prevSlotModelIds = useRef<string[]>([])
   useEffect(() => {
     const currentIds = displayedModels.map(m => m?.id ?? '').filter(Boolean)
@@ -447,12 +587,12 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
     currentIds.forEach((modelId, slotIndex) => {
       const oldId = prev[slotIndex]
       if (oldId && oldId !== modelId) {
-        const oldKey = `${slotIndex}-${oldId}`
-        const oldCb = refCallbacks.current[oldKey]
+        const oldKey = `${productMode}-${slotIndex}-${oldId}`
+        const oldCb = hibernationRefCallbacks.current[oldKey]
         if (oldCb) {
           // 以 null 触发旧回调：unregister 旧 webview ref + 置空 lastRef
           oldCb(null)
-          delete refCallbacks.current[oldKey]
+          delete hibernationRefCallbacks.current[oldKey]
         }
       }
     })
@@ -462,17 +602,17 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
       for (let slotIndex = currentIds.length; slotIndex < prev.length; slotIndex++) {
         const oldId = prev[slotIndex]
         if (!oldId) continue
-        const oldKey = `${slotIndex}-${oldId}`
-        const oldCb = refCallbacks.current[oldKey]
+        const oldKey = `${productMode}-${slotIndex}-${oldId}`
+        const oldCb = hibernationRefCallbacks.current[oldKey]
         if (oldCb) {
           oldCb(null)
-          delete refCallbacks.current[oldKey]
+          delete hibernationRefCallbacks.current[oldKey]
         }
       }
     }
 
     prevSlotModelIds.current = currentIds
-  }, [displayedModels])
+  }, [displayedModels, productMode])
 
   // ── 休眠调度触发（片段 B）──
   // 显示模型变化：新显示的唤醒，被切走的启动 5min 倒计时（R1）
@@ -515,35 +655,27 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
   // 主窗口 hide/show 事件（片段 B'，决策 R4）：
   // 隐藏到托盘后 15 分钟休眠显示中的模型；重新显示时立即唤醒。
   // 注意：必须读到「订阅时刻的」displayedModels，故用 displayedModelsRef 镜像避免闭包过期。
-  const displayedModelsRef = useRef(displayedModels)
-  useEffect(() => {
-    displayedModelsRef.current = displayedModels
-  }, [displayedModels])
   useEffect(() => {
     const off = window.api.onWindowVisibility((visible) => {
       isWindowVisibleRef.current = visible
       const state = useAppStore.getState()
       state.setMainWindowVisible(visible)
       
-      // 合并显示的 Webview 和属于活跃会话的 Webview
-      // 避免后台隐藏的 activeModels 错过休眠调度或唤醒
-      const modelsToHandle = Array.from(new Set([
-        ...displayedModelsRef.current.map(m => m.id),
-        ...state.activeModels.map(m => m.id)
-      ]))
-      
       if (visible) {
-        for (const id of modelsToHandle) {
-          void wakeWebview(id)
+        // 重新显示时：只唤醒当前模式下的显示模型
+        const currentModels = modeModels[productMode as keyof typeof modeModels]
+        for (let i = 0; i < currentModels.length; i++) {
+          void wakeWebviewByModeSlot(`${productMode}-${i}`)
         }
       } else {
-        for (const id of modelsToHandle) {
-          scheduleHibernate(id, HIBERNATE_DELAY_HIDE_MS)
+        // 隐藏到托盘时：将所有挂载模式的所有 webview 均投入 5 分钟休眠倒计时
+        for (const [modeSlotKey] of hibernationRefsMap.current.entries()) {
+          scheduleHibernateByModeSlot(modeSlotKey, HIBERNATE_DELAY_HIDE_MS)
         }
       }
     })
     return () => { off() }
-  }, [scheduleHibernate, wakeWebview])
+  }, [productMode, modeModels, scheduleHibernateByModeSlot, wakeWebviewByModeSlot])
 
   // 组件卸载时清理所有休眠倒计时，避免卸载后仍触发 suspend
   useEffect(() => {
@@ -552,6 +684,10 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
         clearTimeout(timer)
       }
       hibernateTimersRef.current.clear()
+      for (const [, timer] of hibernateModeTimersRef.current.entries()) {
+        clearTimeout(timer)
+      }
+      hibernateModeTimersRef.current.clear()
     }
   }, [])
 
@@ -838,7 +974,7 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
               <div key={`mode-wrapper-${mode}-${i}`} style={{ display: productMode === mode ? 'block' : 'none', width: '100%', height: '100%' }}>
                 <WebviewCard
                   key={`webview-${mode}-${i}-${model.id}`}
-                  ref={productMode === mode ? getRefCallback(model.id, i) : undefined}
+                  ref={getHibernationRefCallback(mode, i, model.id)}
                   id={model.id}
                   name={model.name}
                   url={model.url}
