@@ -11,7 +11,7 @@ export interface UpdateCheckResult {
   releaseNotes?: string // Release body（markdown 原文），可能为空
 }
 
-const GITHUB_API_URL = 'https://api.github.com/repos/max-doo/multichat/releases/latest'
+const GITHUB_API_URL = 'https://api.github.com/repos/max-doo/MultiChat-desk/releases/latest'
 const REQUEST_TIMEOUT_MS = 10000
 
 /**

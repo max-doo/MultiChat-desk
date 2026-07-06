@@ -1,10 +1,10 @@
 {
   "name": "multichat",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "MultiChat - Parallel AI Chat Assistant",
   "main": "./out/main/index.js",
   "author": "MultiChat",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "scripts": {
     "lint": "eslint src --ext .ts,.tsx --report-unused-disable-directives",
     "lint:fix": "eslint src --ext .ts,.tsx --fix",

@@ -1387,7 +1387,7 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
             </h3>
             <div className="p-4 rounded-xl glass-panel">
               <a
-                href="https://ai.feishu.cn/docx/TiLFdnaPjo7ZnQx7J5JcFMLInsd"
+                href="https://github.com/max-doo/MultiChat-desk"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center justify-between p-3 glass-panel rounded-xl hover:bg-blue-50/40 transition-all group"

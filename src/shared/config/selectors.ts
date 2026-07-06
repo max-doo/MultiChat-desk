@@ -599,12 +599,16 @@ export const defaultSelectors: SelectorsConfig = {
         '#chat-input + button',
         '#chat-input ~ button'
       ],
+      // DeepSeek 单条 AI 回复即一个 div.ds-markdown.ds-assistant-message-main-content
+      // （内部直接含全部 p/h2/ul 段落），外层包 div.ds-message。
+      // 抓取逻辑取"最后一个可见候选"——若保留宽泛的 [class*="markdown"] 兜底，
+      // 正文之后的"思考过程"折叠块 / 推荐问题栏（class 含 markdown）会排在正文之后
+      // 被当成末候选抓走，表现为只抓到最后一段。故去掉宽泛兜底，只留正文容器级。
       messageContainer: [
-        '.ds-markdown',
-        '.ds-markdown.ds-markdown--block',
-        'div[class*="ds-markdown"]',
-        '.prose',
-        '[class*="markdown"]'
+        'div.ds-message',
+        '.ds-markdown.ds-assistant-message-main-content',
+        'div.ds-markdown',
+        '.ds-markdown'
       ],
       customCSS: ``,
       newConversationUrl: 'https://chat.deepseek.com/',

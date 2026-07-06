@@ -91,7 +91,7 @@
 ### ❓ 我遇到了问题
 1. 查看 [README.md](README.md#常见问题)
 2. 查看 [BUILD_GUIDE.md](BUILD_GUIDE.md#常见问题)
-3. 搜索 [GitHub Issues](https://github.com/max-doo/multichat/issues)
+3. 搜索 [GitHub Issues](https://github.com/max-doo/MultiChat-desk/issues)
 4. 提交新 Issue
 
 ---
@@ -201,12 +201,12 @@
    - 查看相关章节的"常见问题"部分
 
 2. **搜索 Issues**
-   - [已有 Issues](https://github.com/max-doo/multichat/issues?q=is%3Aissue)
+   - [已有 Issues](https://github.com/max-doo/MultiChat-desk/issues?q=is%3Aissue)
    - 可能已经有人遇到相同问题
 
 3. **提问**
-   - [Discussions](https://github.com/max-doo/multichat/discussions) - 一般性讨论
-   - [New Issue](https://github.com/max-doo/multichat/issues/new) - 报告 Bug
+   - [Discussions](https://github.com/max-doo/MultiChat-desk/discussions) - 一般性讨论
+   - [New Issue](https://github.com/max-doo/MultiChat-desk/issues/new) - 报告 Bug
 
 4. **联系方式**
    - Email: your-email@example.com

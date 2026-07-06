@@ -300,13 +300,28 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
 
       // 监听加载事件
       const handleDomReady = (): void => {
+        let currentUrl = ''
         try {
-          const currentUrl = webview.getURL()
-          if (currentUrl && (currentUrl.startsWith('chrome-error://') || currentUrl.startsWith('data:text/html'))) {
-            return
-          }
+          currentUrl = webview.getURL() || ''
         } catch {
           // 忽略获取 URL 异常
+        }
+        // chrome-error:// / data:text/html：Chromium 把连接/DNS/SSL 等错误直接渲染成内部错误页，
+        // 主帧 did-fail-load 不再发出。若不在此主动判定为失败，覆盖层永远不弹（用户只见白屏或 Chromium 自带错误页）。
+        if (currentUrl && (currentUrl.startsWith('chrome-error://') || currentUrl.startsWith('data:text/html'))) {
+          clearLoadTimers()
+          setIsLoading(false)
+          isFirstLoadRef.current = false
+          const failHost = getHostname(loadedUrlRef.current || currentUrl || '')
+          setLoadError({
+            category: 'connection',
+            icon: 'cloud_off',
+            title: `无法连接到 ${failHost}`,
+            subtitle: '页面加载失败，请点击重试',
+            errorCode: null, // chrome-error 页无 errorCode 透出，null 表示非 did-fail-load 来源
+            hostname: failHost
+          })
+          return
         }
         clearLoadTimers()
         isFirstLoadRef.current = false // 首次加载完成，后续导航不再启用超时
@@ -326,6 +341,22 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
       }
 
       const handleLoadStop = (): void => {
+        // 已判定失败（loadError 存在）或仍在 chrome-error:// 残留态时，不清计时器/不改状态，
+        // 避免慢速失败路径上 Chromium 先发的中间态 did-stop-loading 把 30s 超时兜底清掉、
+        // 以及错误覆盖层被中间态 stop 抢清。
+        if (loadError) {
+          syncNavigationState()
+          return
+        }
+        try {
+          const u = webview.getURL() || ''
+          if (u.startsWith('chrome-error://') || u.startsWith('data:text/html')) {
+            syncNavigationState()
+            return
+          }
+        } catch {
+          // 忽略获取 URL 异常，按正常 stop 处理
+        }
         clearLoadTimers()
         setIsLoading(false)
         syncNavigationState()
@@ -1097,6 +1128,8 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
           setIsHibernated(false)
           setIsLoading(true)
           setIsReady(false)
+          // 唤醒视同首次加载：复用 30s 超时保护与 -3 中断的错误展示，避免唤醒失败时静默无提示
+          isFirstLoadRef.current = true
 
           const targetUrl = hibernatedUrlRef.current || url
           const draftToRestore = hibernatedDraftRef.current
