@@ -11,8 +11,8 @@ export default function QuickPage(): JSX.Element {
   const [isPinned, setIsPinned] = useState(false)
 
   // ── 休眠调度（片段 E，决策 R2）──
-  // 快捷窗口当前模型永不休眠；被切走的旧模型 5 分钟后真卸载（D1）。
-  const HIBERNATE_DELAY_QUICK_MS = 5 * 60 * 1000 // 5 分钟
+  // 快捷窗口当前模型永不休眠；被切走的旧模型 30 秒后真卸载（D1）。
+  const HIBERNATE_DELAY_QUICK_MS = 30 * 1000 // 30 秒
   const hibernateTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
 
   // 清理某模型的休眠倒计时
