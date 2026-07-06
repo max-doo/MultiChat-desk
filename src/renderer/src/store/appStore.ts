@@ -307,6 +307,11 @@ interface AppState {
   webviewRefs: Map<string, WebviewCardRef>
   registerWebviewRef: (id: string, ref: WebviewCardRef) => void
   unregisterWebviewRef: (id: string, ref: WebviewCardRef) => void
+  activeWebviewTimes: Map<string, number>
+  markWebviewActive: (modelId: string) => void
+  enforceWebviewCapacity: () => Promise<void>
+  isMainWindowVisible: boolean
+  setMainWindowVisible: (visible: boolean) => void
 
   // API 配置
   apiConfig: ApiConfig
@@ -938,10 +943,76 @@ export const useAppStore = create<AppState>((set, get) => ({
   }),
 
   webviewRefs: new Map(),
+  activeWebviewTimes: new Map(),
+  isMainWindowVisible: true,
+  setMainWindowVisible: (visible) => set({ isMainWindowVisible: visible }),
+  markWebviewActive: (modelId) => {
+    get().activeWebviewTimes.set(modelId, Date.now())
+  },
+  enforceWebviewCapacity: async () => {
+    const state = get()
+    // 活动任务判断：发送中、抓取监控中、辩论运行中、上传文件进行中
+    const isTaskRunning =
+      state.isSending ||
+      !!state.monitor?.isMonitoring ||
+      state.debateState?.phase === 'running' ||
+      state.isUploading
+
+    if (isTaskRunning) {
+      console.log('[appStore] 活动任务运行中，不执行容量强制淘汰')
+      return
+    }
+
+    // 收集当前所有处于激活（非休眠）状态的模型 Webview
+    const activeRefs = new Map<string, WebviewCardRef>()
+    for (const [key, ref] of state.webviewRefs.entries()) {
+      // 排除 'slot-' 前缀的 ref，以防跟具体的 modelId ref 重复计算
+      if (key.startsWith('slot-')) continue
+      if (ref && typeof ref.isHibernated === 'function' && !ref.isHibernated()) {
+        activeRefs.set(key, ref)
+      }
+    }
+
+    // 如果存活总数没有超过 8 个，不需要淘汰
+    if (activeRefs.size <= 8) return
+
+    // 挑选淘汰候选人
+    // 必须豁免：当前在 activeModels 中且主窗口处于可见状态的模型。
+    const candidates: { modelId: string; ref: WebviewCardRef; activeTime: number }[] = []
+
+    for (const [modelId, ref] of activeRefs.entries()) {
+      const isExempt = state.isMainWindowVisible && state.activeModels.some(m => m.id === modelId)
+      if (isExempt) {
+        continue
+      }
+      const activeTime = state.activeWebviewTimes.get(modelId) || 0
+      candidates.push({ modelId, ref, activeTime })
+    }
+
+    if (candidates.length === 0) return
+
+    // 按活跃时间戳升序排序（最久未活跃排第一）
+    candidates.sort((a, b) => a.activeTime - b.activeTime)
+
+    // 淘汰最老的一个
+    const toEvict = candidates[0]
+    console.log(`[appStore] Webview 存活数 (${activeRefs.size}) 超过 8 个，强制淘汰最久未活跃 Webview: ${toEvict.modelId} (最后活跃时间戳: ${toEvict.activeTime})`)
+    
+    const result = await toEvict.ref.suspend()
+    if (result.success) {
+      state.activeWebviewTimes.delete(toEvict.modelId)
+      console.log(`[appStore] 强制淘汰成功: ${toEvict.modelId}`)
+    } else {
+      console.warn(`[appStore] 强制淘汰失败: ${toEvict.modelId}`, result.error)
+    }
+  },
   registerWebviewRef: (id, ref) => get().webviewRefs.set(id, ref),
   unregisterWebviewRef: (id, ref) => {
     // 仅当当前注册的 ref 就是要注销的那个才删，避免新 ref 已覆盖后旧回调误删新 ref
-    if (get().webviewRefs.get(id) === ref) get().webviewRefs.delete(id)
+    if (get().webviewRefs.get(id) === ref) {
+      get().webviewRefs.delete(id)
+      get().activeWebviewTimes.delete(id)
+    }
   },
 
   apiConfig: {

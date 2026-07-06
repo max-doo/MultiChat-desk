@@ -198,14 +198,21 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
   // 唤醒 webview：清理倒计时并在确实休眠时 resume
   const wakeWebview = useCallback(async (modelId: string) => {
     clearHibernateTimer(modelId)
-    const ref = useAppStore.getState().webviewRefs.get(modelId)
-    if (ref && ref.isHibernated()) {
-      console.log(`[MainPage] 唤醒 webview: ${modelId}`)
-      const result = await ref.resume()
-      if (result.success) {
-        console.log(`[MainPage] ${modelId} 已唤醒`)
+    const store = useAppStore.getState()
+    const ref = store.webviewRefs.get(modelId)
+    if (ref) {
+      if (ref.isHibernated()) {
+        console.log(`[MainPage] 唤醒 webview: ${modelId}`)
+        const result = await ref.resume()
+        if (result.success) {
+          console.log(`[MainPage] ${modelId} 已唤醒`)
+          store.markWebviewActive(modelId)
+          void store.enforceWebviewCapacity()
+        } else {
+          console.warn(`[MainPage] ${modelId} 唤醒失败:`, result.error)
+        }
       } else {
-        console.warn(`[MainPage] ${modelId} 唤醒失败:`, result.error)
+        store.markWebviewActive(modelId)
       }
     }
   }, [clearHibernateTimer])
@@ -511,6 +518,7 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
     const off = window.api.onWindowVisibility((visible) => {
       isWindowVisibleRef.current = visible
       const state = useAppStore.getState()
+      state.setMainWindowVisible(visible)
       
       // 合并显示的 Webview 和属于活跃会话的 Webview
       // 避免后台隐藏的 activeModels 错过休眠调度或唤醒

@@ -37,7 +37,7 @@ function toMarkdown(content: string): string {
  * 对话形式显示 AI 总结结果
  */
 function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isActive = true, presetSummaryMode }: SummaryPanelProps): JSX.Element {
-  const { apiConfig, models, setApiConfig, addSummaryHistory, updateSummaryHistory, history, currentConversationId } = useAppStore()
+  const { apiConfig, models, setApiConfig, addSummaryHistory, updateSummaryHistory, history, currentConversationId, registerWebviewRef, unregisterWebviewRef } = useAppStore()
 
   // 从 store 读取当前模式，缺省 'webview'
   const summarySource: 'api' | 'webview' = apiConfig.summarySource ?? 'webview'
@@ -271,11 +271,19 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
       summaryHibernateTimerRef.current = null
     }
     const ref = webviewSummaryRef.current
-    if (ref && ref.isHibernated()) {
-      console.log('[SummaryPanel] 唤醒总结页 webview')
-      const result = await ref.resume()
-      if (!result.success) {
-        console.warn('[SummaryPanel] 总结页 webview 唤醒失败:', result.error)
+    const store = useAppStore.getState()
+    if (ref) {
+      if (ref.isHibernated()) {
+        console.log('[SummaryPanel] 唤醒总结页 webview')
+        const result = await ref.resume()
+        if (result.success) {
+          store.markWebviewActive('summary')
+          void store.enforceWebviewCapacity()
+        } else {
+          console.warn('[SummaryPanel] 总结页 webview 唤醒失败:', result.error)
+        }
+      } else {
+        store.markWebviewActive('summary')
       }
     }
   }, [])
@@ -1216,7 +1224,15 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
       */}
       <div className={summarySource === 'webview' ? 'flex-1 min-h-0' : 'hidden'}>
         <WebviewCard
-          ref={webviewSummaryRef}
+          ref={(ref) => {
+            (webviewSummaryRef as React.MutableRefObject<WebviewCardRef | null>).current = ref
+            if (ref) {
+              registerWebviewRef('summary', ref)
+            } else {
+              const lastRef = webviewSummaryRef.current
+              if (lastRef) unregisterWebviewRef('summary', lastRef)
+            }
+          }}
           id={webviewPlatformId}
           name={webviewPlatformInfo.name}
           url={currentWebviewUrl}

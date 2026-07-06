@@ -53,11 +53,19 @@ export default function QuickPage(): JSX.Element {
   const wakeModel = useCallback(async (modelId: string) => {
     clearHibernateTimer(modelId)
     const ref = cardRefs.current.get(modelId)
-    if (ref && ref.isHibernated()) {
-      console.log(`[QuickPage] 唤醒模型 webview: ${modelId}`)
-      const result = await ref.resume()
-      if (!result.success) {
-        console.warn(`[QuickPage] ${modelId} 唤醒失败:`, result.error)
+    const store = useAppStore.getState()
+    if (ref) {
+      if (ref.isHibernated()) {
+        console.log(`[QuickPage] 唤醒模型 webview: ${modelId}`)
+        const result = await ref.resume()
+        if (result.success) {
+          store.markWebviewActive(modelId)
+          void store.enforceWebviewCapacity()
+        } else {
+          console.warn(`[QuickPage] ${modelId} 唤醒失败:`, result.error)
+        }
+      } else {
+        store.markWebviewActive(modelId)
       }
     }
   }, [clearHibernateTimer])
