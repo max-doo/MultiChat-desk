@@ -71,14 +71,16 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
   const navigateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // ── 休眠调度器状态（片段 B）──
-  // R1: 主页面切换模型后，被切走的旧模型 5 分钟后真卸载（D1）
-  const HIBERNATE_DELAY_MS = 5 * 60 * 1000 // 5 分钟
-  // R4: 主窗口关闭(托盘隐藏)后，显示中的模型 15 分钟后休眠（片段 B'）
-  const HIBERNATE_DELAY_HIDE_MS = 15 * 60 * 1000 // 15 分钟
+  // R1: 主页面切换模型后，被切走的旧模型 30 秒后真卸载（D1）
+  const HIBERNATE_DELAY_MS = 30 * 1000 // 30 秒
+  // R4: 主窗口关闭(托盘隐藏)后，显示中的模型 5 分钟后休眠（片段 B'）
+  const HIBERNATE_DELAY_HIDE_MS = 5 * 60 * 1000 // 5 分钟
   // 各模型的休眠倒计时定时器；key = model.id
   const hibernateTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
   // 跟踪上一轮显示的模型 id，用于判定「被切走」启动倒计时 vs「仍显示」保持唤醒
   const prevDisplayedIdsRef = useRef<string[]>([])
+  // 追踪主窗口是否可见，以便在窗口隐藏时即使在回溯历史态也允许休眠
+  const isWindowVisibleRef = useRef<boolean>(true)
 
   // 回溯历史时，预计算各模型最后一轮 turn 的快照 + 历史原始 URL，
   // 供 WebviewCard 做 URL 不匹配检测与只读快照显示。非回溯态（无 activeHistoryId）返回空。
@@ -144,25 +146,31 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
   const executeHibernate = useCallback(async (modelId: string) => {
     const state = useAppStore.getState()
 
-    // 白名单 1: 活动会话中的模型不休眠（避免误销毁活跃对话）
-    if (state.activeModels.length > 0) {
-      console.log(`[MainPage] ${modelId} 处于活动会话中，跳过休眠`)
+    // 活动任务判断：发送中、抓取监控中、辩论运行中、上传文件进行中
+    const isTaskRunning =
+      state.isSending ||
+      !!state.monitor?.isMonitoring ||
+      state.debateState?.phase === 'running' ||
+      state.isUploading
+
+    if (isTaskRunning) {
+      console.log(`[MainPage] 活动任务运行中，跳过休眠: ${modelId}`)
       return
     }
-    // 白名单 2: 监控进行中不休眠
-    if (state.monitor?.isMonitoring) {
-      console.log(`[MainPage] 监控进行中，跳过休眠`)
-      return
-    }
-    // 白名单 3: 发送进行中不休眠
-    if (state.isSending) {
-      console.log(`[MainPage] 发送进行中，跳过休眠`)
-      return
-    }
-    // 白名单 4（决策 D3）: 回溯历史态不休眠 —— 回溯是用户主动查看历史，属活跃操作，从源头消除真值表 case 10-12
-    if (activeHistoryIdRef.current) {
-      console.log(`[MainPage] 回溯历史态，跳过休眠`)
-      return
+
+    // 只有在主窗口可见时，才应用以下白名单保护：
+    // 1. 回溯历史态（用户在主动浏览历史，属于活跃交互）
+    // 2. 属于当前活跃会话的模型（避免后台被休眠导致漏收接下来的消息）
+    // 如果主窗口已隐藏（关闭至托盘），则允许它们休眠以释放内存。
+    if (isWindowVisibleRef.current) {
+      if (activeHistoryIdRef.current) {
+        console.log(`[MainPage] 主窗口可见且处于回溯历史态，跳过 ${modelId} 休眠`)
+        return
+      }
+      if (state.activeModels.some(m => m.id === modelId)) {
+        console.log(`[MainPage] 主窗口可见且 ${modelId} 属于当前活跃会话，跳过休眠`)
+        return
+      }
     }
 
     const ref = state.webviewRefs.get(modelId)
@@ -501,14 +509,23 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
   }, [displayedModels])
   useEffect(() => {
     const off = window.api.onWindowVisibility((visible) => {
-      const models = displayedModelsRef.current
+      isWindowVisibleRef.current = visible
+      const state = useAppStore.getState()
+      
+      // 合并显示的 Webview 和属于活跃会话的 Webview
+      // 避免后台隐藏的 activeModels 错过休眠调度或唤醒
+      const modelsToHandle = Array.from(new Set([
+        ...displayedModelsRef.current.map(m => m.id),
+        ...state.activeModels.map(m => m.id)
+      ]))
+      
       if (visible) {
-        for (const model of models) {
-          void wakeWebview(model.id)
+        for (const id of modelsToHandle) {
+          void wakeWebview(id)
         }
       } else {
-        for (const model of models) {
-          scheduleHibernate(model.id, HIBERNATE_DELAY_HIDE_MS)
+        for (const id of modelsToHandle) {
+          scheduleHibernate(id, HIBERNATE_DELAY_HIDE_MS)
         }
       }
     })
