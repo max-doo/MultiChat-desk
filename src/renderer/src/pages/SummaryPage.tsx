@@ -15,7 +15,7 @@ interface SummaryPageProps {
  * 显示各模型输出和 AI 总结面板
  */
 function SummaryPage({ onNavigateBack, initialHistoryItem, isActive }: SummaryPageProps): JSX.Element {
-  const { models, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots, pendingSummarySession, setPendingSummarySession, history, currentConversationId, isHistoryOpen, setHistoryOpen } = useAppStore()
+  const { models, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots, pendingSummarySession, setPendingSummarySession, history, currentConversationId, isHistoryOpen, setHistoryOpen, activeModels, isNewSession, textInserted } = useAppStore()
 
   const [activeHistoryId, setActiveHistoryId] = useState<string | undefined>(undefined)
 
@@ -24,9 +24,17 @@ function SummaryPage({ onNavigateBack, initialHistoryItem, isActive }: SummaryPa
     return getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots)
   }, [models, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots])
 
-  // 默认选中所有显示的模型
+  // 目标模型列表：如果会话活跃且 activeModels 非空，则展示参与本次对话的模型；否则展示全部当前槽位模型
+  const targetModels = useMemo(() => {
+    const isSessionActive = !isNewSession || textInserted
+    return isSessionActive && activeModels.length > 0
+      ? activeModels
+      : displayedModels
+  }, [isNewSession, textInserted, activeModels, displayedModels])
+
+  // 默认选中所有目标模型
   const [selectedModels, setSelectedModels] = useState<string[]>(
-    displayedModels.map(m => m.id)
+    targetModels.map(m => m.id)
   )
   const [modelResponses, setModelResponses] = useState<Record<string, string>>({})
 
@@ -88,8 +96,8 @@ function SummaryPage({ onNavigateBack, initialHistoryItem, isActive }: SummaryPa
         })
         .filter(m => (modelResponses[m.id] || '').trim().length > 0)
     }
-    return displayedModels.filter(m => (modelResponses[m.id] || '').trim().length > 0)
-  }, [displayedModels, modelResponses, restoreHistoryData, models])
+    return targetModels
+  }, [targetModels, modelResponses, restoreHistoryData, models])
 
   // 拖拽调整宽度状态
   const [rightPanelWidth, setRightPanelWidth] = useState(40) // 默认 40%
@@ -193,10 +201,10 @@ function SummaryPage({ onNavigateBack, initialHistoryItem, isActive }: SummaryPa
       setModelResponses(data)
       setSnapshotModelIds(session.snapshotModelIds ?? [])
 
-      const modelsWithData = displayedModels
+      const modelsWithData = targetModels
         .filter(m => data[m.id]?.trim().length > 0)
         .map(m => m.id)
-      setSelectedModels(modelsWithData.length > 0 ? modelsWithData : displayedModels.map(m => m.id))
+      setSelectedModels(modelsWithData.length > 0 ? modelsWithData : targetModels.map(m => m.id))
       // 新进入总结页（非历史恢复）必须清空 restoreHistoryData，否则 renderableModels 会一直走历史分支，
       // 且 useSummaryPanel 的 useEffect([restoreHistoryData]) 会让新总结写回旧历史。
       setRestoreHistoryData(null)
@@ -215,13 +223,13 @@ function SummaryPage({ onNavigateBack, initialHistoryItem, isActive }: SummaryPa
         console.log('[SummaryPage] 从 history fallback 加载:', Object.keys(data))
       }
       setModelResponses(data)
-      const modelsWithData = displayedModels
+      const modelsWithData = targetModels
         .filter(m => data[m.id]?.trim().length > 0)
         .map(m => m.id)
-      setSelectedModels(modelsWithData.length > 0 ? modelsWithData : displayedModels.map(m => m.id))
+      setSelectedModels(modelsWithData.length > 0 ? modelsWithData : targetModels.map(m => m.id))
       setIsLoadingResponses(false)
     }
-  }, [initialHistoryItem, pendingSummarySession, displayedModels, setPendingSummarySession])
+  }, [initialHistoryItem, pendingSummarySession, targetModels, setPendingSummarySession])
 
   return (
     <div className="flex h-full overflow-hidden" ref={containerRef}>
@@ -262,6 +270,12 @@ function SummaryPage({ onNavigateBack, initialHistoryItem, isActive }: SummaryPa
                 selected={selectedModels.includes(model.id)}
                 onToggle={() => toggleModelSelection(model.id)}
                 badge={snapshotModelIds.includes(model.id) ? '快照' : undefined}
+                onContentChange={(newContent) => {
+                  setModelResponses(prev => ({
+                    ...prev,
+                    [model.id]: newContent
+                  }))
+                }}
               />
             ))}
           </div>

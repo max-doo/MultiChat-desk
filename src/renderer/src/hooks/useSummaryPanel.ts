@@ -309,6 +309,29 @@ export function useSummaryPanel({ selectedModels, modelResponses, restoreHistory
     }
   }, [restoreHistoryData])
 
+  // 监听 modelResponses 变化，同步到快照及持久化历史中
+  useEffect(() => {
+    if (Object.keys(capturedModelResponsesRef.current).length > 0) {
+      const nextCaptured = { ...capturedModelResponsesRef.current }
+      let changed = false
+      for (const key of Object.keys(modelResponses)) {
+        if (modelResponses[key] !== nextCaptured[key]) {
+          nextCaptured[key] = modelResponses[key]
+          changed = true
+        }
+      }
+      if (changed) {
+        setCapturedModelResponsesBoth(nextCaptured)
+        // If we are actively editing inside a summary session, update its history immediately
+        if (currentSummaryHistoryIdRef.current) {
+          updateSummaryHistory(currentSummaryHistoryIdRef.current, {
+            modelResponses: nextCaptured
+          })
+        }
+      }
+    }
+  }, [modelResponses, updateSummaryHistory])
+
   const lastChatSessionVersionRef = useRef(chatSessionVersion)
   useEffect(() => {
     if (chatSessionVersion !== lastChatSessionVersionRef.current) {

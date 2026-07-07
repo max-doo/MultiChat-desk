@@ -11,6 +11,7 @@ interface ModelOutputCardProps {
   selected: boolean
   onToggle: () => void
   badge?: string
+  onContentChange?: (newContent: string) => void
 }
 
 /**
@@ -23,13 +24,16 @@ function ModelOutputCard({
   content,
   selected,
   onToggle,
-  badge
+  badge,
+  onContentChange
 }: ModelOutputCardProps): JSX.Element {
   const [isExpanded, setIsExpanded] = useState(false)
   const [shouldShowExpand, setShouldShowExpand] = useState(false)
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   const contentRef = useRef<HTMLDivElement>(null)
   const toastTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const [isEditing, setIsEditing] = useState(false)
+  const [editedContent, setEditedContent] = useState('')
 
   // 检测内容是否过长，需要显示展开按钮
   useEffect(() => {
@@ -192,60 +196,120 @@ function ModelOutputCard({
           )}
         </div>
 
-        <button
-          onClick={handleCopyMarkdown}
-          className="w-8 h-8 rounded-lg flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-gray-100/50 transition-colors"
-          title="复制 Markdown"
-          aria-label="复制 Markdown"
-        >
-          <span className="material-symbols-outlined text-base">content_copy</span>
-        </button>
+        <div className="flex items-center gap-1">
+          {onContentChange && (
+            <button
+              type="button"
+              onClick={() => {
+                if (isEditing) {
+                  setIsEditing(false)
+                } else {
+                  setIsEditing(true)
+                  setEditedContent(content === '暂无回复内容' ? '' : content)
+                }
+              }}
+              className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
+                isEditing
+                  ? 'text-primary bg-primary/10'
+                  : 'text-text-secondary hover:text-text-primary hover:bg-gray-100/50'
+              }`}
+              title={isEditing ? '取消编辑' : '手动粘贴/编辑内容'}
+              aria-label={isEditing ? '取消编辑' : '手动粘贴/编辑内容'}
+            >
+              <span className="material-symbols-outlined text-base">edit</span>
+            </button>
+          )}
+          <button
+            onClick={handleCopyMarkdown}
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-gray-100/50 transition-colors"
+            title="复制 Markdown"
+            aria-label="复制 Markdown"
+          >
+            <span className="material-symbols-outlined text-base">content_copy</span>
+          </button>
+        </div>
       </div>
 
       {/* 输出内容 - 使用 Markdown 渲染 */}
       <div className="p-4">
-        <div className={shouldShowExpand && !isExpanded ? 'relative' : ''}>
-          <div 
-            ref={contentRef}
-            className={`text-text-secondary prose prose-invert prose-sm max-w-none 
-              prose-headings:text-text-primary prose-headings:font-semibold
-              prose-p:text-text-secondary prose-p:leading-relaxed
-              prose-a:text-primary prose-a:no-underline hover:prose-a:underline
-              prose-strong:text-text-primary
-              prose-code:text-primary prose-code:bg-sidebar prose-code:px-1 prose-code:rounded
-              prose-pre:bg-app prose-pre:border prose-pre:border-gray-200
-              prose-ul:text-text-secondary prose-ol:text-text-secondary
-              prose-li:marker:text-gray-500
-              prose-table:text-text-secondary prose-table:border-collapse
-              prose-th:text-text-primary prose-th:font-semibold prose-th:border prose-th:border-gray-300 prose-th:px-4 prose-th:py-2 prose-th:bg-sidebar/50
-              prose-td:text-text-secondary prose-td:border prose-td:border-gray-200 prose-td:px-4 prose-td:py-2
-              prose-tr:border-b prose-tr:border-gray-200 hover:prose-tr:bg-sidebar/30
-              transition-all duration-300 overflow-y-auto custom-scrollbar ${
-                shouldShowExpand && !isExpanded 
-                  ? 'max-h-[200px]' 
-                  : 'max-h-[60vh]'
-              }`}
-          >
-            <ReactMarkdown 
-              remarkPlugins={[remarkGfm]}
-              components={markdownComponents}
-            >
-              {content}
-            </ReactMarkdown>
+        {isEditing ? (
+          <div className="flex flex-col gap-3">
+            <textarea
+              value={editedContent}
+              onChange={(e) => setEditedContent(e.target.value)}
+              placeholder="请在此处粘贴或输入内容作为爬取兜底..."
+              className="w-full min-h-[150px] p-3 text-sm text-text-primary bg-sidebar/50 border border-gray-300 rounded-lg focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/30 resize-y"
+              autoFocus
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setIsEditing(false)}
+                className="px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-lg text-text-secondary hover:bg-gray-100/50 transition-colors"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onContentChange?.(editedContent)
+                  setIsEditing(false)
+                  if (!selected && editedContent.trim().length > 0) {
+                    onToggle()
+                  }
+                }}
+                className="px-3 py-1.5 text-xs font-medium bg-primary text-white rounded-lg hover:opacity-90 transition-opacity"
+              >
+                保存
+              </button>
+            </div>
           </div>
-        </div>
+        ) : (
+          <>
+            <div className={shouldShowExpand && !isExpanded ? 'relative' : ''}>
+              <div 
+                ref={contentRef}
+                className={`text-text-secondary prose prose-invert prose-sm max-w-none 
+                  prose-headings:text-text-primary prose-headings:font-semibold
+                  prose-p:text-text-secondary prose-p:leading-relaxed
+                  prose-a:text-primary prose-a:no-underline hover:prose-a:underline
+                  prose-strong:text-text-primary
+                  prose-code:text-primary prose-code:bg-sidebar prose-code:px-1 prose-code:rounded
+                  prose-pre:bg-app prose-pre:border prose-pre:border-gray-200
+                  prose-ul:text-text-secondary prose-ol:text-text-secondary
+                  prose-li:marker:text-gray-500
+                  prose-table:text-text-secondary prose-table:border-collapse
+                  prose-th:text-text-primary prose-th:font-semibold prose-th:border prose-th:border-gray-300 prose-th:px-4 prose-th:py-2 prose-th:bg-sidebar/50
+                  prose-td:text-text-secondary prose-td:border prose-td:border-gray-200 prose-td:px-4 prose-td:py-2
+                  prose-tr:border-b prose-tr:border-gray-200 hover:prose-tr:bg-sidebar/30
+                  transition-all duration-300 overflow-y-auto custom-scrollbar ${
+                    shouldShowExpand && !isExpanded 
+                      ? 'max-h-[200px]' 
+                      : 'max-h-[60vh]'
+                  }`}
+              >
+                <ReactMarkdown 
+                  remarkPlugins={[remarkGfm]}
+                  components={markdownComponents}
+                >
+                  {content}
+                </ReactMarkdown>
+              </div>
+            </div>
 
-        {/* 展开/收起按钮 */}
-        {shouldShowExpand && (
-          <button
-            onClick={toggleExpand}
-            className="mt-3 flex items-center gap-1 text-primary hover:text-primary/80 transition-colors text-sm font-medium"
-          >
-            <span className="material-symbols-outlined text-base">
-              {isExpanded ? 'expand_less' : 'expand_more'}
-            </span>
-            <span>{isExpanded ? '收起' : '展开'}</span>
-          </button>
+            {/* 展开/收起按钮 */}
+            {shouldShowExpand && (
+              <button
+                onClick={toggleExpand}
+                className="mt-3 flex items-center gap-1 text-primary hover:text-primary/80 transition-colors text-sm font-medium"
+              >
+                <span className="material-symbols-outlined text-base">
+                  {isExpanded ? 'expand_less' : 'expand_more'}
+                </span>
+                <span>{isExpanded ? '收起' : '展开'}</span>
+              </button>
+            )}
+          </>
         )}
       </div>
     </div>

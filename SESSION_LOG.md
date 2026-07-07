@@ -1,5 +1,27 @@
 # Session Log
 
+## 2026-07-07
+
+### 21:45 | Antigravity
+
+- done: Implement manual input fallback edit/paste button on model output cards and synchronize with summary states/history
+- modified:
+  - `src/renderer/src/components/ModelOutputCard.tsx`
+  - `src/renderer/src/hooks/useSummaryPanel.ts`
+  - `src/renderer/src/pages/SummaryPage.tsx`
+
+### 21:33 | Antigravity
+
+- done: 修复总结页面直接使用 displayedModels 导致的回归问题：现在通过 targetModels（活跃会话用 activeModels，非活跃用 displayedModels）过滤卡片，与主界面活跃模型 100% 同步
+- modified:
+  - `src/renderer/src/pages/SummaryPage.tsx`
+
+### 21:26 | Antigravity
+
+- done: 在总结页面中，若没有爬取到任何回复，也要展示空的内容卡片，且与当前模式下显示的 Webview 对应
+- modified:
+  - `src/renderer/src/pages/SummaryPage.tsx`
+
 ## 2026-07-06
 
 ### 22:53 | Antigravity
@@ -829,106 +851,4 @@
 - lesson(promoted): Electron 安装版稳态内存 800MB/峰值 1G 的三大可优化热点：(1) summaryApi.ts 每个流式 chunk 都 JSON.stringify 全量打印到 main 进程 stdout，是运行时峰值主因——必须用 is.dev 包住；(2) appStore history/summaryHistory slice(0,1000) 全量常驻 Zustand + 每 3 秒全量 storeSet 持久化，是稳态主因——上限改 100 且 initializeStore 加载时对老数据裁剪回写；(3) getNetworkSnifferScript 会把所有 fetch/XHR 响应体 console.log，是潜伏泄漏——生产环境返回空脚本。诊断结论：多 webview 独立渲染进程（300-500MB）是固有开销不可优化，真正可省的是日志和全量历史。
 - lesson(promoted): Electron 内存优化的固有 vs 可优化边界：每个 <webview> 是独立渲染进程（site isolation），3-4 个 AI 平台 SPA 各 80-150MB 是固有开销，无法通过代码优化降低；persist:shared session 共享是架构约束（AGENTS.md 禁止动）。可优化的是：main 进程日志量、Zustand 全量常驻数据、隐藏未销毁的 webview（本次未动，用户要求保留会话）、Chromium 命令行开关（--js-flags=--max-old-space-size，本次未动待实测）。
 - unresolved: ROI 3（webview 销毁策略）用户选保留现状，未实施。ROI 5（main 进程 --js-flags 内存开关、SessionManager backgroundThrottling）未实施，需实测。Material Symbols woff2 字体 3.95MB 全量打包，可子集化但未动。
-
-## 2026-06-30
-
-### 22:24 | Antigravity
-
-- done: Updated Gemini Deep Research selector to support Chinese text
-- modified:
-  - `src/shared/config/selectors.ts`
-
-### 21:57 | Antigravity
-
-- done: Clean up unused useAppStore import in CustomDropdown.tsx
-- modified:
-  - `src/renderer/src/components/CustomDropdown.tsx`
-
-### 21:54 | Antigravity
-
-- done: Revert WebContentsView architecture back to original <webview> tag implementation
-- added:
-  - `docs/superpowers/plans/2026-06-30-webview-revert.md`
-- modified:
-  - `src/main/ipcHandlers.ts`
-  - `src/main/webviewManager.ts`
-  - `src/preload/index.d.ts`
-  - `src/preload/index.ts`
-  - `src/renderer/src/assets/index.css`
-  - `src/renderer/src/components/ConfirmModal.tsx`
-  - `src/renderer/src/components/ControlBar.tsx`
-  - `src/renderer/src/components/HistoryDrawer.tsx`
-  - `src/renderer/src/components/Layout.tsx`
-  - `src/renderer/src/components/RenameModal.tsx`
-  - `src/renderer/src/components/SettingsDrawer.tsx`
-  - `src/renderer/src/components/SummaryHistoryDrawer.tsx`
-  - `src/renderer/src/components/WebviewCard.tsx`
-  - `src/renderer/src/store/appStore.ts`
-  - `src/renderer/src/utils/geminiCanvasExtractor.ts`
-- removed:
-  - `src/main/webContentsViewManager.ts`
-  - `refactor_extractor.py`
-  - `refactor_webview.py`
-  - `test-corners.js`
-
-### 20:58 | Antigravity
-
-- done: Enhance Webview automation selectors and logic robustness with regex matching, menu opener fallbacks, and network sniffer support; fix dropdown overlay closing on resize
-- modified:
-  - `src/renderer/src/components/CustomDropdown.tsx`
-  - `src/renderer/src/store/appStore.ts`
-  - `src/shared/config/selectors.ts`
-  - `src/shared/utils/webviewScripts.ts`
-- lesson(promoted): When elements in third-party AI web pages are dynamically loaded or change structure, regex exclusions and semantic menu opener fallbacks are much more resilient than static DOM selector lists.
-
-### 20:51 | Antigravity
-
-- done: Restore git to previous state
-
-### 19:42 | Antigravity
-
-- done: Restore capturePage DPI resizing logic to fix screenshot jump
-- modified:
-  - `src/main/ipcHandlers.ts`
-- lesson(promoted): When faking a native window with a screenshot, rely on main process image.resize() to force 1:1 DIP dimensions, rather than relying on browser CSS background-size: 100% 100% to downscale physical pixels, which introduces visible resampling jumps.
-
-### 09:04 | Antigravity
-
-- done: Optimize WebContentsView bounds sync during resize by switching to fire-and-forget IPC and requestAnimationFrame throttling
-- modified:
-  - `src/preload/index.d.ts`
-  - `src/preload/index.ts`
-  - `src/main/ipcHandlers.ts`
-  - `src/renderer/src/components/WebviewCard.tsx`
-
-### 01:27 | Antigravity
-
-- done: 优化四窗模式下宽度不足时的布局：不再出现田字格模式，而是使用横向滚动条滑动查看
-- modified:
-  - `src/renderer/src/pages/MainPage.tsx`
-
-### 01:25 | Antigravity
-
-- done: Remove WebviewCard min-height limit and increase desktop window minHeight limits
-- modified:
-  - `src/renderer/src/components/WebviewCard.tsx`
-  - `src/renderer/src/pages/MainPage.tsx`
-  - `src/main/webviewManager.ts`
-
-### 01:18 | Antigravity
-
-- done: Fix WebContentsView vertical overflow over toolbar and update to official rounded corners API
-- modified:
-  - `src/main/webContentsViewManager.ts`
-  - `src/renderer/src/components/WebviewCard.tsx`
-
-### 00:24 | Antigravity
-
-- done: Reverted back to CustomDropdown, fixed the WebContentsView overlay issue by broadening needsOverlay to cover all slots, and implemented a CSS-based border-radius clipping mechanism for WebContentsView since setBorderRadius has no effect on Windows.
-- lesson(promoted): 1. setBorderRadius on WebContentsView is a no-op on Windows. To achieve zero-margin rounded corners for WebContentsView, set the view's background color to transparent (#00000000) and inject CSS to apply border-radius and overflow:hidden to the html tag. 2. When a modal or drawer is absolute-positioned and overlays multiple elements, tracking which specific slots it overlays can be error-prone; it is safer to apply the Screenshot Illusion to ALL WebContentsView instances when any overlay is active.
-
-### 00:17 | Antigravity
-
-- done: Implemented screenshot illusion for drawers and native menus for model selection to fix WebContentsView UI layout issues without reverting the architecture.
-- lesson(promoted): When moving from <webview> to WebContentsView, DOM UI elements (like dropdowns and drawers) will be obscured by the native view. To fix this without breaking responsive web layouts: (1) Use native Menus for dropdowns to escape the DOM z-index context. (2) For complex overlays like side drawers, capture the native view as an image (capturePage), set it as a background, and temporarily hide the native view so DOM elements can render on top.
 
