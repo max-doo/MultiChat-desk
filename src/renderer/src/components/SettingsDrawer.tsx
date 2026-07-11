@@ -624,7 +624,8 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
   }
 
   // 划词悬浮工具条状态
-  const [selectionToolbarEnabled, setSelectionToolbarEnabled] = useState<boolean>(true)
+  const [selectionToolbarEnabled, setSelectionToolbarEnabled] = useState<boolean>(false)
+  const [selectionPermission, setSelectionPermission] = useState<string>('unknown')
 
   useEffect(() => {
     if (isOpen && window.api?.selectionToolbarGet) {
@@ -633,14 +634,23 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
           setSelectionToolbarEnabled(res.data)
         }
       })
+      if (window.api.platform === 'darwin' && window.api.selectionPermissionGet) {
+        window.api.selectionPermissionGet().then(res => {
+          if (res.success && res.data) setSelectionPermission(res.data)
+        })
+      }
     }
   }, [isOpen])
 
   const handleSelectionToolbarChange = async (enabled: boolean): Promise<void> => {
-    setSelectionToolbarEnabled(enabled)
     if (window.api?.selectionToolbarSet) {
-      await window.api.selectionToolbarSet(enabled)
+      const result = await window.api.selectionToolbarSet(enabled)
+      if (!result.success) {
+        alert(result.error || '无法启用划词悬浮工具条')
+        return
+      }
     }
+    setSelectionToolbarEnabled(enabled)
   }
 
   // 确认弹窗状态
@@ -1282,6 +1292,18 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
               <div>
                 <div className="text-sm text-text-primary font-medium">启用划词悬浮工具条</div>
                 <div className="text-xs text-text-secondary mt-1">开启后，选中文本松开鼠标将自动出现快捷操作栏</div>
+                {window.api.platform === 'darwin' && (
+                  <button
+                    type="button"
+                    className="mt-2 text-xs text-primary hover:underline"
+                    onClick={async () => {
+                      const res = await window.api.selectionPermissionRequest()
+                      if (res.success && res.data) setSelectionPermission(res.data)
+                    }}
+                  >
+                    macOS 辅助功能权限：{selectionPermission}（点击请求；首次读取时可能还会请求“自动化”权限）
+                  </button>
+                )}
               </div>
               <label className="relative inline-flex items-center cursor-pointer">
                 <input

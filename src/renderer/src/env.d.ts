@@ -29,6 +29,7 @@ declare global {
   interface Window {
     electron: ElectronAPI
     api: {
+      platform: NodeJS.Platform
       minimizeWindow: () => void
       maximizeWindow: () => void
       closeWindow: () => void

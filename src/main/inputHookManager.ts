@@ -1,7 +1,7 @@
 import { startListen, HookJs, EventJs } from 'monio-napi'
 import { BrowserWindow } from 'electron'
 import { showToolbarAt, hideToolbarWindow, getToolbarWindow, isPointInToolbar, setCachedSelectionText } from './webviewManager'
-import { startUiaHelper, stopUiaHelper, readSelection } from './uiaSelectionHelper'
+import { startSelectionReader, stopSelectionReader, readPlatformSelection } from './platform/selectionReader'
 
 let hook: HookJs | null = null
 let isMouseDown = false
@@ -57,7 +57,7 @@ function processEvent(event: EventJs): void {
       startTime = Date.now()
       // 拖拽开始前先异步快照当前选区，松手时对比以判定是否产生了"新"选区
       if (!isAppFocused()) {
-        selAtDownPromise = readSelection().then((r) => r?.text ?? null)
+        selAtDownPromise = readPlatformSelection().then((r) => r?.text ?? null)
       }
     }
   }
@@ -119,7 +119,7 @@ export function startInputHook(): void {
   if (hook) return
 
   // 启动 UIA 选区读取助手（随工具条开关与 before-quit 联动）
-  startUiaHelper()
+  startSelectionReader()
 
   try {
     // 兼容 d.ts 与运行时不符：payload 运行时为 EventJs[]，这里统一解包成单事件逐条处理
@@ -141,7 +141,7 @@ async function handleTextSelection(x: number, y: number): Promise<void> {
   isReading = true
   try {
     // 松手后用 UIA 非侵入读取当前选区（不发 Ctrl+C，不杀终端进程、不抢 Word 工具条）
-    const selAtUp = (await readSelection())?.text ?? ''
+    const selAtUp = (await readPlatformSelection())?.text ?? ''
     // 拿到按下时的选区真值（promise 多半已 resolve，即时返回）
     const selAtDown = await selAtDownPromise
 
@@ -164,7 +164,7 @@ async function handleTextSelection(x: number, y: number): Promise<void> {
 }
 
 export function stopInputHook(): void {
-  stopUiaHelper()
+  stopSelectionReader()
   if (hook) {
     try {
       hook.stop()

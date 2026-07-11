@@ -17,6 +17,8 @@ interface GetFileInfoResult {
 
 // 自定义 API
 const api = {
+  platform: process.platform,
+
   // 窗口控制
   minimizeWindow: (): void => ipcRenderer.send('window-minimize'),
   maximizeWindow: (): void => ipcRenderer.send('window-maximize'),
@@ -263,9 +265,15 @@ const api = {
   },
 
   // 窗口拖拽
-  windowDragStart: (): void => ipcRenderer.send('window-drag-start'),
-  windowDragMove: (): void => ipcRenderer.send('window-drag-move'),
-  windowDragEnd: (): void => ipcRenderer.send('window-drag-end'),
+  windowDragStart: (): void => {
+    if (process.platform !== 'darwin') ipcRenderer.send('window-drag-start')
+  },
+  windowDragMove: (): void => {
+    if (process.platform !== 'darwin') ipcRenderer.send('window-drag-move')
+  },
+  windowDragEnd: (): void => {
+    if (process.platform !== 'darwin') ipcRenderer.send('window-drag-end')
+  },
 
   // 悬浮工具条
   toolbarAction: (action: 'quick' | 'summarize' | 'translate' | 'copy' | 'search'): void => {
@@ -276,6 +284,8 @@ const api = {
   },
   selectionToolbarGet: (): Promise<{ success: boolean; data?: boolean; error?: string }> => ipcRenderer.invoke('selection-toolbar:get'),
   selectionToolbarSet: (enabled: boolean): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('selection-toolbar:set', enabled),
+  selectionPermissionGet: (): Promise<{ success: boolean; data?: string; error?: string }> => ipcRenderer.invoke('selection-permission:get'),
+  selectionPermissionRequest: (): Promise<{ success: boolean; data?: string; error?: string }> => ipcRenderer.invoke('selection-permission:request'),
 
   // 自动化服务
   automationExecute: (platformId: string, prompt: string): Promise<{ success: boolean; data?: unknown; error?: string }> => ipcRenderer.invoke('automation:execute', platformId, prompt),

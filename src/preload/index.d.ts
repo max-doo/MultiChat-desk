@@ -54,6 +54,7 @@ declare global {
   interface Window {
     electron: ElectronAPI
     api: {
+      platform: NodeJS.Platform
       minimizeWindow: () => void
       maximizeWindow: () => void
       closeWindow: () => void
@@ -177,6 +178,8 @@ declare global {
       toolbarHide: () => void
       selectionToolbarGet: () => Promise<{ success: boolean; data?: boolean; error?: string }>
       selectionToolbarSet: (enabled: boolean) => Promise<{ success: boolean; error?: string }>
+      selectionPermissionGet: () => Promise<{ success: boolean; data?: string; error?: string }>
+      selectionPermissionRequest: () => Promise<{ success: boolean; data?: string; error?: string }>
       automationExecute: (platformId: string, prompt: string) => Promise<{ success: boolean; data?: unknown; error?: string }>
       automationCollectResult: (platformId: string) => Promise<{ success: boolean; data?: string; error?: string }>
       automationDevTestExec: (platformId: string, prompt: string) => Promise<{ success: boolean; data?: unknown; error?: string }>

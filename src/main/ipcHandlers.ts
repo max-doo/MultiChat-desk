@@ -16,7 +16,7 @@ import { startInputHook, stopInputHook } from './inputHookManager'
 import { broadcastStateChange } from './stateBus'
 import { HistoryManager } from './api/historyManager'
 import { getShortcuts, updateShortcuts, type ShortcutConfig } from './shortcutManager'
-import { readSelection } from './uiaSelectionHelper'
+import { readPlatformSelection, getAccessibilityPermissionStatus, requestAccessibilityPermission } from './platform/selectionReader'
 import {
     listSummaryPrompts,
     bootstrapSummaryPrompts,
@@ -254,19 +254,20 @@ export function registerIpcHandlers(
         return updateShortcuts(config)
     })
 
-    // 窗口拖拽状态
-    let dragStartMousePoint: { x: number, y: number } | null = null
-    let dragStartContentBounds: Electron.Rectangle | null = null
+    // macOS 使用原生 traffic lights 与 app-region 拖动，不注册 Windows 风格的手动拖动 IPC。
+    if (process.platform !== 'darwin') {
+      let dragStartMousePoint: { x: number, y: number } | null = null
+      let dragStartContentBounds: Electron.Rectangle | null = null
 
-    ipcMain.on('window-drag-start', (event) => {
+      ipcMain.on('window-drag-start', (event) => {
         const win = BrowserWindow.fromWebContents(event.sender)
         if (!win) return
         const { screen } = require('electron')
         dragStartMousePoint = screen.getCursorScreenPoint()
         dragStartContentBounds = win.getContentBounds()
-    })
+      })
 
-    ipcMain.on('window-drag-move', (event) => {
+      ipcMain.on('window-drag-move', (event) => {
         if (!dragStartMousePoint || !dragStartContentBounds) return
         const win = BrowserWindow.fromWebContents(event.sender)
         if (!win) return
@@ -282,12 +283,13 @@ export function registerIpcHandlers(
             width: dragStartContentBounds.width,
             height: dragStartContentBounds.height
         })
-    })
+      })
 
-    ipcMain.on('window-drag-end', () => {
+      ipcMain.on('window-drag-end', () => {
         dragStartMousePoint = null
         dragStartContentBounds = null
-    })
+      })
+    }
 
     // IPC 处理器：右键菜单操作
     ipcMain.handle('perform-contextmenu-action', async (_event, args: { wcId: number, action: 'copy' | 'paste' | 'save-image', data?: { url?: string } }) => {
@@ -1313,10 +1315,23 @@ export function registerIpcHandlers(
     // ============ 悬浮工具条 IPC 处理器 ============
 
     ipcMain.handle('selection-toolbar:get', () => {
-        return { success: true, data: store.get('selectionToolbarEnabled', true) as boolean }
+        return { success: true, data: store.get('selectionToolbarEnabled', false) as boolean }
     })
 
+    ipcMain.handle('selection-permission:get', () => ({
+        success: true,
+        data: getAccessibilityPermissionStatus()
+    }))
+
+    ipcMain.handle('selection-permission:request', () => ({
+        success: true,
+        data: requestAccessibilityPermission()
+    }))
+
     ipcMain.handle('selection-toolbar:set', (_event, enabled: boolean) => {
+        if (enabled && process.platform === 'darwin' && getAccessibilityPermissionStatus() !== 'granted') {
+            return { success: false, error: '请先授予 macOS 辅助功能权限，然后重新开启划词工具条' }
+        }
         store.set('selectionToolbarEnabled', enabled)
         if (enabled) {
             startInputHook()
@@ -1339,7 +1354,7 @@ export function registerIpcHandlers(
 
         // 兜底：缓存为空时现读一次（选区仍高亮，工具条 focusable:false 不夺焦）
         if (!text || text.trim().length === 0) {
-            const fresh = (await readSelection())?.text ?? ''
+            const fresh = (await readPlatformSelection())?.text ?? ''
             if (fresh && fresh.trim().length > 0) {
                 text = fresh
             }
