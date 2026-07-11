@@ -22,6 +22,7 @@ function Layout({ children }: LayoutProps): JSX.Element {
   useEffect(() => {
     const handlePointerMove = (_e: PointerEvent) => {
       if (isDraggingRef.current) {
+        if (window.api.platform === 'darwin') return
         window.api.windowDragMove()
       }
     }
@@ -29,6 +30,7 @@ function Layout({ children }: LayoutProps): JSX.Element {
     const handlePointerUp = (_e: PointerEvent) => {
       if (isDraggingRef.current) {
         isDraggingRef.current = false
+        if (window.api.platform === 'darwin') return
         window.api.windowDragEnd()
       }
     }
@@ -279,11 +281,12 @@ function Layout({ children }: LayoutProps): JSX.Element {
     <div className="flex flex-col h-screen bg-transparent">
       {/* 自定义标题栏 */}
       <div 
-        className="relative h-[38px] w-full shrink-0 grid items-center px-4 drag-region" 
+        className={`${window.api.platform === 'darwin' ? 'mac-titlebar' : ''} relative h-[38px] w-full shrink-0 grid items-center px-4 drag-region`}
         style={{ gridTemplateColumns: '1fr auto 1fr' }}
         onPointerDown={(e) => {
           // 只在点击 drag-region 且不在 no-drag 内部时触发拖拽
           const target = e.target as HTMLElement
+          if (window.api.platform === 'darwin') return
           if (target.closest('.no-drag')) return
           if (target.closest('.drag-region') || target === e.currentTarget) {
             isDraggingRef.current = true
@@ -296,8 +299,6 @@ function Layout({ children }: LayoutProps): JSX.Element {
       >
         <div className="flex items-center gap-3 select-none drag-region h-full">
           <div className="flex items-center gap-3 drag-region">
-            <img src="./assets/logo.png" alt="logo" className="w-4 h-4 opacity-80" onError={(e) => e.currentTarget.style.display = 'none'} />
-            
             {/* 模式选择分段控件 */}
             <div
               className={`flex items-center p-0.5 bg-gray-200/60 dark:bg-gray-700/60 rounded-lg text-xs gap-0.5 no-drag ${currentPage === 'summary' || debateState.phase === 'running' || debateState.phase === 'paused' ? 'opacity-50 pointer-events-none' : ''}`}

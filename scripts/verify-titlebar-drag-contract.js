@@ -11,28 +11,24 @@ const checks = [
   {
     file: 'src/main/ipcHandlers.ts',
     patterns: [
-      "ipcMain.handle('window-drag-start'",
+      "ipcMain.on('window-drag-start'",
       "ipcMain.on('window-drag-move'",
       "ipcMain.on('window-drag-end'",
-      'setPosition(nextX, nextY'
+      'setContentBounds({'
     ]
   },
   {
     file: 'src/preload/index.ts',
-    patterns: ['startWindowDrag', 'moveWindowDrag', 'endWindowDrag']
+    patterns: ['windowDragStart', 'windowDragMove', 'windowDragEnd']
   },
   {
     file: 'src/preload/index.d.ts',
-    patterns: ['startWindowDrag', 'moveWindowDrag', 'endWindowDrag']
-  },
-  {
-    file: 'src/renderer/src/env.d.ts',
-    patterns: ['startWindowDrag', 'moveWindowDrag', 'endWindowDrag']
+    patterns: ['windowDragStart', 'windowDragMove', 'windowDragEnd']
   },
   {
     file: 'src/renderer/src/components/Layout.tsx',
-    patterns: ['handleTitlebarMouseDown', 'window.api.startWindowDrag', 'window.api.moveWindowDrag', 'window.api.endWindowDrag'],
-    forbiddenPatterns: ['h-[38px] w-full shrink-0 grid items-center px-4 drag-region']
+    patterns: ['window.api.windowDragStart', 'window.api.windowDragMove', 'window.api.windowDragEnd', 'mac-titlebar'],
+    forbiddenPatterns: []
   }
 ]
 

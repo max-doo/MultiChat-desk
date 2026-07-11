@@ -335,12 +335,16 @@ export function createWindow(): void {
         show: false,
         autoHideMenuBar: true,
         frame: false,
-        titleBarStyle: 'hidden',
-        titleBarOverlay: {
-            color: '#EBF4FF',
-            symbolColor: '#333333',
-            height: 38
-        },
+        ...(process.platform === 'darwin'
+            ? { titleBarStyle: 'hiddenInset' as const }
+            : {
+                titleBarStyle: 'hidden' as const,
+                titleBarOverlay: {
+                    color: '#EBF4FF',
+                    symbolColor: '#333333',
+                    height: 38
+                }
+            }),
         backgroundColor: '#EBF4FF',
         icon: getWindowIcon(),
         webPreferences: {

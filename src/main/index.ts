@@ -15,8 +15,10 @@ import { sessionManager } from './services/SessionManager'
 import { automationService } from './services/AutomationService'
 import { startDaemonServer, stopDaemonServer } from './daemon/ipcServer'
 
-// 优化 GPU 渲染后端为 OpenGL，解决 Windows 平台下 Electron Webview GPU 合成黑屏及点击穿透问题，避免完全关闭硬件加速导致的软件渲染黑屏
-app.commandLine.appendSwitch('use-angle', 'gl')
+// 仅 Windows 需要该 GPU 后端修复；macOS 使用系统原生图形栈，不能套用 Windows 开关。
+if (process.platform === 'win32') {
+  app.commandLine.appendSwitch('use-angle', 'gl')
+}
 
 // ============ 便携模式支持 ============
 
@@ -173,7 +175,7 @@ if (!gotTheLock) {
     startDaemonServer()
 
     // 启动全局输入钩子（划词悬浮工具条）
-    if (store.get('selectionToolbarEnabled', true) !== false) {
+    if (store.get('selectionToolbarEnabled', false) === true) {
       // 预建隐藏工具条窗口，避免首次触发时现场建窗的瞬时激活抖动（挤掉 Word 迷你工具条等）
       createToolbarWindow()
       startInputHook()
