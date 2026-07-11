@@ -1,17 +1,22 @@
 import net from 'net'
 import fs from 'fs'
+import os from 'os'
+import path from 'path'
+import { randomBytes } from 'crypto'
 import { automationService } from '../services/AutomationService'
 
 const PIPE_PATH =
   process.platform === 'win32'
     ? '\\\\.\\pipe\\multichat-daemon'
-    : '/tmp/multichat-daemon.sock'
+    : path.join(os.tmpdir(), `multichat-daemon-${process.getuid?.() ?? 'user'}.sock`)
+const TOKEN_PATH = `${PIPE_PATH}.token`
 
 interface DaemonRequest {
   action?: string
   model?: string
   prompt?: string
   session?: string
+  token?: string
   [key: string]: unknown
 }
 
@@ -23,6 +28,19 @@ interface DaemonResponse<T = unknown> {
 
 let server: net.Server | null = null
 const activeSockets = new Set<net.Socket>()
+let daemonToken = ''
+
+function loadOrCreateDaemonToken(): string {
+  try {
+    const existing = fs.readFileSync(TOKEN_PATH, 'utf8').trim()
+    if (existing) return existing
+  } catch {
+    // Token does not exist yet.
+  }
+  const token = randomBytes(32).toString('hex')
+  fs.writeFileSync(TOKEN_PATH, token, { encoding: 'utf8', mode: 0o600 })
+  return token
+}
 
 /**
  * 向 Socket 发送响应，添加统一的分行符 (\n)
@@ -30,6 +48,11 @@ const activeSockets = new Set<net.Socket>()
 function sendResponse(socket: net.Socket, response: DaemonResponse): void {
   if (!socket.writable || socket.destroyed) {
     console.warn('[Daemon] Socket 已断开，响应未发送:', response)
+    return
+  }
+
+  if (process.platform !== 'win32' && req.token !== daemonToken) {
+    sendResponse(socket, { success: false, error: '未授权的本地 CLI 请求' })
     return
   }
   try {
@@ -103,6 +126,7 @@ export function startDaemonServer(): void {
       console.warn('[Daemon] 清理旧 Socket 文件失败:', err)
     }
   }
+  daemonToken = process.platform === 'win32' ? '' : loadOrCreateDaemonToken()
 
   server = net.createServer((socket) => {
     activeSockets.add(socket)
@@ -152,6 +176,14 @@ export function startDaemonServer(): void {
   })
 
   server.listen(PIPE_PATH, () => {
+    if (process.platform !== 'win32') {
+      try {
+        fs.chmodSync(PIPE_PATH, 0o600)
+        fs.chmodSync(TOKEN_PATH, 0o600)
+      } catch (err) {
+        console.warn('[Daemon] 无法收紧 Unix Socket 权限:', err)
+      }
+    }
     console.log(`[Daemon] 守护进程已启动，正在监听: ${PIPE_PATH}`)
   })
 }

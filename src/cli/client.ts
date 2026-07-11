@@ -1,9 +1,13 @@
 import net from 'net'
+import os from 'os'
+import path from 'path'
+import fs from 'fs'
 
 export const PIPE_PATH =
   process.platform === 'win32'
     ? '\\\\.\\pipe\\multichat-daemon'
-    : '/tmp/multichat-daemon.sock'
+    : path.join(os.tmpdir(), `multichat-daemon-${process.getuid?.() ?? 'user'}.sock`)
+const TOKEN_PATH = `${PIPE_PATH}.token`
 
 export interface DaemonResponse<T = unknown> {
   success: boolean
@@ -16,6 +20,17 @@ export function sendDaemonRequest<T = unknown>(
   jsonMode: boolean
 ): Promise<DaemonResponse<T>> {
   return new Promise((resolve) => {
+    const requestWithToken: Record<string, unknown> = { ...request }
+    if (process.platform !== 'win32') {
+      try {
+        requestWithToken.token = fs.readFileSync(TOKEN_PATH, 'utf8').trim()
+      } catch {
+        const message = '无法读取本地 CLI 授权信息，请确认 MultiChat 正在运行'
+        if (jsonMode) process.stderr.write(JSON.stringify({ success: false, error: message }, null, 2) + '\n')
+        else console.error(message)
+        process.exit(1)
+      }
+    }
     const socket = net.connect(PIPE_PATH)
     let buffer = ''
     let resolved = false
@@ -53,7 +68,7 @@ export function sendDaemonRequest<T = unknown>(
 
     socket.on('connect', () => {
       try {
-        socket.write(JSON.stringify(request) + '\n')
+        socket.write(JSON.stringify(requestWithToken) + '\n')
       } catch (err: unknown) {
         const errMsg = err instanceof Error ? err.message : String(err)
         handleErrorExit(`发送请求失败: ${errMsg}`)
