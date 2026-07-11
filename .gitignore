@@ -38,6 +38,8 @@ Thumbs.db
 
 # Generated files
 build/portable.txt
+assets/logo.icns
+assets/tray-iconTemplate.png
 
 # Worktrees
 .worktrees/

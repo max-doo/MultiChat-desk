@@ -15,11 +15,13 @@
     "postinstall": "electron-builder install-app-deps",
     "clean:store": "node -e \"const fs=require('fs');const path=require('path');const os=require('os');const pkg=require('./package.json');const appName=pkg.productName||pkg.name;const base=process.platform==='win32'?process.env.APPDATA:process.platform==='darwin'?path.join(os.homedir(),'Library','Application Support'):(process.env.XDG_CONFIG_HOME||path.join(os.homedir(),'.config'));const dirs=[path.join(base,appName),path.join(base,appName+'-dev')];const files=['config.json','config-dev.json'];for(const dir of dirs){for(const file of files){fs.rmSync(path.join(dir,file),{force:true});}}\"",
     "add-portable-marker": "node scripts/add-portable-marker.js",
+    "generate:mac-assets": "sh build/generate-mac-assets.sh",
+    "release:mac:checksums": "node scripts/generate-release-checksums.js",
     "build:win": "npm run build && electron-builder --win --config electron-builder.yml",
     "build:win:nsis": "npm run build && electron-builder --win nsis --config electron-builder.yml",
     "build:win:portable": "npm run build && npm run add-portable-marker && electron-builder --win zip --config electron-builder-portable.yml",
     "build:win:all": "npm run build && npm run add-portable-marker && electron-builder --win nsis --config electron-builder.yml && electron-builder --win zip --config electron-builder-portable.yml",
-    "build:mac": "npm run clean:store && npm run build && electron-builder --mac --config electron-builder.yml",
+    "build:mac": "npm run clean:store && npm run generate:mac-assets && npm run build && electron-builder --mac --config electron-builder.yml",
     "build:linux": "npm run clean:store && npm run build && electron-builder --linux --config"
   },
   "dependencies": {

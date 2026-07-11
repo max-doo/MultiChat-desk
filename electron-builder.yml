@@ -27,12 +27,6 @@ extraResources:
   - from: out/cli/index.js
     to: cli/index.js
 
-extraFiles:
-  - from: build/multichat-cli.cmd
-    to: multichat-cli.cmd
-  - from: build/multichat-cli.sh
-    to: multichat-cli.sh
-
 # ============ Windows 打包配置 ============
 win:
   target:
@@ -44,6 +38,11 @@ win:
     - target: zip
       arch:
         - x64
+  extraFiles:
+    - from: build/multichat-cli.cmd
+      to: multichat-cli.cmd
+    - from: build/multichat-cli.sh
+      to: multichat-cli.sh
 
 # ============ NSIS 安装包配置 ============
 nsis:
@@ -65,12 +64,19 @@ mac:
         - x64
         - arm64
   category: public.app-category.productivity
-  icon: assets/logo.png
-  hardenedRuntime: true
+  icon: assets/logo.icns
+  # 验证期明确不签名；进入正式发布阶段时改为 Developer ID + hardenedRuntime + notarization。
+  identity: null
+  hardenedRuntime: false
   gatekeeperAssess: false
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
   darkModeSupport: true
+  extraFiles:
+    - from: build/multichat-cli.sh
+      to: multichat-cli.sh
+    - from: build/MACOS_FIRST_OPEN.md
+      to: FIRST_OPEN_ON_MACOS.md
 
 # ============ DMG 配置 ============
 dmg:
