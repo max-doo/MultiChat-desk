@@ -175,7 +175,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
         return `<model_output name="${name}">\n${content}\n</model_output>`
       })
       .join('\n')
-    const requirement = customPrompt?.trim() || '请生成标准总结报告。'
+    const requirement = webviewCustomPrompt?.trim() || '请生成标准总结报告。'
     return [
       '[系统指令]',
       systemPrompt,
@@ -188,7 +188,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
       '[用户要求]',
       requirement
     ].join('\n')
-  }, [summaryMode, apiConfig.summaryPrompts, apiConfig.systemPrompt, selectedModels, models, modelResponses, customPrompt])
+  }, [summaryMode, apiConfig.summaryPrompts, apiConfig.systemPrompt, selectedModels, models, modelResponses, webviewCustomPrompt])
 
   const handleWebviewAssistantMessage = useCallback((msg: ChatMessage) => {
     const updated = [...webviewMessagesRef.current, msg]

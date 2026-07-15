@@ -609,6 +609,73 @@ export function registerIpcHandlers(
         }
     })
 
+    // IPC 处理器：将渲染层拖入的文件内容写入本地临时文件。
+    // 不直接信任 renderer 中 File.path，避免虚拟文件/浏览器拖拽产生不可用路径。
+    ipcMain.handle('create-temp-upload-file', async (_event, params: {
+        fileName: string
+        mimeType?: string
+        data: ArrayBuffer | Uint8Array
+    }) => {
+        try {
+            if (!params || typeof params.fileName !== 'string' || !params.fileName.trim()) {
+                return { success: false, error: '缺少文件名' }
+            }
+
+            const safeFileName = basename(params.fileName)
+            if (!safeFileName || safeFileName === '.' || safeFileName === '..') {
+                return { success: false, error: '文件名无效' }
+            }
+
+            const data = params.data
+            let bytes: Uint8Array
+            if (data instanceof ArrayBuffer) {
+                bytes = new Uint8Array(data)
+            } else if (ArrayBuffer.isView(data)) {
+                bytes = new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+            } else {
+                return { success: false, error: '文件内容无效' }
+            }
+
+            const tempDir = await mkdtemp(join(tmpdir(), 'multichat-uploads-'))
+            const filePath = join(tempDir, safeFileName)
+            await writeFile(filePath, bytes)
+
+            return {
+                success: true,
+                data: {
+                    filePath,
+                    fileName: safeFileName,
+                    mimeType: params.mimeType || 'application/octet-stream',
+                    size: bytes.byteLength
+                }
+            }
+        } catch (error) {
+            return { success: false, error: String(error) }
+        }
+    })
+
+    // IPC 处理器：清理拖拽上传创建的临时目录。
+    ipcMain.handle('cleanup-upload-temp', async (_event, filePath: string) => {
+        if (!filePath || typeof filePath !== 'string') {
+            return { success: false, error: 'invalid filePath' }
+        }
+
+        const tempRoot = resolve(tmpdir())
+        const targetDir = resolve(dirname(filePath))
+        const dirName = basename(targetDir)
+        const isAllowed = dirname(targetDir) === tempRoot && dirName.startsWith('multichat-uploads-')
+        if (!isAllowed) {
+            return { success: false, error: 'path not under multichat upload temp root' }
+        }
+
+        try {
+            await rm(targetDir, { recursive: true, force: true })
+            return { success: true }
+        } catch (error) {
+            return { success: false, error: String(error) }
+        }
+    })
+
     // IPC 处理器：清理粘贴图片产生的临时目录（multichat-paste-*）
     // 渲染层传入 readClipboardImage 返回的 filePath，main 层自行 dirname 取目录
     ipcMain.handle('cleanup-paste-temp', async (_event, filePath: string) => {

@@ -157,12 +157,7 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
       if (files.length === 0) return
 
       const file = files[0]
-      const filePath = (file as File & { path?: string })?.path
-      if (!filePath) {
-        showNotification('error', '无法读取文件路径，拖拽上传失败')
-        return
-      }
-      if (!window.api?.getFileInfo) {
+      if (!window.api?.createTempUploadFile || !window.api?.cleanupUploadTemp) {
         showNotification('error', 'API 不可用')
         return
       }
@@ -170,19 +165,35 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
       if (files.length > 1) {
         showNotification('info', `检测到 ${files.length} 个文件，将上传第 1 个`)
       } else {
-        showNotification('info', '正在获取文件信息...')
+        showNotification('info', '正在读取拖拽文件...')
       }
 
-      const infoResult = await window.api.getFileInfo(filePath)
-      if (!infoResult.success || !infoResult.data) {
-        showNotification('error', `获取文件信息失败: ${infoResult.error}`)
+      let fileData: NonNullable<Awaited<ReturnType<typeof window.api.createTempUploadFile>>['data']>
+      try {
+        const fileBuffer = await file.arrayBuffer()
+        const tempResult = await window.api.createTempUploadFile({
+          fileName: file.name,
+          mimeType: file.type || undefined,
+          data: fileBuffer
+        })
+        if (!tempResult.success || !tempResult.data) {
+          showNotification('error', `准备拖拽文件失败: ${tempResult.error || '未知错误'}`)
+          return
+        }
+        fileData = tempResult.data
+      } catch (error) {
+        showNotification('error', `读取拖拽文件失败: ${String(error)}`)
         return
       }
 
-      const fileData = infoResult.data
       showNotification('info', `正在上传 ${fileData.fileName} 到所有模型...`)
 
-      const results = await uploadFileToAll(fileData)
+      let results: Awaited<ReturnType<typeof uploadFileToAll>>
+      try {
+        results = await uploadFileToAll(fileData)
+      } finally {
+        await window.api.cleanupUploadTemp(fileData.filePath)
+      }
 
       const successCount = results.filter(r => r.success).length
       const failCount = results.filter(r => !r.success).length

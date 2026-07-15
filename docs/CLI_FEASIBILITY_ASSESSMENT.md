@@ -16,7 +16,7 @@
 推荐路线：
 
 ```text
-Agent / Shell / Script
+Client / Shell / Script
         |
       CLI
         |
@@ -86,7 +86,7 @@ multichat summarize --input outputs.json --provider openrouter --model openai/gp
 
 特点：
 
-- agent 每次通过一个进程调用
+- 脚本/程序每次通过一个进程调用
 - 输入来自命令参数或 stdin
 - 输出走 stdout/stderr/JSON
 
@@ -108,7 +108,7 @@ multichat summarize --input outputs.json --provider openrouter --model openai/gp
 - 会话恢复不稳定
 - 页面状态不可预测
 - 并发差
-- agent 多次调用时资源浪费大
+- 自动化工具多次调用时资源浪费大
 
 对当前产品来说，单次命令 CLI 最合理的用法是：
 
@@ -117,7 +117,7 @@ multichat summarize --input outputs.json --provider openrouter --model openai/gp
 
 ### 4.3 优点
 
-- 最符合 agent 使用习惯
+- 最符合自动化脚本使用习惯
 - 最容易被 Shell、脚本、Codex 类工具消费
 - `--json` 输出天然适合自动化链路
 - 学习成本低
@@ -218,7 +218,7 @@ Windows 环境建议优先：
 
 这是对当前项目最稳的路线，因为它同时满足：
 
-- agent 需要简洁入口
+- 自动化程序需要简洁入口
 - 页面自动化需要常驻上下文
 
 ### 6.1 推荐架构
@@ -409,13 +409,13 @@ Tauri 的问题不在于“不能做桌面应用”，而在于：
 ### 9.1 主要技术风险
 
 - 页面选择器会持续漂移
-- 多 agent 并发调用可能产生 session 抢占
+- 多客户端并发调用可能产生 session 抢占
 - 命令协议若一开始设计过大，后期会很难演进
 - 如果仍把关键编排留在 renderer，CLI 会持续失血
 
 ### 9.2 主要产品风险
 
-- CLI 若暴露过多隐式状态，agent 很难稳定使用
+- CLI 若暴露过多隐式状态，自动化工具很难稳定使用
 - 如果任务边界不清晰，日志和错误会难以定位
 - 如果直接追求“轻框架迁移”，可能会把真正应该解决的架构问题推迟
 
@@ -450,7 +450,7 @@ Tauri 的问题不在于“不能做桌面应用”，而在于：
 
 目标：
 
-- 提供 agent 可直接调用的入口
+- 提供自动化脚本可直接调用的入口
 
 交付：
 
@@ -459,7 +459,7 @@ Tauri 的问题不在于“不能做桌面应用”，而在于：
 - `summarize`
 - `session *`
 
-### Phase 4：补充 agent 友好特性
+### Phase 4：补充自动化程序友好特性
 
 目标：
 
@@ -477,12 +477,12 @@ Tauri 的问题不在于“不能做桌面应用”，而在于：
 
 ## 11. 最终建议
 
-如果目标是“让 agent 能直接使用这个产品”，当前最优路线不是重写壳层，而是：
+如果目标是“让外部自动化工具能直接使用这个产品”，当前最优路线不是重写壳层，而是：
 
 1. 保留 Electron/Webview 作为执行引擎
 2. 把执行逻辑服务化
 3. 用本地 IPC 暴露 daemon
-4. 用 CLI 作为 agent 的统一入口
+4. 用 CLI 作为自动化程序的统一入口
 
 对当前 MultiChat 来说，`Electron -> Tauri` 不是第一优先级，`UI 驱动 -> 服务驱动` 才是第一优先级。
 

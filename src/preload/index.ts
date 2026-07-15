@@ -87,6 +87,9 @@ const api = {
   readClipboardHTML: (): Promise<string> => ipcRenderer.invoke('read-clipboard-html'),
   readClipboardImage: (): Promise<GetFileInfoResult> => ipcRenderer.invoke('read-clipboard-image'),
   cleanupPasteTemp: (filePath: string): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('cleanup-paste-temp', filePath),
+  createTempUploadFile: (params: { fileName: string; mimeType?: string; data: ArrayBuffer }): Promise<GetFileInfoResult> =>
+    ipcRenderer.invoke('create-temp-upload-file', params),
+  cleanupUploadTemp: (filePath: string): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('cleanup-upload-temp', filePath),
 
   // 发送鼠标点击事件到 webview（用于触发 Gemini 复制按钮等）
   sendMouseClick: (webContentsId: number, x: number, y: number): Promise<{ success: boolean; error?: string }> =>

@@ -31,7 +31,7 @@
 `apiConfig.summarySource: 'api' | 'webview'` 默认 `'webview'`（`SummaryPanel.tsx:43`），目前只能从总结页顶部按钮切换，设置页无入口。新用户不知道有 API 模式，也不会去配置供应商。
 
 ### 设计
-在「总结Agent配置」区块**最顶部**新增一行单选：
+在「总结配置」区块**最顶部**新增一行单选：
 
 ```
 总结方式

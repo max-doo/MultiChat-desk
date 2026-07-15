@@ -41,7 +41,7 @@
 
 ### **1.2 产品愿景**
 
-**MultiChat (模方)** 是一款基于 **Electron 桌面应用** 的专业 AI 研究工具。通过并排嵌入多个 AI 平台的 Web 端，实现真正的并行对话、Deep Research 对比和统一文件分发，结合 AI Agent 自动生成验证报告，帮助用户做出更可靠的决策。
+**MultiChat (模方)** 是一款基于 **Electron 桌面应用** 的专业 AI 研究工具。通过并排嵌入多个 AI 平台的 Web 端，实现真正的并行对话、Deep Research 对比和统一文件分发，结合 AI 智能总结自动生成验证报告，帮助用户做出更可靠的决策。
 
 **核心价值主张：**
 > **"Ask Once, Compare All, Decide Better"**  
