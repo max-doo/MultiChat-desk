@@ -7,7 +7,7 @@
 
 ## 待完成
 
-- [ ] ChatGPT 深度研究内容难以抓取（涉及复杂 DOM 嵌套及跨域 Iframe 等防爬机制），提取容易失效，待进一步研究
+- [ ] 遗留：ChatGPT Deep Research 报告正文跨域、多层 OOPIF 提取仍失败且会拖长爬取时间；相关提取器已暂存于 `feat/chatgpt-deep-research-extractor`，主分支暂不启用，后续需重新设计并在真实报告上验收
 - [ ] AI 生图一键下载：支持在 AI 生图模式下点击底部“一键下载”按钮，从各 Webview 中抓取并批量下载最新生成图片的功能实现
 - [ ] AI 生图一键下载 Bug：当前一键下载图片对豆包、gemini、gpt、智谱不生效
 - [ ] **Gemini 历史会话恢复失败（Gemini 网页 bug，待上游修复）**：点击历史项后 webview 加载目标 URL 但 UI 落在初始页、对话内容不渲染。根因经多轮诊断确认是 Gemini 网页自身行为——`loadURL(/app/<id>)` 这种 deep-link 加载方式不可靠（URL 导航正确但 conversation 内容不渲染），成功率纯随机，与时机/状态/重试无关；浏览器首次打开 `/app/<id>` 同样有概率失败；**只有点击 Gemini 网页内左侧栏历史 UI 才能可靠恢复**。代码层无法修复（非 MultiChat 逻辑错误）。已排除方案：①A 守卫跳过同 URL（只挡重复加载、挡不住 deep-link 冷加载）②B 检测+重试（纯随机，重试无效）③点侧栏历史自动化（依赖 Angular 内部 DOM、侧栏视口小时折叠历史项不在 DOM、旧历史不在侧栏列表，脆弱且覆盖不全，已弃）。诊断证据见记忆 `gemini-history-restore-fails`。**跟踪条件**：日后用浏览器直开 `https://gemini.google.com/app/<某id>` 若能稳定显示历史，说明 Gemini 已修，届时可恢复 `loadURL` 路径；否则保持现状。附带独立缺陷（非根因，可单独修）：`MainPage.tsx:937-948` 的 `/u/N/` 多账号前缀重写是死代码（`models[].url` 硬编码 `https://gemini.google.com/app`、`updateModel` 全 renderer 零调用），多账号防护实际未生效

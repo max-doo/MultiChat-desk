@@ -27,7 +27,6 @@ import {
     type SummaryPromptFileItem
 } from './summaryPrompts'
 import { automationService } from './services/AutomationService'
-import { extractChatgptDeepResearchReport } from './chatgptDeepResearchExtractor'
 
 // 存储当前的 AbortController，用于终止请求
 let currentSummaryAbortController: AbortController | null = null
@@ -690,31 +689,6 @@ export function registerIpcHandlers(
         } catch (error) {
             return { success: false, error: String(error) }
         }
-    })
-
-    // ChatGPT Deep Research 报告位于跨域 OOPIF 中，顶层 executeJavaScript 无法读取。
-    // renderer 只传 webContentsId；实际执行脚本固定在 main 层，避免暴露任意 frame 脚本注入能力。
-    ipcMain.handle('chatgpt:extract-deep-research-report', async (event, webContentsId: number) => {
-        const mainWindow = getMainWindow()
-        if (!mainWindow || mainWindow.isDestroyed() || event.sender.id !== mainWindow.webContents.id) {
-            return { success: false, error: '无权提取 Deep Research 报告' }
-        }
-        if (!Number.isInteger(webContentsId) || webContentsId <= 0) {
-            return { success: false, error: '无效的 webContentsId' }
-        }
-
-        const { webContents } = require('electron')
-        const target = webContents.fromId(webContentsId) as Electron.WebContents | undefined
-        if (!target || target.isDestroyed() || target.getType() !== 'webview') {
-            return { success: false, error: '未找到目标 ChatGPT webview' }
-        }
-
-        const currentUrl = target.getURL()
-        if (!/^https:\/\/(chatgpt\.com|chat\.openai\.com)(\/|$)/i.test(currentUrl)) {
-            return { success: false, error: '目标 webview 不是 ChatGPT 页面' }
-        }
-
-        return extractChatgptDeepResearchReport(target)
     })
 
     ipcMain.handle('dispatch-file-drop', async (_event, params: {

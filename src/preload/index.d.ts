@@ -88,11 +88,6 @@ declare global {
       createTempUploadFile: (params: { fileName: string; mimeType?: string; data: ArrayBuffer }) => Promise<GetFileInfoResult>
       cleanupUploadTemp: (filePath: string) => Promise<{ success: boolean; error?: string }>
       sendMouseClick: (webContentsId: number, x: number, y: number) => Promise<{ success: boolean; error?: string }>
-      extractChatgptDeepResearchReport: (webContentsId: number) => Promise<{
-        success: boolean
-        data?: { html: string; title: string; frameUrl: string; textLength: number }
-        error?: string
-      }>
       dispatchFileDrop: (webContentsId: number, filePath: string, x: number, y: number) => Promise<{ success: boolean; error?: string }>
       storeGet: (key: string) => Promise<unknown>
       storeSet: (key: string, value: unknown) => Promise<void>

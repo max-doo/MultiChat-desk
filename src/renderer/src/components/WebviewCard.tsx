@@ -118,11 +118,6 @@ interface WebviewCardProps {
 // 重新导出 FileUploadData 类型供其他组件使用
 export type { FileUploadData }
 
-export interface GetLatestResponseOptions {
-  /** 普通 DOM 抓取为空时，允许 main 进程附加 ChatGPT Deep Research OOPIF 读取报告。 */
-  allowDeepResearchFallback?: boolean
-}
-
 // 暴露给父组件的方法
 export interface WebviewCardRef {
   sendMessage: (message: string, twoPhase?: boolean) => Promise<{ success: boolean; error?: string }>
@@ -139,7 +134,7 @@ export interface WebviewCardRef {
   /** 按平台 imageDownload.steps 触发网页内置下载（hover/click），返回 {clicked, wcId}
    *  dryRun=true 时只校验配置并返回 wcId，不执行点击（用于主进程建 ctx 必须先于点击的时序） */
   clickDownloadButtons: (dryRun?: boolean) => Promise<{ clicked: number; wcId: number | null; error?: string }>
-  getLatestResponse: (options?: GetLatestResponseOptions) => Promise<string>
+  getLatestResponse: () => Promise<string>
   reload: () => void
   resetToInitial: () => Promise<{ success: boolean; error?: string }>
   getCurrentUrl: () => string
@@ -873,7 +868,7 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
        * 获取最新的 AI 回复
        * 对于 Gemini Canvas 模式，通过点击复制按钮并读取剪贴板获取内容
        */
-      getLatestResponse: async (options?: GetLatestResponseOptions): Promise<string> => {
+      getLatestResponse: async (): Promise<string> => {
         const webview = webviewRef.current
         if (!webview || !isReady || !selectors) {
           return ''
@@ -911,19 +906,6 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
           const content = await webview.executeJavaScript(code)
           if (typeof content === 'string' && content.trim()) {
             return content.trim()
-          }
-
-          // ChatGPT Deep Research 报告运行在 web-sandbox.oaiusercontent.com OOPIF 中，
-          // 顶层 executeJavaScript 无法跨源读取。仅在调用方明确允许时走 main 层固定 CDP 提取器。
-          if (id === 'chatgpt' && options?.allowDeepResearchFallback) {
-            const report = await window.api.extractChatgptDeepResearchReport(webview.getWebContentsId())
-            if (report.success && report.data?.html) {
-              const markdown = turndownService.turndown(report.data.html).trim()
-              if (markdown.length >= 100) {
-                console.info(`[${name}] Deep Research 报告提取成功: ${report.data.textLength} 字符`)
-                return markdown
-              }
-            }
           }
 
           return ''
