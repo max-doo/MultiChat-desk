@@ -4,6 +4,7 @@ import MainPage from './pages/MainPage'
 import SummaryPage from './pages/SummaryPage'
 import QuickPage from './pages/QuickPage'
 import ToolbarPage from './pages/ToolbarPage'
+import HistoryDrawer from './components/HistoryDrawer'
 import { initializeStore, useAppStore, SummaryHistoryItem } from './store/appStore'
 
 // 诊断页仅在 dev 构建 reachable：生产构建里 import.meta.env.DEV=false，
@@ -14,6 +15,10 @@ const DiagnosticsPage = import.meta.env.DEV
 
 function MainApp(): JSX.Element {
   const { currentPage, setCurrentPage } = useAppStore()
+  const isHistoryOpen = useAppStore((s) => s.isHistoryOpen)
+  const setHistoryOpen = useAppStore((s) => s.setHistoryOpen)
+  const historyInitialTab = useAppStore((s) => s.historyInitialTab)
+  const setPendingHistoryRestore = useAppStore((s) => s.setPendingHistoryRestore)
   const [isInitialized, setIsInitialized] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // 记录是否曾经打开过 SummaryPage，用于延迟渲染
@@ -158,6 +163,25 @@ function MainApp(): JSX.Element {
           />
         </div>
       )}
+
+      {/* 历史记录抽屉：渲染在页面容器外，两个页面均可显示 */}
+      <HistoryDrawer
+        isOpen={isHistoryOpen}
+        onClose={() => setHistoryOpen(false)}
+        initialTab={historyInitialTab}
+        onSelectHistory={(item) => {
+          // 跨页传递给 MainPage 消费：先切换到主页，再通过 pendingHistoryRestore 恢复
+          setHistoryOpen(false)
+          setPendingHistoryRestore(item)
+          setCurrentPage('main')
+        }}
+        onSelectSummaryHistory={(item) => {
+          // 选中总结历史：导航到总结页并恢复该记录
+          setHistoryOpen(false)
+          setInitialSummaryItem(item)
+          setCurrentPage('summary')
+        }}
+      />
     </Layout>
   )
 }

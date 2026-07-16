@@ -44,7 +44,7 @@ function Layout({ children }: LayoutProps): JSX.Element {
     }
   }, [])
   
-  const { displayMode, setDisplayMode, resetPaneRatios, isSettingsOpen, setSettingsOpen, setHistoryOpen, productMode, setProductMode, currentPage, apiConfig, setApiConfig, isNewSession, textInserted, activeModels, debateState } = useAppStore()
+  const { displayMode, setDisplayMode, resetPaneRatios, isSettingsOpen, setSettingsOpen, setHistoryOpen, setHistoryInitialTab, productMode, setProductMode, currentPage, apiConfig, setApiConfig, isNewSession, textInserted, activeModels, debateState } = useAppStore()
 
   const summarySource: 'api' | 'webview' = apiConfig?.summarySource ?? 'webview'
   const setSummarySource = (next: 'api' | 'webview') => {
@@ -334,18 +334,24 @@ function Layout({ children }: LayoutProps): JSX.Element {
             <button
               type="button"
               onClick={() => setSettingsOpen(true)}
-              className="w-7 h-7 flex items-center justify-center text-text-secondary hover:text-primary hover:bg-white/60 rounded-full transition-all duration-200"
+              className="h-7 px-2 flex items-center justify-center gap-1 text-text-secondary hover:text-primary hover:bg-white/60 rounded-lg transition-all duration-200"
               title="设置"
             >
-              <span className="material-symbols-outlined text-lg">settings</span>
+              <span className="material-symbols-outlined text-base">settings</span>
+              <span className="text-xs font-normal">设置</span>
             </button>
             <button
               type="button"
-              onClick={() => setHistoryOpen(true)}
-              className="w-7 h-7 flex items-center justify-center text-text-secondary hover:text-primary hover:bg-white/60 rounded-full transition-all duration-200"
+              onClick={() => {
+                // 总结页打开历史时自动定位到"总结历史" Tab
+                setHistoryInitialTab(currentPage === 'summary' ? 'summary' : 'conversation')
+                setHistoryOpen(true)
+              }}
+              className="h-7 px-2 flex items-center justify-center gap-1 text-text-secondary hover:text-primary hover:bg-white/60 rounded-lg transition-all duration-200"
               title="历史记录"
             >
-              <span className="material-symbols-outlined text-lg">history</span>
+              <span className="material-symbols-outlined text-base">history</span>
+              <span className="text-xs font-normal">历史</span>
             </button>
           </div>
         </div>

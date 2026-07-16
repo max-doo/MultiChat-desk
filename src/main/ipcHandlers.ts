@@ -27,6 +27,7 @@ import {
     type SummaryPromptFileItem
 } from './summaryPrompts'
 import { automationService } from './services/AutomationService'
+import { extractChatgptDeepResearchReport } from './chatgptDeepResearchExtractor'
 
 // 存储当前的 AbortController，用于终止请求
 let currentSummaryAbortController: AbortController | null = null
@@ -317,74 +318,27 @@ export function registerIpcHandlers(
                 return { success: true }
             }
             if (args.action === 'paste') {
-                // 先让 webContents 获得焦点
+                // 自绘菜单点击后，宿主 BrowserWindow 可能失去 WebView 的输入焦点。
+                // Electron 要求 sendInputEvent 的宿主窗口处于焦点状态，因此先恢复宿主窗口，
+                // 再向目标 WebView 发送平台对应的原生粘贴快捷键，避免直接改 DOM value。
+                const focusedWindow = BrowserWindow.getFocusedWindow()
+                if (focusedWindow && !focusedWindow.isDestroyed()) {
+                    focusedWindow.focus()
+                }
                 target.focus()
-
-                // 读取剪贴板内容
-                const clipboardText = clipboard.readText()
-                console.log('[ContextMenu] 剪贴板内容:', clipboardText?.substring(0, 50))
-
-                if (clipboardText) {
-                    // 在 webview 中执行 JavaScript 来插入文本
-                    // 这种方式更可靠，不依赖于 DOM 焦点状态
-                    try {
-                        await target.executeJavaScript(`
-              (function() {
-                const activeEl = document.activeElement;
-                const clipText = ${JSON.stringify(clipboardText)};
-                
-                // 如果是输入框或文本域
-                if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')) {
-                  const start = activeEl.selectionStart || 0;
-                  const end = activeEl.selectionEnd || 0;
-                  const value = activeEl.value;
-                  activeEl.value = value.slice(0, start) + clipText + value.slice(end);
-                  activeEl.selectionStart = activeEl.selectionEnd = start + clipText.length;
-                  activeEl.dispatchEvent(new Event('input', { bubbles: true }));
-                  return { success: true, method: 'input' };
-                }
-                
-                // 如果是 contenteditable 元素
-                if (activeEl && activeEl.isContentEditable) {
-                  document.execCommand('insertText', false, clipText);
-                  return { success: true, method: 'contenteditable' };
-                }
-                
-                // 尝试找到页面中的可编辑元素
-                const editables = document.querySelectorAll('input, textarea, [contenteditable="true"]');
-                for (const el of editables) {
-                  if (el.matches(':focus') || el.closest(':focus')) {
-                    if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
-                      el.value += clipText;
-                      el.dispatchEvent(new Event('input', { bubbles: true }));
-                      return { success: true, method: 'found-input' };
-                    } else {
-                      el.focus();
-                      document.execCommand('insertText', false, clipText);
-                      return { success: true, method: 'found-contenteditable' };
-                    }
-                  }
-                }
-                
-                // 最后尝试使用系统粘贴
-                document.execCommand('paste');
-                return { success: true, method: 'execCommand' };
-              })();
-            `)
-                        console.log('[ContextMenu] 执行 paste 完成 (通过 JS 注入)')
-                        return { success: true }
-                    } catch (jsError) {
-                        console.error('[ContextMenu] JS 注入粘贴失败:', jsError)
-                        // 回退到原生粘贴
-                        target.paste()
-                        return { success: true }
-                    }
-                } else {
-                    // 剪贴板为空时使用原生粘贴
-                    target.paste()
-                    console.log('[ContextMenu] 执行 paste 完成 (原生)')
-                    return { success: true }
-                }
+                const modifier = process.platform === 'darwin' ? 'command' : 'control'
+                target.sendInputEvent({
+                    type: 'keyDown',
+                    keyCode: 'V',
+                    modifiers: [modifier]
+                })
+                target.sendInputEvent({
+                    type: 'keyUp',
+                    keyCode: 'V',
+                    modifiers: [modifier]
+                })
+                console.log('[ContextMenu] 执行 paste 完成 (原生快捷键):', modifier === 'command' ? 'Command+V' : 'Ctrl+V')
+                return { success: true, method: 'native-keyboard-paste' }
             }
             if (args.action === 'save-image') {
                 const url = args.data?.url || ''
@@ -736,6 +690,31 @@ export function registerIpcHandlers(
         } catch (error) {
             return { success: false, error: String(error) }
         }
+    })
+
+    // ChatGPT Deep Research 报告位于跨域 OOPIF 中，顶层 executeJavaScript 无法读取。
+    // renderer 只传 webContentsId；实际执行脚本固定在 main 层，避免暴露任意 frame 脚本注入能力。
+    ipcMain.handle('chatgpt:extract-deep-research-report', async (event, webContentsId: number) => {
+        const mainWindow = getMainWindow()
+        if (!mainWindow || mainWindow.isDestroyed() || event.sender.id !== mainWindow.webContents.id) {
+            return { success: false, error: '无权提取 Deep Research 报告' }
+        }
+        if (!Number.isInteger(webContentsId) || webContentsId <= 0) {
+            return { success: false, error: '无效的 webContentsId' }
+        }
+
+        const { webContents } = require('electron')
+        const target = webContents.fromId(webContentsId) as Electron.WebContents | undefined
+        if (!target || target.isDestroyed() || target.getType() !== 'webview') {
+            return { success: false, error: '未找到目标 ChatGPT webview' }
+        }
+
+        const currentUrl = target.getURL()
+        if (!/^https:\/\/(chatgpt\.com|chat\.openai\.com)(\/|$)/i.test(currentUrl)) {
+            return { success: false, error: '目标 webview 不是 ChatGPT 页面' }
+        }
+
+        return extractChatgptDeepResearchReport(target)
     })
 
     ipcMain.handle('dispatch-file-drop', async (_event, params: {

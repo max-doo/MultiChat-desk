@@ -175,6 +175,7 @@ function TaskModePanel({ showNotification }: TaskModePanelProps): JSX.Element {
           currentUrls,
           productMode: 'task_assignment',
           displayMode,
+          title: taskState.query.trim(),
         })
         const userMessage = successSlotIndices.map(i => `【slot ${i + 1}】${sentTexts[i]}`).join('\n\n')
         const turnId = `${conversationId}-${crypto.randomUUID()}`

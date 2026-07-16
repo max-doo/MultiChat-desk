@@ -1,8 +1,7 @@
 import { type CSSProperties, type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import WebviewCard, { WebviewCardRef } from '../components/WebviewCard'
 import ControlBar, { ControlBarRef } from '../components/ControlBar'
-import HistoryDrawer from '../components/HistoryDrawer'
-import { useAppStore, getDisplayedModels, SummaryHistoryItem, ModelConfig } from '../store/appStore'
+import { useAppStore, getDisplayedModels, SummaryHistoryItem, HistoryItem, ModelConfig } from '../store/appStore'
 
 interface MainPageProps {
   onNavigateToSummary: (historyItem?: SummaryHistoryItem) => void
@@ -14,8 +13,8 @@ interface MainPageProps {
  * 包含 Webview 卡片、控制栏和抽屉组件
  */
 function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element {
-  const isHistoryOpen = useAppStore((state) => state.isHistoryOpen)
-  const setHistoryOpen = useAppStore((state) => state.setHistoryOpen)
+  const pendingHistoryRestore = useAppStore((state) => state.pendingHistoryRestore)
+  const setPendingHistoryRestore = useAppStore((state) => state.setPendingHistoryRestore)
   const [activeHistoryId, setActiveHistoryId] = useState<string | undefined>(undefined)
   // activeHistoryId 的 ref 镜像，供休眠调度器 useCallback 在不增加依赖的前提下读到最新回溯态
   const activeHistoryIdRef = useRef<string | undefined>(undefined)
@@ -26,7 +25,7 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
   const [isResizing, setIsResizing] = useState(false)
   const [suppressPaneTransition, setSuppressPaneTransition] = useState(false)
 
-  const models = useAppStore((state) => state.models)
+  const availableModels = useAppStore((state) => state.models)
   const displayMode = useAppStore((state) => state.displayMode)
   const productMode = useAppStore((state) => state.productMode)
   const taskAssignmentSlots = useAppStore((state) => state.taskAssignmentSlots)
@@ -323,8 +322,8 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
       if (productMode === 'debate') {
         const ds = useAppStore.getState().debateState
         const [proId, oppId] = debateSlots
-        const proName = models.find((m) => m.id === proId)?.name ?? '正方'
-        const oppName = models.find((m) => m.id === oppId)?.name ?? '反方'
+        const proName = availableModels.find((m) => m.id === proId)?.name ?? '正方'
+        const oppName = availableModels.find((m) => m.id === oppId)?.name ?? '反方'
         const proText = ds.rounds
           .map((r, i) => `【第${i + 1}轮·正方】\n${r.proponent ?? ''}`)
           .filter((s) => s.trim())
@@ -395,7 +394,7 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
       const isSessionActive = !isNewSession || textInserted
       const targetModelList = isSessionActive && activeModels.length > 0
         ? activeModels
-        : getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots)
+        : getDisplayedModels(availableModels, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots)
       for (const model of targetModelList) {
         if (!validResponses[model.id] && lastResponses[model.id]?.trim()) {
           validResponses[model.id] = lastResponses[model.id]
@@ -477,15 +476,15 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
 
   // 获取要显示的模型列表
   const displayedModels = useMemo(() => {
-    return getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots)
-  }, [models, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots])
+    return getDisplayedModels(availableModels, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots)
+  }, [availableModels, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots])
 
   // 获取各个模式下的模型列表，确保切走后保留会话
   const modeModels = useMemo(() => ({
-    multi_ai: getDisplayedModels(models, 'four', 'multi_ai', taskAssignmentSlots, multiAiSlots, debateSlots),
-    task_assignment: getDisplayedModels(models, 'four', 'task_assignment', taskAssignmentSlots, multiAiSlots, debateSlots),
-    debate: getDisplayedModels(models, 'two', 'debate', taskAssignmentSlots, multiAiSlots, debateSlots)
-  }), [models, taskAssignmentSlots, multiAiSlots, debateSlots])
+    multi_ai: getDisplayedModels(availableModels, 'four', 'multi_ai', taskAssignmentSlots, multiAiSlots, debateSlots),
+    task_assignment: getDisplayedModels(availableModels, 'four', 'task_assignment', taskAssignmentSlots, multiAiSlots, debateSlots),
+    debate: getDisplayedModels(availableModels, 'two', 'debate', taskAssignmentSlots, multiAiSlots, debateSlots)
+  }), [availableModels, taskAssignmentSlots, multiAiSlots, debateSlots])
 
   // ── 更新 productModeRef 和 modeModelsRef ──
   useEffect(() => {
@@ -554,7 +553,7 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
   // 跟踪曾挂载过的 Webview（组合键：mode-index）
   const [mountedWebviews, setMountedWebviews] = useState<Set<string>>(() => {
     const init = new Set<string>()
-    const count = getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots).length
+    const count = getDisplayedModels(availableModels, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots).length
     for (let i = 0; i < count; i++) {
       init.add(`${productMode}-${i}`)
     }
@@ -1000,6 +999,184 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
     return children
   }
 
+  // 历史抽屉由 App 统一渲染；跨页选择历史后通过 pendingHistoryRestore 在主页恢复。
+  const restoreHistoryItem = useCallback((item: HistoryItem): void => {
+    // 标记不再是新会话，因为我们是从历史记录加载的
+    const appStore = useAppStore.getState()
+    appStore.setNewSession(false)
+
+    // 锁定恢复的模型，确保顶部分段控件能正确锁定窗口数量
+    const historyModels = item.models.map(id => availableModels.find(m => m.id === id)).filter(Boolean) as typeof availableModels
+    appStore.setActiveModels(historyModels)
+
+    // 记录当前激活的历史记录 ID
+    setActiveHistoryId(item.id)
+    // 同步持久化"当前对话"锚点（P0-1b）：恢复历史后发新消息/生成报告需走 ID 查找而非 history[0]，
+    // 否则 currentConversationId 仍指向上一次对话，发新消息会串到错误 historyItem
+    appStore.setCurrentConversationId(item.id)
+
+    // 1. 清空输入框（历史消息已存在于 turns 中，恢复后直接续写）
+    if (controlBarRef.current) {
+      controlBarRef.current.setMessage('')
+    }
+
+    // 2. 自动恢复产品模式与窗口数量
+    let targetProductMode = productMode
+    let targetDisplayMode = displayMode
+
+    if (item.productMode) {
+      targetProductMode = item.productMode
+      appStore.setProductMode(targetProductMode)
+    }
+
+    if (item.displayMode) {
+      targetDisplayMode = item.displayMode
+      appStore.setDisplayMode(targetDisplayMode)
+    } else {
+      // 兼容旧历史记录：根据模型数量推断
+      if (targetProductMode === 'multi_ai' || targetProductMode === 'task_assignment') {
+        const modelCount = item.models.length
+        if (modelCount === 1) targetDisplayMode = 'one'
+        else if (modelCount === 2) targetDisplayMode = 'two'
+        else if (modelCount === 3) targetDisplayMode = 'three'
+        else if (modelCount >= 4) targetDisplayMode = 'four'
+
+        if (targetDisplayMode !== displayMode) {
+          console.log(`[MainPage] 旧历史记录：发现模型数量(${modelCount})与当前视图不匹配，正在切换布局到 ${targetDisplayMode}`)
+          appStore.setDisplayMode(targetDisplayMode)
+        }
+      }
+    }
+
+    // —— 辩论模式专用恢复：先重填 debateSlots + debateState，再让下方 missingModelIds 用正确槽位判空 ——
+    if (targetProductMode === 'debate' && item.debateTurns) {
+      // 恢复两 slot 模型（item.models 至少 2 个；不足则补空串，避免 as cast 越界）
+      const slot0 = item.models[0] ?? ''
+      const slot1 = item.models[1] ?? ''
+      useAppStore.setState({ debateSlots: [slot0, slot1] as [string, string] })
+      // 重填辩论面板（只读浏览，phase='finished'）；topic 取已持久化的 HistoryItem.title（Task 4 Step 8 写入）
+      useAppStore.getState().restoreDebateState({
+        topic: item.title ?? '',
+        totalRounds: item.debateTurns.length,
+        debateTurns: item.debateTurns
+      })
+      // 按 slotUrls 加载两 slot（若辩论未 finalize 则 slotUrls 缺失，跳过 URL 加载）
+      if (item.slotUrls) {
+        setTimeout(() => {
+          for (const slotIndex of [0, 1] as const) {
+            const url = item.slotUrls?.[slotIndex]
+            if (!url) continue
+            const ref = useAppStore.getState().webviewRefs.get(`slot-${slotIndex}`)
+            if (ref) ref.loadURL(url)
+          }
+        }, 0)
+      }
+      return
+    }
+
+    // 3. 检查并切换模型到当前视图
+    const currentDisplayedIds = getDisplayedModels(availableModels, targetDisplayMode, targetProductMode, taskAssignmentSlots, multiAiSlots, debateSlots).map(m => m.id)
+    const missingModelIds = item.models.filter((id) => !currentDisplayedIds.includes(id))
+
+    if (missingModelIds.length > 0) {
+      console.log(`[MainPage] 历史记录：发现缺失模型 ${missingModelIds.join(', ')}，正在调整顺序`)
+      // 将历史记录中的模型排到前面
+      const newOrder = [...item.models]
+      // 添加其他模型保持原样，填充可能剩下的槽位
+      availableModels.forEach((m) => {
+        if (!newOrder.includes(m.id)) {
+          newOrder.push(m.id)
+        }
+      })
+
+      // 根据目标模式更新对应的槽位
+      if (targetProductMode === 'task_assignment') {
+        appStore.setTaskAssignmentSlots(newOrder)
+      } else {
+        setMultiAiSlots(newOrder)
+      }
+    }
+
+    // 4. 如果有保存的 URL，自动加载
+    // 使用 setTimeout 确保模型切换后的 Webview 已加载并注册 ref
+    setTimeout(
+      () => {
+        if (item.urls) {
+          // 获取当前 Gemini 模型的 URL（可能包含账号信息如 /u/1/）
+          const currentGeminiModel = availableModels.find(m => m.id === 'gemini')
+          const currentGeminiUrl = currentGeminiModel?.url || 'https://gemini.google.com/app'
+
+          // 解析当前 Gemini URL 获取账号前缀
+          let geminiUrlPrefix = 'https://gemini.google.com/app'
+          try {
+            const u = new URL(currentGeminiUrl)
+            const parts = u.pathname.split('/').filter(Boolean)
+            if (parts[0] === 'u' && parts[2] === 'app') {
+              // 当前是多账号格式：/u/N/app
+              geminiUrlPrefix = `https://gemini.google.com/u/${parts[1]}/app`
+            }
+          } catch {
+            // URL 解析失败，使用默认前缀
+          }
+
+          // 按目标模式的槽位顺序定位 webview（slot-${i}），而非按 modelId 取 ref。
+          // 原因：webviewRefs 在 model.id 键上跨模式共享（仅激活模式注册），
+          // 用 modelId 取 ref 可能落到其他模式的 webview，造成跨模式 URL 串扰。
+          const storeState = useAppStore.getState()
+          let modeSlots: string[]
+          if (targetProductMode === 'task_assignment') {
+            modeSlots = storeState.taskAssignmentSlots
+          } else if (targetProductMode === 'debate') {
+            modeSlots = storeState.debateSlots
+          } else {
+            modeSlots = storeState.multiAiSlots
+          }
+          // 槽位顺序兜底：若 store 槽位为空或长度不足，退回历史记录的 models 顺序
+          const slotsForLookup = modeSlots.length >= item.models.length ? modeSlots : item.models
+
+          Object.entries(item.urls).forEach(([modelId, url]) => {
+            const slotIndex = slotsForLookup.indexOf(modelId)
+            if (slotIndex === -1) return
+            const webviewRef = useAppStore.getState().webviewRefs.get(`slot-${slotIndex}`)
+            if (webviewRef && url) {
+              let finalUrl = url
+              // 对 Gemini URL 进行转换，使用当前账号的 URL 前缀
+              if (modelId === 'gemini' && url.includes('gemini.google.com')) {
+                try {
+                  const u = new URL(url)
+                  const parts = u.pathname.split('/').filter(Boolean)
+                  // 提取对话 ID
+                  let conversationId: string | undefined
+                  if (parts[0] === 'app' && parts[1]) {
+                    conversationId = parts[1]
+                  } else if (parts[0] === 'u' && parts[2] === 'app' && parts[3]) {
+                    conversationId = parts[3]
+                  }
+                  if (conversationId) {
+                    finalUrl = `${geminiUrlPrefix}/${conversationId}`
+                    console.log(`[MainPage] 历史记录：转换 Gemini URL: ${url} -> ${finalUrl}`)
+                  }
+                } catch {
+                  // URL 解析失败，使用原始 URL
+                }
+              }
+              console.log(`[MainPage] 历史记录：正在为 ${modelId} 加载 URL: ${finalUrl}`)
+              webviewRef.loadURL(finalUrl)
+            }
+          })
+        }
+      },
+      missingModelIds.length > 0 ? 500 : 0
+    )
+  }, [availableModels, debateSlots, displayMode, multiAiSlots, productMode, setActiveHistoryId, setMultiAiSlots, taskAssignmentSlots])
+
+  useEffect(() => {
+    if (!isActive || !pendingHistoryRestore) return
+    const item = pendingHistoryRestore
+    setPendingHistoryRestore(null)
+    restoreHistoryItem(item)
+  }, [isActive, pendingHistoryRestore, restoreHistoryItem, setPendingHistoryRestore])
+
   return (
     <div className="flex flex-col h-full">
       {/* Webview 卡片区域的外层滚动容器，处理 padding 以防阴影被裁切 */}
@@ -1020,184 +1197,6 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
         </div>
       )}
 
-      {/* 历史记录抽屉 */}
-      <HistoryDrawer
-        isOpen={isHistoryOpen && isActive}
-        onClose={() => setHistoryOpen(false)}
-        activeHistoryId={activeHistoryId}
-        onSelectHistory={(item) => {
-          // 标记不再是新会话，因为我们是从历史记录加载的
-          const appStore = useAppStore.getState()
-          appStore.setNewSession(false)
-
-          // 锁定恢复的模型，确保顶部分段控件能正确锁定窗口数量
-          const historyModels = item.models.map(id => models.find(m => m.id === id)).filter(Boolean) as typeof models
-          appStore.setActiveModels(historyModels)
-
-          // 记录当前激活的历史记录 ID
-          setActiveHistoryId(item.id)
-          // 同步持久化"当前对话"锚点（P0-1b）：恢复历史后发新消息/生成报告需走 ID 查找而非 history[0]，
-          // 否则 currentConversationId 仍指向上一次对话，发新消息会串到错误 historyItem
-          appStore.setCurrentConversationId(item.id)
-
-          // 1. 清空输入框（历史消息已存在于 turns 中，恢复后直接续写）
-          if (controlBarRef.current) {
-            controlBarRef.current.setMessage('')
-          }
-
-          // 2. 自动恢复产品模式与窗口数量
-          let targetProductMode = productMode;
-          let targetDisplayMode = displayMode;
-
-          if (item.productMode) {
-            targetProductMode = item.productMode;
-            appStore.setProductMode(targetProductMode);
-          }
-
-          if (item.displayMode) {
-            targetDisplayMode = item.displayMode;
-            appStore.setDisplayMode(targetDisplayMode);
-          } else {
-            // 兼容旧历史记录：根据模型数量推断
-            if (targetProductMode === 'multi_ai' || targetProductMode === 'task_assignment') {
-              const modelCount = item.models.length;
-              if (modelCount === 1) targetDisplayMode = 'one';
-              else if (modelCount === 2) targetDisplayMode = 'two';
-              else if (modelCount === 3) targetDisplayMode = 'three';
-              else if (modelCount >= 4) targetDisplayMode = 'four';
-              
-              if (targetDisplayMode !== displayMode) {
-                console.log(`[MainPage] 旧历史记录：发现模型数量(${modelCount})与当前视图不匹配，正在切换布局到 ${targetDisplayMode}`)
-                appStore.setDisplayMode(targetDisplayMode);
-              }
-            }
-          }
-
-          // —— 辩论模式专用恢复：先重填 debateSlots + debateState，再让下方 missingModelIds 用正确槽位判空 ——
-          if (targetProductMode === 'debate' && item.debateTurns) {
-            // 恢复两 slot 模型（item.models 至少 2 个；不足则补空串，避免 as cast 越界）
-            const slot0 = item.models[0] ?? ''
-            const slot1 = item.models[1] ?? ''
-            useAppStore.setState({ debateSlots: [slot0, slot1] as [string, string] })
-            // 重填辩论面板（只读浏览，phase='finished'）；topic 取已持久化的 HistoryItem.title（Task 4 Step 8 写入）
-            useAppStore.getState().restoreDebateState({
-              topic: item.title ?? '',
-              totalRounds: item.debateTurns.length,
-              debateTurns: item.debateTurns,
-            })
-            // 按 slotUrls 加载两 slot（若辩论未 finalize 则 slotUrls 缺失，跳过 URL 加载）
-            if (item.slotUrls) {
-              setTimeout(() => {
-                for (const slotIndex of [0, 1] as const) {
-                  const url = item.slotUrls?.[slotIndex]
-                  if (!url) continue
-                  const ref = useAppStore.getState().webviewRefs.get(`slot-${slotIndex}`)
-                  if (ref) ref.loadURL(url)
-                }
-              }, 0)
-            }
-            return // 辩论恢复不走下方普通 item.urls 加载（辩论 URL 在 slotUrls，不在 urls）
-          }
-
-          // 3. 检查并切换模型到当前视图
-          const currentDisplayedIds = getDisplayedModels(models, targetDisplayMode, targetProductMode, taskAssignmentSlots, multiAiSlots, debateSlots).map(m => m.id)
-          const missingModelIds = item.models.filter((id) => !currentDisplayedIds.includes(id))
-
-          if (missingModelIds.length > 0) {
-            console.log(`[MainPage] 历史记录：发现缺失模型 ${missingModelIds.join(', ')}，正在调整顺序`)
-            // 将历史记录中的模型排到前面
-            const newOrder = [...item.models]
-            // 添加其他模型保持原样，填充可能剩下的槽位
-            models.forEach((m) => {
-              if (!newOrder.includes(m.id)) {
-                newOrder.push(m.id)
-              }
-            })
-            
-            // 根据目标模式更新对应的槽位
-            if (targetProductMode === 'task_assignment') {
-              appStore.setTaskAssignmentSlots(newOrder)
-            } else {
-              setMultiAiSlots(newOrder)
-            }
-          }
-
-          // 3. 如果有保存的 URL，自动加载
-          // 使用 setTimeout 确保模型切换后的 Webview 已加载并注册 ref
-          setTimeout(
-            () => {
-              if (item.urls) {
-                // 获取当前 Gemini 模型的 URL（可能包含账号信息如 /u/1/）
-                const currentGeminiModel = models.find(m => m.id === 'gemini')
-                const currentGeminiUrl = currentGeminiModel?.url || 'https://gemini.google.com/app'
-
-                // 解析当前 Gemini URL 获取账号前缀
-                let geminiUrlPrefix = 'https://gemini.google.com/app'
-                try {
-                  const u = new URL(currentGeminiUrl)
-                  const parts = u.pathname.split('/').filter(Boolean)
-                  if (parts[0] === 'u' && parts[2] === 'app') {
-                    // 当前是多账号格式：/u/N/app
-                    geminiUrlPrefix = `https://gemini.google.com/u/${parts[1]}/app`
-                  }
-                } catch {
-                  // URL 解析失败，使用默认前缀
-                }
-
-                // 按目标模式的槽位顺序定位 webview（slot-${i}），而非按 modelId 取 ref。
-                // 原因：webviewRefs 在 model.id 键上跨模式共享（仅激活模式注册），
-                // 用 modelId 取 ref 可能落到其他模式的 webview，造成跨模式 URL 串扰。
-                const storeState = useAppStore.getState()
-                let modeSlots: string[]
-                if (targetProductMode === 'task_assignment') {
-                  modeSlots = storeState.taskAssignmentSlots
-                } else if (targetProductMode === 'debate') {
-                  modeSlots = storeState.debateSlots
-                } else {
-                  modeSlots = storeState.multiAiSlots
-                }
-                // 槽位顺序兜底：若 store 槽位为空或长度不足，退回历史记录的 models 顺序
-                const slotsForLookup = modeSlots.length >= item.models.length ? modeSlots : item.models
-
-                Object.entries(item.urls).forEach(([modelId, url]) => {
-                  const slotIndex = slotsForLookup.indexOf(modelId)
-                  if (slotIndex === -1) return
-                  const webviewRef = useAppStore.getState().webviewRefs.get(`slot-${slotIndex}`)
-                  if (webviewRef && url) {
-                    let finalUrl = url
-                    // 对 Gemini URL 进行转换，使用当前账号的 URL 前缀
-                    if (modelId === 'gemini' && url.includes('gemini.google.com')) {
-                      try {
-                        const u = new URL(url)
-                        const parts = u.pathname.split('/').filter(Boolean)
-                        // 提取对话 ID
-                        let conversationId: string | undefined
-                        if (parts[0] === 'app' && parts[1]) {
-                          conversationId = parts[1]
-                        } else if (parts[0] === 'u' && parts[2] === 'app' && parts[3]) {
-                          conversationId = parts[3]
-                        }
-                        if (conversationId) {
-                          finalUrl = `${geminiUrlPrefix}/${conversationId}`
-                          console.log(`[MainPage] 历史记录：转换 Gemini URL: ${url} -> ${finalUrl}`)
-                        }
-                      } catch {
-                        // URL 解析失败，使用原始 URL
-                      }
-                    }
-                    console.log(`[MainPage] 历史记录：正在为 ${modelId} 加载 URL: ${finalUrl}`)
-                    webviewRef.loadURL(finalUrl)
-                  }
-                })
-              }
-            },
-            missingModelIds.length > 0 ? 500 : 0
-          )
-        }}
-        onSelectSummaryHistory={(item) => {
-          onNavigateToSummary(item)
-        }}
-      />
     </div>
   )
 }

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Virtuoso } from 'react-virtuoso'
 import { useAppStore, HistoryItem, SummaryHistoryItem } from '../store/appStore'
 import ConfirmModal from './ConfirmModal'
@@ -11,13 +11,15 @@ interface HistoryDrawerProps {
   onSelectHistory?: (item: HistoryItem) => void
   onSelectSummaryHistory?: (item: SummaryHistoryItem) => void
   activeHistoryId?: string
+  /** 打开时自动定位到该 Tab；不传则维持上次状态 */
+  initialTab?: 'conversation' | 'summary'
 }
 
 /**
  * 历史记录抽屉组件
  * 从左侧滑出，显示对话历史记录和总结历史记录
  */
-function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistory, activeHistoryId }: HistoryDrawerProps): JSX.Element {
+function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistory, activeHistoryId, initialTab }: HistoryDrawerProps): JSX.Element {
   const [searchQuery, setSearchQuery] = useState('')
   const [isSelectionMode, setIsSelectionMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
@@ -28,6 +30,13 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
   const [renameTargetId, setRenameTargetId] = useState<string>('')
   const [renameValue, setRenameValue] = useState('')
   const [isLoadingMore, setIsLoadingMore] = useState(false)
+
+  // 当 isOpen 从 false 变为 true 时，若指定了 initialTab 则切换到该 Tab
+  useEffect(() => {
+    if (isOpen && initialTab) {
+      setActiveTab(initialTab)
+    }
+  }, [isOpen, initialTab])
   const {
     history,
     summaryHistory,

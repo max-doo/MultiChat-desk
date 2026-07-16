@@ -268,8 +268,16 @@ export async function listSummaryPrompts(): Promise<SummaryPromptFileItem[]> {
             return parseSummaryPromptMarkdown(name, content)
         })
     )
+    // 旧版本或手工复制文件可能留下相同 id 的多个文件。渲染层按 id
+    // 使用 React key，因此这里保留首次出现的条目，避免重复 key 和重复编辑项。
+    const seenIds = new Set<string>()
+    const uniquePrompts = prompts.filter((prompt) => {
+        if (seenIds.has(prompt.id)) return false
+        seenIds.add(prompt.id)
+        return true
+    })
     const isNumericId = (id: string): boolean => /^\d+$/.test(id)
-    return prompts.sort((a, b) => {
+    return uniquePrompts.sort((a, b) => {
         const aNum = isNumericId(a.id)
         const bNum = isNumericId(b.id)
         if (aNum && bNum) return Number(a.id) - Number(b.id)

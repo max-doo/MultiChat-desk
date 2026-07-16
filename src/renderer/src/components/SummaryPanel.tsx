@@ -44,7 +44,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
   const firstEnabledModel = models.find(m => m.enabled)
   const lastWebviewPlatform = apiConfig.lastWebviewSummaryPlatform ?? firstEnabledModel?.id ?? 'chatgpt'
   const [webviewPlatformId, setWebviewPlatformId] = useState<string>(lastWebviewPlatform)
-  // Webview composer 锁定标记：首次发送后置 true，组件卸载或 phase 进入 error/aborted 时归零
+  // Webview composer 锁定标记：首次注入后置 true，组件卸载或 phase 进入 error/aborted 时归零
   const [summaryFired, setSummaryFired] = useState(false)
 
   // Webview 模式独立的 transcript / 输入状态。
@@ -149,7 +149,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
     return {
       name: m?.name || webviewPlatformId,
       logo: m?.logo,
-      url: sel?.newConversationUrl || m?.url || ''
+      url: sel?.summaryConversationUrl || sel?.newConversationUrl || m?.url || ''
     }
   }, [models, webviewPlatformId])
 
@@ -190,33 +190,12 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
     ].join('\n')
   }, [summaryMode, apiConfig.summaryPrompts, apiConfig.systemPrompt, selectedModels, models, modelResponses, webviewCustomPrompt])
 
-  const handleWebviewAssistantMessage = useCallback((msg: ChatMessage) => {
-    const updated = [...webviewMessagesRef.current, msg]
-    webviewMessagesRef.current = updated
-    const historyId = webviewHistoryIdRef.current
-    if (historyId) {
-      updateSummaryHistory(historyId, {
-        messages: updated.map(m => ({
-          id: m.id,
-          role: m.role,
-          content: m.content,
-          reasoningContent: m.reasoningContent,
-          timestamp: m.timestamp,
-          modeName: m.modeName,
-          versions: m.versions,
-          currentVersionIndex: m.currentVersionIndex
-        }))
-      })
-    }
-  }, [updateSummaryHistory])
-
   const webviewSummary = useWebviewSummary({
     webviewRef: webviewSummaryRef,
-    buildPrompt: buildWebviewPrompt,
-    onAssistantMessage: handleWebviewAssistantMessage
+    buildPrompt: buildWebviewPrompt
   })
 
-  // phase 进入 error / aborted 时解锁 composer，允许重试；'done' 不解锁，引导用户去 WebView 自带输入框追问
+  // phase 进入 error / aborted 时解锁 composer，允许重试；'done' 表示已注入，等待用户在 Webview 中手动发送
   useEffect(() => {
     if (webviewSummary.phase === 'error' || webviewSummary.phase === 'aborted') {
       setSummaryFired(false)
@@ -227,11 +206,6 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
   // 总结页 webview 仅在 webview 模式下存在；切走总结页 30 秒后真卸载（D1），切回立即唤醒。
   const HIBERNATE_DELAY_SUMMARY_MS = 30 * 1000 // 30 秒
   const summaryHibernateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  // phase 镜像：executeHibernate 在定时器触发时读取，避免闭包过期
-  const summaryPhaseRef = useRef(webviewSummary.phase)
-  useEffect(() => {
-    summaryPhaseRef.current = webviewSummary.phase
-  }, [webviewSummary.phase])
   // summarySource 镜像：定时器触发时判断是否仍处于 webview 模式
   const summarySourceRef = useRef(summarySource)
   useEffect(() => {
@@ -239,9 +213,9 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
   }, [summarySource])
 
   const executeSummaryHibernate = useCallback(async () => {
-    // 白名单：非 webview 模式无 webview；streaming/生成中不休眠（避免打断正在进行的总结/抓取）
+    // 白名单：非 webview 模式无 webview；注入中不休眠（避免打断正在进行的注入）
     if (summarySourceRef.current !== 'webview') return
-    if (summaryPhaseRef.current === 'streaming' || webviewSummary.isGenerating) {
+    if (webviewSummary.isGenerating) {
       console.log('[SummaryPanel] 总结进行中，跳过休眠')
       return
     }
@@ -366,7 +340,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
   }, [restoreHistoryData, webviewPlatformId])
 
   useEffect(() => {
-    if (summarySource === 'webview' && (webviewSummary.phase === 'streaming' || webviewSummary.phase === 'done') && webviewPlatformId && webviewHistoryIdRef.current) {
+    if (summarySource === 'webview' && webviewSummary.phase === 'done' && webviewPlatformId && webviewHistoryIdRef.current) {
       const historyId = webviewHistoryIdRef.current
       const ref = webviewSummaryRef.current
       if (ref) {
@@ -390,7 +364,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
     ta.style.height = Math.min(ta.scrollHeight, 120) + 'px'
   }, [webviewCustomPrompt, summarySource])
 
-  const handleWebviewSend = useCallback(() => {
+  const handleWebviewInject = useCallback(() => {
     if (selectedModels.length === 0) return
 
     const summaryTemplate = summaryPrompts.find(a => a.id === summaryMode)
@@ -1218,7 +1192,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
 
       {/*
         WebviewCard 常驻渲染：不随 summarySource 切换卸载，避免切到 API 模式时 <webview> DOM
-        被销毁、切回时重载 newConversationUrl 丢失平台正在进行的 AI 会话（Bug #2）。
+        被销毁、切回时重载总结会话 URL 丢失平台正在进行的 AI 会话（Bug #2）。
         Electron <webview> 设 display:none 不销毁 WebContents，仅卸载元素才销毁；故 API 模式下
         用 hidden 隐藏容器，卡与已加载会话 URL 保活。
       */}
@@ -1250,8 +1224,8 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
         const composerLocked = summaryFired || webviewSummary.isGenerating
         const showLockedHint = summaryFired && !webviewSummary.isGenerating
         const placeholder = showLockedHint
-          ? '已发送，请在右侧对话窗口继续追问'
-          : '输入额外的分析要求（可选），按 Enter 发送'
+          ? '已注入，请在右侧对话窗口点击发送'
+          : '输入额外的分析要求（可选），按 Enter 注入'
         const sendDisabled = composerLocked || selectedModels.length === 0
 
         return (
@@ -1304,7 +1278,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault()
-                    if (!sendDisabled) handleWebviewSend()
+                    if (!sendDisabled) handleWebviewInject()
                   }
                 }}
                 placeholder={placeholder}
@@ -1313,14 +1287,14 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
                 className="flex-1 resize-none bg-transparent text-sm text-text-secondary placeholder-gray-500 focus:outline-none disabled:cursor-not-allowed leading-5 py-1.5 max-h-[120px] overflow-y-auto"
               />
 
-              {/* 发送按钮 */}
+              {/* 注入按钮 */}
               <button
                 type="button"
-                onClick={handleWebviewSend}
+                onClick={handleWebviewInject}
                 disabled={sendDisabled}
                 className="shrink-0 flex items-center justify-center w-9 h-9 rounded-md bg-primary text-white hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                title={composerLocked ? '已发送' : '发送'}
-                aria-label="发送"
+                title={composerLocked ? '已注入' : '注入到 Webview'}
+                aria-label="注入到 Webview"
               >
                 <span className="material-symbols-outlined text-xl">send</span>
               </button>

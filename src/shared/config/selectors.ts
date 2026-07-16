@@ -29,8 +29,10 @@ export interface ModelSelector {
   reportContainer?: string[]
   // Custom CSS
   customCSS: string
-  /** Webview 总结模式专用：打开此 URL 进入一个全新的对话页 */
+  /** 普通模式/卡片“新对话”按钮使用的 URL */
   newConversationUrl?: string
+  /** Webview 总结模式专用：打开此 URL 进入一个隔离的新对话页 */
+  summaryConversationUrl?: string
   // Deep Research mode configuration
   researchMode?: {
     // Steps to enable Deep Research
@@ -101,7 +103,8 @@ export const defaultSelectors: SelectorsConfig = {
         [class*="sidebar"] { display: none !important; }
         .xl\\:pl-\\[260px\\] { padding-left: 0 !important; }
       `,
-      newConversationUrl: 'https://chat.openai.com/?temporary-chat=true',
+      newConversationUrl: 'https://chatgpt.com',
+      summaryConversationUrl: 'https://chatgpt.com/?temporary-chat=true',
       researchMode: {
         steps: [
           { selector: '[data-testid="composer-plus-btn"], #composer-plus-btn, button.composer-btn', delay: 1000, menuOpenerFallback: true },

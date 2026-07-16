@@ -1,7 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import ModelOutputCard from '../components/ModelOutputCard'
 import SummaryPanel from '../components/SummaryPanel'
-import SummaryHistoryDrawer from '../components/SummaryHistoryDrawer'
 import { useAppStore, getDisplayedModels, SummaryHistoryItem } from '../store/appStore'
 
 interface SummaryPageProps {
@@ -15,9 +14,7 @@ interface SummaryPageProps {
  * 显示各模型输出和 AI 总结面板
  */
 function SummaryPage({ onNavigateBack, initialHistoryItem, isActive }: SummaryPageProps): JSX.Element {
-  const { models, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots, pendingSummarySession, setPendingSummarySession, history, currentConversationId, isHistoryOpen, setHistoryOpen, activeModels, isNewSession, textInserted } = useAppStore()
-
-  const [activeHistoryId, setActiveHistoryId] = useState<string | undefined>(undefined)
+  const { models, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots, pendingSummarySession, setPendingSummarySession, history, currentConversationId, activeModels, isNewSession, textInserted } = useAppStore()
 
   // 获取当前实际显示的模型（根据 displayMode 和产品模式插槽配置）
   const displayedModels = useMemo(() => {
@@ -140,8 +137,6 @@ function SummaryPage({ onNavigateBack, initialHistoryItem, isActive }: SummaryPa
   const handleRestoreHistory = (item: SummaryHistoryItem): void => {
     console.log('[SummaryPage] 恢复历史记录:', item)
 
-    // 记录当前激活的历史记录 ID
-    setActiveHistoryId(item.id)
     setIsLoadingResponses(true)
     // 恢复历史记录时，清空当前激活的本地历史快照 ID 列表，避免旧快照横幅依然显示
     setSnapshotModelIds([])
@@ -302,16 +297,10 @@ function SummaryPage({ onNavigateBack, initialHistoryItem, isActive }: SummaryPa
           presetSummaryMode={presetSummaryMode}
         />
       </div>
-
-      {/* 总结历史记录抽屉 */}
-      <SummaryHistoryDrawer
-        isOpen={isHistoryOpen && (isActive ?? true)}
-        onClose={() => setHistoryOpen(false)}
-        onSelectHistory={handleRestoreHistory}
-        activeHistoryId={activeHistoryId}
-      />
     </div>
   )
 }
 
 export default SummaryPage
+
+

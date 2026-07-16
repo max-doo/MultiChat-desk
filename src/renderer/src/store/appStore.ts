@@ -433,6 +433,13 @@ interface AppState {
   setSettingsOpen: (open: boolean) => void
   isHistoryOpen: boolean
   setHistoryOpen: (open: boolean) => void
+  /** 打开历史抽屉时期望激活的初始 Tab */
+  historyInitialTab: 'conversation' | 'summary'
+  setHistoryInitialTab: (tab: 'conversation' | 'summary') => void
+
+  // 一次性导航数据：从历史抽屉选中对话历史时，跨页传递给 MainPage 消费
+  pendingHistoryRestore: HistoryItem | null
+  setPendingHistoryRestore: (item: HistoryItem | null) => void
 
   // 一次性导航数据：从主界面进入总结页时携带，消费后立即清空
   pendingSummarySession: SummarySessionInit | null
@@ -1587,6 +1594,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   setSettingsOpen: (open: boolean) => set({ isSettingsOpen: open }),
   isHistoryOpen: false,
   setHistoryOpen: (open: boolean) => set({ isHistoryOpen: open }),
+  historyInitialTab: 'conversation' as 'conversation' | 'summary',
+  setHistoryInitialTab: (tab: 'conversation' | 'summary') => set({ historyInitialTab: tab }),
+
+  pendingHistoryRestore: null,
+  setPendingHistoryRestore: (item: HistoryItem | null) => set({ pendingHistoryRestore: item }),
 
   pendingSummarySession: null,
   setPendingSummarySession: (data: SummarySessionInit | null) => set({ pendingSummarySession: data }),

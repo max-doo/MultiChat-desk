@@ -95,6 +95,12 @@ const api = {
   sendMouseClick: (webContentsId: number, x: number, y: number): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('send-mouse-click', { webContentsId, x, y }),
 
+  extractChatgptDeepResearchReport: (webContentsId: number): Promise<{
+    success: boolean
+    data?: { html: string; title: string; frameUrl: string; textLength: number }
+    error?: string
+  }> => ipcRenderer.invoke('chatgpt:extract-deep-research-report', webContentsId),
+
   dispatchFileDrop: (webContentsId: number, filePath: string, x: number, y: number): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('dispatch-file-drop', { webContentsId, filePath, x, y }),
 

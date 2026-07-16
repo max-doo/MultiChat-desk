@@ -73,13 +73,6 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
 
     const productMode = useAppStore((s) => s.productMode)
     const debateState = useAppStore((s) => s.debateState)
-    // 任务分配模式：是否已发出过任务（当前对话锚点存在且由 task_assignment 发起）。
-    // currentConversationId 跨模式共享，需叠加 productMode 校验，避免 multi_ai 会话残留误点亮。
-    const currentConversationId = useAppStore((s) => s.currentConversationId)
-    const history = useAppStore((s) => s.history)
-    const taskHasSent = !!currentConversationId
-      && history.find((h) => h.id === currentConversationId)?.productMode === 'task_assignment'
-
     const {
       sendMessageToAll,
       insertTextToAll,
@@ -857,11 +850,9 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
           )}
 
           {/* 右侧：生成总结 / 裁判评析按钮 */}
-          {/* 任务分配模式：未发送任何任务时置灰（taskHasSent 仍为 false），避免空爬取报错 */}
           {(() => {
             const debateDisabled = productMode === 'debate' && debateState.phase !== 'finished'
-            const taskDisabled = productMode === 'task_assignment' && !taskHasSent
-            const summaryDisabled = debateDisabled || taskDisabled
+            const summaryDisabled = debateDisabled
             return (
           <button
             onClick={() => {

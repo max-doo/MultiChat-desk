@@ -12,6 +12,14 @@ Agents may suggest or promote a lesson into the `Known Gotchas` section of `AGEN
 
 ## Debugging Lessons
 
+- **ChatGPT Deep Research 跨域 OOPIF 必须在目标子会话执行 CDP**：顶层 `<webview>.executeJavaScript()` 无法读取 `connector_openai_deep_research.web-sandbox.oaiusercontent.com` 内的报告 DOM。主进程应通过 `Target.getTargets` 定位该 iframe target，调用 `Target.attachToTarget({ flatten: true })`，再把返回的 child `sessionId` 传给 `Runtime.evaluate`；只在自己附加 debugger 时负责最终 detach。不要把下载按钮或剪贴板当作报告抓取主链路。
+
+- **轮询抓取空结果不能累计稳定次数**：空字符串表示页面尚未产出、跨 frame 目标尚未出现或本次读取失败，不是“内容稳定”。只有非空且满足业务基线条件的内容才能累计稳定计数；空结果必须保持未完成并继续轮询，否则会在真实回复出现前误判结束。
+
+- **恢复历史时产品模式切换会重置会话锚点**：若恢复流程调用 `setProductMode`，必须在模式恢复完成后重新设置 `isNewSession`、`activeModels` 与 `currentConversationId`，否则后续总结或续写会失去当前历史会话上下文。
+
+- **拖拽上传不能信任 renderer 的 `File.path`**：renderer 文件对象的本地路径可能为空或不可用。应把文件内容经受限 IPC 写入主进程管理的临时目录，再将该路径交给 Webview/CDP 上传，并在流程结束后清理临时文件。
+
 - **macOS 选区读取不得复用 Windows UIA helper**：Windows 的 PowerShell UIA helper 只能在 `win32` 启动；macOS 选区读取必须经过平台抽象，并在 AX 原生模块不可用或辅助功能权限不足时返回明确的 unsupported/permission 错误，不能静默启动 PowerShell、模拟复制或伪造读取成功。
 
 - **落地页文案不是代码事实**：产品页里的数字、角色名、预设数量等文案可能滞后于真实实现。改 README、方案文档或宣传页前，必须先 `ls` / `rg --files` 以实际预设目录和代码定义为准，不能照抄落地页的营销描述。

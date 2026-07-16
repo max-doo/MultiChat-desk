@@ -34,6 +34,29 @@ const SHORTCUT_LABELS: Record<string, string> = {
   search: '划词召唤 - 搜索'
 }
 
+function uniqueById<T extends { id: string }>(items: T[]): T[] {
+  const seen = new Set<string>()
+  return items.filter((item) => {
+    if (seen.has(item.id)) return false
+    seen.add(item.id)
+    return true
+  })
+}
+
+function getSummaryModelKey(model: SummaryModel): string {
+  return `${model.providerId}\u0000${model.id}`
+}
+
+function uniqueSummaryModels(models: SummaryModel[]): SummaryModel[] {
+  const seen = new Set<string>()
+  return models.filter((model) => {
+    const key = getSummaryModelKey(model)
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
 // 提示词编辑弹窗组件
 interface PromptEditorModalProps {
   isOpen: boolean
@@ -262,7 +285,7 @@ interface ModelEditorModalProps {
 }
 
 function ModelEditorModal({ isOpen, onClose, models, onSave, providers }: ModelEditorModalProps): JSX.Element | null {
-  const [modelList, setModelList] = useState<SummaryModel[]>(models)
+  const [modelList, setModelList] = useState<SummaryModel[]>(() => uniqueSummaryModels(models))
   const [newModelId, setNewModelId] = useState('')
   const [newModelName, setNewModelName] = useState('')
   const [selectedProviderId, setSelectedProviderId] = useState(providers[0]?.id || '')
@@ -298,7 +321,7 @@ function ModelEditorModal({ isOpen, onClose, models, onSave, providers }: ModelE
 
   useEffect(() => {
     if (isOpen) {
-      setModelList(models)
+      setModelList(uniqueSummaryModels(models))
       if (providers.length > 0 && !selectedProviderId) {
         setSelectedProviderId(providers[0].id)
       }
@@ -344,7 +367,7 @@ function ModelEditorModal({ isOpen, onClose, models, onSave, providers }: ModelE
         }))
 
         // 合并并去重（基于提供商 ID 和模型 ID）
-        const newModels = [...modelList]
+        const newModels = uniqueSummaryModels(modelList)
         let addedCount = 0
 
         fetchedModels.forEach(fm => {
@@ -372,11 +395,13 @@ function ModelEditorModal({ isOpen, onClose, models, onSave, providers }: ModelE
 
   const handleAddModel = (): void => {
     if (!newModelId.trim() || !newModelName.trim() || !selectedProviderId) return
-    setModelList([...modelList, {
+    const newModel = {
       id: newModelId.trim(),
       name: newModelName.trim(),
       providerId: selectedProviderId
-    }])
+    }
+    if (modelList.some((model) => getSummaryModelKey(model) === getSummaryModelKey(newModel))) return
+    setModelList([...modelList, newModel])
     setNewModelId('')
     setNewModelName('')
   }
@@ -408,7 +433,7 @@ function ModelEditorModal({ isOpen, onClose, models, onSave, providers }: ModelE
   }
 
   const handleSave = (): void => {
-    onSave(modelList)
+    onSave(uniqueSummaryModels(modelList))
     onClose()
   }
 
@@ -448,7 +473,7 @@ function ModelEditorModal({ isOpen, onClose, models, onSave, providers }: ModelE
 
           {/* 模型列表 */}
           <div className="space-y-2 max-h-[250px] overflow-y-auto pr-1">
-            {modelList
+            {uniqueSummaryModels(modelList)
               .filter(model => model.providerId === selectedProviderId)
               .map((model) => {
                 const provider = providers.find(p => p.id === model.providerId)
@@ -520,7 +545,7 @@ function ModelEditorModal({ isOpen, onClose, models, onSave, providers }: ModelE
                   </div>
                 )
               })}
-            {modelList.filter(model => model.providerId === selectedProviderId).length === 0 && (
+            {uniqueSummaryModels(modelList).filter(model => model.providerId === selectedProviderId).length === 0 && (
               <div className="text-center py-8 text-text-secondary text-sm">
                 该供应商下暂无已配置模型
               </div>
@@ -668,7 +693,7 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
 
   // 获取当前的总结提示词列表
   const summaryPrompts = apiConfig.summaryPrompts || []
-  const sortedSummaryPrompts = [...summaryPrompts].sort((a, b) => {
+  const sortedSummaryPrompts = [...uniqueById(summaryPrompts)].sort((a, b) => {
     const aNum = /^\d+$/.test(a.id)
     const bNum = /^\d+$/.test(b.id)
     if (aNum && bNum) return Number(a.id) - Number(b.id)

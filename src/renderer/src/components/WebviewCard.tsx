@@ -20,6 +20,7 @@ import {
   type FileUploadData
 } from '../utils/webviewScripts'
 import { extractGeminiCanvasContent } from '../utils/geminiCanvasExtractor'
+import { extractQwenReportContent } from '../utils/qwenReportExtractor'
 import { buildProbeScript, parseProbeResult, type ProbeReport, buildResearchProbeScript, parseResearchProbeResult, type ResearchProbeReport, buildPickerScript, parseDomProbeResult, type DomProbeReport, type DomProbeOptions } from '../utils/selectorDiagnostics'
 import ModelOutputCard from './ModelOutputCard'
 
@@ -117,6 +118,11 @@ interface WebviewCardProps {
 // 重新导出 FileUploadData 类型供其他组件使用
 export type { FileUploadData }
 
+export interface GetLatestResponseOptions {
+  /** 普通 DOM 抓取为空时，允许 main 进程附加 ChatGPT Deep Research OOPIF 读取报告。 */
+  allowDeepResearchFallback?: boolean
+}
+
 // 暴露给父组件的方法
 export interface WebviewCardRef {
   sendMessage: (message: string, twoPhase?: boolean) => Promise<{ success: boolean; error?: string }>
@@ -133,7 +139,7 @@ export interface WebviewCardRef {
   /** 按平台 imageDownload.steps 触发网页内置下载（hover/click），返回 {clicked, wcId}
    *  dryRun=true 时只校验配置并返回 wcId，不执行点击（用于主进程建 ctx 必须先于点击的时序） */
   clickDownloadButtons: (dryRun?: boolean) => Promise<{ clicked: number; wcId: number | null; error?: string }>
-  getLatestResponse: () => Promise<string>
+  getLatestResponse: (options?: GetLatestResponseOptions) => Promise<string>
   reload: () => void
   resetToInitial: () => Promise<{ success: boolean; error?: string }>
   getCurrentUrl: () => string
@@ -867,7 +873,7 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
        * 获取最新的 AI 回复
        * 对于 Gemini Canvas 模式，通过点击复制按钮并读取剪贴板获取内容
        */
-      getLatestResponse: async (): Promise<string> => {
+      getLatestResponse: async (options?: GetLatestResponseOptions): Promise<string> => {
         const webview = webviewRef.current
         if (!webview || !isReady || !selectors) {
           return ''
@@ -887,9 +893,40 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
             // Canvas 模式提取失败，回退到普通 DOM 爬取
           }
 
+          // 对于千问，若报告页已打开（复制按钮可见），优先通过点击复制按钮获取完整报告
+          if (id === 'qwen') {
+            const reportContent = await extractQwenReportContent(
+              webview,
+              window.api as any,
+              turndownService
+            )
+            if (reportContent) {
+              return reportContent
+            }
+            // 报告页未打开或提取失败，回退到普通 DOM 爬取
+          }
+
           // 普通模式：使用 HTML 转 Markdown
           const code = generateGetLatestResponseScript(selectors)
-          return await webview.executeJavaScript(code)
+          const content = await webview.executeJavaScript(code)
+          if (typeof content === 'string' && content.trim()) {
+            return content.trim()
+          }
+
+          // ChatGPT Deep Research 报告运行在 web-sandbox.oaiusercontent.com OOPIF 中，
+          // 顶层 executeJavaScript 无法跨源读取。仅在调用方明确允许时走 main 层固定 CDP 提取器。
+          if (id === 'chatgpt' && options?.allowDeepResearchFallback) {
+            const report = await window.api.extractChatgptDeepResearchReport(webview.getWebContentsId())
+            if (report.success && report.data?.html) {
+              const markdown = turndownService.turndown(report.data.html).trim()
+              if (markdown.length >= 100) {
+                console.info(`[${name}] Deep Research 报告提取成功: ${report.data.textLength} 字符`)
+                return markdown
+              }
+            }
+          }
+
+          return ''
         } catch (error) {
           console.error('获取回复失败:', error)
           return ''
