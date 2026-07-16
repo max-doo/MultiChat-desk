@@ -2,6 +2,12 @@
 
 ## 2026-07-16
 
+### 23:23 | Antigravity
+
+- done: 提交所有本地修改，清理冗余的 SummaryHistoryDrawer 历史抽屉组件
+- removed:
+  - `src/renderer/src/components/SummaryHistoryDrawer.tsx`
+
 ### 22:56 | Codex
 
 - done: 修复 MainPage 历史抽屉变量残留导致的 isHistoryOpen 未定义错误
