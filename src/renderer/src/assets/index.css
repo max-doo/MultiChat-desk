@@ -64,26 +64,28 @@ body {
   background: rgba(31, 31, 31, 0.3);
 }
 
-/* 窗口拖拽区域标志类 (用于 JS IPC 拖拽) */
+/* Windows/Linux 使用 JS IPC 拖动；macOS 使用原生 app-region。 */
 .drag-region {
-  /* Windows/Linux 使用 JS 拖动；macOS 留白区使用原生 app-region。 */
+  user-select: none;
 }
 
-/* 禁止拖拽区域 */
+/* Windows/Linux 仅作 JS 命中标记。 */
 .no-drag {
-  /* 仅作 JS 识别标记 */
+  /* no-op */
 }
 
 .mac-titlebar {
   height: 52px;
   padding-left: 86px;
   -webkit-app-region: drag;
+  app-region: drag;
 }
 
 .mac-titlebar .no-drag,
 .mac-titlebar button,
 .mac-titlebar a {
   -webkit-app-region: no-drag;
+  app-region: no-drag;
 }
 
 

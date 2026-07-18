@@ -3,7 +3,7 @@
  * 负责处理主进程与渲染进程之间的 IPC 通信
  */
 
-import { app, ipcMain, dialog, clipboard, BrowserWindow, shell, session } from 'electron'
+import { app, ipcMain, dialog, clipboard, BrowserWindow, shell, session, screen } from 'electron'
 import { is } from '@electron-toolkit/utils'
 import { basename, extname, join, dirname, resolve } from 'path'
 import { stat, writeFile, mkdtemp, rm } from 'fs/promises'
@@ -145,6 +145,46 @@ export function registerIpcHandlers(
     getMainWindow: () => BrowserWindow | null,
     openBrowserWindowInternal: (url: string) => void
 ): void {
+    let customMaximizeState: {
+        windowId: number
+        restoreBounds: Electron.Rectangle
+    } | null = null
+
+    const restoreCustomMaximizedWindowForDrag = (win: BrowserWindow, cursorPoint: Electron.Point): void => {
+        if (process.platform !== 'win32' || customMaximizeState?.windowId !== win.id) return
+
+        const maximizedBounds = win.getBounds()
+        const restoreBounds = customMaximizeState.restoreBounds
+        const workArea = screen.getDisplayNearestPoint(cursorPoint).workArea
+        const cursorRatioX = Math.min(1, Math.max(0, (cursorPoint.x - maximizedBounds.x) / maximizedBounds.width))
+        const unclampedX = Math.round(cursorPoint.x - restoreBounds.width * cursorRatioX)
+        const maxX = Math.max(workArea.x, workArea.x + workArea.width - restoreBounds.width)
+
+        win.setBounds({
+            ...restoreBounds,
+            x: Math.min(maxX, Math.max(workArea.x, unclampedX)),
+            y: workArea.y
+        }, false)
+        customMaximizeState = null
+    }
+
+    const toggleWindowsCustomMaximize = (win: BrowserWindow): void => {
+        if (customMaximizeState?.windowId === win.id) {
+            const restoreBounds = customMaximizeState.restoreBounds
+            customMaximizeState = null
+            win.setBounds(restoreBounds, false)
+            return
+        }
+
+        // 绕过 Windows 原生 maximize() 的 DWM / Chromium swap-chain 重建。
+        // 多 WebView 主窗口在该原生过渡中会短暂显示黑帧。
+        const workArea = screen.getDisplayMatching(win.getBounds()).workArea
+        customMaximizeState = {
+            windowId: win.id,
+            restoreBounds: win.getBounds()
+        }
+        win.setBounds(workArea, false)
+    }
 
     ipcMain.handle('tray:show-main', () => {
         const w = getMainWindow()
@@ -257,38 +297,44 @@ export function registerIpcHandlers(
 
     // macOS 使用原生 traffic lights 与 app-region 拖动，不注册 Windows 风格的手动拖动 IPC。
     if (process.platform !== 'darwin') {
-      let dragStartMousePoint: { x: number, y: number } | null = null
-      let dragStartContentBounds: Electron.Rectangle | null = null
+      let dragState: {
+        windowId: number
+        startMousePoint: Electron.Point
+        startContentBounds: Electron.Rectangle
+      } | null = null
 
       ipcMain.on('window-drag-start', (event) => {
         const win = BrowserWindow.fromWebContents(event.sender)
         if (!win) return
-        const { screen } = require('electron')
-        dragStartMousePoint = screen.getCursorScreenPoint()
-        dragStartContentBounds = win.getContentBounds()
+        const cursorPoint = screen.getCursorScreenPoint()
+        restoreCustomMaximizedWindowForDrag(win, cursorPoint)
+        dragState = {
+          windowId: win.id,
+          startMousePoint: cursorPoint,
+          startContentBounds: win.getContentBounds()
+        }
       })
 
       ipcMain.on('window-drag-move', (event) => {
-        if (!dragStartMousePoint || !dragStartContentBounds) return
+        if (!dragState) return
         const win = BrowserWindow.fromWebContents(event.sender)
-        if (!win) return
+        if (!win || win.id !== dragState.windowId) return
         
-        const { screen } = require('electron')
         const currentMousePoint = screen.getCursorScreenPoint()
-        const deltaX = currentMousePoint.x - dragStartMousePoint.x
-        const deltaY = currentMousePoint.y - dragStartMousePoint.y
-        
+        const deltaX = currentMousePoint.x - dragState.startMousePoint.x
+        const deltaY = currentMousePoint.y - dragState.startMousePoint.y
+
+        // 固定内容尺寸，避免 Windows 隐形边框在 setPosition 中被递归累加。
         win.setContentBounds({
-            x: dragStartContentBounds.x + deltaX,
-            y: dragStartContentBounds.y + deltaY,
-            width: dragStartContentBounds.width,
-            height: dragStartContentBounds.height
+          x: dragState.startContentBounds.x + deltaX,
+          y: dragState.startContentBounds.y + deltaY,
+          width: dragState.startContentBounds.width,
+          height: dragState.startContentBounds.height
         })
       })
 
       ipcMain.on('window-drag-end', () => {
-        dragStartMousePoint = null
-        dragStartContentBounds = null
+        dragState = null
       })
     }
 
@@ -399,10 +445,13 @@ export function registerIpcHandlers(
 
     ipcMain.on('window-maximize', () => {
         const win = getMainWindow()
-        if (win?.isMaximized()) {
+        if (!win) return
+        if (process.platform === 'win32') {
+            toggleWindowsCustomMaximize(win)
+        } else if (win.isMaximized()) {
             win.unmaximize()
         } else {
-            win?.maximize()
+            win.maximize()
         }
     })
 

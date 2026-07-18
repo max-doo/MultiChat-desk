@@ -1,4 +1,4 @@
-import { ReactNode, useEffect, useMemo, useState, useRef } from 'react'
+import { ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { useAppStore } from '../store/appStore'
 import { useUpdateReminder } from '../hooks/useUpdateState'
 import SettingsDrawer from './SettingsDrawer'
@@ -16,37 +16,84 @@ function Layout({ children }: LayoutProps): JSX.Element {
   const [menuX, setMenuX] = useState(0)
   const [menuY, setMenuY] = useState(0)
   const [menuItems, setMenuItems] = useState<Array<{ key: string; label: string; icon?: string; action: () => void }>>([])
+  const [isWindowMaximized, setIsWindowMaximized] = useState(false)
 
-  // 窗口拖拽状态引用
-  const isDraggingRef = useRef(false)
-  
+  const { displayMode, setDisplayMode, resetPaneRatios, isSettingsOpen, setSettingsOpen, setHistoryOpen, setHistoryInitialTab, productMode, setProductMode, currentPage, apiConfig, setApiConfig, isNewSession, textInserted, activeModels, debateState } = useAppStore()
+  const { hasUpdate } = useUpdateReminder()
+  const isFallbackDraggingRef = useRef(false)
+  const dragFrameRef = useRef<number | null>(null)
+  const dragMovePendingRef = useRef(false)
+
   useEffect(() => {
-    const handlePointerMove = (_e: PointerEvent) => {
-      if (isDraggingRef.current) {
-        if (window.api.platform === 'darwin') return
+    if (window.api.platform === 'darwin') return
+
+    const flushDragMove = () => {
+      dragFrameRef.current = null
+      dragMovePendingRef.current = false
+      if (isFallbackDraggingRef.current) {
         window.api.windowDragMove()
       }
     }
-    
-    const handlePointerUp = (_e: PointerEvent) => {
-      if (isDraggingRef.current) {
-        isDraggingRef.current = false
-        if (window.api.platform === 'darwin') return
-        window.api.windowDragEnd()
+
+    const handlePointerMove = (event: PointerEvent) => {
+      if (isFallbackDraggingRef.current && (event.buttons & 1) === 0) {
+        handlePointerEnd()
+        return
       }
+      if (!isFallbackDraggingRef.current || dragMovePendingRef.current) return
+      dragMovePendingRef.current = true
+      dragFrameRef.current = window.requestAnimationFrame(flushDragMove)
     }
-    
+
+    const handlePointerEnd = () => {
+      if (!isFallbackDraggingRef.current) return
+      isFallbackDraggingRef.current = false
+      dragMovePendingRef.current = false
+      if (dragFrameRef.current !== null) {
+        window.cancelAnimationFrame(dragFrameRef.current)
+        dragFrameRef.current = null
+        window.api.windowDragMove()
+      }
+      window.api.windowDragEnd()
+    }
+
     window.addEventListener('pointermove', handlePointerMove)
-    window.addEventListener('pointerup', handlePointerUp)
-    
+    window.addEventListener('pointerup', handlePointerEnd)
+    window.addEventListener('pointercancel', handlePointerEnd)
+    window.addEventListener('lostpointercapture', handlePointerEnd)
+
     return () => {
       window.removeEventListener('pointermove', handlePointerMove)
-      window.removeEventListener('pointerup', handlePointerUp)
+      window.removeEventListener('pointerup', handlePointerEnd)
+      window.removeEventListener('pointercancel', handlePointerEnd)
+      window.removeEventListener('lostpointercapture', handlePointerEnd)
+      if (dragFrameRef.current !== null) {
+        window.cancelAnimationFrame(dragFrameRef.current)
+      }
+      if (isFallbackDraggingRef.current) {
+        window.api.windowDragEnd()
+      }
+      isFallbackDraggingRef.current = false
+      dragMovePendingRef.current = false
+      dragFrameRef.current = null
     }
   }, [])
-  
-  const { displayMode, setDisplayMode, resetPaneRatios, isSettingsOpen, setSettingsOpen, setHistoryOpen, setHistoryInitialTab, productMode, setProductMode, currentPage, apiConfig, setApiConfig, isNewSession, textInserted, activeModels, debateState } = useAppStore()
-  const { hasUpdate } = useUpdateReminder()
+
+  useEffect(() => {
+    if (window.api.platform !== 'win32') return
+
+    const updateMaximizedState = () => {
+      const tolerance = 2
+      setIsWindowMaximized(
+        window.outerWidth >= window.screen.availWidth - tolerance
+        && window.outerHeight >= window.screen.availHeight - tolerance
+      )
+    }
+
+    updateMaximizedState()
+    window.addEventListener('resize', updateMaximizedState)
+    return () => window.removeEventListener('resize', updateMaximizedState)
+  }, [])
 
   const summarySource: 'api' | 'webview' = apiConfig?.summarySource ?? 'webview'
   const setSummarySource = (next: 'api' | 'webview') => {
@@ -285,21 +332,24 @@ function Layout({ children }: LayoutProps): JSX.Element {
       <div 
         className={`${window.api.platform === 'darwin' ? 'mac-titlebar' : ''} relative h-[38px] w-full shrink-0 grid items-center px-4 drag-region`}
         style={{ gridTemplateColumns: '1fr auto 1fr' }}
-        onPointerDown={(e) => {
-          // 只在点击 drag-region 且不在 no-drag 内部时触发拖拽
-          const target = e.target as HTMLElement
-          if (window.api.platform === 'darwin') return
-          if (target.closest('.no-drag')) return
-          if (target.closest('.drag-region') || target === e.currentTarget) {
-            isDraggingRef.current = true
-            // Capture pointer to ensure we get pointermove even if mouse leaves window
-            const currentTarget = e.currentTarget
-            currentTarget.setPointerCapture(e.pointerId)
-            window.api.windowDragStart()
-          }
+        onPointerDown={(event) => {
+          if (window.api.platform === 'darwin' || event.button !== 0 || isFallbackDraggingRef.current) return
+          const target = event.target as HTMLElement
+          if (target.closest('.no-drag, button, a, input, select, textarea')) return
+
+          // Windows/Linux 由 PointerCapture + IPC 负责拖动；macOS 使用原生 app-region。
+          isFallbackDraggingRef.current = true
+          event.currentTarget.setPointerCapture(event.pointerId)
+          window.api.windowDragStart()
+        }}
+        onDoubleClick={(event) => {
+          if (window.api.platform !== 'win32') return
+          const target = event.target as HTMLElement
+          if (target.closest('.no-drag, button, a, input, select, textarea')) return
+          window.api.maximizeWindow()
         }}
       >
-        <div className="flex items-center gap-3 select-none drag-region h-full">
+        <div className="relative z-10 flex items-center gap-3 select-none drag-region h-full">
           <div className="flex items-center gap-3 drag-region">
             {/* 模式选择分段控件 */}
             <div
@@ -360,7 +410,7 @@ function Layout({ children }: LayoutProps): JSX.Element {
         </div>
 
         {/* 居中的窗口布局或总结模式控件 */}
-        <div className="flex justify-center drag-region h-full items-center">
+        <div className="relative z-10 flex justify-center drag-region h-full items-center">
           {currentPage === 'main' ? (
             <div 
               className={`flex items-center p-[2px] gap-[2px] glass-panel shadow-soft rounded-full transition-opacity no-drag ${
@@ -430,8 +480,41 @@ function Layout({ children }: LayoutProps): JSX.Element {
           ) : null}
         </div>
         
-        {/* 预留右侧窗口控件空间，避免点击冲突 */}
-        <div className="min-w-[120px] drag-region h-full"></div>
+        {window.api.platform === 'win32' ? (
+          <div className="relative z-20 -mr-4 flex h-full min-w-[138px] items-stretch justify-end drag-region">
+            <button
+              type="button"
+              aria-label="最小化窗口"
+              title="最小化"
+              onClick={() => window.api.minimizeWindow()}
+              className="flex w-[46px] items-center justify-center text-text-secondary transition-colors hover:bg-black/10 hover:text-text-primary"
+            >
+              <span className="material-symbols-outlined text-[17px]">remove</span>
+            </button>
+            <button
+              type="button"
+              aria-label={isWindowMaximized ? '还原窗口' : '最大化窗口'}
+              title={isWindowMaximized ? '还原' : '最大化'}
+              onClick={() => window.api.maximizeWindow()}
+              className="flex w-[46px] items-center justify-center text-text-secondary transition-colors hover:bg-black/10 hover:text-text-primary"
+            >
+              <span className="material-symbols-outlined text-[16px]">
+                {isWindowMaximized ? 'filter_none' : 'crop_square'}
+              </span>
+            </button>
+            <button
+              type="button"
+              aria-label="关闭窗口"
+              title="关闭"
+              onClick={() => window.api.closeWindow()}
+              className="flex w-[46px] items-center justify-center text-text-secondary transition-colors hover:bg-red-500 hover:text-white"
+            >
+              <span className="material-symbols-outlined text-[18px]">close</span>
+            </button>
+          </div>
+        ) : (
+          <div className="relative z-10 min-w-[120px] drag-region h-full" />
+        )}
       </div>
       <main className="flex-1 overflow-hidden">
         {children}

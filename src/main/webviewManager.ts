@@ -337,7 +337,14 @@ export function createWindow(): void {
         frame: false,
         ...(process.platform === 'darwin'
             ? { titleBarStyle: 'hiddenInset' as const }
-            : {
+            : process.platform === 'win32'
+              ? {
+                  // Windows 使用 renderer 自绘三键，最大化由 setBounds(workArea)
+                  // 完成，避免原生 titleBarOverlay 最大化时的瞬时黑帧。
+                  // 此处不能设置 titleBarStyle: hidden，否则顶部会被非客户区
+                  // 命中接管，renderer 收不到手动拖动所需的 pointerdown。
+                }
+              : {
                 titleBarStyle: 'hidden' as const,
                 titleBarOverlay: {
                     color: '#EBF4FF',

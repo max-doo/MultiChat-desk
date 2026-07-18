@@ -14,7 +14,7 @@ const checks = [
       "ipcMain.on('window-drag-start'",
       "ipcMain.on('window-drag-move'",
       "ipcMain.on('window-drag-end'",
-      'setContentBounds({'
+      'win.setContentBounds({'
     ]
   },
   {
@@ -27,8 +27,30 @@ const checks = [
   },
   {
     file: 'src/renderer/src/components/Layout.tsx',
-    patterns: ['window.api.windowDragStart', 'window.api.windowDragMove', 'window.api.windowDragEnd', 'mac-titlebar'],
-    forbiddenPatterns: []
+    patterns: ['mac-titlebar', 'window.api.windowDragStart', 'window.api.windowDragMove', 'window.api.windowDragEnd', 'setPointerCapture', 'requestAnimationFrame', "window.api.platform === 'win32'", 'justify-end drag-region', 'window.api.minimizeWindow()', 'window.api.maximizeWindow()', 'window.api.closeWindow()', 'isWindowMaximized'],
+    forbiddenPatterns: ['native-titlebar', 'native-drag-surface']
+  },
+  {
+    file: 'src/main/webviewManager.ts',
+    patterns: ["process.platform === 'win32'", "titleBarStyle: 'hiddenInset'", 'titleBarOverlay: {', 'renderer 自绘三键', '不能设置 titleBarStyle: hidden']
+  },
+  {
+    file: 'src/renderer/src/pages/QuickPage.tsx',
+    patterns: ['window.api.windowDragMove', 'window.api.windowDragEnd']
+  },
+  {
+    file: 'src/renderer/src/components/WebviewCard.tsx',
+    patterns: ['window.api.windowDragStart', 'setPointerCapture']
+  },
+  {
+    file: 'src/renderer/src/assets/index.css',
+    patterns: ['.mac-titlebar', '-webkit-app-region: drag', '-webkit-app-region: no-drag'],
+    forbiddenPatterns: ['.native-titlebar', '.native-drag-surface']
+  },
+  {
+    file: 'src/main/ipcHandlers.ts',
+    patterns: ['startContentBounds: win.getContentBounds()', 'win.setContentBounds({', 'customMaximizeState', 'screen.getDisplayMatching(win.getBounds()).workArea', 'win.setBounds(workArea, false)'],
+    forbiddenPatterns: ['win.setPosition(']
   }
 ]
 
