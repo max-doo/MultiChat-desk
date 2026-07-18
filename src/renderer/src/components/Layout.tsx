@@ -1,5 +1,6 @@
 import { ReactNode, useEffect, useMemo, useState, useRef } from 'react'
 import { useAppStore } from '../store/appStore'
+import { useUpdateReminder } from '../hooks/useUpdateState'
 import SettingsDrawer from './SettingsDrawer'
 
 interface LayoutProps {
@@ -45,6 +46,7 @@ function Layout({ children }: LayoutProps): JSX.Element {
   }, [])
   
   const { displayMode, setDisplayMode, resetPaneRatios, isSettingsOpen, setSettingsOpen, setHistoryOpen, setHistoryInitialTab, productMode, setProductMode, currentPage, apiConfig, setApiConfig, isNewSession, textInserted, activeModels, debateState } = useAppStore()
+  const { hasUpdate } = useUpdateReminder()
 
   const summarySource: 'api' | 'webview' = apiConfig?.summarySource ?? 'webview'
   const setSummarySource = (next: 'api' | 'webview') => {
@@ -334,11 +336,12 @@ function Layout({ children }: LayoutProps): JSX.Element {
             <button
               type="button"
               onClick={() => setSettingsOpen(true)}
-              className="h-7 px-2 flex items-center justify-center gap-1 text-text-secondary hover:text-primary hover:bg-white/60 rounded-lg transition-all duration-200"
+              className="relative h-7 px-2 flex items-center justify-center gap-1 text-text-secondary hover:text-primary hover:bg-white/60 rounded-lg transition-all duration-200"
               title="设置"
             >
               <span className="material-symbols-outlined text-base">settings</span>
               <span className="text-xs font-normal">设置</span>
+              {hasUpdate && <span className="absolute right-0.5 top-0.5 w-1.5 h-1.5 rounded-full bg-red-500 ring-2 ring-white/80" />}
             </button>
             <button
               type="button"

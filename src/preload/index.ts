@@ -15,6 +15,23 @@ interface GetFileInfoResult {
   error?: string
 }
 
+type UpdateStatus = 'idle' | 'checking' | 'ready' | 'error'
+
+interface UpdateResult {
+  hasUpdate: boolean
+  currentVersion: string
+  latestVersion: string
+  releaseUrl: string
+}
+
+interface UpdateState {
+  status: UpdateStatus
+  result?: UpdateResult
+  lastAttemptAt?: number
+  lastSuccessAt?: number
+  error?: string
+}
+
 // 自定义 API
 const api = {
   platform: process.platform,
@@ -229,6 +246,19 @@ const api = {
 
   // 打开新浏览器窗口
   openBrowserWindow: (url: string): Promise<void> => ipcRenderer.invoke('open-browser-window', url),
+
+  // 更新检查（后台提醒版）
+  updateGetState: (): Promise<{ success: boolean; data?: UpdateState; error?: string }> =>
+    ipcRenderer.invoke('update:get-state'),
+  updateCheck: (): Promise<{ success: boolean; data?: UpdateState; error?: string }> =>
+    ipcRenderer.invoke('update:check'),
+  onUpdateStateChange: (callback: (state: UpdateState) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, updateState: UpdateState): void => callback(updateState)
+    ipcRenderer.on('update:state', listener)
+    return () => {
+      ipcRenderer.removeListener('update:state', listener)
+    }
+  },
 
   // 应用当前版本号（package.json version）
   getAppVersion: (): Promise<{ success: boolean; data?: string; error?: string }> =>

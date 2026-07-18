@@ -6,6 +6,7 @@ import ConfirmModal from './ConfirmModal'
 import ShortcutRecorder from './ShortcutRecorder'
 import ImportCacheConfirmModal from './ImportCacheConfirmModal'
 import AboutSection from './AboutSection'
+import { openUpdateRelease, useUpdateReminder } from '../hooks/useUpdateState'
 
 interface SettingsDrawerProps {
   isOpen: boolean
@@ -596,6 +597,7 @@ function ModelEditorModal({ isOpen, onClose, models, onSave, providers }: ModelE
  */
 function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
   const { apiConfig, setApiConfig, summaryModels, setSummaryModels } = useAppStore()
+  const { hasUpdate, releaseUrl } = useUpdateReminder()
 
   // 弹窗状态
   const [promptEditorOpen, setPromptEditorOpen] = useState(false)
@@ -1043,10 +1045,23 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
         {/* 头部 */}
         <div className="relative flex items-center justify-between p-4 border-b border-white/40">
           {/* 左侧 Logo 和产品名称 */}
-          <div className="flex items-center gap-2 text-text-primary">
-            <img src={logo} alt="MultiChat Logo" className="w-10 h-10 object-contain" />
-            <span className="font-semibold text-primary text-base">MultiChat</span>
-          </div>
+          {hasUpdate ? (
+            <button
+              type="button"
+              onClick={() => openUpdateRelease(releaseUrl)}
+              className="flex items-center gap-2 text-text-primary rounded-lg hover:bg-white/60 transition-colors"
+              title="发现新版本，打开发布页"
+            >
+              <img src={logo} alt="MultiChat Logo" className="w-7 h-7 object-contain" />
+              <span className="font-semibold text-primary text-sm tracking-wide">MultiChat</span>
+              <span className="text-[9px] leading-none font-bold text-red-500 bg-red-50 border border-red-200 px-1.5 py-1 rounded-full">NEW</span>
+            </button>
+          ) : (
+            <div className="flex items-center gap-2 text-text-primary">
+              <img src={logo} alt="MultiChat Logo" className="w-7 h-7 object-contain" />
+              <span className="font-semibold text-primary text-sm tracking-wide">MultiChat</span>
+            </div>
+          )}
 
           {/* 中间标题 */}
           <div className="absolute left-1/2 transform -translate-x-1/2">

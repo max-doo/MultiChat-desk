@@ -1,6 +1,143 @@
 # Session Log
 
+## 2026-07-18
+
+### 14:55 | codex
+
+- done: 修复更新缓存未随当前版本重算导致本地 1.2.1 仍提示远程 1.2.0 的问题
+- context: 读取旧缓存时按 app.getVersion() 与缓存远程版本重新计算 hasUpdate，不增加网络请求；保留现有未提交改动
+- decision: 启动加载缓存时校正 currentVersion、latestVersion 与 hasUpdate，并立即持久化校正后的状态
+- modified:
+  - `src/main/updater/checker.ts`
+
+### 14:39 | Antigravity
+
+- done: 将本地版本号改回 1.2.1
+- modified:
+  - `package.json`
+  - `package-lock.json`
+
+### 14:29 | codex
+
+- done: 完成更新提醒 UI 优化：设置卡片单行操作、更新态隐藏检查按钮、设置按钮红点、设置与历史记录抽屉 logo NEW 发布入口
+- context: 保留现有 HistoryDrawer.tsx 和 SettingsDrawer.tsx 未提交头部改动；共享 renderer 更新状态 hook，所有入口复用主进程推送的 release 状态
+- decision: 以 useUpdateState 统一读取缓存和订阅 update:state，更新卡片有新版本时只展示前往下载
+- added:
+  - `src/renderer/src/hooks/useUpdateState.ts`
+- modified:
+  - `docs/superpowers/specs/2026-07-18-update-reminder-background-check-design.md`
+  - `src/renderer/src/components/AboutSection.tsx`
+  - `src/renderer/src/components/Layout.tsx`
+  - `src/renderer/src/components/SettingsDrawer.tsx`
+  - `src/renderer/src/components/HistoryDrawer.tsx`
+
+### 13:53 | codex
+
+- done: 修复更新检查 IPC 异常导致检查中卡住，并将本地版本降至 1.1.0 以验证远程 1.2.0 更新提示
+- context: 保留现有 HistoryDrawer.tsx 和 SettingsDrawer.tsx 未提交头部改动；更新检查仍按主进程/IPC/preload/renderer 分层
+- decision: AboutSection 捕获 updateCheck IPC 异常并显示可重试错误，避免状态永久停留在 checking
+- modified:
+  - `package.json`
+  - `package-lock.json`
+  - `src/renderer/src/components/AboutSection.tsx`
+
+### 13:45 | codex
+
+- done: 实现低频后台更新提醒：启动延迟检查、24小时缓存、GitHub API限流回退、设置抽屉提醒与发布页入口
+- context: 保留现有 HistoryDrawer.tsx 和 SettingsDrawer.tsx 未提交头部改动；按主进程/IPC/preload/renderer 分层
+- decision: API 403 时回退到 GitHub /releases/latest 重定向页，避免未认证限流让更新提示永久失效
+- added:
+  - `src/main/updater/checker.ts`
+- modified:
+  - `docs/superpowers/specs/2026-07-18-update-reminder-background-check-design.md`
+  - `src/main/index.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/preload/index.d.ts`
+  - `src/renderer/src/env.d.ts`
+  - `src/renderer/src/components/AboutSection.tsx`
+
+### 13:20 | Antigravity
+
+- done: 移除 Logo 圆角，保持直角设计，仅优化 Logo 与文字的尺寸比例
+- modified:
+  - `src/renderer/src/components/SettingsDrawer.tsx`
+  - `src/renderer/src/components/HistoryDrawer.tsx`
+
+### 13:18 | Antigravity
+
+- done: 调整设置抽屉与历史记录抽屉头部左上角的 Logo 尺寸与产品名字体样式，添加圆角以提升视觉协调性
+- modified:
+  - `src/renderer/src/components/SettingsDrawer.tsx`
+  - `src/renderer/src/components/HistoryDrawer.tsx`
+
+## 2026-07-17
+
+### 00:03 | Codex
+
+- done: 将 ChatGPT Deep Research 报告 OOPIF 提取链路暂存到 feat/chatgpt-deep-research-extractor，并从 main 移除失败链路；TODO 已记录遗留事项
+- context: 用户确认该逻辑会拖慢爬取且提取失败，要求保留到已有 GPT 分支、主分支恢复普通抓取
+- decision: 不改写历史；在 GPT 分支提交专用提取器及 IPC/preload/renderer 依赖，在 main 新提交清理专用代码并保留 TODO；保留普通 Deep Research 模式开关和既有 reportContainer 选择器
+- modified:
+  - `TODO.md src/main/ipcHandlers.ts src/preload/index.ts src/preload/index.d.ts src/renderer/src/components/WebviewCard.tsx src/renderer/src/env.d.ts`
+- removed:
+  - `src/main/chatgptDeepResearchExtractor.ts`
+- unresolved: 后续需重新设计 ChatGPT Deep Research 正文提取方案，并在真实报告上进行耗时与成功率验收
+
 ## 2026-07-16
+
+### 23:47 | Codex
+
+- done: 将 Deep Research target/frame-context 两级遍历及待处理的稳定经验提升到项目知识库，并标记对应会话 lesson 为 promoted。
+- modified:
+  - `.memory/KNOWLEDGE.md`
+  - `SESSION_LOG.md`
+
+### 23:46 | Codex
+
+- done: 根据运行日志补齐 Deep Research 混合 frame 遍历：递归 Target session 后，在每个 session 内通过 Page.getFrameTree 与 Page.createIsolatedWorld 枚举本地子 frame execution context，探测与提取均支持 sessionId+contextId。
+- context: 用户日志只发现 root 和 connector iframe target，证明报告内层没有独立 Target.attachedToTarget；真实报告位于 connector target 内的本地 frame context。lint/build 通过。
+- decision: 采用两级模型：Target.setAutoAttach 处理跨进程 OOPIF，Page.getFrameTree/createIsolatedWorld 处理同一 target 内的嵌套 frame；不再把两者视为互斥方案。失败日志增加每个 target 检查的 context 数。
+- modified:
+  - `src/main/chatgptDeepResearchExtractor.ts`
+- lesson(promoted): Electron WebView 的嵌套 iframe 可能跨进程成为 child target，也可能只是在现有 target 内拥有独立 execution context。完整遍历必须组合递归 Target.setAutoAttach 与每个 session 内的 Page.getFrameTree/createIsolatedWorld，不能只实现其中一层。
+- unresolved: 需重启 Electron 主进程后再次验收；若失败，记录新日志中的 contexts 数量。
+
+### 23:40 | Codex
+
+- done: 修复 ChatGPT Deep Research 回退完全未触发且无日志的问题：WebviewCard 自动识别报告 iframe 并在普通 DOM 前优先提取；getAllResponses/pollPlatforms 恢复 Deep Research 参数；空结果不再判完成；main IPC 输出提取结果。
+- context: 用户反馈仍失败且无 Console 提示。代码事实显示所有调用均为无参数 getLatestResponse，allowDeepResearchFallback 永远为 false；运行中的 Electron 主进程自 23:33 未重启。lint/build 通过。
+- decision: 将 Deep Research iframe 识别下沉到 WebviewCard，避免依赖每个调用方正确传参；iframe 已出现但报告未读到时返回空值继续等待，不回退到进度外壳；主进程与宿主 renderer 双侧记录错误。
+- modified:
+  - `src/main/ipcHandlers.ts`
+  - `src/renderer/src/components/WebviewCard.tsx`
+  - `src/renderer/src/store/appStore.ts`
+- lesson(promoted): 关键回退能力不能只靠可选调用参数触发；当调用点多且容易被覆盖时，应由能力拥有者根据稳定页面信号自动识别，并让上层参数仅表达等待语义。Electron main 代码修改后必须重启主进程，renderer HMR 或 npm run build 不能证明运行进程已加载新代码。
+- unresolved: 用户需重启当前 npm run dev/Electron 进程后重新验收，并查看终端 [ChatGPT Deep Research] 日志或宿主 renderer Console。
+
+### 23:31 | Codex
+
+- done: 纠正项目知识库中单层 OOPIF 提取的旧结论，统一为递归 Target.setAutoAttach，并标记本次稳定经验已提升。
+- modified:
+  - `.memory/KNOWLEDGE.md`
+  - `SESSION_LOG.md`
+
+### 23:30 | Codex
+
+- done: 修正 ChatGPT Deep Research 报告抓取：将单层 Target.getTargets/attachToTarget 改为递归 Target.setAutoAttach，逐层探测 child session 直到定位真实报告 DOM，并补充 renderer 失败原因日志。
+- context: 真实页面结构为 ChatGPT -> connector 沙盒 iframe -> 第二层报告 iframe；外层 document 没有 main h1，内层包含完整报告。npm run lint 与 npm run build 通过。
+- decision: 不再按 target URL 判断报告 frame；对 page/iframe child session 递归 auto-attach，并以 main h1、正文长度和结构节点作为目标探针。调试通道已被占用时显式失败，避免破坏其他 CDP 使用者。
+- modified:
+  - `src/main/chatgptDeepResearchExtractor.ts`
+  - `src/renderer/src/components/WebviewCard.tsx`
+- lesson(promoted): Target.setAutoAttach 只覆盖当前 target 的直接相关 target；多层 OOPIF 必须监听 Target.attachedToTarget，并在每个 child session 上递归启用 autoAttach。报告 target 可能显示 about:blank，不能仅按 URL 过滤，应直接探测目标 DOM。
+- unresolved: 需由用户在桌面开发环境对现有 ChatGPT Deep Research 报告执行一次总结验收，并根据新增 console.warn 核对失败阶段。
+
+### 23:25 | Antigravity
+
+- done: Add widescreen deep research selector for ChatGPT and bump selectors version to 18
+- modified:
+  - `src/shared/config/selectors.ts`
 
 ### 23:23 | Antigravity
 
@@ -15,7 +152,7 @@
 - decision: 由 App.tsx 唯一渲染 HistoryDrawer，MainPage 通过 pendingHistoryRestore useEffect 调用原历史恢复逻辑。
 - modified:
   - `src/renderer/src/pages/MainPage.tsx`
-- lesson: 跨页提升共享 UI 后，必须同时移除原页面实例并把原回调接到 pending 状态消费点，不能只替换顶部状态变量。
+- lesson(promoted): 跨页提升共享 UI 后，必须同时移除原页面实例并把原回调接到 pending 状态消费点，不能只替换顶部状态变量。
 
 ### 22:50 | Codex
 
@@ -26,7 +163,7 @@
   - `src/main/summaryPrompts.ts`
   - `src/renderer/src/components/SettingsDrawer.tsx`
   - `src/renderer/src/pages/MainPage.tsx`
-- lesson: React 列表数据来自可持久化文件或配置时，读取和渲染两侧都应按稳定业务 ID 去重；局部变量命名应避免与旧 HMR 代码产生歧义。
+- lesson(promoted): React 列表数据来自可持久化文件或配置时，读取和渲染两侧都应按稳定业务 ID 去重；局部变量命名应避免与旧 HMR 代码产生歧义。
 
 ### 22:40 | Antigravity
 
@@ -211,64 +348,4 @@
 - decision: Keep the fix minimal and local to SummaryPanel so API summary behavior remains unchanged.
 - modified:
   - `src/renderer/src/components/SummaryPanel.tsx`
-
-## 2026-07-11
-
-### 14:09 | Codex
-
-- done: Completed_macos_followup_gaps_for_selection_toolbar_packaging_and_unsigned_release
-- decision: Use_macos_System_Events_accessibility_reading_without_a_new_production_dependency_and_keep_unsigned_release_explicit
-- added:
-  - `build/generate-mac-assets.sh`
-  - `build/MACOS_FIRST_OPEN.md`
-  - `scripts/generate-release-checksums.js`
-- modified:
-  - `src/main/platform/selectionReader.ts`
-  - `src/main/ipcHandlers.ts`
-  - `src/renderer/src/components/SettingsDrawer.tsx`
-  - `src/renderer/src/assets/index.css`
-  - `electron-builder.yml`
-  - `package.json`
-  - `build/multichat-cli.sh`
-  - `src/main/daemon/ipcServer.ts`
-  - `src/cli/client.ts`
-  - `.gitignore`
-- unresolved: Validate_on_clean_Intel_and_Apple_Silicon_macs
-
-### 13:52 | Codex
-
-- done: macOS-plan-execution
-- added:
-  - `src/main/platform/selectionReader.ts`
-- modified:
-  - `electron-builder.yml`
-  - `scripts/verify-titlebar-drag-contract.js`
-  - `src/cli/client.ts`
-  - `src/main/daemon/ipcServer.ts`
-  - `src/main/index.ts`
-  - `src/main/inputHookManager.ts`
-  - `src/main/ipcHandlers.ts`
-  - `src/main/webviewManager.ts`
-  - `src/preload/index.d.ts`
-  - `src/preload/index.ts`
-  - `src/renderer/src/assets/index.css`
-  - `src/renderer/src/components/Layout.tsx`
-  - `src/renderer/src/components/SettingsDrawer.tsx`
-  - `src/renderer/src/env.d.ts`
-- lesson(promoted): macOS-selection-must-not-invoke-Windows-PowerShell-UIA
-
-### 13:42 | Codex
-
-- done: Removed_nonfunctional_macos_titlebar_status_indicator_from_plan
-- decision: Keep_macos_titlebar_right_side_limited_to_history_and_settings
-- modified:
-  - `docs/MACOS_DEVELOPMENT_PLAN.md`
-
-### 13:26 | Codex
-
-- done: Saved_macOS_adaptation_and_unsigned_release_plan
-- decision: Unsigned_DMG_validation_phase_with_documented_Gatekeeper_confirmation_and_integrity_checks
-- added:
-  - `docs/MACOS_DEVELOPMENT_PLAN.md`
-- unresolved: Implement_and_validate_on_Intel_and_Apple_Silicon
 

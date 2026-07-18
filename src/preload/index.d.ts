@@ -49,6 +49,22 @@ interface SummaryHistoryPageItem {
   selectedModels: string[]
 }
 
+type UpdateStatus = 'idle' | 'checking' | 'ready' | 'error'
+
+interface UpdateResult {
+  hasUpdate: boolean
+  currentVersion: string
+  latestVersion: string
+  releaseUrl: string
+}
+
+interface UpdateState {
+  status: UpdateStatus
+  result?: UpdateResult
+  lastAttemptAt?: number
+  lastSuccessAt?: number
+  error?: string
+}
 
 declare global {
   interface Window {
@@ -153,6 +169,9 @@ declare global {
         directory?: string
       }) => Promise<{ success: boolean; filePath?: string; error?: string }>
       openBrowserWindow: (url: string) => Promise<void>
+      updateGetState: () => Promise<{ success: boolean; data?: UpdateState; error?: string }>
+      updateCheck: () => Promise<{ success: boolean; data?: UpdateState; error?: string }>
+      onUpdateStateChange: (callback: (state: UpdateState) => void) => () => void
       // 应用当前版本号（package.json version）
       getAppVersion: () => Promise<{ success: boolean; data?: string; error?: string }>
       saveImageFromURL: (url: string) => Promise<{ success: boolean; filePath?: string; error?: string }>
