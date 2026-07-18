@@ -4,6 +4,7 @@ import { showToolbarAt, hideToolbarWindow, getToolbarWindow, isPointInToolbar, s
 import { startSelectionReader, stopSelectionReader, readPlatformSelection } from './platform/selectionReader'
 
 let hook: HookJs | null = null
+let hookHealthTimer: ReturnType<typeof setInterval> | null = null
 let isMouseDown = false
 let startX = 0
 let startY = 0
@@ -16,6 +17,7 @@ let currentToolbarPhysY = 0
 
 // 防止松手读取与上一次读取并发执行（UIA helper 单槽，并发会返回 null）
 let isReading = false
+let wheelSelectionTimer: ReturnType<typeof setTimeout> | null = null
 
 // 鼠标按下时异步读取的"拖拽前选区快照"promise。松手时 await 它得到真值，
 // 与松手时的选区对比：相同则视为旧选区未变（如拖窗口标题栏），不弹工具条。
@@ -55,6 +57,7 @@ function processEvent(event: EventJs): void {
       startX = event.mouse.x ?? 0
       startY = event.mouse.y ?? 0
       startTime = Date.now()
+      selAtDownPromise = Promise.resolve(null)
       // 拖拽开始前先异步快照当前选区，松手时对比以判定是否产生了"新"选区
       if (!isAppFocused()) {
         selAtDownPromise = readPlatformSelection().then((r) => r?.text ?? null)
@@ -106,6 +109,20 @@ function processEvent(event: EventJs): void {
       }
     }
   }
+  // MouseWheel (10)：滚动不会产生新的 MouseReleased，但 TextArea 中的选区
+  // 仍然可能被用户通过滚动定位/扩展。停止滚动后读取一次当前选区，避免每个
+  // wheel 事件都启动 UIA 请求。
+  else if (type === 10 && event.wheel) {
+    if (wheelSelectionTimer) clearTimeout(wheelSelectionTimer)
+    const x = event.wheel.x ?? 0
+    const y = event.wheel.y ?? 0
+    wheelSelectionTimer = setTimeout(() => {
+      wheelSelectionTimer = null
+      if (!isAppFocused()) {
+        void handleTextSelection(x, y, false)
+      }
+    }, 120)
+  }
   // KeyPressed (2)
   else if (type === 2) {
     const activeWindow = getToolbarWindow()
@@ -115,8 +132,47 @@ function processEvent(event: EventJs): void {
   }
 }
 
+function stopHookHealthMonitor(): void {
+  if (hookHealthTimer) {
+    clearInterval(hookHealthTimer)
+    hookHealthTimer = null
+  }
+}
+
+function startHookHealthMonitor(): void {
+  stopHookHealthMonitor()
+  hookHealthTimer = setInterval(() => {
+    if (!hook) return
+
+    let running = false
+    try {
+      running = hook.isRunning
+    } catch {
+      running = false
+    }
+    if (running) return
+
+    console.warn('[InputHook] Native hook is no longer running; restarting')
+    const staleHook = hook
+    hook = null
+    try { staleHook.stop() } catch { /* already stopped */ }
+    startInputHook()
+  }, 5000)
+}
+
 export function startInputHook(): void {
-  if (hook) return
+  if (hook) {
+    try {
+      if (hook.isRunning) {
+        startHookHealthMonitor()
+        return
+      }
+    } catch {
+      // 读取 native hook 状态失败，按失效处理并重建。
+    }
+    try { hook.stop() } catch { /* already stopped */ }
+    hook = null
+  }
 
   // 启动 UIA 选区读取助手（随工具条开关与 before-quit 联动）
   startSelectionReader()
@@ -130,23 +186,25 @@ export function startInputHook(): void {
       }
     })
     console.log('[InputHook] startListen started successfully')
+    startHookHealthMonitor()
   } catch (err) {
     console.error('[InputHook] Failed to startListen:', err)
   }
 }
 
-async function handleTextSelection(x: number, y: number): Promise<void> {
+async function handleTextSelection(x: number, y: number, compareWithDownSnapshot = true): Promise<void> {
   // 并发守卫：上一次读取尚未结束时忽略新手势（UIA helper 单槽）
   if (isReading) return
   isReading = true
   try {
+    // 拖拽触发需要拿到按下时的选区真值；滚轮触发没有新的按下快照，
+    // 不能拿上一次拖拽的快照来判定“旧选区未变”。
+    const selAtDown = compareWithDownSnapshot ? await selAtDownPromise : null
     // 松手后用 UIA 非侵入读取当前选区（不发 Ctrl+C，不杀终端进程、不抢 Word 工具条）
     const selAtUp = (await readPlatformSelection())?.text ?? ''
-    // 拿到按下时的选区真值（promise 多半已 resolve，即时返回）
-    const selAtDown = await selAtDownPromise
 
     // 旧选区未变（如拖窗口标题栏，应用里旧选区仍在）→ 不弹
-    if (selAtDown !== null && selAtUp === selAtDown) {
+    if (compareWithDownSnapshot && selAtDown !== null && selAtUp === selAtDown) {
       return
     }
     // 无选区（UIA 读不到，如 VS Code 编辑器/记事本）→ 不弹，安全降级
@@ -164,6 +222,11 @@ async function handleTextSelection(x: number, y: number): Promise<void> {
 }
 
 export function stopInputHook(): void {
+  stopHookHealthMonitor()
+  if (wheelSelectionTimer) {
+    clearTimeout(wheelSelectionTimer)
+    wheelSelectionTimer = null
+  }
   stopSelectionReader()
   if (hook) {
     try {

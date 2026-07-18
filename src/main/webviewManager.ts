@@ -802,8 +802,10 @@ export function setCachedSelectionText(text: string): void { cachedSelectionText
 export function getCachedSelectionText(): string { return cachedSelectionText }
 
 export function createToolbarWindow(): void {
-    if (toolbarWindow) return
-    toolbarWindow = new BrowserWindow({
+    if (toolbarWindow && !toolbarWindow.isDestroyed()) return
+    toolbarWindow = null
+
+    const createdToolbarWindow = new BrowserWindow({
         width: 360,
         height: 40,
         frame: false,
@@ -824,19 +826,44 @@ export function createToolbarWindow(): void {
             nodeIntegration: false
         }
     })
+    toolbarWindow = createdToolbarWindow
 
-    toolbarWindow.on('closed', () => { toolbarWindow = null })
+    createdToolbarWindow.on('closed', () => {
+        if (toolbarWindow === createdToolbarWindow) toolbarWindow = null
+    })
+
+    const discardBrokenToolbarWindow = (reason: string): void => {
+        if (toolbarWindow !== createdToolbarWindow) return
+        console.warn(`[Toolbar] Renderer unavailable (${reason}); recreating on next trigger`)
+        toolbarWindow = null
+        if (!createdToolbarWindow.isDestroyed()) createdToolbarWindow.destroy()
+    }
+
+    createdToolbarWindow.webContents.on('render-process-gone', () => {
+        discardBrokenToolbarWindow('render-process-gone')
+    })
+    createdToolbarWindow.webContents.on('crashed', () => {
+        discardBrokenToolbarWindow('crashed')
+    })
+    createdToolbarWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, _validatedURL, isMainFrame) => {
+        if (isMainFrame) discardBrokenToolbarWindow(`${errorCode}: ${errorDescription}`)
+    })
 
     const hash = 'toolbar'
     if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-        void toolbarWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/#${hash}`)
+        void createdToolbarWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/#${hash}`).catch((error: unknown) => {
+            discardBrokenToolbarWindow(`loadURL: ${String(error)}`)
+        })
     } else {
-        void toolbarWindow.loadFile(join(__dirname, '../renderer/index.html'), { hash })
+        void createdToolbarWindow.loadFile(join(__dirname, '../renderer/index.html'), { hash }).catch((error: unknown) => {
+            discardBrokenToolbarWindow(`loadFile: ${String(error)}`)
+        })
     }
 }
 
 export function showToolbarAt(physX: number, physY: number): void {
-    if (!toolbarWindow) {
+    if (!toolbarWindow || toolbarWindow.isDestroyed()) {
+        toolbarWindow = null
         createToolbarWindow()
     }
     if (!toolbarWindow) return

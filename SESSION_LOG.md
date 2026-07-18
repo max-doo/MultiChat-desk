@@ -2,6 +2,23 @@
 
 ## 2026-07-18
 
+### 21:31 | Antigravity
+
+- done: 根据最近的修改更新 CHANGELOG.md 中的 1.2.1 版本记录
+- modified:
+  - `CHANGELOG.md`
+
+### 21:26 | Codex
+
+- done: 修复划词快捷工具条滚轮触发、UIA请求竞态与长时间运行失效
+- context: 保留MultiChat自身窗口内不弹工具条；当前运行中的Electron旧实例未重启
+- decision: 滚轮使用去抖后的当前选区读取；UIA读取改为JS队列并在超时/异常时重启helper；native hook增加5秒健康检查；工具条renderer崩溃或加载失败后下次触发重建
+- modified:
+  - `src/main/inputHookManager.ts`
+  - `src/main/uiaSelectionHelper.ts`
+  - `src/main/webviewManager.ts`
+- unresolved: 需重启开发实例后在外部TextArea实际拖选并滚轮验证
+
 ### 14:55 | codex
 
 - done: 修复更新缓存未随当前版本重算导致本地 1.2.1 仍提示远程 1.2.0 的问题

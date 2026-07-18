@@ -84,6 +84,7 @@ let scriptPath: string | null = null
 let rl: readline.Interface | null = null
 let pending: ((res: SelectionResult | null) => void) | null = null
 let pendingTimer: ReturnType<typeof setTimeout> | null = null
+const queuedResolvers: Array<(res: SelectionResult | null) => void> = []
 
 function clearPending(resolveWith: SelectionResult | null): void {
   if (pendingTimer) {
@@ -95,30 +96,60 @@ function clearPending(resolveWith: SelectionResult | null): void {
   if (p) p(resolveWith)
 }
 
+function closeHelper(): void {
+  const currentChild = child
+  child = null
+
+  if (rl) { try { rl.close() } catch { /* ignore */ } rl = null }
+  if (currentChild) {
+    try { currentChild.stdin?.end() } catch { /* ignore */ }
+    try { currentChild.kill() } catch { /* ignore */ }
+  }
+  if (scriptPath) {
+    try { unlinkSync(scriptPath) } catch { /* ignore */ }
+    scriptPath = null
+  }
+}
+
+function scheduleQueuePump(): void {
+  setTimeout(() => pumpReadQueue(), 0)
+}
+
+function handleHelperFailure(failedChild: ChildProcess): void {
+  // 重启旧 helper 时，旧进程稍后触发的 exit 不能清掉新 helper 的全局状态。
+  if (child !== failedChild) return
+  child = null
+  if (rl) { try { rl.close() } catch { /* ignore */ } rl = null }
+  if (scriptPath) {
+    try { unlinkSync(scriptPath) } catch { /* ignore */ }
+    scriptPath = null
+  }
+  clearPending(null)
+  scheduleQueuePump()
+}
+
 export function startUiaHelper(): void {
   if (child) return
   try {
     scriptPath = join(tmpdir(), `multichat-uia-${process.pid}.ps1`)
     writeFileSync(scriptPath, HELPER_PS1, 'utf8')
-    child = spawn(
+    const spawnedChild = spawn(
       'powershell.exe',
       ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath],
       { windowsHide: true, stdio: ['pipe', 'pipe', 'ignore'] }
     )
-    child.on('exit', () => {
-      // helper 意外退出：清状态，下次读取懒重启
-      child = null
-      if (rl) { try { rl.close() } catch { /* ignore */ } rl = null }
-      clearPending(null)
+    child = spawnedChild
+    spawnedChild.on('exit', () => {
+      // helper 意外退出：清状态，自动继续处理排队的读取请求
+      handleHelperFailure(spawnedChild)
     })
-    child.on('error', (err) => {
+    spawnedChild.on('error', (err) => {
       console.error('[UIA] helper spawn error:', err.message)
-      child = null
-      clearPending(null)
+      handleHelperFailure(spawnedChild)
     })
-    if (child.stdout) {
-      child.stdout.setEncoding('utf8')
-      rl = readline.createInterface({ input: child.stdout })
+    if (spawnedChild.stdout) {
+      spawnedChild.stdout.setEncoding('utf8')
+      rl = readline.createInterface({ input: spawnedChild.stdout })
       rl.on('line', (line: string) => {
         if (!line.startsWith(SENTINEL)) return
         try {
@@ -146,42 +177,63 @@ export function startUiaHelper(): void {
   } catch (err) {
     console.error('[UIA] helper start failed:', err)
     child = null
+    if (scriptPath) {
+      try { unlinkSync(scriptPath) } catch { /* ignore */ }
+      scriptPath = null
+    }
+  }
+}
+
+function pumpReadQueue(): void {
+  if (pending || queuedResolvers.length === 0) return
+
+  if (!child) startUiaHelper()
+  const stdin = child?.stdin
+  if (!child || !stdin || stdin.destroyed || stdin.writableEnded) {
+    if (child) closeHelper()
+    const resolve = queuedResolvers.shift()
+    resolve?.(null)
+    if (queuedResolvers.length > 0) scheduleQueuePump()
+    return
+  }
+
+  const resolve = queuedResolvers.shift()
+  if (!resolve) return
+
+  pending = resolve
+  pendingTimer = setTimeout(() => {
+    // 超时不能只清 pending：helper 可能卡在 UIA 调用中，继续复用会让
+    // 后续响应错位，表现为应用长时间运行后永远读不到选区。
+    clearPending(null)
+    console.warn('[UIA] selection read timed out; restarting helper')
+    closeHelper()
+    pumpReadQueue()
+  }, READ_TIMEOUT_MS)
+
+  try {
+    stdin.write(SELECTION_CMD + '\n')
+  } catch (err) {
+    console.error('[UIA] helper write failed:', err)
+    clearPending(null)
+    closeHelper()
+    pumpReadQueue()
   }
 }
 
 export function stopUiaHelper(): void {
   if (pendingTimer) { clearTimeout(pendingTimer); pendingTimer = null }
-  pending = null
-  if (rl) { try { rl.close() } catch { /* ignore */ } rl = null }
-  if (child) {
-    try { child.stdin?.end() } catch { /* ignore */ }
-    try { child.kill() } catch { /* ignore */ }
-    child = null
-  }
-  if (scriptPath) {
-    try { unlinkSync(scriptPath) } catch { /* ignore */ }
-    scriptPath = null
-  }
+  clearPending(null)
+  while (queuedResolvers.length > 0) queuedResolvers.shift()?.(null)
+  closeHelper()
 }
 
 /**
- * 读取前台焦点元素当前选中文本。单槽：同一时刻只允许一个在途请求；
- * 若已有在途请求则本次直接返回 null（调用方按"无选区"处理，安全降级）。
- * helper 未运行时懒启动。
+ * 读取前台焦点元素当前选中文本。helper 协议仍是单槽，但 JS 侧会排队请求，
+ * 避免按下/松手或滚轮触发时因已有请求而直接误判为无选区；helper 未运行时懒启动。
  */
 export function readSelection(): Promise<SelectionResult | null> {
-  if (!child) startUiaHelper()
-  if (!child || !child.stdin) return Promise.resolve(null)
-  if (pending) return Promise.resolve(null) // 串行化，避免响应错位
-
   return new Promise<SelectionResult | null>((resolve) => {
-    pending = resolve
-    pendingTimer = setTimeout(() => clearPending(null), READ_TIMEOUT_MS)
-    try {
-      child!.stdin.write(SELECTION_CMD + '\n')
-    } catch (err) {
-      console.error('[UIA] helper write failed:', err)
-      clearPending(null)
-    }
+    queuedResolvers.push(resolve)
+    pumpReadQueue()
   })
 }
