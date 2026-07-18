@@ -1,6 +1,7 @@
 # 更新提醒后台检查机制设计
 
 > Created: 2026-07-18 13:32 (UTC+08:00)
+> Updated: 2026-07-18 14:26 (UTC+08:00)
 
 ## 背景
 
@@ -13,6 +14,7 @@ MultiChat-desk 当前的「检查新版本」按钮只会打开 GitHub Releases 
 - 设置抽屉打开时立即显示已缓存的检查结果；后台检查完成后可实时刷新提醒。
 - 用户可点击「重新检查」绕过缓存，主动发起一次检查。
 - 发现更新时显示最新版本号，并提供「前往下载」外链。
+- 有更新时在顶部「设置」按钮显示红点，并在设置抽屉、历史记录抽屉的 logo 处显示可点击的 `NEW` 标签。
 - 网络失败不阻塞应用启动，也不清除上一次成功的更新结果。
 
 ## 非目标
@@ -92,15 +94,17 @@ interface UpdateState {
 
 ## 设置抽屉交互
 
-沿用现有 `AboutSection` 挂载位置，不修改设置抽屉其他区域：
+沿用现有 `AboutSection` 挂载位置，并将更新状态同步到顶部和抽屉入口：
 
-- 初始态：显示当前版本和「检查更新」。
+- 更新卡片采用单行布局，版本文字、状态文字和操作按钮保持在同一行。
+- 初始态、无更新或失败态：显示「检查更新」/「重试」按钮。
 - 检查中：按钮禁用，显示「检查中…」。
-- 无更新：显示「当前已是最新版本」。
-- 有更新：更新卡片显示醒目的「发现新版本 vX.Y.Z」提醒，并显示「前往下载」按钮；打开 `releaseUrl` 到默认浏览器。
+- 有更新：更新卡片只显示「前往下载」，不再显示没有意义的「检查更新」按钮；打开 `releaseUrl` 到默认浏览器。
+- 顶部「设置」按钮显示红点；设置抽屉和历史记录抽屉的 logo 旁显示 `NEW`，点击 logo 区域打开同一个 `releaseUrl`。
+- `src/renderer/src/hooks/useUpdateState.ts` 统一读取缓存并订阅状态推送，避免各入口自行维护更新状态。
 - 失败：显示友好错误和「重试」按钮；如果已有缓存的更新结果，继续保留「有新版本」提醒。
 
-不显示启动弹窗，不自动打开浏览器。更新卡片的提醒状态来自主进程实际检查结果，不添加没有状态来源的装饰性红点。
+不显示启动弹窗，不自动打开浏览器。所有红点和 `NEW` 标签都来自主进程实际检查结果。
 
 ## 错误处理与安全边界
 
@@ -121,6 +125,7 @@ interface UpdateState {
   4. 点击「重新检查」，确认按钮进入检查中状态并更新结果。
   5. 断网或模拟请求失败，确认应用不阻塞、错误可重试且已有更新缓存不消失。
 - `git diff --check`：确认文档和代码无空白错误。
+- 有更新状态下手动确认：设置卡片只显示「前往下载」；顶部设置按钮有红点；设置抽屉和历史记录抽屉 logo 均显示 `NEW` 且可打开发布页。
 
 ## 影响范围
 
@@ -129,6 +134,8 @@ interface UpdateState {
 - 新增：`src/main/updater/checker.ts`
 - 修改：`src/main/index.ts`、`src/main/ipcHandlers.ts`
 - 修改：`src/preload/index.ts`、`src/preload/index.d.ts`、`src/renderer/src/env.d.ts`
-- 修改：`src/renderer/src/components/AboutSection.tsx`
+- 新增：`src/renderer/src/hooks/useUpdateState.ts`
+- 修改：`src/renderer/src/components/AboutSection.tsx`、`src/renderer/src/components/Layout.tsx`
+- 修改：`src/renderer/src/components/SettingsDrawer.tsx`、`src/renderer/src/components/HistoryDrawer.tsx`
 
-不修改当前工作树中与本功能无关的 `HistoryDrawer.tsx`、`SettingsDrawer.tsx` 头部尺寸改动。
+保留当前工作树中与本功能无关的 `HistoryDrawer.tsx`、`SettingsDrawer.tsx` 头部尺寸改动。
