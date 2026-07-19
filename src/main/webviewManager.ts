@@ -808,6 +808,18 @@ let cachedSelectionText = ''
 export function setCachedSelectionText(text: string): void { cachedSelectionText = text }
 export function getCachedSelectionText(): string { return cachedSelectionText }
 
+export function destroyToolbarWindow(): void {
+    const windowToDestroy = toolbarWindow
+    toolbarWindow = null
+    cachedSelectionText = ''
+    if (!windowToDestroy || windowToDestroy.isDestroyed()) return
+    try {
+        windowToDestroy.destroy()
+    } catch (error) {
+        console.warn(`[Toolbar] Failed to destroy toolbar window: ${String(error)}`)
+    }
+}
+
 export function createToolbarWindow(): void {
     if (toolbarWindow && !toolbarWindow.isDestroyed()) return
     toolbarWindow = null
@@ -830,7 +842,8 @@ export function createToolbarWindow(): void {
             preload: join(__dirname, '../preload/index.js'),
             sandbox: false,
             contextIsolation: true,
-            nodeIntegration: false
+            nodeIntegration: false,
+            backgroundThrottling: false
         }
     })
     toolbarWindow = createdToolbarWindow
@@ -852,6 +865,9 @@ export function createToolbarWindow(): void {
     createdToolbarWindow.webContents.on('crashed', () => {
         discardBrokenToolbarWindow('crashed')
     })
+    createdToolbarWindow.webContents.on('unresponsive', () => {
+        discardBrokenToolbarWindow('unresponsive')
+    })
     createdToolbarWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, _validatedURL, isMainFrame) => {
         if (isMainFrame) discardBrokenToolbarWindow(`${errorCode}: ${errorDescription}`)
     })
@@ -869,7 +885,7 @@ export function createToolbarWindow(): void {
 }
 
 export function showToolbarAt(physX: number, physY: number): void {
-    if (!toolbarWindow || toolbarWindow.isDestroyed()) {
+    if (!toolbarWindow || toolbarWindow.isDestroyed() || toolbarWindow.webContents.isDestroyed()) {
         toolbarWindow = null
         createToolbarWindow()
     }
@@ -894,14 +910,19 @@ export function showToolbarAt(physX: number, physY: number): void {
     }
     targetX = Math.max(x, Math.min(targetX, x + dispW - width))
 
-    toolbarWindow.setBounds({
-        x: Math.round(targetX),
-        y: Math.round(targetY),
-        width,
-        height
-    })
+    try {
+        toolbarWindow.setBounds({
+            x: Math.round(targetX),
+            y: Math.round(targetY),
+            width,
+            height
+        })
 
-    toolbarWindow.showInactive() // ⚠️ 必须 showInactive()，不夺焦
+        toolbarWindow.showInactive() // ⚠️ 必须 showInactive()，不夺焦
+    } catch (error) {
+        console.warn(`[Toolbar] Failed to show toolbar window; recreating: ${String(error)}`)
+        destroyToolbarWindow()
+    }
 }
 
 export function hideToolbarWindow(): void {

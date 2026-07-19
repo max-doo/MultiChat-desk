@@ -1,5 +1,18 @@
 # Session Log
 
+## 2026-07-19
+
+### 20:12 | Codex
+
+- done: 修复划词快捷工具条在批量鼠标事件、窗口失效及系统生命周期切换后的恢复问题
+- decision: 关闭工具条时销毁旧 BrowserWindow，重新开启和系统生命周期恢复时创建新窗口并重启 Hook/UIA
+- modified:
+  - `src/main/inputHookManager.ts`
+  - `src/main/webviewManager.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/main/index.ts`
+- lesson: monio-napi startListen 事件可能批量派发，不能使用主进程 Date.now() 的最小时长门槛丢弃真实拖拽；应以距离和实际选区读取作为最终判断
+
 ## 2026-07-18
 
 ### 23:28 | Codex

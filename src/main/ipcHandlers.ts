@@ -11,7 +11,7 @@ import { tmpdir } from 'os'
 import type Store from 'electron-store'
 import { generateSummary, fetchModels } from './api/summaryApi'
 import { splitTask } from './api/taskSplitApi'
-import { setQuitting, getQuickWindow, showAndFocusWindow, hideToolbarWindow, getCachedSelectionText, openDiagnosticsWindow } from './webviewManager'
+import { setQuitting, getQuickWindow, showAndFocusWindow, hideToolbarWindow, destroyToolbarWindow, createToolbarWindow, getCachedSelectionText, openDiagnosticsWindow } from './webviewManager'
 import { startInputHook, stopInputHook } from './inputHookManager'
 import { broadcastStateChange } from './stateBus'
 import { HistoryManager } from './api/historyManager'
@@ -1404,10 +1404,11 @@ export function registerIpcHandlers(
         }
         store.set('selectionToolbarEnabled', enabled)
         if (enabled) {
+            createToolbarWindow()
             startInputHook()
         } else {
             stopInputHook()
-            hideToolbarWindow()
+            destroyToolbarWindow()
         }
         return { success: true }
     })

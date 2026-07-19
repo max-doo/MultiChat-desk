@@ -8,7 +8,6 @@ let hookHealthTimer: ReturnType<typeof setInterval> | null = null
 let isMouseDown = false
 let startX = 0
 let startY = 0
-let startTime = 0
 let lastClickTime = 0
 
 // 记录当前工具条弹出位置，用于距离判定自动收起
@@ -26,7 +25,7 @@ let selAtDownPromise: Promise<string | null> = Promise.resolve(null)
 
 // 判断当前激活窗口是否属于本应用，避免在本应用内划词弹窗
 function isAppFocused(): boolean {
-  return BrowserWindow.getAllWindows().some((win) => win.isFocused())
+  return BrowserWindow.getAllWindows().some((win) => !win.isDestroyed() && win.isVisible() && win.isFocused())
 }
 
 function isLeftButton(button: unknown): boolean {
@@ -56,7 +55,6 @@ function processEvent(event: EventJs): void {
       isMouseDown = true
       startX = event.mouse.x ?? 0
       startY = event.mouse.y ?? 0
-      startTime = Date.now()
       selAtDownPromise = Promise.resolve(null)
       // 拖拽开始前先异步快照当前选区，松手时对比以判定是否产生了"新"选区
       if (!isAppFocused()) {
@@ -68,12 +66,14 @@ function processEvent(event: EventJs): void {
   else if (type === 6 && event.mouse) {
     if (isLeftButton(event.mouse.button) && isMouseDown) {
       isMouseDown = false
-      const duration = Date.now() - startTime
       const x = event.mouse.x ?? 0
       const y = event.mouse.y ?? 0
       const distance = Math.sqrt(Math.pow(x - startX, 2) + Math.pow(y - startY, 2))
 
-      if (duration >= 150 && duration <= 2000 && distance > 15) {
+      // 不用主进程 Date.now() 判断拖拽时长：startListen 可能把按下/松开
+      // 放在同一批事件中派发，此时两次 Date.now() 几乎相同，会误丢真实选区。
+      // 距离只负责筛选明显的拖拽，是否真的有选区由 UIA 读取最终确认。
+      if (distance > 15) {
         if (!isAppFocused()) {
           void handleTextSelection(x, y)
         }

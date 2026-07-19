@@ -1,6 +1,6 @@
 
 
-import { app, BrowserWindow, globalShortcut, nativeTheme } from 'electron'
+import { app, BrowserWindow, globalShortcut, nativeTheme, powerMonitor } from 'electron'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { join } from 'path'
 import { readdir, rm } from 'fs/promises'
@@ -9,7 +9,7 @@ import Store from 'electron-store'
 import { initSummaryPrompts } from './summaryPrompts'
 import { registerIpcHandlers } from './ipcHandlers'
 import { initShortcutManager } from './shortcutManager'
-import { createWindow, getMainWindow, openBrowserWindowInternal, setQuitting, createTray, destroyTray, createQuickWindow, createToolbarWindow } from './webviewManager'
+import { createWindow, getMainWindow, openBrowserWindowInternal, setQuitting, createTray, destroyTray, createQuickWindow, createToolbarWindow, destroyToolbarWindow } from './webviewManager'
 import { startInputHook, stopInputHook } from './inputHookManager'
 import { sessionManager } from './services/SessionManager'
 import { automationService } from './services/AutomationService'
@@ -177,6 +177,32 @@ if (!gotTheLock) {
 
     // 启动本地 CLI 守护服务
     startDaemonServer()
+
+    let lastSelectionToolbarRestartAt = 0
+    const stopSelectionToolbarForLifecycle = (reason: string): void => {
+      if (store.get('selectionToolbarEnabled', false) !== true) return
+      console.warn(`[InputHook] Stopping selection toolbar for ${reason}`)
+      stopInputHook()
+      destroyToolbarWindow()
+    }
+    const restartSelectionToolbarForLifecycle = (reason: string): void => {
+      if (store.get('selectionToolbarEnabled', false) !== true) return
+      const now = Date.now()
+      if (now - lastSelectionToolbarRestartAt < 1000) return
+      lastSelectionToolbarRestartAt = now
+      console.warn(`[InputHook] Restarting selection toolbar after ${reason}`)
+      stopInputHook()
+      destroyToolbarWindow()
+      createToolbarWindow()
+      startInputHook()
+    }
+
+    // Windows 的低层输入 Hook 和透明置顶窗口都可能在系统锁屏、解锁、
+    // 睡眠恢复后保留旧状态。生命周期恢复时统一重建，避免只能重启应用恢复。
+    powerMonitor.on('suspend', () => stopSelectionToolbarForLifecycle('system suspend'))
+    powerMonitor.on('resume', () => restartSelectionToolbarForLifecycle('system resume'))
+    powerMonitor.on('lock-screen', () => stopSelectionToolbarForLifecycle('lock screen'))
+    powerMonitor.on('unlock-screen', () => restartSelectionToolbarForLifecycle('screen unlock'))
 
     // 启动全局输入钩子（划词悬浮工具条）
     if (store.get('selectionToolbarEnabled', false) === true) {
