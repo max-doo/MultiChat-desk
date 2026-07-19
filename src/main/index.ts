@@ -194,7 +194,9 @@ if (!gotTheLock) {
       stopInputHook()
       destroyToolbarWindow()
       createToolbarWindow()
-      startInputHook()
+      if (!startInputHook()) {
+        console.warn(`[InputHook] Lifecycle restart after ${reason} failed; automatic retry scheduled`)
+      }
     }
 
     // Windows 的低层输入 Hook 和透明置顶窗口都可能在系统锁屏、解锁、
@@ -208,7 +210,9 @@ if (!gotTheLock) {
     if (store.get('selectionToolbarEnabled', false) === true) {
       // 预建隐藏工具条窗口，避免首次触发时现场建窗的瞬时激活抖动（挤掉 Word 迷你工具条等）
       createToolbarWindow()
-      startInputHook()
+      if (!startInputHook()) {
+        console.warn('[InputHook] Initial start failed; automatic retry scheduled')
+      }
     }
 
     app.on('activate', function () {

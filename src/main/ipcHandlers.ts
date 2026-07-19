@@ -1402,11 +1402,25 @@ export function registerIpcHandlers(
         if (enabled && process.platform === 'darwin' && getAccessibilityPermissionStatus() !== 'granted') {
             return { success: false, error: '请先授予 macOS 辅助功能权限，然后重新开启划词工具条' }
         }
-        store.set('selectionToolbarEnabled', enabled)
         if (enabled) {
-            createToolbarWindow()
-            startInputHook()
+            try {
+                createToolbarWindow()
+                if (!startInputHook()) {
+                    store.set('selectionToolbarEnabled', false)
+                    stopInputHook()
+                    destroyToolbarWindow()
+                    return { success: false, error: '划词工具条监听启动失败，请稍后重试' }
+                }
+                store.set('selectionToolbarEnabled', true)
+            } catch (error) {
+                console.error('[InputHook] Failed to enable selection toolbar:', error)
+                store.set('selectionToolbarEnabled', false)
+                stopInputHook()
+                destroyToolbarWindow()
+                return { success: false, error: '划词工具条启动失败，请稍后重试' }
+            }
         } else {
+            store.set('selectionToolbarEnabled', false)
             stopInputHook()
             destroyToolbarWindow()
         }

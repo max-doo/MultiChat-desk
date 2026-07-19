@@ -58,6 +58,10 @@ Agents may suggest or promote a lesson into the `Known Gotchas` section of `AGEN
   - **隔离测试的陷阱**：用纯 `node` 跑 `monio-napi` 做隔离诊断时，能收到库自家的 `HookEnabled`(eventType=0) 事件，但纯 node 无 Win32 消息泵，真实鼠标事件可能不触发；且隔离脚本本身若也犯了"未解包数组"的错，会得到"0 事件"的假象。故隔离测试的"0 事件"结论必须排除测试代码自身的形状 bug 后才可信。
   - **教训之上的教训**：前一个会话把未经验证的"嵌套对象"猜测当成稳定教训写进了本文件，直接误导后续 3 轮排查。**写入 KNOWLEDGE.md 的根因必须由运行时证据（`JSON.stringify` 真身）证实，未经证实的猜测只能留在 SESSION_LOG，不得升级为 KNOWLEDGE。**
 
+- **原生输入 Hook 的健康检查不能只看 `isRunning`**：原生对象仍标记为运行中，不代表回调线程还在持续派发事件。长运行场景应使用独立信号交叉判断：记录最后一次 Hook 回调时间，并用 Electron `powerMonitor.getSystemIdleTime()` 确认系统近期确有用户输入；当系统输入活跃而 Hook 回调持续陈旧时，主动重建监听。重建失败使用有上限的退避重试，并确保显式停止时取消待执行重试，避免用户关闭功能后监听自行复活。设置开关也只能在 Hook 实际启动成功后持久化为启用，失败路径必须回滚状态和窗口。
+
+- **不要用未经运行时验证的 `EventJs.time` 给拖选增加硬时长门槛**：`monio-napi` 的类型声明只能证明字段存在，不能证明不同原生后端的单位、基准和批量派发语义适合业务阈值。曾新增 `150–2000ms` 过滤后，用户重启开发服务器实测所有划词都无法进入工具条链路。已有 UIA 按下/松开选区快照能够确认是否产生本次新选区时，鼠标层只保留必要的拖动距离粗筛；不要在进入真值校验前用未验证的事件时长丢弃快速或长时间的合法选词。双击间隔继续使用主进程 `Date.now()`。
+
 - **划词悬浮工具条不可仅凭鼠标手势弹窗**：全局鼠标钩子（`monio-napi`）只能拿到坐标与按键，无法判断光标下是否为可文本选区。若"拖拽距离/时长命中 → 直接 `showToolbarAt`"，则拖窗口标题栏、拖滚动条、拖图片、在空白处拖动都会误弹工具条。**唯一可靠的跨进程选区信号是模拟 `Ctrl+C` 探测剪贴板**（复用 `getSelectedTextAsync(false)`，空则不弹）。代价：每次合格拖拽多发一次 Ctrl+C、约 150ms 延迟、瞬间触碰剪贴板（会还原）。同时必须保留 `isAppFocused()` 守卫（避免在本应用窗口内划词也弹）与收紧手势阈值（减少不必要的 Ctrl+C 探测）。相关：上方「monio-napi 回调参数是数组」条目。：在 Windows Chromium / Electron 应用中，由于中文输入法（如微软拼音、搜狗等）系统级占用 `Ctrl+Shift` 或 `Alt+Shift` 作为中英文/输入法切换热键，当用户在快捷键录制组件中按住 `Ctrl+Shift` 准备去敲击第三个主键（如 `S`）时，输入法会向 DOM 发送 `e.key = 'Process'` / `'Unidentified'` / `'Dead'` 或 `e.keyCode === 229` 的虚拟事件。若录制组件仅把 `['Control', 'Shift', 'Alt', 'Meta']` 认定为修饰键，会将 `Process` 误判为有效主键并立即触发提交，造成“刚按住 Ctrl+Shift 就强行终止并保存了 2 个键”的严重 BUG。**解决方案**：必须在 `onKeyDown` 中将 `Process`、`Unidentified`、`Dead` 以及 `keyCode === 229` 的事件一律识别为暂态修饰事件并进行过滤，确保最终提交的主键为真正有效的物理按键或功能键。
 
 - **Clash Verge TUN 模式白屏与 Cloudflare Turnstile 验证拦截的修复**：

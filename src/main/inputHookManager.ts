@@ -1,14 +1,23 @@
 import { startListen, HookJs, EventJs } from 'monio-napi'
-import { BrowserWindow } from 'electron'
+import { BrowserWindow, powerMonitor } from 'electron'
 import { showToolbarAt, hideToolbarWindow, getToolbarWindow, isPointInToolbar, setCachedSelectionText } from './webviewManager'
 import { startSelectionReader, stopSelectionReader, readPlatformSelection } from './platform/selectionReader'
 
 let hook: HookJs | null = null
 let hookHealthTimer: ReturnType<typeof setInterval> | null = null
+let hookRetryTimer: ReturnType<typeof setTimeout> | null = null
+let hookRetryAttempt = 0
+let shouldRunInputHook = false
+let lastHookEventAt = 0
 let isMouseDown = false
 let startX = 0
 let startY = 0
 let lastClickTime = 0
+
+const HOOK_HEALTH_INTERVAL_MS = 5000
+const HOOK_EVENT_STALE_MS = 15000
+const RECENT_SYSTEM_INPUT_SECONDS = 5
+const HOOK_RETRY_DELAYS_MS = [1000, 2000, 5000, 10000, 30000]
 
 // 记录当前工具条弹出位置，用于距离判定自动收起
 let currentToolbarPhysX = 0
@@ -70,9 +79,9 @@ function processEvent(event: EventJs): void {
       const y = event.mouse.y ?? 0
       const distance = Math.sqrt(Math.pow(x - startX, 2) + Math.pow(y - startY, 2))
 
-      // 不用主进程 Date.now() 判断拖拽时长：startListen 可能把按下/松开
-      // 放在同一批事件中派发，此时两次 Date.now() 几乎相同，会误丢真实选区。
-      // 距离只负责筛选明显的拖拽，是否真的有选区由 UIA 读取最终确认。
+      // 距离只过滤明显非拖拽操作；是否形成了本次新选区由 UIA 快照对比确认。
+      // 不增加时长门槛：原生事件时间在不同后端上的语义并不稳定，且快速或
+      // 长距离选词都可能是合法操作，不能在进入 UIA 校验前提前丢弃。
       if (distance > 15) {
         if (!isAppFocused()) {
           void handleTextSelection(x, y)
@@ -139,10 +148,49 @@ function stopHookHealthMonitor(): void {
   }
 }
 
+function clearHookRetry(): void {
+  if (hookRetryTimer) {
+    clearTimeout(hookRetryTimer)
+    hookRetryTimer = null
+  }
+}
+
+function scheduleHookRetry(reason: string): void {
+  if (!shouldRunInputHook || hookRetryTimer) return
+
+  const delayIndex = Math.min(hookRetryAttempt, HOOK_RETRY_DELAYS_MS.length - 1)
+  const delay = HOOK_RETRY_DELAYS_MS[delayIndex]
+  hookRetryAttempt += 1
+  console.warn(`[InputHook] Scheduling restart in ${delay}ms (${reason})`)
+  hookRetryTimer = setTimeout(() => {
+    hookRetryTimer = null
+    if (!shouldRunInputHook) return
+    console.warn(`[InputHook] Retrying native hook (${reason})`)
+    startInputHook()
+  }, delay)
+}
+
+function restartNativeHook(reason: string): void {
+  if (!shouldRunInputHook) return
+
+  console.warn(`[InputHook] Restarting native hook (${reason})`)
+  stopHookHealthMonitor()
+  const staleHook = hook
+  hook = null
+  if (staleHook) {
+    try { staleHook.stop() } catch { /* already stopped */ }
+  }
+  startInputHook()
+}
+
 function startHookHealthMonitor(): void {
   stopHookHealthMonitor()
   hookHealthTimer = setInterval(() => {
-    if (!hook) return
+    if (!shouldRunInputHook) return
+    if (!hook) {
+      scheduleHookRetry('native hook is missing')
+      return
+    }
 
     let running = false
     try {
@@ -150,22 +198,35 @@ function startHookHealthMonitor(): void {
     } catch {
       running = false
     }
-    if (running) return
+    if (!running) {
+      restartNativeHook('isRunning=false')
+      return
+    }
 
-    console.warn('[InputHook] Native hook is no longer running; restarting')
-    const staleHook = hook
-    hook = null
-    try { staleHook.stop() } catch { /* already stopped */ }
-    startInputHook()
-  }, 5000)
+    // isRunning=true 只代表 native 对象仍存在，不能证明回调线程仍在派发事件。
+    // 系统刚发生过输入、但 Hook 已长时间没有任何回调时，判定事件流静默失活。
+    try {
+      const systemIdleSeconds = powerMonitor.getSystemIdleTime()
+      if (
+        systemIdleSeconds <= RECENT_SYSTEM_INPUT_SECONDS &&
+        Date.now() - lastHookEventAt >= HOOK_EVENT_STALE_MS
+      ) {
+        restartNativeHook(`no events for ${Date.now() - lastHookEventAt}ms while system is active`)
+      }
+    } catch (error) {
+      console.warn(`[InputHook] Failed to read system idle time: ${String(error)}`)
+    }
+  }, HOOK_HEALTH_INTERVAL_MS)
 }
 
-export function startInputHook(): void {
+export function startInputHook(): boolean {
+  shouldRunInputHook = true
+  clearHookRetry()
   if (hook) {
     try {
       if (hook.isRunning) {
         startHookHealthMonitor()
-        return
+        return true
       }
     } catch {
       // 读取 native hook 状态失败，按失效处理并重建。
@@ -179,16 +240,29 @@ export function startInputHook(): void {
 
   try {
     // 兼容 d.ts 与运行时不符：payload 运行时为 EventJs[]，这里统一解包成单事件逐条处理
-    hook = startListen((payload: EventJs | EventJs[]) => {
+    const startedHook = startListen((payload: EventJs | EventJs[]) => {
+      lastHookEventAt = Date.now()
       const events = Array.isArray(payload) ? payload : [payload]
       for (const event of events) {
         processEvent(event)
       }
     })
+    if (!startedHook.isRunning) {
+      try { startedHook.stop() } catch { /* already stopped */ }
+      throw new Error('native hook reported isRunning=false immediately after startListen')
+    }
+    hook = startedHook
+    lastHookEventAt = Date.now()
+    hookRetryAttempt = 0
     console.log('[InputHook] startListen started successfully')
     startHookHealthMonitor()
+    return true
   } catch (err) {
+    hook = null
+    stopHookHealthMonitor()
     console.error('[InputHook] Failed to startListen:', err)
+    scheduleHookRetry('startListen failed')
+    return false
   }
 }
 
@@ -222,6 +296,9 @@ async function handleTextSelection(x: number, y: number, compareWithDownSnapshot
 }
 
 export function stopInputHook(): void {
+  shouldRunInputHook = false
+  clearHookRetry()
+  hookRetryAttempt = 0
   stopHookHealthMonitor()
   if (wheelSelectionTimer) {
     clearTimeout(wheelSelectionTimer)
@@ -237,4 +314,10 @@ export function stopInputHook(): void {
     }
     hook = null
   }
+  lastHookEventAt = 0
+  isMouseDown = false
+  lastClickTime = 0
+  currentToolbarPhysX = 0
+  currentToolbarPhysY = 0
+  selAtDownPromise = Promise.resolve(null)
 }
