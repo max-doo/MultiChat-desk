@@ -65,8 +65,8 @@ export interface SelectorsConfig {
  * 如需调整请选择器配置，直接修改本文件后重启应用生效
  */
 export const defaultSelectors: SelectorsConfig = {
-  version: 17,
-  lastUpdated: '2026-07-05',
+  version: 18,
+  lastUpdated: '2026-08-02',
   models: {
     chatgpt: {
       textarea: [
@@ -408,10 +408,13 @@ export const defaultSelectors: SelectorsConfig = {
         '.message-content'
       ],
       reportContainer: [
-        '#\\:r4e\\: > div > div.viewResults-D_wP0H > div.tongyi-markdown',
-        '#\\:r4e\\: div.viewResults-D_wP0H .tongyi-markdown',
-        'div[class*="viewResults"] .tongyi-markdown',
-        '.viewResults-D_wP0H .tongyi-markdown'
+        '#qianwen-layout-right-panel iframe#deep-research-iframe',
+        'iframe#deep-research-iframe',
+        '#pc-report-container',
+        '#qk-markdown-react',
+        '.markdown-text-container',
+        '[class*="pc-report-container"]',
+        '[class*="pc-report-wrap"]'
       ],
       customCSS: ``,
       newConversationUrl: 'https://chat.qwen.ai/',

@@ -741,6 +741,32 @@ export function registerIpcHandlers(
         }
     })
 
+    // IPC 处理器：向 webview 发送鼠标移动事件（用于悬停触发 Hover 菜单）
+    ipcMain.handle('send-mouse-move', async (_event, params: {
+        webContentsId: number,
+        x: number,
+        y: number
+    }) => {
+        try {
+            const { webContents } = require('electron')
+            const wc = webContents.fromId(params.webContentsId)
+
+            if (!wc) {
+                return { success: false, error: '未找到 webContents' }
+            }
+
+            wc.sendInputEvent({
+                type: 'mouseMove',
+                x: Math.round(params.x),
+                y: Math.round(params.y)
+            })
+
+            return { success: true }
+        } catch (error) {
+            return { success: false, error: String(error) }
+        }
+    })
+
     ipcMain.handle('dispatch-file-drop', async (_event, params: {
         webContentsId: number
         filePath: string

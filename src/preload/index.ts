@@ -111,6 +111,8 @@ const api = {
   // 发送鼠标点击事件到 webview（用于触发 Gemini 复制按钮等）
   sendMouseClick: (webContentsId: number, x: number, y: number): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('send-mouse-click', { webContentsId, x, y }),
+  sendMouseMove: (webContentsId: number, x: number, y: number): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('send-mouse-move', { webContentsId, x, y }),
 
   dispatchFileDrop: (webContentsId: number, filePath: string, x: number, y: number): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('dispatch-file-drop', { webContentsId, filePath, x, y }),

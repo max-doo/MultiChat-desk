@@ -119,6 +119,12 @@ Agents may suggest or promote a lesson into the `Known Gotchas` section of `AGEN
 
 - **React 闭包陈旧值铁律：同一事件处理函数内先 setState(A) 再调用闭包函数读取 A，读到的是本次渲染的旧值而非刚 set 的新值**：`useSummaryPanel.persistSummaryHistory` 闭包读 `capturedModelResponses`，而首次总结路径 `setCapturedModelResponses(snapshot)` 后紧接着同步调用 `persistSummaryHistory(finalMessages)` → 读到 `{}`（首次总结前 captured 为空），写入空 `modelResponses`，导致 API 模式历史恢复时左侧模型回复卡片全空。Webview 模式不受影响因其 `addSummaryHistory` 直接读 `modelResponses` prop 不经此闭包。**修复**：引入 `capturedModelResponsesRef` 镜像 + 配对 setter（`setCapturedModelResponsesBoth` 同步写 `ref.current`），`persistSummaryHistory` 改读 `ref.current`，避开闭包陈旧值。**铁律**：凡「某 state 被 set 后同一 tick 内被闭包函数读取」的场景，必须用 ref 镜像（setX 时同步写 ref.current）或显式把新值当参数传入闭包，**不能依赖未 flush 的 state**。判别：某状态刚 set 完立即被读却得到空/旧值 → 闭包陈旧，改 ref 镜像。项目里 `streamingContentRef`/`streamingReasoningContentRef` 已是同一模式的既成先例，照此扩展即可。相关：`useSummaryPanel` 首次总结 persist 路径。
 
+- **monio-napi 事件批处理会破坏拖拽时长判定**：`startListen` 的运行时回调可能一次派发多个事件；如果使用主进程 `Date.now()` 的最小时长门槛过滤拖拽，会把真实拖拽误判为无效。应以实际位移和松手时的选区读取作为最终判断，不要把跨事件的时间阈值当作唯一依据。
+
+- **Windows 多 WebView 无框窗口的最大化黑闪应绕开原生 overlay**：`titleBarOverlay` 的最大化按钮可能绕过 renderer IPC，直接触发原生 `maximize()` 并重建 Chromium swap chain。出现黑闪时，应移除 win32 overlay 控件，由自绘按钮调用基于工作区的 `setBounds`，同时保存还原边界。
+
+- **Windows 多 WebView 主窗口的拖动必须合并高频 pointermove**：保留 Pointer Capture 与 `setContentBounds`，按渲染帧限速合并移动事件，并在 `pointerup` / `pointercancel` 提交最终位置，避免 IPC 和窗口合成队列堆积导致卡顿与拖影。
+
 ## Stable Decisions
 
 - 快捷操作快捷键（Ctrl+Shift+S/E/T/Q）的提示词注入流程：先通过 VBScript 模拟 `Ctrl+C` 自动复制选中文本，读取成功后，再展示并聚焦快捷窗口，最后发送 `quick:inject-prompt` IPC 完成一键总结。
