@@ -2,6 +2,14 @@
 
 ## 2026-08-07
 
+### 17:23 | Antigravity
+
+- done: 在 v1.2.3 下更新 changelog，修正版本不增号，提交推送并打包
+- modified:
+  - `package.json`
+  - `package-lock.json`
+  - `CHANGELOG.md`
+
 ### 17:17 | Antigravity
 
 - done: 更新 changelog 并升级版本至 v1.2.4
