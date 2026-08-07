@@ -15,6 +15,7 @@ import { sessionManager } from './services/SessionManager'
 import { automationService } from './services/AutomationService'
 import { startDaemonServer, stopDaemonServer } from './daemon/ipcServer'
 import { initUpdateChecker } from './updater/checker'
+import { getSelectionToolbarEnabled, setSelectionToolbarEnabled } from './selectionToolbarManager'
 
 // 仅 Windows 需要该 GPU 后端修复；macOS 使用系统原生图形栈，不能套用 Windows 开关。
 if (process.platform === 'win32') {
@@ -168,7 +169,10 @@ if (!gotTheLock) {
     // 创建主窗口
     createWindow()
     createQuickWindow()
-    createTray()
+    createTray(
+      () => getSelectionToolbarEnabled(store),
+      (enabled) => setSelectionToolbarEnabled(store, enabled)
+    )
 
     // 启动低频更新检查：服务内部会延迟执行，并复用 24 小时缓存
     initUpdateChecker(store, getMainWindow)

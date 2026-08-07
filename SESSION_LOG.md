@@ -2,6 +2,26 @@
 
 ## 2026-08-07
 
+### 17:17 | Antigravity
+
+- done: 更新 changelog 并升级版本至 v1.2.4
+- modified:
+  - `package.json`
+  - `package-lock.json`
+  - `CHANGELOG.md`
+
+### 17:07 | Codex
+
+- done: 为托盘右键菜单增加快捷工具条 checkbox，复用现有开关链路切换工具条并同步勾选状态
+- context: 桌面端 Electron 主进程改动；未新增 IPC 契约
+- decision: 通过主进程 selectionToolbarManager 统一设置面板与托盘的启停逻辑，避免重复实现
+- added:
+  - `src/main/selectionToolbarManager.ts`
+- modified:
+  - `src/main/index.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/main/webviewManager.ts`
+
 ### 12:29 | Antigravity
 
 - done: 升级版本至 v1.2.3，更新 CHANGELOG.md 变更日志

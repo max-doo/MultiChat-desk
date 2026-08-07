@@ -11,8 +11,7 @@ import { tmpdir } from 'os'
 import type Store from 'electron-store'
 import { generateSummary, fetchModels } from './api/summaryApi'
 import { splitTask } from './api/taskSplitApi'
-import { setQuitting, getQuickWindow, showAndFocusWindow, hideToolbarWindow, destroyToolbarWindow, createToolbarWindow, getCachedSelectionText, openDiagnosticsWindow } from './webviewManager'
-import { startInputHook, stopInputHook } from './inputHookManager'
+import { setQuitting, getQuickWindow, showAndFocusWindow, hideToolbarWindow, getCachedSelectionText, openDiagnosticsWindow } from './webviewManager'
 import { broadcastStateChange } from './stateBus'
 import { HistoryManager } from './api/historyManager'
 import { getShortcuts, updateShortcuts, type ShortcutConfig } from './shortcutManager'
@@ -28,6 +27,7 @@ import {
 } from './summaryPrompts'
 import { automationService } from './services/AutomationService'
 import { checkForUpdate, getUpdateState } from './updater/checker'
+import { getSelectionToolbarEnabled, setSelectionToolbarEnabled } from './selectionToolbarManager'
 
 // 存储当前的 AbortController，用于终止请求
 let currentSummaryAbortController: AbortController | null = null
@@ -1411,7 +1411,7 @@ export function registerIpcHandlers(
     // ============ 悬浮工具条 IPC 处理器 ============
 
     ipcMain.handle('selection-toolbar:get', () => {
-        return { success: true, data: store.get('selectionToolbarEnabled', false) as boolean }
+        return { success: true, data: getSelectionToolbarEnabled(store) }
     })
 
     ipcMain.handle('selection-permission:get', () => ({
@@ -1425,32 +1425,7 @@ export function registerIpcHandlers(
     }))
 
     ipcMain.handle('selection-toolbar:set', (_event, enabled: boolean) => {
-        if (enabled && process.platform === 'darwin' && getAccessibilityPermissionStatus() !== 'granted') {
-            return { success: false, error: '请先授予 macOS 辅助功能权限，然后重新开启划词工具条' }
-        }
-        if (enabled) {
-            try {
-                createToolbarWindow()
-                if (!startInputHook()) {
-                    store.set('selectionToolbarEnabled', false)
-                    stopInputHook()
-                    destroyToolbarWindow()
-                    return { success: false, error: '划词工具条监听启动失败，请稍后重试' }
-                }
-                store.set('selectionToolbarEnabled', true)
-            } catch (error) {
-                console.error('[InputHook] Failed to enable selection toolbar:', error)
-                store.set('selectionToolbarEnabled', false)
-                stopInputHook()
-                destroyToolbarWindow()
-                return { success: false, error: '划词工具条启动失败，请稍后重试' }
-            }
-        } else {
-            store.set('selectionToolbarEnabled', false)
-            stopInputHook()
-            destroyToolbarWindow()
-        }
-        return { success: true }
+        return setSelectionToolbarEnabled(store, enabled)
     })
 
     ipcMain.on('toolbar:hide', () => {

@@ -46,6 +46,11 @@ const browserWindows = new Set<BrowserWindow>()
 
 let tray: Tray | null = null
 export function getTray(): Tray | null { return tray }
+let selectionToolbarMenuItem: Electron.MenuItem | null = null
+
+export function syncSelectionToolbarMenuState(enabled: boolean): void {
+    if (selectionToolbarMenuItem) selectionToolbarMenuItem.checked = enabled
+}
 
 let isQuitting = false
 export function setQuitting(v: boolean): void { isQuitting = v }
@@ -146,7 +151,10 @@ function getTrayIconPath(): string {
     try { accessSync(candidate); return candidate } catch { return getIconPngPath() }
 }
 
-export function createTray(): void {
+export function createTray(
+    getSelectionToolbarEnabled: () => boolean,
+    setSelectionToolbarEnabled: (enabled: boolean) => { success: boolean; error?: string }
+): void {
     if (tray) return
     const iconPath = getTrayIconPath()
     const image = nativeImage.createFromPath(iconPath)
@@ -161,9 +169,23 @@ export function createTray(): void {
             if (!qw) return
             showAndFocusWindow(qw)
         } },
+        {
+            id: 'selection-toolbar-toggle',
+            label: '快捷工具条',
+            type: 'checkbox',
+            checked: getSelectionToolbarEnabled(),
+            click: (menuItem) => {
+                const result = setSelectionToolbarEnabled(!getSelectionToolbarEnabled())
+                menuItem.checked = getSelectionToolbarEnabled()
+                if (!result.success && result.error) {
+                    console.warn(`[Tray] Failed to update selection toolbar: ${result.error}`)
+                }
+            }
+        },
         { type: 'separator' },
         { label: '退出', click: () => { setQuitting(true); app.quit() } }
     ])
+    selectionToolbarMenuItem = contextMenu.getMenuItemById('selection-toolbar-toggle') ?? null
     tray.setContextMenu(contextMenu)
 
     tray.on('click', () => {
@@ -176,6 +198,7 @@ export function createTray(): void {
 export function destroyTray(): void {
     tray?.destroy()
     tray = null
+    selectionToolbarMenuItem = null
 }
 
 // ============ Browser Window 管理 ============
