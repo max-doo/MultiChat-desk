@@ -14,6 +14,15 @@ Release-facing changelog. 仅记录用户可见或与发布相关的变化。
 
 ## [Unreleased]
 
+## [1.2.3] - 2026-08-07
+
+### Improved / Changed
+- **划词悬浮工具条默认开启**: 安装版首次启动及开发态配置默认将划词悬浮工具条设为启用 (`selectionToolbarEnabled: true`)，同时兼容已有用户自定义配置。
+
+### Fixed
+- **划词悬浮工具条休眠与后台自愈**: 修复系统休眠/锁屏/后台恢复后划词悬浮工具条按钮全盘失效的回归，保持 BrowserWindow 稳定驻留，自愈仅静默重启原生 Input Hook 与 UIA 读取器并清理手势状态。
+- **划词悬浮工具条重复触发与连贯交互**: 修复划词工具条连续触发时动作响应丢包的问题；显示时不抢占宿主焦点 (`showInactive`) 并维持窗口可聚焦 (`focusable: true`)，派发机制调整为在 `pointerdown` 阶段触发 IPC 动作。
+
 ## [1.2.2] - 2026-08-02
 
 ### Added / Improved

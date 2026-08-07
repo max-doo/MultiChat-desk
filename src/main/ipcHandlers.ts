@@ -1463,7 +1463,7 @@ export function registerIpcHandlers(
         let text = getCachedSelectionText()
         hideToolbarWindow()
 
-        // 兜底：缓存为空时现读一次（选区仍高亮，工具条 focusable:false 不夺焦）
+        // 兜底：缓存为空时现读一次（工具条通过 showInactive 弹出，此时外部选区仍保持焦点）
         if (!text || text.trim().length === 0) {
             const fresh = (await readPlatformSelection())?.text ?? ''
             if (fresh && fresh.trim().length > 0) {

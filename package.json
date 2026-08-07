@@ -1,6 +1,6 @@
 {
   "name": "multichat",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "description": "MultiChat - Parallel AI Chat Assistant",
   "main": "./out/main/index.js",
   "author": "MultiChat",

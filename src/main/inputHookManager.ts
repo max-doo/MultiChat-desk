@@ -174,13 +174,12 @@ function restartNativeHook(reason: string): void {
   if (!shouldRunInputHook) return
 
   console.warn(`[InputHook] Restarting native hook (${reason})`)
-  stopHookHealthMonitor()
-  const staleHook = hook
-  hook = null
-  if (staleHook) {
-    try { staleHook.stop() } catch { /* already stopped */ }
+  // 复用完整停止流程，同时重置手势状态并重启 UIA helper。只替换原生监听链路，
+  // 不触碰工具条 BrowserWindow，避免后台恢复后可见按钮失去交互能力。
+  stopInputHook()
+  if (!startInputHook()) {
+    console.warn(`[InputHook] Native hook restart failed (${reason}); automatic retry scheduled`)
   }
-  startInputHook()
 }
 
 function startHookHealthMonitor(): void {

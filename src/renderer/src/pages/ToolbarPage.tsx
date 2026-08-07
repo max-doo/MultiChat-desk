@@ -19,7 +19,12 @@ export default function ToolbarPage(): JSX.Element {
     }
   }, [])
 
-  const handleAction = (action: 'quick' | 'summarize' | 'translate' | 'copy' | 'search'): void => {
+  const handleAction = (
+    event: React.PointerEvent<HTMLButtonElement>,
+    action: 'quick' | 'summarize' | 'translate' | 'copy' | 'search'
+  ): void => {
+    if (event.button !== 0) return
+    event.preventDefault()
     if (window.api?.toolbarAction) {
       window.api.toolbarAction(action)
     }
@@ -31,7 +36,7 @@ export default function ToolbarPage(): JSX.Element {
         {/* 快捷窗口 (问问) */}
         <button
           type="button"
-          onClick={() => handleAction('quick')}
+          onPointerDown={(event) => handleAction(event, 'quick')}
           className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-neutral-700 dark:text-neutral-200 hover:text-neutral-950 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/10 transition-colors duration-150 cursor-pointer"
           title="问问"
         >
@@ -42,7 +47,7 @@ export default function ToolbarPage(): JSX.Element {
         {/* 搜索按钮 */}
         <button
           type="button"
-          onClick={() => handleAction('search')}
+          onPointerDown={(event) => handleAction(event, 'search')}
           className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-neutral-700 dark:text-neutral-200 hover:text-neutral-950 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/10 transition-colors duration-150 cursor-pointer"
           title="搜索"
         >
@@ -53,7 +58,7 @@ export default function ToolbarPage(): JSX.Element {
         {/* 总结按钮 */}
         <button
           type="button"
-          onClick={() => handleAction('summarize')}
+          onPointerDown={(event) => handleAction(event, 'summarize')}
           className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-neutral-700 dark:text-neutral-200 hover:text-neutral-950 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/10 transition-colors duration-150 cursor-pointer"
           title="总结"
         >
@@ -64,7 +69,7 @@ export default function ToolbarPage(): JSX.Element {
         {/* 翻译按钮 */}
         <button
           type="button"
-          onClick={() => handleAction('translate')}
+          onPointerDown={(event) => handleAction(event, 'translate')}
           className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-neutral-700 dark:text-neutral-200 hover:text-neutral-950 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/10 transition-colors duration-150 cursor-pointer"
           title="翻译"
         >
@@ -75,7 +80,7 @@ export default function ToolbarPage(): JSX.Element {
         {/* 复制按钮 */}
         <button
           type="button"
-          onClick={() => handleAction('copy')}
+          onPointerDown={(event) => handleAction(event, 'copy')}
           className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-neutral-700 dark:text-neutral-200 hover:text-neutral-950 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/10 transition-colors duration-150 cursor-pointer"
           title="复制"
         >

@@ -834,7 +834,9 @@ export function createToolbarWindow(): void {
         resizable: false,
         minimizable: false,
         maximizable: false,
-        focusable: false, // 核心：不夺取焦点，保持外部软件选区高亮
+        // 通过 showInactive() 控制弹出时不夺焦；窗口本身必须可聚焦，
+        // 否则 Windows 下首次 hide/show 后可能无法再次完成鼠标点击序列。
+        focusable: true,
         show: false,
         backgroundColor: '#00000000',
         icon: getWindowIcon(),

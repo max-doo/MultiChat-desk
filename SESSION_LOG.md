@@ -1,5 +1,45 @@
 # Session Log
 
+## 2026-08-07
+
+### 12:29 | Antigravity
+
+- done: 升级版本至 v1.2.3，更新 CHANGELOG.md 变更日志
+- modified:
+  - `package.json`
+  - `package-lock.json`
+  - `CHANGELOG.md`
+
+### 12:25 | Codex
+
+- done: 将安装版首次启动的划词悬浮工具条默认状态改为开启
+- modified:
+  - `src/main/index.ts`
+
+### 12:00 | Codex
+
+- done: 继续修复划词工具条重复触发：工具条 BrowserWindow 改为可聚焦但仍用 showInactive 无焦点弹出，五个动作按钮改在 pointerdown 阶段发送 IPC，避免 hide/show 后完整 click 序列丢失；首次开发配置默认启用工具条并尊重已保存状态
+- context: 用户实测首次按钮动作成功、第二次失效；Electron 官方文档确认 showInactive 负责显示但不聚焦，窗口无需通过 focusable:false 实现弹出不抢焦。当前 config-dev 的 selectionToolbarEnabled 实际为 true
+- decision: 用 showInactive 保留外部选区焦点，用 focusable:true 保证重复显示后的鼠标交互，并在 pointerdown 立即派发动作
+- modified:
+  - `src/main/index.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/main/webviewManager.ts`
+  - `src/renderer/src/pages/ToolbarPage.tsx`
+- lesson: 需要重复交互的 Electron 悬浮窗口不应同时依赖 focusable:false 与完整 click 事件；用 showInactive 控制弹出不抢焦，窗口保持可聚焦并在 pointerdown 派发一次性动作更可靠
+- unresolved: 安装版仍占用单实例锁，需用户在开发版中连续触发至少三次，并验证后台久置与锁屏恢复
+
+### 11:47 | Codex
+
+- done: 修复 v1.2.2 划词工具条后台自愈回归：保留 Input Hook 健康检查，健康重启改为完整停止/启动 Hook 与 UIA 并重置手势状态；锁屏/休眠恢复不再销毁工具条 BrowserWindow，仅隐藏窗口，避免按钮失去交互
+- context: v1.2.1 按钮正常；v1.2.2 新增后台/锁屏恢复后所有工具条按钮失效。已核对按钮、preload 和 IPC 在版本间未变化
+- decision: 将自愈边界限定为原生 Hook 与 UIA 读取器，工具条渲染窗口仅在真实崩溃/加载失败时重建
+- modified:
+  - `src/main/index.ts`
+  - `src/main/inputHookManager.ts`
+- lesson: 后台自愈应按失效资源最小化重启：原生 Hook 静默失活时重启 Hook/UIA 并清理手势状态，不要连带销毁仍健康的工具条 BrowserWindow
+- unresolved: 当前已安装版占用单实例锁，npm run dev 只能完成三层编译并启动到 Electron 拉起阶段；需关闭安装版后手测划词按钮及锁屏/恢复场景
+
 ## 2026-08-02
 
 ### 12:11 | Antigravity
