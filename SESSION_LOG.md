@@ -2,6 +2,64 @@
 
 ## 2026-09-22
 
+### 16:56 | Codex
+
+- done: 修复快捷侧栏反复展开挤压主窗口：按侧栏实际宽度增减快捷窗口宽度
+- modified:
+  - `src/main/webviewManager.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/preload/index.d.ts`
+  - `src/renderer/src/pages/QuickPage.tsx`
+
+### 16:20 | Codex
+
+- done: 修复 ChatGPT 分支聊天的相对路径 window.open 在 Webview 内未切换问题
+- context: 在注入的 window.open 拦截器中识别 ChatGPT /branch/<conversation>/<message> 并导航当前 Webview；保留主进程后备处理。定向脚本测试、lint、build、dev 启动通过。
+- modified:
+  - `src/main/webviewManager.ts`
+- unresolved: 受本机窗口自动化限制，尚需用户在已登录的 MultiChat 中实际点击分支菜单确认页面加载。
+
+### 11:37 | Codex
+
+- done: 修正快捷窗口侧栏图标、隐藏后展开状态与收起时窗口尺寸
+- modified:
+  - `src/main/webviewManager.ts`
+  - `src/preload/index.ts`
+  - `src/preload/index.d.ts`
+  - `src/renderer/src/pages/QuickPage.tsx`
+
+### 11:32 | Codex
+
+- done: ChatGPT 分支会话在当前 Webview 中替换原会话：拦截同源 /branch/会话ID/消息ID 弹窗并在原 Webview 导航
+- context: 网页版实测直接在原标签页访问 /branch/ 地址可生成分支会话；npm run lint 0 错误 41 条现有 warning；npm run build 通过；npm run dev 成功启动；桌面窗口截图接口不可用，未完成应用内点击验证
+- modified:
+  - `src/main/webviewManager.ts`
+- unresolved: 在已登录的 MultiChat 开发版 ChatGPT Webview 中点击
+- unresolved: 新聊天中的分支，确认当前 Webview 显示分支且不打开系统浏览器或新窗口
+
+### 11:29 | Codex
+
+- done: 完成快捷窗口侧边栏实现并通过 lint、build、开发启动检查
+- modified:
+  - `src/main/ipcHandlers.ts`
+  - `src/main/webviewManager.ts`
+  - `src/preload/index.ts`
+  - `src/preload/index.d.ts`
+  - `src/renderer/src/components/WebviewCard.tsx`
+  - `src/renderer/src/pages/QuickPage.tsx`
+
+### 11:27 | Codex
+
+- done: 为快捷窗口实现独立侧边栏 Webview、右键选中文字注入、窗口布局与30秒休眠
+- modified:
+  - `src/main/ipcHandlers.ts`
+  - `src/main/webviewManager.ts`
+  - `src/preload/index.ts`
+  - `src/preload/index.d.ts`
+  - `src/renderer/src/components/WebviewCard.tsx`
+  - `src/renderer/src/pages/QuickPage.tsx`
+
 ### 10:43 | Codex
 
 - done: 修正 Webview 右键菜单所属窗口定位，兼容快捷窗口

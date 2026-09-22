@@ -10,7 +10,7 @@ import { stat, writeFile, mkdtemp, rm } from 'fs/promises'
 import { tmpdir } from 'os'
 import type Store from 'electron-store'
 import { splitTask, fetchModels } from './api/taskSplitApi'
-import { setQuitting, getQuickWindow, showAndFocusWindow, hideToolbarWindow, getCachedSelectionText, openDiagnosticsWindow } from './webviewManager'
+import { setQuitting, getQuickWindow, showAndFocusWindow, hideToolbarWindow, getCachedSelectionText, openDiagnosticsWindow, registerQuickPrimaryWebview, setQuickSidebarExpanded } from './webviewManager'
 import { broadcastStateChange } from './stateBus'
 import { HistoryManager } from './api/historyManager'
 import { getShortcuts, updateShortcuts, type ShortcutConfig } from './shortcutManager'
@@ -213,6 +213,14 @@ export function registerIpcHandlers(
     ipcMain.handle('quick:hide', () => {
         getQuickWindow()?.hide()
         return { success: true }
+    })
+    ipcMain.handle('quick:register-primary-webview', (event, id: number) => {
+        if (event.sender !== getQuickWindow()?.webContents || !Number.isInteger(id)) return { success: false }
+        return { success: registerQuickPrimaryWebview(id) }
+    })
+    ipcMain.handle('quick:set-sidebar-expanded', (event, expanded: boolean, panelWidth: number) => {
+        if (event.sender !== getQuickWindow()?.webContents || typeof expanded !== 'boolean' || !Number.isFinite(panelWidth) || panelWidth < 0 || panelWidth > 600) return { success: false }
+        return { success: true, data: setQuickSidebarExpanded(expanded, panelWidth) }
     })
     ipcMain.handle('quick:get-always-on-top', () => {
         const qw = getQuickWindow()

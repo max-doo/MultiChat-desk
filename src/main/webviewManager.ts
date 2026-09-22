@@ -3,7 +3,7 @@
  * 负责主窗口创建、Webview 注入脚本、上下文菜单以及新窗口管理
  */
 
-import { app, screen, session, BrowserWindow, shell, nativeImage, Tray, Menu, clipboard, dialog } from 'electron'
+import { app, screen, session, BrowserWindow, shell, nativeImage, Tray, Menu, clipboard, dialog, webContents } from 'electron'
 import { join, basename } from 'path'
 import { accessSync } from 'fs'
 import { writeFile } from 'fs/promises'
@@ -20,6 +20,35 @@ const registeredWebContentsSet = new WeakSet<Electron.WebContents>()
 let mainWindow: BrowserWindow | null = null
 let quickWindow: BrowserWindow | null = null
 export function getQuickWindow(): BrowserWindow | null { return quickWindow }
+const quickPrimaryWebviews = new Set<number>()
+let quickSidebarExpanded = false
+
+export function registerQuickPrimaryWebview(id: number): boolean {
+    const guest = webContents.fromId(id)
+    if (!quickWindow || !guest || guest.hostWebContents !== quickWindow.webContents) return false
+    if (quickPrimaryWebviews.has(id)) return true
+    quickPrimaryWebviews.add(id)
+    guest.once('destroyed', () => quickPrimaryWebviews.delete(id))
+    return true
+}
+
+export function setQuickSidebarExpanded(expanded: boolean, panelWidth: number): number {
+    const win = quickWindow
+    if (!win || win.isDestroyed()) return 0
+    if (expanded === quickSidebarExpanded) return win.getBounds().width
+    const bounds = win.getBounds()
+    if (expanded) {
+        const area = screen.getDisplayMatching(bounds).workArea
+        const width = Math.min(bounds.width + panelWidth, area.width)
+        const x = Math.min(bounds.x, area.x + area.width - width)
+        win.setBounds({ ...bounds, x: Math.max(area.x, x), width })
+    } else {
+        // 从当前宽度只减去侧栏实际占用宽度，保留用户展开期间调整过的主区域宽度。
+        win.setBounds({ ...bounds, width: Math.max(320, bounds.width - panelWidth) })
+    }
+    quickSidebarExpanded = expanded
+    return win.getBounds().width
+}
 let diagnosticsWindow: BrowserWindow | null = null
 export function getDiagnosticsWindow(): BrowserWindow | null { return diagnosticsWindow }
 
@@ -274,6 +303,17 @@ export function getWebviewClickInterceptorScript(): string {
               location.href = accountUrl;
               return null;
             }
+
+            // ChatGPT 的“新聊天中的分支”传入相对路径；在当前 Webview 中打开分支。
+            try {
+              const branchUrl = new URL(url, location.href);
+              if (location.origin === 'https://chatgpt.com' &&
+                  branchUrl.origin === location.origin &&
+                  /^[/]branch[/][^/]+[/][^/]+[/]?$/.test(branchUrl.pathname)) {
+                location.href = branchUrl.href;
+                return null;
+              }
+            } catch {}
             
             // 对于其他 URL，通过 IPC 打开（由主进程处理）
             const externalUrl = url && getExternalHttpUrl(url);
@@ -661,6 +701,29 @@ export function registerWebviewHandlers(webContents: Electron.WebContents): void
 
     webContents.setWindowOpenHandler((details) => {
         console.log('[Main] webview setWindowOpenHandler:', details.url)
+        // ChatGPT 分支会话原本在新标签页加载；改为替换当前 Webview 的会话
+        let isChatGPTBranch = false
+        try {
+            const source = new URL(webContents.getURL())
+            const target = new URL(details.url)
+            isChatGPTBranch = source.origin === 'https://chatgpt.com' &&
+                target.origin === source.origin &&
+                /^\/branch\/[^/]+\/[^/]+\/?$/.test(target.pathname)
+        } catch {
+            // 非 HTTP 页面或无效 URL 不作为 ChatGPT 分支处理
+        }
+
+        if (isChatGPTBranch) {
+            setImmediate(() => {
+                if (!webContents.isDestroyed()) {
+                    void webContents.loadURL(details.url).catch((error) => {
+                        console.error('[Main] Failed to navigate to ChatGPT branch:', error)
+                    })
+                }
+            })
+            return { action: 'deny' }
+        }
+
         const isGoogleAuthUrl = (() => {
             if (!details.url) return false
             if (details.url.includes('accounts.google.com')) return true
@@ -746,7 +809,13 @@ export function createQuickWindow(): void {
         if (!isQuitting) { e.preventDefault(); quickWindow?.hide() }
     })
 
-    quickWindow.on('closed', () => { quickWindow = null })
+    quickWindow.on('hide', () => {
+        if (quickWindow && !quickWindow.isDestroyed()) quickWindow.webContents.send('quick:hidden')
+    })
+    quickWindow.on('show', () => {
+        if (quickWindow && !quickWindow.isDestroyed()) quickWindow.webContents.send('quick:shown')
+    })
+    quickWindow.on('closed', () => { quickWindow = null; quickSidebarExpanded = false; quickPrimaryWebviews.clear() })
 
     // 为快捷窗口内的 Webview 注册相同的链接拦截与脚本注入处理器
     quickWindow.webContents.on('did-attach-webview', (_event, webContents) => {
@@ -812,6 +881,15 @@ function setupContextMenu(wc: Electron.WebContents): void {
         const items: Electron.MenuItemConstructorOptions[] = []
         if (params.selectionText || params.editFlags.canCopy) {
             items.push({ label: '复制', enabled: params.editFlags.canCopy, click: () => wc.copy() })
+        }
+        if (owner === quickWindow && quickPrimaryWebviews.has(wc.id) && params.selectionText.trim()) {
+            const selectedText = params.selectionText
+            items.push({ label: '在侧边栏中提问', click: () => {
+                if (quickWindow && !quickWindow.isDestroyed()) {
+                    showAndFocusWindow(quickWindow)
+                    quickWindow.webContents.send('quick:ask-sidebar', selectedText)
+                }
+            } })
         }
         if (params.isEditable) {
             items.push({ label: '剪切', enabled: params.editFlags.canCut, click: () => wc.cut() })

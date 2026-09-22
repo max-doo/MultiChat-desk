@@ -50,6 +50,23 @@ const api = {
   // 快捷弹窗控制
   quickShow: (opts?: { focus?: boolean }) => ipcRenderer.invoke('quick:show', opts),
   quickHide: () => ipcRenderer.invoke('quick:hide'),
+  quickRegisterPrimaryWebview: (id: number): Promise<{ success: boolean }> => ipcRenderer.invoke('quick:register-primary-webview', id),
+  quickSetSidebarExpanded: (expanded: boolean, panelWidth: number): Promise<{ success: boolean; data?: number }> => ipcRenderer.invoke('quick:set-sidebar-expanded', expanded, panelWidth),
+  onQuickAskSidebar: (cb: (text: string) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, text: string): void => cb(text)
+    ipcRenderer.on('quick:ask-sidebar', handler)
+    return () => ipcRenderer.removeListener('quick:ask-sidebar', handler)
+  },
+  onQuickHidden: (cb: () => void) => {
+    const handler = (): void => cb()
+    ipcRenderer.on('quick:hidden', handler)
+    return () => ipcRenderer.removeListener('quick:hidden', handler)
+  },
+  onQuickShown: (cb: () => void) => {
+    const handler = (): void => cb()
+    ipcRenderer.on('quick:shown', handler)
+    return () => ipcRenderer.removeListener('quick:shown', handler)
+  },
 
   // 诊断窗口 IPC
   diagnosticsOpenWindow: (): Promise<{ success: boolean; error?: string }> =>

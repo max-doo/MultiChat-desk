@@ -113,6 +113,8 @@ interface WebviewCardProps {
   expectedUrl?: string
   flat?: boolean // 扁平无边框模式：去除圆角、外边框与阴影，占满整个容器
   onDragStart?: (e: React.PointerEvent<HTMLDivElement>) => void // 开始拖拽窗口的回调
+  webviewInstanceId?: string // 同一模型在快捷窗口左右两侧可同时存在
+  onWebviewReady?: (webContentsId: number) => void
 }
 
 // 重新导出 FileUploadData 类型供其他组件使用
@@ -158,8 +160,21 @@ export interface WebviewCardRef {
  * 嵌入 AI 平台的 Web 界面，支持消息发送和响应抓取
  */
 const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
-  ({ id, name, url, logo, enabled, slotIndex, compact, hideHeader, onModelChange, isolated, headerActions, onNewConversation, draggableHeader, flat, onDragStart, readonlySnapshot, expectedUrl, sideLabel }, ref) => {
+  ({ id, name, url, logo, enabled, slotIndex, compact, hideHeader, onModelChange, isolated, headerActions, onNewConversation, draggableHeader, flat, onDragStart, readonlySnapshot, expectedUrl, sideLabel, webviewInstanceId, onWebviewReady }, ref) => {
     const webviewRef = useRef<Electron.WebviewTag>(null)
+    useEffect(() => {
+      const webview = webviewRef.current
+      if (!webview || !onWebviewReady) return
+      const report = (): void => {
+        try {
+          const id = webview.getWebContentsId()
+          if (id > 0) onWebviewReady(id)
+        } catch { /* Webview 尚未附着 */ }
+      }
+      webview.addEventListener('dom-ready', report)
+      report()
+      return () => webview.removeEventListener('dom-ready', report)
+    }, [onWebviewReady])
     const [isLoading, setIsLoading] = useState(true)
     const [isReady, setIsReady] = useState(false)
     const [sendStatus, setSendStatus] = useState<'idle' | 'sending' | 'success' | 'error'>('idle')
@@ -1159,32 +1174,30 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
           loadedUrlRef.current = targetUrl
           webview.loadURL(targetUrl)
 
-          // 页面就绪后恢复输入草稿（轮询 isReady，最多约 30s）
+          // 等待输入框出现并恢复草稿，然后才完成唤醒，避免新注入覆盖草稿。
           if (draftToRestore) {
-            const tryInsertText = async (attempts = 0): Promise<void> => {
-              if (attempts > 30) {
-                console.warn(`[${name}] 恢复输入草稿超时`)
-                return
-              }
-              if (isReady) {
-                try {
-                  const code = generateInsertTextScript(draftToRestore, id, selectors)
-                  const result = await webview.executeJavaScript(code)
-                  if (result && result.success) {
-                    console.log(`[${name}] 输入草稿已恢复`)
-                    return
-                  }
-                } catch (e) {
+            let restored = false
+            for (let attempt = 0; attempt < 30; attempt++) {
+              await new Promise(resolve => setTimeout(resolve, 1000))
+              if (!webviewRef.current || webviewRef.current !== webview) break
+              try {
+                const code = generateInsertTextScript(draftToRestore, id, selectors)
+                const result = await webview.executeJavaScript(code)
+                if (result?.success) {
+                  restored = true
+                  break
+                }
+              } catch (e) {
+                if (attempt === 29) {
                   console.warn(`[${name}] 恢复输入草稿失败:`, e)
                 }
               }
-              await new Promise(r => setTimeout(r, 1000))
-              return tryInsertText(attempts + 1)
             }
-            // 延迟开始恢复，给页面加载时间
-            setTimeout(() => {
-              void tryInsertText()
-            }, 2000)
+            if (!restored) {
+              console.warn(`[${name}] 恢复输入草稿超时`)
+              setIsHibernated(true)
+              return { success: false, error: '恢复输入草稿超时' }
+            }
           }
 
           // 清理休眠状态
@@ -1559,7 +1572,7 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
           */}
           <webview
             ref={webviewRef}
-            id={`webview-${id}`}
+            id={webviewInstanceId ?? `webview-${id}`}
             src="about:blank"
             partition="persist:shared"
             className={`w-full h-full ${((loadError || urlMismatch) && readonlySnapshot) || isHibernated ? 'invisible pointer-events-none' : ''}`}

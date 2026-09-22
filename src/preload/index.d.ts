@@ -79,6 +79,11 @@ declare global {
       trayQuitApp: () => Promise<{ success: boolean; error?: string }>
       quickShow: (opts?: { focus?: boolean }) => Promise<{ success: boolean; error?: string }>
       quickHide: () => Promise<{ success: boolean; error?: string }>
+      quickRegisterPrimaryWebview: (id: number) => Promise<{ success: boolean }>
+      quickSetSidebarExpanded: (expanded: boolean, panelWidth: number) => Promise<{ success: boolean; data?: number }>
+      onQuickAskSidebar: (cb: (text: string) => void) => () => void
+      onQuickHidden: (cb: () => void) => () => void
+      onQuickShown: (cb: () => void) => () => void
       quickGetAlwaysOnTop: () => Promise<boolean>
       quickSetAlwaysOnTop: (flag: boolean) => Promise<void>
       quickInjectPrompt: (payload: { text: string; action: 'quick'|'summarize'|'polish'|'translate'|'raw'|'search' }) => void

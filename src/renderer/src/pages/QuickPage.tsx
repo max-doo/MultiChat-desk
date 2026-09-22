@@ -7,8 +7,28 @@ export default function QuickPage(): JSX.Element {
   const [selectedModelId, setSelectedModelId] = useState<string>('')
   const selectedModelIdRef = useRef<string>('')
   const cardRefs = useRef<Map<string, WebviewCardRef>>(new Map())
+  const registerPrimaryWebview = useCallback((id: number) => {
+    void window.api.quickRegisterPrimaryWebview(id)
+  }, [])
   const isDraggingRef = useRef(false)
   const [isPinned, setIsPinned] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const sidebarOpenRef = useRef(false)
+  const quickVisibleRef = useRef(true)
+  const [sidebarModelId, setSidebarModelId] = useState('')
+  const sidebarModelIdRef = useRef('')
+  const [mountedSidebarModels, setMountedSidebarModels] = useState<Set<string>>(new Set())
+  const sidebarRefs = useRef<Map<string, WebviewCardRef>>(new Map())
+  const sidebarResuming = useRef<Set<string>>(new Set())
+  const sidebarTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+  const pendingSidebarText = useRef<{ id: number; text: string } | null>(null)
+  const pendingSequence = useRef(0)
+  const activeInjection = useRef<number | null>(null)
+  const [injectionRevision, setInjectionRevision] = useState(0)
+  const [sidebarError, setSidebarError] = useState('')
+  const [sidebarWidth, setSidebarWidth] = useState(420)
+  const sidebarWidthRef = useRef(420)
+  const resizingSidebar = useRef(false)
 
   // ── 休眠调度（片段 E，决策 R2）──
   // 快捷窗口当前模型永不休眠；被切走的旧模型 30 秒后真卸载（D1）。
@@ -69,6 +89,149 @@ export default function QuickPage(): JSX.Element {
       }
     }
   }, [clearHibernateTimer])
+
+  const clearSidebarTimer = useCallback((modelId: string) => {
+    const timer = sidebarTimers.current.get(modelId)
+    if (timer) clearTimeout(timer)
+    sidebarTimers.current.delete(modelId)
+  }, [])
+
+  const scheduleSidebarHibernate = useCallback((modelId: string) => {
+    if (!modelId) return
+    clearSidebarTimer(modelId)
+    const timer = setTimeout(() => {
+      sidebarTimers.current.delete(modelId)
+      if (quickVisibleRef.current && sidebarOpenRef.current && sidebarModelIdRef.current === modelId) return
+      const ref = sidebarRefs.current.get(modelId)
+      if (ref && !ref.isHibernated()) {
+        void ref.suspend().then(() => {
+          if (quickVisibleRef.current && sidebarOpenRef.current && sidebarModelIdRef.current === modelId && ref.isHibernated()) {
+            sidebarResuming.current.add(modelId)
+            void ref.resume().finally(() => {
+              sidebarResuming.current.delete(modelId)
+              setInjectionRevision(value => value + 1)
+            })
+          }
+        })
+      }
+    }, HIBERNATE_DELAY_QUICK_MS)
+    sidebarTimers.current.set(modelId, timer)
+  }, [clearSidebarTimer])
+
+  const openSidebar = useCallback(() => {
+    const modelId = sidebarModelIdRef.current || selectedModelIdRef.current || models[0]?.id
+    if (!modelId) return
+    sidebarModelIdRef.current = modelId
+    setSidebarModelId(modelId)
+    setMountedSidebarModels(prev => new Set(prev).add(modelId))
+    clearSidebarTimer(modelId)
+    sidebarOpenRef.current = true
+    setSidebarOpen(true)
+    void window.api.quickSetSidebarExpanded(true, sidebarWidthRef.current + 4)
+    const ref = sidebarRefs.current.get(modelId)
+    if (ref?.isHibernated() && !sidebarResuming.current.has(modelId)) {
+      sidebarResuming.current.add(modelId)
+      void ref.resume().finally(() => {
+        sidebarResuming.current.delete(modelId)
+        setInjectionRevision(value => value + 1)
+      })
+    }
+  }, [models, clearSidebarTimer])
+
+  const closeSidebar = useCallback(() => {
+    const panelWidth = Math.min(sidebarWidthRef.current, Math.max(0, window.innerWidth - 324)) + 4
+    sidebarOpenRef.current = false
+    setSidebarOpen(false)
+    scheduleSidebarHibernate(sidebarModelIdRef.current)
+    void window.api.quickSetSidebarExpanded(false, panelWidth)
+  }, [scheduleSidebarHibernate])
+
+  const changeSidebarModel = useCallback((modelId: string) => {
+    const oldId = sidebarModelIdRef.current
+    sidebarModelIdRef.current = modelId
+    setSidebarModelId(modelId)
+    setMountedSidebarModels(prev => new Set(prev).add(modelId))
+    void window.api.storeSet('quickSidebarModelId', modelId)
+    clearSidebarTimer(modelId)
+    const ref = sidebarRefs.current.get(modelId)
+    if (ref?.isHibernated() && !sidebarResuming.current.has(modelId)) {
+      sidebarResuming.current.add(modelId)
+      void ref.resume().finally(() => {
+        sidebarResuming.current.delete(modelId)
+        setInjectionRevision(value => value + 1)
+      })
+    }
+    if (oldId && oldId !== modelId) scheduleSidebarHibernate(oldId)
+  }, [clearSidebarTimer, scheduleSidebarHibernate])
+
+  useEffect(() => {
+    void window.api.storeGet('quickSidebarModelId').then(saved => {
+      if (!sidebarOpenRef.current && typeof saved === 'string' && models.some(model => model.id === saved)) {
+        sidebarModelIdRef.current = saved
+        setSidebarModelId(saved)
+      }
+    })
+  }, [models])
+
+  useEffect(() => {
+    void window.api.storeGet('quickSidebarWidth').then(saved => {
+      if (typeof saved === 'number' && saved >= 320 && saved <= 520) {
+        sidebarWidthRef.current = saved
+        setSidebarWidth(saved)
+      }
+    })
+  }, [])
+
+  useEffect(() => {
+    const unsubAsk = window.api.onQuickAskSidebar(text => {
+      if (!text.trim()) return
+      pendingSidebarText.current = { id: ++pendingSequence.current, text }
+      setSidebarError('')
+      openSidebar()
+      setInjectionRevision(value => value + 1)
+    })
+    const unsubHidden = window.api.onQuickHidden(() => {
+      quickVisibleRef.current = false
+      if (sidebarOpenRef.current) scheduleSidebarHibernate(sidebarModelIdRef.current)
+    })
+    const unsubShown = window.api.onQuickShown(() => {
+      quickVisibleRef.current = true
+      if (sidebarOpenRef.current) openSidebar()
+    })
+    return () => { unsubAsk(); unsubHidden(); unsubShown() }
+  }, [openSidebar, scheduleSidebarHibernate])
+
+  useEffect(() => {
+    const pending = pendingSidebarText.current
+    if (!sidebarOpen || !pending || activeInjection.current === pending.id) return
+    activeInjection.current = pending.id
+    let cancelled = false
+    const inject = async (): Promise<void> => {
+      for (let attempt = 0; attempt < 60; attempt++) {
+        if (cancelled || !sidebarOpenRef.current || pendingSidebarText.current?.id !== pending.id) break
+        const ref = sidebarRefs.current.get(sidebarModelIdRef.current)
+        if (ref && !ref.isHibernated() && !sidebarResuming.current.has(sidebarModelIdRef.current)) {
+          const existing = await ref.getInputText()
+          if (existing.success && pendingSidebarText.current?.id === pending.id) {
+            const combined = existing.text ? `${existing.text}\n\n${pending.text}` : pending.text
+            const result = await ref.insertText(combined)
+            if (result.success) {
+              if (pendingSidebarText.current?.id === pending.id) pendingSidebarText.current = null
+              setSidebarError('')
+              break
+            }
+          }
+        }
+        await new Promise(resolve => setTimeout(resolve, 500))
+      }
+      if (!cancelled && pendingSidebarText.current?.id === pending.id && sidebarOpenRef.current) {
+        setSidebarError('文字尚未写入输入框，请点击重试')
+      }
+      if (activeInjection.current === pending.id) activeInjection.current = null
+    }
+    void inject()
+    return () => { cancelled = true; if (activeInjection.current === pending.id) activeInjection.current = null }
+  }, [sidebarOpen, sidebarModelId, injectionRevision])
 
   // 已挂载的模型集合（只增不减，实现懒加载缓存）
   const [mountedModelIds, setMountedModelIds] = useState<Set<string>>(new Set())
@@ -142,6 +305,8 @@ export default function QuickPage(): JSX.Element {
         clearTimeout(timer)
       }
       hibernateTimersRef.current.clear()
+      for (const timer of sidebarTimers.current.values()) clearTimeout(timer)
+      sidebarTimers.current.clear()
     }
   }, [])
 
@@ -258,7 +423,8 @@ export default function QuickPage(): JSX.Element {
   }, [])
 
   return (
-    <div className="h-screen w-screen overflow-hidden p-0">
+    <div className="h-screen w-screen overflow-hidden p-0 flex">
+      <div className="h-full min-w-0 flex-1">
       {models.length > 0 ? (
         <>
           {models.map((model) => {
@@ -291,6 +457,8 @@ export default function QuickPage(): JSX.Element {
                     isDraggingRef.current = true
                   }}
                   onModelChange={(modelId) => void handleModelChange(modelId)}
+                  webviewInstanceId={`quick-main-${model.id}`}
+                  onWebviewReady={registerPrimaryWebview}
                   headerActions={
                     <div className="flex items-center gap-2 pl-2 border-l border-gray-200/60 ml-1 no-drag">
                       <button
@@ -320,6 +488,15 @@ export default function QuickPage(): JSX.Element {
                       </button>
                       <button
                         type="button"
+                        onClick={() => sidebarOpen ? closeSidebar() : openSidebar()}
+                        className={`w-7 h-7 flex items-center justify-center rounded-full transition-all duration-200 ${sidebarOpen ? 'text-primary bg-blue-50 hover:bg-blue-100' : 'text-text-secondary hover:text-text-primary hover:bg-gray-100'}`}
+                        title={sidebarOpen ? '收起侧边栏' : '展开侧边栏'}
+                        aria-label={sidebarOpen ? '收起侧边栏' : '展开侧边栏'}
+                      >
+                        <span className="material-symbols-outlined text-base">{sidebarOpen ? 'right_panel_close' : 'right_panel_open'}</span>
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => void window.api.quickHide()}
                         className="w-7 h-7 flex items-center justify-center text-text-secondary hover:text-red-500 hover:bg-red-50 rounded-full transition-all duration-200"
                         title="关闭"
@@ -338,6 +515,62 @@ export default function QuickPage(): JSX.Element {
         <div className="flex items-center justify-center h-full text-text-secondary text-sm">
           暂无可用模型配置
         </div>
+      )}
+      </div>
+      {mountedSidebarModels.size > 0 && (
+        <>
+          {sidebarOpen && <div
+            className="w-1 shrink-0 bg-gray-200 hover:bg-blue-300 cursor-col-resize"
+            onPointerDown={event => { resizingSidebar.current = true; event.currentTarget.setPointerCapture(event.pointerId) }}
+            onPointerMove={event => {
+              if (resizingSidebar.current) {
+                const width = Math.max(320, Math.min(520, window.innerWidth - event.clientX))
+                sidebarWidthRef.current = width
+                setSidebarWidth(width)
+              }
+            }}
+            onPointerUp={() => { resizingSidebar.current = false; void window.api.storeSet('quickSidebarWidth', sidebarWidthRef.current) }}
+            onLostPointerCapture={() => { resizingSidebar.current = false }}
+            title="拖动调整侧边栏宽度"
+          />}
+          <div className={`h-full min-w-0 shrink-0 ${sidebarOpen ? 'border-l border-gray-200' : 'hidden'}`} style={sidebarOpen ? { width: sidebarWidth, maxWidth: 'calc(100% - 324px)' } : undefined}>
+            {sidebarError && (
+              <div className="absolute right-2 top-14 z-30 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-900 flex items-center gap-2 shadow-sm">
+                <span>{sidebarError}</span>
+                <button type="button" onClick={() => { setSidebarError(''); setInjectionRevision(value => value + 1) }} className="underline">重试</button>
+              </div>
+            )}
+            {models.map(model => {
+              if (!mountedSidebarModels.has(model.id)) return null
+              return (
+                <div key={model.id} className="h-full" style={{ display: model.id === sidebarModelId ? 'block' : 'none' }}>
+                  <WebviewCard
+                    id={model.id}
+                    name={model.name}
+                    url={model.url}
+                    logo={model.logo}
+                    enabled={true}
+                    slotIndex={1}
+                    compact={true}
+                    isolated={true}
+                    flat={true}
+                    webviewInstanceId={`quick-sidebar-${model.id}`}
+                    onModelChange={changeSidebarModel}
+                    headerActions={
+                      <button type="button" onClick={closeSidebar} className="w-7 h-7 rounded-full text-text-secondary hover:text-red-500 hover:bg-red-50 flex items-center justify-center" title="收起侧边栏" aria-label="收起侧边栏">
+                        <span className="material-symbols-outlined text-base">close</span>
+                      </button>
+                    }
+                    ref={ref => {
+                      if (ref) sidebarRefs.current.set(model.id, ref)
+                      else sidebarRefs.current.delete(model.id)
+                    }}
+                  />
+                </div>
+              )
+            })}
+          </div>
+        </>
       )}
     </div>
   )
