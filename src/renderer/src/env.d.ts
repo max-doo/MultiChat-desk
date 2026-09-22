@@ -55,7 +55,6 @@ declare global {
       moveWindowDrag: (point: { screenX: number; screenY: number }) => void
       endWindowDrag: () => void
       selectFile: () => Promise<string | null>
-      selectDirectory: () => Promise<string | null>
       getFileInfo: (filePath: string) => Promise<GetFileInfoResult>
       readClipboardText: () => Promise<string>
       readClipboardHTML: () => Promise<string>
@@ -73,21 +72,16 @@ declare global {
       summaryPromptsDelete: (id: string) => Promise<void>
       summaryPromptsOpenFolder: () => Promise<void>
       onSummaryPromptsChanged: (callback: () => void) => () => void
-      generateSummary: (params: {
+      splitTask: (params: {
         apiKey: string
         baseUrl?: string
         model: string
-        systemPrompt: string
-        userContent: string
-        modelOutputs?: Array<{ name: string; content: string }>
-        userRequirement?: string
-        messages?: Array<{ role: 'user' | 'assistant'; content: string }>
+        goal: string
         temperature?: number
-        topP?: number
         maxTokens?: number
-        includeReasoning?: boolean
-      }, onChunk?: (chunk: string, isReasoning?: boolean) => void) => Promise<{ success: boolean; data?: string; reasoningContent?: string; error?: string; aborted?: boolean }>
-      abortSummary: () => Promise<{ success: boolean; error?: string }>
+        windowCount?: number
+      }) => Promise<{ success: boolean; data?: Array<{ text: string; suggestedModelId?: string }>; error?: string; aborted?: boolean }>
+      abortSplitTask: () => Promise<{ success: boolean; error?: string }>
       fetchModels: (params: {
         apiKey: string
         baseUrl: string
@@ -96,15 +90,11 @@ declare global {
         apiKey: string
         baseUrl: string
       }) => Promise<{ success: boolean; error?: string }>
-      exportReport: (params: {
-        content: string
-        fileName: string
-        directory?: string
-      }) => Promise<{ success: boolean; filePath?: string; error?: string }>
       openBrowserWindow: (url: string) => Promise<void>
       updateGetState: () => Promise<{ success: boolean; data?: UpdateState; error?: string }>
       updateCheck: () => Promise<{ success: boolean; data?: UpdateState; error?: string }>
       onUpdateStateChange: (callback: (state: UpdateState) => void) => () => void
+      onWindowVisibility: (callback: (visible: boolean) => void) => () => void
       saveImageFromURL: (url: string) => Promise<{ success: boolean; filePath?: string; error?: string }>
       downloadAllImages: (payload: {
         items: Array<{ modelId: string; wcId: number | null; images: Array<{ src: string; mime?: string }> }>

@@ -1,7 +1,7 @@
 /**
  * Task Split API
  * 复用 OpenAI 兼容端点做一次性（非流式）任务拆解。
- * 请求体统一走 buildRequestBody，确保与总结链路形状一致（含 top_p / reasoning 适配），
+ * 请求体统一走 buildRequestBody，保持供应商适配（含 top_p / reasoning），
  * 避免部分供应商网关（如讯飞）对非标准请求体返回 Model Not Found。
  */
 import { buildRequestBody } from '../config/requestBodyConfig'
@@ -35,7 +35,7 @@ export async function splitTask(
   const baseUrl = (params.baseUrl || 'https://api.openai.com/v1').replace(/\/+$/, '')
   const apiUrl = `${baseUrl}/chat/completions`
 
-  // 复用总结链路的请求体构建：保持 top_p / reasoning 等字段与供应商适配一致，
+  // 使用共享请求体构建：保持 top_p / reasoning 等字段与供应商适配一致，
   // 仅把 stream 覆盖为 false（任务拆解走一次性 JSON 解析，无流式 reader）。
   const windowCount = params.windowCount && params.windowCount > 0 ? params.windowCount : undefined
   const userContent = windowCount
@@ -90,5 +90,36 @@ export async function splitTask(
   } catch (err) {
     if (signal.aborted) return { success: false, aborted: true, error: '已中止' }
     return { success: false, error: String(err) }
+  }
+}
+/**
+ * 获取模型列表
+ */
+export async function fetchModels(params: {
+  apiKey: string
+  baseUrl: string
+}): Promise<{ success: boolean; data?: unknown[]; error?: string }> {
+  try {
+    const baseUrl = params.baseUrl.replace(/\/+$/, '')
+    const response = await fetch(`${baseUrl}/models`, {
+      headers: {
+        'Authorization': `Bearer ${params.apiKey}`
+      }
+    })
+
+    if (!response.ok) {
+      return { success: false, error: `请求失败: ${response.status}` }
+    }
+
+    const data = await response.json()
+    // OpenAI 标准格式通常是 data 数组
+    const models = data.data || []
+
+    return {
+      success: true,
+      data: models
+    }
+  } catch (error) {
+    return { success: false, error: String(error) }
   }
 }

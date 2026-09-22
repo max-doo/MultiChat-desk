@@ -201,7 +201,7 @@ function SummaryPage({ onNavigateBack, initialHistoryItem, isActive }: SummaryPa
         .map(m => m.id)
       setSelectedModels(modelsWithData.length > 0 ? modelsWithData : targetModels.map(m => m.id))
       // 新进入总结页（非历史恢复）必须清空 restoreHistoryData，否则 renderableModels 会一直走历史分支，
-      // 且 useSummaryPanel 的 useEffect([restoreHistoryData]) 会让新总结写回旧历史。
+      // 新会话也不应继续使用旧记录的平台 URL。
       setRestoreHistoryData(null)
       setIsLoadingResponses(false)
       return

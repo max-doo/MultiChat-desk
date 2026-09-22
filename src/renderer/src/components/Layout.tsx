@@ -18,7 +18,7 @@ function Layout({ children }: LayoutProps): JSX.Element {
   const [menuItems, setMenuItems] = useState<Array<{ key: string; label: string; icon?: string; action: () => void }>>([])
   const [isWindowMaximized, setIsWindowMaximized] = useState(false)
 
-  const { displayMode, setDisplayMode, resetPaneRatios, isSettingsOpen, setSettingsOpen, setHistoryOpen, setHistoryInitialTab, productMode, setProductMode, currentPage, apiConfig, setApiConfig, isNewSession, textInserted, activeModels, debateState } = useAppStore()
+  const { displayMode, setDisplayMode, resetPaneRatios, isSettingsOpen, setSettingsOpen, setHistoryOpen, setHistoryInitialTab, productMode, setProductMode, currentPage, isNewSession, textInserted, activeModels, debateState } = useAppStore()
   const { hasUpdate } = useUpdateReminder()
   const isFallbackDraggingRef = useRef(false)
   const dragFrameRef = useRef<number | null>(null)
@@ -94,13 +94,6 @@ function Layout({ children }: LayoutProps): JSX.Element {
     window.addEventListener('resize', updateMaximizedState)
     return () => window.removeEventListener('resize', updateMaximizedState)
   }, [])
-
-  const summarySource: 'api' | 'webview' = apiConfig?.summarySource ?? 'webview'
-  const setSummarySource = (next: 'api' | 'webview') => {
-    if (apiConfig) {
-      setApiConfig({ ...apiConfig, summarySource: next })
-    }
-  }
 
   const isEditableEl = (el: HTMLElement | null): boolean => {
     if (!el) return false
@@ -223,77 +216,6 @@ function Layout({ children }: LayoutProps): JSX.Element {
       document.removeEventListener('contextmenu', handler)
       document.removeEventListener('mousedown', close)
       window.removeEventListener('blur', close)
-    }
-  }, [])
-
-  useEffect(() => {
-    console.log('[Layout] 初始化 themed-contextmenu 监听器, electron:', !!window.electron)
-
-    const sub = (event: any, payload: {
-      x: number; y: number; selectionText?: string; isEditable?: boolean; linkURL?: string; srcURL?: string; hasImageContents?: boolean; mediaType?: string; wcId: number
-    }): void => {
-      console.log('[Layout] 收到 themed-contextmenu 事件:', payload)
-      const items: Array<{ key: string; label: string; icon?: string; action: () => void }> = []
-      const editable = !!payload.isEditable
-      const hasSelection = !!payload.selectionText
-      if (hasSelection || editable) {
-        items.push({
-          key: 'copy', label: '复制', icon: 'content_copy', action: async () => {
-            // 直接使用已捕获的选中文本写入剪贴板，这是最可靠的方式
-            if (payload.selectionText) {
-              try {
-                await navigator.clipboard.writeText(payload.selectionText)
-                console.log('[Layout] 复制成功')
-              } catch (err) {
-                console.error('[Layout] 复制失败:', err)
-              }
-            }
-          }
-        })
-        if (editable) {
-          items.push({
-            key: 'paste', label: '粘贴', icon: 'content_paste', action: async () => {
-              try {
-                // 读取剪贴板内容
-                const clipText = await navigator.clipboard.readText()
-                if (!clipText) {
-                  console.log('[Layout] 剪贴板为空')
-                  return
-                }
-
-                // 请求主进程执行粘贴
-                console.log('[Layout] 请求主进程执行粘贴, wcId:', payload.wcId)
-                await window.electron?.ipcRenderer?.invoke('perform-contextmenu-action', { wcId: payload.wcId, action: 'paste' })
-              } catch (err) {
-                console.error('[Layout] 粘贴失败:', err)
-              }
-            }
-          })
-        }
-      }
-      if (payload.linkURL) {
-        items.push({ key: 'copy_link', label: '复制链接', icon: 'link', action: () => { navigator.clipboard.writeText(payload.linkURL as string) } })
-      }
-      if (payload.srcURL && (payload.mediaType === 'image' || payload.hasImageContents)) {
-        items.push({
-          key: 'save_image', label: '图片另存为...', icon: 'download', action: () => {
-            window.electron?.ipcRenderer?.invoke('perform-contextmenu-action', { wcId: payload.wcId, action: 'save-image', data: { url: payload.srcURL } })
-          }
-        })
-      }
-      if (!items.length) return
-      const menuWidth = 180
-      const menuHeight = 44 * items.length
-      const x = Math.min(payload.x, window.innerWidth - menuWidth - 8)
-      const y = Math.min(payload.y, window.innerHeight - menuHeight - 8)
-      setMenuItems(items)
-      setMenuX(x)
-      setMenuY(y)
-      setMenuVisible(true)
-    }
-    window.electron?.ipcRenderer?.on('themed-contextmenu', sub)
-    return () => {
-      window.electron?.ipcRenderer?.removeListener('themed-contextmenu', sub)
     }
   }, [])
 
@@ -449,33 +371,6 @@ function Layout({ children }: LayoutProps): JSX.Element {
                   </div>
                 </button>
               )})}
-            </div>
-          ) : currentPage === 'summary' ? (
-            <div 
-              className="flex items-center p-[2px] gap-[2px] glass-panel shadow-soft rounded-full text-xs transition-opacity no-drag"
-            >
-              <button
-                type="button"
-                onClick={() => setSummarySource('api')}
-                className={`px-3 h-[22px] flex items-center justify-center rounded-full font-medium transition-all duration-200 border ${
-                  summarySource === 'api' 
-                    ? 'bg-blue-50/80 text-primary border-blue-200 shadow-sm' 
-                    : 'border-transparent text-text-secondary hover:text-primary hover:bg-white/50'
-                }`}
-              >
-                API
-              </button>
-              <button
-                type="button"
-                onClick={() => setSummarySource('webview')}
-                className={`px-3 h-[22px] flex items-center justify-center rounded-full font-medium transition-all duration-200 border ${
-                  summarySource === 'webview' 
-                    ? 'bg-blue-50/80 text-primary border-blue-200 shadow-sm' 
-                    : 'border-transparent text-text-secondary hover:text-primary hover:bg-white/50'
-                }`}
-              >
-                Webview
-              </button>
             </div>
           ) : null}
         </div>

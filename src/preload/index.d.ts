@@ -95,7 +95,6 @@ declare global {
       shortcutGet: () => Promise<{ success: boolean; data?: Record<string, string>; error?: string }>
       shortcutSet: (config: Record<string, string>) => Promise<{ success: boolean; error?: string }>
       selectFile: () => Promise<string | null>
-      selectDirectory: () => Promise<string | null>
       getFileInfo: (filePath: string) => Promise<GetFileInfoResult>
       readClipboardText: () => Promise<string>
       readClipboardHTML: () => Promise<string>
@@ -119,21 +118,6 @@ declare global {
       summaryPromptsDelete: (id: string) => Promise<void>
       summaryPromptsOpenFolder: () => Promise<void>
       onSummaryPromptsChanged: (callback: () => void) => () => void
-      generateSummary: (params: {
-        apiKey: string
-        baseUrl?: string
-        model: string
-        systemPrompt: string
-        userContent: string
-        modelOutputs?: Array<{ name: string; content: string }>
-        userRequirement?: string
-        messages?: Array<{ role: 'user' | 'assistant'; content: string }>
-        temperature?: number
-        topP?: number
-        maxTokens?: number
-        includeReasoning?: boolean
-      }, onChunk?: (chunk: string, isReasoning?: boolean) => void) => Promise<{ success: boolean; data?: string; reasoningContent?: string; error?: string; aborted?: boolean }>
-      abortSummary: () => Promise<{ success: boolean; error?: string }>
       splitTask: (params: {
         apiKey: string
         baseUrl?: string
@@ -153,7 +137,6 @@ declare global {
         baseUrl: string
       }) => Promise<{ success: boolean; error?: string }>
       exportCache: () => Promise<{ success: boolean; filePath?: string; error?: string }>
-      openPath: (path: string) => Promise<{ success: boolean; error?: string }>
       importCache: () => Promise<{
         success: boolean
         data?: {
@@ -164,11 +147,6 @@ declare global {
         }
         error?: string
       }>
-      exportReport: (params: {
-        content: string
-        fileName: string
-        directory?: string
-      }) => Promise<{ success: boolean; filePath?: string; error?: string }>
       openBrowserWindow: (url: string) => Promise<void>
       updateGetState: () => Promise<{ success: boolean; data?: UpdateState; error?: string }>
       updateCheck: () => Promise<{ success: boolean; data?: UpdateState; error?: string }>

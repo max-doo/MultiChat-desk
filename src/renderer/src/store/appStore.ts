@@ -77,7 +77,7 @@ export interface ApiProvider {
   validatedError?: string
 }
 
-// 模型配置（用于总结 Agent）
+// API 模型配置（用于任务分配）
 export interface SummaryModel {
   id: string
   name: string
@@ -88,18 +88,9 @@ export interface SummaryModel {
 export interface ApiConfig {
   providers: ApiProvider[] // 供应商列表
   activeProviderId?: string // 当前选中的供应商 ID
-  lastSelectedAgentId?: string // 上次选中的总结模型 ID
+  lastSelectedAgentId?: string // 上次用于任务分配的模型 ID
   summaryPrompts?: SummaryPrompt[] // 用户配置的总结提示词
-  exportDirectory?: string
-  systemPrompt?: string
-  temperature?: number
-  topP?: number
-  maxTokens?: number
-  includeReasoning?: boolean
-  contextRounds?: number  // 多轮对话的上下文轮数，0 表示不保留上下文
-  favoriteModelIds?: string[] // 收藏的模型 ID 列表
-  /** 'api'（接 OpenAI 兼容）或 'webview'（嵌入式厂商页面） */
-  summarySource?: 'api' | 'webview'
+  systemPrompt?: string // 旧配置仍可作为 Webview 总结模板的兜底提示词
   /** Webview 模式下上次选中的目标平台 id */
   lastWebviewSummaryPlatform?: string
 }
@@ -151,11 +142,11 @@ export interface SummaryHistoryItem {
   }>
   selectedModels: string[] // 参与总结的模型 ID 列表
   modelResponses?: Record<string, string> // 各模型的原始回复
-  /** 'api' 或 'webview'，缺省视为 'api'（兼容旧记录） */
+  /** 保留历史来源，兼容已有 API 总结记录 */
   summarySource?: 'api' | 'webview'
-  /** summarySource = 'webview' 时记录目标平台 id */
+  /** Webview 总结记录的目标平台 id */
   webviewPlatformId?: string
-  /** summarySource = 'webview' 时记录总结会话的 URL */
+  /** Webview 总结记录的会话 URL */
   webviewUrl?: string
   /** 主界面对话时各模型的 URL（用于追溯原始对话） */
   urls?: Record<string, string>
@@ -169,7 +160,7 @@ export interface SummarySessionInit {
   timestamp: number
   /** 哪些模型的回复来自本地历史快照兜底（实时页面不可用），供总结页标注 */
   snapshotModelIds?: string[]
-  /** 预选的总结模板 id（如从辩论模式进入时预选 '5' 辩论对决）。useSummaryPanel 在首次挂载时读取。 */
+  /** 预选的总结模板 id（如从辩论模式进入时预选辩论裁决）。总结面板在首次挂载时读取。 */
   presetSummaryMode?: string
 }
 
@@ -597,7 +588,7 @@ export const defaultSummaryPrompts: SummaryPrompt[] = [
   }
 ]
 
-// 默认总结模型
+// 任务分配可用 API 模型
 export const defaultSummaryModels: SummaryModel[] = []
 
 // 默认供应商
@@ -1942,7 +1933,6 @@ export async function initializeStore(): Promise<void> {
           providers: providers,
           activeProviderId: activeProviderId,
           summaryPrompts: defaultSummaryPrompts,
-          exportDirectory: storedApiConfig.exportDirectory,
           systemPrompt: storedApiConfig.systemPrompt
         }
         useAppStore.setState({ apiConfig: migratedConfig })

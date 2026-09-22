@@ -95,7 +95,6 @@ const api = {
 
   // 文件操作
   selectFile: (): Promise<string | null> => ipcRenderer.invoke('select-file'),
-  selectDirectory: (): Promise<string | null> => ipcRenderer.invoke('select-directory'),
   getFileInfo: (filePath: string): Promise<GetFileInfoResult> =>
     ipcRenderer.invoke('get-file-info', filePath),
 
@@ -150,39 +149,6 @@ const api = {
     }
   },
 
-  // AI 总结（支持自定义 API 端点，支持流式输出，支持多轮对话）
-  generateSummary: (params: {
-    apiKey: string
-    baseUrl?: string
-    model: string
-    systemPrompt: string
-    userContent: string
-    modelOutputs?: Array<{ name: string; content: string }>
-    userRequirement?: string
-    messages?: Array<{ role: 'user' | 'assistant'; content: string }>
-    temperature?: number
-    topP?: number
-    maxTokens?: number
-    includeReasoning?: boolean
-  }, onChunk?: (chunk: string, isReasoning?: boolean) => void): Promise<{ success: boolean; data?: string; reasoningContent?: string; error?: string; aborted?: boolean }> => {
-    // 设置流式数据监听器
-    const listener = (_event: Electron.IpcRendererEvent, data: { done: boolean; content: string; isReasoning?: boolean }) => {
-      if (onChunk && data.content) {
-        onChunk(data.content, data.isReasoning)
-      }
-    }
-    ipcRenderer.on('summary-stream-chunk', listener)
-
-    return ipcRenderer.invoke('generate-summary', params).finally(() => {
-      // 清理监听器
-      ipcRenderer.removeListener('summary-stream-chunk', listener)
-    })
-  },
-
-  // 终止当前的 AI 总结生成
-  abortSummary: (): Promise<{ success: boolean; error?: string }> =>
-    ipcRenderer.invoke('abort-summary'),
-
   // 任务拆解（非流式）
   splitTask: (params: {
     apiKey: string
@@ -216,9 +182,6 @@ const api = {
     ipcRenderer.invoke('export-cache'),
 
   // 用系统资源管理器打开指定路径
-  openPath: (path: string): Promise<{ success: boolean; error?: string }> =>
-    ipcRenderer.invoke('open-path', path),
-
   // 导入缓存数据（返回预览，不直接写入）
   importCache: (): Promise<{
     success: boolean
@@ -230,14 +193,6 @@ const api = {
     }
     error?: string
   }> => ipcRenderer.invoke('import-cache'),
-
-  // 导出报告
-  exportReport: (params: {
-    content: string
-    fileName: string
-    directory?: string
-  }): Promise<{ success: boolean; filePath?: string; error?: string }> =>
-    ipcRenderer.invoke('export-report', params),
 
   // 写入临时 markdown 文件
   writeTempMarkdown: (params: {

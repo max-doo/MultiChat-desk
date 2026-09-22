@@ -13,8 +13,8 @@ interface ImportCacheConfirmModalProps {
 const CACHE_KEY_LABELS: Record<string, string> = {
   displayMode: '显示模式',
   models: '主界面模型列表',
-  apiConfig: 'API 配置（供应商/总结模式/导出目录等）',
-  summaryModels: '可用总结模型',
+  apiConfig: 'API 配置（任务分配供应商）',
+  summaryModels: '任务分配可用模型',
   history: '主界面对话历史',
   summaryHistory: '总结历史记录',
   geminiAccountUrl: 'Gemini 账户 URL'

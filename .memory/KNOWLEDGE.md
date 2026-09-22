@@ -12,6 +12,12 @@ Agents may suggest or promote a lesson into the `Known Gotchas` section of `AGEN
 
 ## Debugging Lessons
 
+- **可重复交互的 Electron 悬浮窗口**：避免同时使用 `focusable: false` 和依赖完整 `click` 事件。用 `showInactive` 控制弹出时不抢焦点，让窗口保持可聚焦，并在 `pointerdown` 派发一次性动作。
+
+- **后台自愈按失效资源重启**：原生 Hook 静默失活时重启 Hook/UIA 并清理手势状态；仍健康的工具条 BrowserWindow 保持运行，避免重建后按钮失效。
+
+- **第三方响应式工具栏选择器需结合语义**：同一 `item-icon` 哈希类在窄屏可能是三点菜单，宽屏可能是直接复制按钮；结合父级工具栏与 SVG 语义区分操作。
+
 - **[真因修正] ChatGPT Deep Research 需要 target 与 frame context 两级遍历**：顶层 `<webview>.executeJavaScript()` 无法读取 `connector_openai_deep_research.web-sandbox.oaiusercontent.com` 内的报告 DOM，而且真实结构可能是“ChatGPT → connector iframe → 第二层报告 iframe”。其中 iframe 既可能跨进程成为 child target，也可能只是在现有 target 内拥有独立 execution context。完整方案必须组合两层：①根调试会话调用 `Target.setAutoAttach({ autoAttach:true, flatten:true, waitForDebuggerOnStart:false })`，监听 `Target.attachedToTarget` 并在每个 child `sessionId` 上递归 auto-attach；②在每个 session 内调用 `Page.getFrameTree`，对本地 frame 用 `Page.createIsolatedWorld(frameId)` 获得 `contextId`，随后用 `Runtime.evaluate(sessionId, contextId)` 探测 `main h1` 和正文结构。报告 frame 可能显示 `about:blank`，禁止仅按 URL 过滤。只在自己附加 debugger 时负责最终 detach，不要把下载按钮或剪贴板当作报告抓取主链路。
 
 - **关键回退能力应由能力拥有者自动识别稳定信号**：当调用点多且容易在并行修改中漏传可选参数时，不要把“是否进入关键回退”完全交给调用方。应在 `WebviewCard` 等能力边界根据稳定页面信号（如 Deep Research iframe）自动识别，上层参数只表达“正在等待该模式”的语义。Electron main 代码修改后必须重启主进程；renderer HMR 或 `npm run build` 不能证明运行中的 main 已加载新代码。

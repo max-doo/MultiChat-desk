@@ -3,9 +3,10 @@
  * 负责主窗口创建、Webview 注入脚本、上下文菜单以及新窗口管理
  */
 
-import { app, screen, session, BrowserWindow, shell, nativeImage, Tray, Menu } from 'electron'
-import { join } from 'path'
+import { app, screen, session, BrowserWindow, shell, nativeImage, Tray, Menu, clipboard, dialog } from 'electron'
+import { join, basename } from 'path'
 import { accessSync } from 'fs'
+import { writeFile } from 'fs/promises'
 import { is } from '@electron-toolkit/utils'
 import { startSummaryPromptsWatcher } from './summaryPrompts'
 
@@ -227,6 +228,16 @@ export function getWebviewClickInterceptorScript(): string {
           try { console.log('__OPEN_LINK__:' + url); } catch {}
         }
 
+        function getExternalHttpUrl(url) {
+          try {
+            const parsed = new URL(url, location.href);
+            if ((parsed.protocol === 'http:' || parsed.protocol === 'https:') && parsed.origin !== location.origin) {
+              return parsed.href;
+            }
+          } catch {}
+          return null;
+        }
+
         const addAccountKeywords = ['Add account', '添加账号', '添加帐号'];
         function textHit(s) {
           if (!s || typeof s !== 'string') return false;
@@ -265,8 +276,9 @@ export function getWebviewClickInterceptorScript(): string {
             }
             
             // 对于其他 URL，通过 IPC 打开（由主进程处理）
-            if (url && url.startsWith('http') && !url.includes(location.host)) {
-              openUrl(url);
+            const externalUrl = url && getExternalHttpUrl(url);
+            if (externalUrl) {
+              openUrl(externalUrl);
               return null;
             }
             
@@ -307,11 +319,11 @@ export function getWebviewClickInterceptorScript(): string {
               return;
             }
             
-            const isExternal = link.href.startsWith('http') && !link.href.includes(window.location.host);
-            if (isExternal) {
+            const externalUrl = getExternalHttpUrl(link.href);
+            if (externalUrl) {
               e.preventDefault();
               e.stopPropagation();
-              openUrl(link.href);
+              openUrl(externalUrl);
             }
           }
         }
@@ -681,8 +693,8 @@ export function registerWebviewHandlers(webContents: Electron.WebContents): void
             return { action: 'deny' }
         }
 
-        // 对于其他 URL，只阻止弹窗
-        console.log('[Main] Blocking popup for non-auth URL:', details.url)
+        // 外部链接交给系统默认浏览器，仍阻止 Webview 内创建弹窗
+        openBrowserWindowInternal(details.url)
         return { action: 'deny' }
     })
 }
@@ -795,29 +807,65 @@ export function openDiagnosticsWindow(): void {
 
 function setupContextMenu(wc: Electron.WebContents): void {
     wc.on('context-menu', (_e, params) => {
-        // 忽略拼写检查建议菜单
-        if (params.misspelledWord || params.dictionarySuggestions?.length > 0) return
-
-        const owner = BrowserWindow.fromWebContents(wc) || mainWindow
+        const owner = BrowserWindow.fromWebContents(wc.hostWebContents ?? wc) || mainWindow
         if (!owner) return
-
-        const payload = {
-            x: params.x,
-            y: params.y,
-            selectionText: params.selectionText,
-            linkText: params.linkText,
-            editFlags: params.editFlags,
-            isEditable: params.isEditable,
-            linkURL: params.linkURL,
-            srcURL: params.srcURL,
-            hasImageContents: params.hasImageContents,
-            mediaType: params.mediaType,
-            wcId: wc.id,
-            source: 'webview'
+        const items: Electron.MenuItemConstructorOptions[] = []
+        if (params.selectionText || params.editFlags.canCopy) {
+            items.push({ label: '复制', enabled: params.editFlags.canCopy, click: () => wc.copy() })
         }
-        console.log('[Main] 发送 themed-contextmenu 事件')
-        owner.webContents.send('themed-contextmenu', payload)
+        if (params.isEditable) {
+            items.push({ label: '剪切', enabled: params.editFlags.canCut, click: () => wc.cut() })
+            items.push({ label: '粘贴', enabled: params.editFlags.canPaste, click: () => wc.paste() })
+            items.push({ label: '全选', click: () => wc.selectAll() })
+        }
+        if (params.linkURL) {
+            if (items.length) items.push({ type: 'separator' })
+            items.push({ label: '复制链接', click: () => clipboard.writeText(params.linkURL) })
+        }
+        if (params.mediaType === 'image' || params.hasImageContents) {
+            if (items.length) items.push({ type: 'separator' })
+            items.push({ label: '复制图片', click: () => wc.copyImageAt(params.x, params.y) })
+            if (params.srcURL) {
+                items.push({ label: '图片另存为...', click: () => {
+                    void saveWebviewImage(wc, owner, params.srcURL).catch(error => {
+                        console.error('[ContextMenu] 图片另存为失败:', error)
+                    })
+                } })
+            }
+        }
+        if (items.length) Menu.buildFromTemplate(items).popup({ window: owner })
     })
+}
+
+async function saveWebviewImage(wc: Electron.WebContents, owner: BrowserWindow, url: string): Promise<void> {
+    let name = 'image.png'
+    try {
+        const candidate = decodeURIComponent(basename(new URL(url).pathname))
+        if (candidate) name = candidate
+    } catch { /* data URL 等没有文件名 */ }
+    const result = await dialog.showSaveDialog(owner, { title: '图片另存为', defaultPath: name })
+    if (result.canceled || !result.filePath || wc.isDestroyed()) return
+
+    if (url.startsWith('data:')) {
+        const match = /^data:image\/[^;,]+;base64,(.*)$/s.exec(url)
+        if (!match) throw new Error('不支持的图片数据格式')
+        await writeFile(result.filePath, Buffer.from(match[1], 'base64'))
+        return
+    }
+
+    const sharedSession = wc.session
+    const onDownload = (_event: Electron.Event, item: Electron.DownloadItem, source: Electron.WebContents): void => {
+        if (source?.id !== wc.id || item.getURL() !== url) return
+        sharedSession.removeListener('will-download', onDownload)
+        item.setSavePath(result.filePath!)
+    }
+    sharedSession.on('will-download', onDownload)
+    try {
+        wc.downloadURL(url)
+    } catch (error) {
+        sharedSession.removeListener('will-download', onDownload)
+        throw error
+    }
 }
 
 // ============ 悬浮工具条窗口 ============

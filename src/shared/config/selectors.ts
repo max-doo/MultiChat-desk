@@ -31,8 +31,6 @@ export interface ModelSelector {
   customCSS: string
   /** 普通模式/卡片“新对话”按钮使用的 URL */
   newConversationUrl?: string
-  /** Webview 总结模式专用：打开此 URL 进入一个隔离的新对话页 */
-  summaryConversationUrl?: string
   // Deep Research mode configuration
   researchMode?: {
     // Steps to enable Deep Research
@@ -104,7 +102,6 @@ export const defaultSelectors: SelectorsConfig = {
         .xl\\:pl-\\[260px\\] { padding-left: 0 !important; }
       `,
       newConversationUrl: 'https://chatgpt.com',
-      summaryConversationUrl: 'https://chatgpt.com/?temporary-chat=true',
       researchMode: {
         steps: [
           { selector: '[data-testid="composer-plus-btn"], #composer-plus-btn, button.composer-btn', delay: 1000, menuOpenerFallback: true },

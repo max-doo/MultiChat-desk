@@ -713,27 +713,6 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
 
 
 
-  // 处理选择导出目录
-  const handleSelectDirectory = async (): Promise<void> => {
-    if (!window.api?.selectDirectory) {
-      console.error('API 不可用')
-      return
-    }
-    const dirPath = await window.api.selectDirectory()
-    if (dirPath) {
-      setApiConfig({ ...apiConfig, exportDirectory: dirPath })
-    }
-  }
-
-  // 用系统资源管理器打开导出目录
-  const handleOpenExportDirectory = async (): Promise<void> => {
-    if (!apiConfig.exportDirectory || !window.api?.openPath) return
-    const result = await window.api.openPath(apiConfig.exportDirectory)
-    if (!result.success) {
-      alert(`打开文件夹失败: ${result.error || '路径不存在或无法访问'}`)
-    }
-  }
-
   // 处理导出缓存数据
   const handleExportCache = async (): Promise<void> => {
     if (!window.api?.exportCache) {
@@ -1080,51 +1059,13 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
         <div className="flex-1 p-6 space-y-8 overflow-y-auto">
 
 
-          {/* 总结方式配置 */}
           <div>
             <h3 className="flex items-center gap-2 font-semibold text-text-primary mb-4">
-              <span className="material-symbols-outlined text-primary text-xl">auto_awesome</span>
-              总结方式配置
+              <span className="material-symbols-outlined text-primary text-xl">account_tree</span>
+              任务分配与总结设置
             </h3>
-
             <div className="space-y-4">
-              {/* 总结方式选择 */}
-              <div className="p-4 rounded-xl glass-panel">
-                <label className="block text-sm font-medium text-text-primary mb-2">总结方式</label>
-                <div className="space-y-2">
-                  <label className="flex items-start gap-2 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="summarySource"
-                      checked={(apiConfig.summarySource ?? 'webview') === 'webview'}
-                      onChange={() => setApiConfig({ ...apiConfig, summarySource: 'webview' })}
-                      className="mt-0.5 w-4 h-4 text-primary accent-primary border-gray-300 focus:ring-primary/20"
-                    />
-                    <div>
-                      <div className="text-sm text-text-primary font-medium">嵌入式页面（默认）</div>
-                      <div className="text-[11px] text-text-secondary">通过厂商网页直接总结，无需 API Key</div>
-                    </div>
-                  </label>
-                  <label className="flex items-start gap-2 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="summarySource"
-                      checked={apiConfig.summarySource === 'api'}
-                      onChange={() => setApiConfig({ ...apiConfig, summarySource: 'api' })}
-                      className="mt-0.5 w-4 h-4 text-primary accent-primary border-gray-300 focus:ring-primary/20"
-                    />
-                    <div>
-                      <div className="text-sm text-text-primary font-medium">API 调用</div>
-                      <div className="text-[11px] text-text-secondary">通过 OpenAI 兼容接口总结，需配置下方供应商</div>
-                    </div>
-                  </label>
-                </div>
-                {apiConfig.summarySource === 'api' && providers.length === 0 && (
-                  <p className="mt-2 text-[11px] text-yellow-600">未配置供应商，请先新增 API 供应商</p>
-                )}
-              </div>
-
-              {/* API 供应商管理 */}
+              {/* 任务分配 API 供应商管理 */}
               <div className="p-4 rounded-xl glass-panel">
                 <div className="flex items-center justify-between mb-3">
                   <label className="text-sm font-medium text-text-primary">API 供应商（多 Key 管理）</label>
@@ -1227,7 +1168,7 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
               <div className="p-4 rounded-xl glass-panel">
                 <div className="flex items-center justify-between mb-2">
                   <label className="text-sm font-medium text-text-primary">
-                    可用总结模型（已启用 <span className="text-primary">{enabledSummaryModels.length}</span> / 共 {summaryModels.length}）
+                    任务分配可用模型（已启用 <span className="text-primary">{enabledSummaryModels.length}</span> / 共 {summaryModels.length}）
                   </label>
                   <button
                     onClick={() => setModelEditorOpen(true)}
@@ -1249,7 +1190,7 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
                     <span className="text-text-secondary text-[10px]">未启用供应商的模型已隐藏</span>
                   )}
                 </div>
-                <p className="text-[11px] text-text-secondary mt-2">默认总结模型在总结面板内选择并自动记忆</p>
+                <p className="text-[11px] text-text-secondary mt-2">任务分配时可选择已配置的模型</p>
               </div>
 
               {/* 提示词模板列表 */}
@@ -1393,31 +1334,6 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
               文件与缓存
             </h3>
             <div className="p-4 rounded-xl glass-panel space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-text-primary mb-2">总结导出文件夹</label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    placeholder="选择导出目录..."
-                    value={apiConfig.exportDirectory || ''}
-                    readOnly
-                    className="flex-1 px-3 py-2 glass-panel rounded-lg text-text-primary placeholder-gray-400 text-sm focus:outline-none"
-                  />
-                  <button
-                    onClick={handleSelectDirectory}
-                    className="px-4 py-2 rounded-full glass-panel text-text-primary hover:text-primary hover:bg-blue-50/50 transition-all text-sm font-medium"
-                  >
-                    浏览
-                  </button>
-                  <button
-                    onClick={handleOpenExportDirectory}
-                    disabled={!apiConfig.exportDirectory}
-                    className="px-4 py-2 rounded-full glass-panel text-text-primary hover:text-primary hover:bg-blue-50/50 disabled:opacity-50 disabled:cursor-not-allowed transition-all text-sm font-medium"
-                  >
-                    打开
-                  </button>
-                </div>
-              </div>
               <div>
                 <label className="block text-sm font-medium text-text-primary mb-2">应用缓存数据</label>
                 <div className="flex gap-2">

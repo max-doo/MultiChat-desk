@@ -9,8 +9,7 @@ import { basename, extname, join, dirname, resolve } from 'path'
 import { stat, writeFile, mkdtemp, rm } from 'fs/promises'
 import { tmpdir } from 'os'
 import type Store from 'electron-store'
-import { generateSummary, fetchModels } from './api/summaryApi'
-import { splitTask } from './api/taskSplitApi'
+import { splitTask, fetchModels } from './api/taskSplitApi'
 import { setQuitting, getQuickWindow, showAndFocusWindow, hideToolbarWindow, getCachedSelectionText, openDiagnosticsWindow } from './webviewManager'
 import { broadcastStateChange } from './stateBus'
 import { HistoryManager } from './api/historyManager'
@@ -30,7 +29,7 @@ import { checkForUpdate, getUpdateState } from './updater/checker'
 import { getSelectionToolbarEnabled, setSelectionToolbarEnabled } from './selectionToolbarManager'
 
 // 存储当前的 AbortController，用于终止请求
-let currentSummaryAbortController: AbortController | null = null
+let currentTaskSplitAbortController: AbortController | null = null
 
 // 诊断窗口 probe/run-research 透传请求挂起表
 const pendingProbeRequests = new Map<string, { resolve: (v: unknown) => void; timer: ReturnType<typeof setTimeout> }>()
@@ -124,13 +123,13 @@ function ensureWillDownloadListener(): void {
 
 /**
  * 中止并清理当前的 AbortController。
- * 在发起新的 summary / split-task 之前调用，确保上一个请求的流被真正取消，
- * 避免 fetch + reader 挂起（旧 controller 被覆盖而不 abort 会泄漏连接）。
+ * 在发起新的任务拆解请求前调用，确保上一个请求真正取消，
+ * 避免旧请求继续运行。
  */
-function abortCurrentSummaryRequest(): void {
-    if (currentSummaryAbortController) {
-        currentSummaryAbortController.abort()
-        currentSummaryAbortController = null
+function abortCurrentTaskSplitRequest(): void {
+    if (currentTaskSplitAbortController) {
+        currentTaskSplitAbortController.abort()
+        currentTaskSplitAbortController = null
     }
 }
 
@@ -565,16 +564,6 @@ export function registerIpcHandlers(
         }
     })
 
-    // IPC 处理器：选择导出目录
-    ipcMain.handle('select-directory', async () => {
-        const result = await dialog.showOpenDialog({
-            properties: ['openDirectory']
-        })
-
-        if (result.canceled) return null
-        return result.filePaths[0]
-    })
-
     // IPC 处理器：读取剪贴板文本
     ipcMain.handle('read-clipboard-text', () => {
         return clipboard.readText()
@@ -883,16 +872,6 @@ export function registerIpcHandlers(
         await shell.openPath(getSummaryPromptsDir())
     })
 
-    // 用系统资源管理器打开指定路径（如导出文件夹）
-    // shell.openPath 成功返回空串，失败返回错误描述字符串
-    ipcMain.handle('open-path', async (_event, path: string) => {
-        if (!path || typeof path !== 'string') {
-            return { success: false, error: '路径为空' }
-        }
-        const err = await shell.openPath(path)
-        return err ? { success: false, error: err } : { success: true }
-    })
-
     // 导入缓存数据：读取用户选择的 JSON → 校验 _meta.app → 返回预览数据（不直接写入）
     ipcMain.handle('import-cache', async () => {
         try {
@@ -950,66 +929,7 @@ export function registerIpcHandlers(
         }
     })
 
-    // IPC 处理器：终止当前的总结生成
-    ipcMain.handle('abort-summary', async () => {
-        if (currentSummaryAbortController) {
-            console.log('[Summary API] ⏹️ 收到终止请求，正在中断...')
-            abortCurrentSummaryRequest()
-            return { success: true }
-        }
-        return { success: false, error: '没有正在进行的请求' }
-    })
-
-    // IPC 处理器：调用 OpenAI 兼容 API 生成总结（支持流式输出）
-    ipcMain.handle('generate-summary', async (event, params: {
-        apiKey: string
-        baseUrl?: string  // 可选，默认 OpenAI
-        model: string
-        systemPrompt: string
-        userContent: string
-        modelOutputs?: Array<{ name: string; content: string }>
-        userRequirement?: string
-        messages?: Array<{ role: 'user' | 'assistant'; content: string }>  // 对话历史
-        temperature?: number
-        topP?: number
-        maxTokens?: number
-        includeReasoning?: boolean
-    }) => {
-        // 先中止上一个进行中的请求（覆盖而不 abort 会泄漏 fetch + reader），再创建新的
-        abortCurrentSummaryRequest()
-        // 创建 AbortController 用于支持终止请求
-        currentSummaryAbortController = new AbortController()
-        const { signal } = currentSummaryAbortController
-        // 取本地引用：onChunk 闭包中止的应是“自己这次”的 controller，
-        // 即使后续模块变量被其他请求覆盖也不会错位（配合 T4 的覆盖前 abort）
-        const controller = currentSummaryAbortController
-
-        try {
-            const result = await generateSummary(
-                params,
-                signal,
-                (chunk) => {
-                    // 渲染进程已销毁（窗口关闭等）：中止请求，避免对死 sender 持续 send + 空转 reader
-                    if (event.sender.isDestroyed()) {
-                        controller.abort()
-                        return
-                    }
-                    // 通过 IPC 发送流式数据块到渲染进程
-                    event.sender.send('summary-stream-chunk', chunk)
-                }
-            )
-
-            // 清理 AbortController
-            currentSummaryAbortController = null
-            return result
-        } catch (error) {
-            // 清理 AbortController
-            currentSummaryAbortController = null
-            throw error
-        }
-    })
-
-    // IPC 处理器：任务拆解（复用总结的 AbortController 以支持中止）
+    // IPC 处理器：任务拆解
     ipcMain.handle('split-task', async (_event, params: {
         apiKey: string
         baseUrl?: string
@@ -1019,25 +939,24 @@ export function registerIpcHandlers(
         maxTokens?: number
         windowCount?: number
     }) => {
-        // 与 generate-summary 共用同一 controller：先 abort 上一个（可能是正在进行的 summary），
-        // 避免旧流挂起；这也是 split-task 能正确获得中止能力的前提
-        abortCurrentSummaryRequest()
-        currentSummaryAbortController = new AbortController()
-        const { signal } = currentSummaryAbortController
+        // 先中止上一个拆解请求，避免覆盖 controller 后无法取消旧请求。
+        abortCurrentTaskSplitRequest()
+        const controller = new AbortController()
+        currentTaskSplitAbortController = controller
         try {
-            const result = await splitTask(params, signal)
-            currentSummaryAbortController = null
+            const result = await splitTask(params, controller.signal)
             return result
-        } catch (error) {
-            currentSummaryAbortController = null
-            throw error
+        } finally {
+            if (currentTaskSplitAbortController === controller) {
+                currentTaskSplitAbortController = null
+            }
         }
     })
 
     // IPC 处理器：中止任务拆解
     ipcMain.handle('abort-split-task', async () => {
-        if (currentSummaryAbortController) {
-            abortCurrentSummaryRequest()
+        if (currentTaskSplitAbortController) {
+            abortCurrentTaskSplitRequest()
             return { success: true }
         }
         return { success: false, error: '没有正在进行的拆解请求' }
@@ -1116,54 +1035,6 @@ export function registerIpcHandlers(
             return {
                 success: true,
                 filePath: result.filePath
-            }
-        } catch (error) {
-            return {
-                success: false,
-                error: String(error)
-            }
-        }
-    })
-
-    // IPC 处理器：导出报告到文件
-    ipcMain.handle('export-report', async (_event, params: {
-        content: string
-        fileName: string
-        directory?: string
-    }) => {
-        try {
-            const { writeFile } = await import('fs/promises')
-
-            let filePath: string
-
-            if (params.directory) {
-                filePath = join(params.directory, params.fileName)
-            } else {
-                const result = await dialog.showSaveDialog({
-                    title: '保存报告',
-                    defaultPath: params.fileName,
-                    filters: [
-                        { name: 'Markdown', extensions: ['md'] },
-                        { name: '文本文件', extensions: ['txt'] }
-                    ]
-                })
-
-                if (result.canceled || !result.filePath) {
-                    return { success: false, error: '用户取消' }
-                }
-
-                filePath = result.filePath
-                // 如果用户在对话框中删除了后缀名，自动补回 .md
-                if (!extname(filePath)) {
-                    filePath = filePath + '.md'
-                }
-            }
-
-            await writeFile(filePath, params.content, 'utf-8')
-
-            return {
-                success: true,
-                filePath
             }
         } catch (error) {
             return {

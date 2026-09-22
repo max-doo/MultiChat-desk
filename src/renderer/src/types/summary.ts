@@ -2,15 +2,6 @@
  * 总结面板相关的类型定义
  */
 
-// API 返回结果类型
-export interface SummaryResult {
-  success: boolean
-  data?: string
-  reasoningContent?: string
-  error?: string
-  aborted?: boolean
-}
-
 // 助手消息的单个版本
 export interface MessageVersion {
   content: string
@@ -42,6 +33,9 @@ export interface SummaryPanelProps {
     messages: ChatMessage[]
     selectedModels: string[]
     modelResponses: Record<string, string>
+    summarySource?: 'api' | 'webview'
+    webviewPlatformId?: string
+    webviewUrl?: string
   } | null
   /** 总结页是否处于前台（用于休眠调度，决策 R3） */
   isActive?: boolean
