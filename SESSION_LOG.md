@@ -2,6 +2,21 @@
 
 ## 2026-09-22
 
+### 19:38 | Antigravity
+
+- done: 升级版本号至 v1.2.4，更新变更日志并重新构建 Windows NSIS 安装包与便携版
+- modified:
+  - `package.json`
+  - `package-lock.json`
+  - `CHANGELOG.md`
+
+### 19:17 | Codex
+
+- done: 收紧 Webview 外链与 Google 认证 URL 判断，移除仅用于日志的全局 Event 钩子，并脱敏导航日志
+- modified:
+  - `src/main/webviewManager.ts`
+- unresolved: 开发窗口检查接口不支持，需人工在 npm run dev 中复核 Google 账号切换、普通外链与 ChatGPT 分支页
+
 ### 16:56 | Codex
 
 - done: 修复快捷侧栏反复展开挤压主窗口：按侧栏实际宽度增减快捷窗口宽度

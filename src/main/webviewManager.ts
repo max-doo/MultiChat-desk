@@ -233,10 +233,38 @@ export function destroyTray(): void {
 
 // ============ Browser Window 管理 ============
 
+function parseHttpUrl(value: string): URL | null {
+    try {
+        const url = new URL(value)
+        return url.protocol === 'http:' || url.protocol === 'https:' ? url : null
+    } catch {
+        return null
+    }
+}
+
+function isGoogleAuthUrl(value: string, includeSignin = false): boolean {
+    const url = parseHttpUrl(value)
+    if (!url) return false
+    if (url.hostname === 'accounts.google.com') return true
+    if (!url.hostname.endsWith('.google.com')) return false
+    return url.pathname.startsWith('/accounts') || (includeSignin && url.pathname.startsWith('/signin'))
+}
+
+function isGeminiUrl(value: string): boolean {
+    return parseHttpUrl(value)?.hostname === 'gemini.google.com'
+}
+
+function logUrlHost(value: string): string {
+    return parseHttpUrl(value)?.hostname ?? '[non-http-url]'
+}
+
 export function openBrowserWindowInternal(url: string): void {
-    if (!url || !(url.startsWith('http://') || url.startsWith('https://'))) return
-    console.log('[Main] openBrowserWindowInternal -> shell.openExternal:', url)
-    shell.openExternal(url)
+    const safeUrl = parseHttpUrl(url)
+    if (!safeUrl) return
+    console.log('[Main] openBrowserWindowInternal -> shell.openExternal:', safeUrl.hostname)
+    void shell.openExternal(safeUrl.href).catch(() => {
+        console.error('[Main] openExternal failed for:', safeUrl.hostname)
+    })
 }
 
 
@@ -267,6 +295,17 @@ export function getWebviewClickInterceptorScript(): string {
           return null;
         }
 
+        function isGoogleAuthUrl(url, includeSignin) {
+          try {
+            const parsed = new URL(url, location.href);
+            if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
+            if (parsed.hostname === 'accounts.google.com') return true;
+            return parsed.hostname.endsWith('.google.com') &&
+              (parsed.pathname.startsWith('/accounts') || (includeSignin && parsed.pathname.startsWith('/signin')));
+          } catch {}
+          return false;
+        }
+
         const addAccountKeywords = ['Add account', '添加账号', '添加帐号'];
         function textHit(s) {
           if (!s || typeof s !== 'string') return false;
@@ -284,22 +323,19 @@ export function getWebviewClickInterceptorScript(): string {
         (function() {
           const originalOpen = window.open;
           window.open = function(url, target, features) {
-            mmLog('window.open intercepted: ' + url);
+            mmLog('window.open intercepted');
             
-            const isCurrentGoogle = location.hostname.includes('google.com') || location.hostname.includes('gemini');
+            const isCurrentGoogle = location.hostname === 'google.com' || location.hostname.endsWith('.google.com');
             
             // 检查是否是 Google 账号相关 URL
-            const isGoogleAuth = url && (
-              url.includes('accounts.google.com') ||
-              (url.includes('.google.com') && url.includes('/accounts'))
-            );
+            const isGoogleAuth = url && isGoogleAuthUrl(url, false);
             
             if (isCurrentGoogle && (isGoogleAuth || url === 'about:blank')) {
               // 对于 Google 页面下的 about:blank 或 Google 账号页面，直接在当前页面导航
               const currentUrl = location.href;
               const continueUrl = encodeURIComponent(currentUrl);
               const accountUrl = isGoogleAuth ? url : ('https://accounts.google.com/AccountChooser?continue=' + continueUrl);
-              mmLog('Redirecting Google Auth: ' + accountUrl);
+              mmLog('Redirecting Google Auth');
               location.href = accountUrl;
               return null;
             }
@@ -328,33 +364,17 @@ export function getWebviewClickInterceptorScript(): string {
           mmLog('window.open interceptor installed');
         })();
 
-        (function() {
-          const proto = Event && Event.prototype;
-          if (!proto) return;
-          const orig = proto.stopImmediatePropagation;
-          if (typeof orig !== 'function') return;
-          proto.stopImmediatePropagation = function() {
-            try {
-              if (location.hostname === 'gemini.google.com') mmLog('stopImmediatePropagation called for ' + (this && this.type));
-            } catch {}
-            return orig.apply(this, arguments);
-          };
-        })();
-
-
         function onUserGesture(e) {
           if (tryHandleGeminiAddAccount(e)) return;
           const link = e.target && e.target.closest ? e.target.closest('a') : null;
           if (link && link.href) {
             // 检查是否是 Google 账号相关链接
-            const isGoogleAuth = link.href.includes('accounts.google.com') || 
-                                (link.href.includes('.google.com') && link.href.includes('/accounts')) ||
-                                (link.href.includes('.google.com') && link.href.includes('/signin'));
+            const isGoogleAuth = isGoogleAuthUrl(link.href, true);
             
             if (isGoogleAuth) {
               e.preventDefault();
               e.stopPropagation();
-              mmLog('Google Auth link clicked, navigating in webview: ' + link.href);
+              mmLog('Google Auth link clicked, navigating in webview');
               location.href = link.href;
               return;
             }
@@ -476,12 +496,8 @@ export function createWindow(): void {
 
     // ... 省略了 setWindowOpenHandler 等 ...
     mainWindow.webContents.setWindowOpenHandler((details) => {
-        console.log('[Main] mainWindow setWindowOpenHandler:', details.url)
-        if (details.url.includes('accounts.google.com') || details.url === 'about:blank') {
-            if (details.url !== 'about:blank') shell.openExternal(details.url)
-            return { action: 'deny' }
-        }
-        shell.openExternal(details.url)
+        console.log('[Main] mainWindow setWindowOpenHandler:', logUrlHost(details.url))
+        openBrowserWindowInternal(details.url)
         return { action: 'deny' }
     })
 
@@ -536,8 +552,8 @@ export function registerWebviewHandlers(webContents: Electron.WebContents): void
 
     // 监听导航开始，检测是否进入 Google 认证流程
     webContents.on('will-navigate', (_e, url) => {
-        console.log('[Main][DEBUG] will-navigate:', url, '| isInAuthFlow:', isInGoogleAuthFlow)
-        if (url.includes('accounts.google.com')) {
+        console.log('[Main][DEBUG] will-navigate:', logUrlHost(url), '| isInAuthFlow:', isInGoogleAuthFlow)
+        if (parseHttpUrl(url)?.hostname === 'accounts.google.com') {
             isInGoogleAuthFlow = true
             authFlowStartTime = Date.now()
             console.log('[Main] ✅ Entered Google Auth flow, wcId:', webContents.id)
@@ -546,9 +562,9 @@ export function registerWebviewHandlers(webContents: Electron.WebContents): void
 
     // 监听导航完成，检测认证流程结束
     webContents.on('did-navigate', (_e, url) => {
-        console.log('[Main][DEBUG] did-navigate:', url, '| isInAuthFlow:', isInGoogleAuthFlow)
+        console.log('[Main][DEBUG] did-navigate:', logUrlHost(url), '| isInAuthFlow:', isInGoogleAuthFlow)
         // 检测从 Google 认证回到 Gemini
-        if (isInGoogleAuthFlow && url.includes('gemini.google.com')) {
+        if (isInGoogleAuthFlow && isGeminiUrl(url)) {
             const duration = Date.now() - authFlowStartTime
             console.log('[Main][DEBUG] Auth flow duration:', duration, 'ms')
 
@@ -559,7 +575,7 @@ export function registerWebviewHandlers(webContents: Electron.WebContents): void
 
                 // 保存当前 URL（切换后的账号 URL），用于持久化
                 const switchedUrl = url
-                console.log('[Main] ✅ Switched account URL:', switchedUrl)
+                console.log('[Main] ✅ Switched account URL:', logUrlHost(switchedUrl))
 
                 // 延迟刷新，确保 cookie 完全写入
                 setTimeout(() => {
@@ -571,7 +587,7 @@ export function registerWebviewHandlers(webContents: Electron.WebContents): void
                         // 延迟发送，确保页面刷新完成
                         setTimeout(() => {
                             if (mainWindow && !mainWindow.isDestroyed()) {
-                                console.log('[Main] ✅ Notifying renderer to save Gemini account URL:', switchedUrl)
+                                console.log('[Main] ✅ Notifying renderer to save Gemini account URL:', logUrlHost(switchedUrl))
                                 mainWindow.webContents.send('gemini-account-switched', switchedUrl)
                             }
                         }, 2000)
@@ -589,9 +605,9 @@ export function registerWebviewHandlers(webContents: Electron.WebContents): void
     // 同时监听 did-navigate-in-page（单页应用内部导航）
     webContents.on('did-navigate-in-page', (_e, url, isMainFrame) => {
         if (isMainFrame) {
-            console.log('[Main][DEBUG] did-navigate-in-page:', url, '| isInAuthFlow:', isInGoogleAuthFlow)
+            console.log('[Main][DEBUG] did-navigate-in-page:', logUrlHost(url), '| isInAuthFlow:', isInGoogleAuthFlow)
             // 对于 SPA 内部导航，也检测是否从认证回到 Gemini
-            if (isInGoogleAuthFlow && url.includes('gemini.google.com')) {
+            if (isInGoogleAuthFlow && isGeminiUrl(url)) {
                 const duration = Date.now() - authFlowStartTime
                 if (duration >= AUTH_MIN_DURATION) {
                     console.log('[Main] ✅ Auth flow completed (in-page)! Duration:', duration, 'ms, reloading...')
@@ -650,16 +666,12 @@ export function registerWebviewHandlers(webContents: Electron.WebContents): void
         }
         if (message.startsWith('__OPEN_LINK__:')) {
             const url = message.substring(14)
-            console.log('[Webview]', webContents.id, 'open link:', url)
+            console.log('[Webview]', webContents.id, 'open link:', logUrlHost(url))
 
             // 登录/认证 URL 应留在 webview 内，确保 persist:shared session 共享
-            const isAuthUrl = url.includes('accounts.google.com') ||
-                (url.includes('.google.com') && url.includes('/signin')) ||
-                (url.includes('.google.com') && url.includes('/accounts'))
-
-            if (isAuthUrl) {
-                console.log('[Main] Auth URL detected, navigating webview internally:', url)
-                webContents.loadURL(url)
+            if (isGoogleAuthUrl(url, true)) {
+                console.log('[Main] Auth URL detected, navigating webview internally:', logUrlHost(url))
+                void webContents.loadURL(url)
             } else {
                 openBrowserWindowInternal(url)
             }
@@ -668,7 +680,7 @@ export function registerWebviewHandlers(webContents: Electron.WebContents): void
 
     // 处理 Webview 内部的窗口创建
     webContents.on('did-create-window', (childWindow, details) => {
-        console.log('[Main] webview did-create-window:', details?.url)
+        console.log('[Main] webview did-create-window:', logUrlHost(details?.url || ''))
         browserWindows.add(childWindow)
         childWindow.on('closed', () => {
             browserWindows.delete(childWindow)
@@ -677,13 +689,11 @@ export function registerWebviewHandlers(webContents: Electron.WebContents): void
         showAndFocusWindow(childWindow)
 
         const handleNavigation = (e: Electron.Event, url: string): void => {
-            const isGoogleAuthUrl = url.includes('accounts.google.com') ||
-                (url.includes('.google.com') && url.includes('/accounts'))
-            if (isGoogleAuthUrl) {
-                console.log('[Main] Intercepting Google Auth navigation in child window:', url)
+            if (isGoogleAuthUrl(url)) {
+                console.log('[Main] Intercepting Google Auth navigation in child window:', logUrlHost(url))
                 e.preventDefault()
                 // 在原 webview 中导航
-                webContents.loadURL(url)
+                void webContents.loadURL(url)
                 // 关闭弹窗
                 childWindow.close()
             }
@@ -694,13 +704,13 @@ export function registerWebviewHandlers(webContents: Electron.WebContents): void
 
         // 对于其他弹窗的链接请求
         childWindow.webContents.setWindowOpenHandler((d) => {
-            shell.openExternal(d.url)
+            openBrowserWindowInternal(d.url)
             return { action: 'deny' }
         })
     })
 
     webContents.setWindowOpenHandler((details) => {
-        console.log('[Main] webview setWindowOpenHandler:', details.url)
+        console.log('[Main] webview setWindowOpenHandler:', logUrlHost(details.url))
         // ChatGPT 分支会话原本在新标签页加载；改为替换当前 Webview 的会话
         let isChatGPTBranch = false
         try {
@@ -724,19 +734,6 @@ export function registerWebviewHandlers(webContents: Electron.WebContents): void
             return { action: 'deny' }
         }
 
-        const isGoogleAuthUrl = (() => {
-            if (!details.url) return false
-            if (details.url.includes('accounts.google.com')) return true
-            try {
-                const u = new URL(details.url)
-                if (u.hostname === 'accounts.google.com') return true
-                if (u.hostname.endsWith('.google.com') && u.pathname.startsWith('/accounts')) return true
-            } catch {
-                // URL 解析失败时返回 false
-            }
-            return false
-        })()
-
         if (details.url === 'about:blank') {
             console.log('[Main] Blocking about:blank popup, will navigate to Google account page in webview')
             const currentUrl = webContents.getURL()
@@ -748,10 +745,10 @@ export function registerWebviewHandlers(webContents: Electron.WebContents): void
             return { action: 'deny' }
         }
 
-        if (isGoogleAuthUrl) {
-            console.log('[Main] Intercepting Google Auth URL, navigating in webview:', details.url)
+        if (isGoogleAuthUrl(details.url)) {
+            console.log('[Main] Intercepting Google Auth URL, navigating in webview:', logUrlHost(details.url))
             setImmediate(() => {
-                webContents.loadURL(details.url)
+                void webContents.loadURL(details.url)
             })
             return { action: 'deny' }
         }

@@ -14,6 +14,16 @@ Release-facing changelog. 仅记录用户可见或与发布相关的变化。
 
 ## [Unreleased]
 
+## [1.2.4] - 2026-09-22
+
+### Added / Improved
+- **快捷窗口侧边栏与划词注入**: 快捷窗口新增支持拖拽调节宽度的侧边栏，支持动态划词注入与多模型快速交互体验。
+- **ChatGPT 分支会话同页替换**: 支持 ChatGPT `/branch/` 分支会话在当前 Webview 中无缝导航，避免外弹新窗口或丢失会话上下文。
+- **外链与认证流程安全加固**: 收紧 Webview 外链与 Google 账户认证 URL 检测逻辑，避免第三方链接在应用内部误跳转，并脱敏导航日志。
+
+### Changed / Refactored
+- **纯 Webview 模式精简**: 移除已废弃的 API 总结模式，专注优化多 Webview 并行与桌面交互体验。
+
 ## [1.2.3] - 2026-08-07
 
 ### Added / Improved
