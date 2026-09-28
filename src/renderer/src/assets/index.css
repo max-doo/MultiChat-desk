@@ -164,6 +164,12 @@ webview[tabindex="-1"] {
   user-select: none;
 }
 ::highlight(multichat-local-note) {
-  background: #fff176;
+  background: #fde68a;
   color: inherit;
 }
+
+::highlight(multichat-local-note-focus) {
+  background: #fbbf24;
+  color: inherit;
+}
+

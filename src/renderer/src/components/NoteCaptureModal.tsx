@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { NoteDraft, NoteHighlight, NoteSelectionRect } from '../../../shared/types/notes'
 import { generateNoteHighlightScript } from '../../../shared/utils/webviewScripts'
 import { notePositionInWindow, type NotePopoverRequest } from '../utils/noteInteractions'
@@ -9,6 +9,7 @@ export default function NoteCaptureModal(): JSX.Element | null {
   const [comment, setComment] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const popoverRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const onOpen = (event: Event): void => {
@@ -17,9 +18,29 @@ export default function NoteCaptureModal(): JSX.Element | null {
       setComment(request.note.comment)
       setError('')
     }
+    const onClose = (): void => {
+      setPopover(null)
+      setError('')
+    }
     window.addEventListener('notes:open-popover', onOpen)
-    return () => window.removeEventListener('notes:open-popover', onOpen)
+    window.addEventListener('notes:close-popover', onClose)
+    return () => {
+      window.removeEventListener('notes:open-popover', onOpen)
+      window.removeEventListener('notes:close-popover', onClose)
+    }
   }, [])
+
+  useEffect(() => {
+    if (!popover) return
+    const onPointerDown = (event: PointerEvent): void => {
+      const target = event.target as Node | null
+      if (popoverRef.current && target && !popoverRef.current.contains(target)) {
+        setPopover(null)
+      }
+    }
+    window.addEventListener('pointerdown', onPointerDown, true)
+    return () => window.removeEventListener('pointerdown', onPointerDown, true)
+  }, [popover])
 
   useEffect(() => window.api.onNoteCapture(payload => {
     if (payload.error) { setError(payload.error); return }
@@ -38,7 +59,7 @@ export default function NoteCaptureModal(): JSX.Element | null {
       }) as Electron.WebviewTag | undefined
       if (webview) {
         try {
-          void webview.insertCSS('::highlight(multichat-notes){background:#fff176;color:inherit}::highlight(multichat-note-focus){background:#fff176;color:inherit}').catch(() => undefined)
+          void webview.insertCSS('::highlight(multichat-notes){background:#fde68a;color:inherit}::highlight(multichat-note-focus){background:#fbbf24;color:inherit}').catch(() => undefined)
           void webview.executeJavaScript(generateNoteHighlightScript(result.data.notes, saved.id)).catch(() => undefined)
         } catch { /* Webview 导航期间由加载监听器恢复高亮 */ }
       }
@@ -80,9 +101,9 @@ export default function NoteCaptureModal(): JSX.Element | null {
   const left = popover ? Math.max(12, Math.min(popover.x + 8, window.innerWidth - 332)) : 12
   const top = popover ? Math.max(48, Math.min(popover.y + 8, window.innerHeight - 270)) : 48
   return <>
-    {popover && <div className="fixed z-[95] w-[320px] rounded-xl border border-yellow-300 bg-white p-3 text-text-primary shadow-xl no-drag" style={{ left, top }}>
+    {popover && <div ref={popoverRef} className="fixed z-[95] w-[320px] rounded-xl border border-gray-200/90 bg-white p-3 text-text-primary shadow-xl no-drag" style={{ left, top }}>
       <div className="flex items-center justify-between gap-2"><strong className="text-sm">高亮笔记</strong><button type="button" aria-label="关闭评论卡片" className="text-text-secondary hover:text-text-primary" onClick={() => { setPopover(null); setError('') }}>×</button></div>
-      <p className="mt-2 max-h-20 overflow-y-auto border-l-4 border-[#fff176] pl-2 text-xs text-text-secondary">{popover.note.quote}</p>
+      <p className="mt-2 max-h-20 overflow-y-auto rounded-r-md border-l-4 border-amber-300 bg-amber-50/60 p-2 text-xs text-text-secondary">{popover.note.quote}</p>
       <textarea className="mt-3 min-h-20 w-full resize-y rounded-lg border border-gray-200 p-2 text-sm outline-none focus:border-primary" placeholder="添加评论…" value={comment} onChange={event => setComment(event.target.value)} autoFocus />
       {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
       <div className="mt-2 flex items-center justify-between"><button type="button" className="text-xs text-red-600 hover:underline" disabled={saving} onClick={() => void remove()}>删除高亮</button><div className="flex gap-2"><button type="button" className="rounded-lg px-2 py-1 text-xs text-text-secondary" onClick={() => setPopover(null)}>关闭</button><button type="button" className="rounded-lg bg-primary px-3 py-1 text-xs text-white disabled:opacity-40" disabled={saving || comment === popover.note.comment} onClick={() => void update()}>保存评论</button></div></div>

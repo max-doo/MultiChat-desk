@@ -1,5 +1,5 @@
-import { NOTE_CLICK_PREFIX, type NoteHighlight } from '../../../shared/types/notes'
-export { NOTE_CLICK_PREFIX }
+import { NOTE_CLICK_PREFIX, NOTE_DISMISS_PREFIX, type NoteHighlight } from '../../../shared/types/notes'
+export { NOTE_CLICK_PREFIX, NOTE_DISMISS_PREFIX }
 
 export interface NotePopoverRequest {
   note: NoteHighlight
@@ -9,6 +9,10 @@ export interface NotePopoverRequest {
 
 export function openNotePopover(request: NotePopoverRequest): void {
   window.dispatchEvent(new CustomEvent<NotePopoverRequest>('notes:open-popover', { detail: request }))
+}
+
+export function closeNotePopover(): void {
+  window.dispatchEvent(new CustomEvent('notes:close-popover'))
 }
 
 export function notePositionInWindow(webview: Electron.WebviewTag, x: number, y: number): { x: number; y: number } {

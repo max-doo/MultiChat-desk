@@ -46,3 +46,4 @@ export interface NoteSelectionRect {
 }
 
 export const NOTE_CLICK_PREFIX = '__MULTICHAT_NOTE_CLICK__:'
+export const NOTE_DISMISS_PREFIX = '__MULTICHAT_NOTE_DISMISS__:'

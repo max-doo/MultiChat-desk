@@ -24,7 +24,7 @@ import { extractQwenReportContent } from '../utils/qwenReportExtractor'
 import { buildProbeScript, parseProbeResult, type ProbeReport, buildResearchProbeScript, parseResearchProbeResult, type ResearchProbeReport, buildPickerScript, parseDomProbeResult, type DomProbeReport, type DomProbeOptions } from '../utils/selectorDiagnostics'
 import ModelOutputCard from './ModelOutputCard'
 import { generateNoteHighlightScript } from '../../../shared/utils/webviewScripts'
-import { handleNoteHighlightClick, NOTE_CLICK_PREFIX } from '../utils/noteInteractions'
+import { handleNoteHighlightClick, closeNotePopover, NOTE_CLICK_PREFIX, NOTE_DISMISS_PREFIX } from '../utils/noteInteractions'
 
 /** 任务分配两段式发送：注入后等待 host 端延时，再点发送按钮（给千问 React 收敛窗口） */
 const TWO_PHASE_SEND_DELAY_MS = 1000
@@ -415,6 +415,10 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
       }
 
       const handleConsoleMessage = (event: Electron.ConsoleMessageEvent): void => {
+        if (event.message.startsWith(NOTE_DISMISS_PREFIX)) {
+          closeNotePopover()
+          return
+        }
         if (event.message.startsWith(NOTE_CLICK_PREFIX)) {
           void handleNoteHighlightClick(webview, event.message)
           return
@@ -511,7 +515,7 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
           void window.api.notesAnchorsForUrl(currentUrl).then(result => {
             if (current !== generation || !result.success) return
             try {
-              void webview.insertCSS('::highlight(multichat-notes){background:#fff176;color:inherit}::highlight(multichat-note-focus){background:#fff176;color:inherit}').catch(() => undefined)
+              void webview.insertCSS('::highlight(multichat-notes){background:#fde68a;color:inherit}::highlight(multichat-note-focus){background:#fbbf24;color:inherit}').catch(() => undefined)
               void webview.executeJavaScript(generateNoteHighlightScript(result.data || [])).catch(() => undefined)
             } catch { /* Webview 可能已导航 */ }
           })

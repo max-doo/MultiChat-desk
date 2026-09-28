@@ -6,7 +6,7 @@
 import type { ModelSelector } from '../config/selectors'
 import { getHtmlToMarkdownScript } from './htmlToMarkdown'
 import { noteMessageSelectors } from '../config/selectors'
-import { NOTE_CLICK_PREFIX } from '../types/notes'
+import { NOTE_CLICK_PREFIX, NOTE_DISMISS_PREFIX } from '../types/notes'
 
 const IS_DEV = process.env.NODE_ENV !== 'production'
 
@@ -2156,7 +2156,7 @@ export function generateNoteCaptureScript(): string {
       };
       const clean = el => {
         const copy = el.cloneNode(true);
-        copy.querySelectorAll('button,nav,script,style,textarea,input,[contenteditable="true"],[aria-hidden="true"]').forEach(node => node.remove());
+        copy.querySelectorAll('button,nav,script,style,textarea,input,[contenteditable="true"],[aria-hidden="true"],.sr-only').forEach(node => node.remove());
         return copy;
       };
       const safeMarkdown = el => {
@@ -2166,19 +2166,41 @@ export function generateNoteCaptureScript(): string {
         }
         catch { return (el.innerText || el.textContent || '').trim(); }
       };
-      const blocks = messages.map(el => ({ role: roleOf(el), content: safeMarkdown(el) })).filter(item => item.role && item.content);
+      const stripRoleHeaders = (text, isUser) => {
+        let lines = (text || '').replace(/\r\n?/g, '\n').split('\n');
+        if (isUser) {
+          while (lines.length && /^(?:昨天|今天|\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2})?\s*\d{1,2}:\d{2}(?::\d{2})?\s*$/.test(lines[0].trim())) {
+            lines.shift();
+          }
+          if (lines.length && /^(?:#{1,4}\s*)?(?:\*\*)?(?:你说|用户|我|User|Human|You said)(?:\*\*)?\s*[:：]?\s*/i.test(lines[0].trim())) {
+            lines[0] = lines[0].replace(/^(?:#{1,4}\s*)?(?:\*\*)?(?:你说|用户|我|User|Human|You said)(?:\*\*)?\s*[:：]?\s*/i, '');
+          }
+        } else {
+          if (lines.length && /^(?:#{1,4}\s*)?(?:\*\*)?(?:ChatGPT|Claude|Gemini|Grok|豆包|DeepSeek|Kimi|千问|元宝|智谱清言|文心一言|Perplexity|AI|助手|Assistant)(?:\s*说|\s*said)?(?:\*\*)?\s*[:：]?\s*/i.test(lines[0].trim())) {
+            lines[0] = lines[0].replace(/^(?:#{1,4}\s*)?(?:\*\*)?(?:ChatGPT|Claude|Gemini|Grok|豆包|DeepSeek|Kimi|千问|元宝|智谱清言|文心一言|Perplexity|AI|助手|Assistant)(?:\s*说|\s*said)?(?:\*\*)?\s*[:：]?\s*/i, '');
+          }
+          if (lines.length && /^#{1,4}\s*AI\s*回复\s*$/i.test(lines[0].trim())) {
+            lines.shift();
+          }
+        }
+        return lines.join('\n').trim();
+      };
+      const blocks = messages.map(el => {
+        const timeEl = el.querySelector('time') || el.closest('[data-testid^="conversation-turn-"]')?.querySelector('time');
+        const time = timeEl ? (timeEl.innerText || timeEl.textContent || '').trim() : '';
+        return { role: roleOf(el), content: safeMarkdown(el), time };
+      }).filter(item => item.role && item.content);
       const snapshot = blocks.length && blocks.some(item => item.role === '提问') && blocks.some(item => item.role === 'AI 回复')
         ? blocks.map(item => {
             if (item.role === '提问') {
-              const lines = item.content.split('\n');
-              const first = lines.findIndex(line => line.trim());
-              const question = lines[first].replace(/^#+\s*/, '').trim();
-              lines.splice(first, 1);
-              return '# ' + question + (lines.join('\n').trim() ? '\n\n' + lines.join('\n').trim() : '');
+              const cleanContent = stripRoleHeaders(item.content, true);
+              const timeAttr = item.time ? ' time="' + item.time + '"' : '';
+              return '<user' + timeAttr + '>\n' + cleanContent + '\n</user>';
             }
-            return '## AI 回复\n\n' + item.content.replace(/^# (.+)$/gm, '## $1');
-          }).join('\n\n---\n\n')
-        : '## 对话内容\n\n' + safeMarkdown(root);
+            const cleanContent = stripRoleHeaders(item.content, false);
+            return '<assistant>\n' + cleanContent + '\n</assistant>';
+          }).join('\n\n')
+        : safeMarkdown(root);
       const raw = root.textContent || '';
       const selectionRect = selection && selection.rangeCount ? selection.getRangeAt(0).getBoundingClientRect() : null;
       let at = -1;
@@ -2286,13 +2308,18 @@ export function generateNoteHighlightScript(
       CSS.highlights.set('multichat-notes', new Highlight(...ranges));
       CSS.highlights.set('multichat-note-focus', new Highlight(...(focused ? [focused] : [])));
       const onClick = event => {
+        let hitNote = false;
         for (const item of targets) {
           const hit = Array.from(item.range.getClientRects()).some(rect => event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom);
           if (!hit) continue;
+          hitNote = true;
           event.preventDefault();
           event.stopPropagation();
           console.info(${JSON.stringify(NOTE_CLICK_PREFIX)} + JSON.stringify({ id: item.id, x: event.clientX, y: event.clientY }));
           break;
+        }
+        if (!hitNote) {
+          console.info(${JSON.stringify(NOTE_DISMISS_PREFIX)});
         }
       };
       document.addEventListener('click', onClick, true);

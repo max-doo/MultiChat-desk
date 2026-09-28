@@ -2,6 +2,94 @@
 
 ## 2026-09-28
 
+### 20:23 | Antigravity
+
+- done: 升级版本至 v1.2.5，更新 CHANGELOG 并准备执行 NSIS 打包构建
+- decision: 完成代码规范校验与编译检查，同步升级 package.json 与 package-lock.json 到 1.2.5 并补充发布变更日志
+- modified:
+  - `package.json`
+  - `package-lock.json`
+  - `CHANGELOG.md`
+
+### 20:18 | Antigravity
+
+- done: 实现笔记批注侧边栏宽度可拖拽调节，并设置最小与最大宽度限制、双击重置及本地持久化
+- decision: 采用 setPointerCapture 实现跨越 Webview 的平滑指针捕获，将批注侧边栏限制在 260px 到 520px（同时保留阅读画布至少 320px），支持双击快速恢复 320px 默认值
+- modified:
+  - `src/renderer/src/pages/NotesPage.tsx`
+
+### 20:10 | Antigravity
+
+- done: WebView 中点击高亮笔记后点击其他区域自动关闭评论窗口，优化评论浮层边框样式
+- decision: 通过 Webview 注入脚本监听点击高亮范围外时发送 NOTE_DISMISS_PREFIX，结合宿主窗口 pointerdown 事件实现跨进程失焦自动关闭评论窗口
+- modified:
+  - `.gitignore`
+  - `src/renderer/src/assets/index.css`
+  - `src/renderer/src/components/NoteCaptureModal.tsx`
+  - `src/renderer/src/components/WebviewCard.tsx`
+  - `src/renderer/src/pages/NotesPage.tsx`
+  - `src/renderer/src/utils/noteInteractions.ts`
+  - `src/shared/types/notes.ts`
+  - `src/shared/utils/noteTranscript.ts`
+  - `src/shared/utils/webviewScripts.ts`
+
+### 19:58 | Antigravity
+
+- done: 移除右侧栏批注卡片的黄色描边，并将笔记页面的图标与控件尺寸与设置面板规范对齐统一
+- decision: 批注卡片聚焦态切换为与设置面板一致的 primary 蓝光微阴影 (ring-2 ring-primary/20)，引文采用沉稳蓝灰边框取代黄色描边；将全页面所有过小的 text-xs/text-sm 图标放大至 text-base/text-lg/text-xl，搜索框与下拉列表加大至 text-sm py-2
+- modified:
+  - `src/renderer/src/pages/NotesPage.tsx`
+- lesson: UI 组件尺寸必须与应用核心面板（如 SettingsDrawer）规范看齐，避免局部页面为了紧凑而过度使用 text-xs 或 text-[10px] 导致可读性与点击舒适度下降
+
+### 19:51 | Antigravity
+
+- done: 使用 XML 标签 (<user> / <assistant>) 隔离快照中的用户问题与 AI 输出，并在精读快照中以蓝色气泡展示用户提问
+- decision: 快照抓取不再侵入修改 Markdown 标题或拼接 GPT 说，采用 <user time='...'> 和 <assistant> XML 标签解耦；前端渲染层将 <user> 呈现为蓝色提问气泡并保留行号映射以保障大纲跳转与划词高亮
+- modified:
+  - `src/shared/utils/webviewScripts.ts`
+  - `src/shared/utils/noteTranscript.ts`
+  - `src/renderer/src/pages/NotesPage.tsx`
+  - `src/renderer/src/assets/index.css`
+  - `src/renderer/src/components/NoteCaptureModal.tsx`
+  - `src/renderer/src/components/WebviewCard.tsx`
+  - `.gitignore`
+- lesson: 抓取网页对话时，ChatGPT 等平台 DOM 自带无障碍头 (如 <h4>你说：</h4>)，在 htmlToMarkdown 时会被转为 Markdown 噪音；因此提取消息必须主动过滤 DOM 伴生噪点，使用 XML 标签隔离结构，彻底避免语法与格式污染
+
+### 19:42 | Antigravity
+
+- done: 放宽快捷窗口侧边栏最大宽度限制至1200px
+- modified:
+  - `src/main/ipcHandlers.ts`
+  - `src/renderer/src/pages/QuickPage.tsx`
+
+### 19:39 | Antigravity
+
+- done: 优化批注卡片与目录Tab显示：移除批注卡片划词序号标签、完整显示引文原文不再截断、删除按钮移至底部操作行右对齐、移除目录Tab标题计数标签
+- modified:
+  - `src/renderer/src/pages/NotesPage.tsx`
+
+### 19:37 | Antigravity
+
+- done: 修正本地快照 Markdown 引用样式：将 blockquote 恢复为中性浅灰底边框，避免与用户暖琥珀金划词高亮混淆冲突
+- modified:
+  - `src/renderer/src/pages/NotesPage.tsx`
+
+### 19:36 | Antigravity
+
+- done: 优化笔记页面细节：弱化会话卡片数量标签表达、侧边栏划词项支持2行并可直接删除、切换器改为本地快照、右侧边栏去掉Header描边并将首个Tab设为批注第二个设为目录
+- modified:
+  - `src/renderer/src/pages/NotesPage.tsx`
+
+### 19:27 | Antigravity
+
+- done: 优化笔记页面 UI 设计：重构为整体风格协调的漫反射毛玻璃三栏工作台，支持快照与原网页 Tab 切换，右侧集成目录大纲与批注列表，升级纸感暖琥珀金高亮
+- modified:
+  - `src/renderer/src/pages/NotesPage.tsx`
+  - `src/renderer/src/assets/index.css`
+  - `src/renderer/src/components/NoteCaptureModal.tsx`
+  - `src/renderer/src/components/WebviewCard.tsx`
+  - `.gitignore`
+
 ### 18:12 | Codex
 
 - done: 修复 ChatGPT Webview 保存笔记时抓取脚本在正式构建中执行失败；移除函数 toString 注入并补充读取降级

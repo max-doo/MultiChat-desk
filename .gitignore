@@ -49,3 +49,7 @@ __pycache__/
 
 # Claude Code local workspace
 .claude/
+
+# Superpowers local artifacts
+.superpowers/
+
