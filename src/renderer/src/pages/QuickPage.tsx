@@ -12,8 +12,15 @@ export default function QuickPage(): JSX.Element {
   }, [])
   const isDraggingRef = useRef(false)
   const [isPinned, setIsPinned] = useState(false)
+  type SidebarMode = 'model' | 'mindmap'
+  const MINDMAP_SIDEBAR_ID = '__mindmap__'
+
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const sidebarOpenRef = useRef(false)
+  const [sidebarMode, setSidebarMode] = useState<SidebarMode>('model')
+  const sidebarModeRef = useRef<SidebarMode>('model')
+  const [isMindmapMounted, setIsMindmapMounted] = useState(false)
+  const mindmapRef = useRef<WebviewCardRef | null>(null)
   const quickVisibleRef = useRef(true)
   const [sidebarModelId, setSidebarModelId] = useState('')
   const sidebarModelIdRef = useRef('')
@@ -96,29 +103,47 @@ export default function QuickPage(): JSX.Element {
     sidebarTimers.current.delete(modelId)
   }, [])
 
-  const scheduleSidebarHibernate = useCallback((modelId: string) => {
-    if (!modelId) return
-    clearSidebarTimer(modelId)
+  const scheduleSidebarHibernate = useCallback((targetId: string) => {
+    if (!targetId) return
+    clearSidebarTimer(targetId)
     const timer = setTimeout(() => {
-      sidebarTimers.current.delete(modelId)
-      if (quickVisibleRef.current && sidebarOpenRef.current && sidebarModelIdRef.current === modelId) return
-      const ref = sidebarRefs.current.get(modelId)
+      sidebarTimers.current.delete(targetId)
+      if (targetId === MINDMAP_SIDEBAR_ID) {
+        if (quickVisibleRef.current && sidebarOpenRef.current && sidebarModeRef.current === 'mindmap') return
+        const ref = mindmapRef.current
+        if (ref && !ref.isHibernated()) {
+          void ref.suspend().then(() => {
+            if (quickVisibleRef.current && sidebarOpenRef.current && sidebarModeRef.current === 'mindmap' && ref.isHibernated()) {
+              sidebarResuming.current.add(MINDMAP_SIDEBAR_ID)
+              void ref.resume().finally(() => {
+                sidebarResuming.current.delete(MINDMAP_SIDEBAR_ID)
+              })
+            }
+          })
+        }
+        return
+      }
+
+      if (quickVisibleRef.current && sidebarOpenRef.current && sidebarModeRef.current === 'model' && sidebarModelIdRef.current === targetId) return
+      const ref = sidebarRefs.current.get(targetId)
       if (ref && !ref.isHibernated()) {
         void ref.suspend().then(() => {
-          if (quickVisibleRef.current && sidebarOpenRef.current && sidebarModelIdRef.current === modelId && ref.isHibernated()) {
-            sidebarResuming.current.add(modelId)
+          if (quickVisibleRef.current && sidebarOpenRef.current && sidebarModeRef.current === 'model' && sidebarModelIdRef.current === targetId && ref.isHibernated()) {
+            sidebarResuming.current.add(targetId)
             void ref.resume().finally(() => {
-              sidebarResuming.current.delete(modelId)
+              sidebarResuming.current.delete(targetId)
               setInjectionRevision(value => value + 1)
             })
           }
         })
       }
     }, HIBERNATE_DELAY_QUICK_MS)
-    sidebarTimers.current.set(modelId, timer)
+    sidebarTimers.current.set(targetId, timer)
   }, [clearSidebarTimer])
 
   const openSidebar = useCallback(() => {
+    sidebarModeRef.current = 'model'
+    setSidebarMode('model')
     const modelId = sidebarModelIdRef.current || selectedModelIdRef.current || models[0]?.id
     if (!modelId) return
     sidebarModelIdRef.current = modelId
@@ -138,13 +163,58 @@ export default function QuickPage(): JSX.Element {
     }
   }, [models, clearSidebarTimer])
 
+  const openMindmapSidebar = useCallback(() => {
+    sidebarModeRef.current = 'mindmap'
+    setSidebarMode('mindmap')
+    setIsMindmapMounted(true)
+    clearSidebarTimer(MINDMAP_SIDEBAR_ID)
+    sidebarOpenRef.current = true
+    setSidebarOpen(true)
+    void window.api.quickSetSidebarExpanded(true, sidebarWidthRef.current + 4)
+    const ref = mindmapRef.current
+    if (ref?.isHibernated() && !sidebarResuming.current.has(MINDMAP_SIDEBAR_ID)) {
+      sidebarResuming.current.add(MINDMAP_SIDEBAR_ID)
+      void ref.resume().finally(() => {
+        sidebarResuming.current.delete(MINDMAP_SIDEBAR_ID)
+      })
+    }
+  }, [clearSidebarTimer])
+
   const closeSidebar = useCallback(() => {
     const panelWidth = Math.min(sidebarWidthRef.current, Math.max(0, window.innerWidth - 324)) + 4
     sidebarOpenRef.current = false
     setSidebarOpen(false)
-    scheduleSidebarHibernate(sidebarModelIdRef.current)
+    if (sidebarModeRef.current === 'mindmap') {
+      scheduleSidebarHibernate(MINDMAP_SIDEBAR_ID)
+    } else {
+      scheduleSidebarHibernate(sidebarModelIdRef.current)
+    }
     void window.api.quickSetSidebarExpanded(false, panelWidth)
   }, [scheduleSidebarHibernate])
+
+  const toggleModelSidebar = useCallback(() => {
+    if (sidebarOpen && sidebarMode === 'model') {
+      closeSidebar()
+    } else {
+      const prevMode = sidebarModeRef.current
+      if (sidebarOpen && prevMode === 'mindmap') {
+        scheduleSidebarHibernate(MINDMAP_SIDEBAR_ID)
+      }
+      openSidebar()
+    }
+  }, [sidebarOpen, sidebarMode, closeSidebar, openSidebar, scheduleSidebarHibernate])
+
+  const toggleMindmapSidebar = useCallback(() => {
+    if (sidebarOpen && sidebarMode === 'mindmap') {
+      closeSidebar()
+    } else {
+      const prevMode = sidebarModeRef.current
+      if (sidebarOpen && prevMode === 'model') {
+        scheduleSidebarHibernate(sidebarModelIdRef.current)
+      }
+      openMindmapSidebar()
+    }
+  }, [sidebarOpen, sidebarMode, closeSidebar, openMindmapSidebar, scheduleSidebarHibernate])
 
   const changeSidebarModel = useCallback((modelId: string) => {
     const oldId = sidebarModelIdRef.current
@@ -187,19 +257,34 @@ export default function QuickPage(): JSX.Element {
       if (!text.trim()) return
       pendingSidebarText.current = { id: ++pendingSequence.current, text }
       setSidebarError('')
+      if (sidebarModeRef.current === 'mindmap') {
+        scheduleSidebarHibernate(MINDMAP_SIDEBAR_ID)
+      }
       openSidebar()
       setInjectionRevision(value => value + 1)
     })
     const unsubHidden = window.api.onQuickHidden(() => {
       quickVisibleRef.current = false
-      if (sidebarOpenRef.current) scheduleSidebarHibernate(sidebarModelIdRef.current)
+      if (sidebarOpenRef.current) {
+        if (sidebarModeRef.current === 'mindmap') {
+          scheduleSidebarHibernate(MINDMAP_SIDEBAR_ID)
+        } else {
+          scheduleSidebarHibernate(sidebarModelIdRef.current)
+        }
+      }
     })
     const unsubShown = window.api.onQuickShown(() => {
       quickVisibleRef.current = true
-      if (sidebarOpenRef.current) openSidebar()
+      if (sidebarOpenRef.current) {
+        if (sidebarModeRef.current === 'mindmap') {
+          openMindmapSidebar()
+        } else {
+          openSidebar()
+        }
+      }
     })
     return () => { unsubAsk(); unsubHidden(); unsubShown() }
-  }, [openSidebar, scheduleSidebarHibernate])
+  }, [openSidebar, openMindmapSidebar, scheduleSidebarHibernate])
 
   useEffect(() => {
     const pending = pendingSidebarText.current
@@ -488,12 +573,31 @@ export default function QuickPage(): JSX.Element {
                       </button>
                       <button
                         type="button"
-                        onClick={() => sidebarOpen ? closeSidebar() : openSidebar()}
-                        className={`w-7 h-7 flex items-center justify-center rounded-full transition-all duration-200 ${sidebarOpen ? 'text-primary bg-blue-50 hover:bg-blue-100' : 'text-text-secondary hover:text-text-primary hover:bg-gray-100'}`}
-                        title={sidebarOpen ? '收起侧边栏' : '展开侧边栏'}
-                        aria-label={sidebarOpen ? '收起侧边栏' : '展开侧边栏'}
+                        onClick={toggleMindmapSidebar}
+                        className={`w-7 h-7 flex items-center justify-center rounded-full transition-all duration-200 ${
+                          sidebarOpen && sidebarMode === 'mindmap'
+                            ? 'text-primary bg-blue-50 hover:bg-blue-100'
+                            : 'text-text-secondary hover:text-text-primary hover:bg-gray-100'
+                        }`}
+                        title="思维导图"
+                        aria-label="思维导图"
                       >
-                        <span className="material-symbols-outlined text-base">{sidebarOpen ? 'right_panel_close' : 'right_panel_open'}</span>
+                        <span className="material-symbols-outlined text-base">account_tree</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={toggleModelSidebar}
+                        className={`w-7 h-7 flex items-center justify-center rounded-full transition-all duration-200 ${
+                          sidebarOpen && sidebarMode === 'model'
+                            ? 'text-primary bg-blue-50 hover:bg-blue-100'
+                            : 'text-text-secondary hover:text-text-primary hover:bg-gray-100'
+                        }`}
+                        title={sidebarOpen && sidebarMode === 'model' ? '收起侧边栏' : '展开侧边栏'}
+                        aria-label={sidebarOpen && sidebarMode === 'model' ? '收起侧边栏' : '展开侧边栏'}
+                      >
+                        <span className="material-symbols-outlined text-base">
+                          {sidebarOpen && sidebarMode === 'model' ? 'right_panel_close' : 'right_panel_open'}
+                        </span>
                       </button>
                       <button
                         type="button"
@@ -517,7 +621,7 @@ export default function QuickPage(): JSX.Element {
         </div>
       )}
       </div>
-      {mountedSidebarModels.size > 0 && (
+      {(mountedSidebarModels.size > 0 || isMindmapMounted) && (
         <>
           {sidebarOpen && <div
             className="w-1 shrink-0 bg-gray-200 hover:bg-blue-300 cursor-col-resize"
@@ -534,41 +638,93 @@ export default function QuickPage(): JSX.Element {
             title="拖动调整侧边栏宽度"
           />}
           <div className={`h-full min-w-0 shrink-0 ${sidebarOpen ? 'border-l border-gray-200' : 'hidden'}`} style={sidebarOpen ? { width: sidebarWidth, maxWidth: 'calc(100% - 324px)' } : undefined}>
-            {sidebarError && (
-              <div className="absolute right-2 top-14 z-30 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-900 flex items-center gap-2 shadow-sm">
-                <span>{sidebarError}</span>
-                <button type="button" onClick={() => { setSidebarError(''); setInjectionRevision(value => value + 1) }} className="underline">重试</button>
-              </div>
-            )}
-            {models.map(model => {
-              if (!mountedSidebarModels.has(model.id)) return null
-              return (
-                <div key={model.id} className="h-full" style={{ display: model.id === sidebarModelId ? 'block' : 'none' }}>
+            {/* 副模型区域 */}
+            <div className="h-full" style={{ display: sidebarMode === 'model' ? 'block' : 'none' }}>
+              {sidebarError && (
+                <div className="absolute right-2 top-14 z-30 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-900 flex items-center gap-2 shadow-sm">
+                  <span>{sidebarError}</span>
+                  <button type="button" onClick={() => { setSidebarError(''); setInjectionRevision(value => value + 1) }} className="underline">重试</button>
+                </div>
+              )}
+              {models.map(model => {
+                if (!mountedSidebarModels.has(model.id)) return null
+                return (
+                  <div key={model.id} className="h-full" style={{ display: model.id === sidebarModelId ? 'block' : 'none' }}>
+                    <WebviewCard
+                      id={model.id}
+                      name={model.name}
+                      url={model.url}
+                      logo={model.logo}
+                      enabled={true}
+                      slotIndex={1}
+                      compact={true}
+                      isolated={true}
+                      flat={true}
+                      webviewInstanceId={`quick-sidebar-${model.id}`}
+                      onModelChange={changeSidebarModel}
+                      headerActions={
+                        <button type="button" onClick={closeSidebar} className="w-7 h-7 rounded-full text-text-secondary hover:text-red-500 hover:bg-red-50 flex items-center justify-center" title="收起侧边栏" aria-label="收起侧边栏">
+                          <span className="material-symbols-outlined text-base">close</span>
+                        </button>
+                      }
+                      ref={ref => {
+                        if (ref) sidebarRefs.current.set(model.id, ref)
+                        else sidebarRefs.current.delete(model.id)
+                      }}
+                    />
+                  </div>
+                )
+              })}
+            </div>
+
+            {/* 思维导图（幕布）区域 */}
+            {isMindmapMounted && (
+              <div className="h-full flex flex-col" style={{ display: sidebarMode === 'mindmap' ? 'flex' : 'none' }}>
+                <div className="p-3 border-b border-gray-200/60 bg-white flex justify-between items-center select-none">
+                  <div className="flex items-center gap-2">
+                    <span className="material-symbols-outlined text-primary text-xl">account_tree</span>
+                    <h2 className="font-semibold text-text-primary text-sm">思维导图</h2>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => mindmapRef.current?.reload()}
+                      className="w-7 h-7 rounded-full text-text-secondary hover:text-text-primary hover:bg-gray-100 flex items-center justify-center"
+                      title="刷新"
+                    >
+                      <span className="material-symbols-outlined text-base">refresh</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={closeSidebar}
+                      className="w-7 h-7 rounded-full text-text-secondary hover:text-red-500 hover:bg-red-50 flex items-center justify-center"
+                      title="收起侧边栏"
+                      aria-label="收起侧边栏"
+                    >
+                      <span className="material-symbols-outlined text-base">close</span>
+                    </button>
+                  </div>
+                </div>
+                <div className="flex-1 min-h-0">
                   <WebviewCard
-                    id={model.id}
-                    name={model.name}
-                    url={model.url}
-                    logo={model.logo}
+                    id="quick-sidebar-mindmap-card"
+                    name="思维导图"
+                    url="https://mubu.com/app"
+                    logo=""
                     enabled={true}
                     slotIndex={1}
                     compact={true}
                     isolated={true}
                     flat={true}
-                    webviewInstanceId={`quick-sidebar-${model.id}`}
-                    onModelChange={changeSidebarModel}
-                    headerActions={
-                      <button type="button" onClick={closeSidebar} className="w-7 h-7 rounded-full text-text-secondary hover:text-red-500 hover:bg-red-50 flex items-center justify-center" title="收起侧边栏" aria-label="收起侧边栏">
-                        <span className="material-symbols-outlined text-base">close</span>
-                      </button>
-                    }
+                    hideHeader={true}
+                    webviewInstanceId="quick-sidebar-mindmap"
                     ref={ref => {
-                      if (ref) sidebarRefs.current.set(model.id, ref)
-                      else sidebarRefs.current.delete(model.id)
+                      mindmapRef.current = ref
                     }}
                   />
                 </div>
-              )
-            })}
+              </div>
+            )}
           </div>
         </>
       )}
