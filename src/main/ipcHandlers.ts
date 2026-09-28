@@ -221,7 +221,7 @@ export function registerIpcHandlers(
         return { success: registerQuickPrimaryWebview(id) }
     })
     ipcMain.handle('quick:set-sidebar-expanded', (event, expanded: boolean, panelWidth: number) => {
-        if (event.sender !== getQuickWindow()?.webContents || typeof expanded !== 'boolean' || !Number.isFinite(panelWidth) || panelWidth < 0 || panelWidth > 600) return { success: false }
+        if (event.sender !== getQuickWindow()?.webContents || typeof expanded !== 'boolean' || !Number.isFinite(panelWidth) || panelWidth < 0 || panelWidth > 1400) return { success: false }
         return { success: true, data: setQuickSidebarExpanded(expanded, panelWidth) }
     })
     ipcMain.handle('quick:get-always-on-top', () => {

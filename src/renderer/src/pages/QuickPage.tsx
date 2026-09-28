@@ -245,7 +245,7 @@ export default function QuickPage(): JSX.Element {
 
   useEffect(() => {
     void window.api.storeGet('quickSidebarWidth').then(saved => {
-      if (typeof saved === 'number' && saved >= 320 && saved <= 520) {
+      if (typeof saved === 'number' && saved >= 320 && saved <= 1200) {
         sidebarWidthRef.current = saved
         setSidebarWidth(saved)
       }
@@ -628,7 +628,8 @@ export default function QuickPage(): JSX.Element {
             onPointerDown={event => { resizingSidebar.current = true; event.currentTarget.setPointerCapture(event.pointerId) }}
             onPointerMove={event => {
               if (resizingSidebar.current) {
-                const width = Math.max(320, Math.min(520, window.innerWidth - event.clientX))
+                const maxAvailable = Math.max(320, window.innerWidth - 324)
+                const width = Math.max(320, Math.min(1200, Math.min(maxAvailable, window.innerWidth - event.clientX)))
                 sidebarWidthRef.current = width
                 setSidebarWidth(width)
               }
