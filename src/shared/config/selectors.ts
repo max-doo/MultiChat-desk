@@ -18,6 +18,14 @@ export interface AutomationStep {
   hover?: boolean               // 新：本步不 click 而是 dispatch mouseenter/mouseover/mousemove 触发 hover 浮层
 }
 
+/** 笔记快照按消息提取时使用的容器和角色标记。 */
+export const noteMessageSelectors: Record<string, { messages: string; role: string }> = {
+  'chatgpt.com': { messages: '[data-message-author-role="user"],[data-message-author-role="assistant"]', role: 'data-message-author-role' },
+  'claude.ai': { messages: '[data-testid="user-message"],[data-testid="assistant-message"]', role: 'data-testid' },
+  'gemini.google.com': { messages: 'user-query,model-response', role: 'tagName' },
+  'www.doubao.com': { messages: '[data-role="user"],[data-role="assistant"]', role: 'data-role' }
+}
+
 export interface ModelSelector {
   // 输入框选择器（按优先级排列）
   textarea: string[]

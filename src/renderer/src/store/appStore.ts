@@ -416,8 +416,8 @@ interface AppState {
   setCurrentConversationId: (id: string | null) => void
 
   // 页面导航状态
-  currentPage: 'main' | 'summary' | 'quick' | 'diagnostics'
-  setCurrentPage: (page: 'main' | 'summary' | 'quick' | 'diagnostics') => void
+  currentPage: 'main' | 'summary' | 'notes' | 'quick' | 'diagnostics'
+  setCurrentPage: (page: 'main' | 'summary' | 'notes' | 'quick' | 'diagnostics') => void
 
   // UI 抽屉状态
   isSettingsOpen: boolean
@@ -1579,7 +1579,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
 
   currentPage: 'main',
-  setCurrentPage: (page: 'main' | 'summary' | 'quick' | 'diagnostics') => set({ currentPage: page }),
+  setCurrentPage: (page: 'main' | 'summary' | 'notes' | 'quick' | 'diagnostics') => set({ currentPage: page }),
 
   isSettingsOpen: false,
   setSettingsOpen: (open: boolean) => set({ isSettingsOpen: open }),

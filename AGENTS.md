@@ -7,7 +7,7 @@ MultiChat Desk 是基于 Electron 的桌面应用，通过多个 Webview 并行�
 
 ## Tech Stack
 
-- Language/runtime: TypeScript (strict), Node.js, Electron 28
+- Language/runtime: TypeScript (strict), Node.js, Electron 42
 - Frameworks: React 18, Tailwind CSS 3, Zustand 4
 - Package manager: npm (禁止使用其他包管理器)
 - Build Tool: electron-vite (HMR dev), electron-builder
@@ -16,14 +16,15 @@ MultiChat Desk 是基于 Electron 的桌面应用，通过多个 Webview 并行�
 
 - `src/main/`：Electron 主进程，负责窗口、Session、IPC、数据持久化与多供应商总结链路。关键文件：`index.ts`、`webviewManager.ts`、`ipcHandlers.ts`、`agentPrompts.ts`、`api/summaryApi.ts`、`config/requestBodyConfig.ts`。
 - `src/preload/`：仅做安全桥接，向渲染层暴露 `window.api`。`index.d.ts` 是 IPC 契约文件。
-- `src/renderer/src/`：React UI、状态、页面逻辑与 Webview 交互。包含 `pages/`、`components/`、`store/appStore.ts`、`hooks/useSummaryPanel.ts`。Webview 选择器集中在 `config/selectors.ts`，注入脚本集中在 `utils/webviewScripts.ts`。
+- `src/renderer/src/`：React UI、状态、页面逻辑与 Webview 交互。包含 `pages/`、`components/`、`store/appStore.ts`、`hooks/useSummaryPanel.ts`。`config/selectors.ts` 与 `utils/webviewScripts.ts` 从 `src/shared/` 重导出 Webview 选择器和注入脚本。
+- `src/shared/`：跨进程复用的选择器配置、Webview 注入脚本和类型。
 - `docs/`：构建、打包、Windows 命令、API 配置等参考文档。
 - `out/`、`dist/`：构建产物，禁止手改;`scripts/`、`build/`：构建辅助脚本与资源。
 
 ## Build, Test, and Development Commands
 
 - `npm run dev`：启动 electron-vite 开发服务器（HMR）；打开桌面窗口。
-- `npm run build`：类型检查 + 打包 main / preload / renderer 到 `out/`。
+- `npm run build`：打包 CLI / main / preload / renderer 到 `out/`；当前脚本不运行 `tsc` 类型检查。
 - `npm run lint` / `npm run lint:fix`：对 `src/**/*.{ts,tsx}` 跑 ESLint。
 - `npm run build:win:nsis` / `build:win:portable` / `build:win:all`：Windows 安装包 / 便携版 / 全部。
 - `npm run build:mac` / `build:linux`:对应平台打包，需在该 OS 上执行。
@@ -42,7 +43,7 @@ MultiChat Desk 是基于 Electron 的桌面应用，通过多个 Webview 并行�
 
 - **分层边界**：`src/main` 主进程能力 / 窗口 / Session / IPC / 数据 / 总结链路；`src/preload` 仅做安全桥接;`src/renderer` 仅做 UI / 状态 / 页面逻辑 / Webview 交互。禁止跨层塞逻辑。
 - **IPC 约束**：新增或修改 IPC 必须同时同步 `src/main/ipcHandlers.ts`、`src/preload/index.ts`、`src/preload/index.d.ts` 及渲染层调用点;返回结构统一为 `{ success, data?, error? }`。
-- **Webview 自动化约束**: 站点选择器统一维护在 `src/renderer/src/config/selectors.ts`，注入脚本统一在 `src/renderer/src/utils/webviewScripts.ts`；优先多候选选择器与可见性判断，避免脆弱 DOM 依赖。
+- **Webview 自动化约束**: 站点选择器统一维护在 `src/shared/config/selectors.ts`，注入脚本统一在 `src/shared/utils/webviewScripts.ts`；渲染层对应路径只重导出。优先多候选选择器与可见性判断，避免脆弱 DOM 依赖。
 - **总结链路约束**：涉及总结请求 / 供应商适配 / 流式解析 / reasoning / thinking / 中止能力时必须同步 `src/main/config/requestBodyConfig.ts`、`src/main/api/summaryApi.ts`、`src/main/ipcHandlers.ts`、`src/preload/index.ts` 与相关前端调用，确保 `abortSummary`、流式回调与思考内容兼容。
 - **Session 约束**：所有 Webview 共享 `persist:shared` Session，登录态全局；任何涉及 Session / Cookie / 账户切换的改动必须评估全局影响。
 

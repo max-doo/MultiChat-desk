@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 
 import { ElectronAPI } from '@electron-toolkit/preload'
+import type { NoteConversation, NoteDraft, NoteHighlight, NoteSelectionRect } from '../../shared/types/notes'
 
 // 文件数据类型
 interface FileData {
@@ -66,6 +67,14 @@ declare global {
       storeGet: (key: string) => Promise<unknown>
       storeSet: (key: string, value: unknown) => Promise<void>
       storeDelete: (key: string) => Promise<void>
+      notesList: () => Promise<{ success: boolean; data?: NoteConversation[]; error?: string }>
+      notesAnchorsForUrl: (url: string) => Promise<{ success: boolean; data?: NoteHighlight[]; error?: string }>
+      onNotesChanged: (cb: () => void) => () => void
+      notesSave: (draft: NoteDraft, comment: string) => Promise<{ success: boolean; data?: NoteConversation; error?: string }>
+      notesUpdate: (conversationId: string, noteId: string, comment: string) => Promise<{ success: boolean; data?: NoteConversation; error?: string }>
+      notesDelete: (conversationId: string, noteId: string) => Promise<{ success: boolean; error?: string }>
+      notesExport: () => Promise<{ success: boolean; data?: boolean; error?: string }>
+      onNoteCapture: (cb: (payload: { draft?: NoteDraft; webContentsId?: number; rect?: NoteSelectionRect; error?: string }) => void) => () => void
       summaryPromptsBootstrap: (prompts: SummaryPromptFileItem[]) => Promise<void>
       summaryPromptsList: () => Promise<SummaryPromptFileItem[]>
       summaryPromptsWrite: (prompt: SummaryPromptFileItem) => Promise<void>

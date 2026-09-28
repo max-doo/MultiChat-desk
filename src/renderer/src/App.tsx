@@ -5,6 +5,8 @@ import SummaryPage from './pages/SummaryPage'
 import QuickPage from './pages/QuickPage'
 import ToolbarPage from './pages/ToolbarPage'
 import HistoryDrawer from './components/HistoryDrawer'
+import NoteCaptureModal from './components/NoteCaptureModal'
+import NotesPage from './pages/NotesPage'
 import { initializeStore, useAppStore, SummaryHistoryItem } from './store/appStore'
 
 // 诊断页仅在 dev 构建 reachable：生产构建里 import.meta.env.DEV=false，
@@ -91,7 +93,7 @@ function MainApp(): JSX.Element {
   }, [registerDiagnosticsRelay])
 
   if (currentPage === 'quick') {
-    return <QuickPage />
+    return <><QuickPage /><NoteCaptureModal /></>
   }
 
   if (import.meta.env.DEV && currentPage === 'diagnostics' && DiagnosticsPage) {
@@ -164,6 +166,8 @@ function MainApp(): JSX.Element {
         </div>
       )}
 
+      {currentPage === 'notes' && <NotesPage />}
+
       {/* 历史记录抽屉：渲染在页面容器外，两个页面均可显示 */}
       <HistoryDrawer
         isOpen={isHistoryOpen}
@@ -182,6 +186,7 @@ function MainApp(): JSX.Element {
           setCurrentPage('summary')
         }}
       />
+      <NoteCaptureModal />
     </Layout>
   )
 }

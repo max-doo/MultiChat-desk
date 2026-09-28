@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
+import type { NoteConversation, NoteDraft, NoteHighlight, NoteSelectionRect } from '../shared/types/notes'
 
 // 文件数据类型
 interface FileData {
@@ -137,6 +138,22 @@ const api = {
   storeGet: (key: string): Promise<unknown> => ipcRenderer.invoke('store-get', key),
   storeSet: (key: string, value: unknown): Promise<void> => ipcRenderer.invoke('store-set', key, value),
   storeDelete: (key: string): Promise<void> => ipcRenderer.invoke('store-delete', key),
+  notesList: (): Promise<{ success: boolean; data?: NoteConversation[]; error?: string }> => ipcRenderer.invoke('notes:list'),
+  notesAnchorsForUrl: (url: string): Promise<{ success: boolean; data?: NoteHighlight[]; error?: string }> => ipcRenderer.invoke('notes:anchors-for-url', url),
+  onNotesChanged: (cb: () => void): (() => void) => {
+    const handler = (): void => cb()
+    ipcRenderer.on('notes:changed', handler)
+    return () => ipcRenderer.removeListener('notes:changed', handler)
+  },
+  notesSave: (draft: NoteDraft, comment: string): Promise<{ success: boolean; data?: NoteConversation; error?: string }> => ipcRenderer.invoke('notes:save', draft, comment),
+  notesUpdate: (conversationId: string, noteId: string, comment: string): Promise<{ success: boolean; data?: NoteConversation; error?: string }> => ipcRenderer.invoke('notes:update', conversationId, noteId, comment),
+  notesDelete: (conversationId: string, noteId: string): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('notes:delete', conversationId, noteId),
+  notesExport: (): Promise<{ success: boolean; data?: boolean; error?: string }> => ipcRenderer.invoke('notes:export'),
+  onNoteCapture: (cb: (payload: { draft?: NoteDraft; webContentsId?: number; rect?: NoteSelectionRect; error?: string }) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: { draft?: NoteDraft; webContentsId?: number; rect?: NoteSelectionRect; error?: string }): void => cb(payload)
+    ipcRenderer.on('notes:capture', handler)
+    return () => ipcRenderer.removeListener('notes:capture', handler)
+  },
 
   // History 分页（只读，磁盘 1000 / 内存 100 分层）
   historyGetPage: (offset: number, limit: number): Promise<{ success: boolean; data?: Array<{ id: string; createdAt: number; updatedAt: number; models: string[]; title?: string; turns: Array<{ turnId: string; userMessage: string; timestamp: number; responses: Record<string, string> }>; urls?: Record<string, string>; productMode?: string; displayMode?: string }>; error?: string }> =>

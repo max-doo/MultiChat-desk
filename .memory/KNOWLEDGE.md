@@ -12,6 +12,8 @@ Agents may suggest or promote a lesson into the `Known Gotchas` section of `AGEN
 
 ## Debugging Lessons
 
+- **构建启用 JavaScript 混淆时不要通过函数 toString 生成 Webview 注入脚本**：在生产打包开启 JavaScript 混淆时，若通过 `Function.prototype.toString()` 生成要注入 Webview 执行的脚本，函数体内部变量可能会被主进程混淆器重命名，且可能依赖混淆器注入的主进程全局名称映射，进入隔离的 Webview 页面后执行报错（如变量未定义）。Webview 注入脚本应直接使用自包含的字符串模板（或 IIFE 源码字符串）编写，避免在主进程代码中使用函数 toString 注入。
+
 - **可重复交互的 Electron 悬浮窗口**：避免同时使用 `focusable: false` 和依赖完整 `click` 事件。用 `showInactive` 控制弹出时不抢焦点，让窗口保持可聚焦，并在 `pointerdown` 派发一次性动作。
 
 - **后台自愈按失效资源重启**：原生 Hook 静默失活时重启 Hook/UIA 并清理手势状态；仍健康的工具条 BrowserWindow 保持运行，避免重建后按钮失效。

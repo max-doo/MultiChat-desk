@@ -13,6 +13,8 @@ import { splitTask, fetchModels } from './api/taskSplitApi'
 import { setQuitting, getQuickWindow, showAndFocusWindow, hideToolbarWindow, getCachedSelectionText, openDiagnosticsWindow, registerQuickPrimaryWebview, setQuickSidebarExpanded } from './webviewManager'
 import { broadcastStateChange } from './stateBus'
 import { HistoryManager } from './api/historyManager'
+import { NoteManager } from './noteManager'
+import type { NoteDraft } from '../shared/types/notes'
 import { getShortcuts, updateShortcuts, type ShortcutConfig } from './shortcutManager'
 import { readPlatformSelection, getAccessibilityPermissionStatus, requestAccessibilityPermission } from './platform/selectionReader'
 import {
@@ -820,6 +822,52 @@ export function registerIpcHandlers(
     // IPC 处理器：存储操作
     // History 分页与磁盘上限管理（只读分页 + store-set 后 enforce）
     const historyManager = new HistoryManager(store)
+    const noteManager = new NoteManager(store)
+
+    ipcMain.handle('notes:list', async () => {
+        try { return { success: true, data: await noteManager.list() } }
+        catch (error) { return { success: false, error: String(error) } }
+    })
+    ipcMain.handle('notes:anchors-for-url', async (_event, url: string) => {
+        try { return { success: true, data: await noteManager.anchorsForUrl(url) } }
+        catch (error) { return { success: false, error: String(error) } }
+    })
+    ipcMain.handle('notes:save', async (_event, draft: NoteDraft, comment: string) => {
+        try { const data = await noteManager.save(draft, comment); BrowserWindow.getAllWindows().forEach(window => window.webContents.send('notes:changed')); return { success: true, data } }
+        catch (error) { return { success: false, error: String(error) } }
+    })
+    ipcMain.handle('notes:update', async (_event, conversationId: string, noteId: string, comment: string) => {
+        try { const data = await noteManager.updateNote(conversationId, noteId, comment); BrowserWindow.getAllWindows().forEach(window => window.webContents.send('notes:changed')); return { success: true, data } }
+        catch (error) { return { success: false, error: String(error) } }
+    })
+    ipcMain.handle('notes:delete', async (_event, conversationId: string, noteId: string) => {
+        try { await noteManager.deleteNote(conversationId, noteId); BrowserWindow.getAllWindows().forEach(window => window.webContents.send('notes:changed')); return { success: true } }
+        catch (error) { return { success: false, error: String(error) } }
+    })
+    ipcMain.handle('notes:export', async (event) => {
+        try {
+            const owner = BrowserWindow.fromWebContents(event.sender)
+            if (!owner) return { success: false, error: '找不到当前窗口' }
+            const result = await dialog.showSaveDialog(owner, {
+                title: '导出笔记',
+                defaultPath: 'multichat-notes.md',
+                filters: [{ name: 'Markdown', extensions: ['md'] }, { name: 'JSON', extensions: ['json'] }]
+            })
+            if (result.canceled || !result.filePath) return { success: true, data: false }
+            const conversations = await noteManager.list()
+            if (result.filePath.toLowerCase().endsWith('.json')) {
+                await writeFile(result.filePath, JSON.stringify(conversations, null, 2), 'utf8')
+            } else {
+                const markdown = conversations.map(item => {
+                    const snapshot = item.notes[item.notes.length - 1]?.snapshot || ''
+                    const annotations = item.notes.map((note, index) => `### 笔记 ${index + 1}\n\n> ${note.quote.replace(/\n/g, '\n> ')}\n\n${note.comment || ''}`).join('\n\n')
+                    return `# ${item.title}\n\n来源：${item.platform} · ${item.url}\n\n${snapshot}\n\n---\n\n## 我的笔记\n\n${annotations}`
+                }).join('\n\n---\n\n')
+                await writeFile(result.filePath, markdown, 'utf8')
+            }
+            return { success: true, data: true }
+        } catch (error) { return { success: false, error: String(error) } }
+    })
 
     ipcMain.handle('store-get', (_event, key: string) => {
         return store.get(key)

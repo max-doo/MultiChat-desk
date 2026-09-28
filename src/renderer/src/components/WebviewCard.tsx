@@ -23,6 +23,8 @@ import { extractGeminiCanvasContent } from '../utils/geminiCanvasExtractor'
 import { extractQwenReportContent } from '../utils/qwenReportExtractor'
 import { buildProbeScript, parseProbeResult, type ProbeReport, buildResearchProbeScript, parseResearchProbeResult, type ResearchProbeReport, buildPickerScript, parseDomProbeResult, type DomProbeReport, type DomProbeOptions } from '../utils/selectorDiagnostics'
 import ModelOutputCard from './ModelOutputCard'
+import { generateNoteHighlightScript } from '../../../shared/utils/webviewScripts'
+import { handleNoteHighlightClick, NOTE_CLICK_PREFIX } from '../utils/noteInteractions'
 
 /** 任务分配两段式发送：注入后等待 host 端延时，再点发送按钮（给千问 React 收敛窗口） */
 const TWO_PHASE_SEND_DELAY_MS = 1000
@@ -413,6 +415,10 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
       }
 
       const handleConsoleMessage = (event: Electron.ConsoleMessageEvent): void => {
+        if (event.message.startsWith(NOTE_CLICK_PREFIX)) {
+          void handleNoteHighlightClick(webview, event.message)
+          return
+        }
         if (event.message.startsWith('__MM_LOG__:')) {
           console.log(`[${name}] ${event.message.substring(9)}`)
           return
@@ -489,6 +495,41 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
         webview.removeEventListener('did-finish-load', handleDidFinishLoad)
       }
     }, [enabled, name, selectors])
+
+    useEffect(() => {
+      const webview = webviewRef.current
+      if (!webview || !enabled) return
+      let timer: ReturnType<typeof setTimeout> | undefined
+      let generation = 0
+      const refresh = (): void => {
+        if (timer) clearTimeout(timer)
+        const current = ++generation
+        timer = setTimeout(() => {
+          let currentUrl: string
+          try { currentUrl = webview.getURL() } catch { return }
+          if (!currentUrl?.startsWith('https://')) return
+          void window.api.notesAnchorsForUrl(currentUrl).then(result => {
+            if (current !== generation || !result.success) return
+            try {
+              void webview.insertCSS('::highlight(multichat-notes){background:#fff176;color:inherit}::highlight(multichat-note-focus){background:#fff176;color:inherit}').catch(() => undefined)
+              void webview.executeJavaScript(generateNoteHighlightScript(result.data || [])).catch(() => undefined)
+            } catch { /* Webview 可能已导航 */ }
+          })
+        }, 500)
+      }
+      webview.addEventListener('dom-ready', refresh)
+      webview.addEventListener('did-stop-loading', refresh)
+      webview.addEventListener('did-navigate-in-page', refresh)
+      const unsubscribeNotes = window.api.onNotesChanged(refresh)
+      return () => {
+        generation++
+        if (timer) clearTimeout(timer)
+        webview.removeEventListener('dom-ready', refresh)
+        webview.removeEventListener('did-stop-loading', refresh)
+        webview.removeEventListener('did-navigate-in-page', refresh)
+        unsubscribeNotes()
+      }
+    }, [enabled])
 
     // F3: 使用 loadURL() 主动导航，替代不可靠的 <webview src> 属性
     // Electron <webview> 的 src 属性在冷启动时经常不触发导航，导致页面空白

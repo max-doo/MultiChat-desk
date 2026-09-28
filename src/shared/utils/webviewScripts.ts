@@ -5,6 +5,8 @@
 
 import type { ModelSelector } from '../config/selectors'
 import { getHtmlToMarkdownScript } from './htmlToMarkdown'
+import { noteMessageSelectors } from '../config/selectors'
+import { NOTE_CLICK_PREFIX } from '../types/notes'
 
 const IS_DEV = process.env.NODE_ENV !== 'production'
 
@@ -2128,6 +2130,175 @@ export function generateGetLatestResponseScript(selectors: ModelSelector): strin
         console.error('获取回复失败:', error);
         return '';
       }
+    })();
+  `
+}
+
+/** 把当前 Webview 中已加载的整段对话和选区位置一次性读出。 */
+export function generateNoteCaptureScript(): string {
+  const markdown = getHtmlToMarkdownScript()
+  return String.raw`
+    (function () {
+      ${markdown}
+      const selection = window.getSelection();
+      const exact = selection ? selection.toString().trim() : '';
+      const candidates = Array.from(document.querySelectorAll('main,[role="main"]')).filter(el => selection && selection.rangeCount && el.contains(selection.anchorNode));
+      const root = candidates.sort((a, b) => (b.innerText || '').length - (a.innerText || '').length)[0] || document.body;
+      const normalized = value => (value || '').replace(/\s+/g, ' ').trim();
+      const config = ${JSON.stringify(noteMessageSelectors)}[location.hostname];
+      const selectors = config?.messages || '[data-message-author-role],[data-role="user"],[data-role="assistant"]';
+      const messages = Array.from(document.querySelectorAll(selectors)).filter(el => root.contains(el) && normalized(el.innerText || el.textContent));
+      const roleOf = el => {
+        const marker = config?.role === 'tagName' ? el.tagName.toLowerCase() : el.getAttribute(config?.role || 'data-message-author-role') || el.getAttribute('data-role') || '';
+        if (/user|human|query/i.test(marker)) return '提问';
+        if (/assistant|model|response/i.test(marker)) return 'AI 回复';
+        return '';
+      };
+      const clean = el => {
+        const copy = el.cloneNode(true);
+        copy.querySelectorAll('button,nav,script,style,textarea,input,[contenteditable="true"],[aria-hidden="true"]').forEach(node => node.remove());
+        return copy;
+      };
+      const safeMarkdown = el => {
+        try {
+          const markdown = htmlToMarkdown(clean(el)).trim();
+          return markdown || (el.innerText || el.textContent || '').trim();
+        }
+        catch { return (el.innerText || el.textContent || '').trim(); }
+      };
+      const blocks = messages.map(el => ({ role: roleOf(el), content: safeMarkdown(el) })).filter(item => item.role && item.content);
+      const snapshot = blocks.length && blocks.some(item => item.role === '提问') && blocks.some(item => item.role === 'AI 回复')
+        ? blocks.map(item => {
+            if (item.role === '提问') {
+              const lines = item.content.split('\n');
+              const first = lines.findIndex(line => line.trim());
+              const question = lines[first].replace(/^#+\s*/, '').trim();
+              lines.splice(first, 1);
+              return '# ' + question + (lines.join('\n').trim() ? '\n\n' + lines.join('\n').trim() : '');
+            }
+            return '## AI 回复\n\n' + item.content.replace(/^# (.+)$/gm, '## $1');
+          }).join('\n\n---\n\n')
+        : '## 对话内容\n\n' + safeMarkdown(root);
+      const raw = root.textContent || '';
+      const selectionRect = selection && selection.rangeCount ? selection.getRangeAt(0).getBoundingClientRect() : null;
+      let at = -1;
+      if (selection && selection.rangeCount) {
+        const range = selection.getRangeAt(0);
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+        let offset = 0;
+        while (walker.nextNode()) {
+          const node = walker.currentNode;
+          if (node === range.startContainer) { at = offset + range.startOffset; break; }
+          offset += node.textContent?.length || 0;
+        }
+      }
+      if (at < 0) at = exact ? raw.indexOf(exact) : -1;
+      return {
+        title: document.title || location.hostname,
+        url: location.href,
+        snapshot,
+        sourceContains: normalized(root.innerText || root.textContent).includes(normalized(exact)),
+        rect: selectionRect ? { left: selectionRect.left, top: selectionRect.top, right: selectionRect.right, bottom: selectionRect.bottom } : null,
+        anchor: {
+          exact,
+          prefix: at >= 0 ? raw.slice(Math.max(0, at - 80), at) : '',
+          suffix: at >= 0 ? raw.slice(at + exact.length, at + exact.length + 80) : ''
+        }
+      };
+    })();
+  `
+}
+
+/** 在原网页上恢复笔记高亮；仅使用 CSS Highlight，避免改动第三方页面的文本 DOM。 */
+export function generateNoteHighlightScript(
+  notes: Array<{ id: string; anchor: { exact: string; prefix: string; suffix: string } }>,
+  focusedNoteId?: string
+): string {
+  return String.raw`
+    (function () {
+      if (!CSS.highlights || !window.Highlight) return { matched: 0, supported: false };
+      const notes = ${JSON.stringify(notes)};
+      const focusedId = ${JSON.stringify(focusedNoteId ?? '')};
+      window.__multichatNoteDispose?.();
+      const compact = value => (value || '').replace(/\s/g, '');
+      const roots = Array.from(document.querySelectorAll('main,[role="main"]'));
+      const root = roots.find(el => notes.some(note => note.anchor.exact && compact(el.textContent).includes(compact(note.anchor.exact)))) || document.body;
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      const nodes = [];
+      let text = '';
+      while (walker.nextNode()) {
+        const node = walker.currentNode;
+        const parent = node.parentElement;
+        if (!parent || parent.closest('script,style,noscript,nav,aside,header,footer,button,textarea,input,[contenteditable="true"]')) continue;
+        if (!node.textContent) continue;
+        nodes.push({ node, start: text.length, end: text.length + node.textContent.length });
+        text += node.textContent;
+      }
+      const locate = offset => {
+        const part = nodes.find(item => item.start <= offset && offset < item.end) || nodes[nodes.length - 1];
+        return part ? { node: part.node, offset: Math.min(offset - part.start, part.node.textContent.length) } : null;
+      };
+      const ranges = [];
+      const targets = [];
+      let focused = null;
+      for (const note of notes) {
+        const exact = note.anchor.exact;
+        if (!exact) continue;
+        let match = -1;
+        let score = -1;
+        let at = text.indexOf(exact);
+        while (at >= 0) {
+          const prefix = note.anchor.prefix || '';
+          const suffix = note.anchor.suffix || '';
+          const before = text.slice(Math.max(0, at - prefix.length), at);
+          const after = text.slice(at + exact.length, at + exact.length + suffix.length);
+          const candidateScore = (prefix && before === prefix ? 2 : 0) + (suffix && after === suffix ? 2 : 0);
+          if (candidateScore > score) { match = at; score = candidateScore; }
+          at = text.indexOf(exact, at + exact.length);
+        }
+        let matchEnd = match + exact.length;
+        if (match < 0) {
+          const target = compact(exact);
+          const offsets = [];
+          let searchable = '';
+          for (let i = 0; i < text.length; i++) {
+            if (/\s/.test(text[i])) continue;
+            offsets.push(i);
+            searchable += text[i];
+          }
+          const compactAt = searchable.indexOf(target);
+          if (compactAt >= 0 && target.length) {
+            match = offsets[compactAt];
+            matchEnd = offsets[compactAt + target.length - 1] + 1;
+          }
+        }
+        if (match < 0) continue;
+        const start = locate(match);
+        const end = locate(matchEnd - 1);
+        if (!start || !end) continue;
+        const range = document.createRange();
+        range.setStart(start.node, start.offset);
+        range.setEnd(end.node, end.offset + 1);
+        ranges.push(range);
+        targets.push({ id: note.id, range });
+        if (note.id === focusedId) focused = range;
+      }
+      CSS.highlights.set('multichat-notes', new Highlight(...ranges));
+      CSS.highlights.set('multichat-note-focus', new Highlight(...(focused ? [focused] : [])));
+      const onClick = event => {
+        for (const item of targets) {
+          const hit = Array.from(item.range.getClientRects()).some(rect => event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom);
+          if (!hit) continue;
+          event.preventDefault();
+          event.stopPropagation();
+          console.info(${JSON.stringify(NOTE_CLICK_PREFIX)} + JSON.stringify({ id: item.id, x: event.clientX, y: event.clientY }));
+          break;
+        }
+      };
+      document.addEventListener('click', onClick, true);
+      window.__multichatNoteDispose = () => document.removeEventListener('click', onClick, true);
+      if (focused) focused.startContainer.parentElement?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      return { matched: ranges.length, supported: true };
     })();
   `
 }

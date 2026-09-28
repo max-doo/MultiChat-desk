@@ -163,3 +163,7 @@ webview[tabindex="-1"] {
   -webkit-user-select: none;
   user-select: none;
 }
+::highlight(multichat-local-note) {
+  background: #fff176;
+  color: inherit;
+}

@@ -9,6 +9,9 @@ import { accessSync } from 'fs'
 import { writeFile } from 'fs/promises'
 import { is } from '@electron-toolkit/utils'
 import { startSummaryPromptsWatcher } from './summaryPrompts'
+import { generateNoteCaptureScript } from '../shared/utils/webviewScripts'
+import { noteConversationKey } from '../shared/utils/noteIdentity'
+import type { NoteDraft } from '../shared/types/notes'
 
 // ============ 状态管理 ============
 
@@ -876,11 +879,75 @@ function setupContextMenu(wc: Electron.WebContents): void {
         const owner = BrowserWindow.fromWebContents(wc.hostWebContents ?? wc) || mainWindow
         if (!owner) return
         const items: Electron.MenuItemConstructorOptions[] = []
+        const selectedText = params.selectionText.trim()
+        const canCaptureNote = Boolean(selectedText) && params.pageURL.startsWith('https://') && (!params.frame || params.frame === wc.mainFrame)
         if (params.selectionText || params.editFlags.canCopy) {
             items.push({ label: '复制', enabled: params.editFlags.canCopy, click: () => wc.copy() })
         }
+        if (canCaptureNote) {
+            items.push({ label: '记为笔记', click: () => {
+                const captureScript = generateNoteCaptureScript()
+                const capture = async (): Promise<unknown> => {
+                    const frame = params.frame ?? wc.mainFrame
+                    try {
+                        const result = await frame.executeJavaScript(captureScript)
+                        if (result && typeof result === 'object' && 'snapshot' in result && result.snapshot) return result
+                    } catch (error) {
+                        console.warn('[Notes] 当前框架读取失败，尝试主页面:', error)
+                    }
+                    if (frame !== wc.mainFrame) {
+                        try {
+                            const result = await wc.mainFrame.executeJavaScript(captureScript)
+                            if (result && typeof result === 'object' && 'snapshot' in result && result.snapshot) return result
+                        } catch (error) {
+                            console.warn('[Notes] 主框架读取失败，尝试 WebContents:', error)
+                        }
+                    }
+                    try { return await wc.executeJavaScript(captureScript) }
+                    catch (error) { console.error('[Notes] Webview 对话读取失败:', error); return null }
+                }
+                void capture().then((raw: unknown) => {
+                    const capture = raw as { title?: string; url?: string; snapshot?: string; sourceContains?: boolean; rect?: { left: number; top: number; right: number; bottom: number }; anchor?: NoteDraft['anchor'] } | null
+                    if (owner.isDestroyed()) return
+                    if (!capture?.snapshot?.trim()) {
+                        owner.webContents.send('notes:capture', { error: '无法读取当前对话，笔记未保存' })
+                        return
+                    }
+                    const normalize = (value: string): string => value.replace(/\s+/g, ' ').trim()
+                    if (!capture.sourceContains && !normalize(capture.snapshot).includes(normalize(selectedText))) {
+                        owner.webContents.send('notes:capture', { error: '无法在对话快照中找到选中内容，笔记未保存' })
+                        return
+                    }
+                    const url = capture.url?.startsWith('https://') && new URL(capture.url).origin === new URL(params.pageURL).origin ? capture.url : params.pageURL
+                    const parsed = new URL(url)
+                    const sourceKey = noteConversationKey(url, capture.title || parsed.hostname)
+                    const platformNames: Record<string, string> = {
+                        'chatgpt.com': 'ChatGPT', 'gemini.google.com': 'Gemini', 'grok.com': 'Grok',
+                        'claude.ai': 'Claude', 'www.perplexity.ai': 'Perplexity', 'arena.ai': 'Arena',
+                        'www.doubao.com': '豆包', 'yuanbao.tencent.com': '元宝', 'tongyi.aliyun.com': '千问',
+                        'chat.deepseek.com': 'DeepSeek', 'kimi.moonshot.cn': 'Kimi',
+                        'chatglm.cn': '智谱清言', 'chat.baidu.com': '文心一言'
+                    }
+                    const draft: NoteDraft = {
+                        sourceKey,
+                        platform: platformNames[parsed.hostname] || parsed.hostname,
+                        title: capture.title || parsed.hostname,
+                        url,
+                        snapshot: capture.snapshot,
+                        quote: selectedText,
+                        anchor: {
+                            exact: capture.anchor?.exact || selectedText,
+                            prefix: capture.anchor?.prefix || '',
+                            suffix: capture.anchor?.suffix || ''
+                        }
+                    }
+                    owner.webContents.send('notes:capture', { draft, webContentsId: wc.id, rect: capture.rect })
+                }).catch(() => {
+                    if (!owner.isDestroyed()) owner.webContents.send('notes:capture', { error: '读取当前对话失败，笔记未保存' })
+                })
+            } })
+        }
         if (owner === quickWindow && quickPrimaryWebviews.has(wc.id) && params.selectionText.trim()) {
-            const selectedText = params.selectionText
             items.push({ label: '在侧边栏中提问', click: () => {
                 if (quickWindow && !quickWindow.isDestroyed()) {
                     showAndFocusWindow(quickWindow)

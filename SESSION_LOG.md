@@ -1,5 +1,127 @@
 # Session Log
 
+## 2026-09-28
+
+### 18:12 | Codex
+
+- done: 修复 ChatGPT Webview 保存笔记时抓取脚本在正式构建中执行失败；移除函数 toString 注入并补充读取降级
+- modified:
+  - `src/shared/utils/webviewScripts.ts`
+  - `src/main/webviewManager.ts`
+- lesson(promoted): 构建启用 JavaScript 混淆时，不要通过函数 toString 生成 Webview 注入脚本；函数体可能依赖主进程混淆器生成的名称映射，进入隔离页面后失效。
+
+### 18:11 | Antigravity
+
+- done: 快捷窗口新增思维导图功能，复用侧边栏加载幕布并支持30秒休眠
+- added:
+  - `docs/superpowers/specs/2026-09-28-quick-window-mindmap-design.md`
+  - `docs/superpowers/plans/2026-09-28-quick-window-mindmap.md`
+- modified:
+  - `src/renderer/src/pages/QuickPage.tsx`
+
+### 18:03 | Codex
+
+- done: 笔记页右侧新增随高亮定位的评论卡片和无评论添加入口；新快照保持标题格式，停止旧快照自动转换
+- modified:
+  - `src/renderer/src/pages/NotesPage.tsx`
+  - `src/main/noteManager.ts`
+  - `src/shared/utils/noteTranscript.ts`
+
+### 17:52 | Codex
+
+- done: 按截图调整笔记页标题栏导航、固定会话标题、原网页平台 Logo、常用黄色高亮及旧快照用户问题一级标题
+- context: 隔离 Electron 实例验证返回/笔记双向导航、旧快照 Markdown 一级问题与二级回复、目录、移除通用标题、侧栏平台 Logo 和固定标题；lint/build/dev 与 diff 检查通过
+- added:
+  - `src/shared/utils/noteTranscript.ts`
+- modified:
+  - `src/renderer/src/components/Layout.tsx`
+  - `src/renderer/src/pages/NotesPage.tsx`
+  - `src/renderer/src/components/WebviewCard.tsx`
+  - `src/renderer/src/components/NoteCaptureModal.tsx`
+  - `src/renderer/src/assets/index.css`
+  - `src/shared/utils/webviewScripts.ts`
+  - `src/main/noteManager.ts`
+
+### 17:36 | Codex
+
+- done: 优化笔记交互：右键即保存高亮、非模态评论卡片、Webview 高亮点击评论删除、一级二级目录和重复笔记去重
+- context: 隔离 Electron 实例验证 Markdown 提问一级标题、AI 回复二级标题、目录仅一级二级、同会话两笔记、点击高亮回传、非模态评论保存和删除；并发重复保存与旧数据去重合并通过；lint/build/dev 通过
+- added:
+  - `src/renderer/src/utils/noteInteractions.ts`
+- modified:
+  - `src/shared/types/notes.ts`
+  - `src/main/noteManager.ts`
+  - `src/main/webviewManager.ts`
+  - `src/preload/index.ts`
+  - `src/preload/index.d.ts`
+  - `src/renderer/src/env.d.ts`
+  - `src/shared/utils/webviewScripts.ts`
+  - `src/renderer/src/components/WebviewCard.tsx`
+  - `src/renderer/src/components/NoteCaptureModal.tsx`
+  - `src/renderer/src/pages/NotesPage.tsx`
+  - `src/renderer/src/assets/index.css`
+
+### 16:47 | Codex
+
+- done: 补充验证 Markdown 快照与原页面 DOM 高亮，修复多 main 区域选择问题，并验证旧笔记合并后的修改删除
+- context: 隔离 Electron 页面合成对话 DOM：提问/AI 回复 Markdown 成功，高亮匹配 1 处；旧版分组数据合并、修改、删除成功；lint、build、dev 均通过
+- modified:
+  - `src/shared/utils/webviewScripts.ts`
+
+### 13:48 | Codex
+
+- done: 修正笔记会话归组、Markdown 对话快照、原网页高亮和笔记页并排查看及定位
+- context: 隔离 Electron 实例中用合成笔记验证单会话归组、本地快照高亮和并排侧栏；真实站点登录态与 DOM 需用户本机复核
+- added:
+  - `src/shared/utils/noteIdentity.ts`
+- modified:
+  - `src/main/noteManager.ts`
+  - `src/main/webviewManager.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/preload/index.d.ts`
+  - `src/renderer/src/env.d.ts`
+  - `src/renderer/src/components/NoteCaptureModal.tsx`
+  - `src/renderer/src/components/WebviewCard.tsx`
+  - `src/renderer/src/pages/NotesPage.tsx`
+  - `src/renderer/src/assets/index.css`
+  - `src/shared/config/selectors.ts`
+  - `src/shared/utils/webviewScripts.ts`
+
+### 12:40 | Codex
+
+- done: 将共享笔记类型与脚本纳入主进程和渲染层 TypeScript 项目范围
+- modified:
+  - `tsconfig.node.json`
+  - `tsconfig.web.json`
+
+### 12:38 | Codex
+
+- done: 同步仓库规则与实际 Electron 版本、构建命令和共享 Webview 文件位置
+- modified:
+  - `AGENTS.md`
+
+### 12:38 | Codex
+
+- done: 实现按会话分组的本地笔记管理、右键采集对话快照和侧栏原对话高亮
+- added:
+  - `src/main/noteManager.ts`
+  - `src/renderer/src/components/NoteCaptureModal.tsx`
+  - `src/renderer/src/pages/NotesPage.tsx`
+  - `src/shared/types/notes.ts`
+- modified:
+  - `src/main/ipcHandlers.ts`
+  - `src/main/webviewManager.ts`
+  - `src/preload/index.ts`
+  - `src/preload/index.d.ts`
+  - `src/renderer/src/App.tsx`
+  - `src/renderer/src/assets/index.css`
+  - `src/renderer/src/components/Layout.tsx`
+  - `src/renderer/src/env.d.ts`
+  - `src/renderer/src/store/appStore.ts`
+  - `src/shared/utils/webviewScripts.ts`
+- unresolved: 第三方平台懒加载的旧消息与非文本媒体不能仅靠当前 DOM 保证完整采集，需逐平台验证
+
 ## 2026-09-22
 
 ### 19:38 | Antigravity
