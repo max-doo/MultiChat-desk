@@ -1,6 +1,8 @@
 import { type CSSProperties, type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import WebviewCard, { WebviewCardRef } from '../components/WebviewCard'
 import ControlBar, { ControlBarRef } from '../components/ControlBar'
+import WebviewSidebarPanel from '../components/WebviewSidebarPanel'
+import { useWebviewSidebar } from '../hooks/useWebviewSidebar'
 import { useAppStore, getDisplayedModels, SummaryHistoryItem, HistoryItem, ModelConfig } from '../store/appStore'
 
 interface MainPageProps {
@@ -52,7 +54,12 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
 
   // ControlBar 的 ref
   const controlBarRef = useRef<ControlBarRef>(null)
-  const containerRef = useRef<HTMLDivElement>(null)
+  const [containerEl, setContainerEl] = useState<HTMLDivElement | null>(null)
+  const containerRef = useRef<HTMLDivElement | null>(null)
+  const setContainerRef = useCallback((el: HTMLDivElement | null) => {
+    containerRef.current = el
+    setContainerEl(el)
+  }, [])
   const paneRatiosRef = useRef<number[] | null>(null)
   const dragRef = useRef<{
     gutterIndex: number
@@ -486,6 +493,56 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
     debate: getDisplayedModels(availableModels, 'two', 'debate', taskAssignmentSlots, multiAiSlots, debateSlots)
   }), [availableModels, taskAssignmentSlots, multiAiSlots, debateSlots])
 
+  // ── 单窗口侧边栏与思维导图 ──
+  const activeSingleModel = displayedModels[0]
+  const {
+    sidebarOpen,
+    sidebarMode,
+    sidebarWidth,
+    sidebarModelId,
+    isMindmapMounted,
+    mountedSidebarModels,
+    sidebarError,
+    sidebarRefs,
+    mindmapRef,
+    toggleModelSidebar,
+    toggleMindmapSidebar,
+    closeSidebar,
+    changeSidebarModel,
+    handleAskSidebar,
+    hibernateAll: hibernateSidebarAll,
+    setSidebarError,
+    handlePointerDownResize,
+    handlePointerMoveResize,
+    handlePointerUpResize
+  } = useWebviewSidebar({
+    storagePrefix: 'main',
+    models: availableModels,
+    activeModelId: activeSingleModel?.id,
+    instancePrefix: 'main'
+  })
+
+  // 多窗口模式自动收起并休眠侧边栏
+  useEffect(() => {
+    if (displayMode !== 'one') {
+      if (sidebarOpen) {
+        closeSidebar()
+      }
+      hibernateSidebarAll()
+    }
+  }, [displayMode, sidebarOpen, closeSidebar, hibernateSidebarAll])
+
+  // 划词在侧边栏提问
+  useEffect(() => {
+    const unsub = window.api.onMainAskSidebar?.((text) => {
+      if (useAppStore.getState().displayMode !== 'one') {
+        useAppStore.getState().setDisplayMode('one')
+      }
+      handleAskSidebar(text)
+    })
+    return () => unsub?.()
+  }, [handleAskSidebar])
+
   // ── 更新 productModeRef 和 modeModelsRef ──
   useEffect(() => {
     productModeRef.current = productMode
@@ -709,28 +766,36 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
   }, [paneRatios])
 
   useEffect(() => {
-    const el = containerRef.current
-    if (!el) return
-    const update = (): void => setContainerWidth(el.clientWidth)
+    if (!containerEl) return
+    const update = (): void => {
+      if (containerEl.clientWidth > 0) {
+        setContainerWidth(containerEl.clientWidth)
+      }
+    }
     update()
-    const ro = new ResizeObserver(() => {
+    const ro = new ResizeObserver((entries) => {
       if (!isActive) return
-      update()
+      for (const entry of entries) {
+        const width = entry.contentRect?.width || containerEl.clientWidth
+        if (width > 0) {
+          setContainerWidth(width)
+        }
+      }
     })
-    ro.observe(el)
+    ro.observe(containerEl)
     return () => ro.disconnect()
-  }, [isActive])
+  }, [containerEl, isActive])
 
   useEffect(() => {
-    if (!isActive) return
-    const el = containerRef.current
-    if (!el) return
+    if (!isActive || !containerEl) return
     setSuppressPaneTransition(true)
-    setContainerWidth(el.clientWidth)
+    if (containerEl.clientWidth > 0) {
+      setContainerWidth(containerEl.clientWidth)
+    }
     requestAnimationFrame(() => {
       requestAnimationFrame(() => setSuppressPaneTransition(false))
     })
-  }, [isActive])
+  }, [isActive, containerEl, displayMode])
 
   useEffect(() => {
     if (paneCount <= 1) {
@@ -837,7 +902,7 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
     if (useGridForFour) {
       return {
         display: 'grid',
-        gridTemplateColumns: `${widths[0] ?? 0}px 16px ${widths[1] ?? 0}px`,
+        gridTemplateColumns: `${widths[0] && widths[0] > 0 ? `${widths[0]}px` : 'minmax(0, 1fr)'} 16px ${widths[1] && widths[1] > 0 ? `${widths[1]}px` : 'minmax(0, 1fr)'}`,
         gridTemplateRows: '1fr 1fr',
         rowGap: '1rem',
         width: '100%',
@@ -848,7 +913,7 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
     const cols: string[] = []
     for (let i = 0; i < displayedModels.length; i++) {
       if (i > 0) cols.push('16px')
-      cols.push(`${widths[i] ?? 0}px`)
+      cols.push(widths[i] && widths[i] > 0 ? `${widths[i]}px` : 'minmax(0, 1fr)')
     }
     return {
       display: 'grid',
@@ -980,6 +1045,42 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
                   logo={model.logo}
                   enabled={true}
                   slotIndex={i}
+                  flat={displayMode === 'one'}
+                  compact={displayMode === 'one'}
+                  headerActions={
+                    displayMode === 'one' && i === 0 ? (
+                      <div className="flex items-center gap-1 pl-2 border-l border-gray-200/60 ml-1 no-drag">
+                        <button
+                          type="button"
+                          onClick={toggleMindmapSidebar}
+                          className={`w-7 h-7 flex items-center justify-center rounded-full transition-all duration-200 ${
+                            sidebarOpen && sidebarMode === 'mindmap'
+                              ? 'text-primary bg-blue-50 hover:bg-blue-100'
+                              : 'text-text-secondary hover:text-text-primary hover:bg-gray-100'
+                          }`}
+                          title="思维导图"
+                          aria-label="思维导图"
+                        >
+                          <span className="material-symbols-outlined text-base">account_tree</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={toggleModelSidebar}
+                          className={`w-7 h-7 flex items-center justify-center rounded-full transition-all duration-200 ${
+                            sidebarOpen && sidebarMode === 'model'
+                              ? 'text-primary bg-blue-50 hover:bg-blue-100'
+                              : 'text-text-secondary hover:text-text-primary hover:bg-gray-100'
+                          }`}
+                          title={sidebarOpen && sidebarMode === 'model' ? '收起侧边栏' : '展开侧边栏'}
+                          aria-label={sidebarOpen && sidebarMode === 'model' ? '收起侧边栏' : '展开侧边栏'}
+                        >
+                          <span className="material-symbols-outlined text-base">
+                            {sidebarOpen && sidebarMode === 'model' ? 'right_panel_close' : 'right_panel_open'}
+                          </span>
+                        </button>
+                      </div>
+                    ) : undefined
+                  }
                   sideLabel={mode === 'debate' ? (i === 0 ? '正方' : '反方') : undefined}
                   expectedUrl={isHistoryMode ? historyUrls[model.id] : undefined}
                   readonlySnapshot={
@@ -1179,12 +1280,39 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
 
   return (
     <div className="flex flex-col h-full">
-      {/* Webview 卡片区域的外层滚动容器，处理 padding 以防阴影被裁切 */}
-      <div className="flex-grow min-h-0 overflow-auto px-4 pt-4 sm:px-6 sm:pt-6 pb-5">
-        {/* 用于计算宽度和 CSS Grid 布局的内层无 padding 容器 */}
-        <div ref={containerRef} style={containerStyle}>
-          {renderLayoutChildren()}
-        </div>
+      {/* Webview 卡片区域的外层容器：单窗口时无边距占满屏幕，多窗口时保留呼吸感内边距 */}
+      <div className={`flex-grow min-h-0 ${displayMode === 'one' ? 'p-0 overflow-hidden' : 'overflow-auto px-4 pt-4 sm:px-6 sm:pt-6 pb-5'}`}>
+        {displayMode === 'one' ? (
+          <div className="flex h-full w-full overflow-hidden">
+            {/* 用于计算宽度和 CSS Grid 布局的内层容器 */}
+            <div ref={setContainerRef} style={containerStyle} className="flex-1 min-w-0 h-full">
+              {renderLayoutChildren()}
+            </div>
+            <WebviewSidebarPanel
+              isOpen={sidebarOpen}
+              mode={sidebarMode}
+              width={sidebarWidth}
+              models={availableModels}
+              sidebarModelId={sidebarModelId}
+              mountedSidebarModels={mountedSidebarModels}
+              isMindmapMounted={isMindmapMounted}
+              sidebarError={sidebarError}
+              instancePrefix="main"
+              sidebarRefs={sidebarRefs}
+              mindmapRef={mindmapRef}
+              onClose={closeSidebar}
+              onModelChange={changeSidebarModel}
+              onClearError={() => setSidebarError('')}
+              onPointerDownResize={handlePointerDownResize}
+              onPointerMoveResize={handlePointerMoveResize}
+              onPointerUpResize={handlePointerUpResize}
+            />
+          </div>
+        ) : (
+          <div ref={setContainerRef} style={containerStyle}>
+            {renderLayoutChildren()}
+          </div>
+        )}
       </div>
 
       {/* 底部控制栏（单窗口模式下隐藏） */}

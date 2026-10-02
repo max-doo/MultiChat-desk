@@ -1896,7 +1896,7 @@ export async function initializeStore(): Promise<void> {
     if (storedProductMode) useAppStore.setState({ productMode: storedProductMode })
     if (initialDisplayMode) useAppStore.setState({ displayMode: initialDisplayMode })
     if (storedMultiAiDisplayMode) useAppStore.setState({ multiAiDisplayMode: storedMultiAiDisplayMode })
-    if (storedTaskAssignmentDisplayMode) useAppStore.setState({ taskAssignmentDisplayMode: storedTaskAssignmentDisplayMode })
+    if (storedTaskAssignmentDisplayMode) useAppStore.setState({ taskAssignmentDisplayMode: storedTaskAssignmentDisplayMode === 'one' ? 'two' : storedTaskAssignmentDisplayMode })
     if (storedTaskAssignmentSlots && Array.isArray(storedTaskAssignmentSlots)) {
       useAppStore.setState({ taskAssignmentSlots: storedTaskAssignmentSlots })
     }

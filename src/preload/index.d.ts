@@ -83,6 +83,7 @@ declare global {
       quickRegisterPrimaryWebview: (id: number) => Promise<{ success: boolean }>
       quickSetSidebarExpanded: (expanded: boolean, panelWidth: number) => Promise<{ success: boolean; data?: number }>
       onQuickAskSidebar: (cb: (text: string) => void) => () => void
+      onMainAskSidebar: (cb: (text: string) => void) => () => void
       onQuickHidden: (cb: () => void) => () => void
       onQuickShown: (cb: () => void) => () => void
       quickGetAlwaysOnTop: () => Promise<boolean>

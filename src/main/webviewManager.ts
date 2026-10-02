@@ -955,6 +955,14 @@ function setupContextMenu(wc: Electron.WebContents): void {
                 }
             } })
         }
+        if (owner === mainWindow && params.selectionText.trim()) {
+            items.push({ label: '在侧边栏中提问', click: () => {
+                if (mainWindow && !mainWindow.isDestroyed()) {
+                    showAndFocusWindow(mainWindow)
+                    mainWindow.webContents.send('main:ask-sidebar', selectedText)
+                }
+            } })
+        }
         if (params.isEditable) {
             items.push({ label: '剪切', enabled: params.editFlags.canCut, click: () => wc.cut() })
             items.push({ label: '粘贴', enabled: params.editFlags.canPaste, click: () => wc.paste() })

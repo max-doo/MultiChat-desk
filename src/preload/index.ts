@@ -58,6 +58,11 @@ const api = {
     ipcRenderer.on('quick:ask-sidebar', handler)
     return () => ipcRenderer.removeListener('quick:ask-sidebar', handler)
   },
+  onMainAskSidebar: (cb: (text: string) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, text: string): void => cb(text)
+    ipcRenderer.on('main:ask-sidebar', handler)
+    return () => ipcRenderer.removeListener('main:ask-sidebar', handler)
+  },
   onQuickHidden: (cb: () => void) => {
     const handler = (): void => cb()
     ipcRenderer.on('quick:hidden', handler)

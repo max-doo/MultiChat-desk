@@ -1,5 +1,5 @@
 import { ReactNode, useEffect, useMemo, useRef, useState } from 'react'
-import { useAppStore } from '../store/appStore'
+import { useAppStore, ProductMode, DisplayMode } from '../store/appStore'
 import { useUpdateReminder } from '../hooks/useUpdateState'
 import SettingsDrawer from './SettingsDrawer'
 
@@ -293,7 +293,7 @@ function Layout({ children }: LayoutProps): JSX.Element {
                   type="button"
                   title={item.title}
                   onClick={() => {
-                    setProductMode(item.key as any)
+                    setProductMode(item.key as ProductMode)
                     if (item.key === 'debate') {
                       setDisplayMode('two')
                       resetPaneRatios()
@@ -349,14 +349,12 @@ function Layout({ children }: LayoutProps): JSX.Element {
 
         {/* 居中的窗口布局或总结模式控件 */}
         <div className="relative z-10 flex justify-center drag-region h-full items-center">
-          {currentPage === 'main' ? (
+          {currentPage === 'main' && productMode !== 'debate' ? (
             <div 
-              className={`flex items-center p-[2px] gap-[2px] glass-panel shadow-soft rounded-full transition-opacity no-drag ${
-                productMode === 'debate' ? 'opacity-40 pointer-events-none' : ''
-              }`}
-              title={productMode === 'debate' ? '辩论模式固定为双窗口' : '切换窗口数量'}
+              className="flex items-center p-[2px] gap-[2px] glass-panel shadow-soft rounded-full transition-opacity no-drag"
+              title="切换窗口数量"
             >
-              {['one', 'two', 'three', 'four'].map(mode => {
+              {((productMode === 'task_assignment' ? ['two', 'three', 'four'] : ['one', 'two', 'three', 'four']) as DisplayMode[]).map(mode => {
                 const isSessionActive = !isNewSession || textInserted
                 let isDisabled = false
                 if (isSessionActive && activeModels.length > 0) {
@@ -372,7 +370,7 @@ function Layout({ children }: LayoutProps): JSX.Element {
                   disabled={isDisabled}
                   title={isDisabled ? `当前会话锁定了 ${activeModels.length} 个模型，无法增加窗口` : ''}
                   onClick={() => {
-                    setDisplayMode(mode as any)
+                    setDisplayMode(mode)
                     resetPaneRatios()
                   }}
                   className={`w-8 h-[22px] flex flex-col items-center justify-center rounded-full transition-all duration-200 border ${displayMode === mode
