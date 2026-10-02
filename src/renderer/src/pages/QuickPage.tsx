@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react'
 import { useAppStore } from '../store/appStore'
 import WebviewCard, { type WebviewCardRef } from '../components/WebviewCard'
+import MindmapSidebarView from '../components/MindmapSidebarView'
 
 export default function QuickPage(): JSX.Element {
   const { models, registerWebviewRef, unregisterWebviewRef } = useAppStore()
@@ -678,52 +679,14 @@ export default function QuickPage(): JSX.Element {
               })}
             </div>
 
-            {/* 思维导图（幕布）区域 */}
+            {/* 思维导图区域（支持本地/在线双模与双视图） */}
             {isMindmapMounted && (
               <div className="h-full flex flex-col" style={{ display: sidebarMode === 'mindmap' ? 'flex' : 'none' }}>
-                <div className="p-3 border-b border-gray-200/60 bg-white flex justify-between items-center select-none">
-                  <div className="flex items-center gap-2">
-                    <span className="material-symbols-outlined text-primary text-xl">account_tree</span>
-                    <h2 className="font-semibold text-text-primary text-sm">思维导图</h2>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => mindmapRef.current?.reload()}
-                      className="w-7 h-7 rounded-full text-text-secondary hover:text-text-primary hover:bg-gray-100 flex items-center justify-center"
-                      title="刷新"
-                    >
-                      <span className="material-symbols-outlined text-base">refresh</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={closeSidebar}
-                      className="w-7 h-7 rounded-full text-text-secondary hover:text-red-500 hover:bg-red-50 flex items-center justify-center"
-                      title="收起侧边栏"
-                      aria-label="收起侧边栏"
-                    >
-                      <span className="material-symbols-outlined text-base">close</span>
-                    </button>
-                  </div>
-                </div>
-                <div className="flex-1 min-h-0">
-                  <WebviewCard
-                    id="quick-sidebar-mindmap-card"
-                    name="思维导图"
-                    url="https://mubu.com/app"
-                    logo=""
-                    enabled={true}
-                    slotIndex={1}
-                    compact={true}
-                    isolated={true}
-                    flat={true}
-                    hideHeader={true}
-                    webviewInstanceId="quick-sidebar-mindmap"
-                    ref={ref => {
-                      mindmapRef.current = ref
-                    }}
-                  />
-                </div>
+                <MindmapSidebarView
+                  instancePrefix="quick"
+                  mindmapRef={mindmapRef}
+                  onClose={closeSidebar}
+                />
               </div>
             )}
           </div>

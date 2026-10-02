@@ -1,5 +1,6 @@
 import React from 'react'
 import WebviewCard, { type WebviewCardRef } from './WebviewCard'
+import MindmapSidebarView from './MindmapSidebarView'
 import type { SidebarMode } from '../hooks/useWebviewSidebar'
 
 export interface WebviewSidebarPanelProps {
@@ -112,52 +113,14 @@ export default function WebviewSidebarPanel({
           })}
         </div>
 
-        {/* 思维导图（幕布）区域 */}
+        {/* 思维导图区域（支持本地/在线双模与双视图） */}
         {isMindmapMounted && (
           <div className="h-full flex flex-col" style={{ display: mode === 'mindmap' ? 'flex' : 'none' }}>
-            <div className="p-3 border-b border-gray-200/60 bg-white flex justify-between items-center select-none">
-              <div className="flex items-center gap-2">
-                <span className="material-symbols-outlined text-primary text-xl">account_tree</span>
-                <h2 className="font-semibold text-text-primary text-sm">思维导图</h2>
-              </div>
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => mindmapRef.current?.reload()}
-                  className="w-7 h-7 rounded-full text-text-secondary hover:text-text-primary hover:bg-gray-100 flex items-center justify-center transition-colors"
-                  title="刷新"
-                >
-                  <span className="material-symbols-outlined text-base">refresh</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="w-7 h-7 rounded-full text-text-secondary hover:text-red-500 hover:bg-red-50 flex items-center justify-center transition-colors"
-                  title="收起侧边栏"
-                  aria-label="收起侧边栏"
-                >
-                  <span className="material-symbols-outlined text-base">close</span>
-                </button>
-              </div>
-            </div>
-            <div className="flex-1 min-h-0">
-              <WebviewCard
-                id={`${instancePrefix}-sidebar-mindmap-card`}
-                name="思维导图"
-                url="https://mubu.com/app"
-                logo=""
-                enabled={true}
-                slotIndex={1}
-                compact={true}
-                isolated={true}
-                flat={true}
-                hideHeader={true}
-                webviewInstanceId={`${instancePrefix}-sidebar-mindmap`}
-                ref={ref => {
-                  mindmapRef.current = ref
-                }}
-              />
-            </div>
+            <MindmapSidebarView
+              instancePrefix={instancePrefix}
+              mindmapRef={mindmapRef}
+              onClose={onClose}
+            />
           </div>
         )}
       </div>

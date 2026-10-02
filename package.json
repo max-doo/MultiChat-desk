@@ -30,6 +30,8 @@
     "@types/turndown": "^5.0.6",
     "commander": "^15.0.0",
     "electron-store": "^8.1.0",
+    "markmap-lib": "^0.18.12",
+    "markmap-view": "^0.18.12",
     "material-symbols": "^0.45.4",
     "monio-napi": "^1.0.13",
     "react-markdown": "^10.1.0",

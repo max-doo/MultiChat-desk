@@ -2,6 +2,125 @@
 
 ## 2026-10-02
 
+### 23:16 | Antigravity
+
+- done: 提交思维导图功能相关代码：集成 Markmap 本地思维导图与幕布在线视图，支持正交连线与就地编辑
+- added:
+  - `src/renderer/src/components/LocalMindmapPanel.tsx`
+  - `src/renderer/src/components/MindmapSidebarView.tsx`
+- modified:
+  - `package.json`
+  - `package-lock.json`
+  - `src/renderer/src/components/WebviewSidebarPanel.tsx`
+  - `src/renderer/src/pages/QuickPage.tsx`
+
+### 23:08 | Antigravity
+
+- done: 修复思维导图节点文本竖向折行问题，强制水平横向排版
+- decision: 在LocalMindmapPanel的CSS样式中为foreignObject所有div层级、mm-node-item和mm-node-title强制注入white-space:nowrap和width:max-content
+- modified:
+  - `src/renderer/src/components/LocalMindmapPanel.tsx`
+- lesson(promoted): Markmap外层foreignObject容器在初始无明确宽度时，内层中文字符若缺失white-space:nowrap会在每个字符处发生自动软折行坍塌为单字竖排；必须在外层foreignObject、div及mm-node-item/mm-node-title全链路设置white-space:nowrap与width:max-content
+
+### 22:56 | Antigravity
+
+- done: 彻底修复思维导图连线与节点之间的视觉空隙与断裂问题
+- decision: 在 getOrthogonalStepPath 中提取真实 DOM 边界 offsetWidth/offsetHeight 并根据层级穿透 1-2px 闭合入卡片或纯文本；CSS 强制 foreignObject x:0 且按钮默认 display:none
+- modified:
+  - `src/renderer/src/components/LocalMindmapPanel.tsx`
+- lesson(promoted): Markmap 中绝对定位子元素（如 hover 操作按钮）即便 opacity:0 也会撑大祖先元素 scrollWidth，导致 D3 计算 rect.width 虚增 40px 引发出线空隙；必须将非 hover/非 fold 态设为 display:none，并在折线计算中以实际 DOM offsetWidth 为准
+
+### 22:28 | Antigravity
+
+- done: 彻底修复部分节点无法被选中及无法触发hover效果的问题
+- modified:
+  - `src/renderer/src/components/LocalMindmapPanel.tsx`
+- lesson(promoted): Markmap默认CSS对foreignObject内div硬编码了width 9999px，在开启overflow visible后会横向遮盖右侧所有子分支导致无法hover和点击；必须在外层foreignObject及其包装div上强制设置pointer-events none与width auto，仅对mm-node-item本体开启pointer-events auto，并为纯文本分支设置微不可见背景消除穿透
+
+### 22:23 | Antigravity
+
+- done: 彻底消除连线与节点之间的断层空隙，大幅缩短水平连线距离让导图更紧凑
+- modified:
+  - `src/renderer/src/components/LocalMindmapPanel.tsx`
+- lesson(promoted): Markmap默认paddingX: 8会导致foreignObject产生8px外层偏移导致连线两端悬空断裂；必须显式配置paddingX: 0让连线与节点绝对贴合；配置spacingHorizontal: 46将原本80px的超长水平连线大幅缩减为46px，并微调纯文本节点的内边距
+
+### 22:14 | Antigravity
+
+- done: 实现节点末尾浮动圆形加号与向左向右展开收起按钮，覆盖在线段上且不改变节点与线段长度
+- modified:
+  - `src/renderer/src/components/LocalMindmapPanel.tsx`
+- lesson(promoted): 节点末端操作按钮必须通过0宽高的绝对定位anchor容器脱离流式布局，保证节点尺寸纯粹由文字决定，避免hover时节点宽度与连线长度发生变化；圆形白底按钮可无缝遮盖正交折线，收起采用向左箭头◂，展开采用向右箭头▸
+
+### 22:01 | Antigravity
+
+- done: 修复思维导图节点无法选中与修改/增删节点时画布突变缩放问题
+- modified:
+  - `src/renderer/src/components/LocalMindmapPanel.tsx`
+- lesson(promoted): Markmap集成避坑：1. 严禁嵌套setState并使用treeRef保障最新树；2. 避免透明背景在SVG foreignObject中点击穿透需设rgba微背景；3. 连线设置pointer-events none防止遮挡节点点击；4. ResizeObserver需设置防抖阈值杜绝编辑微调时误触发fit()
+
+### 21:52 | Antigravity
+
+- done: 彻底修复节点选择与编辑视口跳动：禁用 Markmap 内部 autoFit 消除编辑/增删节点时的画布缩放跳变，全方位捕获节点点击与双击，扩大分支热区并双向同步 mm-selected 状态
+- decision: 将 autoFit 设为 false 仅在初次挂载时执行一次 fit()，后续数据变更绝不跳动画布；点击事件优先多级向上向内解析 .mm-node-item，彻底解决子元素或外层 div 点击漏选问题
+- modified:
+  - `src/renderer/src/components/LocalMindmapPanel.tsx`
+- lesson(promoted): Markmap 的 options.autoFit: true 会在每次 setData() 内部自动触发 this.fit() 重设视口缩放，导致编辑/增删节点时画布突变缩放；必须 autoFit: false 仅手动适时 fit；点击目标判定需兼顾 foreignObject 和包装 div，防止点击边缘时误判为背景
+
+### 21:37 | Antigravity
+
+- done: 修复连线垂直居中与节点编辑生命周期：从 D3 __data__ 精准计算节点垂直居中坐标并连接卡片中部；移除 mm.transition 篡改避免 TypeError；解耦 selectedNodeId/editingNodeId 与 setData 依赖，消除 addRange DOM 节点销毁告警
+- decision: 通过 D3 __data__ rect 提取源节点与目标节点实际高度的一半作为 Y 轴锚点，实现连线穿入节点正中央；节点选中与编辑态使用 DOM class 驱动而非 setData 重建
+- modified:
+  - `src/renderer/src/components/LocalMindmapPanel.tsx`
+- lesson(promoted): 不能篡改 mm.transition 为 raw selection，Markmap 内部强依赖 transition.end() promise；selectedNodeId/editingNodeId 变化切勿触发 markmap.setData，否则会销毁正处于编辑态的 DOM 导致 addRange 越界失败
+
+### 21:19 | Antigravity
+
+- done: 彻底攻克正交折线与节点原形就地编辑：全局拦截 SVGPathElement setAttribute 实现幕布风格正交折线，节点标题 contenteditable 原生形状内打字，移除浮层输入框
+- decision: 采用 SVGPathElement 原型级拦截和 mm.transition 规避 D3 动画滞后；采用节点内部 contenteditable 实现原形状原色就地打字零浮层
+- modified:
+  - `src/renderer/src/components/LocalMindmapPanel.tsx`
+- lesson(promoted): Markmap 内部硬编码 linkHorizontal 贝塞尔曲线且依赖 D3 transition，必须在 SVGPathElement 原型层拦截并在实例上替换 transition 才能实现无闪烁纯正交折线；就地编辑应直接赋予节点 DOM contenteditable，完美继承节点尺寸和黑白灰层级样式
+
+### 20:44 | Antigravity
+
+- done: 实现幕布式黑白灰分层视觉与正交折线连线，支持点击打字覆盖、双击就地编辑及Tab/加号就地新增输入零弹窗
+- decision: 设计 curveToStepPath 算法将贝塞尔曲线转换为正交阶梯折线，统一黑白灰无彩色分支；根节点黑底白字、一级节点浅灰块、二级及以上透明底文字；通过绝对定位原位输入框实现零弹窗就地直接输入与打字覆盖
+- modified:
+  - `src/renderer/src/components/LocalMindmapPanel.tsx`
+- lesson(promoted): Markmap 原生连线为贝塞尔曲线，可通过提取路径端点坐标动态改写为 M-L 正交折线，并在父节点侧统一折角水平偏移量实现同分支垂直对齐；就地编辑采用绝对定位原位输入框比 SVG 内嵌 input 具备更好的中文输入法兼容性与定位稳定性
+
+### 20:32 | Antigravity
+
+- done: 修复 LocalMindmapPanel 中 cloneTree 与 findNode 在 useCallback 声明中递归自引用导致的 TDZ ReferenceError
+- decision: 将 cloneTree 和 findNode 提取为模块级纯函数，消除组件内的生命周期与依赖闭包死区
+- modified:
+  - `src/renderer/src/components/LocalMindmapPanel.tsx`
+- lesson(promoted): 递归树操作纯函数切勿在 React 组件体内用 useCallback 声明并在依赖数组中引用自身，否则会在初始化阶段触发 ES6 暂时性死区 (TDZ) ReferenceError: Cannot access X before initialization，应直接声明为模块顶层纯函数
+
+### 20:18 | Antigravity
+
+- done: 优化思维导图交互：Header只保留大字号本地/在线Tab，导图/Markdown切换移至画布右上角，Markdown精简为纯源码编辑，导图默认全展开且修复展开按钮，支持Delete删除节点、Tab/加号新增节点、hover末尾折叠及撤回重做
+- decision: 在Markmap中自定义节点HTML包裹结构，隐藏原生圆圈，节点末尾提供+与hover折叠按钮避免打架；建立无损Line-based AST双向映射，支持键盘Tab新增与Delete删除，双击重命名并记录历史栈实现Undo/Redo
+- modified:
+  - `src/renderer/src/components/LocalMindmapPanel.tsx`
+  - `src/renderer/src/components/MindmapSidebarView.tsx`
+- lesson(promoted): Markmap 原生 circle 与自定义按钮容易冲突，可通过 CSS 隐藏 circle 并在节点内容末尾自定义嵌入展开与添加按钮；Markmap 默认全展开需设置 initialExpandLevel: -1 并在数据变化时调用 setData 与 fit
+
+### 20:08 | Antigravity
+
+- done: 基于 Markmap 实现本地自研思维导图与在线幕布分段切换功能，支持思维导图与 Markdown 预览双模
+- decision: 采用 markmap-lib/no-plugins 与 markmap-view 实现轻量化离线渲染；在侧边栏 Header 引入分段控件支持本地/在线无缝切换并保活在线会话；本地以 Markdown 为单一真实数据源，默认以思维导图呈现，并支持视口自适应、展开折叠、SVG导出及持久化存储
+- added:
+  - `src/renderer/src/components/LocalMindmapPanel.tsx`
+  - `src/renderer/src/components/MindmapSidebarView.tsx`
+- modified:
+  - `package.json`
+  - `package-lock.json`
+  - `src/renderer/src/components/WebviewSidebarPanel.tsx`
+  - `src/renderer/src/pages/QuickPage.tsx`
+- lesson(promoted): Markmap 采用 markmap-lib/no-plugins 导入 Transformer 能排除重型代码高亮和数学公式插件，大幅减小构建体积并消除运行风险；在侧边栏切换在线 Webview 与本地组件时，通过 CSS display:none 隐藏 WebviewCard 可避免销毁重建导致的页面重新加载与登录态中断
+
 ### 16:30 | Antigravity
 
 - done: 修复单窗口与多窗口/任务分配模式切换时容器宽度计算为0导致窗口塌陷空白的问题
