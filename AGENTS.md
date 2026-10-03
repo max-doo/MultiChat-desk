@@ -42,7 +42,7 @@ MultiChat Desk 是基于 Electron 的桌面应用，通过多个 Webview 并行�
 ## Architecture Constraints
 
 - **分层边界**：`src/main` 主进程能力 / 窗口 / Session / IPC / 数据 / 总结链路；`src/preload` 仅做安全桥接;`src/renderer` 仅做 UI / 状态 / 页面逻辑 / Webview 交互。禁止跨层塞逻辑。
-- **IPC 约束**：新增或修改 IPC 必须同时同步 `src/main/ipcHandlers.ts`、`src/preload/index.ts`、`src/preload/index.d.ts` 及渲染层调用点;返回结构统一为 `{ success, data?, error? }`。
+- **IPC 约束**：新增或修改 IPC 必须同时同步 `src/main/ipcHandlers.ts`、`src/preload/index.ts`、`src/preload/index.d.ts`、`src/renderer/src/env.d.ts`（当前另有渲染层契约声明）及渲染层调用点;返回结构统一为 `{ success, data?, error? }`。
 - **Webview 自动化约束**: 站点选择器统一维护在 `src/shared/config/selectors.ts`，注入脚本统一在 `src/shared/utils/webviewScripts.ts`；渲染层对应路径只重导出。优先多候选选择器与可见性判断，避免脆弱 DOM 依赖。
 - **总结链路约束**：涉及总结请求 / 供应商适配 / 流式解析 / reasoning / thinking / 中止能力时必须同步 `src/main/config/requestBodyConfig.ts`、`src/main/api/summaryApi.ts`、`src/main/ipcHandlers.ts`、`src/preload/index.ts` 与相关前端调用，确保 `abortSummary`、流式回调与思考内容兼容。
 - **Session 约束**：所有 Webview 共享 `persist:shared` Session，登录态全局；任何涉及 Session / Cookie / 账户切换的改动必须评估全局影响。

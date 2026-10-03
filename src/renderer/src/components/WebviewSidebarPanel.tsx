@@ -2,6 +2,7 @@ import React from 'react'
 import WebviewCard, { type WebviewCardRef } from './WebviewCard'
 import MindmapSidebarView from './MindmapSidebarView'
 import type { SidebarMode } from '../hooks/useWebviewSidebar'
+import type { MindmapSource } from './ConversationMindmapPanel'
 
 export interface WebviewSidebarPanelProps {
   isOpen: boolean
@@ -15,6 +16,7 @@ export interface WebviewSidebarPanelProps {
   instancePrefix: string
   sidebarRefs: React.MutableRefObject<Map<string, WebviewCardRef>>
   mindmapRef: React.MutableRefObject<WebviewCardRef | null>
+  conversationSource?: MindmapSource
   onClose: () => void
   onModelChange: (modelId: string) => void
   onClearError: () => void
@@ -35,6 +37,7 @@ export default function WebviewSidebarPanel({
   instancePrefix,
   sidebarRefs,
   mindmapRef,
+  conversationSource,
   onClose,
   onModelChange,
   onClearError,
@@ -119,6 +122,7 @@ export default function WebviewSidebarPanel({
             <MindmapSidebarView
               instancePrefix={instancePrefix}
               mindmapRef={mindmapRef}
+              conversationSource={conversationSource}
               onClose={onClose}
             />
           </div>

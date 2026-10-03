@@ -1,11 +1,15 @@
 import React, { useState, useCallback } from 'react'
 import WebviewCard, { type WebviewCardRef } from './WebviewCard'
 import LocalMindmapPanel from './LocalMindmapPanel'
+import ConversationMindmapPanel, { type MindmapSource as ConversationSource } from './ConversationMindmapPanel'
 
 export interface MindmapSidebarViewProps {
   instancePrefix: string
   mindmapRef: React.MutableRefObject<WebviewCardRef | null>
   onClose: () => void
+  conversationSource?: ConversationSource
+  draggableHeader?: boolean
+  onDragStart?: (e: React.PointerEvent<HTMLDivElement>) => void
 }
 
 type MindmapSource = 'local' | 'online'
@@ -15,7 +19,10 @@ const SOURCE_STORAGE_KEY = 'multichat_mindmap_source_preference'
 export default function MindmapSidebarView({
   instancePrefix,
   mindmapRef,
-  onClose
+  onClose,
+  conversationSource,
+  draggableHeader,
+  onDragStart
 }: MindmapSidebarViewProps): JSX.Element {
   // 思维导图数据源：'local'（自研本地） | 'online'（幕布在线），默认 local
   const [source, setSource] = useState<MindmapSource>(() => {
@@ -40,11 +47,26 @@ export default function MindmapSidebarView({
   return (
     <div className="h-full flex flex-col bg-white select-none">
       {/* 顶部 Header 控制栏：只放本地与在线切换 Tab 与关闭按钮 */}
-      <div className="px-3 py-2.5 border-b border-gray-200/70 bg-white flex justify-between items-center gap-2">
+      <div
+        className={`px-3 py-2.5 border-b border-gray-200/70 bg-white flex justify-between items-center gap-2 ${
+          draggableHeader ? 'drag-region select-none' : ''
+        }`}
+        onPointerDown={draggableHeader ? (e) => {
+          const target = e.target as HTMLElement
+          if (target.closest('button') || target.closest('.no-drag') || target.closest('input') || target.closest('select')) return
+          if (target.closest('.drag-region') || target === e.currentTarget) {
+            e.currentTarget.setPointerCapture(e.pointerId)
+            window.api.windowDragStart()
+            if (onDragStart) {
+              onDragStart(e)
+            }
+          }
+        } : undefined}
+      >
         {/* 左侧：图标 + [ 本地 | 在线 ] 分段控件（字号放大，视觉清晰） */}
         <div className="flex items-center gap-2 min-w-0">
           <span className="material-symbols-outlined text-primary text-xl shrink-0">account_tree</span>
-          <div className="flex items-center bg-gray-100 p-0.5 rounded-lg text-sm font-medium text-text-secondary select-none">
+          <div className="flex items-center bg-gray-100 p-0.5 rounded-lg text-sm font-medium text-text-secondary select-none no-drag">
             <button
               type="button"
               onClick={() => handleSourceChange('local')}
@@ -102,7 +124,7 @@ export default function MindmapSidebarView({
           className="h-full w-full"
           style={{ display: source === 'local' ? 'block' : 'none' }}
         >
-          <LocalMindmapPanel />
+          {conversationSource ? <ConversationMindmapPanel source={conversationSource} /> : <LocalMindmapPanel />}
         </div>
 
         {/* 在线思维导图（幕布）区域：切换为本地时 display: none 保留会话不重新加载 */}

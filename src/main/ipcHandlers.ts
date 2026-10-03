@@ -3,7 +3,7 @@
  * 负责处理主进程与渲染进程之间的 IPC 通信
  */
 
-import { app, ipcMain, dialog, clipboard, BrowserWindow, shell, session, screen } from 'electron'
+import { app, ipcMain, dialog, clipboard, BrowserWindow, shell, session, screen, webContents } from 'electron'
 import { is } from '@electron-toolkit/utils'
 import { basename, extname, join, dirname, resolve } from 'path'
 import { stat, writeFile, mkdtemp, rm } from 'fs/promises'
@@ -14,7 +14,11 @@ import { setQuitting, getQuickWindow, showAndFocusWindow, hideToolbarWindow, get
 import { broadcastStateChange } from './stateBus'
 import { HistoryManager } from './api/historyManager'
 import { NoteManager } from './noteManager'
-import type { NoteDraft } from '../shared/types/notes'
+import type { NoteDraft, NoteNavigation } from '../shared/types/notes'
+import { generateNoteCaptureScript, generateMindmapPageStateScript } from '../shared/utils/webviewScripts'
+import { MindmapService } from './services/MindmapService'
+import { MINDMAP_REQUIREMENTS_LIMIT } from '../shared/utils/mindmap'
+import { normalizeNoteTranscriptMarkdown } from '../shared/utils/noteTranscript'
 import { getShortcuts, updateShortcuts, type ShortcutConfig } from './shortcutManager'
 import { readPlatformSelection, getAccessibilityPermissionStatus, requestAccessibilityPermission } from './platform/selectionReader'
 import {
@@ -823,6 +827,89 @@ export function registerIpcHandlers(
     // History 分页与磁盘上限管理（只读分页 + store-set 后 enforce）
     const historyManager = new HistoryManager(store)
     const noteManager = new NoteManager(store)
+    const broadcastNotes = (channel: 'notes:changed' | 'mindmaps:task-changed', data?: unknown): void => {
+        BrowserWindow.getAllWindows().forEach(window => {
+            try {
+                if (!window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send(channel, data)
+            } catch {
+                // 某个窗口关闭或通知失败不能阻断任务，也不能影响其他窗口接收状态。
+                console.warn('[Notes] 窗口通知失败:', channel)
+            }
+        })
+    }
+    const notesChanged = (): void => broadcastNotes('notes:changed')
+    const mindmapService = new MindmapService(noteManager, task => broadcastNotes('mindmaps:task-changed', task), notesChanged)
+    app.once('before-quit', () => mindmapService.shutdown())
+    ipcMain.handle('notes:capture-source', async (event, id: number, platform: string, name: string) => {
+        try {
+            const source = webContents.fromId(id)
+            if (!source || source.isDestroyed() || source.hostWebContents?.id !== event.sender.id) throw new Error('当前对话窗口无效')
+            const originalUrl = source.getURL()
+            const selectors = await automationService.getPlatformSelectors(platform)
+            const state = await source.executeJavaScript(generateMindmapPageStateScript(selectors, platform)) as { busy: boolean }
+            if (state.busy) throw new Error('当前回复尚未完成，请完成后再生成')
+            const capture = await source.executeJavaScript(generateNoteCaptureScript()) as { snapshot?: string; title?: string; url?: string }
+            if (capture.url !== originalUrl || source.getURL() !== originalUrl) throw new Error('采集时对话已切换，请在目标对话重新生成')
+            const data = await noteManager.saveSource({ platform: name, title: capture.title || name, url: capture.url || '', snapshot: capture.snapshot || '' })
+            notesChanged()
+            if (data.snapshot !== normalizeNoteTranscriptMarkdown(capture.snapshot || '')) throw new Error('本次采集较短或缺少已有批注原文，已保留原快照。请确认完整对话已加载后重试')
+            return { success: true, data }
+        } catch (error) { return { success: false, error: error instanceof Error ? error.message : '读取对话失败' } }
+    })
+    ipcMain.handle('mindmaps:start', async (_event, conversationId: string, platform: string, additionalRequirements?: string) => {
+        try {
+            if (additionalRequirements !== undefined && typeof additionalRequirements !== 'string') throw new Error('额外要求必须是文本')
+            if ((additionalRequirements?.length || 0) > MINDMAP_REQUIREMENTS_LIMIT) throw new Error(`额外要求不能超过 ${MINDMAP_REQUIREMENTS_LIMIT} 字符`)
+            const source = (await noteManager.list()).find(item => item.id === conversationId)
+            if (!source) throw new Error('来源会话不存在')
+            return { success: true, data: await mindmapService.start(source, platform, additionalRequirements?.trim()) }
+        } catch (error) { return { success: false, error: error instanceof Error ? error.message : '启动失败' } }
+    })
+    ipcMain.handle('mindmaps:task', () => ({ success: true, data: mindmapService.getTask() }))
+    ipcMain.handle('mindmaps:cancel', (_event, id: string) => {
+        try { mindmapService.cancel(id); return { success: true } }
+        catch (error) { return { success: false, error: String(error) } }
+    })
+    ipcMain.handle('mindmaps:show', (_event, id: string) => {
+        try { mindmapService.show(id); return { success: true } }
+        catch (error) { return { success: false, error: String(error) } }
+    })
+    ipcMain.handle('mindmaps:add', async (_event, conversationId: string, markdown: string) => {
+        try {
+            const source = (await noteManager.list()).find(item => item.id === conversationId)
+            if (!source) throw new Error('来源会话不存在')
+            const data = await noteManager.addMindmap(source.id, markdown, '本地', source.snapshotRevision)
+            notesChanged(); return { success: true, data }
+        } catch (error) { return { success: false, error: String(error) } }
+    })
+    ipcMain.handle('mindmaps:update', async (_event, conversationId: string, id: string, markdown: string, title: string, updatedAt: number) => {
+        try { const data = await noteManager.updateMindmap(conversationId, id, markdown, title, updatedAt); notesChanged(); return { success: true, data } }
+        catch (error) { return { success: false, error: String(error) } }
+    })
+    ipcMain.handle('mindmaps:delete', async (_event, conversationId: string, id: string) => {
+        try { await noteManager.deleteMindmap(conversationId, id); notesChanged(); return { success: true } }
+        catch (error) { return { success: false, error: String(error) } }
+    })
+    ipcMain.handle('mindmaps:import-legacy', async (_event, markdown: string) => {
+        try { const data = await noteManager.importLegacyMindmap(markdown); notesChanged(); return { success: true, data } }
+        catch (error) { return { success: false, error: String(error) } }
+    })
+    let pendingNoteNavigation: NoteNavigation | null = null
+    ipcMain.handle('notes:open', (_event, navigation: NoteNavigation) => {
+        if (!navigation || typeof navigation.conversationId !== 'string') return { success: false, error: '无效的笔记定位' }
+        pendingNoteNavigation = navigation
+        const mainWindow = getMainWindow()
+        if (!mainWindow || mainWindow.isDestroyed()) return { success: false, error: '主窗口未就绪' }
+        mainWindow.webContents.send('notes:navigate', navigation)
+        showAndFocusWindow(mainWindow)
+        return { success: true }
+    })
+    ipcMain.handle('notes:consume-navigation', event => {
+        if (event.sender.id !== getMainWindow()?.webContents.id) return { success: false, error: '仅主窗口可读取定位' }
+        const data = pendingNoteNavigation
+        pendingNoteNavigation = null
+        return { success: true, data }
+    })
 
     ipcMain.handle('notes:list', async () => {
         try { return { success: true, data: await noteManager.list() } }
@@ -841,7 +928,14 @@ export function registerIpcHandlers(
         catch (error) { return { success: false, error: String(error) } }
     })
     ipcMain.handle('notes:delete', async (_event, conversationId: string, noteId: string) => {
-        try { await noteManager.deleteNote(conversationId, noteId); BrowserWindow.getAllWindows().forEach(window => window.webContents.send('notes:changed')); return { success: true } }
+        try {
+            const task = mindmapService.getTask()
+            if (task?.conversationId === conversationId && !['done', 'error', 'cancelled'].includes(task.phase)) {
+                const source = (await noteManager.list()).find(item => item.id === conversationId)
+                if (source?.notes.length === 1 && !source.mindmaps.length) throw new Error('正在为该会话生成导图，请完成或取消后再删除最后一条批注')
+            }
+            await noteManager.deleteNote(conversationId, noteId); notesChanged(); return { success: true }
+        }
         catch (error) { return { success: false, error: String(error) } }
     })
     ipcMain.handle('notes:export', async (event) => {
@@ -859,9 +953,10 @@ export function registerIpcHandlers(
                 await writeFile(result.filePath, JSON.stringify(conversations, null, 2), 'utf8')
             } else {
                 const markdown = conversations.map(item => {
-                    const snapshot = item.notes[item.notes.length - 1]?.snapshot || ''
+                    const snapshot = item.snapshot
                     const annotations = item.notes.map((note, index) => `### 笔记 ${index + 1}\n\n> ${note.quote.replace(/\n/g, '\n> ')}\n\n${note.comment || ''}`).join('\n\n')
-                    return `# ${item.title}\n\n来源：${item.platform} · ${item.url}\n\n${snapshot}\n\n---\n\n## 我的笔记\n\n${annotations}`
+                    const mindmaps = item.mindmaps.map(map => `### ${map.title}\n\n${map.markdown}`).join('\n\n')
+                    return `# ${item.title}\n\n来源：${item.platform} · ${item.url}\n\n${snapshot}\n\n---\n\n## 我的笔记\n\n${annotations}\n\n## 思维导图\n\n${mindmaps}`
                 }).join('\n\n---\n\n')
                 await writeFile(result.filePath, markdown, 'utf8')
             }

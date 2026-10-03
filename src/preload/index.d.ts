@@ -1,5 +1,5 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
-import type { NoteConversation, NoteDraft, NoteHighlight, NoteSelectionRect } from '../shared/types/notes'
+import type { NoteConversation, NoteDraft, NoteHighlight, NoteSelectionRect, ConversationMindmap, MindmapTask, NoteNavigation } from '../shared/types/notes'
 
 // 文件数据类型
 interface FileData {
@@ -116,6 +116,19 @@ declare global {
       storeSet: (key: string, value: unknown) => Promise<void>
       storeDelete: (key: string) => Promise<void>
       notesList: () => Promise<{ success: boolean; data?: NoteConversation[]; error?: string }>
+      notesCaptureSource: (id: number, platform: string, name: string) => Promise<{ success: boolean; data?: NoteConversation; error?: string }>
+      mindmapsStart: (conversationId: string, platform: string, additionalRequirements?: string) => Promise<{ success: boolean; data?: MindmapTask; error?: string }>
+      mindmapsTask: () => Promise<{ success: boolean; data?: MindmapTask | null; error?: string }>
+      mindmapsCancel: (id: string) => Promise<{ success: boolean; error?: string }>
+      mindmapsShow: (id: string) => Promise<{ success: boolean; error?: string }>
+      mindmapsAdd: (conversationId: string, markdown: string) => Promise<{ success: boolean; data?: ConversationMindmap; error?: string }>
+      mindmapsUpdate: (conversationId: string, id: string, markdown: string, title: string, updatedAt: number) => Promise<{ success: boolean; data?: ConversationMindmap; error?: string }>
+      mindmapsDelete: (conversationId: string, id: string) => Promise<{ success: boolean; error?: string }>
+      mindmapsImportLegacy: (markdown: string) => Promise<{ success: boolean; data?: NoteConversation; error?: string }>
+      notesOpen: (navigation: NoteNavigation) => Promise<{ success: boolean; error?: string }>
+      notesConsumeNavigation: () => Promise<{ success: boolean; data?: NoteNavigation | null; error?: string }>
+      onNotesNavigate: (cb: (navigation: NoteNavigation) => void) => () => void
+      onMindmapTaskChanged: (cb: (task: MindmapTask) => void) => () => void
       notesAnchorsForUrl: (url: string) => Promise<{ success: boolean; data?: NoteHighlight[]; error?: string }>
       onNotesChanged: (cb: () => void) => () => void
       notesSave: (draft: NoteDraft, comment: string) => Promise<{ success: boolean; data?: NoteConversation; error?: string }>

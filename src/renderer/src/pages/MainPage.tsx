@@ -1298,6 +1298,7 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
               isMindmapMounted={isMindmapMounted}
               sidebarError={sidebarError}
               instancePrefix="main"
+              conversationSource={displayedModels[0] ? { id: displayedModels[0].id, name: displayedModels[0].name, getRef: () => hibernationRefsMap.current.get(`${productMode}-0`) } : undefined}
               sidebarRefs={sidebarRefs}
               mindmapRef={mindmapRef}
               onClose={closeSidebar}

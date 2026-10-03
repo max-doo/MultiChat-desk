@@ -42,7 +42,7 @@ export class AutomationService {
   /**
    * 获取指定平台的选择器配置
    */
-  private async getPlatformSelectors(platformId: string): Promise<ModelSelector> {
+  public async getPlatformSelectors(platformId: string): Promise<ModelSelector> {
     let customModelSelector: ModelSelector | undefined
 
     if (this.store) {
@@ -69,7 +69,7 @@ export class AutomationService {
    * 获取指定平台的默认或初始加载网址
    */
   private getPlatformUrl(platformId: string, selectors: ModelSelector): string {
-    const url = PLATFORM_DEFAULT_URLS[platformId] || selectors.newConversationUrl
+    const url = selectors.newConversationUrl || PLATFORM_DEFAULT_URLS[platformId]
     if (!url) {
       throw new Error(`平台网址未配置: ${platformId}`)
     }
@@ -79,10 +79,10 @@ export class AutomationService {
   /**
    * 确保平台的会话窗口已创建且完成初始页面加载
    */
-  private async ensureSessionReady(platformId: string): Promise<Electron.WebContents> {
+  public async ensureSessionReady(platformId: string, sessionKey = platformId): Promise<Electron.WebContents> {
     const selectors = await this.getPlatformSelectors(platformId)
     const url = this.getPlatformUrl(platformId, selectors)
-    const win = sessionManager.getOrCreateSession(platformId, url)
+    const win = sessionManager.getOrCreateSession(sessionKey, url)
     const webContents = win.webContents
 
     const currentUrl = webContents.getURL()
@@ -130,14 +130,14 @@ export class AutomationService {
    * @param platformId 平台 ID
    * @param prompt 要发送的提示词内容
    */
-  public async executeCommand(platformId: string, prompt: string): Promise<AutomationResponse> {
+  public async executeCommand(platformId: string, prompt: string, sessionKey = platformId): Promise<AutomationResponse> {
     try {
       if (!platformId || !prompt) {
         return { success: false, error: '缺少必填参数 platformId 或 prompt' }
       }
 
       const selectors = await this.getPlatformSelectors(platformId)
-      const webContents = await this.ensureSessionReady(platformId)
+      const webContents = await this.ensureSessionReady(platformId, sessionKey)
 
       const script = generateSendMessageScript(prompt, platformId, selectors)
       const result = await webContents.executeJavaScript(script)
@@ -158,13 +158,13 @@ export class AutomationService {
    * 收集输出结果：执行查询脚本提取目标平台上最新的回复内容
    * @param platformId 平台 ID
    */
-  public async collectResult(platformId: string): Promise<AutomationResponse<string>> {
+  public async collectResult(platformId: string, sessionKey = platformId): Promise<AutomationResponse<string>> {
     try {
       if (!platformId) {
         return { success: false, error: '缺少必填参数 platformId' }
       }
 
-      const win = sessionManager.getSession(platformId)
+      const win = sessionManager.getSession(sessionKey)
       if (!win || win.isDestroyed()) {
         return { success: false, error: `后台会话不存在或已关闭: ${platformId}` }
       }

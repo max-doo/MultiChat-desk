@@ -3,7 +3,7 @@ export function noteConversationKey(url: string, title: string): string {
   const parsed = new URL(url)
   const path = parsed.pathname.replace(/\/$/, '') || '/'
   const stable = path.match(/\/(?:c|chat|app|search|thread|conversation)\/[^/]+/i)
-  if (stable) return `${parsed.origin}${stable[0]}`
+  if (stable) return `${parsed.origin}${path}`
   const id = parsed.searchParams.get('conversation_id') || parsed.searchParams.get('conversationId') || parsed.searchParams.get('chatId')
   if (id) return `${parsed.origin}/conversation/${id}`
   if (path !== '/') return `${parsed.origin}${path}`

@@ -5,7 +5,8 @@
 
 import type { ModelSelector } from '../config/selectors'
 import { getHtmlToMarkdownScript } from './htmlToMarkdown'
-import { noteMessageSelectors } from '../config/selectors'
+import { noteMessageSelectors, generationStopSelectors, mindmapCodeSelectors, responseMessageSelectors } from '../config/selectors'
+import { MINDMAP_TAGS } from './mindmap'
 import { NOTE_CLICK_PREFIX, NOTE_DISMISS_PREFIX } from '../types/notes'
 
 const IS_DEV = process.env.NODE_ENV !== 'production'
@@ -1745,7 +1746,7 @@ export function generateExtractImagesScript(selectors: ModelSelector): string {
  * 将 HTML 内容转换为 Markdown 格式
  * @param selectors 选择器配置
  */
-export function generateGetLatestResponseScript(selectors: ModelSelector): string {
+export function generateGetLatestResponseScript(selectors: ModelSelector, assistantOnly = false): string {
   // 获取 HTML 转 Markdown 的函数定义
   const htmlToMarkdownScript = getHtmlToMarkdownScript()
   const findSourceList = buildFindSourceListFunction()
@@ -1934,7 +1935,10 @@ export function generateGetLatestResponseScript(selectors: ModelSelector): strin
           }
         }
         
-        const containerSelectors = ${JSON.stringify(selectors.messageContainer)};
+        const containerSelectors = Array.from(new Set([
+          ...${JSON.stringify(selectors.messageContainer)},
+          ...(${JSON.stringify(responseMessageSelectors)}[location.hostname] || [])
+        ]));
         let allMatches = [];
         
         function safeQueryAll(root, selector) {
@@ -1974,6 +1978,7 @@ export function generateGetLatestResponseScript(selectors: ModelSelector): strin
         const seen = new Set();
         for (const el of allMatches) {
           if (!el || seen.has(el)) continue;
+          if (${assistantOnly} && el.closest('textarea,input,[contenteditable="true"],[data-message-author-role="user"],[data-role="user"],[data-testid="user-message"],user-query,.user-query')) continue;
           seen.add(el);
           unique.push(el);
         }
@@ -2134,6 +2139,89 @@ export function generateGetLatestResponseScript(selectors: ModelSelector): strin
   `
 }
 
+export interface MindmapResponse {
+  text: string
+  source: 'editor' | 'code' | 'message' | 'virtual-dom' | 'empty'
+  editorCount: number
+  codeCount: number
+  messageCount: number
+}
+
+/** 导图读取最新助手回复；还原渲染后的标题和列表，兼容已有代码块输出。 */
+export function generateMindmapResponseScript(selectors: ModelSelector): string {
+  return String.raw`
+    (async function () {
+      const config = ${JSON.stringify(mindmapCodeSelectors)};
+      const tags = ${JSON.stringify(MINDMAP_TAGS)};
+      const candidates = new Set();
+      for (const selector of [...${JSON.stringify(selectors.messageContainer)}, ...(${JSON.stringify(responseMessageSelectors)}[location.hostname] || []), config.messages]) {
+        try {
+          for (const el of document.querySelectorAll(selector)) {
+            if (el.closest(config.excluded)) continue;
+            // 后台窗口不要求消息参与可见布局；只依赖 DOM 连接和助手角色。
+            if (!el.isConnected) continue;
+            candidates.add(el);
+          }
+        } catch {}
+      }
+      const roots = Array.from(candidates).filter(el => !Array.from(candidates).some(other => other !== el && other.contains(el)));
+      roots.sort((a, b) => a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1);
+      const root = roots[roots.length - 1];
+      const editors = root ? Array.from(root.querySelectorAll(config.editors)).filter(el => !el.closest(config.excluded)) : [];
+      const codes = root ? Array.from(root.querySelectorAll(config.nativeCode)).filter(el => !el.closest(config.excluded) && !el.closest(config.editors) && !el.querySelector(config.editors)) : [];
+      const result = (text, source) => ({ text, source, editorCount: editors.length, codeCount: codes.length, messageCount: roots.length });
+      const isOutline = text => typeof text === 'string' && (text.includes(tags.begin) || text.includes(tags.end));
+      for (const editor of editors) {
+        const content = editor.querySelector(config.content);
+        for (const node of [content, editor]) {
+          if (!node) continue;
+          try {
+            // 对应 CodeMirror 6 新旧版本的 EditorView.findFromDOM 路径。
+            const view = node.cmView?.rootView?.view || node.cmView?.view || node.cmTile?.root?.view;
+            const doc = view?.state?.doc;
+            if (!doc || typeof doc.toString !== 'function') continue;
+            const text = doc.toString();
+            if (isOutline(text)) return result(text, 'editor');
+          } catch {}
+        }
+      }
+      for (const code of codes) {
+        const text = code.textContent || '';
+        if (isOutline(text)) return result(text, 'code');
+      }
+      // 存在虚拟编辑器却没有完整模型时，仅提供诊断，禁止保存可见片段。
+      if (editors.length) return result(editors.map(editor => editor.innerText || editor.textContent || '').join('\n'), 'virtual-dom');
+      if (root) {
+        // 不使用 innerText 拼接整条回复：网页列表缩进与标题标记需要从结构还原。
+        const read = (node, depth = 0) => {
+          if (node.nodeType === Node.TEXT_NODE) return node.textContent || '';
+          if (node.nodeType !== Node.ELEMENT_NODE || node.matches(config.noise) || node.matches(config.excluded)) return '';
+          const tag = node.tagName.toLowerCase();
+          if (tag === 'br') return '\n';
+          if (tag === 'pre') return '\n' + (node.textContent || '') + '\n';
+          if (tag === 'li') {
+            let label = '';
+            let children = '';
+            for (const child of node.childNodes) {
+              if (child.nodeType === Node.ELEMENT_NODE && /^(ul|ol)$/i.test(child.tagName)) children += read(child, depth + 1);
+              else label += read(child, depth);
+            }
+            return '\n' + '  '.repeat(depth) + '- ' + label.replace(/\s+/g, ' ').trim() + '\n' + children;
+          }
+          const content = Array.from(node.childNodes).map(child => read(child, depth)).join('');
+          if (/^h[1-6]$/.test(tag)) return '\n' + '#'.repeat(Number(tag[1])) + ' ' + content.replace(/\s+/g, ' ').trim() + '\n';
+          if (/^(p|div|section|article|ul|ol|blockquote)$/.test(tag)) return '\n' + content + '\n';
+          return content;
+        };
+        const text = read(root).replace(/\u200B|\uFEFF/g, '').trim();
+        return result(text, text ? 'message' : 'empty');
+      }
+      const text = await ${generateGetLatestResponseScript(selectors, true)};
+      return result(text || '', text ? 'message' : 'empty');
+    })();
+  `
+}
+
 /** 把当前 Webview 中已加载的整段对话和选区位置一次性读出。 */
 export function generateNoteCaptureScript(): string {
   const markdown = getHtmlToMarkdownScript()
@@ -2142,18 +2230,25 @@ export function generateNoteCaptureScript(): string {
       ${markdown}
       const selection = window.getSelection();
       const exact = selection ? selection.toString().trim() : '';
-      const candidates = Array.from(document.querySelectorAll('main,[role="main"]')).filter(el => selection && selection.rangeCount && el.contains(selection.anchorNode));
-      const root = candidates.sort((a, b) => (b.innerText || '').length - (a.innerText || '').length)[0] || document.body;
+      const roots = Array.from(document.querySelectorAll('main,[role="main"]'));
+      const candidates = roots.filter(el => !selection || !selection.rangeCount || el.contains(selection.anchorNode));
+      const root = (candidates.length ? candidates : roots).sort((a, b) => (b.innerText || '').length - (a.innerText || '').length)[0] || document.body;
       const normalized = value => (value || '').replace(/\s+/g, ' ').trim();
       const config = ${JSON.stringify(noteMessageSelectors)}[location.hostname];
       const selectors = config?.messages || '[data-message-author-role],[data-role="user"],[data-role="assistant"]';
-      const messages = Array.from(document.querySelectorAll(selectors)).filter(el => root.contains(el) && normalized(el.innerText || el.textContent));
+      const assistantSelectors = ${JSON.stringify(responseMessageSelectors)}[location.hostname] || [];
+      const assistantSelector = assistantSelectors.join(',');
+      const isAssistantBody = el => assistantSelectors.some(selector => el.matches(selector));
       const roleOf = el => {
-        const marker = config?.role === 'tagName' ? el.tagName.toLowerCase() : el.getAttribute(config?.role || 'data-message-author-role') || el.getAttribute('data-role') || '';
+        const container = el.closest(selectors);
+        const marker = config?.role === 'tagName' ? el.tagName.toLowerCase() : el.getAttribute(config?.role || 'data-message-author-role') || el.getAttribute('data-role') || el.getAttribute('data-turn') || container?.getAttribute(config?.role || 'data-message-author-role') || container?.getAttribute('data-role') || container?.getAttribute('data-turn') || '';
         if (/user|human|query/i.test(marker)) return '提问';
         if (/assistant|model|response/i.test(marker)) return 'AI 回复';
-        return '';
+        return isAssistantBody(el) ? 'AI 回复' : '';
       };
+      const messageCandidates = Array.from(document.querySelectorAll([selectors, ...assistantSelectors].join(','))).filter(el => root.contains(el) && normalized(el.textContent) && roleOf(el));
+      // 一轮的 section、角色容器和正文可能同时命中，保留外层同角色轮次，防止重复快照。
+      const messages = messageCandidates.filter(el => !messageCandidates.some(other => other !== el && other.contains(el) && roleOf(other) === roleOf(el)));
       const clean = el => {
         const copy = el.cloneNode(true);
         copy.querySelectorAll('button,nav,script,style,textarea,input,[contenteditable="true"],[aria-hidden="true"],.sr-only').forEach(node => node.remove());
@@ -2188,7 +2283,12 @@ export function generateNoteCaptureScript(): string {
       const blocks = messages.map(el => {
         const timeEl = el.querySelector('time') || el.closest('[data-testid^="conversation-turn-"]')?.querySelector('time');
         const time = timeEl ? (timeEl.innerText || timeEl.textContent || '').trim() : '';
-        return { role: roleOf(el), content: safeMarkdown(el), time };
+        const role = roleOf(el);
+        // 新版助手轮次只取正文，避免把反馈问卷或操作区混入对话。
+        const bodies = role === 'AI 回复' && assistantSelector && !isAssistantBody(el) ? Array.from(el.querySelectorAll(assistantSelector)) : [];
+        const uniqueBodies = bodies.filter(body => !bodies.some(other => other !== body && other.contains(body)));
+        const content = uniqueBodies.length ? uniqueBodies.map(safeMarkdown).join('\n\n') : safeMarkdown(el);
+        return { role, content, time };
       }).filter(item => item.role && item.content);
       const snapshot = blocks.length && blocks.some(item => item.role === '提问') && blocks.some(item => item.role === 'AI 回复')
         ? blocks.map(item => {
@@ -2229,6 +2329,19 @@ export function generateNoteCaptureScript(): string {
       };
     })();
   `
+}
+
+/** 导图后台任务仅采集就绪/生成信号，不返回或打印对话正文。 */
+export function generateMindmapPageStateScript(selectors: ModelSelector, platformId: string): string {
+  return `(function () {
+    const visible = el => !!el && el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden';
+    const find = list => list.some(selector => { try { return Array.from(document.querySelectorAll(selector)).some(visible); } catch { return false; } });
+    const stops = ${JSON.stringify(generationStopSelectors[platformId] || [])};
+    const genericStops = ['button[aria-label*="Stop"]', 'button[aria-label*="停止"]', 'button[data-testid="stop-button"]'];
+    // 已适配平台只使用确切的停止生成控件，避免误命中停止朗读等按钮。
+    const busy = find(stops.length ? stops : genericStops);
+    return { ready: find(${JSON.stringify(selectors.textarea)}), busy };
+  })();`
 }
 
 /** 在原网页上恢复笔记高亮；仅使用 CSS Highlight，避免改动第三方页面的文本 DOM。 */

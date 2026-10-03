@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import type { NoteConversation } from '../../../shared/types/notes'
+import type { NoteConversation, NoteNavigation } from '../../../shared/types/notes'
+import ConversationMindmapPanel from '../components/ConversationMindmapPanel'
 import { generateNoteHighlightScript } from '../../../shared/utils/webviewScripts'
 import { normalizeNoteTranscriptMarkdown, parseSnapshotBlocks } from '../../../shared/utils/noteTranscript'
 import { handleNoteHighlightClick, closeNotePopover, NOTE_CLICK_PREFIX, NOTE_DISMISS_PREFIX } from '../utils/noteInteractions'
@@ -52,16 +53,18 @@ function getInitialRightSidebarWidth(): number {
   return DEFAULT_RIGHT_SIDEBAR_WIDTH
 }
 
-export default function NotesPage(): JSX.Element {
+export default function NotesPage({ initialNavigation }: { initialNavigation?: NoteNavigation }): JSX.Element {
   const models = useAppStore(state => state.models)
   const [conversations, setConversations] = useState<NoteConversation[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [platform, setPlatform] = useState('all')
+  const [contentFilter, setContentFilter] = useState('all')
   const [error, setError] = useState('')
+  const [snapshotMissingIds, setSnapshotMissingIds] = useState<string[]>([])
 
   // 视图控制：中间画布模式（快照 vs 原始网页）
-  const [centerView, setCenterView] = useState<'snapshot' | 'webview'>('snapshot')
+  const [centerView, setCenterView] = useState<'snapshot' | 'webview' | 'mindmap'>('snapshot')
   // 右侧智能面板 Tab（批注列表 vs 目录大纲）
   const [rightTab, setRightTab] = useState<'notes' | 'outline'>('notes')
 
@@ -210,16 +213,19 @@ export default function NotesPage(): JSX.Element {
   const visible = useMemo(
     () =>
       conversations.filter(item => {
+        if (contentFilter === 'notes' && !item.notes.length) return false
+        if (contentFilter === 'mindmaps' && !item.mindmaps.length) return false
         if (platform !== 'all' && item.platform !== platform) return false
         const needle = query.trim().toLowerCase()
         if (!needle) return true
         return [
           item.title,
           item.platform,
-          ...item.notes.flatMap(note => [note.quote, note.comment])
+          ...item.notes.flatMap(note => [note.quote, note.comment]),
+          ...item.mindmaps.flatMap(map => [map.title, map.markdown])
         ].some(value => value.toLowerCase().includes(needle))
       }),
-    [conversations, platform, query]
+    [conversations, platform, query, contentFilter]
   )
 
   const selected = conversations.find(item => item.id === selectedId) || null
@@ -232,7 +238,7 @@ export default function NotesPage(): JSX.Element {
 
   focusedNoteIdRef.current = activeNote?.id || null
 
-  const rawSnapshot = activeNote?.snapshot || selected?.notes[0]?.snapshot || ''
+  const rawSnapshot = selected?.snapshot || ''
   const displaySnapshot = useMemo(
     () => normalizeNoteTranscriptMarkdown(rawSnapshot),
     [rawSnapshot]
@@ -241,6 +247,7 @@ export default function NotesPage(): JSX.Element {
   const blocks = useMemo(() => parseSnapshotBlocks(displaySnapshot), [displaySnapshot])
 
   const focusNote = (noteId: string): void => {
+    if (centerView === 'mindmap') setCenterView('snapshot')
     setSnapshotNoteId(noteId)
     setFocusTick(value => value + 1)
 
@@ -294,6 +301,7 @@ export default function NotesPage(): JSX.Element {
     })
 
     CSS.highlights.set('multichat-local-note', new Highlight(...matches.map(item => item.range)))
+    setSnapshotMissingIds(selected.notes.filter(note => !matches.some(match => match.note.id === note.id)).map(note => note.id))
 
     const focused = matches.find(item => item.note.id === activeNote.id)
     if (focused) {
@@ -333,7 +341,14 @@ export default function NotesPage(): JSX.Element {
       CSS.highlights.delete('multichat-local-note')
       CSS.highlights.delete('multichat-local-note-focus')
     }
-  }, [selected, activeNote?.id, activeNote?.snapshot, focusTick, centerView, displaySnapshot])
+  }, [selected, activeNote?.id, focusTick, centerView, displaySnapshot])
+
+  useEffect(() => {
+    if (!initialNavigation || !conversations.some(item => item.id === initialNavigation.conversationId)) return
+    setSelectedId(initialNavigation.conversationId)
+    setQuery(''); setPlatform('all'); setContentFilter('all')
+    setCenterView(initialNavigation.mindmapId ? 'mindmap' : 'snapshot')
+  }, [initialNavigation, conversations.length])
 
   // 保存评论
   const saveComment = async (noteId: string): Promise<void> => {
@@ -482,7 +497,7 @@ export default function NotesPage(): JSX.Element {
             </span>
             <input
               className="w-full rounded-xl border border-gray-200/80 bg-white/90 pl-9 pr-8 py-2 text-sm text-text-primary placeholder:text-gray-400 outline-none transition-all focus:border-primary focus:ring-2 focus:ring-primary/20"
-              placeholder="搜索标题、原文或评论..."
+              placeholder="搜索标题、批注或导图..."
               value={query}
               onChange={event => setQuery(event.target.value)}
             />
@@ -498,6 +513,9 @@ export default function NotesPage(): JSX.Element {
           </div>
 
           {/* 平台筛选 */}
+          <div className="flex gap-1 mt-2 text-xs">
+            {[['all', '全部'], ['notes', '有批注'], ['mindmaps', '有导图']].map(([value, label]) => <button key={value} onClick={() => setContentFilter(value)} className={`px-2 py-1 rounded ${contentFilter === value ? 'bg-primary/10 text-primary' : 'text-gray-500'}`}>{label}</button>)}
+          </div>
           <div className="mt-2.5">
             <select
               className="w-full rounded-xl border border-gray-200/80 bg-white/90 px-3 py-2 text-sm text-text-secondary outline-none focus:border-primary cursor-pointer transition-colors"
@@ -563,7 +581,7 @@ export default function NotesPage(): JSX.Element {
                         {item.platform}
                       </span>
                       <span className="text-xs text-gray-400 shrink-0">
-                        · {item.notes.length} 条笔记
+                        · {item.notes.length} 条批注 · {item.mindmaps.length} 份导图
                       </span>
                     </div>
                     <span className="shrink-0 text-xs text-gray-400">
@@ -674,7 +692,7 @@ export default function NotesPage(): JSX.Element {
                     {selected.title}
                   </h2>
                   <p className="mt-0.5 truncate text-xs text-text-secondary">
-                    {selected.platform} · {selected.notes.length} 条笔记 · 最近更新于{' '}
+                    {selected.platform} · {selected.notes.length} 条批注 · {selected.mindmaps.length} 份导图 · 最近更新于{' '}
                     {new Date(selected.updatedAt).toLocaleString()}
                   </p>
                 </div>
@@ -682,6 +700,7 @@ export default function NotesPage(): JSX.Element {
 
               {/* 分段选择器：[ 本地快照 ] / [ 原始网页 ] */}
               <div className="flex items-center p-1 bg-gray-100/80 rounded-xl border border-gray-200/60 shadow-xs">
+                <button type="button" onClick={() => setCenterView('mindmap')} className={`px-3 py-1.5 rounded-lg text-sm ${centerView === 'mindmap' ? 'bg-white text-primary shadow-xs' : 'text-text-secondary'}`}>思维导图 ({selected.mindmaps.length})</button>
                 <button
                   type="button"
                   onClick={() => setCenterView('snapshot')}
@@ -715,11 +734,15 @@ export default function NotesPage(): JSX.Element {
             </header>
 
             {/* 快照视图：居中纸白卡片排版 */}
+            <div className="flex-1 min-h-0" style={{ display: centerView === 'mindmap' ? 'block' : 'none' }}>
+              {centerView === 'mindmap' && <ConversationMindmapPanel key={selected.id} conversation={selected} initialMapId={initialNavigation?.conversationId === selected.id ? initialNavigation.mindmapId : undefined} />}
+            </div>
             <div
               ref={transcriptScrollRef}
               className="flex-1 overflow-y-auto px-6 py-6"
               style={{ display: centerView === 'snapshot' ? 'block' : 'none' }}
             >
+              {activeNote && snapshotMissingIds.includes(activeNote.id) && <p className="mb-3 text-xs text-amber-700">当前共享快照中未找到这条批注的原文，引用和评论仍保留在右侧。</p>}
               <div className="mx-auto max-w-3xl">
                 <div
                   ref={transcriptRef}
@@ -871,7 +894,7 @@ export default function NotesPage(): JSX.Element {
               <webview
                 key={selected.id}
                 ref={webviewRef}
-                src={selected.url}
+                src={selected.url || 'about:blank'}
                 partition="persist:shared"
                 className={`flex-1 w-full h-full ${isResizing ? 'pointer-events-none' : ''}`}
               />

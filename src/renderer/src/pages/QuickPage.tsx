@@ -362,25 +362,58 @@ export default function QuickPage(): JSX.Element {
 
   // 窗口拖拽监听
   useEffect(() => {
-    const handlePointerMove = (_e: PointerEvent) => {
+    let dragFrame: number | null = null
+    let dragMovePending = false
+
+    const flushDragMove = () => {
+      dragFrame = null
+      dragMovePending = false
       if (isDraggingRef.current) {
         window.api.windowDragMove()
       }
     }
-    
-    const handlePointerUp = (_e: PointerEvent) => {
-      if (isDraggingRef.current) {
-        isDraggingRef.current = false
-        window.api.windowDragEnd()
+
+    const handlePointerMove = (event: PointerEvent) => {
+      if (isDraggingRef.current && (event.buttons & 1) === 0) {
+        handlePointerEnd()
+        return
       }
+      if (!isDraggingRef.current || dragMovePending) return
+      dragMovePending = true
+      dragFrame = window.requestAnimationFrame(flushDragMove)
     }
-    
+
+    const handlePointerEnd = () => {
+      if (!isDraggingRef.current) return
+      isDraggingRef.current = false
+      dragMovePending = false
+      if (dragFrame !== null) {
+        window.cancelAnimationFrame(dragFrame)
+        dragFrame = null
+        window.api.windowDragMove()
+      }
+      window.api.windowDragEnd()
+    }
+
     window.addEventListener('pointermove', handlePointerMove)
-    window.addEventListener('pointerup', handlePointerUp)
-    
+    window.addEventListener('pointerup', handlePointerEnd)
+    window.addEventListener('pointercancel', handlePointerEnd)
+    window.addEventListener('lostpointercapture', handlePointerEnd)
+
     return () => {
       window.removeEventListener('pointermove', handlePointerMove)
-      window.removeEventListener('pointerup', handlePointerUp)
+      window.removeEventListener('pointerup', handlePointerEnd)
+      window.removeEventListener('pointercancel', handlePointerEnd)
+      window.removeEventListener('lostpointercapture', handlePointerEnd)
+      if (dragFrame !== null) {
+        window.cancelAnimationFrame(dragFrame)
+      }
+      if (isDraggingRef.current) {
+        window.api.windowDragEnd()
+      }
+      isDraggingRef.current = false
+      dragMovePending = false
+      dragFrame = null
     }
   }, [])
 
@@ -662,6 +695,10 @@ export default function QuickPage(): JSX.Element {
                       compact={true}
                       isolated={true}
                       flat={true}
+                      draggableHeader={true}
+                      onDragStart={() => {
+                        isDraggingRef.current = true
+                      }}
                       webviewInstanceId={`quick-sidebar-${model.id}`}
                       onModelChange={changeSidebarModel}
                       headerActions={
@@ -684,8 +721,13 @@ export default function QuickPage(): JSX.Element {
               <div className="h-full flex flex-col" style={{ display: sidebarMode === 'mindmap' ? 'flex' : 'none' }}>
                 <MindmapSidebarView
                   instancePrefix="quick"
+                  conversationSource={currentModel ? { id: currentModel.id, name: currentModel.name, getRef: () => cardRefs.current.get(currentModel.id) } : undefined}
                   mindmapRef={mindmapRef}
                   onClose={closeSidebar}
+                  draggableHeader={true}
+                  onDragStart={() => {
+                    isDraggingRef.current = true
+                  }}
                 />
               </div>
             )}

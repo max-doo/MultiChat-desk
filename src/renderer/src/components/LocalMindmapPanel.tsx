@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react'
 import { Markmap, globalCSS } from 'markmap-view'
 import type { INode } from 'markmap-common'
+import CustomDropdown from './CustomDropdown'
 
 export interface MindNode {
   id: string
@@ -11,7 +12,7 @@ export interface MindNode {
 
 const STORAGE_KEY = 'multichat_local_mindmap_markdown'
 
-const DEFAULT_MARKDOWN = `# b端和c端产品的区别
+export const DEFAULT_MARKDOWN = `# b端和c端产品的区别
 
 ## 目标相同
 - 创造价值并完成商业价值交换
@@ -392,11 +393,12 @@ function convertToMarkmapNode(
   } as unknown as INode
 }
 
-export default function LocalMindmapPanel(): JSX.Element {
+export default function LocalMindmapPanel({ initialMarkdown, onChange }: { initialMarkdown?: string; onChange?: (markdown: string) => void }): JSX.Element {
   const [viewMode, setViewMode] = useState<'mindmap' | 'markdown'>('mindmap')
 
   // Markdown 与树
   const [markdown, setMarkdown] = useState<string>(() => {
+    if (initialMarkdown !== undefined) return initialMarkdown
     try {
       const saved = localStorage.getItem(STORAGE_KEY)
       return saved !== null ? saved : DEFAULT_MARKDOWN
@@ -406,6 +408,12 @@ export default function LocalMindmapPanel(): JSX.Element {
   })
 
   const [tree, setTree] = useState<MindNode>(() => parseMarkdownToTree(markdown))
+  const onChangeRef = useRef(onChange)
+  onChangeRef.current = onChange
+  const persistMarkdown = useCallback((content: string) => {
+    if (onChangeRef.current) onChangeRef.current(content)
+    else localStorage.setItem(STORAGE_KEY, content)
+  }, [])
   const treeRef = useRef<MindNode>(tree)
   treeRef.current = tree
 
@@ -441,7 +449,7 @@ export default function LocalMindmapPanel(): JSX.Element {
       updateHistoryState()
 
       try {
-        localStorage.setItem(STORAGE_KEY, newMd)
+        persistMarkdown(newMd)
       } catch (err) {
         console.warn('[LocalMindmap] 持久化失败:', err)
       }
@@ -460,7 +468,7 @@ export default function LocalMindmapPanel(): JSX.Element {
     editingNodeIdRef.current = null
     updateHistoryState()
     try {
-      localStorage.setItem(STORAGE_KEY, prevMd)
+      persistMarkdown(prevMd)
     } catch {
       // ignore
     }
@@ -476,7 +484,7 @@ export default function LocalMindmapPanel(): JSX.Element {
     editingNodeIdRef.current = null
     updateHistoryState()
     try {
-      localStorage.setItem(STORAGE_KEY, nextMd)
+      persistMarkdown(nextMd)
     } catch {
       // ignore
     }
@@ -1007,6 +1015,8 @@ export default function LocalMindmapPanel(): JSX.Element {
     if (viewMode !== 'mindmap') return
 
     const handleKeyDown = (e: KeyboardEvent): void => {
+      // 标题、菜单和大纲输入使用各自的键盘行为，避免触发画布节点编辑。
+      if (!editingNodeIdRef.current && e.target instanceof HTMLElement && e.target.closest('input,textarea,select,[contenteditable="true"]')) return
       // 1. 正在处于就地编辑态
       if (editingNodeIdRef.current) {
         if (e.key === 'Enter' && !isComposingRef.current) {
@@ -1112,7 +1122,7 @@ export default function LocalMindmapPanel(): JSX.Element {
     (newVal: string) => {
       setMarkdown(newVal)
       try {
-        localStorage.setItem(STORAGE_KEY, newVal)
+        persistMarkdown(newVal)
       } catch {
         // ignore
       }
@@ -1381,7 +1391,7 @@ export default function LocalMindmapPanel(): JSX.Element {
         <button
           type="button"
           onClick={() => setViewMode('mindmap')}
-          className={`px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1 transition-all ${
+          className={`px-2.5 py-1 rounded-md text-sm font-medium flex items-center gap-1 transition-all ${
             viewMode === 'mindmap'
               ? 'bg-gray-100 text-gray-900 font-semibold shadow-2xs'
               : 'text-text-secondary hover:text-text-primary'
@@ -1393,14 +1403,14 @@ export default function LocalMindmapPanel(): JSX.Element {
         <button
           type="button"
           onClick={() => setViewMode('markdown')}
-          className={`px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1 transition-all ${
+          className={`px-2.5 py-1 rounded-md text-sm font-medium flex items-center gap-1 transition-all ${
             viewMode === 'markdown'
               ? 'bg-gray-100 text-gray-900 font-semibold shadow-2xs'
               : 'text-text-secondary hover:text-text-primary'
           }`}
         >
           <span className="material-symbols-outlined text-sm">article</span>
-          <span>Markdown</span>
+          <span>大纲</span>
         </button>
       </div>
 
@@ -1482,44 +1492,14 @@ export default function LocalMindmapPanel(): JSX.Element {
 
           <div className="w-[1px] h-4 bg-gray-200 mx-0.5" />
 
-          <button
-            type="button"
-            onClick={handleExpandAll}
-            className="w-7 h-7 flex items-center justify-center rounded text-text-secondary hover:text-text-primary hover:bg-gray-100 transition-colors"
-            title="展开所有节点"
-            aria-label="展开所有节点"
-          >
-            <span className="material-symbols-outlined text-base">unfold_more</span>
-          </button>
-          <button
-            type="button"
-            onClick={handleFoldAll}
-            className="w-7 h-7 flex items-center justify-center rounded text-text-secondary hover:text-text-primary hover:bg-gray-100 transition-colors"
-            title="收起子节点"
-            aria-label="收起子节点"
-          >
-            <span className="material-symbols-outlined text-base">unfold_less</span>
-          </button>
-
-          <div className="w-[1px] h-4 bg-gray-200 mx-0.5" />
-
-          <button
-            type="button"
-            onClick={handleExportSvg}
-            className="w-7 h-7 flex items-center justify-center rounded text-text-secondary hover:text-text-primary hover:bg-gray-100 transition-colors"
-            title="导出 SVG"
-            aria-label="导出 SVG"
-          >
-            <span className="material-symbols-outlined text-base">download</span>
-          </button>
+          <CustomDropdown value={null} onChange={() => {}} displayText="更多" direction="up" dropdownWidth="w-56 !left-auto right-0 !z-50 !max-h-[70vh]" buttonClassName="h-7 px-2 rounded text-gray-500 hover:bg-gray-100 flex items-center gap-1 text-sm" renderContent={close => <div className="p-1 text-sm">
+            <button className="w-full text-left px-3 py-2 rounded hover:bg-gray-100" onClick={() => { close(); handleExpandAll() }}>展开全部</button>
+            <button className="w-full text-left px-3 py-2 rounded hover:bg-gray-100" onClick={() => { close(); handleFoldAll() }}>收起子节点</button>
+            <button className="w-full text-left px-3 py-2 rounded hover:bg-gray-100" onClick={() => { close(); handleExportSvg() }}>导出图片（SVG）</button>
+            <div className="mt-1 px-3 py-2 border-t border-gray-100 text-gray-500 space-y-1"><p>双击节点编辑</p><p>Tab 添加子节点</p><p>Delete 删除节点</p><p>Ctrl+Z 撤销 · Ctrl+Y 重做</p></div>
+          </div>} />
         </div>
 
-        {/* 底部极简快捷提示 */}
-        <div className="absolute left-3 bottom-3 z-20 text-[11px] text-gray-400 bg-white/70 backdrop-blur px-2.5 py-1 rounded-md border border-gray-100 pointer-events-none flex items-center gap-3">
-          <span>点击/双击/打字: 就地在节点中编辑</span>
-          <span>Tab: 新增分支</span>
-          <span>Delete: 删除</span>
-        </div>
       </div>
 
       {/* ── 视图 B：Markdown 纯源码编辑 ── */}
@@ -1527,10 +1507,10 @@ export default function LocalMindmapPanel(): JSX.Element {
         className="flex-1 w-full h-full flex flex-col overflow-hidden"
         style={{ display: viewMode === 'markdown' ? 'flex' : 'none' }}
       >
-        <div className="px-3 py-2 border-b border-gray-200 bg-gray-50/70 flex items-center justify-between text-xs text-text-secondary select-none">
+        <div className="px-3 py-2 border-b border-gray-200 bg-gray-50/70 flex items-center justify-between text-sm text-text-secondary select-none">
           <div className="flex items-center gap-1.5 font-medium text-text-primary">
             <span className="material-symbols-outlined text-sm text-zinc-700">edit_note</span>
-            <span>Markdown 源码</span>
+            <span>编辑大纲</span>
           </div>
 
           <div className="flex items-center gap-1 pr-24">
@@ -1538,14 +1518,14 @@ export default function LocalMindmapPanel(): JSX.Element {
               type="button"
               onClick={async () => {
                 await navigator.clipboard.writeText(markdown)
-                showToast('已复制 Markdown')
+                showToast('已复制大纲')
               }}
               className="p-1.5 rounded hover:bg-gray-200 text-text-secondary hover:text-text-primary transition-colors"
-              title="复制 Markdown"
+              title="复制大纲"
             >
               <span className="material-symbols-outlined text-base">content_copy</span>
             </button>
-            <button
+            {!onChange && <button
               type="button"
               onClick={() => {
                 if (window.confirm('确定要恢复默认模板吗？当前内容将被覆盖。')) {
@@ -1557,7 +1537,7 @@ export default function LocalMindmapPanel(): JSX.Element {
               title="恢复默认模板"
             >
               <span className="material-symbols-outlined text-base">restart_alt</span>
-            </button>
+            </button>}
             <button
               type="button"
               onClick={() => {
@@ -1579,13 +1559,9 @@ export default function LocalMindmapPanel(): JSX.Element {
             value={markdown}
             onChange={(e) => handleMarkdownTextareaChange(e.target.value)}
             placeholder="# 根节点&#10;## 一级节点&#10;- 二级节点..."
-            className="flex-1 w-full h-full p-4 font-mono text-xs leading-relaxed text-text-primary bg-white focus:outline-none resize-none overflow-y-auto"
+            className="flex-1 w-full h-full p-4 font-mono text-sm leading-relaxed text-text-primary bg-white focus:outline-none resize-none overflow-y-auto"
             spellCheck={false}
           />
-          <div className="px-3 py-1 bg-gray-50 border-t border-gray-100 text-[11px] text-text-secondary/70 flex justify-between select-none">
-            <span>Markdown 为唯一真实数据源</span>
-            <span>{markdown.length} 字符</span>
-          </div>
         </div>
       </div>
     </div>

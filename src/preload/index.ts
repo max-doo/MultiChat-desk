@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
-import type { NoteConversation, NoteDraft, NoteHighlight, NoteSelectionRect } from '../shared/types/notes'
+import type { NoteConversation, NoteDraft, NoteHighlight, NoteSelectionRect, ConversationMindmap, MindmapTask, NoteNavigation } from '../shared/types/notes'
 
 // 文件数据类型
 interface FileData {
@@ -144,6 +144,27 @@ const api = {
   storeSet: (key: string, value: unknown): Promise<void> => ipcRenderer.invoke('store-set', key, value),
   storeDelete: (key: string): Promise<void> => ipcRenderer.invoke('store-delete', key),
   notesList: (): Promise<{ success: boolean; data?: NoteConversation[]; error?: string }> => ipcRenderer.invoke('notes:list'),
+  notesCaptureSource: (id: number, platform: string, name: string): Promise<{ success: boolean; data?: NoteConversation; error?: string }> => ipcRenderer.invoke('notes:capture-source', id, platform, name),
+  mindmapsStart: (conversationId: string, platform: string, additionalRequirements?: string): Promise<{ success: boolean; data?: MindmapTask; error?: string }> => ipcRenderer.invoke('mindmaps:start', conversationId, platform, additionalRequirements),
+  mindmapsTask: (): Promise<{ success: boolean; data?: MindmapTask | null; error?: string }> => ipcRenderer.invoke('mindmaps:task'),
+  mindmapsCancel: (id: string): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('mindmaps:cancel', id),
+  mindmapsShow: (id: string): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('mindmaps:show', id),
+  mindmapsAdd: (conversationId: string, markdown: string): Promise<{ success: boolean; data?: ConversationMindmap; error?: string }> => ipcRenderer.invoke('mindmaps:add', conversationId, markdown),
+  mindmapsUpdate: (conversationId: string, id: string, markdown: string, title: string, updatedAt: number): Promise<{ success: boolean; data?: ConversationMindmap; error?: string }> => ipcRenderer.invoke('mindmaps:update', conversationId, id, markdown, title, updatedAt),
+  mindmapsDelete: (conversationId: string, id: string): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('mindmaps:delete', conversationId, id),
+  mindmapsImportLegacy: (markdown: string): Promise<{ success: boolean; data?: NoteConversation; error?: string }> => ipcRenderer.invoke('mindmaps:import-legacy', markdown),
+  notesOpen: (navigation: NoteNavigation): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('notes:open', navigation),
+  notesConsumeNavigation: (): Promise<{ success: boolean; data?: NoteNavigation | null; error?: string }> => ipcRenderer.invoke('notes:consume-navigation'),
+  onNotesNavigate: (cb: (navigation: NoteNavigation) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, navigation: NoteNavigation): void => cb(navigation)
+    ipcRenderer.on('notes:navigate', handler)
+    return () => ipcRenderer.removeListener('notes:navigate', handler)
+  },
+  onMindmapTaskChanged: (cb: (task: MindmapTask) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, task: MindmapTask): void => cb(task)
+    ipcRenderer.on('mindmaps:task-changed', handler)
+    return () => ipcRenderer.removeListener('mindmaps:task-changed', handler)
+  },
   notesAnchorsForUrl: (url: string): Promise<{ success: boolean; data?: NoteHighlight[]; error?: string }> => ipcRenderer.invoke('notes:anchors-for-url', url),
   onNotesChanged: (cb: () => void): (() => void) => {
     const handler = (): void => cb()

@@ -12,6 +12,12 @@ Agents may suggest or promote a lesson into the `Known Gotchas` section of `AGEN
 
 ## Debugging Lessons
 
+- 更新站点回复选择器时，必须检查前台总结、后台导图和整段对话快照的实际执行路径，并确认本地旧配置不会屏蔽新增候选。站点补充候选统一维护在共享配置中，按主机名合并到实际采集脚本；类名有变化的后缀时匹配稳定前缀。快照还需识别用户与助手角色，并去除嵌套容器的重复命中，不能以最新助手回复替代整段对话。
+
+- 网页版 AI 将 Markdown 渲染为 DOM 后不能依赖标记整行相等或通用 HTML 转换保留列表缩进；结构化输出应保留代码块原文，并将未完成与已完成但无法解析分开处理。
+
+- **虚拟代码框需要读取完整文档模型**：CodeMirror 只将视口附近内容渲染到 DOM，代码块复制结果完整并不代表 `textContent` 完整。需要按最新助手回复限定范围，从编辑器 `state.doc` 读取全文，再回退普通代码块；识别到虚拟编辑器却无法读取模型时应明确失败，禁止保存可见片段。DOM 到 EditorView 的关联属于内部实现，必须兼容版本变化并保留只含计数的诊断，不能以构建成功替代实际网页验证。
+
 - **Markmap 节点内中文文本坍塌为单字竖排（垂直折行）**：Markmap 在初次向 SVG 插入 `<foreignObject>` 时尚未计算和指定其 `width` 属性。Chromium 渲染引擎在测量 `scrollWidth` 之前，面对无固定宽度的 SVG 容器，会将包含可断行字符（如中文 CJK 字符）的行内块级元素压缩至其最小内容宽度（min-content），导致每个汉字在字间断行坍塌为单字一行的竖排文本；随后 `_relayout()` 测得的 `scrollWidth` 仅为单个汉字宽度（~16px），并将 `foreignObject` 宽度永久固定为 16px。**解决方案**：在 CSS 中必须为外层容器 `.markmap-foreign`、其内部嵌套 `div` 以及 `.mm-node-item`、`.mm-node-title` 统一强制声明 `white-space: nowrap !important;` 与 `width: max-content !important;`，彻底杜绝软折行与竖向坍塌。
 
 - **Markmap 节点内绝对定位浮动元素会虚增 scrollWidth 导致连线断裂空隙**：Markmap 通过 measuring 节点的 `scrollWidth` 来计算 D3 树节点的 `rect.width` 并以此作为连线起点。在节点内部如果放置了绝对定位的浮动工具按钮（如 hover 时显示的加号或展开按钮），即便设置了 `opacity: 0` 或父级 `width: 0; height: 0;`，由于默认 `overflow: visible`，Blink/Chromium 的 `scrollWidth` 仍会将绝对定位的子元素尺寸累加进去，导致 Markmap 计算出的节点宽度虚增约 40px，引发连线从节点右侧悬空 40px 断裂引出。**解决方案**：①非 hover/非折叠态必须直接设为 `display: none !important;`，彻底脱离排版树；②在计算正交折线 `getOrthogonalStepPath` 时，通过 DOM 的 `offsetWidth`（真实物理 border-box，绝不包含绝对定位溢出）获取节点物理宽度，并结合层级穿透 1~2px 闭合入节点边框或文本边缘；③强制 SVG `foreignObject` 的 `x="0"`，杜绝默认 8px 边距导致的连线悬空。
@@ -207,3 +213,11 @@ Agents may suggest or promote a lesson into the `Known Gotchas` section of `AGEN
 
 
 
+
+- 来源会话键应保留完整规范化URL路径，截取第一个chat片段会把chat/s/id1和chat/s/id2错误分为同一会话
+
+- 当React组件在不同模式分支下分别渲染挂载了同一个ref的DOM元素时，若useEffect仅监听isActive而不监听DOM节点或模式切换，会导致ResizeObserver滞留于已卸载节点并上报0宽度，新节点未被监听从而永久冻结在0px。必须使用callback ref追踪DOM节点变化，并在CSS Grid列宽处提供minmax(0, 1fr)安全保底
+
+- UI 组件尺寸必须与应用核心面板（如 SettingsDrawer）规范看齐，避免局部页面为了紧凑而过度使用 text-xs 或 text-[10px] 导致可读性与点击舒适度下降
+
+- 抓取网页对话时，ChatGPT 等平台 DOM 自带无障碍头 (如 <h4>你说：</h4>)，在 htmlToMarkdown 时会被转为 Markdown 噪音；因此提取消息必须主动过滤 DOM 伴生噪点，使用 XML 标签隔离结构，彻底避免语法与格式污染

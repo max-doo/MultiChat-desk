@@ -7,6 +7,7 @@ import ToolbarPage from './pages/ToolbarPage'
 import HistoryDrawer from './components/HistoryDrawer'
 import NoteCaptureModal from './components/NoteCaptureModal'
 import NotesPage from './pages/NotesPage'
+import type { NoteNavigation } from '../../shared/types/notes'
 import { initializeStore, useAppStore, SummaryHistoryItem } from './store/appStore'
 
 // 诊断页仅在 dev 构建 reachable：生产构建里 import.meta.env.DEV=false，
@@ -23,6 +24,14 @@ function MainApp(): JSX.Element {
   const setPendingHistoryRestore = useAppStore((s) => s.setPendingHistoryRestore)
   const [isInitialized, setIsInitialized] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [noteNavigation, setNoteNavigation] = useState<NoteNavigation | undefined>()
+  useEffect(() => {
+    if (window.location.hash === '#quick' || window.location.hash === '#diagnostics') return
+    const navigate = (navigation: NoteNavigation): void => { setNoteNavigation(navigation); setCurrentPage('notes') }
+    const off = window.api.onNotesNavigate(navigation => { navigate(navigation); void window.api.notesConsumeNavigation() })
+    void window.api.notesConsumeNavigation().then(result => { if (result.data) navigate(result.data) })
+    return off
+  }, [setCurrentPage])
   // 记录是否曾经打开过 SummaryPage，用于延迟渲染
   const [hasSummaryOpened, setHasSummaryOpened] = useState(false)
   const [initialSummaryItem, setInitialSummaryItem] = useState<SummaryHistoryItem | undefined>(undefined)
@@ -166,7 +175,7 @@ function MainApp(): JSX.Element {
         </div>
       )}
 
-      {currentPage === 'notes' && <NotesPage />}
+      {currentPage === 'notes' && <NotesPage initialNavigation={noteNavigation} />}
 
       {/* 历史记录抽屉：渲染在页面容器外，两个页面均可显示 */}
       <HistoryDrawer

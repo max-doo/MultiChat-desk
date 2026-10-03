@@ -124,6 +124,8 @@ export type { FileUploadData }
 
 // 暴露给父组件的方法
 export interface WebviewCardRef {
+  getWebContentsId: () => number | null
+  getConversationIdentity: () => Promise<{ url: string; title: string } | null>
   sendMessage: (message: string, twoPhase?: boolean) => Promise<{ success: boolean; error?: string }>
   insertText: (message: string) => Promise<{ success: boolean; error?: string }>
   clearInput: () => Promise<{ success: boolean; error?: string }>
@@ -577,6 +579,15 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
       /**
        * 发送消息到当前平台
        */
+      getWebContentsId: () => {
+        try { return webviewRef.current?.getWebContentsId() || null } catch { return null }
+      },
+      getConversationIdentity: async () => {
+        const webview = webviewRef.current
+        if (!webview || !isReady || isHibernated) return null
+        try { return await webview.executeJavaScript('({url: location.href, title: document.title})') as { url: string; title: string } }
+        catch { return null }
+      },
       sendMessage: async (
         message: string,
         twoPhase = false

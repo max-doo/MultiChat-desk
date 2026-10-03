@@ -20,11 +20,40 @@ export interface AutomationStep {
 
 /** 笔记快照按消息提取时使用的容器和角色标记。 */
 export const noteMessageSelectors: Record<string, { messages: string; role: string }> = {
-  'chatgpt.com': { messages: '[data-message-author-role="user"],[data-message-author-role="assistant"]', role: 'data-message-author-role' },
+  'chatgpt.com': { messages: '[data-message-author-role="user"],[data-message-author-role="assistant"],[data-turn="user"],[data-turn="assistant"]', role: 'data-message-author-role' },
   'claude.ai': { messages: '[data-testid="user-message"],[data-testid="assistant-message"]', role: 'data-testid' },
   'gemini.google.com': { messages: 'user-query,model-response', role: 'tagName' },
   'www.doubao.com': { messages: '[data-role="user"],[data-role="assistant"]', role: 'data-role' }
 }
+
+/** 普通文字生成的停止控件；导图任务用作生成状态信号。 */
+export const generationStopSelectors: Record<string, string[]> = {
+  chatgpt: ['button[data-testid="stop-button"]', 'button[aria-label="Stop streaming"]', 'button[aria-label="停止流式传输"]'],
+  claude: ['button[aria-label="Stop response"]', 'button[aria-label="停止回复"]'],
+  gemini: ['button[aria-label="Stop response"]', 'button[aria-label="停止回答"]', 'button[aria-label="停止回复"]'],
+  deepseek: ['button[aria-label="Stop"]', 'button[aria-label="停止"]']
+}
+
+/** 站点正文结构更新的补充候选；采集脚本同时使用，兼容本地保存的旧配置。 */
+export const responseMessageSelectors: Record<string, string[]> = {
+  'chatgpt.com': [
+    'div[class*="MarkdownRoot-"]',
+    '[data-message-author-role="assistant"]',
+    '.markdown.prose',
+    '.agent-turn .markdown'
+  ]
+}
+
+/** 代码框的 DOM 可能只包含可见行；虚拟编辑器需读取完整文档模型。 */
+export const mindmapCodeSelectors = {
+  // 导图专用兜底，不依赖用户保存的旧站点选择器。
+  messages: '[data-message-author-role="assistant"],[data-role="assistant"],[data-turn="assistant"],[data-testid="assistant-message"],model-response',
+  editors: '.cm-editor',
+  content: '.cm-content',
+  nativeCode: 'pre code, pre',
+  excluded: 'textarea,input,[contenteditable="true"],[data-message-author-role="user"],[data-role="user"],[data-turn="user"],[data-testid="user-message"],user-query,.user-query',
+  noise: 'button,nav,svg,script,style,textarea,input,[aria-hidden="true"],.sr-only'
+} as const
 
 export interface ModelSelector {
   // 输入框选择器（按优先级排列）
@@ -91,9 +120,7 @@ export const defaultSelectors: SelectorsConfig = {
         'form button[type="submit"]'
       ],
       messageContainer: [
-        '[data-message-author-role="assistant"]',
-        '.markdown.prose',
-        '.agent-turn .markdown'
+        ...responseMessageSelectors['chatgpt.com']
       ],
       reportContainer: [
         'section.popover > section',

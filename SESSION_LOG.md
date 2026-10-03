@@ -1,5 +1,200 @@
 # Session Log
 
+## 2026-10-03
+
+### 22:14 | Codex
+
+- done: 落实会话导图主旨提炼提示词与可选额外要求；lint/build 通过，类型对比无新增诊断；桌面实测未完成
+- decision: 默认一键生成采用新提炼策略；额外要求仅本次确认使用，当前来源内保留草稿，切换清空；保持代码块协议与单次生成链路
+- modified:
+  - `src/shared/utils/mindmap.ts`
+  - `src/main/services/MindmapService.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/preload/index.d.ts`
+  - `src/renderer/src/env.d.ts`
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+  - `docs/conversation-mindmap-prompt-optimization.md`
+- unresolved: 完整退出并重启开发应用后手动验证主窗口、快捷窗口、笔记页和归纳质量；截图 FrameArrived 超时，恢复时用户 Escape 停止电脑操作
+
+### 19:23 | Codex
+
+- done: 完成会话导图归纳方法调研，形成可直接采用的主旨提炼提示词、末端句子表达规则、按要求生成交互及现有IPC接入方案。
+- context: 用户反馈当前导图逐项罗列对话，要求先调研再给提示词优化方案，并支持生成前输入额外要求。
+- decision: 区分传统关键词导图与会话复盘用途；以焦点、信息取舍、逻辑组织为核心，末端允许一句话；默认一键生成，更多菜单提供按要求生成入口。
+- added:
+  - `docs/conversation-mindmap-prompt-optimization.md`
+- unresolved: 本轮为调研方案，提示词替换及额外要求输入尚未开发；效果需用真实会话人工对照评估。
+
+### 19:15 | Codex
+
+- done: 对话快照同步兼容ChatGPT新旧正文和data-turn角色，共享回复定位候选，去除嵌套轮次重复并优先提取助手正文；lint/build/注入语法/diff检查通过，类型诊断无新增。
+- context: 浏览器只读DOM检查确认当前页面保留用户/助手角色且使用旧正文结构；需兼容站点不同版本。
+- decision: 快照按全部轮次保存用户提问和AI回复，正文候选与总结、导图共享；明确用户角色优先，快照文件和批注锚点契约不变。
+- modified:
+  - `src/shared/config/selectors.ts`
+  - `src/shared/utils/webviewScripts.ts`
+  - `docs/single-conversation-mindmap-design.md`
+  - `.memory/KNOWLEDGE.md`
+- unresolved: dev仍复用现有实例，桌面多轮快照保存、批注与导图共享结果需要完整重启后验收。
+
+### 19:08 | Codex
+
+- done: 用户确认导图采集成功后，恢复单个Markdown代码块输出要求：固定首尾标签置于代码块内，无ID、属性或转义；更新设计文档。lint/build/diff检查通过。
+- context: 用户已实测新DOM选择器下成功获取思维导图。
+- decision: 只恢复提示词格式，保留已验证的回复定位和现有采集、超时、保存逻辑。
+- modified:
+  - `src/shared/utils/mindmap.ts`
+  - `docs/single-conversation-mindmap-design.md`
+- unresolved: dev命令复用现有实例；恢复代码块的下一次生成需完整重启后确认。
+
+### 19:00 | Codex
+
+- done: 将选择器更新需要覆盖前后台采集及本地旧配置的稳定经验写入长期知识，并标记对应lesson已晋升。
+- modified:
+  - `.memory/KNOWLEDGE.md`
+
+### 18:59 | Codex
+
+- done: 根据用户提供的ChatGPT实际DOM补充MarkdownRoot类名前缀选择器，统一接入总结和后台导图并兼容本地旧配置；lint/build/注入语法/diff检查通过，类型诊断无新增。
+- context: 用户提供的回复根节点为div.MarkdownRoot-rZKhxa；之前的零容器诊断与缺失的新正文候选相符。
+- decision: 匹配MarkdownRoot-前缀，不写死后缀；运行时按站点补充候选，不重置用户选择器、登录或会话数据。
+- modified:
+  - `src/shared/config/selectors.ts`
+  - `src/shared/utils/webviewScripts.ts`
+  - `docs/single-conversation-mindmap-design.md`
+  - `.memory/KNOWLEDGE.md`
+- lesson(promoted): 更新站点回复选择器时，必须覆盖前台总结和后台采集两条实际执行路径，并确认本地旧配置不会屏蔽新增候选。
+- unresolved: dev命令复用现有实例，真实总结采集和导图保存仍需完整重启后验收。
+
+### 18:41 | Codex
+
+- done: 按用户要求将导图生成改为直接文本输出；增加助手消息定位候选，后台读取取消可见布局过滤，并从标题和嵌套列表还原大纲；lint/build/注入语法/diff检查通过，类型诊断无新增。
+- context: 用户截图显示抓取0字符、回复容器0个；未取得该任务实时DOM，不能认定代码块为唯一原因。
+- decision: 不使用代码块，XML首尾标签转义成可显示文本；兼容已有代码输出，用户消息与输入区域不参与提取。
+- modified:
+  - `src/shared/utils/mindmap.ts`
+  - `src/shared/config/selectors.ts`
+  - `src/shared/utils/webviewScripts.ts`
+  - `docs/single-conversation-mindmap-design.md`
+- unresolved: dev命令仍复用现有实例，需完整重启后验收普通文本输出、后台采集、列表层级和笔记保存；本轮未进行桌面操作。
+
+### 15:34 | Codex
+
+- done: 修复思维导图后台无限等待：单次网页操作超时、独立生成总超时、完整大纲稳定后保存及前端状态核对；lint/build通过，类型诊断无新增。
+- context: 用户确认超过三分钟仍无错误；尚未取得该次任务的运行时挂起位置。
+- decision: 完整可解析大纲连续三次稳定后保存；失败不重发，迟到结果不保存；通知故障按窗口隔离，复用现有IPC。
+- modified:
+  - `src/main/services/MindmapService.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/shared/utils/webviewScripts.ts`
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+  - `docs/single-conversation-mindmap-design.md`
+- unresolved: dev命令复用现有实例，需完整重启加载主进程修复。截图FrameArrived timed out，恢复时用户按Esc终止Computer Use，真实平台生成保存尚未验收。
+
+### 11:58 | Codex
+
+- done: 针对完整代码块已包含首尾标签但仍超时的问题，增加导图专用全文读取：CodeMirror 文档模型优先，普通代码原文其次，虚拟框无法取模型则明确失败；增加不含正文的失败诊断计数
+- decision: 保持固定 XML 输出；仅导图使用完整代码读取，禁止把虚拟可见行保存为全量结果；将相关稳定经验写入 KNOWLEDGE 并标记既有 lesson promoted
+- modified:
+  - `src/shared/config/selectors.ts`
+  - `src/shared/utils/mindmap.ts`
+  - `src/shared/utils/webviewScripts.ts`
+  - `src/main/services/MindmapService.ts`
+  - `docs/single-conversation-mindmap-design.md`
+  - `.memory/KNOWLEDGE.md`
+  - `SESSION_LOG.md`
+- unresolved: 用户确认复制结果包含两个标签；实际失败窗口 DOM 尚未读取，CodeMirror 假设仍需网页复验。lint/build/脚本语法通过，无新增类型诊断；dev 单实例复用，需完整主进程重启后验收。
+
+### 11:23 | Codex
+
+- done: 改用代码块内固定 XML 标签输出导图，任务 ID 保留内部；合并顶部工具栏，将次要操作、状态详情和画布工具收进菜单，保留编辑与自动保存
+- decision: 复用现有回复采集和 CustomDropdown，不新增依赖、IPC 或存储结构；普通采集行为保持不变
+- modified:
+  - `src/shared/utils/mindmap.ts`
+  - `src/shared/utils/webviewScripts.ts`
+  - `src/main/services/MindmapService.ts`
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+  - `src/renderer/src/components/LocalMindmapPanel.tsx`
+  - `docs/single-conversation-mindmap-design.md`
+- unresolved: lint/build/diff 检查通过，无新增类型诊断；dev 复用现有实例；桌面截图超时且用户按 Esc 终止验证，真实窗口排版和网页生成仍需重启后复验。
+
+### 11:06 | Codex
+
+- done: 修复网页版 AI 导图输出结束后仍等待直到超时的问题：专用 DOM 抓取保留层级，代码块输出与宽容标记识别，已完成但不可解析时及时报错
+- decision: 不改普通采集、IPC 和存储，不自动重发历史超时任务
+- modified:
+  - `src/shared/utils/mindmap.ts`
+  - `src/shared/utils/webviewScripts.ts`
+  - `src/main/services/MindmapService.ts`
+  - `docs/single-conversation-mindmap-design.md`
+- lesson(promoted): 网页版 AI 将 Markdown 渲染为 DOM 后不能依赖标记整行相等或通用 HTML 转换保留列表缩进；结构化输出应保留代码块原文，并将未完成与已完成但无法解析分开处理。
+- unresolved: 桌面截图工具 FrameArrived timed out；dev 单实例复用，真实平台完成保存仍需重启主进程后复验。
+
+### 10:52 | Codex
+
+- done: 补充生成前快照一致性检查，避免不完整采集时静默使用旧快照生成；更新设计说明，lint和build通过
+- modified:
+  - `src/main/ipcHandlers.ts`
+  - `docs/single-conversation-mindmap-design.md`
+- unresolved: 真实桌面及网页版AI验收受截图超时与现有开发单实例限制，操作步骤见设计文档第10节
+
+### 10:50 | Codex
+
+- done: 完成退出应用时的后台导图任务清理，最终lint和build再次通过；dev仍进入现有单实例，真实网页验收步骤已记录在设计文档
+- modified:
+  - `src/main/services/MindmapService.ts`
+  - `src/main/ipcHandlers.ts`
+- unresolved: 按docs/single-conversation-mindmap-design.md第10节重启开发实例并完成真实网页与桌面手动验收
+
+### 10:47 | Codex
+
+- done: 将日志提示的四条稳定经验写入长期知识并标记已提升；调整新增导图容器操作字号与核心面板一致
+- decision: 不创建缺失的memory索引或额外测试框架，保留原有存储结构和开发验证方式
+- modified:
+  - `.memory/KNOWLEDGE.md`
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+
+### 10:46 | Codex
+
+- done: 编写单对话思维导图设计开发文档并实现共享快照、后台网页版AI任务和主窗口/快捷窗口/笔记页接入；lint及build通过，实际桌面验收受截图环境限制
+- decision: 一个JSON会话文档只保留一份快照，Markdown存正文和大纲；默认当前平台支持跨平台，重新生成新建；保留并行产生的快捷窗口拖拽改动
+- added:
+  - `docs/single-conversation-mindmap-design.md`
+  - `src/shared/utils/mindmap.ts`
+  - `src/main/services/MindmapService.ts`
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+- modified:
+  - `AGENTS.md`
+  - `src/shared/types/notes.ts`
+  - `src/shared/config/selectors.ts`
+  - `src/shared/utils/webviewScripts.ts`
+  - `src/shared/utils/noteIdentity.ts`
+  - `src/main/noteManager.ts`
+  - `src/main/services/AutomationService.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/preload/index.d.ts`
+  - `src/renderer/src/env.d.ts`
+  - `src/renderer/src/App.tsx`
+  - `src/renderer/src/components/LocalMindmapPanel.tsx`
+  - `src/renderer/src/components/MindmapSidebarView.tsx`
+  - `src/renderer/src/components/WebviewSidebarPanel.tsx`
+  - `src/renderer/src/components/WebviewCard.tsx`
+  - `src/renderer/src/pages/MainPage.tsx`
+  - `src/renderer/src/pages/QuickPage.tsx`
+  - `src/renderer/src/pages/NotesPage.tsx`
+- lesson(promoted): 来源会话键应保留完整规范化URL路径，截取第一个chat片段会把chat/s/id1和chat/s/id2错误分为同一会话
+- unresolved: 真实网页版AI发送与完成检测、旧笔记实际迁移、多窗口保存冲突和桌面UI仍需按开发文档手动验收；全项目类型检查有既有错误，本次未新增诊断
+
+### 10:17 | Antigravity
+
+- done: 快捷窗口支持拖拽思维导图侧边栏顶部空白区域移动窗口，并强化侧边栏卡片拖拽与指针边界保护
+- decision: 在 MindmapSidebarView 增加 draggableHeader 接口与 no-drag/button 过滤；在 QuickPage 为导图与副模型卡片传入拖拽回调并增加 requestAnimationFrame 与 pointercancel 监听
+- modified:
+  - `src/renderer/src/components/MindmapSidebarView.tsx`
+  - `src/renderer/src/pages/QuickPage.tsx`
+
 ## 2026-10-02
 
 ### 23:16 | Antigravity
@@ -127,7 +322,7 @@
 - decision: 在MainPage中引入containerEl状态与setContainerRef回调ref，确保容器节点切换时ResizeObserver及时重新挂载；忽略卸载时上报的0尺寸；在gridTemplateColumns列宽计算中若有效宽度为0则保底回退为minmax(0, 1fr)
 - modified:
   - `src/renderer/src/pages/MainPage.tsx`
-- lesson: 当React组件在不同模式分支下分别渲染挂载了同一个ref的DOM元素时，若useEffect仅监听isActive而不监听DOM节点或模式切换，会导致ResizeObserver滞留于已卸载节点并上报0宽度，新节点未被监听从而永久冻结在0px。必须使用callback ref追踪DOM节点变化，并在CSS Grid列宽处提供minmax(0, 1fr)安全保底
+- lesson(promoted): 当React组件在不同模式分支下分别渲染挂载了同一个ref的DOM元素时，若useEffect仅监听isActive而不监听DOM节点或模式切换，会导致ResizeObserver滞留于已卸载节点并上报0宽度，新节点未被监听从而永久冻结在0px。必须使用callback ref追踪DOM节点变化，并在CSS Grid列宽处提供minmax(0, 1fr)安全保底
 
 ### 13:43 | Antigravity
 
@@ -191,7 +386,7 @@
 - decision: 批注卡片聚焦态切换为与设置面板一致的 primary 蓝光微阴影 (ring-2 ring-primary/20)，引文采用沉稳蓝灰边框取代黄色描边；将全页面所有过小的 text-xs/text-sm 图标放大至 text-base/text-lg/text-xl，搜索框与下拉列表加大至 text-sm py-2
 - modified:
   - `src/renderer/src/pages/NotesPage.tsx`
-- lesson: UI 组件尺寸必须与应用核心面板（如 SettingsDrawer）规范看齐，避免局部页面为了紧凑而过度使用 text-xs 或 text-[10px] 导致可读性与点击舒适度下降
+- lesson(promoted): UI 组件尺寸必须与应用核心面板（如 SettingsDrawer）规范看齐，避免局部页面为了紧凑而过度使用 text-xs 或 text-[10px] 导致可读性与点击舒适度下降
 
 ### 19:51 | Antigravity
 
@@ -205,7 +400,7 @@
   - `src/renderer/src/components/NoteCaptureModal.tsx`
   - `src/renderer/src/components/WebviewCard.tsx`
   - `.gitignore`
-- lesson: 抓取网页对话时，ChatGPT 等平台 DOM 自带无障碍头 (如 <h4>你说：</h4>)，在 htmlToMarkdown 时会被转为 Markdown 噪音；因此提取消息必须主动过滤 DOM 伴生噪点，使用 XML 标签隔离结构，彻底避免语法与格式污染
+- lesson(promoted): 抓取网页对话时，ChatGPT 等平台 DOM 自带无障碍头 (如 <h4>你说：</h4>)，在 htmlToMarkdown 时会被转为 Markdown 噪音；因此提取消息必须主动过滤 DOM 伴生噪点，使用 XML 标签隔离结构，彻底避免语法与格式污染
 
 ### 19:42 | Antigravity
 
