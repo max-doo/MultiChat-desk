@@ -116,6 +116,7 @@ declare global {
       storeSet: (key: string, value: unknown) => Promise<void>
       storeDelete: (key: string) => Promise<void>
       notesList: () => Promise<{ success: boolean; data?: NoteConversation[]; error?: string }>
+      /** 准备快照而不保存；返回的会话 ID 可供当前窗口的 mindmapsStart / mindmapsAdd 使用。 */
       notesCaptureSource: (id: number, platform: string, name: string) => Promise<{ success: boolean; data?: NoteConversation; error?: string }>
       mindmapsStart: (conversationId: string, platform: string, additionalRequirements?: string) => Promise<{ success: boolean; data?: MindmapTask; error?: string }>
       mindmapsTask: () => Promise<{ success: boolean; data?: MindmapTask | null; error?: string }>

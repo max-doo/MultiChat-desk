@@ -18,6 +18,15 @@ interface Draft { markdown: string; title: string; updatedAt: number; error?: st
 // 保存失败/切换画布时保留编辑稿，回到该图后可以恢复，不复制对话快照。
 const drafts = new Map<string, Draft>()
 const saveQueues = new Map<string, Promise<void>>()
+const DISMISSED_TASK_KEY = 'multichat_mindmap_dismissed_task'
+const DONE_NOTICE_KEY = 'multichat_mindmap_done_notice'
+const NOTICE_DISMISSED_EVENT = 'mindmaps:notice-dismissed'
+let dismissedTaskCache = ''
+
+function readDismissedTask(): string {
+  try { return sessionStorage.getItem(DISMISSED_TASK_KEY) || dismissedTaskCache }
+  catch { return dismissedTaskCache }
+}
 
 function downloadMarkdown(markdown: string, title: string): void {
   const url = URL.createObjectURL(new Blob([markdown], { type: 'text/markdown;charset=utf-8' }))
@@ -122,13 +131,41 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
   const requirementsForm = useRef<HTMLFormElement>(null)
   const generateButtonRef = useRef<HTMLButtonElement>(null)
   const [editorRevision, setEditorRevision] = useState(0)
-  const [dismissedTaskId, setDismissedTaskId] = useState('')
+  const [dismissedTaskId, setDismissedTaskId] = useState(readDismissedTask)
   const sourceRef = useRef(source)
   sourceRef.current = source
   const sourceKeyRef = useRef('')
   const conversationRef = useRef(conversation)
   conversationRef.current = conversation
   const refreshSequence = useRef(0)
+
+  const dismissTask = useCallback((id: string): void => {
+    dismissedTaskCache = id
+    try { sessionStorage.setItem(DISMISSED_TASK_KEY, id) } catch { /* 存储不可用时仍保留本窗口的关闭状态。 */ }
+    setDismissedTaskId(id)
+    window.dispatchEvent(new Event(NOTICE_DISMISSED_EVENT))
+  }, [])
+
+  useEffect(() => {
+    const syncDismissed = (): void => setDismissedTaskId(readDismissedTask())
+    window.addEventListener(NOTICE_DISMISSED_EVENT, syncDismissed)
+    return () => window.removeEventListener(NOTICE_DISMISSED_EVENT, syncDismissed)
+  }, [])
+
+  useEffect(() => {
+    if (!task || task.phase !== 'done' || dismissedTaskId === task.id) return
+    let expiresAt = Date.now() + 5000
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(DONE_NOTICE_KEY) || 'null') as { taskId?: string; expiresAt?: number } | null
+      if (saved?.taskId === task.id && typeof saved.expiresAt === 'number' && Number.isFinite(saved.expiresAt)) expiresAt = saved.expiresAt
+      else sessionStorage.setItem(DONE_NOTICE_KEY, JSON.stringify({ taskId: task.id, expiresAt }))
+    } catch { /* 无法保存截止时间时，仍自动关闭当前提示。 */ }
+    // 重挂载沿用首次完成时的截止时间，避免旧提示重新获得五秒展示期。
+    const remaining = expiresAt - Date.now()
+    if (remaining <= 0) { dismissTask(task.id); return }
+    const timer = setTimeout(() => dismissTask(task.id), remaining)
+    return () => clearTimeout(timer)
+  }, [task?.id, task?.phase, dismissedTaskId, dismissTask])
 
   useEffect(() => { if (source?.id) setPlatform(source.id) }, [source?.id])
   useEffect(() => { if (fixedConversation) setConversation(fixedConversation) }, [fixedConversation])
@@ -230,6 +267,7 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
     }
     const id = currentSource.getRef()?.getWebContentsId()
     if (!id) throw new Error('当前对话尚未就绪')
+    // 这里只准备输入，生成成功或创建空白图后才会持久化快照。
     const result = await window.api.notesCaptureSource(id, currentSource.id, currentSource.name)
     if (!result.success || !result.data) throw new Error(result.error || '读取对话失败')
     return result.data
@@ -248,9 +286,9 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
       if (blank) {
         const result = await window.api.mindmapsAdd(captured.id, `# ${captured.title.replace(/\n/g, ' ')}\n\n## 新分支\n- 新节点`)
         if (!result.success || !result.data) throw new Error(result.error || '新建失败')
-        if (task && !busy) setDismissedTaskId(task.id)
+        if (task && !busy) dismissTask(task.id)
         const latest = await window.api.notesList()
-        if (!sourceRef.current || captured.sourceKey === sourceKeyRef.current) { setConversation(latest.data?.find(item => item.id === captured.id) || captured); setMapId(result.data.id) }
+        if (!sourceRef.current || captured.sourceKey === sourceKeyRef.current) { setConversation(latest.data?.find(item => item.sourceKey === captured.sourceKey) || captured); setMapId(result.data.id) }
       } else {
         if ((!sourceRef.current || captured.sourceKey === sourceKeyRef.current) && captured.mindmaps.length && !mapId) setMapId(captured.mindmaps[captured.mindmaps.length - 1].id)
         const result = await window.api.mindmapsStart(captured.id, platform, additionalRequirements.trim() || undefined)
@@ -272,13 +310,14 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
     if (next) { setConversation(next); setEditorRevision(value => value + 1) }
   }
   const platformName = models.find(model => model.id === platform)?.name || platform
+  const currentModel = models.find(model => model.id === platform)
   const generateButton = <button ref={generateButtonRef} disabled={preparing || busy || !platform} title={`将当前对话发送到 ${platformName}，生成新导图并保存到笔记`} onClick={() => { void generate() }} className="h-8 shrink-0 rounded-lg bg-primary text-white px-3 text-sm disabled:opacity-40 hover:brightness-95">{preparing ? '读取中…' : busy ? '生成中…' : activeMap ? '生成新图' : '生成导图'}</button>
   const controls = <div className="flex items-center gap-1.5 shrink-0">
     {activeMap && generateButton}
     <CustomDropdown value={null} onChange={() => {}} displayText="更多" dropdownWidth="w-72 !left-auto right-0 !z-50 !max-h-[70vh]" buttonClassName="h-8 px-2 rounded-lg text-gray-500 hover:bg-gray-100 flex items-center gap-1 text-sm" renderContent={close => <div className="p-2 space-y-1 text-sm">
       <label className="flex items-center justify-between gap-3 px-2 py-1.5 text-gray-600">生成平台
         <select aria-label="生成平台" value={platform} disabled={preparing || busy} onChange={event => setPlatform(event.target.value)} className="min-w-0 max-w-[150px] border border-gray-200 rounded-md px-2 py-1 bg-white text-gray-800">
-          {models.filter(model => model.enabled || model.id === source?.id || model.id === platform).map(model => <option key={model.id} value={model.id}>{model.name}</option>)}
+          {models.map(model => <option key={model.id} value={model.id}>{model.name}</option>)}
         </select>
       </label>
       {conversation && conversation.mindmaps.length > 1 && <label className="block px-2 py-1.5 text-gray-600">历史导图 · {conversation.mindmaps.length} 份
@@ -324,7 +363,7 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
         if (task.conversationId === conversation?.id) { void reloadEditor().then(() => setMapId(task.mindmapId || '')) }
         else void window.api.notesOpen({ conversationId: task.conversationId, mindmapId: task.mindmapId }).then(result => { if (!result.success) setError(result.error || '打开结果失败') })
       }}>查看结果</button>}
-      {!busy && <button aria-label="关闭生成提示" className="shrink-0 material-symbols-outlined text-base text-gray-400 hover:text-gray-700" onClick={() => setDismissedTaskId(task.id)}>close</button>}
+      {!busy && <button aria-label="关闭生成提示" className="shrink-0 material-symbols-outlined text-base text-gray-400 hover:text-gray-700" onClick={() => dismissTask(task.id)}>close</button>}
     </div>}
   </>
   return <div className="h-full flex flex-col min-h-0 bg-white">
@@ -361,15 +400,124 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
         </div>
       </form>
     </div>, document.body)}
-    {activeMap && conversation ? <MindmapEditor key={`${activeMap.id}:${editorRevision}`} conversationId={conversation.id} map={activeMap} controls={controls} notice={notice} onReload={() => { void reloadEditor() }} /> : <>
-      <div className="px-3 py-2 border-b border-gray-100 flex items-center justify-between gap-2"><span className="text-sm font-medium text-gray-700">思维导图</span>{controls}</div>
-      {notice}
-      <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-3 px-6 text-center">
-        <span className="material-symbols-outlined text-4xl text-gray-200">account_tree</span>
-        <p className="text-sm text-gray-500">把当前对话整理成思维导图</p>
-        {generateButton}
-        <p className="text-xs text-gray-400">使用 {platformName} · 自动保存到笔记</p>
-      </div>
-    </>}
+    {activeMap && conversation ? (
+      <MindmapEditor
+        key={`${activeMap.id}:${editorRevision}`}
+        conversationId={conversation.id}
+        map={activeMap}
+        controls={controls}
+        notice={notice}
+        onReload={() => { void reloadEditor() }}
+      />
+    ) : (
+      <>
+        {notice}
+        <div className="flex-1 min-h-0 flex flex-col p-5 overflow-y-auto">
+          {/* 顶部插画与引导标题 */}
+          <div className="flex flex-col items-center text-center mt-3 mb-5 shrink-0">
+            <div className="w-14 h-14 rounded-2xl bg-primary/10 text-primary flex items-center justify-center mb-3 border border-primary/20 shadow-2xs">
+              <span className="material-symbols-outlined text-3xl">hub</span>
+            </div>
+            <h2 className="text-base font-semibold text-gray-800">把当前对话整理成思维导图</h2>
+          </div>
+
+          {/* 生成配置卡片（模型选择器 + 额外要求合体） */}
+          <div className="bg-gray-50/80 border border-gray-200/80 rounded-xl p-3 space-y-2.5 mb-3 shrink-0">
+            {/* 顶部：模型选择器（药丸按钮居左，适度加大） */}
+            <div className="flex items-center justify-between">
+              <CustomDropdown
+                value={platform}
+                disabled={preparing || busy}
+                onChange={val => setPlatform(val)}
+                options={models.map(m => ({ value: m.id, label: m.name, logo: m.logo }))}
+                dropdownWidth="w-56"
+                buttonClassName="h-8 px-2.5 bg-white border border-gray-200/90 hover:border-gray-300 rounded-lg flex items-center gap-2 shadow-2xs transition-colors disabled:opacity-50 text-left"
+                renderButton={() => (
+                  <div className="flex items-center gap-2 min-w-0">
+                    {currentModel?.logo ? (
+                      <img src={currentModel.logo} alt={currentModel.name} className="w-4 h-4 object-contain rounded-xs shrink-0" />
+                    ) : (
+                      <span className="material-symbols-outlined text-base text-gray-400 shrink-0">smart_toy</span>
+                    )}
+                    <span className="text-[13px] font-medium text-gray-800 truncate max-w-[130px]">{currentModel?.name || platform}</span>
+                  </div>
+                )}
+                renderOption={(option, isSelected, onSelect) => {
+                  const m = models.find(item => item.id === option.value)
+                  return (
+                    <button
+                      key={String(option.value)}
+                      type="button"
+                      onClick={onSelect}
+                      className={`w-full flex items-center gap-2.5 px-3 py-2 hover:bg-gray-100 transition-colors text-left ${
+                        isSelected ? 'bg-primary/5 text-primary font-medium' : 'text-gray-700'
+                      }`}
+                    >
+                      {m?.logo ? (
+                        <img src={m.logo} alt={m.name} className="w-4 h-4 object-contain rounded-xs shrink-0" />
+                      ) : (
+                        <span className="material-symbols-outlined text-sm text-gray-400 shrink-0">smart_toy</span>
+                      )}
+                      <span className="text-xs truncate flex-1">{option.label}</span>
+                      {isSelected && (
+                        <span className="material-symbols-outlined text-primary text-sm ml-auto shrink-0">check</span>
+                      )}
+                    </button>
+                  )
+                }}
+              />
+              {requirements.trim().length > 0 && (
+                <button
+                  type="button"
+                  disabled={preparing || busy}
+                  onClick={() => setRequirements('')}
+                  className="text-[11px] text-gray-400 hover:text-red-500 transition-colors px-1"
+                >
+                  清空
+                </button>
+              )}
+            </div>
+
+            {/* 底部：额外要求输入框（直接展开，无单独图标，无字数限制） */}
+            <textarea
+              value={requirements}
+              disabled={preparing || busy}
+              maxLength={MINDMAP_REQUIREMENTS_LIMIT}
+              rows={3}
+              onChange={event => setRequirements(event.target.value)}
+              placeholder="额外要求（选填，例如：重点提炼核心论点与结论，省略客套与类比）..."
+              className="w-full text-xs p-2.5 border border-gray-200/80 rounded-lg outline-none focus:border-primary bg-white resize-y text-gray-700 placeholder:text-gray-400 disabled:opacity-60"
+            />
+          </div>
+
+          {/* 操作按钮区域（并排置于卡片正下方） */}
+          <div className="grid grid-cols-2 gap-2.5 mb-4 shrink-0">
+            {/* 主按钮：生成导图 */}
+            <button
+              ref={generateButtonRef}
+              disabled={preparing || busy || !platform}
+              title={`将当前对话发送到 ${platformName}，生成新导图并保存到笔记`}
+              onClick={() => { void generate(false, requirements) }}
+              className="h-9 rounded-xl bg-primary hover:brightness-95 active:brightness-90 text-white font-medium text-xs flex items-center justify-center gap-1.5 shadow-xs transition-all disabled:opacity-40 cursor-pointer"
+            >
+              <span className="material-symbols-outlined text-base">auto_awesome</span>
+              <span className="truncate">{preparing ? '读取中…' : busy ? '生成中…' : '生成导图'}</span>
+            </button>
+
+            {/* 次按钮：手动创建 */}
+            <button
+              type="button"
+              disabled={preparing || busy}
+              title="创建一份空白导图并直接进入编辑"
+              onClick={() => { void generate(true) }}
+              className="h-9 rounded-xl bg-white hover:bg-gray-50 active:bg-gray-100 border border-gray-200 text-gray-700 font-medium text-xs flex items-center justify-center gap-1.5 transition-colors disabled:opacity-40 cursor-pointer"
+            >
+              <span className="material-symbols-outlined text-sm text-gray-400">edit_square</span>
+              <span className="truncate">手动创建空白导图</span>
+            </button>
+          </div>
+        </div>
+      </>
+    )}
   </div>
 }

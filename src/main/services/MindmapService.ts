@@ -139,8 +139,9 @@ export class MindmapService {
         generationTimer = undefined
         stage = '保存导图'
         this.change(task, 'saving')
-        const map = await this.notes.addMindmap(source.id, outline.markdown, task.platform, source.snapshotRevision)
-        task.mindmapId = map.id
+        const saved = await this.notes.addMindmap(source, outline.markdown, task.platform)
+        task.conversationId = saved.conversationId
+        task.mindmapId = saved.mindmap.id
         this.notesChanged()
         this.change(task, 'done')
         sessionManager.destroySession(key)

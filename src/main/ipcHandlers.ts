@@ -14,7 +14,7 @@ import { setQuitting, getQuickWindow, showAndFocusWindow, hideToolbarWindow, get
 import { broadcastStateChange } from './stateBus'
 import { HistoryManager } from './api/historyManager'
 import { NoteManager } from './noteManager'
-import type { NoteDraft, NoteNavigation } from '../shared/types/notes'
+import type { NoteConversation, NoteDraft, NoteNavigation } from '../shared/types/notes'
 import { generateNoteCaptureScript, generateMindmapPageStateScript } from '../shared/utils/webviewScripts'
 import { MindmapService } from './services/MindmapService'
 import { MINDMAP_REQUIREMENTS_LIMIT } from '../shared/utils/mindmap'
@@ -827,6 +827,15 @@ export function registerIpcHandlers(
     // History 分页与磁盘上限管理（只读分页 + store-set 后 enforce）
     const historyManager = new HistoryManager(store)
     const noteManager = new NoteManager(store)
+    // 每个窗口仅保留最近一次采集，启动/创建时取走；窗口释放后可随之回收。
+    const capturedSources = new WeakMap<Electron.WebContents, NoteConversation>()
+    const takeMindmapSource = async (sender: Electron.WebContents, conversationId: string): Promise<NoteConversation> => {
+        const captured = capturedSources.get(sender)
+        capturedSources.delete(sender)
+        const source = captured?.id === conversationId ? captured : (await noteManager.list()).find(item => item.id === conversationId)
+        if (!source) throw new Error('来源会话不存在')
+        return source
+    }
     const broadcastNotes = (channel: 'notes:changed' | 'mindmaps:task-changed', data?: unknown): void => {
         BrowserWindow.getAllWindows().forEach(window => {
             try {
@@ -841,6 +850,7 @@ export function registerIpcHandlers(
     const mindmapService = new MindmapService(noteManager, task => broadcastNotes('mindmaps:task-changed', task), notesChanged)
     app.once('before-quit', () => mindmapService.shutdown())
     ipcMain.handle('notes:capture-source', async (event, id: number, platform: string, name: string) => {
+        capturedSources.delete(event.sender)
         try {
             const source = webContents.fromId(id)
             if (!source || source.isDestroyed() || source.hostWebContents?.id !== event.sender.id) throw new Error('当前对话窗口无效')
@@ -850,18 +860,17 @@ export function registerIpcHandlers(
             if (state.busy) throw new Error('当前回复尚未完成，请完成后再生成')
             const capture = await source.executeJavaScript(generateNoteCaptureScript()) as { snapshot?: string; title?: string; url?: string }
             if (capture.url !== originalUrl || source.getURL() !== originalUrl) throw new Error('采集时对话已切换，请在目标对话重新生成')
-            const data = await noteManager.saveSource({ platform: name, title: capture.title || name, url: capture.url || '', snapshot: capture.snapshot || '' })
-            notesChanged()
+            const data = await noteManager.prepareSource({ platform: name, title: capture.title || name, url: capture.url || '', snapshot: capture.snapshot || '' })
             if (data.snapshot !== normalizeNoteTranscriptMarkdown(capture.snapshot || '')) throw new Error('本次采集较短或缺少已有批注原文，已保留原快照。请确认完整对话已加载后重试')
+            capturedSources.set(event.sender, data)
             return { success: true, data }
         } catch (error) { return { success: false, error: error instanceof Error ? error.message : '读取对话失败' } }
     })
-    ipcMain.handle('mindmaps:start', async (_event, conversationId: string, platform: string, additionalRequirements?: string) => {
+    ipcMain.handle('mindmaps:start', async (event, conversationId: string, platform: string, additionalRequirements?: string) => {
         try {
             if (additionalRequirements !== undefined && typeof additionalRequirements !== 'string') throw new Error('额外要求必须是文本')
             if ((additionalRequirements?.length || 0) > MINDMAP_REQUIREMENTS_LIMIT) throw new Error(`额外要求不能超过 ${MINDMAP_REQUIREMENTS_LIMIT} 字符`)
-            const source = (await noteManager.list()).find(item => item.id === conversationId)
-            if (!source) throw new Error('来源会话不存在')
+            const source = await takeMindmapSource(event.sender, conversationId)
             return { success: true, data: await mindmapService.start(source, platform, additionalRequirements?.trim()) }
         } catch (error) { return { success: false, error: error instanceof Error ? error.message : '启动失败' } }
     })
@@ -874,12 +883,11 @@ export function registerIpcHandlers(
         try { mindmapService.show(id); return { success: true } }
         catch (error) { return { success: false, error: String(error) } }
     })
-    ipcMain.handle('mindmaps:add', async (_event, conversationId: string, markdown: string) => {
+    ipcMain.handle('mindmaps:add', async (event, conversationId: string, markdown: string) => {
         try {
-            const source = (await noteManager.list()).find(item => item.id === conversationId)
-            if (!source) throw new Error('来源会话不存在')
-            const data = await noteManager.addMindmap(source.id, markdown, '本地', source.snapshotRevision)
-            notesChanged(); return { success: true, data }
+            const source = await takeMindmapSource(event.sender, conversationId)
+            const saved = await noteManager.addMindmap(source, markdown, '本地')
+            notesChanged(); return { success: true, data: saved.mindmap }
         } catch (error) { return { success: false, error: String(error) } }
     })
     ipcMain.handle('mindmaps:update', async (_event, conversationId: string, id: string, markdown: string, title: string, updatedAt: number) => {

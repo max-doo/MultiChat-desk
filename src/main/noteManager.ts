@@ -156,11 +156,11 @@ export class NoteManager {
     conversation.title = draft.title
     conversation.url = draft.url
     conversation.updatedAt = now
-    await this.write(conversation)
     return conversation
   }
 
-  saveSource(draft: NoteSourceDraft): Promise<NoteConversation> { return this.serial(() => this.sourceUnlocked(draft)) }
+  // 生成前只准备输入；快照和导图在生成成功后一起写入。
+  prepareSource(draft: NoteSourceDraft): Promise<NoteConversation> { return this.serial(() => this.sourceUnlocked(draft)) }
 
   save(draft: NoteDraft, comment: string): Promise<NoteConversation> {
     return this.serial(async () => {
@@ -169,8 +169,8 @@ export class NoteManager {
       if (!conversation.notes.some(note => normalized(note.quote) === normalized(draft.quote))) {
         const now = Date.now()
         conversation.notes.push({ id: randomUUID(), quote: draft.quote, comment, anchor: draft.anchor, createdAt: now, updatedAt: now })
-        await this.write(conversation)
       }
+      await this.write(conversation)
       return conversation
     })
   }
@@ -207,16 +207,22 @@ export class NoteManager {
     else { conversation.updatedAt = Date.now(); await this.write(conversation) }
   }
 
-  addMindmap(conversationId: string, markdown: string, platform: string, sourceRevision: number): Promise<ConversationMindmap> {
+  addMindmap(source: NoteConversation, markdown: string, platform: string): Promise<{ conversationId: string; mindmap: ConversationMindmap }> {
     return this.serial(async () => {
       if (typeof markdown !== 'string' || !markdown.trim() || markdown.length > 200_000) throw new Error('导图内容无效或过大')
-      const conversation = await this.read(conversationId)
+      // 生成期间可能新增笔记、删除旧图或合并同源记录，保存时以最新文档为准。
+      const conversation = (await this.listUnlocked()).find(item => item.sourceKey === source.sourceKey) || {
+        ...source, notes: [], mindmaps: []
+      }
+      this.updateSnapshot(conversation, source.snapshot)
+      // 更新后的快照未采用本次输入时，标记此图基于旧内容，避免误报为最新版本。
+      const sourceRevision = conversation.snapshot === source.snapshot ? conversation.snapshotRevision : 0
       const now = Date.now()
       const map: ConversationMindmap = { id: randomUUID(), title: markdown.match(/^#\s+(.+)$/m)?.[1] || '未命名导图', markdown, platform, sourceRevision, createdAt: now, updatedAt: now }
       conversation.mindmaps.push(map)
       conversation.updatedAt = now
       await this.write(conversation)
-      return map
+      return { conversationId: conversation.id, mindmap: map }
     })
   }
 

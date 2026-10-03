@@ -2,6 +2,60 @@
 
 ## 2026-10-03
 
+### 23:23 | Codex
+
+- done: 修复导图生成失败或取消残留会话快照，放开全部配置平台并为完成提示增加五秒关闭及会话内关闭记录
+- context: lint 0错误39既有警告，build通过；类型诊断与HEAD相比无新增（node 10、web 91）；dev启动复用现有单实例；桌面捕获超时后重试被用户Escape停止
+- decision: 生成前快照仅在主进程按窗口暂存，生成成功或创建空白图时与导图一次保存；保持IPC参数和返回结构；完成通知由前端记录截止时间与关闭状态，后台保留任务结果
+- modified:
+  - `src/main/noteManager.ts`
+  - `src/main/services/MindmapService.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/preload/index.d.ts`
+  - `src/renderer/src/env.d.ts`
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+  - `docs/single-conversation-mindmap-design.md`
+- unresolved: 完整退出后npm run dev复验生成成功/失败/取消、空白导图及笔记保存，并检查13个平台选择和五秒提示关闭/重新挂载行为；既有空快照记录未自动删除
+
+### 23:11 | Antigravity
+
+- done: 优化思维导图初始界面UI设计：增大模型选择器尺寸提升辨识度；移除输入框外层容器焦点背景色变化；将生成导图与手动创建按钮调整为卡片正下方并排展示
+- modified:
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+
+### 23:08 | Antigravity
+
+- done: 优化思维导图初始界面UI设计：删除标题下方的小字说明文字，进一步简化顶部视觉区域
+- modified:
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+
+### 23:07 | Antigravity
+
+- done: 优化思维导图初始界面UI设计：将模型选择器与额外要求合并为一体化输入卡片（模型选择器以紧凑药丸置于左上角，下方直接展开输入框，去除折叠、图标与字数统计）
+- decision: 根据图二需求将模型选择器与额外要求整合为单张输入卡片，去除非必要标签与字数限制
+- modified:
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+
+### 23:01 | Antigravity
+
+- done: 优化思维导图初始界面UI设计：移除红框冗余标题和更多按钮，重构为方案A聚焦控制台，直接外显模型选择器（带Logo）、额外要求（内联展开）、生成导图主按钮与手动创建次按钮，并删除底部提示文案
+- decision: 采纳方案A聚焦控制台设计，遵循极简设计原则完全移除底部次要提示文案
+- added:
+  - `docs/superpowers/specs/2026-10-03-mindmap-initial-ui-design.md`
+  - `docs/superpowers/plans/2026-10-03-mindmap-initial-ui-plan.md`
+- modified:
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+
+### 22:38 | Codex
+
+- done: 调整导图提示词：核心认识优先、短语为主句子按需、分支按重要程度展开，删除无信息引导节点与重复总结；同步文档；lint/build/diff 检查通过，dev 完成构建后退出
+- decision: 保持必要条件和分歧，不强制节点数量与平均展开；本次仅修改提示词文本与文档
+- modified:
+  - `src/shared/utils/mindmap.ts`
+  - `docs/conversation-mindmap-prompt-optimization.md`
+- unresolved: 开发运行实例未确认加载新提示词，完整退出重启后用同一会话生成新图对照归纳质量
+
 ### 22:14 | Codex
 
 - done: 落实会话导图主旨提炼提示词与可选额外要求；lint/build 通过，类型对比无新增诊断；桌面实测未完成
