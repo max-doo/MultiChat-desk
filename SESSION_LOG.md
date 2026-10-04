@@ -1,5 +1,36 @@
 # Session Log
 
+## 2026-10-04
+
+### 12:59 | Codex
+
+- done: 移除思维导图大纲的标题栏及编辑/预览切换，仅保留带语法高亮的 CodeMirror 编辑视图；复制与编辑操作合并到正常布局工具栏，导图/大纲 tabs 不再遮挡复制
+- context: npm run lint 与 npm run build 通过（39 条原有 lint 警告）；编辑组件严格类型检查通过。npm run dev 在独立临时配置中验证标题及预览移除、复制可点击、tabs 无遮挡，774px 与 280px 宽度下按钮均在容器内；留存实测截图。
+- modified:
+  - `src/renderer/src/components/LocalMindmapPanel.tsx`
+  - `src/renderer/src/components/MindmapMarkdownEditor.tsx`
+
+### 12:53 | Codex
+
+- done: 为思维导图大纲接入 CodeMirror 6，支持两空格及多行缩进、Markdown 语法高亮、列表续写、撤销重做和格式预览；验证导图层级同步、自动保存及从笔记重开
+- context: 已获用户同意新增 CodeMirror 生产依赖。lint 通过（39 条原有警告），build 通过，新增组件严格类型检查通过；完整 web tsc 的 91 条错误与 HEAD 基线一致，无新增。npm run dev 使用临时配置目录避开正在运行的正式版单实例锁，通过开发版 Electron 的 DevTools 验证编辑与保存链路。
+- added:
+  - `src/renderer/src/components/MindmapMarkdownEditor.tsx`
+- modified:
+  - `src/renderer/src/components/LocalMindmapPanel.tsx`
+  - `package.json`
+  - `package-lock.json`
+
+### 12:29 | Codex
+
+- done: 从产品使用场景更新 README，突出快捷窗口并加入用户截图，补充笔记与会话导图，修正网页总结及任务拆解 API 说明
+- context: 仅文档与图片变更；已对照当前源码和近期提交核实功能，13处本地引用、导航锚点、截图原文件哈希及 git diff --check 通过；未运行应用 lint/build/dev
+- decision: 以快捷窗口日常阅读追问、主窗口并行任务、笔记导图留存组织产品介绍；下载章节说明源码与发布包能力可能不同
+- added:
+  - `docs/readme/quick-window.png`
+- modified:
+  - `README.md`
+
 ## 2026-10-03
 
 ### 23:23 | Codex

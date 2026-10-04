@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react'
 import { Markmap, globalCSS } from 'markmap-view'
 import type { INode } from 'markmap-common'
 import CustomDropdown from './CustomDropdown'
+import MindmapMarkdownEditor from './MindmapMarkdownEditor'
 
 export interface MindNode {
   id: string
@@ -1117,8 +1118,8 @@ export default function LocalMindmapPanel({ initialMarkdown, onChange }: { initi
     startEditingNode
   ])
 
-  // Markdown 文本域修改
-  const handleMarkdownTextareaChange = useCallback(
+  // Markdown 大纲编辑，同时同步导图与持久化。
+  const handleMarkdownChange = useCallback(
     (newVal: string) => {
       setMarkdown(newVal)
       try {
@@ -1128,6 +1129,7 @@ export default function LocalMindmapPanel({ initialMarkdown, onChange }: { initi
       }
       const parsed = parseMarkdownToTree(newVal)
       setTree(parsed)
+      historyRef.current = historyRef.current.slice(0, historyIndexRef.current + 1)
       historyRef.current.push(newVal)
       historyIndexRef.current = historyRef.current.length - 1
       updateHistoryState()
@@ -1159,6 +1161,35 @@ export default function LocalMindmapPanel({ initialMarkdown, onChange }: { initi
       showToast('导出失败')
     }
   }, [showToast])
+
+  const viewSwitcher = (
+    <div className={`flex shrink-0 items-center bg-white/95 backdrop-blur border border-gray-200/80 p-0.5 rounded-lg shadow-sm ${viewMode === 'mindmap' ? 'absolute right-3 top-3 z-30' : ''}`}>
+      <button
+        type="button"
+        onClick={() => setViewMode('mindmap')}
+        className={`px-2.5 py-1 rounded-md text-sm font-medium flex items-center gap-1 transition-all ${
+          viewMode === 'mindmap'
+            ? 'bg-gray-100 text-gray-900 font-semibold shadow-2xs'
+            : 'text-text-secondary hover:text-text-primary'
+        }`}
+      >
+        <span className="material-symbols-outlined text-sm">hub</span>
+        <span>导图</span>
+      </button>
+      <button
+        type="button"
+        onClick={() => setViewMode('markdown')}
+        className={`px-2.5 py-1 rounded-md text-sm font-medium flex items-center gap-1 transition-all ${
+          viewMode === 'markdown'
+            ? 'bg-gray-100 text-gray-900 font-semibold shadow-2xs'
+            : 'text-text-secondary hover:text-text-primary'
+        }`}
+      >
+        <span className="material-symbols-outlined text-sm">article</span>
+        <span>大纲</span>
+      </button>
+    </div>
+  )
 
   return (
     <div ref={containerRef} className="h-full w-full flex flex-col bg-white relative overflow-hidden select-text">
@@ -1386,33 +1417,7 @@ export default function LocalMindmapPanel({ initialMarkdown, onChange }: { initi
         </div>
       )}
 
-      {/* ── 画布右上角：导图 vs Markdown 切换 Tab ── */}
-      <div className="absolute right-3 top-3 z-30 flex items-center bg-white/95 backdrop-blur border border-gray-200/80 p-0.5 rounded-lg shadow-sm">
-        <button
-          type="button"
-          onClick={() => setViewMode('mindmap')}
-          className={`px-2.5 py-1 rounded-md text-sm font-medium flex items-center gap-1 transition-all ${
-            viewMode === 'mindmap'
-              ? 'bg-gray-100 text-gray-900 font-semibold shadow-2xs'
-              : 'text-text-secondary hover:text-text-primary'
-          }`}
-        >
-          <span className="material-symbols-outlined text-sm">hub</span>
-          <span>导图</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => setViewMode('markdown')}
-          className={`px-2.5 py-1 rounded-md text-sm font-medium flex items-center gap-1 transition-all ${
-            viewMode === 'markdown'
-              ? 'bg-gray-100 text-gray-900 font-semibold shadow-2xs'
-              : 'text-text-secondary hover:text-text-primary'
-          }`}
-        >
-          <span className="material-symbols-outlined text-sm">article</span>
-          <span>大纲</span>
-        </button>
-      </div>
+      {viewMode === 'mindmap' && viewSwitcher}
 
       {/* ── 视图 A：思维导图交互画布 ── */}
       <div
@@ -1502,65 +1507,57 @@ export default function LocalMindmapPanel({ initialMarkdown, onChange }: { initi
 
       </div>
 
-      {/* ── 视图 B：Markdown 纯源码编辑 ── */}
+      {/* ── 视图 B：Markdown 大纲编辑 ── */}
       <div
         className="flex-1 w-full h-full flex flex-col overflow-hidden"
         style={{ display: viewMode === 'markdown' ? 'flex' : 'none' }}
       >
-        <div className="px-3 py-2 border-b border-gray-200 bg-gray-50/70 flex items-center justify-between text-sm text-text-secondary select-none">
-          <div className="flex items-center gap-1.5 font-medium text-text-primary">
-            <span className="material-symbols-outlined text-sm text-zinc-700">edit_note</span>
-            <span>编辑大纲</span>
-          </div>
-
-          <div className="flex items-center gap-1 pr-24">
-            <button
-              type="button"
-              onClick={async () => {
-                await navigator.clipboard.writeText(markdown)
-                showToast('已复制大纲')
-              }}
-              className="p-1.5 rounded hover:bg-gray-200 text-text-secondary hover:text-text-primary transition-colors"
-              title="复制大纲"
-            >
-              <span className="material-symbols-outlined text-base">content_copy</span>
-            </button>
-            {!onChange && <button
-              type="button"
-              onClick={() => {
-                if (window.confirm('确定要恢复默认模板吗？当前内容将被覆盖。')) {
-                  handleMarkdownTextareaChange(DEFAULT_MARKDOWN)
-                  showToast('已恢复模板')
-                }
-              }}
-              className="p-1.5 rounded hover:bg-gray-200 text-text-secondary hover:text-text-primary transition-colors"
-              title="恢复默认模板"
-            >
-              <span className="material-symbols-outlined text-base">restart_alt</span>
-            </button>}
-            <button
-              type="button"
-              onClick={() => {
-                if (window.confirm('确定清空内容吗？')) {
-                  handleMarkdownTextareaChange('# 思维导图\n\n- ')
-                  showToast('已清空')
-                }
-              }}
-              className="p-1.5 rounded hover:bg-gray-200 text-text-secondary hover:text-red-500 transition-colors"
-              title="清空"
-            >
-              <span className="material-symbols-outlined text-base">delete_sweep</span>
-            </button>
-          </div>
-        </div>
-
         <div className="flex-1 min-h-0 flex flex-col">
-          <textarea
+          <MindmapMarkdownEditor
             value={markdown}
-            onChange={(e) => handleMarkdownTextareaChange(e.target.value)}
-            placeholder="# 根节点&#10;## 一级节点&#10;- 二级节点..."
-            className="flex-1 w-full h-full p-4 font-mono text-sm leading-relaxed text-text-primary bg-white focus:outline-none resize-none overflow-y-auto"
-            spellCheck={false}
+            onChange={handleMarkdownChange}
+            active={viewMode === 'markdown'}
+            viewSwitcher={viewSwitcher}
+            actions={<>
+              <button
+                type="button"
+                onClick={async () => {
+                  await navigator.clipboard.writeText(markdown)
+                  showToast('已复制大纲')
+                }}
+                className="p-1 rounded hover:bg-gray-100 text-text-secondary hover:text-text-primary transition-colors"
+                title="复制大纲"
+                aria-label="复制大纲"
+              >
+                <span className="material-symbols-outlined text-base">content_copy</span>
+              </button>
+              {!onChange && <button
+                type="button"
+                onClick={() => {
+                  if (window.confirm('确定要恢复默认模板吗？当前内容将被覆盖。')) {
+                    handleMarkdownChange(DEFAULT_MARKDOWN)
+                    showToast('已恢复模板')
+                  }
+                }}
+                className="p-1 rounded hover:bg-gray-100 text-text-secondary hover:text-text-primary transition-colors"
+                title="恢复默认模板"
+              >
+                <span className="material-symbols-outlined text-base">restart_alt</span>
+              </button>}
+              <button
+                type="button"
+                onClick={() => {
+                  if (window.confirm('确定清空内容吗？')) {
+                    handleMarkdownChange('# 思维导图\n\n- ')
+                    showToast('已清空')
+                  }
+                }}
+                className="p-1 rounded hover:bg-gray-100 text-text-secondary hover:text-red-500 transition-colors"
+                title="清空"
+              >
+                <span className="material-symbols-outlined text-base">delete_sweep</span>
+              </button>
+            </>}
           />
         </div>
       </div>

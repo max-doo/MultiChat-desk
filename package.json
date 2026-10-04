@@ -25,7 +25,13 @@
     "build:linux": "npm run clean:store && npm run build && electron-builder --linux --config"
   },
   "dependencies": {
+    "@codemirror/commands": "^6.11.1",
+    "@codemirror/lang-markdown": "^6.5.2",
+    "@codemirror/language": "^6.12.4",
+    "@codemirror/state": "^6.7.6",
+    "@codemirror/view": "^6.43.13",
     "@fontsource/roboto": "^5.2.10",
+    "@lezer/highlight": "^1.2.5",
     "@tailwindcss/typography": "^0.5.19",
     "@types/turndown": "^5.0.6",
     "commander": "^15.0.0",
