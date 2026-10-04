@@ -21,6 +21,52 @@ export interface FileUploadData {
   size: number
 }
 
+/** 获取文件拖拽上传的目标坐标。 */
+export function generateFileDropPointScript(selectors: ModelSelector): string {
+  return `
+      (function () {
+        const textareaSelectors = ${JSON.stringify(selectors.textarea || [])};
+        let target = null;
+        for (const selector of textareaSelectors) {
+          const el = document.querySelector(selector);
+          if (el) { target = el; break; }
+        }
+        if (!target) target = document.body || document.documentElement;
+        if (!target) return { x: 10, y: 10 };
+        try { target.scrollIntoView({ block: 'center', inline: 'center' }); } catch (e) {}
+        const rect = target.getBoundingClientRect ? target.getBoundingClientRect() : { left: 0, top: 0, width: 0, height: 0 };
+        const x = rect.left + Math.max(10, rect.width / 2);
+        const y = rect.top + Math.max(10, rect.height / 2);
+        return { x, y };
+      })();
+    `
+}
+
+/** 辅助确认上传文件名是否出现；未命中不影响主进程拖拽结果。 */
+export function generateDetectUploadedFileScript(fileName: string): string {
+  return `
+      (async function () {
+        const fileName = ${JSON.stringify(fileName)};
+        const deadline = Date.now() + 8000;
+        while (Date.now() < deadline) {
+          const bodyText = (document.body && (document.body.innerText || document.body.textContent)) || '';
+          if (bodyText && bodyText.includes(fileName)) return true;
+          const nodes = document.querySelectorAll('[aria-label],[title],[data-file-name]');
+          for (const node of nodes) {
+            const aria = (node.getAttribute && node.getAttribute('aria-label')) || '';
+            const title = (node.getAttribute && node.getAttribute('title')) || '';
+            const dataName = (node.getAttribute && node.getAttribute('data-file-name')) || '';
+            if ((aria && aria.includes(fileName)) || (title && title.includes(fileName)) || (dataName && dataName.includes(fileName))) {
+              return true;
+            }
+          }
+          await new Promise(r => setTimeout(r, 200));
+        }
+        return false;
+      })();
+    `
+}
+
 // ==================== 内部辅助函数：生成脚本片段 ====================
 
 /**

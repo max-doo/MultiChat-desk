@@ -2,6 +2,43 @@
 
 ## 2026-10-04
 
+### 17:50 | Antigravity
+
+- done: 接入并完成 WebviewCard 的三个 Hook 拆分，修复 selectors 可选类型并完成全链路编译验证
+- context: 全量 lint 0 errors、tsc 0 errors、生产 build 成功
+- decision: WebviewCard 完整委托给 useWebviewLifecycle、useWebviewActions 和 useWebviewNotes，消除旧直接 ref.current 唤醒并保持 24 个 ref 方法兼容
+- modified:
+  - `src/renderer/src/components/WebviewCard.tsx`
+  - `src/renderer/src/hooks/useWebviewLifecycle.ts`
+
+### 16:58 | Codex
+
+- done: 将 WebviewCard 按网页操作、生命周期、笔记高亮拆分为三个 Hook，保留 Props 与 24 个 Ref 方法，并修复加载事件旧状态读取和回调 Ref 唤醒按钮。
+- context: lint 0 errors、22 项既有 warnings；生产构建通过；TypeScript 对照未新增错误，改动文件无类型错误，项目仍有 81 项既有错误。
+- decision: 保留头部、覆盖层和全局会话规则；加载、导航及休眠共用生命周期状态；上传脚本复用 shared 文件。
+- added:
+  - `src/renderer/src/hooks/useWebviewActions.ts`
+  - `src/renderer/src/hooks/useWebviewLifecycle.ts`
+  - `src/renderer/src/hooks/useWebviewNotes.ts`
+- modified:
+  - `src/renderer/src/components/WebviewCard.tsx`
+  - `src/shared/utils/webviewScripts.ts`
+- unresolved: 桌面交互回归待完成：开发构建通过，但已有实例导致新进程退出，computer-use 截图两次超时，未验证实际加载/刷新、休眠恢复、网页操作和笔记高亮。
+
+### 16:54 | Codex
+
+- done: 已提交拆分前修改 cb01b82；将 LocalMindmapPanel 从 1868 行拆分为 363 行主组件、树工具、画布 Hook、导出工具及共享样式，移除默认模板入口与无用分支，修复导出按钮清理并保留旧模板迁移识别。lint 与 build 通过；全量类型诊断与提交基线同为 91 条，本次无新增诊断。
+- decision: 按完整职责拆为四个辅助文件，保留已有连线与缩放修正路径、独立本地保存和原有导出 ref 接口。
+- added:
+  - `src/renderer/src/utils/mindmapTree.ts`
+  - `src/renderer/src/hooks/useMindmapCanvas.ts`
+  - `src/renderer/src/utils/mindmapExport.ts`
+  - `src/renderer/src/styles/localMindmap.css`
+- modified:
+  - `src/renderer/src/components/LocalMindmapPanel.tsx`
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+- unresolved: npm run dev 启动时已有实例运行；Windows computer-use 捕获两个开发窗口均超时，未完成实际编辑、撤销重做、视图切换、折叠及 PNG/SVG 导出的桌面复验。
+
 ### 16:36 | Antigravity
 
 - done: 在思维导图顶部操作菜单和底部更多菜单中均支持导出图片（PNG与SVG）功能
