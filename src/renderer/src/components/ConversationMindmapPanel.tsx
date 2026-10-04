@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import type { ConversationMindmap, MindmapTask, NoteConversation } from '../../../shared/types/notes'
 import { noteConversationKey } from '../../../shared/utils/noteIdentity'
 import { MINDMAP_REQUIREMENTS_LIMIT } from '../../../shared/utils/mindmap'
-import LocalMindmapPanel, { DEFAULT_MARKDOWN, type LocalMindmapPanelRef } from './LocalMindmapPanel'
+import LocalMindmapPanel, { type LocalMindmapPanelRef } from './LocalMindmapPanel'
 import type { WebviewCardRef } from './WebviewCard'
 import { useAppStore } from '../store/appStore'
 import CustomDropdown from './CustomDropdown'
@@ -328,7 +328,35 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
   useEffect(() => {
     const saved = localStorage.getItem('multichat_local_mindmap_markdown')
     if (!saved) return
-    if (saved === DEFAULT_MARKDOWN) { localStorage.removeItem('multichat_local_mindmap_markdown'); return }
+    // 旧演示模板只用于迁移识别，不再作为新导图的默认内容。
+    const LEGACY_DEFAULT_MARKDOWN = `# b端和c端产品的区别
+
+## 目标相同
+- 创造价值并完成商业价值交换
+
+## 价值决策主体不同
+- C端: 使用、决策和付费主体相对一致，用户是个人
+- B端: 使用、决策和付费主体相对一致，用户是组织
+
+## 产品价值不同
+- 产品价值≈单用户价值x用户规模x价值发生次数
+- 产品价值≈业务价值x流程覆盖度x组织采用率
+
+## 差异点
+- 需求分析的方法不同
+  - C 端: 从"人"出发 —— 用户是谁、在什么场景、有什么需求
+  - B 端: 从"业务"出发 —— 业务流程、角色、业务对象、状态、规则
+- 工作方法区别
+  - C 端靠实验 —— 假设 → MVP → 实验 → 数据 → 迭代
+  - B 端靠建模 —— 业务理解 → 抽象建模 → 产品方案 → 实施 → 验证
+- 对于"用户体验"的理解
+  - B端体验更强调完成任务的效率，降低业务操作成本
+  - C端体验经常是好看、好理解、顺手、有爽感
+
+## 核心问题
+- C端: 用户为什么用? 为什么持续用?
+- B端: 业务为什么这样运行? 系统怎样让它运行得更高效、更稳定?`
+    if (saved === LEGACY_DEFAULT_MARKDOWN) { localStorage.removeItem('multichat_local_mindmap_markdown'); return }
     void window.api.mindmapsImportLegacy(saved).then(result => {
       if (result.success && localStorage.getItem('multichat_local_mindmap_markdown') === saved) localStorage.removeItem('multichat_local_mindmap_markdown')
       else if (!result.success) setError(result.error || '旧导图迁移失败，原内容仍保留')
