@@ -1,8 +1,13 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react'
+import React, { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle } from 'react'
 import { Markmap, globalCSS } from 'markmap-view'
 import type { INode } from 'markmap-common'
 import CustomDropdown from './CustomDropdown'
 import MindmapMarkdownEditor from './MindmapMarkdownEditor'
+
+export interface LocalMindmapPanelRef {
+  exportPng: () => void
+  exportSvg: () => void
+}
 
 export interface MindNode {
   id: string
@@ -138,16 +143,8 @@ export function getOrthogonalStepPath(pathEl: SVGPathElement, d: string): string
       return `M${x1},${y1}L${x2},${y2}`
     }
 
-    // 垂直总线拐点 midX：在源节点右侧紧凑引出，折角后直通目标节点
-    const deltaX = x2 - x1
-    let midX: number
-    if (deltaX > 20) {
-      midX = Math.round(x1 + Math.max(14, Math.min(20, deltaX * 0.42)))
-    } else if (deltaX < -20) {
-      midX = Math.round(x1 - Math.max(14, Math.min(20, Math.abs(deltaX) * 0.42)))
-    } else {
-      midX = Math.round((x1 + x2) / 2)
-    }
+    // 垂直总线拐点 midX：源节点与目标节点严格水平对称居中折角，大幅紧凑连线
+    const midX = Math.round((x1 + x2) / 2)
 
     return `M${x1},${y1}L${midX},${y1}L${midX},${y2}L${x2},${y2}`
   }
@@ -181,15 +178,7 @@ export function curveToStepPath(d: string): string {
     return `M${x1},${y1}L${x2},${y2}`
   }
 
-  const deltaX = x2 - x1
-  let midX: number
-  if (deltaX > 20) {
-    midX = Math.round(x1 + Math.max(16, Math.min(22, deltaX * 0.42)))
-  } else if (deltaX < -20) {
-    midX = Math.round(x1 - Math.max(16, Math.min(22, Math.abs(deltaX) * 0.42)))
-  } else {
-    midX = Math.round((x1 + x2) / 2)
-  }
+  const midX = Math.round((x1 + x2) / 2)
 
   return `M${x1},${y1}L${midX},${y1}L${midX},${y2}L${x2},${y2}`
 }
@@ -359,10 +348,10 @@ function convertToMarkmapNode(
   else if (depth === 1) levelClass = 'mm-node-l1'
 
   const foldIconSvg = isFolded
-    ? '<svg width="7" height="7" viewBox="0 0 24 24" fill="currentColor" style="pointer-events:none;"><polygon points="7,5 17,12 7,19"></polygon></svg>'
-    : '<svg width="7" height="7" viewBox="0 0 24 24" fill="currentColor" style="pointer-events:none;"><polygon points="17,5 7,12 17,19"></polygon></svg>'
+    ? '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="pointer-events:none;"><polyline points="9 18 15 12 9 6"></polyline></svg>'
+    : '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="pointer-events:none;"><polyline points="15 18 9 12 15 6"></polyline></svg>'
 
-  const plusIconSvg = '<svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" style="pointer-events:none;"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>'
+  const plusIconSvg = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" style="pointer-events:none;"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>'
 
   const contentHtml = `
     <span class="mm-node-item ${levelClass} ${isSelected ? 'mm-selected' : ''}" data-node-id="${node.id}" data-depth="${depth}">
@@ -394,7 +383,7 @@ function convertToMarkmapNode(
   } as unknown as INode
 }
 
-export default function LocalMindmapPanel({ initialMarkdown, onChange }: { initialMarkdown?: string; onChange?: (markdown: string) => void }): JSX.Element {
+const LocalMindmapPanel = forwardRef<LocalMindmapPanelRef, { initialMarkdown?: string; onChange?: (markdown: string) => void }>(function LocalMindmapPanel({ initialMarkdown, onChange }, ref): JSX.Element {
   const [viewMode, setViewMode] = useState<'mindmap' | 'markdown'>('mindmap')
 
   // Markdown 与树
@@ -437,10 +426,27 @@ export default function LocalMindmapPanel({ initialMarkdown, onChange }: { initi
     setCanRedo(historyIndexRef.current < historyRef.current.length - 1)
   }, [])
 
+  const prevInitialMarkdownRef = useRef(initialMarkdown)
+
+  useEffect(() => {
+    if (initialMarkdown !== undefined && initialMarkdown !== prevInitialMarkdownRef.current) {
+      prevInitialMarkdownRef.current = initialMarkdown
+      setMarkdown(initialMarkdown)
+      const parsed = parseMarkdownToTree(initialMarkdown)
+      treeRef.current = parsed
+      setTree(parsed)
+      historyRef.current = [initialMarkdown]
+      historyIndexRef.current = 0
+      updateHistoryState()
+    }
+  }, [initialMarkdown, updateHistoryState])
+
   // 提交树变动并保存
   const commitTreeChange = useCallback(
     (newTree: MindNode) => {
+      treeRef.current = newTree
       const newMd = treeToMarkdown(newTree)
+      prevInitialMarkdownRef.current = newMd
       setTree(newTree)
       setMarkdown(newMd)
 
@@ -455,7 +461,7 @@ export default function LocalMindmapPanel({ initialMarkdown, onChange }: { initi
         console.warn('[LocalMindmap] 持久化失败:', err)
       }
     },
-    [updateHistoryState]
+    [updateHistoryState, persistMarkdown]
   )
 
   // 撤回 / 重做
@@ -464,6 +470,8 @@ export default function LocalMindmapPanel({ initialMarkdown, onChange }: { initi
     historyIndexRef.current -= 1
     const prevMd = historyRef.current[historyIndexRef.current]
     const parsed = parseMarkdownToTree(prevMd)
+    treeRef.current = parsed
+    prevInitialMarkdownRef.current = prevMd
     setTree(parsed)
     setMarkdown(prevMd)
     editingNodeIdRef.current = null
@@ -473,13 +481,15 @@ export default function LocalMindmapPanel({ initialMarkdown, onChange }: { initi
     } catch {
       // ignore
     }
-  }, [updateHistoryState])
+  }, [updateHistoryState, persistMarkdown])
 
   const handleRedo = useCallback(() => {
     if (historyIndexRef.current >= historyRef.current.length - 1) return
     historyIndexRef.current += 1
     const nextMd = historyRef.current[historyIndexRef.current]
     const parsed = parseMarkdownToTree(nextMd)
+    treeRef.current = parsed
+    prevInitialMarkdownRef.current = nextMd
     setTree(parsed)
     setMarkdown(nextMd)
     editingNodeIdRef.current = null
@@ -489,7 +499,7 @@ export default function LocalMindmapPanel({ initialMarkdown, onChange }: { initi
     } catch {
       // ignore
     }
-  }, [updateHistoryState])
+  }, [updateHistoryState, persistMarkdown])
 
   // Toast 提示
   const [toastMessage, setToastMessage] = useState<string | null>(null)
@@ -526,6 +536,25 @@ export default function LocalMindmapPanel({ initialMarkdown, onChange }: { initi
         }
       }
     })
+  }, [])
+
+  // ── 更新当前画布缩放比例对应的 CSS 逆向缩放变量 --mm-zoom-inv，确保按钮物理尺寸恒定不变 ──
+  const updateZoomCss = useCallback(() => {
+    if (!svgRef.current) return
+    const zoomData = (svgRef.current as unknown as { __zoom?: { k?: number } }).__zoom
+    let k = zoomData?.k
+    if (!k || isNaN(k) || k <= 0) {
+      const g = svgRef.current.querySelector('g')
+      if (g) {
+        const transform = g.getAttribute('transform') || ''
+        const match = transform.match(/scale\(([\d.]+)\)/)
+        if (match) k = parseFloat(match[1])
+      }
+    }
+    if (k && k > 0 && isFinite(k)) {
+      const inv = Math.max(0.05, Math.min(20, 1 / k))
+      svgRef.current.style.setProperty('--mm-zoom-inv', `${inv}`)
+    }
   }, [])
 
   // ── 提交正在就地编辑的节点 ──
@@ -615,7 +644,18 @@ export default function LocalMindmapPanel({ initialMarkdown, onChange }: { initi
       titleEl.setAttribute('contenteditable', 'true')
       titleEl.setAttribute('spellcheck', 'false')
 
-      titleEl.focus()
+      // 关键：preventScroll: true 严格禁止浏览器在获取焦点时自动滚动页面或父容器，彻底杜绝画面跳动
+      try {
+        titleEl.focus({ preventScroll: true })
+      } catch {
+        titleEl.focus()
+      }
+
+      // 重置可能产生的任何容器滚动位移，确保画布绝对平稳
+      if (containerRef.current) {
+        containerRef.current.scrollTop = 0
+        containerRef.current.scrollLeft = 0
+      }
 
       try {
         const sel = window.getSelection()
@@ -640,12 +680,40 @@ export default function LocalMindmapPanel({ initialMarkdown, onChange }: { initi
   // ── 添加子节点 (就地直接在形状内输入) ──
   const handleAddChild = useCallback(
     (parentId: string) => {
-      if (editingNodeIdRef.current) {
-        commitCurrentEditing()
+      let pendingText: string | undefined
+      let prevEditingId: string | null = null
+
+      // 如果当前正在编辑某个节点，同步提取其文本并合并提交，避免两次连续更新触发画面跳动
+      if (editingNodeIdRef.current && svgRef.current) {
+        prevEditingId = editingNodeIdRef.current
+        const curTitle = svgRef.current.querySelector<HTMLElement>(`.mm-node-title[data-node-id="${prevEditingId}"]`)
+        const curItem = svgRef.current.querySelector<HTMLElement>(`.mm-node-item[data-node-id="${prevEditingId}"]`)
+        if (curTitle) {
+          pendingText = curTitle.textContent?.trim() || curTitle.getAttribute('data-original-text') || '未命名分支'
+          curTitle.removeAttribute('contenteditable')
+          curTitle.removeAttribute('data-original-text')
+          try {
+            curTitle.blur()
+          } catch {
+            // ignore
+          }
+        }
+        if (curItem) {
+          curItem.classList.remove('mm-editing')
+        }
+        editingNodeIdRef.current = null
       }
 
       const currentTree = treeRef.current
       const cloned = cloneTree(currentTree)
+
+      if (prevEditingId && pendingText !== undefined) {
+        const prevNode = findNode(cloned, prevEditingId)
+        if (prevNode && prevNode.content !== pendingText) {
+          prevNode.content = pendingText
+        }
+      }
+
       const target = findNode(cloned, parentId)
       if (!target) return
 
@@ -662,14 +730,22 @@ export default function LocalMindmapPanel({ initialMarkdown, onChange }: { initi
       commitTreeChange(cloned)
       setSelectedNodeId(newId)
 
-      // 等待 DOM 更新后就地启动编辑
-      requestAnimationFrame(() => {
-        setTimeout(() => {
+      // 等待 DOM 更新后就地启动编辑，带有多次重试保障
+      let retries = 0
+      const tryStartEditing = () => {
+        if (!svgRef.current) return
+        const nodeItem = svgRef.current.querySelector<HTMLElement>(`.mm-node-item[data-node-id="${newId}"]`)
+        const titleEl = svgRef.current.querySelector<HTMLElement>(`.mm-node-title[data-node-id="${newId}"]`)
+        if (nodeItem && titleEl) {
           startEditingNode(newId, '新建节点', true)
-        }, 50)
-      })
+        } else if (retries < 10) {
+          retries++
+          setTimeout(tryStartEditing, 30)
+        }
+      }
+      setTimeout(tryStartEditing, 30)
     },
-    [commitTreeChange, commitCurrentEditing, startEditingNode]
+    [commitTreeChange, startEditingNode]
   )
 
   // ── 删除节点 ──
@@ -735,9 +811,10 @@ export default function LocalMindmapPanel({ initialMarkdown, onChange }: { initi
     setTimeout(() => {
       markmapRef.current?.fit()
       convertLinksToStep()
+      updateZoomCss()
     }, 50)
     showToast('已展开所有节点')
-  }, [commitTreeChange, convertLinksToStep, showToast])
+  }, [commitTreeChange, convertLinksToStep, updateZoomCss, showToast])
 
   // ── 全部收起 ──
   const handleFoldAll = useCallback(() => {
@@ -754,9 +831,10 @@ export default function LocalMindmapPanel({ initialMarkdown, onChange }: { initi
     setTimeout(() => {
       markmapRef.current?.fit()
       convertLinksToStep()
+      updateZoomCss()
     }, 50)
     showToast('已收起子节点')
-  }, [commitTreeChange, convertLinksToStep, showToast])
+  }, [commitTreeChange, convertLinksToStep, updateZoomCss, showToast])
 
   // ── 同步高亮选中状态类名（直接操作 DOM 避免重新渲染销毁输入状态） ──
   const syncSelectionClass = useCallback((nodeId: string | null) => {
@@ -787,33 +865,48 @@ export default function LocalMindmapPanel({ initialMarkdown, onChange }: { initi
           initialExpandLevel: -1,
           color: () => '#a1a1aa',
           paddingX: 0, // 彻底消除 foreignObject 的 8px 空隙，让连线完美贴合节点卡片和文字两端！
-          spacingHorizontal: 46, // 大幅缩短水平连线距离，从默认 80px 降至 46px，紧凑协调
+          spacingHorizontal: 24, // 水平连线缩减一半，使导图整体更紧凑
           spacingVertical: 6
         },
         markmapRoot
       )
       markmapRef.current = mm
+
+      // 实时监听 D3 zoom 事件，驱动 --mm-zoom-inv，确保操作按钮物理大小恒定不变
+      const mmAny = mm as unknown as { zoom?: { on: (event: string, fn: (e: { transform: { k: number } }) => void) => void } }
+      mmAny.zoom?.on('zoom.buttonScale', (event) => {
+        const k = event?.transform?.k
+        if (k && k > 0 && isFinite(k) && svgRef.current) {
+          const inv = Math.max(0.05, Math.min(20, 1 / k))
+          svgRef.current.style.setProperty('--mm-zoom-inv', `${inv}`)
+        }
+      })
+
       // 仅在首次挂载创建画布时自适应居中一次
       mm.fit()
+      updateZoomCss()
     } else {
       markmapRef.current.setOptions({
         paddingX: 0,
-        spacingHorizontal: 46,
+        spacingHorizontal: 24,
         spacingVertical: 6
       })
       void markmapRef.current.setData(markmapRoot).then(() => {
         convertLinksToStep()
         syncSelectionClass(selectedNodeIdRef.current)
+        updateZoomCss()
       })
     }
 
     convertLinksToStep()
     syncSelectionClass(selectedNodeIdRef.current)
+    updateZoomCss()
     requestAnimationFrame(() => {
       convertLinksToStep()
       syncSelectionClass(selectedNodeIdRef.current)
+      updateZoomCss()
     })
-  }, [viewMode, tree, convertLinksToStep, syncSelectionClass])
+  }, [viewMode, tree, convertLinksToStep, syncSelectionClass, updateZoomCss])
 
   // ── 选中态变化时即时同步 DOM 类名 ──
   useEffect(() => {
@@ -826,13 +919,28 @@ export default function LocalMindmapPanel({ initialMarkdown, onChange }: { initi
 
     const observer = new MutationObserver((mutations) => {
       for (const m of mutations) {
-        if (m.type === 'attributes' && m.attributeName === 'd') {
-          const path = m.target as SVGPathElement
-          const d = path.getAttribute('d')
-          if (d && d.includes('C')) {
-            const stepD = getOrthogonalStepPath(path, d)
-            if (stepD !== d) {
-              path.setAttribute('d', stepD)
+        if (m.type === 'attributes') {
+          if (m.attributeName === 'd') {
+            const path = m.target as SVGPathElement
+            const d = path.getAttribute('d')
+            if (d && d.includes('C')) {
+              const stepD = getOrthogonalStepPath(path, d)
+              if (stepD !== d) {
+                path.setAttribute('d', stepD)
+              }
+            }
+          } else if (m.attributeName === 'transform') {
+            const target = m.target as Element
+            if (target.tagName.toLowerCase() === 'g') {
+              const transform = target.getAttribute('transform') || ''
+              const match = transform.match(/scale\(([\d.]+)\)/)
+              if (match) {
+                const k = parseFloat(match[1])
+                if (k > 0 && isFinite(k) && svgRef.current) {
+                  const inv = Math.max(0.05, Math.min(20, 1 / k))
+                  svgRef.current.style.setProperty('--mm-zoom-inv', `${inv}`)
+                }
+              }
             }
           }
         } else if (m.type === 'childList') {
@@ -855,7 +963,7 @@ export default function LocalMindmapPanel({ initialMarkdown, onChange }: { initi
       subtree: true,
       attributes: true,
       childList: true,
-      attributeFilter: ['d']
+      attributeFilter: ['d', 'transform']
     })
 
     return () => observer.disconnect()
@@ -871,11 +979,12 @@ export default function LocalMindmapPanel({ initialMarkdown, onChange }: { initi
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const { width, height } = entry.contentRect
-        if (lastW > 0 && lastH > 0 && (Math.abs(width - lastW) > 40 || Math.abs(height - lastH) > 40)) {
+        if (lastW > 0 && lastH > 0 && (Math.abs(width - lastW) > 10 || Math.abs(height - lastH) > 10)) {
           lastW = width
           lastH = height
-          markmapRef.current?.fit()
+          // 仅重新校准连线与按钮缩放比例，绝不调用 fit() 重新居中导致画面跳动！
           convertLinksToStep()
+          updateZoomCss()
         } else if (lastW === 0 || lastH === 0) {
           lastW = width
           lastH = height
@@ -885,12 +994,20 @@ export default function LocalMindmapPanel({ initialMarkdown, onChange }: { initi
 
     observer.observe(containerRef.current)
     return () => observer.disconnect()
-  }, [viewMode, convertLinksToStep])
+  }, [viewMode, convertLinksToStep, updateZoomCss])
 
   // ── 捕获阶段代理鼠标交互（避免 Markmap 内部 stopPropagation 拦截双击与点击） ──
   useEffect(() => {
     const container = containerRef.current
     if (!container || viewMode !== 'mindmap') return
+
+    const handleMouseDownCapture = (e: MouseEvent): void => {
+      const target = e.target as HTMLElement
+      // 点击了操作按钮，阻止事件向下传递到 D3 zoom（避免被误判为画布拖拽手势）
+      if (target.closest('[data-action]') || target.closest('.mm-node-btns')) {
+        e.stopPropagation()
+      }
+    }
 
     const handleClickCapture = (e: MouseEvent): void => {
       const target = e.target as HTMLElement
@@ -912,6 +1029,13 @@ export default function LocalMindmapPanel({ initialMarkdown, onChange }: { initi
           handleToggleFoldNode(actionNodeId)
           return
         }
+      }
+
+      // 如果点击在按钮浮动栏范围内（包括间隙或扩展命中区），拦截并停止冒泡，绝不触发选择或编辑节点
+      if (target.closest('.mm-node-btns') || target.closest('.mm-node-btns-anchor')) {
+        e.stopPropagation()
+        e.preventDefault()
+        return
       }
 
       // 智能全方位探测点击的节点元素：支持点击在节点本体、内部文字、或外层容器 div/foreignObject
@@ -989,6 +1113,7 @@ export default function LocalMindmapPanel({ initialMarkdown, onChange }: { initi
       isComposingRef.current = false
     }
 
+    container.addEventListener('mousedown', handleMouseDownCapture, true)
     container.addEventListener('click', handleClickCapture, true)
     container.addEventListener('dblclick', handleDblClickCapture, true)
     container.addEventListener('focusout', handleFocusOutCapture, true)
@@ -996,6 +1121,7 @@ export default function LocalMindmapPanel({ initialMarkdown, onChange }: { initi
     container.addEventListener('compositionend', handleCompositionEnd, true)
 
     return () => {
+      container.removeEventListener('mousedown', handleMouseDownCapture, true)
       container.removeEventListener('click', handleClickCapture, true)
       container.removeEventListener('dblclick', handleDblClickCapture, true)
       container.removeEventListener('focusout', handleFocusOutCapture, true)
@@ -1036,7 +1162,6 @@ export default function LocalMindmapPanel({ initialMarkdown, onChange }: { initi
           e.preventDefault()
           e.stopPropagation()
           const parentId = editingNodeIdRef.current
-          commitCurrentEditing()
           handleAddChild(parentId)
           return
         }
@@ -1065,6 +1190,7 @@ export default function LocalMindmapPanel({ initialMarkdown, onChange }: { initi
         // Tab: 新增子节点
         if (e.key === 'Tab') {
           e.preventDefault()
+          e.stopPropagation()
           handleAddChild(selectedNodeId)
           return
         }
@@ -1122,45 +1248,175 @@ export default function LocalMindmapPanel({ initialMarkdown, onChange }: { initi
   const handleMarkdownChange = useCallback(
     (newVal: string) => {
       setMarkdown(newVal)
+      prevInitialMarkdownRef.current = newVal
       try {
         persistMarkdown(newVal)
       } catch {
         // ignore
       }
       const parsed = parseMarkdownToTree(newVal)
+      treeRef.current = parsed
       setTree(parsed)
       historyRef.current = historyRef.current.slice(0, historyIndexRef.current + 1)
       historyRef.current.push(newVal)
       historyIndexRef.current = historyRef.current.length - 1
       updateHistoryState()
     },
-    [updateHistoryState]
+    [updateHistoryState, persistMarkdown]
   )
+
+  // ── 导出图片相关实现 ──
+  const prepareExportSvg = useCallback((): { svgString: string; width: number; height: number; title: string } | null => {
+    if (!svgRef.current) return null
+    const svgEl = svgRef.current
+    const gEl = svgEl.querySelector('g')
+    if (!gEl) return null
+
+    try {
+      const bbox = gEl.getBBox()
+      const padding = 40
+      const minX = Math.floor(bbox.x - padding)
+      const minY = Math.floor(bbox.y - padding)
+      const totalWidth = Math.max(200, Math.ceil(bbox.width + padding * 2))
+      const totalHeight = Math.max(100, Math.ceil(bbox.height + padding * 2))
+
+      const clone = svgEl.cloneNode(true) as SVGSVGElement
+      clone.querySelectorAll('.mm-selected').forEach(el => el.classList.remove('mm-selected'))
+      clone.querySelectorAll('.mm-node-btn').forEach(el => el.remove())
+
+      clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
+      clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink')
+      clone.setAttribute('viewBox', `${minX} ${minY} ${totalWidth} ${totalHeight}`)
+      clone.setAttribute('width', `${totalWidth}`)
+      clone.setAttribute('height', `${totalHeight}`)
+      clone.style.width = `${totalWidth}px`
+      clone.style.height = `${totalHeight}px`
+      clone.style.background = '#ffffff'
+
+      const bgRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
+      bgRect.setAttribute('x', `${minX}`)
+      bgRect.setAttribute('y', `${minY}`)
+      bgRect.setAttribute('width', `${totalWidth}`)
+      bgRect.setAttribute('height', `${totalHeight}`)
+      bgRect.setAttribute('fill', '#ffffff')
+      clone.insertBefore(bgRect, clone.firstChild)
+
+      const styleEl = document.createElementNS('http://www.w3.org/2000/svg', 'style')
+      styleEl.textContent = `
+        ${globalCSS}
+        .markmap { width: 100%; height: 100%; background: #ffffff; }
+        .markmap-node > circle { display: none !important; }
+        .markmap-link { stroke: #9ca3af !important; stroke-width: 1.25px !important; fill: none !important; stroke-linejoin: round !important; stroke-linecap: round !important; }
+        .markmap-node > line { display: none !important; }
+        foreignObject, foreignObject.markmap-foreign { overflow: visible !important; pointer-events: none !important; }
+        .markmap-foreign, .markmap-foreign > div, .markmap-foreign > div > div { overflow: visible !important; pointer-events: none !important; white-space: nowrap !important; }
+        .markmap-foreign > div { width: max-content !important; max-width: none !important; white-space: nowrap !important; }
+        .markmap-foreign > div > div { width: max-content !important; white-space: nowrap !important; }
+        .mm-node-item { display: inline-flex !important; flex-direction: row !important; align-items: center !important; position: relative; box-sizing: border-box; border-radius: 4px; white-space: nowrap !important; width: max-content !important; background-color: transparent !important; pointer-events: auto !important; overflow: visible !important; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+        .mm-node-root { background-color: #09090b !important; color: #ffffff !important; font-weight: 600 !important; font-size: 13.5px !important; padding: 6px 12px !important; border-radius: 4px !important; }
+        .mm-node-root .mm-node-title { color: #ffffff !important; }
+        .mm-node-l1 { background-color: #f4f4f5 !important; color: #18181b !important; font-weight: 500 !important; font-size: 12.5px !important; padding: 4px 10px !important; border-radius: 4px !important; border: 1px solid #e4e4e7 !important; }
+        .mm-node-l1 .mm-node-title { color: #18181b !important; }
+        .mm-node-l2 { background-color: transparent !important; color: #27272a !important; font-weight: 400 !important; font-size: 12.5px !important; padding: 2px 3px 2px 2px !important; min-height: 20px !important; border-radius: 4px !important; }
+        .mm-node-l2 .mm-node-title { color: #27272a !important; }
+        .mm-node-btn { display: none !important; }
+      `
+      clone.insertBefore(styleEl, clone.firstChild)
+
+      const serializer = new XMLSerializer()
+      const svgString = serializer.serializeToString(clone)
+      const safeTitle = (tree.content ? tree.content.replace(/<[^>]*>/g, '').replace(/[\\/:*?"<>|]/g, '_').trim() : '') || 'mindmap'
+
+      return { svgString, width: totalWidth, height: totalHeight, title: safeTitle }
+    } catch (err) {
+      console.error('prepareExportSvg error:', err)
+      return null
+    }
+  }, [tree.content])
 
   // 导出 SVG
   const handleExportSvg = useCallback(() => {
-    if (!svgRef.current) return
+    const data = prepareExportSvg()
+    if (!data) {
+      showToast('导出失败，未找到导图内容')
+      return
+    }
     try {
-      const serializer = new XMLSerializer()
-      let svgStr = serializer.serializeToString(svgRef.current)
-      if (!svgStr.includes('xmlns="http://www.w3.org/2000/svg"')) {
-        svgStr = svgStr.replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" ')
-      }
-      svgStr = svgStr.replace('>', `><style>${globalCSS}</style>`)
-      const blob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' })
+      const blob = new Blob([data.svgString], { type: 'image/svg+xml;charset=utf-8' })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `mindmap-${Date.now()}.svg`
+      a.download = `${data.title}.svg`
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
       showToast('SVG 已导出')
     } catch {
-      showToast('导出失败')
+      showToast('导出 SVG 失败')
     }
-  }, [showToast])
+  }, [prepareExportSvg, showToast])
+
+  // 导出 PNG
+  const handleExportPng = useCallback(() => {
+    const data = prepareExportSvg()
+    if (!data) {
+      showToast('导出失败，未找到导图内容')
+      return
+    }
+    try {
+      const base64 = btoa(unescape(encodeURIComponent(data.svgString)))
+      const dataUrl = `data:image/svg+xml;base64,${base64}`
+      const img = new Image()
+      img.onload = () => {
+        try {
+          const scale = 2
+          const canvas = document.createElement('canvas')
+          canvas.width = data.width * scale
+          canvas.height = data.height * scale
+          const ctx = canvas.getContext('2d')
+          if (!ctx) {
+            showToast('导出失败，无法创建画布')
+            return
+          }
+          ctx.fillStyle = '#ffffff'
+          ctx.fillRect(0, 0, canvas.width, canvas.height)
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+          canvas.toBlob(blob => {
+            if (!blob) {
+              showToast('导出失败')
+              return
+            }
+            const url = URL.createObjectURL(blob)
+            const a = document.createElement('a')
+            a.href = url
+            a.download = `${data.title}.png`
+            document.body.appendChild(a)
+            a.click()
+            document.body.removeChild(a)
+            URL.revokeObjectURL(url)
+            showToast('PNG 图片已导出')
+          }, 'image/png')
+        } catch (err) {
+          console.error('PNG export failed:', err)
+          showToast('导出 PNG 失败')
+        }
+      }
+      img.onerror = (err) => {
+        console.error('PNG img load error:', err)
+        showToast('导出 PNG 失败')
+      }
+      img.src = dataUrl
+    } catch (err) {
+      console.error('handleExportPng error:', err)
+      showToast('导出 PNG 失败')
+    }
+  }, [prepareExportSvg, showToast])
+
+  useImperativeHandle(ref, () => ({
+    exportPng: handleExportPng,
+    exportSvg: handleExportSvg
+  }), [handleExportPng, handleExportSvg])
 
   const viewSwitcher = (
     <div className={`flex shrink-0 items-center bg-white/95 backdrop-blur border border-gray-200/80 p-0.5 rounded-lg shadow-sm ${viewMode === 'mindmap' ? 'absolute right-3 top-3 z-30' : ''}`}>
@@ -1192,7 +1448,14 @@ export default function LocalMindmapPanel({ initialMarkdown, onChange }: { initi
   )
 
   return (
-    <div ref={containerRef} className="h-full w-full flex flex-col bg-white relative overflow-hidden select-text">
+    <div
+      ref={containerRef}
+      className="h-full w-full flex flex-col bg-white relative overflow-hidden select-text"
+      onScroll={(e) => {
+        e.currentTarget.scrollTop = 0
+        e.currentTarget.scrollLeft = 0
+      }}
+    >
       {/* Markmap 基础样式与幕布风格黑白灰折线高质感样式 */}
       <style>{globalCSS}</style>
       <style>{`
@@ -1343,18 +1606,33 @@ export default function LocalMindmapPanel({ initialMarkdown, onChange }: { initi
         }
 
         /* 浮动在节点右边缘外侧、正中覆盖在右侧连线上的按钮栏
-           默认彻底 display: none，彻底从文档排版中剥离，绝不导致 scrollWidth 虚增 40px！ */
+           默认彻底 display: none，彻底从文档排版中剥离，绝不导致 scrollWidth 虚增！
+           始终应用 --mm-zoom-inv 逆缩放，确保任意画布缩放倍数下按钮屏幕物理大小恒定不变 */
         .mm-node-btns {
           position: absolute;
-          left: 4px;
+          left: 0;
           top: 0;
-          transform: translateY(-50%);
+          padding-left: calc(4px * var(--mm-zoom-inv, 1));
+          transform: translateY(-50%) scale(var(--mm-zoom-inv, 1));
+          transform-origin: 0 50%;
           display: none;
           align-items: center;
           gap: 4px;
           z-index: 30;
           white-space: nowrap;
-          pointer-events: none;
+          pointer-events: auto;
+        }
+
+        /* 隐形命中检测区域：确保鼠标从节点平滑移向按钮时 hover 连续不丢失，绝不意外闪退 */
+        .mm-node-btns::before {
+          content: '';
+          position: absolute;
+          left: -8px;
+          top: -8px;
+          right: -8px;
+          bottom: -8px;
+          z-index: 1;
+          pointer-events: auto;
         }
 
         /* hover 节点或选中节点时，按钮显现覆盖在线段上 */
@@ -1379,34 +1657,48 @@ export default function LocalMindmapPanel({ initialMarkdown, onChange }: { initi
           display: none !important;
         }
 
-        /* 圆形按钮：纯白底实心遮盖连线、黑白灰细边框微阴影 */
+        /* 圆形描边按钮：尺寸升级为 18px，纯白底遮挡底层折线，灰色描边与线条图标，恒定物理大小 */
         .mm-btn {
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          width: 17px;
-          height: 17px;
+          width: 18px;
+          height: 18px;
+          box-sizing: border-box;
           border-radius: 50% !important;
           background-color: #ffffff !important;
-          border: 1px solid #d4d4d8 !important;
-          color: #3f3f46 !important;
-          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+          border: 1px solid #9ca3af !important;
+          color: #6b7280 !important;
           cursor: pointer;
           pointer-events: auto;
+          position: relative;
+          z-index: 10;
           user-select: none;
           line-height: 1;
           padding: 0;
-          transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease, transform 0.12s ease;
+          transition: border-color 0.12s ease, color 0.12s ease, background-color 0.12s ease;
         }
+        /* 扩展自身可点击区域，边缘点击更易命中 */
+        .mm-btn::before {
+          content: '';
+          position: absolute;
+          top: -3px;
+          left: -3px;
+          right: -3px;
+          bottom: -3px;
+          border-radius: 50%;
+          pointer-events: auto;
+        }
+        /* hover 保持描边格式，不变成实体填充，仅线段边框与图标线条变黑 */
         .mm-btn:hover {
-          background-color: #18181b !important;
+          background-color: #ffffff !important;
           border-color: #18181b !important;
-          color: #ffffff !important;
-          transform: scale(1.12);
-          box-shadow: 0 2px 5px rgba(0, 0, 0, 0.16);
+          color: #18181b !important;
         }
         .mm-btn:active {
-          transform: scale(0.95);
+          background-color: #f4f4f5 !important;
+          border-color: #000000 !important;
+          color: #000000 !important;
         }
       `}</style>
 
@@ -1421,12 +1713,16 @@ export default function LocalMindmapPanel({ initialMarkdown, onChange }: { initi
 
       {/* ── 视图 A：思维导图交互画布 ── */}
       <div
-        className="flex-1 w-full h-full relative"
+        className="flex-1 w-full h-full relative overflow-hidden"
         style={{ display: viewMode === 'mindmap' ? 'block' : 'none' }}
+        onScroll={(e) => {
+          e.currentTarget.scrollTop = 0
+          e.currentTarget.scrollLeft = 0
+        }}
       >
         <svg
           ref={svgRef}
-          className="markmap"
+          className="markmap block w-full h-full"
         />
 
         {/* 右下角工具栏：撤回、重做、放大、缩小、适应、展开、收起、导出 */}
@@ -1463,6 +1759,7 @@ export default function LocalMindmapPanel({ initialMarkdown, onChange }: { initi
             onClick={() => {
               markmapRef.current?.rescale(1.25)
               convertLinksToStep()
+              updateZoomCss()
             }}
             className="w-7 h-7 flex items-center justify-center rounded text-text-secondary hover:text-text-primary hover:bg-gray-100 transition-colors"
             title="放大"
@@ -1475,6 +1772,7 @@ export default function LocalMindmapPanel({ initialMarkdown, onChange }: { initi
             onClick={() => {
               markmapRef.current?.rescale(0.8)
               convertLinksToStep()
+              updateZoomCss()
             }}
             className="w-7 h-7 flex items-center justify-center rounded text-text-secondary hover:text-text-primary hover:bg-gray-100 transition-colors"
             title="缩小"
@@ -1487,6 +1785,7 @@ export default function LocalMindmapPanel({ initialMarkdown, onChange }: { initi
             onClick={() => {
               markmapRef.current?.fit()
               convertLinksToStep()
+              updateZoomCss()
             }}
             className="w-7 h-7 flex items-center justify-center rounded text-text-secondary hover:text-text-primary hover:bg-gray-100 transition-colors"
             title="适应视口居中"
@@ -1500,6 +1799,7 @@ export default function LocalMindmapPanel({ initialMarkdown, onChange }: { initi
           <CustomDropdown value={null} onChange={() => {}} displayText="更多" direction="up" dropdownWidth="w-56 !left-auto right-0 !z-50 !max-h-[70vh]" buttonClassName="h-7 px-2 rounded text-gray-500 hover:bg-gray-100 flex items-center gap-1 text-sm" renderContent={close => <div className="p-1 text-sm">
             <button className="w-full text-left px-3 py-2 rounded hover:bg-gray-100" onClick={() => { close(); handleExpandAll() }}>展开全部</button>
             <button className="w-full text-left px-3 py-2 rounded hover:bg-gray-100" onClick={() => { close(); handleFoldAll() }}>收起子节点</button>
+            <button className="w-full text-left px-3 py-2 rounded hover:bg-gray-100" onClick={() => { close(); handleExportPng() }}>导出图片（PNG）</button>
             <button className="w-full text-left px-3 py-2 rounded hover:bg-gray-100" onClick={() => { close(); handleExportSvg() }}>导出图片（SVG）</button>
             <div className="mt-1 px-3 py-2 border-t border-gray-100 text-gray-500 space-y-1"><p>双击节点编辑</p><p>Tab 添加子节点</p><p>Delete 删除节点</p><p>Ctrl+Z 撤销 · Ctrl+Y 重做</p></div>
           </div>} />
@@ -1563,4 +1863,6 @@ export default function LocalMindmapPanel({ initialMarkdown, onChange }: { initi
       </div>
     </div>
   )
-}
+})
+
+export default LocalMindmapPanel

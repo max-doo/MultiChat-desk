@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type { ConversationMindmap, MindmapTask, NoteConversation } from '../../../shared/types/notes'
 import { noteConversationKey } from '../../../shared/utils/noteIdentity'
 import { MINDMAP_REQUIREMENTS_LIMIT } from '../../../shared/utils/mindmap'
-import LocalMindmapPanel, { DEFAULT_MARKDOWN } from './LocalMindmapPanel'
+import LocalMindmapPanel, { DEFAULT_MARKDOWN, type LocalMindmapPanelRef } from './LocalMindmapPanel'
 import type { WebviewCardRef } from './WebviewCard'
 import { useAppStore } from '../store/appStore'
 import CustomDropdown from './CustomDropdown'
@@ -37,7 +37,35 @@ function downloadMarkdown(markdown: string, title: string): void {
   URL.revokeObjectURL(url)
 }
 
-function MindmapEditor({ conversationId, map, onReload, controls, notice }: { conversationId: string; map: ConversationMindmap; onReload: () => void; controls: ReactNode; notice: ReactNode }): JSX.Element {
+function extractRootTitle(markdown: string): string | null {
+  const match = markdown.match(/^#\s+([^\r\n]+)/m)
+  return match ? match[1].trim() : null
+}
+
+function updateMarkdownRootTitle(markdown: string, newTitle: string): string {
+  const cleanTitle = newTitle.replace(/[\r\n]/g, ' ').trim()
+  if (!cleanTitle) return markdown
+  if (/^#\s+[^\r\n]*/m.test(markdown)) {
+    return markdown.replace(/^#\s+[^\r\n]*/m, `# ${cleanTitle}`)
+  }
+  return `# ${cleanTitle}\n\n${markdown}`
+}
+
+function MindmapEditor({
+  conversationId,
+  map,
+  onReload,
+  controls,
+  notice,
+  panelRef
+}: {
+  conversationId: string
+  map: ConversationMindmap
+  onReload: () => void
+  controls: ReactNode
+  notice: ReactNode
+  panelRef?: React.MutableRefObject<LocalMindmapPanelRef | null>
+}): JSX.Element {
   const [initial, setInitial] = useState(() => drafts.get(map.id)?.markdown ?? map.markdown)
   const [remoteRevision, setRemoteRevision] = useState(0)
   const [title, setTitle] = useState(() => drafts.get(map.id)?.title ?? map.title)
@@ -60,6 +88,8 @@ function MindmapEditor({ conversationId, map, onReload, controls, notice }: { co
         const result = await window.api.mindmapsUpdate(conversationId, map.id, draft.markdown, draft.title, draft.updatedAt)
         if (!result.success || !result.data) throw new Error(result.error || '保存失败')
         current.current.updatedAt = result.data.updatedAt
+        map.title = result.data.title
+        map.markdown = result.data.markdown
         const pending = drafts.get(map.id)
         if (pending === draft) { drafts.delete(map.id); setStatus('已保存') }
         else if (pending) { pending.updatedAt = result.data.updatedAt; setStatus('待保存…') }
@@ -73,9 +103,14 @@ function MindmapEditor({ conversationId, map, onReload, controls, notice }: { co
     saveQueues.set(map.id, operation)
     void operation.then(() => { if (saveQueues.get(map.id) === operation) saveQueues.delete(map.id) })
     return operation
-  }, [conversationId, map.id])
+  }, [conversationId, map])
 
-  const edit = useCallback((markdown: string, nextTitle = current.current.title) => {
+  const edit = useCallback((markdown: string, overrideTitle?: string) => {
+    const rootTitle = extractRootTitle(markdown)
+    const nextTitle = overrideTitle !== undefined ? overrideTitle : (rootTitle || current.current.title)
+    if (nextTitle !== current.current.title) {
+      setTitle(nextTitle)
+    }
     const previous = drafts.get(map.id)
     current.current = { markdown, title: nextTitle, updatedAt: previous?.updatedAt ?? current.current.updatedAt }
     drafts.set(map.id, { ...current.current, error: previous?.error })
@@ -99,7 +134,20 @@ function MindmapEditor({ conversationId, map, onReload, controls, notice }: { co
   const failed = !!drafts.get(map.id)?.error
   return <div className="h-full flex flex-col min-h-0">
     <div className="px-3 py-2 border-b border-gray-100 flex items-center gap-2 text-sm">
-      <input aria-label="导图标题" title="点击修改标题" className="min-w-0 flex-1 h-8 px-1 font-medium text-gray-800 bg-transparent border border-transparent rounded hover:border-gray-200 focus:border-primary focus:outline-none" value={title} maxLength={200} onChange={event => { setTitle(event.target.value); edit(current.current.markdown, event.target.value) }} />
+      <input
+        aria-label="导图标题"
+        title="点击修改标题"
+        className="min-w-0 flex-1 h-8 px-1 font-medium text-gray-800 bg-transparent border border-transparent rounded hover:border-gray-200 focus:border-primary focus:outline-none"
+        value={title}
+        maxLength={200}
+        onChange={event => {
+          const nextTitle = event.target.value
+          setTitle(nextTitle)
+          const syncedMarkdown = updateMarkdownRootTitle(current.current.markdown, nextTitle)
+          setInitial(syncedMarkdown)
+          edit(syncedMarkdown, nextTitle)
+        }}
+      />
       {!failed && status !== '已保存' && <span title={status} aria-label={status} className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />}
       {controls}
     </div>
@@ -109,7 +157,7 @@ function MindmapEditor({ conversationId, map, onReload, controls, notice }: { co
       <button className="text-primary" onClick={() => { void flush(true) }}>重试</button>
       <button className="text-gray-500" onClick={() => { if (window.confirm('重新载入将放弃当前未保存编辑，请先导出大纲。继续吗？')) { drafts.delete(map.id); onReload() } }}>重新载入</button>
     </div>}
-    <div className="flex-1 min-h-0"><LocalMindmapPanel key={remoteRevision} initialMarkdown={initial} onChange={edit} /></div>
+    <div className="flex-1 min-h-0"><LocalMindmapPanel ref={panelRef} key={remoteRevision} initialMarkdown={initial} onChange={edit} /></div>
   </div>
 }
 
@@ -132,12 +180,33 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
   const generateButtonRef = useRef<HTMLButtonElement>(null)
   const [editorRevision, setEditorRevision] = useState(0)
   const [dismissedTaskId, setDismissedTaskId] = useState(readDismissedTask)
+  const [newMenuOpen, setNewMenuOpen] = useState(false)
+  const newMenuRef = useRef<HTMLDivElement>(null)
   const sourceRef = useRef(source)
   sourceRef.current = source
   const sourceKeyRef = useRef('')
   const conversationRef = useRef(conversation)
   conversationRef.current = conversation
   const refreshSequence = useRef(0)
+  const mindmapPanelRef = useRef<LocalMindmapPanelRef | null>(null)
+
+  useEffect(() => {
+    if (!newMenuOpen) return
+    const handleClickOutside = (event: MouseEvent): void => {
+      if (newMenuRef.current && !newMenuRef.current.contains(event.target as Node)) {
+        setNewMenuOpen(false)
+      }
+    }
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setNewMenuOpen(false)
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [newMenuOpen])
 
   const dismissTask = useCallback((id: string): void => {
     dismissedTaskCache = id
@@ -222,11 +291,18 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
       const completed = next.phase === 'done' && (current?.id !== next.id || current.phase !== 'done')
       current = next
       setTask(next)
-      if (next.phase === 'done' && next.conversationId === conversationRef.current?.id && !conversationRef.current.mindmaps.length && next.mindmapId) setMapId(next.mindmapId)
+      if (next.phase === 'done' && next.conversationId === conversationRef.current?.id && next.mindmapId) {
+        setMapId(next.mindmapId)
+      }
       if (completed) void window.api.notesList().then(result => {
         if (!alive || conversationRef.current?.id !== next.conversationId) return
         const saved = result.data?.find(item => item.id === next.conversationId)
-        if (result.success && saved) setConversation(saved)
+        if (result.success && saved) {
+          setConversation(saved)
+          if (next.mindmapId) {
+            setMapId(next.mindmapId)
+          }
+        }
       }).catch(() => { /* 下次打开笔记时可重新读取，任务完成状态仍保留。 */ })
     }
     const sync = async (): Promise<void> => {
@@ -301,7 +377,12 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
     finally { setPreparing(false) }
   }
 
-  const activeMap = conversation?.mindmaps.find(map => map.id === mapId) || conversation?.mindmaps[conversation.mindmaps.length - 1]
+  const sortedMindmaps = useMemo(() => {
+    if (!conversation?.mindmaps) return []
+    return [...conversation.mindmaps].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+  }, [conversation?.mindmaps])
+
+  const activeMap = conversation?.mindmaps.find(map => map.id === mapId) || sortedMindmaps[0]
   const busy = !!task && !['done', 'error', 'cancelled'].includes(task.phase)
   const reloadEditor = async (): Promise<void> => {
     const result = await window.api.notesList()
@@ -311,47 +392,242 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
   }
   const platformName = models.find(model => model.id === platform)?.name || platform
   const currentModel = models.find(model => model.id === platform)
-  const generateButton = <button ref={generateButtonRef} disabled={preparing || busy || !platform} title={`将当前对话发送到 ${platformName}，生成新导图并保存到笔记`} onClick={() => { void generate() }} className="h-8 shrink-0 rounded-lg bg-primary text-white px-3 text-sm disabled:opacity-40 hover:brightness-95">{preparing ? '读取中…' : busy ? '生成中…' : activeMap ? '生成新图' : '生成导图'}</button>
-  const controls = <div className="flex items-center gap-1.5 shrink-0">
-    {activeMap && generateButton}
-    <CustomDropdown value={null} onChange={() => {}} displayText="更多" dropdownWidth="w-72 !left-auto right-0 !z-50 !max-h-[70vh]" buttonClassName="h-8 px-2 rounded-lg text-gray-500 hover:bg-gray-100 flex items-center gap-1 text-sm" renderContent={close => <div className="p-2 space-y-1 text-sm">
-      <label className="flex items-center justify-between gap-3 px-2 py-1.5 text-gray-600">生成平台
-        <select aria-label="生成平台" value={platform} disabled={preparing || busy} onChange={event => setPlatform(event.target.value)} className="min-w-0 max-w-[150px] border border-gray-200 rounded-md px-2 py-1 bg-white text-gray-800">
-          {models.map(model => <option key={model.id} value={model.id}>{model.name}</option>)}
-        </select>
-      </label>
-      {conversation && conversation.mindmaps.length > 1 && <label className="block px-2 py-1.5 text-gray-600">历史导图 · {conversation.mindmaps.length} 份
-        <select aria-label="选择导图" value={activeMap?.id || ''} onChange={event => { setMapId(event.target.value); close() }} className="mt-1 w-full border border-gray-200 rounded-md px-2 py-1 bg-white text-gray-800">
-          {conversation.mindmaps.map(map => <option key={map.id} value={map.id}>{map.title} · {new Date(map.createdAt).toLocaleString()}</option>)}
-        </select>
-      </label>}
-      {activeMap && conversation && activeMap.sourceRevision !== conversation.snapshotRevision && <p className="px-2 py-1 text-amber-700">对话已更新，可生成新图。</p>}
-      <div className="border-t border-gray-100 my-1" />
-      <button disabled={preparing || busy || !platform} className="w-full text-left px-2 py-2 rounded-md hover:bg-gray-50 disabled:opacity-40" onClick={() => {
-        close()
-        const key = sourceRef.current ? sourceKeyRef.current : conversationRef.current?.sourceKey
-        if (!key) { setError('当前对话尚未就绪，请稍后重试'); return }
-        requirementsSourceKey.current = key
-        setError(''); setRequirementsOpen(true)
-      }}>按要求生成…</button>
-      <button disabled={preparing} className="w-full text-left px-2 py-2 rounded-md hover:bg-gray-50 disabled:opacity-40" onClick={() => { close(); void generate(true) }}>新建空白导图</button>
-      {activeMap && conversation && <>
-        <button className="w-full text-left px-2 py-2 rounded-md hover:bg-gray-50" onClick={() => { close(); const draft = drafts.get(activeMap.id); downloadMarkdown(draft?.markdown ?? activeMap.markdown, draft?.title ?? activeMap.title) }}>导出大纲</button>
-        <button className="w-full text-left px-2 py-2 rounded-md hover:bg-gray-50" onClick={() => { close(); void window.api.notesOpen({ conversationId: conversation.id, mindmapId: activeMap.id }).then(result => { if (!result.success) setError(result.error || '打开笔记失败') }) }}>在笔记中打开</button>
-        <button className="w-full text-left px-2 py-2 rounded-md text-red-500 hover:bg-red-50" onClick={() => {
-          close()
-          if (!window.confirm('确定删除这份导图吗？')) return
-          void window.api.mindmapsDelete(conversation.id, activeMap.id).then(async result => {
-            if (!result.success) { setError(result.error || '删除失败'); return }
-            drafts.delete(activeMap.id)
-            const latest = await window.api.notesList()
-            if (conversationRef.current?.id === conversation.id) { setMapId(''); setConversation(latest.data?.find(item => item.id === conversation.id) || null) }
-          })
-        }}>删除导图</button>
-      </>}
-      <p className="px-2 pt-2 pb-1 text-xs text-gray-400 border-t border-gray-100">对话发送到所选平台，结果自动保存到笔记。</p>
-    </div>} />
-  </div>
+  const splitButton = (
+    <div ref={newMenuRef} className="relative inline-flex items-center rounded-lg bg-primary text-white shadow-2xs shrink-0">
+      {/* 左侧主按钮：直接生成新图 */}
+      <button
+        ref={generateButtonRef}
+        type="button"
+        disabled={preparing || busy || !platform}
+        title={`将当前对话发送到 ${platformName}，生成新导图并保存到笔记`}
+        onClick={() => { void generate() }}
+        className="h-8 px-2.5 rounded-l-lg hover:brightness-95 active:brightness-90 text-xs sm:text-sm font-medium flex items-center gap-1 transition-all disabled:opacity-40"
+      >
+        <span className="material-symbols-outlined text-base">auto_awesome</span>
+        <span>{preparing ? '读取中…' : busy ? '生成中…' : activeMap ? '生成新图' : '生成导图'}</span>
+      </button>
+
+      {/* 分隔线 */}
+      <div className="w-[1px] h-4 bg-white/20 shrink-0" />
+
+      {/* 右侧下拉箭头：展开新建与生成选项 */}
+      <button
+        type="button"
+        disabled={preparing || busy}
+        aria-label="更多生成选项"
+        title="更多生成与新建选项"
+        onClick={() => setNewMenuOpen(open => !open)}
+        className="h-8 px-1.5 rounded-r-lg hover:brightness-95 active:brightness-90 flex items-center justify-center transition-all disabled:opacity-40"
+      >
+        <span className={`material-symbols-outlined text-base transition-transform ${newMenuOpen ? 'rotate-180' : ''}`}>
+          expand_more
+        </span>
+      </button>
+
+      {/* 新建与生成下拉浮层 */}
+      {newMenuOpen && (
+        <div className="absolute right-0 top-full mt-1.5 w-[270px] bg-sidebar backdrop-blur-md border border-gray-200/80 rounded-xl shadow-xl z-50 p-2 space-y-1 text-sm text-gray-700">
+          {activeMap && conversation && activeMap.sourceRevision !== conversation.snapshotRevision && (
+            <p className="px-2 py-1 text-xs text-amber-700 bg-amber-50 rounded">对话已更新，可生成新图。</p>
+          )}
+          <div className="w-full px-2 py-1.5 rounded-md hover:bg-gray-100 flex items-center justify-between gap-2">
+            <button
+              type="button"
+              disabled={preparing || busy || !platform}
+              className="flex items-center gap-2 flex-1 min-w-0 text-left disabled:opacity-40"
+              onClick={() => {
+                setNewMenuOpen(false)
+                void generate()
+              }}
+            >
+              <span className="material-symbols-outlined text-base text-primary shrink-0">auto_awesome</span>
+              <span className="font-medium text-gray-800 truncate">生成新图</span>
+            </button>
+            <select
+              aria-label="生成平台"
+              value={platform}
+              disabled={preparing || busy}
+              onClick={event => event.stopPropagation()}
+              onChange={event => setPlatform(event.target.value)}
+              className="min-w-0 max-w-[130px] truncate border border-gray-200 rounded px-1.5 py-0.5 bg-white text-xs text-gray-700 outline-none focus:border-primary shrink-0 cursor-pointer"
+            >
+              {models.map(model => <option key={model.id} value={model.id}>{model.name}</option>)}
+            </select>
+          </div>
+          <button
+            disabled={preparing || busy || !platform}
+            className="w-full text-left px-2 py-1.5 rounded-md hover:bg-gray-100 flex items-center gap-2 disabled:opacity-40"
+            onClick={() => {
+              setNewMenuOpen(false)
+              const key = sourceRef.current ? sourceKeyRef.current : conversationRef.current?.sourceKey
+              if (!key) { setError('当前对话尚未就绪，请稍后重试'); return }
+              requirementsSourceKey.current = key
+              setError('')
+              setRequirementsOpen(true)
+            }}
+          >
+            <span className="material-symbols-outlined text-base text-gray-500">edit_note</span>
+            <span className="text-gray-800">按要求生成…</span>
+          </button>
+          <button
+            disabled={preparing}
+            className="w-full text-left px-2 py-1.5 rounded-md hover:bg-gray-100 flex items-center gap-2 disabled:opacity-40"
+            onClick={() => {
+              setNewMenuOpen(false)
+              void generate(true)
+            }}
+          >
+            <span className="material-symbols-outlined text-base text-gray-500">add_box</span>
+            <span className="text-gray-800">新建空白导图</span>
+          </button>
+        </div>
+      )}
+    </div>
+  )
+
+  const moreActionsButton = (
+    <CustomDropdown
+      value={null}
+      onChange={() => {}}
+      hideArrow
+      dropdownWidth="w-72 !left-auto right-0 !z-50 !max-h-[75vh]"
+      buttonClassName="h-8 w-8 rounded-lg text-gray-500 hover:text-gray-800 hover:bg-gray-100 flex items-center justify-center text-sm transition-colors"
+      renderButton={() => (
+        <span className="material-symbols-outlined text-lg" title="导图选项">
+          more_horiz
+        </span>
+      )}
+      renderContent={close => (
+        <div className="p-2 space-y-1 text-sm">
+          {conversation && conversation.mindmaps.length > 1 && (
+            <div className="space-y-1">
+              <div className="flex items-center justify-between px-2 pt-1 pb-0.5 text-xs text-gray-500 font-medium">
+                <span>历史版本切换</span>
+                <span className="text-[11px] text-gray-400 font-normal">
+                  共 {conversation.mindmaps.length} 份
+                </span>
+              </div>
+              <div className="max-h-48 overflow-y-auto space-y-1 py-0.5 pr-0.5">
+                {sortedMindmaps.map((map, index) => {
+                  const isSelected = (activeMap?.id || '') === map.id
+                  const titleToDisplay = drafts.get(map.id)?.title || map.title || `导图 ${index + 1}`
+                  return (
+                    <button
+                      key={map.id}
+                      type="button"
+                      onClick={() => { setMapId(map.id); close() }}
+                      className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center gap-2 transition-colors ${
+                        isSelected
+                          ? 'bg-primary/10 text-primary font-medium'
+                          : 'text-gray-700 hover:bg-gray-100'
+                      }`}
+                    >
+                      <span className={`material-symbols-outlined text-base shrink-0 ${isSelected ? 'text-primary' : 'text-gray-400'}`}>
+                        {isSelected ? 'check_circle' : 'history'}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-xs truncate leading-snug" title={titleToDisplay}>
+                          {titleToDisplay}
+                        </div>
+                        <div className={`text-[11px] mt-0.5 leading-tight ${isSelected ? 'text-primary/70' : 'text-gray-400'}`}>
+                          {new Date(map.createdAt).toLocaleString(undefined, {
+                            month: 'numeric',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </div>
+                      </div>
+                      {isSelected && (
+                        <span className="text-[10px] bg-primary text-white px-1.5 py-0.5 rounded font-medium shrink-0 leading-none">
+                          当前
+                        </span>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+              <div className="border-t border-gray-100 my-1" />
+            </div>
+          )}
+          {activeMap && conversation && (
+            <>
+              <button
+                className="w-full text-left px-2 py-1.5 rounded-md hover:bg-gray-50 flex items-center gap-2"
+                onClick={() => {
+                  close()
+                  const draft = drafts.get(activeMap.id)
+                  downloadMarkdown(draft?.markdown ?? activeMap.markdown, draft?.title ?? activeMap.title)
+                }}
+              >
+                <span className="material-symbols-outlined text-base text-gray-500">download</span>
+                <span className="text-gray-800">导出大纲</span>
+              </button>
+              <button
+                className="w-full text-left px-2 py-1.5 rounded-md hover:bg-gray-50 flex items-center gap-2"
+                onClick={() => {
+                  close()
+                  mindmapPanelRef.current?.exportPng()
+                }}
+              >
+                <span className="material-symbols-outlined text-base text-gray-500">image</span>
+                <span className="text-gray-800">导出图片（PNG）</span>
+              </button>
+              <button
+                className="w-full text-left px-2 py-1.5 rounded-md hover:bg-gray-50 flex items-center gap-2"
+                onClick={() => {
+                  close()
+                  mindmapPanelRef.current?.exportSvg()
+                }}
+              >
+                <span className="material-symbols-outlined text-base text-gray-500">draw</span>
+                <span className="text-gray-800">导出图片（SVG）</span>
+              </button>
+              <button
+                className="w-full text-left px-2 py-1.5 rounded-md hover:bg-gray-50 flex items-center gap-2"
+                onClick={() => {
+                  close()
+                  void window.api.notesOpen({ conversationId: conversation.id, mindmapId: activeMap.id }).then(result => {
+                    if (!result.success) setError(result.error || '打开笔记失败')
+                  })
+                }}
+              >
+                <span className="material-symbols-outlined text-base text-gray-500">open_in_new</span>
+                <span className="text-gray-800">在笔记中打开</span>
+              </button>
+              <div className="border-t border-gray-100 my-1" />
+              <button
+                className="w-full text-left px-2 py-1.5 rounded-md text-red-500 hover:bg-red-50 flex items-center gap-2 font-medium"
+                onClick={() => {
+                  close()
+                  if (!window.confirm('确定删除这份导图吗？')) return
+                  void window.api.mindmapsDelete(conversation.id, activeMap.id).then(async result => {
+                    if (!result.success) { setError(result.error || '删除失败'); return }
+                    drafts.delete(activeMap.id)
+                    const latest = await window.api.notesList()
+                    if (conversationRef.current?.id === conversation.id) {
+                      setMapId('')
+                      setConversation(latest.data?.find(item => item.id === conversation.id) || null)
+                    }
+                  })
+                }}
+              >
+                <span className="material-symbols-outlined text-base text-red-500">delete</span>
+                <span>删除导图</span>
+              </button>
+            </>
+          )}
+        </div>
+      )}
+    />
+  )
+
+  const controls = (
+    <div className="flex items-center gap-1.5 shrink-0">
+      {activeMap && splitButton}
+      {activeMap && moreActionsButton}
+    </div>
+  )
   const showTask = task && task.id !== dismissedTaskId && task.phase !== 'cancelled' && !(task.phase === 'done' && task.mindmapId === activeMap?.id)
   const notice = <>
     {error && !requirementsOpen && <div role="alert" className="px-3 py-2 text-sm text-red-600 bg-red-50 flex items-start gap-2"><span className="flex-1 min-w-0 break-words">{error}</span><button aria-label="关闭提示" onClick={() => setError('')} className="shrink-0 material-symbols-outlined text-base">close</button></div>}
@@ -385,15 +661,21 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
         <h2 id="mindmap-requirements-title" className="text-base font-medium text-gray-800">按要求生成导图</h2>
         <label className="mt-4 flex items-center justify-between gap-3 text-sm text-gray-600">生成平台
           <select aria-label="生成平台" value={platform} disabled={preparing || busy} onChange={event => setPlatform(event.target.value)} className="min-w-0 max-w-[200px] rounded-md border border-gray-200 bg-white px-2 py-1 text-gray-800">
-            {models.filter(model => model.enabled || model.id === source?.id || model.id === platform).map(model => <option key={model.id} value={model.id}>{model.name}</option>)}
+            {models.map(model => <option key={model.id} value={model.id}>{model.name}</option>)}
           </select>
         </label>
-        <label className="mt-4 block text-sm text-gray-600">额外要求（选填）
-          <textarea value={requirements} disabled={preparing || busy} maxLength={MINDMAP_REQUIREMENTS_LIMIT} rows={5} onChange={event => setRequirements(event.target.value)} placeholder="只整理关于产品价值判断的讨论，重点保留核心结论、依据和适用边界，省略过程中的类比。" className="mt-2 w-full resize-y rounded-lg border border-gray-200 p-3 text-sm text-gray-800 outline-none focus:border-primary disabled:opacity-60" />
-        </label>
+        <textarea
+          aria-label="额外要求（选填）"
+          value={requirements}
+          disabled={preparing || busy}
+          maxLength={MINDMAP_REQUIREMENTS_LIMIT}
+          rows={5}
+          onChange={event => setRequirements(event.target.value)}
+          placeholder="输入额外要求（选填）..."
+          className="mt-4 w-full resize-y rounded-lg border border-gray-200 p-3 text-sm text-gray-800 outline-none focus:border-primary disabled:opacity-60"
+        />
         <div className="mt-1 flex items-start justify-between gap-3 text-xs text-gray-400"><span>留空时按默认策略提炼，仅用于本次生成。</span><span className="shrink-0">{requirements.length}/{MINDMAP_REQUIREMENTS_LIMIT}</span></div>
         {error && <p role="alert" className="mt-3 text-sm text-red-600 break-words">{error}</p>}
-        <p className="mt-3 text-xs text-gray-400">确认后将对话发送到所选平台，新导图自动保存到笔记。</p>
         <div className="mt-4 flex justify-end gap-2">
           <button type="button" disabled={preparing} onClick={() => setRequirementsOpen(false)} className="rounded-lg px-3 py-2 text-sm text-gray-600 hover:bg-gray-100 disabled:opacity-40">取消</button>
           <button type="submit" disabled={preparing || busy || !platform} className="rounded-lg bg-primary px-4 py-2 text-sm text-white hover:brightness-95 disabled:opacity-40">{preparing ? '读取中…' : busy ? '生成中…' : '生成'}</button>
@@ -408,6 +690,7 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
         controls={controls}
         notice={notice}
         onReload={() => { void reloadEditor() }}
+        panelRef={mindmapPanelRef}
       />
     ) : (
       <>

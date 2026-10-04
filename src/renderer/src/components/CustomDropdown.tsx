@@ -46,6 +46,8 @@ interface CustomDropdownProps<T = string> {
   renderButton?: () => React.ReactNode
   /** 下拉打开状态改变时的回调 */
   onOpenChange?: (open: boolean) => void
+  /** 是否隐藏展开箭头 */
+  hideArrow?: boolean
 }
 
 /**
@@ -67,7 +69,8 @@ function CustomDropdown<T = string>({
   renderOption,
   displayText: customDisplayText,
   renderButton,
-  onOpenChange
+  onOpenChange,
+  hideArrow = false
 }: CustomDropdownProps<T>): JSX.Element {
   const [isOpen, setIsOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
@@ -134,16 +137,20 @@ function CustomDropdown<T = string>({
         {renderButton ? (
           <>
             {renderButton()}
-            <span className="material-symbols-outlined text-base text-text-secondary">
-              {isOpen ? (direction === 'up' ? 'expand_more' : 'expand_less') : (direction === 'up' ? 'expand_less' : 'expand_more')}
-            </span>
+            {!hideArrow && (
+              <span className="material-symbols-outlined text-base text-text-secondary">
+                {isOpen ? (direction === 'up' ? 'expand_more' : 'expand_less') : (direction === 'up' ? 'expand_less' : 'expand_more')}
+              </span>
+            )}
           </>
         ) : (
           <>
             <span>{displayText}</span>
-            <span className="material-symbols-outlined text-base text-text-secondary">
-              {isOpen ? (direction === 'up' ? 'expand_more' : 'expand_less') : (direction === 'up' ? 'expand_less' : 'expand_more')}
-            </span>
+            {!hideArrow && (
+              <span className="material-symbols-outlined text-base text-text-secondary">
+                {isOpen ? (direction === 'up' ? 'expand_more' : 'expand_less') : (direction === 'up' ? 'expand_less' : 'expand_more')}
+              </span>
+            )}
           </>
         )}
       </button>

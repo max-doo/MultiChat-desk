@@ -8,6 +8,7 @@ import { join, basename } from 'path'
 import { accessSync } from 'fs'
 import { writeFile } from 'fs/promises'
 import { is } from '@electron-toolkit/utils'
+import type Store from 'electron-store'
 import { startSummaryPromptsWatcher } from './summaryPrompts'
 import { generateNoteCaptureScript } from '../shared/utils/webviewScripts'
 import { noteConversationKey } from '../shared/utils/noteIdentity'
@@ -764,13 +765,27 @@ export function registerWebviewHandlers(webContents: Electron.WebContents): void
 
 // ============ 快捷弹窗创建 ============
 
-export function createQuickWindow(): void {
+export function createQuickWindow(store: Store<Record<string, unknown>>): void {
     if (quickWindow) return
+    const savedSize = store.get('quickWindowSize')
+    const workArea = screen.getPrimaryDisplay().workAreaSize
+    const minWidth = Math.min(320, workArea.width)
+    const minHeight = Math.min(550, workArea.height)
+    let width = 800
+    let height = 600
+    if (typeof savedSize === 'object' && savedSize !== null &&
+        'width' in savedSize && typeof savedSize.width === 'number' && Number.isFinite(savedSize.width) && savedSize.width > 0 &&
+        'height' in savedSize && typeof savedSize.height === 'number' && Number.isFinite(savedSize.height) && savedSize.height > 0) {
+        width = Math.round(savedSize.width)
+        height = Math.round(savedSize.height)
+    }
+    width = Math.min(workArea.width, Math.max(minWidth, width))
+    height = Math.min(workArea.height, Math.max(minHeight, height))
     quickWindow = new BrowserWindow({
-        width: 800,
-        height: 600,
-        minWidth: 320,
-        minHeight: 550,
+        width,
+        height,
+        minWidth,
+        minHeight,
         show: false,
         frame: false,
         alwaysOnTop: false,
@@ -786,6 +801,33 @@ export function createQuickWindow(): void {
             partition: 'persist:shared'
         }
     })
+
+    const win = quickWindow
+    let lastSavedSize = { width, height }
+    const saveSize = (): void => {
+        if (win.isDestroyed() || win.isMaximized() || win.isFullScreen()) return
+        const bounds = win.getNormalBounds()
+        let baseWidth = bounds.width
+        if (quickSidebarExpanded) {
+            const savedSidebarWidth = store.get('quickSidebarWidth')
+            const sidebarWidth = typeof savedSidebarWidth === 'number' && Number.isFinite(savedSidebarWidth) &&
+                savedSidebarWidth >= 320 && savedSidebarWidth <= 1200 ? savedSidebarWidth : 420
+            // 按 QuickPage 的收起规则，扣除实际侧栏宽度和 4 DIP 分隔条。
+            const panelWidth = Math.min(sidebarWidth, Math.max(0, win.getContentSize()[0] - 324)) + 4
+            baseWidth = Math.max(minWidth, bounds.width - panelWidth)
+        }
+        const size = { width: baseWidth, height: bounds.height }
+        if (size.width === lastSavedSize.width && size.height === lastSavedSize.height) return
+        try {
+            store.set('quickWindowSize', size)
+            lastSavedSize = size
+        } catch {
+            // 保留上次成功保存的尺寸，下次隐藏/关闭或调整结束时重试。
+            console.warn('[QuickWindow] 无法保存窗口尺寸')
+        }
+    }
+    // Windows/macOS 在用户完成拖动后才触发，避免拖动过程中频繁写配置。
+    win.on('resized', saveSize)
 
     // 失焦隐藏已被禁用（用户要求不要自动隐藏，只能手动关闭）
     // let blurHideTimeout: ReturnType<typeof setTimeout> | null = null
@@ -806,10 +848,12 @@ export function createQuickWindow(): void {
     // })
 
     quickWindow.on('close', (e) => {
+        saveSize()
         if (!isQuitting) { e.preventDefault(); quickWindow?.hide() }
     })
 
     quickWindow.on('hide', () => {
+        saveSize()
         if (quickWindow && !quickWindow.isDestroyed()) quickWindow.webContents.send('quick:hidden')
     })
     quickWindow.on('show', () => {

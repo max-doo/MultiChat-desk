@@ -168,7 +168,7 @@ if (!gotTheLock) {
 
     // 创建主窗口
     createWindow()
-    createQuickWindow()
+    createQuickWindow(store)
     createTray(
       () => getSelectionToolbarEnabled(store),
       (enabled) => setSelectionToolbarEnabled(store, enabled)

@@ -2,6 +2,105 @@
 
 ## 2026-10-04
 
+### 16:36 | Antigravity
+
+- done: 在思维导图顶部操作菜单和底部更多菜单中均支持导出图片（PNG与SVG）功能
+- decision: 在LocalMindmapPanel中暴露LocalMindmapPanelRef供外部调用导出；使用内联base64 DataURL渲染SVG到Canvas以规避Chromium Canvas Taint限制，并以2x高清比例导出PNG
+- modified:
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+  - `src/renderer/src/components/LocalMindmapPanel.tsx`
+
+### 16:33 | Antigravity
+
+- done: 修复思维导图Tab新建节点画面跳动问题，修复新建与折叠按钮点击失效问题，升级按钮尺寸与命中热区
+- decision: 在聚焦新建节点时使用 focus({ preventScroll: true }) 并在容器层监听重置滚动位移，彻底消除聚焦触发的视口跳动；将按钮升级为 18px 描边并添加扩展命中区与高 z-index，并在 mousedown 阶段阻止冒泡，彻底避免与 D3 zoom 拖拽和节点选择逻辑冲突
+- modified:
+  - `src/renderer/src/components/LocalMindmapPanel.tsx`
+- lesson: 在包含 SVG foreignObject 和 D3 zoom 的画布中，使用 DOM focus() 必须显式传入 { preventScroll: true }，否则 Chromium 会自动滚动最近的祖先容器导致整块画布视口突变；为浮动在节点边缘的操作按钮配置扩大命中范围的伪元素时，必须确保按钮自身具备独立的定位层级（relative + z-index），防止其父级绝对定位的伪元素将真实按钮遮挡拦截
+
+### 16:12 | Antigravity
+
+- done: 修复思维导图新建节点失败问题及优化UI：紧凑水平连线、描边按钮无填充、画布缩放按钮物理尺寸恒定
+- decision: 通过 prevInitialMarkdownRef 区分外部受控更新与内部增删节点，彻底消除新建节点时的状态强制回滚；采用 scale(var(--mm-zoom-inv)) 确保画布缩放下操作按钮物理像素恒定
+- modified:
+  - `src/renderer/src/components/LocalMindmapPanel.tsx`
+- lesson: 在包含受控/非受控混用场景（如 initialMarkdown）的 React 组件中，避免在依赖项中监听内部编辑状态（markdown）来进行同步，否则内部任何状态更新都会被判定为与外部不同并触发强制回滚；对于绝对定位的 hover 操作按钮，需避免子元素与父元素之间出现事件空隙导致 hover 闪退
+
+### 16:00 | Antigravity
+
+- done: 精简导图操作下拉菜单，删除多余分类标题与底部提示文字，并将模型选择器内联至生成新图选项右侧
+- decision: 将生成平台下拉框放置在生成新图选项后面并清除灰色说明小字，移除新建与生成以及当前导图管理冗余标题
+- modified:
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+
+### 15:50 | Antigravity
+
+- done: 优化思维导图水平连线长度（砍半）、按钮画布缩放逆缩放恒定尺寸、按钮灰色描边及hover变黑线
+- decision: 使用CSS变量--mm-zoom-inv逆缩放保证按钮物理尺寸恒定；折线拐点设为中点midX并将水平间距设为24px以砍半水平连线；折叠/新增按钮改用纯线段描边与白色遮罩底
+- modified:
+  - `src/renderer/src/components/LocalMindmapPanel.tsx`
+
+### 15:35 | Antigravity
+
+- done: 修复 ConversationMindmapPanel 中遗漏引入 useMemo 导致的组件渲染报错
+- modified:
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+- lesson: 由于 electron-vite build 默认不执行 tsc 类型检查，在修改组件时需注意 hook 引入完整性，并可结合 npx tsc --noEmit 验证未定义引用
+
+### 15:31 | Antigravity
+
+- done: 实现思维导图标题与文件名双向绑定、历史版本倒序排列展示及生成后自动切换新导图
+- decision: 导图顶栏标题与画布根节点Markdown第一行建立严格双向响应同步；历史版本按createdAt倒序排列并优先展示最新版本；生成新导图完成时自动将mapId更新为新生成的mindmapId
+- modified:
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+  - `src/renderer/src/components/LocalMindmapPanel.tsx`
+
+### 15:18 | Antigravity
+
+- done: 删除按要求生成导图对话框中冗余的'额外要求（选填）'标签文本
+- decision: 移除输入框上方与 placeholder 重复的标题文本，直接展示输入框，使弹窗更加紧凑简洁
+- modified:
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+
+### 15:17 | Antigravity
+
+- done: 优化按要求生成导图对话框文案：将 textarea placeholder 简化为通用提示，并移除底部的冗余说明行
+- decision: 将具体过长的业务例子 placeholder 改为通用的'输入额外要求（选填）...'，并精简对话框底部文案，消除冗余提示
+- modified:
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+
+### 15:14 | Antigravity
+
+- done: 移除按要求生成导图对话框中的模型启用过滤限制，展示全部支持的 AI 平台选项
+- decision: 移除 models.filter(model.enabled) 限制，与初始卡片和顶栏 Split Button 下拉选择保持一致，允许自由选择所有 13 个支持的模型平台生成思维导图
+- modified:
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+
+### 13:34 | Codex
+
+- done: 实现快捷窗口尺寸持久化：拖动结束、隐藏与关闭时按需保存，启动恢复，扣除侧栏实际宽度并限制屏幕边界；lint、build及独立开发实例运行检查通过
+- context: 保留原有未提交改动；lint 有39个已有警告；主进程类型检查有10个已有错误，与修改前基线完全一致；临时验证目录清理被系统策略拦截，目录保留在系统 Temp 中
+- decision: 复用 electron-store，仅在主进程保存宽高，无新增 IPC、依赖、定时器或测试框架
+- modified:
+  - `src/main/index.ts`
+  - `src/main/webviewManager.ts`
+- unresolved: 桌面截取工具连续超时，未完成真实鼠标拖动验证；独立 npm run dev 实例已实际验证保存/恢复/隐藏/关闭/侧栏与异常尺寸，resized 完成事件通过调试接口显式触发；最小手动补验：拖动窗口后隐藏再打开、退出应用重启、侧栏展开时拖动后重启
+
+### 13:27 | Antigravity
+
+- done: 优化导图管理菜单中的历史导图选择器：从原生矮小 select 升级为整体 UI 风格一致的卡片式历史版本列表项，并拓宽下拉浮层至 w-72
+- decision: 弃用原生系统 select 控件，改用带 Material Symbols 图标、标题、时间两行排版及选中高亮徽标的卡片按钮列表，提升易用性与一致性
+- modified:
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+
+### 13:16 | Antigravity
+
+- done: 思维导图已生成后的交互重构：将生成新图与更多菜单重构为方案一（Split Button 新建组合按钮 + 独立对象管理图标）
+- decision: 采用方案一：将'生成新图'与'新建空白导图/按要求生成'统一收敛于 Split Button，并将导图导出/在笔记打开/删除解耦到独立的 more_horiz 菜单，解决心智混淆与删除误触问题
+- modified:
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+  - `src/renderer/src/components/CustomDropdown.tsx`
+
 ### 12:59 | Codex
 
 - done: 移除思维导图大纲的标题栏及编辑/预览切换，仅保留带语法高亮的 CodeMirror 编辑视图；复制与编辑操作合并到正常布局工具栏，导图/大纲 tabs 不再遮挡复制
