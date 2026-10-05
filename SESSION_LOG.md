@@ -2,6 +2,54 @@
 
 ## 2026-10-05
 
+### 23:59 | Antigravity
+
+- done: Enlarge mindmap initial requirements textarea font size and optimize card UI
+- decision: Change empty-state textarea from text-xs to text-sm with leading-relaxed, ring focus and padded layout; upgrade button height and font to text-sm
+- modified:
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+
+### 23:47 | Codex
+
+- done: 实施导图后台网页资源释放：成功和失败的可恢复隐藏网页保留2分钟，临时会话保留10分钟；可见预览不自动销毁，任务结束后手动关闭即销毁，取消立即释放隐藏网页，未提交附件取消即使可见也释放。任务结束恢复后台节流，连续修改关闭节流并取消闲置计时。已释放的生成网页可校验会话网址重开，仅查看不重发，候选独立保留。补齐加载失败、取消/超时后迟到窗口清理以及销毁时延迟注入回调清理。lint无错误、20项既有警告，build成功；dev中真实BrowserWindow、SessionManager和预览逻辑的隔离网页41项验证通过，测试加速闲置计时并核对生产120000/600000毫秒配置。两侧类型检查存在既有错误，当前导图服务未新增报错。
+- decision: 仅在MindmapService维护一个闲置计时器和最近会话地址；共享Session和IPC返回契约保持兼容，重开网页不自动注入或发送。不可恢复会话释放后提示用户主动新建，完整来源仍通过Markdown附件传递。
+- modified:
+  - `src/main/services/MindmapService.ts`
+  - `src/main/webviewManager.ts`
+  - `src/main/ipcHandlers.ts`
+  - `docs/single-conversation-mindmap-mvp-design.md`
+- unresolved: 真实AI平台的登录与会话恢复尚需完整重启应用后复测；当前运行实例占用单实例锁。未进行内存占用基准测量。
+
+### 23:47 | Antigravity
+
+- done: Remove diff change banner from mindmap candidate preview header
+- decision: Completely remove the '本次变化 / 原内容变化' banner line in candidate preview mode to make header cleaner
+- modified:
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+
+### 23:45 | Antigravity
+
+- done: Delete editor bottom shortcut hint bar and move floating mindmap toolbar from bottom-right to top-left
+- decision: Remove bottom shortcut hint in markdown outline editor; move mindmap floating toolbar to left-3 top-3 to avoid obscuring leaf nodes, with dropdown direction set to down
+- modified:
+  - `src/renderer/src/components/MindmapMarkdownEditor.tsx`
+  - `src/renderer/src/components/LocalMindmapPanel.tsx`
+
+### 23:38 | Antigravity
+
+- done: Move mindmap composer collapse button below input box with text label
+- decision: Remove collapse button inside composer and place it below composer right-aligned with label and icon
+- modified:
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+
+### 23:35 | Antigravity
+
+- done: 优化思维导图修改后交互：移除修改前后对比Tab，应用修改后自动清除高亮，去除高亮节点前描边仅保留背景色
+- decision: 移除compareView对比Tab并直接展示候选稿变化；应用修改后直接将marks设为null实现自动清除高亮并收起变化条；css移除inset box-shadow前描边
+- modified:
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+  - `src/renderer/src/styles/localMindmap.css`
+
 ### 23:16 | Codex
 
 - done: 导图附件发送恢复普通消息发送路径：按钮选择器未命中时允许原有 Enter 兜底，附件上传或解析中以及已识别按钮禁用时继续等待；带附件请求仅提交一次并等待输入框清空确认。同步设计文档。lint 0 错误、20 项既有警告；build 成功；dev 隔离 Electron 页面 54 项验证通过，覆盖首次生成和修改的 Enter 路径。

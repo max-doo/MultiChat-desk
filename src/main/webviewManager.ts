@@ -28,14 +28,15 @@ export function getQuickWindow(): BrowserWindow | null { return quickWindow }
 const backgroundPreviewOwners = new Map<BrowserWindow, BrowserWindow | null>()
 let scheduleQuickBlurHide: (() => void) | null = null
 
-export function showBackgroundPreview(win: BrowserWindow, owner: BrowserWindow | null): void {
+export function showBackgroundPreview(win: BrowserWindow, owner: BrowserWindow | null, destroyOnClose: () => boolean = () => false): void {
     if (!backgroundPreviewOwners.has(win)) {
         win.on('close', (event) => {
             if (isQuitting) return
             event.preventDefault()
             const source = backgroundPreviewOwners.get(win)
             const returnToQuick = source === quickWindow && source && !source.isDestroyed() && source.isVisible() && win.isFocused()
-            win.hide()
+            if (destroyOnClose()) win.destroy()
+            else win.hide()
             if (returnToQuick) showAndFocusWindow(source)
         })
         // 快捷窗口自身已失焦，网页再失焦时仍需检查是否切到了外部应用。
@@ -661,6 +662,7 @@ export function registerWebviewHandlers(webContents: Electron.WebContents): void
 
     // 注入脚本（仅向主框架 mainFrame 注入，避免第三方防爬或安全检测 iframe 动态销毁导致 0xC0000005 崩溃）
     const tryInject = async (source: string): Promise<void> => {
+        if (webContents.isDestroyed()) return
         const script = getWebviewClickInterceptorScript()
 
         if (!webContents.mainFrame) return
@@ -683,9 +685,10 @@ export function registerWebviewHandlers(webContents: Electron.WebContents): void
             void tryInject('did-frame-finish-load:main')
         }
     })
-    setTimeout(() => {
+    const attachTimer = setTimeout(() => {
         void tryInject('attach-timeout')
     }, 3000)
+    webContents.once('destroyed', () => clearTimeout(attachTimer))
 
     webContents.on('console-message', (_e, _level, message) => {
         if (typeof message !== 'string') return

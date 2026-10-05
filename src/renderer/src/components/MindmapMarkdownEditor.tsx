@@ -126,9 +126,6 @@ export default function MindmapMarkdownEditor({ value, onChange, active, actions
         {viewSwitcher}
       </div>
       <div ref={hostRef} className="flex-1 min-h-0 overflow-hidden" />
-      <div className="px-3 py-1.5 border-t border-gray-100 text-[11px] text-gray-400 select-none">
-        Tab 缩进 · Shift+Tab 取消缩进 · 支持多行选择 · Esc 后 Tab 移出编辑器
-      </div>
     </div>
   )
 }

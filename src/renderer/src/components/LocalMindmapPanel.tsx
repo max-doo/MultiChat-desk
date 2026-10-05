@@ -276,8 +276,8 @@ const LocalMindmapPanel = forwardRef<LocalMindmapPanelRef, { initialMarkdown?: s
           className="markmap block w-full h-full"
         />
 
-        {/* 右下角工具栏：撤回、重做、放大、缩小、适应、展开、收起、导出 */}
-        <div className="absolute right-3 bottom-3 z-20 flex items-center gap-1 p-1 bg-white/90 backdrop-blur border border-gray-200/80 rounded-lg shadow-sm">
+        {/* 左上角工具栏：撤回、重做、放大、缩小、适应、展开、收起、导出 */}
+        <div className="absolute left-3 top-3 z-20 flex items-center gap-1 p-1 bg-white/90 backdrop-blur border border-gray-200/80 rounded-lg shadow-sm">
           <button
             type="button"
             onClick={handleUndo}
@@ -341,7 +341,7 @@ const LocalMindmapPanel = forwardRef<LocalMindmapPanelRef, { initialMarkdown?: s
 
           <div className="w-[1px] h-4 bg-gray-200 mx-0.5" />
 
-          <CustomDropdown value={null} onChange={() => {}} displayText="更多" direction="up" dropdownWidth="w-56 !left-auto right-0 !z-50 !max-h-[70vh]" buttonClassName="h-7 px-2 rounded-lg text-text-secondary hover:text-text-primary hover:bg-gray-100 flex items-center gap-1 text-xs transition-colors" renderContent={close => <div className="p-1 space-y-0.5">
+          <CustomDropdown value={null} onChange={() => {}} displayText="更多" direction="down" dropdownWidth="w-56 left-0 !z-50 !max-h-[70vh]" buttonClassName="h-7 px-2 rounded-lg text-text-secondary hover:text-text-primary hover:bg-gray-100 flex items-center gap-1 text-xs transition-colors" renderContent={close => <div className="p-1 space-y-0.5">
             {onOpenMubu && (
               <button
                 type="button"

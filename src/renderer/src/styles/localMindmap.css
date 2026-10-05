@@ -298,6 +298,5 @@ foreignObject.markmap-foreign {
 .mm-node-item.mm-changed:not(.mm-selected):not(.mm-editing) {
   background: color-mix(in srgb, var(--color-primary, #6366f1) 16%, white) !important;
   color: var(--color-primary, #6366f1) !important;
-  box-shadow: inset 3px 0 var(--color-primary, #6366f1);
 }
 .mm-readonly .mm-node-btns { display: none !important; }

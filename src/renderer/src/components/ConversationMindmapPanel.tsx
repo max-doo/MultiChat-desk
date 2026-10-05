@@ -276,7 +276,6 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
   const [mapId, setMapId] = useState(initialMapId || '')
   const [task, setTask] = useState<MindmapTask | null>(null)
   const [candidate, setCandidate] = useState<MindmapCandidate | null>(null)
-  const [compareView, setCompareView] = useState<'before' | 'after'>('after')
   const [mode, setMode] = useState<'generate' | 'modify'>('generate')
   const [request, setRequest] = useState('')
   const [collapsed, setCollapsed] = useState(false)
@@ -379,7 +378,7 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
     void window.api.mindmapsCandidate(id).then(result => {
       if (!alive) return
       if (!result.success) { setError(result.error || '读取候选失败'); return }
-      setCandidate(result.data || null); setCompareView('after')
+      setCandidate(result.data || null)
       if (result.data) pendingCandidates.add(id)
       else pendingCandidates.delete(id)
     })
@@ -465,7 +464,7 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
       const saved = await editorRef.current.applyCandidate(before)
       pendingCandidates.delete(saved.id)
       if (activeMapRef.current?.id === saved.id) {
-        setCandidate(null); setMarks(diffMindmapLines(before.baseMarkdown, saved.markdown))
+        setCandidate(null); setMarks(null)
         setConversation(current => current && { ...current, mindmaps: current.mindmaps.map(map => map.id === saved.id ? saved : map) })
       }
     } catch (exception) { setError(exception instanceof Error ? exception.message : '保存失败，候选已保留') }
@@ -763,23 +762,15 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
     </div>}
     {candidate && <div className="px-3 py-2 border-b border-gray-100 text-sm space-y-2">
       <div className="flex flex-wrap gap-2 items-center">
-        <button aria-pressed={compareView === 'before'} className={`px-2 py-1 rounded ${compareView === 'before' ? 'bg-gray-200' : 'bg-gray-50'}`} onClick={() => setCompareView('before')}>修改前</button>
-        <button aria-pressed={compareView === 'after'} className={`px-2 py-1 rounded ${compareView === 'after' ? 'bg-primary/10 text-primary' : 'bg-gray-50'}`} onClick={() => setCompareView('after')}>修改后</button>
-        <span className="ml-auto text-gray-500">待应用 · 只读预览</span>
-      </div>
-      {candidateConflict && <p className="text-amber-700">导图在生成期间发生了修改，请放弃候选后基于当前版本重新调整。候选仍可查看或复制。</p>}
-      <div className="flex gap-2">
         <button disabled={busy || preparing || !!candidateConflict} className="bg-primary text-white rounded px-3 py-1.5 disabled:opacity-40" onClick={() => void apply()}>应用修改</button>
         <button disabled={busy || preparing || !!candidateConflict} className="rounded px-2 py-1.5 hover:bg-gray-100 disabled:opacity-40" onClick={() => { setCollapsed(false); textareaRef.current?.focus() }}>继续调整</button>
         <button disabled={preparing} className="rounded px-2 py-1.5 hover:bg-gray-100 disabled:opacity-40" onClick={() => void discard()}>放弃</button>
-        <button className="ml-auto text-gray-500" onClick={() => void navigator.clipboard.writeText(candidate.candidateMarkdown)}>复制候选</button>
+        <span className="text-gray-500 text-xs">待应用 · 只读预览</span>
+        <button className="ml-auto text-gray-500 hover:text-text-primary text-xs" onClick={() => void navigator.clipboard.writeText(candidate.candidateMarkdown)}>复制候选</button>
       </div>
+      {candidateConflict && <p className="text-amber-700">导图在生成期间发生了修改，请放弃候选后基于当前版本重新调整。候选仍可查看或复制。</p>}
     </div>}
-    {diff && <div className="px-3 py-1.5 text-sm border-b border-gray-100 flex flex-wrap gap-3 items-start">
-      <span className="text-primary">● 本次变化</span>
-      {!!diff.removed.length && <details className="flex-1 min-w-0"><summary className="cursor-pointer text-gray-500">原内容变化（{diff.removed.length}）</summary><pre className="max-h-40 overflow-auto whitespace-pre-wrap text-xs mt-2 select-text">{diff.removed.join('\n')}</pre></details>}
-      {!candidate && <button className="ml-auto text-gray-500" onClick={() => setMarks(null)}>清除标记</button>}
-    </div>}
+
   </>
   useEffect(() => {
     const input = textareaRef.current
@@ -798,12 +789,27 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
         </span>} />
         <textarea ref={textareaRef} aria-label={mode === 'generate' ? '新图要求（选填）' : '导图修改要求'} rows={1} maxLength={MINDMAP_REQUIREMENTS_LIMIT} value={request} disabled={busy || preparing} onChange={event => changeRequest(event.target.value)} placeholder={mode === 'generate' ? '输入新图要求（可选）…' : candidate ? '继续调整候选稿…' : '描述想调整的内容…'} className="flex-1 min-w-0 resize-none bg-transparent text-sm text-text-primary placeholder:text-text-secondary/50 focus:outline-none leading-5 py-1.5 px-1 max-h-[72px] disabled:opacity-50" onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void submit() } }} />
         <button type="button" disabled={busy || preparing || !platform || !models.some(model => model.id === platform) || (mode === 'modify' && (!request.trim() || !!candidateConflict))} aria-label={submitLabel} title={submitLabel} className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 bg-primary text-white hover:brightness-95 disabled:bg-gray-100 disabled:text-gray-400" onClick={() => void submit()}><span className={`material-symbols-outlined text-[18px] ${busy || preparing ? 'animate-spin' : ''}`}>{busy || preparing ? 'sync' : 'arrow_upward'}</span></button>
-        <button type="button" aria-label="收起输入区" title="收起输入区" className="h-8 w-4 shrink-0 text-gray-400 hover:text-primary flex items-center justify-center" onClick={() => setCollapsed(true)}><span className="material-symbols-outlined text-sm">expand_more</span></button>
       </div>
-      {mode === 'modify' && <div className="mt-1.5 px-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-500">
-        <label className="flex gap-1 items-center" title={expectsNewSession ? '新生成对话会自动携带来源上下文' : source ? '本轮采集来源主会话已加载的完整内容；不勾选时只提交导图和要求' : '来源主会话未打开，将使用本地保存的快照，可能不是最新内容'}><input type="checkbox" disabled={busy || preparing || expectsNewSession} checked={includeSourceContext || expectsNewSession} onChange={event => setIncludeSourceContext(event.target.checked)} />{source ? '带上主会话最新内容' : '带上来源快照'}</label>
-        {task?.phase === 'error' && <label className="flex gap-1 items-center" title="新开后台生成对话，携带来源上下文及当前导图；仍修改当前图"><input type="checkbox" disabled={busy || preparing} checked={newSession} onChange={event => setNewSession(event.target.checked)} />使用新的 AI 对话调整当前图</label>}
-      </div>}
+      <div className="mt-1.5 px-1 flex items-center justify-between gap-2 text-xs text-gray-500">
+        <div className="flex flex-wrap gap-x-3 gap-y-1 items-center min-w-0 flex-1">
+          {mode === 'modify' && (
+            <>
+              <label className="flex gap-1 items-center" title={expectsNewSession ? '新生成对话会自动携带来源上下文' : source ? '本轮采集来源主会话已加载的完整内容；不勾选时只提交导图和要求' : '来源主会话未打开，将使用本地保存的快照，可能不是最新内容'}><input type="checkbox" disabled={busy || preparing || expectsNewSession} checked={includeSourceContext || expectsNewSession} onChange={event => setIncludeSourceContext(event.target.checked)} />{source ? '带上主会话最新内容' : '带上来源快照'}</label>
+              {task?.phase === 'error' && <label className="flex gap-1 items-center" title="新开后台生成对话，携带来源上下文及当前导图；仍修改当前图"><input type="checkbox" disabled={busy || preparing} checked={newSession} onChange={event => setNewSession(event.target.checked)} />使用新的 AI 对话调整当前图</label>}
+            </>
+          )}
+        </div>
+        <button
+          type="button"
+          aria-label="折叠输入区"
+          title="折叠输入区"
+          className="ml-auto flex items-center gap-0.5 text-xs text-gray-400 hover:text-primary transition-colors py-0.5 px-1 rounded hover:bg-gray-100 select-none shrink-0"
+          onClick={() => setCollapsed(true)}
+        >
+          <span>折叠</span>
+          <span className="material-symbols-outlined text-[15px]">expand_more</span>
+        </button>
+      </div>
     </>}
   </div>
   const modal = (title: string, children: ReactNode, close: () => void): ReactNode => createPortal(<div className="fixed inset-0 z-[100] bg-black/25 flex items-center justify-center p-4 no-drag" onKeyDown={event => {
@@ -820,7 +826,7 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
   </div>, document.body)
   return <div className="h-full flex flex-col min-h-0 bg-white">
     <div className="flex-1 min-h-0">
-      {activeMap && conversation ? <MindmapEditor key={`${activeMap.id}:${editorRevision}`} conversationId={conversation.id} map={activeMap} onReload={() => void reload()} controls={controls} notice={notice} panelRef={panelRef} editorRef={editorRef} onClose={onClose} draggableHeader={draggableHeader} onDragStart={onDragStart} previewMarkdown={candidate ? compareView === 'before' ? candidate.baseMarkdown : candidate.candidateMarkdown : undefined} changedLines={candidate && compareView === 'before' ? undefined : diff?.changedLines} onAskNode={source && conversation.url ? ask : undefined} onEdit={clearMarks} /> : <div className="h-full flex flex-col">
+      {activeMap && conversation ? <MindmapEditor key={`${activeMap.id}:${editorRevision}`} conversationId={conversation.id} map={activeMap} onReload={() => void reload()} controls={controls} notice={notice} panelRef={panelRef} editorRef={editorRef} onClose={onClose} draggableHeader={draggableHeader} onDragStart={onDragStart} previewMarkdown={candidate?.candidateMarkdown} changedLines={diff?.changedLines} onAskNode={source && conversation.url ? ask : undefined} onEdit={clearMarks} /> : <div className="h-full flex flex-col">
         <div
           className={`px-3 py-2.5 border-b border-gray-200/70 bg-white flex items-center justify-between gap-2 select-none ${
             draggableHeader ? 'drag-region' : ''
@@ -876,7 +882,7 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
                 onChange={val => setPlatform(val)}
                 options={models.map(m => ({ value: m.id, label: m.name, logo: m.logo }))}
                 dropdownWidth="w-56"
-                buttonClassName="h-8 px-2.5 bg-white border border-gray-200/90 hover:border-gray-300 rounded-lg flex items-center gap-2 shadow-2xs transition-colors disabled:opacity-50 text-left"
+                buttonClassName="h-8.5 px-3 bg-white border border-gray-200/90 hover:border-gray-300 rounded-lg flex items-center gap-2 shadow-2xs transition-colors disabled:opacity-50 text-left"
                 renderButton={() => (
                   <div className="flex items-center gap-2 min-w-0">
                     {currentModel?.logo ? (
@@ -884,7 +890,7 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
                     ) : (
                       <span className="material-symbols-outlined text-base text-gray-400 shrink-0">smart_toy</span>
                     )}
-                    <span className="text-[13px] font-medium text-gray-800 truncate max-w-[130px]">{currentModel?.name || platform}</span>
+                    <span className="text-sm font-medium text-text-primary truncate max-w-[140px]">{currentModel?.name || platform}</span>
                   </div>
                 )}
                 renderOption={(option, isSelected, onSelect) => {
@@ -916,22 +922,22 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
                   type="button"
                   disabled={preparing || busy}
                   onClick={() => changeRequest('')}
-                  className="text-[11px] text-gray-400 hover:text-red-500 transition-colors px-1"
+                  className="text-xs text-text-secondary hover:text-red-500 transition-colors px-1.5 py-0.5 rounded hover:bg-gray-100"
                 >
                   清空
                 </button>
               )}
             </div>
 
-            {/* 底部：额外要求输入框（直接展开，无单独图标，无字数限制） */}
+            {/* 底部：额外要求输入框（字号调整为 text-sm，呼吸感更强） */}
             <textarea
               value={request}
               disabled={preparing || busy}
               maxLength={MINDMAP_REQUIREMENTS_LIMIT}
-              rows={3}
+              rows={4}
               onChange={event => changeRequest(event.target.value)}
               placeholder="额外要求（选填，例如：重点提炼核心论点与结论，省略客套与类比）..."
-              className="w-full text-xs p-2.5 border border-gray-200/80 rounded-lg outline-none focus:border-primary bg-white resize-y text-gray-700 placeholder:text-gray-400 disabled:opacity-60"
+              className="w-full text-sm leading-relaxed p-3 border border-gray-200 rounded-xl outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 bg-white resize-y text-text-primary placeholder:text-text-secondary/50 disabled:opacity-60 transition-all"
             />
           </div>
 
@@ -942,9 +948,9 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
               disabled={preparing || busy || !platform}
               title={`将当前对话发送到 ${platformName}，生成新导图并保存到笔记`}
               onClick={() => { void submit() }}
-              className="h-9 rounded-xl bg-primary hover:brightness-95 active:brightness-90 text-white font-medium text-xs flex items-center justify-center gap-1.5 shadow-xs transition-all disabled:opacity-40 cursor-pointer"
+              className="h-10 rounded-xl bg-primary hover:brightness-95 active:brightness-90 text-white font-medium text-sm flex items-center justify-center gap-1.5 shadow-xs transition-all disabled:opacity-40 cursor-pointer"
             >
-              <span className="material-symbols-outlined text-base">auto_awesome</span>
+              <span className="material-symbols-outlined text-[18px]">auto_awesome</span>
               <span className="truncate">{preparing ? '读取中…' : busy ? '生成中…' : '生成导图'}</span>
             </button>
 
@@ -954,9 +960,9 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
               disabled={preparing || busy}
               title="创建一份空白导图并直接进入编辑"
               onClick={() => { void createBlank() }}
-              className="h-9 rounded-xl bg-white hover:bg-gray-50 active:bg-gray-100 border border-gray-200 text-gray-700 font-medium text-xs flex items-center justify-center gap-1.5 transition-colors disabled:opacity-40 cursor-pointer"
+              className="h-10 rounded-xl bg-white hover:bg-gray-50 active:bg-gray-100 border border-gray-200 text-text-primary font-medium text-sm flex items-center justify-center gap-1.5 transition-colors disabled:opacity-40 cursor-pointer"
             >
-              <span className="material-symbols-outlined text-sm text-gray-400">edit_square</span>
+              <span className="material-symbols-outlined text-[18px] text-gray-400">edit_square</span>
               <span className="truncate">手动创建空白导图</span>
             </button>
           </div>

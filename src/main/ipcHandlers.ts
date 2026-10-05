@@ -912,8 +912,8 @@ export async function registerIpcHandlers(
         try { mindmapService.cancel(id, event.sender.id); return { success: true } }
         catch (error) { return { success: false, error: String(error) } }
     })
-    ipcMain.handle('mindmaps:show', (event, id: string) => {
-        try { mindmapService.show(id, BrowserWindow.fromWebContents(event.sender)); return { success: true } }
+    ipcMain.handle('mindmaps:show', async (event, id: string) => {
+        try { await mindmapService.show(id, BrowserWindow.fromWebContents(event.sender)); return { success: true } }
         catch (error) { return { success: false, error: String(error) } }
     })
     ipcMain.handle('mindmaps:add', async (event, conversationId: string, markdown: string) => {

@@ -13,6 +13,8 @@ const TERMINAL_PHASES = ['done', 'error', 'cancelled']
 const sessionKey = (id: string): string => `__mindmap_${id}`
 const delay = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms))
 const CONFLICT = '导图在生成期间发生了修改，请基于当前版本重新调整'
+const IDLE_TIMEOUT = 2 * 60_000
+const TEMPORARY_IDLE_TIMEOUT = 10 * 60_000
 
 /** 限制一次异步操作的等待时间；网页脚本迟到的返回值不会继续推进任务。 */
 function waitFor<T>(operation: Promise<T>, timeoutMs: number, stage: string, signal: AbortSignal): Promise<T> {
@@ -39,6 +41,9 @@ export class MindmapService {
   private controller: AbortController | null = null
   private ownerId = 0
   private idle: { key: string; mapId: string; platformId: string; initialized: boolean; pendingAttachment?: boolean } | null = null
+  private idleTimer: ReturnType<typeof setTimeout> | undefined
+  private lastPage: { taskId: string; key: string; mapId: string; initialized: boolean; binding: MindmapGenerationSession } | null = null
+  private trackedWindows = new WeakSet<BrowserWindow>()
   private candidates = new Map<number, Map<string, MindmapCandidate>>()
   private applying = new Set<string>()
 
@@ -54,6 +59,7 @@ export class MindmapService {
     // 异步检查后再检查一次，防止两个窗口同时启动。
     if (this.task && !TERMINAL_PHASES.includes(this.task.phase)) throw new Error('已有导图正在生成')
     this.releaseIdle()
+    this.lastPage = null
     this.ownerId = ownerId
     this.controller = new AbortController()
     const task: MindmapTask = { id: randomUUID(), conversationId: conversation.id, sourceTitle: conversation.title, platform, phase: 'loading', kind: 'generate' }
@@ -64,8 +70,57 @@ export class MindmapService {
   }
 
   private releaseIdle(): void {
-    if (this.idle) sessionManager.destroySession(this.idle.key)
+    this.clearIdleTimer()
+    const idle = this.idle
     this.idle = null
+    if (idle) sessionManager.destroySession(idle.key)
+  }
+
+  private clearIdleTimer(): void {
+    clearTimeout(this.idleTimer)
+    this.idleTimer = undefined
+  }
+
+  private trackWindow(key: string): void {
+    const window = sessionManager.getSession(key)
+    if (!window || this.trackedWindows.has(window)) return
+    this.trackedWindows.add(window)
+    window.on('show', () => { if (this.idle?.key === key) this.clearIdleTimer() })
+    window.on('hide', () => {
+      if (this.task && this.idle?.key === key) this.scheduleIdleRelease(this.task, key)
+    })
+    window.on('closed', () => {
+      if (this.idle?.key === key) {
+        this.clearIdleTimer()
+        this.idle = null
+      }
+    })
+  }
+
+  /** 只给已结束且隐藏的网页计时；保留地址，不保留网页进程。 */
+  private async retainTerminalPage(task: MindmapTask, key: string): Promise<void> {
+    if (this.task?.id !== task.id || !TERMINAL_PHASES.includes(task.phase) || this.idle?.key !== key) return
+    const window = sessionManager.getSession(key)
+    if (!window) return
+    window.webContents.setBackgroundThrottling(true)
+    const binding = await this.sessionBinding(task.platform, window.webContents.getURL()).catch(() => ({ platformId: task.platform } as MindmapGenerationSession))
+    if (this.task?.id !== task.id || !TERMINAL_PHASES.includes(task.phase) || this.idle?.key !== key || window.isDestroyed()) return
+    this.lastPage = { taskId: task.id, key, mapId: this.idle.mapId, initialized: this.idle.initialized, binding }
+    this.scheduleIdleRelease(task, key)
+  }
+
+  private scheduleIdleRelease(task: MindmapTask, key: string): void {
+    if (this.task?.id !== task.id || !TERMINAL_PHASES.includes(task.phase) || this.idle?.key !== key) return
+    const window = sessionManager.getSession(key)
+    if (!window) return
+    this.clearIdleTimer()
+    if (window.isVisible()) return
+    if (task.phase === 'cancelled') { this.releaseIdle(); return }
+    const timeout = this.lastPage?.binding.conversationUrl ? IDLE_TIMEOUT : TEMPORARY_IDLE_TIMEOUT
+    this.idleTimer = setTimeout(() => {
+      this.idleTimer = undefined
+      if (this.task?.id === task.id && TERMINAL_PHASES.includes(task.phase) && this.idle?.key === key && !window.isDestroyed() && !window.isVisible()) this.releaseIdle()
+    }, timeout)
   }
 
   getCandidate(ownerId: number, mapId: string): MindmapCandidate | null {
@@ -101,6 +156,8 @@ export class MindmapService {
     if (this.task && !TERMINAL_PHASES.includes(this.task.phase)) throw new Error('已有导图任务正在执行')
     if (this.applying.has(`${ownerId}:${map.id}`)) throw new Error('正在应用候选，请稍候')
     if (this.idle?.mapId !== map.id || this.idle.platformId !== request.platformId || request.newSession || this.idle.pendingAttachment) this.releaseIdle()
+    this.clearIdleTimer()
+    this.lastPage = null
     this.controller = new AbortController()
     this.ownerId = ownerId
     const task: MindmapTask = { id: randomUUID(), kind: 'modify', conversationId: source.id, mindmapId: map.id, sourceTitle: source.title, platform: request.platformId, phase: 'loading', baseUpdatedAt: base.baseUpdatedAt }
@@ -137,6 +194,7 @@ export class MindmapService {
   forgetMap(mapId: string): void {
     if (this.task?.mindmapId === mapId) this.cancel(this.task.id)
     if (this.idle?.mapId === mapId) this.releaseIdle()
+    if (this.lastPage?.mapId === mapId) this.lastPage = null
     for (const candidates of this.candidates.values()) candidates.delete(mapId)
   }
 
@@ -148,6 +206,7 @@ export class MindmapService {
         this.notify({ ...this.task })
       }
       this.releaseIdle()
+      this.lastPage = null
     }
     this.candidates.delete(ownerId)
   }
@@ -198,7 +257,7 @@ export class MindmapService {
       const samePlatform = binding?.platformId === task.platform && !edit?.newSession
       const restore = samePlatform && !this.idle ? await this.restoreUrl(binding!) : undefined
       if (signal.aborted || this.task?.id !== task.id) return
-      if (edit && samePlatform && !this.idle && !restore && binding?.conversationUrl === undefined && source.mindmaps.find(map => map.id === task.mindmapId)?.generationSession) throw new Error('生成会话地址不可恢复，请建立新的生成对话继续修改')
+      if (edit && samePlatform && !this.idle && !restore && binding?.conversationUrl === undefined && source.mindmaps.find(map => map.id === task.mindmapId)?.generationSession) throw new Error('原生成网页已释放，且会话地址不可恢复，请勾选“建立新的生成对话继续修改”；完整来源上下文将重新作为附件发送')
       const reused = !!edit && samePlatform && !edit.newSession && (initialized || !!restore)
       let context: MindmapSourceContext | undefined
       if (edit && (!reused || edit.includeSourceContext)) {
@@ -212,8 +271,20 @@ export class MindmapService {
       }
       if (signal.aborted || this.task?.id !== task.id) return
       stage = '准备生成网页'
-      const wc = await waitFor(automationService.ensureSessionReady(task.platform, key, restore), 30_000, stage, signal)
+      const ready = automationService.ensureSessionReady(task.platform, key, restore)
+      // 取消可能先于页面创建完成；迟到的加载也必须释放自己的窗口。
+      const releaseLateWindow = (): void => {
+        if ((signal.aborted || this.task?.id !== task.id || TERMINAL_PHASES.includes(task.phase)) && this.idle?.key !== key) sessionManager.destroySession(key)
+      }
+      void ready.then(releaseLateWindow, releaseLateWindow)
+      const wc = await waitFor(ready, 30_000, stage, signal)
+      if (signal.aborted || this.task?.id !== task.id) {
+        if (this.idle?.key !== key) sessionManager.destroySession(key)
+        return
+      }
       this.idle = { key, mapId: task.mindmapId || task.id, platformId: task.platform, initialized }
+      this.trackWindow(key)
+      wc.setBackgroundThrottling(false)
       const selectors = await waitFor(automationService.getPlatformSelectors(task.platform), 10_000, '读取平台配置', signal)
       const stateScript = generateMindmapPageStateScript(selectors, task.platform)
       const responseScript = generateMindmapResponseScript(selectors, edit ? 'edits' : 'markdown')
@@ -368,12 +439,19 @@ export class MindmapService {
         return
       }
     } catch (error) {
-      if (!signal.aborted) this.change(task, 'error', `${error instanceof Error ? error.message : '生成未完成'}（${diagnostics()}）。请打开生成网页查看；不会自动重发`)
+      if (!signal.aborted && this.task?.id === task.id) {
+        // 初始加载失败时窗口可能已经创建，仍须纳入失败后的查看和释放逻辑。
+        if (!this.idle && sessionManager.getSession(key)) {
+          this.idle = { key, mapId: task.mindmapId || task.id, platformId: task.platform, initialized }
+          this.trackWindow(key)
+        }
+        this.change(task, 'error', `${error instanceof Error ? error.message : '生成未完成'}（${diagnostics()}）。请打开生成网页查看；不会自动重发`)
+      }
     } finally {
       clearTimeout(generationTimer)
       cancelSignal.removeEventListener('abort', abort)
-      // A cancelled remote reply may still be generating. Retain the page and check busy before another send.
       if (cancelSignal.aborted && this.idle?.key !== key) sessionManager.destroySession(key)
+      await this.retainTerminalPage(task, key)
     }
   }
 
@@ -382,23 +460,46 @@ export class MindmapService {
     if (this.task?.id !== id || TERMINAL_PHASES.includes(this.task.phase)) return
     if (this.task.phase === 'saving') throw new Error('正在保存，请稍候')
     this.controller?.abort()
-    // 未提交附件的页面不能继续复用；销毁可阻止迟到的注入脚本提交请求。
-    if (this.idle?.pendingAttachment) this.releaseIdle()
     this.task.phase = 'cancelled'
     this.notify({ ...this.task })
+    const window = this.idle ? sessionManager.getSession(this.idle.key) : undefined
+    if (window && this.idle) {
+      // 取消后立即释放也保留地址候选；重新打开前由 restoreUrl 严格校验。
+      this.lastPage = { taskId: id, key: this.idle.key, mapId: this.idle.mapId, initialized: this.idle.initialized, binding: { platformId: this.task.platform, conversationUrl: window.webContents.getURL() } }
+    }
+    // 未提交附件时，即使预览可见也销毁，阻止迟到的脚本提交；其他取消只释放隐藏网页。
+    if (this.idle?.pendingAttachment || !window?.isVisible()) this.releaseIdle()
+    else void this.retainTerminalPage(this.task, this.idle!.key)
   }
 
-  show(id: string, owner: BrowserWindow | null): void {
+  async show(id: string, owner: BrowserWindow | null): Promise<void> {
     if (owner?.webContents.id !== this.ownerId) throw new Error('任务不属于当前窗口')
     if (this.task?.id !== id) throw new Error('任务不存在')
-    const window = sessionManager.getSession(this.idle?.key || sessionKey(id))
-    if (!window) throw new Error('生成网页已关闭，请重新生成')
-    showBackgroundPreview(window, owner)
+    const task = this.task
+    let key = this.idle?.key || sessionKey(id)
+    let window = sessionManager.getSession(key)
+    if (!window) {
+      const page = this.lastPage
+      if (page?.taskId !== id) throw new Error('生成网页已释放，未取得可恢复的会话地址，请重新生成或建立新会话')
+      const url = await this.restoreUrl(page.binding)
+      if (!url) throw new Error('生成网页已释放，原会话没有可恢复地址，请建立新的生成对话继续修改')
+      if (this.task?.id !== id || !owner || owner.isDestroyed()) throw new Error('任务已切换或所属窗口已关闭')
+      key = page.key
+      // 仅恢复网页供查看，不重新注入或提交生成请求。
+      window = sessionManager.getOrCreateSession(key, url)
+      this.idle = { key, mapId: page.mapId, platformId: page.binding.platformId, initialized: page.initialized }
+      this.trackWindow(key)
+      window.webContents.setBackgroundThrottling(true)
+    }
+    this.clearIdleTimer()
+    showBackgroundPreview(window, owner, () => this.idle?.key !== key || !this.task || TERMINAL_PHASES.includes(this.task.phase))
+    if (TERMINAL_PHASES.includes(task.phase)) window.webContents.setBackgroundThrottling(true)
   }
 
   shutdown(): void {
     this.controller?.abort()
     this.releaseIdle()
+    this.lastPage = null
     if (this.task) sessionManager.destroySession(sessionKey(this.task.id))
     this.candidates.clear()
   }
