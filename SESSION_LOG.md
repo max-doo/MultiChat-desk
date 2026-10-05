@@ -2,6 +2,49 @@
 
 ## 2026-10-05
 
+### 16:09 | Antigravity
+
+- done: 实现模型回复附件智能复用与状态守护，根治重新注入重复上传附件及撤回脏附件 Bug
+- decision: 在 useWebviewSummary 中建立 uploadedOutputsRef 附件指纹：长文本模式下，若撤回后仅修改提示词要求且模型回复内容未变，跳过重复上传直接复用已有附件；若模型数据源改变或降级为纯文本，自动重置页面清空旧附件后重新注入；在重开新对话和切换平台时自动重置指纹
+- modified:
+  - `src/renderer/src/hooks/useWebviewSummary.ts`
+  - `src/renderer/src/components/SummaryPanel.tsx`
+
+### 16:09 | Codex
+
+- done: 完成单会话思维导图 MVP 产品与技术设计文档，明确统一提示词修改、完整 Markdown 候选应用、右键添加和仅注入追问。
+- decision: 先以提示词约束 AI 保留无关内容并验证连续修改链路；不增加范围选择、局部替换或持久化节点 ID。
+- added:
+  - `docs/single-conversation-mindmap-mvp-design.md`
+
+### 15:48 | Antigravity
+
+- done: 将发送按钮改为在已发送/已注入后原位替换为撤回按钮，右侧始终保持单个操作按钮
+- decision: 右侧操作区由双按钮改为单按钮原位替换：未发送时为正圆发送/注入按钮，注入完成后原位平滑切换为正圆撤回按钮（undo），点击即可只撤回网页提示词并切回发送按钮，保持最纯粹的单按钮极简体验
+- modified:
+  - `src/renderer/src/components/SummaryPanel.tsx`
+
+### 15:42 | Antigravity
+
+- done: 实现总结页提示词撤回功能（只清空 Webview 注入的提示词并解锁输入框，保留用户草稿），并将最大高度限制为最多 3 行
+- decision: textarea 最大高度由 120px 严格调整为 72px（最多 3 行）；注入后新增精致撤回胶囊按钮，调用 ref.clearInput() 清空网页提示词并回滚草稿历史，保留用户输入内容供修改重新注入
+- modified:
+  - `src/renderer/src/components/SummaryPanel.tsx`
+
+### 15:36 | Antigravity
+
+- done: 修复总结页占位符文字溢出及滚动条问题，完善多行超长文本输入机制
+- decision: 无输入时锁定 32px 单行高度并强制隐藏滚动条，避免 placeholder 污染 scrollHeight；精简文案并增加 placeholder:truncate；支持 1-5 行弹性自适应与超过 120px 内部平滑滚动；增加 Ctrl+Enter/Enter 发送快捷键与极简一键清空按钮；阐明超长文本自动转 Markdown 附件底层机制
+- modified:
+  - `src/renderer/src/components/SummaryPanel.tsx`
+
+### 13:29 | Antigravity
+
+- done: 优化总结页底部输入框与上方 Webview 卡片粘连问题，改为极简精致浮岛风格
+- decision: 外层增加 gap-3.5 彻底消除卡片边缘粘连；输入框容器采用与全站统一的 rounded-2xl glass-panel shadow-soft 毛玻璃浮岛；模式选择器改为精致胶囊 pill；发送按钮改为与全站一致的圆形向上箭头及旋转状态；加入中文 IME 输入法防误触
+- modified:
+  - `src/renderer/src/components/SummaryPanel.tsx`
+
 ### 13:06 | Codex
 
 - done: 完成导图独立平台偏好的实现与审阅：lint、build、diff检查通过，开发启动编译通过

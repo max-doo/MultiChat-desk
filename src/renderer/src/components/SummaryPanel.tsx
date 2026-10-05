@@ -11,7 +11,7 @@ import type { SummaryPanelProps, ChatMessage } from '../types/summary'
  * 在嵌入式平台页面中生成总结
  */
 function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isActive = true, presetSummaryMode }: SummaryPanelProps): JSX.Element {
-  const { apiConfig, models, setApiConfig, addSummaryHistory, updateSummaryHistory, history, currentConversationId, registerWebviewRef, unregisterWebviewRef } = useAppStore()
+  const { apiConfig, models, setApiConfig, addSummaryHistory, updateSummaryHistory, removeSummaryHistory, history, currentConversationId, registerWebviewRef, unregisterWebviewRef } = useAppStore()
 
   const firstEnabledModel = models.find(m => m.enabled)
   const lastWebviewPlatform = apiConfig.lastWebviewSummaryPlatform ?? firstEnabledModel?.id ?? 'chatgpt'
@@ -37,9 +37,11 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
   const webviewSummaryRef = useRef<WebviewCardRef>(null)
   const webviewHistoryIdRef = useRef<string | null>(null)
   const webviewComposerTextareaRef = useRef<HTMLTextAreaElement>(null)
+  const isComposingRef = useRef(false)
 
   const handleResetChat = () => {
     if (webviewSummary.isGenerating) webviewSummary.abortSummary()
+    webviewSummary.resetUploadedDoc()
     webviewSummaryRef.current?.resetToInitial()
     webviewHistoryIdRef.current = null
     webviewMessagesRef.current = []
@@ -65,6 +67,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
   }, [restoreHistoryData, webviewPlatformId, webviewPlatformInfo.url])
 
   const setLastWebviewPlatform = (id: string) => {
+    webviewSummary.resetUploadedDoc()
     setWebviewPlatformId(id)
     setApiConfig({ ...apiConfig, lastWebviewSummaryPlatform: id })
   }
@@ -231,6 +234,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
 
   useEffect(() => {
     if (restoreHistoryData && restoreHistoryData.summarySource === 'webview' && restoreHistoryData.webviewPlatformId === webviewPlatformId && restoreHistoryData.webviewUrl) {
+      webviewSummary.resetUploadedDoc()
       webviewSummaryRef.current?.loadURL(restoreHistoryData.webviewUrl)
     }
   }, [restoreHistoryData, webviewPlatformId])
@@ -254,8 +258,15 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
   useEffect(() => {
     const ta = webviewComposerTextareaRef.current
     if (!ta) return
+    if (!webviewCustomPrompt) {
+      ta.style.height = '32px'
+      ta.style.overflowY = 'hidden'
+      return
+    }
     ta.style.height = 'auto'
-    ta.style.height = Math.min(ta.scrollHeight, 120) + 'px'
+    const newHeight = Math.min(Math.max(ta.scrollHeight, 32), 72)
+    ta.style.height = `${newHeight}px`
+    ta.style.overflowY = ta.scrollHeight > 72 ? 'auto' : 'hidden'
   }, [webviewCustomPrompt])
 
   const handleWebviewInject = useCallback(() => {
@@ -308,8 +319,40 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
     setSummaryFired(true)
   }, [summaryMode, summaryPrompts, selectedModels, models, webviewCustomPrompt, addSummaryHistory, webviewPlatformId, webviewSummary, modelResponses, setSummaryFired, history, currentConversationId])
 
+  // 撤回操作：只撤回 Webview 页面中已注入的提示词，解锁输入框并保留用户草稿以供重新编辑
+  const handleRevoke = useCallback(async () => {
+    if (webviewSummary.isGenerating) {
+      webviewSummary.abortSummary()
+    }
+
+    const ref = webviewSummaryRef.current
+    if (ref) {
+      try {
+        await ref.clearInput()
+      } catch (e) {
+        console.warn('[SummaryPanel] 撤回清空 webview 输入框失败:', e)
+      }
+    }
+
+    if (webviewHistoryIdRef.current) {
+      try {
+        await removeSummaryHistory(webviewHistoryIdRef.current)
+      } catch (e) {
+        console.warn('[SummaryPanel] 移除历史草稿失败:', e)
+      }
+      webviewHistoryIdRef.current = null
+    }
+
+    webviewMessagesRef.current = []
+    setSummaryFired(false)
+
+    setTimeout(() => {
+      webviewComposerTextareaRef.current?.focus()
+    }, 50)
+  }, [webviewSummary, removeSummaryHistory])
+
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full gap-3.5">
       <div className="flex-1 min-h-0">
         <WebviewCard
           ref={(ref) => {
@@ -338,16 +381,18 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
         const composerLocked = summaryFired || webviewSummary.isGenerating
         const showLockedHint = summaryFired && !webviewSummary.isGenerating
         const placeholder = showLockedHint
-          ? '已注入，请在右侧对话窗口点击发送'
-          : '输入额外的分析要求（可选），按 Enter 注入'
+          ? '已注入，可在上方发送或点击撤回'
+          : '输入补充要求（可选）...'
         const sendDisabled = composerLocked || selectedModels.length === 0
 
         return (
           <div className="shrink-0">
             {/* 底部单行 composer */}
             <div
-              className={`flex items-end gap-2 p-2 bg-sidebar border border-gray-200 rounded-lg transition-colors ${
-                composerLocked ? 'opacity-60' : 'focus-within:border-primary/50'
+              className={`flex items-end gap-2.5 p-2 bg-white/85 backdrop-blur-xl border border-gray-200/80 rounded-2xl shadow-soft transition-all duration-200 ${
+                composerLocked
+                  ? 'bg-gray-50/75 border-gray-200/60 shadow-none'
+                  : 'focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/10 focus-within:bg-white'
               }`}
             >
               {/* 模式选择 pill */}
@@ -360,19 +405,19 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
                 direction="up"
                 dropdownWidth="min-w-max"
                 className="min-w-max shrink-0"
-                buttonClassName={`px-3 py-1.5 rounded-full text-sm flex items-center justify-between gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-w-max ${
+                buttonClassName={`h-8 px-3 rounded-full text-xs font-medium flex items-center justify-between gap-1.5 transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed min-w-max ${
                   summaryMode && summaryPrompts.find(p => p.id === summaryMode)
-                    ? 'bg-primary/10 border border-primary/50 text-primary hover:border-primary'
-                    : 'bg-gray-100/50 border border-gray-300 text-text-secondary hover:border-gray-500'
+                    ? 'bg-primary/10 border border-primary/30 text-primary hover:bg-primary/15'
+                    : 'bg-gray-100/70 border border-transparent text-text-secondary hover:bg-gray-100 hover:text-text-primary'
                 }`}
                 renderOption={(option, isSelected, onSelect) => (
                   <button
                     onClick={onSelect}
-                    className={`block w-full px-4 py-2 text-left text-sm transition-colors hover:bg-gray-100 ${
-                      isSelected ? 'text-primary bg-primary/5' : 'text-text-secondary'
+                    className={`block w-full px-3 py-2 text-left text-xs transition-colors hover:bg-gray-100/80 rounded-lg ${
+                      isSelected ? 'text-primary bg-primary/5 font-medium' : 'text-text-secondary'
                     }`}
                   >
-                    <div className="flex flex-col items-start">
+                    <div className="flex flex-col items-start gap-0.5">
                       <div className="whitespace-nowrap">{option.label}</div>
                       {option.description && (
                         <div className={`text-[11px] ${isSelected ? 'text-primary/70' : 'text-gray-500'}`}>
@@ -390,28 +435,75 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
                 value={webviewCustomPrompt}
                 onChange={(e) => setWebviewCustomPrompt(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
+                  const isEnterSend = (e.key === 'Enter' && !e.shiftKey) || (e.key === 'Enter' && (e.ctrlKey || e.metaKey))
+                  if (isEnterSend && !isComposingRef.current) {
                     e.preventDefault()
                     if (!sendDisabled) handleWebviewInject()
                   }
                 }}
+                onCompositionStart={() => {
+                  isComposingRef.current = true
+                }}
+                onCompositionEnd={() => {
+                  isComposingRef.current = false
+                }}
                 placeholder={placeholder}
                 disabled={composerLocked}
                 rows={1}
-                className="flex-1 resize-none bg-transparent text-sm text-text-secondary placeholder-gray-500 focus:outline-none disabled:cursor-not-allowed leading-5 py-1.5 max-h-[120px] overflow-y-auto"
+                className="flex-1 resize-none bg-transparent text-sm text-text-primary placeholder:text-text-secondary/50 placeholder:truncate focus:outline-none focus:ring-0 disabled:cursor-not-allowed leading-5 py-1.5 px-1 max-h-[72px]"
               />
 
-              {/* 注入按钮 */}
-              <button
-                type="button"
-                onClick={handleWebviewInject}
-                disabled={sendDisabled}
-                className="shrink-0 flex items-center justify-center w-9 h-9 rounded-md bg-primary text-white hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                title={composerLocked ? '已注入' : '注入到 Webview'}
-                aria-label="注入到 Webview"
-              >
-                <span className="material-symbols-outlined text-xl">send</span>
-              </button>
+              {/* 清空按钮（仅在有输入内容且未锁定时显示） */}
+              {webviewCustomPrompt && !composerLocked && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setWebviewCustomPrompt('')
+                    webviewComposerTextareaRef.current?.focus()
+                  }}
+                  className="w-6 h-6 rounded-full flex items-center justify-center text-text-secondary/50 hover:text-text-primary hover:bg-gray-100/80 transition-colors shrink-0 mb-1"
+                  title="清空输入"
+                  aria-label="清空输入"
+                >
+                  <span className="material-symbols-outlined text-base">close</span>
+                </button>
+              )}
+
+              {/* 操作按钮：已注入状态原位替换为撤回按钮，否则为发送/注入按钮 */}
+              {showLockedHint ? (
+                <button
+                  type="button"
+                  onClick={handleRevoke}
+                  className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 bg-gray-100 hover:bg-gray-200 active:bg-gray-300 text-text-secondary hover:text-text-primary shadow-sm transition-all duration-200 active:scale-95"
+                  title="撤回已注入的提示词，返回编辑"
+                  aria-label="撤回提示词"
+                >
+                  <span className="material-symbols-outlined text-[18px]">undo</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleWebviewInject}
+                  disabled={sendDisabled}
+                  className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-all duration-200 ${
+                    sendDisabled
+                      ? "bg-gray-100 text-gray-400 cursor-not-allowed"
+                      : "bg-primary text-white hover:bg-blue-600 shadow-sm active:scale-95"
+                  }`}
+                  title={
+                    webviewSummary.isGenerating
+                      ? "正在注入..."
+                      : selectedModels.length === 0
+                        ? "请至少选择一个模型"
+                        : "注入到 Webview"
+                  }
+                  aria-label="注入到 Webview"
+                >
+                  <span className={`material-symbols-outlined text-[18px] ${webviewSummary.isGenerating ? "animate-spin" : ""}`}>
+                    {webviewSummary.isGenerating ? "sync" : "arrow_upward"}
+                  </span>
+                </button>
+              )}
             </div>
           </div>
         )
