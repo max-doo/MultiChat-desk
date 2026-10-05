@@ -261,6 +261,20 @@ export function useMindmapCanvas({
   const containerRef = useRef<HTMLDivElement>(null)
   const svgRef = useRef<SVGSVGElement>(null)
   const markmapRef = useRef<Markmap | null>(null)
+  const [canvasVisible, setCanvasVisible] = useState(false)
+  const needsInitialFitRef = useRef(true)
+
+  // 隐藏容器的零尺寸会让 fit() 写入 0/NaN 缩放，后续拖动与缩放都无法恢复。
+  const fitCanvas = useCallback(async (): Promise<void> => {
+    const svg = svgRef.current
+    const mm = markmapRef.current
+    if (!svg || !mm) return
+    const { width, height } = svg.getBoundingClientRect()
+    const { x1, y1, x2, y2 } = mm.state.rect
+    if (width <= 0 || height <= 0 || ![x1, y1, x2, y2].every(Number.isFinite) || x2 <= x1 || y2 <= y1) return
+    await mm.fit()
+    if (markmapRef.current === mm) needsInitialFitRef.current = false
+  }, [])
 
   // 强制全量将当前 SVG 内所有曲线转为折线，并校准 foreignObject 起始坐标
   const convertLinksToStep = useCallback(() => {
@@ -554,12 +568,13 @@ export function useMindmapCanvas({
     setExpand(cloned)
     commitTreeChange(cloned)
     setTimeout(() => {
-      markmapRef.current?.fit()
-      convertLinksToStep()
-      updateZoomCss()
+      void fitCanvas().then(() => {
+        convertLinksToStep()
+        updateZoomCss()
+      })
     }, 50)
     showToast('已展开所有节点')
-  }, [commitTreeChange, convertLinksToStep, updateZoomCss, showToast])
+  }, [commitTreeChange, fitCanvas, convertLinksToStep, updateZoomCss, showToast])
 
   // ── 全部收起 ──
   const handleFoldAll = useCallback(() => {
@@ -574,12 +589,13 @@ export function useMindmapCanvas({
     setFold(cloned, 0)
     commitTreeChange(cloned)
     setTimeout(() => {
-      markmapRef.current?.fit()
-      convertLinksToStep()
-      updateZoomCss()
+      void fitCanvas().then(() => {
+        convertLinksToStep()
+        updateZoomCss()
+      })
     }, 50)
     showToast('已收起子节点')
-  }, [commitTreeChange, convertLinksToStep, updateZoomCss, showToast])
+  }, [commitTreeChange, fitCanvas, convertLinksToStep, updateZoomCss, showToast])
 
   // ── 同步高亮选中状态类名（直接操作 DOM 避免重新渲染销毁输入状态） ──
   const syncSelectionClass = useCallback((nodeId: string | null) => {
@@ -597,7 +613,10 @@ export function useMindmapCanvas({
 
   // ── 渲染 Markmap（仅在 tree 或 active 变动时调用 setData，避免编辑时重绘 DOM） ──
   useEffect(() => {
-    if (!active || !svgRef.current) return
+    const svg = svgRef.current
+    if (!active || !canvasVisible || !svg) return
+    const { width, height } = svg.getBoundingClientRect()
+    if (width <= 0 || height <= 0) return
 
     const markmapRoot = convertToMarkmapNode(tree, 0, selectedNodeIdRef.current)
 
@@ -612,8 +631,7 @@ export function useMindmapCanvas({
           paddingX: 0, // 彻底消除 foreignObject 的 8px 空隙，让连线完美贴合节点卡片和文字两端！
           spacingHorizontal: 24, // 水平连线缩减一半，使导图整体更紧凑
           spacingVertical: 6
-        },
-        markmapRoot
+        }
       )
       markmapRef.current = mm
 
@@ -627,26 +645,24 @@ export function useMindmapCanvas({
         }
       })
 
-      // 仅在首次挂载创建画布时自适应居中一次
-      mm.fit()
-      updateZoomCss()
-    } else {
-      void markmapRef.current.setData(markmapRoot).then(() => {
-        convertLinksToStep()
-        syncSelectionClass(selectedNodeIdRef.current)
-        updateZoomCss()
-      })
     }
 
-    convertLinksToStep()
-    syncSelectionClass(selectedNodeIdRef.current)
-    updateZoomCss()
-    requestAnimationFrame(() => {
+    // 不给 create() 传数据，避免它在异步布局结束后无条件 fit 隐藏画布。
+    const mm = markmapRef.current
+    let cancelled = false
+    void mm.setData(markmapRoot).then(async () => {
+      if (cancelled || markmapRef.current !== mm) return
+      const transform = (svg as SVGSVGElement & { __zoom?: { k: number; x: number; y: number } }).__zoom
+      const invalidTransform = !transform || transform.k <= 0 || ![transform.k, transform.x, transform.y].every(Number.isFinite)
+      // 首次显示或恢复失效视口时适配；正常更新保留用户的缩放和位置。
+      if (needsInitialFitRef.current || invalidTransform) await fitCanvas()
+      if (cancelled || markmapRef.current !== mm) return
       convertLinksToStep()
       syncSelectionClass(selectedNodeIdRef.current)
       updateZoomCss()
     })
-  }, [active, tree, convertLinksToStep, syncSelectionClass, updateZoomCss])
+    return () => { cancelled = true }
+  }, [active, canvasVisible, tree, fitCanvas, convertLinksToStep, syncSelectionClass, updateZoomCss])
 
   // ── 选中态变化时即时同步 DOM 类名 ──
   useEffect(() => {
@@ -711,14 +727,21 @@ export function useMindmapCanvas({
 
   // ── 监听尺寸变化，校准连线与按钮缩放，保留用户视口 ──
   useEffect(() => {
-    if (!containerRef.current || !active) return
+    const svg = svgRef.current
+    if (!svg) return
 
-    let lastW = containerRef.current.clientWidth || 0
-    let lastH = containerRef.current.clientHeight || 0
+    let lastW = svg.clientWidth || 0
+    let lastH = svg.clientHeight || 0
 
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const { width, height } = entry.contentRect
+        setCanvasVisible(width > 0 && height > 0)
+        if (width <= 0 || height <= 0) {
+          lastW = 0
+          lastH = 0
+          continue
+        }
         if (lastW > 0 && lastH > 0 && (Math.abs(width - lastW) > 10 || Math.abs(height - lastH) > 10)) {
           lastW = width
           lastH = height
@@ -732,9 +755,10 @@ export function useMindmapCanvas({
       }
     })
 
-    observer.observe(containerRef.current)
+    // 观察 SVG 本身，才能感知大纲切换和祖先侧栏的 display:none。
+    observer.observe(svg)
     return () => observer.disconnect()
-  }, [active, convertLinksToStep, updateZoomCss])
+  }, [convertLinksToStep, updateZoomCss])
 
   // ── 捕获阶段代理鼠标交互（避免 Markmap 内部 stopPropagation 拦截双击与点击） ──
   useEffect(() => {
@@ -984,22 +1008,30 @@ export function useMindmapCanvas({
   ])
 
   const handleZoom = useCallback((scale: number) => {
+    const svg = svgRef.current
+    if (!svg || svg.clientWidth <= 0 || svg.clientHeight <= 0) return
+    const transform = (svg as SVGSVGElement & { __zoom?: { k: number; x: number; y: number } }).__zoom
+    if (!transform || transform.k <= 0 || ![transform.k, transform.x, transform.y].every(Number.isFinite)) {
+      void fitCanvas().then(updateZoomCss)
+      return
+    }
     void markmapRef.current?.rescale(scale).then(() => {
       convertLinksToStep()
       updateZoomCss()
     })
-  }, [convertLinksToStep, updateZoomCss])
+  }, [fitCanvas, convertLinksToStep, updateZoomCss])
 
   const handleFit = useCallback(() => {
-    void markmapRef.current?.fit().then(() => {
+    void fitCanvas().then(() => {
       convertLinksToStep()
       updateZoomCss()
     })
-  }, [convertLinksToStep, updateZoomCss])
+  }, [fitCanvas, convertLinksToStep, updateZoomCss])
 
   useEffect(() => () => {
     markmapRef.current?.destroy()
     markmapRef.current = null
+    needsInitialFitRef.current = true
   }, [])
 
   return {

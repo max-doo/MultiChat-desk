@@ -1,3 +1,4 @@
+import type { HistoryListItem, SummaryHistoryListItem, HistoryKind, HistoryRecord, DataImportResult } from '../shared/types/history'
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type { NoteConversation, NoteDraft, NoteHighlight, NoteSelectionRect, ConversationMindmap, MindmapTask, NoteNavigation } from '../shared/types/notes'
@@ -56,22 +57,22 @@ const api = {
   onQuickAskSidebar: (cb: (text: string) => void) => {
     const handler = (_e: Electron.IpcRendererEvent, text: string): void => cb(text)
     ipcRenderer.on('quick:ask-sidebar', handler)
-    return () => ipcRenderer.removeListener('quick:ask-sidebar', handler)
+    return () => { ipcRenderer.removeListener('quick:ask-sidebar', handler) }
   },
   onMainAskSidebar: (cb: (text: string) => void) => {
     const handler = (_e: Electron.IpcRendererEvent, text: string): void => cb(text)
     ipcRenderer.on('main:ask-sidebar', handler)
-    return () => ipcRenderer.removeListener('main:ask-sidebar', handler)
+    return () => { ipcRenderer.removeListener('main:ask-sidebar', handler) }
   },
   onQuickHidden: (cb: () => void) => {
     const handler = (): void => cb()
     ipcRenderer.on('quick:hidden', handler)
-    return () => ipcRenderer.removeListener('quick:hidden', handler)
+    return () => { ipcRenderer.removeListener('quick:hidden', handler) }
   },
   onQuickShown: (cb: () => void) => {
     const handler = (): void => cb()
     ipcRenderer.on('quick:shown', handler)
-    return () => ipcRenderer.removeListener('quick:shown', handler)
+    return () => { ipcRenderer.removeListener('quick:shown', handler) }
   },
 
   // 诊断窗口 IPC
@@ -143,6 +144,11 @@ const api = {
   storeGet: (key: string): Promise<unknown> => ipcRenderer.invoke('store-get', key),
   storeSet: (key: string, value: unknown): Promise<void> => ipcRenderer.invoke('store-set', key, value),
   storeDelete: (key: string): Promise<void> => ipcRenderer.invoke('store-delete', key),
+  notesForSource: (key: string): Promise<{ success: boolean; data?: NoteConversation; error?: string }> => ipcRenderer.invoke('notes:source', key),
+  notesGet: (id: string): Promise<{ success: boolean; data?: NoteConversation; error?: string }> => ipcRenderer.invoke('notes:get', id),
+  notesSummaries: (query?: string): Promise<{ success: boolean; data?: NoteConversation[]; error?: string }> => ipcRenderer.invoke('notes:summaries', query),
+  notesStandalone: (markdown?: string): Promise<{ success: boolean; data?: NoteConversation; error?: string }> => ipcRenderer.invoke('notes:standalone', markdown),
+  notesImport: (values: unknown, overwrite = false): Promise<{ success: boolean; data?: DataImportResult; error?: string }> => ipcRenderer.invoke('notes:import', values, overwrite),
   notesList: (): Promise<{ success: boolean; data?: NoteConversation[]; error?: string }> => ipcRenderer.invoke('notes:list'),
   // 采集结果仅暂存于当前窗口；导图成功生成/创建后才与快照一起持久化。
   notesCaptureSource: (id: number, platform: string, name: string): Promise<{ success: boolean; data?: NoteConversation; error?: string }> => ipcRenderer.invoke('notes:capture-source', id, platform, name),
@@ -159,18 +165,18 @@ const api = {
   onNotesNavigate: (cb: (navigation: NoteNavigation) => void): (() => void) => {
     const handler = (_event: Electron.IpcRendererEvent, navigation: NoteNavigation): void => cb(navigation)
     ipcRenderer.on('notes:navigate', handler)
-    return () => ipcRenderer.removeListener('notes:navigate', handler)
+    return () => { ipcRenderer.removeListener('notes:navigate', handler) }
   },
   onMindmapTaskChanged: (cb: (task: MindmapTask) => void): (() => void) => {
     const handler = (_event: Electron.IpcRendererEvent, task: MindmapTask): void => cb(task)
     ipcRenderer.on('mindmaps:task-changed', handler)
-    return () => ipcRenderer.removeListener('mindmaps:task-changed', handler)
+    return () => { ipcRenderer.removeListener('mindmaps:task-changed', handler) }
   },
   notesAnchorsForUrl: (url: string): Promise<{ success: boolean; data?: NoteHighlight[]; error?: string }> => ipcRenderer.invoke('notes:anchors-for-url', url),
   onNotesChanged: (cb: () => void): (() => void) => {
     const handler = (): void => cb()
     ipcRenderer.on('notes:changed', handler)
-    return () => ipcRenderer.removeListener('notes:changed', handler)
+    return () => { ipcRenderer.removeListener('notes:changed', handler) }
   },
   notesSave: (draft: NoteDraft, comment: string): Promise<{ success: boolean; data?: NoteConversation; error?: string }> => ipcRenderer.invoke('notes:save', draft, comment),
   notesUpdate: (conversationId: string, noteId: string, comment: string): Promise<{ success: boolean; data?: NoteConversation; error?: string }> => ipcRenderer.invoke('notes:update', conversationId, noteId, comment),
@@ -179,18 +185,25 @@ const api = {
   onNoteCapture: (cb: (payload: { draft?: NoteDraft; webContentsId?: number; rect?: NoteSelectionRect; error?: string }) => void): (() => void) => {
     const handler = (_event: Electron.IpcRendererEvent, payload: { draft?: NoteDraft; webContentsId?: number; rect?: NoteSelectionRect; error?: string }): void => cb(payload)
     ipcRenderer.on('notes:capture', handler)
-    return () => ipcRenderer.removeListener('notes:capture', handler)
+    return () => { ipcRenderer.removeListener('notes:capture', handler) }
   },
 
   // History 分页（只读，磁盘 1000 / 内存 100 分层）
-  historyGetPage: (offset: number, limit: number): Promise<{ success: boolean; data?: Array<{ id: string; createdAt: number; updatedAt: number; models: string[]; title?: string; turns: Array<{ turnId: string; userMessage: string; timestamp: number; responses: Record<string, string> }>; urls?: Record<string, string>; productMode?: string; displayMode?: string }>; error?: string }> =>
-    ipcRenderer.invoke('history:get-page', offset, limit),
-  historyGetTotalCount: (): Promise<{ success: boolean; data?: number; error?: string }> =>
-    ipcRenderer.invoke('history:get-total-count'),
-  summaryHistoryGetPage: (offset: number, limit: number): Promise<{ success: boolean; data?: Array<{ id: string; title: string; timestamp: number; messages: Array<{ role: string; content: string }>; selectedModels: string[] }>; error?: string }> =>
-    ipcRenderer.invoke('summary-history:get-page', offset, limit),
-  summaryHistoryGetTotalCount: (): Promise<{ success: boolean; data?: number; error?: string }> =>
-    ipcRenderer.invoke('summary-history:get-total-count'),
+  historyGetPage: (offset: number, limit: number): Promise<{ success: boolean; data?: HistoryListItem[]; error?: string }> => ipcRenderer.invoke('history:get-page', offset, limit),
+  historyGetTotalCount: (): Promise<{ success: boolean; data?: number; error?: string }> => ipcRenderer.invoke('history:get-total-count'),
+  summaryHistoryGetPage: (offset: number, limit: number): Promise<{ success: boolean; data?: SummaryHistoryListItem[]; error?: string }> => ipcRenderer.invoke('summary-history:get-page', offset, limit),
+  summaryHistoryGetTotalCount: (): Promise<{ success: boolean; data?: number; error?: string }> => ipcRenderer.invoke('summary-history:get-total-count'),
+  historySearch: (kind: HistoryKind, query: string): Promise<{ success: boolean; data?: (HistoryListItem | SummaryHistoryListItem)[]; error?: string }> => ipcRenderer.invoke('history:search', kind, query),
+  historyStatus: (): Promise<{ success: boolean; data?: { error: string; warnings: string[] }; error?: string }> => ipcRenderer.invoke('history:status'),
+  historyGet: (kind: HistoryKind, id: string): Promise<{ success: boolean; data?: HistoryRecord; error?: string }> => ipcRenderer.invoke('history:get', kind, id),
+  historyCreate: (kind: HistoryKind, item: HistoryRecord): Promise<{ success: boolean; data?: HistoryRecord; error?: string }> => ipcRenderer.invoke('history:create', kind, item),
+  historyUpdate: (kind: HistoryKind, id: string, patch: Partial<HistoryRecord>): Promise<{ success: boolean; data?: HistoryRecord; error?: string }> => ipcRenderer.invoke('history:update', kind, id, patch),
+  historyRemove: (kind: HistoryKind, ids: string[]): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('history:remove', kind, ids),
+  historyImport: (kind: HistoryKind, values: unknown, overwrite = false): Promise<{ success: boolean; data?: DataImportResult; error?: string }> => ipcRenderer.invoke('history:import', kind, values, overwrite),
+  onHistoryChanged: (callback: () => void): (() => void) => {
+    ipcRenderer.on('history:changed', callback)
+    return () => { ipcRenderer.removeListener('history:changed', callback) }
+  },
 
   summaryPromptsBootstrap: (prompts: Array<{ id: string; name: string; description?: string; prompt: string; isDefault?: boolean; schemaVersion?: number }>): Promise<void> =>
     ipcRenderer.invoke('summary-prompts-bootstrap', prompts),
@@ -251,6 +264,7 @@ const api = {
       conflicts: string[]
       file: string
       values: Record<string, unknown>
+      businessCounts?: Record<string, DataImportResult>
     }
     error?: string
   }> => ipcRenderer.invoke('import-cache'),
@@ -362,3 +376,5 @@ if (process.contextIsolated) {
   // @ts-ignore - 在非隔离上下文中直接挂载到 window，类型定义在 env.d.ts
   window.api = api
 }
+
+export type API = typeof api

@@ -1,4 +1,6 @@
-import { randomUUID } from 'crypto'
+import { randomUUID, createHash } from 'crypto'
+import { isDeepStrictEqual } from 'util'
+import type { DataImportResult } from '../shared/types/history'
 import { constants } from 'fs'
 import { copyFile, mkdir, readFile, readdir, rename, rm, writeFile } from 'fs/promises'
 import { dirname, join } from 'path'
@@ -17,6 +19,8 @@ const coverage = (snapshot: string, notes: ConversationNote[]): number => {
 
 export class NoteManager {
   private readonly directory: string
+  private cache: Map<string, NoteConversation> | null = null
+  private unreadable = false
   private saveQueue: Promise<unknown> = Promise.resolve()
 
   constructor(store: Store<Record<string, unknown>>) {
@@ -41,6 +45,7 @@ export class NoteManager {
     try {
       await writeFile(temporary, JSON.stringify(conversation), 'utf8')
       await rename(temporary, target)
+      this.cache?.set(conversation.id, structuredClone(conversation))
     } finally { await rm(temporary, { force: true }).catch(() => undefined) }
   }
 
@@ -65,6 +70,7 @@ export class NoteManager {
   }
 
   private async listUnlocked(): Promise<NoteConversation[]> {
+    if (this.cache) return [...this.cache.values()].map(item => structuredClone(item)).sort((a, b) => b.updatedAt - a.updatedAt)
     await mkdir(this.directory, { recursive: true })
     const files = (await readdir(this.directory)).filter(name => /^[a-f0-9-]{36}\.json$/.test(name))
     const items: NoteConversation[] = []
@@ -72,8 +78,8 @@ export class NoteManager {
       let value: StoredConversation
       try {
         value = JSON.parse(await readFile(join(this.directory, name), 'utf8')) as StoredConversation
-      } catch { console.error('[Notes] 无法读取笔记文件:', name); continue }
-      if (!value || !Array.isArray(value.notes) || !value.id) continue
+      } catch { this.unreadable = true; console.error('[Notes] 无法读取笔记文件:', name); continue }
+      if (!value || !Array.isArray(value.notes) || !value.id) { this.unreadable = true; continue }
       const item = this.convert(value)
       if (value.version !== 2 || value.notes.some(note => 'snapshot' in note)) {
         await this.backup(item.id)
@@ -116,10 +122,90 @@ export class NoteManager {
         await this.write(conversation)
       }
     }
+    this.cache = new Map([...groups.values()].map(item => [item.id, structuredClone(item)]))
     return [...groups.values()].sort((a, b) => b.updatedAt - a.updatedAt)
   }
 
   list(): Promise<NoteConversation[]> { return this.serial(() => this.listUnlocked()) }
+
+  private async cachedValues(): Promise<NoteConversation[]> {
+    if (!this.cache) await this.listUnlocked()
+    return [...(this.cache?.values() || [])]
+  }
+
+  private async findSourceUnlocked(sourceKey: string): Promise<NoteConversation | undefined> {
+    const item = (await this.cachedValues()).find(value => value.sourceKey === sourceKey)
+    return item ? structuredClone(item) : undefined
+  }
+
+  findSource(sourceKey: string): Promise<NoteConversation | undefined> { return this.serial(() => this.findSourceUnlocked(sourceKey)) }
+
+  get(id: string): Promise<NoteConversation> { return this.serial(() => this.read(id)) }
+
+  summaries(query = ''): Promise<NoteConversation[]> {
+    return this.serial(async () => (await this.cachedValues()).filter(item => !query.trim() || [item.title, item.platform, ...item.notes.flatMap(note => [note.quote, note.comment]), ...item.mindmaps.flatMap(map => [map.title, map.markdown])].some(text => text.toLowerCase().includes(query.trim().toLowerCase()))).map(item => ({ ...item, snapshot: '', mindmaps: item.mindmaps.map(map => ({ ...map, markdown: '' })) })))
+  }
+
+  async exportAll(): Promise<NoteConversation[]> {
+    const values = await this.list()
+    if (this.unreadable) throw new Error('存在无法读取的笔记文件，请修复后再备份')
+    return values
+  }
+
+  validateImport(values: unknown): NoteConversation[] {
+    if (!Array.isArray(values)) throw new Error('笔记备份必须为数组')
+    const items = values.map(value => {
+      if (!value || typeof value !== 'object') throw new Error('笔记格式无效')
+      const item = value as NoteConversation
+      this.file(item.id)
+      if (item.version !== 2 || typeof item.sourceKey !== 'string' || typeof item.platform !== 'string' || typeof item.title !== 'string' || typeof item.url !== 'string' || typeof item.snapshot !== 'string' || item.snapshot.length > 20_000_000 || !Number.isFinite(item.updatedAt) || !Number.isFinite(item.snapshotRevision) || !Array.isArray(item.notes) || !Array.isArray(item.mindmaps)) throw new Error('笔记备份格式无效')
+      if (!item.notes.every(note => note && typeof note.id === 'string' && typeof note.quote === 'string' && typeof note.comment === 'string' && note.anchor && ['exact', 'prefix', 'suffix'].every(key => typeof note.anchor[key as keyof typeof note.anchor] === 'string') && Number.isFinite(note.createdAt) && Number.isFinite(note.updatedAt))) throw new Error('批注备份格式无效')
+      if (!item.mindmaps.every(map => map && typeof map.id === 'string' && typeof map.title === 'string' && typeof map.markdown === 'string' && map.markdown.length <= 200_000 && typeof map.platform === 'string' && Number.isFinite(map.sourceRevision) && Number.isFinite(map.createdAt) && Number.isFinite(map.updatedAt))) throw new Error('导图备份格式无效')
+      return structuredClone(item)
+    })
+    if (new Set(items.map(item => item.id)).size !== items.length || new Set(items.map(item => item.sourceKey)).size !== items.length) throw new Error('备份存在重复笔记 ID 或来源')
+    return items
+  }
+
+  import(values: unknown, overwrite = false): Promise<DataImportResult> {
+    return this.serial(async () => {
+      const items = this.validateImport(values)
+      const local = await this.listUnlocked()
+      const result: DataImportResult = { added: 0, unchanged: 0, conflicts: 0 }
+      for (const item of items) {
+        const existing = local.find(saved => saved.id === item.id || saved.sourceKey === item.sourceKey)
+        if (existing && isDeepStrictEqual(existing, item)) { result.unchanged++; continue }
+        if (existing) {
+          result.conflicts++
+          if (!overwrite || existing.id !== item.id || existing.sourceKey !== item.sourceKey) continue
+        } else result.added++
+        await this.write(item)
+      }
+      return result
+    })
+  }
+
+  standalone(markdown?: string): Promise<NoteConversation> {
+    return this.serial(async () => {
+      if (markdown !== undefined && (typeof markdown !== 'string' || markdown.length > 200_000)) throw new Error('导图内容无效')
+      const existing = await this.findSourceUnlocked('local-mindmap-legacy')
+      if (existing) {
+        if (markdown && existing.mindmaps.every(map => map.markdown !== markdown)) {
+          // 不覆盖其他窗口已保存的内容；旧内容作为一份可找回导图迁入。
+          existing.mindmaps.push({ id: createHash('sha256').update(markdown).digest('hex'), title: '迁入的本地导图', markdown, platform: '本地', sourceRevision: 0, createdAt: Date.now(), updatedAt: Date.now() })
+          existing.updatedAt = Date.now()
+          await this.write(existing)
+        }
+        return existing
+      }
+      const now = Date.now()
+      const content = markdown?.trim() ? markdown : '# 思维导图\n'
+      if (content.length > 200_000) throw new Error('导图内容过大')
+      const conversation: NoteConversation = { version: 2, id: randomUUID(), sourceKey: 'local-mindmap-legacy', platform: '本地', title: '未关联对话的导图', url: '', updatedAt: now, snapshot: '', snapshotRevision: 0, notes: [], mindmaps: [{ id: randomUUID(), title: content.match(/^#\s+(.+)$/m)?.[1] || '本地导图', markdown: content, platform: '本地', sourceRevision: 0, createdAt: now, updatedAt: now }] }
+      await this.write(conversation)
+      return conversation
+    })
+  }
 
   async anchorsForUrl(url: string): Promise<NoteHighlight[]> {
     const source = new URL(url)
@@ -147,7 +233,7 @@ export class NoteManager {
       throw new Error('当前页面尚未形成可识别的会话，请先在网页中完成一次对话')
     }
     const now = Date.now()
-    const conversation = (await this.listUnlocked()).find(item => item.sourceKey === sourceKey) || {
+    const conversation = await this.findSourceUnlocked(sourceKey) || {
       version: 2 as const, id: randomUUID(), sourceKey, platform: draft.platform, title: draft.title,
       url: draft.url, updatedAt: now, notes: [], mindmaps: [], snapshot: '', snapshotRevision: 0
     }
@@ -203,7 +289,7 @@ export class NoteManager {
   }
 
   private async saveOrRemove(conversation: NoteConversation): Promise<void> {
-    if (!conversation.notes.length && !conversation.mindmaps.length) await rm(this.file(conversation.id))
+    if (!conversation.notes.length && !conversation.mindmaps.length) { await rm(this.file(conversation.id)); this.cache?.delete(conversation.id) }
     else { conversation.updatedAt = Date.now(); await this.write(conversation) }
   }
 
@@ -211,7 +297,7 @@ export class NoteManager {
     return this.serial(async () => {
       if (typeof markdown !== 'string' || !markdown.trim() || markdown.length > 200_000) throw new Error('导图内容无效或过大')
       // 生成期间可能新增笔记、删除旧图或合并同源记录，保存时以最新文档为准。
-      const conversation = (await this.listUnlocked()).find(item => item.sourceKey === source.sourceKey) || {
+      const conversation = await this.findSourceUnlocked(source.sourceKey) || {
         ...source, notes: [], mindmaps: []
       }
       this.updateSnapshot(conversation, source.snapshot)
@@ -252,14 +338,7 @@ export class NoteManager {
   }
 
   importLegacyMindmap(markdown: string): Promise<NoteConversation> {
-    return this.serial(async () => {
-      const existing = (await this.listUnlocked()).find(item => item.sourceKey === 'local-mindmap-legacy')
-      if (existing) return existing
-      if (typeof markdown !== 'string' || !markdown.trim() || markdown.length > 200_000) throw new Error('旧导图内容无效')
-      const now = Date.now()
-      const conversation: NoteConversation = { version: 2, id: randomUUID(), sourceKey: 'local-mindmap-legacy', platform: '本地', title: '未关联对话的导图', url: '', updatedAt: now, snapshot: '', snapshotRevision: 0, notes: [], mindmaps: [{ id: randomUUID(), title: markdown.match(/^#\s+(.+)$/m)?.[1] || '旧导图', markdown, platform: '本地', sourceRevision: 0, createdAt: now, updatedAt: now }] }
-      await this.write(conversation)
-      return conversation
-    })
+    if (typeof markdown !== 'string' || !markdown.trim() || markdown.length > 200_000) return Promise.reject(new Error('旧导图内容无效'))
+    return this.standalone(markdown)
   }
 }

@@ -56,7 +56,7 @@ export interface WebviewCardRef {
   /** 按平台 imageDownload.steps 触发网页内置下载（hover/click），返回 {clicked, wcId}
    *  dryRun=true 时只校验配置并返回 wcId，不执行点击（用于主进程建 ctx 必须先于点击的时序） */
   clickDownloadButtons: (dryRun?: boolean) => Promise<{ clicked: number; wcId: number | null; error?: string }>
-  getLatestResponse: () => Promise<string>
+  getLatestResponse: (options?: { interactive?: boolean }) => Promise<string>
   reload: () => void
   resetToInitial: () => Promise<{ success: boolean; error?: string }>
   getCurrentUrl: () => string
@@ -428,7 +428,7 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
                 </div>
               ) : (
                 <div className="flex-1 flex items-center justify-center text-text-secondary text-sm">
-                  无该模型的本地历史快照，请刷新页面或重试加载
+                  未保存该模型的本地回复，请重新加载原始网页
                 </div>
               )}
               {loadError && (

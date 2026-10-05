@@ -2191,12 +2191,14 @@ export interface MindmapResponse {
   editorCount: number
   codeCount: number
   messageCount: number
+  candidates?: Array<Pick<MindmapResponse, 'text' | 'source'>>
 }
 
 /** 导图读取最新助手回复；还原渲染后的标题和列表，兼容已有代码块输出。 */
 export function generateMindmapResponseScript(selectors: ModelSelector): string {
   return String.raw`
     (async function () {
+      ${getHtmlToMarkdownScript()}
       const config = ${JSON.stringify(mindmapCodeSelectors)};
       const tags = ${JSON.stringify(MINDMAP_TAGS)};
       const candidates = new Set();
@@ -2215,9 +2217,19 @@ export function generateMindmapResponseScript(selectors: ModelSelector): string 
       const root = roots[roots.length - 1];
       const editors = root ? Array.from(root.querySelectorAll(config.editors)).filter(el => !el.closest(config.excluded)) : [];
       const codes = root ? Array.from(root.querySelectorAll(config.nativeCode)).filter(el => !el.closest(config.excluded) && !el.closest(config.editors) && !el.querySelector(config.editors)) : [];
-      const result = (text, source) => ({ text, source, editorCount: editors.length, codeCount: codes.length, messageCount: roots.length });
-      const isOutline = text => typeof text === 'string' && (text.includes(tags.begin) || text.includes(tags.end));
+      const collected = [];
+      const add = (text, source) => {
+        if (typeof text !== 'string' || !text.trim() || collected.some(item => item.text === text)) return;
+        collected.push({ text, source });
+      };
+      const result = (text, source) => ({ text, source, editorCount: editors.length, codeCount: codes.length, messageCount: roots.length, candidates: collected });
+      const isOutline = text => {
+        const normalized = text.replace(/&lt;(\/?mindmap)&gt;/g, '<$1>');
+        return normalized.includes(tags.begin) || normalized.includes(tags.end);
+      };
+      let missingEditorModel = false;
       for (const editor of editors) {
+        let modelRead = false;
         const content = editor.querySelector(config.content);
         for (const node of [content, editor]) {
           if (!node) continue;
@@ -2227,24 +2239,26 @@ export function generateMindmapResponseScript(selectors: ModelSelector): string 
             const doc = view?.state?.doc;
             if (!doc || typeof doc.toString !== 'function') continue;
             const text = doc.toString();
-            if (isOutline(text)) return result(text, 'editor');
+            modelRead = true;
+            add(text, 'editor');
           } catch {}
         }
+        if (!modelRead) missingEditorModel = true;
       }
       for (const code of codes) {
-        const text = code.textContent || '';
-        if (isOutline(text)) return result(text, 'code');
+        add(code.textContent || '', 'code');
+        // 普通代码框可能通过块元素或 br 显示换行；原始 textContent 不一定保留这些行边界。
+        add(code.innerText || '', 'code');
       }
       // 存在虚拟编辑器却没有完整模型时，仅提供诊断，禁止保存可见片段。
-      if (editors.length) return result(editors.map(editor => editor.innerText || editor.textContent || '').join('\n'), 'virtual-dom');
-      if (root) {
+      if (missingEditorModel) add(editors.map(editor => editor.innerText || editor.textContent || '').join('\n'), 'virtual-dom');
+      if (root && !editors.length) {
         // 不使用 innerText 拼接整条回复：网页列表缩进与标题标记需要从结构还原。
         const read = (node, depth = 0) => {
           if (node.nodeType === Node.TEXT_NODE) return node.textContent || '';
           if (node.nodeType !== Node.ELEMENT_NODE || node.matches(config.noise) || node.matches(config.excluded)) return '';
           const tag = node.tagName.toLowerCase();
           if (tag === 'br') return '\n';
-          if (tag === 'pre') return '\n' + (node.textContent || '') + '\n';
           if (tag === 'li') {
             let label = '';
             let children = '';
@@ -2256,14 +2270,21 @@ export function generateMindmapResponseScript(selectors: ModelSelector): string 
           }
           const content = Array.from(node.childNodes).map(child => read(child, depth)).join('');
           if (/^h[1-6]$/.test(tag)) return '\n' + '#'.repeat(Number(tag[1])) + ' ' + content.replace(/\s+/g, ' ').trim() + '\n';
-          if (/^(p|div|section|article|ul|ol|blockquote)$/.test(tag)) return '\n' + content + '\n';
+          if (/^(p|div|section|article|ul|ol|blockquote|pre)$/.test(tag)) return '\n' + content + '\n';
           return content;
         };
-        const text = read(root).replace(/\u200B|\uFEFF/g, '').trim();
-        return result(text, text ? 'message' : 'empty');
+        for (const code of codes) add(read(code).replace(/\u200B|\uFEFF/g, '').trim(), 'code');
+        add(read(root).replace(/\u200B|\uFEFF/g, '').trim(), 'message');
+        // 复用总结采集的 Markdown 转换器，但限定在同一条最新回复，避免回退到旧回复。
+        try { add(htmlToMarkdown(root), 'message'); } catch {}
+      } else if (!root) {
+        const text = await ${generateGetLatestResponseScript(selectors, true)};
+        add(text, 'message');
       }
-      const text = await ${generateGetLatestResponseScript(selectors, true)};
-      return result(text || '', text ? 'message' : 'empty');
+      // 候选是否有效由主进程统一使用现有解析器判断；短片段不能阻止后续候选被检查。
+      const tagged = collected.filter(item => isOutline(item.text));
+      const fallback = (tagged.length ? tagged : collected).reduce((best, item) => !best || item.text.length > best.text.length ? item : best, null);
+      return result(fallback?.text || '', fallback?.source || 'empty');
     })();
   `
 }

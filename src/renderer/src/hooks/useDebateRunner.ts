@@ -92,7 +92,7 @@ export function useDebateRunner() {
     // 发送后立即取基线：此刻新回复尚未渲染，getLatestResponse 读到的是上一轮旧回复或空，
     // 作为「必须出现与之不同的新内容」的参照，避免把旧回复误判为新回复。
     const baselineRef = useAppStore.getState().webviewRefs.get(`slot-${slotIndex}`)
-    const baseline = baselineRef ? await baselineRef.getLatestResponse().catch(() => '') : ''
+    const baseline = baselineRef ? await baselineRef.getLatestResponse({ interactive: false }).catch(() => '') : ''
     if (abortRef.current || useAppStore.getState().debateState.phase !== 'running') return
 
     const speech = await store.getResponseFromSlot(slotIndex, 120000, baseline)

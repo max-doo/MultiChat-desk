@@ -147,7 +147,7 @@ if (!gotTheLock) {
   // 2. 禁用 QUIC (HTTP/3) 协议，避免在 Clash Verge/TUN 虚拟网卡模式下 UDP 443 转发丢包导致页面假死空白
   app.commandLine.appendSwitch('disable-quic')
 
-  app.whenReady().then(() => {
+  app.whenReady().then(async () => {
     // 强制所有 Webview 和原生控件使用浅色模式，与应用 UI 保持一致
     nativeTheme.themeSource = 'light'
 
@@ -164,7 +164,7 @@ if (!gotTheLock) {
 
     // 注册所有 IPC 处理器
     // 注入依赖：Store 实例，获取主窗口函数，打开浏览器窗口函数
-    registerIpcHandlers(store, getMainWindow, openBrowserWindowInternal)
+    await registerIpcHandlers(store, getMainWindow, openBrowserWindowInternal)
 
     // 创建主窗口
     createWindow()

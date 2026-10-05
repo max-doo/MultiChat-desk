@@ -1,6 +1,179 @@
 # Session Log
 
+## 2026-10-05
+
+### 13:06 | Codex
+
+- done: 完成导图独立平台偏好的实现与审阅：lint、build、diff检查通过，开发启动编译通过
+- context: lint为0错误20条既有警告；web类型检查仍为既有错误；npm run dev因旧实例占用单实例锁退出；桌面工具点击坐标不可用且恢复截图超时，未完成手动交互验收
+- modified:
+  - `src/renderer/src/store/appStore.ts`
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+- unresolved: 手动检查选择导图平台后关闭重开、切换来源平台、快捷窗口同步与应用重启后恢复
+
+### 13:04 | Codex
+
+- done: 导图生成平台改为独立配置，记住上次选择并跨窗口同步，移除来源平台联动
+- decision: 复用配置store与现有stateSync，首次默认ChatGPT；保存失败在导图面板提示
+- modified:
+  - `src/renderer/src/store/appStore.ts`
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+- unresolved: 待执行lint、build和开发态验证
+
+### 13:00 | Codex
+
+- done: 完成导图预览与快捷窗口交互修复的代码审阅；lint、build、diff检查通过
+- context: lint为0错误20条既有警告；node/web类型检查仍有未改动位置的既有错误；npm run dev完成编译后因旧实例占用单实例锁退出，旧窗口仍为5174服务
+- modified:
+  - `src/main/webviewManager.ts`
+  - `src/main/services/MindmapService.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/main/services/SessionManager.ts`
+- unresolved: 重启开发实例后验证：快捷窗口打开生成网页保持显示；关闭网页返回快捷窗口且生成继续；从网页切到外部应用仍隐藏快捷窗口；取消与完成释放会话
+
+### 12:58 | Codex
+
+- done: 修复导图预览关闭后后台任务中断，并保持快捷窗口与预览之间的焦点连续性
+- decision: 预览关闭仅隐藏；显式任务清理强制销毁；从快捷窗口打开的预览保留快捷窗口，切到外部应用仍隐藏
+- modified:
+  - `src/main/webviewManager.ts`
+  - `src/main/services/MindmapService.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/main/services/SessionManager.ts`
+- unresolved: 待执行 lint、build、类型检查与开发态交互验证
+
+### 12:49 | Codex
+
+- done: 修订数据治理方案并完成分会话 JSON 存储、启动迁移、按需回复采集、导图迁移及完整业务备份恢复；lint 无错误、构建通过，隔离 npm dev 桌面链路和迁移失败场景验证通过
+- context: 保持当前分支与既有未提交修改；使用 tmp/governance 虚构数据与独立 userData，未迁移或清理真实用户数据。定向类型检查仍有既有错误。
+- decision: 保留完整 JSON；history/conversations 与 history/summaries，开发历史在 history/dev；配置内 historyStorageVersion 标记，不引入 migration.json、SQLite 或新生产依赖。
+- added:
+  - `docs/data-governance-optimization-plan.md`
+  - `src/shared/types/history.ts`
+  - `src/renderer/src/components/StandaloneMindmapPanel.tsx`
+- modified:
+  - `AGENTS.md`
+  - `src/main/api/historyManager.ts`
+  - `src/main/index.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/main/noteManager.ts`
+  - `src/preload/index.ts`
+  - `src/preload/index.d.ts`
+  - `src/renderer/src/env.d.ts`
+  - `src/renderer/src/store/appStore.ts`
+  - `src/renderer/src/components/ControlBar.tsx`
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+  - `src/renderer/src/components/HistoryDrawer.tsx`
+  - `src/renderer/src/components/ImportCacheConfirmModal.tsx`
+  - `src/renderer/src/components/LocalMindmapPanel.tsx`
+  - `src/renderer/src/components/MindmapSidebarView.tsx`
+  - `src/renderer/src/components/SettingsDrawer.tsx`
+  - `src/renderer/src/components/WebviewCard.tsx`
+  - `src/renderer/src/components/modes/TaskModePanel.tsx`
+  - `src/renderer/src/hooks/useDebateRunner.ts`
+  - `src/renderer/src/hooks/useWebviewActions.ts`
+  - `src/renderer/src/pages/NotesPage.tsx`
+- unresolved: 真实登录平台的一轮辩论与后台导图、安装/便携包首次迁移未验收；最小人工检查已写入方案第 11 节。
+
+### 11:49 | Codex
+
+- done: 恢复快捷窗口未固定时失焦自动隐藏，保留 pin 置顶时不自动隐藏；核对历史提交中的全局禁用原因
+- context: c723732 于 2026-06-28 注释失焦隐藏并新增 pin；记录无法证明当时真实用户意图，也无法解释上个安装包的行为差异。用户要求停止 computer-use，已停止桌面操作。
+- decision: 沿用现有置顶状态判断 pin，失焦延迟 150ms 并仅检查快捷窗口及其 Webview 焦点，隐藏/销毁/重新聚焦时清理定时器。
+- modified:
+  - `src/main/webviewManager.ts`
+- unresolved: lint 通过（22 条既有警告），build 通过，diff check 通过；node tsc 受现有 10 处类型错误阻塞，本次新增代码无诊断。npm run dev 完成编译与启动尝试，现有开发实例占用 5173/5174，新实例启动后退出，未完成交互实测；需手动验证未固定点击外部隐藏、固定后保持、取消固定后隐藏和 Webview 内操作不误隐藏。
+
+### 11:48 | Codex
+
+- done: 制定本地数据治理优化方案，明确分会话 JSON、启动迁移、按需采集、导图统一保存与完整备份的实施边界和验收标准
+- decision: 仅形成实施文档，不修改功能代码；普通对话默认不轮询，SQLite 按真实需求和测量结果后续评估
+- added:
+  - `docs/data-governance-optimization-plan.md`
+
+### 11:13 | Codex
+
+- done: 按 build-memory 规范整理项目记忆层：新增 13 主题索引，重组全部既有知识，纠正冲突与旧架构引用，更新 AGENTS 并精简 CLAUDE；模板逐字比对、双向路由、文件保全、类型检查命令选项及 diff 检查通过。本次仅改记忆文档，未运行应用 lint/build/dev。
+- decision: 保留全部项目纪律及用户工程化/文档规范；旧方案限定历史场景，运行时未验收内容不推断完成；日志脚本修复、TODO、CHANGELOG 和既有源码改动保持原样，历史仅由脚本归档。
+- added:
+  - `.memory/INDEX.md`
+  - `.memory/sessions/2026-09-28.md`
+- modified:
+  - `AGENTS.md`
+  - `CLAUDE.md`
+  - `.memory/KNOWLEDGE.md`
+  - `SESSION_LOG.md`
+
 ## 2026-10-04
+
+### 22:14 | Codex
+
+- done: 修复导图采集过早采用带标签代码片段的问题：采集同一最新回复的完整模型、代码原文、换行还原和共享Markdown转换候选，由现有解析器逐一选择可解析大纲；lint、build及注入脚本语法检查通过
+- decision: 保留虚拟编辑器完整性限制，候选回退限定在同一条回复；不修改总结采集行为、IPC或导图输出格式
+- modified:
+  - `src/shared/utils/webviewScripts.ts`
+  - `src/main/services/MindmapService.ts`
+- unresolved: dev启动仍复用修改前主进程，真实DeepSeek生成与导图保存需完整退出后重新npm run dev验收；主进程tsc检查有其他文件10处错误，本次修改文件未报错
+
+### 22:11 | Codex
+
+- done: 按会话日志提示提升 Markmap 隐藏视口适配及既有稳定经验，并标记已提升的日志条目
+- modified:
+  - `.memory/KNOWLEDGE.md`
+  - `SESSION_LOG.md`
+
+### 22:10 | Codex
+
+- done: 修复隐藏导图零尺寸适配导致缩放失效、画布无法拖动的问题；lint/build/diff 检查通过，桌面工具未找到可操作窗口，交互回归未完成
+- decision: 观察 SVG 可见尺寸，创建 Markmap 时不传入数据；待布局与有效尺寸就绪后首次适配，正常更新保留视口
+- modified:
+  - `src/renderer/src/hooks/useMindmapCanvas.ts`
+- lesson(promoted): Markmap.create(svg, options, data) 会在 setData 完成后无条件 fit，即使 autoFit:false；隐藏画布的零尺寸会产生 0/NaN 缩放，必须分开创建与 setData，并在有效可见尺寸及布局后适配。
+- unresolved: 需在可操作的 npm run dev 桌面窗口中验证大纲切换、侧栏重开、添加节点后拖动及缩放恢复；全量 tsc 仍有既有类型问题
+
+### 19:48 | Antigravity
+
+- done: fix: resolve dropdown menu not closing on outside click by capturing pointerdown/mousedown and handling escape/blur
+- modified:
+  - `src/renderer/src/components/CustomDropdown.tsx`
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+
+### 19:44 | Antigravity
+
+- done: UI: integrate mindmap title and more actions into unified sidebar header and remove inner canvas header
+- modified:
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+  - `src/renderer/src/components/MindmapSidebarView.tsx`
+
+### 19:40 | Antigravity
+
+- done: UI: move generate mindmap button to bottom left
+- modified:
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+
+### 19:12 | Codex
+
+- done: 修复大纲自动保存后跳回导图及保存版本回退问题；lint 与 build 通过，桌面回归因用户 Esc 停止而未完成
+- decision: 忽略相同或旧保存版本的刷新快照，保留编辑器实例；保存回调按会话及导图 ID 稳定依赖
+- modified:
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+- unresolved: 桌面验证未完成：切到大纲后连续编辑两次，各等候自动保存，再撤销/重做并重新打开核对落盘内容；全量 tsc 被仓库现有类型错误阻塞
+
+### 19:03 | Codex
+
+- done: 将会话导图选项菜单中的打开幕布移至在笔记中打开之后、删除导图之前，保留空导图状态下的入口。lint 和 build 通过。
+- modified:
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+
+### 19:01 | Codex
+
+- done: 本地思维导图设为默认入口；幕布移入更多菜单，在原侧栏 WebView 中按需打开并提供返回本地导图按钮。lint 和 build 通过，dev 已启动。
+- decision: 取消本地/在线并列切换与来源偏好读取，切换时保留两侧状态，沿用已有侧栏休眠管理。
+- modified:
+  - `src/renderer/src/components/MindmapSidebarView.tsx`
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+  - `src/renderer/src/components/LocalMindmapPanel.tsx`
+- unresolved: 桌面截图首次超时，用户随后通过 Escape 停止 Computer Use；打开幕布、返回本地和编辑状态保留仍需人工验证。
 
 ### 17:50 | Antigravity
 
@@ -53,7 +226,7 @@
 - decision: 在聚焦新建节点时使用 focus({ preventScroll: true }) 并在容器层监听重置滚动位移，彻底消除聚焦触发的视口跳动；将按钮升级为 18px 描边并添加扩展命中区与高 z-index，并在 mousedown 阶段阻止冒泡，彻底避免与 D3 zoom 拖拽和节点选择逻辑冲突
 - modified:
   - `src/renderer/src/components/LocalMindmapPanel.tsx`
-- lesson: 在包含 SVG foreignObject 和 D3 zoom 的画布中，使用 DOM focus() 必须显式传入 { preventScroll: true }，否则 Chromium 会自动滚动最近的祖先容器导致整块画布视口突变；为浮动在节点边缘的操作按钮配置扩大命中范围的伪元素时，必须确保按钮自身具备独立的定位层级（relative + z-index），防止其父级绝对定位的伪元素将真实按钮遮挡拦截
+- lesson(promoted): 在包含 SVG foreignObject 和 D3 zoom 的画布中，使用 DOM focus() 必须显式传入 { preventScroll: true }，否则 Chromium 会自动滚动最近的祖先容器导致整块画布视口突变；为浮动在节点边缘的操作按钮配置扩大命中范围的伪元素时，必须确保按钮自身具备独立的定位层级（relative + z-index），防止其父级绝对定位的伪元素将真实按钮遮挡拦截
 
 ### 16:12 | Antigravity
 
@@ -61,7 +234,7 @@
 - decision: 通过 prevInitialMarkdownRef 区分外部受控更新与内部增删节点，彻底消除新建节点时的状态强制回滚；采用 scale(var(--mm-zoom-inv)) 确保画布缩放下操作按钮物理像素恒定
 - modified:
   - `src/renderer/src/components/LocalMindmapPanel.tsx`
-- lesson: 在包含受控/非受控混用场景（如 initialMarkdown）的 React 组件中，避免在依赖项中监听内部编辑状态（markdown）来进行同步，否则内部任何状态更新都会被判定为与外部不同并触发强制回滚；对于绝对定位的 hover 操作按钮，需避免子元素与父元素之间出现事件空隙导致 hover 闪退
+- lesson(promoted): 在包含受控/非受控混用场景（如 initialMarkdown）的 React 组件中，避免在依赖项中监听内部编辑状态（markdown）来进行同步，否则内部任何状态更新都会被判定为与外部不同并触发强制回滚；对于绝对定位的 hover 操作按钮，需避免子元素与父元素之间出现事件空隙导致 hover 闪退
 
 ### 16:00 | Antigravity
 
@@ -82,7 +255,7 @@
 - done: 修复 ConversationMindmapPanel 中遗漏引入 useMemo 导致的组件渲染报错
 - modified:
   - `src/renderer/src/components/ConversationMindmapPanel.tsx`
-- lesson: 由于 electron-vite build 默认不执行 tsc 类型检查，在修改组件时需注意 hook 引入完整性，并可结合 npx tsc --noEmit 验证未定义引用
+- lesson(promoted): 由于 electron-vite build 默认不执行 tsc 类型检查，在修改组件时需注意 hook 引入完整性，并可结合 npx tsc --noEmit 验证未定义引用
 
 ### 15:31 | Antigravity
 
@@ -567,214 +740,4 @@
   - `src/preload/index.d.ts`
   - `src/preload/index.ts`
   - `src/renderer/src/pages/MainPage.tsx`
-
-## 2026-09-28
-
-### 20:23 | Antigravity
-
-- done: 升级版本至 v1.2.5，更新 CHANGELOG 并准备执行 NSIS 打包构建
-- decision: 完成代码规范校验与编译检查，同步升级 package.json 与 package-lock.json 到 1.2.5 并补充发布变更日志
-- modified:
-  - `package.json`
-  - `package-lock.json`
-  - `CHANGELOG.md`
-
-### 20:18 | Antigravity
-
-- done: 实现笔记批注侧边栏宽度可拖拽调节，并设置最小与最大宽度限制、双击重置及本地持久化
-- decision: 采用 setPointerCapture 实现跨越 Webview 的平滑指针捕获，将批注侧边栏限制在 260px 到 520px（同时保留阅读画布至少 320px），支持双击快速恢复 320px 默认值
-- modified:
-  - `src/renderer/src/pages/NotesPage.tsx`
-
-### 20:10 | Antigravity
-
-- done: WebView 中点击高亮笔记后点击其他区域自动关闭评论窗口，优化评论浮层边框样式
-- decision: 通过 Webview 注入脚本监听点击高亮范围外时发送 NOTE_DISMISS_PREFIX，结合宿主窗口 pointerdown 事件实现跨进程失焦自动关闭评论窗口
-- modified:
-  - `.gitignore`
-  - `src/renderer/src/assets/index.css`
-  - `src/renderer/src/components/NoteCaptureModal.tsx`
-  - `src/renderer/src/components/WebviewCard.tsx`
-  - `src/renderer/src/pages/NotesPage.tsx`
-  - `src/renderer/src/utils/noteInteractions.ts`
-  - `src/shared/types/notes.ts`
-  - `src/shared/utils/noteTranscript.ts`
-  - `src/shared/utils/webviewScripts.ts`
-
-### 19:58 | Antigravity
-
-- done: 移除右侧栏批注卡片的黄色描边，并将笔记页面的图标与控件尺寸与设置面板规范对齐统一
-- decision: 批注卡片聚焦态切换为与设置面板一致的 primary 蓝光微阴影 (ring-2 ring-primary/20)，引文采用沉稳蓝灰边框取代黄色描边；将全页面所有过小的 text-xs/text-sm 图标放大至 text-base/text-lg/text-xl，搜索框与下拉列表加大至 text-sm py-2
-- modified:
-  - `src/renderer/src/pages/NotesPage.tsx`
-- lesson(promoted): UI 组件尺寸必须与应用核心面板（如 SettingsDrawer）规范看齐，避免局部页面为了紧凑而过度使用 text-xs 或 text-[10px] 导致可读性与点击舒适度下降
-
-### 19:51 | Antigravity
-
-- done: 使用 XML 标签 (<user> / <assistant>) 隔离快照中的用户问题与 AI 输出，并在精读快照中以蓝色气泡展示用户提问
-- decision: 快照抓取不再侵入修改 Markdown 标题或拼接 GPT 说，采用 <user time='...'> 和 <assistant> XML 标签解耦；前端渲染层将 <user> 呈现为蓝色提问气泡并保留行号映射以保障大纲跳转与划词高亮
-- modified:
-  - `src/shared/utils/webviewScripts.ts`
-  - `src/shared/utils/noteTranscript.ts`
-  - `src/renderer/src/pages/NotesPage.tsx`
-  - `src/renderer/src/assets/index.css`
-  - `src/renderer/src/components/NoteCaptureModal.tsx`
-  - `src/renderer/src/components/WebviewCard.tsx`
-  - `.gitignore`
-- lesson(promoted): 抓取网页对话时，ChatGPT 等平台 DOM 自带无障碍头 (如 <h4>你说：</h4>)，在 htmlToMarkdown 时会被转为 Markdown 噪音；因此提取消息必须主动过滤 DOM 伴生噪点，使用 XML 标签隔离结构，彻底避免语法与格式污染
-
-### 19:42 | Antigravity
-
-- done: 放宽快捷窗口侧边栏最大宽度限制至1200px
-- modified:
-  - `src/main/ipcHandlers.ts`
-  - `src/renderer/src/pages/QuickPage.tsx`
-
-### 19:39 | Antigravity
-
-- done: 优化批注卡片与目录Tab显示：移除批注卡片划词序号标签、完整显示引文原文不再截断、删除按钮移至底部操作行右对齐、移除目录Tab标题计数标签
-- modified:
-  - `src/renderer/src/pages/NotesPage.tsx`
-
-### 19:37 | Antigravity
-
-- done: 修正本地快照 Markdown 引用样式：将 blockquote 恢复为中性浅灰底边框，避免与用户暖琥珀金划词高亮混淆冲突
-- modified:
-  - `src/renderer/src/pages/NotesPage.tsx`
-
-### 19:36 | Antigravity
-
-- done: 优化笔记页面细节：弱化会话卡片数量标签表达、侧边栏划词项支持2行并可直接删除、切换器改为本地快照、右侧边栏去掉Header描边并将首个Tab设为批注第二个设为目录
-- modified:
-  - `src/renderer/src/pages/NotesPage.tsx`
-
-### 19:27 | Antigravity
-
-- done: 优化笔记页面 UI 设计：重构为整体风格协调的漫反射毛玻璃三栏工作台，支持快照与原网页 Tab 切换，右侧集成目录大纲与批注列表，升级纸感暖琥珀金高亮
-- modified:
-  - `src/renderer/src/pages/NotesPage.tsx`
-  - `src/renderer/src/assets/index.css`
-  - `src/renderer/src/components/NoteCaptureModal.tsx`
-  - `src/renderer/src/components/WebviewCard.tsx`
-  - `.gitignore`
-
-### 18:12 | Codex
-
-- done: 修复 ChatGPT Webview 保存笔记时抓取脚本在正式构建中执行失败；移除函数 toString 注入并补充读取降级
-- modified:
-  - `src/shared/utils/webviewScripts.ts`
-  - `src/main/webviewManager.ts`
-- lesson(promoted): 构建启用 JavaScript 混淆时，不要通过函数 toString 生成 Webview 注入脚本；函数体可能依赖主进程混淆器生成的名称映射，进入隔离页面后失效。
-
-### 18:11 | Antigravity
-
-- done: 快捷窗口新增思维导图功能，复用侧边栏加载幕布并支持30秒休眠
-- added:
-  - `docs/superpowers/specs/2026-09-28-quick-window-mindmap-design.md`
-  - `docs/superpowers/plans/2026-09-28-quick-window-mindmap.md`
-- modified:
-  - `src/renderer/src/pages/QuickPage.tsx`
-
-### 18:03 | Codex
-
-- done: 笔记页右侧新增随高亮定位的评论卡片和无评论添加入口；新快照保持标题格式，停止旧快照自动转换
-- modified:
-  - `src/renderer/src/pages/NotesPage.tsx`
-  - `src/main/noteManager.ts`
-  - `src/shared/utils/noteTranscript.ts`
-
-### 17:52 | Codex
-
-- done: 按截图调整笔记页标题栏导航、固定会话标题、原网页平台 Logo、常用黄色高亮及旧快照用户问题一级标题
-- context: 隔离 Electron 实例验证返回/笔记双向导航、旧快照 Markdown 一级问题与二级回复、目录、移除通用标题、侧栏平台 Logo 和固定标题；lint/build/dev 与 diff 检查通过
-- added:
-  - `src/shared/utils/noteTranscript.ts`
-- modified:
-  - `src/renderer/src/components/Layout.tsx`
-  - `src/renderer/src/pages/NotesPage.tsx`
-  - `src/renderer/src/components/WebviewCard.tsx`
-  - `src/renderer/src/components/NoteCaptureModal.tsx`
-  - `src/renderer/src/assets/index.css`
-  - `src/shared/utils/webviewScripts.ts`
-  - `src/main/noteManager.ts`
-
-### 17:36 | Codex
-
-- done: 优化笔记交互：右键即保存高亮、非模态评论卡片、Webview 高亮点击评论删除、一级二级目录和重复笔记去重
-- context: 隔离 Electron 实例验证 Markdown 提问一级标题、AI 回复二级标题、目录仅一级二级、同会话两笔记、点击高亮回传、非模态评论保存和删除；并发重复保存与旧数据去重合并通过；lint/build/dev 通过
-- added:
-  - `src/renderer/src/utils/noteInteractions.ts`
-- modified:
-  - `src/shared/types/notes.ts`
-  - `src/main/noteManager.ts`
-  - `src/main/webviewManager.ts`
-  - `src/preload/index.ts`
-  - `src/preload/index.d.ts`
-  - `src/renderer/src/env.d.ts`
-  - `src/shared/utils/webviewScripts.ts`
-  - `src/renderer/src/components/WebviewCard.tsx`
-  - `src/renderer/src/components/NoteCaptureModal.tsx`
-  - `src/renderer/src/pages/NotesPage.tsx`
-  - `src/renderer/src/assets/index.css`
-
-### 16:47 | Codex
-
-- done: 补充验证 Markdown 快照与原页面 DOM 高亮，修复多 main 区域选择问题，并验证旧笔记合并后的修改删除
-- context: 隔离 Electron 页面合成对话 DOM：提问/AI 回复 Markdown 成功，高亮匹配 1 处；旧版分组数据合并、修改、删除成功；lint、build、dev 均通过
-- modified:
-  - `src/shared/utils/webviewScripts.ts`
-
-### 13:48 | Codex
-
-- done: 修正笔记会话归组、Markdown 对话快照、原网页高亮和笔记页并排查看及定位
-- context: 隔离 Electron 实例中用合成笔记验证单会话归组、本地快照高亮和并排侧栏；真实站点登录态与 DOM 需用户本机复核
-- added:
-  - `src/shared/utils/noteIdentity.ts`
-- modified:
-  - `src/main/noteManager.ts`
-  - `src/main/webviewManager.ts`
-  - `src/main/ipcHandlers.ts`
-  - `src/preload/index.ts`
-  - `src/preload/index.d.ts`
-  - `src/renderer/src/env.d.ts`
-  - `src/renderer/src/components/NoteCaptureModal.tsx`
-  - `src/renderer/src/components/WebviewCard.tsx`
-  - `src/renderer/src/pages/NotesPage.tsx`
-  - `src/renderer/src/assets/index.css`
-  - `src/shared/config/selectors.ts`
-  - `src/shared/utils/webviewScripts.ts`
-
-### 12:40 | Codex
-
-- done: 将共享笔记类型与脚本纳入主进程和渲染层 TypeScript 项目范围
-- modified:
-  - `tsconfig.node.json`
-  - `tsconfig.web.json`
-
-### 12:38 | Codex
-
-- done: 同步仓库规则与实际 Electron 版本、构建命令和共享 Webview 文件位置
-- modified:
-  - `AGENTS.md`
-
-### 12:38 | Codex
-
-- done: 实现按会话分组的本地笔记管理、右键采集对话快照和侧栏原对话高亮
-- added:
-  - `src/main/noteManager.ts`
-  - `src/renderer/src/components/NoteCaptureModal.tsx`
-  - `src/renderer/src/pages/NotesPage.tsx`
-  - `src/shared/types/notes.ts`
-- modified:
-  - `src/main/ipcHandlers.ts`
-  - `src/main/webviewManager.ts`
-  - `src/preload/index.ts`
-  - `src/preload/index.d.ts`
-  - `src/renderer/src/App.tsx`
-  - `src/renderer/src/assets/index.css`
-  - `src/renderer/src/components/Layout.tsx`
-  - `src/renderer/src/env.d.ts`
-  - `src/renderer/src/store/appStore.ts`
-  - `src/shared/utils/webviewScripts.ts`
-- unresolved: 第三方平台懒加载的旧消息与非文本媒体不能仅靠当前 DOM 保证完整采集，需逐平台验证
 

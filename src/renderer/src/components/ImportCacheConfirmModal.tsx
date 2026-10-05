@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react'
 interface ImportCacheConfirmModalProps {
   isOpen: boolean
   file: string
@@ -5,7 +6,8 @@ interface ImportCacheConfirmModalProps {
   conflicts: string[]
   /** 导入数据中是否含 REDACTED apiKey 的供应商（需标注保留本地 Key） */
   redactedProviderCount: number
-  onConfirm: () => void | Promise<void>
+  businessCounts?: Record<string, { added: number; unchanged: number; conflicts: number }>
+  onConfirm: (overwriteBusiness: boolean) => void | Promise<void>
   onCancel: () => void
 }
 
@@ -17,13 +19,14 @@ const CACHE_KEY_LABELS: Record<string, string> = {
   summaryModels: '任务分配可用模型',
   history: '主界面对话历史',
   summaryHistory: '总结历史记录',
+  notes: '笔记、共享快照与思维导图',
   geminiAccountUrl: 'Gemini 账户 URL'
 }
 
 /**
  * 缓存导入确认弹窗：列出将导入的键，标注会覆盖现有值的键，
  * 标注含 REDACTED apiKey 的供应商（将保留本地现有 Key）。
- * history/summaryHistory 为覆盖语义（与导出全量快照对齐）。
+ * 业务数据按 ID 合并，冲突默认保留本地；配置仍按用户确认覆盖。
  */
 function ImportCacheConfirmModal({
   isOpen,
@@ -31,9 +34,13 @@ function ImportCacheConfirmModal({
   keys,
   conflicts,
   redactedProviderCount,
+  businessCounts,
   onConfirm,
   onCancel
 }: ImportCacheConfirmModalProps): JSX.Element | null {
+  const [overwriteBusiness, setOverwriteBusiness] = useState(false)
+  const [importing, setImporting] = useState(false)
+  useEffect(() => { if (isOpen) setOverwriteBusiness(false) }, [isOpen])
   if (!isOpen) return null
 
   return (
@@ -42,7 +49,7 @@ function ImportCacheConfirmModal({
       <div className="relative w-[520px] max-h-[80vh] bg-app border border-gray-200 rounded-lg shadow-2xl flex flex-col">
         {/* 头部 */}
         <div className="flex items-center justify-between p-4 border-b border-gray-200">
-          <h3 className="text-lg font-semibold text-text-primary">导入缓存数据</h3>
+          <h3 className="text-lg font-semibold text-text-primary">恢复配置与业务数据</h3>
           <button onClick={onCancel} className="text-text-secondary hover:text-text-primary transition-colors">
             <span className="material-symbols-outlined">close</span>
           </button>
@@ -51,7 +58,7 @@ function ImportCacheConfirmModal({
         {/* 内容 */}
         <div className="flex-1 p-4 space-y-3 overflow-y-auto text-sm">
           <p className="text-text-secondary">
-            将从文件导入以下数据，<span className="text-yellow-600 font-medium">覆盖</span>现有同名配置：
+            将从文件导入以下数据，<span className="text-yellow-600 font-medium">覆盖</span>现有同名配置；历史、笔记和导图按 ID 合并：
           </p>
           <div className="text-[11px] text-gray-500 truncate" title={file}>来源：{file}</div>
 
@@ -63,19 +70,14 @@ function ImportCacheConfirmModal({
                 <div key={k} className="flex items-center justify-between px-3 py-1.5 bg-sidebar/50 rounded">
                   <span className="text-text-primary">{label}</span>
                   <span className={`text-[10px] ${isConflict ? 'text-yellow-600' : 'text-gray-500'}`}>
-                    {isConflict ? '将覆盖现有' : '新增'}
+                    {businessCounts?.[k] ? `新增 ${businessCounts[k].added} · 相同 ${businessCounts[k].unchanged} · 冲突 ${businessCounts[k].conflicts}` : isConflict ? '将覆盖现有配置' : '新增'}
                   </span>
                 </div>
               )
             })}
           </div>
 
-          {conflicts.includes('history') && (
-            <p className="text-[11px] text-red-500">⚠ 将覆盖现有主界面对话历史记录</p>
-          )}
-          {conflicts.includes('summaryHistory') && (
-            <p className="text-[11px] text-red-500">⚠ 将覆盖现有总结历史记录</p>
-          )}
+          {businessCounts && <label className="flex items-center gap-2 text-sm text-text-secondary"><input type="checkbox" checked={overwriteBusiness} onChange={event => setOverwriteBusiness(event.target.checked)} />覆盖同 ID 的冲突业务记录（默认保留本地）</label>}
           {redactedProviderCount > 0 && (
             <p className="text-[11px] text-text-secondary">
               🔒 导入文件中有 {redactedProviderCount} 个供应商的 API Key 已脱敏，将保留本地现有 Key。
@@ -90,7 +92,8 @@ function ImportCacheConfirmModal({
         <div className="flex justify-end gap-3 p-4 border-t border-gray-200">
           <button onClick={onCancel} className="px-4 py-2 text-text-secondary hover:text-text-primary transition-colors text-sm">取消</button>
           <button
-            onClick={onConfirm}
+            disabled={importing}
+            onClick={async () => { setImporting(true); try { await onConfirm(overwriteBusiness) } finally { setImporting(false) } }}
             className="px-4 py-2 bg-primary text-white font-medium rounded-md hover:opacity-90 transition-colors text-sm"
           >
             确认导入

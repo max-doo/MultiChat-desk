@@ -24,6 +24,34 @@ const registeredWebContentsSet = new WeakSet<Electron.WebContents>()
 let mainWindow: BrowserWindow | null = null
 let quickWindow: BrowserWindow | null = null
 export function getQuickWindow(): BrowserWindow | null { return quickWindow }
+// 只将从快捷窗口打开的后台任务网页视为同一次窗口交互。
+const backgroundPreviewOwners = new Map<BrowserWindow, BrowserWindow | null>()
+let scheduleQuickBlurHide: (() => void) | null = null
+
+export function showBackgroundPreview(win: BrowserWindow, owner: BrowserWindow | null): void {
+    if (!backgroundPreviewOwners.has(win)) {
+        win.on('close', (event) => {
+            if (isQuitting) return
+            event.preventDefault()
+            const source = backgroundPreviewOwners.get(win)
+            const returnToQuick = source === quickWindow && source && !source.isDestroyed() && source.isVisible() && win.isFocused()
+            win.hide()
+            if (returnToQuick) showAndFocusWindow(source)
+        })
+        // 快捷窗口自身已失焦，网页再失焦时仍需检查是否切到了外部应用。
+        win.on('blur', () => {
+            if (backgroundPreviewOwners.get(win) === quickWindow) scheduleQuickBlurHide?.()
+        })
+        win.on('closed', () => {
+            const fromQuick = backgroundPreviewOwners.get(win) === quickWindow
+            backgroundPreviewOwners.delete(win)
+            if (fromQuick) scheduleQuickBlurHide?.()
+        })
+    }
+    backgroundPreviewOwners.set(win, owner)
+    showAndFocusWindow(win)
+}
+
 const quickPrimaryWebviews = new Set<number>()
 let quickSidebarExpanded = false
 
@@ -829,23 +857,35 @@ export function createQuickWindow(store: Store<Record<string, unknown>>): void {
     // Windows/macOS 在用户完成拖动后才触发，避免拖动过程中频繁写配置。
     win.on('resized', saveSize)
 
-    // 失焦隐藏已被禁用（用户要求不要自动隐藏，只能手动关闭）
-    // let blurHideTimeout: ReturnType<typeof setTimeout> | null = null
+    let blurHideTimeout: ReturnType<typeof setTimeout> | null = null
+    const cancelBlurHide = (): void => {
+        if (blurHideTimeout) clearTimeout(blurHideTimeout)
+        blurHideTimeout = null
+    }
 
-    // quickWindow.on('blur', () => {
-    //     blurHideTimeout = setTimeout(() => {
-    //         // 检查焦点是否仍在本 app 的任意 webContents（含 webview 子进程）
-    //         const allWindows = BrowserWindow.getAllWindows()
-    //         const anyFocused = allWindows.some(w => w.isFocused() || w.webContents.isFocused())
-    //         if (!anyFocused && quickWindow && !quickWindow.isDestroyed()) {
-    //             quickWindow.hide()
-    //         }
-    //     }, 150)
-    // })
-
-    // quickWindow.on('focus', () => {
-    //     if (blurHideTimeout) { clearTimeout(blurHideTimeout); blurHideTimeout = null }
-    // })
+    // 未固定时失焦隐藏；短暂延迟让 Webview 内部或任务网页的焦点切换完成。
+    const scheduleBlurHide = (): void => {
+        cancelBlurHide()
+        blurHideTimeout = setTimeout(() => {
+            blurHideTimeout = null
+            if (win.isDestroyed() || !win.isVisible() || win.isAlwaysOnTop() || win.isFocused()) return
+            const focusedContents = webContents.getFocusedWebContents()
+            if (focusedContents === win.webContents || focusedContents?.hostWebContents === win.webContents) return
+            for (const [preview, owner] of backgroundPreviewOwners) {
+                if (owner === win && !preview.isDestroyed() && preview.isVisible() &&
+                    (preview.isFocused() || focusedContents === preview.webContents || focusedContents?.hostWebContents === preview.webContents)) return
+            }
+            win.hide()
+        }, 150)
+    }
+    scheduleQuickBlurHide = scheduleBlurHide
+    win.on('blur', scheduleBlurHide)
+    win.on('focus', cancelBlurHide)
+    win.on('hide', cancelBlurHide)
+    win.on('closed', () => {
+        cancelBlurHide()
+        scheduleQuickBlurHide = null
+    })
 
     quickWindow.on('close', (e) => {
         saveSize()

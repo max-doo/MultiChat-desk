@@ -88,7 +88,8 @@ export class SessionManager {
     const win = this.sessions.get(platformId)
     if (win) {
       if (!win.isDestroyed()) {
-        win.close()
+        // 任务主动清理必须真正销毁，绕过预览窗口的“关闭仅隐藏”。
+        win.destroy()
       }
       this.sessions.delete(platformId)
       return true
@@ -103,7 +104,7 @@ export class SessionManager {
     console.log('[SessionManager] Destroying all active sessions')
     for (const win of this.sessions.values()) {
       if (!win.isDestroyed()) {
-        win.close()
+        win.destroy()
       }
     }
     this.sessions.clear()

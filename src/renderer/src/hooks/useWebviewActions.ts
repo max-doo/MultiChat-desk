@@ -16,6 +16,7 @@ import {
   generateExtractImagesScript,
   generateClickDownloadButtonsScript,
   generateGetLatestResponseScript,
+  generateMindmapPageStateScript,
   generateFileDropPointScript,
   generateDetectUploadedFileScript,
   type FileUploadData
@@ -398,15 +399,19 @@ export function useWebviewActions({
      * 获取最新的 AI 回复
      * 对于 Gemini Canvas 模式，通过点击复制按钮并读取剪贴板获取内容
      */
-    getLatestResponse: async (): Promise<string> => {
+    getLatestResponse: async (options?: { interactive?: boolean }): Promise<string> => {
       const webview = webviewRef.current
       if (!webview || !isReady || !selectors) {
         return ''
       }
 
       try {
+        if (options?.interactive === false) {
+          const state = await webview.executeJavaScript(generateMindmapPageStateScript(selectors, id))
+          if (state?.busy) return '' // 页面仍在生成，不能用短暂稳定的旧文本推进任务。
+        }
         // 对于 Gemini，先尝试 Canvas 模式的复制方式（使用真实鼠标点击）
-        if (id === 'gemini') {
+        if (id === 'gemini' && options?.interactive !== false) {
           const canvasContent = await extractGeminiCanvasContent(
             webview,
             window.api,
@@ -419,7 +424,7 @@ export function useWebviewActions({
         }
 
         // 对于千问，若报告页已打开（复制按钮可见），优先通过点击复制按钮获取完整报告
-        if (id === 'qwen') {
+        if (id === 'qwen' && options?.interactive !== false) {
           const reportContent = await extractQwenReportContent(
             webview,
             window.api,

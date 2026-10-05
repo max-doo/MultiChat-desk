@@ -1,3 +1,5 @@
+import type { ConversationTurn, HistoryItem, SummaryHistoryItem, ProductMode, DisplayMode, DebateTurnRecord, HistoryListItem, SummaryHistoryListItem } from '../../../shared/types/history'
+export type { ConversationTurn, HistoryItem, SummaryHistoryItem, ProductMode, DisplayMode, DebateTurnRecord } from '../../../shared/types/history'
 import { create } from 'zustand'
 import type { WebviewCardRef, FileUploadData } from '../components/WebviewCard'
 import synthesizerPrompt from './summary-prompts-defaults/综合最佳.md?raw'
@@ -95,63 +97,6 @@ export interface ApiConfig {
   lastWebviewSummaryPlatform?: string
 }
 
-// 对话轮次（一问一答）
-export interface ConversationTurn {
-  turnId: string
-  userMessage: string
-  timestamp: number
-  responses: Record<string, string>  // modelId -> Markdown
-}
-
-// 历史记录（新格式，替代现有 HistoryItem）
-export interface HistoryItem {
-  id: string
-  createdAt: number
-  updatedAt: number
-  models: string[]
-  title?: string
-  turns: ConversationTurn[]
-  urls?: Record<string, string>
-  productMode?: ProductMode
-  displayMode?: DisplayMode
-  // —— 仅辩论模式 ——
-  debateTurns?: DebateTurnRecord[]       // 各轮正/反方发言
-  slotUrls?: Record<number, string>      // slotIndex -> 最终 URL（避开同 modelId 冲突）
-}
-
-// 总结历史记录类型
-export interface SummaryHistoryItem {
-  id: string
-  title: string // 总结对话的标题（通常是第一条用户消息的摘要）
-  timestamp: number
-  messages: Array<{
-    id: string
-    role: 'user' | 'assistant'
-    content: string
-    reasoningContent?: string
-    timestamp: number
-    modeName?: string
-    versions?: Array<{
-      content: string
-      reasoningContent?: string
-      timestamp: number
-      modelId: string
-      modelName: string
-    }>
-    currentVersionIndex?: number
-  }>
-  selectedModels: string[] // 参与总结的模型 ID 列表
-  modelResponses?: Record<string, string> // 各模型的原始回复
-  /** 保留历史来源，兼容已有 API 总结记录 */
-  summarySource?: 'api' | 'webview'
-  /** Webview 总结记录的目标平台 id */
-  webviewPlatformId?: string
-  /** Webview 总结记录的会话 URL */
-  webviewUrl?: string
-  /** 主界面对话时各模型的 URL（用于追溯原始对话） */
-  urls?: Record<string, string>
-}
-
 /** 从主界面导航到总结页时携带的一次性初始化数据 */
 export interface SummarySessionInit {
   modelResponses: Record<string, string>
@@ -172,11 +117,6 @@ export interface SendResult {
 }
 
 // 产品模式类型：多AI（默认）、任务分配（支持多个窗口选择同一AI）、辩论（目前支持2个AI）
-export type ProductMode = 'multi_ai' | 'task_assignment' | 'debate'
-
-// 显示模式类型：单列、双列、三列、四窗口（田字格）
-export type DisplayMode = 'one' | 'two' | 'three' | 'four'
-
 // 任务分配模式状态机
 export type TaskPhase = 'idle' | 'split' | 'inserted' | 'sent'
 export interface TaskSubtask {
@@ -196,12 +136,6 @@ export type DebatePhase = 'idle' | 'running' | 'paused' | 'finished'
 export interface DebateRound {
   proponent?: string  // 正方发言
   opponent?: string   // 反方发言
-}
-// 辩论一轮的落库结构（与运行态 DebateRound 区分：落库带 modelId 与时间戳）
-export interface DebateTurnRecord {
-  round: number          // 第几轮（0-based）
-  proponent?: { modelId: string; speech: string; timestamp: number }
-  opponent?:  { modelId: string; speech: string; timestamp: number }
 }
 export interface DebateState {
   phase: DebatePhase
@@ -289,6 +223,9 @@ interface AppState {
 
   // 模型配置
   models: ModelConfig[]
+  // 导图生成平台独立于来源网页与主窗口槽位，跨窗口共用并持久化。
+  mindmapPlatformId: string
+  setMindmapPlatformId: (platformId: string) => Promise<void>
   updateModel: (id: string, config: Partial<ModelConfig>) => void
   toggleModel: (id: string) => void
   reorderModels: (newOrder: string[]) => void
@@ -314,17 +251,25 @@ interface AppState {
 
   // 历史记录
   history: HistoryItem[]
-  addHistory: (item: HistoryItem) => void
-  updateHistory: (id: string, updates: Partial<HistoryItem>) => void
-  removeHistory: (id: string) => void
-  removeHistories: (ids: string[]) => void
+  historyList: HistoryListItem[]
+  summaryHistoryList: SummaryHistoryListItem[]
+  historySaveError: string | null
+  historyReadWarning: string | null
+  retryHistorySave: () => Promise<void>
+  refreshHistoryLists: () => Promise<void>
+  recordConversationTurn: (conversationId: string, turn: ConversationTurn) => Promise<void>
+  saveCurrentResponses: () => Promise<number>
+  addHistory: (item: HistoryItem) => Promise<void>
+  updateHistory: (id: string, updates: Partial<HistoryItem>) => Promise<void>
+  removeHistory: (id: string) => Promise<void>
+  removeHistories: (ids: string[]) => Promise<void>
 
   // 总结历史记录
   summaryHistory: SummaryHistoryItem[]
-  addSummaryHistory: (item: SummaryHistoryItem) => void
-  updateSummaryHistory: (id: string, updates: Partial<SummaryHistoryItem>) => void
-  removeSummaryHistory: (id: string) => void
-  removeSummaryHistories: (ids: string[]) => void
+  addSummaryHistory: (item: SummaryHistoryItem) => Promise<void>
+  updateSummaryHistory: (id: string, updates: Partial<SummaryHistoryItem>) => Promise<void>
+  removeSummaryHistory: (id: string) => Promise<void>
+  removeSummaryHistories: (ids: string[]) => Promise<void>
 
   // History 分页：磁盘总量 + 加载更多
   historyTotalCount: number
@@ -358,6 +303,7 @@ interface AppState {
     currentUrls: Record<string, string>
     productMode: ProductMode
     displayMode: DisplayMode
+    title?: string
   }) => Promise<{ conversationId: string; isNew: boolean; lastItem: HistoryItem | null }>
 
   // 发送消息到所有启用的模型（从已输入的文本发送）
@@ -715,7 +661,40 @@ export const waitForSavableUrl = async (modelId: string, ref: WebviewCardRef): P
 
 
 // 创建状态存储
+type HistoryWrite = () => Promise<{ success: boolean; error?: string }>
+const pendingHistoryWrites: HistoryWrite[] = []
+let historySaveTask: Promise<void> | null = null
+async function flushHistoryWrites(): Promise<void> {
+  if (historySaveTask) return historySaveTask
+  historySaveTask = (async () => {
+    while (pendingHistoryWrites.length) {
+      try {
+        const result = await pendingHistoryWrites[0]()
+        if (!result.success) throw new Error(result.error || '保存历史失败')
+        pendingHistoryWrites.shift()
+        useAppStore.setState({ historySaveError: null })
+      } catch (error) {
+        useAppStore.setState({ historySaveError: error instanceof Error ? error.message : '保存历史失败，请重试' })
+        break
+      }
+    }
+  })()
+  try { await historySaveTask } finally { historySaveTask = null }
+}
+async function writeHistory(operation: HistoryWrite): Promise<void> {
+  pendingHistoryWrites.push(operation)
+  await flushHistoryWrites()
+}
+let offHistoryChanged: (() => void) | undefined
+let historyListRevision = 0
+
 export const useAppStore = create<AppState>((set, get) => ({
+  mindmapPlatformId: 'chatgpt',
+  setMindmapPlatformId: async (platformId) => {
+    if (!get().models.some(model => model.id === platformId)) throw new Error('生成平台不存在')
+    set({ mindmapPlatformId: platformId })
+    await window.api.storeSet('mindmapPlatformId', platformId)
+  },
   productMode: 'multi_ai',
   setProductMode: (mode) => {
     const currentMode = get().productMode
@@ -826,7 +805,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const newHistory = state.history.map(h =>
       h.id === conversationId ? { ...h, debateTurns: nextTurns, updatedAt: Date.now() } : h
     )
-    if (window.api?.storeSet) window.api.storeSet('history', newHistory)
+    void writeHistory(() => window.api.historyUpdate('conversation', conversationId, { debateTurns: nextTurns }))
     return { history: newHistory }
   }),
 
@@ -834,7 +813,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const newHistory = state.history.map(h =>
       h.id === conversationId ? { ...h, slotUrls, updatedAt: Date.now() } : h
     )
-    if (window.api?.storeSet) window.api.storeSet('history', newHistory)
+    void writeHistory(() => window.api.historyUpdate('conversation', conversationId, { slotUrls }))
     return { history: newHistory }
   }),
 
@@ -1033,104 +1012,110 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   history: [],
-  addHistory: (item) => set((state) => {
-    const newHistory = [item, ...state.history].slice(0, 100)
-    if (window.api?.storeSet) window.api.storeSet('history', newHistory)
-    return { history: newHistory }
-  }),
-  updateHistory: (id, updates) => set((state) => {
-    const newHistory = state.history.map(item =>
-      item.id === id ? { ...item, ...updates } : item
-    )
-    if (window.api?.storeSet) window.api.storeSet('history', newHistory)
-    return { history: newHistory }
-  }),
-  removeHistory: (id: string) => set((state) => {
-    const newHistory = state.history.filter(item => item.id !== id)
-    if (window.api?.storeSet) window.api.storeSet('history', newHistory)
-    // 删除的恰是当前对话锚点时清空，避免残留脏 ID 触发 find 不到退回 null（无串台但语义更干净）
-    const cleared = state.currentConversationId === id
-    return { history: newHistory, ...(cleared ? { currentConversationId: null } : {}) }
-  }),
-  removeHistories: (ids: string[]) => set((state) => {
-    const newHistory = state.history.filter(item => !ids.includes(item.id))
-    if (window.api?.storeSet) window.api.storeSet('history', newHistory)
-    const cleared = state.currentConversationId !== null && ids.includes(state.currentConversationId)
-    return { history: newHistory, ...(cleared ? { currentConversationId: null } : {}) }
-  }),
-
+  historyList: [],
+  summaryHistoryList: [],
+  historySaveError: null,
+  historyReadWarning: null,
+  retryHistorySave: flushHistoryWrites,
+  addHistory: async (item) => {
+    set(state => ({ history: [item, ...state.history.filter(old => old.id !== item.id)].slice(0, 100) }))
+    await writeHistory(() => window.api.historyCreate('conversation', item))
+  },
+  updateHistory: async (id, updates) => {
+    set(state => ({ history: state.history.map(item => item.id === id ? { ...item, ...updates } : item) }))
+    await writeHistory(() => window.api.historyUpdate('conversation', id, updates))
+  },
+  removeHistory: async (id) => get().removeHistories([id]),
+  removeHistories: async (ids) => {
+    await writeHistory(async () => {
+      const result = await window.api.historyRemove('conversation', ids)
+      if (result.success) set(state => ({ history: state.history.filter(item => !ids.includes(item.id)), ...(state.currentConversationId && ids.includes(state.currentConversationId) ? { currentConversationId: null } : {}) }))
+      return result
+    })
+  },
   summaryHistory: [],
   historyTotalCount: 0,
   summaryHistoryTotalCount: 0,
   historyLoadedCount: 0,
   summaryHistoryLoadedCount: 0,
-  addSummaryHistory: (item) => set((state) => {
-    const newHistory = [item, ...state.summaryHistory].slice(0, 100)
-    if (window.api?.storeSet) window.api.storeSet('summaryHistory', newHistory)
-    return { summaryHistory: newHistory }
-  }),
-  updateSummaryHistory: (id, updates) => set((state) => {
-    const newHistory = state.summaryHistory.map(item =>
-      item.id === id ? { ...item, ...updates } : item
-    )
-    if (window.api?.storeSet) window.api.storeSet('summaryHistory', newHistory)
-    return { summaryHistory: newHistory }
-  }),
-  removeSummaryHistory: (id: string) => set((state) => {
-    const newHistory = state.summaryHistory.filter(item => item.id !== id)
-    if (window.api?.storeSet) window.api.storeSet('summaryHistory', newHistory)
-    return { summaryHistory: newHistory }
-  }),
-  removeSummaryHistories: (ids: string[]) => set((state) => {
-    const newHistory = state.summaryHistory.filter(item => !ids.includes(item.id))
-    if (window.api?.storeSet) window.api.storeSet('summaryHistory', newHistory)
-    return { summaryHistory: newHistory }
-  }),
-
-  loadMoreHistory: async () => {
-    const state = get()
-    if (!window.api?.historyGetPage) return
-    // 用“已加载游标”作 offset，而非 history.length——内存只保留最新 100，
-    // 用 history.length 会重复取已被裁剪的旧页
-    const offset = state.historyLoadedCount
-    const result = await window.api.historyGetPage(offset, 100)
-    if (result.success && result.data && result.data.length > 0) {
-      set((s) => {
-        // 拼接后裁剪：内存硬上限 100，超出从最旧端裁掉（更旧的仍可再次 loadMore 翻页取回）
-        const merged = [...s.history, ...result.data!]
-        const trimmed = merged.length > 100 ? merged.slice(merged.length - 100) : merged
-        return {
-          history: trimmed,
-          historyLoadedCount: s.historyLoadedCount + result.data!.length
-        }
-      })
-      // 刷新 totalCount，防止边界变化导致按钮态错位
-      const countResult = await window.api.historyGetTotalCount()
-      if (countResult.success && countResult.data !== undefined) {
-        set({ historyTotalCount: countResult.data })
-      }
+  addSummaryHistory: async (item) => {
+    set(state => ({ summaryHistory: [item, ...state.summaryHistory.filter(old => old.id !== item.id)].slice(0, 100) }))
+    await writeHistory(() => window.api.historyCreate('summary', item))
+  },
+  updateSummaryHistory: async (id, updates) => {
+    set(state => ({ summaryHistory: state.summaryHistory.map(item => item.id === id ? { ...item, ...updates } : item) }))
+    await writeHistory(() => window.api.historyUpdate('summary', id, updates))
+  },
+  removeSummaryHistory: async (id) => get().removeSummaryHistories([id]),
+  removeSummaryHistories: async (ids) => {
+    await writeHistory(async () => {
+      const result = await window.api.historyRemove('summary', ids)
+      if (result.success) set(state => ({ summaryHistory: state.summaryHistory.filter(item => !ids.includes(item.id)) }))
+      return result
+    })
+  },
+  refreshHistoryLists: async () => {
+    const revision = ++historyListRevision
+    const [conversations, summaries, count, summaryCount, status] = await Promise.all([
+      window.api.historyGetPage(0, Math.max(100, get().historyLoadedCount)),
+      window.api.summaryHistoryGetPage(0, Math.max(100, get().summaryHistoryLoadedCount)),
+      window.api.historyGetTotalCount(), window.api.summaryHistoryGetTotalCount(), window.api.historyStatus()
+    ])
+    if (revision !== historyListRevision) return
+    if (!conversations.success || !summaries.success) { set({ historyReadWarning: conversations.error || summaries.error || '读取历史失败' }); return }
+    set({ historyList: conversations.data || [], summaryHistoryList: summaries.data || [], historyLoadedCount: conversations.data?.length || 0, summaryHistoryLoadedCount: summaries.data?.length || 0,
+      historyTotalCount: count.data || 0, summaryHistoryTotalCount: summaryCount.data || 0 })
+    set({ historyReadWarning: status.data?.error || status.data?.warnings.join('；') || null })
+    const id = get().currentConversationId
+    if (id && !pendingHistoryWrites.length) {
+      const full = await window.api.historyGet('conversation', id)
+      if (revision === historyListRevision && get().currentConversationId === id && !pendingHistoryWrites.length && full.success && full.data) set(state => ({ history: [full.data as HistoryItem, ...state.history.filter(item => item.id !== id)].slice(0, 100) }))
     }
   },
-
+  loadMoreHistory: async () => {
+    const result = await window.api.historyGetPage(get().historyList.length, 100)
+    if (!result.success) { set({ historyReadWarning: result.error || '读取历史失败' }); return }
+    set(state => ({ historyList: [...state.historyList, ...(result.data || []).filter(item => !state.historyList.some(old => old.id === item.id))], historyLoadedCount: state.historyList.length + (result.data?.length || 0) }))
+  },
   loadMoreSummaryHistory: async () => {
-    const state = get()
-    if (!window.api?.summaryHistoryGetPage) return
-    const offset = state.summaryHistoryLoadedCount
-    const result = await window.api.summaryHistoryGetPage(offset, 100)
-    if (result.success && result.data && result.data.length > 0) {
-      set((s) => {
-        const merged = [...s.summaryHistory, ...result.data!]
-        const trimmed = merged.length > 100 ? merged.slice(merged.length - 100) : merged
-        return {
-          summaryHistory: trimmed,
-          summaryHistoryLoadedCount: s.summaryHistoryLoadedCount + result.data!.length
-        }
-      })
-      const countResult = await window.api.summaryHistoryGetTotalCount()
-      if (countResult.success && countResult.data !== undefined) {
-        set({ summaryHistoryTotalCount: countResult.data })
-      }
-    }
+    const result = await window.api.summaryHistoryGetPage(get().summaryHistoryList.length, 100)
+    if (!result.success) { set({ historyReadWarning: result.error || '读取总结历史失败' }); return }
+    set(state => ({ summaryHistoryList: [...state.summaryHistoryList, ...(result.data || []).filter(item => !state.summaryHistoryList.some(old => old.id === item.id))], summaryHistoryLoadedCount: state.summaryHistoryList.length + (result.data?.length || 0) }))
+  },
+  recordConversationTurn: async (conversationId, turn) => {
+    const item = get().history.find(history => history.id === conversationId)
+    if (!item) return
+    const turns = item.turns.some(old => old.turnId === turn.turnId) ? item.turns.map(old => old.turnId === turn.turnId ? { ...old, ...turn, responses: { ...old.responses, ...turn.responses } } : old) : [...item.turns, turn]
+    set(state => ({ history: state.history.map(old => old.id === conversationId ? { ...old, turns, updatedAt: Date.now() } : old) }))
+    await writeHistory(() => window.api.historyUpdate('conversation', conversationId, { turns: [turn] }))
+  },
+  saveCurrentResponses: async () => {
+    const id = get().currentConversationId
+    const item = get().history.find(history => history.id === id)
+    const turn = item?.turns[item.turns.length - 1]
+    if (!id || !turn) throw new Error('当前没有可保存的对话轮次')
+    await flushHistoryWrites()
+    if (get().historySaveError) throw new Error(get().historySaveError || '保存失败')
+    const saved = await window.api.historyGet('conversation', id)
+    if (!saved.success || !saved.data || !('turns' in saved.data) || saved.data.turns.at(-1)?.turnId !== turn.turnId) throw new Error('对话轮次已变化，请重新打开后保存')
+    const source = saved.data
+    const refs = new Map(source.models.map(modelId => [modelId, get().webviewRefs.get(modelId)]))
+    const urls = Object.fromEntries([...refs].map(([modelId, ref]) => [modelId, ref?.getCurrentUrl() || '']))
+    const canonical = (modelId: string, url: string): string => modelId === 'gemini' ? normalizeGeminiConversationUrl(url) : normalizeUrl(url)
+    const responses = await get().getAllResponses()
+    const latest = await window.api.historyGet('conversation', id)
+    if (get().currentConversationId !== id || get().history.find(history => history.id === id)?.turns.at(-1)?.turnId !== turn.turnId || !latest.success || !latest.data || !('turns' in latest.data) || latest.data.turns.at(-1)?.turnId !== turn.turnId) throw new Error('对话已切换，请重新保存')
+    const valid = Object.fromEntries(Object.entries(responses).filter(([modelId, text]) => {
+      const ref = refs.get(modelId)
+      const expected = source.urls?.[modelId]
+      if (!text.trim() || !ref || get().webviewRefs.get(modelId) !== ref || !expected || !isSavableSessionUrl(modelId, expected)) return false
+      const latestUrl = latest.data && 'turns' in latest.data ? latest.data.urls?.[modelId] || '' : ''
+      return [urls[modelId], ref.getCurrentUrl(), latestUrl].every(url => canonical(modelId, expected) === canonical(modelId, url))
+    }))
+    if (!Object.keys(valid).length) throw new Error('未获取到对应会话的回复，请等待网页回复及会话地址保存后重试')
+    await get().recordConversationTurn(id, { ...turn, responses: valid })
+    if (get().historySaveError) throw new Error(get().historySaveError || '保存失败')
+    return Object.keys(valid).length
   },
 
 
@@ -1196,7 +1181,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     return results
   },
 
-  beginConversation: async ({ successModelIds, currentUrls, productMode, displayMode }) => {
+  beginConversation: async ({ successModelIds, currentUrls, productMode, displayMode, title }) => {
     const state = get()
     const { addHistory, updateHistory, history, isNewSession, setNewSession } = state
 
@@ -1217,12 +1202,13 @@ export const useAppStore = create<AppState>((set, get) => ({
         createdAt: Date.now(),
         updatedAt: Date.now(),
         models: successModelIds,
+        title,
         turns: [],
         urls: currentUrls,
         productMode,
         displayMode,
       }
-      addHistory(newItem)
+      await addHistory(newItem)
       setNewSession(false)
       set({ currentConversationId: conversationId })
       return { conversationId, isNew: true, lastItem: null }
@@ -1230,7 +1216,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     const conversationId = lastItem!.id
     const updatedUrls = { ...lastItem!.urls, ...currentUrls }
-    updateHistory(conversationId, {
+    await updateHistory(conversationId, {
       urls: updatedUrls,
       updatedAt: Date.now(),
     })
@@ -1288,12 +1274,13 @@ export const useAppStore = create<AppState>((set, get) => ({
         displayMode,
       })
 
-      // 创建新 turn 并启动监控
+      // 用户输入独立落盘，回复由用户按需保存
       const turnId = `${conversationId}-${crypto.randomUUID()}`
-      get().startMonitoring(conversationId, turnId, message, successModels)
+      await get().recordConversationTurn(conversationId, { turnId, userMessage: message, timestamp: Date.now(), responses: {} })
 
       ;(async () => {
         await sleep(5000)
+        if (get().currentConversationId !== conversationId) return
         const { webviewRefs: currentRefs } = get()
         const urls: Record<string, string> = {}
 
@@ -1310,8 +1297,8 @@ export const useAppStore = create<AppState>((set, get) => ({
           })
         )
 
-        if (Object.keys(urls).length > 0) {
-          updateHistory(conversationId, { urls })
+        if (get().currentConversationId === conversationId && Object.keys(urls).length > 0) {
+          await updateHistory(conversationId, { urls })
         }
       })().catch((error) => console.error('异步获取 URL 失败:', error))
     }
@@ -1346,6 +1333,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     const { webviewRefs } = get()
     const ref = webviewRefs.get(`slot-${slotIndex}`)
     if (!ref) return ''
+    const modelId = get().debateSlots[slotIndex]
+    const canonical = (url: string): string => modelId === 'gemini' ? normalizeGeminiConversationUrl(url) : normalizeUrl(url)
+    let sourceUrl = isSavableSessionUrl(modelId, ref.getCurrentUrl()) ? canonical(ref.getCurrentUrl()) : ''
+    const sourceChanged = (): boolean => {
+      const url = ref.getCurrentUrl()
+      if (sourceUrl && canonical(url) !== sourceUrl) return true
+      if (!sourceUrl && isSavableSessionUrl(modelId, url)) sourceUrl = canonical(url)
+      return false
+    }
     const base = (baseline ?? '').trim()
     const deadline = Date.now() + timeoutMs
     const pollInterval = 500
@@ -1353,7 +1349,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     let last = ''
     let stableCount = 0
     while (Date.now() < deadline) {
-      const cur = (await ref.getLatestResponse().catch(() => '')).trim()
+      if (get().debateState.phase !== 'running' || get().webviewRefs.get(`slot-${slotIndex}`) !== ref || sourceChanged()) return ''
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const cur = (await Promise.race([
+        ref.getLatestResponse({ interactive: false }).catch(() => ''),
+        new Promise<string>(resolve => { timer = setTimeout(() => resolve(''), Math.max(0, deadline - Date.now())) })
+      ]).finally(() => { if (timer) clearTimeout(timer) })).trim()
+      if (Date.now() >= deadline || get().debateState.phase !== 'running' || get().webviewRefs.get(`slot-${slotIndex}`) !== ref || sourceChanged()) return ''
       // 仅当 cur 非空且与基线不同才视为新回复候选，避免把上一轮旧回复（或瞬时空值）
       // 误判为新回复。基线为空时要求 cur 非空；基线为旧回复时 cur===base 不计入稳定。
       if (cur && cur !== base) {
@@ -1711,13 +1713,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
 
       try {
-        const content = await ref.getLatestResponse()
+        const content = await ref.getLatestResponse({ interactive: false })
 
         if (content !== state.lastContent) {
           state.lastContent = content
           state.stableCount = 0
           anyChanged = true
-        } else {
+        } else if (content.trim()) {
           state.stableCount++
           if (state.stableCount >= MONITOR_CONFIG.stableThreshold) {
             state.isComplete = true
@@ -1818,8 +1820,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     // 节流写盘：流式中每 10s 落盘一次；forceFlush=true（监控结束/中止/完成）时立即写
     const now = Date.now()
     const shouldPersist = forceFlush || (now - historyPersistLastTs >= HISTORY_PERSIST_MIN_INTERVAL)
-    if (shouldPersist && window.api?.storeSet) {
-      window.api.storeSet('history', newHistory)
+    if (shouldPersist) {
+      void writeHistory(() => window.api.historyUpdate('conversation', currentConversationId, { turns: [turn] }))
       historyPersistLastTs = now
     }
   },
@@ -1871,6 +1873,14 @@ export async function initializeStore(): Promise<void> {
   if (typeof window === 'undefined' || !window.api) return
 
   try {
+    // 先迁入旧独立导图，再允许侧栏编辑器初始化；失败时保留旧内容。
+    try {
+      const legacyMap = localStorage.getItem('multichat_local_mindmap_markdown')
+      if (legacyMap) {
+        const migrated = await window.api.notesStandalone(legacyMap)
+        if (migrated.success && migrated.data?.mindmaps.some(map => map.markdown === legacyMap) && localStorage.getItem('multichat_local_mindmap_markdown') === legacyMap) localStorage.removeItem('multichat_local_mindmap_markdown')
+      }
+    } catch { console.warn('旧本地导图暂未迁移，原内容已保留') }
     const refreshSummaryPromptsFromDisk = async (): Promise<void> => {
       if (!window.api?.summaryPromptsList) return
       const prompts = await window.api.summaryPromptsList() as SummaryPrompt[]
@@ -1962,67 +1972,19 @@ export async function initializeStore(): Promise<void> {
       }
     }
 
-    const storedHistory = await window.api.storeGet('history') as any[] | undefined
-    if (storedHistory && storedHistory.length > 0) {
-      // 检测是否为旧格式并迁移
-      const isOldFormat = storedHistory.some(
-        (item) => item && typeof item.message === 'string' && !Array.isArray(item.turns)
-      )
-
-      if (isOldFormat) {
-        const migratedHistory: HistoryItem[] = storedHistory.map((old: any) => ({
-          id: old.id || Date.now().toString(),
-          createdAt: old.timestamp || Date.now(),
-          updatedAt: old.timestamp || Date.now(),
-          models: old.models || [],
-          turns: [
-            {
-              turnId: `${old.id || Date.now()}-0`,
-              userMessage: old.message || '',
-              timestamp: old.timestamp || Date.now(),
-              responses: old.responses || {},
-            },
-          ],
-          urls: old.urls,
-        })).slice(0, 100)
-        useAppStore.setState({ history: migratedHistory, historyLoadedCount: migratedHistory.length })
-        // 立即持久化新格式
-        window.api?.storeSet('history', migratedHistory)
-        console.log('[Store] History migrated from old format to turns-based format')
-      } else {
-        // 内存热区上限 100；磁盘上限 1000 由 store-set handler 的 enforceDiskLimit 兜底，启动不再回写裁剪磁盘。
-        const hotHistory = (storedHistory as HistoryItem[]).slice(0, 100)
-        useAppStore.setState({ history: hotHistory, historyLoadedCount: hotHistory.length })
-      }
-    }
-
-    // 读取磁盘历史总量（用于"加载更多"按钮可见性）
-    const historyCountResult = await window.api.historyGetTotalCount()
-    if (historyCountResult.success && historyCountResult.data !== undefined) {
-      useAppStore.setState({ historyTotalCount: historyCountResult.data })
-    }
-
-    const storedSummaryHistory = await window.api.storeGet('summaryHistory') as SummaryHistoryItem[] | undefined
-    if (storedSummaryHistory) {
-      // 内存热区上限 100；磁盘上限 1000 由 store-set handler 兜底，启动不再回写裁剪磁盘。
-      const hotSummary = storedSummaryHistory.slice(0, 100)
-      useAppStore.setState({ summaryHistory: hotSummary, summaryHistoryLoadedCount: hotSummary.length })
-    }
-
-    // 读取磁盘总结历史总量
-    const summaryCountResult = await window.api.summaryHistoryGetTotalCount()
-    if (summaryCountResult.success && summaryCountResult.data !== undefined) {
-      useAppStore.setState({ summaryHistoryTotalCount: summaryCountResult.data })
-    }
+    await useAppStore.getState().refreshHistoryLists()
+    offHistoryChanged?.()
+    offHistoryChanged = window.api.onHistoryChanged(() => { void useAppStore.getState().refreshHistoryLists() })
 
     const storedSummaryModels = await window.api.storeGet('summaryModels') as SummaryModel[] | undefined
     if (storedSummaryModels) useAppStore.setState({ summaryModels: storedSummaryModels })
 
     // 同时加载 storedModels 和 geminiAccountUrl，合并成一次 setState
     // 避免两次 setState({ models }) 导致 webview src 中途变化而白屏
-    const [storedModels, geminiAccountUrl] = await Promise.all([
+    const [storedModels, geminiAccountUrl, storedMindmapPlatformId] = await Promise.all([
       window.api.storeGet('models') as Promise<ModelConfig[] | undefined>,
-      window.api.storeGet('geminiAccountUrl') as Promise<string | undefined>
+      window.api.storeGet('geminiAccountUrl') as Promise<string | undefined>,
+      window.api.storeGet('mindmapPlatformId')
     ])
 
     let finalModels: ModelConfig[] | null = null
@@ -2054,6 +2016,9 @@ export async function initializeStore(): Promise<void> {
     if (finalModels) {
       useAppStore.setState({ models: finalModels })
     }
+    if (typeof storedMindmapPlatformId === 'string' && useAppStore.getState().models.some(model => model.id === storedMindmapPlatformId)) {
+      useAppStore.setState({ mindmapPlatformId: storedMindmapPlatformId })
+    }
 
     if (window.api?.onGeminiAccountSwitched) {
       window.api.onGeminiAccountSwitched((url: string) => {
@@ -2081,7 +2046,7 @@ if (typeof window !== 'undefined') {
   useAppStore.subscribe((state, prevState) => {
     if (isApplyingRemote) return
     if (!window.api?.stateSync) return
-    const keysToSync: (keyof typeof state)[] = ['activeModels', 'currentModelId']
+    const keysToSync: (keyof typeof state)[] = ['activeModels', 'mindmapPlatformId']
     const diff: Record<string, unknown> = {}
     let changed = false
     for (const k of keysToSync) {

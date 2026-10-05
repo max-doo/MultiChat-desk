@@ -52,7 +52,7 @@ function TaskModePanel({ showNotification }: TaskModePanelProps): JSX.Element {
     slotSet.forEach((slotIndex) => {
       const ref = webviewRefs.get(`slot-${slotIndex}`)
       if (ref) {
-        clearPromises.push(ref.clearInput().catch(() => {}))
+        clearPromises.push(ref.clearInput().then(() => undefined).catch(() => {}))
       }
     })
     await Promise.all(clearPromises)
@@ -160,15 +160,11 @@ function TaskModePanel({ showNotification }: TaskModePanelProps): JSX.Element {
       if (successModelIds.length > 0) {
         // 采集当前 URL（modelId 作 key，任务分配 slot↔modelId 一一对应）
         const currentUrls: Record<string, string> = {}
-        await Promise.all(successSlotIndices.map(async (slotIndex) => {
+        for (const slotIndex of successSlotIndices) {
           const ref = webviewRefs.get(`slot-${slotIndex}`)
           const modelId = taskAssignmentSlots[slotIndex]
-          if (!ref || !modelId) return
-          try {
-            const savable = await waitForSavableUrl(modelId, ref)
-            if (savable) currentUrls[modelId] = savable
-          } catch { /* 忽略 */ }
-        }))
+          if (ref && modelId) currentUrls[modelId] = ref.getCurrentUrl()
+        }
 
         const { conversationId } = await store.beginConversation({
           successModelIds,
@@ -179,7 +175,20 @@ function TaskModePanel({ showNotification }: TaskModePanelProps): JSX.Element {
         })
         const userMessage = successSlotIndices.map(i => `【slot ${i + 1}】${sentTexts[i]}`).join('\n\n')
         const turnId = `${conversationId}-${crypto.randomUUID()}`
-        store.startMonitoring(conversationId, turnId, userMessage, successModelIds)
+        await store.recordConversationTurn(conversationId, { turnId, userMessage, timestamp: Date.now(), responses: {} })
+        // 地址可以晚于发送产生；问题先保存，之后仅更新仍属于当前会话的来源。
+        void (async () => {
+          const urls: Record<string, string> = {}
+          await Promise.all(successSlotIndices.map(async slotIndex => {
+            const ref = webviewRefs.get(`slot-${slotIndex}`)
+            const modelId = taskAssignmentSlots[slotIndex]
+            if (!ref || !modelId) return
+            const url = await waitForSavableUrl(modelId, ref)
+            const current = useAppStore.getState()
+            if (url && current.currentConversationId === conversationId && current.webviewRefs.get(`slot-${slotIndex}`) === ref) urls[modelId] = url
+          }))
+          if (useAppStore.getState().currentConversationId === conversationId && Object.keys(urls).length) await useAppStore.getState().updateHistory(conversationId, { urls })
+        })().catch(() => showNotification('error', '任务已发送，但会话地址获取失败'))
       }
     }
 

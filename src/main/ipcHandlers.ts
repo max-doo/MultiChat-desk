@@ -6,13 +6,15 @@
 import { app, ipcMain, dialog, clipboard, BrowserWindow, shell, session, screen, webContents } from 'electron'
 import { is } from '@electron-toolkit/utils'
 import { basename, extname, join, dirname, resolve } from 'path'
-import { stat, writeFile, mkdtemp, rm } from 'fs/promises'
+import { stat, writeFile, mkdtemp, rm, rename } from 'fs/promises'
 import { tmpdir } from 'os'
+import { randomUUID } from 'crypto'
 import type Store from 'electron-store'
 import { splitTask, fetchModels } from './api/taskSplitApi'
 import { setQuitting, getQuickWindow, showAndFocusWindow, hideToolbarWindow, getCachedSelectionText, openDiagnosticsWindow, registerQuickPrimaryWebview, setQuickSidebarExpanded } from './webviewManager'
 import { broadcastStateChange } from './stateBus'
-import { HistoryManager } from './api/historyManager'
+import { HistoryManager, normalizeHistory } from './api/historyManager'
+import { isDeepStrictEqual } from 'util'
 import { NoteManager } from './noteManager'
 import type { NoteConversation, NoteDraft, NoteNavigation } from '../shared/types/notes'
 import { generateNoteCaptureScript, generateMindmapPageStateScript } from '../shared/utils/webviewScripts'
@@ -145,11 +147,13 @@ function abortCurrentTaskSplitRequest(): void {
  * @param getMainWindow 获取主窗口的函数
  * @param openBrowserWindowInternal 打开内部浏览器窗口的函数
  */
-export function registerIpcHandlers(
+export async function registerIpcHandlers(
     store: Store<Record<string, unknown>>,
     getMainWindow: () => BrowserWindow | null,
     openBrowserWindowInternal: (url: string) => void
-): void {
+): Promise<void> {
+    const historyManager = new HistoryManager(store)
+    await historyManager.ready
     let customMaximizeState: {
         windowId: number
         restoreBounds: Electron.Rectangle
@@ -824,8 +828,6 @@ export function registerIpcHandlers(
     })
 
     // IPC 处理器：存储操作
-    // History 分页与磁盘上限管理（只读分页 + store-set 后 enforce）
-    const historyManager = new HistoryManager(store)
     const noteManager = new NoteManager(store)
     // 每个窗口仅保留最近一次采集，启动/创建时取走；窗口释放后可随之回收。
     const capturedSources = new WeakMap<Electron.WebContents, NoteConversation>()
@@ -879,8 +881,8 @@ export function registerIpcHandlers(
         try { mindmapService.cancel(id); return { success: true } }
         catch (error) { return { success: false, error: String(error) } }
     })
-    ipcMain.handle('mindmaps:show', (_event, id: string) => {
-        try { mindmapService.show(id); return { success: true } }
+    ipcMain.handle('mindmaps:show', (event, id: string) => {
+        try { mindmapService.show(id, BrowserWindow.fromWebContents(event.sender)); return { success: true } }
         catch (error) { return { success: false, error: String(error) } }
     })
     ipcMain.handle('mindmaps:add', async (event, conversationId: string, markdown: string) => {
@@ -919,6 +921,26 @@ export function registerIpcHandlers(
         return { success: true, data }
     })
 
+    ipcMain.handle('notes:source', async (_event, key: string) => {
+        try { return { success: true, data: await noteManager.findSource(key) } }
+        catch (error) { return { success: false, error: error instanceof Error ? error.message : '读取来源失败' } }
+    })
+    ipcMain.handle('notes:get', async (_event, id: string) => {
+        try { return { success: true, data: await noteManager.get(id) } }
+        catch (error) { return { success: false, error: error instanceof Error ? error.message : '读取笔记失败' } }
+    })
+    ipcMain.handle('notes:summaries', async (_event, query?: string) => {
+        try { return { success: true, data: await noteManager.summaries(query) } }
+        catch (error) { return { success: false, error: error instanceof Error ? error.message : '读取笔记失败' } }
+    })
+    ipcMain.handle('notes:standalone', async (_event, markdown?: string) => {
+        try { if (markdown !== undefined && (typeof markdown !== 'string' || markdown.length > 200_000)) throw new Error('导图内容无效'); const data = await noteManager.standalone(markdown); notesChanged(); return { success: true, data } }
+        catch (error) { return { success: false, error: error instanceof Error ? error.message : '保存本地导图失败' } }
+    })
+    ipcMain.handle('notes:import', async (_event, values: unknown, overwrite = false) => {
+        try { const data = await noteManager.import(values, overwrite); notesChanged(); return { success: true, data } }
+        catch (error) { return { success: false, error: error instanceof Error ? error.message : '恢复笔记失败' } }
+    })
     ipcMain.handle('notes:list', async () => {
         try { return { success: true, data: await noteManager.list() } }
         catch (error) { return { success: false, error: String(error) } }
@@ -977,37 +999,31 @@ export function registerIpcHandlers(
     })
 
     ipcMain.handle('store-set', (_event, key: string, value: unknown) => {
+        if (key === 'history' || key === 'summaryHistory' || key === 'historyStorageVersion') throw new Error('历史数据请通过专用接口保存')
         store.set(key, value)
-        // 写 history/summaryHistory 后 enforce 磁盘上限 1000
-        if (key === 'history' || key === 'summaryHistory') {
-            try {
-                historyManager.enforceDiskLimit()
-            } catch (err) {
-                console.error('[historyManager] enforceDiskLimit failed:', err)
-            }
-        }
     })
-
     ipcMain.handle('store-delete', (_event, key: string) => {
+        if (key === 'history' || key === 'summaryHistory' || key === 'historyStorageVersion') throw new Error('历史数据请通过专用接口删除')
         store.delete(key)
     })
-
-    // History 分页（只读）
-    ipcMain.handle('history:get-page', (_event, offset: number, limit: number) => {
-        return { success: true, data: historyManager.getHistoryPage(offset, limit) }
-    })
-
-    ipcMain.handle('history:get-total-count', () => {
-        return { success: true, data: historyManager.getHistoryTotalCount() }
-    })
-
-    ipcMain.handle('summary-history:get-page', (_event, offset: number, limit: number) => {
-        return { success: true, data: historyManager.getSummaryHistoryPage(offset, limit) }
-    })
-
-    ipcMain.handle('summary-history:get-total-count', () => {
-        return { success: true, data: historyManager.getSummaryHistoryTotalCount() }
-    })
+    const historyResult = async (operation: () => Promise<unknown>, changed = false): Promise<{ success: boolean; data?: unknown; error?: string }> => {
+        try {
+            const data = await operation()
+            if (changed) BrowserWindow.getAllWindows().forEach(window => window.webContents.send('history:changed'))
+            return { success: true, data }
+        } catch (error) { return { success: false, error: error instanceof Error ? error.message : '历史操作失败' } }
+    }
+    for (const [prefix, kind] of [['history', 'conversation'], ['summary-history', 'summary']] as const) {
+        ipcMain.handle(`${prefix}:get-page`, (_event, offset: number, limit: number) => historyResult(() => historyManager.page(kind, offset, limit)))
+        ipcMain.handle(`${prefix}:get-total-count`, () => historyResult(() => historyManager.count(kind)))
+    }
+    ipcMain.handle('history:search', (_event, kind: 'conversation' | 'summary', query: string) => historyResult(() => historyManager.search(kind, query)))
+    ipcMain.handle('history:status', () => historyResult(() => historyManager.status()))
+    ipcMain.handle('history:get', (_event, kind: 'conversation' | 'summary', id: string) => historyResult(() => historyManager.get(kind, id)))
+    ipcMain.handle('history:create', (_event, kind: 'conversation' | 'summary', item: unknown) => historyResult(() => historyManager.create(kind, item), true))
+    ipcMain.handle('history:update', (_event, kind: 'conversation' | 'summary', id: string, patch: unknown) => historyResult(() => historyManager.update(kind, id, patch), true))
+    ipcMain.handle('history:remove', (_event, kind: 'conversation' | 'summary', ids: string[]) => historyResult(() => historyManager.remove(kind, ids), true))
+    ipcMain.handle('history:import', (_event, kind: 'conversation' | 'summary', values: unknown, overwrite = false) => historyResult(() => historyManager.import(kind, values, overwrite), true))
 
     // Summary Prompts 相关
     ipcMain.handle('summary-prompts-bootstrap', async (_event, prompts: SummaryPromptFileItem[]) => {
@@ -1061,11 +1077,46 @@ export function registerIpcHandlers(
             // 复用导出键列表，找出文件中存在哪些键
             const knownKeys = [
                 'displayMode', 'models', 'apiConfig', 'summaryModels',
-                'history', 'summaryHistory', 'geminiAccountUrl'
+                'history', 'summaryHistory', 'notes', 'geminiAccountUrl'
             ]
             const keys = knownKeys.filter(k => parsed[k] !== undefined)
+            for (const [key, kind] of [['history', 'conversation'], ['summaryHistory', 'summary']] as const) {
+                if (parsed[key] !== undefined) {
+                    if (!Array.isArray(parsed[key])) throw new Error('备份历史必须为数组')
+                    const items = (parsed[key] as unknown[]).map((value, index) => normalizeHistory(value, kind, index))
+                    if (new Set(items.map(item => item.id)).size !== items.length) throw new Error('备份存在重复历史 ID')
+                    parsed[key] = items
+                }
+            }
+            if (parsed.notes !== undefined) parsed.notes = noteManager.validateImport(parsed.notes)
+            const businessCounts: Record<string, { added: number; unchanged: number; conflicts: number }> = {}
+            for (const [key, kind] of [['history', 'conversation'], ['summaryHistory', 'summary']] as const) {
+                if (!Array.isArray(parsed[key])) continue
+                const local = await historyManager.all(kind)
+                const counts = { added: 0, unchanged: 0, conflicts: 0 }
+                for (const incoming of parsed[key] as { id: string }[]) {
+                    const saved = local.find(item => item.id === incoming.id)
+                    if (!saved) counts.added++
+                    else if (isDeepStrictEqual(saved, incoming)) counts.unchanged++
+                    else counts.conflicts++
+                }
+                businessCounts[key] = counts
+            }
+            if (Array.isArray(parsed.notes)) {
+                const local = await noteManager.exportAll()
+                const counts = { added: 0, unchanged: 0, conflicts: 0 }
+                for (const incoming of parsed.notes as NoteConversation[]) {
+                    const saved = local.find(item => item.id === incoming.id || item.sourceKey === incoming.sourceKey)
+                    if (!saved) counts.added++
+                    else if (isDeepStrictEqual(saved, incoming)) counts.unchanged++
+                    else counts.conflicts++
+                }
+                businessCounts.notes = counts
+            }
+
             // 冲突 = 文件中存在且本地也非空的键（即会覆盖的键）
             const conflicts = keys.filter(k => {
+                if (businessCounts[k]) return businessCounts[k].conflicts > 0
                 const local = store.get(k)
                 if (local === undefined) return false
                 if (typeof local === 'string') return local.length > 0
@@ -1073,7 +1124,7 @@ export function registerIpcHandlers(
                 return true
             })
 
-            // 返回完整解析数据，供渲染层预览确认后逐键 storeSet 写入
+            // 返回校验后的预览数据；业务记录经专用接口按 ID 合并。
             const data: Record<string, unknown> = {}
             for (const k of keys) {
                 data[k] = parsed[k]
@@ -1081,7 +1132,7 @@ export function registerIpcHandlers(
 
             return {
                 success: true,
-                data: { keys, conflicts, file: result.filePaths[0], values: data }
+                data: { keys, conflicts, file: result.filePaths[0], values: data, businessCounts }
             }
         } catch (error) {
             return { success: false, error: String(error) }
@@ -1142,6 +1193,7 @@ export function registerIpcHandlers(
                 'summaryModels',
                 'history',
                 'summaryHistory',
+                'notes',
                 'geminiAccountUrl'
             ]
 
@@ -1149,12 +1201,12 @@ export function registerIpcHandlers(
                 _meta: {
                     app: 'MultiChat',
                     exportedAt: new Date().toISOString(),
-                    version: '1.0'
+                    version: '2.0'
                 }
             }
 
             for (const key of keys) {
-                const value = store.get(key)
+                const value = key === 'history' ? await historyManager.all('conversation') : key === 'summaryHistory' ? await historyManager.all('summary') : key === 'notes' ? await noteManager.exportAll() : store.get(key)
                 if (value !== undefined) {
                     exportData[key] = value
                 }
@@ -1162,7 +1214,9 @@ export function registerIpcHandlers(
 
             // 安全处理：将 apiConfig 中的 API Key 替换为 REDACTED
             if (exportData.apiConfig && typeof exportData.apiConfig === 'object') {
-                const apiConfig = exportData.apiConfig as Record<string, unknown>
+                const apiConfig = structuredClone(exportData.apiConfig) as Record<string, unknown>
+                exportData.apiConfig = apiConfig
+                if (typeof apiConfig.apiKey === 'string' && apiConfig.apiKey) apiConfig.apiKey = '<REDACTED>'
                 if (Array.isArray(apiConfig.providers)) {
                     apiConfig.providers = apiConfig.providers.map((provider: unknown) => {
                         if (provider && typeof provider === 'object') {
@@ -1189,7 +1243,11 @@ export function registerIpcHandlers(
                 return { success: false, error: '用户取消' }
             }
 
-            await writeFile(result.filePath, JSON.stringify(exportData, null, 2), 'utf-8')
+            const temporary = `${result.filePath}.${randomUUID()}.tmp`
+            try {
+                await writeFile(temporary, JSON.stringify(exportData, null, 2), 'utf-8')
+                await rename(temporary, result.filePath)
+            } finally { await rm(temporary, { force: true }).catch(() => undefined) }
 
             return {
                 success: true,

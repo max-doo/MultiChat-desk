@@ -1,3 +1,4 @@
+import type { HistoryListItem, SummaryHistoryListItem } from '../../../shared/types/history'
 import { useState, useEffect } from 'react'
 import { Virtuoso } from 'react-virtuoso'
 import { useAppStore, HistoryItem, SummaryHistoryItem } from '../store/appStore'
@@ -40,8 +41,11 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
     }
   }, [isOpen, initialTab])
   const {
-    history,
-    summaryHistory,
+    historyList: history,
+    summaryHistoryList: summaryHistory,
+    historySaveError,
+    historyReadWarning,
+    retryHistorySave,
     historyTotalCount,
     summaryHistoryTotalCount,
     loadMoreHistory,
@@ -75,16 +79,20 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
     }
   }
 
-  // 过滤对话历史记录
-  const filteredHistory = history.filter(item =>
-    (item.title ?? item.turns[0]?.userMessage ?? '').toLowerCase().includes(searchQuery.toLowerCase())
-  )
-
-  // 过滤总结历史记录
-  const filteredSummaryHistory = summaryHistory.filter(item =>
-    item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    item.messages.some(msg => msg.content.toLowerCase().includes(searchQuery.toLowerCase()))
-  )
+  const [searchResults, setSearchResults] = useState<(HistoryListItem | SummaryHistoryListItem)[] | null>(null)
+  useEffect(() => {
+    let active = true
+    setSearchResults(null)
+    if (!searchQuery.trim()) return
+    const timer = setTimeout(() => {
+      void window.api.historySearch(activeTab, searchQuery).then(result => {
+        if (active && result.success) setSearchResults(result.data || [])
+      })
+    }, 200)
+    return () => { active = false; clearTimeout(timer) }
+  }, [searchQuery, activeTab, history, summaryHistory])
+  const filteredHistory = (searchResults && activeTab === 'conversation' ? searchResults as HistoryListItem[] : history.filter(item => item.title.toLowerCase().includes(searchQuery.toLowerCase())))
+  const filteredSummaryHistory = (searchResults && activeTab === 'summary' ? searchResults as SummaryHistoryListItem[] : summaryHistory.filter(item => item.title.toLowerCase().includes(searchQuery.toLowerCase()) || item.preview.toLowerCase().includes(searchQuery.toLowerCase())))
 
   // 获取模型名称
   const getModelNames = (modelIds: string[]) => {
@@ -94,15 +102,7 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
   }
 
   // 获取第一条总结用户消息作为预览
-  const getSummaryPreviewText = (item: SummaryHistoryItem) => {
-    const firstUserMessage = item.messages.find(msg => msg.role === 'user')
-    if (firstUserMessage) {
-      return firstUserMessage.content.length > 100
-        ? firstUserMessage.content.substring(0, 100) + '...'
-        : firstUserMessage.content
-    }
-    return '无预览内容'
-  }
+  const getSummaryPreviewText = (item: SummaryHistoryListItem): string => item.preview || '无预览内容'
 
   const openRename = (type: 'conversation' | 'summary', id: string, currentText: string) => {
     setRenameType(type)
@@ -140,7 +140,7 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
   }
 
   // 处理选择对话历史
-  const handleSelect = (item: HistoryItem) => {
+  const handleSelect = async (item: HistoryListItem) => {
     if (isSelectionMode) {
       setSelectedIds(prev =>
         prev.includes(item.id) ? prev.filter(i => i !== item.id) : [...prev, item.id]
@@ -148,13 +148,17 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
       return
     }
     if (onSelectHistory) {
-      onSelectHistory(item)
+      const result = await window.api.historyGet('conversation', item.id)
+      if (!result.success || !result.data) { alert(result.error || '读取历史失败'); return }
+      const full = result.data as HistoryItem
+      useAppStore.setState(state => ({ history: [full, ...state.history.filter(old => old.id !== full.id)].slice(0, 100) }))
+      onSelectHistory(full)
       onClose()
     }
   }
 
   // 处理选择总结历史
-  const handleSelectSummary = (item: SummaryHistoryItem) => {
+  const handleSelectSummary = async (item: SummaryHistoryListItem) => {
     if (isSelectionMode) {
       setSelectedIds(prev =>
         prev.includes(item.id) ? prev.filter(i => i !== item.id) : [...prev, item.id]
@@ -162,7 +166,11 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
       return
     }
     if (onSelectSummaryHistory) {
-      onSelectSummaryHistory(item)
+      const result = await window.api.historyGet('summary', item.id)
+      if (!result.success || !result.data) { alert(result.error || '读取总结历史失败'); return }
+      const full = result.data as SummaryHistoryItem
+      useAppStore.setState(state => ({ summaryHistory: [full, ...state.summaryHistory.filter(old => old.id !== full.id)].slice(0, 100) }))
+      onSelectSummaryHistory(full)
       onClose()
     }
   }
@@ -184,9 +192,9 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
         onCancel={closeRename}
         onConfirm={async (value) => {
           if (renameType === 'conversation') {
-            updateHistory(renameTargetId, { title: value })
+            await updateHistory(renameTargetId, { title: value })
           } else {
-            updateSummaryHistory(renameTargetId, { title: value })
+            await updateSummaryHistory(renameTargetId, { title: value })
           }
           closeRename()
         }}
@@ -221,6 +229,8 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
               </div>
             )}
 
+            {historyReadWarning && <span className="text-xs text-amber-700" title={historyReadWarning}>历史读取提示</span>}
+            {historySaveError && <button className="text-sm text-red-600" title={historySaveError} onClick={() => void retryHistorySave()}>历史保存失败，重试</button>}
             {/* 中间标题 */}
             <div className="absolute left-1/2 transform -translate-x-1/2">
               <h2 className="text-lg font-semibold text-text-primary">历史记录</h2>
@@ -326,14 +336,7 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
                 itemContent={(_index, item) => {
                   const isSelected = selectedIds.includes(item.id)
                   const isActive = activeHistoryId === item.id
-                  const displayTitle = (() => {
-                    if (item.title) return item.title
-                    if (item.productMode === 'debate' && item.debateTurns && item.debateTurns.length > 0) {
-                      const first = item.debateTurns[0].proponent?.speech || item.debateTurns[0].opponent?.speech || ''
-                      return first ? `辩论：${first.slice(0, 60)}` : '(无辩题)'
-                    }
-                    return item.turns[0]?.userMessage ?? '(无消息)'
-                  })()
+                  const displayTitle = item.title || '(无消息)'
                   return (
                     <div className="pb-3">
                       <div
@@ -394,9 +397,9 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
                                 </span>
                               )}
                               <span className="text-gray-600">
-                                {item.productMode === 'debate' && item.debateTurns
-                                  ? `${item.debateTurns.length} 轮辩论`
-                                  : `${item.turns.length} 轮`}
+                                {item.productMode === 'debate'
+                                  ? `${item.turnCount} 轮辩论`
+                                  : `${item.turnCount} 轮`}
                               </span>
                             </div>
                             <div className="flex items-center gap-2" title={getModelNames(item.models)}>
@@ -546,8 +549,9 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
         <div className="p-4 border-t border-gray-200 text-xs text-gray-500 text-center">
           {isSelectionMode
             ? `已选择 ${selectedIds.length} 条记录`
-            : `共 ${activeTab === 'conversation' ? history.length : summaryHistory.length} 条记录`
+            : `已加载 ${activeTab === 'conversation' ? history.length : summaryHistory.length} / 共 ${activeTab === 'conversation' ? historyTotalCount : summaryHistoryTotalCount} 条记录`
           }
+          <div className="mt-1">新增时每类最多保留 1000 条，优先移除最早更新的记录；可在设置中导出完整备份。</div>
         </div>
       </div>
 

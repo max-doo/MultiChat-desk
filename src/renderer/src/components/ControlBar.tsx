@@ -59,6 +59,8 @@ export interface ControlBarRef {
 const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
   function ControlBar({ onGenerateReport }, ref) {
     const [message, setMessage] = useState('')
+    const [isSavingResponses, setIsSavingResponses] = useState(false)
+    const historySaveError = useAppStore(state => state.historySaveError)
     const [isActivatingResearch, setIsActivatingResearch] = useState(false)
     const [isCancellingResearch, setIsCancellingResearch] = useState(false)
     const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null)
@@ -849,6 +851,17 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
             </div>
           )}
 
+          {productMode !== 'debate' && !isImageGeneration && <button
+            disabled={isSavingResponses || isSending}
+            title="按需保存当前模型回复，供网页不可用时查看"
+            className="px-3 py-2 text-sm text-text-secondary hover:text-primary disabled:opacity-50 whitespace-nowrap"
+            onClick={async () => {
+              setIsSavingResponses(true)
+              try { const count = await useAppStore.getState().saveCurrentResponses(); setNotification({ type: 'success', message: `已保存 ${count} 个模型的回复` }) }
+              catch (error) { setNotification({ type: 'error', message: error instanceof Error ? error.message : '保存回复失败' }) }
+              finally { setIsSavingResponses(false) }
+            }}>保存回复</button>}
+          {historySaveError && <button className="text-sm text-red-600" title={historySaveError} onClick={() => void useAppStore.getState().retryHistorySave()}>历史保存失败，点击重试</button>}
           {/* 右侧：生成总结 / 裁判评析按钮 */}
           {(() => {
             const debateDisabled = productMode === 'debate' && debateState.phase !== 'finished'

@@ -5,6 +5,8 @@ import { generateMindmapPageStateScript, generateMindmapResponseScript, type Min
 import { automationService } from './AutomationService'
 import { sessionManager } from './SessionManager'
 import type { NoteManager } from '../noteManager'
+import type { BrowserWindow } from 'electron'
+import { showBackgroundPreview } from '../webviewManager'
 
 const TERMINAL_PHASES = ['done', 'error', 'cancelled']
 const sessionKey = (id: string): string => `__mindmap_${id}`
@@ -113,9 +115,18 @@ export class MindmapService {
         if (wc.isDestroyed()) throw new Error('生成网页已关闭，请重新生成')
         stage = '读取网页回复'
         captured = await waitFor(wc.executeJavaScript(responseScript) as Promise<MindmapResponse>, 10_000, stage, signal)
-        const response = captured.text
         stage = '解析大纲'
-        const outline = inspectMindmapOutline(response)
+        let outline = inspectMindmapOutline(captured.text)
+        // 同一条回复的原文和还原结果逐一验证，不能因首个带标签的片段无效而提前失败。
+        for (const candidate of captured.candidates || []) {
+          if (candidate.source === 'virtual-dom') continue
+          const inspected = inspectMindmapOutline(candidate.text)
+          if (inspected.status !== 'ready') continue
+          captured = { ...captured, text: candidate.text, source: candidate.source }
+          outline = inspected
+          break
+        }
+        const response = captured.text
         if (captured.source === 'virtual-dom' || outline.status !== 'ready') {
           stable = 0; lastOutline = ''
           stage = '读取网页生成状态'
@@ -165,12 +176,11 @@ export class MindmapService {
     this.notify({ ...this.task })
   }
 
-  show(id: string): void {
+  show(id: string, owner: BrowserWindow | null): void {
     if (this.task?.id !== id) throw new Error('任务不存在')
     const window = sessionManager.getSession(sessionKey(id))
     if (!window) throw new Error('生成网页已关闭，请重新生成')
-    window.show()
-    window.focus()
+    showBackgroundPreview(window, owner)
   }
 
   shutdown(): void {

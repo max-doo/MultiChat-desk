@@ -85,10 +85,20 @@ function CustomDropdown<T = string>({
 
   // 点击外部及窗口尺寸改变时关闭下拉菜单
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent): void => {
+    const handleClickOutside = (event: MouseEvent | PointerEvent): void => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setIsOpen(false)
       }
+    }
+
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        setIsOpen(false)
+      }
+    }
+
+    const handleWindowBlur = (): void => {
+      setIsOpen(false)
     }
 
     const handleResize = (): void => {
@@ -96,12 +106,18 @@ function CustomDropdown<T = string>({
     }
 
     if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside)
+      window.addEventListener('pointerdown', handleClickOutside, true)
+      window.addEventListener('mousedown', handleClickOutside, true)
+      window.addEventListener('keydown', handleKeyDown)
+      window.addEventListener('blur', handleWindowBlur)
       window.addEventListener('resize', handleResize)
     }
 
     return () => {
-      document.removeEventListener('mousedown', handleClickOutside)
+      window.removeEventListener('pointerdown', handleClickOutside, true)
+      window.removeEventListener('mousedown', handleClickOutside, true)
+      window.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('blur', handleWindowBlur)
       window.removeEventListener('resize', handleResize)
     }
   }, [isOpen])
@@ -161,6 +177,7 @@ function CustomDropdown<T = string>({
           {/* 点击外部关闭的遮罩层 */}
           <div
             className="fixed inset-0 z-20"
+            onPointerDown={() => setIsOpen(false)}
             onClick={() => setIsOpen(false)}
           />
           <div className={`absolute ${dropdownPositionClass} left-0 ${dropdownWidth} bg-sidebar backdrop-blur-md border border-gray-200/50 rounded-lg shadow-xl z-30 py-1 max-h-64 overflow-y-auto`}>

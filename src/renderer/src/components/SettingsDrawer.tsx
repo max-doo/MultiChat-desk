@@ -713,12 +713,15 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
 
 
 
-  // 处理导出缓存数据
+  // 处理备份配置与业务数据
   const handleExportCache = async (): Promise<void> => {
     if (!window.api?.exportCache) {
       console.error('exportCache API 不可用')
       return
     }
+    await useAppStore.getState().retryHistorySave()
+    const saveError = useAppStore.getState().historySaveError
+    if (saveError) { alert(`历史尚未保存，备份未开始：${saveError}`); return }
     const result = await window.api.exportCache()
     if (result.success) {
       console.log('缓存数据已导出:', result.filePath)
@@ -736,6 +739,7 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
     conflicts: string[]
     values: Record<string, unknown>
     redactedProviderCount: number
+    businessCounts?: Record<string, { added: number; unchanged: number; conflicts: number }>
   } | null>(null)
 
   // 触发导入：先弹文件选择 → 返回预览数据 → 再弹确认弹窗
@@ -776,18 +780,25 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
       keys: data.keys,
       conflicts: data.conflicts,
       values: data.values,
-      redactedProviderCount: redactedCount
+      redactedProviderCount: redactedCount,
+      businessCounts: data.businessCounts
     })
   }
 
   // 确认导入：逐键写入，处理 REDACTED apiKey（保留本地 Key），再刷新内存态
-  const handleConfirmImportCache = async (): Promise<void> => {
+  const handleConfirmImportCache = async (overwriteBusiness = false): Promise<void> => {
     if (!importPreview || !window.api?.storeSet) return
     const { keys, values } = importPreview
     const localApiConfig = useAppStore.getState().apiConfig
     const localProviders = localApiConfig.providers || []
 
+    try {
     for (const k of keys) {
+      if (k === 'history' || k === 'summaryHistory' || k === 'notes') {
+        const result = k === 'notes' ? await window.api.notesImport(values[k], overwriteBusiness) : await window.api.historyImport(k === 'history' ? 'conversation' : 'summary', values[k], overwriteBusiness)
+        if (!result.success) throw new Error(result.error || '恢复业务数据失败')
+        continue
+      }
       let value = values[k]
       // REDACTED 处理：导入 apiConfig 时，对 apiKey === '<REDACTED>' 的供应商保留本地现有 Key
       if (k === 'apiConfig' && value && typeof value === 'object') {
@@ -808,6 +819,8 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
       }
       await window.api.storeSet(k, value)
     }
+    } catch (error) { alert(error instanceof Error ? error.message : '恢复失败，已完成的数据保留，可安全重试'); return }
+    await useAppStore.getState().refreshHistoryLists()
 
     // 刷新内存态：重新从 store 读取并写回 zustand
     try {
@@ -824,7 +837,7 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
     }
 
     setImportPreview(null)
-    alert('缓存导入完成，建议重启应用以使全部变更（如历史记录）生效。')
+    alert('数据恢复完成。历史、笔记和导图已刷新；其他配置建议重启后使用。')
   }
 
   // 提示词管理
@@ -1342,14 +1355,14 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
                     className="flex items-center gap-2 px-4 py-2 rounded-full glass-panel text-text-primary hover:text-primary hover:bg-blue-50/50 transition-all text-sm font-medium"
                   >
                     <span className="material-symbols-outlined text-sm">download</span>
-                    导出缓存数据
+                    备份配置与业务数据
                   </button>
                   <button
                     onClick={handleImportCache}
                     className="flex items-center gap-2 px-4 py-2 rounded-full glass-panel text-text-primary hover:text-primary hover:bg-blue-50/50 transition-all text-sm font-medium"
                   >
                     <span className="material-symbols-outlined text-sm">upload</span>
-                    导入缓存数据
+                    恢复配置与业务数据
                   </button>
                 </div>
                 <p className="text-xs text-text-secondary mt-1.5">导出为 JSON 文件，API Key 等敏感信息将被自动脱敏</p>
@@ -1471,7 +1484,8 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
         keys={importPreview?.keys ?? []}
         conflicts={importPreview?.conflicts ?? []}
         redactedProviderCount={importPreview?.redactedProviderCount ?? 0}
-        onConfirm={() => { void handleConfirmImportCache() }}
+        businessCounts={importPreview?.businessCounts}
+        onConfirm={handleConfirmImportCache}
         onCancel={() => setImportPreview(null)}
       />
     </>

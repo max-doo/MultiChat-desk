@@ -12,28 +12,18 @@ export interface LocalMindmapPanelRef {
   exportSvg: () => void
 }
 
-const STORAGE_KEY = 'multichat_local_mindmap_markdown'
-
-const LocalMindmapPanel = forwardRef<LocalMindmapPanelRef, { initialMarkdown?: string; onChange?: (markdown: string) => void }>(function LocalMindmapPanel({ initialMarkdown, onChange }, ref): JSX.Element {
+const LocalMindmapPanel = forwardRef<LocalMindmapPanelRef, { initialMarkdown?: string; onChange?: (markdown: string) => void; onOpenMubu?: () => void }>(function LocalMindmapPanel({ initialMarkdown, onChange, onOpenMubu }, ref): JSX.Element {
   const [viewMode, setViewMode] = useState<'mindmap' | 'markdown'>('mindmap')
 
   // Markdown 与树
-  const [markdown, setMarkdown] = useState<string>(() => {
-    if (initialMarkdown !== undefined) return initialMarkdown
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY)
-      return saved !== null ? saved : '# 思维导图\n'
-    } catch {
-      return '# 思维导图\n'
-    }
-  })
+  const [markdown, setMarkdown] = useState<string>(() => initialMarkdown ?? '# 思维导图\n')
 
   const [tree, setTree] = useState<MindNode>(() => parseMarkdownToTree(markdown))
   const onChangeRef = useRef(onChange)
   onChangeRef.current = onChange
   const persistMarkdown = useCallback((content: string) => {
     if (onChangeRef.current) onChangeRef.current(content)
-    else localStorage.setItem(STORAGE_KEY, content)
+
   }, [])
   // 画布编辑状态在撤销/重做时同步清除。
   const editingNodeIdRef = useRef<string | null>(null)
@@ -305,6 +295,7 @@ const LocalMindmapPanel = forwardRef<LocalMindmapPanelRef, { initialMarkdown?: s
           <div className="w-[1px] h-4 bg-gray-200 mx-0.5" />
 
           <CustomDropdown value={null} onChange={() => {}} displayText="更多" direction="up" dropdownWidth="w-56 !left-auto right-0 !z-50 !max-h-[70vh]" buttonClassName="h-7 px-2 rounded text-gray-500 hover:bg-gray-100 flex items-center gap-1 text-sm" renderContent={close => <div className="p-1 text-sm">
+            {onOpenMubu && <button type="button" className="w-full text-left px-3 py-2 rounded hover:bg-gray-100" onClick={() => { close(); onOpenMubu() }}>打开幕布</button>}
             <button className="w-full text-left px-3 py-2 rounded hover:bg-gray-100" onClick={() => { close(); handleExpandAll() }}>展开全部</button>
             <button className="w-full text-left px-3 py-2 rounded hover:bg-gray-100" onClick={() => { close(); handleFoldAll() }}>收起子节点</button>
             <button className="w-full text-left px-3 py-2 rounded hover:bg-gray-100" onClick={() => { close(); handleExportPng() }}>导出图片（PNG）</button>
@@ -327,6 +318,9 @@ const LocalMindmapPanel = forwardRef<LocalMindmapPanelRef, { initialMarkdown?: s
             active={viewMode === 'markdown'}
             viewSwitcher={viewSwitcher}
             actions={<>
+              {onOpenMubu && <CustomDropdown value={null} onChange={() => {}} displayText="更多" dropdownWidth="w-40 !left-auto right-0 !z-50" buttonClassName="h-7 px-2 rounded text-gray-500 hover:bg-gray-100 flex items-center gap-1 text-sm" renderContent={close => <div className="p-1 text-sm">
+                <button type="button" className="w-full text-left px-3 py-2 rounded hover:bg-gray-100" onClick={() => { close(); onOpenMubu() }}>打开幕布</button>
+              </div>} />}
               <button
                 type="button"
                 onClick={async () => {

@@ -56,6 +56,8 @@ function getInitialRightSidebarWidth(): number {
 export default function NotesPage({ initialNavigation }: { initialNavigation?: NoteNavigation }): JSX.Element {
   const models = useAppStore(state => state.models)
   const [conversations, setConversations] = useState<NoteConversation[]>([])
+  const [selectedDetail, setSelectedDetail] = useState<NoteConversation | null>(null)
+  const [searchIds, setSearchIds] = useState<Set<string> | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [platform, setPlatform] = useState('all')
@@ -183,7 +185,7 @@ export default function NotesPage({ initialNavigation }: { initialNavigation?: N
   const focusedNoteIdRef = useRef<string | null>(null)
 
   const reload = async (): Promise<void> => {
-    const result = await window.api.notesList()
+    const result = await window.api.notesSummaries()
     if (!result.success) {
       setError(result.error || '读取笔记失败')
       return
@@ -205,6 +207,24 @@ export default function NotesPage({ initialNavigation }: { initialNavigation?: N
     return unsubscribeNotes
   }, [])
 
+  useEffect(() => {
+    let active = true
+    if (!selectedId) { setSelectedDetail(null); return }
+    void window.api.notesGet(selectedId).then(result => {
+      if (!active) return
+      if (result.success && result.data) setSelectedDetail(result.data)
+      else { setSelectedDetail(null); setError(result.error || '读取笔记正文失败') }
+    })
+    return () => { active = false }
+  }, [selectedId, conversations])
+  useEffect(() => {
+    let active = true
+    if (!query.trim()) { setSearchIds(null); return }
+    const timer = setTimeout(() => { void window.api.notesSummaries(query).then(result => {
+      if (active && result.success) setSearchIds(new Set((result.data || []).map(item => item.id)))
+    }) }, 200)
+    return () => { active = false; clearTimeout(timer) }
+  }, [query, conversations])
   const platforms = useMemo(
     () => Array.from(new Set(conversations.map(item => item.platform))),
     [conversations]
@@ -216,19 +236,12 @@ export default function NotesPage({ initialNavigation }: { initialNavigation?: N
         if (contentFilter === 'notes' && !item.notes.length) return false
         if (contentFilter === 'mindmaps' && !item.mindmaps.length) return false
         if (platform !== 'all' && item.platform !== platform) return false
-        const needle = query.trim().toLowerCase()
-        if (!needle) return true
-        return [
-          item.title,
-          item.platform,
-          ...item.notes.flatMap(note => [note.quote, note.comment]),
-          ...item.mindmaps.flatMap(map => [map.title, map.markdown])
-        ].some(value => value.toLowerCase().includes(needle))
+        return !query.trim() || !!searchIds?.has(item.id)
       }),
-    [conversations, platform, query, contentFilter]
+    [conversations, platform, query, contentFilter, searchIds]
   )
 
-  const selected = conversations.find(item => item.id === selectedId) || null
+  const selected = selectedDetail?.id === selectedId ? selectedDetail : null
   const selectedLogo = models.find(m => m.name.toLowerCase() === selected?.platform.toLowerCase())?.logo
 
   const activeNote =
