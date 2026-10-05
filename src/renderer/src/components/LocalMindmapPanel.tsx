@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle } from 'react'
+import React, { useEffect, useRef, useState, useCallback, useMemo, forwardRef, useImperativeHandle } from 'react'
+import { createPortal } from 'react-dom'
 import { globalCSS } from 'markmap-view'
 import CustomDropdown from './CustomDropdown'
 import MindmapMarkdownEditor from './MindmapMarkdownEditor'
@@ -10,18 +11,37 @@ import mindmapCSS from '../styles/localMindmap.css?inline'
 export interface LocalMindmapPanelRef {
   exportPng: () => void
   exportSvg: () => void
+  getMarkdown: () => string
+  commitMarkdown: (markdown: string, notify?: boolean) => void
+  getTarget: () => { id: string; label: string }
+  insertNode: (parentId: string, text: string) => boolean
 }
 
-const LocalMindmapPanel = forwardRef<LocalMindmapPanelRef, { initialMarkdown?: string; onChange?: (markdown: string) => void; onOpenMubu?: () => void }>(function LocalMindmapPanel({ initialMarkdown, onChange, onOpenMubu }, ref): JSX.Element {
+const LocalMindmapPanel = forwardRef<LocalMindmapPanelRef, { initialMarkdown?: string; onChange?: (markdown: string) => void; onOpenMubu?: () => void; previewMarkdown?: string; changedLines?: number[]; onAskNode?: (path: string[]) => void }>(function LocalMindmapPanel({ initialMarkdown, onChange, onOpenMubu, previewMarkdown, changedLines, onAskNode }, ref): JSX.Element {
   const [viewMode, setViewMode] = useState<'mindmap' | 'markdown'>('mindmap')
 
   // Markdown 与树
   const [markdown, setMarkdown] = useState<string>(() => initialMarkdown ?? '# 思维导图\n')
 
   const [tree, setTree] = useState<MindNode>(() => parseMarkdownToTree(markdown))
+  const markdownRef = useRef(markdown)
+  markdownRef.current = markdown
+  const readOnly = previewMarkdown !== undefined
+  const previewTree = useMemo(() => previewMarkdown !== undefined ? parseMarkdownToTree(previewMarkdown) : null, [previewMarkdown])
+  const [nodeMenu, setNodeMenu] = useState<{ id: string; path: string[]; x: number; y: number } | null>(null)
+  const openNodeMenu = useCallback((id: string, path: string[], x: number, y: number) => setNodeMenu({ id, path, x, y }), [])
+  useEffect(() => {
+    if (!nodeMenu) return
+    const close = (): void => setNodeMenu(null)
+    window.addEventListener('pointerdown', close)
+    window.addEventListener('blur', close)
+    window.addEventListener('keydown', close)
+    return () => { window.removeEventListener('pointerdown', close); window.removeEventListener('blur', close); window.removeEventListener('keydown', close) }
+  }, [nodeMenu])
   const onChangeRef = useRef(onChange)
   onChangeRef.current = onChange
   const persistMarkdown = useCallback((content: string) => {
+    markdownRef.current = content
     if (onChangeRef.current) onChangeRef.current(content)
 
   }, [])
@@ -77,6 +97,7 @@ const LocalMindmapPanel = forwardRef<LocalMindmapPanelRef, { initialMarkdown?: s
 
   // 撤回 / 重做
   const handleUndo = useCallback(() => {
+    if (readOnly) return
     if (historyIndexRef.current <= 0) return
     historyIndexRef.current -= 1
     const prevMd = historyRef.current[historyIndexRef.current]
@@ -91,9 +112,10 @@ const LocalMindmapPanel = forwardRef<LocalMindmapPanelRef, { initialMarkdown?: s
     } catch {
       // ignore
     }
-  }, [updateHistoryState, persistMarkdown])
+  }, [updateHistoryState, persistMarkdown, readOnly])
 
   const handleRedo = useCallback(() => {
+    if (readOnly) return
     if (historyIndexRef.current >= historyRef.current.length - 1) return
     historyIndexRef.current += 1
     const nextMd = historyRef.current[historyIndexRef.current]
@@ -108,7 +130,7 @@ const LocalMindmapPanel = forwardRef<LocalMindmapPanelRef, { initialMarkdown?: s
     } catch {
       // ignore
     }
-  }, [updateHistoryState, persistMarkdown])
+  }, [updateHistoryState, persistMarkdown, readOnly])
 
   // Toast 提示
   const [toastMessage, setToastMessage] = useState<string | null>(null)
@@ -121,19 +143,24 @@ const LocalMindmapPanel = forwardRef<LocalMindmapPanelRef, { initialMarkdown?: s
     }, 1800)
   }, [])
 
-  const { containerRef, svgRef, handleZoom, handleFit, handleExpandAll, handleFoldAll } = useMindmapCanvas({
-    tree,
+  const canvas = useMindmapCanvas({
+    tree: previewTree || tree,
     active: viewMode === 'mindmap',
     editingNodeIdRef,
     onTreeChange: commitTreeChange,
     handleUndo,
     handleRedo,
-    showToast
+    showToast,
+    readOnly,
+    changedLines,
+    onNodeContextMenu: openNodeMenu
   })
+  const { containerRef, svgRef, handleZoom, handleFit, handleExpandAll, handleFoldAll } = canvas
 
   // Markdown 大纲编辑，同时同步导图与持久化。
   const handleMarkdownChange = useCallback(
     (newVal: string) => {
+      if (readOnly) return
       setMarkdown(newVal)
       prevInitialMarkdownRef.current = newVal
       try {
@@ -148,7 +175,7 @@ const LocalMindmapPanel = forwardRef<LocalMindmapPanelRef, { initialMarkdown?: s
       historyIndexRef.current = historyRef.current.length - 1
       updateHistoryState()
     },
-    [updateHistoryState, persistMarkdown]
+    [updateHistoryState, persistMarkdown, readOnly]
   )
 
   const handleExportSvg = useCallback(() => {
@@ -161,8 +188,20 @@ const LocalMindmapPanel = forwardRef<LocalMindmapPanelRef, { initialMarkdown?: s
 
   useImperativeHandle(ref, () => ({
     exportPng: handleExportPng,
-    exportSvg: handleExportSvg
-  }), [handleExportPng, handleExportSvg])
+    exportSvg: handleExportSvg,
+    getMarkdown: () => { canvas.commitCurrentEditing(); return markdownRef.current },
+    getTarget: canvas.getTarget,
+    insertNode: canvas.insertNode,
+    commitMarkdown: (value, notify = true) => {
+      prevInitialMarkdownRef.current = value
+      markdownRef.current = value
+      setMarkdown(value); setTree(parseMarkdownToTree(value))
+      historyRef.current = historyRef.current.slice(0, historyIndexRef.current + 1)
+      historyRef.current.push(value); historyIndexRef.current++
+      updateHistoryState()
+      if (notify) persistMarkdown(value)
+    }
+  }), [handleExportPng, handleExportSvg, canvas, updateHistoryState, persistMarkdown])
 
   const viewSwitcher = (
     <div className={`flex shrink-0 items-center bg-white/95 backdrop-blur border border-gray-200/80 p-0.5 rounded-lg shadow-sm ${viewMode === 'mindmap' ? 'absolute right-3 top-3 z-30' : ''}`}>
@@ -196,7 +235,8 @@ const LocalMindmapPanel = forwardRef<LocalMindmapPanelRef, { initialMarkdown?: s
   return (
     <div
       ref={containerRef}
-      className="h-full w-full flex flex-col bg-white relative overflow-hidden select-text"
+      tabIndex={-1}
+      className="h-full w-full flex flex-col bg-white relative overflow-hidden select-text outline-none"
       onScroll={(e) => {
         e.currentTarget.scrollTop = 0
         e.currentTarget.scrollLeft = 0
@@ -205,6 +245,13 @@ const LocalMindmapPanel = forwardRef<LocalMindmapPanelRef, { initialMarkdown?: s
       {/* Markmap 基础样式与幕布风格黑白灰折线高质感样式 */}
       <style>{globalCSS}</style>
       <style>{mindmapCSS}</style>
+      {nodeMenu && createPortal(<div role="menu" className="fixed z-[110] min-w-48 p-1 rounded-lg border border-gray-200 bg-white shadow-xl text-sm" style={{ left: Math.max(8, Math.min(nodeMenu.x, window.innerWidth - 240)), top: Math.max(8, Math.min(nodeMenu.y, window.innerHeight - 185)) }} onPointerDown={event => event.stopPropagation()}>
+        <button role="menuitem" className="w-full px-3 py-2 text-left hover:bg-gray-100 disabled:opacity-40" disabled={!onAskNode} title={!onAskNode ? '请先打开来源主会话' : undefined} onClick={() => { onAskNode?.(nodeMenu.path); setNodeMenu(null) }}>在主会话中追问</button>
+        <div className="border-t border-gray-100 my-1" />
+        <button role="menuitem" disabled={readOnly} className="w-full px-3 py-2 text-left hover:bg-gray-100 disabled:opacity-40" onClick={() => { canvas.addChild(nodeMenu.id); setNodeMenu(null) }}>添加子节点</button>
+        <button role="menuitem" disabled={readOnly} className="w-full px-3 py-2 text-left hover:bg-gray-100 disabled:opacity-40" onClick={() => { canvas.editNode(nodeMenu.id); setNodeMenu(null) }}>编辑节点</button>
+        <button role="menuitem" disabled={readOnly || nodeMenu.id === (previewTree || tree).id} className="w-full px-3 py-2 text-left text-red-500 hover:bg-red-50 disabled:opacity-40" onClick={() => { canvas.deleteSelection(); setNodeMenu(null) }}>删除节点</button>
+      </div>, document.body)}
 
       {/* 浮动 Toast 提示 */}
       {toastMessage && (
@@ -234,7 +281,7 @@ const LocalMindmapPanel = forwardRef<LocalMindmapPanelRef, { initialMarkdown?: s
           <button
             type="button"
             onClick={handleUndo}
-            disabled={!canUndo}
+            disabled={!canUndo || readOnly}
             className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${
               canUndo ? 'text-text-secondary hover:text-text-primary hover:bg-gray-100' : 'text-gray-300 cursor-not-allowed'
             }`}
@@ -246,7 +293,7 @@ const LocalMindmapPanel = forwardRef<LocalMindmapPanelRef, { initialMarkdown?: s
           <button
             type="button"
             onClick={handleRedo}
-            disabled={!canRedo}
+            disabled={!canRedo || readOnly}
             className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${
               canRedo ? 'text-text-secondary hover:text-text-primary hover:bg-gray-100' : 'text-gray-300 cursor-not-allowed'
             }`}
@@ -294,13 +341,73 @@ const LocalMindmapPanel = forwardRef<LocalMindmapPanelRef, { initialMarkdown?: s
 
           <div className="w-[1px] h-4 bg-gray-200 mx-0.5" />
 
-          <CustomDropdown value={null} onChange={() => {}} displayText="更多" direction="up" dropdownWidth="w-56 !left-auto right-0 !z-50 !max-h-[70vh]" buttonClassName="h-7 px-2 rounded text-gray-500 hover:bg-gray-100 flex items-center gap-1 text-sm" renderContent={close => <div className="p-1 text-sm">
-            {onOpenMubu && <button type="button" className="w-full text-left px-3 py-2 rounded hover:bg-gray-100" onClick={() => { close(); onOpenMubu() }}>打开幕布</button>}
-            <button className="w-full text-left px-3 py-2 rounded hover:bg-gray-100" onClick={() => { close(); handleExpandAll() }}>展开全部</button>
-            <button className="w-full text-left px-3 py-2 rounded hover:bg-gray-100" onClick={() => { close(); handleFoldAll() }}>收起子节点</button>
-            <button className="w-full text-left px-3 py-2 rounded hover:bg-gray-100" onClick={() => { close(); handleExportPng() }}>导出图片（PNG）</button>
-            <button className="w-full text-left px-3 py-2 rounded hover:bg-gray-100" onClick={() => { close(); handleExportSvg() }}>导出图片（SVG）</button>
-            <div className="mt-1 px-3 py-2 border-t border-gray-100 text-gray-500 space-y-1"><p>双击节点编辑</p><p>Tab 添加子节点</p><p>Delete 删除节点</p><p>Ctrl+Z 撤销 · Ctrl+Y 重做</p></div>
+          <CustomDropdown value={null} onChange={() => {}} displayText="更多" direction="up" dropdownWidth="w-56 !left-auto right-0 !z-50 !max-h-[70vh]" buttonClassName="h-7 px-2 rounded-lg text-text-secondary hover:text-text-primary hover:bg-gray-100 flex items-center gap-1 text-xs transition-colors" renderContent={close => <div className="p-1 space-y-0.5">
+            {onOpenMubu && (
+              <button
+                type="button"
+                className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs text-text-primary hover:bg-gray-100/80 active:bg-gray-200/60 transition-colors text-left group select-none"
+                onClick={() => { close(); onOpenMubu() }}
+              >
+                <span className="material-symbols-outlined text-[17px] text-gray-400 group-hover:text-gray-600 shrink-0 transition-colors">
+                  open_in_new
+                </span>
+                <span className="truncate flex-1">打开幕布</span>
+              </button>
+            )}
+            <button
+              type="button"
+              className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs text-text-primary hover:bg-gray-100/80 active:bg-gray-200/60 transition-colors text-left group select-none"
+              onClick={() => { close(); handleExpandAll() }}
+            >
+              <span className="material-symbols-outlined text-[17px] text-gray-400 group-hover:text-gray-600 shrink-0 transition-colors">
+                unfold_more
+              </span>
+              <span className="truncate flex-1">展开全部</span>
+            </button>
+            <button
+              type="button"
+              className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs text-text-primary hover:bg-gray-100/80 active:bg-gray-200/60 transition-colors text-left group select-none"
+              onClick={() => { close(); handleFoldAll() }}
+            >
+              <span className="material-symbols-outlined text-[17px] text-gray-400 group-hover:text-gray-600 shrink-0 transition-colors">
+                unfold_less
+              </span>
+              <span className="truncate flex-1">收起子节点</span>
+            </button>
+            <div className="my-1 border-t border-gray-100" />
+            <button
+              type="button"
+              className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs text-text-primary hover:bg-gray-100/80 active:bg-gray-200/60 transition-colors text-left group select-none"
+              onClick={() => { close(); handleExportPng() }}
+            >
+              <span className="material-symbols-outlined text-[17px] text-gray-400 group-hover:text-gray-600 shrink-0 transition-colors">
+                image
+              </span>
+              <span className="truncate flex-1">导出图片（PNG）</span>
+            </button>
+            <button
+              type="button"
+              className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs text-text-primary hover:bg-gray-100/80 active:bg-gray-200/60 transition-colors text-left group select-none"
+              onClick={() => { close(); handleExportSvg() }}
+            >
+              <span className="material-symbols-outlined text-[17px] text-gray-400 group-hover:text-gray-600 shrink-0 transition-colors">
+                draw
+              </span>
+              <span className="truncate flex-1">导出图片（SVG）</span>
+            </button>
+            <div className="my-1 border-t border-gray-100" />
+            <div className="px-2.5 py-1.5 text-text-secondary/80 text-[11px] space-y-0.5 select-none bg-gray-50/50 rounded-lg">
+              <div className="font-medium text-gray-400 pb-0.5">快捷键指南</div>
+              <p>左键空白处拖动框选</p>
+              <p>Ctrl / Shift 点击多选</p>
+              <p>右键拖动平移 · 滚轮缩放</p>
+              <p>拖到节点中间成为子节点</p>
+              <p>拖到节点上下沿调整顺序</p>
+              <p>双击节点编辑 · Tab 添加子节点</p>
+              <p>Delete 删除选中分支及子节点</p>
+              <p>Esc 取消拖动或清空选择</p>
+              <p>Ctrl+Z 撤销 · Ctrl+Y 重做</p>
+            </div>
           </div>} />
         </div>
 
@@ -313,7 +420,8 @@ const LocalMindmapPanel = forwardRef<LocalMindmapPanelRef, { initialMarkdown?: s
       >
         <div className="flex-1 min-h-0 flex flex-col">
           <MindmapMarkdownEditor
-            value={markdown}
+            value={previewMarkdown ?? markdown}
+            readOnly={readOnly}
             onChange={handleMarkdownChange}
             active={viewMode === 'markdown'}
             viewSwitcher={viewSwitcher}
@@ -335,6 +443,7 @@ const LocalMindmapPanel = forwardRef<LocalMindmapPanelRef, { initialMarkdown?: s
               </button>
               <button
                 type="button"
+                disabled={readOnly}
                 onClick={() => {
                   if (window.confirm('确定清空内容吗？')) {
                     handleMarkdownChange('# 思维导图\n\n- ')

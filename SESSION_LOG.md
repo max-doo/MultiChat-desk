@@ -2,6 +2,197 @@
 
 ## 2026-10-05
 
+### 23:16 | Codex
+
+- done: 导图附件发送恢复普通消息发送路径：按钮选择器未命中时允许原有 Enter 兜底，附件上传或解析中以及已识别按钮禁用时继续等待；带附件请求仅提交一次并等待输入框清空确认。同步设计文档。lint 0 错误、20 项既有警告；build 成功；dev 隔离 Electron 页面 54 项验证通过，覆盖首次生成和修改的 Enter 路径。
+- decision: 取消强制找到按钮的前置限制，复用现有注入与发送实现；新增确认只针对附件请求，普通消息保持原有行为。
+- modified:
+  - `src/shared/utils/webviewScripts.ts`
+  - `docs/single-conversation-mindmap-mvp-design.md`
+- unresolved: 真实 DeepSeek 网页尚未执行发送复测；当前运行实例占用单实例锁，需完整退出并重新启动应用加载后台脚本。两侧类型检查仍存在此前已记录的无关错误。
+
+### 22:47 | Codex
+
+- done: 修正导图附件已挂载却发送前误判失败：提示词注入后15秒内每200毫秒等待附件与按钮就绪；向上识别同时含输入区/附件/按钮的共同容器，跳过禁用按钮候选；超时明确区分附件缺失、解析中、按钮未命中或未就绪。lint0错误（20既有警告）、build通过、Electron48项检查通过，覆盖1.2秒延迟、分层布局、单次发送及原附件/初次生成流程。
+- decision: 等待期间只检查状态，不重复填入或自动重发；未确认附件与按钮就绪时不模拟Enter。保留15秒就绪等待上限与主进程30秒发送超时；平台明确失败立即停止。
+- modified:
+  - `src/shared/utils/webviewScripts.ts`
+  - `docs/single-conversation-mindmap-mvp-design.md`
+- unresolved: 未读取截图对应的实时DeepSeek DOM，仍需重启应用在真实会话复测；如果继续失败，新提示可区分等待延迟与按钮选择器未命中。常规npm run dev受现有单实例影响退出，以隔离Electron开发入口验证。测试负例超时缩短以避免额外等待；node/web类型检查既有错误未新增。
+
+### 22:38 | Codex
+
+- done: 首次生成导图复用完整来源主会话Markdown附件上传机制，正文引用本轮文件并明确要求阅读附件生成完整mindmap；添加真实Markdown围栏示例，保持原归纳规则与解析保存链路。lint0错误（20既有警告）、build成功，Electron41项检查通过，包含首次生成上传-发送-解析-保存及绑定、失败重试、取消、空来源与超限拒绝。
+- decision: 首次生成与修改共享附件上传、发送前确认和清理，不截断或自动总结来源；初次生成正文只包含文件引用、额外要求和完整导图输出协议，保持60000字符来源上限及原有新图创建UI。
+- modified:
+  - `src/shared/utils/mindmap.ts`
+  - `src/main/services/MindmapService.ts`
+  - `docs/single-conversation-mindmap-mvp-design.md`
+- unresolved: 真实DeepSeek等平台附件读取及AI输出稳定性尚需重启应用后手动首次生成复测。npm run dev受现有单实例影响退出，隔离Electron入口验证真实CDP上传和完整服务保存链路。node/web类型检查仍有既有报错，无新增修改相关错误。
+
+### 22:26 | Codex
+
+- done: 导图修改将完整来源主会话作为Markdown附件上传，正文保留当前导图、要求和输出协议；复用总结拖拽实现，增加附件就绪及发送前检查、失败/超时/取消清理和残留页面重试保护；更新设计文档。lint0错误（20既有警告）、build成功、Electron附件31项/解析54项/上下文16项检查通过。
+- decision: 只对需要来源上下文的修改请求上传完整md附件，不截断或总结主会话；保持既有上下文采集时机及60000字符上限；上传失败不降级为缺上下文发送；现有dispatch-file-drop IPC参数和返回契约不变。
+- modified:
+  - `src/main/services/AutomationService.ts`
+  - `src/main/services/MindmapService.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/shared/utils/webviewScripts.ts`
+  - `src/shared/config/selectors.ts`
+  - `src/shared/utils/mindmapEdits.ts`
+  - `docs/single-conversation-mindmap-mvp-design.md`
+- unresolved: 常规npm run dev受当前运行单实例影响退出，隔离Electron页面完成真实CDP拖拽/File读取和服务链路验证；真实DeepSeek等平台附件解析状态与AI回复需重启应用后手动验收。node/web tsc仍有既有报错，无新增修改相关错误。
+
+### 22:05 | Codex
+
+- done: 修正导图修改提示词的代码块示例与无变化格式歧义，调整最终输出规则位置；修复无关代码节点阻挡标签正文采集，并对网页渲染列表提供明确格式错误。lint 无错误（既有20警告）、build成功、Electron临时诊断54项通过；检查总结Markdown附件链路并评估后台复用限制。
+- decision: 保留完整来源主会话，不截断、不自动总结；本轮完成提示词和采集修正，Markdown附件仅评估，尚未接入后台上传链路。保留既有60000字符限制，超过时拒绝发送。
+- modified:
+  - `src/shared/utils/mindmapEdits.ts`
+  - `src/shared/config/selectors.ts`
+  - `src/shared/utils/webviewScripts.ts`
+  - `src/main/services/MindmapService.ts`
+- unresolved: 真实DeepSeek格式稳定性需重启开发实例后以同一导图和要求复测；常规npm run dev受已有单实例影响退出，隔离Electron入口完成DOM验证；node/web tsc仍有既有报错，无新增修改相关错误。
+
+### 21:43 | Codex
+
+- done: 修正导图修改按物理代码节点数量提前拒绝的问题：仅在本轮最新回复中识别包含修改标签的代码文档，相同文本重复展示去重，无关代码不算修改结果；多份不同修改文档仍拒绝，协议结构与精确匹配检查保持。错误诊断增加修改文档数量。lint/build/diff 通过；Electron dev 标签与 DOM 诊断 47 项通过，新增两个代码节点但唯一标签结果、重复展示、不同结果和单代码多外层标签场景。同步设计文档。
+- decision: 物理 DOM 代码节点不等同于逻辑修改结果；唯一标签文档才可进入解析。只统一换行和外围空白用于重复展示比较，保留输出载荷，不扫描旧回复、不从不同结果中猜测。
+- modified:
+  - `src/shared/utils/webviewScripts.ts`
+  - `src/main/services/MindmapService.ts`
+  - `docs/single-conversation-mindmap-mvp-design.md`
+- unresolved: 截图只能确认代码节点计数导致返回空文本，无法确认真实网页第二个节点具体属于隐藏副本还是其他代码；隔离 DOM 诊断通过后仍需更新应用，在真实 DeepSeek 会话重新提交验证。两侧 tsc 保留既有错误，无新增导图采集相关类型错误。
+
+### 21:33 | Codex
+
+- done: 补充来源就绪边界：复用生成会话且未要求上下文时允许来源 Webview 未就绪；确实需要上下文时才拒绝未就绪来源，避免静默使用快照。最终 lint/build 通过，Electron dev 模拟平台服务诊断扩充为 16 项并通过；两侧类型检查仅保留既有错误。
+- modified:
+  - `src/shared/types/notes.ts`
+  - `src/main/services/MindmapService.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+- unresolved: 真实来源采集、真实 AI 请求和 UI 勾选交互仍需手动验收；本轮模拟平台诊断验证了服务决策与提示词，不等价于实际平台端到端验收。
+
+### 21:30 | Codex
+
+- done: 实现导图修改的来源上下文：新建生成会话自动携带来源内容；复用时提供带上主会话最新内容选项；笔记页使用本地快照并提示可能过期。复用现有采集并检查来源归属、会话身份和完整性；采集失败、空快照与合计超限均不发送。新会话成功发送后才标记已初始化，失败重试仍自动携带上下文。lint、build、diff 检查通过；Electron dev 中 14 项模拟平台服务诊断通过。
+- context: 保留现有工作区修改，不切分支、不加依赖；诊断使用临时目录、独立 Electron 用户目录和模拟平台，不访问用户登录数据。
+- decision: 来源正文只由主进程按需获取，renderer 传选项及来源 Webview 身份；当前导图保持唯一替换基准。来源上下文、导图和要求合计 60000 字符，超限不截断；没有实时来源时显式使用快照。新生成对话和恢复既有地址分别处理。
+- modified:
+  - `src/shared/types/notes.ts`
+  - `src/shared/utils/mindmapEdits.ts`
+  - `src/main/services/MindmapService.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+  - `src/preload/index.ts`
+  - `src/preload/index.d.ts`
+  - `src/renderer/src/env.d.ts`
+  - `docs/single-conversation-mindmap-mvp-design.md`
+- unresolved: 两侧 tsc 仍有既有错误，没有新增上下文链路的类型错误。真实来源页面的采集、实际 AI 发送及界面交互仍需手动验收：新会话自动携带、复用勾选最新内容、笔记页快照提示、来源切换及超限拒绝。
+
+### 21:30 | Antigravity
+
+- done: 优化思维导图顶部更多选项菜单与画布工具更多菜单UI：增加极简前置图标、分组分割线、单行文本截断与选中指示，规范危险操作样式与弹窗高度防溢出
+- decision: 保持极简原则，采用语义化Material Symbols图标与低视觉权重的分组细线，导图列表使用check勾选代替硬拼文本，设置max-height与truncate避免内容撑开与多余滚动条
+- modified:
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+  - `src/renderer/src/components/LocalMindmapPanel.tsx`
+
+### 21:15 | Codex
+
+- done: 将导图持续修改从 JSON 改为 mindmap_edits/edit/old_text/new_text 固定标签协议，复用首次生成的外层标签定位。修正 DeepSeek 采集优先读取正式回答正文和代码文档，避免思考内容、语言标签及复制下载控件替代代码正文。同步设计文档。lint 通过（20 条既有警告）、build 通过；electron-vite dev 隔离页面中的协议与 DOM 诊断 43 项通过；diff 检查通过。
+- context: 诊断使用临时目录和独立 Electron Session 的构造页面，不访问用户真实登录数据。npm run dev 已启动，指定诊断入口通过直接调用同一 electron-vite CLI 执行；真实应用已有实例时新实例退出。
+- decision: 仅以固定标签隔离原始文本，不引入 XML 依赖、不保留 JSON 回复兼容。载荷仅统一 LF；保留缩进、空白及字面字符；协议分隔换行不进入载荷。正式修改解析仍复用原精确替换执行器、候选和撤销逻辑。
+- modified:
+  - `src/shared/utils/mindmapEdits.ts`
+  - `src/shared/utils/mindmap.ts`
+  - `src/shared/config/selectors.ts`
+  - `src/shared/utils/webviewScripts.ts`
+  - `src/main/services/MindmapService.ts`
+  - `docs/single-conversation-mindmap-mvp-design.md`
+- unresolved: 两侧 tsc 仍被此前的 daemon、summaryPrompts、旧 Electron API、Window.api、Map 迭代和参数错误阻塞，没有新增的协议相关类型错误。
+- unresolved: 真实 DeepSeek 页面尚未完成修复后的修改验收；更新开发应用后，在原生成会话重新提交添加例子，确认返回标签结果、显示候选，再连续调整并应用撤销。
+
+### 20:48 | Codex
+
+- done: 实现单会话导图 MVP：严格 JSON 精确替换、连续候选预览与应用撤销、生成会话绑定、来源选区添加和节点追问；按用户要求恢复无导图原始界面并将已有导图输入区压缩为单行。lint 通过（20 条既有警告），build 通过，30 个固定样例诊断通过，diff 检查通过。
+- context: 保留开始时已有的画布拖动、多选等工作区修改；未切分支、未添加依赖；用户设计文档和原型未修改。
+- decision: 无导图时复用原始新建 UI；已有图底部用操作胶囊、模型图标、32–72px 自适应输入及圆形提交。候选只在当前进程按窗口和导图隔离，不写入正式 Markdown；冲突和错误整批拒绝。
+- added:
+  - `src/shared/utils/mindmapEdits.ts`
+  - `src/renderer/src/utils/mindmapSelection.ts`
+- modified:
+  - `AGENTS.md`
+  - `src/main/ipcHandlers.ts`
+  - `src/main/noteManager.ts`
+  - `src/main/services/AutomationService.ts`
+  - `src/main/services/MindmapService.ts`
+  - `src/main/webviewManager.ts`
+  - `src/preload/index.ts`
+  - `src/preload/index.d.ts`
+  - `src/renderer/src/env.d.ts`
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+  - `src/renderer/src/components/LocalMindmapPanel.tsx`
+  - `src/renderer/src/components/MindmapMarkdownEditor.tsx`
+  - `src/renderer/src/hooks/useMindmapCanvas.ts`
+  - `src/renderer/src/hooks/useWebviewSidebar.ts`
+  - `src/renderer/src/pages/MainPage.tsx`
+  - `src/renderer/src/pages/QuickPage.tsx`
+  - `src/renderer/src/styles/localMindmap.css`
+  - `src/renderer/src/utils/mindmapExport.ts`
+  - `src/renderer/src/utils/mindmapTree.ts`
+  - `src/shared/types/notes.ts`
+  - `src/shared/utils/mindmap.ts`
+  - `src/shared/utils/webviewScripts.ts`
+- unresolved: 两侧 tsc 仍有既有错误（daemon、summaryPrompts、Electron 旧 API、Window.api、Map 迭代及调用参数），未扩大范围修复。
+- unresolved: npm run dev 已启动隔离开发实例，桌面操作被用户 Escape 停止；尚未完成已登录真实平台的连续两轮调整、应用撤销、取消恢复、来源选区添加、追问追加和 PNG/SVG 导出视觉验收。
+
+### 17:59 | Codex
+
+- done: 合并导图生成与修改入口，新增可交互的模型选择，删除输入区标题、说明和示例入口；同步设计文档。浏览器验证模式草稿保留、带要求及留空新建、原图保留、模型切换、修改应用撤销、取消及失败处理。
+- decision: 输入区仅保留操作、模型、需求和提交；AI 行为继续采用本地演示，不修改应用源代码。
+- added:
+  - `C:/Users/DMX/.codex/visualizations/2026/10/05/01a10a74-17f1-7a01-acc5-f8304c49502f/mindmap-unified-composer.png`
+- modified:
+  - `docs/mindmap-mvp-prototype.html`
+  - `docs/single-conversation-mindmap-mvp-design.md`
+
+### 17:03 | Codex
+
+- done: 创建单会话思维导图 HTML 交互原型，沿用现有面板视觉，浏览器验证划词添加、右键追问仅注入、就地编辑、多轮候选预览、应用撤销、取消和失败保留。
+- decision: 使用无外部依赖的独立 HTML 与本地 AI 回复模拟，不改动应用源代码；原型内容仅保留在浏览器内存中。
+- added:
+  - `docs/mindmap-mvp-prototype.html`
+  - `C:/Users/DMX/.codex/visualizations/2026/10/05/01a10a74-17f1-7a01-acc5-f8304c49502f/mindmap-mvp-preview.png`
+
+### 16:55 | Codex
+
+- done: 节点新增和折叠按钮在缩放低于 75% 时隐藏整组操作及命中区域，放大后恢复悬停、选中和折叠指示规则；统一滚轮、工具栏和 fit 的缩放同步。lint/build 通过，独立 Electron 开发窗口验证选中/悬停/折叠、放大恢复、fit 和滚轮行为。
+- decision: 保留按钮固定屏幕尺寸，新增 0.75 的可见性门槛；隐藏按钮锚点避免小比例下按钮或伪元素仍接收鼠标事件。
+- modified:
+  - `src/renderer/src/hooks/useMindmapCanvas.ts`
+  - `src/renderer/src/styles/localMindmap.css`
+
+### 16:51 | Codex
+
+- done: 思维导图画板支持左键框选、Ctrl/Shift 多选、批量删除、右键平移和跨层级分支拖动吸附；接入现有撤销重做并更新操作提示。lint/build 通过，独立 Electron 开发窗口已触发交互验证。
+- decision: 沿用 Markmap 自动排版，通过拖放修改层级和同级顺序；多选分支按树序移动，父子同时选中时去重，保留根节点并阻止循环层级。
+- modified:
+  - `src/renderer/src/hooks/useMindmapCanvas.ts`
+  - `src/renderer/src/utils/mindmapTree.ts`
+  - `src/renderer/src/styles/localMindmap.css`
+  - `src/renderer/src/components/LocalMindmapPanel.tsx`
+- unresolved: 全项目 web 类型检查被未修改文件中的 12 项既有错误阻塞；因现有开发实例的单实例锁，使用独立 Electron 窗口和临时导图验证组件；真实导图保存后重开持久化需在完整应用中补验。
+
+### 16:37 | Codex
+
+- done: 更新单会话思维导图 MVP 设计为每轮 JSON 精确文本补丁，完善提示词模板、原文匹配与版本基线、IPC 契约和开发验收样例。
+- decision: 统一用户输入，模型返回 oldText/newText；应用在本轮全文上唯一完整行匹配并整批生成候选，不保存节点 ID，不模糊匹配或自动全量降级。
+- modified:
+  - `docs/single-conversation-mindmap-mvp-design.md`
+
 ### 16:09 | Antigravity
 
 - done: 实现模型回复附件智能复用与状态守护，根治重新注入重复上传附件及撤回脏附件 Bug

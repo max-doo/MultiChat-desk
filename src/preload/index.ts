@@ -1,7 +1,7 @@
 import type { HistoryListItem, SummaryHistoryListItem, HistoryKind, HistoryRecord, DataImportResult } from '../shared/types/history'
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
-import type { NoteConversation, NoteDraft, NoteHighlight, NoteSelectionRect, ConversationMindmap, MindmapTask, NoteNavigation } from '../shared/types/notes'
+import type { NoteConversation, NoteDraft, NoteHighlight, NoteSelectionRect, ConversationMindmap, MindmapTask, NoteNavigation, MindmapModifyRequest, MindmapCandidate, MindmapSelection } from '../shared/types/notes'
 
 // 文件数据类型
 interface FileData {
@@ -154,6 +154,18 @@ const api = {
   notesCaptureSource: (id: number, platform: string, name: string): Promise<{ success: boolean; data?: NoteConversation; error?: string }> => ipcRenderer.invoke('notes:capture-source', id, platform, name),
   mindmapsStart: (conversationId: string, platform: string, additionalRequirements?: string): Promise<{ success: boolean; data?: MindmapTask; error?: string }> => ipcRenderer.invoke('mindmaps:start', conversationId, platform, additionalRequirements),
   mindmapsTask: (): Promise<{ success: boolean; data?: MindmapTask | null; error?: string }> => ipcRenderer.invoke('mindmaps:task'),
+  // Context flags and owned source webview identity are part of the shared request; main performs capture.
+  mindmapsModify: (request: MindmapModifyRequest): Promise<{ success: boolean; data?: MindmapTask; error?: string }> => ipcRenderer.invoke('mindmaps:modify', request),
+  mindmapsCandidate: (mapId: string): Promise<{ success: boolean; data?: MindmapCandidate | null; error?: string }> => ipcRenderer.invoke('mindmaps:candidate', mapId),
+  mindmapsApply: (mapId: string, candidateId: string): Promise<{ success: boolean; data?: ConversationMindmap; error?: string }> => ipcRenderer.invoke('mindmaps:apply', mapId, candidateId),
+  mindmapsDiscard: (mapId: string, candidateId: string): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('mindmaps:discard', mapId, candidateId),
+  mindmapsAsk: (id: number, platformId: string, conversationId: string, question: string): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('mindmaps:ask', id, platformId, conversationId, question),
+  mindmapsBlankSource: (id: number, expectedUrl: string, platformName: string): Promise<{ success: boolean; data?: { conversation: NoteConversation; mindmap: ConversationMindmap }; error?: string }> => ipcRenderer.invoke('mindmaps:blank-source', id, expectedUrl, platformName),
+  onMindmapSelection: (cb: (selection: MindmapSelection) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, selection: MindmapSelection): void => cb(selection)
+    ipcRenderer.on('mindmaps:selection', handler)
+    return () => ipcRenderer.removeListener('mindmaps:selection', handler)
+  },
   mindmapsCancel: (id: string): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('mindmaps:cancel', id),
   mindmapsShow: (id: string): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('mindmaps:show', id),
   mindmapsAdd: (conversationId: string, markdown: string): Promise<{ success: boolean; data?: ConversationMindmap; error?: string }> => ipcRenderer.invoke('mindmaps:add', conversationId, markdown),

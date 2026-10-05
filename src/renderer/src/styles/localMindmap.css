@@ -112,6 +112,57 @@ foreignObject.markmap-foreign {
   outline-offset: 1px !important;
 }
 
+.mm-selection-box,
+.mm-drag-preview {
+  position: absolute;
+  pointer-events: none;
+  z-index: 40;
+}
+.mm-selection-box {
+  border: 1px solid #2563eb;
+  background: rgba(37, 99, 235, 0.1);
+}
+.mm-drag-preview {
+  max-width: 280px;
+  padding: 6px 10px;
+  border: 1px solid #93c5fd;
+  border-radius: 6px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+.mm-gesturing,
+.mm-gesturing .mm-node-item {
+  cursor: grabbing !important;
+  user-select: none !important;
+}
+.mm-panning,
+.mm-panning .mm-node-item {
+  cursor: grabbing !important;
+}
+.mm-node-item.mm-dragging { opacity: 0.35; }
+.mm-gesturing .markmap .mm-node-item .mm-node-btns { display: none !important; }
+.mm-node-item[data-drop-position="child"] {
+  outline: 2px solid #16a34a !important;
+  outline-offset: 3px !important;
+}
+.mm-node-item[data-drop-position="before"]::before,
+.mm-node-item[data-drop-position="after"]::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: calc(2px * var(--mm-zoom-inv, 1));
+  background: #16a34a;
+  pointer-events: none;
+}
+.mm-node-item[data-drop-position="before"]::before { top: -4px; }
+.mm-node-item[data-drop-position="after"]::after { bottom: -4px; }
+
 /* 正在就地编辑状态：继承节点原形原色，微蓝光标轮廓 */
 .mm-node-item.mm-editing {
   outline: 2px solid #3b82f6 !important;
@@ -142,6 +193,11 @@ foreignObject.markmap-foreign {
   width: 0;
   height: 0;
   pointer-events: none;
+}
+
+/* 缩小到文字难以辨认时，隐藏整组按钮及其扩展命中区域。 */
+.markmap.mm-controls-hidden .mm-node-btns-anchor {
+  display: none !important;
 }
 
 /* 浮动在节点右边缘外侧、正中覆盖在右侧连线上的按钮栏
@@ -239,3 +295,9 @@ foreignObject.markmap-foreign {
   border-color: #000000 !important;
   color: #000000 !important;
 }
+.mm-node-item.mm-changed:not(.mm-selected):not(.mm-editing) {
+  background: color-mix(in srgb, var(--color-primary, #6366f1) 16%, white) !important;
+  color: var(--color-primary, #6366f1) !important;
+  box-shadow: inset 3px 0 var(--color-primary, #6366f1);
+}
+.mm-readonly .mm-node-btns { display: none !important; }

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react'
 import { Markmap } from 'markmap-view'
 import type { INode } from 'markmap-common'
-import { cloneTree, findNode, generateId, type MindNode } from '../utils/mindmapTree'
+import { cloneTree, findNode, generateId, getSelectedBranches, moveBranches, type MindNode, type MindmapDropPosition } from '../utils/mindmapTree'
 
 interface MindmapCanvasOptions {
   tree: MindNode
@@ -11,7 +11,13 @@ interface MindmapCanvasOptions {
   handleUndo: () => void
   handleRedo: () => void
   showToast: (message: string) => void
+  readOnly?: boolean
+  changedLines?: number[]
+  onNodeContextMenu?: (id: string, path: string[], x: number, y: number) => void
 }
+
+// 正文默认 12.5px；缩放后小于约 9px 时隐藏节点操作，避免固定尺寸按钮遮住导图。
+const NODE_CONTROLS_MIN_ZOOM = 0.75
 
 function escapeHtml(text: string): string {
   return text
@@ -242,20 +248,35 @@ export function useMindmapCanvas({
   onTreeChange,
   handleUndo,
   handleRedo,
-  showToast
+  showToast,
+  readOnly = false,
+  changedLines,
+  onNodeContextMenu
 }: MindmapCanvasOptions) {
   const treeRef = useRef(tree)
   treeRef.current = tree
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
+  const changedLinesRef = useRef(changedLines)
+  changedLinesRef.current = changedLines
+  const readOnlyRef = useRef(readOnly)
+  readOnlyRef.current = readOnly
+  const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([])
+  const selectedNodeIdsRef = useRef<string[]>([])
+  const selectedNodeId = selectedNodeIds.length === 1 ? selectedNodeIds[0] : null
   const selectedNodeIdRef = useRef<string | null>(null)
-  selectedNodeIdRef.current = selectedNodeId
+  const setSelection = useCallback((ids: string[]) => {
+    selectedNodeIdsRef.current = ids
+    selectedNodeIdRef.current = ids.length === 1 ? ids[0] : null
+    setSelectedNodeIds(ids)
+  }, [])
+  const setSelectedNodeId = useCallback((id: string | null) => setSelection(id ? [id] : []), [setSelection])
   const isComposingRef = useRef(false)
 
   // 同步更新镜像树，保证一次事件中的后续操作读取到最新数据。
   const commitTreeChange = useCallback((nextTree: MindNode) => {
+    if (readOnly) return
     treeRef.current = nextTree
     onTreeChange(nextTree)
-  }, [onTreeChange])
+  }, [onTreeChange, readOnly])
 
   // Markmap 引用
   const containerRef = useRef<HTMLDivElement>(null)
@@ -297,7 +318,7 @@ export function useMindmapCanvas({
     })
   }, [])
 
-  // ── 更新当前画布缩放比例对应的 CSS 逆向缩放变量 --mm-zoom-inv，确保按钮物理尺寸恒定不变 ──
+  // ── 同步按钮尺寸和可见性；节点过小时隐藏整组操作按钮 ──
   const updateZoomCss = useCallback(() => {
     if (!svgRef.current) return
     const zoomData = (svgRef.current as unknown as { __zoom?: { k?: number } }).__zoom
@@ -313,12 +334,14 @@ export function useMindmapCanvas({
     if (k && k > 0 && isFinite(k)) {
       const inv = Math.max(0.05, Math.min(20, 1 / k))
       svgRef.current.style.setProperty('--mm-zoom-inv', `${inv}`)
+      svgRef.current.classList.toggle('mm-controls-hidden', k < NODE_CONTROLS_MIN_ZOOM)
     }
   }, [])
 
   // ── 提交正在就地编辑的节点 ──
   const commitCurrentEditing = useCallback(
     () => {
+      if (readOnly) return
       const currentId = editingNodeIdRef.current
       if (!currentId || !svgRef.current) return
 
@@ -349,7 +372,7 @@ export function useMindmapCanvas({
         commitTreeChange(cloned)
       }
     },
-    [commitTreeChange]
+    [commitTreeChange, readOnly]
   )
 
   // ── 取消就地编辑 ──
@@ -379,6 +402,7 @@ export function useMindmapCanvas({
   // ── 在节点的形状内部开启就地编辑 ──
   const startEditingNode = useCallback(
     (nodeId: string, initialText?: string, selectAll = true) => {
+      if (readOnly) return
       if (!svgRef.current) return
       const nodeItem = svgRef.current.querySelector<HTMLElement>(`.mm-node-item[data-node-id="${nodeId}"]`)
       const titleEl = svgRef.current.querySelector<HTMLElement>(`.mm-node-title[data-node-id="${nodeId}"]`)
@@ -433,7 +457,7 @@ export function useMindmapCanvas({
         console.warn('[LocalMindmap] selectNodeContents warning:', err)
       }
     },
-    [commitCurrentEditing]
+    [commitCurrentEditing, readOnly]
   )
 
   // ── 添加子节点 (就地直接在形状内输入) ──
@@ -508,39 +532,27 @@ export function useMindmapCanvas({
   )
 
   // ── 删除节点 ──
-  const handleDeleteNode = useCallback(
-    (nodeId: string) => {
+  const handleDeleteSelection = useCallback(
+    () => {
       const currentTree = treeRef.current
-      if (nodeId === currentTree.id) {
+      const branches = getSelectedBranches(currentTree, new Set(selectedNodeIdsRef.current))
+      if (!branches.length) {
         showToast('根节点不能删除')
         return
       }
-
+      const deleting = new Set(branches.map(node => node.id))
       const cloned = cloneTree(currentTree)
-      const remove = (parent: MindNode): boolean => {
-        const idx = parent.children.findIndex((c) => c.id === nodeId)
-        if (idx !== -1) {
-          parent.children.splice(idx, 1)
-          return true
-        }
-        for (const child of parent.children) {
-          if (remove(child)) return true
-        }
-        return false
+      const remove = (parent: MindNode): void => {
+        parent.children = parent.children.filter(child => !deleting.has(child.id))
+        parent.children.forEach(remove)
       }
-
-      if (remove(cloned)) {
-        commitTreeChange(cloned)
-        if (selectedNodeIdRef.current === nodeId) {
-          setSelectedNodeId(null)
-        }
-        if (editingNodeIdRef.current === nodeId) {
-          editingNodeIdRef.current = null
-        }
-        showToast('已删除节点')
-      }
+      remove(cloned)
+      editingNodeIdRef.current = null
+      setSelection([])
+      commitTreeChange(cloned)
+      showToast(`已删除 ${branches.length} 个分支及其子节点`)
     },
-    [commitTreeChange, showToast]
+    [commitTreeChange, setSelection, showToast]
   )
 
   // ── 折叠 / 展开单个节点 ──
@@ -598,17 +610,16 @@ export function useMindmapCanvas({
   }, [commitTreeChange, fitCanvas, convertLinksToStep, updateZoomCss, showToast])
 
   // ── 同步高亮选中状态类名（直接操作 DOM 避免重新渲染销毁输入状态） ──
-  const syncSelectionClass = useCallback((nodeId: string | null) => {
+  const syncSelectionClass = useCallback(() => {
     if (!svgRef.current) return
-    svgRef.current.querySelectorAll('.mm-node-item.mm-selected').forEach((el) => {
-      if (el.getAttribute('data-node-id') !== nodeId) {
-        el.classList.remove('mm-selected')
-      }
+    const selected = new Set(selectedNodeIdsRef.current)
+    const changed = new Set(changedLinesRef.current || [])
+    svgRef.current.classList.toggle('mm-readonly', readOnlyRef.current)
+    svgRef.current.querySelectorAll('.mm-node-item').forEach((el) => {
+      el.classList.toggle('mm-selected', selected.has(el.getAttribute('data-node-id') || ''))
+      const node = findNode(treeRef.current, el.getAttribute('data-node-id') || '')
+      el.classList.toggle('mm-changed', node?.sourceLine !== undefined && changed.has(node.sourceLine))
     })
-    if (nodeId) {
-      const el = svgRef.current.querySelector(`.mm-node-item[data-node-id="${nodeId}"]`)
-      el?.classList.add('mm-selected')
-    }
   }, [])
 
   // ── 渲染 Markmap（仅在 tree 或 active 变动时调用 setData，避免编辑时重绘 DOM） ──
@@ -634,16 +645,13 @@ export function useMindmapCanvas({
         }
       )
       markmapRef.current = mm
+      // 保留滚轮缩放，鼠标平移仅使用右键；左键由框选与节点拖动处理。
+      const defaultZoomFilter = mm.zoom.filter()
+      mm.zoom.filter((event: MouseEvent) => event.type === 'mousedown'
+        ? event.button === 2 : event.type === 'dblclick' ? false : defaultZoomFilter(event))
 
-      // 实时监听 D3 zoom 事件，驱动 --mm-zoom-inv，确保操作按钮物理大小恒定不变
-      const mmAny = mm as unknown as { zoom?: { on: (event: string, fn: (e: { transform: { k: number } }) => void) => void } }
-      mmAny.zoom?.on('zoom.buttonScale', (event) => {
-        const k = event?.transform?.k
-        if (k && k > 0 && isFinite(k) && svgRef.current) {
-          const inv = Math.max(0.05, Math.min(20, 1 / k))
-          svgRef.current.style.setProperty('--mm-zoom-inv', `${inv}`)
-        }
-      })
+      // 滚轮、工具栏缩放和 fit 均通过 D3 zoom 同步按钮可见性。
+      mm.zoom.on('zoom.buttonScale', updateZoomCss)
 
     }
 
@@ -658,16 +666,19 @@ export function useMindmapCanvas({
       if (needsInitialFitRef.current || invalidTransform) await fitCanvas()
       if (cancelled || markmapRef.current !== mm) return
       convertLinksToStep()
-      syncSelectionClass(selectedNodeIdRef.current)
+      const visibleIds = new Set(Array.from(svg.querySelectorAll('.mm-node-item'), el => el.getAttribute('data-node-id')))
+      const remaining = selectedNodeIdsRef.current.filter(id => visibleIds.has(id))
+      if (remaining.length !== selectedNodeIdsRef.current.length) setSelection(remaining)
+      syncSelectionClass()
       updateZoomCss()
     })
     return () => { cancelled = true }
-  }, [active, canvasVisible, tree, fitCanvas, convertLinksToStep, syncSelectionClass, updateZoomCss])
+  }, [active, canvasVisible, tree, fitCanvas, convertLinksToStep, syncSelectionClass, updateZoomCss, setSelection])
 
   // ── 选中态变化时即时同步 DOM 类名 ──
   useEffect(() => {
-    syncSelectionClass(selectedNodeId)
-  }, [selectedNodeId, syncSelectionClass])
+    syncSelectionClass()
+  }, [selectedNodeIds, changedLines, readOnly, syncSelectionClass])
 
   // ── MutationObserver 监听 SVG 内部路径变化，确保任何时刻连线都是垂直居中直角折线 ──
   useEffect(() => {
@@ -686,18 +697,7 @@ export function useMindmapCanvas({
               }
             }
           } else if (m.attributeName === 'transform') {
-            const target = m.target as Element
-            if (target.tagName.toLowerCase() === 'g') {
-              const transform = target.getAttribute('transform') || ''
-              const match = transform.match(/scale\(([\d.]+)\)/)
-              if (match) {
-                const k = parseFloat(match[1])
-                if (k > 0 && isFinite(k) && svgRef.current) {
-                  const inv = Math.max(0.05, Math.min(20, 1 / k))
-                  svgRef.current.style.setProperty('--mm-zoom-inv', `${inv}`)
-                }
-              }
-            }
+            if (m.target === markmapRef.current?.g.node()) updateZoomCss()
           }
         } else if (m.type === 'childList') {
           m.addedNodes.forEach((node) => {
@@ -723,7 +723,7 @@ export function useMindmapCanvas({
     })
 
     return () => observer.disconnect()
-  }, [])
+  }, [updateZoomCss])
 
   // ── 监听尺寸变化，校准连线与按钮缩放，保留用户视口 ──
   useEffect(() => {
@@ -765,20 +765,206 @@ export function useMindmapCanvas({
     const container = containerRef.current
     if (!container || !active) return
 
+    let suppressClick = false
+    let gesture: {
+      startX: number
+      startY: number
+      nodeId: string | null
+      baseSelection: string[]
+      originalSelection: string[]
+      moving: boolean
+      branches: MindNode[]
+      overlay: HTMLDivElement | null
+      drop: { id: string; position: MindmapDropPosition; element: HTMLElement } | null
+    } | null = null
+
+    const clearDrop = (): void => {
+      gesture?.drop?.element.removeAttribute('data-drop-position')
+      if (gesture) gesture.drop = null
+    }
+    const cancelGesture = (): void => {
+      clearDrop()
+      gesture?.overlay?.remove()
+      container.classList.remove('mm-gesturing', 'mm-panning')
+      container.querySelectorAll('.mm-dragging').forEach(el => el.classList.remove('mm-dragging'))
+      gesture = null
+    }
+
     const handleMouseDownCapture = (e: MouseEvent): void => {
       const target = e.target as HTMLElement
+      if (!svgRef.current?.contains(target)) return
+      suppressClick = false
+      if (e.button === 2) {
+        if (gesture) cancelGesture()
+        if (target.closest('[contenteditable="true"]')) return
+        contextStart = { x: e.clientX, y: e.clientY }
+        if (editingNodeIdRef.current) commitCurrentEditing()
+        container.focus({ preventScroll: true })
+        container.classList.add('mm-panning')
+        return
+      }
+      if (readOnly) return
       // 点击了操作按钮，阻止事件向下传递到 D3 zoom（避免被误判为画布拖拽手势）
       if (target.closest('[data-action]') || target.closest('.mm-node-btns')) {
         e.stopPropagation()
+        return
       }
+      if (e.button !== 0) return
+      const nodeId = target.closest('.mm-node-item')?.getAttribute('data-node-id') || null
+      if (nodeId && editingNodeIdRef.current === nodeId) {
+        e.stopPropagation()
+        return
+      }
+      if (editingNodeIdRef.current) commitCurrentEditing()
+      e.preventDefault()
+      e.stopPropagation()
+      container.focus({ preventScroll: true })
+      if (nodeId && (e.ctrlKey || e.metaKey || e.shiftKey)) {
+        const ids = selectedNodeIdsRef.current
+        setSelection(ids.includes(nodeId) ? ids.filter(id => id !== nodeId) : [...ids, nodeId])
+        syncSelectionClass()
+        suppressClick = true
+        return
+      }
+      gesture = {
+        startX: e.clientX, startY: e.clientY, nodeId,
+        baseSelection: e.ctrlKey || e.metaKey || e.shiftKey ? [...selectedNodeIdsRef.current] : [],
+        originalSelection: [...selectedNodeIdsRef.current],
+        moving: false, branches: [], overlay: null, drop: null
+      }
+    }
+
+    const handleMouseMove = (e: MouseEvent): void => {
+      if (!gesture) return
+      const distance = Math.hypot(e.clientX - gesture.startX, e.clientY - gesture.startY)
+      if (!gesture.moving && distance < 4) return
+      e.preventDefault()
+      if (!gesture.moving) {
+        gesture.moving = true
+        suppressClick = true
+        container.classList.add('mm-gesturing')
+        gesture.overlay = document.createElement('div')
+        gesture.overlay.className = gesture.nodeId ? 'mm-drag-preview' : 'mm-selection-box'
+        container.append(gesture.overlay)
+        if (gesture.nodeId) {
+          if (!selectedNodeIdsRef.current.includes(gesture.nodeId)) setSelection([gesture.nodeId])
+          gesture.branches = getSelectedBranches(treeRef.current, new Set(selectedNodeIdsRef.current))
+          gesture.overlay.textContent = gesture.branches.length
+            ? `${gesture.branches[0].content}${gesture.branches.length > 1 ? ` 等 ${gesture.branches.length} 个分支` : ''}`
+            : '根节点不能移动'
+          svgRef.current?.querySelectorAll<HTMLElement>('.mm-node-item').forEach(el => {
+            const id = el.getAttribute('data-node-id') || ''
+            if (gesture?.branches.some(node => findNode(node, id))) el.classList.add('mm-dragging')
+          })
+        }
+      }
+      const bounds = container.getBoundingClientRect()
+      const overlay = gesture.overlay!
+      if (!gesture.nodeId) {
+        const left = Math.min(e.clientX, gesture.startX)
+        const top = Math.min(e.clientY, gesture.startY)
+        const right = Math.max(e.clientX, gesture.startX)
+        const bottom = Math.max(e.clientY, gesture.startY)
+        Object.assign(overlay.style, {
+          left: `${left - bounds.left}px`, top: `${top - bounds.top}px`,
+          width: `${right - left}px`, height: `${bottom - top}px`
+        })
+        const ids = new Set(gesture.baseSelection)
+        svgRef.current?.querySelectorAll<HTMLElement>('.mm-node-item').forEach(el => {
+          const rect = el.getBoundingClientRect()
+          if (rect.right >= left && rect.left <= right && rect.bottom >= top && rect.top <= bottom) {
+            const id = el.getAttribute('data-node-id')
+            if (id) ids.add(id)
+          }
+        })
+        setSelection(Array.from(ids))
+        syncSelectionClass()
+        return
+      }
+      Object.assign(overlay.style, { left: `${e.clientX - bounds.left + 12}px`, top: `${e.clientY - bounds.top + 12}px` })
+      clearDrop()
+      if (!gesture.branches.length) return
+      // 使用屏幕坐标检测吸附距离，缩放后仍保持相同的鼠标容差。
+      let nearest = 18
+      svgRef.current?.querySelectorAll<HTMLElement>('.mm-node-item').forEach(el => {
+        const id = el.getAttribute('data-node-id') || ''
+        if (gesture!.branches.some(node => findNode(node, id))) return
+        const rect = el.getBoundingClientRect()
+        const dx = Math.max(rect.left - e.clientX, 0, e.clientX - rect.right)
+        const dy = Math.max(rect.top - e.clientY, 0, e.clientY - rect.bottom)
+        const distance = Math.hypot(dx, dy)
+        if (distance > nearest) return
+        nearest = distance
+        const ratio = (e.clientY - rect.top) / rect.height
+        const position: MindmapDropPosition = id === treeRef.current.id ? 'child'
+          : ratio < 0.25 ? 'before' : ratio > 0.75 ? 'after' : 'child'
+        gesture!.drop = { id, position, element: el }
+      })
+      if (gesture.drop) {
+        gesture.drop.element.setAttribute('data-drop-position', gesture.drop.position)
+        overlay.textContent = gesture.drop.position === 'child' ? '松开成为子节点'
+          : gesture.drop.position === 'before' ? '松开放到同级上方' : '松开放到同级下方'
+      } else overlay.textContent = '拖到节点上吸附；Esc 取消'
+    }
+
+    const handleMouseUp = (e: MouseEvent): void => {
+      container.classList.remove('mm-panning')
+      if (!gesture || e.button !== 0) return
+      const { nodeId, moving, drop } = gesture
+      if (moving && nodeId && drop) {
+        const next = moveBranches(treeRef.current, new Set(selectedNodeIdsRef.current), drop.id, drop.position)
+        if (next) {
+          commitTreeChange(next)
+          showToast('已移动分支')
+        }
+      }
+      cancelGesture()
+    }
+    const handleGestureKey = (e: KeyboardEvent): void => {
+      if (!gesture) return
+      if (e.key === 'Escape') {
+        suppressClick = true
+        setSelection(gesture.originalSelection)
+        cancelGesture()
+        syncSelectionClass()
+      }
+      // 手势结束前不执行删除、撤销或输入，避免拖动中的树被键盘改写。
+      e.preventDefault()
+      e.stopImmediatePropagation()
+    }
+    const handleWheel = (e: WheelEvent): void => {
+      if (gesture) { e.preventDefault(); e.stopPropagation() }
+    }
+    let contextStart: { x: number; y: number } | null = null
+    const handleContextMenu = (e: MouseEvent): void => {
+      const target = e.target as HTMLElement
+      if (!svgRef.current?.contains(target) || target.closest('[contenteditable="true"]')) return
+      e.preventDefault()
+      if (contextStart && Math.hypot(e.clientX - contextStart.x, e.clientY - contextStart.y) > 6) return
+      const item = target.closest<HTMLElement>('.mm-node-item') || target.closest('.markmap-node')?.querySelector<HTMLElement>('.mm-node-item')
+      const id = item?.dataset.nodeId
+      if (!id) return
+      const path: string[] = []
+      const locate = (node: MindNode): boolean => {
+        path.push(node.content)
+        if (node.id === id || node.children.some(locate)) return true
+        path.pop(); return false
+      }
+      if (!locate(treeRef.current)) return
+      setSelectedNodeId(id)
+      syncSelectionClass()
+      onNodeContextMenu?.(id, path, e.clientX, e.clientY)
     }
 
     const handleClickCapture = (e: MouseEvent): void => {
       const target = e.target as HTMLElement
+      if (!svgRef.current?.contains(target)) return
+      if (suppressClick) { e.preventDefault(); e.stopPropagation(); return }
 
       // 点击了按钮 (+ 或折叠)，精确向上寻找 [data-action]
       const actionBtn = target.closest<HTMLElement>('[data-action]')
       if (actionBtn) {
+        if (readOnly) return
         const action = actionBtn.getAttribute('data-action')
         const actionNodeId = actionBtn.getAttribute('data-node-id')
         if (action === 'add' && actionNodeId) {
@@ -822,11 +1008,11 @@ export function useMindmapCanvas({
           }
 
           // 如果点击的是已经选中的节点，直接进入编辑模式
-          if (selectedNodeIdRef.current === nodeId) {
+          if (!readOnly && selectedNodeIdRef.current === nodeId && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
             startEditingNode(nodeId, undefined, false)
           } else {
             setSelectedNodeId(nodeId)
-            syncSelectionClass(nodeId)
+            syncSelectionClass()
           }
           return
         }
@@ -837,10 +1023,11 @@ export function useMindmapCanvas({
         commitCurrentEditing()
       }
       setSelectedNodeId(null)
-      syncSelectionClass(null)
+      syncSelectionClass()
     }
 
     const handleDblClickCapture = (e: MouseEvent): void => {
+      if (readOnly) return
       const target = e.target as HTMLElement
       const nodeItem =
         target.closest<HTMLElement>('.mm-node-item') ||
@@ -878,6 +1065,12 @@ export function useMindmapCanvas({
     }
 
     container.addEventListener('mousedown', handleMouseDownCapture, true)
+    container.addEventListener('contextmenu', handleContextMenu)
+    container.addEventListener('wheel', handleWheel, { capture: true, passive: false })
+    window.addEventListener('mousemove', handleMouseMove, true)
+    window.addEventListener('mouseup', handleMouseUp, true)
+    window.addEventListener('keydown', handleGestureKey, true)
+    window.addEventListener('blur', cancelGesture)
     container.addEventListener('click', handleClickCapture, true)
     container.addEventListener('dblclick', handleDblClickCapture, true)
     container.addEventListener('focusout', handleFocusOutCapture, true)
@@ -885,7 +1078,14 @@ export function useMindmapCanvas({
     container.addEventListener('compositionend', handleCompositionEnd, true)
 
     return () => {
+      cancelGesture()
       container.removeEventListener('mousedown', handleMouseDownCapture, true)
+      container.removeEventListener('contextmenu', handleContextMenu)
+      container.removeEventListener('wheel', handleWheel, true)
+      window.removeEventListener('mousemove', handleMouseMove, true)
+      window.removeEventListener('mouseup', handleMouseUp, true)
+      window.removeEventListener('keydown', handleGestureKey, true)
+      window.removeEventListener('blur', cancelGesture)
       container.removeEventListener('click', handleClickCapture, true)
       container.removeEventListener('dblclick', handleDblClickCapture, true)
       container.removeEventListener('focusout', handleFocusOutCapture, true)
@@ -894,17 +1094,24 @@ export function useMindmapCanvas({
     }
   }, [
     active,
+    readOnly,
+    onNodeContextMenu,
     handleAddChild,
     handleToggleFoldNode,
     commitCurrentEditing,
-    startEditingNode
+    startEditingNode,
+    commitTreeChange,
+    setSelection,
+    syncSelectionClass,
+    showToast
   ])
 
   // ── 键盘交互（Tab 新增、Delete 删除、点击选中后直接输入覆盖、Enter 编辑/提交） ──
   useEffect(() => {
-    if (!active) return
+    if (!active || readOnly) return
 
     const handleKeyDown = (e: KeyboardEvent): void => {
+      if (!containerRef.current?.contains(document.activeElement)) return
       // 标题、菜单和大纲输入使用各自的键盘行为，避免触发画布节点编辑。
       if (!editingNodeIdRef.current && e.target instanceof HTMLElement && e.target.closest('input,textarea,select,[contenteditable="true"]')) return
       // 1. 正在处于就地编辑态
@@ -949,19 +1156,19 @@ export function useMindmapCanvas({
       }
 
       // 3. 节点选中状态下的交互
+      if (e.key === 'Escape') { setSelection([]); return }
+      if (selectedNodeIdsRef.current.length && (e.key === 'Delete' || e.key === 'Backspace')) {
+        e.preventDefault()
+        e.stopPropagation()
+        handleDeleteSelection()
+        return
+      }
       if (selectedNodeId) {
         // Tab: 新增子节点
         if (e.key === 'Tab') {
           e.preventDefault()
           e.stopPropagation()
           handleAddChild(selectedNodeId)
-          return
-        }
-
-        // Delete / Backspace: 删除节点
-        if (e.key === 'Delete' || e.key === 'Backspace') {
-          e.preventDefault()
-          handleDeleteNode(selectedNodeId)
           return
         }
 
@@ -998,10 +1205,12 @@ export function useMindmapCanvas({
   }, [
     active,
     selectedNodeId,
+    readOnly,
     commitCurrentEditing,
     cancelEditing,
     handleAddChild,
-    handleDeleteNode,
+    handleDeleteSelection,
+    setSelection,
     handleUndo,
     handleRedo,
     startEditingNode
@@ -1040,6 +1249,27 @@ export function useMindmapCanvas({
     handleZoom,
     handleFit,
     handleExpandAll,
-    handleFoldAll
+    handleFoldAll,
+    commitCurrentEditing,
+    getTarget: () => {
+      const node = findNode(treeRef.current, selectedNodeIdRef.current || treeRef.current.id) || treeRef.current
+      return { id: node.id, label: node.content }
+    },
+    insertNode: (parentId: string, text: string): boolean => {
+      if (readOnly) return false
+      commitCurrentEditing()
+      const next = cloneTree(treeRef.current), parent = findNode(next, parentId)
+      if (!parent) return false
+      const id = generateId()
+      parent.children.push({ id, content: text, children: [], fold: false })
+      parent.fold = false
+      commitTreeChange(next)
+      setSelectedNodeId(id)
+      setTimeout(() => startEditingNode(id, undefined, true), 50)
+      return true
+    },
+    editNode: startEditingNode,
+    addChild: handleAddChild,
+    deleteSelection: handleDeleteSelection
   }
 }

@@ -5,8 +5,9 @@
 
 import type { ModelSelector } from '../config/selectors'
 import { getHtmlToMarkdownScript } from './htmlToMarkdown'
-import { noteMessageSelectors, generationStopSelectors, mindmapCodeSelectors, responseMessageSelectors } from '../config/selectors'
+import { noteMessageSelectors, generationStopSelectors, mindmapCodeSelectors, responseMessageSelectors, fileUploadSelectors } from '../config/selectors'
 import { MINDMAP_TAGS } from './mindmap'
+import { MINDMAP_EDIT_TAGS } from './mindmapEdits'
 import { NOTE_CLICK_PREFIX, NOTE_DISMISS_PREFIX } from '../types/notes'
 
 const IS_DEV = process.env.NODE_ENV !== 'production'
@@ -65,6 +66,54 @@ export function generateDetectUploadedFileScript(fileName: string): string {
         return false;
       })();
     `
+}
+
+/** 限定在当前输入区附近，检查本轮唯一附件与上传状态。 */
+export function generateFileUploadStateScript(selectors: ModelSelector, fileName: string): string {
+  return String.raw`(function () {
+    const config = ${JSON.stringify(fileUploadSelectors)};
+    const fileName = ${JSON.stringify(fileName)};
+    const visible = el => !!el && el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden';
+    const find = (list, root = document, enabledOnly = false) => {
+      for (const selector of list) {
+        try { const el = Array.from(root.querySelectorAll(selector)).find(el => visible(el) && (!enabledOnly || (!el.disabled && el.getAttribute('aria-disabled') !== 'true'))); if (el) return el; } catch {}
+      }
+      return null;
+    };
+    const input = find(${JSON.stringify(selectors.textarea)});
+    if (!input) return { found: false, busy: false, sendReady: false };
+    const ignored = el => !el || input.contains(el) || !!el.closest(config.ignored);
+    const readText = root => {
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      const parts = [];
+      while (walker.nextNode()) {
+        const node = walker.currentNode;
+        if (!ignored(node.parentElement) && visible(node.parentElement)) parts.push(node.textContent || '');
+      }
+      return parts.join('\n');
+    };
+    const containsFile = root => {
+      if (readText(root).includes(fileName)) return true;
+      return [root, ...root.querySelectorAll(config.metadata)].some(el => !ignored(el) && visible(el) && ['aria-label','title','data-file-name'].some(key => (el.getAttribute(key) || '').includes(fileName)));
+    };
+    let composer = input.parentElement;
+    let fileRoot = null;
+    const sendSelectors = ${JSON.stringify(selectors.sendButton)};
+    while (composer) {
+      if (containsFile(composer)) {
+        fileRoot ||= composer;
+        if (find(sendSelectors, composer)) break;
+      }
+      composer = composer.parentElement;
+    }
+    composer ||= fileRoot;
+    if (!composer) return { found: false, busy: false, sendReady: false };
+    const statuses = readText(composer);
+    const busy = [composer, ...composer.querySelectorAll(config.progress)].some(el => el.matches(config.progress) && !ignored(el) && visible(el)) || new RegExp(config.uploading, 'i').test(statuses);
+    const error = new RegExp(config.failed, 'i').test(statuses) ? '平台报告附件上传或解析失败' : undefined;
+    const send = find(sendSelectors, composer, true);
+    return { found: true, busy, error, sendFound: !!find(sendSelectors, composer), sendReady: !!send };
+  })();`
 }
 
 // ==================== 内部辅助函数：生成脚本片段 ====================
@@ -525,7 +574,7 @@ function buildFindSendButtonScript(selectors: ModelSelector): string {
 /**
  * 生成模拟 Enter 键发送的脚本片段
  */
-function buildSimulateEnterKeyScript(modelId: string): string {
+function buildSimulateEnterKeyScript(modelId: string, selectors: ModelSelector, verifySubmission = false): string {
   return `
     if (!button) {
       // 尝试模拟 Enter 键发送
@@ -565,20 +614,33 @@ function buildSimulateEnterKeyScript(modelId: string): string {
       }));
       
       await new Promise(resolve => setTimeout(resolve, 200));
-      return { success: true, method: 'enter' };
+    } else {
+      // 点击发送按钮
+      // 对于 Angular Material 按钮，可能需要先触发 focus
+      button.focus();
+      const clickDelay = (${JSON.stringify(modelId)} === 'doubao' || ${JSON.stringify(modelId)} === 'qwen' || ${JSON.stringify(modelId)} === 'deepseek') ? 500 : 50;
+      await new Promise(resolve => setTimeout(resolve, clickDelay));
+      button.click();
+
+      // 等待一下确保点击生效
+      await new Promise(resolve => setTimeout(resolve, 200));
     }
-    
-    // 点击发送按钮
-    // 对于 Angular Material 按钮，可能需要先触发 focus
-    button.focus();
-    const clickDelay = (${JSON.stringify(modelId)} === 'doubao' || ${JSON.stringify(modelId)} === 'qwen' || ${JSON.stringify(modelId)} === 'deepseek') ? 500 : 50;
-    await new Promise(resolve => setTimeout(resolve, clickDelay));
-    button.click();
-    
-    // 等待一下确保点击生效
-    await new Promise(resolve => setTimeout(resolve, 200));
-    
-    return { success: true, method: 'button' };
+
+    ${verifySubmission ? `// 附件请求只提交一次；输入区清空后才确认提交，避免 Enter 未生效却开始采集。
+    const submissionDeadline = Date.now() + 5000;
+    while (true) {
+      let currentInput = textarea.isConnected ? textarea : null;
+      if (!currentInput) {
+        for (const selector of ${JSON.stringify(selectors.textarea)}) {
+          currentInput = Array.from(document.querySelectorAll(selector)).find(isElementVisible);
+          if (currentInput) break;
+        }
+      }
+      if (currentInput && !normalizeText(currentInput.value !== undefined ? currentInput.value : currentInput.innerText || currentInput.textContent)) break;
+      if (Date.now() >= submissionDeadline) return { success: false, error: '已尝试发送，但未确认输入框清空，请查看生成网页；不会自动重发' };
+      await new Promise(resolve => setTimeout(resolve, 200));
+    }` : ''}
+    return { success: true, method: button ? 'button' : 'enter' };
   `
 }
 
@@ -1114,13 +1176,14 @@ function buildQwenSourceLinksScript(): string {
 export function generateSendMessageScript(
   message: string,
   modelId: string,
-  selectors: ModelSelector
+  selectors: ModelSelector,
+  attachmentFileName?: string
 ): string {
   const findTextarea = buildFindTextareaScript(selectors)
   const contentEditableInput = buildContentEditableInputScript(message)
   const textareaInput = buildTextareaInputScript(message, modelId)
   const findButton = buildFindSendButtonScript(selectors)
-  const simulateEnter = buildSimulateEnterKeyScript(modelId)
+  const simulateEnter = buildSimulateEnterKeyScript(modelId, selectors, !!attachmentFileName)
 
   return `
     (async function() {
@@ -1177,6 +1240,19 @@ export function generateSendMessageScript(
 
         const postInputDelay = (currentModelId === 'doubao' || currentModelId === 'qwen' || currentModelId === 'deepseek') ? 350 : 80;
         await new Promise(resolve => setTimeout(resolve, postInputDelay));
+
+        ${attachmentFileName ? `const attachmentDeadline = Date.now() + 15_000;
+        while (true) {
+          const attachment = ${generateFileUploadStateScript(selectors, attachmentFileName)};
+          if (attachment.error) return { success: false, error: attachment.error };
+          // 复用原有发送路径：未匹配按钮时允许 Enter 兜底，已匹配的禁用按钮仍等待就绪。
+          if (attachment.found && !attachment.busy && (!attachment.sendFound || attachment.sendReady)) break;
+          if (Date.now() >= attachmentDeadline) {
+            const reason = !attachment.found ? '未检测到本轮附件' : attachment.busy ? '附件仍在上传或解析' : '发送按钮仍未就绪';
+            return { success: false, error: '等待附件或平台就绪超时（15 秒）：' + reason + '，未发送请求' };
+          }
+          await new Promise(resolve => setTimeout(resolve, 200));
+        }` : ''}
         
         ${findButton}
         ${simulateEnter}
@@ -1363,6 +1439,35 @@ export function generateGetInputTextScript(selectors: ModelSelector): string {
       }
     })();
   `
+}
+
+/** Append a node question without replacing the existing platform draft or sending it. */
+export function generateAppendMindmapQuestionScript(question: string, expectedUrl: string, selectors: ModelSelector): string {
+  return `(async function () {
+    if (location.href !== ${JSON.stringify(expectedUrl)}) return { success: false, error: '来源页面已切换，问题草稿已保留' };
+    ${buildFindTextareaScript(selectors)}
+    if (location.href !== ${JSON.stringify(expectedUrl)}) return { success: false, error: '来源页面已切换，问题草稿已保留' };
+    if (!textarea) return { success: false, error: '来源输入框未就绪' };
+    const question = ${JSON.stringify(question)};
+    textarea.focus({ preventScroll: true });
+    if (textarea instanceof HTMLTextAreaElement || textarea instanceof HTMLInputElement) {
+      const original = textarea.value;
+      const value = original + (original ? '\\n\\n' : '') + question;
+      const prototype = textarea instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+      const setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+      if (!setter) return { success: false, error: '无法安全追加，请先处理来源草稿' };
+      setter.call(textarea, value);
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+      textarea.setSelectionRange(value.length, value.length);
+      return { success: true };
+    }
+    if (!textarea.isContentEditable) return { success: false, error: '无法安全追加，请先处理来源草稿' };
+    const existing = textarea.innerText || textarea.textContent || '';
+    const range = document.createRange(); range.selectNodeContents(textarea); range.collapse(false);
+    const selection = getSelection(); selection.removeAllRanges(); selection.addRange(range);
+    if (!document.execCommand('insertText', false, (existing.trim() ? '\\n\\n' : '') + question)) return { success: false, error: '平台不支持安全追加，请先处理原草稿' };
+    return { success: true };
+  })();`
 }
 
 /**
@@ -2191,16 +2296,22 @@ export interface MindmapResponse {
   editorCount: number
   codeCount: number
   messageCount: number
+  documentCount?: number
+  formatError?: string
+  messageId?: string
+  messageIds?: string[]
+  baselineConnected?: boolean
   candidates?: Array<Pick<MindmapResponse, 'text' | 'source'>>
 }
 
 /** 导图读取最新助手回复；还原渲染后的标题和列表，兼容已有代码块输出。 */
-export function generateMindmapResponseScript(selectors: ModelSelector): string {
+export function generateMindmapResponseScript(selectors: ModelSelector, mode: 'markdown' | 'edits' = 'markdown', freezeBaseline = false): string {
   return String.raw`
     (async function () {
       ${getHtmlToMarkdownScript()}
       const config = ${JSON.stringify(mindmapCodeSelectors)};
       const tags = ${JSON.stringify(MINDMAP_TAGS)};
+      const editTags = ${JSON.stringify(MINDMAP_EDIT_TAGS)};
       const candidates = new Set();
       for (const selector of [...${JSON.stringify(selectors.messageContainer)}, ...(${JSON.stringify(responseMessageSelectors)}[location.hostname] || []), config.messages]) {
         try {
@@ -2215,14 +2326,30 @@ export function generateMindmapResponseScript(selectors: ModelSelector): string 
       const roots = Array.from(candidates).filter(el => !Array.from(candidates).some(other => other !== el && other.contains(el)));
       roots.sort((a, b) => a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1);
       const root = roots[roots.length - 1];
-      const editors = root ? Array.from(root.querySelectorAll(config.editors)).filter(el => !el.closest(config.excluded)) : [];
-      const codes = root ? Array.from(root.querySelectorAll(config.nativeCode)).filter(el => !el.closest(config.excluded) && !el.closest(config.editors) && !el.querySelector(config.editors)) : [];
+      const tracker = window.__multichatMindmapReplies ||= { ids: new WeakMap(), sequence: 0, baseline: null };
+      const idFor = el => {
+        const owner = el.closest('[data-message-id],[data-turn-id],[data-testid^="conversation-turn-"],message-content');
+        const stable = owner?.getAttribute('data-message-id') || owner?.getAttribute('data-turn-id') || owner?.getAttribute('data-testid') || owner?.id || el.id;
+        if (stable) return 'stable:' + stable;
+        if (!tracker.ids.has(el)) tracker.ids.set(el, 'dom:' + ++tracker.sequence);
+        return tracker.ids.get(el);
+      };
+      if (${freezeBaseline}) tracker.baseline = root || null;
+      // Keep reply identity on the turn container, but read the formal answer instead of its reasoning UI.
+      const bodySelector = config.replyBodies[location.hostname];
+      const body = root && bodySelector ? (root.matches(bodySelector) ? root : root.querySelector(bodySelector)) || root : root;
+      const editors = body ? Array.from(body.querySelectorAll(config.editors)).filter(el => !el.closest(config.excluded)) : [];
+      const codeCandidates = body ? Array.from(body.querySelectorAll(config.nativeCode)).filter(el => !el.closest(config.excluded) && !el.closest(config.editors) && !el.querySelector(config.editors)) : [];
+      // pre and its nested code are the same logical document.
+      const codes = codeCandidates.filter(el => !codeCandidates.some(other => other !== el && other.contains(el)));
       const collected = [];
+      const documents = [];
+      let documentCount = editors.length + codes.length;
       const add = (text, source) => {
         if (typeof text !== 'string' || !text.trim() || collected.some(item => item.text === text)) return;
         collected.push({ text, source });
       };
-      const result = (text, source) => ({ text, source, editorCount: editors.length, codeCount: codes.length, messageCount: roots.length, candidates: collected });
+      const result = (text, source) => ({ text, source, editorCount: editors.length, codeCount: codes.length, documentCount, messageCount: roots.length, messageId: root ? idFor(root) : '', messageIds: roots.map(idFor), baselineConnected: !!tracker.baseline?.isConnected, candidates: collected });
       const isOutline = text => {
         const normalized = text.replace(/&lt;(\/?mindmap)&gt;/g, '<$1>');
         return normalized.includes(tags.begin) || normalized.includes(tags.end);
@@ -2230,6 +2357,7 @@ export function generateMindmapResponseScript(selectors: ModelSelector): string 
       let missingEditorModel = false;
       for (const editor of editors) {
         let modelRead = false;
+        let modelText = '';
         const content = editor.querySelector(config.content);
         for (const node of [content, editor]) {
           if (!node) continue;
@@ -2239,16 +2367,55 @@ export function generateMindmapResponseScript(selectors: ModelSelector): string 
             const doc = view?.state?.doc;
             if (!doc || typeof doc.toString !== 'function') continue;
             const text = doc.toString();
+            if (!modelRead) modelText = text;
             modelRead = true;
             add(text, 'editor');
           } catch {}
         }
         if (!modelRead) missingEditorModel = true;
+        else documents.push({ text: modelText, source: 'editor' });
       }
       for (const code of codes) {
-        add(code.textContent || '', 'code');
+        const content = code.querySelector(config.nativeContent) || code;
+        add(content.textContent || '', 'code');
         // 普通代码框可能通过块元素或 br 显示换行；原始 textContent 不一定保留这些行边界。
-        add(code.innerText || '', 'code');
+        add(content.innerText || '', 'code');
+        documents.push({ text: content.textContent || content.innerText || '', source: 'code' });
+      }
+      if (${JSON.stringify(mode)} === 'edits') {
+        // Read the latest reply's complete code document; surrounding UI is not a replacement payload.
+        if (missingEditorModel) return result('', 'virtual-dom');
+        // Physical nodes can include reasoning examples or duplicate presentations.
+        // Accept one distinct tagged document in this latest reply, never pick among different results.
+        const unique = new Map();
+        for (const document of documents) {
+          if (!document.text.includes(editTags.begin) && !document.text.includes(editTags.end)) continue;
+          const key = document.text.replace(/\r\n?/g, '\n').trim();
+          if (!unique.has(key)) unique.set(key, document);
+        }
+        documentCount = unique.size;
+        if (documentCount > 1) return result('', 'message');
+        if (documentCount === 1) {
+          const complete = unique.values().next().value;
+          return result(complete.text, complete.source);
+        }
+        if (body) {
+          const copy = body.cloneNode(true);
+          copy.querySelectorAll(config.noise).forEach(el => el.remove());
+          // Unrelated code nodes must not prevent reading a tagged formal answer.
+          // Never reconstruct rendered Markdown for an exact-text replacement.
+          copy.querySelectorAll(config.nativeCode + ',' + config.editors).forEach(el => el.remove());
+          const text = copy.textContent || '';
+          if (text.includes(editTags.begin) || text.includes(editTags.end)) {
+            documentCount = 1;
+            const fallback = result(text, 'message');
+            if (copy.querySelector(config.renderedMarkdown)) fallback.formatError = 'AI 未将修改内容放入代码块，正文已被网页渲染，无法保证原文、缩进和换行；请让 AI 按要求重新输出一个 text 代码块';
+            return fallback;
+          }
+          if (!documents.length) add(text, 'message');
+        }
+        const complete = !documents.length ? collected[0] : undefined;
+        return result(complete?.text || '', complete?.source || 'empty');
       }
       // 存在虚拟编辑器却没有完整模型时，仅提供诊断，禁止保存可见片段。
       if (missingEditorModel) add(editors.map(editor => editor.innerText || editor.textContent || '').join('\n'), 'virtual-dom');

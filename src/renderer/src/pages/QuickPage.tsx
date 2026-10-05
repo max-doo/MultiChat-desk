@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef, useCallback } from 'react'
 import { useAppStore } from '../store/appStore'
 import WebviewCard, { type WebviewCardRef } from '../components/WebviewCard'
 import MindmapSidebarView from '../components/MindmapSidebarView'
+import { queueMindmapSelection } from '../utils/mindmapSelection'
 
 export default function QuickPage(): JSX.Element {
   const { models, registerWebviewRef, unregisterWebviewRef } = useAppStore()
@@ -286,6 +287,13 @@ export default function QuickPage(): JSX.Element {
     })
     return () => { unsubAsk(); unsubHidden(); unsubShown() }
   }, [openSidebar, openMindmapSidebar, scheduleSidebarHibernate])
+
+  useEffect(() => window.api.onMindmapSelection(selection => {
+    const ref = cardRefs.current.get(selectedModelIdRef.current)
+    if (ref?.getWebContentsId() !== selection.webContentsId) { setSidebarError('请在当前主会话中选择文字后加入导图'); return }
+    queueMindmapSelection(selection, !sidebarOpenRef.current || sidebarModeRef.current !== 'mindmap')
+    openMindmapSidebar()
+  }), [openMindmapSidebar])
 
   useEffect(() => {
     const pending = pendingSidebarText.current

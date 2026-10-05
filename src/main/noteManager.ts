@@ -5,7 +5,7 @@ import { constants } from 'fs'
 import { copyFile, mkdir, readFile, readdir, rename, rm, writeFile } from 'fs/promises'
 import { dirname, join } from 'path'
 import type Store from 'electron-store'
-import type { ConversationNote, ConversationMindmap, NoteConversation, NoteDraft, NoteHighlight, NoteSourceDraft } from '../shared/types/notes'
+import type { ConversationNote, ConversationMindmap, NoteConversation, NoteDraft, NoteHighlight, NoteSourceDraft, MindmapGenerationSession } from '../shared/types/notes'
 import { noteConversationKey } from '../shared/utils/noteIdentity'
 import { normalizeNoteTranscriptMarkdown } from '../shared/utils/noteTranscript'
 
@@ -161,6 +161,10 @@ export class NoteManager {
       if (item.version !== 2 || typeof item.sourceKey !== 'string' || typeof item.platform !== 'string' || typeof item.title !== 'string' || typeof item.url !== 'string' || typeof item.snapshot !== 'string' || item.snapshot.length > 20_000_000 || !Number.isFinite(item.updatedAt) || !Number.isFinite(item.snapshotRevision) || !Array.isArray(item.notes) || !Array.isArray(item.mindmaps)) throw new Error('笔记备份格式无效')
       if (!item.notes.every(note => note && typeof note.id === 'string' && typeof note.quote === 'string' && typeof note.comment === 'string' && note.anchor && ['exact', 'prefix', 'suffix'].every(key => typeof note.anchor[key as keyof typeof note.anchor] === 'string') && Number.isFinite(note.createdAt) && Number.isFinite(note.updatedAt))) throw new Error('批注备份格式无效')
       if (!item.mindmaps.every(map => map && typeof map.id === 'string' && typeof map.title === 'string' && typeof map.markdown === 'string' && map.markdown.length <= 200_000 && typeof map.platform === 'string' && Number.isFinite(map.sourceRevision) && Number.isFinite(map.createdAt) && Number.isFinite(map.updatedAt))) throw new Error('导图备份格式无效')
+      for (const map of item.mindmaps) {
+        const binding = map.generationSession
+        if (binding !== undefined && (!binding || typeof binding !== 'object' || typeof binding.platformId !== 'string' || !binding.platformId || binding.platformId.length > 200 || (binding.conversationUrl !== undefined && (typeof binding.conversationUrl !== 'string' || binding.conversationUrl.length > 4000 || !/^https:\/\//.test(binding.conversationUrl))))) throw new Error('生成会话绑定格式无效')
+      }
       return structuredClone(item)
     })
     if (new Set(items.map(item => item.id)).size !== items.length || new Set(items.map(item => item.sourceKey)).size !== items.length) throw new Error('备份存在重复笔记 ID 或来源')
@@ -293,7 +297,7 @@ export class NoteManager {
     else { conversation.updatedAt = Date.now(); await this.write(conversation) }
   }
 
-  addMindmap(source: NoteConversation, markdown: string, platform: string): Promise<{ conversationId: string; mindmap: ConversationMindmap }> {
+  addMindmap(source: NoteConversation, markdown: string, platform: string, generationSession?: MindmapGenerationSession): Promise<{ conversationId: string; mindmap: ConversationMindmap }> {
     return this.serial(async () => {
       if (typeof markdown !== 'string' || !markdown.trim() || markdown.length > 200_000) throw new Error('导图内容无效或过大')
       // 生成期间可能新增笔记、删除旧图或合并同源记录，保存时以最新文档为准。
@@ -305,6 +309,7 @@ export class NoteManager {
       const sourceRevision = conversation.snapshot === source.snapshot ? conversation.snapshotRevision : 0
       const now = Date.now()
       const map: ConversationMindmap = { id: randomUUID(), title: markdown.match(/^#\s+(.+)$/m)?.[1] || '未命名导图', markdown, platform, sourceRevision, createdAt: now, updatedAt: now }
+      if (generationSession) map.generationSession = generationSession
       conversation.mindmaps.push(map)
       conversation.updatedAt = now
       await this.write(conversation)
@@ -312,7 +317,7 @@ export class NoteManager {
     })
   }
 
-  updateMindmap(conversationId: string, mapId: string, markdown: string, title: string, expectedUpdatedAt: number): Promise<ConversationMindmap> {
+  updateMindmap(conversationId: string, mapId: string, markdown: string, title: string, expectedUpdatedAt: number, generationSession?: MindmapGenerationSession): Promise<ConversationMindmap> {
     return this.serial(async () => {
       if (typeof markdown !== 'string' || markdown.length > 200_000 || typeof title !== 'string' || title.length > 200) throw new Error('导图内容无效或过大')
       const conversation = await this.read(conversationId)
@@ -321,6 +326,7 @@ export class NoteManager {
       if (map.updatedAt !== expectedUpdatedAt) throw new Error('导图已在其他窗口修改，请保留当前大纲并重新打开后再编辑')
       map.markdown = markdown
       map.title = title.trim() || '未命名导图'
+      if (generationSession) map.generationSession = generationSession
       map.updatedAt = Math.max(Date.now(), map.updatedAt + 1)
       conversation.updatedAt = map.updatedAt
       await this.write(conversation)

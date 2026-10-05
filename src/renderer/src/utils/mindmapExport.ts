@@ -20,10 +20,11 @@ function prepareExportSvg(svgEl: SVGSVGElement | null, title: string): PreparedM
   const height = Math.max(100, Math.ceil(bbox.height + padding * 2))
   const clone = svgEl.cloneNode(true) as SVGSVGElement
 
-  // 导出正文，不保留选中、编辑和操作按钮；去掉画布的平移/缩放，使用内容坐标。
+  // 导出正文，不保留选中、编辑、临时变更标记和操作按钮。
+  clone.classList.remove('mm-readonly')
   clone.querySelector('g')?.removeAttribute('transform')
-  clone.querySelectorAll('.mm-selected, .mm-editing').forEach(el => {
-    el.classList.remove('mm-selected', 'mm-editing')
+  clone.querySelectorAll('.mm-selected, .mm-editing, .mm-changed').forEach(el => {
+    el.classList.remove('mm-selected', 'mm-editing', 'mm-changed')
   })
   clone.querySelectorAll('.mm-node-btns-anchor').forEach(el => el.remove())
   clone.querySelectorAll('[contenteditable], [data-original-text]').forEach(el => {

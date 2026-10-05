@@ -51,6 +51,9 @@ export const mindmapCodeSelectors = {
   editors: '.cm-editor',
   content: '.cm-content',
   nativeCode: 'pre code, pre',
+  nativeContent: 'code',
+  renderedMarkdown: 'ul,ol,h1,h2,h3,h4,h5,h6,blockquote,table,hr',
+  replyBodies: { 'chat.deepseek.com': '.ds-markdown.ds-assistant-message-main-content' },
   excluded: 'textarea,input,[contenteditable="true"],[data-message-author-role="user"],[data-role="user"],[data-turn="user"],[data-testid="user-message"],user-query,.user-query',
   noise: 'button,nav,svg,script,style,textarea,input,[aria-hidden="true"],.sr-only'
 } as const
@@ -87,6 +90,15 @@ export interface ModelSelector {
     steps: AutomationStep[]
     closePreviewSelector?: string
   }
+}
+
+/** 后台附件发送使用语义状态；无法确认上传完成时不提交请求。 */
+export const fileUploadSelectors = {
+  metadata: '[aria-label],[title],[data-file-name]',
+  progress: 'progress,[role="progressbar"],[aria-busy="true"],[data-state="loading"],[data-uploading="true"]',
+  ignored: 'textarea,input,[contenteditable="true"],[data-message-author-role],[data-role="assistant"],[data-role="user"],[data-turn="assistant"],[data-turn="user"],.ds-message',
+  uploading: '上传中|正在上传|解析中|正在解析|处理中|正在处理|uploading|processing|parsing',
+  failed: '上传失败|解析失败|不支持.*文件|文件.*不支持|文件过大|超过.*大小|upload failed|failed to upload|unsupported.*file|file too large'
 }
 
 export interface SelectorsConfig {

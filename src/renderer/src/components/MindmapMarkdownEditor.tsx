@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Annotation, EditorState } from '@codemirror/state'
+import { Annotation, Compartment, EditorState } from '@codemirror/state'
 import { EditorView, drawSelection, highlightActiveLine, highlightActiveLineGutter, keymap, lineNumbers, placeholder } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap, indentLess, indentMore, indentWithTab, isolateHistory, redo, redoDepth, undo, undoDepth } from '@codemirror/commands'
 import { HighlightStyle, indentUnit, syntaxHighlighting } from '@codemirror/language'
@@ -12,6 +12,7 @@ interface MindmapMarkdownEditorProps {
   active: boolean
   actions: ReactNode
   viewSwitcher: ReactNode
+  readOnly?: boolean
 }
 
 const externalChange = Annotation.define<boolean>()
@@ -37,7 +38,8 @@ const editorTheme = EditorView.theme({
   '.cm-content ::selection': { backgroundColor: '#dbeafe' }
 })
 
-export default function MindmapMarkdownEditor({ value, onChange, active, actions, viewSwitcher }: MindmapMarkdownEditorProps): JSX.Element {
+export default function MindmapMarkdownEditor({ value, onChange, active, actions, viewSwitcher, readOnly = false }: MindmapMarkdownEditorProps): JSX.Element {
+  const editable = useRef(new Compartment())
   const hostRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
   const valueRef = useRef(value)
@@ -53,6 +55,7 @@ export default function MindmapMarkdownEditor({ value, onChange, active, actions
       state: EditorState.create({
         doc: valueRef.current,
         extensions: [
+          editable.current.of(EditorState.readOnly.of(readOnly)),
           lineNumbers(),
           highlightActiveLineGutter(),
           highlightActiveLine(),
@@ -85,6 +88,8 @@ export default function MindmapMarkdownEditor({ value, onChange, active, actions
     }
   }, [])
 
+  useEffect(() => { viewRef.current?.dispatch({ effects: editable.current.reconfigure(EditorState.readOnly.of(readOnly)) }) }, [readOnly])
+
   useEffect(() => {
     const view = viewRef.current
     if (!view || view.state.doc.toString() === value) return
@@ -100,6 +105,7 @@ export default function MindmapMarkdownEditor({ value, onChange, active, actions
   }, [active])
 
   const runCommand = (command: (view: EditorView) => boolean): void => {
+    if (readOnly) return
     const view = viewRef.current
     if (!view) return
     command(view)

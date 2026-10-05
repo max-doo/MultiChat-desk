@@ -313,6 +313,7 @@ export function useWebviewSidebar({
     closeSidebar,
     toggleModelSidebar,
     toggleMindmapSidebar,
+    openMindmapSidebar,
     changeSidebarModel,
     handleAskSidebar,
     hibernateAll,

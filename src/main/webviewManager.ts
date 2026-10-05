@@ -969,6 +969,11 @@ function setupContextMenu(wc: Electron.WebContents): void {
             items.push({ label: '复制', enabled: params.editFlags.canCopy, click: () => wc.copy() })
         }
         if (canCaptureNote) {
+            const selectionUrl = params.pageURL
+            items.push({ label: '加入当前导图', click: () => {
+                if (wc.isDestroyed() || owner.isDestroyed() || wc.getURL() !== selectionUrl) return
+                owner.webContents.send('mindmaps:selection', { text: selectedText, url: selectionUrl, title: wc.getTitle(), webContentsId: wc.id })
+            } })
             items.push({ label: '记为笔记', click: () => {
                 const captureScript = generateNoteCaptureScript()
                 const capture = async (): Promise<unknown> => {

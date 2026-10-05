@@ -44,7 +44,7 @@ MultiChat Desk 是基于 Electron 的桌面应用，通过多个 Webview 并行�
 ## Architecture Constraints
 
 - **分层边界**：`src/main` 主进程能力 / 窗口 / Session / IPC / 数据 / 总结链路；`src/preload` 仅做安全桥接;`src/renderer` 仅做 UI / 状态 / 页面逻辑 / Webview 交互。禁止跨层塞逻辑。
-- **IPC 约束**：新增或修改 IPC 必须同时同步 `src/main/ipcHandlers.ts`、`src/preload/index.ts`、`src/preload/index.d.ts`、`src/renderer/src/env.d.ts`（当前另有渲染层契约声明）及渲染层调用点;返回结构统一为 `{ success, data?, error? }`。
+- **IPC 约束**：新增或修改 IPC 必须同步 `src/main/ipcHandlers.ts`、`src/preload/index.ts` 及渲染层调用点，并核对 `src/preload/index.d.ts`、`src/renderer/src/env.d.ts`。两处全局声明均从 preload 导出的 `API` 类型派生，不维护重复接口；返回结构统一为 `{ success, data?, error? }`。
 - **Webview 自动化约束**: 站点选择器统一维护在 `src/shared/config/selectors.ts`，注入脚本统一在 `src/shared/utils/webviewScripts.ts`；渲染层对应路径只重导出。优先多候选选择器与可见性判断，避免脆弱 DOM 依赖。
 - **总结与任务拆解约束**：当前总结走 `SummaryPanel` / `useWebviewSummary` 的网页注入与长文本附件，不自动发送；已删除的 API 流式总结不作为当前修改入口。任务拆解 API 走 `config/requestBodyConfig.ts`、`api/taskSplitApi.ts`、`ipcHandlers.ts` 的 `split-task` / `abort-split-task`，供应商参数、reasoning/thinking、中止能力及 IPC 契约需与 preload 和前端调用同步。导图后台生成由 `services/MindmapService.ts` 管理，保持采集完整性、取消和会话清理兼容。
 - **业务数据持久化**：历史由主进程 HistoryManager 按会话 ID 保存为独立 JSON；正式目录为 `history/conversations`、`history/summaries`，开发目录为 `history/dev/` 下对应目录。配置仅记录 `historyStorageVersion` 迁移版本，不写回历史数组。笔记、共享快照和本地导图由 NoteManager 管理；列表摘要与正文读取分离。

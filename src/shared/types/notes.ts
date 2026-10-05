@@ -35,6 +35,43 @@ export interface ConversationMindmap {
   sourceRevision: number
   createdAt: number
   updatedAt: number
+  generationSession?: MindmapGenerationSession
+}
+
+export interface MindmapGenerationSession {
+  platformId: string
+  conversationUrl?: string
+}
+
+export interface MindmapTextEdit { oldText: string; newText: string }
+export interface MindmapEditResponse { edits: MindmapTextEdit[] }
+export interface MindmapModifyRequest {
+  conversationId: string
+  mindmapId: string
+  expectedUpdatedAt: number
+  instructions: string
+  platformId: string
+  candidateId?: string
+  newSession?: boolean
+  includeSourceContext?: boolean
+  source?: { webContentsId?: number; platformId: string; name: string }
+}
+export interface MindmapSourceContext { snapshot: string; origin: 'live' | 'snapshot' }
+export interface MindmapCandidate {
+  id: string
+  conversationId: string
+  mindmapId: string
+  baseMarkdown: string
+  baseTitle: string
+  baseUpdatedAt: number
+  candidateMarkdown: string
+  generationSession: MindmapGenerationSession
+}
+export interface MindmapSelection {
+  text: string
+  url: string
+  title: string
+  webContentsId: number
 }
 
 export type NoteSourceDraft = Pick<NoteDraft, 'platform' | 'title' | 'url' | 'snapshot'>
@@ -47,6 +84,11 @@ export interface MindmapTask {
   phase: 'loading' | 'generating' | 'saving' | 'done' | 'error' | 'cancelled'
   mindmapId?: string
   error?: string
+  kind?: 'generate' | 'modify'
+  candidateId?: string
+  baseUpdatedAt?: number
+  outcome?: 'candidate' | 'unchanged'
+  contextSource?: 'live' | 'snapshot'
 }
 
 export interface NoteNavigation {

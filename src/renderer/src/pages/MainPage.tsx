@@ -3,6 +3,7 @@ import WebviewCard, { WebviewCardRef } from '../components/WebviewCard'
 import ControlBar, { ControlBarRef } from '../components/ControlBar'
 import WebviewSidebarPanel from '../components/WebviewSidebarPanel'
 import { useWebviewSidebar } from '../hooks/useWebviewSidebar'
+import { queueMindmapSelection } from '../utils/mindmapSelection'
 import { useAppStore, getDisplayedModels, SummaryHistoryItem, HistoryItem, ModelConfig } from '../store/appStore'
 
 interface MainPageProps {
@@ -507,6 +508,7 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
     mindmapRef,
     toggleModelSidebar,
     toggleMindmapSidebar,
+    openMindmapSidebar,
     closeSidebar,
     changeSidebarModel,
     handleAskSidebar,
@@ -542,6 +544,14 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
     })
     return () => unsub?.()
   }, [handleAskSidebar])
+
+  useEffect(() => window.api.onMindmapSelection(selection => {
+    const ref = hibernationRefsMap.current.get(`${productMode}-0`)
+    if (ref?.getWebContentsId() !== selection.webContentsId) { setSidebarError('请在当前主会话中选择文字后加入导图'); return }
+    queueMindmapSelection(selection, !sidebarOpen || sidebarMode !== 'mindmap')
+    if (useAppStore.getState().displayMode !== 'one') useAppStore.getState().setDisplayMode('one')
+    openMindmapSidebar()
+  }), [productMode, sidebarOpen, sidebarMode, openMindmapSidebar, setSidebarError])
 
   // ── 更新 productModeRef 和 modeModelsRef ──
   useEffect(() => {

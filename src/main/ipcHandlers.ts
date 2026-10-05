@@ -16,8 +16,9 @@ import { broadcastStateChange } from './stateBus'
 import { HistoryManager, normalizeHistory } from './api/historyManager'
 import { isDeepStrictEqual } from 'util'
 import { NoteManager } from './noteManager'
-import type { NoteConversation, NoteDraft, NoteNavigation } from '../shared/types/notes'
-import { generateNoteCaptureScript, generateMindmapPageStateScript } from '../shared/utils/webviewScripts'
+import type { NoteConversation, NoteDraft, NoteNavigation, MindmapModifyRequest } from '../shared/types/notes'
+import { noteConversationKey } from '../shared/utils/noteIdentity'
+import { generateNoteCaptureScript, generateMindmapPageStateScript, generateAppendMindmapQuestionScript } from '../shared/utils/webviewScripts'
 import { MindmapService } from './services/MindmapService'
 import { MINDMAP_REQUIREMENTS_LIMIT } from '../shared/utils/mindmap'
 import { normalizeNoteTranscriptMarkdown } from '../shared/utils/noteTranscript'
@@ -32,7 +33,7 @@ import {
     getSummaryPromptsDir,
     type SummaryPromptFileItem
 } from './summaryPrompts'
-import { automationService } from './services/AutomationService'
+import { automationService, dispatchFileDrop } from './services/AutomationService'
 import { checkForUpdate, getUpdateState } from './updater/checker'
 import { getSelectionToolbarEnabled, setSelectionToolbarEnabled } from './selectionToolbarManager'
 
@@ -780,7 +781,6 @@ export async function registerIpcHandlers(
         x: number
         y: number
     }) => {
-        let attachedByUs = false
         try {
             const { webContents } = require('electron')
             const wc = webContents.fromId(params.webContentsId)
@@ -789,41 +789,9 @@ export async function registerIpcHandlers(
                 return { success: false, error: '未找到 webContents' }
             }
 
-            const x = Math.max(0, Math.round(params.x))
-            const y = Math.max(0, Math.round(params.y))
-
-            try {
-                if (!wc.debugger.isAttached()) {
-                    wc.debugger.attach('1.3')
-                    attachedByUs = true
-                }
-            } catch (error) {
-                return { success: false, error: `无法附加调试器: ${String(error)}` }
-            }
-
-            const dragData = {
-                items: [],
-                files: [params.filePath],
-                dragOperationsMask: 1
-            }
-
-            await wc.debugger.sendCommand('Input.dispatchDragEvent', { type: 'dragEnter', x, y, data: dragData })
-            await wc.debugger.sendCommand('Input.dispatchDragEvent', { type: 'dragOver', x, y, data: dragData })
-            await wc.debugger.sendCommand('Input.dispatchDragEvent', { type: 'drop', x, y, data: dragData })
-
-            return { success: true }
+            return await dispatchFileDrop(wc, params.filePath, params.x, params.y)
         } catch (error) {
             return { success: false, error: String(error) }
-        } finally {
-            try {
-                const { webContents } = require('electron')
-                const wc = webContents.fromId(params.webContentsId)
-                if (wc && attachedByUs && wc.debugger.isAttached()) {
-                    wc.debugger.detach()
-                }
-            } catch {
-                // 调试器可能已经自动分离，忽略错误
-            }
         }
     })
 
@@ -834,7 +802,7 @@ export async function registerIpcHandlers(
     const takeMindmapSource = async (sender: Electron.WebContents, conversationId: string): Promise<NoteConversation> => {
         const captured = capturedSources.get(sender)
         capturedSources.delete(sender)
-        const source = captured?.id === conversationId ? captured : (await noteManager.list()).find(item => item.id === conversationId)
+        const source = captured?.id === conversationId ? captured : await noteManager.get(conversationId)
         if (!source) throw new Error('来源会话不存在')
         return source
     }
@@ -851,19 +819,81 @@ export async function registerIpcHandlers(
     const notesChanged = (): void => broadcastNotes('notes:changed')
     const mindmapService = new MindmapService(noteManager, task => broadcastNotes('mindmaps:task-changed', task), notesChanged)
     app.once('before-quit', () => mindmapService.shutdown())
-    ipcMain.handle('notes:capture-source', async (event, id: number, platform: string, name: string) => {
-        capturedSources.delete(event.sender)
+    const mindmapOwners = new WeakSet<Electron.WebContents>()
+    const trackMindmapOwner = (sender: Electron.WebContents): void => {
+        if (mindmapOwners.has(sender)) return
+        mindmapOwners.add(sender)
+        sender.once('destroyed', () => mindmapService.forgetOwner(sender.id))
+    }
+    ipcMain.handle('mindmaps:modify', async (event, request: MindmapModifyRequest) => {
         try {
+            trackMindmapOwner(event.sender)
+            return { success: true, data: await mindmapService.modify(request, event.sender.id, async source => {
+                if (!request.source) {
+                    const saved = await noteManager.get(source.id)
+                    return { snapshot: saved.snapshot, origin: 'snapshot' }
+                }
+                if (!request.source.webContentsId) throw new Error('来源主会话未就绪，请加载完成后重试')
+                const current = await captureMindmapSource(event.sender, request.source.webContentsId, request.source.platformId, request.source.name, source.sourceKey)
+                return { snapshot: current.snapshot, origin: 'live' }
+            }) }
+        }
+        catch (error) { return { success: false, error: error instanceof Error ? error.message : '调整失败' } }
+    })
+    ipcMain.handle('mindmaps:candidate', (event, mapId: string) => ({ success: true, data: mindmapService.getCandidate(event.sender.id, mapId) }))
+    ipcMain.handle('mindmaps:apply', async (event, mapId: string, candidateId: string) => {
+        try { return { success: true, data: await mindmapService.apply(event.sender.id, mapId, candidateId) } }
+        catch (error) { return { success: false, error: error instanceof Error ? error.message : '保存失败，候选已保留' } }
+    })
+    ipcMain.handle('mindmaps:discard', (event, mapId: string, candidateId: string) => {
+        try { mindmapService.discard(event.sender.id, mapId, candidateId); return { success: true } }
+        catch (error) { return { success: false, error: error instanceof Error ? error.message : '放弃失败' } }
+    })
+    ipcMain.handle('mindmaps:ask', async (event, id: number, platformId: string, conversationId: string, question: string) => {
+        try {
+            if (typeof question !== 'string' || !question.trim() || question.length > 60000) throw new Error('问题草稿无效或过大')
+            const wc = webContents.fromId(id)
+            if (!wc || wc.isDestroyed() || wc.hostWebContents?.id !== event.sender.id) throw new Error('请先打开来源主会话')
+            const source = await noteManager.get(conversationId)
+            const identity = await wc.executeJavaScript('({url:location.href,title:document.title})') as { url: string; title: string }
+            if (noteConversationKey(identity.url, identity.title) !== source.sourceKey) throw new Error('来源页面身份不匹配，请先回到来源对话')
+            const selectors = await automationService.getPlatformSelectors(platformId)
+            const result = await wc.executeJavaScript(generateAppendMindmapQuestionScript(question, identity.url, selectors)) as { success: boolean; error?: string }
+            if (result.success) wc.focus()
+            return result
+        } catch (error) { return { success: false, error: error instanceof Error ? error.message : '追问注入失败，草稿已保留' } }
+    })
+    ipcMain.handle('mindmaps:blank-source', async (event, id: number, expectedUrl: string, platformName: string) => {
+        try {
+            const wc = webContents.fromId(id)
+            if (!wc || wc.isDestroyed() || wc.hostWebContents?.id !== event.sender.id || typeof expectedUrl !== 'string' || !expectedUrl.startsWith('https://') || wc.getURL() !== expectedUrl || typeof platformName !== 'string' || platformName.length > 200) throw new Error('来源页面已切换或未就绪')
+            const identity = await wc.executeJavaScript('({url:location.href,title:document.title})') as { url: string; title: string }
+            if (wc.getURL() !== expectedUrl || identity.url !== expectedUrl) throw new Error('来源页面已切换')
+            const source = await noteManager.prepareSource({ platform: platformName, title: identity.title, url: identity.url, snapshot: '' })
+            const saved = await noteManager.addMindmap(source, '# 我的知识导图\n', '本地')
+            notesChanged()
+            return { success: true, data: { conversation: await noteManager.get(saved.conversationId), mindmap: saved.mindmap } }
+        } catch (error) { return { success: false, error: error instanceof Error ? error.message : '创建空白图失败' } }
+    })
+    async function captureMindmapSource(sender: Electron.WebContents, id: number, platform: string, name: string, expectedSourceKey?: string): Promise<NoteConversation> {
             const source = webContents.fromId(id)
-            if (!source || source.isDestroyed() || source.hostWebContents?.id !== event.sender.id) throw new Error('当前对话窗口无效')
+            if (!source || source.isDestroyed() || source.hostWebContents?.id !== sender.id) throw new Error('来源主会话未就绪，请打开来源对话后重试')
             const originalUrl = source.getURL()
+            if (expectedSourceKey && noteConversationKey(originalUrl, source.getTitle()) !== expectedSourceKey) throw new Error('来源主会话已切换，未发送上下文')
             const selectors = await automationService.getPlatformSelectors(platform)
             const state = await source.executeJavaScript(generateMindmapPageStateScript(selectors, platform)) as { busy: boolean }
             if (state.busy) throw new Error('当前回复尚未完成，请完成后再生成')
             const capture = await source.executeJavaScript(generateNoteCaptureScript()) as { snapshot?: string; title?: string; url?: string }
             if (capture.url !== originalUrl || source.getURL() !== originalUrl) throw new Error('采集时对话已切换，请在目标对话重新生成')
             const data = await noteManager.prepareSource({ platform: name, title: capture.title || name, url: capture.url || '', snapshot: capture.snapshot || '' })
+            if (expectedSourceKey && data.sourceKey !== expectedSourceKey) throw new Error('来源主会话身份不匹配，未发送上下文')
             if (data.snapshot !== normalizeNoteTranscriptMarkdown(capture.snapshot || '')) throw new Error('本次采集较短或缺少已有批注原文，已保留原快照。请确认完整对话已加载后重试')
+            return data
+    }
+    ipcMain.handle('notes:capture-source', async (event, id: number, platform: string, name: string) => {
+        capturedSources.delete(event.sender)
+        try {
+            const data = await captureMindmapSource(event.sender, id, platform, name)
             capturedSources.set(event.sender, data)
             return { success: true, data }
         } catch (error) { return { success: false, error: error instanceof Error ? error.message : '读取对话失败' } }
@@ -873,12 +903,13 @@ export async function registerIpcHandlers(
             if (additionalRequirements !== undefined && typeof additionalRequirements !== 'string') throw new Error('额外要求必须是文本')
             if ((additionalRequirements?.length || 0) > MINDMAP_REQUIREMENTS_LIMIT) throw new Error(`额外要求不能超过 ${MINDMAP_REQUIREMENTS_LIMIT} 字符`)
             const source = await takeMindmapSource(event.sender, conversationId)
-            return { success: true, data: await mindmapService.start(source, platform, additionalRequirements?.trim()) }
+            trackMindmapOwner(event.sender)
+            return { success: true, data: await mindmapService.start(source, platform, additionalRequirements?.trim(), event.sender.id) }
         } catch (error) { return { success: false, error: error instanceof Error ? error.message : '启动失败' } }
     })
     ipcMain.handle('mindmaps:task', () => ({ success: true, data: mindmapService.getTask() }))
-    ipcMain.handle('mindmaps:cancel', (_event, id: string) => {
-        try { mindmapService.cancel(id); return { success: true } }
+    ipcMain.handle('mindmaps:cancel', (event, id: string) => {
+        try { mindmapService.cancel(id, event.sender.id); return { success: true } }
         catch (error) { return { success: false, error: String(error) } }
     })
     ipcMain.handle('mindmaps:show', (event, id: string) => {
@@ -897,7 +928,7 @@ export async function registerIpcHandlers(
         catch (error) { return { success: false, error: String(error) } }
     })
     ipcMain.handle('mindmaps:delete', async (_event, conversationId: string, id: string) => {
-        try { await noteManager.deleteMindmap(conversationId, id); notesChanged(); return { success: true } }
+        try { await noteManager.deleteMindmap(conversationId, id); mindmapService.forgetMap(id); notesChanged(); return { success: true } }
         catch (error) { return { success: false, error: String(error) } }
     })
     ipcMain.handle('mindmaps:import-legacy', async (_event, markdown: string) => {
