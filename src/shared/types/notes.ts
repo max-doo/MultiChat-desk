@@ -44,7 +44,9 @@ export interface MindmapGenerationSession {
 }
 
 export interface MindmapTextEdit { oldText: string; newText: string }
-export interface MindmapEditResponse { edits: MindmapTextEdit[] }
+export type MindmapModifyResponse =
+  | { kind: 'edits'; edits: MindmapTextEdit[] }
+  | { kind: 'rewrite'; markdown: string }
 export interface MindmapModifyRequest {
   conversationId: string
   mindmapId: string

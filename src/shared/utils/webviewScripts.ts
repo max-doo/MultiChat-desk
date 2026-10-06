@@ -7,7 +7,7 @@ import type { ModelSelector } from '../config/selectors'
 import { getHtmlToMarkdownScript } from './htmlToMarkdown'
 import { noteMessageSelectors, generationStopSelectors, mindmapCodeSelectors, responseMessageSelectors, fileUploadSelectors } from '../config/selectors'
 import { MINDMAP_TAGS } from './mindmap'
-import { MINDMAP_EDIT_TAGS } from './mindmapEdits'
+import { MINDMAP_EDIT_TAGS, MINDMAP_REWRITE_TAGS } from './mindmapEdits'
 import { NOTE_CLICK_PREFIX, NOTE_DISMISS_PREFIX } from '../types/notes'
 
 const IS_DEV = process.env.NODE_ENV !== 'production'
@@ -2312,6 +2312,7 @@ export function generateMindmapResponseScript(selectors: ModelSelector, mode: 'm
       const config = ${JSON.stringify(mindmapCodeSelectors)};
       const tags = ${JSON.stringify(MINDMAP_TAGS)};
       const editTags = ${JSON.stringify(MINDMAP_EDIT_TAGS)};
+      const rewriteTags = ${JSON.stringify(MINDMAP_REWRITE_TAGS)};
       const candidates = new Set();
       for (const selector of [...${JSON.stringify(selectors.messageContainer)}, ...(${JSON.stringify(responseMessageSelectors)}[location.hostname] || []), config.messages]) {
         try {
@@ -2388,8 +2389,9 @@ export function generateMindmapResponseScript(selectors: ModelSelector, mode: 'm
         // Physical nodes can include reasoning examples or duplicate presentations.
         // Accept one distinct tagged document in this latest reply, never pick among different results.
         const unique = new Map();
+        const isModification = text => [editTags, rewriteTags].some(tag => text.includes(tag.begin) || text.includes(tag.end));
         for (const document of documents) {
-          if (!document.text.includes(editTags.begin) && !document.text.includes(editTags.end)) continue;
+          if (!isModification(document.text)) continue;
           const key = document.text.replace(/\r\n?/g, '\n').trim();
           if (!unique.has(key)) unique.set(key, document);
         }
@@ -2406,10 +2408,10 @@ export function generateMindmapResponseScript(selectors: ModelSelector, mode: 'm
           // Never reconstruct rendered Markdown for an exact-text replacement.
           copy.querySelectorAll(config.nativeCode + ',' + config.editors).forEach(el => el.remove());
           const text = copy.textContent || '';
-          if (text.includes(editTags.begin) || text.includes(editTags.end)) {
+          if (isModification(text)) {
             documentCount = 1;
             const fallback = result(text, 'message');
-            if (copy.querySelector(config.renderedMarkdown)) fallback.formatError = 'AI 未将修改内容放入代码块，正文已被网页渲染，无法保证原文、缩进和换行；请让 AI 按要求重新输出一个 text 代码块';
+            fallback.formatError = 'AI 未将修改结果放入代码块，无法保证正文、缩进和换行；请让 AI 按要求重新输出一个 text 代码块';
             return fallback;
           }
           if (!documents.length) add(text, 'message');

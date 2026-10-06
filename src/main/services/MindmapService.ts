@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto'
 import type { MindmapTask, NoteConversation, MindmapModifyRequest, MindmapCandidate, MindmapGenerationSession, ConversationMindmap, MindmapSourceContext } from '../../shared/types/notes'
-import { applyMindmapTextEdits, buildMindmapEditPrompt, normalizeMindmapNewlines, parseMindmapEditResponse, validateMindmapMarkdown } from '../../shared/utils/mindmapEdits'
+import { applyMindmapTextEdits, buildMindmapEditPrompt, normalizeMindmapNewlines, parseMindmapModifyResponse, validateMindmapMarkdown } from '../../shared/utils/mindmapEdits'
 import { buildMindmapPrompt, inspectMindmapOutline, MINDMAP_INPUT_LIMIT, MINDMAP_TAGS } from '../../shared/utils/mindmap'
 import { generateMindmapPageStateScript, generateMindmapResponseScript, type MindmapResponse } from '../../shared/utils/webviewScripts'
 import { automationService } from './AutomationService'
@@ -337,7 +337,7 @@ export class MindmapService {
       let lastMessageId = ''
       // 独立于网页脚本执行的总超时，避免停在 await 时永远无法检查截止时间。
       generationTimer = setTimeout(() => {
-        const reason = edit ? '未取得可确认的本轮完整 <mindmap_edits> 修改回复' : !captured.text.trim() ? '未抓取到 AI 回复' : !captured.text.includes(MINDMAP_TAGS.begin) ? '抓取结果缺少 <mindmap> 开始标签' : !captured.text.includes(MINDMAP_TAGS.end) ? '抓取结果缺少 </mindmap> 闭合标签' : '未取得稳定且可解析的完整大纲'
+        const reason = edit ? '未取得可确认的本轮完整 <mindmap_edits> 或 <mindmap_rewrite> 修改回复' : !captured.text.trim() ? '未抓取到 AI 回复' : !captured.text.includes(MINDMAP_TAGS.begin) ? '抓取结果缺少 <mindmap> 开始标签' : !captured.text.includes(MINDMAP_TAGS.end) ? '抓取结果缺少 </mindmap> 闭合标签' : '未取得稳定且可解析的完整大纲'
         this.change(task, 'error', `生成超时：${reason}（${diagnostics()}）。请打开生成网页查看；不会自动重发`)
         controller.abort()
       }, 180_000)
@@ -362,9 +362,9 @@ export class MindmapService {
           if (captured.formatError) throw new Error(captured.formatError)
           if (!captured.text.trim()) throw new Error('未读取到本轮修改回复正文，请打开生成网页检查回复内容')
           stage = '校验修改标签'
-          const parsed = parseMindmapEditResponse(captured.text)
-          stage = '校验精确替换'
-          const markdown = applyMindmapTextEdits(edit.base.candidateMarkdown, parsed.edits)
+          const parsed = parseMindmapModifyResponse(captured.text)
+          stage = parsed.kind === 'edits' ? '校验精确替换' : '生成覆写候选'
+          const markdown = parsed.kind === 'edits' ? applyMindmapTextEdits(edit.base.candidateMarkdown, parsed.edits) : parsed.markdown
           if (signal.aborted || this.task?.id !== task.id) return
           const generatedBinding = await this.sessionBinding(task.platform, wc.getURL())
           if (signal.aborted || this.task?.id !== task.id) return

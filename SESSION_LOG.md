@@ -1,5 +1,66 @@
 # Session Log
 
+## 2026-10-06
+
+### 12:02 | Antigravity
+
+- done: 升级应用版本至 v1.3.0 并更新 CHANGELOG.md，准备提交修改与 NSIS 安装包打包
+- decision: 按用户确认将目标版本升级为 v1.3.0（次版本），打包目标选定为 NSIS 安装包
+- added:
+  - `docs/mindmap-rewrite-design.md`
+- modified:
+  - `package.json`
+  - `package-lock.json`
+  - `CHANGELOG.md`
+  - `src/main/services/MindmapService.ts`
+  - `src/shared/types/notes.ts`
+  - `src/shared/utils/mindmapEdits.ts`
+  - `src/shared/utils/webviewScripts.ts`
+
+### 07:02 | Codex
+
+- done: 完成导图双协议接入及范围审查：lint与build成功，在现有dev Electron窗口开发工具用合成数据验证19个解析场景与9个采集场景均通过
+- context: 两侧tsc被本次未修改文件中的既有错误阻塞；新启动dev因单实例锁退出，未覆盖真实AI生成到候选应用的整条链路
+- modified:
+  - `src/shared/types/notes.ts`
+  - `src/shared/utils/mindmapEdits.ts`
+  - `src/shared/utils/webviewScripts.ts`
+  - `src/main/services/MindmapService.ts`
+  - `docs/mindmap-rewrite-design.md`
+- unresolved: 重启开发实例后验证真实AI局部修改、整图重写、继续调整及应用期间的编辑冲突；定向类型检查已有错误未在本次范围内修复
+
+### 00:23 | Codex
+
+- done: 接入导图局部替换与整份覆写两种结果协议，去掉 edit 外层并应用精简提示词，开始验证
+- decision: 覆写正文校验后直接进入现有候选流程；局部替换失败不升级覆写，IPC与持久化结构保持兼容
+- modified:
+  - `src/shared/types/notes.ts`
+  - `src/shared/utils/mindmapEdits.ts`
+  - `src/shared/utils/webviewScripts.ts`
+  - `src/main/services/MindmapService.ts`
+  - `docs/mindmap-rewrite-design.md`
+
+### 00:14 | Codex
+
+- done: 精简整份覆写设计中的提示词与来源说明，固定模板由2718字符减少至1469字符，保留模式边界、材料依据和精确替换格式约束
+- decision: 合并重复范围和输出限制，压缩内容质量要求与示例；保留唯一匹配、完整行、非重叠、删除空标签、末尾换行及完整覆写要求
+- modified:
+  - `docs/mindmap-rewrite-design.md`
+
+### 00:10 | Codex
+
+- done: 评估并简化整份覆写设计中的局部替换协议，移除 edit 分组标签，同步提示词、解析要求和验收场景
+- decision: 固定按 old_text 后接 new_text 的完整标签对定义一次替换；缺段或乱序整批拒绝，无需额外 edit 外层
+- modified:
+  - `docs/mindmap-rewrite-design.md`
+
+### 00:08 | Codex
+
+- done: 完成当前导图整份覆写协议、候选应用流程和可直接接入的提示词设计，未修改运行时代码
+- decision: 新增互斥的 mindmap_rewrite 输出协议，复用候选与冲突检查；默认局部修改，仅明确整图重组时覆写；来源重生成必须携带本轮附件
+- added:
+  - `docs/mindmap-rewrite-design.md`
+
 ## 2026-10-05
 
 ### 23:59 | Antigravity
