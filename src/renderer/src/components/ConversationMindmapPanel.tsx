@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type { ConversationMindmap, MindmapTask, NoteConversation, MindmapCandidate } from '../../../shared/types/notes'
-import { diffMindmapLines, normalizeMindmapNewlines } from '../../../shared/utils/mindmapEdits'
+import { diffMindmapLines, mergeMindmapCandidate, normalizeMindmapNewlines } from '../../../shared/utils/mindmapEdits'
 import { consumeMindmapSelection, subscribeMindmapSelection, type PendingMindmapSelection } from '../utils/mindmapSelection'
 import { noteConversationKey } from '../../../shared/utils/noteIdentity'
 import { MINDMAP_REQUIREMENTS_LIMIT } from '../../../shared/utils/mindmap'
+import { stripMindmapInlineFormat } from '../utils/mindmapInlineFormat'
 import LocalMindmapPanel, { type LocalMindmapPanelRef } from './LocalMindmapPanel'
 import type { WebviewCardRef } from './WebviewCard'
 import { useAppStore } from '../store/appStore'
@@ -31,7 +32,7 @@ function downloadMarkdown(markdown: string, title: string): void {
 
 function extractRootTitle(markdown: string): string | null {
   const match = markdown.match(/^#\s+([^\r\n]+)/m)
-  return match ? match[1].trim() : null
+  return match ? stripMindmapInlineFormat(match[1].trim()) : null
 }
 
 function updateMarkdownRootTitle(markdown: string, newTitle: string): string {
@@ -58,6 +59,7 @@ export function MindmapEditor({
   previewMarkdown,
   changedLines,
   onAskNode,
+  onViewSource,
   onEdit
 }: {
   conversationId: string
@@ -74,6 +76,7 @@ export function MindmapEditor({
   previewMarkdown?: string
   changedLines?: number[]
   onAskNode?: (path: string[]) => void
+  onViewSource?: (text: string) => void
   onEdit?: () => void
 }): JSX.Element {
   const ownPanelRef = useRef<LocalMindmapPanelRef | null>(null)
@@ -151,7 +154,7 @@ export function MindmapEditor({
         applyingRef.current = true
         try {
           const snapshot = await saveSnapshot()
-          if (normalizeMindmapNewlines(snapshot.markdown) !== candidate.baseMarkdown || snapshot.title !== candidate.baseTitle || snapshot.updatedAt !== candidate.baseUpdatedAt) throw new Error('导图在生成期间发生了修改，请基于当前版本重新调整')
+          mergeMindmapCandidate(candidate.baseMarkdown, candidate.candidateMarkdown, snapshot.markdown)
           const result = await window.api.mindmapsApply(map.id, candidate.id)
           if (!result.success || !result.data) throw new Error(result.error || '保存失败，候选已保留')
           const saved = result.data
@@ -222,8 +225,8 @@ export function MindmapEditor({
             type="button"
             onClick={onClose}
             className="w-7 h-7 rounded-full text-text-secondary hover:text-red-500 hover:bg-red-50 flex items-center justify-center transition-colors no-drag"
-            title="收起侧边栏"
-            aria-label="收起侧边栏"
+            title="关闭思维导图"
+            aria-label="关闭思维导图"
           >
             <span className="material-symbols-outlined text-base">close</span>
           </button>
@@ -237,7 +240,7 @@ export function MindmapEditor({
       <button className="text-gray-500" onClick={() => { if (window.confirm('重新载入将放弃当前未保存编辑，请先导出大纲。继续吗？')) { drafts.delete(map.id); onReload() } }}>重新载入</button>
     </div>}
     <div className="flex-1 min-h-0 relative">
-      <LocalMindmapPanel ref={localRef} initialMarkdown={initial} onChange={edit} previewMarkdown={previewMarkdown} changedLines={changedLines} onAskNode={onAskNode} />
+      <LocalMindmapPanel ref={localRef} initialMarkdown={initial} onChange={edit} previewMarkdown={previewMarkdown} changedLines={changedLines} onAskNode={onAskNode} onViewSource={onViewSource} />
       {bottomLeftContent && (
         <div className="absolute left-3 bottom-3 z-30">
           {bottomLeftContent}
@@ -260,11 +263,12 @@ window.addEventListener('beforeunload', event => {
 })
 const taskLabels: Record<MindmapTask['phase'], string> = { loading: '正在准备生成网页…', generating: 'AI 正在生成…', saving: '正在保存导图…', done: '导图已保存', error: '生成失败', cancelled: '已取消' }
 
-export default function ConversationMindmapPanel({ source, conversation: fixedConversation, initialMapId, onOpenMubu, onClose, draggableHeader, onDragStart }: {
+export default function ConversationMindmapPanel({ source, conversation: fixedConversation, initialMapId, onOpenMubu, onClose, draggableHeader, onDragStart, onViewSource }: {
   source?: MindmapSource
   conversation?: NoteConversation
   initialMapId?: string
   onOpenMubu?: () => void
+  onViewSource?: (text: string) => void
   onClose?: () => void
   draggableHeader?: boolean
   onDragStart?: (e: React.PointerEvent<HTMLDivElement>) => void
@@ -276,6 +280,8 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
   const [mapId, setMapId] = useState(initialMapId || '')
   const [task, setTask] = useState<MindmapTask | null>(null)
   const [candidate, setCandidate] = useState<MindmapCandidate | null>(null)
+  const [adjustFromCurrent, setAdjustFromCurrent] = useState(false)
+  const submittedModify = useRef<{ taskId: string; key: string; instructions: string } | null>(null)
   const [mode, setMode] = useState<'generate' | 'modify'>('generate')
   const [request, setRequest] = useState('')
   const [collapsed, setCollapsed] = useState(false)
@@ -297,7 +303,7 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
   const conversationRef = useRef(conversation); conversationRef.current = conversation
   const sourceKeyRef = useRef('')
   const refreshSequence = useRef(0)
-  const sorted = useMemo(() => [...(conversation?.mindmaps || [])].sort((a, b) => b.createdAt - a.createdAt), [conversation?.mindmaps])
+  const sorted = useMemo(() => [...(conversation?.mindmaps || [])].sort((a, b) => b.updatedAt - a.updatedAt || b.createdAt - a.createdAt || a.id.localeCompare(b.id)), [conversation?.mindmaps])
   const activeMap = conversation?.mindmaps.find(map => map.id === mapId) || sorted[0]
   const activeMapRef = useRef(activeMap); activeMapRef.current = activeMap
   const candidateRef = useRef(candidate); candidateRef.current = candidate
@@ -306,6 +312,7 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
   const modeRef = useRef(mode); modeRef.current = mode
   const draftKeyRef = useRef(draftKey); draftKeyRef.current = draftKey
   const clearMarks = useCallback(() => setMarks(null), [])
+  useEffect(() => { setAdjustFromCurrent(false) }, [candidate?.id, activeMap?.id])
 
   useEffect(() => { if (fixedConversation) setConversation(fixedConversation) }, [fixedConversation])
   useEffect(() => { if (initialMapId) setMapId(initialMapId) }, [initialMapId])
@@ -421,7 +428,7 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
   const submit = async (): Promise<void> => {
     if (preparingRef.current || busy || (mode === 'modify' && !request.trim())) return
     preparingRef.current = true; setPreparing(true); setError(''); setMarks(null)
-    const key = draftKey, submittedMode = mode, instructions = request
+    const key = draftKey, instructions = request
     try {
       if (activeMap) await editorRef.current?.saveSnapshot()
       if (mode === 'generate') {
@@ -436,19 +443,26 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
         const map = activeMapRef.current, currentSource = conversationRef.current
         const snapshot = editorRef.current?.snapshot()
         if (!map || !currentSource || !snapshot || key !== draftKeyRef.current) throw new Error('当前导图已切换，请重新提交')
-        if (candidate && (normalizeMindmapNewlines(snapshot.markdown) !== candidate.baseMarkdown || snapshot.title !== candidate.baseTitle || snapshot.updatedAt !== candidate.baseUpdatedAt)) throw new Error('导图在生成期间发生了修改，请基于当前版本重新调整')
+        if (candidate && !adjustFromCurrent) mergeMindmapCandidate(candidate.baseMarkdown, candidate.candidateMarkdown, snapshot.markdown)
         const liveSource = sourceRef.current
         const webContentsId = liveSource?.getRef()?.getWebContentsId()
-        const result = await window.api.mindmapsModify({ conversationId: currentSource.id, mindmapId: map.id, expectedUpdatedAt: snapshot.updatedAt, platformId: platform, instructions, candidateId: candidate?.id, newSession, includeSourceContext, source: liveSource ? { webContentsId: webContentsId || undefined, platformId: liveSource.id, name: liveSource.name } : undefined })
+        const result = await window.api.mindmapsModify({ conversationId: currentSource.id, mindmapId: map.id, expectedUpdatedAt: snapshot.updatedAt, platformId: platform, instructions, candidateId: adjustFromCurrent ? undefined : candidate?.id, newSession, includeSourceContext, source: liveSource ? { webContentsId: webContentsId || undefined, platformId: liveSource.id, name: liveSource.name } : undefined })
         if (!result.success || !result.data) throw new Error(result.error || '调整启动失败')
         setTask(result.data); setNewSession(false)
-        const saved = composerDrafts.get(key)
-        if (saved) saved[submittedMode] = ''
-        if (draftKeyRef.current === key) setRequest('')
+        submittedModify.current = { taskId: result.data.id, key, instructions }
       }
     } catch (exception) { setError(exception instanceof Error ? exception.message : '操作失败') }
     finally { preparingRef.current = false; setPreparing(false) }
   }
+  useEffect(() => {
+    const submitted = submittedModify.current
+    if (!submitted || task?.id !== submitted.taskId || !['done', 'error', 'cancelled'].includes(task.phase)) return
+    submittedModify.current = null
+    if (task.phase !== 'done') return
+    const saved = composerDrafts.get(submitted.key)
+    if (saved?.modify === submitted.instructions) saved.modify = ''
+    if (draftKeyRef.current === submitted.key) setRequest(value => value === submitted.instructions ? '' : value)
+  }, [task?.id, task?.phase])
   useEffect(() => {
     if (task?.kind !== 'generate' || task.phase !== 'done' || task.mindmapId !== activeMap?.id) return
     for (const key of [draftKey, conversation?.sourceKey || '', conversation?.id || '']) {
@@ -554,8 +568,16 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
   useEffect(() => {
     if (selection?.direct && (!selection.targetId || selection.parentId)) void addSelection()
   }, [selection, preparing])
-  const diff = useMemo(() => candidate ? diffMindmapLines(candidate.baseMarkdown, candidate.candidateMarkdown) : marks, [candidate, marks])
-  const candidateConflict = candidate && activeMap && (activeMap.updatedAt !== candidate.baseUpdatedAt || normalizeMindmapNewlines(activeMap.markdown) !== candidate.baseMarkdown || activeMap.title !== candidate.baseTitle || drafts.has(activeMap.id))
+  const candidatePreview = useMemo(() => {
+    if (!candidate || !activeMap) return null
+    try {
+      return { markdown: mergeMindmapCandidate(candidate.baseMarkdown, candidate.candidateMarkdown, activeMap.markdown), conflict: '', rebased: normalizeMindmapNewlines(activeMap.markdown) !== candidate.baseMarkdown }
+    } catch (exception) {
+      return { markdown: candidate.candidateMarkdown, conflict: exception instanceof Error ? exception.message : '无法自动合并，候选已保留', rebased: false }
+    }
+  }, [candidate, activeMap])
+  const diff = useMemo(() => candidatePreview && activeMap ? diffMindmapLines(activeMap.markdown, candidatePreview.markdown) : marks, [candidatePreview, activeMap, marks])
+  const candidateConflict = candidatePreview?.conflict
   const reload = async (): Promise<void> => { await refresh(true); setMarks(null); setEditorRevision(value => value + 1) }
   const currentModel = models.find(model => model.id === platform)
   const platformName = currentModel?.name || platform
@@ -762,13 +784,14 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
     </div>}
     {candidate && <div className="px-3 py-2 border-b border-gray-100 text-sm space-y-2">
       <div className="flex flex-wrap gap-2 items-center">
-        <button disabled={busy || preparing || !!candidateConflict} className="bg-primary text-white rounded px-3 py-1.5 disabled:opacity-40" onClick={() => void apply()}>应用修改</button>
-        <button disabled={busy || preparing || !!candidateConflict} className="rounded px-2 py-1.5 hover:bg-gray-100 disabled:opacity-40" onClick={() => { setCollapsed(false); textareaRef.current?.focus() }}>继续调整</button>
+        <button disabled={busy || preparing || !!candidateConflict} className="bg-primary text-white rounded px-3 py-1.5 disabled:opacity-40" onClick={() => void apply()}>{candidatePreview?.rebased ? '合并并应用' : '应用修改'}</button>
+        <button disabled={busy || preparing} className="rounded px-2 py-1.5 hover:bg-gray-100 disabled:opacity-40" onClick={() => { setAdjustFromCurrent(!!candidateConflict); setCollapsed(false); textareaRef.current?.focus() }}>{candidateConflict ? '基于当前图重新调整' : '继续调整'}</button>
         <button disabled={preparing} className="rounded px-2 py-1.5 hover:bg-gray-100 disabled:opacity-40" onClick={() => void discard()}>放弃</button>
         <span className="text-gray-500 text-xs">待应用 · 只读预览</span>
-        <button className="ml-auto text-gray-500 hover:text-text-primary text-xs" onClick={() => void navigator.clipboard.writeText(candidate.candidateMarkdown)}>复制候选</button>
+        <button className="ml-auto text-gray-500 hover:text-text-primary text-xs" onClick={() => void navigator.clipboard.writeText(candidatePreview?.markdown ?? candidate.candidateMarkdown)}>复制候选</button>
       </div>
-      {candidateConflict && <p className="text-amber-700">导图在生成期间发生了修改，请放弃候选后基于当前版本重新调整。候选仍可查看或复制。</p>}
+      {candidateConflict ? <p className="text-amber-700">{candidateConflict}</p> : candidatePreview?.rebased && <p className="text-gray-600">已合并生成期间的修改，预览包含当前图与候选的改动。</p>}
+      {adjustFromCurrent && <p className="text-gray-600">下一次调整将以当前图为基础；生成成功前保留这份候选。请在下方输入修改要求。</p>}
     </div>}
 
   </>
@@ -778,7 +801,7 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
     input.style.height = 'auto'
     input.style.height = `${Math.min(72, Math.max(32, input.scrollHeight))}px`
   }, [request, collapsed, activeMap?.id])
-  const submitLabel = preparing ? '处理中…' : busy ? '生成中…' : mode === 'generate' ? '生成新图' : candidate ? '继续调整' : '调整导图'
+  const submitLabel = preparing ? '处理中…' : busy ? '生成中…' : mode === 'generate' ? '生成新图' : adjustFromCurrent ? '基于当前图调整' : candidate ? '继续调整' : '调整导图'
   const expectsNewSession = newSession || !activeMap?.generationSession || platform !== activeMap.generationSession.platformId
   const composer = <div className="shrink-0 px-2 py-2 bg-white">
     {collapsed ? <button className="w-full text-xs text-text-secondary hover:text-primary py-1" onClick={() => setCollapsed(false)}>展开输入区 ↑</button> : <>
@@ -787,8 +810,8 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
         <CustomDropdown value={platform} disabled={busy || preparing} onChange={value => setPlatform(String(value))} options={models.map(model => ({ value: model.id, label: model.name, logo: model.logo }))} direction="up" dropdownWidth="w-48" hideArrow className="shrink-0" buttonClassName="h-8 w-7 rounded-full flex items-center justify-center text-text-secondary hover:bg-gray-100 disabled:opacity-50" renderButton={() => <span title={`生成模型：${models.find(model => model.id === platform)?.name || platform}`} aria-label={`生成模型：${models.find(model => model.id === platform)?.name || platform}`}>
           {models.find(model => model.id === platform)?.logo ? <img src={models.find(model => model.id === platform)?.logo} alt="生成模型" className="w-4 h-4 object-contain" /> : <span className="material-symbols-outlined text-base">smart_toy</span>}
         </span>} />
-        <textarea ref={textareaRef} aria-label={mode === 'generate' ? '新图要求（选填）' : '导图修改要求'} rows={1} maxLength={MINDMAP_REQUIREMENTS_LIMIT} value={request} disabled={busy || preparing} onChange={event => changeRequest(event.target.value)} placeholder={mode === 'generate' ? '输入新图要求（可选）…' : candidate ? '继续调整候选稿…' : '描述想调整的内容…'} className="flex-1 min-w-0 resize-none bg-transparent text-sm text-text-primary placeholder:text-text-secondary/50 focus:outline-none leading-5 py-1.5 px-1 max-h-[72px] disabled:opacity-50" onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void submit() } }} />
-        <button type="button" disabled={busy || preparing || !platform || !models.some(model => model.id === platform) || (mode === 'modify' && (!request.trim() || !!candidateConflict))} aria-label={submitLabel} title={submitLabel} className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 bg-primary text-white hover:brightness-95 disabled:bg-gray-100 disabled:text-gray-400" onClick={() => void submit()}><span className={`material-symbols-outlined text-[18px] ${busy || preparing ? 'animate-spin' : ''}`}>{busy || preparing ? 'sync' : 'arrow_upward'}</span></button>
+        <textarea ref={textareaRef} aria-label={mode === 'generate' ? '新图要求（选填）' : '导图修改要求'} rows={1} maxLength={mode === 'modify' ? MINDMAP_REQUIREMENTS_LIMIT : undefined} value={request} disabled={busy || preparing} onChange={event => changeRequest(event.target.value)} placeholder={mode === 'generate' ? '输入新图要求（可选）…' : adjustFromCurrent ? '基于当前图描述想调整的内容…' : candidate ? '继续调整候选稿…' : '描述想调整的内容…'} className="flex-1 min-w-0 resize-none bg-transparent text-sm text-text-primary placeholder:text-text-secondary/50 focus:outline-none leading-5 py-1.5 px-1 max-h-[72px] disabled:opacity-50" onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void submit() } }} />
+        <button type="button" disabled={busy || preparing || !platform || !models.some(model => model.id === platform) || (mode === 'modify' && (!request.trim() || (!!candidateConflict && !adjustFromCurrent)))} aria-label={submitLabel} title={submitLabel} className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 bg-primary text-white hover:brightness-95 disabled:bg-gray-100 disabled:text-gray-400" onClick={() => void submit()}><span className={`material-symbols-outlined text-[18px] ${busy || preparing ? 'animate-spin' : ''}`}>{busy || preparing ? 'sync' : 'arrow_upward'}</span></button>
       </div>
       <div className="mt-1.5 px-1 flex items-center justify-between gap-2 text-xs text-gray-500">
         <div className="flex flex-wrap gap-x-3 gap-y-1 items-center min-w-0 flex-1">
@@ -826,7 +849,7 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
   </div>, document.body)
   return <div className="h-full flex flex-col min-h-0 bg-white">
     <div className="flex-1 min-h-0">
-      {activeMap && conversation ? <MindmapEditor key={`${activeMap.id}:${editorRevision}`} conversationId={conversation.id} map={activeMap} onReload={() => void reload()} controls={controls} notice={notice} panelRef={panelRef} editorRef={editorRef} onClose={onClose} draggableHeader={draggableHeader} onDragStart={onDragStart} previewMarkdown={candidate?.candidateMarkdown} changedLines={diff?.changedLines} onAskNode={source && conversation.url ? ask : undefined} onEdit={clearMarks} /> : <div className="h-full flex flex-col">
+      {activeMap && conversation ? <MindmapEditor key={`${activeMap.id}:${editorRevision}`} conversationId={conversation.id} map={activeMap} onReload={() => void reload()} controls={controls} notice={notice} panelRef={panelRef} editorRef={editorRef} onClose={onClose} draggableHeader={draggableHeader} onDragStart={onDragStart} previewMarkdown={candidatePreview?.markdown} changedLines={diff?.changedLines} onAskNode={source && conversation.url ? ask : undefined} onViewSource={onViewSource} onEdit={clearMarks} /> : <div className="h-full flex flex-col">
         <div
           className={`px-3 py-2.5 border-b border-gray-200/70 bg-white flex items-center justify-between gap-2 select-none ${
             draggableHeader ? 'drag-region' : ''
@@ -854,8 +877,8 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
                 type="button"
                 onClick={onClose}
                 className="w-7 h-7 rounded-full text-text-secondary hover:text-red-500 hover:bg-red-50 flex items-center justify-center transition-colors no-drag"
-                title="收起侧边栏"
-                aria-label="收起侧边栏"
+                title="关闭思维导图"
+                aria-label="关闭思维导图"
               >
                 <span className="material-symbols-outlined text-base">close</span>
               </button>
@@ -933,7 +956,6 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
             <textarea
               value={request}
               disabled={preparing || busy}
-              maxLength={MINDMAP_REQUIREMENTS_LIMIT}
               rows={4}
               onChange={event => changeRequest(event.target.value)}
               placeholder="额外要求（选填，例如：重点提炼核心论点与结论，省略客套与类比）..."

@@ -20,7 +20,6 @@ import type { NoteConversation, NoteDraft, NoteNavigation, MindmapModifyRequest 
 import { noteConversationKey } from '../shared/utils/noteIdentity'
 import { generateNoteCaptureScript, generateMindmapPageStateScript, generateAppendMindmapQuestionScript } from '../shared/utils/webviewScripts'
 import { MindmapService } from './services/MindmapService'
-import { MINDMAP_REQUIREMENTS_LIMIT } from '../shared/utils/mindmap'
 import { normalizeNoteTranscriptMarkdown } from '../shared/utils/noteTranscript'
 import { getShortcuts, updateShortcuts, type ShortcutConfig } from './shortcutManager'
 import { readPlatformSelection, getAccessibilityPermissionStatus, requestAccessibilityPermission } from './platform/selectionReader'
@@ -901,7 +900,6 @@ export async function registerIpcHandlers(
     ipcMain.handle('mindmaps:start', async (event, conversationId: string, platform: string, additionalRequirements?: string) => {
         try {
             if (additionalRequirements !== undefined && typeof additionalRequirements !== 'string') throw new Error('额外要求必须是文本')
-            if ((additionalRequirements?.length || 0) > MINDMAP_REQUIREMENTS_LIMIT) throw new Error(`额外要求不能超过 ${MINDMAP_REQUIREMENTS_LIMIT} 字符`)
             const source = await takeMindmapSource(event.sender, conversationId)
             trackMindmapOwner(event.sender)
             return { success: true, data: await mindmapService.start(source, platform, additionalRequirements?.trim(), event.sender.id) }

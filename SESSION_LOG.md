@@ -1,5 +1,187 @@
 # Session Log
 
+## 2026-10-09
+
+### 17:10 | Codex
+
+- done: 移除原文侧栏顶部的原句未匹配引导条（含导图节点同类提示），清理只用于该引导的网页/快照匹配状态；保留高亮、定位重试及顶部来源菜单。
+- context: 用户反馈原文已加载时仍出现引导，要求顶部不显示该提示。
+- modified:
+  - `src/renderer/src/components/NotesSourcePane.tsx`
+- unresolved: npm run lint通过（0错误/20项既有警告），npm run build通过；npm run dev完成编译启动后新实例退出。按用户既有安排未使用computer use，移除提示后的桌面效果由用户验收。
+
+### 17:01 | Codex
+
+- done: 精简实际笔记卡片：移除footer、批注条数和批注时间；卡片header合并为图标/标题/导图入口主行与紧凑平台日期副行，全局header缩至64px并移除批注总数；摘录改为浅暖色背景、1px边框与引用图标，删除操作移至批注操作行。
+- context: 保持整卡打开原会话、摘录定位、内联想法与同页导图交互；保留会话级更新日期，移除批注级时间。
+- modified:
+  - `src/renderer/src/components/NotesConversationCards.tsx`
+  - `src/renderer/src/pages/NotesPage.tsx`
+  - `src/renderer/src/styles/notesWorkspace.css`
+- unresolved: npm run lint通过（0错误/20项既有警告）；npm run build通过；样式扫描无发现；npm run dev完成编译启动后新实例退出。沿用用户安排，不使用computer use，视觉效果由用户桌面验收。
+
+### 16:49 | Codex
+
+- done: 修复原文侧栏切换/卸载时removeInsertedCSS同步抛错导致React崩溃：清理前检查DOM连接与就绪状态并捕获同步异常，异步注入完成后的回收复用同一清理逻辑；刷新增加防护，识别Chromium错误页。补齐主会话首次loadURL的Promise拒绝处理。
+- context: 依据用户控制台截图定位NotesSourcePane原163行；仅修改生命周期和异常处理，未改变布局、Session或IPC。
+- decision: 加载失败交由既有did-fail-load状态和快照入口处理；卸载后的样式随guest销毁释放，不再强行调用guest方法。
+- modified:
+  - `src/renderer/src/components/NotesSourcePane.tsx`
+  - `src/renderer/src/hooks/useWebviewLifecycle.ts`
+- unresolved: npm run lint通过（0错误、20项既有警告），npm run build通过，npm run dev编译启动后新进程退出。按用户既有安排未使用computer use，快速切换会话与侧栏收放需要用户桌面复验；远端网页网络加载成功不在本次静态验证结论内。
+
+### 16:36 | Codex
+
+- done: 将实际笔记页改为会话卡片瀑布流首页；摘录使用浅灰背景与选中态，整卡打开原会话、摘录定位；导图入口置于卡片header，同页展开中间画布，左侧保留笔记，叉号关闭并恢复首页位置。
+- context: 保留现有蓝白风格、原文黄色高亮、原网页优先与快照可选；复用列表摘要和既有IPC，无新增依赖。
+- decision: 首页仅加载摘要，原文/导图详情按需读取；内联评论使用所属会话ID保存，原文反向选中批注不退出导图。
+- added:
+  - `src/renderer/src/components/NotesConversationCards.tsx`
+- modified:
+  - `src/renderer/src/pages/NotesPage.tsx`
+  - `src/renderer/src/styles/notesWorkspace.css`
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+- unresolved: npm run lint通过（0错误/20项既有警告），npm run build通过；web类型检查仍被TaskModePanel/MainPage/QuickPage/appStore的Map迭代配置和useWebviewLifecycle的既有类型问题阻塞，本次修改文件未报错。npm run dev完成编译后新实例退出；按用户此前明确安排不使用computer use，桌面点击验收由用户完成。
+
+### 16:13 | Codex
+
+- done: 同步笔记首页与同页导图展开的原型设计说明，内联脚本语法检查通过，并提供更新后的本地预览链接。
+- context: 本轮交付为可交互HTML原型，右侧原会话使用离线示例数据。
+- modified:
+  - `docs/prototypes/notes-workspace.html`
+
+### 16:13 | Codex
+
+- done: 更新原有笔记工作台 HTML 原型：会话卡片瀑布流首页、批注内联编辑、黄色高亮定位右侧原文、同页切换为左侧笔记与中间导图；完成独立离屏渲染与18项交互检查。
+- context: 仅修改原型，沿用蓝白风格；未使用 computer use，未操作运行中的桌面应用。
+- decision: 导图展开复用同一工作区，保留原文栏状态、导图缩放和返回首页的滚动位置；原网页优先，快照可选。
+- modified:
+  - `docs/prototypes/notes-workspace.html`
+
+### 15:51 | Codex
+
+- done: 导图版本菜单改为按最后编辑时间倒序排列，时间相同按创建时间及 ID 稳定排序
+- decision: 复用导图现有 updatedAt 与保存后的 notes:changed 刷新，不新增持久化字段
+- modified:
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+- unresolved: 未获 computer use 授权，尚需在桌面窗口编辑旧导图并确认其保存后移动到菜单首位
+
+### 15:41 | Codex
+
+- done: 加固思维导图修改协议解析与网页标签识别，允许安全合并候选及保留冲突候选继续调整；lint、build 与 43 项定向检查通过，类型检查无新增诊断。
+- decision: 仅归一化协议标签，保留正文空白和精确替换校验；时间戳变化不直接判内容冲突；不同位置修改三方合并，同处冲突保留候选并提供基于当前图调整。沿用现有 IPC，无新增依赖。
+- modified:
+  - `src/shared/utils/mindmapEdits.ts`
+  - `src/shared/utils/webviewScripts.ts`
+  - `src/main/services/MindmapService.ts`
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+- unresolved: npm run dev 编译成功，但启动的新进程被已有应用的单实例锁退出，未实际触发桌面 AI 生成链路。最小验收：完整退出并重启开发应用，验证缺失 new_text 闭标签、生成期间改另一分支后合并、同处冲突后基于当前图调整，以及失败后要求仍保留。两侧 tsc 共 22 条既有错误，本次未新增。
+
+### 15:36 | Codex
+
+- done: 按已确认原型重构实际笔记页：中央批注/导图、默认收起的右侧原文对照、网页优先快照可选、黄色高亮及双向定位；修复摘要列表更新时间倒序，导图点击来源保留缩放。
+- context: 在当前分支局部实现，保留并行未提交修改，未新增依赖或 IPC。用户明确选择不使用 computer use、自行桌面验收。lint 0错误20既有警告，首次build成功；node/web类型检查被其他文件既有错误阻塞，本次文件无类型报错。npm run dev编译启动后因已有应用单实例退出。
+- decision: 原网页和已访问的快照保留实例；高亮按规范化空白与锚点前后文消歧，有限重试且避免重复滚动；导图节点无法精确匹配原句时明确提示，仍保留上下文对照。
+- added:
+  - `src/renderer/src/components/NotesSourcePane.tsx`
+  - `src/renderer/src/styles/notesWorkspace.css`
+- modified:
+  - `src/renderer/src/pages/NotesPage.tsx`
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+  - `src/renderer/src/components/LocalMindmapPanel.tsx`
+  - `src/renderer/src/hooks/useMindmapCanvas.ts`
+  - `src/shared/utils/webviewScripts.ts`
+  - `src/main/noteManager.ts`
+- unresolved: 用户需重启开发版自行验收批注/导图切换、原网页与快照高亮及真实平台加载；全量tsc既有错误未纳入此次范围。
+
+### 15:25 | Codex
+
+- done: 思维导图多选节点现在可批量设置加粗和高亮，混合状态点击统一应用，全部已启用时点击统一取消
+- decision: 复用既有框选与 Ctrl/Shift 多选状态；批量格式操作只提交一次树更新，工具条显示选中数量与混合状态
+- modified:
+  - `src/renderer/src/hooks/useMindmapCanvas.ts`
+  - `src/renderer/src/components/LocalMindmapPanel.tsx`
+- unresolved: 此前未获 computer use 授权，尚需在桌面窗口手动验收多选、批量格式、撤销及 Markdown 持久化；Web 类型检查存在 12 处既有错误
+
+### 15:18 | Codex
+
+- done: 思维导图节点就地编辑改为保留加粗与高亮的可视样式，提交和新增子节点时从编辑 DOM 还原 Markdown
+- decision: 整节点格式在 contenteditable 容器上保持视觉状态，部分格式由 strong/mark 子元素保留；保存时仅序列化支持的两种格式
+- modified:
+  - `src/renderer/src/hooks/useMindmapCanvas.ts`
+  - `src/renderer/src/utils/mindmapInlineFormat.ts`
+  - `src/renderer/src/styles/localMindmap.css`
+- unresolved: 未获 computer use 授权，仍需在 npm run dev 桌面窗口手动确认鼠标选区、中文输入法、粘贴与保存恢复；渲染侧类型检查仍有既有错误
+
+### 12:47 | Codex
+
+- done: 将思维导图节点格式工具条改为深色，移除前置标签并给加粗与高亮按钮增加图标和明显的选中态；评估暂不扩展其他 Markdown 按钮
+- decision: 保留两个整节点高频格式，避免在窄画布底部堆叠低频操作；其他格式待明确使用场景再加入
+- modified:
+  - `src/renderer/src/components/LocalMindmapPanel.tsx`
+- unresolved: 未获 computer use 授权，工具条桌面视觉与交互仍需在 npm run dev 窗口手动确认
+
+### 12:43 | Codex
+
+- done: 为本地思维导图节点增加整节点 Markdown 加粗与高亮工具条，画布渲染格式效果并保留 Markdown 原文
+- decision: 工具条作用于单个选中节点；使用 **文字** 与 ==文字== 存储，根标题输入保持纯文字
+- added:
+  - `src/renderer/src/utils/mindmapInlineFormat.ts`
+- modified:
+  - `src/renderer/src/hooks/useMindmapCanvas.ts`
+  - `src/renderer/src/components/LocalMindmapPanel.tsx`
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+  - `src/renderer/src/styles/localMindmap.css`
+- unresolved: 当前会话未授权 computer use，需在 npm run dev 桌面窗口手动确认工具条位置、点击切换、编辑回显及保存恢复；渲染侧类型检查仍有既有错误
+
+### 12:36 | Codex
+
+- done: 按用户反馈精简笔记原型为单行工具区和默认收起的原文对照栏：黄色高亮、原网页优先、快照可选，删除中央完整原文 tab 与原对话弹窗；批注/导图来源一键并排定位。
+- context: 独立 HTML 原型，继续保持项目蓝白风格，不操作用户桌面；原网页使用隔离的离线会话示例。
+- decision: 中间始终保留批注或导图，右侧只展示来源；点击引用或节点直接展开来源，导图展开来源时保留缩放和选中位置。
+- modified:
+  - `docs/prototypes/notes-workspace.html`
+
+### 12:36 | Codex
+
+- done: 修复本地思维导图节点编辑时选中文本删除或 Ctrl+V 粘贴后意外退出编辑模式的事件处理
+- decision: 保留明确的离开节点提交操作；对内容变化引起的短暂失焦恢复焦点，并避免编辑中双击重新初始化选区
+- modified:
+  - `src/renderer/src/hooks/useMindmapCanvas.ts`
+- unresolved: 受限于当前会话未获 computer use 授权，需在 npm run dev 的桌面窗口手动复验拖选删除、拖选 Ctrl+V、点击外部提交与 Enter/Esc
+
+### 12:21 | Codex
+
+- done: 补充适配视口异步流程的实例存活检查，避免销毁后的导图实例继续执行最小缩放钳制
+- decision: 在 fit 完成后先确认当前 Markmap 实例仍有效，再执行最小缩放修正，保持现有生命周期清理语义
+- modified:
+  - `src/renderer/src/hooks/useMindmapCanvas.ts`
+
+### 12:20 | Codex
+
+- done: 限制思维导图缩放下限，禁止滚轮、工具栏和适配视口无限缩小
+- decision: 统一使用 0.2 作为最小缩放比例：D3 scaleExtent 约束交互缩放，fit 与程序化缩小额外钳制，避免不同入口绕过下限
+- modified:
+  - `src/renderer/src/hooks/useMindmapCanvas.ts`
+
+### 12:11 | Codex
+
+- done: 调研 Readwise、Xmind 与 Obsidian，交付与现有蓝白 UI 风格一致的笔记/思维导图高保真 HTML 交互原型；离屏渲染验证双向定位、排序、评论、撤销、原文重新关联和响应式布局。
+- context: 本次仅制作独立原型；复用项目主题色与平台图标；用户要求不使用 computer use。
+- decision: 批注为默认主视图，思维导图为并列模式；来源按需展开。验证使用隔离的 Electron 离屏窗口，不读取应用数据。
+- added:
+  - `docs/prototypes/notes-workspace.html`
+
+### 11:52 | Codex
+
+- done: 取消思维导图生成时额外要求的字数输入限制，保留已有导图调整要求的 1000 字符限制并同步文档
+- decision: 仅移除生成新图链路的前端 maxLength 与 mindmaps:start 主进程长度校验，保留调整已有导图的限制及来源对话上下文保护
+- modified:
+  - `docs/conversation-mindmap-prompt-optimization.md`
+  - `src/main/ipcHandlers.ts`
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+  - `src/shared/utils/mindmap.ts`
+
 ## 2026-10-06
 
 ### 12:02 | Antigravity
@@ -931,156 +1113,4 @@
 - modified:
   - `src/renderer/src/components/MindmapSidebarView.tsx`
   - `src/renderer/src/pages/QuickPage.tsx`
-
-## 2026-10-02
-
-### 23:16 | Antigravity
-
-- done: 提交思维导图功能相关代码：集成 Markmap 本地思维导图与幕布在线视图，支持正交连线与就地编辑
-- added:
-  - `src/renderer/src/components/LocalMindmapPanel.tsx`
-  - `src/renderer/src/components/MindmapSidebarView.tsx`
-- modified:
-  - `package.json`
-  - `package-lock.json`
-  - `src/renderer/src/components/WebviewSidebarPanel.tsx`
-  - `src/renderer/src/pages/QuickPage.tsx`
-
-### 23:08 | Antigravity
-
-- done: 修复思维导图节点文本竖向折行问题，强制水平横向排版
-- decision: 在LocalMindmapPanel的CSS样式中为foreignObject所有div层级、mm-node-item和mm-node-title强制注入white-space:nowrap和width:max-content
-- modified:
-  - `src/renderer/src/components/LocalMindmapPanel.tsx`
-- lesson(promoted): Markmap外层foreignObject容器在初始无明确宽度时，内层中文字符若缺失white-space:nowrap会在每个字符处发生自动软折行坍塌为单字竖排；必须在外层foreignObject、div及mm-node-item/mm-node-title全链路设置white-space:nowrap与width:max-content
-
-### 22:56 | Antigravity
-
-- done: 彻底修复思维导图连线与节点之间的视觉空隙与断裂问题
-- decision: 在 getOrthogonalStepPath 中提取真实 DOM 边界 offsetWidth/offsetHeight 并根据层级穿透 1-2px 闭合入卡片或纯文本；CSS 强制 foreignObject x:0 且按钮默认 display:none
-- modified:
-  - `src/renderer/src/components/LocalMindmapPanel.tsx`
-- lesson(promoted): Markmap 中绝对定位子元素（如 hover 操作按钮）即便 opacity:0 也会撑大祖先元素 scrollWidth，导致 D3 计算 rect.width 虚增 40px 引发出线空隙；必须将非 hover/非 fold 态设为 display:none，并在折线计算中以实际 DOM offsetWidth 为准
-
-### 22:28 | Antigravity
-
-- done: 彻底修复部分节点无法被选中及无法触发hover效果的问题
-- modified:
-  - `src/renderer/src/components/LocalMindmapPanel.tsx`
-- lesson(promoted): Markmap默认CSS对foreignObject内div硬编码了width 9999px，在开启overflow visible后会横向遮盖右侧所有子分支导致无法hover和点击；必须在外层foreignObject及其包装div上强制设置pointer-events none与width auto，仅对mm-node-item本体开启pointer-events auto，并为纯文本分支设置微不可见背景消除穿透
-
-### 22:23 | Antigravity
-
-- done: 彻底消除连线与节点之间的断层空隙，大幅缩短水平连线距离让导图更紧凑
-- modified:
-  - `src/renderer/src/components/LocalMindmapPanel.tsx`
-- lesson(promoted): Markmap默认paddingX: 8会导致foreignObject产生8px外层偏移导致连线两端悬空断裂；必须显式配置paddingX: 0让连线与节点绝对贴合；配置spacingHorizontal: 46将原本80px的超长水平连线大幅缩减为46px，并微调纯文本节点的内边距
-
-### 22:14 | Antigravity
-
-- done: 实现节点末尾浮动圆形加号与向左向右展开收起按钮，覆盖在线段上且不改变节点与线段长度
-- modified:
-  - `src/renderer/src/components/LocalMindmapPanel.tsx`
-- lesson(promoted): 节点末端操作按钮必须通过0宽高的绝对定位anchor容器脱离流式布局，保证节点尺寸纯粹由文字决定，避免hover时节点宽度与连线长度发生变化；圆形白底按钮可无缝遮盖正交折线，收起采用向左箭头◂，展开采用向右箭头▸
-
-### 22:01 | Antigravity
-
-- done: 修复思维导图节点无法选中与修改/增删节点时画布突变缩放问题
-- modified:
-  - `src/renderer/src/components/LocalMindmapPanel.tsx`
-- lesson(promoted): Markmap集成避坑：1. 严禁嵌套setState并使用treeRef保障最新树；2. 避免透明背景在SVG foreignObject中点击穿透需设rgba微背景；3. 连线设置pointer-events none防止遮挡节点点击；4. ResizeObserver需设置防抖阈值杜绝编辑微调时误触发fit()
-
-### 21:52 | Antigravity
-
-- done: 彻底修复节点选择与编辑视口跳动：禁用 Markmap 内部 autoFit 消除编辑/增删节点时的画布缩放跳变，全方位捕获节点点击与双击，扩大分支热区并双向同步 mm-selected 状态
-- decision: 将 autoFit 设为 false 仅在初次挂载时执行一次 fit()，后续数据变更绝不跳动画布；点击事件优先多级向上向内解析 .mm-node-item，彻底解决子元素或外层 div 点击漏选问题
-- modified:
-  - `src/renderer/src/components/LocalMindmapPanel.tsx`
-- lesson(promoted): Markmap 的 options.autoFit: true 会在每次 setData() 内部自动触发 this.fit() 重设视口缩放，导致编辑/增删节点时画布突变缩放；必须 autoFit: false 仅手动适时 fit；点击目标判定需兼顾 foreignObject 和包装 div，防止点击边缘时误判为背景
-
-### 21:37 | Antigravity
-
-- done: 修复连线垂直居中与节点编辑生命周期：从 D3 __data__ 精准计算节点垂直居中坐标并连接卡片中部；移除 mm.transition 篡改避免 TypeError；解耦 selectedNodeId/editingNodeId 与 setData 依赖，消除 addRange DOM 节点销毁告警
-- decision: 通过 D3 __data__ rect 提取源节点与目标节点实际高度的一半作为 Y 轴锚点，实现连线穿入节点正中央；节点选中与编辑态使用 DOM class 驱动而非 setData 重建
-- modified:
-  - `src/renderer/src/components/LocalMindmapPanel.tsx`
-- lesson(promoted): 不能篡改 mm.transition 为 raw selection，Markmap 内部强依赖 transition.end() promise；selectedNodeId/editingNodeId 变化切勿触发 markmap.setData，否则会销毁正处于编辑态的 DOM 导致 addRange 越界失败
-
-### 21:19 | Antigravity
-
-- done: 彻底攻克正交折线与节点原形就地编辑：全局拦截 SVGPathElement setAttribute 实现幕布风格正交折线，节点标题 contenteditable 原生形状内打字，移除浮层输入框
-- decision: 采用 SVGPathElement 原型级拦截和 mm.transition 规避 D3 动画滞后；采用节点内部 contenteditable 实现原形状原色就地打字零浮层
-- modified:
-  - `src/renderer/src/components/LocalMindmapPanel.tsx`
-- lesson(promoted): Markmap 内部硬编码 linkHorizontal 贝塞尔曲线且依赖 D3 transition，必须在 SVGPathElement 原型层拦截并在实例上替换 transition 才能实现无闪烁纯正交折线；就地编辑应直接赋予节点 DOM contenteditable，完美继承节点尺寸和黑白灰层级样式
-
-### 20:44 | Antigravity
-
-- done: 实现幕布式黑白灰分层视觉与正交折线连线，支持点击打字覆盖、双击就地编辑及Tab/加号就地新增输入零弹窗
-- decision: 设计 curveToStepPath 算法将贝塞尔曲线转换为正交阶梯折线，统一黑白灰无彩色分支；根节点黑底白字、一级节点浅灰块、二级及以上透明底文字；通过绝对定位原位输入框实现零弹窗就地直接输入与打字覆盖
-- modified:
-  - `src/renderer/src/components/LocalMindmapPanel.tsx`
-- lesson(promoted): Markmap 原生连线为贝塞尔曲线，可通过提取路径端点坐标动态改写为 M-L 正交折线，并在父节点侧统一折角水平偏移量实现同分支垂直对齐；就地编辑采用绝对定位原位输入框比 SVG 内嵌 input 具备更好的中文输入法兼容性与定位稳定性
-
-### 20:32 | Antigravity
-
-- done: 修复 LocalMindmapPanel 中 cloneTree 与 findNode 在 useCallback 声明中递归自引用导致的 TDZ ReferenceError
-- decision: 将 cloneTree 和 findNode 提取为模块级纯函数，消除组件内的生命周期与依赖闭包死区
-- modified:
-  - `src/renderer/src/components/LocalMindmapPanel.tsx`
-- lesson(promoted): 递归树操作纯函数切勿在 React 组件体内用 useCallback 声明并在依赖数组中引用自身，否则会在初始化阶段触发 ES6 暂时性死区 (TDZ) ReferenceError: Cannot access X before initialization，应直接声明为模块顶层纯函数
-
-### 20:18 | Antigravity
-
-- done: 优化思维导图交互：Header只保留大字号本地/在线Tab，导图/Markdown切换移至画布右上角，Markdown精简为纯源码编辑，导图默认全展开且修复展开按钮，支持Delete删除节点、Tab/加号新增节点、hover末尾折叠及撤回重做
-- decision: 在Markmap中自定义节点HTML包裹结构，隐藏原生圆圈，节点末尾提供+与hover折叠按钮避免打架；建立无损Line-based AST双向映射，支持键盘Tab新增与Delete删除，双击重命名并记录历史栈实现Undo/Redo
-- modified:
-  - `src/renderer/src/components/LocalMindmapPanel.tsx`
-  - `src/renderer/src/components/MindmapSidebarView.tsx`
-- lesson(promoted): Markmap 原生 circle 与自定义按钮容易冲突，可通过 CSS 隐藏 circle 并在节点内容末尾自定义嵌入展开与添加按钮；Markmap 默认全展开需设置 initialExpandLevel: -1 并在数据变化时调用 setData 与 fit
-
-### 20:08 | Antigravity
-
-- done: 基于 Markmap 实现本地自研思维导图与在线幕布分段切换功能，支持思维导图与 Markdown 预览双模
-- decision: 采用 markmap-lib/no-plugins 与 markmap-view 实现轻量化离线渲染；在侧边栏 Header 引入分段控件支持本地/在线无缝切换并保活在线会话；本地以 Markdown 为单一真实数据源，默认以思维导图呈现，并支持视口自适应、展开折叠、SVG导出及持久化存储
-- added:
-  - `src/renderer/src/components/LocalMindmapPanel.tsx`
-  - `src/renderer/src/components/MindmapSidebarView.tsx`
-- modified:
-  - `package.json`
-  - `package-lock.json`
-  - `src/renderer/src/components/WebviewSidebarPanel.tsx`
-  - `src/renderer/src/pages/QuickPage.tsx`
-- lesson(promoted): Markmap 采用 markmap-lib/no-plugins 导入 Transformer 能排除重型代码高亮和数学公式插件，大幅减小构建体积并消除运行风险；在侧边栏切换在线 Webview 与本地组件时，通过 CSS display:none 隐藏 WebviewCard 可避免销毁重建导致的页面重新加载与登录态中断
-
-### 16:30 | Antigravity
-
-- done: 修复单窗口与多窗口/任务分配模式切换时容器宽度计算为0导致窗口塌陷空白的问题
-- decision: 在MainPage中引入containerEl状态与setContainerRef回调ref，确保容器节点切换时ResizeObserver及时重新挂载；忽略卸载时上报的0尺寸；在gridTemplateColumns列宽计算中若有效宽度为0则保底回退为minmax(0, 1fr)
-- modified:
-  - `src/renderer/src/pages/MainPage.tsx`
-- lesson(promoted): 当React组件在不同模式分支下分别渲染挂载了同一个ref的DOM元素时，若useEffect仅监听isActive而不监听DOM节点或模式切换，会导致ResizeObserver滞留于已卸载节点并上报0宽度，新节点未被监听从而永久冻结在0px。必须使用callback ref追踪DOM节点变化，并在CSS Grid列宽处提供minmax(0, 1fr)安全保底
-
-### 13:43 | Antigravity
-
-- done: 优化顶部视窗切换按钮：辩论模式下自动隐藏，任务分配模式下隐藏单窗口选项
-- decision: 在Layout组件中通过productMode条件判断在辩论模式下隐藏窗口切换栏，在任务分配模式下排除'one'选项；在appStore初始化中强化taskAssignmentDisplayMode不能为'one'的规范
-- modified:
-  - `src/renderer/src/components/Layout.tsx`
-  - `src/renderer/src/store/appStore.ts`
-
-## 2026-10-01
-
-### 11:42 | Antigravity
-
-- done: 实现单窗口占满视口与快捷侧边栏/思维导图交互复用
-- decision: 抽离 useWebviewSidebar 与 WebviewSidebarPanel 模块化组件，主窗口与快捷窗口交互一致，单窗口 flat 全屏无留白，多窗口自动休眠侧边栏
-- added:
-  - `src/renderer/src/hooks/useWebviewSidebar.ts`
-  - `src/renderer/src/components/WebviewSidebarPanel.tsx`
-- modified:
-  - `src/main/webviewManager.ts`
-  - `src/preload/index.d.ts`
-  - `src/preload/index.ts`
-  - `src/renderer/src/pages/MainPage.tsx`
 

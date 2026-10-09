@@ -409,7 +409,9 @@ export function useWebviewLifecycle({
         loadedUrlRef.current = url
         setIsLoading(true)
         setLoadError(null)
-        webview.loadURL(url)
+        // loadURL 的加载失败通过 Promise 拒绝返回，外层 try 只捕获同步异常。
+        // 错误界面由 did-fail-load 统一处理，避免再触发全局 unhandledrejection。
+        void webview.loadURL(url).catch(() => undefined)
       } catch (e) {
         console.error(`[${name}] loadURL failed:`, e)
       }

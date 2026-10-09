@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 
 import { Markmap } from 'markmap-view'
 import type { INode } from 'markmap-common'
 import { cloneTree, findNode, generateId, getSelectedBranches, moveBranches, type MindNode, type MindmapDropPosition } from '../utils/mindmapTree'
+import { editableMindmapContent, hasWholeNodeFormat, readMindmapInlineFormat, renderMindmapInlineFormat, stripMindmapInlineFormat, toggleWholeNodeFormat, type MindmapInlineFormat } from '../utils/mindmapInlineFormat'
 
 interface MindmapCanvasOptions {
   tree: MindNode
@@ -14,19 +15,13 @@ interface MindmapCanvasOptions {
   readOnly?: boolean
   changedLines?: number[]
   onNodeContextMenu?: (id: string, path: string[], x: number, y: number) => void
+  onNodeSelect?: (text: string) => void
 }
 
 // 正文默认 12.5px；缩放后小于约 9px 时隐藏节点操作，避免固定尺寸按钮遮住导图。
 const NODE_CONTROLS_MIN_ZOOM = 0.75
-
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-}
+// 防止滚轮、工具栏和适配视口将导图缩小到几乎不可见。
+const MIN_MINDMAP_ZOOM = 0.2
 
 interface D3NodeDatum {
   content?: string
@@ -213,7 +208,7 @@ function convertToMarkmapNode(
 
   const contentHtml = `
     <span class="mm-node-item ${levelClass} ${isSelected ? 'mm-selected' : ''}" data-node-id="${node.id}">
-      <span class="mm-node-title" data-node-id="${node.id}" tabindex="-1">${escapeHtml(node.content)}</span>
+      <span class="mm-node-title" data-node-id="${node.id}" tabindex="-1">${renderMindmapInlineFormat(node.content)}</span>
       <span class="mm-node-btns-anchor">
         <span class="mm-node-btns ${isFolded ? 'has-folded' : ''}">
           <span class="mm-btn mm-btn-add" data-action="add" data-node-id="${node.id}" title="添加子节点 (Tab)">${plusIconSvg}</span>
@@ -251,7 +246,8 @@ export function useMindmapCanvas({
   showToast,
   readOnly = false,
   changedLines,
-  onNodeContextMenu
+  onNodeContextMenu,
+  onNodeSelect
 }: MindmapCanvasOptions) {
   const treeRef = useRef(tree)
   treeRef.current = tree
@@ -294,6 +290,11 @@ export function useMindmapCanvas({
     const { x1, y1, x2, y2 } = mm.state.rect
     if (width <= 0 || height <= 0 || ![x1, y1, x2, y2].every(Number.isFinite) || x2 <= x1 || y2 <= y1) return
     await mm.fit()
+    if (markmapRef.current !== mm) return
+    const fittedZoom = (svg as SVGSVGElement & { __zoom?: { k?: number } }).__zoom?.k
+    if (typeof fittedZoom === 'number' && Number.isFinite(fittedZoom) && fittedZoom < MIN_MINDMAP_ZOOM) {
+      await mm.rescale(MIN_MINDMAP_ZOOM)
+    }
     if (markmapRef.current === mm) needsInitialFitRef.current = false
   }, [])
 
@@ -348,7 +349,7 @@ export function useMindmapCanvas({
       const nodeItem = svgRef.current.querySelector<HTMLElement>(`.mm-node-item[data-node-id="${currentId}"]`)
       const titleEl = svgRef.current.querySelector<HTMLElement>(`.mm-node-title[data-node-id="${currentId}"]`)
 
-      let text = (titleEl?.textContent || '').trim()
+      let text = titleEl ? readMindmapInlineFormat(titleEl) : ''
       if (!text) {
         text = titleEl?.getAttribute('data-original-text') || '未命名分支'
       }
@@ -356,6 +357,8 @@ export function useMindmapCanvas({
       if (titleEl) {
         titleEl.removeAttribute('contenteditable')
         titleEl.removeAttribute('data-original-text')
+        titleEl.classList.remove('mm-edit-bold', 'mm-edit-highlight')
+        titleEl.innerHTML = renderMindmapInlineFormat(text)
         titleEl.blur()
       }
       if (nodeItem) {
@@ -386,10 +389,11 @@ export function useMindmapCanvas({
     if (titleEl) {
       const orig = titleEl.getAttribute('data-original-text')
       if (orig !== null) {
-        titleEl.textContent = orig
+        titleEl.innerHTML = renderMindmapInlineFormat(orig)
       }
       titleEl.removeAttribute('contenteditable')
       titleEl.removeAttribute('data-original-text')
+      titleEl.classList.remove('mm-edit-bold', 'mm-edit-highlight')
       titleEl.blur()
     }
     if (nodeItem) {
@@ -407,6 +411,7 @@ export function useMindmapCanvas({
       const nodeItem = svgRef.current.querySelector<HTMLElement>(`.mm-node-item[data-node-id="${nodeId}"]`)
       const titleEl = svgRef.current.querySelector<HTMLElement>(`.mm-node-title[data-node-id="${nodeId}"]`)
       if (!nodeItem || !titleEl) return
+      if (editingNodeIdRef.current === nodeId && titleEl.isContentEditable) return
 
       // 若之前有节点在编辑，先保存
       if (editingNodeIdRef.current && editingNodeIdRef.current !== nodeId) {
@@ -416,12 +421,13 @@ export function useMindmapCanvas({
       editingNodeIdRef.current = nodeId
       setSelectedNodeId(nodeId)
 
-      const origText = titleEl.textContent || ''
+      const origText = findNode(treeRef.current, nodeId)?.content || titleEl.textContent || ''
       titleEl.setAttribute('data-original-text', origText)
-
-      if (initialText !== undefined) {
-        titleEl.textContent = initialText
-      }
+      titleEl.classList.toggle('mm-edit-bold', hasWholeNodeFormat(origText, 'bold'))
+      titleEl.classList.toggle('mm-edit-highlight', hasWholeNodeFormat(origText, 'highlight'))
+      titleEl.innerHTML = renderMindmapInlineFormat(initialText === undefined
+        ? editableMindmapContent(origText)
+        : initialText)
 
       nodeItem.classList.add('mm-editing')
       titleEl.setAttribute('contenteditable', 'true')
@@ -448,8 +454,15 @@ export function useMindmapCanvas({
           if (selectAll) {
             range.selectNodeContents(titleEl)
           } else {
-            range.selectNodeContents(titleEl)
-            range.collapse(false) // 光标置于末尾
+            let end: Node = titleEl
+            while (end.lastChild) end = end.lastChild
+            if (end.nodeType === Node.TEXT_NODE) {
+              range.setStart(end, end.textContent?.length || 0)
+              range.collapse(true)
+            } else {
+              range.selectNodeContents(titleEl)
+              range.collapse(false)
+            }
           }
           sel.addRange(range)
         }
@@ -472,9 +485,11 @@ export function useMindmapCanvas({
         const curTitle = svgRef.current.querySelector<HTMLElement>(`.mm-node-title[data-node-id="${prevEditingId}"]`)
         const curItem = svgRef.current.querySelector<HTMLElement>(`.mm-node-item[data-node-id="${prevEditingId}"]`)
         if (curTitle) {
-          pendingText = curTitle.textContent?.trim() || curTitle.getAttribute('data-original-text') || '未命名分支'
+          pendingText = readMindmapInlineFormat(curTitle) || curTitle.getAttribute('data-original-text') || '未命名分支'
           curTitle.removeAttribute('contenteditable')
           curTitle.removeAttribute('data-original-text')
+          curTitle.classList.remove('mm-edit-bold', 'mm-edit-highlight')
+          curTitle.innerHTML = renderMindmapInlineFormat(pendingText)
           try {
             curTitle.blur()
           } catch {
@@ -554,6 +569,28 @@ export function useMindmapCanvas({
     },
     [commitTreeChange, setSelection, showToast]
   )
+
+  const toggleNodeFormat = useCallback((format: MindmapInlineFormat) => {
+    if (readOnly) return
+    commitCurrentEditing()
+    const selectedIds = new Set(selectedNodeIdsRef.current)
+    if (!selectedIds.size) return
+    const cloned = cloneTree(treeRef.current)
+    const selected: MindNode[] = []
+    const collect = (node: MindNode): void => {
+      if (selectedIds.has(node.id)) selected.push(node)
+      node.children.forEach(collect)
+    }
+    collect(cloned)
+    if (!selected.length) return
+    const enable = !selected.every(node => hasWholeNodeFormat(node.content, format))
+    selected.forEach(node => {
+      if (hasWholeNodeFormat(node.content, format) !== enable) {
+        node.content = toggleWholeNodeFormat(node.content, format)
+      }
+    })
+    commitTreeChange(cloned)
+  }, [commitCurrentEditing, commitTreeChange, readOnly])
 
   // ── 折叠 / 展开单个节点 ──
   const handleToggleFoldNode = useCallback(
@@ -645,6 +682,7 @@ export function useMindmapCanvas({
         }
       )
       markmapRef.current = mm
+      mm.zoom.scaleExtent([MIN_MINDMAP_ZOOM, Infinity])
       // 保留滚轮缩放，鼠标平移仅使用右键；左键由框选与节点拖动处理。
       const defaultZoomFilter = mm.zoom.filter()
       mm.zoom.filter((event: MouseEvent) => event.type === 'mousedown'
@@ -748,6 +786,14 @@ export function useMindmapCanvas({
           // 仅重新校准连线与按钮缩放比例，绝不调用 fit() 重新居中导致画面跳动！
           convertLinksToStep()
           updateZoomCss()
+          // 笔记页展开原文栏后，只平移被遮住的选中节点，不改变用户缩放。
+          const selectedId = selectedNodeIdRef.current
+          if (onNodeSelect && selectedId) {
+            const item = svg.querySelector<HTMLElement>(`.mm-node-item[data-node-id="${CSS.escape(selectedId)}"]`)
+            const group = item?.closest<SVGGElement>('.markmap-node')
+            const data = (group as (SVGGElement & { __data__?: INode }) | null)?.__data__
+            if (data) void markmapRef.current?.ensureVisible(data, { left: 24, right: 24, top: 56, bottom: 72 })
+          }
         } else if (lastW === 0 || lastH === 0) {
           lastW = width
           lastH = height
@@ -758,7 +804,7 @@ export function useMindmapCanvas({
     // 观察 SVG 本身，才能感知大纲切换和祖先侧栏的 display:none。
     observer.observe(svg)
     return () => observer.disconnect()
-  }, [convertLinksToStep, updateZoomCss])
+  }, [convertLinksToStep, updateZoomCss, onNodeSelect])
 
   // ── 捕获阶段代理鼠标交互（避免 Markmap 内部 stopPropagation 拦截双击与点击） ──
   useEffect(() => {
@@ -850,7 +896,7 @@ export function useMindmapCanvas({
           if (!selectedNodeIdsRef.current.includes(gesture.nodeId)) setSelection([gesture.nodeId])
           gesture.branches = getSelectedBranches(treeRef.current, new Set(selectedNodeIdsRef.current))
           gesture.overlay.textContent = gesture.branches.length
-            ? `${gesture.branches[0].content}${gesture.branches.length > 1 ? ` 等 ${gesture.branches.length} 个分支` : ''}`
+            ? `${stripMindmapInlineFormat(gesture.branches[0].content)}${gesture.branches.length > 1 ? ` 等 ${gesture.branches.length} 个分支` : ''}`
             : '根节点不能移动'
           svgRef.current?.querySelectorAll<HTMLElement>('.mm-node-item').forEach(el => {
             const id = el.getAttribute('data-node-id') || ''
@@ -946,7 +992,7 @@ export function useMindmapCanvas({
       if (!id) return
       const path: string[] = []
       const locate = (node: MindNode): boolean => {
-        path.push(node.content)
+        path.push(stripMindmapInlineFormat(node.content))
         if (node.id === id || node.children.some(locate)) return true
         path.pop(); return false
       }
@@ -1002,6 +1048,11 @@ export function useMindmapCanvas({
             return
           }
 
+          if (!e.ctrlKey && !e.metaKey && !e.shiftKey) {
+            const node = findNode(treeRef.current, nodeId)
+            if (node) onNodeSelect?.(stripMindmapInlineFormat(node.content))
+          }
+
           // 如果正在编辑其他节点，先提交
           if (editingNodeIdRef.current) {
             commitCurrentEditing()
@@ -1029,6 +1080,7 @@ export function useMindmapCanvas({
     const handleDblClickCapture = (e: MouseEvent): void => {
       if (readOnly) return
       const target = e.target as HTMLElement
+      if (target.closest('[contenteditable="true"]')) return
       const nodeItem =
         target.closest<HTMLElement>('.mm-node-item') ||
         target.closest<HTMLElement>('.markmap-node')?.querySelector<HTMLElement>('.mm-node-item') ||
@@ -1047,13 +1099,25 @@ export function useMindmapCanvas({
     const handleFocusOutCapture = (e: FocusEvent): void => {
       const target = e.target as HTMLElement
       if (target.classList.contains('mm-node-title') && editingNodeIdRef.current) {
-        // 如果焦点移出节点外部，提交编辑
+        const editingId = editingNodeIdRef.current
         setTimeout(() => {
-          if (!document.activeElement?.classList.contains('mm-node-title')) {
-            commitCurrentEditing()
+          if (editingNodeIdRef.current !== editingId || document.activeElement === target) return
+          // 内容删空或粘贴引起布局变化时，foreignObject 可能短暂失焦到 body。
+          // 只有明确切换了焦点才提交；点击非聚焦元素由 mousedown 处理。
+          if (document.activeElement === document.body && document.hasFocus()) {
+            target.focus({ preventScroll: true })
+            return
           }
+          commitCurrentEditing()
         }, 30)
       }
+    }
+
+    const handleDocumentMouseDown = (e: MouseEvent): void => {
+      const editingId = editingNodeIdRef.current
+      if (!editingId || !svgRef.current) return
+      const item = svgRef.current.querySelector<HTMLElement>(`.mm-node-item[data-node-id="${editingId}"]`)
+      if (!item?.contains(e.target as Node)) commitCurrentEditing()
     }
 
     const handleCompositionStart = (): void => {
@@ -1074,6 +1138,7 @@ export function useMindmapCanvas({
     container.addEventListener('click', handleClickCapture, true)
     container.addEventListener('dblclick', handleDblClickCapture, true)
     container.addEventListener('focusout', handleFocusOutCapture, true)
+    document.addEventListener('mousedown', handleDocumentMouseDown)
     container.addEventListener('compositionstart', handleCompositionStart, true)
     container.addEventListener('compositionend', handleCompositionEnd, true)
 
@@ -1089,6 +1154,7 @@ export function useMindmapCanvas({
       container.removeEventListener('click', handleClickCapture, true)
       container.removeEventListener('dblclick', handleDblClickCapture, true)
       container.removeEventListener('focusout', handleFocusOutCapture, true)
+      document.removeEventListener('mousedown', handleDocumentMouseDown)
       container.removeEventListener('compositionstart', handleCompositionStart, true)
       container.removeEventListener('compositionend', handleCompositionEnd, true)
     }
@@ -1096,6 +1162,7 @@ export function useMindmapCanvas({
     active,
     readOnly,
     onNodeContextMenu,
+    onNodeSelect,
     handleAddChild,
     handleToggleFoldNode,
     commitCurrentEditing,
@@ -1224,7 +1291,7 @@ export function useMindmapCanvas({
       void fitCanvas().then(updateZoomCss)
       return
     }
-    void markmapRef.current?.rescale(scale).then(() => {
+    void markmapRef.current?.rescale(Math.max(MIN_MINDMAP_ZOOM, scale)).then(() => {
       convertLinksToStep()
       updateZoomCss()
     })
@@ -1246,6 +1313,10 @@ export function useMindmapCanvas({
   return {
     containerRef,
     svgRef,
+    selectedNodeContents: selectedNodeIds
+      .map(id => findNode(tree, id)?.content)
+      .filter((content): content is string => content !== undefined),
+    toggleNodeFormat,
     handleZoom,
     handleFit,
     handleExpandAll,
@@ -1253,7 +1324,7 @@ export function useMindmapCanvas({
     commitCurrentEditing,
     getTarget: () => {
       const node = findNode(treeRef.current, selectedNodeIdRef.current || treeRef.current.id) || treeRef.current
-      return { id: node.id, label: node.content }
+      return { id: node.id, label: stripMindmapInlineFormat(node.content) }
     },
     insertNode: (parentId: string, text: string): boolean => {
       if (readOnly) return false

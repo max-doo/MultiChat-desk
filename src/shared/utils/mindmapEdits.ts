@@ -47,12 +47,11 @@ export function validateMindmapMarkdown(markdown: string): string {
 
 export function parseMindmapModifyResponse(text: string): MindmapModifyResponse {
   if (text.length > 200_000) throw new Error('修改回复超过 200000 字符')
-  let payload = normalizeMindmapNewlines(text).trim()
-  if (payload.startsWith('```')) {
-    const fence = payload.match(/^```text[ \t]*\n([\s\S]*?)\n```$/i)
-    if (!fence) throw new Error('修改回复需要单个 text 代码块')
-    payload = fence[1]
-  }
+  // Normalize protocol lines only; indentation and whitespace inside edits are data.
+  const payload = normalizeMindmapNewlines(text).trim().split('\n').map(line => {
+    const tag = line.trim().match(/^<\s*(\/?)\s*(mindmap_edits|mindmap_rewrite|edit|old_text|new_text)\s*>$/i)
+    return tag ? `<${tag[1]}${tag[2].toLowerCase()}>` : line
+  }).join('\n')
   const hasEdits = payload.includes(MINDMAP_EDIT_TAGS.begin) || payload.includes(MINDMAP_EDIT_TAGS.end)
   const hasRewrite = payload.includes(MINDMAP_REWRITE_TAGS.begin) || payload.includes(MINDMAP_REWRITE_TAGS.end)
   if (hasEdits && hasRewrite) throw new Error('修改回复不能混用局部替换与整份覆写协议')
@@ -61,7 +60,8 @@ export function parseMindmapModifyResponse(text: string): MindmapModifyResponse 
   const envelope = extractMindmapTaggedBlock(payload, tags)
   if (envelope.status === 'pending') throw new Error(`修改回复缺少完整的 ${tags.begin} 与 ${tags.end} 标签`)
   if (envelope.status === 'invalid') throw new Error(envelope.error)
-  if (payload.slice(0, envelope.start).trim() || payload.slice(envelope.end).trim()) throw new Error('修改代码内容包含标签外的额外文字')
+  // A unique complete envelope can be surrounded by a fence or explanatory prose.
+  if (/<\/?(?:old_text|new_text|edit)>/.test(payload.slice(0, envelope.start) + payload.slice(envelope.end))) throw new Error('修改回复包含结果标签外的替换操作')
   if (!envelope.content.startsWith('\n') || !envelope.content.endsWith('\n')) throw new Error('修改协议标签必须独占一行')
   const content = envelope.content.slice(1, -1)
   if (hasRewrite) {
@@ -75,26 +75,95 @@ export function parseMindmapModifyResponse(text: string): MindmapModifyResponse 
     if (lines[cursor] !== tag) throw new Error(`修改标签结构错误，需要 ${tag}`)
     cursor++
   }
+  const skipBlank = (): void => { while (cursor < lines.length && !lines[cursor].trim()) cursor++ }
   const readText = (name: 'old_text' | 'new_text'): string => {
     expect(`<${name}>`)
     const content: string[] = []
     while (cursor < lines.length && lines[cursor] !== `</${name}>`) {
+      // Recover a missing closing tag only at an unambiguous next field/group boundary.
+      // The resulting edits still require unique exact matches and whole-outline validation.
+      if (name === 'old_text' && lines[cursor] === '<new_text>') return content.join('\n')
+      if (name === 'new_text' && ['<old_text>', '<edit>', '</edit>'].includes(lines[cursor])) return content.join('\n')
       if (structural.test(lines[cursor])) throw new Error(`修改标签嵌套或缺少 </${name}>`)
       content.push(lines[cursor++])
     }
+    if (name === 'new_text' && cursor === lines.length) return content.join('\n')
     expect(`</${name}>`)
     // The tag line separators are excluded; payload whitespace and trailing LF remain intact.
     return content.join('\n')
   }
   const edits: MindmapTextEdit[] = []
   while (cursor < lines.length) {
-    if (!lines[cursor].trim()) { cursor++; continue }
+    skipBlank()
+    if (cursor === lines.length) break
     if (edits.length >= 100) throw new Error('替换操作超过 100 个')
+    const grouped = lines[cursor] === '<edit>'
+    if (grouped) { cursor++; skipBlank() }
     const oldText = readText('old_text')
+    skipBlank()
     const newText = readText('new_text')
+    if (grouped) { skipBlank(); expect('</edit>') }
     edits.push({ oldText, newText })
   }
   return { kind: 'edits', edits }
+}
+
+/** Merge disjoint line edits against their common base; never choose a side on overlap. */
+export function mergeMindmapCandidate(baseMarkdown: string, candidateMarkdown: string, currentMarkdown: string): string {
+  const base = normalizeMindmapNewlines(baseMarkdown)
+  const candidate = normalizeMindmapNewlines(candidateMarkdown)
+  const current = normalizeMindmapNewlines(currentMarkdown)
+  if (current === base || current === candidate) return candidate
+  if (candidate === base) return current
+  const before = base.split('\n')
+  type Change = { start: number; end: number; lines: string[] }
+  const changes = (text: string): Change[] => {
+    const after = text.split('\n')
+    if (before.length * after.length > 1_500_000) throw new Error('导图较大，无法安全合并；候选已保留，可基于当前图重新调整')
+    const width = after.length + 1, matrix = new Uint16Array((before.length + 1) * width)
+    for (let i = before.length - 1; i >= 0; i--) for (let j = after.length - 1; j >= 0; j--) {
+      matrix[i * width + j] = before[i] === after[j] ? matrix[(i + 1) * width + j + 1] + 1 : Math.max(matrix[(i + 1) * width + j], matrix[i * width + j + 1])
+    }
+    const result: Change[] = []
+    let i = 0, j = 0, pending: Change | undefined
+    while (i < before.length || j < after.length) {
+      if (i < before.length && j < after.length && before[i] === after[j]) {
+        if (pending) { result.push(pending); pending = undefined }
+        i++; j++
+      } else {
+        pending ??= { start: i, end: i, lines: [] }
+        if (j < after.length && (i === before.length || matrix[i * width + j + 1] >= matrix[(i + 1) * width + j])) pending.lines.push(after[j++])
+        else pending.end = ++i
+      }
+    }
+    if (pending) result.push(pending)
+    return result
+  }
+  const local = changes(current), generated = changes(candidate)
+  const merged = [...local]
+  for (const incoming of generated) {
+    let duplicate = false
+    for (const existing of local) {
+      if (incoming.start === existing.start && incoming.end === existing.end && incoming.lines.join('\n') === existing.lines.join('\n')) { duplicate = true; break }
+      const overlaps = incoming.start === incoming.end
+        ? incoming.start >= existing.start && incoming.start <= existing.end
+        : existing.start === existing.end
+          ? existing.start >= incoming.start && existing.start <= incoming.end
+          : incoming.start < existing.end && existing.start < incoming.end
+      if (overlaps) throw new Error('当前图与候选修改了同一处，无法自动合并；候选已保留，可基于当前图重新调整或复制候选')
+    }
+    if (!duplicate) merged.push(incoming)
+  }
+  const lines: string[] = []
+  let offset = 0
+  for (const change of merged.sort((a, b) => a.start - b.start)) {
+    lines.push(...before.slice(offset, change.start), ...change.lines)
+    offset = change.end
+  }
+  lines.push(...before.slice(offset))
+  const markdown = lines.join('\n')
+  validateMindmapMarkdown(markdown)
+  return markdown
 }
 
 export function applyMindmapTextEdits(inputMarkdown: string, edits: MindmapTextEdit[]): string {

@@ -143,7 +143,7 @@ export class NoteManager {
   get(id: string): Promise<NoteConversation> { return this.serial(() => this.read(id)) }
 
   summaries(query = ''): Promise<NoteConversation[]> {
-    return this.serial(async () => (await this.cachedValues()).filter(item => !query.trim() || [item.title, item.platform, ...item.notes.flatMap(note => [note.quote, note.comment]), ...item.mindmaps.flatMap(map => [map.title, map.markdown])].some(text => text.toLowerCase().includes(query.trim().toLowerCase()))).map(item => ({ ...item, snapshot: '', mindmaps: item.mindmaps.map(map => ({ ...map, markdown: '' })) })))
+    return this.serial(async () => (await this.cachedValues()).filter(item => !query.trim() || [item.title, item.platform, ...item.notes.flatMap(note => [note.quote, note.comment]), ...item.mindmaps.flatMap(map => [map.title, map.markdown])].some(text => text.toLowerCase().includes(query.trim().toLowerCase()))).sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id)).map(item => ({ ...item, snapshot: '', mindmaps: item.mindmaps.map(map => ({ ...map, markdown: '' })) })))
   }
 
   async exportAll(): Promise<NoteConversation[]> {

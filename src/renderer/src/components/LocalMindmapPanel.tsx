@@ -4,6 +4,7 @@ import { globalCSS } from 'markmap-view'
 import CustomDropdown from './CustomDropdown'
 import MindmapMarkdownEditor from './MindmapMarkdownEditor'
 import { parseMarkdownToTree, treeToMarkdown, type MindNode } from '../utils/mindmapTree'
+import { hasWholeNodeFormat } from '../utils/mindmapInlineFormat'
 import { useMindmapCanvas } from '../hooks/useMindmapCanvas'
 import { exportMindmapPng, exportMindmapSvg } from '../utils/mindmapExport'
 import mindmapCSS from '../styles/localMindmap.css?inline'
@@ -17,7 +18,7 @@ export interface LocalMindmapPanelRef {
   insertNode: (parentId: string, text: string) => boolean
 }
 
-const LocalMindmapPanel = forwardRef<LocalMindmapPanelRef, { initialMarkdown?: string; onChange?: (markdown: string) => void; onOpenMubu?: () => void; previewMarkdown?: string; changedLines?: number[]; onAskNode?: (path: string[]) => void }>(function LocalMindmapPanel({ initialMarkdown, onChange, onOpenMubu, previewMarkdown, changedLines, onAskNode }, ref): JSX.Element {
+const LocalMindmapPanel = forwardRef<LocalMindmapPanelRef, { initialMarkdown?: string; onChange?: (markdown: string) => void; onOpenMubu?: () => void; previewMarkdown?: string; changedLines?: number[]; onAskNode?: (path: string[]) => void; onViewSource?: (text: string) => void }>(function LocalMindmapPanel({ initialMarkdown, onChange, onOpenMubu, previewMarkdown, changedLines, onAskNode, onViewSource }, ref): JSX.Element {
   const [viewMode, setViewMode] = useState<'mindmap' | 'markdown'>('mindmap')
 
   // Markdown 与树
@@ -153,9 +154,15 @@ const LocalMindmapPanel = forwardRef<LocalMindmapPanelRef, { initialMarkdown?: s
     showToast,
     readOnly,
     changedLines,
-    onNodeContextMenu: openNodeMenu
+    onNodeContextMenu: openNodeMenu,
+    onNodeSelect: onViewSource
   })
   const { containerRef, svgRef, handleZoom, handleFit, handleExpandAll, handleFoldAll } = canvas
+  const selectedContents = canvas.selectedNodeContents
+  const boldCount = selectedContents.filter(content => hasWholeNodeFormat(content, 'bold')).length
+  const highlightCount = selectedContents.filter(content => hasWholeNodeFormat(content, 'highlight')).length
+  const allBold = selectedContents.length > 0 && boldCount === selectedContents.length
+  const allHighlighted = selectedContents.length > 0 && highlightCount === selectedContents.length
 
   // Markdown 大纲编辑，同时同步导图与持久化。
   const handleMarkdownChange = useCallback(
@@ -275,6 +282,34 @@ const LocalMindmapPanel = forwardRef<LocalMindmapPanelRef, { initialMarkdown?: s
           ref={svgRef}
           className="markmap block w-full h-full"
         />
+
+        {!readOnly && selectedContents.length > 0 && (
+          <div role="toolbar" aria-label="节点文字格式" className="absolute bottom-3 left-1/2 z-30 flex max-w-[calc(100%-24px)] -translate-x-1/2 items-center gap-1 rounded-xl border border-zinc-700 bg-zinc-900 p-1 shadow-xl select-none">
+            {selectedContents.length > 1 && <span className="px-2 text-xs text-zinc-400 whitespace-nowrap">已选 {selectedContents.length} 个</span>}
+            <button
+              type="button"
+              aria-label={allBold ? '取消所选节点加粗' : '加粗所选节点'}
+              aria-pressed={boldCount > 0 && !allBold ? 'mixed' : allBold}
+              title={allBold ? '取消所选节点加粗' : '加粗所选节点（**文字**）'}
+              onClick={() => canvas.toggleNodeFormat('bold')}
+              className={`flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 ${allBold ? 'bg-white text-zinc-950' : boldCount > 0 ? 'bg-zinc-700 text-white ring-1 ring-inset ring-zinc-500' : 'text-zinc-200 hover:bg-zinc-700 hover:text-white'}`}
+            >
+              <span className="material-symbols-outlined text-[18px] leading-none" aria-hidden="true">format_bold</span>
+              加粗
+            </button>
+            <button
+              type="button"
+              aria-label={allHighlighted ? '取消所选节点高亮' : '高亮所选节点'}
+              aria-pressed={highlightCount > 0 && !allHighlighted ? 'mixed' : allHighlighted}
+              title={allHighlighted ? '取消所选节点高亮' : '高亮所选节点（==文字==）'}
+              onClick={() => canvas.toggleNodeFormat('highlight')}
+              className={`flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 ${allHighlighted ? 'bg-amber-300 text-amber-950' : highlightCount > 0 ? 'bg-zinc-700 text-amber-200 ring-1 ring-inset ring-amber-300/50' : 'text-zinc-200 hover:bg-zinc-700 hover:text-white'}`}
+            >
+              <span className="material-symbols-outlined text-[18px] leading-none" aria-hidden="true">ink_highlighter</span>
+              高亮
+            </button>
+          </div>
+        )}
 
         {/* 左上角工具栏：撤回、重做、放大、缩小、适应、展开、收起、导出 */}
         <div className="absolute left-3 top-3 z-20 flex items-center gap-1 p-1 bg-white/90 backdrop-blur border border-gray-200/80 rounded-lg shadow-sm">

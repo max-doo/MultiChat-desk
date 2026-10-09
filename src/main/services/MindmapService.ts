@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto'
 import type { MindmapTask, NoteConversation, MindmapModifyRequest, MindmapCandidate, MindmapGenerationSession, ConversationMindmap, MindmapSourceContext } from '../../shared/types/notes'
-import { applyMindmapTextEdits, buildMindmapEditPrompt, normalizeMindmapNewlines, parseMindmapModifyResponse, validateMindmapMarkdown } from '../../shared/utils/mindmapEdits'
+import { applyMindmapTextEdits, buildMindmapEditPrompt, mergeMindmapCandidate, normalizeMindmapNewlines, parseMindmapModifyResponse, validateMindmapMarkdown } from '../../shared/utils/mindmapEdits'
 import { buildMindmapPrompt, inspectMindmapOutline, MINDMAP_INPUT_LIMIT, MINDMAP_TAGS } from '../../shared/utils/mindmap'
 import { generateMindmapPageStateScript, generateMindmapResponseScript, type MindmapResponse } from '../../shared/utils/webviewScripts'
 import { automationService } from './AutomationService'
@@ -132,8 +132,16 @@ export class MindmapService {
     const source = await this.notes.get(candidate.conversationId)
     const map = source.mindmaps.find(item => item.id === candidate.mindmapId)
     if (!map) throw new Error('导图不存在')
-    if (map.updatedAt !== candidate.baseUpdatedAt || normalizeMindmapNewlines(map.markdown) !== candidate.baseMarkdown || map.title !== candidate.baseTitle) throw new Error(CONFLICT)
+    if (normalizeMindmapNewlines(map.markdown) !== candidate.baseMarkdown || map.title !== candidate.baseTitle) throw new Error(CONFLICT)
     return map
+  }
+
+  private rebaseCandidate(candidate: MindmapCandidate, map: ConversationMindmap): MindmapCandidate {
+    return {
+      ...candidate,
+      candidateMarkdown: mergeMindmapCandidate(candidate.baseMarkdown, candidate.candidateMarkdown, map.markdown),
+      baseMarkdown: normalizeMindmapNewlines(map.markdown), baseTitle: map.title, baseUpdatedAt: map.updatedAt
+    }
   }
 
   async modify(request: MindmapModifyRequest, ownerId: number, loadContext?: (source: NoteConversation) => Promise<MindmapSourceContext>): Promise<MindmapTask> {
@@ -145,7 +153,7 @@ export class MindmapService {
     if (!map || map.updatedAt !== request.expectedUpdatedAt) throw new Error(CONFLICT)
     const previous = this.getCandidate(ownerId, map.id)
     if (request.candidateId && (previous?.id !== request.candidateId || previous.conversationId !== source.id)) throw new Error('候选已失效，请重新打开导图')
-    const base: MindmapCandidate = request.candidateId && previous ? previous : {
+    const base: MindmapCandidate = request.candidateId && previous ? this.rebaseCandidate(previous, map) : {
       id: '', conversationId: source.id, mindmapId: map.id, baseMarkdown: normalizeMindmapNewlines(map.markdown), baseTitle: map.title, baseUpdatedAt: map.updatedAt,
       candidateMarkdown: normalizeMindmapNewlines(map.markdown), generationSession: map.generationSession || { platformId: request.platformId }
     }
@@ -160,6 +168,8 @@ export class MindmapService {
     this.lastPage = null
     this.controller = new AbortController()
     this.ownerId = ownerId
+    // Keep the previous candidate usable if this follow-up fails or makes no changes.
+    if (request.candidateId) this.candidates.get(ownerId)?.set(map.id, base)
     const task: MindmapTask = { id: randomUUID(), kind: 'modify', conversationId: source.id, mindmapId: map.id, sourceTitle: source.title, platform: request.platformId, phase: 'loading', baseUpdatedAt: base.baseUpdatedAt }
     this.task = task
     this.notify({ ...task })
@@ -175,8 +185,11 @@ export class MindmapService {
     if (this.applying.has(key)) throw new Error('正在应用修改')
     this.applying.add(key)
     try {
-      await this.checkBase(candidate)
-      const saved = await this.notes.updateMindmap(candidate.conversationId, mapId, candidate.candidateMarkdown, validateMindmapMarkdown(candidate.candidateMarkdown), candidate.baseUpdatedAt, candidate.generationSession)
+      const source = await this.notes.get(candidate.conversationId)
+      const map = source.mindmaps.find(item => item.id === mapId)
+      if (!map) throw new Error('导图不存在，候选已保留')
+      const rebased = this.rebaseCandidate(candidate, map)
+      const saved = await this.notes.updateMindmap(candidate.conversationId, mapId, rebased.candidateMarkdown, validateMindmapMarkdown(rebased.candidateMarkdown), rebased.baseUpdatedAt, candidate.generationSession)
       this.candidates.get(ownerId)?.delete(mapId)
       this.notesChanged()
       return saved
@@ -355,16 +368,23 @@ export class MindmapService {
           pageBusy = state.busy
           stable = !state.busy && captured.text === lastText && captured.messageId === lastMessageId ? stable + 1 : 0
           lastText = captured.text; lastMessageId = captured.messageId || ''
-          if (stable < 1) continue
+          if (stable < 2) continue
           if (captured.source === 'virtual-dom') throw new Error('无法读取本轮代码框完整文档')
           if ((captured.documentCount ?? captured.editorCount + captured.codeCount) > 1) throw new Error('本轮回复包含多份不同的修改标签结果，无法确定应应用哪一份')
           stage = '校验回复格式'
           if (captured.formatError) throw new Error(captured.formatError)
           if (!captured.text.trim()) throw new Error('未读取到本轮修改回复正文，请打开生成网页检查回复内容')
           stage = '校验修改标签'
-          const parsed = parseMindmapModifyResponse(captured.text)
-          stage = parsed.kind === 'edits' ? '校验精确替换' : '生成覆写候选'
-          const markdown = parsed.kind === 'edits' ? applyMindmapTextEdits(edit.base.candidateMarkdown, parsed.edits) : parsed.markdown
+          let markdown: string
+          try {
+            const parsed = parseMindmapModifyResponse(captured.text)
+            stage = parsed.kind === 'edits' ? '校验精确替换' : '生成覆写候选'
+            markdown = parsed.kind === 'edits' ? applyMindmapTextEdits(edit.base.candidateMarkdown, parsed.edits) : parsed.markdown
+          } catch (error) {
+            // Give a briefly idle/partially rendered reply another read before declaring failure.
+            if (stable < 4) continue
+            throw error
+          }
           if (signal.aborted || this.task?.id !== task.id) return
           const generatedBinding = await this.sessionBinding(task.platform, wc.getURL())
           if (signal.aborted || this.task?.id !== task.id) return

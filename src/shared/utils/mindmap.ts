@@ -1,5 +1,6 @@
 import { extractMindmapTaggedBlock, validateMindmapMarkdown } from './mindmapEdits'
 export const MINDMAP_INPUT_LIMIT = 60_000
+// 仅限制调整已有导图的要求；生成新图的额外要求不设单独字符上限。
 export const MINDMAP_REQUIREMENTS_LIMIT = 1000
 
 export const MINDMAP_TAGS = { begin: '<mindmap>', end: '</mindmap>' } as const

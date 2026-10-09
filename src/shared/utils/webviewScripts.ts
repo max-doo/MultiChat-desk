@@ -2389,7 +2389,10 @@ export function generateMindmapResponseScript(selectors: ModelSelector, mode: 'm
         // Physical nodes can include reasoning examples or duplicate presentations.
         // Accept one distinct tagged document in this latest reply, never pick among different results.
         const unique = new Map();
-        const isModification = text => [editTags, rewriteTags].some(tag => text.includes(tag.begin) || text.includes(tag.end));
+        const isModification = text => {
+          const normalized = text.replace(/<\s*(\/?)\s*(mindmap_edits|mindmap_rewrite)\s*>/gi, (_, slash, name) => '<' + slash + name.toLowerCase() + '>');
+          return [editTags, rewriteTags].some(tag => normalized.includes(tag.begin) || normalized.includes(tag.end));
+        };
         for (const document of documents) {
           if (!isModification(document.text)) continue;
           const key = document.text.replace(/\r\n?/g, '\n').trim();
@@ -2583,7 +2586,8 @@ export function generateMindmapPageStateScript(selectors: ModelSelector, platfor
 /** 在原网页上恢复笔记高亮；仅使用 CSS Highlight，避免改动第三方页面的文本 DOM。 */
 export function generateNoteHighlightScript(
   notes: Array<{ id: string; anchor: { exact: string; prefix: string; suffix: string } }>,
-  focusedNoteId?: string
+  focusedNoteId?: string,
+  scrollToFocus = true
 ): string {
   return String.raw`
     (function () {
@@ -2591,7 +2595,7 @@ export function generateNoteHighlightScript(
       const notes = ${JSON.stringify(notes)};
       const focusedId = ${JSON.stringify(focusedNoteId ?? '')};
       window.__multichatNoteDispose?.();
-      const compact = value => (value || '').replace(/\s/g, '');
+      const compact = value => (value || '').replace(/[\s\u200b-\u200d\ufeff]/g, '');
       const roots = Array.from(document.querySelectorAll('main,[role="main"]'));
       const root = roots.find(el => notes.some(note => note.anchor.exact && compact(el.textContent).includes(compact(note.anchor.exact)))) || document.body;
       const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
@@ -2612,40 +2616,31 @@ export function generateNoteHighlightScript(
       const ranges = [];
       const targets = [];
       let focused = null;
+      const offsets = [];
+      let searchable = '';
+      for (let i = 0; i < text.length; i++) {
+        if (/[\s\u200b-\u200d\ufeff]/.test(text[i])) continue;
+        offsets.push(i);
+        searchable += text[i];
+      }
       for (const note of notes) {
-        const exact = note.anchor.exact;
+        const exact = compact(note.anchor.exact);
         if (!exact) continue;
         let match = -1;
         let score = -1;
-        let at = text.indexOf(exact);
+        let at = searchable.indexOf(exact);
         while (at >= 0) {
-          const prefix = note.anchor.prefix || '';
-          const suffix = note.anchor.suffix || '';
-          const before = text.slice(Math.max(0, at - prefix.length), at);
-          const after = text.slice(at + exact.length, at + exact.length + suffix.length);
+          const prefix = compact(note.anchor.prefix);
+          const suffix = compact(note.anchor.suffix);
+          const before = searchable.slice(Math.max(0, at - prefix.length), at);
+          const after = searchable.slice(at + exact.length, at + exact.length + suffix.length);
           const candidateScore = (prefix && before === prefix ? 2 : 0) + (suffix && after === suffix ? 2 : 0);
           if (candidateScore > score) { match = at; score = candidateScore; }
-          at = text.indexOf(exact, at + exact.length);
-        }
-        let matchEnd = match + exact.length;
-        if (match < 0) {
-          const target = compact(exact);
-          const offsets = [];
-          let searchable = '';
-          for (let i = 0; i < text.length; i++) {
-            if (/\s/.test(text[i])) continue;
-            offsets.push(i);
-            searchable += text[i];
-          }
-          const compactAt = searchable.indexOf(target);
-          if (compactAt >= 0 && target.length) {
-            match = offsets[compactAt];
-            matchEnd = offsets[compactAt + target.length - 1] + 1;
-          }
+          at = searchable.indexOf(exact, at + exact.length);
         }
         if (match < 0) continue;
-        const start = locate(match);
-        const end = locate(matchEnd - 1);
+        const start = locate(offsets[match]);
+        const end = locate(offsets[match + exact.length - 1]);
         if (!start || !end) continue;
         const range = document.createRange();
         range.setStart(start.node, start.offset);
@@ -2673,8 +2668,8 @@ export function generateNoteHighlightScript(
       };
       document.addEventListener('click', onClick, true);
       window.__multichatNoteDispose = () => document.removeEventListener('click', onClick, true);
-      if (focused) focused.startContainer.parentElement?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-      return { matched: ranges.length, supported: true };
+      if (focused && ${JSON.stringify(scrollToFocus)}) focused.startContainer.parentElement?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      return { matched: ranges.length, focusedMatched: !!focused, supported: true };
     })();
   `
 }

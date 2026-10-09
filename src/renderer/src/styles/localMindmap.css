@@ -184,6 +184,24 @@ foreignObject.markmap-foreign {
   -webkit-user-select: text !important;
   outline: none !important;
 }
+.mm-node-title.mm-edit-bold {
+  font-weight: 700;
+}
+.mm-node-title.mm-edit-highlight {
+  background: #fef08a;
+  color: #27272a !important;
+  border-radius: 2px;
+  padding: 0 2px;
+}
+.mm-node-title strong {
+  font-weight: 700;
+}
+.mm-node-title mark {
+  background: #fef08a;
+  color: #27272a;
+  border-radius: 2px;
+  padding: 0 2px;
+}
 
 /* 绝对定位锚点：严格 0 宽高，绝不影响节点文本宽度，绝不引起连线起点与长度变化 */
 .mm-node-btns-anchor {
