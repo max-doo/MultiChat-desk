@@ -140,11 +140,21 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
   const { historySnapshots, historyUrls, activeHistoryMode } = useMemo(() => {
     if (!activeHistoryId) return { historySnapshots: {} as Record<string, string>, historyUrls: {} as Record<string, string>, activeHistoryMode: undefined }
     const item = history.find((h) => h.id === activeHistoryId)
-    if (!item || item.turns.length === 0) return { historySnapshots: {}, historyUrls: {} as Record<string, string>, activeHistoryMode: item?.productMode }
-    const lastTurn = item.turns[item.turns.length - 1]
+    if (!item) return { historySnapshots: {}, historyUrls: {} as Record<string, string>, activeHistoryMode: undefined }
+    const snapshots: Record<string, string> = {}
+    if (item.productMode === 'debate') {
+      for (const turn of item.turns) Object.assign(snapshots, turn.responses)
+    } else {
+      Object.assign(snapshots, item.turns.at(-1)?.responses)
+    }
+    // 兼容旧辩论历史只有 debateTurns、没有普通 turns 快照的情况。
+    for (const turn of [...(item.debateTurns || [])].sort((a, b) => a.round - b.round)) {
+      if (turn.proponent?.speech) snapshots['slot-0'] = turn.proponent.speech
+      if (turn.opponent?.speech) snapshots['slot-1'] = turn.opponent.speech
+    }
     return {
-      historySnapshots: lastTurn.responses ?? {},
-      historyUrls: item.urls ?? {},
+      historySnapshots: snapshots,
+      historyUrls: { ...item.urls, ...Object.fromEntries(Object.entries(item.slotUrls || {}).map(([slot, url]) => [`slot-${slot}`, url])) },
       activeHistoryMode: item.productMode
     }
   }, [activeHistoryId, history])
@@ -1043,6 +1053,9 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
             // 快照/URL 只作用于该历史条目所属的模式，避免跨模式串扰
             // （隐藏模式的 webview 仍会消费这些 prop 并武装覆盖层）
             const isHistoryMode = mode === activeHistoryMode
+            const snapshotContent = historySnapshots[`slot-${i}`] ?? (
+              Object.keys(historySnapshots).some(key => key.startsWith('slot-')) ? '' : historySnapshots[model.id]
+            )
 
             return (
               <div key={`mode-wrapper-${mode}-${i}`} style={{ display: productMode === mode ? 'block' : 'none', width: '100%', height: '100%' }}>
@@ -1092,12 +1105,12 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
                     ) : undefined
                   }
                   sideLabel={mode === 'debate' ? (i === 0 ? '正方' : '反方') : undefined}
-                  expectedUrl={isHistoryMode ? historyUrls[model.id] : undefined}
+                  expectedUrl={isHistoryMode ? historyUrls[`slot-${i}`] || historyUrls[model.id] : undefined}
                   readonlySnapshot={
                     !isHistoryMode || !activeHistoryId
                       ? null
-                      : historySnapshots[model.id]
-                        ? { content: historySnapshots[model.id], reason: 'url_mismatch' as const }
+                      : snapshotContent
+                        ? { content: snapshotContent, reason: 'url_mismatch' as const }
                         : { content: '', reason: 'no_snapshot' as const }
                   }
                 />
@@ -1112,19 +1125,13 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
 
   // 历史抽屉由 App 统一渲染；跨页选择历史后通过 pendingHistoryRestore 在主页恢复。
   const restoreHistoryItem = useCallback((item: HistoryItem): void => {
-    // 标记不再是新会话，因为我们是从历史记录加载的
     const appStore = useAppStore.getState()
-    appStore.setNewSession(false)
+    appStore.stopMonitoring()
 
-    // 锁定恢复的模型，确保顶部分段控件能正确锁定窗口数量
     const historyModels = item.models.map(id => availableModels.find(m => m.id === id)).filter(Boolean) as typeof availableModels
-    appStore.setActiveModels(historyModels)
 
     // 记录当前激活的历史记录 ID
     setActiveHistoryId(item.id)
-    // 同步持久化"当前对话"锚点（P0-1b）：恢复历史后发新消息/生成报告需走 ID 查找而非 history[0]，
-    // 否则 currentConversationId 仍指向上一次对话，发新消息会串到错误 historyItem
-    appStore.setCurrentConversationId(item.id)
 
     // 1. 清空输入框（历史消息已存在于 turns 中，恢复后直接续写）
     if (controlBarRef.current) {
@@ -1159,8 +1166,15 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
       }
     }
 
+    // setProductMode 会重置会话锁，必须在模式/布局恢复后重设历史锚点。
+    appStore.setNewSession(false)
+    appStore.setActiveModels(historyModels)
+    appStore.setCurrentConversationId(item.id)
+    if (targetProductMode === 'task_assignment') appStore.setTaskAssignmentSlots(item.models)
+    if (targetProductMode === 'multi_ai') setMultiAiSlots(item.models)
+
     // —— 辩论模式专用恢复：先重填 debateSlots + debateState，再让下方 missingModelIds 用正确槽位判空 ——
-    if (targetProductMode === 'debate' && item.debateTurns) {
+    if (targetProductMode === 'debate') {
       // 恢复两 slot 模型（item.models 至少 2 个；不足则补空串，避免 as cast 越界）
       const slot0 = item.models[0] ?? ''
       const slot1 = item.models[1] ?? ''
@@ -1168,12 +1182,13 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
       // 重填辩论面板（只读浏览，phase='finished'）；topic 取已持久化的 HistoryItem.title（Task 4 Step 8 写入）
       useAppStore.getState().restoreDebateState({
         topic: item.title ?? '',
-        totalRounds: item.debateTurns.length,
-        debateTurns: item.debateTurns
+        totalRounds: Math.max(1, item.debateTurns?.length || 0),
+        debateTurns: item.debateTurns || []
       })
       // 按 slotUrls 加载两 slot（若辩论未 finalize 则 slotUrls 缺失，跳过 URL 加载）
       if (item.slotUrls) {
         setTimeout(() => {
+          if (useAppStore.getState().currentConversationId !== item.id) return
           for (const slotIndex of [0, 1] as const) {
             const url = item.slotUrls?.[slotIndex]
             if (!url) continue
@@ -1212,6 +1227,7 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
     // 使用 setTimeout 确保模型切换后的 Webview 已加载并注册 ref
     setTimeout(
       () => {
+        if (useAppStore.getState().currentConversationId !== item.id) return
         if (item.urls) {
           // 获取当前 Gemini 模型的 URL（可能包含账号信息如 /u/1/）
           const currentGeminiModel = availableModels.find(m => m.id === 'gemini')
@@ -1237,17 +1253,14 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
           let modeSlots: string[]
           if (targetProductMode === 'task_assignment') {
             modeSlots = storeState.taskAssignmentSlots
-          } else if (targetProductMode === 'debate') {
-            modeSlots = storeState.debateSlots
           } else {
             modeSlots = storeState.multiAiSlots
           }
           // 槽位顺序兜底：若 store 槽位为空或长度不足，退回历史记录的 models 顺序
           const slotsForLookup = modeSlots.length >= item.models.length ? modeSlots : item.models
 
-          Object.entries(item.urls).forEach(([modelId, url]) => {
-            const slotIndex = slotsForLookup.indexOf(modelId)
-            if (slotIndex === -1) return
+          slotsForLookup.forEach((modelId, slotIndex) => {
+            const url = item.urls?.[`slot-${slotIndex}`] || item.urls?.[modelId]
             const webviewRef = useAppStore.getState().webviewRefs.get(`slot-${slotIndex}`)
             if (webviewRef && url) {
               let finalUrl = url

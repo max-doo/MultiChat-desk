@@ -1019,7 +1019,7 @@ export async function registerIpcHandlers(
                 await writeFile(result.filePath, JSON.stringify(conversations, null, 2), 'utf8')
             } else {
                 const markdown = conversations.map(item => {
-                    const snapshot = item.snapshot
+                    const snapshot = normalizeNoteTranscriptMarkdown(item.snapshot)
                     const annotations = item.notes.map((note, index) => `### 笔记 ${index + 1}\n\n> ${note.quote.replace(/\n/g, '\n> ')}\n\n${note.comment || ''}`).join('\n\n')
                     const mindmaps = item.mindmaps.map(map => `### ${map.title}\n\n${map.markdown}`).join('\n\n')
                     return `# ${item.title}\n\n来源：${item.platform} · ${item.url}\n\n${snapshot}\n\n---\n\n## 我的笔记\n\n${annotations}\n\n## 思维导图\n\n${mindmaps}`

@@ -583,6 +583,35 @@ export function registerWebviewHandlers(webContents: Electron.WebContents): void
 
     setupContextMenu(webContents)
 
+    // 页面内查找快捷键转发：Webview 内部聚焦时，渲染层 window.onkeydown 收不到按键，
+    // 由主进程 before-input-event 识别 wcId 并通知所属宿主窗口弹出/关闭对应卡片的查找框
+    webContents.on('before-input-event', (event, input) => {
+        if (input.type !== 'keyDown') return
+        const owner = BrowserWindow.fromWebContents(webContents.hostWebContents ?? webContents) || mainWindow
+        if (!owner || owner.isDestroyed() || webContents.isDestroyed()) return
+
+        if (
+            (input.control || input.meta) &&
+            !input.alt &&
+            !input.shift &&
+            (input.key.toLowerCase() === 'f' || input.code === 'KeyF')
+        ) {
+            event.preventDefault()
+            owner.webContents.send('webview:find-shortcut', {
+                wcId: webContents.id,
+                action: 'open' as const
+            })
+            return
+        }
+
+        if (!input.control && !input.meta && !input.alt && !input.shift && input.key === 'Escape') {
+            owner.webContents.send('webview:find-shortcut', {
+                wcId: webContents.id,
+                action: 'close' as const
+            })
+        }
+    })
+
     // ============ Google 账号切换检测 ============
     // 追踪是否正在进行 Google 认证流程
     // 当用户完成账号切换后，自动刷新页面以应用新的 session cookie

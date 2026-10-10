@@ -2479,6 +2479,8 @@ export function generateNoteCaptureScript(): string {
       const assistantSelector = assistantSelectors.join(',');
       const isAssistantBody = el => assistantSelectors.some(selector => el.matches(selector));
       const roleOf = el => {
+        if (config?.user && el.matches(config.user)) return '提问';
+        if (config?.assistant && el.matches(config.assistant)) return 'AI 回复';
         const container = el.closest(selectors);
         const marker = config?.role === 'tagName' ? el.tagName.toLowerCase() : el.getAttribute(config?.role || 'data-message-author-role') || el.getAttribute('data-role') || el.getAttribute('data-turn') || container?.getAttribute(config?.role || 'data-message-author-role') || container?.getAttribute('data-role') || container?.getAttribute('data-turn') || '';
         if (/user|human|query/i.test(marker)) return '提问';
@@ -2500,25 +2502,6 @@ export function generateNoteCaptureScript(): string {
         }
         catch { return (el.innerText || el.textContent || '').trim(); }
       };
-      const stripRoleHeaders = (text, isUser) => {
-        let lines = (text || '').replace(/\r\n?/g, '\n').split('\n');
-        if (isUser) {
-          while (lines.length && /^(?:昨天|今天|\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2})?\s*\d{1,2}:\d{2}(?::\d{2})?\s*$/.test(lines[0].trim())) {
-            lines.shift();
-          }
-          if (lines.length && /^(?:#{1,4}\s*)?(?:\*\*)?(?:你说|用户|我|User|Human|You said)(?:\*\*)?\s*[:：]?\s*/i.test(lines[0].trim())) {
-            lines[0] = lines[0].replace(/^(?:#{1,4}\s*)?(?:\*\*)?(?:你说|用户|我|User|Human|You said)(?:\*\*)?\s*[:：]?\s*/i, '');
-          }
-        } else {
-          if (lines.length && /^(?:#{1,4}\s*)?(?:\*\*)?(?:ChatGPT|Claude|Gemini|Grok|豆包|DeepSeek|Kimi|千问|元宝|智谱清言|文心一言|Perplexity|AI|助手|Assistant)(?:\s*说|\s*said)?(?:\*\*)?\s*[:：]?\s*/i.test(lines[0].trim())) {
-            lines[0] = lines[0].replace(/^(?:#{1,4}\s*)?(?:\*\*)?(?:ChatGPT|Claude|Gemini|Grok|豆包|DeepSeek|Kimi|千问|元宝|智谱清言|文心一言|Perplexity|AI|助手|Assistant)(?:\s*说|\s*said)?(?:\*\*)?\s*[:：]?\s*/i, '');
-          }
-          if (lines.length && /^#{1,4}\s*AI\s*回复\s*$/i.test(lines[0].trim())) {
-            lines.shift();
-          }
-        }
-        return lines.join('\n').trim();
-      };
       const blocks = messages.map(el => {
         const timeEl = el.querySelector('time') || el.closest('[data-testid^="conversation-turn-"]')?.querySelector('time');
         const time = timeEl ? (timeEl.innerText || timeEl.textContent || '').trim() : '';
@@ -2532,12 +2515,10 @@ export function generateNoteCaptureScript(): string {
       const snapshot = blocks.length && blocks.some(item => item.role === '提问') && blocks.some(item => item.role === 'AI 回复')
         ? blocks.map(item => {
             if (item.role === '提问') {
-              const cleanContent = stripRoleHeaders(item.content, true);
-              const timeAttr = item.time ? ' time="' + item.time + '"' : '';
-              return '<user' + timeAttr + '>\n' + cleanContent + '\n</user>';
+              const timeAttr = item.time ? ' time="' + item.time.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;') + '"' : '';
+              return '<user' + timeAttr + '>\n' + item.content + '\n</user>';
             }
-            const cleanContent = stripRoleHeaders(item.content, false);
-            return '<assistant>\n' + cleanContent + '\n</assistant>';
+            return '<assistant>\n' + item.content + '\n</assistant>';
           }).join('\n\n')
         : safeMarkdown(root);
       const raw = root.textContent || '';

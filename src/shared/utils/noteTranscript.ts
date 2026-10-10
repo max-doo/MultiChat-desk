@@ -7,16 +7,16 @@ export interface SnapshotBlock {
 
 const isUserHeadingOrLabel = (line: string): boolean => {
   const trimmed = line.trim()
-  if (/^#{1,4}\s*(?:\*\*)?(?:你说|用户|我|User|Human|You said)(?:\*\*)?\s*[:：]?\s*$/i.test(trimmed)) return true
+  if (/^#{1,6}\s*(?:\*\*)?(?:你说|用户|我|User|Human|You said)(?:\*\*)?\s*[:：]?\s*$/i.test(trimmed)) return true
   if (/^(?:\*\*)?(?:你说|用户|User|Human|You said)(?:\*\*)?\s*[:：]\s*(.*)$/i.test(trimmed)) return true
   return false
 }
 
 const isAssistantHeadingOrLabel = (line: string): boolean => {
   const trimmed = line.trim()
-  if (/^#{1,4}\s*(?:\*\*)?(?:ChatGPT|Claude|Gemini|Grok|豆包|DeepSeek|Kimi|千问|元宝|智谱清言|文心一言|Perplexity|AI|助手|Assistant)(?:\s*说|\s*said)?(?:\*\*)?\s*[:：]?\s*$/i.test(trimmed)) return true
+  if (/^#{1,6}\s*(?:\*\*)?(?:ChatGPT|Claude|Gemini|Grok|豆包|DeepSeek|Kimi|千问|元宝|智谱清言|文心一言|Perplexity|AI|助手|Assistant)(?:\s*说|\s*said)?(?:\*\*)?\s*[:：]?\s*$/i.test(trimmed)) return true
   if (/^(?:\*\*)?(?:ChatGPT|Claude|Gemini|Grok|豆包|DeepSeek|Kimi|千问|元宝|智谱清言|文心一言|Perplexity|AI|助手|Assistant)(?:\s*说|\s*said)(?:\*\*)?\s*[:：]\s*(.*)$/i.test(trimmed)) return true
-  if (/^#{1,4}\s*AI\s*回复\s*$/i.test(trimmed)) return true
+  if (/^#{1,6}\s*AI\s*回复\s*$/i.test(trimmed)) return true
   return false
 }
 
@@ -24,9 +24,11 @@ const isAssistantHeadingOrLabel = (line: string): boolean => {
 export function normalizeNoteTranscriptMarkdown(snapshot: string): string {
   if (!snapshot || !snapshot.trim()) return ''
 
-  // 若已包含 <user> 与 <assistant> 标签，直接标准化换行后返回
-  if (/<user[\s>]/.test(snapshot) && /<\/user>/.test(snapshot)) {
-    return snapshot.replace(/\r\n?/g, '\n').replace(/\n{3,}/g, '\n\n').trim()
+  snapshot = snapshot.replace(/\r\n?/g, '\n')
+
+  // 已有角色标签时保留正文的空白和代码格式，也支持只有一种角色的快照。
+  if (/^<(user(?:\s+time=["'][^"']*["'])?|assistant)>$/m.test(snapshot)) {
+    return snapshot.trim()
   }
 
   const lines = snapshot.replace(/\r\n?/g, '\n').split('\n')
@@ -35,7 +37,7 @@ export function normalizeNoteTranscriptMarkdown(snapshot: string): string {
   const hasUser = lines.some(l => isUserHeadingOrLabel(l))
   if (!hasUser) {
     // 兼容历史老版本可能存在的 "# 问题" 与 "## AI 回复" 结构
-    const aiIndex = lines.findIndex(l => /^#{1,4}\s*AI\s*回复\s*$/i.test(l.trim()))
+    const aiIndex = lines.findIndex(l => /^#{1,6}\s*AI\s*回复\s*$/i.test(l.trim()))
     if (aiIndex > 0 && lines.some(l => /^#\s+[^#]/.test(l.trim()))) {
       const userParts = lines.slice(0, aiIndex).filter(l => !/^-{3,}$/.test(l.trim()))
       const aiParts = lines.slice(aiIndex + 1)
@@ -54,7 +56,7 @@ export function normalizeNoteTranscriptMarkdown(snapshot: string): string {
   const flush = (): void => {
     if (!role) return
     const body = content.join('\n').trim()
-    if (!body) return
+    if (!body) { content = []; return }
     if (role === 'user') {
       const timeAttr = timeStr ? ` time="${timeStr}"` : ''
       output.push(`<user${timeAttr}>\n${body}\n</user>`)
@@ -118,13 +120,21 @@ export function parseSnapshotBlocks(markdown: string): SnapshotBlock[] {
   } | null = null
 
   let inTag: 'user' | 'assistant' | null = null
+  let fence: { marker: string; length: number } | null = null
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
     const trimmed = line.trim()
+    const fenceMatch = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line)
+    const inCode = fence !== null || fenceMatch !== null
+    if (fenceMatch) {
+      const marker = fenceMatch[1]
+      if (!fence) fence = { marker: marker[0], length: marker.length }
+      else if (marker[0] === fence.marker && marker.length >= fence.length && !fenceMatch[2].trim()) fence = null
+    }
 
     const userOpenMatch = /^<user(?:\s+time=["']([^"']*)["'])?\s*>$/i.exec(trimmed)
-    if (userOpenMatch) {
+    if (!inCode && userOpenMatch) {
       if (currentBlock && currentBlock.contentLines.some(l => l.trim())) {
         blocks.push({
           type: currentBlock.type,
@@ -143,7 +153,7 @@ export function parseSnapshotBlocks(markdown: string): SnapshotBlock[] {
       continue
     }
 
-    if (/^<\/user>$/i.test(trimmed)) {
+    if (!inCode && /^<\/user>$/i.test(trimmed)) {
       if (currentBlock && inTag === 'user') {
         blocks.push({
           type: 'user',
@@ -157,7 +167,7 @@ export function parseSnapshotBlocks(markdown: string): SnapshotBlock[] {
       continue
     }
 
-    if (/^<assistant>$/i.test(trimmed)) {
+    if (!inCode && /^<assistant>$/i.test(trimmed)) {
       if (currentBlock && currentBlock.contentLines.some(l => l.trim())) {
         blocks.push({
           type: currentBlock.type,
@@ -175,7 +185,7 @@ export function parseSnapshotBlocks(markdown: string): SnapshotBlock[] {
       continue
     }
 
-    if (/^<\/assistant>$/i.test(trimmed)) {
+    if (!inCode && /^<\/assistant>$/i.test(trimmed)) {
       if (currentBlock && inTag === 'assistant') {
         blocks.push({
           type: 'assistant',

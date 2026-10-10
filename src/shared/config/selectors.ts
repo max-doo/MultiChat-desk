@@ -19,8 +19,13 @@ export interface AutomationStep {
 }
 
 /** 笔记快照按消息提取时使用的容器和角色标记。 */
-export const noteMessageSelectors: Record<string, { messages: string; role: string }> = {
-  'chatgpt.com': { messages: '[data-message-author-role="user"],[data-message-author-role="assistant"],[data-turn="user"],[data-turn="assistant"]', role: 'data-message-author-role' },
+export const noteMessageSelectors: Record<string, { messages: string; role: string; user?: string; assistant?: string }> = {
+  'chatgpt.com': {
+    messages: '[data-message-author-role="user"],[data-message-author-role="assistant"],[data-turn="user"],[data-turn="assistant"],[class~="group/user-message"],[data-content-search-unit-key$=":assistant"]',
+    role: 'data-message-author-role',
+    user: '[class~="group/user-message"]',
+    assistant: '[data-content-search-unit-key$=":assistant"]'
+  },
   'claude.ai': { messages: '[data-testid="user-message"],[data-testid="assistant-message"]', role: 'data-testid' },
   'gemini.google.com': { messages: 'user-query,model-response', role: 'tagName' },
   'www.doubao.com': { messages: '[data-role="user"],[data-role="assistant"]', role: 'data-role' }

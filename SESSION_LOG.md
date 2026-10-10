@@ -2,6 +2,63 @@
 
 ## 2026-10-10
 
+### 23:11 | Antigravity
+
+- done: 提炼 FindInPage 会话参数经验至 KNOWLEDGE.md 与 INDEX.md，准备提交当前工作区修改并重新构建 Windows NSIS 安装包
+- modified:
+  - `.memory/KNOWLEDGE.md`
+  - `.memory/INDEX.md`
+  - `SESSION_LOG.md`
+
+### 21:50 | Codex
+
+- done: 移除保存回复按钮；恢复多 AI、任务分配自动轮询快照，修复辩论 ref 重建导致多轮注入中断，并修正历史恢复锚点与同模型槽位快照。lint、build 与临时模拟回归验证通过。
+- context: 保留工作区已有笔记、搜索、Webview 与 IPC 等未提交修改；未切分支。临时验证脚本位于系统 TEMP，不新增仓库测试框架。
+- modified:
+  - `AGENTS.md`
+  - `src/renderer/src/components/ControlBar.tsx`
+  - `src/renderer/src/components/modes/TaskModePanel.tsx`
+  - `src/renderer/src/hooks/useDebateRunner.ts`
+  - `src/renderer/src/pages/MainPage.tsx`
+  - `src/renderer/src/store/appStore.ts`
+  - `.memory/INDEX.md`
+  - `.memory/KNOWLEDGE.md`
+- lesson(promoted): 辩论轮询不能比较 React ref 对象引用；用 WebContents ID 绑定实例，发送前取基线，暂停后继续等待已发送回复。已修正 KNOWLEDGE 第9节与对应路由。
+- unresolved: 类型检查存在原有报错（web 11、node 10），本次未新增；现有开发实例导致第二次 npm run dev 启动后退出，未进行真实 AI 网页桌面验收。computer use 授权问题待用户回复。
+
+### 19:12 | Codex
+
+- done: 修复笔记快照角色丢失：适配实际 ChatGPT DOM；导出保留 user/assistant 标签；UI 明确区分用户提问与模型回答，并保护代码块中的标签示例。
+- decision: 保留内部角色标签；移除可能误删正文前缀的文本清理；只重新采集当前打开的一份真实笔记，批注与导图保持一致。
+- modified:
+  - `src/shared/config/selectors.ts`
+  - `src/shared/utils/webviewScripts.ts`
+  - `src/shared/utils/noteTranscript.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/renderer/src/components/NotesSourcePane.tsx`
+- unresolved: 其他已丢失角色的历史快照需重新采集；其他平台仅验证 DOM 样例，未逐站实测；全量类型检查存在本次未修改位置的错误；原生导出对话框受桌面工具限制未完成保存，导出格式代码已定向验证。
+
+### 18:52 | Antigravity
+
+- done: 优化笔记页UI：顶部重排为标题+分段筛选器+自定义下拉筛选+搜索框并调换导出与对照原文位置；卡片头部将平台与日期内联至标题后；移除每条批注底部独立操作行，改为悬停摘录右上角浮现评论与删除操作
+- decision: 顶部筛选改为Segmented Control并紧跟标题，复用CustomDropdown替换原生select；卡片标题行通过flex收缩标题并保持平台日期紧跟其后；摘录框自身点击定位原文，右上角悬浮毛玻璃操作条提供添加/编辑想法与删除，已有想法支持点击直接编辑
+- modified:
+  - `src/renderer/src/pages/NotesPage.tsx`
+  - `src/renderer/src/components/NotesConversationCards.tsx`
+  - `src/renderer/src/styles/notesWorkspace.css`
+
+### 15:22 | Antigravity
+
+- done: 为 Webview 新增单卡片独立页面查找（Ctrl+F / Cmd+F）功能，支持主进程 before-input-event 按键转发、渲染层鼠标悬停兜底、匹配计数、大小写敏感切换、上下项跳转及 Esc 关闭
+- added:
+  - `src/renderer/src/components/WebviewFindBar.tsx`
+- modified:
+  - `src/main/webviewManager.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/src/components/WebviewCard.tsx`
+  - `src/renderer/src/components/NotesSourcePane.tsx`
+- lesson(promoted): Electron WebContents::FindInPage 底层 C++ 将 options.findNext 直接映射给 blink::mojom::FindOptions::new_session，因此首次搜索或修改关键词需传 findNext: true（开启新查找会话），而上下步进跳转需传 findNext: false（延续当前查找会话）
+
 ### 10:01 | Antigravity
 
 - done: 优化设置中模型排序配置项说明文案与蓝色文本按钮样式

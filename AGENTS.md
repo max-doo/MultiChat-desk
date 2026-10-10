@@ -48,7 +48,7 @@ MultiChat Desk 是基于 Electron 的桌面应用，通过多个 Webview 并行�
 - **Webview 自动化约束**: 站点选择器统一维护在 `src/shared/config/selectors.ts`，注入脚本统一在 `src/shared/utils/webviewScripts.ts`；渲染层对应路径只重导出。优先多候选选择器与可见性判断，避免脆弱 DOM 依赖。
 - **总结与任务拆解约束**：当前总结走 `SummaryPanel` / `useWebviewSummary` 的网页注入与长文本附件，不自动发送；已删除的 API 流式总结不作为当前修改入口。任务拆解 API 走 `config/requestBodyConfig.ts`、`api/taskSplitApi.ts`、`ipcHandlers.ts` 的 `split-task` / `abort-split-task`，供应商参数、reasoning/thinking、中止能力及 IPC 契约需与 preload 和前端调用同步。导图后台生成由 `services/MindmapService.ts` 管理，保持采集完整性、取消和会话清理兼容。
 - **业务数据持久化**：历史由主进程 HistoryManager 按会话 ID 保存为独立 JSON；正式目录为 `history/conversations`、`history/summaries`，开发目录为 `history/dev/` 下对应目录。配置仅记录 `historyStorageVersion` 迁移版本，不写回历史数组。笔记、共享快照和本地导图由 NoteManager 管理；列表摘要与正文读取分离。
-- **回复采集**：普通对话和只派发的任务不为历史快照启动轮询；问题、模型与 URL 独立保存。显式保存、总结、笔记与导图按需采集，自动任务保留必要监控；后台定时读取禁止重复执行点击复制等交互式采集。
+- **回复采集**：多 AI、任务分配与辩论在发送后轮询回复并自动保存本地快照；问题先落盘，回复与会话地址随后更新。轮询绑定产品模式、会话与窗口实例，同模型多窗口按槽位区分；后台定时读取禁止重复执行点击复制等交互式采集。
 - **Session 约束**：所有 Webview 共享 `persist:shared` Session，登录态全局；任何涉及 Session / Cookie / 账户切换的改动必须评估全局影响。
 
 ## Working Rules

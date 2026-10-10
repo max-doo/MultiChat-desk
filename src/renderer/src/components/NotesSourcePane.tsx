@@ -5,6 +5,7 @@ import type { NoteAnchor, NoteConversation } from '../../../shared/types/notes'
 import { NOTE_CLICK_PREFIX } from '../../../shared/types/notes'
 import { generateNoteHighlightScript } from '../../../shared/utils/webviewScripts'
 import { normalizeNoteTranscriptMarkdown, parseSnapshotBlocks } from '../../../shared/utils/noteTranscript'
+import WebviewFindBar from './WebviewFindBar'
 
 const MAP_SOURCE_ID = '__notes-map-source'
 
@@ -210,14 +211,15 @@ export default function NotesSourcePane({ conversation, open, focusedNoteId, sou
     </header>
     {mode === 'web' && webStatus === 'loading' && <div className="notes-source-notice" role="status">正在加载原始网页… <button onClick={() => setMode('snapshot')}>查看快照</button></div>}
     {mode === 'web' && webError && <div className="notes-source-notice is-warning" role="alert">{webError}<button onClick={() => setMode('snapshot')}>查看快照</button></div>}
-    <div className="notes-source-web" style={{ display: mode === 'web' ? 'flex' : 'none' }}>
+    <div className="notes-source-web relative" style={{ display: mode === 'web' ? 'flex' : 'none' }}>
+      <WebviewFindBar webviewRef={webviewRef} disabled={!webStarted || !open || mode !== 'web'} />
       {webStarted && <webview ref={webviewRef} src={conversation.url} partition="persist:shared" className={`w-full flex-1 ${resizing ? 'pointer-events-none' : ''}`} />}
     </div>
     {snapshotStarted && <div className="notes-snapshot-scroll" style={{ display: mode === 'snapshot' ? undefined : 'none' }}>
       <p className="notes-snapshot-meta">{conversation.platform} · 本地保存的原文</p>
       {!markdown ? <div className="notes-empty"><p>这份笔记没有保存快照</p><span>可切换到原始网页查看。</span></div> : <div ref={transcriptRef} className="notes-transcript">
-        {blocks.map((block, index) => <div key={index} className={block.type === 'user' ? 'notes-message-user' : 'notes-message-assistant'}>
-          {block.type !== 'markdown' && <p className="notes-message-role">{block.type === 'user' ? '我' : conversation.platform}{block.time ? ` · ${block.time}` : ''}</p>}
+        {blocks.map((block, index) => <div key={index} data-message-role={block.type} aria-label={block.type === 'user' ? '用户提问' : block.type === 'assistant' ? '模型回答' : '对话原文'} className={block.type === 'user' ? 'notes-message-user' : 'notes-message-assistant'}>
+          {block.type !== 'markdown' && <p className="notes-message-role">{block.type === 'user' ? '用户提问' : `${conversation.platform} · 模型回答`}{block.time ? ` · ${block.time}` : ''}</p>}
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{block.content}</ReactMarkdown>
         </div>)}
       </div>}

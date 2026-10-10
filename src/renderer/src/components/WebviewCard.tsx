@@ -8,6 +8,7 @@ import type { ProbeReport, ResearchProbeReport, DomProbeReport, DomProbeOptions 
 import { useWebviewLifecycle } from '../hooks/useWebviewLifecycle'
 import { useWebviewActions } from '../hooks/useWebviewActions'
 import { useWebviewNotes } from '../hooks/useWebviewNotes'
+import WebviewFindBar from './WebviewFindBar'
 
 interface WebviewCardProps {
   id: string
@@ -378,6 +379,10 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
 
         {/* Webview 容器 */}
         <div className="flex-1 relative min-h-0">
+          <WebviewFindBar
+            webviewRef={webviewRef}
+            disabled={!isReady || isHibernated || Boolean((loadError || urlMismatch) && readonlySnapshot)}
+          />
           {isLoading && !loadError && (
             <div className="absolute inset-0 flex items-center justify-center bg-app/50 z-10">
               <div className="flex flex-col items-center gap-3 p-4">

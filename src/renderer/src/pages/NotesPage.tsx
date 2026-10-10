@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import type { NoteConversation, NoteNavigation } from '../../../shared/types/notes'
 import ConversationMindmapPanel from '../components/ConversationMindmapPanel'
+import CustomDropdown from '../components/CustomDropdown'
 import NotesSourcePane from '../components/NotesSourcePane'
 import NotesConversationCards from '../components/NotesConversationCards'
 import { useAppStore } from '../store/appStore'
@@ -119,6 +120,14 @@ export default function NotesPage({ initialNavigation }: { initialNavigation?: N
   const selectedSummary = conversations.find(item => item.id === selectedId)
   const cardItems = mode === 'mindmap' && selectedSummary ? [selectedSummary, ...visible.filter(item => item.id !== selectedId)] : visible
   const logoFor = (name: string): string | undefined => models.find(model => model.name.toLowerCase() === name.toLowerCase())?.logo
+  const platformOptions = useMemo(() => [
+    { value: 'all', label: '全部平台' },
+    ...platforms.map(name => ({ value: name, label: name, logo: logoFor(name) }))
+  ], [platforms, models])
+  const sortOptions = useMemo(() => [
+    { value: 'updated' as const, label: '最近更新' },
+    { value: 'title' as const, label: '按标题' }
+  ], [])
 
   // 切换会话仅重置导图缓存，原文是否展开由用户操作决定。
   useEffect(() => { setMapVisited(false) }, [selectedId])
@@ -219,13 +228,47 @@ export default function NotesPage({ initialNavigation }: { initialNavigation?: N
     <header className="notes-main-header">
       <div className="notes-document-title"><span className="material-symbols-outlined" aria-hidden="true">auto_stories</span><div><h1>{mode === 'mindmap' ? selectedSummary?.title || '思维导图' : '我的笔记'}</h1>{mode === 'mindmap' && <p>{selectedSummary?.platform} · 思维导图</p>}</div></div>
       <div className="notes-home-tools">
-        <div className="notes-search"><span className="material-symbols-outlined" aria-hidden="true">search</span><input ref={searchRef} aria-label="搜索笔记" placeholder="搜索标题、批注、导图" value={query} onChange={event => setQuery(event.target.value)} />{query && <button className="notes-icon-button" aria-label="清空搜索" onClick={() => setQuery('')}><span className="material-symbols-outlined">close</span></button>}</div>
-        <div className="notes-home-filters"><div className="notes-filters" aria-label="内容筛选">{[['all', '全部'], ['notes', '有批注'], ['mindmaps', '有导图']].map(([value, label]) => <button key={value} aria-pressed={contentFilter === value} onClick={() => setContentFilter(value)}>{label}</button>)}</div>
-          <div className="notes-selects"><select aria-label="筛选平台" value={platform} onChange={event => setPlatform(event.target.value)}><option value="all">全部平台</option>{platforms.map(name => <option key={name} value={name}>{name}</option>)}</select><select aria-label="笔记排序" value={sort} onChange={event => { orderRef.current.key = ''; setSort(event.target.value as 'updated' | 'title') }}><option value="updated">最近更新</option><option value="title">按标题</option></select></div>
+        <div className="notes-home-filters">
+          <div className="notes-filters" role="group" aria-label="内容筛选">{[['all', '全部'], ['notes', '有批注'], ['mindmaps', '有导图']].map(([value, label]) => <button key={value} aria-pressed={contentFilter === value} onClick={() => setContentFilter(value)}>{label}</button>)}</div>
+          <div className="notes-selects">
+            <CustomDropdown
+              options={platformOptions}
+              value={platform}
+              onChange={setPlatform}
+              className="notes-dropdown"
+              buttonClassName="notes-dropdown-trigger"
+              dropdownWidth="min-w-[148px] w-max !rounded-xl !border-gray-200/80 !bg-white/95 !p-1 !shadow-lg"
+              renderOption={(option, isSelected, onSelect) => (
+                <button type="button" onClick={onSelect} className={`notes-dropdown-option ${isSelected ? 'is-selected' : ''}`}>
+                  {option.logo ? <img src={option.logo} alt="" className="notes-dropdown-logo" /> : <span className="material-symbols-outlined notes-dropdown-icon" aria-hidden="true">{option.value === 'all' ? 'apps' : 'smart_toy'}</span>}
+                  <span className="notes-dropdown-label">{option.label}</span>
+                  {isSelected && <span className="material-symbols-outlined notes-dropdown-check" aria-hidden="true">check</span>}
+                </button>
+              )}
+            />
+            <CustomDropdown
+              options={sortOptions}
+              value={sort}
+              onChange={nextSort => { orderRef.current.key = ''; setSort(nextSort) }}
+              className="notes-dropdown"
+              buttonClassName="notes-dropdown-trigger"
+              dropdownWidth="min-w-[132px] w-max !rounded-xl !border-gray-200/80 !bg-white/95 !p-1 !shadow-lg"
+              renderOption={(option, isSelected, onSelect) => (
+                <button type="button" onClick={onSelect} className={`notes-dropdown-option ${isSelected ? 'is-selected' : ''}`}>
+                  <span className="material-symbols-outlined notes-dropdown-icon" aria-hidden="true">{option.value === 'updated' ? 'schedule' : 'sort_by_alpha'}</span>
+                  <span className="notes-dropdown-label">{option.label}</span>
+                  {isSelected && <span className="material-symbols-outlined notes-dropdown-check" aria-hidden="true">check</span>}
+                </button>
+              )}
+            />
+          </div>
         </div>
+        <div className="notes-search"><span className="material-symbols-outlined" aria-hidden="true">search</span><input ref={searchRef} aria-label="搜索笔记" placeholder="搜索标题、批注、导图" value={query} onChange={event => setQuery(event.target.value)} />{query && <button className="notes-icon-button" aria-label="清空搜索" onClick={() => setQuery('')}><span className="material-symbols-outlined">close</span></button>}</div>
       </div>
-      {selectedId && <button className={`notes-source-toggle ${sourceOpen ? 'is-active' : ''}`} aria-expanded={sourceOpen} onClick={() => { if (sourceOpen) setSourceOpen(false); else openSource() }}><span className="material-symbols-outlined" aria-hidden="true">{sourceOpen ? 'right_panel_close' : 'right_panel_open'}</span><span>{sourceOpen ? '收起原文' : '对照原文'}</span></button>}
-      <button className="notes-icon-button" aria-label="导出全部笔记" title="导出全部笔记" disabled={exporting} onClick={() => void exportNotes()}><span className="material-symbols-outlined">ios_share</span></button>
+      <div className="notes-header-actions">
+        <button className="notes-icon-button" aria-label="导出全部笔记" title="导出全部笔记" disabled={exporting} onClick={() => void exportNotes()}><span className="material-symbols-outlined">ios_share</span></button>
+        {selectedId && <button className={`notes-source-toggle ${sourceOpen ? 'is-active' : ''}`} aria-expanded={sourceOpen} onClick={() => { if (sourceOpen) setSourceOpen(false); else openSource() }}><span className="material-symbols-outlined" aria-hidden="true">{sourceOpen ? 'right_panel_close' : 'right_panel_open'}</span><span>{sourceOpen ? '收起原文' : '对照原文'}</span></button>}
+      </div>
     </header>
     {error && <div className="notes-error" role="alert"><span>{error}</span><button onClick={() => { setError(''); void reload() }}>重试</button><button aria-label="关闭提示" onClick={() => setError('')}><span className="material-symbols-outlined">close</span></button></div>}
     <div className={`notes-reading-layout ${sourceOpen ? 'has-source' : ''}`}>

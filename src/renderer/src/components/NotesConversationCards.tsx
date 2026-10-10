@@ -70,24 +70,34 @@ export default function NotesConversationCards(props: Props): JSX.Element {
       const showAll = sidebar || expanded.has(item.id) || item.notes.some(note => note.id === focusedNoteId || note.id === editingNoteId)
       const notes = showAll ? item.notes : item.notes.slice(0, 2)
       return <article key={item.id} data-conversation-id={item.id} className={`notes-conversation-card ${compact ? 'is-compact' : ''} ${selectedId === item.id ? 'is-selected' : ''}`} tabIndex={0} aria-label={`${item.title}，打开原会话`} onClick={event => {
-        if ((event.target as HTMLElement).closest('button, input, textarea, select, a, label') || window.getSelection()?.toString()) return
+        if ((event.target as HTMLElement).closest('button, [role="button"], input, textarea, select, a, label') || window.getSelection()?.toString()) return
         props.onOpen(item.id)
       }} onKeyDown={event => {
         if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); props.onOpen(item.id) }
       }}>
         <header className="notes-conversation-header">
-          <div className="notes-conversation-heading"><span className="notes-conversation-logo">{logo ? <img src={logo} alt="" /> : <span className="material-symbols-outlined" aria-hidden="true">article</span>}</span><h2 title={item.title}>{item.title}</h2><button className="notes-card-map" title="展开思维导图" aria-label={`${item.title}：展开思维导图`} onClick={() => props.onMap(item.id)}><span className="material-symbols-outlined" aria-hidden="true">account_tree</span><span>思维导图</span></button></div>
-          <div className="notes-item-meta"><span>{item.platform}</span><time dateTime={new Date(item.updatedAt).toISOString()}>{new Date(item.updatedAt).toLocaleDateString(undefined, { month: '2-digit', day: '2-digit' })}</time></div>
+          <div className="notes-conversation-heading">
+            <span className="notes-conversation-logo">{logo ? <img src={logo} alt="" /> : <span className="material-symbols-outlined" aria-hidden="true">article</span>}</span>
+            <div className="notes-conversation-title-group">
+              <h2 title={item.title}>{item.title}</h2>
+              <div className="notes-item-meta"><span>{item.platform}</span><time dateTime={new Date(item.updatedAt).toISOString()}>{new Date(item.updatedAt).toLocaleDateString(undefined, { month: '2-digit', day: '2-digit' })}</time></div>
+            </div>
+            <button className="notes-card-map" title="展开思维导图" aria-label={`${item.title}：展开思维导图`} onClick={() => props.onMap(item.id)}><span className="material-symbols-outlined" aria-hidden="true">account_tree</span><span>思维导图</span></button>
+          </div>
         </header>
         {!compact && <>
           <div className="notes-conversation-body">
             {!notes.length && <div className="notes-card-empty"><p>{item.mindmaps.length ? '这份资料已保存思维导图，暂未添加批注。' : '还没有批注，在原会话中选中文字即可保存。'}</p><button className="notes-text-button" onClick={() => props.onOpen(item.id)}>查看原会话<span className="material-symbols-outlined" aria-hidden="true">arrow_forward</span></button></div>}
             {notes.map(note => <section key={note.id} data-note-id={note.id} className={`notes-annotation ${focusedNoteId === note.id ? 'is-focused' : ''}`}>
-
-              <button className={`notes-quote ${note.quote.length <= 180 || fullQuotes.has(note.id) ? 'is-expanded' : ''}`} title="点击定位到原文" onClick={() => props.onOpen(item.id, note.id)}><span className="notes-quote-symbol material-symbols-outlined" aria-hidden="true">format_quote</span><span className="notes-quote-text">{note.quote}</span><span className="notes-quote-indicator material-symbols-outlined" aria-hidden="true">my_location</span></button>
+              <div className="notes-quote-wrap">
+                <button className={`notes-quote ${note.quote.length <= 180 || fullQuotes.has(note.id) ? 'is-expanded' : ''}`} title="点击定位到原文" onClick={() => props.onOpen(item.id, note.id)}><span className="notes-quote-symbol material-symbols-outlined" aria-hidden="true">format_quote</span><span className="notes-quote-text">{note.quote}</span></button>
+                <div className="notes-quote-toolbar">
+                  <button type="button" className="notes-quote-action" disabled={commentSaving} title={note.comment ? '编辑想法' : '添加想法'} aria-label={note.comment ? '编辑想法' : '添加想法'} onClick={event => { event.stopPropagation(); props.onEdit(note.id, note.comment) }}><span className="material-symbols-outlined" aria-hidden="true">{note.comment ? 'edit' : 'add_comment'}</span></button>
+                  <button type="button" className="notes-quote-action is-delete" disabled={!!deletingNoteId || commentSaving} title="删除批注" aria-label="删除批注" onClick={event => { event.stopPropagation(); props.onDelete(item.id, note.id) }}><span className="material-symbols-outlined" aria-hidden="true">delete</span></button>
+                </div>
+              </div>
               {note.quote.length > 180 && <button className="notes-text-button notes-quote-expand" onClick={() => toggle(note.id, setFullQuotes)}>{fullQuotes.has(note.id) ? '收起摘录' : '展开摘录'}</button>}
-              {editingNoteId === note.id ? <div className="notes-comment-editor"><label htmlFor={`note-comment-${note.id}`}>我的想法</label><textarea id={`note-comment-${note.id}`} autoFocus maxLength={100000} value={commentDraft} disabled={commentSaving} onChange={event => props.onDraft(event.target.value)} placeholder="写下你的思考…" /><div><button disabled={commentSaving} onClick={() => props.onEdit(null)}>取消</button><button className="notes-save" disabled={commentSaving} onClick={() => props.onSave(item.id, note.id)}>{commentSaving ? '保存中…' : '保存'}</button></div></div> : note.comment && <div className="notes-comment"><div>{note.comment}</div></div>}
-              <div className="notes-annotation-actions"><button className="notes-text-button is-secondary" onClick={() => props.onOpen(item.id, note.id)}><span className="material-symbols-outlined" aria-hidden="true">my_location</span>定位原文</button><div className="notes-annotation-secondary"><button className="notes-text-button is-secondary" disabled={commentSaving} onClick={() => props.onEdit(note.id, note.comment)}><span className="material-symbols-outlined" aria-hidden="true">{note.comment ? 'edit' : 'add_comment'}</span>{note.comment ? '编辑想法' : '添加想法'}</button><button className="notes-icon-button notes-delete" disabled={!!deletingNoteId || commentSaving} title="删除批注" aria-label="删除批注" onClick={() => props.onDelete(item.id, note.id)}><span className="material-symbols-outlined">delete</span></button></div></div>
+              {editingNoteId === note.id ? <div className="notes-comment-editor"><label htmlFor={`note-comment-${note.id}`}>我的想法</label><textarea id={`note-comment-${note.id}`} autoFocus maxLength={100000} value={commentDraft} disabled={commentSaving} onChange={event => props.onDraft(event.target.value)} placeholder="写下你的思考…" /><div><button disabled={commentSaving} onClick={() => props.onEdit(null)}>取消</button><button className="notes-save" disabled={commentSaving} onClick={() => props.onSave(item.id, note.id)}>{commentSaving ? '保存中…' : '保存'}</button></div></div> : note.comment && <div className="notes-comment" role="button" tabIndex={0} title="点击编辑想法" onClick={event => { if (window.getSelection()?.toString()) return; event.stopPropagation(); props.onEdit(note.id, note.comment) }} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); event.stopPropagation(); props.onEdit(note.id, note.comment) } }}><span className="notes-comment-icon material-symbols-outlined" aria-hidden="true">chat_bubble</span><div>{note.comment}</div></div>}
             </section>)}
             {!sidebar && item.notes.length > 2 && <button className="notes-text-button notes-expand-notes" onClick={() => toggle(item.id, setExpanded)}>{showAll ? '收起批注' : '展开更多批注'}</button>}
           </div>

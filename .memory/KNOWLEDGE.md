@@ -145,6 +145,8 @@ Do not copy ordinary session history here. Promote only stable knowledge that is
 
 - **Frameless Electron 独立窗口使用 w-screen h-screen overflow-hidden 消除 body 背景溢出**：在 Electron 的无边框窗口（`frame: false`）中渲染独立页面时，如果该页面的最外层容器声明为 `w-full h-full`，但父级 HTML/Body 及 React `#root` 未声明高度（默认 height: auto），会导致容器高度发生塌陷，退化为内容高度。由于 Electron 窗口具有物理固定宽高（例如 900x700），塌陷容器下方多余的视口空间会被 `body` 的 CSS 背景（如 radial-gradient 等渐变背景）直接填充，表现为“诊断页底栏下方出现大片无用空白/渐变底色”。**正确做法**：将独立窗口的顶层容器直接声明为绝对视口宽高的 `w-screen h-screen overflow-hidden`，使其强制填充 Electron Window 并阻止 body 溢出滚动，同时使用 flex 布局的 `flex-1 overflow-auto` 赋予内部面板响应式滚动能力，底栏自然贴合底边。
 
+- **`WebContents.findInPage` 的 `findNext` 参数语义相反**：Electron `WebContents::FindInPage` 底层 C++ 将 `options.findNext` 直接映射给 `blink::mojom::FindOptions::new_session`。因此首次搜索或修改关键词时需传 `findNext: true`（开启新查找会话），而上下步进跳转时需传 `findNext: false`（延续当前查找会话）。
+
 
 ## Stable Decisions
 
@@ -161,7 +163,7 @@ Do not copy ordinary session history here. Promote only stable knowledge that is
 
 - **恢复历史时产品模式切换会重置会话锚点**：若恢复流程调用 `setProductMode`，必须在模式恢复完成后重新设置 `isNewSession`、`activeModels` 与 `currentConversationId`，否则后续总结或续写会失去当前历史会话上下文。
 
-- **轮询「等回复稳定」必须每轮重新校验与基线不同，禁用单向闩锁**：`getResponseFromSlot` 早期实现只用「连续两次 `getLatestResponse()` 内容相同」判定回复完成，缺少与发送前状态对比。修复 v1 加了 `sawNew` 闩锁（首次 `cur !== base` 即置 true 永久开门），但仍漏 bug——闩锁是错误抽象：①基线读空（`base=''`，发送脚本扰动 DOM / 慢平台未渲染 / 读取瞬时空）后平台渲染出上一轮旧回复 `OLD`，`cur=OLD !== ''` 触发闩锁，稳定后**返回旧回复**；②`base=OLD` 时流式渲染中途 `cur` 瞬时为空触发闩锁，新回复未真正出现 `cur` 又回稳到 `OLD`，稳定后**返回旧回复**。`sendMessage` 在「点发送」即 resolve、不保证对方已回复，进一步放大。**正确模式（修复 v2）**：发送后立即取基线 `baseline = await ref.getLatestResponse()`，轮询每次循环都要求 `cur && cur !== base` 才计入稳定计数（`cur` 等于基线或为空则重置 `stableCount=0`），连续 N 次相同且 `!==base` 才返回；到 deadline 仍未稳定返回空串，调用方中止。**不要用 `sawNew` 一类的单向闩锁**——稳定达标时必须再校验返回值 `!==base`。判别：辩论/任务链等「轮转发送+读回复」场景若出现回合内容不递进、拿上一轮旧话当本轮，即命中此坑。
+- **辩论轮询必须在发送前取基线，并用 WebContents ID 绑定网页实例**：WebviewCard 的 useImperativeHandle 会在发送状态、加载状态或其他 React 渲染后创建新 ref 对象；比较 ref 对象引用会把同一网页误判为已替换，导致首轮轮询提前退出、后续轮次不再注入。应比较 getWebContentsId()，每次读取使用当前 ref，同时保留模式、会话 ID 与 URL 校验。基线必须在发送前通过非交互采集取得；发送后读取可能已得到本轮快速回复，导致一直等待到超时。只有当前内容非空、不同于基线且连续稳定才允许推进；空值或等于基线时重置稳定次数，禁止使用首次变化后永久放行的单向闩锁。暂停后继续等待已经发送的消息，不重复注入；超时保留已完成发言与当前发送状态供继续采集。
 
 - **轮转驱动的空回复应中止流程而非写占位继续推进**：`useDebateRunner.runNextTurn` 早期在 `getResponseFromSlot` 返回空时用 `appendDebateSpeech(..., speech || '（无回复）')` 写一条占位发言再 `advanceDebateTurn()` 继续下一轮——这会让没回复的空轮串起来，掩盖故障。**正确做法**：检测到空回复（`!speech || !speech.trim()`）时立即 `setDebatePhase('finished')` 并 `return`，不 `append`、不 `advance`，保留已完成的真实回合供用户查看。适用于一切「自动轮转、依赖对方真回复」的驱动场景。
 

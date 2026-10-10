@@ -381,7 +381,14 @@ const api = {
     return () => { ipcRenderer.removeListener('webview:show-contextmenu', handler) }
   },
   executeWebviewContextMenuAction: (params: WebviewContextMenuActionRequest): Promise<{ success: boolean; error?: string }> =>
-    ipcRenderer.invoke('webview:execute-contextmenu-action', params)
+    ipcRenderer.invoke('webview:execute-contextmenu-action', params),
+
+  // WebView 页面内查找快捷键通知
+  onWebviewFindShortcut: (cb: (data: { wcId: number; action: 'open' | 'close' }) => void): (() => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, data: { wcId: number; action: 'open' | 'close' }): void => cb(data)
+    ipcRenderer.on('webview:find-shortcut', handler)
+    return () => { ipcRenderer.removeListener('webview:find-shortcut', handler) }
+  }
 }
 
 // 暴露 API 到渲染进程

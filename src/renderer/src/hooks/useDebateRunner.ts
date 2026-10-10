@@ -1,5 +1,5 @@
 import { useRef, useCallback, useEffect } from 'react'
-import { useAppStore, waitForSavableUrl } from '../store/appStore'
+import { useAppStore, waitForSavableUrl, captureResponseTargets } from '../store/appStore'
 import type { DebateTurnRecord } from '../store/appStore'
 import { buildDebatePrompt } from '../utils/debatePrompts'
 
@@ -12,6 +12,10 @@ export function useDebateRunner() {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const conversationIdRef = useRef<string | null>(null)
   const finalizeDebateHistoryRef = useRef<() => void>(() => {})
+  const controllerRef = useRef<AbortController | null>(null)
+  const inFlightRef = useRef(false)
+  const runVersionRef = useRef(0)
+  const pendingTurnRef = useRef<{ key: string; baseline: string; webContentsId: number | null; sent: boolean } | null>(null)
 
   const clearTimer = () => {
     if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null }
@@ -37,13 +41,19 @@ export function useDebateRunner() {
   const finalizeDebateHistory = async () => {
     const cid = conversationIdRef.current
     if (!cid) return
+    conversationIdRef.current = null
     const slotUrls = await collectSlotUrls()
     useAppStore.getState().finalizeDebateHistory(cid, slotUrls)
-    conversationIdRef.current = null
   }
   useEffect(() => { finalizeDebateHistoryRef.current = finalizeDebateHistory })
 
-  useEffect(() => () => { abortRef.current = true; clearTimer() }, [])
+  useEffect(() => () => {
+    abortRef.current = true
+    runVersionRef.current++
+    controllerRef.current?.abort()
+    clearTimer()
+    if (useAppStore.getState().debateState.phase === 'running') useAppStore.getState().setDebatePhase('paused')
+  }, [])
 
   const buildPrompt = (topic: string, round: number, turn: 0 | 1): string => {
     const state = useAppStore.getState().debateState
@@ -67,78 +77,109 @@ export function useDebateRunner() {
 
   const runNextTurn = useCallback(async () => {
     const store = useAppStore.getState()
-    if (store.debateState.phase !== 'running') return
-    if (abortRef.current) return
-
-    const { currentRound, currentTurn, topic, totalRounds } = store.debateState
-    if (currentRound >= totalRounds) {
-      store.setDebatePhase('finished')
-      void finalizeDebateHistoryRef.current()
-      return
-    }
-
-    const slotIndex = currentTurn // 0=正方 slot-0, 1=反方 slot-1
-    const prompt = buildPrompt(topic, currentRound, currentTurn)
-
-    // 发送 + 等待回复
-    const sendRes = await store.sendToSlot(slotIndex, prompt)
-    if (abortRef.current || useAppStore.getState().debateState.phase !== 'running') return
-    if (!sendRes.success) {
-      // 发送失败：标记 finished 并通知（通知由 UI 层读 phase 处理）
-      store.setDebatePhase('finished')
-      void finalizeDebateHistoryRef.current()
-      return
-    }
-    // 发送后立即取基线：此刻新回复尚未渲染，getLatestResponse 读到的是上一轮旧回复或空，
-    // 作为「必须出现与之不同的新内容」的参照，避免把旧回复误判为新回复。
-    const baselineRef = useAppStore.getState().webviewRefs.get(`slot-${slotIndex}`)
-    const baseline = baselineRef ? await baselineRef.getLatestResponse({ interactive: false }).catch(() => '') : ''
-    if (abortRef.current || useAppStore.getState().debateState.phase !== 'running') return
-
-    const speech = await store.getResponseFromSlot(slotIndex, 120000, baseline)
-    if (abortRef.current || useAppStore.getState().debateState.phase !== 'running') return
-
-    // 空回复（超时未出现新回复或未稳定）→ 中止辩论，不再写占位回合继续推进
-    if (!speech || !speech.trim()) {
-      store.setDebatePhase('finished')
-      void finalizeDebateHistoryRef.current()
-      return
-    }
-
-    store.appendDebateSpeech(currentRound, currentTurn, speech)
-    store.advanceDebateTurn()
-
-    // 落库本轮发言（按 round upsert；currentTurn=0 写 proponent，=1 写 opponent）
+    if (store.productMode !== 'debate' || store.debateState.phase !== 'running' || abortRef.current || inFlightRef.current) return
+    clearTimer()
+    inFlightRef.current = true
+    const controller = new AbortController()
+    controllerRef.current = controller
+    const version = runVersionRef.current
     const cid = conversationIdRef.current
-    if (cid) {
-      const modelId = useAppStore.getState().debateSlots[slotIndex]
-      const record: DebateTurnRecord = {
-        round: currentRound,
-        ...(currentTurn === 0
-          ? { proponent: { modelId, speech, timestamp: Date.now() } }
-          : { opponent: { modelId, speech, timestamp: Date.now() } }),
-      }
-      useAppStore.getState().appendDebateTurnToHistory(cid, record)
-    } else {
-      console.warn('[useDebateRunner] appendDebateTurnToHistory 跳过：conversationId 未就绪', { currentRound, currentTurn })
-    }
+    const isCurrent = (): boolean => !controller.signal.aborted && version === runVersionRef.current && !abortRef.current && useAppStore.getState().productMode === 'debate' && useAppStore.getState().currentConversationId === cid && useAppStore.getState().debateState.phase === 'running'
 
-    // 下一轮稍作延迟
-    const next = useAppStore.getState().debateState
-    if (next.phase === 'finished') {
-      // 自然跑完所有轮：advanceDebateTurn 已把 phase 置 finished，runNextTurn 入口守卫会拦截
-      // 下一轮调用，所以 finalize 必须在此处补——否则 slotUrls 不落盘、恢复时不加载 URL。
-      void finalizeDebateHistoryRef.current()
-      return
-    }
-    if (next.phase === 'running') {
-      timerRef.current = setTimeout(() => { runNextTurn() }, 600)
+    try {
+      const { currentRound, currentTurn, topic, totalRounds } = store.debateState
+      if (currentRound >= totalRounds) {
+        store.setDebatePhase('finished')
+        void finalizeDebateHistoryRef.current()
+        return
+      }
+
+      const slotIndex = currentTurn // 0=正方 slot-0, 1=反方 slot-1
+      const prompt = buildPrompt(topic, currentRound, currentTurn)
+
+      const key = `${cid}-${currentRound}-${currentTurn}`
+      if (pendingTurnRef.current?.key !== key) {
+        // 发送前取基线；发送后的快速回复不能被当成旧内容。
+        const [target] = await captureResponseTargets([{ slotIndex, modelId: store.debateSlots[slotIndex] }])
+        if (!isCurrent()) return
+        pendingTurnRef.current = { key, baseline: target.baseline, webContentsId: target.webContentsId, sent: false }
+      }
+      const pending = pendingTurnRef.current
+      if (useAppStore.getState().webviewRefs.get(`slot-${slotIndex}`)?.getWebContentsId() !== pending.webContentsId) {
+        pendingTurnRef.current = null
+        store.setDebatePhase('paused')
+        return
+      }
+      if (!pending.sent) {
+        const sendRes = await store.sendToSlot(slotIndex, prompt)
+        // 暂停不会取消网页已收到的消息；继续时只等待该条回复，避免再次注入。
+        pending.sent = sendRes.success
+        if (!isCurrent()) return
+        if (!sendRes.success) { store.setDebatePhase('paused'); return }
+        if (cid) await store.recordConversationTurn(cid, { turnId: key, userMessage: prompt, timestamp: Date.now(), responses: {} })
+      }
+      if (!isCurrent()) return
+
+      const speech = await store.getResponseFromSlot(slotIndex, undefined, pending.baseline, controller.signal)
+      if (!isCurrent()) return
+
+      // 超时或读取失败时暂停，保留已完成回合与当前发送状态供继续采集
+      if (!speech || !speech.trim()) {
+        store.setDebatePhase('paused')
+        return
+      }
+
+      // 落库本轮发言（按 round upsert；currentTurn=0 写 proponent，=1 写 opponent）
+      if (cid) {
+        const modelId = useAppStore.getState().debateSlots[slotIndex]
+        const record: DebateTurnRecord = {
+          round: currentRound,
+          ...(currentTurn === 0
+            ? { proponent: { modelId, speech, timestamp: Date.now() } }
+            : { opponent: { modelId, speech, timestamp: Date.now() } }),
+        }
+        useAppStore.getState().appendDebateTurnToHistory(cid, record)
+        await store.recordConversationTurn(cid, {
+          turnId: key, userMessage: prompt, timestamp: record.proponent?.timestamp ?? record.opponent!.timestamp,
+          responses: { [`slot-${slotIndex}`]: speech, [modelId]: speech }
+        })
+        const ref = useAppStore.getState().webviewRefs.get(`slot-${slotIndex}`)
+        if (ref?.getWebContentsId() === pending.webContentsId) {
+          const item = useAppStore.getState().history.find(item => item.id === cid)
+          store.finalizeDebateHistory(cid, { ...item?.slotUrls, [slotIndex]: ref.getCurrentUrl() })
+        }
+      } else {
+        console.warn('[useDebateRunner] appendDebateTurnToHistory 跳过：conversationId 未就绪', { currentRound, currentTurn })
+      }
+      if (!isCurrent()) return
+      pendingTurnRef.current = null
+      store.appendDebateSpeech(currentRound, currentTurn, speech)
+      store.advanceDebateTurn()
+
+      // 下一轮稍作延迟
+      const next = useAppStore.getState().debateState
+      if (next.phase === 'finished') {
+        // 自然跑完所有轮：advanceDebateTurn 已把 phase 置 finished，runNextTurn 入口守卫会拦截
+        // 下一轮调用，所以 finalize 必须在此处补——否则 slotUrls 不落盘、恢复时不加载 URL。
+        void finalizeDebateHistoryRef.current()
+        return
+      }
+    } catch {
+      if (isCurrent()) store.setDebatePhase('paused')
+    } finally {
+      inFlightRef.current = false
+      if (!abortRef.current && useAppStore.getState().productMode === 'debate' && useAppStore.getState().debateState.phase === 'running') {
+        timerRef.current = setTimeout(() => { void runNextTurn() }, 600)
+      }
     }
   }, [])
 
   const start = useCallback((topic: string) => {
     if (!topic.trim()) return
     abortRef.current = false
+    runVersionRef.current++
+    controllerRef.current?.abort()
+    pendingTurnRef.current = null
     clearTimer()
     // 防御：清掉上一场可能残留的 conversationId（正常路径 finalize 已置 null，
     // 但若上一场异常中断未走 finalize，残留旧 id 会在 IIFE 覆盖前被误用）
@@ -170,6 +211,7 @@ export function useDebateRunner() {
         productMode: 'debate',
         displayMode: 'two', // 辩论 displayMode 恒为 'two'（appStore.ts:799 强制）
       })
+      if (abortRef.current || useAppStore.getState().productMode !== 'debate' || useAppStore.getState().currentConversationId !== conversationId) return
       conversationIdRef.current = conversationId
       // 把辩题写入历史标题，供 HistoryDrawer 与恢复时使用（Spec §5.6）
       useAppStore.getState().updateHistory(conversationId, { title: topic })
@@ -182,6 +224,7 @@ export function useDebateRunner() {
     const store = useAppStore.getState()
     if (store.debateState.phase !== 'running') return
     abortRef.current = true
+    controllerRef.current?.abort()
     clearTimer()
     store.setDebatePhase('paused')
   }, [])
@@ -198,6 +241,9 @@ export function useDebateRunner() {
     const store = useAppStore.getState()
     if (store.debateState.phase === 'idle' || store.debateState.phase === 'finished') return
     abortRef.current = true
+    runVersionRef.current++
+    controllerRef.current?.abort()
+    pendingTurnRef.current = null
     clearTimer()
     store.setDebatePhase('finished')
     void finalizeDebateHistoryRef.current()
@@ -205,6 +251,9 @@ export function useDebateRunner() {
 
   const reset = useCallback(() => {
     abortRef.current = true
+    runVersionRef.current++
+    controllerRef.current?.abort()
+    pendingTurnRef.current = null
     clearTimer()
     useAppStore.getState().resetDebate()
   }, [])

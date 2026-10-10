@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { useAppStore, waitForSavableUrl } from '../../store/appStore'
+import { useAppStore, waitForSavableUrl, captureResponseTargets } from '../../store/appStore'
 import { useTaskSplit } from '../../hooks/useTaskSplit'
 import SubtaskList from './SubtaskList'
 import TaskSplitModal from './TaskSplitModal'
@@ -121,6 +121,8 @@ function TaskModePanel({ showNotification }: TaskModePanelProps): JSX.Element {
     setIsSending(true)
     setTaskPhase('sent')
     const bySlot = buildBySlot()
+    useAppStore.getState().stopMonitoring()
+    const targets = await captureResponseTargets(Array.from(bySlot.keys()).map(slotIndex => ({ slotIndex, modelId: taskAssignmentSlots[slotIndex] })))
     // 记录每个 slot 发送的组合文本（用于历史 userMessage）与成功与否
     const sentTexts: Record<number, string> = {}
     const successSlotIndices: number[] = []
@@ -158,16 +160,22 @@ function TaskModePanel({ showNotification }: TaskModePanelProps): JSX.Element {
         .map(i => taskAssignmentSlots[i])
         .filter(Boolean) as string[]
       if (successModelIds.length > 0) {
-        // 采集当前 URL（modelId 作 key，任务分配 slot↔modelId 一一对应）
+        // 槽位地址独立保存，modelId 地址兼容旧历史与总结入口。
         const currentUrls: Record<string, string> = {}
-        for (const slotIndex of successSlotIndices) {
+        const slotCount = displayMode === 'four' ? 4 : displayMode === 'three' ? 3 : 2
+        const historyModelIds = taskAssignmentSlots.slice(0, slotCount)
+        for (let slotIndex = 0; slotIndex < historyModelIds.length; slotIndex++) {
           const ref = webviewRefs.get(`slot-${slotIndex}`)
           const modelId = taskAssignmentSlots[slotIndex]
-          if (ref && modelId) currentUrls[modelId] = ref.getCurrentUrl()
+          if (ref && modelId) {
+            currentUrls[modelId] ??= ref.getCurrentUrl()
+            currentUrls[`slot-${slotIndex}`] = ref.getCurrentUrl()
+          }
         }
 
         const { conversationId } = await store.beginConversation({
-          successModelIds,
+          // 历史保留完整布局；轮询仍只处理实际发送成功的窗口。
+          successModelIds: historyModelIds,
           currentUrls,
           productMode: 'task_assignment',
           displayMode,
@@ -176,6 +184,7 @@ function TaskModePanel({ showNotification }: TaskModePanelProps): JSX.Element {
         const userMessage = successSlotIndices.map(i => `【slot ${i + 1}】${sentTexts[i]}`).join('\n\n')
         const turnId = `${conversationId}-${crypto.randomUUID()}`
         await store.recordConversationTurn(conversationId, { turnId, userMessage, timestamp: Date.now(), responses: {} })
+        store.startMonitoring(conversationId, turnId, userMessage, targets.filter(target => successSlotIndices.includes(target.slotIndex)))
         // 地址可以晚于发送产生；问题先保存，之后仅更新仍属于当前会话的来源。
         void (async () => {
           const urls: Record<string, string> = {}
@@ -185,9 +194,14 @@ function TaskModePanel({ showNotification }: TaskModePanelProps): JSX.Element {
             if (!ref || !modelId) return
             const url = await waitForSavableUrl(modelId, ref)
             const current = useAppStore.getState()
-            if (url && current.currentConversationId === conversationId && current.webviewRefs.get(`slot-${slotIndex}`) === ref) urls[modelId] = url
+            const target = targets.find(target => target.slotIndex === slotIndex)
+            if (url && current.currentConversationId === conversationId && current.webviewRefs.get(`slot-${slotIndex}`)?.getWebContentsId() === target?.webContentsId) {
+              urls[modelId] ??= url
+              urls[`slot-${slotIndex}`] = url
+            }
           }))
-          if (useAppStore.getState().currentConversationId === conversationId && Object.keys(urls).length) await useAppStore.getState().updateHistory(conversationId, { urls })
+          const current = useAppStore.getState()
+          if (current.currentConversationId === conversationId && current.history.find(item => item.id === conversationId)?.turns.at(-1)?.turnId === turnId && Object.keys(urls).length) await current.updateHistory(conversationId, { urls })
         })().catch(() => showNotification('error', '任务已发送，但会话地址获取失败'))
       }
     }

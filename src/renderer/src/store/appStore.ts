@@ -147,7 +147,15 @@ export interface DebateState {
 }
 
 // 监控状态类型（内部使用，不对外暴露）
-interface PlatformMonitorState {
+export interface ResponseMonitorTarget {
+  slotIndex: number
+  modelId: string
+  webContentsId: number | null
+  baseline: string
+  sourceUrl: string
+}
+
+interface PlatformMonitorState extends ResponseMonitorTarget {
   lastContent: string
   stableCount: number
   isComplete: boolean
@@ -165,6 +173,8 @@ interface MonitorState {
   currentTurn: TurnMonitor | null
   intervalId: ReturnType<typeof setInterval> | null
   startTime: number
+  productMode?: ProductMode
+  isPolling?: boolean
 }
 
 // 应用状态类型
@@ -258,7 +268,6 @@ interface AppState {
   retryHistorySave: () => Promise<void>
   refreshHistoryLists: () => Promise<void>
   recordConversationTurn: (conversationId: string, turn: ConversationTurn) => Promise<void>
-  saveCurrentResponses: () => Promise<number>
   addHistory: (item: HistoryItem) => Promise<void>
   updateHistory: (id: string, updates: Partial<HistoryItem>) => Promise<void>
   removeHistory: (id: string) => Promise<void>
@@ -312,7 +321,7 @@ interface AppState {
   // 单槽位 webview 编排（辩论轮转用）
   sendToSlot: (slotIndex: number, message: string) => Promise<{ success: boolean; error?: string }>
   insertTextToSlot: (slotIndex: number, message: string) => Promise<{ success: boolean; error?: string }>
-  getResponseFromSlot: (slotIndex: number, timeoutMs?: number, baseline?: string) => Promise<string>
+  getResponseFromSlot: (slotIndex: number, timeoutMs?: number, baseline?: string, signal?: AbortSignal) => Promise<string>
   clearInputOfSlot: (slotIndex: number) => Promise<void>
 
   // 获取所有模型的最新回复
@@ -320,7 +329,7 @@ interface AppState {
 
   // 监控状态（不持久化）
   monitor: MonitorState
-  startMonitoring: (conversationId: string, turnId: string, userMessage: string, models: string[]) => void
+  startMonitoring: (conversationId: string, turnId: string, userMessage: string, targets: ResponseMonitorTarget[]) => void
   stopMonitoring: () => void
   pollPlatforms: () => Promise<void>
   saveCurrentTurn: (forceFlush?: boolean) => void
@@ -567,8 +576,9 @@ function shouldStartNewConversation(
   if (isNewSession) return true
   if (!previousUrls || Object.keys(previousUrls).length === 0) return true
 
-  const currentKeys = Object.keys(currentUrls)
-  const previousKeys = Object.keys(previousUrls)
+  // 兼容旧历史只有 modelId 地址、新历史补充 slot-N 地址的情况。
+  const currentKeys = Object.keys(currentUrls).filter(key => !key.startsWith('slot-'))
+  const previousKeys = Object.keys(previousUrls).filter(key => !key.startsWith('slot-'))
 
   if (currentKeys.length !== previousKeys.length) return true
   if (!currentKeys.every(k => previousKeys.includes(k))) return true
@@ -577,6 +587,10 @@ function shouldStartNewConversation(
     const curr = normalizeUrl(currentUrls[modelId])
     const prev = normalizeUrl(previousUrls[modelId])
     if (curr && prev && curr !== prev) return true
+  }
+
+  for (const key of Object.keys(currentUrls).filter(key => key.startsWith('slot-') && previousUrls[key])) {
+    if (normalizeUrl(currentUrls[key]) !== normalizeUrl(previousUrls[key])) return true
   }
 
   return false
@@ -657,6 +671,33 @@ export const waitForSavableUrl = async (modelId: string, ref: WebviewCardRef): P
     await sleep(1000)
   }
   return ''
+}
+
+const canonicalConversationUrl = (modelId: string, url: string): string =>
+  modelId === 'gemini' ? normalizeGeminiConversationUrl(url) : normalizeUrl(url)
+
+// 轮询只读 DOM；限制单次读取时长，避免网页脚本卡住后堆积轮询。
+async function readPassiveResponse(ref: WebviewCardRef, timeoutMs = 10000): Promise<string> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return (await Promise.race([
+      ref.getLatestResponse({ interactive: false }).catch(() => ''),
+      new Promise<string>(resolve => { timer = setTimeout(() => resolve(''), timeoutMs) })
+    ])).trim()
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
+/** 必须在发送前采集基线；React ref 对象会重建，窗口身份使用 WebContents ID。 */
+export async function captureResponseTargets(targets: Array<{ slotIndex: number; modelId: string }>): Promise<ResponseMonitorTarget[]> {
+  return Promise.all(targets.map(async target => {
+    const ref = useAppStore.getState().webviewRefs.get(`slot-${target.slotIndex}`)
+    const webContentsId = ref?.getWebContentsId() ?? null
+    const baseline = ref ? await readPassiveResponse(ref) : ''
+    const url = ref?.getCurrentUrl() || ''
+    return { ...target, webContentsId, baseline, sourceUrl: isSavableSessionUrl(target.modelId, url) ? canonicalConversationUrl(target.modelId, url) : '' }
+  }))
 }
 
 
@@ -1022,7 +1063,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     await writeHistory(() => window.api.historyCreate('conversation', item))
   },
   updateHistory: async (id, updates) => {
-    set(state => ({ history: state.history.map(item => item.id === id ? { ...item, ...updates } : item) }))
+    set(state => ({ history: state.history.map(item => item.id === id ? { ...item, ...updates, ...(updates.urls ? { urls: { ...item.urls, ...updates.urls } } : {}) } : item) }))
     await writeHistory(() => window.api.historyUpdate('conversation', id, updates))
   },
   removeHistory: async (id) => get().removeHistories([id]),
@@ -1089,34 +1130,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     set(state => ({ history: state.history.map(old => old.id === conversationId ? { ...old, turns, updatedAt: Date.now() } : old) }))
     await writeHistory(() => window.api.historyUpdate('conversation', conversationId, { turns: [turn] }))
   },
-  saveCurrentResponses: async () => {
-    const id = get().currentConversationId
-    const item = get().history.find(history => history.id === id)
-    const turn = item?.turns[item.turns.length - 1]
-    if (!id || !turn) throw new Error('当前没有可保存的对话轮次')
-    await flushHistoryWrites()
-    if (get().historySaveError) throw new Error(get().historySaveError || '保存失败')
-    const saved = await window.api.historyGet('conversation', id)
-    if (!saved.success || !saved.data || !('turns' in saved.data) || saved.data.turns.at(-1)?.turnId !== turn.turnId) throw new Error('对话轮次已变化，请重新打开后保存')
-    const source = saved.data
-    const refs = new Map(source.models.map(modelId => [modelId, get().webviewRefs.get(modelId)]))
-    const urls = Object.fromEntries([...refs].map(([modelId, ref]) => [modelId, ref?.getCurrentUrl() || '']))
-    const canonical = (modelId: string, url: string): string => modelId === 'gemini' ? normalizeGeminiConversationUrl(url) : normalizeUrl(url)
-    const responses = await get().getAllResponses()
-    const latest = await window.api.historyGet('conversation', id)
-    if (get().currentConversationId !== id || get().history.find(history => history.id === id)?.turns.at(-1)?.turnId !== turn.turnId || !latest.success || !latest.data || !('turns' in latest.data) || latest.data.turns.at(-1)?.turnId !== turn.turnId) throw new Error('对话已切换，请重新保存')
-    const valid = Object.fromEntries(Object.entries(responses).filter(([modelId, text]) => {
-      const ref = refs.get(modelId)
-      const expected = source.urls?.[modelId]
-      if (!text.trim() || !ref || get().webviewRefs.get(modelId) !== ref || !expected || !isSavableSessionUrl(modelId, expected)) return false
-      const latestUrl = latest.data && 'turns' in latest.data ? latest.data.urls?.[modelId] || '' : ''
-      return [urls[modelId], ref.getCurrentUrl(), latestUrl].every(url => canonical(modelId, expected) === canonical(modelId, url))
-    }))
-    if (!Object.keys(valid).length) throw new Error('未获取到对应会话的回复，请等待网页回复及会话地址保存后重试')
-    await get().recordConversationTurn(id, { ...turn, responses: valid })
-    if (get().historySaveError) throw new Error(get().historySaveError || '保存失败')
-    return Object.keys(valid).length
-  },
 
 
   isSending: false,
@@ -1128,8 +1141,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   isNewSession: true,
   chatSessionVersion: Date.now(),
   currentConversationId: null,
-  setCurrentConversationId: (id) => set({ currentConversationId: id }),
+  setCurrentConversationId: (id) => {
+    if (id !== get().currentConversationId) get().stopMonitoring()
+    set({ currentConversationId: id })
+  },
   setNewSession: (isNew: boolean) => {
+    if (isNew) get().stopMonitoring()
     // 新会话标记时同步清空当前对话锚点，防止 history[0] 兜底串台（症状 6 根因）
     set({ isNewSession: isNew, ...(isNew ? { currentConversationId: null } : {}) })
     if (isNew) set({ activeModels: [], textInserted: false, chatSessionVersion: Date.now() })
@@ -1233,6 +1250,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       ? state.activeModels
       : getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots)
     if (state.activeModels.length === 0) state.setActiveModels(targetModels)
+    get().stopMonitoring()
+    const targets = await captureResponseTargets(targetModels.map((model, slotIndex) => ({ modelId: model.id, slotIndex })))
     const results: SendResult[] = []
     const sendPromises = targetModels.map(async (model, index) => {
       const webviewRef = webviewRefs.get(`slot-${index}`) || webviewRefs.get(model.id)
@@ -1247,18 +1266,20 @@ export const useAppStore = create<AppState>((set, get) => ({
     const sendResults = await Promise.all(sendPromises)
     results.push(...sendResults)
     const successModels = Array.from(new Set(sendResults.filter((r) => r.success).map((r) => r.modelId)))
+    const successTargets = targets.filter((_, index) => sendResults[index].success)
 
     if (successModels.length > 0) {
       // 立即获取当前各平台 URL（用于判定新/旧对话）
       const currentUrls: Record<string, string> = {}
       await Promise.all(
-        successModels.map(async (modelId) => {
-          const ref = webviewRefs.get(modelId)
+        targets.map(async ({ modelId, slotIndex }) => {
+          const ref = get().webviewRefs.get(`slot-${slotIndex}`)
           if (!ref) return
           try {
             const url = ref.getCurrentUrl()
             if (url && url !== 'about:blank') {
               currentUrls[modelId] = url
+              currentUrls[`slot-${slotIndex}`] = url
             }
           } catch {
             // 忽略获取失败
@@ -1268,36 +1289,40 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       // 共享原语：判定新/旧对话 + 写历史头部
       const { conversationId } = await get().beginConversation({
-        successModelIds: successModels,
+        // 保存完整窗口顺序；部分发送失败时也不能让成功窗口的槽位前移。
+        successModelIds: targetModels.map(model => model.id),
         currentUrls,
         productMode,
         displayMode,
       })
 
-      // 用户输入独立落盘，回复由用户按需保存
+      // 问题先保存；发送前的基线避免把上一轮回复写入本轮。
       const turnId = `${conversationId}-${crypto.randomUUID()}`
       await get().recordConversationTurn(conversationId, { turnId, userMessage: message, timestamp: Date.now(), responses: {} })
+      if (!state.isImageGeneration) get().startMonitoring(conversationId, turnId, message, successTargets)
 
       ;(async () => {
         await sleep(5000)
         if (get().currentConversationId !== conversationId) return
-        const { webviewRefs: currentRefs } = get()
         const urls: Record<string, string> = {}
 
         await Promise.all(
-          successModels.map(async (modelId) => {
-            const ref = currentRefs.get(modelId)
+          successTargets.map(async ({ modelId, slotIndex, webContentsId }) => {
+            const ref = get().webviewRefs.get(`slot-${slotIndex}`)
             if (!ref) return
             try {
               const savableUrl = await waitForSavableUrl(modelId, ref)
-              if (savableUrl) urls[modelId] = savableUrl
+              if (savableUrl && get().webviewRefs.get(`slot-${slotIndex}`)?.getWebContentsId() === webContentsId) {
+                urls[modelId] = savableUrl
+                urls[`slot-${slotIndex}`] = savableUrl
+              }
             } catch (error) {
               console.error(`获取模型 ${modelId} 的 URL 失败:`, error)
             }
           })
         )
 
-        if (get().currentConversationId === conversationId && Object.keys(urls).length > 0) {
+        if (get().currentConversationId === conversationId && get().history.find(item => item.id === conversationId)?.turns.at(-1)?.turnId === turnId && Object.keys(urls).length > 0) {
           await updateHistory(conversationId, { urls })
         }
       })().catch((error) => console.error('异步获取 URL 失败:', error))
@@ -1329,10 +1354,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       return { success: false, error: String(err) }
     }
   },
-  getResponseFromSlot: async (slotIndex, timeoutMs = 120000, baseline) => {
+  getResponseFromSlot: async (slotIndex, timeoutMs = MONITOR_CONFIG.maxMonitorDurationMs, baseline, signal) => {
     const { webviewRefs } = get()
     const ref = webviewRefs.get(`slot-${slotIndex}`)
     if (!ref) return ''
+    const webContentsId = ref.getWebContentsId()
+    if (webContentsId === null) return ''
+    const conversationId = get().currentConversationId
     const modelId = get().debateSlots[slotIndex]
     const canonical = (url: string): string => modelId === 'gemini' ? normalizeGeminiConversationUrl(url) : normalizeUrl(url)
     let sourceUrl = isSavableSessionUrl(modelId, ref.getCurrentUrl()) ? canonical(ref.getCurrentUrl()) : ''
@@ -1345,17 +1373,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     const base = (baseline ?? '').trim()
     const deadline = Date.now() + timeoutMs
     const pollInterval = 500
-    const stableThreshold = 3 // 连续 3 次相同 ≈ 1.5s 无变化
+    const stableThreshold = 3 // 连续 3 次相同 ≈ 1.5s 无变化；只读采集会排除仍在生成的页面。
     let last = ''
     let stableCount = 0
     while (Date.now() < deadline) {
-      if (get().debateState.phase !== 'running' || get().webviewRefs.get(`slot-${slotIndex}`) !== ref || sourceChanged()) return ''
-      let timer: ReturnType<typeof setTimeout> | undefined
-      const cur = (await Promise.race([
-        ref.getLatestResponse({ interactive: false }).catch(() => ''),
-        new Promise<string>(resolve => { timer = setTimeout(() => resolve(''), Math.max(0, deadline - Date.now())) })
-      ]).finally(() => { if (timer) clearTimeout(timer) })).trim()
-      if (Date.now() >= deadline || get().debateState.phase !== 'running' || get().webviewRefs.get(`slot-${slotIndex}`) !== ref || sourceChanged()) return ''
+      const currentRef = get().webviewRefs.get(`slot-${slotIndex}`)
+      const isCurrent = (): boolean => !signal?.aborted && get().productMode === 'debate' && get().currentConversationId === conversationId && get().debateState.phase === 'running' && get().webviewRefs.get(`slot-${slotIndex}`)?.getWebContentsId() === webContentsId && !sourceChanged()
+      if (!currentRef || !isCurrent()) return ''
+      const cur = await readPassiveResponse(currentRef, Math.min(10000, Math.max(0, deadline - Date.now())))
+      if (Date.now() >= deadline || !isCurrent()) return ''
       // 仅当 cur 非空且与基线不同才视为新回复候选，避免把上一轮旧回复（或瞬时空值）
       // 误判为新回复。基线为空时要求 cur 非空；基线为旧回复时 cur===base 不计入稳定。
       if (cur && cur !== base) {
@@ -1621,7 +1647,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     startTime: 0,
   },
 
-  startMonitoring: (conversationId: string, turnId: string, userMessage: string, models: string[]) => {
+  startMonitoring: (conversationId, turnId, userMessage, targets) => {
     const { monitor } = get()
 
     // 如果已有轮询器在运行，先停止并兜底写上一轮
@@ -1633,8 +1659,9 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     // 初始化各平台监控状态
     const platforms: Record<string, PlatformMonitorState> = {}
-    for (const modelId of models) {
-      platforms[modelId] = {
+    for (const target of targets) {
+      platforms[`slot-${target.slotIndex}`] = {
+        ...target,
         lastContent: '',
         stableCount: 0,
         isComplete: false,
@@ -1659,6 +1686,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         currentTurn: turnMonitor,
         intervalId,
         startTime: Date.now(),
+        productMode: get().productMode,
       },
       // 持久态锚点与监控态同步：监控结束后 monitor.currentConversationId 会清空，
       // 但本字段保留，供后续"当前对话"查询（替代 history[0] 兜底）
@@ -1687,8 +1715,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   pollPlatforms: async () => {
-    const { monitor, webviewRefs, models, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots } = get()
-    if (!monitor.isMonitoring || !monitor.currentTurn) return
+    const { monitor } = get()
+    if (!monitor.isMonitoring || !monitor.currentTurn || monitor.isPolling) return
+    if (get().productMode !== monitor.productMode || get().currentConversationId !== monitor.currentConversationId) {
+      get().stopMonitoring()
+      return
+    }
 
     // 超时检测：统一收口到 stopMonitoring（其内部已兜底写），避免双写
     if (Date.now() - monitor.startTime > MONITOR_CONFIG.maxMonitorDurationMs) {
@@ -1696,60 +1728,63 @@ export const useAppStore = create<AppState>((set, get) => ({
       return
     }
 
-    const displayedModels = getDisplayedModels(models, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots)
-    let allComplete = true
     let anyChanged = false // 脏标记：本轮是否有平台内容/完成态变化
-
-    for (let index = 0; index < displayedModels.length; index++) {
-      const model = displayedModels[index]
-      const state = monitor.currentTurn.platforms[model.id]
-      if (!state || state.isComplete) continue
-
-      const ref = webviewRefs.get(`slot-${index}`) || webviewRefs.get(model.id)
-      if (!ref) {
-        state.isComplete = true
-        anyChanged = true // 完成态翻转也视为变化，需落盘
-        continue
-      }
-
-      try {
-        const content = await ref.getLatestResponse({ interactive: false })
-
-        if (content !== state.lastContent) {
-          state.lastContent = content
-          state.stableCount = 0
-          anyChanged = true
-        } else if (content.trim()) {
-          state.stableCount++
-          if (state.stableCount >= MONITOR_CONFIG.stableThreshold) {
-            state.isComplete = true
-            anyChanged = true // 完成态翻转也视为变化，需落盘
-          }
+    const urls: Record<string, string> = {}
+    const isCurrent = (): boolean => get().monitor === monitor && get().currentConversationId === monitor.currentConversationId && get().productMode === monitor.productMode
+    monitor.isPolling = true
+    try {
+      for (const [slotKey, state] of Object.entries(monitor.currentTurn.platforms)) {
+        if (state.isComplete) continue
+        const ref = get().webviewRefs.get(slotKey)
+        const matchesSource = (): boolean => {
+          if (!ref || state.webContentsId === null || get().webviewRefs.get(slotKey)?.getWebContentsId() !== state.webContentsId) return false
+          return !state.sourceUrl || canonicalConversationUrl(state.modelId, ref.getCurrentUrl()) === state.sourceUrl
         }
-      } catch {
-        // 获取失败，不影响其他平台，继续轮询
+        if (!ref || !matchesSource()) {
+          state.isComplete = true
+          anyChanged = true
+          continue
+        }
+        try {
+          const content = await readPassiveResponse(ref)
+          if (!isCurrent()) return
+          if (!matchesSource()) { state.isComplete = true; anyChanged = true; continue }
+          // 空值可能表示生成中或读取失败，不能覆盖已采集内容或累计稳定次数。
+          if (!content || content === state.baseline) { state.stableCount = 0; continue }
+          const url = ref.getCurrentUrl()
+          if (!state.sourceUrl && isSavableSessionUrl(state.modelId, url)) state.sourceUrl = canonicalConversationUrl(state.modelId, url)
+          if (isSavableSessionUrl(state.modelId, url)) {
+            const savedUrls = get().history.find(item => item.id === monitor.currentConversationId)?.urls
+            if (savedUrls?.[slotKey] !== url) { urls[slotKey] = url; urls[state.modelId] ??= url }
+          }
+          if (content !== state.lastContent) {
+            state.lastContent = content
+            state.stableCount = 0
+            anyChanged = true
+          } else if (++state.stableCount >= MONITOR_CONFIG.stableThreshold) {
+            state.isComplete = true
+            anyChanged = true
+          }
+        } catch {
+          state.stableCount = 0
+        }
       }
-
-      if (!state.isComplete) {
-        allComplete = false
+      if (!isCurrent()) return
+      if (Object.keys(urls).length) void get().updateHistory(monitor.currentConversationId!, { urls })
+      if (anyChanged) get().saveCurrentTurn()
+      if (Object.values(monitor.currentTurn.platforms).every(state => state.isComplete)) {
+        get().stopMonitoring()
       }
-    }
-
-    // 仅本轮有内容/完成态变化时才落盘，稳定等待期跳过冗余全量写
-    if (anyChanged) {
-      get().saveCurrentTurn()
-    }
-
-    if (allComplete) {
-      get().saveCurrentTurn(true) // 完成时显式写终态，保证最后一帧落盘
-      get().stopMonitoring()
+    } finally {
+      monitor.isPolling = false
     }
   },
 
   updatePlatformAnswer: (modelId: string, text: string, isComplete?: boolean) => {
     const { monitor, saveCurrentTurn } = get()
     if (!monitor.isMonitoring || !monitor.currentTurn) return
-    const platform = monitor.currentTurn.platforms[modelId]
+    const slotKey = Object.keys(monitor.currentTurn.platforms).find(key => monitor.currentTurn?.platforms[key].modelId === modelId)
+    const platform = slotKey ? monitor.currentTurn.platforms[slotKey] : undefined
     if (!platform) return
 
     set({
@@ -1759,7 +1794,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           ...monitor.currentTurn,
           platforms: {
             ...monitor.currentTurn.platforms,
-            [modelId]: {
+            [slotKey!]: {
               ...platform,
               lastContent: text,
               isComplete: isComplete ?? platform.isComplete,
@@ -1782,9 +1817,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     // 构建 responses（只包含有内容的平台）
     const responses: Record<string, string> = {}
-    for (const [modelId, state] of Object.entries(currentTurn.platforms)) {
+    for (const [slotKey, state] of Object.entries(currentTurn.platforms)) {
       if (state.lastContent) {
-        responses[modelId] = state.lastContent
+        responses[slotKey] = state.lastContent
+        responses[state.modelId] ??= state.lastContent
       }
     }
 
@@ -1796,8 +1832,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     const turn: ConversationTurn = {
       turnId: currentTurn.turnId,
       userMessage: currentTurn.userMessage,
-      timestamp: Date.now(),
-      responses,
+      timestamp: existingTurnIndex >= 0 ? historyItem.turns[existingTurnIndex].timestamp : Date.now(),
+      responses: { ...(existingTurnIndex >= 0 ? historyItem.turns[existingTurnIndex].responses : {}), ...responses },
     }
 
     const newTurns = existingTurnIndex >= 0
