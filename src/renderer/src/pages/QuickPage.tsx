@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef, useCallback } from 'react'
 import { useAppStore } from '../store/appStore'
 import WebviewCard, { type WebviewCardRef } from '../components/WebviewCard'
 import MindmapSidebarView from '../components/MindmapSidebarView'
+import CustomContextMenu from '../components/CustomContextMenu'
 import { queueMindmapSelection } from '../utils/mindmapSelection'
 
 export default function QuickPage(): JSX.Element {
@@ -742,6 +743,7 @@ export default function QuickPage(): JSX.Element {
           </div>
         </>
       )}
+      <CustomContextMenu />
     </div>
   )
 }

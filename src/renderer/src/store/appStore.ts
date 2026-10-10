@@ -1990,15 +1990,18 @@ export async function initializeStore(): Promise<void> {
     let finalModels: ModelConfig[] | null = null
     if (storedModels) {
       const mergedModels: ModelConfig[] = []
-      const storedModelMap = new Map(storedModels.map(m => [m.id, m]))
-      // 强制使用 defaultModels 的顺序，只从 storedModels 继承 enabled 等持久化状态
-      defaultModels.forEach(defaultModel => {
-        const storedModel = storedModelMap.get(defaultModel.id)
-        if (storedModel) {
+      const defaultModelMap = new Map(defaultModels.map(m => [m.id, m]))
+      // 以 storedModels 的用户自定义顺序为基准，保留 enabled 等配置
+      storedModels.forEach(storedModel => {
+        const defaultModel = defaultModelMap.get(storedModel.id)
+        if (defaultModel) {
           mergedModels.push({ ...defaultModel, enabled: storedModel.enabled })
-        } else {
-          mergedModels.push(defaultModel)
+          defaultModelMap.delete(storedModel.id)
         }
+      })
+      // 若 defaultModels 中有新增模型（版本升级），追加到末尾
+      defaultModelMap.forEach(newModel => {
+        mergedModels.push(newModel)
       })
       finalModels = mergedModels
     }

@@ -13,6 +13,13 @@ import { startSummaryPromptsWatcher } from './summaryPrompts'
 import { generateNoteCaptureScript } from '../shared/utils/webviewScripts'
 import { noteConversationKey } from '../shared/utils/noteIdentity'
 import type { NoteDraft } from '../shared/types/notes'
+import type { ContextMenuEntry } from '../shared/types/contextMenu'
+import type { NoteManager } from './noteManager'
+
+let noteManagerInstance: NoteManager | null = null
+export function setNoteManager(manager: NoteManager): void {
+    noteManagerInstance = manager
+}
 
 // ============ 状态管理 ============
 
@@ -961,122 +968,309 @@ export function openDiagnosticsWindow(): void {
 
 // ============ 上下文菜单 ============
 
+interface PendingContextMenu {
+    wc: Electron.WebContents
+    owner: BrowserWindow
+    params: Electron.ContextMenuParams
+    selectedText: string
+}
+
+const pendingContextMenus = new Map<number, PendingContextMenu>()
+
+function executeNoteCapture(
+    wc: Electron.WebContents,
+    owner: BrowserWindow,
+    params: Electron.ContextMenuParams,
+    selectedText: string
+): void {
+    const captureScript = generateNoteCaptureScript()
+    const capture = async (): Promise<unknown> => {
+        const frame = params.frame ?? wc.mainFrame
+        try {
+            const result = await frame.executeJavaScript(captureScript)
+            if (result && typeof result === 'object' && 'snapshot' in result && result.snapshot) return result
+        } catch (error) {
+            console.warn('[Notes] 当前框架读取失败，尝试主页面:', error)
+        }
+        if (frame !== wc.mainFrame) {
+            try {
+                const result = await wc.mainFrame.executeJavaScript(captureScript)
+                if (result && typeof result === 'object' && 'snapshot' in result && result.snapshot) return result
+            } catch (error) {
+                console.warn('[Notes] 主框架读取失败，尝试 WebContents:', error)
+            }
+        }
+        try { return await wc.executeJavaScript(captureScript) }
+        catch (error) { console.error('[Notes] Webview 对话读取失败:', error); return null }
+    }
+    void capture().then((raw: unknown) => {
+        const capture = raw as { title?: string; url?: string; snapshot?: string; sourceContains?: boolean; rect?: { left: number; top: number; right: number; bottom: number }; anchor?: NoteDraft['anchor'] } | null
+        if (owner.isDestroyed()) return
+        if (!capture?.snapshot?.trim()) {
+            owner.webContents.send('notes:capture', { error: '无法读取当前对话，笔记未保存' })
+            return
+        }
+        const normalize = (value: string): string => value.replace(/\s+/g, ' ').trim()
+        if (!capture.sourceContains && !normalize(capture.snapshot).includes(normalize(selectedText))) {
+            owner.webContents.send('notes:capture', { error: '无法在对话快照中找到选中内容，笔记未保存' })
+            return
+        }
+        const url = capture.url?.startsWith('https://') && new URL(capture.url).origin === new URL(params.pageURL).origin ? capture.url : params.pageURL
+        const parsed = new URL(url)
+        const sourceKey = noteConversationKey(url, capture.title || parsed.hostname)
+        const platformNames: Record<string, string> = {
+            'chatgpt.com': 'ChatGPT', 'gemini.google.com': 'Gemini', 'grok.com': 'Grok',
+            'claude.ai': 'Claude', 'www.perplexity.ai': 'Perplexity', 'arena.ai': 'Arena',
+            'www.doubao.com': '豆包', 'yuanbao.tencent.com': '元宝', 'tongyi.aliyun.com': '千问',
+            'chat.deepseek.com': 'DeepSeek', 'kimi.moonshot.cn': 'Kimi',
+            'chatglm.cn': '智谱清言', 'chat.baidu.com': '文心一言'
+        }
+        const draft: NoteDraft = {
+            sourceKey,
+            platform: platformNames[parsed.hostname] || parsed.hostname,
+            title: capture.title || parsed.hostname,
+            url,
+            snapshot: capture.snapshot,
+            quote: selectedText,
+            anchor: {
+                exact: capture.anchor?.exact || selectedText,
+                prefix: capture.anchor?.prefix || '',
+                suffix: capture.anchor?.suffix || ''
+            }
+        }
+        owner.webContents.send('notes:capture', { draft, webContentsId: wc.id, rect: capture.rect })
+    }).catch(() => {
+        if (!owner.isDestroyed()) owner.webContents.send('notes:capture', { error: '读取当前对话失败，笔记未保存' })
+    })
+}
+
 function setupContextMenu(wc: Electron.WebContents): void {
-    wc.on('context-menu', (_e, params) => {
+    wc.on('context-menu', async (_e, params) => {
         const owner = BrowserWindow.fromWebContents(wc.hostWebContents ?? wc) || mainWindow
-        if (!owner) return
-        const items: Electron.MenuItemConstructorOptions[] = []
+        if (!owner || owner.isDestroyed() || wc.isDestroyed()) return
+        const items: ContextMenuEntry[] = []
         const selectedText = params.selectionText.trim()
         const canCaptureNote = Boolean(selectedText) && params.pageURL.startsWith('https://') && (!params.frame || params.frame === wc.mainFrame)
+
+        let hasMindmap = false
+        if (canCaptureNote && noteManagerInstance) {
+            try {
+                const key = noteConversationKey(params.pageURL, wc.getTitle())
+                const conversation = await noteManagerInstance.findSource(key)
+                hasMindmap = Boolean(conversation?.mindmaps && conversation.mindmaps.length > 0)
+            } catch (err) {
+                console.warn('[ContextMenu] 检查导图失败:', err)
+            }
+        }
+        if (owner.isDestroyed() || wc.isDestroyed()) return
+
+        const isMac = process.platform === 'darwin'
+        const cmdOrCtrl = isMac ? '⌘' : 'Ctrl+'
+
         if (params.selectionText || params.editFlags.canCopy) {
-            items.push({ label: '复制', enabled: params.editFlags.canCopy, click: () => wc.copy() })
+            items.push({
+                key: 'copy',
+                label: '复制',
+                icon: 'content_copy',
+                shortcut: `${cmdOrCtrl}C`,
+                disabled: !params.editFlags.canCopy && !selectedText
+            })
         }
         if (canCaptureNote) {
-            const selectionUrl = params.pageURL
-            items.push({ label: '加入当前导图', click: () => {
-                if (wc.isDestroyed() || owner.isDestroyed() || wc.getURL() !== selectionUrl) return
-                owner.webContents.send('mindmaps:selection', { text: selectedText, url: selectionUrl, title: wc.getTitle(), webContentsId: wc.id })
-            } })
-            items.push({ label: '记为笔记', click: () => {
-                const captureScript = generateNoteCaptureScript()
-                const capture = async (): Promise<unknown> => {
-                    const frame = params.frame ?? wc.mainFrame
-                    try {
-                        const result = await frame.executeJavaScript(captureScript)
-                        if (result && typeof result === 'object' && 'snapshot' in result && result.snapshot) return result
-                    } catch (error) {
-                        console.warn('[Notes] 当前框架读取失败，尝试主页面:', error)
-                    }
-                    if (frame !== wc.mainFrame) {
-                        try {
-                            const result = await wc.mainFrame.executeJavaScript(captureScript)
-                            if (result && typeof result === 'object' && 'snapshot' in result && result.snapshot) return result
-                        } catch (error) {
-                            console.warn('[Notes] 主框架读取失败，尝试 WebContents:', error)
-                        }
-                    }
-                    try { return await wc.executeJavaScript(captureScript) }
-                    catch (error) { console.error('[Notes] Webview 对话读取失败:', error); return null }
-                }
-                void capture().then((raw: unknown) => {
-                    const capture = raw as { title?: string; url?: string; snapshot?: string; sourceContains?: boolean; rect?: { left: number; top: number; right: number; bottom: number }; anchor?: NoteDraft['anchor'] } | null
-                    if (owner.isDestroyed()) return
-                    if (!capture?.snapshot?.trim()) {
-                        owner.webContents.send('notes:capture', { error: '无法读取当前对话，笔记未保存' })
-                        return
-                    }
-                    const normalize = (value: string): string => value.replace(/\s+/g, ' ').trim()
-                    if (!capture.sourceContains && !normalize(capture.snapshot).includes(normalize(selectedText))) {
-                        owner.webContents.send('notes:capture', { error: '无法在对话快照中找到选中内容，笔记未保存' })
-                        return
-                    }
-                    const url = capture.url?.startsWith('https://') && new URL(capture.url).origin === new URL(params.pageURL).origin ? capture.url : params.pageURL
-                    const parsed = new URL(url)
-                    const sourceKey = noteConversationKey(url, capture.title || parsed.hostname)
-                    const platformNames: Record<string, string> = {
-                        'chatgpt.com': 'ChatGPT', 'gemini.google.com': 'Gemini', 'grok.com': 'Grok',
-                        'claude.ai': 'Claude', 'www.perplexity.ai': 'Perplexity', 'arena.ai': 'Arena',
-                        'www.doubao.com': '豆包', 'yuanbao.tencent.com': '元宝', 'tongyi.aliyun.com': '千问',
-                        'chat.deepseek.com': 'DeepSeek', 'kimi.moonshot.cn': 'Kimi',
-                        'chatglm.cn': '智谱清言', 'chat.baidu.com': '文心一言'
-                    }
-                    const draft: NoteDraft = {
-                        sourceKey,
-                        platform: platformNames[parsed.hostname] || parsed.hostname,
-                        title: capture.title || parsed.hostname,
-                        url,
-                        snapshot: capture.snapshot,
-                        quote: selectedText,
-                        anchor: {
-                            exact: capture.anchor?.exact || selectedText,
-                            prefix: capture.anchor?.prefix || '',
-                            suffix: capture.anchor?.suffix || ''
-                        }
-                    }
-                    owner.webContents.send('notes:capture', { draft, webContentsId: wc.id, rect: capture.rect })
-                }).catch(() => {
-                    if (!owner.isDestroyed()) owner.webContents.send('notes:capture', { error: '读取当前对话失败，笔记未保存' })
+            if (hasMindmap) {
+                items.push({
+                    key: 'mindmap',
+                    label: '加入当前导图',
+                    icon: 'account_tree'
                 })
-            } })
+            }
+            items.push({
+                key: 'note',
+                label: '记为笔记',
+                icon: 'edit_note'
+            })
         }
-        if (owner === quickWindow && quickPrimaryWebviews.has(wc.id) && params.selectionText.trim()) {
-            items.push({ label: '在侧边栏中提问', click: () => {
-                if (quickWindow && !quickWindow.isDestroyed()) {
-                    showAndFocusWindow(quickWindow)
-                    quickWindow.webContents.send('quick:ask-sidebar', selectedText)
-                }
-            } })
-        }
-        if (owner === mainWindow && params.selectionText.trim()) {
-            items.push({ label: '在侧边栏中提问', click: () => {
-                if (mainWindow && !mainWindow.isDestroyed()) {
-                    showAndFocusWindow(mainWindow)
-                    mainWindow.webContents.send('main:ask-sidebar', selectedText)
-                }
-            } })
+        if (owner === quickWindow && quickPrimaryWebviews.has(wc.id) && selectedText) {
+            items.push({
+                key: 'sidebar_ask',
+                label: '在侧边栏中提问',
+                icon: 'chat'
+            })
+        } else if (owner === mainWindow && selectedText) {
+            items.push({
+                key: 'sidebar_ask',
+                label: '在侧边栏中提问',
+                icon: 'chat'
+            })
         }
         if (params.isEditable) {
-            items.push({ label: '剪切', enabled: params.editFlags.canCut, click: () => wc.cut() })
-            items.push({ label: '粘贴', enabled: params.editFlags.canPaste, click: () => wc.paste() })
-            items.push({ label: '全选', click: () => wc.selectAll() })
+            if (items.length) items.push({ type: 'separator' })
+            items.push({
+                key: 'cut',
+                label: '剪切',
+                icon: 'content_cut',
+                shortcut: `${cmdOrCtrl}X`,
+                disabled: !params.editFlags.canCut
+            })
+            items.push({
+                key: 'paste',
+                label: '粘贴',
+                icon: 'content_paste',
+                shortcut: `${cmdOrCtrl}V`,
+                disabled: !params.editFlags.canPaste
+            })
+            items.push({
+                key: 'select_all',
+                label: '全选',
+                icon: 'select_all',
+                shortcut: `${cmdOrCtrl}A`
+            })
         }
         if (params.linkURL) {
             if (items.length) items.push({ type: 'separator' })
-            items.push({ label: '复制链接', click: () => clipboard.writeText(params.linkURL) })
+            items.push({
+                key: 'copy_link',
+                label: '复制链接',
+                icon: 'link'
+            })
         }
         if (params.mediaType === 'image' || params.hasImageContents) {
             if (items.length) items.push({ type: 'separator' })
-            items.push({ label: '复制图片', click: () => wc.copyImageAt(params.x, params.y) })
+            items.push({
+                key: 'copy_image',
+                label: '复制图片',
+                icon: 'image'
+            })
             if (params.srcURL) {
-                items.push({ label: '图片另存为...', click: () => {
-                    void saveWebviewImage(wc, owner, params.srcURL).catch(error => {
-                        console.error('[ContextMenu] 图片另存为失败:', error)
-                    })
-                } })
+                items.push({
+                    key: 'save_image',
+                    label: '图片另存为...',
+                    icon: 'download'
+                })
             }
         }
-        if (items.length) Menu.buildFromTemplate(items).popup({ window: owner })
+
+        if (!items.length) return
+
+        pendingContextMenus.set(wc.id, {
+            wc,
+            owner,
+            params,
+            selectedText
+        })
+
+        const cursor = screen.getCursorScreenPoint()
+        const bounds = owner.getContentBounds()
+        const x = Math.max(0, Math.round(cursor.x - bounds.x))
+        const y = Math.max(0, Math.round(cursor.y - bounds.y))
+
+        owner.webContents.send('webview:show-contextmenu', {
+            x,
+            y,
+            wcId: wc.id,
+            items
+        })
     })
+
+    wc.once('destroyed', () => {
+        pendingContextMenus.delete(wc.id)
+    })
+}
+
+export async function handleWebviewContextMenuAction(
+    wcId: number,
+    actionKey: string,
+    _data?: unknown
+): Promise<{ success: boolean; error?: string }> {
+    const cached = pendingContextMenus.get(wcId)
+    if (!cached) {
+        return { success: false, error: '右键菜单上下文已失效' }
+    }
+    const { wc, owner, params, selectedText } = cached
+    if (wc.isDestroyed() || owner.isDestroyed()) {
+        pendingContextMenus.delete(wcId)
+        return { success: false, error: '目标窗口已销毁' }
+    }
+
+    try {
+        switch (actionKey) {
+            case 'copy': {
+                if (selectedText) {
+                    clipboard.writeText(selectedText)
+                }
+                wc.copy()
+                break
+            }
+            case 'cut': {
+                wc.focus()
+                wc.cut()
+                break
+            }
+            case 'paste': {
+                if (!owner.isDestroyed()) owner.focus()
+                wc.focus()
+                const modifier = process.platform === 'darwin' ? 'command' : 'control'
+                wc.sendInputEvent({ type: 'keyDown', keyCode: 'V', modifiers: [modifier] })
+                wc.sendInputEvent({ type: 'keyUp', keyCode: 'V', modifiers: [modifier] })
+                break
+            }
+            case 'select_all': {
+                wc.focus()
+                wc.selectAll()
+                break
+            }
+            case 'copy_link': {
+                if (params.linkURL) {
+                    clipboard.writeText(params.linkURL)
+                }
+                break
+            }
+            case 'copy_image': {
+                wc.copyImageAt(params.x, params.y)
+                break
+            }
+            case 'save_image': {
+                if (params.srcURL) {
+                    await saveWebviewImage(wc, owner, params.srcURL)
+                }
+                break
+            }
+            case 'mindmap': {
+                if (selectedText && params.pageURL) {
+                    owner.webContents.send('mindmaps:selection', {
+                        text: selectedText,
+                        url: params.pageURL,
+                        title: wc.getTitle(),
+                        webContentsId: wc.id
+                    })
+                }
+                break
+            }
+            case 'note': {
+                if (selectedText) {
+                    executeNoteCapture(wc, owner, params, selectedText)
+                }
+                break
+            }
+            case 'sidebar_ask': {
+                if (selectedText) {
+                    showAndFocusWindow(owner)
+                    if (owner === quickWindow) {
+                        owner.webContents.send('quick:ask-sidebar', selectedText)
+                    } else {
+                        owner.webContents.send('main:ask-sidebar', selectedText)
+                    }
+                }
+                break
+            }
+            default:
+                return { success: false, error: `未知菜单动作: ${actionKey}` }
+        }
+        return { success: true }
+    } catch (error) {
+        console.error('[ContextMenu] 执行动作失败:', actionKey, error)
+        return { success: false, error: String(error) }
+    }
 }
 
 async function saveWebviewImage(wc: Electron.WebContents, owner: BrowserWindow, url: string): Promise<void> {

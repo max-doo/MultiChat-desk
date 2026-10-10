@@ -6,6 +6,7 @@ import ConfirmModal from './ConfirmModal'
 import ShortcutRecorder from './ShortcutRecorder'
 import ImportCacheConfirmModal from './ImportCacheConfirmModal'
 import AboutSection from './AboutSection'
+import ModelOrderModal from './ModelOrderModal'
 import { openUpdateRelease, useUpdateReminder } from '../hooks/useUpdateState'
 
 interface SettingsDrawerProps {
@@ -610,6 +611,7 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
   const [validatingProviders, setValidatingProviders] = useState<Record<string, boolean>>({})
 
   const [modelEditorOpen, setModelEditorOpen] = useState(false)
+  const [modelOrderOpen, setModelOrderOpen] = useState(false)
 
   // 快捷键设置状态
   const [shortcuts, setShortcuts] = useState<Record<string, string>>({
@@ -1340,6 +1342,28 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
             </div>
           </div>
 
+          {/* 模型下拉列表排序设置 */}
+          <div>
+            <h3 className="flex items-center gap-2 font-semibold text-text-primary mb-4">
+              <span className="material-symbols-outlined text-primary text-xl">swap_vert</span>
+              模型下拉列表排序
+            </h3>
+            <div className="p-4 rounded-xl glass-panel flex items-center justify-between">
+              <div>
+                <div className="text-sm text-text-primary font-medium">自定义模型显示顺序</div>
+                <div className="text-xs text-text-secondary mt-1">将常用模型排在前面</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setModelOrderOpen(true)}
+                className="flex items-center gap-1 text-sm text-primary hover:opacity-80 transition-colors font-medium shrink-0 ml-4"
+              >
+                <span className="material-symbols-outlined text-base">tune</span>
+                调整排序
+              </button>
+            </div>
+          </div>
+
           {/* 文件目录设置 */}
           <div>
             <h3 className="flex items-center gap-2 font-semibold text-text-primary mb-4">
@@ -1487,6 +1511,12 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
         businessCounts={importPreview?.businessCounts}
         onConfirm={handleConfirmImportCache}
         onCancel={() => setImportPreview(null)}
+      />
+
+      {/* 模型下拉排序弹窗 */}
+      <ModelOrderModal
+        isOpen={modelOrderOpen}
+        onClose={() => setModelOrderOpen(false)}
       />
     </>
   )

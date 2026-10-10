@@ -2,6 +2,7 @@ import type { HistoryListItem, SummaryHistoryListItem, HistoryKind, HistoryRecor
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type { NoteConversation, NoteDraft, NoteHighlight, NoteSelectionRect, ConversationMindmap, MindmapTask, NoteNavigation, MindmapModifyRequest, MindmapCandidate, MindmapSelection } from '../shared/types/notes'
+import type { WebviewContextMenuData, WebviewContextMenuActionRequest } from '../shared/types/contextMenu'
 
 // 文件数据类型
 interface FileData {
@@ -371,7 +372,16 @@ const api = {
   /** 发送 prompt 并延迟收集结果（collectDelayMs 默认 5000ms） */
   automationSendPrompt: (platformId: string, prompt: string, collectDelayMs?: number): Promise<{ success: boolean; data?: string; error?: string }> => ipcRenderer.invoke('automation:send-prompt', platformId, prompt, collectDelayMs),
   /** 仅收集指定平台的最新回复 */
-  automationCollect: (platformId: string): Promise<{ success: boolean; data?: string; error?: string }> => ipcRenderer.invoke('automation:collect', platformId)
+  automationCollect: (platformId: string): Promise<{ success: boolean; data?: string; error?: string }> => ipcRenderer.invoke('automation:collect', platformId),
+
+  // WebView 右键上下文菜单
+  onWebviewContextMenu: (cb: (data: WebviewContextMenuData) => void): (() => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, data: WebviewContextMenuData): void => cb(data)
+    ipcRenderer.on('webview:show-contextmenu', handler)
+    return () => { ipcRenderer.removeListener('webview:show-contextmenu', handler) }
+  },
+  executeWebviewContextMenuAction: (params: WebviewContextMenuActionRequest): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('webview:execute-contextmenu-action', params)
 }
 
 // 暴露 API 到渲染进程

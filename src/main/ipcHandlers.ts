@@ -11,7 +11,8 @@ import { tmpdir } from 'os'
 import { randomUUID } from 'crypto'
 import type Store from 'electron-store'
 import { splitTask, fetchModels } from './api/taskSplitApi'
-import { setQuitting, getQuickWindow, showAndFocusWindow, hideToolbarWindow, getCachedSelectionText, openDiagnosticsWindow, registerQuickPrimaryWebview, setQuickSidebarExpanded } from './webviewManager'
+import { setQuitting, getQuickWindow, showAndFocusWindow, hideToolbarWindow, getCachedSelectionText, openDiagnosticsWindow, registerQuickPrimaryWebview, setQuickSidebarExpanded, handleWebviewContextMenuAction, setNoteManager } from './webviewManager'
+import type { WebviewContextMenuActionRequest } from '../shared/types/contextMenu'
 import { broadcastStateChange } from './stateBus'
 import { HistoryManager, normalizeHistory } from './api/historyManager'
 import { isDeepStrictEqual } from 'util'
@@ -354,6 +355,11 @@ export async function registerIpcHandlers(
         dragState = null
       })
     }
+
+    // IPC 处理器：WebView 右键菜单操作
+    ipcMain.handle('webview:execute-contextmenu-action', async (_event, args: WebviewContextMenuActionRequest) => {
+        return await handleWebviewContextMenuAction(args.wcId, args.actionKey, args.data)
+    })
 
     // IPC 处理器：右键菜单操作
     ipcMain.handle('perform-contextmenu-action', async (_event, args: { wcId: number, action: 'copy' | 'paste' | 'save-image', data?: { url?: string } }) => {
@@ -796,6 +802,7 @@ export async function registerIpcHandlers(
 
     // IPC 处理器：存储操作
     const noteManager = new NoteManager(store)
+    setNoteManager(noteManager)
     // 每个窗口仅保留最近一次采集，启动/创建时取走；窗口释放后可随之回收。
     const capturedSources = new WeakMap<Electron.WebContents, NoteConversation>()
     const takeMindmapSource = async (sender: Electron.WebContents, conversationId: string): Promise<NoteConversation> => {
