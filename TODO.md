@@ -7,67 +7,56 @@
 
 ## 待完成
 
-- [ ] 遗留：ChatGPT Deep Research 报告正文跨域、多层 OOPIF 提取仍失败且会拖长爬取时间；相关提取器已暂存于 `feat/chatgpt-deep-research-extractor`，主分支暂不启用，后续需重新设计并在真实报告上验收
-- [x] AI 生图一键下载：支持在 AI 生图模式下点击底部“一键下载”按钮，从各 Webview 中抓取并批量下载最新生成图片的功能实现
-- [ ] AI 生图一键下载 Bug：当前一键下载图片对豆包、gemini、gpt、智谱不生效
-- [ ] **Gemini 历史会话恢复失败（Gemini 网页 bug，待上游修复）**：点击历史项后 webview 加载目标 URL 但 UI 落在初始页、对话内容不渲染。根因经多轮诊断确认是 Gemini 网页自身行为——`loadURL(/app/<id>)` 这种 deep-link 加载方式不可靠（URL 导航正确但 conversation 内容不渲染），成功率纯随机，与时机/状态/重试无关；浏览器首次打开 `/app/<id>` 同样有概率失败；**只有点击 Gemini 网页内左侧栏历史 UI 才能可靠恢复**。代码层无法修复（非 MultiChat 逻辑错误）。已排除方案：①A 守卫跳过同 URL（只挡重复加载、挡不住 deep-link 冷加载）②B 检测+重试（纯随机，重试无效）③点侧栏历史自动化（依赖 Angular 内部 DOM、侧栏视口小时折叠历史项不在 DOM、旧历史不在侧栏列表，脆弱且覆盖不全，已弃）。诊断证据见记忆 `gemini-history-restore-fails`。**跟踪条件**：日后用浏览器直开 `https://gemini.google.com/app/<某id>` 若能稳定显示历史，说明 Gemini 已修，届时可恢复 `loadURL` 路径；否则保持现状。附带独立缺陷（非根因，可单独修）：`MainPage.tsx:937-948` 的 `/u/N/` 多账号前缀重写是死代码（`models[].url` 硬编码 `https://gemini.google.com/app`、`updateModel` 全 renderer 零调用），多账号防护实际未生效
-- [ ] AI 生图 DOM 适配：`selectors.ts` 中各平台 `imageGeneration` 选择器基于推测，需在 `npm run dev` 中逐一打开各平台 webview 验证实际 DOM 结构并修正（chatgpt/gemini/grok/qwen/kimi/doubao/yuanbao/chatglm/yiyan）
-- [ ] arena.ai DOM 适配：在 `npm run dev` 中打开 arena webview，验证输入框/发送按钮/消息容器选择器是否匹配实际 DOM 结构并修正 (`selectors.ts`)
-- [ ] Webview 总结自适应传输：在 `npm run dev` 中手动验证短文本直接粘贴和长文本文件上传两种模式
-- [x] Webview 总结 composer 重构（**已验收**）：`SummaryPanel.tsx` Webview 模式右栏改为 WebviewCard 全高 + 底部单行 composer + 首发后锁定。按 spec 验收清单 13 项手动验证通过（spec：`docs/superpowers/specs/2026-05-04-summary-page-webview-composer-redesign.md`，plan：`docs/superpowers/plans/2026-05-04-summary-page-webview-composer-redesign.md`）：
-  - [x] 进入总结页 Webview 模式：右栏只剩 WebviewCard + 底部单行 composer，无顶部模式行/textarea/底部状态行
-  - [x] textarea 默认 1 行高度，输入多行向上撑高至最多 5 行（120px）后出现内部滚动
-  - [x] Enter 发送、Shift+Enter 换行
-  - [x] 点发送后 composer 立刻 disabled（透明度 60%）、textarea/模式 pill/发送按钮全部 disabled
-  - [x] 流式完成后 composer 仍 disabled，placeholder 切到「已发送，请在右侧对话窗口继续追问」
-  - [x] 在 WebView 自带输入框可正常追问
-  - [x] 返回主页再进入总结页：composer 重新 enabled，placeholder 恢复
-  - [x] 切到 API 模式：右栏与改动前完全一致（顶部供应商/模型工具条 + 双行 composer）
-  - [x] 切回 Webview 模式：新布局立即出现
-  - [x] 左栏模型输出卡片视觉无变化
-- [ ] macOS 打包：在 macOS 系统上运行 `npm run build:mac` 验证 DMG 产物
-- [ ] macOS 打包：配置 Apple Developer ID 签名与公证（Notarization），正式分发必需
-- [ ] macOS UI 适配与包验收：根据主窗口标题栏防重叠计划完成 UI 改造，并落实 macOS 安装包的验证与验收方案（解决无 Mac 物理设备时的打包测试痛点）
-- [ ] Electron OTA 自动更新：实施计划见 `docs/superpowers/plans/2026-05-04-electron-ota.md`，设计见 `docs/superpowers/specs/2026-05-04-electron-ota-design.md`（NSIS 安装版 + GitHub Releases + Settings Drawer 内交互，便携版/macOS 优雅降级）
-- [x] 桌面端快捷访问特性：实施计划见 `docs/superpowers/plans/2026-05-04-desktop-quick-access-plan.md`（7 个 Task，零 C++ 依赖，含完整 IPC 通道清单与 lint/build/dev 验证清单）
-  - [x] Task 1-2：系统托盘 + 主窗关闭转隐藏（关闭主页面后常驻系统托盘，托盘菜单"显示主界面/召唤快捷弹窗/退出"）
-  - [x] Task 3-4：全局快捷键 `Ctrl+Shift+Space` 召唤无边框 Quick Window，新增 `#quick` hash 路由复用 `WebviewCard`，共享 `persist:shared` Session
-  - [x] Task 5：主窗 ↔ Quick Window 跨窗口状态广播（`models` / `apiConfig` 同步，主进程 `stateBus` + Zustand `subscribe`，`isApplyingRemote` 防回环）
-  - [x] Task 6：剪贴板召唤 MVP —— `Ctrl+Shift+C` 读 `clipboard.readText()` 注入 Quick Window 当前 WebviewCard 输入框（不自动发送，用户校对后手动发）
-  - [x] Task 7：`shortcutManager` + `SettingsDrawer` "快捷键与系统托盘"分组（自定义召唤键，持久化到 electron-store，注册失败回滚旧值）
-- [x] 全局划词悬浮 Toolbar（**已实现**）：已通过 monio-napi + UI Automation 实现划词弹出工具条，支持"问问"/搜索/总结/翻译/复制等动作，详见 SESSION_LOG 2026-06-27 12:54 ~ 06-28 17:18 多条记录
-- [x] **调研划词弹出工具条**（**已实现**）：调研已完成，实现方案已落地——采用 monio-napi 全局鼠标钩子 + UI Automation 读取选区 + 无焦点悬浮窗口，已覆盖 Word/Chrome/WindowsTerminal 等场景
-- [x] **任务分配模式（task_assignment）已实现**：UI + 交互已落地（`TaskModePanel.tsx` + `SubtaskList.tsx` + `useTaskSplit.ts` + `split-task` IPC + `taskSplitApi.ts`），输入总目标 → 拆解 → 上拉可编辑子任务列表 → 一键发送，复用总结 API 供应商。详见 `docs/superpowers/plans/2026-07-01-task-assignment-and-debate-modes.md`。剩余 follow-up：
-  - [x] 任务/辩论发送绕过 `sendMessageToAll`/`addHistory`：已完成历史持久化落盘 (`modes-history-persist`)
-  - [x] **TaskSplitModal 拆解失败弹窗代码与 GUI 交互已验收**（commit `a751132`，基于 plan `docs/superpowers/plans/2026-07-02-task-split-modal.md`）：
-    - [x] 未配置供应商路径：禁用所有供应商 → 拆解 → 弹窗提示未配置，"管理供应商…"能打开设置抽屉，"拆解"按钮禁用
-    - [x] 选模型 + 重试成功：弹窗内选供应商+模型 → 拆解 → 成功后弹窗关闭、ControlBar 出现 inline 子任务列表、通知"拆解完成"
-    - [x] Key 错误重试：配无效 Key 供应商 → 拆解 → 弹窗显示错误（如 `拆解请求失败 (401)`）→ 改正确模型重试成功
-    - [x] 槽位对齐 webview：分解后子任务按当前 webview 数量(`displayMode`)轮询指派、SubtaskList 的 cycle 按钮只在槽位模型间切；改 `displayMode`（如 3→4 窗口）后重新分解槽位数随之变
-    - [x] 中止与 Esc：弹窗内拆解开始 loading → 按 Esc/点关闭/取消 → 触发 abort、loading 结束、弹窗关闭、不残留"拆解中…"
-    - [x] happy path 不回归：正常供应商+Key → 拆解 → 不弹窗、inline 子任务出现、一键发送正常分发
-    - [x] 上拉面板定位：弹窗以 toolbar 上拉面板形式悬浮在输入框上方居中（非屏幕居中模态），分解失败弹窗无槽位区（槽位编辑在 SubtaskList）
-  - [ ] ⚠️ `clean:store` 验证后需重新配置供应商/Key 再继续后续步骤
-- [x] **辩论模式（debate）已实现**：UI + 交互已落地（`DebateModePanel.tsx` + `useDebateRunner.ts` + `appStore.debateState` 状态机 + `swapModelInSlot` debate 分支 + `Layout` 进行中禁模式切换），左正方/右反方固定双窗、轮次 stepper、全自动轮转、裁判评析总结。详见同上 plan。剩余 follow-up：
-  - [x] `debateSlots`/`debateTotalRounds` 已完成持久化（`modes-history-persist`）
-  - [x] `getResponseFromSlot` 轮询可靠性修复（**已实现**）：2026-07-02 重写为基线快照对比 + 连续稳定 3 次判定 + 超时 120s 返回空 + 空回复中止辩论（`appStore.ts` + `useDebateRunner.ts`），根除旧回复被误判为新回复导致没等真回复就发下一轮的问题。详见 `docs/superpowers/specs/2026-07-02-debate-reply-detection-design.md`
-  - [x] **辩论回复检测 dev 验收已通过**：正常多轮辩论推进 / 空回复中止 / 超时中止 / 长回复稳定判定
-  - [ ] 辩论进行中模式切换加固：`Layout.tsx` 已做 `debateState.phase==='running'||'paused'` 时禁用模式 seg 的可选加固，需在 `npm run dev` 中验证切换确实被阻断、会话不丢失
-- [ ] **CLI 待进一步验收**：daemon 通信正常，但选择器大量过期（豆包 collect 返回空、ChatGPT/DeepSeek 输入框选择器过期），需逐平台验证并修正 `selectors.ts`
-- [ ] **CLI exec 命令改进**：当前 `exec` 发送提示词后立即返回，需再手动 `collect` 取结果。期望行为：发送提示词后终端挂起，轮询等待 AI 回复完成，流式输出或完成后返回完整结果，而非分两步操作
-- [ ] **注入 DOM 选择器全面更新**：当前 `selectors.ts` 中各平台注入 DOM 选择器大量失效（网站改版导致），需逐平台验证并修正。同时探索让 Agent 自动读取网页原始 DOM 并自行更新选择器的自动化方案——例如通过 MCP/脚本抓取各平台实际 DOM 结构，由 Agent 分析并生成修正后的选择器配置，减少手动维护成本
-- [ ] **DOM选择器鲁棒性提升**：详见 `docs\superpowers\plans\2026-06-28-resilient-webview-automation.md`
-- [x] **项目改名 MultiChat**：将项目从 "MultiChat Desk" 更名为 "MultiChat"，同步更新所有相关命名（package.json、窗口标题、文档、构建产物名等）
-- [x] **CLI Daemon 基础架构**（**已实现**）：Named Pipe 通信、SessionManager、AutomationService、CLI Client（`daemon status/exec/collect`）已落地，详见 SESSION_LOG 2026-06-28 多条记录。剩余工作：选择器更新、exec 挂起轮询改进（见上方 CLI 相关 TODO）
-- [ ] **ModalShell 统一与 SettingsDrawer 拆分**（计划已审核修正，待执行）：抽取通用 `ModalShell` 壳组件（双 variant `glass`/`solid` + Esc/遮罩关闭统一），把 6 个居中模态（3 settings 内嵌 + 3 独立）收敛到统一壳，并把 SettingsDrawer 内 3 个 Editor Modal 拆到 `components/settings/`，使 `SettingsDrawer.tsx` 从 1503 行降至约 600 行。纯表现层重构，不碰 main/preload/IPC/Store。计划：`docs/superpowers/plans/2026-07-05-modal-shell-unification.md`（10 个 Task，行号已校验为当前 1503 行版本、删除指令改为函数名锚定、`maxHeight`/`width` 支持字符串保留视口相对语义）。建议用 subagent-driven-development 逐 task 执行。
-- [ ] **`updatePlatformAnswer` 设计意图核实**：该 store action（`appStore.ts`）在整个 `src/` 中无任何调用方（仅类型声明 + 定义），疑似漏接网络流式推送回调。当前监控内容流全靠 `pollPlatforms` 每 3s 轮询爬 DOM。若未来需要实时（非轮询）落盘流式内容，需另立项核实其是否本应被 webview 注入脚本 / IPC 回调接入，并补接入点；否则考虑移除该死代码。来源：2026-07-02 会话轮询保存去重任务（plan：`docs/superpowers/plans/2026-07-01-history-polling-save-dedup.md`）
-- [x] **会话轮询去重已验收**：`appStore.ts` 轮询保存去重已实施（commit `9975d25`），发消息触发监控与稳定等待期节流验证通过。
-- [x] **webview 智能休眠已验收**（2026-07-02，commit 含 `69580a9`）：按休眠迁移评估计划 5 片段实施（WebviewCard suspend/resume、MainPage 5min 调度器、主窗 hide/show IPC 15min、SummaryPanel 10min 调度器、QuickPage 5min 调度器）。休眠白名单逻辑与真实解包重载已验证通过。
-- [ ] **内存泄漏审核修复代码已落地，2 项 follow-up 未完成**（2026-07-02，worktree `memory-leak-fixes`）：覆盖 10 处——AbortController 覆盖前 abort / reader finally 释放 / onChunk `isDestroyed` 守卫 / paste 临时目录即时+启动清理 / VBS 兜底清理 / `registerWebviewHandlers` 幂等（WeakSet）/ loadMore 内存上限 100+游标 / `saveCurrentTurn` 写盘节流 / refCallbacks 旧键回收 / navigate setTimeout 清理。`#4 mountedWebviews` 按用户决定保留为有意取舍（会话连续性）。剩余：
-  - [ ] #4 后续若需回收渲染进程：另起计划评估「新建会话时清空 mountedWebviews Set」方案
-  - [ ] #10 history 写路径架构问题：`storeSet('history', inMemory100)` 整数组覆写磁盘，稳态下磁盘也仅 ≤100 条，与分层存储设计（磁盘 1000）矛盾、`loadMore` 稳态拉不到老数据。需改造写路径让磁盘保留全量 + 内存只覆写热区（属分层存储后续工作）
+### 平台 DOM 选择器与网页自动化
+- [ ] **注入 DOM 选择器全面更新与鲁棒性提升**：当前 `selectors.ts` 中部分平台注入选择器因网站改版失效，需逐平台验证修正，并落地鲁棒性方案（见 `docs/superpowers/plans/2026-06-28-resilient-webview-automation.md`）及探索自动抓取 DOM 辅助更新选择器的方案
+- [ ] **AI 生图 DOM 适配与一键下载修复**：
+  - [ ] 修复一键下载图片对豆包、Gemini、ChatGPT、智谱不生效的问题
+  - [ ] 在 `npm run dev` 中逐一验证并修正 9 个平台的 `imageGeneration` 选择器（chatgpt/gemini/grok/qwen/kimi/doubao/yuanbao/chatglm/yiyan）
+- [ ] **arena.ai DOM 适配**：在 `npm run dev` 中打开 arena webview，验证输入框/发送按钮/消息容器选择器是否匹配实际 DOM 结构并修正 (`selectors.ts`)
+- [ ] **遗留：ChatGPT Deep Research 报告提取重构**：报告正文跨域、多层 OOPIF 提取仍失败且会拖长爬取时间；相关提取器暂存于 `feat/chatgpt-deep-research-extractor`，主分支暂不启用，后续需重新设计并在真实报告上验收
+- [ ] **上游跟踪：Gemini 历史会话恢复失败（Gemini 网页端缺陷）**：`loadURL(/app/<id>)` deep-link 冷加载有概率落在初始页不渲染对话内容（浏览器直开同理，仅点击网页左侧栏历史可稳定恢复）。跟踪条件：日后浏览器直开 `https://gemini.google.com/app/<id>` 若能稳定显示历史，可恢复 `loadURL` 路径
+
+### CLI 能力完善
+- [ ] **CLI 平台选择器验收**：daemon 通信已就绪，需结合 `selectors.ts` 更新逐平台验证 `exec` / `collect` 稳定性
+- [ ] **CLI `exec` 命令一体式轮询改进**：当前 `exec` 发送提示词后立即返回，需再手动 `collect` 取结果；期望支持发送后终端挂起轮询等待 AI 回复完成并直接输出完整结果
+
+### 打包分发与工程优化
+- [ ] **macOS 真机打包验收与签名公证**：标题栏 UI 适配与构建脚本已就绪，需在 macOS 设备上运行 `npm run build:mac` 验证 DMG 产物，并配置 Apple Developer ID 签名与公证（Notarization）
+- [ ] **Electron OTA 自动下载安装更新**：当前已完成后台版本检测与 NEW 提醒；完整 NSIS 自动下载与安装更新见 `docs/superpowers/plans/2026-05-04-electron-ota.md` 与 `docs/superpowers/specs/2026-05-04-electron-ota-design.md`
+- [ ] **ModalShell 统一与 SettingsDrawer 拆分**：抽取通用 `ModalShell` 组件并将 SettingsDrawer 内嵌 Modal 拆分至 `components/settings/`（计划见 `docs/superpowers/plans/2026-07-05-modal-shell-unification.md`）
+- [ ] **Webview 渲染进程回收评估（可选）**：当前保留 `mountedWebviews` Set 以保障会话连续性；后续如需进一步降低多平台切换后的内存占用，可评估「新建会话时清空 `mountedWebviews` Set」方案
 
 ## 已完成
+
+### 2026-10-10
+
+- [x] Webview 单卡片独立页面查找（`Ctrl+F` / `Cmd+F`）：新增 `WebviewFindBar` 组件，支持按键转发、匹配计数、大小写敏感切换与上下跳转 (`WebviewFindBar.tsx`, `webviewManager.ts`)
+- [x] WebView 与全局自绘毛玻璃右键菜单：统一圆角浮层视觉、矢量图标与快捷键提示，支持仅在会话已存在思维导图时动态展示「加入当前导图」 (`CustomContextMenu.tsx`, `webviewManager.ts`)
+- [x] 模型下拉列表自定义排序：设置面板新增拖拽排序弹窗 `ModelOrderModal`，支持拖拽重排与恢复默认顺序 (`ModelOrderModal.tsx`, `SettingsDrawer.tsx`, `appStore.ts`)
+- [x] 笔记快照角色识别与回复自动轮询修复：适配 ChatGPT DOM 修复 `<user>` / `<assistant>` 角色丢失；恢复多 AI 与任务分配自动轮询快照，修复辩论模式 `WebContents ID` 实例绑定与同模型槽位历史恢复 (`noteTranscript.ts`, `useDebateRunner.ts`, `appStore.ts`)
+
+### 2026-10-09
+
+- [x] 笔记工作台瀑布流重构与原文对照侧栏：重构为会话卡片瀑布流首页 + 右侧原文对照侧栏（原网页优先/快照切换、CSS Custom Highlight 黄色高亮双向定位、同页展开思维导图画布） (`NotesPage.tsx`, `NotesConversationCards.tsx`, `NotesSourcePane.tsx`)
+- [x] 思维导图节点格式工具条与修改协议三方合并：支持单选/多选批量设置节点加粗与高亮、就地编辑保留样式；加固修改协议容错与三方合并冲突保留调整 (`useMindmapCanvas.ts`, `mindmapInlineFormat.ts`, `mindmapEdits.ts`)
+
+### 2026-10-06
+
+- [x] 思维导图全套能力与双协议持续修改：本地 Markmap 导图（正交连线、就地编辑、左键框选多选、跨层级分支拖拽吸附、导出 PNG/SVG）、CodeMirror 6 大纲编辑器、`<mindmap_edits>` 局部替换与 `<mindmap_rewrite>` 整份覆写双协议、完整来源 Markdown 附件上传、后台生成会话闲置超时释放与独立平台偏好记忆 (`MindmapService.ts`, `ConversationMindmapPanel.tsx`, `LocalMindmapPanel.tsx`, `MindmapMarkdownEditor.tsx`)
+- [x] 本地数据治理与单会话独立持久化：新增 `HistoryManager` 将对话与总结历史重构为单会话独立 JSON 文件（`history/conversations`、`history/summaries`），彻底解决旧 `storeSet('history')` 整数组覆写问题；启动自动平滑迁移，支持历史、笔记、导图与设置缓存的完整备份与恢复 (`historyManager.ts`, `noteManager.ts`, `ipcHandlers.ts`)
+- [x] 总结页极简浮岛输入栏与附件智能复用：底部输入栏重构为毛玻璃浮岛（最多 3 行自适应），支持发送后单按钮原位撤回提示词及 `uploadedOutputsRef` 附件内容指纹复用 (`SummaryPanel.tsx`, `useWebviewSummary.ts`)
+- [x] 快捷窗口尺寸持久化与失焦自动隐藏恢复：自动保存并恢复快捷窗口宽高（扣除侧栏动态宽度），恢复未固定（unpinned）状态下的失焦自动隐藏 (`webviewManager.ts`, `index.ts`)
+
+### 2026-09-28
+
+- [x] 本地会话笔记系统与划词批注：集成 `NoteManager` 原子化存储、右键“记为笔记”快照截取、`<user>`/`<assistant>` XML 结构解耦与 Markdown/JSON 导出 (`noteManager.ts`, `noteTranscript.ts`, `NotesPage.tsx`)
+- [x] 快捷窗口与主窗口单窗侧边栏：支持拖拽调节宽度（最大 1200px）、划词追问注入、思维导图视图集成及 30 秒无活动自动休眠 (`QuickPage.tsx`, `MainPage.tsx`, `useWebviewSidebar.ts`)
+- [x] 构建混淆兼容与外链安全加固：修复生产构建 JS 混淆导致 Webview 注入脚本 `toString()` 失效问题；移除废弃 API 总结模式；支持 ChatGPT `/branch/` 同页导航并收紧外链校验 (`webviewScripts.ts`, `webviewManager.ts`)
+
+### 2026-08-07
+
+- [x] 划词悬浮工具条托盘开关与后台自愈：新增 `selectionToolbarManager` 统一管理设置与托盘菜单开关同步，默认开启划词工具条，修复系统休眠/锁屏恢复后失活与连续触发丢包问题 (`selectionToolbarManager.ts`, `inputHookManager.ts`)
+- [x] 通义千问深度研究报告抓取适配：适配 `qianwen-layout-right-panel` 宽窄屏布局与 `deep-research-iframe` 跨源提取 (`webviewScripts.ts`, `selectors.ts`)
 
 ### 2026-07-19
 
@@ -77,13 +66,21 @@
 
 - [x] 低频后台更新检查与提醒：实现启动延迟检查、24h 缓存、GitHub API 限流降级与设置/历史抽屉 NEW 红点提示 (`src/main/updater/checker.ts`, `useUpdateState.ts`, `AboutSection.tsx`)
 - [x] Windows 标题栏与拖动/闪黑重构：自绘无框窗口控制按钮、解决最大化闪黑与拖动手感的 Pointer Capture + drag-region 方案 (`Layout.tsx`, `ipcHandlers.ts`)
+- [x] macOS 标题栏适配与构建脚本：完成 `mac-titlebar` 防重叠适配、拖拽契约校验脚本与 macOS 构建资源生成脚本 (`Layout.tsx`, `index.css`, `generate-mac-assets.sh`)
 
 ### 2026-07-16
 
 - [x] 历史抽屉统一与架构提升：HistoryDrawer 提升至 App.tsx 统一渲染，总结页复用 HistoryDrawer，删除 SummaryHistoryDrawer (`App.tsx`, `HistoryDrawer.tsx`)
 
+### 2026-07-06
+
+- [x] 任务分配模式（`task_assignment`）与 `TaskSplitModal` 拆解失败上拉弹窗：支持目标拆解、槽位对齐分发、失败重试与中止 (`TaskModePanel.tsx`, `SubtaskList.tsx`, `useTaskSplit.ts`, `taskSplitApi.ts`)
+- [x] 辩论模式（`debate`）与回复轮询稳定性：双窗正反方轮转、基线快照对比 + 连续稳定判定、进行中禁用模式切换及历史状态完整持久化 (`DebateModePanel.tsx`, `useDebateRunner.ts`, `Layout.tsx`)
+- [x] AI 生图一键下载、历史记录分层存储、十处内存泄漏审计修复、会话轮询去重与 Webview 智能休眠调度 (`WebviewCard.tsx`, `appStore.ts`, `ipcHandlers.ts`)
+
 ### 2026-06-28
 
+- [x] 桌面端快捷访问特性与项目更名 MultiChat：系统托盘、主窗关闭转隐藏、`#quick` 快捷窗口、跨窗口状态广播、剪贴板快捷召唤与快捷键录制管理
 - [x] CLI Daemon 基础架构（Tasks 1-5）：SessionManager（后台 BrowserWindow 会话管理）、AutomationService（主进程自动化执行内核）、Named Pipe Server（`\\.\pipe\multichat-daemon`）、CLI Client（`daemon status/exec/collect`）、IPC Bridge（main↔renderer 通信桥梁）
 - [x] 划词悬浮 Toolbar 完整体验：monio-napi 全局鼠标钩子 + UI Automation 选区读取 + 无焦点悬浮 ToolbarWindow，支持"问问"/搜索/总结/翻译/复制等动作
 - [x] 全局快捷键设置 UX 重构：ShortcutRecorder 交互式捕获录制组件，按键徽章展示、一键清空与重置默认值
@@ -91,14 +88,9 @@
 
 ### 2026-05-04
 
-- [x] 重构总结页数据流：移除全局 `reportData`，改为一次性 `pendingSummarySession` 导航数据包，实现 API/webview 模式总结 session 的完全数据隔离 (`appStore.ts`, `MainPage.tsx`, `SummaryPage.tsx`, `SummaryPanel.tsx`, `useSummaryPanel.ts`)
-  - [x] 修复：webview 模式下总结历史记录未保存对话 URL（`SummaryHistoryItem` 新增 `urls` 字段）
-  - [x] 修复：新对话后总结页仍显示旧模型输出（`pendingSummarySession` 消费即销毁 + `history` fallback）
-  - [x] **已验收**：主页面对话A -> 生成报告 -> 总结页显示对话A输出 -> 返回主界面 -> 对话B -> 生成报告 -> 总结页显示对话B输出（不残留A的数据）
+- [x] Webview 总结 composer 重构与自适应传输：右栏全高 WebviewCard + 底部自适应 composer，支持短文本直接注入与长文本自动上传 Markdown 附件 (`SummaryPanel.tsx`, `useWebviewSummary.ts`)
+- [x] 重构总结页数据流：移除全局 `reportData`，改为一次性 `pendingSummarySession` 导航数据包，实现总结 session 的完全数据隔离 (`appStore.ts`, `MainPage.tsx`, `SummaryPage.tsx`, `SummaryPanel.tsx`)
 - [x] 修复：启动 Webview 空白问题（冷启动白屏，需 Ctrl+R）
-  - [x] 修复 #F1（P0）：将 3s 强制 fallback 改为 10s 超时后显示错误界面
-  - [x] 修复 #F2（P0）：合并 storedModels + geminiAccountUrl 更新为单次 setState
-  - [x] 修复 #F3（P1）：将 `<webview src={url}>` 改为主动 `loadURL(url)` 导航，规避冷启动不触发导航
 
 ### 2026-05-03
 
