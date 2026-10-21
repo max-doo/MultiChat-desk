@@ -24,7 +24,7 @@
   <p>主窗口处理复杂任务，快捷窗口陪伴日常阅读：从提问、对比到批注与整理，在同一个桌面工具里完成。</p>
   <p>
     <a href="https://github.com/max-doo/MultiChat-desk/releases"><img src="https://img.shields.io/github/v/release/max-doo/MultiChat-desk?style=flat-square&color=3b82f6" alt="Latest release" /></a>
-    <a href="https://github.com/max-doo/MultiChat-desk/releases"><img src="https://img.shields.io/github/downloads/max-doo/MultiChat-desk/total?style=flat-square&color=22c55e" alt="Downloads" /></a>
+    <a href="https://github.com/max-doo/MultiChat-desk/releases"><img src="https://img.shields.io/github/downloads/max-doo/MultiChat-desk/total?style=flat-square&color=22c55e&amp;v=2" alt="Downloads" /></a>
     <a href="https://github.com/max-doo/MultiChat-desk/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-64748b?style=flat-square" alt="Apache 2.0 license" /></a>
     <a href="https://www.electronjs.org/"><img src="https://img.shields.io/badge/Electron-42-47848F?style=flat-square&logo=electron" alt="Electron 42" /></a>
   </p>
