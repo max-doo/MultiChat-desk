@@ -2,6 +2,13 @@
 
 ## 2026-11-14
 
+### 19:24 | agent
+
+- done: 修复 macOS 26 下选中文本工具条读取脚本失效：System Events 已移除 focused UI element 语法，改用 AXFocusedUIElement 属性
+- modified:
+  - `src/main/platform/selectionReader.ts`
+- lesson: macOS 26 System Events 词典变化：focused UI element of <process> 编译报错 -2741，正确写法 value of attribute "AXFocusedUIElement"
+
 ### 19:11 | agent
 
 - done: 新增 assets/dock-icon.png（图稿 82% + 透明边距），dev Dock 图标与打包 icns 改用它，修复 Dock 图标偏大的问题
