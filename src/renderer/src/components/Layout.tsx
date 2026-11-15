@@ -93,11 +93,48 @@ function Layout({ children }: LayoutProps): JSX.Element {
   }, [])
 
 
+  const entryButtons = (
+    <div className="flex items-center gap-1 no-drag">
+      <button
+        type="button"
+        onClick={() => setSettingsOpen(true)}
+        className="relative h-7 px-2 flex items-center justify-center gap-1 text-text-secondary hover:text-primary hover:bg-white/60 rounded-lg transition-all duration-200"
+        title="设置"
+      >
+        <span className="material-symbols-outlined text-base">settings</span>
+        <span className="text-xs font-normal">设置</span>
+        {hasUpdate && <span className="absolute right-0.5 top-0.5 w-1.5 h-1.5 rounded-full bg-red-500 ring-2 ring-white/80" />}
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          // 总结页打开历史时自动定位到"总结历史" Tab
+          setHistoryInitialTab(currentPage === 'summary' ? 'summary' : 'conversation')
+          setHistoryOpen(true)
+        }}
+        className="h-7 px-2 flex items-center justify-center gap-1 text-text-secondary hover:text-primary hover:bg-white/60 rounded-lg transition-all duration-200"
+        title="历史记录"
+      >
+        <span className="material-symbols-outlined text-base">history</span>
+        <span className="text-xs font-normal">历史</span>
+      </button>
+      <button
+        type="button"
+        onClick={() => setCurrentPage('notes')}
+        className="h-7 px-2 flex items-center justify-center gap-1 rounded-lg transition-all duration-200 text-text-secondary hover:text-primary hover:bg-white/60"
+        title="笔记"
+      >
+        <span className="material-symbols-outlined text-base">edit_note</span>
+        <span className="text-xs font-normal">笔记</span>
+      </button>
+    </div>
+  )
+
   return (
     <div className="flex flex-col h-screen bg-transparent">
       {/* 自定义标题栏 */}
       <div 
-        className={`${window.api.platform === 'darwin' ? 'mac-titlebar' : ''} relative h-[38px] w-full shrink-0 grid items-center px-4 drag-region`}
+        className={`${window.api.platform === 'darwin' ? 'mac-titlebar' : 'h-[38px] px-4'} relative w-full shrink-0 grid items-center drag-region`}
         style={{ gridTemplateColumns: '1fr auto 1fr' }}
         onPointerDown={(event) => {
           if (window.api.platform === 'darwin' || event.button !== 0 || isFallbackDraggingRef.current) return
@@ -155,40 +192,7 @@ function Layout({ children }: LayoutProps): JSX.Element {
               ))}
             </div>
           </div>
-          <div className="flex items-center gap-1 no-drag">
-            <button
-              type="button"
-              onClick={() => setSettingsOpen(true)}
-              className="relative h-7 px-2 flex items-center justify-center gap-1 text-text-secondary hover:text-primary hover:bg-white/60 rounded-lg transition-all duration-200"
-              title="设置"
-            >
-              <span className="material-symbols-outlined text-base">settings</span>
-              <span className="text-xs font-normal">设置</span>
-              {hasUpdate && <span className="absolute right-0.5 top-0.5 w-1.5 h-1.5 rounded-full bg-red-500 ring-2 ring-white/80" />}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                // 总结页打开历史时自动定位到"总结历史" Tab
-                setHistoryInitialTab(currentPage === 'summary' ? 'summary' : 'conversation')
-                setHistoryOpen(true)
-              }}
-              className="h-7 px-2 flex items-center justify-center gap-1 text-text-secondary hover:text-primary hover:bg-white/60 rounded-lg transition-all duration-200"
-              title="历史记录"
-            >
-              <span className="material-symbols-outlined text-base">history</span>
-              <span className="text-xs font-normal">历史</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setCurrentPage('notes')}
-              className="h-7 px-2 flex items-center justify-center gap-1 rounded-lg transition-all duration-200 text-text-secondary hover:text-primary hover:bg-white/60"
-              title="笔记"
-            >
-              <span className="material-symbols-outlined text-base">edit_note</span>
-              <span className="text-xs font-normal">笔记</span>
-            </button>
-          </div>
+          {window.api.platform !== 'darwin' && entryButtons}
           </>}
         </div>
 
@@ -265,6 +269,10 @@ function Layout({ children }: LayoutProps): JSX.Element {
             >
               <span className="material-symbols-outlined text-[18px]">close</span>
             </button>
+          </div>
+        ) : window.api.platform === 'darwin' ? (
+          <div className="relative z-10 min-w-[120px] drag-region h-full flex items-center justify-end">
+            {currentPage !== 'notes' && entryButtons}
           </div>
         ) : (
           <div className="relative z-10 min-w-[120px] drag-region h-full" />

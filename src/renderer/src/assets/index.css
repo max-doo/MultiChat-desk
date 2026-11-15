@@ -76,7 +76,9 @@ body {
 
 .mac-titlebar {
   height: 52px;
+  /* 左侧 86px 为红绿灯预留空间，右侧 16px 对齐内容边距 */
   padding-left: 86px;
+  padding-right: 16px;
   -webkit-app-region: drag;
   app-region: drag;
 }
