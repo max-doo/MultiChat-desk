@@ -227,9 +227,17 @@ export function createTray(
 ): void {
     if (tray) return
     const iconPath = getTrayIconPath()
-    const image = nativeImage.createFromPath(iconPath)
+    let image = nativeImage.createFromPath(iconPath)
+    // macOS 菜单栏图标：使用彩色应用图标并缩放到状态栏高度，不标记为 template（否则渲染成黑色剪影）
+    if (process.platform === 'darwin' && !image.isEmpty()) {
+        image = image.resize({ height: 22 })
+        // dev 模式下 Dock 默认显示 Electron 图标，显式替换为应用图标（打包后由 icns 生效）。
+        // 用带 ~10% 透明边距的 dock-icon.png：logo.png 图稿铺满画布，直接用作 Dock 图标会显得比其他应用大
+        const dockIconPath = join(app.getAppPath(), 'assets', 'dock-icon.png')
+        try { accessSync(dockIconPath); app.dock?.setIcon(nativeImage.createFromPath(dockIconPath)) }
+        catch { app.dock?.setIcon(nativeImage.createFromPath(iconPath)) }
+    }
     tray = new Tray(image)
-    if (process.platform === 'darwin') tray.setTemplateImage(true)
     tray.setToolTip('MultiChat')
 
     const contextMenu = Menu.buildFromTemplate([
@@ -471,7 +479,13 @@ export function createWindow(): void {
         autoHideMenuBar: true,
         frame: false,
         ...(process.platform === 'darwin'
-            ? { titleBarStyle: 'hiddenInset' as const }
+            ? {
+                // trafficLightPosition 只在 titleBarStyle: 'hidden' 下生效（hiddenInset 会强制内嵌位置）
+                titleBarStyle: 'hidden' as const,
+                // 红绿灯圆圈中心 ≈ 设定值 + ~6.5：y=20 使圆心落在 52px 标题栏中央（≈26），
+                // x=12 保持 macOS 标准左边距（贴近 hiddenInset 的观感）。
+                trafficLightPosition: { x: 12, y: 20 }
+            }
             : process.platform === 'win32'
               ? {
                   // Windows 使用 renderer 自绘三键，最大化由 setBounds(workArea)
