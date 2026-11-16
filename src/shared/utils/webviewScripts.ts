@@ -1177,13 +1177,15 @@ export function generateSendMessageScript(
   message: string,
   modelId: string,
   selectors: ModelSelector,
-  attachmentFileName?: string
+  attachmentFileName?: string,
+  verifySubmission?: boolean
 ): string {
   const findTextarea = buildFindTextareaScript(selectors)
   const contentEditableInput = buildContentEditableInputScript(message)
   const textareaInput = buildTextareaInputScript(message, modelId)
   const findButton = buildFindSendButtonScript(selectors)
-  const simulateEnter = buildSimulateEnterKeyScript(modelId, selectors, !!attachmentFileName)
+  // 附件场景历来强制确认输入框清空；verifySubmission 允许调用方（如后台 agent 任务）显式开启同一校验。
+  const simulateEnter = buildSimulateEnterKeyScript(modelId, selectors, verifySubmission ?? !!attachmentFileName)
 
   return `
     (async function() {

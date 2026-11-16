@@ -13,6 +13,7 @@ import { createWindow, getMainWindow, openBrowserWindowInternal, setQuitting, cr
 import { startInputHook, stopInputHook } from './inputHookManager'
 import { sessionManager } from './services/SessionManager'
 import { automationService } from './services/AutomationService'
+import { agentTaskService } from './services/AgentTaskService'
 import { startDaemonServer, stopDaemonServer } from './daemon/ipcServer'
 import { initUpdateChecker } from './updater/checker'
 import { getSelectionToolbarEnabled, setSelectionToolbarEnabled } from './selectionToolbarManager'
@@ -36,7 +37,7 @@ function isPortableMode(): boolean {
 }
 
 // 获取数据存储路径
-function getDataPath(): string {
+export function getDataPath(): string {
   if (isPortableMode()) {
     const portableDataPath = join(app.getAppPath(), '..', 'data')
     try {
@@ -183,9 +184,10 @@ if (!gotTheLock) {
     // 初始化后台会话管理与自动化内核
     sessionManager.init()
     automationService.init(store)
+    agentTaskService.init(dataPath)
 
     // 启动本地 CLI 守护服务
-    startDaemonServer()
+    startDaemonServer(dataPath)
 
     let lastSelectionToolbarRestartAt = 0
     const stopSelectionToolbarForLifecycle = (reason: string): void => {
@@ -231,6 +233,7 @@ if (!gotTheLock) {
 
   app.on('before-quit', () => {
     setQuitting(true)
+    agentTaskService.shutdown()
     stopDaemonServer()
     stopInputHook()
     sessionManager.destroyAllSessions()

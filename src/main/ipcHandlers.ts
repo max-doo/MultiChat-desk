@@ -36,6 +36,7 @@ import {
 import { automationService, dispatchFileDrop } from './services/AutomationService'
 import { checkForUpdate, getUpdateState } from './updater/checker'
 import { getSelectionToolbarEnabled, setSelectionToolbarEnabled } from './selectionToolbarManager'
+import { getCliStatus, dismissCliHint, addCliDirToPath, openCliLocation } from './cliIntegration'
 
 // 存储当前的 AbortController，用于终止请求
 let currentTaskSplitAbortController: AbortController | null = null
@@ -1670,6 +1671,42 @@ export async function registerIpcHandlers(
     // 返回应用当前版本号（package.json version），供「关于」区块静态展示
     ipcMain.handle('app:get-version', () => {
         return { success: true, data: app.getVersion() }
+    })
+
+    // ============ 命令行工具（multichat）集成 ============
+
+    ipcMain.handle('cli:get-status', async () => {
+        try {
+            return { success: true, data: await getCliStatus(store) }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('cli:add-to-path', async () => {
+        try {
+            await addCliDirToPath()
+            return { success: true }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('cli:dismiss-hint', () => {
+        dismissCliHint(store)
+        return { success: true }
+    })
+
+    ipcMain.handle('cli:open-location', async (_event, target: 'cli' | 'skill') => {
+        try {
+            await openCliLocation(target)
+            return { success: true }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
     })
 
 }

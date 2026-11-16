@@ -3,6 +3,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type { NoteConversation, NoteDraft, NoteHighlight, NoteSelectionRect, ConversationMindmap, MindmapTask, NoteNavigation, MindmapModifyRequest, MindmapCandidate, MindmapSelection } from '../shared/types/notes'
 import type { WebviewContextMenuData, WebviewContextMenuActionRequest } from '../shared/types/contextMenu'
+import type { CliIntegrationStatus } from '../shared/types/cli'
 
 // 文件数据类型
 interface FileData {
@@ -352,6 +353,12 @@ const api = {
   windowDragEnd: (): void => {
     if (process.platform !== 'darwin') ipcRenderer.send('window-drag-end')
   },
+
+  // 命令行工具（multichat）集成
+  cliGetStatus: (): Promise<{ success: boolean; data?: CliIntegrationStatus; error?: string }> => ipcRenderer.invoke('cli:get-status'),
+  cliAddToPath: (): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('cli:add-to-path'),
+  cliDismissHint: (): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('cli:dismiss-hint'),
+  cliOpenLocation: (target: 'cli' | 'skill'): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('cli:open-location', target),
 
   // 悬浮工具条
   toolbarAction: (action: 'quick' | 'summarize' | 'translate' | 'copy' | 'search'): void => {

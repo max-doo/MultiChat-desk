@@ -26,8 +26,8 @@
 | `notes-identity` | noteManager.ts、noteIdentity.ts、noteTranscript.ts、笔记、快照、URL路径、XML、批注 | ### 8. 笔记、快照与会话身份 | 整段对话采集另读主题 1 |
 | `history-lifecycle` | appStore.ts、useWebviewLifecycle.ts、历史恢复、currentConversationId、WebContents ID、轮询、休眠、hibernate、内存、日志量 | ### 9. 历史恢复、轮询、休眠与内存 | 保持磁盘/内存与会话边界 |
 | `task-api` | taskSplitApi.ts、requestBodyConfig.ts、useTaskSplit.ts、useDebateRunner.ts、ipcHandlers.ts、env.d.ts、任务分配、辩论、model ID、AbortController | ### 10. 任务分配、辩论与 API 请求 | 旧总结链路仅在历史主题 |
-| `cli-daemon` | src/cli/、src/main/daemon/、SessionManager.ts、AutomationService.ts、Named Pipe、CLI、后台会话、诊断透传 | ### 11. CLI 与后台会话 | 通信顺序和输出协议 |
-| `build-verification` | electron.vite.config.ts、electron-builder、NSIS、winCodeSign、TUN、QUIC、混淆、toString、打包、tsc、构建验证 | ### 12. 构建、打包与开发验证 | 平台/版本经验需核对环境 |
+| `cli-daemon` | src/cli/、src/main/daemon/、SessionManager.ts、AutomationService.ts、Named Pipe、CLI、后台会话、诊断透传、AgentTaskService、commander、taskkill、daemon.token | ### 11. CLI 与后台会话 | 通信顺序和输出协议 |
+| `build-verification` | electron.vite.config.ts、electron-builder、NSIS、winCodeSign、TUN、QUIC、混淆、toString、打包、tsc、构建验证、ELECTRON_RUN_AS_NODE | ### 12. 构建、打包与开发验证 | 平台/版本经验需核对环境 |
 | `historical-only` | WebContentsView、Electron 28、Chromium 120、summaryApi.ts、useSummaryPanel.ts、generate-summary、EnterWorktree、worktree、旧架构 | ### 13. 历史架构与版本限定经验 | 只在明确追溯或已授权工作中加载 |
 
 日常实现不默认读 TODO、CHANGELOG 或归档。需要近期上下文时读 SESSION_LOG；只有追溯更早会话才读 `.memory/sessions/` 对应日期。既有脚本只提示缺少路由的三级标题，不检查 INDEX 缺失、触发词质量或反向失效条目；维护时需确认章节标题与表格一致。

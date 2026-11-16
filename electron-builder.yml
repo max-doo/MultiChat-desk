@@ -26,6 +26,8 @@ files:
 extraResources:
   - from: out/cli/index.js
     to: cli/index.js
+  - from: .devin/skills/multichat-cli
+    to: skill/multichat-cli
 
 # ============ Windows 打包配置 ============
 win:
@@ -39,10 +41,9 @@ win:
       arch:
         - x64
   extraFiles:
-    - from: build/multichat-cli.cmd
-      to: multichat-cli.cmd
-    - from: build/multichat-cli.sh
-      to: multichat-cli.sh
+    # CLI 入口 shim：安装版可选把 $INSTDIR\cli 加入 PATH（installer.nsh 复选框控制），便携版可手动调用
+    - from: build/cli/multichat.cmd
+      to: cli/multichat.cmd
 
 # ============ NSIS 安装包配置 ============
 nsis:
@@ -73,8 +74,8 @@ mac:
   entitlementsInherit: build/entitlements.mac.plist
   darkModeSupport: true
   extraFiles:
-    - from: build/multichat-cli.sh
-      to: multichat-cli.sh
+    - from: build/cli/multichat.sh
+      to: multichat.sh
     - from: build/MACOS_FIRST_OPEN.md
       to: FIRST_OPEN_ON_MACOS.md
 

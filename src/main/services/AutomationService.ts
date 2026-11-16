@@ -103,6 +103,22 @@ export class AutomationService {
   }
 
   /**
+   * 返回全部已配置平台 ID（store 自定义选择器与默认配置的并集）。
+   */
+  public async listPlatformIds(): Promise<string[]> {
+    let storedModels: Record<string, ModelSelector> | undefined
+    if (this.store) {
+      try {
+        const stored = this.store.get('selectors') as SelectorsConfig | undefined
+        storedModels = stored?.models
+      } catch (err) {
+        console.warn('[AutomationService] 从 store 读取平台列表失败:', err)
+      }
+    }
+    return Array.from(new Set([...Object.keys(defaultSelectors.models), ...Object.keys(storedModels ?? {})])).sort()
+  }
+
+  /**
    * 获取指定平台的默认或初始加载网址
    */
   public getPlatformUrl(platformId: string, selectors: ModelSelector): string {

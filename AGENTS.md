@@ -18,7 +18,7 @@ MultiChat Desk 是基于 Electron 的桌面应用，通过多个 Webview 并行�
 - `src/preload/`：仅做安全桥接，向渲染层暴露 `window.api`。`index.d.ts` 是 IPC 契约文件。
 - `src/renderer/src/`：React UI、状态、页面逻辑与 Webview 交互。包含 `pages/`、`components/`、`store/appStore.ts`、`hooks/useWebviewSummary.ts`、Webview 操作/生命周期/笔记 Hooks。`config/selectors.ts` 与 `utils/webviewScripts.ts` 从 `src/shared/` 重导出 Webview 选择器和注入脚本。
 - `src/shared/`：跨进程复用的选择器配置、Webview 注入脚本、导图/快照工具和类型。
-- `src/cli/`：CLI 命令与客户端；主进程 `daemon/` 和 `services/` 提供通信与执行能力。
+- `src/cli/`：CLI 命令与客户端；主进程 `daemon/` 和 `services/` 提供通信与执行能力。CLI 以 `resources/cli/index.js` 随包分发，入口 shim 为 `build/cli/multichat.cmd|multichat.sh`（安装目录 `cli/` 子目录，对外命令名 `multichat`）；`build/installer.nsh` 提供"加入 PATH"复选框、注册 `HKCU\Environment` Path 并在卸载时移除，主进程 `cliIntegration.ts` 负责状态查询/补挂 PATH/Agent Skill 目录定位，配套 Skill 随包落到 `resources/skill/multichat-cli`。
 - `docs/`：构建、打包、Windows 命令、API 配置等参考文档。
 - `out/`、`dist/`：构建产物，禁止手改;`scripts/`、`build/`：构建辅助脚本与资源。
 

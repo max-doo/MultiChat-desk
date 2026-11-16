@@ -213,6 +213,24 @@ Do not copy ordinary session history here. Promote only stable knowledge that is
 
 - **CLI `--json` 模式 stdout/stderr 分离**：在 `--json` 模式下，凡是连接失败、解析错误等错误信息都必须走 `process.stderr.write(...)`，而不是 `console.log`（会写 stdout）。只有最终成功的结构化数据才输出到 `stdout`，这样外部脚本才能安全地管道解析 stdout。
 
+- **commander `exitOverride` 必须在注册子命令之前调用**：子命令在 `command()` 创建时通过 `copyInheritedSettings` 拷贝 `_exitCallback`，后设 `program.exitOverride()` 对已注册子命令不生效，缺必填参数/未知 option 仍以默认 exit 1 退出。契约要求参数错误=2 时，先 `exitOverride()` 再 `registerCommands()`，在 catch 中把 `commander.*` 错误码映射为 exit 2，`commander.helpDisplayed`/`version` 映射 exit 0。
+
+- **daemon token 文件必须放 `getDataPath()` 下而非管道名派生路径**：Windows `\\.\pipe\multichat-daemon` 是内核对象名不是文件路径，旧代码 `${PIPE_PATH}.token` 在 Windows 下不可写导致 token 机制被绕过。正确做法：`startDaemonServer(dataPath)` 时写 `<dataPath>/daemon.token`（0600），CLI 按 `%APPDATA%/<name>`、`%APPDATA%/<productName>`、`-dev` 后缀与便携版 `exeDir/data` 候选目录探测读取；鉴权检查放进 `handleRequest` 全平台统一执行，token 缺失（''）时 fail-closed 拒绝一切请求。
+
+- **后台任务轮询须容忍 `executeJavaScript` 瞬时失败**：页面发送消息后的整页导航/重载会使 `executeJavaScript` 单轮 reject，直接冒泡会把整个任务判 INTERNAL。正确做法：单轮脚本失败按"空采"计数累计（含连续上限升级 PAGE_NOT_READY / `wc.isDestroyed||isCrashed` 判 SESSION_LOST），不因一次失败终止轮询。
+
+- **取消 queued 任务必须直接 finalize 出队**：仅置 `cancelRequested`+`abort()` 对未执行任务是空操作——`pump()` 检查 `phase==='queued'` 仍会提取执行，产生取消后的幽灵窗口创建与导航副作用。`cancel()` 中 `phase==='queued'` 应 `splice` 出队并直接 `finalize('cancelled')`；同理 `finalize` 对所有终态（含 `cancelled`）都要落盘，否则重启后 `status` 丢终态视图。
+
+- **杀 dev 进程要杀 Electron 主进程而非 npm 壳**：`kill_shell`/`Ctrl+C` 只终止 `npm run dev` 的 node 包装进程，`electron.exe` 主进程会变孤儿继续持有 Named Pipe 与端口，导致"新实例"实际仍是旧代码在响应（排查旧 bug 复现假象的元凶）。Windows 下须 `taskkill //PID <electron主进程PID> //T` 杀整棵树；git-bash 里 `node -e` 内联串与 heredoc 中的 `\\.\pipe\` 反斜杠会被 MSYS 二次坍缩成单斜杠导致 ENOENT，写管道测试须落盘为 `.mjs` 文件或用 `String.fromCharCode(92)` 构造路径。
+
+- **done 终态的单任务响应已内嵌 reply**：`task.status`/`task.submit --wait` 在 `phase=done` 时直接在 view 里带完整 `reply`（`respondTaskView` 内嵌），`task.list` 批量视图不内嵌。Agent 轮询到 done 即拿全文，多数场景无需再调 `task.result`。这是异步任务 API 的业界模式（对齐 Google LRO/AIP-151：operation done 时内嵌 response）——单任务内嵌省一次往返，批量不内嵌防爆列表体积。
+
+- **daemon/CLI 评审易漏的真实约束清单**：`ensureSessionReady` 只保证窗口存在、不负责导航（已加载会话原样返回，导航须调用方显式 `loadURL`）；`DaemonResponse.error` 是 `string`（不是对象），稳定机器码走顶层 `code` 字段；每请求一新 socket，`waitMs` 长轮询挂起期间必须注册 `socket.once('close')` 清理订阅否则泄漏；`generateSendMessageScript` 的 verifySubmission 原本仅附件场景启用，agent 任务需显式开关；`generationStopSelectors` 只适配 chatgpt/claude/gemini/deepseek 4 平台，其余靠回复稳定兜底。
+
+- **无 Electron 环境做 CLI↔daemon 契约测试**：`NODE_OPTIONS=--require <shim>` 注入 `net.connect` 重定向 shim 可在不启动 Electron 的情况下模拟管道做协议契约测试。历史坑位：commander 缺必填参数默认 exit 1 与"参数错误=2"契约不符（须 `exitOverride` 前置，见上条）；`AgentTaskService.cancel` 对 queued 任务不落地终态曾是状态机缺口。
+
+- **session_log.py 在 GBK 控制台打印 Unicode 会崩**：Windows GBK 终端无法编码 lesson 候选中的 `↔`/emoji 等字符，`main()` 打印 candidates 时 UnicodeEncodeError（日志本身已写入，崩在提示阶段）。修复：`main()` 开头 `sys.stdout.reconfigure(encoding="utf-8", errors="replace")`。
+
 
 ### 12. 构建、打包与开发验证
 
@@ -235,6 +253,10 @@ Do not copy ordinary session history here. Promote only stable knowledge that is
 - **NSIS 安装后启动要区分权限与路径**：历史安装后启动曾出现约一分钟卡顿，排查涉及 elevated 安装进程通过 ExecShellAsUser、快捷方式落盘及 Shell/DCOM 降权路径。现有 installer.nsh 按账户类型选择启动方式，提权分支使用可执行文件路径而非快捷方式，普通分支避免不必要的降权调用。此为项目历史修复经验，不能只凭时长认定具体 COM 根因；修改安装脚本需按实际权限场景打包验收，并遵守打包配置变更的确认要求。
 
 - **build 不等于类型检查或桌面验收**：electron-vite build 不执行 tsc。按 AGENTS 分别检查 tsconfig.node.json 与 tsconfig.web.json，根配置只有 references，单独 `npx tsc --noEmit` 不能代表两侧检查。已有类型错误与当前改动的错误应明确区分，不能把旧日志的通过记录当当前结果；UI、站点 DOM 与 main 行为需在重启后的 dev 中实际触发。
+
+- **electron-builder `nsis.include` 注入到生成脚本头部，自定义代码须自带依赖**：`build/installer.nsh` 被 `scriptGenerator.include` 插到 makensis 脚本最前（先于 installer.nsi 的 common.nsh/MUI2/UAC→LogicLib），其中顶层 `Function` 体在定义点立即解析，用到的宏必须在本文件自行 `!include`——`nsDialogs.nsh` 会连带引入 `LogicLib.nsh`+`WinMessages.nsh`（含 `HWND_BROADCAST`/`WM_SETTINGCHANGE`/`BST_CHECKED`），而 `!macro` 体则延迟到插入点展开可依赖后文。可用钩子：`customInit`（.onInit 内设默认值，覆盖静默安装）、`customPageAfterChangeDir`（目录页后插 `Page custom`，MUI_HEADER_TEXT 不可用需用 `GetDlgItem 1037/1038`+`WM_SETTEXT` 改页头）、`customInstall`（装完文件后执行）、`customUnInstall`（卸载清理）。写用户 PATH 用 `WriteRegExpandStr HKCU Environment Path` 保住 `REG_EXPAND_SZ` 并 `SendMessage ${HWND_BROADCAST} ${WM_SETTINGCHANGE}` 广播；移除时分号分段精确匹配 `$INSTDIR\cli`，避免前缀误伤。
+
+- **Electron 系 IDE 终端自带 `ELECTRON_RUN_AS_NODE=1`，起 dev 必须清除**：Devin/VSCode 等 Electron 应用的集成终端会向子进程继承 `ELECTRON_RUN_AS_NODE=1`，`npm run dev` 启动的 electron 退化为纯 Node，`require('electron').app` 为 undefined，main  bundle 顶层 `app.isPackaged` 处即崩（Cannot read properties of undefined）。用 `env -u ELECTRON_RUN_AS_NODE npm run dev`（bash）或先 `Remove-Item Env:ELECTRON_RUN_AS_NODE`（PowerShell）再启动；该变量非用户/系统环境变量，普通终端不受影响。
 
 
 ### 13. 历史架构与版本限定经验

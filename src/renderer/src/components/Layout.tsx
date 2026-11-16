@@ -3,6 +3,7 @@ import { useAppStore, ProductMode, DisplayMode } from '../store/appStore'
 import { useUpdateReminder } from '../hooks/useUpdateState'
 import SettingsDrawer from './SettingsDrawer'
 import CustomContextMenu from './CustomContextMenu'
+import CliAgentHint from './CliAgentHint'
 
 interface LayoutProps {
   children: ReactNode
@@ -274,6 +275,7 @@ function Layout({ children }: LayoutProps): JSX.Element {
         {children}
       </main>
       <CustomContextMenu />
+      <CliAgentHint />
       <SettingsDrawer isOpen={isSettingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   )

@@ -1,4 +1,106 @@
 !ifndef BUILD_UNINSTALLER
+  # nsDialogs 会连带引入 LogicLib / WinMessages（HWND_BROADCAST / WM_SETTINGCHANGE / BST_CHECKED）
+  !include nsDialogs.nsh
+
+  Var CliPathCheckbox
+  Var CliAddToPath
+
+  # 静默安装 / 更新流程跳过自定义页时的默认值：1 = 安装 CLI 并加入 PATH
+  !macro customInit
+    StrCpy $CliAddToPath "1"
+  !macroend
+
+  !macro customPageAfterChangeDir
+    Page custom CliOptionsPageCreate CliOptionsPageLeave
+  !macroend
+
+  Function CliOptionsPageCreate
+    GetDlgItem $1 $HWNDPARENT 1037
+    SendMessage $1 ${WM_SETTEXT} 0 "STR:可选功能"
+    GetDlgItem $1 $HWNDPARENT 1038
+    SendMessage $1 ${WM_SETTEXT} 0 "STR:命令行工具（供终端与 AI Agent 调用）"
+
+    nsDialogs::Create 1018
+    Pop $0
+    ${If} $0 == error
+      Abort
+    ${EndIf}
+
+    ${NSD_CreateLabel} 0 0 100% 14u "命令行工具 multichat"
+    Pop $1
+
+    ${NSD_CreateCheckbox} 0 24u 100% 14u "安装 multichat 命令并加入 PATH（推荐）"
+    Pop $CliPathCheckbox
+    ${NSD_SetState} $CliPathCheckbox ${BST_CHECKED}
+
+    ${NSD_CreateLabel} 14u 46u 86% 34u "安装后可在任意终端及 AI Agent（Codex、Claude Code 等）中调用 multichat 驱动本应用；卸载时会自动从 PATH 移除。"
+    Pop $1
+
+    nsDialogs::Show
+  FunctionEnd
+
+  Function CliOptionsPageLeave
+    ${NSD_GetState} $CliPathCheckbox $CliAddToPath
+  FunctionEnd
+
+  # 按分号分段精确匹配 HKCU Path 中是否已存在 $INSTDIR\cli；结果写入 $9（"1"/"0"）
+  Function CliPathHasCliDir
+    StrCpy $9 "0"
+    ReadRegStr $0 HKCU "Environment" "Path"
+    StrCpy $4 $0
+    ${While} $4 != ""
+      StrLen $5 $4
+      StrCpy $6 0
+      ${While} $6 < $5
+        StrCpy $7 $4 1 $6
+        ${If} $7 == ";"
+          ${ExitWhile}
+        ${EndIf}
+        IntOp $6 $6 + 1
+      ${EndWhile}
+      StrCpy $8 $4 $6
+      IntOp $2 $6 + 1
+      StrLen $3 $4
+      IntOp $3 $3 - $2
+      ${If} $3 > 0
+        StrCpy $4 $4 $3 $2
+      ${Else}
+        StrCpy $4 ""
+      ${EndIf}
+      ${If} $8 == "$INSTDIR\cli"
+        StrCpy $9 "1"
+        ${ExitWhile}
+      ${EndIf}
+    ${EndWhile}
+  FunctionEnd
+
+  Function AddCliDirToPath
+    Call CliPathHasCliDir
+    ${If} $9 == "1"
+      Return
+    ${EndIf}
+    ReadRegStr $0 HKCU "Environment" "Path"
+    ${If} $0 == ""
+      StrCpy $1 "$INSTDIR\cli"
+    ${Else}
+      StrCpy $2 $0 1 -1
+      ${If} $2 == ";"
+        StrCpy $1 "$0$INSTDIR\cli"
+      ${Else}
+        StrCpy $1 "$0;$INSTDIR\cli"
+      ${EndIf}
+    ${EndIf}
+    # WriteRegExpandStr 保住 REG_EXPAND_SZ，避免展开型 PATH 项被固化
+    WriteRegExpandStr HKCU "Environment" "Path" $1
+    SendMessage ${HWND_BROADCAST} ${WM_SETTINGCHANGE} 0 "STR:Environment" /TIMEOUT=5000
+  FunctionEnd
+
+  !macro customInstall
+    ${If} $CliAddToPath == "1"
+      Call AddCliDirToPath
+    ${EndIf}
+  !macroend
+
   !macro customFinishPage
     !ifndef HIDE_RUN_AFTER_FINISH
       Function StartApp
@@ -84,7 +186,49 @@
     ${If} $UnShouldClearCache == "1"
       Call un.DeleteLocalCache
     ${EndIf}
+    Call un.RemoveCliDirFromPath
   !macroend
+
+  # 从 HKCU Path 中精确移除 $INSTDIR\cli 分段并广播变更
+  Function un.RemoveCliDirFromPath
+    ReadRegStr $0 HKCU "Environment" "Path"
+    StrCpy $R0 ""
+    StrCpy $R1 "0"
+    StrCpy $4 $0
+    ${While} $4 != ""
+      StrLen $5 $4
+      StrCpy $6 0
+      ${While} $6 < $5
+        StrCpy $7 $4 1 $6
+        ${If} $7 == ";"
+          ${ExitWhile}
+        ${EndIf}
+        IntOp $6 $6 + 1
+      ${EndWhile}
+      StrCpy $8 $4 $6
+      IntOp $2 $6 + 1
+      StrLen $9 $4
+      IntOp $9 $9 - $2
+      ${If} $9 > 0
+        StrCpy $4 $4 $9 $2
+      ${Else}
+        StrCpy $4 ""
+      ${EndIf}
+      ${If} $8 == "$INSTDIR\cli"
+        StrCpy $R1 "1"
+      ${ElseIf} $8 != ""
+        ${If} $R0 == ""
+          StrCpy $R0 $8
+        ${Else}
+          StrCpy $R0 "$R0;$8"
+        ${EndIf}
+      ${EndIf}
+    ${EndWhile}
+    ${If} $R1 == "1"
+      WriteRegExpandStr HKCU "Environment" "Path" $R0
+      SendMessage ${HWND_BROADCAST} ${WM_SETTINGCHANGE} 0 "STR:Environment" /TIMEOUT=5000
+    ${EndIf}
+  FunctionEnd
 
   Function un.ClearCachePageCreate
     nsDialogs::Create 1018

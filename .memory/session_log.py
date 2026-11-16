@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import sys
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -339,6 +340,9 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    # Windows GBK 控制台无法编码 lesson 候选中的 Unicode 字符（↔/emoji），直接崩溃
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     args = parse_args()
     try:
         result = append_session_note(

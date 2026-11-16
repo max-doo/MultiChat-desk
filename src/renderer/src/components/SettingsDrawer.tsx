@@ -6,6 +6,7 @@ import ConfirmModal from './ConfirmModal'
 import ShortcutRecorder from './ShortcutRecorder'
 import ImportCacheConfirmModal from './ImportCacheConfirmModal'
 import AboutSection from './AboutSection'
+import CliIntegrationSection from './CliIntegrationSection'
 import ModelOrderModal from './ModelOrderModal'
 import { openUpdateRelease, useUpdateReminder } from '../hooks/useUpdateState'
 
@@ -1392,6 +1393,15 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
                 <p className="text-xs text-text-secondary mt-1.5">导出为 JSON 文件，API Key 等敏感信息将被自动脱敏</p>
               </div>
             </div>
+          </div>
+
+          {/* 命令行与 Agent 集成 */}
+          <div>
+            <h3 className="flex items-center gap-2 font-semibold text-text-primary mb-4">
+              <span className="material-symbols-outlined text-primary text-xl">terminal</span>
+              命令行与 Agent 集成
+            </h3>
+            <CliIntegrationSection />
           </div>
 
           {/* 关于 */}

@@ -17,4 +17,4 @@ xattr -dr com.apple.quarantine /Applications/MultiChat.app
 
 划词工具条首次启用时需要授予“辅助功能”权限；首次读取外部应用选区时，macOS 还可能请求允许 MultiChat 自动化“System Events”。
 
-macOS CLI 位于 `MultiChat.app/Contents/multichat-cli.sh`，可在终端直接运行该脚本。
+macOS CLI 位于 `MultiChat.app/Contents/multichat.sh`，可在终端直接运行该脚本。

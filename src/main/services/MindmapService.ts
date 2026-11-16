@@ -3,6 +3,7 @@ import type { MindmapTask, NoteConversation, MindmapModifyRequest, MindmapCandid
 import { applyMindmapTextEdits, buildMindmapEditPrompt, mergeMindmapCandidate, normalizeMindmapNewlines, parseMindmapModifyResponse, validateMindmapMarkdown } from '../../shared/utils/mindmapEdits'
 import { buildMindmapPrompt, inspectMindmapOutline, MINDMAP_INPUT_LIMIT, MINDMAP_TAGS } from '../../shared/utils/mindmap'
 import { generateMindmapPageStateScript, generateMindmapResponseScript, type MindmapResponse } from '../../shared/utils/webviewScripts'
+import { isConversationUrlForPlatform } from '../../shared/utils/conversationUrl'
 import { automationService } from './AutomationService'
 import { sessionManager } from './SessionManager'
 import type { NoteManager } from '../noteManager'
@@ -226,13 +227,10 @@ export class MindmapService {
 
   private async sessionBinding(platformId: string, currentUrl: string): Promise<MindmapGenerationSession> {
     const selectors = await automationService.getPlatformSelectors(platformId)
-    const initial = new URL(automationService.getPlatformUrl(platformId, selectors))
+    const baseUrl = automationService.getPlatformUrl(platformId, selectors)
     try {
-      const url = new URL(currentUrl)
-      const conversationPath = /\/(?:c|chat|app|search|thread|conversation|session|s)\/[^/]+/i.test(url.pathname)
-      const conversationQuery = ['conversation_id', 'conversationId', 'chatId'].some(key => !!url.searchParams.get(key))
-      const stable = url.protocol === 'https:' && !url.username && !url.password && url.origin === initial.origin && (conversationPath || conversationQuery) && !/\/(?:new|login|auth|temporary)(?:\/|$)/i.test(url.pathname)
-      return { platformId, ...(stable ? { conversationUrl: url.href } : {}) }
+      const stable = isConversationUrlForPlatform(platformId, currentUrl, baseUrl)
+      return { platformId, ...(stable ? { conversationUrl: new URL(currentUrl).href } : {}) }
     } catch { return { platformId } }
   }
 
