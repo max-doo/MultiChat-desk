@@ -15,10 +15,12 @@ export interface PlatformSelectionResult extends SelectionResult {
   error?: 'permission-denied' | 'unsupported' | 'no-selection'
 }
 
+// macOS 26 的 System Events 词典已移除 "focused UI element" 语法（osascript 报 -2741），
+// 需改用 AXFocusedUIElement 属性读取焦点元素
 const MACOS_SELECTION_SCRIPT = `
 tell application "System Events"
   set frontProcess to first application process whose frontmost is true
-  set focusedElement to focused UI element of frontProcess
+  set focusedElement to value of attribute "AXFocusedUIElement" of frontProcess
   return value of attribute "AXSelectedText" of focusedElement
 end tell
 `
