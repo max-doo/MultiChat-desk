@@ -174,12 +174,26 @@ export const defaultSelectors: SelectorsConfig = {
       },
       imageDownload: {
         steps: [
-          // 步骤1：点最新生图，打开全屏预览
-          { selector: 'div[class*="imagegen-image"] img, div.group\\/imagegen-image img, img[id^="_r_"]', delay: 600 },
-          // 步骤2：点预览 header 里的"保存"按钮（aria-label="保存" = 中文环境下载原图）
-          { selector: 'header[data-testid="fullscreen-shell-header"] button[aria-label="保存"], button[aria-label="保存"]', delay: 300 }
+          // 步骤1：点最新生图卡片，打开全屏预览
+          { selector: [
+            'button[aria-label^="已生成图像"]',
+            'button[aria-label^="Generated image"]',
+            'div[class*="imagegen-image"] img',
+            'div.group\\/imagegen-image img',
+            'img[id^="_r_"]'
+          ], delay: 800 },
+          // 步骤2：点预览 header 的"下载"按钮（新 UI 是"下载"，旧 UI 是"保存"）
+          { selector: [
+            'header button[aria-label="下载"]',
+            'button[aria-label="下载"]',
+            'header button[aria-label="Download"]',
+            'button[aria-label="Download"]',
+            'header[data-testid="fullscreen-shell-header"] button[aria-label="保存"]',
+            'button[aria-label="保存"]',
+            'button[aria-label="Save"]'
+          ], delay: 300 }
         ],
-        closePreviewSelector: 'header[data-testid="fullscreen-shell-header"] button[aria-label="关闭全屏显示"]'
+        closePreviewSelector: 'button[aria-label="关闭查看器"], button[aria-label="Close viewer"], button[aria-label="关闭全屏显示"], button[aria-label="Close"], header[data-testid="fullscreen-shell-header"] button[aria-label="关闭全屏显示"]'
       }
     },
     perplexity: {
@@ -333,6 +347,17 @@ export const defaultSelectors: SelectorsConfig = {
         cancelSteps: [
           { selector: ['button[aria-label*="删除"]', 'button[aria-label*="remove"]'], delay: 200, optional: true }
         ]
+      },
+      imageDownload: {
+        steps: [
+          // 一步：点最新 AI 回复消息底部 action bar 的下载图标（cos-icon-download，无需开预览）
+          // 实测：消息 <i class="cos-icon cos-icon-download"> → 直接触发浏览器下载
+          { selector: [
+            'i.cos-icon-download',
+            '[class*="cos-icon-download"]',
+            'button[class*="cos-icon-download"]'
+          ], delay: 300 }
+        ]
       }
     },
     gemini: {
@@ -379,10 +404,14 @@ export const defaultSelectors: SelectorsConfig = {
       },
       imageDownload: {
         steps: [
-          // 步骤1：hover 最新 generated-image，触发 on-hover-button 显示
-          { selector: 'generated-image, single-image.generated-image, div.generated-images generated-image', delay: 300, hover: true },
-          // 步骤2：点"下载完整尺寸的图片"按钮（双候选：aria-label + 语义 tag）
-          { selector: 'button[aria-label="下载完整尺寸的图片"], download-generated-image-button button', delay: 300 }
+          // 点"下载完整尺寸的图片"按钮（按钮常驻 DOM，无需 hover；中英文 + tag 兜底）
+          { selector: [
+            'button[aria-label="下载完整尺寸的图片"]',
+            'button[aria-label="Download full-size image"]',
+            'button[aria-label="Download full size image"]',
+            'download-generated-image-button button',
+            '[data-test-id="download-generated-image"]'
+          ], delay: 300 }
         ]
       }
     },
@@ -421,6 +450,17 @@ export const defaultSelectors: SelectorsConfig = {
         ],
         cancelSteps: [
           { selector: 'button[aria-label*="删除"], button[aria-label*="remove"]', delay: 200, optional: true }
+        ]
+      },
+      imageDownload: {
+        steps: [
+          // 一步：点生图旁的"下载"按钮（实测：aria-label="下载"+data-icon-button，直接触发下载）
+          { selector: [
+            'button[aria-label="下载"]',
+            'button[aria-label="Download"]',
+            'button[data-icon-button][aria-label*="下载"]',
+            'button[data-icon-button][aria-label*="Download"]'
+          ], delay: 300 }
         ]
       }
     },
@@ -481,6 +521,22 @@ export const defaultSelectors: SelectorsConfig = {
         ],
         cancelSteps: [
           { selector: ['button.selected-OsA38F div.flex.items-center.justify-center.overflow-hidden', 'button[data-log-name="tool_bar"] div.flex.items-center.justify-center.overflow-hidden'], delay: 200, exact: true, optional: true }
+        ]
+      },
+      imageDownload: {
+        steps: [
+          // 步骤1：hover 最新生图容器，触发 popMenu 浮层显示（实测：popMenuItem 默认 invisible，需 hover）
+          { selector: [
+            'div[class*="imageItem-"][class*="imageWrapper-"]',
+            'div[class*="imageWrapper-"]:has(img[data-image-resource-id])',
+            'img[data-image-resource-id]'
+          ], delay: 500, hover: true },
+          // 步骤2：点 popMenu 内含 downloadIcon 的项（实测：popMenuItem 内含 svg.downloadIcon-*）
+          { selector: [
+            'div[class*="popMenuItem"]:has(svg[class*="downloadIcon"])',
+            'div[class*="popMenuItem"]:has(svg.downloadIcon)',
+            'div[class*="popMenu-"] div[class*="popMenuItem-"]:nth-of-type(2)'
+          ], delay: 300 }
         ]
       }
     },
@@ -577,10 +633,17 @@ export const defaultSelectors: SelectorsConfig = {
       },
       imageDownload: {
         steps: [
-          // 步骤1：hover 最新 image-box-grid 内的图片，触发 hover-actions-slot 浮层
-          { selector: 'div.image-box-grid-EYaIcP img, div[class*="image-box-grid"] img', delay: 300, hover: true },
-          // 步骤2：点浮层最后一个 action（下载）—— DOM 证实下载是最后一个 action-nxGadz
-          { selector: 'div.hover-actions-slot-_hVW2k div.action-nxGadz:last-of-type, div[class*="hover-actions-slot"] div.action-nxGadz:last-of-type', delay: 300 }
+          // 步骤1：点最新生图，打开右侧预览面板（图本身可点击，无需 hover）
+          { selector: [
+            '[data-testid="mdbox_image"]',
+            '[data-testid="message_image_content"] img',
+            '[class*="image-box-grid"] img'
+          ], delay: 800 },
+          // 步骤2：点预览面板右上角的"下载"按钮（data-testid 稳定标识）
+          { selector: [
+            '[data-testid="edit_image_download_button"]',
+            'button[data-testid="edit_image_download_button"]'
+          ], delay: 300 }
         ]
       }
     },
@@ -613,6 +676,22 @@ export const defaultSelectors: SelectorsConfig = {
         ],
         cancelSteps: [
           { selector: ['button[aria-label*="删除"]', 'button[aria-label*="remove"]'], delay: 200, optional: true }
+        ]
+      },
+      imageDownload: {
+        steps: [
+          // 步骤1：点最新生图（dic-card-item swiper），打开 photo-view 预览弹层
+          { selector: [
+            'img.dic-card-item__img',
+            'div.dic-card-item img',
+            '[class*="dic-card-item"] img'
+          ], delay: 800 },
+          // 步骤2：点预览 toolbar 的 download 按钮（aria-label="download" 小写英文 + hyc-photo-view 语义类名）
+          { selector: [
+            'button[aria-label="download"]',
+            'button.hyc-photo-view-chrome-v2__btn--download',
+            '[class*="hyc-photo-view"] button[aria-label="download"]'
+          ], delay: 300 }
         ]
       }
     },

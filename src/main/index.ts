@@ -15,6 +15,7 @@ import { sessionManager } from './services/SessionManager'
 import { automationService } from './services/AutomationService'
 import { agentTaskService } from './services/AgentTaskService'
 import { startDaemonServer, stopDaemonServer } from './daemon/ipcServer'
+import { writeCliManifest } from './cliIntegration'
 import { initUpdateChecker } from './updater/checker'
 import { getSelectionToolbarEnabled, setSelectionToolbarEnabled } from './selectionToolbarManager'
 
@@ -188,6 +189,8 @@ if (!gotTheLock) {
 
     // 启动本地 CLI 守护服务
     startDaemonServer(dataPath)
+    // 同目录写 cli.json 入口指示文件，供 PATH/注册表之外的进程定位 CLI
+    void writeCliManifest(dataPath)
 
     let lastSelectionToolbarRestartAt = 0
     const stopSelectionToolbarForLifecycle = (reason: string): void => {

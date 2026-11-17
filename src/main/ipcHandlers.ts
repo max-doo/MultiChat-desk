@@ -104,9 +104,13 @@ function ensureWillDownloadListener(): void {
   shared.on('will-download', (event, item, webContents) => {
     const wcId = webContents?.id
     const ctx = wcId ? nativeCtxByWcId.get(wcId) : undefined
-    if (!ctx) return
+    if (!ctx) {
+      console.log('[image-dl] will-download miss wcId=%s url=%s', wcId, (item.getURL() || '').slice(0, 120))
+      return
+    }
 
-    event.preventDefault()
+    // 不要 preventDefault —— Electron 语义里 preventDefault 会取消下载（done=interrupted/cancelled）。
+    // 正确做法：直接 setSavePath 指定落盘路径，系统对话框就不会弹，下载也会继续走。
     const seq = ++ctx.seq
 
     const url = item.getURL() || ''
@@ -117,6 +121,7 @@ function ensureWillDownloadListener(): void {
 
     const fileName = `${ctx.modelId}-${ctx.ts}-${seq}.${ext === 'jpg' ? 'jpg' : ext}`
     item.setSavePath(join(ctx.dir, fileName))
+    console.log('[image-dl] hit wcId=%s seq=%d url=%s file=%s', wcId, seq, (item.getURL() || '').slice(0, 120), fileName)
 
     item.on('done', (_e, state) => {
       ctx.arrived++
@@ -126,6 +131,7 @@ function ensureWillDownloadListener(): void {
         ctx.failed++
         ctx.errors.push(`图 ${seq}: ${state}`)
       }
+      console.log('[image-dl] done wcId=%s seq=%d state=%s', wcId, seq, state)
       finalizeIfDone(wcId!)
     })
   })

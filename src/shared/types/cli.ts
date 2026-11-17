@@ -15,6 +15,6 @@ export interface CliIntegrationStatus {
   cliDir: string | null
   /** multichat 入口文件完整路径 */
   cliCmdPath: string | null
-  /** 随包分发的 Agent Skill 目录（resources/skill/multichat-cli 或仓库 .devin/skills） */
+  /** 随包分发的 Agent Skill 目录（resources/skill/multichat-cli 或仓库 .agents/skills） */
   skillDir: string | null
 }

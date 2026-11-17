@@ -1,32 +1,10 @@
-import type { CliIntegrationStatus } from '../../../shared/types/cli'
-
 /**
- * 生成 Agent 集成指引文本（供"复制指引"按钮写入剪贴板）。
- * Skill 需用户手动复制到自己的 Agent skills 目录，应用不代写用户目录。
+ * 生成给 AI Agent 的 Skill 安装命令文本（供"复制安装命令"按钮写入剪贴板）。
+ * Skill 由用户的 Agent 自行复制到项目或全局 skills 目录，应用不代写用户目录。
  */
-export function buildCliGuideText(status: CliIntegrationStatus): string {
-  const cmd = status.onPath ? 'multichat' : (status.cliCmdPath ?? 'multichat')
-  const lines: string[] = [
-    'MultiChat 命令行工具使用指引',
-    '',
-    '1. 保持 MultiChat 运行，在终端执行以下命令验证连接：',
-    `   ${cmd} daemon status`,
-    ''
-  ]
-  if (status.skillDir) {
-    lines.push(
-      '2. 让 AI Agent（Devin / Claude Code 等）也能调用，把配套 Skill 复制到 Agent 的 skills 目录：',
-      `   源目录：${status.skillDir}`,
-      '   目标：项目内 .devin/skills/multichat-cli（单项目生效）',
-      '        或 ~/.devin/skills/multichat-cli（全部项目生效）',
-      ''
-    )
-  }
-  lines.push(
-    `${status.skillDir ? '3' : '2'}. 之后即可在任意目录中执行，例如：`,
-    `   ${cmd} task submit --platform gemini --query "你的问题" --wait 300 --json`,
-    '',
-    '更多命令：daemon status / platforms / task status|result|cancel|list'
-  )
-  return lines.join('\n')
+export function buildSkillInstallCommand(skillDir: string): string {
+  return [
+    `请安装 MultiChat 的 Agent Skill：将 "${skillDir}" 整个目录复制到当前项目的 .agents/skills/ 下（保持目录名 multichat-cli；客户端有专属 skills 目录时按其约定放置）。如需对所有项目生效，改为复制到 ~/.agents/skills/ 下。`,
+    '该 Skill 通过 multichat CLI 驱动 MultiChat 桌面应用，需保持应用运行。'
+  ].join('\n')
 }

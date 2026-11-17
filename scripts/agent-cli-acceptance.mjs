@@ -359,6 +359,34 @@ async function sectionCliLocal() {
     const env = JSON.parse(r.stderr.trim())
     eq(env.code, 'DAEMON_UNAVAILABLE', 'env.code')
   })
+  await test('B10. --image 指向不存在文件 → exit 2', async () => {
+    const r = await runCli(['task', 'submit', '--platform', 'gemini', '--image', path.join(TMP, 'no-such-img.png')])
+    eq(r.code, 2, 'exit')
+    assert(/图片|image/i.test(r.stderr), `stderr: ${r.stderr.slice(0, 200)}`)
+  })
+  await test('B11. --image 重复超过 10 张 → exit 2', async () => {
+    const img = path.join(TMP, 'img-ok.png')
+    fs.writeFileSync(img, 'PNG-BYTES')
+    const args = ['task', 'submit', '--platform', 'gemini', '--query', 'hi']
+    for (let i = 0; i < 11; i++) args.push('--image', img)
+    const r = await runCli(args)
+    eq(r.code, 2, 'exit')
+    assert(/上限/.test(r.stderr), `stderr: ${r.stderr.slice(0, 200)}`)
+  })
+  await test('B12. --image 无 query → 过参数检查（daemon 不可达 → exit 1 DAEMON_UNAVAILABLE）', async () => {
+    const img = path.join(TMP, 'img-only.png')
+    fs.writeFileSync(img, 'PNG-BYTES')
+    const r = await runCli(['--json', 'task', 'submit', '--platform', 'gemini', '--image', img], {
+      env: {
+        NODE_OPTIONS: `--require "${SHIM}"`,
+        MC_REAL_PIPE: REAL_PIPE,
+        MC_FAKE_PIPE: process.platform === 'win32' ? '\\\\.\\pipe\\multichat-accept-nonexist' : '/tmp/nonexist-mc.sock'
+      }
+    })
+    eq(r.code, 1, 'exit')
+    const env = JSON.parse(r.stderr.trim())
+    eq(env.code, 'DAEMON_UNAVAILABLE', 'env.code')
+  })
 }
 
 // ==================== C. Mock daemon 协议契约 ====================
@@ -387,14 +415,16 @@ async function sectionMockDaemon() {
     eq(req.conversationUrl, 'https://gemini.google.com/app/abc', 'conversationUrl')
   })
 
-  await test('C2. stdin 优先级 > --query-file > --query', async () => {
+  await test('C2. 显式参数抑制 stdin；--query-file > --query', async () => {
+    // 契约（KNOWLEDGE #11）：stdin 只在未给 --query/--query-file 时读取，
+    // 显式参数在时无条件跳过，根治宿主开放管道挂死；两旗标并存时 file 胜出。
     mockRequests.length = 0
     mockHandler = async () => ({ success: true, data: { taskId: 't-2', phase: 'queued' } })
     const qfile = path.join(TMP, 'q.txt')
     fs.writeFileSync(qfile, 'FILE-QUERY')
     const r = await runCli(['--json', 'task', 'submit', '--platform', 'gemini', '--query', 'FLAG-QUERY', '--query-file', qfile], { env, stdin: 'STDIN-QUERY\n' })
     eq(r.code, 0, 'exit')
-    eq(lastReq().query, 'STDIN-QUERY', 'stdin 应优先')
+    eq(lastReq().query, 'FILE-QUERY', '显式参数在时 stdin 不读，--query-file 胜出')
   })
 
   await test('C3. stdin 空 → --query-file 生效', async () => {
@@ -413,11 +443,20 @@ async function sectionMockDaemon() {
     eq(lastReq().query, 'PLAIN-Q', '--query 应生效')
   })
 
-  await test('C5. --wait 转换为 waitMs；daemon 延迟后返回终态视图', async () => {
+  await test('C5. --wait 两段化：submit 取 taskId → stderr ack → task.status waitMs', async () => {
+    // 契约（KNOWLEDGE #11）：submit 不带 waitMs 先拿 taskId 吐 stderr，
+    // 再发 task.status waitMs 长轮询；daemon 协议与 stdout 契约不变。
+    mockRequests.length = 0
+    const seen = []
     mockHandler = async (req) => {
-      if (req.waitMs !== 3000) return { success: false, error: 'waitMs wrong' }
-      await new Promise(r => setTimeout(r, 800))
-      return { success: true, data: { taskId: 't-5', platform: 'gemini', mode: 'chat', phase: 'done', replyChars: 42, busy: false, elapsedMs: 800 } }
+      seen.push(String(req.action))
+      if (req.action === 'task.submit') return { success: true, data: { taskId: 't-5', phase: 'queued' } }
+      if (req.action === 'task.status') {
+        if (req.waitMs !== 3000) return { success: false, error: `waitMs wrong: ${req.waitMs}` }
+        await new Promise(r => setTimeout(r, 800))
+        return { success: true, data: { taskId: 't-5', platform: 'gemini', mode: 'chat', phase: 'done', replyChars: 42, busy: false, elapsedMs: 800 } }
+      }
+      return { success: false, error: 'unexpected action' }
     }
     const started = Date.now()
     const r = await runCli(['--json', 'task', 'submit', '--platform', 'gemini', '--query', 'hi', '--wait', '3'], { env })
@@ -426,6 +465,9 @@ async function sectionMockDaemon() {
     const out = parseStdoutJson(r)
     eq(out.data.phase, 'done', 'phase')
     assert(elapsed >= 700, `应等待 daemon 响应（${elapsed}ms < 700ms）`)
+    assert(seen[0] === 'task.submit' && seen[1] === 'task.status', `动作序列: ${seen.join(',')}`)
+    const ack = JSON.parse(r.stderr.trim())
+    eq(ack.taskId, 't-5', 'stderr 应先吐 submit ack')
   })
 
   await test('C6. submit 被拒（PLATFORM_UNKNOWN）→ exit 1 + stdout envelope 带 code', async () => {
@@ -536,6 +578,31 @@ async function sectionMockDaemon() {
     const r = await runCli(['--json', 'task', 'submit', '--platform', 'gemini', '--query-file', qfile], { env })
     eq(r.code, 0, 'exit')
     eq(lastReq().query.length, 100_000, 'query.length')
+  })
+
+  await test('C18. submit --image → req.images 携带解析后绝对路径', async () => {
+    mockRequests.length = 0
+    mockHandler = async () => ({ success: true, data: { taskId: 't-18', phase: 'queued' } })
+    const img = path.join(TMP, 'c18.png')
+    fs.writeFileSync(img, 'PNG')
+    const r = await runCli(['--json', 'task', 'submit', '--platform', 'gemini', '--query', '看图', '--image', img], { env })
+    eq(r.code, 0, 'exit')
+    const req = lastReq()
+    assert(Array.isArray(req.images), `images 应为数组: ${JSON.stringify(req.images)}`)
+    eq(req.images.length, 1, 'images.length')
+    eq(req.images[0], path.resolve(img), 'images[0] 应为解析后绝对路径')
+    eq(req.query, '看图', 'query')
+  })
+
+  await test('C19. 纯 --image（无 query）→ req.query 空串 + images 非空', async () => {
+    mockRequests.length = 0
+    mockHandler = async () => ({ success: true, data: { taskId: 't-19', phase: 'queued' } })
+    const img = path.join(TMP, 'c19.png')
+    fs.writeFileSync(img, 'PNG')
+    const r = await runCli(['--json', 'task', 'submit', '--platform', 'gemini', '--image', img], { env })
+    eq(r.code, 0, 'exit')
+    eq(lastReq().query, '', 'query 应为空串')
+    eq(lastReq().images.length, 1, 'images.length')
   })
 }
 

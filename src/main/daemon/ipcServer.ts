@@ -26,6 +26,7 @@ interface DaemonRequest {
   taskId?: string
   platform?: string
   query?: string
+  images?: string[]
   mode?: string
   conversationUrl?: string
   timeoutMs?: number
@@ -124,11 +125,13 @@ function buildSubmitRequest(req: DaemonRequest): AgentTaskSubmitRequest {
   return {
     platform: typeof req.platform === 'string' ? req.platform : '',
     query: typeof req.query === 'string' ? req.query : '',
+    ...(Array.isArray(req.images) ? { images: req.images } : {}),
     ...(typeof req.model === 'string' && req.model ? { model: req.model } : {}),
     ...(req.mode === 'deep_research' ? { mode: 'deep_research' as const } : {}),
     ...(typeof req.conversationUrl === 'string' && req.conversationUrl ? { conversationUrl: req.conversationUrl } : {}),
     ...(asFiniteNumber(req.timeoutMs) !== undefined ? { timeoutMs: asFiniteNumber(req.timeoutMs) } : {}),
-    ...(asFiniteNumber(req.queueTimeoutMs) !== undefined ? { queueTimeoutMs: asFiniteNumber(req.queueTimeoutMs) } : {})
+    ...(asFiniteNumber(req.queueTimeoutMs) !== undefined ? { queueTimeoutMs: asFiniteNumber(req.queueTimeoutMs) } : {}),
+    ...(typeof req.idempotencyKey === 'string' && req.idempotencyKey ? { idempotencyKey: req.idempotencyKey } : {})
   }
 }
 

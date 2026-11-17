@@ -392,9 +392,12 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
         }
         const saved = (res.data?.perModel ?? []).reduce((s, p) => s + p.saved, 0)
         const failed = (res.data?.perModel ?? []).reduce((s, p) => s + p.failed, 0)
+        const errList = (res.data?.perModel ?? []).flatMap(p => p.errors ?? []).filter(Boolean)
+        const errHint = errList.length ? `（${errList.slice(0, 2).join('；')}${errList.length > 2 ? ` 等${errList.length}条` : ''}）` : ''
         showNotification(
           saved && !failed ? 'success' : 'info',
-          `已下载 ${saved} 张${failed ? `，失败 ${failed} 张` : ''}${noImageCount ? `，${noImageCount} 个窗口未触发` : ''}`
+          `已下载 ${saved} 张${failed ? `，失败 ${failed} 张` : ''}${noImageCount ? `，${noImageCount} 个窗口未触发` : ''}${errHint}`,
+          6000
         )
       } catch (error) {
         showNotification('error', `下载异常: ${String(error)}`)

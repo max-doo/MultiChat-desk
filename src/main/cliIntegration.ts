@@ -49,7 +49,7 @@ function getCliCmdPath(cliDir: string | null): string | null {
 function getSkillDir(): string | null {
   const candidates = app.isPackaged
     ? [join(process.resourcesPath, 'skill', 'multichat-cli')]
-    : [join(app.getAppPath(), '.devin', 'skills', 'multichat-cli')]
+    : [join(app.getAppPath(), '.agents', 'skills', 'multichat-cli')]
   for (const dir of candidates) {
     if (existsSync(dir)) return dir
   }
@@ -93,6 +93,24 @@ export async function getCliStatus(store: Store<Record<string, unknown>>): Promi
 
 export function dismissCliHint(store: Store<Record<string, unknown>>): void {
   store.set(HINT_DISMISSED_KEY, true)
+}
+
+/**
+ * 在数据目录（daemon.token 同目录）写 cli.json 入口指示文件。
+ * Agent/脚本进程无需 PATH 或注册表即可一步定位 CLI 与 Skill 目录；覆盖安装版、便携版与 dev。
+ */
+export async function writeCliManifest(dataPath: string): Promise<void> {
+  try {
+    const manifest = {
+      appVersion: app.getVersion(),
+      cliCmdPath: getCliCmdPath(getCliDir()),
+      cliDir: getCliDir(),
+      skillDir: getSkillDir()
+    }
+    await writeFile(join(dataPath, 'cli.json'), JSON.stringify(manifest, null, 2) + '\n', 'utf8')
+  } catch (err) {
+    console.warn('[CLI] 写入 cli.json 失败:', err)
+  }
 }
 
 /**

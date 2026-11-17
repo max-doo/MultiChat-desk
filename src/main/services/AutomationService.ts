@@ -1,7 +1,7 @@
 import type Store from 'electron-store'
 import type { WebContents } from 'electron'
 import { mkdtemp, writeFile, rm } from 'fs/promises'
-import { join } from 'path'
+import { basename, join } from 'path'
 import { tmpdir } from 'os'
 import { randomUUID } from 'crypto'
 import { sessionManager } from './SessionManager'
@@ -248,6 +248,47 @@ export class AutomationService {
       cancelSignal.removeEventListener('abort', abort)
       // tempDir only comes from this operation's mkdtemp, never from renderer input.
       if (tempDir) await rm(tempDir, { recursive: true, force: true }).catch(() => console.warn('[AutomationService] 主会话附件临时目录清理失败'))
+    }
+  }
+
+  /**
+   * 后台会话逐张拖拽上传本地文件附件；每张等待平台解析稳定（found && !busy 连续 3 次）再下一张。
+   * 与 uploadMarkdownContext 共享 dispatchFileDrop + generateFileUploadStateScript 实现，
+   * 差别是文件已存在于磁盘（CLI --image 场景），无需写临时文件。
+   * @returns fileNames 供 generateSendMessageScript 的附件门控二次确认
+   */
+  public async uploadAttachments(platformId: string, filePaths: string[], sessionKey: string, signal?: AbortSignal): Promise<AutomationResponse<{ fileNames: string[] }>> {
+    try {
+      const selectors = await this.getPlatformSelectors(platformId)
+      const wc = await this.ensureSessionReady(platformId, sessionKey)
+      const fileNames: string[] = []
+      for (const filePath of filePaths) {
+        const fileName = basename(filePath)
+        if (signal?.aborted) throw new Error('附件操作已中止')
+        const point = await abortable(wc.executeJavaScript(generateFileDropPointScript(selectors)) as Promise<{ x: number; y: number }>, signal)
+        const dropped = await dispatchFileDrop(wc, filePath, point?.x ?? 10, point?.y ?? 10, signal)
+        if (!dropped.success) return { success: false, error: dropped.error || `附件拖拽上传失败: ${fileName}` }
+        const stateScript = generateFileUploadStateScript(selectors, fileName)
+        const deadline = Date.now() + 30_000
+        let stable = 0
+        let reason = '未检测到本轮附件'
+        for (;;) {
+          if (signal?.aborted) throw new Error('附件操作已中止')
+          const state = await abortable(wc.executeJavaScript(stateScript) as Promise<{ found: boolean; busy: boolean; error?: string }>, signal)
+          if (state.error) return { success: false, error: state.error }
+          stable = state.found && !state.busy ? stable + 1 : 0
+          if (stable >= 3) break
+          reason = !state.found ? '未检测到本轮附件' : '附件仍在上传或解析'
+          if (Date.now() >= deadline) {
+            return { success: false, error: `等待附件「${fileName}」上传就绪超时（30 秒）：${reason}` }
+          }
+          await abortable(new Promise<void>(resolve => setTimeout(resolve, 400)), signal)
+        }
+        fileNames.push(fileName)
+      }
+      return { success: true, data: { fileNames } }
+    } catch (error) {
+      return { success: false, error: signal?.aborted ? '附件上传已中止' : error instanceof Error ? error.message : String(error) }
     }
   }
 

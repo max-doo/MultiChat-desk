@@ -51,7 +51,8 @@ export interface AgentTask {
   platform: string
   model?: string                 // 声明元数据（一期不做页面切换）
   mode: AgentTaskMode
-  query: string
+  query: string                  // 纯图片任务可为空串
+  images?: string[]              // 图片附件绝对路径（daemon 侧已校验存在性）
   sessionKey: string             // `__agent_${platform}`
   conversationUrl?: string       // 生成期间持续捕获
   followUpUrl?: string           // 入参 --conversation（已校验平台归属）
@@ -66,6 +67,7 @@ export interface AgentTask {
   queueTimeoutMs: number         // 排队超时（默认 = timeoutMs）
   error?: AgentTaskError
   cancelRequested?: boolean
+  idempotencyKey?: string         // 调用方幂等键；submit 去重判定用，不外传
 }
 
 /** 对外任务视图（task.submit --wait / task.status / task.list 返回）。 */
@@ -107,15 +109,20 @@ export interface AgentPlatformCapability {
 export interface AgentTaskSubmitRequest {
   platform: string
   query: string
+  /** 图片附件绝对路径列表；与 query 至少一项非空。路径必须在本机存在且为文件。 */
+  images?: string[]
   model?: string
   mode?: AgentTaskMode
   conversationUrl?: string
   timeoutMs?: number
   queueTimeoutMs?: number
   waitMs?: number
+  /** 幂等键：同 platform 下同键的任务仍存活（含终态内存记录）时复用原 taskId，防止重投重复排队。 */
+  idempotencyKey?: string
 }
 
 export const AGENT_TASK_QUERY_MAX = 100_000
+export const AGENT_TASK_IMAGE_MAX = 10
 export const AGENT_TASK_DEFAULT_TIMEOUT_MS = 600_000
 export const AGENT_TASK_RESEARCH_TIMEOUT_MS = 1_800_000
 export const AGENT_TASK_MAX_TIMEOUT_MS = 7_200_000

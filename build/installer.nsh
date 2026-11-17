@@ -99,6 +99,8 @@
     ${If} $CliAddToPath == "1"
       Call AddCliDirToPath
     ${EndIf}
+    # electron-builder 不写 InstallLocation；补写供 Agent/脚本从卸载键反推安装目录定位 CLI
+    WriteRegStr SHELL_CONTEXT "${UNINSTALL_REGISTRY_KEY}" "InstallLocation" "$INSTDIR"
   !macroend
 
   !macro customFinishPage

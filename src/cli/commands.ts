@@ -1,9 +1,11 @@
 import { Command } from 'commander'
 import fs from 'fs'
+import path from 'path'
 import { sendDaemonRequest, type DaemonResponse } from './client'
 
 const QUERY_MAX_CHARS = 100_000
 const TIMEOUT_MAX_SEC = 7200
+const IMAGE_MAX_COUNT = 10
 
 function isJsonMode(cmd: Command): boolean {
   // JSON 为默认输出（Agent/脚本契约）；--text 切回人类可读
@@ -41,7 +43,7 @@ function paramError(message: string, jsonMode: boolean): never {
   process.exit(2)
 }
 
-/** 非 TTY stdin 优先于 --query-file/--query（管道输入场景）。 */
+/** 仅在未提供 --query/--query-file 时读取管道 stdin；调用方保证此处不阻塞。 */
 async function readStdinIfPiped(): Promise<string> {
   if (process.stdin.isTTY) return ''
   const chunks: Buffer[] = []
@@ -51,16 +53,23 @@ async function readStdinIfPiped(): Promise<string> {
   return Buffer.concat(chunks).toString('utf8').trim()
 }
 
+/** commander 收集器：--image 可重复出现，聚合为数组。 */
+function collect(value: string, previous: string[]): string[] {
+  return previous.concat([value])
+}
+
 interface TaskSubmitOptions {
   platform: string
   model?: string
   research?: boolean
   query?: string
   queryFile?: string
+  image?: string[]
   conversation?: string
   timeout?: string
   queueTimeout?: string
   wait?: string
+  idempotencyKey?: string
 }
 
 function parseSeconds(raw: string | undefined, flag: string, jsonMode: boolean, allowZero = false, max = TIMEOUT_MAX_SEC): number | undefined {
@@ -175,15 +184,21 @@ export function registerCommands(program: Command): void {
     .option('--research', 'Enable platform Deep Research mode before sending')
     .option('--query <text>', 'Query text')
     .option('--query-file <path>', 'Read query text from file')
+    .option('--image <path>', `Attach a local image file (repeatable, max ${IMAGE_MAX_COUNT}); query optional when given`, collect, [] as string[])
     .option('--conversation <url>', 'Follow up inside an existing conversation page URL')
     .option('--timeout <sec>', `Task hard timeout in seconds (default 600, research 1800, max ${TIMEOUT_MAX_SEC})`)
     .option('--queue-timeout <sec>', 'Queue wait timeout in seconds (default = timeout)')
     .option('--wait <sec>', 'Block server-side up to N seconds waiting for terminal state')
+    .option('--idempotency-key <key>', 'Reuse the live/finished task for the same key+platform instead of duplicating')
     .action(async (options: TaskSubmitOptions, cmd: Command) => {
       const jsonMode = isJsonMode(cmd)
       if (!options.platform) paramError('缺少必填参数 --platform', jsonMode)
-      const stdinQuery = await readStdinIfPiped()
-      let query = stdinQuery
+      // 显式 --query/--query-file 存在时跳过 stdin：stdin 优先级只服务纯管道输入；
+      // 宿主 shell 若把 stdin 挂成不关闭的管道，无条件读取会让 submit 永久阻塞。
+      let query = ''
+      if (!options.query && !options.queryFile) {
+        query = await readStdinIfPiped()
+      }
       if (!query && options.queryFile) {
         try {
           query = fs.readFileSync(options.queryFile, 'utf8').trim()
@@ -192,7 +207,20 @@ export function registerCommands(program: Command): void {
         }
       }
       if (!query && options.query) query = options.query
-      if (!query || !query.trim()) paramError('缺少 query（stdin / --query-file / --query 三选一）', jsonMode)
+
+      // 图片路径在 CLI 侧即解析为绝对路径：daemon（Electron 主进程）cwd 与调用方不同，
+      // 相对路径传过去会解析失败；存在性校验也给调用方更快的参数错误反馈（exit 2）。
+      const images: string[] = []
+      for (const raw of options.image ?? []) {
+        const abs = path.resolve(raw)
+        let isFile = false
+        try { isFile = fs.statSync(abs).isFile() } catch { /* 不存在或不可读 */ }
+        if (!isFile) paramError(`图片文件不存在或不是文件: ${raw}`, jsonMode)
+        images.push(abs)
+      }
+      if (images.length > IMAGE_MAX_COUNT) paramError(`--image 数量超过 ${IMAGE_MAX_COUNT} 张上限`, jsonMode)
+
+      if ((!query || !query.trim()) && images.length === 0) paramError('缺少 query 与 --image（stdin / --query-file / --query / --image 至少一项）', jsonMode)
       if (query.length > QUERY_MAX_CHARS) paramError(`query 超过 ${QUERY_MAX_CHARS} 字符上限`, jsonMode)
 
       const timeoutSec = parseSeconds(options.timeout, '--timeout', jsonMode)
@@ -205,16 +233,31 @@ export function registerCommands(program: Command): void {
           action: 'task.submit',
           platform: options.platform,
           query,
+          ...(images.length ? { images } : {}),
           ...(options.model ? { model: options.model } : {}),
           ...(options.research ? { mode: 'deep_research' } : {}),
           ...(options.conversation ? { conversationUrl: options.conversation } : {}),
+          ...(options.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : {}),
           ...(timeoutSec !== undefined ? { timeoutMs: Math.round(timeoutSec * 1000) } : {}),
-          ...(queueTimeoutSec !== undefined ? { queueTimeoutMs: Math.round(queueTimeoutSec * 1000) } : {}),
-          ...(waitMs > 0 ? { waitMs } : {})
+          ...(queueTimeoutSec !== undefined ? { queueTimeoutMs: Math.round(queueTimeoutSec * 1000) } : {})
         },
-        jsonMode,
-        { waitMs }
+        jsonMode
       )
+      // --wait 客户端两段化：submit 响应已带 taskId，先吐到 stderr（harness 杀死本进程
+      // 前 taskId 已可观测），再发 task.status 长轮询；daemon 协议与 stdout 契约不变。
+      if (waitMs > 0 && res.success && res.data && typeof res.data === 'object') {
+        const taskId = (res.data as { taskId?: unknown }).taskId
+        if (typeof taskId === 'string' && taskId) {
+          process.stderr.write(JSON.stringify(res.data) + '\n')
+          const view = await sendDaemonRequest(
+            { action: 'task.status', taskId, waitMs },
+            jsonMode,
+            { waitMs }
+          )
+          handleTaskViewResponse(view, jsonMode)
+          return
+        }
+      }
       handleTaskViewResponse(res, jsonMode)
     })
 

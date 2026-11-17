@@ -32,7 +32,7 @@ import qwenLogo from '../assets/logos/qwen.svg'
 import deepseekLogo from '../assets/logos/deepseek.png'
 import kimiLogo from '../assets/logos/kimi.ico'
 import chatglmLogo from '../assets/logos/chatglm.ico'
-import yiyanLogo from '../assets/logos/yiyan.ico'
+import yiyanLogo from '../assets/logos/yiyan.png'
 
 // 监控配置常量
 const MONITOR_CONFIG = {

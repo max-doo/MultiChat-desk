@@ -1,9 +1,10 @@
 import { randomUUID } from 'crypto'
-import { mkdir, readFile, readdir, rename, rm, writeFile } from 'fs/promises'
-import { join } from 'path'
+import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'fs/promises'
+import { isAbsolute, join } from 'path'
 import type { BrowserWindow, WebContents } from 'electron'
 import {
   AGENT_TASK_DEFAULT_TIMEOUT_MS,
+  AGENT_TASK_IMAGE_MAX,
   AGENT_TASK_MAX_TIMEOUT_MS,
   AGENT_TASK_PERSIST_LIMIT,
   AGENT_TASK_PERSIST_TTL_MS,
@@ -139,8 +140,18 @@ export class AgentTaskService {
       if (this.shuttingDown) throw new TaskError('SESSION_LOST', 'MultiChat 正在退出')
       const platform = typeof req.platform === 'string' ? req.platform.trim() : ''
       if (!platform) throw new TaskError('INVALID_PARAMS', '缺少必填参数 platform')
-      if (typeof req.query !== 'string' || !req.query.trim()) throw new TaskError('INVALID_PARAMS', '缺少必填参数 query')
-      if (req.query.length > AGENT_TASK_QUERY_MAX) throw new TaskError('INVALID_PARAMS', `query 超过 ${AGENT_TASK_QUERY_MAX} 字符上限`)
+      if (req.query !== undefined && typeof req.query !== 'string') throw new TaskError('INVALID_PARAMS', 'query 非法')
+      const query = typeof req.query === 'string' ? req.query : ''
+      if (query.length > AGENT_TASK_QUERY_MAX) throw new TaskError('INVALID_PARAMS', `query 超过 ${AGENT_TASK_QUERY_MAX} 字符上限`)
+
+      const images = Array.isArray(req.images) ? req.images.filter((v): v is string => typeof v === 'string' && v.trim().length > 0) : []
+      if (images.length > AGENT_TASK_IMAGE_MAX) throw new TaskError('INVALID_PARAMS', `images 超过 ${AGENT_TASK_IMAGE_MAX} 张上限`)
+      for (const imagePath of images) {
+        if (!isAbsolute(imagePath)) throw new TaskError('INVALID_PARAMS', `图片路径须为绝对路径: ${imagePath}`)
+        const info = await stat(imagePath).catch(() => null)
+        if (!info?.isFile()) throw new TaskError('INVALID_PARAMS', `图片文件不存在: ${imagePath}`)
+      }
+      if (!query.trim() && images.length === 0) throw new TaskError('INVALID_PARAMS', '缺少必填参数 query 或 images（至少一项）')
       const mode = req.mode === 'deep_research' ? 'deep_research' : 'chat'
       const model = typeof req.model === 'string' && req.model.trim() ? req.model.trim() : undefined
 
@@ -169,13 +180,25 @@ export class AgentTaskService {
       }
 
       const sessionKey = `__agent_${platform}`
+      if (req.idempotencyKey) {
+        // 幂等去重：同平台同键的内存任务（含已完成的内存视图）直接复用原 taskId，
+        // 根治调用方被杀后盲重投导致的同平台 FIFO 重复排队；跨重启不保证（不落盘）。
+        for (const existing of this.tasks.values()) {
+          if (existing.idempotencyKey === req.idempotencyKey && existing.sessionKey === sessionKey) {
+            console.log(`[AgentTask] idempotent hit taskId=${existing.id} key=${req.idempotencyKey}`)
+            return { success: true, data: { taskId: existing.id, phase: existing.phase, queuedPosition: this.queuedPosition(existing) } }
+          }
+        }
+      }
       const task: TaskEntry = {
         id: randomUUID(),
         platform,
         model,
         mode,
-        query: req.query,
+        query,
+        ...(images.length ? { images } : {}),
         sessionKey,
+        idempotencyKey: req.idempotencyKey,
         followUpUrl,
         phase: 'queued',
         reply: '',
@@ -199,7 +222,7 @@ export class AgentTaskService {
           this.finalize(task, 'failed', { code: 'QUEUE_TIMEOUT', message: `排队超过 ${Math.round(queueTimeoutMs / 1000)}s 未获得平台会话` })
         }
       }, queueTimeoutMs)
-      console.log(`[AgentTask] submit taskId=${task.id} platform=${platform} mode=${mode} queryChars=${req.query.length}`)
+      console.log(`[AgentTask] submit taskId=${task.id} platform=${platform} mode=${mode} queryChars=${query.length}${images.length ? ` images=${images.length}` : ''}`)
       this.emit()
       this.pump(sessionKey)
       return { success: true, data: { taskId: task.id, phase: task.phase, queuedPosition: this.queuedPosition(task) } }
@@ -423,10 +446,22 @@ export class AgentTaskService {
         await delay(500, signal)
       }
 
+      // 附件仍在 preparing 阶段上传：cancel 对 sending 不中止在途脚本，
+      // 提前上传可让取消请求经 abort 信号及时打断逐张拖拽轮询。
+      let attachmentFileName: string | undefined
+      if (task.images?.length) {
+        const uploaded = await automationService.uploadAttachments(task.platform, task.images, sessionKey, signal)
+        if (signal.aborted || task.cancelRequested) return this.settleAborted(task)
+        if (!uploaded.success || !uploaded.data?.fileNames.length) {
+          throw new TaskError('SEND_FAILED', uploaded.error || '图片附件上传失败')
+        }
+        attachmentFileName = uploaded.data.fileNames[uploaded.data.fileNames.length - 1]
+      }
+
       // 发送：agent 任务强制 verifySubmission（确认输入框清空才算提交成功）
       task.phase = 'sending'
       this.emit()
-      const sendScript = generateSendMessageScript(task.query, task.platform, selectors, undefined, true)
+      const sendScript = generateSendMessageScript(task.query, task.platform, selectors, attachmentFileName, true)
       const sent = await this.exec<{ success: boolean; error?: string }>(wc, sendScript, '发送消息', signal, 30_000)
       if (signal.aborted || task.cancelRequested) return this.settleAborted(task)
       if (!sent?.success) throw new TaskError('SEND_FAILED', sent?.error || '发送脚本未确认提交')
