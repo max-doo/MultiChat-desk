@@ -3,8 +3,9 @@ import { buildSkillInstallCommand } from '../utils/cliGuide'
 import type { CliIntegrationStatus } from '../../../shared/types/cli'
 
 /**
- * 首启一次性引导卡片：检测到 multichat 已加入 PATH 且用户未关闭过提示时，
- * 在主界面右下角引导用户把配套 Agent Skill 接入自己的 AI Agent；关闭后不再显示。
+ * 安装引导卡片：检测到 multichat 已加入 PATH 且本次安装后用户未关闭过提示时，
+ * 在主界面右下角引导用户把配套 Agent Skill 接入自己的 AI Agent；
+ * 关闭后不再显示，下次安装/覆盖安装（.install-stamp 标记）时重新弹出。
  */
 export default function CliAgentHint(): JSX.Element | null {
   const [status, setStatus] = useState<CliIntegrationStatus | null>(null)

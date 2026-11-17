@@ -1700,8 +1700,8 @@ export async function registerIpcHandlers(
         }
     })
 
-    ipcMain.handle('cli:dismiss-hint', () => {
-        dismissCliHint(store)
+    ipcMain.handle('cli:dismiss-hint', async () => {
+        await dismissCliHint(store)
         return { success: true }
     })
 

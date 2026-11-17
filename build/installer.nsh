@@ -1,3 +1,10 @@
+# 环境变量变更广播：SMTO_ABORTIFHUNG(0x0002) 让已挂起的顶层窗口立即跳过 + 1s 超时。
+# NSIS 自带的 SendMessage /TIMEOUT= 等价于 SMTO_NORMAL，每个无响应窗口会各吃满超时
+#（参考 Scoop #6706：27 个挂起窗口 × 5s 卡死 2 分多钟）。
+!macro McBroadcastEnvChange
+  System::Call 'user32::SendMessageTimeoutW(p 0xFFFF, i 0x001A, p 0, t "Environment", i 0x0002, i 1000, *p .r0)'
+!macroend
+
 !ifndef BUILD_UNINSTALLER
   # nsDialogs 会连带引入 LogicLib / WinMessages（HWND_BROADCAST / WM_SETTINGCHANGE / BST_CHECKED）
   !include nsDialogs.nsh
@@ -92,7 +99,7 @@
     ${EndIf}
     # WriteRegExpandStr 保住 REG_EXPAND_SZ，避免展开型 PATH 项被固化
     WriteRegExpandStr HKCU "Environment" "Path" $1
-    SendMessage ${HWND_BROADCAST} ${WM_SETTINGCHANGE} 0 "STR:Environment" /TIMEOUT=5000
+    !insertmacro McBroadcastEnvChange
   FunctionEnd
 
   !macro customInstall
@@ -101,6 +108,10 @@
     ${EndIf}
     # electron-builder 不写 InstallLocation；补写供 Agent/脚本从卸载键反推安装目录定位 CLI
     WriteRegStr SHELL_CONTEXT "${UNINSTALL_REGISTRY_KEY}" "InstallLocation" "$INSTDIR"
+    # 覆盖安装标记：每次安装/更新都重写，应用内 Agent Skill 引导据此重新弹出，用户关闭时清除
+    FileOpen $0 "$INSTDIR\cli\.install-stamp" w
+    FileWrite $0 "1"
+    FileClose $0
   !macroend
 
   !macro customFinishPage
@@ -228,7 +239,7 @@
     ${EndWhile}
     ${If} $R1 == "1"
       WriteRegExpandStr HKCU "Environment" "Path" $R0
-      SendMessage ${HWND_BROADCAST} ${WM_SETTINGCHANGE} 0 "STR:Environment" /TIMEOUT=5000
+      !insertmacro McBroadcastEnvChange
     ${EndIf}
   FunctionEnd
 

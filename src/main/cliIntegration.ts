@@ -4,6 +4,7 @@
  * - 支持应用内一键补挂 PATH（保持 REG_EXPAND_SZ 并广播 WM_SETTINGCHANGE）
  * - 定位随包分发的 Agent Skill 目录
  * PATH 注册由安装包 build/installer.nsh 的复选框负责首装，卸载时自动移除；
+ * 安装包每次安装写入 cli/.install-stamp 标记，用于让 Agent Skill 引导在覆盖安装后重新弹出；
  * 本模块只覆盖"未勾选/便携版手动补挂"与状态展示。
  */
 import { app, shell } from 'electron'
@@ -19,6 +20,13 @@ import type { CliIntegrationStatus } from '../shared/types/cli'
 const execFileAsync = promisify(execFile)
 
 const HINT_DISMISSED_KEY = 'cliAgentHintDismissed'
+const INSTALL_STAMP_FILE = '.install-stamp'
+
+/** 覆盖安装标记：NSIS customInstall 每次安装写入，用户在应用内关闭引导时清除 */
+function hasInstallStamp(): boolean {
+  const cliDir = getCliDir()
+  return cliDir !== null && existsSync(join(cliDir, INSTALL_STAMP_FILE))
+}
 
 /** multichat shim 目录：仅打包版有实体文件（$INSTDIR\cli） */
 function getCliDir(): string | null {
@@ -84,15 +92,19 @@ export async function getCliStatus(store: Store<Record<string, unknown>>): Promi
     supported,
     isPackaged: app.isPackaged,
     onPath,
-    hintDismissed: store.get(HINT_DISMISSED_KEY, false) === true,
+    hintDismissed: store.get(HINT_DISMISSED_KEY, false) === true && !hasInstallStamp(),
     cliDir,
     cliCmdPath,
     skillDir: getSkillDir()
   }
 }
 
-export function dismissCliHint(store: Store<Record<string, unknown>>): void {
+export async function dismissCliHint(store: Store<Record<string, unknown>>): Promise<void> {
   store.set(HINT_DISMISSED_KEY, true)
+  const cliDir = getCliDir()
+  if (cliDir) {
+    await rm(join(cliDir, INSTALL_STAMP_FILE), { force: true }).catch(() => undefined)
+  }
 }
 
 /**
