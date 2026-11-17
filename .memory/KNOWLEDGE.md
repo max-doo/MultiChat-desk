@@ -282,6 +282,8 @@ Do not copy ordinary session history here. Promote only stable knowledge that is
 
 - **extraResources 按文件系统取文件，未提交进 git 的文件照样进安装包**：`run_task.ps1` 曾长期 `??` 未跟踪（非 .gitignore），本地打包一直带上它，但干净克隆或 CI 会静默缺文件。迁移/新增随包资源时顺手核对 `git status` 的 `??` 条目，确认该跟踪的都 `git add`。
 
+- **NSIS 环境变量广播会按每个挂起窗口累计阻塞**：`SendMessage ${HWND_BROADCAST} ${WM_SETTINGCHANGE} ... /TIMEOUT=5000` 等价 `SendMessageTimeoutW` + `SMTO_NORMAL`，超时按每个无响应顶层窗口分别累计（27 个挂起窗口 × 5s ≈ 卡死 2 分钟+，Scoop #6706 同型；桌面浏览器/IDE/终端挂起窗口很常见）。修复：`System::Call` 直调 `SendMessageTimeoutW(..., SMTO_ABORTIFHUNG(0x0002), 1000, ...)`，已挂起窗口立即跳过，典型 <100ms——`installer.nsh` 的 `McBroadcastEnvChange` 宏（装/卸两处共用，宏定义在 `!ifndef BUILD_UNINSTALLER` 之外两侧可见）；要彻底零阻塞可换 `SendNotifyMessage` 异步投递（注册表先于广播写好，PATH 场景无送达时序依赖）。
+
 
 ### 13. 历史架构与版本限定经验
 

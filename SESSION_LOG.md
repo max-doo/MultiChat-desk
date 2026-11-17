@@ -2,6 +2,34 @@
 
 ## 2026-11-17
 
+### 18:49 | agent
+
+- done: 修复 NSIS 安装器 PATH 广播卡死：SendMessage(SMTO_NORMAL,5s/窗) 改为 System::Call SendMessageTimeoutW + SMTO_ABORTIFHUNG + 1s 宏（装/卸两处）；同批提交另一会话的 .install-stamp 覆盖安装重弹引导；已重新构建 dist/MultiChat Setup 1.3.1.exe（17:01）
+- modified:
+  - `build/installer.nsh`
+  - `src/main/cliIntegration.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/renderer/src/components/CliAgentHint.tsx`
+  - `dist/MultiChat Setup 1.3.1.exe`
+- lesson(promoted): NSIS SendMessage /TIMEOUT= 是 SMTO_NORMAL：HWND_BROADCAST 超时会按每个无响应顶层窗口累计，桌面挂起窗口多时安装器可卡死分钟级；修复要么 SMTO_ABORTIFHUNG+短超时，要么 SendNotifyMessage 异步（Scoop #6706）
+
+### 17:00 | agent
+
+- done: 让 Agent Skill 引导卡片在每次安装/覆盖安装后重新弹出；梳理设置面板 PATH 状态逻辑
+- context: 用户反馈重装安装包后不再弹出 Agent Skill 引导，根因是 cliAgentHintDismissed 存于 electron-store config.json，卸载不清除
+- decision: 用 NSIS customInstall 写入 cli/.install-stamp 标记方案，而非按版本号重置 dismissed 标记，以覆盖同版本覆盖安装场景
+- modified:
+  - `build/installer.nsh`
+  - `src/main/cliIntegration.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/renderer/src/components/CliAgentHint.tsx`
+
+### 16:41 | agent
+
+- done: 提交待入库改动（feat: skill 迁移 .agents + 生图下载选择器 + CLI Agent 链路；chore: 记忆层）并重新构建 NSIS 安装包 dist/MultiChat Setup 1.3.1.exe（electron-builder 签名通过，覆盖同版本旧产物）
+- modified:
+  - `dist/MultiChat Setup 1.3.1.exe`
+
 ### 16:34 | agent
 
 - done: 仓库 skill 源从 .devin/skills/multichat-cli 迁移到 .agents/skills/multichat-cli：git mv 三个文件（SKILL.md、run_task.sh、run_task.ps1），同步 electron-builder.yml / electron-builder-portable.yml 的 extraResources from、cliIntegration.ts dev 回退、cli.ts 注释；顺带将一直未跟踪的 run_task.ps1 纳入 git
