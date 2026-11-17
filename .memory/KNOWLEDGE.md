@@ -44,6 +44,8 @@ Do not copy ordinary session history here. Promote only stable knowledge that is
 
 - **Webview 加载失败提示的三个静默漏洞**（WebviewCard 加载失败无提示回归修复得出）：① **`chrome-error://` 被当成功加载**：Chromium 对连接/DNS/SSL 错误（`ERR_CONNECTION_REFUSED`/`ERR_NAME_NOT_RESOLVED`/`ERR_SSL_PROTOCOL_ERROR` 等）会直接渲染内部 `chrome-error://` 错误页并**正常走完 `dom-ready`→`did-stop-loading`，主帧 `did-fail-load` 不再发出**。`handleDomReady` 检测到 `chrome-error://`/`data:text/html` 时若裸 `return`（不清计时器也不设 `loadError`），覆盖层永远不弹，用户只见白屏或 Chromium 自带错误页。**修复**：该分支必须主动 `clearLoadTimers()`+`setIsLoading(false)`+`setLoadError({category:'connection', errorCode:null, ...})`。② **慢速失败超时被 `did-stop-loading` 清掉**：`handleLoadStop` 第一行 `clearLoadTimers()`，若 Chromium 在失败路径上先发一次中间态 `did-stop-loading`，30s 超时兜底被清，之后既无 `did-fail-load` 也无超时，覆盖层不出现。**修复**：`handleLoadStop` 在 `loadError` 已存在或 `getURL()` 仍处 `chrome-error://` 残留态时短路 `return`（只 `syncNavigationState()`），不清计时器/不改状态。③ **休眠唤醒后 `-3` 静默**：`resume()` 重载 URL 时未把 `isFirstLoadRef.current` 置 `true`，唤醒后遇 `-3`（TUN/路由切换中断常见）走 `if (isFirstLoadRef.current)` 分支为 false → 不设 `loadError`。**修复**：`resume()` 中 `setIsHibernated(false)` 后立即 `isFirstLoadRef.current=true`。判别：连接类失败无覆盖层、慢速失败无超时兜底、唤醒失败静默 = 命中本坑。**关联**：与 `urlMismatch` 不能在加载途中触发的既有坑（KNOWLEDGE 上条）同属 WebviewCard 加载事件链，改动时一并审。
 
+- **平台图片下载 DOM 选择器适配经验（image-download-dom 7 家实测得出）**：写 `imageDownload.steps` 时优先用语义 hook——`aria-label` / `data-testid` / `data-icon-button` / `data-image-resource-id` / 语义标签（`download-generated-image-button`），**避开 CSS Modules 哈希后缀类**（`grok-XXX`、`D5bm-XXXXX`、`imageItem-XXXXX`）。中文 UI 平台补中文 label，同时加英文兜底（`下载`/`Download`、`保存`/`Save`、`关闭`/`Close`）。**实测踩过的坑**：ChatGPT 预览 header 下载按钮 aria-label 已从"保存"改成"下载"（UI 改版致旧选择器失效）；豆包生图下载链从 hover 浮层改为"点 `[data-testid=mdbox_image]` → 点 `[data-testid=edit_image_download_button]`"；文心一言 action bar 用 `i.cos-icon-download`（i 元素不是 button，无 aria-label，靠 class 名定位）；Grok 生图旁 `button[aria-label="下载"]` + `data-icon-button` 一键直触下载无需开预览；千问 `popMenuItem` 默认 `invisible`，**必须 hover 触发**且下载项无 aria-label/text，只能靠 `popMenuItem:has(svg[class*="downloadIcon"])` 或 `:nth-of-type(2)` 定位；元宝下载按钮 aria-label 是**小写英文 `download`**（不是"下载"），预览组件是 `hyc-photo-view-chrome-v2`。**iab（Codex 内置浏览器）与 MultiChat `persist:shared` session 不共享登录态**，跨 session 验证要单独登录；智谱 chatglm.cn 有滑块 CAPTCHA 反爬。iab 用 `mcp__cua_repl__js` 的 `cua.listTabs/getTab/createBrowserTab` 驱动，`tab.playwright.evaluate` 只读 DOM（不能 dispatchEvent），`tab.playwright.waitForEvent('download')` 可验证下载触发。
+
 
 ### 2. 深度研究与跨 frame 提取
 
@@ -147,6 +149,12 @@ Do not copy ordinary session history here. Promote only stable knowledge that is
 
 - **`WebContents.findInPage` 的 `findNext` 参数语义相反**：Electron `WebContents::FindInPage` 底层 C++ 将 `options.findNext` 直接映射给 `blink::mojom::FindOptions::new_session`。因此首次搜索或修改关键词时需传 `findNext: true`（开启新查找会话），而上下步进跳转时需传 `findNext: false`（延续当前查找会话）。
 
+- **macOS 26 System Events 移除了 `focused UI element` 对象语法**：`focused UI element of <process>` 在 macOS 26 编译报错 -2741；改读进程属性 `value of attribute "AXFocusedUIElement"`（selectionReader.ts）。AX/系统事件脚本跨版本易失效，升级 macOS 后需实测。
+
+- **macOS 红绿灯定位须用 `titleBarStyle: 'hidden'` + `trafficLightPosition`**：`trafficLightPosition` 对 `hiddenInset` 不生效（Inset 强制内嵌位）；坐标是 OS 点单位，红绿灯圆心≈设定值+6.5，无头机截屏像素坐标≠OS 坐标需按实际像素对齐。
+
+- **macOS Tray 彩色图标不能走 template 且方法在 nativeImage 上**：template image 只保留 alpha 剪影会渲染成黑色；要显示彩色应用图标不能调 `setTemplateImage`，图标建议 `resize` 到 ~22px。`Tray` 实例本身没有 `setTemplateImage` 方法（误调直接崩溃），应对 `nativeImage` 调用 `nativeImage.setTemplateImage(true)`；`assets/` 下无 `tray-iconTemplate.png` 时回退 `logo.png`。
+
 
 ## Stable Decisions
 
@@ -231,6 +239,14 @@ Do not copy ordinary session history here. Promote only stable knowledge that is
 
 - **session_log.py 在 GBK 控制台打印 Unicode 会崩**：Windows GBK 终端无法编码 lesson 候选中的 `↔`/emoji 等字符，`main()` 打印 candidates 时 UnicodeEncodeError（日志本身已写入，崩在提示阶段）。修复：`main()` 开头 `sys.stdout.reconfigure(encoding="utf-8", errors="replace")`。
 
+- **`.cmd` 批处理 shim 的 `endlocal` 会吞掉子进程退出码**：`setlocal`/`endlocal` 配对中 `endlocal` 把 ERRORLEVEL 恢复到 setlocal 前的值，shim 末行裸写 `endlocal` 导致 CLI 永远 exit 0（≤1.3.1 安装版实测 `task submit` 失败仍返回 0）。正确写法 `endlocal & exit /b %ERRORLEVEL%`——`%ERRORLEVEL%` 在行解析时展开，先于 `endlocal` 执行取到真实码。下游脚本/Agent 在修复铺量前必须按 JSON `success`/`code` 字段判错，不能信退出码。
+
+- **PowerShell 任务脚本两个坑**：① 函数 `return @($x)` 的单元素数组在赋值给变量时被 PS 解包成标量，`$v[0]` 取到的是字符串首字符——调用处必须 `$v = @(Func)` 强制数组；② 包装脚本里显式 `-Query`/`-QueryFile` 参数必须先于 stdin 读取判定，宿主 shell 若把 stdin 挂成不关闭的管道，`[Console]::In.ReadToEnd()` 会永久阻塞（复现了 CLI `readStdinIfPiped` 在 Agent shell 卡死的同类隐患）。
+
+- **`task submit --image` 附件确认按文件名匹配，非全平台通用**：`--image` 链路（CLI 解析绝对路径 → `images[]` 透传 → `uploadAttachments` 逐张 `dispatchFileDrop` + `generateFileUploadStateScript` 轮询 → send 脚本 `attachmentFileName` 门控）在 ChatGPT 实测图文/纯图均通过，但 Gemini 上 30s 超时"未检测到本轮附件"——该状态脚本按文件名文本/`aria-label`/`title`/`data-file-name` 在 composer 子树匹配，图片类附件很多平台只渲染缩略图不落文件名。若要对这类平台放行，需在 upload state 检测里补非文件名信号（如 composer 内新增 img/附件节点计数），改之前先确认 drop 真落上去了而非文件名漏检。
+
+- **`submit --wait` 的防丢 taskId 两段化要在客户端做而非协议层**：正确实现是 CLI 先发无 waitMs 的 `task.submit` 立即拿 taskId → 把 ack JSON 吐 **stderr** → 再发 `task.status waitMs` 长轮询；daemon 协议与 stdout 契约零改动，新旧 CLI/daemon 任意交叉兼容。若改 daemon 在 submit 上先回一行 ack 再挂起，旧 client（首行 `\n` 即 resolve+cleanup）会把 ack 当最终响应提前退出。**配套**：`readStdinIfPiped` 改为仅未给 `--query`/`--query-file` 时读 stdin，根治宿主开放管道挂死；`--idempotency-key` 在同 sessionKey 的内存任务表去重（终态也命中），跨重启不落盘。
+
 
 ### 12. 构建、打包与开发验证
 
@@ -257,6 +273,14 @@ Do not copy ordinary session history here. Promote only stable knowledge that is
 - **electron-builder `nsis.include` 注入到生成脚本头部，自定义代码须自带依赖**：`build/installer.nsh` 被 `scriptGenerator.include` 插到 makensis 脚本最前（先于 installer.nsi 的 common.nsh/MUI2/UAC→LogicLib），其中顶层 `Function` 体在定义点立即解析，用到的宏必须在本文件自行 `!include`——`nsDialogs.nsh` 会连带引入 `LogicLib.nsh`+`WinMessages.nsh`（含 `HWND_BROADCAST`/`WM_SETTINGCHANGE`/`BST_CHECKED`），而 `!macro` 体则延迟到插入点展开可依赖后文。可用钩子：`customInit`（.onInit 内设默认值，覆盖静默安装）、`customPageAfterChangeDir`（目录页后插 `Page custom`，MUI_HEADER_TEXT 不可用需用 `GetDlgItem 1037/1038`+`WM_SETTEXT` 改页头）、`customInstall`（装完文件后执行）、`customUnInstall`（卸载清理）。写用户 PATH 用 `WriteRegExpandStr HKCU Environment Path` 保住 `REG_EXPAND_SZ` 并 `SendMessage ${HWND_BROADCAST} ${WM_SETTINGCHANGE}` 广播；移除时分号分段精确匹配 `$INSTDIR\cli`，避免前缀误伤。
 
 - **Electron 系 IDE 终端自带 `ELECTRON_RUN_AS_NODE=1`，起 dev 必须清除**：Devin/VSCode 等 Electron 应用的集成终端会向子进程继承 `ELECTRON_RUN_AS_NODE=1`，`npm run dev` 启动的 electron 退化为纯 Node，`require('electron').app` 为 undefined，main  bundle 顶层 `app.isPackaged` 处即崩（Cannot read properties of undefined）。用 `env -u ELECTRON_RUN_AS_NODE npm run dev`（bash）或先 `Remove-Item Env:ELECTRON_RUN_AS_NODE`（PowerShell）再启动；该变量非用户/系统环境变量，普通终端不受影响。
+
+- **macOS Dock 图标显大通常是图稿没有留边距**：Apple 图标规范图稿约占画布 82% 并配透明边距，不是尺寸问题；`sips` 无合成能力，可用 Swift/AppKit `NSImage` 生成带透明边距的 PNG（`build/generate-mac-assets.sh`、`assets/dock-icon.png`），dev Dock 图标与打包 icns 共用该图。
+
+- **electron-builder NSIS 卸载键不写 `InstallLocation`**：1.3.1 实测 `HKLM\...\Uninstall\<appId>` 只有 `DisplayIcon`（`<dir>\MultiChat.exe,0`）与 `UninstallString`（`"<dir>\Uninstall MultiChat.exe" /allusers`）。Agent/脚本要定位安装目录（如找 `cli\multichat.cmd`）须反推：`DisplayIcon` 截 `,` 后缀取 dirname，或 `UninstallString` 取首个引号路径 dirname；HKCU/HKLM/WOW6432Node 三视图都查一遍。已在 `installer.nsh` `customInstall` 补写 `WriteRegStr SHELL_CONTEXT "${UNINSTALL_REGISTRY_KEY}" "InstallLocation" "$INSTDIR"`（卸载键名 = `UUID.v5(appId)`，模板 define `UNINSTALL_REGISTRY_KEY`/`SHELL_CONTEXT` 随 per-user/allusers 自动选 HKCU/HKLM）。
+
+- **electron-builder `extends` 对数组字段是覆盖语义非合并**：`electron-builder-portable.yml` 重定义 `extraResources` 时父配置条目全部丢失——曾静默丢 `skill/multichat-cli` 资源目录。派生配置重定义数组字段（extraResources/files/extraFiles 等）必须重复声明父配置全部所需条目。
+
+- **extraResources 按文件系统取文件，未提交进 git 的文件照样进安装包**：`run_task.ps1` 曾长期 `??` 未跟踪（非 .gitignore），本地打包一直带上它，但干净克隆或 CI 会静默缺文件。迁移/新增随包资源时顺手核对 `git status` 的 `??` 条目，确认该跟踪的都 `git add`。
 
 
 ### 13. 历史架构与版本限定经验

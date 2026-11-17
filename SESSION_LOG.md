@@ -1,6 +1,169 @@
 # Session Log
 
+## 2026-11-17
+
+### 16:34 | agent
+
+- done: 仓库 skill 源从 .devin/skills/multichat-cli 迁移到 .agents/skills/multichat-cli：git mv 三个文件（SKILL.md、run_task.sh、run_task.ps1），同步 electron-builder.yml / electron-builder-portable.yml 的 extraResources from、cliIntegration.ts dev 回退、cli.ts 注释；顺带将一直未跟踪的 run_task.ps1 纳入 git
+- added:
+  - `.agents/skills/multichat-cli/SKILL.md`
+  - `.agents/skills/multichat-cli/scripts/run_task.sh`
+  - `.agents/skills/multichat-cli/scripts/run_task.ps1`
+- modified:
+  - `electron-builder.yml`
+  - `electron-builder-portable.yml`
+  - `src/main/cliIntegration.ts`
+  - `src/shared/types/cli.ts`
+- removed:
+  - `.devin/skills/multichat-cli`
+- lesson(promoted): run_task.ps1 历史上从未被 git 跟踪（非 ignore），打包靠文件系统带上；仓库迁移类操作要顺手核对 git status 里的 ?? 文件
+
+### 16:24 | agent
+
+- done: 复制安装命令的 skills 目标目录从 .devin/skills 改为跨客户端通用约定 .agents/skills（项目级）与 ~/.agents/skills（全局），附兜底说明'客户端有专属目录时按其约定'
+- decision: 采用 .agents/skills 而非 .agent：agentskills.io 规范、Cursor/Codex/OpenCode、skills.sh 生态均以复数 .agents/skills 为 canonical 位置
+- modified:
+  - `src/renderer/src/utils/cliGuide.ts`
+
+### 16:22 | Codex
+
+- done: 图片下载 DOM 适配落地：7 家平台实测选择器写入 selectors.ts；Kimi/智谱/DeepSeek 用户确认跳过
+- context: 一键批量下载改走平台 UI 原生下载链；iab 浏览器实测 DOM 结构；choose aria-label/data-testid/data-icon-button 语义 hook，避开 CSS 哈希类名
+- added:
+  - `docs/image-download-dom/{chatgpt`
+  - `gemini`
+  - `yiyan`
+  - `doubao`
+  - `grok`
+  - `qwen`
+  - `yuanbao`
+  - `kimi`
+  - `chatglm`
+  - `perplexity`
+  - `arena}.md`
+- modified:
+  - `src/shared/config/selectors.ts`
+  - `docs/image-download-dom/README.md`
+- lesson(promoted): ChatGPT 下载按钮 aria-label 从 '保存' 改成了 '下载'；豆包 UI 改版从 hover 浮层改为点图→预览→testid 下载；Grok/文心/Gemini 有稳定的语义 hook（aria-label/data-icon-button/cos-icon-download）可一键下载无需开预览
+
+### 16:20 | Codex
+
+- done: Grok/千问/元宝 imageDownload DOM 实测并落地 selectors.ts
+- context: iab 内置浏览器实测 12 家 AI 平台生图下载入口；Grok/千问/元宝本轮完成，Kimi 未登录、智谱滑块验证未解、DeepSeek 不生图跳过
+- added:
+  - `docs/image-download-dom/grok.md`
+  - `docs/image-download-dom/qwen.md`
+  - `docs/image-download-dom/yuanbao.md`
+- modified:
+  - `src/shared/config/selectors.ts`
+  - `docs/image-download-dom/README.md`
+- removed:
+  - `docs/image-download-dom/grok.md`
+  - `docs/image-download-dom/qwen.md`
+  - `docs/image-download-dom/yuanbao.md(重写)`
+- lesson: iab 登录态与 MultiChat persist:shared session 不共享，需各平台独立登录；智谱 chatglm.cn 有滑块反爬；Playwright evaluate 是 read-only，不能 dispatchEvent
+
+### 15:58 | Codex
+
+- done: 实测4家AI平台图片下载DOM并更新imageDownload选择器
+- context: 用户反馈一键批量下载图片部分平台失败/低质，需逐平台探索DOM改走原生UI下载
+- decision: imageDownload.steps保持两步结构(点开预览→点下载按钮)，优先用语义aria-label/data-testid而非hash class
+- added:
+  - `docs/image-download-dom/README.md;docs/image-download-dom/chatgpt.md;docs/image-download-dom/gemini.md;docs/image-download-dom/doubao.md;docs/image-download-dom/yiyan.md;docs/image-download-dom/qwen.md;docs/image-download-dom/kimi.md;docs/image-download-dom/yuanbao.md;docs/image-download-dom/chatglm.md;docs/image-download-dom/grok.md;docs/image-download-dom/perplexity.md;docs/image-download-dom/arena.md`
+- modified:
+  - `src/shared/config/selectors.ts`
+- unresolved: Grok/千问/元宝三家登录后未实测DOM；智谱被滑块拦；Kimi未登录。等待CUA工具恢复或用户手动确认
+
+### 15:50 | agent
+
+- done: CLI task submit 接入 --image 图片上传：CLI 解析绝对路径并校验文件存在，daemon 透传 images，AgentTaskService 复用 dispatchFileDrop 逐张拖拽上传 + generateFileUploadStateScript 确认解析，最后经 generateSendMessageScript(attachmentFileName) 门控发送；query 与 image 至少其一；同步 SKILL.md/run_task 包装脚本/验收脚本用例，ChatGPT 图文与纯图片两条链路实测通过
+- modified:
+  - `src/shared/types/agentTask.ts;src/main/services/AutomationService.ts;src/main/services/AgentTaskService.ts;src/main/daemon/ipcServer.ts;src/cli/commands.ts;scripts/agent-cli-acceptance.mjs;.devin/skills/multichat-cli/SKILL.md;.devin/skills/multichat-cli/scripts/run_task.sh;.devin/skills/multichat-cli/scripts/run_task.ps1`
+- lesson(promoted): dev 环境 ELECTRON_RUN_AS_NODE=1 残留会让 electron 以纯 Node 模式启动即崩（isPackaged undefined），须 env -u 彻底移除而非置空；图片附件在部分平台不渲染文件名，generateFileUploadStateScript 按文件名匹配在 Gemini 上 30s 超时（ChatGPT 正常），属平台适配差异非链路 bug
+- unresolved: Gemini 平台 --image 上传检测超时（附件状态脚本按文件名匹配，图片缩略图无文件名渲染或未接受 drop），后续若要全平台需为图片类附件增加非文件名的存在性检测
+
+### 11:29 | agent
+
+- done: 精简 CLI/Skill 引导：安装后引导卡片只保留'复制安装命令（给 Agent）'与'打开 Skill 目录'两个动作；剪贴板内容改为一句 Agent 可执行的安装指令（含 skillDir 源路径，项目/全局目标由 Agent 决定）；设置页'命令行与 Agent 集成'砍掉大段说明文字，改为与'模型下拉列表排序'一致的标题+一行说明+右侧操作密度，已加 PATH 时隐藏 CLI 路径行
+- decision: 复制内容用自然语言安装指令而非 shell 命令：跨平台且让 Agent 自行决定装到项目 .devin/skills 还是全局 ~/.devin/skills
+- modified:
+  - `src/renderer/src/components/CliAgentHint.tsx`
+  - `src/renderer/src/components/CliIntegrationSection.tsx`
+  - `src/renderer/src/utils/cliGuide.ts`
+
+### 11:07 | agent
+
+- done: 更新 Gemini 与文心一言平台图标为官方现行版本
+- context: gemini.png 换成 Google 2025-07 启用的圆角四芒星彩色渐变新 logo（Wikimedia 官方 SVG 渲染 960px 源缩放至 256px）；yiyan 图标换成 chat.baidu.com webmanifest 官方 512px 文心助手图标（蓝紫圆角声波方块），格式由 .ico 改为 .png 并同步 import
+- added:
+  - `src/renderer/src/assets/logos/yiyan.png`
+- modified:
+  - `src/renderer/src/assets/logos/gemini.png`
+  - `src/renderer/src/store/appStore.ts`
+- removed:
+  - `src/renderer/src/assets/logos/yiyan.ico`
+- lesson: Wikimedia Commons 缩略图已限流标准尺寸（256px 请求 400），应通过 API iiurlwidth 取最近标准桶（330px/960px）再用 System.Drawing 缩放；找中文站点现行图标可查其 webmanifest 的 icons 字段，比 favicon 更准
+
+### 10:47 | agent
+
+- done: 修复 tsconfig.web.json 的 baseUrl 弃用告警：移除 baseUrl，paths 改为 ./ 相对路径（TS6.0 迁移写法）
+- modified:
+  - `tsconfig.web.json`
+- lesson: tsconfig.web.json 缺少 target 导致存量 TS2802（Map 迭代需 es2015+）等 12 个类型错误，与本次改动无关；验证存量错误需 stash 对比
+
 ## 2026-11-16
+
+### 23:14 | agent
+
+- done: 实施评审 P0-P3 全部代码层根治项：commands.ts 显式 query 参数跳过 readStdinIfPiped（根治开放 stdin 管道挂死）+ submit --wait 客户端两段化（stderr 早吐 taskId ack，实测对 1.3.1 daemon 正常）；idempotencyKey 全链贯通（CLI flag→ipcServer buildSubmitRequest→AgentTaskService 同 sessionKey 内存去重）；index.ts 启动写 cli.json（cliCmdPath/skillDir，覆盖便携版）；electron-builder-portable.yml 补回 skill extraResources（extends 数组覆盖语义，原为缺 skill 的 bug）；installer.nsh customInstall 补写 InstallLocation 到卸载键；SKILL.md/双包装脚本同步新契约与 --idempotency-key
+- context: 评审 P0-P3 落地；端到端对运行中的 1.3.1 daemon 实测：stdin 跳过/管道读取/两段式 stderr ack/cancel/task list 均正常；daemon 侧新功能（幂等键、cli.json）因已装实例占管无法实测，留 dev 验证
+- modified:
+  - `src/cli/commands.ts`
+  - `src/shared/types/agentTask.ts`
+  - `src/main/daemon/ipcServer.ts`
+  - `src/main/services/AgentTaskService.ts`
+  - `src/main/cliIntegration.ts`
+  - `src/main/index.ts`
+  - `electron-builder-portable.yml`
+  - `build/installer.nsh`
+  - `.devin/skills/multichat-cli/SKILL.md`
+  - `.devin/skills/multichat-cli/scripts/run_task.ps1`
+  - `.devin/skills/multichat-cli/scripts/run_task.sh`
+- lesson(promoted): electron-builder extends 对 extraResources 等数组字段是覆盖语义非合并：portable yml 重定义时必须重复声明父配置全部条目，否则静默丢资源（本次便携版丢 skill 目录实证）
+- lesson(promoted): submit --wait 的正确两段化在客户端而非协议层：daemon 协议不变（client 先 submit 无 wait 回 taskId 吐 stderr 再 task.status 长轮询），新旧 CLI/daemon 交叉兼容；若在 daemon 侧加 ack 先行响应，旧 client 首行即 resolve 会提前退出
+- unresolved: daemon 侧新代码（idempotencyKey 去重、writeCliManifest）需在安装版退出后 npm run dev 实测：关闭 MultiChat → npm run dev → node out/cli/index.js task submit --platform deepseek --query x --idempotency-key k1 两次应返回同 taskId；%APPDATA%\multichat-dev\cli.json 应生成
+
+### 23:02 | agent
+
+- done: 独立评审后修复 skill 脚本层缺陷：run_task.ps1 重构为两段式（submit 不带 --wait 先拿 taskId 吐 stderr → status --wait 轮询）、MULTICHAT_CLI 先 Test-Path 再分词（修含空格路径自伤）、CLI 调用统一 '' | 给空 stdin（堵住子进程继承开放管道的挂死）、Poll/Timeout 加 ValidateRange、加 Get-Process 便携版兜底解析；run_task.sh 同步两段式+taskId ack+stdin 防护+JSON success 判错（原退出码判错对已装 shim 无效）；SKILL.md 补开放 stdin 管道警告、便携版无卸载键说明、data.phase 终态判定表述、Get-Process 备选定位
+- context: subagent 独立评审结论：方案近优但缺 CLI 代码层根治；electron-builder-portable.yml 重定义 extraResources 会丢 skill 目录（extends 数组覆盖语义，疑似 bug 待修）
+- modified:
+  - `.devin/skills/multichat-cli/SKILL.md`
+  - `.devin/skills/multichat-cli/scripts/run_task.ps1`
+  - `.devin/skills/multichat-cli/scripts/run_task.sh`
+- lesson(promoted): 评审抓到的关键缺口：文档层缓解（两段式/警告）无法根治 CLI 源码缺陷——readStdinIfPiped 无条件先读 stdin 会让开放管道场景下所有提交挂死（连 --query-file 也救不了）；submit --wait 被杀丢 taskId 需客户端两段化（submit 不带 wait 先回 stderr ack 再 status 长轮询）
+- unresolved: CLI 代码层根治项待定：readStdinIfPiped 显式参数跳过、submit --wait 客户端两段化、cli.json 入口指示文件、portable extraResources 补 skill、installer 补写 InstallLocation、idempotencyKey 幂等提交
+
+### 22:48 | agent
+
+- done: 修复 multichat-cli skill 的 Agent 调用摩擦：SKILL.md 补注册表确定性入口定位、两段式 submit/status 后台等待范式、被杀调用≠任务取消的恢复警告、Windows 引号坑与旧 shim 吞退出码警告（顺带修正 run_task.sh 示例中不存在的 --wait 参数）；新增 run_task.ps1（自解析入口+临时文件传 query+JSON success 判定）；修复 multichat.cmd endlocal 吞 ERRORLEVEL 的退出码 bug
+- context: Devin 会话截图显示 agent 调 multichat CLI 走了 15+ 步：PATH 陈旧找不到入口 5 步 + submit --wait 前台超时被杀丢 taskId 重投 + 多次 status 轮询
+- added:
+  - `.devin/skills/multichat-cli/scripts/run_task.ps1`
+- modified:
+  - `.devin/skills/multichat-cli/SKILL.md`
+  - `build/cli/multichat.cmd`
+- lesson(promoted): cmd 批处理 setlocal/endlocal 会把子进程 ERRORLEVEL 复位吞掉退出码：退出码必须 endlocal & exit /b %ERRORLEVEL% 同行显式透传（%E% 在行解析时展开先于 endlocal 执行）
+- lesson(promoted): electron-builder NSIS 卸载键不写 InstallLocation，反推安装目录用 DisplayIcon（去 ,0 后缀）或 UninstallString 首个引号路径
+- lesson(promoted): PowerShell 函数 return @(x) 单元素数组在赋值时被解包成标量，x[0] 会取到字符串首字符；调用处必须 @(func) 强制数组
+
+### 22:23 | agent
+
+- done: 拉取 origin/main（5 个 macOS 相关提交）并与本地 CLI 功能提交 9c1ce6f 合并为 merge commit df31db8；仅 SESSION_LOG.md 冲突，按日期新旧保留双段（2026-11-16 在前、2026-11-14 在后）；Layout.tsx 自动合并（本地 CliAgentHint + 远程 entryButtons 重构共存）；.memory/sessions/2026-10-21.md 双侧内容一致自动落齐
+- context: 合并前本地曾有大量未提交改动，期间被提交为 9c1ce6f 后与远程分叉
+- modified:
+  - `SESSION_LOG.md`
+- unresolved: 本地领先 origin/main 2 个提交，尚未 push；tsconfig.web.json 定向检查存在 TaskModePanel/useWebviewLifecycle/MainPage/QuickPage/appStore 等历史 TS 报错，与本次合并无关
 
 ### 22:02 | agent
 
@@ -141,7 +304,7 @@
 - done: 修复 macOS 26 下选中文本工具条读取脚本失效：System Events 已移除 focused UI element 语法，改用 AXFocusedUIElement 属性
 - modified:
   - `src/main/platform/selectionReader.ts`
-- lesson: macOS 26 System Events 词典变化：focused UI element of <process> 编译报错 -2741，正确写法 value of attribute "AXFocusedUIElement"
+- lesson(promoted): macOS 26 System Events 词典变化：focused UI element of <process> 编译报错 -2741，正确写法 value of attribute "AXFocusedUIElement"
 
 ### 19:11 | agent
 
@@ -151,7 +314,7 @@
 - modified:
   - `src/main/webviewManager.ts`
   - `build/generate-mac-assets.sh`
-- lesson: macOS Dock 图标显大通常不是尺寸问题而是图稿没有留边距：Apple 图标规范图稿约占画布 82%；sips 无合成能力，可用 Swift/AppKit NSImage 生成带透明边距的 PNG
+- lesson(promoted): macOS Dock 图标显大通常不是尺寸问题而是图稿没有留边距：Apple 图标规范图稿约占画布 82%；sips 无合成能力，可用 Swift/AppKit NSImage 生成带透明边距的 PNG
 
 ### 19:09 | agent
 
@@ -160,7 +323,7 @@
   - `src/main/webviewManager.ts`
   - `src/renderer/src/assets/index.css`
   - `src/renderer/src/components/Layout.tsx`
-- lesson: trafficLightPosition 仅对 titleBarStyle:'hidden' 生效（hiddenInset 强制内嵌位）；其坐标是 OS 点单位，红绿灯圆心≈设定值+6.5，无头测试机截屏坐标≠OS 坐标需按实际像素对齐
+- lesson(promoted): trafficLightPosition 仅对 titleBarStyle:'hidden' 生效（hiddenInset 强制内嵌位）；其坐标是 OS 点单位，红绿灯圆心≈设定值+6.5，无头测试机截屏坐标≠OS 坐标需按实际像素对齐
 
 ### 18:44 | Devin
 
@@ -168,7 +331,7 @@
 - modified:
   - `src/main/webviewManager.ts`
   - `src/renderer/src/components/Layout.tsx`
-- lesson: macOS tray template image 只保留 alpha 剪影：要显示彩色应用图标不能调 setTemplateImage；tray icon 建议 resize 到 ~22px
+- lesson(promoted): macOS tray template image 只保留 alpha 剪影：要显示彩色应用图标不能调 setTemplateImage；tray icon 建议 resize 到 ~22px
 
 ### 18:34 | Devin
 
@@ -176,5 +339,5 @@
 - context: macOS arm64, electron-vite dev; npm install 可能跳过 Electron 二进制下载需 node node_modules/electron/install.js; 本机 python 为 3.9，session_log.py 需 python3.12
 - modified:
   - `src/main/webviewManager.ts`
-- lesson: Electron Tray 没有 setTemplateImage 方法，模板图标应调用 nativeImage.setTemplateImage(true)；assets/ 下无 tray-iconTemplate.png 时回退 logo.png
+- lesson(promoted): Electron Tray 没有 setTemplateImage 方法，模板图标应调用 nativeImage.setTemplateImage(true)；assets/ 下无 tray-iconTemplate.png 时回退 logo.png
 
