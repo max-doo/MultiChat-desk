@@ -11,7 +11,7 @@ Drive the MultiChat desktop app's AI-platform webview sessions from the command 
 
 Resolve the CLI entrypoint in this order:
 
-1. **`cli.json` manifest** in the app data dir (same dir as `daemon.token`; the running app rewrites it on startup): `%APPDATA%\{MultiChat,MultiChat-dev,multichat,multichat-dev}\cli.json` → `cliCmdPath`. One file read gives the definitive path and also covers portable installs — check it first.
+1. **`cli.json` manifest** at `%APPDATA%\MultiChat\cli.json` (same dir as `daemon.token`; the running app rewrites it on startup) → `cliCmdPath`. One file read gives the definitive path — check it first.
 2. `multichat` if already on `PATH` (the Windows installer offers "install multichat command and add to PATH" during setup). Note: a PATH added during install only reaches *new* processes — a long-running agent shell inherits its parent's stale PATH, so "command not found" here means stale environment, not a missing install. Do NOT conclude the CLI is absent; continue to step 3/4.
 3. Repo dev build: `node out/cli/index.js` (built by `npm run build:cli`, part of `npm run build`). Plain Node works — no `ELECTRON_RUN_AS_NODE` needed for the bundled file.
 4. Packaged install: `cli\multichat.cmd` under the Windows install dir, or `multichat.sh` at `MultiChat.app/Contents/` (macOS); these set `ELECTRON_RUN_AS_NODE=1` internally.
