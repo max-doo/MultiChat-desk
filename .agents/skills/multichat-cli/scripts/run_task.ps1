@@ -5,7 +5,7 @@
 #
 # Usage:
 #   run_task.ps1 -Platform <id> [-Research] [-Timeout SEC] [-Poll SEC] [-Conversation URL]
-#                [-IdempotencyKey KEY] [-Image FILE...] [-Query TEXT | -QueryFile FILE | stdin]
+#                [-GenImage] [-IdempotencyKey KEY] [-Image FILE...] [-Query TEXT | -QueryFile FILE | stdin]
 #
 # Env:
 #   MULTICHAT_CLI   CLI entrypoint override: either a single executable path
@@ -19,6 +19,7 @@
 param(
   [Parameter(Mandatory = $true)][string]$Platform,
   [switch]$Research,
+  [switch]$GenImage,
   [ValidateRange(1, 7200)][int]$Timeout,
   [ValidateRange(1, 7200)][int]$Poll = 120,
   [string]$Conversation,
@@ -95,6 +96,7 @@ try {
   if ($QueryFile) { $submitArgs += @('--query-file', $QueryFile) }
   foreach ($img in $Image) { $submitArgs += @('--image', $img) }
   if ($Research) { $submitArgs += '--research' }
+  if ($GenImage) { $submitArgs += '--gen-image' }
   if ($Timeout) { $submitArgs += @('--timeout', [string]$Timeout) }
   if ($Conversation) { $submitArgs += @('--conversation', $Conversation) }
   if ($IdempotencyKey) { $submitArgs += @('--idempotency-key', $IdempotencyKey) }

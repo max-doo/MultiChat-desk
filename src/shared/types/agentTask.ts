@@ -27,6 +27,7 @@ export const AGENT_TASK_ERROR_CODES = [
   'PLATFORM_UNKNOWN',   // 平台无选择器配置
   'CAPABILITY_UNSUPPORTED', // 如平台未适配 deep_research
   'PAGE_NOT_READY',     // 就绪探针超时（未登录/验证码/加载失败）或 generating 持续空采
+  'AUTH_REQUIRED',      // 准备阶段确认落在登录墙/人机验证页，任务未发送
   'AUTH_LOST',          // generating 中页面跳转登录墙
   'NOT_BLANK_CONVERSATION', // 新对话空白校验失败
   'SESSION_LOST',       // 会话窗口中途销毁 / app 退出
@@ -51,15 +52,20 @@ export interface AgentTask {
   platform: string
   model?: string                 // 声明元数据（一期不做页面切换）
   mode: AgentTaskMode
+  genImage?: boolean             // --gen-image：开启平台生图模式 + 任务末触发原生下载
   query: string                  // 纯图片任务可为空串
   images?: string[]              // 图片附件绝对路径（daemon 侧已校验存在性）
   sessionKey: string             // `__agent_${platform}`
   conversationUrl?: string       // 生成期间持续捕获
   followUpUrl?: string           // 入参 --conversation（已校验平台归属）
+  artifactDir?: string           // 产物根目录（绝对路径）；未传用应用数据目录 .multichat/
   phase: AgentTaskPhase
   reply: string                  // 当前已采集正文（generating 时为 partial）
   baseline: string               // 发送前页面最新回复，作差分基线
   busy: boolean                  // 页面停止按钮是否仍存在
+  replyFile?: string             // done 后回复 TXT 落盘绝对路径
+  imageFiles?: string[]          // done 后生图落盘绝对路径（一次 --gen-image 恒 0 或 1 个）
+  imageError?: string            // 生图点击未命中/下载未触发等（不阻断 done）
   createdAt: number
   startedAt?: number             // 进入 preparing 时刻（timeoutMs 起点）
   completedAt?: number
@@ -84,6 +90,9 @@ export interface AgentTaskView {
   conversationUrl?: string
   /** 仅 done 终态的单任务响应（task.status/task.submit --wait）内嵌完整回复；task.list 批量视图不带。 */
   reply?: string
+  replyFile?: string
+  imageFiles?: string[]
+  imageError?: string
   error?: AgentTaskError
 }
 
@@ -92,6 +101,9 @@ export interface AgentTaskResult {
   taskId: string
   phase: AgentTaskPhase
   reply?: string
+  replyFile?: string
+  imageFiles?: string[]
+  imageError?: string
   conversationUrl?: string
   durationMs?: number
   error?: AgentTaskError
@@ -101,8 +113,14 @@ export interface AgentTaskResult {
 export interface AgentPlatformCapability {
   id: string
   deepResearch: boolean
+  imageGeneration: boolean
+  imageDownload: boolean
   busySignal: 'adapted' | 'generic'
   followUp: boolean
+  /** true=已登录；false=游客态；缺省=平台未收录 cookie 名单，无法从 cookie 判定。 */
+  signedIn?: boolean
+  /** 未登录时是否无法发送（登录门槛平台）。 */
+  loginRequired: boolean
 }
 
 /** task.submit 请求字段。 */
@@ -111,6 +129,10 @@ export interface AgentTaskSubmitRequest {
   query: string
   /** 图片附件绝对路径列表；与 query 至少一项非空。路径必须在本机存在且为文件。 */
   images?: string[]
+  /** 开启平台 AI 生图模式并在生成完成后触发原生下载落盘（与 deep_research 互斥）。 */
+  genImage?: boolean
+  /** 产物根目录（绝对路径）：图片落盘 `<dir>/image/`、回复 TXT 落盘 `<dir>/results/`。未传时回退应用数据目录 `.multichat/`。 */
+  artifactDir?: string
   model?: string
   mode?: AgentTaskMode
   conversationUrl?: string

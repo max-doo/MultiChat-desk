@@ -53,3 +53,6 @@ __pycache__/
 # Superpowers local artifacts
 .superpowers/
 
+# MultiChat CLI task artifacts (generated images + reply TXT)
+.multichat/
+

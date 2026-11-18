@@ -33,6 +33,8 @@ interface DaemonRequest {
   queueTimeoutMs?: number
   waitMs?: number
   includeFinished?: boolean
+  genImage?: boolean
+  artifactDir?: string
   [key: string]: unknown
 }
 
@@ -131,6 +133,8 @@ function buildSubmitRequest(req: DaemonRequest): AgentTaskSubmitRequest {
     ...(typeof req.conversationUrl === 'string' && req.conversationUrl ? { conversationUrl: req.conversationUrl } : {}),
     ...(asFiniteNumber(req.timeoutMs) !== undefined ? { timeoutMs: asFiniteNumber(req.timeoutMs) } : {}),
     ...(asFiniteNumber(req.queueTimeoutMs) !== undefined ? { queueTimeoutMs: asFiniteNumber(req.queueTimeoutMs) } : {}),
+    ...(req.genImage === true ? { genImage: true } : {}),
+    ...(typeof req.artifactDir === 'string' && req.artifactDir ? { artifactDir: req.artifactDir } : {}),
     ...(typeof req.idempotencyKey === 'string' && req.idempotencyKey ? { idempotencyKey: req.idempotencyKey } : {})
   }
 }
@@ -232,6 +236,14 @@ async function handleRequest(socket: net.Socket, line: string): Promise<void> {
   } else if (action === 'platforms') {
     const capabilities = await agentTaskService.capabilities()
     sendResponse(socket, { success: true, data: capabilities })
+  } else if (action === 'auth.status') {
+    const platform = typeof req.platform === 'string' && req.platform ? req.platform : ''
+    const result = await agentTaskService.authStates(platform)
+    if (!result.success) {
+      sendResponse(socket, { success: false, error: result.error, code: result.code })
+      return
+    }
+    sendResponse(socket, { success: true, data: result.data })
   } else {
     sendResponse(socket, { success: false, error: `不支持的请求动作: ${String(action)}` })
   }

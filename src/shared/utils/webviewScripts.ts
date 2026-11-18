@@ -909,6 +909,17 @@ function buildDeepResearchHelperFunctions(): string {
       el.click();
     }
 
+    // 幂等守卫：目标已是期望状态时跳过点击。
+    // 用于"点一次取反"的开关按钮（qianwen.com 的"研究"），重复执行不会把状态翻回去。
+    function alreadyInState(step, el) {
+      if (!step || !el || !el.getAttribute) return false;
+      var pressed = el.getAttribute('aria-pressed');
+      if (pressed === null) return false;
+      if (step.skipIfPressed && pressed === String(step.skipIfPressed)) return true;
+      if (step.skipIfReleased && pressed === String(step.skipIfReleased)) return true;
+      return false;
+    }
+
     // 跨步菜单兜底：按语义找开菜单按钮（策略二 Step 4）
     function findMenuOpener() {
       var openerRegex = /\\+|plus|more|tools?|menu|菜单|更多|工具|附加|添加/i;
@@ -960,6 +971,14 @@ function buildDeepResearchStepsScript(_steps: unknown[]): string {
              continue;
            }
            return { success: false, error: '步骤执行失败: 未找到元素 ' + step.selector };
+         }
+
+         // 开关已处于期望状态：无需点击，直接视为达成
+         if (alreadyInState(step, element)) {
+           if (!step || step.countsAsSuccess !== false) {
+             didSuccessStep = true;
+           }
+           continue;
          }
          
          element.scrollIntoView({ block: 'center', inline: 'center' });
@@ -1544,6 +1563,13 @@ export function generateDisableDeepResearchScript(config: any): string {
                 continue;
               }
               return { success: false, error: '步骤执行失败: 未找到元素 ' + step.selector };
+            }
+            // 开关已处于期望状态：无需点击，直接视为达成
+            if (alreadyInState(step, element)) {
+              if (!step || step.countsAsSuccess !== false) {
+                didSuccessStep = true;
+              }
+              continue;
             }
             element.scrollIntoView({ block: 'center', inline: 'center' });
             element.focus();
@@ -2553,16 +2579,46 @@ export function generateNoteCaptureScript(): string {
   `
 }
 
-/** 导图后台任务仅采集就绪/生成信号，不返回或打印对话正文。 */
-export function generateMindmapPageStateScript(selectors: ModelSelector, platformId: string): string {
+/**
+ * 导图后台任务仅采集就绪/生成信号，不返回或打印对话正文。
+ * authWall 需调用方显式传入才输出，默认不改变既有调用方的返回结构。
+ * 判定不依赖"输入框是否存在"：chatgpt/qwen/chatglm 未登录时输入框照常渲染。
+ * authStrong 是人机验证容器/密码框等硬信号；authWall 另含"页内可见登录入口"，
+ * 它只用于发送失败后的归因，不能用于提前判墙——gemini/doubao 游客可用平台也常驻该入口。
+ */
+export function generateMindmapPageStateScript(
+  selectors: ModelSelector,
+  platformId: string,
+  authWall?: { wall: string[]; ctaText: string[]; signedInText: string[] }
+): string {
+  const authWallScript = authWall
+    ? `
+    const ready = find(${JSON.stringify(selectors.textarea)});
+    const authStrong = find(${JSON.stringify(authWall.wall)});
+    const hasSignedIn = textHit(${JSON.stringify(authWall.signedInText)});
+    const authCue = !authStrong && !hasSignedIn && textHit(${JSON.stringify(authWall.ctaText)});
+    const authWall = authStrong || authCue;`
+    : ''
+  const authWallField = authWall ? ', authWall, authStrong' : ''
   return `(function () {
     const visible = el => !!el && el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden';
     const find = list => list.some(selector => { try { return Array.from(document.querySelectorAll(selector)).some(visible); } catch { return false; } });
+    // 只认短文本的可点击元素：登录/注册入口是按钮或链接，避免长正文里出现同词导致误判
+    const textHit = list => {
+      const wanted = list.map(t => t.toLowerCase());
+      const nodes = document.querySelectorAll('button,a,[role="button"],[role="link"]');
+      return Array.from(nodes).some(el => {
+        if (!visible(el)) return false;
+        const text = (el.textContent || '').trim().replace(/\\s+/g, ' ').toLowerCase();
+        return !!text && text.length <= 12 && wanted.includes(text);
+      });
+    };
     const stops = ${JSON.stringify(generationStopSelectors[platformId] || [])};
     const genericStops = ['button[aria-label*="Stop"]', 'button[aria-label*="停止"]', 'button[data-testid="stop-button"]'];
     // 已适配平台只使用确切的停止生成控件，避免误命中停止朗读等按钮。
     const busy = find(stops.length ? stops : genericStops);
-    return { ready: find(${JSON.stringify(selectors.textarea)}), busy };
+    ${authWallScript}
+    return { ready: ${authWall ? 'ready' : `find(${JSON.stringify(selectors.textarea)})`}, busy${authWallField} };
   })();`
 }
 

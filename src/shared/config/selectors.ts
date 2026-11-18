@@ -16,6 +16,10 @@ export interface AutomationStep {
   countsAsSuccess?: boolean
   menuOpenerFallback?: boolean  // 新：本步元素找不到时，按语义找"开菜单"按钮
   hover?: boolean               // 新：本步不 click 而是 dispatch mouseenter/mouseover/mousemove 触发 hover 浮层
+  // 新：幂等守卫。selector 命中的元素 aria-pressed 已为期望值时跳过本步，
+  // 用于"点击即取反"的开关按钮（如 qianwen.com 的"研究"），避免重复执行把状态翻回去。
+  skipIfPressed?: string
+  skipIfReleased?: string
 }
 
 /** 笔记快照按消息提取时使用的容器和角色标记。 */
@@ -37,6 +41,93 @@ export const generationStopSelectors: Record<string, string[]> = {
   claude: ['button[aria-label="Stop response"]', 'button[aria-label="停止回复"]'],
   gemini: ['button[aria-label="Stop response"]', 'button[aria-label="停止回答"]', 'button[aria-label="停止回复"]'],
   deepseek: ['button[aria-label="Stop"]', 'button[aria-label="停止"]']
+}
+
+/**
+ * 登录墙/人机验证信号；不依赖用户保存的站点选择器（见 getPlatformSelectors 的整体覆盖语义）。
+ * wall：人机验证容器、密码/手机号输入框，可见即视为鉴权墙（已登录页不会常驻）。
+ * ctaText：页内登录/注册入口文案，仅在发送失败后用于归因——gemini/doubao 等游客可用平台
+ *          同样常驻该入口，提前判墙会误伤（2026-11 隔离环境实测）。
+ * signedInText：已登录才出现的登出入口，用于抵消 ctaText 命中。
+ */
+export const authWallSelectors = {
+  wall: [
+    'iframe[src*="captcha"]',
+    'iframe[src*="challenge"]',
+    '#challenge-form',
+    '#challenge-running',
+    '.cf-challenge',
+    'input[type="password"]',
+    'input[type="tel"]'
+  ],
+  /** 未登录页顶栏的登录/注册入口文案（实测 chatgpt/qwen/chatglm/grok 均为中文按钮）。 */
+  ctaText: ['登录', '登入', '注册', '免费注册', 'Log in', 'Sign in', 'Sign up', 'Sign up for free'],
+  /** 已登录才出现的账号入口，用于抵消 ctaText 命中（避免误伤已登录页的登出入口）。 */
+  signedInText: ['退出登录', '登出', 'Log out', 'Sign out']
+}
+
+/**
+ * 各平台登录态 cookie（只写名称，不写值）。命中任一即判定已登录。
+ * 游客态同样会有一批指纹/统计 cookie，因此不能用"有 cookie"判断，必须按名单精确匹配。
+ * 名单之外的平台返回"未知"，交由页面侧检测兜底。
+ *
+ * 名单只能收"游客态不出现"的 cookie。2026-11 隔离实测证伪过两个反例：
+ * chatglm 游客态同样写 chatglm_token，yuanbao 游客态同样写 hy_user/hy_token，
+ * 只按名字匹配会把游客判成已登录——这类平台改用 platformAuthCookieRules。
+ */
+export const platformAuthCookies: Record<string, string[]> = {
+  chatgpt: ['__Secure-next-auth.session-token'],
+  gemini: ['SID', '__Secure-1PSID', 'SAPISID'],
+  doubao: ['sessionid', 'sid_tt', 'sid_guard'],
+  grok: ['sso', 'sso-rw'],
+  // 千问的登录凭证是 qianwen.com 的 SSO 票（自动化目标站也是 qianwen.com）。
+  qwen: ['tongyi_sso_ticket'],
+  // 文心一言没有自己的登录 cookie，凭证是百度账号体系的 BDUSS（写在 .baidu.com）。
+  yiyan: ['BDUSS'],
+  // 分片 cookie，实际名字是 arena-auth-prod-v1.0 / .1，按前缀匹配。
+  arena: ['arena-auth-prod-v1']
+}
+
+/**
+ * 游客态也会写同名 cookie 的平台：命中名字后还要看值才能定论。
+ * jwtGuestFlag：JWT 载荷里出现该字段且为真即游客（chatglm 的 `is_guest`）；
+ * valuePrefix：值以该前缀开头即游客（yuanbao 游客的 hy_user 是 `a_did_...`）。
+ */
+export const platformAuthCookieRules: Record<
+  string,
+  { names: string[]; jwtGuestFlag?: string; valuePrefix?: string }
+> = {
+  chatglm: { names: ['chatglm_token'], jwtGuestFlag: 'is_guest' },
+  yuanbao: { names: ['hy_user'], valuePrefix: 'a_did_' }
+}
+
+/**
+ * 限制 cookie 必须来自该域名后缀（去掉前导点后做后缀匹配）。
+ * 实测 BDUSS 同时存在于 .baidu.com/.apollo.auto/.yoojia.com，只认百度域名下的那份。
+ */
+export const platformAuthCookieDomains: Record<string, string> = {
+  yiyan: 'baidu.com'
+}
+
+/**
+ * 游客态无法发送、必须登录的平台（2026-11 隔离环境逐个实测）。
+ * 与 platformAuthCookies 的覆盖范围无关：cookie 判不出时，仍由页面侧检测兜底。
+ */
+export const loginRequiredPlatforms: string[] = ['deepseek', 'qwen', 'claude', 'grok']
+
+/**
+ * 凭证不在 cookie 而存在页面 localStorage 的平台（2026-11 在真实 persist:shared 实测）。
+ * signedInKeys：键存在且非空即已登录；配置了它且未命中即游客。
+ * signedOutMarkers：键存在即游客（站点显式写入的登出标记），优先级高于 signedInKeys。
+ * 优先读已加载该 origin 的 WebContents；没有则临时加载一次（见 AuthStateService）。
+ */
+export const platformAuthStorage: Record<
+  string,
+  { origins: string[]; signedInKeys?: string[]; signedOutMarkers?: string[] }
+> = {
+  deepseek: { origins: ['https://chat.deepseek.com'], signedInKeys: ['userToken'] },
+  // Kimi 的 cookie 只有 acw_tc/theme 等设备与偏好项，登录凭证是 localStorage 的 JWT。
+  kimi: { origins: ['https://www.kimi.com'], signedInKeys: ['refresh_token'] }
 }
 
 /** 站点正文结构更新的补充候选；采集脚本同时使用，兼容本地保存的旧配置。 */
@@ -117,24 +208,20 @@ export interface SelectorsConfig {
  * 如需调整请选择器配置，直接修改本文件后重启应用生效
  */
 export const defaultSelectors: SelectorsConfig = {
-  version: 18,
-  lastUpdated: '2026-08-02',
+  version: 20,
+  lastUpdated: '2026-11-18',
   models: {
     chatgpt: {
       textarea: [
-        '#prompt-textarea.ProseMirror',
         'div.ProseMirror[contenteditable="true"]',
-        '#prompt-textarea',
-        'textarea[placeholder*="Message"]',
-        'textarea[placeholder*="询问任何问题"]',
-        'textarea[data-id="root"]',
-        '[contenteditable="true"][data-placeholder]'
+        '[contenteditable="true"][role="textbox"]',
+        '[contenteditable="true"]'
       ],
       sendButton: [
-        '[data-testid="send-button"]',
+        'button[aria-label="发送"]',
+        'button[aria-label="Send"]',
         'button[aria-label*="Send"]',
-        'button[data-testid="send-button"]',
-        'form button[type="submit"]'
+        '[data-testid="send-button"]'
       ],
       messageContainer: [
         ...responseMessageSelectors['chatgpt.com']
@@ -156,17 +243,42 @@ export const defaultSelectors: SelectorsConfig = {
       newConversationUrl: 'https://chatgpt.com',
       researchMode: {
         steps: [
-          { selector: '[data-testid="composer-plus-btn"], #composer-plus-btn, button.composer-btn', delay: 1000, menuOpenerFallback: true },
-          { selector: 'div[role="menuitemradio"]', regex: 'Deep\\s*Research|深度研究', wordBoundary: false, exclude: ['\\bSearch\\b', '搜索'], delay: 500 }
+          // 2026-11 实测："+" 入口为 data-composer-navigation-target="add-context"（aria-label 本地化），
+          // 菜单项是无 role 的 <button>（旧 UI 为 div[role=menuitemradio]），须给多候选
+          { selector: [
+            'button[data-composer-navigation-target="add-context"]',
+            'button[aria-label="添加文件等内容"]',
+            'button[aria-label*="Add files"]',
+            '[data-testid="composer-plus-btn"]',
+            '#composer-plus-btn',
+            'button.composer-btn'
+          ], delay: 1000, menuOpenerFallback: true },
+          { selector: [
+            'button',
+            'div[role="menuitemradio"]',
+            '[role="menuitem"]'
+          ], regex: 'Deep\\s*Research|深度研究', wordBoundary: false, exclude: ['\\bSearch\\b', '搜索', '网页搜索'], delay: 500 }
         ],
         cancelSteps: [
-          { selector: '[class*="__composer-pill-remove"]', delay: 200 }
+          { selector: [
+            '[class*="composer-pill-remove"]',
+            '[class*="__composer-pill-remove"]',
+            'button[aria-label*="删除"]',
+            'button[aria-label*="Remove"]'
+          ], delay: 200 }
         ]
       },
       imageGeneration: {
         steps: [
-          { selector: '[data-testid="composer-plus-btn"], #composer-plus-btn, button.composer-btn', delay: 1000, menuOpenerFallback: true },
-          { selector: 'div[role="menuitemradio"], div[role="menuitem"]', text: ['Create image', 'DALL-E', '图像生成', '生图'], delay: 500 }
+          { selector: [
+            'button[data-composer-navigation-target="add-context"]',
+            'button[aria-label="添加文件等内容"]',
+            'button[aria-label*="Add files"]',
+            '[data-testid="composer-plus-btn"]',
+            '#composer-plus-btn',
+            'button.composer-btn'
+          ], delay: 1000, menuOpenerFallback: true },
+          { selector: ['button', 'div[role="menuitemradio"]', 'div[role="menuitem"]'], text: ['创建图像', 'Create image', 'DALL-E', '图像生成', '生图'], delay: 500 }
         ],
         cancelSteps: [
           { selector: '[class*="__composer-pill-remove"], [class*="composer-pill-remove"]', delay: 200 }
@@ -198,9 +310,9 @@ export const defaultSelectors: SelectorsConfig = {
     },
     perplexity: {
       textarea: [
+        'div[contenteditable="true"][role="textbox"]',
+        '[contenteditable="true"][data-lexical-editor]',
         '#ask-input',
-        'textarea[placeholder*="Ask"]',
-        'textarea[placeholder*="Search"]',
         'textarea',
         '[contenteditable="true"]'
       ],
@@ -220,20 +332,26 @@ export const defaultSelectors: SelectorsConfig = {
       newConversationUrl: 'https://www.perplexity.ai/',
       researchMode: {
         steps: [
-          // 宽屏：直接点击 radio 按钮切换到研究模式
-          { selector: 'button[role="radio"][value="research"]:not([aria-disabled="true"])', delay: 300, optional: true },
-          // 窄屏：点击包含"研究"文字的按钮（研究按钮有 border class，来源按钮没有）
-          { selector: 'button.border.rounded-lg.h-8:not([aria-haspopup])', regex: '研究', wordBoundary: false, exclude: ['搜索', '\\bSearch\\b'], delay: 300, optional: true },
-          // 从下拉菜单选择研究选项（如果有菜单出现）
-          { selector: '[role="menuitemradio"][value="research"], [role="menuitemradio"][data-value="research"], [role="menuitem"][data-value="research"], [role="menuitemradio"][aria-label*="研究"], [role="menuitemradio"][aria-label*="Research"], [role="menuitem"][aria-label*="研究"], [role="menuitem"][aria-label*="Research"]', delay: 300, optional: true }
+          // 2026-11 实测：无 role=radio；入口为 "+" 菜单（role=listbox）→ div[role=option]"深度研究"
+          { selector: [
+            'button[aria-label="添加文件、插件等"]',
+            'button[aria-label*="Add files"]',
+            'button[aria-label*="插件"]',
+            'button[aria-expanded][type="button"]'
+          ], delay: 500, menuOpenerFallback: true },
+          { selector: [
+            'div[role="option"]',
+            '[role="menuitem"]',
+            'button'
+          ], regex: '深度研究|Deep\\s*Research', wordBoundary: false, exclude: ['\\bSearch\\b', '搜索'], delay: 500 }
         ],
         cancelSteps: [
-          // 宽屏：直接点击 radio 按钮切换回搜索模式
-          { selector: 'button[role="radio"][value="search"]:not([aria-disabled="true"])', delay: 300, optional: true },
-          // 窄屏：点击包含"搜索"文字的按钮
-          { selector: 'button.border.rounded-lg.h-8:not([aria-haspopup])', regex: '搜索|\\bSearch\\b', wordBoundary: false, exclude: ['研究', '\\bResearch\\b'], delay: 300, optional: true },
-          // 从下拉菜单选择搜索选项
-          { selector: '[role="menuitemradio"][value="search"], [role="menuitemradio"][data-value="search"], [role="menuitem"][data-value="search"], [role="menuitemradio"][aria-label*="搜索"], [role="menuitemradio"][aria-label*="Search"], [role="menuitem"][aria-label*="搜索"], [role="menuitem"][aria-label*="Search"]', delay: 300, optional: true }
+          // 模式切换组为 aria-pressed pill（搜索/Computer…），点回"搜索"即退出研究态
+          { selector: [
+            'button[aria-pressed][aria-label="搜索"]',
+            'button[aria-pressed][aria-label*="Search"]',
+            'button[aria-label="搜索"]'
+          ], delay: 300, optional: true }
         ]
       }
     },
@@ -351,7 +469,6 @@ export const defaultSelectors: SelectorsConfig = {
       imageDownload: {
         steps: [
           // 一步：点最新 AI 回复消息底部 action bar 的下载图标（cos-icon-download，无需开预览）
-          // 实测：消息 <i class="cos-icon cos-icon-download"> → 直接触发浏览器下载
           { selector: [
             'i.cos-icon-download',
             '[class*="cos-icon-download"]',
@@ -386,20 +503,42 @@ export const defaultSelectors: SelectorsConfig = {
       newConversationUrl: 'https://gemini.google.com/app',
       researchMode: {
         steps: [
-          { selector: 'button.toolbox-drawer-button', delay: 500, menuOpenerFallback: true },
-          { selector: ['mat-list-item.mat-mdc-list-item', 'button.toolbox-drawer-item-list-button'], text: 'Deep Research', delay: 500 }
+          // 2026-11 实测：工具入口改为 aria-label 图标钮，研究项藏在第二层"更多工具"下
+          { selector: [
+            'button[aria-label="上传和工具"]',
+            'button[aria-label="Tools"]',
+            'button[aria-label*="工具"]',
+            'button.toolbox-drawer-button'
+          ], delay: 500, menuOpenerFallback: true },
+          // 若 Deep Research 已在第一级可见则跳过"更多工具"展开步
+          { selector: ['button.mat-mdc-list-item', 'mat-list-item button', '[role="menuitem"]'], text: ['更多工具', 'More tools', 'Tools'], delay: 400, optional: true },
+          { selector: ['toolbox-drawer-item button.mat-mdc-list-item', 'button.mat-mdc-list-item', 'mat-list-item button', '[role="menuitem"]'], text: 'Deep Research', delay: 500 }
         ],
         cancelSteps: [
-          { selector: ['mat-list-item.mat-mdc-list-item', 'button.toolbox-drawer-item-deselect-button'], text: 'Deep Research', delay: 200 }
+          { selector: ['toolbox-drawer-item button.mat-mdc-list-item', 'button.mat-mdc-list-item', 'button.toolbox-drawer-item-deselect-button'], text: 'Deep Research', delay: 200 }
         ]
       },
       imageGeneration: {
         steps: [
-          { selector: 'button.toolbox-drawer-button', delay: 500, menuOpenerFallback: true },
-          { selector: ['mat-list-item.mat-mdc-list-item', 'button.toolbox-drawer-item-list-button'], text: ['Imagen', 'Image generation', '图像生成', '生图'], delay: 500 }
+          { selector: [
+            'button[aria-label="上传和工具"]',
+            'button[aria-label="Tools"]',
+            'button[aria-label*="工具"]',
+            'button.toolbox-drawer-button'
+          ], delay: 500, menuOpenerFallback: true },
+          { selector: [
+            'toolbox-drawer-item button.mat-mdc-list-item',
+            'button.mat-mdc-list-item',
+            'mat-list-item button',
+            'mat-option',
+            '[role="option"]',
+            '[role="menuitem"]',
+            'cdk-overlay-pane [class*="item"]',
+            '.mat-mdc-menu-panel [class*="item"]'
+          ], text: ['制作图片', 'Imagen', 'Image generation', '图像生成', '生图'], delay: 500 }
         ],
         cancelSteps: [
-          { selector: ['mat-list-item.mat-mdc-list-item', 'button.toolbox-drawer-item-deselect-button'], text: ['Imagen', 'Image generation', '图像生成', '生图'], delay: 200 }
+          { selector: ['toolbox-drawer-item button.mat-mdc-list-item', 'button.mat-mdc-list-item', 'button.toolbox-drawer-item-deselect-button'], text: ['制作图片', 'Imagen', 'Image generation', '图像生成', '生图'], delay: 200 }
         ]
       },
       imageDownload: {
@@ -437,10 +576,12 @@ export const defaultSelectors: SelectorsConfig = {
       newConversationUrl: 'https://grok.com/',
       researchMode: {
         steps: [
-          { selector: 'button', text: 'DeepSearch', delay: 500 }
+          // 2026-11 实测：未登录态无 DeepSearch 入口（模型菜单仅 Fast/Build/Auto/Expert/Heavy，
+          // "+"→技能子菜单仅文件技能）；若登录后出现独立按钮则按 data-slot/button+文本命中
+          { selector: 'button[data-slot="button"], button', text: ['DeepSearch', 'DeeperSearch', '深度搜索'], delay: 500 }
         ],
         cancelSteps: [
-          { selector: 'button[aria-label*="删除"]', delay: 200 }
+          { selector: 'button[data-slot="button"], button', text: ['DeepSearch', 'DeeperSearch'], delay: 200, optional: true }
         ]
       },
       imageGeneration: {
@@ -506,13 +647,35 @@ export const defaultSelectors: SelectorsConfig = {
         '[class*="pc-report-wrap"]'
       ],
       customCSS: ``,
-      newConversationUrl: 'https://chat.qwen.ai/',
+      // 千问国内站：与 models 配置的登录入口、本平台选择器（#qianwen-layout-right-panel、
+      // #qk-markdown-react、.tongyi-markdown）同源。chat.qwen.ai 是另一个产品，登录态与 DOM 都不通用。
+      newConversationUrl: 'https://www.qianwen.com/',
       researchMode: {
         steps: [
-          { selector: ['button[aria-label="研究"]', 'button.relative', 'button[data-log-name="tool_bar"][data-log-params*="deepResearch"]', 'button[data-log-params*="deepResearch"]', 'button.tagBtn-OADWVI'], text: ['深度研究', '研究'], delay: 500 }
+          // 两个站点的入口形态不同，放在同一步按顺序探测：
+          // ① chat.qwen.ai：div.mode-select-open[role=button]"选择模式"（非 button 元素）→ div[role=menuitem]"深入研究"；
+          // ② qianwen.com：composer 内的"研究"开关按钮（aria-pressed 切换，点一次即开）。
+          { selector: [
+            'div.mode-select-open[role="button"]',
+            '[role="button"][aria-label="选择模式"]',
+            '[aria-label="选择模式"]',
+            'button[aria-label="研究"]'
+          ], delay: 500, menuOpenerFallback: true, skipIfPressed: 'true' },
+          { selector: [
+            'div[role="menuitem"]',
+            '[role="menuitem"]',
+            'button'
+          ], regex: '深入研究|深度研究|Deep\\s*Research', wordBoundary: false, exclude: ['搜索', 'Search'], delay: 500, optional: true, skipIfPressed: 'true' }
         ],
         cancelSteps: [
-          { selector: ['button[aria-label="研究"]', 'button.selected-OsA38F[data-log-params*="deepResearch"] div.flex.items-center.justify-center.overflow-hidden'], delay: 200, optional: true }
+          // 退出：chat.qwen.ai 重开菜单选"自动"；qianwen.com 再点一次"研究"开关（aria-pressed 取反）
+          { selector: [
+            'div.mode-select-open[role="button"]',
+            '[role="button"][aria-label="选择模式"]',
+            '[aria-label="选择模式"]',
+            'button[aria-label="研究"]'
+          ], delay: 300, menuOpenerFallback: true, optional: true, skipIfReleased: 'false' },
+          { selector: ['div[role="menuitem"]'], regex: '自动|Auto', wordBoundary: false, delay: 200, optional: true, skipIfReleased: 'false' }
         ]
       },
       imageGeneration: {
@@ -575,12 +738,11 @@ export const defaultSelectors: SelectorsConfig = {
     },
     doubao: {
       textarea: [
-        'div[data-testid="chat_input_input"][contenteditable="true"]',
-        '[data-testid="chat_input_input"][contenteditable="true"]',
-        'div[role="textbox"][data-testid="chat_input_input"]',
-        'textarea[data-testid="chat_input_input"]',
+        // 2026-11 实测：chat_input_input 元素仍在但 contenteditable/role=textbox 已移除；
+        // 真实编辑器是 contenteditable + semi-input textarea 并存
         'textarea.semi-input-textarea',
         'textarea.semi-input-textarea-autosize',
+        'textarea[data-testid="chat_input_input"]',
         'textarea[placeholder*="发消息或输入"]',
         'textarea[placeholder*="输入"]',
         '.chat-textarea',
@@ -615,14 +777,8 @@ export const defaultSelectors: SelectorsConfig = {
       ],
       customCSS: ``,
       newConversationUrl: 'https://www.doubao.com/chat/',
-      researchMode: {
-        steps: [
-          { selector: ['button.skill-bar-button[data-component-type="skill-item"]', 'button[data-component-type="skill-item"][data-testid^="skill_bar_button_"]'], text: ['深入研究', '深度研究'], delay: 500 }
-        ],
-        cancelSteps: [
-          { selector: ['[data-testid="skill_input_exit_button"]', 'div[data-testid="skill_input_exit_button"]'], text: ['深入研究', '深度研究'], delay: 200 }
-        ]
-      },
+      // 2026-11 实测：技能栏已下架"深入研究/深度研究"（含"更多技能"28 项内亦无），
+      // 功能疑并入"工作"模式或整体移除 — researchMode 配置移除，--research 对该平台不应生效
       imageGeneration: {
         steps: [
           { selector: ['button.skill-bar-button[data-component-type="skill-item"]', 'button[data-component-type="skill-item"][data-testid^="skill_bar_button_"]'], text: ['生图', '画图', '图像生成', 'Image'], delay: 500 }
@@ -670,6 +826,23 @@ export const defaultSelectors: SelectorsConfig = {
       ],
       customCSS: ``,
       newConversationUrl: 'https://yuanbao.tencent.com/chat',
+      // 2026-11 实测：composer 工具条上有独立深度研究钮，
+      // data-application-id 为平台给的稳定语义钩子
+      researchMode: {
+        steps: [
+          { selector: [
+            'button[data-application-id="application_id_deep_research"]',
+            'button[aria-label="深度研究"][data-application-id]',
+            'button[aria-label="深度研究"]'
+          ], delay: 500 }
+        ],
+        cancelSteps: [
+          { selector: [
+            'button[data-application-id="application_id_deep_research"][aria-pressed="true"]',
+            'button[data-application-id="application_id_deep_research"]'
+          ], delay: 200, optional: true }
+        ]
+      },
       imageGeneration: {
         steps: [
           { selector: ['button', '[role="button"]', '[role="menuitem"]'], text: ['生图', '画图', '图像生成', 'Image'], delay: 500 }
@@ -747,11 +920,13 @@ export const defaultSelectors: SelectorsConfig = {
       customCSS: ``,
       newConversationUrl: 'https://chat.deepseek.com/',
       researchMode: {
+        // ⚠️ 语义：这是"深度思考"推理开关，不是联网 Deep Research；
+        // 保留为平台语义映射，exact 防止误命中"联网搜索"等相邻开关
         steps: [
-          { selector: ['button', '[role="button"]', 'div'], text: ['深度思考', 'Deep Thinking'], delay: 300 }
+          { selector: ['button', '[role="button"]', 'div'], text: '深度思考', exact: true, delay: 300 }
         ],
         cancelSteps: [
-          { selector: ['button', '[role="button"]', 'div'], text: ['深度思考', 'Deep Thinking'], delay: 300 }
+          { selector: ['button', '[role="button"]', 'div'], text: '深度思考', exact: true, delay: 300 }
         ]
       }
     }

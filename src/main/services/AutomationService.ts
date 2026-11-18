@@ -17,7 +17,7 @@ const PLATFORM_DEFAULT_URLS: Record<string, string> = {
   arena: 'https://arena.ai/',
   doubao: 'https://www.doubao.com/chat',
   yuanbao: 'https://yuanbao.tencent.com/chat',
-  qwen: 'https://tongyi.aliyun.com/qianwen',
+  qwen: 'https://www.qianwen.com/',
   deepseek: 'https://chat.deepseek.com',
   kimi: 'https://kimi.moonshot.cn',
   chatglm: 'https://chatglm.cn/main/alltoolsdetail?lang=zh',
@@ -85,7 +85,9 @@ export class AutomationService {
     if (this.store) {
       try {
         const stored = this.store.get('selectors') as SelectorsConfig | undefined
-        if (stored && stored.models && stored.models[platformId]) {
+        // 与渲染层 getSelectors 的版本语义保持一致：旧版本保存的选择器可能缺少新增字段
+        // （如 qwen 的 newConversationUrl 仍指向已废弃站点），低于默认版本时整体作废。
+        if (stored && stored.version >= defaultSelectors.version && stored.models && stored.models[platformId]) {
           customModelSelector = stored.models[platformId]
         }
       } catch (err) {

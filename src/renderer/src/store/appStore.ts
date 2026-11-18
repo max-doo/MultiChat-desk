@@ -498,7 +498,7 @@ const defaultModels: ModelConfig[] = [
   { id: 'arena', name: 'Arena', url: 'https://arena.ai/', logo: arenaLogo, enabled: false },
   { id: 'doubao', name: '豆包', url: 'https://www.doubao.com/chat', logo: doubaoLogo, enabled: false },
   { id: 'yuanbao', name: '元宝', url: 'https://yuanbao.tencent.com/chat', logo: yuanbaoLogo, enabled: false },
-  { id: 'qwen', name: '千问', url: 'https://tongyi.aliyun.com/qianwen', logo: qwenLogo, enabled: false },
+  { id: 'qwen', name: '千问', url: 'https://www.qianwen.com/', logo: qwenLogo, enabled: false },
   { id: 'deepseek', name: 'DeepSeek', url: 'https://chat.deepseek.com', logo: deepseekLogo, enabled: false },
   { id: 'kimi', name: 'Kimi', url: 'https://kimi.moonshot.cn', logo: kimiLogo, enabled: false },
   { id: 'chatglm', name: '智谱清言', url: 'https://chatglm.cn/main/alltoolsdetail?lang=zh', logo: chatglmLogo, enabled: false },

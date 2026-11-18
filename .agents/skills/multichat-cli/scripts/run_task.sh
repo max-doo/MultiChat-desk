@@ -5,7 +5,7 @@
 # wait still leaves the task recoverable via `multichat task list --all`.
 #
 # Usage:
-#   run_task.sh --platform <id> [--research] [--timeout SEC] [--poll SEC] [--conversation URL]
+#   run_task.sh --platform <id> [--research] [--gen-image] [--timeout SEC] [--poll SEC] [--conversation URL]
 #               [--idempotency-key KEY] [--image FILE]... [--query TEXT | --query-file FILE | stdin]
 #
 # Env:
@@ -14,12 +14,13 @@
 #                   "node out/cli/index.js". Default: `multichat` on PATH.
 set -euo pipefail
 
-PLATFORM="" RESEARCH="" TIMEOUT="" POLL=120 CONVERSATION="" QUERY="" QUERY_FILE="" IDEMPOTENCY_KEY=""
+PLATFORM="" RESEARCH="" GEN_IMAGE="" TIMEOUT="" POLL=120 CONVERSATION="" QUERY="" QUERY_FILE="" IDEMPOTENCY_KEY=""
 IMAGES=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --platform) PLATFORM="$2"; shift 2;;
     --research) RESEARCH="--research"; shift;;
+    --gen-image) GEN_IMAGE="--gen-image"; shift;;
     --timeout) TIMEOUT="$2"; shift 2;;
     --poll) POLL="$2"; shift 2;;
     --conversation) CONVERSATION="$2"; shift 2;;
@@ -43,6 +44,7 @@ fi
 
 args=(task submit --platform "$PLATFORM")
 [ -n "$RESEARCH" ] && args+=("$RESEARCH")
+[ -n "$GEN_IMAGE" ] && args+=("$GEN_IMAGE")
 [ -n "$TIMEOUT" ] && args+=(--timeout "$TIMEOUT")
 [ -n "$CONVERSATION" ] && args+=(--conversation "$CONVERSATION")
 [ -n "$IDEMPOTENCY_KEY" ] && args+=(--idempotency-key "$IDEMPOTENCY_KEY")

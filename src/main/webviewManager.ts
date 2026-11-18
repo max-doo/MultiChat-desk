@@ -1064,7 +1064,8 @@ function executeNoteCapture(
         const platformNames: Record<string, string> = {
             'chatgpt.com': 'ChatGPT', 'gemini.google.com': 'Gemini', 'grok.com': 'Grok',
             'claude.ai': 'Claude', 'www.perplexity.ai': 'Perplexity', 'arena.ai': 'Arena',
-            'www.doubao.com': '豆包', 'yuanbao.tencent.com': '元宝', 'tongyi.aliyun.com': '千问',
+            'www.doubao.com': '豆包', 'yuanbao.tencent.com': '元宝',
+            'www.qianwen.com': '千问', 'tongyi.aliyun.com': '千问',
             'chat.deepseek.com': 'DeepSeek', 'kimi.moonshot.cn': 'Kimi',
             'chatglm.cn': '智谱清言', 'chat.baidu.com': '文心一言'
         }

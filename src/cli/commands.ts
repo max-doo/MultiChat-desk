@@ -62,6 +62,7 @@ interface TaskSubmitOptions {
   platform: string
   model?: string
   research?: boolean
+  genImage?: boolean
   query?: string
   queryFile?: string
   image?: string[]
@@ -70,6 +71,7 @@ interface TaskSubmitOptions {
   queueTimeout?: string
   wait?: string
   idempotencyKey?: string
+  artifactDir?: string
 }
 
 function parseSeconds(raw: string | undefined, flag: string, jsonMode: boolean, allowZero = false, max = TIMEOUT_MAX_SEC): number | undefined {
@@ -91,6 +93,9 @@ interface TaskViewShape {
   busy: boolean
   elapsedMs: number
   conversationUrl?: string
+  replyFile?: string
+  imageFiles?: string[]
+  imageError?: string
   error?: { code: string; message: string }
 }
 
@@ -108,12 +113,20 @@ function formatTaskView(view: TaskViewShape): string {
   return parts.join('  ')
 }
 
+/** done 态产物路径行写 stderr，避免污染 stdout 的 reply 正文管道。 */
+function printArtifactPaths(view: TaskViewShape): void {
+  if (view.replyFile) process.stderr.write(`saved: ${view.replyFile}\n`)
+  for (const p of view.imageFiles ?? []) process.stderr.write(`image: ${p}\n`)
+  if (view.imageError) process.stderr.write(`imageError: ${view.imageError}\n`)
+}
+
 function handleTaskViewResponse(res: DaemonResponse, jsonMode: boolean): void {
   if (!jsonMode && res.success && res.data && typeof res.data === 'object') {
     const data = res.data as Record<string, unknown>
     if (typeof data.taskId === 'string') {
       if (typeof data.platform === 'string') {
         console.log(formatTaskView(data as unknown as TaskViewShape))
+        printArtifactPaths(data as unknown as TaskViewShape)
       } else {
         // submit 无 --wait 的确认短形态：{taskId, phase, queuedPosition?}
         console.log(`${data.taskId}  phase=${String(data.phase)}${data.queuedPosition !== undefined ? `  queuedPosition=${String(data.queuedPosition)}` : ''}`)
@@ -182,6 +195,7 @@ export function registerCommands(program: Command): void {
     .option('--platform <id>', 'Platform ID (chatgpt/gemini/claude/...)')
     .option('--model <name>', 'Declarative model metadata (no page-side switching yet)')
     .option('--research', 'Enable platform Deep Research mode before sending')
+    .option('--gen-image', 'Enable platform AI image-generation mode and save the produced image')
     .option('--query <text>', 'Query text')
     .option('--query-file <path>', 'Read query text from file')
     .option('--image <path>', `Attach a local image file (repeatable, max ${IMAGE_MAX_COUNT}); query optional when given`, collect, [] as string[])
@@ -190,9 +204,11 @@ export function registerCommands(program: Command): void {
     .option('--queue-timeout <sec>', 'Queue wait timeout in seconds (default = timeout)')
     .option('--wait <sec>', 'Block server-side up to N seconds waiting for terminal state')
     .option('--idempotency-key <key>', 'Reuse the live/finished task for the same key+platform instead of duplicating')
+    .option('--artifact-dir <path>', 'Artifact root directory for reply TXT and generated image (default: <cwd>/.multichat)')
     .action(async (options: TaskSubmitOptions, cmd: Command) => {
       const jsonMode = isJsonMode(cmd)
       if (!options.platform) paramError('缺少必填参数 --platform', jsonMode)
+      if (options.research && options.genImage) paramError('--research 与 --gen-image 互斥', jsonMode)
       // 显式 --query/--query-file 存在时跳过 stdin：stdin 优先级只服务纯管道输入；
       // 宿主 shell 若把 stdin 挂成不关闭的管道，无条件读取会让 submit 永久阻塞。
       let query = ''
@@ -223,6 +239,8 @@ export function registerCommands(program: Command): void {
       if ((!query || !query.trim()) && images.length === 0) paramError('缺少 query 与 --image（stdin / --query-file / --query / --image 至少一项）', jsonMode)
       if (query.length > QUERY_MAX_CHARS) paramError(`query 超过 ${QUERY_MAX_CHARS} 字符上限`, jsonMode)
 
+      const artifactDir = path.resolve(options.artifactDir || path.join(process.cwd(), '.multichat'))
+
       const timeoutSec = parseSeconds(options.timeout, '--timeout', jsonMode)
       const queueTimeoutSec = parseSeconds(options.queueTimeout, '--queue-timeout', jsonMode)
       const waitSec = parseSeconds(options.wait, '--wait', jsonMode, true)
@@ -236,8 +254,10 @@ export function registerCommands(program: Command): void {
           ...(images.length ? { images } : {}),
           ...(options.model ? { model: options.model } : {}),
           ...(options.research ? { mode: 'deep_research' } : {}),
+          ...(options.genImage ? { genImage: true } : {}),
           ...(options.conversation ? { conversationUrl: options.conversation } : {}),
           ...(options.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : {}),
+          artifactDir,
           ...(timeoutSec !== undefined ? { timeoutMs: Math.round(timeoutSec * 1000) } : {}),
           ...(queueTimeoutSec !== undefined ? { queueTimeoutMs: Math.round(queueTimeoutSec * 1000) } : {})
         },
@@ -284,9 +304,10 @@ export function registerCommands(program: Command): void {
       const jsonMode = isJsonMode(cmd)
       const res = await sendDaemonRequest({ action: 'task.result', taskId }, jsonMode)
       if (!jsonMode && res.success && res.data && typeof res.data === 'object') {
-        const data = res.data as { phase: string; reply?: string; error?: { code: string; message: string } }
+        const data = res.data as { phase: string; reply?: string; replyFile?: string; imageFiles?: string[]; imageError?: string; error?: { code: string; message: string } }
         if (data.phase === 'done' && data.reply !== undefined) {
           console.log(data.reply)
+          printArtifactPaths(data as unknown as TaskViewShape)
           return
         }
         console.log(`phase=${data.phase}${data.error ? `  error=${data.error.code}:${data.error.message}` : ''}`)
@@ -339,9 +360,30 @@ export function registerCommands(program: Command): void {
       const jsonMode = isJsonMode(cmd)
       const res = await sendDaemonRequest({ action: 'platforms' }, jsonMode)
       if (!jsonMode && res.success && Array.isArray(res.data)) {
-        const caps = res.data as Array<{ id: string; deepResearch: boolean; busySignal: string; followUp: boolean }>
+        const caps = res.data as Array<{ id: string; deepResearch: boolean; imageGeneration: boolean; imageDownload: boolean; busySignal: string; followUp: boolean; signedIn?: boolean; loginRequired: boolean }>
         for (const cap of caps) {
-          console.log(`${cap.id.padEnd(12)} deepResearch=${cap.deepResearch}  busySignal=${cap.busySignal}  followUp=${cap.followUp}`)
+          const auth = cap.signedIn === true ? 'signed-in' : cap.signedIn === false ? 'guest' : 'unknown'
+          const gate = cap.loginRequired ? 'login-required' : 'guest-ok'
+          console.log(`${cap.id.padEnd(12)} auth=${auth.padEnd(9)} ${gate.padEnd(14)} deepResearch=${cap.deepResearch}  imageGen=${cap.imageGeneration}  imageDl=${cap.imageDownload}  busySignal=${cap.busySignal}`)
+        }
+        return
+      }
+      handleCommandResponse(res, jsonMode)
+    })
+
+  program
+    .command('auth')
+    .description('Inspect platform login state')
+    .argument('[platform]', 'Platform ID; omit to check all')
+    .action(async (platform: string | undefined, _options: Record<string, unknown>, cmd: Command) => {
+      const jsonMode = isJsonMode(cmd)
+      const res = await sendDaemonRequest({ action: 'auth.status', ...(platform ? { platform } : {}) }, jsonMode)
+      if (!jsonMode && res.success && res.data) {
+        const rows = Array.isArray(res.data) ? res.data : [res.data]
+        for (const row of rows as Array<{ platform: string; signedIn?: boolean; matchedCookie?: string; loginRequired?: boolean }>) {
+          const auth = row.signedIn === true ? 'signed-in' : row.signedIn === false ? 'guest' : 'unknown'
+          const detail = row.matchedCookie ? `  cookie=${row.matchedCookie}` : ''
+          console.log(`${row.platform.padEnd(12)} auth=${auth}${detail}`)
         }
         return
       }

@@ -11,6 +11,7 @@
       <a href="#quick-window">快捷窗口</a> ·
       <a href="#workflows">并行工作流</a> ·
       <a href="#notes-mindmap">笔记与导图</a> ·
+      <a href="#cli">CLI</a> ·
       <a href="#download">下载</a> ·
       <a href="#developer">开发</a>
     </td>
@@ -167,6 +168,8 @@
 
 你可以在 **设置 → 模型排序** 中通过拖拽自由调整各平台在下拉列表中的显示顺序，把最常用的 AI 放在最顺手的位置；每个网页窗口均支持独立的 **页面内查找（`Ctrl+F` / `Cmd+F`）** 与统一的毛玻璃右键菜单，方便在长回答中快速检索、摘录和追问。
 
+这些已登录的平台会话也可以通过附带的 `multichat` 命令行工具被本地 Agent 调用，见下文 [CLI](#cli)。
+
 ### 文件上传与对话历史
 
 - 支持拖拽或粘贴文件到统一输入区域，并尝试同步到当前显示的模型窗口。
@@ -177,6 +180,24 @@
 ### Deep Research 与 AI 生图
 
 工具栏提供统一入口，按当前平台的选择器配置尝试开启深度研究或 AI 生图模式；不同平台支持范围不同，未配置的平台会明确提示不支持。AI 生图结果还支持检测和批量下载流程。
+
+<a id="cli"></a>
+## 🤖 CLI：让本地 Agent 调用全网 AI
+
+除了在窗口里手动操作，MultiChat Desk 附带一个 `multichat` 命令行工具，把应用里已登录的 13 个平台会话开放给本地 Agent 与脚本：无需 API Key，一条命令把提示词发给指定平台，拿回完整 Markdown 回复、生成的图片或深度研究报告——适合让 Codex、Claude Code 等编码助手把方案评审、深度调研、第二意见分发到任意网页 AI。
+
+```bash
+# 问一个平台，等待并拿回回复
+multichat task submit --platform gemini --query "评审这个接口设计" --wait 600
+
+# 让平台生成图片并保存到本地（回复与图片落盘到 ./.multichat/）
+multichat task submit --platform gemini --gen-image --query "生成一只窗边晒太阳的橘猫"
+
+# 探测各平台支持的能力：深度研究 / 生图 / 追问
+multichat platforms
+```
+
+任务提交即返回 ID，同平台自动排队、跨平台并行；支持深度研究开关、图片附件、会话内追问、长轮询与随时取消。Windows 安装器提供「加入 PATH」选项，设置面板可查看状态并一键补挂；内置 `multichat-cli` Skill 随包分发，Agent 安装后即可直接调用。
 
 <a id="download"></a>
 ## 🚀 下载与首次使用
@@ -196,6 +217,7 @@
 3. 要并行比较时，进入主界面，选择「多 AI」模式；底部输入后先确认填入，再统一发送。
 4. 需要汇总时，进入总结页，选择回答、平台和预设，填入后在 AI 网页内手动发送；自动拆解任务则需先在设置中配置 API 供应商和模型。
 5. 在「我的笔记」回看批注、快照与导图；也可以从对话的思维导图入口生成新图，再继续编辑或导出。
+6. 想把 AI 接入脚本或编码助手时，在设置面板「命令行与 Agent 集成」确认 `multichat` 已加入 PATH，然后运行 `multichat task submit --platform <id> --query "..."` 即可。
 
 
 <a id="developer"></a>

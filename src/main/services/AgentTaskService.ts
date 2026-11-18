@@ -20,16 +20,20 @@ import {
   type AgentTaskSubmitRequest,
   type AgentTaskView
 } from '../../shared/types/agentTask'
-import { generationStopSelectors } from '../../shared/config/selectors'
+import { authWallSelectors, generationStopSelectors, loginRequiredPlatforms } from '../../shared/config/selectors'
 import {
   generateEnableDeepResearchScript,
+  generateClickDownloadButtonsScript,
+  generateExtractImagesScript,
   generateGetLatestResponseScript,
   generateMindmapPageStateScript,
   generateSendMessageScript
 } from '../../shared/utils/webviewScripts'
 import { canonicalizeConversationUrl, isAuthWallUrl, isConversationUrlForPlatform } from '../../shared/utils/conversationUrl'
 import { automationService } from './AutomationService'
+import { authStateService, type PlatformAuthState } from './AuthStateService'
 import { sessionManager } from './SessionManager'
+import { registerAgentImageDownload, awaitImageDownloadResult } from './ImageDownloadService'
 
 const POLL_INTERVAL_MS = 1500
 const READY_PROBE_DEADLINE_MS = 30_000
@@ -62,6 +66,7 @@ interface PersistedAgentTaskRecord {
   platform: string
   model?: string
   mode: AgentTask['mode']
+  genImage?: boolean
   phase: AgentTaskPhase
   conversationUrl?: string
   createdAt: number
@@ -70,6 +75,9 @@ interface PersistedAgentTaskRecord {
   error?: AgentTaskError
   replyChars: number
   reply?: string
+  replyFile?: string
+  imageFiles?: string[]
+  imageError?: string
 }
 
 const delay = (ms: number, signal?: AbortSignal): Promise<void> =>
@@ -125,12 +133,25 @@ export class AgentTaskService {
   private listeners = new Set<() => void>()
   private persistedIndex = new Map<string, PersistedAgentTaskRecord>()
   private persistDir = ''
+  private imageDir = ''
+  private resultsDir = ''
   private shuttingDown = false
 
   /** 注入数据根目录（便携版重定向后的 getDataPath()），启动时惰性清理过期记录。 */
   public init(dataPath: string): void {
     this.persistDir = join(dataPath, 'agent-tasks')
+    this.imageDir = join(dataPath, '.multichat', 'image')
+    this.resultsDir = join(dataPath, '.multichat', 'results')
     void this.sweepPersisted().catch(err => console.warn('[AgentTask] 持久化目录清理失败:', err))
+  }
+
+  /** 产物目录：优先任务级 artifactDir（CLI 传项目 cwd），回退应用数据目录。 */
+  private artifactDirs(task: TaskEntry): { imageDir: string; resultsDir: string } {
+    const base = task.artifactDir && isAbsolute(task.artifactDir) ? task.artifactDir : ''
+    return {
+      imageDir: base ? join(base, 'image') : this.imageDir,
+      resultsDir: base ? join(base, 'results') : this.resultsDir
+    }
   }
 
   // ==================== 对外 API（daemon 调用） ====================
@@ -153,7 +174,12 @@ export class AgentTaskService {
       }
       if (!query.trim() && images.length === 0) throw new TaskError('INVALID_PARAMS', '缺少必填参数 query 或 images（至少一项）')
       const mode = req.mode === 'deep_research' ? 'deep_research' : 'chat'
+      const genImage = req.genImage === true
       const model = typeof req.model === 'string' && req.model.trim() ? req.model.trim() : undefined
+
+      if (genImage && mode === 'deep_research') {
+        throw new TaskError('INVALID_PARAMS', '--gen-image 与 --research 不能同时使用')
+      }
 
       const defaultTimeout = mode === 'deep_research' ? AGENT_TASK_RESEARCH_TIMEOUT_MS : AGENT_TASK_DEFAULT_TIMEOUT_MS
       const timeoutMs = req.timeoutMs ?? defaultTimeout
@@ -168,6 +194,9 @@ export class AgentTaskService {
       if (mode === 'deep_research' && !selectors.researchMode?.steps?.length && !selectors.researchMode?.button) {
         throw new TaskError('CAPABILITY_UNSUPPORTED', `平台未适配深度研究模式: ${platform}`)
       }
+      if (genImage && !selectors.imageDownload?.steps?.length) {
+        throw new TaskError('CAPABILITY_UNSUPPORTED', `平台未适配生图下载链路（imageDownload 未配置）: ${platform}`)
+      }
 
       let followUpUrl: string | undefined
       if (req.conversationUrl !== undefined) {
@@ -177,6 +206,15 @@ export class AgentTaskService {
           throw new TaskError('INVALID_PARAMS', `conversationUrl 不是 ${platform} 平台的有效会话地址`)
         }
         followUpUrl = req.conversationUrl
+      }
+
+      // 登录门槛平台在入队前用 cookie 快速失败：明确未登录时不必排队等页面探测。
+      // 判定为"未知"（平台未收录名单）不拦，交由页面侧检测兜底，避免误杀。
+      if (loginRequiredPlatforms.includes(platform)) {
+        const auth = await authStateService.getState(platform, automationService.getPlatformUrl(platform, selectors))
+        if (auth.signedIn === false) {
+          throw new TaskError('AUTH_REQUIRED', `${platform} 需要登录后才能使用（当前为游客状态），请在应用内完成登录后重试`)
+        }
       }
 
       const sessionKey = `__agent_${platform}`
@@ -195,11 +233,13 @@ export class AgentTaskService {
         platform,
         model,
         mode,
+        genImage,
         query,
         ...(images.length ? { images } : {}),
         sessionKey,
         idempotencyKey: req.idempotencyKey,
         followUpUrl,
+        ...(typeof req.artifactDir === 'string' && req.artifactDir.trim() && isAbsolute(req.artifactDir) ? { artifactDir: req.artifactDir } : {}),
         phase: 'queued',
         reply: '',
         baseline: '',
@@ -251,6 +291,9 @@ export class AgentTaskService {
       taskId,
       phase: record.phase,
       ...(record.phase === 'done' && record.reply !== undefined ? { reply: record.reply } : {}),
+      ...(record.replyFile ? { replyFile: record.replyFile } : {}),
+      ...(record.imageFiles?.length ? { imageFiles: record.imageFiles } : {}),
+      ...(record.imageError ? { imageError: record.imageError } : {}),
       ...(record.conversationUrl ? { conversationUrl: record.conversationUrl } : {}),
       ...(record.startedAt !== undefined && record.completedAt !== undefined ? { durationMs: record.completedAt - record.createdAt } : {}),
       ...(record.error ? { error: record.error } : {})
@@ -313,14 +356,55 @@ export class AgentTaskService {
     for (const id of ids) {
       const selectors = await automationService.getPlatformSelectors(id).catch(() => null)
       if (!selectors) continue
+      const baseUrl = automationService.getPlatformUrl(id, selectors)
+      // 能力表是高频列举接口，不为读 localStorage 触发整页加载：只读 cookie 与已打开页面，
+      // 凭证只在 localStorage 且页面未打开的平台（如 kimi）此处返回未知，精确结果用 `auth.status`。
+      const auth = await authStateService.getState(id, baseUrl).catch(() => ({ platform: id } as PlatformAuthState))
       result.push({
         id,
         deepResearch: !!(selectors.researchMode?.steps?.length || selectors.researchMode?.button),
+        imageGeneration: !!selectors.imageGeneration?.steps?.length,
+        imageDownload: !!selectors.imageDownload?.steps?.length,
         busySignal: generationStopSelectors[id]?.length ? 'adapted' : 'generic',
-        followUp: true
+        followUp: true,
+        ...(auth.signedIn !== undefined ? { signedIn: auth.signedIn } : {}),
+        loginRequired: loginRequiredPlatforms.includes(id)
       })
     }
     return result
+  }
+
+  /** `auth.status`：按平台返回 cookie 判定的登录态；不传 platform 时返回全部平台。 */
+  public async authStates(platform?: string): Promise<{
+    success: boolean
+    data?: Array<{ platform: string; signedIn?: boolean; matchedCookie?: string; loginRequired: boolean }>
+    error?: string
+    code?: AgentTaskErrorCode
+  }> {
+    try {
+      const ids = platform ? [platform] : await automationService.listPlatformIds()
+      const rows: Array<{ platform: string; signedIn?: boolean; matchedCookie?: string; loginRequired: boolean }> = []
+      for (const id of ids) {
+        const selectors = await automationService.getPlatformSelectors(id).catch(() => null)
+        if (!selectors) {
+          if (platform) throw new TaskError('PLATFORM_UNKNOWN', `平台未配置选择器: ${id}`)
+          continue
+        }
+        const baseUrl = automationService.getPlatformUrl(id, selectors)
+        // 显式查询登录态：允许临时加载站点读取 localStorage（Kimi 等凭证不在 cookie）。
+        const auth = await authStateService.getState(id, baseUrl, { allowPageLoad: true })
+        rows.push({
+          platform: id,
+          ...(auth.signedIn !== undefined ? { signedIn: auth.signedIn } : {}),
+          ...(auth.matchedCookie ? { matchedCookie: auth.matchedCookie } : {}),
+          loginRequired: loginRequiredPlatforms.includes(id)
+        })
+      }
+      return { success: true, data: rows }
+    } catch (error) {
+      const code = error instanceof TaskError ? error.code : 'INTERNAL'
+      return { success: false, error: error instanceof Error ? error.message : String(error), code }
+    }
   }
 
   /** waitMs 长轮询原语：任意任务事件（phase/conversationUrl/queuedPosition 变化）或超时唤醒。 */
@@ -419,12 +503,18 @@ export class AgentTaskService {
       }
 
       // 就绪探针：textarea 可见才算 ready，覆盖未登录/验证码场景
-      const stateScript = generateMindmapPageStateScript(selectors, task.platform)
+      const stateScript = generateMindmapPageStateScript(selectors, task.platform, authWallSelectors)
       const readyDeadline = Date.now() + READY_PROBE_DEADLINE_MS
+      let authHits = 0
       for (;;) {
         if (signal.aborted || task.cancelRequested) return this.settleAborted(task)
-        if (isAuthWallUrl(wc.getURL(), baseUrl)) throw new TaskError('PAGE_NOT_READY', '页面跳转至登录/鉴权页')
-        const state = await this.exec<{ ready: boolean; busy: boolean }>(wc, stateScript, '检查网页就绪状态', signal)
+        if (isAuthWallUrl(wc.getURL(), baseUrl)) throw new TaskError('AUTH_REQUIRED', '页面跳转至登录/鉴权页，请在应用内完成登录后重试')
+        // 页面水合/重定向期间脚本可能瞬时不可用，按空采继续轮询而不是直接 INTERNAL
+        const state = await this.exec<{ ready: boolean; busy: boolean; authWall?: boolean; authStrong?: boolean }>(wc, stateScript, '检查网页就绪状态', signal).catch(() => null)
+        // 只有强信号（人机验证/密码框）可提前判墙；页内"登录"按钮不能作判据——
+        // gemini/doubao 等游客可用平台也常驻该入口，提前判会误伤。
+        authHits = state?.authStrong ? authHits + 1 : 0
+        if (authHits >= 2) throw new TaskError('AUTH_REQUIRED', '平台页面处于未登录/人机验证状态，请在应用内完成登录后重试')
         if (state?.ready) break
         if (Date.now() > readyDeadline) throw new TaskError('PAGE_NOT_READY', '页面未就绪（未登录/验证码/加载失败），请检查平台登录态后重试')
         await delay(500, signal)
@@ -464,12 +554,24 @@ export class AgentTaskService {
       const sendScript = generateSendMessageScript(task.query, task.platform, selectors, attachmentFileName, true)
       const sent = await this.exec<{ success: boolean; error?: string }>(wc, sendScript, '发送消息', signal, 30_000)
       if (signal.aborted || task.cancelRequested) return this.settleAborted(task)
-      if (!sent?.success) throw new TaskError('SEND_FAILED', sent?.error || '发送脚本未确认提交')
+      if (!sent?.success) {
+        // 发送失败时才用"页内登录入口"归因：未登录页输入框照常渲染，只有走到提交才暴露；
+        // 放在这里可避免误伤游客可用平台（它们同样常驻登录入口但能正常发送）。
+        const probe = await this.exec<{ authWall?: boolean }>(wc, stateScript, '确认发送失败原因', signal).catch(() => null)
+        if (probe?.authWall) throw new TaskError('AUTH_REQUIRED', '平台要求登录后才能发送，请在应用内完成登录后重试')
+        throw new TaskError('SEND_FAILED', sent?.error || '发送脚本未确认提交')
+      }
 
       task.phase = 'generating'
       this.emit()
-      await this.poll(task, wc, stateScript, replyScript, baseUrl, signal)
+      await this.poll(task, wc, stateScript, replyScript, baseUrl, signal, selectors)
       if (signal.aborted || task.cancelRequested) return this.settleAborted(task)
+
+      if (task.genImage) {
+        await this.captureGeneratedImage(task, wc, selectors, signal)
+        if (signal.aborted || task.cancelRequested) return this.settleAborted(task)
+      }
+
       this.finalize(task, 'done')
     } catch (error) {
       if (isAgentTaskTerminal(task.phase)) return
@@ -493,6 +595,112 @@ export class AgentTaskService {
     return waitFor(wc.executeJavaScript(script) as Promise<T>, timeoutMs, stage, signal)
   }
 
+  /** 生图产物抓取：等图片挂载 → 注册 will-download 上下文 → 注入点击 → 等落盘 → best-effort 关闭生图模式。 */
+  private async captureGeneratedImage(task: TaskEntry, wc: WebContents, selectors: Awaited<ReturnType<typeof automationService.getPlatformSelectors>>, signal: AbortSignal): Promise<void> {
+    try {
+      // 图片 DOM 常晚于文本稳定数十秒才挂载（豆包实测 30-90s）。
+      // 探针用 generateExtractImagesScript：抓取 messageContainer 内 img/canvas/a[download]/blob，
+      // 返回真实图片数量——比"下载按钮存在"更可靠（yiyan 的 cos-icon-download 恒在会误判）。
+      const probeScript = generateExtractImagesScript(selectors)
+      let hasImage = false
+      const imgDeadline = Date.now() + 120_000
+      while (Date.now() < imgDeadline) {
+        if (signal.aborted || task.cancelRequested) return
+        const res = await this.exec<{ success: boolean; images?: Array<{ src: string }> }>(wc, probeScript, '探测最新生图', signal).catch(() => null)
+        if (res?.success && res.images?.length) {
+          hasImage = true
+          break
+        }
+        await delay(1500, signal)
+      }
+      if (!hasImage) {
+        task.imageError = '生成超时未检测到图片'
+        return
+      }
+      const dirs = this.artifactDirs(task)
+      if (!dirs.imageDir) {
+        task.imageError = '生图目录未初始化'
+        return
+      }
+      await registerAgentImageDownload(wc.id, {
+        platform: task.platform,
+        taskId: task.id,
+        dir: dirs.imageDir,
+        expectedFromClick: 1
+      })
+      const click = await this.exec<{ clicked?: number; error?: string }>(wc, generateClickDownloadButtonsScript(selectors), '触发生图下载', signal, 15_000)
+      if (click?.clicked) {
+        const result = await awaitImageDownloadResult(wc.id)
+        if (result.savedPaths.length) {
+          task.imageFiles = result.savedPaths
+          return
+        }
+        // 点击已发生但下载没落盘 → 走兜底直存
+        console.warn(`[AgentTask] click-download miss taskId=${task.id} errors=${result.errors.join(';')}, fallback to extract`)
+      } else {
+        console.warn(`[AgentTask] click-download failed taskId=${task.id} err=${click?.error || '未命中'}, fallback to extract`)
+      }
+
+      // 兜底：把 extract 返回的 src 列表直接落盘（data:/blob: 直接写文件；http(s): 走 downloadURL）。
+      // qwen 的 imageDownload.steps[0] 是 imageItem- 容器选择器，DOM 改版后 hover 不命中即走这里。
+      const extracted = await this.exec<{ success: boolean; images?: Array<{ src: string; mime?: string }> }>(wc, probeScript, '兜底提取生图', signal).catch(() => null)
+      const srcs = (extracted?.images ?? []).map(i => i.src).filter(Boolean).slice(0, 4)
+      if (!srcs.length) {
+        task.imageError = click?.error || '生图元素未命中且兜底提取为空'
+        return
+      }
+      const savedPaths: string[] = []
+      const errors: string[] = []
+      for (let idx = 0; idx < srcs.length; idx++) {
+        const src = srcs[idx]
+        try {
+          const saved = await this.saveExtractedImage(wc, task, src, dirs.imageDir, `${task.platform}-${task.id.slice(0, 8)}-${idx + 1}`)
+          if (saved) savedPaths.push(saved)
+          else errors.push(`图 ${idx + 1}: 保存失败`)
+        } catch (err) {
+          errors.push(`图 ${idx + 1}: ${err instanceof Error ? err.message : String(err)}`)
+        }
+      }
+      if (savedPaths.length) task.imageFiles = savedPaths
+      if (errors.length && !savedPaths.length) {
+        task.imageError = errors.join('; ')
+      }
+    } catch (error) {
+      if (signal.aborted || task.cancelRequested) throw error
+      task.imageError = error instanceof Error ? error.message : String(error)
+    }
+  }
+
+  /**
+   * 兜底落盘单个图。data: → Buffer 写文件；blob:/http(s): → webContents.downloadURL + will-download ctx。
+   * 返回保存的绝对路径；失败返回 null。
+   */
+  private async saveExtractedImage(wc: WebContents, task: TaskEntry, src: string, dir: string, fileBase: string): Promise<string | null> {
+    if (/^data:/.test(src)) {
+      const m = src.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.*)$/s)
+      if (!m) return null
+      const mime = m[1].toLowerCase()
+      const ext = mime === 'image/jpeg' ? 'jpg' : (mime.split('/')[1] || 'png').replace(/[^a-z0-9]/gi, '') || 'png'
+      const file = join(dir, `${fileBase}.${ext}`)
+      await mkdir(dir, { recursive: true })
+      await writeFile(file, Buffer.from(m[2], 'base64'))
+      return file
+    }
+    if (/^blob:|^https?:/.test(src)) {
+      await registerAgentImageDownload(wc.id, {
+        platform: task.platform,
+        taskId: task.id,
+        dir,
+        expectedFromClick: 1,
+        filePrefix: fileBase
+      })
+      wc.downloadURL(src)
+      const res = await awaitImageDownloadResult(wc.id)
+      return res.savedPaths[0] ?? null
+    }
+    return null
+  }
+
   /** 中止信号落地：按 abortReason 归约为 cancelled / failed，无原因则视为取消。 */
   private settleAborted(task: TaskEntry): void {
     if (isAgentTaskTerminal(task.phase)) return
@@ -500,10 +708,13 @@ export class AgentTaskService {
     this.finalize(task, reason.code === 'TASK_CANCELLED' ? 'cancelled' : 'failed', reason)
   }
 
-  /** generating 轮询：停止按钮消失 + 内容稳定 N 轮判定完成。 */
-  private async poll(task: TaskEntry, wc: WebContents, stateScript: string, replyScript: string, baseUrl: string, signal: AbortSignal): Promise<void> {
+  /** generating 轮询：停止按钮消失 + 内容稳定 N 轮判定完成。生图任务额外把"图片元素已挂载"作为内容信号——纯图片回复无 markdown 文本时 text 恒空。 */
+  private async poll(task: TaskEntry, wc: WebContents, stateScript: string, replyScript: string, baseUrl: string, signal: AbortSignal, selectors?: Awaited<ReturnType<typeof automationService.getPlatformSelectors>>): Promise<void> {
     const isAdapted = !!generationStopSelectors[task.platform]?.length
     const stableThreshold = task.mode === 'chat' && isAdapted ? 3 : 8
+    // 生图任务：图片探针用 extractImages（抓 messageContainer 内真实 img/canvas），
+    // 不用 imageDownload.steps[0]——它是"下载按钮"不是图片元素，yiyan 等平台会误判。
+    const imageProbe = task.genImage && selectors ? generateExtractImagesScript(selectors) : ''
 
     while (!signal.aborted) {
       await delay(POLL_INTERVAL_MS, signal)
@@ -512,10 +723,10 @@ export class AgentTaskService {
       if (task.cancelRequested) return
 
       // 单轮脚本失败按空采容错：发送后整页导航/重载会让 executeJavaScript 瞬时 reject
-      let state: { ready: boolean; busy: boolean } | undefined
+      let state: { ready: boolean; busy: boolean; authWall?: boolean; authStrong?: boolean } | undefined
       let text = ''
       try {
-        state = await this.exec<{ ready: boolean; busy: boolean }>(wc, stateScript, '读取网页生成状态', signal)
+        state = await this.exec<{ ready: boolean; busy: boolean; authWall?: boolean; authStrong?: boolean }>(wc, stateScript, '读取网页生成状态', signal)
         if (signal.aborted || task.cancelRequested) return
         task.busy = !!state?.busy
         text = ((await this.exec<string>(wc, replyScript, '读取网页回复', signal)) || '').trim()
@@ -543,11 +754,26 @@ export class AgentTaskService {
       }
       if (isAuthWallUrl(currentUrl, baseUrl)) {
         if (++task.authSuspects >= 2) throw new TaskError('AUTH_LOST', '生成期间页面跳转至登录/鉴权页')
+      } else if (state?.authStrong) {
+        // 生成中掉登录常以页面内弹窗形式出现，URL 不变；只信强信号，弱信号在生成期噪声大
+        if (++task.authSuspects >= 2) throw new TaskError('AUTH_LOST', '生成期间页面出现登录/人机验证墙')
       } else {
         task.authSuspects = 0
       }
 
-      if (!text || text === task.baseline) {
+      let imageReady = false
+      if (task.genImage && imageProbe) {
+        try {
+          const res = await this.exec<{ success: boolean; images?: Array<{ src: string }> }>(wc, imageProbe, '探测生图元素', signal)
+          imageReady = !!(res?.success && res.images?.length)
+        } catch { imageReady = false }
+      }
+
+      if (imageReady && !task.busy) {
+        // 图片已挂载且生成停止：无论 markdown 文本是否采到，都计入稳定
+        task.emptyReads = 0
+        task.stableCount++
+      } else if (!text || text === task.baseline) {
         task.emptyReads++
         // 空内容不计稳定、不覆盖已采内容；页面持续不就绪且空采则升级为失败
         task.stableCount = 0
@@ -622,6 +848,9 @@ export class AgentTaskService {
       busy: task.busy,
       elapsedMs: (task.completedAt ?? Date.now()) - task.createdAt,
       ...(task.conversationUrl || task.followUpUrl ? { conversationUrl: task.conversationUrl ?? task.followUpUrl } : {}),
+      ...(task.replyFile ? { replyFile: task.replyFile } : {}),
+      ...(task.imageFiles?.length ? { imageFiles: task.imageFiles } : {}),
+      ...(task.imageError ? { imageError: task.imageError } : {}),
       ...(task.error ? { error: task.error } : {})
     }
   }
@@ -631,6 +860,9 @@ export class AgentTaskService {
       taskId: task.id,
       phase: task.phase,
       ...(task.phase === 'done' ? { reply: task.reply } : {}),
+      ...(task.phase === 'done' && task.replyFile ? { replyFile: task.replyFile } : {}),
+      ...(task.phase === 'done' && task.imageFiles?.length ? { imageFiles: task.imageFiles } : {}),
+      ...(task.phase === 'done' && task.imageError ? { imageError: task.imageError } : {}),
       ...(task.conversationUrl || task.followUpUrl ? { conversationUrl: task.conversationUrl ?? task.followUpUrl } : {}),
       ...(task.completedAt !== undefined ? { durationMs: task.completedAt - task.createdAt } : {}),
       ...(task.error ? { error: task.error } : {})
@@ -648,6 +880,9 @@ export class AgentTaskService {
       busy: false,
       elapsedMs: (record.completedAt ?? record.savedAt) - record.createdAt,
       ...(record.conversationUrl ? { conversationUrl: record.conversationUrl } : {}),
+      ...(record.replyFile ? { replyFile: record.replyFile } : {}),
+      ...(record.imageFiles?.length ? { imageFiles: record.imageFiles } : {}),
+      ...(record.imageError ? { imageError: record.imageError } : {}),
       ...(record.error ? { error: record.error } : {})
     }
   }
@@ -656,6 +891,20 @@ export class AgentTaskService {
 
   private async persist(task: TaskEntry): Promise<void> {
     if (!this.persistDir) return
+    // 先写 TXT（done 态即落盘，即便 reply 为空也保留占位文件），拿路径后再一次性构造 record 写 JSON
+    let replyFile: string | undefined
+    const dirs = this.artifactDirs(task)
+    if (task.phase === 'done' && dirs.resultsDir) {
+      try {
+        await mkdir(dirs.resultsDir, { recursive: true })
+        const file = join(dirs.resultsDir, `${task.platform}-${task.id.slice(0, 8)}.txt`)
+        await writeFile(file, task.reply ?? '', 'utf8')
+        replyFile = file
+        task.replyFile = file
+      } catch (err) {
+        console.warn(`[AgentTask] replyFile 落盘失败 taskId=${task.id}:`, err)
+      }
+    }
     const record: PersistedAgentTaskRecord = {
       version: 1,
       savedAt: Date.now(),
@@ -663,6 +912,7 @@ export class AgentTaskService {
       platform: task.platform,
       ...(task.model ? { model: task.model } : {}),
       mode: task.mode,
+      ...(task.genImage ? { genImage: true } : {}),
       phase: task.phase,
       ...(task.conversationUrl || task.followUpUrl ? { conversationUrl: task.conversationUrl ?? task.followUpUrl } : {}),
       createdAt: task.createdAt,
@@ -670,7 +920,10 @@ export class AgentTaskService {
       ...(task.completedAt !== undefined ? { completedAt: task.completedAt } : {}),
       ...(task.error ? { error: task.error } : {}),
       replyChars: task.reply.length,
-      ...(task.phase === 'done' ? { reply: task.reply } : {})
+      ...(task.phase === 'done' ? { reply: task.reply } : {}),
+      ...(replyFile ? { replyFile } : {}),
+      ...(task.imageFiles?.length ? { imageFiles: task.imageFiles } : {}),
+      ...(task.imageError ? { imageError: task.imageError } : {})
     }
     await mkdir(this.persistDir, { recursive: true })
     const target = join(this.persistDir, `${task.id}.json`)

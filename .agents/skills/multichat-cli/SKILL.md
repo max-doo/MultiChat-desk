@@ -44,8 +44,10 @@ multichat platforms       # adapted platforms + capabilities
 ```
 
 - If `daemon status` fails (`DAEMON_UNAVAILABLE`, exit 1): the desktop app is not running — tell the user to start MultiChat. Do not retry loops.
-- `platforms` returns `[{id, deepResearch, busySignal, followUp}]`. Use it to pick a platform instead of hardcoding: `deepResearch=true` → `--research` is safe; `busySignal=adapted` → completion detection is reliable; `generic` → completion relies on reply-stability heuristic (still works, just less certain).
-- The platform must be **logged in** inside MultiChat (sessions share the app's `persist:shared` login state). `PAGE_NOT_READY`/`AUTH_LOST` mid-task usually means login expired — ask the user to re-login in the app.
+- `platforms` returns `[{id, deepResearch, imageGeneration, imageDownload, busySignal, followUp, signedIn?, loginRequired}]`. Use it to pick a platform instead of hardcoding: `deepResearch=true` → `--research` is safe; `imageDownload=true` → `--gen-image` is safe (the submit-time check requires a configured download chain only; `imageGeneration` separately reports whether the page has a "generate image" mode toggle — a platform with `imageGeneration=true` but `imageDownload=false`, e.g. chatglm/kimi today, can open image mode in the UI but `--gen-image` still gets `CAPABILITY_UNSUPPORTED`). `busySignal=adapted` → the page's stop-streaming button is selector-adapted (currently chatgpt/claude/gemini/deepseek); `generic` (all other platforms) → completion relies on reply-stability heuristic — still works and is the normal path on those platforms, just less certain.
+- `signedIn` is resolved from the app's `persist:shared` state through two channels that are both always consulted: account **cookies** (chatgpt/gemini/doubao/grok/qwen/yiyan/arena by name; chatglm/yuanbao by name **plus value**, because their guest sessions write the same cookie with `is_guest:true` / an `a_did_` prefix) and page **localStorage** (deepseek `userToken`, kimi `refresh_token`). `true` = logged in, `false` = guest, omitted = unknown (no list configured, or the page could not be read — e.g. Cloudflare interstitial for claude/perplexity). **Guest ≠ logged in**: gemini/doubao/yiyan/chatglm can answer as a guest but are still not logged in and are subject to guest quotas. `loginRequired=true` means guest mode cannot send at all (deepseek/qwen/claude/grok) — for those, `signedIn=false` fails fast at submit with `AUTH_REQUIRED` before any page work. Check with `multichat auth [platform]`; that command may load the site once to read localStorage, so it is slower than `platforms` (which stays cookie-only plus already-open pages and can report `unknown` for kimi/deepseek).
+- `AUTH_REQUIRED` means the platform is not logged in (cookie check) or the page turned out to be a login wall/captcha before sending; `AUTH_LOST` means it dropped to one mid-task — in both cases ask the user to re-login in the app, then resubmit. `PAGE_NOT_READY` is now the fallback for unknown causes (slow render, load failure).
+- Login detection covers `task.*` only. The legacy `exec`/`collect` actions return unstructured errors and are not part of this check.
 
 ## Core workflow: submit → wait → result
 
@@ -129,6 +131,28 @@ printf '' | multichat task submit --platform claude --image ./shot.png --json
 # then: task status <taskId> --wait 300
 ```
 
+**Generate an image** — send an image prompt and have MultiChat save the produced image under the artifact dir:
+
+```bash
+# Requires imageDownload=true on the platform (check `multichat platforms`);
+# the submit-time capability check only looks at the download chain, not
+# imageGeneration — a platform without a "generate image" mode toggle can
+# still satisfy --gen-image if your prompt itself drives image output.
+# The prompt itself drives generation — --gen-image does NOT toggle any
+# "image mode" button; it just sends the query and captures the produced image.
+# Currently: chatgpt, yiyan, gemini, grok, qwen, doubao, yuanbao.
+# --gen-image conflicts with --research.
+multichat task submit --platform gemini --gen-image \
+  --query "生成一只在窗边晒太阳的橘猫" --timeout 600 --json
+# then: task status <taskId> --wait 600 --json
+```
+
+When `phase=done`, `data.imageFiles` holds the absolute path(s) of image(s) saved during the capture window — typically one (MultiChat clicks the newest image's native download button), but every `will-download` intercepted for that webview is collected, so check the array rather than assuming `[0]` is the only entry. `data.imageError` carries a non-fatal reason if the click/download missed (the text reply is still returned). Artifacts land under `--artifact-dir` (default `<cwd>/.multichat/`): images → `<dir>/image/`, reply TXT → `<dir>/results/`.
+
+> **How it works**: `--gen-image` sends your prompt as a normal message (no "image mode" toggling), then polls the page for the platform's image element (`imageDownload.steps[0].selector`), clicks the native download button, and intercepts Electron's `will-download` to save the file. If the platform doesn't actually produce an image (wrong prompt, refused, no image quota), the task still completes `done` with the text reply and `imageError='生成超时未检测到图片'` — the text is never lost.
+
+**Persisted artifacts**: every finished task writes its reply to `<artifact-dir>/results/{platform}-{taskId[:8]}.txt` (default `<cwd>/.multichat/results/`); the done-view JSON exposes it as `data.replyFile`. With `--text`, those paths go to **stderr** (`saved:` / `image:` lines) so stdout stays a clean reply body.
+
 **Fan out one query to several platforms** (submit each without `--wait` — returns instantly; then one blocking status call per task, in background):
 
 ```bash
@@ -152,6 +176,9 @@ multichat task list --all          # active + persisted history
 
 - `--timeout` = task hard timeout (default 600s chat / 1800s research, max 7200). `--queue-timeout` = max time in queue (default = timeout). `--wait` = this call's block time only — it does not extend the task timeout.
 - `--idempotency-key <key>` = same platform+key while the task is live (or finished in-memory) returns the existing taskId instead of queueing a duplicate — pass a stable key when your submit might be retried. In-memory only; an app restart forgets it.
+- `--gen-image` sends the prompt and captures the produced image via the platform's native download button; requires `imageDownload` capability (else `CAPABILITY_UNSUPPORTED`). Mutually exclusive with `--research`. The produced image is saved to `<artifact-dir>/image/{platform}-{taskId[:8]}-{seq}.{ext}` and reported via `data.imageFiles`.
+- `--artifact-dir <path>` overrides the artifact root (default `<cwd>/.multichat`). The CLI resolves it to an absolute path before sending; use it to keep task artifacts inside a specific project instead of the launch directory.
+- Task artifacts persist on disk: `reply` text → `<artifact-dir>/results/{platform}-{taskId[:8]}.txt` (`data.replyFile`), generated image → `<artifact-dir>/image/…` (`data.imageFiles`). These paths survive app restarts (recorded in `agent-tasks/*.json`).
 - Query input: stdin is read only when neither `--query` nor `--query-file` is given. Max 100,000 chars → `INVALID_PARAMS` when exceeded.
 - `--image <path>` attaches a local image to the task; repeatable up to 10 files. Relative paths resolve client-side to absolute; the file must exist → `INVALID_PARAMS` (exit 2) otherwise. Uploads reuse the app's drag-drop file-upload path (per file: drop → platform finishes parsing → next file); a platform that rejects the file type or never finishes parsing surfaces as `SEND_FAILED` with the reason. `query` may be empty when ≥1 `--image` is given (image-only ask).
 - Client lifetime ≠ task lifetime: a killed/disconnected CLI call leaves the daemon task running and still holding its platform queue slot. Recover with `task list --all`, stop with `task cancel <taskId>`.
@@ -170,7 +197,8 @@ multichat task list --all          # active + persisted history
 | `INVALID_PARAMS` | bad/missing args, bad `--conversation` URL, query >100k | fix arguments and retry |
 | `PLATFORM_UNKNOWN` | platform has no selectors | pick another id from `platforms` |
 | `CAPABILITY_UNSUPPORTED` | e.g. `--research` on non-adapted platform | drop flag or switch platform |
-| `PAGE_NOT_READY` | page not ready (logged out/captcha/load fail) | ask user to check login in app |
+| `AUTH_REQUIRED` | not logged in (cookie says guest on a login-required platform), or login wall/captcha before sending | ask user to log in in the app, then resubmit |
+| `PAGE_NOT_READY` | page not ready for an undetermined reason (load fail/slow render) | ask user to check login in app |
 | `AUTH_LOST` | session jumped to login wall mid-task | ask user to re-login; resubmit |
 | `NOT_BLANK_CONVERSATION` | "new chat" page wasn't blank | retry; if persistent, report bug |
 | `SESSION_LOST` | window destroyed / app quit | resubmit after app restart |

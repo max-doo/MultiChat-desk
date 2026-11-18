@@ -14,6 +14,21 @@ Release-facing changelog. 仅记录用户可见或与发布相关的变化。
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-11-17
+
+### Added / Improved
+- **multichat 命令行工具（CLI）与 AI Agent 集成**:
+  - **一条命令问遍全网 AI**: 通过本地 `multichat` 命令，把提示词直接发送给 App 内已登录的 ChatGPT、Gemini、Claude、DeepSeek、Grok、千问、Kimi、豆包、Perplexity、智谱清言、文心一言、元宝、Arena 等 13 个平台会话，拿回完整 Markdown 回复——无需 API Key，完全复用网页端登录态与会员权益。
+  - **异步任务协议**: 提交即返回任务 ID，同平台任务自动串行排队、跨平台并行执行；支持长轮询等待、随时取消、任务列表回看，幂等键可防止重试导致的重复提交。
+  - **深度研究与图片附件**: 对支持的平台一键开启 Deep Research 深度研究模式；单次任务最多可附 10 张本地图片，覆盖截图分析、设计评审等视觉场景。
+  - **会话内追问**: 传入已有会话链接即可在同一对话中继续追问，保留完整上下文；一个查询也可以同时分发给多个平台对比结果。
+  - **安装接入零门槛**: Windows 安装器新增「将 multichat 加入 PATH」选项；设置面板新增「命令行与 Agent 集成」区块，可查看 PATH 状态、一键补挂、定位 CLI 与 Skill 目录；安装后主界面自动弹出引导卡片，一键复制 Agent Skill 安装命令。
+  - **内置 Agent Skill**: `multichat-cli` Skill 随应用分发，Codex、Claude Code、Workbuddy 等 AI 编码助手安装后即可调用本应用——让本地 Agent 把方案评审、深度调研、第二意见分发给任意网页 AI 平台，并自动拿回结果。
+  - **AI 生图任务与产物落盘**: `task submit --gen-image` 直接发送生图提示词，自动点击平台原生下载按钮把原图保存到本地；每次任务的回复同时写成 TXT 文档，`task status`/`task result` 返回 `imageFiles`/`replyFile` 绝对路径，Agent 拿到结果即拿到产物。
+  - **产物目录与能力探测**: `--artifact-dir` 指定产物根目录（默认当前目录 `.multichat/`），生成的图片与回复 TXT 分别存入 `image/`、`results/` 子目录；`platforms` 列表新增 `imageGeneration`/`imageDownload` 能力标记，Agent 可先探测平台能力再决定是否启用生图。
+- **AI 生图一键下载全平台适配**: ChatGPT、Gemini、文心一言、豆包、Grok、千问、元宝等所有支持生图的平台，图片下载统一升级为点击页面原生下载按钮，直接保存原尺寸大图，告别低质量截图兜底；界面批量下载与 Agent 任务生图落盘共用同一套下载框架。
+- **macOS 体验打磨**: 优化 macOS 专属标题栏布局与窗口按钮位置，设置/历史/笔记入口统一收至标题栏右侧；修复 Dock 与菜单栏托盘图标显示异常；修复 macOS 26 下划词悬浮工具条无法读取选中文本的问题。
+
 ## [1.3.0] - 2026-10-11
 
 ### Added / Improved

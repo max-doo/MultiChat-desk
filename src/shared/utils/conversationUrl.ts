@@ -17,7 +17,8 @@ const PLATFORM_NEW_PAGE_SUFFIXES: Record<string, string> = {
   yuanbao: '/chat',
   chatglm: '/alltoolsdetail'
 }
-const AUTH_WALL_SEGMENT = /\/(?:login|auth|signin|signup)(?:\/|$)/i
+/** 兼容 sign_in / sign-in / log_in 等带分隔符写法（deepseek 落在 /sign_in）。 */
+const AUTH_WALL_SEGMENT = /\/(?:log[-_]?in|sign[-_]?in|sign[-_]?up|auth)(?:\/|$)/i
 /** 跨 origin 跳转时，仅知名鉴权主机判登录墙（如 accounts.google.com），避免误伤正常站内跳转。 */
 const AUTH_WALL_HOST = /^(?:accounts|login|auth|signin|sso|passport)\./i
 
