@@ -2,6 +2,16 @@
 
 ## 2026-11-18
 
+### 13:22 | Codex
+
+- done: 提交 11-18 CLI Agent 链路改动（feat 2225c7b + chore 7350e34）并重新构建 NSIS 安装包 dist/MultiChat Setup 1.3.1.exe（签名通过，124.3MB）；删除脚本误产生的 nul 残留文件
+- context: 用户要求提交修改并重新打包安装包；lint 0 errors（存量 warning），electron-builder 签名通过
+- modified:
+  - `dist/MultiChat Setup 1.3.1.exe`
+- removed:
+  - `nul`
+- lesson: Windows 下脚本把输出重定向到 nul 会在仓库根目录生成名为 nul 的实体文件，需用 \\?\ 前缀路径删除
+
 ### 13:16 | Codex
 
 - done: 把主进程选择器版本校验写入 KNOWLEDGE，并标记对应 lesson 已提升
