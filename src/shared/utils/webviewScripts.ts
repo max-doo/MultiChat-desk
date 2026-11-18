@@ -43,6 +43,61 @@ export function generateFileDropPointScript(selectors: ModelSelector): string {
     `
 }
 
+/**
+ * 粘贴式附件上传：把磁盘文件 bytes 注入页面，构造 File + DataTransfer，
+ * 对输入框派发 paste 事件，走平台原生 paste→附件 解析链路。
+ * 相比 CDP dispatchDragEvent 拖拽：不依赖页面是否监听 drop、不挑落点坐标，
+ * 主流 AI 输入框（ProseMirror/Slate/Lexical/textarea）都监听 paste 处理附件。
+ * 返回 { success, error? }——只确认事件已派发，附件就绪由 generateFileUploadStateScript 轮询确认。
+ */
+export function generatePasteFileUploadScript(selectors: ModelSelector, fileName: string, mime: string, base64: string): string {
+  return `
+    (async function () {
+      try {
+        const fileName = ${JSON.stringify(fileName)};
+        const mime = ${JSON.stringify(mime)};
+        const base64 = ${JSON.stringify(base64)};
+        const textareaSelectors = ${JSON.stringify(selectors.textarea || [])};
+
+        const visible = el => !!el && el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden';
+        let input = null;
+        for (const sel of textareaSelectors) {
+          const cand = Array.from(document.querySelectorAll(sel)).find(visible);
+          if (cand) { input = cand; break; }
+        }
+        if (!input) return { success: false, error: '未找到输入框' };
+
+        // base64 → File
+        const byteChars = atob(base64);
+        const bytes = new Uint8Array(byteChars.length);
+        for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
+        const file = new File([bytes], fileName, { type: mime || 'application/octet-stream' });
+
+        const dt = new DataTransfer();
+        dt.items.add(file);
+
+        input.focus();
+        const pasteEvent = new ClipboardEvent('paste', {
+          bubbles: true,
+          cancelable: true,
+          clipboardData: dt
+        });
+        // 某些平台监听 paste 在更深的 editor 节点或 document 上——双派发保险。
+        input.dispatchEvent(pasteEvent);
+        const deepEditor = input.closest('[contenteditable="true"],[role="textbox"],form,[class*="editor" i],[class*="composer" i]') || input;
+        if (deepEditor !== input) {
+          const ev2 = new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt });
+          deepEditor.dispatchEvent(ev2);
+        }
+
+        return { success: true };
+      } catch (error) {
+        return { success: false, error: String(error && error.message ? error.message : error) };
+      }
+    })();
+  `
+}
+
 /** 辅助确认上传文件名是否出现；未命中不影响主进程拖拽结果。 */
 export function generateDetectUploadedFileScript(fileName: string): string {
   return `
@@ -83,6 +138,17 @@ export function generateFileUploadStateScript(selectors: ModelSelector, fileName
     const input = find(${JSON.stringify(selectors.textarea)});
     if (!input) return { found: false, busy: false, sendReady: false };
     const ignored = el => !el || input.contains(el) || !!el.closest(config.ignored);
+    // 文件名匹配放宽：图片类附件常只渲染缩略图不落全文件名。
+    // 依次尝试 全名 → 去扩展名主干 → 主干前 16 字符前缀（chip 截断显示的兼容）。
+    const stem = fileName.replace(/\\.[^.]+$/, '');
+    const namePrefix = stem.slice(0, Math.min(16, stem.length));
+    const nameMatches = text => {
+      if (!text) return false;
+      if (text.includes(fileName)) return true;
+      if (stem && stem !== fileName && text.includes(stem)) return true;
+      if (namePrefix && namePrefix.length >= 8 && text.includes(namePrefix)) return true;
+      return false;
+    };
     const readText = root => {
       const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
       const parts = [];
@@ -93,14 +159,35 @@ export function generateFileUploadStateScript(selectors: ModelSelector, fileName
       return parts.join('\n');
     };
     const containsFile = root => {
-      if (readText(root).includes(fileName)) return true;
-      return [root, ...root.querySelectorAll(config.metadata)].some(el => !ignored(el) && visible(el) && ['aria-label','title','data-file-name'].some(key => (el.getAttribute(key) || '').includes(fileName)));
+      if (nameMatches(readText(root))) return true;
+      return [root, ...root.querySelectorAll(config.metadata)].some(el => !ignored(el) && visible(el) && ['aria-label','title','data-file-name'].some(key => nameMatches(el.getAttribute(key) || '')));
+    };
+    // 非文件名兜底信号：图片附件常只出缩略图/附件 chip，不落任何文件名文本。
+    // 在 composer 子树找可见"附件缩略图"或"附件容器"节点（排除 input 自身与按钮图标）。
+    const hasAttachmentNode = root => {
+      const attachSel = '[data-testid*="attach"],[data-testid*="upload-item"],[data-testid*="file-item"],[class*="attachment" i],[class*="file-item" i],[class*="upload-item" i],[class*="image-item" i],[class*="attach-item" i]';
+      const nodes = root.querySelectorAll(attachSel);
+      for (const el of nodes) {
+        if (ignored(el) || !visible(el)) continue;
+        if (el.matches('input,textarea,[contenteditable="true"]')) continue;
+        return true;
+      }
+      const imgs = root.querySelectorAll('img');
+      for (const im of imgs) {
+        if (ignored(im) || !visible(im)) continue;
+        if (im.closest('button,[role="button"],input')) continue;
+        const nw = im.naturalWidth || 0;
+        if (nw && nw < 24) continue;
+        if ((im.currentSrc || im.src || '').startsWith('data:image/svg')) continue;
+        return true;
+      }
+      return false;
     };
     let composer = input.parentElement;
     let fileRoot = null;
     const sendSelectors = ${JSON.stringify(selectors.sendButton)};
     while (composer) {
-      if (containsFile(composer)) {
+      if (containsFile(composer) || hasAttachmentNode(composer)) {
         fileRoot ||= composer;
         if (find(sendSelectors, composer)) break;
       }
@@ -1262,7 +1349,9 @@ export function generateSendMessageScript(
         const postInputDelay = (currentModelId === 'doubao' || currentModelId === 'qwen' || currentModelId === 'deepseek') ? 350 : 80;
         await new Promise(resolve => setTimeout(resolve, postInputDelay));
 
-        ${attachmentFileName ? `const attachmentDeadline = Date.now() + 15_000;
+        ${attachmentFileName ? `// 二次确认：主阶段已 stable>=3，这里只兜底"附件还在 + send 按钮就绪"，
+        // 但 send 就绪有时会滞后于 stable（图片预览渲染、aria-busy 卸载），给 30s 余量。
+        const attachmentDeadline = Date.now() + 30_000;
         while (true) {
           const attachment = ${generateFileUploadStateScript(selectors, attachmentFileName)};
           if (attachment.error) return { success: false, error: attachment.error };
@@ -1270,7 +1359,7 @@ export function generateSendMessageScript(
           if (attachment.found && !attachment.busy && (!attachment.sendFound || attachment.sendReady)) break;
           if (Date.now() >= attachmentDeadline) {
             const reason = !attachment.found ? '未检测到本轮附件' : attachment.busy ? '附件仍在上传或解析' : '发送按钮仍未就绪';
-            return { success: false, error: '等待附件或平台就绪超时（15 秒）：' + reason + '，未发送请求' };
+            return { success: false, error: '等待附件或平台就绪超时（30 秒）：' + reason + '，未发送请求' };
           }
           await new Promise(resolve => setTimeout(resolve, 200));
         }` : ''}
@@ -1817,25 +1906,66 @@ export function generateClickDownloadButtonsScript(selectors: ModelSelector): st
  * 在页内把 img.src / canvas / a[download] / blob: 统一转成 {src, mime?} 数组返回。
  * @param selectors 平台选择器配置（用 messageContainer 定位最新回复气泡）
  */
-export function generateExtractImagesScript(selectors: ModelSelector): string {
+export function generateExtractImagesScript(selectors: ModelSelector, genImageOnly = false): string {
   const messageContainer = JSON.stringify(selectors.messageContainer || [])
   return `
     (async function() {
       try {
         const messageContainerSelectors = ${messageContainer};
+        const genImageOnly = ${genImageOnly};
         function isElementVisible(el) {
           if (!el) return false;
           const rect = el.getBoundingClientRect();
           const style = window.getComputedStyle(el);
           return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none' && style.opacity !== '0';
         }
-        function findLatestContainer() {
+        function findLatestContainer(out) {
+          // 生图产物优先认"生图专用容器"（generated-image-gallery / message_image_content /
+          // mdbox_image 等）。普通 messageContainer（文本气泡/markdown）里可能混入用户上传
+          // 附件的回显缩略图，会被 imageReady 误判成"已生成"提前 stable——所以专用容器
+          // 先单独探测；全部不命中才回落 messageContainer（兜底直存场景）。
+          var genImageContainerSelectors = [
+            '[data-testid="generated-image-gallery"]',
+            '[data-testid="generated-image-preview"]',
+            'button[aria-label^="已生成图像"]',
+            'button[aria-label^="Generated image"]',
+            '[data-testid="message_image_content"]',
+            '[data-testid="mdbox_image"]',
+            '[class*="image-box-grid"]',
+            // gemini: generated-image Angular 组件 / attachment-container.generated-images
+            'generated-image',
+            'single-image.generated-image',
+            'div.generated-images',
+            'download-generated-image-button',
+            // qwen: card_card_ai_generate_image / imageItem-（改版后类名会变，给多候选）
+            '.card_card_ai_generate_image',
+            '[class*="imageItem-"]',
+            '[class*="imageWrapper-"]',
+            // yiyan: _final-image_xxx（hash 后缀，class 前缀匹配）
+            '[class*="_final-image_"]',
+            // yuanbao: 生图 swiper 卡片
+            '.dic-card-item',
+            'img.dic-card-item__img',
+            // grok: 生图 assets CDN img 容器（.message-content 内，messageContainer 可命中）
+            'img[src*="assets.grok.com"][src*="generated"]'
+          ];
+          for (var gi = 0; gi < genImageContainerSelectors.length; gi++) {
+            var genAll = document.querySelectorAll(genImageContainerSelectors[gi]);
+            for (var gj = genAll.length - 1; gj >= 0; gj--) {
+              if (isElementVisible(genAll[gj])) { if (out) { out.sel = genImageContainerSelectors[gi]; } return genAll[gj]; }
+            }
+          }
           for (const sel of messageContainerSelectors) {
             const all = document.querySelectorAll(sel);
             for (let i = all.length - 1; i >= 0; i--) {
-              if (isElementVisible(all[i])) return all[i];
+              if (isElementVisible(all[i])) { if (out) { out.sel = sel; } return all[i]; }
             }
           }
+          // 专用容器与 messageContainer 都不命中时：
+          // genImageOnly（生图探针）到此为止返回 null——不落 document.body，
+          // 否则会把用户上传附件的回显缩略图当"已生成"产物（chatgpt 实测踩过）。
+          // 非生图探针（兜底直存）仍可落 body 拿全图。
+          if (genImageOnly) return null;
           return document.body;
         }
         function inferMime(src) {
@@ -1860,14 +1990,44 @@ export function generateExtractImagesScript(selectors: ModelSelector): string {
           });
         }
 
-        var root = findLatestContainer();
+        var containerInfo = { sel: '' };
+        var root = findLatestContainer(containerInfo);
         var seen = Object.create(null);
         var images = [];
+
+        if (!root) {
+          return { success: true, images: [], containerSel: containerInfo.sel || 'none' };
+        }
+
+        // 上传附件回显排除：用户消息气泡里的 img 不是生图产物。
+        // --image 上传的图在用户气泡/composer 区渲染，若容器兜底扫到它们会误判。
+        var userBubbleSel = '[data-message-author-role="user"],[data-role="user"],[data-turn="user"],[data-testid="user-message"],user-query,.user-query,[class*="user-message" i],[class*="user-bubble" i]';
+        function isInUserBubble(el) {
+          try { return !!(el.closest && el.closest(userBubbleSel)); } catch (e) { return false; }
+        }
+
+        // 生成中骨架/占位内的 img 属于"过程产物"：容器 data-finished=false、
+        // 或祖先带 placeholder/skeleton/loading 标记时，不当成最终生图。
+        function isInProgressArtifact(el) {
+          try {
+            var finished = el.closest && el.closest('[data-finished="false"]');
+            if (finished) return true;
+            var ph = el.closest && el.closest('[class*="placeholder" i],[class*="skeleton" i],[class*="imagegen-loading" i],[data-testid*="placeholder" i]');
+            if (ph) {
+              // 但已完成的高清图（如 chatgpt generated-image-preview 内部 img）不算过程产物
+              var done = el.closest && el.closest('[data-testid="generated-image-preview"],button[aria-label^="已生成图像"],button[aria-label^="Generated image"],[data-testid="message_image_content"],[data-testid="mdbox_image"]');
+              if (!done) return true;
+            }
+          } catch (e) {}
+          return false;
+        }
 
         // 1) img 元素
         var imgs = root.querySelectorAll('img');
         for (var i = 0; i < imgs.length; i++) {
           var img = imgs[i];
+          if (isInUserBubble(img)) continue;
+          if (isInProgressArtifact(img)) continue;
           var src = img.currentSrc || img.src || img.getAttribute('data-src') || '';
           if (!src) continue;
           // 过滤小图标/头像（data:/blob: 不过滤尺寸，因为是生成的图）
@@ -1912,7 +2072,7 @@ export function generateExtractImagesScript(selectors: ModelSelector): string {
           }
         }
 
-        return { success: true, images: images };
+        return { success: true, images: images, containerSel: containerInfo.sel || '' };
       } catch (error) {
         return { success: false, images: [], error: String(error?.message ?? error) };
       }

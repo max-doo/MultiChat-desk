@@ -133,6 +133,7 @@ export const platformAuthStorage: Record<
 /** 站点正文结构更新的补充候选；采集脚本同时使用，兼容本地保存的旧配置。 */
 export const responseMessageSelectors: Record<string, string[]> = {
   'chatgpt.com': [
+    '[data-testid="generated-image-gallery"]',
     'div[class*="MarkdownRoot-"]',
     '[data-message-author-role="assistant"]',
     '.markdown.prose',
@@ -758,6 +759,7 @@ export const defaultSelectors: SelectorsConfig = {
         'button[type="submit"]'
       ],
       messageContainer: [
+        '[data-testid="message_image_content"]',
         '[data-streaming]',
         '[data-streaming] .md-box-root',
         '.md-box-root',

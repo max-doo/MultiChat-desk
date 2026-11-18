@@ -1,12 +1,12 @@
 import type Store from 'electron-store'
 import type { WebContents } from 'electron'
-import { mkdtemp, writeFile, rm } from 'fs/promises'
-import { basename, join } from 'path'
+import { mkdtemp, writeFile, rm, readFile } from 'fs/promises'
+import { basename, extname, join } from 'path'
 import { tmpdir } from 'os'
 import { randomUUID } from 'crypto'
 import { sessionManager } from './SessionManager'
 import { getSelectors, defaultSelectors, type ModelSelector, type SelectorsConfig } from '../../shared/config/selectors'
-import { generateSendMessageScript, generateGetLatestResponseScript, generateFileDropPointScript, generateFileUploadStateScript } from '../../shared/utils/webviewScripts'
+import { generateSendMessageScript, generateGetLatestResponseScript, generateFileDropPointScript, generateFileUploadStateScript, generatePasteFileUploadScript } from '../../shared/utils/webviewScripts'
 
 const PLATFORM_DEFAULT_URLS: Record<string, string> = {
   chatgpt: 'https://chatgpt.com',
@@ -38,6 +38,26 @@ function abortable<T>(operation: Promise<T>, signal?: AbortSignal): Promise<T> {
     operation.then(resolve, reject).finally(() => signal.removeEventListener('abort', abort))
     if (signal.aborted) abort()
   })
+}
+
+const MIME_BY_EXT: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+  '.bmp': 'image/bmp',
+  '.svg': 'image/svg+xml',
+  '.pdf': 'application/pdf',
+  '.txt': 'text/plain',
+  '.md': 'text/markdown',
+  '.doc': 'application/msword',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.ppt': 'application/vnd.ms-powerpoint',
+  '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  '.xls': 'application/vnd.ms-excel',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.csv': 'text/csv'
 }
 
 /** 前台总结与后台导图共享同一拖拽上传实现。 */
@@ -267,11 +287,30 @@ export class AutomationService {
       for (const filePath of filePaths) {
         const fileName = basename(filePath)
         if (signal?.aborted) throw new Error('附件操作已中止')
-        const point = await abortable(wc.executeJavaScript(generateFileDropPointScript(selectors)) as Promise<{ x: number; y: number }>, signal)
-        const dropped = await dispatchFileDrop(wc, filePath, point?.x ?? 10, point?.y ?? 10, signal)
-        if (!dropped.success) return { success: false, error: dropped.error || `附件拖拽上传失败: ${fileName}` }
+        // 优先走"粘贴式"上传：读文件 bytes → 页内 new File + ClipboardEvent('paste')。
+        // 不依赖页面是否监听 drop/落点坐标，主流 AI 输入框都监听 paste 处理附件。
+        // paste 派发失败（如页面拦截/不支持）才退回 CDP 拖拽兜底。
+        let uploaded = false
+        try {
+          const buf = await readFile(filePath)
+          const mime = MIME_BY_EXT[extname(fileName).toLowerCase()] ?? 'application/octet-stream'
+          const pasteScript = generatePasteFileUploadScript(selectors, fileName, mime, buf.toString('base64'))
+          const pasted = await abortable(wc.executeJavaScript(pasteScript) as Promise<{ success: boolean; error?: string }>, signal)
+          uploaded = !!pasted?.success
+        } catch (err) {
+          uploaded = false
+          console.warn(`[AutomationService] 粘贴上传异常，退回拖拽 (${fileName}):`, err)
+        }
+        if (!uploaded) {
+          const point = await abortable(wc.executeJavaScript(generateFileDropPointScript(selectors)) as Promise<{ x: number; y: number }>, signal)
+          const dropped = await dispatchFileDrop(wc, filePath, point?.x ?? 10, point?.y ?? 10, signal)
+          if (!dropped.success) return { success: false, error: dropped.error || `附件上传失败: ${fileName}` }
+        }
         const stateScript = generateFileUploadStateScript(selectors, fileName)
-        const deadline = Date.now() + 30_000
+        // 大图/慢网络/平台 OCR 预检可能把附件 ready 拖过 30s（实测豆包/Gemini 曾踩到）；
+        // 主超时给足 90s 仍由 stable>=3 提前退出，不延长快路径。
+        const ATTACHMENT_READY_TIMEOUT_MS = 90_000
+        const deadline = Date.now() + ATTACHMENT_READY_TIMEOUT_MS
         let stable = 0
         let reason = '未检测到本轮附件'
         for (;;) {
@@ -282,7 +321,7 @@ export class AutomationService {
           if (stable >= 3) break
           reason = !state.found ? '未检测到本轮附件' : '附件仍在上传或解析'
           if (Date.now() >= deadline) {
-            return { success: false, error: `等待附件「${fileName}」上传就绪超时（30 秒）：${reason}` }
+            return { success: false, error: `等待附件「${fileName}」上传就绪超时（${Math.round(ATTACHMENT_READY_TIMEOUT_MS / 1000)} 秒）：${reason}` }
           }
           await abortable(new Promise<void>(resolve => setTimeout(resolve, 400)), signal)
         }

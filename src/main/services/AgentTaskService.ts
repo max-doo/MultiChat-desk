@@ -599,14 +599,17 @@ export class AgentTaskService {
   private async captureGeneratedImage(task: TaskEntry, wc: WebContents, selectors: Awaited<ReturnType<typeof automationService.getPlatformSelectors>>, signal: AbortSignal): Promise<void> {
     try {
       // 图片 DOM 常晚于文本稳定数十秒才挂载（豆包实测 30-90s）。
-      // 探针用 generateExtractImagesScript：抓取 messageContainer 内 img/canvas/a[download]/blob，
+      // 探针用 generateExtractImagesScript(genImageOnly=true)：只认生图专用容器内 img/canvas/a[download]/blob，
       // 返回真实图片数量——比"下载按钮存在"更可靠（yiyan 的 cos-icon-download 恒在会误判）。
-      const probeScript = generateExtractImagesScript(selectors)
+      // genImageOnly 避免把用户上传附件的回显缩略图当成"已生成"产物。
+      const probeScript = generateExtractImagesScript(selectors, true)
       let hasImage = false
+      let lastSel = ''
       const imgDeadline = Date.now() + 120_000
       while (Date.now() < imgDeadline) {
         if (signal.aborted || task.cancelRequested) return
-        const res = await this.exec<{ success: boolean; images?: Array<{ src: string }> }>(wc, probeScript, '探测最新生图', signal).catch(() => null)
+        const res = await this.exec<{ success: boolean; images?: Array<{ src: string }>; containerSel?: string }>(wc, probeScript, '探测最新生图', signal).catch(() => null)
+        if (res?.containerSel) lastSel = res.containerSel
         if (res?.success && res.images?.length) {
           hasImage = true
           break
@@ -614,7 +617,7 @@ export class AgentTaskService {
         await delay(1500, signal)
       }
       if (!hasImage) {
-        task.imageError = '生成超时未检测到图片'
+        task.imageError = `生成超时未检测到图片（containerSel=${lastSel || 'none'}）`
         return
       }
       const dirs = this.artifactDirs(task)
@@ -712,9 +715,9 @@ export class AgentTaskService {
   private async poll(task: TaskEntry, wc: WebContents, stateScript: string, replyScript: string, baseUrl: string, signal: AbortSignal, selectors?: Awaited<ReturnType<typeof automationService.getPlatformSelectors>>): Promise<void> {
     const isAdapted = !!generationStopSelectors[task.platform]?.length
     const stableThreshold = task.mode === 'chat' && isAdapted ? 3 : 8
-    // 生图任务：图片探针用 extractImages（抓 messageContainer 内真实 img/canvas），
+    // 生图任务：图片探针用 extractImages(genImageOnly=true，只认生图容器内 img/canvas），
     // 不用 imageDownload.steps[0]——它是"下载按钮"不是图片元素，yiyan 等平台会误判。
-    const imageProbe = task.genImage && selectors ? generateExtractImagesScript(selectors) : ''
+    const imageProbe = task.genImage && selectors ? generateExtractImagesScript(selectors, true) : ''
 
     while (!signal.aborted) {
       await delay(POLL_INTERVAL_MS, signal)
