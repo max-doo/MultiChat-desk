@@ -17,8 +17,9 @@
 | id | 触发词或文件路径 | KNOWLEDGE 章节 | 适用说明 |
 |---|---|---|---|
 | `webview-extraction` | selectors.ts、webviewScripts.ts、contenteditable、Slate、DOM、CodeMirror、回复采集 | ### 1. Webview 输入、选择器与回复采集 | 先确认当前 DOM 与调用链 |
-| `image-download` | imageDownload、clickDownloadButtons、generateClickDownloadButtonsScript、批量下载图片、原生下载、aria-label 下载 | ### 1. Webview 输入、选择器与回复采集 | 图片下载选择器适配经验在同主题末尾 |
+| `image-download` | imageDownload、clickDownloadButtons、generateClickDownloadButtonsScript、批量下载图片、原生下载、aria-label 下载、`--gen-image`、CLI 生图、generateExtractImagesScript | ### 1. Webview 输入、选择器与回复采集 | 图片下载选择器适配经验在同主题末尾 |
 | `research-frames` | Deep Research、研究报告、Qwen、iframe、CDP、OOPIF | ### 2. 深度研究与跨 frame 提取 | 提取方案不等于已验收能力 |
+| `research-selectors` | deep-research-dom、研究模式、选择器失效、aria-label、menuitem、menuitemradio、toolbox-drawer、选择模式、添加文件、深入研究、深度研究 | ### 2. 深度研究与跨 frame 提取 | 2026-11 全平台 DOM 实测结论在同主题末尾 |
 | `markmap-layout` | localMindmap.css、foreignObject、连线、折叠按钮、中文竖排、点击遮挡 | ### 3. Markmap 布局、连线与命中区域 | 布局与按钮测量 |
 | `markmap-viewport` | useMindmapCanvas.ts、Markmap.create、fit、zoom、ResizeObserver、隐藏画布 | ### 4. Markmap 可见性、缩放与视口 | 初始化和后续更新区分 |
 | `markmap-editing` | Markmap、setData、treeRef、contenteditable、节点编辑、选中态、preventScroll | ### 5. Markmap 编辑与状态生命周期 | 布局问题另读主题 3 |
@@ -27,7 +28,7 @@
 | `notes-identity` | noteManager.ts、noteIdentity.ts、noteTranscript.ts、笔记、快照、URL路径、XML、批注 | ### 8. 笔记、快照与会话身份 | 整段对话采集另读主题 1 |
 | `history-lifecycle` | appStore.ts、useWebviewLifecycle.ts、历史恢复、currentConversationId、WebContents ID、轮询、休眠、hibernate、内存、日志量 | ### 9. 历史恢复、轮询、休眠与内存 | 保持磁盘/内存与会话边界 |
 | `task-api` | taskSplitApi.ts、requestBodyConfig.ts、useTaskSplit.ts、useDebateRunner.ts、ipcHandlers.ts、env.d.ts、任务分配、辩论、model ID、AbortController | ### 10. 任务分配、辩论与 API 请求 | 旧总结链路仅在历史主题 |
-| `cli-daemon` | src/cli/、src/main/daemon/、SessionManager.ts、AutomationService.ts、Named Pipe、CLI、后台会话、诊断透传、AgentTaskService、commander、taskkill、daemon.token、multichat.cmd、ERRORLEVEL、run_task.ps1、PATH、注册表定位、cli.json、idempotencyKey、stdin、taskId | ### 11. CLI 与后台会话 | 通信顺序和输出协议 |
+| `cli-daemon` | src/cli/、src/main/daemon/、SessionManager.ts、AutomationService.ts、Named Pipe、CLI、后台会话、诊断透传、AgentTaskService、commander、taskkill、daemon.token、multichat.cmd、ERRORLEVEL、run_task.ps1、PATH、注册表定位、cli.json、idempotencyKey、stdin、taskId、登录态、AUTH_REQUIRED、AUTH_LOST、未登录、sign_in、authWall、AuthStateService、platformAuthCookies、platformAuthCookieRules、platformAuthStorage、signedIn、游客、guest、cookie、BDUSS、chatglm_token、is_guest、hy_user、a_did_、refresh_token、tongyi_sso_ticket、arena-auth、qianwen.com、chat.qwen.ai、aria-pressed、skipIfPressed | ### 11. CLI 与后台会话 | 通信顺序、输出协议、登录态双通道与值判定、幂等开关 |
 | `build-verification` | electron.vite.config.ts、electron-builder、NSIS、winCodeSign、TUN、QUIC、混淆、toString、打包、tsc、构建验证、ELECTRON_RUN_AS_NODE、generate-mac-assets.sh、Dock 图标、icns、InstallLocation、UninstallString、卸载注册表、extends、extraResources、便携版、SendMessageTimeout、WM_SETTINGCHANGE、install-stamp | ### 12. 构建、打包与开发验证 | 平台/版本经验需核对环境 |
 | `historical-only` | WebContentsView、Electron 28、Chromium 120、summaryApi.ts、useSummaryPanel.ts、generate-summary、EnterWorktree、worktree、旧架构 | ### 13. 历史架构与版本限定经验 | 只在明确追溯或已授权工作中加载 |
 
