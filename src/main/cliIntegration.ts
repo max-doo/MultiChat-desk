@@ -90,6 +90,7 @@ export async function getCliStatus(store: Store<Record<string, unknown>>): Promi
   const onPath = supported && cliDir ? pathContainsDir(await readUserPathValue(), cliDir) : false
   return {
     supported,
+    platform: process.platform,
     isPackaged: app.isPackaged,
     onPath,
     hintDismissed: store.get(HINT_DISMISSED_KEY, false) === true && !hasInstallStamp(),

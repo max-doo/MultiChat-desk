@@ -10,6 +10,7 @@ export default function CliIntegrationSection(): JSX.Element | null {
   const [status, setStatus] = useState<CliIntegrationStatus | null>(null)
   const [busy, setBusy] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [cliCopied, setCliCopied] = useState(false)
 
   useEffect(() => {
     void window.api.cliGetStatus().then(res => {
@@ -44,12 +45,21 @@ export default function CliIntegrationSection(): JSX.Element | null {
     setTimeout(() => setCopied(false), 2000)
   }
 
+  const handleCopyCliCommand = async (): Promise<void> => {
+    if (!status.cliCmdPath) return
+    await navigator.clipboard.writeText(`sh "${status.cliCmdPath}"`)
+    setCliCopied(true)
+    setTimeout(() => setCliCopied(false), 2000)
+  }
+
   const statusText = status.onPath
     ? '已加入 PATH'
     : status.supported
       ? '未加入 PATH'
       : status.isPackaged
-        ? '当前平台不支持自动加入 PATH'
+        ? status.platform === 'darwin' && status.cliCmdPath
+          ? '未加入 PATH，可在终端通过下方入口调用'
+          : '当前平台不支持自动加入 PATH'
         : '开发模式'
 
   return (
@@ -82,6 +92,15 @@ export default function CliIntegrationSection(): JSX.Element | null {
           >
             打开目录
           </button>
+          {status.platform === 'darwin' && (
+            <button
+              type="button"
+              onClick={() => { void handleCopyCliCommand() }}
+              className="text-primary hover:opacity-80 font-medium shrink-0"
+            >
+              {cliCopied ? '已复制' : '复制调用命令'}
+            </button>
+          )}
         </div>
       )}
 

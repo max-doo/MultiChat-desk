@@ -11,10 +11,13 @@ Drive the MultiChat desktop app's AI-platform webview sessions from the command 
 
 Resolve the CLI entrypoint in this order:
 
-1. **`cli.json` manifest** at `%APPDATA%\MultiChat\cli.json` (same dir as `daemon.token`; the running app rewrites it on startup) → `cliCmdPath`. One file read gives the definitive path — check it first.
+1. **`cli.json` manifest** (same dir as `daemon.token`; the running app rewrites it on startup) → `cliCmdPath`. One file read gives the definitive path — check it first. Location by platform (app dir name is `multichat` or `MultiChat`, dev adds `-dev` — probe both):
+   - Windows: `%APPDATA%\MultiChat\cli.json`
+   - macOS: `~/Library/Application Support/multichat/cli.json`
+   - Linux: `$XDG_CONFIG_HOME/multichat/cli.json` or `~/.config/multichat/cli.json`
 2. `multichat` if already on `PATH` (the Windows installer offers "install multichat command and add to PATH" during setup). Note: a PATH added during install only reaches *new* processes — a long-running agent shell inherits its parent's stale PATH, so "command not found" here means stale environment, not a missing install. Do NOT conclude the CLI is absent; continue to step 3/4.
 3. Repo dev build: `node out/cli/index.js` (built by `npm run build:cli`, part of `npm run build`). Plain Node works — no `ELECTRON_RUN_AS_NODE` needed for the bundled file.
-4. Packaged install: `cli\multichat.cmd` under the Windows install dir, or `multichat.sh` at `MultiChat.app/Contents/` (macOS); these set `ELECTRON_RUN_AS_NODE=1` internally.
+4. Packaged install: `cli\multichat.cmd` under the Windows install dir, or `multichat.sh` at `MultiChat.app/Contents/` (macOS); these set `ELECTRON_RUN_AS_NODE=1` internally. If a `.sh` entrypoint is not executable (`Permission denied`), invoke it through `sh`/`bash` instead of relying on the exec bit.
 
    On Windows, locate the install dir **deterministically** from the uninstall registry — do not search the disk or guess paths. (electron-builder does not write `InstallLocation`; derive it from `DisplayIcon`/`UninstallString`):
 
@@ -80,6 +83,7 @@ multichat task result <taskId> --json
 ```bash
 scripts/run_task.sh --platform chatgpt --poll 600 --query "评审以下设计：..."
 cat prompt.md | scripts/run_task.sh --platform claude        # stdin query
+bash scripts/run_task.sh --platform chatgpt --query "..."    # fallback if not executable
 scripts/run_task.ps1 -Platform deepseek -Query "..."         # PowerShell
 ```
 

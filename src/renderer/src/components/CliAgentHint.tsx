@@ -3,9 +3,10 @@ import { buildSkillInstallCommand } from '../utils/cliGuide'
 import type { CliIntegrationStatus } from '../../../shared/types/cli'
 
 /**
- * 安装引导卡片：检测到 multichat 已加入 PATH 且本次安装后用户未关闭过提示时，
+ * 安装引导卡片：检测到 multichat 可用且本次安装后用户未关闭过提示时，
  * 在主界面右下角引导用户把配套 Agent Skill 接入自己的 AI Agent；
- * 关闭后不再显示，下次安装/覆盖安装（.install-stamp 标记）时重新弹出。
+ * 关闭后不再显示，下次安装/覆盖安装（Windows .install-stamp 标记）时重新弹出。
+ * Windows 要求 CLI 已加入 PATH；macOS 无 PATH 注册，打包版存在 multichat.sh 入口即视为可用。
  */
 export default function CliAgentHint(): JSX.Element | null {
   const [status, setStatus] = useState<CliIntegrationStatus | null>(null)
@@ -16,7 +17,8 @@ export default function CliAgentHint(): JSX.Element | null {
     void window.api.cliGetStatus().then(res => {
       if (res.success && res.data) {
         setStatus(res.data)
-        if (res.data.isPackaged && res.data.onPath && !res.data.hintDismissed) {
+        const usable = res.data.platform === 'darwin' ? !!res.data.cliCmdPath : res.data.onPath
+        if (res.data.isPackaged && usable && !res.data.hintDismissed) {
           setVisible(true)
         }
       }
