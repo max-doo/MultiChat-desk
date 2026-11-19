@@ -2,6 +2,26 @@
 
 ## 2026-11-19
 
+### 21:37 | Codex
+
+- done: 修正 Client Hints 品牌一致性：sec-ch-ua 改用 Electron 实际发送的 Not/A)Brand+Chromium，与 navigator.userAgentData.brands 保持同源，避免请求头与页面 JS 品牌矛盾
+- context: 用户要求按最小方案实施浏览器伪装补强
+- decision: 只用 Electron 自身真实品牌值补齐主文档缺失的 Client Hints，不伪造 Google Chrome 品牌，避免引入跨层不一致
+- modified:
+  - `src/main/webviewManager.ts`
+- lesson: 伪造 Client Hints 时必须与 navigator.userAgentData.brands 同源：把 Google Chrome 写进 sec-ch-ua 而 JS 层只有 Chromium 会制造新矛盾；Electron 的 getHighEntropyValues 内部不读被覆盖的 brands，页面级 patch 不可靠
+- unresolved: window.chrome 空对象与 outerWidth/innerWidth 差值未处理；未在 npm run dev 真实站点端到端验证
+
+### 21:34 | Codex
+
+- done: 重建共享 Session 标准 Chrome UA 并补齐主文档 Client Hints，消除 Electron 指纹中的 UA 应用名泄漏与 sec-ch-ua 缺失
+- context: 用户询问浏览器伪装是否可能被识别为 Electron，先做审计后用独立 worker 复核并查外部文档，最终按'先补 sec-ch-ua、再重建 UA'的顺序实施
+- decision: 只改主进程 setupSharedSessionUserAgent，不动渲染层与 preload；不引入 window.chrome shim 等 stealth 手段，避免过度工程化
+- modified:
+  - `src/main/webviewManager.ts`
+- lesson: Electron 默认 UA 为 <平台段> <应用名>/<版本> Chrome/x Electron/x Safari/x，只删 Electron/ 仍留应用名 token，需整段重建；主文档导航请求默认不发 Client Hints，可用 session.webRequest.onBeforeSendHeaders 按 mainFrame/subFrame 补齐，子资源请求本身会发需判重避免覆盖
+- unresolved: 未在 npm run dev 中做真实站点端到端验证；window.chrome 空对象与 outerWidth/innerWidth 差值未处理
+
 ### 15:56 | Codex
 
 - done: 审核 1.3.1 CHANGELOG 并修正 4 处过度承诺表述

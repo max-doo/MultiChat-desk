@@ -448,17 +448,76 @@ export function getWebviewClickInterceptorScript(): string {
   `
 }
 
-// ============ 共享 Session User-Agent 伪装 ============
+// ============ 共享 Session 浏览器特征伪装 ============
+
+const SHARED_PARTITION = 'persist:shared'
+
+interface StandardUserAgent {
+    userAgent: string
+    chromeMajor: string
+    platform: string
+}
 
 /**
- * 为共享 Session 设置伪装 User-Agent，移除 Electron 特征标识，
- * 避免部分平台（如 Google）因检测到非标准浏览器环境而拦截登录
+ * 由内置 Chromium 版本重建标准 Chrome UA。
+ * Electron 默认 UA 为 `<平台段> <应用名>/<版本> Chrome/<版本> Electron/<版本> Safari/537.36`，
+ * 只删 `Electron/` 仍会留下应用名 token，因此整段重建；平台段原样保留以适配各平台。
+ * Chrome 版本按 UA reduction 只保留主版本号，与真实 Chrome 一致。
+ */
+function buildStandardChromeUserAgent(): StandardUserAgent {
+    const raw = session.fromPartition(SHARED_PARTITION).getUserAgent()
+    const chromeMajor = raw.match(/Chrome\/(\d+)/)?.[1] ?? ''
+    const platformAnchor = '(KHTML, like Gecko)'
+    const anchorEnd = raw.indexOf(platformAnchor)
+    const head = anchorEnd >= 0
+        ? raw.slice(0, anchorEnd + platformAnchor.length)
+        : 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko)'
+    const platform = raw.includes('Windows NT')
+        ? 'Windows'
+        : raw.includes('Macintosh')
+            ? 'macOS'
+            : 'Linux'
+    return {
+        userAgent: chromeMajor ? `${head} Chrome/${chromeMajor}.0.0.0 Safari/537.36` : raw,
+        chromeMajor,
+        platform
+    }
+}
+
+let sharedSessionHardened = false
+
+/**
+ * 为共享 Session 伪装浏览器特征，使 webview 内的站点无法据 UA 或 Client Hints
+ * 判定当前为非标准浏览器环境。幂等：多次调用只生效一次。
  */
 export function setupSharedSessionUserAgent(): void {
-    const sharedSession = session.fromPartition('persist:shared')
-    const currentUA = sharedSession.getUserAgent()
-    const cleanUA = currentUA.replace(/\s*Electron\/[0-9.]+/g, '')
-    sharedSession.setUserAgent(cleanUA)
+    const sharedSession = session.fromPartition(SHARED_PARTITION)
+    const { userAgent, chromeMajor, platform } = buildStandardChromeUserAgent()
+    sharedSession.setUserAgent(userAgent)
+
+    if (sharedSessionHardened || !chromeMajor) return
+    sharedSessionHardened = true
+
+    // Electron 的主文档导航请求完全不发 Client Hints，子资源请求则会发；真实 Chrome 两者都发，
+    // 缺失首屏低熵提示本身就是明显特征。这里按子资源请求实际发送的品牌值补齐主文档。
+    // 品牌列表刻意与 navigator.userAgentData.brands 保持一致（不含 Google Chrome），
+    // 避免请求头与页面 JS 给出互相矛盾的品牌信息。Client Hints 仅 HTTPS 发送，故不改写 http。
+    // 品牌值在此硬编码而非运行时读取：读取 brands 需要额外建窗加载页面（异步、约 200ms），
+    // 而当前硬编码值与 Electron 42 内置 Chromium 实际发送值一致。升级 Electron 大版本后
+    // 若 Chromium 轮换 GREASE 品牌，需同步更新此处。
+    const clientHints: Record<string, string> = {
+        'sec-ch-ua': `"Not/A)Brand";v="99", "Chromium";v="${chromeMajor}"`,
+        'sec-ch-ua-mobile': '?0',
+        'sec-ch-ua-platform': `"${platform}"`
+    }
+    sharedSession.webRequest.onBeforeSendHeaders({ urls: ['https://*/*'] }, (details, callback) => {
+        const requestHeaders = details.requestHeaders || {}
+        for (const existingKey of Object.keys(requestHeaders)) {
+            if (existingKey.toLowerCase() in clientHints) delete requestHeaders[existingKey]
+        }
+        Object.assign(requestHeaders, clientHints)
+        callback({ requestHeaders })
+    })
 }
 
 // ============ 主窗口创建 ============
