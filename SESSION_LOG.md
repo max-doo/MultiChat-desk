@@ -1,5 +1,13 @@
 # Session Log
 
+## 2026-11-19
+
+### 00:12 | Codex
+
+- done: 按新模板简化 Agent Skill 安装指引文案：路径由运行时解析、去掉硬编码 .agents/skills 与 POSIX 家目录写法，天然兼容 macOS
+- modified:
+  - `src/renderer/src/utils/cliGuide.ts`
+
 ## 2026-11-18
 
 ### 17:46 | Codex

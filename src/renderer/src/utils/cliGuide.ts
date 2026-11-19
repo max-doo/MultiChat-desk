@@ -4,7 +4,7 @@
  */
 export function buildSkillInstallCommand(skillDir: string): string {
   return [
-    `请安装 MultiChat 的 Agent Skill：将 "${skillDir}" 整个目录复制到当前项目的 .agents/skills/ 下（保持目录名 multichat-cli；客户端有专属 skills 目录时按其约定放置）。如需对所有项目生效，改为复制到 ~/.agents/skills/ 下。`,
+    `请安装 MultiChat 的 Agent Skill：将 "${skillDir}" 整个目录复制到当前项目的 skill 目录下。如需对所有项目生效，改为复制到全局skill目录下。`,
     '该 Skill 通过 multichat CLI 驱动 MultiChat 桌面应用，需保持应用运行。'
   ].join('\n')
 }
