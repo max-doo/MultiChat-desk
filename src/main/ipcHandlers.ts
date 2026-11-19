@@ -38,6 +38,18 @@ import { checkForUpdate, getUpdateState } from './updater/checker'
 import { getSelectionToolbarEnabled, setSelectionToolbarEnabled } from './selectionToolbarManager'
 import { getCliStatus, dismissCliHint, addCliDirToPath, openCliLocation } from './cliIntegration'
 import { registerBatchDownload, awaitImageDownloadResult } from './services/ImageDownloadService'
+import {
+    selectFolder as workbenchSelectFolder,
+    readTree as workbenchReadTree,
+    readFile as workbenchReadFile,
+    writeFile as workbenchWriteFile,
+    createNode as workbenchCreateNode,
+    renameNode as workbenchRenameNode,
+    deleteNode as workbenchDeleteNode,
+    search as workbenchSearch,
+    revealFile as workbenchRevealFile
+} from './services/workbenchService'
+import type { WorkbenchNodeType } from '../shared/types/workbench'
 
 // 存储当前的 AbortController，用于终止请求
 let currentTaskSplitAbortController: AbortController | null = null
@@ -1562,6 +1574,116 @@ export async function registerIpcHandlers(
     ipcMain.handle('cli:open-location', async (_event, target: 'cli' | 'skill') => {
         try {
             await openCliLocation(target)
+            return { success: true }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    // ============ 工作台 (Workbench) 文件系统与检索 IPC ============
+
+    ipcMain.handle('workbench:select-folder', async () => {
+        try {
+            const data = await workbenchSelectFolder(getMainWindow())
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('workbench:read-tree', async (_event, payload: string | { workspaceRoot: string }) => {
+        try {
+            const workspaceRoot = typeof payload === 'string' ? payload : payload?.workspaceRoot
+            const data = await workbenchReadTree(workspaceRoot)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('workbench:read-file', async (_event, payload: string | { workspaceRoot: string; relativePath: string }, relPath?: string) => {
+        try {
+            const workspaceRoot = typeof payload === 'string' ? payload : payload?.workspaceRoot
+            const relativePath = typeof payload === 'string' ? relPath! : payload?.relativePath
+            const data = await workbenchReadFile(workspaceRoot, relativePath)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('workbench:write-file', async (_event, payload: string | { workspaceRoot: string; relativePath: string; content: string }, relPath?: string, text?: string) => {
+        try {
+            const workspaceRoot = typeof payload === 'string' ? payload : payload?.workspaceRoot
+            const relativePath = typeof payload === 'string' ? relPath! : payload?.relativePath
+            const content = typeof payload === 'string' ? text! : payload?.content
+            const data = await workbenchWriteFile(workspaceRoot, relativePath, content ?? '')
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('workbench:create-node', async (_event, payload: string | { workspaceRoot: string; relativePath: string; type: WorkbenchNodeType }, relPath?: string, nodeType?: WorkbenchNodeType) => {
+        try {
+            const workspaceRoot = typeof payload === 'string' ? payload : payload?.workspaceRoot
+            const relativePath = typeof payload === 'string' ? relPath! : payload?.relativePath
+            const type = (typeof payload === 'string' ? nodeType : payload?.type) ?? 'file'
+            const data = await workbenchCreateNode(workspaceRoot, relativePath, type)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('workbench:rename-node', async (_event, payload: string | { workspaceRoot: string; oldRelativePath: string; newRelativePath: string }, oldPath?: string, newPath?: string) => {
+        try {
+            const workspaceRoot = typeof payload === 'string' ? payload : payload?.workspaceRoot
+            const oldRelativePath = typeof payload === 'string' ? oldPath! : payload?.oldRelativePath
+            const newRelativePath = typeof payload === 'string' ? newPath! : payload?.newRelativePath
+            await workbenchRenameNode(workspaceRoot, oldRelativePath, newRelativePath)
+            return { success: true }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('workbench:delete-node', async (_event, payload: string | { workspaceRoot: string; relativePath: string }, relPath?: string) => {
+        try {
+            const workspaceRoot = typeof payload === 'string' ? payload : payload?.workspaceRoot
+            const relativePath = typeof payload === 'string' ? relPath! : payload?.relativePath
+            await workbenchDeleteNode(workspaceRoot, relativePath)
+            return { success: true }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('workbench:search', async (_event, payload: string | { workspaceRoot: string; query: string }, q?: string) => {
+        try {
+            const workspaceRoot = typeof payload === 'string' ? payload : payload?.workspaceRoot
+            const query = typeof payload === 'string' ? q! : payload?.query
+            const data = await workbenchSearch(workspaceRoot, query ?? '')
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('workbench:reveal-file', async (_event, payload: string | { workspaceRoot: string; relativePath: string }, relPath?: string) => {
+        try {
+            const workspaceRoot = typeof payload === 'string' ? payload : payload?.workspaceRoot
+            const relativePath = typeof payload === 'string' ? relPath! : payload?.relativePath
+            await workbenchRevealFile(workspaceRoot, relativePath)
             return { success: true }
         } catch (err: unknown) {
             const error = err instanceof Error ? err.message : String(err)

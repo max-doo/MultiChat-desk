@@ -1,9 +1,41 @@
 import { ReactNode, useEffect, useRef, useState } from 'react'
 import { useAppStore, ProductMode, DisplayMode } from '../store/appStore'
+import { useWorkbenchStore } from '../store/workbenchStore'
 import { useUpdateReminder } from '../hooks/useUpdateState'
 import SettingsDrawer from './SettingsDrawer'
 import CustomContextMenu from './CustomContextMenu'
 import CliAgentHint from './CliAgentHint'
+
+function WorkbenchTopBar(): JSX.Element {
+  const workspaceName = useWorkbenchStore((s) => s.workspaceName)
+  const activeFilePath = useWorkbenchStore((s) => s.activeFilePath)
+  const isDirty = useWorkbenchStore((s) => s.isDirty)
+  const saveStatus = useWorkbenchStore((s) => s.saveStatus)
+
+  return (
+    <div className="flex items-center gap-2 text-xs select-none max-w-[420px] truncate">
+      <span className="font-semibold text-text-primary flex items-center gap-1">
+        <span className="material-symbols-outlined text-[15px] text-amber-500">folder_open</span>
+        <span>{workspaceName || '工作台'}</span>
+      </span>
+
+      {activeFilePath && (
+        <>
+          <span className="text-text-secondary/50">/</span>
+          <span className="text-text-secondary font-mono truncate" title={activeFilePath}>
+            {activeFilePath}
+          </span>
+          {isDirty && (
+            <span className="w-1.5 h-1.5 rounded-full bg-blue-500" title="未保存" />
+          )}
+          {saveStatus === 'saving' && (
+            <span className="text-[10px] text-amber-500 font-medium">保存中...</span>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
 
 interface LayoutProps {
   children: ReactNode
@@ -169,7 +201,8 @@ function Layout({ children }: LayoutProps): JSX.Element {
               {[
                 { key: 'multi_ai', label: '多AI', title: '默认模式：多个平台展示不同AI' },
                 { key: 'task_assignment', label: '任务分配', title: '支持多个窗口选择同一个AI分配不同任务' },
-                { key: 'debate', label: '辩论', title: '辩论模式：支持2个AI交互对抗' }
+                { key: 'debate', label: '辩论', title: '辩论模式：支持2个AI交互对抗' },
+                { key: 'workbench', label: '工作台', title: '工作台模式：本地 Markdown 知识库与 AI 深度协同' }
               ].map(item => (
                 <button
                   key={item.key}
@@ -199,7 +232,9 @@ function Layout({ children }: LayoutProps): JSX.Element {
 
         {/* 居中的窗口布局或总结模式控件 */}
         <div className="relative z-10 flex justify-center drag-region h-full items-center">
-          {currentPage === 'main' && productMode !== 'debate' ? (
+          {productMode === 'workbench' ? (
+            <WorkbenchTopBar />
+          ) : currentPage === 'main' && productMode !== 'debate' ? (
             <div 
               className="flex items-center p-[2px] gap-[2px] glass-panel shadow-soft rounded-full transition-opacity no-drag"
               title="切换窗口数量"

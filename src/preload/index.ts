@@ -4,6 +4,14 @@ import { electronAPI } from '@electron-toolkit/preload'
 import type { NoteConversation, NoteDraft, NoteHighlight, NoteSelectionRect, ConversationMindmap, MindmapTask, NoteNavigation, MindmapModifyRequest, MindmapCandidate, MindmapSelection } from '../shared/types/notes'
 import type { WebviewContextMenuData, WebviewContextMenuActionRequest } from '../shared/types/contextMenu'
 import type { CliIntegrationStatus } from '../shared/types/cli'
+import type {
+  WorkbenchFileNode,
+  WorkbenchSearchResult,
+  WorkbenchFileInfo,
+  WorkbenchWriteResult,
+  WorkbenchSelectFolderResult,
+  WorkbenchNodeType
+} from '../shared/types/workbench'
 
 // 文件数据类型
 interface FileData {
@@ -395,7 +403,47 @@ const api = {
     const handler = (_e: Electron.IpcRendererEvent, data: { wcId: number; action: 'open' | 'close' }): void => cb(data)
     ipcRenderer.on('webview:find-shortcut', handler)
     return () => { ipcRenderer.removeListener('webview:find-shortcut', handler) }
-  }
+  },
+
+  // 工作台 (Workbench)
+  workbench: {
+    selectFolder: (): Promise<{ success: boolean; data?: WorkbenchSelectFolderResult | null; error?: string }> =>
+      ipcRenderer.invoke('workbench:select-folder'),
+    readTree: (workspaceRoot: string): Promise<{ success: boolean; data?: WorkbenchFileNode[]; error?: string }> =>
+      ipcRenderer.invoke('workbench:read-tree', { workspaceRoot }),
+    readFile: (workspaceRoot: string, relativePath: string): Promise<{ success: boolean; data?: WorkbenchFileInfo; error?: string }> =>
+      ipcRenderer.invoke('workbench:read-file', { workspaceRoot, relativePath }),
+    writeFile: (workspaceRoot: string, relativePath: string, content: string): Promise<{ success: boolean; data?: WorkbenchWriteResult; error?: string }> =>
+      ipcRenderer.invoke('workbench:write-file', { workspaceRoot, relativePath, content }),
+    createNode: (workspaceRoot: string, relativePath: string, type: WorkbenchNodeType): Promise<{ success: boolean; data?: WorkbenchFileNode; error?: string }> =>
+      ipcRenderer.invoke('workbench:create-node', { workspaceRoot, relativePath, type }),
+    renameNode: (workspaceRoot: string, oldRelativePath: string, newRelativePath: string): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('workbench:rename-node', { workspaceRoot, oldRelativePath, newRelativePath }),
+    deleteNode: (workspaceRoot: string, relativePath: string): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('workbench:delete-node', { workspaceRoot, relativePath }),
+    search: (workspaceRoot: string, query: string): Promise<{ success: boolean; data?: WorkbenchSearchResult[]; error?: string }> =>
+      ipcRenderer.invoke('workbench:search', { workspaceRoot, query }),
+    revealFile: (workspaceRoot: string, relativePath: string): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('workbench:reveal-file', { workspaceRoot, relativePath })
+  },
+  workbenchSelectFolder: (): Promise<{ success: boolean; data?: WorkbenchSelectFolderResult | null; error?: string }> =>
+    ipcRenderer.invoke('workbench:select-folder'),
+  workbenchReadTree: (workspaceRoot: string): Promise<{ success: boolean; data?: WorkbenchFileNode[]; error?: string }> =>
+    ipcRenderer.invoke('workbench:read-tree', { workspaceRoot }),
+  workbenchReadFile: (workspaceRoot: string, relativePath: string): Promise<{ success: boolean; data?: WorkbenchFileInfo; error?: string }> =>
+    ipcRenderer.invoke('workbench:read-file', { workspaceRoot, relativePath }),
+  workbenchWriteFile: (workspaceRoot: string, relativePath: string, content: string): Promise<{ success: boolean; data?: WorkbenchWriteResult; error?: string }> =>
+    ipcRenderer.invoke('workbench:write-file', { workspaceRoot, relativePath, content }),
+  workbenchCreateNode: (workspaceRoot: string, relativePath: string, type: WorkbenchNodeType): Promise<{ success: boolean; data?: WorkbenchFileNode; error?: string }> =>
+    ipcRenderer.invoke('workbench:create-node', { workspaceRoot, relativePath, type }),
+  workbenchRenameNode: (workspaceRoot: string, oldRelativePath: string, newRelativePath: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('workbench:rename-node', { workspaceRoot, oldRelativePath, newRelativePath }),
+  workbenchDeleteNode: (workspaceRoot: string, relativePath: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('workbench:delete-node', { workspaceRoot, relativePath }),
+  workbenchSearch: (workspaceRoot: string, query: string): Promise<{ success: boolean; data?: WorkbenchSearchResult[]; error?: string }> =>
+    ipcRenderer.invoke('workbench:search', { workspaceRoot, query }),
+  workbenchRevealFile: (workspaceRoot: string, relativePath: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('workbench:reveal-file', { workspaceRoot, relativePath })
 }
 
 // 暴露 API 到渲染进程
@@ -414,3 +462,4 @@ if (process.contextIsolated) {
 }
 
 export type API = typeof api
+export type * from '../shared/types/workbench'

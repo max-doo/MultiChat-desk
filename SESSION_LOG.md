@@ -1,6 +1,121 @@
 # Session Log
 
+## 2026-11-20
+
+### 00:34 | Antigravity
+
+- done: 修复 MainPage 在 workbench 模式下 modeModels 未定义导致 TypeError: Cannot read properties of undefined (reading 'length') 的问题
+- decision: 在 MainPage modeModels 中补全 workbench: []，并对 currentModeModels、prevModeModels、currentModels 增加兜底守卫，避免模式切换导致 React 崩溃
+- modified:
+  - `src/renderer/src/pages/MainPage.tsx`
+
+### 00:04 | Antigravity
+
+- done: 修复 Windows 下 npm run dev 触发 EACCES 5173 端口排除冲突问题
+- modified:
+  - `electron.vite.config.ts`
+- lesson: Windows 下 Hyper-V/WSL/WinNAT 动态排除端口范围（如 5141-5240）会导致 Vite 默认 5173 绑定报错 EACCES: permission denied；在 electron.vite.config.ts 中将 renderer.server.port 避开该区间（如 5300）并指定 host 127.0.0.1 即可彻底解决
+
 ## 2026-11-19
+
+### 23:43 | Antigravity
+
+- done: 实现工作台本地Markdown知识库功能（Obsidian式文件树、三栏布局、Meta Lexical富文本编辑器、AI侧边栏与划词右键提问）
+- decision: 采用Meta Lexical作为Markdown富文本内核配合YAML Frontmatter保留管道；工作台顶层容器挂载彻底隔离MainPage底部ControlBar；右侧复用WebviewCard并打通划词注入
+- added:
+  - `docs/workbench_product_spec.md`
+  - `src/main/services/workbenchService.ts`
+  - `src/shared/types/workbench.ts`
+  - `src/renderer/src/store/workbenchStore.ts`
+  - `src/renderer/src/pages/WorkbenchPage.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchSearch.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchToolbar.tsx`
+  - `src/renderer/src/components/workbench/MarkdownSyncPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchSelectionMenuPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
+- modified:
+  - `package.json`
+  - `package-lock.json`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/src/App.tsx`
+  - `src/renderer/src/components/Layout.tsx`
+  - `src/renderer/src/components/CustomContextMenu.tsx`
+  - `src/shared/types/history.ts`
+
+### 23:42 | Antigravity
+
+- done: Conduct Phase 3 Acceptance Verification for Workbench feature
+- decision: Acceptance Verification PASSED: verified Layout entry, 3-column layout, Lexical kernel, YAML frontmatter preservation, auto-save, scoped AI contextual menu, isolated WebviewCard sidebar, assertSafePath realpath symlink defense, clean lint/build.
+- added:
+  - `docs/workbench_product_spec.md`
+  - `src/main/services/workbenchService.ts`
+  - `src/shared/types/workbench.ts`
+  - `src/renderer/src/store/workbenchStore.ts`
+  - `src/renderer/src/pages/WorkbenchPage.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchSearch.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchToolbar.tsx`
+  - `src/renderer/src/components/workbench/MarkdownSyncPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchSelectionMenuPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
+- modified:
+  - `src/renderer/src/components/Layout.tsx`
+  - `src/renderer/src/App.tsx`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/src/components/CustomContextMenu.tsx`
+  - `src/shared/types/history.ts`
+  - `package.json`
+  - `package-lock.json`
+
+### 23:36 | Antigravity
+
+- done: Implement MultiChat Desk Workbench UI, Lexical editor, Obsidian-like file tree, search, and AI Webview sidebar
+- decision: Decoupled WorkbenchPage in App.tsx with display:none to isolate ControlBar and chat monitors; preserved YAML frontmatter during Lexical AST sync; reused WebviewCard with isolated=true and unique instance ID
+- added:
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchSearch.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchToolbar.tsx`
+  - `src/renderer/src/components/workbench/MarkdownSyncPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchSelectionMenuPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
+  - `src/renderer/src/pages/WorkbenchPage.tsx`
+  - `src/renderer/src/store/workbenchStore.ts`
+- modified:
+  - `src/renderer/src/App.tsx`
+  - `src/renderer/src/components/Layout.tsx`
+  - `src/renderer/src/components/CustomContextMenu.tsx`
+  - `src/shared/types/history.ts`
+
+### 23:24 | Antigravity
+
+- done: 实现工作台 (Workbench) 共享类型、文件系统服务与安全校验、IPC 处理器与 Preload 桥接
+- decision: IPC 支持对象与位置参数双重解构，兼容多种前端调用风格；Preload 同时暴露 api.workbench 命名空间与扁平别名；文件路径校验严格比对 realpath 双向解析以彻底阻断符号链接逃逸
+- added:
+  - `src/shared/types/workbench.ts`
+  - `src/main/services/workbenchService.ts`
+- modified:
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+
+### 23:13 | Antigravity
+
+- done: 根据评审意见修订工作台(Workbench)设计规范
+- decision: 在设计规范中完善realpath软链接防范、Frontmatter保护、App.tsx顶层挂载隔离、切文件脏数据保护、搜索300ms防抖与序列锁、右键菜单编辑器作用域隔离以及生产依赖审批说明
+- modified:
+  - `docs/workbench_product_spec.md`
+
+### 23:06 | Antigravity
+
+- done: 编写工作台(Workbench)产品与技术设计规范
+- decision: 采用Meta Lexical作为Markdown知识库编辑内核，三栏布局无缝复用WebviewCard与共享Session，主进程实现assertSafePath严格防范路径遍历
+- added:
+  - `docs/workbench_product_spec.md`
 
 ### 21:37 | Codex
 

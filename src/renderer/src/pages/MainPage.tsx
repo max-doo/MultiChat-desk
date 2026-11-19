@@ -501,7 +501,8 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
   const modeModels = useMemo(() => ({
     multi_ai: getDisplayedModels(availableModels, 'four', 'multi_ai', taskAssignmentSlots, multiAiSlots, debateSlots),
     task_assignment: getDisplayedModels(availableModels, 'four', 'task_assignment', taskAssignmentSlots, multiAiSlots, debateSlots),
-    debate: getDisplayedModels(availableModels, 'two', 'debate', taskAssignmentSlots, multiAiSlots, debateSlots)
+    debate: getDisplayedModels(availableModels, 'two', 'debate', taskAssignmentSlots, multiAiSlots, debateSlots),
+    workbench: []
   }), [availableModels, taskAssignmentSlots, multiAiSlots, debateSlots])
 
   // ── 单窗口侧边栏与思维导图 ──
@@ -575,7 +576,7 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
   // 当产品模式切换时，动态更新 store 中的 webviewRefs（供 sendMessage/getAllResponses 等使用）
   useEffect(() => {
     const state = useAppStore.getState()
-    const currentModeModels = modeModels[productMode as keyof typeof modeModels]
+    const currentModeModels = modeModels[productMode as keyof typeof modeModels] || []
     
     // 1. 注册当前活跃模式的所有 slots 实例
     for (let i = 0; i < currentModeModels.length; i++) {
@@ -588,7 +589,7 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
 
     return () => {
       // 2. 清理注销（在下一次切换模式前触发）
-      const prevModeModels = modeModels[productMode as keyof typeof modeModels]
+      const prevModeModels = modeModels[productMode as keyof typeof modeModels] || []
       for (let i = 0; i < prevModeModels.length; i++) {
         const ref = hibernationRefsMap.current.get(`${productMode}-${i}`)
         if (ref) {
@@ -739,7 +740,7 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
       
       if (visible) {
         // 重新显示时：只唤醒当前模式下的显示模型
-        const currentModels = modeModels[productMode as keyof typeof modeModels]
+        const currentModels = modeModels[productMode as keyof typeof modeModels] || []
         for (let i = 0; i < currentModels.length; i++) {
           void wakeWebviewByModeSlot(`${productMode}-${i}`)
         }

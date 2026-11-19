@@ -56,7 +56,7 @@ export interface SummaryHistoryItem {
 }
 
 
-export type ProductMode = 'multi_ai' | 'task_assignment' | 'debate'
+export type ProductMode = 'multi_ai' | 'task_assignment' | 'debate' | 'workbench'
 
 // 显示模式类型：单列、双列、三列、四窗口（田字格）
 export type DisplayMode = 'one' | 'two' | 'three' | 'four'

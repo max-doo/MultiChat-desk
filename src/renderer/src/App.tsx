@@ -7,6 +7,7 @@ import ToolbarPage from './pages/ToolbarPage'
 import HistoryDrawer from './components/HistoryDrawer'
 import NoteCaptureModal from './components/NoteCaptureModal'
 import NotesPage from './pages/NotesPage'
+import WorkbenchPage from './pages/WorkbenchPage'
 import type { NoteNavigation } from '../../shared/types/notes'
 import { initializeStore, useAppStore, SummaryHistoryItem } from './store/appStore'
 
@@ -17,7 +18,7 @@ const DiagnosticsPage = import.meta.env.DEV
   : null
 
 function MainApp(): JSX.Element {
-  const { currentPage, setCurrentPage } = useAppStore()
+  const { currentPage, setCurrentPage, productMode } = useAppStore()
   const isHistoryOpen = useAppStore((s) => s.isHistoryOpen)
   const setHistoryOpen = useAppStore((s) => s.setHistoryOpen)
   const historyInitialTab = useAppStore((s) => s.historyInitialTab)
@@ -25,6 +26,7 @@ function MainApp(): JSX.Element {
   const [isInitialized, setIsInitialized] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [noteNavigation, setNoteNavigation] = useState<NoteNavigation | undefined>()
+  const [hasWorkbenchOpened, setHasWorkbenchOpened] = useState(false)
   useEffect(() => {
     if (window.location.hash === '#quick' || window.location.hash === '#diagnostics') return
     const navigate = (navigation: NoteNavigation): void => { setNoteNavigation(navigation); setCurrentPage('notes') }
@@ -35,6 +37,12 @@ function MainApp(): JSX.Element {
   // 记录是否曾经打开过 SummaryPage，用于延迟渲染
   const [hasSummaryOpened, setHasSummaryOpened] = useState(false)
   const [initialSummaryItem, setInitialSummaryItem] = useState<SummaryHistoryItem | undefined>(undefined)
+
+  useEffect(() => {
+    if (productMode === 'workbench' && !hasWorkbenchOpened) {
+      setHasWorkbenchOpened(true)
+    }
+  }, [productMode, hasWorkbenchOpened])
 
   // 监听 location hash 自动进入 quick 页
   useEffect(() => {
@@ -147,19 +155,29 @@ function MainApp(): JSX.Element {
   }
 
   // 主页面和总结页面使用 CSS 控制显示/隐藏，避免 webview 重新加载
-  // MainPage 始终挂载，SummaryPage 在首次打开后保持挂载
+  // MainPage 始终挂载，SummaryPage 在首次打开后保持挂载，WorkbenchPage 在首次打开后保持挂载
   return (
     <Layout>
       {/* MainPage 始终挂载，通过 CSS 控制显示/隐藏 */}
       <div 
         className="h-full" 
-        style={{ display: currentPage === 'main' ? 'block' : 'none' }}
+        style={{ display: currentPage === 'main' && productMode !== 'workbench' ? 'block' : 'none' }}
       >
         <MainPage onNavigateToSummary={(item) => {
           setInitialSummaryItem(item)
           setCurrentPage('summary')
-        }} isActive={currentPage === 'main'} />
+        }} isActive={currentPage === 'main' && productMode !== 'workbench'} />
       </div>
+
+      {/* WorkbenchPage: 工作台模式，独立容器，避免 ControlBar 污染 */}
+      {hasWorkbenchOpened && (
+        <div 
+          className="h-full" 
+          style={{ display: currentPage === 'main' && productMode === 'workbench' ? 'block' : 'none' }}
+        >
+          <WorkbenchPage isActive={currentPage === 'main' && productMode === 'workbench'} />
+        </div>
+      )}
       
       {/* SummaryPage 在首次打开后保持挂载，避免重复渲染 */}
       {hasSummaryOpened && (

@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import type { ContextMenuItem, WebviewContextMenuData } from '../../../shared/types/contextMenu'
+import { useWorkbenchStore } from '../store/workbenchStore'
 
 interface ExtendedMenuItem extends ContextMenuItem {
   action?: () => void
@@ -72,6 +73,43 @@ export default function CustomContextMenu(): JSX.Element | null {
       const imgEl = target.closest('img') as HTMLImageElement | null
 
       const items: ExtendedContextMenuEntry[] = []
+
+      const isWorkbenchEditor = Boolean(target.closest('[data-workbench-editor="true"]'))
+      if (isWorkbenchEditor && selectionText) {
+        items.push(
+          {
+            key: 'ask_ai',
+            label: '向 AI 提问',
+            icon: 'chat',
+            action: () => useWorkbenchStore.getState().askAi(selectionText, 'ask')
+          },
+          {
+            key: 'explain_ai',
+            label: '解释此内容',
+            icon: 'psychology',
+            action: () => useWorkbenchStore.getState().askAi(selectionText, 'explain')
+          },
+          {
+            key: 'polish_ai',
+            label: '语言润色',
+            icon: 'auto_fix_high',
+            action: () => useWorkbenchStore.getState().askAi(selectionText, 'polish')
+          },
+          {
+            key: 'continue_ai',
+            label: '续写内容',
+            icon: 'edit_note',
+            action: () => useWorkbenchStore.getState().askAi(selectionText, 'continue')
+          },
+          {
+            key: 'summarize_ai',
+            label: '提取关键要点',
+            icon: 'format_list_bulleted',
+            action: () => useWorkbenchStore.getState().askAi(selectionText, 'summarize')
+          },
+          { type: 'separator' }
+        )
+      }
 
       if (selectionText || editable) {
         items.push({

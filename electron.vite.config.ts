@@ -55,6 +55,10 @@ export default defineConfig({
     plugins: [createObfuscationPlugin('node')]
   },
   renderer: {
+    server: {
+      port: 5300,
+      host: '127.0.0.1'
+    },
     resolve: {
       alias: {
         '@renderer': resolve('src/renderer/src')
