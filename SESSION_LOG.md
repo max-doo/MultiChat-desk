@@ -10,6 +10,13 @@
 
 ## 2026-11-18
 
+### 17:46 | agent
+
+- done: README 更新 macOS 支持声明
+- context: mac dmg 已在 Release 提供，README 此前只写 Windows 下载
+- modified:
+  - `README.md`
+
 ### 17:28 | agent
 
 - done: macOS CLI/Skill 集成缺口修复：CliAgentHint 在 darwin 打包版可弹出、status 增加 platform 字段、设置页加复制调用命令、multichat.sh/run_task.sh 加执行位、SKILL.md 补 mac/Linux cli.json 路径

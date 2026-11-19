@@ -205,7 +205,8 @@ multichat platforms
 ### 下载
 
 - **Windows**：前往 [GitHub Releases](https://github.com/max-doo/MultiChat-desk/releases) 下载安装版或便携版。
-- **macOS / Linux**：仓库提供对应构建脚本；正式发布物、平台权限和交互行为请以目标平台的实际验证结果为准。
+- **macOS**：同一 Release 页提供 dmg 安装包——文件名含 `arm64` 的适用于 Apple 芯片（M 系列），无后缀的适用于 Intel 芯片。安装包未做 Apple 签名与公证，首次打开请右键 → 打开（详见包内 `FIRST_OPEN_ON_MACOS.md`）。
+- **Linux**：仓库提供 `npm run build:linux` 构建脚本，暂无正式发布物。
 - **产品介绍**：访问 [MultiChat Desk 落地页](https://multichat.top)。
 
 本文按当前仓库源码介绍功能；下载的发布包可能尚未包含最新源码改动，请结合 [变更日志](CHANGELOG.md) 和对应 Release 说明查看。
@@ -234,7 +235,7 @@ multichat platforms
 - Node.js 20.x 或更高版本
 - npm 10.x 或更高版本
 - 网络连接；部分 AI 平台可能需要代理
-- Windows 是当前主要开发和发布验证平台
+- Windows 与 macOS 是当前开发和发布验证平台；Linux 仅提供构建脚本，未做发布验证
 
 项目只使用 npm，不使用 pnpm、yarn 或其他包管理器。
 
