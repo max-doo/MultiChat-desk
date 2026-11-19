@@ -10,6 +10,19 @@
 
 ## 2026-11-18
 
+### 17:28 | agent
+
+- done: macOS CLI/Skill 集成缺口修复：CliAgentHint 在 darwin 打包版可弹出、status 增加 platform 字段、设置页加复制调用命令、multichat.sh/run_task.sh 加执行位、SKILL.md 补 mac/Linux cli.json 路径
+- modified:
+  - `src/shared/types/cli.ts`
+  - `src/main/cliIntegration.ts`
+  - `src/renderer/src/components/CliAgentHint.tsx`
+  - `src/renderer/src/components/CliIntegrationSection.tsx`
+  - `.agents/skills/multichat-cli/SKILL.md`
+  - `build/cli/multichat.sh`
+  - `.agents/skills/multichat-cli/scripts/run_task.sh`
+- lesson: macOS Electron 应用常驻旧进程会让 open 只激活而不重启，验证新版本前必须先 kill 旧实例（单实例锁）；electron-builder extraFiles 不会自动补可执行位，.sh 入口需在仓库内 chmod +x
+
 ### 17:46 | Codex
 
 - done: 核查 CliAgentHint 弹窗触发逻辑：isPackaged+onPath+!hintDismissed；.install-stamp 由 NSIS 每次安装重写，关闭时清除
