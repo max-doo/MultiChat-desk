@@ -2,6 +2,13 @@
 
 ## 2026-11-19
 
+### 15:56 | Codex
+
+- done: 审核 1.3.1 CHANGELOG 并修正 4 处过度承诺表述
+- context: 发版前审核：原生下载按钮改为'优先点击+兜底提取'，引导卡片补 PATH 前提，日期更新为实际发布日
+- modified:
+  - `CHANGELOG.md`
+
 ### 00:12 | Codex
 
 - done: 按新模板简化 Agent Skill 安装指引文案：路径由运行时解析、去掉硬编码 .agents/skills 与 POSIX 家目录写法，天然兼容 macOS
