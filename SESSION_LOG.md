@@ -1,6 +1,47 @@
 # Session Log
 
+## 2026-11-21
+
+### 09:06 | Codex
+
+- done: 应用户要求将发布版本号从 1.4.0 改为 1.3.5，amend 发布提交并重新打包 NSIS
+- modified:
+  - `package.json`
+  - `package-lock.json`
+  - `CHANGELOG.md`
+
 ## 2026-11-20
+
+### 22:25 | Codex
+
+- done: 发布 v1.4.0：版本号 1.3.1→1.4.0，CHANGELOG 新增工作台模式（三栏布局/Obsidian 式属性面板/多格式预览/AI 侧边栏/上传落盘/导图绑定）、Lucide 图标迁移与 Chrome UA 安全加固条目
+- context: 1.3.1 后累计 33 个提交以 Workbench 本地知识库为主线，构成 minor 级发布
+- modified:
+  - `package.json`
+  - `package-lock.json`
+  - `CHANGELOG.md`
+
+### 21:57 | Codex
+
+- done: 字数统计改为 Word 口径（CJK 字符 + 非 CJK 词），emoji 字符数修正
+- context: 原实现纯空格分词对中文完全不准，一段无空格中文只算 1 词
+- decision: 采用 Intl.Segmenter word 粒度 + CJK Unicode 属性范围，回退空白切分；统计基于 Markdown 源码
+- added:
+  - `src/renderer/src/utils/wordCount.ts`
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchStatusPill.tsx`
+
+### 21:47 | Codex
+
+- done: 笔记属性 source 链接后新增会话图标，可在工作台 AI 侧边栏打开来源会话
+- context: source 可能被改写或指向非平台链接，需在渲染期判定而不是依赖创建时记录
+- decision: 用 isConversationUrlForPlatform 校验链接归属平台会话页，非会话链接或被改写的 source 不显示入口
+- added:
+  - `src/renderer/src/utils/noteSourceConversation.ts`
+- modified:
+  - `src/renderer/src/components/workbench/FrontmatterPanel.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
+  - `src/renderer/src/store/workbenchStore.ts`
 
 ### 21:22 | Codex
 
@@ -2239,48 +2280,4 @@ ul`
 - added:
   - `docs/agent-cli-prd.md`
   - `docs/agent-cli-technical-design.md`
-
-## 2026-11-14
-
-### 19:24 | agent
-
-- done: 修复 macOS 26 下选中文本工具条读取脚本失效：System Events 已移除 focused UI element 语法，改用 AXFocusedUIElement 属性
-- modified:
-  - `src/main/platform/selectionReader.ts`
-- lesson(promoted): macOS 26 System Events 词典变化：focused UI element of <process> 编译报错 -2741，正确写法 value of attribute "AXFocusedUIElement"
-
-### 19:11 | agent
-
-- done: 新增 assets/dock-icon.png（图稿 82% + 透明边距），dev Dock 图标与打包 icns 改用它，修复 Dock 图标偏大的问题
-- added:
-  - `assets/dock-icon.png`
-- modified:
-  - `src/main/webviewManager.ts`
-  - `build/generate-mac-assets.sh`
-- lesson(promoted): macOS Dock 图标显大通常不是尺寸问题而是图稿没有留边距：Apple 图标规范图稿约占画布 82%；sips 无合成能力，可用 Swift/AppKit NSImage 生成带透明边距的 PNG
-
-### 19:09 | agent
-
-- done: macOS 红绿灯定位改为 titleBarStyle:'hidden'+trafficLightPosition(12,20) 垂直居中 52px 标题栏；dev 模式 Dock 图标替换为应用图标
-- modified:
-  - `src/main/webviewManager.ts`
-  - `src/renderer/src/assets/index.css`
-  - `src/renderer/src/components/Layout.tsx`
-- lesson(promoted): trafficLightPosition 仅对 titleBarStyle:'hidden' 生效（hiddenInset 强制内嵌位）；其坐标是 OS 点单位，红绿灯圆心≈设定值+6.5，无头测试机截屏坐标≠OS 坐标需按实际像素对齐
-
-### 18:44 | Devin
-
-- done: 修复 macOS 托盘图标渲染为黑色剪影的问题（去掉 template 标记并缩放到 22px 显示彩色 logo）；mac 版 header 将 设置/历史/笔记 三个入口移到右侧
-- modified:
-  - `src/main/webviewManager.ts`
-  - `src/renderer/src/components/Layout.tsx`
-- lesson(promoted): macOS tray template image 只保留 alpha 剪影：要显示彩色应用图标不能调 setTemplateImage；tray icon 建议 resize 到 ~22px
-
-### 18:34 | Devin
-
-- done: 修复 macOS 托盘创建崩溃：setTemplateImage 误调在 Tray 上（Tray 无此方法），改为对 nativeImage 调用；验证 npm run dev 无 unhandled rejection，Cmd+Shift+Space 可唤出/收起快捷弹窗
-- context: macOS arm64, electron-vite dev; npm install 可能跳过 Electron 二进制下载需 node node_modules/electron/install.js; 本机 python 为 3.9，session_log.py 需 python3.12
-- modified:
-  - `src/main/webviewManager.ts`
-- lesson(promoted): Electron Tray 没有 setTemplateImage 方法，模板图标应调用 nativeImage.setTemplateImage(true)；assets/ 下无 tray-iconTemplate.png 时回退 logo.png
 

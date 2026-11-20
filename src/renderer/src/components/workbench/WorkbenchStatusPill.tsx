@@ -1,6 +1,7 @@
 import { useWorkbenchStore } from '../../store/workbenchStore'
 import { AppIcon } from '../icons/AppIcon'
 import { requestSendFileToAi } from './workbenchAiEvents'
+import { countWords } from '../../utils/wordCount'
 
 export default function WorkbenchStatusPill(): JSX.Element {
   const activeFileContent = useWorkbenchStore((s) => s.activeFileContent)
@@ -12,10 +13,7 @@ export default function WorkbenchStatusPill(): JSX.Element {
   const conflictDiskContent = useWorkbenchStore((s) => s.conflictDiskContent)
   const resolveExternalConflict = useWorkbenchStore((s) => s.resolveExternalConflict)
 
-  const charCount = activeFileContent.length
-  const wordCount = activeFileContent.trim()
-    ? activeFileContent.trim().split(/\s+/).length
-    : 0
+  const { words: wordCount, chars: charCount } = countWords(activeFileContent)
   const isCodeView = activeFileCategory === 'code' || activeFileCategory === 'text'
   const lineCount = activeFileContent.split('\n').length
   const canSendToAi = Boolean(activeFilePath && workspacePath)
@@ -88,7 +86,7 @@ export default function WorkbenchStatusPill(): JSX.Element {
           </span>
         ) : (
           <span className="whitespace-nowrap" title={`字数: ${wordCount}，字符数: ${charCount}`}>
-            {wordCount} 词 · {charCount} 字符
+            {wordCount} 字 · {charCount} 字符
           </span>
         )}
         <span className="h-3 w-px bg-black/10 dark:bg-white/10" />

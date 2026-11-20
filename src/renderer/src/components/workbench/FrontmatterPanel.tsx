@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AppIcon } from '../icons/AppIcon'
+import { useAppStore } from '../../store/appStore'
+import { useWorkbenchStore } from '../../store/workbenchStore'
+import { resolveSourceConversation } from '../../utils/noteSourceConversation'
 
 interface Props {
   frontmatter: string | null
@@ -93,11 +96,25 @@ function serializeFrontmatter(fields: Field[]): string | null {
 
 const isTagField = (k: string): boolean => /tags?|标签/i.test(k)
 const isDateField = (k: string): boolean => /date|time|created|updated|日期|时间/i.test(k)
+const isSourceField = (k: string): boolean => /^(?:source|source_?url|source_?link|来源)$/i.test(k)
 
 // 对齐 Obsidian「笔记属性」：点击 key 重命名、值行内编辑、tags 可增删 chip、
 // hover 出行尾删除按钮、底部"添加属性"；无属性时同样露出"添加属性"入口
 export default function FrontmatterPanel({ frontmatter, onChange }: Props): JSX.Element {
   const fields = useMemo(() => parseFrontmatter(frontmatter), [frontmatter])
+  const models = useAppStore((s) => s.models)
+  const openConversationInAiSidebar = useWorkbenchStore((s) => s.openConversationInAiSidebar)
+  // 只有「属性名是 source 且链接确属某平台会话页」才给入口；
+  // 链接被改写或指向非会话页面时 resolve 返回 null，图标不出现。
+  const sourceTargets = useMemo(
+    () =>
+      fields.map((f) =>
+        isSourceField(f.key) && URL_RE.test(f.value)
+          ? resolveSourceConversation(f.value, models)
+          : null
+      ),
+    [fields, models]
+  )
   const [collapsed, setCollapsed] = useState(false)
   const [editingKeyIdx, setEditingKeyIdx] = useState<number | null>(null)
   const [keyDraft, setKeyDraft] = useState('')
@@ -270,21 +287,39 @@ export default function FrontmatterPanel({ frontmatter, onChange }: Props): JSX.
                         />
                       </>
                     ) : URL_RE.test(f.value) && editingUrlIdx !== idx ? (
-                      <a
-                        href={f.value}
-                        target="_blank"
-                        rel="noreferrer"
-                        title="Ctrl/Cmd+点击行内编辑，直接点击打开链接"
-                        onClick={(e) => {
-                          if (e.ctrlKey || e.metaKey) {
-                            e.preventDefault()
-                            setEditingUrlIdx(idx)
-                          }
-                        }}
-                        className="text-[13px] text-primary hover:underline truncate"
-                      >
-                        {f.value}
-                      </a>
+                      <span className="flex items-center gap-1 min-w-0 flex-1">
+                        <a
+                          href={f.value}
+                          target="_blank"
+                          rel="noreferrer"
+                          title="Ctrl/Cmd+点击行内编辑，直接点击打开链接"
+                          onClick={(e) => {
+                            if (e.ctrlKey || e.metaKey) {
+                              e.preventDefault()
+                              setEditingUrlIdx(idx)
+                            }
+                          }}
+                          className="text-[13px] text-primary hover:underline truncate"
+                        >
+                          {f.value}
+                        </a>
+                        {sourceTargets[idx] && (
+                          <button
+                            type="button"
+                            title="在侧边栏打开会话"
+                            aria-label="在侧边栏打开会话"
+                            onClick={() =>
+                              openConversationInAiSidebar(
+                                sourceTargets[idx]!.platformId,
+                                sourceTargets[idx]!.url
+                              )
+                            }
+                            className="shrink-0 text-gray-400 hover:text-primary transition-colors"
+                          >
+                            <AppIcon name="forum" size={15} />
+                          </button>
+                        )}
+                      </span>
                     ) : (
                       <input
                         value={f.value}

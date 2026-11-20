@@ -106,6 +106,8 @@ interface WorkbenchStoreState {
   rightPane: WorkbenchRightPane
   /** 待生成的选区范围；由编辑器划词菜单写入，导图面板消费后清空。 */
   pendingMindmapSelection: { text: string; headingPath: string[] } | null
+  /** 待打开的来源会话；笔记属性里的会话图标写入，AI 侧边栏消费后清空。 */
+  pendingConversationOpen: { platformId: string; url: string; token: number } | null
   sidebarModelId: string
   editorMode: EditorMode
 
@@ -158,6 +160,8 @@ interface WorkbenchStoreActions {
   openRightPane: (pane: Exclude<WorkbenchRightPane, null>) => void
   closeRightPane: () => void
   setPendingMindmapSelection: (selection: { text: string; headingPath: string[] } | null) => void
+  openConversationInAiSidebar: (platformId: string, url: string) => void
+  consumeConversationOpen: (token: number) => void
   setSidebarModelId: (modelId: string) => void
   setEditorMode: (mode: EditorMode) => void
   askAi: (text: string, actionType: WorkbenchAiAction) => void
@@ -298,6 +302,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   isLeftCollapsed: false,
   rightPane: 'ai',
   pendingMindmapSelection: null,
+  pendingConversationOpen: null,
   sidebarModelId: 'chatgpt',
   editorMode: 'wysiwyg',
 
@@ -1301,6 +1306,16 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   },
 
   setPendingMindmapSelection: (selection) => set({ pendingMindmapSelection: selection }),
+
+  openConversationInAiSidebar: (platformId, url) => {
+    get().openRightPane('ai')
+    set({ pendingConversationOpen: { platformId, url, token: Date.now() } })
+  },
+
+  consumeConversationOpen: (token) =>
+    set((state) =>
+      state.pendingConversationOpen?.token === token ? { pendingConversationOpen: null } : state
+    ),
 
   setSidebarModelId: (modelId: string) => {
     set({ sidebarModelId: modelId })

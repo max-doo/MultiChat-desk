@@ -227,8 +227,15 @@ export default function WorkbenchAiSidebar(): JSX.Element | null {
   }, [currentModel?.id])
 
   const sidebarRefs = useRef<Map<string, WebviewCardRef>>(new Map())
+  // 待定位的会话；卡片可能尚未挂载/仍在加载，交给下方轮询落实导航。
+  const [conversationTarget, setConversationTarget] = useState<{
+    platformId: string
+    url: string
+  } | null>(null)
   const insertReplyIntoActiveMarkdown = useWorkbenchStore((s) => s.insertReplyIntoActiveMarkdown)
   const saveReplyAsNewMarkdown = useWorkbenchStore((s) => s.saveReplyAsNewMarkdown)
+  const pendingConversationOpen = useWorkbenchStore((s) => s.pendingConversationOpen)
+  const consumeConversationOpen = useWorkbenchStore((s) => s.consumeConversationOpen)
 
   // 防双击：同一条回复在短时间窗内只插入一次（撤回/采纳后重试已超过窗口，允许）
   const lastInsertRef = useRef<Map<string, { hash: string; at: number }>>(new Map())
@@ -378,6 +385,60 @@ export default function WorkbenchAiSidebar(): JSX.Element | null {
     },
     [setSidebarModelId]
   )
+
+  // 笔记属性里的来源会话：切到对应平台并直接加载该会话地址
+  useEffect(() => {
+    if (!pendingConversationOpen) return
+    const { platformId, url, token } = pendingConversationOpen
+    consumeConversationOpen(token)
+    if (!availableModels.some((model) => model.id === platformId)) return
+    setSidebarModelId(platformId)
+    setMountedSidebarModels((prev) => new Set(prev).add(platformId))
+    setConversationTarget({ platformId, url })
+  }, [pendingConversationOpen, availableModels, consumeConversationOpen, setSidebarModelId])
+
+  // 等卡片挂载完成后加载目标会话：侧边栏可能已停在该平台但开着别的会话，
+  // 仅改 url prop 不会触发导航，这里显式比对并 loadURL。
+  useEffect(() => {
+    if (!conversationTarget) return
+    let cancelled = false
+    const { platformId, url } = conversationTarget
+    const normalize = (raw: string): string => {
+      try {
+        const parsed = new URL(raw)
+        return parsed.origin + parsed.pathname
+      } catch {
+        return raw
+      }
+    }
+    void (async () => {
+      for (let attempt = 0; attempt < 40; attempt++) {
+        if (cancelled) return
+        const ref = sidebarRefs.current.get(platformId)
+        if (ref) {
+          // 休眠态下页面停在 about:blank，直接 loadURL 会被休眠遮罩挡住，先唤醒再导航。
+          if (ref.isHibernated()) await ref.resume()
+          if (cancelled) return
+          let current = ''
+          try {
+            current = ref.getCurrentUrl()
+          } catch {
+            current = ''
+          }
+          if (current) {
+            if (normalize(current) !== normalize(url)) ref.loadURL(url)
+            setConversationTarget(null)
+            return
+          }
+        }
+        await new Promise((resolve) => setTimeout(resolve, 250))
+      }
+      if (!cancelled) setConversationTarget(null)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [conversationTarget])
 
   // 监听来自划词动作的文本注入事件
   useEffect(() => {
