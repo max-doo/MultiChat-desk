@@ -2,6 +2,10 @@
 
 ## 2026-11-20
 
+### 09:25 | Antigravity
+
+- done: 将 add_workbench_markdown_knowledge_base 分支合并至主分支 main，完成依赖同步与全量打包验证，并清理该 worktree
+
 ### 02:14 | Antigravity
 
 - done: 修复工作台多格式预览(代码/图片/PDF/DOCX)致命写盘覆盖Bug、超大文件防御降级与代码语法高亮优化
