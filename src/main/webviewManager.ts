@@ -568,7 +568,8 @@ export function createWindow(): void {
             contextIsolation: true,
             nodeIntegration: false,
             webviewTag: true,
-            partition: 'persist:shared'
+            partition: 'persist:shared',
+            plugins: true
         }
     })
 
@@ -938,7 +939,8 @@ export function createQuickWindow(store: Store<Record<string, unknown>>): void {
             contextIsolation: true,
             nodeIntegration: false,
             webviewTag: true,
-            partition: 'persist:shared'
+            partition: 'persist:shared',
+            plugins: true
         }
     })
 

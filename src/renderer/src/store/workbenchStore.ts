@@ -1,7 +1,9 @@
 import { create } from 'zustand'
-import type {
-  WorkbenchFileNode,
-  WorkbenchSearchResult
+import {
+  type WorkbenchFileNode,
+  type WorkbenchSearchResult,
+  type WorkbenchFileCategory,
+  getFileCategory
 } from '../../../shared/types/workbench'
 
 export type SaveStatus = 'saved' | 'saving' | 'error'
@@ -17,9 +19,14 @@ interface WorkbenchStoreState {
   isLoadingTree: boolean
   isInitialized: boolean
 
-  // 当前激活文档
+  // 当前激活文档与预览元信息
   activeFilePath: string | null
   activeFileContent: string
+  activeFileCategory: WorkbenchFileCategory | null
+  activeFileDataUrl: string | null
+  activeFileMime: string | null
+  activeFileSize: number | null
+  activeFileOversized: boolean
   isDirty: boolean
   saveStatus: SaveStatus
   lastSavedAt: number | null
@@ -58,6 +65,7 @@ interface WorkbenchStoreActions {
   renameNode: (oldRelativePath: string, newRelativePath: string) => Promise<boolean>
   deleteNode: (relativePath: string) => Promise<boolean>
   revealFile: (relativePath: string) => Promise<void>
+  openInSystem: (relativePath: string) => Promise<void>
   searchFiles: (query: string) => void
   clearSearch: () => void
   setLeftPaneWidth: (width: number) => void
@@ -88,6 +96,11 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
 
   activeFilePath: null,
   activeFileContent: '',
+  activeFileCategory: null,
+  activeFileDataUrl: null,
+  activeFileMime: null,
+  activeFileSize: null,
+  activeFileOversized: false,
   isDirty: false,
   saveStatus: 'saved',
   lastSavedAt: null,
@@ -181,6 +194,11 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       workspaceName: name,
       activeFilePath: null,
       activeFileContent: '',
+      activeFileCategory: null,
+      activeFileDataUrl: null,
+      activeFileMime: null,
+      activeFileSize: null,
+      activeFileOversized: false,
       isDirty: false,
       saveStatus: 'saved',
       searchQuery: '',
@@ -201,6 +219,11 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       expandedFolderIds: new Set<string>(),
       activeFilePath: null,
       activeFileContent: '',
+      activeFileCategory: null,
+      activeFileDataUrl: null,
+      activeFileMime: null,
+      activeFileSize: null,
+      activeFileOversized: false,
       isDirty: false,
       saveStatus: 'saved',
       searchQuery: '',
@@ -282,6 +305,11 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         set({
           activeFilePath: relativePath,
           activeFileContent: res.data.content,
+          activeFileCategory: res.data.category || getFileCategory(relativePath),
+          activeFileDataUrl: res.data.dataUrl || null,
+          activeFileMime: res.data.mimeType || null,
+          activeFileSize: res.data.size,
+          activeFileOversized: !!res.data.isOversized,
           isDirty: false,
           saveStatus: 'saved',
           lastSavedAt: res.data.mtime,
@@ -301,8 +329,25 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   },
 
   saveActiveFile: async () => {
-    const { workspacePath, activeFilePath, activeFileContent } = get()
+    const {
+      workspacePath,
+      activeFilePath,
+      activeFileContent,
+      activeFileCategory,
+      activeFileOversized
+    } = get()
     if (!workspacePath || !activeFilePath) return true
+
+    // 严禁将只读二进制文件或非文本格式（图片、PDF、DOCX 等）作为空文本写盘覆盖，防止数据损坏
+    if (
+      activeFileOversized ||
+      activeFileCategory === 'image' ||
+      activeFileCategory === 'pdf' ||
+      activeFileCategory === 'document' ||
+      activeFileCategory === 'other'
+    ) {
+      return true
+    }
 
     set({ saveStatus: 'saving' })
     try {
@@ -311,7 +356,8 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         set({
           isDirty: false,
           saveStatus: 'saved',
-          lastSavedAt: res.data.mtime
+          lastSavedAt: res.data.mtime,
+          activeFileSize: res.data.size
         })
         return true
       } else {
@@ -445,6 +491,11 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
           set({
             activeFilePath: null,
             activeFileContent: '',
+            activeFileCategory: null,
+            activeFileDataUrl: null,
+            activeFileMime: null,
+            activeFileSize: null,
+            activeFileOversized: false,
             isDirty: false,
             saveStatus: 'saved'
           })
@@ -470,6 +521,20 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       await window.api.workbench.revealFile(workspacePath, relativePath)
     } catch (err) {
       console.error('[workbenchStore] revealFile failed:', err)
+    }
+  },
+
+  openInSystem: async (relativePath: string) => {
+    const { workspacePath } = get()
+    if (!workspacePath) return
+    try {
+      const res = await window.api.workbench.openInSystem(workspacePath, relativePath)
+      if (!res.success && res.error) {
+        set({ error: `使用系统默认程序打开失败: ${res.error}` })
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      set({ error: `系统打开异常: ${msg}` })
     }
   },
 
@@ -548,23 +613,34 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     const trimmed = text.trim()
     if (!trimmed) return
 
+    const isCode = get().activeFileCategory === 'code'
     let formattedPrompt = trimmed
     switch (actionType) {
       case 'explain':
-        formattedPrompt = `请详细解释以下内容的核心含义、背景与原理：\n\n"""\n${trimmed}\n"""`
+        formattedPrompt = isCode
+          ? `请详细分析以下代码的架构设计、执行流程与实现逻辑：\n\n\`\`\`\n${trimmed}\n\`\`\``
+          : `请详细解释以下内容的核心含义、背景与原理：\n\n"""\n${trimmed}\n"""`
         break
       case 'polish':
-        formattedPrompt = `请对以下文本进行专业级润色，纠正语病并优化行文逻辑，保持原意但更精炼地表达：\n\n"""\n${trimmed}\n"""`
+        formattedPrompt = isCode
+          ? `请对以下代码进行专业重构与性能/可读性优化，指出潜在缺陷并提供更清晰、健壮的改进代码：\n\n\`\`\`\n${trimmed}\n\`\`\``
+          : `请对以下文本进行专业级润色，纠正语病并优化行文逻辑，保持原意但更精炼地表达：\n\n"""\n${trimmed}\n"""`
         break
       case 'continue':
-        formattedPrompt = `请基于以下已有段落和上下文思路，自然承接并往下续写：\n\n"""\n${trimmed}\n"""`
+        formattedPrompt = isCode
+          ? `请基于以下代码上下文，补全或续写后续逻辑：\n\n\`\`\`\n${trimmed}\n\`\`\``
+          : `请基于以下已有段落和上下文思路，自然承接并往下续写：\n\n"""\n${trimmed}\n"""`
         break
       case 'summarize':
-        formattedPrompt = `请提取并总结以下内容的关键要点：\n\n"""\n${trimmed}\n"""`
+        formattedPrompt = isCode
+          ? `请总结以下代码片段的核心模块与导出功能：\n\n\`\`\`\n${trimmed}\n\`\`\``
+          : `请提取并总结以下内容的关键要点：\n\n"""\n${trimmed}\n"""`
         break
       case 'ask':
       default:
-        formattedPrompt = trimmed
+        formattedPrompt = isCode
+          ? `关于以下代码：\n\n\`\`\`\n${trimmed}\n\`\`\``
+          : trimmed
         break
     }
 

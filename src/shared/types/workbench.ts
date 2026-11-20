@@ -3,6 +3,15 @@
  * 用于主进程、Preload 与渲染进程通信与状态管理
  */
 
+export type WorkbenchFileCategory =
+  | 'markdown'
+  | 'code'
+  | 'image'
+  | 'pdf'
+  | 'document'
+  | 'text'
+  | 'other'
+
 export interface WorkbenchFileNode {
   id: string              // 节点相对路径 (POSIX 格式，如 'docs/guide.md')
   name: string            // 显示名称
@@ -10,6 +19,7 @@ export interface WorkbenchFileNode {
   fullPath: string        // 绝对路径
   isDirectory: boolean
   extension?: string      // 文件后缀名 (如 '.md', '.txt')
+  category?: WorkbenchFileCategory
   size?: number           // 文件大小 (字节)
   mtime?: number          // 修改时间戳 (毫秒)
   children?: WorkbenchFileNode[]
@@ -27,6 +37,58 @@ export interface WorkbenchFileInfo {
   content: string
   mtime: number
   size: number
+  category?: WorkbenchFileCategory
+  dataUrl?: string
+  mimeType?: string
+  isBinary?: boolean
+  isOversized?: boolean
+}
+
+export const IMAGE_EXTENSIONS = new Set([
+  '.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.ico', '.bmp', '.avif', '.tiff', '.tif'
+])
+
+export const PDF_EXTENSIONS = new Set(['.pdf'])
+
+export const DOCX_EXTENSIONS = new Set(['.docx', '.doc'])
+
+export const MARKDOWN_EXTENSIONS = new Set(['.md', '.markdown'])
+
+export const TEXT_EXTENSIONS = new Set(['.txt', '.log', '.csv', '.tsv'])
+
+export const CODE_EXTENSIONS = new Set([
+  '.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs',
+  '.json', '.json5',
+  '.html', '.htm', '.css', '.scss', '.less', '.sass',
+  '.py', '.pyw',
+  '.java', '.class',
+  '.c', '.cpp', '.cc', '.cxx', '.h', '.hpp',
+  '.cs', '.rs', '.go', '.php', '.rb', '.swift', '.kt', '.kts',
+  '.sql',
+  '.sh', '.bash', '.zsh', '.ps1', '.bat', '.cmd',
+  '.yaml', '.yml', '.xml', '.toml', '.ini', '.env',
+  '.dockerfile', '.dockerignore', '.gitignore',
+  '.graphql', '.gql', '.proto',
+  '.vue', '.svelte',
+  '.lua', '.r', '.dart'
+])
+
+export function getFileCategory(nameOrPath: string): WorkbenchFileCategory {
+  const lower = nameOrPath.toLowerCase()
+  const baseName = lower.split(/[/\\]/).pop() || ''
+  if (baseName === 'dockerfile' || baseName.startsWith('.env') || baseName === '.gitignore') {
+    return 'code'
+  }
+  const lastDot = lower.lastIndexOf('.')
+  const ext = lastDot !== -1 ? lower.slice(lastDot) : ''
+
+  if (MARKDOWN_EXTENSIONS.has(ext)) return 'markdown'
+  if (IMAGE_EXTENSIONS.has(ext)) return 'image'
+  if (PDF_EXTENSIONS.has(ext)) return 'pdf'
+  if (DOCX_EXTENSIONS.has(ext)) return 'document'
+  if (CODE_EXTENSIONS.has(ext)) return 'code'
+  if (TEXT_EXTENSIONS.has(ext)) return 'text'
+  return 'other'
 }
 
 export interface WorkbenchWriteResult {

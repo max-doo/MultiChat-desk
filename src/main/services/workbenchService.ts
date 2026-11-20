@@ -16,13 +16,17 @@ import {
   rename
 } from 'fs/promises'
 import { randomUUID } from 'crypto'
-import type {
-  WorkbenchFileNode,
-  WorkbenchSearchResult,
-  WorkbenchFileInfo,
-  WorkbenchWriteResult,
-  WorkbenchSelectFolderResult,
-  WorkbenchNodeType
+import {
+  type WorkbenchFileNode,
+  type WorkbenchSearchResult,
+  type WorkbenchFileInfo,
+  type WorkbenchWriteResult,
+  type WorkbenchSelectFolderResult,
+  type WorkbenchNodeType,
+  getFileCategory,
+  MARKDOWN_EXTENSIONS,
+  TEXT_EXTENSIONS,
+  CODE_EXTENSIONS
 } from '../../shared/types/workbench'
 
 // 默认忽略的系统文件和特定目录
@@ -38,8 +42,27 @@ const IGNORED_NAMES = new Set([
   '$RECYCLE.BIN'
 ])
 
-// 允许检索的文本文件后缀与文件大小上限 (2MB)
-const SEARCHABLE_EXTENSIONS = new Set(['.md', '.markdown', '.txt'])
+// 图片 MIME 类型映射
+const IMAGE_MIME_TYPES: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.bmp': 'image/bmp',
+  '.avif': 'image/avif',
+  '.tiff': 'image/tiff',
+  '.tif': 'image/tiff'
+}
+
+// 允许检索的文本与代码文件后缀与文件大小上限 (2MB)
+const SEARCHABLE_EXTENSIONS = new Set([
+  ...MARKDOWN_EXTENSIONS,
+  ...TEXT_EXTENSIONS,
+  ...CODE_EXTENSIONS
+])
 const MAX_SEARCH_FILE_SIZE = 2 * 1024 * 1024
 const MAX_SEARCH_RESULTS = 100
 const MAX_SEARCH_TIME_MS = 1500
@@ -216,6 +239,7 @@ export async function readTree(workspaceRoot: string): Promise<WorkbenchFileNode
           })
         } else {
           const ext = path.extname(entry.name).toLowerCase()
+          const category = getFileCategory(entry.name)
           nodes.push({
             id: relPosix,
             name: entry.name,
@@ -223,6 +247,7 @@ export async function readTree(workspaceRoot: string): Promise<WorkbenchFileNode
             fullPath: safeEntryPath,
             isDirectory: false,
             extension: ext,
+            category,
             size: entryStat.size,
             mtime: entryStat.mtimeMs
           })
@@ -247,7 +272,9 @@ export async function readTree(workspaceRoot: string): Promise<WorkbenchFileNode
 }
 
 /**
- * 安全读取指定 Markdown/文本文件内容
+ * 安全读取指定文件内容
+ * - 支持 Markdown、纯文本、代码、图片、PDF 与 Word 文档元信息
+ * - 针对图片与 PDF 文件自动转换为安全的 Base64 Data URL
  */
 export async function readFile(workspaceRoot: string, relativePath: string): Promise<WorkbenchFileInfo> {
   const safePath = await assertSafePath(workspaceRoot, relativePath)
@@ -256,11 +283,111 @@ export async function readFile(workspaceRoot: string, relativePath: string): Pro
     throw new Error('目标是目录，无法作为文件读取')
   }
 
-  const content = await fsReadFile(safePath, 'utf-8')
+  const baseName = path.basename(safePath)
+  const ext = path.extname(baseName).toLowerCase()
+  const category = getFileCategory(baseName)
+
+  // 图片文件处理 (最大 20MB)
+  if (category === 'image') {
+    const mime = IMAGE_MIME_TYPES[ext] || 'image/png'
+    if (fileStat.size > 20 * 1024 * 1024) {
+      return {
+        content: '',
+        mimeType: mime,
+        mtime: fileStat.mtimeMs,
+        size: fileStat.size,
+        category: 'image',
+        isBinary: true,
+        isOversized: true
+      }
+    }
+    const buffer = await fsReadFile(safePath)
+    const dataUrl = `data:${mime};base64,${buffer.toString('base64')}`
+    return {
+      content: ext === '.svg' ? buffer.toString('utf-8') : '',
+      dataUrl,
+      mimeType: mime,
+      mtime: fileStat.mtimeMs,
+      size: fileStat.size,
+      category: 'image',
+      isBinary: true
+    }
+  }
+
+  // PDF 文件处理 (最大 50MB)
+  if (category === 'pdf') {
+    if (fileStat.size > 50 * 1024 * 1024) {
+      return {
+        content: '',
+        mimeType: 'application/pdf',
+        mtime: fileStat.mtimeMs,
+        size: fileStat.size,
+        category: 'pdf',
+        isBinary: true,
+        isOversized: true
+      }
+    }
+    const buffer = await fsReadFile(safePath)
+    const dataUrl = `data:application/pdf;base64,${buffer.toString('base64')}`
+    return {
+      content: '',
+      dataUrl,
+      mimeType: 'application/pdf',
+      mtime: fileStat.mtimeMs,
+      size: fileStat.size,
+      category: 'pdf',
+      isBinary: true
+    }
+  }
+
+  // DOCX / Word 文档元信息
+  if (category === 'document') {
+    return {
+      content: '',
+      mimeType:
+        ext === '.docx'
+          ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+          : 'application/msword',
+      mtime: fileStat.mtimeMs,
+      size: fileStat.size,
+      category: 'document',
+      isBinary: true
+    }
+  }
+
+  // 纯文本、Markdown、代码文件与常规文本 (最大 5MB 文本保护)
+  if (fileStat.size > 5 * 1024 * 1024) {
+    return {
+      content: '',
+      mtime: fileStat.mtimeMs,
+      size: fileStat.size,
+      category,
+      isBinary: category === 'other',
+      isOversized: true
+    }
+  }
+
+  // 检查是否为未知二进制文件（扫描前 1024 字节是否存在空字节）
+  const buffer = await fsReadFile(safePath)
+  const isBinary = buffer.subarray(0, Math.min(1024, buffer.length)).includes(0)
+
+  if (isBinary && category === 'other') {
+    return {
+      content: '',
+      mtime: fileStat.mtimeMs,
+      size: fileStat.size,
+      category: 'other',
+      isBinary: true
+    }
+  }
+
+  const content = buffer.toString('utf-8')
   return {
     content,
     mtime: fileStat.mtimeMs,
-    size: fileStat.size
+    size: fileStat.size,
+    category,
+    isBinary: false
   }
 }
 
@@ -273,6 +400,10 @@ export async function writeFile(
   content: string
 ): Promise<WorkbenchWriteResult> {
   const safePath = await assertSafePath(workspaceRoot, relativePath)
+  const category = getFileCategory(path.basename(safePath))
+  if (category === 'image' || category === 'pdf' || category === 'document') {
+    throw new Error(`安全保护：禁止将纯文本内容写入 ${category} 格式文件，防止损坏二进制文件`)
+  }
   const parentDir = path.dirname(safePath)
   await mkdir(parentDir, { recursive: true })
 
@@ -408,6 +539,17 @@ export async function deleteNode(workspaceRoot: string, relativePath: string): P
 export async function revealFile(workspaceRoot: string, relativePath: string): Promise<void> {
   const safePath = await assertSafePath(workspaceRoot, relativePath)
   shell.showItemInFolder(safePath)
+}
+
+/**
+ * 使用操作系统默认关联程序打开文件
+ */
+export async function openFileInSystem(workspaceRoot: string, relativePath: string): Promise<void> {
+  const safePath = await assertSafePath(workspaceRoot, relativePath)
+  const err = await shell.openPath(safePath)
+  if (err) {
+    throw new Error(err)
+  }
 }
 
 /**

@@ -175,3 +175,68 @@ webview[tabindex="-1"] {
   color: inherit;
 }
 
+/* Lexical Checklist 待办清单样式 */
+.lexical-checklist {
+  list-style-type: none !important;
+  padding-left: 0 !important;
+  margin-bottom: 0.75rem;
+}
+
+.lexical-checklist-item {
+  position: relative;
+  list-style-type: none !important;
+  padding-left: 28px !important;
+  margin-bottom: 0.35rem;
+  line-height: 1.6;
+}
+
+.lexical-checklist-item::before {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 3px;
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid #94a3b8;
+  border-radius: 4px;
+  cursor: pointer;
+  background-color: transparent;
+  transition: all 0.15s ease;
+}
+
+.lexical-checklist-item:hover::before {
+  border-color: #3b82f6;
+}
+
+.lexical-checklist-item-checked {
+  text-decoration: line-through;
+  opacity: 0.65;
+}
+
+.lexical-checklist-item-checked::before {
+  background-color: #3b82f6;
+  border-color: #3b82f6;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 16 16' fill='white' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M12.207 4.793a1 1 0 010 1.414l-5 5a1 1 0 01-1.414 0l-2-2a1 1 0 011.414-1.414L6.5 9.086l4.293-4.293a1 1 0 011.414 0z'/%3E%3C/svg%3E");
+  background-size: 100% 100%;
+}
+
+/* Lexical Horizontal Rule 水平分割线样式 */
+.lexical-hr {
+  border: none;
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
+  margin: 1.5rem 0;
+  cursor: default;
+}
+.dark .lexical-hr {
+  border-top-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Lexical Draggable Block Menu 样式 */
+.draggable-block-menu {
+  cursor: grab;
+}
+.draggable-block-menu:active {
+  cursor: grabbing;
+}
+
+

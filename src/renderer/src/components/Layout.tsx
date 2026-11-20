@@ -15,7 +15,7 @@ function WorkbenchTopBar(): JSX.Element {
   return (
     <div className="flex items-center gap-2 text-xs select-none max-w-[420px] truncate">
       <span className="font-semibold text-text-primary flex items-center gap-1">
-        <span className="material-symbols-outlined text-[15px] text-amber-500">folder_open</span>
+        <span className="material-symbols-outlined text-base text-amber-500">folder_open</span>
         <span>{workspaceName || '工作台'}</span>
       </span>
 
@@ -26,10 +26,10 @@ function WorkbenchTopBar(): JSX.Element {
             {activeFilePath}
           </span>
           {isDirty && (
-            <span className="w-1.5 h-1.5 rounded-full bg-blue-500" title="未保存" />
+            <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" title="未保存" />
           )}
           {saveStatus === 'saving' && (
-            <span className="text-[10px] text-amber-500 font-medium">保存中...</span>
+            <span className="text-xs text-amber-500 font-medium shrink-0">保存中...</span>
           )}
         </>
       )}
@@ -49,6 +49,8 @@ function Layout({ children }: LayoutProps): JSX.Element {
   const [isWindowMaximized, setIsWindowMaximized] = useState(false)
 
   const { displayMode, setDisplayMode, resetPaneRatios, isSettingsOpen, setSettingsOpen, setHistoryOpen, setHistoryInitialTab, productMode, setProductMode, currentPage, setCurrentPage, isNewSession, textInserted, activeModels, debateState } = useAppStore()
+  const isRightCollapsed = useWorkbenchStore((s) => s.isRightCollapsed)
+  const toggleRightCollapse = useWorkbenchStore((s) => s.toggleRightCollapse)
   const { hasUpdate } = useUpdateReminder()
   const isFallbackDraggingRef = useRef(false)
   const dragFrameRef = useRef<number | null>(null)
@@ -276,6 +278,21 @@ function Layout({ children }: LayoutProps): JSX.Element {
         
         {window.api.platform === 'win32' ? (
           <div className="relative z-20 -mr-4 flex h-full min-w-[138px] items-stretch justify-end drag-region">
+            {productMode === 'workbench' && (
+              <button
+                type="button"
+                aria-label={isRightCollapsed ? '展开 AI 侧边栏' : '折叠 AI 侧边栏'}
+                title={isRightCollapsed ? '展开 AI 侧边栏' : '折叠 AI 侧边栏'}
+                onClick={toggleRightCollapse}
+                className={`flex w-[46px] items-center justify-center transition-colors hover:bg-black/10 hover:text-text-primary no-drag ${
+                  !isRightCollapsed ? 'text-primary' : 'text-text-secondary'
+                }`}
+              >
+                <span className="material-symbols-outlined text-[18px]">
+                  {isRightCollapsed ? 'dock_to_right' : 'vertical_split'}
+                </span>
+              </button>
+            )}
             <button
               type="button"
               aria-label="最小化窗口"
@@ -307,11 +324,43 @@ function Layout({ children }: LayoutProps): JSX.Element {
             </button>
           </div>
         ) : window.api.platform === 'darwin' ? (
-          <div className="relative z-10 min-w-[120px] drag-region h-full flex items-center justify-end">
+          <div className="relative z-10 min-w-[120px] drag-region h-full flex items-center justify-end gap-1">
+            {productMode === 'workbench' && (
+              <button
+                type="button"
+                aria-label={isRightCollapsed ? '展开 AI 侧边栏' : '折叠 AI 侧边栏'}
+                title={isRightCollapsed ? '展开 AI 侧边栏' : '折叠 AI 侧边栏'}
+                onClick={toggleRightCollapse}
+                className={`h-7 px-2 flex items-center justify-center rounded-lg transition-colors hover:bg-black/10 hover:text-text-primary no-drag ${
+                  !isRightCollapsed ? 'text-primary' : 'text-text-secondary'
+                }`}
+              >
+                <span className="material-symbols-outlined text-[18px]">
+                  {isRightCollapsed ? 'dock_to_right' : 'vertical_split'}
+                </span>
+              </button>
+            )}
             {currentPage !== 'notes' && entryButtons}
           </div>
         ) : (
-          <div className="relative z-10 min-w-[120px] drag-region h-full" />
+          <div className="relative z-10 min-w-[120px] drag-region h-full flex items-center justify-end gap-1">
+            {productMode === 'workbench' && (
+              <button
+                type="button"
+                aria-label={isRightCollapsed ? '展开 AI 侧边栏' : '折叠 AI 侧边栏'}
+                title={isRightCollapsed ? '展开 AI 侧边栏' : '折叠 AI 侧边栏'}
+                onClick={toggleRightCollapse}
+                className={`h-7 px-2 flex items-center justify-center rounded-lg transition-colors hover:bg-black/10 hover:text-text-primary no-drag ${
+                  !isRightCollapsed ? 'text-primary' : 'text-text-secondary'
+                }`}
+              >
+                <span className="material-symbols-outlined text-[18px]">
+                  {isRightCollapsed ? 'dock_to_right' : 'vertical_split'}
+                </span>
+              </button>
+            )}
+            {currentPage !== 'notes' && entryButtons}
+          </div>
         )}
       </div>
       <main className="flex-1 overflow-hidden">

@@ -106,6 +106,8 @@ Do not copy ordinary session history here. Promote only stable knowledge that is
 
 - 在包含受控/非受控混用场景（如 initialMarkdown）的 React 组件中，避免在依赖项中监听内部编辑状态（markdown）来进行同步，否则内部任何状态更新都会被判定为与外部不同并触发强制回滚；对于绝对定位的 hover 操作按钮，需避免子元素与父元素之间出现事件空隙导致 hover 闪退
 
+- **工作台多格式预览与写盘安全**：在扩展文本编辑器支持只读或二进制文件（图片/PDF/DOCX 等）时，必须严格在 Zustand store、全局快捷键（Ctrl+S）与主进程 `writeFile` 三层严密拦截写盘调用，否则 Ctrl+S 会将空文本写入二进制文件造成不可逆数据破坏；各格式专属预览组件必须在路由分发时绑定 `key={activeFilePath}`，确保切换文件时自动重置缩放、旋转与编辑等局部状态。
+
 
 ### 7. 划词、快捷键与窗口交互
 

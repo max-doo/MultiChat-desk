@@ -33,14 +33,22 @@ export default function WorkbenchPage({ isActive = true }: WorkbenchPageProps): 
   }, [initWorkbench])
 
   // 处理拖拽分隔条 (Left Splitter)
-  const handleLeftSplitterPointerDown = useCallback((e: React.PointerEvent) => {
+  const handleLeftSplitterPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault()
+    const splitter = e.currentTarget
+    const pointerId = e.pointerId
+    splitter.setPointerCapture(pointerId)
     setIsDraggingLeft(true)
     const handlePointerMove = (moveEvent: PointerEvent) => {
       setLeftPaneWidth(moveEvent.clientX)
     }
     const handlePointerUp = () => {
       setIsDraggingLeft(false)
+      try {
+        splitter.releasePointerCapture(pointerId)
+      } catch {
+        // ignore
+      }
       window.removeEventListener('pointermove', handlePointerMove)
       window.removeEventListener('pointerup', handlePointerUp)
     }
@@ -49,8 +57,11 @@ export default function WorkbenchPage({ isActive = true }: WorkbenchPageProps): 
   }, [setLeftPaneWidth])
 
   // 处理拖拽分隔条 (Right Splitter)
-  const handleRightSplitterPointerDown = useCallback((e: React.PointerEvent) => {
+  const handleRightSplitterPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault()
+    const splitter = e.currentTarget
+    const pointerId = e.pointerId
+    splitter.setPointerCapture(pointerId)
     setIsDraggingRight(true)
     const handlePointerMove = (moveEvent: PointerEvent) => {
       const nextWidth = window.innerWidth - moveEvent.clientX
@@ -58,6 +69,11 @@ export default function WorkbenchPage({ isActive = true }: WorkbenchPageProps): 
     }
     const handlePointerUp = () => {
       setIsDraggingRight(false)
+      try {
+        splitter.releasePointerCapture(pointerId)
+      } catch {
+        // ignore
+      }
       window.removeEventListener('pointermove', handlePointerMove)
       window.removeEventListener('pointerup', handlePointerUp)
     }
@@ -119,7 +135,7 @@ export default function WorkbenchPage({ isActive = true }: WorkbenchPageProps): 
             <span>选择本地工作区文件夹...</span>
           </button>
 
-          <div className="mt-4 text-[11px] text-text-secondary/70">
+          <div className="mt-4 text-xs text-text-secondary/70">
             或将文件夹拖拽至此窗口直接开启
           </div>
         </div>
@@ -132,6 +148,11 @@ export default function WorkbenchPage({ isActive = true }: WorkbenchPageProps): 
       className="flex h-full w-full overflow-hidden relative select-none"
       style={{ display: isActive ? 'flex' : 'none' }}
     >
+      {/* 调整窗格宽度时的透明事件保护遮罩 */}
+      {(isDraggingLeft || isDraggingRight) && (
+        <div className="fixed inset-0 z-50 cursor-col-resize select-none bg-transparent" />
+      )}
+
       {/* 错误提示浮层 */}
       {error && (
         <div className="absolute top-3 left-1/2 -translate-x-1/2 z-50 px-4 py-2 bg-rose-500 text-white rounded-xl shadow-xl flex items-center gap-2 text-xs animate-in fade-in slide-in-from-top duration-200">
@@ -187,7 +208,10 @@ export default function WorkbenchPage({ isActive = true }: WorkbenchPageProps): 
       {/* 右栏：AI Webview 侧边栏 */}
       <div
         className="h-full shrink-0 overflow-hidden"
-        style={{ width: isRightCollapsed ? '40px' : `${rightPaneWidth}px` }}
+        style={{
+          width: isRightCollapsed ? 0 : `${rightPaneWidth}px`,
+          display: isRightCollapsed ? 'none' : 'block'
+        }}
       >
         <WorkbenchAiSidebar />
       </div>

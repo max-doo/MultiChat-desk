@@ -47,7 +47,8 @@ import {
     renameNode as workbenchRenameNode,
     deleteNode as workbenchDeleteNode,
     search as workbenchSearch,
-    revealFile as workbenchRevealFile
+    revealFile as workbenchRevealFile,
+    openFileInSystem as workbenchOpenFileInSystem
 } from './services/workbenchService'
 import type { WorkbenchNodeType } from '../shared/types/workbench'
 
@@ -1684,6 +1685,18 @@ export async function registerIpcHandlers(
             const workspaceRoot = typeof payload === 'string' ? payload : payload?.workspaceRoot
             const relativePath = typeof payload === 'string' ? relPath! : payload?.relativePath
             await workbenchRevealFile(workspaceRoot, relativePath)
+            return { success: true }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('workbench:open-in-system', async (_event, payload: string | { workspaceRoot: string; relativePath: string }, relPath?: string) => {
+        try {
+            const workspaceRoot = typeof payload === 'string' ? payload : payload?.workspaceRoot
+            const relativePath = typeof payload === 'string' ? relPath! : payload?.relativePath
+            await workbenchOpenFileInSystem(workspaceRoot, relativePath)
             return { success: true }
         } catch (err: unknown) {
             const error = err instanceof Error ? err.message : String(err)

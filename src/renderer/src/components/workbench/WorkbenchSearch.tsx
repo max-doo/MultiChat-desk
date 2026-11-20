@@ -99,7 +99,7 @@ export default function WorkbenchSearch({ onClose }: WorkbenchSearchProps): JSX.
         )}
 
         {searchResults.length > 0 && (
-          <div className="px-2 py-1 text-[11px] text-text-secondary font-medium">
+          <div className="px-2 py-1 text-xs text-text-secondary font-medium">
             共找到 {searchResults.length} 处匹配
           </div>
         )}
@@ -115,11 +115,11 @@ export default function WorkbenchSearch({ onClose }: WorkbenchSearchProps): JSX.
               <span className="font-medium truncate group-hover:text-primary transition-colors">
                 {result.fileName}
               </span>
-              <span className="text-[10px] font-mono text-text-secondary/70 bg-black/5 dark:bg-white/5 px-1 rounded">
+              <span className="text-xs font-mono text-text-secondary/70 bg-black/5 dark:bg-white/5 px-1.5 py-0.5 rounded">
                 第 {result.line} 行
               </span>
             </div>
-            <div className="text-[11px] text-text-secondary/80 truncate font-mono">
+            <div className="text-xs text-text-secondary/80 truncate font-mono">
               {renderHighlightedSnippet(result.preview || result.content, searchQuery)}
             </div>
           </button>

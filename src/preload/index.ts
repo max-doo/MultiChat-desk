@@ -424,7 +424,9 @@ const api = {
     search: (workspaceRoot: string, query: string): Promise<{ success: boolean; data?: WorkbenchSearchResult[]; error?: string }> =>
       ipcRenderer.invoke('workbench:search', { workspaceRoot, query }),
     revealFile: (workspaceRoot: string, relativePath: string): Promise<{ success: boolean; error?: string }> =>
-      ipcRenderer.invoke('workbench:reveal-file', { workspaceRoot, relativePath })
+      ipcRenderer.invoke('workbench:reveal-file', { workspaceRoot, relativePath }),
+    openInSystem: (workspaceRoot: string, relativePath: string): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('workbench:open-in-system', { workspaceRoot, relativePath })
   },
   workbenchSelectFolder: (): Promise<{ success: boolean; data?: WorkbenchSelectFolderResult | null; error?: string }> =>
     ipcRenderer.invoke('workbench:select-folder'),
@@ -443,7 +445,9 @@ const api = {
   workbenchSearch: (workspaceRoot: string, query: string): Promise<{ success: boolean; data?: WorkbenchSearchResult[]; error?: string }> =>
     ipcRenderer.invoke('workbench:search', { workspaceRoot, query }),
   workbenchRevealFile: (workspaceRoot: string, relativePath: string): Promise<{ success: boolean; error?: string }> =>
-    ipcRenderer.invoke('workbench:reveal-file', { workspaceRoot, relativePath })
+    ipcRenderer.invoke('workbench:reveal-file', { workspaceRoot, relativePath }),
+  workbenchOpenInSystem: (workspaceRoot: string, relativePath: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('workbench:open-in-system', { workspaceRoot, relativePath })
 }
 
 // 暴露 API 到渲染进程

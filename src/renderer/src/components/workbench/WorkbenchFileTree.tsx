@@ -15,6 +15,79 @@ interface ActionModalState {
   defaultValue?: string
 }
 
+export function getNodeIcon(node: WorkbenchFileNode): { icon: string; color: string } {
+  if (node.isDirectory) {
+    return { icon: 'folder', color: 'text-amber-500' }
+  }
+
+  const ext = (node.extension || '').toLowerCase()
+  const name = node.name.toLowerCase()
+
+  // Markdown 专属图标
+  if (ext === '.md' || ext === '.markdown') {
+    return { icon: 'description', color: 'text-blue-500 dark:text-blue-400' }
+  }
+
+  // PDF 专属图标
+  if (ext === '.pdf') {
+    return { icon: 'picture_as_pdf', color: 'text-rose-500 dark:text-rose-400' }
+  }
+
+  // 图片专属图标 (同一 Material Symbols 系列)
+  if (['.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico', '.bmp', '.avif', '.tiff', '.tif'].includes(ext)) {
+    return { icon: 'image', color: 'text-purple-500 dark:text-purple-400' }
+  }
+  if (ext === '.svg') {
+    return { icon: 'draw', color: 'text-purple-500 dark:text-purple-400' }
+  }
+
+  // Word 文档专属图标
+  if (ext === '.docx' || ext === '.doc') {
+    return { icon: 'article', color: 'text-indigo-600 dark:text-indigo-400' }
+  }
+
+  // 纯文本专属图标
+  if (['.txt', '.log', '.csv', '.tsv'].includes(ext)) {
+    return { icon: 'text_snippet', color: 'text-slate-500 dark:text-slate-400' }
+  }
+
+  // 代码文件专属图标 (按语言与用途细分)
+  if (['.ts', '.tsx'].includes(ext)) {
+    return { icon: 'code', color: 'text-blue-600 dark:text-blue-400' }
+  }
+  if (['.js', '.jsx', '.mjs', '.cjs'].includes(ext)) {
+    return { icon: 'javascript', color: 'text-amber-500 dark:text-amber-400' }
+  }
+  if (['.html', '.htm', '.vue', '.svelte'].includes(ext)) {
+    return { icon: 'html', color: 'text-orange-500 dark:text-orange-400' }
+  }
+  if (['.css', '.scss', '.less', '.sass'].includes(ext)) {
+    return { icon: 'css', color: 'text-sky-500 dark:text-sky-400' }
+  }
+  if (['.json', '.json5'].includes(ext)) {
+    return { icon: 'data_object', color: 'text-amber-500 dark:text-amber-400' }
+  }
+  if (['.yaml', '.yml', '.xml', '.toml', '.ini'].includes(ext)) {
+    return { icon: 'settings', color: 'text-emerald-500 dark:text-emerald-400' }
+  }
+  if (['.sh', '.bash', '.zsh', '.ps1', '.bat', '.cmd'].includes(ext)) {
+    return { icon: 'terminal', color: 'text-emerald-500 dark:text-emerald-400' }
+  }
+  if (['.py', '.pyw'].includes(ext)) {
+    return { icon: 'code', color: 'text-teal-600 dark:text-teal-400' }
+  }
+  if (
+    ['.java', '.c', '.cpp', '.cc', '.h', '.hpp', '.cs', '.rs', '.go', '.php', '.rb', '.sql'].includes(ext) ||
+    name === 'dockerfile' ||
+    name.startsWith('.env') ||
+    name === '.gitignore'
+  ) {
+    return { icon: 'code', color: 'text-cyan-600 dark:text-cyan-400' }
+  }
+
+  return { icon: 'draft', color: 'text-text-secondary/70' }
+}
+
 export default function WorkbenchFileTree(): JSX.Element {
   const workspacePath = useWorkbenchStore((s) => s.workspacePath)
   const workspaceName = useWorkbenchStore((s) => s.workspaceName)
@@ -35,6 +108,7 @@ export default function WorkbenchFileTree(): JSX.Element {
   const renameNode = useWorkbenchStore((s) => s.renameNode)
   const deleteNode = useWorkbenchStore((s) => s.deleteNode)
   const revealFile = useWorkbenchStore((s) => s.revealFile)
+  const openInSystem = useWorkbenchStore((s) => s.openInSystem)
 
   const [isSearchMode, setIsSearchMode] = useState(false)
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
@@ -123,10 +197,10 @@ export default function WorkbenchFileTree(): JSX.Element {
             style={{ paddingLeft: `${level * 14 + 8}px` }}
             className="flex items-center gap-1.5 py-1 px-2 rounded-md hover:bg-black/5 dark:hover:bg-white/5 cursor-pointer text-text-primary transition-colors text-xs group"
           >
-            <span className="material-symbols-outlined text-[15px] text-text-secondary transition-transform duration-150">
+            <span className="material-symbols-outlined text-[16px] text-text-secondary transition-transform duration-150">
               {isExpanded ? 'expand_more' : 'chevron_right'}
             </span>
-            <span className="material-symbols-outlined text-[16px] text-amber-500">
+            <span className="material-symbols-outlined text-[17px] text-amber-500">
               {isExpanded ? 'folder_open' : 'folder'}
             </span>
             <span className="truncate flex-1 font-medium">{node.name}</span>
@@ -137,7 +211,7 @@ export default function WorkbenchFileTree(): JSX.Element {
           {isExpanded && (!node.children || node.children.length === 0) && (
             <div
               style={{ paddingLeft: `${(level + 1) * 14 + 24}px` }}
-              className="py-1 text-[11px] text-text-secondary/60 italic"
+              className="py-1 text-xs text-text-secondary/60 italic"
             >
               (空目录)
             </div>
@@ -147,10 +221,11 @@ export default function WorkbenchFileTree(): JSX.Element {
     }
 
     // 文件节点
-    const isMarkdown = node.extension === '.md' || node.extension === '.markdown'
+    const iconVisuals = getNodeIcon(node)
     return (
       <div
         key={node.id}
+        data-file-node={node.path}
         onContextMenu={(e) => handleContextMenu(e, node)}
         onClick={() => void openFile(node.path)}
         style={{ paddingLeft: `${level * 14 + 24}px` }}
@@ -160,16 +235,12 @@ export default function WorkbenchFileTree(): JSX.Element {
             : 'text-text-primary hover:bg-black/5 dark:hover:bg-white/5'
         }`}
       >
-        <span
-          className={`material-symbols-outlined text-[15px] ${
-            isMarkdown ? 'text-blue-500/80 dark:text-blue-400/80' : 'text-text-secondary/70'
-          }`}
-        >
-          {isMarkdown ? 'description' : 'draft'}
+        <span className={`material-symbols-outlined text-[16px] shrink-0 ${iconVisuals.color}`}>
+          {iconVisuals.icon}
         </span>
         <span className="truncate flex-1">{node.name}</span>
         {isActive && isDirty && (
-          <span className="w-1.5 h-1.5 rounded-full bg-blue-500" title="未保存的修改" />
+          <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" title="未保存的修改" />
         )}
       </div>
     )
@@ -193,12 +264,12 @@ export default function WorkbenchFileTree(): JSX.Element {
           <button
             type="button"
             onClick={() => setIsSearchMode(!isSearchMode)}
-            className={`w-6 h-6 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 transition-colors ${
-              isSearchMode ? 'text-primary bg-black/5 dark:bg-white/5' : ''
+            className={`w-7 h-7 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 transition-colors ${
+              isSearchMode ? 'text-primary bg-black/5 dark:bg-white/10' : ''
             }`}
             title="搜索笔记"
           >
-            <span className="material-symbols-outlined text-[16px]">search</span>
+            <span className="material-symbols-outlined text-[17px]">search</span>
           </button>
           <button
             type="button"
@@ -206,10 +277,10 @@ export default function WorkbenchFileTree(): JSX.Element {
               setInputValue('未命名笔记.md')
               setActionModal({ type: 'createFile', targetNode: null })
             }}
-            className="w-6 h-6 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 hover:text-text-primary transition-colors"
+            className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors"
             title="新建笔记"
           >
-            <span className="material-symbols-outlined text-[16px]">note_add</span>
+            <span className="material-symbols-outlined text-[17px]">note_add</span>
           </button>
           <button
             type="button"
@@ -217,36 +288,36 @@ export default function WorkbenchFileTree(): JSX.Element {
               setInputValue('新建文件夹')
               setActionModal({ type: 'createFolder', targetNode: null })
             }}
-            className="w-6 h-6 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 hover:text-text-primary transition-colors"
+            className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors"
             title="新建文件夹"
           >
-            <span className="material-symbols-outlined text-[16px]">create_new_folder</span>
+            <span className="material-symbols-outlined text-[17px]">create_new_folder</span>
           </button>
           <button
             type="button"
             onClick={collapseAllFolders}
-            className="w-6 h-6 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 hover:text-text-primary transition-colors"
+            className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors"
             title="折叠全部"
           >
-            <span className="material-symbols-outlined text-[16px]">unfold_less</span>
+            <span className="material-symbols-outlined text-[17px]">unfold_less</span>
           </button>
           <button
             type="button"
             onClick={() => void loadFileTree()}
-            className="w-6 h-6 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 hover:text-text-primary transition-colors"
+            className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors"
             title="刷新目录"
           >
-            <span className={`material-symbols-outlined text-[16px] ${isLoadingTree ? 'animate-spin' : ''}`}>
+            <span className={`material-symbols-outlined text-[17px] ${isLoadingTree ? 'animate-spin' : ''}`}>
               refresh
             </span>
           </button>
           <button
             type="button"
             onClick={() => void closeWorkspace()}
-            className="w-6 h-6 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 hover:text-rose-500 transition-colors"
+            className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-rose-500 transition-colors"
             title="关闭工作区"
           >
-            <span className="material-symbols-outlined text-[16px]">close</span>
+            <span className="material-symbols-outlined text-[17px]">close</span>
           </button>
         </div>
       </div>
@@ -330,6 +401,19 @@ export default function WorkbenchFileTree(): JSX.Element {
                 <span className="material-symbols-outlined text-[16px]">folder</span>
                 <span>在资源管理器中显示</span>
               </button>
+              {!contextMenu.node.isDirectory && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (contextMenu.node) void openInSystem(contextMenu.node.path)
+                    setContextMenu(null)
+                  }}
+                  className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-text-primary hover:bg-black/5 dark:hover:bg-white/5"
+                >
+                  <span className="material-symbols-outlined text-[16px]">open_in_new</span>
+                  <span>使用系统默认程序打开</span>
+                </button>
+              )}
               <div className="my-1 border-t border-black/5 dark:border-white/5" />
               <button
                 type="button"

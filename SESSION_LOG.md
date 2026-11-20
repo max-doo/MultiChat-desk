@@ -2,6 +2,73 @@
 
 ## 2026-11-20
 
+### 02:14 | Antigravity
+
+- done: 修复工作台多格式预览(代码/图片/PDF/DOCX)致命写盘覆盖Bug、超大文件防御降级与代码语法高亮优化
+- decision: 保持DOCX零生产依赖决策，以专属元信息卡片呈现并提供系统默认办公软件一键打开；对超大图片(>20MB)、超大PDF(>50MB)与大代码(>5MB)采用友好降级卡片替代Toast报错阻断
+- modified:
+  - `src/shared/types/workbench.ts`
+  - `src/main/services/workbenchService.ts`
+  - `src/renderer/src/store/workbenchStore.ts`
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchImagePreview.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchPdfPreview.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchCodePreview.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+  - `scripts/verify_workbench_previews.py`
+- lesson(promoted): 在扩展编辑器支持只读或二进制文件（图片/PDF/Word）时，必须严格在 store、UI 全局快捷键与主进程文件写入三层严密拦截写盘调用，否则 Ctrl+S 会将空文本写入二进制文件造成不可逆数据破坏；此外，文件预览组件必须带有 key={activeFilePath} 确保文件切换时重置缩放旋转与编辑等局部状态
+
+### 01:52 | Antigravity
+
+- done: 支持工作台代码、图片、PDF预览及同系列专属图标，完成DOCX依赖评估与卡片集成
+- decision: DOCX渲染需引入ZIP解压与OpenXML解析重型依赖(mammoth/docx-preview)，不宜静默引入；采用专属Word卡片与1-click系统默认程序打开方案
+- added:
+  - `src/renderer/src/components/workbench/WorkbenchCodePreview.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchImagePreview.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchPdfPreview.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchDocxCard.tsx`
+  - `scripts/verify_workbench_previews.py`
+- modified:
+  - `src/shared/types/workbench.ts`
+  - `src/main/services/workbenchService.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/main/webviewManager.ts`
+  - `src/renderer/src/store/workbenchStore.ts`
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+- lesson: 文件树图标使用Material Symbols统一体系可避免引入外部图标包；二进制文件通过Base64 DataUrl经IPC传递到Renderer可规避Chromium跨协议file://安全拦截
+
+### 01:31 | Antigravity
+
+- done: 修复工作台DraggableBlockPlugin文字块拖拽handle未绑定ref、侧边栏折叠销毁Webview导致状态丢失、分割线HR Markdown转换缺失及Splitter拖拽被Webview拦截问题，并通过Playwright完成完整前端网页验收
+- added:
+  - `scripts/verify_workbench_frontend.py`
+  - `workbench_verified.png`
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
+  - `src/renderer/src/components/workbench/MarkdownSyncPlugin.tsx`
+  - `src/renderer/src/components/Layout.tsx`
+  - `src/renderer/src/pages/WorkbenchPage.tsx`
+- lesson: Lexical的DraggableBlockPlugin_EXPERIMENTAL不会自动为menuComponent包裹或注入ref，必须显式在自定义Handle根节点声明ref={menuRef}，否则menuRef.current始终为null导致setMenuPosition不生效、handle无法定位；侧边栏内嵌Webview组件折叠时切勿直接return null，应利用容器display:none维持挂载以保证模型常驻不重载；拖拽Splitter调整窗格必须使用setPointerCapture以防鼠标滑入webview被原生截获
+
+### 01:14 | Antigravity
+
+- done: 优化工作台 UI 设计规范与字体大小、将侧边栏入口移至最小化按钮前、支持源码模式双向无缝切回、补齐 Lexical 全部富文本能力（含文字块拖动、待办清单、表格、水平分割线等），并在侧边栏直接复用 WebviewCard
+- decision: 在标题栏右侧最小化按钮前增加工作台 AI 侧边栏展开/折叠入口；侧边栏直接复用 WebviewCard 标准头部与平台下拉；富文本采用 Meta Lexical 官方 DraggableBlockPlugin_EXPERIMENTAL 实现文字块拖拽重排
+- modified:
+  - `src/renderer/src/assets/index.css`
+  - `src/renderer/src/components/Layout.tsx`
+  - `src/renderer/src/components/workbench/MarkdownSyncPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchSearch.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchSelectionMenuPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchToolbar.tsx`
+  - `src/renderer/src/pages/WorkbenchPage.tsx`
+
 ### 00:34 | Antigravity
 
 - done: 修复 MainPage 在 workbench 模式下 modeModels 未定义导致 TypeError: Cannot read properties of undefined (reading 'length') 的问题
