@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useWorkbenchStore, type WorkbenchAiAction } from '../../store/workbenchStore'
+import WorkbenchFindReplaceBar from './WorkbenchFindReplaceBar'
 
 // 语言标签与高亮线索映射
 function getLanguageLabel(pathOrExt: string): string {
@@ -102,6 +103,7 @@ export default function WorkbenchCodePreview(): JSX.Element {
   const activeFilePath = useWorkbenchStore((s) => s.activeFilePath)
   const activeFileContent = useWorkbenchStore((s) => s.activeFileContent)
   const activeFileSize = useWorkbenchStore((s) => s.activeFileSize)
+  const activeFileUrl = useWorkbenchStore((s) => s.activeFileUrl)
   const activeFileOversized = useWorkbenchStore((s) => s.activeFileOversized)
   const isDirty = useWorkbenchStore((s) => s.isDirty)
   const saveStatus = useWorkbenchStore((s) => s.saveStatus)
@@ -115,25 +117,36 @@ export default function WorkbenchCodePreview(): JSX.Element {
   const [copied, setCopied] = useState(false)
   const [selectedText, setSelectedText] = useState('')
   const [showAiMenu, setShowAiMenu] = useState(false)
+  const [findOpen, setFindOpen] = useState(false)
+  const [findReplaceFocus, setFindReplaceFocus] = useState(false)
+  // HTML 文件支持浏览器式渲染预览；viewMode 两态：render / source（源码即编辑）
+  const [viewMode, setViewMode] = useState<'render' | 'source'>('source')
+
+  const isHtmlFile = useMemo(() => {
+    const lower = (activeFilePath || '').toLowerCase()
+    return lower.endsWith('.html') || lower.endsWith('.htm')
+  }, [activeFilePath])
+
+  // HTML 源码模式即为可编辑状态；其他代码文件沿用查看/编辑分离
+  const isEditable = isHtmlFile ? viewMode === 'source' : isEditing
 
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const codePreRef = useRef<HTMLPreElement | null>(null)
   const lineNumbersRef = useRef<HTMLDivElement | null>(null)
 
-  // 切换文件重置编辑与菜单状态
+  // 切换文件重置编辑与菜单状态；HTML 默认进入渲染预览
   useEffect(() => {
     setIsEditing(false)
     setSelectedText('')
     setShowAiMenu(false)
-  }, [activeFilePath])
+    setViewMode(isHtmlFile ? 'render' : 'source')
+  }, [activeFilePath, isHtmlFile])
 
   const lines = useMemo(() => {
     return activeFileContent.split('\n')
   }, [activeFileContent])
 
   const lineCount = lines.length
-  const charCount = activeFileContent.length
-  const wordCount = activeFileContent.trim() ? activeFileContent.trim().split(/\s+/).length : 0
   const language = getLanguageLabel(activeFilePath || '')
 
   // 格式化文件大小
@@ -147,13 +160,24 @@ export default function WorkbenchCodePreview(): JSX.Element {
   // Ctrl+S 保存
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+      if (!(e.ctrlKey || e.metaKey)) return
+      const k = e.key.toLowerCase()
+      if (k === 's') {
         e.preventDefault()
         void saveActiveFile()
+      } else if (k === 'f' || k === 'h') {
+        e.preventDefault()
+        setFindReplaceFocus(k === 'h')
+        setFindOpen(true)
       }
     },
     [saveActiveFile]
   )
+
+  // 切换文件时关闭查找条
+  useEffect(() => {
+    setFindOpen(false)
+  }, [activeFilePath])
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown)
@@ -166,7 +190,24 @@ export default function WorkbenchCodePreview(): JSX.Element {
     if (lineNumbersRef.current) {
       lineNumbersRef.current.scrollTop = target.scrollTop
     }
+    // 编辑态：textarea 驱动背景高亮层滚动对齐
+    if (isEditable && codePreRef.current && target !== codePreRef.current) {
+      codePreRef.current.scrollTop = target.scrollTop
+      codePreRef.current.scrollLeft = target.scrollLeft
+    }
   }
+
+  // 内容变化后保持高亮层与行号槽对齐（文件切换 / 外部更新）
+  useEffect(() => {
+    const ta = textareaRef.current
+    if (lineNumbersRef.current && ta) {
+      lineNumbersRef.current.scrollTop = ta.scrollTop
+    }
+    if (isEditable && codePreRef.current && ta) {
+      codePreRef.current.scrollTop = ta.scrollTop
+      codePreRef.current.scrollLeft = ta.scrollLeft
+    }
+  }, [activeFileContent, isEditable])
 
   // 复制全文
   const handleCopy = async () => {
@@ -208,14 +249,15 @@ export default function WorkbenchCodePreview(): JSX.Element {
 
         {/* 右侧：统计与操作 */}
         <div className="flex items-center gap-2 text-slate-400 text-sm shrink-0">
-          <span className="hidden sm:inline font-mono">
-            {lineCount} 行 · {wordCount} 词 · {charCount} 字符 {formattedSize && `· ${formattedSize}`}
-          </span>
-
           {/* 保存状态提示 (编辑模式下展示) */}
-          {isEditing && (
+          {isEditable && (
             <div className="flex items-center gap-1 font-medium">
-              {saveStatus === 'saving' ? (
+              {saveStatus === 'conflict' ? (
+                <span className="flex items-center gap-1 text-amber-400">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                  <span>冲突</span>
+                </span>
+              ) : saveStatus === 'saving' ? (
                 <span className="flex items-center gap-1 text-amber-400">
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
                   <span>保存中</span>
@@ -239,28 +281,63 @@ export default function WorkbenchCodePreview(): JSX.Element {
             </div>
           )}
 
-          {/* 模式切换 (查看 / 编辑) */}
+          {/* 模式切换：HTML 为 渲染/源码（源码即编辑）；其他代码为 查看/编辑 */}
           <div className="flex items-center p-0.5 bg-slate-950/60 rounded-lg border border-slate-700/50">
-            <button
-              type="button"
-              onClick={() => setIsEditing(false)}
-              className={`px-2 py-0.5 rounded text-sm transition-colors ${
-                !isEditing ? 'bg-slate-700 text-white font-medium' : 'text-slate-400 hover:text-slate-200'
-              }`}
-              title="只读代码高亮视图"
-            >
-              查看
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsEditing(true)}
-              className={`px-2 py-0.5 rounded text-sm transition-colors ${
-                isEditing ? 'bg-blue-600 text-white font-medium' : 'text-slate-400 hover:text-slate-200'
-              }`}
-              title="代码编辑模式 (可保存)"
-            >
-              编辑
-            </button>
+            {isHtmlFile ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('render')}
+                  className={`px-2 py-0.5 rounded text-sm transition-colors ${
+                    viewMode === 'render'
+                      ? 'bg-slate-700 text-white font-medium'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                  title="浏览器渲染预览（磁盘已保存版本）"
+                >
+                  渲染
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('source')}
+                  className={`px-2 py-0.5 rounded text-sm transition-colors ${
+                    viewMode === 'source'
+                      ? 'bg-blue-600 text-white font-medium'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                  title="源码编辑模式（Ctrl+S 保存）"
+                >
+                  源码
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setIsEditing(false)}
+                  className={`px-2 py-0.5 rounded text-sm transition-colors ${
+                    !isEditing
+                      ? 'bg-slate-700 text-white font-medium'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                  title="只读代码高亮视图"
+                >
+                  查看
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsEditing(true)}
+                  className={`px-2 py-0.5 rounded text-sm transition-colors ${
+                    isEditing
+                      ? 'bg-blue-600 text-white font-medium'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                  title="代码编辑模式 (可保存)"
+                >
+                  编辑
+                </button>
+              </>
+            )}
           </div>
 
           {/* AI 助手操作下拉菜单 */}
@@ -349,7 +426,32 @@ export default function WorkbenchCodePreview(): JSX.Element {
 
       {/* 代码内容区域 */}
       <div className="flex-1 flex overflow-hidden relative">
-        {activeFileOversized ? (
+        {isHtmlFile && viewMode === 'render' ? (
+          /* HTML 浏览器渲染预览：走 workbench-file:// 白名单协议，
+             sandbox 允许脚本执行但禁止弹窗/顶层导航/同源特权访问，
+             预览的是磁盘已保存版本 */
+          <div className="flex-1 h-full relative bg-white">
+            {activeFileUrl ? (
+              <iframe
+                key={`${activeFilePath}-${saveStatus}-${isDirty}`}
+                src={activeFileUrl}
+                sandbox="allow-scripts"
+                className="w-full h-full border-0 block"
+                title={activeFilePath || 'HTML Preview'}
+              />
+            ) : (
+              <div className="w-full h-full flex flex-col items-center justify-center p-8 text-center bg-slate-900 text-slate-400">
+                <span className="material-symbols-outlined text-4xl mb-3">error</span>
+                <p className="text-sm">未能生成预览地址</p>
+              </div>
+            )}
+            {isDirty && (
+              <div className="absolute top-3 right-3 z-10 px-2.5 py-1 rounded-lg bg-slate-900/85 text-xs text-amber-300 border border-amber-400/30 backdrop-blur-sm select-none">
+                预览为磁盘已保存版本，有未保存修改
+              </div>
+            )}
+          </div>
+        ) : activeFileOversized ? (
           <div className="flex-1 h-full flex flex-col items-center justify-center p-8 text-center bg-slate-900 select-none">
             <div className="w-16 h-16 rounded-2xl bg-amber-500/10 flex items-center justify-center text-amber-400 mb-4">
               <span className="material-symbols-outlined text-3xl">code</span>
@@ -381,18 +483,34 @@ export default function WorkbenchCodePreview(): JSX.Element {
               ))}
             </div>
 
-            {/* 编辑模式 / 查看模式 */}
-            {isEditing ? (
-              <textarea
-                ref={textareaRef}
-                value={activeFileContent}
-                onChange={(e) => updateActiveContent(e.target.value)}
-                onScroll={handleScroll}
-                onMouseUp={handleMouseUp}
-                placeholder="输入或粘贴代码..."
-                className="flex-1 h-full py-4 px-4 font-mono text-sm sm:text-sm leading-6 resize-none bg-transparent text-slate-100 focus:outline-none overflow-auto whitespace-pre tab-4"
-                spellCheck={false}
-              />
+            {/* 编辑模式 / 查看模式（HTML 源码态即可编辑） */}
+            {isEditable ? (
+              /* 编辑态：背景高亮层 + 前景透明 textarea，与查看态共用同一高亮器 */
+              <div className="flex-1 relative overflow-hidden">
+                <pre
+                  ref={codePreRef}
+                  aria-hidden="true"
+                  className="absolute inset-0 h-full py-4 px-4 font-mono text-sm leading-6 bg-transparent text-slate-100 overflow-auto whitespace-pre tab-4 m-0 pointer-events-none"
+                >
+                  <code>
+                    {lines.map((line, idx) => (
+                      <div key={idx} className="leading-6">
+                        {highlightCodeLine(line)}
+                      </div>
+                    ))}
+                  </code>
+                </pre>
+                <textarea
+                  ref={textareaRef}
+                  value={activeFileContent}
+                  onChange={(e) => updateActiveContent(e.target.value)}
+                  onScroll={handleScroll}
+                  onMouseUp={handleMouseUp}
+                  placeholder="输入或粘贴代码..."
+                  className="absolute inset-0 w-full h-full py-4 px-4 font-mono text-sm leading-6 resize-none bg-transparent text-transparent caret-slate-100 focus:outline-none overflow-auto whitespace-pre tab-4 placeholder:text-slate-500"
+                  spellCheck={false}
+                />
+              </div>
             ) : (
               <pre
                 ref={codePreRef}
@@ -412,7 +530,7 @@ export default function WorkbenchCodePreview(): JSX.Element {
 
             {/* 选中文字浮动 AI 快捷提示 */}
             {selectedText && (
-              <div className="absolute bottom-5 right-5 z-20 flex items-center gap-1.5 p-1.5 bg-slate-800/95 backdrop-blur-md rounded-xl border border-slate-700 shadow-xl">
+              <div className="absolute bottom-12 right-5 z-20 flex items-center gap-1.5 p-1.5 bg-slate-800/95 backdrop-blur-md rounded-xl border border-slate-700 shadow-xl">
                 <span className="text-xs text-slate-400 pl-1.5 pr-0.5">已选 {selectedText.length} 字</span>
                 <button
                   type="button"
@@ -432,8 +550,23 @@ export default function WorkbenchCodePreview(): JSX.Element {
                 </button>
               </div>
             )}
+
+            {/* 右下角状态 Pill（与 Markdown 源码一致） */}
+            <div className="pointer-events-none absolute bottom-3 right-3 z-10 flex items-center gap-2 rounded-full border border-white/10 bg-slate-900/85 px-2.5 py-1 text-xs text-slate-400 shadow-sm backdrop-blur-md">
+              <span className="whitespace-nowrap font-mono" title={`${lineCount} 行${formattedSize ? `，大小 ${formattedSize}` : ''}`}>
+                {lineCount} 行{formattedSize && ` · ${formattedSize}`}
+              </span>
+            </div>
           </>
         )}
+
+        {/* 编辑器内查找替换（Ctrl+F / Ctrl+H）；只读/渲染预览下禁用替换 */}
+        <WorkbenchFindReplaceBar
+          open={findOpen && !activeFileOversized}
+          replaceFocus={findReplaceFocus}
+          onClose={() => setFindOpen(false)}
+          canReplace={isEditable && !(isHtmlFile && viewMode === 'render')}
+        />
       </div>
     </div>
   )

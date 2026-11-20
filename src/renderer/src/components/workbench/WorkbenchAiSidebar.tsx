@@ -63,8 +63,9 @@ export default function WorkbenchAiSidebar(): JSX.Element | null {
   const models = useAppStore((s) => s.models)
   const sidebarModelId = useWorkbenchStore((s) => s.sidebarModelId)
   const setSidebarModelId = useWorkbenchStore((s) => s.setSidebarModelId)
-  const isRightCollapsed = useWorkbenchStore((s) => s.isRightCollapsed)
-  const toggleRightCollapse = useWorkbenchStore((s) => s.toggleRightCollapse)
+  const rightPane = useWorkbenchStore((s) => s.rightPane)
+  const openRightPane = useWorkbenchStore((s) => s.openRightPane)
+  const closeRightPane = useWorkbenchStore((s) => s.closeRightPane)
 
   // 侧边栏为隔离场景（isolated），切换目标与下拉选项一致使用全量模型；
   // 若按主界面阵容的 enabled 过滤，选中未启用模型时无法挂载对应 webview，导致"切换不了"
@@ -107,21 +108,25 @@ export default function WorkbenchAiSidebar(): JSX.Element | null {
       const last = lastInsertRef.current.get(p.platformId)
       if (last && last.hash === p.replyHash && Date.now() - last.at < 1500) return // 双击防抖
       lastInsertRef.current.set(p.platformId, { hash: p.replyHash, at: Date.now() })
-      if (isRightCollapsed) toggleRightCollapse()
+      if (rightPane !== 'ai') openRightPane('ai')
       await insertReplyIntoActiveMarkdown(p.replyMd, {
         conversationUrl: p.conversationUrl
       })
     },
-    [insertReplyIntoActiveMarkdown, isRightCollapsed, toggleRightCollapse]
+    [insertReplyIntoActiveMarkdown, rightPane, openRightPane]
   )
 
   const handleSaveReply = useCallback(
     async (p: ReplyPayload): Promise<void> => {
       if (!p?.replyMd) return
-      if (isRightCollapsed) toggleRightCollapse()
-      await saveReplyAsNewMarkdown(p.replyMd, { platformId: p.platformId, title: p.title })
+      if (rightPane !== 'ai') openRightPane('ai')
+      await saveReplyAsNewMarkdown(p.replyMd, {
+        platformId: p.platformId,
+        title: p.title,
+        conversationUrl: p.conversationUrl
+      })
     },
-    [saveReplyAsNewMarkdown, isRightCollapsed, toggleRightCollapse]
+    [saveReplyAsNewMarkdown, rightPane, openRightPane]
   )
 
   // 为每个已挂载的侧边栏 webview 注入按钮脚本 + 挂 console-message 监听
@@ -161,9 +166,7 @@ export default function WorkbenchAiSidebar(): JSX.Element | null {
       if (!prompt) return
 
       // 若侧边栏当前处于折叠状态，则自动展开
-      if (isRightCollapsed) {
-        toggleRightCollapse()
-      }
+      if (rightPane !== 'ai') openRightPane('ai')
 
       if (currentModel) {
         const ref = sidebarRefs.current.get(currentModel.id)
@@ -177,7 +180,7 @@ export default function WorkbenchAiSidebar(): JSX.Element | null {
     return () => {
       window.removeEventListener('workbench:insert-prompt', handleInsertPrompt)
     }
-  }, [currentModel, isRightCollapsed, toggleRightCollapse])
+  }, [currentModel, rightPane, openRightPane])
 
   return (
     <div className="flex flex-col h-full bg-white dark:bg-gray-900 border-l border-black/5 dark:border-white/5 overflow-hidden">
@@ -206,7 +209,7 @@ export default function WorkbenchAiSidebar(): JSX.Element | null {
                 headerActions={
                   <button
                     type="button"
-                    onClick={toggleRightCollapse}
+                    onClick={closeRightPane}
                     className="w-7 h-7 rounded-full text-text-secondary hover:text-text-primary hover:bg-black/5 dark:hover:bg-white/10 flex items-center justify-center transition-all duration-200"
                     title="折叠 AI 侧边栏"
                     aria-label="折叠 AI 侧边栏"

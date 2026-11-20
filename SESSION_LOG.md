@@ -2,6 +2,323 @@
 
 ## 2026-11-20
 
+### 16:36 | Codex
+
+- done: 删除确认文案澄清：导图随文档删除且不可恢复，文档本身仍可从回收站还原
+- context: 原文案删除后不可恢复容易被理解为文件也不可恢复
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+
+### 16:35 | Codex
+
+- done: 对账映射支持连续改名：a→b→c 时沿映射链解析到最终记录，并在命中后把旧路径直接收敛到最终路径，visited 防环
+- context: 生成任务持有最早路径，期间可能连续改名两次
+- modified:
+  - `src/main/noteManager.ts`
+
+### 16:31 | Codex
+
+- done: 生成期间改名改为按对账映射跟随：NoteManager 记录旧路径到新路径的映射，保存导图时据此定位改绑后的记录，替换按内容哈希回查，避免编辑过正文或同内容文档导致的误判
+- decision: 跨会话/生成期间的重连都以对账产出的显式路径映射为准，不再用内容相似度兜底
+- modified:
+  - `src/main/noteManager.ts`
+  - `.memory/KNOWLEDGE.md`
+
+### 16:30 | Codex
+
+- done: 补跨会话改名恢复：文件树载入时先完成对账，记录旧路径到新路径映射，启动恢复上次打开的文档时跟随新路径；映射键带工作区并有上限，避免切换工作区串味与无界增长
+- context: 应用关闭期间外部改名后重启，恢复上次打开文档会失败
+- modified:
+  - `src/renderer/src/store/workbenchStore.ts`
+
+### 16:26 | Codex
+
+- done: 补生成期间文档被外部改名的保存守卫：旧来源键找不到记录时，按工作区 + 正文哈希 + size/mtime 回查改绑后的记录，唯一命中才写入，避免导图在生成完成时被丢弃
+- context: 对账会把记录改绑到新路径，生成任务仍持有旧 sourceKey
+- modified:
+  - `src/main/noteManager.ts`
+
+### 16:22 | Codex
+
+- done: 工作台导图绑定最终收口：批量删除改回单次 IPC 调用、删除提示的文档数只统计真正带导图的记录、重命名同步记录标题
+- context: 删除即删语义下复查批量删除路径，避免逐项调用导致重复重扫与对账
+- modified:
+  - `src/main/noteManager.ts`
+  - `src/renderer/src/store/workbenchStore.ts`
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+
+### 16:15 | Codex
+
+- done: 工作台导图绑定收口：对账改为必须传入文件树索引（删除主进程自行扫盘兜底），按 size+mtime 建桶索引避免整目录删除时的平方复杂度，补充生成期间文档被删则拒绝写回的守卫，应用内改名同步记录标题
+- context: 第二步性能优化的收尾：把可选兜底路径与 O(n²) 候选筛选去掉
+- decision: 对账只保留一条可预测路径：索引由渲染层随文件树传入，缺失即报错而不是静默全盘扫描
+- modified:
+  - `src/main/noteManager.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/src/store/workbenchStore.ts`
+  - `.memory/INDEX.md`
+  - `.memory/KNOWLEDGE.md`
+
+### 16:05 | Codex
+
+- done: 工作台思维导图绑定语义收敛与性能优化：取消软删除（删除即删导图）、外部改名按 size+mtime 重连并让编辑器跟随新路径、对账复用文件树索引实现零额外 IO、保存后同步指纹但不推进快照、补充误删守卫与副本歧义保护
+- context: 用户要求删除文档时导图立即删除（提示不可恢复），外部改名要重连，并关注对账性能
+- decision: 取消 deletedAt/软删除与 30 天保留期，改为删除即删；对账分两阶段（先占位再改名匹配），删除前单独 stat 守卫 ENOENT
+- modified:
+  - `src/main/noteManager.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/src/store/workbenchStore.ts`
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+  - `src/shared/types/notes.ts`
+- lesson(promoted): 工作台文档与导图的绑定对账应复用文件树已扫描的 size/mtime 作为索引，避免二次遍历；外部改名与外部删除在文件系统层面不可区分，只能靠 size+mtime 唯一候选判定，多候选时必须放弃而不是猜
+- unresolved: 需在 npm run dev 中手动验收：外部改名后导图重连与编辑器跟随、外部删除后导图消失、删除确认提示、复制副本克隆导图
+
+### 16:01 | Codex
+
+- done: 独立worker二轮审核AppIcon映射表148条按图形语义逐条核对：修正8处P0错配(rocket_launch→Rocket/build→Wrench/edit_square→SquarePen/folder_managed→FolderCog/folder_special→FolderBookmark/filter_none→SquareStack/ios_share→SquareArrowOutUpRight/select_all→SquareDashed)+3处P1(biotech→Microscope/summarize→TextQuote/bedtime→MoonStar)；方案附录记录
+- modified:
+  - `src/renderer/src/components/icons/AppIcon.tsx`
+  - `docs/lucide-migration-plan.md`
+- lesson: 图标映射审核要看图形语义非名字相似度；lucide多数material名有同形对应(Rocket/Wrench/SquarePen等)，少数需语义近似(FolderStar不存在用FolderBookmark)；有意合并项(多material名→同lucide)是合理的
+- unresolved: 映射表已审定，待批准执行B1-B5分批替换
+
+### 15:46 | Codex
+
+- done: 工作台编辑器补 Ctrl+F/Ctrl+H 查找替换：新增 WorkbenchFindReplaceBar 浮动条，作用于 store.activeFileContent；markdown 源码/富文本、code/text 编辑/预览全接入；源码 textarea 经 setSelection 定位，code 只读/渲染预览禁用替换；附带补全 markdown 编辑器缺失的 Ctrl+S 保存
+- added:
+  - `src/renderer/src/components/workbench/WorkbenchFindReplaceBar.tsx`
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchCodePreview.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchSourceEditor.tsx`
+- lesson: workbench 编辑器 Ctrl+F 统一走 activeFileContent 字符串查找替换：与既有全文搜索 searchFiles 口径一致、source/wysiwyg 无缝切换；富文本由 MarkdownSyncPlugin 的 isReturningToWysiwyg 路径重灌同步（不走 Lexical 坐标，避免 markdown↔AST 映射复杂度，代价是富文本模式下不可 undo）；WorkbenchSearch 是文件树全文搜索，与编辑器内查找是两个功能
+
+### 15:37 | Codex
+
+- done: 工作台思维导图：文档绑定、软删除、改名/复制/外部删除对账，右侧栏 AI 与导图互斥
+- added:
+  - `src/renderer/src/components/workbench/WorkbenchMindmapPanel.tsx`
+- modified:
+  - `src/shared/types/notes.ts`
+  - `src/main/noteManager.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/main/services/MindmapService.ts`
+  - `src/main/services/AutomationService.ts`
+  - `src/main/services/workbenchService.ts`
+  - `src/preload/index.ts`
+  - `src/shared/utils/mindmap.ts`
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+  - `src/renderer/src/components/Layout.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchSelectionMenuPlugin.tsx`
+  - `src/renderer/src/pages/WorkbenchPage.tsx`
+  - `src/renderer/src/store/workbenchStore.ts`
+- lesson: 工作台导图绑定走 sourceKey 派生 + 软删除(deletedAt) + 文件树刷新后对账，外部删除/还原无需拦截即可收敛；convert() 必须显式保留新增可选字段，否则读盘即丢。
+
+### 15:36 | Codex
+
+- done: 修复 AI 回复转 Markdown 表格多出空列：htmlToMarkdown 的 tr 分支在 td 已自带 ' | ' 收尾后再追加 ' |'，导致每行结尾 '| a | b | |' 被 Lexical TABLE_ROW_REG_EXP 解析出额外空单元格；改为 tr 只补行首管道
+- context: 用户在工作台模式把 GPT/Gemini 回复插入文档，表格总是多一个空列；排查确认是转换器 bug 而非源数据
+- modified:
+  - `src/shared/utils/htmlToMarkdown.ts`
+- lesson: htmlToMarkdown 的 td 返回 'x | ' 自带尾管道后 tr 又 ' | '+cells+' |' 包边，形成 '... | |' 双管道；tr 内 endsWith(' | ') 判断因 cells 已 trim 永不命中，清理分支失效
+
+### 15:32 | Codex
+
+- done: 源码模式编辑器支持 Tab/Shift+Tab 缩进
+- context: 工作台 Markdown 源码编辑器
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchSourceEditor.tsx`
+
+### 15:25 | Codex
+
+- done: 编辑器并发冲突处理：saveActiveFile 落盘前 statFile 比对磁盘 mtime，dirty+外部新则置 saveStatus='conflict' 拒绝覆盖并拉回磁盘版本；handleExternalFsChanged 对 dirty 文档同样标冲突；WorkbenchStatusPill 冲突态展示磁盘内容预览 + 重载磁盘/保留我的两按钮；code/text 预览区挂载状态药丸
+- decision: 不做 diff merge/文件锁：按 VS Code/Obsidian 惯例把裁决权给用户（重载磁盘版/保留我的），冲突概率低、merge 成本与出错面不成比例
+- modified:
+  - `src/main/services/workbenchService.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/src/store/workbenchStore.ts`
+  - `src/renderer/src/components/workbench/WorkbenchStatusPill.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchCodePreview.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+- lesson: 乐观并发：文件级冲突用 mtime 比对（statFile 轻量接口，不带全文），mtime 差>2ms 判外部更新——Windows 文件系统时间戳精度 ~1ms；进入 conflict 态后必须短路自动写盘，否则 autosave 防抖会反复触发 readFile
+- unresolved: 冲突浮层展示磁盘全文（max-h-40 滚动），无 diff 视图；take-disk 是整文件覆盖
+
+### 15:24 | Codex
+
+- done: 实现 Obsidian 风格默认工作区：Documents/MultiChat Vault 自动创建 + 欢迎笔记 + 禁删/禁关 + 删除空状态引导页
+- modified:
+  - `src/main/services/workbenchService.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/src/store/workbenchStore.ts`
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+  - `src/renderer/src/pages/WorkbenchPage.tsx`
+
+### 15:16 | Codex
+
+- done: 工作台文件树外部变更自动同步：主进程 fs.watch 递归监听 + 350ms 去抖 + 应用自写抑制，广播 workbench:fs-changed；渲染层静默重扫树并对激活文件做删除/外部改动处理
+- decision: 不用增量 diff/patch 同步：事件去抖后直接 readTree 全量重扫，代价一次 IPC + readdir 递归，换来对 rename/批量移动/丢事件的最终一致性
+- modified:
+  - `src/main/services/workbenchService.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/main/index.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/src/store/workbenchStore.ts`
+- lesson: Electron 文件监听最佳实践（VS Code/chokidar 共识）：单 recursive watcher + 事件聚合去抖后整树重扫优于增量 patch（rename 成对事件、缓冲溢出会漂移）；应用自写操作用时间窗抑制回声，避免每 1.2s autosave 触发整树重扫；扫描忽略规则与 watcher 过滤必须同源（此处事件本身不解析文件名，靠重扫时 isIgnoredName 收敛）
+- unresolved: dirty 文档遭遇外部改动时目前不重载不提示（保护用户编辑）；父目录外部 rename 导致激活文件路径失配时清空编辑器而不重定向新路径
+
+### 15:09 | Codex
+
+- done: 代码文件编辑模式补语法高亮：WorkbenchCodePreview 编辑态改为透明 textarea 叠加 highlightCodeLine 高亮层，与查看态共用高亮器
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchCodePreview.tsx`
+
+### 15:08 | Codex
+
+- done: 工作台各预览统计信息统一为右下角状态 Pill：代码预览去掉标题栏行/词/字符统计，改为悬浮 Pill 显示行数+大小；PDF/图片/DocxCard 大小(图片含尺寸)移出标题栏/卡片到编辑区右下角 Pill，样式与 Markdown StatusPill 一致
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchCodePreview.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchPdfPreview.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchImagePreview.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchDocxCard.tsx`
+
+### 15:07 | Codex
+
+- done: 统一工作台预览工具栏：PDF/图片/Office 文档去掉文件类型徽标，'本地应用打开'改为与代码预览一致的纯图标按钮，无高亮底色；DocxCard 顶栏补资源管理器定位图标
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchPdfPreview.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchImagePreview.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchDocxCard.tsx`
+
+### 15:07 | Codex
+
+- done: 重构工作台原型为单文件树、文档优先的统一笔记模型，答复保存/整段会话保存/选区摘录统一生成 Markdown 文档
+- context: 用户反馈旧版对话与文件双标签、独立高亮数据造成交互和心智割裂
+- decision: 用户可见对象只保留本地 Markdown 文档；保存单条答复、保存整段会话、选区摘录只是不同来源的建文档入口，不再设置独立高亮笔记页或标注侧栏
+- added:
+  - `docs/prototypes/workbench-notes-unified-v2.png`
+- modified:
+  - `docs/prototypes/workbench-notes-unified.html`
+  - `docs/prototypes/workbench-notes-unified.png`
+  - `docs/prototypes/workbench-notes-unified-1366.png`
+
+### 14:58 | Codex
+
+- done: 工作台 HTML 文件支持浏览器渲染预览
+- context: 工作台模式下点击 HTML 文件默认进入渲染预览,像浏览器一样渲染页面,同时保留源码查看与编辑模式
+- modified:
+  - `src/main/services/workbenchService.ts(workbench-file:// URL 改走 pathname 承载 + readFile 对 html/htm 附带 fileUrl)`
+  - `src/renderer/src/components/workbench/WorkbenchCodePreview.tsx(HTML 文件新增 渲染/源码/编辑 三态切换`
+  - `iframe sandbox 渲染)`
+- lesson: workbench-file:// 协议从 ?path=query 改为 /pathname 分段编码, 使 HTML 内相对路径资源(./style.css)可由 Chromium 按目录层级自然解析到同 workspace 白名单内文件; resolveWorkbenchFileRequest 保留旧 query 格式兼容 PDF 已生成 URL
+
+### 14:51 | Codex
+
+- done: 新增工作台统一笔记与高亮标注的高保真交互原型，并完成浏览器交互验收
+- context: 用户需要先看统一工作台笔记视图的实际效果，暂不修改生产代码
+- decision: 以 Markdown 文档为单一正文来源，标注采用引用、定位与评论分离的数据结构，收藏作为独立导航元数据
+- added:
+  - `docs/prototypes/workbench-notes-unified.html`
+  - `docs/prototypes/workbench-notes-unified.png`
+  - `docs/prototypes/workbench-notes-unified-1366.png`
+- lesson(promoted): 自包含原型用 innerHTML 重建含 id 的子节点后，后续渲染不得继续引用旧节点
+
+### 14:49 | Codex
+
+- done: 插入链路不再写 conversationUrl 到 frontmatter(仅新建时带 source)
+- context: 用户反馈:不希望『插入到当前文档』把对话链接写进现有文档 frontmatter,只有『存为新文档』应保留来源链接
+- decision: insertReplyIntoActiveMarkdown 移除 upsertFrontmatterSource 调用,meta 参数改 _meta 标记未用;saveReplyAsNewMarkdown 保持 conversationUrl 不变
+- modified:
+  - `src/renderer/src/store/workbenchStore.ts`
+
+### 14:46 | Codex
+
+- done: wysiwyg 模式下 frontmatter 渲染为 Obsidian 式笔记属性面板
+- context: 用户反馈:存为新文档已有 source frontmatter,但 wysiwyg 预览面板完全不渲染元数据;参考 Obsidian 笔记属性布局(仅样式参考非复刻)
+- decision: MarkdownSyncPlugin 剥离出的 frontmatter 渲染为只读属性面板,tags→chip/URL→可点链接(经 mainWindow.setWindowOpenHandler→系统浏览器);YAML 用极简正则解析不引 js-yaml 依赖,折叠交互同 Obsidian
+- added:
+  - `src/renderer/src/components/workbench/FrontmatterPanel.tsx`
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+
+### 14:38 | Codex
+
+- done: 工作台 Markdown 源码模式下补齐顶部工具栏（格式/段落/插入/撤销重做），通过 SourceEditor 命令式 API 对 textarea 选区执行 markdown 文本操作
+- added:
+  - `src/renderer/src/components/workbench/WorkbenchSourceToolbar.tsx`
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchSourceEditor.tsx`
+
+### 14:33 | Codex
+
+- done: 工作台文件树支持外部文件拖入与粘贴导入（VSCode 风格）
+- modified:
+  - `src/main/services/workbenchService.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/src/store/workbenchStore.ts`
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+- lesson(promoted): Electron 42 中 File.path 已移除，拖入/粘贴的本地路径用 window.electron.webUtils.getPathForFile 获取（@electron-toolkit/preload 的 electronAPI 已自带 webUtils）；目录拖入项也会出现在 dataTransfer.files 中，getPathForFile 返回目录路径，主进程 stat.isDirectory 区分后 fs.cp recursive 即可
+
+### 14:30 | Codex
+
+- done: 存为新文档补 frontmatter source 链接
+- context: 用户反馈:侧边栏回复下「存为新文档」生成的文档缺 source frontmatter,设计文档要求补上;插入链路已有,save链路漏传
+- decision: 复用 upsertFrontmatterSource:meta 增加 conversationUrl 透传,saveReplyAsNewMarkdown 写盘前先补 frontmatter,与 insertReplyIntoActiveMarkdown 行为对齐
+- modified:
+  - `src/renderer/src/store/workbenchStore.ts`
+  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
+
+### 14:28 | Codex
+
+- done: 修复 tsc 报错（node 8 处、web 11 处）：Electron 42 移除的 webContents 'crashed' 事件删除、YAML frontmatter 值类型放宽、tsconfig.web 补 target ES2020 解决 Map 迭代 TS2802、selectors.ts 通过局部 store bridge 类型取 window.api、QuickPage ref 回调按模型缓存并补 unregister 的 ref 参数、resume 恢复草稿前判空 selectors
+- context: 用户要求核验并修复 tsc 报错且避免回归
+- decision: QuickPage 的 ref 回调若不缓存，每次渲染 React 会以 null 调旧回调，新增的真实注销会反复清 activeWebviewTimes，故按 modelId 缓存回调身份
+- modified:
+  - `src/main/summaryPrompts.ts`
+  - `src/main/webviewManager.ts`
+  - `tsconfig.web.json`
+  - `src/renderer/src/pages/QuickPage.tsx`
+  - `src/renderer/src/hooks/useWebviewLifecycle.ts`
+  - `src/shared/config/selectors.ts`
+- lesson: tsconfig.web.json 原先缺 target，默认 ES3/ES5 导致 for..of Map 报 TS2802；补 ES2020 与 node 侧一致，比逐个改 Array.from 更贴根因
+- unresolved: npm run lint 仍有 1 个既有 error：src/renderer/src/components/icons/AppIcon.tsx:300 未使用的 eslint-disable，未在本次范围内
+
+### 14:18 | Codex
+
+- done: 提交本会话工作台改动为 dc808f5：图片插入/粘贴、assets 附件目录联动、未引用图片清理、AppIcon/lucide 迁移基础、回复装饰图过滤、选择器诊断；一次性分析脚本 dry.cjs 未提交
+- added:
+  - `docs/lucide-migration-plan.md`
+  - `docs/workbench-office-preview-plan.md`
+  - `src/renderer/src/components/icons/AppIcon.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchImageNode.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchImagePlugin.tsx`
+- modified:
+  - `src/main/index.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/main/services/workbenchService.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/index.html`
+  - `src/renderer/src/assets/index.css`
+  - `src/renderer/src/components/**`
+  - `src/renderer/src/hooks/useWebviewActions.ts`
+  - `src/renderer/src/store/*.ts`
+  - `src/renderer/src/utils/selectorDiagnostics.ts`
+  - `src/shared/config/selectors.ts`
+  - `src/shared/utils/htmlToMarkdown.ts`
+  - `src/shared/utils/webviewScripts.ts`
+  - `package.json`
+  - `package-lock.json`
+  - `SESSION_LOG.md`
+  - `.memory/*`
+- unresolved: dry.cjs 一次性图标扫描脚本保留在工作区未提交
+
 ### 14:16 | Codex
 
 - done: DeepSeek 按钮位置二次修正: replyItem 改 div:has(> div.ds-message + div.ds-flex) 命中含回复+操作栏的父容器; actionBar 用 div.ds-flex:has(> div.ds-button ~ div.ds-button) 命中底部原生操作行(6个ds-button); 之前误挂'已思考'行 _5ab5d64

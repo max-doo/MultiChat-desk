@@ -16,6 +16,8 @@ interface MenuPosition {
 export default function WorkbenchSelectionMenuPlugin(): JSX.Element | null {
   const [editor] = useLexicalComposerContext()
   const askAi = useWorkbenchStore((s) => s.askAi)
+  const openRightPane = useWorkbenchStore((s) => s.openRightPane)
+  const setPendingMindmapSelection = useWorkbenchStore((s) => s.setPendingMindmapSelection)
   const [menuPosition, setMenuPosition] = useState<MenuPosition | null>(null)
   const menuRef = useRef<HTMLDivElement | null>(null)
 
@@ -35,6 +37,27 @@ export default function WorkbenchSelectionMenuPlugin(): JSX.Element | null {
     }
     setMenuPosition(null)
   }, [menuPosition])
+
+  // 只记录选区并切到导图面板，不自动发送；生成动作仍由用户确认。
+  const handleMindmap = useCallback(() => {
+    const text = menuPosition?.selectedText
+    if (!text) return
+    const root = editor.getRootElement()
+    const headingPath: string[] = []
+    if (root) {
+      let node: Element | null = root
+      while (node && node !== root.parentElement) {
+        const previous = node.previousElementSibling
+        if (!previous) { node = node.parentElement; continue }
+        const heading = previous.matches('h1,h2,h3,h4,h5,h6') ? previous.textContent : null
+        if (heading) { headingPath.unshift(heading.trim()); break }
+        node = previous
+      }
+    }
+    setPendingMindmapSelection({ text, headingPath })
+    openRightPane('mindmap')
+    setMenuPosition(null)
+  }, [editor, menuPosition, openRightPane, setPendingMindmapSelection])
 
   useEffect(() => {
     const rootElement = editor.getRootElement()
@@ -108,7 +131,7 @@ export default function WorkbenchSelectionMenuPlugin(): JSX.Element | null {
   if (!menuPosition) return null
 
   const items: Array<{
-    action: WorkbenchAiAction
+    action: WorkbenchAiAction | 'mindmap'
     label: string
     icon: string
     color: string
@@ -117,7 +140,8 @@ export default function WorkbenchSelectionMenuPlugin(): JSX.Element | null {
     { action: 'explain', label: '解释此内容', icon: 'psychology', color: 'text-purple-500' },
     { action: 'polish', label: '语言润色', icon: 'auto_fix_high', color: 'text-emerald-500' },
     { action: 'continue', label: '续写内容', icon: 'edit_note', color: 'text-amber-500' },
-    { action: 'summarize', label: '提取关键要点', icon: 'format_list_bulleted', color: 'text-cyan-500' }
+    { action: 'summarize', label: '提取关键要点', icon: 'format_list_bulleted', color: 'text-cyan-500' },
+    { action: 'mindmap', label: '生成思维导图', icon: 'account_tree', color: 'text-indigo-500' }
   ]
 
   return (
@@ -136,7 +160,7 @@ export default function WorkbenchSelectionMenuPlugin(): JSX.Element | null {
         <button
           key={item.action}
           type="button"
-          onClick={() => handleAction(item.action)}
+          onClick={() => item.action === 'mindmap' ? handleMindmap() : handleAction(item.action)}
           className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-text-primary hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
         >
           <span className={`material-symbols-outlined text-[19px] ${item.color}`}>{item.icon}</span>

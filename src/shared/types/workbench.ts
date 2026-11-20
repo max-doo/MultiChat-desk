@@ -39,6 +39,7 @@ export interface WorkbenchFileInfo {
   size: number
   category?: WorkbenchFileCategory
   dataUrl?: string
+  fileUrl?: string
   mimeType?: string
   isBinary?: boolean
   isOversized?: boolean

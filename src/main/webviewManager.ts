@@ -1478,9 +1478,6 @@ export function createToolbarWindow(): void {
     createdToolbarWindow.webContents.on('render-process-gone', () => {
         discardBrokenToolbarWindow('render-process-gone')
     })
-    createdToolbarWindow.webContents.on('crashed', () => {
-        discardBrokenToolbarWindow('crashed')
-    })
     createdToolbarWindow.webContents.on('unresponsive', () => {
         discardBrokenToolbarWindow('unresponsive')
     })

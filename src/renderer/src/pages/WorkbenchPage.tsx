@@ -3,21 +3,19 @@ import { useWorkbenchStore } from '../store/workbenchStore'
 import WorkbenchFileTree from '../components/workbench/WorkbenchFileTree'
 import WorkbenchEditor from '../components/workbench/WorkbenchEditor'
 import WorkbenchAiSidebar from '../components/workbench/WorkbenchAiSidebar'
+import WorkbenchMindmapPanel from '../components/workbench/WorkbenchMindmapPanel'
 
 interface WorkbenchPageProps {
   isActive?: boolean
 }
 
 export default function WorkbenchPage({ isActive = true }: WorkbenchPageProps): JSX.Element {
-  const workspacePath = useWorkbenchStore((s) => s.workspacePath)
   const isInitialized = useWorkbenchStore((s) => s.isInitialized)
   const initWorkbench = useWorkbenchStore((s) => s.initWorkbench)
-  const selectWorkspaceFolder = useWorkbenchStore((s) => s.selectWorkspaceFolder)
-  const setWorkspaceFolder = useWorkbenchStore((s) => s.setWorkspaceFolder)
   const leftPaneWidth = useWorkbenchStore((s) => s.leftPaneWidth)
   const rightPaneWidth = useWorkbenchStore((s) => s.rightPaneWidth)
   const isLeftCollapsed = useWorkbenchStore((s) => s.isLeftCollapsed)
-  const isRightCollapsed = useWorkbenchStore((s) => s.isRightCollapsed)
+  const rightPane = useWorkbenchStore((s) => s.rightPane)
   const setLeftPaneWidth = useWorkbenchStore((s) => s.setLeftPaneWidth)
   const setRightPaneWidth = useWorkbenchStore((s) => s.setRightPaneWidth)
   const error = useWorkbenchStore((s) => s.error)
@@ -25,7 +23,6 @@ export default function WorkbenchPage({ isActive = true }: WorkbenchPageProps): 
 
   const [isDraggingLeft, setIsDraggingLeft] = useState(false)
   const [isDraggingRight, setIsDraggingRight] = useState(false)
-  const [isDragOver, setIsDragOver] = useState(false)
 
   // 初始化加载上次偏好与工作区
   useEffect(() => {
@@ -81,64 +78,10 @@ export default function WorkbenchPage({ isActive = true }: WorkbenchPageProps): 
     window.addEventListener('pointerup', handlePointerUp)
   }, [setRightPaneWidth])
 
-  // 文件夹拖入窗口打开工作区支持
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault()
-    setIsDragOver(false)
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      const fileWithElectronPath = e.dataTransfer.files[0] as unknown as { path?: string }
-      const droppedPath = fileWithElectronPath?.path
-      if (droppedPath) {
-        void setWorkspaceFolder(droppedPath)
-      }
-    }
-  }
-
   if (!isInitialized) {
     return (
       <div className="flex items-center justify-center h-full">
         <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-      </div>
-    )
-  }
-
-  // 空工作区状态引导
-  if (!workspacePath) {
-    return (
-      <div
-        onDragOver={(e) => {
-          e.preventDefault()
-          setIsDragOver(true)
-        }}
-        onDragLeave={() => setIsDragOver(false)}
-        onDrop={handleDrop}
-        className={`flex items-center justify-center h-full p-6 transition-colors select-none ${
-          isDragOver ? 'bg-blue-50/50 dark:bg-blue-950/20' : 'bg-transparent'
-        }`}
-      >
-        <div className="max-w-md w-full p-8 rounded-3xl bg-white/70 dark:bg-gray-800/70 backdrop-blur-xl border border-black/10 dark:border-white/10 shadow-2xl flex flex-col items-center text-center">
-          <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-blue-500 to-indigo-600 flex items-center justify-center text-white shadow-lg shadow-blue-500/25 mb-5">
-            <span className="material-symbols-outlined text-3xl">auto_stories</span>
-          </div>
-
-          <h2 className="text-xl font-bold text-text-primary mb-2">MultiChat 工作台</h2>
-          <p className="text-xs text-text-secondary leading-relaxed mb-6">
-            基于本地 Markdown 知识库与 Web 大模型的沉浸式生产力空间。纯本地存储，零格式入侵，100% 兼容 Obsidian 库。
-          </p>
-
-          <button
-            type="button"
-            onClick={() => void selectWorkspaceFolder()}
-            className="w-full h-10 px-5 rounded-xl bg-primary text-white hover:bg-primary/95 active:scale-[0.98] font-medium text-xs flex items-center justify-center gap-2 shadow-sm transition-all"
-          >
-            <span className="material-symbols-outlined text-[18px]">folder_open</span>
-            <span>选择本地工作区文件夹...</span>
-          </button>
-
-          <div className="mt-4 text-xs text-text-secondary/70">
-            或将文件夹拖拽至此窗口直接开启
-          </div>
-        </div>
       </div>
     )
   }
@@ -197,12 +140,12 @@ export default function WorkbenchPage({ isActive = true }: WorkbenchPageProps): 
         )}
 
         {/* 中栏：Meta Lexical 编辑器（左栏折叠时左上角贴齐窗口边缘、右栏折叠时右上角贴齐，不再圆角） */}
-        <div className={`flex-1 h-full min-w-[480px] overflow-hidden flex flex-col bg-white dark:bg-gray-900 border-l border-t border-r border-black/5 dark:border-white/5 ${isLeftCollapsed ? '' : 'rounded-tl-xl'} ${isRightCollapsed ? '' : 'rounded-tr-xl'}`}>
+        <div className={`flex-1 h-full min-w-[480px] overflow-hidden flex flex-col bg-white dark:bg-gray-900 border-l border-t border-r border-black/5 dark:border-white/5 ${isLeftCollapsed ? '' : 'rounded-tl-xl'} ${rightPane ? '' : 'rounded-tr-xl'}`}>
           <WorkbenchEditor />
         </div>
 
         {/* 右栏可拖拽 Splitter */}
-        {!isRightCollapsed && (
+        {rightPane && (
           <div
             onPointerDown={handleRightSplitterPointerDown}
             className={`group relative w-[10px] -mr-[5px] h-full cursor-col-resize z-30 select-none shrink-0 ${
@@ -222,11 +165,17 @@ export default function WorkbenchPage({ isActive = true }: WorkbenchPageProps): 
         <div
           className="h-full shrink-0 overflow-hidden rounded-tl-xl bg-white dark:bg-gray-900 border-t border-black/5 dark:border-white/5"
           style={{
-            width: isRightCollapsed ? 0 : `${rightPaneWidth}px`,
-            display: isRightCollapsed ? 'none' : 'block'
+            width: rightPane ? `${rightPaneWidth}px` : 0,
+            display: rightPane ? 'block' : 'none'
           }}
         >
-          <WorkbenchAiSidebar />
+          {/* 两个面板都保持挂载：切换不丢 webview 登录态与导图编辑状态 */}
+          <div className="h-full" style={{ display: rightPane === 'ai' ? 'block' : 'none' }}>
+            <WorkbenchAiSidebar />
+          </div>
+          <div className="h-full" style={{ display: rightPane === 'mindmap' ? 'block' : 'none' }}>
+            <WorkbenchMindmapPanel />
+          </div>
         </div>
       </div>
     </div>

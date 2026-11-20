@@ -1,4 +1,4 @@
-import { useMemo, useCallback, useState } from 'react'
+import { useMemo, useCallback, useState, useRef, useEffect } from 'react'
 import { LexicalComposer } from '@lexical/react/LexicalComposer'
 import { RichTextPlugin } from '@lexical/react/LexicalRichTextPlugin'
 import { ContentEditable } from '@lexical/react/LexicalContentEditable'
@@ -23,7 +23,12 @@ import { LinkNode, AutoLinkNode } from '@lexical/link'
 
 import { useWorkbenchStore } from '../../store/workbenchStore'
 import WorkbenchToolbar from './WorkbenchToolbar'
-import MarkdownSyncPlugin, { WORKBENCH_TRANSFORMERS } from './MarkdownSyncPlugin'
+import WorkbenchSourceToolbar from './WorkbenchSourceToolbar'
+import MarkdownSyncPlugin, {
+  WORKBENCH_TRANSFORMERS,
+  parseMarkdownWithFrontmatter
+} from './MarkdownSyncPlugin'
+import FrontmatterPanel from './FrontmatterPanel'
 import { PendingInsertNode } from './PendingInsertNode'
 import { PendingBarNode } from './PendingBarNode'
 import { WorkbenchImageNode } from './WorkbenchImageNode'
@@ -34,11 +39,13 @@ import WorkbenchDraggableBlockPlugin from './WorkbenchDraggableBlockPlugin'
 import WorkbenchTableCellResizerPlugin from './WorkbenchTableCellResizerPlugin'
 import WorkbenchTableActionMenuPlugin from './WorkbenchTableActionMenuPlugin'
 import WorkbenchSourceEditor from './WorkbenchSourceEditor'
+import type { WorkbenchSourceEditorHandle } from './WorkbenchSourceEditor'
 import WorkbenchCodePreview from './WorkbenchCodePreview'
 import WorkbenchImagePreview from './WorkbenchImagePreview'
 import WorkbenchPdfPreview from './WorkbenchPdfPreview'
 import WorkbenchDocxCard from './WorkbenchDocxCard'
 import WorkbenchStatusPill from './WorkbenchStatusPill'
+import WorkbenchFindReplaceBar from './WorkbenchFindReplaceBar'
 
 const lexicalTheme = {
   paragraph: 'PlaygroundEditorTheme__paragraph',
@@ -114,13 +121,44 @@ export default function WorkbenchEditor(): JSX.Element {
   const activeFileDataUrl = useWorkbenchStore((s) => s.activeFileDataUrl)
   const updateActiveContent = useWorkbenchStore((s) => s.updateActiveContent)
   const editorMode = useWorkbenchStore((s) => s.editorMode)
-  const setEditorMode = useWorkbenchStore((s) => s.setEditorMode)
-  const isLeftCollapsed = useWorkbenchStore((s) => s.isLeftCollapsed)
-  const toggleLeftCollapse = useWorkbenchStore((s) => s.toggleLeftCollapse)
   const createFile = useWorkbenchStore((s) => s.createFile)
   const openInSystem = useWorkbenchStore((s) => s.openInSystem)
+  const saveActiveFile = useWorkbenchStore((s) => s.saveActiveFile)
 
   const [floatingAnchorElem, setFloatingAnchorElem] = useState<HTMLDivElement | null>(null)
+  const sourceEditorRef = useRef<WorkbenchSourceEditorHandle>(null)
+  const [findOpen, setFindOpen] = useState(false)
+  const [findReplaceFocus, setFindReplaceFocus] = useState(false)
+
+  // Ctrl+F / Ctrl+H / Ctrl+S：编辑器内查找、查找替换、保存
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      const mod = e.ctrlKey || e.metaKey
+      if (!mod || !activeFilePath) return
+      const k = e.key.toLowerCase()
+      if (k === 'f' || k === 'h') {
+        e.preventDefault()
+        setFindReplaceFocus(k === 'h')
+        setFindOpen(true)
+      } else if (k === 's') {
+        e.preventDefault()
+        void saveActiveFile()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [activeFilePath, saveActiveFile])
+
+  // 切换文件或文件类别时关闭查找条
+  useEffect(() => {
+    setFindOpen(false)
+  }, [activeFilePath, activeFileCategory])
+
+  // frontmatter 与正文分离：面板只读展示，Lexical 只吃 body
+  const parsedFrontmatter = useMemo(
+    () => parseMarkdownWithFrontmatter(activeFileContent).frontmatter,
+    [activeFileContent]
+  )
 
   const onRef = useCallback((_floatingAnchorElem: HTMLDivElement | null) => {
     if (_floatingAnchorElem !== null) {
@@ -181,7 +219,12 @@ export default function WorkbenchEditor(): JSX.Element {
 
   // 代码文件专属预览与编辑
   if (activeFileCategory === 'code') {
-    return <WorkbenchCodePreview key={activeFilePath} />
+    return (
+      <div className="relative flex-1 h-full flex flex-col overflow-hidden">
+        <WorkbenchCodePreview key={activeFilePath} />
+        <WorkbenchStatusPill />
+      </div>
+    )
   }
 
   // 图片文件专属画布预览
@@ -201,7 +244,12 @@ export default function WorkbenchEditor(): JSX.Element {
 
   // 纯文本文件 (txt, log, csv 等)
   if (activeFileCategory === 'text') {
-    return <WorkbenchCodePreview key={activeFilePath} />
+    return (
+      <div className="relative flex-1 h-full flex flex-col overflow-hidden">
+        <WorkbenchCodePreview key={activeFilePath} />
+        <WorkbenchStatusPill />
+      </div>
+    )
   }
 
   // 未识别格式的二进制文件处理
@@ -236,51 +284,21 @@ export default function WorkbenchEditor(): JSX.Element {
         className="relative flex-1 h-full flex flex-col overflow-hidden bg-white dark:bg-gray-900"
         data-workbench-editor="true"
       >
-        {/* 源码模式顶部栏：路径、统计、自动保存状态与视图切换 */}
-        <div className="h-12 px-3 bg-white/70 dark:bg-gray-800/70 border-b border-black/5 dark:border-white/5 flex items-center justify-between gap-2 shrink-0 select-none text-sm">
-          <div className="flex items-center gap-2 truncate">
-            {isLeftCollapsed && (
-              <button
-                type="button"
-                onClick={toggleLeftCollapse}
-                className="w-7 h-7 shrink-0 flex items-center justify-center rounded-full text-text-secondary hover:text-text-primary hover:bg-black/5 dark:hover:bg-white/10 transition-all duration-200"
-                title="展开侧边栏"
-                aria-label="展开侧边栏"
-              >
-                <span className="material-symbols-outlined text-base">left_panel_open</span>
-              </button>
-            )}
-            <span className="font-mono text-text-secondary text-sm truncate" title={activeFilePath}>
-              {activeFilePath} (源码视图)
-            </span>
-          </div>
-
-          <div className="flex items-center gap-2.5 text-text-secondary text-sm shrink-0">
-            {/* 模式分段控件 */}
-            <div className="flex items-center p-0.5 bg-black/5 dark:bg-white/5 rounded-lg border border-black/5 dark:border-white/5">
-              <button
-                type="button"
-                onClick={() => setEditorMode('wysiwyg')}
-                className="px-2.5 py-1 rounded-md text-sm font-medium text-text-secondary hover:text-text-primary transition-all"
-                title="预览模式"
-              >
-                预览
-              </button>
-              <button
-                type="button"
-                onClick={() => setEditorMode('source')}
-                className="px-2.5 py-1 rounded-md text-sm font-medium bg-white dark:bg-gray-700 text-primary shadow-xs transition-all"
-                title="原始 Markdown 源码模式"
-              >
-                源码
-              </button>
-            </div>
-          </div>
-        </div>
-
+        <WorkbenchSourceToolbar editorRef={sourceEditorRef} />
         <WorkbenchSourceEditor
+          ref={sourceEditorRef}
           value={activeFileContent}
           onChange={updateActiveContent}
+        />
+        <WorkbenchFindReplaceBar
+          open={findOpen}
+          replaceFocus={findReplaceFocus}
+          onClose={() => setFindOpen(false)}
+          canReplace={true}
+          onRevealMatch={(start, end) => {
+            sourceEditorRef.current?.setSelection(start, end)
+            return true
+          }}
         />
         <WorkbenchStatusPill />
       </div>
@@ -300,6 +318,9 @@ export default function WorkbenchEditor(): JSX.Element {
         {/* 编辑器画布可滚动容器 */}
         <div className="flex-1 overflow-y-auto relative flex justify-center">
           <div ref={onRef} className="relative w-full max-w-[900px] pl-14 pr-8 py-6 min-h-full">
+            {/* Obsidian 式笔记属性面板：frontmatter 与正文分离，不进入 Lexical */}
+            <FrontmatterPanel frontmatter={parsedFrontmatter} />
+
             <RichTextPlugin
               contentEditable={
                 <ContentEditable
@@ -348,6 +369,12 @@ export default function WorkbenchEditor(): JSX.Element {
         <WorkbenchSelectionMenuPlugin />
         <WorkbenchTableCellResizerPlugin />
       </LexicalComposer>
+      <WorkbenchFindReplaceBar
+        open={findOpen}
+        replaceFocus={findReplaceFocus}
+        onClose={() => setFindOpen(false)}
+        canReplace={true}
+      />
       <WorkbenchStatusPill />
     </div>
   )

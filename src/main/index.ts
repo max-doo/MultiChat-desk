@@ -1,6 +1,6 @@
 
 
-import { app, BrowserWindow, globalShortcut, nativeTheme, powerMonitor } from 'electron'
+import { app, BrowserWindow, globalShortcut, nativeTheme, powerMonitor, protocol, net, session } from 'electron'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { join } from 'path'
 import { readdir, rm } from 'fs/promises'
@@ -18,11 +18,23 @@ import { startDaemonServer, stopDaemonServer } from './daemon/ipcServer'
 import { writeCliManifest } from './cliIntegration'
 import { initUpdateChecker } from './updater/checker'
 import { getSelectionToolbarEnabled, setSelectionToolbarEnabled } from './selectionToolbarManager'
+import { resolveWorkbenchFileRequest, unwatchAllWorkspaces, WORKBENCH_FILE_SCHEME } from './services/workbenchService'
+import { pathToFileURL } from 'url'
 
 // 仅 Windows 需要该 GPU 后端修复；macOS 使用系统原生图形栈，不能套用 Windows 开关。
 if (process.platform === 'win32') {
   app.commandLine.appendSwitch('use-angle', 'gl')
 }
+
+// workbench-file:// 声明为特权 scheme，须在 app.ready 前注册。
+// stream:true 允许流式/Range 请求（PDFium 大文件分页按需加载）；
+// supportFetchAPI:true 保证渲染进程 fetch/object 可用。
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: WORKBENCH_FILE_SCHEME,
+    privileges: { stream: true, supportFetchAPI: true }
+  }
+])
 
 // ============ 便携模式支持 ============
 
@@ -173,6 +185,22 @@ if (!gotTheLock) {
     // 注入依赖：Store 实例，获取主窗口函数，打开浏览器窗口函数
     await registerIpcHandlers(store, getMainWindow, openBrowserWindowInternal)
 
+    // 注册 workbench-file:// 流式协议（挂在 persist:shared session，覆盖主 renderer 与 webview）。
+    // PDF / Office 大文件预览改走协议加载，替代 base64 dataUrl，消除 4-5x 内存放大。
+    // 白名单校验在 resolveWorkbenchFileRequest 内完成（仅已授权 workspace 根目录内文件）。
+    try {
+      const sharedSession = session.fromPartition('persist:shared')
+      sharedSession.protocol.handle(WORKBENCH_FILE_SCHEME, async (request) => {
+        const realPath = await resolveWorkbenchFileRequest(request.url)
+        if (!realPath) {
+          return new Response('Forbidden', { status: 403 })
+        }
+        return net.fetch(pathToFileURL(realPath).toString(), { bypassCustomProtocolHandlers: true })
+      })
+    } catch (err) {
+      console.error('[Main] 注册 workbench-file 协议失败:', err)
+    }
+
     // 创建主窗口
     createWindow()
     createQuickWindow(store)
@@ -245,6 +273,7 @@ if (!gotTheLock) {
     stopDaemonServer()
     stopInputHook()
     sessionManager.destroyAllSessions()
+    unwatchAllWorkspaces()
     globalShortcut.unregisterAll()
     destroyTray()
   })

@@ -622,7 +622,7 @@ export function useWebviewLifecycle({
         webview.loadURL(targetUrl)
 
         // 等待输入框出现并恢复草稿，然后才完成唤醒，避免新注入覆盖草稿。
-        if (draftToRestore) {
+        if (draftToRestore && selectors) {
           let restored = false
           for (let attempt = 0; attempt < 30; attempt++) {
             await new Promise(resolve => setTimeout(resolve, 1000))

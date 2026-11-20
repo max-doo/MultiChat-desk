@@ -3,9 +3,10 @@
  * 提供安全路径校验、工作区文件树扫描、文件读写、节点增删改查、全文搜索与系统集成
  */
 
-import { dialog, shell, BrowserWindow, nativeImage } from 'electron'
+import { app, dialog, shell, BrowserWindow, nativeImage } from 'electron'
+import type Store from 'electron-store'
 import path from 'path'
-import { pathToFileURL } from 'url'
+import fs from 'fs'
 import {
   realpath,
   stat,
@@ -13,6 +14,7 @@ import {
   readFile as fsReadFile,
   writeFile as fsWriteFile,
   mkdir,
+  cp,
   rm,
   rename
 } from 'fs/promises'
@@ -225,24 +227,35 @@ export const WORKBENCH_FILE_SCHEME = 'workbench-file'
 
 /**
  * 把 workspace 内的绝对路径转成可加载的 workbench-file:// URL。
- * 约定：workbench-file:///<encodeURIComponent(absolutePath)>
+ * 约定：workbench-file://local/<encodeURIComponent 的各路径段，正斜杠分隔>
+ * 路径放进 pathname 而非 query：HTML 预览中的相对路径资源（./style.css、<script src>）
+ * 由 Chromium 按目录层级自然解析到同 workspace 内文件，仍然走白名单校验。
  */
 export function toWorkbenchFileUrl(absolutePath: string): string {
   const normalized = path.resolve(absolutePath)
-  return `${WORKBENCH_FILE_SCHEME}:///${encodeURIComponent(normalized)}`
+  const encoded = normalized
+    .split(path.sep)
+    .map((segment) => encodeURIComponent(segment))
+    .join('/')
+  return `${WORKBENCH_FILE_SCHEME}://local/${encoded}`
 }
 
 /**
  * 解析 workbench-file:// 请求并校验落在已授权工作区根目录内。
  * 命中返回真实绝对路径，否则返回 null。
+ * 兼容旧格式 ?path=（早期 PDF 预览用 query 承载路径）。
  */
 export async function resolveWorkbenchFileRequest(requestUrl: string): Promise<string | null> {
   try {
     const url = new URL(requestUrl)
     if (url.protocol !== `${WORKBENCH_FILE_SCHEME}:`) return null
-    const encoded = decodeURIComponent(url.pathname.replace(/^\/+/, ''))
-    if (!encoded) return null
-    const targetPath = path.resolve(encoded)
+    const encoded = url.searchParams.get('path')
+    // 旧格式：query 承载完整绝对路径；新格式：pathname 各段 encodeURIComponent + 正斜杠。
+    // Windows 盘符路径段首字符为 '/'（/D:/...），resolve 前需剥掉；POSIX 保留前导 '/'
+    const pathname = decodeURIComponent(url.pathname)
+    const normalizedPath =
+      process.platform === 'win32' ? pathname.replace(/^\/+(?=[a-zA-Z]:)/, '') : pathname
+    const targetPath = encoded ? path.resolve(encoded) : path.resolve(normalizedPath)
 
     const isWin = process.platform === 'win32'
     const targetCmp = isWin ? targetPath.toLowerCase() : targetPath
@@ -264,6 +277,105 @@ export async function resolveWorkbenchFileRequest(requestUrl: string): Promise<s
     return null
   } catch {
     return null
+  }
+}
+
+// ============ 工作区文件系统监听 ============
+// 行业通行做法（VS Code / chokidar）：单递归 watcher + 事件聚合去抖后整树重扫，
+// 不做增量 patch —— rename 成对事件、目录递归事件顺序、ReadDirectoryChanges
+// 缓冲溢出丢事件都会让增量模型漂移，去抖后重扫保证最终一致。
+
+const WATCH_DEBOUNCE_MS = 350
+// 应用自身写操作（create/rename/delete/write/import/saveImage）的抑制窗口：
+// 自写事件先被标记，去抖期内的广播视为回声丢弃，避免保存时每 1.2s 触发整树重扫
+const SELF_WRITE_WINDOW_MS = 800
+
+interface WorkbenchWatcherState {
+  watcher: fs.FSWatcher
+  debounceTimer: NodeJS.Timeout | null
+  selfWriteUntil: number
+}
+
+const workbenchWatchers = new Map<string, WorkbenchWatcherState>()
+
+function normalizeWatchKey(workspaceRoot: string): string {
+  const resolved = path.resolve(workspaceRoot)
+  return process.platform === 'win32' ? resolved.toLowerCase() : resolved
+}
+
+/**
+ * 监听工作区目录的外部变更；变更去抖后向所有窗口广播 `workbench:fs-changed`。
+ * 重复调用同一 root 是幂等的。
+ */
+export function watchWorkspace(workspaceRoot: string): void {
+  if (!workspaceRoot || typeof workspaceRoot !== 'string') return
+  const key = normalizeWatchKey(workspaceRoot)
+  if (workbenchWatchers.has(key)) return
+
+  const resolvedRoot = path.resolve(workspaceRoot)
+  let watcher: fs.FSWatcher
+  try {
+    // recursive: Windows/macOS 原生递归；Linux (Electron ≥30, inotify) 亦支持。
+    // 目录不存在或被删时 fs.watch 直接抛错，交给外层兜底
+    watcher = fs.watch(resolvedRoot, { recursive: true, persistent: false }, () => {
+      const state = workbenchWatchers.get(key)
+      if (!state) return
+      if (state.debounceTimer) clearTimeout(state.debounceTimer)
+      state.debounceTimer = setTimeout(() => {
+        state.debounceTimer = null
+        if (Date.now() < state.selfWriteUntil) return
+        for (const win of BrowserWindow.getAllWindows()) {
+          if (!win.isDestroyed() && !win.webContents.isDestroyed()) {
+            win.webContents.send('workbench:fs-changed', { workspaceRoot: resolvedRoot })
+          }
+        }
+      }, WATCH_DEBOUNCE_MS)
+    })
+  } catch {
+    return
+  }
+
+  watcher.on('error', () => {
+    unwatchWorkspace(resolvedRoot)
+  })
+
+  workbenchWatchers.set(key, { watcher, debounceTimer: null, selfWriteUntil: 0 })
+}
+
+export function unwatchWorkspace(workspaceRoot: string): void {
+  const key = normalizeWatchKey(workspaceRoot)
+  const state = workbenchWatchers.get(key)
+  if (!state) return
+  workbenchWatchers.delete(key)
+  if (state.debounceTimer) clearTimeout(state.debounceTimer)
+  try {
+    state.watcher.close()
+  } catch {
+    // watcher 已关闭时忽略
+  }
+}
+
+export function unwatchAllWorkspaces(): void {
+  for (const state of workbenchWatchers.values()) {
+    if (state.debounceTimer) clearTimeout(state.debounceTimer)
+    try {
+      state.watcher.close()
+    } catch {
+      // noop
+    }
+  }
+  workbenchWatchers.clear()
+}
+
+/**
+ * 标记工作区即将发生一次应用内写操作；窗口期内的 fs 事件视为自身回声，不广播。
+ * 窗口取写操作开始的时刻，写操作随后立即落盘（原子 rename 或 rm），
+ * 800ms 覆盖正常事件延迟；外部恰在同窗口的改动随下一次事件到达，仅延迟不显式刷新。
+ */
+export function markWorkspaceSelfWrite(workspaceRoot: string): void {
+  const state = workbenchWatchers.get(normalizeWatchKey(workspaceRoot))
+  if (state) {
+    state.selfWriteUntil = Date.now() + SELF_WRITE_WINDOW_MS
   }
 }
 
@@ -289,6 +401,64 @@ export async function selectFolder(browserWindow?: BrowserWindow | null): Promis
     path: selectedPath,
     name: path.basename(selectedPath)
   }
+}
+
+const DEFAULT_WORKSPACE_STORE_KEY = 'workbench_defaultWorkspacePath'
+const DEFAULT_WORKSPACE_DIR_NAME = 'MultiChat Vault'
+const WELCOME_NOTE_NAME = '欢迎使用.md'
+
+function buildWelcomeNoteContent(): string {
+  return `---
+title: 欢迎使用
+---
+
+# 欢迎使用 MultiChat 工作台
+
+这是你的默认工作区，位于系统「文档」目录下的 \`${DEFAULT_WORKSPACE_DIR_NAME}\` 文件夹。
+
+- **纯本地存储**：所有笔记都是普通 Markdown 文件，可以直接用其他编辑器（包括 Obsidian）打开。
+- **零格式入侵**：不会在文件中写入隐藏字段或私有语法，随时可以把整个文件夹迁走。
+- **兼容 Obsidian**：把这个文件夹作为 Obsidian Vault 打开即可无缝衔接。
+
+你可以在这里记录 AI 对话、整理素材、维护长期知识库。
+`
+}
+
+/**
+ * 定位（必要时创建）默认工作区。
+ * - 已存在时直接返回原路径，不重建、不覆盖用户文件。
+ * - 首次创建时写入一份欢迎笔记。
+ */
+export async function ensureDefaultWorkspace(
+  store: Store<Record<string, unknown>>
+): Promise<WorkbenchSelectFolderResult> {
+  const stored = store.get(DEFAULT_WORKSPACE_STORE_KEY)
+  if (typeof stored === 'string' && stored.length > 0) {
+    try {
+      const statResult = await stat(stored)
+      if (statResult.isDirectory()) {
+        authorizeWorkspaceRoot(stored)
+        return { path: stored, name: path.basename(stored) }
+      }
+    } catch {
+      // 已存路径不可达，继续走重建逻辑
+    }
+  }
+
+  const documentsDir = app.getPath('documents')
+  const defaultPath = path.join(documentsDir, DEFAULT_WORKSPACE_DIR_NAME)
+  await mkdir(defaultPath, { recursive: true })
+
+  const welcomePath = path.join(defaultPath, WELCOME_NOTE_NAME)
+  try {
+    await stat(welcomePath)
+  } catch {
+    await fsWriteFile(welcomePath, buildWelcomeNoteContent(), 'utf-8')
+  }
+
+  store.set(DEFAULT_WORKSPACE_STORE_KEY, defaultPath)
+  authorizeWorkspaceRoot(defaultPath)
+  return { path: defaultPath, name: path.basename(defaultPath) }
 }
 
 /**
@@ -386,7 +556,6 @@ export async function readFile(workspaceRoot: string, relativePath: string): Pro
   const category = getFileCategory(baseName)
 
   // 登记当前 workspace 为已授权根，供 workbench-file:// 协议做白名单校验
-  const workspaceRoot = path.dirname(safePath) === safePath ? safePath : path.resolve(workspaceRoot)
   authorizeWorkspaceRoot(workspaceRoot)
 
   // 图片文件处理 (最大 20MB)
@@ -416,9 +585,9 @@ export async function readFile(workspaceRoot: string, relativePath: string): Pro
     }
   }
 
-  // PDF 文件处理 (最大 50MB)
+  // PDF 文件处理：走 workbench-file:// 流式协议，零内存拷贝；200MB 安全阀
   if (category === 'pdf') {
-    if (fileStat.size > 50 * 1024 * 1024) {
+    if (fileStat.size > 200 * 1024 * 1024) {
       return {
         content: '',
         mimeType: 'application/pdf',
@@ -429,11 +598,9 @@ export async function readFile(workspaceRoot: string, relativePath: string): Pro
         isOversized: true
       }
     }
-    const buffer = await fsReadFile(safePath)
-    const dataUrl = `data:application/pdf;base64,${buffer.toString('base64')}`
     return {
       content: '',
-      dataUrl,
+      fileUrl: toWorkbenchFileUrl(safePath),
       mimeType: 'application/pdf',
       mtime: fileStat.mtimeMs,
       size: fileStat.size,
@@ -483,10 +650,31 @@ export async function readFile(workspaceRoot: string, relativePath: string): Pro
   const content = buffer.toString('utf-8')
   return {
     content,
+    // HTML 文件附带 workbench-file:// URL，供渲染层 iframe 预览；
+    // 相对路径引用的本地资源（css/js/img）落在同一 workspace 白名单内可直接加载。
+    fileUrl: ext === '.html' || ext === '.htm' ? toWorkbenchFileUrl(safePath) : undefined,
     mtime: fileStat.mtimeMs,
     size: fileStat.size,
     category,
     isBinary: false
+  }
+}
+
+/**
+ * 轻量 stat：返回文件 mtime/size，不存在返回 null。
+ * 供渲染层在保存前做乐观并发校验（磁盘 mtime 与 lastSavedAt 比对），
+ * 比 readFile 便宜——不会为图片/PDF 附带 dataUrl 或读全文。
+ */
+export async function statFile(
+  workspaceRoot: string,
+  relativePath: string
+): Promise<{ mtime: number; size: number } | null> {
+  try {
+    const safePath = await assertSafePath(workspaceRoot, relativePath)
+    const fileStat = await stat(safePath)
+    return { mtime: fileStat.mtimeMs, size: fileStat.size }
+  } catch {
+    return null
   }
 }
 
@@ -503,6 +691,7 @@ export async function writeFile(
   if (category === 'image' || category === 'pdf' || category === 'document') {
     throw new Error(`安全保护：禁止将纯文本内容写入 ${category} 格式文件，防止损坏二进制文件`)
   }
+  markWorkspaceSelfWrite(workspaceRoot)
   const parentDir = path.dirname(safePath)
   await mkdir(parentDir, { recursive: true })
 
@@ -547,6 +736,7 @@ export async function createNode(
     }
   }
 
+  markWorkspaceSelfWrite(workspaceRoot)
   const relPosix = toPosixRelativePath(path.resolve(workspaceRoot), safePath)
   const baseName = path.basename(safePath)
 
@@ -619,6 +809,7 @@ export async function renameNode(
     }
   }
 
+  markWorkspaceSelfWrite(workspaceRoot)
   await mkdir(path.dirname(safeNewPath), { recursive: true })
   await rename(safeOldPath, safeNewPath)
 
@@ -746,6 +937,89 @@ export async function deleteNodes(
 }
 
 /**
+ * 将外部文件/文件夹复制进工作区（VSCode 风格的拖入 / 粘贴导入）
+ * - 递归复制目录；重名自动追加 `-1`/`-2` 后缀，不覆盖既有节点
+ * - 跳过 IGNORED_NAMES 中的系统目录；目标侧沿用 assertSafePath 校验
+ * - 源路径在工作区内部时视为整目录复制（等价复制粘贴），不执行移动语义
+ * 返回导入后的相对路径列表与逐项失败原因
+ */
+export async function importExternalPaths(
+  workspaceRoot: string,
+  targetDirRelative: string,
+  sourceAbsolutePaths: string[]
+): Promise<{ imported: string[]; failed: { path: string; error: string }[]; pairs: Array<{ source: string; target: string }> }> {
+  const safeTargetDir = await assertSafePath(workspaceRoot, targetDirRelative)
+  const normalizedRoot = path.resolve(workspaceRoot)
+  // 复制是逐文件展开的批量写入，整段窗口抑制回声；
+  // 复制过程可能较长，在每次 cp 前续期，保证覆盖到最后一笔
+  markWorkspaceSelfWrite(workspaceRoot)
+  const imported: string[] = []
+  const failed: { path: string; error: string }[] = []
+  // 工作区内源文件的「源相对路径 → 目标相对路径」配对，供导图绑定克隆使用。
+  const pairs: Array<{ source: string; target: string }> = []
+
+  /** 为目标名字在 targetDir 内寻找不冲突的新名（重名加 `-n` 后缀，保留扩展名） */
+  const resolveFreeName = async (baseName: string): Promise<string> => {
+    const ext = path.extname(baseName)
+    const stem = ext ? baseName.slice(0, -ext.length) : baseName
+    let candidate = baseName
+    let counter = 1
+    for (;;) {
+      try {
+        await stat(path.join(safeTargetDir, candidate))
+        candidate = `${stem}-${counter}${ext}`
+        counter++
+      } catch {
+        return candidate
+      }
+    }
+  }
+
+  /** 递归复制时过滤被忽略的系统目录 */
+  const copyFilter = (src: string): boolean => !isIgnoredName(path.basename(src))
+
+  for (const sourcePath of sourceAbsolutePaths) {
+    try {
+      if (!sourcePath || typeof sourcePath !== 'string' || hasControlCharacters(sourcePath)) {
+        failed.push({ path: String(sourcePath), error: '非法的源路径' })
+        continue
+      }
+      const resolvedSrc = path.resolve(sourcePath)
+      const srcStat = await stat(resolvedSrc)
+      const srcBase = path.basename(resolvedSrc)
+      if (isIgnoredName(srcBase)) {
+        failed.push({ path: sourcePath, error: '已忽略的系统目录/文件' })
+        continue
+      }
+      // 源在工作区内部且目标即其当前父目录 → 等价"原地粘贴"，允许复制为 -1 副本
+      // 若源是目录且目标位于其内部 → 禁止（防自我包含）
+      if (
+        srcStat.isDirectory() &&
+        (safeTargetDir === resolvedSrc || safeTargetDir.startsWith(resolvedSrc + path.sep))
+      ) {
+        failed.push({ path: sourcePath, error: '不能将文件夹复制到其自身内部' })
+        continue
+      }
+
+      const freeName = await resolveFreeName(srcBase)
+      const destPath = path.join(safeTargetDir, freeName)
+      markWorkspaceSelfWrite(workspaceRoot)
+      await cp(resolvedSrc, destPath, { recursive: true, filter: copyFilter })
+      const targetRelative = toPosixRelativePath(normalizedRoot, destPath)
+      imported.push(targetRelative)
+      const sourceRelative = path.relative(normalizedRoot, resolvedSrc)
+      if (!sourceRelative.startsWith('..') && !path.isAbsolute(sourceRelative)) {
+        pairs.push({ source: toPosixRelativePath(normalizedRoot, resolvedSrc), target: targetRelative })
+      }
+    } catch (err) {
+      failed.push({ path: sourcePath, error: err instanceof Error ? err.message : String(err) })
+    }
+  }
+
+  return { imported, failed, pairs }
+}
+
+/**
  * 将文件或目录安全移入系统回收站 (Trash)
  * 联动：删除 .md 文档时，连带回收其 assets/<文件名>/ 附件目录，避免孤儿目录
  */
@@ -761,6 +1035,7 @@ export async function deleteNode(workspaceRoot: string, relativePath: string): P
     throw err
   }
 
+  markWorkspaceSelfWrite(workspaceRoot)
   await shell.trashItem(safePath)
 
   // 删除 .md 时连带回收附件目录（走 trash，可恢复）
@@ -794,6 +1069,7 @@ export async function saveImage(
   const docDir = path.dirname(safeDocPath)
   const docBaseName = path.basename(safeDocPath)
   const assetsDir = path.join(docDir, ASSETS_DIR_NAME, docBaseName)
+  markWorkspaceSelfWrite(workspaceRoot)
   await mkdir(assetsDir, { recursive: true })
 
   // 解析 base64 输入
@@ -879,6 +1155,7 @@ export async function importImageFile(
   const docDir = path.dirname(safeDocPath)
   const docBaseName = path.basename(safeDocPath)
   const assetsDir = path.join(docDir, ASSETS_DIR_NAME, docBaseName)
+  markWorkspaceSelfWrite(workspaceRoot)
   await mkdir(assetsDir, { recursive: true })
 
   const srcStat = await stat(sourceAbsolutePath)

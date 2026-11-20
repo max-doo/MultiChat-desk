@@ -331,17 +331,24 @@ export default function QuickPage(): JSX.Element {
   // 已挂载的模型集合（只增不减，实现懒加载缓存）
   const [mountedModelIds, setMountedModelIds] = useState<Set<string>>(new Set())
 
-  // 为每个模型生成稳定的 ref 回调
+  // 为每个模型生成稳定的 ref 回调：回调身份必须稳定，否则每次渲染 React 都会先以 null 调用旧回调，
+  // 触发注销并清掉 activeWebviewTimes，随后再注册，导致 LRU 时间戳被反复重置。
+  const cardRefCallbacks = useRef<Map<string, (ref: WebviewCardRef | null) => void>>(new Map())
   const getCardRefCallback = useCallback((modelId: string) => {
-    return (ref: WebviewCardRef | null) => {
+    const cached = cardRefCallbacks.current.get(modelId)
+    if (cached) return cached
+    const callback = (ref: WebviewCardRef | null) => {
       if (ref) {
         cardRefs.current.set(modelId, ref)
         registerWebviewRef(modelId, ref)
       } else {
+        const previousRef = cardRefs.current.get(modelId)
         cardRefs.current.delete(modelId)
-        unregisterWebviewRef(modelId)
+        if (previousRef) unregisterWebviewRef(modelId, previousRef)
       }
     }
+    cardRefCallbacks.current.set(modelId, callback)
+    return callback
   }, [registerWebviewRef, unregisterWebviewRef])
 
   // 获取初始置顶状态

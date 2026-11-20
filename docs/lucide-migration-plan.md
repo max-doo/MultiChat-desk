@@ -134,3 +134,23 @@ Material 连字名与 Lucide 导出名无一一对应（`call_split→Split`、`
 ## 8. 回滚
 
 每批独立 commit；`material-symbols` 依赖与 `main.tsx` import 在 B5 前始终保留，任一批次 `git revert` 即恢复。B5 单独成 commit，便于整体回退。
+
+## 9. 附录：映射语义审核结论（独立 worker，2026-11-20）
+
+148 条映射经独立评审按"图形语义"逐条核对（material 名描述图形，lucide 组件须画同一物）。已修正：
+
+| 修正 | material → lucide | 理由 |
+|---|---|---|
+| P0 | `rocket_launch → Rocket`（原 Zap） | 火箭而非闪电 |
+| P0 | `build → Wrench`（原 Settings2） | 扳手而非齿轮 |
+| P0 | `edit_square → SquarePen`（原 PencilLine） | 方框内笔 |
+| P0 | `folder_managed → FolderCog`（原 Folder） | 带齿轮文件夹 |
+| P0 | `folder_special → FolderBookmark`（原 FolderPlus） | 特殊收藏 |
+| P0 | `filter_none → SquareStack`（原 Copy） | 叠层方块（窗口还原） |
+| P0 | `ios_share → SquareArrowOutUpRight`（原 Share） | iOS 分享图形 |
+| P0 | `select_all → SquareDashed`（原 SquareCheck） | 虚线全选框 |
+| P1 | `biotech → Microscope`（原 FlaskConical） | 与 science 区分 |
+| P1 | `summarize → TextQuote`（原 ListChecks） | 摘要横线文本 |
+| P1 | `bedtime → MoonStar`（原 Moon） | 与 dark_mode 区分 |
+
+保留的有意合并：`arrow_drop_down/keyboard_arrow_down/expand_more → ChevronDown`、`delete/delete_outline/delete_sweep → Trash2`、`check/done → Check`、`sync/refresh → RefreshCw`、`broken_image/image_not_supported → ImageOff`、`keyboard_arrow_right/chevron_right → ChevronRight` 等，Material 原图本就同形，合并合理。

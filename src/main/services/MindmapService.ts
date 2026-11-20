@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto'
 import type { MindmapTask, NoteConversation, MindmapModifyRequest, MindmapCandidate, MindmapGenerationSession, ConversationMindmap, MindmapSourceContext } from '../../shared/types/notes'
 import { applyMindmapTextEdits, buildMindmapEditPrompt, mergeMindmapCandidate, normalizeMindmapNewlines, parseMindmapModifyResponse, validateMindmapMarkdown } from '../../shared/utils/mindmapEdits'
-import { buildMindmapPrompt, inspectMindmapOutline, MINDMAP_INPUT_LIMIT, MINDMAP_TAGS } from '../../shared/utils/mindmap'
+import { buildDocumentMindmapPrompt, buildMindmapPrompt, inspectMindmapOutline, MINDMAP_INPUT_LIMIT, MINDMAP_TAGS, type MindmapMaterialKind } from '../../shared/utils/mindmap'
 import { generateMindmapPageStateScript, generateMindmapResponseScript, type MindmapResponse } from '../../shared/utils/webviewScripts'
 import { isConversationUrlForPlatform } from '../../shared/utils/conversationUrl'
 import { automationService } from './AutomationService'
@@ -16,6 +16,14 @@ const delay = (ms: number): Promise<void> => new Promise(resolve => setTimeout(r
 const CONFLICT = '导图在生成期间发生了修改，请基于当前版本重新调整'
 const IDLE_TIMEOUT = 2 * 60_000
 const TEMPORARY_IDLE_TIMEOUT = 10 * 60_000
+
+/** 工作台文档生成时的材料与范围，缺省表示沿用对话快照。 */
+export interface MindmapMaterial {
+  text: string
+  fileName: string
+  kind: MindmapMaterialKind
+  scope?: { scope: 'document' | 'selection'; contentHash: string; selectionText?: string; headingPath?: string[] }
+}
 
 /** 限制一次异步操作的等待时间；网页脚本迟到的返回值不会继续推进任务。 */
 function waitFor<T>(operation: Promise<T>, timeoutMs: number, stage: string, signal: AbortSignal): Promise<T> {
@@ -52,10 +60,13 @@ export class MindmapService {
 
   getTask(): MindmapTask | null { return this.task ? { ...this.task } : null }
 
-  async start(conversation: NoteConversation, platform: string, additionalRequirements = '', ownerId = 0): Promise<MindmapTask> {
+  async start(conversation: NoteConversation, platform: string, additionalRequirements = '', ownerId = 0, material?: MindmapMaterial): Promise<MindmapTask> {
     if (this.task && !TERMINAL_PHASES.includes(this.task.phase)) throw new Error('已有导图正在生成，请等待或取消后再试')
-    if (conversation.snapshot.length > MINDMAP_INPUT_LIMIT) throw new Error('对话超过 60000 字符，暂不支持直接生成；内容未截断')
-    if (!conversation.snapshot.trim()) throw new Error('没有可整理的对话内容')
+    const input = material ? material.text : conversation.snapshot
+    if (input.length > MINDMAP_INPUT_LIMIT) {
+      throw new Error(material ? '文档超过 60000 字符，请选中其中一段生成；内容未截断' : '对话超过 60000 字符，暂不支持直接生成；内容未截断')
+    }
+    if (!input.trim()) throw new Error(material ? '没有可整理的内容' : '没有可整理的对话内容')
     await automationService.getPlatformSelectors(platform)
     // 异步检查后再检查一次，防止两个窗口同时启动。
     if (this.task && !TERMINAL_PHASES.includes(this.task.phase)) throw new Error('已有导图正在生成')
@@ -66,7 +77,7 @@ export class MindmapService {
     const task: MindmapTask = { id: randomUUID(), conversationId: conversation.id, sourceTitle: conversation.title, platform, phase: 'loading', kind: 'generate' }
     this.task = task
     this.notify({ ...task })
-    void this.run(task, conversation, this.controller.signal, additionalRequirements)
+    void this.run(task, conversation, this.controller.signal, additionalRequirements, undefined, material)
     return { ...task }
   }
 
@@ -248,7 +259,7 @@ export class MindmapService {
     this.notify({ ...task })
   }
 
-  private async run(task: MindmapTask, source: NoteConversation, cancelSignal: AbortSignal, additionalRequirements: string, edit?: { base: MindmapCandidate; newSession: boolean; includeSourceContext: boolean; loadContext?: (source: NoteConversation) => Promise<MindmapSourceContext> }): Promise<void> {
+  private async run(task: MindmapTask, source: NoteConversation, cancelSignal: AbortSignal, additionalRequirements: string, edit?: { base: MindmapCandidate; newSession: boolean; includeSourceContext: boolean; loadContext?: (source: NoteConversation) => Promise<MindmapSourceContext> }, material?: MindmapMaterial): Promise<void> {
     const key = edit && this.idle ? this.idle.key : sessionKey(task.id)
     const initialized = !!edit && this.idle?.initialized === true
     const ownerId = this.ownerId
@@ -319,13 +330,13 @@ export class MindmapService {
       if (edit) await this.checkBase(edit.base)
       if (signal.aborted) return
       let attachment: { fileName: string; origin: MindmapSourceContext['origin'] } | undefined
-      const uploadContext = edit ? context : { snapshot: source.snapshot, origin: 'snapshot' as const }
+      const uploadContext = edit ? context : { snapshot: material ? material.text : source.snapshot, origin: 'snapshot' as const }
       if (uploadContext) {
-        stage = '上传完整主会话附件'
+        stage = material ? '上传文档附件' : '上传完整主会话附件'
         if (this.idle?.key === key) this.idle.pendingAttachment = true
-        const uploaded = await automationService.uploadMarkdownContext(task.platform, uploadContext.snapshot, key, signal)
+        const uploaded = await automationService.uploadMarkdownContext(task.platform, uploadContext.snapshot, key, signal, material?.fileName)
         if (signal.aborted || this.task?.id !== task.id) return
-        if (!uploaded.success || !uploaded.data) throw new Error(uploaded.error || '主会话附件上传失败，未发送请求')
+        if (!uploaded.success || !uploaded.data) throw new Error(uploaded.error || (material ? '文档附件上传失败，未发送请求' : '主会话附件上传失败，未发送请求'))
         attachment = { ...uploaded.data, origin: uploadContext.origin }
         if (edit) await this.checkBase(edit.base)
       }
@@ -333,8 +344,10 @@ export class MindmapService {
       let prompt: string
       if (edit) prompt = buildMindmapEditPrompt(edit.base.candidateMarkdown, additionalRequirements, attachment)
       else {
-        if (!attachment) throw new Error('来源会话附件缺失，未发送生成请求')
-        prompt = buildMindmapPrompt(attachment.fileName, additionalRequirements)
+        if (!attachment) throw new Error(material ? '文档附件缺失，未发送生成请求' : '来源会话附件缺失，未发送生成请求')
+        prompt = material
+          ? buildDocumentMindmapPrompt(attachment.fileName, material.kind, additionalRequirements)
+          : buildMindmapPrompt(attachment.fileName, additionalRequirements)
       }
       stage = '发送生成请求'
       const sent = await waitFor(automationService.executeCommand(task.platform, prompt, key, { attachmentFileName: attachment?.fileName, signal }), 30_000, stage, signal)
@@ -447,7 +460,7 @@ export class MindmapService {
         generationTimer = undefined
         stage = '保存导图'
         this.change(task, 'saving')
-        const saved = await this.notes.addMindmap(source, outline.markdown, task.platform, await this.sessionBinding(task.platform, wc.getURL()))
+        const saved = await this.notes.addMindmap(source, outline.markdown, task.platform, await this.sessionBinding(task.platform, wc.getURL()), material?.scope)
         task.conversationId = saved.conversationId
         task.mindmapId = saved.mindmap.id
         this.notesChanged()

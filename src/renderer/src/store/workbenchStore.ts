@@ -7,9 +7,11 @@ import {
   MARKDOWN_EXTENSIONS
 } from '../../../shared/types/workbench'
 
-export type SaveStatus = 'saved' | 'saving' | 'error'
+export type SaveStatus = 'saved' | 'saving' | 'error' | 'conflict'
 export type EditorMode = 'wysiwyg' | 'source'
 export type WorkbenchAiAction = 'ask' | 'explain' | 'polish' | 'continue' | 'summarize'
+/** 右侧栏与快捷窗口一致：AI 对话和思维导图互斥，同一时刻只显示一个。 */
+export type WorkbenchRightPane = 'ai' | 'mindmap' | null
 export type WorkbenchSortKey = 'name' | 'mtime' | 'size'
 export type WorkbenchSortOrder = 'asc' | 'desc'
 
@@ -68,6 +70,7 @@ interface WorkbenchStoreState {
   workspacePath: string | null
   workspaceName: string
   recentWorkspaces: string[]
+  defaultWorkspacePath: string | null
   fileTree: WorkbenchFileNode[]
   expandedFolderIds: Set<string>
   isLoadingTree: boolean
@@ -78,12 +81,15 @@ interface WorkbenchStoreState {
   activeFileContent: string
   activeFileCategory: WorkbenchFileCategory | null
   activeFileDataUrl: string | null
+  activeFileUrl: string | null
   activeFileMime: string | null
   activeFileSize: number | null
   activeFileOversized: boolean
   isDirty: boolean
   saveStatus: SaveStatus
   lastSavedAt: number | null
+  // 外部冲突：保存时检测到磁盘 mtime 比内存新，拉回来的磁盘版本内容
+  conflictDiskContent: string | null
 
   // 搜索相关
   searchQuery: string
@@ -97,7 +103,9 @@ interface WorkbenchStoreState {
   leftPaneWidth: number
   rightPaneWidth: number
   isLeftCollapsed: boolean
-  isRightCollapsed: boolean
+  rightPane: WorkbenchRightPane
+  /** 待生成的选区范围；由编辑器划词菜单写入，导图面板消费后清空。 */
+  pendingMindmapSelection: { text: string; headingPath: string[] } | null
   sidebarModelId: string
   editorMode: EditorMode
 
@@ -117,6 +125,7 @@ interface WorkbenchStoreActions {
   collapseAllFolders: () => void
   openFile: (relativePath: string) => Promise<boolean>
   saveActiveFile: () => Promise<boolean>
+  resolveExternalConflict: (choice: 'keep-mine' | 'take-disk') => Promise<boolean>
   updateActiveContent: (content: string) => void
   createFile: (parentRelativeDir: string, fileName: string) => Promise<string | null>
   createFolder: (parentRelativeDir: string, folderName: string) => Promise<boolean>
@@ -125,23 +134,27 @@ interface WorkbenchStoreActions {
   deleteNode: (relativePath: string) => Promise<boolean>
   insertReplyIntoActiveMarkdown: (
     replyMd: string,
-    meta?: { conversationUrl?: string }
+    _meta?: { conversationUrl?: string }
   ) => Promise<{ success: boolean; error?: string }>
   saveReplyAsNewMarkdown: (
     replyMd: string,
-    meta: { platformId: string; title?: string }
+    meta: { platformId: string; title?: string; conversationUrl?: string }
   ) => Promise<{ success: boolean; error?: string }>
   revealFile: (relativePath: string) => Promise<void>
   openInSystem: (relativePath: string) => Promise<void>
   findUnreferencedImages: (documentRelativePath: string) => Promise<{ unreferenced: string[]; total: number } | null>
   deleteNodes: (relativePaths: string[]) => Promise<boolean>
+  importExternalItems: (targetDirRelative: string, sourceAbsolutePaths: string[]) => Promise<{ imported: string[]; failed: { path: string; error: string }[] } | null>
+  handleExternalFsChanged: (workspaceRoot: string) => Promise<void>
   searchFiles: (query: string) => void
   clearSearch: () => void
   setFileSort: (pref: WorkbenchSortPreference) => void
   setLeftPaneWidth: (width: number) => void
   setRightPaneWidth: (width: number) => void
   toggleLeftCollapse: () => void
-  toggleRightCollapse: () => void
+  openRightPane: (pane: Exclude<WorkbenchRightPane, null>) => void
+  closeRightPane: () => void
+  setPendingMindmapSelection: (selection: { text: string; headingPath: string[] } | null) => void
   setSidebarModelId: (modelId: string) => void
   setEditorMode: (mode: EditorMode) => void
   askAi: (text: string, actionType: WorkbenchAiAction) => void
@@ -154,12 +167,104 @@ export type WorkbenchStore = WorkbenchStoreState & WorkbenchStoreActions
 let autoSaveTimer: ReturnType<typeof setTimeout> | null = null
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 let currentSearchSeq = 0
+let fsWatcherBound = false
+/**
+ * 最近一次对账发现的改名映射（旧路径 → 新路径）。
+ * 应用关闭期间的外部改名只在重新载入时对账一次，恢复上次打开的文档要能跟着走。
+ * 键带上工作区，避免切换工作区后同名相对路径被错误重定向。
+ */
+const recentRelinks = new Map<string, string>()
+const relinkKey = (workspaceRoot: string, relativePath: string): string =>
+  `${workspaceRoot.replace(/\\/g, '/').toLowerCase()}\n${relativePath}`
+
+// 收集树中所有相对路径（含目录），用于判断当前激活文件是否被外部删除/移走
+function collectTreePaths(nodes: WorkbenchFileNode[], out: Set<string>): Set<string> {
+  for (const node of nodes) {
+    out.add(node.path)
+    if (node.children) collectTreePaths(node.children, out)
+  }
+  return out
+}
+
+/** 文件树已经带 size/mtime，直接当对账索引，主进程无需再扫盘。 */
+function collectFileIndex(nodes: WorkbenchFileNode[], out: Array<{ path: string; size?: number; mtime?: number }>): void {
+  for (const node of nodes) {
+    if (node.isDirectory) {
+      if (node.children) collectFileIndex(node.children, out)
+    } else {
+      out.push({ path: node.path, size: node.size, mtime: node.mtime })
+    }
+  }
+}
+
+function findNode(nodes: WorkbenchFileNode[], target: string): WorkbenchFileNode | null {
+  for (const node of nodes) {
+    if (node.path === target) return node
+    if (node.isDirectory && node.children) {
+      const hit = findNode(node.children, target)
+      if (hit) return hit
+    }
+  }
+  return null
+}
+
+/**
+ * 编辑器跟随外部改名：没有导图的文档不会出现在对账结果里，
+ * 用同一套“大小 + mtime”判据在内存里补一次，唯一命中才认。
+ */
+function findRenamedNode(
+  previous: WorkbenchFileNode[],
+  next: WorkbenchFileNode[],
+  activePath: string
+): string | null {
+  const before = findNode(previous, activePath)
+  if (!before || before.isDirectory) return null
+  const matches: string[] = []
+  const walk = (nodes: WorkbenchFileNode[]): void => {
+    for (const node of nodes) {
+      if (node.isDirectory) {
+        if (node.children) walk(node.children)
+        continue
+      }
+      if (node.path === activePath) continue
+      if (node.size !== before.size || node.mtime !== before.mtime) continue
+      if (node.extension !== before.extension) continue
+      matches.push(node.path)
+    }
+  }
+  walk(next)
+  return matches.length === 1 ? matches[0] : null
+}
+
+function reconcileMindmaps(
+  workspaceRoot: string,
+  tree: WorkbenchFileNode[]
+): Promise<{ deleted: number; relinked: number; relinks: Array<{ from: string; to: string }> } | null> {
+  const index: Array<{ path: string; size?: number; mtime?: number }> = []
+  collectFileIndex(tree, index)
+  return window.api.workbench.reconcileMindmaps(workspaceRoot, index)
+    .then(res => {
+      if (!res.success || !res.data) return null
+      for (const link of res.data.relinks) {
+        recentRelinks.set(relinkKey(workspaceRoot, link.from), link.to)
+      }
+      // 只是恢复上次打开的文档用的短期映射，不做无界增长。
+      while (recentRelinks.size > 200) {
+        const oldest = recentRelinks.keys().next().value
+        if (oldest === undefined) break
+        recentRelinks.delete(oldest)
+      }
+      return res.data
+    })
+    .catch(() => null)
+}
 
 export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   // 初始状态
   workspacePath: null,
   workspaceName: '',
   recentWorkspaces: [],
+  defaultWorkspacePath: null,
   fileTree: [],
   expandedFolderIds: new Set<string>(),
   isLoadingTree: false,
@@ -169,12 +274,14 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   activeFileContent: '',
   activeFileCategory: null,
   activeFileDataUrl: null,
+  activeFileUrl: null,
   activeFileMime: null,
   activeFileSize: null,
   activeFileOversized: false,
   isDirty: false,
   saveStatus: 'saved',
   lastSavedAt: null,
+  conflictDiskContent: null,
 
   searchQuery: '',
   isSearching: false,
@@ -185,7 +292,8 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   leftPaneWidth: 260,
   rightPaneWidth: 420,
   isLeftCollapsed: false,
-  isRightCollapsed: false,
+  rightPane: 'ai',
+  pendingMindmapSelection: null,
   sidebarModelId: 'chatgpt',
   editorMode: 'wysiwyg',
 
@@ -194,12 +302,20 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   initWorkbench: async () => {
     if (get().isInitialized) return
     try {
+      // 绑定一次外部文件系统监听：主进程 watcher 去抖广播后静默重扫文件树
+      if (!fsWatcherBound) {
+        fsWatcherBound = true
+        window.api.workbench.onFsChanged((payload) => {
+          void get().handleExternalFsChanged(payload.workspaceRoot)
+        })
+      }
       const [
         savedPath,
         savedActiveFile,
         savedLeftWidth,
         savedRightWidth,
         savedLeftCollapsed,
+        savedRightPane,
         savedRightCollapsed,
         savedSidebarModel,
         savedEditorMode,
@@ -211,6 +327,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         window.api.storeGet('workbench_leftPaneWidth') as Promise<number | null>,
         window.api.storeGet('workbench_rightPaneWidth') as Promise<number | null>,
         window.api.storeGet('workbench_isLeftCollapsed') as Promise<boolean | null>,
+        window.api.storeGet('workbench_rightPane') as Promise<WorkbenchRightPane | null>,
         window.api.storeGet('workbench_isRightCollapsed') as Promise<boolean | null>,
         window.api.storeGet('workbench_sidebarModelId') as Promise<string | null>,
         window.api.storeGet('workbench_editorMode') as Promise<EditorMode | null>,
@@ -228,8 +345,11 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       if (typeof savedLeftCollapsed === 'boolean') {
         updates.isLeftCollapsed = savedLeftCollapsed
       }
-      if (typeof savedRightCollapsed === 'boolean') {
-        updates.isRightCollapsed = savedRightCollapsed
+      // 新键优先；老版本只有布尔折叠状态，迁移成「AI 展开 / 全部收起」。
+      if (savedRightPane === 'ai' || savedRightPane === 'mindmap' || savedRightPane === null) {
+        updates.rightPane = savedRightPane
+      } else if (typeof savedRightCollapsed === 'boolean') {
+        updates.rightPane = savedRightCollapsed ? null : 'ai'
       }
       if (typeof savedSidebarModel === 'string' && savedSidebarModel) {
         updates.sidebarModelId = savedSidebarModel
@@ -250,13 +370,33 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         updates.fileSort = savedFileSort
       }
 
+      // 确保默认工作区存在（首次启动会创建），随后无论上次是否有保存的工作区，都先把默认路径放到 store
+      let defaultWorkspacePath: string | null = null
+      try {
+        const defaultRes = await window.api.workbench.ensureDefaultWorkspace()
+        if (defaultRes.success && defaultRes.data?.path) {
+          defaultWorkspacePath = defaultRes.data.path
+        }
+      } catch (err) {
+        console.error('[workbenchStore] 默认工作区初始化失败:', err)
+      }
+      updates.defaultWorkspacePath = defaultWorkspacePath
+      if (defaultWorkspacePath) {
+        const recents = (updates.recentWorkspaces ?? []).filter((p) => p !== defaultWorkspacePath)
+        updates.recentWorkspaces = [defaultWorkspacePath, ...recents].slice(0, 10)
+        void window.api.storeSet('workbench_recentWorkspaces', updates.recentWorkspaces)
+      }
+
       set(updates)
 
       if (savedPath && typeof savedPath === 'string') {
         await get().setWorkspaceFolder(savedPath)
         if (savedActiveFile && typeof savedActiveFile === 'string') {
-          await get().openFile(savedActiveFile)
+          // 应用关闭期间文件可能被改名，对账刚记下新路径，恢复时跟着走。
+          await get().openFile(recentRelinks.get(relinkKey(savedPath, savedActiveFile)) ?? savedActiveFile)
         }
+      } else if (defaultWorkspacePath) {
+        await get().setWorkspaceFolder(defaultWorkspacePath)
       }
     } catch (err) {
       console.error('[workbenchStore] 初始化偏好配置失败:', err)
@@ -278,7 +418,17 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
 
   setWorkspaceFolder: async (dirPath: string, dirName?: string) => {
     const name = dirName || dirPath.split(/[/\\]/).filter(Boolean).pop() || 'Workspace'
-    const nextRecent = [dirPath, ...get().recentWorkspaces.filter((p) => p !== dirPath)].slice(0, 10)
+    const defaultPath = get().defaultWorkspacePath
+    const recents = [dirPath, ...get().recentWorkspaces.filter((p) => p !== dirPath)]
+    // 默认工作区必须始终保留在最近列表中（若已初始化），用于「管理仓库」展示与回落
+    const nextRecent = (defaultPath && !recents.includes(defaultPath)
+      ? [...recents, defaultPath]
+      : recents
+    ).slice(0, 10)
+    const prevPath = get().workspacePath
+    if (prevPath && prevPath !== dirPath) {
+      void window.api.workbench.unwatch(prevPath)
+    }
     set({
       workspacePath: dirPath,
       workspaceName: name,
@@ -287,22 +437,34 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       activeFileContent: '',
       activeFileCategory: null,
       activeFileDataUrl: null,
+      activeFileUrl: null,
       activeFileMime: null,
       activeFileSize: null,
       activeFileOversized: false,
       isDirty: false,
       saveStatus: 'saved',
+        conflictDiskContent: null,
       searchQuery: '',
       searchResults: []
     })
     void window.api.storeSet('workbench_lastWorkspacePath', dirPath)
     void window.api.storeSet('workbench_recentWorkspaces', nextRecent)
+    void window.api.workbench.watch(dirPath)
     await get().loadFileTree()
   },
 
   closeWorkspace: async () => {
     if (get().isDirty) {
       await get().saveActiveFile()
+    }
+    const closingPath = get().workspacePath
+    const defaultPath = get().defaultWorkspacePath
+    // 默认工作区不可关闭：若当前就在默认工作区，直接返回
+    if (closingPath && defaultPath && closingPath === defaultPath) {
+      return
+    }
+    if (closingPath) {
+      void window.api.workbench.unwatch(closingPath)
     }
     set({
       workspacePath: null,
@@ -313,6 +475,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       activeFileContent: '',
       activeFileCategory: null,
       activeFileDataUrl: null,
+      activeFileUrl: null,
       activeFileMime: null,
       activeFileSize: null,
       activeFileOversized: false,
@@ -323,9 +486,15 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     })
     void window.api.storeDelete('workbench_lastWorkspacePath')
     void window.api.storeDelete('workbench_lastActiveFilePath')
+    // 关闭非默认工作区后回落到默认工作区，保证始终有打开的 vault
+    if (defaultPath) {
+      await get().setWorkspaceFolder(defaultPath)
+    }
   },
 
   removeRecentWorkspace: (dirPath: string) => {
+    // 默认工作区始终保留在最近列表中，不可移除
+    if (dirPath === get().defaultWorkspacePath) return
     const nextRecent = get().recentWorkspaces.filter((p) => p !== dirPath)
     set({ recentWorkspaces: nextRecent })
     void window.api.storeSet('workbench_recentWorkspaces', nextRecent)
@@ -339,6 +508,9 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       const res = await window.api.workbench.readTree(workspacePath)
       if (res.success && res.data) {
         set({ fileTree: res.data, isLoadingTree: false })
+        // 应用关闭期间的外部删除/改名，在重新载入工作区时补齐。
+        // 等对账返回再结束载入，恢复上次打开的文档才能拿到改名映射。
+        await reconcileMindmaps(workspacePath, res.data)
       } else {
         set({
           isLoadingTree: false,
@@ -405,12 +577,14 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
           activeFileContent: res.data.content,
           activeFileCategory: res.data.category || getFileCategory(relativePath),
           activeFileDataUrl: res.data.dataUrl || null,
+          activeFileUrl: res.data.fileUrl || null,
           activeFileMime: res.data.mimeType || null,
           activeFileSize: res.data.size,
           activeFileOversized: !!res.data.isOversized,
           isDirty: false,
           saveStatus: 'saved',
           lastSavedAt: res.data.mtime,
+          conflictDiskContent: null,
           error: null
         })
         void window.api.storeSet('workbench_lastActiveFilePath', relativePath)
@@ -447,6 +621,29 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       return true
     }
 
+    // 已处于冲突态：等用户裁决，不再自动写盘/反复拉磁盘版本
+    if (get().saveStatus === 'conflict') {
+      return false
+    }
+
+    // 乐观并发校验：磁盘 mtime 领先 lastSavedAt 且内存有未落盘改动 → 真冲突，
+    // 拒绝静默覆盖（用户在外面刚写的会被吃掉）；内存干净则放行重写
+    const { isDirty: dirtyBeforeSave, lastSavedAt: savedAtBefore } = get()
+    const statRes = await window.api.workbench.statFile(workspacePath, activeFilePath)
+    if (statRes.success && statRes.data && savedAtBefore !== null) {
+      const diskNewer = statRes.data.mtime - savedAtBefore > 2
+      if (diskNewer && dirtyBeforeSave) {
+        // 拉磁盘版本供用户选择；读失败也标冲突，不继续写
+        let diskContent = ''
+        try {
+          const fileRes = await window.api.workbench.readFile(workspacePath, activeFilePath)
+          if (fileRes.success && fileRes.data) diskContent = fileRes.data.content
+        } catch { /* noop */ }
+        set({ saveStatus: 'conflict', conflictDiskContent: diskContent })
+        return false
+      }
+    }
+
     set({ saveStatus: 'saving' })
     try {
       const res = await window.api.workbench.writeFile(workspacePath, activeFilePath, activeFileContent)
@@ -455,6 +652,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
           isDirty: false,
           saveStatus: 'saved',
           lastSavedAt: res.data.mtime,
+          conflictDiskContent: null,
           activeFileSize: res.data.size
         })
         return true
@@ -489,6 +687,32 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       autoSaveTimer = null
       void get().saveActiveFile()
     }, 1200)
+  },
+
+  /**
+   * 外部冲突处理：
+   * - keep-mine：放弃磁盘版本，把内存内容强写回去（用户确认覆盖外部改动）
+   * - take-disk：放弃内存改动，采纳磁盘版本（等价"从磁盘重载"）
+   */
+  resolveExternalConflict: async (choice) => {
+    const { workspacePath, activeFilePath } = get()
+    if (!workspacePath || !activeFilePath) return false
+    set({ saveStatus: 'saved', conflictDiskContent: null })
+    if (choice === 'take-disk') {
+      const fileRes = await window.api.workbench.readFile(workspacePath, activeFilePath)
+      if (fileRes.success && fileRes.data) {
+        set({
+          activeFileContent: fileRes.data.content,
+          isDirty: false,
+          lastSavedAt: fileRes.data.mtime
+        })
+        return true
+      }
+      return false
+    }
+    // keep-mine：lastSavedAt 置 null 绕过并发校验，直接落盘
+    set({ lastSavedAt: null })
+    return get().saveActiveFile()
   },
 
   createFile: async (parentRelativeDir: string, fileName: string) => {
@@ -677,11 +901,13 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
             activeFileContent: '',
             activeFileCategory: null,
             activeFileDataUrl: null,
+            activeFileUrl: null,
             activeFileMime: null,
             activeFileSize: null,
             activeFileOversized: false,
             isDirty: false,
-            saveStatus: 'saved'
+        saveStatus: 'saved',
+        conflictDiskContent: null
           })
           void window.api.storeDelete('workbench_lastActiveFilePath')
         }
@@ -707,13 +933,13 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
    * 把一条 AI 回复追加到当前打开的 Markdown 文件末尾并落盘。
    * 边界校验：仅接受 activeFileCategory === 'markdown'（.md/.markdown）。
    *
-   * wysiwyg 模式：处理 frontmatter 后派发 workbench:insert-reply 事件，
+   * wysiwyg 模式：派发 workbench:insert-reply 事件，
    * 由 MarkdownSyncPlugin 在光标上次停留处以「待确认高亮」插入（✓采纳/✗撤回）。
    * source 模式：Lexical 未挂载，直接在末尾追加正文并落盘（无确认交互）。
    */
   insertReplyIntoActiveMarkdown: async (
     replyMd: string,
-    meta?: { conversationUrl?: string }
+    _meta?: { conversationUrl?: string }
   ) => {
     const { activeFilePath, activeFileCategory, editorMode, isDirty } = get()
     const fail = (error: string): { success: boolean; error: string } => {
@@ -734,15 +960,8 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       if (!saved) return fail('当前文件保存未完成')
     }
 
-    // frontmatter 补 source（文档级元数据，撤回后仍保留）
-    const content = upsertFrontmatterSource(get().activeFileContent, meta?.conversationUrl)
-    if (content !== get().activeFileContent) {
-      set({ activeFileContent: content, isDirty: true })
-      await get().saveActiveFile()
-    }
-
     if (editorMode === 'wysiwyg') {
-      // 交给 Lexical 在光标处待确认插入；frontmatter 已写盘，正文由 Lexical 回写
+      // 交给 Lexical 在光标处待确认插入；正文由 Lexical 回写
       window.dispatchEvent(new CustomEvent('workbench:insert-reply', { detail: { replyMd: md } }))
       return { success: true }
     }
@@ -763,7 +982,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
    */
   saveReplyAsNewMarkdown: async (
     replyMd: string,
-    meta: { platformId: string; title?: string }
+    meta: { platformId: string; title?: string; conversationUrl?: string }
   ) => {
     const { workspacePath, activeFilePath, fileTree } = get()
     const fail = (error: string): { success: boolean; error: string } => {
@@ -773,6 +992,9 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     if (!workspacePath) return fail('请先打开一个工作区')
     const md = (replyMd || '').trim()
     if (!md) return fail('回复内容为空')
+
+    // 文档级元数据：frontmatter 记录来源对话链接（与 insertReplyIntoActiveMarkdown 一致）
+    const content = upsertFrontmatterSource(md, meta.conversationUrl)
 
     const dir = activeFilePath && activeFilePath.includes('/')
       ? activeFilePath.slice(0, activeFilePath.lastIndexOf('/'))
@@ -812,10 +1034,10 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
 
     const relPath = await get().createFile(dir, fileName)
     if (!relPath) return fail(get().error || '创建文件失败')
-    const res = await window.api.workbench.writeFile(workspacePath, relPath, md)
+    const res = await window.api.workbench.writeFile(workspacePath, relPath, content)
     if (!res.success) return fail(res.error || '写入文件失败')
     // createFile 已 openFile，同步最新内容与保存态
-    set({ activeFileContent: md, isDirty: false, saveStatus: 'saved' })
+    set({ activeFileContent: content, isDirty: false, saveStatus: 'saved' })
     await get().loadFileTree()
     return { success: true }
   },
@@ -867,6 +1089,138 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       return false
     } catch {
       return false
+    }
+  },
+
+  /**
+   * 外部文件/文件夹导入（拖入或粘贴）：复制进目标目录并重载文件树
+   * 返回逐项结果；整体失败（IPC 异常等）返回 null
+   */
+  importExternalItems: async (targetDirRelative: string, sourceAbsolutePaths: string[]) => {
+    const { workspacePath } = get()
+    if (!workspacePath || !sourceAbsolutePaths.length) return null
+    try {
+      const res = await window.api.workbench.importExternalPaths(workspacePath, targetDirRelative, sourceAbsolutePaths)
+      if (res.success && res.data) {
+        await get().loadFileTree()
+        if (res.data.failed.length > 0) {
+          const first = res.data.failed[0]
+          set({ error: `${res.data.failed.length} 项导入失败（${first.path}: ${first.error}）` })
+        }
+        return res.data
+      }
+      set({ error: res.error || '导入失败' })
+      return null
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      set({ error: `导入异常: ${msg}` })
+      return null
+    }
+  },
+
+  /**
+   * 外部文件系统变更回调（资源管理器/其他程序在工作区里增删移动文件）。
+   * 1. 静默重扫文件树（不打 isLoadingTree 骨架，避免外部频繁变更时树闪烁）
+   * 2. 当前激活文件若在磁盘上消失 → 清空编辑器（无脏写回风险）
+   * 3. 文件仍存在且 mtime 变了 → 未编辑的干净文本自动重载；dirty 文档不动
+   *    （用户编辑中不覆盖，等切换/手动刷新时读盘）
+   */
+  handleExternalFsChanged: async (workspaceRoot: string) => {
+    const { workspacePath } = get()
+    if (!workspacePath) return
+
+    // 路径规范化对齐（Windows 大小写不敏感）：不一致说明是过期 watcher 的事件，忽略
+    const normalize = (p: string): string => p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+    if (normalize(workspaceRoot) !== normalize(workspacePath)) return
+
+    const res = await window.api.workbench.readTree(workspacePath)
+    if (!res.success || !res.data) return
+    const nextTree = res.data
+    const previousTree = get().fileTree
+    set({ fileTree: nextTree })
+
+    const { activeFilePath, isDirty, lastSavedAt } = get()
+    // 对账复用刚扫出的文件树：正常路径下主进程不再遍历磁盘。
+    // 外部改名要等对账结果，编辑器才能跟到新路径，而不是当作文件消失。
+    const reconciled = await reconcileMindmaps(workspacePath, nextTree)
+    const renamedTo = activeFilePath
+      ? reconciled?.relinks.find(link => link.from === activeFilePath)?.to ??
+        (findNode(nextTree, activeFilePath) ? null : findRenamedNode(previousTree, nextTree, activeFilePath))
+      : null
+    if (renamedTo) {
+      set({ activeFilePath: renamedTo })
+      void window.api.storeSet('workbench_lastActiveFilePath', renamedTo)
+    }
+    const currentPath = renamedTo ?? activeFilePath
+    if (!currentPath) return
+
+    const allPaths = collectTreePaths(nextTree, new Set<string>())
+
+    // 文件被外部删除/移走（或被重命名成别的路径）：清空编辑器
+    if (!allPaths.has(currentPath)) {
+      set({
+        activeFilePath: null,
+        activeFileContent: '',
+        activeFileCategory: null,
+        activeFileDataUrl: null,
+        activeFileUrl: null,
+        activeFileMime: null,
+        activeFileSize: null,
+        activeFileOversized: false,
+        isDirty: false,
+        saveStatus: 'saved',
+        lastSavedAt: null,
+        conflictDiskContent: null
+      })
+      void window.api.storeDelete('workbench_lastActiveFilePath')
+      return
+    }
+
+    // 文件还在：对比 mtime 决定是否重载内容；父目录 rename 会让 activeFilePath 失配
+    // （其原路径消失走上面的清空分支），此处仅处理同路径内容变更
+    const node = findNode(nextTree, currentPath)
+    if (!node || node.isDirectory) return
+
+    const mtimeChanged =
+      typeof node.mtime === 'number' &&
+      (lastSavedAt === null || Math.abs(node.mtime - lastSavedAt) > 1)
+    if (!mtimeChanged) return
+
+    // 磁盘版本领先内存 → dirty 时标冲突等用户裁决，干净时静默重载
+    const diskNewer = lastSavedAt !== null && node.mtime! - lastSavedAt > 2
+    const { activeFileCategory } = get()
+    const reloadable =
+      activeFileCategory === 'markdown' ||
+      activeFileCategory === 'text' ||
+      activeFileCategory === 'code'
+    if (!reloadable) return
+
+    if (diskNewer && isDirty) {
+      let diskContent = ''
+      try {
+        const fileRes = await window.api.workbench.readFile(workspacePath, currentPath)
+        if (fileRes.success && fileRes.data) diskContent = fileRes.data.content
+      } catch { /* noop */ }
+      set({ saveStatus: 'conflict', conflictDiskContent: diskContent })
+      return
+    }
+    if (isDirty) return
+
+    const fileRes = await window.api.workbench.readFile(workspacePath, currentPath)
+    if (fileRes.success && fileRes.data) {
+      set({
+        activeFileContent: fileRes.data.content,
+        activeFileCategory: fileRes.data.category || getFileCategory(currentPath),
+        activeFileDataUrl: fileRes.data.dataUrl || null,
+        activeFileUrl: fileRes.data.fileUrl || null,
+        activeFileMime: fileRes.data.mimeType || null,
+        activeFileSize: fileRes.data.size,
+        activeFileOversized: !!fileRes.data.isOversized,
+        isDirty: false,
+        saveStatus: 'saved',
+        lastSavedAt: fileRes.data.mtime,
+        conflictDiskContent: null
+      })
     }
   },
 
@@ -930,11 +1284,17 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     void window.api.storeSet('workbench_isLeftCollapsed', next)
   },
 
-  toggleRightCollapse: () => {
-    const next = !get().isRightCollapsed
-    set({ isRightCollapsed: next })
-    void window.api.storeSet('workbench_isRightCollapsed', next)
+  openRightPane: (pane) => {
+    set({ rightPane: pane })
+    void window.api.storeSet('workbench_rightPane', pane)
   },
+
+  closeRightPane: () => {
+    set({ rightPane: null })
+    void window.api.storeSet('workbench_rightPane', null)
+  },
+
+  setPendingMindmapSelection: (selection) => set({ pendingMindmapSelection: selection }),
 
   setSidebarModelId: (modelId: string) => {
     set({ sidebarModelId: modelId })
@@ -982,8 +1342,8 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     }
 
     // 若右侧栏处于折叠状态，先自动展开
-    if (get().isRightCollapsed) {
-      get().toggleRightCollapse()
+    if (get().rightPane !== 'ai') {
+      get().openRightPane('ai')
     }
 
     // 通过 CustomEvent 通知 WorkbenchAiSidebar 注入文本

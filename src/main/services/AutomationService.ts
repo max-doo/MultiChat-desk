@@ -231,8 +231,11 @@ export class AutomationService {
     }
   }
 
-  /** 完整来源会话写入临时 Markdown，附件状态确认后才允许发送。 */
-  public async uploadMarkdownContext(platformId: string, content: string, sessionKey: string, cancelSignal: AbortSignal): Promise<AutomationResponse<{ fileName: string }>> {
+  /**
+   * 完整来源会话写入临时 Markdown，附件状态确认后才允许发送。
+   * baseName 用于工作台文档场景，让附件名体现来源文档；省略时沿用对话快照的默认命名。
+   */
+  public async uploadMarkdownContext(platformId: string, content: string, sessionKey: string, cancelSignal: AbortSignal, baseName?: string): Promise<AutomationResponse<{ fileName: string }>> {
     const controller = new AbortController()
     const abort = (): void => controller.abort()
     cancelSignal.addEventListener('abort', abort, { once: true })
@@ -245,7 +248,8 @@ export class AutomationService {
       if (!content.trim()) throw new Error('主会话附件内容为空')
       const selectors = await abortable(this.getPlatformSelectors(platformId), signal)
       const wc = await abortable(this.ensureSessionReady(platformId, sessionKey), signal)
-      const fileName = `source-conversation-${randomUUID()}.md`
+      const safeBase = baseName?.replace(/[\\/:*?"<>|\r\n]/g, '-').trim().slice(0, 80)
+      const fileName = `${safeBase || 'source-conversation'}-${randomUUID().slice(0, 8)}.md`
       tempDir = await mkdtemp(join(tmpdir(), 'multichat-mindmap-context-'))
       const filePath = join(tempDir, fileName)
       await writeFile(filePath, content, 'utf8')

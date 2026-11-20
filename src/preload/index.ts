@@ -163,7 +163,7 @@ const api = {
   notesList: (): Promise<{ success: boolean; data?: NoteConversation[]; error?: string }> => ipcRenderer.invoke('notes:list'),
   // 采集结果仅暂存于当前窗口；导图成功生成/创建后才与快照一起持久化。
   notesCaptureSource: (id: number, platform: string, name: string): Promise<{ success: boolean; data?: NoteConversation; error?: string }> => ipcRenderer.invoke('notes:capture-source', id, platform, name),
-  mindmapsStart: (conversationId: string, platform: string, additionalRequirements?: string): Promise<{ success: boolean; data?: MindmapTask; error?: string }> => ipcRenderer.invoke('mindmaps:start', conversationId, platform, additionalRequirements),
+  mindmapsStart: (conversationId: string, platform: string, additionalRequirements?: string, material?: { text: string; fileName: string; kind: 'document' | 'selection'; scope?: { scope: 'document' | 'selection'; contentHash: string; selectionText?: string; headingPath?: string[] } }): Promise<{ success: boolean; data?: MindmapTask; error?: string }> => ipcRenderer.invoke('mindmaps:start', conversationId, platform, additionalRequirements, material),
   mindmapsTask: (): Promise<{ success: boolean; data?: MindmapTask | null; error?: string }> => ipcRenderer.invoke('mindmaps:task'),
   // Context flags and owned source webview identity are part of the shared request; main performs capture.
   mindmapsModify: (request: MindmapModifyRequest): Promise<{ success: boolean; data?: MindmapTask; error?: string }> => ipcRenderer.invoke('mindmaps:modify', request),
@@ -397,6 +397,8 @@ const api = {
   workbench: {
     selectFolder: (): Promise<{ success: boolean; data?: WorkbenchSelectFolderResult | null; error?: string }> =>
       ipcRenderer.invoke('workbench:select-folder'),
+    ensureDefaultWorkspace: (): Promise<{ success: boolean; data?: WorkbenchSelectFolderResult; error?: string }> =>
+      ipcRenderer.invoke('workbench:ensure-default'),
     readTree: (workspaceRoot: string): Promise<{ success: boolean; data?: WorkbenchFileNode[]; error?: string }> =>
       ipcRenderer.invoke('workbench:read-tree', { workspaceRoot }),
     readFile: (workspaceRoot: string, relativePath: string): Promise<{ success: boolean; data?: WorkbenchFileInfo; error?: string }> =>
@@ -422,7 +424,26 @@ const api = {
     findUnreferencedImages: (workspaceRoot: string, documentRelativePath: string): Promise<{ success: boolean; data?: { unreferenced: string[]; total: number }; error?: string }> =>
       ipcRenderer.invoke('workbench:find-unreferenced-images', { workspaceRoot, documentRelativePath }),
     deleteNodes: (workspaceRoot: string, relativePaths: string[]): Promise<{ success: boolean; data?: { deleted: string[]; failed: { path: string; error: string }[] }; error?: string }> =>
-      ipcRenderer.invoke('workbench:delete-nodes', { workspaceRoot, relativePaths })
+      ipcRenderer.invoke('workbench:delete-nodes', { workspaceRoot, relativePaths }),
+    importExternalPaths: (workspaceRoot: string, targetDirRelative: string, sourceAbsolutePaths: string[]): Promise<{ success: boolean; data?: { imported: string[]; failed: { path: string; error: string }[]; pairs: Array<{ source: string; target: string }> }; error?: string }> =>
+      ipcRenderer.invoke('workbench:import-external-paths', { workspaceRoot, targetDirRelative, sourceAbsolutePaths }),
+    watch: (workspaceRoot: string): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('workbench:watch', { workspaceRoot }),
+    unwatch: (workspaceRoot: string): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('workbench:unwatch', { workspaceRoot }),
+    statFile: (workspaceRoot: string, relativePath: string): Promise<{ success: boolean; data?: { mtime: number; size: number } | null; error?: string }> =>
+      ipcRenderer.invoke('workbench:stat-file', { workspaceRoot, relativePath }),
+    mindmapSource: (workspaceRoot: string, relativePath: string, title?: string, create?: boolean, content?: string): Promise<{ success: boolean; data?: NoteConversation | null; error?: string }> =>
+      ipcRenderer.invoke('workbench:mindmap-source', { workspaceRoot, relativePath, title, create, content }),
+    reconcileMindmaps: (workspaceRoot: string, index: Array<{ path: string; size?: number; mtime?: number }>): Promise<{ success: boolean; data?: { deleted: number; relinked: number; relinks: Array<{ from: string; to: string }> }; error?: string }> =>
+      ipcRenderer.invoke('workbench:reconcile-mindmaps', { workspaceRoot, index }),
+    mindmapImpact: (workspaceRoot: string, relativePaths: string[]): Promise<{ success: boolean; data?: { documents: number; mindmaps: number }; error?: string }> =>
+      ipcRenderer.invoke('workbench:mindmap-impact', { workspaceRoot, relativePaths }),
+    onFsChanged: (cb: (payload: { workspaceRoot: string }) => void) => {
+      const handler = (_e: Electron.IpcRendererEvent, payload: { workspaceRoot: string }): void => cb(payload)
+      ipcRenderer.on('workbench:fs-changed', handler)
+      return () => { ipcRenderer.removeListener('workbench:fs-changed', handler) }
+    }
   },
   workbenchSelectFolder: (): Promise<{ success: boolean; data?: WorkbenchSelectFolderResult | null; error?: string }> =>
     ipcRenderer.invoke('workbench:select-folder'),

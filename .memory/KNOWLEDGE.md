@@ -115,6 +115,8 @@ Do not copy ordinary session history here. Promote only stable knowledge that is
 - **工作台多格式预览与写盘安全**：在扩展文本编辑器支持只读或二进制文件（图片/PDF/DOCX 等）时，必须严格在 Zustand store、全局快捷键（Ctrl+S）与主进程 `writeFile` 三层严密拦截写盘调用，否则 Ctrl+S 会将空文本写入二进制文件造成不可逆数据破坏；各格式专属预览组件必须在路由分发时绑定 `key={activeFilePath}`，确保切换文件时自动重置缩放、旋转与编辑等局部状态。
 
 
+- **工作台文件树外部文件导入（拖入/粘贴）**：Electron 32+ 已移除 `File.path`，本地路径取 `window.electron.webUtils.getPathForFile(file)`（`@electron-toolkit/preload` 的 `electronAPI` 已自带 `webUtils`）；拖入的**目录也会作为条目出现在 `dataTransfer.files` 中**且 `getPathForFile` 返回目录路径，主进程 `stat.isDirectory` 区分后 `fs.cp recursive` 即可。区分内部移动与外部导入用 `e.dataTransfer.types.includes('Files')`（内部拖拽只设 `text/plain`）。paste 事件只派发到焦点元素，文件树容器需 `tabIndex={-1}` + `onMouseDown` 里 `currentTarget.focus()`（跳过 `HTMLInputElement`）才能接 `onPaste`；剪贴板文件经 `clipboardData.files` 取，为空的文本/图片粘贴放行给编辑器。
+
 ### 7. 划词、快捷键与窗口交互
 
 - **可重复交互的 Electron 悬浮窗口**：避免同时使用 `focusable: false` 和依赖完整 `click` 事件。用 `showInactive` 控制弹出时不抢焦点，让窗口保持可聚焦，并在 `pointerdown` 派发一次性动作。
@@ -176,6 +178,8 @@ Do not copy ordinary session history here. Promote only stable knowledge that is
 ### 8. 笔记、快照与会话身份
 
 - 来源会话键应保留完整规范化URL路径，截取第一个chat片段会把chat/s/id1和chat/s/id2错误分为同一会话
+
+- **工作台文档与导图的绑定以路径为身份、以指纹判改名**：记录键由「规范化工作区路径 + 相对路径」派生，不写文档 frontmatter。文档删除时导图立即删除（应用内删除提示“不可恢复”，不做保留期）；外部改名/移动无法与删除区分，只能在文件树刷新后对账：先让路径仍在的记录占位，再对路径消失的记录按「size + mtime 完全一致」筛候选，唯一候选直接重连，多候选读文件比内容哈希，仍不唯一就按删除处理，绝不猜。对账索引必须由渲染层随文件树传入，主进程不再自行扫盘；按 size+mtime 建桶后再匹配，避免整目录删除时的平方复杂度。删除前再单独 stat 一次，只有 ENOENT 才删，工作区根不可读时整轮跳过。保存成功后只更新哈希与指纹、不推进快照，避免自动保存把导图面板刷成高频重载。生成任务持有的是生成开始时的 sourceKey，期间若被改名重连，保存时查对账留下的「旧路径→新路径」映射跟随新记录，比按内容回查更准，不会误挂到同内容的另一篇文档。
 
 - 抓取网页对话时，ChatGPT 等平台 DOM 自带无障碍头 (如 <h4>你说：</h4>)，在 htmlToMarkdown 时会被转为 Markdown 噪音；因此提取消息必须主动过滤 DOM 伴生噪点，使用 XML 标签隔离结构，彻底避免语法与格式污染
 
@@ -334,3 +338,7 @@ Do not copy ordinary session history here. Promote only stable knowledge that is
 - **新 checkout 的 Electron 安装缺失诊断**：旧 worktree 曾在 npm install 后缺少 node_modules/electron/path.txt/dist，开发启动失败。先核对安装输出与实际文件，不宣称每个 worktree 必然需要手动下载；只有确认 Electron 安装阶段缺失时才按现有依赖的 install.js 修复。此处不是创建 worktree 的授权。
 
 - **跨 worktree 分支保护**：被其他 worktree 检出的分支不能强移指针。历史 develop 与 C:/Project 路径仅是当时布局，不是当前目标；实际位置由 git worktree list 确认。合并、切分支、处理未提交工作需有用户授权，不能自动 force、stash 或任选更长文档覆盖冲突。
+
+### 14. 自包含原型与浏览器视觉验收
+
+- **用 `innerHTML` 重建含 `id` 的子节点后，后续渲染不能再引用旧节点**：自包含 HTML 原型中，如果渲染函数先写入容器 `innerHTML`，之后再按旧 `id` 查询该容器内的节点，首次渲染可能成功，但切换文档、新增标注等第二次渲染会得到 `null` 并中断交互。修复应删除冗余的旧节点引用，或始终在重建完成后重新查询；验收不能只截首屏，还要实际触发一次文档切换或数据更新后的重渲染。

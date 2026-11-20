@@ -52,7 +52,12 @@ import {
   saveImage as workbenchSaveImage,
   importImageFile as workbenchImportImageFile,
   findUnreferencedImages as workbenchFindUnreferencedImages,
-  deleteNodes as workbenchDeleteNodes
+  deleteNodes as workbenchDeleteNodes,
+  importExternalPaths as workbenchImportExternalPaths,
+  watchWorkspace as workbenchWatchWorkspace,
+  unwatchWorkspace as workbenchUnwatchWorkspace,
+  ensureDefaultWorkspace as workbenchEnsureDefaultWorkspace,
+  statFile as workbenchStatFile
 } from './services/workbenchService'
 import type { WorkbenchNodeType } from '../shared/types/workbench'
 
@@ -764,6 +769,8 @@ export async function registerIpcHandlers(
         try {
             trackMindmapOwner(event.sender)
             return { success: true, data: await mindmapService.modify(request, event.sender.id, async source => {
+                // 工作台文档没有对话页面，始终使用保存的正文，不尝试采集 webview。
+                if (source.workbench) return { snapshot: source.snapshot, origin: 'snapshot' }
                 if (!request.source) {
                     const saved = await noteManager.get(source.id)
                     return { snapshot: saved.snapshot, origin: 'snapshot' }
@@ -833,12 +840,13 @@ export async function registerIpcHandlers(
             return { success: true, data }
         } catch (error) { return { success: false, error: error instanceof Error ? error.message : '读取对话失败' } }
     })
-    ipcMain.handle('mindmaps:start', async (event, conversationId: string, platform: string, additionalRequirements?: string) => {
+    ipcMain.handle('mindmaps:start', async (event, conversationId: string, platform: string, additionalRequirements?: string, material?: { text: string; fileName: string; kind: 'document' | 'selection'; scope?: { scope: 'document' | 'selection'; contentHash: string; selectionText?: string; headingPath?: string[] } }) => {
         try {
             if (additionalRequirements !== undefined && typeof additionalRequirements !== 'string') throw new Error('额外要求必须是文本')
+            if (material !== undefined && (!material || typeof material.text !== 'string' || typeof material.fileName !== 'string' || (material.kind !== 'document' && material.kind !== 'selection'))) throw new Error('生成材料无效')
             const source = await takeMindmapSource(event.sender, conversationId)
             trackMindmapOwner(event.sender)
-            return { success: true, data: await mindmapService.start(source, platform, additionalRequirements?.trim(), event.sender.id) }
+            return { success: true, data: await mindmapService.start(source, platform, additionalRequirements?.trim(), event.sender.id, material) }
         } catch (error) { return { success: false, error: error instanceof Error ? error.message : '启动失败' } }
     })
     ipcMain.handle('mindmaps:task', () => ({ success: true, data: mindmapService.getTask() }))
@@ -945,9 +953,11 @@ export async function registerIpcHandlers(
             if (result.canceled || !result.filePath) return { success: true, data: false }
             const conversations = await noteManager.list()
             if (result.filePath.toLowerCase().endsWith('.json')) {
+                // 备份保留工作台导图（含来源绑定），否则换机后无法恢复。
                 await writeFile(result.filePath, JSON.stringify(conversations, null, 2), 'utf8')
             } else {
-                const markdown = conversations.map(item => {
+                // Markdown 导出面向阅读：工作台文档正文已在工作区文件里，跳过避免重复。
+                const markdown = conversations.filter(item => !item.workbench).map(item => {
                     const snapshot = normalizeNoteTranscriptMarkdown(item.snapshot)
                     const annotations = item.notes.map((note, index) => `### 笔记 ${index + 1}\n\n> ${note.quote.replace(/\n/g, '\n> ')}\n\n${note.comment || ''}`).join('\n\n')
                     const mindmaps = item.mindmaps.map(map => `### ${map.title}\n\n${map.markdown}`).join('\n\n')
@@ -1587,6 +1597,16 @@ export async function registerIpcHandlers(
         }
     })
 
+    ipcMain.handle('workbench:ensure-default', async () => {
+        try {
+            const data = await workbenchEnsureDefaultWorkspace(store)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
     ipcMain.handle('workbench:read-tree', async (_event, payload: string | { workspaceRoot: string }) => {
         try {
             const workspaceRoot = typeof payload === 'string' ? payload : payload?.workspaceRoot
@@ -1616,6 +1636,10 @@ export async function registerIpcHandlers(
             const relativePath = typeof payload === 'string' ? relPath! : payload?.relativePath
             const content = typeof payload === 'string' ? text! : payload?.content
             const data = await workbenchWriteFile(workspaceRoot, relativePath, content ?? '')
+            // 保存后同步绑定指纹：外部改名判定要用最新的 size/mtime 与哈希。
+            // 不广播 notes:changed：快照没变，没必要让导图面板跟着每次自动保存重载。
+            await noteManager.refreshWorkbenchSource(workspaceRoot, relativePath, content ?? '', data)
+                .catch(error => console.warn('[Workbench] 导图指纹更新失败:', error))
             return { success: true, data }
         } catch (err: unknown) {
             const error = err instanceof Error ? err.message : String(err)
@@ -1642,6 +1666,10 @@ export async function registerIpcHandlers(
             const oldRelativePath = typeof payload === 'string' ? oldPath! : payload?.oldRelativePath
             const newRelativePath = typeof payload === 'string' ? newPath! : payload?.newRelativePath
             await workbenchRenameNode(workspaceRoot, oldRelativePath, newRelativePath)
+            // 文件已落盘再改绑定；失败只影响导图跟随，不回滚用户的重命名。
+            await noteManager.rekeyWorkbenchSource(workspaceRoot, oldRelativePath, newRelativePath)
+                .then(moved => { if (moved) notesChanged() })
+                .catch(error => console.warn('[Workbench] 导图绑定迁移失败:', error))
             return { success: true }
         } catch (err: unknown) {
             const error = err instanceof Error ? err.message : String(err)
@@ -1654,6 +1682,8 @@ export async function registerIpcHandlers(
             const workspaceRoot = typeof payload === 'string' ? payload : payload?.workspaceRoot
             const relativePath = typeof payload === 'string' ? relPath! : payload?.relativePath
             await workbenchDeleteNode(workspaceRoot, relativePath)
+            // 文件移入回收站后才删导图；删除失败时记录保持原样。
+            await noteManager.purgeWorkbenchSource(workspaceRoot, [relativePath]).then(count => { if (count) notesChanged() })
             return { success: true }
         } catch (err: unknown) {
             const error = err instanceof Error ? err.message : String(err)
@@ -1734,6 +1764,122 @@ export async function registerIpcHandlers(
     ipcMain.handle('workbench:delete-nodes', async (_event, payload: { workspaceRoot: string; relativePaths: string[] }) => {
         try {
             const data = await workbenchDeleteNodes(payload.workspaceRoot, payload.relativePaths)
+            // 只清理真正删除成功的节点，失败项保留绑定，等下次重试。
+            if (data.deleted.length) {
+                await noteManager.purgeWorkbenchSource(payload.workspaceRoot, data.deleted)
+                    .then(count => { if (count) notesChanged() })
+            }
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('workbench:import-external-paths', async (_event, payload: { workspaceRoot: string; targetDirRelative: string; sourceAbsolutePaths: string[] }) => {
+        try {
+            const data = await workbenchImportExternalPaths(payload.workspaceRoot, payload.targetDirRelative, payload.sourceAbsolutePaths)
+            // 副本是独立记录：源文档的导图整组克隆到新路径，两边之后互不影响。
+            if (data.pairs.length) {
+                let cloned = 0
+                for (const pair of data.pairs) {
+                    try {
+                        cloned += await noteManager.duplicateWorkbenchSource(payload.workspaceRoot, pair.source, pair.target)
+                    } catch (error) {
+                        console.warn('[Workbench] 复制导图绑定失败:', pair.target, error)
+                    }
+                }
+                if (cloned) notesChanged()
+            }
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    // 工作区文件系统监听：渲染层在打开/切换工作区时调用，外部变更经主进程
+    // 单 watcher 聚合去抖后以 workbench:fs-changed 事件广播，驱动文件树重扫
+    ipcMain.handle('workbench:watch', (_event, payload: { workspaceRoot: string }) => {
+        try {
+            workbenchWatchWorkspace(payload.workspaceRoot)
+            return { success: true }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('workbench:unwatch', (_event, payload: { workspaceRoot: string }) => {
+        try {
+            workbenchUnwatchWorkspace(payload.workspaceRoot)
+            return { success: true }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    // 轻量 stat：保存前的乐观并发校验（mtime 比对）用，避免带全文的 readFile
+    ipcMain.handle('workbench:stat-file', async (_event, payload: { workspaceRoot: string; relativePath: string }) => {
+        try {
+            const data = await workbenchStatFile(payload.workspaceRoot, payload.relativePath)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    // 工作台导图：按文档路径取或建来源记录，并同步当前正文。
+    // 记录里的 size/mtime 用于外部改名判定，生成时顺手补上，避免下次对账多读一次盘。
+    ipcMain.handle('workbench:mindmap-source', async (_event, payload: { workspaceRoot: string; relativePath: string; title?: string; create?: boolean; content?: string }) => {
+        try {
+            const title = payload.title || payload.relativePath.split('/').pop() || payload.relativePath
+            // 只是打开文档时不建记录，避免给每篇看过的文档留一条空笔记。
+            if (payload.create === false) {
+                const existing = await noteManager.findWorkbenchSource(payload.workspaceRoot, payload.relativePath)
+                return { success: true, data: existing ?? null }
+            }
+            // 优先用编辑器内存内容：生成时的正文可能尚未落盘，用磁盘版本会让“基于旧版本”判断失真。
+            let content = payload.content
+            let stat: { size: number; mtime: number } | undefined
+            if (content === undefined) {
+                const info = await workbenchReadFile(payload.workspaceRoot, payload.relativePath)
+                if (info.isBinary) throw new Error('该格式暂不支持生成思维导图')
+                content = info.content
+                stat = { size: info.size, mtime: info.mtime }
+            } else {
+                // 内存内容没有现成的 size/mtime，读一次 stat 即可（不会附带全文）。
+                const info = await workbenchStatFile(payload.workspaceRoot, payload.relativePath).catch(() => null)
+                if (info) stat = info
+            }
+            const data = await noteManager.prepareWorkbenchSource(payload.workspaceRoot, payload.relativePath, title, content, stat)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    // 外部删除/改名无法拦截，由文件树刷新后对账：路径消失且找不到同一文件 → 删导图。
+    // index 由渲染层随文件树一起传入，正常路径下对账零额外 IO。
+    ipcMain.handle('workbench:reconcile-mindmaps', async (_event, payload: { workspaceRoot: string; index?: Array<{ path: string; size?: number; mtime?: number }> }) => {
+        try {
+            if (!Array.isArray(payload.index)) return { success: false, error: '缺少文件树索引' }
+            const index = new Map(payload.index.map(item => [item.path, { size: item.size, mtime: item.mtime }]))
+            const data = await noteManager.reconcileWorkbenchSources(payload.workspaceRoot, index)
+            if (data.deleted || data.relinked) notesChanged()
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('workbench:mindmap-impact', async (_event, payload: { workspaceRoot: string; relativePaths: string[] }) => {
+        try {
+            const data = await noteManager.workbenchTrashImpact(payload.workspaceRoot, payload.relativePaths)
             return { success: true, data }
         } catch (err: unknown) {
             const error = err instanceof Error ? err.message : String(err)

@@ -21,6 +21,8 @@ interface ActionModalState {
   defaultValue?: string
   // cleanImages 用：待清理的未引用图片列表
   unreferencedImages?: string[]
+  // 删除确认用：关联的文档数与导图数，用于提前告知绑定会如何处理
+  mindmapImpact?: { documents: number; mindmaps: number }
 }
 
 /**
@@ -37,6 +39,29 @@ interface DragState {
   node: WorkbenchFileNode
   /** 参与拖拽的全部路径（多选时为整组，单选时仅自身） */
   paths: string[]
+}
+
+/** 从拖拽/粘贴的 File 对象提取本地绝对路径（Electron：.path 或 webUtils.getPathForFile） */
+function extractLocalPath(file: File): string {
+  const legacy = (file as File & { path?: string }).path
+  if (legacy) return legacy
+  const webUtils = (window as Window & { electron?: { webUtils?: { getPathForFile?: (f: File) => string } } }).electron?.webUtils
+  try {
+    return webUtils?.getPathForFile?.(file) ?? ''
+  } catch {
+    return ''
+  }
+}
+
+/** 收集 DataTransferItemList / FileList 中所有带本地路径的条目 */
+function collectLocalPaths(files: FileList | File[] | null | undefined): string[] {
+  if (!files) return []
+  const out: string[] = []
+  for (const f of Array.from(files)) {
+    const p = extractLocalPath(f)
+    if (p) out.push(p)
+  }
+  return out
 }
 
 type SortMenuKey = 'name' | 'mtime' | 'size'
@@ -98,6 +123,7 @@ export function getNodeIcon(node: WorkbenchFileNode): { icon: string; color: str
 export default function WorkbenchFileTree(): JSX.Element {
   const workspacePath = useWorkbenchStore((s) => s.workspacePath)
   const workspaceName = useWorkbenchStore((s) => s.workspaceName)
+  const defaultWorkspacePath = useWorkbenchStore((s) => s.defaultWorkspacePath)
   const fileTree = useWorkbenchStore((s) => s.fileTree)
   const expandedFolderIds = useWorkbenchStore((s) => s.expandedFolderIds)
   const isLoadingTree = useWorkbenchStore((s) => s.isLoadingTree)
@@ -124,6 +150,7 @@ export default function WorkbenchFileTree(): JSX.Element {
   const moveNode = useWorkbenchStore((s) => s.moveNode)
   const findUnreferencedImages = useWorkbenchStore((s) => s.findUnreferencedImages)
   const deleteNodes = useWorkbenchStore((s) => s.deleteNodes)
+  const importExternalItems = useWorkbenchStore((s) => s.importExternalItems)
 
   const [isSearchMode, setIsSearchMode] = useState(false)
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
@@ -411,6 +438,11 @@ export default function WorkbenchFileTree(): JSX.Element {
     [dragState]
   )
 
+  /** 外部文件/文件夹拖入：目录节点 dragover（内部拖拽与外部文件共享高亮态） */
+  const isExternalFileDrag = useCallback((e: React.DragEvent): boolean => {
+    return !dragState && e.dataTransfer.types.includes('Files')
+  }, [dragState])
+
   /** 拖到文件上 = 放入其父目录（VSCode 行为），返回父目录路径，无效则 null */
   const resolveFileDropParent = useCallback(
     (node: WorkbenchFileNode): string | null => {
@@ -424,6 +456,15 @@ export default function WorkbenchFileTree(): JSX.Element {
 
   const handleNodeDragOver = useCallback(
     (e: React.DragEvent, node: WorkbenchFileNode) => {
+      // 外部文件拖入：目录节点直接作为目标
+      if (isExternalFileDrag(e)) {
+        e.preventDefault()
+        e.stopPropagation()
+        e.dataTransfer.dropEffect = 'copy'
+        setDropTargetDir(node.path)
+        setIsRootDropActive(false)
+        return
+      }
       if (!isValidDropDir(node)) return
       e.preventDefault()
       e.stopPropagation()
@@ -431,13 +472,23 @@ export default function WorkbenchFileTree(): JSX.Element {
       setDropTargetDir(node.path)
       setIsRootDropActive(false)
     },
-    [isValidDropDir]
+    [isValidDropDir, isExternalFileDrag]
   )
 
   const handleNodeDrop = useCallback(
     (e: React.DragEvent, node: WorkbenchFileNode) => {
       e.preventDefault()
       e.stopPropagation()
+      // 外部文件/文件夹 → 复制进该目录
+      if (isExternalFileDrag(e)) {
+        const paths = collectLocalPaths(e.dataTransfer.files)
+        if (paths.length) {
+          expandAncestors([node.path])
+          void importExternalItems(node.path, paths)
+        }
+        setDropTargetDir(null)
+        return
+      }
       if (isValidDropDir(node) && dragState) {
         expandAncestors([node.path])
         for (const p of dragState.paths) {
@@ -446,11 +497,27 @@ export default function WorkbenchFileTree(): JSX.Element {
       }
       handleDragEnd()
     },
-    [isValidDropDir, dragState, expandAncestors, moveNode, handleDragEnd]
+    [isValidDropDir, dragState, expandAncestors, moveNode, handleDragEnd, isExternalFileDrag, importExternalItems]
   )
 
   const handleFileDragOver = useCallback(
     (e: React.DragEvent, node: WorkbenchFileNode) => {
+      // 外部文件拖到文件上 → 落入其父目录
+      if (isExternalFileDrag(e)) {
+        const idx = node.path.lastIndexOf('/')
+        const parent = idx === -1 ? '' : node.path.slice(0, idx)
+        e.preventDefault()
+        e.stopPropagation()
+        e.dataTransfer.dropEffect = 'copy'
+        if (parent) {
+          setDropTargetDir(parent)
+          setIsRootDropActive(false)
+        } else {
+          setDropTargetDir(null)
+          setIsRootDropActive(true)
+        }
+        return
+      }
       const parent = resolveFileDropParent(node)
       if (parent === null) return
       e.preventDefault()
@@ -465,13 +532,22 @@ export default function WorkbenchFileTree(): JSX.Element {
         setIsRootDropActive(true)
       }
     },
-    [resolveFileDropParent]
+    [resolveFileDropParent, isExternalFileDrag]
   )
 
   const handleFileDrop = useCallback(
     (e: React.DragEvent, node: WorkbenchFileNode) => {
       e.preventDefault()
       e.stopPropagation()
+      if (isExternalFileDrag(e)) {
+        const idx = node.path.lastIndexOf('/')
+        const parent = idx === -1 ? '' : node.path.slice(0, idx)
+        const paths = collectLocalPaths(e.dataTransfer.files)
+        if (paths.length) void importExternalItems(parent, paths)
+        setDropTargetDir(null)
+        setIsRootDropActive(false)
+        return
+      }
       const parent = resolveFileDropParent(node)
       if (parent !== null && dragState) {
         for (const p of dragState.paths) {
@@ -480,24 +556,38 @@ export default function WorkbenchFileTree(): JSX.Element {
       }
       handleDragEnd()
     },
-    [resolveFileDropParent, dragState, moveNode, handleDragEnd]
+    [resolveFileDropParent, dragState, moveNode, handleDragEnd, isExternalFileDrag, importExternalItems]
   )
 
   // 根目录空白区：拖到文件上时冒泡不触发（子节点已 stopPropagation），仅空白生效
   const handleRootDragOver = useCallback(
     (e: React.DragEvent) => {
+      if (isExternalFileDrag(e)) {
+        e.preventDefault()
+        e.dataTransfer.dropEffect = 'copy'
+        setIsRootDropActive(true)
+        setDropTargetDir(null)
+        return
+      }
       if (!dragState) return
       e.preventDefault()
       e.dataTransfer.dropEffect = 'move'
       setIsRootDropActive(true)
       setDropTargetDir(null)
     },
-    [dragState]
+    [dragState, isExternalFileDrag]
   )
 
   const handleRootDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault()
+      if (isExternalFileDrag(e)) {
+        const paths = collectLocalPaths(e.dataTransfer.files)
+        if (paths.length) void importExternalItems('', paths)
+        setIsRootDropActive(false)
+        setDropTargetDir(null)
+        return
+      }
       if (dragState) {
         for (const p of dragState.paths) {
           void moveNode(p, '')
@@ -505,7 +595,7 @@ export default function WorkbenchFileTree(): JSX.Element {
       }
       handleDragEnd()
     },
-    [dragState, moveNode, handleDragEnd]
+    [dragState, moveNode, handleDragEnd, isExternalFileDrag, importExternalItems]
   )
 
   const handleContextMenu = useCallback((e: React.MouseEvent, node: WorkbenchFileNode | null) => {
@@ -520,6 +610,21 @@ export default function WorkbenchFileTree(): JSX.Element {
     const y = Math.min(e.clientY, window.innerHeight - 200)
     setContextMenu({ x, y, node })
   }, [selectedPaths])
+
+  /** 粘贴（Ctrl+V / 系统粘贴）：把剪贴板中的本地文件复制进上下文目录（VSCode 语义） */
+  const handlePaste = useCallback(
+    (e: React.ClipboardEvent) => {
+      const files = e.clipboardData?.files
+      if (!files || files.length === 0) return // 文本/图片粘贴不接管（图片走编辑器插件）
+      const paths = collectLocalPaths(files)
+      if (!paths.length) return
+      e.preventDefault()
+      const parentDir = resolveParentDir(null)
+      expandAncestors(parentDir ? [parentDir] : [])
+      void importExternalItems(parentDir, paths)
+    },
+    [resolveParentDir, expandAncestors, importExternalItems]
+  )
 
   const handleModalSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -536,8 +641,15 @@ export default function WorkbenchFileTree(): JSX.Element {
         await renameNode(targetNode.path, newPath)
       }
     } else if (type === 'deleteMulti') {
-      for (const p of Array.from(selectedPaths)) {
-        await deleteNode(p)
+      const targets = Array.from(selectedPaths)
+      // 命中当前文档时走逐项删除：它会顺带把编辑器切到相邻文档；
+      // 其余情况一次批量删除，主进程只清理一次、文件树只重扫一次。
+      const hitsActive = !!activeFilePath && targets.some(p =>
+        activeFilePath === p || activeFilePath.startsWith(`${p}/`))
+      if (hitsActive) {
+        for (const p of targets) await deleteNode(p)
+      } else {
+        await deleteNodes(targets)
       }
       setSelectedPaths(new Set())
     } else if (type === 'delete' && targetNode) {
@@ -692,7 +804,16 @@ export default function WorkbenchFileTree(): JSX.Element {
   }
 
   return (
-    <div className="flex flex-col h-full overflow-hidden text-sm select-none border-r border-black/5 dark:border-white/5">
+    <div
+      tabIndex={-1}
+      className="flex flex-col h-full overflow-hidden text-sm select-none border-r border-black/5 dark:border-white/5 outline-none"
+      onMouseDown={(e) => {
+        // 点击任意处让容器获得焦点，从而能接收 paste 事件；不打断子元素交互
+        if (e.target instanceof HTMLInputElement) return
+        e.currentTarget.focus()
+      }}
+      onPaste={handlePaste}
+    >
       {/* 头部：核心操作（左对齐）+ 侧边栏折叠开关（最右） */}
       <div className="h-12 px-3 border-b border-black/5 dark:border-white/5 flex items-center justify-between gap-1 shrink-0">
         <div className="flex items-center gap-0.5 text-text-secondary">
@@ -851,10 +972,41 @@ export default function WorkbenchFileTree(): JSX.Element {
             ref={vaultMenuRef}
             className="absolute bottom-full left-1.5 right-1.5 mb-1 z-50 py-1 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-black/10 dark:border-white/10 text-sm animate-in fade-in zoom-in-95 duration-100"
           >
-            {recentWorkspaces.length === 0 && !workspacePath && (
+            {defaultWorkspacePath && (() => {
+              const p = defaultWorkspacePath
+              const name = p.split(/[/\\]/).filter(Boolean).pop() || p
+              const isCurrent = p === workspacePath
+              return (
+                <>
+                  <button
+                    key={p}
+                    type="button"
+                    disabled={isCurrent}
+                    onClick={() => {
+                      setIsVaultMenuOpen(false)
+                      void useWorkbenchStore.getState().setWorkspaceFolder(p, name)
+                    }}
+                    className={`w-full flex items-center gap-2 px-3 py-1.5 text-left transition-colors ${
+                      isCurrent
+                        ? 'text-text-primary font-medium'
+                        : 'text-text-primary hover:bg-black/5 dark:hover:bg-white/5'
+                    }`}
+                    title={p}
+                  >
+                    <span className="material-symbols-outlined text-[18px] text-primary">home</span>
+                    <span className="truncate flex-1">{name}</span>
+                    {isCurrent && (
+                      <span className="material-symbols-outlined text-[18px] text-primary">check</span>
+                    )}
+                  </button>
+                  <div className="my-1 border-t border-black/5 dark:border-white/5" />
+                </>
+              )
+            })()}
+            {recentWorkspaces.filter((p) => p !== defaultWorkspacePath).length === 0 && !workspacePath && (
               <div className="px-3 py-2 text-text-secondary/70 text-xs">暂无历史工作区</div>
             )}
-            {recentWorkspaces.map((p) => {
+            {recentWorkspaces.filter((p) => p !== defaultWorkspacePath).map((p) => {
               const name = p.split(/[/\\]/).filter(Boolean).pop() || p
               const isCurrent = p === workspacePath
               return (
@@ -1012,12 +1164,16 @@ export default function WorkbenchFileTree(): JSX.Element {
               <div className="my-1 border-t border-black/5 dark:border-white/5" />
               <button
                 type="button"
-                onClick={() => {
+                onClick={async () => {
                   const multi = selectedPaths.size > 1 && contextMenu.node && selectedPaths.has(contextMenu.node.path)
+                  const targets = multi ? Array.from(selectedPaths) : contextMenu.node ? [contextMenu.node.path] : []
+                  const impact = workspacePath && targets.length
+                    ? await window.api.workbench.mindmapImpact(workspacePath, targets)
+                    : null
                   setActionModal(
                     multi
-                      ? { type: 'deleteMulti', targetNode: contextMenu.node }
-                      : { type: 'delete', targetNode: contextMenu.node }
+                      ? { type: 'deleteMulti', targetNode: contextMenu.node, mindmapImpact: impact?.data }
+                      : { type: 'delete', targetNode: contextMenu.node, mindmapImpact: impact?.data }
                   )
                   setContextMenu(null)
                 }}
@@ -1061,14 +1217,23 @@ export default function WorkbenchFileTree(): JSX.Element {
               </button>
             </div>
 
-            {actionModal.type === 'deleteMulti' ? (
-              <p className="text-text-secondary text-sm leading-relaxed">
-                确定要将选中的 <strong className="text-text-primary">{selectedPaths.size}</strong> 项移至系统回收站吗？
-              </p>
-            ) : actionModal.type === 'delete' ? (
-              <p className="text-text-secondary text-sm leading-relaxed">
-                确定要将「<strong className="text-text-primary">{actionModal.targetNode?.name}</strong>」移至系统回收站吗？
-              </p>
+            {actionModal.type === 'deleteMulti' || actionModal.type === 'delete' ? (
+              <div className="text-text-secondary text-sm leading-relaxed space-y-2">
+                <p>
+                  {actionModal.type === 'deleteMulti'
+                    ? <>确定要将选中的 <strong className="text-text-primary">{selectedPaths.size}</strong> 项移至系统回收站吗？</>
+                    : <>确定要将「<strong className="text-text-primary">{actionModal.targetNode?.name}</strong>」移至系统回收站吗？</>}
+                </p>
+                {!!actionModal.mindmapImpact?.mindmaps && (
+                  <div className="rounded-lg bg-amber-50 px-3 py-2 text-amber-800">
+                    <p>
+                      <strong>{actionModal.mindmapImpact.documents}</strong> 篇文档的{' '}
+                      <strong>{actionModal.mindmapImpact.mindmaps}</strong> 张思维导图会一并删除，且无法恢复；
+                      文档本身仍可从回收站还原。
+                    </p>
+                  </div>
+                )}
+              </div>
             ) : actionModal.type === 'cleanImages' ? (
               <div className="text-text-secondary text-sm leading-relaxed">
                 {actionModal.unreferencedImages && actionModal.unreferencedImages.length > 0 ? (
@@ -1153,12 +1318,53 @@ export default function WorkbenchFileTree(): JSX.Element {
             </div>
 
             <div className="flex-1 min-h-[120px] overflow-y-auto -mx-2 px-2 flex flex-col gap-1">
-              {recentWorkspaces.length === 0 && (
+              {defaultWorkspacePath && (
+                <>
+                  <div className="px-2.5 pt-1 pb-1.5 text-[11px] font-medium text-text-secondary/70 tracking-wide">
+                    默认仓库
+                  </div>
+                  {(() => {
+                    const p = defaultWorkspacePath
+                    const name = p.split(/[/\\]/).filter(Boolean).pop() || p
+                    const isCurrent = p === workspacePath
+                    return (
+                      <div
+                        key={p}
+                        className={`group flex items-center gap-2 px-2.5 py-2 rounded-lg transition-colors ${
+                          isCurrent
+                            ? 'bg-primary/10'
+                            : 'hover:bg-black/5 dark:hover:bg-white/5'
+                        }`}
+                      >
+                        <span className="material-symbols-outlined text-[19px] text-primary">home</span>
+                        <button
+                          type="button"
+                          disabled={isCurrent}
+                          onClick={() => {
+                            setIsVaultManageOpen(false)
+                            void useWorkbenchStore.getState().setWorkspaceFolder(p, name)
+                          }}
+                          className="flex-1 min-w-0 text-left"
+                          title={p}
+                        >
+                          <div className="font-medium text-text-primary truncate">{name}</div>
+                          <div className="text-xs text-text-secondary truncate">{p}</div>
+                        </button>
+                        {isCurrent && (
+                          <span className="material-symbols-outlined text-[18px] text-primary">check_circle</span>
+                        )}
+                      </div>
+                    )
+                  })()}
+                  <div className="my-1 border-t border-black/5 dark:border-white/5" />
+                </>
+              )}
+              {recentWorkspaces.filter((p) => p !== defaultWorkspacePath).length === 0 && (
                 <div className="py-8 text-center text-text-secondary/70 text-xs">
                   暂无历史工作区
                 </div>
               )}
-              {recentWorkspaces.map((p) => {
+              {recentWorkspaces.filter((p) => p !== defaultWorkspacePath).map((p) => {
                 const name = p.split(/[/\\]/).filter(Boolean).pop() || p
                 const isCurrent = p === workspacePath
                 return (
@@ -1212,7 +1418,7 @@ export default function WorkbenchFileTree(): JSX.Element {
                 <span className="material-symbols-outlined text-[18px]">folder_open</span>
                 <span>选择其他文件夹…</span>
               </button>
-              {workspacePath && (
+              {workspacePath && workspacePath !== defaultWorkspacePath && (
                 <button
                   type="button"
                   onClick={() => {

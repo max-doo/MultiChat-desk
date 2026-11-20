@@ -9,7 +9,6 @@ const OFFICE_KIND_META: Record<
     icon: string
     accent: string
     accentSoft: string
-    badge: string
     appLabel: string
     description: string
   }
@@ -18,8 +17,6 @@ const OFFICE_KIND_META: Record<
     icon: 'article',
     accent: 'text-indigo-600 dark:text-indigo-400',
     accentSoft: 'bg-indigo-500/10 dark:bg-indigo-400/10 text-indigo-600 dark:text-indigo-400',
-    badge:
-      'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20',
     appLabel: 'Word / WPS',
     description:
       'Word 文档采用复杂的 OpenXML 压缩架构与专有版式排版规则。为了避免格式错位并保持表格、样式与公式的 100% 还原，推荐使用本地默认办公应用直接打开查看与编辑。'
@@ -28,8 +25,6 @@ const OFFICE_KIND_META: Record<
     icon: 'table',
     accent: 'text-emerald-600 dark:text-emerald-400',
     accentSoft: 'bg-emerald-500/10 dark:bg-emerald-400/10 text-emerald-600 dark:text-emerald-400',
-    badge:
-      'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20',
     appLabel: 'Excel / WPS',
     description:
       'Excel 工作簿包含公式、数据透视表与图表等复杂结构。为了完整保留计算逻辑与格式，推荐使用本地默认表格应用直接打开查看与编辑。'
@@ -38,8 +33,6 @@ const OFFICE_KIND_META: Record<
     icon: 'slideshow',
     accent: 'text-orange-600 dark:text-orange-400',
     accentSoft: 'bg-orange-500/10 dark:bg-orange-400/10 text-orange-600 dark:text-orange-400',
-    badge:
-      'bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20',
     appLabel: 'PowerPoint / WPS',
     description:
       'PPT 演示文稿包含动画、母版与多媒体元素。为了完整保留播放效果与排版，推荐使用本地默认演示应用直接打开查看与编辑。'
@@ -48,8 +41,6 @@ const OFFICE_KIND_META: Record<
     icon: 'article',
     accent: 'text-indigo-600 dark:text-indigo-400',
     accentSoft: 'bg-indigo-500/10 dark:bg-indigo-400/10 text-indigo-600 dark:text-indigo-400',
-    badge:
-      'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20',
     appLabel: '本地办公应用',
     description:
       '该文档采用专有二进制或版式排版格式。为了避免内容错位，推荐使用本地默认办公应用直接打开查看与编辑。'
@@ -125,9 +116,6 @@ export default function WorkbenchDocxCard(): JSX.Element {
           <span className="font-medium text-text-primary truncate" title={activeFilePath || ''}>
             {activeFilePath}
           </span>
-          <span className={`px-1.5 py-0.5 rounded text-xs font-semibold border ${meta.badge}`}>
-            {format}
-          </span>
         </div>
 
         <div className="flex items-center gap-1.5 text-text-secondary">
@@ -136,17 +124,26 @@ export default function WorkbenchDocxCard(): JSX.Element {
             onClick={() => {
               if (activeFilePath) void openInSystem(activeFilePath)
             }}
-            className="h-7 px-2.5 flex items-center gap-1 rounded-md bg-indigo-600 text-white hover:bg-indigo-700 font-medium transition-colors shadow-xs"
-            title="使用本地办公软件打开"
+            className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors"
+            title={`在 ${meta.appLabel} 中打开`}
           >
             <span className="material-symbols-outlined text-[19px]">open_in_new</span>
-            <span>在 {meta.appLabel} 中打开</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (activeFilePath) void revealFile(activeFilePath)
+            }}
+            className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors"
+            title="在系统资源管理器中定位"
+          >
+            <span className="material-symbols-outlined text-[19px]">folder_open</span>
           </button>
         </div>
       </div>
 
       {/* 文档详情展示卡片 */}
-      <div className="flex-1 overflow-auto flex items-center justify-center p-8">
+      <div className="flex-1 overflow-auto flex items-center justify-center p-8 relative">
         <div className="w-full max-w-lg bg-white dark:bg-gray-800 rounded-3xl p-8 shadow-xl border border-black/5 dark:border-white/5 flex flex-col items-center text-center">
           {/* 大图标 */}
           <div
@@ -164,11 +161,7 @@ export default function WorkbenchDocxCard(): JSX.Element {
 
           {/* 元信息网格 */}
           <div className="grid grid-cols-2 gap-3 w-full max-w-sm mb-6 text-left">
-            <div className="p-3 rounded-xl bg-slate-50 dark:bg-gray-700/50 border border-black/5 dark:border-white/5">
-              <span className="text-xs text-text-secondary block mb-0.5">文件大小</span>
-              <span className="text-sm font-semibold text-text-primary">{formattedSize}</span>
-            </div>
-            <div className="p-3 rounded-xl bg-slate-50 dark:bg-gray-700/50 border border-black/5 dark:border-white/5">
+            <div className="col-span-2 p-3 rounded-xl bg-slate-50 dark:bg-gray-700/50 border border-black/5 dark:border-white/5">
               <span className="text-xs text-text-secondary block mb-0.5">文件格式</span>
               <span className={`text-sm font-semibold ${meta.accent}`}>{format} 规范文档</span>
             </div>
@@ -223,6 +216,15 @@ export default function WorkbenchDocxCard(): JSX.Element {
             </button>
           </div>
         </div>
+
+        {/* 右下角状态 Pill（与 Markdown 源码一致） */}
+        {formattedSize && formattedSize !== '未知大小' && (
+          <div className="pointer-events-none absolute bottom-3 right-3 z-10 flex items-center gap-2 rounded-full border border-black/5 bg-white/85 px-2.5 py-1 text-xs text-text-secondary shadow-sm backdrop-blur-md dark:border-white/10 dark:bg-gray-900/80">
+            <span className="whitespace-nowrap" title={`大小 ${formattedSize}`}>
+              {formattedSize}
+            </span>
+          </div>
+        )}
       </div>
     </div>
   )

@@ -1,9 +1,9 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import { useWorkbenchStore } from '../../store/workbenchStore'
 
 export default function WorkbenchPdfPreview(): JSX.Element {
   const activeFilePath = useWorkbenchStore((s) => s.activeFilePath)
-  const activeFileDataUrl = useWorkbenchStore((s) => s.activeFileDataUrl)
+  const activeFileUrl = useWorkbenchStore((s) => s.activeFileUrl)
   const activeFileSize = useWorkbenchStore((s) => s.activeFileSize)
   const activeFileOversized = useWorkbenchStore((s) => s.activeFileOversized)
   const openInSystem = useWorkbenchStore((s) => s.openInSystem)
@@ -19,34 +19,8 @@ export default function WorkbenchPdfPreview(): JSX.Element {
     return `${(activeFileSize / (1024 * 1024)).toFixed(1)} MB`
   }, [activeFileSize])
 
-  // 安全构建 PDF Blob URL 供 Chromium 内置 PDFium 渲染
-  const blobUrl = useMemo(() => {
-    if (!activeFileDataUrl) return null
-    try {
-      const parts = activeFileDataUrl.split(',')
-      const base64 = parts[1] || parts[0]
-      const binary = atob(base64)
-      const len = binary.length
-      const bytes = new Uint8Array(len)
-      for (let i = 0; i < len; i++) {
-        bytes[i] = binary.charCodeAt(i)
-      }
-      const blob = new Blob([bytes], { type: 'application/pdf' })
-      return URL.createObjectURL(blob)
-    } catch (err) {
-      console.error('[WorkbenchPdfPreview] 创建 PDF Blob 失败:', err)
-      return null
-    }
-  }, [activeFileDataUrl, reloadKey])
-
-  // 组件销毁或重载时释放 Blob 内存
-  useEffect(() => {
-    return () => {
-      if (blobUrl) {
-        URL.revokeObjectURL(blobUrl)
-      }
-    }
-  }, [blobUrl])
+  // PDF 走 workbench-file:// 流式协议，由 Chromium PDFium 原生渲染，零内存拷贝
+  const pdfUrl = activeFileUrl
 
   return (
     <div className="flex-1 h-full flex flex-col overflow-hidden bg-slate-100 dark:bg-gray-900 select-none">
@@ -58,14 +32,6 @@ export default function WorkbenchPdfPreview(): JSX.Element {
           <span className="font-medium text-text-primary truncate" title={activeFilePath || ''}>
             {activeFilePath}
           </span>
-          <span className="px-1.5 py-0.5 rounded text-xs font-semibold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
-            PDF 文档
-          </span>
-          {formattedSize && (
-            <span className="text-text-secondary text-sm hidden sm:inline">
-              · {formattedSize}
-            </span>
-          )}
         </div>
 
         {/* 右侧：操作与系统集成 */}
@@ -86,11 +52,10 @@ export default function WorkbenchPdfPreview(): JSX.Element {
             onClick={() => {
               if (activeFilePath) void openInSystem(activeFilePath)
             }}
-            className="h-7 px-2.5 flex items-center gap-1 rounded-md bg-rose-500/10 text-rose-600 dark:text-rose-400 hover:bg-rose-500/20 font-medium transition-colors"
-            title="使用系统默认程序打开 (如 Adobe Acrobat / Edge / Foxit)"
+            className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors"
+            title="使用系统默认程序打开"
           >
             <span className="material-symbols-outlined text-[19px]">open_in_new</span>
-            <span className="hidden sm:inline">系统阅读器打开</span>
           </button>
 
           {/* 在资源管理器定位 */}
@@ -129,10 +94,10 @@ export default function WorkbenchPdfPreview(): JSX.Element {
               <span>在系统阅读器中打开</span>
             </button>
           </div>
-        ) : blobUrl ? (
+        ) : pdfUrl ? (
           <object
             key={`${activeFilePath}-${reloadKey}`}
-            data={blobUrl}
+            data={pdfUrl}
             type="application/pdf"
             className="w-full h-full border-0 block"
             title={activeFilePath || 'PDF Preview'}
@@ -171,6 +136,15 @@ export default function WorkbenchPdfPreview(): JSX.Element {
             >
               在外部阅读器中打开
             </button>
+          </div>
+        )}
+
+        {/* 右下角状态 Pill（与 Markdown 源码一致） */}
+        {formattedSize && (
+          <div className="pointer-events-none absolute bottom-3 right-3 z-10 flex items-center gap-2 rounded-full border border-black/5 bg-white/85 px-2.5 py-1 text-xs text-text-secondary shadow-sm backdrop-blur-md dark:border-white/10 dark:bg-gray-900/80">
+            <span className="whitespace-nowrap" title={`大小 ${formattedSize}`}>
+              {formattedSize}
+            </span>
           </div>
         )}
       </div>

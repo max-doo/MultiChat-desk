@@ -373,9 +373,8 @@ export function getHtmlToMarkdownScript(): string {
           case 'tr':
             // 每行末尾需要换行符
             const cells = content.trim();
-            // 移除末尾多余的 ' | '
-            const cleanedCells = cells.endsWith(' | ') ? cells.slice(0, -3) : cells;
-            return '| ' + cleanedCells + ' |\\n';
+            // td/th 已自带 ' | ' 收尾，tr 只补行首管道，避免结尾重复追加 ' |' 产生空列
+            return '| ' + cells + '\\n';
           case 'th':
           case 'td':
             return content.trim() + ' | ';

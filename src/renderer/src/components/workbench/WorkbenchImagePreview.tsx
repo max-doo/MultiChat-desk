@@ -29,12 +29,6 @@ export default function WorkbenchImagePreview(): JSX.Element {
     setLoadError(false)
   }, [activeFilePath])
 
-  const format = useMemo(() => {
-    if (!activeFilePath) return 'IMAGE'
-    const ext = activeFilePath.split('.').pop() || ''
-    return ext.toUpperCase()
-  }, [activeFilePath])
-
   const formattedSize = useMemo(() => {
     if (!activeFileSize && activeFileSize !== 0) return ''
     if (activeFileSize < 1024) return `${activeFileSize} B`
@@ -80,19 +74,6 @@ export default function WorkbenchImagePreview(): JSX.Element {
           <span className="font-medium text-text-primary truncate" title={activeFilePath || ''}>
             {activeFilePath}
           </span>
-          <span className="px-1.5 py-0.5 rounded text-xs font-semibold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
-            {format}
-          </span>
-          {naturalDimensions && (
-            <span className="text-text-secondary text-sm hidden sm:inline">
-              {naturalDimensions.width} × {naturalDimensions.height} px
-            </span>
-          )}
-          {formattedSize && (
-            <span className="text-text-secondary text-sm hidden md:inline">
-              · {formattedSize}
-            </span>
-          )}
         </div>
 
         {/* 右侧：缩放旋转与系统集成 */}
@@ -236,6 +217,17 @@ export default function WorkbenchImagePreview(): JSX.Element {
               isLoaded ? 'opacity-100' : 'opacity-0'
             }`}
           />
+        )}
+
+        {/* 右下角状态 Pill（与 Markdown 源码一致） */}
+        {(naturalDimensions || formattedSize) && !activeFileOversized && !loadError && (
+          <div className="pointer-events-none absolute bottom-3 right-3 z-10 flex items-center gap-2 rounded-full border border-black/5 bg-white/85 px-2.5 py-1 text-xs text-text-secondary shadow-sm backdrop-blur-md dark:border-white/10 dark:bg-gray-900/80">
+            <span className="whitespace-nowrap">
+              {naturalDimensions && `${naturalDimensions.width} × ${naturalDimensions.height} px`}
+              {naturalDimensions && formattedSize && ' · '}
+              {formattedSize}
+            </span>
+          </div>
         )}
       </div>
     </div>

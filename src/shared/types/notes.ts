@@ -25,6 +25,19 @@ export interface NoteConversation {
   snapshotRevision: number
   mindmaps: ConversationMindmap[]
   notes: ConversationNote[]
+  /** 工作台文档来源；存在时该记录不属于对话笔记，只在工作台导图中使用。 */
+  workbench?: WorkbenchNoteSource
+}
+
+export interface WorkbenchNoteSource {
+  workspaceRoot: string
+  relativePath: string
+  /** 最近一次同步的文档正文哈希，用于判断导图是否基于旧版本。 */
+  contentHash: string
+  /** 最近一次同步时的文件字节数，用于改名判定（先按大小筛候选）。 */
+  size?: number
+  /** 最近一次同步时的 mtime，改名不改 mtime，可作第二判据。 */
+  mtime?: number
 }
 
 export interface ConversationMindmap {
@@ -36,6 +49,15 @@ export interface ConversationMindmap {
   createdAt: number
   updatedAt: number
   generationSession?: MindmapGenerationSession
+  /** 由工作台文档生成时记录生成范围，用于提示“基于旧版本”与重生成。 */
+  workbenchScope?: WorkbenchMindmapScope
+}
+
+export interface WorkbenchMindmapScope {
+  scope: 'document' | 'selection'
+  contentHash: string
+  selectionText?: string
+  headingPath?: string[]
 }
 
 export interface MindmapGenerationSession {

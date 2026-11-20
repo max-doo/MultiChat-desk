@@ -50,6 +50,45 @@ interface LayoutProps {
 }
 
 /**
+ * 工作台的右侧面板切换：思维导图与 AI 对话互斥，与快捷窗口的侧边栏规则一致。
+ * 放在窗口控件左侧，三个平台共用同一套顺序与状态语义。
+ */
+function WorkbenchPaneToggles({ compact }: { compact?: boolean }): JSX.Element {
+  const rightPane = useWorkbenchStore((s) => s.rightPane)
+  const openRightPane = useWorkbenchStore((s) => s.openRightPane)
+  const closeRightPane = useWorkbenchStore((s) => s.closeRightPane)
+  const base = compact
+    ? 'h-7 px-2 rounded-lg'
+    : 'w-[46px]'
+  const tone = (active: boolean): string =>
+    `flex items-center justify-center transition-colors hover:bg-black/10 hover:text-text-primary no-drag ${active ? 'text-primary' : 'text-text-secondary'}`
+  return (
+    <>
+      <button
+        type="button"
+        aria-label={rightPane === 'mindmap' ? '收起思维导图' : '打开思维导图'}
+        title={rightPane === 'mindmap' ? '收起思维导图' : '打开思维导图'}
+        onClick={() => rightPane === 'mindmap' ? closeRightPane() : openRightPane('mindmap')}
+        className={`${base} ${tone(rightPane === 'mindmap')}`}
+      >
+        <span className="material-symbols-outlined text-[18px]">account_tree</span>
+      </button>
+      <button
+        type="button"
+        aria-label={rightPane === 'ai' ? '收起 AI 侧边栏' : '打开 AI 侧边栏'}
+        title={rightPane === 'ai' ? '收起 AI 侧边栏' : '打开 AI 侧边栏'}
+        onClick={() => rightPane === 'ai' ? closeRightPane() : openRightPane('ai')}
+        className={`${base} ${tone(rightPane === 'ai')}`}
+      >
+        <span className="material-symbols-outlined text-[18px]">
+          {rightPane === 'ai' ? 'right_panel_close' : 'right_panel_open'}
+        </span>
+      </button>
+    </>
+  )
+}
+
+/**
  * 主布局组件
  * 包含主内容区域
  */
@@ -59,8 +98,6 @@ function Layout({ children }: LayoutProps): JSX.Element {
   const { displayMode, setDisplayMode, resetPaneRatios, isSettingsOpen, setSettingsOpen, setHistoryOpen, setHistoryInitialTab, productMode, setProductMode, currentPage, setCurrentPage, isNewSession, textInserted, activeModels, debateState } = useAppStore()
   const productModeConfig = useAppStore((s) => s.productModeConfig)
   const visibleProductModes = productModeConfig.order.filter(m => !productModeConfig.hidden.includes(m))
-  const isRightCollapsed = useWorkbenchStore((s) => s.isRightCollapsed)
-  const toggleRightCollapse = useWorkbenchStore((s) => s.toggleRightCollapse)
   const { hasUpdate } = useUpdateReminder()
   const isFallbackDraggingRef = useRef(false)
   const dragFrameRef = useRef<number | null>(null)
@@ -286,21 +323,7 @@ function Layout({ children }: LayoutProps): JSX.Element {
         
         {window.api.platform === 'win32' ? (
           <div className="relative z-20 -mr-4 flex h-full min-w-[138px] items-stretch justify-end drag-region">
-            {productMode === 'workbench' && (
-              <button
-                type="button"
-                aria-label={isRightCollapsed ? '展开 AI 侧边栏' : '折叠 AI 侧边栏'}
-                title={isRightCollapsed ? '展开 AI 侧边栏' : '折叠 AI 侧边栏'}
-                onClick={toggleRightCollapse}
-                className={`flex w-[46px] items-center justify-center transition-colors hover:bg-black/10 hover:text-text-primary no-drag ${
-                  !isRightCollapsed ? 'text-primary' : 'text-text-secondary'
-                }`}
-              >
-                <span className="material-symbols-outlined text-[18px]">
-                  {isRightCollapsed ? 'right_panel_open' : 'right_panel_close'}
-                </span>
-              </button>
-            )}
+            {productMode === 'workbench' && <WorkbenchPaneToggles />}
             <button
               type="button"
               aria-label="最小化窗口"
@@ -333,40 +356,12 @@ function Layout({ children }: LayoutProps): JSX.Element {
           </div>
         ) : window.api.platform === 'darwin' ? (
           <div className="relative z-10 min-w-[120px] drag-region h-full flex items-center justify-end gap-1">
-            {productMode === 'workbench' && (
-              <button
-                type="button"
-                aria-label={isRightCollapsed ? '展开 AI 侧边栏' : '折叠 AI 侧边栏'}
-                title={isRightCollapsed ? '展开 AI 侧边栏' : '折叠 AI 侧边栏'}
-                onClick={toggleRightCollapse}
-                className={`h-7 px-2 flex items-center justify-center rounded-lg transition-colors hover:bg-black/10 hover:text-text-primary no-drag ${
-                  !isRightCollapsed ? 'text-primary' : 'text-text-secondary'
-                }`}
-              >
-                <span className="material-symbols-outlined text-[18px]">
-                  {isRightCollapsed ? 'right_panel_open' : 'right_panel_close'}
-                </span>
-              </button>
-            )}
+            {productMode === 'workbench' && <WorkbenchPaneToggles compact />}
             {currentPage !== 'notes' && entryButtons}
           </div>
         ) : (
           <div className="relative z-10 min-w-[120px] drag-region h-full flex items-center justify-end gap-1">
-            {productMode === 'workbench' && (
-              <button
-                type="button"
-                aria-label={isRightCollapsed ? '展开 AI 侧边栏' : '折叠 AI 侧边栏'}
-                title={isRightCollapsed ? '展开 AI 侧边栏' : '折叠 AI 侧边栏'}
-                onClick={toggleRightCollapse}
-                className={`h-7 px-2 flex items-center justify-center rounded-lg transition-colors hover:bg-black/10 hover:text-text-primary no-drag ${
-                  !isRightCollapsed ? 'text-primary' : 'text-text-secondary'
-                }`}
-              >
-                <span className="material-symbols-outlined text-[18px]">
-                  {isRightCollapsed ? 'right_panel_open' : 'right_panel_close'}
-                </span>
-              </button>
-            )}
+            {productMode === 'workbench' && <WorkbenchPaneToggles compact />}
             {currentPage !== 'notes' && entryButtons}
           </div>
         )}

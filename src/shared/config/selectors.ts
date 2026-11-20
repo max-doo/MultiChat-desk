@@ -935,14 +935,25 @@ export const defaultSelectors: SelectorsConfig = {
   }
 }
 
+type StoreBridge = {
+  storeGet: (key: string) => Promise<unknown>
+  storeSet: (key: string, value: unknown) => Promise<void>
+}
+
+function getStoreBridge(): StoreBridge | undefined {
+  if (typeof window === 'undefined') return undefined
+  return (window as unknown as { api?: StoreBridge }).api
+}
+
 /**
  * 获取选择器配置
  * 优先使用本地存储的配置，否则使用默认配置
  */
 export async function getSelectors(): Promise<SelectorsConfig> {
   try {
-    if (typeof window !== 'undefined' && window?.api) {
-      const stored = await window.api.storeGet('selectors') as SelectorsConfig | undefined
+    const bridge = getStoreBridge()
+    if (bridge) {
+      const stored = await bridge.storeGet('selectors') as SelectorsConfig | undefined
       if (stored && stored.version >= defaultSelectors.version) {
         return stored
       }
@@ -957,9 +968,8 @@ export async function getSelectors(): Promise<SelectorsConfig> {
  * 保存选择器配置
  */
 export async function saveSelectors(config: SelectorsConfig): Promise<void> {
-  if (typeof window !== 'undefined' && window?.api) {
-    await window.api.storeSet('selectors', config)
-  }
+  const bridge = getStoreBridge()
+  if (bridge) await bridge.storeSet('selectors', config)
 }
 
 /**

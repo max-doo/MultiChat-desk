@@ -263,7 +263,15 @@ window.addEventListener('beforeunload', event => {
 })
 const taskLabels: Record<MindmapTask['phase'], string> = { loading: '正在准备生成网页…', generating: 'AI 正在生成…', saving: '正在保存导图…', done: '导图已保存', error: '生成失败', cancelled: '已取消' }
 
-export default function ConversationMindmapPanel({ source, conversation: fixedConversation, initialMapId, onOpenMubu, onClose, draggableHeader, onDragStart, onViewSource }: {
+/** 工作台文档来源：生成时用文档正文或选区替代对话快照，并记录生成范围。 */
+export interface MindmapMaterialRequest {
+  text: string
+  fileName: string
+  kind: 'document' | 'selection'
+  scope: { scope: 'document' | 'selection'; contentHash: string; selectionText?: string; headingPath?: string[] }
+}
+
+export default function ConversationMindmapPanel({ source, conversation: fixedConversation, initialMapId, onOpenMubu, onClose, draggableHeader, onDragStart, onViewSource, materialProvider, variant = 'conversation' }: {
   source?: MindmapSource
   conversation?: NoteConversation
   initialMapId?: string
@@ -272,6 +280,9 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
   onClose?: () => void
   draggableHeader?: boolean
   onDragStart?: (e: React.PointerEvent<HTMLDivElement>) => void
+  /** 存在时走文档生成链路：不使用对话快照，改用返回的材料与范围。 */
+  materialProvider?: () => Promise<MindmapMaterialRequest>
+  variant?: 'conversation' | 'document'
 }): JSX.Element {
   const models = useAppStore(state => state.models)
   const savedPlatform = useAppStore(state => state.mindmapPlatformId)
@@ -326,6 +337,14 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
       if (sequence === refreshSequence.current && result.success && result.data) setConversation(result.data)
       return
     }
+    if (materialProvider) {
+      // 文档来源没有 webview 身份可读，键由面板上层按路径固定，这里只刷新记录内容。
+      const result = await window.api.notesGet(currentSource.id)
+      if (sequence !== refreshSequence.current) return
+      if (!result.success) { setError(result.error || '读取导图失败'); return }
+      if (result.data) setConversation(result.data)
+      return
+    }
     const identity = await currentSource.getRef()?.getConversationIdentity()
     if (sequence !== refreshSequence.current) return
     if (!identity?.url.startsWith('https://')) { sourceKeyRef.current = ''; setConversation(null); return }
@@ -341,10 +360,11 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
   }, [])
   useEffect(() => {
     void refresh()
-    const interval = source ? setInterval(() => void refresh(), 2000) : undefined
+    // 文档来源没有外部页面可轮询，只靠 notes:changed 刷新，避免无意义的 2 秒读盘。
+    const interval = source && !materialProvider ? setInterval(() => void refresh(), 2000) : undefined
     const off = window.api.onNotesChanged(() => void refresh(true))
     return () => { clearInterval(interval); off(); refreshSequence.current++ }
-  }, [source?.id, refresh])
+  }, [source?.id, refresh, materialProvider])
 
   useEffect(() => {
     let alive = true, revision = 0
@@ -406,6 +426,12 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
       if (!conversationRef.current) throw new Error('来源会话不存在')
       return conversationRef.current
     }
+    // 文档来源：记录由上层按路径建立，这里只需取最新快照。
+    if (materialProvider) {
+      const latest = await window.api.notesGet(currentSource.id)
+      if (!latest.success || !latest.data) throw new Error(latest.error || '读取文档记录失败')
+      return latest.data
+    }
     const id = currentSource.getRef()?.getWebContentsId()
     if (!id) throw new Error('当前对话尚未就绪')
     const result = await window.api.notesCaptureSource(id, currentSource.id, currentSource.name)
@@ -417,11 +443,12 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
     if (preparingRef.current || busy || candidate) return
     preparingRef.current = true; setPreparing(true); setError('')
     try {
+      // 文档来源：直接在当前记录上新建，不经过 webview 采集。
       const captured = await capture()
       const result = await window.api.mindmapsAdd(captured.id, '# 我的知识导图\n')
       if (!result.success || !result.data) throw new Error(result.error || '新建失败')
       const latest = await window.api.notesGet(captured.id)
-      if (!sourceRef.current || captured.sourceKey === sourceKeyRef.current) { setConversation(latest.data || captured); setMapId(result.data.id) }
+      if (materialProvider || !sourceRef.current || captured.sourceKey === sourceKeyRef.current) { setConversation(latest.data || captured); setMapId(result.data.id) }
     } catch (exception) { setError(exception instanceof Error ? exception.message : '新建失败') }
     finally { preparingRef.current = false; setPreparing(false) }
   }
@@ -434,7 +461,8 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
       if (mode === 'generate') {
         if (candidate) throw new Error('请先应用或放弃候选')
         const captured = await capture()
-        const result = await window.api.mindmapsStart(captured.id, platform, instructions)
+        const material = materialProvider ? await materialProvider() : undefined
+        const result = await window.api.mindmapsStart(captured.id, platform, instructions, material)
         if (!result.success || !result.data) throw new Error(result.error || '启动失败')
         setTask(result.data)
         if (!sourceRef.current || captured.sourceKey === sourceKeyRef.current) setConversation(captured)
@@ -444,7 +472,8 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
         const snapshot = editorRef.current?.snapshot()
         if (!map || !currentSource || !snapshot || key !== draftKeyRef.current) throw new Error('当前导图已切换，请重新提交')
         if (candidate && !adjustFromCurrent) mergeMindmapCandidate(candidate.baseMarkdown, candidate.candidateMarkdown, snapshot.markdown)
-        const liveSource = sourceRef.current
+        // 文档来源没有 webview 可采集，主进程会直接用保存的正文作为上下文。
+        const liveSource = materialProvider ? undefined : sourceRef.current
         const webContentsId = liveSource?.getRef()?.getWebContentsId()
         const result = await window.api.mindmapsModify({ conversationId: currentSource.id, mindmapId: map.id, expectedUpdatedAt: snapshot.updatedAt, platformId: platform, instructions, candidateId: adjustFromCurrent ? undefined : candidate?.id, newSession, includeSourceContext, source: liveSource ? { webContentsId: webContentsId || undefined, platformId: liveSource.id, name: liveSource.name } : undefined })
         if (!result.success || !result.data) throw new Error(result.error || '调整启动失败')
@@ -716,7 +745,7 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
                 })}
 
                 <div className="my-1 border-t border-gray-100" />
-                {renderItem({
+                {variant !== 'document' && renderItem({
                   icon: 'edit_note',
                   label: '在笔记中打开',
                   onClick: () => {
@@ -775,7 +804,7 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
   )
   const notice = <>
     {error && <div role="alert" className="px-3 py-2 text-sm bg-amber-50 text-amber-800 flex gap-2"><span className="flex-1 break-words">{error}</span><button onClick={() => setError('')} aria-label="关闭提示">×</button></div>}
-    {task?.mindmapId === activeMap?.id && task?.contextSource === 'snapshot' && task.id !== dismissedTask && <div role="status" className="px-3 py-1.5 text-xs text-amber-700 bg-amber-50">本次使用本地保存的来源快照，可能不是最新内容。获取最新内容请回到来源主会话。</div>}
+    {task?.mindmapId === activeMap?.id && task?.contextSource === 'snapshot' && task.id !== dismissedTask && variant !== 'document' && <div role="status" className="px-3 py-1.5 text-xs text-amber-700 bg-amber-50">本次使用本地保存的来源快照，可能不是最新内容。获取最新内容请回到来源主会话。</div>}
     {task && task.id !== dismissedTask && (busy || task.phase === 'error' || (task.kind === 'modify' && task.phase === 'done' && task.outcome === 'unchanged')) && <div role="status" className="px-3 py-2 text-sm bg-gray-50 flex flex-wrap gap-3">
       <span className="flex-1 min-w-0 break-words">{task.error || (task.outcome === 'unchanged' ? '未检测到变化，上一份候选仍保留' : taskLabels[task.phase])}</span>
       {busy && task.phase !== 'saving' && <button className="text-gray-600" onClick={() => void window.api.mindmapsCancel(task.id).then(result => { if (!result.success) setError(result.error || '取消失败') })}>取消</button>}
@@ -815,7 +844,7 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
       </div>
       <div className="mt-1.5 px-1 flex items-center justify-between gap-2 text-xs text-gray-500">
         <div className="flex flex-wrap gap-x-3 gap-y-1 items-center min-w-0 flex-1">
-          {mode === 'modify' && (
+          {mode === 'modify' && variant !== 'document' && (
             <>
               <label className="flex gap-1 items-center" title={expectsNewSession ? '新生成对话会自动携带来源上下文' : source ? '本轮采集来源主会话已加载的完整内容；不勾选时只提交导图和要求' : '来源主会话未打开，将使用本地保存的快照，可能不是最新内容'}><input type="checkbox" disabled={busy || preparing || expectsNewSession} checked={includeSourceContext || expectsNewSession} onChange={event => setIncludeSourceContext(event.target.checked)} />{source ? '带上主会话最新内容' : '带上来源快照'}</label>
               {task?.phase === 'error' && <label className="flex gap-1 items-center" title="新开后台生成对话，携带来源上下文及当前导图；仍修改当前图"><input type="checkbox" disabled={busy || preparing} checked={newSession} onChange={event => setNewSession(event.target.checked)} />使用新的 AI 对话调整当前图</label>}
@@ -849,7 +878,7 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
   </div>, document.body)
   return <div className="h-full flex flex-col min-h-0 bg-white">
     <div className="flex-1 min-h-0">
-      {activeMap && conversation ? <MindmapEditor key={`${activeMap.id}:${editorRevision}`} conversationId={conversation.id} map={activeMap} onReload={() => void reload()} controls={controls} notice={notice} panelRef={panelRef} editorRef={editorRef} onClose={onClose} draggableHeader={draggableHeader} onDragStart={onDragStart} previewMarkdown={candidatePreview?.markdown} changedLines={diff?.changedLines} onAskNode={source && conversation.url ? ask : undefined} onViewSource={onViewSource} onEdit={clearMarks} /> : <div className="h-full flex flex-col">
+      {activeMap && conversation ? <MindmapEditor key={`${activeMap.id}:${editorRevision}`} conversationId={conversation.id} map={activeMap} onReload={() => void reload()} controls={controls} notice={notice} panelRef={panelRef} editorRef={editorRef} onClose={onClose} draggableHeader={draggableHeader} onDragStart={onDragStart} previewMarkdown={candidatePreview?.markdown} changedLines={diff?.changedLines} onAskNode={source && conversation.url && variant !== 'document' ? ask : undefined} onViewSource={onViewSource} onEdit={clearMarks} /> : <div className="h-full flex flex-col">
         <div
           className={`px-3 py-2.5 border-b border-gray-200/70 bg-white flex items-center justify-between gap-2 select-none ${
             draggableHeader ? 'drag-region' : ''
@@ -866,8 +895,8 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
             }
           } : undefined}
         >
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="material-symbols-outlined text-primary text-xl shrink-0">account_tree</span>
+      <div className="flex items-center gap-2 min-w-0">
+        <span className="material-symbols-outlined text-primary text-xl shrink-0">account_tree</span>
             <span className="text-sm font-medium text-text-primary truncate">思维导图</span>
           </div>
           <div className="flex items-center gap-1 shrink-0">
@@ -892,7 +921,9 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
             <div className="w-14 h-14 rounded-2xl bg-primary/10 text-primary flex items-center justify-center mb-3 border border-primary/20 shadow-2xs">
               <span className="material-symbols-outlined text-3xl">hub</span>
             </div>
-            <h2 className="text-base font-semibold text-gray-800">把当前对话整理成思维导图</h2>
+            <h2 className="text-base font-semibold text-gray-800">
+              {variant === 'document' ? '把这篇文档整理成思维导图' : '把当前对话整理成思维导图'}
+            </h2>
           </div>
 
           {/* 生成配置卡片（模型选择器 + 额外要求合体） */}
