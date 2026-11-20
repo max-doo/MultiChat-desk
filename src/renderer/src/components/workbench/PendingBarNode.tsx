@@ -1,4 +1,5 @@
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext'
+import { AppIcon } from '../icons/AppIcon'
 import {
   DecoratorNode,
   type EditorConfig,
@@ -26,7 +27,7 @@ function PendingBarComponent(): JSX.Element {
           editor.dispatchCommand(CONFIRM_INSERT_COMMAND, undefined)
         }}
       >
-        <span className="material-symbols-outlined">check</span>
+        <AppIcon name="check" />
       </button>
       <button
         type="button"
@@ -39,7 +40,7 @@ function PendingBarComponent(): JSX.Element {
           editor.dispatchCommand(CANCEL_INSERT_COMMAND, undefined)
         }}
       >
-        <span className="material-symbols-outlined">close</span>
+        <AppIcon name="close" />
       </button>
     </div>
   )

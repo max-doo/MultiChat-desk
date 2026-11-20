@@ -134,8 +134,13 @@ def main():
                 historyGetList: async () => ({{ success: true, data: [] }}),
                 summaryPromptsList: async () => [],
                 summaryPromptsBootstrap: async () => [],
-                workbench: {{
+                workbench: new Proxy({{
                     selectFolder: async () => ({{ success: true, data: {{ path: 'C:\\\\mock-workspace', name: 'TestKnowledgeBase' }} }}),
+                    ensureDefaultWorkspace: async () => ({{ success: true, data: {{ path: 'C:\\\\mock-workspace', name: 'TestKnowledgeBase' }} }}),
+                    watch: async () => ({{ success: true }}),
+                    unwatch: async () => ({{ success: true }}),
+                    reconcileMindmaps: async () => ({{ success: true }}),
+                    onFsChanged: () => () => {{}},
                     readTree: async (dir) => ({{
                         success: true,
                         data: [
@@ -157,6 +162,7 @@ def main():
                                 data: {{
                                     content: f.content,
                                     dataUrl: f.dataUrl,
+                                    fileUrl: f.dataUrl || f.fileUrl,
                                     mimeType: f.mimeType,
                                     category: f.category,
                                     size: f.size,
@@ -180,7 +186,13 @@ def main():
                     search: async () => ({{ success: true, data: [] }}),
                     revealFile: async () => ({{ success: true }}),
                     openInSystem: async () => ({{ success: true }})
-                }}
+                }}, {{
+                    get(target, prop) {{
+                        if (prop in target) return target[prop];
+                        if (typeof prop === 'string' && prop.startsWith('on')) return () => () => {{}};
+                        return async () => ({{ success: true, data: null }});
+                    }}
+                }})
             }};
 
             window.api = new Proxy(baseApi, {{
@@ -211,40 +223,24 @@ def main():
 
         # 1. 验证文件树专属图标（每种格式都有专属图标，同系列）
         print("Test 1: Verifying File Tree custom icons for every file category...")
-        # Check welcome.md -> description
-        md_node = page.locator('[data-file-node="welcome.md"] span.material-symbols-outlined')
-        assert md_node.count() > 0, "Markdown node icon must exist"
-        print(f"Markdown icon: {md_node.first.inner_text()}")
-        assert md_node.first.inner_text() == 'description', "Markdown 必须使用 description 图标"
+        md_node = page.locator('[data-file-node="welcome.md"] svg[data-icon="description"]')
+        assert md_node.count() > 0, "Markdown 必须保留原来的 description 图标"
 
-        # Check index.ts -> code
-        ts_node = page.locator('[data-file-node="src/index.ts"] span.material-symbols-outlined')
-        assert ts_node.count() > 0, "TS node icon must exist"
-        print(f"TS code icon: {ts_node.first.inner_text()}")
-        assert ts_node.first.inner_text() == 'code', "TypeScript 代码必须使用 code 专属图标"
+        png_node = page.locator('[data-file-node="assets/logo.png"] svg[data-icon="image"]')
+        assert png_node.count() > 0, "PNG 必须保留原来的 image 图标"
 
-        # Check logo.png -> image
-        png_node = page.locator('[data-file-node="assets/logo.png"] span.material-symbols-outlined')
-        assert png_node.count() > 0, "PNG node icon must exist"
-        print(f"PNG image icon: {png_node.first.inner_text()}")
-        assert png_node.first.inner_text() == 'image', "图片必须使用 image 专属图标"
+        tiff_node = page.locator('[data-file-node="assets/photo.tiff"] svg[data-icon="image"]')
+        assert tiff_node.count() > 0, "TIFF 必须保留原来的 image 图标"
 
-        # Check photo.tiff -> image
-        tiff_node = page.locator('[data-file-node="assets/photo.tiff"] span.material-symbols-outlined')
-        assert tiff_node.count() > 0, "TIFF node icon must exist"
-        assert tiff_node.first.inner_text() == 'image', "TIFF 图片必须统一使用 image 专属图标"
+        icon_signatures = {
+            'src/index.ts': '%230288d1',
+            'docs/manual.pdf': '%23ef5350',
+            'reports/summary.docx': '%2301579b'
+        }
 
-        # Check manual.pdf -> picture_as_pdf
-        pdf_node = page.locator('[data-file-node="docs/manual.pdf"] span.material-symbols-outlined')
-        assert pdf_node.count() > 0, "PDF node icon must exist"
-        print(f"PDF icon: {pdf_node.first.inner_text()}")
-        assert pdf_node.first.inner_text() == 'picture_as_pdf', "PDF 必须使用 picture_as_pdf 专属图标"
-
-        # Check summary.docx -> article
-        docx_node = page.locator('[data-file-node="reports/summary.docx"] span.material-symbols-outlined')
-        assert docx_node.count() > 0, "DOCX node icon must exist"
-        print(f"DOCX icon: {docx_node.first.inner_text()}")
-        assert docx_node.first.inner_text() == 'article', "DOCX 必须使用 article 专属图标"
+        for file_path, signature in icon_signatures.items():
+            icon_src = page.locator(f'[data-file-node="{file_path}"] img').first.get_attribute('src')
+            assert icon_src and signature in icon_src, f"{file_path} 未使用对应的 Material 文件图标"
 
         print("PASS 1: 文件树所有格式的同系列专属图标验证全部通过！")
 
@@ -305,12 +301,12 @@ def main():
         page.locator('[data-file-node="docs/manual.pdf"]').first.click()
         time.sleep(0.5)
 
-        pdf_badge = page.locator('span:has-text("PDF 文档")')
-        assert pdf_badge.count() > 0, "PDF 预览中必须显示 PDF 文档徽标"
+        pdf_badge = page.locator('img[src*="%23ef5350"]')
+        assert pdf_badge.count() > 0, "PDF 预览中必须显示 PDF 图标"
         pdf_object = page.locator('object[type="application/pdf"]')
         assert pdf_object.count() > 0, "PDF 预览必须使用标准 object 元素嵌入"
-        open_reader_btn = page.locator('button:has-text("系统阅读器打开")')
-        assert open_reader_btn.count() > 0, "PDF 预览必须提供「系统阅读器打开」按钮"
+        open_reader_btn = page.locator('button[title*="系统默认程序"], button:has-text("系统阅读器")')
+        assert open_reader_btn.count() > 0, "PDF 预览必须提供系统打开按钮"
         print("PASS 4.1: PDF 文件内嵌与系统阅读器支持正常")
 
         # 验证超大 PDF 友好卡片
@@ -327,7 +323,7 @@ def main():
 
         docx_badge = page.locator('span:has-text("DOCX")')
         assert docx_badge.count() > 0, "Word 卡片中必须显示 DOCX 标识"
-        open_word_btn = page.locator('button:has-text("在 Word / WPS 中打开")')
+        open_word_btn = page.locator('button:has-text("在本地办公软件中打开"), button:has-text("在 Word / WPS 中打开")')
         assert open_word_btn.count() > 0, "必须提供一键「在 Word / WPS 中打开」按钮"
         format_notice = page.locator('text=格式渲染建议')
         assert format_notice.count() > 0, "必须展示客观格式渲染评估建议"

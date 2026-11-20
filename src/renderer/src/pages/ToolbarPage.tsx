@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react'
 import logo from '../assets/logo.png'
+import { AppIcon } from '../components/icons/AppIcon'
 
 export default function ToolbarPage(): JSX.Element {
   useEffect(() => {
@@ -51,7 +52,7 @@ export default function ToolbarPage(): JSX.Element {
           className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-neutral-700 dark:text-neutral-200 hover:text-neutral-950 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/10 transition-colors duration-150 cursor-pointer"
           title="搜索"
         >
-          <span className="material-symbols-outlined text-[20px]">search</span>
+          <AppIcon name="search" size={20} />
           <span className="text-xs font-medium leading-none">搜索</span>
         </button>
 
@@ -62,7 +63,7 @@ export default function ToolbarPage(): JSX.Element {
           className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-neutral-700 dark:text-neutral-200 hover:text-neutral-950 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/10 transition-colors duration-150 cursor-pointer"
           title="总结"
         >
-          <span className="material-symbols-outlined text-[20px]">compress</span>
+          <AppIcon name="compress" size={20} />
           <span className="text-xs font-medium leading-none">总结</span>
         </button>
 
@@ -73,7 +74,7 @@ export default function ToolbarPage(): JSX.Element {
           className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-neutral-700 dark:text-neutral-200 hover:text-neutral-950 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/10 transition-colors duration-150 cursor-pointer"
           title="翻译"
         >
-          <span className="material-symbols-outlined text-[20px]">translate</span>
+          <AppIcon name="translate" size={20} />
           <span className="text-xs font-medium leading-none">翻译</span>
         </button>
 
@@ -84,7 +85,7 @@ export default function ToolbarPage(): JSX.Element {
           className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-neutral-700 dark:text-neutral-200 hover:text-neutral-950 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/10 transition-colors duration-150 cursor-pointer"
           title="复制"
         >
-          <span className="material-symbols-outlined text-[20px]">content_copy</span>
+          <AppIcon name="content_copy" size={20} />
           <span className="text-xs font-medium leading-none">复制</span>
         </button>
       </div>

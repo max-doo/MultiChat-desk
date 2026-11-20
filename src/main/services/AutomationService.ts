@@ -1,6 +1,6 @@
 import type Store from 'electron-store'
 import type { WebContents } from 'electron'
-import { mkdtemp, writeFile, rm, readFile } from 'fs/promises'
+import { mkdtemp, writeFile, rm, readFile, stat } from 'fs/promises'
 import { basename, extname, join } from 'path'
 import { tmpdir } from 'os'
 import { randomUUID } from 'crypto'
@@ -65,6 +65,10 @@ export async function dispatchFileDrop(wc: WebContents, filePath: string, x: num
   let attachedByUs = false
   try {
     if (signal?.aborted) throw new Error('附件操作已中止')
+    const fileInfo = await stat(filePath).catch(() => null)
+    if (!fileInfo?.isFile()) {
+      return { success: false, error: `拖拽目标不是可读取的文件：${basename(filePath)}` }
+    }
     if (!wc.debugger.isAttached()) {
       wc.debugger.attach('1.3')
       attachedByUs = true
@@ -254,7 +258,8 @@ export class AutomationService {
       const filePath = join(tempDir, fileName)
       await writeFile(filePath, content, 'utf8')
       if (signal.aborted) throw new Error('附件操作已中止')
-      const point = await abortable(wc.executeJavaScript(generateFileDropPointScript(selectors)) as Promise<{ x: number; y: number }>, signal)
+      const point = await abortable(wc.executeJavaScript(generateFileDropPointScript(selectors)) as Promise<{ found?: boolean; x: number; y: number }>, signal)
+      if (!point || point.found === false) throw new Error('未找到可接收附件的输入区域')
       const dropped = await dispatchFileDrop(wc, filePath, point.x, point.y, signal)
       if (!dropped.success) throw new Error(dropped.error || '附件拖拽上传失败')
       const script = generateFileUploadStateScript(selectors, fileName)
@@ -306,7 +311,8 @@ export class AutomationService {
           console.warn(`[AutomationService] 粘贴上传异常，退回拖拽 (${fileName}):`, err)
         }
         if (!uploaded) {
-          const point = await abortable(wc.executeJavaScript(generateFileDropPointScript(selectors)) as Promise<{ x: number; y: number }>, signal)
+          const point = await abortable(wc.executeJavaScript(generateFileDropPointScript(selectors)) as Promise<{ found?: boolean; x: number; y: number }>, signal)
+          if (!point || point.found === false) return { success: false, error: `未找到可接收附件「${fileName}」的输入区域` }
           const dropped = await dispatchFileDrop(wc, filePath, point?.x ?? 10, point?.y ?? 10, signal)
           if (!dropped.success) return { success: false, error: dropped.error || `附件上传失败: ${fileName}` }
         }

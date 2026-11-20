@@ -24,6 +24,7 @@ import { LinkNode, AutoLinkNode } from '@lexical/link'
 import { useWorkbenchStore } from '../../store/workbenchStore'
 import WorkbenchToolbar from './WorkbenchToolbar'
 import WorkbenchSourceToolbar from './WorkbenchSourceToolbar'
+import { AppIcon } from '../icons/AppIcon'
 import MarkdownSyncPlugin, {
   WORKBENCH_TRANSFORMERS,
   parseMarkdownWithFrontmatter
@@ -251,18 +252,15 @@ export default function WorkbenchEditor(): JSX.Element {
     return (
       <div className="flex-1 h-full flex flex-col items-center justify-center p-8 text-center bg-white/40 dark:bg-gray-800/40 select-none">
         <div className="w-16 h-16 mb-4 rounded-2xl bg-blue-500/10 dark:bg-blue-400/10 flex items-center justify-center text-blue-500 dark:text-blue-400">
-          <span className="material-symbols-outlined text-3xl">edit_note</span>
+          <AppIcon name="edit_note" size={30} />
         </div>
         <h3 className="text-base font-semibold text-text-primary mb-1">未打开任何文档</h3>
-        <p className="text-xs text-text-secondary max-w-sm mb-5 leading-relaxed">
-          从左侧文件树选择笔记进行阅读与编辑，或直接新建一篇 Markdown 文档开始知识创作。
-        </p>
         <button
           type="button"
           onClick={() => void createFile('', '未命名笔记.md')}
-          className="h-8 px-4 rounded-lg bg-primary text-white hover:bg-primary/90 text-xs font-medium flex items-center gap-1.5 shadow-sm transition-all"
+          className="h-8 mt-4 px-4 rounded-lg bg-primary text-white hover:bg-primary/90 text-xs font-medium flex items-center gap-1.5 shadow-sm transition-all"
         >
-          <span className="material-symbols-outlined text-[17px]">note_add</span>
+          <AppIcon name="note_add" size={17} />
           <span>新建笔记</span>
         </button>
       </div>
@@ -309,7 +307,7 @@ export default function WorkbenchEditor(): JSX.Element {
     return (
       <div className="flex-1 h-full flex flex-col items-center justify-center p-8 text-center bg-white dark:bg-gray-900 select-none">
         <div className="w-16 h-16 rounded-2xl bg-slate-500/10 flex items-center justify-center text-slate-500 mb-4">
-          <span className="material-symbols-outlined text-3xl">draft</span>
+          <AppIcon name="draft" size={30} />
         </div>
         <h3 className="text-base font-semibold text-text-primary mb-1">未识别格式的二进制文件</h3>
         <p className="text-xs text-text-secondary max-w-sm mb-6 leading-relaxed">
@@ -322,7 +320,7 @@ export default function WorkbenchEditor(): JSX.Element {
           }}
           className="h-9 px-5 rounded-xl bg-primary text-white hover:bg-primary/90 text-xs font-medium flex items-center gap-2 shadow-sm transition-all"
         >
-          <span className="material-symbols-outlined text-[17px]">open_in_new</span>
+          <AppIcon name="open_in_new" size={17} />
           <span>在系统默认程序中打开</span>
         </button>
       </div>
@@ -368,8 +366,8 @@ export default function WorkbenchEditor(): JSX.Element {
         <WorkbenchToolbar />
 
         {/* 编辑器画布可滚动容器 */}
-        <div className="flex-1 overflow-y-auto relative flex justify-center">
-          <div ref={onRef} className="relative w-full max-w-[900px] pl-14 pr-8 py-6 min-h-full">
+        <div className="flex-1 overflow-y-auto relative flex justify-center items-start">
+          <div ref={onRef} className="relative w-full max-w-[900px] pl-14 pr-8 pt-6 pb-20 min-h-full">
             {/* Obsidian 式文档标题：点击行内重命名 */}
             <WorkbenchTitleBar />
 

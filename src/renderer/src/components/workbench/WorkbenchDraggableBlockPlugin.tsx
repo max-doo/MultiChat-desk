@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as ReactDOM from 'react-dom'
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext'
 import { DraggableBlockPlugin_EXPERIMENTAL } from '@lexical/react/LexicalDraggableBlockPlugin'
+import { AppIcon } from '../icons/AppIcon'
 import {
   $createParagraphNode,
   $createTextNode,
@@ -311,9 +312,7 @@ export default function WorkbenchDraggableBlockPlugin({
                           : 'text-text-primary hover:bg-black/5 dark:hover:bg-white/5'
                       }`}
                     >
-                      <span className="material-symbols-outlined text-[18px] text-text-secondary shrink-0">
-                        {option.icon}
-                      </span>
+                      <AppIcon name={option.icon} size={18} className="text-text-secondary shrink-0" />
                       <span>{option.title}</span>
                     </button>
                   </li>
@@ -339,13 +338,13 @@ export default function WorkbenchDraggableBlockPlugin({
               title="点击下方插入新内容（Alt+点击在上方插入）"
               className="w-7 h-7 flex items-center justify-center rounded-md text-text-secondary hover:text-text-primary hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
             >
-              <span className="material-symbols-outlined text-[18px]">add</span>
+              <AppIcon name="add" size={18} />
             </button>
             <div
               className="w-7 h-7 flex items-center justify-center rounded-md text-text-secondary hover:text-text-primary hover:bg-black/10 dark:hover:bg-white/10 cursor-grab active:cursor-grabbing transition-colors"
               title="按住拖拽调整段落位置"
             >
-              <span className="material-symbols-outlined text-[18px]">drag_indicator</span>
+              <AppIcon name="drag_indicator" size={18} />
             </div>
           </div>
         }

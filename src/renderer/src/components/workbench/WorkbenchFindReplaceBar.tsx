@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkbenchStore } from '../../store/workbenchStore'
+import { AppIcon } from '../icons/AppIcon'
 
 /**
  * 编辑器内查找替换浮动条（Ctrl+F / Ctrl+H）。
@@ -223,10 +224,10 @@ export default function WorkbenchFindReplaceBar({
           {total === 0 ? (query ? '无结果' : '') : `${pos}/${total}`}
         </span>
         <button type="button" onClick={goPrev} disabled={total === 0} className={iconBtn} title="上一个 (Shift+Enter)">
-          <span className="material-symbols-outlined text-[16px]">keyboard_arrow_up</span>
+          <AppIcon name="keyboard_arrow_up" size={16} />
         </button>
         <button type="button" onClick={goNext} disabled={total === 0} className={iconBtn} title="下一个 (Enter)">
-          <span className="material-symbols-outlined text-[16px]">keyboard_arrow_down</span>
+          <AppIcon name="keyboard_arrow_down" size={16} />
         </button>
         <button
           type="button"
@@ -234,7 +235,7 @@ export default function WorkbenchFindReplaceBar({
           className={toggleBtn(caseSensitive)}
           title="区分大小写"
         >
-          <span className="material-symbols-outlined text-[15px]">match_case</span>
+          <AppIcon name="match_case" size={15} />
         </button>
         <button
           type="button"
@@ -242,10 +243,10 @@ export default function WorkbenchFindReplaceBar({
           className={toggleBtn(wholeWord)}
           title="全字匹配"
         >
-          <span className="material-symbols-outlined text-[15px]">match_word</span>
+          <AppIcon name="match_word" size={15} />
         </button>
         <button type="button" onClick={onClose} className={iconBtn} title="关闭 (Esc)">
-          <span className="material-symbols-outlined text-[15px]">close</span>
+          <AppIcon name="close" size={15} />
         </button>
       </div>
 

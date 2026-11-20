@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext'
 import { mergeRegister } from '@lexical/utils'
+import { AppIcon } from '../icons/AppIcon'
 import {
   $getSelection,
   $isRangeSelection,
@@ -363,7 +364,7 @@ export default function WorkbenchToolbar(): JSX.Element {
               title="展开侧边栏"
               aria-label="展开侧边栏"
             >
-              <span className="material-symbols-outlined text-base">left_panel_open</span>
+              <AppIcon name="left_panel_open" size={16} />
             </button>
             <div className="w-[1px] h-4 bg-black/10 dark:bg-white/10 mx-1 shrink-0" />
           </>
@@ -377,7 +378,7 @@ export default function WorkbenchToolbar(): JSX.Element {
           className="w-8 h-8 flex items-center justify-center rounded-md text-text-primary hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-35 disabled:hover:bg-transparent transition-colors"
           title="撤销 (Ctrl+Z)"
         >
-          <span className="material-symbols-outlined text-[20px]">undo</span>
+          <AppIcon name="undo" size={20} />
         </button>
         <button
           type="button"
@@ -386,7 +387,7 @@ export default function WorkbenchToolbar(): JSX.Element {
           className="w-8 h-8 flex items-center justify-center rounded-md text-text-primary hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-35 disabled:hover:bg-transparent transition-colors"
           title="重做 (Ctrl+Y)"
         >
-          <span className="material-symbols-outlined text-[20px]">redo</span>
+          <AppIcon name="redo" size={20} />
         </button>
 
         <div className="w-[1px] h-4 bg-black/10 dark:bg-white/10 mx-1 shrink-0" />
@@ -399,12 +400,12 @@ export default function WorkbenchToolbar(): JSX.Element {
           buttonContent={
             <>
               <span className="min-w-[3.5rem] text-left">{BLOCK_TYPE_LABELS[blockType]}</span>
-              <span className="material-symbols-outlined text-[18px]">arrow_drop_down</span>
+              <AppIcon name="arrow_drop_down" size={18} />
             </>
           }
         >
           <WorkbenchDropDownItem className={itemClass(blockType === 'paragraph')} onClick={formatParagraph}>
-            <span className="material-symbols-outlined text-[18px] text-text-secondary">notes</span>
+            <AppIcon name="notes" size={18} className="text-text-secondary" />
             <span>正文段落</span>
           </WorkbenchDropDownItem>
           {(['h1', 'h2', 'h3', 'h4'] as const).map((level) => (
@@ -421,24 +422,24 @@ export default function WorkbenchToolbar(): JSX.Element {
           ))}
           <WorkbenchDropDownDivider />
           <WorkbenchDropDownItem className={itemClass(blockType === 'bullet')} onClick={formatBulletList}>
-            <span className="material-symbols-outlined text-[18px] text-text-secondary">format_list_bulleted</span>
+            <AppIcon name="format_list_bulleted" size={18} className="text-text-secondary" />
             <span>无序列表</span>
           </WorkbenchDropDownItem>
           <WorkbenchDropDownItem className={itemClass(blockType === 'number')} onClick={formatNumberedList}>
-            <span className="material-symbols-outlined text-[18px] text-text-secondary">format_list_numbered</span>
+            <AppIcon name="format_list_numbered" size={18} className="text-text-secondary" />
             <span>有序列表</span>
           </WorkbenchDropDownItem>
           <WorkbenchDropDownItem className={itemClass(blockType === 'check')} onClick={formatCheckList}>
-            <span className="material-symbols-outlined text-[18px] text-text-secondary">checklist</span>
+            <AppIcon name="checklist" size={18} className="text-text-secondary" />
             <span>待办清单</span>
           </WorkbenchDropDownItem>
           <WorkbenchDropDownDivider />
           <WorkbenchDropDownItem className={itemClass(blockType === 'quote')} onClick={formatQuote}>
-            <span className="material-symbols-outlined text-[18px] text-text-secondary">format_quote</span>
+            <AppIcon name="format_quote" size={18} className="text-text-secondary" />
             <span>引用区块</span>
           </WorkbenchDropDownItem>
           <WorkbenchDropDownItem className={itemClass(blockType === 'code')} onClick={formatCodeBlock}>
-            <span className="material-symbols-outlined text-[18px] text-text-secondary">terminal</span>
+            <AppIcon name="terminal" size={18} className="text-text-secondary" />
             <span>代码区块</span>
           </WorkbenchDropDownItem>
         </WorkbenchDropDown>
@@ -453,7 +454,7 @@ export default function WorkbenchToolbar(): JSX.Element {
           title="粗体 (Ctrl+B)"
           aria-label="粗体"
         >
-          <span className="material-symbols-outlined text-[20px]">format_bold</span>
+          <AppIcon name="format_bold" size={20} />
         </button>
         <button
           type="button"
@@ -462,7 +463,7 @@ export default function WorkbenchToolbar(): JSX.Element {
           title="斜体 (Ctrl+I)"
           aria-label="斜体"
         >
-          <span className="material-symbols-outlined text-[20px]">format_italic</span>
+          <AppIcon name="format_italic" size={20} />
         </button>
         <button
           type="button"
@@ -471,7 +472,7 @@ export default function WorkbenchToolbar(): JSX.Element {
           title="下划线 (Ctrl+U)"
           aria-label="下划线"
         >
-          <span className="material-symbols-outlined text-[20px]">format_underlined</span>
+          <AppIcon name="format_underlined" size={20} />
         </button>
         <button
           type="button"
@@ -480,7 +481,7 @@ export default function WorkbenchToolbar(): JSX.Element {
           title="删除线"
           aria-label="删除线"
         >
-          <span className="material-symbols-outlined text-[20px]">format_strikethrough</span>
+          <AppIcon name="format_strikethrough" size={20} />
         </button>
         <button
           type="button"
@@ -489,7 +490,7 @@ export default function WorkbenchToolbar(): JSX.Element {
           title="行内代码"
           aria-label="行内代码"
         >
-          <span className="material-symbols-outlined text-[20px]">code</span>
+          <AppIcon name="code" size={20} />
         </button>
         <button
           type="button"
@@ -498,7 +499,7 @@ export default function WorkbenchToolbar(): JSX.Element {
           title="高亮"
           aria-label="高亮"
         >
-          <span className="material-symbols-outlined text-[20px]">ink_highlighter</span>
+          <AppIcon name="ink_highlighter" size={20} />
         </button>
 
         <div className="w-[1px] h-4 bg-black/10 dark:bg-white/10 mx-1 shrink-0" />
@@ -510,7 +511,7 @@ export default function WorkbenchToolbar(): JSX.Element {
           className={iconBtnClass(blockType === 'bullet')}
           title="无序列表"
         >
-          <span className="material-symbols-outlined text-[20px]">format_list_bulleted</span>
+          <AppIcon name="format_list_bulleted" size={20} />
         </button>
         <button
           type="button"
@@ -518,7 +519,7 @@ export default function WorkbenchToolbar(): JSX.Element {
           className={iconBtnClass(blockType === 'number')}
           title="有序列表"
         >
-          <span className="material-symbols-outlined text-[20px]">format_list_numbered</span>
+          <AppIcon name="format_list_numbered" size={20} />
         </button>
         <button
           type="button"
@@ -526,7 +527,7 @@ export default function WorkbenchToolbar(): JSX.Element {
           className={iconBtnClass(blockType === 'check')}
           title="待办清单 (Checklist)"
         >
-          <span className="material-symbols-outlined text-[20px]">checklist</span>
+          <AppIcon name="checklist" size={20} />
         </button>
 
         <div className="w-[1px] h-4 bg-black/10 dark:bg-white/10 mx-1 shrink-0" />
@@ -538,7 +539,7 @@ export default function WorkbenchToolbar(): JSX.Element {
           className={iconBtnClass(false)}
           title="插入表格 (3x3)"
         >
-          <span className="material-symbols-outlined text-[20px]">table_chart</span>
+          <AppIcon name="table_chart" size={20} />
         </button>
         <button
           type="button"
@@ -546,7 +547,7 @@ export default function WorkbenchToolbar(): JSX.Element {
           className={iconBtnClass(false)}
           title="插入水平分割线"
         >
-          <span className="material-symbols-outlined text-[20px]">horizontal_rule</span>
+          <AppIcon name="horizontal_rule" size={20} />
         </button>
         <button
           type="button"
@@ -554,7 +555,7 @@ export default function WorkbenchToolbar(): JSX.Element {
           className={iconBtnClass(isLink)}
           title={isLink ? '移除链接' : '插入超链接 (Ctrl+K)'}
         >
-          <span className="material-symbols-outlined text-[20px]">link</span>
+          <AppIcon name="link" size={20} />
         </button>
         <button
           type="button"
@@ -562,7 +563,7 @@ export default function WorkbenchToolbar(): JSX.Element {
           className={iconBtnClass(false)}
           title="插入图片"
         >
-          <span className="material-symbols-outlined text-[20px]">image</span>
+          <AppIcon name="image" size={20} />
         </button>
 
         <div className="w-[1px] h-4 bg-black/10 dark:bg-white/10 mx-1 shrink-0" />
@@ -573,9 +574,7 @@ export default function WorkbenchToolbar(): JSX.Element {
           buttonTitle="对齐方式"
           buttonClassName="w-8 h-8 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 text-text-primary transition-colors"
           buttonContent={
-            <span className="material-symbols-outlined text-[20px]">
-              {ELEMENT_FORMATS.find((f) => f.format === elementFormat)?.icon ?? 'format_align_left'}
-            </span>
+            <AppIcon name={ELEMENT_FORMATS.find((f) => f.format === elementFormat)?.icon ?? 'format_align_left'} size={20} />
           }
         >
           <div className="flex items-center gap-1 px-1.5 py-0.5">
@@ -591,7 +590,7 @@ export default function WorkbenchToolbar(): JSX.Element {
                 }`}
                 title={label}
               >
-                <span className="material-symbols-outlined text-[20px]">{icon}</span>
+                <AppIcon name={icon} size={20} />
               </button>
             ))}
           </div>

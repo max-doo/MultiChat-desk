@@ -9,6 +9,7 @@ import { useWebviewLifecycle } from '../hooks/useWebviewLifecycle'
 import { useWebviewActions } from '../hooks/useWebviewActions'
 import { useWebviewNotes } from '../hooks/useWebviewNotes'
 import WebviewFindBar from './WebviewFindBar'
+import { AppIcon } from './icons/AppIcon'
 
 interface WebviewCardProps {
   id: string
@@ -309,20 +310,10 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0">
                         {hasDeepResearch && (
-                          <span
-                            className="material-symbols-outlined text-base text-gray-400 hover:text-gray-600 transition-colors"
-                            title="深度研究"
-                          >
-                            biotech
-                          </span>
+                          <AppIcon name="biotech" size={16} className="text-gray-400 hover:text-gray-600 transition-colors" title="深度研究" />
                         )}
                         {hasImageGen && (
-                          <span
-                            className="material-symbols-outlined text-base text-gray-400 hover:text-gray-600 transition-colors"
-                            title="AI 生图"
-                          >
-                            image
-                          </span>
+                          <AppIcon name="image" size={16} className="text-gray-400 hover:text-gray-600 transition-colors" title="AI 生图" />
                         )}
                       </div>
                     </button>
@@ -341,7 +332,7 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
                 className={`flex items-center justify-center rounded-full transition-all opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto ${canGoBack ? 'text-text-secondary hover:text-primary' : 'text-text-secondary'}`}
                 title="后退"
               >
-                <span className="material-symbols-outlined text-xl">arrow_back</span>
+                <AppIcon name="arrow_back" size={20} />
               </button>
               <button
                 type="button"
@@ -350,7 +341,7 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
                 className={`flex items-center justify-center rounded-full transition-all opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto ${canGoForward ? 'text-text-secondary hover:text-primary' : 'text-text-secondary'}`}
                 title="前进"
               >
-                <span className="material-symbols-outlined text-xl">arrow_forward</span>
+                <AppIcon name="arrow_forward" size={20} />
               </button>
               <button
                 type="button"
@@ -358,7 +349,7 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
                 className="flex items-center justify-center rounded-full text-text-secondary hover:text-primary transition-colors"
                 title="刷新当前窗口"
               >
-                <span className="material-symbols-outlined text-xl">refresh</span>
+                <AppIcon name="refresh" size={20} />
               </button>
               {selectors?.newConversationUrl &&
                 (productMode === 'task_assignment' || onNewConversation) && (
@@ -373,7 +364,7 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
                         : '新对话'
                     }
                   >
-                    <span className="material-symbols-outlined text-xl">add_comment</span>
+                    <AppIcon name="add_comment" size={20} />
                   </button>
                 )}
               {headerActions}
@@ -412,9 +403,7 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
           {(urlMismatch || loadError) && readonlySnapshot && (
             <div className="absolute inset-0 z-20 bg-app flex flex-col">
               <div className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 border-b border-amber-200 text-amber-800 text-xs">
-                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
-                  history
-                </span>
+                <AppIcon name="history" size={16} />
                 <span className="font-medium">历史快照模式</span>
                 <span className="text-amber-600">
                   {loadError
@@ -457,9 +446,7 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
           {loadError && !readonlySnapshot && (
             <div className="absolute inset-0 flex items-center justify-center bg-app/80 z-10">
               <div className="flex flex-col items-center gap-3 p-6 max-w-sm bg-white rounded-2xl shadow-soft">
-                <span className="material-symbols-outlined text-red-500" style={{ fontSize: 48 }}>
-                  {loadError.icon}
-                </span>
+                <AppIcon name={loadError.icon} className="text-red-500" size={48} />
                 <p className="text-sm text-text-primary text-center font-medium">
                   {loadError.title}
                 </p>
@@ -481,9 +468,7 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
           {isHibernated && !readonlySnapshot && (
             <div className="absolute inset-0 flex items-center justify-center bg-app/90 z-20 backdrop-blur-sm">
               <div className="flex flex-col items-center gap-3 p-6 max-w-xs">
-                <span className="material-symbols-outlined text-text-secondary text-4xl">
-                  bedtime
-                </span>
+                <AppIcon name="bedtime" size={36} className="text-text-secondary" />
                 <p className="text-sm text-text-primary font-medium text-center">
                   已休眠以节省内存
                 </p>

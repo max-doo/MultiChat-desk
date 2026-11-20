@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactPo
 import { createPortal } from 'react-dom'
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext'
 import { useLexicalEditable } from '@lexical/react/useLexicalEditable'
+import { AppIcon } from '../icons/AppIcon'
 import {
   $computeTableCellRectBoundary,
   $computeTableMap,
@@ -583,7 +584,7 @@ function TableCellActionMenuContainer({
           className="w-5 h-5 -translate-x-full mt-1 mr-1 flex items-center justify-center rounded-full bg-white dark:bg-gray-700 border border-black/10 dark:border-white/10 shadow-md hover:bg-black/5 dark:hover:bg-white/10 text-text-secondary hover:text-text-primary transition-colors"
           title="表格操作"
         >
-          <span className="material-symbols-outlined text-[14px]">expand_more</span>
+          <AppIcon name="expand_more" size={14} />
         </button>
       )}
       {isMenuOpen && tableCellNode != null && (

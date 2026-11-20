@@ -10,6 +10,7 @@ import LocalMindmapPanel, { type LocalMindmapPanelRef } from './LocalMindmapPane
 import type { WebviewCardRef } from './WebviewCard'
 import { useAppStore } from '../store/appStore'
 import CustomDropdown from './CustomDropdown'
+import { AppIcon } from './icons/AppIcon'
 
 export interface MindmapSource {
   id: string
@@ -200,7 +201,7 @@ export function MindmapEditor({
       } : undefined}
     >
       <div className="flex items-center gap-2 min-w-0 flex-1">
-        <span className="material-symbols-outlined text-primary text-xl shrink-0">account_tree</span>
+        <AppIcon name="diagram_flow_horizontal" size={20} className="text-primary shrink-0" />
         <input
           aria-label="导图标题"
           title="点击修改标题"
@@ -228,7 +229,7 @@ export function MindmapEditor({
             title="关闭思维导图"
             aria-label="关闭思维导图"
           >
-            <span className="material-symbols-outlined text-base">close</span>
+            <AppIcon name="close" size={16} />
           </button>
         )}
       </div>
@@ -624,9 +625,7 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
       dropdownWidth="w-60 !left-auto right-0 !z-50 !max-h-[min(540px,85vh)]"
       buttonClassName="h-7 w-7 rounded-lg text-text-secondary hover:text-text-primary hover:bg-gray-100 active:bg-gray-200 flex items-center justify-center transition-colors no-drag"
       renderButton={() => (
-        <span className="material-symbols-outlined text-[20px]" title="导图选项">
-          more_horiz
-        </span>
+        <AppIcon name="more_horiz" size={20} title="导图选项" />
       )}
       renderContent={close => {
         const renderItem = ({
@@ -661,17 +660,13 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
                 : 'text-text-primary hover:bg-gray-100/80 active:bg-gray-200/60'
             }`}
           >
-            <span
-              className={`material-symbols-outlined text-[17px] shrink-0 transition-colors ${
-                danger
-                  ? 'text-red-500 group-hover:text-red-600'
-                  : active
-                  ? 'text-primary'
-                  : 'text-gray-400 group-hover:text-gray-600'
-              }`}
-            >
-              {icon}
-            </span>
+            <AppIcon name={icon} size={17} className={`text-[17px] shrink-0 transition-colors ${
+ danger
+ ? 'text-red-500 group-hover:text-red-600'
+ : active
+ ? 'text-primary'
+ : 'text-gray-400 group-hover:text-gray-600'
+ }`} />
             <span className="truncate flex-1">{label}</span>
             {extra}
           </button>
@@ -689,15 +684,13 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
                 {sorted.map(map => {
                   const isActive = map.id === activeMap?.id
                   return renderItem({
-                    icon: 'account_tree',
+                    icon: 'diagram_flow_horizontal',
                     label: map.title,
                     active: isActive,
                     disabled: preparing,
                     title: map.title,
                     extra: isActive ? (
-                      <span className="material-symbols-outlined text-[16px] text-primary shrink-0 ml-1">
-                        check
-                      </span>
+                      <AppIcon name="check" size={16} className="text-primary shrink-0 ml-1" />
                     ) : undefined,
                     onClick: () => {
                       close()
@@ -843,10 +836,10 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
       <div className="flex items-end gap-1.5 p-1.5 bg-white/85 border border-gray-200/80 rounded-2xl shadow-sm focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/10 transition-colors">
         <CustomDropdown value={mode} disabled={busy || preparing || !!candidate} onChange={value => changeMode(value)} options={[...(activeMap ? [{ value: 'modify' as const, label: '调整当前图' }] : []), { value: 'generate' as const, label: '生成新图' }]} direction="up" dropdownWidth="min-w-max" className="shrink-0" buttonClassName="h-8 px-2 rounded-full text-xs font-medium flex items-center gap-1 bg-primary/10 border border-primary/30 text-primary hover:bg-primary/15 disabled:opacity-50" />
         <CustomDropdown value={platform} disabled={busy || preparing} onChange={value => applyPlatform(String(value))} options={models.map(model => ({ value: model.id, label: model.name, logo: model.logo }))} direction="up" dropdownWidth="w-48" hideArrow className="shrink-0" buttonClassName="h-8 w-7 rounded-full flex items-center justify-center text-text-secondary hover:bg-gray-100 disabled:opacity-50" renderButton={() => <span title={`生成模型：${models.find(model => model.id === platform)?.name || platform}`} aria-label={`生成模型：${models.find(model => model.id === platform)?.name || platform}`}>
-          {models.find(model => model.id === platform)?.logo ? <img src={models.find(model => model.id === platform)?.logo} alt="生成模型" className="w-4 h-4 object-contain" /> : <span className="material-symbols-outlined text-base">smart_toy</span>}
+          {models.find(model => model.id === platform)?.logo ? <img src={models.find(model => model.id === platform)?.logo} alt="生成模型" className="w-4 h-4 object-contain" /> : <AppIcon name="smart_toy" size={16} />}
         </span>} />
         <textarea ref={textareaRef} aria-label={mode === 'generate' ? '新图要求（选填）' : '导图修改要求'} rows={1} maxLength={mode === 'modify' ? MINDMAP_REQUIREMENTS_LIMIT : undefined} value={request} disabled={busy || preparing} onChange={event => changeRequest(event.target.value)} placeholder={mode === 'generate' ? '输入新图要求（可选）…' : adjustFromCurrent ? '基于当前图描述想调整的内容…' : candidate ? '继续调整候选稿…' : '描述想调整的内容…'} className="flex-1 min-w-0 resize-none bg-transparent text-sm text-text-primary placeholder:text-text-secondary/50 focus:outline-none leading-5 py-1.5 px-1 max-h-[72px] disabled:opacity-50" onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void submit() } }} />
-        <button type="button" disabled={busy || preparing || !platform || !models.some(model => model.id === platform) || (mode === 'modify' && (!request.trim() || (!!candidateConflict && !adjustFromCurrent)))} aria-label={submitLabel} title={submitLabel} className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 bg-primary text-white hover:brightness-95 disabled:bg-gray-100 disabled:text-gray-400" onClick={() => void submit()}><span className={`material-symbols-outlined text-[18px] ${busy || preparing ? 'animate-spin' : ''}`}>{busy || preparing ? 'sync' : 'arrow_upward'}</span></button>
+        <button type="button" disabled={busy || preparing || !platform || !models.some(model => model.id === platform) || (mode === 'modify' && (!request.trim() || (!!candidateConflict && !adjustFromCurrent)))} aria-label={submitLabel} title={submitLabel} className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 bg-primary text-white hover:brightness-95 disabled:bg-gray-100 disabled:text-gray-400" onClick={() => void submit()}><AppIcon name={busy || preparing ? 'sync' : 'arrow_upward'} size={18} className={`text-[18px] ${busy || preparing ? 'animate-spin' : ''}`} /></button>
       </div>
       <div className="mt-1.5 px-1 flex items-center justify-between gap-2 text-xs text-gray-500">
         <div className="flex flex-wrap gap-x-3 gap-y-1 items-center min-w-0 flex-1">
@@ -865,7 +858,7 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
           onClick={() => setCollapsed(true)}
         >
           <span>折叠</span>
-          <span className="material-symbols-outlined text-[15px]">expand_more</span>
+          <AppIcon name="expand_more" size={15} />
         </button>
       </div>
     </>}
@@ -902,7 +895,7 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
           } : undefined}
         >
       <div className="flex items-center gap-2 min-w-0">
-        <span className="material-symbols-outlined text-primary text-xl shrink-0">account_tree</span>
+        <AppIcon name="diagram_flow_horizontal" size={20} className="text-primary shrink-0" />
             <span className="text-sm font-medium text-text-primary truncate">思维导图</span>
           </div>
           <div className="flex items-center gap-1 shrink-0">
@@ -915,7 +908,7 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
                 title="关闭思维导图"
                 aria-label="关闭思维导图"
               >
-                <span className="material-symbols-outlined text-base">close</span>
+                <AppIcon name="close" size={16} />
               </button>
             )}
           </div>
@@ -925,7 +918,7 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
           {/* 顶部插画与引导标题 */}
           <div className="flex flex-col items-center text-center mt-3 mb-5 shrink-0">
             <div className="w-14 h-14 rounded-2xl bg-primary/10 text-primary flex items-center justify-center mb-3 border border-primary/20 shadow-2xs">
-              <span className="material-symbols-outlined text-3xl">hub</span>
+              <AppIcon name="diagram_flow_horizontal" size={30} />
             </div>
             <h2 className="text-base font-semibold text-gray-800">
               {variant === 'document' ? '把这篇文档整理成思维导图' : '把当前对话整理成思维导图'}
@@ -948,7 +941,7 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
                     {currentModel?.logo ? (
                       <img src={currentModel.logo} alt={currentModel.name} className="w-4 h-4 object-contain rounded-xs shrink-0" />
                     ) : (
-                      <span className="material-symbols-outlined text-base text-gray-400 shrink-0">smart_toy</span>
+                      <AppIcon name="smart_toy" size={16} className="text-gray-400 shrink-0" />
                     )}
                     <span className="text-sm font-medium text-text-primary truncate max-w-[140px]">{currentModel?.name || platform}</span>
                   </div>
@@ -967,11 +960,11 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
                       {m?.logo ? (
                         <img src={m.logo} alt={m.name} className="w-4 h-4 object-contain rounded-xs shrink-0" />
                       ) : (
-                        <span className="material-symbols-outlined text-sm text-gray-400 shrink-0">smart_toy</span>
+                        <AppIcon name="smart_toy" size={14} className="text-gray-400 shrink-0" />
                       )}
                       <span className="text-xs truncate flex-1">{option.label}</span>
                       {isSelected && (
-                        <span className="material-symbols-outlined text-primary text-sm ml-auto shrink-0">check</span>
+                        <AppIcon name="check" size={14} className="text-primary ml-auto shrink-0" />
                       )}
                     </button>
                   )
@@ -1009,7 +1002,7 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
               onClick={() => { void submit() }}
               className="h-10 rounded-xl bg-primary hover:brightness-95 active:brightness-90 text-white font-medium text-sm flex items-center justify-center gap-1.5 shadow-xs transition-all disabled:opacity-40 cursor-pointer"
             >
-              <span className="material-symbols-outlined text-[18px]">auto_awesome</span>
+              <AppIcon name="auto_awesome" size={18} />
               <span className="truncate">{preparing ? '读取中…' : busy ? '生成中…' : '生成导图'}</span>
             </button>
 
@@ -1021,7 +1014,7 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
               onClick={() => { void createBlank() }}
               className="h-10 rounded-xl bg-white hover:bg-gray-50 active:bg-gray-100 border border-gray-200 text-text-primary font-medium text-sm flex items-center justify-center gap-1.5 transition-colors disabled:opacity-40 cursor-pointer"
             >
-              <span className="material-symbols-outlined text-[18px] text-gray-400">edit_square</span>
+              <AppIcon name="edit_square" size={18} className="text-gray-400" />
               <span className="truncate">手动创建空白导图</span>
             </button>
           </div>

@@ -7,6 +7,7 @@ import { DecoratorBlockNode, type SerializedDecoratorBlockNode } from '@lexical/
 import { BlockWithAlignableContents } from '@lexical/react/LexicalBlockWithAlignableContents'
 import { useLexicalNodeSelection } from '@lexical/react/useLexicalNodeSelection'
 import { useWorkbenchStore } from '../../store/workbenchStore'
+import { AppIcon } from '../icons/AppIcon'
 
 export type SerializedWorkbenchImageNode = Spread<
   {
@@ -222,7 +223,7 @@ function WorkbenchImageComponent({
       >
         {loadError ? (
           <div className="flex items-center gap-2 px-4 py-3 rounded-lg border border-dashed border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 text-sm select-none">
-            <span className="material-symbols-outlined text-[18px]">broken_image</span>
+            <AppIcon name="broken_image" size={18} />
             <span>图片加载失败: {src}</span>
           </div>
         ) : thumb ? (
@@ -235,7 +236,7 @@ function WorkbenchImageComponent({
           />
         ) : (
           <div className="flex items-center gap-2 px-4 py-6 rounded-lg border border-black/10 dark:border-white/10 bg-black/5 dark:bg-white/5 text-text-secondary text-sm">
-            <span className="material-symbols-outlined text-[18px] animate-pulse">image</span>
+            <AppIcon name="image" size={18} className="animate-pulse" />
             <span>加载中…</span>
           </div>
         )}
@@ -252,7 +253,7 @@ function WorkbenchImageComponent({
               className="w-6 h-6 flex items-center justify-center rounded hover:bg-white/20 transition-colors"
               title="在系统默认程序中打开"
             >
-              <span className="material-symbols-outlined text-[14px]">open_in_new</span>
+              <AppIcon name="open_in_new" size={14} />
             </button>
             <span className="px-1 font-mono text-[10px] max-w-[200px] truncate" title={src}>
               {src}

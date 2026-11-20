@@ -3,6 +3,7 @@ import type { NoteConversation } from '../../../../shared/types/notes'
 import { MARKDOWN_EXTENSIONS } from '../../../../shared/types/workbench'
 import { useWorkbenchStore } from '../../store/workbenchStore'
 import ConversationMindmapPanel, { type MindmapMaterialRequest, type MindmapSource } from '../ConversationMindmapPanel'
+import { AppIcon } from '../icons/AppIcon'
 
 /** 去掉 frontmatter 与图片语法：导图只关心文字结构，图片地址会干扰模型判断。 */
 function documentText(content: string): string {
@@ -109,7 +110,7 @@ export default function WorkbenchMindmapPanel(): JSX.Element {
     // 未生成过导图：不预先落记录，等用户点开再建。
     return (
       <div className="h-full flex flex-col items-center justify-center gap-3 p-6 text-center">
-        <span className="material-symbols-outlined text-3xl text-primary">account_tree</span>
+        <AppIcon name="diagram_flow_horizontal" size={30} className="text-primary" />
         <button
           type="button"
           onClick={() => {

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { CliIntegrationStatus } from '../../../shared/types/cli'
 import { buildSkillInstallCommand } from '../utils/cliGuide'
+import { AppIcon } from './icons/AppIcon'
 
 /**
  * 设置抽屉 - 命令行与 Agent 集成区块
@@ -83,7 +84,7 @@ export default function CliIntegrationSection(): JSX.Element | null {
 
       {status.cliCmdPath && !status.onPath && (
         <div className="flex items-center gap-2 text-xs">
-          <span className="material-symbols-outlined text-text-secondary text-base">terminal</span>
+          <AppIcon name="terminal" size={16} className="text-text-secondary" />
           <code className="flex-1 truncate text-text-secondary" title={status.cliCmdPath}>{status.cliCmdPath}</code>
           <button
             type="button"

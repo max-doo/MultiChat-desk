@@ -4,6 +4,7 @@ import WebviewCard, { type WebviewCardRef } from '../components/WebviewCard'
 import MindmapSidebarView from '../components/MindmapSidebarView'
 import CustomContextMenu from '../components/CustomContextMenu'
 import { queueMindmapSelection } from '../utils/mindmapSelection'
+import { AppIcon } from '../components/icons/AppIcon'
 
 export default function QuickPage(): JSX.Element {
   const { models, registerWebviewRef, unregisterWebviewRef } = useAppStore()
@@ -606,12 +607,7 @@ export default function QuickPage(): JSX.Element {
                         }`}
                         title={isPinned ? '取消固定' : '固定窗口'}
                       >
-                        <span 
-                          className="material-symbols-outlined text-base"
-                          style={isPinned ? { fontVariationSettings: "'FILL' 1" } : undefined}
-                        >
-                          push_pin
-                        </span>
+                        <AppIcon name="push_pin" size={20} fill={isPinned ? 'currentColor' : 'none'} />
                       </button>
                       <button
                         type="button"
@@ -619,7 +615,7 @@ export default function QuickPage(): JSX.Element {
                         className="text-xs px-2.5 py-1 bg-gray-100 hover:bg-gray-200 border border-gray-200/60 rounded-md text-text-primary transition-all duration-200 flex items-center gap-1"
                         title="展开至主窗口"
                       >
-                        <span className="material-symbols-outlined text-xs">open_in_new</span> 主界面
+                        <AppIcon name="open_in_new" size={12} /> 主界面
                       </button>
                       <button
                         type="button"
@@ -632,7 +628,7 @@ export default function QuickPage(): JSX.Element {
                         title="思维导图"
                         aria-label="思维导图"
                       >
-                        <span className="material-symbols-outlined text-base">account_tree</span>
+                        <AppIcon name="diagram_flow_horizontal" size={20} />
                       </button>
                       <button
                         type="button"
@@ -645,17 +641,16 @@ export default function QuickPage(): JSX.Element {
                         title={sidebarOpen && sidebarMode === 'model' ? '收起侧边栏' : '展开侧边栏'}
                         aria-label={sidebarOpen && sidebarMode === 'model' ? '收起侧边栏' : '展开侧边栏'}
                       >
-                        <span className="material-symbols-outlined text-base">
-                          {sidebarOpen && sidebarMode === 'model' ? 'right_panel_close' : 'right_panel_open'}
-                        </span>
+                        <AppIcon name={sidebarOpen && sidebarMode === 'model' ? 'right_panel_close' : 'right_panel_open'} size={20} />
                       </button>
                       <button
                         type="button"
                         onClick={() => void window.api.quickHide()}
                         className="w-7 h-7 flex items-center justify-center text-text-secondary hover:text-red-500 hover:bg-red-50 rounded-full transition-all duration-200"
                         title="关闭"
+                        aria-label="关闭"
                       >
-                        ✕
+                        <AppIcon name="close" size={20} />
                       </button>
                     </div>
                   }
@@ -719,7 +714,7 @@ export default function QuickPage(): JSX.Element {
                       onModelChange={changeSidebarModel}
                       headerActions={
                         <button type="button" onClick={closeSidebar} className="w-7 h-7 rounded-full text-text-secondary hover:text-red-500 hover:bg-red-50 flex items-center justify-center" title="收起侧边栏" aria-label="收起侧边栏">
-                          <span className="material-symbols-outlined text-base">close</span>
+                          <AppIcon name="close" size={16} />
                         </button>
                       }
                       ref={ref => {

@@ -679,6 +679,29 @@ export async function readFile(workspaceRoot: string, relativePath: string): Pro
 }
 
 /**
+ * 读取 PDF 原始字节，供渲染层用 PDF.js 渲染（内置 PDFium 不向宿主暴露选区文字）。
+ * 复用 assertSafePath 的 realpath 校验，并限制在 readFile 相同的 200MB 上限内。
+ */
+export async function readPdfBytes(
+  workspaceRoot: string,
+  relativePath: string
+): Promise<{ bytes: Uint8Array; size: number; mtime: number }> {
+  const safePath = await assertSafePath(workspaceRoot, relativePath)
+  const fileStat = await stat(safePath)
+  if (fileStat.isDirectory()) {
+    throw new Error('目标是目录，无法作为文件读取')
+  }
+  if (path.extname(safePath).toLowerCase() !== '.pdf') {
+    throw new Error('仅支持读取 PDF 文件')
+  }
+  if (fileStat.size > 200 * 1024 * 1024) {
+    throw new Error('PDF 文件超过 200MB 读取上限')
+  }
+  const buffer = await fsReadFile(safePath)
+  return { bytes: new Uint8Array(buffer), size: fileStat.size, mtime: fileStat.mtimeMs }
+}
+
+/**
  * 轻量 stat：返回文件 mtime/size，不存在返回 null。
  * 供渲染层在保存前做乐观并发校验（磁盘 mtime 与 lastSavedAt 比对），
  * 比 readFile 便宜——不会为图片/PDF 附带 dataUrl 或读全文。

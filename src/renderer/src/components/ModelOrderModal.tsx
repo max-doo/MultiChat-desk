@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useAppStore, DEFAULT_MODEL_ORDER, type ModelConfig } from '../store/appStore'
+import { AppIcon } from './icons/AppIcon'
 
 interface ModelOrderModalProps {
   isOpen: boolean
@@ -100,7 +101,7 @@ export default function ModelOrderModal({ isOpen, onClose }: ModelOrderModalProp
         {/* 头部 */}
         <div className="flex items-center justify-between p-4 border-b border-white/60">
           <div className="flex items-center gap-2.5">
-            <span className="material-symbols-outlined text-primary text-2xl">swap_vert</span>
+            <AppIcon name="swap_vert" size={24} className="text-primary" />
             <div>
               <h3 className="text-base font-semibold text-text-primary">模型下拉列表排序</h3>
               <p className="text-xs text-text-secondary mt-0.5">
@@ -114,7 +115,7 @@ export default function ModelOrderModal({ isOpen, onClose }: ModelOrderModalProp
             className="w-8 h-8 flex items-center justify-center rounded-full text-text-secondary hover:text-text-primary hover:bg-black/5 transition-colors"
             title="关闭"
           >
-            <span className="material-symbols-outlined">close</span>
+            <AppIcon name="close" />
           </button>
         </div>
 
@@ -143,12 +144,7 @@ export default function ModelOrderModal({ isOpen, onClose }: ModelOrderModalProp
               >
                 {/* 左侧：拖拽手柄 + 序号 + Logo + 名称 */}
                 <div className="flex items-center gap-3 min-w-0">
-                  <span
-                    className="material-symbols-outlined text-gray-400 hover:text-gray-600 cursor-grab text-lg shrink-0"
-                    title="拖拽排序"
-                  >
-                    drag_indicator
-                  </span>
+                  <AppIcon name="drag_indicator" size={18} className="text-gray-400 hover:text-gray-600 cursor-grab shrink-0" title="拖拽排序" />
                   <span className="w-5 text-center text-xs font-semibold text-gray-400 shrink-0">
                     {index + 1}
                   </span>
@@ -176,7 +172,7 @@ export default function ModelOrderModal({ isOpen, onClose }: ModelOrderModalProp
                     className="w-7 h-7 flex items-center justify-center rounded-lg text-text-secondary hover:text-primary hover:bg-black/5 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
                     title="上移"
                   >
-                    <span className="material-symbols-outlined text-base">arrow_upward</span>
+                    <AppIcon name="arrow_upward" size={16} />
                   </button>
                   <button
                     type="button"
@@ -188,7 +184,7 @@ export default function ModelOrderModal({ isOpen, onClose }: ModelOrderModalProp
                     className="w-7 h-7 flex items-center justify-center rounded-lg text-text-secondary hover:text-primary hover:bg-black/5 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
                     title="下移"
                   >
-                    <span className="material-symbols-outlined text-base">arrow_downward</span>
+                    <AppIcon name="arrow_downward" size={16} />
                   </button>
                 </div>
               </div>
@@ -203,7 +199,7 @@ export default function ModelOrderModal({ isOpen, onClose }: ModelOrderModalProp
             onClick={handleResetDefault}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium text-text-secondary hover:text-primary hover:bg-black/5 transition-colors"
           >
-            <span className="material-symbols-outlined text-sm">restart_alt</span>
+            <AppIcon name="restart_alt" size={14} />
             恢复默认排序
           </button>
           <button

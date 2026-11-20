@@ -6,6 +6,7 @@ import { NOTE_CLICK_PREFIX } from '../../../shared/types/notes'
 import { generateNoteHighlightScript } from '../../../shared/utils/webviewScripts'
 import { normalizeNoteTranscriptMarkdown, parseSnapshotBlocks } from '../../../shared/utils/noteTranscript'
 import WebviewFindBar from './WebviewFindBar'
+import { AppIcon } from './icons/AppIcon'
 
 const MAP_SOURCE_ID = '__notes-map-source'
 
@@ -196,7 +197,7 @@ export default function NotesSourcePane({ conversation, open, focusedNoteId, sou
 
   return <aside className="notes-source" aria-label="原文对照" style={{ display: open ? undefined : 'none' }}>
     <header className="notes-source-header">
-      <span className="material-symbols-outlined" aria-hidden="true">article</span>
+      <AppIcon name="article" aria-hidden="true" />
       <select aria-label="原文来源" value={mode} onChange={event => setMode(event.target.value as 'web' | 'snapshot')}>
         {hasWebSource && <option value="web">原始网页</option>}
         <option value="snapshot">本地快照</option>
@@ -206,8 +207,8 @@ export default function NotesSourcePane({ conversation, open, focusedNoteId, sou
         if (!webview?.isConnected) return
         try { webview.reload(); setWebStatus('loading'); setWebError('') }
         catch { setWebStatus('failed'); setWebError('原始网页暂时无法刷新。可以稍后重试，或查看本地快照。') }
-      }}><span className="material-symbols-outlined">refresh</span></button>}
-      <button type="button" className="notes-icon-button" title="收起原文" aria-label="收起原文" onClick={onClose}><span className="material-symbols-outlined">close</span></button>
+      }}><AppIcon name="refresh" /></button>}
+      <button type="button" className="notes-icon-button" title="收起原文" aria-label="收起原文" onClick={onClose}><AppIcon name="close" /></button>
     </header>
     {mode === 'web' && webStatus === 'loading' && <div className="notes-source-notice" role="status">正在加载原始网页… <button onClick={() => setMode('snapshot')}>查看快照</button></div>}
     {mode === 'web' && webError && <div className="notes-source-notice is-warning" role="alert">{webError}<button onClick={() => setMode('snapshot')}>查看快照</button></div>}

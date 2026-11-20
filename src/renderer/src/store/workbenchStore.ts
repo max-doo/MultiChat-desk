@@ -9,7 +9,7 @@ import {
 
 export type SaveStatus = 'saved' | 'saving' | 'error' | 'conflict'
 export type EditorMode = 'wysiwyg' | 'source'
-export type WorkbenchAiAction = 'ask' | 'explain' | 'polish' | 'continue' | 'summarize'
+export type WorkbenchAiAction = 'ask' | 'explain' | 'polish' | 'summarize'
 /** 右侧栏与快捷窗口一致：AI 对话和思维导图互斥，同一时刻只显示一个。 */
 export type WorkbenchRightPane = 'ai' | 'mindmap' | null
 export type WorkbenchSortKey = 'name' | 'mtime' | 'size'
@@ -111,6 +111,9 @@ interface WorkbenchStoreState {
 
   // 错误提示
   error: string | null
+
+  // 工作区文件拖拽态
+  draggingNodes: WorkbenchFileNode[] | null
 }
 
 interface WorkbenchStoreActions {
@@ -159,6 +162,7 @@ interface WorkbenchStoreActions {
   setEditorMode: (mode: EditorMode) => void
   askAi: (text: string, actionType: WorkbenchAiAction) => void
   clearError: () => void
+  setDraggingNodes: (nodes: WorkbenchFileNode[] | null) => void
 }
 
 export type WorkbenchStore = WorkbenchStoreState & WorkbenchStoreActions
@@ -298,6 +302,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   editorMode: 'wysiwyg',
 
   error: null,
+  draggingNodes: null,
 
   initWorkbench: async () => {
     if (get().isInitialized) return
@@ -786,7 +791,8 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
 
           // 主进程可能已重写 .md 内容（assets 路径替换），重新读盘同步渲染层状态
           // 否则 isDirty + 旧内容会在下一次 autoSave 覆盖掉主进程的修改
-          if (/\.(md|markdown)$/i.test(newRelativePath)) {
+          const extension = `.${newRelativePath.split('.').pop()?.toLowerCase() ?? ''}`
+          if (MARKDOWN_EXTENSIONS.has(extension)) {
             try {
               const fileRes = await window.api.workbench.readFile(workspacePath, newRelativePath)
               if (fileRes.success && fileRes.data) {
@@ -1310,34 +1316,20 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     const trimmed = text.trim()
     if (!trimmed) return
 
-    const isCode = get().activeFileCategory === 'code'
     let formattedPrompt = trimmed
     switch (actionType) {
       case 'explain':
-        formattedPrompt = isCode
-          ? `请详细分析以下代码的架构设计、执行流程与实现逻辑：\n\n\`\`\`\n${trimmed}\n\`\`\``
-          : `请详细解释以下内容的核心含义、背景与原理：\n\n"""\n${trimmed}\n"""`
+        formattedPrompt = `请详细解释一下内容：\n\n"""\n${trimmed}\n"""`
         break
       case 'polish':
-        formattedPrompt = isCode
-          ? `请对以下代码进行专业重构与性能/可读性优化，指出潜在缺陷并提供更清晰、健壮的改进代码：\n\n\`\`\`\n${trimmed}\n\`\`\``
-          : `请对以下文本进行专业级润色，纠正语病并优化行文逻辑，保持原意但更精炼地表达：\n\n"""\n${trimmed}\n"""`
-        break
-      case 'continue':
-        formattedPrompt = isCode
-          ? `请基于以下代码上下文，补全或续写后续逻辑：\n\n\`\`\`\n${trimmed}\n\`\`\``
-          : `请基于以下已有段落和上下文思路，自然承接并往下续写：\n\n"""\n${trimmed}\n"""`
+        formattedPrompt = `请对以下文本进行润色，优化行文逻辑：\n\n"""\n${trimmed}\n"""`
         break
       case 'summarize':
-        formattedPrompt = isCode
-          ? `请总结以下代码片段的核心模块与导出功能：\n\n\`\`\`\n${trimmed}\n\`\`\``
-          : `请提取并总结以下内容的关键要点：\n\n"""\n${trimmed}\n"""`
+        formattedPrompt = `请提取并总结以下内容的关键要点：\n\n"""\n${trimmed}\n"""`
         break
       case 'ask':
       default:
-        formattedPrompt = isCode
-          ? `关于以下代码：\n\n\`\`\`\n${trimmed}\n\`\`\``
-          : trimmed
+        formattedPrompt = trimmed
         break
     }
 
@@ -1354,7 +1346,9 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     )
   },
 
-  clearError: () => set({ error: null })
+  clearError: () => set({ error: null }),
+
+  setDraggingNodes: (nodes) => set({ draggingNodes: nodes })
 }))
 
 // 窗口缩小时，已存的侧边栏宽度可能超过新档位的上限，监听 resize 被动收敛。

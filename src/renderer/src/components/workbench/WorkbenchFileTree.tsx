@@ -1,9 +1,11 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useWorkbenchStore } from '../../store/workbenchStore'
 import type { WorkbenchFileNode } from '../../../../shared/types/workbench'
-import { getFileCategory } from '../../../../shared/types/workbench'
+import { MARKDOWN_EXTENSIONS } from '../../../../shared/types/workbench'
 import WorkbenchSearch from './WorkbenchSearch'
 import FileTypeIcon from './FileTypeIcon'
+import { AppIcon } from '../icons/AppIcon'
+import { requestUploadNodesToAi } from './workbenchAiEvents'
 
 /** 新建节点输入框默认占位名，提交时若用户未修改则使用 */
 const DEFAULT_FILE_NAME = '未命名笔记.md'
@@ -47,7 +49,7 @@ interface TreeClipboard {
 }
 
 /** 从拖拽/粘贴的 File 对象提取本地绝对路径（Electron：.path 或 webUtils.getPathForFile） */
-function extractLocalPath(file: File): string {
+export function extractLocalPath(file: File): string {
   const legacy = (file as File & { path?: string }).path
   if (legacy) return legacy
   const webUtils = (window as Window & { electron?: { webUtils?: { getPathForFile?: (f: File) => string } } }).electron?.webUtils
@@ -59,7 +61,7 @@ function extractLocalPath(file: File): string {
 }
 
 /** 收集 DataTransferItemList / FileList 中所有带本地路径的条目 */
-function collectLocalPaths(files: FileList | File[] | null | undefined): string[] {
+export function collectLocalPaths(files: FileList | File[] | null | undefined): string[] {
   if (!files) return []
   const out: string[] = []
   for (const f of Array.from(files)) {
@@ -77,49 +79,27 @@ const SORT_LABELS: Record<SortMenuKey, string> = {
   size: '大小'
 }
 
-export function getNodeIcon(node: WorkbenchFileNode): { icon: string; color: string } {
+const IMAGE_EXTENSIONS = new Set([
+  '.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico', '.bmp', '.avif', '.tiff', '.tif'
+])
+
+function getNodeIcon(node: WorkbenchFileNode): { icon: string; color: string } {
   if (node.isDirectory) {
     return { icon: 'folder', color: 'text-amber-500' }
   }
 
   const ext = (node.extension || '').toLowerCase()
 
-  // Markdown 专属图标
-  if (ext === '.md' || ext === '.markdown') {
+  if (MARKDOWN_EXTENSIONS.has(ext)) {
     return { icon: 'description', color: 'text-blue-500 dark:text-blue-400' }
   }
 
-  // PDF 专属图标
-  if (ext === '.pdf') {
-    return { icon: 'picture_as_pdf', color: 'text-rose-500 dark:text-rose-400' }
-  }
-
-  // 图片专属图标 (同一 Material Symbols 系列)
-  if (['.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico', '.bmp', '.avif', '.tiff', '.tif'].includes(ext)) {
+  if (IMAGE_EXTENSIONS.has(ext)) {
     return { icon: 'image', color: 'text-purple-500 dark:text-purple-400' }
   }
+
   if (ext === '.svg') {
     return { icon: 'draw', color: 'text-purple-500 dark:text-purple-400' }
-  }
-
-  // Word 文档专属图标
-  if (['.docx', '.doc', '.dotx', '.dot', '.rtf', '.odt'].includes(ext)) {
-    return { icon: 'article', color: 'text-indigo-600 dark:text-indigo-400' }
-  }
-
-  // Excel 电子表格专属图标
-  if (['.xlsx', '.xls', '.xlsm', '.xlsb', '.xltx', '.xlt', '.ods'].includes(ext)) {
-    return { icon: 'table', color: 'text-emerald-600 dark:text-emerald-400' }
-  }
-
-  // PPT 演示文稿专属图标
-  if (['.pptx', '.ppt', '.pptm', '.potx', '.pot', '.ppsx', '.pps', '.odp'].includes(ext)) {
-    return { icon: 'slideshow', color: 'text-orange-600 dark:text-orange-400' }
-  }
-
-  // 纯文本专属图标
-  if (['.txt', '.log', '.csv', '.tsv'].includes(ext)) {
-    return { icon: 'text_snippet', color: 'text-slate-500 dark:text-slate-400' }
   }
 
   return { icon: 'draft', color: 'text-text-secondary/70' }
@@ -156,6 +136,7 @@ export default function WorkbenchFileTree(): JSX.Element {
   const findUnreferencedImages = useWorkbenchStore((s) => s.findUnreferencedImages)
   const deleteNodes = useWorkbenchStore((s) => s.deleteNodes)
   const importExternalItems = useWorkbenchStore((s) => s.importExternalItems)
+  const setDraggingNodes = useWorkbenchStore((s) => s.setDraggingNodes)
 
   const [isSearchMode, setIsSearchMode] = useState(false)
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
@@ -430,8 +411,8 @@ export default function WorkbenchFileTree(): JSX.Element {
   // ---- 拖拽移动（VSCode 风格） ----
   const handleDragStart = useCallback(
     (e: React.DragEvent, node: WorkbenchFileNode) => {
-      e.dataTransfer.effectAllowed = 'move'
-      e.dataTransfer.setData('text/plain', node.path)
+      e.dataTransfer.effectAllowed = 'copyMove'
+      e.dataTransfer.setData('text/plain', node.fullPath || node.path)
       // 拖已选中集合中的一项 → 整组移动；拖未选中项 → 改为单选并只拖它
       const paths =
         selectedPaths.has(node.path) && selectedPaths.size > 1
@@ -442,15 +423,53 @@ export default function WorkbenchFileTree(): JSX.Element {
         setAnchorPath(node.path)
       }
       setDragState({ node, paths })
+
+      // 提取被选中的完整节点对象，供工作区跨栏拖拽（如上传至 AI 侧边栏）使用
+      const pathSet = new Set(paths)
+      const nodesToDrag: WorkbenchFileNode[] = []
+      const walk = (items: WorkbenchFileNode[]) => {
+        for (const item of items) {
+          if (pathSet.has(item.path)) {
+            nodesToDrag.push(item)
+          }
+          if (item.children?.length) {
+            walk(item.children)
+          }
+        }
+      }
+      walk(fileTree)
+      if (nodesToDrag.length === 0) {
+        nodesToDrag.push(node)
+      }
+      setDraggingNodes(nodesToDrag)
+
+      try {
+        e.dataTransfer.setData(
+          'application/x-multichat-workspace-files',
+          JSON.stringify(
+            nodesToDrag.map((n) => ({
+              path: n.path,
+              fullPath: n.fullPath || n.path,
+              name: n.name,
+              isDirectory: n.isDirectory,
+              size: n.size,
+              extension: n.extension
+            }))
+          )
+        )
+      } catch {
+        // ignore
+      }
     },
-    [selectedPaths]
+    [selectedPaths, fileTree, setDraggingNodes]
   )
 
   const handleDragEnd = useCallback(() => {
     setDragState(null)
     setDropTargetDir(null)
     setIsRootDropActive(false)
-  }, [])
+    setDraggingNodes(null)
+  }, [setDraggingNodes])
 
   /** 判断 node 是否可作为当前拖拽的有效目标目录 */
   const isValidDropDir = useCallback(
@@ -637,6 +656,25 @@ export default function WorkbenchFileTree(): JSX.Element {
     setContextMenu({ x, y, node })
   }, [selectedPaths])
 
+  const getUploadNodes = useCallback((): WorkbenchFileNode[] => {
+    const node = contextMenu?.node
+    if (!node) return []
+    const paths =
+      selectedPaths.size > 1 && selectedPaths.has(node.path)
+        ? Array.from(selectedPaths)
+        : [node.path]
+    const pathSet = new Set(paths)
+    const nodes: WorkbenchFileNode[] = []
+    const walk = (items: WorkbenchFileNode[]): void => {
+      for (const item of items) {
+        if (pathSet.has(item.path)) nodes.push(item)
+        if (item.children?.length) walk(item.children)
+      }
+    }
+    walk(fileTree)
+    return nodes.length > 0 ? nodes : [node]
+  }, [contextMenu, fileTree, selectedPaths])
+
   /** 粘贴（Ctrl+V / 系统粘贴）：把剪贴板中的本地文件复制进上下文目录（VSCode 语义） */
   const handlePaste = useCallback(
     (e: React.ClipboardEvent) => {
@@ -764,6 +802,7 @@ export default function WorkbenchFileTree(): JSX.Element {
         <div key={node.id} className="select-none">
           <div
             draggable={!isManagedAssetsDir}
+            data-folder-node={node.path}
             onDragStart={(e) => handleDragStart(e, node)}
             onDragEnd={handleDragEnd}
             onDragOver={(e) => handleNodeDragOver(e, node)}
@@ -780,16 +819,12 @@ export default function WorkbenchFileTree(): JSX.Element {
                 : 'hover:bg-black/5 dark:hover:bg-white/5'
             } text-text-primary`}
           >
-            <span className="material-symbols-outlined text-[19px] text-text-secondary transition-transform duration-150">
-              {isExpanded ? 'expand_more' : 'chevron_right'}
-            </span>
-            <span className={`material-symbols-outlined text-[19px] ${isManagedAssetsDir ? 'text-slate-400' : 'text-amber-500'}`}>
-              {isManagedAssetsDir
+            <AppIcon name={isExpanded ? 'expand_more' : 'chevron_right'} size={19} className="text-text-secondary transition-transform duration-150" />
+            <AppIcon name={isManagedAssetsDir
                 ? 'attachment'
                 : isExpanded
                 ? 'folder_open'
-                : 'folder'}
-            </span>
+                : 'folder'} size={19} className={`text-[19px] ${isManagedAssetsDir ? 'text-slate-400' : 'text-amber-500'}`} />
             <span className="truncate flex-1 font-medium">{node.name}</span>
           </div>
           {isExpanded && (
@@ -832,14 +867,10 @@ export default function WorkbenchFileTree(): JSX.Element {
             : 'text-text-primary hover:bg-black/5 dark:hover:bg-white/5'
         }`}
       >
-        {getFileCategory(node.name) === 'code' ? (
-          <FileTypeIcon node={node} className="w-[19px] h-[19px]" />
+        {MARKDOWN_EXTENSIONS.has((node.extension || '').toLowerCase()) || IMAGE_EXTENSIONS.has((node.extension || '').toLowerCase()) || (node.extension || '').toLowerCase() === '.svg' ? (
+          <AppIcon name={getNodeIcon(node).icon} size={19} className={`text-[19px] shrink-0 ${getNodeIcon(node).color}`} />
         ) : (
-          <span
-            className={`material-symbols-outlined text-[19px] shrink-0 ${getNodeIcon(node).color}`}
-          >
-            {getNodeIcon(node).icon}
-          </span>
+          <FileTypeIcon node={node} className="w-[19px] h-[19px]" />
         )}
         <span className="truncate flex-1">{node.name}</span>
         {isActive && isDirty && (
@@ -857,13 +888,9 @@ export default function WorkbenchFileTree(): JSX.Element {
         style={{ paddingLeft: `${level * 14 + 24}px` }}
         className="flex items-center gap-1.5 py-0.5 px-2"
       >
-        <span
-          className={`material-symbols-outlined text-[19px] shrink-0 ${
-            isFile ? 'text-blue-500 dark:text-blue-400' : 'text-amber-500'
-          }`}
-        >
-          {isFile ? 'description' : 'folder'}
-        </span>
+        <AppIcon name={isFile ? 'description' : 'folder'} size={19} className={`text-[19px] shrink-0 ${
+ isFile ? 'text-blue-500 dark:text-blue-400' : 'text-amber-500'
+ }`} />
         <input
           ref={inlineInputRef}
           type="text"
@@ -911,7 +938,7 @@ export default function WorkbenchFileTree(): JSX.Element {
             }`}
             title="搜索笔记"
           >
-            <span className="material-symbols-outlined text-[20px]">search</span>
+            <AppIcon name="search" size={20} />
           </button>
           <button
             type="button"
@@ -919,7 +946,7 @@ export default function WorkbenchFileTree(): JSX.Element {
             className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors"
             title="新建笔记"
           >
-            <span className="material-symbols-outlined text-[20px]">note_add</span>
+            <AppIcon name="note_add" size={20} />
           </button>
           <button
             type="button"
@@ -927,7 +954,7 @@ export default function WorkbenchFileTree(): JSX.Element {
             className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors"
             title="新建文件夹"
           >
-            <span className="material-symbols-outlined text-[20px]">create_new_folder</span>
+            <AppIcon name="create_new_folder" size={20} />
           </button>
           <div className="relative">
             <button
@@ -938,7 +965,7 @@ export default function WorkbenchFileTree(): JSX.Element {
               }`}
               title="排序方式"
             >
-              <span className="material-symbols-outlined text-[20px]">sort</span>
+              <AppIcon name="sort" size={20} />
             </button>
             {isSortMenuOpen && (
               <div
@@ -957,7 +984,7 @@ export default function WorkbenchFileTree(): JSX.Element {
                   >
                     <span className="flex-1">{SORT_LABELS[key]}</span>
                     {fileSort.key === key && (
-                      <span className="material-symbols-outlined text-[18px] text-primary">check</span>
+                      <AppIcon name="check" size={18} className="text-primary" />
                     )}
                   </button>
                 ))}
@@ -970,9 +997,7 @@ export default function WorkbenchFileTree(): JSX.Element {
                   }}
                   className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-text-primary hover:bg-black/5 dark:hover:bg-white/5"
                 >
-                  <span className="material-symbols-outlined text-[18px] text-text-secondary">
-                    {fileSort.order === 'asc' ? 'arrow_upward' : 'arrow_downward'}
-                  </span>
+                  <AppIcon name={fileSort.order === 'asc' ? 'arrow_upward' : 'arrow_downward'} size={18} className="text-text-secondary" />
                   <span className="flex-1">{fileSort.order === 'asc' ? '升序' : '降序'}</span>
                 </button>
               </div>
@@ -984,7 +1009,7 @@ export default function WorkbenchFileTree(): JSX.Element {
             className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors"
             title="折叠全部"
           >
-            <span className="material-symbols-outlined text-[20px]">unfold_less</span>
+            <AppIcon name="unfold_less" size={20} />
           </button>
           <button
             type="button"
@@ -992,9 +1017,7 @@ export default function WorkbenchFileTree(): JSX.Element {
             className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors"
             title="刷新目录"
           >
-            <span className={`material-symbols-outlined text-[20px] ${isLoadingTree ? 'animate-spin' : ''}`}>
-              refresh
-            </span>
+            <AppIcon name="refresh" size={20} className={`text-[20px] ${isLoadingTree ? 'animate-spin' : ''}`} />
           </button>
         </div>
 
@@ -1007,7 +1030,7 @@ export default function WorkbenchFileTree(): JSX.Element {
             title="收起侧边栏"
             aria-label="收起侧边栏"
           >
-            <span className="material-symbols-outlined text-base">left_panel_close</span>
+            <AppIcon name="left_panel_close" size={20} />
           </button>
         </div>
       </div>
@@ -1030,7 +1053,7 @@ export default function WorkbenchFileTree(): JSX.Element {
           <>
             {fileTree.length === 0 && !isLoadingTree && (
               <div className="py-10 text-center text-text-secondary/70">
-                <span className="material-symbols-outlined text-3xl mb-2 opacity-40 block">folder_off</span>
+                <AppIcon name="folder_off" size={30} className="mb-2 opacity-40 block" />
                 当前工作区为空，点击上方图标新建笔记
               </div>
             )}
@@ -1048,9 +1071,9 @@ export default function WorkbenchFileTree(): JSX.Element {
           className="w-full h-10 px-3 flex items-center gap-1.5 text-sm font-medium text-text-primary hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
           title={workspacePath || ''}
         >
-          <span className="material-symbols-outlined text-[19px] text-amber-500">folder_open</span>
+          <AppIcon name="folder_open" size={19} className="text-amber-500" />
           <span className="truncate flex-1 text-left">{workspaceName || '未选工作区'}</span>
-          <span className="material-symbols-outlined text-[18px] text-text-secondary">unfold_more</span>
+          <AppIcon name="unfold_more" size={18} className="text-text-secondary" />
         </button>
 
         {isVaultMenuOpen && (
@@ -1079,10 +1102,10 @@ export default function WorkbenchFileTree(): JSX.Element {
                     }`}
                     title={p}
                   >
-                    <span className="material-symbols-outlined text-[18px] text-primary">home</span>
+                    <AppIcon name="home" size={18} className="text-primary" />
                     <span className="truncate flex-1">{name}</span>
                     {isCurrent && (
-                      <span className="material-symbols-outlined text-[18px] text-primary">check</span>
+                      <AppIcon name="check" size={18} className="text-primary" />
                     )}
                   </button>
                   <div className="my-1 border-t border-black/5 dark:border-white/5" />
@@ -1113,7 +1136,7 @@ export default function WorkbenchFileTree(): JSX.Element {
                 >
                   <span className="truncate flex-1">{name}</span>
                   {isCurrent && (
-                    <span className="material-symbols-outlined text-[18px] text-primary">check</span>
+                    <AppIcon name="check" size={18} className="text-primary" />
                   )}
                 </button>
               )
@@ -1127,7 +1150,7 @@ export default function WorkbenchFileTree(): JSX.Element {
               }}
               className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-text-primary hover:bg-black/5 dark:hover:bg-white/5"
             >
-              <span className="material-symbols-outlined text-[19px] text-text-secondary">folder_managed</span>
+              <AppIcon name="folder_managed" size={19} className="text-text-secondary" />
               <span>管理仓库…</span>
             </button>
           </div>
@@ -1151,7 +1174,7 @@ export default function WorkbenchFileTree(): JSX.Element {
                 }}
                 className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-text-primary hover:bg-black/5 dark:hover:bg-white/5"
               >
-                <span className="material-symbols-outlined text-[19px] text-blue-500">note_add</span>
+                <AppIcon name="note_add" size={19} className="text-blue-500" />
                 <span>新建笔记</span>
               </button>
               <button
@@ -1162,7 +1185,7 @@ export default function WorkbenchFileTree(): JSX.Element {
                 }}
                 className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-text-primary hover:bg-black/5 dark:hover:bg-white/5"
               >
-                <span className="material-symbols-outlined text-[19px] text-amber-500">create_new_folder</span>
+                <AppIcon name="create_new_folder" size={19} className="text-amber-500" />
                 <span>新建文件夹</span>
               </button>
               <div className="my-1 border-t border-black/5 dark:border-white/5" />
@@ -1183,7 +1206,7 @@ export default function WorkbenchFileTree(): JSX.Element {
               }}
               className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-text-primary hover:bg-black/5 dark:hover:bg-white/5"
             >
-              <span className="material-symbols-outlined text-[19px]">content_copy</span>
+              <AppIcon name="content_copy" size={19} />
               <span>
                 {selectedPaths.size > 1 && contextMenu.node && selectedPaths.has(contextMenu.node.path)
                   ? `复制 ${selectedPaths.size} 项`
@@ -1201,7 +1224,7 @@ export default function WorkbenchFileTree(): JSX.Element {
               }}
               className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-text-primary hover:bg-black/5 dark:hover:bg-white/5"
             >
-              <span className="material-symbols-outlined text-[19px]">content_paste</span>
+              <AppIcon name="content_paste" size={19} />
               <span>粘贴{treeClipboard.paths.length > 1 ? ` ${treeClipboard.paths.length} 项` : ''}</span>
             </button>
           )}
@@ -1219,7 +1242,7 @@ export default function WorkbenchFileTree(): JSX.Element {
               }}
               className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-text-primary hover:bg-black/5 dark:hover:bg-white/5"
             >
-              <span className="material-symbols-outlined text-[19px]">file_copy</span>
+              <AppIcon name="file_copy" size={19} />
               <span>创建副本</span>
             </button>
           )}
@@ -1238,8 +1261,20 @@ export default function WorkbenchFileTree(): JSX.Element {
                 }}
                 className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-text-primary hover:bg-black/5 dark:hover:bg-white/5"
               >
-                <span className="material-symbols-outlined text-[19px]">edit</span>
+                <AppIcon name="edit" size={19} />
                 <span>重命名</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const nodes = getUploadNodes()
+                  setContextMenu(null)
+                  if (nodes.length > 0) requestUploadNodesToAi({ nodes })
+                }}
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-text-primary hover:bg-black/5 dark:hover:bg-white/5"
+              >
+                <AppIcon name="send" size={19} className="text-blue-500" />
+                <span>上传到 AI</span>
               </button>
               <button
                 type="button"
@@ -1249,7 +1284,7 @@ export default function WorkbenchFileTree(): JSX.Element {
                 }}
                 className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-text-primary hover:bg-black/5 dark:hover:bg-white/5"
               >
-                <span className="material-symbols-outlined text-[19px]">folder</span>
+                <AppIcon name="folder" size={19} />
                 <span>在资源管理器中显示</span>
               </button>
               {!contextMenu.node.isDirectory && (
@@ -1261,12 +1296,12 @@ export default function WorkbenchFileTree(): JSX.Element {
                   }}
                   className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-text-primary hover:bg-black/5 dark:hover:bg-white/5"
                 >
-                  <span className="material-symbols-outlined text-[19px]">open_in_new</span>
+                  <AppIcon name="open_in_new" size={19} />
                   <span>使用系统默认程序打开</span>
                 </button>
               )}
-              {/* 仅 .md 文档：清理未引用图片 */}
-              {contextMenu.node && !contextMenu.node.isDirectory && /\.(md|markdown)$/i.test(contextMenu.node.name) && (
+              {/* Markdown 文档：清理未引用图片 */}
+              {contextMenu.node && !contextMenu.node.isDirectory && MARKDOWN_EXTENSIONS.has(`.${contextMenu.node.name.split('.').pop()?.toLowerCase() ?? ''}`) && (
                 <button
                   type="button"
                   disabled={isCleaningImages}
@@ -1301,7 +1336,7 @@ export default function WorkbenchFileTree(): JSX.Element {
                   }}
                   className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-text-primary hover:bg-black/5 dark:hover:bg-white/5 disabled:opacity-50"
                 >
-                  <span className="material-symbols-outlined text-[19px]">image_not_supported</span>
+                  <AppIcon name="image_not_supported" size={19} />
                   <span>{isCleaningImages ? '扫描中…' : '清理未引用图片'}</span>
                 </button>
               )}
@@ -1323,7 +1358,7 @@ export default function WorkbenchFileTree(): JSX.Element {
                 }}
                 className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/20"
               >
-                <span className="material-symbols-outlined text-[19px]">delete</span>
+                <AppIcon name="delete" size={19} />
                 <span>
                   {selectedPaths.size > 1 && contextMenu.node && selectedPaths.has(contextMenu.node.path)
                     ? `删除 ${selectedPaths.size} 项 (移至回收站)`
@@ -1357,7 +1392,7 @@ export default function WorkbenchFileTree(): JSX.Element {
                 onClick={() => setActionModal(null)}
                 className="text-text-secondary hover:text-text-primary"
               >
-                <span className="material-symbols-outlined text-[19px]">close</span>
+                <AppIcon name="close" size={19} />
               </button>
             </div>
 
@@ -1457,7 +1492,7 @@ export default function WorkbenchFileTree(): JSX.Element {
                 onClick={() => setIsVaultManageOpen(false)}
                 className="text-text-secondary hover:text-text-primary"
               >
-                <span className="material-symbols-outlined text-[19px]">close</span>
+                <AppIcon name="close" size={19} />
               </button>
             </div>
 
@@ -1480,7 +1515,7 @@ export default function WorkbenchFileTree(): JSX.Element {
                             : 'hover:bg-black/5 dark:hover:bg-white/5'
                         }`}
                       >
-                        <span className="material-symbols-outlined text-[19px] text-primary">home</span>
+                        <AppIcon name="home" size={19} className="text-primary" />
                         <button
                           type="button"
                           disabled={isCurrent}
@@ -1495,7 +1530,7 @@ export default function WorkbenchFileTree(): JSX.Element {
                           <div className="text-xs text-text-secondary truncate">{p}</div>
                         </button>
                         {isCurrent && (
-                          <span className="material-symbols-outlined text-[18px] text-primary">check_circle</span>
+                          <AppIcon name="check_circle" size={18} className="text-primary" />
                         )}
                       </div>
                     )
@@ -1520,7 +1555,7 @@ export default function WorkbenchFileTree(): JSX.Element {
                         : 'hover:bg-black/5 dark:hover:bg-white/5'
                     }`}
                   >
-                    <span className="material-symbols-outlined text-[19px] text-amber-500">folder</span>
+                    <AppIcon name="folder" size={19} className="text-amber-500" />
                     <button
                       type="button"
                       disabled={isCurrent}
@@ -1535,7 +1570,7 @@ export default function WorkbenchFileTree(): JSX.Element {
                       <div className="text-xs text-text-secondary truncate">{p}</div>
                     </button>
                     {isCurrent && (
-                      <span className="material-symbols-outlined text-[18px] text-primary">check_circle</span>
+                      <AppIcon name="check_circle" size={18} className="text-primary" />
                     )}
                     <button
                       type="button"
@@ -1543,7 +1578,7 @@ export default function WorkbenchFileTree(): JSX.Element {
                       className="w-7 h-7 shrink-0 flex items-center justify-center rounded-md text-text-secondary opacity-0 group-hover:opacity-100 hover:bg-black/10 dark:hover:bg-white/10 hover:text-rose-500 transition-all"
                       title="从列表移除"
                     >
-                      <span className="material-symbols-outlined text-[18px]">delete</span>
+                      <AppIcon name="delete" size={18} />
                     </button>
                   </div>
                 )
@@ -1559,7 +1594,7 @@ export default function WorkbenchFileTree(): JSX.Element {
                 }}
                 className="w-full h-9 px-3 rounded-lg bg-primary text-white hover:bg-primary/90 font-medium flex items-center justify-center gap-1.5 transition-colors"
               >
-                <span className="material-symbols-outlined text-[18px]">folder_open</span>
+                <AppIcon name="folder_open" size={18} />
                 <span>选择其他文件夹…</span>
               </button>
               {workspacePath && workspacePath !== defaultWorkspacePath && (
@@ -1571,7 +1606,7 @@ export default function WorkbenchFileTree(): JSX.Element {
                   }}
                   className="w-full h-9 px-3 rounded-lg border border-black/10 dark:border-white/10 hover:bg-rose-50 hover:border-rose-200 hover:text-rose-600 dark:hover:bg-rose-950/20 dark:hover:border-rose-900/40 dark:hover:text-rose-400 text-text-secondary flex items-center justify-center gap-1.5 transition-colors"
                 >
-                  <span className="material-symbols-outlined text-[18px]">close</span>
+                  <AppIcon name="close" size={18} />
                   <span>关闭当前工作区</span>
                 </button>
               )}

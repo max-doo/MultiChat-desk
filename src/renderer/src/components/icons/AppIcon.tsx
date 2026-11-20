@@ -25,6 +25,7 @@ import {
   Brush,
   Check,
   CheckCircle2,
+  CaseSensitive,
   ChevronDown,
   ChevronRight,
   ChevronUp,
@@ -37,6 +38,7 @@ import {
   Columns2,
   Copy,
   Database,
+  DiagramFlowHorizontal,
   Download,
   Eye,
   EyeOff,
@@ -44,6 +46,7 @@ import {
   FilePlus,
   FileSignature,
   FileText,
+  Files,
   FlaskConical,
   Folder,
   FolderBookmark,
@@ -57,6 +60,7 @@ import {
   HelpCircle,
   Highlighter,
   History,
+  Home,
   Hourglass,
   Image,
   ImageOff,
@@ -99,14 +103,15 @@ import {
   Plus,
   Presentation,
   Quote,
+  Redo2,
   RefreshCw,
-  Repeat,
   Rocket,
   RotateCcw,
   RotateCw,
   Scissors,
   Search,
   SearchX,
+  SendHorizontal,
   Settings,
   SlidersHorizontal,
   Sparkles,
@@ -131,6 +136,7 @@ import {
   Undo2,
   Upload,
   Wand2,
+  WholeWord,
   WifiOff,
   Wrench,
   X,
@@ -138,8 +144,29 @@ import {
   ZoomOut
 } from 'lucide-react'
 
+function PdfIcon(props: SVGProps<SVGSVGElement>): JSX.Element {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      {...props}
+    >
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <path d="M14 2v6h6" />
+      <path d="M7 18v-5h1.5a2 2 0 0 1 0 4H7" strokeWidth={1.6} />
+      <path d="M12 18v-5h1a2.5 2.5 0 0 1 0 5h-1" strokeWidth={1.6} />
+      <path d="M17 13h-1.5v5H17M15.5 15.5H17" strokeWidth={1.6} />
+    </svg>
+  )
+}
+
 export const APP_ICON_MAP = {
   "account_tree": ListTree,
+  "diagram_flow_horizontal": DiagramFlowHorizontal,
   "add": Plus,
   "add_comment": MessageSquarePlus,
   "ads_click": MousePointerClick,
@@ -192,6 +219,7 @@ export const APP_ICON_MAP = {
   "error": AlertCircle,
   "expand_less": ChevronUp,
   "expand_more": ChevronDown,
+  "file_copy": Files,
   "filter_none": SquareStack,
   "folder": Folder,
   "folder_managed": FolderCog,
@@ -217,6 +245,7 @@ export const APP_ICON_MAP = {
   "grid_4x4": Grid3x3,
   "help": HelpCircle,
   "history": History,
+  "home": Home,
   "horizontal_rule": Minus,
   "hourglass_empty": Hourglass,
   "hub": Network,
@@ -232,18 +261,20 @@ export const APP_ICON_MAP = {
   "left_panel_close": PanelLeftClose,
   "left_panel_open": PanelLeftOpen,
   "link": Link2,
+  "match_case": CaseSensitive,
+  "match_word": WholeWord,
   "more_horiz": MoreHorizontal,
   "note_add": FilePlus,
   "notes": StickyNote,
   "open_in_new": ExternalLink,
   "pause": Pause,
-  "picture_as_pdf": FileText,
+  "picture_as_pdf": PdfIcon,
   "pin_drop": Pin,
   "play_arrow": Play,
   "progress_activity": Loader2,
   "psychology": Brain,
   "push_pin": Pin,
-  "redo": Repeat,
+  "redo": Redo2,
   "refresh": RefreshCw,
   "remove": Minus,
   "restart_alt": RotateCcw,
@@ -256,6 +287,7 @@ export const APP_ICON_MAP = {
   "search": Search,
   "search_off": SearchX,
   "select_all": SquareDashed,
+  "send": SendHorizontal,
   "settings": Settings,
   "slideshow": Presentation,
   "smart_toy": Bot,
@@ -298,17 +330,30 @@ export interface AppIconProps extends SVGProps<SVGSVGElement> {
   name: AppIconName | string
   /** 像素尺寸，等价旧 font-size，默认 24 */
   size?: number | string
+  /** 悬浮提示（HTML title 语义，渲染为 <title> 子节点） */
+  title?: string
 }
 
-export function AppIcon({ name, size = 24, strokeWidth = 2.2, style, ...rest }: AppIconProps): JSX.Element {
-  const Comp = (APP_ICON_MAP as Record<string, typeof HelpCircle>)[name] ?? FALLBACK_ICON
+export function AppIcon({ name, size, strokeWidth = 2.2, title, style, ...rest }: AppIconProps): JSX.Element {
+  const iconEntries = APP_ICON_MAP as Record<string, (props: SVGProps<SVGSVGElement>) => JSX.Element>
+  const Comp = iconEntries[name] ?? FALLBACK_ICON
   if (import.meta.env.DEV && !(name in APP_ICON_MAP)) {
-    // eslint-disable-next-line no-console
     console.warn('[AppIcon] unmapped icon name:', name)
   }
+  // 兼容历史透传的 style.fontSize（原字体图标靠 font-size 控尺寸，迁 svg 后由 size 控）
+  const fontSize = typeof style?.fontSize === 'number' ? style.fontSize : parseFloat(String(style?.fontSize ?? ''))
+  const rawSize = Number(size ?? (Number.isFinite(fontSize) ? fontSize : 24)) || 24
+  // Material 字体 glyph 含内建留白（约占 em 的 ~80%），Lucide svg 的 width/height=size 会撑满盒子。
+  // 乘光学缩放系数让视觉尺寸对齐原 Material 渲染，避免“图标变大一圈”。
+  const OPTICAL_SCALE = 0.85
+  const resolvedSize = Math.round(rawSize * OPTICAL_SCALE * 100) / 100
   // verticalAlign:middle 抵消 svg 与相邻文字的基线偏移；strokeWidth 2.2 校准 Lucide 线稿偏细
   const mergedStyle: CSSProperties = { flexShrink: 0, verticalAlign: 'middle', ...style }
-  return <Comp width={size} height={size} strokeWidth={strokeWidth} data-icon={name} style={mergedStyle} aria-hidden="true" {...rest} />
+  return (
+    <Comp width={resolvedSize} height={resolvedSize} strokeWidth={strokeWidth} data-icon={name} style={mergedStyle} aria-hidden="true" {...rest}>
+      {title ? <title>{title}</title> : null}
+    </Comp>
+  )
 }
 
 export default AppIcon

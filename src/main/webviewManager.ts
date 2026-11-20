@@ -1188,7 +1188,7 @@ function setupContextMenu(wc: Electron.WebContents): void {
                 items.push({
                     key: 'mindmap',
                     label: '加入当前导图',
-                    icon: 'account_tree'
+                    icon: 'diagram_flow_horizontal'
                 })
             }
             items.push({

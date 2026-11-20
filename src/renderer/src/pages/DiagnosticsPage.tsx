@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { defaultSelectors } from '../config/selectors'
 import type { CandidateReport, DomProbeReport, NodeFingerprint, ProbeReport, ResearchProbeReport, StepReport, TreeNode } from '../utils/selectorDiagnostics'
+import { AppIcon } from '../components/icons/AppIcon'
 
 // ─────────────────────────────────────────────────────────────
 // 辅助着色组件与复制格式化函数
@@ -142,7 +143,7 @@ function DiagnosticsPage(): JSX.Element {
         }}
       >
         <div className="flex items-center gap-2 drag-region h-full min-w-0">
-          <span className="material-symbols-outlined text-base text-gray-500">science</span>
+          <AppIcon name="science" size={16} className="text-gray-500" />
           <span className="text-xs font-semibold text-gray-700 truncate">选择器诊断</span>
         </div>
         <div className="flex items-center gap-1.5 no-drag">
@@ -152,7 +153,7 @@ function DiagnosticsPage(): JSX.Element {
             className={`w-7 h-7 flex items-center justify-center rounded-lg transition-all duration-200 ${pinned ? 'text-blue-600 bg-blue-50/80 shadow-xs' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100'}`}
             title={pinned ? '取消置顶' : '置顶于主窗口之上'}
           >
-            <span className="material-symbols-outlined text-base" style={pinned ? { fontVariationSettings: "'FILL' 1" } : undefined}>{pinned ? 'push_pin' : 'pin_drop'}</span>
+            <AppIcon name={pinned ? 'push_pin' : 'pin_drop'} size={16} fill={pinned ? 'currentColor' : 'none'} />
           </button>
           <button
             type="button"
@@ -160,7 +161,7 @@ function DiagnosticsPage(): JSX.Element {
             className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-500 hover:text-red-600 hover:bg-red-50 transition-all duration-200"
             title="关闭"
           >
-            <span className="material-symbols-outlined text-base">close</span>
+            <AppIcon name="close" size={16} />
           </button>
         </div>
       </div>
@@ -202,7 +203,7 @@ function DiagnosticsPage(): JSX.Element {
 
       {/* 底部状态提示栏 */}
       <div className="px-4 py-2.5 border-t border-gray-100 bg-gray-50 text-xs text-gray-500 flex items-center gap-1.5 shrink-0">
-        <span className="material-symbols-outlined text-[14px]">info</span>
+        <AppIcon name="info" size={14} />
         <span>dev-only 诊断。先在主窗口对应平台触发一次回复再诊断。报告仅含元素指纹+正文长度，不含正文。</span>
       </div>
     </div>
@@ -238,7 +239,7 @@ function MessageTab({ modelId }: { modelId: string }): JSX.Element {
     <div>
       <button type="button" onClick={run} disabled={running || !modelId}
         className="px-4 py-2 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-40 mb-4 transition-colors flex items-center gap-1.5 shadow-xs no-drag">
-        {running && <span className="animate-spin material-symbols-outlined text-sm">progress_activity</span>}
+        {running && <AppIcon name="progress_activity" size={14} className="animate-spin" />}
         <span>{running ? '诊断中...' : '开始诊断 messageContainer'}</span>
       </button>
       {report && <MessageReportView report={report} />}
@@ -250,7 +251,7 @@ function MessageReportView({ report }: { report: ProbeReport }): JSX.Element {
   if (!report.ok) {
     return (
       <div className="p-4 bg-red-50 border border-red-200 rounded-xl flex items-start gap-2 text-red-700 text-sm">
-        <span className="material-symbols-outlined text-base">error</span>
+        <AppIcon name="error" size={16} />
         <span>{report.error ?? '探针失败'}</span>
       </div>
     )
@@ -337,13 +338,13 @@ function ResearchTab({ modelId }: { modelId: string }): JSX.Element {
       <div className="flex gap-3 mb-4 select-none">
         <button type="button" onClick={probe} disabled={running || !modelId}
           className="px-4 py-2 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-40 transition-colors flex items-center gap-1.5 shadow-xs no-drag">
-          {running && <span className="animate-spin material-symbols-outlined text-sm">progress_activity</span>}
+          {running && <AppIcon name="progress_activity" size={14} className="animate-spin" />}
           <span>{running ? '探测中...' : '只读探测 steps'}</span>
         </button>
         <button type="button" onClick={runReal} disabled={!modelId}
           className="px-4 py-2 text-xs font-medium rounded-lg bg-red-600 hover:bg-red-700 text-white disabled:opacity-40 transition-colors flex items-center gap-1.5 shadow-xs no-drag"
           title="将真实点击页面触发 Deep Research">
-          <span className="material-symbols-outlined text-base">play_arrow</span>
+          <AppIcon name="play_arrow" size={16} />
           <span>实跑 enableDeepResearch</span>
         </button>
       </div>
@@ -367,7 +368,7 @@ function ResearchReportView({ report }: { report: ResearchProbeReport }): JSX.El
   if (!report.ok) {
     return (
       <div className="p-4 bg-red-50 border border-red-200 rounded-xl flex items-start gap-2 text-red-700 text-sm">
-        <span className="material-symbols-outlined text-base">error</span>
+        <AppIcon name="error" size={16} />
         <span>{report.error ?? '探针失败'}</span>
       </div>
     )
@@ -461,9 +462,7 @@ function DomTab({ modelId }: { modelId: string }): JSX.Element {
               ? 'bg-amber-500 hover:bg-amber-600 text-white animate-pulse' 
               : 'bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-40'
           }`}>
-          <span className="material-symbols-outlined text-base">
-            {running ? 'track_changes' : 'ads_click'}
-          </span>
+          <AppIcon name={running ? 'track_changes' : 'ads_click'} size={16} />
           <span>{running ? '检拾中…（点平台页元素 / Esc 取消）' : '进入检拾探测'}</span>
         </button>
       </div>
@@ -480,14 +479,14 @@ function DomReportView({ report }: { report: DomProbeReport }): JSX.Element {
     if (report.cancelled) {
       return (
         <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl flex items-center gap-2 text-gray-500 text-sm select-none">
-          <span className="material-symbols-outlined text-base">info</span>
+          <AppIcon name="info" size={16} />
           <span>已取消（Esc）</span>
         </div>
       )
     }
     return (
       <div className="p-4 bg-red-50 border border-red-200 rounded-xl flex items-start gap-2 text-red-700 text-sm select-none">
-        <span className="material-symbols-outlined text-base">error</span>
+        <AppIcon name="error" size={16} />
         <span>{report.error ?? '检拾失败'}</span>
       </div>
     )
@@ -523,7 +522,7 @@ function DomReportView({ report }: { report: DomProbeReport }): JSX.Element {
           onClick={handleCopyText}
           className="px-3 py-1.5 text-xs font-medium rounded-lg bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 shadow-xs flex items-center gap-1.5 transition-all duration-200 no-drag"
         >
-          <span className="material-symbols-outlined text-sm">{copiedText ? 'done' : 'content_copy'}</span>
+          <AppIcon name={copiedText ? 'done' : 'content_copy'} size={14} />
           <span>{copiedText ? '已复制格式化树' : '复制格式化树'}</span>
         </button>
         <button
@@ -531,7 +530,7 @@ function DomReportView({ report }: { report: DomProbeReport }): JSX.Element {
           onClick={handleCopyJson}
           className="px-3 py-1.5 text-xs font-medium rounded-lg bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 shadow-xs flex items-center gap-1.5 transition-all duration-200 no-drag"
         >
-          <span className="material-symbols-outlined text-sm">{copiedJson ? 'done' : 'code'}</span>
+          <AppIcon name={copiedJson ? 'done' : 'code'} size={14} />
           <span>{copiedJson ? '已复制 JSON' : '复制 JSON'}</span>
         </button>
       </div>
@@ -587,7 +586,7 @@ function TargetCard({ target, selector }: { target: NodeFingerprint; selector?: 
           <code className="text-xs font-mono bg-white px-2.5 py-1 rounded-md border border-gray-200 text-gray-700 break-all select-all">{selector}</code>
           <button type="button" onClick={handleCopy}
             className="px-2.5 py-1 text-xs font-medium rounded-lg bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 shadow-xs flex items-center gap-1.5 transition-all duration-200 no-drag select-none">
-            <span className="material-symbols-outlined text-[14px]">{copied ? 'done' : 'content_copy'}</span>
+            <AppIcon name={copied ? 'done' : 'content_copy'} size={14} />
             <span>{copied ? '已复制' : '复制选择器'}</span>
           </button>
         </div>
@@ -604,7 +603,7 @@ function SubtreeView({ node, depth, defaultOpenDepth }: { node: TreeNode; depth:
       <div className={`font-mono text-xs break-all flex items-center gap-1.5 py-1 px-2 rounded hover:bg-gray-50 transition-colors ${depth === 0 ? 'bg-blue-50/30 border-l-2 border-blue-500' : ''}`}>
         {hasChildren ? (
           <button type="button" onClick={() => setOpen(!open)} className="text-gray-400 hover:text-blue-600 w-4 h-4 flex items-center justify-center rounded hover:bg-gray-200/50 transition-colors no-drag">
-            <span className="material-symbols-outlined text-[14px]" style={{ fontVariationSettings: "'wght' 500" }}>{open ? 'keyboard_arrow_down' : 'keyboard_arrow_right'}</span>
+            <AppIcon name={open ? 'keyboard_arrow_down' : 'keyboard_arrow_right'} size={14} strokeWidth={2.6} />
           </button>
         ) : (
           <span className="w-4 inline-block shrink-0" />

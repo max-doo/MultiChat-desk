@@ -488,6 +488,8 @@ export default function MarkdownSyncPlugin(): null {
     return editor.registerUpdateListener(({ editorState, dirtyElements, dirtyLeaves, tags }) => {
       // 忽略由外部载入触发的更新或无内容变化的选区变动
       if (tags.has('sync-external') || isSyncingFromExternalRef.current) return
+      // 点击代码块外侧只为建立落点段落，不应把空段落写回 Markdown
+      if (tags.has('code-exit')) return
       if (dirtyElements.size === 0 && dirtyLeaves.size === 0) return
 
       editorState.read(() => {

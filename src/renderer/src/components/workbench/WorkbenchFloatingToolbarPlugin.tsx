@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext'
 import { useLexicalEditable } from '@lexical/react/useLexicalEditable'
 import { mergeRegister } from '@lexical/utils'
+import { AppIcon } from '../icons/AppIcon'
 import {
   $getSelection,
   $isRangeSelection,
@@ -169,7 +170,7 @@ function FloatingToolbar({
             className={btn(state.isBold)}
             title="粗体"
           >
-            <span className="material-symbols-outlined text-[19px]">format_bold</span>
+            <AppIcon name="format_bold" size={19} />
           </button>
           <button
             type="button"
@@ -177,7 +178,7 @@ function FloatingToolbar({
             className={btn(state.isItalic)}
             title="斜体"
           >
-            <span className="material-symbols-outlined text-[19px]">format_italic</span>
+            <AppIcon name="format_italic" size={19} />
           </button>
           <button
             type="button"
@@ -185,7 +186,7 @@ function FloatingToolbar({
             className={btn(state.isUnderline)}
             title="下划线"
           >
-            <span className="material-symbols-outlined text-[19px]">format_underlined</span>
+            <AppIcon name="format_underlined" size={19} />
           </button>
           <button
             type="button"
@@ -193,7 +194,7 @@ function FloatingToolbar({
             className={btn(state.isStrikethrough)}
             title="删除线"
           >
-            <span className="material-symbols-outlined text-[19px]">format_strikethrough</span>
+            <AppIcon name="format_strikethrough" size={19} />
           </button>
           <button
             type="button"
@@ -201,7 +202,7 @@ function FloatingToolbar({
             className={btn(state.isCode)}
             title="行内代码"
           >
-            <span className="material-symbols-outlined text-[19px]">code</span>
+            <AppIcon name="code" size={19} />
           </button>
           <button
             type="button"
@@ -209,7 +210,7 @@ function FloatingToolbar({
             className={btn(state.isHighlight)}
             title="高亮"
           >
-            <span className="material-symbols-outlined text-[19px]">ink_highlighter</span>
+            <AppIcon name="ink_highlighter" size={19} />
           </button>
           <button
             type="button"
@@ -217,7 +218,7 @@ function FloatingToolbar({
             className={btn(state.isLink)}
             title={state.isLink ? '移除链接' : '插入链接'}
           >
-            <span className="material-symbols-outlined text-[19px]">link</span>
+            <AppIcon name="link" size={19} />
           </button>
         </>
       )}

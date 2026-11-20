@@ -354,7 +354,7 @@ const WorkbenchSourceEditor = forwardRef<
           style={{
             ...FONT_STYLE,
             margin: 0,
-            padding: '24px 16px',
+            padding: '24px 16px 80px',
             pointerEvents: 'none'
           }}
         >
@@ -379,7 +379,7 @@ const WorkbenchSourceEditor = forwardRef<
           className="absolute inset-0 w-full h-full resize-none bg-transparent text-transparent caret-primary focus:outline-none whitespace-pre-wrap break-all"
           style={{
             ...FONT_STYLE,
-            padding: '24px 16px',
+            padding: '24px 16px 80px',
             caretColor: 'var(--color-primary, #3b82f6)'
           }}
         />

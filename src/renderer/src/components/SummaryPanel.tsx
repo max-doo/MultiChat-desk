@@ -5,6 +5,7 @@ import { useWebviewSummary } from '../hooks/useWebviewSummary'
 import WebviewCard, { WebviewCardRef } from './WebviewCard'
 import { defaultSelectors } from '../config/selectors'
 import type { SummaryPanelProps, ChatMessage } from '../types/summary'
+import { AppIcon } from './icons/AppIcon'
 
 /**
  * 总结面板组件
@@ -465,7 +466,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
                   title="清空输入"
                   aria-label="清空输入"
                 >
-                  <span className="material-symbols-outlined text-base">close</span>
+                  <AppIcon name="close" size={16} />
                 </button>
               )}
 
@@ -478,7 +479,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
                   title="撤回已注入的提示词，返回编辑"
                   aria-label="撤回提示词"
                 >
-                  <span className="material-symbols-outlined text-[18px]">undo</span>
+                  <AppIcon name="undo" size={18} />
                 </button>
               ) : (
                 <button
@@ -499,9 +500,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
                   }
                   aria-label="注入到 Webview"
                 >
-                  <span className={`material-symbols-outlined text-[18px] ${webviewSummary.isGenerating ? "animate-spin" : ""}`}>
-                    {webviewSummary.isGenerating ? "sync" : "arrow_upward"}
-                  </span>
+                  <AppIcon name={webviewSummary.isGenerating ? "sync" : "arrow_upward"} size={18} className={`text-[18px] ${webviewSummary.isGenerating ? "animate-spin" : ""}`} />
                 </button>
               )}
             </div>

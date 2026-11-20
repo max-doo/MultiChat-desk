@@ -217,11 +217,9 @@ if (isWorkbenchEditor && selectionText) {
 1. **向 AI 提问 (`ask_ai`)**：
    - 快捷动作：直接将选中内容发送给右侧 Webview，作为当前对话的输入。
 2. **解释此内容 (`explain_ai`)**：
-   - 提示词模板：`请详细解释以下内容的核心含义、背景与原理：\n\n"""\n${selectedText}\n"""`
+   - 提示词模板：`请详细解释一下内容：\n\n"""\n${selectedText}\n"""`
 3. **语言润色与精简 (`polish_ai`)**：
-   - 提示词模板：`请对以下文本进行专业级润色，纠正语病并优化行文逻辑，保持原意但更精炼地表达：\n\n"""\n${selectedText}\n"""`
-4. **基于此内容续写 (`continue_ai`)**：
-   - 提示词模板：`请基于以下已有段落和上下文思路，自然承接并往下续写：\n\n"""\n${selectedText}\n"""`
+   - 提示词模板：`请对以下文本进行润色，优化行文逻辑：\n\n"""\n${selectedText}\n"""`
 
 ---
 

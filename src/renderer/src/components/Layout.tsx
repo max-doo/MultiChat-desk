@@ -1,5 +1,6 @@
 import { ReactNode, useEffect, useRef, useState } from 'react'
 import { useAppStore, ProductMode, DisplayMode } from '../store/appStore'
+import { AppIcon } from './icons/AppIcon'
 
 // 主页面模式切换分段控件中各模式的展示元数据
 const PRODUCT_MODE_LABELS: Record<ProductMode, { label: string; title: string }> = {
@@ -14,6 +15,56 @@ import SettingsDrawer from './SettingsDrawer'
 import CustomContextMenu from './CustomContextMenu'
 import CliAgentHint from './CliAgentHint'
 
+type WindowsCaptionIconName = 'minimize' | 'maximize' | 'restore' | 'close'
+
+function WindowsCaptionIcon({ name }: { name: WindowsCaptionIconName }): JSX.Element {
+  if (name === 'minimize') {
+    return (
+      <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true" focusable="false">
+        <path d="M0 5h10v1H0z" fill="currentColor" shapeRendering="crispEdges" />
+      </svg>
+    )
+  }
+
+  if (name === 'maximize') {
+    return (
+      <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true" focusable="false">
+        <path
+          fillRule="evenodd"
+          d="M0 0h10v10H0V0Zm1 1v8h8V1H1Z"
+          fill="currentColor"
+          shapeRendering="crispEdges"
+        />
+      </svg>
+    )
+  }
+
+  if (name === 'restore') {
+    return (
+      <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true" focusable="false">
+        {/* Windows 原生向下还原 (ChromeRestore / 0xE923): 后层窗口仅露出顶边、右边和连接角，不穿透前层窗口内部 */}
+        <path
+          d="M2 0h8v8h-2v-1h1v-6h-6v1h-1v-2Z"
+          fill="currentColor"
+          shapeRendering="crispEdges"
+        />
+        <path
+          fillRule="evenodd"
+          d="M0 2h8v8H0V2Zm1 1v6h6V3H1Z"
+          fill="currentColor"
+          shapeRendering="crispEdges"
+        />
+      </svg>
+    )
+  }
+
+  return (
+    <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true" focusable="false">
+      <path d="M0 0l10 10M10 0L0 10" stroke="currentColor" strokeWidth="1" shapeRendering="crispEdges" />
+    </svg>
+  )
+}
+
 function WorkbenchTopBar(): JSX.Element {
   const workspaceName = useWorkbenchStore((s) => s.workspaceName)
   const activeFilePath = useWorkbenchStore((s) => s.activeFilePath)
@@ -23,7 +74,6 @@ function WorkbenchTopBar(): JSX.Element {
   return (
     <div className="flex items-center gap-2 text-xs select-none max-w-[420px] truncate">
       <span className="font-semibold text-text-primary flex items-center gap-1">
-        <span className="material-symbols-outlined text-base text-amber-500">folder_open</span>
         <span>{workspaceName || '工作台'}</span>
       </span>
 
@@ -71,7 +121,7 @@ function WorkbenchPaneToggles({ compact }: { compact?: boolean }): JSX.Element {
         onClick={() => rightPane === 'mindmap' ? closeRightPane() : openRightPane('mindmap')}
         className={`${base} ${tone(rightPane === 'mindmap')}`}
       >
-        <span className="material-symbols-outlined text-[18px]">account_tree</span>
+        <AppIcon name="diagram_flow_horizontal" size={20} />
       </button>
       <button
         type="button"
@@ -80,9 +130,7 @@ function WorkbenchPaneToggles({ compact }: { compact?: boolean }): JSX.Element {
         onClick={() => rightPane === 'ai' ? closeRightPane() : openRightPane('ai')}
         className={`${base} ${tone(rightPane === 'ai')}`}
       >
-        <span className="material-symbols-outlined text-[18px]">
-          {rightPane === 'ai' ? 'right_panel_close' : 'right_panel_open'}
-        </span>
+        <AppIcon name={rightPane === 'ai' ? 'right_panel_close' : 'right_panel_open'} size={20} />
       </button>
     </>
   )
@@ -183,7 +231,7 @@ function Layout({ children }: LayoutProps): JSX.Element {
         className="relative h-7 px-2 flex items-center justify-center gap-1 text-text-secondary hover:text-primary hover:bg-white/60 rounded-lg transition-all duration-200"
         title="设置"
       >
-        <span className="material-symbols-outlined text-base">settings</span>
+        <AppIcon name="settings" size={16} />
         <span className="text-xs font-normal">设置</span>
         {hasUpdate && <span className="absolute right-0.5 top-0.5 w-1.5 h-1.5 rounded-full bg-red-500 ring-2 ring-white/80" />}
       </button>
@@ -197,7 +245,7 @@ function Layout({ children }: LayoutProps): JSX.Element {
         className="h-7 px-2 flex items-center justify-center gap-1 text-text-secondary hover:text-primary hover:bg-white/60 rounded-lg transition-all duration-200"
         title="历史记录"
       >
-        <span className="material-symbols-outlined text-base">history</span>
+        <AppIcon name="history" size={16} />
         <span className="text-xs font-normal">历史</span>
       </button>
       <button
@@ -206,7 +254,7 @@ function Layout({ children }: LayoutProps): JSX.Element {
         className="h-7 px-2 flex items-center justify-center gap-1 rounded-lg transition-all duration-200 text-text-secondary hover:text-primary hover:bg-white/60"
         title="笔记"
       >
-        <span className="material-symbols-outlined text-base">edit_note</span>
+        <AppIcon name="edit_note" size={16} />
         <span className="text-xs font-normal">笔记</span>
       </button>
     </div>
@@ -238,7 +286,7 @@ function Layout({ children }: LayoutProps): JSX.Element {
         <div className="relative z-10 flex items-center gap-3 select-none drag-region h-full">
           {currentPage === 'notes' ? (
             <button type="button" className="no-drag flex items-center gap-1 rounded-lg px-2 py-1 text-sm text-text-primary hover:bg-white/70" onClick={() => setCurrentPage('main')} aria-label="返回主页面">
-              <span className="material-symbols-outlined text-lg">arrow_back</span>
+              <AppIcon name="arrow_back" size={18} />
               <span>返回主页面</span>
             </button>
           ) : <>
@@ -329,29 +377,27 @@ function Layout({ children }: LayoutProps): JSX.Element {
               aria-label="最小化窗口"
               title="最小化"
               onClick={() => window.api.minimizeWindow()}
-              className="flex w-[46px] items-center justify-center text-text-secondary transition-colors hover:bg-black/10 hover:text-text-primary"
+              className="flex w-[46px] items-center justify-center text-[#202020] transition-colors duration-100 hover:bg-black/[0.05] active:bg-black/[0.08] dark:text-[#e5e5e5] dark:hover:bg-white/[0.06]"
             >
-              <span className="material-symbols-outlined text-[17px]">remove</span>
+              <WindowsCaptionIcon name="minimize" />
             </button>
             <button
               type="button"
               aria-label={isWindowMaximized ? '还原窗口' : '最大化窗口'}
               title={isWindowMaximized ? '还原' : '最大化'}
               onClick={() => window.api.maximizeWindow()}
-              className="flex w-[46px] items-center justify-center text-text-secondary transition-colors hover:bg-black/10 hover:text-text-primary"
+              className="flex w-[46px] items-center justify-center text-[#202020] transition-colors duration-100 hover:bg-black/[0.05] active:bg-black/[0.08] dark:text-[#e5e5e5] dark:hover:bg-white/[0.06]"
             >
-              <span className="material-symbols-outlined text-[16px]">
-                {isWindowMaximized ? 'filter_none' : 'crop_square'}
-              </span>
+              <WindowsCaptionIcon name={isWindowMaximized ? 'restore' : 'maximize'} />
             </button>
             <button
               type="button"
               aria-label="关闭窗口"
               title="关闭"
               onClick={() => window.api.closeWindow()}
-              className="flex w-[46px] items-center justify-center text-text-secondary transition-colors hover:bg-red-500 hover:text-white"
+              className="flex w-[46px] items-center justify-center text-[#202020] transition-colors duration-100 hover:bg-[#c42b1c] hover:text-white active:bg-[#a52a1e] dark:text-[#e5e5e5]"
             >
-              <span className="material-symbols-outlined text-[18px]">close</span>
+              <WindowsCaptionIcon name="close" />
             </button>
           </div>
         ) : window.api.platform === 'darwin' ? (

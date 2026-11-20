@@ -1,4 +1,5 @@
 import { useAppStore, type TaskSubtask } from '../../store/appStore'
+import { AppIcon } from '../icons/AppIcon'
 
 interface SubtaskListProps {
   subtasks: TaskSubtask[]
@@ -23,10 +24,10 @@ function SubtaskList({ subtasks, collapsed }: SubtaskListProps): JSX.Element | n
           className="w-full flex items-center justify-between px-4 py-2 rounded-xl glass-panel shadow-float text-sm text-text-primary hover:bg-white/60"
         >
           <span className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-base text-primary">checklist</span>
+            <AppIcon name="checklist" size={16} className="text-primary" />
             {subtasks.length} 个子任务（已折叠）
           </span>
-          <span className="material-symbols-outlined text-base text-text-secondary">expand_more</span>
+          <AppIcon name="expand_more" size={16} className="text-text-secondary" />
         </button>
       </div>
     )
@@ -36,7 +37,7 @@ function SubtaskList({ subtasks, collapsed }: SubtaskListProps): JSX.Element | n
     <div className="absolute bottom-full left-0 right-0 mb-2 z-40 max-h-[280px] overflow-y-auto rounded-2xl glass-panel-heavy shadow-float border border-gray-200 p-3">
       <div className="flex items-center justify-between mb-2 px-1">
         <span className="text-xs font-bold text-text-secondary flex items-center gap-1.5">
-          <span className="material-symbols-outlined text-base text-primary">checklist</span>
+          <AppIcon name="checklist" size={16} className="text-primary" />
           {subtasks.length} 个子任务 · 可编辑与指派
         </span>
         <button
@@ -44,7 +45,7 @@ function SubtaskList({ subtasks, collapsed }: SubtaskListProps): JSX.Element | n
           className="text-text-secondary hover:text-primary"
           title="折叠"
         >
-          <span className="material-symbols-outlined text-base">expand_less</span>
+          <AppIcon name="expand_less" size={16} />
         </button>
       </div>
       <div className="flex flex-col gap-2">

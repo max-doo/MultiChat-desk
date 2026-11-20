@@ -42,6 +42,7 @@ import {
     selectFolder as workbenchSelectFolder,
     readTree as workbenchReadTree,
     readFile as workbenchReadFile,
+    readPdfBytes as workbenchReadPdfBytes,
     writeFile as workbenchWriteFile,
     createNode as workbenchCreateNode,
     renameNode as workbenchRenameNode,
@@ -1623,6 +1624,17 @@ export async function registerIpcHandlers(
             const workspaceRoot = typeof payload === 'string' ? payload : payload?.workspaceRoot
             const relativePath = typeof payload === 'string' ? relPath! : payload?.relativePath
             const data = await workbenchReadFile(workspaceRoot, relativePath)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    // PDF 原始字节：内置 PDFium 不向宿主暴露选区文字，预览层改用 PDF.js 渲染并自建文本层。
+    ipcMain.handle('workbench:read-pdf-bytes', async (_event, payload: { workspaceRoot: string; relativePath: string }) => {
+        try {
+            const data = await workbenchReadPdfBytes(payload.workspaceRoot, payload.relativePath)
             return { success: true, data }
         } catch (err: unknown) {
             const error = err instanceof Error ? err.message : String(err)

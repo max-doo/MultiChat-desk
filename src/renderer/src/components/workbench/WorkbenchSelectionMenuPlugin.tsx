@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext'
 import { $getSelection, $isRangeSelection } from 'lexical'
 import { useWorkbenchStore, type WorkbenchAiAction } from '../../store/workbenchStore'
+import { AppIcon } from '../icons/AppIcon'
 
 interface MenuPosition {
   x: number
@@ -9,10 +10,7 @@ interface MenuPosition {
   selectedText: string
 }
 
-/**
- * 编辑器内选中文本的专属右键/快捷菜单插件
- * 支持一键划词向 AI 提问、解释、润色、续写与提炼要点
- */
+/** 编辑器内选中文本的专属右键/快捷菜单插件。 */
 export default function WorkbenchSelectionMenuPlugin(): JSX.Element | null {
   const [editor] = useLexicalComposerContext()
   const askAi = useWorkbenchStore((s) => s.askAi)
@@ -130,19 +128,21 @@ export default function WorkbenchSelectionMenuPlugin(): JSX.Element | null {
 
   if (!menuPosition) return null
 
+  const isCodeFile = useWorkbenchStore.getState().activeFileCategory === 'code'
   const items: Array<{
     action: WorkbenchAiAction | 'mindmap'
     label: string
     icon: string
     color: string
-  }> = [
-    { action: 'ask', label: '向 AI 提问', icon: 'chat', color: 'text-blue-500' },
-    { action: 'explain', label: '解释此内容', icon: 'psychology', color: 'text-purple-500' },
-    { action: 'polish', label: '语言润色', icon: 'auto_fix_high', color: 'text-emerald-500' },
-    { action: 'continue', label: '续写内容', icon: 'edit_note', color: 'text-amber-500' },
-    { action: 'summarize', label: '提取关键要点', icon: 'format_list_bulleted', color: 'text-cyan-500' },
-    { action: 'mindmap', label: '生成思维导图', icon: 'account_tree', color: 'text-indigo-500' }
-  ]
+  }> = isCodeFile
+    ? [{ action: 'mindmap', label: '生成思维导图', icon: 'diagram_flow_horizontal', color: 'text-indigo-500' }]
+    : [
+        { action: 'ask', label: '向 AI 提问', icon: 'chat', color: 'text-blue-500' },
+        { action: 'explain', label: '解释此内容', icon: 'psychology', color: 'text-purple-500' },
+        { action: 'polish', label: '语言润色', icon: 'auto_fix_high', color: 'text-emerald-500' },
+        { action: 'summarize', label: '提取关键要点', icon: 'format_list_bulleted', color: 'text-cyan-500' },
+        { action: 'mindmap', label: '生成思维导图', icon: 'diagram_flow_horizontal', color: 'text-indigo-500' }
+      ]
 
   return (
     <div
@@ -154,7 +154,7 @@ export default function WorkbenchSelectionMenuPlugin(): JSX.Element | null {
       }}
     >
       <div className="px-3 py-1 font-semibold text-sm text-text-secondary/70 uppercase tracking-wider border-b border-black/5 dark:border-white/5 mb-1">
-        AI 划词协同
+        {isCodeFile ? '划词操作' : 'AI 划词协同'}
       </div>
       {items.map((item) => (
         <button
@@ -163,7 +163,7 @@ export default function WorkbenchSelectionMenuPlugin(): JSX.Element | null {
           onClick={() => item.action === 'mindmap' ? handleMindmap() : handleAction(item.action)}
           className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-text-primary hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
         >
-          <span className={`material-symbols-outlined text-[19px] ${item.color}`}>{item.icon}</span>
+          <AppIcon name={item.icon} size={19} className={`text-[19px] ${item.color}`} />
           <span className="font-medium">{item.label}</span>
         </button>
       ))}
@@ -173,7 +173,7 @@ export default function WorkbenchSelectionMenuPlugin(): JSX.Element | null {
         onClick={handleCopy}
         className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-text-secondary hover:text-text-primary hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
       >
-        <span className="material-symbols-outlined text-[19px]">content_copy</span>
+        <AppIcon name="content_copy" size={19} />
         <span>复制选中文本</span>
       </button>
     </div>

@@ -5,6 +5,7 @@ import WebviewSidebarPanel from '../components/WebviewSidebarPanel'
 import { useWebviewSidebar } from '../hooks/useWebviewSidebar'
 import { queueMindmapSelection } from '../utils/mindmapSelection'
 import { useAppStore, getDisplayedModels, SummaryHistoryItem, HistoryItem, ModelConfig } from '../store/appStore'
+import { AppIcon } from '../components/icons/AppIcon'
 
 interface MainPageProps {
   onNavigateToSummary: (historyItem?: SummaryHistoryItem) => void
@@ -1085,7 +1086,7 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
                           title="思维导图"
                           aria-label="思维导图"
                         >
-                          <span className="material-symbols-outlined text-base">account_tree</span>
+                          <AppIcon name="diagram_flow_horizontal" size={20} />
                         </button>
                         <button
                           type="button"
@@ -1098,9 +1099,7 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
                           title={sidebarOpen && sidebarMode === 'model' ? '收起侧边栏' : '展开侧边栏'}
                           aria-label={sidebarOpen && sidebarMode === 'model' ? '收起侧边栏' : '展开侧边栏'}
                         >
-                          <span className="material-symbols-outlined text-base">
-                            {sidebarOpen && sidebarMode === 'model' ? 'right_panel_close' : 'right_panel_open'}
-                          </span>
+                          <AppIcon name={sidebarOpen && sidebarMode === 'model' ? 'right_panel_close' : 'right_panel_open'} size={20} />
                         </button>
                       </div>
                     ) : undefined

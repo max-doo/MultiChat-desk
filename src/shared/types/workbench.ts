@@ -57,9 +57,9 @@ export const DOCUMENT_EXTENSIONS = new Set([
   '.pptx', '.ppt', '.pptm', '.potx', '.pot', '.ppsx', '.pps', '.odp'
 ])
 
-export const MARKDOWN_EXTENSIONS = new Set(['.md', '.markdown'])
+export const MARKDOWN_EXTENSIONS = new Set(['.md', '.markdown', '.txt'])
 
-export const TEXT_EXTENSIONS = new Set(['.txt', '.log', '.csv', '.tsv'])
+export const TEXT_EXTENSIONS = new Set(['.log', '.csv', '.tsv'])
 
 export const CODE_EXTENSIONS = new Set([
   '.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs',

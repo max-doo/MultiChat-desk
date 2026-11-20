@@ -1,5 +1,6 @@
 import { useState, useRef, useMemo, useEffect, useCallback } from 'react'
 import { useWorkbenchStore } from '../../store/workbenchStore'
+import { AppIcon } from '../icons/AppIcon'
 
 type BackgroundTheme = 'checkerboard' | 'light' | 'dark'
 
@@ -70,7 +71,7 @@ export default function WorkbenchImagePreview(): JSX.Element {
       <div className="h-12 px-3 bg-white/80 dark:bg-gray-800/80 border-b border-black/5 dark:border-white/5 flex items-center justify-between gap-2 shrink-0 text-sm">
         {/* 左侧：文件信息与规格 */}
         <div className="flex items-center gap-2 truncate">
-          <span className="material-symbols-outlined text-[19px] text-purple-500">image</span>
+          <AppIcon name="image" size={19} className="text-purple-500" />
           <span className="font-medium text-text-primary truncate" title={activeFilePath || ''}>
             {activeFilePath}
           </span>
@@ -85,7 +86,7 @@ export default function WorkbenchImagePreview(): JSX.Element {
             className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors"
             title="缩小"
           >
-            <span className="material-symbols-outlined text-[19px]">zoom_out</span>
+            <AppIcon name="zoom_out" size={19} />
           </button>
           <button
             type="button"
@@ -101,7 +102,7 @@ export default function WorkbenchImagePreview(): JSX.Element {
             className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors"
             title="放大"
           >
-            <span className="material-symbols-outlined text-[19px]">zoom_in</span>
+            <AppIcon name="zoom_in" size={19} />
           </button>
 
           {/* 顺时针旋转 90 度 */}
@@ -111,7 +112,7 @@ export default function WorkbenchImagePreview(): JSX.Element {
             className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors"
             title="顺时针旋转 90°"
           >
-            <span className="material-symbols-outlined text-[19px]">rotate_right</span>
+            <AppIcon name="rotate_right" size={19} />
           </button>
 
           {/* 背景板切换 (透明棋盘 / 白色 / 深色) */}
@@ -123,9 +124,7 @@ export default function WorkbenchImagePreview(): JSX.Element {
               bgTheme === 'checkerboard' ? '透明棋盘格' : bgTheme === 'light' ? '纯白背景' : '深色背景'
             })`}
           >
-            <span className="material-symbols-outlined text-[19px]">
-              {bgTheme === 'checkerboard' ? 'grid_4x4' : bgTheme === 'light' ? 'wb_sunny' : 'dark_mode'}
-            </span>
+            <AppIcon name={bgTheme === 'checkerboard' ? 'grid_4x4' : bgTheme === 'light' ? 'wb_sunny' : 'dark_mode'} size={19} />
           </button>
 
           <div className="w-[1px] h-4 bg-black/10 dark:bg-white/10 mx-1" />
@@ -139,7 +138,7 @@ export default function WorkbenchImagePreview(): JSX.Element {
             className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors"
             title="在操作系统默认看图软件中打开"
           >
-            <span className="material-symbols-outlined text-[19px]">open_in_new</span>
+            <AppIcon name="open_in_new" size={19} />
           </button>
 
           {/* 在资源管理器定位 */}
@@ -151,7 +150,7 @@ export default function WorkbenchImagePreview(): JSX.Element {
             className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors"
             title="在系统资源管理器中定位"
           >
-            <span className="material-symbols-outlined text-[19px]">folder_open</span>
+            <AppIcon name="folder_open" size={19} />
           </button>
         </div>
       </div>
@@ -170,7 +169,7 @@ export default function WorkbenchImagePreview(): JSX.Element {
         {activeFileOversized ? (
           <div className="flex flex-col items-center gap-3 text-text-secondary max-w-sm text-center p-6 bg-white/80 dark:bg-gray-800/80 rounded-2xl shadow-lg border border-black/5 dark:border-white/5">
             <div className="w-14 h-14 rounded-2xl bg-amber-500/10 flex items-center justify-center text-amber-500 mb-1">
-              <span className="material-symbols-outlined text-3xl">image</span>
+              <AppIcon name="image" size={30} />
             </div>
             <h3 className="text-sm font-semibold text-text-primary">图片超出内嵌预览上限</h3>
             <p className="text-sm text-text-secondary leading-relaxed">
@@ -183,13 +182,13 @@ export default function WorkbenchImagePreview(): JSX.Element {
               }}
               className="mt-2 px-4 py-2 rounded-xl bg-primary text-white text-sm font-medium flex items-center gap-1.5 shadow-sm hover:bg-primary/90 transition-all"
             >
-              <span className="material-symbols-outlined text-[19px]">open_in_new</span>
+              <AppIcon name="open_in_new" size={19} />
               <span>在外部看图软件中打开</span>
             </button>
           </div>
         ) : loadError ? (
           <div className="flex flex-col items-center gap-3 text-text-secondary">
-            <span className="material-symbols-outlined text-4xl text-rose-500">broken_image</span>
+            <AppIcon name="broken_image" size={36} className="text-rose-500" />
             <p className="text-sm">无法加载或解析该图片文件</p>
             <button
               type="button"

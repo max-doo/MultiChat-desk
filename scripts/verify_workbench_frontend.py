@@ -71,8 +71,13 @@ def main():
                 historyGetList: async () => ({ success: true, data: [] }),
                 summaryPromptsList: async () => [],
                 summaryPromptsBootstrap: async () => [],
-                workbench: {
+                workbench: new Proxy({
                     selectFolder: async () => ({ success: true, data: { path: 'C:\\\\mock-workspace', name: 'TestKnowledgeBase' } }),
+                    ensureDefaultWorkspace: async () => ({ success: true, data: { path: 'C:\\\\mock-workspace', name: 'TestKnowledgeBase' } }),
+                    watch: async () => ({ success: true }),
+                    unwatch: async () => ({ success: true }),
+                    reconcileMindmaps: async () => ({ success: true }),
+                    onFsChanged: () => () => {},
                     readTree: async (dir) => ({
                         success: true,
                         data: [
@@ -130,7 +135,18 @@ def main():
                             { filePath: 'welcome.md', fileName: 'welcome.md', line: 1, content: '# 知识库欢迎指南', preview: '知识库欢迎指南' }
                         ]
                     }),
-                    revealFile: async (ws, p) => ({ success: true })
+                    revealFile: async (ws, p) => ({ success: true }),
+                    onFsChanged: () => () => {}
+                }, {
+                    get(target, prop) {
+                        if (prop in target) return target[prop];
+                        if (typeof prop === 'string' && prop.startsWith('on')) return () => () => {};
+                        return async () => ({ success: true, data: null });
+                    }
+                }),
+                dispatchFileDrop: async (wcId, filePath, x, y) => {
+                    window.__lastDispatchedDrop = { wcId, filePath, x, y };
+                    return { success: true };
                 }
             };
 
@@ -260,9 +276,9 @@ def main():
         print("PASS: 成功进入源码模式")
 
         # Check return button
-        return_btn = page.locator('button:has-text("返回富文本模式")')
-        assert return_btn.count() > 0, "源码模式下必须有明确的「返回富文本模式」按钮"
-        print("PASS: 返回富文本模式按钮存在")
+        return_btn = page.locator('button:has-text("预览")').or_(page.locator('button:has-text("返回富文本模式")')).first
+        assert return_btn.count() > 0, "源码模式下必须有明确的切回预览模式按钮"
+        print("PASS: 切回预览模式按钮存在")
 
         # Append text in source mode
         cur_raw = textarea.input_value()

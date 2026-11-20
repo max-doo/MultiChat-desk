@@ -2,6 +2,7 @@ import React, { useState, useCallback } from 'react'
 import WebviewCard, { type WebviewCardRef } from './WebviewCard'
 import StandaloneMindmapPanel from './StandaloneMindmapPanel'
 import ConversationMindmapPanel, { type MindmapSource as ConversationSource } from './ConversationMindmapPanel'
+import { AppIcon } from './icons/AppIcon'
 
 export interface MindmapSidebarViewProps {
   instancePrefix: string
@@ -57,7 +58,7 @@ export default function MindmapSidebarView({
               className="flex items-center gap-1 px-2 py-1 rounded-md text-xs sm:text-[13px] text-text-secondary hover:text-primary hover:bg-gray-100 transition-colors no-drag shrink-0"
               title="返回本地导图"
             >
-              <span className="material-symbols-outlined text-base">arrow_back</span>
+              <AppIcon name="arrow_back" size={16} />
               返回本地导图
             </button>
             <span className="text-sm font-medium text-text-primary truncate">幕布</span>
@@ -72,7 +73,7 @@ export default function MindmapSidebarView({
               title="刷新幕布"
               aria-label="刷新幕布"
             >
-              <span className="material-symbols-outlined text-base">refresh</span>
+              <AppIcon name="refresh" size={16} />
             </button>
 
             <button
@@ -82,7 +83,7 @@ export default function MindmapSidebarView({
               title="收起侧边栏"
               aria-label="收起侧边栏"
             >
-              <span className="material-symbols-outlined text-base">close</span>
+              <AppIcon name="close" size={16} />
             </button>
           </div>
         </div>
@@ -122,7 +123,7 @@ export default function MindmapSidebarView({
                 } : undefined}
               >
                 <div className="flex items-center gap-2 min-w-0">
-                  <span className="material-symbols-outlined text-primary text-xl shrink-0">account_tree</span>
+                  <AppIcon name="diagram_flow_horizontal" size={20} className="text-primary shrink-0" />
                   <span className="text-sm font-medium text-text-primary truncate">思维导图</span>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
@@ -133,7 +134,7 @@ export default function MindmapSidebarView({
                     title="收起侧边栏"
                     aria-label="收起侧边栏"
                   >
-                    <span className="material-symbols-outlined text-base">close</span>
+                    <AppIcon name="close" size={16} />
                   </button>
                 </div>
               </div>

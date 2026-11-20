@@ -4,6 +4,8 @@ import WorkbenchFileTree from '../components/workbench/WorkbenchFileTree'
 import WorkbenchEditor from '../components/workbench/WorkbenchEditor'
 import WorkbenchAiSidebar from '../components/workbench/WorkbenchAiSidebar'
 import WorkbenchMindmapPanel from '../components/workbench/WorkbenchMindmapPanel'
+import { requestUploadNodesToAi } from '../components/workbench/workbenchAiEvents'
+import { AppIcon } from '../components/icons/AppIcon'
 
 interface WorkbenchPageProps {
   isActive?: boolean
@@ -20,6 +22,8 @@ export default function WorkbenchPage({ isActive = true }: WorkbenchPageProps): 
   const setRightPaneWidth = useWorkbenchStore((s) => s.setRightPaneWidth)
   const error = useWorkbenchStore((s) => s.error)
   const clearError = useWorkbenchStore((s) => s.clearError)
+  const draggingNodes = useWorkbenchStore((s) => s.draggingNodes)
+  const openRightPane = useWorkbenchStore((s) => s.openRightPane)
 
   const [isDraggingLeft, setIsDraggingLeft] = useState(false)
   const [isDraggingRight, setIsDraggingRight] = useState(false)
@@ -99,14 +103,14 @@ export default function WorkbenchPage({ isActive = true }: WorkbenchPageProps): 
       {/* 错误提示浮层 */}
       {error && (
         <div className="absolute top-3 left-1/2 -translate-x-1/2 z-50 px-4 py-2 bg-rose-500 text-white rounded-xl shadow-xl flex items-center gap-2 text-xs animate-in fade-in slide-in-from-top duration-200">
-          <span className="material-symbols-outlined text-[16px]">error</span>
+          <AppIcon name="error" size={16} />
           <span>{error}</span>
           <button
             type="button"
             onClick={clearError}
             className="w-4 h-4 flex items-center justify-center hover:bg-white/20 rounded-full"
           >
-            <span className="material-symbols-outlined text-[12px]">close</span>
+            <AppIcon name="close" size={12} />
           </button>
         </div>
       )}
@@ -177,6 +181,33 @@ export default function WorkbenchPage({ isActive = true }: WorkbenchPageProps): 
             <WorkbenchMindmapPanel />
           </div>
         </div>
+
+        {/* 当拖拽工作区文件且 AI 侧边栏未展开时，右侧显示展开停靠感应区（绝对浮层，避免挤压中间编辑器导致抖动） */}
+        {draggingNodes && rightPane !== 'ai' && (
+          <div
+            onDragOver={(e) => {
+              e.preventDefault()
+              e.dataTransfer.dropEffect = 'copy'
+            }}
+            onDrop={(e) => {
+              e.preventDefault()
+              openRightPane('ai')
+              const dragTypes = e.dataTransfer ? Array.from(e.dataTransfer.types) : []
+              if (dragTypes.includes('Files') && !dragTypes.includes('application/x-multichat-workspace-files')) {
+                return
+              }
+              const nodes = useWorkbenchStore.getState().draggingNodes
+              if (nodes?.length) requestUploadNodesToAi({ nodes })
+            }}
+            className="absolute right-0 top-0 bottom-0 w-14 flex flex-col items-center justify-center bg-primary/15 hover:bg-primary/25 border-l-2 border-dashed border-primary/60 cursor-pointer animate-in fade-in slide-in-from-right duration-200 z-40 transition-colors shadow-2xl backdrop-blur-sm"
+            title="拖拽到此处展开 AI 侧边栏"
+          >
+            <div className="flex flex-col items-center gap-2 text-primary font-medium text-xs select-none p-2 text-center pointer-events-none">
+              <AppIcon name="smart_toy" size={20} className="animate-bounce" />
+              <span className="[writing-mode:vertical-lr] tracking-widest text-[11px]">展开 AI 侧边栏</span>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

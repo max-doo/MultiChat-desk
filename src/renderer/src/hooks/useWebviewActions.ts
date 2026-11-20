@@ -18,7 +18,7 @@ import {
   generateGetLatestResponseScript,
   generateMindmapPageStateScript,
   generateFileDropPointScript,
-  generateDetectUploadedFileScript,
+  generateFileUploadStateScript,
   type FileUploadData
 } from '../utils/webviewScripts'
 import { extractGeminiCanvasContent } from '../utils/geminiCanvasExtractor'
@@ -29,6 +29,27 @@ import { assistantReplyConfigs } from '../config/selectors'
 
 /** 任务分配两段式发送：注入后等待 host 端延时，再点发送按钮（给千问 React 收敛窗口） */
 const TWO_PHASE_SEND_DELAY_MS = 1000
+const UPLOAD_READY_TIMEOUT_MS = 90_000
+const UPLOAD_READY_POLL_MS = 400
+const UPLOAD_READY_STABLE_CHECKS = 3
+const UPLOAD_SCRIPT_TIMEOUT_MS = 5_000
+const UPLOAD_DROP_TIMEOUT_MS = 15_000
+
+function withTimeout<T>(operation: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), timeoutMs)
+    operation.then(
+      (value) => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      (error) => {
+        clearTimeout(timer)
+        reject(error)
+      }
+    )
+  })
+}
 
 
 // 创建 Turndown 实例用于 HTML 转 Markdown
@@ -247,21 +268,75 @@ export function useWebviewActions({
           return { success: false, error: '无法获取 webContentsId，无法拖拽上传' }
         }
 
-        const point = await webview.executeJavaScript(generateFileDropPointScript(selectors))
+        const point = await withTimeout(
+          webview.executeJavaScript(generateFileDropPointScript(selectors)),
+          UPLOAD_SCRIPT_TIMEOUT_MS,
+          '读取上传落点超时，页面可能正在重载'
+        ) as {
+          found?: boolean
+          x: number
+          y: number
+        }
+        if (!point || point.found === false) {
+          return { success: false, error: '未找到可接收文件的输入区域，请确认已登录且页面已加载完成' }
+        }
 
-        const dropResult = await window.api.dispatchFileDrop(webContentsId, fileData.filePath, point?.x ?? 10, point?.y ?? 10)
+        const stateScript = generateFileUploadStateScript(selectors, fileData.fileName)
+        let baseline: { nameMatched?: boolean; attachmentCount?: number } = {}
+        try {
+          baseline = (await withTimeout(
+            webview.executeJavaScript(stateScript),
+            UPLOAD_SCRIPT_TIMEOUT_MS,
+            '读取附件基线超时'
+          )) as {
+            nameMatched?: boolean
+            attachmentCount?: number
+          }
+        } catch {
+          // 基线读取失败不阻断上传，后续仍以新增附件信号判断。
+        }
+
+        const dropResult = await withTimeout(
+          window.api.dispatchFileDrop(webContentsId, fileData.filePath, point?.x ?? 10, point?.y ?? 10),
+          UPLOAD_DROP_TIMEOUT_MS,
+          '文件拖拽派发超时，请确认 AI 页面仍可交互'
+        )
         if (!dropResult?.success) {
           return { success: false, error: dropResult?.error || '文件拖拽上传失败' }
         }
 
-        // 信任 dispatchFileDrop 的成功结果；DOM 检测仅作为辅助确认，
-        // 不再因 DOM 中未出现文件名而判定失败（部分平台上传 UI 延迟或不显示文件名）
-        const detected = await webview.executeJavaScript(generateDetectUploadedFileScript(fileData.fileName))
-
-        if (!detected) {
-          console.warn(`[${name}] uploadFile: 未在 DOM 中检测到文件名，但 debugger 拖拽已成功，视为上传成功`)
+        const deadline = Date.now() + UPLOAD_READY_TIMEOUT_MS
+        let stable = 0
+        let lastReason = '未检测到本轮附件'
+        while (Date.now() < deadline) {
+          const state = (await withTimeout(
+            webview.executeJavaScript(stateScript),
+            UPLOAD_SCRIPT_TIMEOUT_MS,
+            '读取附件状态超时，页面可能正在重载'
+          )) as {
+            found?: boolean
+            busy?: boolean
+            error?: string
+            nameMatched?: boolean
+            attachmentCount?: number
+          }
+          if (state?.error) {
+            return { success: false, error: state.error }
+          }
+          const nameAppeared = state?.nameMatched === true && baseline.nameMatched !== true
+          const countIncreased = (state?.attachmentCount ?? 0) > (baseline.attachmentCount ?? 0)
+          const hasNewAttachment = nameAppeared || countIncreased
+          stable = hasNewAttachment && !state?.busy ? stable + 1 : 0
+          if (stable >= UPLOAD_READY_STABLE_CHECKS) {
+            return { success: true }
+          }
+          lastReason = state?.busy ? '附件仍在上传或解析' : '未检测到本轮附件'
+          await new Promise((resolve) => setTimeout(resolve, UPLOAD_READY_POLL_MS))
         }
-        return { success: true }
+        return {
+          success: false,
+          error: `等待附件「${fileData.fileName}」上传就绪超时（${Math.round(UPLOAD_READY_TIMEOUT_MS / 1000)} 秒）：${lastReason}`
+        }
       } catch (error) {
         return { success: false, error: String(error) }
       }

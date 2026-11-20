@@ -1,6 +1,7 @@
 import { useRef, useEffect } from 'react'
 import { useAppStore } from '../../store/appStore'
 import { useDebateRunner } from '../../hooks/useDebateRunner'
+import { AppIcon } from '../icons/AppIcon'
 
 interface DebateModePanelProps {
   showNotification: (type: 'success' | 'error' | 'info', msg: string, autoHide?: number) => void
@@ -70,7 +71,7 @@ function DebateModePanel({ showNotification }: DebateModePanelProps): JSX.Elemen
           disabled={!topic.trim()}
           className="rounded-full bg-primary text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 px-4 h-12 flex-shrink-0 self-end"
         >
-          <span className="material-symbols-outlined">play_arrow</span>
+          <AppIcon name="play_arrow" />
           <span className="text-sm font-bold">开始辩论</span>
         </button>
       </div>
@@ -103,7 +104,7 @@ function DebateModePanel({ showNotification }: DebateModePanelProps): JSX.Elemen
           else if (i === doneIdx && (isRunning || isPaused)) { cls = 'debate-dot active bg-blue-50 text-primary border-blue-300 scale-110'; icon = 'radio_button_checked' }
           return (
             <div key={`${d.round}-${d.turn}`} className={`debate-dot ${cls} flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center transition-all`} title={`第${d.round + 1}轮 ${d.turn === 0 ? '正方' : '反方'}`}>
-              <span className="material-symbols-outlined text-base">{icon}</span>
+              <AppIcon name={icon} size={16} />
             </div>
           )
         })}
@@ -113,22 +114,22 @@ function DebateModePanel({ showNotification }: DebateModePanelProps): JSX.Elemen
       <div className="flex items-center gap-2 flex-shrink-0">
         {isRunning && (
           <button onClick={pause} className="px-3 py-2 rounded-xl bg-gray-200 text-gray-700 hover:bg-gray-300 text-sm flex items-center gap-1">
-            <span className="material-symbols-outlined text-base">pause</span>暂停
+            <AppIcon name="pause" size={16} />暂停
           </button>
         )}
         {isPaused && (
           <button onClick={resume} className="px-3 py-2 rounded-xl bg-primary text-white hover:opacity-90 text-sm flex items-center gap-1">
-            <span className="material-symbols-outlined text-base">play_arrow</span>继续
+            <AppIcon name="play_arrow" size={16} />继续
           </button>
         )}
         {(isRunning || isPaused) && (
           <button onClick={stop} className="px-3 py-2 rounded-xl bg-red-100 text-red-600 hover:bg-red-200 text-sm flex items-center gap-1">
-            <span className="material-symbols-outlined text-base">stop</span>终止
+            <AppIcon name="stop" size={16} />终止
           </button>
         )}
         {isFinished && (
           <button onClick={reset} className="h-10 w-10 rounded-full bg-primary text-white hover:opacity-90 flex items-center justify-center" title="新辩论">
-            <span className="material-symbols-outlined">add</span>
+            <AppIcon name="add" />
           </button>
         )}
       </div>

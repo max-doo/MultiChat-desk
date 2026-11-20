@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { buildSkillInstallCommand } from '../utils/cliGuide'
 import type { CliIntegrationStatus } from '../../../shared/types/cli'
+import { AppIcon } from './icons/AppIcon'
 
 /**
  * 安装引导卡片：检测到 multichat 可用且本次安装后用户未关闭过提示时，
@@ -42,7 +43,7 @@ export default function CliAgentHint(): JSX.Element | null {
   return (
     <div className="fixed right-4 bottom-4 z-[90] w-[340px] glass-panel-heavy rounded-2xl shadow-float p-4">
       <div className="flex items-start gap-3">
-        <span className="material-symbols-outlined text-primary text-xl shrink-0 mt-0.5">terminal</span>
+        <AppIcon name="terminal" size={20} className="text-primary shrink-0 mt-0.5" />
         <div className="flex-1 min-w-0">
           <div className="text-sm font-semibold text-text-primary">命令行工具 multichat 已就绪</div>
           <div className="text-xs text-text-secondary mt-1 leading-relaxed">
@@ -73,7 +74,7 @@ export default function CliAgentHint(): JSX.Element | null {
           className="shrink-0 w-6 h-6 flex items-center justify-center rounded-lg text-text-secondary hover:text-text-primary hover:bg-black/5 transition-colors"
           aria-label="关闭"
         >
-          <span className="material-symbols-outlined text-base">close</span>
+          <AppIcon name="close" size={16} />
         </button>
       </div>
     </div>

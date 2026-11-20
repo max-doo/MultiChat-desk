@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { Components } from 'react-markdown'
+import { AppIcon } from './icons/AppIcon'
 
 interface ModelOutputCardProps {
   id: string
@@ -161,11 +162,9 @@ function ModelOutputCard({
             ? 'bg-white/90 border border-green-200 text-green-700'
             : 'bg-white/90 border border-red-200 text-red-700'
         }`}>
-          <span className={`material-symbols-outlined text-base flex-shrink-0 ${
-            toast.type === 'success' ? 'text-green-500' : 'text-red-500'
-          }`}>
-            {toast.type === 'success' ? 'check_circle' : 'error'}
-          </span>
+          <AppIcon name={toast.type === 'success' ? 'check_circle' : 'error'} size={16} className={`text-base flex-shrink-0 ${
+ toast.type === 'success' ? 'text-green-500' : 'text-red-500'
+ }`} />
           <span className="whitespace-nowrap">{toast.message}</span>
         </div>
       )}
@@ -182,7 +181,7 @@ function ModelOutputCard({
             }`}
           >
             {selected && (
-              <span className="material-symbols-outlined text-sm text-black">check</span>
+              <AppIcon name="check" size={14} className="text-black" />
             )}
           </button>
 
@@ -216,7 +215,7 @@ function ModelOutputCard({
               title={isEditing ? '取消编辑' : '手动粘贴/编辑内容'}
               aria-label={isEditing ? '取消编辑' : '手动粘贴/编辑内容'}
             >
-              <span className="material-symbols-outlined text-base">edit</span>
+              <AppIcon name="edit" size={16} />
             </button>
           )}
           <button
@@ -225,7 +224,7 @@ function ModelOutputCard({
             title="复制 Markdown"
             aria-label="复制 Markdown"
           >
-            <span className="material-symbols-outlined text-base">content_copy</span>
+            <AppIcon name="content_copy" size={16} />
           </button>
         </div>
       </div>
@@ -303,9 +302,7 @@ function ModelOutputCard({
                 onClick={toggleExpand}
                 className="mt-3 flex items-center gap-1 text-primary hover:text-primary/80 transition-colors text-sm font-medium"
               >
-                <span className="material-symbols-outlined text-base">
-                  {isExpanded ? 'expand_less' : 'expand_more'}
-                </span>
+                <AppIcon name={isExpanded ? 'expand_less' : 'expand_more'} size={16} />
                 <span>{isExpanded ? '收起' : '展开'}</span>
               </button>
             )}

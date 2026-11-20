@@ -3,6 +3,7 @@ import { useAppStore, waitForSavableUrl, captureResponseTargets } from '../../st
 import { useTaskSplit } from '../../hooks/useTaskSplit'
 import SubtaskList from './SubtaskList'
 import CustomDropdown from '../CustomDropdown'
+import { AppIcon } from '../icons/AppIcon'
 
 interface TaskModePanelProps {
   showNotification: (type: 'success' | 'error' | 'info', msg: string, autoHide?: number) => void
@@ -262,7 +263,7 @@ function TaskModePanel({ showNotification }: TaskModePanelProps): JSX.Element {
             <>
               {platformModel?.logo
                 ? <img alt={`${platformModel.name} logo`} className="w-6 h-6" src={platformModel.logo} />
-                : <span className="material-symbols-outlined text-xl text-text-secondary">smart_toy</span>}
+                : <AppIcon name="smart_toy" size={20} className="text-text-secondary" />}
               <span className="text-sm font-medium text-text-secondary">{platformModel?.name || '拆解平台'}</span>
             </>
           )}
@@ -272,7 +273,7 @@ function TaskModePanel({ showNotification }: TaskModePanelProps): JSX.Element {
               <button type="button" onClick={onSelect} className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-gray-100 transition-colors text-left">
                 {model?.logo || option.logo
                   ? <img alt={model?.name || option.label} className="w-[18px] h-[18px]" src={model?.logo || option.logo} />
-                  : <span className="material-symbols-outlined text-base text-text-secondary">smart_toy</span>}
+                  : <AppIcon name="smart_toy" size={16} className="text-text-secondary" />}
                 <span className="text-text-primary text-sm">{option.label}</span>
               </button>
             )
@@ -315,17 +316,17 @@ function TaskModePanel({ showNotification }: TaskModePanelProps): JSX.Element {
           title={isSplit ? '注入子任务到各槽位' : isInserted ? '确认发送已注入的子任务' : '拆解总目标'}
         >
           {isLoading || isSending ? (
-            <span className="material-symbols-outlined animate-spin">sync</span>
+            <AppIcon name="sync" className="animate-spin" />
           ) : isSplit ? (
             <span className="text-sm font-bold">确认</span>
           ) : isInserted ? (
             <>
-              <span className="material-symbols-outlined">arrow_upward</span>
+              <AppIcon name="arrow_upward" />
               <span className="text-sm font-bold">确认发送</span>
             </>
           ) : (
             <>
-              <span className="material-symbols-outlined">call_split</span>
+              <AppIcon name="call_split" />
               <span className="text-sm font-bold">拆解任务</span>
             </>
           )}

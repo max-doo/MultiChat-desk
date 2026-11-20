@@ -1,11 +1,10 @@
 import { useState, useEffect } from 'react'
+import { AppIcon } from './icons/AppIcon'
 interface ImportCacheConfirmModalProps {
   isOpen: boolean
   file: string
   keys: string[]
   conflicts: string[]
-  /** 兼容旧字段：供应商 API Key 脱敏提示（API 模式已移除，固定为 0） */
-  redactedProviderCount: number
   businessCounts?: Record<string, { added: number; unchanged: number; conflicts: number }>
   onConfirm: (overwriteBusiness: boolean) => void | Promise<void>
   onCancel: () => void
@@ -15,7 +14,7 @@ interface ImportCacheConfirmModalProps {
 const CACHE_KEY_LABELS: Record<string, string> = {
   displayMode: '显示模式',
   models: '主界面模型列表',
-  apiConfig: 'API 配置（总结模板）',
+  apiConfig: '总结与任务分配配置',
   summaryModels: '任务分配可用模型（已废弃，导入忽略）',
   history: '主界面对话历史',
   summaryHistory: '总结历史记录',
@@ -25,7 +24,6 @@ const CACHE_KEY_LABELS: Record<string, string> = {
 
 /**
  * 缓存导入确认弹窗：列出将导入的键，标注会覆盖现有值的键，
- * 标注含 REDACTED apiKey 的供应商（将保留本地现有 Key）。
  * 业务数据按 ID 合并，冲突默认保留本地；配置仍按用户确认覆盖。
  */
 function ImportCacheConfirmModal({
@@ -33,7 +31,6 @@ function ImportCacheConfirmModal({
   file,
   keys,
   conflicts,
-  redactedProviderCount,
   businessCounts,
   onConfirm,
   onCancel
@@ -51,7 +48,7 @@ function ImportCacheConfirmModal({
         <div className="flex items-center justify-between p-4 border-b border-gray-200">
           <h3 className="text-lg font-semibold text-text-primary">恢复配置与业务数据</h3>
           <button onClick={onCancel} className="text-text-secondary hover:text-text-primary transition-colors">
-            <span className="material-symbols-outlined">close</span>
+            <AppIcon name="close" />
           </button>
         </div>
 
@@ -78,11 +75,6 @@ function ImportCacheConfirmModal({
           </div>
 
           {businessCounts && <label className="flex items-center gap-2 text-sm text-text-secondary"><input type="checkbox" checked={overwriteBusiness} onChange={event => setOverwriteBusiness(event.target.checked)} />覆盖同 ID 的冲突业务记录（默认保留本地）</label>}
-          {redactedProviderCount > 0 && (
-            <p className="text-[11px] text-text-secondary">
-              🔒 导入文件中有 {redactedProviderCount} 个供应商的 API Key 已脱敏，将保留本地现有 Key。
-            </p>
-          )}
           <p className="text-[11px] text-gray-500">
             导入前已自动备份当前缓存为导出文件（若失败不阻断导入）。导入后建议重启应用以使全部变更生效。
           </p>

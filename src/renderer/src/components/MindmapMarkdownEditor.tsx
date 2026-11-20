@@ -5,6 +5,7 @@ import { defaultKeymap, history, historyKeymap, indentLess, indentMore, indentWi
 import { HighlightStyle, indentUnit, syntaxHighlighting } from '@codemirror/language'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { tags } from '@lezer/highlight'
+import { AppIcon } from './icons/AppIcon'
 
 interface MindmapMarkdownEditorProps {
   value: string
@@ -118,10 +119,10 @@ export default function MindmapMarkdownEditor({ value, onChange, active, actions
         <div className="flex flex-wrap items-center gap-1">
           {actions}
           <span className="w-px h-4 bg-gray-200 mx-1" aria-hidden="true" />
-          <button type="button" onClick={() => runCommand(undo)} disabled={!historyState.canUndo} title="撤销 (Ctrl+Z)" aria-label="撤销大纲编辑" className="p-1 rounded hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed"><span className="material-symbols-outlined text-base">undo</span></button>
-          <button type="button" onClick={() => runCommand(redo)} disabled={!historyState.canRedo} title="重做 (Ctrl+Y / Ctrl+Shift+Z)" aria-label="重做大纲编辑" className="p-1 rounded hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed"><span className="material-symbols-outlined text-base">redo</span></button>
-          <button type="button" onClick={() => runCommand(indentMore)} title="增加缩进 (Tab)" aria-label="增加缩进" className="p-1 rounded hover:bg-gray-100"><span className="material-symbols-outlined text-base">format_indent_increase</span></button>
-          <button type="button" onClick={() => runCommand(indentLess)} title="减少缩进 (Shift+Tab)" aria-label="减少缩进" className="p-1 rounded hover:bg-gray-100"><span className="material-symbols-outlined text-base">format_indent_decrease</span></button>
+          <button type="button" onClick={() => runCommand(undo)} disabled={!historyState.canUndo} title="撤销 (Ctrl+Z)" aria-label="撤销大纲编辑" className="p-1 rounded hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed"><AppIcon name="undo" size={16} /></button>
+          <button type="button" onClick={() => runCommand(redo)} disabled={!historyState.canRedo} title="重做 (Ctrl+Y / Ctrl+Shift+Z)" aria-label="重做大纲编辑" className="p-1 rounded hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed"><AppIcon name="redo" size={16} /></button>
+          <button type="button" onClick={() => runCommand(indentMore)} title="增加缩进 (Tab)" aria-label="增加缩进" className="p-1 rounded hover:bg-gray-100"><AppIcon name="format_indent_increase" size={16} /></button>
+          <button type="button" onClick={() => runCommand(indentLess)} title="减少缩进 (Shift+Tab)" aria-label="减少缩进" className="p-1 rounded hover:bg-gray-100"><AppIcon name="format_indent_decrease" size={16} /></button>
         </div>
         {viewSwitcher}
       </div>

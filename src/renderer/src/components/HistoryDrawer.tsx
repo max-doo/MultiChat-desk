@@ -6,6 +6,7 @@ import ConfirmModal from './ConfirmModal'
 import RenameModal from './RenameModal'
 import logo from '../assets/logo.png'
 import { openUpdateRelease, useUpdateReminder } from '../hooks/useUpdateState'
+import { AppIcon } from './icons/AppIcon'
 
 interface HistoryDrawerProps {
   isOpen: boolean
@@ -245,7 +246,7 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
                       className="text-text-secondary hover:text-red-400 transition-colors p-1"
                       title="开启多选删除"
                     >
-                      <span className="material-symbols-outlined">delete</span>
+                      <AppIcon name="delete" />
                     </button>
                   )}
                 </>
@@ -262,7 +263,7 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
                     onClick={() => setShowConfirmDelete(true)}
                     className="text-sm px-3 py-1.5 rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-text-primary border border-red-500/20 hover:border-red-500 transition-all disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-1.5"
                   >
-                    <span className="material-symbols-outlined text-sm">delete</span>
+                    <AppIcon name="delete" size={14} />
                     确认删除 {selectedIds.length > 0 && `(${selectedIds.length})`}
                   </button>
                 </>
@@ -271,7 +272,7 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
                 onClick={onClose}
                 className="text-text-secondary hover:text-text-primary transition-colors ml-1"
               >
-                <span className="material-symbols-outlined text-2xl">close</span>
+                <AppIcon name="close" size={24} />
               </button>
             </div>
           </div>
@@ -286,7 +287,7 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
               placeholder="搜索历史记录..."
               className="flex-1 bg-transparent border-0 focus:outline-none text-text-secondary placeholder-gray-500"
             />
-            <span className="material-symbols-outlined text-text-secondary">search</span>
+            <AppIcon name="search" className="text-text-secondary" />
           </div>
         </div>
 
@@ -326,7 +327,7 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
             /* 对话历史列表 */
             filteredHistory.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-gray-500">
-                <span className="material-symbols-outlined text-4xl mb-2">forum</span>
+                <AppIcon name="forum" size={36} className="mb-2" />
                 <p>{searchQuery ? '未找到匹配的对话' : '暂无对话历史'}</p>
               </div>
             ) : (
@@ -354,7 +355,7 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
                         {isSelectionMode && (
                           <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors flex-shrink-0 ${isSelected ? 'bg-primary border-primary' : 'border-gray-500'
                             }`}>
-                            {isSelected && <span className="material-symbols-outlined text-xs text-black font-bold">check</span>}
+                            {isSelected && <AppIcon name="check" size={12} className="text-black font-bold" />}
                           </div>
                         )}
                         <div className="flex-1 min-w-0">
@@ -372,7 +373,7 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
                                   className="text-gray-500 hover:text-primary transition-all p-1"
                                   title="重命名"
                                 >
-                                  <span className="material-symbols-outlined text-xl">edit</span>
+                                  <AppIcon name="edit" size={20} />
                                 </button>
                                 <button
                                   onClick={(e) => {
@@ -383,7 +384,7 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
                                   className="text-gray-500 hover:text-red-400 transition-all p-1"
                                   title="删除记录"
                                 >
-                                  <span className="material-symbols-outlined text-xl">delete</span>
+                                  <AppIcon name="delete" size={20} />
                                 </button>
                               </div>
                             )}
@@ -441,7 +442,7 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
             /* 总结历史列表 */
             filteredSummaryHistory.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-gray-500">
-                <span className="material-symbols-outlined text-4xl mb-2">summarize</span>
+                <AppIcon name="summarize" size={36} className="mb-2" />
                 <p>{searchQuery ? '未找到匹配的总结' : '暂无总结历史'}</p>
               </div>
             ) : (
@@ -468,7 +469,7 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
                         {isSelectionMode && (
                           <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors flex-shrink-0 ${isSelected ? 'bg-primary border-primary' : 'border-gray-500'
                             }`}>
-                            {isSelected && <span className="material-symbols-outlined text-xs text-black font-bold">check</span>}
+                            {isSelected && <AppIcon name="check" size={12} className="text-black font-bold" />}
                           </div>
                         )}
                         <div className="flex-1 min-w-0">
@@ -489,7 +490,7 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
                                   className="text-gray-500 hover:text-primary transition-all p-1"
                                   title="重命名"
                                 >
-                                  <span className="material-symbols-outlined text-xl">edit</span>
+                                  <AppIcon name="edit" size={20} />
                                 </button>
                                 <button
                                   onClick={(e) => {
@@ -500,7 +501,7 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
                                   className="text-gray-500 hover:text-red-400 transition-all p-1"
                                   title="删除记录"
                                 >
-                                  <span className="material-symbols-outlined text-xl">delete</span>
+                                  <AppIcon name="delete" size={20} />
                                 </button>
                               </div>
                             )}

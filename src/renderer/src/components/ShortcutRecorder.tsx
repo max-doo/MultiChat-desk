@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react'
+import { AppIcon } from './icons/AppIcon'
 
 interface ShortcutRecorderProps {
   value: string
@@ -190,7 +191,7 @@ export default function ShortcutRecorder({
           className="p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors flex items-center justify-center"
           title="清空快捷键 (关闭)"
         >
-          <span className="material-symbols-outlined text-sm">close</span>
+          <AppIcon name="close" size={14} />
         </button>
       ) : (
         <div className="w-6" />
@@ -204,7 +205,7 @@ export default function ShortcutRecorder({
           className="p-1 text-gray-400 hover:text-primary hover:bg-primary/10 rounded transition-colors flex items-center justify-center"
           title={`恢复推荐默认值 (${defaultShortcut})`}
         >
-          <span className="material-symbols-outlined text-sm">restart_alt</span>
+          <AppIcon name="restart_alt" size={14} />
         </button>
       )}
     </div>

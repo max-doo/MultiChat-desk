@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useAppStore, DEFAULT_PRODUCT_MODE_CONFIG, type ProductMode, type ProductModeConfig } from '../store/appStore'
+import { AppIcon } from './icons/AppIcon'
 
 interface ProductModeOrderModalProps {
   isOpen: boolean
@@ -120,7 +121,7 @@ export default function ProductModeOrderModal({ isOpen, onClose }: ProductModeOr
         {/* 头部 */}
         <div className="flex items-center justify-between p-4 border-b border-white/60">
           <div className="flex items-center gap-2.5">
-            <span className="material-symbols-outlined text-primary text-2xl">view_column_2</span>
+            <AppIcon name="view_column_2" size={24} className="text-primary" />
             <div>
               <h3 className="text-base font-semibold text-text-primary">主页模式设置</h3>
               <p className="text-xs text-text-secondary mt-0.5">
@@ -134,7 +135,7 @@ export default function ProductModeOrderModal({ isOpen, onClose }: ProductModeOr
             className="w-8 h-8 flex items-center justify-center rounded-full text-text-secondary hover:text-text-primary hover:bg-black/5 transition-colors"
             title="关闭"
           >
-            <span className="material-symbols-outlined">close</span>
+            <AppIcon name="close" />
           </button>
         </div>
 
@@ -167,15 +168,8 @@ export default function ProductModeOrderModal({ isOpen, onClose }: ProductModeOr
               >
                 {/* 左侧：拖拽手柄 + 图标 + 名称 */}
                 <div className="flex items-center gap-3 min-w-0">
-                  <span
-                    className="material-symbols-outlined text-gray-400 hover:text-gray-600 cursor-grab text-lg shrink-0"
-                    title="拖拽排序"
-                  >
-                    drag_indicator
-                  </span>
-                  <span className={`material-symbols-outlined text-xl shrink-0 ${isHidden ? 'text-gray-400' : 'text-primary'}`}>
-                    {meta.icon}
-                  </span>
+                  <AppIcon name="drag_indicator" size={18} className="text-gray-400 hover:text-gray-600 cursor-grab shrink-0" title="拖拽排序" />
+                  <AppIcon name={meta.icon} size={20} className={`text-xl shrink-0 ${isHidden ? 'text-gray-400' : 'text-primary'}`} />
                   <div className="truncate">
                     <span className={`text-sm font-medium truncate block ${isHidden ? 'text-text-secondary' : 'text-text-primary'}`}>
                       {meta.label}
@@ -198,7 +192,7 @@ export default function ProductModeOrderModal({ isOpen, onClose }: ProductModeOr
                     className="w-7 h-7 flex items-center justify-center rounded-lg text-text-secondary hover:text-primary hover:bg-black/5 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
                     title="上移"
                   >
-                    <span className="material-symbols-outlined text-base">arrow_upward</span>
+                    <AppIcon name="arrow_upward" size={16} />
                   </button>
                   <button
                     type="button"
@@ -210,7 +204,7 @@ export default function ProductModeOrderModal({ isOpen, onClose }: ProductModeOr
                     className="w-7 h-7 flex items-center justify-center rounded-lg text-text-secondary hover:text-primary hover:bg-black/5 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
                     title="下移"
                   >
-                    <span className="material-symbols-outlined text-base">arrow_downward</span>
+                    <AppIcon name="arrow_downward" size={16} />
                   </button>
                   <button
                     type="button"
@@ -226,9 +220,7 @@ export default function ProductModeOrderModal({ isOpen, onClose }: ProductModeOr
                     } disabled:opacity-30 disabled:hover:bg-transparent`}
                     title={isHidden ? '显示' : hideDisabled ? '至少保留两个模式' : '隐藏'}
                   >
-                    <span className="material-symbols-outlined text-base">
-                      {isHidden ? 'visibility_off' : 'visibility'}
-                    </span>
+                    <AppIcon name={isHidden ? 'visibility_off' : 'visibility'} size={16} />
                   </button>
                 </div>
               </div>
@@ -243,7 +235,7 @@ export default function ProductModeOrderModal({ isOpen, onClose }: ProductModeOr
             onClick={handleResetDefault}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium text-text-secondary hover:text-primary hover:bg-black/5 transition-colors"
           >
-            <span className="material-symbols-outlined text-sm">restart_alt</span>
+            <AppIcon name="restart_alt" size={14} />
             恢复默认
           </button>
           <button

@@ -9,6 +9,7 @@ import CliIntegrationSection from './CliIntegrationSection'
 import ModelOrderModal from './ModelOrderModal'
 import ProductModeOrderModal from './ProductModeOrderModal'
 import { openUpdateRelease, useUpdateReminder } from '../hooks/useUpdateState'
+import { AppIcon } from './icons/AppIcon'
 
 interface SettingsDrawerProps {
   isOpen: boolean
@@ -99,7 +100,7 @@ function PromptEditorModal({ isOpen, onClose, prompt, onSave, isNew }: PromptEdi
             onClick={onClose}
             className="w-8 h-8 flex items-center justify-center rounded-full text-text-secondary hover:text-text-primary hover:bg-black/5 transition-colors"
           >
-            <span className="material-symbols-outlined">close</span>
+            <AppIcon name="close" />
           </button>
         </div>
 
@@ -291,7 +292,6 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
     keys: string[]
     conflicts: string[]
     values: Record<string, unknown>
-    redactedProviderCount: number
     businessCounts?: Record<string, { added: number; unchanged: number; conflicts: number }>
   } | null>(null)
 
@@ -326,7 +326,6 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
       keys: data.keys,
       conflicts: data.conflicts,
       values: data.values,
-      redactedProviderCount: 0,
       businessCounts: data.businessCounts
     })
   }
@@ -468,7 +467,7 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
             onClick={onClose}
             className="text-text-secondary hover:text-text-primary transition-colors z-10"
           >
-            <span className="material-symbols-outlined text-2xl">close</span>
+            <AppIcon name="close" size={24} />
           </button>
         </div>
 
@@ -478,7 +477,7 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
           {/* 主页模式设置 */}
           <div>
             <h3 className="flex items-center gap-2 font-semibold text-text-primary mb-4">
-              <span className="material-symbols-outlined text-primary text-xl">view_column_2</span>
+              <AppIcon name="view_column_2" size={20} className="text-primary" />
               主页模式设置
             </h3>
             <div className="p-4 rounded-xl glass-panel flex items-center justify-between">
@@ -491,14 +490,14 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
                 onClick={() => setModeOrderOpen(true)}
                 className="flex items-center gap-1 text-sm text-primary hover:opacity-80 transition-colors font-medium shrink-0 ml-4"
               >
-                <span className="material-symbols-outlined text-base">tune</span>
+                <AppIcon name="tune" size={16} />
                 调整
               </button>
             </div>
           </div>
           <div>
             <h3 className="flex items-center gap-2 font-semibold text-text-primary mb-4">
-              <span className="material-symbols-outlined text-primary text-xl">account_tree</span>
+              <AppIcon name="account_tree" size={20} className="text-primary" />
               任务分配与总结设置
             </h3>
             <div className="space-y-4">
@@ -513,7 +512,7 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
                       title="打开文件夹"
                       aria-label="打开文件夹"
                     >
-                      <span className="material-symbols-outlined text-xl">folder_open</span>
+                      <AppIcon name="folder_open" size={20} />
                     </button>
                     <button
                       onClick={() => refreshSummaryPrompts().catch(() => { })}
@@ -521,13 +520,13 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
                       title="刷新"
                       aria-label="刷新"
                     >
-                      <span className="material-symbols-outlined text-xl">refresh</span>
+                      <AppIcon name="refresh" size={20} />
                     </button>
                     <button
                       onClick={handleAddPrompt}
                       className="flex items-center gap-1 text-xs text-primary hover:opacity-80 transition-colors font-medium"
                     >
-                      <span className="material-symbols-outlined text-sm">add</span>
+                      <AppIcon name="add" size={14} />
                       新增
                     </button>
                   </div>
@@ -555,14 +554,14 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
                           className="p-1 text-text-secondary hover:text-primary transition-colors"
                           title="编辑"
                         >
-                          <span className="material-symbols-outlined text-xl">edit</span>
+                          <AppIcon name="edit" size={20} />
                         </button>
                         <button
                           onClick={() => handleDeletePrompt(prompt.id)}
                           className="p-1 text-text-secondary hover:text-red-400 transition-colors"
                           title="删除"
                         >
-                          <span className="material-symbols-outlined text-xl">delete</span>
+                          <AppIcon name="delete" size={20} />
                         </button>
                       </div>
                     </div>
@@ -575,7 +574,7 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
           {/* 划词悬浮工具条设置 */}
           <div>
             <h3 className="flex items-center gap-2 font-semibold text-text-primary mb-4">
-              <span className="material-symbols-outlined text-primary text-xl">text_select_start</span>
+              <AppIcon name="text_select_start" size={20} className="text-primary" />
               划词悬浮工具条
             </h3>
             <div className="p-4 rounded-xl glass-panel flex items-center justify-between">
@@ -610,7 +609,7 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
           {/* 全局快捷键设置 */}
           <div>
             <h3 className="flex items-center gap-2 font-semibold text-text-primary mb-4">
-              <span className="material-symbols-outlined text-primary text-xl">keyboard</span>
+              <AppIcon name="keyboard" size={20} className="text-primary" />
               全局快捷键
             </h3>
             <div className="p-4 rounded-xl glass-panel space-y-3">
@@ -639,7 +638,7 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
           {/* 模型下拉列表排序设置 */}
           <div>
             <h3 className="flex items-center gap-2 font-semibold text-text-primary mb-4">
-              <span className="material-symbols-outlined text-primary text-xl">swap_vert</span>
+              <AppIcon name="swap_vert" size={20} className="text-primary" />
               模型下拉列表排序
             </h3>
             <div className="p-4 rounded-xl glass-panel flex items-center justify-between">
@@ -652,7 +651,7 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
                 onClick={() => setModelOrderOpen(true)}
                 className="flex items-center gap-1 text-sm text-primary hover:opacity-80 transition-colors font-medium shrink-0 ml-4"
               >
-                <span className="material-symbols-outlined text-base">tune</span>
+                <AppIcon name="tune" size={16} />
                 调整排序
               </button>
             </div>
@@ -661,7 +660,7 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
           {/* 文件目录设置 */}
           <div>
             <h3 className="flex items-center gap-2 font-semibold text-text-primary mb-4">
-              <span className="material-symbols-outlined text-primary text-xl">folder_special</span>
+              <AppIcon name="folder_special" size={20} className="text-primary" />
               文件与缓存
             </h3>
             <div className="p-4 rounded-xl glass-panel space-y-4">
@@ -672,18 +671,18 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
                     onClick={handleExportCache}
                     className="flex items-center gap-2 px-4 py-2 rounded-full glass-panel text-text-primary hover:text-primary hover:bg-blue-50/50 transition-all text-sm font-medium"
                   >
-                    <span className="material-symbols-outlined text-sm">download</span>
+                    <AppIcon name="download" size={14} />
                     备份配置与业务数据
                   </button>
                   <button
                     onClick={handleImportCache}
                     className="flex items-center gap-2 px-4 py-2 rounded-full glass-panel text-text-primary hover:text-primary hover:bg-blue-50/50 transition-all text-sm font-medium"
                   >
-                    <span className="material-symbols-outlined text-sm">upload</span>
+                    <AppIcon name="upload" size={14} />
                     恢复配置与业务数据
                   </button>
                 </div>
-                <p className="text-xs text-text-secondary mt-1.5">导出为 JSON 文件，API Key 等敏感信息将被自动脱敏</p>
+                <p className="text-xs text-text-secondary mt-1.5">导出为 JSON 文件，包含配置、历史、笔记与导图数据</p>
               </div>
             </div>
           </div>
@@ -691,7 +690,7 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
           {/* 命令行与 Agent 集成 */}
           <div>
             <h3 className="flex items-center gap-2 font-semibold text-text-primary mb-4">
-              <span className="material-symbols-outlined text-primary text-xl">terminal</span>
+              <AppIcon name="terminal" size={20} className="text-primary" />
               命令行与 Agent 集成
             </h3>
             <CliIntegrationSection />
@@ -700,7 +699,7 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
           {/* 关于 */}
           <div>
             <h3 className="flex items-center gap-2 font-semibold text-text-primary mb-4">
-              <span className="material-symbols-outlined text-primary text-xl">info</span>
+              <AppIcon name="info" size={20} className="text-primary" />
               关于
             </h3>
             <div className="p-4 rounded-xl glass-panel">
@@ -711,15 +710,13 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
                 className="flex items-center justify-between p-3 glass-panel rounded-xl hover:bg-blue-50/40 transition-all group"
               >
                 <div className="flex items-center gap-3">
-                  <span className="material-symbols-outlined text-primary text-xl">help</span>
+                  <AppIcon name="help" size={20} className="text-primary" />
                   <div className="flex flex-col">
                     <span className="text-text-primary text-sm font-medium">查看使用说明</span>
-                    <span className="text-text-secondary text-[10px]">了解如何配置、使用和管理 API Key</span>
+                    <span className="text-text-secondary text-[10px]">查看功能说明与常见问题</span>
                   </div>
                 </div>
-                <span className="material-symbols-outlined text-text-secondary group-hover:text-primary transition-colors">
-                  open_in_new
-                </span>
+                <AppIcon name="open_in_new" className="text-text-secondary group-hover:text-primary transition-colors" />
               </a>
               <AboutSection />
             </div>
@@ -729,7 +726,7 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
           {import.meta.env.DEV && (
             <div>
               <h3 className="flex items-center gap-2 font-semibold text-text-primary mb-4">
-                <span className="material-symbols-outlined text-primary text-xl">build</span>
+                <AppIcon name="build" size={20} className="text-primary" />
                 开发工具
               </h3>
               <button
@@ -772,7 +769,6 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
         file={importPreview?.file ?? ''}
         keys={importPreview?.keys ?? []}
         conflicts={importPreview?.conflicts ?? []}
-        redactedProviderCount={importPreview?.redactedProviderCount ?? 0}
         businessCounts={importPreview?.businessCounts}
         onConfirm={handleConfirmImportCache}
         onCancel={() => setImportPreview(null)}

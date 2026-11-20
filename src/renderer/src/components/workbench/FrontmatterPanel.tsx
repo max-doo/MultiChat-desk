@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { AppIcon } from '../icons/AppIcon'
 
 interface Props {
   frontmatter: string | null
@@ -178,9 +179,7 @@ export default function FrontmatterPanel({ frontmatter, onChange }: Props): JSX.
         onClick={() => setCollapsed((v) => !v)}
         className="w-full flex items-center gap-1.5 px-0 pt-0 pb-1.5 text-left text-[12px] font-medium text-gray-400 dark:text-gray-500 hover:text-gray-500 dark:hover:text-gray-400 transition-colors select-none"
       >
-        <span className="material-symbols-outlined text-[16px]">
-          {collapsed ? 'chevron_right' : 'expand_more'}
-        </span>
+        <AppIcon name={collapsed ? 'chevron_right' : 'expand_more'} size={16} />
         笔记属性
         {hasFields && (
           <span className="ml-auto text-[11px] font-normal opacity-70">{fields.length}</span>
@@ -198,9 +197,7 @@ export default function FrontmatterPanel({ frontmatter, onChange }: Props): JSX.
                 >
                   {/* 左列：图标 + 点击可重命名的 key */}
                   <dt className="flex items-center gap-1.5 w-32 shrink-0 text-[13px] text-gray-500 dark:text-gray-400">
-                    <span className="material-symbols-outlined text-[15px] opacity-60">
-                      {icon(f)}
-                    </span>
+                    <AppIcon name={icon(f)} size={15} className="opacity-60" />
                     {editingKeyIdx === idx ? (
                       <input
                         autoFocus
@@ -245,9 +242,9 @@ export default function FrontmatterPanel({ frontmatter, onChange }: Props): JSX.
                                 type="button"
                                 aria-label={`移除标签 ${tag}`}
                                 onClick={() => removeTag(idx, tag)}
-                                className="material-symbols-outlined text-[13px] leading-none opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity"
+                                className="leading-none opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity"
                               >
-                                close
+                                <AppIcon name="close" size={13} />
                               </button>
                             </span>
                           ))}
@@ -307,9 +304,9 @@ export default function FrontmatterPanel({ frontmatter, onChange }: Props): JSX.
                     type="button"
                     aria-label={`删除属性 ${f.key}`}
                     onClick={() => removeField(idx)}
-                    className="material-symbols-outlined shrink-0 text-[16px] text-gray-400 opacity-0 group-hover:opacity-70 hover:!opacity-100 hover:text-red-500 transition-opacity"
+                    className="shrink-0 text-gray-400 opacity-0 group-hover:opacity-70 hover:!opacity-100 hover:text-red-500 transition-opacity"
                   >
-                    delete
+                    <AppIcon name="delete" size={16} />
                   </button>
                 </div>
               ))}
@@ -319,7 +316,7 @@ export default function FrontmatterPanel({ frontmatter, onChange }: Props): JSX.
           {/* 底部"添加属性"：有字段时追加行，无字段时新建整块 frontmatter */}
           {adding ? (
             <div className="flex items-center gap-1.5 mt-1.5 min-h-[28px]">
-              <span className="material-symbols-outlined text-[15px] text-gray-400">add</span>
+              <AppIcon name="add" size={15} className="text-gray-400" />
               <input
                 ref={addInputRef}
                 value={newKey}
@@ -344,7 +341,7 @@ export default function FrontmatterPanel({ frontmatter, onChange }: Props): JSX.
                 hasFields ? 'mt-1.5' : 'py-1'
               }`}
             >
-              <span className="material-symbols-outlined text-[15px]">add</span>
+              <AppIcon name="add" size={15} />
               添加属性
             </button>
           )}

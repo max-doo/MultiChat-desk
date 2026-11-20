@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { openUpdateRelease, useUpdateState } from '../hooks/useUpdateState'
+import { AppIcon } from './icons/AppIcon'
 
 export default function AboutSection(): JSX.Element {
   const [currentVersion, setCurrentVersion] = useState('')
@@ -42,7 +43,7 @@ export default function AboutSection(): JSX.Element {
 
   return (
     <div className="mt-3 p-3 rounded-xl glass-panel flex items-center gap-3">
-      <span className="material-symbols-outlined text-primary text-xl shrink-0">rocket_launch</span>
+      <AppIcon name="rocket_launch" size={20} className="text-primary shrink-0" />
       <div className="flex flex-col min-w-0 flex-1">
         <span className="text-text-primary text-sm font-medium flex items-center gap-2 truncate">
           检查新版本

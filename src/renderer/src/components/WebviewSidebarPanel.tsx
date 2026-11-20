@@ -3,6 +3,7 @@ import WebviewCard, { type WebviewCardRef } from './WebviewCard'
 import MindmapSidebarView from './MindmapSidebarView'
 import type { SidebarMode } from '../hooks/useWebviewSidebar'
 import type { MindmapSource } from './ConversationMindmapPanel'
+import { AppIcon } from './icons/AppIcon'
 
 export interface WebviewSidebarPanelProps {
   isOpen: boolean
@@ -103,7 +104,7 @@ export default function WebviewSidebarPanel({
                       title="收起侧边栏"
                       aria-label="收起侧边栏"
                     >
-                      <span className="material-symbols-outlined text-base">close</span>
+                      <AppIcon name="close" size={16} />
                     </button>
                   }
                   ref={ref => {

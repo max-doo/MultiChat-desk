@@ -1,7 +1,6 @@
 /**
- * 代码文件专属图标
- * 资源来自 vscode-material-icon-theme (material-extensions, MIT)
- * 非代码/目录节点不渲染，由调用方回退到 Material Symbols
+ * 工作区文件类型图标统一入口。
+ * 资源来自 vscode-material-icon-theme (material-extensions, MIT)，按扩展名映射。
  */
 import type { WorkbenchFileNode } from '../../../../shared/types/workbench'
 import tsIcon from '../../assets/file-icons/typescript.svg'
@@ -44,6 +43,12 @@ import protoIcon from '../../assets/file-icons/proto.svg'
 import luaIcon from '../../assets/file-icons/lua.svg'
 import rIcon from '../../assets/file-icons/r.svg'
 import dartIcon from '../../assets/file-icons/dart.svg'
+import pdfIcon from '../../assets/file-icons/pdf.svg'
+import wordIcon from '../../assets/file-icons/word.svg'
+import tableIcon from '../../assets/file-icons/table.svg'
+import powerpointIcon from '../../assets/file-icons/powerpoint.svg'
+import logIcon from '../../assets/file-icons/log.svg'
+import zipIcon from '../../assets/file-icons/zip.svg'
 import documentIcon from '../../assets/file-icons/document.svg'
 
 const EXT_TO_ICON: Record<string, string> = {
@@ -98,7 +103,36 @@ const EXT_TO_ICON: Record<string, string> = {
   '.proto': protoIcon,
   '.lua': luaIcon,
   '.r': rIcon,
-  '.dart': dartIcon
+  '.dart': dartIcon,
+  '.pdf': pdfIcon,
+  '.docx': wordIcon,
+  '.doc': wordIcon,
+  '.dotx': wordIcon,
+  '.dot': wordIcon,
+  '.rtf': wordIcon,
+  '.odt': wordIcon,
+  '.xlsx': tableIcon,
+  '.xls': tableIcon,
+  '.xlsm': tableIcon,
+  '.xlsb': tableIcon,
+  '.xltx': tableIcon,
+  '.xlt': tableIcon,
+  '.ods': tableIcon,
+  '.csv': tableIcon,
+  '.tsv': tableIcon,
+  '.pptx': powerpointIcon,
+  '.ppt': powerpointIcon,
+  '.pptm': powerpointIcon,
+  '.potx': powerpointIcon,
+  '.pot': powerpointIcon,
+  '.ppsx': powerpointIcon,
+  '.pps': powerpointIcon,
+  '.odp': powerpointIcon,
+  '.log': logIcon,
+  '.zip': zipIcon,
+  '.tar': zipIcon,
+  '.gz': zipIcon,
+  '.7z': zipIcon
 }
 
 function resolveIcon(node: WorkbenchFileNode): string | null {
@@ -108,7 +142,9 @@ function resolveIcon(node: WorkbenchFileNode): string | null {
   if (name.startsWith('.env')) return envIcon
 
   const ext = (node.extension || '').toLowerCase()
-  return EXT_TO_ICON[ext] || documentIcon
+  if (EXT_TO_ICON[ext]) return EXT_TO_ICON[ext]
+  const match = name.match(/\.([^.]+)$/)
+  return (match && EXT_TO_ICON[`.${match[1]}`]) || documentIcon
 }
 
 interface FileTypeIconProps {

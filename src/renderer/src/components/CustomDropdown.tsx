@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, Fragment } from 'react'
 import type React from 'react'
+import { AppIcon } from './icons/AppIcon'
 
 /**
  * 自定义下拉菜单组件的选项类型
@@ -154,18 +155,14 @@ function CustomDropdown<T = string>({
           <>
             {renderButton()}
             {!hideArrow && (
-              <span className="material-symbols-outlined text-base text-text-secondary">
-                {isOpen ? (direction === 'up' ? 'expand_more' : 'expand_less') : (direction === 'up' ? 'expand_less' : 'expand_more')}
-              </span>
+              <AppIcon name={isOpen ? (direction === 'up' ? 'expand_more' : 'expand_less') : (direction === 'up' ? 'expand_less' : 'expand_more')} size={16} className="text-text-secondary" />
             )}
           </>
         ) : (
           <>
             <span>{displayText}</span>
             {!hideArrow && (
-              <span className="material-symbols-outlined text-base text-text-secondary">
-                {isOpen ? (direction === 'up' ? 'expand_more' : 'expand_less') : (direction === 'up' ? 'expand_less' : 'expand_more')}
-              </span>
+              <AppIcon name={isOpen ? (direction === 'up' ? 'expand_more' : 'expand_less') : (direction === 'up' ? 'expand_less' : 'expand_more')} size={16} className="text-text-secondary" />
             )}
           </>
         )}
@@ -208,7 +205,7 @@ function CustomDropdown<T = string>({
                         {option.label}
                       </span>
                       {isSelected && (
-                        <span className="material-symbols-outlined text-primary text-sm ml-auto">check</span>
+                        <AppIcon name="check" size={14} className="text-primary ml-auto" />
                       )}
                     </button>
                   )

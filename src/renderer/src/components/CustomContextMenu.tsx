@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import type { ContextMenuItem, WebviewContextMenuData } from '../../../shared/types/contextMenu'
 import { useWorkbenchStore } from '../store/workbenchStore'
+import { AppIcon } from './icons/AppIcon'
 
 interface ExtendedMenuItem extends ContextMenuItem {
   action?: () => void
@@ -75,7 +76,9 @@ export default function CustomContextMenu(): JSX.Element | null {
       const items: ExtendedContextMenuEntry[] = []
 
       const isWorkbenchEditor = Boolean(target.closest('[data-workbench-editor="true"]'))
-      if (isWorkbenchEditor && selectionText) {
+      const activeFileCategory = useWorkbenchStore.getState().activeFileCategory
+      const isNonCodeWorkbenchEditor = isWorkbenchEditor && activeFileCategory !== 'code'
+      if (isNonCodeWorkbenchEditor && selectionText) {
         items.push(
           {
             key: 'ask_ai',
@@ -94,12 +97,6 @@ export default function CustomContextMenu(): JSX.Element | null {
             label: '语言润色',
             icon: 'auto_fix_high',
             action: () => useWorkbenchStore.getState().askAi(selectionText, 'polish')
-          },
-          {
-            key: 'continue_ai',
-            label: '续写内容',
-            icon: 'edit_note',
-            action: () => useWorkbenchStore.getState().askAi(selectionText, 'continue')
           },
           {
             key: 'summarize_ai',
@@ -339,9 +336,7 @@ export default function CustomContextMenu(): JSX.Element | null {
                   : 'hover:bg-primary/10 hover:text-primary active:scale-[0.98] cursor-pointer'
               }`}
             >
-              <span className="material-symbols-outlined text-[18px] text-text-secondary group-hover:text-primary transition-colors shrink-0">
-                {item.icon}
-              </span>
+              <AppIcon name={item.icon} size={18} className="text-text-secondary group-hover:text-primary transition-colors shrink-0" />
               <span className="flex-1 text-left font-medium truncate">{item.label}</span>
               {item.shortcut && (
                 <span className="text-[11px] font-mono text-text-secondary/60 group-hover:text-primary/70 tracking-wider">

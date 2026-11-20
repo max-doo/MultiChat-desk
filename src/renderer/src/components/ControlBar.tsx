@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHand
 import { useAppStore, DEEP_RESEARCH_UNSUPPORTED_ERROR } from '../store/appStore'
 import TaskModePanel from './modes/TaskModePanel'
 import DebateModePanel from './modes/DebateModePanel'
+import { AppIcon } from './icons/AppIcon'
 
 /** 辩论轮次 stepper：input + 减号 + 加号；非 idle 置灰禁用但不消失 */
 function DebateRoundStepper(): JSX.Element {
@@ -17,7 +18,7 @@ function DebateRoundStepper(): JSX.Element {
           disabled={disabled}
           className="w-7 h-7 rounded-full glass-panel shadow-soft flex items-center justify-center border border-transparent hover:border-blue-200 disabled:cursor-not-allowed"
         >
-          <span className="material-symbols-outlined text-base">remove</span>
+          <AppIcon name="remove" size={16} />
         </button>
         <input
           type="number"
@@ -33,7 +34,7 @@ function DebateRoundStepper(): JSX.Element {
           disabled={disabled}
           className="w-7 h-7 rounded-full glass-panel shadow-soft flex items-center justify-center border border-transparent hover:border-blue-200 disabled:cursor-not-allowed"
         >
-          <span className="material-symbols-outlined text-base">add</span>
+          <AppIcon name="add" size={16} />
         </button>
       </div>
       <span>辩论轮次</span>
@@ -604,9 +605,7 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
                       : 'glass-panel border-transparent group-hover:bg-blue-50/50 group-hover:text-primary group-hover:border-blue-200'
                       }`}
                   >
-                    <span className="material-symbols-outlined text-2xl">
-                      image
-                    </span>
+                    <AppIcon name="image" size={24} />
                   </span>
                   <span className={isImageGeneration ? 'text-primary' : ''}>
                     AI 生图
@@ -698,9 +697,7 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
                         : 'glass-panel border-transparent group-hover:bg-blue-50/50 group-hover:text-primary group-hover:border-blue-200'
                       }`}
                   >
-                    <span className={`material-symbols-outlined text-2xl ${(isActivatingResearch || isCancellingResearch) ? 'animate-spin' : ''}`}>
-                      {(isActivatingResearch || isCancellingResearch) ? 'sync' : 'biotech'}
-                    </span>
+                    <AppIcon name={(isActivatingResearch || isCancellingResearch) ? 'sync' : 'biotech'} size={24} className={`text-2xl ${(isActivatingResearch || isCancellingResearch) ? 'animate-spin' : ''}`} />
                   </span>
                   <span className={isDeepResearch ? 'text-primary' : ''}>
                     {isActivatingResearch ? '开启中...' : isCancellingResearch ? '关闭中...' : '深度研究'}
@@ -714,7 +711,7 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
                   className="flex flex-col items-center justify-center gap-2 text-xs font-medium text-text-secondary hover:text-primary group transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <span className="flex items-center justify-center w-10 h-10 glass-panel shadow-soft rounded-full group-hover:bg-blue-50/50 group-hover:text-primary border border-transparent group-hover:border-blue-200 transition-all duration-200">
-                    <span className={`material-symbols-outlined text-2xl ${isNewChatLoading ? 'animate-spin' : ''}`}>{isNewChatLoading ? 'sync' : 'add'}</span>
+                    <AppIcon name={isNewChatLoading ? 'sync' : 'add'} size={24} className={`text-2xl ${isNewChatLoading ? 'animate-spin' : ''}`} />
                   </span>
                   开启新对话
                 </button>
@@ -764,13 +761,11 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
                     ? 'bg-white/90 border border-red-200 text-red-700'
                     : 'bg-white/90 border border-blue-200 text-blue-700'
                   }`}>
-                  <span className={`material-symbols-outlined text-base flex-shrink-0 ${
-                    notification.type === 'success' ? 'text-green-500' :
-                    notification.type === 'error' ? 'text-red-500' : 'text-blue-500'
-                  }`}>
-                    {notification.type === 'success' ? 'check_circle' :
-                      notification.type === 'error' ? 'error' : 'info'}
-                  </span>
+                  <AppIcon
+                    name={notification.type === 'success' ? 'check_circle' : notification.type === 'error' ? 'error' : 'info'}
+                    size={16}
+                    className={notification.type === 'success' ? 'text-green-500' : notification.type === 'error' ? 'text-red-500' : 'text-blue-500'}
+                  />
                   <span className="whitespace-nowrap">{notification.message}</span>
                 </div>
               )}
@@ -782,9 +777,7 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
                   }`}
                 title={isUploading ? '正在上传文件...' : '上传文件'}
               >
-                <span className={`material-symbols-outlined ${isUploading ? '' : '-rotate-90'}`}>
-                  {isUploading ? 'upload' : 'attachment'}
-                </span>
+                <AppIcon name={isUploading ? 'upload' : 'attachment'} className={`${isUploading ? '' : '-rotate-45'}`} />
               </button>
 
               {/* 输入框 */}
@@ -840,14 +833,14 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
                 title={textInserted ? '点击发送消息' : message.trim() ? '点击输入文字到所有模型' : '输入消息后点击发送'}
               >
                 {isSending ? (
-                  <span className="material-symbols-outlined">hourglass_empty</span>
+                  <AppIcon name="hourglass_empty" />
                 ) : textInserted ? (
                   <span className="flex items-center gap-1.5 text-sm font-bold">
-                    <span className="material-symbols-outlined">arrow_upward</span>
+                    <AppIcon name="arrow_upward" />
                     <span>确认发送</span>
                   </span>
                 ) : (
-                  <span className="material-symbols-outlined">arrow_upward</span>
+                  <AppIcon name="arrow_upward" />
                 )}
               </button>
             </div>
@@ -878,7 +871,7 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
                 : 'bg-primary text-white hover:opacity-90'
             }`}
           >
-            <span className="material-symbols-outlined text-xl">{productMode === 'debate' ? 'gavel' : isImageGeneration ? 'download' : 'auto_awesome'}</span>
+            <AppIcon name={productMode === 'debate' ? 'gavel' : isImageGeneration ? 'download' : 'auto_awesome'} size={20} />
             {productMode === 'debate' ? '裁判评析' : isImageGeneration ? '一键下载' : '生成总结'}
           </button>
             )

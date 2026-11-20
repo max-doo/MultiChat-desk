@@ -8,6 +8,7 @@ import { hasWholeNodeFormat } from '../utils/mindmapInlineFormat'
 import { useMindmapCanvas } from '../hooks/useMindmapCanvas'
 import { exportMindmapPng, exportMindmapSvg } from '../utils/mindmapExport'
 import mindmapCSS from '../styles/localMindmap.css?inline'
+import { AppIcon } from './icons/AppIcon'
 
 export interface LocalMindmapPanelRef {
   exportPng: () => void
@@ -221,7 +222,7 @@ const LocalMindmapPanel = forwardRef<LocalMindmapPanelRef, { initialMarkdown?: s
             : 'text-text-secondary hover:text-text-primary'
         }`}
       >
-        <span className="material-symbols-outlined text-sm">hub</span>
+        <AppIcon name="diagram_flow_horizontal" size={14} />
         <span>导图</span>
       </button>
       <button
@@ -233,7 +234,7 @@ const LocalMindmapPanel = forwardRef<LocalMindmapPanelRef, { initialMarkdown?: s
             : 'text-text-secondary hover:text-text-primary'
         }`}
       >
-        <span className="material-symbols-outlined text-sm">article</span>
+        <AppIcon name="article" size={14} />
         <span>大纲</span>
       </button>
     </div>
@@ -294,7 +295,7 @@ const LocalMindmapPanel = forwardRef<LocalMindmapPanelRef, { initialMarkdown?: s
               onClick={() => canvas.toggleNodeFormat('bold')}
               className={`flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 ${allBold ? 'bg-white text-zinc-950' : boldCount > 0 ? 'bg-zinc-700 text-white ring-1 ring-inset ring-zinc-500' : 'text-zinc-200 hover:bg-zinc-700 hover:text-white'}`}
             >
-              <span className="material-symbols-outlined text-[18px] leading-none" aria-hidden="true">format_bold</span>
+              <AppIcon name="format_bold" size={18} className="leading-none" aria-hidden="true" />
               加粗
             </button>
             <button
@@ -305,7 +306,7 @@ const LocalMindmapPanel = forwardRef<LocalMindmapPanelRef, { initialMarkdown?: s
               onClick={() => canvas.toggleNodeFormat('highlight')}
               className={`flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 ${allHighlighted ? 'bg-amber-300 text-amber-950' : highlightCount > 0 ? 'bg-zinc-700 text-amber-200 ring-1 ring-inset ring-amber-300/50' : 'text-zinc-200 hover:bg-zinc-700 hover:text-white'}`}
             >
-              <span className="material-symbols-outlined text-[18px] leading-none" aria-hidden="true">ink_highlighter</span>
+              <AppIcon name="ink_highlighter" size={18} className="leading-none" aria-hidden="true" />
               高亮
             </button>
           </div>
@@ -323,7 +324,7 @@ const LocalMindmapPanel = forwardRef<LocalMindmapPanelRef, { initialMarkdown?: s
             title="撤回 (Ctrl+Z)"
             aria-label="撤回"
           >
-            <span className="material-symbols-outlined text-base">undo</span>
+            <AppIcon name="undo" size={16} />
           </button>
           <button
             type="button"
@@ -335,7 +336,7 @@ const LocalMindmapPanel = forwardRef<LocalMindmapPanelRef, { initialMarkdown?: s
             title="重做 (Ctrl+Y)"
             aria-label="重做"
           >
-            <span className="material-symbols-outlined text-base">redo</span>
+            <AppIcon name="redo" size={16} />
           </button>
 
           <div className="w-[1px] h-4 bg-gray-200 mx-0.5" />
@@ -349,7 +350,7 @@ const LocalMindmapPanel = forwardRef<LocalMindmapPanelRef, { initialMarkdown?: s
             title="放大"
             aria-label="放大"
           >
-            <span className="material-symbols-outlined text-base">zoom_in</span>
+            <AppIcon name="zoom_in" size={16} />
           </button>
           <button
             type="button"
@@ -360,7 +361,7 @@ const LocalMindmapPanel = forwardRef<LocalMindmapPanelRef, { initialMarkdown?: s
             title="缩小"
             aria-label="缩小"
           >
-            <span className="material-symbols-outlined text-base">zoom_out</span>
+            <AppIcon name="zoom_out" size={16} />
           </button>
           <button
             type="button"
@@ -371,7 +372,7 @@ const LocalMindmapPanel = forwardRef<LocalMindmapPanelRef, { initialMarkdown?: s
             title="适应视口居中"
             aria-label="适应视口居中"
           >
-            <span className="material-symbols-outlined text-base">center_focus_strong</span>
+            <AppIcon name="center_focus_strong" size={16} />
           </button>
 
           <div className="w-[1px] h-4 bg-gray-200 mx-0.5" />
@@ -383,9 +384,7 @@ const LocalMindmapPanel = forwardRef<LocalMindmapPanelRef, { initialMarkdown?: s
                 className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs text-text-primary hover:bg-gray-100/80 active:bg-gray-200/60 transition-colors text-left group select-none"
                 onClick={() => { close(); onOpenMubu() }}
               >
-                <span className="material-symbols-outlined text-[17px] text-gray-400 group-hover:text-gray-600 shrink-0 transition-colors">
-                  open_in_new
-                </span>
+                <AppIcon name="open_in_new" size={17} className="text-gray-400 group-hover:text-gray-600 shrink-0 transition-colors" />
                 <span className="truncate flex-1">打开幕布</span>
               </button>
             )}
@@ -394,9 +393,7 @@ const LocalMindmapPanel = forwardRef<LocalMindmapPanelRef, { initialMarkdown?: s
               className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs text-text-primary hover:bg-gray-100/80 active:bg-gray-200/60 transition-colors text-left group select-none"
               onClick={() => { close(); handleExpandAll() }}
             >
-              <span className="material-symbols-outlined text-[17px] text-gray-400 group-hover:text-gray-600 shrink-0 transition-colors">
-                unfold_more
-              </span>
+              <AppIcon name="unfold_more" size={17} className="text-gray-400 group-hover:text-gray-600 shrink-0 transition-colors" />
               <span className="truncate flex-1">展开全部</span>
             </button>
             <button
@@ -404,9 +401,7 @@ const LocalMindmapPanel = forwardRef<LocalMindmapPanelRef, { initialMarkdown?: s
               className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs text-text-primary hover:bg-gray-100/80 active:bg-gray-200/60 transition-colors text-left group select-none"
               onClick={() => { close(); handleFoldAll() }}
             >
-              <span className="material-symbols-outlined text-[17px] text-gray-400 group-hover:text-gray-600 shrink-0 transition-colors">
-                unfold_less
-              </span>
+              <AppIcon name="unfold_less" size={17} className="text-gray-400 group-hover:text-gray-600 shrink-0 transition-colors" />
               <span className="truncate flex-1">收起子节点</span>
             </button>
             <div className="my-1 border-t border-gray-100" />
@@ -415,9 +410,7 @@ const LocalMindmapPanel = forwardRef<LocalMindmapPanelRef, { initialMarkdown?: s
               className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs text-text-primary hover:bg-gray-100/80 active:bg-gray-200/60 transition-colors text-left group select-none"
               onClick={() => { close(); handleExportPng() }}
             >
-              <span className="material-symbols-outlined text-[17px] text-gray-400 group-hover:text-gray-600 shrink-0 transition-colors">
-                image
-              </span>
+              <AppIcon name="image" size={17} className="text-gray-400 group-hover:text-gray-600 shrink-0 transition-colors" />
               <span className="truncate flex-1">导出图片（PNG）</span>
             </button>
             <button
@@ -425,9 +418,7 @@ const LocalMindmapPanel = forwardRef<LocalMindmapPanelRef, { initialMarkdown?: s
               className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs text-text-primary hover:bg-gray-100/80 active:bg-gray-200/60 transition-colors text-left group select-none"
               onClick={() => { close(); handleExportSvg() }}
             >
-              <span className="material-symbols-outlined text-[17px] text-gray-400 group-hover:text-gray-600 shrink-0 transition-colors">
-                draw
-              </span>
+              <AppIcon name="draw" size={17} className="text-gray-400 group-hover:text-gray-600 shrink-0 transition-colors" />
               <span className="truncate flex-1">导出图片（SVG）</span>
             </button>
             <div className="my-1 border-t border-gray-100" />
@@ -474,7 +465,7 @@ const LocalMindmapPanel = forwardRef<LocalMindmapPanelRef, { initialMarkdown?: s
                 title="复制大纲"
                 aria-label="复制大纲"
               >
-                <span className="material-symbols-outlined text-base">content_copy</span>
+                <AppIcon name="content_copy" size={16} />
               </button>
               <button
                 type="button"
@@ -488,7 +479,7 @@ const LocalMindmapPanel = forwardRef<LocalMindmapPanelRef, { initialMarkdown?: s
                 className="p-1 rounded hover:bg-gray-100 text-text-secondary hover:text-red-500 transition-colors"
                 title="清空"
               >
-                <span className="material-symbols-outlined text-base">delete_sweep</span>
+                <AppIcon name="delete_sweep" size={16} />
               </button>
             </>}
           />

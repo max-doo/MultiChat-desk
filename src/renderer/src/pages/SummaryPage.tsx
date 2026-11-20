@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import ModelOutputCard from '../components/ModelOutputCard'
 import SummaryPanel from '../components/SummaryPanel'
 import { useAppStore, getDisplayedModels, SummaryHistoryItem } from '../store/appStore'
+import { AppIcon } from '../components/icons/AppIcon'
 
 interface SummaryPageProps {
   onNavigateBack: () => void
@@ -234,13 +235,13 @@ function SummaryPage({ onNavigateBack, initialHistoryItem, isActive }: SummaryPa
           onClick={onNavigateBack}
           className="flex items-center gap-2 text-text-secondary hover:text-text-primary transition-colors mb-4 shrink-0 self-start"
         >
-          <span className="material-symbols-outlined">arrow_back</span>
+          <AppIcon name="arrow_back" />
           <span>返回对话窗口</span>
         </button>
 
         {snapshotModelIds.length > 0 && (
           <div className="flex items-center gap-2 px-4 py-2 bg-amber-50 border-b border-amber-200 text-amber-800 text-sm mb-4 shrink-0">
-            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>history</span>
+            <AppIcon name="history" size={18} />
             <span>
               本次总结包含 {snapshotModelIds.length} 个模型的本地历史快照（实时页面不可用）
             </span>

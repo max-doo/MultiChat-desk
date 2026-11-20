@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
+import { AppIcon } from './icons/AppIcon'
 
 type FindShortcutPayload = { wcId: number; action: 'open' | 'close' }
 
@@ -358,7 +359,7 @@ export default function WebviewFindBar({
             aria-label="上一个匹配项"
             className="w-7 h-7 flex items-center justify-center rounded-lg text-text-secondary hover:bg-gray-100 hover:text-text-primary disabled:opacity-40 disabled:pointer-events-none transition-colors"
           >
-            <span className="material-symbols-outlined text-lg">keyboard_arrow_up</span>
+            <AppIcon name="keyboard_arrow_up" size={18} />
           </button>
 
           <button
@@ -369,7 +370,7 @@ export default function WebviewFindBar({
             aria-label="下一个匹配项"
             className="w-7 h-7 flex items-center justify-center rounded-lg text-text-secondary hover:bg-gray-100 hover:text-text-primary disabled:opacity-40 disabled:pointer-events-none transition-colors"
           >
-            <span className="material-symbols-outlined text-lg">keyboard_arrow_down</span>
+            <AppIcon name="keyboard_arrow_down" size={18} />
           </button>
 
           <button
@@ -379,7 +380,7 @@ export default function WebviewFindBar({
             aria-label="关闭查找"
             className="w-7 h-7 flex items-center justify-center rounded-lg text-text-secondary hover:bg-gray-100 hover:text-text-primary transition-colors"
           >
-            <span className="material-symbols-outlined text-lg">close</span>
+            <AppIcon name="close" size={18} />
           </button>
         </div>
       )}

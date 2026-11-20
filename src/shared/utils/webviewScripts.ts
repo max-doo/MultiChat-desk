@@ -27,18 +27,28 @@ export function generateFileDropPointScript(selectors: ModelSelector): string {
   return `
       (function () {
         const textareaSelectors = ${JSON.stringify(selectors.textarea || [])};
+        const visible = el => {
+          if (!el || !el.getClientRects().length) return false;
+          const style = window.getComputedStyle(el);
+          return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
+        };
+        const usable = el => visible(el) && !el.disabled && el.getAttribute('aria-disabled') !== 'true';
         let target = null;
         for (const selector of textareaSelectors) {
-          const el = document.querySelector(selector);
-          if (el) { target = el; break; }
+          try {
+            target = Array.from(document.querySelectorAll(selector)).find(usable) || null;
+          } catch {
+            target = null;
+          }
+          if (target) break;
         }
-        if (!target) target = document.body || document.documentElement;
-        if (!target) return { x: 10, y: 10 };
+        if (!target) return { found: false, x: 0, y: 0 };
         try { target.scrollIntoView({ block: 'center', inline: 'center' }); } catch (e) {}
         const rect = target.getBoundingClientRect ? target.getBoundingClientRect() : { left: 0, top: 0, width: 0, height: 0 };
-        const x = rect.left + Math.max(10, rect.width / 2);
-        const y = rect.top + Math.max(10, rect.height / 2);
-        return { x, y };
+        if (!rect || rect.width < 2 || rect.height < 2) return { found: false, x: 0, y: 0 };
+        const x = Math.min(Math.max(rect.left + rect.width / 2, 1), Math.max(1, window.innerWidth - 2));
+        const y = Math.min(Math.max(rect.top + rect.height / 2, 1), Math.max(1, window.innerHeight - 2));
+        return { found: true, x, y };
       })();
     `
 }
@@ -99,11 +109,11 @@ export function generatePasteFileUploadScript(selectors: ModelSelector, fileName
 }
 
 /** 辅助确认上传文件名是否出现；未命中不影响主进程拖拽结果。 */
-export function generateDetectUploadedFileScript(fileName: string): string {
+export function generateDetectUploadedFileScript(fileName: string, timeoutMs = 2500): string {
   return `
       (async function () {
         const fileName = ${JSON.stringify(fileName)};
-        const deadline = Date.now() + 8000;
+        const deadline = Date.now() + ${Math.max(500, timeoutMs)};
         while (Date.now() < deadline) {
           const bodyText = (document.body && (document.body.innerText || document.body.textContent)) || '';
           if (bodyText && bodyText.includes(fileName)) return true;
@@ -136,7 +146,7 @@ export function generateFileUploadStateScript(selectors: ModelSelector, fileName
       return null;
     };
     const input = find(${JSON.stringify(selectors.textarea)});
-    if (!input) return { found: false, busy: false, sendReady: false };
+    if (!input) return { found: false, busy: false, sendReady: false, nameMatched: false, attachmentCount: 0 };
     const ignored = el => !el || input.contains(el) || !!el.closest(config.ignored);
     // 文件名匹配放宽：图片类附件常只渲染缩略图不落全文件名。
     // 依次尝试 全名 → 去扩展名主干 → 主干前 16 字符前缀（chip 截断显示的兼容）。
@@ -164,13 +174,14 @@ export function generateFileUploadStateScript(selectors: ModelSelector, fileName
     };
     // 非文件名兜底信号：图片附件常只出缩略图/附件 chip，不落任何文件名文本。
     // 在 composer 子树找可见"附件缩略图"或"附件容器"节点（排除 input 自身与按钮图标）。
-    const hasAttachmentNode = root => {
+    const countAttachmentNodes = root => {
+      let count = 0;
       const attachSel = '[data-testid*="attach"],[data-testid*="upload-item"],[data-testid*="file-item"],[class*="attachment" i],[class*="file-item" i],[class*="upload-item" i],[class*="image-item" i],[class*="attach-item" i]';
       const nodes = root.querySelectorAll(attachSel);
       for (const el of nodes) {
         if (ignored(el) || !visible(el)) continue;
         if (el.matches('input,textarea,[contenteditable="true"]')) continue;
-        return true;
+        count++;
       }
       const imgs = root.querySelectorAll('img');
       for (const im of imgs) {
@@ -179,27 +190,33 @@ export function generateFileUploadStateScript(selectors: ModelSelector, fileName
         const nw = im.naturalWidth || 0;
         if (nw && nw < 24) continue;
         if ((im.currentSrc || im.src || '').startsWith('data:image/svg')) continue;
-        return true;
+        count++;
       }
-      return false;
+      return count;
     };
     let composer = input.parentElement;
     let fileRoot = null;
+    let nameMatched = false;
+    let attachmentCount = 0;
     const sendSelectors = ${JSON.stringify(selectors.sendButton)};
     while (composer) {
-      if (containsFile(composer) || hasAttachmentNode(composer)) {
+      const matched = containsFile(composer);
+      const count = countAttachmentNodes(composer);
+      if (matched || count > 0) {
         fileRoot ||= composer;
+        nameMatched ||= matched;
+        attachmentCount = Math.max(attachmentCount, count);
         if (find(sendSelectors, composer)) break;
       }
       composer = composer.parentElement;
     }
     composer ||= fileRoot;
-    if (!composer) return { found: false, busy: false, sendReady: false };
+    if (!composer) return { found: false, busy: false, sendReady: false, nameMatched: false, attachmentCount: 0 };
     const statuses = readText(composer);
     const busy = [composer, ...composer.querySelectorAll(config.progress)].some(el => el.matches(config.progress) && !ignored(el) && visible(el)) || new RegExp(config.uploading, 'i').test(statuses);
     const error = new RegExp(config.failed, 'i').test(statuses) ? '平台报告附件上传或解析失败' : undefined;
     const send = find(sendSelectors, composer, true);
-    return { found: true, busy, error, sendFound: !!find(sendSelectors, composer), sendReady: !!send };
+    return { found: true, busy, error, sendFound: !!find(sendSelectors, composer), sendReady: !!send, nameMatched, attachmentCount };
   })();`
 }
 
@@ -2952,8 +2969,9 @@ export function generateInsertReplyButtonScript(
       // 不能用 window 级 flag 早退——否则 SPA 路由后新页面永远没有注入脚本。
       // 改用「已注入标记元素」+「observer 单例」双保险：标记元素随页面销毁失效，
       // 同一页面内 MutationObserver 只建一次，scan 本身幂等（DOM 内已有按钮就跳过）。
-      if (document.documentElement && document.documentElement.__mcInsertBtnBound) return;
-      if (document.documentElement) document.documentElement.__mcInsertBtnBound = true;
+      var BOUND_KEY = '__mcInsertBtnBoundV3';
+      if (document.documentElement && document.documentElement[BOUND_KEY]) return;
+      if (document.documentElement) document.documentElement[BOUND_KEY] = true;
       // 同一页面只建一个 observer；重复注入只补挂按钮（scan 幂等）
       var OBS_KEY = '__mcInsertBtnObserver';
       var hasObserver = false;
@@ -3095,14 +3113,17 @@ export function generateInsertReplyButtonScript(
       var SVG_NS = 'http://www.w3.org/2000/svg';
       var ICON_DEFS = {
         insert: [
-          ['path', { d: 'M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z' }],
-          ['path', { d: 'm15 5 4 4' }]
+          ['path', { d: 'M14 3v11' }],
+          ['path', { d: 'M14 9h-3a3 3 0 0 1 0-6h9' }],
+          ['path', { d: 'M18 3v11' }],
+          ['path', { d: 'M22 18H2l4-4' }],
+          ['path', { d: 'm6 22-4-4' }]
         ],
         save: [
-          ['path', { d: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z' }],
-          ['path', { d: 'M14 2v6h6' }],
-          ['path', { d: 'M12 11v6' }],
-          ['path', { d: 'm9 14 3 3 3-3' }]
+          ['path', { d: 'M11.35 22H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.706.706l3.588 3.588A2.4 2.4 0 0 1 20 8v5.35' }],
+          ['path', { d: 'M14 2v5a1 1 0 0 0 1 1h5' }],
+          ['path', { d: 'M14 19h6' }],
+          ['path', { d: 'M17 16v6' }]
         ]
       };
       function makeSvg(kind) {
@@ -3140,10 +3161,7 @@ export function generateInsertReplyButtonScript(
         el.setAttribute('aria-label', title);
         el.title = title;
         el.appendChild(makeSvg(iconKind));
-        var btnSize = CFG.btnSize || 30;
-        el.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;width:' + btnSize + 'px;height:' + btnSize + 'px;margin-right:2px;border:none;background:transparent;color:inherit;cursor:pointer;opacity:.7;border-radius:6px;line-height:0;transition:opacity .15s,background-color .15s;flex:0 0 auto;';
-        el.addEventListener('mouseenter', function(){ el.style.opacity = '1'; el.style.backgroundColor = 'rgba(0,0,0,0.07)'; });
-        el.addEventListener('mouseleave', function(){ el.style.opacity = '.7'; el.style.backgroundColor = 'transparent'; });
+        applyInjectedButtonStyle(el);
         el.addEventListener('click', function(ev) {
           ev.preventDefault(); ev.stopPropagation();
           onClick();
@@ -3154,6 +3172,31 @@ export function generateInsertReplyButtonScript(
           });
         }
         return el;
+      }
+
+      function applyInjectedButtonStyle(el) {
+        if (!el || el.__mcBtnThemeV3) return;
+        el.__mcBtnThemeV3 = true;
+        var chip = document.createElement('span');
+        chip.className = 'mc-workbench-chip';
+        chip.setAttribute('aria-hidden', 'true');
+        chip.style.cssText = 'position:absolute;inset:3px;border-radius:6px;background:#eff6ff;pointer-events:none;transition:background-color .15s;';
+        var icon = el.querySelector && el.querySelector('svg');
+        if (icon) {
+          icon.style.position = 'relative';
+          icon.style.zIndex = '1';
+          icon.style.transition = 'transform .15s';
+        }
+        el.insertBefore(chip, el.firstChild);
+        var btnSize = CFG.btnSize || 30;
+        el.style.cssText = 'position:relative;display:inline-flex;align-items:center;justify-content:center;width:' + btnSize + 'px;height:' + btnSize + 'px;margin-right:2px;border:none;background:transparent;color:#2563eb;cursor:pointer;opacity:1;border-radius:7px;line-height:0;transition:color .15s;flex:0 0 auto;';
+        function setHover(active) {
+          chip.style.backgroundColor = active ? '#dbeafe' : '#eff6ff';
+          el.style.color = active ? '#1d4ed8' : '#2563eb';
+          if (icon) icon.style.transform = active ? 'translateY(-0.5px)' : 'translateY(0)';
+        }
+        el.addEventListener('mouseenter', function(){ setHover(true); });
+        el.addEventListener('mouseleave', function(){ setHover(false); });
       }
 
       function sendReply(replyEl, kind) {
@@ -3284,6 +3327,8 @@ export function generateInsertReplyButtonScript(
       }
 
       function scan() {
+        var styledBtns = safeQueryAll(document, '.mc-workbench-btn');
+        for (var s = 0; s < styledBtns.length; s++) applyInjectedButtonStyle(styledBtns[s]);
         var items = findReplyItems();
         for (var i = 0; i < items.length; i++) ensureButtons(items[i]);
       }

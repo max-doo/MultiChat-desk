@@ -1,6 +1,7 @@
 import { useRef, useEffect } from 'react'
 import { useWorkbenchStore } from '../../store/workbenchStore'
-import type { WorkbenchSearchResult } from '../../../../shared/types/workbench'
+import type { WorkbenchFileNode, WorkbenchSearchResult } from '../../../../shared/types/workbench'
+import { AppIcon } from '../icons/AppIcon'
 
 interface WorkbenchSearchProps {
   onClose?: () => void
@@ -13,6 +14,8 @@ export default function WorkbenchSearch({ onClose }: WorkbenchSearchProps): JSX.
   const searchFiles = useWorkbenchStore((s) => s.searchFiles)
   const clearSearch = useWorkbenchStore((s) => s.clearSearch)
   const openFile = useWorkbenchStore((s) => s.openFile)
+  const workspacePath = useWorkbenchStore((s) => s.workspacePath)
+  const setDraggingNodes = useWorkbenchStore((s) => s.setDraggingNodes)
   const inputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
@@ -51,9 +54,7 @@ export default function WorkbenchSearch({ onClose }: WorkbenchSearchProps): JSX.
       {/* 搜索输入框 */}
       <div className="p-2 border-b border-black/5 dark:border-white/5">
         <div className="relative flex items-center">
-          <span className="material-symbols-outlined text-[19px] text-text-secondary absolute left-2 pointer-events-none">
-            search
-          </span>
+          <AppIcon name="search" size={19} className="text-text-secondary absolute left-2 pointer-events-none" />
           <input
             ref={inputRef}
             type="text"
@@ -72,7 +73,7 @@ export default function WorkbenchSearch({ onClose }: WorkbenchSearchProps): JSX.
                 className="w-5 h-5 flex items-center justify-center rounded-full text-text-secondary hover:text-text-primary hover:bg-black/10 dark:hover:bg-white/10"
                 title="清空搜索"
               >
-                <span className="material-symbols-outlined text-[14px]">close</span>
+                <AppIcon name="close" size={14} />
               </button>
             ) : null}
             {onClose && (
@@ -82,7 +83,7 @@ export default function WorkbenchSearch({ onClose }: WorkbenchSearchProps): JSX.
                 className="w-5 h-5 flex items-center justify-center rounded-full text-text-secondary hover:text-text-primary hover:bg-black/10 dark:hover:bg-white/10"
                 title="返回文件树"
               >
-                <span className="material-symbols-outlined text-[14px]">arrow_back</span>
+                <AppIcon name="arrow_back" size={14} />
               </button>
             )}
           </div>
@@ -93,7 +94,7 @@ export default function WorkbenchSearch({ onClose }: WorkbenchSearchProps): JSX.
       <div className="flex-1 overflow-y-auto p-1.5 space-y-1">
         {searchQuery.trim() && !isSearching && searchResults.length === 0 && (
           <div className="py-8 text-center text-text-secondary/70">
-            <span className="material-symbols-outlined text-2xl mb-1 opacity-50 block">search_off</span>
+            <AppIcon name="search_off" size={24} className="mb-1 opacity-50 block" />
             未找到包含 &ldquo;{searchQuery}&rdquo; 的匹配项
           </div>
         )}
@@ -105,11 +106,54 @@ export default function WorkbenchSearch({ onClose }: WorkbenchSearchProps): JSX.
         )}
 
         {searchResults.map((result, idx) => (
-          <button
+          <div
             key={`${result.filePath}-${result.line}-${idx}`}
-            type="button"
+            role="button"
+            tabIndex={0}
+            draggable
+            onDragStart={(e) => {
+              e.dataTransfer.effectAllowed = 'copyMove'
+              const cleanRoot = (workspacePath || '').replace(/[/\\]+$/, '')
+              const cleanRel = result.filePath.replace(/^[/\\]+/, '')
+              const sep = cleanRoot.includes('\\') ? '\\' : '/'
+              const fullPath = cleanRoot ? `${cleanRoot}${sep}${cleanRel.replace(/\//g, sep)}` : result.filePath
+              e.dataTransfer.setData('text/plain', fullPath)
+              const node: WorkbenchFileNode = {
+                id: result.filePath,
+                name: result.fileName,
+                path: result.filePath,
+                fullPath,
+                isDirectory: false
+              }
+              setDraggingNodes([node])
+              try {
+                e.dataTransfer.setData(
+                  'application/x-multichat-workspace-files',
+                  JSON.stringify([
+                    {
+                      path: node.path,
+                      fullPath: node.fullPath,
+                      name: node.name,
+                      isDirectory: false,
+                      size: 0
+                    }
+                  ])
+                )
+              } catch {
+                // ignore
+              }
+            }}
+            onDragEnd={() => {
+              setDraggingNodes(null)
+            }}
             onClick={() => void handleResultClick(result)}
-            className="w-full text-left p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 transition-colors group flex flex-col gap-1 border border-transparent hover:border-black/5 dark:hover:border-white/5"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                void handleResultClick(result)
+              }
+            }}
+            className="w-full text-left p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 transition-colors group flex flex-col gap-1 border border-transparent hover:border-black/5 dark:hover:border-white/5 cursor-pointer select-none"
           >
             <div className="flex items-center justify-between text-text-primary">
               <span className="font-medium truncate group-hover:text-primary transition-colors">
@@ -122,7 +166,7 @@ export default function WorkbenchSearch({ onClose }: WorkbenchSearchProps): JSX.
             <div className="text-sm text-text-secondary/80 truncate font-mono">
               {renderHighlightedSnippet(result.preview || result.content, searchQuery)}
             </div>
-          </button>
+          </div>
         ))}
       </div>
     </div>

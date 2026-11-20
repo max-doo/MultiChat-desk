@@ -1,60 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
-import { useWorkbenchStore, type WorkbenchAiAction } from '../../store/workbenchStore'
+import { useWorkbenchStore } from '../../store/workbenchStore'
 import WorkbenchFindReplaceBar from './WorkbenchFindReplaceBar'
-
-// 语言标签与高亮线索映射
-function getLanguageLabel(pathOrExt: string): string {
-  const lower = pathOrExt.toLowerCase()
-  const baseName = lower.split(/[/\\]/).pop() || ''
-  if (baseName === 'dockerfile') return 'Dockerfile'
-  if (baseName === '.gitignore') return 'GitIgnore'
-  if (baseName.startsWith('.env')) return 'Env'
-
-  const lastDot = lower.lastIndexOf('.')
-  const ext = lastDot !== -1 ? lower.slice(lastDot) : ''
-  switch (ext) {
-    case '.ts': return 'TypeScript'
-    case '.tsx': return 'TypeScript (React)'
-    case '.js': return 'JavaScript'
-    case '.jsx': return 'JavaScript (React)'
-    case '.json':
-    case '.json5': return 'JSON'
-    case '.html':
-    case '.htm': return 'HTML'
-    case '.css': return 'CSS'
-    case '.scss':
-    case '.less':
-    case '.sass': return 'Sass/Less'
-    case '.py':
-    case '.pyw': return 'Python'
-    case '.java': return 'Java'
-    case '.c': return 'C'
-    case '.cpp':
-    case '.cc': return 'C++'
-    case '.h':
-    case '.hpp': return 'C/C++ Header'
-    case '.cs': return 'C#'
-    case '.rs': return 'Rust'
-    case '.go': return 'Go'
-    case '.php': return 'PHP'
-    case '.rb': return 'Ruby'
-    case '.sql': return 'SQL'
-    case '.sh':
-    case '.bash':
-    case '.zsh': return 'Shell Script'
-    case '.ps1': return 'PowerShell'
-    case '.bat':
-    case '.cmd': return 'Batch Script'
-    case '.yaml':
-    case '.yml': return 'YAML'
-    case '.xml': return 'XML'
-    case '.toml': return 'TOML'
-    case '.ini': return 'INI'
-    case '.vue': return 'Vue'
-    case '.svelte': return 'Svelte'
-    default: return ext ? ext.slice(1).toUpperCase() : 'Code'
-  }
-}
+import { AppIcon } from '../icons/AppIcon'
 
 // 零依赖高性能单行语法高亮器
 function highlightCodeLine(line: string): React.ReactNode {
@@ -111,12 +58,8 @@ export default function WorkbenchCodePreview(): JSX.Element {
   const saveActiveFile = useWorkbenchStore((s) => s.saveActiveFile)
   const openInSystem = useWorkbenchStore((s) => s.openInSystem)
   const revealFile = useWorkbenchStore((s) => s.revealFile)
-  const askAi = useWorkbenchStore((s) => s.askAi)
-
   const [isEditing, setIsEditing] = useState(false)
   const [copied, setCopied] = useState(false)
-  const [selectedText, setSelectedText] = useState('')
-  const [showAiMenu, setShowAiMenu] = useState(false)
   const [findOpen, setFindOpen] = useState(false)
   const [findReplaceFocus, setFindReplaceFocus] = useState(false)
   // HTML 文件支持浏览器式渲染预览；viewMode 两态：render / source（源码即编辑）
@@ -137,8 +80,6 @@ export default function WorkbenchCodePreview(): JSX.Element {
   // 切换文件重置编辑与菜单状态；HTML 默认进入渲染预览
   useEffect(() => {
     setIsEditing(false)
-    setSelectedText('')
-    setShowAiMenu(false)
     setViewMode(isHtmlFile ? 'render' : 'source')
   }, [activeFilePath, isHtmlFile])
 
@@ -146,12 +87,8 @@ export default function WorkbenchCodePreview(): JSX.Element {
     return activeFileContent.split('\n')
   }, [activeFileContent])
 
-  const lineCount = lines.length
-  const language = getLanguageLabel(activeFilePath || '')
-
-  // 格式化文件大小
   const formattedSize = useMemo(() => {
-    if (!activeFileSize && activeFileSize !== 0) return ''
+    if (activeFileSize === null) return ''
     if (activeFileSize < 1024) return `${activeFileSize} B`
     if (activeFileSize < 1024 * 1024) return `${(activeFileSize / 1024).toFixed(1)} KB`
     return `${(activeFileSize / (1024 * 1024)).toFixed(1)} MB`
@@ -220,30 +157,15 @@ export default function WorkbenchCodePreview(): JSX.Element {
     }
   }
 
-  // 监听选中文字
-  const handleMouseUp = () => {
-    const selection = window.getSelection()?.toString() || ''
-    setSelectedText(selection.trim())
-  }
-
-  const handleAiAction = (action: WorkbenchAiAction) => {
-    const textToAsk = selectedText || activeFileContent
-    askAi(textToAsk, action)
-    setShowAiMenu(false)
-  }
-
   return (
     <div className="flex-1 h-full flex flex-col overflow-hidden bg-slate-900 text-slate-100 select-text">
       {/* 顶部工具栏 */}
       <div className="h-10 px-3 bg-slate-800/90 border-b border-slate-700/60 flex items-center justify-between gap-2 shrink-0 select-none text-sm">
-        {/* 左侧：文件信息与语言标签 */}
+        {/* 左侧：文件信息 */}
         <div className="flex items-center gap-2 truncate">
-          <span className="material-symbols-outlined text-[19px] text-amber-400">code</span>
+          <AppIcon name="code" size={19} className="text-amber-400" />
           <span className="font-mono text-sm text-slate-200 truncate" title={activeFilePath || ''}>
             {activeFilePath}
-          </span>
-          <span className="px-1.5 py-0.5 rounded text-xs font-semibold bg-blue-500/20 text-blue-300 border border-blue-400/30">
-            {language}
           </span>
         </div>
 
@@ -340,52 +262,6 @@ export default function WorkbenchCodePreview(): JSX.Element {
             )}
           </div>
 
-          {/* AI 助手操作下拉菜单 */}
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => setShowAiMenu(!showAiMenu)}
-              className="h-7 px-2 flex items-center gap-1 rounded-md bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 border border-purple-400/30 transition-colors"
-              title="对当前代码或选中片段进行 AI 辅助"
-            >
-              <span className="material-symbols-outlined text-[19px]">smart_toy</span>
-              <span className="hidden md:inline">AI 助手</span>
-              <span className="material-symbols-outlined text-[14px]">expand_more</span>
-            </button>
-
-            {showAiMenu && (
-              <div className="absolute right-0 top-8 z-50 w-44 py-1.5 bg-slate-800 rounded-xl shadow-2xl border border-slate-700 text-slate-200 text-sm">
-                <div className="px-3 py-1 text-xs text-slate-400 border-b border-slate-700/50 mb-1">
-                  {selectedText ? '针对选中代码片段' : '针对全部代码'}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => handleAiAction('explain')}
-                  className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-purple-500/20 hover:text-purple-300 transition-colors"
-                >
-                  <span className="material-symbols-outlined text-[19px] text-purple-400">help</span>
-                  <span>解释代码逻辑</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleAiAction('polish')}
-                  className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-purple-500/20 hover:text-purple-300 transition-colors"
-                >
-                  <span className="material-symbols-outlined text-[19px] text-blue-400">auto_fix_high</span>
-                  <span>优化重构代码</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleAiAction('ask')}
-                  className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-purple-500/20 hover:text-purple-300 transition-colors"
-                >
-                  <span className="material-symbols-outlined text-[19px] text-amber-400">chat</span>
-                  <span>发送到侧边栏提问</span>
-                </button>
-              </div>
-            )}
-          </div>
-
           {/* 复制按钮 */}
           <button
             type="button"
@@ -393,9 +269,7 @@ export default function WorkbenchCodePreview(): JSX.Element {
             className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
             title="复制代码全文"
           >
-            <span className="material-symbols-outlined text-[19px]">
-              {copied ? 'check' : 'content_copy'}
-            </span>
+            <AppIcon name={copied ? 'check' : 'content_copy'} size={19} />
           </button>
 
           {/* 系统默认编辑器打开 */}
@@ -407,7 +281,7 @@ export default function WorkbenchCodePreview(): JSX.Element {
             className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
             title="在系统默认编辑器中打开 (如 VSCode)"
           >
-            <span className="material-symbols-outlined text-[19px]">open_in_new</span>
+            <AppIcon name="open_in_new" size={19} />
           </button>
 
           {/* 在资源管理器定位 */}
@@ -419,7 +293,7 @@ export default function WorkbenchCodePreview(): JSX.Element {
             className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
             title="在资源管理器中显示"
           >
-            <span className="material-symbols-outlined text-[19px]">folder_open</span>
+            <AppIcon name="folder_open" size={19} />
           </button>
         </div>
       </div>
@@ -441,7 +315,7 @@ export default function WorkbenchCodePreview(): JSX.Element {
               />
             ) : (
               <div className="w-full h-full flex flex-col items-center justify-center p-8 text-center bg-slate-900 text-slate-400">
-                <span className="material-symbols-outlined text-4xl mb-3">error</span>
+                <AppIcon name="error" size={36} className="mb-3" />
                 <p className="text-sm">未能生成预览地址</p>
               </div>
             )}
@@ -454,7 +328,7 @@ export default function WorkbenchCodePreview(): JSX.Element {
         ) : activeFileOversized ? (
           <div className="flex-1 h-full flex flex-col items-center justify-center p-8 text-center bg-slate-900 select-none">
             <div className="w-16 h-16 rounded-2xl bg-amber-500/10 flex items-center justify-center text-amber-400 mb-4">
-              <span className="material-symbols-outlined text-3xl">code</span>
+              <AppIcon name="code" size={30} />
             </div>
             <h3 className="text-base font-semibold text-slate-100 mb-1">代码文件超出直接加载上限</h3>
             <p className="text-sm text-slate-400 max-w-sm mb-6 leading-relaxed">
@@ -467,7 +341,7 @@ export default function WorkbenchCodePreview(): JSX.Element {
               }}
               className="h-10 px-5 rounded-xl bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium flex items-center gap-2 shadow-sm transition-all"
             >
-              <span className="material-symbols-outlined text-[19px]">open_in_new</span>
+              <AppIcon name="open_in_new" size={19} />
               <span>在系统编辑器中打开</span>
             </button>
           </div>
@@ -505,7 +379,6 @@ export default function WorkbenchCodePreview(): JSX.Element {
                   value={activeFileContent}
                   onChange={(e) => updateActiveContent(e.target.value)}
                   onScroll={handleScroll}
-                  onMouseUp={handleMouseUp}
                   placeholder="输入或粘贴代码..."
                   className="absolute inset-0 w-full h-full py-4 px-4 font-mono text-sm leading-6 resize-none bg-transparent text-transparent caret-slate-100 focus:outline-none overflow-auto whitespace-pre tab-4 placeholder:text-slate-500"
                   spellCheck={false}
@@ -515,7 +388,6 @@ export default function WorkbenchCodePreview(): JSX.Element {
               <pre
                 ref={codePreRef}
                 onScroll={handleScroll}
-                onMouseUp={handleMouseUp}
                 className="flex-1 h-full py-4 px-4 font-mono text-sm sm:text-sm leading-6 bg-transparent text-slate-100 overflow-auto whitespace-pre tab-4 m-0 selection:bg-blue-600/40"
               >
                 <code>
@@ -528,35 +400,6 @@ export default function WorkbenchCodePreview(): JSX.Element {
               </pre>
             )}
 
-            {/* 选中文字浮动 AI 快捷提示 */}
-            {selectedText && (
-              <div className="absolute bottom-12 right-5 z-20 flex items-center gap-1.5 p-1.5 bg-slate-800/95 backdrop-blur-md rounded-xl border border-slate-700 shadow-xl">
-                <span className="text-xs text-slate-400 pl-1.5 pr-0.5">已选 {selectedText.length} 字</span>
-                <button
-                  type="button"
-                  onClick={() => handleAiAction('explain')}
-                  className="px-2 py-1 rounded-lg bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 text-sm font-medium flex items-center gap-1 transition-colors"
-                >
-                  <span className="material-symbols-outlined text-[14px]">help</span>
-                  <span>解释</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleAiAction('polish')}
-                  className="px-2 py-1 rounded-lg bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 text-sm font-medium flex items-center gap-1 transition-colors"
-                >
-                  <span className="material-symbols-outlined text-[14px]">auto_fix_high</span>
-                  <span>重构</span>
-                </button>
-              </div>
-            )}
-
-            {/* 右下角状态 Pill（与 Markdown 源码一致） */}
-            <div className="pointer-events-none absolute bottom-3 right-3 z-10 flex items-center gap-2 rounded-full border border-white/10 bg-slate-900/85 px-2.5 py-1 text-xs text-slate-400 shadow-sm backdrop-blur-md">
-              <span className="whitespace-nowrap font-mono" title={`${lineCount} 行${formattedSize ? `，大小 ${formattedSize}` : ''}`}>
-                {lineCount} 行{formattedSize && ` · ${formattedSize}`}
-              </span>
-            </div>
           </>
         )}
 

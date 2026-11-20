@@ -1,86 +1,19 @@
-import { useState, useMemo } from 'react'
+import { useMemo } from 'react'
 import { useWorkbenchStore } from '../../store/workbenchStore'
-
-type OfficeKind = 'word' | 'excel' | 'powerpoint' | 'document'
-
-const OFFICE_KIND_META: Record<
-  OfficeKind,
-  {
-    icon: string
-    accent: string
-    accentSoft: string
-    appLabel: string
-    description: string
-  }
-> = {
-  word: {
-    icon: 'article',
-    accent: 'text-indigo-600 dark:text-indigo-400',
-    accentSoft: 'bg-indigo-500/10 dark:bg-indigo-400/10 text-indigo-600 dark:text-indigo-400',
-    appLabel: 'Word / WPS',
-    description:
-      'Word 文档采用复杂的 OpenXML 压缩架构与专有版式排版规则。为了避免格式错位并保持表格、样式与公式的 100% 还原，推荐使用本地默认办公应用直接打开查看与编辑。'
-  },
-  excel: {
-    icon: 'table',
-    accent: 'text-emerald-600 dark:text-emerald-400',
-    accentSoft: 'bg-emerald-500/10 dark:bg-emerald-400/10 text-emerald-600 dark:text-emerald-400',
-    appLabel: 'Excel / WPS',
-    description:
-      'Excel 工作簿包含公式、数据透视表与图表等复杂结构。为了完整保留计算逻辑与格式，推荐使用本地默认表格应用直接打开查看与编辑。'
-  },
-  powerpoint: {
-    icon: 'slideshow',
-    accent: 'text-orange-600 dark:text-orange-400',
-    accentSoft: 'bg-orange-500/10 dark:bg-orange-400/10 text-orange-600 dark:text-orange-400',
-    appLabel: 'PowerPoint / WPS',
-    description:
-      'PPT 演示文稿包含动画、母版与多媒体元素。为了完整保留播放效果与排版，推荐使用本地默认演示应用直接打开查看与编辑。'
-  },
-  document: {
-    icon: 'article',
-    accent: 'text-indigo-600 dark:text-indigo-400',
-    accentSoft: 'bg-indigo-500/10 dark:bg-indigo-400/10 text-indigo-600 dark:text-indigo-400',
-    appLabel: '本地办公应用',
-    description:
-      '该文档采用专有二进制或版式排版格式。为了避免内容错位，推荐使用本地默认办公应用直接打开查看与编辑。'
-  }
-}
-
-function resolveOfficeKind(ext: string): OfficeKind {
-  if (['.xlsx', '.xls', '.xlsm', '.xlsb', '.xltx', '.xlt', '.ods'].includes(ext)) return 'excel'
-  if (['.pptx', '.ppt', '.pptm', '.potx', '.pot', '.ppsx', '.pps', '.odp'].includes(ext))
-    return 'powerpoint'
-  if (['.docx', '.doc', '.dotx', '.dot', '.odt'].includes(ext)) return 'word'
-  return 'document'
-}
+import { AppIcon } from '../icons/AppIcon'
+import FileTypeIcon from './FileTypeIcon'
+import WorkbenchSendToAiButton from './WorkbenchSendToAiButton'
 
 export default function WorkbenchDocxCard(): JSX.Element {
   const activeFilePath = useWorkbenchStore((s) => s.activeFilePath)
   const activeFileSize = useWorkbenchStore((s) => s.activeFileSize)
-  const lastSavedAt = useWorkbenchStore((s) => s.lastSavedAt)
   const openInSystem = useWorkbenchStore((s) => s.openInSystem)
-  const revealFile = useWorkbenchStore((s) => s.revealFile)
-
-  const [copied, setCopied] = useState(false)
-
-  const fileName = useMemo(() => {
-    return activeFilePath ? activeFilePath.split(/[/\\]/).pop() : ''
-  }, [activeFilePath])
-
-  const format = useMemo(() => {
-    if (!activeFilePath) return 'DOCX'
-    const ext = activeFilePath.split('.').pop() || ''
-    return ext.toUpperCase()
-  }, [activeFilePath])
 
   const ext = useMemo(() => {
     if (!activeFilePath) return ''
     const idx = activeFilePath.lastIndexOf('.')
     return idx !== -1 ? activeFilePath.slice(idx).toLowerCase() : ''
   }, [activeFilePath])
-
-  const meta = useMemo(() => OFFICE_KIND_META[resolveOfficeKind(ext)], [ext])
 
   const formattedSize = useMemo(() => {
     if (!activeFileSize && activeFileSize !== 0) return '未知大小'
@@ -89,142 +22,56 @@ export default function WorkbenchDocxCard(): JSX.Element {
     return `${(activeFileSize / (1024 * 1024)).toFixed(1)} MB`
   }, [activeFileSize])
 
-  const formattedDate = useMemo(() => {
-    if (!lastSavedAt) return ''
-    return new Date(lastSavedAt).toLocaleString()
-  }, [lastSavedAt])
-
-  const handleCopyPath = async () => {
-    if (!activeFilePath) return
-    try {
-      await navigator.clipboard.writeText(activeFilePath)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1800)
-    } catch (err) {
-      console.error('Failed to copy path:', err)
-    }
+  const handleOpen = () => {
+    if (activeFilePath) void openInSystem(activeFilePath)
   }
 
   return (
     <div className="flex-1 h-full flex flex-col overflow-hidden bg-slate-50 dark:bg-gray-900 select-none">
-      {/* 顶部工具栏 */}
       <div className="h-12 px-3 bg-white/80 dark:bg-gray-800/80 border-b border-black/5 dark:border-white/5 flex items-center justify-between gap-2 shrink-0 text-sm">
         <div className="flex items-center gap-2 truncate">
-          <span className={`material-symbols-outlined text-[19px] ${meta.accent}`}>
-            {meta.icon}
-          </span>
+          {activeFilePath && (
+            <FileTypeIcon
+              node={{
+                id: activeFilePath,
+                name: activeFilePath.split(/[/\\]/).pop() || activeFilePath,
+                path: activeFilePath,
+                isDirectory: false,
+                extension: ext
+              }}
+              className="w-[19px] h-[19px]"
+            />
+          )}
           <span className="font-medium text-text-primary truncate" title={activeFilePath || ''}>
             {activeFilePath}
           </span>
         </div>
-
-        <div className="flex items-center gap-1.5 text-text-secondary">
-          <button
-            type="button"
-            onClick={() => {
-              if (activeFilePath) void openInSystem(activeFilePath)
-            }}
-            className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors"
-            title={`在 ${meta.appLabel} 中打开`}
-          >
-            <span className="material-symbols-outlined text-[19px]">open_in_new</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              if (activeFilePath) void revealFile(activeFilePath)
-            }}
-            className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors"
-            title="在系统资源管理器中定位"
-          >
-            <span className="material-symbols-outlined text-[19px]">folder_open</span>
-          </button>
-        </div>
       </div>
 
-      {/* 文档详情展示卡片 */}
-      <div className="flex-1 overflow-auto flex items-center justify-center p-8 relative">
-        <div className="w-full max-w-lg bg-white dark:bg-gray-800 rounded-3xl p-8 shadow-xl border border-black/5 dark:border-white/5 flex flex-col items-center text-center">
-          {/* 大图标 */}
-          <div
-            className={`w-20 h-20 rounded-3xl ${meta.accentSoft} flex items-center justify-center mb-5 shadow-inner`}
-          >
-            <span className="material-symbols-outlined text-4xl">{meta.icon}</span>
-          </div>
+      <div className="flex-1 overflow-auto flex flex-col items-center justify-center px-8 pb-10 relative text-center">
+        <AppIcon name="info" size={28} className="text-primary" />
+        <p className="mt-3 max-w-md text-sm leading-6 text-text-secondary">
+          当前格式暂不支持在工作台内预览，可用本地默认应用打开查看与编辑。
+        </p>
+        <button
+          type="button"
+          onClick={handleOpen}
+          className="mt-5 h-9 px-4 rounded-lg bg-primary text-white hover:bg-primary/90 text-sm font-medium flex items-center gap-1.5 shadow-sm transition-colors"
+        >
+          <AppIcon name="open_in_new" size={18} />
+          <span>用本地默认应用打开</span>
+        </button>
 
-          <h2 className="text-lg font-bold text-text-primary mb-1 break-all">
-            {fileName}
-          </h2>
-          <p className="text-sm font-mono text-text-secondary mb-6 break-all">
-            {activeFilePath}
-          </p>
-
-          {/* 元信息网格 */}
-          <div className="grid grid-cols-2 gap-3 w-full max-w-sm mb-6 text-left">
-            <div className="col-span-2 p-3 rounded-xl bg-slate-50 dark:bg-gray-700/50 border border-black/5 dark:border-white/5">
-              <span className="text-xs text-text-secondary block mb-0.5">文件格式</span>
-              <span className={`text-sm font-semibold ${meta.accent}`}>{format} 规范文档</span>
-            </div>
-            {formattedDate && (
-              <div className="col-span-2 p-3 rounded-xl bg-slate-50 dark:bg-gray-700/50 border border-black/5 dark:border-white/5">
-                <span className="text-xs text-text-secondary block mb-0.5">修改时间</span>
-                <span className="text-sm font-semibold text-text-primary">{formattedDate}</span>
-              </div>
-            )}
-          </div>
-
-          {/* 渲染说明 */}
-          <div className="w-full p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-800 dark:text-amber-300 text-sm text-left mb-6 leading-relaxed">
-            <div className="flex items-center gap-1.5 font-semibold mb-1">
-              <span className="material-symbols-outlined text-[19px]">info</span>
-              <span>格式渲染建议</span>
-            </div>
-            <p className="text-xs opacity-90">{meta.description}</p>
-          </div>
-
-          {/* 核心操作按钮 */}
-          <div className="flex flex-wrap items-center justify-center gap-3 w-full">
-            <button
-              type="button"
-              onClick={() => {
-                if (activeFilePath) void openInSystem(activeFilePath)
-              }}
-              className="h-10 px-6 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 text-sm font-semibold flex items-center gap-2 shadow-md hover:shadow-lg transition-all"
-            >
-              <span className="material-symbols-outlined text-[19px]">open_in_new</span>
-              <span>在本地办公软件中打开</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (activeFilePath) void revealFile(activeFilePath)
-              }}
-              className="h-10 px-4 rounded-xl border border-black/10 dark:border-white/10 hover:bg-black/5 dark:hover:bg-white/5 text-text-primary text-sm font-medium flex items-center gap-1.5 transition-colors"
-            >
-              <span className="material-symbols-outlined text-[19px]">folder_open</span>
-              <span>在文件夹中显示</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleCopyPath()}
-              className="h-10 px-4 rounded-xl border border-black/10 dark:border-white/10 hover:bg-black/5 dark:hover:bg-white/5 text-text-primary text-sm font-medium flex items-center gap-1.5 transition-colors"
-            >
-              <span className="material-symbols-outlined text-[19px]">
-                {copied ? 'check' : 'content_copy'}
+        <div className="absolute bottom-3 right-3 z-10 flex items-center gap-2">
+          <WorkbenchSendToAiButton />
+          {formattedSize && formattedSize !== '未知大小' && (
+            <div className="flex items-center gap-2 rounded-full border border-black/5 bg-white/85 px-2.5 py-1 text-xs text-text-secondary shadow-sm backdrop-blur-md dark:border-white/10 dark:bg-gray-900/80">
+              <span className="whitespace-nowrap" title={`大小 ${formattedSize}`}>
+                {formattedSize}
               </span>
-              <span>{copied ? '已复制' : '复制相对路径'}</span>
-            </button>
-          </div>
+            </div>
+          )}
         </div>
-
-        {/* 右下角状态 Pill（与 Markdown 源码一致） */}
-        {formattedSize && formattedSize !== '未知大小' && (
-          <div className="pointer-events-none absolute bottom-3 right-3 z-10 flex items-center gap-2 rounded-full border border-black/5 bg-white/85 px-2.5 py-1 text-xs text-text-secondary shadow-sm backdrop-blur-md dark:border-white/10 dark:bg-gray-900/80">
-            <span className="whitespace-nowrap" title={`大小 ${formattedSize}`}>
-              {formattedSize}
-            </span>
-          </div>
-        )}
       </div>
     </div>
   )

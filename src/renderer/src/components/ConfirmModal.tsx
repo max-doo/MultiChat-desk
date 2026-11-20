@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { AppIcon } from './icons/AppIcon'
 
 interface ConfirmModalProps {
   isOpen: boolean
@@ -74,9 +75,7 @@ function ConfirmModal({
       {/* 弹窗内容 */}
       <div className="relative w-full max-w-sm bg-app border border-gray-200 rounded-xl shadow-2xl p-6 animate-in zoom-in-95 duration-200">
         <div className="flex items-center gap-3 mb-4">
-          <span className={`material-symbols-outlined text-3xl ${theme.icon}`}>
-            {theme.iconName}
-          </span>
+          <AppIcon name={theme.iconName} size={30} className={`text-3xl ${theme.icon}`} />
           <h3 className="text-xl font-semibold text-text-primary">{title}</h3>
         </div>
         
