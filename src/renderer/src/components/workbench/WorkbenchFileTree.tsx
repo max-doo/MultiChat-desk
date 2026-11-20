@@ -41,6 +41,11 @@ interface DragState {
   paths: string[]
 }
 
+/** 树内复制剪贴板：记录待复制的节点相对路径与快照签名，用于失效检测 */
+interface TreeClipboard {
+  paths: string[]
+}
+
 /** 从拖拽/粘贴的 File 对象提取本地绝对路径（Electron：.path 或 webUtils.getPathForFile） */
 function extractLocalPath(file: File): string {
   const legacy = (file as File & { path?: string }).path
@@ -161,6 +166,7 @@ export default function WorkbenchFileTree(): JSX.Element {
   const [isRootDropActive, setIsRootDropActive] = useState(false)
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set())
   const [anchorPath, setAnchorPath] = useState<string | null>(null)
+  const [treeClipboard, setTreeClipboard] = useState<TreeClipboard | null>(null)
   const [isVaultMenuOpen, setIsVaultMenuOpen] = useState(false)
   const [isVaultManageOpen, setIsVaultManageOpen] = useState(false)
   const [isSortMenuOpen, setIsSortMenuOpen] = useState(false)
@@ -185,7 +191,27 @@ export default function WorkbenchFileTree(): JSX.Element {
   useEffect(() => {
     setSelectedPaths(new Set())
     setAnchorPath(null)
+    setTreeClipboard(null)
   }, [workspacePath])
+
+  // 文件树重扫后校验剪贴板快照：复制过的节点可能已被删除/移动，逐条剔除失效项
+  useEffect(() => {
+    setTreeClipboard((prev) => {
+      if (!prev) return prev
+      const alive = new Set<string>()
+      const walk = (nodes: WorkbenchFileNode[]): void => {
+        for (const n of nodes) {
+          alive.add(n.path)
+          if (n.children) walk(n.children)
+        }
+      }
+      walk(fileTree)
+      const paths = prev.paths.filter((p) => alive.has(p))
+      if (!paths.length) return null
+      if (paths.length === prev.paths.length) return prev
+      return { ...prev, paths }
+    })
+  }, [fileTree])
 
   // 内联新建输入框出现时聚焦（VSCode 行为：空白输入框等待用户输入）
   useEffect(() => {
@@ -626,6 +652,64 @@ export default function WorkbenchFileTree(): JSX.Element {
     [resolveParentDir, expandAncestors, importExternalItems]
   )
 
+  /** 复制（Ctrl+C / 系统复制）：把选中节点记入树内剪贴板，不抢占文字复制 */
+  const handleCopy = useCallback(
+    (e: React.ClipboardEvent) => {
+      // 正在输入（重命名/内联新建）或选中了文字时，保留原生文字复制行为
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      const selection = window.getSelection()
+      if (selection && !selection.isCollapsed && selection.toString()) return
+      if (!selectedPaths.size) return
+      e.preventDefault()
+      setTreeClipboard({
+        paths: Array.from(selectedPaths)
+      })
+    },
+    [selectedPaths]
+  )
+
+  /** 应用内粘贴：把树内剪贴板的节点复制到目标目录，生成 `-n` 副本 */
+  const pasteTreeClipboard = useCallback(
+    (targetDir: string) => {
+      if (!treeClipboard || !workspacePath || !treeClipboard.paths.length) return
+      const root = workspacePath.replace(/\\/g, '/').replace(/\/+$/, '')
+      // 过滤会把目录复制进自身内部的源（target 等于源或位于源之下），与后端校验一致
+      const targetPrefix = targetDir ? `${targetDir}/` : ''
+      const paths = treeClipboard.paths.filter((p) => {
+        if (p === targetDir) return false
+        return !targetPrefix.startsWith(`${p}/`)
+      })
+      if (!paths.length) return
+      const absPaths = paths.map((p) => `${root}/${p}`)
+      expandAncestors(targetDir ? [targetDir] : [])
+      void importExternalItems(targetDir, absPaths)
+    },
+    [treeClipboard, workspacePath, expandAncestors, importExternalItems]
+  )
+
+  /** 树容器的键盘复制粘贴：容器已聚焦且未在输入框内时接管 Ctrl+C / Ctrl+V */
+  const handleTreeKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      const mod = e.ctrlKey || e.metaKey
+      if (!mod) return
+      const k = e.key.toLowerCase()
+      if (k !== 'c' && k !== 'v') return
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      if (k === 'c') {
+        if (!selectedPaths.size) return
+        e.preventDefault()
+        setTreeClipboard({
+          paths: Array.from(selectedPaths)
+        })
+      } else {
+        if (!treeClipboard) return
+        e.preventDefault()
+        pasteTreeClipboard(resolveParentDir(null))
+      }
+    },
+    [selectedPaths, treeClipboard, pasteTreeClipboard, resolveParentDir]
+  )
+
   const handleModalSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!actionModal) return
@@ -812,6 +896,8 @@ export default function WorkbenchFileTree(): JSX.Element {
         if (e.target instanceof HTMLInputElement) return
         e.currentTarget.focus()
       }}
+      onKeyDown={handleTreeKeyDown}
+      onCopy={handleCopy}
       onPaste={handlePaste}
     >
       {/* 头部：核心操作（左对齐）+ 侧边栏折叠开关（最右） */}
@@ -1081,6 +1167,64 @@ export default function WorkbenchFileTree(): JSX.Element {
               </button>
               <div className="my-1 border-t border-black/5 dark:border-white/5" />
             </>
+          )}
+
+          {/* 复制/粘贴：无上下文节点时仅"粘贴"可用；有节点时提供复制与单节点创建副本 */}
+          {contextMenu.node ? (
+            <button
+              type="button"
+              onClick={() => {
+                const paths =
+                  selectedPaths.size > 1 && selectedPaths.has(contextMenu.node!.path)
+                    ? Array.from(selectedPaths)
+                    : [contextMenu.node!.path]
+                setTreeClipboard({ paths })
+                setContextMenu(null)
+              }}
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-text-primary hover:bg-black/5 dark:hover:bg-white/5"
+            >
+              <span className="material-symbols-outlined text-[19px]">content_copy</span>
+              <span>
+                {selectedPaths.size > 1 && contextMenu.node && selectedPaths.has(contextMenu.node.path)
+                  ? `复制 ${selectedPaths.size} 项`
+                  : '复制'}
+              </span>
+            </button>
+          ) : null}
+          {treeClipboard && (
+            <button
+              type="button"
+              onClick={() => {
+                const targetDir = resolveParentDir(contextMenu.node)
+                pasteTreeClipboard(targetDir)
+                setContextMenu(null)
+              }}
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-text-primary hover:bg-black/5 dark:hover:bg-white/5"
+            >
+              <span className="material-symbols-outlined text-[19px]">content_paste</span>
+              <span>粘贴{treeClipboard.paths.length > 1 ? ` ${treeClipboard.paths.length} 项` : ''}</span>
+            </button>
+          )}
+          {contextMenu.node && (
+            <button
+              type="button"
+              onClick={() => {
+                const node = contextMenu.node!
+                const root = (workspacePath ?? '').replace(/\\/g, '/').replace(/\/+$/, '')
+                const idx = node.path.lastIndexOf('/')
+                const parentDir = idx === -1 ? '' : node.path.slice(0, idx)
+                expandAncestors(parentDir ? [parentDir] : [])
+                void importExternalItems(parentDir, [`${root}/${node.path}`])
+                setContextMenu(null)
+              }}
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-text-primary hover:bg-black/5 dark:hover:bg-white/5"
+            >
+              <span className="material-symbols-outlined text-[19px]">file_copy</span>
+              <span>创建副本</span>
+            </button>
+          )}
+          {(contextMenu.node || treeClipboard) && (
+            <div className="my-1 border-t border-black/5 dark:border-white/5" />
           )}
 
           {contextMenu.node && (

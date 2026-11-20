@@ -29,6 +29,7 @@ import MarkdownSyncPlugin, {
   parseMarkdownWithFrontmatter
 } from './MarkdownSyncPlugin'
 import FrontmatterPanel from './FrontmatterPanel'
+import WorkbenchTitleBar from './WorkbenchTitleBar'
 import { PendingInsertNode } from './PendingInsertNode'
 import { PendingBarNode } from './PendingBarNode'
 import { WorkbenchImageNode } from './WorkbenchImageNode'
@@ -38,6 +39,7 @@ import WorkbenchFloatingToolbarPlugin from './WorkbenchFloatingToolbarPlugin'
 import WorkbenchDraggableBlockPlugin from './WorkbenchDraggableBlockPlugin'
 import WorkbenchTableCellResizerPlugin from './WorkbenchTableCellResizerPlugin'
 import WorkbenchTableActionMenuPlugin from './WorkbenchTableActionMenuPlugin'
+import WorkbenchCodeHighlightPlugin from './WorkbenchCodeHighlightPlugin'
 import WorkbenchSourceEditor from './WorkbenchSourceEditor'
 import type { WorkbenchSourceEditorHandle } from './WorkbenchSourceEditor'
 import WorkbenchCodePreview from './WorkbenchCodePreview'
@@ -46,6 +48,7 @@ import WorkbenchPdfPreview from './WorkbenchPdfPreview'
 import WorkbenchDocxCard from './WorkbenchDocxCard'
 import WorkbenchStatusPill from './WorkbenchStatusPill'
 import WorkbenchFindReplaceBar from './WorkbenchFindReplaceBar'
+import WorkbenchFindHighlightPlugin, { revealRangeInLexical } from './WorkbenchFindHighlightPlugin'
 
 const lexicalTheme = {
   paragraph: 'PlaygroundEditorTheme__paragraph',
@@ -82,6 +85,38 @@ const lexicalTheme = {
   },
   quote: 'PlaygroundEditorTheme__quote',
   code: 'PlaygroundEditorTheme__code',
+  codeHighlight: {
+    atrule: 'PlaygroundEditorTheme__tokenAttr',
+    attr: 'PlaygroundEditorTheme__tokenAttr',
+    boolean: 'PlaygroundEditorTheme__tokenProperty',
+    builtin: 'PlaygroundEditorTheme__tokenSelector',
+    cdata: 'PlaygroundEditorTheme__tokenComment',
+    char: 'PlaygroundEditorTheme__tokenSelector',
+    class: 'PlaygroundEditorTheme__tokenFunction',
+    'class-name': 'PlaygroundEditorTheme__tokenFunction',
+    comment: 'PlaygroundEditorTheme__tokenComment',
+    constant: 'PlaygroundEditorTheme__tokenProperty',
+    deleted: 'PlaygroundEditorTheme__tokenProperty',
+    doctype: 'PlaygroundEditorTheme__tokenComment',
+    entity: 'PlaygroundEditorTheme__tokenOperator',
+    function: 'PlaygroundEditorTheme__tokenFunction',
+    important: 'PlaygroundEditorTheme__tokenVariable',
+    inserted: 'PlaygroundEditorTheme__tokenSelector',
+    keyword: 'PlaygroundEditorTheme__tokenAttr',
+    namespace: 'PlaygroundEditorTheme__tokenVariable',
+    number: 'PlaygroundEditorTheme__tokenProperty',
+    operator: 'PlaygroundEditorTheme__tokenOperator',
+    prolog: 'PlaygroundEditorTheme__tokenComment',
+    property: 'PlaygroundEditorTheme__tokenProperty',
+    punctuation: 'PlaygroundEditorTheme__tokenPunctuation',
+    regex: 'PlaygroundEditorTheme__tokenVariable',
+    selector: 'PlaygroundEditorTheme__tokenSelector',
+    string: 'PlaygroundEditorTheme__tokenSelector',
+    symbol: 'PlaygroundEditorTheme__tokenProperty',
+    tag: 'PlaygroundEditorTheme__tokenProperty',
+    url: 'PlaygroundEditorTheme__tokenOperator',
+    variable: 'PlaygroundEditorTheme__tokenVariable'
+  },
   text: {
     bold: 'PlaygroundEditorTheme__textBold',
     italic: 'PlaygroundEditorTheme__textItalic',
@@ -154,10 +189,27 @@ export default function WorkbenchEditor(): JSX.Element {
     setFindOpen(false)
   }, [activeFilePath, activeFileCategory])
 
-  // frontmatter 与正文分离：面板只读展示，Lexical 只吃 body
+  // frontmatter 与正文分离：面板编辑属性，Lexical 只吃 body
   const parsedFrontmatter = useMemo(
     () => parseMarkdownWithFrontmatter(activeFileContent).frontmatter,
     [activeFileContent]
+  )
+
+  // 面板编辑 frontmatter 后：拼回正文 + 通知 MarkdownSyncPlugin 更新 frontmatterRef，
+  // 否则 Lexical 下次回写会用旧 ref 把面板改动覆盖掉
+  const handleFrontmatterChange = useCallback(
+    (nextFrontmatter: string | null) => {
+      const { markdownBody } = parseMarkdownWithFrontmatter(activeFileContent)
+      const next = (nextFrontmatter || '') + markdownBody
+      if (next === activeFileContent) return
+      window.dispatchEvent(
+        new CustomEvent('workbench:frontmatter-changed', {
+          detail: { frontmatter: nextFrontmatter }
+        })
+      )
+      updateActiveContent(next)
+    },
+    [activeFileContent, updateActiveContent]
   )
 
   const onRef = useCallback((_floatingAnchorElem: HTMLDivElement | null) => {
@@ -318,23 +370,32 @@ export default function WorkbenchEditor(): JSX.Element {
         {/* 编辑器画布可滚动容器 */}
         <div className="flex-1 overflow-y-auto relative flex justify-center">
           <div ref={onRef} className="relative w-full max-w-[900px] pl-14 pr-8 py-6 min-h-full">
-            {/* Obsidian 式笔记属性面板：frontmatter 与正文分离，不进入 Lexical */}
-            <FrontmatterPanel frontmatter={parsedFrontmatter} />
+            {/* Obsidian 式文档标题：点击行内重命名 */}
+            <WorkbenchTitleBar />
 
-            <RichTextPlugin
-              contentEditable={
-                <ContentEditable
-                  className="max-w-none min-h-[500px] focus:outline-none text-text-primary select-text"
-                  spellCheck={false}
-                />
-              }
-              placeholder={
-                <div className="absolute top-6 left-14 text-gray-400 dark:text-gray-500 text-[16px] pointer-events-none select-none">
-                  输入 Markdown 或富文本内容，支持使用 #、-、&gt; 等即时补全语法...
-                </div>
-              }
-              ErrorBoundary={LexicalErrorBoundary}
+            {/* Obsidian 式笔记属性面板：frontmatter 与正文分离，不进入 Lexical */}
+            <FrontmatterPanel
+              frontmatter={parsedFrontmatter}
+              onChange={handleFrontmatterChange}
             />
+
+            {/* placeholder 与正文同容器定位，避免标题/属性面板高度变化后漂移 */}
+            <div className="relative">
+              <RichTextPlugin
+                contentEditable={
+                  <ContentEditable
+                    className="max-w-none min-h-[500px] focus:outline-none text-text-primary select-text"
+                    spellCheck={false}
+                  />
+                }
+                placeholder={
+                  <div className="absolute top-0 left-0 text-gray-400 dark:text-gray-500 text-[16px] pointer-events-none select-none">
+                    输入 Markdown 或富文本内容，支持使用 #、-、&gt; 等即时补全语法...
+                  </div>
+                }
+                ErrorBoundary={LexicalErrorBoundary}
+              />
+            </div>
 
             {/* 文字块拖动 Handle + "+" 插入菜单（复刻 playground） */}
             {floatingAnchorElem && (
@@ -365,15 +426,18 @@ export default function WorkbenchEditor(): JSX.Element {
         <TabIndentationPlugin />
         <MarkdownShortcutPlugin transformers={WORKBENCH_TRANSFORMERS} />
         <MarkdownSyncPlugin />
+        <WorkbenchCodeHighlightPlugin />
         <WorkbenchImagePlugin />
         <WorkbenchSelectionMenuPlugin />
         <WorkbenchTableCellResizerPlugin />
+        <WorkbenchFindHighlightPlugin />
       </LexicalComposer>
       <WorkbenchFindReplaceBar
         open={findOpen}
         replaceFocus={findReplaceFocus}
         onClose={() => setFindOpen(false)}
         canReplace={true}
+        onRevealMatch={(start, end) => revealRangeInLexical(start, end)}
       />
       <WorkbenchStatusPill />
     </div>

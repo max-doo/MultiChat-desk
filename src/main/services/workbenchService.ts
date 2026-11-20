@@ -298,6 +298,24 @@ interface WorkbenchWatcherState {
 
 const workbenchWatchers = new Map<string, WorkbenchWatcherState>()
 
+/**
+ * 复制目标目录的串行锁：连续粘贴/创建副本是两个独立 IPC 调用，若并发执行，
+ * 两次都会在对方 cp 落盘前查同一个 `-1` 空名，互相覆盖。按 `workspaceRoot+targetDir`
+ * 串行化"查空名→落盘"临界区，保证每次都基于上一副本已存在的事实重新取名。
+ */
+const copyTargetLocks = new Map<string, Promise<unknown>>()
+
+function lockCopyTarget(key: string): Promise<() => void> {
+  const prev = copyTargetLocks.get(key) ?? Promise.resolve()
+  let release: () => void
+  const next = new Promise<void>((resolve) => { release = resolve })
+  copyTargetLocks.set(key, prev.then(() => next))
+  return prev.then(() => () => {
+    release()
+    if (copyTargetLocks.get(key) === next) copyTargetLocks.delete(key)
+  })
+}
+
 function normalizeWatchKey(workspaceRoot: string): string {
   const resolved = path.resolve(workspaceRoot)
   return process.platform === 'win32' ? resolved.toLowerCase() : resolved
@@ -978,42 +996,48 @@ export async function importExternalPaths(
   /** 递归复制时过滤被忽略的系统目录 */
   const copyFilter = (src: string): boolean => !isIgnoredName(path.basename(src))
 
-  for (const sourcePath of sourceAbsolutePaths) {
-    try {
-      if (!sourcePath || typeof sourcePath !== 'string' || hasControlCharacters(sourcePath)) {
-        failed.push({ path: String(sourcePath), error: '非法的源路径' })
-        continue
-      }
-      const resolvedSrc = path.resolve(sourcePath)
-      const srcStat = await stat(resolvedSrc)
-      const srcBase = path.basename(resolvedSrc)
-      if (isIgnoredName(srcBase)) {
-        failed.push({ path: sourcePath, error: '已忽略的系统目录/文件' })
-        continue
-      }
-      // 源在工作区内部且目标即其当前父目录 → 等价"原地粘贴"，允许复制为 -1 副本
-      // 若源是目录且目标位于其内部 → 禁止（防自我包含）
-      if (
-        srcStat.isDirectory() &&
-        (safeTargetDir === resolvedSrc || safeTargetDir.startsWith(resolvedSrc + path.sep))
-      ) {
-        failed.push({ path: sourcePath, error: '不能将文件夹复制到其自身内部' })
-        continue
-      }
+  // 临界区锁：按目标目录串行化"查空名→cp 落盘"，防止并发粘贴互相覆盖同名副本
+  const release = await lockCopyTarget(safeTargetDir)
+  try {
+    for (const sourcePath of sourceAbsolutePaths) {
+      try {
+        if (!sourcePath || typeof sourcePath !== 'string' || hasControlCharacters(sourcePath)) {
+          failed.push({ path: String(sourcePath), error: '非法的源路径' })
+          continue
+        }
+        const resolvedSrc = path.resolve(sourcePath)
+        const srcStat = await stat(resolvedSrc)
+        const srcBase = path.basename(resolvedSrc)
+        if (isIgnoredName(srcBase)) {
+          failed.push({ path: sourcePath, error: '已忽略的系统目录/文件' })
+          continue
+        }
+        // 源在工作区内部且目标即其当前父目录 → 等价"原地粘贴"，允许复制为 -1 副本
+        // 若源是目录且目标位于其内部 → 禁止（防自我包含）
+        if (
+          srcStat.isDirectory() &&
+          (safeTargetDir === resolvedSrc || safeTargetDir.startsWith(resolvedSrc + path.sep))
+        ) {
+          failed.push({ path: sourcePath, error: '不能将文件夹复制到其自身内部' })
+          continue
+        }
 
-      const freeName = await resolveFreeName(srcBase)
-      const destPath = path.join(safeTargetDir, freeName)
-      markWorkspaceSelfWrite(workspaceRoot)
-      await cp(resolvedSrc, destPath, { recursive: true, filter: copyFilter })
-      const targetRelative = toPosixRelativePath(normalizedRoot, destPath)
-      imported.push(targetRelative)
-      const sourceRelative = path.relative(normalizedRoot, resolvedSrc)
-      if (!sourceRelative.startsWith('..') && !path.isAbsolute(sourceRelative)) {
-        pairs.push({ source: toPosixRelativePath(normalizedRoot, resolvedSrc), target: targetRelative })
+        const freeName = await resolveFreeName(srcBase)
+        const destPath = path.join(safeTargetDir, freeName)
+        markWorkspaceSelfWrite(workspaceRoot)
+        await cp(resolvedSrc, destPath, { recursive: true, filter: copyFilter })
+        const targetRelative = toPosixRelativePath(normalizedRoot, destPath)
+        imported.push(targetRelative)
+        const sourceRelative = path.relative(normalizedRoot, resolvedSrc)
+        if (!sourceRelative.startsWith('..') && !path.isAbsolute(sourceRelative)) {
+          pairs.push({ source: toPosixRelativePath(normalizedRoot, resolvedSrc), target: targetRelative })
+        }
+      } catch (err) {
+        failed.push({ path: sourcePath, error: err instanceof Error ? err.message : String(err) })
       }
-    } catch (err) {
-      failed.push({ path: sourcePath, error: err instanceof Error ? err.message : String(err) })
     }
+  } finally {
+    release()
   }
 
   return { imported, failed, pairs }

@@ -359,6 +359,58 @@ webview[tabindex="-1"] {
   margin-left: -8px;
 }
 
+/* 代码块 Prism 语法高亮 token 配色（复刻 playground） */
+.PlaygroundEditorTheme__tokenAttr {
+  color: #00a8db;
+}
+.PlaygroundEditorTheme__tokenComment {
+  color: slategray;
+}
+.PlaygroundEditorTheme__tokenFunction {
+  color: #dd4a68;
+}
+.PlaygroundEditorTheme__tokenOperator {
+  color: #a67f59;
+  background: rgba(255, 255, 255, 0.5);
+}
+.PlaygroundEditorTheme__tokenProperty {
+  color: #990055;
+}
+.PlaygroundEditorTheme__tokenPunctuation {
+  color: #999;
+}
+.PlaygroundEditorTheme__tokenSelector {
+  color: #669900;
+}
+.PlaygroundEditorTheme__tokenVariable {
+  color: #ee9900;
+}
+.dark .PlaygroundEditorTheme__tokenAttr {
+  color: #61c4e8;
+}
+.dark .PlaygroundEditorTheme__tokenComment {
+  color: #7a8a99;
+}
+.dark .PlaygroundEditorTheme__tokenFunction {
+  color: #e06c85;
+}
+.dark .PlaygroundEditorTheme__tokenOperator {
+  color: #c4a585;
+  background: transparent;
+}
+.dark .PlaygroundEditorTheme__tokenProperty {
+  color: #d16ba5;
+}
+.dark .PlaygroundEditorTheme__tokenPunctuation {
+  color: #8a919c;
+}
+.dark .PlaygroundEditorTheme__tokenSelector {
+  color: #9ec35c;
+}
+.dark .PlaygroundEditorTheme__tokenVariable {
+  color: #d9a45b;
+}
+
 /* 表格：与 playground 完全一致的细边框 + 固定布局 + 单元格 padding */
 .PlaygroundEditorTheme__table {
   border-collapse: collapse;

@@ -2,6 +2,88 @@
 
 ## 2026-11-20
 
+### 17:14 | Codex
+
+- done: 修复代码块 Enter 光标跳回上一行行首：WorkbenchCodeHighlightPlugin 在 mutation 回调 discrete 重建 children 把 insertNewAfter 刚设的新行选区删掉重置；改为去掉 discrete + 重建前记录块首字符偏移、重建后按偏移恢复选区
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchCodeHighlightPlugin.tsx`
+- lesson: CodeNode 高亮重建 children（clear+append）会销毁选区锚点节点导致光标重置到块首；mutation listener 里用 discrete:true 会抢在 selection 提交前执行——正确做法是记录『块首字符偏移』重建后恢复，并走 Lexical 默认异步调度
+
+### 17:08 | Codex
+
+- done: 修复 wysiwyg 代码块：新增 WorkbenchCodeHighlightPlugin 复刻 playground 算法——registerCodeGutter 写行号 + CodeNode mutation 触发 Prism.tokenize 重建 CodeHighlightNode children；theme 补 codeHighlight token 映射与 PlaygroundEditorTheme__token* 配色（含 dark）
+- added:
+  - `src/renderer/src/components/workbench/WorkbenchCodeHighlightPlugin.tsx`
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+  - `src/renderer/src/assets/index.css`
+  - `src/renderer/src/types/prismjs.d.ts`
+- lesson: @lexical/code 0.53 移除了 registerCodeHighlighting，行号 registerCodeGutter 在 @lexical/code-core、Prism 高亮需自行实现（@lexical/code-prism 未安装）；CodeNode children 重建要 tag 跳过自身 mutation 回声 + 逐项比较防止无限重建
+
+### 17:03 | Codex
+
+- done: workbench 标题栏去后缀显示、字号 28→32 比 h1 大；frontmatter 属性面板去卡片边框/底色与背景融为一体（对齐 Obsidian）
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchTitleBar.tsx`
+  - `src/renderer/src/components/workbench/FrontmatterPanel.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+
+### 17:01 | Codex
+
+- done: workbench 预览区顶部加 Obsidian 式文档标题栏：去扩展名显示、点击行内重命名（Enter/blur 提交、Esc 取消）、提交前先落盘清 dirty 再 renameNode 联动 assets；顺带把 placeholder 定位改为相对正文容器修复与标题/属性面板重叠
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchTitleBar.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+- lesson: workbench 重命名文档必须先 saveActiveFile 清 dirty+防抖计时器再 renameNode，否则 autosave 会用旧路径覆盖新文件；Lexical placeholder 用 absolute top 硬编码会随前置块（标题/属性面板）高度变化漂移，应包 relative 容器相对正文定位
+
+### 16:54 | Codex
+
+- done: 修复重复 Ctrl+C/Ctrl+V 副本互相覆盖：workbenchService.importExternalPaths 查空名与 cp 落盘存在跨 IPC TOCTOU 竞态，两次粘贴并发拿到同一个 -1 目标名；按目标目录加进程内 promise 链锁(copyTargetLocks)串行化临界区
+- context: 用户反馈重复复制粘贴时 -1 副本被覆盖，应生成 -1/-2/-3 递增副本
+- decision: 锁放主进程而非前端串行：外部拖拽导入、菜单'创建副本'同样走 importExternalPaths，主进程锁对全部入口统一生效
+- modified:
+  - `src/main/services/workbenchService.ts`
+- lesson: fs 异步复制的'查空名→落盘'是典型的 TOCTOU；校验和落盘必须处于同一互斥临界区，仅在查名前加一次 stat 不能修复并发覆盖
+
+### 16:53 | Codex
+
+- done: workbench 笔记属性面板改为 Obsidian 式可编辑：值行内编辑、key 重命名、tags chip 增删、添加属性入口，frontmatter 通过自定义事件同步回 MarkdownSyncPlugin
+- modified:
+  - `src/renderer/src/components/workbench/FrontmatterPanel.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+  - `src/renderer/src/components/workbench/MarkdownSyncPlugin.tsx`
+- lesson: workbench 编辑器 frontmatter 与正文分离存放于 MarkdownSyncPlugin.frontmatterRef；面板直接改 activeFileContent 会被 Lexical 回写覆盖，必须同步 ref + lastSyncedContentRef
+
+### 16:48 | Codex
+
+- done: 采纳独立 worker 审查意见：保持 binding 优先语义（每张导图记住自己的模型，新视图用全局上次选择）；applyPlatform 持久化调用补 .catch 防御
+- modified:
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+
+### 16:48 | Codex
+
+- done: 修复 Markdown 预览（富文本）模式下查找无定位无高亮：新增 WorkbenchFindHighlightPlugin，把 markdown 偏移区间映射成 Lexical TextNode 选区并聚焦+滚动；查找替换仍走 activeFileContent 字符串层（统一口径，MarkdownSyncPlugin 自动重灌 AST）；源码 textarea 沿用 setSelection 定位
+- added:
+  - `src/renderer/src/components/workbench/WorkbenchFindHighlightPlugin.tsx`
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFindReplaceBar.tsx`
+- lesson: markdown 偏移→Lexical 选区映射用「按文档序 TextNode.getTextContent() 在 markdown 中 indexOf 顺序定位」建锚点：语法字符(# ** | ![]() frontmatter)不进入节点文本自然落在锚点间隙，匹配只命中纯文本区间；Lexical command listener 运行在 updateEditorSync 上下文，；reveal 时需 editor.focus() 让预览态原生选区高亮可见
+
+### 16:46 | Codex
+
+- done: 思维导图模型选择持久化：面板 dropdown 写入 mindmapPlatformId；初始/兜底逻辑改为优先使用上次保存值
+- modified:
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+
+### 16:46 | Codex
+
+- done: 修复工作台文件树无法复制粘贴/创建副本的问题：新增树内剪贴板状态 + Ctrl+C/Ctrl+V 键盘接管 + onCopy 捕获，右键菜单补齐'复制/粘贴/创建副本'项，复用 importExternalItems 后端复制（自动 -n 重名 + 克隆导图绑定），过滤目录复制进自身内部
+- context: 用户反馈工作台无法复制文档、Ctrl+C/Ctrl+V 失效、不能创建副本
+- decision: 应用内剪贴板存节点相对路径而非操作系统剪贴板（避免污染用户系统剪贴板），粘贴复用后端 importExternalPaths（本就支持工作区内路径复制+导图克隆）
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+
 ### 16:36 | Codex
 
 - done: 删除确认文案澄清：导图随文档删除且不可恢复，文档本身仍可从回收站还原

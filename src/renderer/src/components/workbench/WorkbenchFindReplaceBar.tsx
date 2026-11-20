@@ -154,11 +154,10 @@ export default function WorkbenchFindReplaceBar({
     const idx = currentIdx >= 0 ? currentIdx : 0
     const m = matches[idx]
     if (!m) return
-    const { next, selStart, selEnd } = replaceMatch(activeFileContent, m, replacement)
+    const { next } = replaceMatch(activeFileContent, m, replacement)
     updateActiveContent(next)
-    // 替换后跳到下一个匹配；reveal 由 content-effect 统一处理，这里先选中被替换词便于对比
-    requestAnimationFrame(() => onRevealMatch?.(selStart, selEnd))
-  }, [activeFileContent, canReplace, currentIdx, matches, onRevealMatch, replacement, updateActiveContent])
+    // 替换后不主动 reveal：content-effect 会把 currentIdx 校正到下一匹配位置
+  }, [activeFileContent, canReplace, currentIdx, matches, replacement, updateActiveContent])
 
   const doReplaceAll = useCallback(() => {
     if (!canReplace || matches.length === 0) return

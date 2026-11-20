@@ -442,6 +442,24 @@ export default function MarkdownSyncPlugin(): null {
     return () => window.removeEventListener('workbench:insert-reply', handler)
   }, [editor])
 
+  // 桥接：FrontmatterPanel 编辑属性 → 同步 frontmatterRef，
+  // 否则后续 Lexical 回写会用旧 frontmatter 覆盖面板改动
+  useEffect(() => {
+    const handler = (e: Event): void => {
+      const detail = (e as CustomEvent<{ frontmatter?: string | null }>).detail
+      if (!detail) return
+      frontmatterRef.current = detail.frontmatter ?? null
+      // 对齐 lastSyncedContentRef，避免被当成"外部改动"又回灌一遍
+      const body = lastSyncedContentRef.current.replace(
+        /^---\r?\n[\s\S]*?\r?\n---\r?\n/,
+        ''
+      )
+      lastSyncedContentRef.current = (frontmatterRef.current || '') + body
+    }
+    window.addEventListener('workbench:frontmatter-changed', handler)
+    return () => window.removeEventListener('workbench:frontmatter-changed', handler)
+  }, [])
+
   // 当外部文件切换或从源码模式切回富文本时，更新 Lexical 编辑器内容
   useEffect(() => {
     const isNewFile = activeFilePath !== lastLoadedPathRef.current
