@@ -2493,11 +2493,12 @@ export interface MindmapResponse {
 }
 
 /** 导图读取最新助手回复；还原渲染后的标题和列表，兼容已有代码块输出。 */
-export function generateMindmapResponseScript(selectors: ModelSelector, mode: 'markdown' | 'edits' = 'markdown', freezeBaseline = false): string {
+export function generateMindmapResponseScript(selectors: ModelSelector, mode: 'markdown' | 'edits' = 'markdown', freezeBaseline = false, tagName = 'mindmap'): string {
   return String.raw`
     (async function () {
       ${getHtmlToMarkdownScript()}
       const config = ${JSON.stringify(mindmapCodeSelectors)};
+      const tagName = ${JSON.stringify(tagName)};
       const tags = ${JSON.stringify(MINDMAP_TAGS)};
       const editTags = ${JSON.stringify(MINDMAP_EDIT_TAGS)};
       const rewriteTags = ${JSON.stringify(MINDMAP_REWRITE_TAGS)};
@@ -2540,8 +2541,9 @@ export function generateMindmapResponseScript(selectors: ModelSelector, mode: 'm
       };
       const result = (text, source) => ({ text, source, editorCount: editors.length, codeCount: codes.length, documentCount, messageCount: roots.length, messageId: root ? idFor(root) : '', messageIds: roots.map(idFor), baselineConnected: !!tracker.baseline?.isConnected, candidates: collected });
       const isOutline = text => {
-        const normalized = text.replace(/&lt;(\/?mindmap)&gt;/g, '<$1>');
-        return normalized.includes(tags.begin) || normalized.includes(tags.end);
+        const unescaped = new RegExp('&lt;(\\\\/?' + tagName + ')&gt;', 'g');
+        const normalized = text.replace(unescaped, '<$1>');
+        return normalized.includes('<' + tagName + '>') || normalized.includes('</' + tagName + '>');
       };
       let missingEditorModel = false;
       for (const editor of editors) {
@@ -2637,6 +2639,9 @@ export function generateMindmapResponseScript(selectors: ModelSelector, mode: 'm
         add(read(root).replace(/\u200B|\uFEFF/g, '').trim(), 'message');
         // 复用总结采集的 Markdown 转换器，但限定在同一条最新回复，避免回退到旧回复。
         try { add(htmlToMarkdown(root), 'message'); } catch {}
+        // 某些平台把 <task_split> 当未知 HTML 剥掉标签只留文本；结构还原丢失标签，
+        // 需补一份 textContent 让标签解析能命中。
+        try { add((root.textContent || '').trim(), 'message'); } catch {}
       } else if (!root) {
         const text = await ${generateGetLatestResponseScript(selectors, true)};
         add(text, 'message');

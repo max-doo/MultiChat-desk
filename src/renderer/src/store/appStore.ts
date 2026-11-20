@@ -65,36 +65,14 @@ export interface SummaryPrompt {
   schemaVersion?: number
 }
 
-// API 供应商配置
-export interface ApiProvider {
-  id: string
-  name: string
-  baseUrl: string
-  apiKey: string
-  enabled: boolean
-  validated?: boolean // 是否校验通过（旧字段，保留兼容）
-  /** 校验三态：unknown 未校验 / valid 通过 / invalid 失败。读取时若 validated===true 视为 valid */
-  validatedStatus?: 'unknown' | 'valid' | 'invalid'
-  /** 校验失败时的错误摘要（validatedStatus === 'invalid' 时填充） */
-  validatedError?: string
-}
-
-// API 模型配置（用于任务分配）
-export interface SummaryModel {
-  id: string
-  name: string
-  providerId: string // 关联供应商
-}
-
-// API 配置类型
+// API 配置类型（现仅承载总结模板相关字段；任务拆解已改走后台 Web AI）
 export interface ApiConfig {
-  providers: ApiProvider[] // 供应商列表
-  activeProviderId?: string // 当前选中的供应商 ID
-  lastSelectedAgentId?: string // 上次用于任务分配的模型 ID
   summaryPrompts?: SummaryPrompt[] // 用户配置的总结提示词
   systemPrompt?: string // 旧配置仍可作为 Webview 总结模板的兜底提示词
   /** Webview 模式下上次选中的目标平台 id */
   lastWebviewSummaryPlatform?: string
+  /** 任务拆解使用的 Web 平台 id */
+  taskSplitPlatform?: string
 }
 
 /** 从主界面导航到总结页时携带的一次性初始化数据 */
@@ -251,13 +229,9 @@ interface AppState {
   isMainWindowVisible: boolean
   setMainWindowVisible: (visible: boolean) => void
 
-  // API 配置
+  // API 配置（仅总结模板字段）
   apiConfig: ApiConfig
   setApiConfig: (config: ApiConfig) => void
-
-  // 总结模型列表 (独立存储以方便管理)
-  summaryModels: SummaryModel[]
-  setSummaryModels: (models: SummaryModel[]) => void
 
   // 历史记录
   history: HistoryItem[]
@@ -542,12 +516,6 @@ export const defaultSummaryPrompts: SummaryPrompt[] = [
     prompt: synthesisPrompt
   }
 ]
-
-// 任务分配可用 API 模型
-export const defaultSummaryModels: SummaryModel[] = []
-
-// 默认供应商
-const defaultProviders: ApiProvider[] = []
 
 /**
  * 归一化 URL：只保留 origin + pathname，忽略 query 参数
@@ -1034,8 +1002,6 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   apiConfig: {
-    providers: defaultProviders,
-    activeProviderId: undefined,
     summaryPrompts: defaultSummaryPrompts
   },
   setApiConfig: (config) => {
@@ -1044,12 +1010,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       const { summaryPrompts: _summaryPrompts, ...persisted } = (config || {}) as any
       window.api.storeSet('apiConfig', persisted)
     }
-  },
-
-  summaryModels: defaultSummaryModels,
-  setSummaryModels: (models) => {
-    set({ summaryModels: models })
-    if (window.api?.storeSet) window.api.storeSet('summaryModels', models)
   },
 
   history: [],
@@ -1958,43 +1918,17 @@ export async function initializeStore(): Promise<void> {
       ? storedApiConfig.summaryPrompts
       : defaultSummaryPrompts
     if (storedApiConfig) {
-      if (!storedApiConfig.providers) {
-        // 迁移旧版配置：如果没有 providers，创建一个默认的
-        const providers: ApiProvider[] = []
-        let activeProviderId = undefined
-
-        if (storedApiConfig.apiKey) {
-          const defaultProviderId = 'migrated-default'
-          providers.push({
-            id: defaultProviderId,
-            name: '已迁移供应商',
-            baseUrl: storedApiConfig.baseUrl || 'https://api.openai.com/v1',
-            apiKey: storedApiConfig.apiKey,
-            enabled: true
-          })
-          activeProviderId = defaultProviderId
-        }
-
-        const migratedConfig: ApiConfig = {
-          providers: providers,
-          activeProviderId: activeProviderId,
-          summaryPrompts: defaultSummaryPrompts,
-          systemPrompt: storedApiConfig.systemPrompt
-        }
-        useAppStore.setState({ apiConfig: migratedConfig })
-        if (window.api?.storeSet) {
-          const { summaryPrompts: _summaryPrompts, ...persisted } = migratedConfig as any
-          window.api.storeSet('apiConfig', persisted)
-        }
-      } else {
-        // 确保 summaryPrompts 存在，如果不存在则使用默认值
-        const apiConfig = storedApiConfig as ApiConfig
-        const migratedConfig: ApiConfig = { ...apiConfig, summaryPrompts: defaultSummaryPrompts }
-        useAppStore.setState({ apiConfig: migratedConfig })
-        if (window.api?.storeSet) {
-          const { summaryPrompts: _summaryPrompts, ...persisted } = migratedConfig as any
-          window.api.storeSet('apiConfig', persisted)
-        }
+      // API 供应商/模型模式已移除：剥掉旧字段，只保留模板相关配置。
+      const { providers: _p, activeProviderId: _a, lastSelectedAgentId: _l, apiKey: _k, baseUrl: _b, ...rest } = storedApiConfig as Record<string, unknown>
+      const migratedConfig: ApiConfig = {
+        ...rest,
+        summaryPrompts: defaultSummaryPrompts,
+        systemPrompt: (rest.systemPrompt as string | undefined) ?? (storedApiConfig.systemPrompt as string | undefined)
+      }
+      useAppStore.setState({ apiConfig: migratedConfig })
+      if (window.api?.storeSet) {
+        const { summaryPrompts: _summaryPrompts, ...persisted } = migratedConfig as any
+        window.api.storeSet('apiConfig', persisted)
       }
     }
 
@@ -2012,8 +1946,8 @@ export async function initializeStore(): Promise<void> {
     offHistoryChanged?.()
     offHistoryChanged = window.api.onHistoryChanged(() => { void useAppStore.getState().refreshHistoryLists() })
 
-    const storedSummaryModels = await window.api.storeGet('summaryModels') as SummaryModel[] | undefined
-    if (storedSummaryModels) useAppStore.setState({ summaryModels: storedSummaryModels })
+    // 旧版 summaryModels 键已废弃，迁移清理一次（幂等，无该键时静默失败）。
+    try { await window.api.storeDelete?.('summaryModels') } catch { /* 无该键时静默 */ }
 
     // 同时加载 storedModels 和 geminiAccountUrl，合并成一次 setState
     // 避免两次 setState({ models }) 导致 webview src 中途变化而白屏

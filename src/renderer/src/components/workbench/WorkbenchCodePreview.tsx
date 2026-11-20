@@ -194,20 +194,20 @@ export default function WorkbenchCodePreview(): JSX.Element {
   return (
     <div className="flex-1 h-full flex flex-col overflow-hidden bg-slate-900 text-slate-100 select-text">
       {/* 顶部工具栏 */}
-      <div className="h-10 px-3 bg-slate-800/90 border-b border-slate-700/60 flex items-center justify-between gap-2 shrink-0 select-none text-xs">
+      <div className="h-10 px-3 bg-slate-800/90 border-b border-slate-700/60 flex items-center justify-between gap-2 shrink-0 select-none text-sm">
         {/* 左侧：文件信息与语言标签 */}
         <div className="flex items-center gap-2 truncate">
-          <span className="material-symbols-outlined text-[17px] text-amber-400">code</span>
-          <span className="font-mono text-xs text-slate-200 truncate" title={activeFilePath || ''}>
+          <span className="material-symbols-outlined text-[19px] text-amber-400">code</span>
+          <span className="font-mono text-sm text-slate-200 truncate" title={activeFilePath || ''}>
             {activeFilePath}
           </span>
-          <span className="px-1.5 py-0.5 rounded text-[11px] font-semibold bg-blue-500/20 text-blue-300 border border-blue-400/30">
+          <span className="px-1.5 py-0.5 rounded text-xs font-semibold bg-blue-500/20 text-blue-300 border border-blue-400/30">
             {language}
           </span>
         </div>
 
         {/* 右侧：统计与操作 */}
-        <div className="flex items-center gap-2 text-slate-400 text-xs shrink-0">
+        <div className="flex items-center gap-2 text-slate-400 text-sm shrink-0">
           <span className="hidden sm:inline font-mono">
             {lineCount} 行 · {wordCount} 词 · {charCount} 字符 {formattedSize && `· ${formattedSize}`}
           </span>
@@ -244,7 +244,7 @@ export default function WorkbenchCodePreview(): JSX.Element {
             <button
               type="button"
               onClick={() => setIsEditing(false)}
-              className={`px-2 py-0.5 rounded text-xs transition-colors ${
+              className={`px-2 py-0.5 rounded text-sm transition-colors ${
                 !isEditing ? 'bg-slate-700 text-white font-medium' : 'text-slate-400 hover:text-slate-200'
               }`}
               title="只读代码高亮视图"
@@ -254,7 +254,7 @@ export default function WorkbenchCodePreview(): JSX.Element {
             <button
               type="button"
               onClick={() => setIsEditing(true)}
-              className={`px-2 py-0.5 rounded text-xs transition-colors ${
+              className={`px-2 py-0.5 rounded text-sm transition-colors ${
                 isEditing ? 'bg-blue-600 text-white font-medium' : 'text-slate-400 hover:text-slate-200'
               }`}
               title="代码编辑模式 (可保存)"
@@ -271,14 +271,14 @@ export default function WorkbenchCodePreview(): JSX.Element {
               className="h-7 px-2 flex items-center gap-1 rounded-md bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 border border-purple-400/30 transition-colors"
               title="对当前代码或选中片段进行 AI 辅助"
             >
-              <span className="material-symbols-outlined text-[16px]">smart_toy</span>
+              <span className="material-symbols-outlined text-[19px]">smart_toy</span>
               <span className="hidden md:inline">AI 助手</span>
               <span className="material-symbols-outlined text-[14px]">expand_more</span>
             </button>
 
             {showAiMenu && (
-              <div className="absolute right-0 top-8 z-50 w-44 py-1.5 bg-slate-800 rounded-xl shadow-2xl border border-slate-700 text-slate-200 text-xs">
-                <div className="px-3 py-1 text-[11px] text-slate-400 border-b border-slate-700/50 mb-1">
+              <div className="absolute right-0 top-8 z-50 w-44 py-1.5 bg-slate-800 rounded-xl shadow-2xl border border-slate-700 text-slate-200 text-sm">
+                <div className="px-3 py-1 text-xs text-slate-400 border-b border-slate-700/50 mb-1">
                   {selectedText ? '针对选中代码片段' : '针对全部代码'}
                 </div>
                 <button
@@ -286,7 +286,7 @@ export default function WorkbenchCodePreview(): JSX.Element {
                   onClick={() => handleAiAction('explain')}
                   className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-purple-500/20 hover:text-purple-300 transition-colors"
                 >
-                  <span className="material-symbols-outlined text-[16px] text-purple-400">help</span>
+                  <span className="material-symbols-outlined text-[19px] text-purple-400">help</span>
                   <span>解释代码逻辑</span>
                 </button>
                 <button
@@ -294,7 +294,7 @@ export default function WorkbenchCodePreview(): JSX.Element {
                   onClick={() => handleAiAction('polish')}
                   className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-purple-500/20 hover:text-purple-300 transition-colors"
                 >
-                  <span className="material-symbols-outlined text-[16px] text-blue-400">auto_fix_high</span>
+                  <span className="material-symbols-outlined text-[19px] text-blue-400">auto_fix_high</span>
                   <span>优化重构代码</span>
                 </button>
                 <button
@@ -302,7 +302,7 @@ export default function WorkbenchCodePreview(): JSX.Element {
                   onClick={() => handleAiAction('ask')}
                   className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-purple-500/20 hover:text-purple-300 transition-colors"
                 >
-                  <span className="material-symbols-outlined text-[16px] text-amber-400">chat</span>
+                  <span className="material-symbols-outlined text-[19px] text-amber-400">chat</span>
                   <span>发送到侧边栏提问</span>
                 </button>
               </div>
@@ -313,10 +313,10 @@ export default function WorkbenchCodePreview(): JSX.Element {
           <button
             type="button"
             onClick={() => void handleCopy()}
-            className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
+            className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
             title="复制代码全文"
           >
-            <span className="material-symbols-outlined text-[16px]">
+            <span className="material-symbols-outlined text-[19px]">
               {copied ? 'check' : 'content_copy'}
             </span>
           </button>
@@ -327,10 +327,10 @@ export default function WorkbenchCodePreview(): JSX.Element {
             onClick={() => {
               if (activeFilePath) void openInSystem(activeFilePath)
             }}
-            className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
+            className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
             title="在系统默认编辑器中打开 (如 VSCode)"
           >
-            <span className="material-symbols-outlined text-[16px]">open_in_new</span>
+            <span className="material-symbols-outlined text-[19px]">open_in_new</span>
           </button>
 
           {/* 在资源管理器定位 */}
@@ -339,10 +339,10 @@ export default function WorkbenchCodePreview(): JSX.Element {
             onClick={() => {
               if (activeFilePath) void revealFile(activeFilePath)
             }}
-            className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
+            className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
             title="在资源管理器中显示"
           >
-            <span className="material-symbols-outlined text-[16px]">folder_open</span>
+            <span className="material-symbols-outlined text-[19px]">folder_open</span>
           </button>
         </div>
       </div>
@@ -355,7 +355,7 @@ export default function WorkbenchCodePreview(): JSX.Element {
               <span className="material-symbols-outlined text-3xl">code</span>
             </div>
             <h3 className="text-base font-semibold text-slate-100 mb-1">代码文件超出直接加载上限</h3>
-            <p className="text-xs text-slate-400 max-w-sm mb-6 leading-relaxed">
+            <p className="text-sm text-slate-400 max-w-sm mb-6 leading-relaxed">
               当前文件大小为 <span className="font-semibold text-slate-200">{formattedSize}</span>，超出工作台 5MB 文本直接加载与渲染保护上限。建议在本地系统默认关联的代码编辑器（如 VSCode）中全速打开查看。
             </p>
             <button
@@ -363,9 +363,9 @@ export default function WorkbenchCodePreview(): JSX.Element {
               onClick={() => {
                 if (activeFilePath) void openInSystem(activeFilePath)
               }}
-              className="h-9 px-5 rounded-xl bg-blue-600 text-white hover:bg-blue-700 text-xs font-medium flex items-center gap-2 shadow-sm transition-all"
+              className="h-10 px-5 rounded-xl bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium flex items-center gap-2 shadow-sm transition-all"
             >
-              <span className="material-symbols-outlined text-[17px]">open_in_new</span>
+              <span className="material-symbols-outlined text-[19px]">open_in_new</span>
               <span>在系统编辑器中打开</span>
             </button>
           </div>
@@ -374,7 +374,7 @@ export default function WorkbenchCodePreview(): JSX.Element {
             {/* 行号侧边栏 */}
             <div
               ref={lineNumbersRef}
-              className="w-12 py-4 select-none overflow-hidden text-right pr-3 font-mono text-xs leading-6 text-slate-600 bg-slate-950/40 border-r border-slate-800 shrink-0"
+              className="w-12 py-4 select-none overflow-hidden text-right pr-3 font-mono text-sm leading-6 text-slate-600 bg-slate-950/40 border-r border-slate-800 shrink-0"
             >
               {lines.map((_, idx) => (
                 <div key={idx}>{idx + 1}</div>
@@ -390,7 +390,7 @@ export default function WorkbenchCodePreview(): JSX.Element {
                 onScroll={handleScroll}
                 onMouseUp={handleMouseUp}
                 placeholder="输入或粘贴代码..."
-                className="flex-1 h-full py-4 px-4 font-mono text-xs sm:text-sm leading-6 resize-none bg-transparent text-slate-100 focus:outline-none overflow-auto whitespace-pre tab-4"
+                className="flex-1 h-full py-4 px-4 font-mono text-sm sm:text-sm leading-6 resize-none bg-transparent text-slate-100 focus:outline-none overflow-auto whitespace-pre tab-4"
                 spellCheck={false}
               />
             ) : (
@@ -398,7 +398,7 @@ export default function WorkbenchCodePreview(): JSX.Element {
                 ref={codePreRef}
                 onScroll={handleScroll}
                 onMouseUp={handleMouseUp}
-                className="flex-1 h-full py-4 px-4 font-mono text-xs sm:text-sm leading-6 bg-transparent text-slate-100 overflow-auto whitespace-pre tab-4 m-0 selection:bg-blue-600/40"
+                className="flex-1 h-full py-4 px-4 font-mono text-sm sm:text-sm leading-6 bg-transparent text-slate-100 overflow-auto whitespace-pre tab-4 m-0 selection:bg-blue-600/40"
               >
                 <code>
                   {lines.map((line, idx) => (
@@ -413,11 +413,11 @@ export default function WorkbenchCodePreview(): JSX.Element {
             {/* 选中文字浮动 AI 快捷提示 */}
             {selectedText && (
               <div className="absolute bottom-5 right-5 z-20 flex items-center gap-1.5 p-1.5 bg-slate-800/95 backdrop-blur-md rounded-xl border border-slate-700 shadow-xl">
-                <span className="text-[11px] text-slate-400 pl-1.5 pr-0.5">已选 {selectedText.length} 字</span>
+                <span className="text-xs text-slate-400 pl-1.5 pr-0.5">已选 {selectedText.length} 字</span>
                 <button
                   type="button"
                   onClick={() => handleAiAction('explain')}
-                  className="px-2 py-1 rounded-lg bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 text-xs font-medium flex items-center gap-1 transition-colors"
+                  className="px-2 py-1 rounded-lg bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 text-sm font-medium flex items-center gap-1 transition-colors"
                 >
                   <span className="material-symbols-outlined text-[14px]">help</span>
                   <span>解释</span>
@@ -425,7 +425,7 @@ export default function WorkbenchCodePreview(): JSX.Element {
                 <button
                   type="button"
                   onClick={() => handleAiAction('polish')}
-                  className="px-2 py-1 rounded-lg bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 text-xs font-medium flex items-center gap-1 transition-colors"
+                  className="px-2 py-1 rounded-lg bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 text-sm font-medium flex items-center gap-1 transition-colors"
                 >
                   <span className="material-symbols-outlined text-[14px]">auto_fix_high</span>
                   <span>重构</span>

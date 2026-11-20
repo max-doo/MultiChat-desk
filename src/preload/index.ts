@@ -4,6 +4,7 @@ import { electronAPI } from '@electron-toolkit/preload'
 import type { NoteConversation, NoteDraft, NoteHighlight, NoteSelectionRect, ConversationMindmap, MindmapTask, NoteNavigation, MindmapModifyRequest, MindmapCandidate, MindmapSelection } from '../shared/types/notes'
 import type { WebviewContextMenuData, WebviewContextMenuActionRequest } from '../shared/types/contextMenu'
 import type { CliIntegrationStatus } from '../shared/types/cli'
+import type { TaskSplitTask } from '../shared/types/taskSplit'
 import type {
   WorkbenchFileNode,
   WorkbenchSearchResult,
@@ -245,33 +246,20 @@ const api = {
     }
   },
 
-  // 任务拆解（非流式）
-  splitTask: (params: {
-    apiKey: string
-    baseUrl?: string
-    model: string
-    goal: string
-    temperature?: number
-    maxTokens?: number
-    windowCount?: number
-  }): Promise<{ success: boolean; data?: Array<{ text: string; suggestedModelId?: string }>; error?: string; aborted?: boolean }> =>
-    ipcRenderer.invoke('split-task', params),
-  abortSplitTask: (): Promise<{ success: boolean; error?: string }> =>
-    ipcRenderer.invoke('abort-split-task'),
-
-  // 获取模型列表
-  fetchModels: (params: {
-    apiKey: string
-    baseUrl: string
-  }): Promise<{ success: boolean; data?: Array<{ id: string; object?: string;[key: string]: unknown }>; error?: string }> =>
-    ipcRenderer.invoke('fetch-models', params),
-
-  // 校验 API
-  validateApi: (params: {
-    apiKey: string
-    baseUrl: string
-  }): Promise<{ success: boolean; error?: string }> =>
-    ipcRenderer.invoke('fetch-models', params),
+  // 任务拆解（后台 Web AI）
+  taskSplitStart: (goal: string, platform: string, windowCount: number): Promise<{ success: boolean; data?: TaskSplitTask; error?: string }> =>
+    ipcRenderer.invoke('tasksplit:start', goal, platform, windowCount),
+  taskSplitTask: (): Promise<{ success: boolean; data?: TaskSplitTask | null; error?: string }> =>
+    ipcRenderer.invoke('tasksplit:task'),
+  taskSplitCancel: (id: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('tasksplit:cancel', id),
+  taskSplitShow: (id: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('tasksplit:show', id),
+  onTaskSplitChanged: (cb: (task: TaskSplitTask) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, task: TaskSplitTask): void => cb(task)
+    ipcRenderer.on('tasksplit:task-changed', handler)
+    return () => ipcRenderer.removeListener('tasksplit:task-changed', handler)
+  },
 
   // 导出缓存数据
   exportCache: (): Promise<{ success: boolean; filePath?: string; error?: string }> =>

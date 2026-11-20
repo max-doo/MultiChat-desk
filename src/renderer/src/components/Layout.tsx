@@ -289,7 +289,7 @@ function Layout({ children }: LayoutProps): JSX.Element {
                 }`}
               >
                 <span className="material-symbols-outlined text-[18px]">
-                  {isRightCollapsed ? 'dock_to_right' : 'vertical_split'}
+                  {isRightCollapsed ? 'right_panel_open' : 'right_panel_close'}
                 </span>
               </button>
             )}
@@ -336,7 +336,7 @@ function Layout({ children }: LayoutProps): JSX.Element {
                 }`}
               >
                 <span className="material-symbols-outlined text-[18px]">
-                  {isRightCollapsed ? 'dock_to_right' : 'vertical_split'}
+                  {isRightCollapsed ? 'right_panel_open' : 'right_panel_close'}
                 </span>
               </button>
             )}
@@ -355,7 +355,7 @@ function Layout({ children }: LayoutProps): JSX.Element {
                 }`}
               >
                 <span className="material-symbols-outlined text-[18px]">
-                  {isRightCollapsed ? 'dock_to_right' : 'vertical_split'}
+                  {isRightCollapsed ? 'right_panel_open' : 'right_panel_close'}
                 </span>
               </button>
             )}

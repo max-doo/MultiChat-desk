@@ -73,23 +73,23 @@ export default function WorkbenchImagePreview(): JSX.Element {
   return (
     <div className="flex-1 h-full flex flex-col overflow-hidden bg-slate-100 dark:bg-gray-900 select-none">
       {/* 顶部工具栏 */}
-      <div className="h-10 px-3 bg-white/80 dark:bg-gray-800/80 border-b border-black/5 dark:border-white/5 flex items-center justify-between gap-2 shrink-0 text-xs">
+      <div className="h-12 px-3 bg-white/80 dark:bg-gray-800/80 border-b border-black/5 dark:border-white/5 flex items-center justify-between gap-2 shrink-0 text-sm">
         {/* 左侧：文件信息与规格 */}
         <div className="flex items-center gap-2 truncate">
-          <span className="material-symbols-outlined text-[17px] text-purple-500">image</span>
+          <span className="material-symbols-outlined text-[19px] text-purple-500">image</span>
           <span className="font-medium text-text-primary truncate" title={activeFilePath || ''}>
             {activeFilePath}
           </span>
-          <span className="px-1.5 py-0.5 rounded text-[11px] font-semibold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
+          <span className="px-1.5 py-0.5 rounded text-xs font-semibold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
             {format}
           </span>
           {naturalDimensions && (
-            <span className="text-text-secondary text-xs hidden sm:inline">
+            <span className="text-text-secondary text-sm hidden sm:inline">
               {naturalDimensions.width} × {naturalDimensions.height} px
             </span>
           )}
           {formattedSize && (
-            <span className="text-text-secondary text-xs hidden md:inline">
+            <span className="text-text-secondary text-sm hidden md:inline">
               · {formattedSize}
             </span>
           )}
@@ -101,15 +101,15 @@ export default function WorkbenchImagePreview(): JSX.Element {
           <button
             type="button"
             onClick={handleZoomOut}
-            className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors"
+            className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors"
             title="缩小"
           >
-            <span className="material-symbols-outlined text-[17px]">zoom_out</span>
+            <span className="material-symbols-outlined text-[19px]">zoom_out</span>
           </button>
           <button
             type="button"
             onClick={handleResetZoom}
-            className="px-1.5 h-7 flex items-center justify-center font-mono text-xs rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors"
+            className="px-1.5 h-7 flex items-center justify-center font-mono text-sm rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors"
             title="重置为 100%"
           >
             {Math.round(scale * 100)}%
@@ -117,32 +117,32 @@ export default function WorkbenchImagePreview(): JSX.Element {
           <button
             type="button"
             onClick={handleZoomIn}
-            className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors"
+            className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors"
             title="放大"
           >
-            <span className="material-symbols-outlined text-[17px]">zoom_in</span>
+            <span className="material-symbols-outlined text-[19px]">zoom_in</span>
           </button>
 
           {/* 顺时针旋转 90 度 */}
           <button
             type="button"
             onClick={handleRotate}
-            className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors"
+            className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors"
             title="顺时针旋转 90°"
           >
-            <span className="material-symbols-outlined text-[17px]">rotate_right</span>
+            <span className="material-symbols-outlined text-[19px]">rotate_right</span>
           </button>
 
           {/* 背景板切换 (透明棋盘 / 白色 / 深色) */}
           <button
             type="button"
             onClick={toggleBgTheme}
-            className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors"
+            className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors"
             title={`切换画布背景 (当前: ${
               bgTheme === 'checkerboard' ? '透明棋盘格' : bgTheme === 'light' ? '纯白背景' : '深色背景'
             })`}
           >
-            <span className="material-symbols-outlined text-[17px]">
+            <span className="material-symbols-outlined text-[19px]">
               {bgTheme === 'checkerboard' ? 'grid_4x4' : bgTheme === 'light' ? 'wb_sunny' : 'dark_mode'}
             </span>
           </button>
@@ -155,10 +155,10 @@ export default function WorkbenchImagePreview(): JSX.Element {
             onClick={() => {
               if (activeFilePath) void openInSystem(activeFilePath)
             }}
-            className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors"
+            className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors"
             title="在操作系统默认看图软件中打开"
           >
-            <span className="material-symbols-outlined text-[17px]">open_in_new</span>
+            <span className="material-symbols-outlined text-[19px]">open_in_new</span>
           </button>
 
           {/* 在资源管理器定位 */}
@@ -167,10 +167,10 @@ export default function WorkbenchImagePreview(): JSX.Element {
             onClick={() => {
               if (activeFilePath) void revealFile(activeFilePath)
             }}
-            className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors"
+            className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors"
             title="在系统资源管理器中定位"
           >
-            <span className="material-symbols-outlined text-[17px]">folder_open</span>
+            <span className="material-symbols-outlined text-[19px]">folder_open</span>
           </button>
         </div>
       </div>
@@ -192,7 +192,7 @@ export default function WorkbenchImagePreview(): JSX.Element {
               <span className="material-symbols-outlined text-3xl">image</span>
             </div>
             <h3 className="text-sm font-semibold text-text-primary">图片超出内嵌预览上限</h3>
-            <p className="text-xs text-text-secondary leading-relaxed">
+            <p className="text-sm text-text-secondary leading-relaxed">
               该图片大小为 <span className="font-semibold text-text-primary">{formattedSize}</span>，超出工作台内嵌 20MB 预览限制。推荐在操作系统默认看图软件中全速查看。
             </p>
             <button
@@ -200,22 +200,22 @@ export default function WorkbenchImagePreview(): JSX.Element {
               onClick={() => {
                 if (activeFilePath) void openInSystem(activeFilePath)
               }}
-              className="mt-2 px-4 py-2 rounded-xl bg-primary text-white text-xs font-medium flex items-center gap-1.5 shadow-sm hover:bg-primary/90 transition-all"
+              className="mt-2 px-4 py-2 rounded-xl bg-primary text-white text-sm font-medium flex items-center gap-1.5 shadow-sm hover:bg-primary/90 transition-all"
             >
-              <span className="material-symbols-outlined text-[16px]">open_in_new</span>
+              <span className="material-symbols-outlined text-[19px]">open_in_new</span>
               <span>在外部看图软件中打开</span>
             </button>
           </div>
         ) : loadError ? (
           <div className="flex flex-col items-center gap-3 text-text-secondary">
             <span className="material-symbols-outlined text-4xl text-rose-500">broken_image</span>
-            <p className="text-xs">无法加载或解析该图片文件</p>
+            <p className="text-sm">无法加载或解析该图片文件</p>
             <button
               type="button"
               onClick={() => {
                 if (activeFilePath) void openInSystem(activeFilePath)
               }}
-              className="px-3 py-1.5 rounded-lg bg-primary text-white text-xs font-medium"
+              className="px-3 py-1.5 rounded-lg bg-primary text-white text-sm font-medium"
             >
               在外部看图软件中打开
             </button>

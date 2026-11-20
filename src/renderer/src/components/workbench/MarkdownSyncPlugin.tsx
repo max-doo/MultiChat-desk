@@ -6,8 +6,22 @@ import {
   $convertToMarkdownString,
   TRANSFORMERS,
   CHECK_LIST,
+  isTableRowDivider,
   type ElementTransformer
 } from '@lexical/markdown'
+import {
+  $createTableCellNode,
+  $createTableNode,
+  $createTableRowNode,
+  $isTableCellNode,
+  $isTableNode,
+  $isTableRowNode,
+  TableCellHeaderStates,
+  TableRowNode,
+  TableCellNode,
+  TableNode
+} from '@lexical/table'
+import { $isParagraphNode, $isTextNode } from 'lexical'
 import {
   HorizontalRuleNode,
   $createHorizontalRuleNode,
@@ -20,15 +34,174 @@ export const HR_TRANSFORMER: ElementTransformer = {
   export: (node: LexicalNode) => {
     return $isHorizontalRuleNode(node) ? '***' : null
   },
-  regExp: /^(---|\*\*\*|___)\s*$/,
-  replace: (parentNode) => {
+  regExp: /^(---|\*\*\*|___)\s?$/,
+  replace: (parentNode, _children, _match, isImport) => {
     const line = $createHorizontalRuleNode()
-    parentNode.replace(line)
+
+    // 对齐 playground plugins/MarkdownTransformers 的 HR：
+    // 末尾输入 --- 后 Enter 时，不能把最后一行替换成 hr，
+    // 否则光标无处安放；应在段前插入并把光标移到下一行
+    if (isImport || parentNode.getNextSibling() != null) {
+      parentNode.replace(line)
+    } else {
+      parentNode.insertBefore(line)
+    }
+
+    line.selectNext()
+  },
+  triggerOnEnter: true,
+  type: 'element'
+}
+
+// —— 移植 playground plugins/MarkdownTransformers 的 TABLE transformer ——
+// 让表格在源码与富文本间以 `| a | b |` GFM 语法双向转换
+const TABLE_ROW_REG_EXP = /^(?:\|)(.+)(?:\|)\s?$/
+
+function getTableColumnsSize(table: TableNode): number {
+  const row = table.getFirstChild()
+  return $isTableRowNode(row) ? row.getChildrenSize() : 0
+}
+
+const $createTableCell = (textContent: string): TableCellNode => {
+  textContent = textContent.replace(/\\n/g, '\n')
+  const cell = $createTableCellNode(TableCellHeaderStates.NO_STATUS)
+  $convertFromMarkdownString(textContent, WORKBENCH_TRANSFORMERS, cell)
+  return cell
+}
+
+const mapToTableCells = (textContent: string): TableCellNode[] | null => {
+  const match = textContent.match(TABLE_ROW_REG_EXP)
+  if (!match || !match[1]) {
+    return null
+  }
+  return match[1].split('|').map((text) => $createTableCell(text))
+}
+
+export const TABLE_TRANSFORMER: ElementTransformer = {
+  dependencies: [TableNode, TableRowNode, TableCellNode],
+  export: (node: LexicalNode) => {
+    if (!$isTableNode(node)) {
+      return null
+    }
+
+    const output: string[] = []
+
+    for (const row of node.getChildren()) {
+      const rowOutput: string[] = []
+      if (!$isTableRowNode(row)) {
+        continue
+      }
+
+      let isHeaderRow = false
+      for (const cell of row.getChildren()) {
+        if ($isTableCellNode(cell)) {
+          rowOutput.push(
+            $convertToMarkdownString(WORKBENCH_TRANSFORMERS, cell)
+              .replace(/\n/g, '\\n')
+              .trim()
+          )
+          if (cell.__headerState === TableCellHeaderStates.ROW) {
+            isHeaderRow = true
+          }
+        }
+      }
+
+      output.push(`| ${rowOutput.join(' | ')} |`)
+      if (isHeaderRow) {
+        output.push(`| ${rowOutput.map(() => '---').join(' | ')} |`)
+      }
+    }
+
+    return output.join('\n')
+  },
+  regExp: TABLE_ROW_REG_EXP,
+  replace: (parentNode, _children, match) => {
+    // Header row divider：把前一行标记为表头
+    if (isTableRowDivider(match[0])) {
+      const table = parentNode.getPreviousSibling()
+      if (!table || !$isTableNode(table)) {
+        return
+      }
+
+      const rows = table.getChildren()
+      const lastRow = rows[rows.length - 1]
+      if (!lastRow || !$isTableRowNode(lastRow)) {
+        return
+      }
+
+      lastRow.getChildren().forEach((cell) => {
+        if (!$isTableCellNode(cell)) {
+          return
+        }
+        cell.setHeaderStyles(TableCellHeaderStates.ROW, TableCellHeaderStates.ROW)
+      })
+
+      parentNode.remove()
+      return
+    }
+
+    const matchCells = mapToTableCells(match[0])
+    if (matchCells == null) {
+      return
+    }
+
+    const rows = [matchCells]
+    let sibling = parentNode.getPreviousSibling()
+    let maxCells = matchCells.length
+
+    while (sibling) {
+      if (!$isParagraphNode(sibling)) {
+        break
+      }
+      if (sibling.getChildrenSize() !== 1) {
+        break
+      }
+      const firstChild = sibling.getFirstChild()
+      if (!$isTextNode(firstChild)) {
+        break
+      }
+      const cells = mapToTableCells(firstChild.getTextContent())
+      if (cells == null) {
+        break
+      }
+
+      maxCells = Math.max(maxCells, cells.length)
+      rows.unshift(cells)
+      const previousSibling = sibling.getPreviousSibling()
+      sibling.remove()
+      sibling = previousSibling
+    }
+
+    const table = $createTableNode()
+
+    for (const cells of rows) {
+      const tableRow = $createTableRowNode()
+      table.append(tableRow)
+
+      for (let i = 0; i < maxCells; i++) {
+        tableRow.append(i < cells.length ? cells[i] : $createTableCell(''))
+      }
+    }
+
+    const previousSibling = parentNode.getPreviousSibling()
+    if ($isTableNode(previousSibling) && getTableColumnsSize(previousSibling) === maxCells) {
+      previousSibling.append(...table.getChildren())
+      parentNode.remove()
+    } else {
+      parentNode.replace(table)
+    }
+
+    table.selectEnd()
   },
   type: 'element'
 }
 
-export const WORKBENCH_TRANSFORMERS = [CHECK_LIST, HR_TRANSFORMER, ...TRANSFORMERS]
+export const WORKBENCH_TRANSFORMERS = [
+  TABLE_TRANSFORMER,
+  CHECK_LIST,
+  HR_TRANSFORMER,
+  ...TRANSFORMERS
+]
 
 /**
  * 分离 YAML Frontmatter 元数据与正文 Markdown

@@ -102,11 +102,11 @@ export default function WorkbenchAiSidebar(): JSX.Element | null {
                   <button
                     type="button"
                     onClick={toggleRightCollapse}
-                    className="w-7 h-7 rounded-md text-text-secondary hover:text-text-primary hover:bg-black/5 dark:hover:bg-white/10 flex items-center justify-center transition-colors"
+                    className="w-7 h-7 rounded-full text-text-secondary hover:text-text-primary hover:bg-black/5 dark:hover:bg-white/10 flex items-center justify-center transition-all duration-200"
                     title="折叠 AI 侧边栏"
                     aria-label="折叠 AI 侧边栏"
                   >
-                    <span className="material-symbols-outlined text-[18px]">dock_to_right</span>
+                    <span className="material-symbols-outlined text-base">right_panel_close</span>
                   </button>
                 }
                 ref={(ref) => {

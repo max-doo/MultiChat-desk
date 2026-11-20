@@ -5,6 +5,7 @@ import path from 'path'
 import { randomBytes } from 'crypto'
 import { automationService } from '../services/AutomationService'
 import { agentTaskService } from '../services/AgentTaskService'
+import { sessionManager } from '../services/SessionManager'
 import {
   isAgentTaskTerminal,
   AGENT_TASK_MAX_TIMEOUT_MS,
@@ -35,6 +36,10 @@ interface DaemonRequest {
   includeFinished?: boolean
   genImage?: boolean
   artifactDir?: string
+  /** exec-script 动作：要执行的 JS 字符串 */
+  script?: string
+  /** exec-script 动作：会话 key（默认与 platform 相同） */
+  sessionKey?: string
   [key: string]: unknown
 }
 
@@ -244,6 +249,28 @@ async function handleRequest(socket: net.Socket, line: string): Promise<void> {
       return
     }
     sendResponse(socket, { success: true, data: result.data })
+  } else if (action === 'exec-script') {
+    // dev/diagnostic：在指定平台的后台会话里执行一段 JS（executeJavaScript），返回其结果。
+    // script 由 CLI 侧完全构造，daemon 只做透传；主要用于 DOM 结构探针等一次性脚本。
+    const platform = typeof req.platform === 'string' && req.platform ? req.platform : ''
+    const sessionKey = typeof req.sessionKey === 'string' && req.sessionKey ? req.sessionKey : platform
+    const script = typeof req.script === 'string' ? req.script : ''
+    if (!platform) {
+      sendResponse(socket, { success: false, error: '缺少必填参数 platform', code: 'INVALID_PARAMS' })
+      return
+    }
+    const win = sessionManager.getSession(sessionKey)
+    if (!win || win.isDestroyed()) {
+      sendResponse(socket, { success: false, error: `后台会话不存在或已关闭: ${platform}` })
+      return
+    }
+    try {
+      const result = await win.webContents.executeJavaScript(script)
+      sendResponse(socket, { success: true, data: result })
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err)
+      sendResponse(socket, { success: false, error: errMsg })
+    }
   } else {
     sendResponse(socket, { success: false, error: `不支持的请求动作: ${String(action)}` })
   }

@@ -1,7 +1,6 @@
 import { useState, useCallback, useEffect } from 'react'
-import { useAppStore, type SummaryPrompt, type SummaryModel, type ApiProvider, type ApiConfig } from '../store/appStore'
+import { useAppStore, type SummaryPrompt, type ApiConfig } from '../store/appStore'
 import logo from '../assets/logo.png'
-import CustomDropdown, { type DropdownOption } from './CustomDropdown'
 import ConfirmModal from './ConfirmModal'
 import ShortcutRecorder from './ShortcutRecorder'
 import ImportCacheConfirmModal from './ImportCacheConfirmModal'
@@ -13,18 +12,6 @@ import { openUpdateRelease, useUpdateReminder } from '../hooks/useUpdateState'
 interface SettingsDrawerProps {
   isOpen: boolean
   onClose: () => void
-}
-
-/**
- * 校验 baseUrl 格式：必须以 http:// 或 https:// 开头。
- * 返回 null 表示通过，返回字符串表示错误信息。
- * 不强制要求 /v1 结尾（不同供应商路径不同，如 OpenRouter /api/v1、Gemini /v1beta）。
- */
-function validateBaseUrl(url: string): string | null {
-  const trimmed = url.trim()
-  if (!trimmed) return 'Base URL 不能为空'
-  if (!/^https?:\/\//i.test(trimmed)) return 'Base URL 需以 http:// 或 https:// 开头'
-  return null
 }
 
 // 快捷键 key → 中文标签，用于冲突提示
@@ -42,20 +29,6 @@ function uniqueById<T extends { id: string }>(items: T[]): T[] {
   return items.filter((item) => {
     if (seen.has(item.id)) return false
     seen.add(item.id)
-    return true
-  })
-}
-
-function getSummaryModelKey(model: SummaryModel): string {
-  return `${model.providerId}\u0000${model.id}`
-}
-
-function uniqueSummaryModels(models: SummaryModel[]): SummaryModel[] {
-  const seen = new Set<string>()
-  return models.filter((model) => {
-    const key = getSummaryModelKey(model)
-    if (seen.has(key)) return false
-    seen.add(key)
     return true
   })
 }
@@ -184,421 +157,12 @@ function PromptEditorModal({ isOpen, onClose, prompt, onSave, isNew }: PromptEdi
   )
 }
 
-// 供应商编辑弹窗组件
-interface ProviderEditorModalProps {
-  isOpen: boolean
-  onClose: () => void
-  provider: ApiProvider | null
-  onSave: (provider: ApiProvider) => void
-  isNew?: boolean
-}
-
-function ProviderEditorModal({ isOpen, onClose, provider, onSave, isNew }: ProviderEditorModalProps): JSX.Element | null {
-  const [name, setName] = useState('')
-  const [baseUrl, setBaseUrl] = useState('')
-  const [apiKey, setApiKey] = useState('')
-  const [baseUrlError, setBaseUrlError] = useState('')
-
-  useEffect(() => {
-    if (isOpen) {
-      setName(provider?.name || '')
-      setBaseUrl(provider?.baseUrl || '')
-      setApiKey(provider?.apiKey || '')
-      setBaseUrlError('')
-    }
-  }, [isOpen, provider])
-
-  if (!isOpen) return null
-
-  const handleSave = (): void => {
-    if (!name.trim() || !apiKey.trim()) return
-    // baseUrl 格式校验：失败不关闭弹窗，显示红字错误
-    const urlError = validateBaseUrl(baseUrl)
-    if (urlError) {
-      setBaseUrlError(urlError)
-      return
-    }
-    onSave({
-      id: provider?.id || `provider-${Date.now()}`,
-      name: name.trim(),
-      baseUrl: baseUrl.trim(),
-      apiKey: apiKey.trim(),
-      enabled: provider ? provider.enabled : true
-    })
-    onClose()
-  }
-
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
-      <div className="relative w-[450px] glass-panel-heavy rounded-2xl shadow-float flex flex-col p-5 space-y-4">
-        <h3 className="text-lg font-semibold text-text-primary">{isNew ? '新增供应商' : '编辑供应商'}</h3>
-        <div className="space-y-3">
-          <div>
-            <label className="block text-sm font-medium text-text-primary mb-1.5">名称</label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="例如：OpenRouter"
-              className="w-full px-3 py-2 glass-panel rounded-lg text-text-primary placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary/30 text-sm transition-all"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-text-primary mb-1.5">Base URL</label>
-            <input
-              type="text"
-              value={baseUrl}
-              onChange={(e) => { setBaseUrl(e.target.value); setBaseUrlError('') }}
-              placeholder="https://api.openai.com/v1"
-              className={`w-full px-3 py-2 glass-panel rounded-lg text-text-primary placeholder-gray-400 focus:outline-none focus:ring-2 text-sm transition-all ${baseUrlError ? 'ring-2 ring-red-400' : 'focus:ring-primary/30'}`}
-            />
-            {baseUrlError && (
-              <p className="mt-1.5 text-xs text-red-500">{baseUrlError}</p>
-            )}
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-text-primary mb-1.5">API Key</label>
-            <input
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder="sk-..."
-              className="w-full px-3 py-2 glass-panel rounded-lg text-text-primary placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary/30 text-sm transition-all"
-            />
-            <p className="mt-1.5 text-[11px] text-text-secondary">Key 仅保存在本地配置文件，不会上传。导出缓存时将自动脱敏。</p>
-          </div>
-        </div>
-        <div className="flex justify-end gap-3 pt-2">
-          <button onClick={onClose} className="px-4 py-2 rounded-full glass-panel text-text-primary hover:bg-black/5 transition-colors text-sm">取消</button>
-          <button onClick={handleSave} className="px-5 py-2 rounded-full bg-primary text-white font-medium shadow-soft hover:opacity-90 transition-all text-sm">保存</button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// 模型配置弹窗组件
-interface ModelEditorModalProps {
-  isOpen: boolean
-  onClose: () => void
-  models: SummaryModel[]
-  onSave: (models: SummaryModel[]) => void
-  providers: ApiProvider[]
-}
-
-function ModelEditorModal({ isOpen, onClose, models, onSave, providers }: ModelEditorModalProps): JSX.Element | null {
-  const [modelList, setModelList] = useState<SummaryModel[]>(() => uniqueSummaryModels(models))
-  const [newModelId, setNewModelId] = useState('')
-  const [newModelName, setNewModelName] = useState('')
-  const [selectedProviderId, setSelectedProviderId] = useState(providers[0]?.id || '')
-  const [isSyncing, setIsSyncing] = useState(false)
-  // 行内改名编辑态：editingId 用 `${providerId}-${id}` 作 key 避免不同供应商同名模型冲突
-  const [editingKey, setEditingKey] = useState<string | null>(null)
-  const [editName, setEditName] = useState('')
-
-  // 将供应商列表转换为下拉菜单选项格式
-  const providerOptions: DropdownOption<string>[] = providers.map(p => ({
-    value: p.id,
-    label: p.name
-  }))
-
-  // 切换供应商下拉时清空行内编辑态，避免切回来时 input 残留
-  useEffect(() => {
-    setEditingKey(null)
-    setEditName('')
-  }, [selectedProviderId])
-
-  // 进入行内编辑态时，聚焦并全选 input（仅在 editingKey 变化时触发一次，
-  // 避免每次按键都重聚焦/全选打断输入）
-  useEffect(() => {
-    if (!editingKey) return
-    const el = document.querySelector<HTMLInputElement>(
-      `input[data-edit-key="${CSS.escape(editingKey)}"]`
-    )
-    if (el) {
-      el.focus()
-      el.select()
-    }
-  }, [editingKey])
-
-  useEffect(() => {
-    if (isOpen) {
-      setModelList(uniqueSummaryModels(models))
-      if (providers.length > 0 && !selectedProviderId) {
-        setSelectedProviderId(providers[0].id)
-      }
-    }
-  }, [isOpen, models, providers])
-
-  if (!isOpen) return null
-
-  const handleSyncModels = async (): Promise<void> => {
-    const provider = providers.find(p => p.id === selectedProviderId)
-    if (!provider) {
-      alert('请先选择供应商')
-      return
-    }
-    // 同步前校验链：enabled → baseUrl 格式 → apiKey 非空
-    if (provider.enabled === false) {
-      alert('该供应商未启用，无法同步')
-      return
-    }
-    const urlError = validateBaseUrl(provider.baseUrl)
-    if (urlError) {
-      alert(urlError)
-      return
-    }
-    if (!provider.apiKey) {
-      alert('请先为此供应商配置 API Key')
-      return
-    }
-
-    setIsSyncing(true)
-    try {
-      const result = await (window.api as any).fetchModels({
-        apiKey: provider.apiKey,
-        baseUrl: provider.baseUrl
-      })
-
-      if (result.success && result.data) {
-        // 转换获取到的模型（OpenAI 标准格式）
-        const fetchedModels: SummaryModel[] = result.data.map((m: any) => ({
-          id: m.id,
-          name: m.id,
-          providerId: provider.id
-        }))
-
-        // 合并并去重（基于提供商 ID 和模型 ID）
-        const newModels = uniqueSummaryModels(modelList)
-        let addedCount = 0
-
-        fetchedModels.forEach(fm => {
-          if (!newModels.find(m => m.id === fm.id && m.providerId === fm.providerId)) {
-            newModels.push(fm)
-            addedCount++
-          }
-        })
-
-        if (addedCount === 0) {
-          alert('未发现新模型')
-        } else {
-          setModelList(newModels)
-          alert(`成功同步 ${addedCount} 个新模型`)
-        }
-      } else {
-        alert(`同步失败: ${result.error}`)
-      }
-    } catch (error) {
-      alert(`同步出错: ${error}`)
-    } finally {
-      setIsSyncing(false)
-    }
-  }
-
-  const handleAddModel = (): void => {
-    if (!newModelId.trim() || !newModelName.trim() || !selectedProviderId) return
-    const newModel = {
-      id: newModelId.trim(),
-      name: newModelName.trim(),
-      providerId: selectedProviderId
-    }
-    if (modelList.some((model) => getSummaryModelKey(model) === getSummaryModelKey(newModel))) return
-    setModelList([...modelList, newModel])
-    setNewModelId('')
-    setNewModelName('')
-  }
-
-  const handleRemoveModel = (providerId: string, id: string): void => {
-    setModelList(modelList.filter(m => !(m.id === id && m.providerId === providerId)))
-  }
-
-  // 进入行内改名编辑：只动 name，绝不动 id
-  const handleStartEditModel = (providerId: string, id: string, currentName: string): void => {
-    setEditingKey(`${providerId}-${id}`)
-    setEditName(currentName)
-  }
-
-  // 保存改名：trim 后非空才替换 name；空名拦截（input 边框变红由 editName 为空时驱动）
-  const handleCommitEditModel = (providerId: string, id: string): void => {
-    const trimmed = editName.trim()
-    if (!trimmed) return // 空名不保存，保留原值（input 仍处编辑态，边框变红提示）
-    setModelList(modelList.map(m =>
-      (m.id === id && m.providerId === providerId) ? { ...m, name: trimmed } : m
-    ))
-    setEditingKey(null)
-    setEditName('')
-  }
-
-  const handleCancelEditModel = (): void => {
-    setEditingKey(null)
-    setEditName('')
-  }
-
-  const handleSave = (): void => {
-    onSave(uniqueSummaryModels(modelList))
-    onClose()
-  }
-
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
-
-      <div className="relative w-[550px] max-h-[85vh] glass-panel-heavy rounded-2xl shadow-float flex flex-col">
-        <div className="flex items-center justify-between p-4 border-b border-white/60">
-          <h3 className="text-lg font-semibold text-text-primary">配置可用模型</h3>
-          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full text-text-secondary hover:text-text-primary hover:bg-black/5 transition-colors">
-            <span className="material-symbols-outlined">close</span>
-          </button>
-        </div>
-
-        <div className="flex-1 p-4 space-y-4 overflow-y-auto">
-          {/* 自动同步 */}
-          <div className="p-3 glass-panel rounded-xl flex items-end gap-3">
-            <div className="flex-1">
-              <CustomDropdown
-                options={providerOptions}
-                value={selectedProviderId || null}
-                onChange={setSelectedProviderId}
-                placeholder="请选择供应商"
-                label="选择供应商以同步模型列表"
-              />
-            </div>
-            <button
-              onClick={handleSyncModels}
-              disabled={isSyncing || !selectedProviderId}
-              className="px-4 py-2 bg-primary text-white font-medium rounded-full shadow-soft hover:opacity-90 disabled:opacity-50 flex items-center gap-2 transition-all text-sm"
-            >
-              <span className={`material-symbols-outlined text-sm ${isSyncing ? 'animate-spin' : ''}`}>sync</span>
-              {isSyncing ? '同步中' : '自动同步'}
-            </button>
-          </div>
-
-          {/* 模型列表 */}
-          <div className="space-y-2 max-h-[250px] overflow-y-auto pr-1">
-            {uniqueSummaryModels(modelList)
-              .filter(model => model.providerId === selectedProviderId)
-              .map((model) => {
-                const provider = providers.find(p => p.id === model.providerId)
-                const itemKey = `${model.providerId}-${model.id}`
-                const isEditing = editingKey === itemKey
-                return (
-                  <div key={itemKey} className="flex items-center justify-between p-2.5 glass-panel rounded-lg group">
-                    <div className="flex flex-col flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        {isEditing ? (
-                          <input
-                            data-edit-key={itemKey}
-                            type="text"
-                            value={editName}
-                            onChange={(e) => setEditName(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') handleCommitEditModel(model.providerId, model.id)
-                              else if (e.key === 'Escape') handleCancelEditModel()
-                            }}
-                            onBlur={() => handleCommitEditModel(model.providerId, model.id)}
-                            className={`px-2 py-0.5 bg-white/70 border rounded text-text-primary text-sm focus:outline-none ${editName.trim() ? 'border-primary/50' : 'border-red-400'}`}
-                          />
-                        ) : (
-                          <span className="text-text-primary text-sm font-medium">{model.name}</span>
-                        )}
-                        <span className="px-1.5 py-0.5 bg-primary/10 text-primary text-[10px] rounded shrink-0 font-medium">
-                          {provider?.name || '未知供应商'}
-                        </span>
-                      </div>
-                      <span className="text-text-secondary text-xs mt-0.5">{model.id}</span>
-                    </div>
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                      {isEditing ? (
-                        <>
-                          <button
-                            onClick={() => handleCommitEditModel(model.providerId, model.id)}
-                            className="p-1 text-text-secondary hover:text-primary transition-colors"
-                            title="确认"
-                          >
-                            <span className="material-symbols-outlined text-sm">check</span>
-                          </button>
-                          <button
-                            onMouseDown={(e) => { e.preventDefault(); handleCancelEditModel() }}
-                            className="p-1 text-text-secondary hover:text-red-400 transition-colors"
-                            title="取消"
-                          >
-                            <span className="material-symbols-outlined text-sm">close</span>
-                          </button>
-                        </>
-                      ) : (
-                        <>
-                          <button
-                            onClick={() => handleStartEditModel(model.providerId, model.id, model.name)}
-                            className="p-1 text-text-secondary hover:text-primary transition-colors"
-                            title="改名"
-                          >
-                            <span className="material-symbols-outlined text-sm">edit</span>
-                          </button>
-                          <button
-                            onClick={() => handleRemoveModel(model.providerId, model.id)}
-                            className="p-1 text-text-secondary hover:text-red-400 transition-colors"
-                            title="删除"
-                          >
-                            <span className="material-symbols-outlined text-sm">delete</span>
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                )
-              })}
-            {uniqueSummaryModels(modelList).filter(model => model.providerId === selectedProviderId).length === 0 && (
-              <div className="text-center py-8 text-text-secondary text-sm">
-                该供应商下暂无已配置模型
-              </div>
-            )}
-          </div>
-
-          {/* 手动添加 */}
-          <div className="p-3 glass-panel rounded-xl space-y-3">
-            <div className="text-xs font-medium text-text-primary">手动添加模型</div>
-            <div className="grid grid-cols-2 gap-2">
-              <input
-                type="text"
-                value={newModelId}
-                onChange={(e) => setNewModelId(e.target.value)}
-                placeholder="模型 ID (如 gpt-4)"
-                className="px-3 py-2 bg-white/70 border border-white/80 rounded-lg text-text-primary placeholder-gray-400 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all"
-              />
-              <input
-                type="text"
-                value={newModelName}
-                onChange={(e) => setNewModelName(e.target.value)}
-                placeholder="显示名称 (如 GPT-4)"
-                className="px-3 py-2 bg-white/70 border border-white/80 rounded-lg text-text-primary placeholder-gray-400 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all"
-              />
-            </div>
-            <button
-              onClick={handleAddModel}
-              disabled={!newModelId.trim() || !newModelName.trim()}
-              className="w-full px-3 py-2 rounded-full glass-panel text-text-primary hover:text-primary hover:bg-blue-50/50 disabled:opacity-50 transition-all text-sm font-medium"
-            >
-              添加
-            </button>
-          </div>
-        </div>
-
-        <div className="flex justify-end gap-3 p-4 border-t border-white/60">
-          <button onClick={onClose} className="px-4 py-2 rounded-full glass-panel text-text-primary hover:bg-black/5 transition-colors text-sm">取消</button>
-          <button onClick={handleSave} className="px-5 py-2 rounded-full bg-primary text-white font-medium shadow-soft hover:opacity-90 transition-all text-sm">保存配置</button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 /**
  * 设置抽屉组件
  * 从左侧滑出，包含显示模式、API 配置、文件目录等设置
  */
 function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
-  const { apiConfig, setApiConfig, summaryModels, setSummaryModels } = useAppStore()
+  const { apiConfig, setApiConfig } = useAppStore()
   const { hasUpdate, releaseUrl } = useUpdateReminder()
 
   // 弹窗状态
@@ -606,12 +170,6 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
   const [editingPrompt, setEditingPrompt] = useState<SummaryPrompt | null>(null)
   const [isNewPrompt, setIsNewPrompt] = useState(false)
 
-  const [providerEditorOpen, setProviderEditorOpen] = useState(false)
-  const [editingProvider, setEditingProvider] = useState<ApiProvider | null>(null)
-  const [isNewProvider, setIsNewProvider] = useState(false)
-  const [validatingProviders, setValidatingProviders] = useState<Record<string, boolean>>({})
-
-  const [modelEditorOpen, setModelEditorOpen] = useState(false)
   const [modelOrderOpen, setModelOrderOpen] = useState(false)
 
   // 快捷键设置状态
@@ -686,7 +244,7 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
   // 确认弹窗状态
   const [confirmModal, setConfirmModal] = useState<{
     isOpen: boolean
-    type: 'prompt' | 'provider' | 'set-default'
+    type: 'prompt'
     id: string
     name: string
   }>({
@@ -705,16 +263,6 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
     if (aNum !== bNum) return aNum ? -1 : 1
     return a.name.localeCompare(b.name, 'zh-Hans-CN')
   })
-
-  // 获取供应商列表
-  const providers = apiConfig.providers || []
-
-  // 预览只显示已启用供应商的模型（disabled 供应商的模型保留配置但不显示）
-  const enabledSummaryModels = summaryModels.filter(m =>
-    providers.find(p => p.id === m.providerId)?.enabled
-  )
-
-
 
   // 处理备份配置与业务数据
   const handleExportCache = async (): Promise<void> => {
@@ -770,30 +318,21 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
     const data = result.data
     if (!data) return
 
-    // 检测导入 apiConfig 中含 REDACTED apiKey 的供应商数量
-    let redactedCount = 0
-    const importedApiConfig = data.values.apiConfig as { providers?: ApiProvider[] } | undefined
-    if (importedApiConfig?.providers) {
-      redactedCount = importedApiConfig.providers.filter(p => p.apiKey === '<REDACTED>').length
-    }
-
     setImportPreview({
       isOpen: true,
       file: data.file,
       keys: data.keys,
       conflicts: data.conflicts,
       values: data.values,
-      redactedProviderCount: redactedCount,
+      redactedProviderCount: 0,
       businessCounts: data.businessCounts
     })
   }
 
-  // 确认导入：逐键写入，处理 REDACTED apiKey（保留本地 Key），再刷新内存态
+  // 确认导入：逐键写入，再刷新内存态（providers/summaryModels 已废弃，导入的旧键不再回填）
   const handleConfirmImportCache = async (overwriteBusiness = false): Promise<void> => {
     if (!importPreview || !window.api?.storeSet) return
     const { keys, values } = importPreview
-    const localApiConfig = useAppStore.getState().apiConfig
-    const localProviders = localApiConfig.providers || []
 
     try {
     for (const k of keys) {
@@ -802,24 +341,14 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
         if (!result.success) throw new Error(result.error || '恢复业务数据失败')
         continue
       }
-      let value = values[k]
-      // REDACTED 处理：导入 apiConfig 时，对 apiKey === '<REDACTED>' 的供应商保留本地现有 Key
+      const value = values[k]
       if (k === 'apiConfig' && value && typeof value === 'object') {
-        const imported = value as ApiConfig
-        if (Array.isArray(imported.providers)) {
-          // 用新对象避免 mutate 预览态 values
-          value = {
-            ...imported,
-            providers: imported.providers.map(p => {
-              if (p.apiKey === '<REDACTED>') {
-                const local = localProviders.find(lp => lp.id === p.id)
-                return { ...p, apiKey: local?.apiKey || '' }
-              }
-              return p
-            })
-          }
-        }
+        // 旧备份可能带 providers/apiKey 等废弃字段，剥掉后只保留模板字段。
+        const { providers: _p, activeProviderId: _a, lastSelectedAgentId: _l, apiKey: _k, baseUrl: _b, ...rest } = value as Record<string, unknown>
+        await window.api.storeSet(k, { ...rest, summaryPrompts: rest.summaryPrompts })
+        continue
       }
+      if (k === 'summaryModels') continue // 已废弃键，导入忽略
       await window.api.storeSet(k, value)
     }
     } catch (error) { alert(error instanceof Error ? error.message : '恢复失败，已完成的数据保留，可安全重试'); return }
@@ -827,13 +356,9 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
 
     // 刷新内存态：重新从 store 读取并写回 zustand
     try {
-      const [apiConfigVal, summaryModelsVal] = await Promise.all([
-        window.api.storeGet('apiConfig') as Promise<ApiConfig | undefined>,
-        window.api.storeGet('summaryModels') as Promise<SummaryModel[] | undefined>
-      ])
+      const apiConfigVal = await window.api.storeGet('apiConfig') as ApiConfig | undefined
       const patch: Record<string, unknown> = {}
       if (apiConfigVal) patch.apiConfig = apiConfigVal
-      if (summaryModelsVal) patch.summaryModels = summaryModelsVal
       if (Object.keys(patch).length > 0) useAppStore.setState(patch)
     } catch (e) {
       console.warn('导入后刷新内存态失败，建议重启应用:', e)
@@ -893,132 +418,6 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
       await refreshSummaryPrompts()
     }
     setConfirmModal({ ...confirmModal, isOpen: false })
-  }
-
-  // 供应商管理
-  const handleEditProvider = (provider: ApiProvider): void => {
-    setEditingProvider(provider)
-    setIsNewProvider(false)
-    setProviderEditorOpen(true)
-  }
-
-  const handleAddProvider = (): void => {
-    setEditingProvider(null)
-    setIsNewProvider(true)
-    setProviderEditorOpen(true)
-  }
-
-  const handleValidateProvider = async (provider: ApiProvider): Promise<void> => {
-    if (!provider.apiKey || !provider.baseUrl) {
-      alert('请先配置 API Key 和 Base URL')
-      return
-    }
-
-    setValidatingProviders(prev => ({ ...prev, [provider.id]: true }))
-    try {
-      const result = await (window.api as any).validateApi({
-        apiKey: provider.apiKey,
-        baseUrl: provider.baseUrl
-      })
-
-      // 三态：valid（清空错误）/ invalid（记录错误摘要）
-      const newProviders = providers.map(p =>
-        p.id === provider.id
-          ? {
-            ...p,
-            validated: result.success,
-            validatedStatus: result.success ? 'valid' as const : 'invalid' as const,
-            validatedError: result.success ? '' : (result.error || '无法连接到服务器')
-          }
-          : p
-      )
-      setApiConfig({ ...apiConfig, providers: newProviders })
-
-      if (result.success) {
-        // 校验成功不弹窗，直接显示绿点
-      } else {
-        alert(`校验失败: ${result.error || '无法连接到服务器'}`)
-      }
-    } catch (error) {
-      // 异常也视为 invalid
-      const errMsg = String(error)
-      const newProviders = providers.map(p =>
-        p.id === provider.id
-          ? { ...p, validated: false, validatedStatus: 'invalid' as const, validatedError: errMsg }
-          : p
-      )
-      setApiConfig({ ...apiConfig, providers: newProviders })
-      alert(`校验出错: ${error}`)
-    } finally {
-      setValidatingProviders(prev => ({ ...prev, [provider.id]: false }))
-    }
-  }
-
-  const handleSaveProvider = (provider: ApiProvider): void => {
-    const currentProviders = [...providers]
-    const existingIndex = currentProviders.findIndex(p => p.id === provider.id)
-
-    // 如果是编辑现有供应商且 Key 或 URL 发生了变化，重置校验状态为 unknown
-    const updatedProvider = { ...provider }
-    if (existingIndex >= 0) {
-      const old = currentProviders[existingIndex]
-      if (old.apiKey !== provider.apiKey || old.baseUrl !== provider.baseUrl) {
-        updatedProvider.validated = false
-        updatedProvider.validatedStatus = 'unknown'
-        updatedProvider.validatedError = ''
-      }
-    }
-
-    if (existingIndex >= 0) currentProviders[existingIndex] = updatedProvider
-    else currentProviders.push(updatedProvider)
-    setApiConfig({ ...apiConfig, providers: currentProviders })
-  }
-
-  // 设为默认供应商：disabled 时先弹确认自动 enable，再设 activeProviderId
-  const handleSetDefaultProvider = (provider: ApiProvider): void => {
-    if (provider.enabled === false) {
-      setConfirmModal({
-        isOpen: true,
-        type: 'set-default',
-        id: provider.id,
-        name: provider.name
-      })
-      return
-    }
-    setApiConfig({ ...apiConfig, activeProviderId: provider.id })
-  }
-
-  const handleDeleteProvider = (id: string): void => {
-    const provider = providers.find(p => p.id === id)
-    if (provider) {
-      setConfirmModal({
-        isOpen: true,
-        type: 'provider',
-        id,
-        name: provider.name
-      })
-    }
-  }
-
-  // 确认删除供应商
-  const handleConfirmDeleteProvider = (): void => {
-    const deletedProviderId = confirmModal.id
-    setApiConfig({ ...apiConfig, providers: providers.filter(p => p.id !== deletedProviderId) })
-    // 同时删除该供应商下的所有总结模型，避免配置与模型列表不一致
-    setSummaryModels(summaryModels.filter(m => m.providerId !== deletedProviderId))
-    setConfirmModal({ ...confirmModal, isOpen: false })
-  }
-
-  const handleToggleProvider = (id: string): void => {
-    const newProviders = providers.map(p =>
-      p.id === id ? { ...p, enabled: !p.enabled } : p
-    )
-    setApiConfig({ ...apiConfig, providers: newProviders })
-  }
-
-  // 模型管理
-  const handleSaveModels = (models: SummaryModel[]): void => {
-    setSummaryModels(models)
   }
 
   return (
@@ -1081,134 +480,6 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
               任务分配与总结设置
             </h3>
             <div className="space-y-4">
-              {/* 任务分配 API 供应商管理 */}
-              <div className="p-4 rounded-xl glass-panel">
-                <div className="flex items-center justify-between mb-3">
-                  <label className="text-sm font-medium text-text-primary">API 供应商（多 Key 管理）</label>
-                  <button
-                    onClick={handleAddProvider}
-                    className="flex items-center gap-1 text-xs text-primary hover:opacity-80 transition-colors font-medium"
-                  >
-                    <span className="material-symbols-outlined text-sm">add</span>
-                    新增
-                  </button>
-                </div>
-                <div className="space-y-2">
-                  {providers.map(provider => {
-                    // 校验三态：优先 validatedStatus，回退兼容旧 validated 字段
-                    const vStatus: 'unknown' | 'valid' | 'invalid' =
-                      provider.validatedStatus
-                        ? provider.validatedStatus
-                        : (provider.validated === true ? 'valid' : 'unknown')
-                    const isDefault = apiConfig.activeProviderId === provider.id
-                    return (
-                    <div
-                      key={provider.id}
-                      className="flex items-center justify-between p-2.5 glass-panel rounded-lg group"
-                    >
-                      <div className="flex items-center gap-3">
-                        <input
-                          type="radio"
-                          name="activeProvider"
-                          checked={isDefault}
-                          onChange={() => handleSetDefaultProvider(provider)}
-                          className="w-4 h-4 text-primary accent-primary border-gray-300 focus:ring-primary/20 cursor-pointer"
-                        />
-                        <div className="flex flex-col">
-                          <div className="flex items-center gap-2">
-                            <span className={`text-sm font-medium ${provider.enabled ? 'text-text-primary' : 'text-text-secondary line-through opacity-70'}`}>
-                              {provider.name}
-                            </span>
-                            {isDefault && (
-                              <span className="px-1.5 py-0.5 bg-primary/10 text-primary text-[10px] rounded shrink-0 font-medium" title="当前默认">默认</span>
-                            )}
-                            {vStatus === 'valid' && (
-                              <span className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]" title="校验通过" />
-                            )}
-                            {vStatus === 'invalid' && (
-                              <span className="w-2 h-2 rounded-full bg-red-500" title={`校验失败：${provider.validatedError || '未知原因'}`} />
-                            )}
-                            {vStatus === 'unknown' && (
-                              <span className="w-2 h-2 rounded-full bg-gray-400" title="未校验" />
-                            )}
-                          </div>
-                          <span className={`text-[10px] truncate max-w-[150px] ${provider.enabled ? 'text-text-secondary' : 'text-text-secondary opacity-50'}`}>
-                            {provider.baseUrl}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button
-                            onClick={() => handleValidateProvider(provider)}
-                            disabled={validatingProviders[provider.id]}
-                            className="p-1 text-text-secondary hover:text-primary transition-colors disabled:opacity-50"
-                            title="校验 API"
-                          >
-                            <span className={`material-symbols-outlined text-xl ${validatingProviders[provider.id] ? 'animate-spin' : ''}`}>
-                              {validatingProviders[provider.id] ? 'sync' : 'verified'}
-                            </span>
-                          </button>
-                          <button
-                            onClick={() => handleEditProvider(provider)}
-                            className="p-1 text-text-secondary hover:text-primary transition-colors"
-                            title="编辑"
-                          >
-                            <span className="material-symbols-outlined text-xl">edit</span>
-                          </button>
-                          <button
-                            onClick={() => handleDeleteProvider(provider.id)}
-                            className="p-1 text-text-secondary hover:text-red-400 transition-colors"
-                            title="删除"
-                          >
-                            <span className="material-symbols-outlined text-xl">delete</span>
-                          </button>
-                        </div>
-                        <label className="relative inline-flex items-center cursor-pointer" title={provider.enabled ? "点击停用" : "点击启用"}>
-                          <input
-                            type="checkbox"
-                            checked={provider.enabled}
-                            onChange={() => handleToggleProvider(provider.id)}
-                            className="sr-only peer"
-                          />
-                          <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
-                        </label>
-                      </div>
-                    </div>
-                    )
-                  })}
-                </div>
-              </div>
-
-              {/* 可用模型配置 */}
-              <div className="p-4 rounded-xl glass-panel">
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-sm font-medium text-text-primary">
-                    任务分配可用模型（已启用 <span className="text-primary">{enabledSummaryModels.length}</span> / 共 {summaryModels.length}）
-                  </label>
-                  <button
-                    onClick={() => setModelEditorOpen(true)}
-                    className="text-xs text-primary hover:opacity-80 transition-colors font-medium"
-                  >
-                    同步/配置
-                  </button>
-                </div>
-                <div className="flex flex-wrap gap-1">
-                  {enabledSummaryModels.slice(0, 5).map((model: SummaryModel) => (
-                    <span key={`${model.providerId}-${model.id}`} className="px-2 py-0.5 glass-panel text-text-primary text-[10px] rounded font-medium">
-                      {model.name}
-                    </span>
-                  ))}
-                  {enabledSummaryModels.length > 5 && (
-                    <span className="px-2 py-0.5 text-text-secondary text-[10px]">+{enabledSummaryModels.length - 5} 更多</span>
-                  )}
-                  {enabledSummaryModels.length === 0 && summaryModels.length > 0 && (
-                    <span className="text-text-secondary text-[10px]">未启用供应商的模型已隐藏</span>
-                  )}
-                </div>
-                <p className="text-[11px] text-text-secondary mt-2">任务分配时可选择已配置的模型</p>
-              </div>
-
               {/* 提示词模板列表 */}
               <div className="p-4 rounded-xl glass-panel">
                 <div className="flex items-center justify-between mb-3">
@@ -1461,53 +732,15 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
         isNew={isNewPrompt}
       />
 
-      <ProviderEditorModal
-        isOpen={providerEditorOpen}
-        onClose={() => setProviderEditorOpen(false)}
-        provider={editingProvider}
-        onSave={handleSaveProvider}
-        isNew={isNewProvider}
-      />
-
-      <ModelEditorModal
-        isOpen={modelEditorOpen}
-        onClose={() => setModelEditorOpen(false)}
-        models={summaryModels}
-        onSave={handleSaveModels}
-        providers={providers}
-      />
-
-      {/* 确认弹窗（删除 / 设为默认） */}
+      {/* 确认弹窗（删除提示词） */}
       <ConfirmModal
         isOpen={confirmModal.isOpen}
-        title={
-          confirmModal.type === 'set-default'
-            ? '启用并设为默认'
-            : `删除${confirmModal.type === 'prompt' ? '总结提示词' : '供应商'}`
-        }
-        message={
-          confirmModal.type === 'set-default'
-            ? `"${confirmModal.name}" 当前未启用。设为默认将自动启用该供应商，是否继续？`
-            : `确定要删除 "${confirmModal.name}" 吗？此操作不可恢复。`
-        }
-        confirmText={confirmModal.type === 'set-default' ? '启用并设为默认' : '删除'}
+        title="删除总结提示词"
+        message={`确定要删除 "${confirmModal.name}" 吗？此操作不可恢复。`}
+        confirmText="删除"
         cancelText="取消"
-        type={confirmModal.type === 'set-default' ? 'warning' : 'danger'}
-        onConfirm={() => {
-          if (confirmModal.type === 'prompt') {
-            void handleConfirmDeletePrompt()
-          } else if (confirmModal.type === 'provider') {
-            handleConfirmDeleteProvider()
-          } else if (confirmModal.type === 'set-default') {
-            // 先 enable 再设 activeProviderId
-            const targetId = confirmModal.id
-            const newProviders = providers.map(p =>
-              p.id === targetId ? { ...p, enabled: true } : p
-            )
-            setApiConfig({ ...apiConfig, providers: newProviders, activeProviderId: targetId })
-            setConfirmModal({ ...confirmModal, isOpen: false })
-          }
-        }}
+        type="danger"
+        onConfirm={() => void handleConfirmDeletePrompt()}
         onCancel={() => setConfirmModal({ ...confirmModal, isOpen: false })}
       />
 

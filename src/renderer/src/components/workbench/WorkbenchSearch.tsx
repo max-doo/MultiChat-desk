@@ -47,11 +47,11 @@ export default function WorkbenchSearch({ onClose }: WorkbenchSearchProps): JSX.
   }
 
   return (
-    <div className="flex flex-col h-full overflow-hidden text-xs">
+    <div className="flex flex-col h-full overflow-hidden text-sm">
       {/* 搜索输入框 */}
       <div className="p-2 border-b border-black/5 dark:border-white/5">
         <div className="relative flex items-center">
-          <span className="material-symbols-outlined text-[17px] text-text-secondary absolute left-2 pointer-events-none">
+          <span className="material-symbols-outlined text-[19px] text-text-secondary absolute left-2 pointer-events-none">
             search
           </span>
           <input
@@ -60,7 +60,7 @@ export default function WorkbenchSearch({ onClose }: WorkbenchSearchProps): JSX.
             value={searchQuery}
             onChange={(e) => searchFiles(e.target.value)}
             placeholder="全文搜索笔记与内容..."
-            className="w-full h-8 pl-8 pr-14 rounded-lg bg-black/5 dark:bg-white/5 border border-transparent focus:border-primary/40 focus:bg-white dark:focus:bg-gray-800 text-text-primary text-xs placeholder:text-text-secondary/60 focus:outline-none transition-all"
+            className="w-full h-8 pl-8 pr-14 rounded-lg bg-black/5 dark:bg-white/5 border border-transparent focus:border-primary/40 focus:bg-white dark:focus:bg-gray-800 text-text-primary text-sm placeholder:text-text-secondary/60 focus:outline-none transition-all"
           />
           <div className="absolute right-1.5 flex items-center gap-1">
             {isSearching ? (
@@ -99,7 +99,7 @@ export default function WorkbenchSearch({ onClose }: WorkbenchSearchProps): JSX.
         )}
 
         {searchResults.length > 0 && (
-          <div className="px-2 py-1 text-xs text-text-secondary font-medium">
+          <div className="px-2 py-1 text-sm text-text-secondary font-medium">
             共找到 {searchResults.length} 处匹配
           </div>
         )}
@@ -115,11 +115,11 @@ export default function WorkbenchSearch({ onClose }: WorkbenchSearchProps): JSX.
               <span className="font-medium truncate group-hover:text-primary transition-colors">
                 {result.fileName}
               </span>
-              <span className="text-xs font-mono text-text-secondary/70 bg-black/5 dark:bg-white/5 px-1.5 py-0.5 rounded">
+              <span className="text-sm font-mono text-text-secondary/70 bg-black/5 dark:bg-white/5 px-1.5 py-0.5 rounded">
                 第 {result.line} 行
               </span>
             </div>
-            <div className="text-xs text-text-secondary/80 truncate font-mono">
+            <div className="text-sm text-text-secondary/80 truncate font-mono">
               {renderHighlightedSnippet(result.preview || result.content, searchQuery)}
             </div>
           </button>

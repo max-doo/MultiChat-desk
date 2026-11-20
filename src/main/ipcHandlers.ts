@@ -10,7 +10,6 @@ import { stat, writeFile, mkdtemp, rm, rename } from 'fs/promises'
 import { tmpdir } from 'os'
 import { randomUUID } from 'crypto'
 import type Store from 'electron-store'
-import { splitTask, fetchModels } from './api/taskSplitApi'
 import { setQuitting, getQuickWindow, showAndFocusWindow, hideToolbarWindow, getCachedSelectionText, openDiagnosticsWindow, registerQuickPrimaryWebview, setQuickSidebarExpanded, handleWebviewContextMenuAction, setNoteManager } from './webviewManager'
 import type { WebviewContextMenuActionRequest } from '../shared/types/contextMenu'
 import { broadcastStateChange } from './stateBus'
@@ -21,6 +20,7 @@ import type { NoteConversation, NoteDraft, NoteNavigation, MindmapModifyRequest 
 import { noteConversationKey } from '../shared/utils/noteIdentity'
 import { generateNoteCaptureScript, generateMindmapPageStateScript, generateAppendMindmapQuestionScript } from '../shared/utils/webviewScripts'
 import { MindmapService } from './services/MindmapService'
+import { TaskSplitService } from './services/TaskSplitService'
 import { normalizeNoteTranscriptMarkdown } from '../shared/utils/noteTranscript'
 import { getShortcuts, updateShortcuts, type ShortcutConfig } from './shortcutManager'
 import { readPlatformSelection, getAccessibilityPermissionStatus, requestAccessibilityPermission } from './platform/selectionReader'
@@ -52,24 +52,9 @@ import {
 } from './services/workbenchService'
 import type { WorkbenchNodeType } from '../shared/types/workbench'
 
-// 存储当前的 AbortController，用于终止请求
-let currentTaskSplitAbortController: AbortController | null = null
-
 // 诊断窗口 probe/run-research 透传请求挂起表
 const pendingProbeRequests = new Map<string, { resolve: (v: unknown) => void; timer: ReturnType<typeof setTimeout> }>()
 const pendingRunResearchRequests = new Map<string, { resolve: (v: unknown) => void; timer: ReturnType<typeof setTimeout> }>()
-
-/**
- * 中止并清理当前的 AbortController。
- * 在发起新的任务拆解请求前调用，确保上一个请求真正取消，
- * 避免旧请求继续运行。
- */
-function abortCurrentTaskSplitRequest(): void {
-    if (currentTaskSplitAbortController) {
-        currentTaskSplitAbortController.abort()
-        currentTaskSplitAbortController = null
-    }
-}
 
 /**
  * 注册所有 IPC 处理器
@@ -1104,45 +1089,38 @@ export async function registerIpcHandlers(
         }
     })
 
-    // IPC 处理器：任务拆解
-    ipcMain.handle('split-task', async (_event, params: {
-        apiKey: string
-        baseUrl?: string
-        model: string
-        goal: string
-        temperature?: number
-        maxTokens?: number
-        windowCount?: number
-    }) => {
-        // 先中止上一个拆解请求，避免覆盖 controller 后无法取消旧请求。
-        abortCurrentTaskSplitRequest()
-        const controller = new AbortController()
-        currentTaskSplitAbortController = controller
-        try {
-            const result = await splitTask(params, controller.signal)
-            return result
-        } finally {
-            if (currentTaskSplitAbortController === controller) {
-                currentTaskSplitAbortController = null
+    // IPC 处理器：任务拆解（后台 Web AI，复用导图后台会话方式）
+    const broadcastTaskSplit = (task: unknown): void => {
+        BrowserWindow.getAllWindows().forEach(window => {
+            try {
+                if (!window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send('tasksplit:task-changed', task)
+            } catch {
+                console.warn('[TaskSplit] 窗口通知失败')
             }
-        }
+        })
+    }
+    const taskSplitService = new TaskSplitService(task => broadcastTaskSplit(task))
+    app.once('before-quit', () => taskSplitService.shutdown())
+    const taskSplitOwners = new WeakSet<Electron.WebContents>()
+    const trackTaskSplitOwner = (sender: Electron.WebContents): void => {
+        if (taskSplitOwners.has(sender)) return
+        taskSplitOwners.add(sender)
+        sender.once('destroyed', () => taskSplitService.forgetOwner(sender.id))
+    }
+    ipcMain.handle('tasksplit:start', async (event, goal: string, platform: string, windowCount: number) => {
+        try {
+            trackTaskSplitOwner(event.sender)
+            return { success: true, data: await taskSplitService.start(goal, platform, windowCount, event.sender.id) }
+        } catch (error) { return { success: false, error: error instanceof Error ? error.message : '启动拆解失败' } }
     })
-
-    // IPC 处理器：中止任务拆解
-    ipcMain.handle('abort-split-task', async () => {
-        if (currentTaskSplitAbortController) {
-            abortCurrentTaskSplitRequest()
-            return { success: true }
-        }
-        return { success: false, error: '没有正在进行的拆解请求' }
+    ipcMain.handle('tasksplit:task', () => ({ success: true, data: taskSplitService.getTask() }))
+    ipcMain.handle('tasksplit:cancel', (event, id: string) => {
+        try { taskSplitService.cancel(id, event.sender.id); return { success: true } }
+        catch (error) { return { success: false, error: String(error) } }
     })
-
-    // IPC 处理器：获取模型列表
-    ipcMain.handle('fetch-models', async (_event, params: {
-        apiKey: string
-        baseUrl: string
-    }) => {
-        return await fetchModels(params)
+    ipcMain.handle('tasksplit:show', async (event, id: string) => {
+        try { await taskSplitService.show(id, BrowserWindow.fromWebContents(event.sender)); return { success: true } }
+        catch (error) { return { success: false, error: String(error) } }
     })
 
     // IPC 处理器：导出缓存数据到 JSON 文件

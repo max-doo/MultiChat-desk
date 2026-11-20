@@ -4,7 +4,7 @@ interface ImportCacheConfirmModalProps {
   file: string
   keys: string[]
   conflicts: string[]
-  /** 导入数据中是否含 REDACTED apiKey 的供应商（需标注保留本地 Key） */
+  /** 兼容旧字段：供应商 API Key 脱敏提示（API 模式已移除，固定为 0） */
   redactedProviderCount: number
   businessCounts?: Record<string, { added: number; unchanged: number; conflicts: number }>
   onConfirm: (overwriteBusiness: boolean) => void | Promise<void>
@@ -15,8 +15,8 @@ interface ImportCacheConfirmModalProps {
 const CACHE_KEY_LABELS: Record<string, string> = {
   displayMode: '显示模式',
   models: '主界面模型列表',
-  apiConfig: 'API 配置（任务分配供应商）',
-  summaryModels: '任务分配可用模型',
+  apiConfig: 'API 配置（总结模板）',
+  summaryModels: '任务分配可用模型（已废弃，导入忽略）',
   history: '主界面对话历史',
   summaryHistory: '总结历史记录',
   notes: '笔记、共享快照与思维导图',

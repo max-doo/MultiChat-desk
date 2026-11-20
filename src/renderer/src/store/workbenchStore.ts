@@ -14,6 +14,7 @@ interface WorkbenchStoreState {
   // 工作区状态
   workspacePath: string | null
   workspaceName: string
+  recentWorkspaces: string[]
   fileTree: WorkbenchFileNode[]
   expandedFolderIds: Set<string>
   isLoadingTree: boolean
@@ -53,6 +54,7 @@ interface WorkbenchStoreActions {
   selectWorkspaceFolder: () => Promise<void>
   setWorkspaceFolder: (dirPath: string, dirName?: string) => Promise<void>
   closeWorkspace: () => Promise<void>
+  removeRecentWorkspace: (dirPath: string) => void
   loadFileTree: () => Promise<void>
   toggleFolder: (folderId: string) => void
   expandAllFolders: () => void
@@ -89,6 +91,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   // 初始状态
   workspacePath: null,
   workspaceName: '',
+  recentWorkspaces: [],
   fileTree: [],
   expandedFolderIds: new Set<string>(),
   isLoadingTree: false,
@@ -129,7 +132,8 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         savedLeftCollapsed,
         savedRightCollapsed,
         savedSidebarModel,
-        savedEditorMode
+        savedEditorMode,
+        savedRecentWorkspaces
       ] = await Promise.all([
         window.api.storeGet('workbench_lastWorkspacePath') as Promise<string | null>,
         window.api.storeGet('workbench_lastActiveFilePath') as Promise<string | null>,
@@ -138,7 +142,8 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         window.api.storeGet('workbench_isLeftCollapsed') as Promise<boolean | null>,
         window.api.storeGet('workbench_isRightCollapsed') as Promise<boolean | null>,
         window.api.storeGet('workbench_sidebarModelId') as Promise<string | null>,
-        window.api.storeGet('workbench_editorMode') as Promise<EditorMode | null>
+        window.api.storeGet('workbench_editorMode') as Promise<EditorMode | null>,
+        window.api.storeGet('workbench_recentWorkspaces') as Promise<string[] | null>
       ])
 
       const updates: Partial<WorkbenchStoreState> = { isInitialized: true }
@@ -159,6 +164,11 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       }
       if (savedEditorMode === 'wysiwyg' || savedEditorMode === 'source') {
         updates.editorMode = savedEditorMode
+      }
+      if (Array.isArray(savedRecentWorkspaces)) {
+        updates.recentWorkspaces = savedRecentWorkspaces.filter(
+          (p): p is string => typeof p === 'string' && p.length > 0
+        )
       }
 
       set(updates)
@@ -189,9 +199,11 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
 
   setWorkspaceFolder: async (dirPath: string, dirName?: string) => {
     const name = dirName || dirPath.split(/[/\\]/).filter(Boolean).pop() || 'Workspace'
+    const nextRecent = [dirPath, ...get().recentWorkspaces.filter((p) => p !== dirPath)].slice(0, 10)
     set({
       workspacePath: dirPath,
       workspaceName: name,
+      recentWorkspaces: nextRecent,
       activeFilePath: null,
       activeFileContent: '',
       activeFileCategory: null,
@@ -205,6 +217,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       searchResults: []
     })
     void window.api.storeSet('workbench_lastWorkspacePath', dirPath)
+    void window.api.storeSet('workbench_recentWorkspaces', nextRecent)
     await get().loadFileTree()
   },
 
@@ -231,6 +244,12 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     })
     void window.api.storeDelete('workbench_lastWorkspacePath')
     void window.api.storeDelete('workbench_lastActiveFilePath')
+  },
+
+  removeRecentWorkspace: (dirPath: string) => {
+    const nextRecent = get().recentWorkspaces.filter((p) => p !== dirPath)
+    set({ recentWorkspaces: nextRecent })
+    void window.api.storeSet('workbench_recentWorkspaces', nextRecent)
   },
 
   loadFileTree: async () => {

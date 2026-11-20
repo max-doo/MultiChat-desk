@@ -1,106 +1,263 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext'
+import { mergeRegister } from '@lexical/utils'
 import {
   $getSelection,
   $isRangeSelection,
+  $isElementNode,
   $createParagraphNode,
+  CAN_REDO_COMMAND,
+  CAN_UNDO_COMMAND,
+  COMMAND_PRIORITY_CRITICAL,
   FORMAT_TEXT_COMMAND,
   FORMAT_ELEMENT_COMMAND,
+  REDO_COMMAND,
+  SELECTION_CHANGE_COMMAND,
   UNDO_COMMAND,
-  REDO_COMMAND
+  type ElementFormatType
 } from 'lexical'
-import { $createHeadingNode, $createQuoteNode } from '@lexical/rich-text'
+import { $createHeadingNode, $createQuoteNode, $isHeadingNode } from '@lexical/rich-text'
 import { $setBlocksType } from '@lexical/selection'
 import {
   INSERT_UNORDERED_LIST_COMMAND,
   INSERT_ORDERED_LIST_COMMAND,
-  INSERT_CHECK_LIST_COMMAND
+  INSERT_CHECK_LIST_COMMAND,
+  $isListNode,
+  ListNode
 } from '@lexical/list'
 import { $createCodeNode } from '@lexical/code'
-import { TOGGLE_LINK_COMMAND } from '@lexical/link'
+import { $isLinkNode, TOGGLE_LINK_COMMAND } from '@lexical/link'
 import { INSERT_TABLE_COMMAND } from '@lexical/table'
 import { INSERT_HORIZONTAL_RULE_COMMAND } from '@lexical/react/LexicalHorizontalRuleNode'
+import { $getNearestNodeOfType } from '@lexical/utils'
 import { useWorkbenchStore } from '../../store/workbenchStore'
+import WorkbenchDropDown, {
+  WorkbenchDropDownItem,
+  WorkbenchDropDownDivider
+} from './WorkbenchDropDown'
+
+type BlockType =
+  | 'paragraph'
+  | 'h1'
+  | 'h2'
+  | 'h3'
+  | 'h4'
+  | 'h5'
+  | 'h6'
+  | 'bullet'
+  | 'number'
+  | 'check'
+  | 'quote'
+  | 'code'
+
+const BLOCK_TYPE_LABELS: Record<BlockType, string> = {
+  paragraph: '正文段落',
+  h1: '一级标题',
+  h2: '二级标题',
+  h3: '三级标题',
+  h4: '四级标题',
+  h5: '五级标题',
+  h6: '六级标题',
+  bullet: '无序列表',
+  number: '有序列表',
+  check: '待办清单',
+  quote: '引用区块',
+  code: '代码区块'
+}
+
+const ELEMENT_FORMATS: { format: ElementFormatType; icon: string; label: string }[] = [
+  { format: 'left', icon: 'format_align_left', label: '左对齐' },
+  { format: 'center', icon: 'format_align_center', label: '居中对齐' },
+  { format: 'right', icon: 'format_align_right', label: '右对齐' },
+  { format: 'justify', icon: 'format_align_justify', label: '两端对齐' }
+]
 
 export default function WorkbenchToolbar(): JSX.Element {
   const [editor] = useLexicalComposerContext()
   const activeFileContent = useWorkbenchStore((s) => s.activeFileContent)
   const saveStatus = useWorkbenchStore((s) => s.saveStatus)
-  const isDirty = useWorkbenchStore((s) => s.isDirty)
-  const saveActiveFile = useWorkbenchStore((s) => s.saveActiveFile)
   const editorMode = useWorkbenchStore((s) => s.editorMode)
   const setEditorMode = useWorkbenchStore((s) => s.setEditorMode)
+  const isLeftCollapsed = useWorkbenchStore((s) => s.isLeftCollapsed)
+  const toggleLeftCollapse = useWorkbenchStore((s) => s.toggleLeftCollapse)
 
-  const [formatMenuOpen, setFormatMenuOpen] = useState(false)
-  const [alignMenuOpen, setAlignMenuOpen] = useState(false)
+  // 选区状态回显（对齐 playground ToolbarContext 中与本工具栏相关的子集）
+  const [blockType, setBlockType] = useState<BlockType>('paragraph')
+  const [elementFormat, setElementFormat] = useState<ElementFormatType>('left')
+  const [isLink, setIsLink] = useState(false)
+  const [isBold, setIsBold] = useState(false)
+  const [isItalic, setIsItalic] = useState(false)
+  const [isUnderline, setIsUnderline] = useState(false)
+  const [isStrikethrough, setIsStrikethrough] = useState(false)
+  const [isHighlight, setIsHighlight] = useState(false)
+  const [isCode, setIsCode] = useState(false)
+  const [canUndo, setCanUndo] = useState(false)
+  const [canRedo, setCanRedo] = useState(false)
+  const [isEditable, setIsEditable] = useState(() => editor.isEditable())
 
-  // 格式操作方法
-  const applyHeading = useCallback(
-    (level: 'h1' | 'h2' | 'h3' | 'h4') => {
-      editor.update(() => {
-        const selection = $getSelection()
-        if ($isRangeSelection(selection)) {
-          $setBlocksType(selection, () => $createHeadingNode(level))
+  // 与 playground $updateToolbar 等价：随选区变化刷新块类型 / 行内格式 / 链接 / 对齐
+  const $updateToolbar = useCallback(() => {
+    const selection = $getSelection()
+    if ($isRangeSelection(selection)) {
+      const anchorNode = selection.anchor.getNode()
+      const element =
+        anchorNode.getKey() === 'root'
+          ? anchorNode
+          : anchorNode.getTopLevelElementOrThrow()
+
+      // 链接状态：选中节点本身或父级为 LinkNode
+      const node = (() => {
+        const anchor = selection.anchor
+        const focus = selection.focus
+        const anchorSelNode = anchor.getNode()
+        const focusSelNode = focus.getNode()
+        if (anchorSelNode === focusSelNode) return anchorSelNode
+        return selection.isBackward() ? focusSelNode : anchorSelNode
+      })()
+      const parent = node.getParent()
+      setIsLink($isLinkNode(parent) || $isLinkNode(node))
+
+      if ($isListNode(element)) {
+        const parentList = $getNearestNodeOfType(anchorNode, ListNode)
+        const type = parentList ? parentList.getListType() : element.getListType()
+        setBlockType(type as BlockType)
+      } else {
+        const type = $isHeadingNode(element) ? element.getTag() : element.getType()
+        if (type in BLOCK_TYPE_LABELS) {
+          setBlockType(type as BlockType)
         }
-      })
-      setFormatMenuOpen(false)
+      }
+
+      setIsBold(selection.hasFormat('bold'))
+      setIsCode(selection.hasFormat('code'))
+      setIsItalic(selection.hasFormat('italic'))
+      setIsStrikethrough(selection.hasFormat('strikethrough'))
+      setIsHighlight(selection.hasFormat('highlight'))
+      setIsUnderline(selection.hasFormat('underline'))
+
+      setElementFormat($isElementNode(element) ? element.getFormatType() : 'left')
+    }
+  }, [])
+
+  useEffect(() => {
+    return mergeRegister(
+      editor.registerEditableListener((editable) => {
+        setIsEditable(editable)
+      }),
+      editor.registerUpdateListener(({ editorState }) => {
+        editorState.read(() => {
+          $updateToolbar()
+        })
+      }),
+      editor.registerCommand(
+        SELECTION_CHANGE_COMMAND,
+        () => {
+          $updateToolbar()
+          return false
+        },
+        COMMAND_PRIORITY_CRITICAL
+      ),
+      editor.registerCommand(
+        CAN_UNDO_COMMAND,
+        (payload) => {
+          setCanUndo(payload)
+          return false
+        },
+        COMMAND_PRIORITY_CRITICAL
+      ),
+      editor.registerCommand(
+        CAN_REDO_COMMAND,
+        (payload) => {
+          setCanRedo(payload)
+          return false
+        },
+        COMMAND_PRIORITY_CRITICAL
+      )
+    )
+  }, [editor, $updateToolbar])
+
+  // —— 段落格式：与 playground 语义一致，选中当前类型再次点击切回正文段落 ——
+  const $setBlocksToParagraph = useCallback(() => {
+    editor.update(() => {
+      const selection = $getSelection()
+      $setBlocksType(selection, () => $createParagraphNode())
+    })
+  }, [editor])
+
+  const formatHeading = useCallback(
+    (level: 'h1' | 'h2' | 'h3' | 'h4') => {
+      if (blockType !== level) {
+        editor.update(() => {
+          const selection = $getSelection()
+          $setBlocksType(selection, () => $createHeadingNode(level))
+        })
+      } else {
+        $setBlocksToParagraph()
+      }
     },
-    [editor]
+    [blockType, editor, $setBlocksToParagraph]
   )
 
-  const applyParagraph = useCallback(() => {
-    editor.update(() => {
-      const selection = $getSelection()
-      if ($isRangeSelection(selection)) {
-        $setBlocksType(selection, () => $createParagraphNode())
-      }
-    })
-    setFormatMenuOpen(false)
-  }, [editor])
+  const formatParagraph = useCallback(() => {
+    $setBlocksToParagraph()
+  }, [$setBlocksToParagraph])
 
-  const applyQuote = useCallback(() => {
-    editor.update(() => {
-      const selection = $getSelection()
-      if ($isRangeSelection(selection)) {
+  const formatQuote = useCallback(() => {
+    if (blockType !== 'quote') {
+      editor.update(() => {
+        const selection = $getSelection()
         $setBlocksType(selection, () => $createQuoteNode())
-      }
-    })
-    setFormatMenuOpen(false)
-  }, [editor])
+      })
+    } else {
+      $setBlocksToParagraph()
+    }
+  }, [blockType, editor, $setBlocksToParagraph])
 
-  const applyCodeBlock = useCallback(() => {
-    editor.update(() => {
-      const selection = $getSelection()
-      if ($isRangeSelection(selection)) {
+  const formatCodeBlock = useCallback(() => {
+    if (blockType !== 'code') {
+      editor.update(() => {
+        const selection = $getSelection()
         $setBlocksType(selection, () => $createCodeNode())
-      }
-    })
-    setFormatMenuOpen(false)
-  }, [editor])
+      })
+    } else {
+      $setBlocksToParagraph()
+    }
+  }, [blockType, editor, $setBlocksToParagraph])
 
-  const applyBulletList = useCallback(() => {
-    editor.dispatchCommand(INSERT_UNORDERED_LIST_COMMAND, undefined)
-  }, [editor])
+  const formatBulletList = useCallback(() => {
+    if (blockType !== 'bullet') {
+      editor.dispatchCommand(INSERT_UNORDERED_LIST_COMMAND, undefined)
+    } else {
+      $setBlocksToParagraph()
+    }
+  }, [blockType, editor, $setBlocksToParagraph])
 
-  const applyNumberedList = useCallback(() => {
-    editor.dispatchCommand(INSERT_ORDERED_LIST_COMMAND, undefined)
-  }, [editor])
+  const formatNumberedList = useCallback(() => {
+    if (blockType !== 'number') {
+      editor.dispatchCommand(INSERT_ORDERED_LIST_COMMAND, undefined)
+    } else {
+      $setBlocksToParagraph()
+    }
+  }, [blockType, editor, $setBlocksToParagraph])
 
-  const applyCheckList = useCallback(() => {
-    editor.dispatchCommand(INSERT_CHECK_LIST_COMMAND, undefined)
-  }, [editor])
+  const formatCheckList = useCallback(() => {
+    if (blockType !== 'check') {
+      editor.dispatchCommand(INSERT_CHECK_LIST_COMMAND, undefined)
+    } else {
+      $setBlocksToParagraph()
+    }
+  }, [blockType, editor, $setBlocksToParagraph])
 
   const applyFormat = useCallback(
-    (format: 'bold' | 'italic' | 'underline' | 'strikethrough' | 'code') => {
+    (format: 'bold' | 'italic' | 'underline' | 'strikethrough' | 'code' | 'highlight') => {
       editor.dispatchCommand(FORMAT_TEXT_COMMAND, format)
     },
     [editor]
   )
 
   const applyAlign = useCallback(
-    (align: 'left' | 'center' | 'right' | 'justify') => {
+    (align: ElementFormatType) => {
       editor.dispatchCommand(FORMAT_ELEMENT_COMMAND, align)
-      setAlignMenuOpen(false)
     },
     [editor]
   )
@@ -117,12 +274,16 @@ export default function WorkbenchToolbar(): JSX.Element {
     editor.dispatchCommand(INSERT_HORIZONTAL_RULE_COMMAND, undefined)
   }, [editor])
 
-  const applyLink = useCallback(() => {
-    const url = window.prompt('请输入链接地址 (URL):', 'https://')
-    if (url !== null) {
-      editor.dispatchCommand(TOGGLE_LINK_COMMAND, url.trim() ? url.trim() : null)
+  const insertLink = useCallback(() => {
+    if (!isLink) {
+      const url = window.prompt('请输入链接地址 (URL):', 'https://')
+      if (url !== null && url.trim()) {
+        editor.dispatchCommand(TOGGLE_LINK_COMMAND, url.trim())
+      }
+    } else {
+      editor.dispatchCommand(TOGGLE_LINK_COMMAND, null)
     }
-  }, [editor])
+  }, [editor, isLink])
 
   const handleUndo = useCallback(() => {
     editor.dispatchCommand(UNDO_COMMAND, undefined)
@@ -132,182 +293,200 @@ export default function WorkbenchToolbar(): JSX.Element {
     editor.dispatchCommand(REDO_COMMAND, undefined)
   }, [editor])
 
-  // 字数与字符统计
   const charCount = activeFileContent.length
   const wordCount = activeFileContent.trim() ? activeFileContent.trim().split(/\s+/).length : 0
 
+  const itemClass = (active: boolean) =>
+    `w-full text-left px-3 py-1.5 flex items-center gap-2 transition-colors ${
+      active
+        ? 'bg-primary/10 text-primary font-medium'
+        : 'text-text-primary hover:bg-black/5 dark:hover:bg-white/5'
+    }`
+
+  const iconBtnClass = (active: boolean) =>
+    `w-8 h-8 flex items-center justify-center rounded-md transition-colors ${
+      active
+        ? 'bg-primary/15 text-primary'
+        : 'text-text-primary hover:bg-black/5 dark:hover:bg-white/10'
+    }`
+
   return (
-    <div className="h-10 px-3 bg-white/70 dark:bg-gray-800/70 backdrop-blur-md border-b border-black/5 dark:border-white/5 flex items-center justify-between gap-2 shrink-0 select-none text-xs">
+    <div className="h-12 px-3 bg-white/70 dark:bg-gray-800/70 backdrop-blur-md border-b border-black/5 dark:border-white/5 flex items-center justify-between gap-2 shrink-0 select-none text-sm">
       {/* 左侧：格式化与排版工具组 */}
       <div className="flex items-center gap-0.5 overflow-x-auto no-scrollbar">
-        {/* 撤销 / 重做 */}
+        {isLeftCollapsed && (
+          <>
+            <button
+              type="button"
+              onClick={toggleLeftCollapse}
+              className="w-7 h-7 flex items-center justify-center rounded-full text-text-secondary hover:text-text-primary hover:bg-black/5 dark:hover:bg-white/10 transition-all duration-200"
+              title="展开侧边栏"
+              aria-label="展开侧边栏"
+            >
+              <span className="material-symbols-outlined text-base">left_panel_open</span>
+            </button>
+            <div className="w-[1px] h-4 bg-black/10 dark:bg-white/10 mx-1 shrink-0" />
+          </>
+        )}
+
+        {/* 撤销 / 重做：按 CAN_UNDO/CAN_REDO 命令动态禁用 */}
         <button
           type="button"
           onClick={handleUndo}
-          className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 text-text-primary transition-colors"
+          disabled={!canUndo || !isEditable}
+          className="w-8 h-8 flex items-center justify-center rounded-md text-text-primary hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-35 disabled:hover:bg-transparent transition-colors"
           title="撤销 (Ctrl+Z)"
         >
-          <span className="material-symbols-outlined text-[17px]">undo</span>
+          <span className="material-symbols-outlined text-[20px]">undo</span>
         </button>
         <button
           type="button"
           onClick={handleRedo}
-          className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 text-text-primary transition-colors"
+          disabled={!canRedo || !isEditable}
+          className="w-8 h-8 flex items-center justify-center rounded-md text-text-primary hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-35 disabled:hover:bg-transparent transition-colors"
           title="重做 (Ctrl+Y)"
         >
-          <span className="material-symbols-outlined text-[17px]">redo</span>
+          <span className="material-symbols-outlined text-[20px]">redo</span>
         </button>
 
         <div className="w-[1px] h-4 bg-black/10 dark:bg-white/10 mx-1 shrink-0" />
 
-        {/* 段落类型下拉 */}
-        <div className="relative">
-          <button
-            type="button"
-            onClick={() => setFormatMenuOpen(!formatMenuOpen)}
-            className="h-7 px-2 flex items-center gap-1 rounded-md hover:bg-black/5 dark:hover:bg-white/10 text-text-primary transition-colors font-medium text-xs"
-            title="选择段落格式"
-          >
-            <span>段落格式</span>
-            <span className="material-symbols-outlined text-[16px]">arrow_drop_down</span>
-          </button>
-
-          {formatMenuOpen && (
-            <div
-              className="absolute left-0 top-full mt-1 w-36 py-1 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-black/10 dark:border-white/10 z-30 animate-in fade-in zoom-in-95 duration-100 text-xs"
-              onMouseLeave={() => setFormatMenuOpen(false)}
+        {/* 段落类型下拉：portal 渲染到 body，按钮回显当前块类型 */}
+        <WorkbenchDropDown
+          buttonAriaLabel="段落格式选项"
+          buttonTitle="段落格式"
+          buttonClassName="h-8 px-2.5 flex items-center gap-1 rounded-md hover:bg-black/5 dark:hover:bg-white/10 text-text-primary transition-colors font-medium text-sm"
+          buttonContent={
+            <>
+              <span className="min-w-[3.5rem] text-left">{BLOCK_TYPE_LABELS[blockType]}</span>
+              <span className="material-symbols-outlined text-[18px]">arrow_drop_down</span>
+            </>
+          }
+        >
+          <WorkbenchDropDownItem className={itemClass(blockType === 'paragraph')} onClick={formatParagraph}>
+            <span className="material-symbols-outlined text-[18px] text-text-secondary">notes</span>
+            <span>正文段落</span>
+          </WorkbenchDropDownItem>
+          {(['h1', 'h2', 'h3', 'h4'] as const).map((level) => (
+            <WorkbenchDropDownItem
+              key={level}
+              className={itemClass(blockType === level)}
+              onClick={() => formatHeading(level)}
             >
-              <button
-                type="button"
-                onClick={applyParagraph}
-                className="w-full text-left px-3 py-1.5 hover:bg-black/5 dark:hover:bg-white/5 text-text-primary flex items-center gap-2"
-              >
-                <span className="material-symbols-outlined text-[16px] text-text-secondary">notes</span>
-                <span>正文段落</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => applyHeading('h1')}
-                className="w-full text-left px-3 py-1.5 hover:bg-black/5 dark:hover:bg-white/5 text-text-primary font-bold flex items-center gap-2"
-              >
-                <span className="text-xs font-mono text-text-secondary">H1</span>
-                <span>一级标题</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => applyHeading('h2')}
-                className="w-full text-left px-3 py-1.5 hover:bg-black/5 dark:hover:bg-white/5 text-text-primary font-semibold flex items-center gap-2"
-              >
-                <span className="text-xs font-mono text-text-secondary">H2</span>
-                <span>二级标题</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => applyHeading('h3')}
-                className="w-full text-left px-3 py-1.5 hover:bg-black/5 dark:hover:bg-white/5 text-text-primary font-medium flex items-center gap-2"
-              >
-                <span className="text-xs font-mono text-text-secondary">H3</span>
-                <span>三级标题</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => applyHeading('h4')}
-                className="w-full text-left px-3 py-1.5 hover:bg-black/5 dark:hover:bg-white/5 text-text-primary flex items-center gap-2"
-              >
-                <span className="text-xs font-mono text-text-secondary">H4</span>
-                <span>四级标题</span>
-              </button>
-              <div className="my-1 border-t border-black/5 dark:border-white/5" />
-              <button
-                type="button"
-                onClick={applyQuote}
-                className="w-full text-left px-3 py-1.5 hover:bg-black/5 dark:hover:bg-white/5 text-text-primary italic flex items-center gap-2"
-              >
-                <span className="material-symbols-outlined text-[16px] text-text-secondary">format_quote</span>
-                <span>引用区块</span>
-              </button>
-              <button
-                type="button"
-                onClick={applyCodeBlock}
-                className="w-full text-left px-3 py-1.5 hover:bg-black/5 dark:hover:bg-white/5 text-text-primary font-mono flex items-center gap-2"
-              >
-                <span className="material-symbols-outlined text-[16px] text-text-secondary">terminal</span>
-                <span>代码区块</span>
-              </button>
-            </div>
-          )}
-        </div>
+              <span className="text-xs font-mono text-text-secondary w-5">{level.toUpperCase()}</span>
+              <span className={level === 'h1' ? 'font-bold' : level === 'h2' ? 'font-semibold' : ''}>
+                {BLOCK_TYPE_LABELS[level]}
+              </span>
+            </WorkbenchDropDownItem>
+          ))}
+          <WorkbenchDropDownDivider />
+          <WorkbenchDropDownItem className={itemClass(blockType === 'bullet')} onClick={formatBulletList}>
+            <span className="material-symbols-outlined text-[18px] text-text-secondary">format_list_bulleted</span>
+            <span>无序列表</span>
+          </WorkbenchDropDownItem>
+          <WorkbenchDropDownItem className={itemClass(blockType === 'number')} onClick={formatNumberedList}>
+            <span className="material-symbols-outlined text-[18px] text-text-secondary">format_list_numbered</span>
+            <span>有序列表</span>
+          </WorkbenchDropDownItem>
+          <WorkbenchDropDownItem className={itemClass(blockType === 'check')} onClick={formatCheckList}>
+            <span className="material-symbols-outlined text-[18px] text-text-secondary">checklist</span>
+            <span>待办清单</span>
+          </WorkbenchDropDownItem>
+          <WorkbenchDropDownDivider />
+          <WorkbenchDropDownItem className={itemClass(blockType === 'quote')} onClick={formatQuote}>
+            <span className="material-symbols-outlined text-[18px] text-text-secondary">format_quote</span>
+            <span>引用区块</span>
+          </WorkbenchDropDownItem>
+          <WorkbenchDropDownItem className={itemClass(blockType === 'code')} onClick={formatCodeBlock}>
+            <span className="material-symbols-outlined text-[18px] text-text-secondary">terminal</span>
+            <span>代码区块</span>
+          </WorkbenchDropDownItem>
+        </WorkbenchDropDown>
 
         <div className="w-[1px] h-4 bg-black/10 dark:bg-white/10 mx-1 shrink-0" />
 
-        {/* 行内加粗、斜体、下划线、删除线、行内代码 */}
+        {/* 行内格式按钮：active 态跟随选区格式 */}
         <button
           type="button"
           onClick={() => applyFormat('bold')}
-          className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 text-text-primary transition-colors font-bold"
+          className={iconBtnClass(isBold)}
           title="粗体 (Ctrl+B)"
+          aria-label="粗体"
         >
-          <span className="material-symbols-outlined text-[18px]">format_bold</span>
+          <span className="material-symbols-outlined text-[20px]">format_bold</span>
         </button>
         <button
           type="button"
           onClick={() => applyFormat('italic')}
-          className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 text-text-primary transition-colors"
+          className={iconBtnClass(isItalic)}
           title="斜体 (Ctrl+I)"
+          aria-label="斜体"
         >
-          <span className="material-symbols-outlined text-[18px]">format_italic</span>
+          <span className="material-symbols-outlined text-[20px]">format_italic</span>
         </button>
         <button
           type="button"
           onClick={() => applyFormat('underline')}
-          className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 text-text-primary transition-colors"
+          className={iconBtnClass(isUnderline)}
           title="下划线 (Ctrl+U)"
+          aria-label="下划线"
         >
-          <span className="material-symbols-outlined text-[18px]">format_underlined</span>
+          <span className="material-symbols-outlined text-[20px]">format_underlined</span>
         </button>
         <button
           type="button"
           onClick={() => applyFormat('strikethrough')}
-          className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 text-text-primary transition-colors"
+          className={iconBtnClass(isStrikethrough)}
           title="删除线"
+          aria-label="删除线"
         >
-          <span className="material-symbols-outlined text-[18px]">format_strikethrough</span>
+          <span className="material-symbols-outlined text-[20px]">format_strikethrough</span>
         </button>
         <button
           type="button"
           onClick={() => applyFormat('code')}
-          className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 text-text-primary transition-colors"
+          className={iconBtnClass(isCode)}
           title="行内代码"
+          aria-label="行内代码"
         >
-          <span className="material-symbols-outlined text-[18px]">code</span>
+          <span className="material-symbols-outlined text-[20px]">code</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => applyFormat('highlight')}
+          className={iconBtnClass(isHighlight)}
+          title="高亮"
+          aria-label="高亮"
+        >
+          <span className="material-symbols-outlined text-[20px]">ink_highlighter</span>
         </button>
 
         <div className="w-[1px] h-4 bg-black/10 dark:bg-white/10 mx-1 shrink-0" />
 
-        {/* 列表：无序、有序、待办清单 */}
+        {/* 列表快捷按钮：active 态跟随块类型 */}
         <button
           type="button"
-          onClick={applyBulletList}
-          className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 text-text-primary transition-colors"
+          onClick={formatBulletList}
+          className={iconBtnClass(blockType === 'bullet')}
           title="无序列表"
         >
-          <span className="material-symbols-outlined text-[18px]">format_list_bulleted</span>
+          <span className="material-symbols-outlined text-[20px]">format_list_bulleted</span>
         </button>
         <button
           type="button"
-          onClick={applyNumberedList}
-          className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 text-text-primary transition-colors"
+          onClick={formatNumberedList}
+          className={iconBtnClass(blockType === 'number')}
           title="有序列表"
         >
-          <span className="material-symbols-outlined text-[18px]">format_list_numbered</span>
+          <span className="material-symbols-outlined text-[20px]">format_list_numbered</span>
         </button>
         <button
           type="button"
-          onClick={applyCheckList}
-          className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 text-text-primary transition-colors"
+          onClick={formatCheckList}
+          className={iconBtnClass(blockType === 'check')}
           title="待办清单 (Checklist)"
         >
-          <span className="material-symbols-outlined text-[18px]">checklist</span>
+          <span className="material-symbols-outlined text-[20px]">checklist</span>
         </button>
 
         <div className="w-[1px] h-4 bg-black/10 dark:bg-white/10 mx-1 shrink-0" />
@@ -316,91 +495,67 @@ export default function WorkbenchToolbar(): JSX.Element {
         <button
           type="button"
           onClick={applyInsertTable}
-          className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 text-text-primary transition-colors"
+          className={iconBtnClass(false)}
           title="插入表格 (3x3)"
         >
-          <span className="material-symbols-outlined text-[18px]">table_chart</span>
+          <span className="material-symbols-outlined text-[20px]">table_chart</span>
         </button>
         <button
           type="button"
           onClick={applyHorizontalRule}
-          className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 text-text-primary transition-colors"
+          className={iconBtnClass(false)}
           title="插入水平分割线"
         >
-          <span className="material-symbols-outlined text-[18px]">horizontal_rule</span>
+          <span className="material-symbols-outlined text-[20px]">horizontal_rule</span>
         </button>
         <button
           type="button"
-          onClick={applyLink}
-          className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 text-text-primary transition-colors"
-          title="插入超链接"
+          onClick={insertLink}
+          className={iconBtnClass(isLink)}
+          title={isLink ? '移除链接' : '插入超链接 (Ctrl+K)'}
         >
-          <span className="material-symbols-outlined text-[18px]">link</span>
+          <span className="material-symbols-outlined text-[20px]">link</span>
         </button>
 
         <div className="w-[1px] h-4 bg-black/10 dark:bg-white/10 mx-1 shrink-0" />
 
-        {/* 对齐方式下拉 */}
-        <div className="relative">
-          <button
-            type="button"
-            onClick={() => setAlignMenuOpen(!alignMenuOpen)}
-            className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 text-text-primary transition-colors"
-            title="对齐方式"
-          >
-            <span className="material-symbols-outlined text-[18px]">format_align_left</span>
-          </button>
-
-          {alignMenuOpen && (
-            <div
-              className="absolute left-0 top-full mt-1 p-1 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-black/10 dark:border-white/10 z-30 flex items-center gap-1 animate-in fade-in zoom-in-95 duration-100"
-              onMouseLeave={() => setAlignMenuOpen(false)}
-            >
+        {/* 对齐方式下拉：portal + 当前对齐回显 */}
+        <WorkbenchDropDown
+          buttonAriaLabel="对齐方式"
+          buttonTitle="对齐方式"
+          buttonClassName="w-8 h-8 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 text-text-primary transition-colors"
+          buttonContent={
+            <span className="material-symbols-outlined text-[20px]">
+              {ELEMENT_FORMATS.find((f) => f.format === elementFormat)?.icon ?? 'format_align_left'}
+            </span>
+          }
+        >
+          <div className="flex items-center gap-1 px-1.5 py-0.5">
+            {ELEMENT_FORMATS.map(({ format, icon, label }) => (
               <button
+                key={format}
                 type="button"
-                onClick={() => applyAlign('left')}
-                className="w-7 h-7 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/10 text-text-primary"
-                title="左对齐"
+                onClick={() => applyAlign(format)}
+                className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${
+                  elementFormat === format
+                    ? 'bg-primary/15 text-primary'
+                    : 'text-text-primary hover:bg-black/5 dark:hover:bg-white/10'
+                }`}
+                title={label}
               >
-                <span className="material-symbols-outlined text-[18px]">format_align_left</span>
+                <span className="material-symbols-outlined text-[20px]">{icon}</span>
               </button>
-              <button
-                type="button"
-                onClick={() => applyAlign('center')}
-                className="w-7 h-7 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/10 text-text-primary"
-                title="居中对齐"
-              >
-                <span className="material-symbols-outlined text-[18px]">format_align_center</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => applyAlign('right')}
-                className="w-7 h-7 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/10 text-text-primary"
-                title="右对齐"
-              >
-                <span className="material-symbols-outlined text-[18px]">format_align_right</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => applyAlign('justify')}
-                className="w-7 h-7 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/10 text-text-primary"
-                title="两端对齐"
-              >
-                <span className="material-symbols-outlined text-[18px]">format_align_justify</span>
-              </button>
-            </div>
-          )}
-        </div>
+            ))}
+          </div>
+        </WorkbenchDropDown>
       </div>
 
-      {/* 右侧：保存状态、字数统计、富文本/源码切换、快捷保存 */}
-      <div className="flex items-center gap-2.5 text-text-secondary text-xs shrink-0">
-        {/* 字数与字符统计 */}
+      {/* 右侧：字数统计、自动保存状态、富文本/源码切换（无手动保存按钮，Ctrl+S 由全局快捷键承担） */}
+      <div className="flex items-center gap-2.5 text-text-secondary text-sm shrink-0">
         <span className="hidden sm:inline" title={`字数: ${wordCount}，字符数: ${charCount}`}>
           {wordCount} 词 · {charCount} 字符
         </span>
 
-        {/* 保存状态指示 */}
         <div className="flex items-center gap-1.5 font-medium">
           {saveStatus === 'saving' ? (
             <span className="flex items-center gap-1 text-amber-500">
@@ -408,57 +563,32 @@ export default function WorkbenchToolbar(): JSX.Element {
               <span>保存中...</span>
             </span>
           ) : saveStatus === 'error' ? (
-            <span className="flex items-center gap-1 text-rose-500" title="点击重试保存">
+            <span className="flex items-center gap-1 text-rose-500">
               <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
               <span>保存失败</span>
             </span>
-          ) : isDirty ? (
-            <span className="flex items-center gap-1 text-text-secondary">
-              <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
-              <span>未保存</span>
-            </span>
           ) : (
-            <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-              <span>已保存</span>
-            </span>
+                <span className="text-text-secondary">已保存</span>
           )}
         </div>
 
-        {/* 保存按钮 */}
-        <button
-          type="button"
-          onClick={() => void saveActiveFile()}
-          disabled={!isDirty && saveStatus === 'saved'}
-          className={`h-7 px-2.5 flex items-center gap-1 rounded-lg font-medium transition-all ${
-            isDirty
-              ? 'bg-primary text-white hover:bg-primary/90 shadow-xs'
-              : 'text-text-secondary/60 hover:text-text-primary hover:bg-black/5 dark:hover:bg-white/5'
-          }`}
-          title="保存文档 (Ctrl+S)"
-        >
-          <span className="material-symbols-outlined text-[16px]">save</span>
-          <span>保存</span>
-        </button>
-
-        {/* 富文本 / 源码模式切换 */}
         <div className="flex items-center p-0.5 bg-black/5 dark:bg-white/5 rounded-lg border border-black/5 dark:border-white/5">
           <button
             type="button"
             onClick={() => setEditorMode('wysiwyg')}
-            className={`px-2 py-0.5 rounded-md text-xs font-medium transition-all ${
+            className={`px-2.5 py-1 rounded-md text-sm font-medium transition-all ${
               editorMode === 'wysiwyg'
                 ? 'bg-white dark:bg-gray-700 text-primary shadow-xs'
                 : 'text-text-secondary hover:text-text-primary'
             }`}
-            title="富文本渲染模式"
+            title="预览模式"
           >
-            富文本
+            预览
           </button>
           <button
             type="button"
             onClick={() => setEditorMode('source')}
-            className={`px-2 py-0.5 rounded-md text-xs font-medium transition-all ${
+            className={`px-2.5 py-1 rounded-md text-sm font-medium transition-all ${
               editorMode === 'source'
                 ? 'bg-white dark:bg-gray-700 text-primary shadow-xs'
                 : 'text-text-secondary hover:text-text-primary'

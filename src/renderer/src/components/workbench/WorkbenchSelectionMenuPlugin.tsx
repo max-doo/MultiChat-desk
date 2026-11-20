@@ -123,13 +123,13 @@ export default function WorkbenchSelectionMenuPlugin(): JSX.Element | null {
   return (
     <div
       ref={menuRef}
-      className="fixed z-50 min-w-[190px] py-1.5 bg-white/95 dark:bg-gray-800/95 backdrop-blur-md rounded-xl shadow-xl border border-black/10 dark:border-white/10 text-xs animate-in fade-in zoom-in-95 duration-100"
+      className="fixed z-50 min-w-[190px] py-1.5 bg-white/95 dark:bg-gray-800/95 backdrop-blur-md rounded-xl shadow-xl border border-black/10 dark:border-white/10 text-sm animate-in fade-in zoom-in-95 duration-100"
       style={{
         left: menuPosition.x,
         top: menuPosition.y
       }}
     >
-      <div className="px-3 py-1 font-semibold text-xs text-text-secondary/70 uppercase tracking-wider border-b border-black/5 dark:border-white/5 mb-1">
+      <div className="px-3 py-1 font-semibold text-sm text-text-secondary/70 uppercase tracking-wider border-b border-black/5 dark:border-white/5 mb-1">
         AI 划词协同
       </div>
       {items.map((item) => (
@@ -139,7 +139,7 @@ export default function WorkbenchSelectionMenuPlugin(): JSX.Element | null {
           onClick={() => handleAction(item.action)}
           className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-text-primary hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
         >
-          <span className={`material-symbols-outlined text-[17px] ${item.color}`}>{item.icon}</span>
+          <span className={`material-symbols-outlined text-[19px] ${item.color}`}>{item.icon}</span>
           <span className="font-medium">{item.label}</span>
         </button>
       ))}
@@ -149,7 +149,7 @@ export default function WorkbenchSelectionMenuPlugin(): JSX.Element | null {
         onClick={handleCopy}
         className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-text-secondary hover:text-text-primary hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
       >
-        <span className="material-symbols-outlined text-[17px]">content_copy</span>
+        <span className="material-symbols-outlined text-[19px]">content_copy</span>
         <span>复制选中文本</span>
       </button>
     </div>

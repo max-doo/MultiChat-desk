@@ -2,7 +2,7 @@ import { useRef, useState } from 'react'
 import { useAppStore, waitForSavableUrl, captureResponseTargets } from '../../store/appStore'
 import { useTaskSplit } from '../../hooks/useTaskSplit'
 import SubtaskList from './SubtaskList'
-import TaskSplitModal from './TaskSplitModal'
+import CustomDropdown from '../CustomDropdown'
 
 interface TaskModePanelProps {
   showNotification: (type: 'success' | 'error' | 'info', msg: string, autoHide?: number) => void
@@ -23,9 +23,7 @@ function TaskModePanel({ showNotification }: TaskModePanelProps): JSX.Element {
   const setTaskSubtasks = useAppStore((s) => s.setTaskSubtasks)
   const resetTask = useAppStore((s) => s.resetTask)
   const webviewRefs = useAppStore((s) => s.webviewRefs)
-  const { split, isLoading } = useTaskSplit()
-  const [modalOpen, setModalOpen] = useState(false)
-  const [modalError, setModalError] = useState<string | null>(null)
+  const { split, cancel, show, isLoading, task } = useTaskSplit()
   const [isSending, setIsSending] = useState(false)
   const displayMode = useAppStore((s) => s.displayMode)
   const taskAssignmentSlots = useAppStore((s) => s.taskAssignmentSlots)
@@ -33,13 +31,22 @@ function TaskModePanel({ showNotification }: TaskModePanelProps): JSX.Element {
   const isSplit = taskState.phase === 'split'
   const isInserted = taskState.phase === 'inserted'
 
+  const apiConfig = useAppStore((s) => s.apiConfig)
+  const setApiConfig = useAppStore((s) => s.setApiConfig)
+  const models = useAppStore((s) => s.models)
+
+  // 拆解平台：与 webview 顶部下拉一致可选全部 models；持久化到 apiConfig.taskSplitPlatform。
+  const platform = apiConfig.taskSplitPlatform && models.find(m => m.id === apiConfig.taskSplitPlatform)
+    ? apiConfig.taskSplitPlatform
+    : (models.find(m => m.enabled)?.id || models[0]?.id || '')
+  const platformModel = models.find(m => m.id === platform)
+  const splitting = isLoading && task && (task.phase === 'loading' || task.phase === 'generating')
+
   const handleSplit = async () => {
     if (!taskState.query.trim() || isLoading) return
-    const r = await split(taskState.query)
-    if (!r.ok) {
-      setModalError(r.error ?? '拆解失败')
-      setModalOpen(true)
-    }
+    if (!platform) { showNotification('error', '没有可用平台可用来拆解'); return }
+    const r = await split(taskState.query, platform, (msg) => showNotification('error', msg))
+    if (!r.ok) showNotification('error', r.error ?? '拆解失败')
   }
 
   // 取消：清空已注入槽位的 webview 文字（inserted 阶段已注入，需清理），
@@ -241,6 +248,50 @@ function TaskModePanel({ showNotification }: TaskModePanelProps): JSX.Element {
 
       {/* 按钮区 */}
       <div className="flex items-center gap-2 flex-shrink-0 self-end">
+        {/* 拆解平台选择器（放在「开启新对话」之后、拆解按钮之前），菜单向上展开 */}
+        <CustomDropdown
+          value={platform}
+          onChange={(value) => setApiConfig({ ...apiConfig, taskSplitPlatform: value })}
+          disabled={isLoading || isSending}
+          direction="up"
+          dropdownWidth="w-44"
+          className="relative"
+          hideArrow
+          buttonClassName="flex items-center gap-2 rounded-lg px-2.5 py-2 transition-colors hover:bg-gray-100 disabled:opacity-50"
+          renderButton={() => (
+            <>
+              {platformModel?.logo
+                ? <img alt={`${platformModel.name} logo`} className="w-6 h-6" src={platformModel.logo} />
+                : <span className="material-symbols-outlined text-xl text-text-secondary">smart_toy</span>}
+              <span className="text-sm font-medium text-text-secondary">{platformModel?.name || '拆解平台'}</span>
+            </>
+          )}
+          renderOption={(option, _isSelected, onSelect) => {
+            const model = models.find(m => m.id === option.value)
+            return (
+              <button type="button" onClick={onSelect} className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-gray-100 transition-colors text-left">
+                {model?.logo || option.logo
+                  ? <img alt={model?.name || option.label} className="w-[18px] h-[18px]" src={model?.logo || option.logo} />
+                  : <span className="material-symbols-outlined text-base text-text-secondary">smart_toy</span>}
+                <span className="text-text-primary text-sm">{option.label}</span>
+              </button>
+            )
+          }}
+          options={models.map(m => ({ value: m.id, label: m.name, logo: m.logo }))}
+        />
+        {/* 拆解进行中/结束后提供后台网页查看入口（导图同款排障） */}
+        {task && (splitting || task.phase === 'error') && (
+          <button
+            onClick={() => { void show().then(r => { if (!r.success) showNotification('error', r.error || '无法打开拆解网页') }) }}
+            className="text-xs text-primary hover:underline whitespace-nowrap"
+            title="查看拆解网页"
+          >
+            查看网页
+          </button>
+        )}
+        {splitting && (
+          <button onClick={() => void cancel()} className="text-xs text-text-secondary hover:text-primary whitespace-nowrap">取消</button>
+        )}
         {(isSplit || isInserted) && !isSending && (
           <button
             onClick={handleCancel}
@@ -280,12 +331,6 @@ function TaskModePanel({ showNotification }: TaskModePanelProps): JSX.Element {
           )}
         </button>
       </div>
-      <TaskSplitModal
-        open={modalOpen}
-        initialError={modalError}
-        onClose={() => setModalOpen(false)}
-        showNotification={showNotification}
-      />
     </div>
   )
 }

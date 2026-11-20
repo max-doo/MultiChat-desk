@@ -1,0 +1,316 @@
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext'
+import { useLexicalEditable } from '@lexical/react/useLexicalEditable'
+import { mergeRegister } from '@lexical/utils'
+import {
+  $getSelection,
+  $isRangeSelection,
+  $isTextNode,
+  $isParagraphNode,
+  $isElementNode,
+  COMMAND_PRIORITY_LOW,
+  FORMAT_TEXT_COMMAND,
+  getDOMSelection,
+  getDOMSelectionPoints,
+  SELECTION_CHANGE_COMMAND,
+  type LexicalEditor
+} from 'lexical'
+import { $isLinkNode, TOGGLE_LINK_COMMAND } from '@lexical/link'
+import { $isCodeNode } from '@lexical/code'
+import { $isAtNodeEnd } from '@lexical/selection'
+import type { RangeSelection, TextNode, ElementNode } from 'lexical'
+
+/**
+ * 参考 lexical-playground FloatingTextFormatToolbarPlugin 实现的浮动文本格式工具栏：
+ * - 仅在存在非折叠的文本选区（非代码块内）时出现，位于选区上方
+ * - 按钮 active 态实时跟随选区格式；链接按钮在光标进入链接时提供移除能力
+ * - 通过 createPortal 挂到 anchorElem（编辑器画布容器），按选区 DOMRect 做绝对定位
+ */
+
+function getSelectedNode(selection: RangeSelection): TextNode | ElementNode {
+  const anchor = selection.anchor
+  const focus = selection.focus
+  const anchorNode = selection.anchor.getNode()
+  const focusNode = selection.focus.getNode()
+  if (anchorNode === focusNode) {
+    return anchorNode
+  }
+  const isBackward = selection.isBackward()
+  if (isBackward) {
+    return $isAtNodeEnd(focus) ? anchorNode : focusNode
+  }
+  return $isAtNodeEnd(anchor) ? anchorNode : focusNode
+}
+
+function getDOMRangeRect(nativeSelection: Selection, rootElement: HTMLElement): DOMRect {
+  const range =
+    nativeSelection.rangeCount > 0 ? nativeSelection.getRangeAt(0) : null
+  if (range === null) {
+    return rootElement.getBoundingClientRect()
+  }
+  return range.getBoundingClientRect()
+}
+
+interface ToolbarState {
+  isText: boolean
+  isLink: boolean
+  isBold: boolean
+  isItalic: boolean
+  isUnderline: boolean
+  isStrikethrough: boolean
+  isCode: boolean
+  isHighlight: boolean
+}
+
+const VERTICAL_GAP = 10
+const HORIZONTAL_OFFSET = 5
+
+function FloatingToolbar({
+  editor,
+  anchorElem,
+  state
+}: {
+  editor: LexicalEditor
+  anchorElem: HTMLElement
+  state: ToolbarState
+}): JSX.Element {
+  const popupRef = useRef<HTMLDivElement | null>(null)
+  const isEditable = useLexicalEditable()
+
+  const updatePosition = useCallback(() => {
+    const popup = popupRef.current
+    const nativeSelection = getDOMSelection(editor._window)
+    const rootElement = editor.getRootElement()
+    if (popup === null || rootElement === null || nativeSelection === null) {
+      return
+    }
+
+    const points = getDOMSelectionPoints(nativeSelection, rootElement)
+    const collapsed =
+      points.anchorNode === points.focusNode && points.anchorOffset === points.focusOffset
+    if (
+      collapsed ||
+      !rootElement.contains(points.anchorNode) ||
+      popup === null
+    ) {
+      popup.style.opacity = '0'
+      return
+    }
+
+    const targetRect = getDOMRangeRect(nativeSelection, rootElement)
+    const popupRect = popup.getBoundingClientRect()
+    const anchorRect = anchorElem.getBoundingClientRect()
+    const scrollerRect = (anchorElem.parentElement ?? anchorElem).getBoundingClientRect()
+
+    let top = targetRect.top - popupRect.height - VERTICAL_GAP
+    let left = targetRect.left - HORIZONTAL_OFFSET
+
+    // 选区贴近顶部时翻到选区下方
+    if (top < scrollerRect.top) {
+      top += popupRect.height + targetRect.height + VERTICAL_GAP * 2
+    }
+    if (left + popupRect.width > scrollerRect.right) {
+      left = scrollerRect.right - popupRect.width - HORIZONTAL_OFFSET
+    }
+    if (left < scrollerRect.left) {
+      left = scrollerRect.left + HORIZONTAL_OFFSET
+    }
+
+    popup.style.opacity = '1'
+    popup.style.transform = `translate(${Math.round(left - anchorRect.left)}px, ${Math.round(
+      top - anchorRect.top
+    )}px)`
+  }, [editor, anchorElem])
+
+  useLayoutEffect(() => {
+    editor.read('latest', updatePosition)
+    return mergeRegister(
+      editor.registerUpdateListener(({ editorState }) => {
+        editorState.read(updatePosition)
+      }),
+      editor.registerCommand(
+        SELECTION_CHANGE_COMMAND,
+        () => {
+          editor.read('latest', updatePosition)
+          return false
+        },
+        COMMAND_PRIORITY_LOW
+      )
+    )
+  }, [editor, updatePosition])
+
+  const btn = (active: boolean) =>
+    `w-8 h-8 flex items-center justify-center rounded-md transition-colors ${
+      active ? 'bg-primary/20 text-primary' : 'text-text-primary hover:bg-black/5 dark:hover:bg-white/10'
+    }`
+
+  const insertLink = () => {
+    if (!state.isLink) {
+      editor.dispatchCommand(TOGGLE_LINK_COMMAND, 'https://')
+    } else {
+      editor.dispatchCommand(TOGGLE_LINK_COMMAND, null)
+    }
+  }
+
+  return (
+    <div
+      ref={popupRef}
+      role="toolbar"
+      aria-label="浮动格式工具栏"
+      className="absolute left-0 top-0 z-40 flex items-center gap-0.5 p-1 rounded-xl bg-white dark:bg-gray-800 shadow-2xl border border-black/10 dark:border-white/10 opacity-0 will-change-transform"
+      style={{ transform: 'translate(-10000px, -10000px)' }}
+    >
+      {isEditable && (
+        <>
+          <button
+            type="button"
+            onClick={() => editor.dispatchCommand(FORMAT_TEXT_COMMAND, 'bold')}
+            className={btn(state.isBold)}
+            title="粗体"
+          >
+            <span className="material-symbols-outlined text-[19px]">format_bold</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => editor.dispatchCommand(FORMAT_TEXT_COMMAND, 'italic')}
+            className={btn(state.isItalic)}
+            title="斜体"
+          >
+            <span className="material-symbols-outlined text-[19px]">format_italic</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => editor.dispatchCommand(FORMAT_TEXT_COMMAND, 'underline')}
+            className={btn(state.isUnderline)}
+            title="下划线"
+          >
+            <span className="material-symbols-outlined text-[19px]">format_underlined</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => editor.dispatchCommand(FORMAT_TEXT_COMMAND, 'strikethrough')}
+            className={btn(state.isStrikethrough)}
+            title="删除线"
+          >
+            <span className="material-symbols-outlined text-[19px]">format_strikethrough</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => editor.dispatchCommand(FORMAT_TEXT_COMMAND, 'code')}
+            className={btn(state.isCode)}
+            title="行内代码"
+          >
+            <span className="material-symbols-outlined text-[19px]">code</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => editor.dispatchCommand(FORMAT_TEXT_COMMAND, 'highlight')}
+            className={btn(state.isHighlight)}
+            title="高亮"
+          >
+            <span className="material-symbols-outlined text-[19px]">ink_highlighter</span>
+          </button>
+          <button
+            type="button"
+            onClick={insertLink}
+            className={btn(state.isLink)}
+            title={state.isLink ? '移除链接' : '插入链接'}
+          >
+            <span className="material-symbols-outlined text-[19px]">link</span>
+          </button>
+        </>
+      )}
+    </div>
+  )
+}
+
+export default function WorkbenchFloatingToolbarPlugin({
+  anchorElem
+}: {
+  anchorElem: HTMLElement | null
+}): JSX.Element | null {
+  const [editor] = useLexicalComposerContext()
+  const [state, setState] = useState<ToolbarState>({
+    isText: false,
+    isLink: false,
+    isBold: false,
+    isItalic: false,
+    isUnderline: false,
+    isStrikethrough: false,
+    isCode: false,
+    isHighlight: false
+  })
+
+  const updatePopup = useCallback(() => {
+    editor.read('latest', () => {
+      if (editor.isComposing()) {
+        return
+      }
+      const selection = $getSelection()
+      const nativeSelection = getDOMSelection(editor._window)
+      const rootElement = editor.getRootElement()
+
+      if (
+        nativeSelection !== null &&
+        (!$isRangeSelection(selection) ||
+          rootElement === null ||
+          !rootElement.contains(
+            getDOMSelectionPoints(nativeSelection, rootElement).anchorNode
+          ))
+      ) {
+        setState((prev) => ({ ...prev, isText: false }))
+        return
+      }
+
+      if (!$isRangeSelection(selection)) {
+        return
+      }
+
+      const node = getSelectedNode(selection)
+      const parent = node.getParent()
+      const isLink = $isLinkNode(parent) || $isLinkNode(node)
+      const isCodeBlock = $isCodeNode(selection.anchor.getNode().getParent())
+
+      let isText =
+        !isCodeBlock &&
+        selection.getTextContent() !== '' &&
+        ($isTextNode(node) || $isParagraphNode(node) || $isElementNode(node))
+
+      const rawTextContent = selection.getTextContent().replace(/\n/g, '')
+      if (!selection.isCollapsed() && rawTextContent === '') {
+        isText = false
+      }
+
+      setState({
+        isText,
+        isLink,
+        isBold: selection.hasFormat('bold'),
+        isItalic: selection.hasFormat('italic'),
+        isUnderline: selection.hasFormat('underline'),
+        isStrikethrough: selection.hasFormat('strikethrough'),
+        isCode: selection.hasFormat('code'),
+        isHighlight: selection.hasFormat('highlight')
+      })
+    })
+  }, [editor])
+
+  useEffect(() => {
+    return mergeRegister(
+      editor.registerUpdateListener(() => {
+        updatePopup()
+      }),
+      editor.registerRootListener(() => {
+        if (editor.getRootElement() === null) {
+          setState((prev) => ({ ...prev, isText: false }))
+        }
+      })
+    )
+  }, [editor, updatePopup])
+
+  if (anchorElem === null || !state.isText) {
+    return null
+  }
+
+  return createPortal(<FloatingToolbar editor={editor} anchorElem={anchorElem} state={state} />, anchorElem)
+}

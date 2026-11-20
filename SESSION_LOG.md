@@ -2,6 +2,186 @@
 
 ## 2026-11-20
 
+### 11:14 | Codex
+
+- done: 统一 AI 侧边栏折叠按钮:WorkbenchAiSidebar 内部按钮改 QuickPage 风(w-7 h-7 rounded-full + text-base + right_panel_close),Layout.tsx 三处标题栏按钮图标由 dock_to_right/vertical_split 改为 right_panel_open/right_panel_close,与左栏 left_panel_open/close 同系列
+- modified:
+  - `src/renderer/src/components/Layout.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
+
+### 11:13 | Codex
+
+- done: 工作台侧边栏视觉对齐 QuickPage:折叠/展开图标换为 left_panel_close/left_panel_open+w-7 h-7 rounded-full 风格,header 高度 h-10→h-12 与中间编辑区统一,图标 text-[19px]→text-[20px],移除顶部工作区名,其他按钮左对齐折叠按钮单独靠右,最外层容器去背景与模糊
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchToolbar.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+
+### 11:12 | Codex
+
+- done: 工作台分割线：2px 改细一档，颜色 #9ca3af→#b9bfc7，保持比标题线重的层级但不过重
+- modified:
+  - `src/renderer/src/assets/index.css`
+  - `docs/workbench-lexical-playground-parity.md`
+
+### 11:08 | Codex
+
+- done: 工作台分割线：移植 playground HR transformer(triggerOnEnter+末尾insertBefore)，主题分隔线加粗至3px
+- modified:
+  - `src/renderer/src/components/workbench/MarkdownSyncPlugin.tsx`
+  - `src/renderer/src/assets/index.css`
+  - `docs/workbench-lexical-playground-parity.md`
+
+### 11:06 | Codex
+
+- done: 工作台左栏改为可折叠侧边栏+底部仓库管理入口:顶部 close 改为折叠按钮,底部新增 Obsidian 风格的当前仓库条(点击上弹最近工作区+管理仓库),管理弹窗支持切换/移除/选择新文件夹/关闭工作区;折叠后展开按钮嵌入中间工具栏最左(富文本+源码模式);store 新增 recentWorkspaces 持久化
+- modified:
+  - `src/renderer/src/store/workbenchStore.ts`
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchToolbar.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+
+### 10:57 | Codex
+
+- done: 工作台第六轮：段落格式下拉/表格操作菜单/浮动条定位由useEffect改useLayoutEffect+去掉animate-in入场动画(修复菜单先闪现页面顶部再瞬移的跳动)；标题层级按typographic scale调整(h1=28/h2=22/h3=18/h4+=16全部加粗)并加段前间距与首标题豁免
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchDropDown.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchTableActionMenuPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFloatingToolbarPlugin.tsx`
+  - `src/renderer/src/assets/index.css`
+  - `docs/workbench-lexical-playground-parity.md`
+
+### 10:56 | Codex
+
+- done: 工作台第五轮：表格GFM双向序列化(移植playground TABLE transformer进MarkdownSyncPlugin)、新增WorkbenchTableActionMenuPlugin单元格角标菜单(插删行列/合并拆分/表头/斑马纹)
+- added:
+  - `src/renderer/src/components/workbench/WorkbenchTableActionMenuPlugin.tsx`
+- modified:
+  - `src/renderer/src/components/workbench/MarkdownSyncPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+  - `src/renderer/src/assets/index.css`
+  - `docs/workbench-lexical-playground-parity.md`
+
+### 10:48 | Codex
+
+- done: 工作台第四轮：标题加粗分级+h1/h2浅色下边框、无序列表圆点修复(disc+ulDepth)、代码块/行内代码加圆角、新增highlight高亮格式(toolbar+浮动条+主题类)、源码模式改为行号+Prism markdown高亮的WorkbenchSourceEditor并删返回按钮、'已保存'改灰字
+- added:
+  - `src/renderer/src/components/workbench/WorkbenchSourceEditor.tsx`
+  - `src/renderer/src/types/prismjs.d.ts`
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchToolbar.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFloatingToolbarPlugin.tsx`
+  - `src/renderer/src/assets/index.css`
+  - `docs/workbench-lexical-playground-parity.md`
+
+### 10:38 | Codex
+
+- done: 工作台第三轮：渲染主题整体换为 playground PlaygroundEditorTheme（段落/标题/引用/代码/列表/表格/分割线/行内格式全套类名+样式写入 index.css）、移植 TableCellResizer 单元格行列拖拽调整、'+'菜单去掉筛选输入框
+- added:
+  - `src/renderer/src/components/workbench/WorkbenchTableCellResizerPlugin.tsx`
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchDraggableBlockPlugin.tsx`
+  - `src/renderer/src/assets/index.css`
+  - `docs/workbench-lexical-playground-parity.md`
+
+### 10:23 | Codex
+
+- done: 工作台第二轮：拖拽 handle 加 '+' 按钮+组件选择菜单（移植 playground DraggableBlockPlugin/ComponentPickerPlugin）、富文本/源码改预览/源码、编辑器与左侧文件树整体 UI 放大
+- added:
+  - `src/renderer/src/components/workbench/WorkbenchDraggableBlockPlugin.tsx`
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchToolbar.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchDropDown.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFloatingToolbarPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchSelectionMenuPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchSearch.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchDocxCard.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchImagePreview.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchPdfPreview.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchCodePreview.tsx`
+  - `docs/workbench-lexical-playground-parity.md`
+
+### 10:15 | Codex
+
+- done: 修拆解无返回：严格 <task_split> 包络解析失败时退到 parseSubtasksLenient 逐 <subtask> 兜底（平台回显/松包裹场景）；<subtask> 标签正则容空格
+- modified:
+  - `src/shared/utils/taskSplit.ts`
+  - `src/main/services/TaskSplitService.ts`
+- unresolved: DeepSeek 后台拆解端到端仍需 npm run dev 实测确认
+
+### 10:11 | Codex
+
+- done: 删拆解弹窗，平台选择器改为控制条内联 CustomDropdown（direction=up、全部 models、持久化 apiConfig.taskSplitPlatform），拆分左右加「查看网页/取消」；useTaskSplit 暴露 task 状态与 trim 对齐
+- modified:
+  - `src/renderer/src/components/modes/TaskModePanel.tsx`
+  - `src/renderer/src/hooks/useTaskSplit.ts`
+- removed:
+  - `src/renderer/src/components/modes/TaskSplitModal.tsx`
+
+### 10:07 | Codex
+
+- done: 工作台编辑器对齐 Lexical Playground：下拉 portal 化防裁剪、工具栏状态回显与 toggle 语义、新增选中浮动格式条、移除手动保存改为纯防抖自动保存
+- context: playground 源码 packages/lexical-playground (meta/lexical) 已 sparse checkout 到 %TEMP%\lexical-repo
+- added:
+  - `src/renderer/src/components/workbench/WorkbenchDropDown.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFloatingToolbarPlugin.tsx`
+  - `docs/workbench-lexical-playground-parity.md`
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchToolbar.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+- lesson: Electron 工具栏下拉要复刻 playground 必须用 createPortal+fixed 到 body，不能用 absolute 塞在 overflow-x-auto 容器里
+
+### 10:03 | Codex
+
+- done: 修任务拆解两处：平台下拉复用 webview 顶部样式（renderButton/renderOption logo+名称）、放开全部 models 不再限 enabled；确认 tasksplit:start 未注册是主进程未重启的 HMR 现象
+- modified:
+  - `src/renderer/src/components/modes/TaskSplitModal.tsx`
+  - `src/renderer/src/components/modes/TaskModePanel.tsx`
+- lesson: Electron 改主进程 IPC 后必须重启 npm run dev/electron，HMR 只热渲染层，preload/主进程不生效——报 'No handler registered' 先想到重启而非代码缺失
+
+### 09:53 | Codex
+
+- done: 按设计文档落地任务拆解后台 Web AI：TaskSplitService+tasksplit:*IPC+<task_split>XML输出+三态解析；删 API 模式全部链路（供应商/模型/IPC/弹层/迁移）；lint 0 errors、build 通过
+- added:
+  - `src/main/services/TaskSplitService.ts`
+  - `src/shared/utils/taskSplit.ts`
+  - `src/shared/types/taskSplit.ts`
+- modified:
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/src/hooks/useTaskSplit.ts`
+  - `src/renderer/src/components/modes/TaskSplitModal.tsx`
+  - `src/renderer/src/components/modes/TaskModePanel.tsx`
+  - `src/renderer/src/components/SettingsDrawer.tsx`
+  - `src/renderer/src/store/appStore.ts`
+  - `src/shared/utils/webviewScripts.ts`
+  - `src/renderer/src/components/ImportCacheConfirmModal.tsx`
+  - `docs/task-split-web-backend-design.md`
+- removed:
+  - `src/main/api/taskSplitApi.ts`
+  - `src/main/config/requestBodyConfig.ts`
+  - `src/main/config/taskSplitPrompt.ts`
+- unresolved: npm run dev 手动验证未做：后台拆解端到端（登录态、<task_split>解析、取消/查看网页）需真实平台确认
+
+### 09:44 | Codex
+
+- done: 按独立评审修订拆解设计方案：输出格式由 JSON 改为 <task_split><subtask> 标签、补三态解析与 goal+taskId 双校验；原型标注子任务可编辑
+- modified:
+  - `docs/task-split-web-backend-design.md`
+  - `docs/prototypes/task-split-web.html`
+
+### 09:28 | Codex
+
+- done: 设计任务拆解改走后台 Web AI 的方案：TaskSplitService 仿 MindmapService，删除 API 模式；交付设计文档与高保真 HTML 原型（沿用现有控制条/弹层形态）
+- added:
+  - `docs/task-split-web-backend-design.md`
+  - `docs/prototypes/task-split-web.html`
+
 ### 09:25 | Antigravity
 
 - done: 将 add_workbench_markdown_knowledge_base 分支合并至主分支 main，完成依赖同步与全量打包验证，并清理该 worktree

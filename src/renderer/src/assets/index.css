@@ -175,68 +175,531 @@ webview[tabindex="-1"] {
   color: inherit;
 }
 
-/* Lexical Checklist 待办清单样式 */
-.lexical-checklist {
-  list-style-type: none !important;
-  padding-left: 0 !important;
-  margin-bottom: 0.75rem;
-}
-
-.lexical-checklist-item {
-  position: relative;
-  list-style-type: none !important;
-  padding-left: 28px !important;
-  margin-bottom: 0.35rem;
-  line-height: 1.6;
-}
-
-.lexical-checklist-item::before {
-  content: '';
-  position: absolute;
-  left: 4px;
-  top: 3px;
-  width: 16px;
-  height: 16px;
-  border: 1.5px solid #94a3b8;
-  border-radius: 4px;
-  cursor: pointer;
-  background-color: transparent;
-  transition: all 0.15s ease;
-}
-
-.lexical-checklist-item:hover::before {
-  border-color: #3b82f6;
-}
-
-.lexical-checklist-item-checked {
-  text-decoration: line-through;
-  opacity: 0.65;
-}
-
-.lexical-checklist-item-checked::before {
-  background-color: #3b82f6;
-  border-color: #3b82f6;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 16 16' fill='white' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M12.207 4.793a1 1 0 010 1.414l-5 5a1 1 0 01-1.414 0l-2-2a1 1 0 011.414-1.414L6.5 9.086l4.293-4.293a1 1 0 011.414 0z'/%3E%3C/svg%3E");
-  background-size: 100% 100%;
-}
-
-/* Lexical Horizontal Rule 水平分割线样式 */
-.lexical-hr {
-  border: none;
-  border-top: 1px solid rgba(0, 0, 0, 0.1);
-  margin: 1.5rem 0;
-  cursor: default;
-}
-.dark .lexical-hr {
-  border-top-color: rgba(255, 255, 255, 0.1);
-}
-
 /* Lexical Draggable Block Menu 样式 */
 .draggable-block-menu {
   cursor: grab;
 }
 .draggable-block-menu:active {
   cursor: grabbing;
+}
+
+/* ============================================================
+ * 工作台编辑器渲染主题 —— 复用 lexical-playground PlaygroundEditorTheme
+ * 类名与样式值完全对齐 playground，保证渲染效果一致
+ * ============================================================ */
+
+.PlaygroundEditorTheme__paragraph {
+  margin: 0;
+  position: relative;
+  margin-bottom: 0.75rem;
+  line-height: 1.7;
+}
+.PlaygroundEditorTheme__quote {
+  margin: 0 0 10px 20px;
+  color: rgb(101, 103, 107);
+  border-left: 4px solid rgb(206, 208, 212);
+  padding-left: 16px;
+  font-style: normal;
+}
+.dark .PlaygroundEditorTheme__quote {
+  color: rgb(160, 163, 168);
+  border-left-color: rgb(80, 83, 88);
+}
+.PlaygroundEditorTheme__h1 {
+  font-size: 28px;
+  color: rgb(5, 5, 5);
+  font-weight: 700;
+  margin: 1.5em 0 0.5em 0;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgb(229, 231, 235);
+}
+.dark .PlaygroundEditorTheme__h1 {
+  color: rgb(240, 242, 245);
+  border-bottom-color: rgb(55, 57, 62);
+}
+.PlaygroundEditorTheme__h2 {
+  font-size: 22px;
+  color: rgb(5, 5, 5);
+  font-weight: 700;
+  margin: 1.4em 0 0.5em 0;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgb(240, 242, 245);
+}
+.dark .PlaygroundEditorTheme__h2 {
+  color: rgb(240, 242, 245);
+  border-bottom-color: rgb(55, 57, 62);
+}
+.PlaygroundEditorTheme__h3 {
+  font-size: 18px;
+  font-weight: 700;
+  margin: 1.2em 0 0.4em 0;
+}
+.PlaygroundEditorTheme__h4,
+.PlaygroundEditorTheme__h5,
+.PlaygroundEditorTheme__h6 {
+  font-size: 16px;
+  font-weight: 700;
+  margin: 1em 0 0.3em 0;
+}
+/* 文档开头的标题不要段前间距 */
+.PlaygroundEditorTheme__h1:first-child,
+.PlaygroundEditorTheme__h2:first-child,
+.PlaygroundEditorTheme__h3:first-child,
+.PlaygroundEditorTheme__h4:first-child,
+.PlaygroundEditorTheme__h5:first-child,
+.PlaygroundEditorTheme__h6:first-child {
+  margin-top: 0;
+}
+.PlaygroundEditorTheme__textBold {
+  font-weight: bold;
+}
+.PlaygroundEditorTheme__textItalic {
+  font-style: italic;
+}
+.PlaygroundEditorTheme__textUnderline {
+  text-decoration: underline;
+}
+.PlaygroundEditorTheme__textStrikethrough {
+  text-decoration: line-through;
+}
+.PlaygroundEditorTheme__textUnderlineStrikethrough {
+  text-decoration: underline line-through;
+}
+.PlaygroundEditorTheme__textCode {
+  background-color: rgb(240, 242, 245);
+  padding: 1px 0.25rem;
+  font-family: Menlo, Consolas, Monaco, monospace;
+  font-size: 94%;
+  border-radius: 4px;
+}
+.dark .PlaygroundEditorTheme__textCode {
+  background-color: rgb(55, 57, 62);
+}
+.PlaygroundEditorTheme__textSubscript {
+  font-size: 0.8em;
+  vertical-align: sub !important;
+}
+.PlaygroundEditorTheme__textSuperscript {
+  font-size: 0.8em;
+  vertical-align: super;
+}
+.PlaygroundEditorTheme__textLowercase {
+  text-transform: lowercase;
+}
+.PlaygroundEditorTheme__textUppercase {
+  text-transform: uppercase;
+}
+.PlaygroundEditorTheme__textCapitalize {
+  text-transform: capitalize;
+}
+.PlaygroundEditorTheme__textHighlight {
+  background: rgba(255, 212, 0, 0.35);
+  padding: 1px 2px;
+  border-radius: 2px;
+}
+.dark .PlaygroundEditorTheme__textHighlight {
+  background: rgba(255, 212, 0, 0.3);
+}
+.PlaygroundEditorTheme__link {
+  color: rgb(33, 111, 219);
+  text-decoration: none;
+}
+.PlaygroundEditorTheme__link:hover {
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* 代码块：灰色底 + 行号槽（data-gutter 由 CodeHighlightPlugin 写入） */
+.PlaygroundEditorTheme__code {
+  background-color: rgb(240, 242, 245);
+  font-family: Menlo, Consolas, Monaco, monospace;
+  display: block;
+  line-height: 1.53;
+  font-size: 13px;
+  padding-top: 8px;
+  margin: 8px 0;
+  overflow-x: auto;
+  scroll-padding-left: 52px;
+  padding-inline-end: 8px;
+  position: relative;
+  tab-size: 2;
+  white-space: pre;
+  max-width: 100%;
+  box-sizing: border-box;
+  border-radius: 8px;
+}
+.dark .PlaygroundEditorTheme__code {
+  background-color: rgb(40, 42, 46);
+}
+.PlaygroundEditorTheme__code:before {
+  content: attr(data-gutter);
+  position: sticky;
+  background-color: #eee;
+  left: 0;
+  float: left;
+  top: 0;
+  z-index: 3;
+  min-height: 100%;
+  border-right: 1px solid #ccc;
+  padding: 8px;
+  color: #777;
+  white-space: pre-wrap;
+  text-align: right;
+  min-width: 25px;
+  margin-right: 10px;
+  margin-top: -8px;
+}
+.dark .PlaygroundEditorTheme__code:before {
+  background-color: #2a2c30;
+  border-right-color: #4a4c50;
+  color: #9a9ca0;
+}
+.PlaygroundEditorTheme__code:dir(rtl):before {
+  left: -8px;
+  margin-left: -8px;
+}
+
+/* 表格：与 playground 完全一致的细边框 + 固定布局 + 单元格 padding */
+.PlaygroundEditorTheme__table {
+  border-collapse: collapse;
+  border-spacing: 0;
+  overflow-y: scroll;
+  overflow-x: scroll;
+  table-layout: fixed;
+  width: fit-content;
+  margin-top: 25px;
+  margin-bottom: 30px;
+}
+.PlaygroundEditorTheme__tableAlignmentCenter {
+  margin-left: auto;
+  margin-right: auto;
+}
+.PlaygroundEditorTheme__tableAlignmentRight {
+  margin-left: auto;
+}
+.PlaygroundEditorTheme__tableRowStriping tr:nth-child(even) {
+  background-color: #f2f5fb;
+}
+.dark .PlaygroundEditorTheme__tableRowStriping tr:nth-child(even) {
+  background-color: rgba(255, 255, 255, 0.04);
+}
+.PlaygroundEditorTheme__tableSelection *::selection {
+  background-color: transparent;
+}
+[contenteditable]:focus-within .PlaygroundEditorTheme__tableSelected {
+  outline: 2px solid rgb(60, 132, 244);
+}
+.PlaygroundEditorTheme__tableCell {
+  border: 1px solid #bbb;
+  width: 75px;
+  vertical-align: top;
+  text-align: start;
+  padding: 6px 8px;
+  position: relative;
+  outline: none;
+  overflow: auto;
+}
+.dark .PlaygroundEditorTheme__tableCell {
+  border-color: #4a4c50;
+}
+.PlaygroundEditorTheme__tableCell > * {
+  overflow: inherit;
+}
+.PlaygroundEditorTheme__tableCellResizer {
+  position: absolute;
+  right: -4px;
+  height: 100%;
+  width: 8px;
+  cursor: ew-resize;
+  z-index: 10;
+  top: 0;
+}
+.PlaygroundEditorTheme__tableCellHeader {
+  background-color: #f2f3f5;
+  text-align: start;
+}
+.dark .PlaygroundEditorTheme__tableCellHeader {
+  background-color: rgba(255, 255, 255, 0.08);
+}
+.PlaygroundEditorTheme__tableCellSelected {
+  caret-color: transparent;
+}
+[contenteditable]:focus-within .PlaygroundEditorTheme__tableCellSelected::after {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  top: 0;
+  background-color: highlight;
+  mix-blend-mode: multiply;
+  content: '';
+  pointer-events: none;
+}
+.PlaygroundEditorTheme__tableScrollableWrapper {
+  overflow-x: auto;
+  margin: 0 0 5px 0;
+  scrollbar-width: none;
+}
+.PlaygroundEditorTheme__tableScrollableWrapper::-webkit-scrollbar {
+  display: none;
+}
+
+/* 列表 */
+.PlaygroundEditorTheme__ol1,
+.PlaygroundEditorTheme__ul {
+  padding: 0;
+  margin: 0;
+  list-style-position: outside;
+  padding-left: 1.4rem;
+  list-style-type: disc;
+}
+.PlaygroundEditorTheme__ol1 {
+  list-style-type: decimal;
+}
+.PlaygroundEditorTheme__ol2 {
+  list-style-type: upper-alpha;
+  padding-left: 1.4rem;
+  list-style-position: outside;
+}
+.PlaygroundEditorTheme__ol3 {
+  list-style-type: lower-alpha;
+  padding-left: 1.4rem;
+  list-style-position: outside;
+}
+.PlaygroundEditorTheme__ol4 {
+  list-style-type: upper-roman;
+  padding-left: 1.4rem;
+  list-style-position: outside;
+}
+.PlaygroundEditorTheme__ol5 {
+  list-style-type: lower-roman;
+  padding-left: 1.4rem;
+  list-style-position: outside;
+}
+.PlaygroundEditorTheme__ulDepth1 {
+  list-style-type: disc;
+  padding-left: 1.4rem;
+  list-style-position: outside;
+}
+.PlaygroundEditorTheme__ulDepth2 {
+  list-style-type: circle;
+  padding-left: 1.4rem;
+  list-style-position: outside;
+}
+.PlaygroundEditorTheme__ulDepth3 {
+  list-style-type: square;
+  padding-left: 1.4rem;
+  list-style-position: outside;
+}
+.PlaygroundEditorTheme__listItem {
+  margin: 0;
+  line-height: 1.7;
+}
+.PlaygroundEditorTheme__listItemChecked,
+.PlaygroundEditorTheme__listItemUnchecked {
+  position: relative;
+  margin-left: 0.5em;
+  margin-right: 0.5em;
+  padding-left: 1.5em;
+  padding-right: 1.5em;
+  list-style-type: none;
+  outline: none;
+  display: block;
+  min-height: 1.5em;
+  line-height: 1.7;
+}
+.PlaygroundEditorTheme__listItemUnchecked:before,
+.PlaygroundEditorTheme__listItemChecked:before {
+  content: '\200B';
+  width: 0.9em;
+  height: 0.9em;
+  top: 50%;
+  left: 0;
+  cursor: pointer;
+  display: block;
+  background-size: cover;
+  position: absolute;
+  transform: translateY(-50%);
+}
+.PlaygroundEditorTheme__listItemChecked {
+  text-decoration: line-through;
+}
+.PlaygroundEditorTheme__listItemUnchecked:focus:before,
+.PlaygroundEditorTheme__listItemChecked:focus:before {
+  box-shadow: 0 0 0 2px #a6cdfe;
+  border-radius: 2px;
+}
+.PlaygroundEditorTheme__listItemUnchecked:before {
+  border: 1px solid #999;
+  border-radius: 2px;
+}
+.PlaygroundEditorTheme__listItemChecked:before {
+  border: 1px solid rgb(61, 135, 245);
+  border-radius: 2px;
+  background-color: #3d87f5;
+  background-repeat: no-repeat;
+}
+.PlaygroundEditorTheme__listItemChecked:after {
+  content: '';
+  cursor: pointer;
+  border-color: #fff;
+  border-style: solid;
+  position: absolute;
+  display: block;
+  top: 45%;
+  width: 0.2em;
+  left: 0.35em;
+  height: 0.4em;
+  transform: translateY(-50%) rotate(45deg);
+  border-width: 0 0.1em 0.1em 0;
+}
+.PlaygroundEditorTheme__nestedListItem {
+  list-style-type: none;
+}
+.PlaygroundEditorTheme__nestedListItem:before,
+.PlaygroundEditorTheme__nestedListItem:after {
+  display: none;
+}
+.PlaygroundEditorTheme__checklist {
+  list-style-type: none;
+  padding-left: 0;
+}
+
+/* 分割线：独立于标题下划线，视觉上更粗更重 */
+.PlaygroundEditorTheme__hr {
+  padding: 4px 0;
+  border: none;
+  margin: 1.5em 0;
+  cursor: pointer;
+}
+.PlaygroundEditorTheme__hr:after {
+  content: '';
+  display: block;
+  height: 2px;
+  background-color: #b9bfc7;
+  border-radius: 999px;
+}
+.dark .PlaygroundEditorTheme__hr:after {
+  background-color: #5d6470;
+}
+.PlaygroundEditorTheme__hr.PlaygroundEditorTheme__hrSelected {
+  outline: 2px solid rgb(60, 132, 244);
+  user-select: none;
+}
+
+/* 表格单元格拖拽缩放 overlay */
+.TableCellResizer__resizer {
+  position: absolute;
+  touch-action: none;
+}
+
+/* 表格单元格操作按钮容器：默认隐藏，光标进入单元格时定位并显示 */
+.workbench-table-action-container {
+  visibility: hidden;
+}
+.workbench-table-action-container.workbench-table-action-active {
+  visibility: visible;
+}
+
+/* ============================================================
+ * 源码模式 Markdown 语法高亮（Prism token 配色，VSCode 风格）
+ * ============================================================ */
+.workbench-source-editor .token.title,
+.workbench-source-editor .token.title .token.punctuation {
+  color: #0550ae;
+  font-weight: 700;
+}
+.workbench-source-editor .token.bold,
+.workbench-source-editor .token.bold .token.punctuation {
+  color: #24292f;
+  font-weight: 700;
+}
+.workbench-source-editor .token.italic,
+.workbench-source-editor .token.italic .token.punctuation {
+  color: #24292f;
+  font-style: italic;
+}
+.workbench-source-editor .token.strike,
+.workbench-source-editor .token.strike .token.punctuation {
+  color: #57606a;
+  text-decoration: line-through;
+}
+.workbench-source-editor .token.code-snippet,
+.workbench-source-editor .token.code-block,
+.workbench-source-editor .token.code .token.punctuation {
+  color: #953800;
+  background: rgba(175, 184, 193, 0.2);
+  border-radius: 3px;
+}
+.workbench-source-editor .token.url,
+.workbench-source-editor .token.url-reference,
+.workbench-source-editor .token.url .token.content {
+  color: #0969da;
+}
+.workbench-source-editor .token.url .token.punctuation {
+  color: #57606a;
+}
+.workbench-source-editor .token.blockquote,
+.workbench-source-editor .token.blockquote .token.punctuation {
+  color: #57606a;
+}
+.workbench-source-editor .token.list,
+.workbench-source-editor .token.list .token.punctuation {
+  color: #0550ae;
+}
+.workbench-source-editor .token.hr,
+.workbench-source-editor .token.hr .token.punctuation {
+  color: #8250df;
+}
+.workbench-source-editor .token.table,
+.workbench-source-editor .token.table .token.punctuation {
+  color: #0550ae;
+}
+.workbench-source-editor .token.important,
+.workbench-source-editor .token.strike.important,
+.workbench-source-editor .token.bold.important,
+.workbench-source-editor .token.italic.important {
+  font-weight: 700;
+  color: #cf222e;
+}
+.workbench-source-editor .token.punctuation {
+  color: #57606a;
+}
+.dark .workbench-source-editor .token.title,
+.dark .workbench-source-editor .token.title .token.punctuation {
+  color: #79c0ff;
+}
+.dark .workbench-source-editor .token.bold,
+.dark .workbench-source-editor .token.italic,
+.dark .workbench-source-editor .token.bold .token.punctuation,
+.dark .workbench-source-editor .token.italic .token.punctuation {
+  color: #e6edf3;
+}
+.dark .workbench-source-editor .token.code-snippet,
+.dark .workbench-source-editor .token.code-block,
+.dark .workbench-source-editor .token.code .token.punctuation {
+  color: #ffa657;
+  background: rgba(110, 118, 129, 0.25);
+}
+.dark .workbench-source-editor .token.url,
+.dark .workbench-source-editor .token.url-reference,
+.dark .workbench-source-editor .token.url .token.content {
+  color: #79c0ff;
+}
+.dark .workbench-source-editor .token.blockquote,
+.dark .workbench-source-editor .token.blockquote .token.punctuation,
+.dark .workbench-source-editor .token.strike,
+.dark .workbench-source-editor .token.strike .token.punctuation,
+.dark .workbench-source-editor .token.punctuation {
+  color: #8b949e;
+}
+.dark .workbench-source-editor .token.list,
+.dark .workbench-source-editor .token.list .token.punctuation {
+  color: #79c0ff;
+}
+.dark .workbench-source-editor .token.hr,
+.dark .workbench-source-editor .token.hr .token.punctuation {
+  color: #d2a8ff;
 }
 
 
