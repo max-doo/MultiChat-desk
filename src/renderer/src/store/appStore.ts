@@ -145,6 +145,38 @@ interface TurnMonitor {
   platforms: Record<string, PlatformMonitorState>
 }
 
+// 主页面模式切换配置：order 决定分段控件顺序，hidden 中的模式不显示
+export interface ProductModeConfig {
+  order: ProductMode[]
+  hidden: ProductMode[]
+}
+
+export const ALL_PRODUCT_MODES: ProductMode[] = ['multi_ai', 'task_assignment', 'debate', 'workbench']
+
+export const DEFAULT_PRODUCT_MODE_CONFIG: ProductModeConfig = {
+  order: [...ALL_PRODUCT_MODES],
+  hidden: []
+}
+
+// 规范外部读入的配置：补齐缺失模式、过滤未知值、收敛 hidden
+export function normalizeProductModeConfig(raw: unknown): ProductModeConfig {
+  const input = (raw ?? {}) as Partial<ProductModeConfig>
+  const rawOrder = Array.isArray(input.order) ? input.order : []
+  const order = rawOrder.filter((m): m is ProductMode => ALL_PRODUCT_MODES.includes(m as ProductMode))
+  ALL_PRODUCT_MODES.forEach(m => {
+    if (!order.includes(m)) order.push(m)
+  })
+  const rawHidden = Array.isArray(input.hidden) ? input.hidden : []
+  const hidden = rawHidden.filter((m): m is ProductMode =>
+    ALL_PRODUCT_MODES.includes(m as ProductMode) && !hidden.includes(m)
+  )
+  // 至少保留两个可见模式
+  while (order.length - hidden.length < 2 && hidden.length > 0) {
+    hidden.pop()
+  }
+  return { order, hidden }
+}
+
 interface MonitorState {
   isMonitoring: boolean
   currentConversationId: string | null
@@ -160,6 +192,10 @@ interface AppState {
   // 产品运行模式
   productMode: ProductMode
   setProductMode: (mode: ProductMode) => void
+
+  // 主页面模式切换的显示顺序与可见性配置
+  productModeConfig: ProductModeConfig
+  setProductModeConfig: (config: ProductModeConfig) => void
 
   // 多AI模式和辩论模式下的各个槽位选中的模型 ID 列表
   multiAiSlots: string[]
@@ -728,6 +764,19 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (window.api?.storeSet) {
       window.api.storeSet('productMode', mode)
       window.api.storeSet('displayMode', targetDisplayMode)
+    }
+  },
+
+  productModeConfig: DEFAULT_PRODUCT_MODE_CONFIG,
+  setProductModeConfig: (config) => {
+    const normalized = normalizeProductModeConfig(config)
+    set({ productModeConfig: normalized })
+    if (window.api?.storeSet) window.api.storeSet('productModeConfig', normalized)
+
+    // 当前模式被隐藏时，自动切换到第一个可见模式
+    if (normalized.hidden.includes(get().productMode)) {
+      const fallback = normalized.order.find(m => !normalized.hidden.includes(m))
+      if (fallback) get().setProductMode(fallback)
     }
   },
 
@@ -1891,6 +1940,7 @@ export async function initializeStore(): Promise<void> {
     const storedTaskAssignmentSlots = await window.api.storeGet('taskAssignmentSlots') as string[] | undefined
     const storedMultiAiSlots = await window.api.storeGet('multiAiSlots') as string[] | undefined
     const storedDebateSlots = await window.api.storeGet('debateSlots') as [string, string] | undefined
+    const storedProductModeConfig = await window.api.storeGet('productModeConfig')
 
     let initialDisplayMode = storedDisplayMode || useAppStore.getState().displayMode
     if (storedProductMode === 'task_assignment' && initialDisplayMode === 'one') {
@@ -1899,7 +1949,15 @@ export async function initializeStore(): Promise<void> {
       initialDisplayMode = 'two'
     }
 
-    if (storedProductMode) useAppStore.setState({ productMode: storedProductMode })
+    const productModeConfig = normalizeProductModeConfig(storedProductModeConfig)
+    useAppStore.setState({ productModeConfig })
+    if (storedProductMode && !productModeConfig.hidden.includes(storedProductMode)) {
+      useAppStore.setState({ productMode: storedProductMode })
+    } else if (storedProductMode) {
+      // 持久化的当前模式已被用户隐藏：回落到第一个可见模式
+      const fallback = productModeConfig.order.find(m => !productModeConfig.hidden.includes(m))
+      if (fallback) useAppStore.setState({ productMode: fallback })
+    }
     if (initialDisplayMode) useAppStore.setState({ displayMode: initialDisplayMode })
     if (storedMultiAiDisplayMode) useAppStore.setState({ multiAiDisplayMode: storedMultiAiDisplayMode })
     if (storedTaskAssignmentDisplayMode) useAppStore.setState({ taskAssignmentDisplayMode: storedTaskAssignmentDisplayMode === 'one' ? 'two' : storedTaskAssignmentDisplayMode })

@@ -51,6 +51,7 @@ interface UseWebviewActionsParams {
 
 type WebviewActions = Pick<WebviewCardRef,
   | 'getWebContentsId'
+  | 'getWebview'
   | 'getConversationIdentity'
   | 'sendMessage'
   | 'insertText'
@@ -78,6 +79,8 @@ export function useWebviewActions({
     getWebContentsId: () => {
       try { return webviewRef.current?.getWebContentsId() || null } catch { return null }
     },
+    // 只读暴露内部 webview（Workbench 侧边栏注入按钮 / console-message 监听用）
+    getWebview: () => webviewRef.current,
     getConversationIdentity: async () => {
       const webview = webviewRef.current
       if (!webview || !isReady || isHibernated) return null

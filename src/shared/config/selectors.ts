@@ -961,3 +961,69 @@ export async function saveSelectors(config: SelectorsConfig): Promise<void> {
     await window.api.storeSet('selectors', config)
   }
 }
+
+/**
+ * 工作台「回复插入」按钮注入配置（per-platform）。
+ *
+ * 独立于 ModelSelector / SelectorsConfig 维护，不进 electron-store 版本迁移，
+ * 因为这套选择器只服务 WorkbenchAiSidebar 的注入脚本，与消息抓取选择器职责不同。
+ *
+ * 判定优先级：
+ *  1. replyItem 命中 → 每条回复一个容器，按钮挂到该容器内的 actionBar；
+ *  2. messageRoot（整个消息流容器）+ replyItem 缺省 → 退化到「最后一条回复」模式；
+ *  3. 全部缺省 → 通用回退：在 messageContainer 命中的容器尾部 createBar。
+ */
+export interface AssistantReplyConfig {
+  /**
+   * 「单条回复」容器选择器（优先）。命中的每个元素视为一条独立回复，
+   * 按钮挂到其内部 actionBar。缺省时退化为「消息流容器 + 取最后一条」。
+   */
+  replyItem?: string[]
+  /**
+   * 「消息流容器」选择器（replyItem 缺省时使用）。命中的是包含全部对话的容器，
+   * 脚本在其中定位最后一条可见回复。
+   */
+  messageRoot?: string[]
+  /**
+   * 在 replyItem（或最后一条回复）内部定位「底部操作区」的选择器，
+   * 按钮追加到该容器末尾。缺省或全部未命中时按 createBar 处理。
+   */
+  actionBar?: string[]
+  /**
+   * true 时不查找 actionBar，改为在 replyItem 末尾新建 div.mc-action-bar。
+   * 用于千问等无集中操作区的平台。
+   */
+  createBar?: boolean
+  /**
+   * actionBar 命中元素是 DIV 而非 BUTTON（如元宝）。注入按钮用 div[role=button]，
+   * 点击用 dispatchEvent 合成 MouseEvent 冒泡触发，而非 .click()。
+   */
+  actionBarIsDiv?: boolean
+}
+
+export const assistantReplyConfigs: Record<string, AssistantReplyConfig> = {
+  chatgpt: {
+    replyItem: ['[data-message-author-role="assistant"]', '.agent-turn'],
+    actionBar: ['div.flex.items-center.gap-0\\.5', 'div[class*="buttons-container"]']
+  },
+  gemini: {
+    replyItem: ['model-response', '[class*="model-response"]'],
+    actionBar: ['div.buttons-container-v2', 'div[class*="buttons-container"]']
+  },
+  qwen: {
+    replyItem: ['div.auto-center-wrapper-VqwKSm', 'div[class*="auto-center-wrapper"]'],
+    // 千问无集中 actionBar，在回复容器末尾新建
+    createBar: true
+  },
+  doubao: {
+    replyItem: ['div[class*="w-full pl-14"]', '[data-render-engine]'],
+    actionBar: ['button.actionButton-m1fXIC']
+  },
+  yuanbao: {
+    // msgRoot 是整个消息流容器，单条回复在其中
+    messageRoot: ['div.agent-chat__list'],
+    replyItem: ['div[class*="agent-chat__bubble"]', 'div.hyc-common-markdown'],
+    actionBar: ['div.ToolbarCopy_icon__5Odjl', 'div[class*="ToolbarCopy_icon"]'],
+    actionBarIsDiv: true
+  }
+}

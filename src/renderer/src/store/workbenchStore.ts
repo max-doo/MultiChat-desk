@@ -3,7 +3,8 @@ import {
   type WorkbenchFileNode,
   type WorkbenchSearchResult,
   type WorkbenchFileCategory,
-  getFileCategory
+  getFileCategory,
+  MARKDOWN_EXTENSIONS
 } from '../../../shared/types/workbench'
 
 export type SaveStatus = 'saved' | 'saving' | 'error'
@@ -15,6 +16,30 @@ export type WorkbenchSortOrder = 'asc' | 'desc'
 export interface WorkbenchSortPreference {
   key: WorkbenchSortKey
   order: WorkbenchSortOrder
+}
+
+const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n/
+
+/**
+ * 往 Markdown 的 YAML frontmatter 补一条 source 链接。
+ * 已有 frontmatter：把 url 并入 source 字段（不存在则新增一行）；
+ * 无 frontmatter：新建 `---\nsource: url\n---\n` 头部。
+ */
+function upsertFrontmatterSource(content: string, url?: string): string {
+  if (!url) return content
+  const m = content.match(FRONTMATTER_RE)
+  if (!m) {
+    return `---\nsource: ${url}\n---\n\n${content}`
+  }
+  const head = m[0]
+  const body = m[1]
+  // 已有 source 行 → 追加 url（若未含该 url）
+  if (/^source\s*:/m.test(body)) {
+    if (body.includes(url)) return content
+    const next = body.replace(/^(source\s*:.*)$/m, `$1\nsource: ${url}`)
+    return `---\n${next}\n---\n` + content.slice(head.length)
+  }
+  return `---\n${body}\nsource: ${url}\n---\n` + content.slice(head.length)
 }
 
 interface WorkbenchStoreState {
@@ -77,6 +102,14 @@ interface WorkbenchStoreActions {
   renameNode: (oldRelativePath: string, newRelativePath: string) => Promise<boolean>
   moveNode: (sourceRelativePath: string, targetDirRelative: string) => Promise<boolean>
   deleteNode: (relativePath: string) => Promise<boolean>
+  insertReplyIntoActiveMarkdown: (
+    replyMd: string,
+    meta?: { conversationUrl?: string }
+  ) => Promise<{ success: boolean; error?: string }>
+  saveReplyAsNewMarkdown: (
+    replyMd: string,
+    meta: { platformId: string; title?: string }
+  ) => Promise<{ success: boolean; error?: string }>
   revealFile: (relativePath: string) => Promise<void>
   openInSystem: (relativePath: string) => Promise<void>
   searchFiles: (query: string) => void
@@ -549,8 +582,52 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   },
 
   deleteNode: async (relativePath: string) => {
-    const { workspacePath, activeFilePath } = get()
+    const { workspacePath, activeFilePath, fileTree, fileSort } = get()
     if (!workspacePath) return false
+
+    // 删除前按当前排序拍平文件列表，预取被删文件的后继者，删除后自动打开。
+    // 覆盖两种情形：被删项即当前文件；被删目录包含当前文件。
+    let nextFilePath: string | null = null
+    if (activeFilePath === relativePath || (activeFilePath && activeFilePath.startsWith(`${relativePath}/`))) {
+      const dir = fileSort.order === 'asc' ? 1 : -1
+      const flat: WorkbenchFileNode[] = []
+      const walk = (nodes: WorkbenchFileNode[]) => {
+        const sorted = [...nodes].sort((a, b) => {
+          if (a.isDirectory && !b.isDirectory) return -1
+          if (!a.isDirectory && b.isDirectory) return 1
+          if (fileSort.key === 'name' || a.isDirectory || b.isDirectory) {
+            return dir * a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
+          }
+          if (fileSort.key === 'mtime') return dir * ((a.mtime ?? 0) - (b.mtime ?? 0))
+          const diff = (a.size ?? 0) - (b.size ?? 0)
+          return diff !== 0
+            ? dir * diff
+            : a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
+        })
+        for (const n of sorted) {
+          if (n.isDirectory) {
+            if (n.children) walk(n.children)
+          } else {
+            flat.push(n)
+          }
+        }
+      }
+      walk(fileTree)
+      const idx = flat.findIndex(n => n.path === activeFilePath)
+      const isSurvivor = (n: WorkbenchFileNode) =>
+        n.path !== relativePath && !n.path.startsWith(`${relativePath}/`)
+      // 先向后取同序位的幸存文件，没有则向前取
+      let next: WorkbenchFileNode | undefined
+      for (let i = idx + 1; i < flat.length; i++) {
+        if (isSurvivor(flat[i])) { next = flat[i]; break }
+      }
+      if (!next) {
+        for (let i = idx - 1; i >= 0; i--) {
+          if (isSurvivor(flat[i])) { next = flat[i]; break }
+        }
+      }
+      nextFilePath = next?.path ?? null
+    }
 
     try {
       const res = await window.api.workbench.deleteNode(workspacePath, relativePath)
@@ -571,6 +648,11 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
           void window.api.storeDelete('workbench_lastActiveFilePath')
         }
         await get().loadFileTree()
+        // 当前文件被删时自动切换到排序上的相邻文件；无任何文件则停在空状态
+        if (nextFilePath) {
+          const opened = await get().openFile(nextFilePath)
+          if (!opened) void window.api.storeDelete('workbench_lastActiveFilePath')
+        }
         return true
       } else {
         set({ error: res.error || '删除失败' })
@@ -581,6 +663,123 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       set({ error: `删除操作异常: ${msg}` })
       return false
     }
+  },
+
+  /**
+   * 把一条 AI 回复追加到当前打开的 Markdown 文件末尾并落盘。
+   * 边界校验：仅接受 activeFileCategory === 'markdown'（.md/.markdown）。
+   *
+   * wysiwyg 模式：处理 frontmatter 后派发 workbench:insert-reply 事件，
+   * 由 MarkdownSyncPlugin 在光标上次停留处以「待确认高亮」插入（✓采纳/✗撤回）。
+   * source 模式：Lexical 未挂载，直接在末尾追加正文并落盘（无确认交互）。
+   */
+  insertReplyIntoActiveMarkdown: async (
+    replyMd: string,
+    meta?: { conversationUrl?: string }
+  ) => {
+    const { activeFilePath, activeFileCategory, editorMode, isDirty } = get()
+    const fail = (error: string): { success: boolean; error: string } => {
+      set({ error })
+      return { success: false, error }
+    }
+    if (!activeFilePath) return fail('请先在左侧打开一个 Markdown 文件')
+    const ext = `.${(activeFilePath.split('.').pop() || '').toLowerCase()}`
+    if (activeFileCategory !== 'markdown' || !MARKDOWN_EXTENSIONS.has(ext)) {
+      return fail('当前文件不是 Markdown')
+    }
+    const md = (replyMd || '').trim()
+    if (!md) return fail('回复内容为空')
+
+    // 先落盘清 dirty，避免防抖回写覆盖本次插入
+    if (isDirty) {
+      const saved = await get().saveActiveFile()
+      if (!saved) return fail('当前文件保存未完成')
+    }
+
+    // frontmatter 补 source（文档级元数据，撤回后仍保留）
+    const content = upsertFrontmatterSource(get().activeFileContent, meta?.conversationUrl)
+    if (content !== get().activeFileContent) {
+      set({ activeFileContent: content, isDirty: true })
+      await get().saveActiveFile()
+    }
+
+    if (editorMode === 'wysiwyg') {
+      // 交给 Lexical 在光标处待确认插入；frontmatter 已写盘，正文由 Lexical 回写
+      window.dispatchEvent(new CustomEvent('workbench:insert-reply', { detail: { replyMd: md } }))
+      return { success: true }
+    }
+
+    // source 模式：直接末尾追加并落盘
+    const cur = get().activeFileContent
+    const prefix = cur.trim() ? `${cur.replace(/\s+$/, '')}\n\n` : ''
+    const next = `${prefix}---\n\n${md}\n`
+    set({ activeFileContent: next, isDirty: true })
+    const saved = await get().saveActiveFile()
+    return saved ? { success: true } : fail('写入文件失败')
+  },
+
+  /**
+   * 把一条 AI 回复另存为工作区里的新 Markdown 文件并打开。
+   * 文件名 = 对话名（meta.title），重名自动加 -2/-3 序号；
+   * 无标题时回退 <平台>-<时间戳>.md。落到当前文件同目录或根目录。
+   */
+  saveReplyAsNewMarkdown: async (
+    replyMd: string,
+    meta: { platformId: string; title?: string }
+  ) => {
+    const { workspacePath, activeFilePath, fileTree } = get()
+    const fail = (error: string): { success: boolean; error: string } => {
+      set({ error })
+      return { success: false, error }
+    }
+    if (!workspacePath) return fail('请先打开一个工作区')
+    const md = (replyMd || '').trim()
+    if (!md) return fail('回复内容为空')
+
+    const dir = activeFilePath && activeFilePath.includes('/')
+      ? activeFilePath.slice(0, activeFilePath.lastIndexOf('/'))
+      : ''
+
+    // 主名：对话名清洗；无标题回退 平台-时间戳
+    const rawTitle = (meta.title || '').trim()
+    let base = rawTitle.replace(/[\\/:*?"<>|]/g, '').replace(/\s+/g, ' ').trim()
+    if (!base) {
+      const now = new Date()
+      const pad = (n: number): string => String(n).padStart(2, '0')
+      const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`
+      base = `${(meta.platformId || 'ai').replace(/[\\/:*?"<>|]/g, '')}-${stamp}`
+    }
+    if (base.length > 60) base = base.slice(0, 60)
+
+    // 收集目标目录下已有文件名用于查重
+    const siblings = new Set<string>()
+    const collect = (nodes: WorkbenchFileNode[]): void => {
+      for (const n of nodes) {
+        if (n.isDirectory) {
+          if (n.path === dir && n.children) collect(n.children)
+          else if (n.children && dir.startsWith(n.path)) collect(n.children)
+        } else if (n.path.split('/').slice(0, -1).join('/') === dir) {
+          siblings.add(n.name)
+        }
+      }
+    }
+    collect(fileTree)
+
+    let fileName = `${base}.md`
+    let i = 2
+    while (siblings.has(fileName)) {
+      fileName = `${base}-${i}.md`
+      i++
+    }
+
+    const relPath = await get().createFile(dir, fileName)
+    if (!relPath) return fail(get().error || '创建文件失败')
+    const res = await window.api.workbench.writeFile(workspacePath, relPath, md)
+    if (!res.success) return fail(res.error || '写入文件失败')
+    // createFile 已 openFile，同步最新内容与保存态
+    set({ activeFileContent: md, isDirty: false, saveStatus: 'saved' })
+    await get().loadFileTree()
+    return { success: true }
   },
 
   revealFile: async (relativePath: string) => {

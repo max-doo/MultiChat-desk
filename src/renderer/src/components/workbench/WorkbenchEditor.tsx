@@ -24,6 +24,8 @@ import { LinkNode, AutoLinkNode } from '@lexical/link'
 import { useWorkbenchStore } from '../../store/workbenchStore'
 import WorkbenchToolbar from './WorkbenchToolbar'
 import MarkdownSyncPlugin, { WORKBENCH_TRANSFORMERS } from './MarkdownSyncPlugin'
+import { PendingInsertNode } from './PendingInsertNode'
+import { PendingBarNode } from './PendingBarNode'
 import WorkbenchSelectionMenuPlugin from './WorkbenchSelectionMenuPlugin'
 import WorkbenchFloatingToolbarPlugin from './WorkbenchFloatingToolbarPlugin'
 import WorkbenchDraggableBlockPlugin from './WorkbenchDraggableBlockPlugin'
@@ -34,6 +36,7 @@ import WorkbenchCodePreview from './WorkbenchCodePreview'
 import WorkbenchImagePreview from './WorkbenchImagePreview'
 import WorkbenchPdfPreview from './WorkbenchPdfPreview'
 import WorkbenchDocxCard from './WorkbenchDocxCard'
+import WorkbenchStatusPill from './WorkbenchStatusPill'
 
 const lexicalTheme = {
   paragraph: 'PlaygroundEditorTheme__paragraph',
@@ -108,7 +111,6 @@ export default function WorkbenchEditor(): JSX.Element {
   const activeFileCategory = useWorkbenchStore((s) => s.activeFileCategory)
   const activeFileDataUrl = useWorkbenchStore((s) => s.activeFileDataUrl)
   const updateActiveContent = useWorkbenchStore((s) => s.updateActiveContent)
-  const saveStatus = useWorkbenchStore((s) => s.saveStatus)
   const editorMode = useWorkbenchStore((s) => s.editorMode)
   const setEditorMode = useWorkbenchStore((s) => s.setEditorMode)
   const isLeftCollapsed = useWorkbenchStore((s) => s.isLeftCollapsed)
@@ -140,7 +142,9 @@ export default function WorkbenchEditor(): JSX.Element {
         CodeHighlightNode,
         LinkNode,
         AutoLinkNode,
-        HorizontalRuleNode
+        HorizontalRuleNode,
+        PendingInsertNode,
+        PendingBarNode
       ],
       onError: (error: Error) => {
         console.error('[WorkbenchEditor] Lexical Error:', error)
@@ -148,10 +152,6 @@ export default function WorkbenchEditor(): JSX.Element {
     }),
     []
   )
-
-  // 字符和词数统计
-  const charCount = activeFileContent.length
-  const wordCount = activeFileContent.trim() ? activeFileContent.trim().split(/\s+/).length : 0
 
   // 空状态引导
   if (!activeFilePath) {
@@ -230,7 +230,7 @@ export default function WorkbenchEditor(): JSX.Element {
   if (editorMode === 'source') {
     return (
       <div
-        className="flex-1 h-full flex flex-col overflow-hidden bg-white dark:bg-gray-900"
+        className="relative flex-1 h-full flex flex-col overflow-hidden bg-white dark:bg-gray-900"
         data-workbench-editor="true"
       >
         {/* 源码模式顶部栏：路径、统计、自动保存状态与视图切换 */}
@@ -253,27 +253,6 @@ export default function WorkbenchEditor(): JSX.Element {
           </div>
 
           <div className="flex items-center gap-2.5 text-text-secondary text-sm shrink-0">
-            <span className="hidden sm:inline" title={`字数: ${wordCount}，字符数: ${charCount}`}>
-              {wordCount} 词 · {charCount} 字符
-            </span>
-
-            {/* 保存状态指示 */}
-            <div className="flex items-center gap-1.5 font-medium">
-              {saveStatus === 'saving' ? (
-                <span className="flex items-center gap-1 text-amber-500">
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-                  <span>保存中...</span>
-                </span>
-              ) : saveStatus === 'error' ? (
-                <span className="flex items-center gap-1 text-rose-500">
-                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
-                  <span>保存失败</span>
-                </span>
-              ) : (
-                <span className="text-text-secondary">已保存</span>
-              )}
-            </div>
-
             {/* 模式分段控件 */}
             <div className="flex items-center p-0.5 bg-black/5 dark:bg-white/5 rounded-lg border border-black/5 dark:border-white/5">
               <button
@@ -300,6 +279,7 @@ export default function WorkbenchEditor(): JSX.Element {
           value={activeFileContent}
           onChange={updateActiveContent}
         />
+        <WorkbenchStatusPill />
       </div>
     )
   }
@@ -307,7 +287,7 @@ export default function WorkbenchEditor(): JSX.Element {
   // 富文本编辑模式 (Meta Lexical)
   return (
     <div
-      className="flex-1 h-full flex flex-col overflow-hidden bg-white dark:bg-gray-900"
+      className="relative flex-1 h-full flex flex-col overflow-hidden bg-white dark:bg-gray-900"
       data-workbench-editor="true"
     >
       <LexicalComposer initialConfig={initialConfig}>
@@ -364,6 +344,7 @@ export default function WorkbenchEditor(): JSX.Element {
         <WorkbenchSelectionMenuPlugin />
         <WorkbenchTableCellResizerPlugin />
       </LexicalComposer>
+      <WorkbenchStatusPill />
     </div>
   )
 }

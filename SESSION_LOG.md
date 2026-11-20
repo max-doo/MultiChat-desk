@@ -2,6 +2,92 @@
 
 ## 2026-11-20
 
+### 12:13 | Codex
+
+- done: 工作台删除当前打开文件后自动切换到排序上的相邻文件（先向后再向前），删除包含当前文件的目录同样生效；无剩余文件才显示空状态
+- context: 用户反馈：删除当前打开的笔记后出现'未打开任何文档'空状态，希望自动打开下一个文件
+- decision: 删除前按 fileSort 排序拍平文件树预取后继者，删除成功并 loadFileTree 后调用 openFile 切换；openFile 内部处理了 dirty 刷盘与 lastActiveFilePath 持久化
+- lesson(promoted): tsconfig.web.json 缺少 target 导致存量 TS2802 等 12 个类型错误，验证时以"错误清单未新增"为准（已并入 KNOWLEDGE 主题12）
+- modified:
+  - `src/renderer/src/store/workbenchStore.ts`
+
+### 12:11 | Codex
+
+- done: 设置面板新增'主页面模式切换'自定义：4 个模式（多AI/任务分配/辩论/工作台）支持拖拽排序、上下移、显隐开关，至少保留两个可见；配置持久化到 productModeConfig 键，当前模式被隐藏时自动回落第一个可见模式
+- added:
+  - `src/renderer/src/components/ProductModeOrderModal.tsx`
+- modified:
+  - `src/renderer/src/store/appStore.ts`
+  - `src/renderer/src/components/Layout.tsx`
+  - `src/renderer/src/components/SettingsDrawer.tsx`
+- lesson: ProductMode 分 tab 显示/排序配置可走 electron-store 单键（order+hidden），normalize 时按 ALL_PRODUCT_MODES 白名单过滤并保证≥2 可见
+
+### 12:09 | Codex
+
+- done: v4增量：插入到光标上次停留处(lastAnchorRef序列化锚点+isAttached校验,失效时selectEnd兜底)+待确认高亮PendingInsertNode容器(非黄淡蓝,含PendingBarNode装饰器✓采纳/✗撤回)+失效修复(先saveActiveFile清dirty再经Lexical editor.update内部插入,消除双向回写竞争)+新文档名=对话名重名-2/-3+frontmatter补source链接+actionBar挂载改向上找含≥2按钮容器prepend+insert图标换落笔
+- decision: MarkNode isInline=true跨不了block,改PendingInsertNode Element容器一处解决高亮+撤回;;frontmatter归store层管body归Lexical
+- added:
+  - `src/renderer/src/components/workbench/PendingInsertNode.tsx`
+  - `src/renderer/src/components/workbench/PendingBarNode.tsx`
+- modified:
+  - `src/renderer/src/components/workbench/MarkdownSyncPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+  - `src/renderer/src/store/workbenchStore.ts`
+  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
+  - `src/shared/utils/webviewScripts.ts`
+  - `src/renderer/src/assets/index.css`
+  - `docs/reply-insert-into-workbench-design.md`
+- lesson: Lexical 0.53自定义ElementNode/DecoratorNode: exportJSON需兼容compact overload,SerializedXNode直接用基类型勿用Spread<Record<string,never>>否则type/version推成never;ElementNode容器法比MarkNode更适合跨block临时高亮
+
+### 12:08 | Antigravity
+
+- done: 移除工作台内容区域最外层容器的半透明暗背景，使页面底部渐变背景直接通透呈现
+- modified:
+  - `src/renderer/src/pages/WorkbenchPage.tsx`
+
+### 12:02 | Codex
+
+- done: 修复工作台侧边栏无法切换到未启用模型（DeepSeek/元宝等）的问题
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
+- lesson: 侧边栏为 isolated 隔离场景，切换目标需与下拉选项一致使用全量 models；若沿用主界面 enabled 过滤，选中未启用模型时 webview 不挂载、currentModel 回退到首个 enabled 模型，表现为点击无效
+
+### 12:01 | Codex
+
+- done: 工作台模式：为中间编辑区顶部两角、右侧 AI 侧栏左上角加适中圆角(rounded-xl)，新增外层灰色衬底容器使圆角可见
+- context: 用户截图红框标注三处角需圆角，圆角不要太大
+- decision: 用 bg-black/[0.03] 外层衬底 + rounded-xl + 补边框/bg，圆角自然且不影响 webview 内容
+- modified:
+  - `src/renderer/src/pages/WorkbenchPage.tsx`
+
+### 11:45 | Codex
+
+- done: 实现工作台 AI 回复一键插入 Markdown：selectors.ts 新增 assistantReplyConfigs(chatgpt/gemini/qwen/doubao/yuanbao)；webviewScripts.ts 新增 generateInsertReplyButtonScript(MutationObserver 幂等挂两按钮,console.log __MC_前缀回传)；WebviewCardRef 新增 getWebview() 只读访问器;WorkbenchAiSidebar 注入脚本+console-message 监听(仅此模式注入,其他模式零感知);workbenchStore 新增 insertReplyIntoActiveMarkdown(仅.md追加落盘)/saveReplyAsNewMarkdown(平台-时间戳.md 自动打开)；主窗口 minWidth 900→1100 防工作台三栏挤压
+- decision: 回传通道=console-message(webview无preload);只WorkbenchAiSidebar注入其他模式零感知;插入仅markdown类文件
+- added:
+  - `docs/reply-action-dom/*.md`
+- modified:
+  - `src/shared/config/selectors.ts`
+  - `src/shared/utils/webviewScripts.ts`
+  - `src/renderer/src/components/WebviewCard.tsx`
+  - `src/renderer/src/hooks/useWebviewActions.ts`
+  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
+  - `src/renderer/src/store/workbenchStore.ts`
+  - `src/main/webviewManager.ts`
+  - `docs/reply-insert-into-workbench-design.md`
+- unresolved: 8家未登录平台选择器待补;dev实机验证按钮出现/插入/存新待跑
+
+### 11:45 | Codex
+
+- done: 修复工作台小窗口下两侧分隔条无法拖拽问题（webview 原生层遮挡命中）；中栏最小宽 360→480；字数/保存状态从工具栏移至编辑区右下角悬浮胶囊（WYSIWYG 与源码模式共用）
+- added:
+  - `src/renderer/src/components/workbench/WorkbenchStatusPill.tsx`
+- modified:
+  - `src/renderer/src/pages/WorkbenchPage.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchToolbar.tsx`
+- lesson: Electron <webview> 是原生插件层，会遮挡相邻 DOM 的指针命中；分隔条需要足够大的命中区域并在拖拽时用全屏透明遮罩接管事件
+
 ### 11:38 | Codex
 
 - done: 文件树代码文件图标改用 vscode-material-icon-theme 官方 SVG；非代码文件还原 Material Symbols

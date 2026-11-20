@@ -42,6 +42,8 @@ export type { FileUploadData }
 // 暴露给父组件的方法
 export interface WebviewCardRef {
   getWebContentsId: () => number | null
+  /** 只读暴露内部 webview 元素（Workbench 侧边栏注入按钮 / console-message 监听用） */
+  getWebview: () => Electron.WebviewTag | null
   getConversationIdentity: () => Promise<{ url: string; title: string } | null>
   sendMessage: (message: string, twoPhase?: boolean) => Promise<{ success: boolean; error?: string }>
   insertText: (message: string) => Promise<{ success: boolean; error?: string }>

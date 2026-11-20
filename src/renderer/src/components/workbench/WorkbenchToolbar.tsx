@@ -74,8 +74,6 @@ const ELEMENT_FORMATS: { format: ElementFormatType; icon: string; label: string 
 
 export default function WorkbenchToolbar(): JSX.Element {
   const [editor] = useLexicalComposerContext()
-  const activeFileContent = useWorkbenchStore((s) => s.activeFileContent)
-  const saveStatus = useWorkbenchStore((s) => s.saveStatus)
   const editorMode = useWorkbenchStore((s) => s.editorMode)
   const setEditorMode = useWorkbenchStore((s) => s.setEditorMode)
   const isLeftCollapsed = useWorkbenchStore((s) => s.isLeftCollapsed)
@@ -292,9 +290,6 @@ export default function WorkbenchToolbar(): JSX.Element {
   const handleRedo = useCallback(() => {
     editor.dispatchCommand(REDO_COMMAND, undefined)
   }, [editor])
-
-  const charCount = activeFileContent.length
-  const wordCount = activeFileContent.trim() ? activeFileContent.trim().split(/\s+/).length : 0
 
   const itemClass = (active: boolean) =>
     `w-full text-left px-3 py-1.5 flex items-center gap-2 transition-colors ${
@@ -550,28 +545,8 @@ export default function WorkbenchToolbar(): JSX.Element {
         </WorkbenchDropDown>
       </div>
 
-      {/* 右侧：字数统计、自动保存状态、富文本/源码切换（无手动保存按钮，Ctrl+S 由全局快捷键承担） */}
+      {/* 右侧：富文本/源码切换（字数与保存状态悬浮在编辑区右下角） */}
       <div className="flex items-center gap-2.5 text-text-secondary text-sm shrink-0">
-        <span className="hidden sm:inline" title={`字数: ${wordCount}，字符数: ${charCount}`}>
-          {wordCount} 词 · {charCount} 字符
-        </span>
-
-        <div className="flex items-center gap-1.5 font-medium">
-          {saveStatus === 'saving' ? (
-            <span className="flex items-center gap-1 text-amber-500">
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-              <span>保存中...</span>
-            </span>
-          ) : saveStatus === 'error' ? (
-            <span className="flex items-center gap-1 text-rose-500">
-              <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
-              <span>保存失败</span>
-            </span>
-          ) : (
-                <span className="text-text-secondary">已保存</span>
-          )}
-        </div>
-
         <div className="flex items-center p-0.5 bg-black/5 dark:bg-white/5 rounded-lg border border-black/5 dark:border-white/5">
           <button
             type="button"

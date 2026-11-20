@@ -702,4 +702,59 @@ webview[tabindex="-1"] {
   color: #d2a8ff;
 }
 
+/* —— 工作台「待确认插入」高亮容器（非黄色，淡蓝） —— */
+.mc-pending-insert {
+  position: relative;
+  background: rgba(59, 130, 246, 0.08);
+  border-left: 3px solid #3b82f6;
+  border-radius: 4px;
+  padding: 8px 12px 8px 12px;
+  margin: 6px 0;
+}
+.dark .mc-pending-insert {
+  background: rgba(59, 130, 246, 0.16);
+  border-left-color: #60a5fa;
+}
+.mc-pending-bar-wrap {
+  display: block;
+  user-select: none;
+}
+.mc-pending-bar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed rgba(59, 130, 246, 0.3);
+}
+.mc-pending-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 22px;
+  border-radius: 5px;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  color: #fff;
+  transition: opacity 0.15s;
+}
+.mc-pending-btn .material-symbols-outlined {
+  font-size: 15px;
+}
+.mc-pending-accept {
+  background: #22c55e;
+}
+.mc-pending-accept:hover {
+  background: #16a34a;
+}
+.mc-pending-reject {
+  background: #ef4444;
+}
+.mc-pending-reject:hover {
+  background: #dc2626;
+}
+
 

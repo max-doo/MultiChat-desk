@@ -7,6 +7,7 @@ import ImportCacheConfirmModal from './ImportCacheConfirmModal'
 import AboutSection from './AboutSection'
 import CliIntegrationSection from './CliIntegrationSection'
 import ModelOrderModal from './ModelOrderModal'
+import ProductModeOrderModal from './ProductModeOrderModal'
 import { openUpdateRelease, useUpdateReminder } from '../hooks/useUpdateState'
 
 interface SettingsDrawerProps {
@@ -171,6 +172,7 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
   const [isNewPrompt, setIsNewPrompt] = useState(false)
 
   const [modelOrderOpen, setModelOrderOpen] = useState(false)
+  const [modeOrderOpen, setModeOrderOpen] = useState(false)
 
   // 快捷键设置状态
   const [shortcuts, setShortcuts] = useState<Record<string, string>>({
@@ -473,7 +475,27 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
         {/* 设置内容：可滚动区域 */}
         <div className="flex-1 p-6 space-y-8 overflow-y-auto">
 
-
+          {/* 主页面模式切换设置 */}
+          <div>
+            <h3 className="flex items-center gap-2 font-semibold text-text-primary mb-4">
+              <span className="material-symbols-outlined text-primary text-xl">view_column_2</span>
+              主页面模式切换
+            </h3>
+            <div className="p-4 rounded-xl glass-panel flex items-center justify-between">
+              <div>
+                <div className="text-sm text-text-primary font-medium">自定义模式入口</div>
+                <div className="text-xs text-text-secondary mt-1">调整标题栏模式切换的顺序与显示，至少保留两个</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setModeOrderOpen(true)}
+                className="flex items-center gap-1 text-sm text-primary hover:opacity-80 transition-colors font-medium shrink-0 ml-4"
+              >
+                <span className="material-symbols-outlined text-base">tune</span>
+                调整
+              </button>
+            </div>
+          </div>
           <div>
             <h3 className="flex items-center gap-2 font-semibold text-text-primary mb-4">
               <span className="material-symbols-outlined text-primary text-xl">account_tree</span>
@@ -760,6 +782,12 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
       <ModelOrderModal
         isOpen={modelOrderOpen}
         onClose={() => setModelOrderOpen(false)}
+      />
+
+      {/* 主页面模式切换排序/显隐弹窗 */}
+      <ProductModeOrderModal
+        isOpen={modeOrderOpen}
+        onClose={() => setModeOrderOpen(false)}
       />
     </>
   )

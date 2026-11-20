@@ -1,6 +1,6 @@
 # 「AI 回复一键插入工作台」开发文档（评审稿 v3）
 > Created: 2026-11-20 11:15 (+08:00)
-> Updated: 2026-11-20 12:10 (+08:00)
+> Updated: 2026-11-20 14:30 (+08:00)
 
 ## 1. 需求与目标
 
@@ -61,8 +61,8 @@ export interface AssistantReplyConfig {
 
 - 在 `WorkbenchAiSidebar` 挂载 webview 后注入 `injectWorkbenchInsertButton` 脚本（`dom-ready` + `did-navigate-in-page`/`did-navigate` 后重新注入，因多数站点是 SPA）。
 - 脚本内部用 `MutationObserver` 监听消息流容器；发现新 assistant 回复且未挂按钮时，插入 `<button class="mc-insert-btn">`。
-- 按钮样式：继承页面按钮基础样式，追加固定 class `mc-insert-btn`，文案用 `插入工作台` + `存为新 md`（两个按钮或一个下拉，见 §4）。
-- **防重复**：按钮挂到 actionBar 末尾时，先检查是否已有 `.mc-insert-btn`/`aria-label="插入工作台"`；SPA 重渲染时 MutationObserver 会重新触发，靠该检查保证幂等。
+- 按钮样式：继承页面按钮基础样式，追加固定 class `mc-insert-btn`/`mc-save-btn`，文案用 `插入到当前文档` / `存为新文档`（两个独立按钮，见 §4）。
+- **防重复**：按钮挂到 actionBar 末尾时，先检查是否已有 `.mc-insert-btn`；SPA 重渲染时 MutationObserver 会重新触发，靠该检查保证幂等。
 
 ### 3.3 回传通道（评审 P0-1：修正为 console-message）
 
@@ -82,7 +82,7 @@ export interface AssistantReplyConfig {
 ```ts
 // 追加到当前 md 末尾；边界校验（评审 P1-4）：
 //   activeFilePath 为空 → error '请先在左侧打开一个 Markdown 文件'
-//   activeFileCategory !== 'text'/'markdown' → error '当前文件不是 Markdown'
+//   activeFileCategory !== 'markdown' → error '当前文件不是 Markdown'（评审收紧：.txt/.csv 拒绝）
 //   扩展名不在 MARKDOWN_EXTENSIONS → error '当前文件不是 Markdown'
 //   成功后 isRightCollapsed=true 时先 toggleRightCollapse() 展开右栏（见 §4）
 insertReplyIntoActiveMarkdown(replyMd: string): Promise<{ success: boolean; error?: string }>
@@ -137,7 +137,7 @@ saveReplyAsNewMarkdown(replyMd: string, meta: { platformId: string; title?: stri
    - 点 `插入到当前文档` → 当前 `.md` 末尾追加 Markdown；
    - 点 `存为新文档` → 工作区新增 `<title>-<platform>-<ts>.md` 并自动打开；
    - 切换工作台平台（`sidebarModelId` 变化）后，旧 webview 按钮不重复注入。
-3. 对 4 家代表平台（chatgpt / gemini / doubao / qwen）做上述验收；元宝额外验证 `DIV` 型按钮点击是否触发 ipc-message。
+3. 对 4 家代表平台（chatgpt / gemini / doubao / qwen）做上述验收；元宝额外验证 `DIV` 型按钮点击是否触发 console-message 前缀消息。
 
 ## 8. 风险与回退
 
@@ -170,3 +170,64 @@ saveReplyAsNewMarkdown(replyMd: string, meta: { platformId: string; title?: stri
 4. **未登录平台**：8 家走通用回退（`messageContainer` 尾部 `createBar`），待补登录态后精细化。
 5. **回传通道**：`console-message`（`<webview>` 无 preload，`ipc-message` 不存在）。
 6. **注入边界**：只挂 `WorkbenchAiSidebar` 的 webview，其他模式零感知；`WebviewCard` 仅加 `getWebview()` 只读访问器。
+
+---
+
+## 11. v4 增量修订：插入位置 / 待确认高亮 / 文件名与来源（评审稿）
+
+v3 实现后实测暴露三个问题，本节为对应修订，需再次评审。
+
+### 11.1 插入位置：光标上次停留处，而非文末
+
+- Lexical 编辑器维护 `lastSelection`：`MarkdownSyncPlugin` 里 `editor.registerUpdateListener` 已在跑，另用 `editor.registerCommand(SELECTION_CHANGE_COMMAND)` 或 `editorState.read` 在每次更新时把最近一次的 `RangeSelection` 序列化锚点（anchor key+offset）存入模块级 ref。
+- 「插入到当前文档」派发 Lexical 命令 `INSERT_REPLY_COMMAND`（`createCommand`），handler 里：
+  1. 先 `await get().saveActiveFile()` 清 dirty，避免旧防抖回写覆盖（这是 v3 偶发失效根因之一）。
+  2. `editor.update`：**用 `$generateNodesFromMarkdownString(replyMd, WORKBENCH_TRANSFORMERS)` 直接得到 `LexicalNode[]` 顶层 block**（`@lexical/markdown` 0.53 已导出，无需临时容器），然后 `selection.insertNodes(nodes)`；无上次选区时 `$getRoot().selectEnd()` 兜底文末。
+- **`lastSelection` 存序列化锚点而非对象引用**：存 `{ anchorKey, anchorOffset, anchorType }`（`RangeSelection.anchor` 的 `point.getNode().getKey()`/`offset`/`type`）。插入前 `editorState.read` 校验 `$getNodeByKey(anchorKey).isAttached()`，存活则重建 RangeSelection，死节点回退 `$getRoot().selectEnd()`。对象引用会在后续 `editor.update` 替换 anchor 节点后 stale。
+- 源码模式（`editorMode==='source'`）下 Lexical 未挂载，走 `activeFileContent` 字符串在末尾追加（source 模式无光标语义，可接受文末）。
+
+### 11.2 待确认高亮：PendingBlock 容器 + ✓采纳 / ✗撤回（非黄色）
+
+~~原方案用 `MarkNode` 包裹~~——**评审否决**：`MarkNode.isInline()===true`，只能包 inline 文本，无法包 ListNode/CodeNode/TableNode/QuoteNode 等 block 容器；多 block 回复高亮不全且撤回无法精确删 block。改为容器法：
+
+- **高亮+撤回载体**：自定义 `PendingInsertNode extends ElementNode`（块级容器，可含子节点）。`$generateNodesFromMarkdownString` 得到的 `LexicalNode[]` 作为 children append 进一个 `PendingInsertNode`，整体作为一个 block 插到光标处。容器 `createDOM` 给 `className='mc-pending-insert'` + 非黄高亮背景（淡蓝绿，区别于笔记黄）+ 底部渲染「✓ 采纳 / ✗ 撤回」工具条（`createDOM` 内拼 DOM 或配合 DecoratorNode，二选一见下）。
+- **✓/✗ 工具条实现**：`PendingInsertNode` 是普通 ElementNode 时无法直接挂 React 组件，两个做法：
+  a. `createDOM` 返回的容器元素里 `appendChild` 一个原生 `div` 工具条，绑 `click` 事件派发 `CONFIRM_INSERT_COMMAND`/`CANCEL_INSERT_COMMAND`（事件委托到 editor）——简单，推荐；
+  b. 另加一个 `PendingInsertBarNode extends DecoratorNode` 放容器末尾渲染 React 工具条——需额外注册节点 + 关联 key，复杂。
+- **采纳（✓）**：`CONFIRM_INSERT_COMMAND` handler：`editor.update` 把 `PendingInsertNode` 的 `getChildren()` 逐个 `insertBefore` 到容器前，再 `pendingNode.remove()`——children 提到原位、容器消失 → MarkdownSyncPlugin 正常回写落盘。
+- **撤回（✗）**：`CANCEL_INSERT_COMMAND` handler：`pendingNode.remove()` 整体删 → 内容不进文件。
+- **导出安全**：`PendingInsertNode.exportJSON`/`importJSON` 按普通 ElementNode 序列化 children；为防其进 markdown，采纳前 `$convertToMarkdownString` 会带上容器 children 文本（mark 包裹只是无语法容器，导出仍会包含其文本）——所以**撤回/采纳前若用户手动切源码或触发保存，容器文本已进文件**。可接受：pending 内容本就是待确认正文，采纳即保留；撤回才删。给 `PendingInsertNode` 注册 `exportDOM`/`isInline=false`，markdown 转换器会忽略其包裹性、只导出 children。
+- **单条 pending**（评审决议）：新插入前先 `editor.update` 清掉已有 `PendingInsertNode`（`$getRoot().getChildren()` 找 `$isPendingInsertNode` 删之）。
+
+### 11.3 失效修复（v3 bug）
+
+- **根因**：v3 的 `insertReplyIntoActiveMarkdown` 直接 `set({activeFileContent})` 绕过 Lexical，且未先落盘。此时若有 pending 的 `updateActiveContent` 防抖（1200ms）或 Lexical `registerUpdateListener` 的 dirty 回写仍在队列，会用旧 `fullMarkdown` 覆盖刚追加的内容 → 偶发失效。
+- **修复**：改为派 `INSERT_REPLY_COMMAND` 走 Lexical `editor.update` 内部插入（§11.1），内容经 `MarkdownSyncPlugin` 正常单向回写，不再双向覆盖。**`await saveActiveFile` 必须放在 dispatch 之前、`editor.update` 闭包之外**（update 回调内不能 await）。
+
+### 11.4 新文档命名 = 对话名，重名加序号
+
+- `saveReplyAsNewMarkdown` 文件名改为 `<对话名>.md`：`meta.title`（payload 的 `document.title`，如「拆解大模型调研」）经 `replace(/[\\/:*?"<>|]/g,'')` 清洗后作主名；空标题回退 `<平台>-<时间戳>.md`。
+- **重名序号**：`createFile` 前先查 `fileTree`/调 `readNode` 探存在性，若 `<名>.md` 已存在则依次试 `<名>-2.md`、`<名>-3.md`…直到不重名。复用现有 `loadFileTree` 的扁平节点列表即可。
+
+### 11.5 插入时 frontmatter 带来源链接
+
+- **边界**：frontmatter 归 store 层管（`MarkdownSyncPlugin.frontmatterRef` 单独持有，`$convertToMarkdownString` 只转 body，`frontmatterRef + body` 拼回）。**绝不能**在 Lexical handler 内插 frontmatter 文本——`---` 会被 `HR_TRANSFORMER` 转成 `HorizontalRuleNode`。
+- **实现**：`insertReplyIntoActiveMarkdown` 在 dispatch 前，用 `parseMarkdownWithFrontmatter(activeFileContent)` 拆出 frontmatter，补/建 `source: <conversationUrl>`（已有则并入、无则新建 `---\nsource: url\n---\n`），把新 frontmatter 写回 store 的 `activeFileContent`——但这会触发 `isReturningToWysiwyg` 重载。**更干净**：`frontmatter` 修改通过 `MarkdownSyncPlugin` 暴露的方法写入 `frontmatterRef` 并 `updateActiveContent`，不动 body；Lexical 只插 body。
+- `conversationUrl` 取自 payload。撤回后 source 保留（§11.7）。
+
+### 11.6 按钮图标与位置修正
+
+- **位置**：判定改为"**从 actionBar 命中元素向上找含 ≥2 个按钮/图标子元素的容器，prepend 到其 firstChild**"——统一处理 chatgpt(命中容器)/doubao(按钮)/yuanbao(div按钮)，不依赖"命中的是容器还是按钮"的猜测，避免豆包 actionBar 改版包层 div 时误判。
+- **图标**：「插入到当前文档」改为锚点/落笔语义图标（`input`/`edit_note`，非下载箭头），「存为新文档」保留文档图标。
+
+### 11.8 必须新增的实现事实（评审补充）
+
+- `initialConfig.nodes`（`WorkbenchEditor.tsx`）需注册自定义 `PendingInsertNode`（ElementNode 容器）；若用方案 b 的 DecoratorNode 工具条也要一并注册。
+- 插入命令打自定义 `tag`（如 `'mc-insert'`）便于 `registerUpdateListener` 排查 diff，非必需。
+- source 模式下直接 `activeFileContent` 末尾追加并落盘，**无 ✓/✗ 确认**（文档化）；frontmatter 在 store 层处理，body 追加也走 store。
+
+### 11.7 v4 待评审问题
+
+1. pending 高亮一次只保留一条（新插入清旧）vs 允许多条并存？推荐单条，实现简单。
+2. 撤回后是否同时移除 frontmatter 里刚加的 source？推荐**保留**（source 是文档级元数据，与单次插入解耦），待确认。
+3. source 模式下无 Lexical，`✓/✗` 交互不可达——是否接受 source 模式直接落盘无确认？推荐接受并文档化。

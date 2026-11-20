@@ -168,52 +168,66 @@ export default function WorkbenchPage({ isActive = true }: WorkbenchPageProps): 
         </div>
       )}
 
-      {/* 左栏：文件树与搜索 */}
-      {!isLeftCollapsed && (
-        <div
-          className="h-full shrink-0 overflow-hidden"
-          style={{ width: `${leftPaneWidth}px` }}
-        >
-          <WorkbenchFileTree />
+      <div className="flex flex-1 h-full min-w-0">
+        {/* 左栏：文件树与搜索 */}
+        {!isLeftCollapsed && (
+          <div
+            className="h-full shrink-0 overflow-hidden"
+            style={{ width: `${leftPaneWidth}px` }}
+          >
+            <WorkbenchFileTree />
+          </div>
+        )}
+
+        {/* 左栏可拖拽 Splitter */}
+        {!isLeftCollapsed && (
+          <div
+            onPointerDown={handleLeftSplitterPointerDown}
+            className={`group relative w-[10px] -ml-[5px] h-full cursor-col-resize z-30 select-none shrink-0 ${
+              isDraggingLeft ? 'bg-primary/60' : 'bg-transparent'
+            }`}
+            title="拖拽调整左栏宽度"
+          >
+            <div
+              className={`absolute inset-y-0 left-1/2 -translate-x-1/2 w-[4px] transition-colors group-hover:bg-blue-500/40 ${
+                isDraggingLeft ? 'bg-primary/60' : ''
+              }`}
+            />
+          </div>
+        )}
+
+        {/* 中栏：Meta Lexical 编辑器（左栏折叠时左上角贴齐窗口边缘、右栏折叠时右上角贴齐，不再圆角） */}
+        <div className={`flex-1 h-full min-w-[480px] overflow-hidden flex flex-col bg-white dark:bg-gray-900 border-l border-t border-r border-black/5 dark:border-white/5 ${isLeftCollapsed ? '' : 'rounded-tl-xl'} ${isRightCollapsed ? '' : 'rounded-tr-xl'}`}>
+          <WorkbenchEditor />
         </div>
-      )}
 
-      {/* 左栏可拖拽 Splitter */}
-      {!isLeftCollapsed && (
+        {/* 右栏可拖拽 Splitter */}
+        {!isRightCollapsed && (
+          <div
+            onPointerDown={handleRightSplitterPointerDown}
+            className={`group relative w-[10px] -mr-[5px] h-full cursor-col-resize z-30 select-none shrink-0 ${
+              isDraggingRight ? 'bg-primary/60' : 'bg-transparent'
+            }`}
+            title="拖拽调整侧边栏宽度"
+          >
+            <div
+              className={`absolute inset-y-0 right-0 w-[4px] transition-colors group-hover:bg-blue-500/40 ${
+                isDraggingRight ? 'bg-primary/60' : ''
+              }`}
+            />
+          </div>
+        )}
+
+        {/* 右栏：AI Webview 侧边栏 */}
         <div
-          onPointerDown={handleLeftSplitterPointerDown}
-          className={`w-[4px] -ml-[2px] h-full cursor-col-resize z-20 hover:bg-blue-500/40 transition-colors select-none ${
-            isDraggingLeft ? 'bg-primary/60' : 'bg-transparent'
-          }`}
-          title="拖拽调整左栏宽度"
-        />
-      )}
-
-      {/* 中栏：Meta Lexical 编辑器 */}
-      <div className="flex-1 h-full min-w-[360px] overflow-hidden flex flex-col">
-        <WorkbenchEditor />
-      </div>
-
-      {/* 右栏可拖拽 Splitter */}
-      {!isRightCollapsed && (
-        <div
-          onPointerDown={handleRightSplitterPointerDown}
-          className={`w-[4px] -mr-[2px] h-full cursor-col-resize z-20 hover:bg-blue-500/40 transition-colors select-none ${
-            isDraggingRight ? 'bg-primary/60' : 'bg-transparent'
-          }`}
-          title="拖拽调整侧边栏宽度"
-        />
-      )}
-
-      {/* 右栏：AI Webview 侧边栏 */}
-      <div
-        className="h-full shrink-0 overflow-hidden"
-        style={{
-          width: isRightCollapsed ? 0 : `${rightPaneWidth}px`,
-          display: isRightCollapsed ? 'none' : 'block'
-        }}
-      >
-        <WorkbenchAiSidebar />
+          className="h-full shrink-0 overflow-hidden rounded-tl-xl bg-white dark:bg-gray-900 border-t border-black/5 dark:border-white/5"
+          style={{
+            width: isRightCollapsed ? 0 : `${rightPaneWidth}px`,
+            display: isRightCollapsed ? 'none' : 'block'
+          }}
+        >
+          <WorkbenchAiSidebar />
+        </div>
       </div>
     </div>
   )

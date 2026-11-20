@@ -144,6 +144,8 @@ Do not copy ordinary session history here. Promote only stable knowledge that is
 
 - **monio-napi 事件批处理会破坏拖拽时长判定**：`startListen` 的运行时回调可能一次派发多个事件；如果使用主进程 `Date.now()` 的最小时长门槛过滤拖拽，会把真实拖拽误判为无效。应以实际位移和松手时的选区读取作为最终判断，不要把跨事件的时间阈值当作唯一依据。
 
+- **工作台/含 `<webview>` 布局的分隔条要留足命中区域**：`<webview>` 是原生插件层，会优先接管落其矩形范围内的指针命中，DOM 侧的 `z-index` 与负 margin 无法保证分隔条可被点中（表现为窗口变小/非最大化时"拖不动"）。分隔条应做宽于视觉线的命中区（如 10px 外框 + 4px 视觉线、避免负 margin 叠进 webview 矩形），`onPointerDown` 后用 `setPointerCapture` + window 级 `pointermove/pointerup`，并配合全屏透明遮罩接管事件直到松手。
+
 - **Windows 多 WebView 无框窗口的最大化黑闪应绕开原生 overlay**：`titleBarOverlay` 的最大化按钮可能绕过 renderer IPC，直接触发原生 `maximize()` 并重建 Chromium swap chain。出现黑闪时，应移除 win32 overlay 控件，由自绘按钮调用基于工作区的 `setBounds`，同时保存还原边界。
 
 - **Windows 多 WebView 主窗口的拖动必须合并高频 pointermove**：保留 Pointer Capture 与 `setContentBounds`，按渲染帧限速合并移动事件，并在 `pointerup` / `pointercancel` 提交最终位置，避免 IPC 和窗口合成队列堆积导致卡顿与拖影。
@@ -290,6 +292,7 @@ Do not copy ordinary session history here. Promote only stable knowledge that is
 - **NSIS 安装后启动要区分权限与路径**：历史安装后启动曾出现约一分钟卡顿，排查涉及 elevated 安装进程通过 ExecShellAsUser、快捷方式落盘及 Shell/DCOM 降权路径。现有 installer.nsh 按账户类型选择启动方式，提权分支使用可执行文件路径而非快捷方式，普通分支避免不必要的降权调用。此为项目历史修复经验，不能只凭时长认定具体 COM 根因；修改安装脚本需按实际权限场景打包验收，并遵守打包配置变更的确认要求。
 
 - **build 不等于类型检查或桌面验收**：electron-vite build 不执行 tsc。按 AGENTS 分别检查 tsconfig.node.json 与 tsconfig.web.json，根配置只有 references，单独 `npx tsc --noEmit` 不能代表两侧检查。已有类型错误与当前改动的错误应明确区分，不能把旧日志的通过记录当当前结果；UI、站点 DOM 与 main 行为需在重启后的 dev 中实际触发。
+  存量基线：`tsconfig.web.json` 未设 `target`，renderer 侧有 12 个既有类型错误（多为 TS2802 Map 迭代需 es2015+，另有 useWebviewLifecycle/QuickPage 各一处）。验证改动只需确认错误清单未新增、不涉及所改文件；需要精确区分时可 stash 对比。
 
 - **electron-builder `nsis.include` 注入到生成脚本头部，自定义代码须自带依赖**：`build/installer.nsh` 被 `scriptGenerator.include` 插到 makensis 脚本最前（先于 installer.nsi 的 common.nsh/MUI2/UAC→LogicLib），其中顶层 `Function` 体在定义点立即解析，用到的宏必须在本文件自行 `!include`——`nsDialogs.nsh` 会连带引入 `LogicLib.nsh`+`WinMessages.nsh`（含 `HWND_BROADCAST`/`WM_SETTINGCHANGE`/`BST_CHECKED`），而 `!macro` 体则延迟到插入点展开可依赖后文。可用钩子：`customInit`（.onInit 内设默认值，覆盖静默安装）、`customPageAfterChangeDir`（目录页后插 `Page custom`，MUI_HEADER_TEXT 不可用需用 `GetDlgItem 1037/1038`+`WM_SETTEXT` 改页头）、`customInstall`（装完文件后执行）、`customUnInstall`（卸载清理）。写用户 PATH 用 `WriteRegExpandStr HKCU Environment Path` 保住 `REG_EXPAND_SZ` 并 `SendMessage ${HWND_BROADCAST} ${WM_SETTINGCHANGE}` 广播；移除时分号分段精确匹配 `$INSTDIR\cli`，避免前缀误伤。
 

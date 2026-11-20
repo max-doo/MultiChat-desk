@@ -529,7 +529,9 @@ export function createWindow(): void {
     mainWindow = new BrowserWindow({
         width: 1400,
         height: 900,
-        minWidth: 900,
+        // 工作台三栏（文件树260 + 编辑器~460 + AI侧边栏300）+ 分割条 ≈ 1100，
+        // 低于该宽度时编辑器被挤压成竖排单字，不可读
+        minWidth: 1100,
         minHeight: 700,
         // 启动时先隐藏窗口，待 ready-to-show（首帧渲染完成）后再 show，
         // 避免窗口立即显示透明背景在 Windows 上合成成黑色导致的启动黑屏。

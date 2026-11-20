@@ -5,7 +5,7 @@
 
 import type { ModelSelector } from '../config/selectors'
 import { getHtmlToMarkdownScript } from './htmlToMarkdown'
-import { noteMessageSelectors, generationStopSelectors, mindmapCodeSelectors, responseMessageSelectors, fileUploadSelectors } from '../config/selectors'
+import { noteMessageSelectors, generationStopSelectors, mindmapCodeSelectors, responseMessageSelectors, fileUploadSelectors, type AssistantReplyConfig } from '../config/selectors'
 import { MINDMAP_TAGS } from './mindmap'
 import { MINDMAP_EDIT_TAGS, MINDMAP_REWRITE_TAGS } from './mindmapEdits'
 import { NOTE_CLICK_PREFIX, NOTE_DISMISS_PREFIX } from '../types/notes'
@@ -2923,4 +2923,219 @@ export function getNetworkSnifferScript(): string {
       };
     })();
   `;
+}
+
+/**
+ * 工作台「回复插入」按钮注入脚本。
+ *
+ * 在 AI 回复的底部操作区追加「插入到当前文档」「存为新文档」两个按钮，
+ * 点击时把该条回复的 Markdown 通过 console.log 前缀回传给 renderer。
+ * 仅在 WorkbenchAiSidebar 的 webview 注入，其他模式不调用本函数。
+ *
+ * @param platformId 平台 id（用于回传 payload 与日志标识）
+ * @param replyCfg   该平台的回复容器 / 操作区配置
+ * @param selectors  该平台的消息抓取选择器（createBar 兜底 / 正文提取用）
+ */
+export function generateInsertReplyButtonScript(
+  platformId: string,
+  replyCfg: AssistantReplyConfig,
+  selectors: ModelSelector
+): string {
+  const htmlToMarkdownScript = getHtmlToMarkdownScript()
+  const cfgJson = JSON.stringify(replyCfg || {})
+  const messageContainerJson = JSON.stringify(selectors.messageContainer || [])
+
+  return `
+    (function() {
+      // 幂等：同一页面只初始化一次
+      if (window.__mcInsertBtnInit) return;
+      window.__mcInsertBtnInit = true;
+
+      var PLATFORM_ID = ${JSON.stringify(platformId)};
+      var CFG = ${cfgJson};
+      var MESSAGE_CONTAINER = ${messageContainerJson};
+      var PREFIX_INSERT = '__MC_INSERT_CURRENT__';
+      var PREFIX_SAVE = '__MC_SAVE_NEW__';
+
+      ${htmlToMarkdownScript}
+
+      function safeQueryAll(root, sel) {
+        try { return Array.prototype.slice.call(root.querySelectorAll(sel)); } catch (e) { return []; }
+      }
+      function isVisible(el) {
+        try {
+          if (!el || !el.isConnected) return false;
+          var r = el.getBoundingClientRect();
+          if (!r || r.width <= 0 || r.height <= 0) return false;
+          var s = window.getComputedStyle(el);
+          return s && s.display !== 'none' && s.visibility !== 'hidden';
+        } catch (e) { return false; }
+      }
+
+      // 对单个元素做 HTML→Markdown（含 shadowRoot / iframe 兜底，与抓取链路一致）
+      function elementToMarkdown(el) {
+        if (!el) return '';
+        try {
+          if (el.shadowRoot) {
+            var m = htmlToMarkdown(el.shadowRoot);
+            if (m && m.trim()) return m.trim();
+          }
+        } catch (e) {}
+        try {
+          var m2 = htmlToMarkdown(el);
+          if (m2 && m2.trim()) return m2.trim();
+        } catch (e) {}
+        try {
+          return (el.innerText || el.textContent || '').trim();
+        } catch (e) { return ''; }
+      }
+
+      function shortHash(str) {
+        var h = 5381;
+        for (var i = 0; i < str.length; i++) { h = ((h << 5) + h + str.charCodeAt(i)) | 0; }
+        return (h >>> 0).toString(36);
+      }
+
+      function firstMatch(root, selectors) {
+        if (!selectors) return null;
+        for (var i = 0; i < selectors.length; i++) {
+          var list = safeQueryAll(root, selectors[i]);
+          for (var j = 0; j < list.length; j++) {
+            if (isVisible(list[j])) return list[j];
+          }
+        }
+        return null;
+      }
+
+      // 找到所有「单条回复」容器
+      function findReplyItems() {
+        var items = [];
+        if (CFG.replyItem && CFG.replyItem.length) {
+          for (var i = 0; i < CFG.replyItem.length; i++) {
+            var list = safeQueryAll(document, CFG.replyItem[i]);
+            for (var j = 0; j < list.length; j++) {
+              if (isVisible(list[j]) && items.indexOf(list[j]) === -1) items.push(list[j]);
+            }
+          }
+          if (items.length) return items;
+        }
+        // 退化：messageRoot（消息流容器）内取最后一个含正文的可见块
+        var root = firstMatch(document, CFG.messageRoot);
+        var scope = root || document;
+        var body = firstMatch(scope, MESSAGE_CONTAINER);
+        if (body) items.push(body);
+        return items;
+      }
+
+      var ICON_INSERT = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>';
+      var ICON_SAVE = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M12 11v6"/><path d="m9 14 3 3 3-3"/></svg>';
+
+      function makeButton(icon, cls, title, onClick) {
+        var el;
+        if (CFG.actionBarIsDiv) {
+          el = document.createElement('div');
+          el.setAttribute('role', 'button');
+          el.setAttribute('tabindex', '0');
+        } else {
+          el = document.createElement('button');
+          el.type = 'button';
+        }
+        el.className = 'mc-workbench-btn ' + cls;
+        el.setAttribute('aria-label', title);
+        el.title = title;
+        el.innerHTML = icon;
+        el.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;margin-right:2px;border:none;background:transparent;color:inherit;cursor:pointer;opacity:.7;border-radius:4px;line-height:0;';
+        el.addEventListener('mouseenter', function(){ el.style.opacity = '1'; });
+        el.addEventListener('mouseleave', function(){ el.style.opacity = '.7'; });
+        el.addEventListener('click', function(ev) {
+          ev.preventDefault(); ev.stopPropagation();
+          onClick();
+        });
+        if (CFG.actionBarIsDiv) {
+          el.addEventListener('keydown', function(ev) {
+            if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); onClick(); }
+          });
+        }
+        return el;
+      }
+
+      function sendReply(replyEl, kind) {
+        var md = elementToMarkdown(replyEl);
+        if (!md) return;
+        var payload = {
+          platformId: PLATFORM_ID,
+          replyMd: md,
+          replyHash: shortHash(md),
+          conversationUrl: location.href,
+          title: document.title || ''
+        };
+        try {
+          console.log((kind === 'insert' ? PREFIX_INSERT : PREFIX_SAVE) + JSON.stringify(payload));
+        } catch (e) {}
+      }
+
+      function ensureButtons(replyEl) {
+        if (!replyEl || replyEl.__mcBtnsAttached) return;
+        // 找到该回复内的正文容器：优先 actionBar 的兄弟正文，否则用 replyEl 本身
+        var contentEl = replyEl;
+        var bar = null;
+
+        if (!CFG.createBar && CFG.actionBar && CFG.actionBar.length) {
+          var probe = firstMatch(replyEl, CFG.actionBar);
+          if (probe) {
+            // 统一：从命中元素向上找含 ≥2 个按钮/图标子元素的容器作为挂载点，
+            // 兼容 chatgpt(命中容器)/doubao(命中按钮)/yuanbao(命中div按钮)
+            var candidate = probe;
+            for (var up = 0; up < 4 && candidate; up++) {
+              var kids = candidate.querySelectorAll ? candidate.querySelectorAll('button,[role="button"],div[class*="icon"],[class*="Button"]') : [];
+              var isBtnTag = candidate.tagName === 'BUTTON' || candidate.getAttribute('role') === 'button';
+              if (!isBtnTag && kids.length >= 2) { break; }
+              if (!candidate.parentElement) break;
+              candidate = candidate.parentElement;
+            }
+            bar = candidate || probe;
+          }
+        }
+        if (!bar) {
+          // createBar 或 actionBar 未命中：在回复容器末尾新建挂载点
+          bar = document.createElement('div');
+          bar.className = 'mc-action-bar';
+          bar.style.cssText = 'all:initial;display:flex;gap:4px;justify-content:flex-end;margin-top:4px;';
+          replyEl.appendChild(bar);
+        }
+        if (!bar || bar.__mcBtnsAttached) return;
+        bar.__mcBtnsAttached = true;
+        replyEl.__mcBtnsAttached = true;
+
+        // 两个按钮插到原生操作区按钮之前；createBar 新建容器时 prepend 即 append
+        var insertBtn = makeButton(ICON_INSERT, 'mc-insert-btn', '插入到当前文档', function() {
+          sendReply(contentEl, 'insert');
+        });
+        var saveBtn = makeButton(ICON_SAVE, 'mc-save-btn', '存为新文档', function() {
+          sendReply(contentEl, 'save');
+        });
+        var firstNative = bar.firstChild;
+        bar.insertBefore(insertBtn, firstNative);
+        bar.insertBefore(saveBtn, firstNative);
+      }
+
+      function scan() {
+        var items = findReplyItems();
+        for (var i = 0; i < items.length; i++) ensureButtons(items[i]);
+      }
+
+      // MutationObserver 监听消息流，自愈 + 新回复挂按钮
+      var scheduled = false;
+      function scheduleScan() {
+        if (scheduled) return;
+        scheduled = true;
+        setTimeout(function() { scheduled = false; scan(); }, 300);
+      }
+      try {
+        var obs = new MutationObserver(scheduleScan);
+        obs.observe(document.body || document.documentElement, { childList: true, subtree: true });
+      } catch (e) {}
+      scan();
+    })();
+  `
 }

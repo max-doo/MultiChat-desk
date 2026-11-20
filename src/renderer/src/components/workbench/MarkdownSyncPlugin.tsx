@@ -1,9 +1,10 @@
 import { useEffect, useRef } from 'react'
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext'
-import type { LexicalNode } from 'lexical'
+import type { LexicalNode, PointType } from 'lexical'
 import {
   $convertFromMarkdownString,
   $convertToMarkdownString,
+  $generateNodesFromMarkdownString,
   TRANSFORMERS,
   CHECK_LIST,
   isTableRowDivider,
@@ -23,11 +24,28 @@ import {
 } from '@lexical/table'
 import { $isParagraphNode, $isTextNode } from 'lexical'
 import {
+  $getRoot,
+  $getNodeByKey,
+  $getSelection,
+  $isRangeSelection,
+  $createRangeSelection,
+  SELECTION_CHANGE_COMMAND,
+  COMMAND_PRIORITY_EDITOR
+} from 'lexical'
+import {
   HorizontalRuleNode,
   $createHorizontalRuleNode,
   $isHorizontalRuleNode
 } from '@lexical/react/LexicalHorizontalRuleNode'
 import { useWorkbenchStore } from '../../store/workbenchStore'
+import {
+  $createPendingInsertNode,
+  $isPendingInsertNode,
+  INSERT_REPLY_COMMAND,
+  CONFIRM_INSERT_COMMAND,
+  CANCEL_INSERT_COMMAND
+} from './PendingInsertNode'
+import { $createPendingBarNode, $isPendingBarNode } from './PendingBarNode'
 
 export const HR_TRANSFORMER: ElementTransformer = {
   dependencies: [HorizontalRuleNode],
@@ -237,6 +255,150 @@ export default function MarkdownSyncPlugin(): null {
   const isSyncingFromExternalRef = useRef(false)
   const lastLoadedPathRef = useRef<string | null>(null)
   const lastSyncedContentRef = useRef<string>('')
+  // 上次光标位置的序列化锚点（anchor key + offset + type），用于"插入到光标处"
+  const lastAnchorRef = useRef<{ key: string; offset: number; type: PointType['type'] } | null>(null)
+  // 当前待确认插入容器 key（单条 pending）
+  const pendingKeyRef = useRef<string | null>(null)
+
+  // 记录最近一次的选区锚点（随 selection 更新）
+  useEffect(() => {
+    const track = (): void => {
+      editor.getEditorState().read(() => {
+        const sel = $getSelection()
+        if ($isRangeSelection(sel)) {
+          lastAnchorRef.current = {
+            key: sel.anchor.getNode().getKey(),
+            offset: sel.anchor.offset,
+            type: sel.anchor.type
+          }
+        }
+      })
+    }
+    const unregister = editor.registerCommand(
+      SELECTION_CHANGE_COMMAND,
+      () => {
+        track()
+        return false
+      },
+      COMMAND_PRIORITY_EDITOR
+    )
+    const unregisterUpdate = editor.registerUpdateListener(({ tags }) => {
+      if (tags.has('sync-external') || isSyncingFromExternalRef.current) return
+      track()
+    })
+    return () => {
+      unregister()
+      unregisterUpdate()
+    }
+  }, [editor])
+
+  // 处理 插入/采纳/撤回 三个命令
+  useEffect(() => {
+    // 清掉当前已有 pending 容器（单条 pending）
+    const clearPending = (): void => {
+      const root = $getRoot()
+      root.getChildren().forEach((child) => {
+        if ($isPendingInsertNode(child)) {
+          child.remove()
+        }
+      })
+      pendingKeyRef.current = null
+    }
+
+    const unregisterInsert = editor.registerCommand(
+      INSERT_REPLY_COMMAND,
+      (replyMd: string) => {
+        const md = (replyMd || '').trim()
+        if (!md) return false
+
+        clearPending()
+
+        // 生成顶层 block 节点并包进待确认容器
+        const nodes = $generateNodesFromMarkdownString(md, WORKBENCH_TRANSFORMERS)
+        if (!nodes || nodes.length === 0) return false
+        const pending = $createPendingInsertNode()
+        nodes.forEach((n) => pending.append(n))
+        pending.append($createPendingBarNode())
+
+        // 重建上次光标选区；锚点节点已死则文末兜底
+        let inserted = false
+        const anchor = lastAnchorRef.current
+        if (anchor) {
+          const anchorNode = $getNodeByKey(anchor.key)
+          if (anchorNode && anchorNode.isAttached()) {
+            const sel = $createRangeSelection()
+            sel.anchor.set(anchor.key, anchor.offset, anchor.type)
+            sel.focus.set(anchor.key, anchor.offset, anchor.type)
+            sel.insertNodes([pending])
+            inserted = true
+          }
+        }
+        if (!inserted) {
+          const root = $getRoot()
+          root.selectEnd()
+          const sel = $getSelection()
+          if ($isRangeSelection(sel)) sel.insertNodes([pending])
+          else root.append(pending)
+        }
+        pendingKeyRef.current = pending.getKey()
+        return true
+      },
+      COMMAND_PRIORITY_EDITOR
+    )
+
+    const unregisterConfirm = editor.registerCommand(
+      CONFIRM_INSERT_COMMAND,
+      () => {
+        const key = pendingKeyRef.current
+        const node = key ? $getNodeByKey(key) : null
+        if (node && $isPendingInsertNode(node)) {
+          // children 提到原位后删容器（采纳）；PendingBarNode 也随容器移除
+          const children = node.getChildren().slice()
+          children.forEach((child) => {
+            if (!$isPendingBarNode(child)) {
+              node.insertBefore(child)
+            }
+          })
+          node.remove()
+        }
+        pendingKeyRef.current = null
+        return true
+      },
+      COMMAND_PRIORITY_EDITOR
+    )
+
+    const unregisterCancel = editor.registerCommand(
+      CANCEL_INSERT_COMMAND,
+      () => {
+        const key = pendingKeyRef.current
+        const node = key ? $getNodeByKey(key) : null
+        if (node && $isPendingInsertNode(node)) {
+          node.remove()
+        }
+        pendingKeyRef.current = null
+        return true
+      },
+      COMMAND_PRIORITY_EDITOR
+    )
+
+    return () => {
+      unregisterInsert()
+      unregisterConfirm()
+      unregisterCancel()
+    }
+  }, [editor])
+
+  // 桥接：store 派发的 workbench:insert-reply → Lexical INSERT_REPLY_COMMAND
+  useEffect(() => {
+    const handler = (e: Event): void => {
+      const detail = (e as CustomEvent<{ replyMd?: string }>).detail
+      const md = detail?.replyMd
+      if (!md) return
+      editor.dispatchCommand(INSERT_REPLY_COMMAND, md)
+    }
+    window.addEventListener('workbench:insert-reply', handler)
+    return () => window.removeEventListener('workbench:insert-reply', handler)
+  }, [editor])
 
   // 当外部文件切换或从源码模式切回富文本时，更新 Lexical 编辑器内容
   useEffect(() => {

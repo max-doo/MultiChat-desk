@@ -1,5 +1,13 @@
 import { ReactNode, useEffect, useRef, useState } from 'react'
 import { useAppStore, ProductMode, DisplayMode } from '../store/appStore'
+
+// 主页面模式切换分段控件中各模式的展示元数据
+const PRODUCT_MODE_LABELS: Record<ProductMode, { label: string; title: string }> = {
+  multi_ai: { label: '多AI', title: '默认模式：多个平台展示不同AI' },
+  task_assignment: { label: '任务分配', title: '支持多个窗口选择同一个AI分配不同任务' },
+  debate: { label: '辩论', title: '辩论模式：支持2个AI交互对抗' },
+  workbench: { label: '工作台', title: '工作台模式：本地 Markdown 知识库与 AI 深度协同' }
+}
 import { useWorkbenchStore } from '../store/workbenchStore'
 import { useUpdateReminder } from '../hooks/useUpdateState'
 import SettingsDrawer from './SettingsDrawer'
@@ -49,6 +57,8 @@ function Layout({ children }: LayoutProps): JSX.Element {
   const [isWindowMaximized, setIsWindowMaximized] = useState(false)
 
   const { displayMode, setDisplayMode, resetPaneRatios, isSettingsOpen, setSettingsOpen, setHistoryOpen, setHistoryInitialTab, productMode, setProductMode, currentPage, setCurrentPage, isNewSession, textInserted, activeModels, debateState } = useAppStore()
+  const productModeConfig = useAppStore((s) => s.productModeConfig)
+  const visibleProductModes = productModeConfig.order.filter(m => !productModeConfig.hidden.includes(m))
   const isRightCollapsed = useWorkbenchStore((s) => s.isRightCollapsed)
   const toggleRightCollapse = useWorkbenchStore((s) => s.toggleRightCollapse)
   const { hasUpdate } = useUpdateReminder()
@@ -200,12 +210,9 @@ function Layout({ children }: LayoutProps): JSX.Element {
             <div
               className={`flex items-center p-0.5 bg-gray-200/60 dark:bg-gray-700/60 rounded-lg text-xs gap-0.5 no-drag ${currentPage === 'summary' || debateState.phase === 'running' || debateState.phase === 'paused' ? 'opacity-50 pointer-events-none' : ''}`}
             >
-              {[
-                { key: 'multi_ai', label: '多AI', title: '默认模式：多个平台展示不同AI' },
-                { key: 'task_assignment', label: '任务分配', title: '支持多个窗口选择同一个AI分配不同任务' },
-                { key: 'debate', label: '辩论', title: '辩论模式：支持2个AI交互对抗' },
-                { key: 'workbench', label: '工作台', title: '工作台模式：本地 Markdown 知识库与 AI 深度协同' }
-              ].map(item => (
+              {visibleProductModes.map(mode => {
+                const item = { key: mode, ...PRODUCT_MODE_LABELS[mode] }
+                return (
                 <button
                   key={item.key}
                   type="button"
@@ -225,7 +232,8 @@ function Layout({ children }: LayoutProps): JSX.Element {
                 >
                   {item.label}
                 </button>
-              ))}
+                )
+              })}
             </div>
           </div>
           {window.api.platform !== 'darwin' && entryButtons}
