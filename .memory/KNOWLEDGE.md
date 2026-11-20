@@ -109,6 +109,7 @@ Do not copy ordinary session history here. Promote only stable knowledge that is
 - 当React组件在不同模式分支下分别渲染挂载了同一个ref的DOM元素时，若useEffect仅监听isActive而不监听DOM节点或模式切换，会导致ResizeObserver滞留于已卸载节点并上报0宽度，新节点未被监听从而永久冻结在0px。必须使用callback ref追踪DOM节点变化，并在CSS Grid列宽处提供minmax(0, 1fr)安全保底
 
 - UI 组件尺寸必须与应用核心面板（如 SettingsDrawer）规范看齐，避免局部页面为了紧凑而过度使用 text-xs 或 text-[10px] 导致可读性与点击舒适度下降
+- **AppIcon 的 size 不是最终渲染像素**：组件会乘 `OPTICAL_SCALE = 0.85` 抵消 Lucide 相对 Material 字体图标的视觉膨胀。因此旧 Material `text-base` 对应的 `size={16}` 只是保持原视觉尺寸；若要与 `WebviewCard` 中传入 `size={20}` 的前进/后退/刷新图标看起来一致，应用按钮也必须传 `size={20}`。统一顶栏或侧边栏图标时先按最终视觉尺寸比较，不要只看 prop 数值或误以为所有旧 16px 图标都应放大到 20。
 
 - 在包含受控/非受控混用场景（如 initialMarkdown）的 React 组件中，避免在依赖项中监听内部编辑状态（markdown）来进行同步，否则内部任何状态更新都会被判定为与外部不同并触发强制回滚；对于绝对定位的 hover 操作按钮，需避免子元素与父元素之间出现事件空隙导致 hover 闪退
 
@@ -116,6 +117,24 @@ Do not copy ordinary session history here. Promote only stable knowledge that is
 
 
 - **工作台文件树外部文件导入（拖入/粘贴）**：Electron 32+ 已移除 `File.path`，本地路径取 `window.electron.webUtils.getPathForFile(file)`（`@electron-toolkit/preload` 的 `electronAPI` 已自带 `webUtils`）；拖入的**目录也会作为条目出现在 `dataTransfer.files` 中**且 `getPathForFile` 返回目录路径，主进程 `stat.isDirectory` 区分后 `fs.cp recursive` 即可。区分内部移动与外部导入用 `e.dataTransfer.types.includes('Files')`（内部拖拽只设 `text/plain`）。paste 事件只派发到焦点元素，文件树容器需 `tabIndex={-1}` + `onMouseDown` 里 `currentTarget.focus()`（跳过 `HTMLInputElement`）才能接 `onPaste`；剪贴板文件经 `clipboardData.files` 取，为空的文本/图片粘贴放行给编辑器。
+
+- **Lucide 图标方向不能沿用 Material 的旋转角度**：`Paperclip` 默认是从左下到右上的 45° 斜向；沿用 Material 字体图标时期给附件加的 `-rotate-90` 会变成另一条 45° 斜线。要让该图标垂直，应使用 `-rotate-45`。迁移同类图标时先核对 SVG 原始方向，不要机械保留旧字体图标的 rotate 类。
+
+- **重做按钮应使用成套的 `Undo2`/`Redo2`**：`Repeat` 表示循环播放，不应作为编辑器的前进/重做图标。图标映射迁移后要按图形语义核对，而不是只看 Material 连字名与 Lucide 名称是否接近。
+
+- **Lexical CodeNode 高亮重建不能在同一次 mutation 提交内执行**：Prism 高亮插件在 `CodeNode` mutation listener 中同步调用 `editor.update` 重建 children，会并入当前提交并随后被覆盖；选区虽按新节点恢复，却会落到幸存的旧节点上。应使用 `queueMicrotask` 延后重建，并在重建前记录代码内字符偏移。恢复选区时需同时处理 Text Point 和 CodeNode Element Point；连续 `LineBreakNode` 形成的空行必须用 element point 表示，`selectNext()` 会越过空行。代码块是文档末节点时，Chromium 会把下方空白点击映射回代码末尾，需在根元素 `mousedown` 捕获，在代码外补段落并选中；该更新必须带独立 tag 让 Markdown 同步跳过，否则仅点击空白就会把幻影空段落写回文件。
+
+- **Electron guest webview 拖拽穿透与跨栏文件上传**：Electron 中的 `<webview>` 是运行在独立 guest 渲染进程中的原生成员，宿主 DOM 中发起的 HTML5 拖拽滑入 `<webview>` 区域时，指针事件会被 guest 原生拦截，宿主将直接丢失 `dragover`/`drop` 事件且 webview 内部无法解析内部宿主数据。跨栏拖拽（如工作区文件树拖入侧边栏 AI 对话框）的可靠方案是在宿主侧挂载拖拽遮罩层（`absolute inset-0 z-40`），通过 Zustand store 广播 `draggingNodes` 激活感应层，并在捕获宿主 `drop` 后经由 CDP `Input.dispatchDragEvent`（`window.api.dispatchFileDrop`）向 webContents 发送真实的系统级拖拽事件，直接注入目标输入框；对文件夹进行拦截过滤并给出友好提示。
+
+- **跨栏拖拽上传的“成功”必须以附件就绪为准**：`Input.dispatchDragEvent` 返回成功只代表事件已派发，不代表平台已挂载附件；未登录、页面未就绪、附件超限或落点错误时同样会返回成功。前端必须在 drop 前读取 `generateFileUploadStateScript` 基线，drop 后以「文件名新命中或附件计数增加」且 `!busy` 连续稳定 3 次判定成功；落点脚本必须过滤不可见/禁用输入框，找不到时明确失败，禁止回退到 `document.body` 的 `(10,10)`。折叠侧边栏的拖拽不能靠 `dragenter` 展开后卸载条带——那会在 drop 前移除目标并吞掉文件；应在 drop 时把 `draggingNodes` 快照交给常驻侧边栏，一次完成展开与上传。外部文件 drop 需要用 `dataTransfer.types.includes('Files')` 优先于 store 残留节点；树节点/编辑器的 `stopPropagation` 会让窗口冒泡清理失效，外部拖拽状态应在 document 捕获阶段清理。
+
+- **上传互斥锁必须有超时与代际号，否则一次挂起会永久锁死**：`uploadingRef` 若只在 `finally` 释放，而内部 `await` 的 `webview.executeJavaScript` / `window.api.dispatchFileDrop` 没有超时，页面重载、guest 崩溃或 CDP 挂起时 Promise 永不 settle，`finally` 不执行，后续所有拖拽都会停在「正在上传上一批文件」。正确做法是给每次脚本调用 5 秒、CDP 派发 15 秒的 `withTimeout`，给锁记录 `startedAt` 并在超时后允许接管，同时用递增的 `uploadGenerationRef` 判定批次归属：旧批次迟到时既不能释放新批次的锁，也不能覆盖新批次的提示。提供「停止等待」时只推进代际号并清空当前提示，不强行中断已派发的拖拽。
+
+- **工作台文件上传提示复用项目 Toast**：将当前文件一键发送到 AI 侧边栏时，上传前先保存未落盘的当前文档。上传过程中显示信息态进度提示，成功后恢复成功提示；两者统一复用 `ControlBar` / `ModelOutputCard` 的白底半透明、彩色细边框、`shadow-float` 与 `notification-popup` 样式，不另造状态条。失败和部分成功分别使用错误态与信息态。
+
+- **工作台 Markdown 预览不能只改字号或套用 playground 边距**：`PlaygroundEditorTheme__h1` 等标题使用固定 `px` 字号，但会继承 `body` 的固定 `24px` 行高，标题换行后行距小于字号；标题层级应分别声明相对 `line-height`（如 1.3/1.4）。引用块的 `margin-left: 20px` 会与边框、内边距叠成额外缩进，源代码中的 `>` 并不要求外层偏移；应移除该外边距，仅保留左边线和必要内边距。
+
+- **文件类型图标收敛时保留 Markdown/TXT 与图片原图标**：Material Symbols／Lucide 是通用操作图标体系，vscode-material-icon-theme 是按扩展名显示语言或文件品牌的另一体系，不能把后者当作 Lucide 迁移残留。工作台的 PDF、Word、Excel、PPT、代码与压缩包可以统一走 `FileTypeIcon` 本地 SVG；但 `.md`、`.markdown`、`.txt` 继续沿用原来的 `description` AppIcon，位图继续使用 `image`、`.svg` 使用 `draw`，不应纳入这次 SVG 统一范围。
 
 ### 7. 划词、快捷键与窗口交互
 

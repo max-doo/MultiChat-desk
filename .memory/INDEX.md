@@ -24,7 +24,7 @@
 | `markmap-layout` | localMindmap.css、foreignObject、连线、折叠按钮、中文竖排、点击遮挡 | ### 3. Markmap 布局、连线与命中区域 | 布局与按钮测量 |
 | `markmap-viewport` | useMindmapCanvas.ts、Markmap.create、fit、zoom、ResizeObserver、隐藏画布 | ### 4. Markmap 可见性、缩放与视口 | 初始化和后续更新区分 |
 | `markmap-editing` | Markmap、setData、treeRef、contenteditable、节点编辑、选中态、preventScroll | ### 5. Markmap 编辑与状态生命周期 | 布局问题另读主题 3 |
-| `react-state` | useState、useMemo、useCallback、callback ref、闭包、共享抽屉、受控状态、旧计划、WorkbenchEditor、工作台多格式预览、写盘安全、WorkbenchFileTree、importExternalPaths、getPathForFile、文件树拖入 | ### 6. React 状态与共享 UI | 按实际时序选择状态方案 |
+| `react-state` | useState、useMemo、useCallback、callback ref、闭包、共享抽屉、受控状态、旧计划、WorkbenchEditor、MarkdownSyncPlugin、WorkbenchCodeHighlightPlugin、Lexical CodeNode、代码块光标、LineBreakNode、code-exit、工作台多格式预览、写盘安全、WorkbenchFileTree、importExternalPaths、getPathForFile、文件树拖入、AppIcon、Lucide、图标迁移、文件类型图标、FileTypeIcon、Material 文件图标、Paperclip、撤销、重做、前进、WorkbenchAiSidebar、拖拽上传、draggingNodes、一键发送文件、上传成功 toast、attachmentCount、右侧条带、dragenter、假成功、上传卡死、withTimeout、uploadingRef、停止等待、PlaygroundEditorTheme、Markdown 标题行距、引用缩进 | ### 6. React 状态与共享 UI | 按实际时序选择状态方案 |
 | `selection-windows` | inputHookManager.ts、uiaSelectionHelper.ts、selectionReader.ts、shortcutManager.ts、WebviewFindBar.tsx、findInPage、UIA、monio、划词、焦点、标题栏、拖动、tray、托盘、trafficLightPosition、红绿灯、AXFocusedUIElement、分隔条、Splitter、webview遮挡 | ### 7. 划词、快捷键与窗口交互 | 自动划词与主动快捷键分开 |
 | `notes-identity` | noteManager.ts、noteIdentity.ts、noteTranscript.ts、笔记、快照、URL路径、XML、批注、工作台导图、改名重连、对账、size、mtime、contentHash | ### 8. 笔记、快照与会话身份 | 整段对话采集另读主题 1 |
 | `history-lifecycle` | appStore.ts、useWebviewLifecycle.ts、历史恢复、currentConversationId、WebContents ID、轮询、休眠、hibernate、内存、日志量 | ### 9. 历史恢复、轮询、休眠与内存 | 保持磁盘/内存与会话边界 |

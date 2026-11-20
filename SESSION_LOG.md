@@ -2,6 +2,508 @@
 
 ## 2026-11-20
 
+### 21:15 | Codex
+
+- done: 修复 WorkbenchFileTree 重复导入导致的 dev 启动失败，并在 PDF 顶部工具栏加入缩放控件
+- context: 第 5 行重复 import MARKDOWN_EXTENSIONS 触发 Babel Identifier already declared，dev 直接起不来
+- decision: 缩放以 10% 为步进，范围 50%-300%，点击百分比回到 100%；页面宽度=适配宽度×缩放，容器横向滚动承接溢出
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchPdfPreview.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchPdfViewer.tsx`
+
+### 21:14 | Codex
+
+- done: 采用方案1，将 AI 工作台注入按钮从绿色主题调整为项目主题蓝，并补齐蓝色 hover 效果
+- modified:
+  - `src/shared/utils/webviewScripts.ts`
+
+### 21:03 | Codex
+
+- done: 工作台 PDF 预览改用 PDF.js 渲染，补文本层让选中文字可弹右键菜单
+- context: Electron 42 内置 PDFium 把正文放在 embed，DOM 无文本层，context-menu 的 selectionText 恒为空且 copy() 无效
+- decision: 改用 pdfjs-dist canvas + TextLayer，主进程新增 workbench:read-pdf-bytes 供渲染层取字节；按视口懒渲染并释放位图
+- added:
+  - `src/renderer/src/components/workbench/WorkbenchPdfViewer.tsx`
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchPdfPreview.tsx`
+  - `src/main/services/workbenchService.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/index.html`
+  - `src/renderer/src/assets/index.css`
+  - `electron.vite.config.ts`
+  - `package.json`
+
+### 20:56 | Codex
+
+- done: 统一快捷窗口固定/思维导图等顶栏图标与工作台侧边栏按钮的视觉尺寸
+- modified:
+  - `src/renderer/src/pages/QuickPage.tsx`
+  - `src/renderer/src/pages/MainPage.tsx`
+  - `src/renderer/src/components/Layout.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+- lesson(promoted): AppIcon 的 size 会乘 0.85 光学缩放；要求与 WebviewCard 的 20px 导航图标视觉一致，需要传 size={20}，不能只沿用旧 material text-base 对应的 16。
+
+### 20:56 | Codex
+
+- done: 按用户要求进一步恢复图片文件原来的 image/draw 图标；Markdown/TXT 的 description 图标继续保留，PDF、Word、Excel、PPT 与代码类仍使用统一 Material 文件图标
+- context: 用户明确要求图片也用原来的
+- modified:
+  - `src/renderer/src/components/workbench/FileTypeIcon.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+  - `scripts/verify_workbench_previews.py`
+
+### 20:52 | Codex
+
+- done: 按用户要求恢复 Markdown 与 TXT 的原有 description 图标；PDF、Word、Excel、PPT、代码、图片等文件类型仍统一使用工作区 Material SVG 图标
+- context: 用户明确要求不要改 Markdown 和 TXT 的 logo
+- modified:
+  - `src/renderer/src/components/workbench/FileTypeIcon.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+  - `scripts/verify_workbench_previews.py`
+
+### 20:49 | Codex
+
+- done: 按批注调整工作台划词 AI：改写解释与润色提示词，删除续写动作及文档旧模板，并同步两处右键菜单
+- modified:
+  - `src/renderer/src/store/workbenchStore.ts`
+  - `src/renderer/src/components/workbench/WorkbenchSelectionMenuPlugin.tsx`
+  - `src/renderer/src/components/CustomContextMenu.tsx`
+  - `docs/workbench_product_spec.md`
+
+### 20:46 | Codex
+
+- done: 将 ControlBar 通知状态残留 Material Symbols 图标替换为 AppIcon
+- context: 按用户要求处理最后一处应用自身 material-symbols-outlined 残留；通知 success/error/info 分别映射 check_circle/error/info，保留原颜色与 16px 尺寸。
+- modified:
+  - `src/renderer/src/components/ControlBar.tsx`
+- lesson: AppIcon 默认 optical scale 0.85，旧 font-size 16px 的图标改用 size={16} 即可保持接近原视觉尺寸。
+
+### 20:44 | Codex
+
+- done: 替换 AI 工作台注入回复按钮图标为 Lucide file-plus-corner 与 pilcrow-left，并升级注入脚本绑定标记以刷新旧页面按钮
+- modified:
+  - `src/shared/utils/webviewScripts.ts`
+
+### 20:43 | Codex
+
+- done: 统一工作台文件类型图标：所有代码、PDF、Word、Excel、PPT、Markdown、图片与文本均使用同一套工作区 Material SVG 图标，并让文件树、PDF 预览和 Office 预览复用同一组件
+- decision: 根因是文件树按代码/非代码分成 SVG 与 AppIcon 两套图标来源；收敛为 FileTypeIcon 单一映射并复用在预览头部
+- added:
+  - `src/renderer/src/assets/file-icons/pdf.svg`
+  - `src/renderer/src/assets/file-icons/word.svg`
+  - `src/renderer/src/assets/file-icons/table.svg`
+  - `src/renderer/src/assets/file-icons/powerpoint.svg`
+  - `src/renderer/src/assets/file-icons/markdown.svg`
+  - `src/renderer/src/assets/file-icons/image.svg`
+  - `src/renderer/src/assets/file-icons/svg.svg`
+  - `src/renderer/src/assets/file-icons/log.svg`
+  - `src/renderer/src/assets/file-icons/zip.svg`
+- modified:
+  - `src/renderer/src/components/workbench/FileTypeIcon.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchDocxCard.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchPdfPreview.tsx`
+  - `scripts/verify_workbench_previews.py`
+
+### 20:35 | Codex
+
+- done: 核实 Material Symbols、Lucide 与 Material 风格文件图标的迁移边界
+- context: 用户询问现有 Material 风格文件图标是否应已全部迁移至 Lucide；检查 AppIcon、FileTypeIcon、ControlBar 残留、依赖与文档。
+- lesson(promoted): Material Symbols 通用字体图标与 vscode-material-icon-theme 文件类型 SVG 是两个体系；后者按扩展名显示语言品牌图标，不属于 Lucide 迁移范围。当前仍有 ControlBar 通知提示一处 material-symbols-outlined 残留，外部网页选择器中的 material-icons 不算应用图标残留。
+
+### 20:33 | Codex
+
+- done: 自定义 Lucide 风格 PDF 图标，替换 AppIcon 中 picture_as_pdf 对通用 FileText 的复用
+- modified:
+  - `src/renderer/src/components/icons/AppIcon.tsx`
+
+### 20:27 | Codex
+
+- done: 核验并修正设置中过时的 API Key 备份说明：确认应用已不再存储 API Key，更新备份说明和使用说明文案，移除恢复弹窗中的失效兼容提示。
+- context: 用户指出截图中的 API Key 脱敏说明已过时；核验 ApiConfig 仅保留总结模板与平台字段，旧备份兼容清理继续保留。
+- modified:
+  - `src/renderer/src/components/SettingsDrawer.tsx`
+  - `src/renderer/src/components/ImportCacheConfirmModal.tsx`
+
+### 20:24 | Codex
+
+- done: 将当前思维导图的入口图标统一替换为 diagram-flow-horizontal
+- context: 用户要求把当前思维导图图标统一换成 diagram-flow-horizontal；保留任务分配等非导图语义的 account_tree 不变。
+- modified:
+  - `src/renderer/src/components/icons/AppIcon.tsx`
+  - `src/main/webviewManager.ts`
+  - `src/renderer/src/components/Layout.tsx`
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+  - `src/renderer/src/components/MindmapSidebarView.tsx`
+  - `src/renderer/src/components/NotesConversationCards.tsx`
+  - `src/renderer/src/components/LocalMindmapPanel.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchMindmapPanel.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchSelectionMenuPlugin.tsx`
+  - `src/renderer/src/pages/MainPage.tsx`
+  - `src/renderer/src/pages/QuickPage.tsx`
+
+### 20:22 | Codex
+
+- done: 工作台文件树右键菜单新增上传到 AI，复用现有节点上传事件并支持多选节点
+- context: 用户截图指向工作区文件列表右键菜单，要求新增上传到 AI 命令。
+- decision: 沿用 WORKBENCH_UPLOAD_NODES_EVENT 与 WorkbenchAiSidebar 已实现的节点上传链路，不改 IPC；右键未选中节点沿用现有单选处理，已多选时批量上传。
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+
+### 20:15 | Codex
+
+- done: 将工作台 AI 侧栏文件上传 toast 从 top-12 下移至 top-28，避免遮挡平台 header
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
+
+### 20:14 | Codex
+
+- done: 调整 ControlBar 文件上传 toast 定位，改为相对控制栏右侧下移显示，避免遮挡页面 header
+- modified:
+  - `src/renderer/src/components/ControlBar.tsx`
+
+### 20:13 | Codex
+
+- done: 补充统一 .txt 的 Markdown 行为：重命名后按共享扩展集合刷新内容，文件树清理未引用图片菜单对 .txt 可见
+- context: Follow-up sweep after TXT-to-Markdown editor change found remaining .md/.markdown-only hardcodes.
+- decision: Reuse MARKDOWN_EXTENSIONS instead of duplicating extension literals.
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+  - `src/renderer/src/store/workbenchStore.ts`
+
+### 20:13 | Codex
+
+- done: 工作台 PDF 预览改用 webview，复用 Webview 右键菜单链路
+- context: PDF object 插件文档选区不进入主页面 window.getSelection，无法触发现有 DOM 菜单
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchPdfPreview.tsx`
+
+### 20:12 | Codex
+
+- done: 工作台将 .txt 视同 Markdown：复用 Markdown 富文本/源码编辑器，并同步文件树图标、AI 回复插入、资产联动与导图支持
+- context: User requested TXT files in the workbench to use the Markdown editor instead of the plain code editor.
+- decision: Treat .txt as MARKDOWN_EXTENSIONS; keep .log/.csv/.tsv as TEXT_EXTENSIONS so the existing category-driven editor routing applies end-to-end.
+- modified:
+  - `src/shared/types/workbench.ts`
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+
+### 20:12 | Codex
+
+- done: 修复工作区拖拽上传偶发永久卡死：为 Webview 脚本调用与 dispatchFileDrop 增加超时，上传锁改为带时间戳可自愈，新增停止等待入口与批次代际校验，避免迟到结果覆盖新一批状态
+- context: 用户截图显示元宝侧边栏长期停留在'正在上传上一批文件，请稍候'；根因是 uploadingRef 仅在 finally 释放，而 executeJavaScript/dispatchFileDrop 无超时，Promise 永不 settle 时锁永久占用
+- decision: 脚本读取 5s、CDP 派发 15s、附件就绪仍为 90s；锁超过 3 分钟视为僵死可接管；停止等待通过 uploadGenerationRef 使旧批次静默退出，不改写新批次 toast
+- modified:
+  - `src/renderer/src/hooks/useWebviewActions.ts`
+  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
+  - `scripts/verify_workspace_drag_drop.py`
+- lesson(promoted): 上传互斥锁必须只保护有界的等待；任何 await 的 executeJavaScript/CDP Promise 都要 withTimeout，否则页面重载或调试器挂起会让 finally 永不执行，锁永久卡住
+- lesson(promoted): 可取消批次要同时有代际号与 toast 归属校验；旧批次迟到时不得清空新批次的锁或覆盖新提示，否则会出现'停止后又被上一批写回'的假状态
+
+### 20:11 | Codex
+
+- done: 为 PDF、PPT、Excel、Word 预览底部新增发送到 AI 按钮，复用现有文件上传事件与轻量强调样式
+- context: PDF 和 Office 文档分类共用 WorkbenchPdfPreview / WorkbenchDocxCard 两个预览组件；PPT、Excel、Word 均归入 document 类别。
+- added:
+  - `src/renderer/src/components/workbench/WorkbenchSendToAiButton.tsx`
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchPdfPreview.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchDocxCard.tsx`
+
+### 20:02 | Codex
+
+- done: 精简工作台 AI 侧边栏文件上传失败提示，超长错误详情改为控制台输出
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
+
+### 20:02 | Codex
+
+- done: 修复 Markdown 编辑区滚动到底部无留白：flex 行容器默认 stretch 使内容盒固定为视口高度，padding-bottom 不进入滚动范围；改为 items-start 让内容随文档增高
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+- lesson: flex 行容器里给滚动子项加 padding-bottom 不产生末尾留白：align-items 默认 stretch 把子项高度拉到容器高度，padding 位于盒内而内容溢出盒外；需要 items-start/self-start 让子项按内容高度撑开（或改成 block + mx-auto），min-h-full 仍保留短文档铺满
+
+### 19:58 | Codex
+
+- done: 按用户反馈调整 Markdown 编辑区底部安全区：保留右下角悬浮状态条，仅增加滚动到底部时的底部留白
+- decision: 放弃预留 footer 占位带，恢复悬浮效果；富文本画布 pb-20，源码模式 pre/textarea 底部内边距 80px，滚到底后最后一行与浮层之间保留约 32px 间距
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchSourceEditor.tsx`
+
+### 19:58 | Codex
+
+- done: 简化工作台不支持文件打开的提醒：移除详情卡片和多余操作，仅保留背景提示与主题色默认应用打开按钮
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchDocxCard.tsx`
+
+### 19:57 | Codex
+
+- done: 修正工作台 Markdown 编辑区底部安全区：改为预留固定空白带，滚动视口在状态条上方结束，避免内容在任何滚动位置被浮层遮挡
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchSourceEditor.tsx`
+- lesson: 悬浮底栏场景下，仅给滚动内容加 padding-bottom 只在滚到底时留白，中途滚动仍会被覆盖；要保证任何位置不遮挡必须为浮层预留独立布局空间（如 shrink-0 占位带或静态 footer）
+
+### 19:54 | codex
+
+- done: 工作台 AI 侧栏上传提示改为仅显示进度，不再显示文件名与目标模型名
+- context: 用户反馈截图中的上传 toast 文案冗余
+- decision: 进行中显示 正在上传 (i/n)，完成显示 上传完成 (n/n)；保留失败详情与跳过文件夹数量
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
+
+### 19:53 | Codex
+
+- done: 为工作台 Markdown 编辑区底部增加空白安全区，避免最后一行内容被右下角悬浮的状态条遮挡
+- decision: 富文本画布由 py-6 改为 pt-6 pb-24；源码模式的 pre 与 textarea 底部内边距同步加到 96px，保持高亮层与输入层对齐
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchSourceEditor.tsx`
+
+### 19:50 | Codex
+
+- done: 补齐工作台发送到 AI 轻量强调方案：按钮从状态胶囊拆分为独立浅蓝按钮，并完善 hover、禁用与键盘焦点状态
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchStatusPill.tsx`
+
+### 19:48 | Codex
+
+- done: 采用轻量强调方案：优化工作台底部发送到 AI 按钮样式
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchStatusPill.tsx`
+
+### 19:48 | Codex
+
+- done: 补充独立审查：确认代码提问入口已全部移除，保留全局右键/非代码划词公式化提示词与思维导图入口
+- context: 最终范围复核：代码预览无 askAi 调用；CustomContextMenu 与 WorkbenchSelectionMenuPlugin 在 activeFileCategory=code 时不显示 AI 提问项；workbenchStore 删除 isCode 条件分支
+- modified:
+  - `SESSION_LOG.md`
+
+### 19:48 | Codex
+
+- done: 删除工作台代码提问提示词注入：移除代码预览的提问/解释/重构悬浮入口，代码文件右键仅保留思维导图，全局右键与 askAi 去掉代码专用提示词分支
+- context: 用户澄清当前只有发送功能，要删掉代码提问的提示词注入功能；保留发送到 AI，以及非代码编辑器的 AI 划词能力
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchCodePreview.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchSelectionMenuPlugin.tsx`
+  - `src/renderer/src/components/CustomContextMenu.tsx`
+  - `src/renderer/src/store/workbenchStore.ts`
+
+### 19:43 | Codex
+
+- done: 补充折叠条带上传在 React 布局完成后再启动、右侧条带外部文件守卫，并增加外部文件优先于残留 draggingNodes 的回归用例；将跨栏上传教训提升到 KNOWLEDGE/INDEX
+- context: Playwright 主路径与 5c-5e、7b 全部通过后，针对真实 Electron 折叠态 Webview 可能为 0 尺寸补两帧等待；5f 验证陈旧 store 节点不再劫持外部文件
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
+  - `src/renderer/src/pages/WorkbenchPage.tsx`
+  - `scripts/verify_workspace_drag_drop.py`
+  - `.memory/KNOWLEDGE.md`
+  - `.memory/INDEX.md`
+  - `SESSION_LOG.md`
+
+### 19:39 | Codex
+
+- done: 修复工作区文件拖拽上传到 AI 侧边栏的假成功、折叠面板丢文件、外部拖拽状态残留，并补充混选提示、上传互斥和主进程文件校验；同时恢复 WorkbenchCodePreview 中缺失的 saveStatus/activeFileSize/formattedSize 声明以消除运行时崩溃
+- context: 按用户确认的 P1→P3 顺序修复；改前先用 Playwright 复现折叠条带 drop=0、外部拖拽遮罩残留、混选静默丢文件夹、陈旧 draggingNodes 劫持
+- decision: 上传成功改为以附件新增信号（文件名命中或附件计数增加）连续稳定 3 次为准；折叠条带改为拖拽释放后一次完成展开与上传；外部文件 drop 优先于 store 残留节点
+- modified:
+  - `src/shared/utils/webviewScripts.ts`
+  - `src/renderer/src/hooks/useWebviewActions.ts`
+  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
+  - `src/renderer/src/components/workbench/workbenchAiEvents.ts`
+  - `src/renderer/src/pages/WorkbenchPage.tsx`
+  - `src/main/services/AutomationService.ts`
+  - `src/renderer/src/components/workbench/WorkbenchCodePreview.tsx`
+  - `scripts/verify_workspace_drag_drop.py`
+- lesson(promoted): CDP Input.dispatchDragEvent 返回成功只代表事件已派发，不代表附件已挂载；必须轮询 generateFileUploadStateScript，并以基线与新增计数/文件名命中判断，否则会稳定产生假成功
+- lesson(promoted): 工作台右侧条带不能在 dragenter 就卸载并只 openRightPane，drop 会被吞；应在 drop 时把 draggingNodes 快照交给常驻侧边栏，一次完成展开与上传
+- unresolved: 尚未在真实 Electron Webview 内对 ChatGPT/Claude/Gemini 等平台做上传就绪验收；需 npm run dev 后逐平台拖拽图片/PDF/大文件确认，尤其关注无附件 chip 的平台是否出现 90 秒超时
+
+### 19:36 | Codex
+
+- done: Increase-status-pill-height
+- context: User requested increasing the height of the bottom status pill after moving the send-to-AI capsule into it.
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchStatusPill.tsx`
+
+### 19:36 | Codex
+
+- done: 删除工作台编辑器空状态中的说明文字，并保留按钮间距
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+
+### 19:34 | Codex
+
+- done: Emphasize-send-to-ai-capsule-button
+- context: User requested blue text/icon for the status-pill send button and a blue background with white text on hover.
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchStatusPill.tsx`
+
+### 19:32 | Codex
+
+- done: 删除工作台顶部栏工作区名称前的文件夹图标
+- context: 用户截图红框标记的是顶部工作区名称前的黄色文件夹图标；仅移除该图标，保留工作区名称、文件路径和其余按钮。
+- modified:
+  - `src/renderer/src/components/Layout.tsx`
+
+### 19:31 | Codex
+
+- done: Move-send-file-button-to-status-pill
+- context: User requested moving the send-file button from the code toolbar into the bottom-right character-count floating pill as a matching capsule button.
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchCodePreview.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchStatusPill.tsx`
+
+### 19:25 | Antigravity
+
+- done: 彻底移除右侧 AI 对话框拖拽上传时的蒙层和提示卡片，保持完全透明无感上传，并刷新当前运行中的 Electron 调试实例
+- decision: 采用完全透明的 cursor-copy 感应层，阻断 guest webview 吞噬拖拽事件的同时避免视觉遮挡与弹窗打扰
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
+  - `scripts/verify_workspace_drag_drop.py`
+
+### 19:23 | Antigravity
+
+- done: 修复工作区文件跨栏拖拽上传至AI侧边栏问题：消除2.5s阻塞、适配Windows路径与MIME补全、解决拖拽遮罩残存与布局抖动并补全端到端验证
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
+  - `src/renderer/src/hooks/useWebviewActions.ts`
+  - `src/renderer/src/pages/WorkbenchPage.tsx`
+  - `scripts/verify_workspace_drag_drop.py`
+  - `scripts/verify_workbench_frontend.py`
+  - `scripts/verify_workbench_previews.py`
+
+### 19:23 | Antigravity
+
+- done: 修复并完善左侧工作区拖拽文件上传至右侧AI对话框机制：解决上传成功Toast静默被吞、ESLint无用转义错误、全透明拖拽感应层防Guest Webview事件吞噬、Escape按键与窗口边界清理、工作区搜索列表项拖拽能力
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchSearch.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchCodePreview.tsx`
+  - `scripts/verify_workspace_drag_drop.py`
+
+### 19:22 | Codex
+
+- done: 修正 Markdown 编辑区前进按钮图标
+- modified:
+  - `src/renderer/src/components/icons/AppIcon.tsx`
+- lesson(promoted): 重做按钮应使用成套的 Undo2/Redo2；Repeat 是循环播放语义，不应作为前进图标。
+
+### 19:20 | Codex
+
+- done: 移除文件编辑器代码预览中文件名后的文件类型标签
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchCodePreview.tsx`
+
+### 19:16 | Codex
+
+- done: 修复工作台 Markdown 富文本预览的标题换行行距与引用左缩进
+- context: 工作台 Lexical Markdown 渲染；用户提供两张预览截图
+- decision: 标题按层级设置相对行高；引用移除额外 20px 左边距，保留左边线与内边距
+- modified:
+  - `src/renderer/src/assets/index.css`
+- lesson(promoted): PlaygroundEditorTheme 标题使用固定 px 字号时需显式设置相对 line-height，否则会继承 body 的 24px 固定行高，标题换行后行距过紧
+
+### 19:11 | Codex
+
+- done: 保留工作台文件上传成功提示，并将上传 toast 统一为项目现有 ControlBar/ModelOutputCard 样式；进度、成功、失败分别使用信息、成功、错误状态。
+- context: 用户要求成功 toast 保留，且不能自造样式。
+- decision: 直接复用 notification-popup、shadow-float、白底半透明与绿色/红色/蓝色细边框；部分成功改用信息态，不新增警告样式。
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
+  - `.memory/KNOWLEDGE.md`
+- lesson(promoted): 项目内 toast 应复用 ControlBar/ModelOutputCard 的既有视觉类，不单独设计新的上传提示条。
+
+### 19:06 | Antigravity
+
+- done: 移除拖拽文件至 AI 对话框时的遮罩与提示卡片，保持无感透明感应与直接拖拽上传能力
+- decision: 保留覆盖于 webview 上层的透明感应层以确保 Electron host 接收 drag/drop 事件，但彻底移除 backdrop-blur、蒙层及弹窗提示，实现无感平滑拖拽上传
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
+  - `scripts/verify_workspace_drag_drop.py`
+
+### 18:57 | Codex
+
+- done: WorkbenchCodePreview 工具栏简化：删除文件名后的语言标签，发送到AI按钮改蓝色+纸飞机图标
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchCodePreview.tsx`
+  - `src/renderer/src/components/icons/AppIcon.tsx`
+
+### 18:53 | Codex
+
+- done: 工作台代码预览的 AI 助手下拉改为一键发送当前完整文件；上传前自动保存未落盘修改，上传成功静默收尾。
+- context: 截图指向 WorkbenchCodePreview 的 AI 助手下拉菜单，侧边栏已有工作区文件上传能力。
+- decision: 复用 WorkbenchAiSidebar 的 uploadFile 链路，通过渲染层自定义事件触发，不新增 IPC；保留划词解释和重构入口。
+- added:
+  - `src/renderer/src/components/workbench/workbenchAiEvents.ts`
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchCodePreview.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
+- lesson(promoted): 文件上传成功无需 toast；若先展示持久进度提示，成功时必须主动清除，避免无自动隐藏的提示滞留。
+
+### 18:46 | Antigravity
+
+- done: 验证并补全工作区拖拽上传到右侧 AI 对话框链路，增加完整 DOM-ready 与 dispatchFileDrop 端到端自动化验收
+- added:
+  - `scripts/verify_workspace_drag_drop.py`
+
+### 18:19 | Antigravity
+
+- done: 实现工作台左侧工作区文件拖拽直接上传到右侧 AI 对话框
+- decision: 工作区拖拽通过 store 记录 draggingNodes 跨栏感知，配合 AI 侧边栏浮层遮罩捕获宿主 drop 事件，调用已有 CDP dispatchFileDrop 直连输入框
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
+  - `src/renderer/src/pages/WorkbenchPage.tsx`
+  - `src/renderer/src/store/workbenchStore.ts`
+  - `src/shared/utils/webviewScripts.ts`
+- lesson(promoted): Electron guest webview 运行时会吞噬宿主 DOM 的拖拽事件；内部元素拖放至 webview 必须在宿主侧挂载拖拽遮罩层以截获 drop 事件并借由 CDP Input.dispatchDragEvent 发送给 webContents
+
+### 18:03 | Antigravity
+
+- done: 修复 Windows 窗口控件中向下还原(restore)图标与原生 Windows MDL2 资产不一致的问题
+- modified:
+  - `src/renderer/src/components/Layout.tsx`
+
+### 17:47 | Codex
+
+- done: 修复工作台代码块连续 Enter 光标跳转，以及最后一个代码块无法点击外部退出：高亮重建改为微任务提交，按字符偏移恢复支持 Element Point 与连续 LineBreakNode 的选区；在编辑根空白处 mousedown 时补建代码块外段落，并用 code-exit 标签阻止幻影空段落写回 Markdown
+- context: 内置浏览器直接打开 Vite 页面会因缺少 Electron preload 在 window.api.platform 处白屏，因此用 Electron CDP 加真实键盘事件验证实际编辑行为；临时测试文档已删除
+- decision: 只修改代码块高亮插件与 Markdown 同步插件，不调整编辑器整体结构或 Lexical 配置
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchCodeHighlightPlugin.tsx`
+  - `src/renderer/src/components/workbench/MarkdownSyncPlugin.tsx`
+- lesson(promoted): Lexical CodeNode mutation listener 内不能同步 editor.update 重建 children：重建会并入当前提交并被随后状态覆盖，选区却按新节点恢复而落到幸存旧节点；应 queueMicrotask 延后，并以块内字符偏移恢复选区。连续 LineBreakNode 的空行必须用 CodeNode element point 表示，selectNext 会越过空行。代码块是文档末节点时 Chromium 会把下方空白点击映射回代码末尾，需要在根元素 mousedown 捕获并主动插入段落，相关更新要跳过 Markdown 回写，避免只点击就产生空段落落盘
+- unresolved: 全量 npm run lint 仍被既有 AppIcon.tsx:308 unused eslint-disable 阻塞，与本次改动无关；定向 ESLint 已通过
+
+### 17:41 | Codex
+
+- done: 修正主窗口 Windows 最大化/最小化/关闭控件字形，并将附件回形针旋转为垂直方向
+- context: 用户截图指出附件图标呈 45 度、Windows 标题栏最小化按钮不是原生样式
+- decision: 窗口三键使用 10x10 的 Windows 字形 SVG，保留现有自绘标题栏与 IPC；附件仅调整 Lucide Paperclip 的旋转角度
+- modified:
+  - `src/renderer/src/components/Layout.tsx`
+  - `src/renderer/src/components/ControlBar.tsx`
+- lesson(promoted): Lucide Paperclip 默认斜向，叠加 -rotate-90 仍是另一种 45 度斜线；需要 -rotate-45 才呈垂直。
+
+### 17:32 | Codex
+
+- done: Material→Lucide迁移完成：codemod替换378处span为AppIcon(55文件)，FrontmatterPanel button图标手动改，3处fontVariationSettings改fill/strokeWidth，CSS选择器改svg[data-icon]且font-size→width/height，main.tsx移除字体import+uninstall material-symbols，verify断言改svg[data-icon]；tsc+lint+build全过，woff2减3.86MB
+- modified:
+  - `src/renderer/src/components/icons/AppIcon.tsx`
+  - `src/renderer/src/main.tsx`
+  - `src/renderer/src/assets/index.css`
+  - `src/renderer/src/styles/notesWorkspace.css`
+  - `scripts/verify_workbench_previews.py`
+  - `55个tsx组件`
+  - `package.json`
+  - `package-lock.json`
+- lesson: 批量图标迁移codemod要点:动态className含插值不能拍平成字符串要透传;title是tooltip要转title子节点或加进Props;fontVariationSettings对svg无效要改fill/strokeWidth;CSS的font-size控图标尺寸迁svg要改width/height;button直接挂图标类的形态正则匹配不到要手动找
+- unresolved: npm run dev视觉巡检未做(stroke可读性/基线/小尺寸),待手动验证
+
 ### 17:14 | Codex
 
 - done: 修复代码块 Enter 光标跳回上一行行首：WorkbenchCodeHighlightPlugin 在 mutation 回调 discrete 重建 children 把 insertNewAfter 刚设的新行选区删掉重置；改为去掉 discrete + 重建前记录块首字符偏移、重建后按偏移恢复选区
@@ -1144,7 +1646,8 @@
 - modified:
   - `dist/MultiChat Setup 1.3.1.exe`
 - removed:
-  - `nul`
+  - 
+ul`
 - lesson: Windows 下脚本把输出重定向到 nul 会在仓库根目录生成名为 nul 的实体文件，需用 \\?\ 前缀路径删除
 
 ### 13:16 | Codex
@@ -1608,7 +2111,8 @@
   - `package.json`
   - `package-lock.json`
 - removed:
-  - `nul`
+  - 
+ul`
 
 ### 18:06 | agent
 
