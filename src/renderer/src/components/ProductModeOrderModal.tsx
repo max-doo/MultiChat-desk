@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useAppStore, ALL_PRODUCT_MODES, DEFAULT_PRODUCT_MODE_CONFIG, type ProductMode, type ProductModeConfig } from '../store/appStore'
+import { useAppStore, DEFAULT_PRODUCT_MODE_CONFIG, type ProductMode, type ProductModeConfig } from '../store/appStore'
 
 interface ProductModeOrderModalProps {
   isOpen: boolean
@@ -122,7 +122,7 @@ export default function ProductModeOrderModal({ isOpen, onClose }: ProductModeOr
           <div className="flex items-center gap-2.5">
             <span className="material-symbols-outlined text-primary text-2xl">view_column_2</span>
             <div>
-              <h3 className="text-base font-semibold text-text-primary">主页面模式切换</h3>
+              <h3 className="text-base font-semibold text-text-primary">主页模式设置</h3>
               <p className="text-xs text-text-secondary mt-0.5">
                 调整标题栏模式切换的顺序与显示，至少保留两个
               </p>

@@ -148,6 +148,11 @@ if (!gotTheLock) {
   app.commandLine.appendSwitch('disable-blink-features', 'AutomationControlled')
   // 2. 禁用 QUIC (HTTP/3) 协议，避免在 Clash Verge/TUN 虚拟网卡模式下 UDP 443 转发丢包导致页面假死空白
   app.commandLine.appendSwitch('disable-quic')
+  // 开发态暴露 CDP 端口，便于直接检查 webview 内真实 DOM（注入按钮排障）
+  if (!app.isPackaged) {
+    app.commandLine.appendSwitch('remote-debugging-port', '9223')
+    app.commandLine.appendSwitch('remote-allow-origins', 'http://127.0.0.1:9223')
+  }
 
   app.whenReady().then(async () => {
     // 强制所有 Webview 和原生控件使用浅色模式，与应用 UI 保持一致

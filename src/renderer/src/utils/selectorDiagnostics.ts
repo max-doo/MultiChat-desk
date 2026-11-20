@@ -757,3 +757,183 @@ export function buildPickerScript(opts: DomProbeOptions = {}): string {
     });
   })();`
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 工作台「回复插入」按钮注入点探针（dev-only）
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface ActionBarProbeReport {
+  ok: boolean
+  url?: string
+  platformId?: string
+  createBar?: boolean
+  replyItemHits?: { selector: string; visible: number; total: number }[]
+  actionBarHits?: { selector: string; visible: number; total: number }[]
+  bar?: {
+    tag: string
+    className: string | null
+    childCount: number
+    nativeChildCount: number
+    mcBtnCount: number
+    path: string
+  } | null
+  injected?: { total: number; perReply: number[] }
+  error?: string
+}
+
+interface ActionBarProbeCfg {
+  replyItem?: string[]
+  messageRoot?: string[]
+  actionBar?: string[]
+  createBar?: boolean
+}
+
+/**
+ * 构建在平台页内执行的「回复插入按钮注入点」探针。
+ * 复刻 generateInsertReplyButtonScript 的 findReplyItems/ensureButtons 定位逻辑，
+ * 只读返回：replyItem/actionBar 命中情况、定位到的 bar 摘要、当前已注入按钮数量与分布。
+ * @param platformId 平台 id（仅用于回传标识）
+ * @param cfg        该平台的 AssistantReplyConfig
+ * @param messageSelectors  平台 messageContainer 候选（createBar 兜底用）
+ */
+export function buildActionBarProbeScript(
+  platformId: string,
+  cfg: ActionBarProbeCfg,
+  messageSelectors: string[]
+): string {
+  return `(function () {
+    var PLATFORM_ID = ${JSON.stringify(platformId)};
+    var CFG = ${JSON.stringify(cfg || {})};
+    var MESSAGE_CONTAINER = ${JSON.stringify(messageSelectors || [])};
+
+    function safeQueryAll(root, sel) {
+      try { return Array.prototype.slice.call(root.querySelectorAll(sel)); } catch (e) { return []; }
+    }
+    function isVisible(el) {
+      try {
+        if (!el || !el.isConnected) return false;
+        var r = el.getBoundingClientRect();
+        if (!r || r.width <= 0 || r.height <= 0) return false;
+        var s = window.getComputedStyle(el);
+        return s && s.display !== 'none' && s.visibility !== 'hidden';
+      } catch (e) { return false; }
+    }
+    function countHits(selectors) {
+      var out = [];
+      if (!selectors) return out;
+      for (var i = 0; i < selectors.length; i++) {
+        var list = safeQueryAll(document, selectors[i]);
+        var v = 0;
+        for (var j = 0; j < list.length; j++) if (isVisible(list[j])) v++;
+        out.push({ selector: selectors[i], total: list.length, visible: v });
+      }
+      return out;
+    }
+    function firstMatch(root, selectors) {
+      if (!selectors) return null;
+      for (var i = 0; i < selectors.length; i++) {
+        var list = safeQueryAll(root, selectors[i]);
+        for (var j = 0; j < list.length; j++) {
+          if (isVisible(list[j])) return list[j];
+        }
+      }
+      return null;
+    }
+    function domPath(el) {
+      var parts = [];
+      var cur = el;
+      for (var d = 0; d < 5 && cur && cur.nodeType === 1; d++) {
+        var seg = cur.tagName.toLowerCase();
+        var cls = (cur.getAttribute('class') || '').trim().split(/\\s+/).slice(0, 2).join('.');
+        if (cls) seg += '.' + cls;
+        parts.unshift(seg);
+        cur = cur.parentElement;
+      }
+      return parts.join(' > ');
+    }
+
+    var replyItemHits = countHits(CFG.replyItem);
+    var actionBarHits = countHits(CFG.actionBar);
+
+    // 复刻 ensureButtons 的 bar 定位逻辑（只针对第一条可见 replyItem）
+    var bar = null;
+    var firstReply = null;
+    if (CFG.replyItem && CFG.replyItem.length) {
+      for (var i = 0; i < CFG.replyItem.length && !firstReply; i++) {
+        var list = safeQueryAll(document, CFG.replyItem[i]);
+        for (var j = 0; j < list.length; j++) {
+          if (isVisible(list[j])) { firstReply = list[j]; break; }
+        }
+      }
+    }
+    if (!firstReply) {
+      var root = firstMatch(document, CFG.messageRoot);
+      var scope = root || document;
+      firstReply = firstMatch(scope, MESSAGE_CONTAINER);
+    }
+
+    if (firstReply && !CFG.createBar && CFG.actionBar && CFG.actionBar.length) {
+      var probe = firstMatch(firstReply, CFG.actionBar);
+      if (probe) {
+        var candidate = probe;
+        for (var up = 0; up < 4 && candidate; up++) {
+          var kids = candidate.querySelectorAll ? candidate.querySelectorAll('button,[role="button"],div[class*="icon"],[class*="Button"]') : [];
+          var isBtnTag = candidate.tagName === 'BUTTON' || candidate.getAttribute('role') === 'button';
+          if (!isBtnTag && kids.length >= 2) break;
+          if (!candidate.parentElement) break;
+          candidate = candidate.parentElement;
+        }
+        bar = candidate || probe;
+      }
+    }
+
+    var barInfo = null;
+    if (bar) {
+      var mcKids = bar.querySelectorAll('.mc-workbench-btn');
+      barInfo = {
+        tag: bar.tagName.toLowerCase(),
+        className: bar.getAttribute('class'),
+        childCount: bar.children.length,
+        nativeChildCount: bar.children.length - mcKids.length,
+        mcBtnCount: mcKids.length,
+        path: domPath(bar)
+      };
+    }
+
+    // 已注入按钮总数 + 每条 replyItem 内的数量分布
+    var allMc = safeQueryAll(document, '.mc-workbench-btn');
+    var perReply = [];
+    if (CFG.replyItem && CFG.replyItem.length) {
+      for (var i = 0; i < CFG.replyItem.length; i++) {
+        var list = safeQueryAll(document, CFG.replyItem[i]);
+        for (var j = 0; j < list.length; j++) {
+          if (isVisible(list[j])) {
+            perReply.push(list[j].querySelectorAll('.mc-workbench-btn').length);
+          }
+        }
+      }
+    }
+
+    return JSON.stringify({
+      ok: true,
+      url: location.href,
+      platformId: PLATFORM_ID,
+      createBar: !!CFG.createBar,
+      replyItemHits: replyItemHits,
+      actionBarHits: actionBarHits,
+      bar: barInfo,
+      injected: { total: allMc.length, perReply: perReply }
+    });
+  })();`
+}
+
+export function parseActionBarProbeResult(raw: unknown): ActionBarProbeReport {
+  if (typeof raw !== 'string') {
+    return { ok: false, error: '探针返回非字符串' }
+  }
+  try {
+    return JSON.parse(raw) as ActionBarProbeReport
+  } catch (e) {
+    return { ok: false, error: `解析失败: ${String(e)}` }
+  }
+}

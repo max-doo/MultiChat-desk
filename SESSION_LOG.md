@@ -2,6 +2,119 @@
 
 ## 2026-11-20
 
+### 14:16 | Codex
+
+- done: DeepSeek 按钮位置二次修正: replyItem 改 div:has(> div.ds-message + div.ds-flex) 命中含回复+操作栏的父容器; actionBar 用 div.ds-flex:has(> div.ds-button ~ div.ds-button) 命中底部原生操作行(6个ds-button); 之前误挂'已思考'行 _5ab5d64
+- modified:
+  - `src/shared/config/selectors.ts`
+
+### 14:11 | Codex
+
+- done: DeepSeek 按钮位置修正: replyItem 改 div.ds-message(整轮),actionBar 用 div:has(> div.ds-icon ~ div.ds-icon)命中回复顶部原生操作栏,contentItem 缩到 ds-markdown.ds-assistant-message-main-content; observer 存实例支持 disconnect 防 SPA 内重复注入
+- modified:
+  - `src/shared/utils/webviewScripts.ts`
+  - `src/shared/config/selectors.ts`
+- lesson: DeepSeek 回复操作栏在回复块顶部(think-content上方)非底部,按钮是 div.ds-icon 非 ds-button; 平台 hash 类全失效时用 :has(> X ~ X)结构选择器定位比记 hash 稳
+
+### 14:00 | Codex
+
+- done: DeepSeek 注入循环修复: fallback bar 复用已有不再重复新建,幂等检查区分 createBar 平台; 新增 deepseek 配置(replyItem=ds-markdown.ds-assistant-message-main-content+createBar); 按钮尺寸改 CFG.btnSize/iconSize 可调(Gemini 34/18 其余 30/16); 修复 fallback 迁移时按钮顺序反转
+- modified:
+  - `src/shared/utils/webviewScripts.ts`
+  - `src/shared/config/selectors.ts`
+- lesson: 注入 fallback bar 必须先查 replyEl 内是否已有可复用的,否则 MutationObserver 每次 scan 都 append 导致无限循环(DeepSeek 实测 2412 个); 幂等判断要区分『有原生 bar 待迁移』和『本就无原生 bar』两种情况
+
+### 13:56 | Codex
+
+- done: 独立worker评审Lucide迁移方案并修正：补draft漏映射(FileSignature)；AppIcon加data-icon/verticalAlign:middle/strokeWidth默认2.2/兜底改AlertTriangle；方案文档同步P0/P1修正(替换锚点=渲染span、CSS font-size失效、verify断言改svg[data-icon])
+- modified:
+  - `src/renderer/src/components/icons/AppIcon.tsx`
+  - `docs/lucide-migration-plan.md`
+- lesson: icon字体迁移坑：object-map的icon:字段是定义行不是渲染点，间接模式(getNodeIcon().icon)要改渲染span；verify脚本靠inner_text断言图标名，迁SVG必须改data-icon属性；Lucide线稿比Material填充偏细需strokeWidth校准+verticalAlign:middle对齐基线
+- unresolved: 方案+组件就绪待批准执行B1-B5分批替换
+
+### 13:54 | Codex
+
+- done: Material→Lucide迁移评估+方案+映射组件+干跑分析：建AppIcon.tsx封装(147图标静态映射)，docs/lucide-migration-plan.md开发方案，lucide-react@1.76.0已装待替换
+- context: material-symbols字体3.86MB占renderer产物32.8%；51文件~290静态span/49动态/65 object-map
+- added:
+  - `src/renderer/src/components/icons/AppIcon.tsx`
+  - `docs/lucide-migration-plan.md`
+- modified:
+  - `package.json`
+  - `package-lock.json`
+- lesson: icon:/iconName:字段混有业务token(success/asc/updated等)与CSS visibility，不能按名字纯文本批量替换；静态映射表保tree-shaking优于运行时名转换
+- unresolved: 独立worker评审中；待批准后按B1-B5分批替换
+
+### 13:49 | Codex
+
+- done: 修复工作台回复按钮注入: Gemini Trusted Types CSP 拦 innerHTML/DOMParser 致按钮静默失败改 createElementNS; ChatGPT actionBar 误挂用户气泡行改限定 actionRow 容器; 提取内容克隆清洗剥掉 sr-only 说话人标签和操作按钮
+- modified:
+  - `src/shared/utils/webviewScripts.ts`
+  - `src/shared/config/selectors.ts`
+  - `src/main/index.ts`
+- lesson: Gemini/ChatGPT 等高 CSP 平台禁止 innerHTML/DOMParser 字符串→DOM,注入 UI 必须 createElementNS 程序化构建; ChatGPT 一轮有用户行+AI行两个 turn-action-controls 需按 actionRow 类名区分; 平台 sr-only 说话人标签(你说:/ChatGPT 说:)会被 htmlToMarkdown 当正文,提取前须克隆清洗
+- unresolved: dev 实例已验证 Gemini+ChatGPT 注入位置与提取纯度; 豆包/元宝/千问未实机复验(选择器按先前 DOM 调查已配 userItemMarker/--ai 限定,建议用户在真实平台各发一条验证)
+
+### 13:41 | Codex
+
+- done: 修复工作台 Markdown 编辑器文字粘贴失效：WorkbenchImagePlugin 的 PASTE/DROP_COMMAND 处理器无论剪贴板内容均返回 true，高优先级吞掉默认粘贴；改为同步检查有无图片文件后再决定是否拦截
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchImagePlugin.tsx`
+- lesson: Lexical registerCommand 返回值决定处理器是否继续执行；注册为 COMMAND_PRIORITY_HIGH 的异步处理器必须在同步阶段先判断再返回，否则会无条件吞掉后续所有默认处理
+
+### 13:06 | Codex
+
+- done: 修复 workbench Markdown 预览表格过窄：表格改 auto layout+100%宽，单元格 75px 改 min-width
+- modified:
+  - `src/renderer/src/assets/index.css`
+- lesson: Lexical TableCellNode 在无 colWidths 时内联 width:75px，配 table-layout:fixed+fit-content 会把 md 表格压成一列；渲染层用 table-layout:auto+width:100%+单元格 min-width 即可自适应，内联 75px 只作下限不阻塞分配
+
+### 13:02 | Codex
+
+- done: 修复工作台回复按钮注入三处 bug：ChatGPT 提取含用户消息、豆包按钮挂用户气泡、Gemini 按钮不可见
+- context: 上会话已修过一轮去重/hover，本会话用户实测回报三平台仍有问题，用 iab 实 DOM 验证定位
+- decision: AssistantReplyConfig 新增 contentItem（整轮容器内取 AI 正文块）与 userItemMarker（用户消息特征跳过）；bar 定位上爬限高 56px 防止爬进块级 footer（Gemini）；豆包靠 message_action_edit 区分用户/AI
+- modified:
+  - `src/shared/config/selectors.ts`
+  - `src/shared/utils/webviewScripts.ts`
+- lesson(promoted): 豆包用户消息与 AI 回复共用 w-full pl-14 和 message-action-bar，判别特征是操作栏内 message_action_edit（用户）vs message_action_like/dislike（AI）；ChatGPT 一轮对话是单 .group 容器含用户气泡+AI 正文，AI 正文用 [data-chatgpt-search-unit-key$=:assistant]；Gemini buttons-container-v2 的父级是 block footer，bar 上爬必须限高
+
+### 12:47 | Codex
+
+- done: 修复撤回后无法重试插入bug:lastInsertHash用===永久记录replyHash,撤回/采纳后重试同一条回复被永久跳过;改为{hash,at}时间窗防抖(1.5s内同payload双击跳过,撤回/采纳后重试必然超窗允许)
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
+- lesson: 防重复防抖要用时间窗而非永久标记;采纳/撤回在Lexical内部完成、sidebar无感知,防双击与'允许重试'的边界只能按时间而非状态划分
+
+### 12:45 | Codex
+
+- done: 内置浏览器逐一核验并修复工作台'回复插入'按钮注入点：豆包 replyItem 加 :has(message-action-bar) 限定+actionBar 换失效 hash 为语义类；元宝 replyItem 限定 --ai 变体+actionBar 换 toolbar__right；ChatGPT replyItem/actionBar 全换（data-message-author-role 已失效→turn-action-controls）；千问 replyItem 换 message-select-wrapper-answer（区分 question/answer）；findReplyItems 兜底 firstMatch→lastMatch
+- modified:
+  - `src/shared/config/selectors.ts`
+  - `src/shared/utils/webviewScripts.ts`
+- lesson: 各平台 replyItem/actionBar 选器全量失效（hash 类名 actionButton-m1fXIC/ToolbarCopy_icon__5Odjl/data-message-author-role 都变了）；iab 内置浏览器登录态独立：豆包/元宝/Gemini/ChatGPT/千问/Grok(部分)可核验，DeepSeek/Kimi/Claude/文心/智谱/Perplexity/Arena 未登录或验证码拦截；通用注入选器要用 :has() 区分用户/AI 气泡，避免把按钮挂到用户消息下
+- unresolved: DeepSeek/Kimi/Claude/Grok/文心/智谱/Perplexity/Arena 无法在 iab 核验（未登录）；Grok 全 CSS-in-JS 混淆类无语义选器可用，维持兜底
+
+### 12:34 | Codex
+
+- done: 修复主页面模式切换设置不生效：normalizeProductModeConfig 中 hidden 数组在自身 filter 回调里被引用（TDZ ReferenceError），导致隐藏非空时整个 set 抛错回退；改为 forEach 累加写法
+- modified:
+  - `src/renderer/src/store/appStore.ts`
+  - `src/renderer/src/components/ProductModeOrderModal.tsx`
+- lesson: 数组常量在其自身 .filter/.map 回调里被引用会触发 TDZ ReferenceError 且只在数据非空时暴露；去重场景改用 forEach+累加数组
+
+### 12:22 | Codex
+
+- done: 修复工作台'回复插入'按钮重复注入与错位：findReplyItems 去重嵌套 replyItem（元宝同回复外层气泡+内层 markdown 各挂一组→6组），ensureButtons 加 DOM 级幂等（.mc-workbench-btn 存在即跳过），bar 定位收紧为横向单行按钮行（flex row/h≤48/textLen<30，避免 prepend 到回复卡顶部），按钮 hover 加灰色背景
+- modified:
+  - `src/shared/utils/webviewScripts.ts`
+  - `src/renderer/src/utils/selectorDiagnostics.ts`
+  - `src/renderer/src/hooks/useWebviewActions.ts`
+  - `src/renderer/src/components/WebviewCard.tsx`
+- lesson: webview 内嵌页面可用 CUA getAXState 直接读（Electron webview 暴露给 a11y tree）；元宝 replyItem 选器命中嵌套容器导致重复注入，须按 contains 去重取最外层；bar 定位不能只看'含≥2交互子元素'，回复卡本身满足该条件会错位
+- unresolved: probeActionBar 探针已挂到 WebviewCardRef（与 probeMessageContainer 同族 dev 诊断能力），未接 UI；其他平台（kimi/deepseek/claude/grok/yiyan 等未配置 assistantReplyConfigs 走 createBar 兜底）注入位置未逐一真机核验
+
 ### 12:13 | Codex
 
 - done: 工作台删除当前打开文件后自动切换到排序上的相邻文件（先向后再向前），删除包含当前文件的目录同样生效；无剩余文件才显示空状态

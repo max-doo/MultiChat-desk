@@ -45,6 +45,7 @@
     "commander": "^15.0.0",
     "electron-store": "^8.1.0",
     "lexical": "^0.53.0",
+    "lucide-react": "^1.76.0",
     "markmap-lib": "^0.18.12",
     "markmap-view": "^0.18.12",
     "material-symbols": "^0.45.4",

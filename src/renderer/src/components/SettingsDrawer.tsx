@@ -475,11 +475,11 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
         {/* 设置内容：可滚动区域 */}
         <div className="flex-1 p-6 space-y-8 overflow-y-auto">
 
-          {/* 主页面模式切换设置 */}
+          {/* 主页模式设置 */}
           <div>
             <h3 className="flex items-center gap-2 font-semibold text-text-primary mb-4">
               <span className="material-symbols-outlined text-primary text-xl">view_column_2</span>
-              主页面模式切换
+              主页模式设置
             </h3>
             <div className="p-4 rounded-xl glass-panel flex items-center justify-between">
               <div>

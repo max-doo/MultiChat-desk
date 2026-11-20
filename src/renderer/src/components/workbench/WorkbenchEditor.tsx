@@ -26,6 +26,8 @@ import WorkbenchToolbar from './WorkbenchToolbar'
 import MarkdownSyncPlugin, { WORKBENCH_TRANSFORMERS } from './MarkdownSyncPlugin'
 import { PendingInsertNode } from './PendingInsertNode'
 import { PendingBarNode } from './PendingBarNode'
+import { WorkbenchImageNode } from './WorkbenchImageNode'
+import WorkbenchImagePlugin from './WorkbenchImagePlugin'
 import WorkbenchSelectionMenuPlugin from './WorkbenchSelectionMenuPlugin'
 import WorkbenchFloatingToolbarPlugin from './WorkbenchFloatingToolbarPlugin'
 import WorkbenchDraggableBlockPlugin from './WorkbenchDraggableBlockPlugin'
@@ -144,7 +146,8 @@ export default function WorkbenchEditor(): JSX.Element {
         AutoLinkNode,
         HorizontalRuleNode,
         PendingInsertNode,
-        PendingBarNode
+        PendingBarNode,
+        WorkbenchImageNode
       ],
       onError: (error: Error) => {
         console.error('[WorkbenchEditor] Lexical Error:', error)
@@ -341,6 +344,7 @@ export default function WorkbenchEditor(): JSX.Element {
         <TabIndentationPlugin />
         <MarkdownShortcutPlugin transformers={WORKBENCH_TRANSFORMERS} />
         <MarkdownSyncPlugin />
+        <WorkbenchImagePlugin />
         <WorkbenchSelectionMenuPlugin />
         <WorkbenchTableCellResizerPlugin />
       </LexicalComposer>

@@ -20,6 +20,27 @@ export interface WorkbenchSortPreference {
 
 const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n/
 
+// 右侧 AI 侧边栏宽度限制：随窗口宽度分档，避免小窗下侧边栏过宽挤压编辑器
+const RIGHT_PANE_MIN = 300
+const RIGHT_PANE_MAX_TIERS: Array<{ minWindowWidth: number; maxPaneWidth: number }> = [
+  { minWindowWidth: 1680, maxPaneWidth: 960 },
+  { minWindowWidth: 1440, maxPaneWidth: 640 },
+  { minWindowWidth: 1200, maxPaneWidth: 560 },
+  { minWindowWidth: 0, maxPaneWidth: 480 }
+]
+
+function getRightPaneMaxWidth(): number {
+  const windowWidth = typeof window === 'undefined' ? 1400 : window.innerWidth
+  for (const tier of RIGHT_PANE_MAX_TIERS) {
+    if (windowWidth >= tier.minWindowWidth) return tier.maxPaneWidth
+  }
+  return RIGHT_PANE_MIN
+}
+
+function clampRightPaneWidth(width: number): number {
+  return Math.max(RIGHT_PANE_MIN, Math.min(getRightPaneMaxWidth(), width))
+}
+
 /**
  * 往 Markdown 的 YAML frontmatter 补一条 source 链接。
  * 已有 frontmatter：把 url 并入 source 字段（不存在则新增一行）；
@@ -112,6 +133,8 @@ interface WorkbenchStoreActions {
   ) => Promise<{ success: boolean; error?: string }>
   revealFile: (relativePath: string) => Promise<void>
   openInSystem: (relativePath: string) => Promise<void>
+  findUnreferencedImages: (documentRelativePath: string) => Promise<{ unreferenced: string[]; total: number } | null>
+  deleteNodes: (relativePaths: string[]) => Promise<boolean>
   searchFiles: (query: string) => void
   clearSearch: () => void
   setFileSort: (pref: WorkbenchSortPreference) => void
@@ -199,8 +222,8 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       if (typeof savedLeftWidth === 'number' && savedLeftWidth >= 260 && savedLeftWidth <= 480) {
         updates.leftPaneWidth = savedLeftWidth
       }
-      if (typeof savedRightWidth === 'number' && savedRightWidth >= 300 && savedRightWidth <= 700) {
-        updates.rightPaneWidth = savedRightWidth
+      if (typeof savedRightWidth === 'number' && savedRightWidth >= RIGHT_PANE_MIN) {
+        updates.rightPaneWidth = clampRightPaneWidth(savedRightWidth)
       }
       if (typeof savedLeftCollapsed === 'boolean') {
         updates.isLeftCollapsed = savedLeftCollapsed
@@ -536,6 +559,21 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         if (activeFilePath === oldRelativePath) {
           set({ activeFilePath: newRelativePath })
           void window.api.storeSet('workbench_lastActiveFilePath', newRelativePath)
+
+          // 主进程可能已重写 .md 内容（assets 路径替换），重新读盘同步渲染层状态
+          // 否则 isDirty + 旧内容会在下一次 autoSave 覆盖掉主进程的修改
+          if (/\.(md|markdown)$/i.test(newRelativePath)) {
+            try {
+              const fileRes = await window.api.workbench.readFile(workspacePath, newRelativePath)
+              if (fileRes.success && fileRes.data) {
+                set({
+                  activeFileContent: fileRes.data.content,
+                  isDirty: false,
+                  lastSavedAt: fileRes.data.mtime
+                })
+              }
+            } catch { /* noop：读失败不阻断，保持原状态 */ }
+          }
         } else if (activeFilePath && activeFilePath.startsWith(`${oldRelativePath}/`)) {
           const updatedActive = newRelativePath + activeFilePath.slice(oldRelativePath.length)
           set({ activeFilePath: updatedActive })
@@ -806,6 +844,32 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     }
   },
 
+  findUnreferencedImages: async (documentRelativePath: string) => {
+    const { workspacePath } = get()
+    if (!workspacePath) return null
+    try {
+      const res = await window.api.workbench.findUnreferencedImages(workspacePath, documentRelativePath)
+      return res.success && res.data ? res.data : null
+    } catch {
+      return null
+    }
+  },
+
+  deleteNodes: async (relativePaths: string[]) => {
+    const { workspacePath } = get()
+    if (!workspacePath || !relativePaths.length) return false
+    try {
+      const res = await window.api.workbench.deleteNodes(workspacePath, relativePaths)
+      if (res.success && res.data) {
+        await get().loadFileTree()
+        return res.data.failed.length === 0
+      }
+      return false
+    } catch {
+      return false
+    }
+  },
+
   searchFiles: (query: string) => {
     const { workspacePath } = get()
     set({ searchQuery: query })
@@ -855,7 +919,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   },
 
   setRightPaneWidth: (width: number) => {
-    const clamped = Math.max(300, Math.min(700, width))
+    const clamped = clampRightPaneWidth(width)
     set({ rightPaneWidth: clamped })
     void window.api.storeSet('workbench_rightPaneWidth', clamped)
   },
@@ -932,3 +996,18 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
 
   clearError: () => set({ error: null })
 }))
+
+// 窗口缩小时，已存的侧边栏宽度可能超过新档位的上限，监听 resize 被动收敛。
+// 仅在跨档位时才 set，避免窗口微调触发的多余渲染。
+if (typeof window !== 'undefined') {
+  let lastMaxWidth = getRightPaneMaxWidth()
+  window.addEventListener('resize', () => {
+    const nextMaxWidth = getRightPaneMaxWidth()
+    if (nextMaxWidth === lastMaxWidth) return
+    lastMaxWidth = nextMaxWidth
+    const current = useWorkbenchStore.getState()
+    if (current.rightPaneWidth > nextMaxWidth) {
+      useWorkbenchStore.setState({ rightPaneWidth: nextMaxWidth })
+    }
+  })
+}

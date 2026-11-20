@@ -980,6 +980,20 @@ export interface AssistantReplyConfig {
    */
   replyItem?: string[]
   /**
+   * replyItem 命中的是「整轮」容器（含用户消息）时，用该选择器在容器内
+   * 定位 AI 正文块；提取 Markdown 只取该块，避免把用户消息一并抓出。
+   */
+  contentItem?: string[]
+  /**
+   * replyItem 可能同时命中用户消息与 AI 回复（如豆包共用容器）时，
+   * 用该选择器判断「这条命中的容器其实是用户消息」并跳过。
+   */
+  userItemMarker?: string[]
+  /** 注入按钮外框边长 px，缺省 30。原生操作按钮偏大的平台（Gemini 36px）可调大。 */
+  btnSize?: number
+  /** 注入按钮内 SVG 图标边长 px，缺省 16。 */
+  iconSize?: number
+  /**
    * 「消息流容器」选择器（replyItem 缺省时使用）。命中的是包含全部对话的容器，
    * 脚本在其中定位最后一条可见回复。
    */
@@ -1003,27 +1017,58 @@ export interface AssistantReplyConfig {
 
 export const assistantReplyConfigs: Record<string, AssistantReplyConfig> = {
   chatgpt: {
-    replyItem: ['[data-message-author-role="assistant"]', '.agent-turn'],
-    actionBar: ['div.flex.items-center.gap-0\\.5', 'div[class*="buttons-container"]']
+    // data-message-author-role 已失效；AI 回复容器是含 turn-action-controls 的 group，
+    // 但用户气泡与 AI 回复同属一个轮次容器，需用 contentItem 只取 AI 正文块，
+    // 否则提取 Markdown 会把用户消息一起抓出
+    replyItem: ['div.group.flex.flex-col:has(div.turn-action-controls):not([class~="group/user-message"])'],
+    contentItem: [
+      '[data-chatgpt-search-unit-key*=":assistant"]',
+      '[data-content-search-unit-key*=":assistant"]',
+      'div[class*="MarkdownRoot"]'
+    ],
+    // 一轮里有两个 turn-action-controls：用户气泡行的（祖先 flex-row-reverse）
+    // 和 AI 回复底部的（actionRow-xxx）。必须限定 actionRow，否则按钮挂到用户气泡下。
+    actionBar: ['div.turn-action-controls[class*="actionRow"]', 'div[class*="actionRow-"][class*="turn-action-controls"]']
   },
   gemini: {
     replyItem: ['model-response', '[class*="model-response"]'],
-    actionBar: ['div.buttons-container-v2', 'div[class*="buttons-container"]']
+    actionBar: ['div.buttons-container-v2', 'div[class*="buttons-container"]'],
+    // 原生操作按钮 36x36、图标 ~20px，注入按钮要匹配才不会显得挤小
+    btnSize: 34,
+    iconSize: 18
+  },
+  deepseek: {
+    // 结构：ds-message(AI回复,含think+正文) 与 div.ds-flex(底部操作栏,6个div.ds-icon)
+    // 是兄弟节点，同属一个父容器。replyItem 须命中该父容器，actionBar 才能在
+    // 其内找到底部操作栏；命中 ds-message 本身会错挂到 think 上方的 _5ab5d64（那是
+    // "已思考"行的按钮组，非回复操作栏）。
+    replyItem: ['div:has(> div.ds-message + div.ds-flex)'],
+    contentItem: ['div.ds-markdown.ds-assistant-message-main-content', 'div[class*="ds-assistant-message-main-content"]'],
+    // 底部操作栏 = ds-flex 内含 ≥2 个平级 div.ds-button 的行容器（_965abe9，hash 会失效）
+    actionBar: ['div.ds-flex:has(> div.ds-button ~ div.ds-button)']
   },
   qwen: {
-    replyItem: ['div.auto-center-wrapper-VqwKSm', 'div[class*="auto-center-wrapper"]'],
+    // AI 回复容器是 message-select-wrapper-answer-*（区别于 ...-question-* 用户气泡）；
     // 千问无集中 actionBar，在回复容器末尾新建
+    replyItem: ['div[class*="message-select-wrapper-answer"]'],
     createBar: true
   },
   doubao: {
-    replyItem: ['div[class*="w-full pl-14"]', '[data-render-engine]'],
-    actionBar: ['button.actionButton-m1fXIC']
+    // 豆包用户消息与 AI 回复共用 w-full pl-14 且都含 message-action-bar；
+    // 用户消息操作栏特有「编辑」按钮（message_action_edit），据此排除用户气泡。
+    replyItem: ['div[class*="w-full pl-14"]:has(div[class*="message-action-bar"])'],
+    userItemMarker: ['[data-testid="message_action_edit"]'],
+    actionBar: ['div[class*="message-action-bar"] .message-action-button-main', 'div[class*="message-action-bar"]']
   },
   yuanbao: {
     // msgRoot 是整个消息流容器，单条回复在其中
     messageRoot: ['div.agent-chat__list'],
-    replyItem: ['div[class*="agent-chat__bubble"]', 'div.hyc-common-markdown'],
-    actionBar: ['div.ToolbarCopy_icon__5Odjl', 'div[class*="ToolbarCopy_icon"]'],
+    // agent-chat__bubble 同时有 --human/--ai 变体，必须用 --ai 限定，
+    // 否则用户气泡也会被当成回复挂按钮
+    replyItem: ['div.agent-chat__list__item--ai', 'div[class*="agent-chat__list__item--ai"]'],
+    // 真实操作行是 toolbar__right（flex row 单行，含复制/分享/更多 div[role=button]）；
+    // conv--ai__toolbar 外层是 block 容器，直接命中会把按钮 prepend 到错误位置
+    actionBar: ['div.agent-chat__toolbar__right', 'div[class*="agent-chat__toolbar__right"]'],
     actionBarIsDiv: true
   }
 }

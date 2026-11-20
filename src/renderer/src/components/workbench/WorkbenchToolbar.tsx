@@ -29,6 +29,7 @@ import { $createCodeNode } from '@lexical/code'
 import { $isLinkNode, TOGGLE_LINK_COMMAND } from '@lexical/link'
 import { INSERT_TABLE_COMMAND } from '@lexical/table'
 import { INSERT_HORIZONTAL_RULE_COMMAND } from '@lexical/react/LexicalHorizontalRuleNode'
+import { INSERT_WORKBENCH_IMAGE_COMMAND } from './WorkbenchImagePlugin'
 import { $getNearestNodeOfType } from '@lexical/utils'
 import { useWorkbenchStore } from '../../store/workbenchStore'
 import WorkbenchDropDown, {
@@ -283,6 +284,50 @@ export default function WorkbenchToolbar(): JSX.Element {
     }
   }, [editor, isLink])
 
+  const insertImage = useCallback(() => {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = 'image/*'
+    input.multiple = true
+    input.onchange = () => {
+      const files = Array.from(input.files ?? [])
+      if (!files.length) return
+      // 通过隐藏 input 选择本地文件，转成 File 对象走 dataUrl 通道
+      // （input 拿到的 file.path 在沙盒渲染进程可能为空，统一用 FileReader）
+      void (async () => {
+        const workspacePath = useWorkbenchStore.getState().workspacePath
+        const activeFilePath = useWorkbenchStore.getState().activeFilePath
+        if (!workspacePath || !activeFilePath) return
+
+        const results: { src: string; altText?: string }[] = []
+        for (const file of files) {
+          try {
+            const dataUrl = await new Promise<string>((resolve, reject) => {
+              const r = new FileReader()
+              r.onload = () => resolve(r.result as string)
+              r.onerror = reject
+              r.readAsDataURL(file)
+            })
+            const res = await window.api.workbench.saveImage(workspacePath, activeFilePath, {
+              dataUrl,
+              fileName: file.name
+            })
+            if (res.success && res.data) {
+              results.push({ src: res.data.relativePath, altText: file.name })
+            }
+          } catch (err) {
+            console.error('[WorkbenchImage] 工具栏插入图片失败:', err)
+          }
+        }
+        if (results.length) {
+          editor.dispatchCommand(INSERT_WORKBENCH_IMAGE_COMMAND, results)
+          void useWorkbenchStore.getState().loadFileTree()
+        }
+      })()
+    }
+    input.click()
+  }, [editor])
+
   const handleUndo = useCallback(() => {
     editor.dispatchCommand(UNDO_COMMAND, undefined)
   }, [editor])
@@ -510,6 +555,14 @@ export default function WorkbenchToolbar(): JSX.Element {
           title={isLink ? '移除链接' : '插入超链接 (Ctrl+K)'}
         >
           <span className="material-symbols-outlined text-[20px]">link</span>
+        </button>
+        <button
+          type="button"
+          onClick={insertImage}
+          className={iconBtnClass(false)}
+          title="插入图片"
+        >
+          <span className="material-symbols-outlined text-[20px]">image</span>
         </button>
 
         <div className="w-[1px] h-4 bg-black/10 dark:bg-white/10 mx-1 shrink-0" />

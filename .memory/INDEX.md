@@ -17,6 +17,7 @@
 | id | 触发词或文件路径 | KNOWLEDGE 章节 | 适用说明 |
 |---|---|---|---|
 | `webview-extraction` | selectors.ts、webviewScripts.ts、contenteditable、Slate、DOM、CodeMirror、回复采集 | ### 1. Webview 输入、选择器与回复采集 | 先确认当前 DOM 与调用链 |
+| `workbench-inject` | assistantReplyConfigs、generateInsertReplyButtonScript、mc-workbench-btn、工作台回复按钮、contentItem、userItemMarker、replyItem、actionBar | ### 1. Webview 输入、选择器与回复采集 | 注入定位坑在同主题末尾 |
 | `image-download` | imageDownload、clickDownloadButtons、generateClickDownloadButtonsScript、批量下载图片、原生下载、aria-label 下载、`--gen-image`、CLI 生图、generateExtractImagesScript、genImageOnly、生图容器、message_image_content | ### 1. Webview 输入、选择器与回复采集 | 图片下载选择器适配经验在同主题末尾 |
 | `research-frames` | Deep Research、研究报告、Qwen、iframe、CDP、OOPIF | ### 2. 深度研究与跨 frame 提取 | 提取方案不等于已验收能力 |
 | `research-selectors` | deep-research-dom、研究模式、选择器失效、aria-label、menuitem、menuitemradio、toolbox-drawer、选择模式、添加文件、深入研究、深度研究 | ### 2. 深度研究与跨 frame 提取 | 2026-11 全平台 DOM 实测结论在同主题末尾 |

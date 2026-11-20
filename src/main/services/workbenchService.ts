@@ -3,8 +3,9 @@
  * 提供安全路径校验、工作区文件树扫描、文件读写、节点增删改查、全文搜索与系统集成
  */
 
-import { dialog, shell, BrowserWindow } from 'electron'
+import { dialog, shell, BrowserWindow, nativeImage } from 'electron'
 import path from 'path'
+import { pathToFileURL } from 'url'
 import {
   realpath,
   stat,
@@ -55,6 +56,19 @@ const IMAGE_MIME_TYPES: Record<string, string> = {
   '.avif': 'image/avif',
   '.tiff': 'image/tiff',
   '.tif': 'image/tiff'
+}
+
+const ASSETS_DIR_NAME = 'assets'
+
+/**
+ * 生成 Obsidian 风格的粘贴图片名：`Pasted image YYYYMMDD-HHmmss`
+ */
+function formatPastedImageName(): string {
+  const d = new Date()
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  const date = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`
+  const time = `${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`
+  return `Pasted image ${date}-${time}`
 }
 
 // Office 办公文档 MIME 类型映射
@@ -194,6 +208,65 @@ export async function assertSafePath(workspaceRoot: string, relativePath: string
   }
 }
 
+// ============ workbench-file:// 自定义流式协议 ============
+// 目的：PDF / Office 大文件预览不再走 base64 dataUrl（4-5× 内存放大），
+// 改为自定义协议流式回文件，renderer 零拷贝、PDFium 支持 range 按需加载。
+// 安全：只允许读取曾被 readFile/selectFolder 授权过的 workspace 根目录内的文件。
+
+const authorizedWorkspaceRoots = new Set<string>()
+
+/** 登记一个已授权的工作区根目录（readFile / selectFolder 时调用）。 */
+export function authorizeWorkspaceRoot(workspaceRoot: string): void {
+  if (!workspaceRoot || typeof workspaceRoot !== 'string') return
+  authorizedWorkspaceRoots.add(path.resolve(workspaceRoot))
+}
+
+export const WORKBENCH_FILE_SCHEME = 'workbench-file'
+
+/**
+ * 把 workspace 内的绝对路径转成可加载的 workbench-file:// URL。
+ * 约定：workbench-file:///<encodeURIComponent(absolutePath)>
+ */
+export function toWorkbenchFileUrl(absolutePath: string): string {
+  const normalized = path.resolve(absolutePath)
+  return `${WORKBENCH_FILE_SCHEME}:///${encodeURIComponent(normalized)}`
+}
+
+/**
+ * 解析 workbench-file:// 请求并校验落在已授权工作区根目录内。
+ * 命中返回真实绝对路径，否则返回 null。
+ */
+export async function resolveWorkbenchFileRequest(requestUrl: string): Promise<string | null> {
+  try {
+    const url = new URL(requestUrl)
+    if (url.protocol !== `${WORKBENCH_FILE_SCHEME}:`) return null
+    const encoded = decodeURIComponent(url.pathname.replace(/^\/+/, ''))
+    if (!encoded) return null
+    const targetPath = path.resolve(encoded)
+
+    const isWin = process.platform === 'win32'
+    const targetCmp = isWin ? targetPath.toLowerCase() : targetPath
+
+    for (const root of authorizedWorkspaceRoots) {
+      const rootCmp = isWin ? root.toLowerCase() : root
+      const sep = path.sep
+      const rootPrefix = rootCmp.endsWith(sep) ? rootCmp : rootCmp + sep
+      if (targetCmp === rootCmp || targetCmp.startsWith(rootPrefix)) {
+        // 复用 assertSafePath 的 realpath 校验，防符号链接逃逸
+        const rel = path.relative(root, targetPath)
+        try {
+          return await assertSafePath(root, rel)
+        } catch {
+          return null
+        }
+      }
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
 /**
  * 唤起系统原生目录选择器对话框选择工作区
  */
@@ -311,6 +384,10 @@ export async function readFile(workspaceRoot: string, relativePath: string): Pro
   const baseName = path.basename(safePath)
   const ext = path.extname(baseName).toLowerCase()
   const category = getFileCategory(baseName)
+
+  // 登记当前 workspace 为已授权根，供 workbench-file:// 协议做白名单校验
+  const workspaceRoot = path.dirname(safePath) === safePath ? safePath : path.resolve(workspaceRoot)
+  authorizeWorkspaceRoot(workspaceRoot)
 
   // 图片文件处理 (最大 20MB)
   if (category === 'image') {
@@ -505,6 +582,8 @@ export async function createNode(
 
 /**
  * 重命名文件或目录
+ * 联动：重命名/移动 .md 文档时，同步迁移其 assets/<文件名>/ 附件目录
+ * 守卫：禁止直接对 assets/ 目录做单节点操作（防止误操作导致文档图片失效）
  */
 export async function renameNode(
   workspaceRoot: string,
@@ -516,6 +595,13 @@ export async function renameNode(
 
   if (safeOldPath === safeNewPath) {
     return
+  }
+
+  // 守卫：禁止直接重命名/移动 assets 目录（只能由文档操作联动触发）
+  const oldRelPosix = oldRelativePath.split(path.sep).join('/')
+  const oldPathSegments = oldRelPosix.split('/').filter(Boolean)
+  if (oldPathSegments.includes(ASSETS_DIR_NAME)) {
+    throw new Error(`附件目录 ${ASSETS_DIR_NAME}/ 受管，请通过文档操作联动`)
   }
 
   try {
@@ -535,10 +621,133 @@ export async function renameNode(
 
   await mkdir(path.dirname(safeNewPath), { recursive: true })
   await rename(safeOldPath, safeNewPath)
+
+  // 文档级联动：.md 重命名/移动时，同步迁移 assets/<文件名>/ 附件目录
+  if (
+    MARKDOWN_EXTENSIONS.has(path.extname(safeOldPath).toLowerCase()) &&
+    MARKDOWN_EXTENSIONS.has(path.extname(safeNewPath).toLowerCase())
+  ) {
+    await syncAssetsOnRename(safeOldPath, safeNewPath)
+  }
+}
+
+/**
+ * 文档重命名/移动时，迁移 assets/<文档名>/ 附件目录并重写文档内相对路径
+ * - 附件目录无条件迁移（跨目录移动时目录名不变也要搬）
+ * - 文档名变化且同目录时，重写 markdown 内 `assets/旧名/` → `assets/新名/`
+ */
+async function syncAssetsOnRename(safeOldPath: string, safeNewPath: string): Promise<void> {
+  const oldName = path.basename(safeOldPath)
+  const newName = path.basename(safeNewPath)
+  const oldAssetsDir = path.join(path.dirname(safeOldPath), ASSETS_DIR_NAME, oldName)
+  const newAssetsDir = path.join(path.dirname(safeNewPath), ASSETS_DIR_NAME, newName)
+
+  // 1. 迁移附件目录（若存在且目标不冲突）
+  if (oldAssetsDir !== newAssetsDir) {
+    let oldExists = false
+    try {
+      await stat(oldAssetsDir)
+      oldExists = true
+    } catch { /* noop */ }
+
+    if (oldExists) {
+      let newExists = false
+      try {
+        await stat(newAssetsDir)
+        newExists = true
+      } catch { /* noop */ }
+
+      if (!newExists) {
+        try {
+          await mkdir(path.dirname(newAssetsDir), { recursive: true })
+          await rename(oldAssetsDir, newAssetsDir)
+        } catch {
+          console.warn('[Workbench] 附件目录迁移失败:', oldAssetsDir, '->', newAssetsDir)
+        }
+      }
+    }
+  }
+
+  // 2. 同目录下文档名变化：重写 markdown 内的 assets 相对路径
+  if (oldName !== newName && path.dirname(safeOldPath) === path.dirname(safeNewPath)) {
+    try {
+      const content = await fsReadFile(safeNewPath, 'utf-8')
+      const nextContent = content.split(`assets/${oldName}/`).join(`assets/${newName}/`)
+      if (nextContent !== content) {
+        await fsWriteFile(safeNewPath, nextContent, 'utf-8')
+      }
+    } catch {
+      console.warn('[Workbench] 文档内容路径替换失败:', safeNewPath)
+    }
+  }
+}
+
+/**
+ * 列出文档 assets/<文档名>/ 目录中未被 markdown 内容引用的文件
+ * 返回相对工作区根的 POSIX 路径列表，供渲染层确认后批量 trash
+ */
+export async function findUnreferencedImages(
+  workspaceRoot: string,
+  documentRelativePath: string
+): Promise<{ unreferenced: string[]; total: number }> {
+  const safeDocPath = await assertSafePath(workspaceRoot, documentRelativePath)
+  const docDir = path.dirname(safeDocPath)
+  const docBaseName = path.basename(safeDocPath)
+  const assetsDir = path.join(docDir, ASSETS_DIR_NAME, docBaseName)
+
+  let assetFiles: string[] = []
+  try {
+    const entries = await readdir(assetsDir, { withFileTypes: true })
+    assetFiles = entries.filter((e) => e.isFile()).map((e) => e.name)
+  } catch {
+    return { unreferenced: [], total: 0 } // 无 assets 目录
+  }
+  if (!assetFiles.length) return { unreferenced: [], total: 0 }
+
+  let content = ''
+  try {
+    content = await fsReadFile(safeDocPath, 'utf-8')
+  } catch {
+    return { unreferenced: [], total: assetFiles.length } // 文档读不出，保守认为全未引用
+  }
+
+  const prefix = `assets/${docBaseName}/`
+  const unreferenced: string[] = []
+  for (const name of assetFiles) {
+    // 宽松匹配：文件名可能带 URL 编码或转义
+    const needle = prefix + name
+    const needleEncoded = prefix + encodeURIComponent(name)
+    if (!content.includes(needle) && !content.includes(needleEncoded)) {
+      unreferenced.push(toPosixRelativePath(path.resolve(workspaceRoot), path.join(assetsDir, name)))
+    }
+  }
+  return { unreferenced, total: assetFiles.length }
+}
+
+/**
+ * 批量将工作区内文件移入回收站
+ * 返回成功与失败列表（失败项附原因）
+ */
+export async function deleteNodes(
+  workspaceRoot: string,
+  relativePaths: string[]
+): Promise<{ deleted: string[]; failed: { path: string; error: string }[] }> {
+  const deleted: string[] = []
+  const failed: { path: string; error: string }[] = []
+  for (const relPath of relativePaths) {
+    try {
+      await deleteNode(workspaceRoot, relPath)
+      deleted.push(relPath)
+    } catch (err) {
+      failed.push({ path: relPath, error: err instanceof Error ? err.message : String(err) })
+    }
+  }
+  return { deleted, failed }
 }
 
 /**
  * 将文件或目录安全移入系统回收站 (Trash)
+ * 联动：删除 .md 文档时，连带回收其 assets/<文件名>/ 附件目录，避免孤儿目录
  */
 export async function deleteNode(workspaceRoot: string, relativePath: string): Promise<void> {
   const safePath = await assertSafePath(workspaceRoot, relativePath)
@@ -553,6 +762,167 @@ export async function deleteNode(workspaceRoot: string, relativePath: string): P
   }
 
   await shell.trashItem(safePath)
+
+  // 删除 .md 时连带回收附件目录（走 trash，可恢复）
+  if (MARKDOWN_EXTENSIONS.has(path.extname(safePath).toLowerCase())) {
+    const assetsDir = path.join(
+      path.dirname(safePath),
+      ASSETS_DIR_NAME,
+      path.basename(safePath)
+    )
+    try {
+      await stat(assetsDir)
+      await shell.trashItem(assetsDir)
+    } catch {
+      // 附件目录不存在或已被回收，静默忽略
+    }
+  }
+}
+
+/**
+ * 将图片数据（base64 PNG/JPEG 等）写入工作区 assets 目录
+ * - 渲染层传入 dataUrl 或 base64 字符串
+ * - 自动按文档相对路径归档到 文档同级/assets/<文档名>/ 下
+ * - 返回可插入 Markdown 的相对路径与缩略图 dataUrl（用于编辑器内预览）
+ */
+export async function saveImage(
+  workspaceRoot: string,
+  documentRelativePath: string,
+  payload: { dataUrl?: string; base64?: string; fileName?: string }
+): Promise<{ relativePath: string; thumbnailDataUrl: string }> {
+  const safeDocPath = await assertSafePath(workspaceRoot, documentRelativePath)
+  const docDir = path.dirname(safeDocPath)
+  const docBaseName = path.basename(safeDocPath)
+  const assetsDir = path.join(docDir, ASSETS_DIR_NAME, docBaseName)
+  await mkdir(assetsDir, { recursive: true })
+
+  // 解析 base64 输入
+  let buffer: Buffer
+  let ext = '.png'
+  if (payload.dataUrl) {
+    const m = payload.dataUrl.match(/^data:image\/([a-zA-Z0-9+.-]+);base64,(.+)$/)
+    if (!m) throw new Error('非法的图片 dataUrl')
+    const mime = m[1].toLowerCase()
+    buffer = Buffer.from(m[2], 'base64')
+    const mimeToExt: Record<string, string> = {
+      'png': '.png', 'jpeg': '.jpg', 'jpg': '.jpg', 'gif': '.gif',
+      'webp': '.webp', 'svg+xml': '.svg', 'x-icon': '.ico', 'bmp': '.bmp',
+      'avif': '.avif', 'tiff': '.tiff', 'tif': '.tif'
+    }
+    ext = mimeToExt[mime] || '.png'
+  } else if (payload.base64) {
+    buffer = Buffer.from(payload.base64, 'base64')
+  } else {
+    throw new Error('缺少图片数据')
+  }
+  if (!buffer.length) throw new Error('图片数据为空')
+  if (buffer.length > 50 * 1024 * 1024) throw new Error('图片超过 50MB 上限')
+
+  // 确定文件名：
+  // - 粘贴/未提供有效名 → `Pasted image YYYYMMDD-HHmmss`（Obsidian 风格，可读可排序）
+  // - 提供了文件名（拖入/工具栏插入）→ 保留原名（清洗非法字符）
+  const rawName = payload.fileName?.trim()
+  const isGenericPasteName = !rawName || /^(image|pasted|clipboard|unnamed)(\.|$)/i.test(rawName)
+  const baseName = isGenericPasteName
+    ? formatPastedImageName()
+    : path.basename(rawName, path.extname(rawName)).replace(/[<>:"/\\|?*]/g, '') || 'image'
+  let fileName = `${baseName}${ext}`
+  let targetPath = path.join(assetsDir, fileName)
+  // 同名冲突自动加后缀
+  let counter = 1
+  for (;;) {
+    try {
+      await stat(targetPath)
+      fileName = `${baseName}-${counter}${ext}`
+      targetPath = path.join(assetsDir, fileName)
+      counter++
+    } catch {
+      break
+    }
+  }
+
+  await fsWriteFile(targetPath, buffer)
+
+  // 生成编辑器内预览用缩略图（800px 宽 PNG）
+  let thumbnailDataUrl = ''
+  try {
+    const img = nativeImage.createFromBuffer(buffer)
+    if (!img.isEmpty()) {
+      const size = img.getSize()
+      const maxW = 800
+      if (size.width > maxW) {
+        const resized = img.resize({ width: maxW, quality: 'good' })
+        thumbnailDataUrl = `data:image/png;base64,${resized.toPNG().toString('base64')}`
+      } else {
+        thumbnailDataUrl = `data:image/png;base64,${img.toPNG().toString('base64')}`
+      }
+    }
+  } catch {
+    // 缩略图失败不阻断，编辑器可退化为按路径占位
+  }
+
+  // 返回相对文档目录的 POSIX 路径，保证文档移动后 markdown 内相对路径仍有效
+  const relPosix = toPosixRelativePath(docDir, targetPath)
+  return { relativePath: relPosix, thumbnailDataUrl }
+}
+
+/**
+ * 把图片文件复制进 assets 目录（拖拽本地文件时使用，避免 IPC 传 bytes）
+ */
+export async function importImageFile(
+  workspaceRoot: string,
+  documentRelativePath: string,
+  sourceAbsolutePath: string
+): Promise<{ relativePath: string; thumbnailDataUrl: string }> {
+  // source 路径必须在工作区内，否则按普通文件处理
+  const safeDocPath = await assertSafePath(workspaceRoot, documentRelativePath)
+  const docDir = path.dirname(safeDocPath)
+  const docBaseName = path.basename(safeDocPath)
+  const assetsDir = path.join(docDir, ASSETS_DIR_NAME, docBaseName)
+  await mkdir(assetsDir, { recursive: true })
+
+  const srcStat = await stat(sourceAbsolutePath)
+  if (!srcStat.isFile()) throw new Error('源目标不是文件')
+  if (srcStat.size > 50 * 1024 * 1024) throw new Error('图片超过 50MB 上限')
+
+  const srcExt = path.extname(sourceAbsolutePath).toLowerCase()
+  const baseName = path.basename(sourceAbsolutePath, srcExt).replace(/[<>:"/\\|?*]/g, '') || 'image'
+  let fileName = `${baseName}${srcExt || '.png'}`
+  let targetPath = path.join(assetsDir, fileName)
+  let counter = 1
+  for (;;) {
+    try {
+      await stat(targetPath)
+      fileName = `${baseName}-${counter}${srcExt || '.png'}`
+      targetPath = path.join(assetsDir, fileName)
+      counter++
+    } catch {
+      break
+    }
+  }
+
+  const buffer = await fsReadFile(sourceAbsolutePath)
+  await fsWriteFile(targetPath, buffer)
+
+  let thumbnailDataUrl = ''
+  try {
+    const img = nativeImage.createFromBuffer(buffer)
+    if (!img.isEmpty()) {
+      const size = img.getSize()
+      const maxW = 800
+      if (size.width > maxW) {
+        const resized = img.resize({ width: maxW, quality: 'good' })
+        thumbnailDataUrl = `data:image/png;base64,${resized.toPNG().toString('base64')}`
+      } else {
+        thumbnailDataUrl = `data:image/png;base64,${img.toPNG().toString('base64')}`
+      }
+    }
+  } catch {
+    // 静默失败
+  }
+
+  const relPosix = toPosixRelativePath(docDir, targetPath)
+  return { relativePath: relPosix, thumbnailDataUrl }
 }
 
 /**

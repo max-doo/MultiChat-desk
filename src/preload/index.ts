@@ -414,7 +414,15 @@ const api = {
     revealFile: (workspaceRoot: string, relativePath: string): Promise<{ success: boolean; error?: string }> =>
       ipcRenderer.invoke('workbench:reveal-file', { workspaceRoot, relativePath }),
     openInSystem: (workspaceRoot: string, relativePath: string): Promise<{ success: boolean; error?: string }> =>
-      ipcRenderer.invoke('workbench:open-in-system', { workspaceRoot, relativePath })
+      ipcRenderer.invoke('workbench:open-in-system', { workspaceRoot, relativePath }),
+    saveImage: (workspaceRoot: string, documentRelativePath: string, payload: { dataUrl?: string; base64?: string; fileName?: string }): Promise<{ success: boolean; data?: { relativePath: string; thumbnailDataUrl: string }; error?: string }> =>
+      ipcRenderer.invoke('workbench:save-image', { workspaceRoot, documentRelativePath, ...payload }),
+    importImageFile: (workspaceRoot: string, documentRelativePath: string, sourceAbsolutePath: string): Promise<{ success: boolean; data?: { relativePath: string; thumbnailDataUrl: string }; error?: string }> =>
+      ipcRenderer.invoke('workbench:import-image-file', { workspaceRoot, documentRelativePath, sourceAbsolutePath }),
+    findUnreferencedImages: (workspaceRoot: string, documentRelativePath: string): Promise<{ success: boolean; data?: { unreferenced: string[]; total: number }; error?: string }> =>
+      ipcRenderer.invoke('workbench:find-unreferenced-images', { workspaceRoot, documentRelativePath }),
+    deleteNodes: (workspaceRoot: string, relativePaths: string[]): Promise<{ success: boolean; data?: { deleted: string[]; failed: { path: string; error: string }[] }; error?: string }> =>
+      ipcRenderer.invoke('workbench:delete-nodes', { workspaceRoot, relativePaths })
   },
   workbenchSelectFolder: (): Promise<{ success: boolean; data?: WorkbenchSelectFolderResult | null; error?: string }> =>
     ipcRenderer.invoke('workbench:select-folder'),
@@ -435,7 +443,15 @@ const api = {
   workbenchRevealFile: (workspaceRoot: string, relativePath: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('workbench:reveal-file', { workspaceRoot, relativePath }),
   workbenchOpenInSystem: (workspaceRoot: string, relativePath: string): Promise<{ success: boolean; error?: string }> =>
-    ipcRenderer.invoke('workbench:open-in-system', { workspaceRoot, relativePath })
+    ipcRenderer.invoke('workbench:open-in-system', { workspaceRoot, relativePath }),
+  workbenchSaveImage: (workspaceRoot: string, documentRelativePath: string, payload: { dataUrl?: string; base64?: string; fileName?: string }): Promise<{ success: boolean; data?: { relativePath: string; thumbnailDataUrl: string }; error?: string }> =>
+    ipcRenderer.invoke('workbench:save-image', { workspaceRoot, documentRelativePath, ...payload }),
+  workbenchImportImageFile: (workspaceRoot: string, documentRelativePath: string, sourceAbsolutePath: string): Promise<{ success: boolean; data?: { relativePath: string; thumbnailDataUrl: string }; error?: string }> =>
+    ipcRenderer.invoke('workbench:import-image-file', { workspaceRoot, documentRelativePath, sourceAbsolutePath }),
+  workbenchFindUnreferencedImages: (workspaceRoot: string, documentRelativePath: string): Promise<{ success: boolean; data?: { unreferenced: string[]; total: number }; error?: string }> =>
+    ipcRenderer.invoke('workbench:find-unreferenced-images', { workspaceRoot, documentRelativePath }),
+  workbenchDeleteNodes: (workspaceRoot: string, relativePaths: string[]): Promise<{ success: boolean; data?: { deleted: string[]; failed: { path: string; error: string }[] }; error?: string }> =>
+    ipcRenderer.invoke('workbench:delete-nodes', { workspaceRoot, relativePaths })
 }
 
 // 暴露 API 到渲染进程

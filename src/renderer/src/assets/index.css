@@ -363,10 +363,8 @@ webview[tabindex="-1"] {
 .PlaygroundEditorTheme__table {
   border-collapse: collapse;
   border-spacing: 0;
-  overflow-y: scroll;
-  overflow-x: scroll;
-  table-layout: fixed;
-  width: fit-content;
+  table-layout: auto;
+  width: 100%;
   margin-top: 25px;
   margin-bottom: 30px;
 }
@@ -391,7 +389,7 @@ webview[tabindex="-1"] {
 }
 .PlaygroundEditorTheme__tableCell {
   border: 1px solid #bbb;
-  width: 75px;
+  min-width: 75px;
   vertical-align: top;
   text-align: start;
   padding: 6px 8px;

@@ -2947,9 +2947,23 @@ export function generateInsertReplyButtonScript(
 
   return `
     (function() {
-      // 幂等：同一页面只初始化一次
-      if (window.__mcInsertBtnInit) return;
-      window.__mcInsertBtnInit = true;
+      // 幂等：工作台每个平台是独立 webview，dom-ready/did-navigate-in-page 都会触发注入；
+      // dom-ready 时 window 还是顶层壳、did-navigate-in-page 才指向真实页面，
+      // 不能用 window 级 flag 早退——否则 SPA 路由后新页面永远没有注入脚本。
+      // 改用「已注入标记元素」+「observer 单例」双保险：标记元素随页面销毁失效，
+      // 同一页面内 MutationObserver 只建一次，scan 本身幂等（DOM 内已有按钮就跳过）。
+      if (document.documentElement && document.documentElement.__mcInsertBtnBound) return;
+      if (document.documentElement) document.documentElement.__mcInsertBtnBound = true;
+      // 同一页面只建一个 observer；重复注入只补挂按钮（scan 幂等）
+      var OBS_KEY = '__mcInsertBtnObserver';
+      var hasObserver = false;
+      var oldObs = null;
+      try { oldObs = window[OBS_KEY]; hasObserver = !!oldObs; } catch (e) {}
+      // 存实例而非 true：SPA 内导航/dom-ready 重复注入时先 disconnect 旧 observer，
+      // 否则新旧两套 scan 并存（旧闭包按旧选择器再建 fallback，出现重复按钮）
+      if (oldObs && oldObs.disconnect) {
+        try { oldObs.disconnect(); hasObserver = false; } catch (e) {}
+      }
 
       var PLATFORM_ID = ${JSON.stringify(platformId)};
       var CFG = ${cfgJson};
@@ -2975,18 +2989,34 @@ export function generateInsertReplyButtonScript(
       // 对单个元素做 HTML→Markdown（含 shadowRoot / iframe 兜底，与抓取链路一致）
       function elementToMarkdown(el) {
         if (!el) return '';
+        // 提取前克隆清洗：删掉屏幕阅读器说话人标签（你说：/ChatGPT 说： 的 h4.sr-only）、
+        // 平台操作栏按钮、以及我们自己注入的节点——这些会被 htmlToMarkdown 当正文输出。
+        var target = el;
         try {
-          if (el.shadowRoot) {
-            var m = htmlToMarkdown(el.shadowRoot);
+          var clone = el.cloneNode(true);
+          clone.querySelectorAll(
+            '.sr-only,[class*="sr-only"],[class*="visually-hidden"],[hidden],[aria-hidden="true"],' +
+            '.turn-action-controls,[class*="turn-action-controls"],[class*="actionRow"],' +
+            '.mc-workbench-btn,.mc-action-bar,button,canvas,script,style,noscript,' +
+            // Material Symbols / Font Awesome / Bootstrap Icons 等字体图标：
+            // textContent 是图标名（edit/image/arrow_forward），会被当正文输出
+            '[class*="material-symbols"],[class*="material-icons"],[class*="fa-"],' +
+            '[class*="bi-"],[class*="icon-"],.material-icons,.fa,.fas,.far,.fab,.bi'
+          ).forEach(function(n){ try{ n.remove(); }catch(e){} });
+          target = clone;
+        } catch (e) { target = el; }
+        try {
+          if (target.shadowRoot) {
+            var m = htmlToMarkdown(target.shadowRoot);
             if (m && m.trim()) return m.trim();
           }
         } catch (e) {}
         try {
-          var m2 = htmlToMarkdown(el);
+          var m2 = htmlToMarkdown(target);
           if (m2 && m2.trim()) return m2.trim();
         } catch (e) {}
         try {
-          return (el.innerText || el.textContent || '').trim();
+          return (target.innerText || target.textContent || '').trim();
         } catch (e) { return ''; }
       }
 
@@ -3007,6 +3037,19 @@ export function generateInsertReplyButtonScript(
         return null;
       }
 
+      // 取所有候选中「最后一个」可见命中（用于兜底：最新消息在 DOM 末尾，更可能是 AI 回复）
+      function lastMatch(root, selectors) {
+        var last = null;
+        if (!selectors) return null;
+        for (var i = 0; i < selectors.length; i++) {
+          var list = safeQueryAll(root, selectors[i]);
+          for (var j = 0; j < list.length; j++) {
+            if (isVisible(list[j])) last = list[j];
+          }
+        }
+        return last;
+      }
+
       // 找到所有「单条回复」容器
       function findReplyItems() {
         var items = [];
@@ -3017,20 +3060,73 @@ export function generateInsertReplyButtonScript(
               if (isVisible(list[j]) && items.indexOf(list[j]) === -1) items.push(list[j]);
             }
           }
-          if (items.length) return items;
+          if (items.length) {
+            // userItemMarker：命中的容器其实是用户消息（豆包用户/AI 共用容器 + 共用操作栏）
+            if (CFG.userItemMarker && CFG.userItemMarker.length) {
+              items = items.filter(function(el) { return !firstMatch(el, CFG.userItemMarker); });
+            }
+            // 去重嵌套：若一个命中容器被另一个命中容器包含，只保留最外层那个。
+            // 否则同一回复的外层气泡 + 内层 markdown 都会各自挂一组按钮（元宝重复根因）。
+            var topLevel = [];
+            for (var a = 0; a < items.length; a++) {
+              var el = items[a];
+              var contained = false;
+              for (var b = 0; b < items.length; b++) {
+                if (a !== b && items[b].contains && items[b].contains(el)) {
+                  contained = true;
+                  break;
+                }
+              }
+              if (!contained) topLevel.push(el);
+            }
+            return topLevel;
+          }
         }
-        // 退化：messageRoot（消息流容器）内取最后一个含正文的可见块
+        // 退化：messageRoot（消息流容器）内取最后一个含正文的可见块（最新消息更可能是 AI 回复）
         var root = firstMatch(document, CFG.messageRoot);
         var scope = root || document;
-        var body = firstMatch(scope, MESSAGE_CONTAINER);
+        var body = lastMatch(scope, MESSAGE_CONTAINER);
         if (body) items.push(body);
         return items;
       }
 
-      var ICON_INSERT = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>';
-      var ICON_SAVE = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M12 11v6"/><path d="m9 14 3 3 3-3"/></svg>';
+      // Gemini 等页面开 Trusted Types CSP：innerHTML / DOMParser.parseFromString
+      // 都会被拦 (requires TrustedHTML)。只能 createElementNS 程序化构建 SVG。
+      var SVG_NS = 'http://www.w3.org/2000/svg';
+      var ICON_DEFS = {
+        insert: [
+          ['path', { d: 'M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z' }],
+          ['path', { d: 'm15 5 4 4' }]
+        ],
+        save: [
+          ['path', { d: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z' }],
+          ['path', { d: 'M14 2v6h6' }],
+          ['path', { d: 'M12 11v6' }],
+          ['path', { d: 'm9 14 3 3 3-3' }]
+        ]
+      };
+      function makeSvg(kind) {
+        var svg = document.createElementNS(SVG_NS, 'svg');
+        var iconSize = (CFG.iconSize || 16) + '';
+        svg.setAttribute('width', iconSize);
+        svg.setAttribute('height', iconSize);
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('fill', 'none');
+        svg.setAttribute('stroke', 'currentColor');
+        svg.setAttribute('stroke-width', '2.2');
+        svg.setAttribute('stroke-linecap', 'round');
+        svg.setAttribute('stroke-linejoin', 'round');
+        var paths = ICON_DEFS[kind] || [];
+        for (var i = 0; i < paths.length; i++) {
+          var p = document.createElementNS(SVG_NS, paths[i][0]);
+          var attrs = paths[i][1];
+          for (var k in attrs) { if (attrs.hasOwnProperty(k)) p.setAttribute(k, attrs[k]); }
+          svg.appendChild(p);
+        }
+        return svg;
+      }
 
-      function makeButton(icon, cls, title, onClick) {
+      function makeButton(iconKind, cls, title, onClick) {
         var el;
         if (CFG.actionBarIsDiv) {
           el = document.createElement('div');
@@ -3043,10 +3139,11 @@ export function generateInsertReplyButtonScript(
         el.className = 'mc-workbench-btn ' + cls;
         el.setAttribute('aria-label', title);
         el.title = title;
-        el.innerHTML = icon;
-        el.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;margin-right:2px;border:none;background:transparent;color:inherit;cursor:pointer;opacity:.7;border-radius:4px;line-height:0;';
-        el.addEventListener('mouseenter', function(){ el.style.opacity = '1'; });
-        el.addEventListener('mouseleave', function(){ el.style.opacity = '.7'; });
+        el.appendChild(makeSvg(iconKind));
+        var btnSize = CFG.btnSize || 30;
+        el.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;width:' + btnSize + 'px;height:' + btnSize + 'px;margin-right:2px;border:none;background:transparent;color:inherit;cursor:pointer;opacity:.7;border-radius:6px;line-height:0;transition:opacity .15s,background-color .15s;flex:0 0 auto;';
+        el.addEventListener('mouseenter', function(){ el.style.opacity = '1'; el.style.backgroundColor = 'rgba(0,0,0,0.07)'; });
+        el.addEventListener('mouseleave', function(){ el.style.opacity = '.7'; el.style.backgroundColor = 'transparent'; });
         el.addEventListener('click', function(ev) {
           ev.preventDefault(); ev.stopPropagation();
           onClick();
@@ -3076,42 +3173,109 @@ export function generateInsertReplyButtonScript(
 
       function ensureButtons(replyEl) {
         if (!replyEl || replyEl.__mcBtnsAttached) return;
-        // 找到该回复内的正文容器：优先 actionBar 的兄弟正文，否则用 replyEl 本身
-        var contentEl = replyEl;
+        // DOM 级幂等：SPA 重渲染后元素身份会变，但同一回复容器内已有按钮就直接跳过
+        try {
+          var existing = replyEl.querySelector && replyEl.querySelector('.mc-workbench-btn');
+          if (existing) {
+            // 按钮在真实 bar 里 → 完事。在 fallback 里且该平台本来就无原生 bar
+            // (createBar 或 actionBar 未配置) → 也算完事；只有「有原生 bar 但按钮还
+            // 停在 fallback」这种情况才继续往下走迁移。
+            var inFallback = existing.closest && existing.closest('.mc-action-bar');
+            var needsRealBar = !CFG.createBar && CFG.actionBar && CFG.actionBar.length;
+            if (!inFallback || !needsRealBar) { replyEl.__mcBtnsAttached = true; return; }
+          }
+        } catch (e) {}
+        // contentItem：replyItem 命中整轮容器（含用户消息）时，提取只取 AI 正文块
+        var contentEl = (CFG.contentItem && CFG.contentItem.length)
+          ? (firstMatch(replyEl, CFG.contentItem) || replyEl)
+          : replyEl;
         var bar = null;
 
         if (!CFG.createBar && CFG.actionBar && CFG.actionBar.length) {
           var probe = firstMatch(replyEl, CFG.actionBar);
           if (probe) {
-            // 统一：从命中元素向上找含 ≥2 个按钮/图标子元素的容器作为挂载点，
-            // 兼容 chatgpt(命中容器)/doubao(命中按钮)/yuanbao(命中div按钮)
+            // 挂载点判定：命中元素本身是横向单行按钮行时直接用；
+            // 否则最多向上找一级合格的行容器，但绝不越过「高度翻倍」的块级父容器
+            // （Gemini 的 buttons-container 被包在 block footer 里，上爬会把按钮挤出可视行）。
             var candidate = probe;
             for (var up = 0; up < 4 && candidate; up++) {
               var kids = candidate.querySelectorAll ? candidate.querySelectorAll('button,[role="button"],div[class*="icon"],[class*="Button"]') : [];
               var isBtnTag = candidate.tagName === 'BUTTON' || candidate.getAttribute('role') === 'button';
-              if (!isBtnTag && kids.length >= 2) { break; }
+              var looksLikeBar = false;
+              if (!isBtnTag && kids.length >= 2) {
+                try {
+                  var cs = window.getComputedStyle(candidate);
+                  var horiz = cs.display.indexOf('flex') !== -1 && cs.flexDirection.indexOf('row') === 0;
+                  // 容器高度接近单行按钮（<=48px），直接文本很短 → 更像操作行而非回复卡
+                  var h = candidate.getBoundingClientRect().height;
+                  var textLen = 0;
+                  for (var n = 0; n < candidate.childNodes.length; n++) {
+                    var node = candidate.childNodes[n];
+                    if (node.nodeType === 3) textLen += (node.textContent || '').trim().length;
+                  }
+                  looksLikeBar = horiz && h > 0 && h <= 48 && textLen < 30;
+                } catch (e) { looksLikeBar = true; }
+              }
+              if (!isBtnTag && looksLikeBar) { break; }
+              // 命中元素本身不合格才向上爬；一旦当前高度已超过单行限制，停在原 probe
+              try {
+                var ph = candidate.getBoundingClientRect().height;
+                if (ph > 56) { candidate = probe; break; }
+              } catch (e) {}
               if (!candidate.parentElement) break;
               candidate = candidate.parentElement;
             }
-            bar = candidate || probe;
+            // 找不到合格按钮行：若命中元素本身是容器则用其，否则用其父容器兜底
+            if (candidate && candidate !== document.body && candidate !== document.documentElement) {
+              bar = candidate;
+            } else {
+              var probeIsBtn = probe.tagName === 'BUTTON' || probe.getAttribute('role') === 'button';
+              bar = probeIsBtn && probe.parentElement ? probe.parentElement : probe;
+            }
           }
         }
         if (!bar) {
-          // createBar 或 actionBar 未命中：在回复容器末尾新建挂载点
-          bar = document.createElement('div');
-          bar.className = 'mc-action-bar';
-          bar.style.cssText = 'all:initial;display:flex;gap:4px;justify-content:flex-end;margin-top:4px;';
-          replyEl.appendChild(bar);
+          // 复用已存在的 fallback bar，避免 MutationObserver 每次 scan 都新建一个
+          // （DeepSeek 无原生 actionBar 时会无限 append）
+          var existed = null;
+          try { existed = replyEl.querySelector && replyEl.querySelector('.mc-action-bar'); } catch (e) {}
+          if (existed) {
+            bar = existed;
+          } else {
+            // createBar 或 actionBar 未命中：在回复容器末尾新建挂载点
+            bar = document.createElement('div');
+            bar.className = 'mc-action-bar';
+            // 注意不能用 all:initial——它会覆盖同条 cssText 里的 display，导致 0 高空容器
+            bar.style.cssText = 'display:flex;gap:4px;justify-content:flex-end;margin-top:4px;background:none;border:none;padding:0;';
+            replyEl.appendChild(bar);
+            // actionBar 是流式渲染完后才出现的（Gemini）：fallback bar 挂完不能给 replyEl
+            // 打 __mcBtnsAttached，否则原生 bar 出现后 ensureButtons 直接 return，按钮永远
+            // 停在 fallback 里。用专用标记只防 fallback 重复创建。
+            bar.__mcIsFallback = true;
+          }
+        }
+        // 原生 actionBar 已出现、之前只挂了 fallback：把按钮迁移进真实 bar
+        if (bar && !bar.__mcIsFallback) {
+          var stale = replyEl.querySelector && replyEl.querySelector('.mc-action-bar.__mc-fallback-done, .mc-action-bar');
+          if (stale && stale !== bar) {
+            var moved = stale.querySelectorAll('.mc-workbench-btn');
+            var anchor = bar.firstChild;
+            // 依次插到 firstNative 前保持原顺序（每次插 firstChild 前会把 insert/save 反转）
+            for (var mv = 0; mv < moved.length; mv++) bar.insertBefore(moved[mv], anchor);
+            try { stale.remove(); } catch (e) {}
+          }
         }
         if (!bar || bar.__mcBtnsAttached) return;
         bar.__mcBtnsAttached = true;
-        replyEl.__mcBtnsAttached = true;
+        // 只有落在真实 bar 上才锁死 replyEl；fallback 上要允许后续迁移
+        if (!bar.__mcIsFallback) replyEl.__mcBtnsAttached = true;
+        else bar.classList.add('__mc-fallback-done');
 
         // 两个按钮插到原生操作区按钮之前；createBar 新建容器时 prepend 即 append
-        var insertBtn = makeButton(ICON_INSERT, 'mc-insert-btn', '插入到当前文档', function() {
+        var insertBtn = makeButton('insert', 'mc-insert-btn', '插入到当前文档', function() {
           sendReply(contentEl, 'insert');
         });
-        var saveBtn = makeButton(ICON_SAVE, 'mc-save-btn', '存为新文档', function() {
+        var saveBtn = makeButton('save', 'mc-save-btn', '存为新文档', function() {
           sendReply(contentEl, 'save');
         });
         var firstNative = bar.firstChild;
@@ -3131,10 +3295,13 @@ export function generateInsertReplyButtonScript(
         scheduled = true;
         setTimeout(function() { scheduled = false; scan(); }, 300);
       }
-      try {
-        var obs = new MutationObserver(scheduleScan);
-        obs.observe(document.body || document.documentElement, { childList: true, subtree: true });
-      } catch (e) {}
+      if (!hasObserver) {
+        try {
+          var obs = new MutationObserver(scheduleScan);
+          obs.observe(document.body || document.documentElement, { childList: true, subtree: true });
+          try { window[OBS_KEY] = obs; } catch (e) {}
+        } catch (e) {}
+      }
       scan();
     })();
   `

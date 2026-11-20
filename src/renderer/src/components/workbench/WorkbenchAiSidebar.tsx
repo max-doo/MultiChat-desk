@@ -98,18 +98,19 @@ export default function WorkbenchAiSidebar(): JSX.Element | null {
   const insertReplyIntoActiveMarkdown = useWorkbenchStore((s) => s.insertReplyIntoActiveMarkdown)
   const saveReplyAsNewMarkdown = useWorkbenchStore((s) => s.saveReplyAsNewMarkdown)
 
-  // 防重复插入：记录每个平台最近一次插入的 replyHash
-  const lastInsertHash = useRef<Map<string, string>>(new Map())
+  // 防双击：同一条回复在短时间窗内只插入一次（撤回/采纳后重试已超过窗口，允许）
+  const lastInsertRef = useRef<Map<string, { hash: string; at: number }>>(new Map())
 
   const handleInsertReply = useCallback(
     async (p: ReplyPayload): Promise<void> => {
       if (!p?.replyMd) return
-      if (lastInsertHash.current.get(p.platformId) === p.replyHash) return // 重复点击跳过
+      const last = lastInsertRef.current.get(p.platformId)
+      if (last && last.hash === p.replyHash && Date.now() - last.at < 1500) return // 双击防抖
+      lastInsertRef.current.set(p.platformId, { hash: p.replyHash, at: Date.now() })
       if (isRightCollapsed) toggleRightCollapse()
-      const res = await insertReplyIntoActiveMarkdown(p.replyMd, {
+      await insertReplyIntoActiveMarkdown(p.replyMd, {
         conversationUrl: p.conversationUrl
       })
-      if (res.success) lastInsertHash.current.set(p.platformId, p.replyHash)
     },
     [insertReplyIntoActiveMarkdown, isRightCollapsed, toggleRightCollapse]
   )

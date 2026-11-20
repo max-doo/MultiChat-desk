@@ -1,6 +1,7 @@
 import { useMemo, useRef, useEffect } from 'react'
 import Prism from 'prismjs'
 import 'prismjs/components/prism-markdown'
+import { useWorkbenchStore } from '../../store/workbenchStore'
 
 /**
  * 源码模式编辑器：透明 textarea 叠在 Prism 高亮渲染层之上，左侧行号槽。
@@ -26,6 +27,8 @@ export default function WorkbenchSourceEditor({
   const preRef = useRef<HTMLPreElement | null>(null)
   const gutterRef = useRef<HTMLDivElement | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const workspacePath = useWorkbenchStore((s) => s.workspacePath)
+  const activeFilePath = useWorkbenchStore((s) => s.activeFilePath)
 
   const lineCount = useMemo(() => value.split('\n').length, [value])
 
@@ -62,6 +65,88 @@ export default function WorkbenchSourceEditor({
     () => Array.from({ length: lineCount }, (_, i) => i + 1),
     [lineCount]
   )
+
+  // 在光标处插入 markdown 图片语法，并同步调整光标位置
+  const insertMarkdownAtCursor = (text: string): void => {
+    const ta = textareaRef.current
+    if (!ta) {
+      onChange(value + text)
+      return
+    }
+    const start = ta.selectionStart
+    const end = ta.selectionEnd
+    const next = value.slice(0, start) + text + value.slice(end)
+    onChange(next)
+    requestAnimationFrame(() => {
+      ta.focus()
+      ta.setSelectionRange(start + text.length, start + text.length)
+    })
+  }
+
+  // 粘贴图片：clipboard 中的图片 File → 存 assets → 插入 ![](path)
+  const handlePaste = async (e: React.ClipboardEvent<HTMLTextAreaElement>): Promise<void> => {
+    const files = Array.from(e.clipboardData?.files ?? [])
+    const images = files.filter((f) => f.type.startsWith('image/'))
+    if (!images.length || !workspacePath || !activeFilePath) return
+    e.preventDefault()
+
+    for (const file of images) {
+      try {
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const r = new FileReader()
+          r.onload = () => resolve(r.result as string)
+          r.onerror = reject
+          r.readAsDataURL(file)
+        })
+        const res = await window.api.workbench.saveImage(workspacePath, activeFilePath, {
+          dataUrl
+        })
+        if (res.success && res.data) {
+          insertMarkdownAtCursor(`![${file.name}](${res.data.relativePath})`)
+          void useWorkbenchStore.getState().loadFileTree()
+        }
+      } catch (err) {
+        console.error('[SourceEditor] 粘贴图片失败:', err)
+      }
+    }
+  }
+
+  // 拖拽图片：本地文件 → 存 assets → 插入 ![](path)
+  const handleDrop = async (e: React.DragEvent<HTMLTextAreaElement>): Promise<void> => {
+    const files = Array.from(e.dataTransfer?.files ?? [])
+    const images = files.filter((f) => f.type.startsWith('image/'))
+    if (!images.length || !workspacePath || !activeFilePath) return
+    e.preventDefault()
+
+    for (const file of images) {
+      try {
+        const absPath = (file as File & { path?: string }).path ?? ''
+        let saved: { relativePath: string } | null = null
+        if (absPath) {
+          const res = await window.api.workbench.importImageFile(workspacePath, activeFilePath, absPath)
+          if (res.success && res.data) saved = res.data
+        } else {
+          const dataUrl = await new Promise<string>((resolve, reject) => {
+            const r = new FileReader()
+            r.onload = () => resolve(r.result as string)
+            r.onerror = reject
+            r.readAsDataURL(file)
+          })
+          const res = await window.api.workbench.saveImage(workspacePath, activeFilePath, {
+            dataUrl,
+            fileName: file.name
+          })
+          if (res.success && res.data) saved = res.data
+        }
+        if (saved) {
+          insertMarkdownAtCursor(`![${file.name}](${saved.relativePath})`)
+          void useWorkbenchStore.getState().loadFileTree()
+        }
+      } catch (err) {
+        console.error('[SourceEditor] 拖拽图片失败:', err)
+      }
+    }
+  }
 
   return (
     <div className="workbench-source-editor flex-1 flex overflow-hidden bg-white dark:bg-gray-900 font-mono text-[13px]">
@@ -103,6 +188,8 @@ export default function WorkbenchSourceEditor({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onScroll={handleScroll}
+          onPaste={(e) => void handlePaste(e)}
+          onDrop={(e) => void handleDrop(e)}
           placeholder="编写 Markdown 内容..."
           spellCheck={false}
           autoCorrect="off"

@@ -24,6 +24,8 @@ import {
 import { extractGeminiCanvasContent } from '../utils/geminiCanvasExtractor'
 import { extractQwenReportContent } from '../utils/qwenReportExtractor'
 import { buildProbeScript, parseProbeResult, type ProbeReport, buildResearchProbeScript, parseResearchProbeResult, type ResearchProbeReport, buildPickerScript, parseDomProbeResult, type DomProbeReport, type DomProbeOptions } from '../utils/selectorDiagnostics'
+import { buildActionBarProbeScript, parseActionBarProbeResult, type ActionBarProbeReport } from '../utils/selectorDiagnostics'
+import { assistantReplyConfigs } from '../config/selectors'
 
 /** 任务分配两段式发送：注入后等待 host 端延时，再点发送按钮（给千问 React 收敛窗口） */
 const TWO_PHASE_SEND_DELAY_MS = 1000
@@ -68,6 +70,7 @@ type WebviewActions = Pick<WebviewCardRef,
   | 'probeMessageContainer'
   | 'probeResearchMode'
   | 'probeDomStructure'
+  | 'probeActionBar'
 >
 
 /** 平台网页操作；页面加载、导航和休眠由 useWebviewLifecycle 管理。 */
@@ -506,6 +509,25 @@ export function useWebviewActions({
       try {
         const raw = await webview.executeJavaScript(buildPickerScript(opts))
         return parseDomProbeResult(raw)
+      } catch (error) {
+        return { ok: false, error: `页面未就绪或执行失败: ${String(error)}` }
+      }
+    },
+
+    /**
+     * dev-only：探测「回复插入」按钮注入点命中情况（replyItem/actionBar/bar/已注入按钮分布）
+     */
+    probeActionBar: async (): Promise<ActionBarProbeReport> => {
+      const webview = webviewRef.current
+      if (!webview) {
+        return { ok: false, error: 'Webview ref 为空' }
+      }
+      try {
+        const cfg = assistantReplyConfigs[id] || {}
+        const raw = await webview.executeJavaScript(
+          buildActionBarProbeScript(id, cfg, selectors?.messageContainer ?? [])
+        )
+        return parseActionBarProbeResult(raw)
       } catch (error) {
         return { ok: false, error: `页面未就绪或执行失败: ${String(error)}` }
       }

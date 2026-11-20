@@ -48,7 +48,11 @@ import {
     deleteNode as workbenchDeleteNode,
     search as workbenchSearch,
     revealFile as workbenchRevealFile,
-    openFileInSystem as workbenchOpenFileInSystem
+  openFileInSystem as workbenchOpenFileInSystem,
+  saveImage as workbenchSaveImage,
+  importImageFile as workbenchImportImageFile,
+  findUnreferencedImages as workbenchFindUnreferencedImages,
+  deleteNodes as workbenchDeleteNodes
 } from './services/workbenchService'
 import type { WorkbenchNodeType } from '../shared/types/workbench'
 
@@ -1687,6 +1691,50 @@ export async function registerIpcHandlers(
             const relativePath = typeof payload === 'string' ? relPath! : payload?.relativePath
             await workbenchOpenFileInSystem(workspaceRoot, relativePath)
             return { success: true }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('workbench:save-image', async (_event, payload: { workspaceRoot: string; documentRelativePath: string; dataUrl?: string; base64?: string; fileName?: string }) => {
+        try {
+            const data = await workbenchSaveImage(payload.workspaceRoot, payload.documentRelativePath, {
+                dataUrl: payload.dataUrl,
+                base64: payload.base64,
+                fileName: payload.fileName
+            })
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('workbench:import-image-file', async (_event, payload: { workspaceRoot: string; documentRelativePath: string; sourceAbsolutePath: string }) => {
+        try {
+            const data = await workbenchImportImageFile(payload.workspaceRoot, payload.documentRelativePath, payload.sourceAbsolutePath)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('workbench:find-unreferenced-images', async (_event, payload: { workspaceRoot: string; documentRelativePath: string }) => {
+        try {
+            const data = await workbenchFindUnreferencedImages(payload.workspaceRoot, payload.documentRelativePath)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('workbench:delete-nodes', async (_event, payload: { workspaceRoot: string; relativePaths: string[] }) => {
+        try {
+            const data = await workbenchDeleteNodes(payload.workspaceRoot, payload.relativePaths)
+            return { success: true, data }
         } catch (err: unknown) {
             const error = err instanceof Error ? err.message : String(err)
             return { success: false, error }

@@ -46,6 +46,11 @@ import {
   CANCEL_INSERT_COMMAND
 } from './PendingInsertNode'
 import { $createPendingBarNode, $isPendingBarNode } from './PendingBarNode'
+import {
+  $createWorkbenchImageNode,
+  $isWorkbenchImageNode,
+  WorkbenchImageNode
+} from './WorkbenchImageNode'
 
 export const HR_TRANSFORMER: ElementTransformer = {
   dependencies: [HorizontalRuleNode],
@@ -214,10 +219,27 @@ export const TABLE_TRANSFORMER: ElementTransformer = {
   type: 'element'
 }
 
+export const IMAGE_TRANSFORMER: ElementTransformer = {
+  dependencies: [WorkbenchImageNode],
+  export: (node: LexicalNode) => {
+    if (!$isWorkbenchImageNode(node)) return null
+    return `![${node.getAltText()}](${node.getSrc()})`
+  },
+  regExp: /^!\[([^\]]*)\]\(([^)\s]+)\)$/,
+  replace: (parentNode, _children, match) => {
+    const [, altText, src] = match
+    const img = $createWorkbenchImageNode(src, altText || '')
+    parentNode.replace(img)
+    img.selectNext()
+  },
+  type: 'element'
+}
+
 export const WORKBENCH_TRANSFORMERS = [
   TABLE_TRANSFORMER,
   CHECK_LIST,
   HR_TRANSFORMER,
+  IMAGE_TRANSFORMER,
   ...TRANSFORMERS
 ]
 
@@ -259,6 +281,8 @@ export default function MarkdownSyncPlugin(): null {
   const lastAnchorRef = useRef<{ key: string; offset: number; type: PointType['type'] } | null>(null)
   // 当前待确认插入容器 key（单条 pending）
   const pendingKeyRef = useRef<string | null>(null)
+  // 待滚动定位的 pending key（commit 后滚一次即清）
+  const pendingScrollKeyRef = useRef<string | null>(null)
 
   // 记录最近一次的选区锚点（随 selection 更新）
   useEffect(() => {
@@ -341,10 +365,27 @@ export default function MarkdownSyncPlugin(): null {
           else root.append(pending)
         }
         pendingKeyRef.current = pending.getKey()
+        pendingScrollKeyRef.current = pending.getKey()
+
+        // 光标移到 pending 内部末尾（聚焦编辑器）
+        try { pending.selectEnd() } catch { /* noop */ }
         return true
       },
       COMMAND_PRIORITY_EDITOR
     )
+
+    // pending 插入完成后（DOM 已 commit），把容器滚动进视口
+    const unregisterScroll = editor.registerUpdateListener(() => {
+      const key = pendingScrollKeyRef.current
+      if (!key) return
+      pendingScrollKeyRef.current = null
+      requestAnimationFrame(() => {
+        const dom = editor.getElementByKey(key)
+        if (dom) {
+          try { dom.scrollIntoView({ behavior: 'smooth', block: 'center' }) } catch { /* noop */ }
+        }
+      })
+    })
 
     const unregisterConfirm = editor.registerCommand(
       CONFIRM_INSERT_COMMAND,
@@ -385,6 +426,7 @@ export default function MarkdownSyncPlugin(): null {
       unregisterInsert()
       unregisterConfirm()
       unregisterCancel()
+      unregisterScroll()
     }
   }, [editor])
 

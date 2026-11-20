@@ -279,7 +279,37 @@ export function getHtmlToMarkdownScript(): string {
             const src = node.getAttribute('src') || '';
             const alt = node.getAttribute('alt') || '图片';
             if (!src) return '';
-            return '![' + alt + '](' + src + ')';
+
+            // ===== 图标/emoji/装饰图过滤 =====
+            // AI 回复里常见 <img> 形式的表情/状态/徽标图标，
+            // 转成 markdown 会污染正文。判定依据：class/role/尺寸/alt 特征。
+            const imgClass = String(node.className || '') + ' ' + String(node.getAttribute('class') || '');
+            const imgAlt = String(alt);
+            const w = parseInt(node.getAttribute('width') || '0', 10);
+            const h = parseInt(node.getAttribute('height') || '0', 10);
+            const role = String(node.getAttribute('role') || '');
+            const ariaHidden = node.getAttribute('aria-hidden');
+            const dataEmoji = node.getAttribute('data-emoji') || node.getAttribute('data-emoticon') || '';
+
+            const isIcon =
+              /icon|emoji|emoticon|avatar|badge|smiley|sticker/i.test(imgClass) ||
+              role === 'presentation' ||
+              ariaHidden === 'true' ||
+              (w > 0 && w <= 32) || (h > 0 && h <= 32) ||
+              // SVG dataUrl 基本都是图标（照片/截图几乎不会用 svg）
+              src.startsWith('data:image/svg') ||
+              !!dataEmoji;
+
+            if (isIcon) {
+              // emoji 图标保留 alt 文字（通常是 emoji 字符本身），其余装饰图直接丢
+              const isEmojiChar = imgAlt && imgAlt.length <= 8 && /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/u.test(imgAlt);
+              if (isEmojiChar || dataEmoji) {
+                return imgAlt || dataEmoji;
+              }
+              return '';
+            }
+
+            return '![' + imgAlt + '](' + src + ')';
 
           case 'iframe':
           case 'frame':

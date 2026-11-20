@@ -76,6 +76,8 @@ export interface WebviewCardRef {
   probeResearchMode: () => Promise<ResearchProbeReport>
   /** dev-only：进入检拾模式，鼠标点选平台页元素后返回其 DOM 结构（祖先链 + 子树） */
   probeDomStructure: (mode: 'pick', opts?: DomProbeOptions) => Promise<DomProbeReport>
+  /** dev-only：探测「回复插入」按钮注入点命中情况 */
+  probeActionBar: () => Promise<import('../utils/selectorDiagnostics').ActionBarProbeReport>
 }
 
 /**

@@ -167,9 +167,12 @@ export function normalizeProductModeConfig(raw: unknown): ProductModeConfig {
     if (!order.includes(m)) order.push(m)
   })
   const rawHidden = Array.isArray(input.hidden) ? input.hidden : []
-  const hidden = rawHidden.filter((m): m is ProductMode =>
-    ALL_PRODUCT_MODES.includes(m as ProductMode) && !hidden.includes(m)
-  )
+  const hidden: ProductMode[] = []
+  rawHidden.forEach(m => {
+    if (ALL_PRODUCT_MODES.includes(m as ProductMode) && !hidden.includes(m as ProductMode)) {
+      hidden.push(m as ProductMode)
+    }
+  })
   // 至少保留两个可见模式
   while (order.length - hidden.length < 2 && hidden.length > 0) {
     hidden.pop()

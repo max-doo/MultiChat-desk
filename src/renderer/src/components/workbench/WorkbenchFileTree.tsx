@@ -16,9 +16,11 @@ interface ContextMenuState {
 }
 
 interface ActionModalState {
-  type: 'rename' | 'delete' | 'deleteMulti'
+  type: 'rename' | 'delete' | 'deleteMulti' | 'cleanImages'
   targetNode: WorkbenchFileNode | null
   defaultValue?: string
+  // cleanImages 用：待清理的未引用图片列表
+  unreferencedImages?: string[]
 }
 
 /**
@@ -120,6 +122,8 @@ export default function WorkbenchFileTree(): JSX.Element {
   const fileSort = useWorkbenchStore((s) => s.fileSort)
   const setFileSort = useWorkbenchStore((s) => s.setFileSort)
   const moveNode = useWorkbenchStore((s) => s.moveNode)
+  const findUnreferencedImages = useWorkbenchStore((s) => s.findUnreferencedImages)
+  const deleteNodes = useWorkbenchStore((s) => s.deleteNodes)
 
   const [isSearchMode, setIsSearchMode] = useState(false)
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
@@ -136,6 +140,7 @@ export default function WorkbenchFileTree(): JSX.Element {
   const [isCreating, setIsCreating] = useState(false)
   const [inlineInputValue, setInlineInputValue] = useState('')
   const [inputValue, setInputValue] = useState('')
+  const [isCleaningImages, setIsCleaningImages] = useState(false)
   const inputRef = useRef<HTMLInputElement | null>(null)
   const inlineInputRef = useRef<HTMLInputElement | null>(null)
   const menuRef = useRef<HTMLDivElement | null>(null)
@@ -537,6 +542,11 @@ export default function WorkbenchFileTree(): JSX.Element {
       setSelectedPaths(new Set())
     } else if (type === 'delete' && targetNode) {
       await deleteNode(targetNode.path)
+    } else if (type === 'cleanImages' && targetNode) {
+      const images = actionModal.unreferencedImages ?? []
+      if (images.length) {
+        await deleteNodes(images)
+      }
     }
 
     setActionModal(null)
@@ -552,10 +562,12 @@ export default function WorkbenchFileTree(): JSX.Element {
       const children = node.children ? sortNodes(node.children) : []
       const showInlineHere = inlineCreate !== null && inlineCreate.parentDir === node.path
       const isDropTarget = dropTargetDir === node.path
+      // assets/ 目录受管：显示特殊图标且不可拖拽（避免与文档附件目录联动逻辑冲突）
+      const isManagedAssetsDir = node.path.split('/').includes('assets')
       return (
         <div key={node.id} className="select-none">
           <div
-            draggable
+            draggable={!isManagedAssetsDir}
             onDragStart={(e) => handleDragStart(e, node)}
             onDragEnd={handleDragEnd}
             onDragOver={(e) => handleNodeDragOver(e, node)}
@@ -575,8 +587,12 @@ export default function WorkbenchFileTree(): JSX.Element {
             <span className="material-symbols-outlined text-[19px] text-text-secondary transition-transform duration-150">
               {isExpanded ? 'expand_more' : 'chevron_right'}
             </span>
-            <span className="material-symbols-outlined text-[19px] text-amber-500">
-              {isExpanded ? 'folder_open' : 'folder'}
+            <span className={`material-symbols-outlined text-[19px] ${isManagedAssetsDir ? 'text-slate-400' : 'text-amber-500'}`}>
+              {isManagedAssetsDir
+                ? 'attachment'
+                : isExpanded
+                ? 'folder_open'
+                : 'folder'}
             </span>
             <span className="truncate flex-1 font-medium">{node.name}</span>
           </div>
@@ -953,6 +969,46 @@ export default function WorkbenchFileTree(): JSX.Element {
                   <span>使用系统默认程序打开</span>
                 </button>
               )}
+              {/* 仅 .md 文档：清理未引用图片 */}
+              {contextMenu.node && !contextMenu.node.isDirectory && /\.(md|markdown)$/i.test(contextMenu.node.name) && (
+                <button
+                  type="button"
+                  disabled={isCleaningImages}
+                  onClick={async () => {
+                    const node = contextMenu.node
+                    if (!node) return
+                    setContextMenu(null)
+                    setIsCleaningImages(true)
+                    try {
+                      const result = await findUnreferencedImages(node.path)
+                      if (!result) {
+                        setActionModal(null)
+                        return
+                      }
+                      if (!result.unreferenced.length) {
+                        // 无可清理图片：轻提示复用现有 error 通道太重，直接弹确认框说明
+                        setActionModal({
+                          type: 'cleanImages',
+                          targetNode: node,
+                          unreferencedImages: []
+                        })
+                      } else {
+                        setActionModal({
+                          type: 'cleanImages',
+                          targetNode: node,
+                          unreferencedImages: result.unreferenced
+                        })
+                      }
+                    } finally {
+                      setIsCleaningImages(false)
+                    }
+                  }}
+                  className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-text-primary hover:bg-black/5 dark:hover:bg-white/5 disabled:opacity-50"
+                >
+                  <span className="material-symbols-outlined text-[19px]">image_not_supported</span>
+                  <span>{isCleaningImages ? '扫描中…' : '清理未引用图片'}</span>
+                </button>
+              )}
               <div className="my-1 border-t border-black/5 dark:border-white/5" />
               <button
                 type="button"
@@ -992,6 +1048,8 @@ export default function WorkbenchFileTree(): JSX.Element {
                   ? '重命名'
                   : actionModal.type === 'deleteMulti'
                   ? '确认批量删除'
+                  : actionModal.type === 'cleanImages'
+                  ? '清理未引用图片'
                   : '确认删除'}
               </span>
               <button
@@ -1011,6 +1069,27 @@ export default function WorkbenchFileTree(): JSX.Element {
               <p className="text-text-secondary text-sm leading-relaxed">
                 确定要将「<strong className="text-text-primary">{actionModal.targetNode?.name}</strong>」移至系统回收站吗？
               </p>
+            ) : actionModal.type === 'cleanImages' ? (
+              <div className="text-text-secondary text-sm leading-relaxed">
+                {actionModal.unreferencedImages && actionModal.unreferencedImages.length > 0 ? (
+                  <>
+                    <p className="mb-2">
+                      「<strong className="text-text-primary">{actionModal.targetNode?.name}</strong>」
+                      的附件目录中有 <strong className="text-rose-500">{actionModal.unreferencedImages.length}</strong> 张图片未被文档引用：
+                    </p>
+                    <div className="max-h-[180px] overflow-y-auto rounded-lg border border-black/10 dark:border-white/10 bg-black/[0.02] dark:bg-white/[0.02] p-2 font-mono text-xs">
+                      {actionModal.unreferencedImages.map((p) => (
+                        <div key={p} className="truncate py-0.5" title={p}>
+                          {p.split('/').pop()}
+                        </div>
+                      ))}
+                    </div>
+                    <p className="mt-2 text-xs">确认后将移至系统回收站（可恢复）。</p>
+                  </>
+                ) : (
+                  <p>该文档的附件目录中没有未引用的图片。</p>
+                )}
+              </div>
             ) : (
               <div>
                 <input
@@ -1034,13 +1113,18 @@ export default function WorkbenchFileTree(): JSX.Element {
               </button>
               <button
                 type="submit"
+                disabled={actionModal.type === 'cleanImages' && !(actionModal.unreferencedImages?.length)}
                 className={`px-3 py-1.5 rounded-lg text-white font-medium shadow-xs ${
-                  actionModal.type === 'delete' || actionModal.type === 'deleteMulti'
+                  actionModal.type === 'delete' || actionModal.type === 'deleteMulti' || actionModal.type === 'cleanImages'
                     ? 'bg-rose-500 hover:bg-rose-600'
                     : 'bg-primary hover:bg-primary/90'
-                }`}
+                } disabled:opacity-40 disabled:cursor-not-allowed`}
               >
-                {actionModal.type === 'delete' || actionModal.type === 'deleteMulti' ? '确认移入回收站' : '确定'}
+                {actionModal.type === 'delete' || actionModal.type === 'deleteMulti'
+                  ? '确认移入回收站'
+                  : actionModal.type === 'cleanImages'
+                  ? `清理 ${actionModal.unreferencedImages?.length ?? 0} 张`
+                  : '确定'}
               </button>
             </div>
           </form>
