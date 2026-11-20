@@ -19,6 +19,7 @@ import { writeCliManifest } from './cliIntegration'
 import { initUpdateChecker } from './updater/checker'
 import { getSelectionToolbarEnabled, setSelectionToolbarEnabled } from './selectionToolbarManager'
 import { resolveWorkbenchFileRequest, unwatchAllWorkspaces, WORKBENCH_FILE_SCHEME } from './services/workbenchService'
+import { initWorkbenchDownloadService } from './services/workbenchDownloadService'
 import { pathToFileURL } from 'url'
 
 // 仅 Windows 需要该 GPU 后端修复；macOS 使用系统原生图形栈，不能套用 Windows 开关。
@@ -184,6 +185,13 @@ if (!gotTheLock) {
     // 注册所有 IPC 处理器
     // 注入依赖：Store 实例，获取主窗口函数，打开浏览器窗口函数
     await registerIpcHandlers(store, getMainWindow, openBrowserWindowInternal)
+
+    // 工作台模式下 AI Webview 的下载直接落到当前工作区；其他模式保持系统保存框。
+    initWorkbenchDownloadService(() => {
+      if (store.get('productMode') !== 'workbench') return null
+      const workspaceRoot = store.get('workbench_lastWorkspacePath')
+      return typeof workspaceRoot === 'string' && workspaceRoot.trim() ? workspaceRoot : null
+    })
 
     // 注册 workbench-file:// 流式协议（挂在 persist:shared session，覆盖主 renderer 与 webview）。
     // PDF / Office 大文件预览改走协议加载，替代 base64 dataUrl，消除 4-5x 内存放大。

@@ -2,6 +2,16 @@
 
 ## 2026-11-20
 
+### 21:22 | Codex
+
+- done: 工作台模式下 AI Webview 原生下载自动落到当前工作区，其他模式保持系统保存框；同名文件自动追加序号，生图批量下载链路保持独立
+- added:
+  - `src/main/services/workbenchDownloadService.ts`
+- modified:
+  - `src/main/index.ts`
+  - `src/main/services/ImageDownloadService.ts`
+- lesson: Electron session 的 will-download 可通过 webContents.getType() === 'webview' 识别 AI 侧 Webview；setSavePath 会跳过保存框，需自行做文件名清洗、同名避让和并发占位
+
 ### 21:15 | Codex
 
 - done: 修复 WorkbenchFileTree 重复导入导致的 dev 启动失败，并在 PDF 顶部工具栏加入缩放控件

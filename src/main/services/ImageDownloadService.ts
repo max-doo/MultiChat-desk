@@ -41,6 +41,11 @@ const nativeCtxByWcId = new Map<number, NativeDownloadCtx>()
 // 已完成结果暂存：finalize 后移到这里，wait 来取。消除"will-download 早于 wait 完成"的时序竞态。
 const nativeDoneByWcId = new Map<number, NativeDownloadResult>()
 
+/** 该 WebContents 是否已有生图/批量下载上下文，供通用下载拦截避让。 */
+export function hasActiveNativeDownloadContext(wcId: number): boolean {
+  return nativeCtxByWcId.has(wcId)
+}
+
 function buildResult(ctx: NativeDownloadCtx): NativeDownloadResult {
   return {
     modelId: ctx.modelId,
