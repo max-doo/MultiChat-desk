@@ -233,17 +233,18 @@ export async function registerIpcHandlers(
         windowId: number
         startMousePoint: Electron.Point
         startContentBounds: Electron.Rectangle
+        restoredAfterStart: boolean
       } | null = null
 
       ipcMain.on('window-drag-start', (event) => {
         const win = BrowserWindow.fromWebContents(event.sender)
         if (!win) return
         const cursorPoint = screen.getCursorScreenPoint()
-        restoreCustomMaximizedWindowForDrag(win, cursorPoint)
         dragState = {
           windowId: win.id,
           startMousePoint: cursorPoint,
-          startContentBounds: win.getContentBounds()
+          startContentBounds: win.getContentBounds(),
+          restoredAfterStart: false
         }
       })
 
@@ -252,6 +253,16 @@ export async function registerIpcHandlers(
         const win = BrowserWindow.fromWebContents(event.sender)
         if (!win || win.id !== dragState.windowId) return
         
+        // 仅在实际发生拖动时（首个 move 事件）才还原最大化窗口，
+        // 避免最大化状态下单纯点击标题栏误触发还原。
+        if (!dragState.restoredAfterStart) {
+          restoreCustomMaximizedWindowForDrag(win, dragState.startMousePoint)
+          // 还原后窗口位置已切换为"跟随光标"语义，基准需重置为当前实际位置
+          dragState.startContentBounds = win.getContentBounds()
+          dragState.startMousePoint = screen.getCursorScreenPoint()
+          dragState.restoredAfterStart = true
+        }
+
         const currentMousePoint = screen.getCursorScreenPoint()
         const deltaX = currentMousePoint.x - dragState.startMousePoint.x
         const deltaY = currentMousePoint.y - dragState.startMousePoint.y

@@ -50,7 +50,11 @@ export const IMAGE_EXTENSIONS = new Set([
 
 export const PDF_EXTENSIONS = new Set(['.pdf'])
 
-export const DOCX_EXTENSIONS = new Set(['.docx', '.doc'])
+export const DOCUMENT_EXTENSIONS = new Set([
+  '.docx', '.doc', '.dotx', '.dot', '.rtf', '.odt',
+  '.xlsx', '.xls', '.xlsm', '.xlsb', '.xltx', '.xlt', '.ods',
+  '.pptx', '.ppt', '.pptm', '.potx', '.pot', '.ppsx', '.pps', '.odp'
+])
 
 export const MARKDOWN_EXTENSIONS = new Set(['.md', '.markdown'])
 
@@ -85,7 +89,7 @@ export function getFileCategory(nameOrPath: string): WorkbenchFileCategory {
   if (MARKDOWN_EXTENSIONS.has(ext)) return 'markdown'
   if (IMAGE_EXTENSIONS.has(ext)) return 'image'
   if (PDF_EXTENSIONS.has(ext)) return 'pdf'
-  if (DOCX_EXTENSIONS.has(ext)) return 'document'
+  if (DOCUMENT_EXTENSIONS.has(ext)) return 'document'
   if (CODE_EXTENSIONS.has(ext)) return 'code'
   if (TEXT_EXTENSIONS.has(ext)) return 'text'
   return 'other'

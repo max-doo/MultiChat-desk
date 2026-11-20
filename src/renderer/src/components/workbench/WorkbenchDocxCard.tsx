@@ -1,6 +1,69 @@
 import { useState, useMemo } from 'react'
 import { useWorkbenchStore } from '../../store/workbenchStore'
 
+type OfficeKind = 'word' | 'excel' | 'powerpoint' | 'document'
+
+const OFFICE_KIND_META: Record<
+  OfficeKind,
+  {
+    icon: string
+    accent: string
+    accentSoft: string
+    badge: string
+    appLabel: string
+    description: string
+  }
+> = {
+  word: {
+    icon: 'article',
+    accent: 'text-indigo-600 dark:text-indigo-400',
+    accentSoft: 'bg-indigo-500/10 dark:bg-indigo-400/10 text-indigo-600 dark:text-indigo-400',
+    badge:
+      'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20',
+    appLabel: 'Word / WPS',
+    description:
+      'Word 文档采用复杂的 OpenXML 压缩架构与专有版式排版规则。为了避免格式错位并保持表格、样式与公式的 100% 还原，推荐使用本地默认办公应用直接打开查看与编辑。'
+  },
+  excel: {
+    icon: 'table',
+    accent: 'text-emerald-600 dark:text-emerald-400',
+    accentSoft: 'bg-emerald-500/10 dark:bg-emerald-400/10 text-emerald-600 dark:text-emerald-400',
+    badge:
+      'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20',
+    appLabel: 'Excel / WPS',
+    description:
+      'Excel 工作簿包含公式、数据透视表与图表等复杂结构。为了完整保留计算逻辑与格式，推荐使用本地默认表格应用直接打开查看与编辑。'
+  },
+  powerpoint: {
+    icon: 'slideshow',
+    accent: 'text-orange-600 dark:text-orange-400',
+    accentSoft: 'bg-orange-500/10 dark:bg-orange-400/10 text-orange-600 dark:text-orange-400',
+    badge:
+      'bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20',
+    appLabel: 'PowerPoint / WPS',
+    description:
+      'PPT 演示文稿包含动画、母版与多媒体元素。为了完整保留播放效果与排版，推荐使用本地默认演示应用直接打开查看与编辑。'
+  },
+  document: {
+    icon: 'article',
+    accent: 'text-indigo-600 dark:text-indigo-400',
+    accentSoft: 'bg-indigo-500/10 dark:bg-indigo-400/10 text-indigo-600 dark:text-indigo-400',
+    badge:
+      'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20',
+    appLabel: '本地办公应用',
+    description:
+      '该文档采用专有二进制或版式排版格式。为了避免内容错位，推荐使用本地默认办公应用直接打开查看与编辑。'
+  }
+}
+
+function resolveOfficeKind(ext: string): OfficeKind {
+  if (['.xlsx', '.xls', '.xlsm', '.xlsb', '.xltx', '.xlt', '.ods'].includes(ext)) return 'excel'
+  if (['.pptx', '.ppt', '.pptm', '.potx', '.pot', '.ppsx', '.pps', '.odp'].includes(ext))
+    return 'powerpoint'
+  if (['.docx', '.doc', '.dotx', '.dot', '.odt'].includes(ext)) return 'word'
+  return 'document'
+}
+
 export default function WorkbenchDocxCard(): JSX.Element {
   const activeFilePath = useWorkbenchStore((s) => s.activeFilePath)
   const activeFileSize = useWorkbenchStore((s) => s.activeFileSize)
@@ -19,6 +82,14 @@ export default function WorkbenchDocxCard(): JSX.Element {
     const ext = activeFilePath.split('.').pop() || ''
     return ext.toUpperCase()
   }, [activeFilePath])
+
+  const ext = useMemo(() => {
+    if (!activeFilePath) return ''
+    const idx = activeFilePath.lastIndexOf('.')
+    return idx !== -1 ? activeFilePath.slice(idx).toLowerCase() : ''
+  }, [activeFilePath])
+
+  const meta = useMemo(() => OFFICE_KIND_META[resolveOfficeKind(ext)], [ext])
 
   const formattedSize = useMemo(() => {
     if (!activeFileSize && activeFileSize !== 0) return '未知大小'
@@ -48,13 +119,13 @@ export default function WorkbenchDocxCard(): JSX.Element {
       {/* 顶部工具栏 */}
       <div className="h-12 px-3 bg-white/80 dark:bg-gray-800/80 border-b border-black/5 dark:border-white/5 flex items-center justify-between gap-2 shrink-0 text-sm">
         <div className="flex items-center gap-2 truncate">
-          <span className="material-symbols-outlined text-[19px] text-indigo-600 dark:text-indigo-400">
-            article
+          <span className={`material-symbols-outlined text-[19px] ${meta.accent}`}>
+            {meta.icon}
           </span>
           <span className="font-medium text-text-primary truncate" title={activeFilePath || ''}>
             {activeFilePath}
           </span>
-          <span className="px-1.5 py-0.5 rounded text-xs font-semibold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
+          <span className={`px-1.5 py-0.5 rounded text-xs font-semibold border ${meta.badge}`}>
             {format}
           </span>
         </div>
@@ -69,7 +140,7 @@ export default function WorkbenchDocxCard(): JSX.Element {
             title="使用本地办公软件打开"
           >
             <span className="material-symbols-outlined text-[19px]">open_in_new</span>
-            <span>在 Word / WPS 中打开</span>
+            <span>在 {meta.appLabel} 中打开</span>
           </button>
         </div>
       </div>
@@ -78,8 +149,10 @@ export default function WorkbenchDocxCard(): JSX.Element {
       <div className="flex-1 overflow-auto flex items-center justify-center p-8">
         <div className="w-full max-w-lg bg-white dark:bg-gray-800 rounded-3xl p-8 shadow-xl border border-black/5 dark:border-white/5 flex flex-col items-center text-center">
           {/* 大图标 */}
-          <div className="w-20 h-20 rounded-3xl bg-indigo-500/10 dark:bg-indigo-400/10 flex items-center justify-center text-indigo-600 dark:text-indigo-400 mb-5 shadow-inner">
-            <span className="material-symbols-outlined text-4xl">article</span>
+          <div
+            className={`w-20 h-20 rounded-3xl ${meta.accentSoft} flex items-center justify-center mb-5 shadow-inner`}
+          >
+            <span className="material-symbols-outlined text-4xl">{meta.icon}</span>
           </div>
 
           <h2 className="text-lg font-bold text-text-primary mb-1 break-all">
@@ -97,7 +170,7 @@ export default function WorkbenchDocxCard(): JSX.Element {
             </div>
             <div className="p-3 rounded-xl bg-slate-50 dark:bg-gray-700/50 border border-black/5 dark:border-white/5">
               <span className="text-xs text-text-secondary block mb-0.5">文件格式</span>
-              <span className="text-sm font-semibold text-indigo-600 dark:text-indigo-400">{format} 规范文档</span>
+              <span className={`text-sm font-semibold ${meta.accent}`}>{format} 规范文档</span>
             </div>
             {formattedDate && (
               <div className="col-span-2 p-3 rounded-xl bg-slate-50 dark:bg-gray-700/50 border border-black/5 dark:border-white/5">
@@ -113,9 +186,7 @@ export default function WorkbenchDocxCard(): JSX.Element {
               <span className="material-symbols-outlined text-[19px]">info</span>
               <span>格式渲染建议</span>
             </div>
-            <p className="text-xs opacity-90">
-              Word 文档 (.docx) 采用复杂的 OpenXML 压缩架构与专有版式排版规则。为了避免格式错位并保持表格、样式与公式的 100% 还原，推荐使用本地默认办公应用直接打开查看与编辑。
-            </p>
+            <p className="text-xs opacity-90">{meta.description}</p>
           </div>
 
           {/* 核心操作按钮 */}

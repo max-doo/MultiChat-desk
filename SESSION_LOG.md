@@ -2,6 +2,81 @@
 
 ## 2026-11-20
 
+### 11:38 | Codex
+
+- done: 文件树代码文件图标改用 vscode-material-icon-theme 官方 SVG；非代码文件还原 Material Symbols
+- added:
+  - `src/renderer/src/components/workbench/FileTypeIcon.tsx`
+  - `src/renderer/src/assets/file-icons/*.svg`
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+
+### 11:38 | Codex
+
+- done: 工作台左栏最小宽度 180→260px，容纳头部全部 7 个图标（搜索/新建笔记/新建文件夹/排序/折叠全部/刷新/收起侧边栏），防止最小宽度下图标被挤出
+- modified:
+  - `src/renderer/src/store/workbenchStore.ts`
+
+### 11:34 | Codex
+
+- done: 工作台文件树图标改为 Seti/VSCode 风格 SVG 图标组件，按语言/格式区分
+- added:
+  - `src/renderer/src/components/workbench/FileTypeIcon.tsx`
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+
+### 11:33 | Codex
+
+- done: 用户澄清 DOM 探针只能在 Codex 内置浏览器 IAB 执行，不可探测 MultiChat 应用内 webview;核查 tracked diff 均为工作台既有功能(文件树拖拽/多选/Office预览/窗口拖动修复)与SESSION_LOG记录一致，src/ 下无探针残留代码，无需代码撤回;docs/reply-action-dom 五家探针文档与设计文档保留
+- context: 已探5家: chatgpt/gemini/qwen/doubao/yuanbao;未登录8家走通用回退
+- decision: DOM探索通道=IAB而非应用内webvieview
+
+### 11:32 | Codex
+
+- done: 工作台文件树多选（VSCode风格）：Ctrl/Cmd 切换、Shift 从锚点范围选（基于当前展开态扁平化），普通点击单选并打开/折叠，选中态底色高亮；拖拽整组移动、右键未选中项先单选、多选批量删除（数量确认弹窗）；新建位置跟随最后一个选中项（anchorPath）
+- decision: selectedPaths/anchorPath 为组件本地 state（不入 zustand），范围选择基于 flatVisibleNodes 保证只覆盖可见项
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+
+### 11:30 | Codex
+
+- done: 工作台文件识别扩展：Excel/PPT/ODF/RTF 等 Office 格式纳入 document 类别
+- modified:
+  - `src/shared/types/workbench.ts`
+  - `src/main/services/workbenchService.ts`
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchDocxCard.tsx`
+
+### 11:28 | Codex
+
+- done: 工作台文件树：新增拖拽移动（文件/文件夹拖到目录上归位、拖到文件上入其父目录、拖到空白回根目录，目标目录高亮+自动展开，循环嵌套与原地拖放防护，复用 renameNode 同步 activeFilePath）；新建位置跟随选中文件父目录（activeFilePath）
+- decision: 拖拽移动复用既有 workbench:rename-node IPC 实现跨目录移动，无新增 IPC；拖到文件上等价归入其父目录（VSCode 行为）
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+  - `src/renderer/src/store/workbenchStore.ts`
+
+### 11:26 | Codex
+
+- done: 修复自绘标题栏拖动飞出屏幕：首个 drag-move 时无条件重置 startContentBounds 导致窗口漂移出屏；改为仅在最大化还原那一帧重置基准并更新 startMousePoint，非最大化拖动恢复原逻辑
+- modified:
+  - `src/main/ipcHandlers.ts`
+- lesson: 对拖动基准点（startMousePoint/startContentBounds）的写操作要严格限定在状态转换的那一帧；每帧无条件重置会破坏 delta 语义，窗口以帧数×位移漂移出屏
+
+### 11:23 | Codex
+
+- done: 修复最大化状态下单击标题栏空白误还原窗口：restoreCustomMaximizedWindowForDrag 从 window-drag-start 移到首次 window-drag-move，最大化时只有实际拖动才还原（对齐原生行为）
+- modified:
+  - `src/main/ipcHandlers.ts`
+- lesson: 自绘窗口拖动链路上 mousedown 不等于拖动开始；最大化还原、窗口尺寸变化等副作用应挂在首个 move 事件上
+
+### 11:22 | Codex
+
+- done: 工作台侧边栏交互优化：新建文件/文件夹改为树内联输入框（VSCode风格，右键文件→其父目录、文件夹→其内部、空白→根目录，Enter/失焦提交、Esc取消），新增文件树排序菜单（名称/修改时间/大小 + 升降序），排序偏好持久化到 electron-store
+- decision: 排序放 renderer 端对已有 fileTree 重排，主进程 readTree 排序保留作为默认顺序，避免改 IPC 契约
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+  - `src/renderer/src/store/workbenchStore.ts`
+
 ### 11:14 | Codex
 
 - done: 统一 AI 侧边栏折叠按钮:WorkbenchAiSidebar 内部按钮改 QuickPage 风(w-7 h-7 rounded-full + text-base + right_panel_close),Layout.tsx 三处标题栏按钮图标由 dock_to_right/vertical_split 改为 right_panel_open/right_panel_close,与左栏 left_panel_open/close 同系列

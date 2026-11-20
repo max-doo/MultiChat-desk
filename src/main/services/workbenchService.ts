@@ -57,6 +57,31 @@ const IMAGE_MIME_TYPES: Record<string, string> = {
   '.tif': 'image/tiff'
 }
 
+// Office 办公文档 MIME 类型映射
+const OFFICE_MIME_TYPES: Record<string, string> = {
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.doc': 'application/msword',
+  '.dotx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.template',
+  '.dot': 'application/msword',
+  '.rtf': 'application/rtf',
+  '.odt': 'application/vnd.oasis.opendocument.text',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.xls': 'application/vnd.ms-excel',
+  '.xlsm': 'application/vnd.ms-excel.sheet.macroEnabled.12',
+  '.xlsb': 'application/vnd.ms-excel.sheet.binary.macroEnabled.12',
+  '.xltx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.template',
+  '.xlt': 'application/vnd.ms-excel',
+  '.ods': 'application/vnd.oasis.opendocument.spreadsheet',
+  '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  '.ppt': 'application/vnd.ms-powerpoint',
+  '.pptm': 'application/vnd.ms-powerpoint.presentation.macroEnabled.12',
+  '.potx': 'application/vnd.openxmlformats-officedocument.presentationml.template',
+  '.pot': 'application/vnd.ms-powerpoint',
+  '.ppsx': 'application/vnd.openxmlformats-officedocument.presentationml.slideshow',
+  '.pps': 'application/vnd.ms-powerpoint',
+  '.odp': 'application/vnd.oasis.opendocument.presentation'
+}
+
 // 允许检索的文本与代码文件后缀与文件大小上限 (2MB)
 const SEARCHABLE_EXTENSIONS = new Set([
   ...MARKDOWN_EXTENSIONS,
@@ -340,14 +365,11 @@ export async function readFile(workspaceRoot: string, relativePath: string): Pro
     }
   }
 
-  // DOCX / Word 文档元信息
+  // Office 办公文档元信息（Word / Excel / PPT / ODF / RTF 等）
   if (category === 'document') {
     return {
       content: '',
-      mimeType:
-        ext === '.docx'
-          ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-          : 'application/msword',
+      mimeType: OFFICE_MIME_TYPES[ext] || 'application/octet-stream',
       mtime: fileStat.mtimeMs,
       size: fileStat.size,
       category: 'document',

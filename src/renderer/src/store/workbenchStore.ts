@@ -9,6 +9,13 @@ import {
 export type SaveStatus = 'saved' | 'saving' | 'error'
 export type EditorMode = 'wysiwyg' | 'source'
 export type WorkbenchAiAction = 'ask' | 'explain' | 'polish' | 'continue' | 'summarize'
+export type WorkbenchSortKey = 'name' | 'mtime' | 'size'
+export type WorkbenchSortOrder = 'asc' | 'desc'
+
+export interface WorkbenchSortPreference {
+  key: WorkbenchSortKey
+  order: WorkbenchSortOrder
+}
 
 interface WorkbenchStoreState {
   // 工作区状态
@@ -36,6 +43,9 @@ interface WorkbenchStoreState {
   searchQuery: string
   isSearching: boolean
   searchResults: WorkbenchSearchResult[]
+
+  // 文件树排序偏好
+  fileSort: WorkbenchSortPreference
 
   // 布局尺寸与折叠
   leftPaneWidth: number
@@ -65,11 +75,13 @@ interface WorkbenchStoreActions {
   createFile: (parentRelativeDir: string, fileName: string) => Promise<string | null>
   createFolder: (parentRelativeDir: string, folderName: string) => Promise<boolean>
   renameNode: (oldRelativePath: string, newRelativePath: string) => Promise<boolean>
+  moveNode: (sourceRelativePath: string, targetDirRelative: string) => Promise<boolean>
   deleteNode: (relativePath: string) => Promise<boolean>
   revealFile: (relativePath: string) => Promise<void>
   openInSystem: (relativePath: string) => Promise<void>
   searchFiles: (query: string) => void
   clearSearch: () => void
+  setFileSort: (pref: WorkbenchSortPreference) => void
   setLeftPaneWidth: (width: number) => void
   setRightPaneWidth: (width: number) => void
   toggleLeftCollapse: () => void
@@ -112,6 +124,8 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   isSearching: false,
   searchResults: [],
 
+  fileSort: { key: 'name', order: 'asc' },
+
   leftPaneWidth: 260,
   rightPaneWidth: 420,
   isLeftCollapsed: false,
@@ -133,7 +147,8 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         savedRightCollapsed,
         savedSidebarModel,
         savedEditorMode,
-        savedRecentWorkspaces
+        savedRecentWorkspaces,
+        savedFileSort
       ] = await Promise.all([
         window.api.storeGet('workbench_lastWorkspacePath') as Promise<string | null>,
         window.api.storeGet('workbench_lastActiveFilePath') as Promise<string | null>,
@@ -143,11 +158,12 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         window.api.storeGet('workbench_isRightCollapsed') as Promise<boolean | null>,
         window.api.storeGet('workbench_sidebarModelId') as Promise<string | null>,
         window.api.storeGet('workbench_editorMode') as Promise<EditorMode | null>,
-        window.api.storeGet('workbench_recentWorkspaces') as Promise<string[] | null>
+        window.api.storeGet('workbench_recentWorkspaces') as Promise<string[] | null>,
+        window.api.storeGet('workbench_fileSort') as Promise<WorkbenchSortPreference | null>
       ])
 
       const updates: Partial<WorkbenchStoreState> = { isInitialized: true }
-      if (typeof savedLeftWidth === 'number' && savedLeftWidth >= 180 && savedLeftWidth <= 480) {
+      if (typeof savedLeftWidth === 'number' && savedLeftWidth >= 260 && savedLeftWidth <= 480) {
         updates.leftPaneWidth = savedLeftWidth
       }
       if (typeof savedRightWidth === 'number' && savedRightWidth >= 300 && savedRightWidth <= 700) {
@@ -169,6 +185,13 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         updates.recentWorkspaces = savedRecentWorkspaces.filter(
           (p): p is string => typeof p === 'string' && p.length > 0
         )
+      }
+      if (
+        savedFileSort &&
+        (savedFileSort.key === 'name' || savedFileSort.key === 'mtime' || savedFileSort.key === 'size') &&
+        (savedFileSort.order === 'asc' || savedFileSort.order === 'desc')
+      ) {
+        updates.fileSort = savedFileSort
       }
 
       set(updates)
@@ -498,6 +521,33 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     }
   },
 
+  /**
+   * 拖拽移动：将节点移入目标目录
+   * - 目标目录已含同名节点 / 移入自身或后代目录 / 原地拖放 → 返回 false 或报错
+   */
+  moveNode: async (sourceRelativePath: string, targetDirRelative: string) => {
+    const { workspacePath } = get()
+    if (!workspacePath) return false
+
+    const normalized = targetDirRelative.replace(/\/+$/, '')
+    const sourceName = sourceRelativePath.split('/').pop()
+    if (!sourceName) return false
+
+    // 已位于目标目录（原地拖放）
+    const sourceParent = sourceRelativePath.includes('/')
+      ? sourceRelativePath.slice(0, sourceRelativePath.lastIndexOf('/'))
+      : ''
+    if (sourceParent === normalized) return false
+    // 禁止移入自身或其后代目录
+    if (normalized === sourceRelativePath || normalized.startsWith(`${sourceRelativePath}/`)) {
+      set({ error: '不能将文件夹移动到其自身内部' })
+      return false
+    }
+
+    const newPath = normalized ? `${normalized}/${sourceName}` : sourceName
+    return get().renameNode(sourceRelativePath, newPath)
+  },
+
   deleteNode: async (relativePath: string) => {
     const { workspacePath, activeFilePath } = get()
     if (!workspacePath) return false
@@ -594,8 +644,13 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     set({ searchQuery: '', isSearching: false, searchResults: [] })
   },
 
+  setFileSort: (pref: WorkbenchSortPreference) => {
+    set({ fileSort: pref })
+    void window.api.storeSet('workbench_fileSort', pref)
+  },
+
   setLeftPaneWidth: (width: number) => {
-    const clamped = Math.max(180, Math.min(480, width))
+    const clamped = Math.max(260, Math.min(480, width))
     set({ leftPaneWidth: clamped })
     void window.api.storeSet('workbench_leftPaneWidth', clamped)
   },
