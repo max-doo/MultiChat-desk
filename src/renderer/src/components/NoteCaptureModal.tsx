@@ -1,113 +1,239 @@
-import { useEffect, useRef, useState } from 'react'
-import type { NoteDraft, NoteHighlight, NoteSelectionRect } from '../../../shared/types/notes'
-import { generateNoteHighlightScript } from '../../../shared/utils/webviewScripts'
-import { notePositionInWindow, type NotePopoverRequest } from '../utils/noteInteractions'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import type { AnnotationCaptureRequest } from '../../../shared/types/annotations'
+import { useWorkbenchStore } from '../store/workbenchStore'
+import { captureContextOf } from '../utils/annotationCaptureContext'
+import { notePositionInWindow } from '../utils/noteInteractions'
+import { AppIcon } from './icons/AppIcon'
 
-/** 右键后直接保存，高亮旁只显示非模态评论卡片。 */
+interface PendingCapture {
+  request: AnnotationCaptureRequest
+  left: number
+  top: number
+}
+
+/**
+ * 原文选区采集：右键“标注 / 摘录为文档”后的小评论框。
+ * 主进程只把选区和快照发过来；写 source 标注、补会话文档都由 annotations:capture-source 完成。
+ */
 export default function NoteCaptureModal(): JSX.Element | null {
-  const [popover, setPopover] = useState<NotePopoverRequest | null>(null)
+  const [pending, setPending] = useState<PendingCapture | null>(null)
   const [comment, setComment] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
-  const popoverRef = useRef<HTMLDivElement>(null)
+  const [busy, setBusy] = useState(false)
+  const [notice, setNotice] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const boxRef = useRef<HTMLDivElement>(null)
+  const workspaceRoot = useWorkbenchStore(s => s.workspacePath)
 
   useEffect(() => {
-    const onOpen = (event: Event): void => {
-      const request = (event as CustomEvent<NotePopoverRequest>).detail
-      setPopover(request)
-      setComment(request.note.comment)
-      setError('')
+    const onCapture = (request: AnnotationCaptureRequest): void => {
+      setError(null)
+      setComment('')
+      const webview = Array.from(document.querySelectorAll('webview')).find(element => {
+        try {
+          return (element as Electron.WebviewTag).getWebContentsId() === request.webContentsId
+        } catch {
+          return false
+        }
+      }) as Electron.WebviewTag | undefined
+      const position =
+        webview && request.rect
+          ? notePositionInWindow(webview, request.rect.right, request.rect.bottom)
+          : { x: window.innerWidth - 340, y: 80 }
+      setPending({
+        request,
+        left: Math.max(12, Math.min(position.x + 8, window.innerWidth - 332)),
+        top: Math.max(48, Math.min(position.y + 8, window.innerHeight - 290))
+      })
     }
-    const onClose = (): void => {
-      setPopover(null)
-      setError('')
-    }
-    window.addEventListener('notes:open-popover', onOpen)
-    window.addEventListener('notes:close-popover', onClose)
+    const offCapture = window.api.onAnnotationCapture(onCapture)
+    const offError = window.api.onAnnotationCaptureError(payload => setError(payload.error))
     return () => {
-      window.removeEventListener('notes:open-popover', onOpen)
-      window.removeEventListener('notes:close-popover', onClose)
+      offCapture()
+      offError()
     }
   }, [])
 
   useEffect(() => {
-    if (!popover) return
+    if (!pending) return
     const onPointerDown = (event: PointerEvent): void => {
       const target = event.target as Node | null
-      if (popoverRef.current && target && !popoverRef.current.contains(target)) {
-        setPopover(null)
-      }
+      if (boxRef.current && target && !boxRef.current.contains(target)) setPending(null)
+    }
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setPending(null)
     }
     window.addEventListener('pointerdown', onPointerDown, true)
-    return () => window.removeEventListener('pointerdown', onPointerDown, true)
-  }, [popover])
-
-  useEffect(() => window.api.onNoteCapture(payload => {
-    if (payload.error) { setError(payload.error); return }
-    if (!payload.draft) return
-    const draft: NoteDraft = payload.draft
-    const webContentsId = payload.webContentsId
-    const selectionRect: NoteSelectionRect | undefined = payload.rect
-    void window.api.notesSave(draft, '').then(result => {
-      if (!result.success || !result.data) { setError(result.error || '保存笔记失败'); return }
-      const normalized = (value: string): string => value.replace(/\s+/g, ' ').trim()
-      const saved = result.data.notes.find(note => normalized(note.quote) === normalized(draft.quote))
-      if (!saved) return
-      const note: NoteHighlight = { id: saved.id, conversationId: result.data.id, quote: saved.quote, anchor: saved.anchor, comment: saved.comment }
-      const webview = Array.from(document.querySelectorAll('webview')).find(element => {
-        try { return (element as Electron.WebviewTag).getWebContentsId() === webContentsId } catch { return false }
-      }) as Electron.WebviewTag | undefined
-      if (webview) {
-        try {
-          void webview.insertCSS('::highlight(multichat-notes){background:#fde68a;color:inherit}::highlight(multichat-note-focus){background:#fbbf24;color:inherit}').catch(() => undefined)
-          void webview.executeJavaScript(generateNoteHighlightScript(result.data.notes, saved.id)).catch(() => undefined)
-        } catch { /* Webview 导航期间由加载监听器恢复高亮 */ }
-      }
-      const position = webview && selectionRect
-        ? notePositionInWindow(webview, selectionRect.right, selectionRect.bottom)
-        : { x: window.innerWidth - 340, y: 80 }
-      window.dispatchEvent(new CustomEvent<NotePopoverRequest>('notes:open-popover', { detail: { note, ...position } }))
-    }).catch(() => setError('保存笔记失败'))
-  }), [])
-
-  useEffect(() => {
-    if (!popover) return
-    const onKey = (event: KeyboardEvent): void => { if (event.key === 'Escape') setPopover(null) }
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [popover])
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown, true)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [pending])
 
-  const update = async (): Promise<void> => {
-    if (!popover || saving) return
-    setSaving(true)
-    const result = await window.api.notesUpdate(popover.note.conversationId, popover.note.id, comment)
-    setSaving(false)
-    if (!result.success) { setError(result.error || '保存评论失败'); return }
-    setPopover({ ...popover, note: { ...popover.note, comment } })
-    setError('')
+  const save = useCallback(
+    async (saveToLibrary = false): Promise<void> => {
+      if (!pending || busy) return
+      const { request } = pending
+      setBusy(true)
+      setError(null)
+      try {
+        const captureContext = saveToLibrary ? 'global' : captureContextOf(request.webContentsId)
+        if (request.mode === 'excerpt') {
+          const result = await window.api.annotations.captureExcerpt({
+            captureContext,
+            workspaceRoot: captureContext === 'workbench' ? workspaceRoot ?? undefined : undefined,
+            platform: request.platform,
+            title: request.title,
+            url: request.url,
+            quote: request.quote,
+            comment: comment.trim() || undefined
+          })
+          if (!result.success) {
+            setError(result.error || '摘录保存失败')
+            return
+          }
+          if (!result.data?.document) {
+            setError(documentErrorMessage(result.data?.documentError))
+            return
+          }
+          setPending(null)
+          return
+        }
+
+        const result = await window.api.annotations.captureSource({
+          annotationId: request.annotationId ?? crypto.randomUUID(),
+          captureContext,
+          workspaceRoot: captureContext === 'workbench' ? workspaceRoot ?? undefined : undefined,
+          platform: request.platform,
+          title: request.title,
+          url: request.url,
+          snapshot: request.snapshot,
+          quote: request.quote,
+          anchor: request.anchor,
+          comment: comment.trim()
+        })
+        if (!result.success) {
+          setError(result.error || '标注保存失败')
+          return
+        }
+        if (result.data?.documentError) {
+          setNotice(documentErrorMessage(result.data.documentError))
+        } else {
+          setPending(null)
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : '保存失败')
+      } finally {
+        setBusy(false)
+      }
+    },
+    [busy, comment, pending, workspaceRoot]
+  )
+
+  if (!pending && !error && !notice) return null
+
+  return (
+    <>
+      {pending && (
+        <div
+          ref={boxRef}
+          className="fixed z-[95] w-[320px] rounded-xl border border-black/10 bg-white p-3 text-text-primary shadow-xl no-drag dark:border-white/10 dark:bg-gray-800"
+          style={{ left: pending.left, top: pending.top }}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <strong className="text-sm">{pending.request.mode === 'excerpt' ? '摘录为文档' : '标注'}</strong>
+            <button
+              type="button"
+              aria-label="关闭"
+              className="text-text-secondary hover:text-text-primary"
+              onClick={() => setPending(null)}
+            >
+              <AppIcon name="close" size={16} />
+            </button>
+          </div>
+          <p className="mt-2 max-h-20 overflow-y-auto rounded-r-md border-l-4 border-amber-300 bg-amber-50/60 p-2 text-xs text-text-secondary dark:bg-amber-300/10">
+            {pending.request.quote}
+          </p>
+          {pending.request.mode === 'annotate' && (
+            <textarea
+              autoFocus
+              className="mt-3 min-h-20 w-full resize-y rounded-lg border border-black/10 p-2 text-sm outline-none focus:border-primary dark:border-white/10 dark:bg-transparent"
+              placeholder="添加评论…"
+              value={comment}
+              onChange={event => setComment(event.target.value)}
+            />
+          )}
+          {error && <p className="mt-1 text-xs text-rose-600">{error}</p>}
+          <div className="mt-2 flex items-center justify-between gap-2">
+            {pending.request.mode === 'annotate' && captureContextOf(pending.request.webContentsId) === 'workbench' ? (
+              <button
+                type="button"
+                disabled={busy}
+                className="text-[11px] text-text-secondary hover:text-primary disabled:opacity-40"
+                onClick={() => void save(true)}
+              >
+                保存到默认会话库
+              </button>
+            ) : (
+              <span />
+            )}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className="rounded-lg px-2 py-1 text-xs text-text-secondary"
+                onClick={() => setPending(null)}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                className="rounded-lg bg-primary px-3 py-1 text-xs text-white disabled:opacity-40"
+                onClick={() => void save(false)}
+              >
+                {pending.request.mode === 'excerpt' ? '保存文档' : '保存标注'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {!pending && (error || notice) && (
+        <div
+          className="fixed right-4 top-12 z-[95] max-w-sm rounded-lg border border-black/10 bg-white px-4 py-2 text-sm shadow-lg dark:border-white/10 dark:bg-gray-800"
+          role="alert"
+        >
+          <span className={error ? 'text-rose-600' : 'text-text-primary'}>{error || notice}</span>
+          <button
+            type="button"
+            className="ml-3 text-text-secondary"
+            onClick={() => {
+              setError(null)
+              setNotice(null)
+            }}
+          >
+            关闭
+          </button>
+        </div>
+      )}
+    </>
+  )
+}
+
+function documentErrorMessage(error?: string): string {
+  switch (error) {
+    case 'NO_ACTIVE_WORKSPACE':
+      return '当前没有活动工作区，标注已保存，可改存默认会话库'
+    case 'WORKSPACE_UNAVAILABLE':
+      return '当前工作区暂不可用，标注已保存，文档未生成'
+    case 'SCAN_INCOMPLETE':
+      return '来源扫描未完成，标注已保存，文档未生成'
+    case 'OVERSIZE':
+      return '会话过大，无法生成可打开的工作台文档'
+    case 'SOURCE_NOT_FOUND':
+      return '默认会话库里没有这段会话的标注'
+    case 'WRITE_FAILED':
+      return '文档写入失败，标注已保存'
+    default:
+      return error ? `文档未生成：${error}` : ''
   }
-
-  const remove = async (): Promise<void> => {
-    if (!popover || saving) return
-    setSaving(true)
-    const result = await window.api.notesDelete(popover.note.conversationId, popover.note.id)
-    setSaving(false)
-    if (!result.success) { setError(result.error || '删除笔记失败'); return }
-    setPopover(null)
-    setError('')
-  }
-
-  if (!popover && !error) return null
-  const left = popover ? Math.max(12, Math.min(popover.x + 8, window.innerWidth - 332)) : 12
-  const top = popover ? Math.max(48, Math.min(popover.y + 8, window.innerHeight - 270)) : 48
-  return <>
-    {popover && <div ref={popoverRef} className="fixed z-[95] w-[320px] rounded-xl border border-gray-200/90 bg-white p-3 text-text-primary shadow-xl no-drag" style={{ left, top }}>
-      <div className="flex items-center justify-between gap-2"><strong className="text-sm">高亮笔记</strong><button type="button" aria-label="关闭评论卡片" className="text-text-secondary hover:text-text-primary" onClick={() => { setPopover(null); setError('') }}>×</button></div>
-      <p className="mt-2 max-h-20 overflow-y-auto rounded-r-md border-l-4 border-amber-300 bg-amber-50/60 p-2 text-xs text-text-secondary">{popover.note.quote}</p>
-      <textarea className="mt-3 min-h-20 w-full resize-y rounded-lg border border-gray-200 p-2 text-sm outline-none focus:border-primary" placeholder="添加评论…" value={comment} onChange={event => setComment(event.target.value)} autoFocus />
-      {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
-      <div className="mt-2 flex items-center justify-between"><button type="button" className="text-xs text-red-600 hover:underline" disabled={saving} onClick={() => void remove()}>删除高亮</button><div className="flex gap-2"><button type="button" className="rounded-lg px-2 py-1 text-xs text-text-secondary" onClick={() => setPopover(null)}>关闭</button><button type="button" className="rounded-lg bg-primary px-3 py-1 text-xs text-white disabled:opacity-40" disabled={saving || comment === popover.note.comment} onClick={() => void update()}>保存评论</button></div></div>
-    </div>}
-    {!popover && error && <div className="fixed right-4 top-12 z-[95] rounded-lg border border-red-200 bg-white px-4 py-2 text-sm text-red-600 shadow-lg" role="alert">{error}<button type="button" className="ml-3" onClick={() => setError('')}>关闭</button></div>}
-  </>
 }

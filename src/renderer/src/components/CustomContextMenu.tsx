@@ -1,5 +1,9 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import type { ContextMenuItem, WebviewContextMenuData } from '../../../shared/types/contextMenu'
+import type {
+  ContextMenuItem,
+  WebviewContextMenuData,
+  WorkbenchHtmlContextMenuData
+} from '../../../shared/types/contextMenu'
 import { useWorkbenchStore } from '../store/workbenchStore'
 import { AppIcon } from './icons/AppIcon'
 
@@ -30,6 +34,39 @@ function isEditableEl(el: HTMLElement | null): boolean {
 const isMac = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform)
 const cmdOrCtrl = isMac ? '⌘' : 'Ctrl+'
 
+function appendWorkbenchAiItems(
+  items: ExtendedContextMenuEntry[],
+  selectedText: string
+): void {
+  const askAi = useWorkbenchStore.getState().askAi
+  items.push(
+    {
+      key: 'ask_ai',
+      label: '向 AI 提问',
+      icon: 'chat',
+      action: () => askAi(selectedText, 'ask')
+    },
+    {
+      key: 'explain_ai',
+      label: '解释此内容',
+      icon: 'psychology',
+      action: () => askAi(selectedText, 'explain')
+    },
+    {
+      key: 'polish_ai',
+      label: '语言润色',
+      icon: 'auto_fix_high',
+      action: () => askAi(selectedText, 'polish')
+    },
+    {
+      key: 'summarize_ai',
+      label: '提取关键要点',
+      icon: 'format_list_bulleted',
+      action: () => askAi(selectedText, 'summarize')
+    }
+  )
+}
+
 export default function CustomContextMenu(): JSX.Element | null {
   const [menuState, setMenuState] = useState<MenuState>({
     visible: false,
@@ -58,7 +95,38 @@ export default function CustomContextMenu(): JSX.Element | null {
     return removeListener
   }, [])
 
-  // 2. 监听宿主非 WebView DOM 元素的原生右键菜单
+  // 2. HTML 预览 iframe 的右键选区由主进程转发，iframe 事件不会冒泡到宿主 DOM
+  useEffect(() => {
+    if (!window.api?.workbench?.onHtmlContextMenu) return
+    const removeListener = window.api.workbench.onHtmlContextMenu(
+      (data: WorkbenchHtmlContextMenuData) => {
+        const selectedText = data.selectedText.trim()
+        if (!selectedText) return
+
+        const items: ExtendedContextMenuEntry[] = []
+        appendWorkbenchAiItems(items, selectedText)
+        items.push({ type: 'separator' })
+        items.push({
+          key: 'copy',
+          label: '复制',
+          icon: 'content_copy',
+          shortcut: `${cmdOrCtrl}C`,
+          action: async () => {
+            await navigator.clipboard.writeText(selectedText)
+          }
+        })
+        setMenuState({
+          visible: true,
+          x: data.x,
+          y: data.y,
+          items
+        })
+      }
+    )
+    return removeListener
+  }, [])
+
+  // 3. 监听宿主非 WebView DOM 元素的原生右键菜单
   useEffect(() => {
     const handleDomContextMenu = (e: MouseEvent): void => {
       const target = e.target as HTMLElement | null
@@ -79,33 +147,8 @@ export default function CustomContextMenu(): JSX.Element | null {
       const activeFileCategory = useWorkbenchStore.getState().activeFileCategory
       const isNonCodeWorkbenchEditor = isWorkbenchEditor && activeFileCategory !== 'code'
       if (isNonCodeWorkbenchEditor && selectionText) {
-        items.push(
-          {
-            key: 'ask_ai',
-            label: '向 AI 提问',
-            icon: 'chat',
-            action: () => useWorkbenchStore.getState().askAi(selectionText, 'ask')
-          },
-          {
-            key: 'explain_ai',
-            label: '解释此内容',
-            icon: 'psychology',
-            action: () => useWorkbenchStore.getState().askAi(selectionText, 'explain')
-          },
-          {
-            key: 'polish_ai',
-            label: '语言润色',
-            icon: 'auto_fix_high',
-            action: () => useWorkbenchStore.getState().askAi(selectionText, 'polish')
-          },
-          {
-            key: 'summarize_ai',
-            label: '提取关键要点',
-            icon: 'format_list_bulleted',
-            action: () => useWorkbenchStore.getState().askAi(selectionText, 'summarize')
-          },
-          { type: 'separator' }
-        )
+        appendWorkbenchAiItems(items, selectionText)
+        items.push({ type: 'separator' })
       }
 
       if (selectionText || editable) {
@@ -231,7 +274,7 @@ export default function CustomContextMenu(): JSX.Element | null {
     }
   }, [closeMenu])
 
-  // 3. 点击外部、窗口失焦、按下 Esc 键关闭菜单
+  // 4. 点击外部、窗口失焦、按下 Esc 键关闭菜单
   useEffect(() => {
     if (!menuState.visible) return
 

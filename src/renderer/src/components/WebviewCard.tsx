@@ -1,4 +1,7 @@
-import { useRef, useImperativeHandle, forwardRef } from 'react'
+import { useEffect, useRef, useImperativeHandle, forwardRef, useState } from 'react'
+import { noteConversationKey } from '../../../shared/utils/noteIdentity'
+import type { CaptureContext } from '../../../shared/types/annotations'
+import { registerCaptureContext, unregisterCaptureContext } from '../utils/annotationCaptureContext'
 import { defaultSelectors } from '../config/selectors'
 import { useAppStore, DEEP_RESEARCH_SUPPORTED_MODEL_IDS, IMAGE_GENERATION_SUPPORTED_MODEL_IDS } from '../store/appStore'
 import CustomDropdown, { type DropdownOption } from './CustomDropdown'
@@ -7,7 +10,7 @@ import type { FileUploadData } from '../utils/webviewScripts'
 import type { ProbeReport, ResearchProbeReport, DomProbeReport, DomProbeOptions } from '../utils/selectorDiagnostics'
 import { useWebviewLifecycle } from '../hooks/useWebviewLifecycle'
 import { useWebviewActions } from '../hooks/useWebviewActions'
-import { useWebviewNotes } from '../hooks/useWebviewNotes'
+import { useSourceAnnotations } from '../hooks/useSourceAnnotations'
 import WebviewFindBar from './WebviewFindBar'
 import { AppIcon } from './icons/AppIcon'
 
@@ -35,6 +38,8 @@ interface WebviewCardProps {
   onDragStart?: (e: React.PointerEvent<HTMLDivElement>) => void // 开始拖拽窗口的回调
   webviewInstanceId?: string // 同一模型在快捷窗口左右两侧可同时存在
   onWebviewReady?: (webContentsId: number) => void
+  /** 选区采集上下文：工作台内传 workbench，其余入口默认 global。 */
+  captureContext?: CaptureContext
 }
 
 // 重新导出 FileUploadData 类型供其他组件使用
@@ -107,7 +112,8 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
       expectedUrl,
       sideLabel,
       webviewInstanceId,
-      onWebviewReady
+      onWebviewReady,
+      captureContext = 'global'
     },
     ref
   ) => {
@@ -169,8 +175,61 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
       isHibernated
     })
 
-    // 网页笔记高亮同步
-    useWebviewNotes(webviewRef, enabled)
+    // 原文标注：只认默认会话库的 sources/，不读写当前仓库
+    const [sourceKey, setSourceKey] = useState<string | null>(null)
+    useEffect(() => {
+      if (!enabled) return
+      const webview = webviewRef.current
+      if (!webview) return
+      let alive = true
+      const sync = (): void => {
+        if (!alive) return
+        try {
+          const currentUrl = webview.getURL()
+          if (!currentUrl.startsWith('https://')) {
+            setSourceKey(null)
+            return
+          }
+          setSourceKey(noteConversationKey(currentUrl, webview.getTitle()))
+        } catch {
+          setSourceKey(null)
+        }
+      }
+      sync()
+      webview.addEventListener('dom-ready', sync)
+      webview.addEventListener('did-navigate', sync)
+      webview.addEventListener('did-navigate-in-page', sync)
+      webview.addEventListener('page-title-updated', sync)
+      return () => {
+        alive = false
+        webview.removeEventListener('dom-ready', sync)
+        webview.removeEventListener('did-navigate', sync)
+        webview.removeEventListener('did-navigate-in-page', sync)
+        webview.removeEventListener('page-title-updated', sync)
+      }
+    }, [enabled, url])
+    const sourceAnnotations = useSourceAnnotations(webviewRef, enabled, sourceKey)
+
+    // 声明本 Webview 的采集上下文，主进程只负责读选区，落点由承载入口决定。
+    useEffect(() => {
+      const webview = webviewRef.current
+      if (!webview) return
+      let id: number | null = null
+      const register = (): void => {
+        try {
+          id = webview.getWebContentsId()
+          registerCaptureContext(id, captureContext)
+        } catch {
+          id = null
+        }
+      }
+      register()
+      webview.addEventListener('dom-ready', register)
+      return () => {
+        webview.removeEventListener('dom-ready', register)
+        if (id !== null) unregisterCaptureContext(id)
+      }
+    }, [captureContext])
 
     // 暴露给父组件的 Ref
     useImperativeHandle(
@@ -495,6 +554,52 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
             allowpopups
             tabIndex={-1}
           />
+
+          {/* 原文高亮点击后的评论卡片：评论只在渲染层读取，不进入第三方页面上下文 */}
+          {sourceAnnotations.hit && (
+            <div
+              className="absolute z-30 w-[300px] rounded-xl border border-black/10 bg-white p-3 text-xs shadow-xl dark:border-white/10 dark:bg-gray-800"
+              style={{
+                left: Math.max(8, Math.min(sourceAnnotations.hit.x - 20, window.innerWidth - 330)),
+                top: Math.max(8, sourceAnnotations.hit.y - 20)
+              }}
+            >
+              <p className="line-clamp-2 text-[11px] text-text-secondary">{sourceAnnotations.hit.quote}</p>
+              <p className="mt-1.5 whitespace-pre-wrap text-text-primary">
+                {sourceAnnotations.hit.comment || '无评论'}
+              </p>
+              <div className="mt-2 flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const hit = sourceAnnotations.hit
+                    if (!hit || !sourceKey) return
+                    if (!window.confirm('删除后所有工作区的原文高亮都会消失，确定删除？')) return
+                    const result = await window.api.annotations.deleteSource(sourceKey, hit.id)
+                    if (result.success) {
+                      sourceAnnotations.closeHit()
+                      sourceAnnotations.refresh()
+                    }
+                  }}
+                  className="text-[11px] text-rose-500 hover:underline"
+                >
+                  删除标注
+                </button>
+                <button
+                  type="button"
+                  onClick={sourceAnnotations.closeHit}
+                  className="text-[11px] text-text-secondary hover:text-text-primary"
+                >
+                  关闭
+                </button>
+              </div>
+            </div>
+          )}
+          {sourceAnnotations.error && (
+            <div className="absolute bottom-3 left-3 z-30 rounded-lg bg-rose-500/90 px-3 py-1.5 text-[11px] text-white shadow-lg">
+              {sourceAnnotations.error}
+            </div>
+          )}
         </div>
       </div>
     )
