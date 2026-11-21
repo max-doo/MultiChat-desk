@@ -2,6 +2,113 @@
 
 ## 2026-11-21
 
+### 23:56 | Antigravity
+
+- done: 修复工作台左栏文件树与搜索空状态占位图标未居中对齐的问题
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchSearch.tsx`
+- lesson(promoted): AppIcon 渲染为 SVG，赋予 block 类名后脱离父级 text-center 影响，必须配合 mx-auto 或父级 flex flex-col items-center 方可实现水平居中对齐
+
+### 23:45 | Codex
+
+- done: 修复工作台本地文件链接被补成 https:// 且 Ctrl+点击无法跳转
+- context: Lexical LinkNode 会对无协议地址调用 formatUrl，普通文件名会被当成网址；点击插件此前只放行 http/https
+- decision: 仅在识别为工作区本地文件时保留相对路径语义，并按当前文档目录解析后调用工作台 openFile；外部 HTTP 链接保持原行为；链接目标不存在时保留当前文档
+- added:
+  - `src/renderer/src/components/workbench/workbenchLinks.ts`
+- modified:
+  - `src/renderer/src/components/workbench/MarkdownSyncPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchUrlInputPopover.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchLinkClickPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchLinkHoverPlugin.tsx`
+  - `src/renderer/src/store/workbenchStore.ts`
+- lesson(promoted): Lexical LinkNode 出于安全会给无协议 URL 补 https://；Markdown 本地文件链接必须在进入 LinkNode 前保留 ./ 等相对路径语义，点击层再按当前文档目录解析，不能把 anchor 的绝对 href 直接交给浏览器
+- unresolved: 未进行 npm run dev 下的真实鼠标 Ctrl+点击验收；需打开含本地 .md 链接的笔记确认悬停地址无 https:// 且点击后切换到目标文档
+
+### 23:39 | Antigravity
+
+- done: 调整大纲位置至左侧、移除标签前蓝点并优化展开药丸阴影
+- decision: 大纲挂载位置由右侧切换到左侧（left-3.5，items-start，origin-left）；移除 Hover 展开时的前缀蓝点，改为直接呈现 Hx 层级标签；将暗沉弥散阴影替换为通透轻盈的高清投影（shadow-[0_2px_10px_rgba(0,0,0,0.08)]）
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchMinimalToc.tsx`
+  - `docs/prototypes/minimalist-toc-showcase.html`
+
+### 23:30 | Antigravity
+
+- done: 开发并集成 Markdown 预览模式下的极简原位变形大纲导航组件 (WorkbenchMinimalToc)
+- decision: 封装独立组件 WorkbenchMinimalToc，以 100% 透明无边框容器置于编辑器右侧，通过 Lexical 订阅提取 H1~H6 标题，静止时为层级线段，悬停时原位展开为标题胶囊并联动上下线段弹性避让；ScrollSpy 实时追踪阅读小节，点击平滑滚动并附加脉冲聚焦
+- added:
+  - `src/renderer/src/components/workbench/WorkbenchMinimalToc.tsx`
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+  - `src/renderer/src/assets/index.css`
+
+### 23:28 | Codex
+
+- done: HTML 表格预览支持直接修改已有单元格内容，保持行列表格结构和 rowspan/colspan 不变
+- context: Lexical DecoratorBlockNode 内嵌 contentEditable 单元格；失焦或 Ctrl+S 时安全回写单元格 HTML
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchHtmlTableNode.tsx`
+- lesson(promoted): DecoratorBlockNode 内编辑单元格时要在 focus 记录基线、blur 再提交，避免输入过程中触发节点重渲染导致光标跳动；只替换目标单元格内容，不提供行列结构编辑
+
+### 23:27 | Codex
+
+- done: 修正工作台文件树隐藏规则：.gitignore/.gitattributes/.gitmodules 等 Git 元文件不再显示，未被忽略的点号目录继续显示
+- context: 上一轮改为按 Git 真实忽略结果过滤后，原本被'点开头即隐藏'覆盖的 .gitignore/.gitattributes 暴露在文件树中
+- decision: 新增 GIT_META_FILE_NAMES 名单，在文件树/搜索过滤与外部导入拦截中一并生效；.gitignore 编辑仍走工作区设置入口
+- modified:
+  - `src/main/services/workbenchService.ts`
+  - `.memory/KNOWLEDGE.md`
+- lesson(promoted): 放宽'点开头即隐藏'后，必须显式保留被旧规则顺带覆盖的 Git 元文件，否则配置文件会混入工作区内容树
+
+### 23:20 | Antigravity
+
+- done: 对齐 MultiChat Desk 设计系统，实现横线原位变形标题与无边框透明大纲交互原型
+- decision: 采用完全透明无边框容器（border:none, bg:transparent），实现横线原位膨胀为标题药丸，并通过弹性微波与物理风琴两种模式实现上下相邻线段平滑避让，解决鼠标高速划过时的抖动脱靶问题
+- modified:
+  - `docs/prototypes/minimalist-toc-showcase.html`
+
+### 23:17 | Codex
+
+- done: 工作台文件树改为按 Git 真实忽略结果过滤：未被 .gitignore 忽略的点号目录（.agents/.claude/.memory）正常显示，被忽略路径与依赖缓存目录不显示
+- context: 原规则为 name.startsWith('.') 即隐藏，导致 .agents 等无法在管理界面查看；项目已依赖系统 Git
+- decision: 忽略判定交给 git ls-files --others --ignored --exclude-standard --directory，避免自行实现 gitignore 匹配；.git/.multichat/.trash 与 node_modules 等依赖缓存仍无条件隐藏
+- modified:
+  - `src/main/services/workbenchService.ts`
+  - `src/main/services/gitService.ts`
+- lesson(promoted): git ls-files --others --ignored --exclude-standard --directory 在子目录执行时返回相对工作区的路径，可直接用于文件树过滤；整目录被忽略折叠为 dir/，目录内有已跟踪文件时返回其中被忽略的具体文件
+
+### 23:14 | Codex
+
+- done: 修复工作台 HTML 渲染预览中划词右键无菜单：主进程捕获 iframe 选区并接入现有 AI 划词菜单
+- context: HTML 预览运行在 workbench-file:// 的 sandbox iframe 中，DOM 右键事件不会冒泡到宿主 renderer
+- decision: 仅在 frameURL 属于 workbench-file:// 且存在选区时转发；普通页面和 webview 右键链路保持不变
+- modified:
+  - `src/main/webviewManager.ts`
+  - `src/preload/index.ts`
+  - `src/shared/types/contextMenu.ts`
+  - `src/renderer/src/components/CustomContextMenu.tsx`
+- lesson(promoted): 跨源 sandbox iframe 的右键选区应通过 BrowserWindow.webContents 的 context-menu 事件获取，再经 IPC 交给宿主自绘菜单；不要依赖 iframe 内 DOM 事件冒泡
+
+### 23:11 | Antigravity
+
+- done: 调研 Markdown 极简导航方案并完成可交互高保真原型设计
+- decision: 针对极简导航方案客观分析横线 hover 缺陷（零预知性/扫雷试探），提出横线骨架、幽灵侧轨、浮动胶囊、滚动条雷达与自适应混合等五种方案，并构建自包含交互原型验证分屏适应力
+- added:
+  - `docs/prototypes/minimalist-toc-showcase.html`
+
+### 23:07 | Codex
+
+- done: 工作台 Markdown 富文本模式支持渲染 HTML table，并保留原始 rowspan/colspan HTML 源码
+- context: Markdown/Lexical 双向转换链路；HTML 表格块通过安全白名单渲染为只读表格
+- added:
+  - `src/renderer/src/components/workbench/WorkbenchHtmlTableNode.tsx`
+- modified:
+  - `src/renderer/src/components/workbench/MarkdownSyncPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+- lesson(promoted): Lexical Markdown 导入不支持原生 HTML 表格；块级 HTML 可先用占位标记转成 element transformer，再由 DecoratorBlockNode 保留原文并渲染
+
 ### 22:44 | Codex
 
 - done: 按功能模块分 9 批提交工作区全部改动：导图文件化绑定（mindmapFileService+mindmapFile）、导图保存主链路与 IPC、导图面板文件态、文件树/Vault/footer UI、Markdown 链接能力、.gitignore 整段编辑、目录改名 EBUSY 重试、webview 注入 generation 收敛、统一笔记标注设计文档与日志

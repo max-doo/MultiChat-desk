@@ -154,6 +154,12 @@ Do not copy ordinary session history here. Promote only stable knowledge that is
 
 - **Markdown 裸链接导入与导出不能直接复用普通链接序列化**：`@lexical/markdown` 的 `LINK` transformer 会跳过 `AutoLinkNode`，需为裸 URL 单独增加 text-match transformer，并在替换时用 `$findMatchingParent(textNode, $isLinkNode)` 防止在已有链接内嵌套。导出时不能拿 `exportChildren()` 的结果与 URL 比较：`exportTextFormat` 会转义下划线、方括号等字符，导致 `https://foo_bar` 永远不相等并被改写为显式链接；应改用 `node.getTextContent()`，仅在子节点无格式时原样输出裸 URL。链接插入弹层应复用应用内输入框而非 `window.prompt`，并在 hover 提示中跳过「显示文字本身就是地址」的裸链接，只对文字链接展示 URL。
 
+- **Lexical 本地文件链接不能交给默认 URL 归一化**：`LinkNode.sanitizeUrl()` 会对无协议地址调用 `formatUrl()`，普通文件名会被补成 `https://`，点击层再按浏览器 URL 处理就无法回到工作区文件。Markdown 导入与链接弹层应在进入 `LinkNode` 前识别已知文件扩展名，补 `./` 保留相对路径语义；点击时按当前文档目录解析为工作区相对路径并交给 `openFile()`，而不是使用 `anchor.href` 的绝对 URL。链接目标不存在时需保留当前文档，不能复用“启动恢复时文件已删除就清空编辑器”的分支。
+
+- **Lexical Markdown 不解析块级 HTML 表格，需用占位标记桥接并保留原始 HTML**：`@lexical/markdown` 只识别 GFM 管道表格，`<table>` 会落入普通段落。导入前可在代码围栏之外扫描完整 `<table>…</table>` 块，替换为唯一占位标记，再由 element transformer 创建自定义 `DecoratorBlockNode`；节点保存原始 HTML，导出时原样返回，才能保留 `rowspan`、`colspan` 与源码模式内容。富文本展示应通过 `DOMParser` 读取结构并用 React 白名单节点渲染，不要在编辑器内注入原始 HTML。若允许修改已有单元格，应在 focus 时记录单元格内容基线，在 blur 或 Ctrl/Cmd+S 时只回写该单元格并重新序列化 HTML；不要在输入过程中更新 Lexical 节点，否则节点重渲染会打断光标和输入法。验证时需同时检查 `rowspan/colspan`、单元格内 `strong/br`、表格后正文定位，以及编辑一处后源码中的 HTML 是否仍保留合并单元格结构。
+
+- **AppIcon 块级化居中与空状态对齐**：`AppIcon` 统一渲染为 SVG，赋予 `block` 类名后会脱离父级 inline/`text-center` 影响（SVG 变为块级元素后默认 `margin-left: 0` 靠左）。若要在空状态提示中与居中文本对齐，必须配合 `mx-auto` 或将父容器设为 `flex flex-col items-center` 进行水平居中对齐。
+
 ### 7. 划词、快捷键与窗口交互
 
 - **可重复交互的 Electron 悬浮窗口**：避免同时使用 `focusable: false` 和依赖完整 `click` 事件。用 `showInactive` 控制弹出时不抢焦点，让窗口保持可聚焦，并在 `pointerdown` 派发一次性动作。
@@ -209,6 +215,8 @@ Do not copy ordinary session history here. Promote only stable knowledge that is
 
 - **macOS Tray 彩色图标不能走 template 且方法在 nativeImage 上**：template image 只保留 alpha 剪影会渲染成黑色；要显示彩色应用图标不能调 `setTemplateImage`，图标建议 `resize` 到 ~22px。`Tray` 实例本身没有 `setTemplateImage` 方法（误调直接崩溃），应对 `nativeImage` 调用 `nativeImage.setTemplateImage(true)`；`assets/` 下无 `tray-iconTemplate.png` 时回退 `logo.png`。
 
+- **跨源 sandbox iframe 的划词右键需由主进程转发**：iframe 内的 DOM `contextmenu` 不会冒泡到宿主 renderer，宿主自绘菜单无法直接拿到选区。主窗口 `webContents` 的 `context-menu` 事件可以取得子 frame 的 `frameURL` 与 `selectionText`；仅对目标协议且存在选区的 frame 调用 `preventDefault()`，再用“屏幕光标坐标 - 窗口内容区坐标”定位并 IPC 交给宿主菜单。这样不改变 iframe 的 sandbox 边界，也不影响普通 DOM 和独立 webview 的右键链路。
+
 
 ## Stable Decisions
 
@@ -229,6 +237,8 @@ Do not copy ordinary session history here. Promote only stable knowledge that is
 - **旧 `NoteManager.list()` 是破坏性读取，迁移和旧页读取不能复用**：`listUnlocked()` 会按 `sourceKey` 合并记录、按 `quote` 合并批注并 `rm` 旧 JSON。旧笔记迁移必须直接 `readdir + JSON.parse` 做只读原始快照，迁移期间 `notes:list/summaries/source/anchors-for-url/export/get` 也只能读快照；任务结束后普通 `list()` 不应再自动删除旧 JSON，同源合并只做内存视图。验收必须覆盖“同一 quote 两条不同评论都保留”和“迁移前后旧 JSON 数量不变”。
 
 - 抓取网页对话时，ChatGPT 等平台 DOM 自带无障碍头 (如 <h4>你说：</h4>)，在 htmlToMarkdown 时会被转为 Markdown 噪音；因此提取消息必须主动过滤 DOM 伴生噪点，使用 XML 标签隔离结构，彻底避免语法与格式污染
+
+- **工作台文件树的隐藏规则以 Git 真实忽略结果为准，不再按“名字以点开头”判断**：`git ls-files --others --ignored --exclude-standard --directory -z -- .` 在任意工作区子目录执行都会返回相对该目录的 POSIX 路径，整目录被忽略时折叠为 `dir/`，目录内有已跟踪文件时返回其中被忽略的具体文件，因此既能正确显示未被忽略的 `.agents`/`.claude`/`.memory`，又不会因为“按名字猜”把用户主动管理的点号目录吞掉。非 Git 工作区该命令直接失败，应退回内置名单。应用与版本库内部目录（`.git`、`.multichat`、`.trash`）、Git 元文件（`.gitignore`、`.gitattributes`、`.gitmodules`）以及 `node_modules`、虚拟环境、`__pycache__` 等依赖缓存仍需无条件隐藏：前两类属于配置而非工作区内容，后者未必被 `.gitignore` 覆盖，放开会让整树扫描被大量文件拖慢；`.gitignore` 的编辑入口在工作区设置，不依赖文件树。外部导入（拖入/粘贴）拿不到源的忽略结果，只能按名字拦截同一批目录。文件树、标签扫描与全文搜索必须复用同一个过滤函数，否则会出现“树里看不到但搜索结果能命中”的不一致。
 
 
 ### 9. 历史恢复、轮询、休眠与内存

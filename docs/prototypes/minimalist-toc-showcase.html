@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MultiChat Desk - 极简 Markdown 原位变形大纲导航设计原型</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            primary: '#3b82f6',
+            app: '#fcfdff',
+            'text-primary': '#1f2937',
+            'text-secondary': '#6b7280'
+          },
+          fontFamily: {
+            sans: ['"Google Sans Flex"', '"Google Sans"', '"Noto Sans SC"', '"PingFang SC"', 'system-ui', 'sans-serif'],
+            mono: ['"JetBrains Mono"', 'Menlo', 'monospace']
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    /* 严格对齐 MultiChat Desk index.css 视觉变量与基准 */
+    :root {
+      --app-bg: radial-gradient(ellipse at bottom, #FFFEF5 0%, #FFF2F5 30%, #F5F9FF 65%, #EBF4FF 100%);
+      --text-primary: #1f2937;
+      --text-secondary: #6b7280;
+      --primary: #3b82f6;
+    }
+    
+    html {
+      scroll-behavior: smooth;
+    }
+    body {
+      font-family: "Google Sans Flex", "Google Sans", "Noto Sans SC", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    /* 滚动条与 MultiChat 保持一致 */
+    ::-webkit-scrollbar {
+      width: 7px;
+      height: 7px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(156, 163, 175, 0.3);
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(156, 163, 175, 0.5);
+    }
+
+    /* =========================================================
+       核心：透明容器与「横线原位变形为标题 + 周围联动避让」动效
+       ========================================================= */
+
+    /* 1. 导航栏容器：完全透明、无边框、无阴影 */
+    .toc-transparent-container {
+      background: transparent !important;
+      border: none !important;
+      box-shadow: none !important;
+      outline: none !important;
+    }
+
+    /* 2. 单个大纲条目槽位：支持物理高度平滑膨胀，顶开上下兄弟线段 */
+    .toc-morph-slot {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      width: 100%;
+      user-select: none;
+      cursor: pointer;
+      /* 动效核心：高度与内边距的弹簧曲线过渡，实现“上下其他横线动态调整” */
+      transition: height 0.28s cubic-bezier(0.16, 1, 0.3, 1),
+                  margin 0.28s cubic-bezier(0.16, 1, 0.3, 1),
+                  opacity 0.22s ease,
+                  transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    /* 物理风琴避让模式下的静止与展开高度 */
+    .accordion-mode .toc-morph-slot {
+      height: 16px;
+      margin: 2px 0;
+    }
+    .accordion-mode .toc-morph-slot.is-hovered {
+      height: 34px;
+      margin: 8px 0;
+    }
+
+    /* 弹性微波避让模式下的静止与展开高度（防抖推荐） */
+    .elastic-mode .toc-morph-slot {
+      height: 22px;
+      margin: 1px 0;
+    }
+    .elastic-mode .toc-morph-slot.is-hovered {
+      height: 28px;
+      margin: 4px 0;
+    }
+
+    /* 3. 条目内部变形药丸（Line -> Title Pill） */
+    .morph-pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: flex-start;
+      height: 100%;
+      border-radius: 9999px;
+      padding: 0 4px;
+      transition: all 0.26s cubic-bezier(0.16, 1, 0.3, 1);
+      transform-origin: left center;
+      white-space: nowrap;
+    }
+
+    /* 静止横线 */
+    .morph-line {
+      height: 3px;
+      border-radius: 9999px;
+      background-color: rgba(148, 163, 184, 0.5); /* 浅灰 slate-400/50 */
+      transition: all 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+      transform-origin: left center;
+    }
+    .dark .morph-line {
+      background-color: rgba(148, 163, 184, 0.35);
+    }
+
+    /* 当前正文阅读进度对应的活跃线段 */
+    .toc-morph-slot.is-active .morph-line {
+      background-color: #3b82f6 !important;
+      height: 3.5px;
+      box-shadow: 0 0 8px rgba(59, 130, 246, 0.5);
+    }
+
+    /* 标题文本区域：静止时完全折叠收起 */
+    .morph-title-content {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      max-width: 0;
+      opacity: 0;
+      overflow: hidden;
+      transform: translateX(-10px);
+      transition: max-width 0.28s cubic-bezier(0.16, 1, 0.3, 1),
+                  opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+                  transform 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+      white-space: nowrap;
+    }
+
+    /* 悬停激活态：横线直接展开为标题卡片（轻盈通透阴影，杜绝灰黑脏污感） */
+    .toc-morph-slot.is-hovered .morph-pill {
+      padding: 4px 12px 4px 10px;
+      background: rgba(255, 255, 255, 0.98);
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.04);
+      border: 1px solid rgba(226, 232, 240, 0.85);
+      transform: scale(1.02);
+    }
+    .dark .toc-morph-slot.is-hovered .morph-pill {
+      background: rgba(30, 41, 59, 0.94);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+      border: 1px solid rgba(71, 85, 105, 0.6);
+    }
+
+    .toc-morph-slot.is-hovered .morph-title-content {
+      max-width: 320px;
+      opacity: 1;
+      transform: translateX(0);
+    }
+
+    /* 展开时：静止横线自然隐退，不在标签前加蓝点 */
+    .toc-morph-slot.is-hovered .morph-line {
+      display: none !important;
+    }
+
+    /* 其他未处于 Hover 态的横线联动调整：变暗、轻度缩放，视线完全聚焦于当前悬停项 */
+    .toc-transparent-container:hover .toc-morph-slot:not(.is-hovered) {
+      opacity: 0.35;
+      transform: scaleX(0.92);
+    }
+
+    /* 距离加权微位移：紧邻悬停项的上方和下方线段产生避让倾斜 */
+    .toc-morph-slot.is-adjacent-above {
+      transform: translateY(-3px) scale(0.95);
+    }
+    .toc-morph-slot.is-adjacent-below {
+      transform: translateY(3px) scale(0.95);
+    }
+
+    /* 文档跳转高亮脉冲（对齐 MultiChat mc-pending-insert 风格） */
+    .heading-anchor-target {
+      scroll-margin-top: 72px;
+      transition: all 0.3s ease;
+    }
+    .heading-focus-pulse {
+      background: rgba(59, 130, 246, 0.12) !important;
+      border-left: 3px solid #3b82f6 !important;
+      padding-left: 10px !important;
+      border-radius: 4px;
+    }
+
+    /* MultiChat Desk 顶部窗口控制与工作区风格 */
+    .mac-traffic-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+    }
+  </style>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen font-sans antialiased selection:bg-blue-500/30 selection:text-blue-200">
+
+  <!-- 模拟 MultiChat Desk 真实窗口外壳 -->
+  <div class="flex flex-col h-screen overflow-hidden">
+    
+    <!-- 1. 顶部标题栏（对齐 MultiChat Desk 顶部工具条） -->
+    <header class="h-11 border-b border-gray-800 bg-gray-900/90 backdrop-blur-md px-4 flex items-center justify-between z-40 select-none">
+      <div class="flex items-center gap-3">
+        <!-- macOS 风格红绿灯 -->
+        <div class="flex items-center gap-1.5 mr-2">
+          <div class="mac-traffic-dot bg-[#ff5f56] border border-[#e0443e]"></div>
+          <div class="mac-traffic-dot bg-[#ffbd2e] border border-[#dea123]"></div>
+          <div class="mac-traffic-dot bg-[#27c93f] border border-[#1aab29]"></div>
+        </div>
+
+        <!-- 当前文件路径与状态 -->
+        <div class="flex items-center gap-2 text-xs">
+          <span class="text-gray-400 flex items-center gap-1">
+            <svg class="w-3.5 h-3.5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+            <span class="font-medium text-gray-200">Markdown 极简原位变形导航原型</span>
+          </span>
+          <span class="text-gray-600">/</span>
+          <span class="text-[11px] text-gray-400 font-mono">architecture-spec.md</span>
+        </div>
+      </div>
+
+      <!-- 中间：所见即所得与源码切换按钮（对齐 Workbench 模式切换） -->
+      <div class="flex items-center bg-gray-950/80 p-0.5 rounded-lg border border-gray-800 text-xs">
+        <button class="px-2.5 py-1 rounded-md bg-blue-600 text-white font-medium shadow-sm transition">
+          所见即所得 (WYSIWYG)
+        </button>
+        <button class="px-2.5 py-1 rounded-md text-gray-400 hover:text-gray-200 transition">
+          源码 (Source)
+        </button>
+      </div>
+
+      <!-- 右侧：环境控制旋钮 -->
+      <div class="flex items-center gap-3">
+        <!-- 避让动效调节（让用户体验物理风琴 vs 弹性微波防抖） -->
+        <div class="flex items-center bg-gray-950/80 p-0.5 rounded-lg border border-gray-800 text-[11px]">
+          <span class="px-2 text-gray-400">避让曲线:</span>
+          <button onclick="setAdjustmentMode('elastic')" id="btn-anim-elastic" class="px-2 py-0.5 rounded transition text-white bg-blue-600 font-medium">
+            弹性微波 (防抖)
+          </button>
+          <button onclick="setAdjustmentMode('accordion')" id="btn-anim-accordion" class="px-2 py-0.5 rounded transition text-gray-400 hover:text-white">
+            物理风琴 (推挤)
+          </button>
+        </div>
+
+        <!-- 模拟 AI 侧边栏开关（验证分屏下 600px 宽度抗压） -->
+        <button onclick="toggleAiSidebar()" id="btn-ai-sidebar" class="px-2.5 py-1 text-xs rounded-lg border border-gray-700 bg-gray-800 text-gray-200 hover:bg-gray-700 transition flex items-center gap-1.5">
+          <svg class="w-3.5 h-3.5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h8m-8 6h16"></path></svg>
+          <span id="label-ai-sidebar">展开 AI 侧边栏 (分屏)</span>
+        </button>
+
+        <!-- 主题切换 -->
+        <button onclick="toggleTheme()" class="p-1.5 rounded-lg border border-gray-800 bg-gray-900 text-gray-400 hover:text-white transition" title="切换浅色/深色">
+          <svg id="icon-sun" class="w-4 h-4 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
+          <svg id="icon-moon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- 2. 工作台主区域：编辑器 + 透明悬浮大纲 + 可折叠 AI 侧边栏 -->
+    <div class="flex-1 flex overflow-hidden relative">
+
+      <!-- 左/中侧：Markdown 编辑器/预览画板 -->
+      <div id="editor-viewport" class="flex-1 h-full overflow-y-auto relative scroll-smooth flex justify-center bg-gray-950 transition-colors duration-200">
+        
+        <!-- 编辑器画布内容（限制宽 max-w-[860px]，对齐 MultiChat 真实工作台尺寸） -->
+        <main class="w-full max-w-[860px] px-8 sm:px-14 py-10 text-gray-200 pb-36 relative">
+
+          <!-- 文档 Frontmatter 属性折叠框（Obsidian / MultiChat 风格） -->
+          <div class="mb-8 p-3 rounded-xl bg-gray-900/60 border border-gray-800/80 text-xs text-gray-400 space-y-1.5 select-none">
+            <div class="flex items-center justify-between text-gray-500 font-mono text-[11px]">
+              <span>--- PROPERTY (Frontmatter) ---</span>
+              <span>tag: #architecture #navigation #ui-design</span>
+            </div>
+            <div class="grid grid-cols-2 gap-2 text-[12px] pt-1">
+              <div><span class="text-gray-500">author:</span> <span class="text-gray-300">MultiChat Team</span></div>
+              <div><span class="text-gray-500">status:</span> <span class="text-emerald-400 font-medium">Design Review</span></div>
+            </div>
+          </div>
+
+          <!-- 正文排版 -->
+          <article class="space-y-8 leading-relaxed">
+            
+            <header class="border-b border-gray-800 pb-6">
+              <span class="text-[11px] font-bold uppercase tracking-wider text-blue-400 font-mono">SPECIFICATION DRAFT</span>
+              <h1 id="heading-0" class="heading-anchor-target text-3xl font-extrabold text-white mt-2 tracking-tight">
+                MultiChat Desk 极简 Markdown 原位大纲导航
+              </h1>
+              <p class="text-sm text-gray-400 mt-3 leading-normal">
+                实现“静止时仅有轻柔横线、悬停时横线原位变形展开为小节标题、周围未激活横线平滑避让、外层容器完全无边框透明”的高品质沉浸式导航。
+              </p>
+            </header>
+
+            <!-- 章节 01 -->
+            <section class="space-y-3">
+              <h2 id="heading-1" class="heading-anchor-target text-xl font-bold text-gray-100 pt-4 flex items-center gap-2">
+                <span class="text-blue-500 font-mono text-xs">01</span>
+                设计目标与交互动机
+              </h2>
+              <p class="text-sm text-gray-300 leading-relaxed">
+                在传统桌面文档或 IDE 中，侧边大纲往往需要占据 200px~260px 的固定宽度。当用户在 MultiChat Desk 中同时打开右侧 AI 助手进行文献提炼或对比辩论时，主编辑区宽度会缩窄到 600px 左右。此时常驻的大纲栏将严重挤占正文，破坏排版。
+              </p>
+              <div class="p-3.5 rounded-xl bg-blue-950/20 border border-blue-800/40 text-xs text-blue-200">
+                <strong>核心设计准则：</strong> 保持导航容器 100% 透明与零边框；只在鼠标主动交互时提供精准的信息反馈，平常状态下不打破正文阅读的注意力心流。
+              </div>
+            </section>
+
+            <!-- 章节 02 -->
+            <section class="space-y-3">
+              <h2 id="heading-2" class="heading-anchor-target text-xl font-bold text-gray-100 pt-4 flex items-center gap-2">
+                <span class="text-blue-500 font-mono text-xs">02</span>
+                横线原位变形技术原理
+              </h2>
+              <p class="text-sm text-gray-300 leading-relaxed">
+                所谓“横线原位变成标题”，本质上是把常规的“外部独立 Tooltip 浮动”转变为“同一 DOM 节点的尺寸与透明度弹簧演变”。
+              </p>
+
+              <h3 id="heading-3" class="heading-anchor-target text-base font-semibold text-gray-200 pt-2 pl-3 border-l-2 border-gray-700">
+                2.1 层级线长编码算法
+              </h3>
+              <p class="text-sm text-gray-300 leading-relaxed">
+                静态横线不仅是一根线，它通过物理尺寸对标题层级进行了直观映射：
+                <code class="text-blue-300 font-mono text-xs bg-gray-900 px-1.5 py-0.5 rounded">H1: 26px</code>、
+                <code class="text-blue-300 font-mono text-xs bg-gray-900 px-1.5 py-0.5 rounded">H2: 18px</code>、
+                <code class="text-blue-300 font-mono text-xs bg-gray-900 px-1.5 py-0.5 rounded">H3: 12px</code>。用户只需通过余光就能感知整篇文档的结构层次。
+              </p>
+
+              <h3 id="heading-4" class="heading-anchor-target text-base font-semibold text-gray-200 pt-2 pl-3 border-l-2 border-gray-700">
+                2.2 标题展开时的微过渡机制
+              </h3>
+              <p class="text-sm text-gray-300 leading-relaxed">
+                当指针移入具体的某根线段时，该线段从右向左平滑展开，小横线缩短为前缀圆点（Bullet Dot），标题文字在 200ms 内完成透明度与位移的平滑淡入，完全消除传统 Tooltip 带来的视觉割裂。
+              </p>
+            </section>
+
+            <!-- 章节 03 -->
+            <section class="space-y-3">
+              <h2 id="heading-5" class="heading-anchor-target text-xl font-bold text-gray-100 pt-4 flex items-center gap-2">
+                <span class="text-blue-500 font-mono text-xs">03</span>
+                周围横线的动态调整机制
+              </h2>
+              <p class="text-sm text-gray-300 leading-relaxed">
+                当某一个小节横线膨胀展开为 28px 高度的文字徽章时，如果周围横线静止不动，文字会遮挡上下的小横线。因此，整个导航轨需要具备<strong>物理避让与焦点聚焦</strong>能力。
+              </p>
+
+              <h3 id="heading-6" class="heading-anchor-target text-base font-semibold text-gray-200 pt-2 pl-3 border-l-2 border-gray-700">
+                3.1 物理风琴避让（Accordion Push）
+              </h3>
+              <p class="text-sm text-gray-300 leading-relaxed">
+                当激活项高度伸展时，利用 CSS Grid 或弹性盒的平滑插值，把上方的线段向上微移、下方的线段向下顶开。这种方式具有极强的物理反馈感。
+              </p>
+
+              <h3 id="heading-7" class="heading-anchor-target text-base font-semibold text-gray-200 pt-2 pl-3 border-l-2 border-gray-700">
+                3.2 弹性防抖微波（Elastic Debounce - 推荐）
+              </h3>
+              <p class="text-sm text-gray-300 leading-relaxed">
+                为了解决鼠标高速滑动时可能发生的“目标在指针下跳跃脱靶（Hunting Jitter）”，在弹性模式中，所有槽位预留温和的基础高度，仅对紧邻的上下条目施加轻度位移与透明度虚化，操作稳定性更高。
+              </p>
+            </section>
+
+            <!-- 章节 04 -->
+            <section class="space-y-3">
+              <h2 id="heading-8" class="heading-anchor-target text-xl font-bold text-gray-100 pt-4 flex items-center gap-2">
+                <span class="text-blue-500 font-mono text-xs">04</span>
+                透明容器的边界处理与分屏适配
+              </h2>
+              <p class="text-sm text-gray-300 leading-relaxed">
+                整个导航容器摒弃一切背景卡片、描边、外阴影。它以绝对定位沉浸地附着在主画面的右侧预留边缘，甚至当用户打开右侧 AI 助手时，也完全不破坏分屏界面的整洁度。
+              </p>
+
+              <h3 id="heading-9" class="heading-anchor-target text-base font-semibold text-gray-200 pt-2 pl-3 border-l-2 border-gray-700">
+                4.1 滚动监听（ScrollSpy）精准锚定
+              </h3>
+              <p class="text-sm text-gray-300 leading-relaxed">
+                阅读过程中，页面顶部 120px 黄金阅读线下的当前章节横线会自动点亮为主题高亮蓝（#3b82f6），让用户无需悬停即可随时掌握阅读进度。
+              </p>
+            </section>
+
+            <!-- 章节 05 -->
+            <section class="space-y-3">
+              <h2 id="heading-10" class="heading-anchor-target text-xl font-bold text-gray-100 pt-4 flex items-center gap-2">
+                <span class="text-blue-500 font-mono text-xs">05</span>
+                落地结论与工程实施
+              </h2>
+              <p class="text-sm text-gray-300 leading-relaxed">
+                该方案成功兼顾了“极度纯粹的视觉美学”与“随取随用的信息可达性”，建议封装为独立的 React 轻量组件 <code>WorkbenchMinimalToc.tsx</code>，直接集成到工作台的富文本与源码视图中。
+              </p>
+            </section>
+
+          </article>
+        </main>
+
+        <!-- 3. 核心设计呈现：完全透明、无边框、横线原位变形的悬浮导航轨（置于左侧） -->
+        <aside 
+          id="morph-nav-rail"
+          class="toc-transparent-container fixed left-6 top-1/2 -translate-y-1/2 z-30 flex flex-col items-start pointer-events-auto select-none elastic-mode"
+          aria-label="Document Outline"
+        >
+          <!-- 动态渲染的横线/标题变形项 -->
+          <div id="morph-items-wrapper" class="flex flex-col items-start w-full">
+            <!-- 由 JS 渲染各个槽位 -->
+          </div>
+        </aside>
+
+      </div>
+
+      <!-- 右侧：可折叠 AI Webview 侧边栏（用于验证分屏态下的优雅适应性） -->
+      <aside id="ai-sidebar-panel" class="hidden w-[380px] border-l border-gray-800 bg-gray-900/95 flex flex-col h-full z-20 select-none">
+        <div class="h-10 border-b border-gray-800 px-3.5 flex items-center justify-between bg-gray-900">
+          <div class="flex items-center gap-2 text-xs">
+            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span class="font-medium text-gray-200">ChatGPT 4o 侧边栏 (内置 Webview)</span>
+          </div>
+          <button onclick="toggleAiSidebar()" class="text-gray-400 hover:text-white p-1 rounded hover:bg-gray-800 text-xs">✕</button>
+        </div>
+
+        <div class="p-4 flex-1 overflow-y-auto space-y-3.5 text-xs">
+          <div class="p-3 rounded-xl bg-gray-800/60 border border-gray-700/60 text-gray-300 space-y-2">
+            <div class="flex items-center gap-1.5 font-semibold text-purple-400">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+              <span>分屏宽度抗压测试</span>
+            </div>
+            <p class="text-gray-400 leading-relaxed text-[11.5px]">
+              当侧边栏展开后，中间编辑区的宽度被压缩。请移动鼠标到右侧的导航横线上试一试：
+            </p>
+            <ul class="list-disc pl-4 space-y-1 text-gray-400 text-[11px]">
+              <li><strong>无边框透明容器</strong>：没有任何多余边框切割视野，丝滑融入正文；</li>
+              <li><strong>横线原位变形</strong>：鼠标移到某根线，该线原地展开为标题，其他线被平滑推开避让；</li>
+              <li>点击任意小节，精准平滑滚动并产生柔和蓝光聚焦脉冲。</li>
+            </ul>
+          </div>
+
+          <div class="p-3 rounded-xl bg-gray-950/60 border border-gray-800 space-y-2">
+            <span class="text-[10px] uppercase font-mono font-bold text-gray-500">模拟 AI 回复流</span>
+            <p class="text-gray-300 text-[12px] leading-relaxed">
+              该极简导航方案对 MultiChat Desk 双栏工作台尤为友好，避免了传统大纲面板与 AI 会话栏争夺横向空间的矛盾。
+            </p>
+          </div>
+        </div>
+      </aside>
+
+    </div>
+
+    <!-- 4. 底部状态栏（完全契合 MultiChat Desk WorkbenchStatusPill 风格） -->
+    <footer class="h-7 border-t border-gray-800 bg-gray-950 px-4 flex items-center justify-between text-[11px] text-gray-400 select-none z-30">
+      <div class="flex items-center gap-3">
+        <span class="flex items-center gap-1 text-emerald-400">
+          <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+          <span>已保存</span>
+        </span>
+        <span class="text-gray-600">|</span>
+        <span>UTF-8</span>
+        <span class="text-gray-600">|</span>
+        <span id="reading-status">当前章节: 01. 项目背景与设计目标</span>
+      </div>
+
+      <div class="flex items-center gap-3 font-mono text-[10px] text-gray-500">
+        <span>TOC 模式: 原位变形 (Morphing Line)</span>
+        <span class="text-gray-700">•</span>
+        <span>容器: 100% 透明无边框</span>
+      </div>
+    </footer>
+
+  </div>
+
+  <script>
+    // 章节目录数据
+    const headings = [
+      { id: 'heading-0', level: 1, title: 'MultiChat Desk 架构与规范' },
+      { id: 'heading-1', level: 2, title: '01. 设计目标与交互动机' },
+      { id: 'heading-2', level: 2, title: '02. 横线原位变形技术原理' },
+      { id: 'heading-3', level: 3, title: '2.1 层级线长编码算法' },
+      { id: 'heading-4', level: 3, title: '2.2 标题展开时的微过渡机制' },
+      { id: 'heading-5', level: 2, title: '03. 周围横线的动态调整机制' },
+      { id: 'heading-6', level: 3, title: '3.1 物理风琴避让机制' },
+      { id: 'heading-7', level: 3, title: '3.2 弹性防抖微波 (推荐)' },
+      { id: 'heading-8', level: 2, title: '04. 透明容器与分屏适配' },
+      { id: 'heading-9', level: 3, title: '4.1 滚动监听精准锚定' },
+      { id: 'heading-10', level: 2, title: '05. 落地结论与工程实施' }
+    ];
+
+    let activeHeadingId = 'heading-0';
+    let hoveredIndex = -1;
+    let isAiSidebarOpen = false;
+    let currentAnimMode = 'elastic'; // 'elastic' | 'accordion'
+
+    // 初始化渲染
+    function init() {
+      renderMorphOutline();
+      setupScrollSpy();
+    }
+
+    // 核心渲染：横线原位变形项
+    function renderMorphOutline() {
+      const wrapper = document.getElementById('morph-items-wrapper');
+      wrapper.innerHTML = '';
+
+      headings.forEach((h, index) => {
+        // 根据标题级别设定静止横线宽度 (H1: 28px, H2: 20px, H3: 13px)
+        let lineWidth = '20px';
+        if (h.level === 1) lineWidth = '28px';
+        if (h.level === 3) lineWidth = '13px';
+
+        const slot = document.createElement('div');
+        slot.className = `toc-morph-slot group ${h.id === activeHeadingId ? 'is-active' : ''}`;
+        slot.dataset.index = index;
+        slot.dataset.id = h.id;
+
+        slot.innerHTML = `
+          <div class="morph-pill">
+            <!-- 静态时为横线，展开时蜕变为高亮圆点 -->
+            <div class="morph-line" style="width: ${lineWidth};"></div>
+            
+            <!-- 动态展开的标题内容（含级别小徽标与文字） -->
+            <div class="morph-title-content">
+              <span class="text-[10px] font-mono px-1 py-0.5 rounded ${
+                h.level === 1 
+                  ? 'bg-blue-600/30 text-blue-300 font-bold' 
+                  : (h.level === 2 ? 'bg-gray-800 text-gray-300' : 'bg-gray-800/80 text-gray-400')
+              }">H${h.level}</span>
+              <span class="text-xs font-medium text-gray-100 max-w-[240px] truncate">${h.title}</span>
+            </div>
+          </div>
+        `;
+
+        // 点击平滑滚动
+        slot.addEventListener('click', () => {
+          scrollToHeading(h.id);
+        });
+
+        // 鼠标移入：触发当前项原位变成标题，并驱动其他线段动态调整避让
+        slot.addEventListener('mouseenter', () => {
+          hoveredIndex = index;
+          applyHoverDynamics();
+        });
+
+        // 鼠标移出：恢复横线形态
+        slot.addEventListener('mouseleave', () => {
+          hoveredIndex = -1;
+          applyHoverDynamics();
+        });
+
+        wrapper.appendChild(slot);
+      });
+    }
+
+    // 动态调整计算：鼠标 hover 到某根线时，该线膨胀变标题，周围线段平滑避让
+    function applyHoverDynamics() {
+      const slots = document.querySelectorAll('.toc-morph-slot');
+      
+      slots.forEach((slot, idx) => {
+        const isHovered = idx === hoveredIndex;
+        slot.classList.toggle('is-hovered', isHovered);
+
+        // 清空相邻位移辅助类
+        slot.classList.remove('is-adjacent-above', 'is-adjacent-below');
+
+        if (hoveredIndex !== -1) {
+          // 紧邻上方一项
+          if (idx === hoveredIndex - 1) {
+            slot.classList.add('is-adjacent-above');
+          }
+          // 紧邻下方一项
+          else if (idx === hoveredIndex + 1) {
+            slot.classList.add('is-adjacent-below');
+          }
+        }
+      });
+    }
+
+    // 点击锚点平滑滚动与光标脉冲聚焦
+    function scrollToHeading(id) {
+      const target = document.getElementById(id);
+      if (!target) return;
+
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+      // 添加高亮脉冲（MultiChat 风格）
+      target.classList.add('heading-focus-pulse');
+      setTimeout(() => {
+        target.classList.remove('heading-focus-pulse');
+      }, 1400);
+
+      updateActiveHeading(id);
+    }
+
+    // ScrollSpy 滚动监听
+    function setupScrollSpy() {
+      const viewport = document.getElementById('editor-viewport');
+      let ticking = false;
+
+      viewport.addEventListener('scroll', () => {
+        if (!ticking) {
+          window.requestAnimationFrame(() => {
+            detectCurrentHeading();
+            ticking = false;
+          });
+          ticking = true;
+        }
+      });
+    }
+
+    function detectCurrentHeading() {
+      const viewport = document.getElementById('editor-viewport');
+      const scrollTop = viewport.scrollTop;
+      const offsetTrigger = 130; // 视口黄金阅读感知线
+
+      let currentId = headings[0].id;
+      for (let i = 0; i < headings.length; i++) {
+        const el = document.getElementById(headings[i].id);
+        if (el && (el.offsetTop - offsetTrigger) <= scrollTop) {
+          currentId = headings[i].id;
+        } else {
+          break;
+        }
+      }
+
+      if (currentId !== activeHeadingId) {
+        updateActiveHeading(currentId);
+      }
+    }
+
+    // 更新活跃章节状态
+    function updateActiveHeading(id) {
+      activeHeadingId = id;
+      const activeObj = headings.find(h => h.id === id) || headings[0];
+
+      // 更新横线活跃高亮
+      document.querySelectorAll('.toc-morph-slot').forEach(slot => {
+        slot.classList.toggle('is-active', slot.dataset.id === id);
+      });
+
+      // 更新底部状态栏
+      document.getElementById('reading-status').textContent = `当前章节: ${activeObj.title}`;
+    }
+
+    // 切换避让动效模式（弹性微波防抖 vs 物理风琴推挤）
+    function setAdjustmentMode(mode) {
+      currentAnimMode = mode;
+      const rail = document.getElementById('morph-nav-rail');
+      const btnElastic = document.getElementById('btn-anim-elastic');
+      const btnAccordion = document.getElementById('btn-anim-accordion');
+
+      if (mode === 'elastic') {
+        rail.classList.remove('accordion-mode');
+        rail.classList.add('elastic-mode');
+        btnElastic.className = 'px-2 py-0.5 rounded transition text-white bg-blue-600 font-medium';
+        btnAccordion.className = 'px-2 py-0.5 rounded transition text-gray-400 hover:text-white';
+      } else {
+        rail.classList.remove('elastic-mode');
+        rail.classList.add('accordion-mode');
+        btnAccordion.className = 'px-2 py-0.5 rounded transition text-white bg-blue-600 font-medium';
+        btnElastic.className = 'px-2 py-0.5 rounded transition text-gray-400 hover:text-white';
+      }
+      applyHoverDynamics();
+    }
+
+    // 展开/收起 AI Webview 侧边栏（验证分屏）
+    function toggleAiSidebar() {
+      const sidebar = document.getElementById('ai-sidebar-panel');
+      const label = document.getElementById('label-ai-sidebar');
+      isAiSidebarOpen = !isAiSidebarOpen;
+
+      if (isAiSidebarOpen) {
+        sidebar.classList.remove('hidden');
+        label.textContent = '收起 AI 侧边栏 (全屏)';
+      } else {
+        sidebar.classList.add('hidden');
+        label.textContent = '展开 AI 侧边栏 (分屏)';
+      }
+    }
+
+    // 浅色 / 深色主题切换（严格适配 MultiChat Desk 风格）
+    function toggleTheme() {
+      const html = document.documentElement;
+      const isDark = html.classList.contains('dark');
+      const sunIcon = document.getElementById('icon-sun');
+      const moonIcon = document.getElementById('icon-moon');
+      const editorViewport = document.getElementById('editor-viewport');
+
+      if (isDark) {
+        html.classList.remove('dark');
+        editorViewport.classList.remove('bg-gray-950');
+        editorViewport.classList.add('bg-app');
+        sunIcon.classList.remove('hidden');
+        moonIcon.classList.add('hidden');
+      } else {
+        html.classList.add('dark');
+        editorViewport.classList.add('bg-gray-950');
+        editorViewport.classList.remove('bg-app');
+        sunIcon.classList.add('hidden');
+        moonIcon.classList.remove('hidden');
+      }
+    }
+
+    // 启动执行
+    window.addEventListener('DOMContentLoaded', () => {
+      init();
+    });
+  </script>
+</body>
+</html>
