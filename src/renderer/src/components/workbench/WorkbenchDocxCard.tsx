@@ -36,6 +36,7 @@ export default function WorkbenchDocxCard(): JSX.Element {
                 id: activeFilePath,
                 name: activeFilePath.split(/[/\\]/).pop() || activeFilePath,
                 path: activeFilePath,
+                fullPath: activeFilePath,
                 isDirectory: false,
                 extension: ext
               }}

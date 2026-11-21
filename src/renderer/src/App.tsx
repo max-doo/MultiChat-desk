@@ -80,7 +80,8 @@ function MainApp(): JSX.Element {
     return () => {
       clearTimeout(timer)
     }
-  }, [isInitialized])
+    // 只在挂载时初始化一次；写成 [isInitialized] 会在初始化完成后再次触发整套读取
+  }, [])
 
   // 初始化超时保护：超时后显示错误界面而非用未初始化状态渲染
   useEffect(() => {

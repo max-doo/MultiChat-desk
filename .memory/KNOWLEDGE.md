@@ -136,6 +136,8 @@ Do not copy ordinary session history here. Promote only stable knowledge that is
 
 - **文件类型图标收敛时保留 Markdown/TXT 与图片原图标**：Material Symbols／Lucide 是通用操作图标体系，vscode-material-icon-theme 是按扩展名显示语言或文件品牌的另一体系，不能把后者当作 Lucide 迁移残留。工作台的 PDF、Word、Excel、PPT、代码与压缩包可以统一走 `FileTypeIcon` 本地 SVG；但 `.md`、`.markdown`、`.txt` 继续沿用原来的 `description` AppIcon，位图继续使用 `image`、`.svg` 使用 `draw`，不应纳入这次 SVG 统一范围。
 
+- **临时构造 `FileTypeIcon` 节点要补齐 `WorkbenchFileNode` 必填字段**：`FileTypeIcon` 接收完整的 `WorkbenchFileNode`，其中 `fullPath` 为必填绝对路径。预览类组件按 `activeFilePath` 临时拼节点时，`path` 与 `fullPath` 都要赋值；只补 `path` 会触发 TS2741。
+
 ### 7. 划词、快捷键与窗口交互
 
 - **可重复交互的 Electron 悬浮窗口**：避免同时使用 `focusable: false` 和依赖完整 `click` 事件。用 `showInactive` 控制弹出时不抢焦点，让窗口保持可聚焦，并在 `pointerdown` 派发一次性动作。

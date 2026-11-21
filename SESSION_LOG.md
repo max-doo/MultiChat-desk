@@ -2,6 +2,36 @@
 
 ## 2026-11-21
 
+### 09:39 | Codex
+
+- done: 修复 WorkbenchDocxCard 类型报错：为 FileTypeIcon 传入的节点补 fullPath
+- context: npx tsc -p tsconfig.web.json 报 WorkbenchFileNode 缺少 fullPath
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchDocxCard.tsx`
+- lesson(promoted): WorkbenchFileNode 的 fullPath 为必填，新增图标节点时需同时提供绝对路径
+
+### 09:36 | Codex
+
+- done: 按独立审查意见加固主页模式迁移：版本号改为自 1 起的 schema 版本、迁移写入加 await 保证先配置后版本、修复 App 初始化 effect 依赖 [isInitialized] 导致的每次启动重复执行
+- decision: hidden 为空视为默认配置；显式清空过的用户会被覆盖，按产品预期接受并在注释留痕
+- modified:
+  - `src/renderer/src/store/appStore.ts`
+  - `src/renderer/src/App.tsx`
+
+### 09:34 | Codex
+
+- done: 修复主页模式默认显隐对存量用户与新装均不生效：新增 productModeConfigVersion 一次性迁移，未保存配置按默认值、hidden 为空补默认隐藏、已自定义保持原样，并落盘版本号
+- context: normalizeProductModeConfig(undefined) 会把 hidden 收成空数组，导致 DEFAULT_PRODUCT_MODE_CONFIG 只在首次渲染瞬间生效
+- decision: 用版本号区分一次性迁移，避免每次启动覆盖用户后续在设置里的显隐调整
+- modified:
+  - `src/renderer/src/store/appStore.ts`
+
+### 09:10 | Codex
+
+- done: 将主页模式默认显隐改为只显示多AI和工作台，任务分配/辩论默认隐藏，用户可在设置-主页模式设置中恢复
+- modified:
+  - `src/renderer/src/store/appStore.ts`
+
 ### 09:06 | Codex
 
 - done: 应用户要求将发布版本号从 1.4.0 改为 1.3.5，amend 发布提交并重新打包 NSIS

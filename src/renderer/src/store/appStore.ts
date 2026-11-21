@@ -155,8 +155,12 @@ export const ALL_PRODUCT_MODES: ProductMode[] = ['multi_ai', 'task_assignment', 
 
 export const DEFAULT_PRODUCT_MODE_CONFIG: ProductModeConfig = {
   order: [...ALL_PRODUCT_MODES],
-  hidden: []
+  hidden: ['task_assignment', 'debate']
 }
+
+// 默认显隐配置版本：调整 DEFAULT_PRODUCT_MODE_CONFIG.hidden 时递增，
+// 用于对没有版本标记的存量配置做一次性迁移，且不重复覆盖用户后续的自定义
+const PRODUCT_MODE_CONFIG_SCHEMA_VERSION = 1
 
 // 规范外部读入的配置：补齐缺失模式、过滤未知值、收敛 hidden
 export function normalizeProductModeConfig(raw: unknown): ProductModeConfig {
@@ -178,6 +182,17 @@ export function normalizeProductModeConfig(raw: unknown): ProductModeConfig {
     hidden.pop()
   }
   return { order, hidden }
+}
+
+// 存量用户迁移：从未保存过配置时采用当前默认值；
+// 保存过但显隐仍为默认（hidden 为空）时补上本版默认隐藏的模式；
+// 已自定义过显隐的用户保持原样，避免覆盖其选择
+// 注：hidden 为空无法区分「从未自定义」与「曾主动清空」，按产品预期视为默认配置
+function migrateProductModeConfig(raw: unknown): ProductModeConfig {
+  if (!raw || typeof raw !== 'object') return normalizeProductModeConfig(DEFAULT_PRODUCT_MODE_CONFIG)
+  const config = normalizeProductModeConfig(raw)
+  if (config.hidden.length > 0) return config
+  return normalizeProductModeConfig({ order: config.order, hidden: [...DEFAULT_PRODUCT_MODE_CONFIG.hidden] })
 }
 
 interface MonitorState {
@@ -1944,6 +1959,7 @@ export async function initializeStore(): Promise<void> {
     const storedMultiAiSlots = await window.api.storeGet('multiAiSlots') as string[] | undefined
     const storedDebateSlots = await window.api.storeGet('debateSlots') as [string, string] | undefined
     const storedProductModeConfig = await window.api.storeGet('productModeConfig')
+    const storedProductModeConfigVersion = await window.api.storeGet('productModeConfigVersion') as number | undefined
 
     let initialDisplayMode = storedDisplayMode || useAppStore.getState().displayMode
     if (storedProductMode === 'task_assignment' && initialDisplayMode === 'one') {
@@ -1952,8 +1968,18 @@ export async function initializeStore(): Promise<void> {
       initialDisplayMode = 'two'
     }
 
-    const productModeConfig = normalizeProductModeConfig(storedProductModeConfig)
+    const needsProductModeMigration =
+      typeof storedProductModeConfigVersion !== 'number' ||
+      storedProductModeConfigVersion < PRODUCT_MODE_CONFIG_SCHEMA_VERSION
+    const productModeConfig = needsProductModeMigration
+      ? migrateProductModeConfig(storedProductModeConfig)
+      : normalizeProductModeConfig(storedProductModeConfig)
     useAppStore.setState({ productModeConfig })
+    if (needsProductModeMigration && window.api?.storeSet) {
+      // 先写配置再写版本号：中途失败最多重跑一次幂等迁移，不会跳过迁移
+      await window.api.storeSet('productModeConfig', productModeConfig)
+      await window.api.storeSet('productModeConfigVersion', PRODUCT_MODE_CONFIG_SCHEMA_VERSION)
+    }
     if (storedProductMode && !productModeConfig.hidden.includes(storedProductMode)) {
       useAppStore.setState({ productMode: storedProductMode })
     } else if (storedProductMode) {
