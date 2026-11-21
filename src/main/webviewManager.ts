@@ -21,6 +21,10 @@ export function setNoteManager(manager: NoteManager): void {
     noteManagerInstance = manager
 }
 
+export function getNoteManager(): NoteManager | null {
+    return noteManagerInstance
+}
+
 // ============ 状态管理 ============
 
 // 已注册 handler 的 webContents 集合，用于幂等守卫
@@ -773,29 +777,55 @@ export function registerWebviewHandlers(webContents: Electron.WebContents): void
     })
 
     // 注入脚本（仅向主框架 mainFrame 注入，避免第三方防爬或安全检测 iframe 动态销毁导致 0xC0000005 崩溃）
-    const tryInject = async (source: string): Promise<void> => {
-        if (webContents.isDestroyed()) return
-        const script = getWebviewClickInterceptorScript()
+    // 每个文档只真正注入一次：dom-ready 是最早可用时机，did-finish-load 与 attach-timeout 仅作兜底重试。
+    // 用 generation 区分文档，避免上一次注入的结果在导航后误标当前文档已就绪；
+    // 注入进行中收到的触发会排队，等当前这次结束后补跑。
+    // 跳过 about:blank 等非 http(s) 文档，避免初始空白页与休眠态产生无效注入。
+    let documentGeneration = 0
+    let injectedGeneration = -1
+    let injectInFlight = false
+    let pendingSource: string | null = null
 
+    const tryInject = async (source: string): Promise<void> => {
+        if (injectedGeneration === documentGeneration) return
+        if (injectInFlight) {
+            // 上一次注入尚未返回（可能是旧文档），记录本次触发，等它结束后再补一次
+            pendingSource = source
+            return
+        }
+        if (webContents.isDestroyed()) return
+        if (!webContents.getURL().startsWith('http')) return
         if (!webContents.mainFrame) return
+        const generation = documentGeneration
+        injectInFlight = true
         try {
-            await webContents.mainFrame.executeJavaScript(script, true)
-            console.log(`[Main] webview inject: ${webContents.id} source=${source}`)
+            const result = await webContents.mainFrame.executeJavaScript(getWebviewClickInterceptorScript(), true)
+            if (result === 'injected' || result === 'skip') {
+                injectedGeneration = generation
+            }
+            if (result === 'injected') {
+                console.log(`[Main] webview inject: ${webContents.id} source=${source}`)
+            }
         } catch (err) {
             // 忽略主框架加载过程中的轻微错位
+        } finally {
+            injectInFlight = false
+            const queued = pendingSource
+            pendingSource = null
+            if (queued) {
+                void tryInject(queued)
+            }
         }
     }
 
+    // dom-ready 代表新文档就绪，重置后立即尝试注入；
+    // did-finish-load 只在 dom-ready 注入未成功时补一次，避免每次导航都空转。
     webContents.on('dom-ready', () => {
+        documentGeneration += 1
         void tryInject('dom-ready')
     })
     webContents.on('did-finish-load', () => {
         void tryInject('did-finish-load')
-    })
-    webContents.on('did-frame-finish-load', (_e, isMainFrame: boolean) => {
-        if (isMainFrame) {
-            void tryInject('did-frame-finish-load:main')
-        }
     })
     const attachTimer = setTimeout(() => {
         void tryInject('attach-timeout')
