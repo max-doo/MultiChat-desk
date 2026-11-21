@@ -1,7 +1,7 @@
 import type { HistoryListItem, SummaryHistoryListItem, HistoryKind, HistoryRecord, DataImportResult } from '../shared/types/history'
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
-import type { NoteConversation, NoteDraft, NoteHighlight, NoteSelectionRect, ConversationMindmap, MindmapTask, NoteNavigation, MindmapModifyRequest, MindmapCandidate, MindmapSelection } from '../shared/types/notes'
+import type { NoteConversation, NoteDraft, NoteHighlight, NoteSelectionRect, ConversationMindmap, MindmapTask, NoteNavigation, MindmapModifyRequest, MindmapCandidate, MindmapSelection, MindmapMaterial, MindmapFileState, MindmapFileReason } from '../shared/types/notes'
 import type { WebviewContextMenuData, WebviewContextMenuActionRequest } from '../shared/types/contextMenu'
 import type { CliIntegrationStatus } from '../shared/types/cli'
 import type { TaskSplitTask } from '../shared/types/taskSplit'
@@ -15,7 +15,6 @@ import type {
   WorkspaceTagInfo,
   GitStatus,
   GitActionResult,
-  GitignoreEntry,
   GitignoreSnapshot,
   GitignoreCategory,
   GitRemoteInfo
@@ -170,12 +169,12 @@ const api = {
   notesList: (): Promise<{ success: boolean; data?: NoteConversation[]; error?: string }> => ipcRenderer.invoke('notes:list'),
   // 采集结果仅暂存于当前窗口；导图成功生成/创建后才与快照一起持久化。
   notesCaptureSource: (id: number, platform: string, name: string): Promise<{ success: boolean; data?: NoteConversation; error?: string }> => ipcRenderer.invoke('notes:capture-source', id, platform, name),
-  mindmapsStart: (conversationId: string, platform: string, additionalRequirements?: string, material?: { text: string; fileName: string; kind: 'document' | 'selection'; scope?: { scope: 'document' | 'selection'; contentHash: string; selectionText?: string; headingPath?: string[] } }): Promise<{ success: boolean; data?: MindmapTask; error?: string }> => ipcRenderer.invoke('mindmaps:start', conversationId, platform, additionalRequirements, material),
+  mindmapsStart: (conversationId: string, platform: string, additionalRequirements?: string, material?: MindmapMaterial): Promise<{ success: boolean; data?: MindmapTask; error?: string }> => ipcRenderer.invoke('mindmaps:start', conversationId, platform, additionalRequirements, material),
   mindmapsTask: (): Promise<{ success: boolean; data?: MindmapTask | null; error?: string }> => ipcRenderer.invoke('mindmaps:task'),
   // Context flags and owned source webview identity are part of the shared request; main performs capture.
   mindmapsModify: (request: MindmapModifyRequest): Promise<{ success: boolean; data?: MindmapTask; error?: string }> => ipcRenderer.invoke('mindmaps:modify', request),
   mindmapsCandidate: (mapId: string): Promise<{ success: boolean; data?: MindmapCandidate | null; error?: string }> => ipcRenderer.invoke('mindmaps:candidate', mapId),
-  mindmapsApply: (mapId: string, candidateId: string): Promise<{ success: boolean; data?: ConversationMindmap; error?: string }> => ipcRenderer.invoke('mindmaps:apply', mapId, candidateId),
+  mindmapsApply: (mapId: string, candidateId: string): Promise<{ success: boolean; data?: ConversationMindmap; error?: string; conflict?: 'file-changed' }> => ipcRenderer.invoke('mindmaps:apply', mapId, candidateId),
   mindmapsDiscard: (mapId: string, candidateId: string): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('mindmaps:discard', mapId, candidateId),
   mindmapsAsk: (id: number, platformId: string, conversationId: string, question: string): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('mindmaps:ask', id, platformId, conversationId, question),
   mindmapsBlankSource: (id: number, expectedUrl: string, platformName: string): Promise<{ success: boolean; data?: { conversation: NoteConversation; mindmap: ConversationMindmap }; error?: string }> => ipcRenderer.invoke('mindmaps:blank-source', id, expectedUrl, platformName),
@@ -187,8 +186,8 @@ const api = {
   mindmapsCancel: (id: string): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('mindmaps:cancel', id),
   mindmapsShow: (id: string): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('mindmaps:show', id),
   mindmapsAdd: (conversationId: string, markdown: string): Promise<{ success: boolean; data?: ConversationMindmap; error?: string }> => ipcRenderer.invoke('mindmaps:add', conversationId, markdown),
-  mindmapsUpdate: (conversationId: string, id: string, markdown: string, title: string, updatedAt: number): Promise<{ success: boolean; data?: ConversationMindmap; error?: string }> => ipcRenderer.invoke('mindmaps:update', conversationId, id, markdown, title, updatedAt),
-  mindmapsDelete: (conversationId: string, id: string): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('mindmaps:delete', conversationId, id),
+  mindmapsUpdate: (conversationId: string, id: string, markdown: string, title: string, updatedAt: number, expectedMarkdown?: string, force?: boolean): Promise<{ success: boolean; data?: ConversationMindmap; error?: string; conflict?: 'file-changed' }> => ipcRenderer.invoke('mindmaps:update', conversationId, id, markdown, title, updatedAt, expectedMarkdown, force),
+  mindmapsDelete: (conversationId: string, id: string): Promise<{ success: boolean; data?: { conflict?: 'duplicate' | 'source-mismatch' }; error?: string }> => ipcRenderer.invoke('mindmaps:delete', conversationId, id),
   mindmapsImportLegacy: (markdown: string): Promise<{ success: boolean; data?: NoteConversation; error?: string }> => ipcRenderer.invoke('mindmaps:import-legacy', markdown),
   notesOpen: (navigation: NoteNavigation): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('notes:open', navigation),
   notesConsumeNavigation: (): Promise<{ success: boolean; data?: NoteNavigation | null; error?: string }> => ipcRenderer.invoke('notes:consume-navigation'),
@@ -464,16 +463,22 @@ const api = {
       ipcRenderer.invoke('workbench:git-set-remote', { workspaceRoot, url, name }),
     readGitignore: (workspaceRoot: string): Promise<{ success: boolean; data?: GitignoreSnapshot; error?: string }> =>
       ipcRenderer.invoke('workbench:gitignore-read', { workspaceRoot }),
-    writeGitignore: (workspaceRoot: string, entries: GitignoreEntry[]): Promise<{ success: boolean; error?: string }> =>
-      ipcRenderer.invoke('workbench:gitignore-write', { workspaceRoot, entries }),
+    writeGitignore: (workspaceRoot: string, content: string): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('workbench:gitignore-write', { workspaceRoot, content }),
     gitignoreCategories: (): Promise<{ success: boolean; data?: GitignoreCategory[]; error?: string }> =>
       ipcRenderer.invoke('workbench:gitignore-categories'),
     mindmapSource: (workspaceRoot: string, relativePath: string, title?: string, create?: boolean, content?: string): Promise<{ success: boolean; data?: NoteConversation | null; error?: string }> =>
       ipcRenderer.invoke('workbench:mindmap-source', { workspaceRoot, relativePath, title, create, content }),
-    reconcileMindmaps: (workspaceRoot: string, index: Array<{ path: string; size?: number; mtime?: number }>): Promise<{ success: boolean; data?: { deleted: number; relinked: number; relinks: Array<{ from: string; to: string }> }; error?: string }> =>
-      ipcRenderer.invoke('workbench:reconcile-mindmaps', { workspaceRoot, index }),
+    reconcileMindmaps: (workspaceRoot: string, index: Array<{ path: string; size?: number; mtime?: number }>, options?: { force?: boolean; targets?: Array<{ conversationId: string }> }): Promise<{ success: boolean; data?: { deleted: number; relinked: number; relinks: Array<{ from: string; to: string }>; pendingDeletions: Array<{ conversationId: string; relativePath: string }> }; error?: string }> =>
+      ipcRenderer.invoke('workbench:reconcile-mindmaps', { workspaceRoot, index, force: options?.force, targets: options?.targets }),
     mindmapImpact: (workspaceRoot: string, relativePaths: string[]): Promise<{ success: boolean; data?: { documents: number; mindmaps: number }; error?: string }> =>
       ipcRenderer.invoke('workbench:mindmap-impact', { workspaceRoot, relativePaths }),
+    mindmapMigrate: (workspaceRoot: string): Promise<{ success: boolean; data?: { migrated: number }; error?: string }> =>
+      ipcRenderer.invoke('workbench:mindmap-migrate', { workspaceRoot }),
+    mindmapFileStatus: (workspaceRoot: string, relativePath: string): Promise<{ success: boolean; data?: { files: Record<string, { state: MindmapFileState; reason?: MindmapFileReason; relativePath?: string }>; unreadable: string[]; overflow: boolean }; error?: string }> =>
+      ipcRenderer.invoke('workbench:mindmap-file-status', { workspaceRoot, relativePath }),
+    mindmapFileReveal: (workspaceRoot: string, relativePath: string, mindmapId: string): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('workbench:mindmap-file-reveal', { workspaceRoot, relativePath, mindmapId }),
     onFsChanged: (cb: (payload: { workspaceRoot: string }) => void) => {
       const handler = (_e: Electron.IpcRendererEvent, payload: { workspaceRoot: string }): void => cb(payload)
       ipcRenderer.on('workbench:fs-changed', handler)

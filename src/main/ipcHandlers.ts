@@ -15,11 +15,12 @@ import type { WebviewContextMenuActionRequest } from '../shared/types/contextMen
 import { broadcastStateChange } from './stateBus'
 import { HistoryManager, normalizeHistory } from './api/historyManager'
 import { isDeepStrictEqual } from 'util'
-import { NoteManager } from './noteManager'
-import type { NoteConversation, NoteDraft, NoteNavigation, MindmapModifyRequest } from '../shared/types/notes'
+import { MindmapFileChangedError, NoteManager, workbenchBinaryHash } from './noteManager'
+import type { NoteConversation, NoteDraft, NoteNavigation, MindmapModifyRequest, MindmapMaterial } from '../shared/types/notes'
 import { noteConversationKey } from '../shared/utils/noteIdentity'
 import { generateNoteCaptureScript, generateMindmapPageStateScript, generateAppendMindmapQuestionScript } from '../shared/utils/webviewScripts'
 import { MindmapService } from './services/MindmapService'
+import { isMindmapFileMaterial, mindmapFileKindOfPath } from '../shared/utils/mindmap'
 import { TaskSplitService } from './services/TaskSplitService'
 import { normalizeNoteTranscriptMarkdown } from '../shared/utils/noteTranscript'
 import { getShortcuts, updateShortcuts, type ShortcutConfig } from './shortcutManager'
@@ -59,7 +60,9 @@ import {
   watchWorkspace as workbenchWatchWorkspace,
   unwatchWorkspace as workbenchUnwatchWorkspace,
   ensureDefaultWorkspace as workbenchEnsureDefaultWorkspace,
-  statFile as workbenchStatFile
+  statFile as workbenchStatFile,
+  isAuthorizedWorkspaceRoot,
+  assertSafePath
 } from './services/workbenchService'
 import type { WorkbenchNodeType } from '../shared/types/workbench'
 import {
@@ -75,10 +78,9 @@ import {
 } from './services/gitService'
 import {
     readGitignore as readWorkspaceGitignore,
-    writeGitignore as writeWorkspaceGitignore,
+    writeGitignoreText as writeWorkspaceGitignoreText,
     GITIGNORE_CATEGORIES
 } from './services/gitignoreService'
-import type { GitignoreEntry } from '../shared/types/workbench'
 
 // 诊断窗口 probe/run-research 透传请求挂起表
 const pendingProbeRequests = new Map<string, { resolve: (v: unknown) => void; timer: ReturnType<typeof setTimeout> }>()
@@ -776,6 +778,8 @@ export async function registerIpcHandlers(
         })
     }
     const notesChanged = (): void => broadcastNotes('notes:changed')
+    // 外部软件改导图文件后，watcher 置脏扫描缓存并广播，让面板重新读状态。
+    noteManager.setMindmapFilesChangedHandler(notesChanged)
     const mindmapService = new MindmapService(noteManager, task => broadcastNotes('mindmaps:task-changed', task), notesChanged)
     app.once('before-quit', () => mindmapService.shutdown())
     const mindmapOwners = new WeakSet<Electron.WebContents>()
@@ -788,8 +792,20 @@ export async function registerIpcHandlers(
         try {
             trackMindmapOwner(event.sender)
             return { success: true, data: await mindmapService.modify(request, event.sender.id, async source => {
-                // 工作台文档没有对话页面，始终使用保存的正文，不尝试采集 webview。
-                if (source.workbench) return { snapshot: source.snapshot, origin: 'snapshot' }
+                // 工作台文档没有对话页面；文本继续使用保存正文，PDF/Word/PPT 重新上传原文件。
+                if (source.workbench) {
+                    const kind = mindmapFileKindOfPath(source.workbench.relativePath)
+                    if (kind) {
+                        if (!isAuthorizedWorkspaceRoot(source.workbench.workspaceRoot)) throw new Error('文档来源未授权')
+                        return {
+                            snapshot: '',
+                            origin: 'file',
+                            filePath: await assertSafePath(source.workbench.workspaceRoot, source.workbench.relativePath),
+                            fileName: basename(source.workbench.relativePath)
+                        }
+                    }
+                    return { snapshot: source.snapshot, origin: 'snapshot' }
+                }
                 if (!request.source) {
                     const saved = await noteManager.get(source.id)
                     return { snapshot: saved.snapshot, origin: 'snapshot' }
@@ -804,7 +820,14 @@ export async function registerIpcHandlers(
     ipcMain.handle('mindmaps:candidate', (event, mapId: string) => ({ success: true, data: mindmapService.getCandidate(event.sender.id, mapId) }))
     ipcMain.handle('mindmaps:apply', async (event, mapId: string, candidateId: string) => {
         try { return { success: true, data: await mindmapService.apply(event.sender.id, mapId, candidateId) } }
-        catch (error) { return { success: false, error: error instanceof Error ? error.message : '保存失败，候选已保留' } }
+        catch (error) {
+            return {
+                success: false,
+                error: error instanceof Error ? error.message : '保存失败，候选已保留',
+                // 文件被外部改过时给出与自动保存一致的冲突出口，避免用户只剩“保存失败”一个提示。
+                conflict: error instanceof MindmapFileChangedError ? 'file-changed' : undefined
+            }
+        }
     })
     ipcMain.handle('mindmaps:discard', (event, mapId: string, candidateId: string) => {
         try { mindmapService.discard(event.sender.id, mapId, candidateId); return { success: true } }
@@ -859,10 +882,22 @@ export async function registerIpcHandlers(
             return { success: true, data }
         } catch (error) { return { success: false, error: error instanceof Error ? error.message : '读取对话失败' } }
     })
-    ipcMain.handle('mindmaps:start', async (event, conversationId: string, platform: string, additionalRequirements?: string, material?: { text: string; fileName: string; kind: 'document' | 'selection'; scope?: { scope: 'document' | 'selection'; contentHash: string; selectionText?: string; headingPath?: string[] } }) => {
+    ipcMain.handle('mindmaps:start', async (event, conversationId: string, platform: string, additionalRequirements?: string, material?: MindmapMaterial) => {
         try {
             if (additionalRequirements !== undefined && typeof additionalRequirements !== 'string') throw new Error('额外要求必须是文本')
-            if (material !== undefined && (!material || typeof material.text !== 'string' || typeof material.fileName !== 'string' || (material.kind !== 'document' && material.kind !== 'selection'))) throw new Error('生成材料无效')
+            if (material !== undefined) {
+                if (!material || typeof material.fileName !== 'string' || !material.fileName || material.fileName.length > 260) throw new Error('生成材料无效')
+                if (isMindmapFileMaterial(material.kind)) {
+                    if (!material.workspaceRoot || !material.relativePath || !isAuthorizedWorkspaceRoot(material.workspaceRoot)) throw new Error('文档来源未授权')
+                    const kind = mindmapFileKindOfPath(material.relativePath)
+                    if (!kind) throw new Error('该格式暂不支持生成思维导图')
+                    material = { ...material, kind, filePath: await assertSafePath(material.workspaceRoot, material.relativePath) }
+                } else if (material.kind !== 'document' && material.kind !== 'selection') {
+                    throw new Error('生成材料无效')
+                } else if (typeof material.text !== 'string') {
+                    throw new Error('生成材料无效')
+                }
+            }
             const source = await takeMindmapSource(event.sender, conversationId)
             trackMindmapOwner(event.sender)
             return { success: true, data: await mindmapService.start(source, platform, additionalRequirements?.trim(), event.sender.id, material) }
@@ -884,12 +919,25 @@ export async function registerIpcHandlers(
             notesChanged(); return { success: true, data: saved.mindmap }
         } catch (error) { return { success: false, error: String(error) } }
     })
-    ipcMain.handle('mindmaps:update', async (_event, conversationId: string, id: string, markdown: string, title: string, updatedAt: number) => {
-        try { const data = await noteManager.updateMindmap(conversationId, id, markdown, title, updatedAt); notesChanged(); return { success: true, data } }
-        catch (error) { return { success: false, error: String(error) } }
+    ipcMain.handle('mindmaps:update', async (_event, conversationId: string, id: string, markdown: string, title: string, updatedAt: number, expectedMarkdown?: string, force?: boolean) => {
+        try {
+            const data = await noteManager.updateMindmap(conversationId, id, markdown, title, updatedAt, undefined, expectedMarkdown, force)
+            notesChanged()
+            return { success: true, data }
+        } catch (error) {
+            return {
+                success: false,
+                error: error instanceof Error ? error.message : String(error),
+                conflict: error instanceof MindmapFileChangedError ? 'file-changed' : undefined
+            }
+        }
     })
     ipcMain.handle('mindmaps:delete', async (_event, conversationId: string, id: string) => {
-        try { await noteManager.deleteMindmap(conversationId, id); mindmapService.forgetMap(id); notesChanged(); return { success: true } }
+        try {
+            const result = await noteManager.deleteMindmapExtended(conversationId, id)
+            if (result.conflict) return { success: true, data: { conflict: result.conflict } }
+            mindmapService.forgetMap(id); notesChanged(); return { success: true }
+        }
         catch (error) { return { success: false, error: String(error) } }
     })
     ipcMain.handle('mindmaps:import-legacy', async (_event, markdown: string) => {
@@ -1979,9 +2027,9 @@ export async function registerIpcHandlers(
         }
     })
 
-    ipcMain.handle('workbench:gitignore-write', async (_event, payload: { workspaceRoot: string; entries: GitignoreEntry[] }) => {
+    ipcMain.handle('workbench:gitignore-write', async (_event, payload: { workspaceRoot: string; content: string }) => {
         try {
-            await writeWorkspaceGitignore(payload.workspaceRoot, payload.entries)
+            await writeWorkspaceGitignoreText(payload.workspaceRoot, payload.content)
             return { success: true }
         } catch (err: unknown) {
             const error = err instanceof Error ? err.message : String(err)
@@ -1997,26 +2045,76 @@ export async function registerIpcHandlers(
     // 记录里的 size/mtime 用于外部改名判定，生成时顺手补上，避免下次对账多读一次盘。
     ipcMain.handle('workbench:mindmap-source', async (_event, payload: { workspaceRoot: string; relativePath: string; title?: string; create?: boolean; content?: string }) => {
         try {
+            // §10：渲染层可伪造 workspaceRoot 读写任意目录；导图类 IPC 只服务已授权根。
+            if (!isAuthorizedWorkspaceRoot(payload.workspaceRoot)) return { success: false, error: '工作区未授权' }
             const title = payload.title || payload.relativePath.split('/').pop() || payload.relativePath
             // 只是打开文档时不建记录，避免给每篇看过的文档留一条空笔记。
             if (payload.create === false) {
                 const existing = await noteManager.findWorkbenchSource(payload.workspaceRoot, payload.relativePath)
+                // 导图在文件里：按 source 组装返回，面板拿到的仍是 NoteConversation 形状。
+                const { index } = await noteManager.workbenchIndexQueued(payload.workspaceRoot)
+                const mindmaps = index.mindmaps.filter(e => e.source === payload.relativePath).map(e => ({
+                    id: e.id, title: e.title, markdown: e.markdown, platform: '工作台',
+                    sourceRevision: 0, createdAt: e.updatedAt, updatedAt: e.updatedAt,
+                    source: e.source, fileSync: e.fileSync
+                }))
+                if (existing) existing.mindmaps = mindmaps
+                // 记录被清掉、但导图文件还在时，也要能把它们列出来；
+                // 否则面板会显示成“这篇文档还没有导图”，用户以为文件丢了。
+                if (!existing && mindmaps.length) {
+                    return {
+                        success: true,
+                        data: {
+                            version: 2,
+                            id: '',
+                            sourceKey: '',
+                            platform: '工作台',
+                            title,
+                            url: '',
+                            updatedAt: Date.now(),
+                            snapshot: '',
+                            snapshotRevision: 0,
+                            notes: [],
+                            mindmaps,
+                            workbench: { workspaceRoot: payload.workspaceRoot, relativePath: payload.relativePath, contentHash: '' }
+                        }
+                    }
+                }
                 return { success: true, data: existing ?? null }
             }
-            // 优先用编辑器内存内容：生成时的正文可能尚未落盘，用磁盘版本会让“基于旧版本”判断失真。
-            let content = payload.content
+            // PDF/Word/PPT 按原文件上传：不读二进制正文，用大小与 mtime 记录来源版本。
+            // HTML 也按原文件上传，但它是文本：记录正文与文本哈希，保存后才能正确判断版本。
+            const fileKind = mindmapFileKindOfPath(payload.relativePath)
+            let content = ''
             let stat: { size: number; mtime: number } | undefined
-            if (content === undefined) {
+            let contentHash: string | undefined
+            if (fileKind && fileKind !== 'html') {
+                await assertSafePath(payload.workspaceRoot, payload.relativePath)
+                const info = await workbenchStatFile(payload.workspaceRoot, payload.relativePath)
+                if (!info) throw new Error('文档不存在或无法读取')
+                stat = info
+                contentHash = workbenchBinaryHash(info.size, info.mtime)
+            } else if (payload.content === undefined) {
                 const info = await workbenchReadFile(payload.workspaceRoot, payload.relativePath)
                 if (info.isBinary) throw new Error('该格式暂不支持生成思维导图')
                 content = info.content
                 stat = { size: info.size, mtime: info.mtime }
             } else {
+                // 优先用编辑器内存内容：生成时的正文可能尚未落盘，用磁盘版本会让“基于旧版本”判断失真。
+                content = payload.content
                 // 内存内容没有现成的 size/mtime，读一次 stat 即可（不会附带全文）。
                 const info = await workbenchStatFile(payload.workspaceRoot, payload.relativePath).catch(() => null)
                 if (info) stat = info
             }
-            const data = await noteManager.prepareWorkbenchSource(payload.workspaceRoot, payload.relativePath, title, content, stat)
+            const data = await noteManager.prepareWorkbenchSource(payload.workspaceRoot, payload.relativePath, title, content, stat, contentHash)
+            {
+                const { index } = await noteManager.workbenchIndexQueued(payload.workspaceRoot)
+                data.mindmaps = index.mindmaps.filter(e => e.source === payload.relativePath).map(e => ({
+                    id: e.id, title: e.title, markdown: e.markdown, platform: '工作台',
+                    sourceRevision: 0, createdAt: e.updatedAt, updatedAt: e.updatedAt,
+                    source: e.source, fileSync: e.fileSync
+                }))
+            }
             return { success: true, data }
         } catch (err: unknown) {
             const error = err instanceof Error ? err.message : String(err)
@@ -2026,11 +2124,15 @@ export async function registerIpcHandlers(
 
     // 外部删除/改名无法拦截，由文件树刷新后对账：路径消失且找不到同一文件 → 删导图。
     // index 由渲染层随文件树一起传入，正常路径下对账零额外 IO。
-    ipcMain.handle('workbench:reconcile-mindmaps', async (_event, payload: { workspaceRoot: string; index?: Array<{ path: string; size?: number; mtime?: number }> }) => {
+    ipcMain.handle('workbench:reconcile-mindmaps', async (_event, payload: { workspaceRoot: string; index?: Array<{ path: string; size?: number; mtime?: number }>; force?: boolean; targets?: Array<{ conversationId: string }> }) => {
         try {
+            if (!isAuthorizedWorkspaceRoot(payload.workspaceRoot)) return { success: false, error: '工作区未授权' }
             if (!Array.isArray(payload.index)) return { success: false, error: '缺少文件树索引' }
             const index = new Map(payload.index.map(item => [item.path, { size: item.size, mtime: item.mtime }]))
-            const data = await noteManager.reconcileWorkbenchSources(payload.workspaceRoot, index)
+            const data = await noteManager.reconcileWorkbenchSources(payload.workspaceRoot, index, {
+                force: payload.force,
+                targets: payload.targets
+            })
             if (data.deleted || data.relinked) notesChanged()
             return { success: true, data }
         } catch (err: unknown) {
@@ -2039,8 +2141,47 @@ export async function registerIpcHandlers(
         }
     })
 
+    // 打开工作区时一次性迁移旧全局导图记录到 .multichat/mindmaps 文件。
+    ipcMain.handle('workbench:mindmap-migrate', async (_event, payload: { workspaceRoot: string }) => {
+        try {
+            if (!isAuthorizedWorkspaceRoot(payload.workspaceRoot)) return { success: false, error: '工作区未授权' }
+            const data = await noteManager.migrateWorkspace(payload.workspaceRoot)
+            if (data.migrated) notesChanged()
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('workbench:mindmap-file-status', async (_event, payload: { workspaceRoot: string; relativePath: string }) => {
+        try {
+            if (!isAuthorizedWorkspaceRoot(payload.workspaceRoot)) return { success: false, error: '工作区未授权' }
+            const data = await noteManager.workbenchMindmapFileStatus(payload.workspaceRoot, payload.relativePath)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('workbench:mindmap-file-reveal', async (_event, payload: { workspaceRoot: string; relativePath: string; mindmapId: string }) => {
+        try {
+            if (!isAuthorizedWorkspaceRoot(payload.workspaceRoot)) return { success: false, error: '工作区未授权' }
+            const { index } = await noteManager.workbenchIndexQueued(payload.workspaceRoot)
+            const entry = index.mindmaps.find(e => e.id === payload.mindmapId)
+            if (!entry?.fileSync) return { success: false, error: '找不到导图文件' }
+            await workbenchRevealFile(payload.workspaceRoot, entry.fileSync.relativePath)
+            return { success: true }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
     ipcMain.handle('workbench:mindmap-impact', async (_event, payload: { workspaceRoot: string; relativePaths: string[] }) => {
         try {
+            if (!isAuthorizedWorkspaceRoot(payload.workspaceRoot)) return { success: false, error: '工作区未授权' }
             const data = await noteManager.workbenchTrashImpact(payload.workspaceRoot, payload.relativePaths)
             return { success: true, data }
         } catch (err: unknown) {

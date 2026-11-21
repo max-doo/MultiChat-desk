@@ -9,7 +9,7 @@ import Store from 'electron-store'
 import { initSummaryPrompts } from './summaryPrompts'
 import { registerIpcHandlers } from './ipcHandlers'
 import { initShortcutManager } from './shortcutManager'
-import { createWindow, getMainWindow, openBrowserWindowInternal, setQuitting, createTray, destroyTray, createQuickWindow, createToolbarWindow, hideToolbarWindow } from './webviewManager'
+import { createWindow, getMainWindow, openBrowserWindowInternal, setQuitting, createTray, destroyTray, createQuickWindow, createToolbarWindow, hideToolbarWindow, getNoteManager } from './webviewManager'
 import { startInputHook, stopInputHook } from './inputHookManager'
 import { sessionManager } from './services/SessionManager'
 import { automationService } from './services/AutomationService'
@@ -282,6 +282,7 @@ if (!gotTheLock) {
     stopInputHook()
     sessionManager.destroyAllSessions()
     unwatchAllWorkspaces()
+    getNoteManager()?.shutdownMindmapWatchers()
     globalShortcut.unregisterAll()
     destroyTray()
   })
