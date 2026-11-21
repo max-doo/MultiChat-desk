@@ -121,6 +121,25 @@ export class NoteManager {
     catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error }
   }
 
+  /**
+   * 补齐迁移前备份：早期迁移只写了 migratedAt，没有留下 .migration-backup。
+   * 标记阶段只追加迁移字段，因此去掉这些字段即可还原迁移前的 JSON。
+   */
+  async ensureMigrationBackup(id: string): Promise<void> {
+    const backupPath = `${this.file(id)}.migration-backup`
+    try {
+      await stat(backupPath)
+      return
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+    await this.serial(async () => {
+      const value = JSON.parse(await readFile(this.file(id), 'utf8')) as StoredConversation
+      const { migratedAt: _migratedAt, migratedTo: _migratedTo, migrationBlocked: _migrationBlocked, ...original } = value
+      await writeFile(backupPath, JSON.stringify(original), 'utf8')
+    })
+  }
+
   private convert(item: StoredConversation): NoteConversation {
     const candidates = [
       { snapshot: item.snapshot || '', updatedAt: item.updatedAt || 0 },
@@ -136,7 +155,65 @@ export class NoteManager {
     }
     // 工作台来源必须随读盘保留，否则记录会被当成普通对话笔记。
     if (item.workbench) conversation.workbench = item.workbench
+    if (typeof item.migratedAt === 'number') conversation.migratedAt = item.migratedAt
+    if (typeof item.migratedTo === 'string') conversation.migratedTo = item.migratedTo
+    if (item.migrationBlocked) conversation.migrationBlocked = item.migrationBlocked
     return conversation
+  }
+
+  /**
+   * 迁移专用原始枚举：直接读 JSON，不调用 list()/cachedValues()。
+   * 这样不会触发同源合并、quote 去重或自动删除旧文件。
+   */
+  async rawLegacyRecords(): Promise<Array<{ conversation: NoteConversation; filePath: string }>> {
+    await mkdir(this.directory, { recursive: true })
+    const files = (await readdir(this.directory)).filter(name => /^[a-f0-9-]{36}\.json$/.test(name))
+    const result: Array<{ conversation: NoteConversation; filePath: string }> = []
+    for (const name of files) {
+      const filePath = join(this.directory, name)
+      try {
+        const value = JSON.parse(await readFile(filePath, 'utf8')) as StoredConversation
+        if (!value?.id || !Array.isArray(value.notes)) continue
+        const conversation = this.convert(value)
+        // 新版工作台会创建 version:2、无正文/批注/导图的记录（例如打开文档时对账）。
+        // 这类记录没有可迁移内容，不能算进“旧笔记待迁移”，否则任务永远无法收敛。
+        const hasContent =
+          conversation.snapshot.trim().length > 0 ||
+          conversation.notes.length > 0 ||
+          conversation.mindmaps.length > 0
+        if (!hasContent && !conversation.migratedAt && !conversation.migrationBlocked) continue
+        result.push({ conversation, filePath })
+      } catch {
+        console.warn('[Notes] 旧笔记无法解析，迁移跳过:', name)
+      }
+    }
+    return result.sort((a, b) => a.conversation.updatedAt - b.conversation.updatedAt || a.conversation.id.localeCompare(b.conversation.id))
+  }
+
+  /** 迁移/标记专用：只更新旧 JSON 的迁移字段，不触碰正文与标注。 */
+  async markMigrated(id: string, patch: Pick<NoteConversation, 'migratedAt' | 'migratedTo' | 'migrationBlocked'>): Promise<void> {
+    return this.serial(async () => {
+      // 迁移首次写标记前保留一份原始 JSON；重复迁移不会覆盖已有备份。
+      await this.backup(id)
+      const filePath = this.file(id)
+      const value = JSON.parse(await readFile(filePath, 'utf8')) as StoredConversation
+      const next = { ...value, ...patch }
+      if (patch.migratedAt !== undefined) delete next.migrationBlocked
+      await this.write(next as NoteConversation)
+    })
+  }
+
+  /** 用户确认后清除阻塞标记，让迁移器重新处理这条旧记录。 */
+  async clearMigrationBlock(id: string): Promise<void> {
+    return this.serial(async () => {
+      await this.backup(id)
+      const filePath = this.file(id)
+      const value = JSON.parse(await readFile(filePath, 'utf8')) as StoredConversation
+      delete value.migratedAt
+      delete value.migratedTo
+      delete value.migrationBlocked
+      await this.write(value as NoteConversation)
+    })
   }
 
   private async listUnlocked(): Promise<NoteConversation[]> {
@@ -152,20 +229,31 @@ export class NoteManager {
       if (!value || !Array.isArray(value.notes) || !value.id) { this.unreadable = true; continue }
       const item = this.convert(value)
       if (value.version !== 2 || value.notes.some(note => 'snapshot' in note)) {
-        await this.backup(item.id)
-        await this.write(item)
+        // 迁移上线后旧 JSON 不再被读路径自动改写；迁移器会显式备份并标记。
+        if (!item.migratedAt && !item.migrationBlocked) {
+          await this.backup(item.id)
+        }
       }
       items.push(item)
     }
     const groups = new Map<string, NoteConversation>()
     for (const item of items.sort((a, b) => a.updatedAt - b.updatedAt)) {
       let key: string
-      if (item.workbench) {
+      if (item.migratedAt || item.migrationBlocked) {
+        // 已迁移/阻塞记录在旧页各占一条：同 sourceKey 合并会把后一条记录整条吞掉，
+        // 后面的 quote 去重还会把不同 id 的评论合并成一条。
+        key = `legacy-record:${item.id}`
+      } else if (item.workbench) {
         // 工作台记录不参与同 sourceKey 合并：迁移期会留下同键空壳，合并会 rm 掉其中一条。
         key = `workbench-record:${item.id}`
       } else {
         key = item.sourceKey
         try { if (item.url) key = noteConversationKey(item.url, item.title) } catch { /* 保留旧来源 */ }
+      }
+      // 已迁移/阻塞记录不再参与合并、去重和磁盘删除，避免迁移后旧页刷新丢数据。
+      if (item.migratedAt || item.migrationBlocked) {
+        groups.set(key, item)
+        continue
       }
       const existing = groups.get(key)
       if (existing) {
@@ -174,15 +262,14 @@ export class NoteManager {
         this.updateSnapshot(existing, item.snapshot)
         existing.updatedAt = Math.max(existing.updatedAt, item.updatedAt)
         if (item.url.startsWith('https://')) existing.url = item.url
-        await this.backup(item.id)
-        await this.write(existing)
-        await rm(this.file(item.id))
       } else {
-        if (!item.workbench && item.sourceKey !== key) { item.sourceKey = key; await this.write(item) }
+        if (!item.workbench && item.sourceKey !== key) item.sourceKey = key
         groups.set(key, item)
       }
     }
     for (const conversation of groups.values()) {
+      // 迁移/阻塞记录保持原批注列表，不按 quote 合并，也不拼接评论。
+      if (conversation.migratedAt || conversation.migrationBlocked) continue
       const unique = new Map<string, ConversationNote>()
       for (const note of conversation.notes) {
         const key = normalized(note.quote)
@@ -195,7 +282,6 @@ export class NoteManager {
       }
       if (unique.size !== conversation.notes.length) {
         conversation.notes = [...unique.values()]
-        await this.write(conversation)
       }
     }
     this.cache = new Map([...groups.values()].map(item => [item.id, structuredClone(item)]))
@@ -234,7 +320,7 @@ export class NoteManager {
       workbenchRootKey(value.workbench.workspaceRoot) !== workbenchRootKey(workspaceRoot) &&
       // 正文也对得上才认领：旧根只是暂时离线（U 盘未插）时，
       // 不能把另一份同名同路径、但内容不同的文档记录搬走。
-      (value.workbench.contentHash === contentHash || workbenchContentHash(value.snapshot) === contentHash))
+      (value.workbench.contentHash === contentHash || (!!value.snapshot && workbenchContentHash(value.snapshot) === contentHash)))
     const orphaned: NoteConversation[] = []
     for (const candidate of samePath) {
       // Windows 上「旧目录被改名/搬走」和「盘符未挂载」的文件级 stat 都返回 ENOENT，
@@ -781,7 +867,8 @@ export class NoteManager {
         await this.findWorkbenchByPathUnlocked(workspaceRoot, relativePath, hash)
       if (existing) {
         const previous = existing.workbench!
-        const contentChanged = existing.snapshot !== content || previous.contentHash !== hash
+        // Phase 2 起工作台记录不再保存第二份正文；正文以 Markdown 文件为准。
+        const contentChanged = previous.contentHash !== hash
         const titleChanged = existing.title !== title
         // 工作台导图以文件为唯一权威；清空持久化 mindmaps，避免旧记录覆盖文件。
         const legacyMindmaps = existing.mindmaps
@@ -810,7 +897,14 @@ export class NoteManager {
           workbenchRootKey(previous.workspaceRoot) !== workbenchRootKey(workspaceRoot) ||
           previous.relativePath !== relativePath ||
           (fingerprint !== undefined && (previous.size !== fingerprint.size || previous.mtime !== fingerprint.mtime))
-        if (!contentChanged && !metaChanged && !titleChanged) return existing
+        // Phase 2 起工作台记录不再保存第二份正文：即使这次没有变化，
+        // 也要把历史遗留的 snapshot 清掉后再返回。
+        const hadSnapshot = Boolean(existing.snapshot)
+        existing.snapshot = ''
+        if (!contentChanged && !metaChanged && !titleChanged) {
+          if (hadSnapshot) await this.write(existing)
+          return existing
+        }
         existing.workbench = {
           ...previous,
           workspaceRoot,
@@ -823,10 +917,7 @@ export class NoteManager {
         if (workbenchRootKey(previous.workspaceRoot) !== workbenchRootKey(workspaceRoot)) {
           existing.sourceKey = workbenchSourceKey(workspaceRoot, relativePath)
         }
-        if (contentChanged) {
-          existing.snapshot = content
-          existing.snapshotRevision += 1
-        }
+        if (contentChanged) existing.snapshotRevision += 1
         if (titleChanged) existing.title = title
         if (contentChanged || titleChanged) existing.updatedAt = Date.now()
         await this.write(existing)
@@ -841,7 +932,7 @@ export class NoteManager {
         title,
         url: '',
         updatedAt: now,
-        snapshot: content,
+        snapshot: '',
         snapshotRevision: 1,
         notes: [],
         mindmaps: [],
@@ -1076,7 +1167,7 @@ export class NoteManager {
       title: relativePath.split('/').pop() || relativePath,
       url: '',
       updatedAt: now,
-      snapshot: content,
+      snapshot: '',
       snapshotRevision: 1,
       notes: [],
       mindmaps: [],

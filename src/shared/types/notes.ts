@@ -2,6 +2,8 @@ export interface NoteAnchor {
   exact: string
   prefix: string
   suffix: string
+  occurrence?: number
+  offsetHint?: number
 }
 
 export interface ConversationNote {
@@ -25,6 +27,12 @@ export interface NoteConversation {
   snapshotRevision: number
   mindmaps: ConversationMindmap[]
   notes: ConversationNote[]
+  /** 迁移完成标记；与 migrationBlocked 互斥。 */
+  migratedAt?: number
+  /** 旧记录实际迁移到的根，仅用于旧页展示。 */
+  migratedTo?: string
+  /** 迁移被阻塞的首要原因；阻塞记录旧页只读。 */
+  migrationBlocked?: 'oversize' | 'empty-snapshot' | 'unlocatable-source' | 'annotation-overflow' | 'mindmap-conflict' | 'workbench-unresolved' | 'verify-failed'
   /** 工作台文档来源；存在时该记录不属于对话笔记，只在工作台导图中使用。 */
   workbench?: WorkbenchNoteSource
 }

@@ -2806,7 +2806,10 @@ export function generateMindmapPageStateScript(
 
 /** 在原网页上恢复笔记高亮；仅使用 CSS Highlight，避免改动第三方页面的文本 DOM。 */
 export function generateNoteHighlightScript(
-  notes: Array<{ id: string; anchor: { exact: string; prefix: string; suffix: string } }>,
+  notes: Array<{
+    id: string
+    anchor: { exact: string; prefix: string; suffix: string; occurrence?: number; offsetHint?: number }
+  }>,
   focusedNoteId?: string,
   scrollToFocus = true
 ): string {
@@ -2817,61 +2820,79 @@ export function generateNoteHighlightScript(
       const focusedId = ${JSON.stringify(focusedNoteId ?? '')};
       window.__multichatNoteDispose?.();
       const compact = value => (value || '').replace(/[\s\u200b-\u200d\ufeff]/g, '');
-      const roots = Array.from(document.querySelectorAll('main,[role="main"]'));
-      const root = roots.find(el => notes.some(note => note.anchor.exact && compact(el.textContent).includes(compact(note.anchor.exact)))) || document.body;
-      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-      const nodes = [];
-      let text = '';
-      while (walker.nextNode()) {
-        const node = walker.currentNode;
-        const parent = node.parentElement;
-        if (!parent || parent.closest('script,style,noscript,nav,aside,header,footer,button,textarea,input,[contenteditable="true"]')) continue;
-        if (!node.textContent) continue;
-        nodes.push({ node, start: text.length, end: text.length + node.textContent.length });
-        text += node.textContent;
-      }
-      const locate = offset => {
-        const part = nodes.find(item => item.start <= offset && offset < item.end) || nodes[nodes.length - 1];
-        return part ? { node: part.node, offset: Math.min(offset - part.start, part.node.textContent.length) } : null;
-      };
-      const ranges = [];
-      const targets = [];
+      let targets = [];
       let focused = null;
-      const offsets = [];
-      let searchable = '';
-      for (let i = 0; i < text.length; i++) {
-        if (/[\s\u200b-\u200d\ufeff]/.test(text[i])) continue;
-        offsets.push(i);
-        searchable += text[i];
-      }
-      for (const note of notes) {
-        const exact = compact(note.anchor.exact);
-        if (!exact) continue;
-        let match = -1;
-        let score = -1;
-        let at = searchable.indexOf(exact);
-        while (at >= 0) {
-          const prefix = compact(note.anchor.prefix);
-          const suffix = compact(note.anchor.suffix);
-          const before = searchable.slice(Math.max(0, at - prefix.length), at);
-          const after = searchable.slice(at + exact.length, at + exact.length + suffix.length);
-          const candidateScore = (prefix && before === prefix ? 2 : 0) + (suffix && after === suffix ? 2 : 0);
-          if (candidateScore > score) { match = at; score = candidateScore; }
-          at = searchable.indexOf(exact, at + exact.length);
+      const render = () => {
+        const roots = Array.from(document.querySelectorAll('main,[role="main"]'));
+        const root = roots.find(el => notes.some(note => note.anchor.exact && compact(el.textContent).includes(compact(note.anchor.exact)))) || document.body;
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+        const nodes = [];
+        let text = '';
+        while (walker.nextNode()) {
+          const node = walker.currentNode;
+          const parent = node.parentElement;
+          if (!parent || parent.closest('script,style,noscript,nav,aside,header,footer,button,textarea,input,[contenteditable="true"]')) continue;
+          if (!node.textContent) continue;
+          nodes.push({ node, start: text.length, end: text.length + node.textContent.length });
+          text += node.textContent;
         }
-        if (match < 0) continue;
-        const start = locate(offsets[match]);
-        const end = locate(offsets[match + exact.length - 1]);
-        if (!start || !end) continue;
-        const range = document.createRange();
-        range.setStart(start.node, start.offset);
-        range.setEnd(end.node, end.offset + 1);
-        ranges.push(range);
-        targets.push({ id: note.id, range });
-        if (note.id === focusedId) focused = range;
-      }
-      CSS.highlights.set('multichat-notes', new Highlight(...ranges));
-      CSS.highlights.set('multichat-note-focus', new Highlight(...(focused ? [focused] : [])));
+        const locate = offset => {
+          const part = nodes.find(item => item.start <= offset && offset < item.end) || nodes[nodes.length - 1];
+          return part ? { node: part.node, offset: Math.min(offset - part.start, part.node.textContent.length) } : null;
+        };
+        const ranges = [];
+        const nextTargets = [];
+        let nextFocused = null;
+        const offsets = [];
+        let searchable = '';
+        for (let i = 0; i < text.length; i++) {
+          if (/[\s\u200b-\u200d\ufeff]/.test(text[i])) continue;
+          offsets.push(i);
+          searchable += text[i];
+        }
+        for (const note of notes) {
+          const exact = compact(note.anchor.exact);
+          if (!exact) continue;
+          let match = -1;
+          let score = -Infinity;
+          let occurrenceIndex = 0;
+          let at = searchable.indexOf(exact);
+          while (at >= 0) {
+            const prefix = compact(note.anchor.prefix);
+            const suffix = compact(note.anchor.suffix);
+            const before = searchable.slice(Math.max(0, at - prefix.length), at);
+            const after = searchable.slice(at + exact.length, at + exact.length + suffix.length);
+            let candidateScore = (prefix && before === prefix ? 6 : 0) + (suffix && after === suffix ? 6 : 0);
+            if (typeof note.anchor.occurrence === 'number') {
+              candidateScore += occurrenceIndex === note.anchor.occurrence ? 4 : -Math.min(2, Math.abs(occurrenceIndex - note.anchor.occurrence));
+            }
+            if (typeof note.anchor.offsetHint === 'number') {
+              candidateScore -= Math.min(6, Math.abs(offsets[at] - note.anchor.offsetHint) / 2000);
+            }
+            if (candidateScore > score) { match = at; score = candidateScore; }
+            occurrenceIndex += 1;
+            at = searchable.indexOf(exact, at + exact.length);
+          }
+          if (match < 0) continue;
+          const start = locate(offsets[match]);
+          const end = locate(offsets[match + exact.length - 1]);
+          if (!start || !end) continue;
+          const range = document.createRange();
+          range.setStart(start.node, start.offset);
+          range.setEnd(end.node, end.offset + 1);
+          ranges.push(range);
+          nextTargets.push({ id: note.id, range });
+          if (note.id === focusedId) nextFocused = range;
+        }
+        targets = nextTargets;
+        focused = nextFocused;
+        CSS.highlights.delete('multichat-notes');
+        CSS.highlights.delete('multichat-note-focus');
+        if (ranges.length) CSS.highlights.set('multichat-notes', new Highlight(...ranges));
+        if (focused) CSS.highlights.set('multichat-note-focus', new Highlight(focused));
+        return ranges.length;
+      };
+      const matched = render();
       const onClick = event => {
         let hitNote = false;
         for (const item of targets) {
@@ -2888,9 +2909,44 @@ export function generateNoteHighlightScript(
         }
       };
       document.addEventListener('click', onClick, true);
-      window.__multichatNoteDispose = () => document.removeEventListener('click', onClick, true);
+      let redrawTimer = null;
+      let scrollTimer = null;
+      window.__multichatNoteRefresh = () => {
+        if (redrawTimer) { clearTimeout(redrawTimer); redrawTimer = null; }
+        return render();
+      };
+      const observer = new MutationObserver(() => {
+        if (redrawTimer) clearTimeout(redrawTimer);
+        redrawTimer = setTimeout(() => {
+          redrawTimer = null;
+          window.__multichatNoteRefresh?.();
+        }, 300);
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+      const onScroll = () => {
+        if (scrollTimer) clearTimeout(scrollTimer);
+        scrollTimer = setTimeout(() => {
+          scrollTimer = null;
+          window.__multichatNoteRefresh?.();
+        }, 200);
+      };
+      document.addEventListener('scroll', onScroll, true);
+      window.__multichatNoteDispose = () => {
+        document.removeEventListener('click', onClick, true);
+        document.removeEventListener('scroll', onScroll, true);
+        observer.disconnect();
+        if (redrawTimer) clearTimeout(redrawTimer);
+        if (scrollTimer) clearTimeout(scrollTimer);
+        redrawTimer = null;
+        scrollTimer = null;
+        targets = [];
+        focused = null;
+        delete window.__multichatNoteRefresh;
+        CSS.highlights.delete('multichat-notes');
+        CSS.highlights.delete('multichat-note-focus');
+      };
       if (focused && ${JSON.stringify(scrollToFocus)}) focused.startContainer.parentElement?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-      return { matched: ranges.length, focusedMatched: !!focused, supported: true };
+      return { matched, focusedMatched: !!focused, supported: true };
     })();
   `
 }

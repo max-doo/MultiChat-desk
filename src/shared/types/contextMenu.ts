@@ -21,3 +21,9 @@ export interface WebviewContextMenuActionRequest {
   actionKey: string
   data?: unknown
 }
+
+export interface WorkbenchHtmlContextMenuData {
+  x: number
+  y: number
+  selectedText: string
+}

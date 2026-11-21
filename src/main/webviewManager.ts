@@ -4,6 +4,7 @@
  */
 
 import { app, screen, session, BrowserWindow, shell, nativeImage, Tray, Menu, clipboard, dialog, webContents } from 'electron'
+import { randomUUID } from 'crypto'
 import { join, basename } from 'path'
 import { accessSync } from 'fs'
 import { writeFile } from 'fs/promises'
@@ -13,7 +14,9 @@ import { startSummaryPromptsWatcher } from './summaryPrompts'
 import { generateNoteCaptureScript } from '../shared/utils/webviewScripts'
 import { noteConversationKey } from '../shared/utils/noteIdentity'
 import type { NoteDraft } from '../shared/types/notes'
+import type { AnnotationCaptureRequest } from '../shared/types/annotations'
 import type { ContextMenuEntry } from '../shared/types/contextMenu'
+import { WORKBENCH_FILE_SCHEME } from './services/workbenchService'
 import type { NoteManager } from './noteManager'
 
 let noteManagerInstance: NoteManager | null = null
@@ -613,6 +616,23 @@ export function createWindow(): void {
         console.log(`[Renderer ${levels[level] || 'LOG'}] ${message} (${sourceId}:${line})`)
     })
 
+    // HTML 预览在跨源 sandbox iframe 中，右键事件不会冒泡到宿主 renderer。
+    // 由主进程接收 iframe 选区，再交给宿主自绘菜单显示划词 AI 操作。
+    mainWindow.webContents.on('context-menu', (event, params) => {
+        if (!params.frameURL.startsWith(`${WORKBENCH_FILE_SCHEME}://`)) return
+        const selectedText = params.selectionText.trim()
+        if (!selectedText || !mainWindow || mainWindow.isDestroyed()) return
+
+        event.preventDefault()
+        const cursor = screen.getCursorScreenPoint()
+        const bounds = mainWindow.getContentBounds()
+        mainWindow.webContents.send('workbench:html-contextmenu', {
+            x: Math.max(0, Math.round(cursor.x - bounds.x)),
+            y: Math.max(0, Math.round(cursor.y - bounds.y)),
+            selectedText
+        })
+    })
+
 
     // ... 省略了 setWindowOpenHandler 等 ...
     mainWindow.webContents.setWindowOpenHandler((details) => {
@@ -1117,7 +1137,8 @@ function executeNoteCapture(
     wc: Electron.WebContents,
     owner: BrowserWindow,
     params: Electron.ContextMenuParams,
-    selectedText: string
+    selectedText: string,
+    mode: 'annotate' | 'excerpt'
 ): void {
     const captureScript = generateNoteCaptureScript()
     const capture = async (): Promise<unknown> => {
@@ -1143,17 +1164,16 @@ function executeNoteCapture(
         const capture = raw as { title?: string; url?: string; snapshot?: string; sourceContains?: boolean; rect?: { left: number; top: number; right: number; bottom: number }; anchor?: NoteDraft['anchor'] } | null
         if (owner.isDestroyed()) return
         if (!capture?.snapshot?.trim()) {
-            owner.webContents.send('notes:capture', { error: '无法读取当前对话，笔记未保存' })
+            owner.webContents.send('annotations:capture-error', { error: '无法读取当前对话' })
             return
         }
         const normalize = (value: string): string => value.replace(/\s+/g, ' ').trim()
         if (!capture.sourceContains && !normalize(capture.snapshot).includes(normalize(selectedText))) {
-            owner.webContents.send('notes:capture', { error: '无法在对话快照中找到选中内容，笔记未保存' })
+            owner.webContents.send('annotations:capture-error', { error: '无法在对话快照中找到选中内容' })
             return
         }
         const url = capture.url?.startsWith('https://') && new URL(capture.url).origin === new URL(params.pageURL).origin ? capture.url : params.pageURL
         const parsed = new URL(url)
-        const sourceKey = noteConversationKey(url, capture.title || parsed.hostname)
         const platformNames: Record<string, string> = {
             'chatgpt.com': 'ChatGPT', 'gemini.google.com': 'Gemini', 'grok.com': 'Grok',
             'claude.ai': 'Claude', 'www.perplexity.ai': 'Perplexity', 'arena.ai': 'Arena',
@@ -1162,8 +1182,10 @@ function executeNoteCapture(
             'chat.deepseek.com': 'DeepSeek', 'kimi.moonshot.cn': 'Kimi',
             'chatglm.cn': '智谱清言', 'chat.baidu.com': '文心一言'
         }
-        const draft: NoteDraft = {
-            sourceKey,
+        const request: AnnotationCaptureRequest = {
+            mode,
+            annotationId: mode === 'annotate' ? randomUUID() : undefined,
+            webContentsId: wc.id,
             platform: platformNames[parsed.hostname] || parsed.hostname,
             title: capture.title || parsed.hostname,
             url,
@@ -1173,11 +1195,12 @@ function executeNoteCapture(
                 exact: capture.anchor?.exact || selectedText,
                 prefix: capture.anchor?.prefix || '',
                 suffix: capture.anchor?.suffix || ''
-            }
+            },
+            rect: capture.rect ?? undefined
         }
-        owner.webContents.send('notes:capture', { draft, webContentsId: wc.id, rect: capture.rect })
+        owner.webContents.send('annotations:capture', request)
     }).catch(() => {
-        if (!owner.isDestroyed()) owner.webContents.send('notes:capture', { error: '读取当前对话失败，笔记未保存' })
+        if (!owner.isDestroyed()) owner.webContents.send('annotations:capture-error', { error: '读取当前对话失败' })
     })
 }
 
@@ -1222,9 +1245,14 @@ function setupContextMenu(wc: Electron.WebContents): void {
                 })
             }
             items.push({
-                key: 'note',
-                label: '记为笔记',
-                icon: 'edit_note'
+                key: 'annotate',
+                label: '标注',
+                icon: 'sticky_note_2'
+            })
+            items.push({
+                key: 'excerpt',
+                label: '摘录为文档',
+                icon: 'note_add'
             })
         }
         if (owner === quickWindow && quickPrimaryWebviews.has(wc.id) && selectedText) {
@@ -1383,9 +1411,10 @@ export async function handleWebviewContextMenuAction(
                 }
                 break
             }
-            case 'note': {
+            case 'annotate':
+            case 'excerpt': {
                 if (selectedText) {
-                    executeNoteCapture(wc, owner, params, selectedText)
+                    executeNoteCapture(wc, owner, params, selectedText, actionKey)
                 }
                 break
             }

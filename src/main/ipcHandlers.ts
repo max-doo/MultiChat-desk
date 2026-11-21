@@ -60,10 +60,42 @@ import {
   watchWorkspace as workbenchWatchWorkspace,
   unwatchWorkspace as workbenchUnwatchWorkspace,
   ensureDefaultWorkspace as workbenchEnsureDefaultWorkspace,
+  getDefaultWorkspaceInfo as workbenchGetDefaultWorkspaceInfo,
+  getWorkspaceSettings as workbenchGetWorkspaceSettings,
+  setWorkspaceSettings as workbenchSetWorkspaceSettings,
+  activateWorkspace as workbenchActivateWorkspace,
+  closeWorkspace as workbenchCloseWorkspace,
+  assertActiveWorkspace,
   statFile as workbenchStatFile,
   isAuthorizedWorkspaceRoot,
   assertSafePath
 } from './services/workbenchService'
+import {
+    listDocumentAnnotationsWithRecovery,
+    upsertDocumentAnnotation,
+    deleteDocumentAnnotation,
+    rekeyDocumentAnnotations,
+    removeDocumentAnnotations,
+    reconcileDocumentAnnotations,
+    listSourceAnnotations,
+    upsertSourceAnnotation,
+    deleteSourceAnnotation
+} from './services/annotationService'
+import {
+    captureSourceAnnotation,
+    ensureDocumentForSource,
+    captureExcerptDocument,
+    listConversationSources
+} from './services/conversationDocumentService'
+import { LegacyMigrationService } from './services/legacyMigrationService'
+import type {
+    Annotation,
+    AnnotationSource,
+    AnnotationChangedEvent,
+    CaptureExcerptInput,
+    CaptureSourceInput,
+    EnsureDocumentInput
+} from '../shared/types/annotations'
 import type { WorkbenchNodeType } from '../shared/types/workbench'
 import {
     getStatus as gitGetStatus,
@@ -778,6 +810,32 @@ export async function registerIpcHandlers(
         })
     }
     const notesChanged = (): void => broadcastNotes('notes:changed')
+    const rootKeyOf = (value: string): string => {
+        const resolved = resolve(value)
+        return process.platform === 'win32' ? resolved.toLowerCase() : resolved
+    }
+    const broadcastAnnotations = (event: AnnotationChangedEvent): void => {
+        BrowserWindow.getAllWindows().forEach(window => {
+            try {
+                if (!window.isDestroyed() && !window.webContents.isDestroyed()) {
+                    window.webContents.send('annotations:changed', event)
+                }
+            } catch {
+                console.warn('[Annotations] 广播失败')
+            }
+        })
+    }
+    const legacyMigration = new LegacyMigrationService(store, noteManager, progress => {
+        broadcastNotes('notes:migration-progress' as 'notes:changed', progress)
+    })
+    const assertLegacyWritable = async (id?: string): Promise<void> => {
+        if (legacyMigration.isActive()) throw new Error('旧笔记迁移进行中，旧笔记暂不可写')
+        if (!id) return
+        const record = await noteManager.get(id).catch(() => null)
+        if (record?.migratedAt || record?.migrationBlocked) {
+            throw new Error('该旧笔记已迁移或已阻塞，旧页只读')
+        }
+    }
     // 外部软件改导图文件后，watcher 置脏扫描缓存并广播，让面板重新读状态。
     noteManager.setMindmapFilesChangedHandler(notesChanged)
     const mindmapService = new MindmapService(noteManager, task => broadcastNotes('mindmaps:task-changed', task), notesChanged)
@@ -790,6 +848,8 @@ export async function registerIpcHandlers(
     }
     ipcMain.handle('mindmaps:modify', async (event, request: MindmapModifyRequest) => {
         try {
+            if (legacyMigration.isActive()) throw new Error('旧笔记迁移进行中，旧笔记暂不可写')
+            await assertLegacyWritable(request?.conversationId)
             trackMindmapOwner(event.sender)
             return { success: true, data: await mindmapService.modify(request, event.sender.id, async source => {
                 // 工作台文档没有对话页面；文本继续使用保存正文，PDF/Word/PPT 重新上传原文件。
@@ -819,7 +879,11 @@ export async function registerIpcHandlers(
     })
     ipcMain.handle('mindmaps:candidate', (event, mapId: string) => ({ success: true, data: mindmapService.getCandidate(event.sender.id, mapId) }))
     ipcMain.handle('mindmaps:apply', async (event, mapId: string, candidateId: string) => {
-        try { return { success: true, data: await mindmapService.apply(event.sender.id, mapId, candidateId) } }
+        try {
+            if (legacyMigration.isActive()) throw new Error('旧笔记迁移进行中，旧笔记暂不可写')
+            await assertLegacyWritable(mindmapService.getCandidate(event.sender.id, mapId)?.conversationId)
+            return { success: true, data: await mindmapService.apply(event.sender.id, mapId, candidateId) }
+        }
         catch (error) {
             return {
                 success: false,
@@ -830,11 +894,16 @@ export async function registerIpcHandlers(
         }
     })
     ipcMain.handle('mindmaps:discard', (event, mapId: string, candidateId: string) => {
-        try { mindmapService.discard(event.sender.id, mapId, candidateId); return { success: true } }
+        try {
+            if (legacyMigration.isActive()) throw new Error('旧笔记迁移进行中，旧笔记暂不可写')
+            mindmapService.discard(event.sender.id, mapId, candidateId)
+            return { success: true }
+        }
         catch (error) { return { success: false, error: error instanceof Error ? error.message : '放弃失败' } }
     })
     ipcMain.handle('mindmaps:ask', async (event, id: number, platformId: string, conversationId: string, question: string) => {
         try {
+            if (legacyMigration.isActive()) throw new Error('旧笔记迁移进行中，旧笔记暂不可写')
             if (typeof question !== 'string' || !question.trim() || question.length > 60000) throw new Error('问题草稿无效或过大')
             const wc = webContents.fromId(id)
             if (!wc || wc.isDestroyed() || wc.hostWebContents?.id !== event.sender.id) throw new Error('请先打开来源主会话')
@@ -849,6 +918,7 @@ export async function registerIpcHandlers(
     })
     ipcMain.handle('mindmaps:blank-source', async (event, id: number, expectedUrl: string, platformName: string) => {
         try {
+            if (legacyMigration.isActive()) throw new Error('旧笔记迁移进行中，旧笔记暂不可写')
             const wc = webContents.fromId(id)
             if (!wc || wc.isDestroyed() || wc.hostWebContents?.id !== event.sender.id || typeof expectedUrl !== 'string' || !expectedUrl.startsWith('https://') || wc.getURL() !== expectedUrl || typeof platformName !== 'string' || platformName.length > 200) throw new Error('来源页面已切换或未就绪')
             const identity = await wc.executeJavaScript('({url:location.href,title:document.title})') as { url: string; title: string }
@@ -884,6 +954,7 @@ export async function registerIpcHandlers(
     })
     ipcMain.handle('mindmaps:start', async (event, conversationId: string, platform: string, additionalRequirements?: string, material?: MindmapMaterial) => {
         try {
+            await assertLegacyWritable(conversationId)
             if (additionalRequirements !== undefined && typeof additionalRequirements !== 'string') throw new Error('额外要求必须是文本')
             if (material !== undefined) {
                 if (!material || typeof material.fileName !== 'string' || !material.fileName || material.fileName.length > 260) throw new Error('生成材料无效')
@@ -914,6 +985,7 @@ export async function registerIpcHandlers(
     })
     ipcMain.handle('mindmaps:add', async (event, conversationId: string, markdown: string) => {
         try {
+            await assertLegacyWritable(conversationId)
             const source = await takeMindmapSource(event.sender, conversationId)
             const saved = await noteManager.addMindmap(source, markdown, '本地')
             notesChanged(); return { success: true, data: saved.mindmap }
@@ -921,6 +993,7 @@ export async function registerIpcHandlers(
     })
     ipcMain.handle('mindmaps:update', async (_event, conversationId: string, id: string, markdown: string, title: string, updatedAt: number, expectedMarkdown?: string, force?: boolean) => {
         try {
+            await assertLegacyWritable(conversationId)
             const data = await noteManager.updateMindmap(conversationId, id, markdown, title, updatedAt, undefined, expectedMarkdown, force)
             notesChanged()
             return { success: true, data }
@@ -934,6 +1007,7 @@ export async function registerIpcHandlers(
     })
     ipcMain.handle('mindmaps:delete', async (_event, conversationId: string, id: string) => {
         try {
+            await assertLegacyWritable(conversationId)
             const result = await noteManager.deleteMindmapExtended(conversationId, id)
             if (result.conflict) return { success: true, data: { conflict: result.conflict } }
             mindmapService.forgetMap(id); notesChanged(); return { success: true }
@@ -941,7 +1015,7 @@ export async function registerIpcHandlers(
         catch (error) { return { success: false, error: String(error) } }
     })
     ipcMain.handle('mindmaps:import-legacy', async (_event, markdown: string) => {
-        try { const data = await noteManager.importLegacyMindmap(markdown); notesChanged(); return { success: true, data } }
+        try { await assertLegacyWritable(); const data = await noteManager.importLegacyMindmap(markdown); notesChanged(); return { success: true, data } }
         catch (error) { return { success: false, error: String(error) } }
     })
     let pendingNoteNavigation: NoteNavigation | null = null
@@ -962,43 +1036,73 @@ export async function registerIpcHandlers(
     })
 
     ipcMain.handle('notes:source', async (_event, key: string) => {
-        try { return { success: true, data: await noteManager.findSource(key) } }
+        try {
+            const snapshot = await legacyMigration.readOnlySnapshot()
+            if (!snapshot) return { success: true, data: await noteManager.findSource(key) }
+            return { success: true, data: snapshot.find(item => item.sourceKey === key) ?? null }
+        }
         catch (error) { return { success: false, error: error instanceof Error ? error.message : '读取来源失败' } }
     })
     ipcMain.handle('notes:get', async (_event, id: string) => {
-        try { return { success: true, data: await noteManager.get(id) } }
+        try {
+            const snapshot = await legacyMigration.readOnlySnapshot()
+            if (!snapshot) return { success: true, data: await noteManager.get(id) }
+            return { success: true, data: snapshot.find(item => item.id === id) ?? null }
+        }
         catch (error) { return { success: false, error: error instanceof Error ? error.message : '读取笔记失败' } }
     })
     ipcMain.handle('notes:summaries', async (_event, query?: string) => {
-        try { return { success: true, data: await noteManager.summaries(query) } }
+        try {
+            const snapshot = await legacyMigration.readOnlySnapshot()
+            if (!snapshot) return { success: true, data: await noteManager.summaries(query) }
+            const text = (query || '').trim().toLowerCase()
+            const data = snapshot.filter(item => !item.workbench)
+                .filter(item => !text || [item.title, item.platform, ...item.notes.flatMap(note => [note.quote, note.comment])].some(value => value.toLowerCase().includes(text)))
+                .sort((a, b) => b.updatedAt - a.updatedAt)
+                .map(item => ({ ...item, snapshot: '', mindmaps: item.mindmaps.map(map => ({ ...map, markdown: '' })) }))
+            return { success: true, data }
+        }
         catch (error) { return { success: false, error: error instanceof Error ? error.message : '读取笔记失败' } }
     })
     ipcMain.handle('notes:standalone', async (_event, markdown?: string) => {
-        try { if (markdown !== undefined && (typeof markdown !== 'string' || markdown.length > 200_000)) throw new Error('导图内容无效'); const data = await noteManager.standalone(markdown); notesChanged(); return { success: true, data } }
+        try { await assertLegacyWritable(); if (markdown !== undefined && (typeof markdown !== 'string' || markdown.length > 200_000)) throw new Error('导图内容无效'); const data = await noteManager.standalone(markdown); notesChanged(); return { success: true, data } }
         catch (error) { return { success: false, error: error instanceof Error ? error.message : '保存本地导图失败' } }
     })
     ipcMain.handle('notes:import', async (_event, values: unknown, overwrite = false) => {
-        try { const data = await noteManager.import(values, overwrite); notesChanged(); return { success: true, data } }
+        try { await assertLegacyWritable(); const data = await noteManager.import(values, overwrite); notesChanged(); return { success: true, data } }
         catch (error) { return { success: false, error: error instanceof Error ? error.message : '恢复笔记失败' } }
     })
     ipcMain.handle('notes:list', async () => {
-        try { return { success: true, data: await noteManager.list() } }
+        try {
+            const snapshot = await legacyMigration.readOnlySnapshot()
+            return { success: true, data: snapshot ?? await noteManager.list() }
+        }
         catch (error) { return { success: false, error: String(error) } }
     })
     ipcMain.handle('notes:anchors-for-url', async (_event, url: string) => {
-        try { return { success: true, data: await noteManager.anchorsForUrl(url) } }
+        try {
+            const snapshot = await legacyMigration.readOnlySnapshot()
+            if (!snapshot) return { success: true, data: await noteManager.anchorsForUrl(url) }
+            const source = new URL(url)
+            const data = snapshot.filter(item => {
+                try { return new URL(item.url).origin === source.origin && noteConversationKey(item.url, item.title) === noteConversationKey(url, item.title) }
+                catch { return false }
+            }).flatMap(item => item.notes.map(note => ({ id: note.id, conversationId: item.id, quote: note.quote, anchor: note.anchor, comment: note.comment })))
+            return { success: true, data }
+        }
         catch (error) { return { success: false, error: String(error) } }
     })
     ipcMain.handle('notes:save', async (_event, draft: NoteDraft, comment: string) => {
-        try { const data = await noteManager.save(draft, comment); BrowserWindow.getAllWindows().forEach(window => window.webContents.send('notes:changed')); return { success: true, data } }
+        try { await assertLegacyWritable(); const data = await noteManager.save(draft, comment); BrowserWindow.getAllWindows().forEach(window => window.webContents.send('notes:changed')); return { success: true, data } }
         catch (error) { return { success: false, error: String(error) } }
     })
     ipcMain.handle('notes:update', async (_event, conversationId: string, noteId: string, comment: string) => {
-        try { const data = await noteManager.updateNote(conversationId, noteId, comment); BrowserWindow.getAllWindows().forEach(window => window.webContents.send('notes:changed')); return { success: true, data } }
+        try { await assertLegacyWritable(conversationId); const data = await noteManager.updateNote(conversationId, noteId, comment); BrowserWindow.getAllWindows().forEach(window => window.webContents.send('notes:changed')); return { success: true, data } }
         catch (error) { return { success: false, error: String(error) } }
     })
     ipcMain.handle('notes:delete', async (_event, conversationId: string, noteId: string) => {
         try {
+            await assertLegacyWritable(conversationId)
             const task = mindmapService.getTask()
             if (task?.conversationId === conversationId && !['done', 'error', 'cancelled'].includes(task.phase)) {
                 const source = (await noteManager.list()).find(item => item.id === conversationId)
@@ -1018,7 +1122,9 @@ export async function registerIpcHandlers(
                 filters: [{ name: 'Markdown', extensions: ['md'] }, { name: 'JSON', extensions: ['json'] }]
             })
             if (result.canceled || !result.filePath) return { success: true, data: false }
-            const conversations = await noteManager.list()
+            // 迁移期间导出也必须走只读快照，避免 list() 触发备份写入或合并视图。
+            const snapshot = await legacyMigration.readOnlySnapshot()
+            const conversations = snapshot ?? await noteManager.list()
             if (result.filePath.toLowerCase().endsWith('.json')) {
                 // 备份保留工作台导图（含来源绑定），否则换机后无法恢复。
                 await writeFile(result.filePath, JSON.stringify(conversations, null, 2), 'utf8')
@@ -1674,9 +1780,201 @@ export async function registerIpcHandlers(
         }
     })
 
+    ipcMain.handle('workbench:get-default-workspace', async () => {
+        try { return { success: true, data: await workbenchGetDefaultWorkspaceInfo(store) } }
+        catch (err: unknown) { return { success: false, error: err instanceof Error ? err.message : String(err) } }
+    })
+
+    ipcMain.handle('workbench:get-settings', async (_event, payload: { workspaceRoot: string }) => {
+        try {
+            assertActiveWorkspace(payload.workspaceRoot)
+            return { success: true, data: await workbenchGetWorkspaceSettings(payload.workspaceRoot) }
+        } catch (err: unknown) { return { success: false, error: err instanceof Error ? err.message : String(err) } }
+    })
+
+    ipcMain.handle('workbench:set-settings', async (_event, payload: { workspaceRoot: string; settings: { conversationDir: string } }) => {
+        try {
+            assertActiveWorkspace(payload.workspaceRoot)
+            if (legacyMigration.isActive()) {
+                const summary = await legacyMigration.pendingSummary()
+                if (rootKeyOf(payload.workspaceRoot) === rootKeyOf(summary.defaultWorkspacePath)) {
+                    throw new Error('旧笔记迁移进行中，默认会话库的归档目录暂不可修改')
+                }
+            }
+            return { success: true, data: await workbenchSetWorkspaceSettings(payload.workspaceRoot, payload.settings) }
+        } catch (err: unknown) { return { success: false, error: err instanceof Error ? err.message : String(err) } }
+    })
+
+    ipcMain.handle('workbench:activate-workspace', async (_event, payload: { workspaceRoot: string }) => {
+        try { return { success: true, data: await workbenchActivateWorkspace(store, payload.workspaceRoot) } }
+        catch (err: unknown) { return { success: false, error: err instanceof Error ? err.message : String(err) } }
+    })
+
+    ipcMain.handle('workbench:close-workspace', async (_event, payload: { workspaceRoot: string; generation: number }) => {
+        try { return { success: true, data: await workbenchCloseWorkspace(store, payload.workspaceRoot, payload.generation) } }
+        catch (err: unknown) { return { success: false, error: err instanceof Error ? err.message : String(err) } }
+    })
+
+    ipcMain.handle('annotations:list-document', async (_event, payload: { workspaceRoot: string; relativePath: string }) => {
+        try {
+            assertActiveWorkspace(payload.workspaceRoot)
+            return { success: true, data: (await listDocumentAnnotationsWithRecovery(payload)).annotations }
+        } catch (err: unknown) { return { success: false, error: err instanceof Error ? err.message : String(err) } }
+    })
+
+    ipcMain.handle('annotations:list-source', async (_event, payload: { sourceKey: string }) => {
+        try {
+            const workspace = await workbenchEnsureDefaultWorkspace(store)
+            return { success: true, data: await listSourceAnnotations(workspace.path, payload.sourceKey) }
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : String(err)
+            // 默认库不可用时给出可操作错误，不回退当前仓库。
+            return { success: false, error: /ENOENT|EACCES|EPERM|ENOTDIR/.test(message) ? 'CONVERSATION_LIBRARY_UNAVAILABLE' : message }
+        }
+    })
+
+    ipcMain.handle('annotations:upsert-document', async (_event, payload: { workspaceRoot: string; relativePath: string; annotation: Annotation }) => {
+        try {
+            assertActiveWorkspace(payload.workspaceRoot)
+            const data = await upsertDocumentAnnotation(payload, payload.annotation)
+            broadcastAnnotations({ scope: 'document', workspaceRoot: payload.workspaceRoot, relativePath: payload.relativePath })
+            return { success: true, data }
+        } catch (err: unknown) { return { success: false, error: err instanceof Error ? err.message : String(err) } }
+    })
+
+    ipcMain.handle('annotations:upsert-source', async (_event, payload: { sourceKey: string; source: AnnotationSource; annotation: Annotation }) => {
+        try {
+            const workspace = await workbenchEnsureDefaultWorkspace(store)
+            const data = await upsertSourceAnnotation(workspace.path, payload.sourceKey, payload.source, payload.annotation)
+            broadcastAnnotations({ scope: 'source', sourceKey: payload.sourceKey })
+            return { success: true, data }
+        } catch (err: unknown) { return { success: false, error: err instanceof Error ? err.message : String(err) } }
+    })
+
+    ipcMain.handle('annotations:delete-document', async (_event, payload: { workspaceRoot: string; relativePath: string; id: string }) => {
+        try {
+            assertActiveWorkspace(payload.workspaceRoot)
+            await deleteDocumentAnnotation(payload, payload.id)
+            broadcastAnnotations({ scope: 'document', workspaceRoot: payload.workspaceRoot, relativePath: payload.relativePath })
+            return { success: true }
+        } catch (err: unknown) { return { success: false, error: err instanceof Error ? err.message : String(err) } }
+    })
+
+    ipcMain.handle('annotations:reconcile-document', async (_event, payload: {
+        workspaceRoot: string
+        relativePath: string
+        anchors: Array<Pick<Annotation, 'id' | 'quote' | 'anchor'>>
+    }) => {
+        try {
+            assertActiveWorkspace(payload.workspaceRoot)
+            const data = await reconcileDocumentAnnotations(payload, payload.anchors)
+            if (data.updated) {
+                broadcastAnnotations({
+                    scope: 'document',
+                    workspaceRoot: payload.workspaceRoot,
+                    relativePath: payload.relativePath
+                })
+            }
+            return { success: true, data }
+        } catch (err: unknown) { return { success: false, error: err instanceof Error ? err.message : String(err) } }
+    })
+
+    ipcMain.handle('annotations:delete-source', async (_event, payload: { sourceKey: string; id: string }) => {
+        try {
+            const workspace = await workbenchEnsureDefaultWorkspace(store)
+            await deleteSourceAnnotation(workspace.path, payload.sourceKey, payload.id)
+            broadcastAnnotations({ scope: 'source', sourceKey: payload.sourceKey })
+            return { success: true }
+        } catch (err: unknown) { return { success: false, error: err instanceof Error ? err.message : String(err) } }
+    })
+
+    ipcMain.handle('annotations:capture-source', async (_event, payload: CaptureSourceInput) => {
+        try {
+            const data = await captureSourceAnnotation(store, payload)
+            broadcastAnnotations({ scope: 'source', sourceKey: data.annotation.source?.key ?? '' })
+            if (data.document) {
+                broadcastAnnotations({
+                    scope: 'document',
+                    workspaceRoot: data.document.workspaceRoot,
+                    relativePath: data.document.relativePath
+                })
+            }
+            return { success: true, data }
+        }
+        catch (err: unknown) { return { success: false, error: err instanceof Error ? err.message : String(err) } }
+    })
+
+    ipcMain.handle('annotations:ensure-document', async (_event, payload: EnsureDocumentInput) => {
+        try {
+            const data = await ensureDocumentForSource(store, payload)
+            if (data.document) {
+                broadcastAnnotations({
+                    scope: 'document',
+                    workspaceRoot: data.document.workspaceRoot,
+                    relativePath: data.document.relativePath
+                })
+            }
+            return { success: true, data }
+        }
+        catch (err: unknown) { return { success: false, error: err instanceof Error ? err.message : String(err) } }
+    })
+
+    ipcMain.handle('annotations:capture-excerpt', async (_event, payload: CaptureExcerptInput) => {
+        try {
+            const data = await captureExcerptDocument(store, payload)
+            if (data.document) {
+                broadcastAnnotations({
+                    scope: 'document',
+                    workspaceRoot: data.document.workspaceRoot,
+                    relativePath: data.document.relativePath
+                })
+            }
+            return { success: true, data }
+        }
+        catch (err: unknown) { return { success: false, error: err instanceof Error ? err.message : String(err) } }
+    })
+
+    ipcMain.handle('annotations:scan-conversations', async (_event, payload: { workspaceRoot: string }) => {
+        try {
+            assertActiveWorkspace(payload.workspaceRoot)
+            return { success: true, data: await listConversationSources(payload.workspaceRoot) }
+        } catch (err: unknown) { return { success: false, error: err instanceof Error ? err.message : String(err) } }
+    })
+
+    ipcMain.handle('notes:migration-pending', async () => {
+        try { return { success: true, data: await legacyMigration.pendingSummary() } }
+        catch (err: unknown) { return { success: false, error: err instanceof Error ? err.message : String(err) } }
+    })
+    ipcMain.handle('notes:retry-migration-record', async (_event, id: string) => {
+        try { await legacyMigration.retryBlocked(id); notesChanged(); return { success: true } }
+        catch (err: unknown) { return { success: false, error: err instanceof Error ? err.message : String(err) } }
+    })
+    ipcMain.handle('notes:migrate-legacy', async (_event, jobId?: string) => {
+        try {
+            const data = await legacyMigration.migrate(jobId)
+            // 迁移会写旁路标注和导图：广播后工作台与原文回显立即刷新。
+            if (data.migrated) notesChanged()
+            return { success: true, data }
+        }
+        catch (err: unknown) { return { success: false, error: err instanceof Error ? err.message : String(err) } }
+    })
+    ipcMain.handle('notes:cancel-migration', async (_event, jobId: string) => {
+        try { await legacyMigration.cancel(jobId); return { success: true, data: { status: 'paused' } } }
+        catch (err: unknown) { return { success: false, error: err instanceof Error ? err.message : String(err) } }
+    })
+    ipcMain.handle('notes:resume-migration', async (_event, jobId: string) => {
+        try { return { success: true, data: await legacyMigration.resume(jobId) } }
+        catch (err: unknown) { return { success: false, error: err instanceof Error ? err.message : String(err) } }
+    })
+    ipcMain.handle('notes:abandon-migration', async (_event, jobId: string) => {
+        try { await legacyMigration.abandon(jobId); return { success: true } }
+        catch (err: unknown) { return { success: false, error: err instanceof Error ? err.message : String(err) } }
+    })
+
     ipcMain.handle('workbench:read-tree', async (_event, payload: string | { workspaceRoot: string }) => {
         try {
             const workspaceRoot = typeof payload === 'string' ? payload : payload?.workspaceRoot
+            assertActiveWorkspace(workspaceRoot)
             const data = await workbenchReadTree(workspaceRoot)
             return { success: true, data }
         } catch (err: unknown) {
@@ -1689,6 +1987,7 @@ export async function registerIpcHandlers(
         try {
             const workspaceRoot = typeof payload === 'string' ? payload : payload?.workspaceRoot
             const relativePath = typeof payload === 'string' ? relPath! : payload?.relativePath
+            assertActiveWorkspace(workspaceRoot)
             const data = await workbenchReadFile(workspaceRoot, relativePath)
             return { success: true, data }
         } catch (err: unknown) {
@@ -1700,6 +1999,7 @@ export async function registerIpcHandlers(
     // PDF 原始字节：内置 PDFium 不向宿主暴露选区文字，预览层改用 PDF.js 渲染并自建文本层。
     ipcMain.handle('workbench:read-pdf-bytes', async (_event, payload: { workspaceRoot: string; relativePath: string }) => {
         try {
+            assertActiveWorkspace(payload.workspaceRoot)
             const data = await workbenchReadPdfBytes(payload.workspaceRoot, payload.relativePath)
             return { success: true, data }
         } catch (err: unknown) {
@@ -1713,6 +2013,7 @@ export async function registerIpcHandlers(
             const workspaceRoot = typeof payload === 'string' ? payload : payload?.workspaceRoot
             const relativePath = typeof payload === 'string' ? relPath! : payload?.relativePath
             const content = typeof payload === 'string' ? text! : payload?.content
+            assertActiveWorkspace(workspaceRoot)
             const data = await workbenchWriteFile(workspaceRoot, relativePath, content ?? '')
             // 保存后同步绑定指纹：外部改名判定要用最新的 size/mtime 与哈希。
             // 不广播 notes:changed：快照没变，没必要让导图面板跟着每次自动保存重载。
@@ -1730,6 +2031,7 @@ export async function registerIpcHandlers(
             const workspaceRoot = typeof payload === 'string' ? payload : payload?.workspaceRoot
             const relativePath = typeof payload === 'string' ? relPath! : payload?.relativePath
             const type = (typeof payload === 'string' ? nodeType : payload?.type) ?? 'file'
+            assertActiveWorkspace(workspaceRoot)
             const data = await workbenchCreateNode(workspaceRoot, relativePath, type)
             return { success: true, data }
         } catch (err: unknown) {
@@ -1743,7 +2045,10 @@ export async function registerIpcHandlers(
             const workspaceRoot = typeof payload === 'string' ? payload : payload?.workspaceRoot
             const oldRelativePath = typeof payload === 'string' ? oldPath! : payload?.oldRelativePath
             const newRelativePath = typeof payload === 'string' ? newPath! : payload?.newRelativePath
+            assertActiveWorkspace(workspaceRoot)
             await workbenchRenameNode(workspaceRoot, oldRelativePath, newRelativePath)
+            await rekeyDocumentAnnotations(workspaceRoot, oldRelativePath, newRelativePath)
+                .catch(error => console.warn('[Annotations] 文档改名迁移失败:', error))
             // 文件已落盘再改绑定；失败只影响导图跟随，不回滚用户的重命名。
             await noteManager.rekeyWorkbenchSource(workspaceRoot, oldRelativePath, newRelativePath)
                 .then(moved => { if (moved) notesChanged() })
@@ -1759,7 +2064,10 @@ export async function registerIpcHandlers(
         try {
             const workspaceRoot = typeof payload === 'string' ? payload : payload?.workspaceRoot
             const relativePath = typeof payload === 'string' ? relPath! : payload?.relativePath
+            assertActiveWorkspace(workspaceRoot)
             await workbenchDeleteNode(workspaceRoot, relativePath)
+            await removeDocumentAnnotations(workspaceRoot, relativePath)
+                .catch(error => console.warn('[Annotations] 文档标注清理失败:', error))
             // 文件移入回收站后才删导图；删除失败时记录保持原样。
             await noteManager.purgeWorkbenchSource(workspaceRoot, [relativePath]).then(count => { if (count) notesChanged() })
             return { success: true }
@@ -1773,6 +2081,7 @@ export async function registerIpcHandlers(
         try {
             const workspaceRoot = typeof payload === 'string' ? payload : payload?.workspaceRoot
             const query = typeof payload === 'string' ? q! : payload?.query
+            assertActiveWorkspace(workspaceRoot)
             const data = await workbenchSearch(workspaceRoot, query ?? '')
             return { success: true, data }
         } catch (err: unknown) {
@@ -1784,6 +2093,7 @@ export async function registerIpcHandlers(
     ipcMain.handle('workbench:get-workspace-tags', async (_event, payload: string | { workspaceRoot: string }) => {
         try {
             const workspaceRoot = typeof payload === 'string' ? payload : payload?.workspaceRoot
+            assertActiveWorkspace(workspaceRoot)
             const data = await workbenchGetWorkspaceTags(workspaceRoot)
             return { success: true, data }
         } catch (err: unknown) {
@@ -1852,9 +2162,15 @@ export async function registerIpcHandlers(
 
     ipcMain.handle('workbench:delete-nodes', async (_event, payload: { workspaceRoot: string; relativePaths: string[] }) => {
         try {
+            assertActiveWorkspace(payload.workspaceRoot)
             const data = await workbenchDeleteNodes(payload.workspaceRoot, payload.relativePaths)
             // 只清理真正删除成功的节点，失败项保留绑定，等下次重试。
             if (data.deleted.length) {
+                // 删除目录时只清理目录本身，子文档旁路保留一个版本，便于恢复后找回。
+                await Promise.all(data.deleted.map(relativePath =>
+                    removeDocumentAnnotations(payload.workspaceRoot, relativePath)
+                        .catch(error => console.warn('[Annotations] 批量删除标注失败:', error))
+                ))
                 await noteManager.purgeWorkbenchSource(payload.workspaceRoot, data.deleted)
                     .then(count => { if (count) notesChanged() })
             }
@@ -2045,8 +2361,8 @@ export async function registerIpcHandlers(
     // 记录里的 size/mtime 用于外部改名判定，生成时顺手补上，避免下次对账多读一次盘。
     ipcMain.handle('workbench:mindmap-source', async (_event, payload: { workspaceRoot: string; relativePath: string; title?: string; create?: boolean; content?: string }) => {
         try {
-            // §10：渲染层可伪造 workspaceRoot 读写任意目录；导图类 IPC 只服务已授权根。
-            if (!isAuthorizedWorkspaceRoot(payload.workspaceRoot)) return { success: false, error: '工作区未授权' }
+            // 导图类 IPC 同样只服务当前活动工作区。
+            assertActiveWorkspace(payload.workspaceRoot)
             const title = payload.title || payload.relativePath.split('/').pop() || payload.relativePath
             // 只是打开文档时不建记录，避免给每篇看过的文档留一条空笔记。
             if (payload.create === false) {
@@ -2144,7 +2460,8 @@ export async function registerIpcHandlers(
     // 打开工作区时一次性迁移旧全局导图记录到 .multichat/mindmaps 文件。
     ipcMain.handle('workbench:mindmap-migrate', async (_event, payload: { workspaceRoot: string }) => {
         try {
-            if (!isAuthorizedWorkspaceRoot(payload.workspaceRoot)) return { success: false, error: '工作区未授权' }
+            if (legacyMigration.isActive()) return { success: true, data: { migrated: 0 } }
+            assertActiveWorkspace(payload.workspaceRoot)
             const data = await noteManager.migrateWorkspace(payload.workspaceRoot)
             if (data.migrated) notesChanged()
             return { success: true, data }

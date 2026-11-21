@@ -224,3 +224,36 @@ export function parseSnapshotBlocks(markdown: string): SnapshotBlock[] {
 
   return blocks
 }
+
+/**
+ * 把内部 <user>/<assistant> 快照转成标准 Markdown。
+ * 会话文档的正文必须走这里，不能直接把 XML 标签交给 Lexical。
+ */
+export function snapshotToDocumentMarkdown(
+  snapshot: string,
+  platform: string,
+  title: string,
+  url?: string
+): string {
+  const safePlatform = (platform || 'AI').trim()
+  const safeTitle = (title || '未命名会话').trim()
+  const blocks = parseSnapshotBlocks(normalizeNoteTranscriptMarkdown(snapshot || ''))
+    .filter(block => block.content.trim())
+  const lines: string[] = [`# ${safePlatform} - ${safeTitle}`]
+  if (url) lines.push('', `> 来源：${safePlatform} · ${url}`)
+  let lastRole: SnapshotBlock['type'] | null = null
+  for (const block of blocks) {
+    const role = block.type === 'user' ? 'user' : block.type === 'assistant' ? 'assistant' : 'markdown'
+    if (role === 'markdown') {
+      lines.push('', block.content.trim())
+      lastRole = role
+      continue
+    }
+    if (lastRole !== role) {
+      lines.push('', `## ${role === 'user' ? '你' : safePlatform}`)
+    }
+    lines.push('', block.content.trim())
+    lastRole = role
+  }
+  return `${lines.join('\n').trim()}\n`
+}

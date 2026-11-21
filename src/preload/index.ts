@@ -2,7 +2,29 @@ import type { HistoryListItem, SummaryHistoryListItem, HistoryKind, HistoryRecor
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type { NoteConversation, NoteDraft, NoteHighlight, NoteSelectionRect, ConversationMindmap, MindmapTask, NoteNavigation, MindmapModifyRequest, MindmapCandidate, MindmapSelection, MindmapMaterial, MindmapFileState, MindmapFileReason } from '../shared/types/notes'
-import type { WebviewContextMenuData, WebviewContextMenuActionRequest } from '../shared/types/contextMenu'
+import type {
+  Annotation,
+  AnnotationCaptureRequest,
+  AnnotationChangedEvent,
+  AnnotationSource,
+  CaptureExcerptInput,
+  CaptureExcerptResult,
+  CaptureSourceInput,
+  CaptureSourceResult,
+  EnsureDocumentInput,
+  EnsureDocumentResult,
+  DefaultWorkspaceInfo,
+  WorkbenchWorkspaceSession,
+  ConversationScanResult,
+  LegacyMigrationPendingSummary,
+  LegacyMigrationProgress,
+  LegacyMigrationResult
+} from '../shared/types/annotations'
+import type {
+  WebviewContextMenuData,
+  WebviewContextMenuActionRequest,
+  WorkbenchHtmlContextMenuData
+} from '../shared/types/contextMenu'
 import type { CliIntegrationStatus } from '../shared/types/cli'
 import type { TaskSplitTask } from '../shared/types/taskSplit'
 import type {
@@ -211,10 +233,31 @@ const api = {
   notesUpdate: (conversationId: string, noteId: string, comment: string): Promise<{ success: boolean; data?: NoteConversation; error?: string }> => ipcRenderer.invoke('notes:update', conversationId, noteId, comment),
   notesDelete: (conversationId: string, noteId: string): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('notes:delete', conversationId, noteId),
   notesExport: (): Promise<{ success: boolean; data?: boolean; error?: string }> => ipcRenderer.invoke('notes:export'),
+  notesMigrationPending: (): Promise<{ success: boolean; data?: LegacyMigrationPendingSummary; error?: string }> => ipcRenderer.invoke('notes:migration-pending'),
+  notesRetryMigrationRecord: (id: string): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('notes:retry-migration-record', id),
+  notesMigrateLegacy: (jobId?: string): Promise<{ success: boolean; data?: LegacyMigrationResult; error?: string }> => ipcRenderer.invoke('notes:migrate-legacy', jobId),
+  notesCancelMigration: (jobId: string): Promise<{ success: boolean; data?: { status: 'paused' }; error?: string }> => ipcRenderer.invoke('notes:cancel-migration', jobId),
+  notesResumeMigration: (jobId: string): Promise<{ success: boolean; data?: { jobId: string; targetWorkspaceRoot: string; targetConversationDir: string }; error?: string }> => ipcRenderer.invoke('notes:resume-migration', jobId),
+  notesAbandonMigration: (jobId: string): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('notes:abandon-migration', jobId),
+  onNotesMigrationProgress: (cb: (progress: LegacyMigrationProgress) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, progress: LegacyMigrationProgress): void => cb(progress)
+    ipcRenderer.on('notes:migration-progress', handler)
+    return () => { ipcRenderer.removeListener('notes:migration-progress', handler) }
+  },
   onNoteCapture: (cb: (payload: { draft?: NoteDraft; webContentsId?: number; rect?: NoteSelectionRect; error?: string }) => void): (() => void) => {
     const handler = (_event: Electron.IpcRendererEvent, payload: { draft?: NoteDraft; webContentsId?: number; rect?: NoteSelectionRect; error?: string }): void => cb(payload)
     ipcRenderer.on('notes:capture', handler)
     return () => { ipcRenderer.removeListener('notes:capture', handler) }
+  },
+  onAnnotationCapture: (cb: (payload: AnnotationCaptureRequest) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: AnnotationCaptureRequest): void => cb(payload)
+    ipcRenderer.on('annotations:capture', handler)
+    return () => { ipcRenderer.removeListener('annotations:capture', handler) }
+  },
+  onAnnotationCaptureError: (cb: (payload: { error: string }) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: { error: string }): void => cb(payload)
+    ipcRenderer.on('annotations:capture-error', handler)
+    return () => { ipcRenderer.removeListener('annotations:capture-error', handler) }
   },
 
   // History 分页（只读，磁盘 1000 / 内存 100 分层）
@@ -405,6 +448,16 @@ const api = {
       ipcRenderer.invoke('workbench:select-folder'),
     ensureDefaultWorkspace: (): Promise<{ success: boolean; data?: WorkbenchSelectFolderResult; error?: string }> =>
       ipcRenderer.invoke('workbench:ensure-default'),
+    getDefaultWorkspace: (): Promise<{ success: boolean; data?: DefaultWorkspaceInfo; error?: string }> =>
+      ipcRenderer.invoke('workbench:get-default-workspace'),
+    getSettings: (workspaceRoot: string): Promise<{ success: boolean; data?: { conversationDir: string; warning?: string }; error?: string }> =>
+      ipcRenderer.invoke('workbench:get-settings', { workspaceRoot }),
+    setSettings: (workspaceRoot: string, settings: { conversationDir: string }): Promise<{ success: boolean; data?: { conversationDir: string }; error?: string }> =>
+      ipcRenderer.invoke('workbench:set-settings', { workspaceRoot, settings }),
+    activateWorkspace: (workspaceRoot: string): Promise<{ success: boolean; data?: WorkbenchWorkspaceSession; error?: string }> =>
+      ipcRenderer.invoke('workbench:activate-workspace', { workspaceRoot }),
+    closeWorkspace: (workspaceRoot: string, generation: number): Promise<{ success: boolean; data?: WorkbenchWorkspaceSession; error?: string }> =>
+      ipcRenderer.invoke('workbench:close-workspace', { workspaceRoot, generation }),
     readTree: (workspaceRoot: string): Promise<{ success: boolean; data?: WorkbenchFileNode[]; error?: string }> =>
       ipcRenderer.invoke('workbench:read-tree', { workspaceRoot }),
     readFile: (workspaceRoot: string, relativePath: string): Promise<{ success: boolean; data?: WorkbenchFileInfo; error?: string }> =>
@@ -483,6 +536,11 @@ const api = {
       const handler = (_e: Electron.IpcRendererEvent, payload: { workspaceRoot: string }): void => cb(payload)
       ipcRenderer.on('workbench:fs-changed', handler)
       return () => { ipcRenderer.removeListener('workbench:fs-changed', handler) }
+    },
+    onHtmlContextMenu: (cb: (data: WorkbenchHtmlContextMenuData) => void): (() => void) => {
+      const handler = (_e: Electron.IpcRendererEvent, data: WorkbenchHtmlContextMenuData): void => cb(data)
+      ipcRenderer.on('workbench:html-contextmenu', handler)
+      return () => { ipcRenderer.removeListener('workbench:html-contextmenu', handler) }
     }
   },
   workbenchSelectFolder: (): Promise<{ success: boolean; data?: WorkbenchSelectFolderResult | null; error?: string }> =>
@@ -514,7 +572,41 @@ const api = {
   workbenchFindUnreferencedImages: (workspaceRoot: string, documentRelativePath: string): Promise<{ success: boolean; data?: { unreferenced: string[]; total: number }; error?: string }> =>
     ipcRenderer.invoke('workbench:find-unreferenced-images', { workspaceRoot, documentRelativePath }),
   workbenchDeleteNodes: (workspaceRoot: string, relativePaths: string[]): Promise<{ success: boolean; data?: { deleted: string[]; failed: { path: string; error: string }[] }; error?: string }> =>
-    ipcRenderer.invoke('workbench:delete-nodes', { workspaceRoot, relativePaths })
+    ipcRenderer.invoke('workbench:delete-nodes', { workspaceRoot, relativePaths }),
+
+  annotations: {
+    listDocument: (workspaceRoot: string, relativePath: string): Promise<{ success: boolean; data?: Annotation[]; error?: string }> =>
+      ipcRenderer.invoke('annotations:list-document', { workspaceRoot, relativePath }),
+    listSource: (sourceKey: string): Promise<{ success: boolean; data?: { source: AnnotationSource | null; annotations: Annotation[] }; error?: string }> =>
+      ipcRenderer.invoke('annotations:list-source', { sourceKey }),
+    upsertDocument: (workspaceRoot: string, relativePath: string, annotation: Annotation): Promise<{ success: boolean; data?: Annotation; error?: string }> =>
+      ipcRenderer.invoke('annotations:upsert-document', { workspaceRoot, relativePath, annotation }),
+    upsertSource: (sourceKey: string, source: AnnotationSource, annotation: Annotation): Promise<{ success: boolean; data?: Annotation; error?: string }> =>
+      ipcRenderer.invoke('annotations:upsert-source', { sourceKey, source, annotation }),
+    deleteDocument: (workspaceRoot: string, relativePath: string, id: string): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('annotations:delete-document', { workspaceRoot, relativePath, id }),
+    reconcileDocument: (
+      workspaceRoot: string,
+      relativePath: string,
+      anchors: Array<Pick<Annotation, 'id' | 'quote' | 'anchor'>>
+    ): Promise<{ success: boolean; data?: { updated: number }; error?: string }> =>
+      ipcRenderer.invoke('annotations:reconcile-document', { workspaceRoot, relativePath, anchors }),
+    deleteSource: (sourceKey: string, id: string): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('annotations:delete-source', { sourceKey, id }),
+    captureSource: (input: CaptureSourceInput): Promise<{ success: boolean; data?: CaptureSourceResult; error?: string }> =>
+      ipcRenderer.invoke('annotations:capture-source', input),
+    ensureDocument: (input: EnsureDocumentInput): Promise<{ success: boolean; data?: EnsureDocumentResult; error?: string }> =>
+      ipcRenderer.invoke('annotations:ensure-document', input),
+    captureExcerpt: (input: CaptureExcerptInput): Promise<{ success: boolean; data?: CaptureExcerptResult; error?: string }> =>
+      ipcRenderer.invoke('annotations:capture-excerpt', input),
+    scanConversations: (workspaceRoot: string): Promise<{ success: boolean; data?: ConversationScanResult; error?: string }> =>
+      ipcRenderer.invoke('annotations:scan-conversations', { workspaceRoot }),
+    onChanged: (cb: (event: AnnotationChangedEvent) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, payload: AnnotationChangedEvent): void => cb(payload)
+      ipcRenderer.on('annotations:changed', handler)
+      return () => { ipcRenderer.removeListener('annotations:changed', handler) }
+    }
+  }
 }
 
 // 暴露 API 到渲染进程
@@ -534,3 +626,4 @@ if (process.contextIsolated) {
 
 export type API = typeof api
 export type * from '../shared/types/workbench'
+export type * from '../shared/types/annotations'

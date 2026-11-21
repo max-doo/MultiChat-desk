@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto'
-import { stat } from 'fs/promises'
+import { readFile, stat } from 'fs/promises'
+import path from 'path'
 import type { MindmapTask, NoteConversation, MindmapModifyRequest, MindmapCandidate, MindmapGenerationSession, ConversationMindmap, MindmapSourceContext, MindmapMaterial } from '../../shared/types/notes'
 import { applyMindmapTextEdits, buildMindmapEditPrompt, mergeMindmapCandidate, normalizeMindmapNewlines, parseMindmapModifyResponse, validateMindmapMarkdown } from '../../shared/utils/mindmapEdits'
 import { buildDocumentMindmapPrompt, buildMindmapPrompt, inspectMindmapOutline, isMindmapFileMaterial, MINDMAP_DOCUMENT_LIMIT_BYTES, MINDMAP_INPUT_LIMIT, MINDMAP_TAGS } from '../../shared/utils/mindmap'
@@ -98,7 +99,19 @@ export class MindmapService {
 
   getTask(): MindmapTask | null { return this.task ? { ...this.task } : null }
 
+  /** 工作台记录不再持久化正文；生成上下文从 Markdown 文件读取。 */
+  private async hydrateWorkbenchSource(source: NoteConversation): Promise<NoteConversation> {
+    if (!source.workbench) return source
+    try {
+      const content = await readFile(path.join(source.workbench.workspaceRoot, source.workbench.relativePath), 'utf8')
+      return { ...source, snapshot: content }
+    } catch {
+      throw new Error('工作台文档不可读，请重新打开文档后重试')
+    }
+  }
+
   async start(conversation: NoteConversation, platform: string, additionalRequirements = '', ownerId = 0, material?: MindmapMaterial): Promise<MindmapTask> {
+    conversation = await this.hydrateWorkbenchSource(conversation)
     if (this.task && !TERMINAL_PHASES.includes(this.task.phase)) throw new Error('已有导图正在生成，请等待或取消后再试')
     if (material && isMindmapFileMaterial(material.kind)) {
       if (!material.filePath) throw new Error('文件材料缺少路径，请重新选择文档')
@@ -311,6 +324,7 @@ export class MindmapService {
   }
 
   private async run(task: MindmapTask, source: NoteConversation, cancelSignal: AbortSignal, additionalRequirements: string, edit?: { base: MindmapCandidate; newSession: boolean; includeSourceContext: boolean; loadContext?: (source: NoteConversation) => Promise<MindmapSourceContext> }, material?: MindmapMaterial): Promise<void> {
+    source = await this.hydrateWorkbenchSource(source)
     const key = edit && this.idle ? this.idle.key : sessionKey(task.id)
     const initialized = !!edit && this.idle?.initialized === true
     const ownerId = this.ownerId
