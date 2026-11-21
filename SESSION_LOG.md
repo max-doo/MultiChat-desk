@@ -2,6 +2,14 @@
 
 ## 2026-11-21
 
+### 22:44 | Codex
+
+- done: 按功能模块分 9 批提交工作区全部改动：导图文件化绑定（mindmapFileService+mindmapFile）、导图保存主链路与 IPC、导图面板文件态、文件树/Vault/footer UI、Markdown 链接能力、.gitignore 整段编辑、目录改名 EBUSY 重试、webview 注入 generation 收敛、统一笔记标注设计文档与日志
+- context: 用户要求提交修改，沿用分模块提交偏好
+- decision: 过程产物 .dev-log*.txt 与验收截图 workbench_*.png 不入库，留作 untracked
+- modified:
+  - `见 9 个提交 e44ec5e..3b46995`
+
 ### 22:42 | Codex
 
 - done: 按双根模型修订工作台统一笔记与标注设计：默认会话库、工作台内外捕捉路由、英文 conversations 目录、迁移目标与幂等重试
