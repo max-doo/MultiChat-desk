@@ -11,7 +11,14 @@ import type {
   WorkbenchFileInfo,
   WorkbenchWriteResult,
   WorkbenchSelectFolderResult,
-  WorkbenchNodeType
+  WorkbenchNodeType,
+  WorkspaceTagInfo,
+  GitStatus,
+  GitActionResult,
+  GitignoreEntry,
+  GitignoreSnapshot,
+  GitignoreCategory,
+  GitRemoteInfo
 } from '../shared/types/workbench'
 
 // 文件数据类型
@@ -415,6 +422,8 @@ const api = {
       ipcRenderer.invoke('workbench:delete-node', { workspaceRoot, relativePath }),
     search: (workspaceRoot: string, query: string): Promise<{ success: boolean; data?: WorkbenchSearchResult[]; error?: string }> =>
       ipcRenderer.invoke('workbench:search', { workspaceRoot, query }),
+    getWorkspaceTags: (workspaceRoot: string): Promise<{ success: boolean; data?: WorkspaceTagInfo[]; error?: string }> =>
+      ipcRenderer.invoke('workbench:get-workspace-tags', { workspaceRoot }),
     revealFile: (workspaceRoot: string, relativePath: string): Promise<{ success: boolean; error?: string }> =>
       ipcRenderer.invoke('workbench:reveal-file', { workspaceRoot, relativePath }),
     openInSystem: (workspaceRoot: string, relativePath: string): Promise<{ success: boolean; error?: string }> =>
@@ -435,6 +444,30 @@ const api = {
       ipcRenderer.invoke('workbench:unwatch', { workspaceRoot }),
     statFile: (workspaceRoot: string, relativePath: string): Promise<{ success: boolean; data?: { mtime: number; size: number } | null; error?: string }> =>
       ipcRenderer.invoke('workbench:stat-file', { workspaceRoot, relativePath }),
+    gitStatus: (workspaceRoot: string): Promise<{ success: boolean; data?: GitStatus; error?: string }> =>
+      ipcRenderer.invoke('workbench:git-status', { workspaceRoot }),
+    gitCommit: (workspaceRoot: string, title: string, body?: string, allowLargeFiles?: boolean): Promise<{ success: boolean; data?: GitActionResult; error?: string }> =>
+      ipcRenderer.invoke('workbench:git-commit', { workspaceRoot, title, body, allowLargeFiles }),
+    gitPull: (workspaceRoot: string): Promise<{ success: boolean; data?: GitActionResult; error?: string }> =>
+      ipcRenderer.invoke('workbench:git-pull', { workspaceRoot }),
+    gitMergeUpstream: (workspaceRoot: string): Promise<{ success: boolean; data?: GitActionResult; error?: string }> =>
+      ipcRenderer.invoke('workbench:git-merge-upstream', { workspaceRoot }),
+    gitAbortMerge: (workspaceRoot: string): Promise<{ success: boolean; data?: GitActionResult; error?: string }> =>
+      ipcRenderer.invoke('workbench:git-abort-merge', { workspaceRoot }),
+    gitPush: (workspaceRoot: string, setUpstream?: boolean): Promise<{ success: boolean; data?: GitActionResult; error?: string }> =>
+      ipcRenderer.invoke('workbench:git-push', { workspaceRoot, setUpstream }),
+    gitInit: (workspaceRoot: string): Promise<{ success: boolean; data?: GitActionResult; error?: string }> =>
+      ipcRenderer.invoke('workbench:git-init', { workspaceRoot }),
+    gitRemotes: (workspaceRoot: string): Promise<{ success: boolean; data?: GitRemoteInfo[]; error?: string }> =>
+      ipcRenderer.invoke('workbench:git-remotes', { workspaceRoot }),
+    gitSetRemote: (workspaceRoot: string, url: string, name?: string): Promise<{ success: boolean; data?: GitActionResult; error?: string }> =>
+      ipcRenderer.invoke('workbench:git-set-remote', { workspaceRoot, url, name }),
+    readGitignore: (workspaceRoot: string): Promise<{ success: boolean; data?: GitignoreSnapshot; error?: string }> =>
+      ipcRenderer.invoke('workbench:gitignore-read', { workspaceRoot }),
+    writeGitignore: (workspaceRoot: string, entries: GitignoreEntry[]): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('workbench:gitignore-write', { workspaceRoot, entries }),
+    gitignoreCategories: (): Promise<{ success: boolean; data?: GitignoreCategory[]; error?: string }> =>
+      ipcRenderer.invoke('workbench:gitignore-categories'),
     mindmapSource: (workspaceRoot: string, relativePath: string, title?: string, create?: boolean, content?: string): Promise<{ success: boolean; data?: NoteConversation | null; error?: string }> =>
       ipcRenderer.invoke('workbench:mindmap-source', { workspaceRoot, relativePath, title, create, content }),
     reconcileMindmaps: (workspaceRoot: string, index: Array<{ path: string; size?: number; mtime?: number }>): Promise<{ success: boolean; data?: { deleted: number; relinked: number; relinks: Array<{ from: string; to: string }> }; error?: string }> =>
@@ -463,6 +496,8 @@ const api = {
     ipcRenderer.invoke('workbench:delete-node', { workspaceRoot, relativePath }),
   workbenchSearch: (workspaceRoot: string, query: string): Promise<{ success: boolean; data?: WorkbenchSearchResult[]; error?: string }> =>
     ipcRenderer.invoke('workbench:search', { workspaceRoot, query }),
+  workbenchGetWorkspaceTags: (workspaceRoot: string): Promise<{ success: boolean; data?: WorkspaceTagInfo[]; error?: string }> =>
+    ipcRenderer.invoke('workbench:get-workspace-tags', { workspaceRoot }),
   workbenchRevealFile: (workspaceRoot: string, relativePath: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('workbench:reveal-file', { workspaceRoot, relativePath }),
   workbenchOpenInSystem: (workspaceRoot: string, relativePath: string): Promise<{ success: boolean; error?: string }> =>

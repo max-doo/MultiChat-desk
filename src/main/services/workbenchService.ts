@@ -26,16 +26,31 @@ import {
   type WorkbenchWriteResult,
   type WorkbenchSelectFolderResult,
   type WorkbenchNodeType,
+  type WorkspaceTagInfo,
   getFileCategory,
   MARKDOWN_EXTENSIONS,
   TEXT_EXTENSIONS,
   CODE_EXTENSIONS
 } from '../../shared/types/workbench'
+import {
+  parseTagSearchQuery,
+  matchTag,
+  extractFrontmatterTags,
+  extractInlineTags
+} from '../../shared/utils/workbenchTags'
+import { recordWorkspaceMove } from './gitService'
+import { DEFAULT_GITIGNORE } from './gitignoreService'
 
 // 默认忽略的系统文件和特定目录
 const IGNORED_NAMES = new Set([
   '.git',
   'node_modules',
+  '__pycache__',
+  '.venv',
+  'venv',
+  '.pytest_cache',
+  '.mypy_cache',
+  '.ruff_cache',
   '.obsidian',
   '.trash',
   '.vscode',
@@ -61,6 +76,31 @@ const IMAGE_MIME_TYPES: Record<string, string> = {
 }
 
 const ASSETS_DIR_NAME = 'assets'
+
+/**
+ * 为新工作区补一份常规 .gitignore。
+ * 已存在则完全不动：用户可能已按自己的仓库结构维护过规则。
+ */
+async function ensureDefaultGitignore(workspaceRoot: string): Promise<void> {
+  const target = path.join(workspaceRoot, '.gitignore')
+  try {
+    await stat(target)
+    return
+  } catch {
+    // 不存在才创建
+  }
+  await fsWriteFile(target, DEFAULT_GITIGNORE, 'utf-8')
+}
+
+/** 目录是否为空（忽略系统生成文件）；用于判断是否属于“新工作区” */
+async function isDirectoryEmpty(dir: string): Promise<boolean> {
+  try {
+    const entries = await readdir(dir)
+    return entries.every(name => name === '.DS_Store' || name === 'Thumbs.db' || name === 'desktop.ini')
+  } catch {
+    return false
+  }
+}
 
 /**
  * 生成 Obsidian 风格的粘贴图片名：`Pasted image YYYYMMDD-HHmmss`
@@ -133,7 +173,7 @@ function hasControlCharacters(str: string): boolean {
  * 判断是否应忽略该目录或文件节点
  */
 function isIgnoredName(name: string): boolean {
-  if (name.startsWith('.') || IGNORED_NAMES.has(name)) {
+  if (name.startsWith('.') || IGNORED_NAMES.has(name) || name.endsWith('.egg-info')) {
     return true
   }
   return false
@@ -321,6 +361,12 @@ function normalizeWatchKey(workspaceRoot: string): string {
   return process.platform === 'win32' ? resolved.toLowerCase() : resolved
 }
 
+/** 判断事件路径是否落在工作区的 .git 目录内（递归监听会报告相对根路径） */
+function isGitInternalPath(relativeOrName: string): boolean {
+  const normalized = relativeOrName.split('\\').join('/')
+  return normalized === '.git' || normalized.startsWith('.git/')
+}
+
 /**
  * 监听工作区目录的外部变更；变更去抖后向所有窗口广播 `workbench:fs-changed`。
  * 重复调用同一 root 是幂等的。
@@ -335,7 +381,10 @@ export function watchWorkspace(workspaceRoot: string): void {
   try {
     // recursive: Windows/macOS 原生递归；Linux (Electron ≥30, inotify) 亦支持。
     // 目录不存在或被删时 fs.watch 直接抛错，交给外层兜底
-    watcher = fs.watch(resolvedRoot, { recursive: true, persistent: false }, () => {
+    watcher = fs.watch(resolvedRoot, { recursive: true, persistent: false }, (_eventType, fileName) => {
+      // .git 内部变化不代表工作区文件变化：git status 每次都会重写 .git/index，
+      // 不排除会形成「刷新状态 → 索引变化 → 再刷新」的自激循环。
+      if (fileName && isGitInternalPath(String(fileName))) return
       const state = workbenchWatchers.get(key)
       if (!state) return
       if (state.debounceTimer) clearTimeout(state.debounceTimer)
@@ -415,6 +464,10 @@ export async function selectFolder(browserWindow?: BrowserWindow | null): Promis
   }
 
   const selectedPath = path.resolve(result.filePaths[0])
+  // 只给空目录补默认 .gitignore；已有内容的目录可能属于其他项目，不擅自新增文件
+  if (await isDirectoryEmpty(selectedPath)) {
+    await ensureDefaultGitignore(selectedPath).catch(() => undefined)
+  }
   return {
     path: selectedPath,
     name: path.basename(selectedPath)
@@ -473,6 +526,7 @@ export async function ensureDefaultWorkspace(
   } catch {
     await fsWriteFile(welcomePath, buildWelcomeNoteContent(), 'utf-8')
   }
+  await ensureDefaultGitignore(defaultPath).catch(() => undefined)
 
   store.set(DEFAULT_WORKSPACE_STORE_KEY, defaultPath)
   authorizeWorkspaceRoot(defaultPath)
@@ -854,13 +908,28 @@ export async function renameNode(
   await mkdir(path.dirname(safeNewPath), { recursive: true })
   await rename(safeOldPath, safeNewPath)
 
+  const moves = [{
+    oldRelativePath: toPosixRelativePath(path.resolve(workspaceRoot), safeOldPath),
+    newRelativePath: toPosixRelativePath(path.resolve(workspaceRoot), safeNewPath)
+  }]
+
   // 文档级联动：.md 重命名/移动时，同步迁移 assets/<文件名>/ 附件目录
   if (
     MARKDOWN_EXTENSIONS.has(path.extname(safeOldPath).toLowerCase()) &&
     MARKDOWN_EXTENSIONS.has(path.extname(safeNewPath).toLowerCase())
   ) {
-    await syncAssetsOnRename(safeOldPath, safeNewPath)
+    const movedAssets = await syncAssetsOnRename(safeOldPath, safeNewPath)
+    if (movedAssets) {
+      moves.push({
+        oldRelativePath: toPosixRelativePath(path.resolve(workspaceRoot), movedAssets.oldPath),
+        newRelativePath: toPosixRelativePath(path.resolve(workspaceRoot), movedAssets.newPath)
+      })
+    }
   }
+
+  // 已跟踪文件的移动写入暂存区，避免在 Git 里呈现为删除 + 新增；
+  // 未跟踪文件、未安装 Git 或不是仓库时静默跳过，不影响磁盘结果。
+  await recordWorkspaceMove(workspaceRoot, moves)
 }
 
 /**
@@ -868,13 +937,17 @@ export async function renameNode(
  * - 附件目录无条件迁移（跨目录移动时目录名不变也要搬）
  * - 文档名变化且同目录时，重写 markdown 内 `assets/旧名/` → `assets/新名/`
  */
-async function syncAssetsOnRename(safeOldPath: string, safeNewPath: string): Promise<void> {
+async function syncAssetsOnRename(
+  safeOldPath: string,
+  safeNewPath: string
+): Promise<{ oldPath: string; newPath: string } | null> {
   const oldName = path.basename(safeOldPath)
   const newName = path.basename(safeNewPath)
   const oldAssetsDir = path.join(path.dirname(safeOldPath), ASSETS_DIR_NAME, oldName)
   const newAssetsDir = path.join(path.dirname(safeNewPath), ASSETS_DIR_NAME, newName)
 
   // 1. 迁移附件目录（若存在且目标不冲突）
+  let movedAssets: { oldPath: string; newPath: string } | null = null
   if (oldAssetsDir !== newAssetsDir) {
     let oldExists = false
     try {
@@ -893,6 +966,7 @@ async function syncAssetsOnRename(safeOldPath: string, safeNewPath: string): Pro
         try {
           await mkdir(path.dirname(newAssetsDir), { recursive: true })
           await rename(oldAssetsDir, newAssetsDir)
+          movedAssets = { oldPath: oldAssetsDir, newPath: newAssetsDir }
         } catch {
           console.warn('[Workbench] 附件目录迁移失败:', oldAssetsDir, '->', newAssetsDir)
         }
@@ -912,6 +986,8 @@ async function syncAssetsOnRename(safeOldPath: string, safeNewPath: string): Pro
       console.warn('[Workbench] 文档内容路径替换失败:', safeNewPath)
     }
   }
+
+  return movedAssets
 }
 
 /**
@@ -1269,7 +1345,81 @@ export async function openFileInSystem(workspaceRoot: string, relativePath: stri
 }
 
 /**
- * 工作区全文搜索
+ * 扫描工作区所有 Markdown 文件中的标签（包括 Frontmatter 与正文行内标签）
+ * 返回聚合去重后的标签及其出现频次，按频次降序、字母升序排列
+ */
+export async function getWorkspaceTags(workspaceRoot: string): Promise<WorkspaceTagInfo[]> {
+  const safeRoot = await assertSafePath(workspaceRoot, '')
+  const tagCounts = new Map<string, number>()
+  const startTime = Date.now()
+  const MAX_SCAN_TIME_MS = 3000
+
+  async function scanDir(dir: string): Promise<void> {
+    if (Date.now() - startTime > MAX_SCAN_TIME_MS) return
+    let entries
+    try {
+      entries = await readdir(dir, { withFileTypes: true })
+    } catch {
+      return
+    }
+
+    for (const entry of entries) {
+      if (Date.now() - startTime > MAX_SCAN_TIME_MS) break
+      if (isIgnoredName(entry.name)) continue
+      const fullEntryPath = path.join(dir, entry.name)
+
+      try {
+        const safeEntryPath = await assertSafePath(safeRoot, path.relative(safeRoot, fullEntryPath))
+        const entryStat = await stat(safeEntryPath)
+
+        if (entryStat.isDirectory()) {
+          await scanDir(safeEntryPath)
+        } else {
+          const ext = path.extname(entry.name).toLowerCase()
+          if (!MARKDOWN_EXTENSIONS.has(ext) || entryStat.size > MAX_SEARCH_FILE_SIZE) {
+            continue
+          }
+
+          const fileContent = await fsReadFile(safeEntryPath, 'utf-8')
+          const fileTags = new Set<string>()
+
+          // 1. 提取 Frontmatter 标签
+          const fm = extractFrontmatterTags(fileContent)
+          for (const t of fm.tags) {
+            fileTags.add(t)
+          }
+
+          // 2. 提取正文行内标签
+          const inlines = extractInlineTags(fileContent)
+          for (const item of inlines) {
+            fileTags.add(item.tag)
+          }
+
+          // 汇总该文件引用的所有唯一标签频次
+          for (const tag of fileTags) {
+            tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1)
+          }
+        }
+      } catch {
+        continue
+      }
+    }
+  }
+
+  await scanDir(safeRoot)
+
+  const result: WorkspaceTagInfo[] = Array.from(tagCounts.entries()).map(([tag, count]) => ({
+    tag,
+    count
+  }))
+
+  result.sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag))
+  return result
+}
+
+/**
+ * 工作区全文与标签搜索
+ * - 支持标签语法检索：`tag:#xxx`、`tag:xxx`、`#xxx`，自动支持父子层级嵌套继承匹配（如 parent 命中 parent/child）
  * - 检索 .md, .markdown, .txt 且大小 < 2MB 的文件
  * - 逐行匹配，截取前后各 30 个字符作为上下文预览
  * - 最多返回 100 条匹配结果
@@ -1284,6 +1434,7 @@ export async function search(workspaceRoot: string, query: string): Promise<Work
   const safeRoot = await assertSafePath(workspaceRoot, '')
   const startTime = Date.now()
   const lowerQuery = trimmed.toLowerCase()
+  const tagQueryInfo = parseTagSearchQuery(trimmed)
   const results: WorkbenchSearchResult[] = []
 
   async function searchDir(dir: string): Promise<void> {
@@ -1324,7 +1475,51 @@ export async function search(workspaceRoot: string, query: string): Promise<Work
           const fileContent = await fsReadFile(safeEntryPath, 'utf-8')
           const lines = fileContent.split(/\r?\n/)
           const relPosix = toPosixRelativePath(safeRoot, safeEntryPath)
+          const isMarkdown = MARKDOWN_EXTENSIONS.has(ext)
 
+          // 1. 如果为标签搜索语法，优先做标签维度精准匹配（Frontmatter + 正文行内标签）
+          if (tagQueryInfo.isTagQuery && isMarkdown) {
+            // Frontmatter 标签匹配
+            const fm = extractFrontmatterTags(fileContent)
+            for (const ft of fm.tags) {
+              if (matchTag(ft, tagQueryInfo.tagTerm)) {
+                const lineNum = fm.lineMap.get(ft.toLowerCase()) || 1
+                const lineContent = (lines[lineNum - 1] || `tags: ${ft}`).trim()
+                results.push({
+                  filePath: relPosix,
+                  fileName: entry.name,
+                  line: lineNum,
+                  content: lineContent,
+                  preview: `标签: ${ft}`
+                })
+                if (results.length >= MAX_SEARCH_RESULTS) break
+              }
+            }
+
+            // 正文行内标签匹配
+            const inlines = extractInlineTags(fileContent)
+            for (const it of inlines) {
+              if (results.length >= MAX_SEARCH_RESULTS) break
+              if (matchTag(it.tag, tagQueryInfo.tagTerm)) {
+                const rawLine = lines[it.line - 1] || ''
+                const tagIdx = rawLine.indexOf(it.rawMatch)
+                const start = Math.max(0, tagIdx - 25)
+                const end = Math.min(rawLine.length, (tagIdx >= 0 ? tagIdx + it.rawMatch.length : 0) + 25)
+                const snippet = rawLine.slice(start, end).trim()
+                const preview = (start > 0 ? '...' : '') + snippet + (end < rawLine.length ? '...' : '')
+                results.push({
+                  filePath: relPosix,
+                  fileName: entry.name,
+                  line: it.line,
+                  content: rawLine.trim(),
+                  preview: preview || `标签: #${it.tag}`
+                })
+              }
+            }
+            continue
+          }
+
+          // 2. 普通文本内容全文行匹配
           for (let i = 0; i < lines.length; i++) {
             if (results.length >= MAX_SEARCH_RESULTS || Date.now() - startTime > MAX_SEARCH_TIME_MS) {
               break

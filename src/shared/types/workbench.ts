@@ -33,6 +33,114 @@ export interface WorkbenchSearchResult {
   preview: string         // 前后上下文摘要
 }
 
+/** 工作区标签聚合信息（支持标签自动补全与防泛滥） */
+export interface WorkspaceTagInfo {
+  tag: string             // 标签名称（不含 #）
+  count: number           // 引用频次
+}
+
+/** 工作区版本管理（Git）状态；主进程解析 porcelain v2 后提供给界面 */
+export interface GitFileChange {
+  path: string
+  /** 重命名/复制前的路径 */
+  oldPath?: string
+  /** 暂存区相对 HEAD 的变化；未跟踪文件为 null */
+  staged: 'added' | 'modified' | 'deleted' | 'renamed' | 'copied' | 'typechange' | null
+  /** 工作区相对暂存区的变化 */
+  unstaged: 'modified' | 'deleted' | 'typechange' | null
+  untracked: boolean
+  conflicted: boolean
+}
+
+export interface GitStatus {
+  /** 未安装 Git、不是仓库或命令失败时的说明；available 为 false 表示不可用 */
+  error: string | null
+  available: boolean
+  isRepository: boolean
+  /** 仓库根目录；工作区可能是仓库子目录 */
+  repoRoot: string | null
+  branch: string | null
+  detached: boolean
+  upstream: string | null
+  ahead: number
+  behind: number
+  /** 仓库尚无任何提交 */
+  unborn: boolean
+  /** 工作区内的改动总数（含未跟踪）；超过展示上限时仍然准确 */
+  changeCount: number
+  /** 已暂存的改动数 */
+  stagedCount: number
+  /** 未暂存（含未跟踪）的改动数 */
+  unstagedCount: number
+  /** 未解决的冲突数 */
+  conflictCount: number
+  /** 进行中的合并（合并冲突后需要用户撤销） */
+  merging: boolean
+  /** 进行中的变基（本应用不产生，可能来自终端操作） */
+  rebasing: boolean
+  changes: GitFileChange[]
+  changesTruncated: boolean
+  /** 会阻止拉取/合并的已跟踪文件改动数；超过展示上限时仍然准确 */
+  blockingChangeCount: number
+  /** 是否配置了远程 */
+  hasRemote: boolean
+  /** 用于推送的远程名；优先 origin，没有则取第一个 */
+  remoteName: string | null
+  /** 未跟踪且超过单文件建议体积的文件（提交前提示用） */
+  largeUntracked: Array<{ path: string; size: number }>
+}
+
+export type GitActionFailure =
+  | 'not-installed'
+  | 'not-repository'
+  | 'dirty'
+  | 'diverged'
+  | 'conflict'
+  | 'large-files'
+  | 'no-upstream'
+  | 'rejected'
+  | 'detached'
+  | 'failed'
+
+export interface GitActionResult {
+  success: boolean
+  failure?: GitActionFailure
+  error?: string
+  /** 面向用户的下一步说明 */
+  hint?: string
+}
+
+export interface GitignoreEntry {
+  /** 原始规则文本，例如 `*.zip` */
+  pattern: string
+  /** 该规则上方紧邻的注释（含 # 前缀） */
+  comment: string | null
+}
+
+export interface GitignoreSnapshot {
+  exists: boolean
+  entries: GitignoreEntry[]
+}
+
+/** 忽略规则分组：按文件类型归类，用户自行勾选要忽略的组 */
+export interface GitignoreCategory {
+  id: string
+  label: string
+  description: string
+  /** 默认勾选：几乎不会与知识库正文冲突的通用项 */
+  recommended: boolean
+  patterns: string[]
+}
+
+/** 仓库远程地址；只读展示，凭据由系统 Git 凭据管理器保存 */
+export interface GitRemoteInfo {
+  name: string
+  /** 已脱敏的地址，可直接展示 */
+  url: string
+  /** 原地址含凭据；修改时必须重新输入，避免把脱敏值写回仓库 */
+  redacted: boolean
+}
+
 export interface WorkbenchFileInfo {
   content: string
   mtime: number

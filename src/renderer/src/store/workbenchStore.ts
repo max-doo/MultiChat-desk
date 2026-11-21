@@ -3,6 +3,9 @@ import {
   type WorkbenchFileNode,
   type WorkbenchSearchResult,
   type WorkbenchFileCategory,
+  type WorkspaceTagInfo,
+  type GitStatus,
+  type GitActionResult,
   getFileCategory,
   MARKDOWN_EXTENSIONS
 } from '../../../shared/types/workbench'
@@ -20,7 +23,7 @@ export interface WorkbenchSortPreference {
   order: WorkbenchSortOrder
 }
 
-const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n/
+const FRONTMATTER_RE = /^---\s*\r?\n([\s\S]*?)\r?\n---\s*(?:\r?\n|$)/
 
 // 右侧 AI 侧边栏宽度限制：随窗口宽度分档，避免小窗下侧边栏过宽挤压编辑器
 const RIGHT_PANE_MIN = 300
@@ -96,6 +99,9 @@ interface WorkbenchStoreState {
   isSearching: boolean
   searchResults: WorkbenchSearchResult[]
 
+  // 工作区标签集合（用于标签自动补全与防泛滥）
+  workspaceTags: WorkspaceTagInfo[]
+
   // 文件树排序偏好
   fileSort: WorkbenchSortPreference
 
@@ -116,6 +122,12 @@ interface WorkbenchStoreState {
 
   // 工作区文件拖拽态
   draggingNodes: WorkbenchFileNode[] | null
+
+  // 版本管理
+  gitStatus: GitStatus | null
+  isGitLoading: boolean
+  isGitBusy: boolean
+  gitNotice: { tone: 'success' | 'info' | 'warning' | 'error'; message: string } | null
 }
 
 interface WorkbenchStoreActions {
@@ -136,6 +148,7 @@ interface WorkbenchStoreActions {
   createFolder: (parentRelativeDir: string, folderName: string) => Promise<boolean>
   renameNode: (oldRelativePath: string, newRelativePath: string) => Promise<boolean>
   moveNode: (sourceRelativePath: string, targetDirRelative: string) => Promise<boolean>
+  moveNodes: (sourceRelativePaths: string[], targetDirRelative: string) => Promise<boolean>
   deleteNode: (relativePath: string) => Promise<boolean>
   insertReplyIntoActiveMarkdown: (
     replyMd: string,
@@ -153,6 +166,7 @@ interface WorkbenchStoreActions {
   handleExternalFsChanged: (workspaceRoot: string) => Promise<void>
   searchFiles: (query: string) => void
   clearSearch: () => void
+  loadWorkspaceTags: () => Promise<void>
   setFileSort: (pref: WorkbenchSortPreference) => void
   setLeftPaneWidth: (width: number) => void
   setRightPaneWidth: (width: number) => void
@@ -167,6 +181,17 @@ interface WorkbenchStoreActions {
   askAi: (text: string, actionType: WorkbenchAiAction) => void
   clearError: () => void
   setDraggingNodes: (nodes: WorkbenchFileNode[] | null) => void
+
+  refreshGitStatus: (options?: { showLoading?: boolean }) => Promise<void>
+  gitCommit: (title: string, body?: string, allowLargeFiles?: boolean) => Promise<GitActionResult>
+  gitPull: () => Promise<GitActionResult>
+  gitMergeUpstream: () => Promise<GitActionResult>
+  gitAbortMerge: () => Promise<GitActionResult>
+  gitPush: (setUpstream?: boolean) => Promise<GitActionResult>
+  gitInit: () => Promise<GitActionResult>
+  gitSetRemote: (url: string, name?: string) => Promise<GitActionResult>
+  setGitNotice: (notice: WorkbenchStoreState['gitNotice']) => void
+  clearGitNotice: () => void
 }
 
 export type WorkbenchStore = WorkbenchStoreState & WorkbenchStoreActions
@@ -176,6 +201,10 @@ let autoSaveTimer: ReturnType<typeof setTimeout> | null = null
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 let currentSearchSeq = 0
 let fsWatcherBound = false
+let gitStatusSeq = 0
+/** 同一时刻只保留一个在途的状态请求：连续触发时合并为最后一次，避免 Git 命令排队拖住刷新图标 */
+let gitStatusInFlight = false
+let gitStatusPending = false
 /**
  * 最近一次对账发现的改名映射（旧路径 → 新路径）。
  * 应用关闭期间的外部改名只在重新载入时对账一次，恢复上次打开的文档要能跟着走。
@@ -294,6 +323,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   searchQuery: '',
   isSearching: false,
   searchResults: [],
+  workspaceTags: [],
 
   fileSort: { key: 'name', order: 'asc' },
 
@@ -308,6 +338,10 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
 
   error: null,
   draggingNodes: null,
+  gitStatus: null,
+  isGitLoading: false,
+  isGitBusy: false,
+  gitNotice: null,
 
   initWorkbench: async () => {
     if (get().isInitialized) return
@@ -317,6 +351,10 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         fsWatcherBound = true
         window.api.workbench.onFsChanged((payload) => {
           void get().handleExternalFsChanged(payload.workspaceRoot)
+        })
+        // 用户可能在终端或其他编辑器里改动过仓库：回到窗口时同步一次版本状态
+        window.addEventListener('focus', () => {
+          if (get().workspacePath) void get().refreshGitStatus()
         })
       }
       const [
@@ -460,7 +498,9 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     void window.api.storeSet('workbench_lastWorkspacePath', dirPath)
     void window.api.storeSet('workbench_recentWorkspaces', nextRecent)
     void window.api.workbench.watch(dirPath)
+    set({ gitStatus: null, gitNotice: null })
     await get().loadFileTree()
+    void get().refreshGitStatus()
   },
 
   closeWorkspace: async () => {
@@ -492,7 +532,9 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       isDirty: false,
       saveStatus: 'saved',
       searchQuery: '',
-      searchResults: []
+      searchResults: [],
+      gitStatus: null,
+      gitNotice: null
     })
     void window.api.storeDelete('workbench_lastWorkspacePath')
     void window.api.storeDelete('workbench_lastActiveFilePath')
@@ -518,9 +560,12 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       const res = await window.api.workbench.readTree(workspacePath)
       if (res.success && res.data) {
         set({ fileTree: res.data, isLoadingTree: false })
+        void get().loadWorkspaceTags()
         // 应用关闭期间的外部删除/改名，在重新载入工作区时补齐。
         // 等对账返回再结束载入，恢复上次打开的文档才能拿到改名映射。
         await reconcileMindmaps(workspacePath, res.data)
+        // 文件树变化后同步版本管理状态：外部改动、拉取、移动都会反映到这里
+        void get().refreshGitStatus()
       } else {
         set({
           isLoadingTree: false,
@@ -665,6 +710,9 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
           conflictDiskContent: null,
           activeFileSize: res.data.size
         })
+        if (activeFileCategory === 'markdown') {
+          void get().loadWorkspaceTags()
+        }
         return true
       } else {
         set({
@@ -740,6 +788,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       const res = await window.api.workbench.createNode(workspacePath, relPath, 'file')
       if (res.success) {
         await get().loadFileTree()
+        void get().refreshGitStatus()
         await get().openFile(relPath)
         return relPath
       } else {
@@ -770,6 +819,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         next.add(relPath)
         set({ expandedFolderIds: next })
         await get().loadFileTree()
+        void get().refreshGitStatus()
         return true
       } else {
         set({ error: res.error || '创建文件夹失败' })
@@ -815,6 +865,8 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
           void window.api.storeSet('workbench_lastActiveFilePath', updatedActive)
         }
         await get().loadFileTree()
+        // 移动/重命名已在主进程写入暂存区，这里刷新以显示新的重命名条目
+        void get().refreshGitStatus()
         return true
       } else {
         set({ error: res.error || '重命名失败' })
@@ -852,6 +904,28 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
 
     const newPath = normalized ? `${normalized}/${sourceName}` : sourceName
     return get().renameNode(sourceRelativePath, newPath)
+  },
+
+  /**
+   * 多选拖拽：按顺序逐个移动，父目录先移则子项跳过。
+   * 任一失败会保留已成功的部分并提示，避免整组操作静默丢失。
+   */
+  moveNodes: async (sourceRelativePaths: string[], targetDirRelative: string) => {
+    const { workspacePath } = get()
+    if (!workspacePath || !sourceRelativePaths.length) return false
+    const ordered = [...sourceRelativePaths].sort((a, b) => a.length - b.length)
+    const moved: string[] = []
+    for (const source of ordered) {
+      // 父目录已移动时，其子项路径已失效，跳过避免误报
+      if (moved.some(parent => source.startsWith(`${parent}/`))) continue
+      const ok = await get().moveNode(source, targetDirRelative)
+      if (!ok) {
+        if (moved.length) set({ error: `${moved.length} 项已移动，其余移动失败` })
+        return false
+      }
+      moved.push(source)
+    }
+    return true
   },
 
   deleteNode: async (relativePath: string) => {
@@ -923,6 +997,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
           void window.api.storeDelete('workbench_lastActiveFilePath')
         }
         await get().loadFileTree()
+        void get().refreshGitStatus()
         // 当前文件被删时自动切换到排序上的相邻文件；无任何文件则停在空状态
         if (nextFilePath) {
           const opened = await get().openFile(nextFilePath)
@@ -1050,6 +1125,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     // createFile 已 openFile，同步最新内容与保存态
     set({ activeFileContent: content, isDirty: false, saveStatus: 'saved' })
     await get().loadFileTree()
+    void get().refreshGitStatus()
     return { success: true }
   },
 
@@ -1095,6 +1171,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       const res = await window.api.workbench.deleteNodes(workspacePath, relativePaths)
       if (res.success && res.data) {
         await get().loadFileTree()
+        void get().refreshGitStatus()
         return res.data.failed.length === 0
       }
       return false
@@ -1114,6 +1191,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       const res = await window.api.workbench.importExternalPaths(workspacePath, targetDirRelative, sourceAbsolutePaths)
       if (res.success && res.data) {
         await get().loadFileTree()
+        void get().refreshGitStatus()
         if (res.data.failed.length > 0) {
           const first = res.data.failed[0]
           set({ error: `${res.data.failed.length} 项导入失败（${first.path}: ${first.error}）` })
@@ -1146,6 +1224,8 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
 
     const res = await window.api.workbench.readTree(workspacePath)
     if (!res.success || !res.data) return
+    // 外部改动（终端、其他编辑器）同样会改变 Git 状态
+    void get().refreshGitStatus()
     const nextTree = res.data
     const previousTree = get().fileTree
     set({ fileTree: nextTree })
@@ -1272,6 +1352,22 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     set({ searchQuery: '', isSearching: false, searchResults: [] })
   },
 
+  loadWorkspaceTags: async () => {
+    const { workspacePath } = get()
+    if (!workspacePath) {
+      set({ workspaceTags: [] })
+      return
+    }
+    try {
+      const res = await window.api.workbench.getWorkspaceTags(workspacePath)
+      if (res.success && res.data) {
+        set({ workspaceTags: res.data })
+      }
+    } catch (err) {
+      console.error('[workbenchStore] loadWorkspaceTags failed:', err)
+    }
+  },
+
   setFileSort: (pref: WorkbenchSortPreference) => {
     set({ fileSort: pref })
     void window.api.storeSet('workbench_fileSort', pref)
@@ -1363,7 +1459,252 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
 
   clearError: () => set({ error: null }),
 
-  setDraggingNodes: (nodes) => set({ draggingNodes: nodes })
+  setDraggingNodes: (nodes) => set({ draggingNodes: nodes }),
+
+  refreshGitStatus: async (options) => {
+    const { workspacePath } = get()
+    if (!workspacePath) {
+      gitStatusPending = false
+      set({ gitStatus: null, isGitLoading: false })
+      return
+    }
+    // 已有请求在途时只记一次待刷新，等它结束后再取最新状态。
+    // 文件监听、自动保存和聚焦会密集触发；若每个请求都排队，Git 读盘会持续数秒，
+    // 刷新按钮看起来一直在转，结果也可能滞后。
+    if (gitStatusInFlight) {
+      gitStatusPending = true
+      return
+    }
+    // 后台触发（保存、文件监听、聚焦）不切换加载态，避免图标反复闪；
+    // 首次读取或用户手动刷新才显示 loading。
+    const showLoading = options?.showLoading ?? !get().gitStatus
+    if (showLoading) set({ isGitLoading: true })
+    // 工作台未显示时不必读盘；重新可见时由聚焦事件补一次刷新
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+      if (showLoading) set({ isGitLoading: false })
+      return
+    }
+
+    // 主进程内部按工作区串行执行 Git 命令，这里只丢弃过期结果：
+    // 连续触发时以最后一次请求为准，避免旧状态覆盖新状态。
+    gitStatusInFlight = true
+    const seq = ++gitStatusSeq
+    try {
+      do {
+        gitStatusPending = false
+        const res = await window.api.workbench.gitStatus(workspacePath)
+        // 请求期间切换了工作区：丢弃过期结果，避免把上一个仓库的状态显示到新工作区
+        if (get().workspacePath !== workspacePath || seq !== gitStatusSeq) break
+        if (res.success && res.data) {
+          set({ gitStatus: res.data })
+        }
+      } while (gitStatusPending)
+    } catch {
+      // 读取失败保留上一次状态，只结束加载态
+    } finally {
+      gitStatusInFlight = false
+      if (get().workspacePath === workspacePath && seq === gitStatusSeq) {
+        set({ isGitLoading: false })
+      } else if (gitStatusPending) {
+        // 旧请求结束前新工作区的刷新被合并进来了，不能随旧请求一起丢掉
+        gitStatusPending = false
+        void get().refreshGitStatus()
+      }
+    }
+  },
+
+  /**
+   * 提交前先落盘当前编辑内容：否则自动保存会在提交后用旧内容覆盖，出现“提交了但文件又变脏”。
+   * 只提交工作区范围，未暂存的改动会一并纳入，与界面上“全部改动”的表述一致。
+   */
+  gitCommit: async (title, body, allowLargeFiles) => {
+    const { workspacePath, isDirty } = get()
+    if (!workspacePath) return { success: false, failure: 'not-repository', error: '未打开工作区' }
+    if (get().isGitBusy) return { success: false, failure: 'failed', error: '正在执行其他操作' }
+    set({ isGitBusy: true })
+    try {
+      if (isDirty) {
+        const saved = await get().saveActiveFile()
+        if (!saved) return { success: false, failure: 'failed', error: '当前文件保存失败，未提交' }
+      }
+      const res = await window.api.workbench.gitCommit(workspacePath, title, body, allowLargeFiles)
+      const result = res.success && res.data ? res.data : { success: false, failure: 'failed' as const, error: res.error || '提交失败' }
+      await get().refreshGitStatus()
+      if (result.success) {
+        set({ gitNotice: { tone: 'success', message: '已提交' } })
+      } else {
+        set({ gitNotice: { tone: 'error', message: result.error || '提交失败' } })
+      }
+      return result
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      set({ gitNotice: { tone: 'error', message } })
+      return { success: false, failure: 'failed', error: message }
+    } finally {
+      set({ isGitBusy: false })
+    }
+  },
+
+  gitPull: async () => {
+    const { workspacePath } = get()
+    if (!workspacePath) return { success: false, failure: 'not-repository', error: '未打开工作区' }
+    if (get().isGitBusy) return { success: false, failure: 'failed', error: '正在执行其他操作' }
+    set({ isGitBusy: true })
+    try {
+      const res = await window.api.workbench.gitPull(workspacePath)
+      const result = res.success && res.data ? res.data : { success: false, failure: 'failed' as const, error: res.error || '拉取失败' }
+      if (result.success) {
+        // 远程改动可能重命名/删除了当前打开的文档，先重扫文件树再按磁盘状态对齐编辑器
+        await get().loadFileTree()
+        await get().handleExternalFsChanged(workspacePath)
+      }
+      await get().refreshGitStatus()
+      set({
+        gitNotice: result.success
+          ? { tone: 'success', message: result.hint ?? '已拉取远程改动' }
+          : { tone: 'warning', message: result.hint ? `${result.error}：${result.hint}` : result.error || '拉取失败' }
+      })
+      return result
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      set({ gitNotice: { tone: 'error', message } })
+      return { success: false, failure: 'failed', error: message }
+    } finally {
+      set({ isGitBusy: false })
+    }
+  },
+
+  gitMergeUpstream: async () => {
+    const { workspacePath } = get()
+    if (!workspacePath) return { success: false, failure: 'not-repository', error: '未打开工作区' }
+    if (get().isGitBusy) return { success: false, failure: 'failed', error: '正在执行其他操作' }
+    set({ isGitBusy: true })
+    try {
+      const res = await window.api.workbench.gitMergeUpstream(workspacePath)
+      const result = res.success && res.data ? res.data : { success: false, failure: 'failed' as const, error: res.error || '合并失败' }
+      if (result.success) {
+        await get().loadFileTree()
+        await get().handleExternalFsChanged(workspacePath)
+      }
+      await get().refreshGitStatus()
+      set({
+        gitNotice: result.success
+          ? { tone: 'success', message: '已合并远程改动' }
+          : { tone: 'warning', message: result.hint ? `${result.error}：${result.hint}` : result.error || '合并失败' }
+      })
+      return result
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      set({ gitNotice: { tone: 'error', message } })
+      return { success: false, failure: 'failed', error: message }
+    } finally {
+      set({ isGitBusy: false })
+    }
+  },
+
+  gitAbortMerge: async () => {
+    const { workspacePath } = get()
+    if (!workspacePath) return { success: false, failure: 'not-repository', error: '未打开工作区' }
+    set({ isGitBusy: true })
+    try {
+      const res = await window.api.workbench.gitAbortMerge(workspacePath)
+      const result = res.success && res.data ? res.data : { success: false, failure: 'failed' as const, error: res.error || '撤销失败' }
+      if (result.success) {
+        await get().loadFileTree()
+        await get().handleExternalFsChanged(workspacePath)
+      }
+      await get().refreshGitStatus()
+      set({
+        gitNotice: result.success
+          ? { tone: 'info', message: '已撤销本次合并，文件回到操作前状态' }
+          : { tone: 'error', message: result.error || '撤销失败' }
+      })
+      return result
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      set({ gitNotice: { tone: 'error', message } })
+      return { success: false, failure: 'failed', error: message }
+    } finally {
+      set({ isGitBusy: false })
+    }
+  },
+
+  gitPush: async (setUpstream) => {
+    const { workspacePath, isDirty } = get()
+    if (!workspacePath) return { success: false, failure: 'not-repository', error: '未打开工作区' }
+    if (get().isGitBusy) return { success: false, failure: 'failed', error: '正在执行其他操作' }
+    set({ isGitBusy: true })
+    try {
+      if (isDirty) {
+        const saved = await get().saveActiveFile()
+        if (!saved) return { success: false, failure: 'failed', error: '当前文件保存失败，未推送' }
+      }
+      const res = await window.api.workbench.gitPush(workspacePath, setUpstream)
+      const result = res.success && res.data ? res.data : { success: false, failure: 'failed' as const, error: res.error || '推送失败' }
+      await get().refreshGitStatus()
+      set({
+        gitNotice: result.success
+          ? { tone: 'success', message: result.hint ?? '已推送到远程' }
+          : { tone: 'warning', message: result.hint ? `${result.error}：${result.hint}` : result.error || '推送失败' }
+      })
+      return result
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      set({ gitNotice: { tone: 'error', message } })
+      return { success: false, failure: 'failed', error: message }
+    } finally {
+      set({ isGitBusy: false })
+    }
+  },
+
+  gitInit: async () => {
+    const { workspacePath } = get()
+    if (!workspacePath) return { success: false, failure: 'not-repository', error: '未打开工作区' }
+    set({ isGitBusy: true })
+    try {
+      const res = await window.api.workbench.gitInit(workspacePath)
+      const result = res.success && res.data ? res.data : { success: false, failure: 'failed' as const, error: res.error || '初始化失败' }
+      await get().refreshGitStatus()
+      set({
+        gitNotice: result.success
+          ? { tone: 'success', message: '已在此工作区初始化 Git 仓库' }
+          : { tone: 'error', message: result.error || '初始化失败' }
+      })
+      return result
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      set({ gitNotice: { tone: 'error', message } })
+      return { success: false, failure: 'failed', error: message }
+    } finally {
+      set({ isGitBusy: false })
+    }
+  },
+
+  gitSetRemote: async (url, name) => {
+    const { workspacePath } = get()
+    if (!workspacePath) return { success: false, failure: 'not-repository', error: '未打开工作区' }
+    if (get().isGitBusy) return { success: false, failure: 'failed', error: '正在执行其他操作' }
+    set({ isGitBusy: true })
+    try {
+      const res = await window.api.workbench.gitSetRemote(workspacePath, url, name)
+      const result = res.success && res.data ? res.data : { success: false, failure: 'failed' as const, error: res.error || '保存远程地址失败' }
+      await get().refreshGitStatus()
+      if (!result.success) {
+        set({ gitNotice: { tone: 'error', message: result.error || '保存远程地址失败' } })
+      }
+      return result
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      set({ gitNotice: { tone: 'error', message } })
+      return { success: false, failure: 'failed', error: message }
+    } finally {
+      set({ isGitBusy: false })
+    }
+  },
+
+  setGitNotice: (notice) => set({ gitNotice: notice }),
+
+  clearGitNotice: () => set({ gitNotice: null })
 }))
 
 // 窗口缩小时，已存的侧边栏宽度可能超过新档位的上限，监听 resize 被动收敛。

@@ -48,6 +48,7 @@ import {
     renameNode as workbenchRenameNode,
     deleteNode as workbenchDeleteNode,
     search as workbenchSearch,
+    getWorkspaceTags as workbenchGetWorkspaceTags,
     revealFile as workbenchRevealFile,
   openFileInSystem as workbenchOpenFileInSystem,
   saveImage as workbenchSaveImage,
@@ -61,6 +62,23 @@ import {
   statFile as workbenchStatFile
 } from './services/workbenchService'
 import type { WorkbenchNodeType } from '../shared/types/workbench'
+import {
+    getStatus as gitGetStatus,
+    commit as gitCommit,
+    pullFastForward as gitPullFastForward,
+    mergeUpstream as gitMergeUpstream,
+    abortMerge as gitAbortMerge,
+    push as gitPush,
+    initRepository as gitInitRepository,
+    listRemotes as gitListRemotes,
+    setRemoteUrl as gitSetRemoteUrl
+} from './services/gitService'
+import {
+    readGitignore as readWorkspaceGitignore,
+    writeGitignore as writeWorkspaceGitignore,
+    GITIGNORE_CATEGORIES
+} from './services/gitignoreService'
+import type { GitignoreEntry } from '../shared/types/workbench'
 
 // 诊断窗口 probe/run-research 透传请求挂起表
 const pendingProbeRequests = new Map<string, { resolve: (v: unknown) => void; timer: ReturnType<typeof setTimeout> }>()
@@ -1715,6 +1733,17 @@ export async function registerIpcHandlers(
         }
     })
 
+    ipcMain.handle('workbench:get-workspace-tags', async (_event, payload: string | { workspaceRoot: string }) => {
+        try {
+            const workspaceRoot = typeof payload === 'string' ? payload : payload?.workspaceRoot
+            const data = await workbenchGetWorkspaceTags(workspaceRoot)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
     ipcMain.handle('workbench:reveal-file', async (_event, payload: string | { workspaceRoot: string; relativePath: string }, relPath?: string) => {
         try {
             const workspaceRoot = typeof payload === 'string' ? payload : payload?.workspaceRoot
@@ -1841,6 +1870,127 @@ export async function registerIpcHandlers(
             const error = err instanceof Error ? err.message : String(err)
             return { success: false, error }
         }
+    })
+
+    // ============ 工作台版本管理 (Git) ============
+    // 只操作工作区范围；提交、拉取、推送的状态判断都在主进程完成，渲染层只负责展示与确认。
+
+    ipcMain.handle('workbench:git-status', async (_event, payload: { workspaceRoot: string }) => {
+        try {
+            const data = await gitGetStatus(payload.workspaceRoot)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('workbench:git-commit', async (_event, payload: { workspaceRoot: string; title: string; body?: string; allowLargeFiles?: boolean }) => {
+        try {
+            const data = await gitCommit(payload.workspaceRoot, {
+                title: payload.title,
+                body: payload.body,
+                allowLargeFiles: payload.allowLargeFiles
+            })
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('workbench:git-pull', async (_event, payload: { workspaceRoot: string }) => {
+        try {
+            const data = await gitPullFastForward(payload.workspaceRoot)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('workbench:git-merge-upstream', async (_event, payload: { workspaceRoot: string }) => {
+        try {
+            const data = await gitMergeUpstream(payload.workspaceRoot)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('workbench:git-abort-merge', async (_event, payload: { workspaceRoot: string }) => {
+        try {
+            const data = await gitAbortMerge(payload.workspaceRoot)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('workbench:git-push', async (_event, payload: { workspaceRoot: string; setUpstream?: boolean }) => {
+        try {
+            const data = await gitPush(payload.workspaceRoot, Boolean(payload.setUpstream))
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('workbench:git-init', async (_event, payload: { workspaceRoot: string }) => {
+        try {
+            const data = await gitInitRepository(payload.workspaceRoot)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('workbench:git-remotes', async (_event, payload: { workspaceRoot: string }) => {
+        try {
+            const data = await gitListRemotes(payload.workspaceRoot)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('workbench:git-set-remote', async (_event, payload: { workspaceRoot: string; url: string; name?: string }) => {
+        try {
+            const data = await gitSetRemoteUrl(payload.workspaceRoot, payload.url, payload.name)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('workbench:gitignore-read', async (_event, payload: { workspaceRoot: string }) => {
+        try {
+            const data = await readWorkspaceGitignore(payload.workspaceRoot)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('workbench:gitignore-write', async (_event, payload: { workspaceRoot: string; entries: GitignoreEntry[] }) => {
+        try {
+            await writeWorkspaceGitignore(payload.workspaceRoot, payload.entries)
+            return { success: true }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('workbench:gitignore-categories', async () => {
+        return { success: true, data: GITIGNORE_CATEGORIES }
     })
 
     // 工作台导图：按文档路径取或建来源记录，并同步当前正文。

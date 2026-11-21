@@ -4,6 +4,9 @@ import type { WorkbenchFileNode } from '../../../../shared/types/workbench'
 import { MARKDOWN_EXTENSIONS } from '../../../../shared/types/workbench'
 import WorkbenchSearch from './WorkbenchSearch'
 import FileTypeIcon from './FileTypeIcon'
+import WorkbenchGitPanel from './WorkbenchGitPanel'
+import WorkbenchFooterPopover, { WorkbenchFooterPopoverHeader } from './WorkbenchFooterPopover'
+import WorkbenchWorkspaceSettings from './WorkbenchWorkspaceSettings'
 import { AppIcon } from '../icons/AppIcon'
 import { requestUploadNodesToAi } from './workbenchAiEvents'
 
@@ -132,7 +135,7 @@ export default function WorkbenchFileTree(): JSX.Element {
   const openInSystem = useWorkbenchStore((s) => s.openInSystem)
   const fileSort = useWorkbenchStore((s) => s.fileSort)
   const setFileSort = useWorkbenchStore((s) => s.setFileSort)
-  const moveNode = useWorkbenchStore((s) => s.moveNode)
+  const moveNodes = useWorkbenchStore((s) => s.moveNodes)
   const findUnreferencedImages = useWorkbenchStore((s) => s.findUnreferencedImages)
   const deleteNodes = useWorkbenchStore((s) => s.deleteNodes)
   const importExternalItems = useWorkbenchStore((s) => s.importExternalItems)
@@ -150,15 +153,18 @@ export default function WorkbenchFileTree(): JSX.Element {
   const [treeClipboard, setTreeClipboard] = useState<TreeClipboard | null>(null)
   const [isVaultMenuOpen, setIsVaultMenuOpen] = useState(false)
   const [isVaultManageOpen, setIsVaultManageOpen] = useState(false)
+  const [isWorkspaceSettingsOpen, setIsWorkspaceSettingsOpen] = useState(false)
   const [isSortMenuOpen, setIsSortMenuOpen] = useState(false)
   const [isCreating, setIsCreating] = useState(false)
+  const [isRefreshing, setIsRefreshing] = useState(false)
   const [inlineInputValue, setInlineInputValue] = useState('')
   const [inputValue, setInputValue] = useState('')
   const [isCleaningImages, setIsCleaningImages] = useState(false)
   const inputRef = useRef<HTMLInputElement | null>(null)
   const inlineInputRef = useRef<HTMLInputElement | null>(null)
   const menuRef = useRef<HTMLDivElement | null>(null)
-  const vaultMenuRef = useRef<HTMLDivElement | null>(null)
+  const workspaceButtonRef = useRef<HTMLButtonElement | null>(null)
+  const settingsButtonRef = useRef<HTMLButtonElement | null>(null)
   const sortMenuRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
@@ -220,25 +226,6 @@ export default function WorkbenchFileTree(): JSX.Element {
       document.removeEventListener('keydown', handleKeyDown)
     }
   }, [contextMenu])
-
-  // 关闭底部工作区菜单
-  useEffect(() => {
-    if (!isVaultMenuOpen) return
-    const handleClickOutside = (e: MouseEvent) => {
-      if (vaultMenuRef.current && !vaultMenuRef.current.contains(e.target as Node)) {
-        setIsVaultMenuOpen(false)
-      }
-    }
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setIsVaultMenuOpen(false)
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    document.addEventListener('keydown', handleKeyDown)
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside)
-      document.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [isVaultMenuOpen])
 
   // 关闭排序菜单
   useEffect(() => {
@@ -536,13 +523,11 @@ export default function WorkbenchFileTree(): JSX.Element {
       }
       if (isValidDropDir(node) && dragState) {
         expandAncestors([node.path])
-        for (const p of dragState.paths) {
-          void moveNode(p, node.path)
-        }
+        void moveNodes(dragState.paths, node.path)
       }
       handleDragEnd()
     },
-    [isValidDropDir, dragState, expandAncestors, moveNode, handleDragEnd, isExternalFileDrag, importExternalItems]
+    [isValidDropDir, dragState, expandAncestors, moveNodes, handleDragEnd, isExternalFileDrag, importExternalItems]
   )
 
   const handleFileDragOver = useCallback(
@@ -595,13 +580,11 @@ export default function WorkbenchFileTree(): JSX.Element {
       }
       const parent = resolveFileDropParent(node)
       if (parent !== null && dragState) {
-        for (const p of dragState.paths) {
-          void moveNode(p, parent)
-        }
+        void moveNodes(dragState.paths, parent)
       }
       handleDragEnd()
     },
-    [resolveFileDropParent, dragState, moveNode, handleDragEnd, isExternalFileDrag, importExternalItems]
+    [resolveFileDropParent, dragState, moveNodes, handleDragEnd, isExternalFileDrag, importExternalItems]
   )
 
   // 根目录空白区：拖到文件上时冒泡不触发（子节点已 stopPropagation），仅空白生效
@@ -634,13 +617,11 @@ export default function WorkbenchFileTree(): JSX.Element {
         return
       }
       if (dragState) {
-        for (const p of dragState.paths) {
-          void moveNode(p, '')
-        }
+        void moveNodes(dragState.paths, '')
       }
       handleDragEnd()
     },
-    [dragState, moveNode, handleDragEnd, isExternalFileDrag, importExternalItems]
+    [dragState, moveNodes, handleDragEnd, isExternalFileDrag, importExternalItems]
   )
 
   const handleContextMenu = useCallback((e: React.MouseEvent, node: WorkbenchFileNode | null) => {
@@ -1013,11 +994,18 @@ export default function WorkbenchFileTree(): JSX.Element {
           </button>
           <button
             type="button"
-            onClick={() => void loadFileTree()}
+            onClick={async () => {
+              setIsRefreshing(true)
+              try {
+                await loadFileTree()
+              } finally {
+                setIsRefreshing(false)
+              }
+            }}
             className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors"
             title="刷新目录"
           >
-            <AppIcon name="refresh" size={20} className={`text-[20px] ${isLoadingTree ? 'animate-spin' : ''}`} />
+            <AppIcon name="refresh" size={20} className={`text-[20px] ${isRefreshing || isLoadingTree ? 'animate-spin' : ''}`} />
           </button>
         </div>
 
@@ -1063,30 +1051,93 @@ export default function WorkbenchFileTree(): JSX.Element {
         )}
       </div>
 
-      {/* 底部：工作区切换与管理入口 */}
+      {/* 底部：工作区切换、版本管理、工作区设置 */}
       <div className="relative shrink-0 border-t border-black/5 dark:border-white/5">
-        <button
-          type="button"
-          onClick={() => setIsVaultMenuOpen((v) => !v)}
-          className="w-full h-10 px-3 flex items-center gap-1.5 text-sm font-medium text-text-primary hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
-          title={workspacePath || ''}
-        >
-          <AppIcon name="folder_open" size={19} className="text-amber-500" />
-          <span className="truncate flex-1 text-left">{workspaceName || '未选工作区'}</span>
-          <AppIcon name="unfold_more" size={18} className="text-text-secondary" />
-        </button>
+        <div className="flex h-10 items-center">
+          <button
+            ref={workspaceButtonRef}
+            type="button"
+            onClick={() => {
+              if (isVaultManageOpen) {
+                setIsVaultManageOpen(false)
+                setIsVaultMenuOpen(true)
+                return
+              }
+              setIsWorkspaceSettingsOpen(false)
+              setIsVaultMenuOpen((v) => !v)
+            }}
+            className="flex h-10 min-w-0 flex-1 items-center gap-1.5 px-3 text-sm font-medium text-text-primary transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+            title={workspacePath || ''}
+          >
+            <AppIcon name="folder_open" size={19} className="shrink-0 text-amber-500" />
+            <span className="min-w-0 flex-1 truncate text-left">{workspaceName || '未选工作区'}</span>
+            <AppIcon name="unfold_more" size={18} className="shrink-0 text-text-secondary" />
+          </button>
+          <WorkbenchGitPanel onOpenWorkspaceSettings={() => setIsWorkspaceSettingsOpen(true)} />
+          <button
+            ref={settingsButtonRef}
+            type="button"
+            onClick={() => {
+              setIsVaultMenuOpen(false)
+              setIsVaultManageOpen(false)
+              setIsWorkspaceSettingsOpen((v) => !v)
+            }}
+            className="flex h-10 w-8 shrink-0 items-center justify-center text-text-secondary transition-colors hover:bg-black/5 hover:text-text-primary dark:hover:bg-white/5"
+            title="工作区设置"
+          >
+            <AppIcon name="settings" size={18} />
+          </button>
+        </div>
 
         {isVaultMenuOpen && (
-          <div
-            ref={vaultMenuRef}
-            className="absolute bottom-full left-1.5 right-1.5 mb-1 z-50 py-1 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-black/10 dark:border-white/10 text-sm animate-in fade-in zoom-in-95 duration-100"
+          <WorkbenchFooterPopover
+            anchorRef={workspaceButtonRef}
+            ariaLabel="切换工作区"
+            align="left"
+            onRequestClose={() => {
+              setIsVaultMenuOpen(false)
+              setIsVaultManageOpen(false)
+            }}
           >
-            {defaultWorkspacePath && (() => {
-              const p = defaultWorkspacePath
-              const name = p.split(/[/\\]/).filter(Boolean).pop() || p
-              const isCurrent = p === workspacePath
-              return (
-                <>
+            <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-1.5">
+              {defaultWorkspacePath && (() => {
+                const p = defaultWorkspacePath
+                const name = p.split(/[/\\]/).filter(Boolean).pop() || p
+                const isCurrent = p === workspacePath
+                return (
+                  <>
+                    <button
+                      key={p}
+                      type="button"
+                      disabled={isCurrent}
+                      onClick={() => {
+                        setIsVaultMenuOpen(false)
+                        void useWorkbenchStore.getState().setWorkspaceFolder(p, name)
+                      }}
+                      className={`w-full flex items-center gap-2 px-3 py-1.5 text-left transition-colors ${
+                        isCurrent
+                          ? 'text-text-primary font-medium'
+                          : 'text-text-primary hover:bg-black/5 dark:hover:bg-white/5'
+                      }`}
+                      title={p}
+                    >
+                      <AppIcon name="home" size={18} className="text-primary" />
+                      <span className="truncate flex-1">{name}</span>
+                      {isCurrent && (
+                        <AppIcon name="check" size={18} className="text-primary" />
+                      )}
+                    </button>
+                    <div className="my-1 border-t border-black/5 dark:border-white/5" />
+                  </>
+                )
+              })()}
+              {recentWorkspaces.filter((p) => p !== defaultWorkspacePath).length === 0 && !workspacePath && (
+                <div className="px-3 py-2 text-text-secondary/70 text-xs">暂无历史工作区</div>
+              )}
+              {recentWorkspaces.filter((p) => p !== defaultWorkspacePath).map((p) => {
+                const name = p.split(/[/\\]/).filter(Boolean).pop() || p
+                const isCurrent = p === workspacePath
+                return (
                   <button
                     key={p}
                     type="button"
@@ -1102,58 +1153,27 @@ export default function WorkbenchFileTree(): JSX.Element {
                     }`}
                     title={p}
                   >
-                    <AppIcon name="home" size={18} className="text-primary" />
                     <span className="truncate flex-1">{name}</span>
                     {isCurrent && (
                       <AppIcon name="check" size={18} className="text-primary" />
                     )}
                   </button>
-                  <div className="my-1 border-t border-black/5 dark:border-white/5" />
-                </>
-              )
-            })()}
-            {recentWorkspaces.filter((p) => p !== defaultWorkspacePath).length === 0 && !workspacePath && (
-              <div className="px-3 py-2 text-text-secondary/70 text-xs">暂无历史工作区</div>
-            )}
-            {recentWorkspaces.filter((p) => p !== defaultWorkspacePath).map((p) => {
-              const name = p.split(/[/\\]/).filter(Boolean).pop() || p
-              const isCurrent = p === workspacePath
-              return (
-                <button
-                  key={p}
-                  type="button"
-                  disabled={isCurrent}
-                  onClick={() => {
-                    setIsVaultMenuOpen(false)
-                    void useWorkbenchStore.getState().setWorkspaceFolder(p, name)
-                  }}
-                  className={`w-full flex items-center gap-2 px-3 py-1.5 text-left transition-colors ${
-                    isCurrent
-                      ? 'text-text-primary font-medium'
-                      : 'text-text-primary hover:bg-black/5 dark:hover:bg-white/5'
-                  }`}
-                  title={p}
-                >
-                  <span className="truncate flex-1">{name}</span>
-                  {isCurrent && (
-                    <AppIcon name="check" size={18} className="text-primary" />
-                  )}
-                </button>
-              )
-            })}
-            <div className="my-1 border-t border-black/5 dark:border-white/5" />
-            <button
-              type="button"
-              onClick={() => {
-                setIsVaultMenuOpen(false)
+                )
+              })}
+              <div className="my-1 border-t border-black/5 dark:border-white/5" />
+              <button
+                type="button"
+                onClick={() => {
+                  setIsVaultMenuOpen(false)
                 setIsVaultManageOpen(true)
-              }}
-              className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-text-primary hover:bg-black/5 dark:hover:bg-white/5"
-            >
-              <AppIcon name="folder_managed" size={19} className="text-text-secondary" />
-              <span>管理仓库…</span>
-            </button>
-          </div>
+                }}
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-text-primary hover:bg-black/5 dark:hover:bg-white/5"
+              >
+                <AppIcon name="folder_managed" size={19} className="text-text-secondary" />
+                <span>管理仓库…</span>
+              </button>
+            </div>
+          </WorkbenchFooterPopover>
         )}
       </div>
 
@@ -1476,26 +1496,32 @@ export default function WorkbenchFileTree(): JSX.Element {
       )}
 
       {/* 管理仓库弹窗：列出最近工作区、切换/移除、打开新目录、关闭当前工作区 */}
-      {isVaultManageOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs"
-          onClick={() => setIsVaultManageOpen(false)}
-        >
-          <div
-            className="w-[420px] max-h-[480px] p-5 bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-black/10 dark:border-white/10 flex flex-col gap-4 text-sm"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between font-semibold text-sm text-text-primary">
-              <span>管理仓库</span>
-              <button
-                type="button"
-                onClick={() => setIsVaultManageOpen(false)}
-                className="text-text-secondary hover:text-text-primary"
-              >
-                <AppIcon name="close" size={19} />
-              </button>
-            </div>
+      {isWorkspaceSettingsOpen && (
+        <WorkbenchWorkspaceSettings
+          anchorRef={settingsButtonRef}
+          onClose={() => {
+            setIsWorkspaceSettingsOpen(false)
+          }}
+        />
+      )}
 
+      {isVaultManageOpen && (
+        <WorkbenchFooterPopover
+          anchorRef={workspaceButtonRef}
+          ariaLabel="管理仓库"
+          onRequestClose={() => setIsVaultManageOpen(false)}
+        >
+          <WorkbenchFooterPopoverHeader
+            title="管理仓库"
+            subtitle={workspaceName || undefined}
+            onClose={() => {
+              setIsVaultManageOpen(false)
+              setIsVaultMenuOpen(true)
+            }}
+          />
+          <div
+            className="flex min-h-0 flex-1 flex-col gap-4 p-4 text-sm"
+          >
             <div className="flex-1 min-h-[120px] overflow-y-auto -mx-2 px-2 flex flex-col gap-1">
               {defaultWorkspacePath && (
                 <>
@@ -1612,7 +1638,7 @@ export default function WorkbenchFileTree(): JSX.Element {
               )}
             </div>
           </div>
-        </div>
+        </WorkbenchFooterPopover>
       )}
     </div>
   )

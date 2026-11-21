@@ -41,6 +41,16 @@
 - 模型配置
 - 参数说明
 
+**[workbench-git-sync.md](workbench-git-sync.md)** - 工作台版本管理与大文件策略
+- 文件移动如何保留 Git 历史
+- 拉取、合并与推送的边界
+- 单文件体积限制与 `.gitignore` 预设
+
+**[workbench-mindmap-file-binding-design.md](workbench-mindmap-file-binding-design.md)** - 工作台导图文件化与绑定设计
+- 导图落成 `.multichat/mindmaps/*.mindmap.md`，XMind、幕布可导入
+- 索引按工作区存放，绑定用相对路径，换盘与改名不丢
+- 正文与绑定冲突不自动选边，迁移与对账的删除保护
+
 ### 💻 开发辅助
 **[WINDOWS_COMMANDS.md](WINDOWS_COMMANDS.md)** - Windows PowerShell 命令参考
 - Bash 与 PowerShell 命令对照
