@@ -1,37 +1,31 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
+import { useWorkbenchStore } from '../../store/workbenchStore'
 import { AppIcon } from '../icons/AppIcon'
-
-export const WORKBENCH_FOOTER_POPOVER_WIDTH = 420
 
 interface WorkbenchFooterPopoverProps {
   anchorRef: { current: HTMLElement | null }
   onRequestClose: () => void
   children: ReactNode
   ariaLabel: string
-  align?: 'right' | 'left'
 }
 
 export default function WorkbenchFooterPopover({
   anchorRef,
   onRequestClose,
   children,
-  ariaLabel,
-  align = 'right'
+  ariaLabel
 }: WorkbenchFooterPopoverProps): JSX.Element | null {
   const panelRef = useRef<HTMLDivElement | null>(null)
-  const [position, setPosition] = useState<{ left: number; bottom: number } | null>(null)
+  const [bottom, setBottom] = useState<number | null>(null)
+  // 弹层宽度跟随左侧边栏，拖动分隔条时实时贴合
+  const leftPaneWidth = useWorkbenchStore((s) => s.leftPaneWidth)
 
   const updatePosition = useCallback(() => {
     const rect = anchorRef.current?.getBoundingClientRect()
     if (!rect) return
-    const width = Math.min(WORKBENCH_FOOTER_POPOVER_WIDTH, window.innerWidth - 16)
-    const left = align === 'left' ? rect.left : rect.right - width
-    setPosition({
-      left: Math.max(8, Math.min(left, window.innerWidth - width - 8)),
-      bottom: window.innerHeight - rect.top + 4
-    })
-  }, [align, anchorRef])
+    setBottom(window.innerHeight - rect.top + 4)
+  }, [anchorRef])
 
   useEffect(() => {
     updatePosition()
@@ -57,15 +51,19 @@ export default function WorkbenchFooterPopover({
     }
   }, [anchorRef, onRequestClose])
 
-  if (!position) return null
+  if (bottom === null) return null
+
+  // 弹层宽度与左侧边栏一致，左右各留 4px 呼吸缝，形成"从侧栏浮起"的一体感
+  const inset = 4
+  const width = Math.max(200, Math.min(leftPaneWidth - inset * 2, window.innerWidth - inset * 2))
 
   return createPortal(
     <div
       ref={panelRef}
       role="dialog"
       aria-label={ariaLabel}
-      style={{ left: position.left, bottom: position.bottom }}
-      className="fixed z-50 flex max-h-[min(720px,calc(100vh-32px))] w-[420px] max-w-[calc(100vw-16px)] flex-col overflow-hidden rounded-xl border border-black/10 bg-white text-sm shadow-xl animate-in fade-in zoom-in-95 duration-100 dark:border-white/10 dark:bg-gray-800"
+      style={{ left: inset, bottom, width }}
+      className="fixed z-50 flex max-h-[min(720px,calc(100vh-32px))] flex-col overflow-hidden rounded-xl border border-black/10 bg-white text-sm shadow-xl animate-in fade-in zoom-in-95 duration-100 dark:border-white/10 dark:bg-gray-800"
     >
       {children}
     </div>,

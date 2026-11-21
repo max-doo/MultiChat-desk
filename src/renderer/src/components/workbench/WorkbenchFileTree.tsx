@@ -5,7 +5,7 @@ import { MARKDOWN_EXTENSIONS } from '../../../../shared/types/workbench'
 import WorkbenchSearch from './WorkbenchSearch'
 import FileTypeIcon from './FileTypeIcon'
 import WorkbenchGitPanel from './WorkbenchGitPanel'
-import WorkbenchFooterPopover, { WorkbenchFooterPopoverHeader } from './WorkbenchFooterPopover'
+import WorkbenchVaultPopover from './WorkbenchVaultPopover'
 import WorkbenchWorkspaceSettings from './WorkbenchWorkspaceSettings'
 import { AppIcon } from '../icons/AppIcon'
 import { requestUploadNodesToAi } from './workbenchAiEvents'
@@ -21,7 +21,7 @@ interface ContextMenuState {
 }
 
 interface ActionModalState {
-  type: 'rename' | 'delete' | 'deleteMulti' | 'cleanImages'
+  type: 'delete' | 'deleteMulti' | 'cleanImages'
   targetNode: WorkbenchFileNode | null
   defaultValue?: string
   // cleanImages 用：待清理的未引用图片列表
@@ -37,6 +37,27 @@ interface ActionModalState {
 interface InlineCreateState {
   type: 'file' | 'folder'
   parentDir: string
+}
+
+/**
+ * 树内联"重命名"输入框状态（VSCode 风格）
+ */
+interface InlineRenameState {
+  node: WorkbenchFileNode
+}
+
+/**
+ * 计算重命名时的初始选中区间（VSCode 风格：文件选中除去后缀名的基本名，避免用户误删后缀名；文件夹/无后缀文件全选）
+ */
+export function getRenameSelectionRange(name: string, isDirectory: boolean): [number, number] {
+  if (isDirectory) {
+    return [0, name.length]
+  }
+  const lastDot = name.lastIndexOf('.')
+  if (lastDot > 0) {
+    return [0, lastDot]
+  }
+  return [0, name.length]
 }
 
 /** 拖拽状态：记录被拖节点与当前悬停目标目录（null 表示根目录） */
@@ -111,17 +132,12 @@ function getNodeIcon(node: WorkbenchFileNode): { icon: string; color: string } {
 export default function WorkbenchFileTree(): JSX.Element {
   const workspacePath = useWorkbenchStore((s) => s.workspacePath)
   const workspaceName = useWorkbenchStore((s) => s.workspaceName)
-  const defaultWorkspacePath = useWorkbenchStore((s) => s.defaultWorkspacePath)
   const fileTree = useWorkbenchStore((s) => s.fileTree)
   const expandedFolderIds = useWorkbenchStore((s) => s.expandedFolderIds)
   const isLoadingTree = useWorkbenchStore((s) => s.isLoadingTree)
   const activeFilePath = useWorkbenchStore((s) => s.activeFilePath)
   const isDirty = useWorkbenchStore((s) => s.isDirty)
 
-  const selectWorkspaceFolder = useWorkbenchStore((s) => s.selectWorkspaceFolder)
-  const closeWorkspace = useWorkbenchStore((s) => s.closeWorkspace)
-  const recentWorkspaces = useWorkbenchStore((s) => s.recentWorkspaces)
-  const removeRecentWorkspace = useWorkbenchStore((s) => s.removeRecentWorkspace)
   const loadFileTree = useWorkbenchStore((s) => s.loadFileTree)
   const toggleFolder = useWorkbenchStore((s) => s.toggleFolder)
   const collapseAllFolders = useWorkbenchStore((s) => s.collapseAllFolders)
@@ -152,33 +168,49 @@ export default function WorkbenchFileTree(): JSX.Element {
   const [anchorPath, setAnchorPath] = useState<string | null>(null)
   const [treeClipboard, setTreeClipboard] = useState<TreeClipboard | null>(null)
   const [isVaultMenuOpen, setIsVaultMenuOpen] = useState(false)
-  const [isVaultManageOpen, setIsVaultManageOpen] = useState(false)
+
   const [isWorkspaceSettingsOpen, setIsWorkspaceSettingsOpen] = useState(false)
   const [isSortMenuOpen, setIsSortMenuOpen] = useState(false)
   const [isCreating, setIsCreating] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [inlineInputValue, setInlineInputValue] = useState('')
-  const [inputValue, setInputValue] = useState('')
+  const [inlineRename, setInlineRename] = useState<InlineRenameState | null>(null)
+  const [inlineRenameValue, setInlineRenameValue] = useState('')
+  const [isRenamingBusy, setIsRenamingBusy] = useState(false)
   const [isCleaningImages, setIsCleaningImages] = useState(false)
-  const inputRef = useRef<HTMLInputElement | null>(null)
   const inlineInputRef = useRef<HTMLInputElement | null>(null)
+  const renameInputRef = useRef<HTMLInputElement | null>(null)
+  const isRenameCancelledRef = useRef(false)
+  const isCreateCancelledRef = useRef(false)
   const menuRef = useRef<HTMLDivElement | null>(null)
   const workspaceButtonRef = useRef<HTMLButtonElement | null>(null)
   const settingsButtonRef = useRef<HTMLButtonElement | null>(null)
   const sortMenuRef = useRef<HTMLDivElement | null>(null)
 
+  // 内联重命名输入框出现时聚焦并选中去除后缀名的文件名（VSCode 风格）
   useEffect(() => {
-    if (actionModal && actionModal.type === 'rename') {
-      inputRef.current?.focus()
-      inputRef.current?.select()
+    if (inlineRename) {
+      requestAnimationFrame(() => {
+        const input = renameInputRef.current
+        if (!input) return
+        input.scrollIntoView({ block: 'nearest' })
+        input.focus()
+        const [start, end] = getRenameSelectionRange(
+          inlineRename.node.name,
+          inlineRename.node.isDirectory
+        )
+        input.setSelectionRange(start, end)
+      })
     }
-  }, [actionModal])
+  }, [inlineRename?.node.id])
 
-  // 切换工作区/文件树刷新时清理失效选中
+  // 切换工作区/文件树刷新时清理失效选中与内联命名态
   useEffect(() => {
     setSelectedPaths(new Set())
     setAnchorPath(null)
     setTreeClipboard(null)
+    setInlineCreate(null)
+    setInlineRename(null)
   }, [workspacePath])
 
   // 文件树重扫后校验剪贴板快照：复制过的节点可能已被删除/移动，逐条剔除失效项
@@ -369,6 +401,8 @@ export default function WorkbenchFileTree(): JSX.Element {
 
   const beginInlineCreate = useCallback(
     (type: 'file' | 'folder', contextNode: WorkbenchFileNode | null) => {
+      setInlineRename(null)
+      isCreateCancelledRef.current = false
       const parentDir = resolveParentDir(contextNode)
       if (parentDir) {
         expandAncestors([parentDir])
@@ -378,7 +412,16 @@ export default function WorkbenchFileTree(): JSX.Element {
     [resolveParentDir, expandAncestors]
   )
 
+  const cancelInlineCreate = useCallback(() => {
+    isCreateCancelledRef.current = true
+    setInlineCreate(null)
+  }, [])
+
   const commitInlineCreate = useCallback(async () => {
+    if (isCreateCancelledRef.current) {
+      isCreateCancelledRef.current = false
+      return
+    }
     if (!inlineCreate || isCreating) return
     const fallback = inlineCreate.type === 'file' ? DEFAULT_FILE_NAME : DEFAULT_FOLDER_NAME
     const name = inlineInputValue.trim() || fallback
@@ -394,6 +437,51 @@ export default function WorkbenchFileTree(): JSX.Element {
       setInlineCreate(null)
     }
   }, [inlineCreate, inlineInputValue, isCreating, createFile, createFolder])
+
+  const beginInlineRename = useCallback((node: WorkbenchFileNode) => {
+    setInlineCreate(null)
+    isRenameCancelledRef.current = false
+    setInlineRename({ node })
+    setInlineRenameValue(node.name)
+    setSelectedPaths(new Set([node.path]))
+    setAnchorPath(node.path)
+  }, [])
+
+  const cancelInlineRename = useCallback(() => {
+    isRenameCancelledRef.current = true
+    setInlineRename(null)
+  }, [])
+
+  const commitInlineRename = useCallback(async () => {
+    if (isRenameCancelledRef.current) {
+      isRenameCancelledRef.current = false
+      return
+    }
+    if (!inlineRename || isRenamingBusy) return
+
+    const targetNode = inlineRename.node
+    const trimmed = inlineRenameValue.trim()
+    setInlineRename(null)
+
+    if (!trimmed || trimmed === targetNode.name) {
+      return
+    }
+
+    if (/[\\/:*?"<>|]/.test(trimmed)) {
+      useWorkbenchStore.setState({ error: '名称不能包含 \\ / : * ? " < > |' })
+      return
+    }
+
+    setIsRenamingBusy(true)
+    try {
+      const parts = targetNode.path.split('/')
+      parts[parts.length - 1] = trimmed
+      const newPath = parts.join('/')
+      await renameNode(targetNode.path, newPath)
+    } finally {
+      setIsRenamingBusy(false)
+    }
+  }, [inlineRename, inlineRenameValue, isRenamingBusy, renameNode])
 
   // ---- 拖拽移动（VSCode 风格） ----
   const handleDragStart = useCallback(
@@ -706,14 +794,33 @@ export default function WorkbenchFileTree(): JSX.Element {
     [treeClipboard, workspacePath, expandAncestors, importExternalItems]
   )
 
-  /** 树容器的键盘复制粘贴：容器已聚焦且未在输入框内时接管 Ctrl+C / Ctrl+V */
+  /** 树容器的键盘快捷键：容器已聚焦且未在输入框内时接管 F2（重命名）、Ctrl+C / Ctrl+V */
   const handleTreeKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+
+      // F2: 重命名选中的节点（VSCode 风格快捷键）
+      if (e.key === 'F2') {
+        const targetPath =
+          anchorPath && flatVisibleNodes.some((n) => n.path === anchorPath)
+            ? anchorPath
+            : selectedPaths.size === 1
+            ? Array.from(selectedPaths)[0]
+            : activeFilePath
+        if (targetPath) {
+          const node = flatVisibleNodes.find((n) => n.path === targetPath)
+          if (node) {
+            e.preventDefault()
+            beginInlineRename(node)
+            return
+          }
+        }
+      }
+
       const mod = e.ctrlKey || e.metaKey
       if (!mod) return
       const k = e.key.toLowerCase()
       if (k !== 'c' && k !== 'v') return
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
       if (k === 'c') {
         if (!selectedPaths.size) return
         e.preventDefault()
@@ -726,7 +833,7 @@ export default function WorkbenchFileTree(): JSX.Element {
         pasteTreeClipboard(resolveParentDir(null))
       }
     },
-    [selectedPaths, treeClipboard, pasteTreeClipboard, resolveParentDir]
+    [selectedPaths, treeClipboard, pasteTreeClipboard, resolveParentDir, anchorPath, flatVisibleNodes, activeFilePath, beginInlineRename]
   )
 
   const handleModalSubmit = async (e: React.FormEvent) => {
@@ -734,16 +841,8 @@ export default function WorkbenchFileTree(): JSX.Element {
     if (!actionModal) return
 
     const { type, targetNode } = actionModal
-    const trimmed = inputValue.trim()
 
-    if (type === 'rename' && targetNode) {
-      if (trimmed && trimmed !== targetNode.name) {
-        const parts = targetNode.path.split('/')
-        parts[parts.length - 1] = trimmed
-        const newPath = parts.join('/')
-        await renameNode(targetNode.path, newPath)
-      }
-    } else if (type === 'deleteMulti') {
+    if (type === 'deleteMulti') {
       const targets = Array.from(selectedPaths)
       // 命中当前文档时走逐项删除：它会顺带把编辑器切到相邻文档；
       // 其余情况一次批量删除，主进程只清理一次、文件树只重扫一次。
@@ -765,13 +864,13 @@ export default function WorkbenchFileTree(): JSX.Element {
     }
 
     setActionModal(null)
-    setInputValue('')
   }
 
   // 递归渲染树节点
   const renderNode = (node: WorkbenchFileNode, level = 0) => {
     const isExpanded = expandedFolderIds.has(node.id)
     const isActive = activeFilePath === node.path
+    const isRenaming = inlineRename?.node.id === node.id
 
     if (node.isDirectory) {
       const children = node.children ? sortNodes(node.children) : []
@@ -782,31 +881,63 @@ export default function WorkbenchFileTree(): JSX.Element {
       return (
         <div key={node.id} className="select-none">
           <div
-            draggable={!isManagedAssetsDir}
+            draggable={!isManagedAssetsDir && !isRenaming}
             data-folder-node={node.path}
             onDragStart={(e) => handleDragStart(e, node)}
             onDragEnd={handleDragEnd}
             onDragOver={(e) => handleNodeDragOver(e, node)}
             onDragLeave={() => setDropTargetDir((v) => (v === node.path ? null : v))}
             onDrop={(e) => handleNodeDrop(e, node)}
-            onContextMenu={(e) => handleContextMenu(e, node)}
-            onClick={(e) => handleNodeClick(e, node)}
+            onContextMenu={(e) => {
+              if (isRenaming) return
+              handleContextMenu(e, node)
+            }}
+            onClick={(e) => {
+              if (isRenaming) return
+              handleNodeClick(e, node)
+            }}
             style={{ paddingLeft: `${level * 14 + 8}px` }}
-            className={`flex items-center gap-1.5 py-1.5 px-2 rounded-md cursor-pointer text-sm transition-colors group ${
+            className={`flex items-center gap-1.5 py-1 px-2 rounded-md cursor-pointer text-sm transition-colors group ${
               isDropTarget
                 ? 'bg-primary/15 ring-1 ring-inset ring-primary/50'
-                : selectedPaths.has(node.path)
+                : selectedPaths.has(node.path) || isRenaming
                 ? 'bg-black/10 dark:bg-white/10'
                 : 'hover:bg-black/5 dark:hover:bg-white/5'
             } text-text-primary`}
           >
-            <AppIcon name={isExpanded ? 'expand_more' : 'chevron_right'} size={19} className="text-text-secondary transition-transform duration-150" />
+            <AppIcon name={isExpanded ? 'expand_more' : 'chevron_right'} size={19} className="text-text-secondary transition-transform duration-150 shrink-0" />
             <AppIcon name={isManagedAssetsDir
                 ? 'attachment'
                 : isExpanded
                 ? 'folder_open'
-                : 'folder'} size={19} className={`text-[19px] ${isManagedAssetsDir ? 'text-slate-400' : 'text-amber-500'}`} />
-            <span className="truncate flex-1 font-medium">{node.name}</span>
+                : 'folder'} size={19} className={`text-[19px] shrink-0 ${isManagedAssetsDir ? 'text-slate-400' : 'text-amber-500'}`} />
+            {isRenaming ? (
+              <input
+                ref={renameInputRef}
+                type="text"
+                value={inlineRenameValue}
+                onChange={(e) => setInlineRenameValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    if (e.nativeEvent.isComposing) return
+                    e.preventDefault()
+                    e.stopPropagation()
+                    void commitInlineRename()
+                  } else if (e.key === 'Escape') {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    cancelInlineRename()
+                  }
+                }}
+                onBlur={() => void commitInlineRename()}
+                onClick={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
+                disabled={isRenamingBusy}
+                className="flex-1 min-w-0 h-6 px-1.5 rounded-[3px] border border-primary/70 bg-white dark:bg-gray-900 text-text-primary text-sm focus:outline-none focus:ring-1 focus:ring-primary/40"
+              />
+            ) : (
+              <span className="truncate flex-1 font-medium">{node.name}</span>
+            )}
           </div>
           {isExpanded && (
             <div>
@@ -832,18 +963,24 @@ export default function WorkbenchFileTree(): JSX.Element {
       <div
         key={node.id}
         data-file-node={node.path}
-        draggable
+        draggable={!isRenaming}
         onDragStart={(e) => handleDragStart(e, node)}
         onDragEnd={handleDragEnd}
         onDragOver={(e) => handleFileDragOver(e, node)}
         onDrop={(e) => handleFileDrop(e, node)}
-        onContextMenu={(e) => handleContextMenu(e, node)}
-        onClick={(e) => handleNodeClick(e, node)}
+        onContextMenu={(e) => {
+          if (isRenaming) return
+          handleContextMenu(e, node)
+        }}
+        onClick={(e) => {
+          if (isRenaming) return
+          handleNodeClick(e, node)
+        }}
         style={{ paddingLeft: `${level * 14 + 24}px` }}
-        className={`flex items-center gap-1.5 py-1.5 px-2 rounded-md cursor-pointer text-sm transition-colors group select-none ${
+        className={`flex items-center gap-1.5 py-1 px-2 rounded-md cursor-pointer text-sm transition-colors group select-none ${
           isActive
             ? 'bg-blue-500/10 dark:bg-blue-500/20 text-primary dark:text-blue-400 font-medium'
-            : selectedPaths.has(node.path)
+            : selectedPaths.has(node.path) || isRenaming
             ? 'bg-black/10 dark:bg-white/10 text-text-primary'
             : 'text-text-primary hover:bg-black/5 dark:hover:bg-white/5'
         }`}
@@ -851,11 +988,39 @@ export default function WorkbenchFileTree(): JSX.Element {
         {MARKDOWN_EXTENSIONS.has((node.extension || '').toLowerCase()) || IMAGE_EXTENSIONS.has((node.extension || '').toLowerCase()) || (node.extension || '').toLowerCase() === '.svg' ? (
           <AppIcon name={getNodeIcon(node).icon} size={19} className={`text-[19px] shrink-0 ${getNodeIcon(node).color}`} />
         ) : (
-          <FileTypeIcon node={node} className="w-[19px] h-[19px]" />
+          <FileTypeIcon node={node} className="w-[19px] h-[19px] shrink-0" />
         )}
-        <span className="truncate flex-1">{node.name}</span>
-        {isActive && isDirty && (
-          <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" title="未保存的修改" />
+        {isRenaming ? (
+          <input
+            ref={renameInputRef}
+            type="text"
+            value={inlineRenameValue}
+            onChange={(e) => setInlineRenameValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                if (e.nativeEvent.isComposing) return
+                e.preventDefault()
+                e.stopPropagation()
+                void commitInlineRename()
+              } else if (e.key === 'Escape') {
+                e.preventDefault()
+                e.stopPropagation()
+                cancelInlineRename()
+              }
+            }}
+            onBlur={() => void commitInlineRename()}
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            disabled={isRenamingBusy}
+            className="flex-1 min-w-0 h-6 px-1.5 rounded-[3px] border border-primary/70 bg-white dark:bg-gray-900 text-text-primary text-sm focus:outline-none focus:ring-1 focus:ring-primary/40"
+          />
+        ) : (
+          <>
+            <span className="truncate flex-1">{node.name}</span>
+            {isActive && isDirty && (
+              <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" title="未保存的修改" />
+            )}
+          </>
         )}
       </div>
     )
@@ -866,12 +1031,15 @@ export default function WorkbenchFileTree(): JSX.Element {
     const isFile = inlineCreate?.type === 'file'
     return (
       <div
-        style={{ paddingLeft: `${level * 14 + 24}px` }}
-        className="flex items-center gap-1.5 py-0.5 px-2"
+        style={{ paddingLeft: `${level * 14 + (isFile ? 24 : 8)}px` }}
+        className="flex items-center gap-1.5 py-1 px-2"
       >
+        {!isFile && (
+          <span className="w-[19px] h-[19px] shrink-0" />
+        )}
         <AppIcon name={isFile ? 'description' : 'folder'} size={19} className={`text-[19px] shrink-0 ${
- isFile ? 'text-blue-500 dark:text-blue-400' : 'text-amber-500'
- }`} />
+          isFile ? 'text-blue-500 dark:text-blue-400' : 'text-amber-500'
+        }`} />
         <input
           ref={inlineInputRef}
           type="text"
@@ -879,17 +1047,18 @@ export default function WorkbenchFileTree(): JSX.Element {
           onChange={(e) => setInlineInputValue(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
+              if (e.nativeEvent.isComposing) return
               e.preventDefault()
               void commitInlineCreate()
             } else if (e.key === 'Escape') {
               e.preventDefault()
-              setInlineCreate(null)
+              cancelInlineCreate()
             }
           }}
           onBlur={() => void commitInlineCreate()}
           disabled={isCreating}
           placeholder={isFile ? DEFAULT_FILE_NAME : DEFAULT_FOLDER_NAME}
-          className="flex-1 min-w-0 h-6 px-1.5 rounded border border-primary/60 bg-white dark:bg-gray-900 text-text-primary text-sm focus:outline-none focus:ring-1 focus:ring-primary/40"
+          className="flex-1 min-w-0 h-6 px-1.5 rounded-[3px] border border-primary/70 bg-white dark:bg-gray-900 text-text-primary text-sm focus:outline-none focus:ring-1 focus:ring-primary/40"
         />
       </div>
     )
@@ -1058,11 +1227,6 @@ export default function WorkbenchFileTree(): JSX.Element {
             ref={workspaceButtonRef}
             type="button"
             onClick={() => {
-              if (isVaultManageOpen) {
-                setIsVaultManageOpen(false)
-                setIsVaultMenuOpen(true)
-                return
-              }
               setIsWorkspaceSettingsOpen(false)
               setIsVaultMenuOpen((v) => !v)
             }}
@@ -1079,7 +1243,6 @@ export default function WorkbenchFileTree(): JSX.Element {
             type="button"
             onClick={() => {
               setIsVaultMenuOpen(false)
-              setIsVaultManageOpen(false)
               setIsWorkspaceSettingsOpen((v) => !v)
             }}
             className="flex h-10 w-8 shrink-0 items-center justify-center text-text-secondary transition-colors hover:bg-black/5 hover:text-text-primary dark:hover:bg-white/5"
@@ -1090,90 +1253,10 @@ export default function WorkbenchFileTree(): JSX.Element {
         </div>
 
         {isVaultMenuOpen && (
-          <WorkbenchFooterPopover
+          <WorkbenchVaultPopover
             anchorRef={workspaceButtonRef}
-            ariaLabel="切换工作区"
-            align="left"
-            onRequestClose={() => {
-              setIsVaultMenuOpen(false)
-              setIsVaultManageOpen(false)
-            }}
-          >
-            <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-1.5">
-              {defaultWorkspacePath && (() => {
-                const p = defaultWorkspacePath
-                const name = p.split(/[/\\]/).filter(Boolean).pop() || p
-                const isCurrent = p === workspacePath
-                return (
-                  <>
-                    <button
-                      key={p}
-                      type="button"
-                      disabled={isCurrent}
-                      onClick={() => {
-                        setIsVaultMenuOpen(false)
-                        void useWorkbenchStore.getState().setWorkspaceFolder(p, name)
-                      }}
-                      className={`w-full flex items-center gap-2 px-3 py-1.5 text-left transition-colors ${
-                        isCurrent
-                          ? 'text-text-primary font-medium'
-                          : 'text-text-primary hover:bg-black/5 dark:hover:bg-white/5'
-                      }`}
-                      title={p}
-                    >
-                      <AppIcon name="home" size={18} className="text-primary" />
-                      <span className="truncate flex-1">{name}</span>
-                      {isCurrent && (
-                        <AppIcon name="check" size={18} className="text-primary" />
-                      )}
-                    </button>
-                    <div className="my-1 border-t border-black/5 dark:border-white/5" />
-                  </>
-                )
-              })()}
-              {recentWorkspaces.filter((p) => p !== defaultWorkspacePath).length === 0 && !workspacePath && (
-                <div className="px-3 py-2 text-text-secondary/70 text-xs">暂无历史工作区</div>
-              )}
-              {recentWorkspaces.filter((p) => p !== defaultWorkspacePath).map((p) => {
-                const name = p.split(/[/\\]/).filter(Boolean).pop() || p
-                const isCurrent = p === workspacePath
-                return (
-                  <button
-                    key={p}
-                    type="button"
-                    disabled={isCurrent}
-                    onClick={() => {
-                      setIsVaultMenuOpen(false)
-                      void useWorkbenchStore.getState().setWorkspaceFolder(p, name)
-                    }}
-                    className={`w-full flex items-center gap-2 px-3 py-1.5 text-left transition-colors ${
-                      isCurrent
-                        ? 'text-text-primary font-medium'
-                        : 'text-text-primary hover:bg-black/5 dark:hover:bg-white/5'
-                    }`}
-                    title={p}
-                  >
-                    <span className="truncate flex-1">{name}</span>
-                    {isCurrent && (
-                      <AppIcon name="check" size={18} className="text-primary" />
-                    )}
-                  </button>
-                )
-              })}
-              <div className="my-1 border-t border-black/5 dark:border-white/5" />
-              <button
-                type="button"
-                onClick={() => {
-                  setIsVaultMenuOpen(false)
-                setIsVaultManageOpen(true)
-                }}
-                className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-text-primary hover:bg-black/5 dark:hover:bg-white/5"
-              >
-                <AppIcon name="folder_managed" size={19} className="text-text-secondary" />
-                <span>管理仓库…</span>
-              </button>
-            </div>
-          </WorkbenchFooterPopover>
+            onClose={() => setIsVaultMenuOpen(false)}
+          />
         )}
       </div>
 
@@ -1266,6 +1349,22 @@ export default function WorkbenchFileTree(): JSX.Element {
               <span>创建副本</span>
             </button>
           )}
+          {contextMenu.node && (
+            <button
+              type="button"
+              onClick={() => {
+                const node = contextMenu.node!
+                const root = (workspacePath ?? '').replace(/\\/g, '/').replace(/\/+$/, '')
+                const absolutePath = root ? `${root}/${node.path}` : node.path
+                void navigator.clipboard.writeText(absolutePath)
+                setContextMenu(null)
+              }}
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-text-primary hover:bg-black/5 dark:hover:bg-white/5"
+            >
+              <AppIcon name="link" size={19} />
+              <span>复制文件路径</span>
+            </button>
+          )}
           {(contextMenu.node || treeClipboard) && (
             <div className="my-1 border-t border-black/5 dark:border-white/5" />
           )}
@@ -1275,8 +1374,9 @@ export default function WorkbenchFileTree(): JSX.Element {
               <button
                 type="button"
                 onClick={() => {
-                  setInputValue(contextMenu.node?.name || '')
-                  setActionModal({ type: 'rename', targetNode: contextMenu.node })
+                  if (contextMenu.node) {
+                    beginInlineRename(contextMenu.node)
+                  }
                   setContextMenu(null)
                 }}
                 className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-text-primary hover:bg-black/5 dark:hover:bg-white/5"
@@ -1390,7 +1490,7 @@ export default function WorkbenchFileTree(): JSX.Element {
         </div>
       )}
 
-      {/* 重命名 / 删除 弹窗 */}
+      {/* 删除 / 清理未引用图片 弹窗（重命名已改为 VSCode 式内联交互，不再弹窗） */}
       {actionModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs">
           <form
@@ -1399,9 +1499,7 @@ export default function WorkbenchFileTree(): JSX.Element {
           >
             <div className="flex items-center justify-between font-semibold text-sm text-text-primary">
               <span>
-                {actionModal.type === 'rename'
-                  ? '重命名'
-                  : actionModal.type === 'deleteMulti'
+                {actionModal.type === 'deleteMulti'
                   ? '确认批量删除'
                   : actionModal.type === 'cleanImages'
                   ? '清理未引用图片'
@@ -1454,18 +1552,7 @@ export default function WorkbenchFileTree(): JSX.Element {
                   <p>该文档的附件目录中没有未引用的图片。</p>
                 )}
               </div>
-            ) : (
-              <div>
-                <input
-                  ref={inputRef}
-                  type="text"
-                  value={inputValue}
-                  onChange={(e) => setInputValue(e.target.value)}
-                  placeholder="请输入名称..."
-                  className="w-full h-8 px-3 rounded-lg border border-black/15 dark:border-white/15 bg-black/5 dark:bg-white/5 focus:bg-white dark:focus:bg-gray-900 text-text-primary focus:outline-none focus:border-primary text-sm"
-                />
-              </div>
-            )}
+            ) : null}
 
             <div className="flex justify-end gap-2">
               <button
@@ -1478,17 +1565,11 @@ export default function WorkbenchFileTree(): JSX.Element {
               <button
                 type="submit"
                 disabled={actionModal.type === 'cleanImages' && !(actionModal.unreferencedImages?.length)}
-                className={`px-3 py-1.5 rounded-lg text-white font-medium shadow-xs ${
-                  actionModal.type === 'delete' || actionModal.type === 'deleteMulti' || actionModal.type === 'cleanImages'
-                    ? 'bg-rose-500 hover:bg-rose-600'
-                    : 'bg-primary hover:bg-primary/90'
-                } disabled:opacity-40 disabled:cursor-not-allowed`}
+                className="px-3 py-1.5 rounded-lg text-white font-medium shadow-xs bg-rose-500 hover:bg-rose-600 disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {actionModal.type === 'delete' || actionModal.type === 'deleteMulti'
                   ? '确认移入回收站'
-                  : actionModal.type === 'cleanImages'
-                  ? `清理 ${actionModal.unreferencedImages?.length ?? 0} 张`
-                  : '确定'}
+                  : `清理 ${actionModal.unreferencedImages?.length ?? 0} 张`}
               </button>
             </div>
           </form>
@@ -1503,142 +1584,6 @@ export default function WorkbenchFileTree(): JSX.Element {
             setIsWorkspaceSettingsOpen(false)
           }}
         />
-      )}
-
-      {isVaultManageOpen && (
-        <WorkbenchFooterPopover
-          anchorRef={workspaceButtonRef}
-          ariaLabel="管理仓库"
-          onRequestClose={() => setIsVaultManageOpen(false)}
-        >
-          <WorkbenchFooterPopoverHeader
-            title="管理仓库"
-            subtitle={workspaceName || undefined}
-            onClose={() => {
-              setIsVaultManageOpen(false)
-              setIsVaultMenuOpen(true)
-            }}
-          />
-          <div
-            className="flex min-h-0 flex-1 flex-col gap-4 p-4 text-sm"
-          >
-            <div className="flex-1 min-h-[120px] overflow-y-auto -mx-2 px-2 flex flex-col gap-1">
-              {defaultWorkspacePath && (
-                <>
-                  <div className="px-2.5 pt-1 pb-1.5 text-[11px] font-medium text-text-secondary/70 tracking-wide">
-                    默认仓库
-                  </div>
-                  {(() => {
-                    const p = defaultWorkspacePath
-                    const name = p.split(/[/\\]/).filter(Boolean).pop() || p
-                    const isCurrent = p === workspacePath
-                    return (
-                      <div
-                        key={p}
-                        className={`group flex items-center gap-2 px-2.5 py-2 rounded-lg transition-colors ${
-                          isCurrent
-                            ? 'bg-primary/10'
-                            : 'hover:bg-black/5 dark:hover:bg-white/5'
-                        }`}
-                      >
-                        <AppIcon name="home" size={19} className="text-primary" />
-                        <button
-                          type="button"
-                          disabled={isCurrent}
-                          onClick={() => {
-                            setIsVaultManageOpen(false)
-                            void useWorkbenchStore.getState().setWorkspaceFolder(p, name)
-                          }}
-                          className="flex-1 min-w-0 text-left"
-                          title={p}
-                        >
-                          <div className="font-medium text-text-primary truncate">{name}</div>
-                          <div className="text-xs text-text-secondary truncate">{p}</div>
-                        </button>
-                        {isCurrent && (
-                          <AppIcon name="check_circle" size={18} className="text-primary" />
-                        )}
-                      </div>
-                    )
-                  })()}
-                  <div className="my-1 border-t border-black/5 dark:border-white/5" />
-                </>
-              )}
-              {recentWorkspaces.filter((p) => p !== defaultWorkspacePath).length === 0 && (
-                <div className="py-8 text-center text-text-secondary/70 text-xs">
-                  暂无历史工作区
-                </div>
-              )}
-              {recentWorkspaces.filter((p) => p !== defaultWorkspacePath).map((p) => {
-                const name = p.split(/[/\\]/).filter(Boolean).pop() || p
-                const isCurrent = p === workspacePath
-                return (
-                  <div
-                    key={p}
-                    className={`group flex items-center gap-2 px-2.5 py-2 rounded-lg transition-colors ${
-                      isCurrent
-                        ? 'bg-primary/10'
-                        : 'hover:bg-black/5 dark:hover:bg-white/5'
-                    }`}
-                  >
-                    <AppIcon name="folder" size={19} className="text-amber-500" />
-                    <button
-                      type="button"
-                      disabled={isCurrent}
-                      onClick={() => {
-                        setIsVaultManageOpen(false)
-                        void useWorkbenchStore.getState().setWorkspaceFolder(p, name)
-                      }}
-                      className="flex-1 min-w-0 text-left"
-                      title={p}
-                    >
-                      <div className="font-medium text-text-primary truncate">{name}</div>
-                      <div className="text-xs text-text-secondary truncate">{p}</div>
-                    </button>
-                    {isCurrent && (
-                      <AppIcon name="check_circle" size={18} className="text-primary" />
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => removeRecentWorkspace(p)}
-                      className="w-7 h-7 shrink-0 flex items-center justify-center rounded-md text-text-secondary opacity-0 group-hover:opacity-100 hover:bg-black/10 dark:hover:bg-white/10 hover:text-rose-500 transition-all"
-                      title="从列表移除"
-                    >
-                      <AppIcon name="delete" size={18} />
-                    </button>
-                  </div>
-                )
-              })}
-            </div>
-
-            <div className="flex flex-col gap-2 pt-1 border-t border-black/5 dark:border-white/5">
-              <button
-                type="button"
-                onClick={() => {
-                  setIsVaultManageOpen(false)
-                  void selectWorkspaceFolder()
-                }}
-                className="w-full h-9 px-3 rounded-lg bg-primary text-white hover:bg-primary/90 font-medium flex items-center justify-center gap-1.5 transition-colors"
-              >
-                <AppIcon name="folder_open" size={18} />
-                <span>选择其他文件夹…</span>
-              </button>
-              {workspacePath && workspacePath !== defaultWorkspacePath && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsVaultManageOpen(false)
-                    void closeWorkspace()
-                  }}
-                  className="w-full h-9 px-3 rounded-lg border border-black/10 dark:border-white/10 hover:bg-rose-50 hover:border-rose-200 hover:text-rose-600 dark:hover:bg-rose-950/20 dark:hover:border-rose-900/40 dark:hover:text-rose-400 text-text-secondary flex items-center justify-center gap-1.5 transition-colors"
-                >
-                  <AppIcon name="close" size={18} />
-                  <span>关闭当前工作区</span>
-                </button>
-              )}
-            </div>
-          </div>
-        </WorkbenchFooterPopover>
       )}
     </div>
   )

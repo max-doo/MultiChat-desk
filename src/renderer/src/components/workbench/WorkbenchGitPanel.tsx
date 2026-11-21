@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkbenchStore } from '../../store/workbenchStore'
-import type { GitFileChange } from '../../../../shared/types/workbench'
+import type { GitFileChange, GitStatus } from '../../../../shared/types/workbench'
 import { AppIcon } from '../icons/AppIcon'
 import WorkbenchFooterPopover, { WorkbenchFooterPopoverHeader } from './WorkbenchFooterPopover'
 
@@ -37,6 +37,24 @@ function changeBadge(change: GitFileChange): { label: string; className: string 
     default:
       return { label: 'M', className: 'text-amber-500' }
   }
+}
+
+/** footer 只展示短分支名；完整名称通过 tooltip 和弹层标题补足 */
+function branchName(status: GitStatus | null): string | null {
+  if (!status) return null
+  if (status.detached) return '游离状态'
+  const branch = status.branch?.trim()
+  if (branch) return branch
+  const upstream = status.upstream?.trim()
+  if (upstream) {
+    const remote = status.remoteName?.trim()
+    if (remote && upstream.startsWith(`${remote}/`)) {
+      return upstream.slice(remote.length + 1)
+    }
+    const separator = upstream.indexOf('/')
+    return separator >= 0 ? upstream.slice(separator + 1) : upstream
+  }
+  return 'HEAD'
 }
 
 /**
@@ -105,7 +123,7 @@ export default function WorkbenchGitPanel({
     if (!status) return '版本管理'
     if (!status.available) return '版本管理'
     if (!status.isRepository) return '未启用'
-    return status.branch ?? (status.detached ? '游离状态' : '未命名分支')
+    return branchName(status) ?? 'HEAD'
   }, [status])
 
   const footerTitle = useMemo(() => {
@@ -114,7 +132,7 @@ export default function WorkbenchGitPanel({
     if (!status.available) return [...lines, status.error ?? '未检测到 Git'].join('\n')
     if (!status.isRepository) return [...lines, '当前工作区还不是 Git 仓库'].join('\n')
 
-    lines.push(`分支：${status.branch ?? (status.detached ? '游离状态' : '未命名分支')}`)
+    lines.push(`分支：${branchName(status) ?? 'HEAD'}`)
     if (status.conflictCount > 0) lines.push(`冲突：${status.conflictCount}`)
     if (status.changeCount > 0) lines.push(`改动：${status.changeCount}`)
     if (status.behind > 0) lines.push(`落后远程：${status.behind}`)
@@ -183,7 +201,7 @@ export default function WorkbenchGitPanel({
     }
     if (!status.upstream) {
       const confirmed = window.confirm(
-        `将当前分支「${status.branch ?? 'HEAD'}」推送到远程，并关联为跟踪分支？`
+        `将当前分支「${branchName(status) ?? 'HEAD'}」推送到远程，并关联为跟踪分支？`
       )
       if (!confirmed) return
       await gitPush(true)
@@ -251,11 +269,12 @@ export default function WorkbenchGitPanel({
         ref={triggerRef}
         type="button"
         onClick={() => (isOpen ? setIsOpen(false) : open())}
-        className="flex h-10 min-w-0 max-w-[52%] items-center gap-1.5 rounded-md px-1.5 text-xs font-medium text-text-secondary transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+        className="flex h-10 shrink-0 items-center gap-1.5 rounded-md px-1.5 text-xs font-medium text-text-secondary transition-colors hover:bg-black/5 dark:hover:bg-white/5"
         title={footerTitle}
       >
         <AppIcon name="git_branch" size={17} className="shrink-0" />
-        <span className="min-w-0 max-w-[72px] truncate">{branchLabel}</span>
+        {/* 有界动态宽度：短分支自然占位，长分支到上限后截断；完整名称在 tooltip 与弹层标题中 */}
+        <span className="min-w-[2.5rem] max-w-[96px] shrink-0 truncate">{branchLabel}</span>
         <span className="flex shrink-0 items-center gap-1">{branchBadge}</span>
         {hasLargeUntracked && (
           <span className="shrink-0 text-amber-500" title="有较大的未跟踪文件">
