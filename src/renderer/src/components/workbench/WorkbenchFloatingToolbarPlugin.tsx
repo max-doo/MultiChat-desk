@@ -17,10 +17,11 @@ import {
   SELECTION_CHANGE_COMMAND,
   type LexicalEditor
 } from 'lexical'
-import { $isLinkNode, TOGGLE_LINK_COMMAND } from '@lexical/link'
+import { $isLinkNode } from '@lexical/link'
 import { $isCodeNode } from '@lexical/code'
 import { $isAtNodeEnd } from '@lexical/selection'
 import type { RangeSelection, TextNode, ElementNode } from 'lexical'
+import WorkbenchLinkEditor from './WorkbenchLinkEditor'
 
 /**
  * 参考 lexical-playground FloatingTextFormatToolbarPlugin 实现的浮动文本格式工具栏：
@@ -56,6 +57,7 @@ function getDOMRangeRect(nativeSelection: Selection, rootElement: HTMLElement): 
 interface ToolbarState {
   isText: boolean
   isLink: boolean
+  linkUrl: string | null
   isBold: boolean
   isItalic: boolean
   isUnderline: boolean
@@ -70,13 +72,16 @@ const HORIZONTAL_OFFSET = 5
 function FloatingToolbar({
   editor,
   anchorElem,
-  state
+  state,
+  onOpenLinkEditor
 }: {
   editor: LexicalEditor
   anchorElem: HTMLElement
   state: ToolbarState
+  onOpenLinkEditor: (anchor: HTMLElement, initialUrl: string | null) => void
 }): JSX.Element {
   const popupRef = useRef<HTMLDivElement | null>(null)
+  const linkButtonRef = useRef<HTMLButtonElement | null>(null)
   const isEditable = useLexicalEditable()
 
   const updatePosition = useCallback(() => {
@@ -146,11 +151,9 @@ function FloatingToolbar({
       active ? 'bg-primary/20 text-primary' : 'text-text-primary hover:bg-black/5 dark:hover:bg-white/10'
     }`
 
-  const insertLink = () => {
-    if (!state.isLink) {
-      editor.dispatchCommand(TOGGLE_LINK_COMMAND, 'https://')
-    } else {
-      editor.dispatchCommand(TOGGLE_LINK_COMMAND, null)
+  const openLinkEditor = (): void => {
+    if (linkButtonRef.current) {
+      onOpenLinkEditor(linkButtonRef.current, state.linkUrl)
     }
   }
 
@@ -213,10 +216,11 @@ function FloatingToolbar({
             <AppIcon name="ink_highlighter" size={19} />
           </button>
           <button
+            ref={linkButtonRef}
             type="button"
-            onClick={insertLink}
+            onClick={openLinkEditor}
             className={btn(state.isLink)}
-            title={state.isLink ? '移除链接' : '插入链接'}
+            title={state.isLink ? '编辑链接' : '插入链接'}
           >
             <AppIcon name="link" size={19} />
           </button>
@@ -235,6 +239,7 @@ export default function WorkbenchFloatingToolbarPlugin({
   const [state, setState] = useState<ToolbarState>({
     isText: false,
     isLink: false,
+    linkUrl: null,
     isBold: false,
     isItalic: false,
     isUnderline: false,
@@ -242,6 +247,10 @@ export default function WorkbenchFloatingToolbarPlugin({
     isCode: false,
     isHighlight: false
   })
+  const [linkEditor, setLinkEditor] = useState<{
+    anchorRect: DOMRect
+    initialUrl: string | null
+  } | null>(null)
 
   const updatePopup = useCallback(() => {
     editor.read('latest', () => {
@@ -270,7 +279,8 @@ export default function WorkbenchFloatingToolbarPlugin({
 
       const node = getSelectedNode(selection)
       const parent = node.getParent()
-      const isLink = $isLinkNode(parent) || $isLinkNode(node)
+      const linkNode = $isLinkNode(parent) ? parent : $isLinkNode(node) ? node : null
+      const isLink = linkNode !== null
       const isCodeBlock = $isCodeNode(selection.anchor.getNode().getParent())
 
       let isText =
@@ -286,6 +296,7 @@ export default function WorkbenchFloatingToolbarPlugin({
       setState({
         isText,
         isLink,
+        linkUrl: linkNode?.getURL() ?? null,
         isBold: selection.hasFormat('bold'),
         isItalic: selection.hasFormat('italic'),
         isUnderline: selection.hasFormat('underline'),
@@ -309,9 +320,32 @@ export default function WorkbenchFloatingToolbarPlugin({
     )
   }, [editor, updatePopup])
 
-  if (anchorElem === null || !state.isText) {
-    return null
-  }
+  const openLinkEditor = useCallback((anchor: HTMLElement, initialUrl: string | null) => {
+    setLinkEditor({ anchorRect: anchor.getBoundingClientRect(), initialUrl })
+  }, [])
 
-  return createPortal(<FloatingToolbar editor={editor} anchorElem={anchorElem} state={state} />, anchorElem)
+  if (anchorElem === null) return null
+
+  return (
+    <>
+      {state.isText &&
+        createPortal(
+          <FloatingToolbar
+            editor={editor}
+            anchorElem={anchorElem}
+            state={state}
+            onOpenLinkEditor={openLinkEditor}
+          />,
+          anchorElem
+        )}
+      {linkEditor && (
+        <WorkbenchLinkEditor
+          editor={editor}
+          anchorRect={linkEditor.anchorRect}
+          initialUrl={linkEditor.initialUrl}
+          onClose={() => setLinkEditor(null)}
+        />
+      )}
+    </>
+  )
 }

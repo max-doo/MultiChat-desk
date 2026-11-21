@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext'
 import { mergeRegister } from '@lexical/utils'
 import { AppIcon } from '../icons/AppIcon'
@@ -27,16 +27,17 @@ import {
   ListNode
 } from '@lexical/list'
 import { $createCodeNode } from '@lexical/code'
-import { $isLinkNode, TOGGLE_LINK_COMMAND } from '@lexical/link'
+import { $isLinkNode } from '@lexical/link'
 import { INSERT_TABLE_COMMAND } from '@lexical/table'
 import { INSERT_HORIZONTAL_RULE_COMMAND } from '@lexical/react/LexicalHorizontalRuleNode'
 import { INSERT_WORKBENCH_IMAGE_COMMAND } from './WorkbenchImagePlugin'
-import { $getNearestNodeOfType } from '@lexical/utils'
+import { $findMatchingParent, $getNearestNodeOfType } from '@lexical/utils'
 import { useWorkbenchStore } from '../../store/workbenchStore'
 import WorkbenchDropDown, {
   WorkbenchDropDownItem,
   WorkbenchDropDownDivider
 } from './WorkbenchDropDown'
+import WorkbenchLinkEditor from './WorkbenchLinkEditor'
 
 type BlockType =
   | 'paragraph'
@@ -94,6 +95,11 @@ export default function WorkbenchToolbar(): JSX.Element {
   const [canUndo, setCanUndo] = useState(false)
   const [canRedo, setCanRedo] = useState(false)
   const [isEditable, setIsEditable] = useState(() => editor.isEditable())
+  const [linkEditor, setLinkEditor] = useState<{
+    anchorRect: DOMRect
+    initialUrl: string | null
+  } | null>(null)
+  const linkButtonRef = useRef<HTMLButtonElement | null>(null)
 
   // 与 playground $updateToolbar 等价：随选区变化刷新块类型 / 行内格式 / 链接 / 对齐
   const $updateToolbar = useCallback(() => {
@@ -274,16 +280,21 @@ export default function WorkbenchToolbar(): JSX.Element {
     editor.dispatchCommand(INSERT_HORIZONTAL_RULE_COMMAND, undefined)
   }, [editor])
 
-  const insertLink = useCallback(() => {
-    if (!isLink) {
-      const url = window.prompt('请输入链接地址 (URL):', 'https://')
-      if (url !== null && url.trim()) {
-        editor.dispatchCommand(TOGGLE_LINK_COMMAND, url.trim())
+  const openLinkEditor = useCallback(() => {
+    const button = linkButtonRef.current
+    if (!button) return
+
+    let initialUrl: string | null = null
+    editor.getEditorState().read(() => {
+      const selection = $getSelection()
+      if (!$isRangeSelection(selection)) return
+      const linkNode = $findMatchingParent(selection.anchor.getNode(), $isLinkNode)
+      if (linkNode && $isLinkNode(linkNode)) {
+        initialUrl = linkNode.getURL()
       }
-    } else {
-      editor.dispatchCommand(TOGGLE_LINK_COMMAND, null)
-    }
-  }, [editor, isLink])
+    })
+    setLinkEditor({ anchorRect: button.getBoundingClientRect(), initialUrl })
+  }, [editor])
 
   const insertImage = useCallback(() => {
     const input = document.createElement('input')
@@ -352,7 +363,8 @@ export default function WorkbenchToolbar(): JSX.Element {
     }`
 
   return (
-    <div className="h-12 px-3 bg-white/70 dark:bg-gray-800/70 backdrop-blur-md border-b border-black/5 dark:border-white/5 flex items-center justify-between gap-2 shrink-0 select-none text-sm">
+    <>
+      <div className="h-12 px-3 bg-white/70 dark:bg-gray-800/70 backdrop-blur-md border-b border-black/5 dark:border-white/5 flex items-center justify-between gap-2 shrink-0 select-none text-sm">
       {/* 左侧：格式化与排版工具组 */}
       <div className="flex items-center gap-0.5 overflow-x-auto no-scrollbar">
         {isLeftCollapsed && (
@@ -550,10 +562,11 @@ export default function WorkbenchToolbar(): JSX.Element {
           <AppIcon name="horizontal_rule" size={20} />
         </button>
         <button
+          ref={linkButtonRef}
           type="button"
-          onClick={insertLink}
+          onClick={openLinkEditor}
           className={iconBtnClass(isLink)}
-          title={isLink ? '移除链接' : '插入超链接 (Ctrl+K)'}
+          title={isLink ? '编辑链接' : '插入超链接'}
         >
           <AppIcon name="link" size={20} />
         </button>
@@ -626,6 +639,15 @@ export default function WorkbenchToolbar(): JSX.Element {
           </button>
         </div>
       </div>
-    </div>
+      </div>
+      {linkEditor && (
+        <WorkbenchLinkEditor
+          editor={editor}
+          anchorRect={linkEditor.anchorRect}
+          initialUrl={linkEditor.initialUrl}
+          onClose={() => setLinkEditor(null)}
+        />
+      )}
+    </>
   )
 }

@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { useWorkbenchStore } from '../../store/workbenchStore'
 import { AppIcon } from '../icons/AppIcon'
 import type {
@@ -9,6 +9,7 @@ import WorkbenchDropDown, {
   WorkbenchDropDownItem,
   WorkbenchDropDownDivider
 } from './WorkbenchDropDown'
+import WorkbenchUrlInputPopover from './WorkbenchUrlInputPopover'
 
 type SourceBlockType = 'paragraph' | 'h1' | 'h2' | 'h3' | 'h4' | 'bullet' | 'number' | 'check' | 'quote' | 'code'
 
@@ -43,6 +44,8 @@ export default function WorkbenchSourceToolbar({
   const toggleLeftCollapse = useWorkbenchStore((s) => s.toggleLeftCollapse)
 
   const lastBlockRef = useRef<SourceBlockType>('paragraph')
+  const linkButtonRef = useRef<HTMLButtonElement | null>(null)
+  const [linkPopover, setLinkPopover] = useState<{ anchorRect: DOMRect } | null>(null)
 
   const apply = (action: SourceToolbarAction): void => {
     editorRef.current?.applyAction(action)
@@ -82,9 +85,9 @@ export default function WorkbenchSourceToolbar({
   }
 
   const insertLink = (): void => {
-    const url = window.prompt('请输入链接地址 (URL):', 'https://')
-    if (url === null || !url.trim()) return
-    apply({ kind: 'wrap', before: '[', after: `](${url.trim()})`, placeholder: '链接文本' })
+    const button = linkButtonRef.current
+    if (!button) return
+    setLinkPopover({ anchorRect: button.getBoundingClientRect() })
   }
 
   const insertImage = (): void => {
@@ -147,7 +150,8 @@ export default function WorkbenchSourceToolbar({
     }`
 
   return (
-    <div className="h-12 px-3 bg-white/70 dark:bg-gray-800/70 backdrop-blur-md border-b border-black/5 dark:border-white/5 flex items-center justify-between gap-2 shrink-0 select-none text-sm">
+    <>
+      <div className="h-12 px-3 bg-white/70 dark:bg-gray-800/70 backdrop-blur-md border-b border-black/5 dark:border-white/5 flex items-center justify-between gap-2 shrink-0 select-none text-sm">
       <div className="flex items-center gap-0.5 overflow-x-auto no-scrollbar">
         {isLeftCollapsed && (
           <>
@@ -337,6 +341,7 @@ export default function WorkbenchSourceToolbar({
           <AppIcon name="horizontal_rule" size={20} />
         </button>
         <button
+          ref={linkButtonRef}
           type="button"
           onClick={insertLink}
           className={iconBtnClass(false)}
@@ -382,6 +387,22 @@ export default function WorkbenchSourceToolbar({
           </button>
         </div>
       </div>
-    </div>
+      </div>
+      {linkPopover && (
+        <WorkbenchUrlInputPopover
+          anchorRect={linkPopover.anchorRect}
+          initialUrl={null}
+          onApply={(url) => {
+            apply({
+              kind: 'wrap',
+              before: '[',
+              after: `](${url})`,
+              placeholder: '链接文本'
+            })
+          }}
+          onClose={() => setLinkPopover(null)}
+        />
+      )}
+    </>
   )
 }

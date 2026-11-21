@@ -8,7 +8,6 @@ import { MarkdownShortcutPlugin } from '@lexical/react/LexicalMarkdownShortcutPl
 import { ListPlugin } from '@lexical/react/LexicalListPlugin'
 import { CheckListPlugin } from '@lexical/react/LexicalCheckListPlugin'
 import { LinkPlugin } from '@lexical/react/LexicalLinkPlugin'
-import { ClickableLinkPlugin } from '@lexical/react/LexicalClickableLinkPlugin'
 import { TablePlugin } from '@lexical/react/LexicalTablePlugin'
 import { HorizontalRulePlugin } from '@lexical/react/LexicalHorizontalRulePlugin'
 import { HorizontalRuleNode } from '@lexical/react/LexicalHorizontalRuleNode'
@@ -37,6 +36,9 @@ import { WorkbenchImageNode } from './WorkbenchImageNode'
 import WorkbenchImagePlugin from './WorkbenchImagePlugin'
 import WorkbenchSelectionMenuPlugin from './WorkbenchSelectionMenuPlugin'
 import WorkbenchFloatingToolbarPlugin from './WorkbenchFloatingToolbarPlugin'
+import WorkbenchLinkHoverPlugin from './WorkbenchLinkHoverPlugin'
+import WorkbenchLinkClickPlugin from './WorkbenchLinkClickPlugin'
+import WorkbenchLinkPastePlugin from './WorkbenchLinkPastePlugin'
 import WorkbenchDraggableBlockPlugin from './WorkbenchDraggableBlockPlugin'
 import WorkbenchTableCellResizerPlugin from './WorkbenchTableCellResizerPlugin'
 import WorkbenchTableActionMenuPlugin from './WorkbenchTableActionMenuPlugin'
@@ -501,7 +503,6 @@ export default function WorkbenchEditor(): JSX.Element {
         <ListPlugin />
         <CheckListPlugin />
         <LinkPlugin />
-        <ClickableLinkPlugin />
         <TablePlugin />
         <HorizontalRulePlugin />
         <TabIndentationPlugin />
@@ -509,7 +510,10 @@ export default function WorkbenchEditor(): JSX.Element {
         <MarkdownSyncPlugin />
         <WorkbenchCodeHighlightPlugin />
         <WorkbenchImagePlugin />
+        <WorkbenchLinkPastePlugin />
+        <WorkbenchLinkClickPlugin />
         <WorkbenchSelectionMenuPlugin />
+        <WorkbenchLinkHoverPlugin />
         <WorkbenchTableCellResizerPlugin />
         <WorkbenchFindHighlightPlugin />
       </LexicalComposer>

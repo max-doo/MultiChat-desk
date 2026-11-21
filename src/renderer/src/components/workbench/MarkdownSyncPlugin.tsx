@@ -8,7 +8,8 @@ import {
   TRANSFORMERS,
   CHECK_LIST,
   isTableRowDivider,
-  type ElementTransformer
+  type ElementTransformer,
+  type TextMatchTransformer
 } from '@lexical/markdown'
 import {
   $createTableCellNode,
@@ -22,7 +23,14 @@ import {
   TableCellNode,
   TableNode
 } from '@lexical/table'
-import { $isParagraphNode, $isTextNode } from 'lexical'
+import { $createTextNode, $isParagraphNode, $isTextNode } from 'lexical'
+import { $findMatchingParent } from '@lexical/utils'
+import {
+  $createAutoLinkNode,
+  $isAutoLinkNode,
+  $isLinkNode,
+  AutoLinkNode
+} from '@lexical/link'
 import {
   $getRoot,
   $getNodeByKey,
@@ -51,6 +59,11 @@ import {
   $isWorkbenchImageNode,
   WorkbenchImageNode
 } from './WorkbenchImageNode'
+import {
+  BARE_URL_REGEXP,
+  matchBareLink,
+  trimBareUrl
+} from './workbenchBareLinks'
 
 export const HR_TRANSFORMER: ElementTransformer = {
   dependencies: [HorizontalRuleNode],
@@ -235,11 +248,51 @@ export const IMAGE_TRANSFORMER: ElementTransformer = {
   type: 'element'
 }
 
+export const BARE_LINK_TRANSFORMER: TextMatchTransformer = {
+  dependencies: [AutoLinkNode],
+  export: (node, exportChildren) => {
+    if (!$isAutoLinkNode(node)) return null
+    const text = node.getTextContent()
+    const url = node.getURL()
+    const isPlainText = node
+      .getChildren()
+      .every(
+        (child) =>
+          $isTextNode(child) && child.getFormat() === 0 && child.getStyle() === ''
+      )
+    if (isPlainText && (text === url || url === `https://${text}`)) {
+      return text
+    }
+    return `[${exportChildren(node)}](${url.replace(/([\\()])/g, '\\$1')})`
+  },
+  importRegExp: BARE_URL_REGEXP,
+  regExp: BARE_URL_REGEXP,
+  getEndIndex: (_node, match) => {
+    const startIndex = match.index ?? 0
+    const url = trimBareUrl(match[0])
+    return url ? startIndex + url.length : false
+  },
+  replace: (textNode) => {
+    if ($findMatchingParent(textNode, $isLinkNode)) return
+
+    const match = matchBareLink(textNode.getTextContent())
+    if (!match || match.text !== textNode.getTextContent()) return
+
+    const linkNode = $createAutoLinkNode(match.url)
+    const linkText = $createTextNode(match.text)
+    linkNode.append(linkText)
+    textNode.replace(linkNode)
+    return linkText
+  },
+  type: 'text-match'
+}
+
 export const WORKBENCH_TRANSFORMERS = [
   TABLE_TRANSFORMER,
   CHECK_LIST,
   HR_TRANSFORMER,
   IMAGE_TRANSFORMER,
+  BARE_LINK_TRANSFORMER,
   ...TRANSFORMERS
 ]
 
