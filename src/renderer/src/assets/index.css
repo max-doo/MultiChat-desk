@@ -306,11 +306,19 @@ webview[tabindex="-1"] {
 }
 .PlaygroundEditorTheme__link {
   color: rgb(33, 111, 219);
-  text-decoration: none;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
 }
 .PlaygroundEditorTheme__link:hover {
-  text-decoration: underline;
+  cursor: text;
+}
+[data-workbench-link-cursor='pointer'] .PlaygroundEditorTheme__link:hover {
   cursor: pointer;
+}
+/* 裸链接的显示文字本身就是地址，不再用下划线强调，和文字链接区分 */
+.PlaygroundEditorTheme__link[data-workbench-link='bare'] {
+  text-decoration: none;
 }
 
 /* 代码块：灰色底 + 行号槽（data-gutter 由 CodeHighlightPlugin 写入） */
