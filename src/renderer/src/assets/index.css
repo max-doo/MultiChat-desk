@@ -304,6 +304,29 @@ webview[tabindex="-1"] {
 .dark .PlaygroundEditorTheme__textHighlight {
   background: rgba(255, 212, 0, 0.3);
 }
+.PlaygroundEditorTheme__mark {
+    background: rgba(252, 211, 77, 0.15);
+    border-bottom: 1px dashed rgba(217, 119, 6, 0.6);
+    padding-bottom: 1px;
+    cursor: pointer;
+}
+.PlaygroundEditorTheme__mark::after {
+    content: '';
+    display: inline-block;
+    width: 4px;
+    height: 4px;
+    margin-left: 2px;
+    border-radius: 9999px;
+    background: rgba(217, 119, 6, 0.7);
+    vertical-align: middle;
+}
+.PlaygroundEditorTheme__markOverlap {
+    border-bottom-style: dotted;
+}
+.dark .PlaygroundEditorTheme__mark {
+    background: rgba(252, 211, 77, 0.1);
+    border-bottom-color: rgba(251, 191, 36, 0.55);
+}
 .PlaygroundEditorTheme__link {
   color: rgb(33, 111, 219);
   text-decoration: underline;
@@ -776,6 +799,19 @@ webview[tabindex="-1"] {
 .dark .mc-pending-insert {
   background: rgba(59, 130, 246, 0.16);
   border-left-color: #60a5fa;
+}
+
+/* —— 工作台极简大纲：点击小节锚点聚焦脉冲 —— */
+.workbench-heading-pulse {
+  background: rgba(59, 130, 246, 0.08) !important;
+  border-left: 3px solid #3b82f6 !important;
+  padding-left: 8px !important;
+  border-radius: 4px;
+  transition: all 0.3s ease;
+}
+.dark .workbench-heading-pulse {
+  background: rgba(59, 130, 246, 0.16) !important;
+  border-left-color: #60a5fa !important;
 }
 .mc-pending-bar-wrap {
   display: block;

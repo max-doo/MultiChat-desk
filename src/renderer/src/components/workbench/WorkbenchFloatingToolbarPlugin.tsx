@@ -22,6 +22,7 @@ import { $isCodeNode } from '@lexical/code'
 import { $isAtNodeEnd } from '@lexical/selection'
 import type { RangeSelection, TextNode, ElementNode } from 'lexical'
 import WorkbenchLinkEditor from './WorkbenchLinkEditor'
+import { WORKBENCH_ANNOTATE_COMMAND } from './WorkbenchAnnotationPlugin'
 
 /**
  * 参考 lexical-playground FloatingTextFormatToolbarPlugin 实现的浮动文本格式工具栏：
@@ -214,6 +215,14 @@ function FloatingToolbar({
             title="高亮"
           >
             <AppIcon name="ink_highlighter" size={19} />
+          </button>
+          <button
+            type="button"
+            onClick={() => editor.dispatchCommand(WORKBENCH_ANNOTATE_COMMAND, undefined)}
+            className={btn(false)}
+            title="标注"
+          >
+            <AppIcon name="add_comment" size={19} />
           </button>
           <button
             ref={linkButtonRef}

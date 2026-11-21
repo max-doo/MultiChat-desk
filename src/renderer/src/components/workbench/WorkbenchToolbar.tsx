@@ -79,6 +79,8 @@ export default function WorkbenchToolbar(): JSX.Element {
   const [editor] = useLexicalComposerContext()
   const editorMode = useWorkbenchStore((s) => s.editorMode)
   const setEditorMode = useWorkbenchStore((s) => s.setEditorMode)
+  const activeFileSize = useWorkbenchStore((s) => s.activeFileSize)
+  const largeDocument = (activeFileSize ?? 0) > 2 * 1024 * 1024
   const isLeftCollapsed = useWorkbenchStore((s) => s.isLeftCollapsed)
   const toggleLeftCollapse = useWorkbenchStore((s) => s.toggleLeftCollapse)
 
@@ -615,13 +617,14 @@ export default function WorkbenchToolbar(): JSX.Element {
         <div className="flex items-center p-0.5 bg-black/5 dark:bg-white/5 rounded-lg border border-black/5 dark:border-white/5">
           <button
             type="button"
+            disabled={largeDocument}
             onClick={() => setEditorMode('wysiwyg')}
             className={`px-2.5 py-1 rounded-md text-sm font-medium transition-all ${
               editorMode === 'wysiwyg'
                 ? 'bg-white dark:bg-gray-700 text-primary shadow-xs'
                 : 'text-text-secondary hover:text-text-primary'
-            }`}
-            title="预览模式"
+            } disabled:cursor-not-allowed disabled:opacity-40`}
+            title={largeDocument ? '超过 2MB 的文档固定使用源码模式' : '预览模式'}
           >
             预览
           </button>

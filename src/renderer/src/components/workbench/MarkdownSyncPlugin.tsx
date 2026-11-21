@@ -5,6 +5,7 @@ import {
   $convertFromMarkdownString,
   $convertToMarkdownString,
   $generateNodesFromMarkdownString,
+  LINK,
   TRANSFORMERS,
   CHECK_LIST,
   isTableRowDivider,
@@ -55,6 +56,11 @@ import {
 } from './PendingInsertNode'
 import { $createPendingBarNode, $isPendingBarNode } from './PendingBarNode'
 import {
+  $createWorkbenchHtmlTableNode,
+  $isWorkbenchHtmlTableNode,
+  WorkbenchHtmlTableNode
+} from './WorkbenchHtmlTableNode'
+import {
   $createWorkbenchImageNode,
   $isWorkbenchImageNode,
   WorkbenchImageNode
@@ -64,6 +70,7 @@ import {
   matchBareLink,
   trimBareUrl
 } from './workbenchBareLinks'
+import { normalizeWorkbenchLocalFileLink } from './workbenchLinks'
 
 export const HR_TRANSFORMER: ElementTransformer = {
   dependencies: [HorizontalRuleNode],
@@ -92,6 +99,113 @@ export const HR_TRANSFORMER: ElementTransformer = {
 // —— 移植 playground plugins/MarkdownTransformers 的 TABLE transformer ——
 // 让表格在源码与富文本间以 `| a | b |` GFM 语法双向转换
 const TABLE_ROW_REG_EXP = /^(?:\|)(.+)(?:\|)\s?$/
+
+const HTML_TABLE_MARKER_PREFIX = '@@MC_WORKBENCH_HTML_TABLE_V1:'
+const HTML_TABLE_MARKER_SUFFIX = '@@'
+const HTML_TABLE_MARKER_REG_EXP = /^@@MC_WORKBENCH_HTML_TABLE_V1:([0-9a-f]+)@@$/
+
+function encodeHtmlTableMarker(html: string): string {
+  const bytes = new TextEncoder().encode(html)
+  let hex = ''
+  for (const byte of bytes) {
+    hex += byte.toString(16).padStart(2, '0')
+  }
+  return `${HTML_TABLE_MARKER_PREFIX}${hex}${HTML_TABLE_MARKER_SUFFIX}`
+}
+
+function decodeHtmlTableMarker(marker: string): string | null {
+  const match = marker.match(HTML_TABLE_MARKER_REG_EXP)
+  if (!match) return null
+
+  const hex = match[1]
+  if (hex.length % 2 !== 0) return null
+
+  try {
+    const bytes = new Uint8Array(hex.length / 2)
+    for (let index = 0; index < hex.length; index += 2) {
+      bytes[index / 2] = Number.parseInt(hex.slice(index, index + 2), 16)
+    }
+    return new TextDecoder().decode(bytes)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 把块级 HTML 表格替换为单行标记，交给 Lexical 的 element transformer。
+ * 代码围栏内的内容保持原样，避免把示例 HTML 也渲染成表格。
+ */
+export function prepareHtmlTablesForLexical(markdown: string): string {
+  const lines = markdown.replace(/\r\n?/g, '\n').split('\n')
+  const output: string[] = []
+  let fence: { char: string; length: number } | null = null
+
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index]
+    const fenceMatch = line.match(/^\s{0,3}(`{3,}|~{3,})/)
+    if (fenceMatch) {
+      const marker = fenceMatch[1]
+      if (!fence) {
+        fence = { char: marker[0], length: marker.length }
+      } else if (marker[0] === fence.char && marker.length >= fence.length) {
+        fence = null
+      }
+      output.push(line)
+      continue
+    }
+    if (fence) {
+      output.push(line)
+      continue
+    }
+
+    if (!/^\s{0,3}<table(?:\s|>)/i.test(line)) {
+      output.push(line)
+      continue
+    }
+
+    let endLineIndex = -1
+    let closingIndex = -1
+    for (let cursor = index; cursor < lines.length; cursor++) {
+      const found = lines[cursor].toLowerCase().indexOf('</table>')
+      if (found >= 0) {
+        endLineIndex = cursor
+        closingIndex = found + '</table>'.length
+        break
+      }
+    }
+    if (endLineIndex < 0) {
+      output.push(line)
+      continue
+    }
+
+    const trailing = lines[endLineIndex].slice(closingIndex)
+    if (trailing.trim()) {
+      output.push(line)
+      continue
+    }
+
+    const html = lines.slice(index, endLineIndex + 1).join('\n')
+    output.push(encodeHtmlTableMarker(html))
+    index = endLineIndex
+  }
+
+  return output.join('\n')
+}
+
+export const HTML_TABLE_TRANSFORMER: ElementTransformer = {
+  dependencies: [WorkbenchHtmlTableNode],
+  export: (node) => {
+    return $isWorkbenchHtmlTableNode(node) ? node.getHtml() : null
+  },
+  regExp: HTML_TABLE_MARKER_REG_EXP,
+  replace: (parentNode, _children, match) => {
+    const html = decodeHtmlTableMarker(match[0])
+    if (!html) return false
+    parentNode.replace($createWorkbenchHtmlTableNode(html))
+    return true
+  },
+  type: 'element'
+}
 
 function getTableColumnsSize(table: TableNode): number {
   const row = table.getFirstChild()
@@ -287,13 +401,31 @@ export const BARE_LINK_TRANSFORMER: TextMatchTransformer = {
   type: 'text-match'
 }
 
+export const WORKBENCH_LINK_TRANSFORMER: TextMatchTransformer = {
+  ...LINK,
+  replace: (textNode, match) => {
+    const result = LINK.replace?.(textNode, match)
+    if (!result) return result
+
+    const linkNode = $findMatchingParent(result, $isLinkNode)
+    if (!$isLinkNode(linkNode)) return result
+
+    const localTarget = normalizeWorkbenchLocalFileLink(linkNode.getURL())
+    if (localTarget) linkNode.setURL(localTarget)
+    return result
+  }
+}
+
 export const WORKBENCH_TRANSFORMERS = [
+  HTML_TABLE_TRANSFORMER,
   TABLE_TRANSFORMER,
   CHECK_LIST,
   HR_TRANSFORMER,
   IMAGE_TRANSFORMER,
   BARE_LINK_TRANSFORMER,
-  ...TRANSFORMERS
+  ...TRANSFORMERS.map((transformer) =>
+    transformer === LINK ? WORKBENCH_LINK_TRANSFORMER : transformer
+  )
 ]
 
 /**
@@ -391,7 +523,10 @@ export default function MarkdownSyncPlugin(): null {
         clearPending()
 
         // 生成顶层 block 节点并包进待确认容器
-        const nodes = $generateNodesFromMarkdownString(md, WORKBENCH_TRANSFORMERS)
+        const nodes = $generateNodesFromMarkdownString(
+          prepareHtmlTablesForLexical(md),
+          WORKBENCH_TRANSFORMERS
+        )
         if (!nodes || nodes.length === 0) return false
         const pending = $createPendingInsertNode()
         nodes.forEach((n) => pending.append(n))
@@ -528,11 +663,22 @@ export default function MarkdownSyncPlugin(): null {
       isSyncingFromExternalRef.current = true
       editor.update(
         () => {
-          $convertFromMarkdownString(markdownBody, WORKBENCH_TRANSFORMERS)
+          $convertFromMarkdownString(
+            prepareHtmlTablesForLexical(markdownBody),
+            WORKBENCH_TRANSFORMERS
+          )
         },
         { tag: 'sync-external', discrete: true }
       )
       isSyncingFromExternalRef.current = false
+      // 正文导入完成后才允许标注应用；插件监听此事件，避免把上一份文档的标记套到新正文。
+      requestAnimationFrame(() => {
+        window.dispatchEvent(
+          new CustomEvent('workbench:markdown-imported', {
+            detail: { workspaceRoot: useWorkbenchStore.getState().workspacePath, relativePath: activeFilePath }
+          })
+        )
+      })
     }
   }, [activeFilePath, activeFileContent, editorMode, editor])
 
@@ -541,6 +687,8 @@ export default function MarkdownSyncPlugin(): null {
     return editor.registerUpdateListener(({ editorState, dirtyElements, dirtyLeaves, tags }) => {
       // 忽略由外部载入触发的更新或无内容变化的选区变动
       if (tags.has('sync-external') || isSyncingFromExternalRef.current) return
+      // 标注应用是旁路投影：不能触发 Markdown 回写，否则会把正文改坏
+      if (tags.has('annotation-sync')) return
       // 点击代码块外侧只为建立落点段落，不应把空段落写回 Markdown
       if (tags.has('code-exit')) return
       if (dirtyElements.size === 0 && dirtyLeaves.size === 0) return

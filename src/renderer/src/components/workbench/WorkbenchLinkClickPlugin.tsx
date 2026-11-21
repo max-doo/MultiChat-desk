@@ -1,6 +1,11 @@
 import { useEffect } from 'react'
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext'
 import { $getSelection, $isRangeSelection } from 'lexical'
+import { useWorkbenchStore } from '../../store/workbenchStore'
+import {
+  isWorkbenchLocalFileLink,
+  resolveWorkbenchLocalFileLink
+} from './workbenchLinks'
 
 /**
  * 工作台链接点击规则：
@@ -69,6 +74,15 @@ export default function WorkbenchLinkClickPlugin(): null {
       const shouldOpen = !editor.isEditable() || modifierOpen || middleOpen
       event.preventDefault()
       if (!shouldOpen) return
+
+      if (isWorkbenchLocalFileLink(href)) {
+        const state = useWorkbenchStore.getState()
+        const localTarget = resolveWorkbenchLocalFileLink(href, state.activeFilePath)
+        if (localTarget) {
+          void state.openFile(localTarget, { keepActiveOnMissing: true })
+        }
+        return
+      }
 
       try {
         const url = new URL(href, window.location.href)

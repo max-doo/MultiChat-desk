@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { formatUrl } from '@lexical/link'
 import { AppIcon } from '../icons/AppIcon'
+import { normalizeWorkbenchLocalFileLink } from './workbenchLinks'
 
 const POPOVER_WIDTH = 340
 const VIEWPORT_MARGIN = 8
@@ -28,6 +29,8 @@ export function normalizeLinkUrl(raw: string): string | null {
     return compact
   }
 
+  const localFile = normalizeWorkbenchLocalFileLink(compact)
+  if (localFile) return localFile
   if (/^[/#.]/.test(compact)) return compact
   const formatted = formatUrl(compact)
   try {

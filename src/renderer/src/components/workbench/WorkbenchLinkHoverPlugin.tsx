@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext'
+import {
+  formatWorkbenchLinkDisplayUrl,
+  isWorkbenchLocalFileLink
+} from './workbenchLinks'
 
 interface LinkTip {
   url: string
@@ -17,13 +21,14 @@ function readLinkUrl(anchor: HTMLAnchorElement): string | null {
   const href = anchor.getAttribute('href')
   if (!href || href === 'about:blank') return null
   if (isBareLinkDisplay(anchor)) return null
-  return href
+  return formatWorkbenchLinkDisplayUrl(href)
 }
 
 function isBareLinkDisplay(anchor: HTMLAnchorElement): boolean {
   const href = anchor.getAttribute('href')
   const displayText = anchor.textContent?.trim() ?? ''
   if (!href || !displayText || href === 'about:blank') return false
+  if (isWorkbenchLocalFileLink(href)) return false
   return normalizeLinkText(displayText) === normalizeLinkText(href)
 }
 

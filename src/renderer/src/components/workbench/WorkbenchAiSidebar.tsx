@@ -498,7 +498,7 @@ export default function WorkbenchAiSidebar(): JSX.Element | null {
         if (includesActiveFile) {
           const saved = await saveActiveFile()
           if (!isCurrentUpload()) return
-          if (!saved) {
+          if (!saved.saved) {
             showToast('error', '当前文件保存失败，未发送到 AI')
             return
           }
@@ -854,6 +854,7 @@ export default function WorkbenchAiSidebar(): JSX.Element | null {
                 compact={true}
                 isolated={true}
                 flat={true}
+                captureContext="workbench"
                 webviewInstanceId={`workbench-sidebar-${model.id}`}
                 onModelChange={handleModelChange}
                 headerActions={

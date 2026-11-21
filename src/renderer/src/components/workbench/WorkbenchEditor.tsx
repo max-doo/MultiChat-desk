@@ -19,6 +19,7 @@ import { ListNode, ListItemNode } from '@lexical/list'
 import { TableNode, TableRowNode, TableCellNode } from '@lexical/table'
 import { CodeNode, CodeHighlightNode } from '@lexical/code'
 import { LinkNode, AutoLinkNode } from '@lexical/link'
+import { MarkNode } from '@lexical/mark'
 
 import { useWorkbenchStore } from '../../store/workbenchStore'
 import WorkbenchToolbar from './WorkbenchToolbar'
@@ -33,6 +34,7 @@ import WorkbenchTitleBar from './WorkbenchTitleBar'
 import { PendingInsertNode } from './PendingInsertNode'
 import { PendingBarNode } from './PendingBarNode'
 import { WorkbenchImageNode } from './WorkbenchImageNode'
+import { WorkbenchHtmlTableNode } from './WorkbenchHtmlTableNode'
 import WorkbenchImagePlugin from './WorkbenchImagePlugin'
 import WorkbenchSelectionMenuPlugin from './WorkbenchSelectionMenuPlugin'
 import WorkbenchFloatingToolbarPlugin from './WorkbenchFloatingToolbarPlugin'
@@ -44,6 +46,8 @@ import WorkbenchTableCellResizerPlugin from './WorkbenchTableCellResizerPlugin'
 import WorkbenchTableActionMenuPlugin from './WorkbenchTableActionMenuPlugin'
 import WorkbenchCodeHighlightPlugin from './WorkbenchCodeHighlightPlugin'
 import WorkbenchSourceEditor from './WorkbenchSourceEditor'
+import WorkbenchAnnotationPlugin from './WorkbenchAnnotationPlugin'
+import WorkbenchMinimalToc from './WorkbenchMinimalToc'
 import type { WorkbenchSourceEditorHandle } from './WorkbenchSourceEditor'
 import WorkbenchCodePreview from './WorkbenchCodePreview'
 import WorkbenchImagePreview from './WorkbenchImagePreview'
@@ -138,6 +142,8 @@ const lexicalTheme = {
     capitalize: 'PlaygroundEditorTheme__textCapitalize',
     highlight: 'PlaygroundEditorTheme__textHighlight'
   },
+  mark: 'PlaygroundEditorTheme__mark',
+  markOverlap: 'PlaygroundEditorTheme__markOverlap',
   link: 'PlaygroundEditorTheme__link',
   table: 'PlaygroundEditorTheme__table',
   tableCell: 'PlaygroundEditorTheme__tableCell',
@@ -198,6 +204,17 @@ export default function WorkbenchEditor(): JSX.Element {
   useEffect(() => {
     setFindOpen(false)
   }, [activeFilePath, activeFileCategory])
+
+  // 标注面板在源码模式点击卡片：按文本区间定位到 textarea 选区并滚动。
+  useEffect(() => {
+    const handler = (event: Event): void => {
+      const detail = (event as CustomEvent<{ start: number; end: number }>).detail
+      if (!detail || editorMode !== 'source') return
+      sourceEditorRef.current?.setSelection(detail.start, detail.end)
+    }
+    window.addEventListener('workbench:source-reveal', handler)
+    return () => window.removeEventListener('workbench:source-reveal', handler)
+  }, [editorMode])
 
   // 预览与源码切换会卸载当前编辑器；重新进入预览后，等 Markdown 解析完成再恢复滚动位置
   useEffect(() => {
@@ -319,7 +336,9 @@ export default function WorkbenchEditor(): JSX.Element {
         HorizontalRuleNode,
         PendingInsertNode,
         PendingBarNode,
-        WorkbenchImageNode
+        WorkbenchImageNode,
+        WorkbenchHtmlTableNode,
+        MarkNode
       ],
       onError: (error: Error) => {
         console.error('[WorkbenchEditor] Lexical Error:', error)
@@ -490,6 +509,11 @@ export default function WorkbenchEditor(): JSX.Element {
               <WorkbenchFloatingToolbarPlugin anchorElem={floatingAnchorElem} />
             )}
 
+            {/* 文档标注：MarkNode 投影、评论框与定位 */}
+            {floatingAnchorElem && (
+              <WorkbenchAnnotationPlugin anchorElem={floatingAnchorElem} />
+            )}
+
             {/* 表格单元格操作按钮 + 菜单（复刻 playground） */}
             {floatingAnchorElem && (
               <WorkbenchTableActionMenuPlugin anchorElem={floatingAnchorElem} />
@@ -498,6 +522,9 @@ export default function WorkbenchEditor(): JSX.Element {
         </div>
 
         {/* 内部插件注入 */}
+        {/* 极简原位变形大纲导航 */}
+        <WorkbenchMinimalToc scrollContainerRef={wysiwygScrollRef} />
+
         <HistoryPlugin />
         <AutoFocusPlugin />
         <ListPlugin />

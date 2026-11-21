@@ -110,7 +110,7 @@ export default function WorkbenchMindmapPanel(): JSX.Element {
     // HTML 是可编辑文本：先落盘，保证上传的是用户当前看到的版本，而不是旧磁盘内容。
     if (wantsFile && kind === 'html' && state.isDirty) {
       const saved = await state.saveActiveFile()
-      if (!saved) throw new Error('文档保存失败，未上传')
+      if (!saved.saved) throw new Error('文档保存失败，未上传')
     }
     // 首次生成时才落记录，后续刷新沿用同一条来源。
     if (workspace && path) {
