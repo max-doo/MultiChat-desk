@@ -264,6 +264,8 @@ export class LegacyMigrationService {
       startState.status = 'running'
       startState.total = total
       this.saveJob(startState)
+      // 后续循环用最新的 jobId 判断；继续任务时 job 与 startState 是同一 jobId。
+      job.total = total
     } else {
       job.status = 'running'
       job.total = total

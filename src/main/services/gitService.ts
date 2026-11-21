@@ -17,6 +17,8 @@ import type {
 } from '../../shared/types/workbench'
 
 const GIT_TIMEOUT_MS = 120_000
+/** 文件树扫描只读取忽略状态，超时远短于网络类操作，避免 Git 异常时卡住界面 */
+const IGNORED_PATHS_TIMEOUT_MS = 10_000
 const MAX_CHANGED_FILES = 500
 /** 超过此体积的未跟踪文件在提交前提示；GitHub 对单文件 50 MiB 开始警告 */
 const LARGE_FILE_WARN_BYTES = 50 * 1024 * 1024
@@ -51,7 +53,12 @@ function serialize<T>(workspaceRoot: string, task: () => Promise<T>): Promise<T>
   return next
 }
 
-function runGit(workspaceRoot: string, args: string[], input?: string): Promise<GitRunResult> {
+function runGit(
+  workspaceRoot: string,
+  args: string[],
+  input?: string,
+  timeoutMs: number = GIT_TIMEOUT_MS
+): Promise<GitRunResult> {
   return new Promise(resolve => {
     const child = spawn(
       'git',
@@ -77,7 +84,7 @@ function runGit(workspaceRoot: string, args: string[], input?: string): Promise<
     const timer = setTimeout(() => {
       // 超时（常见于网络阻塞）主动结束进程，避免界面一直停在“处理中”
       child.kill()
-    }, GIT_TIMEOUT_MS)
+    }, timeoutMs)
 
     const finish = (code: number): void => {
       if (settled) return
@@ -113,6 +120,38 @@ function runGit(workspaceRoot: string, args: string[], input?: string): Promise<
       child.stdin?.end()
     }
   })
+}
+
+/**
+ * 读取工作区当前被 .gitignore 等规则忽略的路径，返回相对工作区的 POSIX 路径集合。
+ * - 整个目录被忽略时折叠为 `dir/`；目录内仍有已跟踪文件时返回其中被忽略的具体文件
+ * - 非 Git 仓库或 Git 不可用时返回 null，由调用方退回内置规则
+ */
+export async function listIgnoredPaths(workspaceRoot: string): Promise<Set<string> | null> {
+  const result = await runGit(
+    workspaceRoot,
+    [
+      '--no-optional-locks',
+      'ls-files',
+      '--others',
+      '--ignored',
+      '--exclude-standard',
+      '--directory',
+      '-z',
+      '--',
+      '.'
+    ],
+    undefined,
+    IGNORED_PATHS_TIMEOUT_MS
+  )
+  // 非 Git 仓库时 git 直接报错，调用方退回内置规则
+  if (!result.ok) return null
+
+  const paths = new Set<string>()
+  for (const record of result.stdout.split('\0')) {
+    if (record) paths.add(normalizeGitPath(record))
+  }
+  return paths
 }
 
 function firstMeaningfulLine(text: string): string {

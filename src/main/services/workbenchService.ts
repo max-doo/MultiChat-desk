@@ -38,12 +38,21 @@ import {
   extractFrontmatterTags,
   extractInlineTags
 } from '../../shared/utils/workbenchTags'
-import { recordWorkspaceMove } from './gitService'
-import { DEFAULT_GITIGNORE } from './gitignoreService'
+import { listIgnoredPaths, recordWorkspaceMove } from './gitService'
+import { appendGitignorePatterns, DEFAULT_GITIGNORE } from './gitignoreService'
+import type {
+  DefaultWorkspaceInfo,
+  WorkbenchWorkspaceSession
+} from '../../shared/types/annotations'
 
-// 默认忽略的系统文件和特定目录
-const IGNORED_NAMES = new Set([
-  '.git',
+// 应用与版本库内部目录：无论是否被 Git 忽略，都不参与文件树展示
+const INTERNAL_DIR_NAMES = new Set(['.git', '.multichat', '.trash'])
+
+// Git 元文件：属于版本控制配置而非工作区内容，不在文件树中展示
+const GIT_META_FILE_NAMES = new Set(['.gitignore', '.gitattributes', '.gitmodules'])
+
+// 依赖与缓存目录：无论 .gitignore 是否覆盖，都不参与文件树与搜索
+const ALWAYS_HIDDEN_NAMES = new Set([
   'node_modules',
   '__pycache__',
   '.venv',
@@ -51,10 +60,6 @@ const IGNORED_NAMES = new Set([
   '.pytest_cache',
   '.mypy_cache',
   '.ruff_cache',
-  '.obsidian',
-  '.trash',
-  '.vscode',
-  '.idea',
   '.DS_Store',
   'Thumbs.db',
   '$RECYCLE.BIN'
@@ -202,14 +207,32 @@ function hasControlCharacters(str: string): boolean {
   return false
 }
 
-/**
- * 判断是否应忽略该目录或文件节点
- */
-function isIgnoredName(name: string): boolean {
-  if (name.startsWith('.') || IGNORED_NAMES.has(name) || name.endsWith('.egg-info')) {
-    return true
+/** 路径首段是否属于应用内部目录 */
+function isInternalPath(relativePosix: string): boolean {
+  return INTERNAL_DIR_NAMES.has(relativePosix.split('/')[0])
+}
+
+/** 生成文件树/搜索共用的节点过滤函数：内部目录、依赖缓存与 Git 忽略路径不展示 */
+function createEntryFilter(ignoredPaths: Set<string> | null) {
+  return (relativePosix: string, name: string): boolean => {
+    if (isInternalPath(relativePosix)) return true
+    if (GIT_META_FILE_NAMES.has(name)) return true
+    if (ALWAYS_HIDDEN_NAMES.has(name) || name.endsWith('.egg-info')) return true
+    if (ignoredPaths) {
+      return ignoredPaths.has(relativePosix) || ignoredPaths.has(`${relativePosix}/`)
+    }
+    return false
   }
-  return false
+}
+
+/** 外部导入时按名字拦截：源可能不在工作区内，拿不到 Git 忽略结果 */
+function isBlockedImportName(name: string): boolean {
+  return (
+    INTERNAL_DIR_NAMES.has(name) ||
+    GIT_META_FILE_NAMES.has(name) ||
+    ALWAYS_HIDDEN_NAMES.has(name) ||
+    name.endsWith('.egg-info')
+  )
 }
 
 /**
@@ -530,6 +553,159 @@ export async function selectFolder(browserWindow?: BrowserWindow | null): Promis
 const DEFAULT_WORKSPACE_STORE_KEY = 'workbench_defaultWorkspacePath'
 const DEFAULT_WORKSPACE_DIR_NAME = 'MultiChat Vault'
 const WELCOME_NOTE_NAME = '欢迎使用.md'
+const WORKBENCH_LAST_WORKSPACE_KEY = 'workbench_lastWorkspacePath'
+const WORKSPACE_SETTINGS_DIR = '.multichat'
+const WORKSPACE_SETTINGS_FILE = 'settings.json'
+const DEFAULT_CONVERSATION_DIR = 'conversations'
+
+/** 主进程唯一权威的当前工作区；渲染层传入的 root 只做一致性校验。 */
+let activeWorkspaceRoot: string | null = null
+let activeGeneration = 0
+/** 工作区切换串行化：activate/close 都要跨 await 校验再落盘，不能并发交错。 */
+let workspaceSwitchChain: Promise<unknown> = Promise.resolve()
+
+function workspaceSwitchQueue<T>(operation: () => Promise<T>): Promise<T> {
+  const next = workspaceSwitchChain.then(operation, operation)
+  workspaceSwitchChain = next.then(() => undefined, () => undefined)
+  return next
+}
+
+const rootKey = (workspaceRoot: string): string => {
+  const resolved = path.resolve(workspaceRoot)
+  return process.platform === 'win32' ? resolved.toLowerCase() : resolved
+}
+
+async function samePhysicalPath(a: string, b: string): Promise<boolean> {
+  const [realA, realB] = await Promise.all([
+    realpath(a).catch(() => path.resolve(a)),
+    realpath(b).catch(() => path.resolve(b))
+  ])
+  return rootKey(realA) === rootKey(realB)
+}
+
+async function directoryWritable(dir: string): Promise<boolean> {
+  const probe = path.join(dir, `.multichat-write-probe-${randomUUID()}`)
+  try {
+    await fsWriteFile(probe, 'probe', 'utf-8')
+    await rm(probe, { force: true })
+    return true
+  } catch {
+    return false
+  }
+}
+
+function canonicalDefaultWorkspacePath(): string {
+  return path.resolve(app.getPath('documents'), DEFAULT_WORKSPACE_DIR_NAME)
+}
+
+export function getActiveWorkspaceRoot(): string | null {
+  return activeWorkspaceRoot
+}
+
+export function getActiveGeneration(): number {
+  return activeGeneration
+}
+
+/** 文档类 IPC 只能操作当前 active root，避免跨工作区读写标注。 */
+export function assertActiveWorkspace(workspaceRoot: string): void {
+  if (!activeWorkspaceRoot) throw new Error('工作台尚未激活工作区')
+  if (rootKey(workspaceRoot) !== rootKey(activeWorkspaceRoot)) {
+    throw new Error('只能操作当前活动工作区')
+  }
+}
+
+async function ensureAnnotationGitignore(workspaceRoot: string): Promise<void> {
+  await appendGitignorePatterns(workspaceRoot, ['.multichat/annotations/'], '# 应用生成物')
+    .catch(() => undefined)
+}
+
+export interface WorkspaceSettings {
+  conversationDir: string
+  warning?: string
+}
+
+function normalizeConversationDir(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+  if (!trimmed) return DEFAULT_CONVERSATION_DIR
+  if (/^[a-zA-Z]:/.test(trimmed) || trimmed.startsWith('/') || path.isAbsolute(trimmed)) return null
+  const segments = trimmed.split('/')
+  if (segments.some(segment => !segment || segment === '.' || segment === '..')) return null
+  // 任何层级的 .multichat/.git 都会把会话文档写进应用内部或版本库元数据，直接拒绝。
+  if (segments.some(segment => segment === '.multichat' || segment === '.git')) return null
+  return segments.join('/')
+}
+
+async function assertConversationDirSafe(workspaceRoot: string, relativeDir: string): Promise<void> {
+  const safeRoot = path.resolve(workspaceRoot)
+  const target = path.resolve(safeRoot, relativeDir)
+  const rootPrefix = rootKey(safeRoot) + path.sep
+  if (rootKey(target) !== rootKey(safeRoot) && !rootKey(target).startsWith(rootPrefix)) {
+    throw new Error('会话目录必须位于工作区内')
+  }
+  try {
+    const info = await stat(target)
+    if (!info.isDirectory()) throw new Error('会话目录必须是文件夹')
+    const real = await realpath(target)
+    if (rootKey(real) !== rootKey(safeRoot) && !rootKey(real).startsWith(rootPrefix)) {
+      throw new Error('会话目录不能通过符号链接逃逸工作区')
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  }
+}
+
+export async function getWorkspaceSettings(workspaceRoot: string): Promise<WorkspaceSettings> {
+  const filePath = path.join(workspaceRoot, WORKSPACE_SETTINGS_DIR, WORKSPACE_SETTINGS_FILE)
+  let raw: unknown
+  try {
+    raw = JSON.parse(await fsReadFile(filePath, 'utf-8'))
+  } catch {
+    return { conversationDir: DEFAULT_CONVERSATION_DIR }
+  }
+  const value = (raw as { conversationDir?: unknown } | null)?.conversationDir
+  const normalized = normalizeConversationDir(value)
+  if (!normalized) {
+    return {
+      conversationDir: DEFAULT_CONVERSATION_DIR,
+      warning: '会话目录配置无效，已回落到 conversations/'
+    }
+  }
+  try {
+    await assertConversationDirSafe(workspaceRoot, normalized)
+    return { conversationDir: normalized }
+  } catch {
+    return {
+      conversationDir: DEFAULT_CONVERSATION_DIR,
+      warning: '会话目录不可用，已回落到 conversations/'
+    }
+  }
+}
+
+export async function setWorkspaceSettings(
+  workspaceRoot: string,
+  settings: { conversationDir?: unknown }
+): Promise<WorkspaceSettings> {
+  const normalized = normalizeConversationDir(settings.conversationDir)
+  if (!normalized) throw new Error('会话目录必须是工作区内相对路径')
+  await assertConversationDirSafe(workspaceRoot, normalized)
+  const dir = path.join(workspaceRoot, WORKSPACE_SETTINGS_DIR)
+  await mkdir(dir, { recursive: true })
+  const filePath = path.join(dir, WORKSPACE_SETTINGS_FILE)
+  let existing: Record<string, unknown> = {}
+  try {
+    const parsed = JSON.parse(await fsReadFile(filePath, 'utf-8'))
+    if (parsed && typeof parsed === 'object') existing = parsed as Record<string, unknown>
+  } catch {
+    existing = {}
+  }
+  const next = { ...existing, conversationDir: normalized }
+  const temporary = `${filePath}.${randomUUID()}.tmp`
+  await fsWriteFile(temporary, JSON.stringify(next, null, 2), 'utf-8')
+  await rename(temporary, filePath)
+  await ensureAnnotationGitignore(workspaceRoot)
+  return { conversationDir: normalized }
+}
 
 function buildWelcomeNoteContent(): string {
   return `---
@@ -552,26 +728,32 @@ title: 欢迎使用
  * 定位（必要时创建）默认工作区。
  * - 已存在时直接返回原路径，不重建、不覆盖用户文件。
  * - 首次创建时写入一份欢迎笔记。
+ * - 已经初始化过、但目录被删除时不静默重建：会话库不可用必须让调用方明确报错，
+ *   否则捕捉和迁移会把数据写进一个用户以为已经删除的新目录。
  */
 export async function ensureDefaultWorkspace(
   store: Store<Record<string, unknown>>
 ): Promise<WorkbenchSelectFolderResult> {
+  const defaultPath = canonicalDefaultWorkspacePath()
   const stored = store.get(DEFAULT_WORKSPACE_STORE_KEY)
-  if (typeof stored === 'string' && stored.length > 0) {
-    try {
-      const statResult = await stat(stored)
-      if (statResult.isDirectory()) {
-        authorizeWorkspaceRoot(stored)
-        return { path: stored, name: path.basename(stored) }
-      }
-    } catch {
-      // 已存路径不可达，继续走重建逻辑
-    }
+  let initialized = typeof stored === 'string' && stored.length > 0
+  if (typeof stored === 'string' && stored.length > 0 && !(await samePhysicalPath(stored, defaultPath))) {
+    // 旧缓存只清理键，绝不删除旧目录内容。
+    store.delete(DEFAULT_WORKSPACE_STORE_KEY)
+    initialized = false
   }
 
-  const documentsDir = app.getPath('documents')
-  const defaultPath = path.join(documentsDir, DEFAULT_WORKSPACE_DIR_NAME)
-  await mkdir(defaultPath, { recursive: true })
+  const existed = await stat(defaultPath).then(
+    info => info.isDirectory(),
+    (error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT') return false
+      throw error
+    }
+  )
+  if (!existed) {
+    if (initialized) throw new Error('CONVERSATION_LIBRARY_UNAVAILABLE')
+    await mkdir(defaultPath, { recursive: true })
+  }
 
   const welcomePath = path.join(defaultPath, WELCOME_NOTE_NAME)
   try {
@@ -580,21 +762,92 @@ export async function ensureDefaultWorkspace(
     await fsWriteFile(welcomePath, buildWelcomeNoteContent(), 'utf-8')
   }
   await ensureDefaultGitignore(defaultPath).catch(() => undefined)
+  await ensureAnnotationGitignore(defaultPath)
 
   store.set(DEFAULT_WORKSPACE_STORE_KEY, defaultPath)
   authorizeWorkspaceRoot(defaultPath)
   return { path: defaultPath, name: path.basename(defaultPath) }
 }
 
+export async function getDefaultWorkspaceInfo(
+  store: Store<Record<string, unknown>>
+): Promise<DefaultWorkspaceInfo> {
+  const stored = store.get(DEFAULT_WORKSPACE_STORE_KEY)
+  const legacyPath = typeof stored === 'string' && stored.length > 0 && !(await samePhysicalPath(stored, canonicalDefaultWorkspacePath()))
+    ? stored
+    : undefined
+  const workspace = await ensureDefaultWorkspace(store)
+  return {
+    path: workspace.path,
+    writable: await directoryWritable(workspace.path),
+    legacyPath
+  }
+}
+
+/** 原子切换当前工作区：校验 → 授权 → 停旧 watcher → 写 last path → 启新 watcher。 */
+export async function activateWorkspace(
+  store: Store<Record<string, unknown>>,
+  workspaceRoot: string
+): Promise<WorkbenchWorkspaceSession> {
+  return workspaceSwitchQueue(async () => {
+    const resolved = path.resolve(workspaceRoot)
+    const info = await stat(resolved)
+    if (!info.isDirectory()) throw new Error('工作区路径不是文件夹')
+    if (!(await directoryWritable(resolved))) throw new Error('工作区不可写')
+    authorizeWorkspaceRoot(resolved)
+    if (activeWorkspaceRoot) unwatchWorkspace(activeWorkspaceRoot)
+    activeWorkspaceRoot = resolved
+    activeGeneration += 1
+    store.set(WORKBENCH_LAST_WORKSPACE_KEY, resolved)
+    watchWorkspace(resolved)
+    await ensureAnnotationGitignore(resolved)
+    return { activeWorkspaceRoot: resolved, generation: activeGeneration }
+  })
+}
+
+/** 关闭自定义工作区：默认库不可用时保留旧 root，不产生无 active root 的中间态。 */
+export async function closeWorkspace(
+  store: Store<Record<string, unknown>>,
+  workspaceRoot: string,
+  generation: number
+): Promise<WorkbenchWorkspaceSession> {
+  return workspaceSwitchQueue(async () => {
+    if (!activeWorkspaceRoot) throw new Error('当前没有活动工作区')
+    if (rootKey(workspaceRoot) !== rootKey(activeWorkspaceRoot)) throw new Error('只能关闭当前活动工作区')
+    if (generation !== activeGeneration) throw new Error('工作区已切换，请刷新后重试')
+    const defaultWorkspace = await ensureDefaultWorkspace(store)
+    // await 期间可能已经有别的切换完成；落盘前再确认一次目标仍是同一个 root。
+    if (!activeWorkspaceRoot || rootKey(workspaceRoot) !== rootKey(activeWorkspaceRoot) || generation !== activeGeneration) {
+      throw new Error('工作区已切换，请刷新后重试')
+    }
+    if (rootKey(activeWorkspaceRoot) === rootKey(defaultWorkspace.path)) throw new Error('默认工作区不可关闭')
+    if (!(await directoryWritable(defaultWorkspace.path))) throw new Error('默认工作区不可写，暂时无法关闭')
+    unwatchWorkspace(activeWorkspaceRoot)
+    activeWorkspaceRoot = defaultWorkspace.path
+    activeGeneration += 1
+    store.set(WORKBENCH_LAST_WORKSPACE_KEY, defaultWorkspace.path)
+    watchWorkspace(defaultWorkspace.path)
+    await ensureAnnotationGitignore(defaultWorkspace.path)
+    return { activeWorkspaceRoot: defaultWorkspace.path, generation: activeGeneration }
+  })
+}
+
+export function readLastWorkspacePath(store: Store<Record<string, unknown>>): string | null {
+  const value = store.get(WORKBENCH_LAST_WORKSPACE_KEY)
+  return typeof value === 'string' && value.length > 0 ? value : null
+}
+
 /**
  * 递归扫描工作区文件树
- * - 过滤隐藏文件与系统目录 (.git, node_modules, etc.)
+ * - 只隐藏 Git 忽略的路径与应用内部目录；未被忽略的点号目录（如 .agents/.claude）正常显示
  * - 文件夹在前，同级按自然语言顺序排序
  * - 安全跳过符号链接越界节点
  */
 export async function readTree(workspaceRoot: string): Promise<WorkbenchFileNode[]> {
   const safeRoot = await assertSafePath(workspaceRoot, '')
   authorizeWorkspaceRoot(safeRoot)
+  const ignoredPaths = await listIgnoredPaths(safeRoot)
+  const isFiltered = createEntryFilter(ignoredPaths)
 
   async function scanDirectory(currentDir: string): Promise<WorkbenchFileNode[]> {
     let entries
@@ -608,18 +861,17 @@ export async function readTree(workspaceRoot: string): Promise<WorkbenchFileNode
     const nodes: WorkbenchFileNode[] = []
 
     for (const entry of entries) {
-      if (isIgnoredName(entry.name)) {
-        continue
-      }
-
       const fullEntryPath = path.join(currentDir, entry.name)
 
       try {
         // 校验路径安全性，防止 symlink 指向工作区外部
         const safeEntryPath = await assertSafePath(safeRoot, path.relative(safeRoot, fullEntryPath))
+        const relPosix = toPosixRelativePath(safeRoot, safeEntryPath)
+        if (isFiltered(relPosix, entry.name)) {
+          continue
+        }
         const entryStat = await stat(safeEntryPath)
         const isDirectory = entryStat.isDirectory()
-        const relPosix = toPosixRelativePath(safeRoot, safeEntryPath)
 
         if (isDirectory) {
           const children = await scanDirectory(safeEntryPath)
@@ -1111,7 +1363,7 @@ export async function deleteNodes(
 /**
  * 将外部文件/文件夹复制进工作区（VSCode 风格的拖入 / 粘贴导入）
  * - 递归复制目录；重名自动追加 `-1`/`-2` 后缀，不覆盖既有节点
- * - 跳过 IGNORED_NAMES 中的系统目录；目标侧沿用 assertSafePath 校验
+ * - 跳过应用内部目录与常见依赖/缓存目录；目标侧沿用 assertSafePath 校验
  * - 源路径在工作区内部时视为整目录复制（等价复制粘贴），不执行移动语义
  * 返回导入后的相对路径列表与逐项失败原因
  */
@@ -1147,8 +1399,8 @@ export async function importExternalPaths(
     }
   }
 
-  /** 递归复制时过滤被忽略的系统目录 */
-  const copyFilter = (src: string): boolean => !isIgnoredName(path.basename(src))
+  /** 递归复制时过滤应用内部目录与常见依赖/缓存目录 */
+  const copyFilter = (src: string): boolean => !isBlockedImportName(path.basename(src))
 
   // 临界区锁：按目标目录串行化"查空名→cp 落盘"，防止并发粘贴互相覆盖同名副本
   const release = await lockCopyTarget(safeTargetDir)
@@ -1162,7 +1414,7 @@ export async function importExternalPaths(
         const resolvedSrc = path.resolve(sourcePath)
         const srcStat = await stat(resolvedSrc)
         const srcBase = path.basename(resolvedSrc)
-        if (isIgnoredName(srcBase)) {
+        if (isBlockedImportName(srcBase)) {
           failed.push({ path: sourcePath, error: '已忽略的系统目录/文件' })
           continue
         }
@@ -1405,6 +1657,7 @@ export async function openFileInSystem(workspaceRoot: string, relativePath: stri
  */
 export async function getWorkspaceTags(workspaceRoot: string): Promise<WorkspaceTagInfo[]> {
   const safeRoot = await assertSafePath(workspaceRoot, '')
+  const isFiltered = createEntryFilter(await listIgnoredPaths(safeRoot))
   const tagCounts = new Map<string, number>()
   const startTime = Date.now()
   const MAX_SCAN_TIME_MS = 3000
@@ -1420,11 +1673,11 @@ export async function getWorkspaceTags(workspaceRoot: string): Promise<Workspace
 
     for (const entry of entries) {
       if (Date.now() - startTime > MAX_SCAN_TIME_MS) break
-      if (isIgnoredName(entry.name)) continue
       const fullEntryPath = path.join(dir, entry.name)
 
       try {
         const safeEntryPath = await assertSafePath(safeRoot, path.relative(safeRoot, fullEntryPath))
+        if (isFiltered(toPosixRelativePath(safeRoot, safeEntryPath), entry.name)) continue
         const entryStat = await stat(safeEntryPath)
 
         if (entryStat.isDirectory()) {
@@ -1487,6 +1740,7 @@ export async function search(workspaceRoot: string, query: string): Promise<Work
   }
 
   const safeRoot = await assertSafePath(workspaceRoot, '')
+  const isFiltered = createEntryFilter(await listIgnoredPaths(safeRoot))
   const startTime = Date.now()
   const lowerQuery = trimmed.toLowerCase()
   const tagQueryInfo = parseTagSearchQuery(trimmed)
@@ -1509,14 +1763,13 @@ export async function search(workspaceRoot: string, query: string): Promise<Work
         break
       }
 
-      if (isIgnoredName(entry.name)) {
-        continue
-      }
-
       const fullEntryPath = path.join(dir, entry.name)
 
       try {
         const safeEntryPath = await assertSafePath(safeRoot, path.relative(safeRoot, fullEntryPath))
+        if (isFiltered(toPosixRelativePath(safeRoot, safeEntryPath), entry.name)) {
+          continue
+        }
         const entryStat = await stat(safeEntryPath)
 
         if (entryStat.isDirectory()) {
