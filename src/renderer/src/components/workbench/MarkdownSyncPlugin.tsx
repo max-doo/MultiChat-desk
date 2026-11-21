@@ -250,7 +250,7 @@ export function parseMarkdownWithFrontmatter(rawContent: string): {
   frontmatter: string | null
   markdownBody: string
 } {
-  const frontmatterRegex = /^---\r?\n([\s\S]*?)\r?\n---\r?\n/
+  const frontmatterRegex = /^---\s*\r?\n([\s\S]*?)\r?\n---\s*(?:\r?\n|$)/
   const match = rawContent.match(frontmatterRegex)
   if (match) {
     return {

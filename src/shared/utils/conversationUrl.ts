@@ -17,6 +17,32 @@ const PLATFORM_NEW_PAGE_SUFFIXES: Record<string, string> = {
   yuanbao: '/chat',
   chatglm: '/alltoolsdetail'
 }
+/**
+ * 各平台已知的会话页路径。用于“来源会话入口”这类需要高准确率的 UI 判定：
+ * 通用 CONVERSATION_PATH 只校验路径中出现会话段，平台站内的设置、搜索等页面
+ * 也可能命中，不能直接拿来决定是否展示“打开会话”入口。
+ */
+const PLATFORM_CONVERSATION_PATH: Record<string, RegExp> = {
+  chatgpt: /^\/(?:c|g\/[^/]+\/c)\/[^/]+\/?$/i,
+  claude: /^\/chat\/[^/]+\/?$/i,
+  gemini: /^\/(?:app\/[^/]+|u\/[^/]+\/app\/[^/]+)\/?$/i,
+  grok: /^\/c\/[^/]+\/?$/i,
+  perplexity: /^\/search\/[^/]+\/?$/i,
+  doubao: /^\/chat\/[^/]+\/?$/i,
+  yuanbao: /^\/chat\/[^/]+\/?$/i,
+  qwen: /^\/chat\/[^/]+\/?$/i,
+  kimi: /^\/chat\/[^/]+\/?$/i,
+  deepseek: /^\/a\/chat\/s\/[^/]+\/?$/i,
+  arena: /^\/c\/[^/]+\/?$/i,
+  yiyan: /^\/chat\/[^/]+\/?$/i
+}
+/**
+ * 少数平台把会话 ID 放在 query 上；仅对明确平台启用，避免首页参数误判。
+ * 新增平台时先用真实会话页核实参数名，未确认前不要猜测加入。
+ */
+const PLATFORM_CONVERSATION_QUERY_KEYS: Record<string, string[]> = {
+  yiyan: ['conversation_id', 'conversationId', 'chatId']
+}
 /** 兼容 sign_in / sign-in / log_in 等带分隔符写法（deepseek 落在 /sign_in）。 */
 const AUTH_WALL_SEGMENT = /\/(?:log[-_]?in|sign[-_]?in|sign[-_]?up|auth)(?:\/|$)/i
 /** 跨 origin 跳转时，仅知名鉴权主机判登录墙（如 accounts.google.com），避免误伤正常站内跳转。 */
@@ -61,6 +87,44 @@ export function isConversationUrlForPlatform(platformId: string, url: string, ba
     if (newPageSuffix && cleanPath.endsWith(newPageSuffix)) return false
 
     return CONVERSATION_PATH.test(target.pathname)
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 严格判定某个 URL 是否是该平台的具体会话页。
+ *
+ * 与 isConversationUrlForPlatform 的区别：
+ * - 后者服务自动化恢复，允许通用会话路径，覆盖尚未逐一枚举的平台；
+ * - 本函数服务“是否显示来源会话入口”，只接受已确认的平台会话路径或会话 ID 参数。
+ *   同域名下的设置页、搜索页、文档页等不会被误判为会话。
+ */
+export function isPlatformConversationPage(
+  platformId: string,
+  url: string,
+  baseUrl: string
+): boolean {
+  if (!url || url === 'about:blank') return false
+  try {
+    const target = new URL(url)
+    const base = new URL(baseUrl)
+    if (target.protocol !== 'https:' || target.username || target.password) return false
+    if (target.origin !== base.origin) return false
+    if (EXCLUDED_SEGMENT.test(target.pathname)) return false
+
+    if (platformId === 'gemini') return isGeminiConversationUrl(target)
+
+    const queryKeys = PLATFORM_CONVERSATION_QUERY_KEYS[platformId]
+    if (queryKeys?.some((key) => !!target.searchParams.get(key))) return true
+
+    const cleanPath = target.pathname.replace(/\/+$/, '') || '/'
+    if (EXCLUDED_EXACT_PATHS.has(cleanPath)) return false
+    const newPageSuffix = PLATFORM_NEW_PAGE_SUFFIXES[platformId]
+    if (newPageSuffix && cleanPath.endsWith(newPageSuffix)) return false
+
+    const pathPattern = PLATFORM_CONVERSATION_PATH[platformId]
+    return !!pathPattern && pathPattern.test(target.pathname)
   } catch {
     return false
   }

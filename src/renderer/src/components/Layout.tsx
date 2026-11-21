@@ -101,17 +101,18 @@ interface LayoutProps {
 
 /**
  * 工作台的右侧面板切换：思维导图与 AI 对话互斥，与快捷窗口的侧边栏规则一致。
- * 放在窗口控件左侧，三个平台共用同一套顺序与状态语义。
+ * 统一采用与顶栏其他功能按钮一致的尺寸（w-7 h-7）和图标规范（size=16）。
  */
-function WorkbenchPaneToggles({ compact }: { compact?: boolean }): JSX.Element {
+function WorkbenchPaneToggles(): JSX.Element {
   const rightPane = useWorkbenchStore((s) => s.rightPane)
   const openRightPane = useWorkbenchStore((s) => s.openRightPane)
   const closeRightPane = useWorkbenchStore((s) => s.closeRightPane)
-  const base = compact
-    ? 'h-7 px-2 rounded-lg'
-    : 'w-[46px]'
   const tone = (active: boolean): string =>
-    `flex items-center justify-center transition-colors hover:bg-black/10 hover:text-text-primary no-drag ${active ? 'text-primary' : 'text-text-secondary'}`
+    `w-7 h-7 flex items-center justify-center rounded-lg transition-all duration-200 no-drag ${
+      active
+        ? 'text-primary bg-primary/10 hover:bg-primary/15 dark:bg-primary/20 dark:hover:bg-primary/25'
+        : 'text-text-secondary hover:text-text-primary hover:bg-black/5 dark:hover:bg-white/10'
+    }`
   return (
     <>
       <button
@@ -119,18 +120,18 @@ function WorkbenchPaneToggles({ compact }: { compact?: boolean }): JSX.Element {
         aria-label={rightPane === 'mindmap' ? '收起思维导图' : '打开思维导图'}
         title={rightPane === 'mindmap' ? '收起思维导图' : '打开思维导图'}
         onClick={() => rightPane === 'mindmap' ? closeRightPane() : openRightPane('mindmap')}
-        className={`${base} ${tone(rightPane === 'mindmap')}`}
+        className={tone(rightPane === 'mindmap')}
       >
-        <AppIcon name="diagram_flow_horizontal" size={20} />
+        <AppIcon name="diagram_flow_horizontal" size={16} />
       </button>
       <button
         type="button"
         aria-label={rightPane === 'ai' ? '收起 AI 侧边栏' : '打开 AI 侧边栏'}
         title={rightPane === 'ai' ? '收起 AI 侧边栏' : '打开 AI 侧边栏'}
         onClick={() => rightPane === 'ai' ? closeRightPane() : openRightPane('ai')}
-        className={`${base} ${tone(rightPane === 'ai')}`}
+        className={tone(rightPane === 'ai')}
       >
-        <AppIcon name={rightPane === 'ai' ? 'right_panel_close' : 'right_panel_open'} size={20} />
+        <AppIcon name={rightPane === 'ai' ? 'right_panel_close' : 'right_panel_open'} size={16} />
       </button>
     </>
   )
@@ -370,44 +371,50 @@ function Layout({ children }: LayoutProps): JSX.Element {
         </div>
         
         {window.api.platform === 'win32' ? (
-          <div className="relative z-20 -mr-4 flex h-full min-w-[138px] items-stretch justify-end drag-region">
-            {productMode === 'workbench' && <WorkbenchPaneToggles />}
-            <button
-              type="button"
-              aria-label="最小化窗口"
-              title="最小化"
-              onClick={() => window.api.minimizeWindow()}
-              className="flex w-[46px] items-center justify-center text-[#202020] transition-colors duration-100 hover:bg-black/[0.05] active:bg-black/[0.08] dark:text-[#e5e5e5] dark:hover:bg-white/[0.06]"
-            >
-              <WindowsCaptionIcon name="minimize" />
-            </button>
-            <button
-              type="button"
-              aria-label={isWindowMaximized ? '还原窗口' : '最大化窗口'}
-              title={isWindowMaximized ? '还原' : '最大化'}
-              onClick={() => window.api.maximizeWindow()}
-              className="flex w-[46px] items-center justify-center text-[#202020] transition-colors duration-100 hover:bg-black/[0.05] active:bg-black/[0.08] dark:text-[#e5e5e5] dark:hover:bg-white/[0.06]"
-            >
-              <WindowsCaptionIcon name={isWindowMaximized ? 'restore' : 'maximize'} />
-            </button>
-            <button
-              type="button"
-              aria-label="关闭窗口"
-              title="关闭"
-              onClick={() => window.api.closeWindow()}
-              className="flex w-[46px] items-center justify-center text-[#202020] transition-colors duration-100 hover:bg-[#c42b1c] hover:text-white active:bg-[#a52a1e] dark:text-[#e5e5e5]"
-            >
-              <WindowsCaptionIcon name="close" />
-            </button>
+          <div className="relative z-20 -mr-4 flex h-full min-w-[138px] items-center justify-end drag-region">
+            {productMode === 'workbench' && (
+              <div className="flex items-center gap-1 mr-2 no-drag">
+                <WorkbenchPaneToggles />
+              </div>
+            )}
+            <div className="flex h-full items-stretch">
+              <button
+                type="button"
+                aria-label="最小化窗口"
+                title="最小化"
+                onClick={() => window.api.minimizeWindow()}
+                className="flex w-[46px] items-center justify-center text-[#202020] transition-colors duration-100 hover:bg-black/[0.05] active:bg-black/[0.08] dark:text-[#e5e5e5] dark:hover:bg-white/[0.06]"
+              >
+                <WindowsCaptionIcon name="minimize" />
+              </button>
+              <button
+                type="button"
+                aria-label={isWindowMaximized ? '还原窗口' : '最大化窗口'}
+                title={isWindowMaximized ? '还原' : '最大化'}
+                onClick={() => window.api.maximizeWindow()}
+                className="flex w-[46px] items-center justify-center text-[#202020] transition-colors duration-100 hover:bg-black/[0.05] active:bg-black/[0.08] dark:text-[#e5e5e5] dark:hover:bg-white/[0.06]"
+              >
+                <WindowsCaptionIcon name={isWindowMaximized ? 'restore' : 'maximize'} />
+              </button>
+              <button
+                type="button"
+                aria-label="关闭窗口"
+                title="关闭"
+                onClick={() => window.api.closeWindow()}
+                className="flex w-[46px] items-center justify-center text-[#202020] transition-colors duration-100 hover:bg-[#c42b1c] hover:text-white active:bg-[#a52a1e] dark:text-[#e5e5e5]"
+              >
+                <WindowsCaptionIcon name="close" />
+              </button>
+            </div>
           </div>
         ) : window.api.platform === 'darwin' ? (
           <div className="relative z-10 min-w-[120px] drag-region h-full flex items-center justify-end gap-1">
-            {productMode === 'workbench' && <WorkbenchPaneToggles compact />}
+            {productMode === 'workbench' && <WorkbenchPaneToggles />}
             {currentPage !== 'notes' && entryButtons}
           </div>
         ) : (
           <div className="relative z-10 min-w-[120px] drag-region h-full flex items-center justify-end gap-1">
-            {productMode === 'workbench' && <WorkbenchPaneToggles compact />}
+            {productMode === 'workbench' && <WorkbenchPaneToggles />}
             {currentPage !== 'notes' && entryButtons}
           </div>
         )}

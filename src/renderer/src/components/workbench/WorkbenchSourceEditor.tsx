@@ -1,7 +1,15 @@
-import { useMemo, useRef, useEffect, useImperativeHandle, forwardRef } from 'react'
+import {
+  useMemo,
+  useRef,
+  useEffect,
+  useLayoutEffect,
+  useImperativeHandle,
+  forwardRef
+} from 'react'
 import Prism from 'prismjs'
 import 'prismjs/components/prism-markdown'
 import { useWorkbenchStore } from '../../store/workbenchStore'
+import { readEditorScroll, rememberEditorScroll } from './workbenchEditorScroll'
 
 /**
  * 源码模式编辑器：透明 textarea 叠在 Prism 高亮渲染层之上，左侧行号槽。
@@ -56,7 +64,7 @@ const WorkbenchSourceEditor = forwardRef<
   }, [value])
 
   // 滚动同步：textarea 滚动时同步背景层与行号列
-  const handleScroll = () => {
+  const syncScrollLayers = (): void => {
     const ta = textareaRef.current
     if (!ta) return
     if (preRef.current) {
@@ -68,9 +76,26 @@ const WorkbenchSourceEditor = forwardRef<
     }
   }
 
+  const handleScroll = (): void => {
+    const ta = textareaRef.current
+    if (!ta) return
+    syncScrollLayers()
+    if (activeFilePath) {
+      rememberEditorScroll(workspacePath, activeFilePath, 'source', ta.scrollTop)
+    }
+  }
+
   useEffect(() => {
     handleScroll()
   }, [value])
+
+  // 从预览切回源码时，等 textarea 完成首帧布局后恢复上次滚动位置
+  useLayoutEffect(() => {
+    const ta = textareaRef.current
+    if (!ta || !activeFilePath) return
+    ta.scrollTop = readEditorScroll(workspacePath, activeFilePath, 'source')
+    syncScrollLayers()
+  }, [activeFilePath, workspacePath])
 
   const lineNumbers = useMemo(
     () => Array.from({ length: lineCount }, (_, i) => i + 1),

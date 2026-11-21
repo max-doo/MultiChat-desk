@@ -29,14 +29,24 @@ export default function WorkbenchSearch({ onClose }: WorkbenchSearchProps): JSX.
   // 高亮匹配关键词文本
   const renderHighlightedSnippet = (preview: string, query: string) => {
     if (!query) return preview
+    let target = query.trim()
+    if (/^tag:/i.test(target)) {
+      target = target.slice(4).trim()
+    }
     const lowerPreview = preview.toLowerCase()
-    const lowerQuery = query.toLowerCase()
-    const index = lowerPreview.indexOf(lowerQuery)
+    let lowerTarget = target.toLowerCase()
+    let index = lowerPreview.indexOf(lowerTarget)
+
+    if (index === -1 && lowerTarget.startsWith('#')) {
+      lowerTarget = lowerTarget.slice(1)
+      index = lowerPreview.indexOf(lowerTarget)
+    }
+
     if (index === -1) return preview
 
     const before = preview.slice(0, index)
-    const match = preview.slice(index, index + query.length)
-    const after = preview.slice(index + query.length)
+    const match = preview.slice(index, index + lowerTarget.length)
+    const after = preview.slice(index + lowerTarget.length)
 
     return (
       <>
@@ -60,7 +70,7 @@ export default function WorkbenchSearch({ onClose }: WorkbenchSearchProps): JSX.
             type="text"
             value={searchQuery}
             onChange={(e) => searchFiles(e.target.value)}
-            placeholder="全文搜索笔记与内容..."
+            placeholder="全文搜索或搜索标签 (#tag, tag:#tag)..."
             className="w-full h-8 pl-8 pr-14 rounded-lg bg-black/5 dark:bg-white/5 border border-transparent focus:border-primary/40 focus:bg-white dark:focus:bg-gray-800 text-text-primary text-sm placeholder:text-text-secondary/60 focus:outline-none transition-all"
           />
           <div className="absolute right-1.5 flex items-center gap-1">
@@ -155,11 +165,14 @@ export default function WorkbenchSearch({ onClose }: WorkbenchSearchProps): JSX.
             }}
             className="w-full text-left p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 transition-colors group flex flex-col gap-1 border border-transparent hover:border-black/5 dark:hover:border-white/5 cursor-pointer select-none"
           >
-            <div className="flex items-center justify-between text-text-primary">
-              <span className="font-medium truncate group-hover:text-primary transition-colors">
+            <div className="flex items-center justify-between gap-2 text-text-primary">
+              <span
+                className="font-medium truncate min-w-0 flex-1 group-hover:text-primary transition-colors"
+                title={result.fileName}
+              >
                 {result.fileName}
               </span>
-              <span className="text-sm font-mono text-text-secondary/70 bg-black/5 dark:bg-white/5 px-1.5 py-0.5 rounded">
+              <span className="text-xs font-mono text-text-secondary/70 bg-black/5 dark:bg-white/5 px-1.5 py-0.5 rounded shrink-0 whitespace-nowrap select-none">
                 第 {result.line} 行
               </span>
             </div>

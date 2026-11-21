@@ -50,6 +50,10 @@ import WorkbenchDocxCard from './WorkbenchDocxCard'
 import WorkbenchStatusPill from './WorkbenchStatusPill'
 import WorkbenchFindReplaceBar from './WorkbenchFindReplaceBar'
 import WorkbenchFindHighlightPlugin, { revealRangeInLexical } from './WorkbenchFindHighlightPlugin'
+import {
+  readEditorScroll,
+  rememberEditorScroll
+} from './workbenchEditorScroll'
 
 const lexicalTheme = {
   paragraph: 'PlaygroundEditorTheme__paragraph',
@@ -157,11 +161,14 @@ export default function WorkbenchEditor(): JSX.Element {
   const activeFileDataUrl = useWorkbenchStore((s) => s.activeFileDataUrl)
   const updateActiveContent = useWorkbenchStore((s) => s.updateActiveContent)
   const editorMode = useWorkbenchStore((s) => s.editorMode)
+  const workspacePath = useWorkbenchStore((s) => s.workspacePath)
   const createFile = useWorkbenchStore((s) => s.createFile)
   const openInSystem = useWorkbenchStore((s) => s.openInSystem)
   const saveActiveFile = useWorkbenchStore((s) => s.saveActiveFile)
 
   const [floatingAnchorElem, setFloatingAnchorElem] = useState<HTMLDivElement | null>(null)
+  const wysiwygScrollRef = useRef<HTMLDivElement | null>(null)
+  const restoringWysiwygScrollRef = useRef(false)
   const sourceEditorRef = useRef<WorkbenchSourceEditorHandle>(null)
   const [findOpen, setFindOpen] = useState(false)
   const [findReplaceFocus, setFindReplaceFocus] = useState(false)
@@ -189,6 +196,78 @@ export default function WorkbenchEditor(): JSX.Element {
   useEffect(() => {
     setFindOpen(false)
   }, [activeFilePath, activeFileCategory])
+
+  // 预览与源码切换会卸载当前编辑器；重新进入预览后，等 Markdown 解析完成再恢复滚动位置
+  useEffect(() => {
+    if (editorMode !== 'wysiwyg' || !activeFilePath) return
+    const container = wysiwygScrollRef.current
+    if (!container) return
+    const target = readEditorScroll(workspacePath, activeFilePath, 'wysiwyg')
+    if (target <= 0) {
+      container.scrollTop = 0
+      return
+    }
+
+    // 恢复期间忽略 scroll 事件，避免内容尚未撑开时把被夹紧的值写回记忆
+    restoringWysiwygScrollRef.current = true
+    let frameId = 0
+    let frames = 0
+    let stopped = false
+    let resizeObserver: ResizeObserver | null = null
+    let timeoutId: ReturnType<typeof setTimeout> | null = null
+
+    const stop = (): void => {
+      if (stopped) return
+      stopped = true
+      restoringWysiwygScrollRef.current = false
+      cancelAnimationFrame(frameId)
+      resizeObserver?.disconnect()
+      resizeObserver = null
+      if (timeoutId) clearTimeout(timeoutId)
+      timeoutId = null
+    }
+    const restore = (): void => {
+      if (stopped) return
+      container.scrollTop = target
+      frames += 1
+      if (container.scrollTop >= target || frames >= 60) stop()
+    }
+
+    // 图片缩略图与字体在挂载后继续撑高内容，尺寸变化时再尝试一次
+    const content = container.firstElementChild
+    if (content && typeof ResizeObserver !== 'undefined') {
+      resizeObserver = new ResizeObserver(() => {
+        if (stopped) return
+        container.scrollTop = target
+        if (container.scrollTop >= target) stop()
+      })
+      resizeObserver.observe(content)
+    }
+    timeoutId = setTimeout(stop, 2000)
+    frameId = requestAnimationFrame(restore)
+
+    // 用户主动滚动或输入时立即让出控制权
+    const onUserIntent = (): void => stop()
+    container.addEventListener('wheel', onUserIntent, { passive: true })
+    container.addEventListener('touchstart', onUserIntent, { passive: true })
+    container.addEventListener('pointerdown', onUserIntent)
+    container.addEventListener('keydown', onUserIntent)
+    return () => {
+      stop()
+      container.removeEventListener('wheel', onUserIntent)
+      container.removeEventListener('touchstart', onUserIntent)
+      container.removeEventListener('pointerdown', onUserIntent)
+      container.removeEventListener('keydown', onUserIntent)
+    }
+  }, [activeFilePath, editorMode, workspacePath])
+
+  const handleWysiwygScroll = useCallback(
+    (e: React.UIEvent<HTMLDivElement>) => {
+      if (!activeFilePath || restoringWysiwygScrollRef.current) return
+      rememberEditorScroll(workspacePath, activeFilePath, 'wysiwyg', e.currentTarget.scrollTop)
+    },
+    [activeFilePath, workspacePath]
+  )
 
   // frontmatter 与正文分离：面板编辑属性，Lexical 只吃 body
   const parsedFrontmatter = useMemo(
@@ -366,7 +445,11 @@ export default function WorkbenchEditor(): JSX.Element {
         <WorkbenchToolbar />
 
         {/* 编辑器画布可滚动容器 */}
-        <div className="flex-1 overflow-y-auto relative flex justify-center items-start">
+        <div
+          ref={wysiwygScrollRef}
+          className="flex-1 overflow-y-auto relative flex justify-center items-start"
+          onScroll={handleWysiwygScroll}
+        >
           <div ref={onRef} className="relative w-full max-w-[900px] pl-14 pr-8 pt-6 pb-20 min-h-full">
             {/* Obsidian 式文档标题：点击行内重命名 */}
             <WorkbenchTitleBar />

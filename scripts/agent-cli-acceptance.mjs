@@ -193,7 +193,7 @@ async function sectionConversationUrl() {
     return
   }
   const mod = await import(pathToFileURL(outFile).href)
-  const { isConversationUrlForPlatform, canonicalizeConversationUrl, isAuthWallUrl } = mod
+  const { isConversationUrlForPlatform, isPlatformConversationPage, canonicalizeConversationUrl, isAuthWallUrl } = mod
 
   const base = {
     chatgpt: 'https://chatgpt.com',
@@ -258,6 +258,25 @@ async function sectionConversationUrl() {
   for (const [name, pid, url, b, expected] of cases) {
     test(`A.conv ${name}`, () => {
       eq(isConversationUrlForPlatform(pid, url, b), expected, url)
+    })
+  }
+
+  // 来源会话入口使用严格判定：只认已知会话路径，同域名的设置/搜索/文档页不误报。
+  const strictCases = [
+    ['chatgpt 设置页', 'chatgpt', 'https://chatgpt.com/settings', base.chatgpt, false],
+    ['chatgpt 搜索页', 'chatgpt', 'https://chatgpt.com/search', base.chatgpt, false],
+    ['claude 项目页', 'claude', 'https://claude.ai/project/abc', base.claude, false],
+    ['kimi 研究页', 'kimi', 'https://www.kimi.com/deep-research', base.kimi, false],
+    ['perplexity discover', 'perplexity', 'https://www.perplexity.ai/discover', base.perplexity, false],
+    ['deepseek 非会话 /a/chat', 'deepseek', 'https://chat.deepseek.com/a/chat/abc', base.deepseek, false],
+    ['非 AI 链接', 'chatgpt', 'https://github.com/openai', base.chatgpt, false]
+  ]
+  for (const [name, pid, url, b, expected] of cases.filter(([n, p]) => p !== 'arena' && !/登录|跨域|http|凭据|about|空串|非法/.test(n))) {
+    strictCases.push([`严格 ${name}`, pid, url, b, expected])
+  }
+  for (const [name, pid, url, b, expected] of strictCases) {
+    test(`A.strict ${name}`, () => {
+      eq(isPlatformConversationPage(pid, url, b), expected, url)
     })
   }
 
