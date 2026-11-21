@@ -51,13 +51,48 @@ export interface ConversationMindmap {
   generationSession?: MindmapGenerationSession
   /** 由工作台文档生成时记录生成范围，用于提示“基于旧版本”与重生成。 */
   workbenchScope?: WorkbenchMindmapScope
+  /** 仅工作台导图：上次确认绑定的文档相对路径。 */
+  source?: string
+  /** 仅工作台导图：导出文件在工作区内的相对路径（位于 .multichat/mindmaps）。 */
+  fileSync?: MindmapFileSync
 }
+
+export interface MindmapFileSync { relativePath: string }
+
+/** 工作台导图索引项：由 `.multichat/mindmaps/*.mindmap.md` 扫描派生，不落盘。 */
+export interface WorkbenchMindmapIndexEntry {
+  id: string
+  /** 绑定的文档相对路径（POSIX 分隔）。 */
+  source: string
+  title: string
+  markdown: string
+  fileSync?: MindmapFileSync
+  updatedAt: number
+}
+
+/** 导图文件异常：多份同 id 文件或无法解析；正常文件恒为 synced。 */
+export type MindmapFileState = 'invalid' | 'synced'
+export type MindmapFileReason = 'duplicate' | 'content' | 'overflow'
 
 export interface WorkbenchMindmapScope {
   scope: 'document' | 'selection'
   contentHash: string
   selectionText?: string
   headingPath?: string[]
+}
+
+/** 思维导图材料：对话/文本使用 text，PDF、Word、演示文稿使用工作区文件。 */
+export type MindmapMaterialKind = 'conversation' | 'document' | 'selection' | 'pdf' | 'word' | 'presentation' | 'html'
+
+export interface MindmapMaterial {
+  kind: MindmapMaterialKind
+  fileName: string
+  text?: string
+  /** 文件材料：渲染层只提交工作区相对路径，主进程校验后补 filePath。 */
+  workspaceRoot?: string
+  relativePath?: string
+  filePath?: string
+  scope?: WorkbenchMindmapScope
 }
 
 export interface MindmapGenerationSession {
@@ -80,7 +115,13 @@ export interface MindmapModifyRequest {
   includeSourceContext?: boolean
   source?: { webContentsId?: number; platformId: string; name: string }
 }
-export interface MindmapSourceContext { snapshot: string; origin: 'live' | 'snapshot' }
+export interface MindmapSourceContext {
+  snapshot: string
+  origin: 'live' | 'snapshot' | 'file'
+  /** 文件来源：主进程校验后的绝对路径与展示名。 */
+  filePath?: string
+  fileName?: string
+}
 export interface MindmapCandidate {
   id: string
   conversationId: string
@@ -112,7 +153,7 @@ export interface MindmapTask {
   candidateId?: string
   baseUpdatedAt?: number
   outcome?: 'candidate' | 'unchanged'
-  contextSource?: 'live' | 'snapshot'
+  contextSource?: 'live' | 'snapshot' | 'file'
 }
 
 export interface NoteNavigation {
