@@ -76,6 +76,39 @@ const IMAGE_MIME_TYPES: Record<string, string> = {
 }
 
 const ASSETS_DIR_NAME = 'assets'
+const WINDOWS_RENAME_RETRY_DELAYS_MS = [80, 160, 320, 640, 1000]
+
+function isRetryableWindowsRenameError(error: unknown): boolean {
+  if (process.platform !== 'win32') return false
+  const code = (error as NodeJS.ErrnoException | undefined)?.code
+  return code === 'EBUSY' || code === 'EPERM' || code === 'EACCES'
+}
+
+/**
+ * Windows 上目录重命名可能被编辑器、资源管理器预览或云盘同步短暂占用。
+ * 对可恢复的占用错误做短重试；持续占用时交给调用方给出明确提示。
+ */
+async function renameWithRetry(oldPath: string, newPath: string): Promise<void> {
+  let lastError: unknown
+  for (let attempt = 0; attempt <= WINDOWS_RENAME_RETRY_DELAYS_MS.length; attempt++) {
+    try {
+      await rename(oldPath, newPath)
+      return
+    } catch (error) {
+      if (!isRetryableWindowsRenameError(error)) throw error
+      lastError = error
+      if (attempt === WINDOWS_RENAME_RETRY_DELAYS_MS.length) break
+      await new Promise((resolve) => setTimeout(resolve, WINDOWS_RENAME_RETRY_DELAYS_MS[attempt]))
+    }
+  }
+
+  if ((lastError as NodeJS.ErrnoException | undefined)?.code === 'EBUSY') {
+    throw new Error(
+      `重命名失败：“${path.basename(newPath)}” 正被其他程序占用，请关闭正在使用该目录的程序后重试`
+    )
+  }
+  throw lastError
+}
 
 /**
  * 为新工作区补一份常规 .gitignore。
@@ -263,6 +296,12 @@ export function authorizeWorkspaceRoot(workspaceRoot: string): void {
   authorizedWorkspaceRoots.add(path.resolve(workspaceRoot))
 }
 
+/** 校验 workspaceRoot 已被授权（selectFolder / readFile / ensureDefault 登记过）。 */
+export function isAuthorizedWorkspaceRoot(workspaceRoot: string): boolean {
+  if (!workspaceRoot || typeof workspaceRoot !== 'string') return false
+  return authorizedWorkspaceRoots.has(path.resolve(workspaceRoot))
+}
+
 export const WORKBENCH_FILE_SCHEME = 'workbench-file'
 
 /**
@@ -368,6 +407,16 @@ function isGitInternalPath(relativeOrName: string): boolean {
 }
 
 /**
+ * 判断事件路径是否落在应用自己的状态目录内。
+ * `.multichat/` 只放导图文件、索引与缓存，不参与文件树展示，
+ * 每次画布保存都广播整树重扫纯属浪费；外部改动由导图目录自己的 watcher 负责失效。
+ */
+function isAppStatePath(relativeOrName: string): boolean {
+  const normalized = relativeOrName.split('\\').join('/')
+  return normalized === '.multichat' || normalized.startsWith('.multichat/')
+}
+
+/**
  * 监听工作区目录的外部变更；变更去抖后向所有窗口广播 `workbench:fs-changed`。
  * 重复调用同一 root 是幂等的。
  */
@@ -377,6 +426,8 @@ export function watchWorkspace(workspaceRoot: string): void {
   if (workbenchWatchers.has(key)) return
 
   const resolvedRoot = path.resolve(workspaceRoot)
+  // 打开工作区即授权导图类 IPC；watch 与 readTree 是渲染层打开工作区的必经动作。
+  authorizeWorkspaceRoot(resolvedRoot)
   let watcher: fs.FSWatcher
   try {
     // recursive: Windows/macOS 原生递归；Linux (Electron ≥30, inotify) 亦支持。
@@ -385,6 +436,8 @@ export function watchWorkspace(workspaceRoot: string): void {
       // .git 内部变化不代表工作区文件变化：git status 每次都会重写 .git/index，
       // 不排除会形成「刷新状态 → 索引变化 → 再刷新」的自激循环。
       if (fileName && isGitInternalPath(String(fileName))) return
+      // .multichat 变化同理：导图保存不该触发整树重扫与 Git 刷新。
+      if (fileName && isAppStatePath(String(fileName))) return
       const state = workbenchWatchers.get(key)
       if (!state) return
       if (state.debounceTimer) clearTimeout(state.debounceTimer)
@@ -541,12 +594,14 @@ export async function ensureDefaultWorkspace(
  */
 export async function readTree(workspaceRoot: string): Promise<WorkbenchFileNode[]> {
   const safeRoot = await assertSafePath(workspaceRoot, '')
+  authorizeWorkspaceRoot(safeRoot)
 
   async function scanDirectory(currentDir: string): Promise<WorkbenchFileNode[]> {
     let entries
     try {
       entries = await readdir(currentDir, { withFileTypes: true })
     } catch {
+      if (currentDir === safeRoot) throw new Error('工作区根目录不可读')
       return []
     }
 
@@ -906,7 +961,7 @@ export async function renameNode(
 
   markWorkspaceSelfWrite(workspaceRoot)
   await mkdir(path.dirname(safeNewPath), { recursive: true })
-  await rename(safeOldPath, safeNewPath)
+  await renameWithRetry(safeOldPath, safeNewPath)
 
   const moves = [{
     oldRelativePath: toPosixRelativePath(path.resolve(workspaceRoot), safeOldPath),
