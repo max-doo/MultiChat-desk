@@ -197,10 +197,18 @@ export function applyMindmapTextEdits(inputMarkdown: string, edits: MindmapTextE
   return result
 }
 
-export function buildMindmapEditPrompt(inputMarkdown: string, instructions: string, context?: { fileName: string; origin: MindmapSourceContext['origin'] }): string {
+export function buildMindmapEditPrompt(inputMarkdown: string, instructions: string, context?: { fileName: string; origin: MindmapSourceContext['origin']; document?: boolean }): string {
   const fence = '```'
   const sourceDescription = context
-    ? `本轮来源附件：${context.fileName}，${context.origin === 'live' ? '为本次采集的来源主会话已加载对话，不包含尚未加载的历史' : '为本地保存的来源快照，可能不是最新内容，不得声称是最新对话'}。`
+    ? `本轮来源附件：${context.fileName}，${
+      context.origin === 'live'
+        ? '为本次采集的来源主会话已加载对话，不包含尚未加载的历史'
+        : context.origin === 'file'
+          ? '为工作区中的原文件，按文件实际内容阅读'
+          : context.document
+            ? '为本地保存的文档快照，可能不是最新内容'
+            : '为本地保存的来源快照，可能不是最新内容，不得声称是最新对话'
+    }。`
     : '本轮没有来源附件。'
   return `你正在修改用户当前的一份思维导图。请根据本轮当前导图、本次修改要求和可用来源材料，输出可供用户预览的修改结果。
 

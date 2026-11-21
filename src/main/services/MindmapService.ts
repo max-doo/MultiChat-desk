@@ -1,7 +1,8 @@
 import { randomUUID } from 'crypto'
-import type { MindmapTask, NoteConversation, MindmapModifyRequest, MindmapCandidate, MindmapGenerationSession, ConversationMindmap, MindmapSourceContext } from '../../shared/types/notes'
+import { stat } from 'fs/promises'
+import type { MindmapTask, NoteConversation, MindmapModifyRequest, MindmapCandidate, MindmapGenerationSession, ConversationMindmap, MindmapSourceContext, MindmapMaterial } from '../../shared/types/notes'
 import { applyMindmapTextEdits, buildMindmapEditPrompt, mergeMindmapCandidate, normalizeMindmapNewlines, parseMindmapModifyResponse, validateMindmapMarkdown } from '../../shared/utils/mindmapEdits'
-import { buildDocumentMindmapPrompt, buildMindmapPrompt, inspectMindmapOutline, MINDMAP_INPUT_LIMIT, MINDMAP_TAGS, type MindmapMaterialKind } from '../../shared/utils/mindmap'
+import { buildDocumentMindmapPrompt, buildMindmapPrompt, inspectMindmapOutline, isMindmapFileMaterial, MINDMAP_DOCUMENT_LIMIT_BYTES, MINDMAP_INPUT_LIMIT, MINDMAP_TAGS } from '../../shared/utils/mindmap'
 import { generateMindmapPageStateScript, generateMindmapResponseScript, type MindmapResponse } from '../../shared/utils/webviewScripts'
 import { isConversationUrlForPlatform } from '../../shared/utils/conversationUrl'
 import { automationService } from './AutomationService'
@@ -17,12 +18,47 @@ const CONFLICT = '导图在生成期间发生了修改，请基于当前版本�
 const IDLE_TIMEOUT = 2 * 60_000
 const TEMPORARY_IDLE_TIMEOUT = 10 * 60_000
 
-/** 工作台文档生成时的材料与范围，缺省表示沿用对话快照。 */
-export interface MindmapMaterial {
-  text: string
-  fileName: string
-  kind: MindmapMaterialKind
-  scope?: { scope: 'document' | 'selection'; contentHash: string; selectionText?: string; headingPath?: string[] }
+export type { MindmapMaterial }
+
+/** 文本材料转附件时去掉原扩展名，避免生成 `报告.pdf.md` 这类名称。 */
+function attachmentBaseName(fileName: string): string {
+  // 只剥常见文档扩展名，不能把所有点号后缀都当扩展名（标题里常有 `v1.2` 这类版本号）。
+  return fileName.replace(/\.(?:pdf|docx?|docm|pptx?|pptm|html?|md|markdown|txt)$/i, '')
+}
+
+/** 对话附件优先使用首条提问，避免界面上出现无意义的 source-conversation 或平台占位标题。 */
+function conversationAttachmentName(source: NoteConversation): string {
+  // 平台自动生成的会话标题常常就是「将 conversation 生成思维导图」这类占位名，
+  // 不能直接当附件名。优先取 Markdown 里第一个用户提问的首行，标题只作兜底。
+  const snapshot = source.snapshot || ''
+  const userBlock = snapshot.match(/<user(?:\s+[^>]*)?>([\s\S]*?)<\/user>/i)?.[1] || snapshot
+  const firstLine = userBlock
+    .split('\n')
+    .map(line => line.replace(/^[#>*\-\s]+/, '').trim())
+    .find(Boolean) || ''
+  const savedTitle = source.title.trim()
+  const usableTitle = isPlaceholderTitle(savedTitle) ? '' : savedTitle
+  const title = source.workbench
+    ? usableTitle || 'conversation'
+    : (firstLine.slice(0, 60).trim() || usableTitle || 'conversation')
+  // 工作台文档的标题就是文件名，先去掉原扩展名，避免出现 `报告.md.md`；
+  // 对话标题可能含 `v1.2` 这类版本号，不能按任意后缀截断。
+  // 提示词要写“来源文件：<名>”，附件名里的扩展名由调用方统一补，避免重复出现 `.md.md`。
+  return `${source.workbench ? attachmentBaseName(title) : title.replace(/\.md$/i, '')}.md`
+}
+
+/** 平台自动生成的无意义会话名，出现在文件名里比没有名字更糟。 */
+function isPlaceholderTitle(title: string): boolean {
+  return /^(?:将\s*)?conversation(?:\s*生成.*)?$/i.test(title.trim())
+}
+
+/** 文件材料统一在发送前校验存在性与大小，生成和修改都走同一规则。 */
+async function assertFileMaterial(filePath: string): Promise<void> {
+  const info = await stat(filePath).catch(() => null)
+  if (!info?.isFile()) throw new Error('文件不存在或无法读取，请重新选择文档')
+  if (info.size > MINDMAP_DOCUMENT_LIMIT_BYTES) {
+    throw new Error(`文档超过 ${MINDMAP_DOCUMENT_LIMIT_BYTES / 1024 / 1024}MB 上传上限`)
+  }
 }
 
 /** 限制一次异步操作的等待时间；网页脚本迟到的返回值不会继续推进任务。 */
@@ -54,6 +90,8 @@ export class MindmapService {
   private lastPage: { taskId: string; key: string; mapId: string; initialized: boolean; binding: MindmapGenerationSession } | null = null
   private trackedWindows = new WeakSet<BrowserWindow>()
   private candidates = new Map<number, Map<string, MindmapCandidate>>()
+  /** 本次进程内每张导图最近使用的生成页；工作台文件本身不保存 generationSession。 */
+  private generationSessions = new Map<string, MindmapGenerationSession>()
   private applying = new Set<string>()
 
   constructor(private notes: NoteManager, private notify: (task: MindmapTask) => void, private notesChanged: () => void) {}
@@ -62,11 +100,16 @@ export class MindmapService {
 
   async start(conversation: NoteConversation, platform: string, additionalRequirements = '', ownerId = 0, material?: MindmapMaterial): Promise<MindmapTask> {
     if (this.task && !TERMINAL_PHASES.includes(this.task.phase)) throw new Error('已有导图正在生成，请等待或取消后再试')
-    const input = material ? material.text : conversation.snapshot
-    if (input.length > MINDMAP_INPUT_LIMIT) {
-      throw new Error(material ? '文档超过 60000 字符，请选中其中一段生成；内容未截断' : '对话超过 60000 字符，暂不支持直接生成；内容未截断')
+    if (material && isMindmapFileMaterial(material.kind)) {
+      if (!material.filePath) throw new Error('文件材料缺少路径，请重新选择文档')
+      await assertFileMaterial(material.filePath)
+    } else {
+      const input = material ? material.text || '' : conversation.snapshot
+      if (input.length > MINDMAP_INPUT_LIMIT) {
+        throw new Error(material ? '文档超过 60000 字符，请选中其中一段生成；内容未截断' : '对话超过 60000 字符，暂不支持直接生成；内容未截断')
+      }
+      if (!input.trim()) throw new Error(material ? '没有可整理的内容' : '没有可整理的对话内容')
     }
-    if (!input.trim()) throw new Error(material ? '没有可整理的内容' : '没有可整理的对话内容')
     await automationService.getPlatformSelectors(platform)
     // 异步检查后再检查一次，防止两个窗口同时启动。
     if (this.task && !TERMINAL_PHASES.includes(this.task.phase)) throw new Error('已有导图正在生成')
@@ -118,6 +161,7 @@ export class MindmapService {
     const binding = await this.sessionBinding(task.platform, window.webContents.getURL()).catch(() => ({ platformId: task.platform } as MindmapGenerationSession))
     if (this.task?.id !== task.id || !TERMINAL_PHASES.includes(task.phase) || this.idle?.key !== key || window.isDestroyed()) return
     this.lastPage = { taskId: task.id, key, mapId: this.idle.mapId, initialized: this.idle.initialized, binding }
+    this.generationSessions.set(this.idle.mapId, binding)
     this.scheduleIdleRelease(task, key)
   }
 
@@ -165,9 +209,15 @@ export class MindmapService {
     if (!map || map.updatedAt !== request.expectedUpdatedAt) throw new Error(CONFLICT)
     const previous = this.getCandidate(ownerId, map.id)
     if (request.candidateId && (previous?.id !== request.candidateId || previous.conversationId !== source.id)) throw new Error('候选已失效，请重新打开导图')
+    // 工作台导图文件不保存生成会话；网页释放后仍可从进程内记录恢复原生成页。
+    const known = this.generationSessions.get(map.id) ||
+      (this.lastPage?.mapId === map.id ? this.lastPage.binding : undefined)
+    const retained = !request.newSession && known?.platformId === request.platformId ? known : undefined
+    const persisted = map.generationSession
     const base: MindmapCandidate = request.candidateId && previous ? this.rebaseCandidate(previous, map) : {
       id: '', conversationId: source.id, mindmapId: map.id, baseMarkdown: normalizeMindmapNewlines(map.markdown), baseTitle: map.title, baseUpdatedAt: map.updatedAt,
-      candidateMarkdown: normalizeMindmapNewlines(map.markdown), generationSession: map.generationSession || { platformId: request.platformId }
+      candidateMarkdown: normalizeMindmapNewlines(map.markdown),
+      generationSession: persisted?.conversationUrl ? persisted : retained || persisted || { platformId: request.platformId }
     }
     await this.checkBase(base)
     if (base.candidateMarkdown.length + normalizeMindmapNewlines(request.instructions).length > MINDMAP_INPUT_LIMIT) throw new Error('导图与修改要求合计超过 60000 字符，请缩小内容；未截断')
@@ -201,7 +251,7 @@ export class MindmapService {
       const map = source.mindmaps.find(item => item.id === mapId)
       if (!map) throw new Error('导图不存在，候选已保留')
       const rebased = this.rebaseCandidate(candidate, map)
-      const saved = await this.notes.updateMindmap(candidate.conversationId, mapId, rebased.candidateMarkdown, validateMindmapMarkdown(rebased.candidateMarkdown), rebased.baseUpdatedAt, candidate.generationSession)
+      const saved = await this.notes.updateMindmap(candidate.conversationId, mapId, rebased.candidateMarkdown, validateMindmapMarkdown(rebased.candidateMarkdown), rebased.baseUpdatedAt, candidate.generationSession, rebased.baseMarkdown)
       this.candidates.get(ownerId)?.delete(mapId)
       this.notesChanged()
       return saved
@@ -220,6 +270,7 @@ export class MindmapService {
     if (this.task?.mindmapId === mapId) this.cancel(this.task.id)
     if (this.idle?.mapId === mapId) this.releaseIdle()
     if (this.lastPage?.mapId === mapId) this.lastPage = null
+    this.generationSessions.delete(mapId)
     for (const candidates of this.candidates.values()) candidates.delete(mapId)
   }
 
@@ -285,11 +336,16 @@ export class MindmapService {
       if (edit && (!reused || edit.includeSourceContext)) {
         stage = '读取来源主会话上下文'
         context = edit.loadContext ? await waitFor(edit.loadContext(source), 30_000, stage, signal) : { snapshot: source.snapshot, origin: 'snapshot' }
-        context = { ...context, snapshot: normalizeMindmapNewlines(context.snapshot) }
+        context = context.origin === 'file' ? context : { ...context, snapshot: normalizeMindmapNewlines(context.snapshot) }
         task.contextSource = context.origin
         this.change(task, 'loading')
-        if (!context.snapshot.trim()) throw new Error('没有可用的来源会话内容，请打开来源主会话并加载完整对话后重试')
-        if (edit.base.candidateMarkdown.length + normalizeMindmapNewlines(additionalRequirements).length + context.snapshot.length > MINDMAP_INPUT_LIMIT) throw new Error('来源上下文、当前导图与修改要求合计超过 60000 字符，请缩小内容；未截断、未发送')
+        if (context.origin === 'file') {
+          if (!context.filePath) throw new Error('来源文件缺失，请重新打开文档后重试')
+          await assertFileMaterial(context.filePath)
+        } else {
+          if (!context.snapshot.trim()) throw new Error('没有可用的来源会话内容，请打开来源主会话并加载完整对话后重试')
+          if (edit.base.candidateMarkdown.length + normalizeMindmapNewlines(additionalRequirements).length + context.snapshot.length > MINDMAP_INPUT_LIMIT) throw new Error('来源上下文、当前导图与修改要求合计超过 60000 字符，请缩小内容；未截断、未发送')
+        }
       }
       if (signal.aborted || this.task?.id !== task.id) return
       stage = '准备生成网页'
@@ -330,19 +386,53 @@ export class MindmapService {
       if (edit) await this.checkBase(edit.base)
       if (signal.aborted) return
       let attachment: { fileName: string; origin: MindmapSourceContext['origin'] } | undefined
-      const uploadContext = edit ? context : { snapshot: material ? material.text : source.snapshot, origin: 'snapshot' as const }
-      if (uploadContext) {
-        stage = material ? '上传文档附件' : '上传完整主会话附件'
+      const fileContext = edit
+        ? context?.origin === 'file' ? context : undefined
+        : material && isMindmapFileMaterial(material.kind) && material.filePath
+          ? { origin: 'file' as const, filePath: material.filePath, fileName: material.fileName }
+          : undefined
+      if (fileContext) {
+        stage = '上传文档附件'
+        const filePath = fileContext.filePath
+        if (!filePath) throw new Error('文档路径缺失，请重新打开文档后重试')
+        await assertFileMaterial(filePath)
         if (this.idle?.key === key) this.idle.pendingAttachment = true
-        const uploaded = await automationService.uploadMarkdownContext(task.platform, uploadContext.snapshot, key, signal, material?.fileName)
+        const uploaded = await automationService.uploadAttachments(task.platform, [filePath], key, signal, { preferDrop: true })
         if (signal.aborted || this.task?.id !== task.id) return
-        if (!uploaded.success || !uploaded.data) throw new Error(uploaded.error || (material ? '文档附件上传失败，未发送请求' : '主会话附件上传失败，未发送请求'))
-        attachment = { ...uploaded.data, origin: uploadContext.origin }
+        if (!uploaded.success || !uploaded.data?.fileNames.length) throw new Error(uploaded.error || '文档附件上传失败，未发送请求')
+        attachment = { fileName: uploaded.data.fileNames[0], origin: 'file' }
         if (edit) await this.checkBase(edit.base)
+      } else {
+        const uploadContext = edit
+          ? context
+          : material
+            ? {
+              snapshot: material.text || '',
+              origin: 'snapshot' as const,
+              fileName: material.fileName
+            }
+            : { snapshot: source.snapshot, origin: 'snapshot' as const, fileName: conversationAttachmentName(source) }
+        if (uploadContext) {
+          stage = material ? '上传文档附件' : '上传完整主会话附件'
+          if (this.idle?.key === key) this.idle.pendingAttachment = true
+          // 修改对话时附件内容是本轮采集的上下文，文件名也应按这份内容生成，避免沿用旧快照的提问。
+          const name = 'fileName' in uploadContext && uploadContext.fileName
+            ? uploadContext.fileName
+            : conversationAttachmentName({ ...source, snapshot: uploadContext.snapshot })
+          // 选区来自 PDF/Word/PPT 时，文件名仍带原扩展名；先去掉再统一加 .md，避免 `x.pdf.md`。
+          // 对话附件名已按内容生成，不能按任意点号截断（例如标题里含版本号）。
+          const base = material || source.workbench ? attachmentBaseName(name) : name.replace(/\.md$/i, '')
+          // 文本材料一律以 Markdown 附件发送；PDF/Word/PPT 的选区也是文本片段，不能沿用原扩展名。
+          const uploaded = await automationService.uploadMarkdownContext(task.platform, uploadContext.snapshot, key, signal, base, '.md')
+          if (signal.aborted || this.task?.id !== task.id) return
+          if (!uploaded.success || !uploaded.data) throw new Error(uploaded.error || (material ? '文档附件上传失败，未发送请求' : '主会话附件上传失败，未发送请求'))
+          attachment = { ...uploaded.data, origin: uploadContext.origin }
+          if (edit) await this.checkBase(edit.base)
+        }
       }
       if (signal.aborted) return
       let prompt: string
-      if (edit) prompt = buildMindmapEditPrompt(edit.base.candidateMarkdown, additionalRequirements, attachment)
+      if (edit) prompt = buildMindmapEditPrompt(edit.base.candidateMarkdown, additionalRequirements, attachment && { ...attachment, document: !!source.workbench })
       else {
         if (!attachment) throw new Error(material ? '文档附件缺失，未发送生成请求' : '来源会话附件缺失，未发送生成请求')
         prompt = material
@@ -404,7 +494,7 @@ export class MindmapService {
           const latest = latestSource.mindmaps.find(map => map.id === edit.base.mindmapId)
           if (!latest) throw new Error('导图已删除')
           if (latest.updatedAt === edit.base.baseUpdatedAt && normalizeMindmapNewlines(latest.markdown) === edit.base.baseMarkdown && latest.title === edit.base.baseTitle && JSON.stringify(latest.generationSession) !== JSON.stringify(generatedBinding)) {
-            const saved = await this.notes.updateMindmap(latestSource.id, latest.id, latest.markdown, latest.title, latest.updatedAt, generatedBinding)
+            const saved = await this.notes.updateMindmap(latestSource.id, latest.id, latest.markdown, latest.title, latest.updatedAt, generatedBinding, latest.markdown)
             edit.base = { ...edit.base, baseUpdatedAt: saved.updatedAt }
             task.baseUpdatedAt = saved.updatedAt
             this.notesChanged()
@@ -496,7 +586,9 @@ export class MindmapService {
     const window = this.idle ? sessionManager.getSession(this.idle.key) : undefined
     if (window && this.idle) {
       // 取消后立即释放也保留地址候选；重新打开前由 restoreUrl 严格校验。
-      this.lastPage = { taskId: id, key: this.idle.key, mapId: this.idle.mapId, initialized: this.idle.initialized, binding: { platformId: this.task.platform, conversationUrl: window.webContents.getURL() } }
+      const binding = { platformId: this.task.platform, conversationUrl: window.webContents.getURL() }
+      this.lastPage = { taskId: id, key: this.idle.key, mapId: this.idle.mapId, initialized: this.idle.initialized, binding }
+      this.generationSessions.set(this.idle.mapId, binding)
     }
     // 未提交附件时，即使预览可见也销毁，阻止迟到的脚本提交；其他取消只释放隐藏网页。
     if (this.idle?.pendingAttachment || !window?.isVisible()) this.releaseIdle()
@@ -519,6 +611,7 @@ export class MindmapService {
       // 仅恢复网页供查看，不重新注入或提交生成请求。
       window = sessionManager.getOrCreateSession(key, url)
       this.idle = { key, mapId: page.mapId, platformId: page.binding.platformId, initialized: page.initialized }
+      this.generationSessions.set(page.mapId, page.binding)
       this.trackWindow(key)
       window.webContents.setBackgroundThrottling(true)
     }
@@ -533,5 +626,6 @@ export class MindmapService {
     this.lastPage = null
     if (this.task) sessionManager.destroySession(sessionKey(this.task.id))
     this.candidates.clear()
+    this.generationSessions.clear()
   }
 }

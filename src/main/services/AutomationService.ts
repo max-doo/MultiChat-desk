@@ -1,6 +1,6 @@
 import type Store from 'electron-store'
 import type { WebContents } from 'electron'
-import { mkdtemp, writeFile, rm, readFile, stat } from 'fs/promises'
+import { copyFile, mkdtemp, writeFile, rm, readFile, stat } from 'fs/promises'
 import { basename, extname, join } from 'path'
 import { tmpdir } from 'os'
 import { randomUUID } from 'crypto'
@@ -49,12 +49,16 @@ const MIME_BY_EXT: Record<string, string> = {
   '.bmp': 'image/bmp',
   '.svg': 'image/svg+xml',
   '.pdf': 'application/pdf',
+  '.html': 'text/html',
+  '.htm': 'text/html',
   '.txt': 'text/plain',
   '.md': 'text/markdown',
   '.doc': 'application/msword',
   '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.docm': 'application/vnd.ms-word.document.macroEnabled.12',
   '.ppt': 'application/vnd.ms-powerpoint',
   '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  '.pptm': 'application/vnd.ms-powerpoint.presentation.macroEnabled.12',
   '.xls': 'application/vnd.ms-excel',
   '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   '.csv': 'text/csv'
@@ -91,6 +95,38 @@ export async function dispatchFileDrop(wc: WebContents, filePath: string, x: num
  * 负责在无头或长驻的会话 WebContents 中执行发送输入、点击按钮以及提取结果
  */
 export class AutomationService {
+  /**
+   * 输入框已有附件时，同名新文件可能被平台替换或无法区分新旧。
+   * 默认保留原名；只有检测到已有附件才加短后缀，让本轮附件有可确认的新身份。
+   */
+  private async resolveAttachmentName(
+    wc: WebContents,
+    selectors: ModelSelector,
+    fileName: string,
+    signal?: AbortSignal
+  ): Promise<{ fileName: string; baseline: { attachmentCount: number; nameMatched: boolean } }> {
+    const read = async (name: string): Promise<{ attachmentCount: number; nameMatched: boolean }> => {
+      const state = await abortable(
+        wc.executeJavaScript(generateFileUploadStateScript(selectors, name)) as Promise<{ attachmentCount?: number; nameMatched?: boolean }>,
+        signal
+      )
+      return { attachmentCount: state?.attachmentCount ?? 0, nameMatched: !!state?.nameMatched }
+    }
+    let baseline: { attachmentCount: number; nameMatched: boolean }
+    try {
+      baseline = await read(fileName)
+    } catch {
+      // 基线读取失败不阻断上传；后续仍要求出现新附件信号。
+      baseline = { attachmentCount: 0, nameMatched: false }
+    }
+    // 只有同名附件已在输入框时才需要新名字：不同名时附件数变化已足够证明是本轮新增。
+    if (!baseline.nameMatched) return { fileName, baseline }
+    const extension = extname(fileName)
+    const stem = extension ? fileName.slice(0, -extension.length) : fileName
+    const next = `${stem}-${randomUUID().slice(0, 8)}${extension}`
+    return { fileName: next, baseline: await read(next) }
+  }
+
   private store: Store<Record<string, unknown>> | null = null
 
   /**
@@ -239,7 +275,7 @@ export class AutomationService {
    * 完整来源会话写入临时 Markdown，附件状态确认后才允许发送。
    * baseName 用于工作台文档场景，让附件名体现来源文档；省略时沿用对话快照的默认命名。
    */
-  public async uploadMarkdownContext(platformId: string, content: string, sessionKey: string, cancelSignal: AbortSignal, baseName?: string): Promise<AutomationResponse<{ fileName: string }>> {
+  public async uploadMarkdownContext(platformId: string, content: string, sessionKey: string, cancelSignal: AbortSignal, baseName?: string, extension = '.md'): Promise<AutomationResponse<{ fileName: string }>> {
     const controller = new AbortController()
     const abort = (): void => controller.abort()
     cancelSignal.addEventListener('abort', abort, { once: true })
@@ -253,21 +289,23 @@ export class AutomationService {
       const selectors = await abortable(this.getPlatformSelectors(platformId), signal)
       const wc = await abortable(this.ensureSessionReady(platformId, sessionKey), signal)
       const safeBase = baseName?.replace(/[\\/:*?"<>|\r\n]/g, '-').trim().slice(0, 80)
-      const fileName = `${safeBase || 'source-conversation'}-${randomUUID().slice(0, 8)}.md`
+      const preferredName = `${safeBase || 'conversation'}${extension}`
+      const { fileName, baseline } = await this.resolveAttachmentName(wc, selectors, preferredName, signal)
       tempDir = await mkdtemp(join(tmpdir(), 'multichat-mindmap-context-'))
       const filePath = join(tempDir, fileName)
       await writeFile(filePath, content, 'utf8')
       if (signal.aborted) throw new Error('附件操作已中止')
+      const stateScript = generateFileUploadStateScript(selectors, fileName)
       const point = await abortable(wc.executeJavaScript(generateFileDropPointScript(selectors)) as Promise<{ found?: boolean; x: number; y: number }>, signal)
       if (!point || point.found === false) throw new Error('未找到可接收附件的输入区域')
       const dropped = await dispatchFileDrop(wc, filePath, point.x, point.y, signal)
       if (!dropped.success) throw new Error(dropped.error || '附件拖拽上传失败')
-      const script = generateFileUploadStateScript(selectors, fileName)
       let stable = 0
       while (!signal.aborted) {
-        const state = await abortable(wc.executeJavaScript(script) as Promise<{ found: boolean; busy: boolean; error?: string }>, signal)
+        const state = await abortable(wc.executeJavaScript(stateScript) as Promise<{ found: boolean; busy: boolean; nameMatched: boolean; attachmentCount: number; error?: string }>, signal)
         if (state.error) throw new Error(state.error)
-        stable = state.found && !state.busy ? stable + 1 : 0
+        const fresh = state.attachmentCount > baseline.attachmentCount || (state.nameMatched && !baseline.nameMatched)
+        stable = state.found && !state.busy && fresh ? stable + 1 : 0
         if (stable >= 3) return { success: true, data: { fileName } }
         await abortable(new Promise<void>(resolve => setTimeout(resolve, 500)), signal)
       }
@@ -288,32 +326,45 @@ export class AutomationService {
    * 差别是文件已存在于磁盘（CLI --image 场景），无需写临时文件。
    * @returns fileNames 供 generateSendMessageScript 的附件门控二次确认
    */
-  public async uploadAttachments(platformId: string, filePaths: string[], sessionKey: string, signal?: AbortSignal): Promise<AutomationResponse<{ fileNames: string[] }>> {
+  public async uploadAttachments(platformId: string, filePaths: string[], sessionKey: string, signal?: AbortSignal, options?: { preferDrop?: boolean }): Promise<AutomationResponse<{ fileNames: string[] }>> {
+    const tempDirs: string[] = []
     try {
       const selectors = await this.getPlatformSelectors(platformId)
       const wc = await this.ensureSessionReady(platformId, sessionKey)
       const fileNames: string[] = []
       for (const filePath of filePaths) {
-        const fileName = basename(filePath)
+        const originalName = basename(filePath)
         if (signal?.aborted) throw new Error('附件操作已中止')
         // 优先走"粘贴式"上传：读文件 bytes → 页内 new File + ClipboardEvent('paste')。
         // 不依赖页面是否监听 drop/落点坐标，主流 AI 输入框都监听 paste 处理附件。
         // paste 派发失败（如页面拦截/不支持）才退回 CDP 拖拽兜底。
         let uploaded = false
-        try {
-          const buf = await readFile(filePath)
-          const mime = MIME_BY_EXT[extname(fileName).toLowerCase()] ?? 'application/octet-stream'
-          const pasteScript = generatePasteFileUploadScript(selectors, fileName, mime, buf.toString('base64'))
-          const pasted = await abortable(wc.executeJavaScript(pasteScript) as Promise<{ success: boolean; error?: string }>, signal)
-          uploaded = !!pasted?.success
-        } catch (err) {
-          uploaded = false
-          console.warn(`[AutomationService] 粘贴上传异常，退回拖拽 (${fileName}):`, err)
+        // 大文件（PDF/PPT 等）不走 Base64 粘贴：几十 MB 转字符串会占满渲染进程内存。
+        const { fileName, baseline } = await this.resolveAttachmentName(wc, selectors, originalName, signal)
+        if (!options?.preferDrop) {
+          try {
+            const buf = await readFile(filePath)
+            const mime = MIME_BY_EXT[extname(fileName).toLowerCase()] ?? 'application/octet-stream'
+            const pasteScript = generatePasteFileUploadScript(selectors, fileName, mime, buf.toString('base64'))
+            const pasted = await abortable(wc.executeJavaScript(pasteScript) as Promise<{ success: boolean; error?: string }>, signal)
+            uploaded = !!pasted?.success
+          } catch (err) {
+            uploaded = false
+            console.warn(`[AutomationService] 粘贴上传异常，退回拖拽 (${fileName}):`, err)
+          }
         }
         if (!uploaded) {
           const point = await abortable(wc.executeJavaScript(generateFileDropPointScript(selectors)) as Promise<{ found?: boolean; x: number; y: number }>, signal)
           if (!point || point.found === false) return { success: false, error: `未找到可接收附件「${fileName}」的输入区域` }
-          const dropped = await dispatchFileDrop(wc, filePath, point?.x ?? 10, point?.y ?? 10, signal)
+          // 拖拽按磁盘真实文件名派发；改名场景复制到临时目录再拖。
+          let dropPath = filePath
+          if (fileName !== originalName) {
+            const tempDir = await mkdtemp(join(tmpdir(), 'multichat-mindmap-attachment-'))
+            tempDirs.push(tempDir)
+            dropPath = join(tempDir, fileName)
+            await copyFile(filePath, dropPath)
+          }
+          const dropped = await dispatchFileDrop(wc, dropPath, point?.x ?? 10, point?.y ?? 10, signal)
           if (!dropped.success) return { success: false, error: dropped.error || `附件上传失败: ${fileName}` }
         }
         const stateScript = generateFileUploadStateScript(selectors, fileName)
@@ -325,9 +376,10 @@ export class AutomationService {
         let reason = '未检测到本轮附件'
         for (;;) {
           if (signal?.aborted) throw new Error('附件操作已中止')
-          const state = await abortable(wc.executeJavaScript(stateScript) as Promise<{ found: boolean; busy: boolean; error?: string }>, signal)
+          const state = await abortable(wc.executeJavaScript(stateScript) as Promise<{ found: boolean; busy: boolean; nameMatched: boolean; attachmentCount: number; error?: string }>, signal)
           if (state.error) return { success: false, error: state.error }
-          stable = state.found && !state.busy ? stable + 1 : 0
+          const fresh = state.attachmentCount > baseline.attachmentCount || (state.nameMatched && !baseline.nameMatched)
+          stable = state.found && !state.busy && fresh ? stable + 1 : 0
           if (stable >= 3) break
           reason = !state.found ? '未检测到本轮附件' : '附件仍在上传或解析'
           if (Date.now() >= deadline) {
@@ -340,6 +392,9 @@ export class AutomationService {
       return { success: true, data: { fileNames } }
     } catch (error) {
       return { success: false, error: signal?.aborted ? '附件上传已中止' : error instanceof Error ? error.message : String(error) }
+    } finally {
+      // 平台读取拖入文件是异步的：必须等附件就绪后再清理临时副本。
+      for (const dir of tempDirs) await rm(dir, { recursive: true, force: true }).catch(() => undefined)
     }
   }
 

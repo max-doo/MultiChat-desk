@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { useWorkbenchStore } from '../store/workbenchStore'
+import { useWorkbenchStore, WORKBENCH_MIN_EDITOR_WIDTH } from '../store/workbenchStore'
 import WorkbenchFileTree from '../components/workbench/WorkbenchFileTree'
 import WorkbenchEditor from '../components/workbench/WorkbenchEditor'
 import WorkbenchAiSidebar from '../components/workbench/WorkbenchAiSidebar'
@@ -24,6 +24,8 @@ export default function WorkbenchPage({ isActive = true }: WorkbenchPageProps): 
   const clearError = useWorkbenchStore((s) => s.clearError)
   const draggingNodes = useWorkbenchStore((s) => s.draggingNodes)
   const openRightPane = useWorkbenchStore((s) => s.openRightPane)
+  const pendingMindmapDeletions = useWorkbenchStore((s) => s.pendingMindmapDeletions)
+  const confirmMindmapDeletions = useWorkbenchStore((s) => s.confirmMindmapDeletions)
 
   const [isDraggingLeft, setIsDraggingLeft] = useState(false)
   const [isDraggingRight, setIsDraggingRight] = useState(false)
@@ -40,8 +42,10 @@ export default function WorkbenchPage({ isActive = true }: WorkbenchPageProps): 
     const pointerId = e.pointerId
     splitter.setPointerCapture(pointerId)
     setIsDraggingLeft(true)
+    let currentWidth = useWorkbenchStore.getState().leftPaneWidth
     const handlePointerMove = (moveEvent: PointerEvent) => {
-      setLeftPaneWidth(moveEvent.clientX)
+      // 拖拽高频过程中仅更新内存状态，避免每帧高频 IPC 写盘引发界面粘滞卡顿
+      currentWidth = setLeftPaneWidth(moveEvent.clientX, false)
     }
     const handlePointerUp = () => {
       setIsDraggingLeft(false)
@@ -52,6 +56,8 @@ export default function WorkbenchPage({ isActive = true }: WorkbenchPageProps): 
       }
       window.removeEventListener('pointermove', handlePointerMove)
       window.removeEventListener('pointerup', handlePointerUp)
+      // 拖拽结束时单次持久化落盘
+      void window.api.storeSet('workbench_leftPaneWidth', currentWidth)
     }
     window.addEventListener('pointermove', handlePointerMove)
     window.addEventListener('pointerup', handlePointerUp)
@@ -64,9 +70,11 @@ export default function WorkbenchPage({ isActive = true }: WorkbenchPageProps): 
     const pointerId = e.pointerId
     splitter.setPointerCapture(pointerId)
     setIsDraggingRight(true)
+    let currentWidth = useWorkbenchStore.getState().rightPaneWidth
     const handlePointerMove = (moveEvent: PointerEvent) => {
       const nextWidth = window.innerWidth - moveEvent.clientX
-      setRightPaneWidth(nextWidth)
+      // 拖拽高频过程中仅更新内存状态，避免每帧高频 IPC 写盘引发界面粘滞卡顿
+      currentWidth = setRightPaneWidth(nextWidth, false)
     }
     const handlePointerUp = () => {
       setIsDraggingRight(false)
@@ -77,6 +85,8 @@ export default function WorkbenchPage({ isActive = true }: WorkbenchPageProps): 
       }
       window.removeEventListener('pointermove', handlePointerMove)
       window.removeEventListener('pointerup', handlePointerUp)
+      // 拖拽结束时单次持久化落盘
+      void window.api.storeSet('workbench_rightPaneWidth', currentWidth)
     }
     window.addEventListener('pointermove', handlePointerMove)
     window.addEventListener('pointerup', handlePointerUp)
@@ -115,6 +125,23 @@ export default function WorkbenchPage({ isActive = true }: WorkbenchPageProps): 
         </div>
       )}
 
+      {/* 对账判定为外部删除的导图确认条 */}
+      {pendingMindmapDeletions && pendingMindmapDeletions.length > 0 && (
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-50 px-4 py-2 bg-amber-500 text-white rounded-xl shadow-xl flex items-center gap-3 text-xs animate-in fade-in slide-in-from-top duration-200">
+          <span>检测到 {pendingMindmapDeletions.length} 份文档已消失，将删除对应笔记记录</span>
+          <button
+            type="button"
+            onClick={() => void confirmMindmapDeletions(pendingMindmapDeletions)}
+            className="px-2 py-1 bg-white/20 hover:bg-white/30 rounded"
+          >全部确认</button>
+          <button
+            type="button"
+            onClick={() => useWorkbenchStore.setState({ pendingMindmapDeletions: null })}
+            className="px-2 py-1 hover:bg-white/20 rounded"
+          >忽略</button>
+        </div>
+      )}
+
       <div className="flex flex-1 h-full min-w-0">
         {/* 左栏：文件树与搜索 */}
         {!isLeftCollapsed && (
@@ -144,7 +171,7 @@ export default function WorkbenchPage({ isActive = true }: WorkbenchPageProps): 
         )}
 
         {/* 中栏：Meta Lexical 编辑器（左栏折叠时左上角贴齐窗口边缘、右栏折叠时右上角贴齐，不再圆角） */}
-        <div className={`flex-1 h-full min-w-[480px] overflow-hidden flex flex-col bg-white dark:bg-gray-900 border-l border-t border-r border-black/5 dark:border-white/5 ${isLeftCollapsed ? '' : 'rounded-tl-xl'} ${rightPane ? '' : 'rounded-tr-xl'}`}>
+        <div className={`flex-1 h-full min-w-[${WORKBENCH_MIN_EDITOR_WIDTH}px] overflow-hidden flex flex-col bg-white dark:bg-gray-900 border-l border-t border-r border-black/5 dark:border-white/5 ${isLeftCollapsed ? '' : 'rounded-tl-xl'} ${rightPane ? '' : 'rounded-tr-xl'}`}>
           <WorkbenchEditor />
         </div>
 
@@ -165,11 +192,14 @@ export default function WorkbenchPage({ isActive = true }: WorkbenchPageProps): 
           </div>
         )}
 
-        {/* 右栏：AI Webview 侧边栏 */}
+        {/* 右栏：AI Webview / 思维导图 侧边栏 */}
         <div
           className="h-full shrink-0 overflow-hidden rounded-tl-xl bg-white dark:bg-gray-900 border-t border-black/5 dark:border-white/5"
           style={{
             width: rightPane ? `${rightPaneWidth}px` : 0,
+            maxWidth: rightPane
+              ? `calc(100% - ${!isLeftCollapsed ? `${leftPaneWidth}px - 10px` : '5px'} - ${WORKBENCH_MIN_EDITOR_WIDTH}px)`
+              : undefined,
             display: rightPane ? 'block' : 'none'
           }}
         >

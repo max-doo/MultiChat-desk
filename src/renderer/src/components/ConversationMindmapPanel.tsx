@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import type { ConversationMindmap, MindmapTask, NoteConversation, MindmapCandidate } from '../../../shared/types/notes'
+import type { ConversationMindmap, MindmapTask, NoteConversation, MindmapCandidate, MindmapMaterial, MindmapFileState, MindmapFileReason } from '../../../shared/types/notes'
 import { diffMindmapLines, mergeMindmapCandidate, normalizeMindmapNewlines } from '../../../shared/utils/mindmapEdits'
 import { consumeMindmapSelection, subscribeMindmapSelection, type PendingMindmapSelection } from '../utils/mindmapSelection'
 import { noteConversationKey } from '../../../shared/utils/noteIdentity'
@@ -16,9 +16,11 @@ export interface MindmapSource {
   id: string
   name: string
   getRef: () => WebviewCardRef | null | undefined
+  /** 文档来源：无 record 时首次生成前由上层先建记录；返回真实 conversationId。 */
+  resolveId?: () => Promise<string>
 }
 
-interface Draft { markdown: string; title: string; updatedAt: number; error?: string }
+interface Draft { markdown: string; title: string; updatedAt: number; error?: string; conflict?: 'file-changed' }
 // 保存失败/切换画布时保留编辑稿，回到该图后可以恢复，不复制对话快照。
 const drafts = new Map<string, Draft>()
 const saveQueues = new Map<string, Promise<void>>()
@@ -47,6 +49,7 @@ function updateMarkdownRootTitle(markdown: string, newTitle: string): string {
 
 export function MindmapEditor({
   conversationId,
+  resolveConversationId,
   map,
   onReload,
   controls,
@@ -64,6 +67,8 @@ export function MindmapEditor({
   onEdit
 }: {
   conversationId: string
+  /** 记录尚未建立时（只读壳）按需补建，返回真实 id。 */
+  resolveConversationId?: () => Promise<string | null>
   map: ConversationMindmap
   onReload: () => void
   controls: ReactNode
@@ -86,28 +91,53 @@ export function MindmapEditor({
   const [initial, setInitial] = useState(() => drafts.get(map.id)?.markdown ?? map.markdown)
   const [title, setTitle] = useState(() => drafts.get(map.id)?.title ?? map.title)
   const [status, setStatus] = useState(drafts.get(map.id)?.error || '已保存')
+  const [externalChange, setExternalChange] = useState(false)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const current = useRef({ markdown: initial, title, updatedAt: drafts.get(map.id)?.updatedAt ?? map.updatedAt })
+  /** 最近一次与服务端同步的正文：保存时用它判断文件是否被外部改过。 */
+  const baseline = useRef(map.markdown)
   useEffect(() => {
     // 保存回执与 notes:changed 刷新可能交错；相同或更旧的快照不能回退保存版本。
-    if (applyingRef.current || drafts.has(map.id) || map.updatedAt <= current.current.updatedAt) return
-    if (map.markdown === current.current.markdown && map.title === current.current.title) { current.current.updatedAt = map.updatedAt; return }
+    if (applyingRef.current || drafts.has(map.id)) return
+    if (map.markdown === current.current.markdown && map.title === current.current.title) {
+      if (map.updatedAt > current.current.updatedAt) current.current.updatedAt = map.updatedAt
+      return
+    }
+    // 外部软件改正文不会推进 frontmatter 的 updatedAt：版本没变但内容变了，提示用户裁决。
+    if (map.updatedAt <= current.current.updatedAt) { setExternalChange(true); return }
     current.current = { markdown: map.markdown, title: map.title, updatedAt: map.updatedAt }
+    baseline.current = map.markdown
+    setExternalChange(false)
     setInitial(map.markdown); setTitle(map.title); setStatus('已保存')
   }, [map.id, map.updatedAt, map.markdown, map.title])
 
-  const flush = useCallback((retry = false): Promise<void> => {
+  const flush = useCallback((retry = false, force = false): Promise<void> => {
     const operation = (saveQueues.get(map.id) || Promise.resolve()).then(async () => {
       const draft = drafts.get(map.id)
       if (!draft || (draft.error && !retry)) return
       setStatus('保存中…')
       try {
-        const result = await window.api.mindmapsUpdate(conversationId, map.id, draft.markdown, draft.title, draft.updatedAt)
-        if (!result.success || !result.data) throw new Error(result.error || '保存失败')
+        // 记录被清掉但导图文件还在时，面板会拿到只读壳（id 为空）。
+        // 第一次真正保存时再补建来源记录，避免“能看不能改”。
+        const id = conversationId || await resolveConversationId?.()
+        if (!id) throw new Error('创建导图来源失败')
+        const result = await window.api.mindmapsUpdate(id, map.id, draft.markdown, draft.title, draft.updatedAt, baseline.current, force)
+        if (!result.success || !result.data) {
+          const pending = drafts.get(map.id)
+          if (result.conflict === 'file-changed' && pending) {
+            pending.error = result.error || '导图文件已在外部修改'
+            pending.conflict = 'file-changed'
+            setStatus(pending.error)
+            return
+          }
+          throw new Error(result.error || '保存失败')
+        }
         current.current.updatedAt = result.data.updatedAt
+        baseline.current = result.data.markdown
+        setExternalChange(false)
         const pending = drafts.get(map.id)
         if (pending === draft) { drafts.delete(map.id); setStatus('已保存') }
-        else if (pending) { pending.updatedAt = result.data.updatedAt; setStatus('待保存…') }
+        else if (pending) { pending.updatedAt = result.data.updatedAt; pending.conflict = undefined; setStatus('待保存…') }
       } catch (error) {
         const message = error instanceof Error ? error.message : '保存失败，请重试'
         const pending = drafts.get(map.id)
@@ -118,7 +148,7 @@ export function MindmapEditor({
     saveQueues.set(map.id, operation)
     void operation.then(() => { if (saveQueues.get(map.id) === operation) saveQueues.delete(map.id) })
     return operation
-  }, [conversationId, map.id])
+  }, [conversationId, map.id, resolveConversationId])
 
   const edit = useCallback((markdown: string, overrideTitle?: string) => {
     onEdit?.()
@@ -130,7 +160,7 @@ export function MindmapEditor({
     const previous = drafts.get(map.id)
     current.current = { markdown, title: nextTitle, updatedAt: previous?.updatedAt ?? current.current.updatedAt }
     setInitial(markdown)
-    drafts.set(map.id, { ...current.current, error: previous?.error })
+    drafts.set(map.id, { ...current.current, error: previous?.error, conflict: previous?.conflict })
     setStatus(previous?.error || '待保存…')
     if (timer.current) clearTimeout(timer.current)
     timer.current = setTimeout(() => { void flush() }, 500)
@@ -154,13 +184,26 @@ export function MindmapEditor({
         if (applyingRef.current) throw new Error('正在应用修改')
         applyingRef.current = true
         try {
+          // 只读壳没有记录 id：先补建，否则主进程读不到来源记录，候选应用必然失败。
+          if (!conversationId) {
+            const id = await resolveConversationId?.()
+            if (!id) throw new Error('创建导图来源失败')
+          }
           const snapshot = await saveSnapshot()
           mergeMindmapCandidate(candidate.baseMarkdown, candidate.candidateMarkdown, snapshot.markdown)
           const result = await window.api.mindmapsApply(map.id, candidate.id)
-          if (!result.success || !result.data) throw new Error(result.error || '保存失败，候选已保留')
+          if (!result.success || !result.data) {
+            if (result.conflict === 'file-changed') {
+              const pending = drafts.get(map.id)
+              if (pending) { pending.error = result.error || '导图文件已在外部修改'; pending.conflict = 'file-changed' }
+              setStatus(result.error || '导图文件已在外部修改')
+            }
+            throw new Error(result.error || '保存失败，候选已保留')
+          }
           const saved = result.data
           localRef.current?.commitMarkdown(saved.markdown, false)
           current.current = { markdown: saved.markdown, title: saved.title, updatedAt: saved.updatedAt }
+          baseline.current = saved.markdown
           drafts.delete(map.id)
           setInitial(saved.markdown); setTitle(saved.title); setStatus('已保存')
           return saved
@@ -168,7 +211,7 @@ export function MindmapEditor({
       }
     }
     return () => { editorRef.current = null }
-  }, [editorRef, saveSnapshot, localRef, map.id])
+  }, [editorRef, saveSnapshot, localRef, map.id, conversationId, resolveConversationId])
 
   useEffect(() => {
     const beforeUnload = (event: BeforeUnloadEvent): void => {
@@ -183,6 +226,7 @@ export function MindmapEditor({
   }, [map.id, flush])
 
   const failed = !!drafts.get(map.id)?.error
+  const fileChanged = drafts.get(map.id)?.conflict === 'file-changed'
   return <div className="h-full flex flex-col min-h-0 bg-white select-none">
     <div
       className={`px-3 py-2.5 border-b border-gray-200/70 bg-white flex items-center justify-between gap-2 ${
@@ -235,7 +279,12 @@ export function MindmapEditor({
       </div>
     </div>
     {notice}
-    {failed && <div role="alert" className="px-3 py-2 bg-red-50 flex flex-wrap items-start gap-3 text-sm select-text">
+    {(failed && fileChanged) || externalChange ? <div role="alert" className="px-3 py-2 bg-amber-50 flex flex-wrap items-start gap-3 text-sm select-text">
+      <span className="min-w-0 flex-1 text-amber-800 break-words">导图文件已在外部修改。{drafts.has(map.id) ? '覆盖会丢失文件里的改动，载入会丢弃画布上未保存的编辑。' : ''}</span>
+      {drafts.has(map.id) && <button className="text-primary" onClick={() => { void flush(true, true) }}>覆盖文件</button>}
+      <button className="text-gray-600" onClick={() => { drafts.delete(map.id); setExternalChange(false); onReload() }}>载入文件</button>
+    </div> : null}
+    {failed && !fileChanged && <div role="alert" className="px-3 py-2 bg-red-50 flex flex-wrap items-start gap-3 text-sm select-text">
       <details className="min-w-0 flex-1 text-red-600"><summary className="cursor-pointer">保存失败</summary><p className="mt-1 break-words">{status}</p></details>
       <button className="text-primary" onClick={() => { void flush(true) }}>重试</button>
       <button className="text-gray-500" onClick={() => { if (window.confirm('重新载入将放弃当前未保存编辑，请先导出大纲。继续吗？')) { drafts.delete(map.id); onReload() } }}>重新载入</button>
@@ -265,14 +314,17 @@ window.addEventListener('beforeunload', event => {
 const taskLabels: Record<MindmapTask['phase'], string> = { loading: '正在准备生成网页…', generating: 'AI 正在生成…', saving: '正在保存导图…', done: '导图已保存', error: '生成失败', cancelled: '已取消' }
 
 /** 工作台文档来源：生成时用文档正文或选区替代对话快照，并记录生成范围。 */
-export interface MindmapMaterialRequest {
-  text: string
-  fileName: string
-  kind: 'document' | 'selection'
-  scope: { scope: 'document' | 'selection'; contentHash: string; selectionText?: string; headingPath?: string[] }
+export type MindmapMaterialRequest = MindmapMaterial
+
+/** 工作台导图文件同步钩子：由 WorkbenchMindmapPanel 注入。 */
+export interface MindmapFileSyncHooks {
+  workspaceRoot: string
+  relativePath: string
+  refresh: () => Promise<{ files: Record<string, { state: MindmapFileState; reason?: MindmapFileReason; relativePath?: string }>; unreadable: string[]; overflow: boolean } | null>
+  revealFile: (mindmapId: string) => Promise<boolean>
 }
 
-export default function ConversationMindmapPanel({ source, conversation: fixedConversation, initialMapId, onOpenMubu, onClose, draggableHeader, onDragStart, onViewSource, materialProvider, variant = 'conversation' }: {
+export default function ConversationMindmapPanel({ source, conversation: fixedConversation, initialMapId, onOpenMubu, onClose, draggableHeader, onDragStart, onViewSource, materialProvider, variant = 'conversation', fileSyncHooks }: {
   source?: MindmapSource
   conversation?: NoteConversation
   initialMapId?: string
@@ -284,6 +336,8 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
   /** 存在时走文档生成链路：不使用对话快照，改用返回的材料与范围。 */
   materialProvider?: () => Promise<MindmapMaterialRequest>
   variant?: 'conversation' | 'document'
+  /** 工作台导图文件同步钩子：由 WorkbenchMindmapPanel 注入。 */
+  fileSyncHooks?: MindmapFileSyncHooks
 }): JSX.Element {
   const models = useAppStore(state => state.models)
   const savedPlatform = useAppStore(state => state.mindmapPlatformId)
@@ -316,6 +370,9 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
   const conversationRef = useRef(conversation); conversationRef.current = conversation
   const sourceKeyRef = useRef('')
   const refreshSequence = useRef(0)
+  const [fileStates, setFileStates] = useState<Record<string, { state: MindmapFileState; reason?: MindmapFileReason; relativePath?: string }>>({})
+  const [unreadableFiles, setUnreadableFiles] = useState<string[]>([])
+  const [scanOverflow, setScanOverflow] = useState(false)
   const sorted = useMemo(() => [...(conversation?.mindmaps || [])].sort((a, b) => b.updatedAt - a.updatedAt || b.createdAt - a.createdAt || a.id.localeCompare(b.id)), [conversation?.mindmaps])
   const activeMap = conversation?.mindmaps.find(map => map.id === mapId) || sorted[0]
   const activeMapRef = useRef(activeMap); activeMapRef.current = activeMap
@@ -329,8 +386,22 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
 
   useEffect(() => { if (fixedConversation) setConversation(fixedConversation) }, [fixedConversation])
   useEffect(() => { if (initialMapId) setMapId(initialMapId) }, [initialMapId])
+  const refreshFileSync = useCallback(() => {
+    if (!fileSyncHooks) return
+    void fileSyncHooks.refresh().then(result => {
+      if (!result) return
+      setFileStates(result.files)
+      setUnreadableFiles(result.unreadable)
+      setScanOverflow(result.overflow)
+    })
+  }, [fileSyncHooks])
+  useEffect(() => {
+    refreshFileSync()
+  }, [refreshFileSync, conversation?.id])
   const refresh = useCallback(async (force = false) => {
     const sequence = ++refreshSequence.current
+    // 文件同步状态跟随每次记录刷新：导出/回读/删除后 notesChanged 广播会走到这里。
+    if (fileSyncHooks) refreshFileSync()
     const currentSource = sourceRef.current
     if (!currentSource) {
       const id = conversationRef.current?.id
@@ -340,8 +411,17 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
       return
     }
     if (materialProvider) {
-      // 文档来源没有 webview 身份可读，键由面板上层按路径固定，这里只刷新记录内容。
-      const result = await window.api.notesGet(currentSource.id)
+      // 文档来源在首次建档完成前只有路径，不能把路径当笔记 ID 去读。
+      // resolveId 会先确保记录存在，再返回真正的 UUID。
+      let id = currentSource.id
+      try {
+        if (currentSource.resolveId) id = await currentSource.resolveId()
+      } catch (exception) {
+        if (sequence === refreshSequence.current) setError(exception instanceof Error ? exception.message : '读取导图失败')
+        return
+      }
+      if (sequence !== refreshSequence.current) return
+      const result = await window.api.notesGet(id)
       if (sequence !== refreshSequence.current) return
       if (!result.success) { setError(result.error || '读取导图失败'); return }
       if (result.data) setConversation(result.data)
@@ -359,7 +439,7 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
     if (sequence !== refreshSequence.current) return
     if (!result.success) { setError(result.error || '读取导图失败'); return }
     setConversation(result.data || null)
-  }, [])
+  }, [fileSyncHooks, refreshFileSync])
   useEffect(() => {
     void refresh()
     // 文档来源没有外部页面可轮询，只靠 notes:changed 刷新，避免无意义的 2 秒读盘。
@@ -435,7 +515,8 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
     }
     // 文档来源：记录由上层按路径建立，这里只需取最新快照。
     if (materialProvider) {
-      const latest = await window.api.notesGet(currentSource.id)
+      const id = currentSource.resolveId ? await currentSource.resolveId() : currentSource.id
+      const latest = await window.api.notesGet(id)
       if (!latest.success || !latest.data) throw new Error(latest.error || '读取文档记录失败')
       return latest.data
     }
@@ -478,11 +559,21 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
         const map = activeMapRef.current, currentSource = conversationRef.current
         const snapshot = editorRef.current?.snapshot()
         if (!map || !currentSource || !snapshot || key !== draftKeyRef.current) throw new Error('当前导图已切换，请重新提交')
+        // 记录被清掉、面板拿到只读壳时 id 为空：调整前补建记录，否则主进程读不到来源。
+        const conversationId = currentSource.id || await sourceRef.current?.resolveId?.()
+        if (!conversationId) throw new Error('创建导图来源失败')
+        // 补建后把 id 回填到本地状态：任务完成时按 conversationId 匹配刷新，
+        // 否则仍拿着空 id 的只读壳，生成结果不会自动出现在面板上。
+        if (!currentSource.id) {
+          const adopted = { ...currentSource, id: conversationId }
+          conversationRef.current = adopted
+          setConversation(adopted)
+        }
         if (candidate && !adjustFromCurrent) mergeMindmapCandidate(candidate.baseMarkdown, candidate.candidateMarkdown, snapshot.markdown)
         // 文档来源没有 webview 可采集，主进程会直接用保存的正文作为上下文。
         const liveSource = materialProvider ? undefined : sourceRef.current
         const webContentsId = liveSource?.getRef()?.getWebContentsId()
-        const result = await window.api.mindmapsModify({ conversationId: currentSource.id, mindmapId: map.id, expectedUpdatedAt: snapshot.updatedAt, platformId: platform, instructions, candidateId: adjustFromCurrent ? undefined : candidate?.id, newSession, includeSourceContext, source: liveSource ? { webContentsId: webContentsId || undefined, platformId: liveSource.id, name: liveSource.name } : undefined })
+        const result = await window.api.mindmapsModify({ conversationId, mindmapId: map.id, expectedUpdatedAt: snapshot.updatedAt, platformId: platform, instructions, candidateId: adjustFromCurrent ? undefined : candidate?.id, newSession, includeSourceContext, source: liveSource ? { webContentsId: webContentsId || undefined, platformId: liveSource.id, name: liveSource.name } : undefined })
         if (!result.success || !result.data) throw new Error(result.error || '调整启动失败')
         setTask(result.data); setNewSession(false)
         submittedModify.current = { taskId: result.data.id, key, instructions }
@@ -735,13 +826,24 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
                   }
                 })}
                 {renderItem({
-                  icon: 'draw',
+                  icon: 'code',
                   label: '导出图片（SVG）',
                   onClick: () => {
                     close()
                     panelRef.current?.exportSvg()
                   }
                 })}
+
+                {variant === 'document' && fileSyncHooks && activeMap && fileStates[activeMap.id]?.relativePath && (
+                  renderItem({
+                    icon: 'folder_open',
+                    label: '在文件夹中显示',
+                    onClick: () => {
+                      close()
+                      void fileSyncHooks.revealFile(activeMap.id)
+                    }
+                  })
+                )}
 
                 <div className="my-1 border-t border-gray-100" />
                 {variant !== 'document' && renderItem({
@@ -781,17 +883,26 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
                   onClick: () => {
                     close()
                     if (!conversation || !window.confirm('确定删除这份导图吗？')) return
-                    void window.api.mindmapsDelete(conversation.id, activeMap.id).then(result => {
-                      if (!result.success) {
-                        setError(result.error || '删除失败')
-                        return
-                      }
-                      drafts.delete(activeMap.id)
-                      pendingCandidates.delete(activeMap.id)
-                      setCandidate(null)
-                      setMapId('')
-                      void refresh(true)
-                    })
+                      void (async () => {
+                        const id = conversation.id || await source?.resolveId?.()
+                        if (!id) { setError('创建导图来源失败'); return }
+                        const result = await window.api.mindmapsDelete(id, activeMap.id)
+                        if (!result.success) { setError(result.error || '删除失败'); return }
+                        const conflict = result.data?.conflict
+                        if (conflict === 'duplicate') {
+                          setError('目录里有多份同 id 文件，请先清理再删除')
+                          return
+                        }
+                        if (conflict === 'source-mismatch') {
+                          setError('导图已改绑到其他文档，请刷新后再操作')
+                          return
+                        }
+                        drafts.delete(activeMap.id)
+                        pendingCandidates.delete(activeMap.id)
+                        setCandidate(null)
+                        setMapId('')
+                        void refresh(true)
+                      })()
                   }
                 })}
               </>
@@ -803,6 +914,27 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
   )
   const notice = <>
     {error && <div role="alert" className="px-3 py-2 text-sm bg-amber-50 text-amber-800 flex gap-2"><span className="flex-1 break-words">{error}</span><button onClick={() => setError('')} aria-label="关闭提示">×</button></div>}
+    {fileSyncHooks && unreadableFiles.length > 0 && (
+      <div role="status" className="px-3 py-1.5 text-xs bg-gray-50 text-text-secondary">
+        {unreadableFiles.length} 个导图文件无法识别：{unreadableFiles.slice(0, 3).join('、')}{unreadableFiles.length > 3 ? ' 等' : ''}
+      </div>
+    )}
+    {fileSyncHooks && scanOverflow && (
+      <div role="status" className="px-3 py-1.5 text-xs bg-amber-50 text-amber-800">
+        导图目录文件过多，暂时无法列出导图，请先清理 .multichat/mindmaps
+      </div>
+    )}
+    {fileSyncHooks && activeMap && fileStates[activeMap.id] && fileStates[activeMap.id].state === 'invalid' && (() => {
+      const reason = fileStates[activeMap.id].reason
+      const text = reason === 'duplicate' ? '目录里有多份同 id 导图文件，请先清理'
+        : reason === 'content' ? '导图文件内容无法识别，请检查文件'
+        : '导图文件状态异常'
+      return (
+        <div role="status" className="px-3 py-1.5 text-xs bg-amber-50 text-amber-800">
+          {text}
+        </div>
+      )
+    })()}
     {task?.mindmapId === activeMap?.id && task?.contextSource === 'snapshot' && task.id !== dismissedTask && variant !== 'document' && <div role="status" className="px-3 py-1.5 text-xs text-amber-700 bg-amber-50">本次使用本地保存的来源快照，可能不是最新内容。获取最新内容请回到来源主会话。</div>}
     {task && task.id !== dismissedTask && (busy || task.phase === 'error' || (task.kind === 'modify' && task.phase === 'done' && task.outcome === 'unchanged')) && <div role="status" className="px-3 py-2 text-sm bg-gray-50 flex flex-wrap gap-3">
       <span className="flex-1 min-w-0 break-words">{task.error || (task.outcome === 'unchanged' ? '未检测到变化，上一份候选仍保留' : taskLabels[task.phase])}</span>
@@ -843,9 +975,9 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
       </div>
       <div className="mt-1.5 px-1 flex items-center justify-between gap-2 text-xs text-gray-500">
         <div className="flex flex-wrap gap-x-3 gap-y-1 items-center min-w-0 flex-1">
-          {mode === 'modify' && variant !== 'document' && (
+          {mode === 'modify' && (
             <>
-              <label className="flex gap-1 items-center" title={expectsNewSession ? '新生成对话会自动携带来源上下文' : source ? '本轮采集来源主会话已加载的完整内容；不勾选时只提交导图和要求' : '来源主会话未打开，将使用本地保存的快照，可能不是最新内容'}><input type="checkbox" disabled={busy || preparing || expectsNewSession} checked={includeSourceContext || expectsNewSession} onChange={event => setIncludeSourceContext(event.target.checked)} />{source ? '带上主会话最新内容' : '带上来源快照'}</label>
+              <label className="flex gap-1 items-center" title={expectsNewSession ? '新生成对话会自动携带来源上下文' : variant === 'document' ? '勾选后重新上传来源文档；不勾选时只提交导图和要求' : source ? '本轮采集来源主会话已加载的完整内容；不勾选时只提交导图和要求' : '来源主会话未打开，将使用本地保存的快照，可能不是最新内容'}><input type="checkbox" disabled={busy || preparing || expectsNewSession} checked={includeSourceContext || expectsNewSession} onChange={event => setIncludeSourceContext(event.target.checked)} />{variant === 'document' ? '带上来源文档' : source ? '带上主会话最新内容' : '带上来源快照'}</label>
               {task?.phase === 'error' && <label className="flex gap-1 items-center" title="新开后台生成对话，携带来源上下文及当前导图；仍修改当前图"><input type="checkbox" disabled={busy || preparing} checked={newSession} onChange={event => setNewSession(event.target.checked)} />使用新的 AI 对话调整当前图</label>}
             </>
           )}
@@ -877,7 +1009,7 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
   </div>, document.body)
   return <div className="h-full flex flex-col min-h-0 bg-white">
     <div className="flex-1 min-h-0">
-      {activeMap && conversation ? <MindmapEditor key={`${activeMap.id}:${editorRevision}`} conversationId={conversation.id} map={activeMap} onReload={() => void reload()} controls={controls} notice={notice} panelRef={panelRef} editorRef={editorRef} onClose={onClose} draggableHeader={draggableHeader} onDragStart={onDragStart} previewMarkdown={candidatePreview?.markdown} changedLines={diff?.changedLines} onAskNode={source && conversation.url && variant !== 'document' ? ask : undefined} onViewSource={onViewSource} onEdit={clearMarks} /> : <div className="h-full flex flex-col">
+      {activeMap && conversation ? <MindmapEditor key={`${activeMap.id}:${editorRevision}`} conversationId={conversation.id} resolveConversationId={source?.resolveId} map={activeMap} onReload={() => void reload()} controls={controls} notice={notice} panelRef={panelRef} editorRef={editorRef} onClose={onClose} draggableHeader={draggableHeader} onDragStart={onDragStart} previewMarkdown={candidatePreview?.markdown} changedLines={diff?.changedLines} onAskNode={source && conversation.url && variant !== 'document' ? ask : undefined} onViewSource={onViewSource} onEdit={clearMarks} /> : <div className="h-full flex flex-col">
         <div
           className={`px-3 py-2.5 border-b border-gray-200/70 bg-white flex items-center justify-between gap-2 select-none ${
             draggableHeader ? 'drag-region' : ''

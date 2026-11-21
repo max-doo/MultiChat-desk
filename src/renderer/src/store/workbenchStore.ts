@@ -26,6 +26,7 @@ export interface WorkbenchSortPreference {
 const FRONTMATTER_RE = /^---\s*\r?\n([\s\S]*?)\r?\n---\s*(?:\r?\n|$)/
 
 // 右侧 AI 侧边栏宽度限制：随窗口宽度分档，避免小窗下侧边栏过宽挤压编辑器
+export const WORKBENCH_MIN_EDITOR_WIDTH = 380
 const RIGHT_PANE_MIN = 300
 const RIGHT_PANE_MAX_TIERS: Array<{ minWindowWidth: number; maxPaneWidth: number }> = [
   { minWindowWidth: 1680, maxPaneWidth: 960 },
@@ -34,16 +35,42 @@ const RIGHT_PANE_MAX_TIERS: Array<{ minWindowWidth: number; maxPaneWidth: number
   { minWindowWidth: 0, maxPaneWidth: 480 }
 ]
 
-function getRightPaneMaxWidth(): number {
-  const windowWidth = typeof window === 'undefined' ? 1400 : window.innerWidth
+export function getRightPaneMaxWidth(
+  windowWidth?: number,
+  leftWidth?: number,
+  isLeftCollapsed?: boolean
+): number {
+  const winW = typeof window === 'undefined' ? 1400 : (windowWidth ?? window.innerWidth)
+  const state = typeof useWorkbenchStore !== 'undefined' ? useWorkbenchStore.getState() : null
+  const collapsed = isLeftCollapsed ?? state?.isLeftCollapsed ?? false
+  const leftW = collapsed ? 0 : (leftWidth ?? state?.leftPaneWidth ?? 260)
+  const splitters = collapsed ? 5 : 10
+
+  // 窗口剩余空间计算：确保留足左栏、中栏保底和分割条，避免小窗下三栏硬性尺寸之和溢出被 overflow 截断
+  const maxAllowedByWindow = Math.max(
+    RIGHT_PANE_MIN,
+    winW - leftW - WORKBENCH_MIN_EDITOR_WIDTH - splitters
+  )
+
+  let tierMax = RIGHT_PANE_MIN
   for (const tier of RIGHT_PANE_MAX_TIERS) {
-    if (windowWidth >= tier.minWindowWidth) return tier.maxPaneWidth
+    if (winW >= tier.minWindowWidth) {
+      tierMax = tier.maxPaneWidth
+      break
+    }
   }
-  return RIGHT_PANE_MIN
+
+  return Math.min(tierMax, maxAllowedByWindow)
 }
 
-function clampRightPaneWidth(width: number): number {
-  return Math.max(RIGHT_PANE_MIN, Math.min(getRightPaneMaxWidth(), width))
+function clampRightPaneWidth(
+  width: number,
+  windowWidth?: number,
+  leftWidth?: number,
+  isLeftCollapsed?: boolean
+): number {
+  const maxAllowed = getRightPaneMaxWidth(windowWidth, leftWidth, isLeftCollapsed)
+  return Math.max(RIGHT_PANE_MIN, Math.min(maxAllowed, width))
 }
 
 /**
@@ -120,6 +147,9 @@ interface WorkbenchStoreState {
   // 错误提示
   error: string | null
 
+  /** 对账判定为「外部删除」的待确认导图记录；确认后带 force+targets 执行。 */
+  pendingMindmapDeletions: Array<{ conversationId: string; relativePath: string }> | null
+
   // 工作区文件拖拽态
   draggingNodes: WorkbenchFileNode[] | null
 
@@ -168,8 +198,8 @@ interface WorkbenchStoreActions {
   clearSearch: () => void
   loadWorkspaceTags: () => Promise<void>
   setFileSort: (pref: WorkbenchSortPreference) => void
-  setLeftPaneWidth: (width: number) => void
-  setRightPaneWidth: (width: number) => void
+  setLeftPaneWidth: (width: number, persist?: boolean) => number
+  setRightPaneWidth: (width: number, persist?: boolean) => number
   toggleLeftCollapse: () => void
   openRightPane: (pane: Exclude<WorkbenchRightPane, null>) => void
   closeRightPane: () => void
@@ -181,6 +211,9 @@ interface WorkbenchStoreActions {
   askAi: (text: string, actionType: WorkbenchAiAction) => void
   clearError: () => void
   setDraggingNodes: (nodes: WorkbenchFileNode[] | null) => void
+
+  /** 用户对账确认删除：把 pendingMindmapDeletions 带 force+targets 执行。 */
+  confirmMindmapDeletions: (targets: Array<{ conversationId: string; relativePath: string }>) => Promise<void>
 
   refreshGitStatus: (options?: { showLoading?: boolean }) => Promise<void>
   gitCommit: (title: string, body?: string, allowLargeFiles?: boolean) => Promise<GitActionResult>
@@ -276,7 +309,7 @@ function findRenamedNode(
 function reconcileMindmaps(
   workspaceRoot: string,
   tree: WorkbenchFileNode[]
-): Promise<{ deleted: number; relinked: number; relinks: Array<{ from: string; to: string }> } | null> {
+): Promise<{ deleted: number; relinked: number; relinks: Array<{ from: string; to: string }>; pendingDeletions: Array<{ conversationId: string; relativePath: string }> } | null> {
   const index: Array<{ path: string; size?: number; mtime?: number }> = []
   collectFileIndex(tree, index)
   return window.api.workbench.reconcileMindmaps(workspaceRoot, index)
@@ -284,6 +317,11 @@ function reconcileMindmaps(
       if (!res.success || !res.data) return null
       for (const link of res.data.relinks) {
         recentRelinks.set(relinkKey(workspaceRoot, link.from), link.to)
+      }
+      if (res.data.pendingDeletions?.length) {
+        useWorkbenchStore.setState({ pendingMindmapDeletions: res.data.pendingDeletions })
+      } else if (res.data.pendingDeletions) {
+        useWorkbenchStore.setState({ pendingMindmapDeletions: null })
       }
       // 只是恢复上次打开的文档用的短期映射，不做无界增长。
       while (recentRelinks.size > 200) {
@@ -337,6 +375,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   editorMode: 'wysiwyg',
 
   error: null,
+  pendingMindmapDeletions: null,
   draggingNodes: null,
   gitStatus: null,
   isGitLoading: false,
@@ -388,7 +427,12 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         updates.leftPaneWidth = savedLeftWidth
       }
       if (typeof savedRightWidth === 'number' && savedRightWidth >= RIGHT_PANE_MIN) {
-        updates.rightPaneWidth = clampRightPaneWidth(savedRightWidth)
+        updates.rightPaneWidth = clampRightPaneWidth(
+          savedRightWidth,
+          typeof window !== 'undefined' ? window.innerWidth : 1400,
+          updates.leftPaneWidth ?? 260,
+          updates.isLeftCollapsed ?? false
+        )
       }
       if (typeof savedLeftCollapsed === 'boolean') {
         updates.isLeftCollapsed = savedLeftCollapsed
@@ -441,7 +485,14 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         await get().setWorkspaceFolder(savedPath)
         if (savedActiveFile && typeof savedActiveFile === 'string') {
           // 应用关闭期间文件可能被改名，对账刚记下新路径，恢复时跟着走。
-          await get().openFile(recentRelinks.get(relinkKey(savedPath, savedActiveFile)) ?? savedActiveFile)
+          const restorePath = recentRelinks.get(relinkKey(savedPath, savedActiveFile)) ?? savedActiveFile
+          // 先看文件树：应用关闭期间被删掉的文件不该再触发一次 readFile。
+          // 文件树节点可能处于折叠状态，这里用“路径集合”而不是 findNode。
+          const tree = get().fileTree
+          // 读取失败时保留恢复点等下次启动；读取成功但为空说明工作区确实没有这个文件。
+          if (tree.length === 0 && get().error) return
+          if (collectTreePaths(tree, new Set<string>()).has(restorePath)) await get().openFile(restorePath)
+          else void window.api.storeDelete('workbench_lastActiveFilePath')
         }
       } else if (defaultWorkspacePath) {
         await get().setWorkspaceFolder(defaultWorkspacePath)
@@ -499,6 +550,8 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     void window.api.storeSet('workbench_recentWorkspaces', nextRecent)
     void window.api.workbench.watch(dirPath)
     set({ gitStatus: null, gitNotice: null })
+    // 旧版本导图记录在全局笔记目录，先迁到 .multichat/mindmaps 文件。
+    void window.api.workbench.mindmapMigrate(dirPath).catch(() => undefined)
     await get().loadFileTree()
     void get().refreshGitStatus()
   },
@@ -645,11 +698,51 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         void window.api.storeSet('workbench_lastActiveFilePath', relativePath)
         return true
       } else {
+        // 恢复上次打开的文件时，文件可能已在应用外被删除：清掉失效的恢复点，
+        // 回到“未打开文档”即可，不把 ENOENT 当成需要用户处理的错误弹出来。
+        if (/\bENOENT\b/.test(res.error || '')) {
+          set({
+            activeFilePath: null,
+            activeFileContent: '',
+            activeFileCategory: null,
+            activeFileDataUrl: null,
+            activeFileUrl: null,
+            activeFileMime: null,
+            activeFileSize: null,
+            activeFileOversized: false,
+            isDirty: false,
+            saveStatus: 'saved',
+            lastSavedAt: null,
+            conflictDiskContent: null,
+            error: null
+          })
+          void window.api.storeDelete('workbench_lastActiveFilePath')
+          return false
+        }
         set({ error: res.error || '无法读取文件内容' })
         return false
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
+      if (/\bENOENT\b/.test(msg)) {
+        set({
+          activeFilePath: null,
+          activeFileContent: '',
+          activeFileCategory: null,
+          activeFileDataUrl: null,
+          activeFileUrl: null,
+          activeFileMime: null,
+          activeFileSize: null,
+          activeFileOversized: false,
+          isDirty: false,
+          saveStatus: 'saved',
+          lastSavedAt: null,
+          conflictDiskContent: null,
+          error: null
+        })
+        void window.api.storeDelete('workbench_lastActiveFilePath')
+        return false
+      }
       set({ error: `打开文件失败: ${msg}` })
       return false
     }
@@ -1373,16 +1466,25 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     void window.api.storeSet('workbench_fileSort', pref)
   },
 
-  setLeftPaneWidth: (width: number) => {
-    const clamped = Math.max(260, Math.min(480, width))
+  setLeftPaneWidth: (width: number, persist = true) => {
+    const winW = typeof window === 'undefined' ? 1400 : window.innerWidth
+    const hasRight = !!get().rightPane
+    const maxLeftAllowed = Math.max(260, winW - WORKBENCH_MIN_EDITOR_WIDTH - (hasRight ? RIGHT_PANE_MIN : 0) - 10)
+    const clamped = Math.max(260, Math.min(480, Math.min(maxLeftAllowed, width)))
     set({ leftPaneWidth: clamped })
-    void window.api.storeSet('workbench_leftPaneWidth', clamped)
+    if (persist) {
+      void window.api.storeSet('workbench_leftPaneWidth', clamped)
+    }
+    return clamped
   },
 
-  setRightPaneWidth: (width: number) => {
+  setRightPaneWidth: (width: number, persist = true) => {
     const clamped = clampRightPaneWidth(width)
     set({ rightPaneWidth: clamped })
-    void window.api.storeSet('workbench_rightPaneWidth', clamped)
+    if (persist) {
+      void window.api.storeSet('workbench_rightPaneWidth', clamped)
+    }
+    return clamped
   },
 
   toggleLeftCollapse: () => {
@@ -1460,6 +1562,22 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   clearError: () => set({ error: null }),
 
   setDraggingNodes: (nodes) => set({ draggingNodes: nodes }),
+
+  confirmMindmapDeletions: async (targets) => {
+    const { workspacePath } = get()
+    set({ pendingMindmapDeletions: null })
+    if (!workspacePath || !targets.length) return
+    try {
+      const index: Array<{ path: string; size?: number; mtime?: number }> = []
+      collectFileIndex(get().fileTree, index)
+      await window.api.workbench.reconcileMindmaps(workspacePath, index, {
+        force: true,
+        targets: targets.map(t => ({ conversationId: t.conversationId }))
+      })
+    } catch {
+      // 删除失败保留现状，等下次对账再判
+    }
+  },
 
   refreshGitStatus: async (options) => {
     const { workspacePath } = get()
@@ -1707,17 +1825,20 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   clearGitNotice: () => set({ gitNotice: null })
 }))
 
-// 窗口缩小时，已存的侧边栏宽度可能超过新档位的上限，监听 resize 被动收敛。
-// 仅在跨档位时才 set，避免窗口微调触发的多余渲染。
+// 窗口缩小时，已存的侧边栏宽度可能超过可用上限，监听 resize 被动收敛。
+// 使用 requestAnimationFrame 防抖，且仅在当前宽度真正超出可用上限时才 set，避免窗口放大或微调触发的多余渲染。
 if (typeof window !== 'undefined') {
-  let lastMaxWidth = getRightPaneMaxWidth()
+  let resizeRafId: number | null = null
   window.addEventListener('resize', () => {
-    const nextMaxWidth = getRightPaneMaxWidth()
-    if (nextMaxWidth === lastMaxWidth) return
-    lastMaxWidth = nextMaxWidth
-    const current = useWorkbenchStore.getState()
-    if (current.rightPaneWidth > nextMaxWidth) {
-      useWorkbenchStore.setState({ rightPaneWidth: nextMaxWidth })
-    }
+    if (resizeRafId !== null) return
+    resizeRafId = window.requestAnimationFrame(() => {
+      resizeRafId = null
+      const current = useWorkbenchStore.getState()
+      if (!current.rightPane) return
+      const maxAllowed = getRightPaneMaxWidth()
+      if (current.rightPaneWidth > maxAllowed) {
+        useWorkbenchStore.setState({ rightPaneWidth: maxAllowed })
+      }
+    })
   })
 }

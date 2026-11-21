@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { NoteConversation } from '../../../../shared/types/notes'
 import { MARKDOWN_EXTENSIONS } from '../../../../shared/types/workbench'
+import { mindmapFileKindOfPath } from '../../../../shared/utils/mindmap'
 import { useWorkbenchStore } from '../../store/workbenchStore'
-import ConversationMindmapPanel, { type MindmapMaterialRequest, type MindmapSource } from '../ConversationMindmapPanel'
-import { AppIcon } from '../icons/AppIcon'
+import ConversationMindmapPanel, { type MindmapMaterialRequest, type MindmapSource, type MindmapFileSyncHooks } from '../ConversationMindmapPanel'
 
 /** 去掉 frontmatter 与图片语法：导图只关心文字结构，图片地址会干扰模型判断。 */
 function documentText(content: string): string {
@@ -24,7 +24,6 @@ export default function WorkbenchMindmapPanel(): JSX.Element {
   const closeRightPane = useWorkbenchStore((s) => s.closeRightPane)
 
   const [record, setRecord] = useState<NoteConversation | null>(null)
-  const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const contentRef = useRef(activeFileContent)
   contentRef.current = activeFileContent
@@ -33,28 +32,33 @@ export default function WorkbenchMindmapPanel(): JSX.Element {
 
   const supported = useMemo(() => {
     if (!activeFilePath) return false
+    if (mindmapFileKindOfPath(activeFilePath)) return true
     if (activeFileCategory === 'markdown' || activeFileCategory === 'text' || activeFileCategory === 'code') return true
     const lower = activeFilePath.toLowerCase()
     return [...MARKDOWN_EXTENSIONS].some(ext => lower.endsWith(ext))
   }, [activeFilePath, activeFileCategory])
 
-  // 切换文档即换绑：已有记录直接带出，没有则等用户主动生成时再建。
+  const fileKind = useMemo(() => mindmapFileKindOfPath(activeFilePath || ''), [activeFilePath])
+
+  // 打开面板 / 切换文档即建档：用户主动点开思维导图侧栏即视为有生成意图，
+  // 这里建一条空记录，让 ConversationMindmapPanel 的草稿键从一开始就稳定。
   useEffect(() => {
     if (!workspacePath || !activeFilePath || !supported) {
       setRecord(null)
-      setError('')
       return
     }
     let alive = true
     setLoading(true)
-    setError('')
     const title = activeFilePath.split('/').pop() || activeFilePath
-    // 先只读查询：没生成过导图的文档不建空记录。
-    void window.api.workbench.mindmapSource(workspacePath, activeFilePath, title, false).then(result => {
+    const kind = mindmapFileKindOfPath(activeFilePath)
+    // create=true：面板一旦打开就建档，避免子组件在生成中途才补档导致内部状态跳变。
+    // HTML 虽是原文件上传，但编辑器里是文本，传内存内容才能记录当前版本。
+    void window.api.workbench.mindmapSource(workspacePath, activeFilePath, title, true, kind && kind !== 'html' ? undefined : contentRef.current).then(result => {
       if (!alive) return
-      if (!result.success) { setError(result.error || '读取导图失败'); setRecord(null); return }
+      if (!result.success) { setRecord(null); return }
       setRecord(result.data ?? null)
     }).finally(() => { if (alive) setLoading(false) })
+    // 外部修改导图（删除/重命名/同步）后按当前路径再查一次；create=false 防止被删后立刻复活。
     const off = window.api.onNotesChanged(() => {
       void window.api.workbench.mindmapSource(workspacePath, activeFilePath, title, false).then(result => {
         if (alive && result.success) setRecord(result.data ?? null)
@@ -63,23 +67,67 @@ export default function WorkbenchMindmapPanel(): JSX.Element {
     return () => { alive = false; off() }
   }, [workspacePath, activeFilePath, supported])
 
+  // 无 record 时按需建立并返回真实 id；已有 record 时直接复用。
+  // 现在打开面板时已经建档，这里只兜底外部删除后第一次生成的边界情况。
+  const ensureRecord = useCallback(async (): Promise<NoteConversation | null> => {
+    const workspace = useWorkbenchStore.getState().workspacePath
+    const path = pathRef.current
+    if (!workspace || !path) return null
+    const title = path.split('/').pop() || path
+    const kind = mindmapFileKindOfPath(path)
+    const result = await window.api.workbench.mindmapSource(workspace, path, title, true, kind && kind !== 'html' ? undefined : contentRef.current)
+    if (!result.success || !result.data) return null
+    setRecord(result.data)
+    return result.data
+  }, [])
+
   // 文档来源对面板而言是「固定 id + 材料提供者」，不需要 webview 引用。
+  // source.id 直接用 record.id（若已建档）；activeFilePath 兜底尚未建档的瞬时状态。
   const source = useMemo<MindmapSource | undefined>(() => {
-    if (!record) return undefined
-    return { id: record.id, name: record.title, getRef: () => null }
-  }, [record?.id, record?.title])
+    if (!activeFilePath) return undefined
+    return {
+      id: record?.id || activeFilePath,
+      name: record?.title || activeFilePath.split('/').pop() || activeFilePath,
+      getRef: () => null,
+      resolveId: async () => {
+        // 每次提交前按当前编辑器内容刷新记录：文本文档修改时，“带上来源文档”
+        // 必须发送最新正文，不能复用面板打开时的旧快照。文件材料只会更新指纹。
+        const created = await ensureRecord()
+        if (!created) throw new Error('创建导图来源失败')
+        return created.id
+      }
+    }
+  }, [record?.id, record?.title, activeFilePath, ensureRecord])
 
   const materialProvider = useCallback(async (): Promise<MindmapMaterialRequest> => {
-    const content = documentText(contentRef.current)
     const path = pathRef.current || ''
-    const fileName = path.split('/').pop() || 'document.md'
-    const selection = useWorkbenchStore.getState().pendingMindmapSelection
-    const workspace = useWorkbenchStore.getState().workspacePath
+    const fileName = path.split('/').pop() || 'document'
+    const state = useWorkbenchStore.getState()
+    const selection = state.pendingMindmapSelection
+    const workspace = state.workspacePath
+    const kind = mindmapFileKindOfPath(path)
+    const wantsFile = !!kind && !selection?.text.trim()
+    // HTML 是可编辑文本：先落盘，保证上传的是用户当前看到的版本，而不是旧磁盘内容。
+    if (wantsFile && kind === 'html' && state.isDirty) {
+      const saved = await state.saveActiveFile()
+      if (!saved) throw new Error('文档保存失败，未上传')
+    }
     // 首次生成时才落记录，后续刷新沿用同一条来源。
     if (workspace && path) {
-      const created = await window.api.workbench.mindmapSource(workspace, path, fileName, true, contentRef.current)
-      if (created.success && created.data) setRecord(created.data)
+      const created = await ensureRecord()
+      if (!created) throw new Error('创建导图来源失败')
     }
+    // PDF/Word/PPT/HTML 不经过文本提取，直接上传原文件；选区只用于文本格式。
+    if (wantsFile) {
+      return {
+        fileName,
+        kind,
+        workspaceRoot: workspace || undefined,
+        relativePath: path,
+        scope: { scope: 'document', contentHash: '' }
+      }
+    }
+    const content = documentText(contentRef.current)
     if (selection?.text.trim()) {
       return {
         text: selection.text.trim(),
@@ -89,7 +137,23 @@ export default function WorkbenchMindmapPanel(): JSX.Element {
       }
     }
     return { text: content, fileName, kind: 'document', scope: { scope: 'document', contentHash: '' } }
-  }, [])
+  }, [ensureRecord])
+
+  const fileSyncHooks = useMemo<MindmapFileSyncHooks | undefined>(() => {
+    if (!workspacePath || !activeFilePath) return undefined
+    return {
+      workspaceRoot: workspacePath,
+      relativePath: activeFilePath,
+      refresh: async () => {
+        const result = await window.api.workbench.mindmapFileStatus(workspacePath, activeFilePath)
+        return result.success ? result.data! : null
+      },
+      revealFile: async (mindmapId) => {
+        const result = await window.api.workbench.mindmapFileReveal(workspacePath, activeFilePath, mindmapId)
+        return !!result.success
+      }
+    }
+  }, [workspacePath, activeFilePath])
 
   // 切换文档时丢弃旧选区，避免把上一段的选中内容带到下一篇。
   useEffect(() => {
@@ -102,48 +166,27 @@ export default function WorkbenchMindmapPanel(): JSX.Element {
   if (!supported) {
     return <div className="h-full flex items-center justify-center p-6 text-sm text-text-secondary">该格式暂不支持生成思维导图</div>
   }
+  // 文件来源没有可编辑正文；有选区时按文本片段生成，没有选区才上传原文件。
   if (loading && !record) {
     return <div className="h-full flex items-center justify-center text-sm text-text-secondary">正在载入…</div>
-  }
-  if (!record) {
-    if (error) return <div className="h-full flex items-center justify-center p-6 text-sm text-text-secondary">{error}</div>
-    // 未生成过导图：不预先落记录，等用户点开再建。
-    return (
-      <div className="h-full flex flex-col items-center justify-center gap-3 p-6 text-center">
-        <AppIcon name="diagram_flow_horizontal" size={30} className="text-primary" />
-        <button
-          type="button"
-          onClick={() => {
-            if (!workspacePath || !activeFilePath) return
-            const title = activeFilePath.split('/').pop() || activeFilePath
-            void window.api.workbench.mindmapSource(workspacePath, activeFilePath, title, true).then(result => {
-              if (result.success && result.data) setRecord(result.data)
-              else setError(result.error || '创建失败')
-            })
-          }}
-          className="h-9 px-4 rounded-lg bg-primary text-white text-sm hover:brightness-95"
-        >
-          为这篇文档生成导图
-        </button>
-      </div>
-    )
   }
 
   return (
     <div className="h-full flex flex-col min-h-0">
-      {pendingSelection && (
+      {pendingSelection && (!fileKind || fileKind === 'pdf' || fileKind === 'html') && (
         <div className="px-3 py-1.5 text-xs text-primary bg-primary/5 border-b border-primary/10">
           已选中 {pendingSelection.text.length} 个字符，生成时只整理这段内容
         </div>
       )}
       <div className="flex-1 min-h-0">
         <ConversationMindmapPanel
-          key={record.id}
+          key={activeFilePath}
           source={source}
-          conversation={record}
+          conversation={record ?? undefined}
           variant="document"
           materialProvider={materialProvider}
           onClose={closeRightPane}
+          fileSyncHooks={fileSyncHooks}
         />
       </div>
     </div>
