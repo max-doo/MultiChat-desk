@@ -2,6 +2,309 @@
 
 ## 2026-11-21
 
+### 15:55 | Codex
+
+- done: 工作台导图文件化设计文档收尾（验收编号重排 1-63、接口与状态机对齐、DOCS_INDEX 收录）
+- decision: 最终方案：导图落 .multichat/mindmaps/*.mindmap.md；索引为工作区 .multichat/index.json（不存 conversationId，按 source 归属）；frontmatter 只保留 id/source/title；正文与绑定冲突一律不自动选边
+- modified:
+  - `docs/workbench-mindmap-file-binding-design.md`
+  - `docs/DOCS_INDEX.md`
+- lesson: 设计文档里的验收清单编号必须唯一且连续，否则逐条验收时会漏项；跨段落引用的状态名与 reason 枚举要与状态机保持单一来源
+- unresolved: 尚未实现；需按 §13 改动清单落地，并在 npm run dev 中逐条走 §14 的 63 项验收
+
+### 15:55 | Codex
+
+- done: 统一工作区 footer 三类弹层：共用 420px 锚定弹层容器与标题栏，Git 状态采用动态截断并补充完整状态 tooltip
+- context: 用户指出 Git 按钮需明确展示信息与宽度策略，且 Git、设置、仓库管理弹层样式和宽度不一致。
+- added:
+  - `src/renderer/src/components/workbench/WorkbenchFooterPopover.tsx`
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchGitPanel.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchWorkspaceSettings.tsx`
+- lesson: footer 弹层统一用锚定容器和共享标题栏，避免各弹窗各自定义宽度与定位；Git 状态用固定状态徽标 + 可截断分支名，不按静态总宽度设计。
+
+### 15:54 | Codex
+
+- done: 工作台导图文件化与相对绑定设计文档（含独立审核两轮修订，补 DOCS_INDEX 索引）
+- decision: 导图正文落 .multichat/mindmaps/*.mindmap.md，索引为工作区 .multichat/index.json，绑定用 frontmatter 的 source 相对路径；正文与绑定冲突一律不自动选边
+- modified:
+  - `docs/workbench-mindmap-file-binding-design.md`
+  - `docs/DOCS_INDEX.md`
+- lesson: 同一条绑定同时存在于 JSON 与文件时，必须指定唯一权威并让另一方只做缓存；用可变快照字段做比对会让校验永远成立
+- unresolved: 尚未实现；需要按 §13 改动清单落地，并在 npm run dev 中逐条走 §14 的 63 项验收
+
+### 15:54 | Codex
+
+- done: 工作台导图文件化与相对绑定设计文档（含独立审核两轮修订）
+- decision: 导图正文落 .multichat/mindmaps/*.mindmap.md，索引为工作区 .multichat/index.json，绑定用 frontmatter 的 source 相对路径；正文与绑定冲突一律不自动选边
+- modified:
+  - `docs/workbench-mindmap-file-binding-design.md`
+- lesson: 同一条绑定同时存在于 JSON 与文件时，必须指定唯一权威并让另一方只做缓存；用可变快照字段做比对会让校验永远成立
+- unresolved: 尚未实现；需要按 §13 改动清单落地，并在 npm run dev 中逐条走 §14 的 63 项验收
+
+### 15:44 | Codex
+
+- done: 工作区 Git：gitignore 改为按类型复选分类，压缩包与 IDE 配置改为可选，修复刷新请求叠加与设置弹窗静默丢弃未保存规则，补文档
+- modified:
+  - `src/main/services/gitignoreService.ts`
+  - `src/main/services/gitService.ts`
+  - `src/renderer/src/components/workbench/WorkbenchWorkspaceSettings.tsx`
+  - `src/renderer/src/store/workbenchStore.ts`
+  - `docs/workbench-git-sync.md`
+- lesson: 文件移动后用 update-index 搬原 blob 可保留重命名历史；git status 用 --no-optional-locks 避免递归监听自激；Git 状态刷新应合并并发请求，否则图标会长时间转圈
+
+### 15:41 | Codex
+
+- done: 调整 footer 三个入口间距，并将 Git 弹层宽度统一为仓库管理弹窗的 420px
+- context: 用户反馈 Git 图标与设置图标距离过远，以及仓库管理和 Git 管理弹窗宽度不一致。
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchGitPanel.tsx`
+
+### 15:37 | Codex
+
+- done: 实现方案1底部 footer：工作区切换、Git、设置三个独立入口，移除横向分隔线和重复设置入口
+- context: 用户选择 HTML 原型方案1，并明确三个按钮之间不需要横向分隔竖线。
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchGitPanel.tsx`
+- lesson: 设置入口只保留 footer 齿轮；工作区菜单和管理仓库弹窗不再重复放置工作区设置。
+
+### 15:25 | Codex
+
+- done: 补齐开发依赖忽略：默认与模板加入 Python 缓存/虚拟环境/测试工具、Node 依赖、IDE 文件；新增 Python 项目模板；文件树同步隐藏 Python 缓存目录
+- modified:
+  - `src/main/services/gitignoreService.ts`
+  - `src/main/services/gitService.ts`
+  - `src/main/services/workbenchService.ts`
+  - `docs/workbench-git-sync.md`
+
+### 15:20 | Codex
+
+- done: 工作区设置的忽略规则改为整组模板：知识库/含大文件/全量，一次填入缺失规则，模板前置并区分已填入与已保存
+- modified:
+  - `src/shared/types/workbench.ts`
+  - `src/main/services/gitignoreService.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/src/components/workbench/WorkbenchWorkspaceSettings.tsx`
+  - `docs/workbench-git-sync.md`
+
+### 14:39 | Codex
+
+- done: 调整 Git 提交标题预填：普通提交只保留日期时间，首次提交使用 Initial commit，并同步文档
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchGitPanel.tsx`
+  - `docs/workbench-git-sync.md`
+
+### 14:34 | Codex
+
+- done: 工作台 Git 接入收尾：修复子目录路径匹配、未跟踪文件误阻止拉取、SSH 凭据误脱敏、大文件提交兜底与索引刷新循环，并完成回归验证
+- lesson(promoted): 目录移动必须逐文件映射索引；.gitignore 编辑按行差异写回并保留注释；push 前必须 fetch；带凭据远程地址不可回填脱敏值
+- modified:
+  - `src/main/services/gitService.ts`
+  - `src/main/services/gitignoreService.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/shared/types/workbench.ts`
+  - `src/renderer/src/store/workbenchStore.ts`
+  - `src/renderer/src/components/workbench/WorkbenchGitPanel.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchWorkspaceSettings.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+  - `src/main/services/workbenchService.ts`
+  - `docs/workbench-git-sync.md`
+  - `docs/DOCS_INDEX.md`
+  - `.memory/INDEX.md`
+  - `.memory/KNOWLEDGE.md`
+  - `SESSION_LOG.md`
+
+### 14:28 | Antigravity
+
+- done: 修复工作台标签 Obsidian 格式兼容性、无井号紫色胶囊样式对齐、中文输入法防抢断与无尾换行解析
+- modified:
+  - `src/renderer/src/components/workbench/FrontmatterPanel.tsx`
+  - `src/shared/utils/workbenchTags.ts`
+  - `src/renderer/src/components/workbench/MarkdownSyncPlugin.tsx`
+  - `src/renderer/src/store/workbenchStore.ts`
+  - `scripts/test-tags-obsidian-parity.ts`
+- lesson: Obsidian 标签 chip 样式应为原有 violet-500 圆角 badge 且不带井号；Frontmatter 正则必须兼容文件末尾无换行的边界；标签输入框需拦截 IME isComposing 避免中文输入空格误提交
+
+### 14:02 | Codex
+
+- done: 工作台 Git 最终验证：类型检查、全量 lint、构建与 22 项 Git 行为脚本全部通过
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchWorkspaceSettings.tsx`
+
+### 14:00 | Codex
+
+- done: 工作台 Git 终审：.gitignore 原子写入、沿用已有远程名、同步更新说明文档
+- modified:
+  - `src/main/services/gitignoreService.ts`
+  - `src/main/services/gitService.ts`
+  - `src/shared/types/workbench.ts`
+  - `src/renderer/src/components/workbench/WorkbenchWorkspaceSettings.tsx`
+  - `docs/workbench-git-sync.md`
+
+### 13:57 | Codex
+
+- done: 工作台 Git 收口复查：空仓库推送提示、已是最新反馈、footer 宽度约束与弹窗尺寸边界
+- modified:
+  - `src/main/services/gitService.ts`
+  - `src/renderer/src/store/workbenchStore.ts`
+  - `src/renderer/src/components/workbench/WorkbenchGitPanel.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchWorkspaceSettings.tsx`
+
+### 13:52 | Codex
+
+- done: 补充工作台 Git 同步边界知识路由与长期经验
+- modified:
+  - `.memory/INDEX.md`
+  - `.memory/KNOWLEDGE.md`
+  - `SESSION_LOG.md`
+
+### 13:52 | Codex
+
+- done: 工作台 Git：footer 整合、工作区设置与忽略规则、大文件提示、远程配置与拉取/推送校准
+- added:
+  - `src/main/services/gitService.ts`
+  - `src/main/services/gitignoreService.ts`
+  - `src/renderer/src/components/workbench/WorkbenchGitPanel.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchWorkspaceSettings.tsx`
+  - `docs/workbench-git-sync.md`
+- modified:
+  - `src/main/services/gitService.ts`
+  - `src/main/services/gitignoreService.ts`
+  - `src/main/services/workbenchService.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/shared/types/workbench.ts`
+  - `src/renderer/src/store/workbenchStore.ts`
+  - `src/renderer/src/components/workbench/WorkbenchGitPanel.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchWorkspaceSettings.tsx`
+  - `docs/workbench-git-sync.md`
+  - `docs/DOCS_INDEX.md`
+- lesson: 目录移动必须逐文件映射索引；.gitignore 编辑按行差异写回并保留注释；push 前必须 fetch；带凭据远程地址不可回填脱敏值
+
+### 13:51 | Antigravity
+
+- done: 恢复工作台笔记属性 tag chip 原有无井号 badge 样式与 Obsidian YAML 标签格式兼容
+- context: 用户反馈 Obsidian Frontmatter 源码格式为 tags 多行列表无井号，要求界面 tag chip 保持原先不带井号的 badge 样式
+- decision: 标签 chip 与补全浮层均移除井号前缀，恢复原有 rounded-full 胶囊样式；测试集补充覆盖 Obsidian 引号列表标签格式
+- modified:
+  - `src/renderer/src/components/workbench/FrontmatterPanel.tsx`
+  - `src/main/services/workbenchService.ts`
+  - `scripts/test-tags-obsidian-parity.ts`
+
+### 13:37 | Codex
+
+- done: 修复工作台 Markdown 预览与源码切换丢失滚动位置：按工作区+文件+视图分别记忆，切回预览时等待内容解析并在尺寸变化时重试恢复，源码切回时首帧恢复 textarea 与行号层
+- context: 根因是 editorMode 切换会整棵卸载当前编辑器，两套滚动容器各自从顶部重新挂载；用 Playwright 对构建产物实测长文：预览 2400->2400、源码 900->900
+- decision: 滚动位置只保留在渲染层内存 Map，不写配置；预览恢复最多 2 秒并在用户主动滚动/输入时立即让出控制权，避免恢复逻辑抢占交互
+- added:
+  - `src/renderer/src/components/workbench/workbenchEditorScroll.ts`
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchSourceEditor.tsx`
+- lesson(promoted): 编辑器双视图切换若采用条件渲染整树卸载，浏览器不会保留滚动状态；恢复滚动还要防止内容未撑开时的夹紧值反写记忆，并监听内容尺寸变化重试
+
+### 13:36 | Antigravity
+
+- done: 工作台笔记标签规范对齐Obsidian、标签检索与输入自动补全优化
+- decision: Frontmatter存储不带#前缀保持Obsidian Properties兼容；标签输入框支持工作区已有标签关键词模糊匹配下拉选用
+- added:
+  - `src/shared/utils/workbenchTags.ts`
+  - `docs/workbench-tags-obsidian-parity-plan.md`
+  - `scripts/test-tags-obsidian-parity.ts`
+- modified:
+  - `src/shared/types/workbench.ts`
+  - `src/main/services/workbenchService.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/src/store/workbenchStore.ts`
+  - `src/renderer/src/components/workbench/FrontmatterPanel.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchSearch.tsx`
+- lesson(promoted): Obsidian YAML Frontmatter标签规范不带#前缀，但正文行内标签以#引导；标签输入框需做剥离#前缀与去重清洗
+
+### 13:33 | Antigravity
+
+- done: 统一工作台模式顶栏右侧面板切换按钮（思维导图与AI侧栏）的尺寸与视觉规范，将其与窗口系统控制按钮分离
+- context: 用户反馈在进入工作台模式后顶部的两个面板切换按钮明显与其他按钮大小不统一，显得不协调
+- decision: 将 WorkbenchPaneToggles 从原先 win32 专属的 w-[46px] 撑满矩形块重构为全平台统一的 w-7 h-7 离散圆角按钮（size=16），并在 Windows 下将其与原生窗口最小化/最大化/关闭按钮分离（保留 mr-2 间距），使其与应用顶栏其他功能按钮规范保持协调一致
+- modified:
+  - `src/renderer/src/components/Layout.tsx`
+
+### 13:16 | Codex
+
+- done: 来源会话入口改用严格会话页判定：新增 isPlatformConversationPage 按平台枚举真实会话路径与 query 会话键，非会话页/非 AI 链接不再显示“在侧边栏打开会话”，仅保留浏览器打开
+- context: 用户反馈 source 填其他链接仍出现打开对话图标；根因是来源入口复用了为后台恢复设计的宽松 isConversationUrlForPlatform
+- decision: 自动化链路继续用宽松判定以免影响恢复；UI 入口用严格判定，未确认的 chatglm query 规则不猜；新增严格正负样例进 agent-cli-acceptance.mjs
+- modified:
+  - `src/shared/utils/conversationUrl.ts`
+  - `src/renderer/src/utils/noteSourceConversation.ts`
+  - `scripts/agent-cli-acceptance.mjs`
+- lesson(promoted): “能否恢复会话”与“是否显示会话入口”是两个判定口径，UI 入口必须用逐平台严格路径白名单，且负例要覆盖同域名非会话页
+
+### 13:11 | Codex
+
+- done: 工作台接入 Git：移动/重命名写入暂存区，新增提交、快进拉取、显式合并与冲突自动撤销、推送与首次关联上游，左栏新增版本管理面板
+- context: 验证：tsc node/web 通过，lint 0 error，npm run build 通过；用临时仓库跑通 13 项行为验证（移动暂存、子目录提交范围、快进、分叉、冲突撤销、脏工作区、推送、初始化）
+- decision: 不引入 Git 库，直接调用系统 Git；移动用 update-index 只记录路径变化，不连带暂存内容改动；拉取默认只允许快进，分叉需显式合并，冲突自动 merge --abort 回到操作前；提交与状态均限定在工作区范围
+- added:
+  - `src/main/services/gitService.ts`
+  - `src/renderer/src/components/workbench/WorkbenchGitPanel.tsx`
+- modified:
+  - `src/main/services/workbenchService.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/shared/types/workbench.ts`
+  - `src/renderer/src/store/workbenchStore.ts`
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+  - `src/renderer/src/components/icons/AppIcon.tsx`
+- lesson(promoted): execFile 不支持 input 选项，需要写 stdin 时必须用 spawn；status 的 ahead/behind 基于本地缓存的远程引用，拉取/合并前必须先 fetch，否则会把远程新提交误判为已是最新
+
+### 13:06 | Codex
+
+- done: 修正笔记属性图标映射：补充 sell/calendar_month 的 Lucide 图标，并按属性名识别 source/url/tag/date/title/description
+- context: 用户截图显示笔记属性 tag/date 等图标错误；仅修改本次图标映射，保留工作区其他未提交改动。
+- modified:
+  - `src/renderer/src/components/icons/AppIcon.tsx`
+  - `src/renderer/src/components/workbench/FrontmatterPanel.tsx`
+- lesson: AppIcon 对未映射名称会回退为警告三角；属性面板新增图标名时必须同步 APP_ICON_MAP，且空值字段应由属性名而非值类型决定语义图标。
+
+### 13:06 | Antigravity
+
+- done: 优化工作台搜索结果在窄宽度下的UI布局，防止行号标签被挤压拉长
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchSearch.tsx`
+
+### 12:55 | Codex
+
+- done: 笔记属性 source 链接值支持 Ctrl/Cmd+点击用本地浏览器打开，普通点击仍进入行内编辑；title 提示补齐修饰键用法
+- context: 用户反馈上一版只保留编辑动作，缺少本地浏览器打开入口，询问能否用 Ctrl+点击
+- decision: 值恢复为 <a href target=_blank>，普通点击 preventDefault 进编辑，修饰键放行给主窗口 setWindowOpenHandler → shell.openExternal；不新增 IPC
+- modified:
+  - `src/renderer/src/components/workbench/FrontmatterPanel.tsx`
+- lesson(promoted): Electron 渲染层给 <a target=_blank> 的普通点击做 preventDefault 不影响修饰键/中键外链：setWindowOpenHandler 只在未被拦截的新窗口请求时触发
+
+### 12:49 | Codex
+
+- done: 修复工作台笔记属性中 source 链接无法直接修改：链接值改为点击即行内编辑（Esc 取消、Enter/失焦提交），打开动作拆为独立图标（会话链接进 AI 侧栏、普通链接进浏览器）
+- context: 用户反馈工作台 Markdown 编辑区编辑时不能修改 source 链接；原实现只有 Ctrl/Cmd+点击进入编辑且输入框未自动聚焦
+- decision: 链接值与打开动作分离：值文本承担编辑，右侧图标承担打开；保留 source 会话链接解析后走 AI 侧栏，其他 URL 走系统浏览器
+- modified:
+  - `src/renderer/src/components/workbench/FrontmatterPanel.tsx`
+- lesson(promoted): 工作台 FrontmatterPanel 的 URL 字段不能直接把 <a> 当编辑入口，否则普通点击会导航走；编辑态需优先于 URL 渲染分支，且 Esc 要用标记跳过 blur 提交
+
+### 11:59 | Codex
+
+- done: 产出工作台导图文件化与工作区身份设计文档，经独立 worker 四轮审核后修正删除顺序、文件删除出口、收养哈希口径、targets 语义等 6 处契约矛盾
+- decision: 导图以 Markdown 落盘到 .multichat/mindmaps，绑定键改为 workspaceId+relativePath，工作区身份用 marker id + 本机 dev/ino 映射
+- added:
+  - `docs/workbench-mindmap-file-binding-design.md`
+- lesson: 对账删除必须区分 ENOENT 与其他错误，空索引不能当成删除依据；导图文件哈希与源文档哈希是两套口径，不可混用
+
 ### 09:39 | Codex
 
 - done: 修复 WorkbenchDocxCard 类型报错：为 FileTypeIcon 传入的节点补 fullPath

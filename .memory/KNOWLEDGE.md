@@ -138,6 +138,14 @@ Do not copy ordinary session history here. Promote only stable knowledge that is
 
 - **临时构造 `FileTypeIcon` 节点要补齐 `WorkbenchFileNode` 必填字段**：`FileTypeIcon` 接收完整的 `WorkbenchFileNode`，其中 `fullPath` 为必填绝对路径。预览类组件按 `activeFilePath` 临时拼节点时，`path` 与 `fullPath` 都要赋值；只补 `path` 会触发 TS2741。
 
+- **笔记属性的 URL 字段默认动作是编辑，打开动作必须有独立入口**：`FrontmatterPanel` 中把 `<a>` 直接当值渲染时，普通点击会按链接导航，编辑入口只能藏在修饰键里，用户实际无法发现也无法稳定修改。URL 值保留 `<a href>` 以维持修饰键/中键的浏览器打开语义，但普通点击必须 `preventDefault` 进入受控输入框并自动聚焦、全选；同时提供右侧独立图标（会话链接进 AI 侧栏、普通链接进浏览器），并在 `title` 中写明 `Ctrl/Cmd+点击在浏览器打开`。编辑态分支必须排在 URL 渲染分支之前，`Esc` 取消时用标记跳过随后触发的 blur 提交，否则取消仍会把草稿写回。主窗口 `setWindowOpenHandler` 已把 `target="_blank"` 转给 `shell.openExternal`，无需为外链另加 IPC。
+
+- **“是否展示来源会话入口”必须用严格会话页判定，不能复用自动化用的宽松判定**：`isConversationUrlForPlatform` 为后台恢复设计，只校验 origin 与通用会话路径段（`/c|chat|app|search|.../<id>`），同域名的设置页、搜索页、文档页都可能命中；拿它决定 UI 是否显示“在侧边栏打开会话”，会出现填任意平台站内链接都能打开侧栏的误报。`isPlatformConversationPage` 只接受逐平台枚举的真实路径（chatgpt `/c/<id>`、claude `/chat/<id>`、gemini `/app/<id>`、grok `/c/<id>`、perplexity `/search/<id>`、deepseek `/a/chat/s/<id>` 等）与明确平台的 query 会话键；新增平台或路径时同步补 `scripts/agent-cli-acceptance.mjs` 的正负样例，负例至少覆盖同域名非会话页与非 AI 站点。
+
+- **工作台标签规范对齐 Obsidian 与防泛滥补全**：Obsidian 在 YAML Frontmatter 中存储标签不含 `#` 前缀（`#` 仅用于正文行内引导符），若带 `#` 会被 YAML 标量包裹为引号字符串破坏标准识别。标签解析与序列化需自动剔除 `#` 前缀、去重并强制格式化为 YAML 列表；属性面板标签输入框通过聚合工作区已有标签，提供基于关键词前缀/模糊匹配的下拉建议浮层（支持方向键、Enter、Tab、鼠标点击与新建回车），既保持与 Obsidian 的数据兼容，又从交互上避免了标签随手打带来的严重标签熵增。检索端需支持 `tag:#name`、`tag:name` 与 `#name` 语法，并支持斜杠 `/` 的父子层级嵌套继承匹配。
+
+- **工作台双视图切换要按文件记忆各自的滚动位置**：`WorkbenchEditor` 用 `editorMode` 条件渲染预览与源码，切换时整棵编辑器卸载，两套滚动容器都会从顶部重新挂载，浏览器不会代为保留位置。滚动记忆的键需包含工作区、相对路径与视图，避免同名文件或跨工作区串位；只存内存即可，不必写入配置。恢复预览时不能只赋值一次：Lexical 解析、字体与图片缩略图会继续改变内容高度，内容未撑开时 `scrollTop` 会被浏览器夹紧，若此时把该值写回记忆就会覆盖原位置。正确做法是恢复期间忽略 `scroll` 记录、用 `ResizeObserver` 或有限帧重试直到目标位置可达，并在用户滚轮、触摸或按键时立即结束恢复。源码侧在 `useLayoutEffect` 中恢复 `textarea.scrollTop` 并同步高亮层与行号列。
+
 ### 7. 划词、快捷键与窗口交互
 
 - **可重复交互的 Electron 悬浮窗口**：避免同时使用 `focusable: false` 和依赖完整 `click` 事件。用 `showInactive` 控制弹出时不抢焦点，让窗口保持可聚焦，并在 `pointerdown` 派发一次性动作。
@@ -300,6 +308,24 @@ Do not copy ordinary session history here. Promote only stable knowledge that is
 - **`aria-pressed` 开关类入口必须加幂等守卫**：`qianwen.com` 的"研究"按钮点一次取反，`generateEnableDeepResearchScript`/`generateDisableDeepResearchScript` 若被重复执行（重试、追问复用会话）会把状态翻回去。做法是在 `AutomationStep` 上加 `skipIfPressed`/`skipIfReleased`，`buildDeepResearchHelperFunctions` 里 `alreadyInState(step, el)` 命中即跳过点击并计入成功。实测连开两次仍为 `aria-pressed=true`，连关两次仍为 `false`。
 
 - **应用运行期间 cookie 库被独占锁，离线读盘拿不到真实数据**：`Partitions/shared/Network/Cookies` 被 network service 进程以独占方式持有，`FileShare.ReadWrite` 与 `Copy-Item` 全部失败；用 `NtQuerySystemInformation(SystemExtendedHandleInformation)` + `DuplicateHandle` 复制句柄可只读取出完整快照（327 条 vs 复制文件的 35 条），但这只适合取证。判定必须走应用进程内的 `session.fromPartition('persist:shared')`。
+
+- **工作区 Git 接入以路径写入暂存区代替 `git mv`**：Git 不存储重命名，普通 `fs.rename` 后执行 `git add -A` 同样会被识别为 rename，所以文件“反复出现在 Git 树上”的根因是路径变化没进暂存区。做法是在 `renameNode` 落盘后，用 `git ls-files -s -z --full-name` 取原 blob，再以一次 `git update-index -z --index-info` 同时写入“删除旧路径 + 原 blob 写入新路径”；这样只记录路径变化，不会把文件内容改动一并暂存（`git add` 会）。注意路径基准不统一：`ls-files` 与 `update-index` 需要仓库根相对路径，`status --porcelain=v1 -z` 也输出根相对路径，而 `status --porcelain=v2` 输出工作区相对路径，因此要先 `rev-parse --show-prefix` 补前缀。仅大小写改名在 Windows 上直接用同一套 `update-index` 即可被识别，不必特殊分支。变基或合并进行中（`.git/rebase-merge`、`rebase-apply`、`MERGE_HEAD` 存在）要跳过写索引，否则破坏可恢复性。
+
+- **Git 同步状态必须先 fetch 再判断 ahead/behind**：`git status --porcelain=v2 --branch` 的 `branch.ab` 比较的是本地缓存的 `refs/remotes/*`，远程有新提交但未 fetch 时会显示 `+0 -0`，导致拉取被判定为“已是最新”而实际什么也没做。正确顺序是：先做干净/分叉等本地前置检查，再 `git fetch --prune`，重新读状态后决定快进、显式合并或拒绝。拉取用 `pull --ff-only`，分叉交给显式的 `merge --no-edit`；合并冲突后立刻 `merge --abort` 回到操作前，比 `pull --rebase --autostash` 更可控——后者在本地有未提交改动时会产生二次冲突并留下 stash。另：`execFile` 不支持 `input` 选项，需要写 stdin（如 `update-index --index-info`）必须用 `spawn` 并显式 `stdin.end()`。
+
+- **目录移动的 Git 重命名必须逐文件映射，索引查询要按仓库根执行**：只对“被移动的目录路径”执行 `update-index` 不会命中目录内文件，Git 仍会显示删除 + 新增。正确做法是读取旧目录前缀下的全部索引条目，按 `新前缀 + 旧路径剩余部分` 逐个写入“删除旧路径 + 原 blob 写入新路径”；目标前缀已有索引条目时跳过，避免覆盖未提交的同名文件。查询统一在 `repoRoot` 下执行并加 `--literal-pathspecs`：在子目录 cwd 下 `ls-files` 会把 pathspec 当成工作区相对路径，`[draft].md` 这类文件名还会被当成通配符而漏匹配；literal 目录 pathspec 即使目录已从磁盘移走仍能命中索引，也不必逐文件拼参数或全量扫描。
+
+- **Git 写操作队列清理要比较存储值**：`serialize` 中若把 `next.catch(() => undefined)` 存进 Map，清理时却比较原始 `next`，队列永远不会删除，同一工作区的所有后续操作都会排在一个已结束的 Promise 后面。应保存 `stored` 并在 `finally` 中比较 `stored`。
+
+- **`.gitignore` 可视化编辑按行差异写回**：不要整体重排后覆写，否则会丢失用户注释、空行与取反规则的位置。只删除目标列表中不存在的规则行，在末尾追加缺失规则；同一模式重复出现时按次数保留。保存前比较打开时的磁盘快照，若已被其他程序修改则提示确认，避免静默覆盖。
+
+- **带凭据的远程地址不能脱敏后回填输入框**：`git remote get-url` 可能返回 `https://user:token@host/repo.git`。界面只展示脱敏值，但若把脱敏值填回输入框，用户直接保存就会把 `***` 写进 `.git/config`。应返回 `redacted` 标记，含凭据时不回填，要求重新输入；保存走 `remote set-url` 保留 refspec，凭据交给系统 Git 凭据管理器。
+
+- **首次推送不要依赖 `push.default`**：无上游分支时直接 `git push` 在 `simple`/`current`/`upstream` 配置下行为不同，可能报错或推到意外分支。界面确认后统一用 `push -u origin HEAD` 建立跟踪关系；未确认时返回 `no-upstream`，不执行推送。
+
+- **未跟踪大文件只提示、不自动处理**：`git status --porcelain=v2 -z --untracked-files=all` 后独立收集未跟踪路径并 `stat`，超过 50 MB 的记录到 `largeUntracked`；不要复用被 500 项上限截断的展示列表，否则大文件会漏报。主进程提交接口需用 `allowLargeFiles` 做兜底拒绝，避免只靠界面确认被绕过。未跟踪文件不阻止拉取（与远程同名时 Git 会拒绝），只有已跟踪改动阻止同步；`blockingChangeCount` 要独立计数，不能从截断列表推导。忽略必须由用户在设置里选择，不自动写 `.gitignore`、不自动 `git add`。GitHub 50 MiB 警告 / 100 MiB 拒绝，GitLab 与 Azure DevOps 限制不同，应用侧不自动启用 LFS。
+
+- **`git status` 会刷新并写回 `.git/index`，会与递归 watcher 形成自激循环**：工作区监听若不过滤 `.git`，每次状态刷新都会触发一次新的文件事件，表现为刷新图标持续闪烁。两层都要处理：watcher 忽略 `.git` 下的事件；读取状态时加 `--no-optional-locks`，让 `status` 只读、不改索引。后台刷新不要切换 loading，只有用户手动刷新才显示旋转。
 
 
 ### 12. 构建、打包与开发验证
