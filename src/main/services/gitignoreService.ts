@@ -205,12 +205,17 @@ export async function readGitignore(workspaceRoot: string): Promise<GitignoreSna
   let content: string
   try {
     const fileStat = await stat(filePath)
-    if (!fileStat.isFile()) return { exists: false, entries: [] }
-    content = await readFile(filePath, 'utf-8')
+    if (!fileStat.isFile()) return { exists: false, content: '', entries: [] }
+    content = (await readFile(filePath, 'utf-8')).replace(/\r\n?/g, '\n')
   } catch {
-    return { exists: false, entries: [] }
+    return { exists: false, content: '', entries: [] }
   }
 
+  return { exists: true, content, entries: parseGitignoreEntries(content) }
+}
+
+/** 解析规则行；整段文本编辑器以 content 为准，entries 仅用于分类勾选状态 */
+function parseGitignoreEntries(content: string): GitignoreEntry[] {
   const entries: GitignoreEntry[] = []
   let pendingComment: string | null = null
 
@@ -230,70 +235,14 @@ export async function readGitignore(workspaceRoot: string): Promise<GitignoreSna
     pendingComment = null
   }
 
-  return { exists: true, entries }
+  return entries
 }
 
-/**
- * 写回 .gitignore。
- * 采用行级差异：只删除被移除的规则行、在末尾追加新规则，
- * 不重排用户已有内容，也不丢弃注释与空行，降低误改用户文件的风险。
- * 列表顺序可能与文件顺序不同，但 Git 规则本身与顺序无关（取反规则也按原行位置保留）。
- */
-export async function writeGitignore(
-  workspaceRoot: string,
-  entries: GitignoreEntry[]
-): Promise<void> {
+/** 以整段文本写回 .gitignore；注释、空行和顺序都按用户输入保留 */
+export async function writeGitignoreText(workspaceRoot: string, content: string): Promise<void> {
   const filePath = path.join(workspaceRoot, '.gitignore')
-  let original = ''
-  try {
-    original = await readFile(filePath, 'utf-8')
-  } catch {
-    original = ''
-  }
-  const hadTrailingNewline = !original || original.endsWith('\n')
-  const originalLines = original.split(/\r?\n/)
-  if (originalLines.length && originalLines[originalLines.length - 1] === '') originalLines.pop()
-
-  const desiredCounts = new Map<string, number>()
-  for (const entry of entries) {
-    const pattern = entry.pattern.trim()
-    if (pattern) desiredCounts.set(pattern, (desiredCounts.get(pattern) ?? 0) + 1)
-  }
-
-  // 按“行”保留：同一模式在文件中出现多次时，只有目标列表里也重复才全部保留；
-  // 已保留的规则不参与“追加”，否则删除后重加同一条会被误判为已存在。
-  const allowedCounts = new Map(desiredCounts)
-  const kept = new Set<string>()
-  const nextLines = originalLines.filter((raw) => {
-    const pattern = raw.trim()
-    if (!pattern || pattern.startsWith('#')) return true
-    const allowed = allowedCounts.get(pattern) ?? 0
-    if (allowed <= 0) return false
-    allowedCounts.set(pattern, allowed - 1)
-    kept.add(pattern)
-    return true
-  })
-
-  const additions: string[] = []
-  for (const entry of entries) {
-    const pattern = entry.pattern.trim()
-    if (!pattern) continue
-    if (kept.has(pattern)) continue
-    const added = additions.filter(item => item === pattern).length
-    if (added >= (desiredCounts.get(pattern) ?? 0)) continue
-    if (entry.comment && !nextLines.includes(entry.comment)) additions.push(entry.comment)
-    additions.push(pattern)
-  }
-
-  let appended = false
-  let content = nextLines.join('\n')
-  if (additions.length) {
-    if (content) content += '\n\n'
-    content += additions.join('\n')
-    appended = true
-  }
-  if (content && (hadTrailingNewline || appended)) content += '\n'
-  await writeTextFileSafely(filePath, content)
+  const normalized = content.replace(/\r\n?/g, '\n')
+  await writeTextFileSafely(filePath, normalized)
 }
 
 /**

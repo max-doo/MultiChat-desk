@@ -119,6 +119,8 @@ export interface GitignoreEntry {
 
 export interface GitignoreSnapshot {
   exists: boolean
+  /** 文件原文；编辑器直接展示和保存这份文本，保留注释、空行与顺序 */
+  content: string
   entries: GitignoreEntry[]
 }
 
