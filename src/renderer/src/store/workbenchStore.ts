@@ -11,10 +11,14 @@ import {
 } from '../../../shared/types/workbench'
 
 export type SaveStatus = 'saved' | 'saving' | 'error' | 'conflict'
+export interface SaveActiveFileResult {
+  saved: boolean
+  reason?: 'oversized' | 'conflict' | 'error' | 'binary' | 'no-active'
+}
 export type EditorMode = 'wysiwyg' | 'source'
 export type WorkbenchAiAction = 'ask' | 'explain' | 'polish' | 'summarize'
-/** 右侧栏与快捷窗口一致：AI 对话和思维导图互斥，同一时刻只显示一个。 */
-export type WorkbenchRightPane = 'ai' | 'mindmap' | null
+/** 右侧栏与快捷窗口一致：AI 对话、标注和思维导图同一时刻只显示一个。 */
+export type WorkbenchRightPane = 'ai' | 'annotations' | 'mindmap' | null
 export type WorkbenchSortKey = 'name' | 'mtime' | 'size'
 export type WorkbenchSortOrder = 'asc' | 'desc'
 
@@ -99,6 +103,8 @@ interface WorkbenchStoreState {
   // 工作区状态
   workspacePath: string | null
   workspaceName: string
+  /** 主进程 activateWorkspace 返回的版本号；用于 closeWorkspace 防止关错工作区。 */
+  workspaceGeneration: number
   recentWorkspaces: string[]
   defaultWorkspacePath: string | null
   fileTree: WorkbenchFileNode[]
@@ -115,6 +121,8 @@ interface WorkbenchStoreState {
   activeFileMime: string | null
   activeFileSize: number | null
   activeFileOversized: boolean
+  /** 当前文档的 document 标注数；删除确认会据此说明旁路影响。 */
+  activeAnnotationCount: number
   isDirty: boolean
   saveStatus: SaveStatus
   lastSavedAt: number | null
@@ -170,8 +178,11 @@ interface WorkbenchStoreActions {
   toggleFolder: (folderId: string) => void
   expandAllFolders: () => void
   collapseAllFolders: () => void
-  openFile: (relativePath: string) => Promise<boolean>
-  saveActiveFile: () => Promise<boolean>
+  openFile: (
+    relativePath: string,
+    options?: { keepActiveOnMissing?: boolean }
+  ) => Promise<boolean>
+  saveActiveFile: () => Promise<SaveActiveFileResult>
   resolveExternalConflict: (choice: 'keep-mine' | 'take-disk') => Promise<boolean>
   updateActiveContent: (content: string) => void
   createFile: (parentRelativeDir: string, fileName: string) => Promise<string | null>
@@ -338,6 +349,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   // 初始状态
   workspacePath: null,
   workspaceName: '',
+  workspaceGeneration: 0,
   recentWorkspaces: [],
   defaultWorkspacePath: null,
   fileTree: [],
@@ -353,6 +365,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   activeFileMime: null,
   activeFileSize: null,
   activeFileOversized: false,
+  activeAnnotationCount: 0,
   isDirty: false,
   saveStatus: 'saved',
   lastSavedAt: null,
@@ -438,7 +451,12 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         updates.isLeftCollapsed = savedLeftCollapsed
       }
       // 新键优先；老版本只有布尔折叠状态，迁移成「AI 展开 / 全部收起」。
-      if (savedRightPane === 'ai' || savedRightPane === 'mindmap' || savedRightPane === null) {
+      if (
+        savedRightPane === 'ai' ||
+        savedRightPane === 'annotations' ||
+        savedRightPane === 'mindmap' ||
+        savedRightPane === null
+      ) {
         updates.rightPane = savedRightPane
       } else if (typeof savedRightCollapsed === 'boolean') {
         updates.rightPane = savedRightCollapsed ? null : 'ai'
@@ -465,7 +483,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       // 确保默认工作区存在（首次启动会创建），随后无论上次是否有保存的工作区，都先把默认路径放到 store
       let defaultWorkspacePath: string | null = null
       try {
-        const defaultRes = await window.api.workbench.ensureDefaultWorkspace()
+        const defaultRes = await window.api.workbench.getDefaultWorkspace()
         if (defaultRes.success && defaultRes.data?.path) {
           defaultWorkspacePath = defaultRes.data.path
         }
@@ -481,20 +499,25 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
 
       set(updates)
 
+      let activated = false
       if (savedPath && typeof savedPath === 'string') {
         await get().setWorkspaceFolder(savedPath)
-        if (savedActiveFile && typeof savedActiveFile === 'string') {
-          // 应用关闭期间文件可能被改名，对账刚记下新路径，恢复时跟着走。
-          const restorePath = recentRelinks.get(relinkKey(savedPath, savedActiveFile)) ?? savedActiveFile
-          // 先看文件树：应用关闭期间被删掉的文件不该再触发一次 readFile。
-          // 文件树节点可能处于折叠状态，这里用“路径集合”而不是 findNode。
-          const tree = get().fileTree
-          // 读取失败时保留恢复点等下次启动；读取成功但为空说明工作区确实没有这个文件。
-          if (tree.length === 0 && get().error) return
-          if (collectTreePaths(tree, new Set<string>()).has(restorePath)) await get().openFile(restorePath)
-          else void window.api.storeDelete('workbench_lastActiveFilePath')
+        activated = Boolean(get().workspacePath)
+        if (activated) {
+          if (savedActiveFile && typeof savedActiveFile === 'string') {
+            // 应用关闭期间文件可能被改名，对账刚记下新路径，恢复时跟着走。
+            const restorePath = recentRelinks.get(relinkKey(savedPath, savedActiveFile)) ?? savedActiveFile
+            // 先看文件树：应用关闭期间被删掉的文件不该再触发一次 readFile。
+            // 文件树节点可能处于折叠状态，这里用“路径集合”而不是 findNode。
+            const tree = get().fileTree
+            // 读取失败时保留恢复点等下次启动；读取成功但为空说明工作区确实没有这个文件。
+            if (tree.length === 0 && get().error) return
+            if (collectTreePaths(tree, new Set<string>()).has(restorePath)) await get().openFile(restorePath)
+            else void window.api.storeDelete('workbench_lastActiveFilePath')
+          }
         }
-      } else if (defaultWorkspacePath) {
+      }
+      if (!activated && defaultWorkspacePath) {
         await get().setWorkspaceFolder(defaultWorkspacePath)
       }
     } catch (err) {
@@ -516,20 +539,31 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   },
 
   setWorkspaceFolder: async (dirPath: string, dirName?: string) => {
-    const name = dirName || dirPath.split(/[/\\]/).filter(Boolean).pop() || 'Workspace'
+    let activePath = dirPath
+    let generation = get().workspaceGeneration
+    try {
+      const res = await window.api.workbench.activateWorkspace(dirPath)
+      if (!res.success || !res.data) {
+        set({ error: res.error || '打开工作区失败' })
+        return
+      }
+      activePath = res.data.activeWorkspaceRoot
+      generation = res.data.generation
+    } catch (err) {
+      set({ error: `打开工作区失败: ${err instanceof Error ? err.message : String(err)}` })
+      return
+    }
+    const name = dirName || activePath.split(/[/\\]/).filter(Boolean).pop() || 'Workspace'
     const defaultPath = get().defaultWorkspacePath
-    const recents = [dirPath, ...get().recentWorkspaces.filter((p) => p !== dirPath)]
+    const recents = [activePath, ...get().recentWorkspaces.filter((p) => p !== activePath)]
     // 默认工作区必须始终保留在最近列表中（若已初始化），用于「管理仓库」展示与回落
     const nextRecent = (defaultPath && !recents.includes(defaultPath)
       ? [...recents, defaultPath]
       : recents
     ).slice(0, 10)
-    const prevPath = get().workspacePath
-    if (prevPath && prevPath !== dirPath) {
-      void window.api.workbench.unwatch(prevPath)
-    }
     set({
-      workspacePath: dirPath,
+      workspacePath: activePath,
+      workspaceGeneration: generation,
       workspaceName: name,
       recentWorkspaces: nextRecent,
       activeFilePath: null,
@@ -546,19 +580,18 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       searchQuery: '',
       searchResults: []
     })
-    void window.api.storeSet('workbench_lastWorkspacePath', dirPath)
     void window.api.storeSet('workbench_recentWorkspaces', nextRecent)
-    void window.api.workbench.watch(dirPath)
     set({ gitStatus: null, gitNotice: null })
     // 旧版本导图记录在全局笔记目录，先迁到 .multichat/mindmaps 文件。
-    void window.api.workbench.mindmapMigrate(dirPath).catch(() => undefined)
+    void window.api.workbench.mindmapMigrate(activePath).catch(() => undefined)
     await get().loadFileTree()
     void get().refreshGitStatus()
   },
 
   closeWorkspace: async () => {
     if (get().isDirty) {
-      await get().saveActiveFile()
+      const saved = await get().saveActiveFile()
+      if (!saved.saved) return
     }
     const closingPath = get().workspacePath
     const defaultPath = get().defaultWorkspacePath
@@ -566,12 +599,24 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     if (closingPath && defaultPath && closingPath === defaultPath) {
       return
     }
-    if (closingPath) {
-      void window.api.workbench.unwatch(closingPath)
+    if (!closingPath) return
+    let session: Awaited<ReturnType<typeof window.api.workbench.closeWorkspace>>
+    try {
+      session = await window.api.workbench.closeWorkspace(closingPath, get().workspaceGeneration)
+    } catch (err) {
+      set({ error: `关闭工作区失败: ${err instanceof Error ? err.message : String(err)}` })
+      return
     }
+    if (!session.success || !session.data) {
+      set({ error: session.error || '关闭工作区失败' })
+      return
+    }
+    const activePath = session.data.activeWorkspaceRoot
+    const activeName = activePath.split(/[/\\]/).filter(Boolean).pop() || 'Workspace'
     set({
-      workspacePath: null,
-      workspaceName: '',
+      workspacePath: activePath,
+      workspaceGeneration: session.data.generation,
+      workspaceName: activeName,
       fileTree: [],
       expandedFolderIds: new Set<string>(),
       activeFilePath: null,
@@ -589,12 +634,9 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       gitStatus: null,
       gitNotice: null
     })
-    void window.api.storeDelete('workbench_lastWorkspacePath')
     void window.api.storeDelete('workbench_lastActiveFilePath')
-    // 关闭非默认工作区后回落到默认工作区，保证始终有打开的 vault
-    if (defaultPath) {
-      await get().setWorkspaceFolder(defaultPath)
-    }
+    await get().loadFileTree()
+    void get().refreshGitStatus()
   },
 
   removeRecentWorkspace: (dirPath: string) => {
@@ -659,7 +701,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     set({ expandedFolderIds: new Set<string>() })
   },
 
-  openFile: async (relativePath: string) => {
+  openFile: async (relativePath: string, options?: { keepActiveOnMissing?: boolean }) => {
     const { workspacePath, activeFilePath, isDirty } = get()
     if (!workspacePath) return false
     if (activeFilePath === relativePath) return true
@@ -671,7 +713,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         autoSaveTimer = null
       }
       const saved = await get().saveActiveFile()
-      if (!saved) {
+      if (!saved.saved) {
         set({ error: '当前文件保存未完成，无法安全切换文件' })
         return false
       }
@@ -680,6 +722,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     try {
       const res = await window.api.workbench.readFile(workspacePath, relativePath)
       if (res.success && res.data) {
+        const oversizedForWysiwyg = res.data.size > 2 * 1024 * 1024
         set({
           activeFilePath: relativePath,
           activeFileContent: res.data.content,
@@ -693,7 +736,9 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
           saveStatus: 'saved',
           lastSavedAt: res.data.mtime,
           conflictDiskContent: null,
-          error: null
+          error: null,
+          // 2MB 以上固定源码模式；切回小文件时沿用用户上次的偏好。
+          editorMode: oversizedForWysiwyg ? 'source' : get().editorMode
         })
         void window.api.storeSet('workbench_lastActiveFilePath', relativePath)
         return true
@@ -701,6 +746,10 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         // 恢复上次打开的文件时，文件可能已在应用外被删除：清掉失效的恢复点，
         // 回到“未打开文档”即可，不把 ENOENT 当成需要用户处理的错误弹出来。
         if (/\bENOENT\b/.test(res.error || '')) {
+          if (options?.keepActiveOnMissing) {
+            set({ error: `文件不存在: ${relativePath}` })
+            return false
+          }
           set({
             activeFilePath: null,
             activeFileContent: '',
@@ -725,6 +774,10 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       if (/\bENOENT\b/.test(msg)) {
+        if (options?.keepActiveOnMissing) {
+          set({ error: `文件不存在: ${relativePath}` })
+          return false
+        }
         set({
           activeFilePath: null,
           activeFileContent: '',
@@ -756,7 +809,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       activeFileCategory,
       activeFileOversized
     } = get()
-    if (!workspacePath || !activeFilePath) return true
+    if (!workspacePath || !activeFilePath) return { saved: false, reason: 'no-active' }
 
     // 严禁将只读二进制文件或非文本格式（图片、PDF、DOCX 等）作为空文本写盘覆盖，防止数据损坏
     if (
@@ -766,12 +819,12 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       activeFileCategory === 'document' ||
       activeFileCategory === 'other'
     ) {
-      return true
+      return { saved: false, reason: activeFileOversized ? 'oversized' : 'binary' }
     }
 
     // 已处于冲突态：等用户裁决，不再自动写盘/反复拉磁盘版本
     if (get().saveStatus === 'conflict') {
-      return false
+      return { saved: false, reason: 'conflict' }
     }
 
     // 乐观并发校验：磁盘 mtime 领先 lastSavedAt 且内存有未落盘改动 → 真冲突，
@@ -788,7 +841,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
           if (fileRes.success && fileRes.data) diskContent = fileRes.data.content
         } catch { /* noop */ }
         set({ saveStatus: 'conflict', conflictDiskContent: diskContent })
-        return false
+        return { saved: false, reason: 'conflict' }
       }
     }
 
@@ -806,13 +859,13 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         if (activeFileCategory === 'markdown') {
           void get().loadWorkspaceTags()
         }
-        return true
+        return { saved: true }
       } else {
         set({
           saveStatus: 'error',
           error: res.error || '保存文件失败'
         })
-        return false
+        return { saved: false, reason: 'error' }
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
@@ -820,7 +873,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         saveStatus: 'error',
         error: `保存文件异常: ${msg}`
       })
-      return false
+      return { saved: false, reason: 'error' }
     }
   },
 
@@ -863,7 +916,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     }
     // keep-mine：lastSavedAt 置 null 绕过并发校验，直接落盘
     set({ lastSavedAt: null })
-    return get().saveActiveFile()
+    return (await get().saveActiveFile()).saved
   },
 
   createFile: async (parentRelativeDir: string, fileName: string) => {
@@ -1136,7 +1189,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     // 先落盘清 dirty，避免防抖回写覆盖本次插入
     if (isDirty) {
       const saved = await get().saveActiveFile()
-      if (!saved) return fail('当前文件保存未完成')
+      if (!saved.saved) return fail('当前文件保存未完成')
     }
 
     if (editorMode === 'wysiwyg') {
@@ -1151,7 +1204,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     const next = `${prefix}---\n\n${md}\n`
     set({ activeFileContent: next, isDirty: true })
     const saved = await get().saveActiveFile()
-    return saved ? { success: true } : fail('写入文件失败')
+    return saved.saved ? { success: true } : fail('写入文件失败')
   },
 
   /**
@@ -1521,6 +1574,13 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   },
 
   setEditorMode: (mode: EditorMode) => {
+    // 2MB 以上文档固定源码模式：Lexical 整篇导入会卡死，且标注也无法安全映射。
+    const size = get().activeFileSize ?? 0
+    if (mode === 'wysiwyg' && size > 2 * 1024 * 1024) {
+      set({ editorMode: 'source' })
+      void window.api.storeSet('workbench_editorMode', 'source')
+      return
+    }
     set({ editorMode: mode })
     void window.api.storeSet('workbench_editorMode', mode)
   },
@@ -1643,7 +1703,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     try {
       if (isDirty) {
         const saved = await get().saveActiveFile()
-        if (!saved) return { success: false, failure: 'failed', error: '当前文件保存失败，未提交' }
+        if (!saved.saved) return { success: false, failure: 'failed', error: '当前文件保存失败，未提交' }
       }
       const res = await window.api.workbench.gitCommit(workspacePath, title, body, allowLargeFiles)
       const result = res.success && res.data ? res.data : { success: false, failure: 'failed' as const, error: res.error || '提交失败' }
@@ -1755,7 +1815,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     try {
       if (isDirty) {
         const saved = await get().saveActiveFile()
-        if (!saved) return { success: false, failure: 'failed', error: '当前文件保存失败，未推送' }
+        if (!saved.saved) return { success: false, failure: 'failed', error: '当前文件保存失败，未推送' }
       }
       const res = await window.api.workbench.gitPush(workspacePath, setUpstream)
       const result = res.success && res.data ? res.data : { success: false, failure: 'failed' as const, error: res.error || '推送失败' }

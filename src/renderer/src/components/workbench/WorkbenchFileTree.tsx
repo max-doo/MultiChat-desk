@@ -28,6 +28,8 @@ interface ActionModalState {
   unreferencedImages?: string[]
   // 删除确认用：关联的文档数与导图数，用于提前告知绑定会如何处理
   mindmapImpact?: { documents: number; mindmaps: number }
+  // 删除确认用：即将一起删除的文档标注条数
+  annotationCount?: number
 }
 
 /**
@@ -168,6 +170,10 @@ export default function WorkbenchFileTree(): JSX.Element {
   const [anchorPath, setAnchorPath] = useState<string | null>(null)
   const [treeClipboard, setTreeClipboard] = useState<TreeClipboard | null>(null)
   const [isVaultMenuOpen, setIsVaultMenuOpen] = useState(false)
+  const [conversationOnly, setConversationOnly] = useState(false)
+  const [conversationPaths, setConversationPaths] = useState<Set<string> | null>(null)
+  const [conversationScanIncomplete, setConversationScanIncomplete] = useState(false)
+  const [conversationMenuOpen, setConversationMenuOpen] = useState(false)
 
   const [isWorkspaceSettingsOpen, setIsWorkspaceSettingsOpen] = useState(false)
   const [isSortMenuOpen, setIsSortMenuOpen] = useState(false)
@@ -304,6 +310,74 @@ export default function WorkbenchFileTree(): JSX.Element {
   )
 
   const sortedFileTree = useMemo(() => sortNodes(fileTree), [fileTree, sortNodes])
+
+  // “对话资料”筛选：按需扫描 frontmatter，文件树变化时失效重扫；不引入持久索引。
+  useEffect(() => {
+    if (!conversationOnly || !workspacePath) return
+    let alive = true
+    void window.api.annotations
+      .scanConversations(workspacePath)
+      .then(result => {
+        if (!alive) return
+        if (!result.success || !result.data) {
+          setConversationPaths(new Set())
+          setConversationScanIncomplete(false)
+          return
+        }
+        setConversationPaths(new Set(result.data.documents.map(item => item.relativePath)))
+        setConversationScanIncomplete(!result.data.complete)
+      })
+      .catch(() => {
+        if (!alive) return
+        setConversationPaths(new Set())
+        setConversationScanIncomplete(false)
+      })
+    return () => {
+      alive = false
+    }
+  }, [conversationOnly, workspacePath, fileTree])
+
+  useEffect(() => {
+    const handler = (): void => setConversationOnly(true)
+    window.addEventListener('workbench:filter-conversations', handler)
+    return () => window.removeEventListener('workbench:filter-conversations', handler)
+  }, [])
+
+  // 筛选后只剩命中文档：默认折叠会让根目录看起来像空的。
+  // 命中目录自动展开，让迁移结果在打开“对话资料”时立即可见。
+  useEffect(() => {
+    if (!conversationOnly || !conversationPaths) return
+    const parents = Array.from(conversationPaths, (relativePath) => {
+      const idx = relativePath.lastIndexOf('/')
+      return idx === -1 ? '' : relativePath.slice(0, idx)
+    }).filter(Boolean)
+    if (!parents.length) return
+    const next = new Set(useWorkbenchStore.getState().expandedFolderIds)
+    const before = next.size
+    for (const dirPath of parents) {
+      let current: string | null = dirPath
+      while (current) {
+        next.add(current)
+        const idx = current.lastIndexOf('/')
+        current = idx === -1 ? null : current.slice(0, idx)
+      }
+    }
+    if (next.size !== before) useWorkbenchStore.setState({ expandedFolderIds: next })
+  }, [conversationOnly, conversationPaths])
+
+  /** 保留命中节点及其祖先目录；筛选后仍是一棵树。 */
+  const conversationTree = useMemo(() => {
+    if (!conversationOnly) return sortedFileTree
+    const paths = conversationPaths
+    if (!paths) return []
+    const prune = (nodes: WorkbenchFileNode[]): WorkbenchFileNode[] =>
+      nodes.flatMap(node => {
+        if (!node.isDirectory) return paths.has(node.path) ? [node] : []
+        const children = node.children ? prune(sortNodes(node.children)) : []
+        return children.length ? [{ ...node, children }] : []
+      })
+    return prune(sortedFileTree)
+  }, [conversationOnly, conversationPaths, sortedFileTree, sortNodes])
 
   /** 可见节点扁平化（按当前展开状态与排序），用于 Shift 范围选择 */
   const flatVisibleNodes = useMemo(() => {
@@ -1161,6 +1235,58 @@ export default function WorkbenchFileTree(): JSX.Element {
           >
             <AppIcon name="unfold_less" size={20} />
           </button>
+          <div className="relative flex items-center">
+            <button
+              type="button"
+              onClick={() => {
+                if (conversationOnly) {
+                  setConversationOnly(false)
+                  setConversationMenuOpen(false)
+                  return
+                }
+                setConversationOnly(true)
+              }}
+              className={`h-7 pl-2 pr-1 flex items-center gap-1 rounded-l-md text-[11px] transition-colors ${
+                conversationOnly
+                  ? 'bg-primary/10 text-primary'
+                  : 'text-text-secondary hover:bg-black/5 hover:text-text-primary dark:hover:bg-white/10'
+              }`}
+              title="筛选对话资料"
+            >
+              <AppIcon name="forum" size={15} />
+              <span>对话资料</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setConversationMenuOpen(open => !open)}
+              aria-label="对话资料菜单"
+              aria-expanded={conversationMenuOpen}
+              className={`h-7 w-5 flex items-center justify-center rounded-r-md text-[11px] transition-colors ${
+                conversationMenuOpen
+                  ? 'bg-black/5 text-text-primary dark:bg-white/10'
+                  : 'text-text-secondary hover:bg-black/5 hover:text-text-primary dark:hover:bg-white/10'
+              }`}
+              title="更多"
+            >
+              <AppIcon name="arrow_drop_down" size={15} />
+            </button>
+            {conversationMenuOpen && (
+              <div className="absolute left-0 top-full z-50 mt-1 w-[190px] rounded-xl border border-black/10 bg-white py-1 text-sm shadow-xl dark:border-white/10 dark:bg-gray-800">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setConversationMenuOpen(false)
+                    const target = useWorkbenchStore.getState().defaultWorkspacePath
+                    if (target) void useWorkbenchStore.getState().setWorkspaceFolder(target)
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-text-primary hover:bg-black/5 dark:hover:bg-white/5"
+                >
+                  <AppIcon name="folder_open" size={16} className="text-amber-500" />
+                  <span>打开会话库</span>
+                </button>
+              </div>
+            )}
+          </div>
           <button
             type="button"
             onClick={async () => {
@@ -1209,13 +1335,18 @@ export default function WorkbenchFileTree(): JSX.Element {
         ) : (
           <>
             {fileTree.length === 0 && !isLoadingTree && (
-              <div className="py-10 text-center text-text-secondary/70">
-                <AppIcon name="folder_off" size={30} className="mb-2 opacity-40 block" />
-                当前工作区为空，点击上方图标新建笔记
+              <div className="py-10 px-4 flex flex-col items-center justify-center text-center text-text-secondary/70">
+                <AppIcon name="folder_off" size={30} className="mx-auto mb-2 opacity-40 block" />
+                <span>当前工作区为空，点击上方图标新建笔记</span>
+              </div>
+            )}
+            {conversationOnly && conversationPaths && (
+              <div className="px-2 pb-1 text-[11px] text-text-secondary">
+                {conversationScanIncomplete ? '结果可能不完整' : `${conversationPaths.size} 篇`}
               </div>
             )}
             {inlineCreate && inlineCreate.parentDir === '' && renderInlineInput(0)}
-            {sortedFileTree.map((node) => renderNode(node))}
+            {conversationTree.map((node) => renderNode(node))}
           </>
         )}
       </div>
@@ -1469,10 +1600,16 @@ export default function WorkbenchFileTree(): JSX.Element {
                   const impact = workspacePath && targets.length
                     ? await window.api.workbench.mindmapImpact(workspacePath, targets)
                     : null
+                  // 删除文档会一并删除 documents/ 旁路；确认框要写明影响范围。
+                  let annotationCount = 0
+                  if (workspacePath && !multi && contextMenu.node && !contextMenu.node.isDirectory) {
+                    const result = await window.api.annotations.listDocument(workspacePath, contextMenu.node.path)
+                    if (result.success && result.data) annotationCount = result.data.length
+                  }
                   setActionModal(
                     multi
                       ? { type: 'deleteMulti', targetNode: contextMenu.node, mindmapImpact: impact?.data }
-                      : { type: 'delete', targetNode: contextMenu.node, mindmapImpact: impact?.data }
+                      : { type: 'delete', targetNode: contextMenu.node, mindmapImpact: impact?.data, annotationCount }
                   )
                   setContextMenu(null)
                 }}
@@ -1527,6 +1664,14 @@ export default function WorkbenchFileTree(): JSX.Element {
                       <strong>{actionModal.mindmapImpact.documents}</strong> 篇文档的{' '}
                       <strong>{actionModal.mindmapImpact.mindmaps}</strong> 张思维导图会一并删除，且无法恢复；
                       文档本身仍可从回收站还原。
+                    </p>
+                  </div>
+                )}
+                {!!actionModal.annotationCount && (
+                  <div className="rounded-lg bg-amber-50 px-3 py-2 text-amber-800">
+                    <p>
+                      文档里的 <strong>{actionModal.annotationCount}</strong> 条标注会一起删除；
+                      原文标注不受影响。
                     </p>
                   </div>
                 )}

@@ -6,9 +6,7 @@ import QuickPage from './pages/QuickPage'
 import ToolbarPage from './pages/ToolbarPage'
 import HistoryDrawer from './components/HistoryDrawer'
 import NoteCaptureModal from './components/NoteCaptureModal'
-import NotesPage from './pages/NotesPage'
 import WorkbenchPage from './pages/WorkbenchPage'
-import type { NoteNavigation } from '../../shared/types/notes'
 import { initializeStore, useAppStore, SummaryHistoryItem } from './store/appStore'
 
 // 诊断页仅在 dev 构建 reachable：生产构建里 import.meta.env.DEV=false，
@@ -25,13 +23,19 @@ function MainApp(): JSX.Element {
   const setPendingHistoryRestore = useAppStore((s) => s.setPendingHistoryRestore)
   const [isInitialized, setIsInitialized] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [noteNavigation, setNoteNavigation] = useState<NoteNavigation | undefined>()
   const [hasWorkbenchOpened, setHasWorkbenchOpened] = useState(false)
   useEffect(() => {
     if (window.location.hash === '#quick' || window.location.hash === '#diagnostics') return
-    const navigate = (navigation: NoteNavigation): void => { setNoteNavigation(navigation); setCurrentPage('notes') }
-    const off = window.api.onNotesNavigate(navigation => { navigate(navigation); void window.api.notesConsumeNavigation() })
-    void window.api.notesConsumeNavigation().then(result => { if (result.data) navigate(result.data) })
+    const navigate = (): void => {
+      useAppStore.getState().setProductMode('workbench')
+      setCurrentPage('main')
+      // 工作台可能尚未挂载，等这一帧渲染完成再派发筛选请求。
+      setTimeout(() => {
+        window.dispatchEvent(new CustomEvent('workbench:filter-conversations'))
+      }, 0)
+    }
+    const off = window.api.onNotesNavigate(() => { navigate(); void window.api.notesConsumeNavigation() })
+    void window.api.notesConsumeNavigation().then(result => { if (result.data) navigate() })
     return off
   }, [setCurrentPage])
   // 记录是否曾经打开过 SummaryPage，用于延迟渲染
@@ -194,7 +198,7 @@ function MainApp(): JSX.Element {
         </div>
       )}
 
-      {currentPage === 'notes' && <NotesPage initialNavigation={noteNavigation} />}
+      {currentPage === 'notes' && <NotesRedirect />}
 
       {/* 历史记录抽屉：渲染在页面容器外，两个页面均可显示 */}
       <HistoryDrawer
@@ -217,6 +221,18 @@ function MainApp(): JSX.Element {
       <NoteCaptureModal />
     </Layout>
   )
+}
+
+/** 旧“笔记”路由的重定向：迁移后统一进工作台，避免空白页。 */
+function NotesRedirect(): null {
+  useEffect(() => {
+    useAppStore.getState().setProductMode('workbench')
+    useAppStore.getState().setCurrentPage('main')
+    setTimeout(() => {
+      window.dispatchEvent(new CustomEvent('workbench:filter-conversations'))
+    }, 0)
+  }, [])
+  return null
 }
 
 // 顶层短路拦截：#toolbar 窗口跳过所有 Store 初始化，实现毫秒级渲染

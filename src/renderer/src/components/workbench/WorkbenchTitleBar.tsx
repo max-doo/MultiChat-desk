@@ -1,5 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkbenchStore } from '../../store/workbenchStore'
+import { readConversationSource } from '../../../../shared/utils/conversationSource'
+import WorkbenchSourceOverlay from './WorkbenchSourceOverlay'
+import { AppIcon } from '../icons/AppIcon'
 
 const WINDOWS_INVALID_CHARS = /[\\/:*?"<>|]/
 
@@ -10,6 +13,7 @@ const WINDOWS_INVALID_CHARS = /[\\/:*?"<>|]/
  */
 export default function WorkbenchTitleBar(): JSX.Element | null {
   const activeFilePath = useWorkbenchStore((s) => s.activeFilePath)
+  const activeFileContent = useWorkbenchStore((s) => s.activeFileContent)
   const isDirty = useWorkbenchStore((s) => s.isDirty)
   const saveActiveFile = useWorkbenchStore((s) => s.saveActiveFile)
   const renameNode = useWorkbenchStore((s) => s.renameNode)
@@ -17,7 +21,13 @@ export default function WorkbenchTitleBar(): JSX.Element | null {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
+  const [sourceOpen, setSourceOpen] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  const conversationSource = useMemo(
+    () => (activeFileContent ? readConversationSource(activeFileContent) : null),
+    [activeFileContent]
+  )
 
   const fileName = activeFilePath?.split('/').pop() ?? ''
   const dotIdx = fileName.lastIndexOf('.')
@@ -34,6 +44,7 @@ export default function WorkbenchTitleBar(): JSX.Element | null {
   // 切文件时退出编辑态
   useEffect(() => {
     setEditing(false)
+    setSourceOpen(false)
   }, [activeFilePath])
 
   if (!activeFilePath) return null
@@ -60,7 +71,7 @@ export default function WorkbenchTitleBar(): JSX.Element | null {
       // 脏内容先落盘，避免 autosave 用旧路径覆盖磁盘上的新文件
       if (isDirty) {
         const saved = await saveActiveFile()
-        if (!saved) return
+        if (!saved.saved) return
       }
 
       const parent = activeFilePath.includes('/')
@@ -93,14 +104,30 @@ export default function WorkbenchTitleBar(): JSX.Element | null {
           aria-label="重命名文档"
         />
       ) : (
-        <button
-          type="button"
-          onClick={startEdit}
-          title="点击重命名"
-          className="w-full text-left text-[32px] font-bold leading-tight text-text-primary hover:bg-gray-100/60 dark:hover:bg-gray-800/40 rounded-md -mx-1 px-1 transition-colors truncate"
-        >
-          {baseName}
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={startEdit}
+            title="点击重命名"
+            className="min-w-0 flex-1 text-left text-[32px] font-bold leading-tight text-text-primary hover:bg-gray-100/60 dark:hover:bg-gray-800/40 rounded-md -mx-1 px-1 transition-colors truncate"
+          >
+            {baseName}
+          </button>
+          {conversationSource && (
+            <button
+              type="button"
+              onClick={() => setSourceOpen(true)}
+              title="查看原文"
+              aria-label="查看原文"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-text-secondary hover:bg-black/5 hover:text-text-primary dark:hover:bg-white/10"
+            >
+              <AppIcon name="article" size={18} />
+            </button>
+          )}
+        </div>
+      )}
+      {sourceOpen && conversationSource && (
+        <WorkbenchSourceOverlay source={conversationSource} onClose={() => setSourceOpen(false)} />
       )}
     </div>
   )

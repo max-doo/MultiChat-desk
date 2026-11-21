@@ -4,6 +4,7 @@ import WorkbenchFileTree from '../components/workbench/WorkbenchFileTree'
 import WorkbenchEditor from '../components/workbench/WorkbenchEditor'
 import WorkbenchAiSidebar from '../components/workbench/WorkbenchAiSidebar'
 import WorkbenchMindmapPanel from '../components/workbench/WorkbenchMindmapPanel'
+import WorkbenchAnnotationPanel from '../components/workbench/WorkbenchAnnotationPanel'
 import { requestUploadNodesToAi } from '../components/workbench/workbenchAiEvents'
 import { AppIcon } from '../components/icons/AppIcon'
 
@@ -209,6 +210,9 @@ export default function WorkbenchPage({ isActive = true }: WorkbenchPageProps): 
           </div>
           <div className="h-full" style={{ display: rightPane === 'mindmap' ? 'block' : 'none' }}>
             <WorkbenchMindmapPanel />
+          </div>
+          <div className="h-full" style={{ display: rightPane === 'annotations' ? 'block' : 'none' }}>
+            <WorkbenchAnnotationPanel />
           </div>
         </div>
 

@@ -103,9 +103,9 @@ export default function WorkbenchSearch({ onClose }: WorkbenchSearchProps): JSX.
       {/* 搜索结果列表 */}
       <div className="flex-1 overflow-y-auto p-1.5 space-y-1">
         {searchQuery.trim() && !isSearching && searchResults.length === 0 && (
-          <div className="py-8 text-center text-text-secondary/70">
-            <AppIcon name="search_off" size={24} className="mb-1 opacity-50 block" />
-            未找到包含 &ldquo;{searchQuery}&rdquo; 的匹配项
+          <div className="py-8 px-4 flex flex-col items-center justify-center text-center text-text-secondary/70">
+            <AppIcon name="search_off" size={24} className="mx-auto mb-1 opacity-50 block" />
+            <span>未找到包含 &ldquo;{searchQuery}&rdquo; 的匹配项</span>
           </div>
         )}
 

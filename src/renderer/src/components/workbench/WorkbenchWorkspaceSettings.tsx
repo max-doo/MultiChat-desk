@@ -1,6 +1,11 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useWorkbenchStore } from '../../store/workbenchStore'
 import type { GitRemoteInfo, GitignoreCategory } from '../../../../shared/types/workbench'
+import type {
+  LegacyMigrationPendingSummary,
+  LegacyMigrationProgress,
+  LegacyMigrationResult
+} from '../../../../shared/types/annotations'
 import { AppIcon } from '../icons/AppIcon'
 import WorkbenchFooterPopover, { WorkbenchFooterPopoverHeader } from './WorkbenchFooterPopover'
 
@@ -35,6 +40,22 @@ export default function WorkbenchWorkspaceSettings({
   const [saved, setSaved] = useState(false)
   const [isSavingRemote, setIsSavingRemote] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [conversationDir, setConversationDir] = useState('conversations')
+  const [conversationDirWarning, setConversationDirWarning] = useState<string | null>(null)
+  const [conversationDirDraft, setConversationDirDraft] = useState('conversations')
+  const [conversationSaving, setConversationSaving] = useState(false)
+  const [defaultWorkspace, setDefaultWorkspace] = useState<{
+    path: string
+    writable: boolean
+    legacyPath?: string
+  } | null>(null)
+  const [defaultWorkspaceError, setDefaultWorkspaceError] = useState<string | null>(null)
+  const [migrationPending, setMigrationPending] = useState<LegacyMigrationPendingSummary | null>(null)
+  const [migrationLoadError, setMigrationLoadError] = useState<string | null>(null)
+  const [migrationProgress, setMigrationProgress] = useState<LegacyMigrationProgress | null>(null)
+  const [migrationResult, setMigrationResult] = useState<LegacyMigrationResult | null>(null)
+  const [migrationBusy, setMigrationBusy] = useState(false)
+  const migrationBusyRef = useRef(false)
   // 打开时磁盘上的文本快照，用于保存前检测外部修改
   const [diskText, setDiskText] = useState('')
 
@@ -72,6 +93,157 @@ export default function WorkbenchWorkspaceSettings({
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    if (!workspacePath) return
+    let alive = true
+    void window.api.workbench.getSettings(workspacePath).then(result => {
+      if (!alive || !result.success || !result.data) return
+      setConversationDir(result.data.conversationDir)
+      setConversationDirDraft(result.data.conversationDir)
+      setConversationDirWarning(result.data.warning ?? null)
+    }).catch(error => {
+      if (alive) setError(error instanceof Error ? error.message : String(error))
+    })
+    void window.api.workbench.getDefaultWorkspace().then(result => {
+      if (!alive) return
+      if (result.success && result.data) {
+        setDefaultWorkspace(result.data)
+        setDefaultWorkspaceError(null)
+      } else {
+        setDefaultWorkspace(null)
+        setDefaultWorkspaceError(result.error || '默认会话库不可用')
+      }
+    }).catch(error => {
+      if (!alive) return
+      setDefaultWorkspace(null)
+      setDefaultWorkspaceError(error instanceof Error ? error.message : '默认会话库不可用')
+    })
+    void window.api.notesMigrationPending().then(result => {
+      if (!alive) return
+      if (result.success && result.data) {
+        setMigrationPending(result.data)
+        setMigrationLoadError(null)
+      } else {
+        setMigrationLoadError(result.error || '旧笔记读取失败')
+      }
+    }).catch(error => {
+      if (!alive) return
+      setMigrationLoadError(error instanceof Error ? error.message : '旧笔记读取失败')
+    })
+    const off = window.api.onNotesMigrationProgress(progress => setMigrationProgress(progress))
+    return () => {
+      alive = false
+      off()
+    }
+  }, [workspacePath])
+
+  const saveConversationDir = async (): Promise<void> => {
+    if (!workspacePath || conversationSaving) return
+    setConversationSaving(true)
+    setError(null)
+    try {
+      const result = await window.api.workbench.setSettings(workspacePath, {
+        conversationDir: conversationDirDraft
+      })
+      if (!result.success || !result.data) {
+        setError(result.error || '保存会话目录失败')
+        return
+      }
+      setConversationDir(result.data.conversationDir)
+      setConversationDirDraft(result.data.conversationDir)
+      setConversationDirWarning(null)
+    } finally {
+      setConversationSaving(false)
+    }
+  }
+
+  const migrateLegacy = async (jobId?: string): Promise<void> => {
+    // 重试按钮会在同一次交互里先清阻塞再调用迁移；用 ref 防重入，
+    // 避免 state 尚未提交时被第二次点击当成“未在迁移”。
+    if (migrationBusyRef.current) return
+    migrationBusyRef.current = true
+    setMigrationBusy(true)
+    setError(null)
+    // 进度事件不带 status；先把本地 job 置为 running，让“暂停”在迁移期间可见。
+    setMigrationPending(prev => {
+      if (!prev?.job) return prev
+      return { ...prev, job: { ...prev.job, status: 'running' } }
+    })
+    try {
+      const result = await window.api.notesMigrateLegacy(jobId)
+      if (!result.success || !result.data) {
+        setError(result.error || '迁移失败')
+        return
+      }
+      setMigrationResult(result.data)
+      const pending = await window.api.notesMigrationPending()
+      if (pending.success && pending.data) {
+        setMigrationPending(pending.data)
+        setMigrationLoadError(null)
+      }
+    } finally {
+      migrationBusyRef.current = false
+      setMigrationBusy(false)
+      const pending = await window.api.notesMigrationPending().catch(() => null)
+      if (pending?.success && pending.data) {
+        setMigrationPending(pending.data)
+        setMigrationLoadError(null)
+      }
+    }
+  }
+
+  const pauseMigration = async (): Promise<void> => {
+    const jobId = migrationPending?.job?.jobId
+    if (!jobId) return
+    const result = await window.api.notesCancelMigration(jobId)
+    if (!result.success) setError(result.error || '暂停迁移失败')
+  }
+
+  const resumeMigration = async (): Promise<void> => {
+    const jobId = migrationPending?.job?.jobId
+    if (!jobId) return
+    const resumed = await window.api.notesResumeMigration(jobId)
+    if (!resumed.success) {
+      setError(resumed.error || '继续迁移失败')
+      return
+    }
+    await migrateLegacy(jobId)
+  }
+
+  const abandonMigration = async (): Promise<void> => {
+    const jobId = migrationPending?.job?.jobId
+    if (!jobId) return
+    if (
+      !window.confirm(
+        '放弃本次迁移？已完成记录会留在实际目标（普通会话在默认会话库，工作台记录在原工作区）。'
+      )
+    ) {
+      return
+    }
+    const result = await window.api.notesAbandonMigration(jobId)
+    if (!result.success) {
+      setError(result.error || '放弃迁移失败')
+      return
+    }
+    setMigrationResult(null)
+    const pending = await window.api.notesMigrationPending()
+    if (pending.success && pending.data) {
+      setMigrationPending(pending.data)
+      setMigrationLoadError(null)
+    }
+  }
+
+  const retryBlocked = async (id: string): Promise<void> => {
+    if (!window.confirm('清除这条记录的阻塞标记并重新迁移？')) return
+    const result = await window.api.notesRetryMigrationRecord(id)
+    if (!result.success) {
+      setError(result.error || '重试迁移失败')
+      return
+    }
+    // “重试”应当直接执行一次迁移，而不是只清标记让用户再点一次“开始迁移”。
+    await migrateLegacy()
+  }
 
   /** 忽略规则行；注释和空行不参与分类勾选状态 */
   const activePatterns = ignoreText
@@ -225,6 +397,172 @@ export default function WorkbenchWorkspaceSettings({
               </div>
             </div>
           )}
+
+          <section className="pb-3">
+            <div className="mb-2 flex items-baseline justify-between gap-3">
+              <h3 className="text-xs font-medium text-text-primary">会话归档</h3>
+              <span className="text-[11px] text-text-secondary">{conversationDir}</span>
+            </div>
+            <input
+              value={conversationDirDraft}
+              onChange={event => setConversationDirDraft(event.target.value)}
+              placeholder="conversations"
+              aria-label="会话归档目录"
+              className="h-8 w-full rounded-lg border border-black/10 bg-black/[0.02] px-2.5 font-mono text-xs text-text-primary focus:border-primary focus:bg-white focus:outline-none dark:border-white/10 dark:bg-white/[0.02] dark:focus:bg-gray-900"
+            />
+            <div className="mt-1.5 flex items-center justify-between gap-2">
+              <span className="min-w-0 flex-1 text-[11px] text-text-secondary">
+                {conversationDirWarning ??
+                  (conversationDirDraft !== conversationDir ? '尚未保存' : '工作区内相对目录')}
+              </span>
+              <button
+                type="button"
+                onClick={() => void saveConversationDir()}
+                disabled={conversationSaving || conversationDirDraft === conversationDir}
+                className="h-6 rounded-md px-2 text-[11px] text-primary hover:bg-primary/10 disabled:opacity-40"
+              >
+                保存
+              </button>
+            </div>
+          </section>
+
+          <section className="border-t border-black/5 pb-3 pt-3 dark:border-white/5">
+            <div className="mb-2 flex items-baseline justify-between gap-3">
+              <h3 className="text-xs font-medium text-text-primary">默认会话库</h3>
+              <span className="text-[11px] text-text-secondary">
+                {defaultWorkspaceError
+                  ? '不可用'
+                  : defaultWorkspace
+                  ? defaultWorkspace.writable
+                    ? '可写'
+                    : '不可写'
+                  : '读取中…'}
+              </span>
+            </div>
+            <p
+              className="truncate text-[11px] text-text-secondary"
+              title={defaultWorkspace?.path}
+            >
+              {defaultWorkspace?.path ?? defaultWorkspaceError ?? '—'}
+            </p>
+            {defaultWorkspace?.legacyPath && (
+              <p className="mt-1 truncate text-[11px] text-amber-600 dark:text-amber-400" title={defaultWorkspace.legacyPath}>
+                旧缓存位置：{defaultWorkspace.legacyPath}
+              </p>
+            )}
+          </section>
+
+          <section className="border-t border-black/5 pb-3 pt-3 dark:border-white/5">
+            <div className="mb-2 flex items-baseline justify-between gap-3">
+              <h3 className="text-xs font-medium text-text-primary">旧笔记迁移</h3>
+              <span className="text-[11px] text-text-secondary">
+                {migrationLoadError
+                  ? '读取失败'
+                  : migrationPending
+                  ? migrationPending.pendingConversations
+                    ? `${migrationPending.pendingConversations} 条待迁移`
+                    : migrationPending.blockedConversations
+                      ? `${migrationPending.blockedConversations} 条阻塞`
+                      : migrationPending.job
+                        ? '已全部处理'
+                        : '暂无旧数据'
+                  : '读取中…'}
+              </span>
+            </div>
+            {migrationLoadError && (
+              <p className="text-[11px] leading-4 text-rose-600 dark:text-rose-400">
+                {migrationLoadError}
+              </p>
+            )}
+            {migrationPending && (
+              <p className="text-[11px] leading-4 text-text-secondary">
+                {migrationPending.pendingAnnotations} 条标注 · {migrationPending.pendingMindmaps} 张导图。
+                普通会话写入默认会话库，工作台记录留在原工作区；旧数据不会删除。
+              </p>
+            )}
+            {migrationProgress && (
+              <div className="mt-2 rounded-lg bg-black/[0.03] px-2.5 py-2 text-[11px] text-text-secondary dark:bg-white/[0.04]">
+                <div className="flex justify-between">
+                  <span className="truncate">{migrationProgress.currentTitle || '迁移中'}</span>
+                  <span>
+                    {migrationProgress.completed}/{migrationProgress.total}
+                  </span>
+                </div>
+                {migrationProgress.blocked + migrationProgress.failed > 0 && (
+                  <p className="mt-0.5 text-amber-600 dark:text-amber-400">
+                    阻塞 {migrationProgress.blocked} · 失败 {migrationProgress.failed}
+                  </p>
+                )}
+              </div>
+            )}
+            {migrationResult && (
+              <div className="mt-2 space-y-1 text-[11px] text-text-secondary">
+                <p>
+                  完成 {migrationResult.migrated} · 阻塞 {migrationResult.blocked} · 失败{' '}
+                  {migrationResult.failed}
+                </p>
+                {migrationResult.report
+                  .filter(item => item.status !== 'migrated')
+                  .slice(0, 5)
+                  .map(item => (
+                    <p key={item.id} className="truncate" title={item.message || item.reason}>
+                      {item.title}：{item.reason || item.message || item.status}
+                    </p>
+                  ))}
+              </div>
+            )}
+            {!!migrationPending?.blockedRecords.length && (
+              <div className="mt-2 space-y-1">
+                {migrationPending.blockedRecords.slice(0, 5).map(item => (
+                  <div key={item.id} className="flex items-center justify-between gap-2">
+                    <span className="min-w-0 truncate text-[11px] text-text-secondary" title={`${item.title}：${item.reason}`}>
+                      {item.title}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => void retryBlocked(item.id)}
+                      className="shrink-0 text-[11px] text-primary hover:underline"
+                    >
+                      重试
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              {migrationPending?.job?.status === 'running' ? (
+                <button
+                  type="button"
+                  onClick={() => void pauseMigration()}
+                  className="text-[11px] text-text-secondary hover:text-text-primary"
+                >
+                  暂停
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={migrationBusy || (!migrationPending?.pendingConversations && !migrationPending?.blockedConversations)}
+                  onClick={() =>
+                    void (migrationPending?.job?.status === 'paused'
+                      ? resumeMigration()
+                      : migrateLegacy(migrationPending?.job?.jobId))
+                  }
+                  className="text-[11px] text-primary hover:underline disabled:opacity-40"
+                >
+                  {migrationPending?.job?.status === 'paused' ? '继续迁移' : '开始迁移'}
+                </button>
+              )}
+              {migrationPending?.job && migrationPending.job.status !== 'abandoned' && (
+                <button
+                  type="button"
+                  onClick={() => void abandonMigration()}
+                  className="text-[11px] text-text-secondary hover:text-rose-500"
+                >
+                  放弃
+                </button>
+              )}
+            </div>
+          </section>
 
           <section className="pb-3">
             <div className="mb-2 flex items-baseline justify-between gap-3">

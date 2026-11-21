@@ -126,6 +126,15 @@ function WorkbenchPaneToggles(): JSX.Element {
       </button>
       <button
         type="button"
+        aria-label={rightPane === 'annotations' ? '收起标注' : '打开标注'}
+        title={rightPane === 'annotations' ? '收起标注' : '打开标注'}
+        onClick={() => rightPane === 'annotations' ? closeRightPane() : openRightPane('annotations')}
+        className={tone(rightPane === 'annotations')}
+      >
+        <AppIcon name="sticky_note_2" size={16} />
+      </button>
+      <button
+        type="button"
         aria-label={rightPane === 'ai' ? '收起 AI 侧边栏' : '打开 AI 侧边栏'}
         title={rightPane === 'ai' ? '收起 AI 侧边栏' : '打开 AI 侧边栏'}
         onClick={() => rightPane === 'ai' ? closeRightPane() : openRightPane('ai')}
@@ -251,9 +260,16 @@ function Layout({ children }: LayoutProps): JSX.Element {
       </button>
       <button
         type="button"
-        onClick={() => setCurrentPage('notes')}
+        onClick={() => {
+          setProductMode('workbench')
+          setCurrentPage('main')
+          // 工作台可能尚未挂载，等这一帧渲染完成再派发筛选请求。
+          setTimeout(() => {
+            window.dispatchEvent(new CustomEvent('workbench:filter-conversations'))
+          }, 0)
+        }}
         className="h-7 px-2 flex items-center justify-center gap-1 rounded-lg transition-all duration-200 text-text-secondary hover:text-primary hover:bg-white/60"
-        title="笔记"
+        title="对话资料"
       >
         <AppIcon name="edit_note" size={16} />
         <span className="text-xs font-normal">笔记</span>
