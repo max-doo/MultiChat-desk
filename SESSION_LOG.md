@@ -2,6 +2,377 @@
 
 ## 2026-11-21
 
+### 22:42 | Codex
+
+- done: 按双根模型修订工作台统一笔记与标注设计：默认会话库、工作台内外捕捉路由、英文 conversations 目录、迁移目标与幂等重试
+- added:
+  - `docs/workbench-unified-notes-annotation-design.md`
+- modified:
+  - `docs/DOCS_INDEX.md`
+
+### 22:22 | Codex
+
+- done: 完成工作台思维导图方案A收尾：文件即索引，修复换盘/改名记录认领、无记录时只读壳、自写watcher漏广播、迁移同id改绑、删除前重读校验、子目录提示、复制漏图，并修复启动恢复已删PDF报ENOENT
+- context: 用户要求方案A（删除index.json，文件即索引），并要求独立worker验收；gitignore由用户自行决定，未改动
+- decision: 旧根认领按卷根是否在线区分改名与离线；watcher按size+mtime+首尾抽样指纹比对而非时间窗；只读壳首次写操作时补建记录
+- modified:
+  - `src/main/noteManager.ts src/main/services/mindmapFileService.ts src/main/ipcHandlers.ts src/preload/index.ts src/renderer/src/components/ConversationMindmapPanel.tsx src/renderer/src/store/workbenchStore.ts docs/workbench-mindmap-file-binding-design.md .memory/KNOWLEDGE.md`
+- lesson: Windows上目录改名与盘符离线文件级stat都返回ENOENT，必须用卷根是否可访问区分
+- lesson: 按时间窗抑制watcher自写事件会吞掉紧随其后的外部修改，应按文件指纹比对
+- unresolved: 需在npm run dev中手工验证：外部改导图冲突横幅、换盘后批注认领、只读壳下AI调整、应用外改名跟随
+
+### 22:11 | Codex
+
+- done: 补强工作台导图会话复用：按 mapId 保存进程内最近生成页，避免多张导图互相覆盖 lastPage
+- modified:
+  - `src/main/services/MindmapService.ts`
+
+### 22:10 | agent
+
+- done: 工作台链接光标改为按修饰键显示：编辑态普通 hover 保持文本光标，按住 Ctrl/Cmd 才切换为手形；只读态仍直接显示手形。
+- context: 用户反馈链接 hover 直接出现手形，与需要 Ctrl/Cmd+点击才打开的交互不一致。
+- decision: 由 WorkbenchLinkClickPlugin 在编辑根节点上维护 data-workbench-link-cursor，并在 keydown/keyup、pointer 事件、窗口失焦和可编辑状态变化时同步，CSS 只在该标记存在时赋予 pointer。
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchLinkClickPlugin.tsx`
+  - `src/renderer/src/assets/index.css`
+
+### 22:08 | Codex
+
+- done: 修复工作台导图追加修改不复用生成会话：modify 优先复用 lastPage 保留的会话地址，恢复成功时不再上传来源文件
+- context: 工作台导图文件不持久化 generationSession；空闲网页释放后仅剩 lastPage 可用
+- modified:
+  - `src/main/services/MindmapService.ts`
+- lesson(promoted): 工作台导图追加修改不能在读取 map.generationSession 后才决定恢复；文件型导图缺少会话字段时，应先复用 lastPage 的绑定再考虑新建对话
+
+### 22:06 | agent
+
+- done: 工作台链接交互收尾：裸链接按显示文字是否为 URL 判定，去掉常驻下划线且不弹 hover 提示；粘贴整段仅为裸 URL 时即使剪贴板带 HTML 也立即转成 AutoLinkNode，无需刷新文档；文字链接保持常驻下划线并显示 URL 提示。
+- context: 用户反馈文字链接仅 hover 有下划线、裸链接不应弹提示，以及直接粘贴裸链接需重开文档才识别。
+- decision: 视觉区分按显示文字语义判定而不是按 AutoLinkNode 节点类型，避免用户编辑链接文字后样式失真；富文本粘贴仅在内容并非裸链接时交给 Lexical 默认处理。
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchLinkPastePlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchLinkHoverPlugin.tsx`
+  - `src/renderer/src/assets/index.css`
+- unresolved: 尚未在 npm run dev 桌面端手动点击验收粘贴、Ctrl+点击和 hover 提示，构建与静态检查已通过。
+
+### 22:02 | root
+
+- done: 补充工作台统一笔记与标注设计的保存路径、旧数据迁移与迁移期只读规则，并根据两轮独立审查闭环 P0/P1
+- context: 用户追问自动捕捉会话的保存路径如何确定，以及旧数据迁移是否覆盖；当前只改设计文档，未改生产代码
+- decision: 自动捕捉始终跟随当前工作区，归档目录只允许工作区内相对路径；默认工作区固定回落，v1 不提供设为默认；旧迁移使用独立原始枚举器和只读快照，legacyMigrationJob 锁定目标工作区
+- added:
+  - `docs/workbench-unified-notes-annotation-design.md`
+- modified:
+  - `docs/DOCS_INDEX.md`
+- lesson(promoted): 旧 NoteManager.list() 会合并同源记录、按 quote 去重并 rm 旧 JSON；迁移和旧页读取必须走只读原始快照，不能复用 list()
+
+### 21:59 | Codex
+
+- done: 调整工作台链接交互：编辑态普通点击定位光标，Ctrl/Cmd+点击或中键打开外部链接，只读态直接点击打开；同时抽出统一裸链接识别规则，粘贴纯文本裸 URL 时立即转为 AutoLinkNode。
+- context: 用户反馈直接点击链接会误跳转，且粘贴裸链接需重新打开文档后才识别。
+- decision: 链接点击按编辑态/阅读态区分而不是按裸链接/文字链接区分；粘贴仅在无 HTML、无附件且非代码/链接上下文时自行插入 AutoLinkNode，避免影响富文本粘贴。
+- added:
+  - `src/renderer/src/components/workbench/WorkbenchLinkClickPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchLinkPastePlugin.tsx`
+  - `src/renderer/src/components/workbench/workbenchBareLinks.ts`
+- modified:
+  - `src/renderer/src/components/workbench/MarkdownSyncPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+
+### 21:49 | Codex
+
+- done: 修复工作台 Markdown 链接能力：预览/源码模式改为应用内链接弹层，支持新增、编辑、移除链接；链接常态显示下划线；文字链接 hover 显示 URL，裸链接不弹提示；Markdown 导入支持裸 URL 渲染并保持裸链接回写。
+- context: 用户反馈浮动工具栏链接按钮无法输入具体链接，预览不支持裸链接，且链接仅 hover 时才有下划线。
+- decision: 复用通用 URL 弹层服务 Lexical 与源码 textarea；裸链接用 AutoLinkNode 导入，文字链接保留 LinkNode 与 hover 提示。
+- added:
+  - `src/renderer/src/components/workbench/WorkbenchLinkEditor.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchLinkHoverPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchUrlInputPopover.tsx`
+- modified:
+  - `src/renderer/src/components/workbench/MarkdownSyncPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFloatingToolbarPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchToolbar.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchSourceToolbar.tsx`
+  - `src/renderer/src/assets/index.css`
+- lesson(promoted): Lexical Markdown transformer 导出 AutoLinkNode 时不能直接用 exportChildren 的结果与 URL 比较：exportTextFormat 会转义下划线等字符；应使用 getTextContent() 判断纯文本裸链接并原样输出。
+
+### 21:36 | Codex
+
+- done: 按两轮独立审查意见修订工作台统一笔记与标注设计：source/document 分库存储、记录级 IPC、标准 Markdown 转换、5MB 边界、迁移幂等、旧页写保护与验收闭环
+- decision: source 标注按 sourceKey 存工作区级 sources 文件，document 标注按路径存 documents 文件；原文回显只查当前工作区；标注采用记录级 upsert/delete，不做整表隐式删除
+- modified:
+  - `docs/workbench-unified-notes-annotation-design.md`
+  - `docs/DOCS_INDEX.md`
+- lesson: 设计文档里 source 标注不能绑在文档生命周期上；MarkNode 是单 block inline 节点，应用标注必须用专用 tag 防止 Markdown 回写
+- unresolved: 进入实现前需先验证 Lexical MarkNode 往返、source 投影异步生命周期、迁移幂等与 5MB 边界
+
+### 21:34 | Codex
+
+- done: 修复工作台目录重命名遇到 Windows EBUSY 时直接失败的问题，增加短重试与持续占用提示
+- context: 用户截图显示 rename 'D:\DMX-Vault\AI 编程实战' -> 'D:\DMX-Vault\AI Coding'；句柄检查确认 VS Code workspace（AI 编程实战）及 Markdown/NodeService 子进程持有目录句柄，MultiChat 主进程仅持有 Vault 根目录监听句柄；Google Drive 同时在该 Vault 活跃
+- decision: 只在 Windows 对 EBUSY/EPERM/EACCES 做 80/160/320/640/1000ms 退避重试；EBUSY 持续存在时返回可操作提示，不采用复制后删除等破坏性兜底
+- modified:
+  - `src/main/services/workbenchService.ts`
+- lesson: Windows 目录重命名 EBUSY 应先检查外部目录句柄，再在应用层做短重试；VS Code 将子目录作为 workspace 打开会持续占用该目录
+- unresolved: 当前 npm run dev 主进程仍运行旧构建；需重启应用并在关闭占用该目录的 VS Code 窗口后做一次真实改名复验
+
+### 21:24 | Antigravity
+
+- done: 优化工作台文件与文件夹命名方式：移除弹窗改为VSCode式内联命名，边框统一微圆角(rounded-[3px])，重命名高亮区间避开文件后缀名，支持F2/Enter/Esc/Blur/IME
+- decision: 重命名交互完全对齐VSCode：直接在树节点原位展开输入框并保留原有图标；圆角由容易形成胶囊状的全局rounded(12px)改为精致微圆角rounded-[3px]；重命名选中区间排除扩展名避免误删；支持F2快捷键与中文输入法composition守卫
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+
+### 21:23 | Codex
+
+- done: workbench 文件树右键菜单新增'复制文件路径'(绝对路径)
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+
+### 21:11 | Codex
+
+- done: 产出工作台统一笔记与标注设计文档，明确 Markdown 文档唯一对象、source/document 两种标注锚点域、旁路存储与迁移方案
+- decision: 标注统一为一种数据结构，用 scope 区分原文 DOM 回显与 Lexical 文档渲染；正文归 Markdown，标注归 .multichat/annotations 旁路文件
+- added:
+  - `docs/workbench-unified-notes-annotation-design.md`
+- modified:
+  - `docs/DOCS_INDEX.md`
+- unresolved: 待独立 worker 审查文档后按意见修订
+
+### 21:01 | Codex
+
+- done: 排查工作台导图保存报错：确认 AI 大纲已生成，失败发生在本地保存；现场主进程早于最新构建，当前源码隔离保存通过
+- context: 工作台导图保存报错 Cannot read properties of undefined (reading 'set')
+- removed:
+  - `tmp/cdp-eval.mjs`
+  - `tmp/electron-stub.cjs`
+  - `tmp/mindmap-save-repro.ts`
+  - `tmp/mindmap-save-repro.mjs`
+  - `tmp/mindmap-repro.md`
+- lesson: Electron 主进程不随渲染层 HMR 更新；排查主进程报错先核对进程启动时间与 out/main 构建时间，并重启完整应用复验
+
+### 20:31 | Codex
+
+- done: 知识库沉淀文档来源 resolveId 与 HTML 原文件上传经验，并完成 tsc/lint/build 验证
+- modified:
+  - `.memory/KNOWLEDGE.md`
+  - `.memory/INDEX.md`
+- lesson(promoted): 文档来源读记录前必须先 resolveId 换 UUID，否则首次打开侧栏即报无效笔记 ID
+
+### 20:29 | Codex
+
+- done: 修复工作台文档首次打开思维导图提示无效笔记ID；HTML 接入原文件上传并在上传前保存当前编辑
+- context: 工作台未建档时 source.id 是文件路径，直接传给 notesGet 会命中 UUID 校验
+- decision: 文档来源统一先 resolveId 建档再读记录；HTML 可编辑但按原文件上传，记录仍用文本哈希
+- modified:
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchMindmapPanel.tsx`
+  - `src/main/ipcHandlers.ts`
+  - `src/main/noteManager.ts`
+  - `src/shared/utils/mindmap.ts`
+  - `src/main/services/MindmapService.ts`
+  - `src/main/services/AutomationService.ts`
+  - `src/shared/types/notes.ts`
+  - `src/preload/index.ts`
+- lesson(promoted): 文档来源在记录建立前只有路径，任何 notesGet 必须先 resolveId 拿 UUID
+- lesson(promoted): 可编辑的 HTML 走原文件上传时先落盘再上传，版本哈希仍按文本计算
+- unresolved: 尚未在 npm run dev 桌面环境做真实平台上传验收
+
+### 19:59 | Codex
+
+- done: 统一思维导图生成提示词为单套输出协议，对话附件名改为按首条提问生成（平台占位标题只作兜底）；工作台 PDF/Word/PPT 改为原文件上传生成与修改，并补齐二进制来源的版本指纹与选区处理
+- context: 用户要求先评估两套输出格式是否必要、为何附件仍是 source-conversation 命名，再按方案接入 PDF/Word/PPT 原文件生成
+- decision: 提示词共用 mindmapOutputFormat，不再维护两份格式；文本材料统一 .md，PDF/Word/PPT 不读正文、按原文件上传；工作台二进制来源用 size+mtime 指纹判定版本
+- modified:
+  - `src/shared/utils/mindmap.ts`
+  - `src/shared/utils/mindmapEdits.ts`
+  - `src/shared/types/notes.ts`
+  - `src/preload/index.ts`
+  - `src/main/services/MindmapService.ts`
+  - `src/main/services/AutomationService.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/main/noteManager.ts`
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchMindmapPanel.tsx`
+- lesson(promoted): 同名附件只在输入框已有同名项时才加短后缀，否则附件数增加已足够判定本轮新增；临时副本须等平台解析稳定后再删
+- lesson(promoted): 工作台 PDF/Word/PPT 不能按 UTF-8 读正文；复制与改名判定都要走二进制指纹，扩展名需覆盖 docm/pptm
+- unresolved: 尚未在 npm run dev 桌面环境做真实平台上传验收；需分别验证 PDF/Word/PPT 在各平台的附件解析与修改链路
+
+### 19:48 | Antigravity
+
+- done: 精简底部操作栏，去除冗余的新建知识库按钮，保留单一清晰的打开本地文件夹按钮
+- decision: 系统文件选择框自带创建文件夹能力，两个按钮底层行为完全一致，消除功能重复只保留一个明确的打开本地文件夹按钮
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchVaultPopover.tsx`
+
+### 19:41 | Codex
+
+- done: 工作台思维导图面板：打开侧栏即建档，无中间按钮页直接进入生成界面
+- decision: 把『为这篇文档生成导图』中间页删掉，改为面板挂载时直接 create=true 建档后渲染 ConversationMindmapPanel；workbench 类记录不进 NotesPage 列表所以不会污染；给 MindmapSource 加 resolveId 兜底外部删除场景
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchMindmapPanel.tsx;src/renderer/src/components/ConversationMindmapPanel.tsx`
+
+### 19:39 | Antigravity
+
+- done: 对齐原型设计：彻底移除关闭当前工作区按钮与顶栏副标题，将底部按钮调整为单行并排的打开本地文件夹与新建知识库
+- decision: 知识库管理是切换与打开操作，不设关闭工作区进入空态；弹窗完全还原原型设计
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchVaultPopover.tsx`
+
+### 19:19 | Antigravity
+
+- done: 重构知识库管理与切换UI为单层一体化浮层，消除二级弹窗，支持即时切换、路径查看、在资源管理器中打开、复制路径与移除
+- decision: 采用方案A精简版：原位一体化浮层，默认库标预设标签，去除多余搜索框与沙箱/分支标注，统一Home/Folder规范化图标
+- added:
+  - `src/renderer/src/components/workbench/WorkbenchVaultPopover.tsx`
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+
+### 19:04 | Codex
+
+- done: 工作台左栏底部弹层（切换工作区/管理仓库/版本管理/工作区设置）宽度跟随 leftPaneWidth，取代固定 420px，拖动分隔条实时贴合
+- context: 用户反馈：工作台左侧栏底部几个设置弹层宽度应跟随侧栏，更一体
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchFooterPopover.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+
+### 19:00 | Codex
+
+- done: 复核并收敛导图菜单图标改动范围
+- modified:
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+- lesson: 用户要求只改图标含义对不上的菜单项时，需按截图中的每个图标逐项判断并严格限定改动范围；发现同类问题在别处也存在时，除非用户明确扩大范围，否则不要顺手修改。
+
+### 18:59 | Codex
+
+- done: 优化导图菜单图标语义
+- modified:
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+  - `src/renderer/src/components/LocalMindmapPanel.tsx`
+
+### 18:53 | Codex
+
+- done: 记录工作区设置 UI 重设计的知识提升与验证结果
+- modified:
+  - `.memory/KNOWLEDGE.md`
+  - `.memory/INDEX.md`
+- lesson: 表单区块的可用性应以数据是否已读到为准，而不是依赖另一个异步状态先完成，避免无意义的加载占位。
+
+### 18:52 | Codex
+
+- done: 重新设计工作区设置弹窗，移除卡片套卡片并合并保存入口
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchWorkspaceSettings.tsx`
+- lesson(promoted): 设置弹窗应在一个面板内用分区、间距和分隔线建立层级；复选框网格与输入控件不要各自描边形成嵌套卡片。
+
+### 17:47 | Antigravity
+
+- done: 修复工作台侧边栏在较小窗口下加载截断及拖拽高频IPC写盘性能问题
+- decision: 中栏min-w放宽至380px，右栏增加maxWidth硬件级保底，clampRightPaneWidth动态计入视口与左栏折叠态，pointermove与持久化写盘解耦（仅在pointerup触发单次写入），resize监听接入rAF单向收敛
+- modified:
+  - `src/renderer/src/store/workbenchStore.ts`
+  - `src/renderer/src/pages/WorkbenchPage.tsx`
+- lesson(promoted): 三栏Flex布局中不可将多栏全部设为不可收缩的硬性尺寸（shrink-0与大min-w），否则总宽度超出视口时排在最后的侧边栏必被截断；Splitter拖拽事件中每帧调用IPC持久化写盘是严重性能隐患，必须将内存更新与落盘解耦
+
+### 17:13 | Codex
+
+- done: 验证点击拦截注入收敛并补强幂等：按文档 generation 去重、注入中触发排队重试、跳过 about:blank，实测每 webview 仅 1 次注入
+- modified:
+  - `src/main/webviewManager.ts`
+  - `.memory/KNOWLEDGE.md`
+  - `.memory/INDEX.md`
+- lesson(promoted): 只留 dom-ready 会失去失败重试；按文档 generation + pendingSource 排队可在不空转的前提下保留兜底
+
+### 16:38 | Codex
+
+- done: 工作台思维导图文件绑定：P0-P2 全量修复并通过两轮独立 worker 验收（可交付）
+- decision: 导图文件扁平存 .multichat/mindmaps/*.mindmap.md(frontmatter id/source/title+markdown 正文), 索引 .multichat/index.json 只补缺不覆盖; read() 与 readWithMindmaps() 拆分防组装值写回磁盘复活已删导图; 删除先文件后索引; 导图 IPC 校验 isAuthorizedWorkspaceRoot; 对齐与删除均校验 id+source+正文一致才动手
+- added:
+  - `src/main/services/mindmapFileService.ts`
+  - `src/main/services/workbenchMindmapIndex.ts`
+  - `src/shared/utils/mindmapFile.ts`
+- modified:
+  - `src/main/noteManager.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/main/services/workbenchService.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchMindmapPanel.tsx`
+  - `src/renderer/src/pages/WorkbenchPage.tsx`
+  - `src/renderer/src/store/workbenchStore.ts`
+  - `src/shared/types/notes.ts`
+  - `docs/workbench-mindmap-file-binding-design.md`
+- lesson(promoted): noteManager serial 队列不可重入(内部 public 方法不得在 serial 内再调包 serial 的方法); read() 返回值会被写路径透传到 write(), 读路径组装的数据必须隔离到专用读法; 文件存在性判断要用 stat 而非读文件失败(读失败含 EACCES 会被误判为不存在)
+
+### 16:21 | Codex
+
+- done: 设置页远程仓库区块在已读到远程配置时直接可编辑，不依赖 Git 状态先加载；最终 lint、tsc、build 全部通过
+- context: 最后复查设置页状态边界，避免 gitStatus 未就绪时显示读取中占位。
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchWorkspaceSettings.tsx`
+- lesson: 表单区块的可用性应以数据是否已读到为准，而不是依赖另一个异步状态先完成，避免无意义的加载占位。
+
+### 16:19 | Codex
+
+- done: 修正 footer 分支名回退：upstream 按 remoteName 剥离前缀，避免 feature/foo 被截成 foo；设置页远程仓库在未启用 Git 时也保持置顶占位
+- context: 复查分支名回退时发现 origin/feature/foo 只取最后一段会丢层级；设置页需要任何状态下都保持远程仓库在最上面。
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchGitPanel.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchWorkspaceSettings.tsx`
+- lesson: 从 upstream 推导分支名不能只取最后一段，必须剥离 remoteName 前缀；设置页首块在加载/不可用状态也要占位，避免布局跳动。
+
+### 16:18 | Codex
+
+- done: 工作台导图文件化：.multichat/index.json + .multichat/mindmaps/*.mindmap.md 落地，索引按 id 对齐、改名/删除跟随、对账三闸门、导出/回读/重建 IPC、面板状态与菜单、迁移旧记录
+- added:
+  - `src/shared/utils/mindmapFile.ts`
+  - `src/main/services/mindmapFileService.ts`
+  - `src/main/services/workbenchMindmapIndex.ts`
+- modified:
+  - `src/main/noteManager.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/shared/types/notes.ts`
+  - `src/main/services/workbenchService.ts`
+  - `src/main/services/gitignoreService.ts`
+  - `src/renderer/src/store/workbenchStore.ts`
+  - `src/renderer/src/pages/WorkbenchPage.tsx`
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchMindmapPanel.tsx`
+
+### 16:17 | Codex
+
+- done: 收紧 footer Git 按钮热区并统一弹层：分支名改为有界动态宽度、设置页远程仓库置顶、忽略规则单层滚动与三列快捷项，切换工作区补统一标题栏
+- context: 用户反馈 Git 图标与设置图标间距过大、分支名不显示，并要求设置页与其它弹层样式统一。
+- decision: Git 按钮不再占 52% 宽度；分支名 min-w-[2.5rem] max-w-[96px] 截断，完整名称保留在 tooltip 与弹层副标题。设置页去掉内层滚动，分类快捷项压缩为三列单行。
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchGitPanel.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchWorkspaceSettings.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+- lesson: footer 按钮用 max-w 百分比会把剩余空间做成空白热区，把相邻图标推远；状态文本应使用有界动态宽度而不是纯 flex-1 或固定槽位。
+
+### 16:04 | Codex
+
+- done: 修复 Git footer 分支名为空；工作区设置改为远程仓库置顶与 .gitignore 整段文本编辑，并同步 IPC 契约
+- context: 用户反馈 footer 不显示分支名，并要求设置页远程仓库置顶、忽略规则改为可直接编辑的 textarea。
+- modified:
+  - `src/shared/types/workbench.ts`
+  - `src/main/services/gitignoreService.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/src/components/workbench/WorkbenchGitPanel.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchWorkspaceSettings.tsx`
+- lesson: Git 分支名可能为空字符串，空值回退要用 trim() || fallback；footer 空间紧张时给分支名保底宽度，避免被压成零宽。.gitignore 编辑器以整段原文为事实来源，分类勾选只做文本增删。
+
+### 16:01 | Codex
+
+- done: 收敛 webview 点击拦截注入：只保留 dom-ready 触发，跳过非 http 文档，仅在真正注入时打日志
+- decision: 保留 DOM 注入而非改用 will-navigate 白名单：click 捕获是外链拦截的唯一可靠点，主进程 will-navigate 无法阻止同页 <a> 默认导航且白名单需跨 13 个平台维护
+- modified:
+  - `src/main/webviewManager.ts`
+- lesson(promoted): 同一 webview 文档只需在 dom-ready 注入一次，did-finish-load/did-frame-finish-load 会被页面内幂等守卫挡掉，只产生空转的 executeJavaScript 与日志
+
 ### 15:55 | Codex
 
 - done: 工作台导图文件化设计文档收尾（验收编号重排 1-63、接口与状态机对齐、DOCS_INDEX 收录）

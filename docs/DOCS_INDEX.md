@@ -51,6 +51,12 @@
 - 索引按工作区存放，绑定用相对路径，换盘与改名不丢
 - 正文与绑定冲突不自动选边，迁移与对账的删除保护
 
+**[workbench-unified-notes-annotation-design.md](workbench-unified-notes-annotation-design.md)** - 工作台统一笔记与标注设计
+- 笔记、会话、摘录统一为工作区 Markdown 文档，旧 NotesPage 逐步收口
+- 标注共用一套记录结构，但分两个根：`source` 固定默认会话库，`document` 跟随文档所在工作区
+- 会话快照转标准 Markdown；工作台内捕捉写当前工作区，工作台外写默认会话库，归档目录默认 `conversations/`；捕捉按 `annotationId` 幂等
+- 旧笔记、旧标注和旧导图一次性迁移：普通会话到默认会话库，带 `workbench` 的记录按原工作区文档分流；原文高亮跨工作区共用，MarkNode 单 block 边界与验收标准齐全
+
 ### 💻 开发辅助
 **[WINDOWS_COMMANDS.md](WINDOWS_COMMANDS.md)** - Windows PowerShell 命令参考
 - Bash 与 PowerShell 命令对照

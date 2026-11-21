@@ -128,6 +128,8 @@ Do not copy ordinary session history here. Promote only stable knowledge that is
 
 - **跨栏拖拽上传的“成功”必须以附件就绪为准**：`Input.dispatchDragEvent` 返回成功只代表事件已派发，不代表平台已挂载附件；未登录、页面未就绪、附件超限或落点错误时同样会返回成功。前端必须在 drop 前读取 `generateFileUploadStateScript` 基线，drop 后以「文件名新命中或附件计数增加」且 `!busy` 连续稳定 3 次判定成功；落点脚本必须过滤不可见/禁用输入框，找不到时明确失败，禁止回退到 `document.body` 的 `(10,10)`。折叠侧边栏的拖拽不能靠 `dragenter` 展开后卸载条带——那会在 drop 前移除目标并吞掉文件；应在 drop 时把 `draggingNodes` 快照交给常驻侧边栏，一次完成展开与上传。外部文件 drop 需要用 `dataTransfer.types.includes('Files')` 优先于 store 残留节点；树节点/编辑器的 `stopPropagation` 会让窗口冒泡清理失效，外部拖拽状态应在 document 捕获阶段清理。
 
+- **同名附件才改后缀，临时副本要等附件就绪后再删**：基线 `attachmentCount > 0` 不等于「已有同名附件」——输入框里可能挂着上一轮的其他文件，此时给本轮文件改名只会让用户看到的附件名莫名多出短后缀。正确触发条件只有 `nameMatched`：同名项已存在时新文件可能被平台替换或无法区分新旧，才加 8 位短后缀；不同名时附件数增加已足以判定本轮新增。走 CDP 拖拽时按磁盘真实文件名派发，需要改名就复制到临时目录，但**不能在 `dispatchFileDrop` 返回后立刻删**——平台读取拖入文件是异步的，大文件可能还没读完就被清理；临时目录应收集到列表，在整批附件解析稳定后的 `finally` 中统一删除。
+
 - **上传互斥锁必须有超时与代际号，否则一次挂起会永久锁死**：`uploadingRef` 若只在 `finally` 释放，而内部 `await` 的 `webview.executeJavaScript` / `window.api.dispatchFileDrop` 没有超时，页面重载、guest 崩溃或 CDP 挂起时 Promise 永不 settle，`finally` 不执行，后续所有拖拽都会停在「正在上传上一批文件」。正确做法是给每次脚本调用 5 秒、CDP 派发 15 秒的 `withTimeout`，给锁记录 `startedAt` 并在超时后允许接管，同时用递增的 `uploadGenerationRef` 判定批次归属：旧批次迟到时既不能释放新批次的锁，也不能覆盖新批次的提示。提供「停止等待」时只推进代际号并清空当前提示，不强行中断已派发的拖拽。
 
 - **工作台文件上传提示复用项目 Toast**：将当前文件一键发送到 AI 侧边栏时，上传前先保存未落盘的当前文档。上传过程中显示信息态进度提示，成功后恢复成功提示；两者统一复用 `ControlBar` / `ModelOutputCard` 的白底半透明、彩色细边框、`shadow-float` 与 `notification-popup` 样式，不另造状态条。失败和部分成功分别使用错误态与信息态。
@@ -145,6 +147,12 @@ Do not copy ordinary session history here. Promote only stable knowledge that is
 - **工作台标签规范对齐 Obsidian 与防泛滥补全**：Obsidian 在 YAML Frontmatter 中存储标签不含 `#` 前缀（`#` 仅用于正文行内引导符），若带 `#` 会被 YAML 标量包裹为引号字符串破坏标准识别。标签解析与序列化需自动剔除 `#` 前缀、去重并强制格式化为 YAML 列表；属性面板标签输入框通过聚合工作区已有标签，提供基于关键词前缀/模糊匹配的下拉建议浮层（支持方向键、Enter、Tab、鼠标点击与新建回车），既保持与 Obsidian 的数据兼容，又从交互上避免了标签随手打带来的严重标签熵增。检索端需支持 `tag:#name`、`tag:name` 与 `#name` 语法，并支持斜杠 `/` 的父子层级嵌套继承匹配。
 
 - **工作台双视图切换要按文件记忆各自的滚动位置**：`WorkbenchEditor` 用 `editorMode` 条件渲染预览与源码，切换时整棵编辑器卸载，两套滚动容器都会从顶部重新挂载，浏览器不会代为保留位置。滚动记忆的键需包含工作区、相对路径与视图，避免同名文件或跨工作区串位；只存内存即可，不必写入配置。恢复预览时不能只赋值一次：Lexical 解析、字体与图片缩略图会继续改变内容高度，内容未撑开时 `scrollTop` 会被浏览器夹紧，若此时把该值写回记忆就会覆盖原位置。正确做法是恢复期间忽略 `scroll` 记录、用 `ResizeObserver` 或有限帧重试直到目标位置可达，并在用户滚轮、触摸或按键时立即结束恢复。源码侧在 `useLayoutEffect` 中恢复 `textarea.scrollTop` 并同步高亮层与行号列。
+
+- **工作台三栏弹性布局与拖拽写盘解耦**：三栏 Flex 布局（左栏 shrink-0 + 中栏 min-w + 右栏 shrink-0 + overflow-hidden）中，中间编辑器 min-w 不可设过大（保底 380px 为宜，避免占据过多可用宽度），右栏侧边栏容器应设置 `maxWidth: calc(100% - ...)` 进行纯 CSS 硬件保底，防止小窗口（如 1100px）下总宽溢出导致最右侧元素被截断。Store 动态 clamp 必须联动考虑窗口实际宽度、中栏保底线及左栏折叠状态；Splitter 拖拽时，高频 `pointermove` 只能更新内存状态，持久化写盘（`storeSet`）必须延迟到 `pointerup` 单次执行，彻底消除高频 IPC 同步写盘带来的界面粘滞卡顿；窗口 resize 监听通过 `requestAnimationFrame` 防抖并单向收敛，避免无谓 re-render。
+
+- **设置弹窗用单一面板承载，层级靠分区与留白建立**：远程地址、预设选项和文本编辑器不要各自包成带描边的卡片，否则在弹层 framework 内形成卡片套卡片。用标题行 + 细分隔线划分区块；预设复选框采用无边框网格，hover 时只给轻微背景；底部仅保留一个主保存动作并统一处理多个表单字段的保存，取消按钮降为文字按钮。
+
+- **Markdown 裸链接导入与导出不能直接复用普通链接序列化**：`@lexical/markdown` 的 `LINK` transformer 会跳过 `AutoLinkNode`，需为裸 URL 单独增加 text-match transformer，并在替换时用 `$findMatchingParent(textNode, $isLinkNode)` 防止在已有链接内嵌套。导出时不能拿 `exportChildren()` 的结果与 URL 比较：`exportTextFormat` 会转义下划线、方括号等字符，导致 `https://foo_bar` 永远不相等并被改写为显式链接；应改用 `node.getTextContent()`，仅在子节点无格式时原样输出裸 URL。链接插入弹层应复用应用内输入框而非 `window.prompt`，并在 hover 提示中跳过「显示文字本身就是地址」的裸链接，只对文字链接展示 URL。
 
 ### 7. 划词、快捷键与窗口交互
 
@@ -210,6 +218,16 @@ Do not copy ordinary session history here. Promote only stable knowledge that is
 
 - **工作台文档与导图的绑定以路径为身份、以指纹判改名**：记录键由「规范化工作区路径 + 相对路径」派生，不写文档 frontmatter。文档删除时导图立即删除（应用内删除提示“不可恢复”，不做保留期）；外部改名/移动无法与删除区分，只能在文件树刷新后对账：先让路径仍在的记录占位，再对路径消失的记录按「size + mtime 完全一致」筛候选，唯一候选直接重连，多候选读文件比内容哈希，仍不唯一就按删除处理，绝不猜。对账索引必须由渲染层随文件树传入，主进程不再自行扫盘；按 size+mtime 建桶后再匹配，避免整目录删除时的平方复杂度。删除前再单独 stat 一次，只有 ENOENT 才删，工作区根不可读时整轮跳过。保存成功后只更新哈希与指纹、不推进快照，避免自动保存把导图面板刷成高频重载。生成任务持有的是生成开始时的 sourceKey，期间若被改名重连，保存时查对账留下的「旧路径→新路径」映射跟随新记录，比按内容回查更准，不会误挂到同内容的另一篇文档。
 
+- **工作台二进制文档只记指纹，不按 UTF-8 读正文**：PDF、Word（`doc/docx/docm`）、PPT（`ppt/pptx/pptm`）不能当文本读——`readFile(..., 'utf8')` 会产出乱码并让快照、哈希和“基于旧版本”判断全部失真。这类文档的版本指纹统一用 `binary:<sha256(size:mtime)>`，生成时只 `stat` 补指纹，快照保持空串；复制/移动克隆记录时也必须走同一分支，否则副本会带着伪造正文。扩展名判定要覆盖 `docm/pptm`，否则宏格式会被误当文本。二进制来源没有可读正文，多个同 size+mtime 候选无法可靠区分，改名判定应直接返回 null 让用户重新确认，而不是猜一个绑定。思维导图生成链路中，文本材料（含 PDF/Word/PPT 的选区）写成 `.md` 附件；原文件材料直接上传工作区文件，且大文件跳过 Base64 粘贴、优先 CDP 拖拽，避免几十 MB 转字符串占满渲染进程内存。
+
+- **工作台导图文件绑定：文件即索引，不落 `index.json`**（`.multichat/mindmaps/*.mindmap.md` 方案）：①`workbenchIndex` 是纯派生视图，每次按需扫描目录，`updatedAt` 取 frontmatter，外部新建文件退回 `mtime`；不存在索引损坏、索引与文件不一致、重建索引这些状态。②`noteManager` 的 `serial` 队列是 promise 链不可重入——public 方法不得在 serial 内再调另一个也包 serial 的方法；`read()` 的返回值会被写路径透传到 `write()`，按文件组装的 `mindmaps` 只能放在 `readWithMindmaps()`，否则组装值写回记录 JSON 后 `prepareWorkbenchSource` 会把已删导图当「未迁移残留」复活。③判断「文件是否还在盘上」必须用 `stat` 而非「读文件失败」——EACCES 等读失败会被误判成不存在。删除、改名、覆盖前都要校验 `id + source + 正文` 三者一致，正文比对两侧统一 `normalizeMindmapNewlines`。④外部软件改导图正文时不会更新 frontmatter 的 `updatedAt`，仅靠版本戳会把外部改动误判成无变化；保存必须额外带「编辑前正文」`expectedMarkdown` 与磁盘比对，冲突时返回 `conflict: 'file-changed'`，由用户显式选择覆盖或载入，不能静默覆盖。⑤应用自写不能按时间窗抑制 watcher：写完几百毫秒内外部又改同一文件时，事件会落在窗口里被一起吞掉；改为写后记录 `size + mtime` 指纹，watcher 去抖后逐文件比对，只有与应用写下的不同才广播。⑥工作区换盘/改名后旧记录的绝对根失效，按相对路径认领时要求「旧根不存在 + 全库唯一 + 正文哈希一致」三条同时成立，避免把另一工作区同名文档的记录搬走。
+
+- **工作台导图追加修改必须复用生成页地址，不能只看文件里的 `generationSession`**：工作台导图的 `.mindmap.md` frontmatter 只保存 `id/source/title/updatedAt`，`workbenchMindmapsFor()` 组装对象时也没有 `generationSession`；因此文件读回后不能据此恢复原生成对话。`MindmapService` 在本次进程内按 `mapId` 保存最近生成页地址，`modify()` 按 `mapId + platformId` 取出并补进候选的 `generationSession`；`lastPage` 只作兜底，不能作为唯一来源，否则生成另一张导图会覆盖前一张的地址。`run()` 只有拿到可校验的 `conversationUrl` 才会 `reused=true`，进而跳过来源文件读取和附件上传；若地址缺失就会重新上传并新建对话。
+
+- **文档来源在记录建立前只有路径，读记录必须先换 UUID**：工作台面板的 `source.id` 在尚未建档时是 `record?.id || activeFilePath`，而 `notes:get` 最终落到 `noteManager.file(id)` 的 UUID 校验（`/^[a-f0-9-]{36}$/`），直接传路径会得到「无效的笔记 ID」，与用户是否生成过导图无关——首次打开侧栏就会触发。凡是文档来源的读记录入口都必须先走 `resolveId()`（内部 `ensureRecord()` 建档）再 `notesGet`，并给 `resolveId` 加失败分支，避免异常变成未处理的 Promise 拒绝。可编辑的 HTML 走原文件上传时，上传前必须先 `saveActiveFile()` 落盘，否则拖上去的是磁盘旧版本；但它的版本哈希仍按文本计算，不能套用二进制文档的 `size:mtime` 指纹，否则每次保存都会在两种指纹口径之间跳变。
+
+- **旧 `NoteManager.list()` 是破坏性读取，迁移和旧页读取不能复用**：`listUnlocked()` 会按 `sourceKey` 合并记录、按 `quote` 合并批注并 `rm` 旧 JSON。旧笔记迁移必须直接 `readdir + JSON.parse` 做只读原始快照，迁移期间 `notes:list/summaries/source/anchors-for-url/export/get` 也只能读快照；任务结束后普通 `list()` 不应再自动删除旧 JSON，同源合并只做内存视图。验收必须覆盖“同一 quote 两条不同评论都保留”和“迁移前后旧 JSON 数量不变”。
+
 - 抓取网页对话时，ChatGPT 等平台 DOM 自带无障碍头 (如 <h4>你说：</h4>)，在 htmlToMarkdown 时会被转为 Markdown 噪音；因此提取消息必须主动过滤 DOM 伴生噪点，使用 XML 标签隔离结构，彻底避免语法与格式污染
 
 
@@ -238,6 +256,8 @@ Do not copy ordinary session history here. Promote only stable knowledge that is
 - **保活、休眠与销毁的语义不同**：display:none 保留 WebContents 与 live 页面；suspend/resume 导航 about:blank 再恢复 URL，可释放页面资源但丢失进行中的 live 状态；卸载 React Webview 会销毁底层 WebContents。短暂面板切换优先保活，长期释放按现有白名单休眠，明确销毁需求才卸载。导航或卸载不等于删除 persist:shared 登录态；旧总结 API 模式守卫不作为当前实现依据。
 
 - **恢复历史与续写分支时防串台策略**（history-summary 串台修复得出）：在恢复非第一条历史记录（`history[0]`）并进行续写分支时，若 `appStore.ts` 中 `sendMessageToAll` 内部的 `lastItem` 仍使用默认的 `history[0]`，会导致续写时的 `conversationId` 仍锚定到最新一条历史对话中，造成串台。**修复**：全面引入并持久化 `currentConversationId` Store 字段，所有涉及新对话创建、续写、历史恢复、删除历史的路径必须同步更新 `currentConversationId`，且在所有消息发送和监测时均使用 ID 查找，而非无条件使用 `history[0]` 兜底。
+
+- **点击拦截注入按文档幂等，不能靠多触发点空转**：`registerWebviewHandlers` 原给同一 webContents 挂 `dom-ready` / `did-finish-load` / `did-frame-finish-load` / 3 秒 `attach-timeout` 四个触发点，实际只有第一次生效，其余被页面内 `__mmClickInterceptorInjected` 挡掉，只产生空转的 `executeJavaScript` 与刷屏日志（三个 webview 启动即 12 次执行）。**收敛做法**：主进程侧用 `documentGeneration` / `injectedGeneration` 记录状态，`dom-ready` 递增 generation 并注入，`did-finish-load` 与 `attach-timeout` 仅作失败兜底；注入进行中收到的新触发用 `pendingSource` 排队，结束后补跑；`tryInject` 先判 `webContents.getURL().startsWith('http')` 跳过 `about:blank`（初始页与 `suspend()` 休眠态）；仅在返回 `'injected'` 时打日志。实测三个 webview 各 1 行 `source=dom-ready`，稳态无重复。**为什么保留 DOM 注入而不改成主进程 `will-navigate` 白名单**：外链拦截必须发生在导航开始之前，`<a>` 默认点击的捕获监听是唯一可靠拦截点；`will-navigate` 只能观察不能阻止（当前实现只打日志），按需注入在时序上不可能拦住点击。主进程白名单方案需为 13 个平台维护登录/SSO 域名，漏一项就打断登录，属新增长期负担，无实际故障证据不采用。`window.open` 那半段与主进程 `setWindowOpenHandler` 重复，但属既有双重保障，非本次收敛范围。
 
 
 ### 10. 任务分配、辩论与 API 请求
