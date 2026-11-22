@@ -16,7 +16,8 @@ import {
   mkdir,
   cp,
   rm,
-  rename
+  rename,
+  open
 } from 'fs/promises'
 import { randomUUID } from 'crypto'
 import {
@@ -307,8 +308,8 @@ export async function assertSafePath(workspaceRoot: string, relativePath: string
 }
 
 // ============ workbench-file:// 自定义流式协议 ============
-// 目的：PDF / Office 大文件预览不再走 base64 dataUrl（4-5× 内存放大），
-// 改为自定义协议流式回文件，renderer 零拷贝、PDFium 支持 range 按需加载。
+// 目的：图片与 HTML 资源不再走 base64 dataUrl（4-5× 内存放大），
+// 改为自定义协议流式回文件；PDF 另外通过受信 IPC Range 供 PDF.js 按需读取。
 // 安全：只允许读取曾被 readFile/selectFolder 授权过的 workspace 根目录内的文件。
 
 const authorizedWorkspaceRoots = new Set<string>()
@@ -921,7 +922,7 @@ export async function readTree(workspaceRoot: string): Promise<WorkbenchFileNode
 /**
  * 安全读取指定文件内容
  * - 支持 Markdown、纯文本、代码、图片、PDF 与 Word 文档元信息
- * - 针对图片与 PDF 文件自动转换为安全的 Base64 Data URL
+ * - 图片通过 workbench-file:// 加载；PDF 由预览层通过 IPC Range 分段读取
  */
 export async function readFile(workspaceRoot: string, relativePath: string): Promise<WorkbenchFileInfo> {
   const safePath = await assertSafePath(workspaceRoot, relativePath)
@@ -951,11 +952,10 @@ export async function readFile(workspaceRoot: string, relativePath: string): Pro
         isOversized: true
       }
     }
-    const buffer = await fsReadFile(safePath)
-    const dataUrl = `data:${mime};base64,${buffer.toString('base64')}`
+    const buffer = ext === '.svg' ? await fsReadFile(safePath) : null
     return {
-      content: ext === '.svg' ? buffer.toString('utf-8') : '',
-      dataUrl,
+      content: buffer ? buffer.toString('utf-8') : '',
+      fileUrl: toWorkbenchFileUrl(safePath),
       mimeType: mime,
       mtime: fileStat.mtimeMs,
       size: fileStat.size,
@@ -979,7 +979,6 @@ export async function readFile(workspaceRoot: string, relativePath: string): Pro
     }
     return {
       content: '',
-      fileUrl: toWorkbenchFileUrl(safePath),
       mimeType: 'application/pdf',
       mtime: fileStat.mtimeMs,
       size: fileStat.size,
@@ -1039,13 +1038,17 @@ export async function readFile(workspaceRoot: string, relativePath: string): Pro
   }
 }
 
+const PDF_RANGE_MAX_BYTES = 4 * 1024 * 1024
+
 /**
- * 读取 PDF 原始字节，供渲染层用 PDF.js 渲染（内置 PDFium 不向宿主暴露选区文字）。
- * 复用 assertSafePath 的 realpath 校验，并限制在 readFile 相同的 200MB 上限内。
+ * 按需读取 PDF 的一段字节，供 PDF.js 的 PDFDataRangeTransport 使用。
+ * 只通过受信 IPC 返回小段数据，避免为了正常加载而把自定义协议暴露给 CORS/fetch。
  */
-export async function readPdfBytes(
+export async function readPdfRange(
   workspaceRoot: string,
-  relativePath: string
+  relativePath: string,
+  start: number,
+  end: number
 ): Promise<{ bytes: Uint8Array; size: number; mtime: number }> {
   const safePath = await assertSafePath(workspaceRoot, relativePath)
   const fileStat = await stat(safePath)
@@ -1058,8 +1061,35 @@ export async function readPdfBytes(
   if (fileStat.size > 200 * 1024 * 1024) {
     throw new Error('PDF 文件超过 200MB 读取上限')
   }
-  const buffer = await fsReadFile(safePath)
-  return { bytes: new Uint8Array(buffer), size: fileStat.size, mtime: fileStat.mtimeMs }
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end)) {
+    throw new Error('PDF 读取范围无效')
+  }
+  const from = Math.max(0, start)
+  const to = Math.min(fileStat.size - 1, end)
+  if (from > to) {
+    throw new Error('PDF 读取范围无效')
+  }
+  if (to - from + 1 > PDF_RANGE_MAX_BYTES) {
+    throw new Error('PDF 单次读取范围超过 4MB')
+  }
+
+  const handle = await open(safePath, 'r')
+  try {
+    const buffer = Buffer.allocUnsafe(to - from + 1)
+    let offset = 0
+    while (offset < buffer.length) {
+      const { bytesRead } = await handle.read(buffer, offset, buffer.length - offset, from + offset)
+      if (bytesRead === 0) break
+      offset += bytesRead
+    }
+    return {
+      bytes: new Uint8Array(buffer.buffer, buffer.byteOffset, offset),
+      size: fileStat.size,
+      mtime: fileStat.mtimeMs
+    }
+  } finally {
+    await handle.close()
+  }
 }
 
 /**

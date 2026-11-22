@@ -120,12 +120,12 @@ function WorkbenchImageComponent({
   const activeFilePath = useWorkbenchStore((s) => s.activeFilePath)
   const [isSelected, setSelected, clearSelection] = useLexicalNodeSelection(nodeKey)
 
-  // 缩略图 dataUrl 缓存：组件内 state，加载一次后常驻
+  // 图片源缓存：优先使用 workbench-file://，旧 dataUrl 仅作兼容回退
   const [thumb, setThumb] = useState<string | null>(null)
   const [loadError, setLoadError] = useState(false)
   const imgRef = useRef<HTMLImageElement | null>(null)
 
-  // 请求缩略图：若 src 是 http(s) 则直接用，否则经 IPC 读盘生成 dataUrl
+  // 请求图片源：若 src 是 http(s) 则直接用，否则经 IPC 换得可流式加载的 fileUrl
   useEffect(() => {
     let cancelled = false
     if (!src) {
@@ -168,8 +168,8 @@ function WorkbenchImageComponent({
       try {
         const res = await window.api.workbench.readFile(workspacePath, resolvedSrc)
         if (cancelled) return
-        if (res.success && res.data?.dataUrl) {
-          setThumb(res.data.dataUrl)
+        if (res.success && (res.data?.fileUrl || res.data?.dataUrl)) {
+          setThumb(res.data.fileUrl || res.data.dataUrl || null)
           setLoadError(false)
         } else {
           setLoadError(true)

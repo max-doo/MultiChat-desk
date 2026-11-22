@@ -76,6 +76,8 @@ export interface WebviewCardRef {
   resume: () => Promise<{ success: boolean; error?: string }>
   /** 查询是否处于休眠状态 */
   isHibernated: () => boolean
+  /** 查询页面是否已完成加载并注入就绪 */
+  isReady: () => boolean
   /** dev-only：对当前页面跑 messageContainer 探针，返回每候选命中报告 */
   probeMessageContainer: () => Promise<ProbeReport>
   /** dev-only：对当前页面跑 researchMode 探针，返回每步命中报告（只读） */
@@ -236,9 +238,10 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
       ref,
       () => ({
         ...actions,
-        ...methods
+        ...methods,
+        isReady: () => isReady
       }),
-      [actions, methods]
+      [actions, methods, isReady]
     )
 
     // 任务分配模式或隔离模式支持选择所有 AI，因此可选列表为全量模型；多 AI 模式下排除自身

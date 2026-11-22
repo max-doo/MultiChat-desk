@@ -7,6 +7,7 @@ type BackgroundTheme = 'checkerboard' | 'light' | 'dark'
 export default function WorkbenchImagePreview(): JSX.Element {
   const activeFilePath = useWorkbenchStore((s) => s.activeFilePath)
   const activeFileDataUrl = useWorkbenchStore((s) => s.activeFileDataUrl)
+  const activeFileUrl = useWorkbenchStore((s) => s.activeFileUrl)
   const activeFileSize = useWorkbenchStore((s) => s.activeFileSize)
   const activeFileOversized = useWorkbenchStore((s) => s.activeFileOversized)
   const openInSystem = useWorkbenchStore((s) => s.openInSystem)
@@ -203,7 +204,7 @@ export default function WorkbenchImagePreview(): JSX.Element {
         ) : (
           <img
             ref={imgRef}
-            src={activeFileDataUrl || undefined}
+            src={activeFileUrl || activeFileDataUrl || undefined}
             alt={activeFilePath || 'image'}
             onLoad={handleImageLoad}
             onError={() => setLoadError(true)}

@@ -18,7 +18,11 @@ import { startDaemonServer, stopDaemonServer } from './daemon/ipcServer'
 import { writeCliManifest } from './cliIntegration'
 import { initUpdateChecker } from './updater/checker'
 import { getSelectionToolbarEnabled, setSelectionToolbarEnabled } from './selectionToolbarManager'
-import { resolveWorkbenchFileRequest, unwatchAllWorkspaces, WORKBENCH_FILE_SCHEME } from './services/workbenchService'
+import {
+  resolveWorkbenchFileRequest,
+  unwatchAllWorkspaces,
+  WORKBENCH_FILE_SCHEME
+} from './services/workbenchService'
 import { initWorkbenchDownloadService } from './services/workbenchDownloadService'
 import { pathToFileURL } from 'url'
 
@@ -28,12 +32,17 @@ if (process.platform === 'win32') {
 }
 
 // workbench-file:// 声明为特权 scheme，须在 app.ready 前注册。
-// stream:true 允许流式/Range 请求（PDFium 大文件分页按需加载）；
-// supportFetchAPI:true 保证渲染进程 fetch/object 可用。
+// stream:true 保证图片/HTML 资源流式加载；PDF 改走受信 IPC 分段，
+// 不启用 corsEnabled，避免共享 Session 里的远程 AI 页面读取本地文件。
 protocol.registerSchemesAsPrivileged([
   {
     scheme: WORKBENCH_FILE_SCHEME,
-    privileges: { stream: true, supportFetchAPI: true }
+    privileges: {
+      standard: true,
+      secure: true,
+      stream: true,
+      supportFetchAPI: true
+    }
   }
 ])
 
@@ -193,8 +202,8 @@ if (!gotTheLock) {
       return typeof workspaceRoot === 'string' && workspaceRoot.trim() ? workspaceRoot : null
     })
 
-    // 注册 workbench-file:// 流式协议（挂在 persist:shared session，覆盖主 renderer 与 webview）。
-    // PDF / Office 大文件预览改走协议加载，替代 base64 dataUrl，消除 4-5x 内存放大。
+    // 注册 workbench-file:// 流式协议（挂在 persist:shared session，覆盖主 renderer 预览）。
+    // 图片与 HTML 资源走协议加载；PDF 走 IPC Range，避免自定义协议向远程 webview 开放 fetch/CORS。
     // 白名单校验在 resolveWorkbenchFileRequest 内完成（仅已授权 workspace 根目录内文件）。
     try {
       const sharedSession = session.fromPartition('persist:shared')
@@ -203,7 +212,9 @@ if (!gotTheLock) {
         if (!realPath) {
           return new Response('Forbidden', { status: 403 })
         }
-        return net.fetch(pathToFileURL(realPath).toString(), { bypassCustomProtocolHandlers: true })
+        return net.fetch(pathToFileURL(realPath).toString(), {
+          bypassCustomProtocolHandlers: true
+        })
       })
     } catch (err) {
       console.error('[Main] 注册 workbench-file 协议失败:', err)

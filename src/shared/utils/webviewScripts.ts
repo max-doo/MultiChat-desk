@@ -2804,6 +2804,95 @@ export function generateMindmapPageStateScript(
   })();`
 }
 
+/**
+ * 工作台侧边栏自动休眠前检查页面是否仍在工作。
+ * 返回结构固定；无法确认输入框或脚本执行失败时由调用方按 busy=true 处理。
+ */
+export function generateWorkbenchLifecycleStateScript(
+  selectors: ModelSelector,
+  platformId: string
+): string {
+  return String.raw`(function () {
+    const config = ${JSON.stringify(fileUploadSelectors)};
+    const visible = el => !!el && el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden' && getComputedStyle(el).opacity !== '0';
+    const find = (list, root = document) => {
+      for (const selector of list) {
+        try {
+          const el = Array.from(root.querySelectorAll(selector)).find(visible);
+          if (el) return el;
+        } catch {}
+      }
+      return null;
+    };
+    const input = find(${JSON.stringify(selectors.textarea)});
+    if (!input) return { ready: false, busy: true, reason: 'not-ready' };
+
+    const stops = ${JSON.stringify(generationStopSelectors[platformId] || [])};
+    const genericStops = ['button[aria-label*="Stop" i]', 'button[aria-label*="停止"]', 'button[data-testid="stop-button"]'];
+    if (find([...stops, ...genericStops])) {
+      return { ready: true, busy: true, reason: 'generating' };
+    }
+
+    // 输入框到发送按钮之间是 composer；只在这里找附件与上传状态，避免把会话正文误判为待发送内容。
+    let composer = input.parentElement;
+    let probe = composer;
+    for (let depth = 0; depth < 8 && probe; depth++) {
+      if (find(${JSON.stringify(selectors.sendButton)}, probe)) {
+        composer = probe;
+        break;
+      }
+      probe = probe.parentElement;
+    }
+    composer ||= input.parentElement;
+    if (!composer) return { ready: true, busy: true, reason: 'composer-unknown' };
+
+    const ignored = el => !el || input.contains(el) || !!el.closest(config.ignored);
+    if (Array.from(composer.querySelectorAll(config.progress)).some(el => !ignored(el) && visible(el))) {
+      return { ready: true, busy: true, reason: 'uploading' };
+    }
+    const composerText = (composer.innerText || composer.textContent || '').slice(0, 20000);
+    if (new RegExp(config.uploading, 'i').test(composerText)) {
+      return { ready: true, busy: true, reason: 'uploading-text' };
+    }
+
+    const filePattern = /\.(pdf|docx?|xlsx?|pptx?|txt|md|csv|json|zip|png|jpe?g|webp|gif|svg)\b/i;
+    const dedicated = composer.querySelectorAll(
+      '[data-testid*="attachment" i],[data-testid*="upload-item" i],[data-testid*="file-item" i],' +
+      '[class*="attachment" i],[class*="upload-item" i],[class*="file-chip" i],[class*="file-pill" i]'
+    );
+    for (const el of dedicated) {
+      if (ignored(el) || !visible(el)) continue;
+      if (el.closest('button,[role="button"],svg')) continue;
+      return { ready: true, busy: true, reason: 'attachment-chip' };
+    }
+
+    const metadata = composer.querySelectorAll('img,[aria-label],[title],[data-file-name]');
+    for (const el of metadata) {
+      if (ignored(el) || !visible(el)) continue;
+      if (el.closest('button,[role="button"],svg')) continue;
+      if (el.tagName === 'IMG') {
+        const src = el.currentSrc || el.src || '';
+        const rect = el.getBoundingClientRect();
+        if ((src.startsWith('blob:') || src.startsWith('data:')) && rect.width >= 24 && rect.height >= 24) {
+          return { ready: true, busy: true, reason: 'attachment-image' };
+        }
+        continue;
+      }
+      const text = [
+        el.getAttribute('aria-label') || '',
+        el.getAttribute('title') || '',
+        el.getAttribute('data-file-name') || '',
+        el.textContent || ''
+      ].join(' ').trim();
+      if (text && text.length <= 240 && filePattern.test(text)) {
+        return { ready: true, busy: true, reason: 'attachment-file' };
+      }
+    }
+
+    return { ready: true, busy: false, reason: 'idle' };
+  })();`
+}
+
 /** 在原网页上恢复笔记高亮；仅使用 CSS Highlight，避免改动第三方页面的文本 DOM。 */
 export function generateNoteHighlightScript(
   notes: Array<{

@@ -249,13 +249,15 @@ export class LegacyMigrationService {
     if (startState && startState.jobId === job.jobId) {
       if (startState.status === 'paused' || startState.status === 'abandoned') {
         this.snapshot = null
+        // 暂停发生在启动读取阶段：沿用当前待处理统计，避免返回“阻塞 0”。
+        const pending = records.map(item => item.conversation).filter(item => !item.migratedAt)
         return {
           jobId: startState.jobId,
           targetWorkspaceRoot: startState.targetWorkspaceRoot,
           targetConversationDir: startState.targetConversationDir,
           total: startState.total,
           migrated: startState.completed,
-          blocked: 0,
+          blocked: pending.filter(item => item.migrationBlocked).length,
           failed: 0,
           cancelled: true,
           report: []

@@ -43,7 +43,7 @@ import {
     selectFolder as workbenchSelectFolder,
     readTree as workbenchReadTree,
     readFile as workbenchReadFile,
-    readPdfBytes as workbenchReadPdfBytes,
+    readPdfRange as workbenchReadPdfRange,
     writeFile as workbenchWriteFile,
     createNode as workbenchCreateNode,
     renameNode as workbenchRenameNode,
@@ -1996,11 +1996,16 @@ export async function registerIpcHandlers(
         }
     })
 
-    // PDF 原始字节：内置 PDFium 不向宿主暴露选区文字，预览层改用 PDF.js 渲染并自建文本层。
-    ipcMain.handle('workbench:read-pdf-bytes', async (_event, payload: { workspaceRoot: string; relativePath: string }) => {
+    // PDF 按需分段：PDF.js 通过 PDFDataRangeTransport 拉取小段，避免完整字节常驻宿主堆。
+    ipcMain.handle('workbench:read-pdf-range', async (_event, payload: { workspaceRoot: string; relativePath: string; start: number; end: number }) => {
         try {
             assertActiveWorkspace(payload.workspaceRoot)
-            const data = await workbenchReadPdfBytes(payload.workspaceRoot, payload.relativePath)
+            const data = await workbenchReadPdfRange(
+                payload.workspaceRoot,
+                payload.relativePath,
+                payload.start,
+                payload.end
+            )
             return { success: true, data }
         } catch (err: unknown) {
             const error = err instanceof Error ? err.message : String(err)

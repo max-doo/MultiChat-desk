@@ -705,7 +705,7 @@ Lexical 0.53.0 已经带 `@lexical/mark` 的 `MarkNode`：
 
 迁移标记必须落到类型和读写路径上：
 
-- `NoteConversation` 增加 `migratedAt?: number`、`migratedTo?: string` 和 `migrationBlocked?: 'oversize' | 'empty-snapshot' | 'unlocatable-source' | 'annotation-overflow' | 'mindmap-conflict' | 'workbench-unresolved'`。`migratedAt` 与 `migrationBlocked` 互斥；`migratedTo` 只用于旧页显示实际目标（普通会话是默认会话库，`workbench` 记录是其原工作区），不作为身份判断。`StoredConversation`、`convert()`、合并和导出/导入都要保留这些字段；否则下一次读盘会丢掉标记，迁移重跑会把用户后来删掉的标注复活。
+- `NoteConversation` 增加 `migratedAt?: number`、`migratedTo?: string` 和 `migrationBlocked?: 'oversize' | 'empty-snapshot' | 'unlocatable-source' | 'annotation-overflow' | 'mindmap-conflict' | 'workbench-unresolved' | 'verify-failed'`。`verify-failed` 表示写入后回读文档、旁路或导图失败，记录仍可重试，但目标状态无法确认。`migratedAt` 与 `migrationBlocked` 互斥；`migratedTo` 只用于旧页显示实际目标（普通会话是默认会话库，`workbench` 记录是其原工作区），不作为身份判断。`StoredConversation`、`convert()`、合并和导出/导入都要保留这些字段；否则下一次读盘会丢掉标记，迁移重跑会把用户后来删掉的标注复活。
 - 迁移入口先跳过 `migratedAt` 非空的记录；只有文档、旁路、导图三项都确认存在才写 `migratedAt`。`migrationBlocked` 非空的记录不重复自动迁移，只在用户处理后重试。
 - `legacyMigrationJob` 处于 `running` 或 `paused` 时，所有旧写接口整体拒绝，避免迁移枚举之后又冒出新的旧格式记录；`migratedAt` 或 `migrationBlocked` 非空的记录在任务结束后仍然只读。
 - `migratedAt` 或 `migrationBlocked` 非空的记录，旧页只读；旧 `notes:*` 和 `mindmaps:*` 写接口在主进程直接拒绝，不能只靠隐藏按钮。

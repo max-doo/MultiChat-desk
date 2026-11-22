@@ -5,6 +5,7 @@ import WebviewCard, { type WebviewCardRef } from '../WebviewCard'
 import { assistantReplyConfigs } from '../../../../shared/config/selectors'
 import {
   generateInsertReplyButtonScript,
+  generateWorkbenchLifecycleStateScript,
   type FileUploadData
 } from '../../../../shared/utils/webviewScripts'
 import { defaultSelectors } from '../../../../shared/config/selectors'
@@ -126,6 +127,36 @@ function mapNodesToUploads(nodes: UploadNode[]): {
 const TOAST_MESSAGE_MAX_CHARS = 64
 /** 上传锁超过该时长仍未释放，视为已僵死，允许新一批上传接管。 */
 const UPLOAD_LOCK_STALE_MS = 3 * 60_000
+/** 工作台离开前台后的交互宽限；到点仍忙时会重新排期。 */
+const SIDEBAR_HIBERNATE_GRACE_MS = 30_000
+/** 休眠恢复后等待页面和输入框重新就绪，避免紧接着的上传/注入落在加载中的页面。 */
+const SIDEBAR_RESUME_READY_TIMEOUT_MS = 30_000
+
+type SidebarLifecyclePhase = 'live' | 'scheduled' | 'suspending' | 'suspended' | 'resuming'
+
+interface SidebarLifecycleEntry {
+  phase: SidebarLifecyclePhase
+  timer: ReturnType<typeof setTimeout> | null
+  queue: Promise<void>
+  desiredLive: boolean
+}
+
+function enqueueSidebarLifecycleTask<T>(
+  entry: SidebarLifecycleEntry,
+  task: () => Promise<T>
+): Promise<T> {
+  const result = entry.queue.then(task, task)
+  entry.queue = result.then(
+    () => undefined,
+    () => undefined
+  )
+  return result
+}
+
+/** 等 React 把 WebviewCard 的最新 isHibernated/actions 提交到 ref 后再继续操作。 */
+function waitForSidebarCommit(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0))
+}
 
 /** 提示条只展示结论，超长错误详情放进控制台，避免撑满侧边栏。 */
 function truncateToastMessage(message: string): string {
@@ -185,7 +216,11 @@ function attachWorkbenchReplyButtons(
   }
 }
 
-export default function WorkbenchAiSidebar(): JSX.Element | null {
+interface WorkbenchAiSidebarProps {
+  isActive?: boolean
+}
+
+export default function WorkbenchAiSidebar({ isActive = true }: WorkbenchAiSidebarProps): JSX.Element | null {
   const models = useAppStore((s) => s.models)
   const sidebarModelId = useWorkbenchStore((s) => s.sidebarModelId)
   const setSidebarModelId = useWorkbenchStore((s) => s.setSidebarModelId)
@@ -227,6 +262,21 @@ export default function WorkbenchAiSidebar(): JSX.Element | null {
   }, [currentModel?.id])
 
   const sidebarRefs = useRef<Map<string, WebviewCardRef>>(new Map())
+  const lifecycleEntriesRef = useRef<Map<string, SidebarLifecycleEntry>>(new Map())
+  const mountedSidebarModelsRef = useRef(mountedSidebarModels)
+  const activityCountsRef = useRef<Map<string, number>>(new Map())
+  const isActiveRef = useRef(isActive)
+  const windowVisibleRef = useRef(true)
+  const rightPaneRef = useRef(rightPane)
+  const currentModelIdRef = useRef(currentModel?.id ?? null)
+  const conversationPlatformRef = useRef<string | null>(null)
+  const disposedRef = useRef(false)
+
+  mountedSidebarModelsRef.current = mountedSidebarModels
+  isActiveRef.current = isActive
+  rightPaneRef.current = rightPane
+  currentModelIdRef.current = currentModel?.id ?? null
+
   // 待定位的会话；卡片可能尚未挂载/仍在加载，交给下方轮询落实导航。
   const [conversationTarget, setConversationTarget] = useState<{
     platformId: string
@@ -267,6 +317,244 @@ export default function WorkbenchAiSidebar(): JSX.Element | null {
     },
     []
   )
+
+  const getLifecycleEntry = useCallback((modelId: string): SidebarLifecycleEntry => {
+    const existing = lifecycleEntriesRef.current.get(modelId)
+    if (existing) return existing
+    const entry: SidebarLifecycleEntry = {
+      phase: 'live',
+      timer: null,
+      queue: Promise.resolve(),
+      desiredLive: true
+    }
+    lifecycleEntriesRef.current.set(modelId, entry)
+    return entry
+  }, [])
+
+  const isSidebarSurfaceActive = useCallback((modelId: string): boolean => {
+    return (
+      windowVisibleRef.current &&
+      isActiveRef.current &&
+      rightPaneRef.current === 'ai' &&
+      currentModelIdRef.current === modelId
+    )
+  }, [])
+
+  const ensureSidebarLive = useCallback(
+    async (modelId: string): Promise<WebviewCardRef | null> => {
+      const entry = getLifecycleEntry(modelId)
+      entry.desiredLive = true
+      if (entry.timer) {
+        clearTimeout(entry.timer)
+        entry.timer = null
+      }
+      return enqueueSidebarLifecycleTask(entry, async () => {
+        if (disposedRef.current) return null
+        let ref = sidebarRefs.current.get(modelId)
+        if (!ref) return null
+
+        if (ref.isHibernated()) {
+          entry.phase = 'resuming'
+          console.log(`[workbench-lifecycle] resume ${modelId}`)
+          const result = await ref.resume()
+          await waitForSidebarCommit()
+          ref = sidebarRefs.current.get(modelId)
+          if (!result.success && ref?.isHibernated()) {
+            entry.phase = 'suspended'
+            console.warn(`[workbench-lifecycle] resume failed ${modelId}:`, result.error)
+            return null
+          }
+        }
+
+        const deadline = Date.now() + SIDEBAR_RESUME_READY_TIMEOUT_MS
+        while (!disposedRef.current && Date.now() < deadline) {
+          ref = sidebarRefs.current.get(modelId)
+          if (!ref) return null
+          if (ref.isReady()) {
+            entry.phase = 'live'
+            return ref
+          }
+          await new Promise((resolve) => setTimeout(resolve, 250))
+        }
+        if (disposedRef.current) return null
+        ref = sidebarRefs.current.get(modelId)
+        entry.phase = ref?.isHibernated() ? 'suspended' : 'live'
+        console.warn(`[workbench-lifecycle] ready timeout ${modelId}`)
+        return null
+      })
+    },
+    [getLifecycleEntry]
+  )
+
+  const attemptSidebarSuspendRef = useRef<(modelId: string) => Promise<void>>(async () => undefined)
+
+  const scheduleSidebarSuspend = useCallback(
+    (modelId: string): void => {
+      if (disposedRef.current) return
+      const entry = getLifecycleEntry(modelId)
+      entry.desiredLive = false
+      if (entry.timer) clearTimeout(entry.timer)
+      entry.timer = null
+      if (entry.phase === 'suspended') return
+      if (entry.phase !== 'suspending' && entry.phase !== 'resuming') entry.phase = 'scheduled'
+      entry.timer = setTimeout(() => {
+        entry.timer = null
+        void attemptSidebarSuspendRef.current(modelId)
+      }, SIDEBAR_HIBERNATE_GRACE_MS)
+    },
+    [getLifecycleEntry]
+  )
+
+  const isSidebarPageBusy = useCallback(async (modelId: string): Promise<boolean> => {
+    if ((activityCountsRef.current.get(modelId) || 0) > 0) return true
+    if (uploadingRef.current || conversationPlatformRef.current === modelId) return true
+    const ref = sidebarRefs.current.get(modelId)
+    if (!ref) return true
+    if (ref.isHibernated()) return false
+    const webview = ref.getWebview()
+    const selectors = defaultSelectors.models[modelId]
+    if (!webview || !selectors) return true
+    try {
+      const state = (await webview.executeJavaScript(
+        generateWorkbenchLifecycleStateScript(selectors, modelId)
+      )) as { ready?: boolean; busy?: boolean; reason?: string } | null
+      if (!state || state.ready !== true || state.busy !== false) {
+        console.log(`[workbench-lifecycle] keep ${modelId}: ${state?.reason || 'unknown'}`)
+        return true
+      }
+      return false
+    } catch (error) {
+      console.log(`[workbench-lifecycle] keep ${modelId}: state check failed`, error)
+      return true
+    }
+  }, [])
+
+  const attemptSidebarSuspend = useCallback(
+    async (modelId: string): Promise<void> => {
+      if (disposedRef.current) return
+      const entry = getLifecycleEntry(modelId)
+      if (entry.phase === 'suspended') return
+      if (entry.desiredLive || isSidebarSurfaceActive(modelId)) {
+        void ensureSidebarLive(modelId)
+        return
+      }
+      if (entry.phase === 'suspending' || entry.phase === 'resuming') {
+        scheduleSidebarSuspend(modelId)
+        return
+      }
+      if (!sidebarRefs.current.get(modelId)) return
+
+      if (await isSidebarPageBusy(modelId)) {
+        scheduleSidebarSuspend(modelId)
+        return
+      }
+      if (
+        disposedRef.current ||
+        entry.desiredLive ||
+        isSidebarSurfaceActive(modelId)
+      ) {
+        if (!disposedRef.current) void ensureSidebarLive(modelId)
+        return
+      }
+
+      await enqueueSidebarLifecycleTask(entry, async () => {
+        if (
+          disposedRef.current ||
+          entry.desiredLive ||
+          isSidebarSurfaceActive(modelId)
+        ) return
+        const ref = sidebarRefs.current.get(modelId)
+        if (!ref) return
+        if (ref.isHibernated()) {
+          entry.phase = 'suspended'
+          return
+        }
+        entry.phase = 'suspending'
+        console.log(`[workbench-lifecycle] suspend ${modelId}`)
+        const result = await ref.suspend()
+        await waitForSidebarCommit()
+        const success = result.success || result.error === 'Already hibernated'
+        entry.phase = success ? 'suspended' : 'live'
+        if (!success) {
+          console.warn(`[workbench-lifecycle] suspend failed ${modelId}:`, result.error)
+        }
+      })
+
+      if (disposedRef.current) return
+      if (entry.desiredLive || isSidebarSurfaceActive(modelId)) {
+        void ensureSidebarLive(modelId)
+      } else if (entry.phase === 'live') {
+        scheduleSidebarSuspend(modelId)
+      }
+    },
+    [
+      ensureSidebarLive,
+      getLifecycleEntry,
+      isSidebarPageBusy,
+      isSidebarSurfaceActive,
+      scheduleSidebarSuspend
+    ]
+  )
+  attemptSidebarSuspendRef.current = attemptSidebarSuspend
+
+  const reconcileSidebarLifecycles = useCallback((): void => {
+    if (disposedRef.current) return
+    for (const modelId of mountedSidebarModelsRef.current) {
+      if (isSidebarSurfaceActive(modelId)) {
+        void ensureSidebarLive(modelId)
+      } else {
+        scheduleSidebarSuspend(modelId)
+      }
+    }
+  }, [ensureSidebarLive, isSidebarSurfaceActive, scheduleSidebarSuspend])
+
+  const beginSidebarActivity = useCallback((modelId: string): void => {
+    activityCountsRef.current.set(modelId, (activityCountsRef.current.get(modelId) || 0) + 1)
+  }, [])
+
+  const endSidebarActivity = useCallback(
+    (modelId: string): void => {
+      const current = activityCountsRef.current.get(modelId) || 0
+      if (current <= 1) activityCountsRef.current.delete(modelId)
+      else activityCountsRef.current.set(modelId, current - 1)
+      if (disposedRef.current) return
+      if (isSidebarSurfaceActive(modelId)) void ensureSidebarLive(modelId)
+      else scheduleSidebarSuspend(modelId)
+    },
+    [ensureSidebarLive, isSidebarSurfaceActive, scheduleSidebarSuspend]
+  )
+
+  useEffect(() => {
+    mountedSidebarModelsRef.current = mountedSidebarModels
+    reconcileSidebarLifecycles()
+  }, [mountedSidebarModels, reconcileSidebarLifecycles])
+
+  useEffect(() => {
+    reconcileSidebarLifecycles()
+  }, [isActive, rightPane, currentModel?.id, reconcileSidebarLifecycles])
+
+  useEffect(() => {
+    const off = window.api.onWindowVisibility((visible) => {
+      windowVisibleRef.current = visible
+      reconcileSidebarLifecycles()
+    })
+    return off
+  }, [reconcileSidebarLifecycles])
+
+  useEffect(() => {
+    disposedRef.current = false
+    return () => {
+      disposedRef.current = true
+      for (const entry of lifecycleEntriesRef.current.values()) {
+        if (entry.timer) clearTimeout(entry.timer)
+        entry.timer = null
+      }
+      lifecycleEntriesRef.current.clear()
+      activityCountsRef.current.clear()
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
+      toastTimerRef.current = null
+    }
+  }, [])
 
   // 全局 dragend/drop/dragleave/keydown 监听：防止拖拽取消或在外部释放时拖拽状态残留
   useEffect(() => {
@@ -411,34 +699,41 @@ export default function WorkbenchAiSidebar(): JSX.Element | null {
         return raw
       }
     }
+    beginSidebarActivity(platformId)
+    conversationPlatformRef.current = platformId
     void (async () => {
-      for (let attempt = 0; attempt < 40; attempt++) {
-        if (cancelled) return
-        const ref = sidebarRefs.current.get(platformId)
-        if (ref) {
-          // 休眠态下页面停在 about:blank，直接 loadURL 会被休眠遮罩挡住，先唤醒再导航。
-          if (ref.isHibernated()) await ref.resume()
+      try {
+        for (let attempt = 0; attempt < 40; attempt++) {
           if (cancelled) return
-          let current = ''
-          try {
-            current = ref.getCurrentUrl()
-          } catch {
-            current = ''
+          const ref = await ensureSidebarLive(platformId)
+          if (cancelled) return
+          if (ref) {
+            let current = ''
+            try {
+              current = ref.getCurrentUrl()
+            } catch {
+              current = ''
+            }
+            if (current) {
+              if (normalize(current) !== normalize(url)) ref.loadURL(url)
+              setConversationTarget(null)
+              return
+            }
           }
-          if (current) {
-            if (normalize(current) !== normalize(url)) ref.loadURL(url)
-            setConversationTarget(null)
-            return
-          }
+          await new Promise((resolve) => setTimeout(resolve, 250))
         }
-        await new Promise((resolve) => setTimeout(resolve, 250))
+        if (!cancelled) setConversationTarget(null)
+      } finally {
+        if (conversationPlatformRef.current === platformId) {
+          conversationPlatformRef.current = null
+        }
+        endSidebarActivity(platformId)
       }
-      if (!cancelled) setConversationTarget(null)
     })()
     return () => {
       cancelled = true
     }
-  }, [conversationTarget])
+  }, [conversationTarget, ensureSidebarLive, beginSidebarActivity, endSidebarActivity])
 
   // 监听来自划词动作的文本注入事件
   useEffect(() => {
@@ -451,10 +746,18 @@ export default function WorkbenchAiSidebar(): JSX.Element | null {
       if (rightPane !== 'ai') openRightPane('ai')
 
       if (currentModel) {
-        const ref = sidebarRefs.current.get(currentModel.id)
-        if (ref) {
-          void ref.insertText(prompt)
-        }
+        const modelId = currentModel.id
+        beginSidebarActivity(modelId)
+        void (async () => {
+          try {
+            const ref = await ensureSidebarLive(modelId)
+            if (ref) await ref.insertText(prompt)
+          } catch (error) {
+            console.warn(`[workbench-lifecycle] insert prompt failed ${modelId}:`, error)
+          } finally {
+            endSidebarActivity(modelId)
+          }
+        })()
       }
     }
 
@@ -462,7 +765,14 @@ export default function WorkbenchAiSidebar(): JSX.Element | null {
     return () => {
       window.removeEventListener('workbench:insert-prompt', handleInsertPrompt)
     }
-  }, [currentModel, rightPane, openRightPane])
+  }, [
+    currentModel,
+    rightPane,
+    openRightPane,
+    ensureSidebarLive,
+    beginSidebarActivity,
+    endSidebarActivity
+  ])
 
   // 处理文件拖入释放并上传到当前 AI 对话框
   const uploadFilesToCurrentModel = useCallback(
@@ -483,6 +793,8 @@ export default function WorkbenchAiSidebar(): JSX.Element | null {
       uploadingRef.current = { id: uploadId, startedAt: Date.now() }
       setIsUploading(true)
       const isCurrentUpload = (): boolean => uploadGenerationRef.current === uploadId
+      const activityModelId = currentModel?.id
+      if (activityModelId) beginSidebarActivity(activityModelId)
 
       try {
         // 当前文档有未保存修改时，先确认落盘成功，确保 AI 收到完整的最新文件
@@ -509,9 +821,10 @@ export default function WorkbenchAiSidebar(): JSX.Element | null {
           return
         }
 
-        const activeRef = sidebarRefs.current.get(currentModel.id)
+        const activeRef = await ensureSidebarLive(currentModel.id)
+        if (!isCurrentUpload()) return
         if (!activeRef) {
-          showToast('error', `未找到 ${currentModel.name} 的 Webview 实例，请等待页面加载完成`)
+          showToast('error', `${currentModel.name} 页面唤醒失败，请稍后重试`)
           return
         }
 
@@ -586,9 +899,19 @@ export default function WorkbenchAiSidebar(): JSX.Element | null {
           uploadingRef.current = null
           setIsUploading(false)
         }
+        if (activityModelId) endSidebarActivity(activityModelId)
       }
     },
-    [activeFilePath, currentModel, isDirty, saveActiveFile, showToast]
+    [
+      activeFilePath,
+      currentModel,
+      isDirty,
+      saveActiveFile,
+      showToast,
+      ensureSidebarLive,
+      beginSidebarActivity,
+      endSidebarActivity
+    ]
   )
 
   /** 只停止当前批次的等待，不强行中断已派发的拖拽。 */

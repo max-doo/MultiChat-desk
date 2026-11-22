@@ -1,5 +1,43 @@
 # Session Log
 
+## 2026-11-22
+
+### 02:44 | Codex
+
+- done: 深度评审并优化工作台模式内存占用：AI 侧栏离开/隐藏后延迟休眠、恢复后等待就绪；导图/标注按首次打开懒挂载；图片改流式 URL；PDF 改受信 IPC Range；补充忙状态守卫并完成独立开发版验收。
+- context: Workbench 页面常驻、AI 历史平台只 display:none、图片/PDF 走 base64 导致峰值内存高；用户要求独立 Worker 在实际开发版验收方案是否最佳。
+- decision: 采用最小充分方案：保留 WebviewCard 契约，用 about:blank suspend 释放页面层；不为空白 Guest 立即引入 LRU/卸载，避免会话 URL 与草稿丢失；PDF 不用自定义协议 CORS 暴露，改 IPC Range。
+- modified:
+  - `src/main/index.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/main/services/workbenchService.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/index.html`
+  - `src/renderer/src/components/WebviewCard.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchImageNode.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchImagePreview.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchPdfPreview.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchPdfViewer.tsx`
+  - `src/renderer/src/pages/WorkbenchPage.tsx`
+  - `src/shared/utils/webviewScripts.ts`
+- lesson(promoted): 本地文件预览不要给自定义 scheme 开启 corsEnabled/跨源 fetch 面；PDF 用受信 IPC Range，并注意 PDF.js 的 range 为 end-exclusive，而 IPC 底层闭区间需传 end-1。
+- lesson(promoted): about:blank 休眠只释放页面层 V8 堆/DOM，不销毁 Guest WebContents/进程底座；多平台累计空白 Guest 是后续容量治理问题，不能宣称绝对无成本。
+- unresolved: 空白 Guest 的逐平台进程底座仍会累计；如后续确需彻底释放，应单独设计可恢复 URL/草稿/附件的 LRU 或卸载方案并独立验收。
+
+### 01:29 | root
+
+- done: 修复历史笔记迁移不收敛与误标完成：空 v2 工作台记录不再计入待迁移，工作台目标文档缺失时转阻塞，迁移进度持久化，完成前回读校验，暂停竞态与任务级暂停收口，设置页显示阻塞原因并提供直接重试
+- context: 用户反馈历史遗留笔记未迁移到默认库；默认库实际已有 34 篇文档/33 条标注/18 张导图，问题在 3 条临时工作台记录误标完成、job.completed=0、5 条新格式空记录反复待迁移
+- decision: 只对系统临时目录下已消失的工作区重开迁移，普通工作区用户删除文档不复活；新增 verify-failed 区分普通会话回读失败与 workbench-unresolved
+- modified:
+  - `src/main/services/legacyMigrationService.ts`
+  - `src/renderer/src/components/workbench/WorkbenchWorkspaceSettings.tsx`
+  - `docs/workbench-unified-notes-annotation-design.md`
+- lesson(promoted): 迁移枚举器必须跳过无正文/批注/导图且无标记的新格式记录，否则 pending 永不收敛
+- lesson(promoted): 写 migratedAt 前必须回读文档、旁路和导图；写入调用成功不等于目标存在
+- unresolved: 10 条 source 标注的锚点文本不在迁移后正文中，侧栏显示未定位；记录仍保存在 sources/，需另行设计快照差异提示或重新采集
+
 ## 2026-11-21
 
 ### 23:56 | Antigravity

@@ -30,11 +30,25 @@ export default function WorkbenchPage({ isActive = true }: WorkbenchPageProps): 
 
   const [isDraggingLeft, setIsDraggingLeft] = useState(false)
   const [isDraggingRight, setIsDraggingRight] = useState(false)
+  const [mountedRightPanes, setMountedRightPanes] = useState<Set<'mindmap' | 'annotations'>>(() => {
+    return new Set(rightPane && rightPane !== 'ai' ? [rightPane] : [])
+  })
 
   // 初始化加载上次偏好与工作区
   useEffect(() => {
     void initWorkbench()
   }, [initWorkbench])
+
+  // AI 侧栏必须常驻以接收同步 CustomEvent；导图和标注首次打开后保持挂载，兼顾内存与编辑态。
+  useEffect(() => {
+    if (rightPane !== 'mindmap' && rightPane !== 'annotations') return
+    setMountedRightPanes((previous) => {
+      if (previous.has(rightPane)) return previous
+      const next = new Set(previous)
+      next.add(rightPane)
+      return next
+    })
+  }, [rightPane])
 
   // 处理拖拽分隔条 (Left Splitter)
   const handleLeftSplitterPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
@@ -204,16 +218,20 @@ export default function WorkbenchPage({ isActive = true }: WorkbenchPageProps): 
             display: rightPane ? 'block' : 'none'
           }}
         >
-          {/* 两个面板都保持挂载：切换不丢 webview 登录态与导图编辑状态 */}
+          {/* AI 常驻；导图/标注首次打开后保持挂载，避免未使用面板提前创建资源。 */}
           <div className="h-full" style={{ display: rightPane === 'ai' ? 'block' : 'none' }}>
-            <WorkbenchAiSidebar />
+            <WorkbenchAiSidebar isActive={isActive} />
           </div>
-          <div className="h-full" style={{ display: rightPane === 'mindmap' ? 'block' : 'none' }}>
-            <WorkbenchMindmapPanel />
-          </div>
-          <div className="h-full" style={{ display: rightPane === 'annotations' ? 'block' : 'none' }}>
-            <WorkbenchAnnotationPanel />
-          </div>
+          {mountedRightPanes.has('mindmap') && (
+            <div className="h-full" style={{ display: rightPane === 'mindmap' ? 'block' : 'none' }}>
+              <WorkbenchMindmapPanel />
+            </div>
+          )}
+          {mountedRightPanes.has('annotations') && (
+            <div className="h-full" style={{ display: rightPane === 'annotations' ? 'block' : 'none' }}>
+              <WorkbenchAnnotationPanel />
+            </div>
+          )}
         </div>
 
         {/* 当拖拽工作区文件且 AI 侧边栏未展开时，右侧显示展开停靠感应区（绝对浮层，避免挤压中间编辑器导致抖动） */}

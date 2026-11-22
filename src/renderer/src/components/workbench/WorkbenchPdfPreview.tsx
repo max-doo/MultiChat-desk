@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useWorkbenchStore } from '../../store/workbenchStore'
 import { AppIcon } from '../icons/AppIcon'
 import FileTypeIcon from './FileTypeIcon'
@@ -14,7 +14,6 @@ export default function WorkbenchPdfPreview(): JSX.Element {
   const revealFile = useWorkbenchStore((s) => s.revealFile)
 
   const [reloadKey, setReloadKey] = useState(0)
-  const [pdfBytes, setPdfBytes] = useState<Uint8Array | null>(null)
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [loadError, setLoadError] = useState('')
   const [zoom, setZoom] = useState(1)
@@ -32,37 +31,6 @@ export default function WorkbenchPdfPreview(): JSX.Element {
     if (activeFileSize < 1024 * 1024) return `${(activeFileSize / 1024).toFixed(1)} KB`
     return `${(activeFileSize / (1024 * 1024)).toFixed(1)} MB`
   }, [activeFileSize])
-
-  // 内置 PDFium 不向宿主暴露选区文字，改由 PDF.js 渲染并自建文本层。
-  useEffect(() => {
-    if (!workspacePath || !activeFilePath || activeFileOversized) {
-      setPdfBytes(null)
-      return
-    }
-    let cancelled = false
-    setPdfBytes(null)
-    setLoadState('loading')
-    setLoadError('')
-    void window.api.workbench
-      .readPdfBytes(workspacePath, activeFilePath)
-      .then((res) => {
-        if (cancelled) return
-        if (res.success && res.data) {
-          setPdfBytes(res.data.bytes)
-          return
-        }
-        setLoadState('error')
-        setLoadError(res.error || '读取 PDF 失败')
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return
-        setLoadState('error')
-        setLoadError(err instanceof Error ? err.message : String(err))
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [workspacePath, activeFilePath, activeFileOversized, reloadKey])
 
   const handleLoadState = useCallback((state: 'loading' | 'ready' | 'error', message?: string) => {
     setLoadState(state)
@@ -182,11 +150,11 @@ export default function WorkbenchPdfPreview(): JSX.Element {
               <span>在系统阅读器中打开</span>
             </button>
           </div>
-        ) : loadState === 'error' ? (
+        ) : loadState === 'error' || !workspacePath || !activeFilePath || !activeFileSize ? (
           <div className="w-full h-full flex flex-col items-center justify-center p-8 text-center text-text-secondary">
             <AppIcon name="error" size={36} className="text-rose-400 mb-2" />
             <p className="text-sm mb-1">未能加载 PDF 数据或文件已损坏</p>
-            <p className="text-xs mb-4 max-w-md break-words">{loadError}</p>
+            <p className="text-xs mb-4 max-w-md break-words">{loadError || '缺少可加载的文件路径'}</p>
             <button
               type="button"
               onClick={() => {
@@ -197,13 +165,15 @@ export default function WorkbenchPdfPreview(): JSX.Element {
               在外部阅读器中打开
             </button>
           </div>
-        ) : pdfBytes ? (
-          <WorkbenchPdfViewer bytes={pdfBytes} reloadKey={reloadKey} zoom={zoom} onLoadState={handleLoadState} />
         ) : (
-          <div className="w-full h-full flex flex-col items-center justify-center p-8 text-center text-text-secondary">
-            <AppIcon name="autorenew" size={30} className="text-text-secondary/60 mb-2 animate-spin" />
-            <p className="text-sm">正在渲染文档…</p>
-          </div>
+          <WorkbenchPdfViewer
+            workspacePath={workspacePath}
+            relativePath={activeFilePath}
+            fileSize={activeFileSize}
+            reloadKey={reloadKey}
+            zoom={zoom}
+            onLoadState={handleLoadState}
+          />
         )}
 
         {/* 右下角发送与状态 */}

@@ -4,7 +4,8 @@ import type { GitRemoteInfo, GitignoreCategory } from '../../../../shared/types/
 import type {
   LegacyMigrationPendingSummary,
   LegacyMigrationProgress,
-  LegacyMigrationResult
+  LegacyMigrationResult,
+  MigrationBlockedReason
 } from '../../../../shared/types/annotations'
 import { AppIcon } from '../icons/AppIcon'
 import WorkbenchFooterPopover, { WorkbenchFooterPopoverHeader } from './WorkbenchFooterPopover'
@@ -13,6 +14,19 @@ function formatSize(size: number): string {
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(0)} KB`
   return `${(size / (1024 * 1024)).toFixed(1)} MB`
 }
+
+/** 阻塞原因只展示用户能据此行动的中文说明；未映射的值保留原样便于诊断。 */
+const BLOCKED_REASON_LABELS: Record<MigrationBlockedReason, string> = {
+  oversize: '会话过大',
+  'empty-snapshot': '快照为空',
+  'unlocatable-source': '标注无法定位',
+  'annotation-overflow': '标注过多',
+  'mindmap-conflict': '导图冲突',
+  'workbench-unresolved': '原工作区文档不可用',
+  'verify-failed': '目标文件校验失败'
+}
+const blockedReasonLabel = (reason: MigrationBlockedReason): string =>
+  BLOCKED_REASON_LABELS[reason] ?? reason
 
 /**
  * 工作区设置：忽略规则与远程仓库。
@@ -506,7 +520,7 @@ export default function WorkbenchWorkspaceSettings({
                   .slice(0, 5)
                   .map(item => (
                     <p key={item.id} className="truncate" title={item.message || item.reason}>
-                      {item.title}：{item.reason || item.message || item.status}
+                      {item.title}：{item.reason ? blockedReasonLabel(item.reason) : item.message || item.status}
                     </p>
                   ))}
               </div>
@@ -515,7 +529,7 @@ export default function WorkbenchWorkspaceSettings({
               <div className="mt-2 space-y-1">
                 {migrationPending.blockedRecords.slice(0, 5).map(item => (
                   <div key={item.id} className="flex items-center justify-between gap-2">
-                    <span className="min-w-0 truncate text-[11px] text-text-secondary" title={`${item.title}：${item.reason}`}>
+                    <span className="min-w-0 truncate text-[11px] text-text-secondary" title={`${item.title}：${blockedReasonLabel(item.reason)}`}>
                       {item.title}
                     </span>
                     <button

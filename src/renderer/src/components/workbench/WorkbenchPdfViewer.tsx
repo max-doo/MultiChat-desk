@@ -7,6 +7,9 @@ import { AppIcon } from '../icons/AppIcon'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
+const PDF_INITIAL_CHUNK_BYTES = 256 * 1024
+const PDF_RANGE_CHUNK_BYTES = 256 * 1024
+
 interface PdfPageProps {
   pdf: PDFDocumentProxy
   pageNumber: number
@@ -138,14 +141,23 @@ interface PdfMenuState {
 }
 
 interface WorkbenchPdfViewerProps {
-  bytes: Uint8Array | null
+  workspacePath: string
+  relativePath: string
+  fileSize: number
   reloadKey: number
   zoom: number
   onLoadState: (state: 'loading' | 'ready' | 'error', message?: string) => void
 }
 
 /** PDF.js 预览：canvas 绘制页面，透明文本层提供可选中的真实文字。 */
-export default function WorkbenchPdfViewer({ bytes, reloadKey, zoom, onLoadState }: WorkbenchPdfViewerProps): JSX.Element {
+export default function WorkbenchPdfViewer({
+  workspacePath,
+  relativePath,
+  fileSize,
+  reloadKey,
+  zoom,
+  onLoadState
+}: WorkbenchPdfViewerProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null)
   const [fitWidth, setFitWidth] = useState(720)
@@ -171,22 +183,70 @@ export default function WorkbenchPdfViewer({ bytes, reloadKey, zoom, onLoadState
   const width = Math.round(fitWidth * zoom)
 
   useEffect(() => {
-    if (!bytes) return
+    if (!workspacePath || !relativePath || fileSize <= 0) return
     let cancelled = false
+    let failed = false
     let document: PDFDocumentProxy | null = null
+    let loadingTask: ReturnType<typeof pdfjsLib.getDocument> | null = null
+    let rangeTransport: pdfjsLib.PDFDataRangeTransport | null = null
     setPdf(null)
     onLoadState('loading')
 
+    const markError = (message: string): void => {
+      if (cancelled || failed) return
+      failed = true
+      onLoadState('error', message)
+      void loadingTask?.destroy()
+    }
+
     const load = async (): Promise<void> => {
-      // pdfjs 会接管并转移 buffer，传副本避免复用同一份数据时报 "detached"
-      document = await pdfjsLib.getDocument({
-        data: bytes.slice(),
+      // 首段由受信 IPC 读取；PDF.js 后续按 Range 拉取，完整文件不经过 renderer 主堆。
+      const initialEnd = Math.min(fileSize - 1, PDF_INITIAL_CHUNK_BYTES - 1)
+      const initial = await window.api.workbench.readPdfRange(
+        workspacePath,
+        relativePath,
+        0,
+        initialEnd
+      )
+      if (cancelled) return
+      if (!initial.success || !initial.data) {
+        throw new Error(initial.error || '读取 PDF 首段失败')
+      }
+
+      const transport = new pdfjsLib.PDFDataRangeTransport(initial.data.size, initial.data.bytes)
+      transport.requestDataRange = (begin: number, end: number): void => {
+        if (cancelled || failed) return
+        if (end <= begin) {
+          transport.onDataRange(begin, new Uint8Array(0))
+          return
+        }
+        void window.api.workbench
+          // PDF.js 的 range 为 [begin, end)，IPC 读取范围按闭区间表达。
+          .readPdfRange(workspacePath, relativePath, begin, end - 1)
+          .then((result) => {
+            if (cancelled || failed) return
+            if (!result.success || !result.data) {
+              markError(result.error || '读取 PDF 分段失败')
+              return
+            }
+            transport.onDataRange(begin, result.data.bytes)
+          })
+          .catch((error: unknown) => {
+            markError(error instanceof Error ? error.message : String(error))
+          })
+      }
+      rangeTransport = transport
+
+      loadingTask = pdfjsLib.getDocument({
+        range: transport,
+        rangeChunkSize: PDF_RANGE_CHUNK_BYTES,
         cMapUrl: 'pdfjs/cmaps/',
         cMapPacked: true,
         standardFontDataUrl: 'pdfjs/standard_fonts/',
         wasmUrl: 'pdfjs/wasm/',
         iccUrl: 'pdfjs/iccs/'
-      }).promise
+      })
+      document = await loadingTask.promise
       if (cancelled) {
         void document.destroy()
         return
@@ -203,9 +263,11 @@ export default function WorkbenchPdfViewer({ bytes, reloadKey, zoom, onLoadState
 
     return () => {
       cancelled = true
+      rangeTransport?.abort()
       if (document) void document.destroy()
+      else if (loadingTask) void loadingTask.destroy()
     }
-  }, [bytes, reloadKey, onLoadState])
+  }, [workspacePath, relativePath, fileSize, reloadKey, onLoadState])
 
   const handleSelect = useCallback((event: MouseEvent, pageElement: HTMLDivElement): void => {
     const selection = window.getSelection()
