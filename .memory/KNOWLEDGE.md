@@ -170,6 +170,8 @@ Do not copy ordinary session history here. Promote only stable knowledge that is
 
 - **Lexical 本地文件链接不能交给默认 URL 归一化**：`LinkNode.sanitizeUrl()` 会对无协议地址调用 `formatUrl()`，普通文件名会被补成 `https://`，点击层再按浏览器 URL 处理就无法回到工作区文件。Markdown 导入与链接弹层应在进入 `LinkNode` 前识别已知文件扩展名，补 `./` 保留相对路径语义；点击时按当前文档目录解析为工作区相对路径并交给 `openFile()`，而不是使用 `anchor.href` 的绝对 URL。链接目标不存在时需保留当前文档，不能复用“启动恢复时文件已删除就清空编辑器”的分支。
 
+- **Lexical 自定义 GFM 表格导入必须裁掉单元格两侧的填充空白**：`TABLE_ROW_REG_EXP` 只负责取出首尾管道之间的整段内容，直接按 `|` 切分会把 `| a | b |` 中用于排版的空格原样写入 Lexical 单元格；主页的 `remark-gfm` 会按规范自动裁剪，因此同一份 Markdown 在两边表现不一致。拆分后应显式去掉单元格首尾的 ASCII 空格与制表符。不要用 `String.trim()` 代替，它还会删除全角空格和不换行空格，可能改变中文内容；按 GFM 的空白定义使用 `[ \t]` 即可。
+
 - **Lexical Markdown 不解析块级 HTML 表格，需用占位标记桥接并保留原始 HTML**：`@lexical/markdown` 只识别 GFM 管道表格，`<table>` 会落入普通段落。导入前可在代码围栏之外扫描完整 `<table>…</table>` 块，替换为唯一占位标记，再由 element transformer 创建自定义 `DecoratorBlockNode`；节点保存原始 HTML，导出时原样返回，才能保留 `rowspan`、`colspan` 与源码模式内容。富文本展示应通过 `DOMParser` 读取结构并用 React 白名单节点渲染，不要在编辑器内注入原始 HTML。若允许修改已有单元格，应在 focus 时记录单元格内容基线，在 blur 或 Ctrl/Cmd+S 时只回写该单元格并重新序列化 HTML；不要在输入过程中更新 Lexical 节点，否则节点重渲染会打断光标和输入法。验证时需同时检查 `rowspan/colspan`、单元格内 `strong/br`、表格后正文定位，以及编辑一处后源码中的 HTML 是否仍保留合并单元格结构。
 
 - **AppIcon 块级化居中与空状态对齐**：`AppIcon` 统一渲染为 SVG，赋予 `block` 类名后会脱离父级 inline/`text-center` 影响（SVG 变为块级元素后默认 `margin-left: 0` 靠左）。若要在空状态提示中与居中文本对齐，必须配合 `mx-auto` 或将父容器设为 `flex flex-col items-center` 进行水平居中对齐。

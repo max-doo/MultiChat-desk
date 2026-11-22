@@ -1146,6 +1146,86 @@ export class NoteManager {
     })
   }
 
+  /**
+   * 跨工作区移动文档后迁移导图：
+   * - 源工作区的导图文件/绑定记录整份移除（文档已不在这里）
+   * - 目标工作区按新来源重建导图文件，保留原 id、标题与正文
+   * 返回迁移到目标工作区的导图数量。
+   */
+  moveWorkbenchSourceAcrossWorkspaces(
+    sourceWorkspaceRoot: string,
+    targetWorkspaceRoot: string,
+    sourceRelativePath: string,
+    targetRelativePath: string
+  ): Promise<number> {
+    return this.serial(async () => {
+      const sourceRootKey = workbenchRootKey(sourceWorkspaceRoot)
+      const { index } = await this.workbenchIndex(sourceWorkspaceRoot)
+      const sourceMaps = index.mindmaps.filter(entry => entry.source === sourceRelativePath)
+      // 尚未落成文件的旧记录同样参与迁移，避免移动后导图丢失。
+      const legacy = (await this.cachedValues()).filter(value =>
+        value.workbench &&
+        workbenchRootKey(value.workbench.workspaceRoot) === sourceRootKey &&
+        value.workbench.relativePath === sourceRelativePath &&
+        value.mindmaps.length)
+      const legacyMaps = legacy.flatMap(value => value.mindmaps)
+        .filter(map => !sourceMaps.some(entry => entry.id === map.id))
+
+      let moved = 0
+      if (sourceMaps.length || legacyMaps.length) {
+        const record = await this.findWorkbenchUnlocked(targetWorkspaceRoot, targetRelativePath) ??
+          await this.createWorkbenchRecordUnlocked(targetWorkspaceRoot, targetRelativePath)
+        if (!record) throw new Error('目标工作区文档不可读，导图未能迁移')
+        for (const entry of sourceMaps) {
+          try {
+            await this.materializeMindmap(targetWorkspaceRoot, {
+              id: entry.id,
+              source: targetRelativePath,
+              title: entry.title,
+              markdown: entry.markdown,
+              updatedAt: entry.updatedAt
+            })
+            moved++
+          } catch (error) {
+            console.warn('[MindmapIndex] 跨工作区导图迁移失败:', entry.fileSync?.relativePath, error)
+          }
+        }
+        for (const map of legacyMaps) {
+          try {
+            await this.materializeMindmap(targetWorkspaceRoot, {
+              id: map.id,
+              source: targetRelativePath,
+              title: map.title,
+              markdown: map.markdown,
+              updatedAt: map.updatedAt
+            })
+            moved++
+          } catch (error) {
+            console.warn('[MindmapIndex] 跨工作区旧导图迁移失败:', map.id, error)
+          }
+        }
+      }
+
+      // 源侧清理：文档已经不在源工作区，记录与导图文件都不应继续留着。
+      const staleRecords = (await this.cachedValues()).filter(value =>
+        value.workbench &&
+        workbenchRootKey(value.workbench.workspaceRoot) === sourceRootKey &&
+        value.workbench.relativePath === sourceRelativePath)
+      for (const item of staleRecords) {
+        await rm(this.file(item.id), { force: true })
+        this.cache?.delete(item.id)
+      }
+      for (const entry of sourceMaps) {
+        if (!entry.fileSync) continue
+        const file = await this.readFileAtPath(sourceWorkspaceRoot, entry.fileSync.relativePath).catch(() => null)
+        if (!file || file.id !== entry.id) continue
+        try { await this.removeMindmap(sourceWorkspaceRoot, entry.fileSync.relativePath) }
+        catch (error) { console.warn('[MindmapIndex] 源工作区导图删除失败:', entry.fileSync.relativePath, error) }
+      }
+      return moved
+    })
+  }
+
   /** 为已复制到磁盘的文档建立来源记录；读不到文件时返回 null。 */
   private async createWorkbenchRecordUnlocked(workspaceRoot: string, relativePath: string): Promise<NoteConversation | null> {
     let content = ''

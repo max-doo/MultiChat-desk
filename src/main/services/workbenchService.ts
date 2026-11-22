@@ -553,6 +553,8 @@ export async function selectFolder(browserWindow?: BrowserWindow | null): Promis
 
 const DEFAULT_WORKSPACE_STORE_KEY = 'workbench_defaultWorkspacePath'
 const DEFAULT_WORKSPACE_DIR_NAME = 'MultiChat Vault'
+/** 渲染层维护的历史工作区列表（与 store 的 workbench_recentWorkspaces 同键）。 */
+const RECENT_WORKSPACES_STORE_KEY = 'workbench_recentWorkspaces'
 const WELCOME_NOTE_NAME = '欢迎使用.md'
 const WORKBENCH_LAST_WORKSPACE_KEY = 'workbench_lastWorkspacePath'
 const WORKSPACE_SETTINGS_DIR = '.multichat'
@@ -836,6 +838,28 @@ export async function closeWorkspace(
 export function readLastWorkspacePath(store: Store<Record<string, unknown>>): string | null {
   const value = store.get(WORKBENCH_LAST_WORKSPACE_KEY)
   return typeof value === 'string' && value.length > 0 ? value : null
+}
+
+/**
+ * 判断目标根是否属于用户已知工作区：默认库或历史工作区列表。
+ * 跨工作区写入只面向用户主动选择/使用过的目录，避免任意路径被当作移动目标。
+ */
+export async function isKnownWorkspaceRoot(
+  store: Store<Record<string, unknown>>,
+  targetRoot: string
+): Promise<boolean> {
+  if (!targetRoot || typeof targetRoot !== 'string') return false
+  const resolved = path.resolve(targetRoot)
+  const key = normalizeWatchKey(resolved)
+  // 只做路径比对：这里不能触发 ensureDefaultWorkspace，否则一次移动会创建默认库与欢迎笔记。
+  const storedDefault = store.get(DEFAULT_WORKSPACE_STORE_KEY)
+  if (typeof storedDefault === 'string' && storedDefault.length > 0 &&
+    normalizeWatchKey(path.resolve(storedDefault)) === key) return true
+  if (normalizeWatchKey(canonicalDefaultWorkspacePath()) === key) return true
+  const recents = store.get(RECENT_WORKSPACES_STORE_KEY)
+  if (!Array.isArray(recents)) return false
+  return recents.some(item =>
+    typeof item === 'string' && item.length > 0 && normalizeWatchKey(path.resolve(item)) === key)
 }
 
 /**
@@ -1413,21 +1437,7 @@ export async function importExternalPaths(
   const pairs: Array<{ source: string; target: string }> = []
 
   /** 为目标名字在 targetDir 内寻找不冲突的新名（重名加 `-n` 后缀，保留扩展名） */
-  const resolveFreeName = async (baseName: string): Promise<string> => {
-    const ext = path.extname(baseName)
-    const stem = ext ? baseName.slice(0, -ext.length) : baseName
-    let candidate = baseName
-    let counter = 1
-    for (;;) {
-      try {
-        await stat(path.join(safeTargetDir, candidate))
-        candidate = `${stem}-${counter}${ext}`
-        counter++
-      } catch {
-        return candidate
-      }
-    }
-  }
+  const resolveFreeName = (baseName: string): Promise<string> => allocateFreeName(safeTargetDir, baseName)
 
   /** 递归复制时过滤应用内部目录与常见依赖/缓存目录 */
   const copyFilter = (src: string): boolean => !isBlockedImportName(path.basename(src))
@@ -1477,6 +1487,153 @@ export async function importExternalPaths(
   }
 
   return { imported, failed, pairs }
+}
+
+/**
+ * 把一个节点从源工作区移动到另一个工作区根目录（跨工作区移动）。
+ * - 目标根不存在或不可写时直接失败，不产生半成品
+ * - 同盘优先 rename，跨盘/rename 不可用时退回 cp + rm
+ * - 重名自动追加 `-1`/`-2` 后缀，不覆盖目标工作区既有节点
+ * - 附带 `assets/<文档名>/` 附件目录一起搬走，避免图片失效
+ * 返回落盘后的目标相对路径与是否真正移动成功
+ */
+export async function moveNodeAcrossWorkspaces(
+  sourceWorkspaceRoot: string,
+  targetWorkspaceRoot: string,
+  relativePath: string
+): Promise<{ targetRelativePath: string }> {
+  const sourceRoot = path.resolve(sourceWorkspaceRoot)
+  const targetRoot = path.resolve(targetWorkspaceRoot)
+  if (!sourceWorkspaceRoot || !targetWorkspaceRoot || !relativePath) {
+    throw new Error('跨工作区移动参数无效')
+  }
+  if (normalizeWatchKey(sourceRoot) === normalizeWatchKey(targetRoot)) {
+    throw new Error('目标工作区与当前工作区相同')
+  }
+  // 两个工作区互为父子目录时，移动会落进源工作区内部或反之，直接拒绝。
+  const isInside = (child: string, parent: string): boolean => {
+    const sep = path.sep
+    const parentKey = normalizeWatchKey(parent.endsWith(sep) ? parent : parent + sep)
+    return normalizeWatchKey(child.endsWith(sep) ? child : child + sep).startsWith(parentKey)
+  }
+  if (isInside(sourceRoot, targetRoot) || isInside(targetRoot, sourceRoot)) {
+    throw new Error('两个工作区目录互相包含，无法跨工作区移动')
+  }
+  const targetInfo = await stat(targetRoot).catch(() => null)
+  if (!targetInfo?.isDirectory()) throw new Error('目标工作区不存在')
+  if (!(await directoryWritable(targetRoot))) throw new Error('目标工作区不可写')
+
+  const safeSource = await assertSafePath(sourceRoot, relativePath)
+  const sourceInfo = await stat(safeSource)
+  if (sourceInfo.isDirectory()) {
+    throw new Error('暂不支持跨工作区移动文件夹')
+  }
+  const sourceName = path.basename(safeSource)
+  if (isBlockedImportName(sourceName)) {
+    throw new Error('已忽略的系统目录/文件')
+  }
+
+  markWorkspaceSelfWrite(sourceRoot)
+  markWorkspaceSelfWrite(targetRoot)
+
+  const release = await lockCopyTarget(targetRoot)
+  let destPath: string
+  let destName: string
+  try {
+    destName = await allocateFreeName(targetRoot, sourceName)
+    destPath = path.join(targetRoot, destName)
+    await movePath(safeSource, destPath)
+  } finally {
+    release()
+  }
+
+  // 文档附件目录：与 renameNode 的联动一致，搬 assets/<文档名>/。
+  if (MARKDOWN_EXTENSIONS.has(path.extname(safeSource).toLowerCase())) {
+    const assetsName = path.basename(safeSource)
+    const sourceAssets = path.join(path.dirname(safeSource), ASSETS_DIR_NAME, assetsName)
+    const targetAssets = path.join(targetRoot, ASSETS_DIR_NAME, destName)
+    const assetsInfo = await stat(sourceAssets).catch(() => null)
+    if (assetsInfo?.isDirectory() && !(await stat(targetAssets).catch(() => null))) {
+      try {
+        await mkdir(path.dirname(targetAssets), { recursive: true })
+        await movePath(sourceAssets, targetAssets)
+      } catch (error) {
+        console.warn('[Workbench] 跨工作区附件目录迁移失败:', sourceAssets, '->', targetAssets, error)
+      }
+    }
+  }
+
+  // 目标已有同名文件时名字会加 `-n` 后缀，正文里的 assets 引用要跟着改，否则图片失效。
+  // HTML 等文本格式同样引用同目录 assets/，不限于 Markdown。
+  if (destName !== sourceName && isTextAssetReference(destPath)) {
+    try {
+      const content = await fsReadFile(destPath, 'utf-8')
+      const nextContent = content
+        .split(`assets/${sourceName}/`).join(`assets/${destName}/`)
+        .split(encodeURI(`assets/${sourceName}/`)).join(encodeURI(`assets/${destName}/`))
+      if (nextContent !== content) await fsWriteFile(destPath, nextContent, 'utf-8')
+    } catch (error) {
+      console.warn('[Workbench] 跨工作区文档附件引用改写失败:', destPath, error)
+    }
+  }
+
+  return { targetRelativePath: destName }
+}
+
+/** 可能是文本、且会引用同目录 assets/ 的格式。 */
+function isTextAssetReference(filePath: string): boolean {
+  const ext = path.extname(filePath).toLowerCase()
+  return MARKDOWN_EXTENSIONS.has(ext) || TEXT_EXTENSIONS.has(ext) || ['.html', '.htm'].includes(ext)
+}
+
+/** 为导入/移动的名字在目标根下寻找不冲突的新名（重名加 `-n` 后缀，保留扩展名）。 */
+async function allocateFreeName(targetDir: string, baseName: string): Promise<string> {
+  const ext = path.extname(baseName)
+  const stem = ext ? baseName.slice(0, -ext.length) : baseName
+  let candidate = baseName
+  let counter = 1
+  for (;;) {
+    const exists = await stat(path.join(targetDir, candidate)).then(
+      () => true,
+      (error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') return false
+        throw error
+      }
+    )
+    if (!exists) return candidate
+    candidate = `${stem}-${counter}${ext}`
+    counter++
+  }
+}
+
+/**
+ * 移动单个路径：同盘 rename 最快；跨盘 rename 会抛 EXDEV，退回复制后删除。
+ * 复制先落临时名再改名，避免中途失败在目标侧留下半个文件。
+ */
+async function movePath(sourcePath: string, targetPath: string): Promise<void> {
+  try {
+    await rename(sourcePath, targetPath)
+    return
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code
+    if (code !== 'EXDEV') throw error
+  }
+  const temporary = `${targetPath}.${randomUUID()}.moving`
+  try {
+    await cp(sourcePath, temporary, { recursive: true, filter: (src) => !isBlockedImportName(path.basename(src)) })
+    await rename(temporary, targetPath)
+  } finally {
+    await rm(temporary, { recursive: true, force: true }).catch(() => undefined)
+  }
+  // 跨盘复制成功后源文件仍可能被占用；删不掉就回滚目标副本，避免同一文件在两处各留一份。
+  try {
+    await rm(sourcePath, { recursive: true, force: true })
+  } catch (error) {
+    await rm(targetPath, { recursive: true, force: true }).catch(() => undefined)
+    throw new Error(
+      `源文件无法删除（可能被其他程序占用），已取消移动：${error instanceof Error ? error.message : String(error)}`
+    )
+  }
 }
 
 /**

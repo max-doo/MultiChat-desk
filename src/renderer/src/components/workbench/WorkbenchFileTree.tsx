@@ -157,6 +157,9 @@ export default function WorkbenchFileTree(): JSX.Element {
   const findUnreferencedImages = useWorkbenchStore((s) => s.findUnreferencedImages)
   const deleteNodes = useWorkbenchStore((s) => s.deleteNodes)
   const importExternalItems = useWorkbenchStore((s) => s.importExternalItems)
+  const moveToWorkspace = useWorkbenchStore((s) => s.moveToWorkspace)
+  const recentWorkspaces = useWorkbenchStore((s) => s.recentWorkspaces)
+  const defaultWorkspacePath = useWorkbenchStore((s) => s.defaultWorkspacePath)
   const setDraggingNodes = useWorkbenchStore((s) => s.setDraggingNodes)
 
   const [isSearchMode, setIsSearchMode] = useState(false)
@@ -170,6 +173,7 @@ export default function WorkbenchFileTree(): JSX.Element {
   const [anchorPath, setAnchorPath] = useState<string | null>(null)
   const [treeClipboard, setTreeClipboard] = useState<TreeClipboard | null>(null)
   const [isVaultMenuOpen, setIsVaultMenuOpen] = useState(false)
+  const [isMoveMenuOpen, setIsMoveMenuOpen] = useState(false)
 
   const [isWorkspaceSettingsOpen, setIsWorkspaceSettingsOpen] = useState(false)
   const [isSortMenuOpen, setIsSortMenuOpen] = useState(false)
@@ -306,6 +310,22 @@ export default function WorkbenchFileTree(): JSX.Element {
   )
 
   const sortedFileTree = useMemo(() => sortNodes(fileTree), [fileTree, sortNodes])
+
+  /** 跨工作区移动的目标：最近工作区 + 默认库，排除当前工作区 */
+  const moveTargets = useMemo(() => {
+    const seen = new Set<string>()
+    const normalize = (value: string): string => value.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+    const current = workspacePath ? normalize(workspacePath) : ''
+    const out: Array<{ path: string; name: string }> = []
+    for (const candidate of [defaultWorkspacePath, ...recentWorkspaces]) {
+      if (!candidate || !candidate.trim()) continue
+      const key = normalize(candidate)
+      if (key === current || seen.has(key)) continue
+      seen.add(key)
+      out.push({ path: candidate, name: candidate.split(/[/\\]/).filter(Boolean).pop() || candidate })
+    }
+    return out
+  }, [defaultWorkspacePath, recentWorkspaces, workspacePath])
 
   /** 可见节点扁平化（按当前展开状态与排序），用于 Shift 范围选择 */
   const flatVisibleNodes = useMemo(() => {
@@ -724,6 +744,7 @@ export default function WorkbenchFileTree(): JSX.Element {
     }
     const x = Math.min(e.clientX, window.innerWidth - 180)
     const y = Math.min(e.clientY, window.innerHeight - 200)
+    setIsMoveMenuOpen(false)
     setContextMenu({ x, y, node })
   }, [selectedPaths])
 
@@ -1269,6 +1290,21 @@ export default function WorkbenchFileTree(): JSX.Element {
           className="fixed z-50 min-w-[170px] py-1 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-black/10 dark:border-white/10 text-sm animate-in fade-in zoom-in-95 duration-100"
           style={{ left: contextMenu.x, top: contextMenu.y }}
         >
+          {contextMenu.node && (
+            <button
+              type="button"
+              onClick={() => {
+                if (contextMenu.node) {
+                  beginInlineRename(contextMenu.node)
+                }
+                setContextMenu(null)
+              }}
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-text-primary hover:bg-black/5 dark:hover:bg-white/5"
+            >
+              <AppIcon name="edit" size={19} />
+              <span>重命名</span>
+            </button>
+          )}
           {(!contextMenu.node || contextMenu.node.isDirectory) && (
             <>
               <button
@@ -1376,19 +1412,6 @@ export default function WorkbenchFileTree(): JSX.Element {
               <button
                 type="button"
                 onClick={() => {
-                  if (contextMenu.node) {
-                    beginInlineRename(contextMenu.node)
-                  }
-                  setContextMenu(null)
-                }}
-                className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-text-primary hover:bg-black/5 dark:hover:bg-white/5"
-              >
-                <AppIcon name="edit" size={19} />
-                <span>重命名</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
                   const nodes = getUploadNodes()
                   setContextMenu(null)
                   if (nodes.length > 0) requestUploadNodesToAi({ nodes })
@@ -1398,6 +1421,57 @@ export default function WorkbenchFileTree(): JSX.Element {
                 <AppIcon name="send" size={19} className="text-blue-500" />
                 <span>上传到 AI</span>
               </button>
+              {!contextMenu.node.isDirectory && moveTargets.length > 0 && (
+                <div
+                  className="relative"
+                  onMouseEnter={() => setIsMoveMenuOpen(true)}
+                  onMouseLeave={() => setIsMoveMenuOpen(false)}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setIsMoveMenuOpen((v) => !v)}
+                    className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-text-primary hover:bg-black/5 dark:hover:bg-white/5"
+                  >
+                    <AppIcon name="folder_output" size={19} />
+                    <span className="flex-1">移动到其他工作区</span>
+                    <AppIcon name="chevron_right" size={16} />
+                  </button>
+                  {isMoveMenuOpen && (
+                    <div
+                      onMouseEnter={() => setIsMoveMenuOpen(true)}
+                      className={`absolute top-0 -mt-1 max-h-[280px] min-w-[190px] max-w-[240px] overflow-y-auto rounded-xl border border-black/10 bg-white py-1 text-sm shadow-xl dark:border-white/10 dark:bg-gray-800 ${
+                        contextMenu.x + 170 + 200 > window.innerWidth ? 'right-full mr-0.5' : 'left-full ml-0.5'
+                      }`}
+                    >
+                      {moveTargets.map((target) => (
+                        <button
+                          key={target.path}
+                          type="button"
+                          onClick={() => {
+                            const node = contextMenu.node
+                            setContextMenu(null)
+                            setIsMoveMenuOpen(false)
+                            if (!node) return
+                            const multi = selectedPaths.size > 1 && selectedPaths.has(node.path)
+                            const paths = (multi ? Array.from(selectedPaths) : [node.path]).filter(p => {
+                              const item = flatVisibleNodes.find(n => n.path === p)
+                              return item ? !item.isDirectory : true
+                            })
+                            if (!paths.length) return
+                            void moveToWorkspace(target.path, paths)
+                            setSelectedPaths(new Set())
+                          }}
+                          className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-text-primary hover:bg-black/5 dark:hover:bg-white/5"
+                          title={target.path}
+                        >
+                          <AppIcon name="folder" size={19} />
+                          <span className="truncate">{target.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
               <button
                 type="button"
                 onClick={() => {

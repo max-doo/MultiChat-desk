@@ -57,6 +57,7 @@ import {
   findUnreferencedImages as workbenchFindUnreferencedImages,
   deleteNodes as workbenchDeleteNodes,
   importExternalPaths as workbenchImportExternalPaths,
+  moveNodeAcrossWorkspaces as workbenchMoveNodeAcrossWorkspaces,
   watchWorkspace as workbenchWatchWorkspace,
   unwatchWorkspace as workbenchUnwatchWorkspace,
   ensureDefaultWorkspace as workbenchEnsureDefaultWorkspace,
@@ -68,6 +69,8 @@ import {
   assertActiveWorkspace,
   statFile as workbenchStatFile,
   isAuthorizedWorkspaceRoot,
+  authorizeWorkspaceRoot,
+  isKnownWorkspaceRoot as workbenchIsKnownWorkspaceRoot,
   assertSafePath
 } from './services/workbenchService'
 import {
@@ -76,6 +79,7 @@ import {
     deleteDocumentAnnotation,
     rekeyDocumentAnnotations,
     removeDocumentAnnotations,
+    moveDocumentAnnotationsAcrossWorkspaces,
     reconcileDocumentAnnotations,
     listSourceAnnotations,
     upsertSourceAnnotation,
@@ -2177,6 +2181,57 @@ export async function registerIpcHandlers(
                 if (cloned) notesChanged()
             }
             return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    // 跨工作区移动：只能从当前活动工作区搬到已登记的其他工作区。
+    // 文件先落盘，再迁移导图与标注旁路；旁路迁移失败不回滚正文，避免用户文件状态不一致。
+    ipcMain.handle('workbench:move-to-workspace', async (_event, payload: { workspaceRoot: string; targetWorkspaceRoot: string; relativePaths: string[] }) => {
+        try {
+            assertActiveWorkspace(payload.workspaceRoot)
+            // 目标只能来自渲染层维护的历史工作区列表（由用户选择或默认库登记），
+            // 校验通过后登记授权，避免“历史里有但本次会话未打开过”的目标无法写入。
+            const targetAllowed = await workbenchIsKnownWorkspaceRoot(store, payload.targetWorkspaceRoot)
+            if (!targetAllowed) return { success: false, error: '目标工作区不在已知列表中' }
+            authorizeWorkspaceRoot(payload.targetWorkspaceRoot)
+            // 源侧记录/导图文件读取同样要过 assertSafePath 的授权检查（历史工作区可能没有 watcher）。
+            authorizeWorkspaceRoot(payload.workspaceRoot)
+            const relativePaths = Array.isArray(payload.relativePaths) ? payload.relativePaths.filter(Boolean) : []
+            if (!relativePaths.length) return { success: false, error: '未选择要移动的文件' }
+
+            const moved: Array<{ source: string; target: string }> = []
+            const failed: Array<{ path: string; error: string }> = []
+            // 按路径长度排序：父目录先移，子项路径随即失效，直接跳过。
+            for (const relativePath of [...relativePaths].sort((a, b) => a.length - b.length)) {
+                if (moved.some(item => relativePath.startsWith(`${item.source}/`))) continue
+                try {
+                    const result = await workbenchMoveNodeAcrossWorkspaces(
+                        payload.workspaceRoot,
+                        payload.targetWorkspaceRoot,
+                        relativePath
+                    )
+                    await noteManager.moveWorkbenchSourceAcrossWorkspaces(
+                        payload.workspaceRoot,
+                        payload.targetWorkspaceRoot,
+                        relativePath,
+                        result.targetRelativePath
+                    ).catch(error => console.warn('[Workbench] 跨工作区导图迁移失败:', relativePath, error))
+                    await moveDocumentAnnotationsAcrossWorkspaces(
+                        payload.workspaceRoot,
+                        payload.targetWorkspaceRoot,
+                        relativePath,
+                        result.targetRelativePath
+                    ).catch(error => console.warn('[Annotations] 跨工作区标注迁移失败:', relativePath, error))
+                    moved.push({ source: relativePath, target: result.targetRelativePath })
+                } catch (err: unknown) {
+                    failed.push({ path: relativePath, error: err instanceof Error ? err.message : String(err) })
+                }
+            }
+            if (moved.length) notesChanged()
+            return { success: true, data: { moved, failed } }
         } catch (err: unknown) {
             const error = err instanceof Error ? err.message : String(err)
             return { success: false, error }

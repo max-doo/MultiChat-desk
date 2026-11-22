@@ -482,6 +482,8 @@ const api = {
       ipcRenderer.invoke('workbench:delete-nodes', { workspaceRoot, relativePaths }),
     importExternalPaths: (workspaceRoot: string, targetDirRelative: string, sourceAbsolutePaths: string[]): Promise<{ success: boolean; data?: { imported: string[]; failed: { path: string; error: string }[]; pairs: Array<{ source: string; target: string }> }; error?: string }> =>
       ipcRenderer.invoke('workbench:import-external-paths', { workspaceRoot, targetDirRelative, sourceAbsolutePaths }),
+    moveToWorkspace: (workspaceRoot: string, targetWorkspaceRoot: string, relativePaths: string[]): Promise<{ success: boolean; data?: { moved: Array<{ source: string; target: string }>; failed: Array<{ path: string; error: string }> }; error?: string }> =>
+      ipcRenderer.invoke('workbench:move-to-workspace', { workspaceRoot, targetWorkspaceRoot, relativePaths }),
     watch: (workspaceRoot: string): Promise<{ success: boolean; error?: string }> =>
       ipcRenderer.invoke('workbench:watch', { workspaceRoot }),
     unwatch: (workspaceRoot: string): Promise<{ success: boolean; error?: string }> =>

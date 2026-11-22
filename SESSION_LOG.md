@@ -2,6 +2,75 @@
 
 ## 2026-11-22
 
+### 21:23 | Codex
+
+- done: 修复工作台 Markdown 表格导入把排版空格写入单元格：mapToTableCells 按 GFM 规则裁掉单元格两侧 ASCII 空格/制表符，保留全角空格与 NBSP
+- context: 用户反馈管道分隔用的填充空格被渲染为真实空格；主页 remark-gfm 本就会裁剪，问题只在工作台 Lexical 自定义 TABLE transformer
+- decision: 只裁剪 [ \\t]，不使用 String.trim()，避免误删中文全角空格和不换行空格
+- modified:
+  - `src/renderer/src/components/workbench/MarkdownSyncPlugin.tsx`
+- lesson(promoted): Lexical 自定义 GFM 表格导入时，单元格左侧/右侧的排版空白必须在拆分后显式裁剪；GFM 仅把 ASCII 空格和制表符视为填充，不应使用会吞掉 Unicode 空白的 trim()
+
+### 21:12 | Codex
+
+- done: 纠正工作台右上角圆角修改对象：改为中间编辑器右上角
+- context: 用户指出红框圆角属于中间编辑区域右上角，而不是右侧 AI 栏左上角。
+- decision: 中间编辑器在 rightPane 展开时应用 rounded-tr-xl，折叠时不应用；右栏恢复固定 rounded-tl-xl。
+- modified:
+  - `src/renderer/src/pages/WorkbenchPage.tsx`
+
+### 20:59 | Codex
+
+- done: 修复工作台右栏左上角圆角规则：侧栏展开时圆角、关闭时直角
+- context: 根据用户截图，红框标记的是右侧 AI/导图栏左上角；原实现把圆角放在中间编辑器右上角且条件相反。
+- decision: 移除中间编辑器的条件性右上角圆角，右栏容器仅在 rightPane 展开时应用 rounded-tl-xl。
+- modified:
+  - `src/renderer/src/pages/WorkbenchPage.tsx`
+
+### 20:46 | Codex
+
+- done: jsonl/ndjson 文件树图标映射到 jsonIcon
+- context: 继 CODE_EXTENSIONS 分类修复后补充对应文件图标
+- modified:
+  - `src/renderer/src/components/workbench/FileTypeIcon.tsx`
+
+### 20:44 | Codex
+
+- done: 工作台文件分类：将 .jsonl/.ndjson/.gitattributes/.editorconfig 及 conf/cfg/properties/lock/prisma/diff/patch 等代码类扩展归入 CODE_EXTENSIONS，使 jsonl 等代码文件用代码编辑器打开而非 Markdown 编辑器
+- context: 用户反馈 .jsonl 文件被 Markdown 编辑区域打开
+- modified:
+  - `src/shared/types/workbench.ts`
+
+### 20:44 | Codex
+
+- done: 右键菜单顺序调整：重命名置顶，移动到其他工作区放到上传到AI下方，去掉图标配色并简化二级菜单文案
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+
+### 20:34 | Codex
+
+- done: 跨工作区移动改为二级菜单（移动到 <工作区名字>），补轻提示通道与同名副本的 assets 引用改写
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+  - `src/renderer/src/store/workbenchStore.ts`
+  - `src/renderer/src/pages/WorkbenchPage.tsx`
+  - `src/main/services/workbenchService.ts`
+  - `src/main/noteManager.ts`
+  - `src/main/ipcHandlers.ts`
+
+### 20:30 | Codex
+
+- done: 为工作台文件右键菜单新增跨工作区移动（二级菜单「移动到 <工作区名字>」），主进程完成同盘 rename/跨盘复制后删除，并迁移 assets 附件、导图文件与文档标注旁路
+- modified:
+  - `src/main/services/workbenchService.ts`
+  - `src/main/services/annotationService.ts`
+  - `src/main/noteManager.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/src/store/workbenchStore.ts`
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+  - `src/renderer/src/components/icons/AppIcon.tsx`
+
 ### 19:55 | Codex
 
 - done: 提交工作台旁注交互收敛、属性字段归属与会话识别修复

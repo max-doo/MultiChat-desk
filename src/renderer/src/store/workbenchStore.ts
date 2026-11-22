@@ -191,6 +191,8 @@ interface WorkbenchStoreState {
 
   // 错误提示
   error: string | null
+  /** 非错误类轻提示（如跨工作区移动成功），自动消失，不影响错误条 */
+  notice: { message: string } | null
 
   /** 对账判定为「外部删除」的待确认导图记录；确认后带 force+targets 执行。 */
   pendingMindmapDeletions: Array<{ conversationId: string; relativePath: string }> | null
@@ -241,6 +243,10 @@ interface WorkbenchStoreActions {
   findUnreferencedImages: (documentRelativePath: string) => Promise<{ unreferenced: string[]; total: number } | null>
   deleteNodes: (relativePaths: string[]) => Promise<boolean>
   importExternalItems: (targetDirRelative: string, sourceAbsolutePaths: string[]) => Promise<{ imported: string[]; failed: { path: string; error: string }[] } | null>
+  moveToWorkspace: (
+    targetWorkspaceRoot: string,
+    relativePaths: string[]
+  ) => Promise<{ moved: Array<{ source: string; target: string }>; failed: Array<{ path: string; error: string }> } | null>
   handleExternalFsChanged: (workspaceRoot: string) => Promise<void>
   searchFiles: (query: string) => void
   clearSearch: () => void
@@ -259,6 +265,8 @@ interface WorkbenchStoreActions {
   setEditorMode: (mode: EditorMode) => void
   askAi: (text: string, actionType: WorkbenchAiAction) => void
   clearError: () => void
+  showNotice: (message: string) => void
+  clearNotice: () => void
   setDraggingNodes: (nodes: WorkbenchFileNode[] | null) => void
 
   /** 用户对账确认删除：把 pendingMindmapDeletions 带 force+targets 执行。 */
@@ -281,6 +289,7 @@ export type WorkbenchStore = WorkbenchStoreState & WorkbenchStoreActions
 // 防抖与请求序列锁
 let autoSaveTimer: ReturnType<typeof setTimeout> | null = null
 let searchTimer: ReturnType<typeof setTimeout> | null = null
+let noticeTimer: ReturnType<typeof setTimeout> | null = null
 let currentSearchSeq = 0
 let fsWatcherBound = false
 let gitStatusSeq = 0
@@ -427,6 +436,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   editorMode: 'wysiwyg',
 
   error: null,
+  notice: null,
   pendingMindmapDeletions: null,
   draggingNodes: null,
   gitStatus: null,
@@ -1426,6 +1436,63 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   },
 
   /**
+   * 跨工作区移动：把节点搬到另一个工作区根目录。
+   * 当前文档在移动范围内时先落盘，移动成功后清理编辑状态，避免脏内容丢失。
+   */
+  moveToWorkspace: async (targetWorkspaceRoot: string, relativePaths: string[]) => {
+    const { workspacePath, activeFilePath, isDirty } = get()
+    if (!workspacePath || !targetWorkspaceRoot || !relativePaths.length) return null
+    const hitsActive = !!activeFilePath && relativePaths.some(p =>
+      activeFilePath === p || activeFilePath.startsWith(`${p}/`))
+    if (hitsActive && isDirty) {
+      const saved = await get().saveActiveFile()
+      if (!saved.saved) {
+        set({ error: '当前文件保存未完成，无法移动到其他工作区' })
+        return null
+      }
+    }
+    try {
+      const res = await window.api.workbench.moveToWorkspace(workspacePath, targetWorkspaceRoot, relativePaths)
+      if (!res.success || !res.data) {
+        set({ error: res.error || '移动到其他工作区失败' })
+        return null
+      }
+      if (hitsActive) {
+        set({
+          activeFilePath: null,
+          activeFileContent: '',
+          activeFileCategory: null,
+          activeFileDataUrl: null,
+          activeFileUrl: null,
+          activeFileMime: null,
+          activeFileSize: null,
+          activeFileOversized: false,
+          activeAnnotationCount: 0,
+          isDirty: false,
+          saveStatus: 'saved',
+          conflictDiskContent: null
+        })
+        void window.api.storeDelete('workbench_lastActiveFilePath')
+      }
+      await get().loadFileTree()
+      void get().refreshGitStatus()
+      if (res.data.failed.length) {
+        const first = res.data.failed[0]
+        set({ error: `${res.data.failed.length} 项移动失败（${first.path}: ${first.error}）` })
+      } else if (res.data.moved.length) {
+        get().showNotice(res.data.moved.length > 1
+          ? `已移动 ${res.data.moved.length} 项到其他工作区`
+          : `已移动到其他工作区：${res.data.moved[0].target}`)
+      }
+      return res.data
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      set({ error: `移动异常: ${msg}` })
+      return null
+    }
+  },
+
+  /**
    * 外部文件系统变更回调（资源管理器/其他程序在工作区里增删移动文件）。
    * 1. 静默重扫文件树（不打 isLoadingTree 骨架，避免外部频繁变更时树闪烁）
    * 2. 当前激活文件若在磁盘上消失 → 清空编辑器（无脏写回风险）
@@ -1696,6 +1763,18 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   },
 
   clearError: () => set({ error: null }),
+
+  showNotice: (message) => {
+    set({ notice: { message } })
+    if (noticeTimer) clearTimeout(noticeTimer)
+    noticeTimer = setTimeout(() => set({ notice: null }), 3000)
+  },
+
+  clearNotice: () => {
+    if (noticeTimer) clearTimeout(noticeTimer)
+    noticeTimer = null
+    set({ notice: null })
+  },
 
   setDraggingNodes: (nodes) => set({ draggingNodes: nodes }),
 

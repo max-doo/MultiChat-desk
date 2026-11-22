@@ -233,6 +233,46 @@ export async function removeDocumentAnnotations(
 }
 
 /**
+ * 文档跨工作区移动时搬 document 旁路：源文件删除，目标侧按新路径重写。
+ * 目标已存在时按 id 合并，不覆盖既有标注。
+ */
+export async function moveDocumentAnnotationsAcrossWorkspaces(
+  sourceWorkspaceRoot: string,
+  targetWorkspaceRoot: string,
+  sourceRelativePath: string,
+  targetRelativePath: string
+): Promise<number> {
+  const from = posix(sourceRelativePath)
+  const to = posix(targetRelativePath)
+  if (!from || !to) return 0
+  return serial(`document\n${rootKey(targetWorkspaceRoot)}\n${to}`, async () => {
+    const sourcePath = documentFile(sourceWorkspaceRoot, from)
+    const source = await readJson<DocumentAnnotationFile>(sourcePath)
+    if (!source || !Array.isArray(source.annotations) || !source.annotations.length) {
+      await rm(sourcePath, { force: true })
+      return 0
+    }
+    const targetPath = documentFile(targetWorkspaceRoot, to)
+    const target = await readJson<DocumentAnnotationFile>(targetPath)
+    const now = Date.now()
+    const fingerprint = await fingerprintOf(targetWorkspaceRoot, to)
+    await atomicWrite(targetPath, {
+      version: 1,
+      document: {
+        relativePath: to,
+        contentHash: fingerprint?.contentHash ?? source.document.contentHash,
+        size: fingerprint?.size ?? source.document.size,
+        mtime: fingerprint?.mtime ?? source.document.mtime,
+        updatedAt: now
+      },
+      annotations: mergeAnnotations(target?.annotations ?? [], source.annotations, now)
+    })
+    await rm(sourcePath, { force: true })
+    return source.annotations.length
+  })
+}
+
+/**
  * 外部改名找回：新路径 hash → relativePath 扫描 → contentHash+size+mtime 唯一候选。
  * 返回命中的文件内容；不唯一时返回 null，绝不猜测。
  */
