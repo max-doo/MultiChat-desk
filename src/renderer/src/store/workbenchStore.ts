@@ -11,11 +11,16 @@ import {
 } from '../../../shared/types/workbench'
 import {
   adoptLegacyConversationFrontmatter,
+  buildReplyExcerptFrontmatter,
   normalizeConversationFrontmatter,
   upsertConversationFrontmatter
 } from '../../../shared/utils/conversationFrontmatter'
 import { isConversationUrlForPlatform } from '../../../shared/utils/conversationUrl'
 import { defaultSelectors } from '../../../shared/config/selectors'
+import {
+  looksLikeConversationTranscript,
+  stripFrontmatter
+} from '../../../shared/utils/noteTranscript'
 import { useAppStore } from './appStore'
 
 export type SaveStatus = 'saved' | 'saving' | 'error' | 'conflict'
@@ -77,15 +82,41 @@ export function getRightPaneMaxWidth(
  * 保存普通 Markdown 时只收敛明确标成会话的文档；没有 source_kind 的旧会话
  * 文档，只有来源确属已配置平台的会话页才补类型，避免误改用户自己的文档。
  */
+const LEGACY_CONVERSATION_KEYS = new Set([
+  'source',
+  'source_url',
+  'source_key',
+  'source_kind',
+  'platform',
+  'captured_at',
+  'title',
+  'id',
+  'updated_at'
+])
+
 function normalizeMarkdownFrontmatter(content: string): string {
   const normalized = normalizeConversationFrontmatter(content)
   if (normalized !== content) return normalized
   const frontmatter = content.match(/^---[ \t]*\r?\n([\s\S]*?)\r?\n---/)?.[1]
-  if (!frontmatter || /^source_kind\s*:/im.test(frontmatter)) return content
+  if (!frontmatter) return content
+  // 显式写了任何类型（包括 plain）都由文档自己决定，不再做旧会话升级；
+  // 只有完全无类型标记的历史文档才进入兼容判定。
+  if (/^source_kind\s*:/im.test(frontmatter)) return content
+  // 只接管字段集合仍然像「旧会话文档」的文件。带 tags/status 等用户字段的
+  // 笔记即使引用了会话链接，也保持普通 Markdown，不把同名属性解释成来源。
+  const keys = [...frontmatter.matchAll(/^([A-Za-z0-9_-]+)\s*:/gm)].map(match =>
+    match[1].toLowerCase()
+  )
+  if (keys.some(key => !LEGACY_CONVERSATION_KEYS.has(key))) return content
   const raw = /^(?:source|source_url|source_key)\s*:\s*["']?(https:\/\/.+?)["']?\s*$/im.exec(
     frontmatter
   )?.[1]
   if (!raw) return content
+  // 旧会话必须同时具备完整对话结构；只有来源链接、正文是单条回复或普通
+  // 笔记时保持普通文档，避免把回复摘录升级成会话快照。
+  if (!looksLikeConversationTranscript(stripFrontmatter(content))) {
+    return content
+  }
   const isConversation = Object.entries(defaultSelectors.models).some(([platformId, config]) =>
     !!config.newConversationUrl && isConversationUrlForPlatform(platformId, raw, config.newConversationUrl)
   )
@@ -389,7 +420,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   rightPaneWidth: 420,
   isLeftCollapsed: false,
   rightPane: 'ai',
-  showMarginNotes: true,
+  showMarginNotes: false,
   pendingMindmapSelection: null,
   pendingConversationOpen: null,
   sidebarModelId: 'chatgpt',
@@ -1229,10 +1260,14 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       useAppStore.getState().models.find(model => model.id === meta?.platformId)?.name ??
       meta?.platformId ??
       ''
-    const next = upsertConversationFrontmatter(`${prefix}---\n\n${md}\n`, {
+    const upserted = upsertConversationFrontmatter(`${prefix}---\n\n${md}\n`, {
       url: meta?.conversationUrl,
       platform
     })
+    if (upserted.conflict.length) {
+      set({ error: '当前文档已有来源属性，已保留原值，未自动关联本次来源' })
+    }
+    const next = upserted.content
     set({ activeFileContent: next, isDirty: true })
     const saved = await get().saveActiveFile()
     return saved.saved ? { success: true } : fail('写入文件失败')
@@ -1256,13 +1291,14 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     const md = (replyMd || '').trim()
     if (!md) return fail('回复内容为空')
 
-    // 单条答复另存也是会话资料：有链接时写来源，没有链接时仍保留 source_kind。
-    const content = upsertConversationFrontmatter(md, {
+    // 单条回复只是会话中的一段摘录，不是整段会话快照：标成普通文档，
+    // 保留来源便于回看，但不参与会话去重、原文标注和会话库统计。
+    const content = `${buildReplyExcerptFrontmatter({
       url: meta.conversationUrl,
       platform:
         useAppStore.getState().models.find(model => model.id === meta.platformId)?.name ??
         meta.platformId
-    })
+    })}${md}\n`
 
     const dir = activeFilePath && activeFilePath.includes('/')
       ? activeFilePath.slice(0, activeFilePath.lastIndexOf('/'))

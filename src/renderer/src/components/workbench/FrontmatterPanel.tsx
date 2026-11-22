@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { AppIcon } from '../icons/AppIcon'
+import ConfirmModal from '../ConfirmModal'
 import { useAppStore } from '../../store/appStore'
 import { useWorkbenchStore } from '../../store/workbenchStore'
 import { resolveSourceConversation } from '../../utils/noteSourceConversation'
@@ -9,9 +10,15 @@ import {
   normalizeTag,
   isValidTag
 } from '../../../../shared/utils/workbenchTags'
+import {
+  getFrontmatterOwnership,
+  resolveFrontmatterDocumentKind
+} from '../../../../shared/utils/frontmatterPolicy'
+import { sameSourceUrl } from '../../../../shared/utils/conversationFrontmatter'
 
 interface Props {
   frontmatter: string | null
+  filePath?: string | null
   /** 面板把编辑后的完整 frontmatter 块（含 --- 分隔线）回传；null 表示整块删除 */
   onChange: (nextFrontmatter: string | null) => void
 }
@@ -19,62 +26,114 @@ interface Props {
 interface Field {
   key: string
   value: string
-  /** 该字段在 YAML 中是列表（- 多行 / [a,b] 单行）；序列化时按多行列表写回 */
+  /** 该字段在 YAML 中是列表（- 多行 / [a,b] 单行）；写回时按多行列表输出 */
   isList: boolean
+  /** 字段在 frontmatter 内部行数组中的起始行（含） */
+  start: number
+  /** 字段在 frontmatter 内部行数组中的结束行（含） */
+  end: number
+  /** 含嵌套结构；面板只读展示，避免破坏原始 YAML */
+  complex: boolean
+}
+
+interface ParsedFrontmatter {
+  fields: Field[]
+  lines: string[]
+  newline: string
+}
+
+interface FieldEntry {
+  field: Field
+  idx: number
 }
 
 const URL_RE = /^https?:\/\//i
 const LIST_ITEM_RE = /^\s*-\s+(.+)$/
 const KEY_RE = /^[A-Za-z0-9_\-一-龥]+$/
 
-// 极简 YAML 解析：顶层 key + 标量/单行 [a,b]/- 多行列表，覆盖笔记场景够用
-function parseFrontmatter(fm: string | null): Field[] {
-  if (!fm) return []
-  const body = fm.replace(/^---\s*\r?\n/, '').replace(/\r?\n---\s*$/, '')
+const EMPTY_FRONTMATTER: ParsedFrontmatter = { fields: [], lines: [], newline: '\n' }
+
+/**
+ * 极简 YAML 解析：顶层 key + 标量/单行 [a,b]/- 多行列表，覆盖笔记场景够用。
+ * 同时记录字段原始行区间，编辑时只替换该区间，注释和未知行不会丢。
+ */
+function parseFrontmatter(fm: string | null): ParsedFrontmatter {
+  if (!fm) return EMPTY_FRONTMATTER
+  const newline = fm.includes('\r\n') ? '\r\n' : '\n'
+  const block = fm.match(/^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/)
+  if (!block) return EMPTY_FRONTMATTER
+  let lines = block[1].split(/\r?\n/)
+  if (lines.length === 1 && !lines[0]) lines = []
   const fields: Field[] = []
   let current: Field | null = null
 
-  for (const line of body.split(/\r?\n/)) {
-    if (!line.trim() || line.trim().startsWith('#')) continue
-    const listMatch = line.match(LIST_ITEM_RE)
-    if (listMatch && current) {
-      const item = listMatch[1].trim().replace(/^["']|["']$/g, '')
-      if (item) {
-        current.isList = true
-        current.value += (current.value ? ' ' : '') + item
-      }
-      continue
-    }
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
     const kv = line.match(/^([A-Za-z0-9_\-一-龥]+)\s*:\s*(.*)$/)
     if (kv) {
-      current = { key: kv[1], value: (kv[2] || '').trim(), isList: isTagField(kv[1]) }
+      current = {
+        key: kv[1],
+        value: (kv[2] || '').trim(),
+        isList: isTagField(kv[1]),
+        start: i,
+        end: i,
+        complex: false
+      }
       fields.push(current)
-    } else {
-      current = null
+      continue
     }
+    if (!current) continue
+    if (LIST_ITEM_RE.test(line)) {
+      current.isList = true
+      current.end = i
+      continue
+    }
+    // 缩进内容（嵌套值、缩进注释）跟随当前字段，但不参与结构化编辑。
+    if (/^\s+\S/.test(line)) {
+      if (!/^\s*#/.test(line)) current.complex = true
+      current.end = i
+      continue
+    }
+    current = null
   }
 
   for (const f of fields) {
-    if (isTagField(f.key)) {
-      f.isList = true
-      const parsedTags = parseTagsFromFrontmatterValue(f.value)
-      f.value = parsedTags.join(' ')
-    } else {
-      const v = f.value
-      if (v.startsWith('[') && v.endsWith(']')) {
-        f.isList = true
-        f.value = v
-          .slice(1, -1)
-          .split(',')
-          .map((s) => s.trim().replace(/^["']|["']$/g, ''))
-          .filter(Boolean)
-          .join(' ')
-      } else {
-        f.value = v.replace(/^["']|["']$/g, '')
+    if (f.complex) {
+      f.value = ''
+      continue
+    }
+    const inline = f.value
+    if (f.isList) {
+      const items: string[] = []
+      for (let i = f.start + 1; i <= f.end; i++) {
+        const match = lines[i].match(LIST_ITEM_RE)
+        if (match) items.push(match[1].trim().replace(/^["']|["']$/g, ''))
+      }
+      if (items.length) {
+        f.value = isTagField(f.key)
+          ? parseTagsFromFrontmatterValue(items.join(' ')).join(' ')
+          : items.join(' ')
+        continue
       }
     }
+    if (inline.startsWith('[') && inline.endsWith(']')) {
+      f.isList = true
+      f.value = inline
+        .slice(1, -1)
+        .split(',')
+        .map((s) => s.trim().replace(/^["']|["']$/g, ''))
+        .filter(Boolean)
+        .join(' ')
+      continue
+    }
+    if (isTagField(f.key)) {
+      f.isList = true
+      f.value = parseTagsFromFrontmatterValue(inline).join(' ')
+      continue
+    }
+    f.value = inline.replace(/^["']|["']$/g, '')
   }
-  return fields
+  return { fields, lines, newline }
 }
 
 // YAML 标量转义：含特殊字符或长得像其他类型时加双引号
@@ -88,36 +147,54 @@ function yamlScalar(value: string): string {
   return needsQuote ? `"${v.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"` : v
 }
 
-// 字段序列化回 YAML 块：isList 字段写成多行 `-` 列表（对齐 Obsidian 写出格式）
-function serializeFrontmatter(fields: Field[]): string | null {
-  const valid = fields.filter((f) => KEY_RE.test(f.key))
-  if (!valid.length) return null
-  const lines = valid.map((f) => {
-    if (f.isList) {
-      if (isTagField(f.key)) {
-        const items = parseTagsFromFrontmatterValue(f.value)
-        if (!items.length) return `${f.key}:`
-        return `${f.key}:\n${items.map((i) => `  - ${yamlScalar(i)}`).join('\n')}`
-      }
-      const items = f.value
-        .split(/\s+/)
-        .map((s) => s.trim())
-        .filter(Boolean)
-      if (!items.length) return `${f.key}:`
-      return `${f.key}:\n${items.map((i) => `  - ${yamlScalar(i)}`).join('\n')}`
-    }
-    return `${f.key}: ${yamlScalar(f.value)}`
-  })
-  return `---\n${lines.join('\n')}\n---\n`
+function fieldLines(key: string, value: string, isList: boolean): string[] {
+  if (isList) {
+    const items = isTagField(key)
+      ? parseTagsFromFrontmatterValue(value)
+      : value
+          .split(/\s+/)
+          .map((s) => s.trim())
+          .filter(Boolean)
+    if (!items.length) return [`${key}:`]
+    return [`${key}:`, ...items.map((item) => `  - ${yamlScalar(item)}`)]
+  }
+  return [`${key}: ${yamlScalar(value)}`]
+}
+
+interface Edit {
+  start: number
+  end: number
+  /** null 表示删除该字段；否则替换为该行组 */
+  lines: string[] | null
+}
+
+function formatBlock(lines: string[], newline: string): string | null {
+  if (!lines.length) return null
+  return `---${newline}${lines.join(newline)}${newline}---${newline}`
+}
+
+// 只替换被编辑字段的行区间，其余行（含注释、未知字段）逐字保留
+function applyEdits(parsed: ParsedFrontmatter, edits: Edit[]): string | null {
+  const lines = [...parsed.lines]
+  for (const edit of [...edits].sort((a, b) => b.start - a.start)) {
+    lines.splice(edit.start, edit.end - edit.start + 1, ...(edit.lines ?? []))
+  }
+  return formatBlock(lines, parsed.newline)
+}
+
+function appendField(
+  parsed: ParsedFrontmatter,
+  key: string,
+  value: string,
+  isList: boolean
+): string | null {
+  return formatBlock([...parsed.lines, ...fieldLines(key, value, isList)], parsed.newline)
 }
 
 const isDateField = (k: string): boolean => /date|time|created|updated|captured|日期|时间/i.test(k)
 const isSourceField = (k: string): boolean => /^(?:source|source_?url|source_?link|来源)$/i.test(k)
 const isTitleField = (k: string): boolean => /^(?:title|name|标题|名称)$/i.test(k)
 const isDescriptionField = (k: string): boolean => /^(?:description|summary|desc|描述|摘要|简介)$/i.test(k)
-// source_kind 是机器判定会话文档的语义字段，但不值得占用默认属性行；
-// 和来源身份、旧应用状态一起收进“更多属性”。
-const HIDDEN_TECHNICAL_KEYS = new Set(['id', 'source_kind', 'source_key', 'updated_at'])
 const sameFieldValue = (a: string, b: string): boolean =>
   a.trim().replace(/^["']|["']$/g, '') === b.trim().replace(/^["']|["']$/g, '')
 
@@ -167,22 +244,32 @@ function displayKey(key: string): string {
 
 // 对齐 Obsidian「笔记属性」：点击 key 重命名、值行内编辑、tags 可增删 chip、
 // hover 出行尾删除按钮、底部"添加属性"；无属性时同样露出"添加属性"入口
-export default function FrontmatterPanel({ frontmatter, onChange }: Props): JSX.Element {
-  const fields = useMemo(() => parseFrontmatter(frontmatter), [frontmatter])
+export default function FrontmatterPanel({ frontmatter, filePath, onChange }: Props): JSX.Element {
+  const parsed = useMemo(() => parseFrontmatter(frontmatter), [frontmatter])
+  const fields = parsed.fields
+  const ownership = useMemo(
+    () => getFrontmatterOwnership(resolveFrontmatterDocumentKind(frontmatter, filePath)),
+    [frontmatter, filePath]
+  )
+  const roleOf = ownership.roleOf
   const models = useAppStore((s) => s.models)
   const openConversationInAiSidebar = useWorkbenchStore((s) => s.openConversationInAiSidebar)
-  // 只有「属性名是 source 且链接确属某平台会话页」才给入口；
-  // 链接被改写或指向非会话页面时 resolve 返回 null，图标不出现。
+  // 来源链接是否可打开会话由链接本身决定，与文档类型无关。普通文档
+  // 即使不再绑定会话，只要 source 仍指向已配置平台的会话页，就保留
+  // “在侧边栏打开会话”的快捷入口；导图的 source 指向来源文档，不参与。
   const sourceTargets = useMemo(
     () =>
       fields.map((f) =>
-        isSourceField(f.key) && URL_RE.test(f.value)
+        ownership.kind !== 'mindmap' && isSourceField(f.key) && URL_RE.test(f.value)
           ? resolveSourceConversation(f.value, models)
           : null
       ),
-    [fields, models]
+    [fields, models, ownership.kind]
   )
   const [collapsed, setCollapsed] = useState(false)
+  // 会话系统字段默认锁定；解锁只影响当前文件，切换文件后恢复锁定。
+  const [systemUnlocked, setSystemUnlocked] = useState(false)
+  const [convertConfirmOpen, setConvertConfirmOpen] = useState(false)
   const [showTechnical, setShowTechnical] = useState(false)
   const [editingKeyIdx, setEditingKeyIdx] = useState<number | null>(null)
   const [keyDraft, setKeyDraft] = useState('')
@@ -249,52 +336,56 @@ export default function FrontmatterPanel({ frontmatter, onChange }: Props): JSX.
     if (adding) addInputRef.current?.focus()
   }, [adding])
 
+  const entries: FieldEntry[] = useMemo(
+    () => fields.map((field, idx) => ({ field, idx })),
+    [fields]
+  )
+
   // 旧文档可能同时有 source_url 和同值的 source_key。来源标识只是内部身份，
   // 和来源地址完全相同时不重复展示；“更多属性”展开后也保持同样的去重。
-  const dedupedFields = useMemo(() => {
-    const sourceUrls = fields
-      .filter((field) => (isSourceField(field.key) || field.key === 'source_url') && URL_RE.test(field.value))
-      .map((field) => field.value)
-    return fields.filter((field) => {
+  const dedupedEntries = useMemo(() => {
+    const sourceUrls = entries
+      .filter(({ field }) => {
+        const key = field.key.toLowerCase()
+        return (key === 'source' || key === 'source_url') && URL_RE.test(field.value)
+      })
+      .map(({ field }) => field.value)
+    return entries.filter(({ field }) => {
+      const key = field.key.toLowerCase()
+      // 应用认识的类型值由顶部类型行统一表达；用户自己写的其他 source_kind
+      // 仍按普通属性展示，不能被界面静默隐藏。
       if (
-        field.key === 'source_key' &&
-        sourceUrls.some((url) => sameFieldValue(url, field.value))
+        ownership.kind !== 'mindmap' &&
+        key === 'source_kind' &&
+        /^(?:conversation|plain)$/i.test(field.value.trim())
       ) {
         return false
       }
-      if (
-        field.key === 'source_url' &&
-        fields.some(
-          (other) =>
-            other.key === 'source' &&
+      // 同值的来源别名只保留一行；转成普通文档后也不该出现两份相同地址。
+      if (ownership.kind !== 'mindmap' && key === 'source_key') {
+        return !sourceUrls.some((url) => sameFieldValue(url, field.value))
+      }
+      if (ownership.kind !== 'mindmap' && key === 'source_url') {
+        return !entries.some(
+          ({ field: other }) =>
+            other.key.toLowerCase() === 'source' &&
             URL_RE.test(other.value) &&
             sameFieldValue(other.value, field.value)
         )
-      ) {
-        return false
       }
       return true
     })
-  }, [fields])
+  }, [entries, roleOf, ownership.kind])
 
-  const visibleFields = useMemo(() => {
-    const entries = dedupedFields.map((field) => ({ field, idx: fields.indexOf(field) }))
-    if (showTechnical) return entries
-    const hasSourceUrl = dedupedFields.some((field) => isSourceField(field.key) && URL_RE.test(field.value))
-    return entries.filter(({ field }) => {
-      if (field.key === 'source_key' && hasSourceUrl) return false
-      if (field.key === 'title' && hasSourceUrl) return false
-      return !HIDDEN_TECHNICAL_KEYS.has(field.key)
-    })
-  }, [dedupedFields, fields, showTechnical])
-  const technicalFieldCount = useMemo(() => {
-    const hasSourceUrl = dedupedFields.some((field) => isSourceField(field.key) && URL_RE.test(field.value))
-    return dedupedFields.filter((field) => {
-      if (field.key === 'source_key' && hasSourceUrl) return true
-      if (field.key === 'title' && hasSourceUrl) return true
-      return HIDDEN_TECHNICAL_KEYS.has(field.key)
-    }).length
-  }, [dedupedFields])
+  const sourceEntries = dedupedEntries.filter(({ field }) => roleOf(field.key) === 'source')
+  const userEntries = dedupedEntries.filter(({ field }) => roleOf(field.key) === 'user')
+  const identityEntries = dedupedEntries.filter(({ field }) => roleOf(field.key) === 'identity')
+  const technicalFieldCount = identityEntries.length
+  const visibleFieldOrder: FieldEntry[] = [
+    ...sourceEntries,
+    ...userEntries,
+    ...(showTechnical ? identityEntries : [])
+  ]
 
   // 切换文件或外部改动会换掉 frontmatter；收起行内编辑，避免索引落到新字段上
   useEffect(() => {
@@ -302,6 +393,11 @@ export default function FrontmatterPanel({ frontmatter, onChange }: Props): JSX.
     setEditingKeyIdx(null)
     setActiveTagInputIdx(null)
   }, [frontmatter])
+
+  useEffect(() => {
+    setSystemUnlocked(false)
+    setConvertConfirmOpen(false)
+  }, [filePath])
 
   const icon = (f: Field): string => {
     if (isTagField(f.key)) return 'sell'
@@ -312,12 +408,19 @@ export default function FrontmatterPanel({ frontmatter, onChange }: Props): JSX.
     return 'description'
   }
 
-  const commitFields = (next: Field[]): void => {
-    onChange(serializeFrontmatter(next))
+  const commitEdits = (edits: Edit[]): void => {
+    onChange(applyEdits(parsed, edits))
   }
 
   const updateValue = (idx: number, value: string): void => {
-    commitFields(fields.map((f, i) => (i === idx ? { ...f, value } : f)))
+    const f = fields[idx]
+    if (!f || f.complex) return
+    const edits: Edit[] = [
+      { start: f.start, end: f.end, lines: fieldLines(f.key, value, f.isList) }
+    ]
+    // 只改用户明确编辑的那一行；来源身份、平台、采集时间都保持原样，
+    // 由用户在解锁态下自行调整，不做隐式清理。
+    commitEdits(edits)
   }
 
   // 链接值默认是可编辑文本：点击进入行内输入，旁边的图标负责打开。
@@ -342,15 +445,49 @@ export default function FrontmatterPanel({ frontmatter, onChange }: Props): JSX.
   const commitKeyRename = (idx: number): void => {
     const k = keyDraft.trim()
     setEditingKeyIdx(null)
-    if (!k || k === fields[idx]?.key) return
+    const f = fields[idx]
+    if (!f || !k || k === f.key) return
+    if (roleOf(f.key) !== 'user') return
     if (!KEY_RE.test(k)) return
-    // 与已有 key 冲突时放弃改名，避免静默吞掉另一字段
-    if (fields.some((f, i) => i !== idx && f.key === k)) return
-    commitFields(fields.map((f, i) => (i === idx ? { ...f, key: k } : f)))
+    // 与已有 key 或保留键冲突时放弃改名，避免静默吞掉另一字段
+    if (ownership.isReserved(k)) return
+    if (fields.some((other, i) => i !== idx && other.key.toLowerCase() === k.toLowerCase())) return
+    const colon = parsed.lines[f.start].indexOf(':')
+    if (colon < 0) return
+    commitEdits([
+      { start: f.start, end: f.start, lines: [`${k}${parsed.lines[f.start].slice(colon)}`] }
+    ])
   }
 
   const removeField = (idx: number): void => {
-    commitFields(fields.filter((_, i) => i !== idx))
+    const f = fields[idx]
+    if (!f) return
+    const role = roleOf(f.key)
+    const allowed =
+      role === 'user' || (ownership.kind === 'conversation' && systemUnlocked)
+    if (!allowed) return
+    const edits: Edit[] = [{ start: f.start, end: f.end, lines: null }]
+    // 同一来源地址可能同时存在于 source / source_url / source_key（旧格式），
+    // 面板只展示其中一行；删除时清掉同址别名，否则保存会从另一个别名把
+    // source 补回来，用户会看到“删不掉”。不同地址的第二来源不在这里误删。
+    if (
+      /^(?:source|source_url|source_key)$/i.test(f.key) &&
+      URL_RE.test(f.value)
+    ) {
+      for (const other of fields) {
+        if (other === f) continue
+        const otherKey = other.key.toLowerCase()
+        if (
+          (otherKey === 'source' ||
+            otherKey === 'source_url' ||
+            (otherKey === 'source_key' && URL_RE.test(other.value))) &&
+          sameSourceUrl(other.value, f.value)
+        ) {
+          edits.push({ start: other.start, end: other.end, lines: null })
+        }
+      }
+    }
+    commitEdits(edits)
   }
 
   const commitTagDraft = (idx: number, specificTag?: string): void => {
@@ -384,42 +521,130 @@ export default function FrontmatterPanel({ frontmatter, onChange }: Props): JSX.
     const k = newKey.trim()
     setAdding(false)
     setNewKey('')
-    if (!k || !KEY_RE.test(k) || fields.some((f) => f.key === k)) return
-    commitFields([...fields, { key: k, value: '', isList: isTagField(k) }])
+    if (!k || !KEY_RE.test(k) || ownership.isReserved(k)) return
+    if (fields.some((f) => f.key.toLowerCase() === k.toLowerCase())) return
+    onChange(appendField(parsed, k, '', isTagField(k)))
   }
 
-  const hasFields = fields.length > 0
+  const hasVisibleFields = visibleFieldOrder.length > 0
+  const typeField = fields.find((field) => field.key.toLowerCase() === 'source_kind')
+  const isConversationDoc = ownership.kind === 'conversation'
+  // 类型行只属于会话文档。普通文档里的 source_kind: plain 是内部防回退
+  // 标记，不是用户属性，不进入属性面板。
+  // 只允许会话文档解除归属。普通文档没有可信的会话身份，反向翻转类型
+  // 会制造无法打开原文、也无法稳定去重的“假会话文档”。
+  const canConvertToPlain = isConversationDoc && systemUnlocked
+
+  const convertToPlainDocument = (): void => {
+    setConvertConfirmOpen(false)
+    if (!canConvertToPlain || !typeField) return
+    // 只改变文档类型，不顺手删除来源、平台或创建时间：转换后它们都成为
+    // 普通属性，用户可以自行决定保留还是删除。
+    const next = applyEdits(parsed, [
+      { start: typeField.start, end: typeField.end, lines: ['source_kind: plain'] }
+    ])
+    setSystemUnlocked(false)
+    onChange(next)
+  }
 
   return (
     <div
       className="mb-4"
       data-frontmatter-panel="true"
     >
-      <button
-        type="button"
-        onClick={() => setCollapsed((v) => !v)}
-        className="w-full flex items-center gap-1.5 px-0 pt-0 pb-1.5 text-left text-[12px] font-medium text-gray-400 dark:text-gray-500 hover:text-gray-500 dark:hover:text-gray-400 transition-colors select-none"
-      >
-        <AppIcon name={collapsed ? 'chevron_right' : 'expand_more'} size={16} />
-        笔记属性
-        {hasFields && (
-          <span className="ml-auto text-[11px] font-normal opacity-70">{visibleFields.length}</span>
+      <div className="w-full flex items-center gap-1.5 px-0 pt-0 pb-1.5 text-[12px] font-medium text-gray-400 dark:text-gray-500">
+        <button
+          type="button"
+          onClick={() => setCollapsed((v) => !v)}
+          className="flex flex-1 min-w-0 items-center gap-1.5 text-left hover:text-gray-500 dark:hover:text-gray-400 transition-colors select-none"
+        >
+          <AppIcon name={collapsed ? 'chevron_right' : 'expand_more'} size={16} />
+          笔记属性
+          {hasVisibleFields && (
+            <span className="ml-auto text-[11px] font-normal opacity-70">
+              {visibleFieldOrder.length}
+            </span>
+          )}
+        </button>
+        {!collapsed && isConversationDoc && (
+          <button
+            type="button"
+            title={`${systemUnlocked ? '锁定' : '解锁'}系统属性`}
+            aria-label={`${systemUnlocked ? '锁定' : '解锁'}系统属性`}
+            aria-pressed={systemUnlocked}
+            onClick={() => setSystemUnlocked((value) => !value)}
+            className={`shrink-0 transition-colors ${
+              systemUnlocked
+                ? 'text-primary'
+                : 'text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300'
+            }`}
+          >
+            <AppIcon name={systemUnlocked ? 'lock_open' : 'lock'} size={14} />
+          </button>
         )}
-      </button>
+      </div>
 
       {!collapsed && (
         <div className="pb-1">
-          {hasFields && (
-            <dl className="space-y-1">
-              {visibleFields.map(({ field: f, idx }) => (
-                <div
-                  key={idx}
-                  className="group flex items-center gap-3 min-h-[28px] rounded-md -mx-1 px-1 hover:bg-gray-200/50 dark:hover:bg-gray-700/40 transition-colors"
+          {isConversationDoc && (
+            <div className="group flex items-center gap-3 min-h-[28px] rounded-md -mx-1 px-1">
+              <div className="flex items-center gap-1.5 w-32 shrink-0 text-[13px] text-gray-500 dark:text-gray-400">
+                <AppIcon name="article" size={15} className="opacity-60" />
+                文档类型
+              </div>
+              <div className="flex-1 min-w-0 flex items-center gap-2">
+                <span className="text-[13px] text-text-primary">
+                  会话
+                </span>
+              </div>
+              {canConvertToPlain && (
+                <button
+                  type="button"
+                  onClick={() => setConvertConfirmOpen(true)}
+                  className="shrink-0 text-[12px] text-gray-400 hover:text-text-primary dark:text-gray-500 dark:hover:text-gray-200 transition-colors"
                 >
+                  转为普通文档
+                </button>
+              )}
+            </div>
+          )}
+          {hasVisibleFields && (
+            <dl className="space-y-1">
+              {visibleFieldOrder.map(({ field: f, idx }, order) => {
+                const role = roleOf(f.key)
+                const previousRole =
+                  order > 0 ? roleOf(visibleFieldOrder[order - 1].field.key) : null
+                // 复杂结构只禁止改值；改名只替换 key 行、删除只移除整段，
+                // 都不会破坏嵌套内容。
+                const canEditKey = role === 'user'
+                const canRemove =
+                  role === 'user' || (ownership.kind === 'conversation' && systemUnlocked)
+                // 来源类字段解锁后可改；身份缓存和旧版应用状态只允许删除，
+                // 避免用户把内部标识改成无法解释的值。导图的 source 指向
+                // 来源文档，改值会断开绑定，只能整体重建。
+                const canEditValue =
+                  !f.complex &&
+                  (role === 'user' ||
+                    (ownership.kind === 'conversation' &&
+                      systemUnlocked &&
+                      role === 'source'))
+                return (
+                  <Fragment key={idx}>
+                    {role === 'user' && previousRole === 'source' && (
+                      <div className="my-1.5 border-t border-black/5 dark:border-white/5" />
+                    )}
+                    {role === 'identity' && previousRole !== 'identity' && (
+                      <div className="my-1.5 border-t border-black/5 dark:border-white/5" />
+                    )}
+                    <div
+                      className={`group flex items-center gap-3 min-h-[28px] rounded-md -mx-1 px-1 hover:bg-gray-200/50 dark:hover:bg-gray-700/40 transition-colors ${
+                        role === 'identity' ? 'opacity-75' : ''
+                      }`}
+                    >
                   {/* 左列：图标 + 点击可重命名的 key */}
                   <dt className="flex items-center gap-1.5 w-32 shrink-0 text-[13px] text-gray-500 dark:text-gray-400">
                     <AppIcon name={icon(f)} size={15} className="opacity-60" />
-                    {editingKeyIdx === idx ? (
+                    {editingKeyIdx === idx && canEditKey ? (
                       <input
                         autoFocus
                         value={keyDraft}
@@ -432,7 +657,7 @@ export default function FrontmatterPanel({ frontmatter, onChange }: Props): JSX.
                         }}
                         className="w-full min-w-0 bg-white dark:bg-gray-800 border border-primary/50 rounded px-1 py-0 text-[12.5px] text-text-primary focus:outline-none focus:border-primary"
                       />
-                    ) : (
+                    ) : canEditKey ? (
                       <button
                         type="button"
                         title="点击重命名属性"
@@ -444,12 +669,14 @@ export default function FrontmatterPanel({ frontmatter, onChange }: Props): JSX.
                       >
                         {displayKey(f.key)}
                       </button>
+                    ) : (
+                      <span className="truncate">{displayKey(f.key)}</span>
                     )}
                   </dt>
 
                   {/* 右列：值编辑区 */}
                   <dd className="flex-1 min-w-0 flex items-center gap-1.5 flex-wrap">
-                    {isTagField(f.key) ? (
+                    {isTagField(f.key) && !f.complex ? (
                       <>
                         {parseTagsFromFrontmatterValue(f.value).map((tag) => (
                           <span
@@ -645,7 +872,7 @@ export default function FrontmatterPanel({ frontmatter, onChange }: Props): JSX.
                             )}
                         </div>
                       </>
-                    ) : editingUrlIdx === idx ? (
+                    ) : editingUrlIdx === idx && canEditValue ? (
                       <input
                         autoFocus
                         value={urlDraft}
@@ -671,8 +898,12 @@ export default function FrontmatterPanel({ frontmatter, onChange }: Props): JSX.
                       <button
                         type="button"
                         title={f.value}
-                        onClick={() => startUrlEdit(idx, f.value)}
-                        className="min-w-0 flex-1 truncate text-left text-[13px] text-text-primary hover:text-primary"
+                        onClick={() => {
+                          if (canEditValue) startUrlEdit(idx, f.value)
+                        }}
+                        className={`min-w-0 flex-1 truncate text-left text-[13px] text-text-primary ${
+                          canEditValue ? 'hover:text-primary' : 'cursor-default'
+                        }`}
                       >
                         {formatDateValue(f.value)}
                       </button>
@@ -682,15 +913,21 @@ export default function FrontmatterPanel({ frontmatter, onChange }: Props): JSX.
                           href={f.value}
                           target="_blank"
                           rel="noreferrer"
-                          title="点击编辑；Ctrl/Cmd+点击在浏览器打开"
+                          title={
+                            canEditValue
+                              ? '点击编辑；Ctrl/Cmd+点击在浏览器打开'
+                              : 'Ctrl/Cmd+点击在浏览器打开'
+                          }
                           onClick={(e) => {
                             // 普通点击进入编辑；带修饰键时放行，交给主窗口的
                             // setWindowOpenHandler → shell.openExternal 打开本地浏览器
                             if (e.ctrlKey || e.metaKey) return
                             e.preventDefault()
-                            startUrlEdit(idx, f.value)
+                            if (canEditValue) startUrlEdit(idx, f.value)
                           }}
-                          className="min-w-0 truncate text-left text-[13px] text-primary hover:underline cursor-text"
+                          className={`min-w-0 truncate text-left text-[13px] text-primary ${
+                            canEditValue ? 'hover:underline cursor-text' : 'cursor-default'
+                          }`}
                         >
                           {f.value}
                         </a>
@@ -722,7 +959,14 @@ export default function FrontmatterPanel({ frontmatter, onChange }: Props): JSX.
                           </a>
                         )}
                       </span>
-                    ) : (
+                    ) : role === 'identity' && !f.complex ? (
+                      <span
+                        className="min-w-0 flex-1 truncate text-[13px] text-text-secondary"
+                        title={f.value || undefined}
+                      >
+                        {f.value || '—'}
+                      </span>
+                    ) : canEditValue ? (
                       <input
                         value={f.value}
                         onChange={(e) => updateValue(idx, e.target.value)}
@@ -733,20 +977,34 @@ export default function FrontmatterPanel({ frontmatter, onChange }: Props): JSX.
                         placeholder="空"
                         className="flex-1 min-w-[80px] bg-transparent text-[13px] text-text-primary placeholder:text-gray-400/70 focus:outline-none"
                       />
+                    ) : (
+                      <span
+                        className="min-w-0 flex-1 truncate text-[13px] text-text-primary"
+                        title={f.complex ? '嵌套结构，请在源码模式编辑' : undefined}
+                      >
+                        {f.complex ? '嵌套结构' : f.value || '—'}
+                      </span>
                     )}
                   </dd>
 
-                  {/* 行尾删除：对齐 Obsidian hover 行操作 */}
-                  <button
-                    type="button"
-                    aria-label={`删除属性 ${f.key}`}
-                    onClick={() => removeField(idx)}
-                    className="shrink-0 text-gray-400 opacity-0 group-hover:opacity-70 hover:!opacity-100 hover:text-red-500 transition-opacity"
-                  >
-                    <AppIcon name="delete" size={16} />
-                  </button>
-                </div>
-              ))}
+                  {canRemove && (
+                    <button
+                      type="button"
+                      aria-label={`删除属性 ${f.key}`}
+                      onClick={() => removeField(idx)}
+                      className={`shrink-0 text-gray-400 hover:text-red-500 transition-opacity ${
+                        systemUnlocked && role !== 'user'
+                          ? 'opacity-60 hover:!opacity-100'
+                          : 'opacity-0 group-hover:opacity-70 hover:!opacity-100'
+                      }`}
+                    >
+                      <AppIcon name="delete" size={16} />
+                    </button>
+                  )}
+                    </div>
+                  </Fragment>
+                )
+              })}
             </dl>
           )}
 
@@ -755,7 +1013,7 @@ export default function FrontmatterPanel({ frontmatter, onChange }: Props): JSX.
               type="button"
               onClick={() => setShowTechnical((value) => !value)}
               className={`flex items-center gap-1 text-[12px] text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors ${
-                hasFields ? 'mt-1.5' : 'py-1'
+                hasVisibleFields ? 'mt-1.5' : 'py-1'
               }`}
             >
               <AppIcon name={showTechnical ? 'expand_less' : 'expand_more'} size={15} />
@@ -789,7 +1047,7 @@ export default function FrontmatterPanel({ frontmatter, onChange }: Props): JSX.
               type="button"
               onClick={() => setAdding(true)}
               className={`flex items-center gap-1 text-[12px] text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors ${
-                hasFields ? 'mt-1.5' : 'py-1'
+                hasVisibleFields ? 'mt-1.5' : 'py-1'
               }`}
             >
               <AppIcon name="add" size={15} />
@@ -797,6 +1055,19 @@ export default function FrontmatterPanel({ frontmatter, onChange }: Props): JSX.
             </button>
           )}
         </div>
+      )}
+
+      {convertConfirmOpen && (
+        <ConfirmModal
+          isOpen
+          title="转为普通文档"
+          message="转换后将解除与该会话的关联，原文标注不再绑定此文档。来源、平台和创建时间会保留为普通属性，来源链接仍可快捷打开会话。"
+          confirmText="转为普通文档"
+          cancelText="取消"
+          type="warning"
+          onConfirm={convertToPlainDocument}
+          onCancel={() => setConvertConfirmOpen(false)}
+        />
       )}
     </div>
   )

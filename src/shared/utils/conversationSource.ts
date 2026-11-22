@@ -1,4 +1,5 @@
 import { noteConversationKey } from './noteIdentity'
+import { looksLikeConversationTranscript } from './noteTranscript'
 
 export interface ConversationSourceInfo {
   sourceKey: string
@@ -31,17 +32,33 @@ export function readConversationSource(markdown: string): ConversationSourceInfo
     if (!item) continue
     fields[item[1].toLowerCase()] = unquote(item[2])
   }
-  const url = fields.source_url || fields.source || ''
+  // 显式标成普通文档后，source 只是普通属性，不再产生会话关联
+  // （原文入口、原文标注）。没有类型标记的文档只有正文确为完整对话时
+  // 才按来源推断，避免单条回复摘录被当成整段会话。
+  const declaredKind = (fields.source_kind || '').trim().toLowerCase()
+  if (declaredKind && declaredKind !== 'conversation') return null
+  if (!declaredKind && !looksLikeConversationTranscript(markdown.slice(match[0].length))) {
+    return null
+  }
   const title = fields.title || ''
   const platform = fields.platform || ''
   const key = fields.source_key || ''
+  const url = fields.source_url || fields.source || (/^https:\/\//i.test(key) ? key : '')
+  // source_key 是创建时算好的会话身份，能保留就保留（根路径会话依赖标题，
+  // 仅凭地址无法重新算出同一个键）。只有它本身是地址、且与当前 source
+  // 指向不同会话时，才说明用户改过链接，此时按新地址重新计算。
   let sourceKey = key
-  // 只有 source_key 的文档同样可以投影 source 标注；url 仅用于原文回显。
-  if (!sourceKey && /^https:\/\//i.test(url)) {
+  if (url) {
     try {
-      sourceKey = noteConversationKey(url, title)
+      const urlKey = noteConversationKey(url, title)
+      if (!key) {
+        sourceKey = urlKey
+      } else if (/^https:\/\//i.test(key)) {
+        const keyKey = noteConversationKey(key, title)
+        if (keyKey !== urlKey) sourceKey = urlKey
+      }
     } catch {
-      return null
+      if (!key) sourceKey = ''
     }
   }
   if (!sourceKey) return null

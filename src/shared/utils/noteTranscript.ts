@@ -5,6 +5,76 @@ export interface SnapshotBlock {
   startLine: number
 }
 
+const USER_MARKER_HEADING_RE =
+  /^#{1,6}\s*(?:\*\*)?(?:你说|你|用户|User|Human|You said|问题|用户问题)(?:\*\*)?\s*[:：]?\s*$/i
+const USER_MARKER_INLINE_RE =
+  /^(?:\*\*)?(?:你说|用户|User|Human|You said)(?:\*\*)?\s*[:：]/i
+const ASSISTANT_MARKER_HEADING_RE =
+  /^#{1,6}\s*(?:\*\*)?(?:ChatGPT|Claude|Gemini|Grok|豆包|DeepSeek|Kimi|千问|元宝|智谱清言|文心一言|Perplexity|AI|助手|Assistant|AI\s*回复)(?:\s*说|\s*said)?(?:\*\*)?\s*[:：]?\s*$/i
+const ASSISTANT_MARKER_INLINE_RE =
+  /^(?:\*\*)?(?:ChatGPT|Claude|Gemini|Grok|豆包|DeepSeek|Kimi|千问|元宝|智谱清言|文心一言|Perplexity|AI|助手|Assistant)(?:\s*说|\s*said)(?:\*\*)?\s*[:：]/i
+
+/**
+ * 判断正文是否像一份完整会话记录，而不是单条回复摘录。
+ * 完整会话至少应出现用户轮次，并在其后出现助手轮次；只有助手内容的
+ * 回复摘录、普通笔记和代码块中的示例都不算会话记录。
+ */
+export function looksLikeConversationTranscript(markdown: string): boolean {
+  if (!markdown.trim()) return false
+  let fence: string | null = null
+  let userIndex = -1
+  let assistantIndex = -1
+  const lines = markdown.split(/\r?\n/)
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    const fenceMatch = /^ {0,3}(`{3,}|~{3,})/.exec(line)
+    if (fenceMatch) {
+      const marker = fenceMatch[1][0]
+      if (!fence) fence = marker
+      else if (fence === marker) fence = null
+      continue
+    }
+    if (fence) continue
+
+    const trimmed = line.trim()
+    if (userIndex < 0) {
+      if (
+        /^<user(?:\s+time=["'][^"']*["'])?\s*>$/i.test(trimmed) ||
+        USER_MARKER_HEADING_RE.test(trimmed) ||
+        USER_MARKER_INLINE_RE.test(trimmed)
+      ) {
+        userIndex = i
+      }
+    }
+    if (userIndex < 0) continue
+    if (
+      /^<assistant>$/i.test(trimmed) ||
+      ASSISTANT_MARKER_HEADING_RE.test(trimmed) ||
+      ASSISTANT_MARKER_INLINE_RE.test(trimmed)
+    ) {
+      assistantIndex = i
+      break
+    }
+    // 兼容未知平台的「## 平台：」标题；只在用户轮次之后才算助手轮次。
+    if (/^#{1,6}\s+\S.*[：:]\s*$/.test(trimmed)) {
+      const label = trimmed.replace(/^#{1,6}\s+/, '').replace(/[：:]\s*$/, '').trim()
+      if (!/^(?:你说|你|用户|User|Human|You said|问题|用户问题)$/i.test(label)) {
+        assistantIndex = i
+        break
+      }
+    }
+  }
+
+  return userIndex >= 0 && assistantIndex > userIndex
+}
+
+/** 去掉文件开头的 frontmatter，只保留正文；没有 frontmatter 时原样返回。 */
+export function stripFrontmatter(markdown: string): string {
+  const match = markdown.match(/^---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/)
+  return match ? markdown.slice(match[0].length) : markdown
+}
+
 const isUserHeadingOrLabel = (line: string): boolean => {
   const trimmed = line.trim()
   if (/^(?:#{1,6}\s*)?(?:\*\*)?(?:你说|你|用户|我|User|Human|You said)(?:\*\*)?\s*[:：]?\s*$/i.test(trimmed)) return true

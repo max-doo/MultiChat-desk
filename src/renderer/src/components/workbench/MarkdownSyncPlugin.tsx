@@ -628,10 +628,18 @@ export default function MarkdownSyncPlugin(): null {
       const md = detail?.replyMd
       if (!md) return
       // 插入回复属于会话资料：先补 frontmatter，再让 Lexical 的后续回写带上它。
-      frontmatterRef.current = upsertConversationFrontmatter(frontmatterRef.current ?? '', {
+      const upserted = upsertConversationFrontmatter(frontmatterRef.current ?? '', {
         url: detail.conversationUrl,
         platform: detail.platform
       })
+      if (upserted.conflict.length) {
+        // 普通笔记里已有同名属性时保住用户值，只提示未自动关联来源。
+        useWorkbenchStore.setState({
+          error: '当前文档已有来源属性，已保留原值，未自动关联本次来源'
+        })
+      } else {
+        frontmatterRef.current = upserted.content
+      }
       editor.dispatchCommand(INSERT_REPLY_COMMAND, md)
     }
     window.addEventListener('workbench:insert-reply', handler)

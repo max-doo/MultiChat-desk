@@ -22,7 +22,11 @@ import { noteConversationKey } from '../../shared/utils/noteIdentity'
 import { isConversationUrlForPlatform } from '../../shared/utils/conversationUrl'
 import { defaultSelectors } from '../../shared/config/selectors'
 import { sanitizeMindmapFileName } from '../../shared/utils/mindmapFile'
-import { snapshotToDocumentMarkdown } from '../../shared/utils/noteTranscript'
+import {
+  looksLikeConversationTranscript,
+  snapshotToDocumentMarkdown,
+  stripFrontmatter
+} from '../../shared/utils/noteTranscript'
 import { buildConversationFrontmatter } from '../../shared/utils/conversationFrontmatter'
 import {
   getActiveWorkspaceRoot,
@@ -150,8 +154,10 @@ export async function scanConversationDocuments(root: string): Promise<Conversat
       (value): value is string => !!value && /^https:\/\//i.test(value)
     )
     if (!declaredConversation) {
-      // 无类型标记时只兼容来源确属平台会话页的历史文档；普通 Markdown 的外部链接不参与筛选。
+      // 无类型标记时只兼容来源确属平台会话页、且正文确为完整对话的历史文档；
+      // 单条回复摘录和普通 Markdown 的外部链接都不进入会话库。
       if (!httpsKey || !isLegacyConversationSource(httpsKey)) return
+      if (!looksLikeConversationTranscript(stripFrontmatter(content))) return
     }
     const heading = content.split('\n').find(line => /^#\s+/.test(line))?.replace(/^#\s+/, '').trim()
     const title = frontmatter.title || heading || path.basename(relativePath, path.extname(relativePath))
@@ -238,7 +244,9 @@ async function resolveFreeDocumentPath(
         continue
       }
       const frontmatter = parseFrontmatter(content)
-      const existingKey = frontmatter.sourceKey || frontmatter.source || frontmatter.sourceUrl
+      // 以原始地址为准，source_key 只是缓存：用户改过链接后，旧缓存不能
+      // 继续命中另一篇会话文档。
+      const existingKey = frontmatter.sourceUrl || frontmatter.source || frontmatter.sourceKey
       if (existingKey) {
         try {
           if (noteConversationKey(existingKey, frontmatter.title || title) === sourceKey) return relativePath
