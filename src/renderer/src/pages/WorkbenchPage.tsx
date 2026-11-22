@@ -22,6 +22,8 @@ export default function WorkbenchPage({ isActive = true }: WorkbenchPageProps): 
   const setRightPaneWidth = useWorkbenchStore((s) => s.setRightPaneWidth)
   const error = useWorkbenchStore((s) => s.error)
   const clearError = useWorkbenchStore((s) => s.clearError)
+  const notice = useWorkbenchStore((s) => s.notice)
+  const clearNotice = useWorkbenchStore((s) => s.clearNotice)
   const draggingNodes = useWorkbenchStore((s) => s.draggingNodes)
   const openRightPane = useWorkbenchStore((s) => s.openRightPane)
   const pendingMindmapDeletions = useWorkbenchStore((s) => s.pendingMindmapDeletions)
@@ -139,6 +141,21 @@ export default function WorkbenchPage({ isActive = true }: WorkbenchPageProps): 
         </div>
       )}
 
+      {/* 成功类轻提示：与错误条共用位置，不堆叠 */}
+      {!error && notice && (
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-50 px-4 py-2 bg-emerald-500 text-white rounded-xl shadow-xl flex items-center gap-2 text-xs animate-in fade-in slide-in-from-top duration-200">
+          <AppIcon name="check_circle" size={16} />
+          <span>{notice.message}</span>
+          <button
+            type="button"
+            onClick={clearNotice}
+            className="w-4 h-4 flex items-center justify-center hover:bg-white/20 rounded-full"
+          >
+            <AppIcon name="close" size={12} />
+          </button>
+        </div>
+      )}
+
       {/* 对账判定为外部删除的导图确认条 */}
       {pendingMindmapDeletions && pendingMindmapDeletions.length > 0 && (
         <div className="absolute top-3 left-1/2 -translate-x-1/2 z-50 px-4 py-2 bg-amber-500 text-white rounded-xl shadow-xl flex items-center gap-3 text-xs animate-in fade-in slide-in-from-top duration-200">
@@ -184,8 +201,8 @@ export default function WorkbenchPage({ isActive = true }: WorkbenchPageProps): 
           </div>
         )}
 
-        {/* 中栏：Meta Lexical 编辑器（左栏折叠时左上角贴齐窗口边缘、右栏折叠时右上角贴齐，不再圆角） */}
-        <div className={`flex-1 h-full min-w-[${WORKBENCH_MIN_EDITOR_WIDTH}px] overflow-hidden flex flex-col bg-white dark:bg-gray-900 border-l border-t border-r border-black/5 dark:border-white/5 ${isLeftCollapsed ? '' : 'rounded-tl-xl'} ${rightPane ? '' : 'rounded-tr-xl'}`}>
+        {/* 中栏：Meta Lexical 编辑器（侧栏折叠时对应角贴齐窗口边缘，不再圆角） */}
+        <div className={`flex-1 h-full min-w-[${WORKBENCH_MIN_EDITOR_WIDTH}px] overflow-hidden flex flex-col bg-white dark:bg-gray-900 border-l border-t border-r border-black/5 dark:border-white/5 ${isLeftCollapsed ? '' : 'rounded-tl-xl'} ${rightPane ? 'rounded-tr-xl' : ''}`}>
           <WorkbenchEditor />
         </div>
 

@@ -225,7 +225,7 @@ const mapToTableCells = (textContent: string): TableCellNode[] | null => {
   if (!match || !match[1]) {
     return null
   }
-  return match[1].split('|').map((text) => $createTableCell(text))
+  return match[1].split('|').map((text) => $createTableCell(text.replace(/^[ \t]+|[ \t]+$/g, '')))
 }
 
 export const TABLE_TRANSFORMER: ElementTransformer = {

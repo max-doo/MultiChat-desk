@@ -173,7 +173,7 @@ export const TEXT_EXTENSIONS = new Set(['.log', '.csv', '.tsv'])
 
 export const CODE_EXTENSIONS = new Set([
   '.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs',
-  '.json', '.json5',
+  '.json', '.json5', '.jsonl', '.ndjson',
   '.html', '.htm', '.css', '.scss', '.less', '.sass',
   '.py', '.pyw',
   '.java', '.class',
@@ -182,10 +182,11 @@ export const CODE_EXTENSIONS = new Set([
   '.sql',
   '.sh', '.bash', '.zsh', '.ps1', '.bat', '.cmd',
   '.yaml', '.yml', '.xml', '.toml', '.ini', '.env',
-  '.dockerfile', '.dockerignore', '.gitignore',
+  '.dockerfile', '.dockerignore', '.gitignore', '.gitattributes', '.editorconfig',
   '.graphql', '.gql', '.proto',
   '.vue', '.svelte',
-  '.lua', '.r', '.dart'
+  '.lua', '.r', '.dart',
+  '.conf', '.cfg', '.properties', '.lock', '.prisma', '.diff', '.patch'
 ])
 
 export function getFileCategory(nameOrPath: string): WorkbenchFileCategory {

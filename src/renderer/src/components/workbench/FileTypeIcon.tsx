@@ -60,6 +60,8 @@ const EXT_TO_ICON: Record<string, string> = {
   '.cjs': jsIcon,
   '.json': jsonIcon,
   '.json5': jsonIcon,
+  '.jsonl': jsonIcon,
+  '.ndjson': jsonIcon,
   '.html': htmlIcon,
   '.htm': htmlIcon,
   '.css': cssIcon,
