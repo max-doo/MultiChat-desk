@@ -9,6 +9,14 @@ import {
   getFileCategory,
   MARKDOWN_EXTENSIONS
 } from '../../../shared/types/workbench'
+import {
+  adoptLegacyConversationFrontmatter,
+  normalizeConversationFrontmatter,
+  upsertConversationFrontmatter
+} from '../../../shared/utils/conversationFrontmatter'
+import { isConversationUrlForPlatform } from '../../../shared/utils/conversationUrl'
+import { defaultSelectors } from '../../../shared/config/selectors'
+import { useAppStore } from './appStore'
 
 export type SaveStatus = 'saved' | 'saving' | 'error' | 'conflict'
 export interface SaveActiveFileResult {
@@ -17,8 +25,8 @@ export interface SaveActiveFileResult {
 }
 export type EditorMode = 'wysiwyg' | 'source'
 export type WorkbenchAiAction = 'ask' | 'explain' | 'polish' | 'summarize'
-/** 右侧栏与快捷窗口一致：AI 对话、标注和思维导图同一时刻只显示一个。 */
-export type WorkbenchRightPane = 'ai' | 'annotations' | 'mindmap' | null
+/** 右侧栏与快捷窗口一致：AI 对话和思维导图同一时刻只显示一个（注释改为在编辑器右侧边距原位展示）。 */
+export type WorkbenchRightPane = 'ai' | 'mindmap' | null
 export type WorkbenchSortKey = 'name' | 'mtime' | 'size'
 export type WorkbenchSortOrder = 'asc' | 'desc'
 
@@ -26,8 +34,6 @@ export interface WorkbenchSortPreference {
   key: WorkbenchSortKey
   order: WorkbenchSortOrder
 }
-
-const FRONTMATTER_RE = /^---\s*\r?\n([\s\S]*?)\r?\n---\s*(?:\r?\n|$)/
 
 // 右侧 AI 侧边栏宽度限制：随窗口宽度分档，避免小窗下侧边栏过宽挤压编辑器
 export const WORKBENCH_MIN_EDITOR_WIDTH = 380
@@ -67,6 +73,26 @@ export function getRightPaneMaxWidth(
   return Math.min(tierMax, maxAllowedByWindow)
 }
 
+/**
+ * 保存普通 Markdown 时只收敛明确标成会话的文档；没有 source_kind 的旧会话
+ * 文档，只有来源确属已配置平台的会话页才补类型，避免误改用户自己的文档。
+ */
+function normalizeMarkdownFrontmatter(content: string): string {
+  const normalized = normalizeConversationFrontmatter(content)
+  if (normalized !== content) return normalized
+  const frontmatter = content.match(/^---[ \t]*\r?\n([\s\S]*?)\r?\n---/)?.[1]
+  if (!frontmatter || /^source_kind\s*:/im.test(frontmatter)) return content
+  const raw = /^(?:source|source_url|source_key)\s*:\s*["']?(https:\/\/.+?)["']?\s*$/im.exec(
+    frontmatter
+  )?.[1]
+  if (!raw) return content
+  const isConversation = Object.entries(defaultSelectors.models).some(([platformId, config]) =>
+    !!config.newConversationUrl && isConversationUrlForPlatform(platformId, raw, config.newConversationUrl)
+  )
+  if (!isConversation) return content
+  return adoptLegacyConversationFrontmatter(content)
+}
+
 function clampRightPaneWidth(
   width: number,
   windowWidth?: number,
@@ -75,28 +101,6 @@ function clampRightPaneWidth(
 ): number {
   const maxAllowed = getRightPaneMaxWidth(windowWidth, leftWidth, isLeftCollapsed)
   return Math.max(RIGHT_PANE_MIN, Math.min(maxAllowed, width))
-}
-
-/**
- * 往 Markdown 的 YAML frontmatter 补一条 source 链接。
- * 已有 frontmatter：把 url 并入 source 字段（不存在则新增一行）；
- * 无 frontmatter：新建 `---\nsource: url\n---\n` 头部。
- */
-function upsertFrontmatterSource(content: string, url?: string): string {
-  if (!url) return content
-  const m = content.match(FRONTMATTER_RE)
-  if (!m) {
-    return `---\nsource: ${url}\n---\n\n${content}`
-  }
-  const head = m[0]
-  const body = m[1]
-  // 已有 source 行 → 追加 url（若未含该 url）
-  if (/^source\s*:/m.test(body)) {
-    if (body.includes(url)) return content
-    const next = body.replace(/^(source\s*:.*)$/m, `$1\nsource: ${url}`)
-    return `---\n${next}\n---\n` + content.slice(head.length)
-  }
-  return `---\n${body}\nsource: ${url}\n---\n` + content.slice(head.length)
 }
 
 interface WorkbenchStoreState {
@@ -145,6 +149,8 @@ interface WorkbenchStoreState {
   rightPaneWidth: number
   isLeftCollapsed: boolean
   rightPane: WorkbenchRightPane
+  /** 是否在文档右侧展示原位旁注便签 */
+  showMarginNotes: boolean
   /** 待生成的选区范围；由编辑器划词菜单写入，导图面板消费后清空。 */
   pendingMindmapSelection: { text: string; headingPath: string[] } | null
   /** 待打开的来源会话；笔记属性里的会话图标写入，AI 侧边栏消费后清空。 */
@@ -193,7 +199,7 @@ interface WorkbenchStoreActions {
   deleteNode: (relativePath: string) => Promise<boolean>
   insertReplyIntoActiveMarkdown: (
     replyMd: string,
-    _meta?: { conversationUrl?: string }
+    meta?: { conversationUrl?: string; platformId?: string }
   ) => Promise<{ success: boolean; error?: string }>
   saveReplyAsNewMarkdown: (
     replyMd: string,
@@ -212,6 +218,7 @@ interface WorkbenchStoreActions {
   setLeftPaneWidth: (width: number, persist?: boolean) => number
   setRightPaneWidth: (width: number, persist?: boolean) => number
   toggleLeftCollapse: () => void
+  toggleMarginNotes: () => void
   openRightPane: (pane: Exclude<WorkbenchRightPane, null>) => void
   closeRightPane: () => void
   setPendingMindmapSelection: (selection: { text: string; headingPath: string[] } | null) => void
@@ -382,6 +389,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   rightPaneWidth: 420,
   isLeftCollapsed: false,
   rightPane: 'ai',
+  showMarginNotes: true,
   pendingMindmapSelection: null,
   pendingConversationOpen: null,
   sidebarModelId: 'chatgpt',
@@ -451,13 +459,15 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         updates.isLeftCollapsed = savedLeftCollapsed
       }
       // 新键优先；老版本只有布尔折叠状态，迁移成「AI 展开 / 全部收起」。
+      // 注释已从右侧独立抽屉迁移为文档原位边距流，历史保存的 annotations 回退为 null。
       if (
         savedRightPane === 'ai' ||
-        savedRightPane === 'annotations' ||
         savedRightPane === 'mindmap' ||
         savedRightPane === null
       ) {
         updates.rightPane = savedRightPane
+      } else if (savedRightPane === 'annotations') {
+        updates.rightPane = null
       } else if (typeof savedRightCollapsed === 'boolean') {
         updates.rightPane = savedRightCollapsed ? null : 'ai'
       }
@@ -847,9 +857,14 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
 
     set({ saveStatus: 'saving' })
     try {
-      const res = await window.api.workbench.writeFile(workspacePath, activeFilePath, activeFileContent)
+      const content =
+        activeFileCategory === 'markdown'
+          ? normalizeMarkdownFrontmatter(activeFileContent)
+          : activeFileContent
+      const res = await window.api.workbench.writeFile(workspacePath, activeFilePath, content)
       if (res.success && res.data) {
         set({
+          activeFileContent: content,
           isDirty: false,
           saveStatus: 'saved',
           lastSavedAt: res.data.mtime,
@@ -1171,7 +1186,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
    */
   insertReplyIntoActiveMarkdown: async (
     replyMd: string,
-    _meta?: { conversationUrl?: string }
+    meta?: { conversationUrl?: string; platformId?: string }
   ) => {
     const { activeFilePath, activeFileCategory, editorMode, isDirty } = get()
     const fail = (error: string): { success: boolean; error: string } => {
@@ -1193,15 +1208,31 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     }
 
     if (editorMode === 'wysiwyg') {
-      // 交给 Lexical 在光标处待确认插入；正文由 Lexical 回写
-      window.dispatchEvent(new CustomEvent('workbench:insert-reply', { detail: { replyMd: md } }))
+      // 交给 Lexical 在光标处待确认插入；正文由 Lexical 回写。
+      // 同时带上会话元数据，插入回写时才能补 source_kind，避免变成普通 Markdown。
+      const platform =
+        useAppStore.getState().models.find(model => model.id === meta?.platformId)?.name ??
+        meta?.platformId ??
+        ''
+      window.dispatchEvent(
+        new CustomEvent('workbench:insert-reply', {
+          detail: { replyMd: md, conversationUrl: meta?.conversationUrl, platform }
+        })
+      )
       return { success: true }
     }
 
     // source 模式：直接末尾追加并落盘
     const cur = get().activeFileContent
     const prefix = cur.trim() ? `${cur.replace(/\s+$/, '')}\n\n` : ''
-    const next = `${prefix}---\n\n${md}\n`
+    const platform =
+      useAppStore.getState().models.find(model => model.id === meta?.platformId)?.name ??
+      meta?.platformId ??
+      ''
+    const next = upsertConversationFrontmatter(`${prefix}---\n\n${md}\n`, {
+      url: meta?.conversationUrl,
+      platform
+    })
     set({ activeFileContent: next, isDirty: true })
     const saved = await get().saveActiveFile()
     return saved.saved ? { success: true } : fail('写入文件失败')
@@ -1225,8 +1256,13 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     const md = (replyMd || '').trim()
     if (!md) return fail('回复内容为空')
 
-    // 文档级元数据：frontmatter 记录来源对话链接（与 insertReplyIntoActiveMarkdown 一致）
-    const content = upsertFrontmatterSource(md, meta.conversationUrl)
+    // 单条答复另存也是会话资料：有链接时写来源，没有链接时仍保留 source_kind。
+    const content = upsertConversationFrontmatter(md, {
+      url: meta.conversationUrl,
+      platform:
+        useAppStore.getState().models.find(model => model.id === meta.platformId)?.name ??
+        meta.platformId
+    })
 
     const dir = activeFilePath && activeFilePath.includes('/')
       ? activeFilePath.slice(0, activeFilePath.lastIndexOf('/'))
@@ -1544,6 +1580,10 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     const next = !get().isLeftCollapsed
     set({ isLeftCollapsed: next })
     void window.api.storeSet('workbench_isLeftCollapsed', next)
+  },
+
+  toggleMarginNotes: () => {
+    set(state => ({ showMarginNotes: !state.showMarginNotes }))
   },
 
   openRightPane: (pane) => {

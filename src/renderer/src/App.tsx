@@ -24,20 +24,6 @@ function MainApp(): JSX.Element {
   const [isInitialized, setIsInitialized] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [hasWorkbenchOpened, setHasWorkbenchOpened] = useState(false)
-  useEffect(() => {
-    if (window.location.hash === '#quick' || window.location.hash === '#diagnostics') return
-    const navigate = (): void => {
-      useAppStore.getState().setProductMode('workbench')
-      setCurrentPage('main')
-      // 工作台可能尚未挂载，等这一帧渲染完成再派发筛选请求。
-      setTimeout(() => {
-        window.dispatchEvent(new CustomEvent('workbench:filter-conversations'))
-      }, 0)
-    }
-    const off = window.api.onNotesNavigate(() => { navigate(); void window.api.notesConsumeNavigation() })
-    void window.api.notesConsumeNavigation().then(result => { if (result.data) navigate() })
-    return off
-  }, [setCurrentPage])
   // 记录是否曾经打开过 SummaryPage，用于延迟渲染
   const [hasSummaryOpened, setHasSummaryOpened] = useState(false)
   const [initialSummaryItem, setInitialSummaryItem] = useState<SummaryHistoryItem | undefined>(undefined)
@@ -198,8 +184,6 @@ function MainApp(): JSX.Element {
         </div>
       )}
 
-      {currentPage === 'notes' && <NotesRedirect />}
-
       {/* 历史记录抽屉：渲染在页面容器外，两个页面均可显示 */}
       <HistoryDrawer
         isOpen={isHistoryOpen}
@@ -221,18 +205,6 @@ function MainApp(): JSX.Element {
       <NoteCaptureModal />
     </Layout>
   )
-}
-
-/** 旧“笔记”路由的重定向：迁移后统一进工作台，避免空白页。 */
-function NotesRedirect(): null {
-  useEffect(() => {
-    useAppStore.getState().setProductMode('workbench')
-    useAppStore.getState().setCurrentPage('main')
-    setTimeout(() => {
-      window.dispatchEvent(new CustomEvent('workbench:filter-conversations'))
-    }, 0)
-  }, [])
-  return null
 }
 
 // 顶层短路拦截：#toolbar 窗口跳过所有 Store 初始化，实现毫秒级渲染

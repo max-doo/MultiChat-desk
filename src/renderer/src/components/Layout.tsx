@@ -126,15 +126,6 @@ function WorkbenchPaneToggles(): JSX.Element {
       </button>
       <button
         type="button"
-        aria-label={rightPane === 'annotations' ? '收起标注' : '打开标注'}
-        title={rightPane === 'annotations' ? '收起标注' : '打开标注'}
-        onClick={() => rightPane === 'annotations' ? closeRightPane() : openRightPane('annotations')}
-        className={tone(rightPane === 'annotations')}
-      >
-        <AppIcon name="sticky_note_2" size={16} />
-      </button>
-      <button
-        type="button"
         aria-label={rightPane === 'ai' ? '收起 AI 侧边栏' : '打开 AI 侧边栏'}
         title={rightPane === 'ai' ? '收起 AI 侧边栏' : '打开 AI 侧边栏'}
         onClick={() => rightPane === 'ai' ? closeRightPane() : openRightPane('ai')}
@@ -153,7 +144,7 @@ function WorkbenchPaneToggles(): JSX.Element {
 function Layout({ children }: LayoutProps): JSX.Element {
   const [isWindowMaximized, setIsWindowMaximized] = useState(false)
 
-  const { displayMode, setDisplayMode, resetPaneRatios, isSettingsOpen, setSettingsOpen, setHistoryOpen, setHistoryInitialTab, productMode, setProductMode, currentPage, setCurrentPage, isNewSession, textInserted, activeModels, debateState } = useAppStore()
+  const { displayMode, setDisplayMode, resetPaneRatios, isSettingsOpen, setSettingsOpen, setHistoryOpen, setHistoryInitialTab, productMode, setProductMode, currentPage, isNewSession, textInserted, activeModels, debateState } = useAppStore()
   const productModeConfig = useAppStore((s) => s.productModeConfig)
   const visibleProductModes = productModeConfig.order.filter(m => !productModeConfig.hidden.includes(m))
   const { hasUpdate } = useUpdateReminder()
@@ -258,22 +249,6 @@ function Layout({ children }: LayoutProps): JSX.Element {
         <AppIcon name="history" size={16} />
         <span className="text-xs font-normal">历史</span>
       </button>
-      <button
-        type="button"
-        onClick={() => {
-          setProductMode('workbench')
-          setCurrentPage('main')
-          // 工作台可能尚未挂载，等这一帧渲染完成再派发筛选请求。
-          setTimeout(() => {
-            window.dispatchEvent(new CustomEvent('workbench:filter-conversations'))
-          }, 0)
-        }}
-        className="h-7 px-2 flex items-center justify-center gap-1 rounded-lg transition-all duration-200 text-text-secondary hover:text-primary hover:bg-white/60"
-        title="对话资料"
-      >
-        <AppIcon name="edit_note" size={16} />
-        <span className="text-xs font-normal">笔记</span>
-      </button>
     </div>
   )
 
@@ -301,12 +276,6 @@ function Layout({ children }: LayoutProps): JSX.Element {
         }}
       >
         <div className="relative z-10 flex items-center gap-3 select-none drag-region h-full">
-          {currentPage === 'notes' ? (
-            <button type="button" className="no-drag flex items-center gap-1 rounded-lg px-2 py-1 text-sm text-text-primary hover:bg-white/70" onClick={() => setCurrentPage('main')} aria-label="返回主页面">
-              <AppIcon name="arrow_back" size={18} />
-              <span>返回主页面</span>
-            </button>
-          ) : <>
           <div className="flex items-center gap-3 drag-region">
             {/* 模式选择分段控件 */}
             <div
@@ -339,7 +308,6 @@ function Layout({ children }: LayoutProps): JSX.Element {
             </div>
           </div>
           {window.api.platform !== 'darwin' && entryButtons}
-          </>}
         </div>
 
         {/* 居中的窗口布局或总结模式控件 */}
@@ -426,12 +394,12 @@ function Layout({ children }: LayoutProps): JSX.Element {
         ) : window.api.platform === 'darwin' ? (
           <div className="relative z-10 min-w-[120px] drag-region h-full flex items-center justify-end gap-1">
             {productMode === 'workbench' && <WorkbenchPaneToggles />}
-            {currentPage !== 'notes' && entryButtons}
+            {entryButtons}
           </div>
         ) : (
           <div className="relative z-10 min-w-[120px] drag-region h-full flex items-center justify-end gap-1">
             {productMode === 'workbench' && <WorkbenchPaneToggles />}
-            {currentPage !== 'notes' && entryButtons}
+            {entryButtons}
           </div>
         )}
       </div>

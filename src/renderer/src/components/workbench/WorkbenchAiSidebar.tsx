@@ -626,7 +626,8 @@ export default function WorkbenchAiSidebar({ isActive = true }: WorkbenchAiSideb
       lastInsertRef.current.set(p.platformId, { hash: p.replyHash, at: Date.now() })
       if (rightPane !== 'ai') openRightPane('ai')
       await insertReplyIntoActiveMarkdown(p.replyMd, {
-        conversationUrl: p.conversationUrl
+        conversationUrl: p.conversationUrl,
+        platformId: p.platformId
       })
     },
     [insertReplyIntoActiveMarkdown, rightPane, openRightPane]

@@ -148,8 +148,6 @@ def main():
                     storeGet: async (key) => store[key] !== undefined ? store[key] : null,
                     storeSet: async (key, val) => { store[key] = val; },
                     storeDelete: async (key) => { delete store[key]; },
-                    onNotesNavigate: () => () => {},
-                    notesConsumeNavigation: async () => ({ success: true, data: null }),
                     getActiveModels: async () => ({ success: true, data: ['chatgpt'] }),
                     getAppConfig: async () => ({ success: true, data: {} }),
                     cliGetStatus: async () => ({ success: true, data: { installed: false, inPath: false, skillConfigured: false } }),

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useImperativeHandle, forwardRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { noteConversationKey } from '../../../shared/utils/noteIdentity'
 import type { CaptureContext } from '../../../shared/types/annotations'
 import { registerCaptureContext, unregisterCaptureContext } from '../utils/annotationCaptureContext'
@@ -12,6 +13,7 @@ import { useWebviewLifecycle } from '../hooks/useWebviewLifecycle'
 import { useWebviewActions } from '../hooks/useWebviewActions'
 import { useSourceAnnotations } from '../hooks/useSourceAnnotations'
 import WebviewFindBar from './WebviewFindBar'
+import AnnotationCommentCard from './AnnotationCommentCard'
 import { AppIcon } from './icons/AppIcon'
 
 interface WebviewCardProps {
@@ -211,6 +213,48 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
       }
     }, [enabled, url])
     const sourceAnnotations = useSourceAnnotations(webviewRef, enabled, sourceKey)
+    const [hitComment, setHitComment] = useState('')
+    const [hitSaving, setHitSaving] = useState(false)
+    const [hitError, setHitError] = useState<string | null>(null)
+
+    useEffect(() => {
+      setHitComment(sourceAnnotations.hit?.comment ?? '')
+      setHitError(null)
+    }, [sourceAnnotations.hit?.id, sourceAnnotations.hit?.comment])
+
+    const saveHitComment = async (): Promise<void> => {
+      const hit = sourceAnnotations.hit
+      if (!hit || !sourceKey || hitSaving) return
+      const annotation = sourceAnnotations.annotations.find(item => item.id === hit.id)
+      if (!annotation) {
+        setHitError('找不到这条原文标注')
+        return
+      }
+      const webview = webviewRef.current
+      const source = annotation.source ?? {
+        key: sourceKey,
+        url: webview?.getURL() ?? '',
+        platform: name,
+        title: webview?.getTitle() ?? name
+      }
+      setHitSaving(true)
+      setHitError(null)
+      try {
+        const result = await window.api.annotations.upsertSource(sourceKey, source, {
+          ...annotation,
+          comment: hitComment.trim(),
+          updatedAt: Date.now()
+        })
+        if (!result.success) {
+          setHitError(result.error || '原文标注保存失败')
+          return
+        }
+        sourceAnnotations.updateHitComment(hit.id, hitComment.trim())
+        sourceAnnotations.closeHit()
+      } finally {
+        setHitSaving(false)
+      }
+    }
 
     // 声明本 Webview 的采集上下文，主进程只负责读选区，落点由承载入口决定。
     useEffect(() => {
@@ -426,7 +470,7 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
                         : '新对话'
                     }
                   >
-                    <AppIcon name="add_comment" size={20} />
+                    <AppIcon name="annotation" size={20} />
                   </button>
                 )}
               {headerActions}
@@ -558,46 +602,46 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
             tabIndex={-1}
           />
 
-          {/* 原文高亮点击后的评论卡片：评论只在渲染层读取，不进入第三方页面上下文 */}
-          {sourceAnnotations.hit && (
-            <div
-              className="absolute z-30 w-[300px] rounded-xl border border-black/10 bg-white p-3 text-xs shadow-xl dark:border-white/10 dark:bg-gray-800"
-              style={{
-                left: Math.max(8, Math.min(sourceAnnotations.hit.x - 20, window.innerWidth - 330)),
-                top: Math.max(8, sourceAnnotations.hit.y - 20)
-              }}
-            >
-              <p className="line-clamp-2 text-[11px] text-text-secondary">{sourceAnnotations.hit.quote}</p>
-              <p className="mt-1.5 whitespace-pre-wrap text-text-primary">
-                {sourceAnnotations.hit.comment || '无评论'}
-              </p>
-              <div className="mt-2 flex items-center justify-between">
-                <button
-                  type="button"
-                  onClick={async () => {
-                    const hit = sourceAnnotations.hit
-                    if (!hit || !sourceKey) return
-                    if (!window.confirm('删除后所有工作区的原文高亮都会消失，确定删除？')) return
-                    const result = await window.api.annotations.deleteSource(sourceKey, hit.id)
-                    if (result.success) {
-                      sourceAnnotations.closeHit()
-                      sourceAnnotations.refresh()
-                    }
-                  }}
-                  className="text-[11px] text-rose-500 hover:underline"
-                >
-                  删除标注
-                </button>
-                <button
-                  type="button"
-                  onClick={sourceAnnotations.closeHit}
-                  className="text-[11px] text-text-secondary hover:text-text-primary"
-                >
-                  关闭
-                </button>
-              </div>
-            </div>
-          )}
+          {/* 原文高亮点击后的评论卡片：评论只在渲染层读取，不进入第三方页面上下文。
+              用 body 级 fixed 浮层，避免被 WebviewCard 的 overflow-hidden 裁切。 */}
+          {sourceAnnotations.hit &&
+            createPortal(
+              <AnnotationCommentCard
+                className="fixed z-[60]"
+                style={{
+                  left: Math.max(8, Math.min(sourceAnnotations.hit.x - 20, window.innerWidth - 336)),
+                  top: Math.max(8, Math.min(sourceAnnotations.hit.y - 20, window.innerHeight - 320))
+                }}
+                title="修改评论"
+                quote={sourceAnnotations.hit.quote}
+                value={hitComment}
+                onChange={setHitComment}
+                onCancel={sourceAnnotations.closeHit}
+                onSave={() => void saveHitComment()}
+                saveLabel="保存标注"
+                busy={hitSaving}
+                error={hitError}
+                footerStart={
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const hit = sourceAnnotations.hit
+                      if (!hit || !sourceKey) return
+                      if (!window.confirm('删除后所有工作区的原文高亮都会消失，确定删除？')) return
+                      const result = await window.api.annotations.deleteSource(sourceKey, hit.id)
+                      if (result.success) {
+                        sourceAnnotations.closeHit()
+                        sourceAnnotations.refresh()
+                      }
+                    }}
+                    className="text-[11px] text-rose-500 hover:underline"
+                  >
+                    删除标注
+                  </button>
+                }
+              />,
+              document.body
+            )}
           {sourceAnnotations.error && (
             <div className="absolute bottom-3 left-3 z-30 rounded-lg bg-rose-500/90 px-3 py-1.5 text-[11px] text-white shadow-lg">
               {sourceAnnotations.error}

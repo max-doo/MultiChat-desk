@@ -144,6 +144,10 @@ Do not copy ordinary session history here. Promote only stable knowledge that is
 
 - **“是否展示来源会话入口”必须用严格会话页判定，不能复用自动化用的宽松判定**：`isConversationUrlForPlatform` 为后台恢复设计，只校验 origin 与通用会话路径段（`/c|chat|app|search|.../<id>`），同域名的设置页、搜索页、文档页都可能命中；拿它决定 UI 是否显示“在侧边栏打开会话”，会出现填任意平台站内链接都能打开侧栏的误报。`isPlatformConversationPage` 只接受逐平台枚举的真实路径（chatgpt `/c/<id>`、claude `/chat/<id>`、gemini `/app/<id>`、grok `/c/<id>`、perplexity `/search/<id>`、deepseek `/a/chat/s/<id>` 等）与明确平台的 query 会话键；新增平台或路径时同步补 `scripts/agent-cli-acceptance.mjs` 的正负样例，负例至少覆盖同域名非会话页与非 AI 站点。
 
+- **未映射的 `AppIcon` 名称会静默回退成警告三角**：`AppIcon` 对不在 `APP_ICON_MAP` 中的名称使用 `AlertTriangle` 兜底，因此主进程右键菜单传入的新图标名必须在映射表中同步登记；否则用户看到的不是目标图标，而是看似业务警告的三角形。来源会话入口应使用会话语义图标（如 `forum`），不要用文档图标表达打开会话。
+
+- **同一业务图标只能保留一个语义名**：标注图标统一用 `annotation` 映射到 `MessageSquarePlus`，不要再保留 `add_comment`、`sticky_note_2` 等多个名字指向同一或相近图形。修改图标时应全局替换调用点并删除旧映射，避免后续维护者不知道该改哪一个；右键菜单传入的 `icon` 字符串也要与 `APP_ICON_MAP` 使用同一个名字。
+
 - **工作台标签规范对齐 Obsidian 与防泛滥补全**：Obsidian 在 YAML Frontmatter 中存储标签不含 `#` 前缀（`#` 仅用于正文行内引导符），若带 `#` 会被 YAML 标量包裹为引号字符串破坏标准识别。标签解析与序列化需自动剔除 `#` 前缀、去重并强制格式化为 YAML 列表；属性面板标签输入框通过聚合工作区已有标签，提供基于关键词前缀/模糊匹配的下拉建议浮层（支持方向键、Enter、Tab、鼠标点击与新建回车），既保持与 Obsidian 的数据兼容，又从交互上避免了标签随手打带来的严重标签熵增。检索端需支持 `tag:#name`、`tag:name` 与 `#name` 语法，并支持斜杠 `/` 的父子层级嵌套继承匹配。
 
 - **工作台双视图切换要按文件记忆各自的滚动位置**：`WorkbenchEditor` 用 `editorMode` 条件渲染预览与源码，切换时整棵编辑器卸载，两套滚动容器都会从顶部重新挂载，浏览器不会代为保留位置。滚动记忆的键需包含工作区、相对路径与视图，避免同名文件或跨工作区串位；只存内存即可，不必写入配置。恢复预览时不能只赋值一次：Lexical 解析、字体与图片缩略图会继续改变内容高度，内容未撑开时 `scrollTop` 会被浏览器夹紧，若此时把该值写回记忆就会覆盖原位置。正确做法是恢复期间忽略 `scroll` 记录、用 `ResizeObserver` 或有限帧重试直到目标位置可达，并在用户滚轮、触摸或按键时立即结束恢复。源码侧在 `useLayoutEffect` 中恢复 `textarea.scrollTop` 并同步高亮层与行号列。
@@ -425,3 +429,4 @@ Do not copy ordinary session history here. Promote only stable knowledge that is
 ### 14. 自包含原型与浏览器视觉验收
 
 - **用 `innerHTML` 重建含 `id` 的子节点后，后续渲染不能再引用旧节点**：自包含 HTML 原型中，如果渲染函数先写入容器 `innerHTML`，之后再按旧 `id` 查询该容器内的节点，首次渲染可能成功，但切换文档、新增标注等第二次渲染会得到 `null` 并中断交互。修复应删除冗余的旧节点引用，或始终在重建完成后重新查询；验收不能只截首屏，还要实际触发一次文档切换或数据更新后的重渲染。
+- **窄屏旁注必须按编辑容器宽度切换，而不是继续压缩正文**：固定宽度的旁注列留在 flex 布局中会优先挤占正文。宽屏保留原位卡片列；可用宽度不足时让旁注列退出布局，只保留行尾序号标记，并用单条绝对定位浮层承载注释。切换依据应是 `ResizeObserver` 测量的真实编辑区宽度，而不是窗口宽度，因为文件树和 AI 侧栏同样会改变正文可用空间。

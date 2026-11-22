@@ -19,17 +19,16 @@ import {
   type LexicalNode,
   type TextNode
 } from 'lexical'
-import { $createMarkNode, $isMarkNode, MarkNode } from '@lexical/mark'
+import { $createMarkNode, $isMarkNode } from '@lexical/mark'
 import { $convertToMarkdownString } from '@lexical/markdown'
 import type { Annotation } from '../../../../shared/types/annotations'
 import { buildAnchorAt, resolveAnchors } from '../../../../shared/utils/annotationAnchors'
-import { noteConversationKey } from '../../../../shared/utils/noteIdentity'
+import { readConversationSource } from '../../../../shared/utils/conversationSource'
 import { useWorkbenchStore } from '../../store/workbenchStore'
 import { useAnnotationStore } from '../../store/annotationStore'
-import {
-  WORKBENCH_TRANSFORMERS,
-  parseMarkdownWithFrontmatter
-} from './MarkdownSyncPlugin'
+import AnnotationCommentCard from '../AnnotationCommentCard'
+import { WORKBENCH_TRANSFORMERS } from './MarkdownSyncPlugin'
+import { allMarks, markAtTarget, unwrapAllMarks, unwrapMark } from './workbenchAnnotationUtils'
 
 export const WORKBENCH_ANNOTATE_COMMAND: LexicalCommand<void> = createCommand(
   'WORKBENCH_ANNOTATE_COMMAND'
@@ -76,26 +75,6 @@ function collectDocumentText(): { text: string; blocks: BlockText[] } {
     textParts.push(block.text)
   }
   return { text: textParts.join('\n'), blocks }
-}
-
-function unwrapMark(mark: MarkNode): void {
-  const children = mark.getChildren()
-  children.forEach(child => mark.insertBefore(child))
-  mark.remove()
-}
-
-function allMarks(): MarkNode[] {
-  const marks: MarkNode[] = []
-  const walk = (node: LexicalNode): void => {
-    if ($isMarkNode(node)) marks.push(node)
-    if ($isElementNode(node)) node.getChildren().forEach(walk)
-  }
-  walk($getRoot())
-  return marks
-}
-
-function unwrapAllMarks(): void {
-  allMarks().forEach(unwrapMark)
 }
 
 /** 把纯文本偏移映射成 Lexical 选区并滚动到可见区域。 */
@@ -175,22 +154,18 @@ function wrapRange(
 }
 
 function cleanMarkNodes(validIds: Set<string>, complete: boolean): void {
-  const seen = new Set<string>()
   for (const mark of allMarks()) {
     const ids = mark.getIDs().filter(Boolean)
     if (!ids.length) {
       unwrapMark(mark)
       continue
     }
-    const unique = ids.filter(id => !seen.has(id))
+    // 同一条标注可能跨多个 TextNode，每个片段都是独立 MarkNode。
+    // 这里只能去掉单个 MarkNode 内的重复 id，不能跨节点去重，否则只保留第一段。
+    const unique = [...new Set(ids)]
     if (unique.length !== ids.length) {
-      if (unique.length) mark.setIDs(unique)
-      else {
-        unwrapMark(mark)
-        continue
-      }
+      mark.setIDs(unique)
     }
-    unique.forEach(id => seen.add(id))
     // 两路标注都加载完成前不清理未知 id，避免把异步到达的 source 投影删掉。
     if (complete && !unique.every(id => validIds.has(id))) unwrapMark(mark)
   }
@@ -201,30 +176,13 @@ interface CommentPopover {
   quote: string
   left: number
   top: number
-}
-
-function readSourceKey(content: string): string | null {
-  const { frontmatter } = parseMarkdownWithFrontmatter(content)
-  if (!frontmatter) return null
-  const unquote = (value: string): string => value.trim().replace(/^["']|["']$/g, '')
-  const key = /^source_key:\s*(.+)$/m.exec(frontmatter)?.[1]
-  if (key) return unquote(key)
-  const url =
-    /^source_url:\s*(.+)$/m.exec(frontmatter)?.[1] ??
-    /^source:\s*(https:\/\/.+)$/m.exec(frontmatter)?.[1]
-  if (!url) return null
-  const title = /^title:\s*(.+)$/m.exec(frontmatter)?.[1]
-  try {
-    return noteConversationKey(unquote(url), title ? unquote(title) : '')
-  } catch {
-    return null
-  }
+  mode: 'create' | 'edit'
 }
 
 export default function WorkbenchAnnotationPlugin({
   anchorElem
 }: {
-  anchorElem: HTMLElement | null
+  anchorElem?: HTMLElement | null
 }): JSX.Element | null {
   const [editor] = useLexicalComposerContext()
   const workspacePath = useWorkbenchStore(s => s.workspacePath)
@@ -237,6 +195,8 @@ export default function WorkbenchAnnotationPlugin({
   const sourceAnnotations = useAnnotationStore(s => s.sourceAnnotations)
   const [popover, setPopover] = useState<CommentPopover | null>(null)
   const [comment, setComment] = useState('')
+  const popoverRef = useRef<CommentPopover | null>(null)
+  popoverRef.current = popover
   const [hint, setHint] = useState<string | null>(null)
   const hintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const readyRef = useRef<{ document: boolean; source: boolean; token: number }>({
@@ -247,7 +207,31 @@ export default function WorkbenchAnnotationPlugin({
   const importedRef = useRef<{ token: number; version: number }>({ token: 0, version: 0 })
   const appliedRef = useRef<{ token: number; version: number }>({ token: 0, version: -1 })
 
-  const sourceKey = readSourceKey(activeFileContent)
+  const sourceKey = readConversationSource(activeFileContent)?.sourceKey ?? null
+
+  /** 撤回尚未保存的新建标注：去掉旁路记录和正文里的临时标记。 */
+  const discardDraft = useCallback(
+    (id: string): void => {
+      useAnnotationStore.getState().removeLocal(id)
+      editor.update(
+        () => {
+          for (const mark of allMarks()) {
+            if (!mark.hasID(id)) continue
+            if (mark.getIDs().length > 1) mark.deleteID(id)
+            else unwrapMark(mark)
+          }
+        },
+        { tag: 'annotation-sync', discrete: true }
+      )
+    },
+    [editor]
+  )
+
+  // 正文切换后，旧的浮层坐标和评论草稿不能再指向新文档。
+  useEffect(() => {
+    setPopover(null)
+    setComment('')
+  }, [activeFilePath])
 
   const showHint = useCallback((text: string) => {
     setHint(text)
@@ -269,7 +253,6 @@ export default function WorkbenchAnnotationPlugin({
     if (appliedRef.current.token === token && appliedRef.current.version === importedRef.current.version) return
 
     const annotations = [...state.documentAnnotations, ...state.sourceAnnotations]
-    const valid = new Set(annotations.map(item => item.id))
     let before = ''
     editor.getEditorState().read(() => {
       before = $convertToMarkdownString(WORKBENCH_TRANSFORMERS)
@@ -278,7 +261,9 @@ export default function WorkbenchAnnotationPlugin({
     const unlocated: string[] = []
     editor.update(
       () => {
-        cleanMarkNodes(valid, true)
+        // 先移除旧投影，再按当前锚点完整重绘。只清理无效 id 会让仍然有效、
+        // 但文本已移动或跨多个 TextNode 的旧 MarkNode 停在错误范围。
+        unwrapAllMarks()
         // 一次收集文本与 TextNode 切片，后续标注只做偏移映射，避免每条标注重走整棵节点树。
         const { text, blocks } = collectDocumentText()
         const resolved = resolveAnchors(text, annotations)
@@ -370,6 +355,40 @@ export default function WorkbenchAnnotationPlugin({
     }
   }, [workspacePath, activeFilePath, sourceKey, editorMode, applyAnnotations])
 
+  // 会话端删除/修改 source 标注后，文档里的投影必须重新读取并移除。
+  // 文档标注也可能被另一个窗口修改，这里一并刷新。
+  useEffect(() => {
+    if (!workspacePath || !activeFilePath) return
+    const off = window.api.annotations.onChanged(event => {
+      if (
+        event.scope === 'document' &&
+        event.workspaceRoot === workspacePath &&
+        event.relativePath === activeFilePath
+      ) {
+        const token = useAnnotationStore.getState().token
+        void window.api.annotations
+          .listDocument(workspacePath, activeFilePath)
+          .then(result => {
+            if (result.success && result.data) {
+              useAnnotationStore.getState().setDocumentAnnotations(result.data, token)
+            }
+          })
+        return
+      }
+      if (event.scope === 'source' && sourceKey && event.sourceKey === sourceKey) {
+        const token = useAnnotationStore.getState().token
+        void window.api.annotations
+          .listSource(sourceKey)
+          .then(result => {
+            if (result.success && result.data) {
+              useAnnotationStore.getState().setSourceAnnotations(result.data.annotations, token)
+            }
+          })
+      }
+    })
+    return off
+  }, [workspacePath, activeFilePath, sourceKey])
+
   // 由 MarkdownSyncPlugin 在正文导入完成时通知；先有正文，后有标注。
   useEffect(() => {
     const handler = (): void => {
@@ -379,31 +398,13 @@ export default function WorkbenchAnnotationPlugin({
         token: state.token,
         version: importedRef.current.token === state.token ? importedRef.current.version + 1 : 0
       }
-      applyAnnotations()
+      // 正文刚替换时 Lexical 尚未提交新的 DOM 和节点树，必须等下一帧再包标注，
+      // 否则旧文档的标记会被套到新正文上或直接丢失。
+      requestAnimationFrame(() => applyAnnotations())
     }
     window.addEventListener('workbench:markdown-imported', handler)
     return () => window.removeEventListener('workbench:markdown-imported', handler)
   }, [workspacePath, activeFilePath, applyAnnotations])
-
-  // 点击正文 MarkNode → 选中侧栏卡片。
-  useEffect(() => {
-    const root = editor.getRootElement()
-    if (!root) return
-    const handler = (event: MouseEvent): void => {
-      const target = event.target as Node | null
-      if (!target) return
-      const hit = editor.getEditorState().read(() => {
-        for (const mark of allMarks()) {
-          const dom = editor.getElementByKey(mark.getKey())
-          if (dom && dom.contains(target)) return mark.getIDs().find(Boolean) ?? null
-        }
-        return null
-      })
-      if (hit) useAnnotationStore.getState().setSelected(hit)
-    }
-    root.addEventListener('click', handler)
-    return () => root.removeEventListener('click', handler)
-  }, [editor])
 
   // 侧栏卡片（或正文点击）选中后，定位并滚动到对应文本。
   useEffect(() => {
@@ -424,17 +425,18 @@ export default function WorkbenchAnnotationPlugin({
     )
     if (!located) return
     requestAnimationFrame(() => {
-      for (const mark of allMarks()) {
-        if (!mark.hasID(selectedId)) continue
-        const dom = editor.getElementByKey(mark.getKey())
-        if (dom) {
-          try {
-            dom.scrollIntoView({ block: 'center', behavior: 'smooth' })
-          } catch {
-            // 容器尚未布局完成时忽略
-          }
-        }
-        break
+      // rAF 已离开 update/read 上下文，不能直接遍历 Lexical 节点。
+      const childKey = editor.getEditorState().read(() => {
+        const mark = allMarks().find(item => item.hasID(selectedId))
+        return mark?.getChildren()[0]?.getKey() ?? null
+      })
+      if (!childKey) return
+      const dom = editor.getElementByKey(childKey)
+      if (!dom) return
+      try {
+        dom.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      } catch {
+        // 容器尚未布局完成时忽略
       }
     })
   }, [editor, selectedId])
@@ -561,16 +563,18 @@ export default function WorkbenchAnnotationPlugin({
       }
       useAnnotationStore.getState().upsertLocal(annotation)
       useAnnotationStore.getState().setSelected(id)
+      // 先弹评论卡，保存时才落盘；取消则撤回这条临时标注。
       if (rect && anchorElem) {
         const anchorRect = anchorElem.getBoundingClientRect()
         setPopover({
           id,
           quote,
           left: Math.max(8, rect.left - anchorRect.left),
-          top: rect.bottom - anchorRect.top + 8
+          top: rect.bottom - anchorRect.top + 8,
+          mode: 'create'
         })
       } else {
-        setPopover({ id, quote, left: 8, top: 8 })
+        setPopover({ id, quote, left: 8, top: 8, mode: 'create' })
       }
       setComment('')
       return true
@@ -578,45 +582,153 @@ export default function WorkbenchAnnotationPlugin({
     return editor.registerCommand(WORKBENCH_ANNOTATE_COMMAND, create, COMMAND_PRIORITY_EDITOR)
   }, [editor, anchorElem, showHint])
 
-  const cancelComment = useCallback(() => {
+  const cancelPopover = useCallback(() => {
     if (!popover) return
-    const id = popover.id
+    if (popover.mode !== 'create') {
+      setPopover(null)
+      setComment('')
+      return
+    }
     setPopover(null)
     setComment('')
-    useAnnotationStore.getState().removeLocal(id)
-    editor.update(
-      () => {
-        for (const mark of allMarks()) {
-          if (mark.hasID(id)) {
-            if (mark.getIDs().length > 1) mark.deleteID(id)
-            else unwrapMark(mark)
-          }
-        }
-      },
-      { tag: 'annotation-sync', discrete: true }
-    )
-  }, [editor, popover])
+    discardDraft(popover.id)
+  }, [discardDraft, popover])
+
+  // 点击浮层外部关闭；新建标注被取消时同时撤回尚未保存的空标注。
+  useEffect(() => {
+    if (!popover) return
+    const handler = (event: PointerEvent): void => {
+      const target = event.target
+      if (target instanceof Node && editor.getRootElement()?.contains(target)) return
+      if (target instanceof Element && target.closest('[data-annotation-popover]')) return
+      cancelPopover()
+    }
+    document.addEventListener('pointerdown', handler, true)
+    return () => document.removeEventListener('pointerdown', handler, true)
+  }, [cancelPopover, editor, popover])
 
   const commitComment = async (): Promise<void> => {
     if (!popover || !workspacePath || !activeFilePath) return
-    const annotation = useAnnotationStore
-      .getState()
-      .documentAnnotations.find(item => item.id === popover.id)
+    const state = useAnnotationStore.getState()
+    const annotation = [...state.documentAnnotations, ...state.sourceAnnotations].find(
+      item => item.id === popover.id
+    )
     if (!annotation) return
     const next: Annotation = { ...annotation, comment: comment.trim(), updatedAt: Date.now() }
     useAnnotationStore.getState().upsertLocal(next)
     setPopover(null)
-    const saved = await saveActiveFile()
-    if (!saved.saved) {
-      showHint(saved.reason === 'oversized' ? '文档过大，标注未保存' : '正文未保存，标注未写入')
+    if (next.scope === 'document') {
+      const saved = await saveActiveFile()
+      if (!saved.saved) {
+        showHint(saved.reason === 'oversized' ? '文档过大，标注未保存' : '正文未保存，标注未写入')
+        return
+      }
+      const result = await window.api.annotations.upsertDocument(
+        workspacePath,
+        activeFilePath,
+        next
+      )
+      if (!result.success) showHint(result.error || '标注保存失败')
       return
     }
-    const result = await window.api.annotations.upsertDocument(
-      workspacePath,
-      activeFilePath,
-      next
+    if (!next.source) {
+      showHint('原文标注缺少来源信息')
+      return
+    }
+    const result = await window.api.annotations.upsertSource(next.source.key, next.source, next)
+    if (!result.success) showHint(result.error || '原文标注保存失败')
+  }
+
+  /**
+   * 点击正文里的高亮：命中标注就弹出同一个评论卡；点空白处先撤回
+   * 尚未保存的新建标注，再关闭浮层，避免草稿残留。
+   */
+  useEffect(() => {
+    const root = editor.getRootElement()
+    if (!root) return
+    const handler = (event: MouseEvent): void => {
+      const target = event.target as Node | null
+      if (!target) return
+      const hit = editor.getEditorState().read(() => markAtTarget(editor, target))
+      if (!hit) {
+        const draft = popoverRef.current
+        if (draft?.mode === 'create') discardDraft(draft.id)
+        setPopover(null)
+        setComment('')
+        return
+      }
+      useAnnotationStore.getState().setSelected(hit)
+      const state = useAnnotationStore.getState()
+      const annotation = [...state.documentAnnotations, ...state.sourceAnnotations].find(
+        item => item.id === hit
+      )
+      if (!annotation) return
+      const previous = popoverRef.current
+      if (previous && previous.mode === 'create' && previous.id !== hit) {
+        discardDraft(previous.id)
+      }
+      const anchorRect = anchorElem?.getBoundingClientRect()
+      const left = anchorRect
+        ? Math.max(8, Math.min(event.clientX - anchorRect.left - 24, anchorRect.width - 328))
+        : 8
+      const top = anchorRect ? Math.max(8, event.clientY - anchorRect.top + 12) : 8
+      setComment(annotation.comment)
+      setPopover({
+        id: annotation.id,
+        quote: annotation.quote,
+        left,
+        top,
+        mode: 'edit'
+      })
+    }
+    root.addEventListener('click', handler)
+    return () => root.removeEventListener('click', handler)
+  }, [anchorElem, discardDraft, editor])
+
+  const deletePopoverAnnotation = async (): Promise<void> => {
+    if (!popover) return
+    const state = useAnnotationStore.getState()
+    const annotation = [...state.documentAnnotations, ...state.sourceAnnotations].find(
+      item => item.id === popover.id
     )
-    if (!result.success) showHint(result.error || '标注保存失败')
+    if (!annotation) {
+      setPopover(null)
+      setComment('')
+      return
+    }
+    const message =
+      annotation.scope === 'source'
+        ? '删除后所有工作区的原文高亮都会消失，确定删除？'
+        : '删除这条文档标注？正文中的标记会一起移除。'
+    if (!window.confirm(message)) return
+    if (annotation.scope === 'document') {
+      if (!workspacePath || !activeFilePath) return
+      const result = await window.api.annotations.deleteDocument(
+        workspacePath,
+        activeFilePath,
+        annotation.id
+      )
+      if (!result.success) {
+        showHint(result.error || '删除标注失败')
+        return
+      }
+    } else {
+      if (!annotation.source) {
+        showHint('原文标注缺少来源信息')
+        return
+      }
+      const result = await window.api.annotations.deleteSource(
+        annotation.source.key,
+        annotation.id
+      )
+      if (!result.success) {
+        showHint(result.error || '删除原文标注失败')
+        return
+      }
+    }
+    useAnnotationStore.getState().removeLocal(annotation.id)
+    setPopover(null)
+    setComment('')
   }
 
   return (
@@ -629,35 +741,29 @@ export default function WorkbenchAnnotationPlugin({
       {popover &&
         anchorElem &&
         createPortal(
-          <div
-            className="absolute z-50 w-72 rounded-xl border border-black/10 dark:border-white/10 bg-white dark:bg-gray-800 shadow-2xl p-3"
+          <AnnotationCommentCard
+            className="absolute z-50"
             style={{ left: popover.left, top: popover.top }}
-          >
-            <div className="text-[11px] text-text-secondary line-clamp-2 mb-2">{popover.quote}</div>
-            <textarea
-              autoFocus
-              value={comment}
-              onChange={event => setComment(event.target.value)}
-              placeholder="写下评论"
-              className="w-full h-20 resize-none rounded-lg border border-black/10 dark:border-white/10 bg-transparent px-2 py-1.5 text-xs text-text-primary focus:outline-none focus:border-primary/60"
-            />
-            <div className="mt-2 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={cancelComment}
-                className="h-7 px-2 rounded-md text-xs text-text-secondary hover:bg-black/5 dark:hover:bg-white/10"
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                onClick={() => void commitComment()}
-                className="h-7 px-2.5 rounded-md text-xs text-white bg-primary hover:bg-primary/90"
-              >
-                保存
-              </button>
-            </div>
-          </div>,
+            title={popover.mode === 'create' ? '标注' : '修改评论'}
+            quote={popover.quote}
+            value={comment}
+            onChange={setComment}
+            onCancel={cancelPopover}
+            onSave={() => void commitComment()}
+            saveLabel="保存标注"
+            placeholder="添加评论…"
+            footerStart={
+              popover.mode === 'edit' ? (
+                <button
+                  type="button"
+                  className="text-[11px] text-rose-500 hover:underline"
+                  onClick={() => void deletePopoverAnnotation()}
+                >
+                  删除标注
+                </button>
+              ) : null
+            }
+          />,
           anchorElem
         )}
     </>

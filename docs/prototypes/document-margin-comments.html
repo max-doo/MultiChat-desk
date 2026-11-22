@@ -1,0 +1,1434 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light dark">
+  <title>MultiChat Desk · 极简个人笔记旁注原型 (Margin Notes)</title>
+  <!-- 
+  > Created: 2026-11-22 13:10 (Asia/Shanghai, +08:00)
+  MultiChat Desk - Personal Document Margin Notes (Sidenotes)
+  去除复杂多人协作社交属性，实现紧挨正文高亮、即点即改的极简个人便签旁注。
+  窄屏下旁注不再参与横向布局，改为行尾编号标记 + 单条浮层，保证正文始终获得完整可读宽度。
+  -->
+  <style>
+    :root {
+      --app-bg: #f8fafc;
+      --doc-bg: #ffffff;
+      --note-bg: #ffffff;
+      --note-border: rgba(0, 0, 0, 0.1);
+      --note-border-hover: rgba(0, 0, 0, 0.16);
+      --note-bar: #f59e0b;
+      --text-main: #1e293b;
+      --text-sub: #64748b;
+      --text-faint: #94a3b8;
+      --line: rgba(0, 0, 0, 0.07);
+      --primary: #2563eb;
+      --highlight-bg: #fef3c7;
+      --highlight-active: #fde68a;
+      --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.05);
+      --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.06);
+      --shadow-hover: 0 6px 18px rgba(0, 0, 0, 0.1);
+      --font-sans: "Google Sans Flex", "Google Sans", "Noto Sans SC", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --font-mono: "JetBrains Mono", Consolas, monospace;
+    }
+
+    html.dark {
+      --app-bg: #0b0f17;
+      --doc-bg: #151c28;
+      --note-bg: #1f2937;
+      --note-border: rgba(255, 255, 255, 0.1);
+      --note-border-hover: rgba(255, 255, 255, 0.18);
+      --note-bar: #f59e0b;
+      --text-main: #f1f5f9;
+      --text-sub: #94a3b8;
+      --text-faint: #64748b;
+      --line: rgba(255, 255, 255, 0.08);
+      --primary: #3b82f6;
+      --highlight-bg: rgba(251, 191, 36, 0.2);
+      --highlight-active: rgba(251, 191, 36, 0.32);
+      --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
+      --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.4);
+      --shadow-hover: 0 6px 20px rgba(0, 0, 0, 0.55);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body {
+      font-family: var(--font-sans);
+      color: var(--text-main);
+      background: var(--app-bg);
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    button {
+      font-family: inherit;
+      border: none;
+      background: none;
+      color: inherit;
+      cursor: pointer;
+    }
+
+    input, textarea {
+      font-family: inherit;
+      color: inherit;
+    }
+
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(100, 116, 139, 0.25);
+      border-radius: 99px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(100, 116, 139, 0.45);
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    /* 顶部简单导航条 */
+    .app-header {
+      height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 0 16px;
+      border-bottom: 1px solid var(--line);
+      background: var(--doc-bg);
+      flex-shrink: 0;
+      z-index: 20;
+    }
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
+    .traffic-lights {
+      display: flex;
+      gap: 6px;
+    }
+    .light-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+    }
+    .light-dot.red { background: #ff5f56; }
+    .light-dot.yellow { background: #ffbd2e; }
+    .light-dot.green { background: #27c93f; }
+
+    .doc-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+    }
+    .doc-name > span:first-child {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .doc-tag {
+      font-size: 11px;
+      padding: 1px 6px;
+      border-radius: 4px;
+      background: rgba(37, 99, 235, 0.08);
+      color: var(--primary);
+      font-weight: 500;
+    }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+    .btn-tool {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      color: var(--text-sub);
+      background: rgba(0, 0, 0, 0.03);
+      border: 1px solid var(--line);
+      transition: all 0.15s ease;
+    }
+    .btn-tool:hover {
+      background: rgba(0, 0, 0, 0.06);
+      color: var(--text-main);
+    }
+    .btn-tool.active {
+      background: rgba(234, 179, 8, 0.12);
+      color: #b45309;
+      border-color: rgba(234, 179, 8, 0.35);
+    }
+    html.dark .btn-tool {
+      background: rgba(255, 255, 255, 0.04);
+    }
+    html.dark .btn-tool.active {
+      color: #facc15;
+    }
+
+    /* 主滚动视口 */
+    .workspace-scroll-area {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: hidden;
+      display: flex;
+      justify-content: center;
+      padding: 36px 20px 80px;
+      position: relative;
+    }
+
+    /* 文档主舞台：正文 + 紧邻旁注区 */
+    .document-layout {
+      display: flex;
+      width: 100%;
+      max-width: 980px;
+      min-width: 0;
+      position: relative;
+      align-items: flex-start;
+      gap: 20px;
+    }
+
+    /* 正文主体 */
+    .article-body {
+      width: auto;
+      max-width: 680px;
+      min-width: 0;
+      flex: 1 1 640px;
+      background: var(--doc-bg);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      box-shadow: var(--shadow-sm);
+      padding: 46px 52px;
+      line-height: 1.85;
+      font-size: 15px;
+      user-select: text;
+      position: relative;
+    }
+
+    .article-body h1 {
+      font-size: 24px;
+      font-weight: 700;
+      margin-bottom: 8px;
+      line-height: 1.35;
+    }
+    .article-meta {
+      font-size: 12px;
+      color: var(--text-faint);
+      margin-bottom: 26px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid var(--line);
+    }
+    .article-body h2 {
+      font-size: 18px;
+      font-weight: 600;
+      margin: 28px 0 12px;
+    }
+    .article-body p {
+      margin-bottom: 20px;
+      color: var(--text-main);
+      text-align: justify;
+    }
+    .article-body blockquote {
+      border-left: 3px solid var(--note-bar);
+      background: rgba(234, 179, 8, 0.05);
+      padding: 10px 16px;
+      border-radius: 0 6px 6px 0;
+      font-size: 14px;
+      color: var(--text-sub);
+      margin: 18px 0;
+    }
+
+    /* 正文高亮标注样式 */
+    .mark-text {
+      position: relative;
+      background: var(--highlight-bg);
+      border-bottom: 2px solid var(--note-bar);
+      border-radius: 2px;
+      padding: 1px 2px;
+      cursor: pointer;
+      transition: background 0.15s ease, box-shadow 0.15s ease;
+    }
+    .mark-text:hover,
+    .mark-text.active {
+      background: var(--highlight-active);
+      box-shadow: 0 0 0 2px rgba(234, 179, 8, 0.35);
+    }
+
+    /* 窄屏：旁注不占据布局宽度，只给正文高亮补一个轻量序号 */
+    body.compact-mode .mark-text::after {
+      content: attr(data-index);
+      position: absolute;
+      top: -7px;
+      right: -9px;
+      width: 15px;
+      height: 15px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--note-bar);
+      color: #fff;
+      font-size: 9px;
+      font-weight: 700;
+      line-height: 1;
+      box-shadow: 0 0 0 2px var(--doc-bg);
+      pointer-events: none;
+    }
+
+    /* 右侧紧邻旁注栏 (Margin Sidenotes Column) */
+    .sidenotes-column {
+      width: 280px;
+      flex-shrink: 0;
+      position: relative;
+      min-height: 100%;
+    }
+    .sidenotes-column.is-hidden {
+      display: none;
+    }
+
+    /* 窄屏浮层便签：脱离横向布局，打开时才覆盖在正文上方 */
+    .compact-note-panel {
+      display: none;
+      position: absolute;
+      top: 20px;
+      right: 0;
+      z-index: 40;
+      width: min(320px, calc(100% - 24px));
+      max-height: calc(100vh - 96px);
+      overflow-y: auto;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--doc-bg);
+      box-shadow: 0 20px 25px -5px rgba(15, 23, 42, 0.12), 0 8px 10px -6px rgba(15, 23, 42, 0.1);
+    }
+    .compact-note-panel.is-open {
+      display: block;
+      animation: compactPanelIn 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    html.dark .compact-note-panel {
+      border-color: rgba(255, 255, 255, 0.1);
+      background: #1f2937;
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.45), 0 8px 10px -6px rgba(0, 0, 0, 0.32);
+    }
+    @keyframes compactPanelIn {
+      from { opacity: 0; transform: translateY(-4px) scale(0.985); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    .compact-panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .compact-panel-title {
+      min-width: 0;
+      color: var(--text-main);
+      font-size: 14px;
+      font-weight: 600;
+    }
+    .compact-panel-close {
+      width: 22px;
+      height: 22px;
+      border-radius: 5px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-faint);
+      font-size: 16px;
+      line-height: 1;
+    }
+    .compact-panel-close:hover {
+      color: var(--text-main);
+      background: rgba(0, 0, 0, 0.05);
+    }
+    html.dark .compact-panel-close:hover {
+      background: rgba(255, 255, 255, 0.07);
+    }
+    .compact-panel-context {
+      max-height: 80px;
+      overflow-y: auto;
+      margin-top: 8px;
+      padding: 8px;
+      border-left: 4px solid #fcd34d;
+      border-radius: 0 6px 6px 0;
+      background: rgba(255, 251, 235, 0.65);
+      color: var(--text-sub);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    html.dark .compact-panel-context {
+      background: rgba(252, 211, 77, 0.1);
+    }
+    .compact-panel-body .note-footer {
+      margin-top: 8px;
+      padding-top: 0;
+      border-top: 0;
+    }
+    .compact-note-panel .inline-edit-box {
+      min-height: 80px;
+      margin-top: 12px;
+      padding: 8px;
+      border-radius: 8px;
+      font-size: 14px;
+      line-height: 1.5;
+      resize: vertical;
+    }
+    .compact-panel-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .compact-panel-footer-actions {
+      display: flex;
+      flex-shrink: 0;
+      align-items: center;
+      gap: 8px;
+    }
+    .compact-delete {
+      padding: 0;
+      color: #f43f5e;
+      font-size: 11px;
+    }
+    .compact-delete:hover {
+      text-decoration: underline;
+    }
+    .compact-note-panel .btn-save-note {
+      padding: 4px 12px;
+      font-size: 12px;
+    }
+    .compact-note-panel .btn-cancel-note {
+      padding: 4px 8px;
+      font-size: 12px;
+    }
+    .compact-empty {
+      margin-top: 8px;
+      color: var(--text-faint);
+      font-size: 13px;
+      line-height: 1.65;
+    }
+
+    /* 可用宽度不足时，旁注列完全退出横向布局 */
+    body.compact-mode .document-layout {
+      max-width: 800px;
+    }
+    body.compact-mode .article-body {
+      max-width: 760px;
+      flex-basis: 760px;
+    }
+    body.compact-mode .sidenotes-column {
+      display: none;
+    }
+
+    /* 便签旁注卡片 */
+    .sidenote-item {
+      position: absolute;
+      left: 0;
+      width: 100%;
+      background: var(--doc-bg);
+      border: 1px solid var(--line);
+      border-left: 3px solid rgba(245, 158, 11, 0.55);
+      border-radius: 8px;
+      padding: 10px 12px;
+      box-shadow: var(--shadow-sm);
+      transition: top 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+                  box-shadow 0.15s ease,
+                  border-color 0.15s ease,
+                  background 0.15s ease;
+      cursor: pointer;
+      user-select: none;
+    }
+    .sidenote-item:hover {
+      border-color: var(--line);
+      border-left-color: var(--note-bar);
+      background: rgba(251, 191, 36, 0.035);
+      box-shadow: var(--shadow-hover);
+    }
+    .sidenote-item.active {
+      border-color: rgba(245, 158, 11, 0.35);
+      border-left-color: var(--note-bar);
+      background: var(--doc-bg);
+      box-shadow: var(--shadow-md), 0 0 0 2px rgba(251, 191, 36, 0.12);
+      z-index: 10;
+    }
+    html.dark .sidenote-item:hover {
+      background: rgba(251, 191, 36, 0.05);
+    }
+
+    /* 便签正文内容 */
+    .note-text {
+      font-size: 13px;
+      line-height: 1.55;
+      color: var(--text-main);
+      word-break: break-word;
+      user-select: text;
+    }
+
+    .note-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 6px;
+      font-size: 11px;
+      color: var(--text-faint);
+    }
+    .note-time {
+      font-size: 10.5px;
+    }
+    .note-actions {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      opacity: 0;
+      transition: opacity 0.15s ease;
+    }
+    .sidenote-item:hover .note-actions,
+    .sidenote-item.active .note-actions {
+      opacity: 1;
+    }
+    .note-btn {
+      padding: 2px 5px;
+      border-radius: 3px;
+      color: var(--text-sub);
+      font-size: 11px;
+      display: inline-flex;
+      align-items: center;
+    }
+    .note-btn:hover {
+      background: rgba(0, 0, 0, 0.08);
+      color: var(--text-main);
+    }
+    .note-btn.del:hover {
+      color: #ef4444;
+      background: rgba(239, 68, 68, 0.1);
+    }
+
+    /* 原位就地编辑输入框 (Inline Edit Textarea) */
+    .inline-edit-box {
+      width: 100%;
+      min-height: 54px;
+      border: 1px solid var(--line);
+      background: var(--doc-bg);
+      border-radius: 8px;
+      padding: 6px 8px;
+      font-size: 13px;
+      line-height: 1.5;
+      color: var(--text-main);
+      resize: none;
+      outline: none;
+      box-shadow: var(--shadow-sm);
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .inline-edit-box:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.08);
+    }
+
+    /* 新建旁注提示泡与原位输入框 */
+    .draft-sidenote {
+      position: absolute;
+      left: 0;
+      width: 100%;
+      background: var(--doc-bg);
+      border: 1px solid var(--line);
+      border-left: 3px solid rgba(245, 158, 11, 0.55);
+      border-radius: 8px;
+      padding: 10px 12px;
+      box-shadow: var(--shadow-md);
+      z-index: 15;
+      animation: popIn 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    @keyframes popIn {
+      from { opacity: 0; transform: scale(0.96) translateX(-4px); }
+      to { opacity: 1; transform: scale(1) translateX(0); }
+    }
+    .draft-textarea {
+      width: 100%;
+      height: 56px;
+      border: 1px solid var(--line);
+      background: var(--doc-bg);
+      border-radius: 8px;
+      padding: 6px 8px;
+      font-size: 13px;
+      line-height: 1.5;
+      resize: none;
+      outline: none;
+      margin-bottom: 6px;
+    }
+    .draft-textarea:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.08);
+    }
+    .draft-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 6px;
+    }
+    .btn-save-note {
+      font-size: 11px;
+      padding: 3px 9px;
+      border-radius: 8px;
+      background: var(--primary);
+      color: #ffffff;
+      font-weight: 500;
+    }
+    .btn-save-note:hover {
+      background: #1d4ed8;
+    }
+    .btn-cancel-note {
+      font-size: 11px;
+      padding: 3px 7px;
+      border-radius: 8px;
+      color: var(--text-sub);
+    }
+    .btn-cancel-note:hover {
+      background: rgba(0, 0, 0, 0.05);
+    }
+
+    /* 选中文本后正旁边出现的“加注释”小悬浮标 */
+    .add-note-cue {
+      position: absolute;
+      right: -24px;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: var(--note-bar);
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      cursor: pointer;
+      box-shadow: var(--shadow-sm);
+      transform: translateY(-50%);
+      z-index: 10;
+      transition: transform 0.15s ease, background 0.15s ease;
+    }
+    .add-note-cue:hover {
+      transform: translateY(-50%) scale(1.15);
+      background: #d97706;
+    }
+
+    /* 指向线（从正文高亮到旁边便签的小引线） */
+    .note-pointer {
+      position: absolute;
+      left: -8px;
+      top: 14px;
+      width: 8px;
+      height: 1px;
+      background: var(--note-bar);
+      opacity: 0.7;
+    }
+
+    /* 底部极简状态提示 */
+    .app-footer {
+      height: 26px;
+      border-top: 1px solid var(--line);
+      background: var(--doc-bg);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      font-size: 11px;
+      color: var(--text-faint);
+    }
+
+    @media (max-width: 640px) {
+      .app-header {
+        padding: 0 10px;
+        gap: 8px;
+      }
+      .header-left {
+        gap: 8px;
+      }
+      .doc-tag {
+        display: none;
+      }
+      .doc-name {
+        font-size: 12px;
+      }
+      .btn-tool {
+        padding: 5px 8px;
+        white-space: nowrap;
+      }
+      .workspace-scroll-area {
+        padding: 20px 12px 64px;
+      }
+      .article-body {
+        padding: 32px 25px 40px;
+        border-radius: 10px;
+        font-size: 14px;
+        line-height: 1.8;
+      }
+      .article-body h1 {
+        font-size: 21px;
+      }
+      .compact-note-panel {
+        right: 8px;
+        width: min(320px, calc(100% - 16px));
+      }
+      .app-footer {
+        padding: 0 12px;
+        font-size: 10px;
+      }
+      .app-footer > div:last-child {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 顶部轻量应用栏 -->
+  <header class="app-header">
+    <div class="header-left">
+      <div class="traffic-lights">
+        <div class="light-dot red"></div>
+        <div class="light-dot yellow"></div>
+        <div class="light-dot green"></div>
+      </div>
+      <div class="doc-name">
+        <span>多模型长文本提炼与知识笔记.md</span>
+        <span class="doc-tag">个人工作台</span>
+      </div>
+    </div>
+
+    <div class="header-right">
+      <button class="btn-tool active" id="toggleNotesBtn">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+        <span>旁注便签 (<span id="notesCount">3</span>)</span>
+      </button>
+      <button class="btn-tool" id="toggleThemeBtn" title="切换深色/浅色">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- 工作区内容滚动容器 -->
+  <main class="workspace-scroll-area" id="scrollContainer">
+    <div class="document-layout" id="docLayout">
+      
+      <!-- 正文内容 -->
+      <article class="article-body" id="articleBody">
+        <h1>多模型长文本提炼与知识笔记</h1>
+        <div class="article-meta">
+          <span>阅读模式</span> · <span>上次编辑: 10分钟前</span> · <span>字数: 2,180</span>
+        </div>
+
+        <p>
+          在日常使用多模型进行深入调研时，我们会把多篇答复整合为同一篇长笔记。然而，<span class="mark-text" data-id="note-1">传统的右侧抽屉面板把注释做成了一个独立且远离文本的列表</span>。阅读文档时，视线必须从左侧大段文字频繁跳跃到最右边的小框里，完全打断了思考连贯性。
+        </p>
+
+        <h2>一、旁注（Sidenote）与正文紧邻的直觉体验</h2>
+        <p>
+          其实我们根本不需要复杂的“团队协作”、“谁提了评论”、“楼中楼回复”或者“标记解决”。这纯粹是我个人在精读时的**随手便签与批注**。<span class="mark-text" data-id="note-2">注释就应该像书页空白处的旁批一样，精准出现在那句话的正右侧</span>，一眼扫过去就能看到自己的想法。
+        </p>
+
+        <blockquote>
+          “最自然的笔记体验，是文字划到哪里，旁注就静静停靠在哪里，即点即看，即点即改。”
+        </blockquote>
+
+        <h2>二、紧邻排列与轻量自然避让</h2>
+        <p>
+          当我们在同一段落里划了多处关键点时，<span class="mark-text" data-id="note-3">右侧的便签卡片只要顺次向下排布即可，避免相互重叠</span>。卡片保持极简，只保留我写的笔记内容与编辑操作，没有任何多余视觉干扰。
+        </p>
+
+        <p>
+          你也可以试着在正文中用鼠标划选任意一段话，旁边立刻会出现一个小图钉，点击即可写下你的随手注释！
+        </p>
+      </article>
+
+      <!-- 紧挨正文右侧的旁注便签栏 -->
+      <div class="sidenotes-column" id="sidenotesColumn">
+        <!-- 便签卡片将通过 JS 精确对其对应行 -->
+      </div>
+
+      <!-- 窄屏浮层便签：不参与正文宽度计算 -->
+      <div
+        class="compact-note-panel"
+        id="compactNotePanel"
+        role="dialog"
+        aria-label="旁注便签"
+      ></div>
+
+    </div>
+  </main>
+
+  <!-- 底部状态条 -->
+  <footer class="app-footer">
+    <div id="footerHint">在正文中划选文字可直接在右侧加注；点击便签内容可直接修改。</div>
+    <div>MultiChat 个人笔记旁注</div>
+  </footer>
+
+  <script>
+    // 纯粹的单人笔记注释数据结构（对齐后端 Annotation 模型）
+    let notes = [
+      {
+        id: 'note-1',
+        anchorId: 'note-1',
+        quote: '传统的右侧抽屉面板把注释做成了一个独立且远离文本的列表',
+        comment: '抽屉侧边栏确实太割裂了，找起来要翻半天，改成紧挨正文体验好太多。',
+        time: '13:05'
+      },
+      {
+        id: 'note-2',
+        anchorId: 'note-2',
+        quote: '注释就应该像书页空白处的旁批一样，精准出现在那句话的正右侧',
+        comment: '这就是个人笔记的核心体验，视线平移即可阅读，不要头像和回复流程。',
+        time: '13:08'
+      },
+      {
+        id: 'note-3',
+        anchorId: 'note-3',
+        quote: '右侧的便签卡片只要顺次向下排布即可，避免相互重叠',
+        comment: '如果划了两处近的，顺延错开几像素即可，干净清爽。',
+        time: '13:10'
+      }
+    ];
+
+    let activeNoteId = 'note-2';
+    let draftNote = null; // { range, quote, top }
+    let editingNoteId = null;
+    let notesVisible = true;
+    let layoutMode = 'wide';
+    let compactOpen = false;
+    let compactNoteId = null;
+
+    const scrollContainer = document.getElementById('scrollContainer');
+    const docLayout = document.getElementById('docLayout');
+    const articleBody = document.getElementById('articleBody');
+    const sidenotesColumn = document.getElementById('sidenotesColumn');
+    const compactNotePanel = document.getElementById('compactNotePanel');
+    const notesCount = document.getElementById('notesCount');
+    const toggleNotesBtn = document.getElementById('toggleNotesBtn');
+    const toggleThemeBtn = document.getElementById('toggleThemeBtn');
+    const footerHint = document.getElementById('footerHint');
+
+    // 宽屏：测量每条高亮文本在正文中的 offsetTop，紧贴右侧排布
+    function renderNotes() {
+      notesCount.textContent = notes.length;
+      updateNotesButton();
+      updateFooterHint();
+
+      if (layoutMode === 'compact') {
+        renderCompactNotes();
+        return;
+      }
+
+      sidenotesColumn.classList.toggle('is-hidden', !notesVisible);
+      renderWideNotes();
+    }
+
+    function renderWideNotes() {
+      sidenotesColumn.innerHTML = '';
+
+      const layoutRect = docLayout.getBoundingClientRect();
+
+      // 收集排版项
+      const items = notes.map(note => {
+        const markEl = document.querySelector(`.mark-text[data-id="${note.anchorId}"]`);
+        let anchorTop = 20;
+        if (markEl) {
+          const rect = markEl.getBoundingClientRect();
+          anchorTop = rect.top - layoutRect.top;
+        }
+        return {
+          type: 'note',
+          data: note,
+          id: note.id,
+          anchorTop: anchorTop,
+          active: note.id === activeNoteId
+        };
+      });
+
+      // 如果有待新建的草稿
+      if (draftNote) {
+        items.push({
+          type: 'draft',
+          id: 'draft',
+          anchorTop: draftNote.top,
+          active: true
+        });
+      }
+
+      // 按垂直高度排序
+      items.sort((a, b) => a.anchorTop - b.anchorTop);
+
+      // 初步挂载以测量真实高度并执行物理避让
+      const CARD_GAP = 10;
+      let currentBottom = 0;
+
+      items.forEach(item => {
+        let cardEl;
+        if (item.type === 'note') {
+          cardEl = createNoteCard(item.data, item.active);
+        } else {
+          cardEl = createDraftCard(draftNote);
+        }
+        sidenotesColumn.appendChild(cardEl);
+
+        const cardHeight = cardEl.offsetHeight || 60;
+        let finalTop = item.anchorTop;
+
+        // 避免相邻两条便签挤在一起
+        if (finalTop < currentBottom) {
+          finalTop = currentBottom;
+        }
+        currentBottom = finalTop + cardHeight + CARD_GAP;
+
+        cardEl.style.top = `${finalTop}px`;
+      });
+
+      // 联动正文高亮显示
+      document.querySelectorAll('.mark-text').forEach(mark => {
+        mark.classList.toggle('active', mark.dataset.id === activeNoteId);
+      });
+    }
+
+    function updateNotesButton() {
+      const isActive = layoutMode === 'compact' ? compactOpen : notesVisible;
+      toggleNotesBtn.classList.toggle('active', isActive);
+      toggleNotesBtn.setAttribute('aria-expanded', String(isActive));
+      toggleNotesBtn.title = layoutMode === 'compact'
+        ? (compactOpen ? '收起旁注浮层' : '打开旁注浮层')
+        : (notesVisible ? '隐藏旁注便签' : '显示旁注便签');
+    }
+
+    function updateFooterHint() {
+      footerHint.textContent = layoutMode === 'compact'
+        ? '点击正文高亮或右上角旁注计数查看注释'
+        : '在正文中划选文字可直接在右侧加注；点击便签内容可直接修改。';
+    }
+
+    function syncMarkState() {
+      const indexById = new Map(notes.map((note, index) => [note.id, index + 1]));
+      document.querySelectorAll('.mark-text').forEach(mark => {
+        const index = indexById.get(mark.dataset.id);
+        if (index) mark.dataset.index = String(index);
+        else delete mark.dataset.index;
+        mark.classList.toggle('active', mark.dataset.id === activeNoteId);
+      });
+    }
+
+    // 窄屏：只渲染当前一条便签到浮层，正文宽度不再被旁注列分走
+    function renderCompactNotes() {
+      sidenotesColumn.innerHTML = '';
+      compactNotePanel.classList.remove('is-open');
+      compactNotePanel.innerHTML = '';
+      syncMarkState();
+
+      if (!compactOpen) return;
+
+      if (compactNoteId && compactNoteId !== 'draft' && !notes.some(note => note.id === compactNoteId)) {
+        compactNoteId = notes[0]?.id ?? null;
+      }
+
+      const note = compactNoteId === 'draft'
+        ? null
+        : notes.find(item => item.id === compactNoteId);
+      const context = note?.quote || draftNote?.quote || '';
+      const panelTitle = compactNoteId === 'draft' ? '标注' : note ? '修改评论' : '旁注便签';
+
+      const head = `
+        <div class="compact-panel-head">
+          <strong class="compact-panel-title">${panelTitle}</strong>
+          <button class="compact-panel-close" type="button" data-action="close" title="关闭旁注">×</button>
+        </div>
+      `;
+
+      if (!note && compactNoteId !== 'draft') {
+        compactNotePanel.innerHTML = `${head}
+          <div class="compact-empty">选中正文后添加旁注</div>
+        `;
+      } else if (note) {
+        compactNotePanel.innerHTML = `${head}
+          ${context ? `<div class="compact-panel-context">${escapeHtml(context)}</div>` : ''}
+          <div class="compact-panel-body">
+            <textarea class="inline-edit-box" id="compactEditBox">${escapeHtml(note.comment)}</textarea>
+            <div class="compact-panel-footer">
+              <button class="compact-delete" type="button" data-action="delete">删除标注</button>
+              <div class="compact-panel-footer-actions">
+                <button class="btn-cancel-note" type="button" data-action="cancel-edit">取消</button>
+                <button class="btn-save-note" type="button" data-action="save-edit">保存标注</button>
+              </div>
+            </div>
+          </div>
+        `;
+      } else if (draftNote) {
+        compactNotePanel.innerHTML = `${head}
+          ${context ? `<div class="compact-panel-context">${escapeHtml(context)}</div>` : ''}
+          <div class="compact-panel-body">
+            <textarea class="inline-edit-box" id="draftText" placeholder="添加评论…"></textarea>
+            <div class="compact-panel-footer">
+              <span></span>
+              <div class="compact-panel-footer-actions">
+                <button class="btn-cancel-note" type="button" data-action="cancel-draft">取消</button>
+                <button class="btn-save-note" type="button" data-action="save-draft">保存标注</button>
+              </div>
+            </div>
+          </div>
+        `;
+      }
+
+      compactNotePanel.classList.add('is-open');
+      requestAnimationFrame(() => {
+        positionCompactPanel();
+        const textarea = compactNotePanel.querySelector('textarea');
+        textarea?.focus();
+      });
+    }
+
+    function positionCompactPanel() {
+      if (!compactOpen || !compactNotePanel.classList.contains('is-open')) return;
+
+      const layoutRect = docLayout.getBoundingClientRect();
+      const containerRect = scrollContainer.getBoundingClientRect();
+      let anchorRect = null;
+
+      if (compactNoteId === 'draft' && draftNote?.range) {
+        anchorRect = draftNote.range.getBoundingClientRect();
+      } else {
+        const mark = document.querySelector(`.mark-text[data-id="${compactNoteId}"]`);
+        anchorRect = mark?.getBoundingClientRect() ?? null;
+      }
+
+      const panelHeight = compactNotePanel.offsetHeight;
+      const visibleTop = containerRect.top - layoutRect.top + 12;
+      const visibleBottom = containerRect.bottom - layoutRect.top - 12;
+      let nextTop = anchorRect ? anchorRect.bottom - layoutRect.top + 8 : 20;
+
+      if (anchorRect && nextTop + panelHeight > visibleBottom) {
+        const above = anchorRect.top - layoutRect.top - panelHeight - 8;
+        nextTop = above >= visibleTop ? above : visibleBottom - panelHeight;
+      }
+
+      const maxTop = Math.max(visibleTop, visibleBottom - panelHeight);
+      compactNotePanel.style.top = `${Math.max(visibleTop, Math.min(nextTop, maxTop))}px`;
+    }
+
+    function closeCompactNotes() {
+      compactOpen = false;
+      compactNoteId = null;
+      editingNoteId = null;
+      renderNotes();
+    }
+
+    // 创建单条便签卡片 DOM
+    function createNoteCard(note, isActive) {
+      const card = document.createElement('div');
+      card.className = `sidenote-item ${isActive ? 'active' : ''}`;
+      card.dataset.id = note.id;
+
+      // 小引线指示
+      const pointer = document.createElement('div');
+      pointer.className = 'note-pointer';
+      card.appendChild(pointer);
+
+      const isEditing = editingNoteId === note.id;
+
+      if (isEditing) {
+        // 原位就地编辑态
+        card.innerHTML += `
+          <textarea class="inline-edit-box" id="editBox_${note.id}">${escapeHtml(note.comment)}</textarea>
+          <div class="note-footer">
+            <span style="font-size:10px;">回车保存 / Esc 取消</span>
+            <div style="display:flex;gap:4px;">
+              <button class="btn-cancel-note" data-action="cancel-edit">取消</button>
+              <button class="btn-save-note" data-action="save-edit">保存</button>
+            </div>
+          </div>
+        `;
+        setTimeout(() => {
+          const textarea = card.querySelector(`#editBox_${note.id}`);
+          if (textarea) {
+            textarea.focus();
+            textarea.select();
+            textarea.addEventListener('keydown', (e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                saveEdit(note.id, textarea.value);
+              }
+              if (e.key === 'Escape') {
+                editingNoteId = null;
+                renderNotes();
+              }
+            });
+          }
+        }, 10);
+      } else {
+        // 普通阅读态：直接展示便签内容
+        card.innerHTML += `
+          <div class="note-text" data-action="start-edit" title="点击可直接编辑">${escapeHtml(note.comment)}</div>
+          <div class="note-footer">
+            <span class="note-time">${note.time}</span>
+            <div class="note-actions">
+              <button class="note-btn" data-action="start-edit" title="编辑笔记">编辑</button>
+              <button class="note-btn del" data-action="delete" title="删除">删除</button>
+            </div>
+          </div>
+        `;
+      }
+
+      // 卡片点击激活与操作
+      card.addEventListener('click', (e) => {
+        const action = e.target.closest('[data-action]')?.dataset.action;
+        if (action === 'delete') {
+          e.stopPropagation();
+          deleteNote(note.id);
+          return;
+        }
+        if (action === 'start-edit') {
+          e.stopPropagation();
+          editingNoteId = note.id;
+          activeNoteId = note.id;
+          renderNotes();
+          return;
+        }
+        if (action === 'cancel-edit') {
+          e.stopPropagation();
+          editingNoteId = null;
+          renderNotes();
+          return;
+        }
+        if (action === 'save-edit') {
+          e.stopPropagation();
+          const textarea = card.querySelector(`#editBox_${note.id}`);
+          if (textarea) saveEdit(note.id, textarea.value);
+          return;
+        }
+
+        // 默认点击激活
+        setActiveNote(note.id);
+      });
+
+      return card;
+    }
+
+    // 创建新建便签卡片草稿
+    function createDraftCard(draft) {
+      const card = document.createElement('div');
+      card.className = 'draft-sidenote';
+      card.innerHTML = `
+        <textarea class="draft-textarea" id="draftText" placeholder="在此输入你的笔记注释 (Enter 保存)..."></textarea>
+        <div class="draft-actions">
+          <button class="btn-cancel-note" id="cancelDraftBtn">取消</button>
+          <button class="btn-save-note" id="saveDraftBtn">保存注释</button>
+        </div>
+      `;
+
+      setTimeout(() => {
+        const textarea = card.querySelector('#draftText');
+        textarea?.focus();
+        textarea?.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            commitDraft();
+          }
+          if (e.key === 'Escape') {
+            draftNote = null;
+            renderNotes();
+          }
+        });
+      }, 20);
+
+      card.querySelector('#cancelDraftBtn')?.addEventListener('click', () => {
+        draftNote = null;
+        renderNotes();
+      });
+
+      card.querySelector('#saveDraftBtn')?.addEventListener('click', commitDraft);
+
+      return card;
+    }
+
+    function saveEdit(id, newComment) {
+      const target = notes.find(n => n.id === id);
+      if (target) {
+        target.comment = newComment.trim() || '（无注释）';
+      }
+      editingNoteId = null;
+      if (layoutMode === 'compact') {
+        compactOpen = false;
+        compactNoteId = null;
+      }
+      renderNotes();
+    }
+
+    function commitDraft() {
+      const textarea = document.getElementById('draftText');
+      if (!textarea || !draftNote) return;
+      const text = textarea.value.trim();
+      if (!text) {
+        textarea.focus();
+        return;
+      }
+
+      const newId = 'note_' + Date.now();
+      wrapRange(draftNote.range, newId);
+
+      notes.push({
+        id: newId,
+        anchorId: newId,
+        quote: draftNote.quote,
+        comment: text,
+        time: '刚刚'
+      });
+
+      draftNote = null;
+      activeNoteId = newId;
+      compactOpen = false;
+      compactNoteId = null;
+      editingNoteId = null;
+      window.getSelection()?.removeAllRanges();
+      bindMarkEvents();
+      renderNotes();
+    }
+
+    function deleteNote(id) {
+      notes = notes.filter(n => n.id !== id);
+      const mark = document.querySelector(`.mark-text[data-id="${id}"]`);
+      if (mark) {
+        mark.replaceWith(document.createTextNode(mark.textContent));
+      }
+      if (activeNoteId === id) activeNoteId = null;
+      if (compactNoteId === id) {
+        compactOpen = false;
+        compactNoteId = null;
+      }
+      renderNotes();
+    }
+
+    function setActiveNote(id) {
+      activeNoteId = id;
+      if (layoutMode === 'compact') {
+        compactOpen = true;
+        compactNoteId = id;
+        editingNoteId = null;
+      } else if (!notesVisible) {
+        notesVisible = true;
+      }
+      renderNotes();
+    }
+
+    function wrapRange(range, id) {
+      const span = document.createElement('span');
+      span.className = 'mark-text active';
+      span.dataset.id = id;
+      try {
+        range.surroundContents(span);
+      } catch (err) {
+        const fragment = range.extractContents();
+        span.appendChild(fragment);
+        range.insertNode(span);
+      }
+    }
+
+    // 划词交互：在选中的文本右侧直接唤起输入卡片
+    function initSelectionListener() {
+      articleBody.addEventListener('mouseup', () => {
+        const sel = window.getSelection();
+        if (!sel || sel.isCollapsed) return;
+
+        const quote = sel.toString().trim();
+        if (!quote || quote.length < 2) return;
+
+        const range = sel.getRangeAt(0);
+        if (!articleBody.contains(range.commonAncestorContainer)) return;
+
+        const rect = range.getBoundingClientRect();
+        const layoutRect = docLayout.getBoundingClientRect();
+        const top = rect.top - layoutRect.top;
+
+        // 设置草稿卡片并在正右侧显示
+        draftNote = {
+          range: range.cloneRange(),
+          quote: quote,
+          top: top
+        };
+        if (layoutMode === 'compact') {
+          compactOpen = true;
+          compactNoteId = 'draft';
+          editingNoteId = null;
+        } else {
+          notesVisible = true;
+        }
+        renderNotes();
+      });
+    }
+
+    function bindMarkEvents() {
+      document.querySelectorAll('.mark-text').forEach(mark => {
+        mark.onclick = (e) => {
+          e.stopPropagation();
+          const id = mark.dataset.id;
+          setActiveNote(id);
+        };
+      });
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return str.replace(/[&<>"']/g, m => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[m]));
+    }
+
+    function syncResponsiveMode() {
+      const nextMode = scrollContainer.clientWidth < 960 ? 'compact' : 'wide';
+      if (nextMode === layoutMode) return false;
+
+      layoutMode = nextMode;
+      document.body.classList.toggle('compact-mode', layoutMode === 'compact');
+      notesVisible = true;
+      compactOpen = false;
+      compactNoteId = null;
+      editingNoteId = null;
+      sidenotesColumn.classList.remove('is-hidden');
+      return true;
+    }
+
+    // 页面初始化与按钮绑定
+    window.addEventListener('DOMContentLoaded', () => {
+      syncResponsiveMode();
+      bindMarkEvents();
+      initSelectionListener();
+      renderNotes();
+
+      // 宽屏显示/隐藏旁注列；窄屏打开/收起单条浮层
+      toggleNotesBtn.addEventListener('click', () => {
+        if (layoutMode === 'compact') {
+          if (compactOpen) {
+            closeCompactNotes();
+          } else {
+            compactOpen = true;
+            compactNoteId = activeNoteId && notes.some(note => note.id === activeNoteId)
+              ? activeNoteId
+              : (notes[0]?.id ?? null);
+            editingNoteId = null;
+            renderNotes();
+          }
+          return;
+        }
+
+        notesVisible = !notesVisible;
+        renderNotes();
+      });
+
+      // 深色浅色模式切换
+      toggleThemeBtn.addEventListener('click', () => {
+        document.documentElement.classList.toggle('dark');
+      });
+
+      // 浮层内操作
+      compactNotePanel.addEventListener('click', event => {
+        const action = event.target.closest('[data-action]')?.dataset.action;
+        if (!action) return;
+
+        if (action === 'close') {
+          closeCompactNotes();
+          return;
+        }
+        if (action === 'cancel-edit') {
+          editingNoteId = null;
+          closeCompactNotes();
+          return;
+        }
+        if (action === 'save-edit') {
+          const textarea = compactNotePanel.querySelector('#compactEditBox');
+          if (textarea && compactNoteId) saveEdit(compactNoteId, textarea.value);
+          return;
+        }
+        if (action === 'delete' && compactNoteId) {
+          deleteNote(compactNoteId);
+          return;
+        }
+        if (action === 'cancel-draft') {
+          draftNote = null;
+          closeCompactNotes();
+          return;
+        }
+        if (action === 'save-draft') {
+          commitDraft();
+        }
+      });
+
+      compactNotePanel.addEventListener('keydown', event => {
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          if (draftNote) {
+            draftNote = null;
+            closeCompactNotes();
+          } else {
+            closeCompactNotes();
+          }
+          return;
+        }
+
+        if (event.key === 'Enter' && !event.shiftKey && event.target.tagName === 'TEXTAREA') {
+          event.preventDefault();
+          if (event.target.id === 'draftText') {
+            commitDraft();
+          } else if (compactNoteId) {
+            saveEdit(compactNoteId, event.target.value);
+          }
+        }
+      });
+
+      // 点击浮层外部收起，只保留正文与旁注计数作为明确入口
+      document.addEventListener('pointerdown', event => {
+        if (layoutMode !== 'compact' || !compactOpen) return;
+        if (compactNotePanel.contains(event.target)) return;
+        if (event.target.closest('#toggleNotesBtn') || event.target.closest('.mark-text')) return;
+        closeCompactNotes();
+      });
+
+      scrollContainer.addEventListener('scroll', positionCompactPanel, { passive: true });
+
+      // 根据编辑区实际可用宽度切换布局，而不是只看窗口宽度
+      let resizeFrame = 0;
+      const handleViewportChange = () => {
+        cancelAnimationFrame(resizeFrame);
+        resizeFrame = requestAnimationFrame(() => {
+          const modeChanged = syncResponsiveMode();
+          if (modeChanged) {
+            renderNotes();
+          } else if (layoutMode === 'compact') {
+            positionCompactPanel();
+            updateNotesButton();
+          } else {
+            renderNotes();
+          }
+        });
+      };
+
+      if ('ResizeObserver' in window) {
+        new ResizeObserver(handleViewportChange).observe(scrollContainer);
+      }
+      window.addEventListener('resize', handleViewportChange);
+    });
+  </script>
+</body>
+</html>

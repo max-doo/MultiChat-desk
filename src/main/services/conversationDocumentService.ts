@@ -5,7 +5,6 @@
 
 import { app } from 'electron'
 import type Store from 'electron-store'
-import { randomUUID } from 'crypto'
 import { mkdir, readdir, readFile, stat, writeFile } from 'fs/promises'
 import path from 'path'
 import type {
@@ -20,8 +19,11 @@ import type {
   SourceAnnotationFile
 } from '../../shared/types/annotations'
 import { noteConversationKey } from '../../shared/utils/noteIdentity'
+import { isConversationUrlForPlatform } from '../../shared/utils/conversationUrl'
+import { defaultSelectors } from '../../shared/config/selectors'
 import { sanitizeMindmapFileName } from '../../shared/utils/mindmapFile'
 import { snapshotToDocumentMarkdown } from '../../shared/utils/noteTranscript'
+import { buildConversationFrontmatter } from '../../shared/utils/conversationFrontmatter'
 import {
   getActiveWorkspaceRoot,
   getWorkspaceSettings,
@@ -54,20 +56,23 @@ const unquote = (value: string): string => {
   return trimmed
 }
 
-const yamlScalar = (value: string): string => {
-  if (!value) return '""'
-  return /[:#[\]{},&*!|>'"%@`]|^[-?] | $|^ /.test(value) || /["\\]/.test(value)
-    ? `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
-    : value
-}
-
 interface FrontmatterInfo {
   sourceKey?: string
   sourceUrl?: string
+  source?: string
   platform?: string
   title?: string
   updatedAt?: number
   sourceKind?: string
+}
+
+/** 无 source_kind 的历史会话文档：只有来源 URL 确实属于某平台的会话页才认。 */
+function isLegacyConversationSource(url: string): boolean {
+  if (!/^https:\/\//i.test(url)) return false
+  return Object.entries(defaultSelectors.models).some(([platformId, config]) => {
+    const baseUrl = config.newConversationUrl
+    return !!baseUrl && isConversationUrlForPlatform(platformId, url, baseUrl)
+  })
 }
 
 function parseFrontmatter(content: string): FrontmatterInfo {
@@ -81,7 +86,7 @@ function parseFrontmatter(content: string): FrontmatterInfo {
     const value = unquote(m[2])
     if (key === 'source_key') info.sourceKey = value
     else if (key === 'source_url') info.sourceUrl = value
-    else if (key === 'source') info.sourceUrl = value
+    else if (key === 'source') info.source = value
     else if (key === 'platform') info.platform = value
     else if (key === 'title') info.title = value
     else if (key === 'updated_at' && /^\d+$/.test(value)) info.updatedAt = Number(value)
@@ -137,18 +142,29 @@ export async function scanConversationDocuments(root: string): Promise<Conversat
   const documents: ConversationScanResult['documents'] = []
   const complete = await scanMarkdownFiles(root, (relativePath, content, mtime) => {
     const frontmatter = parseFrontmatter(content)
-    const rawKey = frontmatter.sourceKey || frontmatter.sourceUrl
-    if (!rawKey || !/^https:\/\//i.test(rawKey)) return
-    if (frontmatter.sourceKind && frontmatter.sourceKind !== 'conversation') return
+    const sourceKind = frontmatter.sourceKind?.trim().toLowerCase()
+    // 显式类型优先：即使旧记录没有 URL，只要标了会话类型就应出现在筛选里。
+    const declaredConversation = sourceKind === 'conversation'
+    if (sourceKind && !declaredConversation) return
+    const httpsKey = [frontmatter.source, frontmatter.sourceKey, frontmatter.sourceUrl].find(
+      (value): value is string => !!value && /^https:\/\//i.test(value)
+    )
+    if (!declaredConversation) {
+      // 无类型标记时只兼容来源确属平台会话页的历史文档；普通 Markdown 的外部链接不参与筛选。
+      if (!httpsKey || !isLegacyConversationSource(httpsKey)) return
+    }
     const heading = content.split('\n').find(line => /^#\s+/.test(line))?.replace(/^#\s+/, '').trim()
     const title = frontmatter.title || heading || path.basename(relativePath, path.extname(relativePath))
     // 旧格式 `source: https://...` 存的是原始 URL，新格式存的是 noteConversationKey；
     // 统一归一到会话身份，避免同一会话被判定为两篇文档。
-    let sourceKey = rawKey
-    try {
-      sourceKey = noteConversationKey(rawKey, title)
-    } catch {
-      return
+    let sourceKey = frontmatter.sourceKey || frontmatter.source || frontmatter.sourceUrl || ''
+    if (httpsKey) {
+      try {
+        sourceKey = noteConversationKey(httpsKey, title)
+      } catch {
+        // 非法地址不阻断显式标记的会话文档，保留原文来源便于展示。
+        sourceKey = frontmatter.sourceKey || frontmatter.source || frontmatter.sourceUrl || ''
+      }
     }
     documents.push({
       relativePath,
@@ -163,27 +179,17 @@ export async function scanConversationDocuments(root: string): Promise<Conversat
 
 function buildDocumentFrontmatter(input: {
   platform: string
-  title: string
   url: string
   sourceKey: string
   now: number
 }): string {
-  const lines = [
-    '---',
-    `id: ${randomUUID()}`,
-    `platform: ${yamlScalar(input.platform)}`,
-    `title: ${yamlScalar(input.title)}`,
-    `captured_at: ${input.now}`,
-    `updated_at: ${input.now}`,
-    '---',
-    ''
-  ]
-  // 没有来源身份时不写 source_key/source_url，避免伪造一个无法回显的会话身份。
-  if (input.sourceKey) {
-    lines.splice(2, 0, 'source_kind: conversation', `source_key: ${yamlScalar(input.sourceKey)}`)
-    if (input.url) lines.splice(4, 0, `source_url: ${yamlScalar(input.url)}`)
-  }
-  return lines.join('\n')
+  // 与渲染层另存共用同一套字段规则，避免迁移、捕捉和保存产生不同格式。
+  return buildConversationFrontmatter({
+    platform: input.platform,
+    url: input.url,
+    sourceKey: input.sourceKey,
+    capturedAt: input.now
+  })
 }
 
 async function resolveDocumentTarget(
@@ -232,7 +238,7 @@ async function resolveFreeDocumentPath(
         continue
       }
       const frontmatter = parseFrontmatter(content)
-      const existingKey = frontmatter.sourceKey || frontmatter.sourceUrl
+      const existingKey = frontmatter.sourceKey || frontmatter.source || frontmatter.sourceUrl
       if (existingKey) {
         try {
           if (noteConversationKey(existingKey, frontmatter.title || title) === sourceKey) return relativePath
@@ -288,7 +294,7 @@ export async function findUntrackedDocumentByTitle(
   await scanMarkdownFiles(root, (relativePath, content) => {
     if (hit) return
     const frontmatter = parseFrontmatter(content)
-    if (frontmatter.sourceKey || frontmatter.sourceUrl) return
+    if (frontmatter.sourceKey || frontmatter.source || frontmatter.sourceUrl) return
     const heading = content.split('\n').find(line => /^#\s+/.test(line))?.replace(/^#\s+/, '').trim()
     const documentTitle = frontmatter.title || heading
     if (documentTitle === wanted) hit = { workspaceRoot: root, relativePath }
@@ -317,12 +323,11 @@ export async function createDocumentForSource(
   if (!root) return { error: 'WORKSPACE_UNAVAILABLE' }
   const settings = await getWorkspaceSettings(root)
   const conversationDir = input.conversationDir || settings.conversationDir
-  const markdown = snapshotToDocumentMarkdown(input.snapshot, input.platform, input.title, input.url)
+  const markdown = snapshotToDocumentMarkdown(input.snapshot, input.platform, input.title)
   if (!markdown.trim()) return { error: 'WRITE_FAILED' }
   const now = Date.now()
   const content = `${buildDocumentFrontmatter({
     platform: input.platform,
-    title: input.title,
     url: input.url,
     sourceKey: input.sourceKey,
     now
@@ -485,10 +490,6 @@ async function requireDefaultWorkspace(
   } catch {
     throw new Error('CONVERSATION_LIBRARY_UNAVAILABLE')
   }
-}
-
-export async function listConversationSources(root: string): Promise<ConversationScanResult> {
-  return scanConversationDocuments(root)
 }
 
 export async function readConversationSourceFile(filePath: string): Promise<SourceAnnotationFile | null> {

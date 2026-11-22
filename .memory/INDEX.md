@@ -4,14 +4,6 @@
 
 复杂修改、调试或需要历史经验时，先匹配任务关键词与文件路径，再读取 KNOWLEDGE.md 中对应的 `###` 章节。多个主题命中时只读确有依赖的章节；不要因此全文加载知识或归档日志。没有匹配主题时先查代码，确认有可复用经验后再新增主题和路由。
 
-## L0 全局规则（已由 AGENTS.md 提供）
-
-| 范围 | 内容 | 位置 |
-|---|---|---|
-| 全局纪律 | npm、生成产物、分层、IPC、共享 Session、安全与禁止擅自切分支 | AGENTS.md 对应章节 |
-| 工作方式 | 最小充分复杂度、文档写作、真实时间、验证与完成要求 | AGENTS.md 对应章节 |
-| 记忆维护 | 脚本写日志、知识路由、冲突修正、用户管理 TODO | AGENTS.md Working Rules / Memory Layer |
-
 ## L1 知识路由（按触发条件读取对应章节）
 
 | id | 触发词或文件路径 | KNOWLEDGE 章节 | 适用说明 |
@@ -24,7 +16,7 @@
 | `markmap-layout` | localMindmap.css、foreignObject、连线、折叠按钮、中文竖排、点击遮挡 | ### 3. Markmap 布局、连线与命中区域 | 布局与按钮测量 |
 | `markmap-viewport` | useMindmapCanvas.ts、Markmap.create、fit、zoom、ResizeObserver、隐藏画布 | ### 4. Markmap 可见性、缩放与视口 | 初始化和后续更新区分 |
 | `markmap-editing` | Markmap、setData、treeRef、contenteditable、节点编辑、选中态、preventScroll | ### 5. Markmap 编辑与状态生命周期 | 布局问题另读主题 3 |
-| `react-state` | useState、useMemo、useCallback、callback ref、闭包、共享抽屉、受控状态、旧计划、WorkbenchEditor、MarkdownSyncPlugin、WorkbenchCodeHighlightPlugin、Lexical CodeNode、代码块光标、LineBreakNode、code-exit、AutoLinkNode、裸链接、本地文件链接、workbenchLinks、LinkNode、https 前缀、HTML 表格、table、rowspan、colspan、DecoratorBlockNode、WorkbenchHtmlTableNode、WorkbenchUrlInputPopover、工作台多格式预览、写盘安全、WorkbenchFileTree、importExternalPaths、getPathForFile、文件树拖入、AppIcon、Lucide、图标迁移、空状态、居中对齐、文件类型图标、FileTypeIcon、Material 文件图标、Paperclip、撤销、重做、前进、WorkbenchAiSidebar、拖拽上传、draggingNodes、一键发送文件、上传成功 toast、attachmentCount、nameMatched、同名附件、临时副本、右侧条带、dragenter、假成功、上传卡死、withTimeout、uploadingRef、停止等待、PlaygroundEditorTheme、Markdown 标题行距、引用缩进、FrontmatterPanel、笔记属性、source 链接、行内编辑、blur 提交、Ctrl 点击、setWindowOpenHandler、shell.openExternal、workbenchTags、标签补全、tag-suggest、标签搜索、滚动位置、scrollTop、预览源码切换、滚动恢复、三栏布局、截断、rightPaneWidth、拖拽写盘、设置弹窗、卡片套卡片、嵌套卡片、工作区设置 | ### 6. React 状态与共享 UI | 按实际时序选择状态方案 |
+| `react-state` | useState、useMemo、useCallback、callback ref、闭包、共享抽屉、受控状态、旧计划、WorkbenchEditor、MarkdownSyncPlugin、WorkbenchCodeHighlightPlugin、Lexical CodeNode、代码块光标、LineBreakNode、code-exit、AutoLinkNode、裸链接、本地文件链接、workbenchLinks、LinkNode、https 前缀、HTML 表格、table、rowspan、colspan、DecoratorBlockNode、WorkbenchHtmlTableNode、WorkbenchUrlInputPopover、工作台多格式预览、写盘安全、WorkbenchFileTree、importExternalPaths、getPathForFile、文件树拖入、AppIcon、Lucide、图标迁移、图标回退、警告三角、APP_ICON_MAP、图标别名、单一语义名、annotation、add_comment、sticky_note_2、空状态、居中对齐、文件类型图标、FileTypeIcon、Material 文件图标、Paperclip、撤销、重做、前进、WorkbenchAiSidebar、拖拽上传、draggingNodes、一键发送文件、上传成功 toast、attachmentCount、nameMatched、同名附件、临时副本、右侧条带、dragenter、假成功、上传卡死、withTimeout、uploadingRef、停止等待、PlaygroundEditorTheme、Markdown 标题行距、引用缩进、FrontmatterPanel、笔记属性、source 链接、行内编辑、blur 提交、Ctrl 点击、setWindowOpenHandler、shell.openExternal、workbenchTags、标签补全、tag-suggest、标签搜索、滚动位置、scrollTop、预览源码切换、滚动恢复、三栏布局、截断、rightPaneWidth、拖拽写盘、设置弹窗、卡片套卡片、嵌套卡片、工作区设置 | ### 6. React 状态与共享 UI | 按实际时序选择状态方案 |
 | `selection-windows` | inputHookManager.ts、uiaSelectionHelper.ts、selectionReader.ts、shortcutManager.ts、WebviewFindBar.tsx、findInPage、UIA、monio、划词、焦点、标题栏、拖动、tray、托盘、trafficLightPosition、红绿灯、AXFocusedUIElement、分隔条、Splitter、webview遮挡、context-menu、iframe右键、HTML预览 | ### 7. 划词、快捷键与窗口交互 | 自动划词与主动快捷键分开 |
 | `notes-identity` | noteManager.ts、noteIdentity.ts、noteTranscript.ts、笔记、快照、URL路径、XML、批注、工作台导图、生成会话复用、lastPage、generationSession、改名重连、对账、size、mtime、contentHash、conversationUrl.ts、isConversationUrlForPlatform、isPlatformConversationPage、来源会话入口、二进制文档、workbenchBinaryHash、docm、pptm、PDF、Word、PPT、resolveId、无效的笔记 ID、无效的文件 ID、notesGet、HTML、gitService、gitignoreService、Git、git mv、update-index、暂存区、rename、pull、push、fetch、ahead、behind、merge --abort、largeUntracked、gitignore、工作区设置、remote set-url、literal-pathspecs、show-prefix、no-optional-locks、刷新闪烁、allowLargeFiles、listUnlocked、迁移只读快照、legacyMigrationJob、rawLegacyRecords、verify-failed、迁移收敛、listIgnoredPaths、readTree、文件树隐藏规则、隐藏文件、点号目录、.agents、.claude、check-ignore | ### 8. 笔记、快照与会话身份 | 整段对话采集另读主题 1；Git 接入、忽略规则、文件树隐藏规则与同步策略在同主题末尾 |
 | `history-lifecycle` | appStore.ts、useWebviewLifecycle.ts、历史恢复、currentConversationId、WebContents ID、轮询、休眠、hibernate、内存、日志量、getWebviewClickInterceptorScript、tryInject、点击拦截注入、dom-ready、attach-timeout、外链拦截、workbench-lifecycle、PDFDataRangeTransport、readPdfRange、workbench-file、corsEnabled | ### 9. 历史恢复、轮询、休眠与内存 | 保持磁盘/内存与会话边界；注入触发点收敛与 about:blank 跳过在同主题末尾 |

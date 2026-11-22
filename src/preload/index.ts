@@ -1,7 +1,7 @@
 import type { HistoryListItem, SummaryHistoryListItem, HistoryKind, HistoryRecord, DataImportResult } from '../shared/types/history'
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
-import type { NoteConversation, NoteDraft, NoteHighlight, NoteSelectionRect, ConversationMindmap, MindmapTask, NoteNavigation, MindmapModifyRequest, MindmapCandidate, MindmapSelection, MindmapMaterial, MindmapFileState, MindmapFileReason } from '../shared/types/notes'
+import type { NoteConversation, NoteDraft, NoteHighlight, NoteSelectionRect, ConversationMindmap, MindmapTask, MindmapModifyRequest, MindmapCandidate, MindmapSelection, MindmapMaterial, MindmapFileState, MindmapFileReason } from '../shared/types/notes'
 import type {
   Annotation,
   AnnotationCaptureRequest,
@@ -15,7 +15,6 @@ import type {
   EnsureDocumentResult,
   DefaultWorkspaceInfo,
   WorkbenchWorkspaceSession,
-  ConversationScanResult,
   LegacyMigrationPendingSummary,
   LegacyMigrationProgress,
   LegacyMigrationResult
@@ -211,13 +210,6 @@ const api = {
   mindmapsUpdate: (conversationId: string, id: string, markdown: string, title: string, updatedAt: number, expectedMarkdown?: string, force?: boolean): Promise<{ success: boolean; data?: ConversationMindmap; error?: string; conflict?: 'file-changed' }> => ipcRenderer.invoke('mindmaps:update', conversationId, id, markdown, title, updatedAt, expectedMarkdown, force),
   mindmapsDelete: (conversationId: string, id: string): Promise<{ success: boolean; data?: { conflict?: 'duplicate' | 'source-mismatch' }; error?: string }> => ipcRenderer.invoke('mindmaps:delete', conversationId, id),
   mindmapsImportLegacy: (markdown: string): Promise<{ success: boolean; data?: NoteConversation; error?: string }> => ipcRenderer.invoke('mindmaps:import-legacy', markdown),
-  notesOpen: (navigation: NoteNavigation): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('notes:open', navigation),
-  notesConsumeNavigation: (): Promise<{ success: boolean; data?: NoteNavigation | null; error?: string }> => ipcRenderer.invoke('notes:consume-navigation'),
-  onNotesNavigate: (cb: (navigation: NoteNavigation) => void): (() => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, navigation: NoteNavigation): void => cb(navigation)
-    ipcRenderer.on('notes:navigate', handler)
-    return () => { ipcRenderer.removeListener('notes:navigate', handler) }
-  },
   onMindmapTaskChanged: (cb: (task: MindmapTask) => void): (() => void) => {
     const handler = (_event: Electron.IpcRendererEvent, task: MindmapTask): void => cb(task)
     ipcRenderer.on('mindmaps:task-changed', handler)
@@ -599,8 +591,6 @@ const api = {
       ipcRenderer.invoke('annotations:ensure-document', input),
     captureExcerpt: (input: CaptureExcerptInput): Promise<{ success: boolean; data?: CaptureExcerptResult; error?: string }> =>
       ipcRenderer.invoke('annotations:capture-excerpt', input),
-    scanConversations: (workspaceRoot: string): Promise<{ success: boolean; data?: ConversationScanResult; error?: string }> =>
-      ipcRenderer.invoke('annotations:scan-conversations', { workspaceRoot }),
     onChanged: (cb: (event: AnnotationChangedEvent) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, payload: AnnotationChangedEvent): void => cb(payload)
       ipcRenderer.on('annotations:changed', handler)

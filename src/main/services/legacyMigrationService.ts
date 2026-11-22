@@ -28,6 +28,7 @@ import {
   upsertSourceAnnotation
 } from './annotationService'
 import { createDocumentForSource, findUntrackedDocumentByTitle } from './conversationDocumentService'
+import { repairMigratedConversationFrontmatter } from './conversationFrontmatterRepair'
 import { allocateMindmapFileName, writeMindmapFile, scanMindmapFiles } from './mindmapFileService'
 import type { NoteManager } from '../noteManager'
 
@@ -55,6 +56,7 @@ const deterministicId = (conversationId: string, noteId: string | undefined, ind
 
 export class LegacyMigrationService {
   private snapshot: NoteConversation[] | null = null
+  private frontmatterRepairDone = false
 
   constructor(
     private readonly store: Store<Record<string, unknown>>,
@@ -88,10 +90,35 @@ export class LegacyMigrationService {
     }
   }
 
+  /** 只收敛旧迁移文档的 frontmatter；正文、旁路标注和旧 JSON 都不动。 */
+  private async repairCompletedDocuments(
+    records: Array<{ conversation: NoteConversation }>,
+    fallbackRoot: string
+  ): Promise<void> {
+    if (this.frontmatterRepairDone) return
+    this.frontmatterRepairDone = true
+    try {
+      const result = await repairMigratedConversationFrontmatter(
+        records.map(item => item.conversation),
+        fallbackRoot,
+        (await getWorkspaceSettings(fallbackRoot)).conversationDir
+      )
+      if (result.failed) {
+        console.warn('[Migration] frontmatter 收敛部分失败:', result.errors)
+      }
+    } catch (error) {
+      console.warn('[Migration] 会话文档 frontmatter 收敛失败:', error)
+    }
+  }
+
   async pendingSummary(): Promise<LegacyMigrationPendingSummary> {
     const records = await this.notes.rawLegacyRecords()
     const pending = records.map(item => item.conversation).filter(item => !item.migratedAt)
     const defaultWorkspace = await ensureDefaultWorkspace(this.store)
+    // 迁移入口打开时顺手收敛旧版迁移文档的头部。已经完成迁移的用户不会
+    // 再跑一次迁移，否则 id/source_url/updated_at 会一直留在默认库里。
+    // 该操作幂等，只改 frontmatter，失败不影响迁移统计。
+    if (!this.isActive()) void this.repairCompletedDocuments(records, defaultWorkspace.path)
     return {
       pendingConversations: pending.filter(item => !item.migrationBlocked).length,
       blockedConversations: pending.filter(item => item.migrationBlocked).length,
@@ -372,6 +399,19 @@ export class LegacyMigrationService {
       failed
     )
     this.snapshot = null
+    // 迁移任务完成后再收敛历史文档头部：旧版本写出的 id/source_url/updated_at
+    // 不应继续留在默认库里。只改 frontmatter，正文与旁路标注不动。
+    const frontmatterRepair = cancelled
+      ? undefined
+      : await repairMigratedConversationFrontmatter(
+        records.map(item => item.conversation),
+        job.targetWorkspaceRoot,
+        job.targetConversationDir
+      )
+        .catch(error => {
+          console.warn('[Migration] 会话文档 frontmatter 收敛失败:', error)
+          return undefined
+        })
     return {
       jobId: job.jobId,
       targetWorkspaceRoot: job.targetWorkspaceRoot,
@@ -381,7 +421,17 @@ export class LegacyMigrationService {
       blocked,
       failed,
       cancelled,
-      report
+      report,
+      ...(frontmatterRepair
+        ? {
+          frontmatterRepair: {
+            scanned: frontmatterRepair.scanned,
+            rewritten: frontmatterRepair.rewritten,
+            unchanged: frontmatterRepair.unchanged,
+            failed: frontmatterRepair.failed
+          }
+        }
+        : {})
     }
   }
 

@@ -7,15 +7,16 @@ export interface SnapshotBlock {
 
 const isUserHeadingOrLabel = (line: string): boolean => {
   const trimmed = line.trim()
-  if (/^#{1,6}\s*(?:\*\*)?(?:你说|用户|我|User|Human|You said)(?:\*\*)?\s*[:：]?\s*$/i.test(trimmed)) return true
-  if (/^(?:\*\*)?(?:你说|用户|User|Human|You said)(?:\*\*)?\s*[:：]\s*(.*)$/i.test(trimmed)) return true
+  if (/^(?:#{1,6}\s*)?(?:\*\*)?(?:你说|你|用户|我|User|Human|You said)(?:\*\*)?\s*[:：]?\s*$/i.test(trimmed)) return true
+  if (/^(?:\*\*)?(?:你说|你|用户|User|Human|You said)(?:\*\*)?\s*[:：]\s*(.*)$/i.test(trimmed)) return true
   return false
 }
 
 const isAssistantHeadingOrLabel = (line: string): boolean => {
   const trimmed = line.trim()
   if (/^#{1,6}\s*(?:\*\*)?(?:ChatGPT|Claude|Gemini|Grok|豆包|DeepSeek|Kimi|千问|元宝|智谱清言|文心一言|Perplexity|AI|助手|Assistant)(?:\s*说|\s*said)?(?:\*\*)?\s*[:：]?\s*$/i.test(trimmed)) return true
-  if (/^(?:\*\*)?(?:ChatGPT|Claude|Gemini|Grok|豆包|DeepSeek|Kimi|千问|元宝|智谱清言|文心一言|Perplexity|AI|助手|Assistant)(?:\s*说|\s*said)(?:\*\*)?\s*[:：]\s*(.*)$/i.test(trimmed)) return true
+  if (/^(?:\*\*)?(?:ChatGPT|Claude|Gemini|Grok|豆包|DeepSeek|Kimi|千问|元宝|智谱清言|文心一言|Perplexity|AI|助手|Assistant)(?:\s*说|\s*said)(?:\*\*)?\s*[:：]?\s*$/i.test(trimmed)) return true
+  if (/^(?:\*\*)?(?:ChatGPT|Claude|Gemini|Grok|豆包|DeepSeek|Kimi|千问|元宝|智谱清言|文心一言|Perplexity|AI|助手|Assistant)(?:\s*说|\s*said)?(?:\*\*)?\s*[:：]\s*(.*)$/i.test(trimmed)) return true
   if (/^#{1,6}\s*AI\s*回复\s*$/i.test(trimmed)) return true
   return false
 }
@@ -85,7 +86,7 @@ export function normalizeNoteTranscriptMarkdown(snapshot: string): string {
     if (isUserHeadingOrLabel(line)) {
       flush()
       role = 'user'
-      const userMatch = /^(?:\*\*)?(?:你说|用户|User|Human|You said)(?:\*\*)?\s*[:：]\s*(.+)$/i.exec(trimmed)
+      const userMatch = /^(?:\*\*)?(?:你说|你|用户|User|Human|You said)(?:\*\*)?\s*[:：]\s*(.+)$/i.exec(trimmed)
       if (userMatch && userMatch[1]) content.push(userMatch[1].trim())
       i++
       continue
@@ -94,7 +95,7 @@ export function normalizeNoteTranscriptMarkdown(snapshot: string): string {
     if (isAssistantHeadingOrLabel(line)) {
       flush()
       role = 'assistant'
-      const aiMatch = /^(?:\*\*)?(?:ChatGPT|Claude|Gemini|Grok|豆包|DeepSeek|Kimi|千问|元宝|智谱清言|文心一言|Perplexity|AI|助手|Assistant)(?:\s*说|\s*said)?(?:\*\*)?\s*[:：]\s*(.+)$/i.exec(trimmed)
+      const aiMatch = /^(?:\*\*)?(?:ChatGPT|Claude|Gemini|Grok|豆包|DeepSeek|Kimi|千问|元宝|智谱清言|文心一言|Perplexity|AI|助手|Assistant)(?:\s*说|\s*said)?(?:\*\*)?\s*[:：]\s*(.*)$/i.exec(trimmed)
       if (aiMatch && aiMatch[1]) content.push(aiMatch[1].trim())
       i++
       continue
@@ -232,15 +233,13 @@ export function parseSnapshotBlocks(markdown: string): SnapshotBlock[] {
 export function snapshotToDocumentMarkdown(
   snapshot: string,
   platform: string,
-  title: string,
-  url?: string
+  title: string
 ): string {
   const safePlatform = (platform || 'AI').trim()
   const safeTitle = (title || '未命名会话').trim()
   const blocks = parseSnapshotBlocks(normalizeNoteTranscriptMarkdown(snapshot || ''))
     .filter(block => block.content.trim())
   const lines: string[] = [`# ${safePlatform} - ${safeTitle}`]
-  if (url) lines.push('', `> 来源：${safePlatform} · ${url}`)
   let lastRole: SnapshotBlock['type'] | null = null
   for (const block of blocks) {
     const role = block.type === 'user' ? 'user' : block.type === 'assistant' ? 'assistant' : 'markdown'
@@ -250,7 +249,7 @@ export function snapshotToDocumentMarkdown(
       continue
     }
     if (lastRole !== role) {
-      lines.push('', `## ${role === 'user' ? '你' : safePlatform}`)
+      lines.push('', `## ${role === 'user' ? '你' : safePlatform}：`)
     }
     lines.push('', block.content.trim())
     lastRole = role

@@ -226,6 +226,13 @@ export interface LegacyMigrationResult {
   failed: number
   cancelled: boolean
   report: LegacyMigrationReportEntry[]
+  /** 旧迁移文档的 frontmatter 收敛结果；正文不改。 */
+  frontmatterRepair?: {
+    scanned: number
+    rewritten: number
+    unchanged: number
+    failed: number
+  }
 }
 
 export interface LegacyMigrationPendingSummary {

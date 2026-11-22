@@ -4,7 +4,6 @@ import WorkbenchFileTree from '../components/workbench/WorkbenchFileTree'
 import WorkbenchEditor from '../components/workbench/WorkbenchEditor'
 import WorkbenchAiSidebar from '../components/workbench/WorkbenchAiSidebar'
 import WorkbenchMindmapPanel from '../components/workbench/WorkbenchMindmapPanel'
-import WorkbenchAnnotationPanel from '../components/workbench/WorkbenchAnnotationPanel'
 import { requestUploadNodesToAi } from '../components/workbench/workbenchAiEvents'
 import { AppIcon } from '../components/icons/AppIcon'
 
@@ -30,8 +29,8 @@ export default function WorkbenchPage({ isActive = true }: WorkbenchPageProps): 
 
   const [isDraggingLeft, setIsDraggingLeft] = useState(false)
   const [isDraggingRight, setIsDraggingRight] = useState(false)
-  const [mountedRightPanes, setMountedRightPanes] = useState<Set<'mindmap' | 'annotations'>>(() => {
-    return new Set(rightPane && rightPane !== 'ai' ? [rightPane] : [])
+  const [mountedRightPanes, setMountedRightPanes] = useState<Set<'mindmap'>>(() => {
+    return new Set(rightPane === 'mindmap' ? ['mindmap'] : [])
   })
 
   // 初始化加载上次偏好与工作区
@@ -39,9 +38,9 @@ export default function WorkbenchPage({ isActive = true }: WorkbenchPageProps): 
     void initWorkbench()
   }, [initWorkbench])
 
-  // AI 侧栏必须常驻以接收同步 CustomEvent；导图和标注首次打开后保持挂载，兼顾内存与编辑态。
+  // AI 侧栏必须常驻以接收同步 CustomEvent；导图首次打开后保持挂载，兼顾内存与编辑态。
   useEffect(() => {
-    if (rightPane !== 'mindmap' && rightPane !== 'annotations') return
+    if (rightPane !== 'mindmap') return
     setMountedRightPanes((previous) => {
       if (previous.has(rightPane)) return previous
       const next = new Set(previous)
@@ -218,18 +217,13 @@ export default function WorkbenchPage({ isActive = true }: WorkbenchPageProps): 
             display: rightPane ? 'block' : 'none'
           }}
         >
-          {/* AI 常驻；导图/标注首次打开后保持挂载，避免未使用面板提前创建资源。 */}
+          {/* AI 常驻；导图首次打开后保持挂载，避免未使用面板提前创建资源。 */}
           <div className="h-full" style={{ display: rightPane === 'ai' ? 'block' : 'none' }}>
             <WorkbenchAiSidebar isActive={isActive} />
           </div>
           {mountedRightPanes.has('mindmap') && (
             <div className="h-full" style={{ display: rightPane === 'mindmap' ? 'block' : 'none' }}>
               <WorkbenchMindmapPanel />
-            </div>
-          )}
-          {mountedRightPanes.has('annotations') && (
-            <div className="h-full" style={{ display: rightPane === 'annotations' ? 'block' : 'none' }}>
-              <WorkbenchAnnotationPanel />
             </div>
           )}
         </div>

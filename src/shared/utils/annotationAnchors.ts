@@ -1,20 +1,33 @@
 import type { Annotation, AnnotationAnchor, ResolvedAnnotationAnchor } from '../types/annotations'
 
-const normalizeText = (value: string): string => value.replace(/\s+/g, ' ').trim()
+const COMPACT_RE = /[\s\u200b-\u200d\ufeff]/g
+const COMPACT_TEST_RE = /[\s\u200b-\u200d\ufeff]/
+const compactText = (value: string): string => value.replace(COMPACT_RE, '')
 
-const contextScore = (text: string, start: number, anchor: AnnotationAnchor): number => {
+/** 与原文高亮脚本保持一致：忽略空白和零宽字符，记录压缩文本到原文本的偏移。 */
+function compactWithOffsets(text: string): { compact: string; offsets: number[] } {
+  const offsets: number[] = []
+  let compact = ''
+  for (let i = 0; i < text.length; i++) {
+    if (COMPACT_TEST_RE.test(text[i])) continue
+    offsets.push(i)
+    compact += text[i]
+  }
+  return { compact, offsets }
+}
+
+const contextScore = (text: string, start: number, end: number, anchor: AnnotationAnchor): number => {
   let score = 0
-  const prefix = normalizeText(anchor.prefix)
+  const prefix = compactText(anchor.prefix)
   if (prefix) {
-    const actual = normalizeText(text.slice(Math.max(0, start - prefix.length - 24), start))
-    if (actual.endsWith(prefix)) score += prefix.length >= 8 ? 6 : 3
+    const actual = text.slice(Math.max(0, start - prefix.length), start)
+    if (actual === prefix) score += prefix.length >= 8 ? 6 : 3
     else if (actual.includes(prefix)) score += 1
   }
-  const suffix = normalizeText(anchor.suffix)
+  const suffix = compactText(anchor.suffix)
   if (suffix) {
-    const end = start + anchor.exact.length
-    const actual = normalizeText(text.slice(end, end + suffix.length + 24))
-    if (actual.startsWith(suffix)) score += suffix.length >= 8 ? 6 : 3
+    const actual = text.slice(end, end + suffix.length)
+    if (actual === suffix) score += suffix.length >= 8 ? 6 : 3
     else if (actual.includes(suffix)) score += 1
   }
   return score
@@ -42,31 +55,40 @@ export function resolveAnchors(
   annotations: Array<Pick<Annotation, 'id' | 'anchor'>>
 ): ResolvedAnnotationAnchor[] {
   if (!text) return []
+  const { compact, offsets } = compactWithOffsets(text)
+  if (!compact) return []
   const resolved: ResolvedAnnotationAnchor[] = []
   for (const annotation of annotations) {
-    const exact = annotation.anchor?.exact
+    const exact = compactText(annotation.anchor?.exact || '')
     if (!exact) continue
-    const positions = occurrencesOf(text, exact)
+    const positions = occurrencesOf(compact, exact)
     if (!positions.length) continue
 
     const scored = positions.map((start, index) => {
-      let score = contextScore(text, start, annotation.anchor)
+      let score = contextScore(compact, start, start + exact.length, annotation.anchor)
       if (typeof annotation.anchor.occurrence === 'number') {
         score += index === annotation.anchor.occurrence ? 4 : -Math.min(2, Math.abs(index - annotation.anchor.occurrence))
       }
       const hint = annotation.anchor.offsetHint
       if (typeof hint === 'number') {
-        score -= Math.min(6, Math.abs(start - hint) / 2000)
+        score -= Math.min(6, Math.abs(offsets[start] - hint) / 2000)
       }
       return { start, index, score }
     })
-    scored.sort((a, b) => b.score - a.score || Math.abs(a.start - (annotation.anchor.offsetHint ?? a.start)) - Math.abs(b.start - (annotation.anchor.offsetHint ?? b.start)) || a.start - b.start)
+    scored.sort((a, b) =>
+      b.score - a.score ||
+      Math.abs(offsets[a.start] - (annotation.anchor.offsetHint ?? offsets[a.start])) -
+        Math.abs(offsets[b.start] - (annotation.anchor.offsetHint ?? offsets[b.start])) ||
+      a.start - b.start
+    )
     const best = scored[0]
     const ambiguous = positions.length > 1 && scored.length > 1 && Math.abs(scored[0].score - scored[1].score) < 0.5
+    const start = offsets[best.start]
+    const end = offsets[best.start + exact.length - 1] + 1
     resolved.push({
       id: annotation.id,
-      start: best.start,
-      end: best.start + exact.length,
+      start,
+      end,
       ambiguous
     })
   }

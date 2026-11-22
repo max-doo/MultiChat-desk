@@ -175,7 +175,7 @@ export const APP_ICON_MAP = {
   "account_tree": ListTree,
   "diagram_flow_horizontal": DiagramFlowHorizontal,
   "add": Plus,
-  "add_comment": MessageSquarePlus,
+  "annotation": MessageSquarePlus,
   "ads_click": MousePointerClick,
   "apps": LayoutGrid,
   "arrow_back": ArrowLeft,

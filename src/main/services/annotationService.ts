@@ -244,13 +244,25 @@ export async function findDocumentAnnotationFile(
   const target = posix(relativePath)
   const direct = await readJson<DocumentAnnotationFile>(documentFile(workspaceRoot, target))
   if (direct) {
-    if (!fingerprint?.contentHash || !direct.document.contentHash || direct.document.contentHash === fingerprint.contentHash) {
-      if (direct.document.relativePath !== target) {
-        direct.document.relativePath = target
-        await atomicWrite(documentFile(workspaceRoot, target), direct)
+    // 同一路径就是同一篇文档：正文编辑必然改变 contentHash，不能因此丢掉已有标注。
+    // contentHash 只用于“文档被改名/移动后按内容找回”，不参与同路径认领。
+    if (
+      direct.document.relativePath !== target ||
+      (fingerprint?.contentHash && direct.document.contentHash !== fingerprint.contentHash) ||
+      (fingerprint?.size !== undefined && direct.document.size !== fingerprint.size) ||
+      (fingerprint?.mtime !== undefined && direct.document.mtime !== fingerprint.mtime)
+    ) {
+      direct.document = {
+        ...direct.document,
+        relativePath: target,
+        contentHash: fingerprint?.contentHash ?? direct.document.contentHash,
+        size: fingerprint?.size ?? direct.document.size,
+        mtime: fingerprint?.mtime ?? direct.document.mtime,
+        updatedAt: Date.now()
       }
-      return direct
+      await atomicWrite(documentFile(workspaceRoot, target), direct)
     }
+    return direct
   }
 
   const dir = path.join(workspaceRoot, ANNOTATION_DIR, 'documents')
@@ -267,8 +279,8 @@ export async function findDocumentAnnotationFile(
     try {
       const file = await readJson<DocumentAnnotationFile>(filePath)
       if (!file) continue
-      // 路径被另一篇文档复用时，内容不一致不能直接套用旧标注。
-      if (filePath === directPath && fingerprint?.contentHash && file.document.contentHash !== fingerprint.contentHash) continue
+      // direct 分支已处理同路径；这里只收集改名前的旧旁路。
+      if (filePath === directPath) continue
       if (file.document.relativePath === target) candidates.push({ file, filePath })
     } catch {
       // 单个损坏文件不影响其他文档

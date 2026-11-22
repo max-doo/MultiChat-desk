@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useAppStore } from '../../store/appStore'
 import { useWorkbenchStore } from '../../store/workbenchStore'
 import { readConversationSource } from '../../../../shared/utils/conversationSource'
-import WorkbenchSourceOverlay from './WorkbenchSourceOverlay'
+import { resolveSourceConversation } from '../../utils/noteSourceConversation'
 import { AppIcon } from '../icons/AppIcon'
 
 const WINDOWS_INVALID_CHARS = /[\\/:*?"<>|]/
@@ -17,16 +18,21 @@ export default function WorkbenchTitleBar(): JSX.Element | null {
   const isDirty = useWorkbenchStore((s) => s.isDirty)
   const saveActiveFile = useWorkbenchStore((s) => s.saveActiveFile)
   const renameNode = useWorkbenchStore((s) => s.renameNode)
+  const openConversationInAiSidebar = useWorkbenchStore((s) => s.openConversationInAiSidebar)
+  const models = useAppStore((s) => s.models)
 
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
-  const [sourceOpen, setSourceOpen] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const conversationSource = useMemo(
     () => (activeFileContent ? readConversationSource(activeFileContent) : null),
     [activeFileContent]
+  )
+  const sourceTarget = useMemo(
+    () => (conversationSource ? resolveSourceConversation(conversationSource.url, models) : null),
+    [conversationSource, models]
   )
 
   const fileName = activeFilePath?.split('/').pop() ?? ''
@@ -44,7 +50,6 @@ export default function WorkbenchTitleBar(): JSX.Element | null {
   // 切文件时退出编辑态
   useEffect(() => {
     setEditing(false)
-    setSourceOpen(false)
   }, [activeFilePath])
 
   if (!activeFilePath) return null
@@ -113,21 +118,20 @@ export default function WorkbenchTitleBar(): JSX.Element | null {
           >
             {baseName}
           </button>
-          {conversationSource && (
+          {sourceTarget && (
             <button
               type="button"
-              onClick={() => setSourceOpen(true)}
-              title="查看原文"
-              aria-label="查看原文"
+              onClick={() =>
+                openConversationInAiSidebar(sourceTarget.platformId, sourceTarget.url)
+              }
+              title="在侧边栏查看原文"
+              aria-label="在侧边栏查看原文"
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-text-secondary hover:bg-black/5 hover:text-text-primary dark:hover:bg-white/10"
             >
-              <AppIcon name="article" size={18} />
+              <AppIcon name="forum" size={18} />
             </button>
           )}
         </div>
-      )}
-      {sourceOpen && conversationSource && (
-        <WorkbenchSourceOverlay source={conversationSource} onClose={() => setSourceOpen(false)} />
       )}
     </div>
   )

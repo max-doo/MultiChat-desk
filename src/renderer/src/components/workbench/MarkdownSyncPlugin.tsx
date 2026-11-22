@@ -47,6 +47,7 @@ import {
   $isHorizontalRuleNode
 } from '@lexical/react/LexicalHorizontalRuleNode'
 import { useWorkbenchStore } from '../../store/workbenchStore'
+import { upsertConversationFrontmatter } from '../../../../shared/utils/conversationFrontmatter'
 import {
   $createPendingInsertNode,
   $isPendingInsertNode,
@@ -621,9 +622,16 @@ export default function MarkdownSyncPlugin(): null {
   // 桥接：store 派发的 workbench:insert-reply → Lexical INSERT_REPLY_COMMAND
   useEffect(() => {
     const handler = (e: Event): void => {
-      const detail = (e as CustomEvent<{ replyMd?: string }>).detail
+      const detail = (
+        e as CustomEvent<{ replyMd?: string; conversationUrl?: string; platform?: string }>
+      ).detail
       const md = detail?.replyMd
       if (!md) return
+      // 插入回复属于会话资料：先补 frontmatter，再让 Lexical 的后续回写带上它。
+      frontmatterRef.current = upsertConversationFrontmatter(frontmatterRef.current ?? '', {
+        url: detail.conversationUrl,
+        platform: detail.platform
+      })
       editor.dispatchCommand(INSERT_REPLY_COMMAND, md)
     }
     window.addEventListener('workbench:insert-reply', handler)

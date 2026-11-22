@@ -222,7 +222,7 @@ function FloatingToolbar({
             className={btn(false)}
             title="标注"
           >
-            <AppIcon name="add_comment" size={19} />
+            <AppIcon name="annotation" size={19} />
           </button>
           <button
             ref={linkButtonRef}

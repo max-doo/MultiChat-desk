@@ -316,7 +316,7 @@ export function useWebviewLifecycle({
     }
 
     const handleConsoleMessage = (event: Electron.ConsoleMessageEvent): void => {
-      // 笔记消息由 useWebviewNotes 处理，不写入平台日志。
+      // 原文标注消息由 useSourceAnnotations 处理，不写入平台日志。
       if (event.message.startsWith(NOTE_DISMISS_PREFIX) || event.message.startsWith(NOTE_CLICK_PREFIX)) return
       if (event.message.startsWith('__MM_LOG__:')) {
         console.log(`[${name}] ${event.message.substring(9)}`)

@@ -16,6 +16,7 @@ export interface AutomationStep {
   countsAsSuccess?: boolean
   menuOpenerFallback?: boolean  // 新：本步元素找不到时，按语义找"开菜单"按钮
   hover?: boolean               // 新：本步不 click 而是 dispatch mouseenter/mouseover/mousemove 触发 hover 浮层
+  skipIfExists?: boolean        // 新：找到元素即视为已达成，跳过点击直接 continue（用于"状态已开"幂等）
   // 新：幂等守卫。selector 命中的元素 aria-pressed 已为期望值时跳过本步，
   // 用于"点击即取反"的开关按钮（如 qianwen.com 的"研究"），避免重复执行把状态翻回去。
   skipIfPressed?: string
@@ -32,7 +33,48 @@ export const noteMessageSelectors: Record<string, { messages: string; role: stri
   },
   'claude.ai': { messages: '[data-testid="user-message"],[data-testid="assistant-message"]', role: 'data-testid' },
   'gemini.google.com': { messages: 'user-query,model-response', role: 'tagName' },
-  'www.doubao.com': { messages: '[data-role="user"],[data-role="assistant"]', role: 'data-role' }
+  'chat.deepseek.com': {
+    messages: '.ds-virtual-list .ds-message',
+    role: 'class',
+    user: '.ds-virtual-list .ds-message:not(:has(.ds-assistant-message-main-content))',
+    assistant: '.ds-virtual-list .ds-message:has(.ds-assistant-message-main-content)'
+  },
+  'www.qianwen.com': {
+    messages: '[class*="message-select-wrapper-question-"],[class*="message-select-wrapper-answer-"]',
+    role: 'class',
+    user: '[class*="message-select-wrapper-question-"]',
+    assistant: '[class*="message-select-wrapper-answer-"]'
+  },
+  'yuanbao.tencent.com': {
+    messages: '.agent-chat__list__item[data-conv-speaker]',
+    role: 'data-conv-speaker',
+    user: '[data-conv-speaker="human"]',
+    assistant: '[data-conv-speaker="ai"]'
+  },
+  'www.doubao.com': {
+    messages: '[class*="sendMessage-"],[class*="receiveMessage-"]',
+    role: 'class',
+    user: '[class*="sendMessage-"]',
+    assistant: '[class*="receiveMessage-"]'
+  },
+  'www.kimi.com': {
+    messages: '.chat-content-item',
+    role: 'class',
+    user: '.chat-content-item-user',
+    assistant: '.chat-content-item-assistant'
+  },
+  'grok.com': {
+    messages: '[data-testid="user-message"],[data-testid="assistant-message"]',
+    role: 'data-testid',
+    user: '[data-testid="user-message"]',
+    assistant: '[data-testid="assistant-message"]'
+  },
+  'wenxin.baidu.com': {
+    messages: '.cs-question-bubble,.answer-container',
+    role: 'class',
+    user: '.cs-question-bubble',
+    assistant: '.answer-container'
+  }
 }
 
 /** 普通文字生成的停止控件；导图任务用作生成状态信号。 */
@@ -138,7 +180,17 @@ export const responseMessageSelectors: Record<string, string[]> = {
     '[data-message-author-role="assistant"]',
     '.markdown.prose',
     '.agent-turn .markdown'
-  ]
+  ],
+  'chat.deepseek.com': ['.ds-markdown.ds-assistant-message-main-content'],
+  'www.qianwen.com': [
+    '[class*="message-select-wrapper-answer-"] [class*="message-select-content-inner-"]'
+  ],
+  'yuanbao.tencent.com': [
+    '.agent-chat__list__item[data-conv-speaker="ai"] .hyc-common-markdown'
+  ],
+  'www.kimi.com': ['.chat-content-item-assistant .segment-assistant .markdown'],
+  'grok.com': ['[data-testid="assistant-message"] .response-content-markdown'],
+  'wenxin.baidu.com': ['.answer-container .cosd-markdown-content']
 }
 
 /** 代码框的 DOM 可能只包含可见行；虚拟编辑器需读取完整文档模型。 */
@@ -575,16 +627,8 @@ export const defaultSelectors: SelectorsConfig = {
       ],
       customCSS: ``,
       newConversationUrl: 'https://grok.com/',
-      researchMode: {
-        steps: [
-          // 2026-11 实测：未登录态无 DeepSearch 入口（模型菜单仅 Fast/Build/Auto/Expert/Heavy，
-          // "+"→技能子菜单仅文件技能）；若登录后出现独立按钮则按 data-slot/button+文本命中
-          { selector: 'button[data-slot="button"], button', text: ['DeepSearch', 'DeeperSearch', '深度搜索'], delay: 500 }
-        ],
-        cancelSteps: [
-          { selector: 'button[data-slot="button"], button', text: ['DeepSearch', 'DeeperSearch'], delay: 200, optional: true }
-        ]
-      },
+      // 2026-11 实测：Grok 已无 DeepSearch/深度研究入口（模型菜单仅 Fast/Build/Auto/Expert/Heavy，
+      // "+"→技能子菜单仅文件技能）— researchMode 配置移除，--research 报 CAPABILITY_UNSUPPORTED
       imageGeneration: {
         steps: [
           { selector: 'button', text: ['Aurora', 'Image Gen', '生图', '画图', '图像生成'], delay: 500, optional: true },
@@ -651,34 +695,8 @@ export const defaultSelectors: SelectorsConfig = {
       // 千问国内站：与 models 配置的登录入口、本平台选择器（#qianwen-layout-right-panel、
       // #qk-markdown-react、.tongyi-markdown）同源。chat.qwen.ai 是另一个产品，登录态与 DOM 都不通用。
       newConversationUrl: 'https://www.qianwen.com/',
-      researchMode: {
-        steps: [
-          // 两个站点的入口形态不同，放在同一步按顺序探测：
-          // ① chat.qwen.ai：div.mode-select-open[role=button]"选择模式"（非 button 元素）→ div[role=menuitem]"深入研究"；
-          // ② qianwen.com：composer 内的"研究"开关按钮（aria-pressed 切换，点一次即开）。
-          { selector: [
-            'div.mode-select-open[role="button"]',
-            '[role="button"][aria-label="选择模式"]',
-            '[aria-label="选择模式"]',
-            'button[aria-label="研究"]'
-          ], delay: 500, menuOpenerFallback: true, skipIfPressed: 'true' },
-          { selector: [
-            'div[role="menuitem"]',
-            '[role="menuitem"]',
-            'button'
-          ], regex: '深入研究|深度研究|Deep\\s*Research', wordBoundary: false, exclude: ['搜索', 'Search'], delay: 500, optional: true, skipIfPressed: 'true' }
-        ],
-        cancelSteps: [
-          // 退出：chat.qwen.ai 重开菜单选"自动"；qianwen.com 再点一次"研究"开关（aria-pressed 取反）
-          { selector: [
-            'div.mode-select-open[role="button"]',
-            '[role="button"][aria-label="选择模式"]',
-            '[aria-label="选择模式"]',
-            'button[aria-label="研究"]'
-          ], delay: 300, menuOpenerFallback: true, optional: true, skipIfReleased: 'false' },
-          { selector: ['div[role="menuitem"]'], regex: '自动|Auto', wordBoundary: false, delay: 200, optional: true, skipIfReleased: 'false' }
-        ]
-      },
+      // 2026-11 实测：千问已下线"研究/深入研究"入口 — researchMode 配置移除，
+      // --research 报 CAPABILITY_UNSUPPORTED
       imageGeneration: {
         steps: [
           { selector: ['button[data-log-name="tool_bar"]', 'button.tagBtn-OADWVI', 'button[data-component-type="tool-item"]'], text: ['生图', '画图', '图像生成', 'Image'], delay: 500 }
@@ -728,6 +746,24 @@ export const defaultSelectors: SelectorsConfig = {
       ],
       customCSS: ``,
       newConversationUrl: 'https://www.kimi.com/',
+      // 2026-11 实测：Kimi 深度研究以独立路由 /deep-research 呈现。
+      // 首页有 a.publisher-shortcut__link[href="/deep-research"] 入口；
+      // 进入后 composer 出现 div.tool-switch.open（含"深度研究"）作为已开启态，
+      // 其中 svg.close-icon 是关闭按钮（仅 hover 可见，但 click 派发仍生效）。
+      researchMode: {
+        steps: [
+          // step1：已开（.tool-switch.open 存在且文本匹配）→ skipIfExists 直接成功跳过
+          { selector: ['.tool-switch.open'], text: '深度研究', skipIfExists: true, optional: true, countsAsSuccess: true },
+          // step2：未开 → 首页点 shortcut 入口跳转 /deep-research；不在首页时该元素不存在，optional 跳过
+          { selector: ['a.publisher-shortcut__link[href="/deep-research"]', 'a[href="/deep-research"]'], optional: true, countsAsSuccess: true, delay: 1200 }
+        ],
+        cancelSteps: [
+          // 在 /deep-research 页：点击 close-icon 关闭（hidden 元素仍会被 findElement 兜底返回并可点击）
+          { selector: ['.tool-switch .close-icon'], optional: true, countsAsSuccess: true, delay: 500 },
+          // 在首页：shortcut 存在 = 未开启 = 已关闭，skipIfExists 直接算成功
+          { selector: ['a.publisher-shortcut__link[href="/deep-research"]'], skipIfExists: true, optional: true, countsAsSuccess: true }
+        ]
+      },
       imageGeneration: {
         steps: [
           { selector: ['button', '[role="button"]'], text: ['生图', '画图', '图像生成', 'Image'], delay: 500 }
@@ -829,20 +865,27 @@ export const defaultSelectors: SelectorsConfig = {
       customCSS: ``,
       newConversationUrl: 'https://yuanbao.tencent.com/chat',
       // 2026-11 实测：composer 工具条上有独立深度研究钮，
-      // data-application-id 为平台给的稳定语义钩子
+      // data-application-id 为平台给的稳定语义钩子。
+      // 开启后原按钮消失，替换为激活态 chip + "移除 深度研究"关闭按钮。
       researchMode: {
         steps: [
+          // step1：已开时原按钮消失、替换为"移除"钮 → 命中移除钮即已开启，skipIfExists 跳过
+          { selector: ['button[aria-label="移除 深度研究"]', 'button[aria-label*="移除"][aria-label*="深度研究"]'], skipIfExists: true, optional: true, countsAsSuccess: true },
+          // step2：未开 → 点入口钮开启
           { selector: [
             'button[data-application-id="application_id_deep_research"]',
             'button[aria-label="深度研究"][data-application-id]',
             'button[aria-label="深度研究"]'
-          ], delay: 500 }
+          ], optional: true, countsAsSuccess: true, delay: 800 }
         ],
         cancelSteps: [
+          // 在开启态：点"移除"关闭
           { selector: [
-            'button[data-application-id="application_id_deep_research"][aria-pressed="true"]',
-            'button[data-application-id="application_id_deep_research"]'
-          ], delay: 200, optional: true }
+            'button[aria-label="移除 深度研究"]',
+            'button[aria-label*="移除"][aria-label*="深度研究"]'
+          ], optional: true, countsAsSuccess: true, delay: 500 },
+          // 在未开启态：入口钮存在 = 未开启 = 已关闭，skipIfExists 算成功
+          { selector: ['button[data-application-id="application_id_deep_research"]'], skipIfExists: true, optional: true, countsAsSuccess: true }
         ]
       },
       imageGeneration: {
@@ -921,16 +964,8 @@ export const defaultSelectors: SelectorsConfig = {
       ],
       customCSS: ``,
       newConversationUrl: 'https://chat.deepseek.com/',
-      researchMode: {
-        // ⚠️ 语义：这是"深度思考"推理开关，不是联网 Deep Research；
-        // 保留为平台语义映射，exact 防止误命中"联网搜索"等相邻开关
-        steps: [
-          { selector: ['button', '[role="button"]', 'div'], text: '深度思考', exact: true, delay: 300 }
-        ],
-        cancelSteps: [
-          { selector: ['button', '[role="button"]', 'div'], text: '深度思考', exact: true, delay: 300 }
-        ]
-      }
+      // 2026-11 实测：DeepSeek 已下架联网"深度研究"功能；现存的"深度思考"是推理开关，
+      // 不属于 Deep Research 语义，不再映射 — researchMode 配置移除，--research 报 CAPABILITY_UNSUPPORTED
     }
   }
 }

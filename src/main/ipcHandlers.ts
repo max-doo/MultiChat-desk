@@ -16,7 +16,7 @@ import { broadcastStateChange } from './stateBus'
 import { HistoryManager, normalizeHistory } from './api/historyManager'
 import { isDeepStrictEqual } from 'util'
 import { MindmapFileChangedError, NoteManager, workbenchBinaryHash } from './noteManager'
-import type { NoteConversation, NoteDraft, NoteNavigation, MindmapModifyRequest, MindmapMaterial } from '../shared/types/notes'
+import type { NoteConversation, NoteDraft, MindmapModifyRequest, MindmapMaterial } from '../shared/types/notes'
 import { noteConversationKey } from '../shared/utils/noteIdentity'
 import { generateNoteCaptureScript, generateMindmapPageStateScript, generateAppendMindmapQuestionScript } from '../shared/utils/webviewScripts'
 import { MindmapService } from './services/MindmapService'
@@ -84,8 +84,7 @@ import {
 import {
     captureSourceAnnotation,
     ensureDocumentForSource,
-    captureExcerptDocument,
-    listConversationSources
+    captureExcerptDocument
 } from './services/conversationDocumentService'
 import { LegacyMigrationService } from './services/legacyMigrationService'
 import type {
@@ -1018,23 +1017,6 @@ export async function registerIpcHandlers(
         try { await assertLegacyWritable(); const data = await noteManager.importLegacyMindmap(markdown); notesChanged(); return { success: true, data } }
         catch (error) { return { success: false, error: String(error) } }
     })
-    let pendingNoteNavigation: NoteNavigation | null = null
-    ipcMain.handle('notes:open', (_event, navigation: NoteNavigation) => {
-        if (!navigation || typeof navigation.conversationId !== 'string') return { success: false, error: '无效的笔记定位' }
-        pendingNoteNavigation = navigation
-        const mainWindow = getMainWindow()
-        if (!mainWindow || mainWindow.isDestroyed()) return { success: false, error: '主窗口未就绪' }
-        mainWindow.webContents.send('notes:navigate', navigation)
-        showAndFocusWindow(mainWindow)
-        return { success: true }
-    })
-    ipcMain.handle('notes:consume-navigation', event => {
-        if (event.sender.id !== getMainWindow()?.webContents.id) return { success: false, error: '仅主窗口可读取定位' }
-        const data = pendingNoteNavigation
-        pendingNoteNavigation = null
-        return { success: true, data }
-    })
-
     ipcMain.handle('notes:source', async (_event, key: string) => {
         try {
             const snapshot = await legacyMigration.readOnlySnapshot()
@@ -1932,13 +1914,6 @@ export async function registerIpcHandlers(
             return { success: true, data }
         }
         catch (err: unknown) { return { success: false, error: err instanceof Error ? err.message : String(err) } }
-    })
-
-    ipcMain.handle('annotations:scan-conversations', async (_event, payload: { workspaceRoot: string }) => {
-        try {
-            assertActiveWorkspace(payload.workspaceRoot)
-            return { success: true, data: await listConversationSources(payload.workspaceRoot) }
-        } catch (err: unknown) { return { success: false, error: err instanceof Error ? err.message : String(err) } }
     })
 
     ipcMain.handle('notes:migration-pending', async () => {

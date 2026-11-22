@@ -26,11 +26,13 @@ export interface SourceAnnotationsState {
   hit: SourceHighlight | null
   closeHit: () => void
   refresh: () => void
+  /** 原文高亮的评论被编辑后同步本地列表；持久化由调用方写回默认库。 */
+  updateHitComment: (id: string, comment: string) => void
 }
 
 /**
  * 原文标注的共享回显层：只接收 sourceKey，读写根固定为主进程默认工作区。
- * 用于 WebviewCard、工作台 AI 侧栏与原文覆盖层；捕捉时由调用方给出 captureContext。
+ * 用于 WebviewCard 与工作台 AI 侧栏；捕捉时由调用方给出 captureContext。
  */
 export function useSourceAnnotations(
   webviewRef: RefObject<Electron.WebviewTag>,
@@ -47,6 +49,10 @@ export function useSourceAnnotations(
 
   const refresh = useCallback(() => setTick(value => value + 1), [])
   const closeHit = useCallback(() => setHit(null), [])
+  const updateHitComment = useCallback((id: string, comment: string) => {
+    setAnnotations(items => items.map(item => (item.id === id ? { ...item, comment } : item)))
+    setHit(current => (current?.id === id ? { ...current, comment } : current))
+  }, [])
 
   // 读取默认库里的 source 标注；sourceKey 变化或外部广播时重拉。
   useEffect(() => {
@@ -128,6 +134,9 @@ export function useSourceAnnotations(
       if (timer) clearTimeout(timer)
       timer = setTimeout(draw, 400)
     }
+    const resetStylesheet = (): void => {
+      cssKeyRef.current = null
+    }
     const onConsole = (event: Electron.ConsoleMessageEvent): void => {
       if (event.message.startsWith(NOTE_DISMISS_PREFIX)) {
         setHit(null)
@@ -152,6 +161,8 @@ export function useSourceAnnotations(
       })
     }
     webview.addEventListener('console-message', onConsole)
+    webview.addEventListener('dom-ready', resetStylesheet)
+    webview.addEventListener('did-navigate', resetStylesheet)
     webview.addEventListener('dom-ready', schedule)
     webview.addEventListener('did-stop-loading', schedule)
     webview.addEventListener('did-navigate-in-page', schedule)
@@ -160,6 +171,8 @@ export function useSourceAnnotations(
       disposed = true
       if (timer) clearTimeout(timer)
       webview.removeEventListener('console-message', onConsole)
+      webview.removeEventListener('dom-ready', resetStylesheet)
+      webview.removeEventListener('did-navigate', resetStylesheet)
       webview.removeEventListener('dom-ready', schedule)
       webview.removeEventListener('did-stop-loading', schedule)
       webview.removeEventListener('did-navigate-in-page', schedule)
@@ -171,7 +184,7 @@ export function useSourceAnnotations(
     }
   }, [webviewRef, enabled, sourceKey, annotations])
 
-  return { annotations, error, loading, hit, closeHit, refresh }
+  return { annotations, error, loading, hit, closeHit, refresh, updateHitComment }
 }
 
 /** 用同一份评论数据刷新原文高亮；捕捉成功后由调用方触发。 */

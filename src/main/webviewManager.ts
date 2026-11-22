@@ -1179,8 +1179,8 @@ function executeNoteCapture(
             'claude.ai': 'Claude', 'www.perplexity.ai': 'Perplexity', 'arena.ai': 'Arena',
             'www.doubao.com': '豆包', 'yuanbao.tencent.com': '元宝',
             'www.qianwen.com': '千问', 'tongyi.aliyun.com': '千问',
-            'chat.deepseek.com': 'DeepSeek', 'kimi.moonshot.cn': 'Kimi',
-            'chatglm.cn': '智谱清言', 'chat.baidu.com': '文心一言'
+            'chat.deepseek.com': 'DeepSeek', 'kimi.moonshot.cn': 'Kimi', 'www.kimi.com': 'Kimi',
+            'chatglm.cn': '智谱清言', 'chat.baidu.com': '文心一言', 'wenxin.baidu.com': '文心一言'
         }
         const request: AnnotationCaptureRequest = {
             mode,
@@ -1247,7 +1247,7 @@ function setupContextMenu(wc: Electron.WebContents): void {
             items.push({
                 key: 'annotate',
                 label: '标注',
-                icon: 'sticky_note_2'
+                icon: 'annotation'
             })
             items.push({
                 key: 'excerpt',

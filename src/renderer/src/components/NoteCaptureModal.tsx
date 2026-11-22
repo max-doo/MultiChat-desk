@@ -3,7 +3,7 @@ import type { AnnotationCaptureRequest } from '../../../shared/types/annotations
 import { useWorkbenchStore } from '../store/workbenchStore'
 import { captureContextOf } from '../utils/annotationCaptureContext'
 import { notePositionInWindow } from '../utils/noteInteractions'
-import { AppIcon } from './icons/AppIcon'
+import AnnotationCommentCard from './AnnotationCommentCard'
 
 interface PendingCapture {
   request: AnnotationCaptureRequest
@@ -135,66 +135,32 @@ export default function NoteCaptureModal(): JSX.Element | null {
   return (
     <>
       {pending && (
-        <div
-          ref={boxRef}
-          className="fixed z-[95] w-[320px] rounded-xl border border-black/10 bg-white p-3 text-text-primary shadow-xl no-drag dark:border-white/10 dark:bg-gray-800"
-          style={{ left: pending.left, top: pending.top }}
-        >
-          <div className="flex items-center justify-between gap-2">
-            <strong className="text-sm">{pending.request.mode === 'excerpt' ? '摘录为文档' : '标注'}</strong>
-            <button
-              type="button"
-              aria-label="关闭"
-              className="text-text-secondary hover:text-text-primary"
-              onClick={() => setPending(null)}
-            >
-              <AppIcon name="close" size={16} />
-            </button>
-          </div>
-          <p className="mt-2 max-h-20 overflow-y-auto rounded-r-md border-l-4 border-amber-300 bg-amber-50/60 p-2 text-xs text-text-secondary dark:bg-amber-300/10">
-            {pending.request.quote}
-          </p>
-          {pending.request.mode === 'annotate' && (
-            <textarea
-              autoFocus
-              className="mt-3 min-h-20 w-full resize-y rounded-lg border border-black/10 p-2 text-sm outline-none focus:border-primary dark:border-white/10 dark:bg-transparent"
-              placeholder="添加评论…"
-              value={comment}
-              onChange={event => setComment(event.target.value)}
-            />
-          )}
-          {error && <p className="mt-1 text-xs text-rose-600">{error}</p>}
-          <div className="mt-2 flex items-center justify-between gap-2">
-            {pending.request.mode === 'annotate' && captureContextOf(pending.request.webContentsId) === 'workbench' ? (
-              <button
-                type="button"
-                disabled={busy}
-                className="text-[11px] text-text-secondary hover:text-primary disabled:opacity-40"
-                onClick={() => void save(true)}
-              >
-                保存到默认会话库
-              </button>
-            ) : (
-              <span />
-            )}
-            <div className="flex gap-2">
-              <button
-                type="button"
-                className="rounded-lg px-2 py-1 text-xs text-text-secondary"
-                onClick={() => setPending(null)}
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                disabled={busy}
-                className="rounded-lg bg-primary px-3 py-1 text-xs text-white disabled:opacity-40"
-                onClick={() => void save(false)}
-              >
-                {pending.request.mode === 'excerpt' ? '保存文档' : '保存标注'}
-              </button>
-            </div>
-          </div>
+        <div ref={boxRef} className="fixed z-[95]" style={{ left: pending.left, top: pending.top }}>
+          <AnnotationCommentCard
+            title={pending.request.mode === 'excerpt' ? '摘录为文档' : '标注'}
+            quote={pending.request.quote}
+            value={comment}
+            onChange={setComment}
+            onCancel={() => setPending(null)}
+            onSave={() => void save(false)}
+            saveLabel={pending.request.mode === 'excerpt' ? '保存文档' : '保存标注'}
+            busy={busy}
+            error={error}
+            showInput={pending.request.mode === 'annotate'}
+            footerStart={
+              pending.request.mode === 'annotate' &&
+              captureContextOf(pending.request.webContentsId) === 'workbench' ? (
+                <button
+                  type="button"
+                  disabled={busy}
+                  className="text-[11px] text-text-secondary hover:text-primary disabled:opacity-40"
+                  onClick={() => void save(true)}
+                >
+                  保存到默认会话库
+                </button>
+              ) : null
+            }
+          />
         </div>
       )}
       {!pending && (error || notice) && (

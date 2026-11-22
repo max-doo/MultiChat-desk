@@ -2,6 +2,178 @@
 
 ## 2026-11-22
 
+### 14:10 | Antigravity
+
+- done: 恢复原位边距批注便签功能：删除旧注释侧边栏，实现原位展示/编辑/删除旁注
+- decision: 注释直接在编辑器右侧以旁注便签（Margin Notes）原位呈现，随正文高亮行自动对齐避让，支持点击就地修改与直接删除，彻底删除抽屉式右侧栏 WorkbenchAnnotationPanel
+- added:
+  - `src/renderer/src/components/workbench/WorkbenchMarginNotes.tsx`
+  - `src/renderer/src/components/workbench/workbenchAnnotationUtils.ts`
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchAnnotationPlugin.tsx`
+  - `src/renderer/src/components/Layout.tsx`
+  - `src/renderer/src/pages/WorkbenchPage.tsx`
+  - `src/renderer/src/store/workbenchStore.ts`
+- removed:
+  - `src/renderer/src/components/workbench/WorkbenchAnnotationPanel.tsx`
+
+### 13:57 | Codex
+
+- done: 按现有 AnnotationCommentCard 重构窄屏旁注浮层，并收敛旁注卡片的黄色使用：改为中性卡面、淡黄引用块与蓝色主操作按钮
+- context: 用户认同宽度优先的双态方案，但要求点击浮层复用现有评论卡组件且不要整卡黄色
+- decision: 窄屏点击高亮直接进入现有评论卡编辑态：标题为修改评论，新建为标注；保留引用块、输入框、删除/取消/保存层级。黄色仅用于正文高亮、引用块左边线和卡片左侧细描边
+- modified:
+  - `docs/prototypes/document-margin-comments.html`
+  - `docs/prototypes/document-margin-comments-responsive-wide.png`
+  - `docs/prototypes/document-margin-comments-responsive-narrow.png`
+  - `docs/prototypes/document-margin-comments-responsive-narrow-open.png`
+
+### 13:49 | Codex
+
+- done: 将旁注便签原型改为按编辑区可用宽度自适应的双态布局：宽屏保留右侧原位便签，窄屏退出旁注列并改为行尾序号标记加单条浮层便签
+- context: 用户反馈窄屏下固定宽度旁注容器压缩正文；本次只交付高保真 HTML 原型，未修改生产组件
+- decision: 以编辑容器宽度 960px 为切换阈值；窄屏下旁注完全脱离横向布局，单条浮层按高亮位置避让，不再分走正文宽度
+- added:
+  - `docs/prototypes/document-margin-comments-responsive-wide.png`
+  - `docs/prototypes/document-margin-comments-responsive-narrow.png`
+  - `docs/prototypes/document-margin-comments-responsive-narrow-open.png`
+- modified:
+  - `docs/prototypes/document-margin-comments.html`
+
+### 13:12 | Antigravity
+
+- done: 修正注释设计：去除多人协作与复杂社交层级，重构为紧挨正文高亮、即点即改的极简个人笔记旁注 (Sidenotes) 原型
+- decision: MultiChat Desk 为个人桌面笔记工作台，注释定位为纯粹个人随手笔记旁注；完全移除头像、作者名、楼中楼回复及解决流，直接紧挨对应高亮文本右侧以淡黄小便签形式原位展示，支持点击就地修改与划词原位新建
+- modified:
+  - `docs/prototypes/document-margin-comments.html`
+  - `docs/prototypes/document-margin-comments.png`
+  - `docs/prototypes/document-margin-comments-active-c3.png`
+  - `docs/prototypes/document-margin-comments-dark-ai.png`
+  - `docs/prototypes/document-margin-comments-draft.png`
+
+### 12:56 | Antigravity
+
+- done: 设计并验证文档右侧原位批注流 (Margin Comments) 原型，替代传统注释侧边栏
+- decision: 摒弃传统抽屉侧边栏式注释面板，改用类似 Google Docs / 飞书文档的文档右侧边距行内流式批注（Margin Comments）；在屏幕宽裕时展开常驻并执行垂直碰撞避让，在窄屏或 AI 侧边栏开启时自适应收缩为行尾呼吸气泡药丸与 Popover 浮层
+- added:
+  - `docs/prototypes/document-margin-comments.html`
+  - `docs/prototypes/document-margin-comments.png`
+  - `docs/prototypes/document-margin-comments-active-c3.png`
+  - `docs/prototypes/document-margin-comments-dark-ai.png`
+  - `docs/prototypes/document-margin-comments-draft.png`
+  - `scripts/capture-margin-comments-prototype.js`
+- lesson(promoted): 自包含 HTML 原型在处理边距批注时，需基于容器可用宽度（ResizeObserver）设计双态自适应机制：宽屏平铺卡片流，窄屏收敛为行尾气泡角标，避免与多栏布局（如 AI 侧边栏）发生视口重叠与挤压
+
+### 12:56 | Antigravity
+
+- done: 修复工作台模式下编辑区右上角在侧栏折叠/展开时的圆角与直角逻辑
+- decision: 反转 rightPane 对应的三元表达式，使右侧栏展开时编辑区右上角显示圆角（rounded-tr-xl），折叠时贴齐右侧窗口边缘显示直角（''），与左侧栏行为保持一致
+- modified:
+  - `src/renderer/src/pages/WorkbenchPage.tsx`
+
+### 12:28 | Codex
+
+- done: 将标注相关图标统一收敛为单一语义名 annotation，并同步右键菜单、侧栏开关、浮动工具栏、标注卡片和旧笔记入口
+- context: 用户要求标注图标统一使用截图中的消息框加号图标，且图标名只定义成一个，便于维护。
+- modified:
+  - `src/renderer/src/components/icons/AppIcon.tsx`
+  - `src/main/webviewManager.ts`
+  - `src/renderer/src/components/Layout.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchAnnotationPanel.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFloatingToolbarPlugin.tsx`
+  - `src/renderer/src/components/WebviewCard.tsx`
+  - `src/renderer/src/components/NotesConversationCards.tsx`
+- lesson(promoted): 同一业务图标必须使用单一语义名，不要保留 add_comment、sticky_note_2 等多个别名。
+
+### 12:24 | Codex
+
+- done: 修正工作台来源会话入口图标为对话气泡，并补齐标注右键菜单的 sticky_note_2 图标映射，消除警告三角回退
+- context: 用户根据工作台截图要求：标题栏来源入口改为打开会话图标；右键菜单标注在侧边栏显示警告图标。
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchTitleBar.tsx`
+  - `src/renderer/src/components/icons/AppIcon.tsx`
+- lesson(promoted): AppIcon 遇到未映射名称会回退为 AlertTriangle；新增右键菜单图标时必须同步检查 APP_ICON_MAP。
+
+### 11:47 | Codex
+
+- done: 清理删除旧笔记入口后验证脚本中的过期 mock API
+- context: 独立代码验收发现三个浏览器验证脚本仍声明已删除的 onNotesNavigate/notesConsumeNavigation；属于低危残留，本轮一并删除
+- modified:
+  - `scripts/verify_workbench_frontend.py`
+  - `scripts/verify_workbench_previews.py`
+  - `scripts/verify_workspace_drag_drop.py`
+
+### 11:43 | Codex
+
+- done: 删除旧笔记模式顶部入口与文件树对话资料筛选及其兼容链路
+- context: 用户确认当前已没有单独笔记模式，截图中顶部笔记和文件树对话资料均为旧链路残留；工作区仍有其他未提交改动，本次只改这两个入口相关代码
+- decision: 保留工作台中的普通 Markdown 文档、会话资料写入与标注能力，仅删除独立笔记页导航、筛选 UI、自定义事件、导航 IPC 和仅供筛选使用的扫描 IPC
+- modified:
+  - `src/renderer/src/components/Layout.tsx`
+  - `src/renderer/src/App.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+  - `src/renderer/src/store/appStore.ts`
+  - `src/preload/index.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/main/services/conversationDocumentService.ts`
+- unresolved: 当前会话未获授权使用 computer use，未在 npm run dev 桌面环境做人工视觉验收
+
+### 11:36 | Codex
+
+- done: 补充对话采集的可见媒体提取：在清理按钮/操作栏之前收集图片，并合并正文区之外的媒体，覆盖 Grok、千问、文心等图片型回复
+- context: 运行中的 dev 进程锁定了 .dev-log7.txt，临时文件未能在不中断应用的情况下删除
+- modified:
+  - `src/shared/utils/webviewScripts.ts`
+
+### 11:34 | Codex
+
+- done: 统一对话采集文档为“## 你：/## 平台：”结构，清洗屏幕阅读器标签，补全多平台消息选择器与图片回复采集，修复原文高亮在导航/隐藏容器下的回显，并移除正文重复来源行
+- context: 按用户要求只探索现有会话，不重新发送消息；Arena 按用户标注不做适配
+- decision: 来源 URL 只保留在 frontmatter；原文高亮排除 sr-only 等隐藏文本，但不因通用 aria-hidden 容器误伤可见对话
+- modified:
+  - `src/shared/utils/noteTranscript.ts`
+  - `src/main/services/conversationDocumentService.ts`
+  - `src/shared/utils/webviewScripts.ts`
+  - `src/shared/config/selectors.ts`
+  - `src/renderer/src/hooks/useSourceAnnotations.ts`
+  - `src/main/webviewManager.ts`
+  - `docs/workbench-unified-notes-annotation-design.md`
+- lesson: 不同平台的隐藏角色标签与图片生成卡片 DOM 不一致；原文锚点需按可见文本建索引，图片消息需在清理按钮前先提取可见媒体
+- unresolved: Claude、Perplexity、ChatGLM 因登录/验证页未完成真实会话回归
+
+### 11:32 | Codex
+
+- done: 深度研究平台更新：doubao 从 DEEP_RESEARCH_SUPPORTED_MODEL_IDS 移除（selectors.ts 的 researchMode 配置此前已删除）
+- modified:
+  - `src/renderer/src/store/appStore.ts`
+
+### 11:31 | Codex
+
+- done: 深度研究平台更新：qwen 移除（千问已下线研究/深入研究入口），从 DEEP_RESEARCH_SUPPORTED_MODEL_IDS 删 qwen
+- modified:
+  - `src/shared/config/selectors.ts`
+  - `src/renderer/src/store/appStore.ts`
+
+### 11:30 | Codex
+
+- done: 深度研究平台更新：Grok 移除（入口已下架），yuanbao 加入支持列表并修正 researchMode（开启后原 application_id_deep_research 按钮消失，替换为激活 chip + aria-label 移除钮）
+- modified:
+  - `src/shared/config/selectors.ts`
+  - `src/renderer/src/store/appStore.ts`
+- lesson: 元宝深度研究用 data-application-id 做稳定语义钩子（application_id_deep_research），开启后原按钮被替换为激活 chip + 独立 aria-label 移除钮，enable/cancel 需要覆盖两种状态
+
+### 11:24 | Codex
+
+- done: 更新深度研究支持列表：DeepSeek 已无深度研究（researchMode 配置移除、从 DEEP_RESEARCH_SUPPORTED_MODEL_IDS 删 deepseek）；Kimi 通过 /deep-research 路由实现深度研究，新增 researchMode steps/cancelSteps 及 AutomationStep.skipIfExists 幂等守卫；kimi 加入支持列表
+- context: Kimi 深度研究以独立路由 /deep-research 呈现，composer 出现 div.tool-switch.open 标记开启态，svg.close-icon 仅 hover 可见但 click 派发可触发关闭
+- modified:
+  - `src/shared/config/selectors.ts`
+  - `src/shared/utils/webviewScripts.ts`
+  - `src/renderer/src/store/appStore.ts`
+- lesson: Kimi 站点的 Vue SPA 用 .tool-switch.open class 标记开关状态而非 aria-pressed；启用链路需要在两个不同页面状态（首页有 shortcut 入口 / deep-research 页已有开关）下都能幂等成功
+
 ### 02:44 | Codex
 
 - done: 深度评审并优化工作台模式内存占用：AI 侧栏离开/隐藏后延迟休眠、恢复后等待就绪；导图/标注按首次打开懒挂载；图片改流式 URL；PDF 改受信 IPC Range；补充忙状态守卫并完成独立开发版验收。

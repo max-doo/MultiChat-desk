@@ -399,8 +399,8 @@ interface AppState {
   setCurrentConversationId: (id: string | null) => void
 
   // 页面导航状态
-  currentPage: 'main' | 'summary' | 'notes' | 'quick' | 'diagnostics'
-  setCurrentPage: (page: 'main' | 'summary' | 'notes' | 'quick' | 'diagnostics') => void
+  currentPage: 'main' | 'summary' | 'quick' | 'diagnostics'
+  setCurrentPage: (page: 'main' | 'summary' | 'quick' | 'diagnostics') => void
 
   // UI 抽屉状态
   isSettingsOpen: boolean
@@ -479,13 +479,11 @@ export function getDisplayedModels(
 
 export const DEEP_RESEARCH_SUPPORTED_MODEL_IDS = new Set([
   'gemini',
-  'grok',
   'chatgpt',
   'perplexity',
   'chatglm',
-  'qwen',
-  'doubao',
-  'deepseek'
+  'kimi',
+  'yuanbao'
 ])
 
 export const DEEP_RESEARCH_UNSUPPORTED_ERROR = '此模型不支持深度研究'
@@ -1634,7 +1632,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
 
   currentPage: 'main',
-  setCurrentPage: (page: 'main' | 'summary' | 'notes' | 'quick' | 'diagnostics') => set({ currentPage: page }),
+  setCurrentPage: (page: 'main' | 'summary' | 'quick' | 'diagnostics') => set({ currentPage: page }),
 
   isSettingsOpen: false,
   setSettingsOpen: (open: boolean) => set({ isSettingsOpen: open }),

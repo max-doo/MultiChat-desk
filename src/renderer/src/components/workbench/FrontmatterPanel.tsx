@@ -111,10 +111,59 @@ function serializeFrontmatter(fields: Field[]): string | null {
   return `---\n${lines.join('\n')}\n---\n`
 }
 
-const isDateField = (k: string): boolean => /date|time|created|updated|日期|时间/i.test(k)
+const isDateField = (k: string): boolean => /date|time|created|updated|captured|日期|时间/i.test(k)
 const isSourceField = (k: string): boolean => /^(?:source|source_?url|source_?link|来源)$/i.test(k)
 const isTitleField = (k: string): boolean => /^(?:title|name|标题|名称)$/i.test(k)
 const isDescriptionField = (k: string): boolean => /^(?:description|summary|desc|描述|摘要|简介)$/i.test(k)
+// source_kind 是机器判定会话文档的语义字段，但不值得占用默认属性行；
+// 和来源身份、旧应用状态一起收进“更多属性”。
+const HIDDEN_TECHNICAL_KEYS = new Set(['id', 'source_kind', 'source_key', 'updated_at'])
+const sameFieldValue = (a: string, b: string): boolean =>
+  a.trim().replace(/^["']|["']$/g, '') === b.trim().replace(/^["']|["']$/g, '')
+
+function formatDateValue(value: string): string {
+  const raw = value.trim()
+  if (!raw) return raw
+  const numeric = /^\d{10,13}$/.test(raw) ? Number(raw) : NaN
+  const timestamp = Number.isFinite(numeric)
+    ? numeric < 1e12
+      ? numeric * 1000
+      : numeric
+    : Date.parse(raw)
+  if (!Number.isFinite(timestamp)) return raw
+  return new Date(timestamp).toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  })
+}
+
+function displayKey(key: string): string {
+  switch (key) {
+    case 'source':
+    case 'source_url':
+      return '来源'
+    case 'source_key':
+      return '来源标识'
+    case 'source_kind':
+      return '来源类型'
+    case 'platform':
+      return '平台'
+    case 'captured_at':
+    case 'created_at':
+      return '创建时间'
+    case 'updated_at':
+      return '更新时间'
+    case 'id':
+      return '记录标识'
+    case 'title':
+      return '标题'
+    default:
+      return key
+  }
+}
 
 // 对齐 Obsidian「笔记属性」：点击 key 重命名、值行内编辑、tags 可增删 chip、
 // hover 出行尾删除按钮、底部"添加属性"；无属性时同样露出"添加属性"入口
@@ -134,6 +183,7 @@ export default function FrontmatterPanel({ frontmatter, onChange }: Props): JSX.
     [fields, models]
   )
   const [collapsed, setCollapsed] = useState(false)
+  const [showTechnical, setShowTechnical] = useState(false)
   const [editingKeyIdx, setEditingKeyIdx] = useState<number | null>(null)
   const [keyDraft, setKeyDraft] = useState('')
   const [editingUrlIdx, setEditingUrlIdx] = useState<number | null>(null)
@@ -198,6 +248,53 @@ export default function FrontmatterPanel({ frontmatter, onChange }: Props): JSX.
   useEffect(() => {
     if (adding) addInputRef.current?.focus()
   }, [adding])
+
+  // 旧文档可能同时有 source_url 和同值的 source_key。来源标识只是内部身份，
+  // 和来源地址完全相同时不重复展示；“更多属性”展开后也保持同样的去重。
+  const dedupedFields = useMemo(() => {
+    const sourceUrls = fields
+      .filter((field) => (isSourceField(field.key) || field.key === 'source_url') && URL_RE.test(field.value))
+      .map((field) => field.value)
+    return fields.filter((field) => {
+      if (
+        field.key === 'source_key' &&
+        sourceUrls.some((url) => sameFieldValue(url, field.value))
+      ) {
+        return false
+      }
+      if (
+        field.key === 'source_url' &&
+        fields.some(
+          (other) =>
+            other.key === 'source' &&
+            URL_RE.test(other.value) &&
+            sameFieldValue(other.value, field.value)
+        )
+      ) {
+        return false
+      }
+      return true
+    })
+  }, [fields])
+
+  const visibleFields = useMemo(() => {
+    const entries = dedupedFields.map((field) => ({ field, idx: fields.indexOf(field) }))
+    if (showTechnical) return entries
+    const hasSourceUrl = dedupedFields.some((field) => isSourceField(field.key) && URL_RE.test(field.value))
+    return entries.filter(({ field }) => {
+      if (field.key === 'source_key' && hasSourceUrl) return false
+      if (field.key === 'title' && hasSourceUrl) return false
+      return !HIDDEN_TECHNICAL_KEYS.has(field.key)
+    })
+  }, [dedupedFields, fields, showTechnical])
+  const technicalFieldCount = useMemo(() => {
+    const hasSourceUrl = dedupedFields.some((field) => isSourceField(field.key) && URL_RE.test(field.value))
+    return dedupedFields.filter((field) => {
+      if (field.key === 'source_key' && hasSourceUrl) return true
+      if (field.key === 'title' && hasSourceUrl) return true
+      return HIDDEN_TECHNICAL_KEYS.has(field.key)
+    }).length
+  }, [dedupedFields])
 
   // 切换文件或外部改动会换掉 frontmatter；收起行内编辑，避免索引落到新字段上
   useEffect(() => {
@@ -306,7 +403,7 @@ export default function FrontmatterPanel({ frontmatter, onChange }: Props): JSX.
         <AppIcon name={collapsed ? 'chevron_right' : 'expand_more'} size={16} />
         笔记属性
         {hasFields && (
-          <span className="ml-auto text-[11px] font-normal opacity-70">{fields.length}</span>
+          <span className="ml-auto text-[11px] font-normal opacity-70">{visibleFields.length}</span>
         )}
       </button>
 
@@ -314,7 +411,7 @@ export default function FrontmatterPanel({ frontmatter, onChange }: Props): JSX.
         <div className="pb-1">
           {hasFields && (
             <dl className="space-y-1">
-              {fields.map((f, idx) => (
+              {visibleFields.map(({ field: f, idx }) => (
                 <div
                   key={idx}
                   className="group flex items-center gap-3 min-h-[28px] rounded-md -mx-1 px-1 hover:bg-gray-200/50 dark:hover:bg-gray-700/40 transition-colors"
@@ -345,7 +442,7 @@ export default function FrontmatterPanel({ frontmatter, onChange }: Props): JSX.
                         }}
                         className="truncate text-left hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
                       >
-                        {f.key}
+                        {displayKey(f.key)}
                       </button>
                     )}
                   </dt>
@@ -570,6 +667,15 @@ export default function FrontmatterPanel({ frontmatter, onChange }: Props): JSX.
                         placeholder="空"
                         className="flex-1 min-w-[80px] bg-transparent text-[13px] text-text-primary placeholder:text-gray-400/70 focus:outline-none"
                       />
+                    ) : isDateField(f.key) && formatDateValue(f.value) !== f.value ? (
+                      <button
+                        type="button"
+                        title={f.value}
+                        onClick={() => startUrlEdit(idx, f.value)}
+                        className="min-w-0 flex-1 truncate text-left text-[13px] text-text-primary hover:text-primary"
+                      >
+                        {formatDateValue(f.value)}
+                      </button>
                     ) : URL_RE.test(f.value) ? (
                       <span className="flex items-center gap-1 min-w-0 flex-1">
                         <a
@@ -642,6 +748,19 @@ export default function FrontmatterPanel({ frontmatter, onChange }: Props): JSX.
                 </div>
               ))}
             </dl>
+          )}
+
+          {technicalFieldCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowTechnical((value) => !value)}
+              className={`flex items-center gap-1 text-[12px] text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors ${
+                hasFields ? 'mt-1.5' : 'py-1'
+              }`}
+            >
+              <AppIcon name={showTechnical ? 'expand_less' : 'expand_more'} size={15} />
+              {showTechnical ? '收起更多属性' : `更多属性 ${technicalFieldCount}`}
+            </button>
           )}
 
           {/* 底部"添加属性"：有字段时追加行，无字段时新建整块 frontmatter */}

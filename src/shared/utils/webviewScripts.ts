@@ -1016,7 +1016,10 @@ function buildDeepResearchHelperFunctions(): string {
     // 幂等守卫：目标已是期望状态时跳过点击。
     // 用于"点一次取反"的开关按钮（qianwen.com 的"研究"），重复执行不会把状态翻回去。
     function alreadyInState(step, el) {
-      if (!step || !el || !el.getAttribute) return false;
+      if (!step || !el) return false;
+      // 元素存在即视为已达目标状态（例如 kimi 的 .tool-switch.open 出现 = 深度研究已开启）
+      if (step.skipIfExists) return true;
+      if (!el.getAttribute) return false;
       var pressed = el.getAttribute('aria-pressed');
       if (pressed === null) return false;
       if (step.skipIfPressed && pressed === String(step.skipIfPressed)) return true;
@@ -2687,6 +2690,8 @@ export function generateNoteCaptureScript(): string {
       const selectors = config?.messages || '[data-message-author-role],[data-role="user"],[data-role="assistant"]';
       const assistantSelectors = ${JSON.stringify(responseMessageSelectors)}[location.hostname] || [];
       const assistantSelector = assistantSelectors.join(',');
+      const hiddenTextSelector = '.sr-only,[class*="sr-only"]:not(.not-sr-only),[class*="visually-hidden"],[class*="screen-reader"],[aria-hidden="true"],[hidden]';
+      const anchorHiddenTextSelector = '.sr-only,[class*="sr-only"]:not(.not-sr-only),[class*="visually-hidden"],[class*="screen-reader"],[hidden]';
       const isAssistantBody = el => assistantSelectors.some(selector => el.matches(selector));
       const roleOf = el => {
         if (config?.user && el.matches(config.user)) return '提问';
@@ -2697,20 +2702,49 @@ export function generateNoteCaptureScript(): string {
         if (/assistant|model|response/i.test(marker)) return 'AI 回复';
         return isAssistantBody(el) ? 'AI 回复' : '';
       };
-      const messageCandidates = Array.from(document.querySelectorAll([selectors, ...assistantSelectors].join(','))).filter(el => root.contains(el) && normalized(el.textContent) && roleOf(el));
+      const messageCandidates = Array.from(document.querySelectorAll([selectors, ...assistantSelectors].join(','))).filter(el => root.contains(el) && (normalized(el.textContent) || el.querySelector('img,video,canvas')) && roleOf(el));
       // 一轮的 section、角色容器和正文可能同时命中，保留外层同角色轮次，防止重复快照。
       const messages = messageCandidates.filter(el => !messageCandidates.some(other => other !== el && other.contains(el) && roleOf(other) === roleOf(el)));
+      const visualTops = new Map(messages.map(el => {
+        const rect = el.getBoundingClientRect();
+        return [el, rect.width || rect.height ? rect.top : null];
+      }));
+      // 部分平台用 flex-col-reverse 渲染会话，DOM 顺序与视觉顺序相反。
+      if (messages.length > 1 && messages.every(el => visualTops.get(el) !== null)) {
+        messages.sort((a, b) => visualTops.get(a) - visualTops.get(b));
+      }
       const clean = el => {
         const copy = el.cloneNode(true);
-        copy.querySelectorAll('button,nav,script,style,textarea,input,[contenteditable="true"],[aria-hidden="true"],.sr-only').forEach(node => node.remove());
+        copy.querySelectorAll('button,input,time,nav,script,style,textarea,[contenteditable="true"],[role="button"],[role="menu"],[role="toolbar"],[class*="action-row"],[class*="action-bar"],[class*="question-toolbar"],[class*="hover-menu"],' + hiddenTextSelector).forEach(node => node.remove());
         return copy;
       };
-      const safeMarkdown = el => {
-        try {
-          const markdown = htmlToMarkdown(clean(el)).trim();
-          return markdown || (el.innerText || el.textContent || '').trim();
+      const mediaItems = el => {
+        const seen = new Set();
+        const items = [];
+        for (const node of el.querySelectorAll('img,video')) {
+          const src = node.currentSrc || node.src || node.getAttribute('src') || '';
+          if (!src || seen.has(src)) continue;
+          if (node.closest(hiddenTextSelector)) continue;
+          const rect = node.getBoundingClientRect();
+          if (rect.width < 32 || rect.height < 32) continue;
+          seen.add(src);
+          const alt = (node.getAttribute('alt') || node.closest('[aria-label]')?.getAttribute('aria-label') || '图片').replace(/[\r\n\[\]]/g, ' ').trim();
+          items.push({ src, markdown: '![' + alt + '](' + src + ')' });
         }
-        catch { return (el.innerText || el.textContent || '').trim(); }
+        return items;
+      };
+      const appendMissingMedia = (text, el) => {
+        const missing = mediaItems(el).filter(item => !text.includes(item.src)).map(item => item.markdown);
+        return [text, ...missing].filter(Boolean).join('\n\n');
+      };
+      const safeMarkdown = el => {
+        const cleaned = clean(el);
+        try {
+          const markdown = htmlToMarkdown(cleaned).trim();
+          const text = markdown || (cleaned.innerText || cleaned.textContent || '').trim();
+          return appendMissingMedia(text, el);
+        }
+        catch { return appendMissingMedia((cleaned.innerText || cleaned.textContent || '').trim(), el); }
       };
       const blocks = messages.map(el => {
         const timeEl = el.querySelector('time') || el.closest('[data-testid^="conversation-turn-"]')?.querySelector('time');
@@ -2719,10 +2753,11 @@ export function generateNoteCaptureScript(): string {
         // 新版助手轮次只取正文，避免把反馈问卷或操作区混入对话。
         const bodies = role === 'AI 回复' && assistantSelector && !isAssistantBody(el) ? Array.from(el.querySelectorAll(assistantSelector)) : [];
         const uniqueBodies = bodies.filter(body => !bodies.some(other => other !== body && other.contains(body)));
-        const content = uniqueBodies.length ? uniqueBodies.map(safeMarkdown).join('\n\n') : safeMarkdown(el);
+        const bodyContent = uniqueBodies.length ? uniqueBodies.map(safeMarkdown).join('\n\n') : safeMarkdown(el);
+        const content = appendMissingMedia(bodyContent, el);
         return { role, content, time };
       }).filter(item => item.role && item.content);
-      const snapshot = blocks.length && blocks.some(item => item.role === '提问') && blocks.some(item => item.role === 'AI 回复')
+      const snapshot = blocks.length
         ? blocks.map(item => {
             if (item.role === '提问') {
               const timeAttr = item.time ? ' time="' + item.time.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;') + '"' : '';
@@ -2731,20 +2766,25 @@ export function generateNoteCaptureScript(): string {
             return '<assistant>\n' + item.content + '\n</assistant>';
           }).join('\n\n')
         : safeMarkdown(root);
-      const raw = root.textContent || '';
       const selectionRect = selection && selection.rangeCount ? selection.getRangeAt(0).getBoundingClientRect() : null;
+      const anchorNodes = [];
+      let anchorText = '';
+      const anchorWalker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      while (anchorWalker.nextNode()) {
+        const node = anchorWalker.currentNode;
+        const parent = node.parentElement;
+        if (!parent || parent.closest('script,style,noscript,nav,aside,header,footer,button,textarea,input,[contenteditable="true"],' + anchorHiddenTextSelector)) continue;
+        if (!node.textContent) continue;
+        anchorNodes.push({ node, start: anchorText.length, end: anchorText.length + node.textContent.length });
+        anchorText += node.textContent;
+      }
       let at = -1;
       if (selection && selection.rangeCount) {
         const range = selection.getRangeAt(0);
-        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-        let offset = 0;
-        while (walker.nextNode()) {
-          const node = walker.currentNode;
-          if (node === range.startContainer) { at = offset + range.startOffset; break; }
-          offset += node.textContent?.length || 0;
-        }
+        const anchorNode = anchorNodes.find(item => item.node === range.startContainer);
+        if (anchorNode) at = anchorNode.start + range.startOffset;
       }
-      if (at < 0) at = exact ? raw.indexOf(exact) : -1;
+      if (at < 0) at = exact ? anchorText.indexOf(exact) : -1;
       return {
         title: document.title || location.hostname,
         url: location.href,
@@ -2753,8 +2793,8 @@ export function generateNoteCaptureScript(): string {
         rect: selectionRect ? { left: selectionRect.left, top: selectionRect.top, right: selectionRect.right, bottom: selectionRect.bottom } : null,
         anchor: {
           exact,
-          prefix: at >= 0 ? raw.slice(Math.max(0, at - 80), at) : '',
-          suffix: at >= 0 ? raw.slice(at + exact.length, at + exact.length + 80) : ''
+          prefix: at >= 0 ? anchorText.slice(Math.max(0, at - 80), at) : '',
+          suffix: at >= 0 ? anchorText.slice(at + exact.length, at + exact.length + 80) : ''
         }
       };
     })();
@@ -2909,18 +2949,20 @@ export function generateNoteHighlightScript(
       const focusedId = ${JSON.stringify(focusedNoteId ?? '')};
       window.__multichatNoteDispose?.();
       const compact = value => (value || '').replace(/[\s\u200b-\u200d\ufeff]/g, '');
+      const hiddenTextSelector = '.sr-only,[class*="sr-only"]:not(.not-sr-only),[class*="visually-hidden"],[class*="screen-reader"],[aria-hidden="true"],[hidden]';
+      const anchorHiddenTextSelector = '.sr-only,[class*="sr-only"]:not(.not-sr-only),[class*="visually-hidden"],[class*="screen-reader"],[hidden]';
       let targets = [];
       let focused = null;
       const render = () => {
         const roots = Array.from(document.querySelectorAll('main,[role="main"]'));
-        const root = roots.find(el => notes.some(note => note.anchor.exact && compact(el.textContent).includes(compact(note.anchor.exact)))) || document.body;
+        const root = roots.find(el => notes.some(note => note.anchor.exact && compact(el.innerText || el.textContent).includes(compact(note.anchor.exact)))) || document.body;
         const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
         const nodes = [];
         let text = '';
         while (walker.nextNode()) {
           const node = walker.currentNode;
           const parent = node.parentElement;
-          if (!parent || parent.closest('script,style,noscript,nav,aside,header,footer,button,textarea,input,[contenteditable="true"]')) continue;
+          if (!parent || parent.closest('script,style,noscript,nav,aside,header,footer,button,textarea,input,[contenteditable="true"],' + anchorHiddenTextSelector)) continue;
           if (!node.textContent) continue;
           nodes.push({ node, start: text.length, end: text.length + node.textContent.length });
           text += node.textContent;
@@ -2984,7 +3026,12 @@ export function generateNoteHighlightScript(
       const matched = render();
       const onClick = event => {
         let hitNote = false;
-        for (const item of targets) {
+        // Range 保存的是文档位置，不是屏幕坐标；页面滚动后必须重新取 rect，
+        // 否则高亮仍在，点击会按旧坐标落空。
+        const currentTargets = targets.filter(item => {
+          try { return item.range.startContainer.isConnected && item.range.endContainer.isConnected; } catch { return false; }
+        });
+        for (const item of currentTargets) {
           const hit = Array.from(item.range.getClientRects()).some(rect => event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom);
           if (!hit) continue;
           hitNote = true;

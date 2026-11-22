@@ -8,7 +8,7 @@
 
 具体决策如下：
 
-1. **不再维护第二套笔记库。** 现有 `NotesPage` 的会话卡片、详情和导图入口逐步收进工作台；工作台左侧仍然只有一棵文件树，不再出现“对话 / 文件”两个并列标签。
+1. **不再维护第二套笔记库。** 旧 `NotesPage` 的会话卡片、详情和导图入口已经收进工作台，独立页面已删除；工作台左侧仍然只有一棵文件树，不再出现“对话 / 文件”两个并列标签。
 2. **标注统一为一种记录结构。** 会话原文标注和文档内标注共用 `id + quote + anchor + comment`，用 `scope: 'source' | 'document'` 区分锚点所在位置和渲染方式。
 3. **存储按锚点域分成两个根，而不是按产品分成两套对象。** `source` 标注按会话身份存放在**默认工作区**的旁路文件里，不归任何一篇文档所有；`document` 标注按文档路径存放在**文档所在工作区**。这样同一会话在多个工作区各有一篇会话文档时，原文高亮仍然只有一份；删除或移动某篇文档也不会误删原文高亮，而文档标注仍然随文档生命周期走。
 4. **正文只有一个所有者。** Markdown 文件是正文唯一权威；会话内容写进 Markdown 后，旧 JSON 里的 `snapshot` 不再继续写入，避免两份正文互相覆盖。
@@ -32,12 +32,12 @@
 | `src/shared/types/notes.ts` | `NoteConversation` 顶层保存 `snapshot`，`ConversationNote[]` 单独保存 `quote/comment/anchor` | 已经是“正文 + 标注”两层，可以直接演进 |
 | `src/main/noteManager.ts` | 会话笔记按 `notes/<id>.json` 保存；`anchorsForUrl` 按 URL 聚合高亮；`prepareWorkbenchSource` 仍会写 `snapshot` | 旧数据迁移入口明确；但 JSON 不适合作为长期正文，工作台记录也要停止写第二份正文 |
 | `src/shared/utils/noteTranscript.ts` | `normalizeNoteTranscriptMarkdown` 输出 `<user>/<assistant>` XML，供 `parseSnapshotBlocks` 阅读 | 不能直接交给 Lexical 的 Markdown 导入导出；需要单独转换 |
-| `src/renderer/src/components/NotesSourcePane.tsx` | 本地快照用 `snapshotRanges` 做文本锚点匹配，再用 CSS Highlight 叠加 | 锚点匹配算法可复用，DOM Range 适配层不能直接搬进 Lexical |
+| `src/renderer/src/components/NotesSourcePane.tsx` | 旧页的原文快照面板，已随 `NotesPage` 删除 | 锚点匹配算法已迁到 `annotationAnchors`；原文回显改由 `useSourceAnnotations` 承担 |
 | `src/shared/utils/webviewScripts.ts` | `generateNoteHighlightScript` 在第三方页面遍历文本、创建 CSS Highlight，并排除 `[contenteditable]` | 这是 `source` 标注的渲染器；当前只按 exact + prefix/suffix 匹配，未用 occurrence |
-| `src/renderer/src/components/NoteCaptureModal.tsx` | 全局监听 `notes:open-popover`，通过 `notesSave/notesUpdate/notesDelete` 操作旧笔记 | 交互语义可复用，存储和状态容器要换成文档标注 |
-| `src/renderer/src/components/WebviewCard.tsx` | 只有这里调用了 `useWebviewNotes`，工作台右侧 `WorkbenchAiSidebar` 没有接 | 原文回显不能只在主界面生效，需要抽共享层 |
-| `src/renderer/src/pages/NotesPage.tsx` | 独立的“会话资料库 + 原文 + 导图”页面，仍写 `notesUpdate/notesDelete` | 与工作台形成两个入口，是本次要收掉的重复导航 |
-| `src/renderer/src/App.tsx` | `currentPage === 'notes'` 时挂载 `NotesPage` | 迁移期保留，收口后改成打开工作台 |
+| `src/renderer/src/components/NoteCaptureModal.tsx` | 监听选区采集，写入 `annotations:capture-source` 和文档标注 | 只保留采集入口；评论卡与正文、原文高亮共用 `AnnotationCommentCard` |
+| `src/renderer/src/components/WebviewCard.tsx` | 通过 `useSourceAnnotations` 读取默认库 `sources/` 并回显高亮 | 主界面与工作台右栏共用同一套 source 回显层 |
+| `src/renderer/src/pages/NotesPage.tsx` | 已删除 | 会话资料统一在工作台文件树中打开 |
+| `src/renderer/src/App.tsx` | 已移除 `currentPage === 'notes'` 分支 | 不再有独立笔记页路由 |
 | `src/renderer/src/components/workbench/WorkbenchEditor.tsx` | Lexical 编辑器，已注册表格、代码、链接、图片等节点 | 新增 MarkNode 和标注插件即可，不需要替换编辑器 |
 | `src/renderer/src/components/workbench/MarkdownSyncPlugin.tsx` | Lexical 与 Markdown 双向同步，1200ms 防抖落盘 | 标注不能进入 Markdown，应用标注时不能触发表格外的正文回写 |
 | `src/renderer/src/components/workbench/WorkbenchFloatingToolbarPlugin.tsx` | 已有 `highlight` 按钮，走 `FORMAT_TEXT_COMMAND` | 新增“标注”按钮，和 `==` 高亮并列 |
@@ -63,20 +63,18 @@
 
 ```yaml
 ---
-id: 6f0c8f0e-6a1d-4a7c-9f4e-2f7a1f0c9b31
 source_kind: conversation
-title: ChatGPT - 工作台架构讨论
+source: "https://chatgpt.com/c/..."
 platform: ChatGPT
-source_url: https://chatgpt.com/c/...
-source_key: https://chatgpt.com/c/...
-captured_at: 1795258420955
-updated_at: 1795258420955
+captured_at: "2026-11-21T15:20:20.955Z"
 ---
 ```
 
-使用 `source_kind` 而不是 `source: conversation`，是因为现有 `upsertFrontmatterSource` 已经把 `source` 当 URL 写入；继续复用会造成“source 既是 URL 又是枚举”的语义冲突，还可能追加重复 YAML key。已有 `source: https://...` 的文档继续按 URL 读取，新文档使用 `source_kind + source_url + source_key`。
+会话文档保留四个语义字段：`source_kind` 声明它是会话资料，`source` 提供原文入口，`platform` 用于展示和筛选，`captured_at` 记录捕捉时间。来源身份在读取时由 `noteConversationKey(source, title)` 归一化；只有归一化结果与原始地址不同时，才额外写入 `source_key`。`captured_at` 写 ISO 时间，属性面板直接显示本地日期；文档修改时间由文件系统维护，不重复写 `updated_at`。
 
-普通用户自己新建的文档可以完全没有 frontmatter。应用不强制给每个文件写 `id`，也不把应用状态塞进用户正文。
+`source_kind` 不能省略。仅凭 `source` 链接无法区分“从会话保存的资料”和“普通 Markdown 里引用了一个外部链接”。应用不强制给每个文件写 `id`，也不把应用状态塞进用户正文。已有 `source_url`、`source_key`、`captured_at` 数值时间等旧格式继续按原语义读取，属性面板把 `source_kind`、来源身份和旧应用状态收进“更多属性”，默认只显示来源、平台和创建时间。
+
+旧格式收敛时，`source_url` 只在与 `source` 完全同值时删除；两者指向不同地址时保留 `source_url`，避免把第二个来源当成重复字段丢掉。`source_key` 只在归一化来源身份与原始地址不同时保留。
 
 ### 3.2 三种创建入口
 
@@ -104,11 +102,11 @@ updated_at: 1795258420955
 | 维度 | 会话文档 | 普通文档 |
 |---|---|---|
 | 正文来源 | 从会话快照转换成标准 Markdown | 用户写作或摘录 |
-| 外部来源 | frontmatter 带 `source_kind/source_url/source_key` | 可以没有 |
+| 外部来源 | frontmatter 带 `source_kind: conversation` 和 `source`；归一化身份与地址不同时再带 `source_key` | 可以没有 |
 | 默认位置 | 工作台内：当前工作区 `conversations/`；工作台外：默认工作区 `conversations/` | 文档所在工作区，由用户选择 |
 | 标注归属 | `source` 标注在默认工作区；自己的 `document` 标注在文档所在工作区 | 只有 `document` 标注，在文档所在工作区 |
 | 内容更新 | 不自动覆盖用户编辑；来源有新内容时提示“追加 / 覆盖 / 忽略” | 用户自己编辑 |
-| 原文回显 | 可以打开原文覆盖层，显示 `source` 标注 | 没有 |
+| 原文回显 | 可以在 AI 右栏打开原文，显示 `source` 标注 | 没有 |
 | 标注 | `source` 标注投影 + 自己的 `document` 标注 | 只有 `document` |
 
 关键规则：**会话文档一旦生成，Markdown 就是正文所有者。** 之后的会话采集不能静默覆盖用户改过的正文；需要保留“用户编辑优先”的边界。
@@ -121,7 +119,7 @@ updated_at: 1795258420955
 
 | 场景 | `captureContext` | 会话文档目标 | `source` 标注 | 典型入口 |
 |---|---|---|---|---|
-| 工作台内标注 | `workbench` | 当前活动工作区 | 默认工作区 | `WorkbenchAiSidebar`、工作台原文覆盖层 |
+| 工作台内标注 | `workbench` | 当前活动工作区 | 默认工作区 | `WorkbenchAiSidebar`（含原文） |
 | 工作台外标注 | `global` | 默认工作区 | 默认工作区 | 主界面 `WebviewCard`、Quick 窗口 |
 | 工作台内选择“保存到默认会话库” | `global` | 默认工作区 | 默认工作区 | 评论框的一次性切换 |
 
@@ -179,13 +177,13 @@ export interface Annotation {
 |---|---|---|
 | 归属 | 会话身份（`sourceKey`），不归文档 | 文档路径 |
 | 存储根 | **默认工作区**的 `annotations/sources/` | **文档所在工作区**的 `annotations/documents/` |
-| 创建位置 | AI 原文页面、原文覆盖层的选区 | 工作台 Lexical 文档的选区 |
+| 创建位置 | AI 原文页面、原文侧栏的选区 | 工作台 Lexical 文档的选区 |
 | 锚点坐标系 | 第三方页面渲染后的文本 | Markdown 文档渲染后的文本 |
 | 主要渲染器 | 注入脚本 + CSS Highlight | Lexical MarkNode |
 | 文档内显示 | 按同一段 `quote` 做投影，能找到就显示 | 一定显示在当前文档 |
 | 用户编辑正文后 | 锚点不跟着文档变；文档投影可能变成“未定位”，但原文高亮仍有效 | 锚点跟着被标记的文本移动；引文和上下文在保存时重算 |
 | 删除文档后 | 标注保留，原文高亮仍然存在 | 标注随文档删除 |
-| 评论编辑 | 文档侧栏和原文弹层编辑的是同一条记录 | 只在文档侧栏编辑 |
+| 评论编辑 | 文档侧栏和原文侧栏编辑的是同一条记录 | 只在文档侧栏编辑 |
 | 切换工作区后 | 仍然从默认工作区读取，原文高亮不消失 | 跟随当前打开的文档切换 |
 
 这张表解释了为什么不能只做一个 `scope` 可选、其他完全一样的“万能高亮”：
@@ -203,7 +201,7 @@ export interface Annotation {
 
 - 在 AI 原文页面选中文字，点“标注” → `source`。
 - 在工作台文档里选中文字，点“标注” → `document`。
-- 在原文覆盖层里选中文字，点“标注” → `source`。
+- 在原文侧栏里选中文字，点“标注” → `source`。
 - 在文档里选中一段“从原文摘录来的文字”，点“标注” → 仍然是 `document`。它是对本地文档的评论，不回显到原文。
 
 不在 UI 上放“标注类型”切换。入口已经表达了意图，额外开关只会让用户困惑。
@@ -380,11 +378,11 @@ export interface Annotation {
 ### 5.5 删除、Git 和隐私
 
 - 删除文档时，主进程删除 `documents/<path-hash>.json`；删除前如果有 `document` 标注，确认框要写明“这些文档内标注会一起删除”。
-- 删除文档**不删除** `sources/` 下的原文标注；原文页面上的高亮仍然存在。要清除原文高亮，使用原文覆盖层或设置里的“清理该会话标注”。
+- 删除文档**不删除** `sources/` 下的原文标注；原文页面上的高亮仍然存在。要清除原文高亮，使用原文侧栏或设置里的“清理该会话标注”。
 - `source` 标注属于默认工作区，不属于某个仓库。切换工作区不会隐藏原文高亮；清理一条 `source` 标注会同时影响所有工作区，因此确认框必须写明“所有工作区的原文高亮都会消失”。
 - 外部删除文档时，`documents` 旁路文件保留一个版本，便于恢复文档后找回；不自动删。
 - 两个根的 `.multichat/annotations/` 都默认加入所在工作区 `.gitignore` 的“应用生成物”分类。`gitignoreService` 必须对已有 `.gitignore` 追加缺失模式，不能重写用户内容；工作区激活或首次写标注时补齐，不能只在空目录初始化时生效。原因是评论属于用户输入，可能包含敏感内容；JSON 数组在 Git 合并时也容易产生不可解析冲突。需要跨设备同步的用户可以在 `.gitignore` 里手动取消忽略，或使用后续的“导出标注”能力。
-- `document` 标注随文档所在工作区复制、移动、换盘；只复制单篇 `.md` 不会带上旁路标注。`source` 标注在默认工作区，复制单篇会话文档也不会复制它；因为 `source_key` 仍在 frontmatter 里，换到另一个工作区后原文投影仍能通过默认库找到。这是本地文件方案的已知边界，需要在导出/分享入口说明。
+- `document` 标注随文档所在工作区复制、移动、换盘；只复制单篇 `.md` 不会带上旁路标注。`source` 标注在默认工作区，复制单篇会话文档也不会复制它；因为 `source` 与按需保留的 `source_key` 仍在 frontmatter 里，换到另一个工作区后原文投影仍能通过默认库找到。这是本地文件方案的已知边界，需要在导出/分享入口说明。
 - 隐私边界不同：`document` 评论可能随仓库进入 Git；`source` 评论在默认工作区，只有默认工作区被同步或备份时才离开本机。界面不需要解释这套机制，但删除、导出和 Git 提示必须说清影响范围。
 
 ## 6. 会话原文回显
@@ -397,7 +395,7 @@ AI 网页选区
   -> 渲染层调用 annotations:capture-source
   -> 主进程解析默认工作区，把 source 标注写入默认库的 sources/<hash>.json
   -> 主进程按 captureContext 解析文档目标：workbench 用当前工作区，global 用默认工作区
-  -> 在目标工作区扫描 source_key，找到或创建会话文档（文档不拥有 source 标注）
+  -> 在目标工作区扫描来源地址/身份，找到或创建会话文档（文档不拥有 source 标注）
   -> 广播 annotations:changed（source 与 document 分开）
   -> Webview 按 sourceKey 从默认库重新拉取 source 标注并执行 generateNoteHighlightScript
 ```
@@ -415,7 +413,7 @@ AI 网页选区
 
 `source` 的读取、写入、删除都只认默认工作区，渲染层不传 `workspaceRoot`。这样同一个会话无论从哪个仓库、哪个窗口打开，看到的都是同一份原文标注；不存在“从当前工作区读到、却往默认工作区写”的分叉。默认工作区不可用时返回可操作错误并停止绘制，不回退到当前仓库的 `.multichat/annotations`。
 
-同一会话在多个工作区各有一篇会话文档时，`source` 文件仍然只有一份；每篇文档通过 frontmatter 的 `source_key` 做投影。文档是查看入口，不是标注的所有者。
+同一会话在多个工作区各有一篇会话文档时，`source` 文件仍然只有一份；每篇文档通过 frontmatter 的来源地址与归一化身份做投影。文档是查看入口，不是标注的所有者。
 
 ### 6.3 匹配和长会话
 
@@ -429,11 +427,10 @@ AI 网页选区
 
 ### 6.4 共享接入点
 
-目前只有 `WebviewCard` 调用了 `useWebviewNotes`；工作台右侧 `WorkbenchAiSidebar` 有自己的注入逻辑，`NotesSourcePane` 只有高亮和点击、没有“选区 → 标注”的采集。实现时把 source 高亮、点击、采集抽成一个共享 hook 或组件，至少在以下位置接入：
+旧实现只有 `WebviewCard` 调用了 `useWebviewNotes`，工作台右侧 `WorkbenchAiSidebar` 没有接入。现在 source 高亮、点击和采集已经收进共享层，在以下位置接入：
 
 - 主界面 `WebviewCard`
 - 工作台 `WorkbenchAiSidebar`
-- 原文覆盖层 `WorkbenchSourceOverlay`
 
 右键菜单从“记为笔记”拆成“标注 / 摘录为文档”，并明确两条都走新的 annotation service，不再绕回 `notesSave`。
 
@@ -441,7 +438,7 @@ AI 网页选区
 
 共享 hook 只接收 `sourceKey`，不接收 `workspaceRoot`。捕捉时由入口传入 `captureContext`：
 
-- `WorkbenchAiSidebar` 和 `WorkbenchSourceOverlay` 传 `workbench`。
+- `WorkbenchAiSidebar` 传 `workbench`。
 - 主界面 `WebviewCard` 和 Quick 窗口传 `global`。
 - 工作台评论框选择“保存到默认会话库”时，本次改为 `global`。
 
@@ -468,11 +465,11 @@ Lexical 0.53.0 已经带 `@lexical/mark` 的 `MarkNode`：
 
 新增 `WorkbenchAnnotationPlugin`，只做五件事：
 
-1. **加载**：文档切换后，从文档所在工作区拉取 `document` 标注，从默认工作区拉取该文档 `source_key` 对应的 `source` 标注，在 Markdown 导入完成后应用。
+1. **加载**：文档切换后，从文档所在工作区拉取 `document` 标注，从默认工作区拉取该文档来源身份对应的 `source` 标注，在 Markdown 导入完成后应用。
 2. **创建**：把当前选区包成 MarkNode，生成标注 id，打开评论输入。
 3. **定位**：点击 MarkNode 或侧栏卡片时，选中并滚动到对应文本。
 4. **对账**：编辑器失焦、切换文档、保存标注时，重算 `document` 标注的 `quote/anchor`；`source` 标注不动。
-5. **清理**：处理重复 id、零 id、目标文档不存在的 id。清理必须等 `document` 和 `source` 两路标注都加载完成后执行，有效 id 集合 = 当前文档的 `document` 标注 + 当前文档 `source_key` 对应的 `source` 标注；不能只看 `documents/` 文件，否则会把异步加载的 `source` 投影当成未知 id 删掉。`source` 读取失败时跳过清理，保留现有投影，等默认库恢复后再对账。
+5. **清理**：处理重复 id、零 id、目标文档不存在的 id。清理必须等 `document` 和 `source` 两路标注都加载完成后执行，有效 id 集合 = 当前文档的 `document` 标注 + 当前文档来源身份对应的 `source` 标注；不能只看 `documents/` 文件，否则会把异步加载的 `source` 投影当成未知 id 删掉。`source` 读取失败时跳过清理，保留现有投影，等默认库恢复后再对账。
 
 不要在插件里自己监听 `activeFileContent` 然后重复导入。`MarkdownSyncPlugin` 已经是文档导入的唯一入口，应该由它在一个明确的“导入完成”时点调用标注应用逻辑。
 
@@ -567,13 +564,11 @@ Lexical 0.53.0 已经带 `@lexical/mark` 的 `MarkNode`：
 ```markdown
 # ChatGPT - 工作台架构讨论
 
-> 来源：ChatGPT · https://chatgpt.com/c/...
-
-## 你
+## 你：
 
 ...
 
-## ChatGPT
+## ChatGPT：
 
 ...
 ```
@@ -581,6 +576,7 @@ Lexical 0.53.0 已经带 `@lexical/mark` 的 `MarkNode`：
 规则：
 
 - 用 `parseSnapshotBlocks(normalizeNoteTranscriptMarkdown(snapshot))` 或等价解析拿到 role/content，再按 role 输出 `##` 标题。
+- 来源地址只写入 frontmatter，不重复写入正文。
 - 保留原始 fenced code block、列表、表格和引用；不要重新转义代码内容。
 - 不输出 `<user>/<assistant>` 标签，避免 Lexical 首次保存把 `<` 转成实体、把角色结构写坏。
 - 空块跳过；同一角色连续多条消息可以合并到同一节，或各自保留 `###` 子标题，按可读性选择一种并固定。
@@ -614,8 +610,8 @@ Lexical 0.53.0 已经带 `@lexical/mark` 的 `MarkNode`：
    - `captureContext: 'workbench'`：`T` 必须是主进程的 `activeWorkspaceRoot`；如果请求带了 `workspaceRoot`，它只能用于一致性校验，不能覆盖 active root。没有 active root 时返回 `success: true`、已保存的 `source` 标注和 `documentError: NO_ACTIVE_WORKSPACE`，由界面提供“保存到默认会话库”；active root 存在但目录不可达时返回 `documentError: WORKSPACE_UNAVAILABLE`，不静默改存默认库。
    - `captureContext: 'global'`：`T` 就是默认工作区；不需要当前工作区，也不接受渲染层指定其他根。
 5. 读取 `T/.multichat/settings.json` 的 `conversationDir`，默认 `conversations/`；校验为工作区内相对路径，非法历史值回落到 `conversations/`。目标目录不存在时创建。
-6. 扫描 `T` 的 `.md` frontmatter，找 `source_key`；同时识别旧格式 `source: https://...`，按 URL 与当前 `sourceKey` 等价比较。扫描整个 `T`，不只 `conversations/`，否则用户把文档移走后会重复建第二篇。复用筛选的扫描器，带 3 秒 / 2000 文件上限；扫描结果必须返回 `complete: boolean`，超时或达到 2000 文件都视为不完整。多个候选时优先 `conversationDir` 下、`updated_at` 最新的一篇，并在界面提示“存在多篇同源文档”；没有候选才新建。扫描不完整时只保留已写入的 `source` 标注，不新建或复用文档，避免无法确认时制造重复。
-7. 新建文档时正文用 `snapshotToDocumentMarkdown`，frontmatter 用 `source_kind/source_key/source_url/platform/captured_at/updated_at`；已有文档不覆盖正文。文件名冲突时追加 ` (2)`、` (3)`，不覆盖已有文档。
+6. 扫描 `T` 的 `.md` frontmatter，读取 `source`、`source_url` 或 `source_key`，按 URL 与当前 `sourceKey` 等价比较。扫描整个 `T`，不只 `conversations/`，否则用户把文档移走后会重复建第二篇。复用筛选的扫描器，带 3 秒 / 2000 文件上限；扫描结果必须返回 `complete: boolean`，超时或达到 2000 文件都视为不完整。多个候选时优先 `conversationDir` 下最新修改的一篇，并在界面提示“存在多篇同源文档”；没有候选才新建。扫描不完整时只保留已写入的 `source` 标注，不新建或复用文档，避免无法确认时制造重复。
+7. 新建文档时正文用 `snapshotToDocumentMarkdown`，frontmatter 用 `source_kind: conversation/source/platform/captured_at`；仅当归一化来源身份与地址不同时追加 `source_key`。已有文档不覆盖正文。文件名冲突时追加 ` (2)`、` (3)`，不覆盖已有文档。
 8. 广播 `annotations:changed`：`source` 事件指向默认工作区，`document` 事件指向 `T` 和 `relativePath`。返回 `{ annotation, document?: { workspaceRoot: T, relativePath }, documentError? }`。
 9. 文档创建失败时仍返回 `success: true`，因为 `source` 标注已经保存；`document` 为空，`documentError` 标明原因，界面提示“标注已保存，文档未生成”。重试或改存默认库时调用 `annotations.ensureDocumentForSource({ sourceKey, captureContext })`，只补文档，不再写第二条 `source`；如果默认库已经没有对应 source，返回 `SOURCE_NOT_FOUND`，不建空文档。不要回滚 `source`，也不要在默认库和当前仓库之间二选一偷偷补写。
 
@@ -654,12 +650,12 @@ Lexical 0.53.0 已经带 `@lexical/mark` 的 `MarkNode`：
 **不提供每个会话单独的绝对保存路径。** 会话文档已经是普通 Markdown，用户可以在创建后像普通文档一样在工作区内移动；再提供一个“这段会话保存到任意绝对路径”的设置，会带来三个实际问题：
 
 1. `source` 标注固定在默认会话库，文档却被写到任意路径，文档、原文高亮和备份会分属不同根，用户很难判断哪份是权威。
-2. 同一会话可以通过 `source_key` 被多个工作区复用；允许任意路径会鼓励同一会话产生多份互不关联的副本，删除和迁移都无法收敛。
+2. 同一会话可以通过来源身份被多个工作区复用；允许任意路径会鼓励同一会话产生多份互不关联的副本，删除和迁移都无法收敛。
 3. 工作台文件树、Git 状态、标注对账和“打开文档”都建立在工作区相对路径上；绝对路径会绕过这些边界，增加一套没有实际收益的例外。
 
 需要把会话资料集中到默认库时，使用工作台评论框的一次性“保存到默认会话库”；需要放进某个仓库时，在工作台内捕捉或事后移动文档。两者都不产生新的全局配置。需要单独保存一篇会话时，使用“保存整段会话”或“保存单条答复”，它们仍然走同一套目标路由和同一个 `conversationDir`，不是第二套导出系统。
 
-`.multichat/settings.json` 只保存工作区级偏好，不进入 frontmatter，也不和标注文件混合。写入时 `setSettings` 对非法值直接拒绝；读取历史非法值时回落到 `conversations/` 并在工作区设置里提示一次。非法值包括绝对路径、盘符、`..`、符号链接逃逸，以及指向 `.multichat`、`.git`、已有普通文件或非目录路径。修改归档目录只影响后续新建文档；已有文档不会被自动搬动，仍通过 `source_key` 或旧 `source:` URL 扫描复用。该文件作为工作区配置默认进入 Git；`annotations/` 仍然默认忽略。
+`.multichat/settings.json` 只保存工作区级偏好，不进入 frontmatter，也不和标注文件混合。写入时 `setSettings` 对非法值直接拒绝；读取历史非法值时回落到 `conversations/` 并在工作区设置里提示一次。非法值包括绝对路径、盘符、`..`、符号链接逃逸，以及指向 `.multichat`、`.git`、已有普通文件或非目录路径。修改归档目录只影响后续新建文档；已有文档不会被自动搬动，仍通过 `source` / `source_key` 或旧 `source:` URL 扫描复用。该文件作为工作区配置默认进入 Git；`annotations/` 仍然默认忽略。
 
 默认会话库本身也是一个普通工作区，可以像其他工作区一样打开、筛选和编辑；它的 `conversations/` 与 `.multichat/` 在首次捕捉或迁移时按需创建。v1 不提供“设为默认工作区”：默认会话库的路径规则固定，用户通过工作台内/外的捕捉上下文和各自工作区的 `conversationDir` 决定文档落在哪里。后续如果需要更换默认库位置，再单独设计迁移和授权，不把它混进本次实现。
 
@@ -677,7 +673,7 @@ Lexical 0.53.0 已经带 `@lexical/mark` 的 `MarkNode`：
 
 - 首次升级后，工作台检测到未迁移的旧记录时，显示一次非阻塞入口：“发现 N 条旧会话笔记、M 条标注、K 张导图”。入口放在工作区设置，另在工作台顶部显示一次可关闭的提示；不自动写入。
 - 迁移目标固定为**默认会话库**，与当前打开的是哪个仓库无关。入口必须显示默认工作区的实际路径；用户不需要为了迁移先切换工作区。默认工作区不可用时只显示可操作错误，不写临时目录，也不退回当前仓库。
-- 普通会话的旧 `NoteManager` 记录是应用级数据，只有 URL、标题和快照，没有可靠的“原仓库”归属；因此不能猜测某个工作区，统一迁移到默认会话库。迁移后用户仍可把某篇会话文档移到仓库，`source` 标注会按 `source_key` 继续从默认库投影。带 `workbench.workspaceRoot/relativePath` 的记录是例外，按第 8.4.2 节的分支留在原工作区文档，不搬进默认库。
+- 普通会话的旧 `NoteManager` 记录是应用级数据，只有 URL、标题和快照，没有可靠的“原仓库”归属；因此不能猜测某个工作区，统一迁移到默认会话库。迁移后用户仍可把某篇会话文档移到仓库，`source` 标注会按来源身份继续从默认库投影。带 `workbench.workspaceRoot/relativePath` 的记录是例外，按第 8.4.2 节的分支留在原工作区文档，不搬进默认库。
 - 开始迁移时在 electron-store 写入 `legacyMigrationJob`：`jobId + targetWorkspaceRoot + targetRootKey + targetConversationDir + startedAt + status`，其中 `targetWorkspaceRoot` 是默认工作区，`targetConversationDir` 是开始时的默认库 `conversationDir`。只要任务处于 `running` 或 `paused`，`migrateLegacy` 只接受这个目标根和归档目录；切换当前工作区不能改变目标。
 - `targetRootKey` 必须等于当前规范默认库的 root key。恢复任务时如果发现旧缓存或旧任务指向另一个路径，暂停任务并报告“默认库路径不一致”，不得继续写入旧目标；已完成记录留在旧目标，由用户显式导出或确认后再清理。
 - 迁移期间固定使用 `targetConversationDir`；任务运行或暂停时，默认库的 `conversationDir` 修改被拒绝，避免同一任务把文档分散到两个目录。
@@ -697,7 +693,7 @@ Lexical 0.53.0 已经带 `@lexical/mark` 的 `MarkNode`：
    - 没有 `workbench`：进入下面的普通会话迁移流程。
 2. 计算 `sourceKey`：优先 `noteConversationKey(url, title)`；URL 缺失或非法时使用旧记录的 `sourceKey`；两者都不可用则标记为 `unlocatable-source`，不写 `sources/`。
 3. 写 `sources` 前先计算目标文件：按标注 id 去重后的条数不超过 500，序列化后的 UTF-8 字节不超过 2MB。超过任一上限时不部分写入，保留旧 JSON，标记 `migrationBlocked: 'annotation-overflow'`，报告中给出条数和字节数。未超限时把 `notes[]` 逐条写成默认工作区里的 `scope: 'source'` 标注，`source` 字段来自记录的 `sourceKey/url/platform`；标注 id 直接复用旧 `ConversationNote.id`，缺失时用“旧记录 id + 原 note 序号”生成确定性 id。按 id 去重，不能按 `quote` 去重；同一句的两个不同评论必须都保留。
-4. `sourceKey` 可用时，扫描**默认工作区**的 `.md` frontmatter 找或建文档，同时识别旧格式 `source: https://...`；已有同源文档不覆盖正文，`sources/` 标注已在第 3 步合并，导图按第 5 步处理，没有文档才在默认工作区的 `conversationDir` 下新建。`sourceKey` 不可用时不做来源扫描，只按标题在默认工作区新建普通会话文档，frontmatter 不写 `source_key`。正文走 `snapshotToDocumentMarkdown`；有 `sourceKey` 时 frontmatter 必须写 `source_kind/source_key/source_url/platform/captured_at/updated_at`，否则迁移后的文档无法被 `source` 投影关联。
+4. `sourceKey` 可用时，扫描**默认工作区**的 `.md` frontmatter 找或建文档，同时识别旧格式 `source: https://...`；已有同源文档不覆盖正文，`sources/` 标注已在第 3 步合并，导图按第 5 步处理，没有文档才在默认工作区的 `conversationDir` 下新建。`sourceKey` 不可用时不做来源扫描，只按标题在默认工作区新建普通会话文档，frontmatter 仍写 `source_kind: conversation` 但不写来源地址。正文走 `snapshotToDocumentMarkdown`；有 `sourceKey` 时 frontmatter 必须写 `source_kind: conversation/source/platform/captured_at`，身份与地址不同时再写 `source_key`，否则迁移后的文档无法被 `source` 投影关联。
 5. 旧会话导图按来源分开迁移。普通会话的导图写默认工作区的 `.multichat/mindmaps/*.mindmap.md`，`source` 指向第 4 步的默认库文档；`workbench` 记录的导图写它自己的 `workbench.workspaceRoot/.multichat/mindmaps`，`source` 指向该工作台文档，不搬到默认库。校验同 id、正文、文件存在后再标记。已有同 id 文件时，正文相同则跳过；正文不同不追加第二份同 id 文件，保留旧 JSON 并标记 `migrationBlocked: 'mindmap-conflict'`，交给用户选择保留哪一份。
 6. 校验并标记：普通会话验证默认工作区里的文档、对应 `sources/` 旁路和导图文件；`workbench` 记录验证其工作区里的文档、`documents/` 旁路和导图文件。三项都通过才写 `migratedAt` 和 `migratedTo`。来源扫描不完整（超时或达到 2000 文件）不算成功，保留旧 JSON，报告为可重试失败。任一项失败保留旧 JSON，记录失败原因；下次只重试未完成的记录。
 
@@ -724,7 +720,7 @@ Lexical 0.53.0 已经带 `@lexical/mark` 的 `MarkNode`：
 - **旁路文件超过上限**：条数超过 500 或序列化后超过 2MB 时，不部分写入；保留旧 JSON，标记 `migrationBlocked: 'annotation-overflow'`，报告给出条数和字节数，提供导出或拆分入口。
 - **同 id 导图正文不同**：不追加第二份同 id 文件，也不改文件名冒充新 id；保留旧 JSON，标记 `migrationBlocked: 'mindmap-conflict'`，报告列出现有文件与冲突正文，让用户选择保留哪一份。未冲突的标注和文档可以先完成，但记录不能标记 `migratedAt`。
 - 同时命中多个阻塞原因时，`migrationBlocked` 只记录阻止文档创建的首要原因，报告里列出全部原因；不要用后一个原因覆盖前一个。
-- **同源文档已存在但内容不同**：默认工作区里已有同一 `source_key` 的文档时不覆盖用户正文；只合并默认库的 `sources/` 标注和导图。正文差异在报告中提示“已保留现有文档”，不自动选择哪一份为准。
+- **同源文档已存在但内容不同**：默认工作区里已有同一来源身份的文档时不覆盖用户正文；只合并默认库的 `sources/` 标注和导图。正文差异在报告中提示“已保留现有文档”，不自动选择哪一份为准。
 - **旧 JSON 损坏或无法解析**：不写任何新文件，保留原文件，列入迁移报告；旧页仍尝试读取，读取失败时显示具体文件路径，不阻塞其他记录。
 - **默认会话库不可用**：这是任务级阻塞，不是单条记录阻塞。迁移不启动；已经开始的任务暂停并保留进度，不写 `migratedAt`，不把数据退回当前仓库。恢复默认库可写后从同一 `jobId` 继续。
 - **旧 `workbench` 记录带 `notes` 但其工作区/文档不可达**：不写默认库 `sources/`，不新建默认库会话文档；保留旧 JSON，标记 `migrationBlocked: 'workbench-unresolved'`，报告列出工作区路径和相对路径，等原工作区恢复后重试。
@@ -740,22 +736,18 @@ Lexical 0.53.0 已经带 `@lexical/mark` 的 `MarkNode`：
 
 ### 8.6 旧页面收口
 
-分三步，不要一次性删除：
+`NotesPage`、`NotesConversationCards`、`NotesSourcePane` 以及只为旧页服务的 `notesWorkspace.css` 已删除；`useWebviewNotes` 与 `notes:open-popover` 事件链路也已移除，原文高亮统一走 `useSourceAnnotations`。`NoteManager`、`notes:*` 读取接口和迁移器保留，原因是旧数据仍可能包含 `migratedAt` 为空或 `migrationBlocked` 非空的记录，迁移与兼容读取不能断档。
 
-1. **并行期**：工作台能打开迁移后的文档；顶部“笔记”仍然打开旧 `NotesPage`，但旧页对已迁移记录只读，标注和导图都不再允许新增/修改；新增操作只进工作台。
-2. **切换期**：顶部“笔记”改为打开工作台，并自动选中“对话资料”筛选；`NotesPage` 路由保留为重定向。
-3. **清理期**：确认迁移和回显稳定后，删除 `NotesPage`、`NotesConversationCards` 中不再使用的部分，以及旧写接口。只要还有 `migratedAt` 为空或 `migrationBlocked` 非空的旧记录，就不能删除旧页入口；清理动作必须先列出这些记录。`ConversationMindmapPanel` 如果仍被其他入口使用则保留，但必须改为读写文件化导图，不能再写 `conversation.mindmaps`。
+`ConversationMindmapPanel` 仍被工作台导图入口使用，保留并读写文件化导图，不再把导图写回 `conversation.mindmaps`。
 
 ## 9. 工作台 UI 集成
 
-### 9.1 左侧：一棵树，一个筛选 chip
+### 9.1 左侧：一棵树
 
 - 文件树保持现状，不新增“对话 / 文件”两个 tab，也不放一个容易被误认为真实目录的“对话资料”虚拟节点。
-- 树头部放一个“对话资料”筛选 chip；激活时显示 `source_kind: conversation` 的文档，以及旧格式 `source:` 为合法 `https://` URL 的文档；再点恢复全部。旧格式不做 frontmatter 改写，筛选时与 `source_key` 等价处理。
-- 筛选需要扫描 `.md` frontmatter。按需扫描、内存缓存、文件树变化时失效；单文件只读头部，设置 3 秒和 2000 文件上限，超时或达到上限都返回 `complete: false` 和部分结果，并标注“结果可能不完整”。不引入持久索引。
-- 会话文档默认放在文档目标工作区的 `conversationDir`（默认 `conversations/`），用户可以移到任意目录；筛选仍然能找到。工作台内捕捉的文档在当前仓库，工作台外捕捉的文档在默认会话库；文件树只展示当前工作区，不把默认库的文档混进当前仓库。
-- 当前工作区不是默认会话库时，筛选 chip 的菜单提供“打开会话库”动作：调用 `activateWorkspace` 打开默认工作区，而不是新增第二棵树。打开后仍用同一套筛选和文件树浏览。
-- 普通文件树节点不显示平台徽标，避免为了每个节点解析 frontmatter；平台信息只在筛选结果、打开的文档属性面板和右栏显示。
+- 用户已明确移除树头的“对话资料”筛选 chip；文件树按普通目录结构展示当前工作区的全部文件，不按 `source_kind` 过滤。会话文档与普通 Markdown 在文件树中一视同仁。
+- 会话文档默认放在文档目标工作区的 `conversationDir`（默认 `conversations/`），用户可以移到任意目录。工作台内捕捉的文档在当前仓库，工作台外捕捉的文档在默认会话库；文件树只展示当前工作区，不把默认库的文档混进当前仓库。
+- 普通文件树节点不显示平台徽标，避免为了每个节点解析 frontmatter；平台信息只在打开的文档属性面板和右栏显示。
 
 ### 9.2 右栏：AI / 标注 / 导图
 
@@ -766,21 +758,21 @@ export type WorkbenchRightPane = 'ai' | 'annotations' | 'mindmap' | null
 ```
 
 - 右栏顶部用三个短标签切换：AI、标注、导图。标签是名词，不写解释性句子。
-- 标注面板显示当前文档的 `document` 标注和 `source` 投影：引文两行截断、评论、时间、来源图标。`document` 从当前文档所在工作区读取，`source` 从默认会话库读取。点击卡片定位正文；正文点击 MarkNode 反向选中卡片。
+- 标注面板显示当前文档的 `document` 标注和 `source` 投影：引文两行截断、评论、时间、来源图标。`document` 从当前文档所在工作区读取，`source` 从默认会话库读取。点击卡片定位正文；正文点击 MarkNode 时选中卡片，并在文字旁展示评论与编辑入口。
 - 面板支持“全部 / 文档 / 原文 / 未定位”筛选，不增加新的页面。
 - 切换到标注面板时，AI Webview 按现有休眠策略挂起，避免后台占资源。
 - 导图面板保持现状；会话文档和普通文档都可以生成导图，导图仍然落在 `.multichat/mindmaps`。
 
-### 9.3 原文覆盖层
+### 9.3 原文侧栏
 
-会话文档的标题栏增加“原文”动作，打开一个覆盖编辑区的大弹层，而不是第四个常驻右栏：
+会话文档的标题栏增加“原文”动作，直接打开工作台已有的 AI 右栏并定位到该会话，不创建全屏弹层：
 
-- 复用 `NotesSourcePane` 的 Webview、重试、`generateNoteHighlightScript` 和点击消息逻辑。
-- 弹层内可以继续选中文字并“标注”，产生的仍然是 `source` 标注。
-- 弹层始终从默认会话库读取 `source` 标注；即使当前文档在仓库里，也不读当前仓库的 `sources/`。
-- 关闭弹层回到文档，侧栏自动刷新。
-- 没有 `source_key` 的文档不显示“原文”动作。
-- 原文标注的删除/清理也在这里提供，因为它不随文档删除；确认框要说明删除会影响所有工作区的原文高亮。
+- 复用 AI 右栏的 Webview、原文高亮、选区采集和评论回显；点击原文高亮直接显示该条评论。
+- 右栏内可以继续选中文字并“标注”，产生的仍然是 `source` 标注。
+- 原文高亮始终从默认会话库读取 `source` 标注；即使当前文档在仓库里，也不读当前仓库的 `sources/`。
+- 关闭右栏回到文档，标注面板自动刷新。
+- 没有可用来源地址或 `source_key` 的文档不显示“原文”动作。
+- 原文标注的删除/清理也在原文高亮评论卡中提供，因为它不随文档删除；确认框要说明删除会影响所有工作区的原文高亮。
 
 ### 9.4 视觉规范
 
@@ -806,14 +798,13 @@ export type WorkbenchRightPane = 'ai' | 'annotations' | 'mindmap' | null
 | shared | `src/shared/utils/annotationAnchors.ts` | 纯文本锚点匹配、打分、未定位结果 |
 | shared | `src/shared/utils/noteTranscript.ts` | 新增 `snapshotToDocumentMarkdown`，保留旧 XML 解析给原文面板 |
 | main | `src/main/services/annotationService.ts` | `documents/` 读写（文档所在工作区）与 `sources/` 读写（默认工作区）、路径校验、原子写、记录级合并 |
-| main | `src/main/services/conversationDocumentService.ts` | 按 `captureContext` 解析文档目标工作区，扫描 `source_key`，创建或复用会话文档 |
+| main | `src/main/services/conversationDocumentService.ts` | 按 `captureContext` 解析文档目标工作区，扫描来源地址/身份，创建或复用会话文档 |
 | main | `src/main/services/workbenchService.ts` | 默认工作区解析、原子 `activateWorkspace` / `closeWorkspace`、`conversationDir` 读写与校验 |
 | main | `src/main/ipcHandlers.ts` | 注册 `annotations:*`，广播 `annotations:changed` |
 | preload | `src/preload/index.ts` | 暴露 `window.api.annotations`；类型由 `API` 派生 |
 | renderer | `src/renderer/src/store/annotationStore.ts` | 当前文档标注、按 `sourceKey` 缓存的全局 source 标注、选中项、筛选、加载状态 |
 | renderer | `src/renderer/src/components/workbench/WorkbenchAnnotationPlugin.tsx` | Lexical 内的 MarkNode 创建、定位、对账、清理 |
 | renderer | `src/renderer/src/components/workbench/WorkbenchAnnotationPanel.tsx` | 右栏标注列表与评论编辑 |
-| renderer | `src/renderer/src/components/workbench/WorkbenchSourceOverlay.tsx` | 原文覆盖层，复用 Webview 高亮脚本 |
 | renderer | `src/renderer/src/hooks/useSourceAnnotations.ts` | 共享 source 高亮/点击/采集，只接收 `sourceKey` 和 `captureContext`，接入 WebviewCard 和 WorkbenchAiSidebar |
 
 不建议把标注状态塞进已经很大的 `workbenchStore`。标注有独立的加载、保存、选中和筛选状态，单独一个小 store 更容易控制重渲染；但也不要再建一个全局数据层。
@@ -916,7 +907,7 @@ notes.abandonMigration({ jobId })
 
 ### 10.3 事件
 
-- `annotations:changed` 分两种载荷：`{ scope: 'document', workspaceRoot, relativePath }` 用于刷新当前文档侧栏；`{ scope: 'source', sourceKey }` 用于刷新所有打开同一会话的 Webview 和原文覆盖层。不要用当前工作区过滤 source 事件。
+- `annotations:changed` 分两种载荷：`{ scope: 'document', workspaceRoot, relativePath }` 用于刷新当前文档侧栏；`{ scope: 'source', sourceKey }` 用于刷新所有打开同一会话的 Webview 和原文侧栏。不要用当前工作区过滤 source 事件。
 - `notes:migration-progress`：携带 `jobId, targetWorkspaceRoot`（普通会话固定为默认工作区）、`targetConversationDir, total, completed, currentTitle, blocked, failed`；`workbench` 记录的实际目标在其记录/报告里单独列出。迁移结束后发一次终态，渲染层据此刷新工作台和旧页状态。
 - 外部文件 watcher 同时监听默认工作区的 `.multichat/annotations/sources` 和当前文档工作区的 `.multichat/annotations/documents`；不要因为旁路文件变化触发整树重扫。
 - 工作区切换或 `closeWorkspace` 回退时清空当前文档标注缓存和当前文档选中项，但保留按 `sourceKey` 缓存的全局 source 标注；切换后重新向默认工作区校验一次，避免把上一个工作区的文档标注显示到新文档。
@@ -937,11 +928,11 @@ notes.abandonMigration({ jobId })
 | 会话页面虚拟滚动 | MutationObserver + 滚动去抖补画；标注未出现前侧栏仍可打开评论 |
 | 同一会话保存到两个工作区 | 两个工作区各自有一篇会话文档，但默认工作区只有一份 `sources` 文件；两篇文档都投影同一组 source 标注；不按 quote 合并不同 id |
 | 工作台内不想写入当前仓库 | 评论框一次性选择“保存到默认会话库”；本次文档和 source 都进默认库，当前仓库不产生文件；下一次捕捉仍回到当前工作区默认行为 |
-| 文档被移到另一个工作区 | `document` 标注不跟随单篇 `.md`；`source` 投影仍可通过 `source_key` 从默认库恢复；界面提示重新关联或复制旁路 |
+| 文档被移到另一个工作区 | `document` 标注不跟随单篇 `.md`；`source` 投影仍可通过 frontmatter 来源身份从默认库恢复；界面提示重新关联或复制旁路 |
 | 同一文档被两个窗口编辑 | 正文走现有 mtime 冲突处理；标注按 id + `updatedAt` 合并，不同 id 都保留 |
 | 重复 id / 零 id / 跨文档粘贴 | 每次 update 清理；零 id unwrap；只在 `document` 和 `source` 两路都加载完成后，移除不在有效 id 集合里的标记 |
 | `source` 投影异步加载 | 加载完成前不清理未知 id；两路都完成后再对账；投影与 `document` 标注重叠时跳过投影，侧栏保留两条 |
-| 默认库读取 `source` 失败 | 不把现有投影当成未知 id 清理；侧栏和原文覆盖层显示读取错误；恢复后重试，不退回当前仓库 |
+| 默认库读取 `source` 失败 | 不把现有投影当成未知 id 清理；侧栏和原文侧栏显示读取错误；恢复后重试，不退回当前仓库 |
 | 标注与 `==` 重叠 | 允许共存；`==` 负责背景，标注负责下划线和圆点；MarkNode theme 背景透明 |
 | 选区跨 block | 第一版拒绝；提示选择单个段落内的正文 |
 | 代码块/图片选区 | 第一版拒绝创建标注 |
@@ -987,16 +978,16 @@ notes.abandonMigration({ jobId })
 
 - 实现 `annotations:capture-source`、`annotations:ensure-document-for-source`、会话文档创建/复用、来源更新提示；`captureSource` 按 `annotationId` 幂等，重试不追加 source。
 - 实现捕捉路由：`workbench` 写当前工作区，`global` 写默认会话库；先写默认库的 source，再写目标文档；新增原子 `workbench:activate-workspace` / `workbench:close-workspace` 和主进程 `activeWorkspaceRoot`；工作台评论框提供一次性“保存到默认会话库”；`conversationDir` 默认 `conversations/`，两个工作区各自读取自己的设置；不增加每会话绝对保存路径。
-- 切换所有采集/编辑入口到新 API：`webviewManager`、`NoteCaptureModal`、`NotesPage`、Quick 窗口。
+- 切换所有采集/编辑入口到新 API：`webviewManager`、`NoteCaptureModal`、Quick 窗口。
 - 迁移旧 `NoteConversation` 和旧会话导图：普通会话到默认会话库，带 `workbench` 的记录到其原工作区文档；使用独立原始 JSON 枚举器，绕开 `list()` 的同源合并、quote 去重和自动 `rm`；增加一次性迁移入口、`legacyMigrationJob`、默认库路径提示、进度、暂停/恢复/放弃和失败报告；迁移目标不随当前工作区变化。
-- `NoteConversation` 增加并保留 `migratedAt` / `migratedTo` / `migrationBlocked`；`NotesPage` 进入只读并行期，主进程拒绝已迁移或阻塞记录的 `notes:*` / `mindmaps:*` 写入；迁移期暂停 `workbench:mindmap-migrate`。
+- `NoteConversation` 增加并保留 `migratedAt` / `migratedTo` / `migrationBlocked`；已迁移或阻塞记录的 `notes:*` / `mindmaps:*` 写入由主进程拒绝；迁移期暂停 `workbench:mindmap-migrate`。
 - 停写工作台 `snapshot`，把 `MindmapService` 的来源切到 Markdown 文件。
 
 退出条件：所有转换后最终 Markdown 不超过 5MB 的旧笔记和旧导图都能在默认会话库打开；旧 `workbench` 记录带 `notes` 时按原文档工作区分流，不混入默认库 source；旧高亮在文档侧栏可见；迁移可重复执行；同一 quote 的两条不同评论都保留；迁移不删除任何旧 JSON；没有双写；捕捉失败重试不会重复 source。超过 5MB、批注溢出、导图冲突、无法定位来源或工作台文档不可达的记录保留旧页只读入口，并在迁移报告中逐条列出，不能宣称“全部迁移完成”。工作台内捕捉、工作台外捕捉、一次性切到默认库、切换工作区、关闭自定义工作区、修改两个工作区的 `conversationDir` 后，会话文档和 source 标注都落在预期根；非法目录的写入被拒绝、读取回落。
 
 ### Phase 3：原文回显与收口
 
-- 接通默认库 `sources/` 读取、共享 `useSourceAnnotations`、原文覆盖层；所有入口只传 `sourceKey` 和 `captureContext`。
+- 接通默认库 `sources/` 读取、共享 `useSourceAnnotations`、AI 右栏原文侧栏；所有入口只传 `sourceKey` 和 `captureContext`。
 - 多 AI 模式和工作台右栏都能显示 `source` 标注；切换工作区后仍从默认库刷新，不从当前仓库找 `sources/`。
 - 顶部“笔记”正式改为工作台入口，旧页面重定向；稳定后删除旧写接口。
 
@@ -1031,18 +1022,18 @@ notes.abandonMigration({ jobId })
 18. 长会话只渲染部分消息：滚动到标注所在消息后高亮出现；滚动前后点击侧栏卡片都能定位或提示未加载。
 19. 原文页面点击高亮的网络/console 消息里不包含评论正文，只包含 id 和坐标。
 20. 文档和 `sources/` 两路异步加载、编辑器 update、粘贴、撤销重做之后，`source` 投影仍然存在；不会因为“目标文档的 `documents` 文件里没有这个 id”被清理掉。
-21. 从仓库里的会话文档打开原文覆盖层：高亮和评论来自默认库；在覆盖层删除一条 source 标注时，确认框说明会影响所有工作区的原文高亮。
+21. 从仓库里的会话文档在 AI 右栏打开原文：高亮和评论来自默认库；在原文高亮评论卡中删除一条 source 标注时，确认框说明会影响所有工作区的原文高亮。
 22. 默认会话库不可用：原文不画新高亮，界面给出“会话库暂不可用”；当前仓库即使有旧 `.multichat/annotations/sources` 也不被当作回退数据。
 
 ### 迁移与导航
 
-23. 旧 `NoteConversation` 有 3 条标注、1 张导图：迁移后文档正文是标准 Markdown，落在默认会话库的 `conversations/`；frontmatter 有 `source_kind/source_key`；3 条标注在默认库的 `sources/`；导图落在默认库 `.multichat/mindmaps` 并能从右栏打开；正文没有 `<user>/<assistant>`。
+23. 旧 `NoteConversation` 有 3 条标注、1 张导图：迁移后文档正文是标准 Markdown，落在默认会话库的 `conversations/`；frontmatter 有 `source_kind: conversation/source/platform/captured_at`，身份与地址不同时再有 `source_key`；3 条标注在默认库的 `sources/`；导图落在默认库 `.multichat/mindmaps` 并能从右栏打开；正文没有 `<user>/<assistant>`。
 24. 迁移执行两次：不产生重复文档、不产生重复标注、不产生重复导图文件；删除一条新标注后再次迁移，已删除的标注不会复活。
 25. 迁移中途杀掉应用：旧 JSON 仍可读；重启后重跑迁移成功；旧页只读期间不会写入旧 JSON；尝试在旧页生成、调整、删除导图被主进程拒绝。
-26. 顶部“笔记”入口：切换期打开工作台并选中“对话资料”筛选；旧 `NotesPage` 路由重定向，不出现空白页。
-27. 工作台左侧只有一棵树；“对话资料”是 chip 筛选而不是第二棵树；`source_kind: conversation` 和旧 `source: https://...` 文档都能出现在筛选结果；搜索能命中会话标题、平台和正文。
+26. 顶部不再有独立“笔记”入口；`NotesPage` 路由与组件已删除，打开历史笔记统一进入工作台文件树，不出现空白页。
+27. 工作台左侧只有一棵树，没有“对话资料”筛选 chip；会话文档和普通 Markdown 都按目录结构展示，搜索能命中会话标题、平台和正文。
 28. 外部把文档从 `conversations/` 移到其他目录：筛选仍能找到；`document` 标注按内容哈希重新认领；`source` 回显不受影响。
-29. 当前工作区不是默认会话库时，筛选 chip 的“打开会话库”动作能激活默认工作区并显示工作台外捕捉的会话文档；不新增第二棵树，也不把默认库文档混进当前仓库。
+29. 当前工作区不是默认会话库时，用户通过工作区切换打开默认会话库；不新增第二棵树，也不把默认库文档混进当前仓库。
 
 ### 保存位置与配置
 
@@ -1052,8 +1043,8 @@ notes.abandonMigration({ jobId })
 33. 在主界面（工作台外）捕捉同一会话：文档写入默认工作区的 `conversations/`；当前仓库不新增文档，也不新增 `.multichat/annotations/sources`。
 34. 工作台内评论框选择“保存到默认会话库”：本次文档写入默认库，当前仓库不产生文件；下一次捕捉仍默认写当前工作区，不形成持久偏好。
 35. 关闭自定义工作区并回落到默认工作区后捕捉：文档进入默认工作区的 `conversationDir`；不会写入刚关闭的工作区。
-36. 把当前工作区的 `conversationDir` 改为 `资料/会话`：后续工作台内新文档进入该目录；已有文档仍按 `source_key` 或旧 `source:` URL 复用，不会被搬到新目录，也不会重复创建。
-37. 通过“打开会话库”激活默认工作区后，把它的 `conversationDir` 改为 `inbox/conversations`：后续工作台外新文档进入该目录；已有默认库文档仍按 `source_key` 复用；当前仓库的设置不受影响。
+36. 把当前工作区的 `conversationDir` 改为 `资料/会话`：后续工作台内新文档进入该目录；已有文档仍按来源地址/身份复用，不会被搬到新目录，也不会重复创建。
+37. 通过“打开会话库”激活默认工作区后，把它的 `conversationDir` 改为 `inbox/conversations`：后续工作台外新文档进入该目录；已有默认库文档仍按来源身份复用；当前仓库的设置不受影响。
 38. `conversationDir` 填绝对路径、`../`、盘符、符号链接逃逸、`.multichat`、`.git`、普通文件路径：`setSettings` 直接拒绝；历史非法值读取时回落到 `conversations/`，界面提示一次，捕捉仍能完成。
 39. 已有文档 frontmatter 是旧格式 `source: https://...`：再次捕捉同一会话时按 URL 等价命中，复用该文档，不新建第二篇。
 40. 目标工作区有超过 2000 篇 `.md` 或扫描超时：扫描返回 `complete: false`；默认库的 `source` 标注仍然保存，不新建文档，不把已有文档误判为不存在。
@@ -1129,7 +1120,7 @@ notes.abandonMigration({ jobId })
 | 文档与 source 分属两个根 | 一次捕捉要写两个位置，跨盘无法真原子 | source 先写默认库作为提交点；文档失败保留 source 并提示重试；不回滚、不偷偷补写到另一个根 |
 | 捕捉失败重试重复 source | 同一句话出现两条高亮、评论分裂 | `captureSource` 按 `annotationId` 幂等 upsert；补文档走 `ensureDocumentForSource`；验收 65 |
 | 默认会话库不可用 | source 标注和全局原文高亮都不可用 | capture 直接失败，不退回当前仓库；错误可操作；已有页面保留旧高亮直到刷新 |
-| source 删除影响全局 | 在某个仓库删除评论会让所有工作区的原文高亮消失 | 确认框写明影响范围；删除入口只在原文覆盖层或会话库设置；不提供“仅当前工作区删除” |
+| source 删除影响全局 | 在某个仓库删除评论会让所有工作区的原文高亮消失 | 确认框写明影响范围；删除入口只在原文侧栏或会话库设置；不提供“仅当前工作区删除” |
 | 同一会话多篇文档 | 用户以为 source 标注重复 | 文档副本按工作区各自复用；source 只有一份；两篇文档显示同一组投影，不按 quote 合并 |
 | 用户不想在仓库留会话文档 | 自动捕捉污染当前仓库 | 工作台评论框一次性切到默认库；默认不改成全局偏好；已生成文档可删除，source 仍保留 |
 | 迁移目标与用户预期不符 | 用户以为旧笔记会进当前仓库 | 迁移入口显示默认库路径；`legacyMigrationJob` 固定默认库；切换工作区不改变目标 |
@@ -1155,7 +1146,7 @@ notes.abandonMigration({ jobId })
 
 1. Phase 0 + Phase 1：文档内标注、`documents/` 旁路、右栏面板。
 2. Phase 2 的捕捉路由和默认会话库：工作台内写当前工作区，工作台外写默认库；`source` 一开始就只写默认库；旧笔记/导图迁移到默认库。可以先不做评论框的一次性目标切换和“打开会话库”入口。
-3. Phase 3 的共享回显：先把工作台原文覆盖层和主界面 `WebviewCard` 接到默认库的 `sources/`，再收口旧 NotesPage。
+3. Phase 3 的共享回显：把 AI 右栏原文和主界面 `WebviewCard` 接到默认库的 `sources/`，同时删除旧 NotesPage。
 
 这样仍然满足“笔记统一到工作台、文档可高亮评论、切换仓库不丢原文高亮”的核心诉求；代价是工作台内的一次性“保存到默认库”和文件树里的“打开会话库”入口要晚一点补。这些是交互便利，不影响存储模型；后续补上时不需要迁移 source 或 document 数据。
 
@@ -1164,12 +1155,12 @@ notes.abandonMigration({ jobId })
 | 改动 | 位置 |
 |---|---|
 | 标注类型 | 新增 `src/shared/types/annotations.ts`，包含 `Annotation/AnnotationScope/AnnotationAnchor/CaptureContext` |
-| 锚点纯函数 | 新增 `src/shared/utils/annotationAnchors.ts`，从 `NotesSourcePane.snapshotRanges` 抽取 |
+| 锚点纯函数 | 新增 `src/shared/utils/annotationAnchors.ts`，承接旧 `NotesSourcePane.snapshotRanges` 的匹配逻辑 |
 | 会话正文转换 | `src/shared/utils/noteTranscript.ts` 新增 `snapshotToDocumentMarkdown` |
 | 旁路存储 | 新增 `src/main/services/annotationService.ts`：`document` 写文档所在工作区，`source` 固定写默认工作区 |
 | 忽略规则 | `src/main/services/gitignoreService.ts` 增加 `.multichat/annotations/`；对已有 `.gitignore` 追加缺失模式，工作区激活或首次标注时补齐 |
 | IPC | `src/main/ipcHandlers.ts`、`src/preload/index.ts`、`src/preload/index.d.ts` |
-| 会话文档创建 | 新增 `src/main/services/conversationDocumentService.ts`：按 `captureContext` 解析目标工作区，扫描 `source_key`，创建或复用会话文档；提供 `ensureDocumentForSource` 供失败重试/切换目标，不重复写 source |
+| 会话文档创建 | 新增 `src/main/services/conversationDocumentService.ts`：按 `captureContext` 解析目标工作区，扫描来源地址/身份，创建或复用会话文档；提供 `ensureDocumentForSource` 供失败重试/切换目标，不重复写 source |
 | 保存位置 | `src/main/services/workbenchService.ts` 新增原子 `activateWorkspace` / `closeWorkspace`，维护 `activeWorkspaceRoot` + generation，读取 `workbench_lastWorkspacePath`；`closeWorkspace` 关闭自定义工作区时原子回落到默认库；`ensureDefaultWorkspace` 用 resolve/realpath 校验规范路径并清理旧缓存；`getDefaultWorkspace` 只读返回路径 |
 | 归档目录设置 | 当前工作区和默认工作区各自新增 `.multichat/settings.json` 的 `conversationDir` 读写与路径校验；`WorkbenchWorkspaceSettings.tsx` 增加相对目录选择；写入拒绝非法值，读取回落 `conversations/` |
 | 迁移标记 | `src/shared/types/notes.ts` 增加 `migratedAt` / `migratedTo` / `migrationBlocked`，`noteManager.convert()` 保留这三个字段 |
@@ -1180,13 +1171,13 @@ notes.abandonMigration({ jobId })
 | 标注插件 | 新增 `WorkbenchAnnotationPlugin.tsx`，接到 `MarkdownSyncPlugin` 的导入完成钩子 |
 | 浮层入口 | `WorkbenchFloatingToolbarPlugin.tsx` 增加“标注”按钮 |
 | 右栏面板 | 新增 `WorkbenchAnnotationPanel.tsx`，`WorkbenchPage.tsx` 增加 `annotations` 分支 |
-| 原文覆盖层 | 新增 `WorkbenchSourceOverlay.tsx`，复用 `NotesSourcePane` 的 Webview 逻辑 |
-| 共享回显 | 新增 `useSourceAnnotations.ts`，只接收 `sourceKey` 和 `captureContext`，接入 `WebviewCard.tsx`、`WorkbenchAiSidebar.tsx`、`NotesSourcePane.tsx`；根固定默认工作区 |
+| 原文侧栏 | 复用 `WorkbenchAiSidebar` 的 Webview、高亮和评论回显，不再新增全屏覆盖层 |
+| 共享回显 | 新增 `useSourceAnnotations.ts`，只接收 `sourceKey` 和 `captureContext`，接入 `WebviewCard.tsx`、`WorkbenchAiSidebar.tsx`；根固定默认工作区 |
 | 选区采集 | `src/main/webviewManager.ts`、`src/renderer/src/components/NoteCaptureModal.tsx` 拆出“标注 / 摘录”，并传 `annotationId` + `captureContext`；重试复用同一 id；工作台评论框提供一次性“保存到默认会话库” |
-| 旧页面收口 | `src/renderer/src/App.tsx`、`src/renderer/src/components/Layout.tsx`、`src/renderer/src/pages/NotesPage.tsx` |
-| 文件树筛选 | `src/renderer/src/components/workbench/WorkbenchFileTree.tsx` 增加头部筛选 chip 和“打开会话库”动作 |
+| 旧页面收口 | `src/renderer/src/App.tsx`、`src/renderer/src/components/Layout.tsx` 移除旧入口；`NotesPage.tsx`、`NotesConversationCards.tsx`、`NotesSourcePane.tsx` 已删除 |
+| 文件树 | `src/renderer/src/components/workbench/WorkbenchFileTree.tsx` 保持普通目录树，不提供“对话资料”筛选 chip |
 | 导图来源 | `src/main/services/MindmapService.ts` 工作台上下文改读 Markdown 文件 |
-| Frontmatter 修复 | `src/renderer/src/store/workbenchStore.ts` 的 `upsertFrontmatterSource` 不再追加重复 `source:` key；新文档改用 `source_kind` |
+| Frontmatter 修复 | 会话文档写 `source_kind: conversation/source/platform/captured_at`，仅在归一化身份与地址不同时追加 `source_key`；属性面板默认折叠重复字段和纯技术字段 |
 | 保存结果 | `src/renderer/src/store/workbenchStore.ts` 的 `saveActiveFile` 返回结构化结果，标注对账前检查是否真的写盘 |
 | 停写 snapshot | `src/main/noteManager.ts` 的 `prepareWorkbenchSource` 与 `createWorkbenchRecordUnlocked` 同时移除正文快照写入 |
 | 文档索引 | `docs/DOCS_INDEX.md` 更新为本方案的默认库、捕捉路由和迁移目标摘要 |

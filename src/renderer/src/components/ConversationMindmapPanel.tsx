@@ -845,20 +845,6 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
                   })
                 )}
 
-                <div className="my-1 border-t border-gray-100" />
-                {variant !== 'document' && renderItem({
-                  icon: 'edit_note',
-                  label: '在笔记中打开',
-                  onClick: () => {
-                    close()
-                    if (conversation) {
-                      void window.api.notesOpen({
-                        conversationId: conversation.id,
-                        mindmapId: activeMap.id
-                      })
-                    }
-                  }
-                })}
               </>
             )}
 
