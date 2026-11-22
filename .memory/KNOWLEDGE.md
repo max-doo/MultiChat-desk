@@ -108,6 +108,16 @@ Do not copy ordinary session history here. Promote only stable knowledge that is
 
 - 当React组件在不同模式分支下分别渲染挂载了同一个ref的DOM元素时，若useEffect仅监听isActive而不监听DOM节点或模式切换，会导致ResizeObserver滞留于已卸载节点并上报0宽度，新节点未被监听从而永久冻结在0px。必须使用callback ref追踪DOM节点变化，并在CSS Grid列宽处提供minmax(0, 1fr)安全保底
 
+- **跨组件观察父级 DOM 尺寸要在提交后初始化**：子组件的 `useLayoutEffect` 先于父组件 ref 挂载执行，读取父级 `stageRef.current` 会拿到 `null` 并直接返回，之后没有重试，响应式分支会永久停在默认态。应改为 `useEffect` 初始化 `ResizeObserver`，或在 ref 回调里建立观察；断点同时按容器 `clientWidth` 判定，不要误用窗口宽度。
+
+- **旁注入口打开评论卡时不要复用正文选区联动**：选中标注会触发编辑器的选区定位，浮动格式条随即停在评论卡上方并遮挡输入区；窄屏旁注入口应自行滚动定位，再直接打开共享评论卡，不要依赖选中态去滚动。
+
+- **旁注栏头必须挂到滚动层外，并按滚动视口定位**：把栏头放在随正文滚动的旁注列内，哪怕 `position: sticky` 也会随列内容离开可视区，滚动后无法关闭。展开态栏头应 portal 到编辑器根节点，用滚动容器的 `getBoundingClientRect()` 计算顶部内边距，使它固定在滚动视口顶部而不是盖住格式工具栏。
+
+- **吸附控件要同时读首行锚点与滚动容器视口，不能只按文档坐标 clamp**：旁注折叠入口的"首行对齐"与"滚动后吸附视口顶部"是两套坐标——文档坐标决定初始位置，滚动容器 `getBoundingClientRect()` 决定吸附上限，只按其一 clamp 会在滚动后飞出屏幕或展开瞬间跳回文档顶部。展开态控件本身也要 portal 到编辑器根节点而不是会滚动的旁注列。
+
+- **切换文档的闪现要同时约束浮层和侧栏列表**：旧评论卡与旧旁注卡片来自两份异步状态，只清理其中一份仍会在新文档首帧闪出。浮层要记录打开时的文档身份并在提交阶段比对；侧栏要同时校验 `workspaceRoot` 与 `relativePath` 后才渲染标注列表。
+
 - UI 组件尺寸必须与应用核心面板（如 SettingsDrawer）规范看齐，避免局部页面为了紧凑而过度使用 text-xs 或 text-[10px] 导致可读性与点击舒适度下降
 - **AppIcon 的 size 不是最终渲染像素**：组件会乘 `OPTICAL_SCALE = 0.85` 抵消 Lucide 相对 Material 字体图标的视觉膨胀。因此旧 Material `text-base` 对应的 `size={16}` 只是保持原视觉尺寸；若要与 `WebviewCard` 中传入 `size={20}` 的前进/后退/刷新图标看起来一致，应用按钮也必须传 `size={20}`。统一顶栏或侧边栏图标时先按最终视觉尺寸比较，不要只看 prop 数值或误以为所有旧 16px 图标都应放大到 20。
 
@@ -163,6 +173,8 @@ Do not copy ordinary session history here. Promote only stable knowledge that is
 - **Lexical Markdown 不解析块级 HTML 表格，需用占位标记桥接并保留原始 HTML**：`@lexical/markdown` 只识别 GFM 管道表格，`<table>` 会落入普通段落。导入前可在代码围栏之外扫描完整 `<table>…</table>` 块，替换为唯一占位标记，再由 element transformer 创建自定义 `DecoratorBlockNode`；节点保存原始 HTML，导出时原样返回，才能保留 `rowspan`、`colspan` 与源码模式内容。富文本展示应通过 `DOMParser` 读取结构并用 React 白名单节点渲染，不要在编辑器内注入原始 HTML。若允许修改已有单元格，应在 focus 时记录单元格内容基线，在 blur 或 Ctrl/Cmd+S 时只回写该单元格并重新序列化 HTML；不要在输入过程中更新 Lexical 节点，否则节点重渲染会打断光标和输入法。验证时需同时检查 `rowspan/colspan`、单元格内 `strong/br`、表格后正文定位，以及编辑一处后源码中的 HTML 是否仍保留合并单元格结构。
 
 - **AppIcon 块级化居中与空状态对齐**：`AppIcon` 统一渲染为 SVG，赋予 `block` 类名后会脱离父级 inline/`text-center` 影响（SVG 变为块级元素后默认 `margin-left: 0` 靠左）。若要在空状态提示中与居中文本对齐，必须配合 `mx-auto` 或将父容器设为 `flex flex-col items-center` 进行水平居中对齐。
+
+- **Lexical 块拖拽控件需要独立左侧 gutter**：`DraggableBlockPlugin_EXPERIMENTAL` 默认把 handle 定位在锚点左缘加 4px，不会为自定义 `menuComponent` 预留宽度。工作台的 `+` 与拖拽手柄合计约 60px；若文章容器只保留 32px 左内边距，首个正文字符会被控件覆盖。应至少保留 64px 左侧空间，且不要仅靠浮动控件的透明背景判断布局是否安全。
 
 ### 7. 划词、快捷键与窗口交互
 

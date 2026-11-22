@@ -2,6 +2,239 @@
 
 ## 2026-11-22
 
+### 19:55 | Codex
+
+- done: 提交工作台旁注交互收敛、属性字段归属与会话识别修复
+- context: 用户要求提交当前修改；按旁注 UI、属性系统、记忆日志分组提交，不提交 .tmp/.dev 临时验收产物。
+- added:
+  - `src/shared/utils/frontmatterPolicy.ts`
+  - `docs/prototypes/document-margin-comments-responsive-wide-open.png`
+  - `docs/prototypes/margin-notes-collapsed.png`
+  - `docs/prototypes/margin-notes-expanded.png`
+  - `docs/prototypes/margin-notes-sticky.png`
+  - `docs/prototypes/workbench-margin-notes-responsive-narrow.png`
+  - `docs/prototypes/workbench-margin-notes-responsive-wide.png`
+- modified:
+  - `.memory/INDEX.md`
+  - `.memory/KNOWLEDGE.md`
+  - `SESSION_LOG.md`
+  - `docs/prototypes/document-margin-comments-responsive-narrow-open.png`
+  - `docs/prototypes/document-margin-comments-responsive-narrow.png`
+  - `docs/prototypes/document-margin-comments-responsive-wide.png`
+  - `docs/prototypes/document-margin-comments.html`
+  - `src/main/services/conversationDocumentService.ts`
+  - `src/renderer/src/assets/index.css`
+  - `src/renderer/src/components/icons/AppIcon.tsx`
+  - `src/renderer/src/components/workbench/FrontmatterPanel.tsx`
+  - `src/renderer/src/components/workbench/MarkdownSyncPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchAnnotationPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchMarginNotes.tsx`
+  - `src/renderer/src/store/workbenchStore.ts`
+  - `src/shared/utils/conversationFrontmatter.ts`
+  - `src/shared/utils/conversationSource.ts`
+  - `src/shared/utils/noteTranscript.ts`
+
+### 19:50 | Codex
+
+- done: 修复单条回复被识别为会话：另存回复不写 source_kind，仅保留来源属性；无类型文档仅在正文含用户与助手轮次时按旧会话升级；普通文档属性面板不再显示文档类型行
+- decision: 会话快照与单条回复摘录分离：前者带 source_kind 并参与会话库/标注，后者是普通 Markdown，仅保留来源便于回看
+- modified:
+  - `src/shared/utils/conversationFrontmatter.ts`
+  - `src/shared/utils/noteTranscript.ts`
+  - `src/shared/utils/conversationSource.ts`
+  - `src/renderer/src/store/workbenchStore.ts`
+  - `src/main/services/conversationDocumentService.ts`
+  - `src/renderer/src/components/workbench/FrontmatterPanel.tsx`
+
+### 19:48 | Codex
+
+- done: 修复 Markdown 富文本预览区左侧块拖拽控件与正文重叠
+- context: 用户截图显示当前 Markdown 编辑预览模式下，块插入控件压住正文；最小修复仅调整文章容器左内边距。
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+- lesson(promoted): Lexical DraggableBlockPlugin 的 + 与拖拽手柄合计约 60px；富文本文章容器的左侧 gutter 至少要预留 64px，否则正文第一个字符会被控件覆盖。
+
+### 19:44 | Codex
+
+- done: 修复正文清空后仍显示注释计数：旁注数量与列表排除未定位标注
+- context: 用户报告未命名笔记.md 正文已清空但控件仍显示注释 1；排查为会话来源的 source 标注锚定原文、在空文档中定位失败仍被计入
+- decision: WorkbenchMarginNotes 的 allNotes 过滤掉 unlocatedIds，只统计能在当前正文定位的标注
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchMarginNotes.tsx`
+- lesson: 标注存在但锚点在当前正文里失效时，必须从数量统计和列表里排除，否则清空正文后会残留幽灵计数；source 标注跨文档共享，不能只按 scope 计数
+
+### 19:38 | Codex
+
+- done: 统一注释控件折叠与展开态外观：共用容器样式、标题改为注释、折叠时保留旁注列占位实现零位移切换
+- context: 用户反馈展开后控件容器样式与标签差异大导致切换不丝滑，且标题应叫注释；实测两态横向相差 148px 源于折叠时 aside 不渲染使正文重排
+- decision: 两态共用 h-9 圆角边框容器与同一水平基准；折叠态渲染 aria-hidden 的 260px 占位列保持布局稳定
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchMarginNotes.tsx`
+- lesson: 同一控件在展开/收起两态之间切换，若两态占用的布局空间不同，正文重排会让控件横向跳动；折叠态保留等宽占位列比事后校正坐标更可靠
+
+### 19:34 | Codex
+
+- done: 修复旁注卡片跑到文档顶部、展开栏头与折叠图标位置不一致、无标注仍显示控件三个问题
+- context: 用户验收反馈展开控件未停在图标位置、卡片跑到顶部，并要求无注释时隐藏控件；CDP 复现确认找不到 MarkNode 的标注会落到兜底 top=74px
+- decision: 找不到正文锚点的标注不渲染卡片；展开栏头按首行与视口共同定位，与折叠入口 sticky 对齐；allNotes 为空时不渲染入口与旁注列
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchMarginNotes.tsx`
+- lesson: 浮动卡片用兜底坐标会造成'跑到顶部'的假象，找不到锚点时应直接不渲染；折叠与展开的同一控件必须共用同一套定位计算，否则切换瞬间会跳位
+
+### 19:25 | Codex
+
+- done: 修复普通文档来源链接丢失会话跳转入口：来源行按链接是否属于平台会话页决定显示在侧边栏打开会话，不再受文档类型限制
+- decision: 会话跳转能力由链接本身决定，文档类型只控制会话归属、原文标注和自动升级
+- modified:
+  - `src/renderer/src/components/workbench/FrontmatterPanel.tsx`
+
+### 19:19 | Codex
+
+- done: 旁注控件改 sticky 吸附并消除展开闪跳：折叠入口用 position:sticky 合成器吸附，折叠态持续维护 positions 防展开首帧卡片堆文档顶
+- context: 用户反馈展开控件栏跑到文档最开头、折叠图标滚动时先跟动再回顶；CDP 复现为 absolute+JS 测量的一帧延迟与折叠态 positions 被清空
+- decision: 折叠入口 absolute 改 sticky(top:8 + marginTop 首行偏移)；computeLayout 移除 compactMode/showMarginNotes 提前 return，headerOffset 恒 44
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchMarginNotes.tsx`
+- lesson: 需要随滚动吸附的控件优先用 position:sticky 而不是 absolute+scroll 测量，后者在事件到渲染间必有一帧跟手漂移；条件渲染的浮层若在隐藏时清空布局缓存，重新显示首帧会闪在默认位
+
+### 19:19 | Codex
+
+- done: 为转为普通文档增加确认弹窗：复用 ConfirmModal，转换前提示解除会话关联及原文入口/标注影响，切换文件自动关闭确认
+- decision: 复用项目已有 ConfirmModal，确认文案说明结果而非解释机制
+- modified:
+  - `src/renderer/src/components/workbench/FrontmatterPanel.tsx`
+
+### 19:16 | Codex
+
+- done: 收窄文档类型转换为单向：仅允许会话文档解除归属转为普通文档，移除普通文档转会话入口及无意义锁按钮
+- decision: 普通 Markdown 缺少可信会话身份，反向翻转 source_kind 会制造假会话文档，因此只保留会话到普通文档的单向转换
+- modified:
+  - `src/renderer/src/components/workbench/FrontmatterPanel.tsx`
+
+### 19:15 | Codex
+
+- done: 修复旁注展开跳顶与箭头缺失：展开/收起前后保持 scrollTop，单条标注也显示上下定位箭头
+- context: 用户验收反馈展开仍跳到顶部、且栏头没有上下箭头；真实 CDP 复现确认展开 scrollTop 2500->2529、箭头因 >1 条件在单标注时隐藏
+- decision: handleToggleMarginNotes 记录 scrollTop，双 rAF 在 aside 布局重排后恢复；箭头显示条件从 >1 放宽到 >0
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchMarginNotes.tsx`
+- lesson: flex 行内增删 aside 会撑开 stage 高度使 scroller 漂移，切换前后要暂存并恢复 scrollTop；控件显隐条件要和用户验收口径一致，单条数据也应有定位入口
+
+### 19:11 | Codex
+
+- done: 按截图要求把文档类型的分段控件改成只读类型文字 + 行尾文字按钮（转为普通文档 / 转为会话文档），保留锁解锁前置
+- context: 用户明确要求不要分段控件，在类型行红框位置放文字按钮
+- modified:
+  - `src/renderer/src/components/workbench/FrontmatterPanel.tsx`
+
+### 19:08 | Codex
+
+- done: 最终收敛笔记属性面板：文档类型行 + 锁语义、来源字段可改可删、改链接不删身份字段、转普通文档只改类型
+- context: 用户要求从用户视角和鲁棒性重审系统字段与用户字段的区分，并允许会话文档转普通 Markdown
+- decision: 类型切换放在文档类型行；锁挂在笔记属性标题栏；来源/平台/采集时间在转换后保留为普通属性
+- added:
+  - `src/shared/utils/frontmatterPolicy.ts`
+- modified:
+  - `src/renderer/src/components/workbench/FrontmatterPanel.tsx`
+  - `src/shared/utils/conversationFrontmatter.ts`
+  - `src/shared/utils/conversationSource.ts`
+  - `src/renderer/src/store/workbenchStore.ts`
+  - `src/main/services/conversationDocumentService.ts`
+  - `src/renderer/src/components/icons/AppIcon.tsx`
+
+### 19:05 | Codex
+
+- done: 统一 Markdown 笔记属性中系统字段与用户字段的交互：文档类型独立成行并可解锁切换，来源改链接不再隐式删除身份字段，转普通文档只改类型
+- context: 用户质疑解锁后不能改来源类型、系统字段不能删；要求可把会话文档转成普通 Markdown 且不因改链接自动删预设字段
+- decision: 系统字段按文档类型判定归属；类型行承载会话/普通文档切换；来源/平台/采集时间保留，source_key 在改链接后作为缓存保留
+- added:
+  - `src/shared/utils/frontmatterPolicy.ts`
+- modified:
+  - `src/renderer/src/components/workbench/FrontmatterPanel.tsx`
+  - `src/shared/utils/conversationFrontmatter.ts`
+  - `src/shared/utils/conversationSource.ts`
+  - `src/renderer/src/store/workbenchStore.ts`
+  - `src/main/services/conversationDocumentService.ts`
+  - `src/renderer/src/components/icons/AppIcon.tsx`
+- unresolved: 需在 npm run dev 中手动验证锁/类型切换/改链接后原文入口与转普通文档
+
+### 19:02 | Codex
+
+- done: 优化旁注折叠控件：滚动时吸附视口顶部，展开不跳回文档顶部，栏头新增上/下一条旁注定位按钮
+- context: 用户反馈折叠入口滚动后消失、展开会跳到文档顶部，并要求展开控件加快速定位箭头
+- decision: 折叠入口按首行位置与滚动视口共同计算吸附位；展开栏头 portal 到编辑器根节点保持原位；按旁注纵向顺序循环定位 MarkNode
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchMarginNotes.tsx`
+  - `docs/prototypes/margin-notes-sticky.png`
+- lesson(promoted): 吸附控件要同时读首行锚点与滚动容器视口，不能只按文档坐标 clamp；展开态控件 portal 目标必须是编辑器根节点而不是会滚动的旁注列
+
+### 18:21 | Codex
+
+- done: 收敛旁注交互：入口移到正文首行并默认折叠，展开栏头固定在滚动视口内，切换文档不再闪现旧评论卡
+- context: 用户要求首行入口、琥珀色图标与紧跟数量、默认折叠，并追问滚动后能否关闭；同时报告切文档先闪评论卡
+- decision: 折叠入口按正文首块测量并随文档滚动；展开栏头 portal 到编辑器根节点，定位到滚动视口顶部；评论浮层记录文档身份，侧栏按 workspaceRoot 与 relativePath 过滤
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchMarginNotes.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchAnnotationPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+  - `src/renderer/src/store/workbenchStore.ts`
+  - `docs/prototypes/document-margin-comments.html`
+  - `docs/prototypes/document-margin-comments-responsive-wide.png`
+  - `docs/prototypes/document-margin-comments-responsive-narrow.png`
+  - `docs/prototypes/document-margin-comments-responsive-narrow-open.png`
+  - `docs/prototypes/document-margin-comments-responsive-wide-open.png`
+  - `docs/prototypes/margin-notes-collapsed.png`
+  - `docs/prototypes/margin-notes-expanded.png`
+- lesson(promoted): 评论栏头放在随正文滚动的旁注列内，sticky 也会滚出可视区；必须挂到滚动层外并按滚动视口定位
+- lesson(promoted): 切换文档的评论卡闪现要同时约束浮层身份和侧栏标注列表，两份异步状态都要校验当前文档
+
+### 17:23 | Codex
+
+- done: 补完窄屏旁注验收与细节收敛：入口固定在可见区顶部，窄屏选中标注不再触发正文选区工具条，宽屏旁注卡改为中性底色
+- context: 窄屏截图暴露浮动格式条与入口随滚动漂移两个问题
+- decision: 窄屏跳过选中标注的自动选区定位，由入口自身完成滚动；入口用滚动容器偏移补偿固定
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchMarginNotes.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchAnnotationPlugin.tsx`
+  - `src/renderer/src/assets/index.css`
+- lesson(promoted): 旁注选中不应复用正文选区联动，否则浮动格式条会遮挡评论卡
+- unresolved: 其他 worker 的 FrontmatterPanel 改动已合并并通过构建，无遗留
+
+### 17:00 | Codex
+
+- done: 工作台 frontmatter 按文档类型区分字段归属：会话来源字段只读、身份字段收进更多属性、用户属性自由编辑；面板改为按行区间写回，保留注释与未知字段。
+- context: 业界调研（Obsidian/Logseq/Hugo/Joplin）支持扁平保留键 + 按文档类型 + UI 分组，不做命名空间迁移。
+- decision: 保留扁平 YAML；来源地址可显式改写并失效 source_key/captured_at；已有来源时插入其他会话回复只提示冲突，不静默改来源；普通笔记仅字段集合仍像旧会话文档时才自动补类型。
+- added:
+  - `src/shared/utils/frontmatterPolicy.ts`
+- modified:
+  - `src/shared/utils/conversationFrontmatter.ts`
+  - `src/renderer/src/components/workbench/FrontmatterPanel.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+  - `src/renderer/src/components/workbench/MarkdownSyncPlugin.tsx`
+  - `src/renderer/src/store/workbenchStore.ts`
+- lesson: frontmatter 面板必须按字段行区间 patch，整块 parse/serialize 会丢注释和嵌套结构；多行列表要先按 span 解析，否则会被内联标签分支吞掉。
+- unresolved: 需在 npm run dev 中手工验收：会话文档分组、断开来源、普通笔记同名属性冲突提示。
+
+### 16:55 | Codex
+
+- done: 移除工作台正文批注后的黄色小圆点，保留高亮和批注交互
+- modified:
+  - `src/renderer/src/assets/index.css`
+
+### 16:42 | Codex
+
+- done: 实现工作台旁注窄屏响应式布局：紧凑模式下旁注列退出横向布局，改用正文序号与浮动入口复用现有评论卡；宽屏旁注卡改为中性底色配琥珀色强调
+- context: 用户在窄屏下旁注列挤压正文宽度；要求弹窗复用 AnnotationCommentCard，卡片不要整体黄色
+- decision: 以编辑器 stage 可用宽度 960px 为断点；紧凑模式绝对定位浮层入口，不参与 flex 列；序号通过 data-annotation-index 写入 MarkNode DOM
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchMarginNotes.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchAnnotationPlugin.tsx`
+  - `src/renderer/src/assets/index.css`
+- lesson(promoted): 在子组件 useLayoutEffect 读取父组件 ref 时，父 ref 可能尚未挂载；跨组件 DOM 尺寸观察应在 useEffect 中初始化 ResizeObserver
+- unresolved: FrontmatterPanel.tsx 存在其他并行改动导致整体构建失败，本次验证使用临时隔离构建产物，未修改该文件
+
 ### 14:10 | Antigravity
 
 - done: 恢复原位边距批注便签功能：删除旧注释侧边栏，实现原位展示/编辑/删除旁注
