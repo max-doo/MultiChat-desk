@@ -477,13 +477,18 @@ export default function WorkbenchEditor(): JSX.Element {
             ref={stageRef}
             className="relative w-full max-w-[1080px] flex justify-center items-start gap-6 px-6 pt-6 pb-20 min-h-full"
           >
-            <div ref={onRef} className="relative flex-1 max-w-[760px] min-w-0 pl-8 pr-2">
+            <div
+              ref={onRef}
+              data-workbench-article="true"
+              className="relative flex-1 max-w-[760px] min-w-0 pl-16 pr-2"
+            >
             {/* Obsidian 式文档标题：点击行内重命名 */}
             <WorkbenchTitleBar />
 
             {/* Obsidian 式笔记属性面板：frontmatter 与正文分离，不进入 Lexical */}
             <FrontmatterPanel
               frontmatter={parsedFrontmatter}
+              filePath={activeFilePath}
               onChange={handleFrontmatterChange}
             />
 

@@ -310,22 +310,43 @@ webview[tabindex="-1"] {
     padding-bottom: 1px;
     cursor: pointer;
 }
-.PlaygroundEditorTheme__mark::after {
-    content: '';
-    display: inline-block;
-    width: 4px;
-    height: 4px;
-    margin-left: 2px;
-    border-radius: 9999px;
-    background: rgba(217, 119, 6, 0.7);
-    vertical-align: middle;
-}
 .PlaygroundEditorTheme__markOverlap {
     border-bottom-style: dotted;
 }
 .dark .PlaygroundEditorTheme__mark {
     background: rgba(252, 211, 77, 0.1);
     border-bottom-color: rgba(251, 191, 36, 0.55);
+}
+[data-margin-notes-mode='compact'] .PlaygroundEditorTheme__mark {
+    position: relative;
+}
+[data-margin-notes-mode='compact'] .PlaygroundEditorTheme__mark::after {
+    display: none;
+    content: '';
+}
+[data-margin-notes-mode='compact'] .PlaygroundEditorTheme__mark[data-annotation-index]::after {
+    content: attr(data-annotation-index);
+    position: relative;
+    top: -4px;
+    margin-left: 4px;
+    margin-right: 2px;
+    width: 15px;
+    height: 15px;
+    border-radius: 9999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: #f59e0b;
+    color: #fff;
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 1;
+    box-shadow: 0 0 0 2px #fff;
+    vertical-align: middle;
+    pointer-events: none;
+}
+.dark [data-margin-notes-mode='compact'] .PlaygroundEditorTheme__mark[data-annotation-index]::after {
+    box-shadow: 0 0 0 2px #111827;
 }
 .PlaygroundEditorTheme__link {
   color: rgb(33, 111, 219);

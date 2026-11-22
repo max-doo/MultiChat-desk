@@ -173,6 +173,8 @@ function cleanMarkNodes(validIds: Set<string>, complete: boolean): void {
 
 interface CommentPopover {
   id: string
+  /** 打开评论卡时所属文档；切换文档后旧卡片不得先渲染一帧。 */
+  documentKey: string
   quote: string
   left: number
   top: number
@@ -208,6 +210,7 @@ export default function WorkbenchAnnotationPlugin({
   const appliedRef = useRef<{ token: number; version: number }>({ token: 0, version: -1 })
 
   const sourceKey = readConversationSource(activeFileContent)?.sourceKey ?? null
+  const documentKey = `${workspacePath ?? ''}\n${activeFilePath ?? ''}`
 
   /** 撤回尚未保存的新建标注：去掉旁路记录和正文里的临时标记。 */
   const discardDraft = useCallback(
@@ -228,10 +231,14 @@ export default function WorkbenchAnnotationPlugin({
   )
 
   // 正文切换后，旧的浮层坐标和评论草稿不能再指向新文档。
+  // 提交阶段同步丢弃，避免旧评论卡在新文档上先渲染一帧再消失。
+  if (popoverRef.current && popoverRef.current.documentKey !== documentKey) {
+    popoverRef.current = null
+  }
   useEffect(() => {
     setPopover(null)
     setComment('')
-  }, [activeFilePath])
+  }, [documentKey])
 
   const showHint = useCallback((text: string) => {
     setHint(text)
@@ -409,6 +416,8 @@ export default function WorkbenchAnnotationPlugin({
   // 侧栏卡片（或正文点击）选中后，定位并滚动到对应文本。
   useEffect(() => {
     if (!selectedId) return
+    // 窄屏旁注入口已自行滚动定位；这里再建选区会让浮动格式条停在评论卡上方。
+    if (document.querySelector('[data-margin-notes-mode="compact"]')) return
     const annotation = [
       ...useAnnotationStore.getState().documentAnnotations,
       ...useAnnotationStore.getState().sourceAnnotations
@@ -568,19 +577,20 @@ export default function WorkbenchAnnotationPlugin({
         const anchorRect = anchorElem.getBoundingClientRect()
         setPopover({
           id,
+          documentKey,
           quote,
           left: Math.max(8, rect.left - anchorRect.left),
           top: rect.bottom - anchorRect.top + 8,
           mode: 'create'
         })
       } else {
-        setPopover({ id, quote, left: 8, top: 8, mode: 'create' })
+        setPopover({ id, documentKey, quote, left: 8, top: 8, mode: 'create' })
       }
       setComment('')
       return true
     }
     return editor.registerCommand(WORKBENCH_ANNOTATE_COMMAND, create, COMMAND_PRIORITY_EDITOR)
-  }, [editor, anchorElem, showHint])
+  }, [editor, anchorElem, showHint, documentKey])
 
   const cancelPopover = useCallback(() => {
     if (!popover) return
@@ -639,6 +649,31 @@ export default function WorkbenchAnnotationPlugin({
     if (!result.success) showHint(result.error || '原文标注保存失败')
   }
 
+  const openCommentCard = useCallback(
+    (annotation: Annotation, clientX: number, clientY: number): void => {
+      useAnnotationStore.getState().setSelected(annotation.id)
+      const previous = popoverRef.current
+      if (previous && previous.mode === 'create' && previous.id !== annotation.id) {
+        discardDraft(previous.id)
+      }
+      const anchorRect = anchorElem?.getBoundingClientRect()
+      const left = anchorRect
+        ? Math.max(8, Math.min(clientX - anchorRect.left - 24, anchorRect.width - 328))
+        : 8
+      const top = anchorRect ? Math.max(8, clientY - anchorRect.top + 12) : 8
+      setComment(annotation.comment)
+      setPopover({
+        id: annotation.id,
+        documentKey,
+        quote: annotation.quote,
+        left,
+        top,
+        mode: 'edit'
+      })
+    },
+    [anchorElem, discardDraft, documentKey]
+  )
+
   /**
    * 点击正文里的高亮：命中标注就弹出同一个评论卡；点空白处先撤回
    * 尚未保存的新建标注，再关闭浮层，避免草稿残留。
@@ -657,33 +692,37 @@ export default function WorkbenchAnnotationPlugin({
         setComment('')
         return
       }
-      useAnnotationStore.getState().setSelected(hit)
       const state = useAnnotationStore.getState()
       const annotation = [...state.documentAnnotations, ...state.sourceAnnotations].find(
         item => item.id === hit
       )
       if (!annotation) return
-      const previous = popoverRef.current
-      if (previous && previous.mode === 'create' && previous.id !== hit) {
-        discardDraft(previous.id)
-      }
-      const anchorRect = anchorElem?.getBoundingClientRect()
-      const left = anchorRect
-        ? Math.max(8, Math.min(event.clientX - anchorRect.left - 24, anchorRect.width - 328))
-        : 8
-      const top = anchorRect ? Math.max(8, event.clientY - anchorRect.top + 12) : 8
-      setComment(annotation.comment)
-      setPopover({
-        id: annotation.id,
-        quote: annotation.quote,
-        left,
-        top,
-        mode: 'edit'
-      })
+      openCommentCard(annotation, event.clientX, event.clientY)
     }
     root.addEventListener('click', handler)
     return () => root.removeEventListener('click', handler)
-  }, [anchorElem, discardDraft, editor])
+  }, [discardDraft, editor, openCommentCard])
+
+  // 窄屏旁注入口没有可点击的正文坐标，交给侧栏通过事件请求同一条评论卡
+  useEffect(() => {
+    const handler = (event: Event): void => {
+      const detail = (event as CustomEvent<{
+        id?: string
+        clientX?: number
+        clientY?: number
+      }>).detail
+      if (!detail?.id) return
+
+      const state = useAnnotationStore.getState()
+      const annotation = [...state.documentAnnotations, ...state.sourceAnnotations].find(
+        item => item.id === detail.id
+      )
+      if (!annotation) return
+      openCommentCard(annotation, detail.clientX ?? 0, detail.clientY ?? 0)
+    }
+    window.addEventListener('workbench:annotation-open', handler)
+    return () => window.removeEventListener('workbench:annotation-open', handler)
+  }, [openCommentCard])
 
   const deletePopoverAnnotation = async (): Promise<void> => {
     if (!popover) return
@@ -739,6 +778,7 @@ export default function WorkbenchAnnotationPlugin({
         </div>
       )}
       {popover &&
+        popover.documentKey === documentKey &&
         anchorElem &&
         createPortal(
           <AnnotationCommentCard

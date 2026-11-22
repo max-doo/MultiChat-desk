@@ -9,7 +9,8 @@
   > Created: 2026-11-22 13:10 (Asia/Shanghai, +08:00)
   MultiChat Desk - Personal Document Margin Notes (Sidenotes)
   去除复杂多人协作社交属性，实现紧挨正文高亮、即点即改的极简个人便签旁注。
-  窄屏下旁注不再参与横向布局，改为行尾编号标记 + 单条浮层，保证正文始终获得完整可读宽度。
+  旁注入口默认折叠在正文首行右侧；展开后旁注列紧贴正文，窄屏改为行尾编号 + 单条浮层，
+  保证正文始终获得完整可读宽度。
   -->
   <style>
     :root {
@@ -187,6 +188,47 @@
       color: #facc15;
     }
 
+    /* 正文首行的旁注入口：默认折叠，数量紧跟图标 */
+    .margin-notes-trigger {
+      position: absolute;
+      top: 46px;
+      right: -64px;
+      z-index: 12;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      height: 32px;
+      padding: 0 8px;
+      border-radius: 8px;
+      border: 1px solid var(--note-border);
+      background: var(--doc-bg);
+      color: var(--note-bar);
+      box-shadow: var(--shadow-sm);
+      font-size: 11px;
+      font-weight: 600;
+      line-height: 1;
+      transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease,
+                  box-shadow 0.15s ease;
+    }
+    .margin-notes-trigger:hover {
+      background: rgba(245, 158, 11, 0.06);
+      border-color: rgba(245, 158, 11, 0.35);
+      box-shadow: var(--shadow-md);
+    }
+    .margin-notes-trigger svg {
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
+    }
+    .margin-notes-trigger[hidden] {
+      display: none;
+    }
+    html.dark .margin-notes-trigger {
+      background: #1f2937;
+      border-color: rgba(255, 255, 255, 0.1);
+      color: #fbbf24;
+    }
+
     /* 主滚动视口 */
     .workspace-scroll-area {
       flex: 1;
@@ -305,6 +347,70 @@
     }
     .sidenotes-column.is-hidden {
       display: none;
+    }
+
+    /* 展开后的旁注栏头固定在滚动视口顶部，滚动时仍可关闭 */
+    .margin-notes-header {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 2px 0 8px;
+      margin-bottom: 2px;
+      background: var(--app-bg);
+      border-bottom: 1px solid var(--line);
+      color: var(--text-sub);
+      font-size: 12px;
+      font-weight: 500;
+    }
+    .margin-notes-header-title {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+    }
+    .margin-notes-header-title svg {
+      width: 14px;
+      height: 14px;
+      color: var(--note-bar);
+      flex-shrink: 0;
+    }
+    .margin-notes-header-count {
+      min-width: 16px;
+      height: 16px;
+      padding: 0 5px;
+      border-radius: 9999px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(245, 158, 11, 0.1);
+      color: #b45309;
+      font-size: 10px;
+      font-weight: 600;
+    }
+    html.dark .margin-notes-header-count {
+      color: #fbbf24;
+    }
+    .margin-notes-close {
+      width: 24px;
+      height: 24px;
+      border-radius: 6px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-faint);
+      font-size: 16px;
+      line-height: 1;
+    }
+    .margin-notes-close:hover {
+      color: var(--text-main);
+      background: rgba(0, 0, 0, 0.05);
+    }
+    html.dark .margin-notes-close:hover {
+      background: rgba(255, 255, 255, 0.07);
     }
 
     /* 窄屏浮层便签：脱离横向布局，打开时才覆盖在正文上方 */
@@ -683,8 +789,13 @@
         font-size: 14px;
         line-height: 1.8;
       }
+      .margin-notes-trigger {
+        top: 32px;
+        right: 12px;
+      }
       .article-body h1 {
         font-size: 21px;
+        padding-right: 48px;
       }
       .compact-note-panel {
         right: 8px;
@@ -717,10 +828,6 @@
     </div>
 
     <div class="header-right">
-      <button class="btn-tool active" id="toggleNotesBtn">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-        <span>旁注便签 (<span id="notesCount">3</span>)</span>
-      </button>
       <button class="btn-tool" id="toggleThemeBtn" title="切换深色/浅色">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
       </button>
@@ -733,6 +840,19 @@
       
       <!-- 正文内容 -->
       <article class="article-body" id="articleBody">
+        <button
+          class="margin-notes-trigger"
+          id="marginNotesTrigger"
+          type="button"
+          aria-expanded="false"
+          aria-label="展开旁注便签，共 3 条"
+          title="展开旁注便签 (3)"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+          </svg>
+          <span id="marginNotesCount">3</span>
+        </button>
         <h1>多模型长文本提炼与知识笔记</h1>
         <div class="article-meta">
           <span>阅读模式</span> · <span>上次编辑: 10分钟前</span> · <span>字数: 2,180</span>
@@ -812,7 +932,7 @@
     let activeNoteId = 'note-2';
     let draftNote = null; // { range, quote, top }
     let editingNoteId = null;
-    let notesVisible = true;
+    let notesVisible = false;
     let layoutMode = 'wide';
     let compactOpen = false;
     let compactNoteId = null;
@@ -822,35 +942,57 @@
     const articleBody = document.getElementById('articleBody');
     const sidenotesColumn = document.getElementById('sidenotesColumn');
     const compactNotePanel = document.getElementById('compactNotePanel');
-    const notesCount = document.getElementById('notesCount');
-    const toggleNotesBtn = document.getElementById('toggleNotesBtn');
+    const marginNotesTrigger = document.getElementById('marginNotesTrigger');
+    const marginNotesCount = document.getElementById('marginNotesCount');
     const toggleThemeBtn = document.getElementById('toggleThemeBtn');
     const footerHint = document.getElementById('footerHint');
 
     // 宽屏：测量每条高亮文本在正文中的 offsetTop，紧贴右侧排布
     function renderNotes() {
-      notesCount.textContent = notes.length;
+      marginNotesCount.textContent = notes.length;
       updateNotesButton();
       updateFooterHint();
 
       if (layoutMode === 'compact') {
+        marginNotesTrigger.hidden = false;
         renderCompactNotes();
         return;
       }
 
       sidenotesColumn.classList.toggle('is-hidden', !notesVisible);
+      marginNotesTrigger.hidden = notesVisible;
       renderWideNotes();
     }
 
     function renderWideNotes() {
       sidenotesColumn.innerHTML = '';
+      if (!notesVisible) return;
+
+      const header = document.createElement('div');
+      header.className = 'margin-notes-header';
+      header.innerHTML = `
+        <span class="margin-notes-header-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+          </svg>
+          <span>旁注便签</span>
+          <span class="margin-notes-header-count">${notes.length}</span>
+        </span>
+        <button class="margin-notes-close" type="button" data-action="hide-notes" title="隐藏旁注" aria-label="隐藏旁注">×</button>
+      `;
+      header.querySelector('[data-action="hide-notes"]')?.addEventListener('click', () => {
+        notesVisible = false;
+        renderNotes();
+      });
+      sidenotesColumn.appendChild(header);
 
       const layoutRect = docLayout.getBoundingClientRect();
+      const CARD_GAP = 10;
 
       // 收集排版项
       const items = notes.map(note => {
         const markEl = document.querySelector(`.mark-text[data-id="${note.anchorId}"]`);
-        let anchorTop = 20;
+        let anchorTop = header.offsetHeight + CARD_GAP;
         if (markEl) {
           const rect = markEl.getBoundingClientRect();
           anchorTop = rect.top - layoutRect.top;
@@ -878,8 +1020,7 @@
       items.sort((a, b) => a.anchorTop - b.anchorTop);
 
       // 初步挂载以测量真实高度并执行物理避让
-      const CARD_GAP = 10;
-      let currentBottom = 0;
+      let currentBottom = header.offsetHeight + CARD_GAP;
 
       items.forEach(item => {
         let cardEl;
@@ -910,11 +1051,13 @@
 
     function updateNotesButton() {
       const isActive = layoutMode === 'compact' ? compactOpen : notesVisible;
-      toggleNotesBtn.classList.toggle('active', isActive);
-      toggleNotesBtn.setAttribute('aria-expanded', String(isActive));
-      toggleNotesBtn.title = layoutMode === 'compact'
-        ? (compactOpen ? '收起旁注浮层' : '打开旁注浮层')
-        : (notesVisible ? '隐藏旁注便签' : '显示旁注便签');
+      marginNotesTrigger.setAttribute('aria-expanded', String(isActive));
+      marginNotesTrigger.setAttribute(
+        'aria-label',
+        `${layoutMode === 'compact' ? '打开' : '展开'}旁注便签，共 ${notes.length} 条`
+      );
+      marginNotesTrigger.title =
+        `${layoutMode === 'compact' ? '打开' : '展开'}旁注便签 (${notes.length})`;
     }
 
     function updateFooterHint() {
@@ -1302,11 +1445,11 @@
 
       layoutMode = nextMode;
       document.body.classList.toggle('compact-mode', layoutMode === 'compact');
-      notesVisible = true;
+      notesVisible = false;
       compactOpen = false;
       compactNoteId = null;
       editingNoteId = null;
-      sidenotesColumn.classList.remove('is-hidden');
+      sidenotesColumn.classList.add('is-hidden');
       return true;
     }
 
@@ -1317,8 +1460,8 @@
       initSelectionListener();
       renderNotes();
 
-      // 宽屏显示/隐藏旁注列；窄屏打开/收起单条浮层
-      toggleNotesBtn.addEventListener('click', () => {
+      // 正文首行入口：宽屏展开/收起旁注列；窄屏打开单条浮层
+      marginNotesTrigger.addEventListener('click', () => {
         if (layoutMode === 'compact') {
           if (compactOpen) {
             closeCompactNotes();
@@ -1401,7 +1544,7 @@
       document.addEventListener('pointerdown', event => {
         if (layoutMode !== 'compact' || !compactOpen) return;
         if (compactNotePanel.contains(event.target)) return;
-        if (event.target.closest('#toggleNotesBtn') || event.target.closest('.mark-text')) return;
+        if (event.target.closest('#marginNotesTrigger') || event.target.closest('.mark-text')) return;
         closeCompactNotes();
       });
 
