@@ -4,6 +4,7 @@ import { electronAPI } from '@electron-toolkit/preload'
 import type { NoteConversation, NoteDraft, NoteHighlight, NoteSelectionRect, ConversationMindmap, MindmapTask, MindmapModifyRequest, MindmapCandidate, MindmapSelection, MindmapMaterial, MindmapFileState, MindmapFileReason } from '../shared/types/notes'
 import type {
   Annotation,
+  AnnotationAnchor,
   AnnotationCaptureRequest,
   AnnotationChangedEvent,
   AnnotationSource,
@@ -11,6 +12,7 @@ import type {
   CaptureExcerptResult,
   CaptureSourceInput,
   CaptureSourceResult,
+  DocumentResolution,
   EnsureDocumentInput,
   EnsureDocumentResult,
   DefaultWorkspaceInfo,
@@ -38,7 +40,9 @@ import type {
   GitActionResult,
   GitignoreSnapshot,
   GitignoreCategory,
-  GitRemoteInfo
+  GitRemoteInfo,
+  FrontmatterBackupSummary,
+  FrontmatterBackupClearResult
 } from '../shared/types/workbench'
 
 // 文件数据类型
@@ -93,6 +97,13 @@ const api = {
     return () => { ipcRenderer.removeListener('app:quit-requested', handler) }
   },
   respondAppQuit: (allow: boolean): void => ipcRenderer.send('app:quit-response', allow),
+  onWindowCloseRequested: (callback: () => void): (() => void) => {
+    const handler = (): void => callback()
+    ipcRenderer.on('app:window-close-requested', handler)
+    return () => { ipcRenderer.removeListener('app:window-close-requested', handler) }
+  },
+  respondWindowClose: (allow: boolean): void =>
+    ipcRenderer.send('app:window-close-response', allow),
 
   // 快捷弹窗控制
   quickShow: (opts?: { focus?: boolean }) => ipcRenderer.invoke('quick:show', opts),
@@ -238,6 +249,10 @@ const api = {
   notesCancelMigration: (jobId: string): Promise<{ success: boolean; data?: { status: 'paused' }; error?: string }> => ipcRenderer.invoke('notes:cancel-migration', jobId),
   notesResumeMigration: (jobId: string): Promise<{ success: boolean; data?: { jobId: string; targetWorkspaceRoot: string; targetConversationDir: string }; error?: string }> => ipcRenderer.invoke('notes:resume-migration', jobId),
   notesAbandonMigration: (jobId: string): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('notes:abandon-migration', jobId),
+  notesFrontmatterBackups: (): Promise<{ success: boolean; data?: FrontmatterBackupSummary; error?: string }> =>
+    ipcRenderer.invoke('notes:frontmatter-backups'),
+  notesClearFrontmatterBackups: (): Promise<{ success: boolean; data?: FrontmatterBackupClearResult; error?: string }> =>
+    ipcRenderer.invoke('notes:clear-frontmatter-backups'),
   onNotesMigrationProgress: (cb: (progress: LegacyMigrationProgress) => void): (() => void) => {
     const handler = (_event: Electron.IpcRendererEvent, progress: LegacyMigrationProgress): void => cb(progress)
     ipcRenderer.on('notes:migration-progress', handler)
@@ -463,6 +478,8 @@ const api = {
       ipcRenderer.invoke('workbench:read-file', { workspaceRoot, relativePath }),
     readPdfRange: (workspaceRoot: string, relativePath: string, start: number, end: number): Promise<{ success: boolean; data?: { bytes: Uint8Array; size: number; mtime: number }; error?: string }> =>
       ipcRenderer.invoke('workbench:read-pdf-range', { workspaceRoot, relativePath, start, end }),
+    readDocxBytes: (workspaceRoot: string, relativePath: string): Promise<{ success: boolean; data?: { bytes: Uint8Array; size: number; mtime: number }; error?: string }> =>
+      ipcRenderer.invoke('workbench:read-docx-bytes', { workspaceRoot, relativePath }),
     writeFile: (workspaceRoot: string, relativePath: string, content: string): Promise<{ success: boolean; data?: WorkbenchWriteResult; error?: string }> =>
       ipcRenderer.invoke('workbench:write-file', { workspaceRoot, relativePath, content }),
     createNode: (workspaceRoot: string, relativePath: string, type: WorkbenchNodeType): Promise<{ success: boolean; data?: WorkbenchFileNode; error?: string }> =>
@@ -542,7 +559,9 @@ const api = {
       const handler = (_e: Electron.IpcRendererEvent, data: WorkbenchHtmlContextMenuData): void => cb(data)
       ipcRenderer.on('workbench:html-contextmenu', handler)
       return () => { ipcRenderer.removeListener('workbench:html-contextmenu', handler) }
-    }
+    },
+    copyHtmlImageAt: (x: number, y: number): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('workbench:copy-image-at', x, y)
   },
   workbenchSelectFolder: (): Promise<{ success: boolean; data?: WorkbenchSelectFolderResult | null; error?: string }> =>
     ipcRenderer.invoke('workbench:select-folder'),
@@ -582,16 +601,73 @@ const api = {
       ipcRenderer.invoke('annotations:list-source', { sourceKey }),
     upsertDocument: (workspaceRoot: string, relativePath: string, annotation: Annotation): Promise<{ success: boolean; data?: Annotation; error?: string }> =>
       ipcRenderer.invoke('annotations:upsert-document', { workspaceRoot, relativePath, annotation }),
+    createDocument: (workspaceRoot: string, relativePath: string, annotation: Annotation): Promise<{ success: boolean; data?: Annotation; error?: string }> =>
+      ipcRenderer.invoke('annotations:create-document', { workspaceRoot, relativePath, annotation }),
+    updateDocumentComment: (
+      workspaceRoot: string,
+      relativePath: string,
+      id: string,
+      comment: string,
+      baseUpdatedAt: number
+    ): Promise<{ success: boolean; data?: Annotation; error?: string }> =>
+      ipcRenderer.invoke('annotations:update-document-comment', {
+        workspaceRoot,
+        relativePath,
+        id,
+        comment,
+        baseUpdatedAt
+      }),
+    reanchorDocument: (
+      workspaceRoot: string,
+      relativePath: string,
+      id: string,
+      quote: string,
+      anchor: AnnotationAnchor,
+      baseAnchorRevision: number
+    ): Promise<{ success: boolean; data?: Annotation; error?: string }> =>
+      ipcRenderer.invoke('annotations:reanchor-document', {
+        workspaceRoot,
+        relativePath,
+        id,
+        quote,
+        anchor,
+        baseAnchorRevision
+      }),
     upsertSource: (sourceKey: string, source: AnnotationSource, annotation: Annotation): Promise<{ success: boolean; data?: Annotation; error?: string }> =>
       ipcRenderer.invoke('annotations:upsert-source', { sourceKey, source, annotation }),
+    updateSourceComment: (
+      sourceKey: string,
+      id: string,
+      comment: string,
+      baseUpdatedAt: number
+    ): Promise<{ success: boolean; data?: Annotation; error?: string }> =>
+      ipcRenderer.invoke('annotations:update-source-comment', {
+        sourceKey,
+        id,
+        comment,
+        baseUpdatedAt
+      }),
     deleteDocument: (workspaceRoot: string, relativePath: string, id: string): Promise<{ success: boolean; error?: string }> =>
       ipcRenderer.invoke('annotations:delete-document', { workspaceRoot, relativePath, id }),
     reconcileDocument: (
       workspaceRoot: string,
       relativePath: string,
-      anchors: Array<Pick<Annotation, 'id' | 'quote' | 'anchor'>>
-    ): Promise<{ success: boolean; data?: { updated: number }; error?: string }> =>
-      ipcRenderer.invoke('annotations:reconcile-document', { workspaceRoot, relativePath, anchors }),
+      resolutions: DocumentResolution[]
+    ): Promise<{
+      success: boolean
+      data?: {
+        applied: string[]
+        stale: string[]
+        skipped: string[]
+        annotations: Annotation[]
+      }
+      error?: string
+    }> =>
+      ipcRenderer.invoke('annotations:reconcile-document', {
+        workspaceRoot,
+        relativePath,
+        resolutions
+      }),
     deleteSource: (sourceKey: string, id: string): Promise<{ success: boolean; error?: string }> =>
       ipcRenderer.invoke('annotations:delete-source', { sourceKey, id }),
     captureSource: (input: CaptureSourceInput): Promise<{ success: boolean; data?: CaptureSourceResult; error?: string }> =>

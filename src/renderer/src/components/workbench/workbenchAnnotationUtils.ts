@@ -1,6 +1,8 @@
 import {
   $getRoot,
   $isElementNode,
+  HISTORIC_TAG,
+  SKIP_SELECTION_FOCUS_TAG,
   type LexicalEditor,
   type LexicalNode
 } from 'lexical'
@@ -66,6 +68,9 @@ export function removeMarkById(editor: LexicalEditor, id: string): void {
         }
       }
     },
-    { tag: 'annotation-sync', discrete: true }
+    {
+      tag: ['annotation-sync', HISTORIC_TAG, SKIP_SELECTION_FOCUS_TAG],
+      discrete: true
+    }
   )
 }

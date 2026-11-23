@@ -27,4 +27,9 @@ export interface WorkbenchHtmlContextMenuData {
   x: number
   y: number
   selectedText: string
+  image?: {
+    srcURL: string
+    x: number
+    y: number
+  }
 }

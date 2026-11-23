@@ -10,7 +10,11 @@ import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'fs/promis
 import path from 'path'
 import type {
   Annotation,
+  AnnotationAnchor,
+  AnnotationAnchorState,
   AnnotationSource,
+  DocumentReconcileResult,
+  DocumentResolution,
   DocumentAnnotationFile,
   DocumentAnnotationRef,
   SourceAnnotationFile
@@ -18,6 +22,7 @@ import type {
 import {
   ANNOTATION_MAX_FILE_BYTES,
   ANNOTATION_MAX_PER_FILE,
+  ANNOTATION_MAX_TEXT,
   normalizeAnnotation
 } from '../../shared/utils/annotationAnchors'
 
@@ -40,6 +45,36 @@ function serial<T>(key: string, operation: () => Promise<T>): Promise<T> {
   const next = prev.then(operation, operation)
   locks.set(key, next.then(() => undefined, () => undefined))
   return next
+}
+
+const annotationRevision = (annotation: Annotation): number =>
+  typeof annotation.anchorRevision === 'number' && Number.isFinite(annotation.anchorRevision)
+    ? Math.max(1, Math.floor(annotation.anchorRevision))
+    : 1
+
+const isUnresolved = (state: AnnotationAnchorState | undefined): boolean =>
+  state === 'ambiguous' || state === 'unlocated'
+
+function unresolvedCount(annotations: Annotation[]): number {
+  return annotations.filter(annotation => isUnresolved(annotation.anchorState)).length
+}
+
+function limitMessage(annotations: Annotation[], scope: 'document' | 'source'): string {
+  const unresolved = unresolvedCount(annotations)
+  if (scope === 'document') {
+    return `单篇文档最多 ${ANNOTATION_MAX_PER_FILE} 条标注；当前 ${annotations.length} 条，其中 ${unresolved} 条未解决，请清理后重试`
+  }
+  return `单个原文来源最多 ${ANNOTATION_MAX_PER_FILE} 条标注；当前 ${annotations.length} 条，请清理后重试`
+}
+
+function canonicalAnchor(anchor: AnnotationAnchor): string {
+  return JSON.stringify({
+    exact: anchor.exact,
+    prefix: anchor.prefix,
+    suffix: anchor.suffix,
+    occurrence: anchor.occurrence ?? null,
+    offsetHint: anchor.offsetHint ?? null
+  })
 }
 
 async function atomicWrite(filePath: string, value: unknown): Promise<void> {
@@ -93,7 +128,8 @@ function assertSourceKey(sourceKey: string): void {
 function mergeAnnotations(
   existing: Annotation[],
   incoming: Annotation[],
-  now: number
+  now: number,
+  scope: 'document' | 'source' = 'document'
 ): Annotation[] {
   const byId = new Map(existing.map(item => [item.id, item]))
   for (const item of incoming) {
@@ -103,7 +139,7 @@ function mergeAnnotations(
   }
   const values = [...byId.values()].sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))
   if (values.length > ANNOTATION_MAX_PER_FILE) {
-    throw new AnnotationLimitError(`单篇文档最多 ${ANNOTATION_MAX_PER_FILE} 条标注`)
+    throw new AnnotationLimitError(limitMessage(values, scope))
   }
   void now
   return values
@@ -155,19 +191,35 @@ async function fingerprintOf(
   }
 }
 
-export async function upsertDocumentAnnotation(
+export async function createDocumentAnnotation(
   ref: DocumentAnnotationRef,
   annotation: Annotation,
   fingerprint?: { contentHash?: string; size?: number; mtime?: number }
 ): Promise<Annotation> {
   const relativePath = posix(ref.relativePath)
   assertUuid(annotation.id)
-  const normalized = normalizeAnnotation(annotation, 'document')
+  const now = Date.now()
+  const normalized = normalizeAnnotation(
+    {
+      ...annotation,
+      originalQuote: annotation.originalQuote || annotation.quote,
+      anchorState: annotation.anchorState ?? 'anchored',
+      anchorReason: undefined,
+      anchorRevision: annotation.anchorRevision ?? 1,
+      orphanedAt: undefined,
+      lastAnchoredAt: annotation.lastAnchoredAt ?? now
+    },
+    'document',
+    now
+  )
   const key = `document\n${rootKey(ref.workspaceRoot)}\n${relativePath}`
   return serial(key, async () => {
     const filePath = documentFile(ref.workspaceRoot, relativePath)
     const current = await readJson<DocumentAnnotationFile>(filePath)
-    const now = Date.now()
+    if (current?.annotations.some(item => item.id === normalized.id)) {
+      throw new Error('标注已存在，请刷新后重试')
+    }
+    const writeTime = Date.now()
     // 调用方没给指纹时按磁盘现状补一次，保证外部改名后仍能按内容哈希找回。
     const nextFingerprint = fingerprint ?? (await fingerprintOf(ref.workspaceRoot, relativePath))
     const next: DocumentAnnotationFile = {
@@ -177,13 +229,113 @@ export async function upsertDocumentAnnotation(
         contentHash: nextFingerprint?.contentHash ?? current?.document.contentHash,
         size: nextFingerprint?.size ?? current?.document.size,
         mtime: nextFingerprint?.mtime ?? current?.document.mtime,
-        updatedAt: now
+        updatedAt: writeTime
       },
-      annotations: mergeAnnotations(current?.annotations ?? [], [normalized], now)
+      annotations: mergeAnnotations(current?.annotations ?? [], [normalized], writeTime)
     }
     await atomicWrite(filePath, next)
     return normalized
   })
+}
+
+/** 评论编辑只 patch comment，禁止整条覆盖锚点状态。 */
+export async function updateDocumentAnnotationComment(
+  ref: DocumentAnnotationRef,
+  id: string,
+  comment: string,
+  baseUpdatedAt: number
+): Promise<Annotation> {
+  assertUuid(id)
+  const relativePath = posix(ref.relativePath)
+  const key = `document\n${rootKey(ref.workspaceRoot)}\n${relativePath}`
+  return serial(key, async () => {
+    const filePath = documentFile(ref.workspaceRoot, relativePath)
+    const current = await readJson<DocumentAnnotationFile>(filePath)
+    const item = current?.annotations.find(annotation => annotation.id === id)
+    if (!current || !item) throw new Error('标注不存在，请刷新后重试')
+    if (Number.isFinite(baseUpdatedAt) && item.updatedAt > baseUpdatedAt) {
+      throw new Error('STALE_ANNOTATION')
+    }
+    const now = Date.now()
+    const next: Annotation = {
+      ...item,
+      comment: String(comment || '').slice(0, ANNOTATION_MAX_TEXT),
+      updatedAt: now
+    }
+    await atomicWrite(filePath, {
+      ...current,
+      annotations: current.annotations.map(annotation => (annotation.id === id ? next : annotation))
+    })
+    return next
+  })
+}
+
+/** 用户显式重新选择范围后改写锚点；修订号不匹配时拒绝覆盖。 */
+export async function reanchorDocumentAnnotation(
+  ref: DocumentAnnotationRef,
+  id: string,
+  quote: string,
+  anchor: AnnotationAnchor,
+  baseAnchorRevision: number
+): Promise<Annotation> {
+  assertUuid(id)
+  const relativePath = posix(ref.relativePath)
+  const key = `document\n${rootKey(ref.workspaceRoot)}\n${relativePath}`
+  return serial(key, async () => {
+    const filePath = documentFile(ref.workspaceRoot, relativePath)
+    const current = await readJson<DocumentAnnotationFile>(filePath)
+    const item = current?.annotations.find(annotation => annotation.id === id)
+    if (!current || !item) throw new Error('标注不存在，请刷新后重试')
+    if (annotationRevision(item) !== Math.max(1, Math.floor(baseAnchorRevision))) {
+      throw new Error('STALE_ANNOTATION')
+    }
+    const now = Date.now()
+    const next = normalizeAnnotation(
+      {
+        ...item,
+        quote,
+        anchor,
+        originalQuote: item.originalQuote ?? item.quote,
+        anchorState: 'anchored',
+        anchorReason: undefined,
+        anchorRevision: annotationRevision(item) + 1,
+        orphanedAt: undefined,
+        lastAnchoredAt: now,
+        updatedAt: now
+      },
+      'document',
+      now
+    )
+    await atomicWrite(filePath, {
+      ...current,
+      annotations: current.annotations.map(annotation => (annotation.id === id ? next : annotation))
+    })
+    return next
+  })
+}
+
+/**
+ * 兼容旧调用：新记录按创建处理；已有记录只更新评论。
+ * 锚点变化必须走 reconcile 或 reanchor，防止旧窗口整条覆盖新状态。
+ */
+export async function upsertDocumentAnnotation(
+  ref: DocumentAnnotationRef,
+  annotation: Annotation,
+  fingerprint?: { contentHash?: string; size?: number; mtime?: number }
+): Promise<Annotation> {
+  const relativePath = posix(ref.relativePath)
+  const key = `document\n${rootKey(ref.workspaceRoot)}\n${relativePath}`
+  const exists = await serial(key, async () => {
+    const current = await readJson<DocumentAnnotationFile>(documentFile(ref.workspaceRoot, relativePath))
+    return current?.annotations.some(item => item.id === annotation.id) ?? false
+  })
+  if (!exists) return createDocumentAnnotation(ref, annotation, fingerprint)
+  return updateDocumentAnnotationComment(
+    ref,
+    annotation.id,
+    annotation.comment,
+    annotation.updatedAt
+  )
 }
 
 export async function deleteDocumentAnnotation(ref: DocumentAnnotationRef, id: string): Promise<void> {
@@ -361,38 +513,117 @@ export async function findDocumentAnnotationFile(
   return next
 }
 
-/** 重新对账：只更新 document 标注的 quote/anchor，不碰 source。 */
+/** 重新对账：更新 document 标注的解析状态与锚点，不碰 source。 */
 export async function reconcileDocumentAnnotations(
   ref: DocumentAnnotationRef,
-  anchors: Array<Pick<Annotation, 'id' | 'quote' | 'anchor'>>
-): Promise<{ updated: number }> {
+  resolutions: DocumentResolution[]
+): Promise<DocumentReconcileResult> {
   const relativePath = posix(ref.relativePath)
   const key = `document\n${rootKey(ref.workspaceRoot)}\n${relativePath}`
   return serial(key, async () => {
     const filePath = documentFile(ref.workspaceRoot, relativePath)
     const current = await readJson<DocumentAnnotationFile>(filePath)
-    if (!current) return { updated: 0 }
-    const incoming = new Map(anchors.map(item => [item.id, item]))
-    let updated = 0
+    if (!current) {
+      return { applied: [], stale: resolutions.map(item => item.id), skipped: [], annotations: [] }
+    }
+    const incoming = new Map(resolutions.map(item => [item.id, item]))
+    const applied: string[] = []
+    const stale: string[] = []
+    const skipped: string[] = []
     const now = Date.now()
     const annotations = current.annotations.map(item => {
       if (item.scope !== 'document') return item
-      const next = incoming.get(item.id)
-      if (!next) return item
-      updated += 1
+      const resolution = incoming.get(item.id)
+      if (!resolution) return item
+      const currentRevision = annotationRevision(item)
+      if (
+        !Number.isFinite(resolution.baseAnchorRevision) ||
+        Math.max(1, Math.floor(resolution.baseAnchorRevision)) !== currentRevision
+      ) {
+        stale.push(item.id)
+        return item
+      }
+      if (
+        resolution.state === 'shifted' &&
+        (!resolution.quote || !resolution.anchor)
+      ) {
+        stale.push(item.id)
+        return item
+      }
+
+      const state = resolution.state
+      const nextQuote =
+        state === 'anchored' || state === 'shifted'
+          ? String(resolution.quote ?? item.quote).slice(0, ANNOTATION_MAX_TEXT)
+          : item.quote
+      const normalized = normalizeAnnotation(
+        {
+          ...item,
+          quote: nextQuote,
+          anchor: resolution.anchor ?? item.anchor
+        },
+        'document',
+        now
+      )
+      const nextAnchor = normalized.anchor
+      const anchorChanged = canonicalAnchor(nextAnchor) !== canonicalAnchor(item.anchor)
+      const quoteChanged = nextQuote !== item.quote
+      const stateChanged = item.anchorState !== state
+      const nextReason =
+        state === 'ambiguous' || state === 'unlocated' ? resolution.reason : undefined
+      const reasonChanged = item.anchorReason !== nextReason
+      const wasResolved = item.anchorState === 'anchored' || item.anchorState === 'shifted'
+      const nextResolved = state === 'anchored' || state === 'shifted'
+      const orphanedAt =
+        state === 'unlocated' ? item.orphanedAt ?? now : undefined
+      const orphanedChanged = item.orphanedAt !== orphanedAt
+      let lastAnchoredAt = item.lastAnchoredAt
+      if (nextResolved && (anchorChanged || !wasResolved || stateChanged)) {
+        lastAnchoredAt = now
+      }
+      const lastAnchoredChanged = item.lastAnchoredAt !== lastAnchoredAt
+      const changed =
+        stateChanged ||
+        reasonChanged ||
+        anchorChanged ||
+        quoteChanged ||
+        orphanedChanged ||
+        lastAnchoredChanged
+
+      if (!changed) {
+        skipped.push(item.id)
+        return item
+      }
+      applied.push(item.id)
       return {
         ...item,
-        quote: String(next.quote || item.quote).slice(0, 20_000),
-        anchor: normalizeAnnotation({ ...item, quote: next.quote, anchor: next.anchor }, 'document', now).anchor,
+        quote: nextQuote,
+        anchor: nextAnchor,
+        anchorState: state,
+        anchorReason: nextReason,
+        anchorRevision: currentRevision + 1,
+        orphanedAt,
+        lastAnchoredAt,
         updatedAt: now
       }
     })
-    await atomicWrite(filePath, {
-      ...current,
-      document: { ...current.document, updatedAt: now },
-      annotations
-    })
-    return { updated }
+    if (applied.length) {
+      try {
+        await atomicWrite(filePath, {
+          ...current,
+          document: { ...current.document, updatedAt: now },
+          annotations
+        })
+      } catch (error) {
+        if (error instanceof AnnotationLimitError) {
+          throw new AnnotationLimitError(
+            `${error.message}；当前 ${annotations.length} 条，其中 ${unresolvedCount(annotations)} 条未解决，请清理后重试`
+          )
+        }
+        throw error
+      }
+    }
+    return { applied, stale, skipped, annotations }
   })
 }
 
@@ -425,22 +656,69 @@ export async function upsertSourceAnnotation(
   return serial(key, async () => {
     const filePath = sourceFile(defaultWorkspaceRoot, sourceKey)
     const current = await readJson<SourceAnnotationFile>(filePath)
-    // 同一 annotationId 不允许跨会话复用：重试必须落在同一个 sourceKey 上。
-    if (!current?.annotations.some(item => item.id === annotation.id)) {
-      const owner = await findSourceKeyForAnnotationId(defaultWorkspaceRoot, annotation.id, sourceKey)
-      if (owner) throw new Error('该标注 ID 已属于另一个会话')
+    if (current) {
+      const existing = current.annotations.find(item => item.id === annotation.id)
+      if (existing) {
+        const now = Date.now()
+        const patched: Annotation = {
+          ...existing,
+          comment: normalized.comment,
+          updatedAt: now
+        }
+        await atomicWrite(filePath, {
+          ...current,
+          source,
+          annotations: current.annotations.map(item => (item.id === patched.id ? patched : item))
+        })
+        return patched
+      }
     }
+    // 同一 annotationId 不允许跨会话复用：重试必须落在同一个 sourceKey 上。
+    const owner = await findSourceKeyForAnnotationId(defaultWorkspaceRoot, annotation.id, sourceKey)
+    if (owner) throw new Error('该标注 ID 已属于另一个会话')
     const now = Date.now()
     const next: SourceAnnotationFile = {
       version: 1,
       source: source,
-      annotations: mergeAnnotations(current?.annotations ?? [], [normalized], now)
+      annotations: mergeAnnotations(current?.annotations ?? [], [normalized], now, 'source')
     }
     await atomicWrite(filePath, next)
     if (typeof snapshot === 'string' && snapshot.trim()) {
       await writeFile(sourceSnapshotFile(defaultWorkspaceRoot, sourceKey), snapshot, 'utf8').catch(() => undefined)
     }
     return normalized
+  })
+}
+
+/** 原文评论只 patch comment；原文锚点由原文页面维护，不跟随文档编辑。 */
+export async function updateSourceAnnotationComment(
+  defaultWorkspaceRoot: string,
+  sourceKey: string,
+  id: string,
+  comment: string,
+  baseUpdatedAt: number
+): Promise<Annotation> {
+  assertSourceKey(sourceKey)
+  assertUuid(id)
+  const key = `source\n${rootKey(defaultWorkspaceRoot)}\n${sourceKey}`
+  return serial(key, async () => {
+    const filePath = sourceFile(defaultWorkspaceRoot, sourceKey)
+    const current = await readJson<SourceAnnotationFile>(filePath)
+    const item = current?.annotations.find(annotation => annotation.id === id)
+    if (!current || !item) throw new Error('原文标注不存在，请刷新后重试')
+    if (Number.isFinite(baseUpdatedAt) && item.updatedAt > baseUpdatedAt) {
+      throw new Error('STALE_ANNOTATION')
+    }
+    const next: Annotation = {
+      ...item,
+      comment: String(comment || '').slice(0, ANNOTATION_MAX_TEXT),
+      updatedAt: Date.now()
+    }
+    await atomicWrite(filePath, {
+      ...current,
+      annotations: current.annotations.map(annotation => (annotation.id === id ? next : annotation))
+    })
+    return next
   })
 }
 

@@ -59,7 +59,7 @@
 
 **[workbench-annotation-anchor-lifecycle-design.md](workbench-annotation-anchor-lifecycle-design.md)** - 注释锚点生命周期与未定位清理设计
 - 正文局部修改、完全删除、移动、重复文本和跨 block 时的锚点状态
-- 未定位标注持久化、旁注栏入口、重新定位与按 scope 分区清理
+- 未解决标注（未定位/歧义/重叠）持久化、旁注栏入口、重新定位与按 scope 分区清理
 - MarkNode 当前范围优先、对账修订保护、写放大控制和 HTML 预览接入
 - 不按时间自动删除注释，只提供显式清理；后续归档与保留期单独立项
 

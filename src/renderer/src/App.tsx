@@ -112,21 +112,37 @@ function MainApp(): JSX.Element {
     }
     window.api.notifyQuitGuardReady()
     return window.api.onAppQuitRequested(async () => {
-      const { htmlVisualEditing, htmlEditLeaveGuard } = useWorkbenchStore.getState()
+      const { htmlVisualEditing, htmlEditLeaveGuard, flushDocumentAnnotations } =
+        useWorkbenchStore.getState()
       if (!htmlVisualEditing) {
-        window.api.respondAppQuit(true)
+        const annotationFlush = await flushDocumentAnnotations()
+        window.api.respondAppQuit(annotationFlush.saved)
         return
       }
       if (!htmlEditLeaveGuard) {
-        window.api.respondAppQuit(false)
+        const annotationFlush = await flushDocumentAnnotations()
+        window.api.respondAppQuit(annotationFlush.saved)
         return
       }
       try {
         const decision = await htmlEditLeaveGuard()
-        window.api.respondAppQuit(decision !== 'cancelled')
+        if (decision === 'cancelled') {
+          window.api.respondAppQuit(false)
+          return
+        }
+        const annotationFlush = await flushDocumentAnnotations()
+        window.api.respondAppQuit(annotationFlush.saved)
       } catch {
         window.api.respondAppQuit(false)
       }
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!window.api.onWindowCloseRequested || !window.api.respondWindowClose) return
+    return window.api.onWindowCloseRequested(async () => {
+      const annotationFlush = await useWorkbenchStore.getState().flushDocumentAnnotations()
+      window.api.respondWindowClose(annotationFlush.saved)
     })
   }, [])
 

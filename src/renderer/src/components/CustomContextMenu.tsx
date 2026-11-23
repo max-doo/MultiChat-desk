@@ -36,6 +36,43 @@ function isEditableEl(el: HTMLElement | null): boolean {
 const isMac = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform)
 const cmdOrCtrl = isMac ? '⌘' : 'Ctrl+'
 
+/**
+ * 右键"复制图片"的通用实现：
+ * - ClipboardItem 只可靠支持 PNG/JPEG，BMP/WebP 等先经 canvas 转成 PNG 再写。
+ * - workbench-file:// 与 blob: 对主进程不可见，必须在渲染层完成复制。
+ */
+async function copyImageElementToClipboard(img: HTMLImageElement): Promise<void> {
+  const blob = await fetch(img.src).then((res) => {
+    if (!res.ok) throw new Error(`下载失败: ${res.status}`)
+    return res.blob()
+  })
+
+  const writePngBlob = async (png: Blob): Promise<void> => {
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })])
+  }
+
+  if (blob.type === 'image/png' || blob.type === 'image/jpeg') {
+    await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })])
+    return
+  }
+
+  // 非 PNG/JPEG（如 docx 内嵌 BMP）：canvas 转 PNG 再写剪贴板
+  const bitmap = await createImageBitmap(blob)
+  try {
+    const canvas = document.createElement('canvas')
+    canvas.width = bitmap.width
+    canvas.height = bitmap.height
+    const ctx = canvas.getContext('2d')
+    if (!ctx) throw new Error('无法创建 canvas 上下文')
+    ctx.drawImage(bitmap, 0, 0)
+    const png = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'))
+    if (!png) throw new Error('图片转码失败')
+    await writePngBlob(png)
+  } finally {
+    bitmap.close()
+  }
+}
+
 function appendWorkbenchAiItems(
   items: ExtendedContextMenuEntry[],
   selectedText: string
@@ -107,10 +144,11 @@ export default function CustomContextMenu(): JSX.Element | null {
     const removeListener = window.api.workbench.onHtmlContextMenu(
       (data: WorkbenchHtmlContextMenuData) => {
         const selectedText = data.selectedText.trim()
-        if (!selectedText) return
+        const image = data.image
+        if (!selectedText && !image) return
 
         const items: ExtendedContextMenuEntry[] = []
-        if (!useWorkbenchStore.getState().htmlVisualEditing) {
+        if (selectedText && !useWorkbenchStore.getState().htmlVisualEditing) {
           items.push({
             key: 'annotate',
             label: '标注',
@@ -122,17 +160,39 @@ export default function CustomContextMenu(): JSX.Element | null {
           })
           items.push({ type: 'separator' })
         }
-        appendWorkbenchAiItems(items, selectedText)
-        items.push({ type: 'separator' })
-        items.push({
-          key: 'copy',
-          label: '复制',
-          icon: 'content_copy',
-          shortcut: `${cmdOrCtrl}C`,
-          action: async () => {
-            await navigator.clipboard.writeText(selectedText)
-          }
-        })
+        if (selectedText) {
+          appendWorkbenchAiItems(items, selectedText)
+          items.push({ type: 'separator' })
+          items.push({
+            key: 'copy',
+            label: '复制',
+            icon: 'content_copy',
+            shortcut: `${cmdOrCtrl}C`,
+            action: async () => {
+              await navigator.clipboard.writeText(selectedText)
+            }
+          })
+        }
+        if (image?.srcURL) {
+          if (items.length) items.push({ type: 'separator' })
+          items.push({
+            key: 'copy_image',
+            label: '复制图片',
+            icon: 'image',
+            action: async () => {
+              await window.api?.workbench?.copyHtmlImageAt?.(image.x, image.y)
+            }
+          })
+          items.push({
+            key: 'save_image',
+            label: '图片另存为...',
+            icon: 'download',
+            action: () => {
+              void window.api?.saveImageFromURL?.(image.srcURL)
+            }
+          })
+        }
+        if (!items.length) return
         setMenuState({
           visible: true,
           x: data.x,
@@ -263,6 +323,26 @@ export default function CustomContextMenu(): JSX.Element | null {
 
       if (imgEl?.src) {
         if (items.length > 0) items.push({ type: 'separator' })
+        items.push({
+          key: 'copy_image',
+          label: '复制图片',
+          icon: 'image',
+          action: async () => {
+            try {
+              if (imgEl.src.startsWith('workbench-file://') && imgEl.naturalWidth > 0) {
+                // 走主进程 copyImageAt，保留原图编码
+                const rect = imgEl.getBoundingClientRect()
+                const x = rect.left + rect.width / 2
+                const y = rect.top + rect.height / 2
+                const result = await window.api?.workbench?.copyHtmlImageAt?.(x, y)
+                if (result?.success) return
+              }
+              await copyImageElementToClipboard(imgEl)
+            } catch (err) {
+              console.error('[ContextMenu] 复制图片失败:', err)
+            }
+          }
+        })
         items.push({
           key: 'save_image',
           label: '图片另存为...',

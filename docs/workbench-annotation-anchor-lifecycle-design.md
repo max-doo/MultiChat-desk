@@ -71,7 +71,7 @@ W3C 推荐使用文本引文选择器，并明确位置选择器在文档变化�
 
 ```ts
 type AnnotationAnchorState = 'anchored' | 'shifted' | 'ambiguous' | 'unlocated'
-type AnnotationAnchorReason = 'not-found' | 'cross-block' | 'unsupported'
+type AnnotationAnchorReason = 'not-found' | 'cross-block' | 'unsupported' | 'overlap'
 
 interface Annotation {
   id: string
@@ -96,7 +96,7 @@ interface Annotation {
   /** 首次进入未定位的时间；恢复为 anchored/shifted 时清除。 */
   orphanedAt?: number
 
-  /** 最后一次成功定位或模糊重定位的时间。 */
+  /** 最后一次新建/恢复锚点或真正改写锚点的时间；重复同状态解析不刷新。 */
   lastAnchoredAt?: number
 }
 ```
@@ -108,6 +108,8 @@ interface Annotation {
 - `anchorRevision` 旧记录缺失时按 `1` 处理；新记录初始化为 `1`。
 - `lastAnchoredAt` 只在 `anchored/shifted` 时更新；`ambiguous/unlocated` 不更新。
 - `orphanedAt` 只在 `unlocated` 时设置；离开 `unlocated` 时清除。
+- 评论正文编辑只更新 `comment/updatedAt`，不递增 `anchorRevision`；用户重新定位导致 `quote/anchor` 变化时递增。
+- 旧记录缺少 `anchorState` 时视为“尚未解析”，首次打开并完成解析后才进入正常或未解决分组；升级时不能把所有旧记录批量标成 `unlocated`。
 - `source` 标注不写 `anchorState/anchorRevision/orphanedAt/lastAnchoredAt`。它在文档中的投影是否定位成功，属于当前渲染状态，不应污染原文标注记录。
 - 不保存 `originalAnchor`。当前锚点已经是最后一次成功位置，原始引文用于展示；需要恢复旧位置时由用户重新选择文本，不做隐式回退。
 
@@ -135,6 +137,7 @@ shifted / ambiguous / unlocated
 - 所有新增字段可选，旧 JSON 可以继续读取。
 - `normalizeAnnotation` 需要保留并校验新增字段；旧记录读入后补默认值，不要求一次性升级磁盘文件。
 - 旧记录没有 `originalQuote` 时，UI 回退显示当前 `quote`；不强制回写磁盘。
+- 旧记录没有 `anchorState` 时保持 `undefined`，由首次解析结果决定；不能在读盘阶段假定为 `anchored` 或 `unlocated`。
 - `originalQuote` 也计入文本长度限制，避免绕过 20KB 的字段上限。
 
 ## 6. 锚点解析算法
@@ -152,25 +155,35 @@ shifted / ambiguous / unlocated
 
 `buildAnchorAt` 继续作为纯函数使用，但调用方传入全文和选区映射，不再传单个 block 的局部文本。
 
+`anchor.exact`、`occurrence` 和 `offsetHint` 统一使用压缩可见文本的坐标系；`quote` 仍保留原始文本用于展示。压缩只忽略空白和零宽字符，不改变正文内容。这样引文含空格、换行或零宽字符时，创建和解析不会使用两套序号。
+
+`buildAnchorAt` 内部先构建压缩文本和压缩偏移表，再计算 `exact/occurrence/offsetHint`；创建时不要把原始 `quote` 直接写成 `anchor.exact`。旧记录如果 `anchor.exact` 含空白，解析时先压缩再匹配，不强制回写磁盘。
+
 ### 6.2 优先级一：MarkNode 当前范围
 
 应用标注前先收集当前 MarkNode 的文本范围，不要先全部 `unwrapAllMarks()`：
 
 1. 按 block 遍历 TextNode，记录每个 MarkNode id 在 block 内的起止位置。
-2. 同一 id 的多个 MarkNode 片段合并为一个 range。
-3. 如果该 range 仍在单个 block 内且文本非空：
+2. 同一 block 内只合并首尾相接的连续片段；片段之间只要有未标注文字，就视为分离副本，不能从第一段跨到第二段。
+3. 同一 id 出现在多个 block 时，先按 block 分组，再判断每一组是否能独立还原完整标注：
+   - 阶段 A 先按“某一组文本与当前 `quote` 精确相同”判断完整副本；阶段 B 才允许用相似度门槛判断。完整副本按文档顺序保留第一组，其余组剥离。
+   - 没有任何一组能独立还原完整标注，且各组文本合起来才接近当前 `quote`：这是段落拆分产生的跨 block 标注，不跨 gap 合并，状态记为 `unlocated`、`anchorReason: 'cross-block'`，同时解包所有 MarkNode，避免只显示半截。
+   - 一组完整、另一组只有残缺片段：保留完整组，剥离残缺组，避免把副本残留当成第二段锚点。
+4. 如果保留下来的 range 仍在单个 block 内且文本非空：
    - 直接用当前 range 生成新的 `quote/anchor`；
    - 状态为 `anchored`；
    - 这是用户直接编辑高亮文字后的最可靠信息来源。
-4. 如果 MarkNode 已被完全删除或跨 block，进入后续精确/模糊解析。
+5. 如果 MarkNode 已被完全删除，进入后续精确/模糊解析；已经判定为段落拆分导致的跨 block，不再用全文搜索伪造单 block 锚点，直接保持 `cross-block`。
 
 这一条优先于全文搜索。用户在高亮内部插入、删除或替换文字时，Lexical 仍保留 MarkNode 的情况很常见，不需要依赖相似度算法猜位置。
 
 投影流程固定为：收集旧 MarkNode range → 计算解析结果 → `unwrapAllMarks()` → 按结果重新包 MarkNode。不能先全部解包再反查旧位置。
 
+在标注末尾按回车、复制粘贴标注文字或跨 block 复制，都会产生分离的同 id 片段。分离片段只能剥离副本，不能扩大原标注范围；否则会把中间未标注文字写进 `quote/anchor`，造成锚点数据损坏。段落拆分与复制副本用“单个 block 能否独立还原完整 quote”区分，不能只按“跨 block”一刀切。
+
 ### 6.3 优先级二：精确匹配
 
-1. 在压缩文本中查找 `anchor.exact` 的全部出现位置。
+1. 在压缩文本中查找压缩后的 `anchor.exact` 全部出现位置。
 2. 用 `prefix/suffix` 的匹配长度打分，用 `occurrence` 和 `offsetHint` 做次级排序。
 3. 只有一个明显最优候选时，返回 `anchored`。
 4. 多个候选分数相同或差距过小，返回 `ambiguous`，不强行选第一个。
@@ -223,6 +236,8 @@ shifted / ambiguous / unlocated
 
 跨段落的 RangeSelector 支持是独立能力，不纳入本期。
 
+如果锚点能定位，但目标范围已被另一条 document 标注或 source 投影占用，后处理的一条不能静默跳过：标记为 `unlocated`，`anchorReason: 'overlap'`，卡片保留在“未解决”分组，文案说明“与另一条注释重叠，暂不在正文显示”。这保证主设计“重叠时跳过投影但侧栏保留两条”有明确的状态出口。
+
 ### 6.6 更新规则
 
 - `anchored`：更新 `quote/anchor`、`lastAnchoredAt`，清除 `orphanedAt`。
@@ -271,20 +286,65 @@ annotations.reconcileDocument(
 - `shifted` 必须带 `quote/anchor`；缺失时返回 `stale` 或忽略该条，不写半套状态。
 - `ambiguous/unlocated` 可以不带 `quote/anchor`。
 - 只有 `quote/anchor/state/reason/orphanedAt/lastAnchoredAt` 真正变化时才写盘；无变化记录进入 `skipped`。
+- 同状态、同 `quote/anchor` 的重复 resolution 必须视为 no-op；`lastAnchoredAt` 只在从非 anchored 恢复、重新锚定或 `quote/anchor` 真正变化时更新，不能仅因“又解析了一次”就刷新。
 - 一次对账只做一次原子写；只有在 `applied.length > 0` 时广播 `annotations:changed`，避免广播循环。
 - 实际写入时递增 `anchorRevision`，并更新 `updatedAt`；状态变化也递增，避免旧状态覆盖新状态。
 
 同时更新 `src/preload/index.ts` 的 `API` 类型、`src/preload/index.d.ts` 和 `src/renderer/src/env.d.ts`，保持 IPC 契约端到端一致。
+
+### 7.1.1 新增、评论编辑和重新定位必须分开
+
+现有 `upsertDocument` 按 `updatedAt` 整条替换记录，评论保存会把旧窗口里的 `anchorState/anchorRevision/orphanedAt` 一起写回，绕过 `baseAnchorRevision`。因此拆成三个语义：
+
+```ts
+annotations.createDocument({ workspaceRoot, relativePath, annotation })
+annotations.updateDocumentComment({ workspaceRoot, relativePath, id, comment, baseUpdatedAt })
+annotations.reanchorDocument({ workspaceRoot, relativePath, id, quote, anchor, baseAnchorRevision })
+```
+
+- `createDocument` 只用于新建；同一 id 已存在时返回冲突，不覆盖。
+- `updateDocumentComment` 只 patch `comment/updatedAt`，不得写 `quote/anchor/anchorState/anchorRevision/orphanedAt/lastAnchoredAt`。
+- `reanchorDocument` 必须校验 `baseAnchorRevision`；只有匹配时才更新 `quote/anchor`、状态和修订号。
+- `upsertDocument` 仅保留给迁移、导入和兼容旧调用；对已存在记录必须走上面两个 patch，不能整条覆盖锚点字段。
+- `upsertSource` 的评论编辑同样只 patch comment，不允许借评论保存改写 source anchor。
+
+评论编辑使用 `baseUpdatedAt` 做轻量冲突检查；如果记录已被其他窗口更新，返回 `stale`，由 UI 重新读取后再保存。
 
 ### 7.2 对账时机
 
 - 创建、编辑、删除注释后。
 - 编辑器失焦。
 - 编辑停止 600ms 后（用于删除、撤销、重做后尽快更新未定位列表）。
-- 切换文档、关闭工作台、保存正文前。
+- 切换文档、关闭工作区、托盘退出、保存正文前。
 - 手动点击“刷新标注”。
 
-编辑停止后的解析只更新本地状态和未定位列表；真正写盘仍走失焦、保存或显式刷新，避免每次击键都写 JSON。
+编辑停止后的解析会更新本地解析状态，并把新的 `quote/anchor` 回灌到本地标注列表，让正文投影按当前结果重绘（撤销恢复文字但未恢复 MarkNode 时，高亮需要靠这一步重现）。回灌只改本地状态，不写盘；真正写盘仍走失焦、保存或显式刷新，避免每次击键都写 JSON。source 标注只更新投影状态，不回灌锚点。
+
+所有仅用于标注投影的 `editor.update` 必须同时带 `annotation-sync`、`HISTORIC_TAG` 和 `SKIP_SELECTION_FOCUS_TAG`。`HistoryPlugin` 只跳过 `HISTORIC_TAG`，缺少它会把 600ms 重新投影写进撤销栈，用户按一次 Ctrl+Z 可能先撤销投影而不是撤销正文删除。
+
+`WorkbenchAnnotationPlugin` 在挂载时把 flusher 注册到 `workbenchStore`，由 store 暴露可等待的 `flushDocumentAnnotations(): Promise<{ saved: boolean; error?: string }>`：
+
+1. 在当前 Lexical 状态上完成一次解析。
+2. 如正文 dirty，先 `await saveActiveFile()`。
+3. 再用当前 `baseAnchorRevision` 提交 `reconcileDocument`。
+4. 返回 `saved: false` 时阻止切换/退出，或提示用户保存失败。
+
+调用点：
+
+- `openFile` 切换文件前；
+- 关闭工作区前；
+- 托盘退出和真正退出应用的 quit guard 中；
+- 主窗口关闭到托盘前；
+- 切换产品模式或离开工作台前。
+
+主窗口关闭到托盘不会触发 `app:quit-requested`；当前主进程会直接 `preventDefault()` 后隐藏窗口。需要新增一条关闭握手：
+
+1. 主进程 `close` 事件先 `preventDefault()`，向渲染层发送 `app:window-close-requested`。
+2. 渲染层处理函数 `await flushDocumentAnnotations()`，保存成功后再回复允许隐藏；失败则保持窗口可见并提示原因。
+3. 主进程收到允许后才隐藏窗口；5 秒内没有回复时保持窗口打开并记录错误，不能静默丢弃最后一次对账。
+4. 真正退出应用时，quit guard 同时等待正文保存、标注 flush 和现有 HTML 编辑守卫。
+
+这条握手需要同时修改 `src/main/webviewManager.ts`、`src/preload/index.ts` 和 `src/renderer/src/App.tsx`。不能把 `beforeunload` 里的异步 IPC 当作唯一保证。
 
 ### 7.3 并发与失败
 
@@ -311,42 +371,47 @@ resolutionById: Record<string, AnnotationResolution>
 - `document` 标注使用主进程持久化状态。
 - `source` 标注使用本次渲染的临时状态；不写回 `sources` JSON。
 - 原有 `unlocatedIds` 可以保留为派生视图，但 UI 不应只依赖 id 集合来判断原因。
+- `ambiguous` 和 `unlocated` 都属于“未解决”状态，必须进入可见分组；不能只把 `unlocatedIds` 当作唯一过滤依据。
+- `removeLocal` 和重新加载文档时同步清理 `resolutionById`，避免已删除标注继续出现在未定位统计中。
 
 ### 8.2 旁注栏
 
 `WorkbenchMarginNotes` 分成三组：
 
-- 正常文档注释：按正文 MarkNode 位置排序和定位。
-- 未定位文档注释：单独放在“未定位 N 条”折叠区，不参与正文位置计算。
-- 未定位原文投影：单独展示，文案明确“文档投影未找到，原文高亮仍有效”。
+- 正常注释：已定位的 document 标注 + 已定位的 source 投影；按正文 MarkNode 位置排序和定位。
+- 未解决文档注释：`ambiguous/unlocated` 的 document 标注，放在“未解决 N 条”折叠区，不参与正文位置计算。
+- 未解决原文投影：找不到或存在歧义的 source 投影，单独展示，文案明确“文档投影未找到，原文高亮仍有效”。
 
-未定位卡片展示：
+未解决卡片展示：
 
 - 原始引文 `originalQuote`，使用较弱颜色或删除线；
 - 评论正文；
-- 状态说明：`原文未找到`、`跨段落暂不支持`、`存在多处相似文字`；
-- 操作：`重新定位`、`删除`。
+- 状态说明：`原文未找到`、`跨段落暂不支持`、`存在多处相似文字`、`与另一条注释重叠`；
+- document 标注操作：`重新定位`、`删除`；
+- source 投影操作：`打开原文`、`刷新投影`、`删除原文标注`。
 
-标题数量示例：`注释 5 · 未定位 2`。未定位区不能因为没有正文 MarkNode 就隐藏。
+source 的锚点在原文页面，不能用文档选区直接重定位。它的“删除原文标注”必须单独调用 `deleteSource`，即使是单条卡片也要二次确认“会删除所有工作区里的原文高亮”。
 
-### 8.3 重新定位
+标题数量示例：`注释 5 · 未解决 2`。分组过滤和计数使用 `resolutionById.state`，不能只看 `unlocatedIds`。未解决区不能因为没有正文 MarkNode 就隐藏。
 
-1. 用户点击未定位卡片的“重新定位”。
+### 8.3 document 重新定位
+
+1. 用户点击 document 未解决卡片的“重新定位”。
 2. 编辑器进入一次性选区状态，用户选择单个 block 内的文本。
-3. 用当前选区生成新的 `quote/anchor`，调用 `upsertDocument`。
+3. 用当前选区生成新的 `quote/anchor`，调用 `reanchorDocument` 并带上原 `baseAnchorRevision`。
 4. 状态改为 `anchored`，清除 `orphanedAt`，正文重新绘制 MarkNode。
 
 跨 block、空选区或重叠选区时只提示，不写状态。
 
 ### 8.4 歧义状态
 
-本期不自动选择候选。卡片显示“找到多处相似文字，请重新选择”，操作与未定位一致。后续如果需要，再增加候选列表和逐项跳转，不把候选选择塞进 v1。
+本期不自动选择候选。`ambiguous` 与 `unlocated` 一样进入“未解决”分组，计入数量。卡片显示“找到多处相似文字，请重新选择”，操作与未定位一致。后续如果需要，再增加候选列表和逐项跳转，不把候选选择塞进 v1。
 
 ### 8.5 批量清理
 
-未定位区提供“清理未定位”入口，但必须按 scope 分开：
+未解决区提供“清理未解决”入口，但必须按 scope 分开：
 
-- 默认只勾选当前文档的 `document` 未定位注释；
+- 默认只勾选当前文档的 `document` 未解决注释，包含 `unlocated` 和 `ambiguous`；
 - `source` 投影不默认勾选，不能调用 `deleteDocument`；
 - source 删除必须走独立的 `deleteSource`，并提示“会删除所有工作区里的原文高亮”；
 - 展示条数和原引文摘要；
@@ -365,21 +430,25 @@ resolutionById: Record<string, AnnotationResolution>
 
 阶段 A 的 HTML 行为：
 
-1. 收到 `resolved` 后更新本地 `unlocatedIds` 和 `resolutionById`。
-2. 对未定位 id 调用 `reconcileDocument` 写回 `unlocated` 状态；对其余标注写回 `anchored` 状态，并沿用当前 `quote/anchor`。
-3. 在预览区显示 `未定位 N 条` 入口，不能只让高亮消失。
-4. 入口打开后展示未定位标注的引文、评论和删除操作。
-5. 用户删除后调用现有 `deleteDocument`，并同步 iframe 的标注集合。
-6. HTML 可视化编辑保存后，预览重新加载并重新发送标注；未定位数量随新正文重新计算。
+1. 收到 `resolved` 后更新本地 `unlocatedIds` 和 `resolutionById`，并计算一个解析指纹：`id + state + quote + anchor`。
+2. 只对指纹发生变化的标注调用 `reconcileDocument`；未定位 id 写 `unlocated`，其余写 `anchored` 并沿用当前 `quote/anchor`。指纹完全相同则不写盘、不广播。
+3. 收到自己触发的 `annotations:changed` 后重新读取可以，但重新 `sync` 得到相同指纹时不能再次提交对账，避免 `resolved -> write -> broadcast -> reload -> resolved` 循环。
+4. 在预览区显示 `未定位 N 条` 入口，不能只让高亮消失。
+5. 入口打开后展示未定位标注的引文、评论和删除操作。
+6. 用户删除后调用现有 `deleteDocument`，并同步 iframe 的标注集合。
+7. HTML 可视化编辑保存后，预览重新加载并重新发送标注；未定位数量随新正文重新计算。
 
 HTML 的锚点仍以文本引文为主，不使用 CSS 选择器或 XPath 作为唯一绑定依据。iframe 继续使用 `sandbox="allow-scripts"`，宿主与 iframe 只通过带来源标识的 `postMessage` 通信。
 
 HTML 重新定位：
 
-1. 宿主记录 `pendingRelocateId`。
+1. 用户明确点击某条未解决标注的“重新定位”后，宿主记录 `pendingRelocateId = { id, startedAt }`；普通新建标注不能设置它。
 2. 用户点击“重新定位”后在 iframe 内重新选中文字。
 3. `capture-result` 到达时，如果存在 `pendingRelocateId`，复用旧 id 更新原标注，而不是创建随机 UUID。
-4. 成功后状态改为 `anchored`；失败或取消时保留原未定位状态。
+4. 成功后保留原 `comment` 和 `originalQuote`，更新 `quote/anchor`，状态改为 `anchored`。
+5. 失败或取消时保留原未解决状态。
+6. 以下任一事件必须清空 `pendingRelocateId`：`capture-result`、`capture-error`、`dismiss`、10 秒超时、切换文件、预览重新加载、组件卸载、用户再次发起普通标注。
+7. `pendingRelocateId` 未清空时禁止把新的 `capture-result` 当作普通新建；如果旧 id 已不存在，提示“原注释已删除”并清除 pending，不创建新注释。
 
 HTML 阶段 A 只做精确匹配，不承诺与 Lexical 共用模糊算法。如果后续需要在 HTML 内支持局部修改后的模糊重定位，再单独评估运行时算法和双实现维护成本。
 
@@ -403,10 +472,10 @@ HTML 阶段 A 只做精确匹配，不承诺与 Lexical 共用模糊算法。如
 ### 10.2 上限与提示
 
 - 保留单篇 500 条、单文件 2MB 的硬上限。
-- 旁注栏按 `annotations.length` 展示总数；接近 500 条时提示清理未定位注释。
+- 旁注栏按当前文档的 `annotations.length` 展示总数；达到 400 条（500 的 80%）时提示清理未解决注释，source 不计入该文档计数。
 - 2MB 本身不在渲染层估算，写入失败时返回明确错误，提示清理或拆分。
-- 超限错误包含当前总数和未定位数量，例如：
-  `单篇文档最多 500 条标注；当前 500 条，其中 120 条未定位，请清理后重试`
+- 超限错误包含当前总数和未解决数量，例如：
+  `单篇文档最多 500 条标注；当前 500 条，其中 120 条未解决，请清理后重试`
 - 不对已达上限的文档自动删除最旧记录。
 
 ### 10.3 source 的容量边界
@@ -430,19 +499,23 @@ HTML 阶段 A 只做精确匹配，不承诺与 Lexical 共用模糊算法。如
 ### 阶段 A：未定位闭环
 
 1. **MarkNode 当前范围优先**
-   - 在 `WorkbenchAnnotationPlugin` 应用标注前收集 MarkNode range，优先使用当前范围。
+   - 在 `WorkbenchAnnotationPlugin` 应用标注前收集 MarkNode range，只合并连续片段，优先使用当前范围。
    - 对齐创建锚点时的全文坐标、`occurrence` 和 block 边界。
    - 增加编辑停止 600ms 后的本地重新解析，覆盖删除、撤销、重做。
+   - 所有投影更新附加 `HISTORIC_TAG`，避免进入撤销栈。
 2. **状态持久化**
    - 扩展 `src/shared/types/annotations.ts`、`normalizeAnnotation` 和 `reconcileDocumentAnnotations`。
    - 增加 `anchorRevision`、`baseAnchorRevision`、`applied/stale/skipped` 返回。
+   - 拆分 `createDocument/updateDocumentComment/reanchorDocument`，禁止评论保存整条覆盖锚点。
    - 更新 IPC 类型与 preload 契约。
 3. **未定位 UI**
    - `annotationStore` 增加 `resolutionById`。
-   - `WorkbenchMarginNotes` 增加 document 未定位分组、source 投影分组、重新定位和批量清理。
+   - `WorkbenchMarginNotes` 增加正常注释、未解决 document、未解决 source 三组，重新定位和批量清理。
 4. **HTML 未定位**
-   - 消费 `resolved`，写回状态，显示未定位入口；重新定位复用 `pendingRelocateId`。
-5. **验证**
+   - 消费 `resolved`，写回状态，显示未定位入口；重新定位复用 `pendingRelocateId` 并定义所有清理出口。
+5. **落盘时序**
+   - 增加 `flushDocumentAnnotations`，接入文件切换、关闭工作区、托盘退出和窗口关闭。
+6. **验证**
    - 覆盖第 13 节阶段 A 场景，执行类型检查、lint、build 和开发态手动验证。
 
 ### 阶段 B：有限模糊匹配
@@ -458,22 +531,35 @@ HTML 阶段 A 只做精确匹配，不承诺与 Lexical 共用模糊算法。如
 
 - 在高亮范围内编辑文字且 MarkNode 仍在：注释继续跟随当前范围，状态为 `anchored`。
 - 删除高亮内容的一半且 MarkNode 仍在：注释跟随剩余范围，不进入未定位。
+- 在标注末尾按回车产生两个分离的同 id MarkNode：只保留第一个片段，不把中间未标注文字并入 `quote/anchor`。
+- 复制粘贴标注文字产生同 id 副本：剥离副本，不扩大原标注范围；正文和评论保持一致。
+- 在高亮内部拆分段落：没有单个 block 能独立还原完整 quote 时标记 `cross-block`，不截取半段冒充锚点；跨 block 复制整条标注时，单个 block 能独立还原完整 quote，则保留第一份、剥离副本。
 - 完全删除高亮内容：进入未定位，旁注栏显示原始引文和评论，JSON 中仍有记录。
-- 撤销上述删除：MarkNode 恢复后注释重新定位，未定位数量归零。
+- 撤销上述删除：MarkNode 随正文一起恢复时直接重新定位；只恢复文字、未恢复 MarkNode 时，600ms 本地解析也要把注释重新投影并让未定位数量归零。
+- 删除高亮文字后按一次 Ctrl+Z：正文和标注一起恢复，不出现“先撤销标注投影”的额外撤销步。
 - 删除后 600ms 内未定位列表更新，无需等待失焦。
 - 把高亮文字移动到其他段落：精确匹配成功时跟随新位置；失败时保留记录。
 - 产生重复文本时：精确候选接近时显示歧义状态，不静默绑定错误位置。
 - 段落拆分或合并导致跨 block：保留记录并显示“跨段落暂不支持”，不截取部分文字冒充完整锚点。
 - 只修改加粗、链接或 Markdown 语法：注释位置不变。
 - 两个窗口同时失焦对账：较旧版本返回 `stale`，不覆盖新锚点；窗口重新读取后再解析。
+- 窗口 A 持有旧状态时保存评论：只 patch comment，不覆盖窗口 B 已写入的 `anchorState/anchorRevision/orphanedAt`。
 - 对账 IPC 失败：本地状态标记同步失败，不假装持久化；重新打开后以磁盘为准。
 - 在高亮文字所在的重复段落中创建第二条相同引文：使用全文 `occurrence/offsetHint` 区分，不绑定到第一条。
+- 引文含空白或零宽字符时：创建和解析使用同一套压缩坐标，重复文本序号一致。
+- 旧记录缺少 `anchorState`：升级后首次解析前不批量进入未解决分组；解析后再按结果分组。
 - 编辑后立即关闭再重开：正文保存完成后再对账；未保存时不写半套锚点。
+- 切换文件、关闭工作区、托盘退出：等待 `flushDocumentAnnotations` 完成；保存失败时阻止离开或明确提示。
+- 点击窗口关闭按钮隐藏到托盘：同样等待 flush；5 秒无响应时窗口保持可见，不静默丢最后一次对账。
 
 ### 13.2 source 与批量清理
 
 - `source` 标注的锚点不因文档编辑改变，原文页面高亮仍有效。
 - `source` 投影未定位时显示在独立分组，文案说明“原文高亮仍有效”。
+- 已定位的 source 投影出现在正常注释列表，与 document 标注使用同一套位置排序。
+- source 未解决卡片不提供文档“重新定位”；只能打开原文、刷新投影或确认后删除原文标注。
+- source 与 document 标注重叠时，后处理的一条进入“未解决/重叠”分组，侧栏仍保留两条卡片，原文高亮不受影响。
+- `ambiguous` document 标注进入“未解决”分组并计数，不因没有 MarkNode 而隐藏。
 - 批量清理默认只勾选 document 标注；source 不默认勾选，删除必须走 `deleteSource` 并二次确认。
 - 批量删除失败时保留未成功条目。
 
@@ -482,12 +568,14 @@ HTML 阶段 A 只做精确匹配，不承诺与 Lexical 共用模糊算法。如
 - HTML 预览显示未定位数量，不再静默隐藏。
 - HTML 未定位状态写回 `document` 标注；重开预览后状态仍可见。
 - HTML 重新定位复用旧 id，不新建随机标注；取消或失败时保留原未定位状态。
+- HTML `pendingRelocateId` 在 `dismiss`、`capture-error`、超时、切换文件、预览重载和组件卸载后清空；下一次普通标注不会误复用旧 id。
 - HTML 可视化编辑保存后，未定位数量随新正文重新计算。
+- HTML 空闲预览或重复收到相同 `resolved` 时不产生写盘和广播循环；状态与锚点相同的 resolution 进入 `skipped`。
 - 不支持 CSS Highlight 时，所有标注进入未定位入口，不静默消失。
 
 ### 13.4 容量与文件生命周期
 
-- 接近 500 条时有清理提示；超限错误包含未定位数量。
+- 当前文档达到 400 条时有清理提示；超限错误包含未解决数量。
 - 2MB 写入失败时返回明确错误，不产生半写文件。
 - 新增 `originalQuote` 使序列化超过 2MB 时，写入失败并保留旧文件，不产生半写文件。
 - 文档重命名、移动后注释和新增字段完整保留。
@@ -509,7 +597,13 @@ HTML 阶段 A 只做精确匹配，不承诺与 Lexical 共用模糊算法。如
 | 模糊匹配把注释绑定到错误位置 | 阶段 B 才引入；阈值 + retention/purity + 分差；低置信度进入歧义或未定位；原始引文永久保留 |
 | 短引文歧义大 | 少于 8 个字符只做精确匹配；16–31 个字符提高模糊门槛 |
 | 两个窗口覆盖锚点 | `baseAnchorRevision` + `stale` 返回；旧结果不写回 |
+| 评论保存覆盖新锚点 | `updateDocumentComment` 只 patch comment；重新定位走 `reanchorDocument` |
 | 全量对账造成写放大 | 只写真实变化；一次原子写；无变化不广播 |
+| 标注投影进入撤销栈 | 投影更新附加 `HISTORIC_TAG`；验收一次 Ctrl+Z 恢复正文和标注 |
+| 切换/退出丢最后一次对账 | `flushDocumentAnnotations` 接入切换、关闭和 quit guard |
+| 关闭到托盘绕过 flush | 主进程 close 握手 + renderer 保存后回复；超时保持窗口可见 |
+| HTML resolved 反复写盘 | 解析指纹去重；同状态同锚点 no-op，不刷新 `lastAnchoredAt` |
+| source 与 document 投影重叠导致卡片消失 | 后处理条目进入 `overlap` 未解决分组，侧栏保留两条 |
 | 500 条上限被未定位记录占满 | 显示未定位数量，提供手动清理；不自动淘汰 |
 | source 被误删 | document/source 分组；批量清理默认只选 document；source 独立删除确认 |
 | 主进程解析正文导致分层破坏 | 主进程只存渲染层提交的解析结果，不复制文本抽取逻辑 |
@@ -525,11 +619,15 @@ HTML 阶段 A 只做精确匹配，不承诺与 Lexical 共用模糊算法。如
 | shared | `src/shared/utils/annotationAnchors.ts` | MarkNode 外的精确/模糊解析、歧义判定、状态与原因 |
 | main | `src/main/services/annotationService.ts` | 持久化解析结果、修订保护、兼容旧记录、错误信息 |
 | main | `src/main/ipcHandlers.ts` | 扩展 `annotations:reconcile-document` 载荷与返回 |
+| main | `src/main/webviewManager.ts` | 主窗口关闭到托盘前的 flush 握手 |
 | preload | `src/preload/index.ts`、`src/preload/index.d.ts` | 同步 IPC 契约 |
 | renderer | `src/renderer/src/components/workbench/WorkbenchAnnotationPlugin.tsx` | MarkNode 优先、提交全部解析结果、编辑后防抖解析 |
-| renderer | `src/renderer/src/components/workbench/WorkbenchMarginNotes.tsx` | 未定位分组、重新定位、分区批量清理 |
-| renderer | `src/renderer/src/store/annotationStore.ts` | 保存解析状态和未定位列表 |
-| renderer | `src/renderer/src/components/workbench/WorkbenchHtmlAnnotationPreview.tsx` | 消费 `resolved`，未定位入口与重新定位 |
+| renderer | `src/renderer/src/components/workbench/workbenchAnnotationUtils.ts` | 投影更新和删除标记附加 `HISTORIC_TAG`，避免进入撤销栈 |
+| renderer | `src/renderer/src/components/workbench/WorkbenchMarginNotes.tsx` | 未解决分组、重新定位、分区批量清理 |
+| renderer | `src/renderer/src/store/annotationStore.ts` | 保存解析状态和未解决列表 |
+| renderer | `src/renderer/src/store/workbenchStore.ts` | 注册并暴露 `flushDocumentAnnotations`，切换文件前等待 |
+| renderer | `src/renderer/src/App.tsx` | 托盘退出和窗口关闭 guard 等待标注 flush |
+| renderer | `src/renderer/src/components/workbench/WorkbenchHtmlAnnotationPreview.tsx` | 消费 `resolved`，按指纹去重，未定位入口与重新定位 |
 
 不修改标注文件的目录结构，不新增依赖，不改变 `source` 标注的存储归属。
 
@@ -539,7 +637,8 @@ HTML 阶段 A 只做精确匹配，不承诺与 Lexical 共用模糊算法。如
 
 - 7.6 对账时机与 MarkNode 当前范围处理；
 - 10.2 `reconcileDocument` 的载荷、返回和版本保护；
+- 10.2 中 `upsertDocument` 的评论编辑/重新定位语义，拆为独立 patch；
 - 11 中“多个精确位置选最高分并标可能位置”的策略，改为 `ambiguous` 且不自动选择；
-- 未定位列表的 UI 行为。
+- 未定位列表的 UI 行为、投影撤销栈和可等待 flush。
 
 主设计的存储根、scope 语义、会话原文回显、迁移和删除策略保持不变。

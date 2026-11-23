@@ -3,7 +3,7 @@
  * 负责主窗口创建、Webview 注入脚本、上下文菜单以及新窗口管理
  */
 
-import { app, screen, session, BrowserWindow, shell, nativeImage, Tray, Menu, clipboard, dialog, webContents } from 'electron'
+import { app, screen, session, BrowserWindow, shell, nativeImage, Tray, Menu, clipboard, dialog, webContents, ipcMain } from 'electron'
 import { randomUUID } from 'crypto'
 import { join, basename } from 'path'
 import { accessSync } from 'fs'
@@ -593,7 +593,24 @@ export function createWindow(): void {
     mainWindow.on('close', (e) => {
         if (!isQuitting) {
             e.preventDefault()
-            mainWindow?.hide()
+            const window = mainWindow
+            if (!window || window.isDestroyed()) return
+            window.webContents.send('app:window-close-requested')
+            const responseHandler = (event: Electron.IpcMainEvent, allow: unknown): void => {
+                if (event.sender !== window.webContents) return
+                cleanup()
+                if (allow !== true) return
+                if (!window.isDestroyed() && !getIsQuitting()) window.hide()
+            }
+            const timeout = setTimeout(() => {
+                console.warn('[Main] Main window close flush timed out')
+                cleanup()
+            }, 5000)
+            const cleanup = (): void => {
+                clearTimeout(timeout)
+                ipcMain.removeListener('app:window-close-response', responseHandler)
+            }
+            ipcMain.once('app:window-close-response', responseHandler)
         }
     })
 
@@ -620,8 +637,11 @@ export function createWindow(): void {
     // 由主进程接收 iframe 选区，再交给宿主自绘菜单显示划词 AI 操作。
     mainWindow.webContents.on('context-menu', (event, params) => {
         if (!params.frameURL.startsWith(`${WORKBENCH_FILE_SCHEME}://`)) return
+        if (!mainWindow || mainWindow.isDestroyed()) return
+
         const selectedText = params.selectionText.trim()
-        if (!selectedText || !mainWindow || mainWindow.isDestroyed()) return
+        const isImage = params.mediaType === 'image' || params.hasImageContents
+        if (!selectedText && !isImage) return
 
         event.preventDefault()
         const cursor = screen.getCursorScreenPoint()
@@ -629,7 +649,10 @@ export function createWindow(): void {
         mainWindow.webContents.send('workbench:html-contextmenu', {
             x: Math.max(0, Math.round(cursor.x - bounds.x)),
             y: Math.max(0, Math.round(cursor.y - bounds.y)),
-            selectedText
+            selectedText,
+            image: isImage && params.srcURL
+                ? { srcURL: params.srcURL, x: params.x, y: params.y }
+                : undefined
         })
     })
 

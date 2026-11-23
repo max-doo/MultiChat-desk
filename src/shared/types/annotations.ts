@@ -3,6 +3,10 @@ export type AnnotationScope = 'document' | 'source'
 
 export type CaptureContext = 'workbench' | 'global'
 
+export type AnnotationAnchorState = 'anchored' | 'shifted' | 'ambiguous' | 'unlocated'
+
+export type AnnotationAnchorReason = 'not-found' | 'cross-block' | 'unsupported' | 'overlap'
+
 export interface AnnotationAnchor {
   exact: string
   prefix: string
@@ -29,6 +33,33 @@ export interface Annotation {
   source?: AnnotationSource
   createdAt: number
   updatedAt: number
+  /** 创建时的原始引文，只用于展示，不参与自动重定位。 */
+  originalQuote?: string
+  /** 仅 document 标注持久化；source 投影状态留在渲染层。 */
+  anchorState?: AnnotationAnchorState
+  anchorReason?: AnnotationAnchorReason
+  /** 每次持久化解析状态或锚点变化时递增。 */
+  anchorRevision?: number
+  /** 首次进入未定位的时间；恢复定位时清除。 */
+  orphanedAt?: number
+  /** 最后一次新建、恢复或真正改写锚点的时间。 */
+  lastAnchoredAt?: number
+}
+
+export interface DocumentResolution {
+  id: string
+  state: AnnotationAnchorState
+  reason?: AnnotationAnchorReason
+  quote?: string
+  anchor?: AnnotationAnchor
+  baseAnchorRevision: number
+}
+
+export interface DocumentReconcileResult {
+  applied: string[]
+  stale: string[]
+  skipped: string[]
+  annotations: Annotation[]
 }
 
 export interface SourceAnnotationFile {

@@ -28,6 +28,7 @@ import {
   type WorkbenchSelectFolderResult,
   type WorkbenchNodeType,
   type WorkspaceTagInfo,
+  DOCX_PREVIEW_MAX_BYTES,
   getFileCategory,
   MARKDOWN_EXTENSIONS,
   TEXT_EXTENSIONS,
@@ -618,7 +619,11 @@ export function assertActiveWorkspace(workspaceRoot: string): void {
 }
 
 async function ensureAnnotationGitignore(workspaceRoot: string): Promise<void> {
-  await appendGitignorePatterns(workspaceRoot, ['.multichat/annotations/'], '# 应用生成物')
+  await appendGitignorePatterns(
+    workspaceRoot,
+    ['.multichat/annotations/', '.multichat/frontmatter-backup/'],
+    '# 应用生成物'
+  )
     .catch(() => undefined)
 }
 
@@ -841,6 +846,25 @@ export function readLastWorkspacePath(store: Store<Record<string, unknown>>): st
 }
 
 /**
+ * 用户已知的全部工作区根：默认库 + 最近工作区 + 当前打开的工作区。
+ * 只读枚举，不创建目录、不触发 ensureDefaultWorkspace。
+ */
+export function listKnownWorkspaceRoots(store: Store<Record<string, unknown>>): string[] {
+  const roots: string[] = []
+  const push = (value: unknown): void => {
+    if (typeof value !== 'string' || !value.length) return
+    const resolved = path.resolve(value)
+    if (!roots.some(root => rootKey(root) === rootKey(resolved))) roots.push(resolved)
+  }
+  const storedDefault = store.get(DEFAULT_WORKSPACE_STORE_KEY)
+  push(typeof storedDefault === 'string' && storedDefault.length ? storedDefault : canonicalDefaultWorkspacePath())
+  const recents = store.get(RECENT_WORKSPACES_STORE_KEY)
+  if (Array.isArray(recents)) recents.forEach(push)
+  push(activeWorkspaceRoot)
+  return roots
+}
+
+/**
  * 判断目标根是否属于用户已知工作区：默认库或历史工作区列表。
  * 跨工作区写入只面向用户主动选择/使用过的目录，避免任意路径被当作移动目标。
  */
@@ -873,62 +897,113 @@ export async function readTree(workspaceRoot: string): Promise<WorkbenchFileNode
   authorizeWorkspaceRoot(safeRoot)
   const ignoredPaths = await listIgnoredPaths(safeRoot)
   const isFiltered = createEntryFilter(ignoredPaths)
+  const rootCmp = process.platform === 'win32' ? safeRoot.toLowerCase() : safeRoot
+  const rootPrefix = rootCmp.endsWith(path.sep) ? rootCmp : rootCmp + path.sep
 
-  async function scanDirectory(currentDir: string): Promise<WorkbenchFileNode[]> {
-    let entries
-    try {
-      entries = await readdir(currentDir, { withFileTypes: true })
-    } catch {
-      if (currentDir === safeRoot) throw new Error('工作区根目录不可读')
-      return []
+  // 目录扫描是纯 IO 等待，串行会让万级文件的工作区耗时到秒级；
+  // 限流并发后既能把等待重叠起来，又不会一次打开过多句柄。
+  const SCAN_CONCURRENCY = 24
+  let activeScans = 0
+  const scanWaiters: Array<() => void> = []
+  const acquireScanSlot = (): Promise<void> => {
+    if (activeScans < SCAN_CONCURRENCY) {
+      activeScans++
+      return Promise.resolve()
     }
+    return new Promise<void>((resolve) => scanWaiters.push(resolve))
+  }
+  const releaseScanSlot = (): void => {
+    const next = scanWaiters.shift()
+    // 让出的槽位直接转交给等待者，activeScans 保持不变
+    if (next) next()
+    else activeScans--
+  }
+  /** 在并发槽内执行一次文件系统调用，保证同时打开的句柄数有上限 */
+  const withScanSlot = async <T>(task: () => Promise<T>): Promise<T> => {
+    await acquireScanSlot()
+    try {
+      return await task()
+    } finally {
+      releaseScanSlot()
+    }
+  }
 
-    const nodes: WorkbenchFileNode[] = []
+  /** 解析符号链接的真实路径；越界或无法解析时返回 null */
+  async function resolveSymlink(fullPath: string): Promise<string | null> {
+    const real = await realpath(fullPath).catch(() => null)
+    if (!real) return null
+    const cmp = process.platform === 'win32' ? real.toLowerCase() : real
+    if (cmp !== rootCmp && !cmp.startsWith(rootPrefix)) return null
+    return real
+  }
 
-    for (const entry of entries) {
+  async function scanDirectory(
+    currentDir: string,
+    ancestors: ReadonlySet<string>
+  ): Promise<WorkbenchFileNode[]> {
+    const entries = await withScanSlot(
+      () => readdir(currentDir, { withFileTypes: true })
+    ).catch(() => {
+      if (currentDir === safeRoot) throw new Error('工作区根目录不可读')
+      return null
+    })
+    if (!entries) return []
+
+    const scanned = await Promise.all(entries.map(async (entry): Promise<WorkbenchFileNode | null> => {
       const fullEntryPath = path.join(currentDir, entry.name)
+      if (isFiltered(toPosixRelativePath(safeRoot, fullEntryPath), entry.name)) return null
 
       try {
-        // 校验路径安全性，防止 symlink 指向工作区外部
-        const safeEntryPath = await assertSafePath(safeRoot, path.relative(safeRoot, fullEntryPath))
-        const relPosix = toPosixRelativePath(safeRoot, safeEntryPath)
-        if (isFiltered(relPosix, entry.name)) {
-          continue
-        }
-        const entryStat = await stat(safeEntryPath)
+        // 只有符号链接可能指向工作区外，普通条目的路径必然落在根目录内，
+        // 逐条 realpath 会放大成两次磁盘往返，是扫描慢的主因。
+        const entryPath = entry.isSymbolicLink()
+          ? await resolveSymlink(fullEntryPath)
+          : fullEntryPath
+        if (!entryPath) return null
+        const relPosix = toPosixRelativePath(safeRoot, entryPath)
+        // 链接指向被忽略的目标时同样隐藏，与按真实路径过滤的旧行为一致
+        if (entry.isSymbolicLink() && isFiltered(relPosix, entry.name)) return null
+
+        const entryStat = await withScanSlot(() => stat(entryPath))
         const isDirectory = entryStat.isDirectory()
 
         if (isDirectory) {
-          const children = await scanDirectory(safeEntryPath)
-          nodes.push({
+          // 软链接目录可能指回祖先，用祖先链检测环；普通目录路径唯一，无需去重
+          const dirKey = process.platform === 'win32' ? entryPath.toLowerCase() : entryPath
+          if (entry.isSymbolicLink() && ancestors.has(dirKey)) return null
+          const nextAncestors = new Set(ancestors)
+          nextAncestors.add(dirKey)
+          const children = await scanDirectory(entryPath, nextAncestors)
+          return {
             id: relPosix,
             name: entry.name,
             path: relPosix,
-            fullPath: safeEntryPath,
+            fullPath: entryPath,
             isDirectory: true,
             mtime: entryStat.mtimeMs,
             children
-          })
-        } else {
-          const ext = path.extname(entry.name).toLowerCase()
-          const category = getFileCategory(entry.name)
-          nodes.push({
-            id: relPosix,
-            name: entry.name,
-            path: relPosix,
-            fullPath: safeEntryPath,
-            isDirectory: false,
-            extension: ext,
-            category,
-            size: entryStat.size,
-            mtime: entryStat.mtimeMs
-          })
+          }
+        }
+        const ext = path.extname(entry.name).toLowerCase()
+        const category = getFileCategory(entry.name)
+        return {
+          id: relPosix,
+          name: entry.name,
+          path: relPosix,
+          fullPath: entryPath,
+          isDirectory: false,
+          extension: ext,
+          category,
+          size: entryStat.size,
+          mtime: entryStat.mtimeMs
         }
       } catch {
         // 忽略无法访问、已失效或越权的节点
-        continue
+        return null
       }
-    }
+    }))
+
+    const nodes = scanned.filter((node): node is WorkbenchFileNode => node !== null)
 
     // 目录优先，自然排序
     nodes.sort((a, b) => {
@@ -940,7 +1015,7 @@ export async function readTree(workspaceRoot: string): Promise<WorkbenchFileNode
     return nodes
   }
 
-  return scanDirectory(safeRoot)
+  return scanDirectory(safeRoot, new Set([rootCmp]))
 }
 
 /**
@@ -1019,7 +1094,9 @@ export async function readFile(workspaceRoot: string, relativePath: string): Pro
       mtime: fileStat.mtimeMs,
       size: fileStat.size,
       category: 'document',
-      isBinary: true
+      isBinary: true,
+      // .docx 超过上限时提前标记，渲染层直接走卡片兜底，不再发起字节读取。
+      isOversized: ext === '.docx' && fileStat.size > DOCX_PREVIEW_MAX_BYTES
     }
   }
 
@@ -1063,6 +1140,34 @@ export async function readFile(workspaceRoot: string, relativePath: string): Pro
 }
 
 const PDF_RANGE_MAX_BYTES = 4 * 1024 * 1024
+
+/**
+ * 读取 docx 原始字节供 renderer 内嵌渲染。
+ * 走 IPC 二进制而不是 base64 dataUrl：避免字符串膨胀与多次拷贝，
+ * 渲染完成后 renderer 即可释放这段 ArrayBuffer，不进入全局 store。
+ */
+export async function readDocxBytes(
+  workspaceRoot: string,
+  relativePath: string
+): Promise<{ bytes: Uint8Array; size: number; mtime: number }> {
+  const safePath = await assertSafePath(workspaceRoot, relativePath)
+  const fileStat = await stat(safePath)
+  if (fileStat.isDirectory()) {
+    throw new Error('目标是目录，无法作为文件读取')
+  }
+  if (path.extname(safePath).toLowerCase() !== '.docx') {
+    throw new Error('仅支持读取 .docx 文件')
+  }
+  if (fileStat.size > DOCX_PREVIEW_MAX_BYTES) {
+    throw new Error('DOCX 文件超过 10MB 内嵌预览上限')
+  }
+  const buffer = await fsReadFile(safePath)
+  return {
+    bytes: new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.length),
+    size: fileStat.size,
+    mtime: fileStat.mtimeMs
+  }
+}
 
 /**
  * 按需读取 PDF 的一段字节，供 PDF.js 的 PDFDataRangeTransport 使用。
@@ -1403,14 +1508,34 @@ export async function deleteNodes(
 ): Promise<{ deleted: string[]; failed: { path: string; error: string }[] }> {
   const deleted: string[] = []
   const failed: { path: string; error: string }[] = []
-  for (const relPath of relativePaths) {
-    try {
-      await deleteNode(workspaceRoot, relPath)
-      deleted.push(relPath)
-    } catch (err) {
-      failed.push({ path: relPath, error: err instanceof Error ? err.message : String(err) })
+  if (!relativePaths.length) return { deleted, failed }
+  // 父目录已选中时子项必然一并回收，去掉冗余目标避免重复调用 Shell
+  const targets = relativePaths.filter(
+    (relPath, index) => !relativePaths.some(
+      (other, otherIndex) => otherIndex !== index && relPath.startsWith(`${other}/`)
+    )
+  )
+
+  // 每个条目都要走一次 Shell 回收站调用，串行时几十项会明显拖长；
+  // 并发上限取 6，避免同时打开过多 Shell 句柄拖慢整机。
+  const DELETE_CONCURRENCY = 6
+  let cursor = 0
+  const worker = async (): Promise<void> => {
+    while (cursor < targets.length) {
+      const relPath = targets[cursor++]
+      try {
+        // 逐个续期，避免长批量删除期间 watcher 把自写事件当成外部改动广播
+        markWorkspaceSelfWrite(workspaceRoot)
+        await deleteNode(workspaceRoot, relPath)
+        deleted.push(relPath)
+      } catch (err) {
+        failed.push({ path: relPath, error: err instanceof Error ? err.message : String(err) })
+      }
     }
   }
+  await Promise.all(
+    Array.from({ length: Math.min(DELETE_CONCURRENCY, targets.length) }, () => worker())
+  )
   return { deleted, failed }
 }
 

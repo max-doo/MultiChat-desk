@@ -57,6 +57,8 @@ const deterministicId = (conversationId: string, noteId: string | undefined, ind
 export class LegacyMigrationService {
   private snapshot: NoteConversation[] | null = null
   private frontmatterRepairDone = false
+  /** 正在执行的单条迁移数：放弃必须等它落盘后再清标记，否则会被迟到的阻塞写回。 */
+  private inFlightRecords = 0
 
   constructor(
     private readonly store: Store<Record<string, unknown>>,
@@ -71,6 +73,34 @@ export class LegacyMigrationService {
 
   private saveJob(job: LegacyMigrationJob): void {
     this.store.set(JOB_KEY, job)
+  }
+
+  /**
+   * 清空一次任务的全部痕迹：任务状态置为 abandoned，并清除所有记录的阻塞标记。
+   * 只清 migrationBlocked 不写 migratedAt，已完成记录的目标不受影响。
+   */
+  private async releaseBlockedRecords(): Promise<void> {
+    // 在途迁移的阻塞标记可能还在 NoteManager 的写队列里；两轮清理夹住队列，
+    // 确保迟到的 markMigrated 不会在清理之后再落盘。
+    for (let pass = 0; pass < 2; pass++) {
+      const records = await this.notes.rawLegacyRecords()
+      const blocked = records.filter(item => item.conversation.migrationBlocked)
+      if (!blocked.length) break
+      for (const item of blocked) {
+        await this.notes.clearMigrationBlock(item.conversation.id).catch(error => {
+          console.warn('[Migration] 清除阻塞标记失败:', item.conversation.id, error)
+        })
+      }
+    }
+    this.snapshot = null
+  }
+
+  /** 等在途记录结束（最多 10s），避免放弃后的清理被迟到的迁移结果覆盖。 */
+  private async waitForInFlightRecords(): Promise<void> {
+    const deadline = Date.now() + 10_000
+    while (this.inFlightRecords > 0 && Date.now() < deadline) {
+      await new Promise(resolve => setTimeout(resolve, 50))
+    }
   }
 
   isActive(): boolean {
@@ -112,7 +142,14 @@ export class LegacyMigrationService {
   }
 
   async pendingSummary(): Promise<LegacyMigrationPendingSummary> {
-    const records = await this.notes.rawLegacyRecords()
+    let records = await this.notes.rawLegacyRecords()
+    // 旧版本放弃任务时没有清阻塞标记，会让“1 条阻塞”永久残留且没有入口可清；
+    // 任务已是 abandoned 时视为已放弃，顺手把这类残留标记收敛回待迁移。
+    const jobState = this.job()
+    if (jobState?.status === 'abandoned' && records.some(item => item.conversation.migrationBlocked)) {
+      await this.releaseBlockedRecords()
+      records = await this.notes.rawLegacyRecords()
+    }
     const pending = records.map(item => item.conversation).filter(item => !item.migratedAt)
     const defaultWorkspace = await ensureDefaultWorkspace(this.store)
     // 迁移入口打开时顺手收敛旧版迁移文档的头部。已经完成迁移的用户不会
@@ -176,8 +213,11 @@ export class LegacyMigrationService {
     if (!job || job.jobId !== jobId) throw new Error('迁移任务不匹配')
     job.status = 'abandoned'
     this.saveJob(job)
-    this.snapshot = null
-    this.emit(job, job.completed, 0, 0)
+    // 先等在途记录收尾：它可能仍会写入 migrationBlocked，清理必须排在后面。
+    await this.waitForInFlightRecords()
+    // 放弃时清除所有记录的阻塞标记，让旧笔记回到待迁移状态
+    await this.releaseBlockedRecords()
+    // 这里不能再广播进度：前端收到事件会把刚清空的进度条重新画出来。
   }
 
   private emit(job: LegacyMigrationJob, completed: number, blocked: number, failed: number, currentTitle?: string): void {
@@ -204,10 +244,11 @@ export class LegacyMigrationService {
     for (const { conversation } of records) {
       const workbench = conversation.workbench
       if (!conversation.migratedAt || !workbench) continue
+      // 工作台正文以 Markdown 文件为准，snapshot 只是历史副本；只有批注或导图
+      // 才算需要保住的内容，否则会把没有资产的记录重新标成阻塞。
       const hasContent =
         conversation.notes.length > 0 ||
-        conversation.mindmaps.length > 0 ||
-        conversation.snapshot.trim().length > 0
+        conversation.mindmaps.length > 0
       if (!hasContent) continue
       // 旧版在写入标记时不校验目标文档；新版正常迁移也会先校验。这里只处理
       // “标记存在但目标已随临时工作区消失”的历史数据；正常文档被用户删除时不复活。
@@ -325,7 +366,9 @@ export class LegacyMigrationService {
         report.push({ id: conversation.id, title: conversation.title, status: 'blocked', reason: conversation.migrationBlocked })
       } else {
         try {
+          this.inFlightRecords += 1
           const outcome = await this.migrateOne(conversation, job)
+            .finally(() => { this.inFlightRecords -= 1 })
           report.push(outcome)
           if (outcome.status === 'migrated') completed += 1
           else if (outcome.status === 'blocked') blocked += 1
@@ -341,7 +384,10 @@ export class LegacyMigrationService {
               if (pausedJob.status === 'running') pausedJob.status = 'paused'
               pausedJob.completed = completed
               this.saveJob(pausedJob)
-              this.emit(pausedJob, completed, blocked, failed, conversation.title)
+              // 用户已放弃时不再广播进度，避免前端清空后又被刷出进度条。
+              if (pausedJob.status !== 'abandoned') {
+                this.emit(pausedJob, completed, blocked, failed, conversation.title)
+              }
             }
             this.snapshot = null
             return {
@@ -374,11 +420,14 @@ export class LegacyMigrationService {
       }
       afterRecord.completed = completed
       this.saveJob(afterRecord)
-      this.emit(afterRecord, completed, blocked, failed, conversation.title)
       if (afterRecord.status !== 'running') {
+        // 暂停/放弃已由对应 IPC 负责界面状态，这里再发进度会把“迁移中”刷回来。
+        // 放弃发生在单条迁移途中时，清理可能早于本次阻塞落盘，这里补一次收尾。
+        if (afterRecord.status === 'abandoned') await this.releaseBlockedRecords()
         cancelled = true
         break
       }
+      this.emit(afterRecord, completed, blocked, failed, conversation.title)
     }
 
     if (!cancelled) {
@@ -392,12 +441,16 @@ export class LegacyMigrationService {
     }
     // 终态进度事件：界面据此收起“迁移中”，并显示阻塞/失败统计。
     const finalJob = this.job()
-    this.emit(
-      finalJob && finalJob.jobId === job.jobId ? finalJob : job,
-      completed,
-      blocked,
-      failed
-    )
+    const finalStatus = finalJob && finalJob.jobId === job.jobId ? finalJob.status : job.status
+    // 放弃后不再广播进度：前端已主动清空，迟到的进度事件会让进度条重新出现。
+    if (finalStatus !== 'abandoned') {
+      this.emit(
+        finalJob && finalJob.jobId === job.jobId ? finalJob : job,
+        completed,
+        blocked,
+        failed
+      )
+    }
     this.snapshot = null
     // 迁移任务完成后再收敛历史文档头部：旧版本写出的 id/source_url/updated_at
     // 不应继续留在默认库里。只改 frontmatter，正文与旁路标注不动。
@@ -608,6 +661,54 @@ export class LegacyMigrationService {
     }
   }
 
+  /**
+   * 一次性临时工作区已被系统清理、原文档不可能恢复时，把旧快照落到默认会话库。
+   * 这条记录没有批注和导图，快照就是全部内容；继续标记阻塞会让它永远无法解除。
+   */
+  private async salvageEphemeralWorkbenchRecord(
+    conversation: NoteConversation
+  ): Promise<LegacyMigrationReportEntry> {
+    const target = await ensureDefaultWorkspace(this.store)
+    const settings = await getWorkspaceSettings(target.path)
+    // 工作台记录的标题就是文件名，带扩展名时避免落成 `xxx.md.md`。
+    const title = conversation.title.replace(/\.md$/i, '').trim() || conversation.title
+    // 没有来源身份，先按标题认领已落盘的同类文档，避免每次重试都新建副本。
+    const untracked = await findUntrackedDocumentByTitle(target.path, title)
+    const document = untracked
+      ? { document: untracked }
+      : await createDocumentForSource(this.store, {
+        captureContext: 'global',
+        platform: conversation.platform || '工作台',
+        title,
+        url: '',
+        sourceKey: '',
+        snapshot: conversation.snapshot,
+        conversationDir: settings.conversationDir
+      })
+    if (!document.document) {
+      await this.notes.markMigrated(conversation.id, { migrationBlocked: 'workbench-unresolved' })
+      return {
+        id: conversation.id,
+        title: conversation.title,
+        status: 'blocked',
+        reason: 'workbench-unresolved',
+        targetWorkspaceRoot: target.path,
+        message: document.error || '原临时工作区已清理，快照落盘失败'
+      }
+    }
+    await this.notes.markMigrated(conversation.id, {
+      migratedAt: Date.now(),
+      migratedTo: document.document.workspaceRoot
+    })
+    return {
+      id: conversation.id,
+      title: conversation.title,
+      status: 'migrated',
+      targetWorkspaceRoot: document.document.workspaceRoot,
+      relativePath: document.document.relativePath
+    }
+  }
+
   private async migrateWorkbenchRecord(conversation: NoteConversation): Promise<LegacyMigrationReportEntry> {
     const workbench = conversation.workbench
     if (!workbench) return { id: conversation.id, title: conversation.title, status: 'failed' }
@@ -617,16 +718,24 @@ export class LegacyMigrationService {
       // 快照是用户内容的唯一副本，不能静默丢掉。
       const info = await stat(path.join(workbench.workspaceRoot, workbench.relativePath)).catch(() => null)
       if (!conversation.mindmaps.length) {
-        if (!info?.isFile() && conversation.snapshot.trim()) {
-          await this.notes.markMigrated(conversation.id, { migrationBlocked: 'workbench-unresolved' })
-          return {
-            id: conversation.id,
-            title: conversation.title,
-            status: 'blocked',
-            reason: 'workbench-unresolved',
-            targetWorkspaceRoot: workbench.workspaceRoot,
-            relativePath: workbench.relativePath,
-            message: '目标文档不存在，旧记录仍有正文快照'
+        if (!info?.isFile()) {
+          // 一次性临时工作区被系统清理后，原文档不可能再恢复；继续标记阻塞只会
+          // 让这条记录永远停在“1 条阻塞”且没有任何可执行的解除路径。
+          // 快照是唯一副本，改为落到默认会话库，保住正文。
+          if (isEphemeralWorkspace(workbench.workspaceRoot) && conversation.snapshot.trim()) {
+            return this.salvageEphemeralWorkbenchRecord(conversation)
+          }
+          if (conversation.snapshot.trim()) {
+            await this.notes.markMigrated(conversation.id, { migrationBlocked: 'workbench-unresolved' })
+            return {
+              id: conversation.id,
+              title: conversation.title,
+              status: 'blocked',
+              reason: 'workbench-unresolved',
+              targetWorkspaceRoot: workbench.workspaceRoot,
+              relativePath: workbench.relativePath,
+              message: '目标文档不存在，旧记录仍有正文快照'
+            }
           }
         }
         await this.notes.markMigrated(conversation.id, {

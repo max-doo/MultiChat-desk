@@ -143,6 +143,31 @@ export interface GitRemoteInfo {
   redacted: boolean
 }
 
+/** 迁移前 frontmatter 备份：按工作区聚合，供设置面板展示与清理 */
+export interface FrontmatterBackupGroup {
+  workspaceRoot: string
+  /** 备份文件数 */
+  files: number
+  /** 备份占用字节 */
+  bytes: number
+  /** 原文档已不存在、清理时会保留的备份数 */
+  orphans: number
+}
+
+export interface FrontmatterBackupSummary {
+  files: number
+  bytes: number
+  orphans: number
+  groups: FrontmatterBackupGroup[]
+}
+
+export interface FrontmatterBackupClearResult {
+  removed: number
+  /** 因原文档缺失而保留的备份数 */
+  kept: number
+  errors: Array<{ workspaceRoot: string; relativePath: string; error: string }>
+}
+
 export interface WorkbenchFileInfo {
   content: string
   mtime: number
@@ -160,6 +185,13 @@ export const IMAGE_EXTENSIONS = new Set([
 ])
 
 export const PDF_EXTENSIONS = new Set(['.pdf'])
+
+/**
+ * Word 内嵌预览上限。
+ * docx-preview 需要完整解压 OOXML 包并在 renderer 构建 DOM，
+ * 超过该体积后峰值内存与渲染耗时都不适合常驻工作台，改走卡片兜底。
+ */
+export const DOCX_PREVIEW_MAX_BYTES = 10 * 1024 * 1024
 
 export const DOCUMENT_EXTENSIONS = new Set([
   '.docx', '.doc', '.dotx', '.dot', '.rtf', '.odt',

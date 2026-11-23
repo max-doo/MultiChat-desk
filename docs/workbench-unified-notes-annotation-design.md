@@ -542,6 +542,8 @@ Lexical 0.53.0 已经带 `@lexical/mark` 的 `MarkNode`：
 
 正文仍然按 1200ms 自动保存；写 `document` 旁路前先确保正文已落盘。
 
+标注投影的 `editor.update` 必须附加 `HISTORIC_TAG`，不能进入撤销栈；切换文件、关闭工作区和托盘退出前必须 `await flushDocumentAnnotations()`，不能只依赖 `beforeunload` 的异步 IPC。
+
 ### 7.7 重复 id、零 id 和跨文档粘贴
 
 每次 editor update 都做一次轻量清理，不只粘贴：
@@ -885,6 +887,7 @@ notes.abandonMigration({ jobId })
 - `captureSource` 先写默认工作区的 source 标注，再按 `captureContext` 解析文档目标。`workbench` 必须使用 active root；`global` 强制使用默认工作区；`workspaceRoot` 在 `global` 下无效，在 `workbench` 下只做一致性校验。
 - `captureSource` 按 `annotationId` 幂等 upsert；同一 id 重复调用只更新同一条 source，不能追加。`ensureDocumentForSource` 只补文档，不写 source；用于文档失败后的重试或切换保存目标。它必须先确认默认库已有对应 `sourceKey`，不存在时返回 `SOURCE_NOT_FOUND`，不能凭空创建一篇没有标注的文档。
 - `upsert` 只写一条；同一 id 以 `updatedAt` 较新的为准。不同 id 永远都保留，不能因为 quote 相同就合并。
+- 评论编辑、重新定位和新建必须分开：评论只 patch comment，重新定位校验 `baseAnchorRevision`；不能用一个整条 upsert 覆盖锚点字段。具体契约以增量设计为准。
 - `delete` 必须显式传 id；不能从“当前列表里没有”推断删除。
 - `reconcileDocument` 只更新 document 标注，不能碰 source 标注；载荷、状态、`baseAnchorRevision` 和 `applied/stale/skipped` 返回以增量设计为准。
 - `captureSource` 文档创建失败时仍返回 `success: true` 和已保存的 `annotation`；`document` 为空，`documentError` 说明是“无活动工作区 / 工作区不可用 / 扫描不完整 / 超限 / 写入失败”中的一种，界面提示“未生成文档”并可重试。

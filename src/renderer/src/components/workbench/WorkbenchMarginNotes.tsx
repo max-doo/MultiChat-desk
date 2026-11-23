@@ -4,12 +4,17 @@ import { createPortal } from 'react-dom'
 import { useWorkbenchStore } from '../../store/workbenchStore'
 import { useAnnotationStore } from '../../store/annotationStore'
 import type { Annotation } from '../../../../shared/types/annotations'
+import { isUnresolvedAnchorState } from '../../../../shared/utils/annotationAnchors'
+import { WORKBENCH_REANCHOR_COMMAND } from './WorkbenchAnnotationPlugin'
+import { resolveSourceConversation } from '../../utils/noteSourceConversation'
+import { useAppStore } from '../../store/appStore'
 import { findMarkDom, removeMarkById } from './workbenchAnnotationUtils'
 import { AppIcon } from '../icons/AppIcon'
 
 const MARGIN_NOTES_WIDTH = 220
 const MARGIN_NOTES_MIN_WIDTH = 170
 const MARGIN_NOTES_GAP = 16
+const ANNOTATION_CLEANUP_THRESHOLD = 400
 
 function formatTime(timestamp: number): string {
   if (!timestamp) return ''
@@ -38,7 +43,9 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
   const selectedId = useAnnotationStore(s => s.selectedId)
   const annotationsRelativePath = useAnnotationStore(s => s.relativePath)
   const annotationsWorkspaceRoot = useAnnotationStore(s => s.workspaceRoot)
-  const unlocatedIds = useAnnotationStore(s => s.unlocatedIds)
+  const resolutionById = useAnnotationStore(s => s.resolutionById)
+  const models = useAppStore(s => s.models)
+  const openConversationInAiSidebar = useWorkbenchStore(s => s.openConversationInAiSidebar)
   const setSelected = useAnnotationStore(s => s.setSelected)
   const upsertLocal = useAnnotationStore(s => s.upsertLocal)
   const removeLocal = useAnnotationStore(s => s.removeLocal)
@@ -49,25 +56,47 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
     annotationsWorkspaceRoot === workspacePath && annotationsRelativePath === activeFilePath
   const allNotes = useMemo(() => {
     if (!annotationsReady) return []
-    // 正文里已找不到锚点的标注（例如原文被删掉）不再计入旁注数量与列表，
-    // 否则清空正文后仍会残留"1 条注释"。
-    const unlocated = new Set(unlocatedIds)
-    return [...documentAnnotations, ...sourceAnnotations].filter(item => !unlocated.has(item.id))
-  }, [annotationsReady, documentAnnotations, sourceAnnotations, unlocatedIds])
+    return [...documentAnnotations, ...sourceAnnotations].filter(
+      item => !isUnresolvedAnchorState(resolutionById[item.id]?.state)
+    )
+  }, [annotationsReady, documentAnnotations, sourceAnnotations, resolutionById])
+
+  const unresolvedDocumentNotes = useMemo(() => {
+    if (!annotationsReady) return []
+    return documentAnnotations.filter(item => isUnresolvedAnchorState(resolutionById[item.id]?.state))
+  }, [annotationsReady, documentAnnotations, resolutionById])
+
+  const unresolvedSourceNotes = useMemo(() => {
+    if (!annotationsReady) return []
+    return sourceAnnotations.filter(item => isUnresolvedAnchorState(resolutionById[item.id]?.state))
+  }, [annotationsReady, sourceAnnotations, resolutionById])
+
+  const unresolvedDocumentIds = useMemo(
+    () => unresolvedDocumentNotes.map(item => item.id),
+    [unresolvedDocumentNotes]
+  )
 
   const [positions, setPositions] = useState<Map<string, number>>(new Map())
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draftComment, setDraftComment] = useState('')
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [showCleanup, setShowCleanup] = useState(false)
+  const [cleanupIds, setCleanupIds] = useState<string[]>([])
+  const [showCompactUnresolved, setShowCompactUnresolved] = useState(false)
   const [compactMode, setCompactMode] = useState(false)
   const [notesBox, setNotesBox] = useState<{ left: number; width: number } | null>(null)
   const [anchorBox, setAnchorBox] = useState<{ marginTop: number; left: number } | null>(null)
   const [headerBox, setHeaderBox] = useState<{ left: number; top: number } | null>(null)
   const [asideEl, setAsideEl] = useState<HTMLElement | null>(null)
   const [editorRootEl, setEditorRootEl] = useState<HTMLElement | null>(null)
+  const [unresolvedPanelHeight, setUnresolvedPanelHeight] = useState(0)
+  const unresolvedPanelRef = useRef<HTMLDivElement | null>(null)
   const cardElementsRef = useRef<Map<string, HTMLDivElement>>(new Map())
   // 没有任何旁注时不渲染入口与栏头，避免空白控件常驻正文首行。
-  const showAnchorTrigger = allNotes.length > 0 && (compactMode || !showMarginNotes)
+  const unresolvedCount = unresolvedDocumentNotes.length + unresolvedSourceNotes.length
+  const totalCount = allNotes.length + unresolvedCount
+  const documentAnnotationCount = annotationsReady ? documentAnnotations.length : 0
+  const showAnchorTrigger = totalCount > 0 && (compactMode || !showMarginNotes)
   const orderedNotes = useMemo(
     () =>
       [...allNotes].sort(
@@ -235,7 +264,12 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
   useEffect(() => {
     setEditingId(null)
     setDraftComment('')
+    setShowCompactUnresolved(false)
   }, [activeFilePath])
+
+  useEffect(() => {
+    if (unresolvedCount === 0) setShowCompactUnresolved(false)
+  }, [unresolvedCount])
 
   // 测量与避让布局计算
   // 折叠态也持续维护 positions：否则展开首帧 positions 为空、卡片 top=0
@@ -266,10 +300,13 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
 
     const nextPositions = new Map<string, number>()
     const CARD_GAP = 10
+    // 未解决面板绝对定位在 aside 顶部，不占文档流；卡片必须从它的底部开始，
+    // 否则第一条已定位卡片会被面板盖住。
+    const panelBottom = unresolvedPanelHeight > 0 ? unresolvedPanelHeight + CARD_GAP : 0
     let currentBottom = 0
 
     for (const { item, desiredTop } of located) {
-      let finalTop = desiredTop
+      let finalTop = Math.max(desiredTop, panelBottom)
       if (finalTop < currentBottom) {
         finalTop = currentBottom
       }
@@ -281,7 +318,21 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
     }
 
     setPositions(nextPositions)
-  }, [allNotes, compactMode, editor, showMarginNotes, stageRef])
+  }, [allNotes, compactMode, editor, showMarginNotes, stageRef, unresolvedPanelHeight])
+
+  // 面板高度会随“清理未解决”展开和未解决条目增减变化，用 ResizeObserver 跟随。
+  useLayoutEffect(() => {
+    const element = unresolvedPanelRef.current
+    if (!element) {
+      setUnresolvedPanelHeight(0)
+      return
+    }
+    const sync = (): void => setUnresolvedPanelHeight(element.offsetHeight)
+    sync()
+    const observer = new ResizeObserver(sync)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [compactMode, showCleanup, showMarginNotes, unresolvedCount])
 
   // 当标注更新、编辑器变化或窗口缩放时重算
   useLayoutEffect(() => {
@@ -338,11 +389,46 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
 
     if (next.scope === 'document') {
       if (workspacePath && activeFilePath) {
-        await saveActiveFile()
-        await window.api.annotations.upsertDocument(workspacePath, activeFilePath, next)
+        const saved = await saveActiveFile()
+        if (!saved.saved) {
+          upsertLocal(annotation)
+          setEditingId(id)
+          window.alert(saved.reason === 'oversized' ? '文档过大，注释未保存' : '正文未保存，注释未写入')
+          return
+        }
+        const result = await window.api.annotations.updateDocumentComment(
+          workspacePath,
+          activeFilePath,
+          next.id,
+          next.comment,
+          annotation.updatedAt
+        )
+        if (!result.success) {
+          upsertLocal(annotation)
+          setEditingId(id)
+          window.alert(result.error || '注释保存失败')
+          return
+        }
+        upsertLocal(result.data ?? next)
       }
     } else if (next.source) {
-      await window.api.annotations.upsertSource(next.source.key, next.source, next)
+      const result = await window.api.annotations.updateSourceComment(
+        next.source.key,
+        next.id,
+        next.comment,
+        annotation.updatedAt
+      )
+      if (!result.success) {
+        upsertLocal(annotation)
+        setEditingId(id)
+        window.alert(result.error || '注释保存失败')
+        return
+      }
+      upsertLocal(result.data ?? next)
+    } else {
+      upsertLocal(annotation)
+      setEditingId(id)
+      window.alert('原文标注缺少来源信息')
     }
   }
 
@@ -350,14 +436,21 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
   const handleDeleteNote = async (event: React.MouseEvent, item: Annotation): Promise<void> => {
     event.stopPropagation()
     if (busyId) return
+    if (item.scope === 'document' && !window.confirm('删除这条标注？')) return
+    if (item.scope === 'source' && !window.confirm('删除原文标注会删除所有工作区里的原文高亮。')) return
     setBusyId(item.id)
     try {
+      let result: { success: boolean; error?: string } = { success: true }
       if (item.scope === 'document') {
         if (workspacePath && activeFilePath) {
-          await window.api.annotations.deleteDocument(workspacePath, activeFilePath, item.id)
+          result = await window.api.annotations.deleteDocument(workspacePath, activeFilePath, item.id)
         }
       } else if (item.source) {
-        await window.api.annotations.deleteSource(item.source.key, item.id)
+        result = await window.api.annotations.deleteSource(item.source.key, item.id)
+      }
+      if (!result.success) {
+        window.alert(result.error || '删除注释失败')
+        return
       }
       removeLocal(item.id)
       removeMarkById(editor, item.id)
@@ -366,6 +459,47 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
       }
     } finally {
       setBusyId(null)
+    }
+  }
+
+  const openCleanup = useCallback((): void => {
+    setCleanupIds(unresolvedDocumentIds)
+    setShowCleanup(true)
+  }, [unresolvedDocumentIds])
+
+  const cleanupUnresolved = async (): Promise<void> => {
+    if (!workspacePath || !activeFilePath || busyId) return
+    const ids = [...new Set(cleanupIds)]
+    if (!ids.length) {
+      setShowCleanup(false)
+      return
+    }
+    if (!window.confirm(`删除选中的 ${ids.length} 条未解决文档注释？`)) return
+    const failed: string[] = []
+    for (const id of ids) {
+      setBusyId(id)
+      try {
+        const result = await window.api.annotations.deleteDocument(
+          workspacePath,
+          activeFilePath,
+          id
+        )
+        if (result.success) {
+          removeLocal(id)
+          removeMarkById(editor, id)
+        } else {
+          failed.push(id)
+        }
+      } catch {
+        failed.push(id)
+      }
+    }
+    setBusyId(null)
+    setCleanupIds(failed)
+    if (failed.length) {
+      window.alert(`${failed.length} 条未解决注释删除失败，已保留在列表中`)
+    } else {
+      setShowCleanup(false)
     }
   }
 
@@ -406,11 +540,16 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
         type="button"
         onClick={compactMode ? handleOpenCompactNote : handleToggleMarginNotes}
         className="h-7 px-1.5 rounded-md text-amber-600 dark:text-amber-400 hover:text-amber-700 hover:bg-amber-500/10 dark:hover:bg-amber-400/10 flex items-center gap-1 transition-colors"
-        title={`${compactMode ? '打开' : '展开'}注释 (${allNotes.length})`}
-        aria-label={`${compactMode ? '打开' : '展开'}注释，共 ${allNotes.length} 条`}
+        title={`${compactMode ? '打开' : '展开'}注释 (${totalCount})${unresolvedCount ? `，未解决 ${unresolvedCount}` : ''}`}
+        aria-label={`${compactMode ? '打开' : '展开'}注释，共 ${totalCount} 条，未解决 ${unresolvedCount} 条`}
       >
         <AppIcon name="annotation" size={16} />
         <span className="text-xs font-semibold">{allNotes.length}</span>
+        {unresolvedCount > 0 && (
+          <span className="text-xs font-semibold text-rose-600 dark:text-rose-400">
+            · {unresolvedCount}
+          </span>
+        )}
       </button>
       {!compactMode && orderedNotes.length > 0 && (
         <>
@@ -437,8 +576,166 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
     </div>
   )
 
+  const unresolvedPanel =
+    unresolvedCount > 0 ? (
+      <div
+        ref={unresolvedPanelRef}
+        className="rounded-lg border border-rose-500/30 border-l-[3px] border-l-rose-500/70 bg-white p-2.5 text-left shadow-sm dark:bg-gray-800 dark:border-rose-400/30 dark:border-l-rose-400/60"
+      >
+        <div className="text-[11px] font-semibold text-rose-600 dark:text-rose-400">
+          未解决 {unresolvedCount}
+          {unresolvedDocumentNotes.length > 0 && (
+            <button
+              type="button"
+              onClick={openCleanup}
+              className="ml-2 rounded px-1.5 py-0.5 text-[10px] font-normal text-rose-600/80 hover:bg-rose-100 dark:text-rose-400/80 dark:hover:bg-rose-900/40"
+            >
+              清理未解决
+            </button>
+          )}
+        </div>
+        {showCleanup && (
+          <div className="mt-1.5 rounded-md border border-rose-500/20 bg-rose-50/60 p-1.5 text-[11px] dark:bg-rose-950/20">
+            {unresolvedDocumentNotes.map(item => (
+              <label key={item.id} className="flex items-start gap-2 py-0.5">
+                <input
+                  type="checkbox"
+                  checked={cleanupIds.includes(item.id)}
+                  onChange={event => {
+                    setCleanupIds(previous =>
+                      event.target.checked
+                        ? [...new Set([...previous, item.id])]
+                        : previous.filter(id => id !== item.id)
+                    )
+                  }}
+                  className="mt-0.5"
+                />
+                <span className="line-clamp-2 break-words text-text-secondary">
+                  {item.originalQuote || item.quote}
+                </span>
+              </label>
+            ))}
+            <div className="mt-1.5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowCleanup(false)}
+                className="rounded px-1.5 py-0.5 text-[10px] text-text-secondary hover:bg-black/5 dark:hover:bg-white/10"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                disabled={!cleanupIds.length || Boolean(busyId)}
+                onClick={() => void cleanupUnresolved()}
+                className="rounded bg-rose-600 px-1.5 py-0.5 text-[10px] font-semibold text-white hover:bg-rose-700 disabled:opacity-40"
+              >
+                删除
+              </button>
+            </div>
+          </div>
+        )}
+        <div className="mt-1.5 space-y-1.5">
+          {unresolvedDocumentNotes.map(item => {
+            const resolution = resolutionById[item.id]
+            return (
+              <div
+                key={item.id}
+                className="rounded-md bg-rose-50/70 p-1.5 text-[11px] dark:bg-rose-950/30"
+              >
+                <div className="line-through decoration-rose-400/60 break-words text-text-secondary/70">
+                  {item.originalQuote || item.quote}
+                </div>
+                <div className="mt-0.5 break-words text-text-primary">{item.comment || '点击添加注释...'}</div>
+                <div className="mt-0.5 text-rose-600/90 dark:text-rose-400/90">
+                  {resolution?.reason === 'cross-block'
+                    ? '跨段落暂不支持'
+                    : resolution?.reason === 'overlap'
+                      ? '与另一条注释重叠'
+                      : resolution?.state === 'ambiguous'
+                        ? '存在多处相似文字'
+                        : '原文未找到'}
+                </div>
+                <div className="mt-1 flex gap-2">
+                  <button
+                    type="button"
+                    disabled={busyId === item.id}
+                    // 重新定位读取的是正文当前选区；按下按钮不能把焦点从编辑器抢走。
+                    onMouseDown={event => event.preventDefault()}
+                    onClick={() => editor.dispatchCommand(WORKBENCH_REANCHOR_COMMAND, item.id)}
+                    className="rounded px-1.5 py-0.5 text-[10px] text-primary hover:bg-primary/10 disabled:opacity-40"
+                  >
+                    重新定位
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busyId === item.id}
+                    onClick={event => void handleDeleteNote(event, item)}
+                    className="rounded px-1.5 py-0.5 text-[10px] text-rose-600 hover:bg-rose-100 disabled:opacity-40 dark:text-rose-400 dark:hover:bg-rose-900/40"
+                  >
+                    删除
+                  </button>
+                </div>
+              </div>
+            )
+          })}
+          {unresolvedSourceNotes.map(item => {
+            const resolution = resolutionById[item.id]
+            const sourceTarget = item.source
+              ? resolveSourceConversation(item.source.url, models)
+              : null
+            return (
+              <div
+                key={item.id}
+                className="rounded-md bg-amber-50/70 p-1.5 text-[11px] dark:bg-amber-950/30"
+              >
+                <div className="line-through decoration-amber-400/60 break-words text-text-secondary/70">
+                  {item.originalQuote || item.quote}
+                </div>
+                <div className="mt-0.5 break-words text-text-primary">{item.comment || '点击添加注释...'}</div>
+                <div className="mt-0.5 text-amber-700/90 dark:text-amber-400/90">
+                  {resolution?.reason === 'overlap'
+                    ? '与另一条注释重叠；原文高亮仍有效'
+                    : '文档投影未找到；原文高亮仍有效'}
+                </div>
+                <div className="mt-1 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (sourceTarget) {
+                        openConversationInAiSidebar(sourceTarget.platformId, sourceTarget.url)
+                      } else if (item.source?.url) {
+                        window.open(item.source.url, '_blank', 'noopener,noreferrer')
+                      }
+                    }}
+                    className="rounded px-1.5 py-0.5 text-[10px] text-primary hover:bg-primary/10"
+                  >
+                    打开原文
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => window.dispatchEvent(new Event('workbench:markdown-imported'))}
+                    className="rounded px-1.5 py-0.5 text-[10px] text-text-secondary hover:bg-black/5 dark:hover:bg-white/10"
+                  >
+                    刷新投影
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busyId === item.id}
+                    onClick={event => void handleDeleteNote(event, item)}
+                    className="rounded px-1.5 py-0.5 text-[10px] text-rose-600 hover:bg-rose-100 disabled:opacity-40 dark:text-rose-400 dark:hover:bg-rose-900/40"
+                  >
+                    删除原文标注
+                  </button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    ) : null
+
   if (compactMode || !showMarginNotes) {
-    if (!anchorBox || allNotes.length === 0) return null
+    if (!anchorBox || totalCount === 0) return null
     return (
       <>
         <div className="absolute inset-0 z-30 no-drag pointer-events-none select-none">
@@ -446,7 +743,23 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
             className="sticky pointer-events-auto w-fit"
             style={{ top: '8px', marginTop: `${anchorBox.marginTop}px`, marginLeft: `${anchorBox.left}px` }}
           >
-            {anchorTrigger}
+            <div className="flex flex-col items-end gap-2">
+              {anchorTrigger}
+              {unresolvedCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowCompactUnresolved(previous => !previous)}
+                  className="h-7 rounded-md border border-rose-500/30 bg-white/95 px-2 text-[11px] font-semibold text-rose-600 shadow-sm hover:bg-rose-50 dark:border-rose-400/30 dark:bg-gray-800/95 dark:text-rose-400"
+                >
+                  未解决 {unresolvedCount}
+                </button>
+              )}
+              {showCompactUnresolved && unresolvedPanel && (
+                <div className="pointer-events-auto w-[320px] max-h-[60vh] overflow-y-auto">
+                  {unresolvedPanel}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </>
@@ -454,7 +767,7 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
   }
 
   // 展开态但没有旁注：不渲染占宽的旁注列与空白栏头。
-  if (allNotes.length === 0) return null
+  if (totalCount === 0) return null
   // 首次测量完成前不渲染，避免旁注列在默认 left=0 处闪一帧。
   if (!notesBox) return null
 
@@ -479,7 +792,7 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
                 <AppIcon name="annotation" size={16} />
                 <span className="text-xs font-semibold">注释</span>
                 <span className="text-xs font-semibold text-amber-600/70 dark:text-amber-400/70">
-                  {allNotes.length}
+                  {totalCount}
                 </span>
               </button>
               <div className="flex items-center gap-0.5">
@@ -529,10 +842,20 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
         }}
         aria-label="文档原位旁注"
       >
-      {allNotes.length === 0 && (
+      {totalCount === 0 && (
         <div className="pt-8 text-center text-xs text-text-secondary/50 leading-relaxed px-2">
           选中文本后点击“标注”<br />注释将直接停靠在文字右侧
         </div>
+      )}
+
+      {documentAnnotationCount >= ANNOTATION_CLEANUP_THRESHOLD && (
+        <div className="mb-2 rounded-lg border border-amber-500/30 bg-amber-50/80 p-2 text-[11px] text-amber-700 dark:border-amber-400/30 dark:bg-amber-950/40 dark:text-amber-300">
+          当前文档标注 {documentAnnotationCount} 条，建议清理未解决注释
+        </div>
+      )}
+
+      {unresolvedPanel && (
+        <div className="absolute left-0 w-full z-10">{unresolvedPanel}</div>
       )}
 
       {/* 原位便签卡片列表 */}

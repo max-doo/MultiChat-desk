@@ -6,7 +6,8 @@
  * 不触碰旧笔记 JSON 和 `.migration-backup`。
  */
 
-import { mkdir, readFile, readdir, rename, rm, writeFile } from 'fs/promises'
+import { constants } from 'fs'
+import { copyFile, mkdir, readFile, readdir, rename, rm, writeFile } from 'fs/promises'
 import type { Dirent } from 'fs'
 import path from 'path'
 import type { NoteConversation } from '../../shared/types/notes'
@@ -149,7 +150,10 @@ async function repairFile(
       )
       const backupPath = path.join(root, backupRelativePath)
       await mkdir(path.dirname(backupPath), { recursive: true })
-      await writeFile(backupPath, content, 'utf8')
+      // 已有备份说明这是第二次改写：保留最初那份原文，不能用“已修复内容”覆盖它。
+      await copyFile(absolutePath, backupPath, constants.COPYFILE_EXCL).catch(error => {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+      })
       const temporary = `${absolutePath}.${Date.now()}.tmp`
       try {
         await writeFile(temporary, next, 'utf8')

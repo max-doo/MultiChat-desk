@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { Annotation } from '../../../../shared/types/annotations'
+import type { Annotation, AnnotationAnchor } from '../../../../shared/types/annotations'
 import {
   WORKBENCH_HTML_ANNOTATION_EVENT,
   WORKBENCH_HTML_ANNOTATION_MESSAGE_SOURCE,
@@ -18,8 +18,9 @@ interface WorkbenchHtmlAnnotationPreviewProps {
 
 interface CommentCardState {
   id: string
-  mode: 'create' | 'edit'
+  mode: 'create' | 'edit' | 'relocate'
   quote: string
+  anchor: AnnotationAnchor
   left: number
   top: number
 }
@@ -28,6 +29,14 @@ const CARD_WIDTH = 320
 const CARD_ESTIMATED_HEIGHT = 250
 const FRAME_READY_TIMEOUT_MS = 4500
 const CAPTURE_TIMEOUT_MS = 3500
+const RELOCATE_TIMEOUT_MS = 10_000
+
+function buildResolutionFingerprint(items: Annotation[], unlocated: string[]): string {
+  return `${items
+    .map((item) => `${item.id}|${item.anchorRevision ?? 1}|${JSON.stringify(item.anchor)}`)
+    .sort()
+    .join('\n')}|${[...unlocated].sort().join(',')}`
+}
 
 function buildAnnotationUrl(fileUrl: string): string {
   try {
@@ -62,6 +71,11 @@ export default function WorkbenchHtmlAnnotationPreview({
   const [hint, setHint] = useState<string | null>(null)
   const [frameReady, setFrameReady] = useState(false)
   const [frameFailed, setFrameFailed] = useState(false)
+  const [unlocatedIds, setUnlocatedIds] = useState<string[]>([])
+  const [showUnresolved, setShowUnresolved] = useState(false)
+  const [showCleanup, setShowCleanup] = useState(false)
+  const [cleanupIds, setCleanupIds] = useState<string[]>([])
+  const [unresolvedError, setUnresolvedError] = useState<string | null>(null)
 
   const stageRef = useRef<HTMLDivElement | null>(null)
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
@@ -70,16 +84,21 @@ export default function WorkbenchHtmlAnnotationPreview({
   const annotationsRef = useRef<Annotation[]>([])
   const frameReadyRef = useRef(false)
   const busyRef = useRef(false)
+  const cleanupIdsRef = useRef<string[]>([])
   const loadSeqRef = useRef(0)
   const captureSeqRef = useRef(0)
   const captureIdRef = useRef<string | null>(null)
   const captureTimerRef = useRef<number | null>(null)
+  const pendingRelocateIdRef = useRef<string | null>(null)
+  const relocateTimerRef = useRef<number | null>(null)
+  const resolutionFingerprintRef = useRef('')
   const readyTimerRef = useRef<number | null>(null)
   const hintTimerRef = useRef<number | null>(null)
 
   cardRef.current = card
   draftRef.current = draft
   busyRef.current = busy
+  cleanupIdsRef.current = cleanupIds
 
   const allAnnotations = useMemo(() => {
     if (!draft) return annotations
@@ -89,7 +108,6 @@ export default function WorkbenchHtmlAnnotationPreview({
       : [...annotations, draft]
   }, [annotations, draft])
   annotationsRef.current = allAnnotations
-
   const postToFrame = useCallback((message: Record<string, unknown>) => {
     iframeRef.current?.contentWindow?.postMessage(
       { source: WORKBENCH_HTML_ANNOTATION_MESSAGE_SOURCE, ...message },
@@ -122,6 +140,14 @@ export default function WorkbenchHtmlAnnotationPreview({
     if (captureTimerRef.current !== null) {
       window.clearTimeout(captureTimerRef.current)
       captureTimerRef.current = null
+    }
+  }, [])
+
+  const clearRelocateTimer = useCallback(() => {
+    pendingRelocateIdRef.current = null
+    if (relocateTimerRef.current !== null) {
+      window.clearTimeout(relocateTimerRef.current)
+      relocateTimerRef.current = null
     }
   }, [])
 
@@ -169,7 +195,14 @@ export default function WorkbenchHtmlAnnotationPreview({
     setComment('')
     setError(null)
     setDraft(null)
-  }, [filePath, workspacePath])
+    setUnlocatedIds([])
+    setShowUnresolved(false)
+    setShowCleanup(false)
+    setCleanupIds([])
+    setUnresolvedError(null)
+    resolutionFingerprintRef.current = ''
+    clearRelocateTimer()
+  }, [clearRelocateTimer, filePath, workspacePath])
 
   useEffect(() => {
     if (!frameReady) return
@@ -178,6 +211,7 @@ export default function WorkbenchHtmlAnnotationPreview({
 
   const closeCard = useCallback((discardDraft = true) => {
     const current = cardRef.current
+    clearRelocateTimer()
     if (current?.mode === 'create' && discardDraft) {
       setDraft((previous) => (previous?.id === current.id ? null : previous))
     }
@@ -187,7 +221,7 @@ export default function WorkbenchHtmlAnnotationPreview({
     setCard(null)
     setComment('')
     setError(null)
-  }, [postToFrame])
+  }, [clearRelocateTimer, postToFrame])
 
   const placeCard = useCallback(
     (rect: WorkbenchHtmlAnnotationRect): { left: number; top: number } => {
@@ -249,6 +283,26 @@ export default function WorkbenchHtmlAnnotationPreview({
       ) {
         clearCaptureTimer()
         postToFrame({ type: 'focus', id: '' })
+        const pendingRelocateId = pendingRelocateIdRef.current
+        if (pendingRelocateId) {
+          clearRelocateTimer()
+          const target = annotationsRef.current.find((item) => item.id === pendingRelocateId)
+          if (!target) {
+            showHint('原注释已删除')
+            return
+          }
+          setCard({
+            id: target.id,
+            mode: 'relocate',
+            quote: data.quote ?? target.quote,
+            anchor: data.anchor,
+            ...placeCard(data.rect)
+          })
+          setComment(target.comment)
+          setError(null)
+          setDraft((previous) => (previous?.id === target.id ? null : previous))
+          return
+        }
         const now = Date.now()
         const next: Annotation = {
           id: crypto.randomUUID(),
@@ -266,6 +320,7 @@ export default function WorkbenchHtmlAnnotationPreview({
           id: next.id,
           mode: 'create',
           quote: next.quote,
+          anchor: next.anchor,
           ...placeCard(data.rect)
         })
         return
@@ -273,6 +328,7 @@ export default function WorkbenchHtmlAnnotationPreview({
 
       if (data.type === 'capture-error' && data.id === captureIdRef.current) {
         clearCaptureTimer()
+        clearRelocateTimer()
         showHint(
           (data.error && CAPTURE_ERRORS[data.error]) || '没有获取到可标注的文字'
         )
@@ -294,6 +350,7 @@ export default function WorkbenchHtmlAnnotationPreview({
           id: annotation.id,
           mode: 'edit',
           quote: annotation.quote,
+          anchor: annotation.anchor,
           ...placeCard(
             data.rect ?? { left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 }
           )
@@ -302,14 +359,60 @@ export default function WorkbenchHtmlAnnotationPreview({
       }
 
       if (data.type === 'dismiss') {
+        clearRelocateTimer()
         if (busyRef.current) return
         closeCard()
+      }
+
+      if (data.type === 'resolved' && Array.isArray(data.unlocated)) {
+        setUnlocatedIds(data.unlocated)
+        const unlocated = data.unlocated as string[]
+        const fingerprint = buildResolutionFingerprint(allAnnotations, unlocated)
+        if (fingerprint === resolutionFingerprintRef.current) return
+        if (!workspacePath || !filePath) return
+        const resolutions = allAnnotations.map((item) => ({
+          id: item.id,
+          state: unlocated.includes(item.id) ? 'unlocated' as const : 'anchored' as const,
+          baseAnchorRevision: item.anchorRevision ?? 1
+        }))
+        void window.api.annotations
+          .reconcileDocument(workspacePath, filePath, resolutions)
+          .then((result) => {
+            if (!result.success) {
+              resolutionFingerprintRef.current = ''
+              setUnresolvedError(result.error || '标注状态保存失败')
+              return
+            }
+            setUnresolvedError(null)
+            if (result.success && result.data) {
+              resolutionFingerprintRef.current = buildResolutionFingerprint(
+                result.data.annotations,
+                unlocated
+              )
+              setAnnotations(result.data.annotations)
+            }
+          })
+          .catch(() => {
+            resolutionFingerprintRef.current = ''
+            setUnresolvedError('标注状态保存失败')
+          })
       }
     }
 
     window.addEventListener('message', handleMessage)
     return () => window.removeEventListener('message', handleMessage)
-  }, [clearCaptureTimer, closeCard, placeCard, postToFrame, showHint, syncFrame])
+  }, [
+    allAnnotations,
+    clearCaptureTimer,
+    clearRelocateTimer,
+    closeCard,
+    filePath,
+    placeCard,
+    postToFrame,
+    showHint,
+    syncFrame,
+    workspacePath
+  ])
 
   useEffect(() => {
     const handleAnnotateRequest = (): void => {
@@ -319,6 +422,7 @@ export default function WorkbenchHtmlAnnotationPreview({
         return
       }
       if (captureIdRef.current) return
+      if (!pendingRelocateIdRef.current) clearRelocateTimer()
 
       const id = `mha-${++captureSeqRef.current}`
       captureIdRef.current = id
@@ -333,7 +437,7 @@ export default function WorkbenchHtmlAnnotationPreview({
     window.addEventListener(WORKBENCH_HTML_ANNOTATION_EVENT, handleAnnotateRequest)
     return () =>
       window.removeEventListener(WORKBENCH_HTML_ANNOTATION_EVENT, handleAnnotateRequest)
-  }, [filePath, postToFrame, showHint, workspacePath])
+  }, [clearRelocateTimer, filePath, postToFrame, showHint, workspacePath])
 
   useEffect(() => {
     if (!card) return
@@ -364,20 +468,57 @@ export default function WorkbenchHtmlAnnotationPreview({
       if (captureTimerRef.current !== null) window.clearTimeout(captureTimerRef.current)
       if (readyTimerRef.current !== null) window.clearTimeout(readyTimerRef.current)
       if (hintTimerRef.current !== null) window.clearTimeout(hintTimerRef.current)
+      clearRelocateTimer()
     }
-  }, [])
+  }, [clearRelocateTimer])
 
   const handleFrameLoad = useCallback((): void => {
     frameReadyRef.current = false
     setFrameReady(false)
     setFrameFailed(false)
+    clearRelocateTimer()
+    setUnlocatedIds([])
+    resolutionFingerprintRef.current = ''
     armReadyTimer()
     postToFrame({ type: 'ping' })
-  }, [armReadyTimer, postToFrame])
+  }, [armReadyTimer, clearRelocateTimer, postToFrame])
 
   const commitComment = async (): Promise<void> => {
     const current = cardRef.current
     if (!current || !workspacePath || !filePath || busyRef.current) return
+    if (current.mode === 'relocate') {
+      const annotation = annotationsRef.current.find((item) => item.id === current.id)
+      if (!annotation) {
+        closeCard()
+        return
+      }
+      setBusy(true)
+      setError(null)
+      try {
+        const result = await window.api.annotations.reanchorDocument(
+          workspacePath,
+          filePath,
+          current.id,
+          current.quote,
+          current.anchor,
+          annotation.anchorRevision ?? 1
+        )
+        if (!result.success || !result.data) {
+          setError(result.error || '重新定位失败')
+          return
+        }
+        const saved = result.data
+        setAnnotations((previous) => previous.map((item) => (item.id === saved.id ? saved : item)))
+        setUnlocatedIds((previous) => previous.filter((item) => item !== saved.id))
+        closeCard(false)
+        showHint('注释已重新定位')
+      } catch {
+        setError('重新定位失败')
+      } finally {
+        setBusy(false)
+      }
+      return
+    }
     const annotation = annotationsRef.current.find((item) => item.id === current.id)
     if (!annotation) {
       closeCard()
@@ -392,11 +533,22 @@ export default function WorkbenchHtmlAnnotationPreview({
         comment: comment.trim(),
         updatedAt: Date.now()
       }
-      const result = await window.api.annotations.upsertDocument(
-        workspacePath,
-        filePath,
-        next
-      )
+      const result = draftRef.current?.id === current.id
+        ? await window.api.annotations.createDocument(workspacePath, filePath, {
+            ...next,
+            id: draftRef.current.id,
+            originalQuote: draftRef.current.originalQuote || next.quote,
+            anchorState: 'anchored',
+            anchorRevision: 1,
+            lastAnchoredAt: Date.now()
+          })
+        : await window.api.annotations.updateDocumentComment(
+            workspacePath,
+            filePath,
+            current.id,
+            next.comment,
+            annotation.updatedAt
+          )
       if (!result.success) {
         setError(result.error || '标注保存失败')
         return
@@ -444,6 +596,68 @@ export default function WorkbenchHtmlAnnotationPreview({
     }
   }
 
+  const deleteUnlocatedAnnotation = async (id: string): Promise<void> => {
+    if (!workspacePath || !filePath || busyRef.current) return
+    if (!window.confirm('删除这条未定位标注？')) return
+    setBusy(true)
+    setError(null)
+    try {
+      const result = await window.api.annotations.deleteDocument(workspacePath, filePath, id)
+      if (!result.success) {
+        setError(result.error || '删除标注失败')
+        return
+      }
+      setAnnotations((previous) => previous.filter((item) => item.id !== id))
+      setUnlocatedIds((previous) => previous.filter((item) => item !== id))
+    } catch {
+      setError('删除标注失败')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const openCleanup = useCallback((): void => {
+    setCleanupIds(unlocatedIds)
+    setShowCleanup(true)
+    setShowUnresolved(false)
+  }, [unlocatedIds])
+
+  const deleteUnlocatedAnnotations = async (): Promise<void> => {
+    const ids = [...new Set(cleanupIdsRef.current)]
+    if (!ids.length) {
+      setShowCleanup(false)
+      return
+    }
+    if (!window.confirm(`删除选中的 ${ids.length} 条未定位标注？`)) return
+    if (!workspacePath || !filePath || busyRef.current) return
+    setBusy(true)
+    setError(null)
+    const failedIds: string[] = []
+    try {
+      for (const id of ids) {
+        const result = await window.api.annotations.deleteDocument(workspacePath, filePath, id)
+        if (result.success) {
+          setAnnotations((previous) => previous.filter((item) => item.id !== id))
+          setUnlocatedIds((previous) => previous.filter((item) => item !== id))
+          setCleanupIds((previous) => previous.filter((item) => item !== id))
+        } else {
+          failedIds.push(id)
+        }
+      }
+      if (failedIds.length) {
+        setCleanupIds(failedIds)
+        setError(`${failedIds.length} 条标注删除失败`)
+      } else {
+        setShowCleanup(false)
+        showHint('未定位标注已清理')
+      }
+    } catch {
+      setError('未定位标注清理失败')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <div ref={stageRef} className="relative flex-1 h-full overflow-hidden bg-white">
       <iframe
@@ -472,6 +686,131 @@ export default function WorkbenchHtmlAnnotationPreview({
         </div>
       )}
 
+      {annotations.length >= 400 && (
+        <div className="absolute left-1/2 top-12 z-30 -translate-x-1/2 rounded-lg border border-amber-500/30 bg-amber-50/95 px-3 py-1.5 text-xs text-amber-700 shadow-sm dark:border-amber-400/30 dark:bg-amber-950/80 dark:text-amber-300">
+          当前文档标注 {annotations.length} 条，建议清理未解决注释
+        </div>
+      )}
+
+      {unresolvedError && (
+        <div className="absolute left-1/2 top-12 z-30 -translate-x-1/2 rounded-lg border border-rose-500/30 bg-rose-50/95 px-3 py-1.5 text-xs text-rose-600 shadow-sm dark:border-rose-400/30 dark:bg-rose-950/80 dark:text-rose-300">
+          {unresolvedError}
+        </div>
+      )}
+
+      {unlocatedIds.length > 0 && (
+        <div className="absolute right-3 top-3 z-20">
+          <button
+            type="button"
+            onClick={() => setShowUnresolved((previous) => !previous)}
+            className="rounded-lg border border-rose-500/30 bg-white/95 px-2 py-1 text-xs font-semibold text-rose-600 shadow-sm dark:bg-gray-800/95 dark:text-rose-400"
+          >
+            未定位 {unlocatedIds.length}
+          </button>
+          {showUnresolved && (
+            <div className="absolute right-0 top-9 w-64 max-h-72 overflow-y-auto rounded-lg border border-rose-500/30 bg-white p-2 text-left shadow-lg dark:bg-gray-800">
+              {unlocatedIds.map((id) => {
+                const annotation = annotations.find((item) => item.id === id)
+                if (!annotation) return null
+                return (
+                  <div key={id} className="mb-2 rounded-md bg-rose-50/70 p-2 text-[11px] dark:bg-rose-950/30">
+                    <div className="line-through decoration-rose-400/60 break-words text-text-secondary/70">
+                      {annotation.originalQuote || annotation.quote}
+                    </div>
+                    <div className="mt-1 break-words text-text-primary">
+                      {annotation.comment || '暂无评论'}
+                    </div>
+                    <div className="mt-1 flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          clearRelocateTimer()
+                          pendingRelocateIdRef.current = id
+                          relocateTimerRef.current = window.setTimeout(() => {
+                            clearRelocateTimer()
+                            showHint('重新定位超时')
+                          }, RELOCATE_TIMEOUT_MS)
+                          setShowUnresolved(false)
+                          showHint('请选择新文字，再点击“标注”保存位置')
+                        }}
+                        className="rounded px-1.5 py-0.5 text-[10px] text-primary hover:bg-primary/10"
+                      >
+                        重新定位
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (busyRef.current) return
+                          void deleteUnlocatedAnnotation(id)
+                        }}
+                        className="rounded px-1.5 py-0.5 text-[10px] text-rose-600 hover:bg-rose-100 dark:text-rose-400 dark:hover:bg-rose-900/40"
+                      >
+                        删除
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+              <div className="mt-1.5 border-t border-rose-500/10 pt-1.5">
+                <button
+                  type="button"
+                  onClick={openCleanup}
+                  className="w-full rounded px-1.5 py-0.5 text-[10px] text-rose-600 hover:bg-rose-100 dark:text-rose-400 dark:hover:bg-rose-900/40"
+                >
+                  清理未解决
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {showCleanup && (
+        <div className="absolute right-3 top-14 z-30 w-72 rounded-lg border border-rose-500/30 bg-white p-3 text-left shadow-lg dark:bg-gray-800">
+          <div className="text-xs font-semibold text-text-primary">清理未解决</div>
+          {unlocatedIds.map((id) => {
+            const annotation = annotations.find((item) => item.id === id)
+            if (!annotation) return null
+            return (
+              <label key={id} className="mt-1.5 flex items-start gap-2 text-[11px] text-text-secondary">
+                <input
+                  type="checkbox"
+                  checked={cleanupIds.includes(id)}
+                  onChange={(event) => {
+                    setCleanupIds((previous) =>
+                      event.target.checked
+                        ? [...new Set([...previous, id])]
+                        : previous.filter((item) => item !== id)
+                    )
+                  }}
+                  className="mt-0.5"
+                />
+                <span className="line-clamp-2 break-words">
+                  {annotation.originalQuote || annotation.quote}
+                </span>
+              </label>
+            )
+          })}
+          <div className="mt-2.5 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setShowCleanup(false)}
+              className="rounded px-2 py-1 text-[11px] text-text-secondary hover:bg-black/5 dark:hover:bg-white/10"
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              disabled={busy || cleanupIds.length === 0}
+              onClick={() => void deleteUnlocatedAnnotations()}
+              className="rounded bg-rose-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-rose-700 disabled:opacity-40"
+            >
+              删除
+            </button>
+          </div>
+        </div>
+      )}
+
       {card && (
         <AnnotationCommentCard
           className="absolute z-30"
@@ -482,7 +821,7 @@ export default function WorkbenchHtmlAnnotationPreview({
           onChange={setComment}
           onCancel={() => closeCard()}
           onSave={() => void commitComment()}
-          saveLabel="保存标注"
+          saveLabel={card.mode === 'relocate' ? '保存位置' : '保存标注'}
           placeholder="添加评论…"
           busy={busy}
           error={error}

@@ -44,6 +44,7 @@ import {
     readTree as workbenchReadTree,
     readFile as workbenchReadFile,
     readPdfRange as workbenchReadPdfRange,
+    readDocxBytes as workbenchReadDocxBytes,
     writeFile as workbenchWriteFile,
     createNode as workbenchCreateNode,
     renameNode as workbenchRenameNode,
@@ -71,10 +72,16 @@ import {
   isAuthorizedWorkspaceRoot,
   authorizeWorkspaceRoot,
   isKnownWorkspaceRoot as workbenchIsKnownWorkspaceRoot,
-  assertSafePath
+  listKnownWorkspaceRoots as workbenchListKnownWorkspaceRoots,
+    assertSafePath,
+    resolveWorkbenchFileRequest,
+    WORKBENCH_FILE_SCHEME
 } from './services/workbenchService'
 import {
     listDocumentAnnotationsWithRecovery,
+    createDocumentAnnotation,
+    updateDocumentAnnotationComment,
+    reanchorDocumentAnnotation,
     upsertDocumentAnnotation,
     deleteDocumentAnnotation,
     rekeyDocumentAnnotations,
@@ -83,6 +90,7 @@ import {
     reconcileDocumentAnnotations,
     listSourceAnnotations,
     upsertSourceAnnotation,
+    updateSourceAnnotationComment,
     deleteSourceAnnotation
 } from './services/annotationService'
 import {
@@ -91,12 +99,18 @@ import {
     captureExcerptDocument
 } from './services/conversationDocumentService'
 import { LegacyMigrationService } from './services/legacyMigrationService'
+import {
+    summarizeFrontmatterBackups,
+    clearFrontmatterBackups
+} from './services/frontmatterBackupService'
 import type {
     Annotation,
     AnnotationSource,
     AnnotationChangedEvent,
+    AnnotationAnchor,
     CaptureExcerptInput,
     CaptureSourceInput,
+    DocumentResolution,
     EnsureDocumentInput
 } from '../shared/types/annotations'
 import type { WorkbenchNodeType } from '../shared/types/workbench'
@@ -1417,6 +1431,17 @@ export async function registerIpcHandlers(
                 return { success: true, filePath }
             }
 
+            // 工作台 HTML 预览内嵌图片走自定义协议，主进程不能 fetch，需要走白名单解析后复制本地文件
+            if (imageUrl.startsWith(`${WORKBENCH_FILE_SCHEME}://`)) {
+                const realPath = await resolveWorkbenchFileRequest(imageUrl)
+                if (!realPath) {
+                    return { success: false, error: '图片路径不在已授权工作区内' }
+                }
+                const { copyFile } = await import('fs/promises')
+                await copyFile(realPath, filePath)
+                return { success: true, filePath }
+            }
+
             const response = await fetch(imageUrl)
             if (!response.ok) {
                 return { success: false, error: `下载失败: ${response.status} ${response.statusText}` }
@@ -1426,6 +1451,23 @@ export async function registerIpcHandlers(
             const { writeFile } = await import('fs/promises')
             await writeFile(filePath, buffer)
             return { success: true, filePath }
+        } catch (error) {
+            return { success: false, error: String(error) }
+        }
+    })
+
+    // 工作台 HTML 预览内嵌图片右键复制：copyImageAt 必须在主进程对 webContents 调用
+    ipcMain.handle('workbench:copy-image-at', (event, x: number, y: number) => {
+        try {
+            if (typeof x !== 'number' || typeof y !== 'number' || !Number.isFinite(x) || !Number.isFinite(y)) {
+                return { success: false, error: '无效的坐标' }
+            }
+            const wc = event.sender
+            if (!wc || wc.isDestroyed()) {
+                return { success: false, error: '目标窗口已销毁' }
+            }
+            wc.copyImageAt(Math.round(x), Math.round(y))
+            return { success: true }
         } catch (error) {
             return { success: false, error: String(error) }
         }
@@ -1827,10 +1869,81 @@ export async function registerIpcHandlers(
         } catch (err: unknown) { return { success: false, error: err instanceof Error ? err.message : String(err) } }
     })
 
+    ipcMain.handle('annotations:create-document', async (_event, payload: { workspaceRoot: string; relativePath: string; annotation: Annotation }) => {
+        try {
+            assertActiveWorkspace(payload.workspaceRoot)
+            const data = await createDocumentAnnotation(payload, payload.annotation)
+            broadcastAnnotations({ scope: 'document', workspaceRoot: payload.workspaceRoot, relativePath: payload.relativePath })
+            return { success: true, data }
+        } catch (err: unknown) { return { success: false, error: err instanceof Error ? err.message : String(err) } }
+    })
+
+    ipcMain.handle('annotations:update-document-comment', async (_event, payload: {
+        workspaceRoot: string
+        relativePath: string
+        id: string
+        comment: string
+        baseUpdatedAt: number
+    }) => {
+        try {
+            assertActiveWorkspace(payload.workspaceRoot)
+            const data = await updateDocumentAnnotationComment(
+                payload,
+                payload.id,
+                payload.comment,
+                payload.baseUpdatedAt
+            )
+            broadcastAnnotations({ scope: 'document', workspaceRoot: payload.workspaceRoot, relativePath: payload.relativePath })
+            return { success: true, data }
+        } catch (err: unknown) { return { success: false, error: err instanceof Error ? err.message : String(err) } }
+    })
+
+    ipcMain.handle('annotations:reanchor-document', async (_event, payload: {
+        workspaceRoot: string
+        relativePath: string
+        id: string
+        quote: string
+        anchor: AnnotationAnchor
+        baseAnchorRevision: number
+    }) => {
+        try {
+            assertActiveWorkspace(payload.workspaceRoot)
+            const data = await reanchorDocumentAnnotation(
+                payload,
+                payload.id,
+                payload.quote,
+                payload.anchor,
+                payload.baseAnchorRevision
+            )
+            broadcastAnnotations({ scope: 'document', workspaceRoot: payload.workspaceRoot, relativePath: payload.relativePath })
+            return { success: true, data }
+        } catch (err: unknown) { return { success: false, error: err instanceof Error ? err.message : String(err) } }
+    })
+
     ipcMain.handle('annotations:upsert-source', async (_event, payload: { sourceKey: string; source: AnnotationSource; annotation: Annotation }) => {
         try {
             const workspace = await workbenchEnsureDefaultWorkspace(store)
             const data = await upsertSourceAnnotation(workspace.path, payload.sourceKey, payload.source, payload.annotation)
+            broadcastAnnotations({ scope: 'source', sourceKey: payload.sourceKey })
+            return { success: true, data }
+        } catch (err: unknown) { return { success: false, error: err instanceof Error ? err.message : String(err) } }
+    })
+
+    ipcMain.handle('annotations:update-source-comment', async (_event, payload: {
+        sourceKey: string
+        id: string
+        comment: string
+        baseUpdatedAt: number
+    }) => {
+        try {
+            const workspace = await workbenchEnsureDefaultWorkspace(store)
+            const data = await updateSourceAnnotationComment(
+                workspace.path,
+                payload.sourceKey,
+                payload.id,
+                payload.comment,
+                payload.baseUpdatedAt
+            )
             broadcastAnnotations({ scope: 'source', sourceKey: payload.sourceKey })
             return { success: true, data }
         } catch (err: unknown) { return { success: false, error: err instanceof Error ? err.message : String(err) } }
@@ -1848,12 +1961,12 @@ export async function registerIpcHandlers(
     ipcMain.handle('annotations:reconcile-document', async (_event, payload: {
         workspaceRoot: string
         relativePath: string
-        anchors: Array<Pick<Annotation, 'id' | 'quote' | 'anchor'>>
+        resolutions: DocumentResolution[]
     }) => {
         try {
             assertActiveWorkspace(payload.workspaceRoot)
-            const data = await reconcileDocumentAnnotations(payload, payload.anchors)
-            if (data.updated) {
+            const data = await reconcileDocumentAnnotations(payload, payload.resolutions)
+            if (data.applied.length) {
                 broadcastAnnotations({
                     scope: 'document',
                     workspaceRoot: payload.workspaceRoot,
@@ -1948,6 +2061,22 @@ export async function registerIpcHandlers(
         try { await legacyMigration.abandon(jobId); return { success: true } }
         catch (err: unknown) { return { success: false, error: err instanceof Error ? err.message : String(err) } }
     })
+    // 迁移前备份跨工作区分布：默认库、历史工作区与当前工作区一并统计。
+    ipcMain.handle('notes:frontmatter-backups', async () => {
+        try {
+            const roots = workbenchListKnownWorkspaceRoots(store)
+            return { success: true, data: await summarizeFrontmatterBackups(roots) }
+        }
+        catch (err: unknown) { return { success: false, error: err instanceof Error ? err.message : String(err) } }
+    })
+    ipcMain.handle('notes:clear-frontmatter-backups', async () => {
+        try {
+            if (legacyMigration.isActive()) throw new Error('旧笔记迁移进行中，暂不能清理备份')
+            const roots = workbenchListKnownWorkspaceRoots(store)
+            return { success: true, data: await clearFrontmatterBackups(roots) }
+        }
+        catch (err: unknown) { return { success: false, error: err instanceof Error ? err.message : String(err) } }
+    })
 
     ipcMain.handle('workbench:read-tree', async (_event, payload: string | { workspaceRoot: string }) => {
         try {
@@ -1984,6 +2113,19 @@ export async function registerIpcHandlers(
                 payload.start,
                 payload.end
             )
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    // Word 内嵌预览：整份字节走 IPC 二进制，跳过 base64 dataUrl 的字符串膨胀；
+    // 10MB 上限在 service 内校验，渲染层解析完成后不把 buffer 放进全局 store。
+    ipcMain.handle('workbench:read-docx-bytes', async (_event, payload: { workspaceRoot: string; relativePath: string }) => {
+        try {
+            assertActiveWorkspace(payload.workspaceRoot)
+            const data = await workbenchReadDocxBytes(payload.workspaceRoot, payload.relativePath)
             return { success: true, data }
         } catch (err: unknown) {
             const error = err instanceof Error ? err.message : String(err)

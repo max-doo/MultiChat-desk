@@ -177,10 +177,14 @@ export class NoteManager {
         const conversation = this.convert(value)
         // 新版工作台会创建 version:2、无正文/批注/导图的记录（例如打开文档时对账）。
         // 这类记录没有可迁移内容，不能算进“旧笔记待迁移”，否则任务永远无法收敛。
-        const hasContent =
-          conversation.snapshot.trim().length > 0 ||
-          conversation.notes.length > 0 ||
-          conversation.mindmaps.length > 0
+        // 工作台记录的正文以 Markdown 文件为准，snapshot 只是 Phase 2 之前留下的
+        // 第二份副本，不能算作迁移资产；否则只剩副本、没有批注/导图的记录会一直
+        // 显示为“待迁移”，而实际没有任何东西可迁。
+        const hasContent = conversation.workbench
+          ? conversation.notes.length > 0 || conversation.mindmaps.length > 0
+          : conversation.snapshot.trim().length > 0 ||
+            conversation.notes.length > 0 ||
+            conversation.mindmaps.length > 0
         if (!hasContent && !conversation.migratedAt && !conversation.migrationBlocked) continue
         result.push({ conversation, filePath })
       } catch {

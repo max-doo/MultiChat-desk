@@ -1,7 +1,17 @@
 import { create } from 'zustand'
-import type { Annotation } from '../../../shared/types/annotations'
+import type {
+  Annotation,
+  AnnotationAnchorReason,
+  AnnotationAnchorState
+} from '../../../shared/types/annotations'
+import { isUnresolvedAnchorState } from '../../../shared/utils/annotationAnchors'
 
 export type AnnotationFilter = 'all' | 'document' | 'source' | 'unlocated'
+
+export interface AnnotationResolution {
+  state: AnnotationAnchorState
+  reason?: AnnotationAnchorReason
+}
 
 interface AnnotationState {
   workspaceRoot: string | null
@@ -10,6 +20,7 @@ interface AnnotationState {
   sourceAnnotations: Annotation[]
   sourceKey: string | null
   unlocatedIds: string[]
+  resolutionById: Record<string, AnnotationResolution>
   selectedId: string | null
   filter: AnnotationFilter
   loading: boolean
@@ -23,6 +34,8 @@ interface AnnotationActions {
   setDocumentAnnotations: (items: Annotation[], token: number) => void
   setSourceAnnotations: (items: Annotation[], token: number) => void
   setUnlocated: (ids: string[], token: number) => void
+  setResolution: (id: string, resolution: AnnotationResolution) => void
+  setResolutions: (entries: Array<{ id: string } & AnnotationResolution>, token?: number) => void
   upsertLocal: (annotation: Annotation) => void
   removeLocal: (id: string) => void
   setSelected: (id: string | null) => void
@@ -40,6 +53,7 @@ export const useAnnotationStore = create<AnnotationStore>((set, get) => ({
   sourceAnnotations: [],
   sourceKey: null,
   unlocatedIds: [],
+  resolutionById: {},
   selectedId: null,
   filter: 'all',
   loading: false,
@@ -53,6 +67,7 @@ export const useAnnotationStore = create<AnnotationStore>((set, get) => ({
     documentAnnotations: [],
     sourceAnnotations: [],
     unlocatedIds: [],
+    resolutionById: {},
     selectedId: null,
     error: null,
     loading: Boolean(relativePath),
@@ -61,15 +76,75 @@ export const useAnnotationStore = create<AnnotationStore>((set, get) => ({
 
   setDocumentAnnotations: (items, token) => {
     if (token !== get().token) return
-    set({ documentAnnotations: items })
+    set(state => {
+      const nextResolution = { ...state.resolutionById }
+      const nextIds = new Set(items.map(item => item.id))
+      for (const previous of state.documentAnnotations) {
+        if (!nextIds.has(previous.id)) delete nextResolution[previous.id]
+      }
+      for (const item of items) {
+        if (item.anchorState) {
+          nextResolution[item.id] = {
+            state: item.anchorState,
+            reason: item.anchorReason
+          }
+        } else {
+          delete nextResolution[item.id]
+        }
+      }
+      return {
+        documentAnnotations: items,
+        resolutionById: nextResolution,
+        unlocatedIds: Object.entries(nextResolution)
+          .filter(([, resolution]) => isUnresolvedAnchorState(resolution.state))
+          .map(([id]) => id)
+      }
+    })
   },
   setSourceAnnotations: (items, token) => {
     if (token !== get().token) return
-    set({ sourceAnnotations: items })
+    set(state => {
+      const nextResolution = { ...state.resolutionById }
+      const nextIds = new Set(items.map(item => item.id))
+      for (const previous of state.sourceAnnotations) {
+        if (!nextIds.has(previous.id)) delete nextResolution[previous.id]
+      }
+      return {
+        sourceAnnotations: items,
+        resolutionById: nextResolution,
+        unlocatedIds: Object.entries(nextResolution)
+          .filter(([, resolution]) => isUnresolvedAnchorState(resolution.state))
+          .map(([id]) => id)
+      }
+    })
   },
   setUnlocated: (ids, token) => {
     if (token !== get().token) return
     set({ unlocatedIds: ids })
+  },
+  setResolution: (id, resolution) => set(state => {
+    const resolutionById = { ...state.resolutionById, [id]: resolution }
+    return {
+      resolutionById,
+      unlocatedIds: Object.entries(resolutionById)
+        .filter(([, item]) => isUnresolvedAnchorState(item.state))
+        .map(([itemId]) => itemId)
+    }
+  }),
+  setResolutions: (entries, token) => {
+    if (typeof token === 'number' && token !== get().token) return
+    set(state => {
+      const resolutionById = { ...state.resolutionById }
+      for (const entry of entries) {
+        resolutionById[entry.id] = { state: entry.state, reason: entry.reason }
+      }
+      return {
+        resolutionById,
+        unlocatedIds: Object.entries(resolutionById)
+          .filter(([, resolution]) => isUnresolvedAnchorState(resolution.state))
+          .map(([id]) => id)
+      }
+    })
   },
   upsertLocal: (annotation) => set(state => {
     const bucket = annotation.scope === 'document' ? 'documentAnnotations' : 'sourceAnnotations'
@@ -85,6 +160,9 @@ export const useAnnotationStore = create<AnnotationStore>((set, get) => ({
     documentAnnotations: state.documentAnnotations.filter(item => item.id !== id),
     sourceAnnotations: state.sourceAnnotations.filter(item => item.id !== id),
     unlocatedIds: state.unlocatedIds.filter(item => item !== id),
+    resolutionById: Object.fromEntries(
+      Object.entries(state.resolutionById).filter(([itemId]) => itemId !== id)
+    ),
     selectedId: state.selectedId === id ? null : state.selectedId
   })),
   setSelected: (id) => set({ selectedId: id }),
@@ -98,7 +176,7 @@ export const visibleAnnotations = (state: AnnotationStore): Annotation[] => {
   switch (state.filter) {
     case 'document': return all.filter(item => item.scope === 'document')
     case 'source': return all.filter(item => item.scope === 'source')
-    case 'unlocated': return all.filter(item => state.unlocatedIds.includes(item.id))
+    case 'unlocated': return all.filter(item => isUnresolvedAnchorState(state.resolutionById[item.id]?.state))
     default: return all
   }
 }

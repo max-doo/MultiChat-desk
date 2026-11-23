@@ -28,6 +28,10 @@ export interface SaveActiveFileResult {
   saved: boolean
   reason?: 'oversized' | 'conflict' | 'error' | 'binary' | 'no-active'
 }
+export interface DocumentAnnotationFlushResult {
+  saved: boolean
+  error?: string
+}
 export type HtmlEditLeaveDecision = 'saved' | 'discarded' | 'cancelled'
 export type EditorMode = 'wysiwyg' | 'source'
 export type WorkbenchAiAction = 'ask' | 'explain' | 'polish' | 'summarize'
@@ -35,6 +39,7 @@ export type WorkbenchAiAction = 'ask' | 'explain' | 'polish' | 'summarize'
 export type WorkbenchRightPane = 'ai' | 'mindmap' | null
 export type WorkbenchSortKey = 'name' | 'mtime' | 'size'
 export type WorkbenchSortOrder = 'asc' | 'desc'
+export type ImageBackgroundTheme = 'checkerboard' | 'light' | 'dark'
 
 export interface WorkbenchSortPreference {
   key: WorkbenchSortKey
@@ -189,12 +194,16 @@ interface WorkbenchStoreState {
   rightPane: WorkbenchRightPane
   /** 是否在文档右侧展示原位旁注便签 */
   showMarginNotes: boolean
+  /** 图片预览画布背景，全局持久化，切换图片后保持一致 */
+  imageBackgroundTheme: ImageBackgroundTheme
   /** 待生成的选区范围；由编辑器划词菜单写入，导图面板消费后清空。 */
   pendingMindmapSelection: { text: string; headingPath: string[] } | null
   /** 待打开的来源会话；笔记属性里的会话图标写入，AI 侧边栏消费后清空。 */
   pendingConversationOpen: { platformId: string; url: string; token: number } | null
   sidebarModelId: string
   editorMode: EditorMode
+  /** 由 WorkbenchAnnotationPlugin 注册；切文件、关闭和退出前等待最后一次对账。 */
+  documentAnnotationFlusher: (() => Promise<DocumentAnnotationFlushResult>) | null
 
   // 错误提示
   error: string | null
@@ -229,6 +238,10 @@ interface WorkbenchStoreActions {
     options?: { keepActiveOnMissing?: boolean }
   ) => Promise<boolean>
   saveActiveFile: () => Promise<SaveActiveFileResult>
+  setDocumentAnnotationFlusher: (
+    flusher: (() => Promise<DocumentAnnotationFlushResult>) | null
+  ) => void
+  flushDocumentAnnotations: () => Promise<DocumentAnnotationFlushResult>
   resolveExternalConflict: (choice: 'keep-mine' | 'take-disk') => Promise<boolean>
   updateActiveContent: (content: string) => void
   setHtmlEditFlusher: (flusher: (() => Promise<string>) | null) => void
@@ -275,6 +288,7 @@ interface WorkbenchStoreActions {
   consumeConversationOpen: (token: number) => void
   setSidebarModelId: (modelId: string) => void
   setEditorMode: (mode: EditorMode) => void
+  setImageBackgroundTheme: (theme: ImageBackgroundTheme) => void
   askAi: (text: string, actionType: WorkbenchAiAction) => void
   clearError: () => void
   showNotice: (message: string) => void
@@ -346,6 +360,122 @@ function findNode(nodes: WorkbenchFileNode[], target: string): WorkbenchFileNode
     }
   }
   return null
+}
+
+/** 按当前排序拍平文件列表（目录优先，与树渲染一致），用于删除后挑相邻文件 */
+function flattenSortedFiles(
+  nodes: WorkbenchFileNode[],
+  sort: WorkbenchSortPreference
+): WorkbenchFileNode[] {
+  const dir = sort.order === 'asc' ? 1 : -1
+  const flat: WorkbenchFileNode[] = []
+  const walk = (list: WorkbenchFileNode[]): void => {
+    const sorted = [...list].sort((a, b) => {
+      if (a.isDirectory && !b.isDirectory) return -1
+      if (!a.isDirectory && b.isDirectory) return 1
+      if (sort.key === 'name' || a.isDirectory || b.isDirectory) {
+        return dir * a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
+      }
+      if (sort.key === 'mtime') return dir * ((a.mtime ?? 0) - (b.mtime ?? 0))
+      const diff = (a.size ?? 0) - (b.size ?? 0)
+      return diff !== 0
+        ? dir * diff
+        : a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
+    })
+    for (const node of sorted) {
+      if (node.isDirectory) {
+        if (node.children) walk(node.children)
+      } else {
+        flat.push(node)
+      }
+    }
+  }
+  walk(nodes)
+  return flat
+}
+
+/** 路径是否命中待删除项（含被删目录下的子项） */
+function isDeletedPath(target: string, deletedPaths: readonly string[]): boolean {
+  return deletedPaths.some(path => target === path || target.startsWith(`${path}/`))
+}
+
+/** 删除后接管编辑器的文件：先向后取同序位的幸存文件，没有则向前取 */
+function pickNextActiveFile(
+  flat: WorkbenchFileNode[],
+  activePath: string,
+  deletedPaths: readonly string[]
+): string | null {
+  const index = flat.findIndex(node => node.path === activePath)
+  if (index < 0) return null
+  for (let i = index + 1; i < flat.length; i++) {
+    if (!isDeletedPath(flat[i].path, deletedPaths)) return flat[i].path
+  }
+  for (let i = index - 1; i >= 0; i--) {
+    if (!isDeletedPath(flat[i].path, deletedPaths)) return flat[i].path
+  }
+  return null
+}
+
+/** 从树中移除指定路径；无命中时返回原引用，避免整棵树被重建触发全量重渲染 */
+function removeTreePaths(nodes: WorkbenchFileNode[], deletedPaths: readonly string[]): WorkbenchFileNode[] {
+  let changed = false
+  const next: WorkbenchFileNode[] = []
+  for (const node of nodes) {
+    if (isDeletedPath(node.path, deletedPaths)) {
+      changed = true
+      continue
+    }
+    if (!node.children) {
+      next.push(node)
+      continue
+    }
+    const children = removeTreePaths(node.children, deletedPaths)
+    if (children === node.children) {
+      next.push(node)
+    } else {
+      changed = true
+      next.push({ ...node, children })
+    }
+  }
+  return changed ? next : nodes
+}
+
+/**
+ * 删除失败时还原编辑器：乐观移除已经清空了内容，必须把原状态写回去，
+ * 否则文件还在磁盘上却显示为空文档。
+ */
+function restoreActiveFileState(
+  snapshot: Pick<
+    WorkbenchStoreState,
+    | 'activeFilePath'
+    | 'activeFileContent'
+    | 'activeFileCategory'
+    | 'activeFileDataUrl'
+    | 'activeFileUrl'
+    | 'activeFileMime'
+    | 'activeFileSize'
+    | 'activeFileOversized'
+    | 'isDirty'
+    | 'saveStatus'
+    | 'conflictDiskContent'
+  >
+): void {
+  useWorkbenchStore.setState({
+    activeFilePath: snapshot.activeFilePath,
+    activeFileContent: snapshot.activeFileContent,
+    activeFileCategory: snapshot.activeFileCategory,
+    activeFileDataUrl: snapshot.activeFileDataUrl,
+    activeFileUrl: snapshot.activeFileUrl,
+    activeFileMime: snapshot.activeFileMime,
+    activeFileSize: snapshot.activeFileSize,
+    activeFileOversized: snapshot.activeFileOversized,
+    isDirty: snapshot.isDirty,
+    saveStatus: snapshot.saveStatus,
+    conflictDiskContent: snapshot.conflictDiskContent
+  })
+  if (snapshot.activeFilePath) {
+    void window.api.storeSet('workbench_lastActiveFilePath', snapshot.activeFilePath)
+  }
 }
 
 /**
@@ -445,10 +575,12 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   isLeftCollapsed: false,
   rightPane: 'ai',
   showMarginNotes: false,
+  imageBackgroundTheme: 'checkerboard',
   pendingMindmapSelection: null,
   pendingConversationOpen: null,
   sidebarModelId: 'chatgpt',
   editorMode: 'wysiwyg',
+  documentAnnotationFlusher: null,
 
   error: null,
   notice: null,
@@ -484,7 +616,8 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         savedSidebarModel,
         savedEditorMode,
         savedRecentWorkspaces,
-        savedFileSort
+        savedFileSort,
+        savedImageBackgroundTheme
       ] = await Promise.all([
         window.api.storeGet('workbench_lastWorkspacePath') as Promise<string | null>,
         window.api.storeGet('workbench_lastActiveFilePath') as Promise<string | null>,
@@ -496,7 +629,8 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         window.api.storeGet('workbench_sidebarModelId') as Promise<string | null>,
         window.api.storeGet('workbench_editorMode') as Promise<EditorMode | null>,
         window.api.storeGet('workbench_recentWorkspaces') as Promise<string[] | null>,
-        window.api.storeGet('workbench_fileSort') as Promise<WorkbenchSortPreference | null>
+        window.api.storeGet('workbench_fileSort') as Promise<WorkbenchSortPreference | null>,
+        window.api.storeGet('workbench_imageBackgroundTheme') as Promise<ImageBackgroundTheme | null>
       ])
 
       const updates: Partial<WorkbenchStoreState> = { isInitialized: true }
@@ -544,6 +678,13 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         (savedFileSort.order === 'asc' || savedFileSort.order === 'desc')
       ) {
         updates.fileSort = savedFileSort
+      }
+      if (
+        savedImageBackgroundTheme === 'checkerboard' ||
+        savedImageBackgroundTheme === 'light' ||
+        savedImageBackgroundTheme === 'dark'
+      ) {
+        updates.imageBackgroundTheme = savedImageBackgroundTheme
       }
 
       // 确保默认工作区存在（首次启动会创建），随后无论上次是否有保存的工作区，都先把默认路径放到 store
@@ -674,6 +815,11 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       const decision = await leaveGuard()
       if (decision === 'cancelled') return
     }
+    const annotationFlush = await get().flushDocumentAnnotations()
+    if (!annotationFlush.saved) {
+      set({ error: annotationFlush.error || '标注同步未完成，无法关闭工作区' })
+      return
+    }
     if (get().isDirty) {
       const saved = await get().saveActiveFile()
       if (!saved.saved) return
@@ -800,6 +946,12 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       }
       const decision = await leaveGuard()
       if (decision === 'cancelled') return false
+    }
+
+    const annotationFlush = await get().flushDocumentAnnotations()
+    if (!annotationFlush.saved) {
+      set({ error: annotationFlush.error || '标注同步未完成，无法安全切换文件' })
+      return false
     }
 
     // 源码模式的既有行为：前一个文件有未保存改动时先落盘，再切换。
@@ -994,6 +1146,21 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         error: `保存文件异常: ${msg}`
       })
       return { saved: false, reason: 'error' }
+    }
+  },
+
+  setDocumentAnnotationFlusher: (flusher) => set({ documentAnnotationFlusher: flusher }),
+
+  flushDocumentAnnotations: async () => {
+    const flusher = get().documentAnnotationFlusher
+    if (!flusher) return { saved: true }
+    try {
+      return await flusher()
+    } catch (error) {
+      return {
+        saved: false,
+        error: error instanceof Error ? error.message : '标注同步失败'
+      }
     }
   },
 
@@ -1229,73 +1396,68 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   },
 
   deleteNode: async (relativePath: string) => {
-    const { workspacePath, activeFilePath, fileTree, fileSort } = get()
+    const {
+      workspacePath,
+      activeFilePath,
+      activeFileContent,
+      activeFileCategory,
+      activeFileDataUrl,
+      activeFileUrl,
+      activeFileMime,
+      activeFileSize,
+      activeFileOversized,
+      isDirty,
+      saveStatus,
+      conflictDiskContent,
+      fileTree,
+      fileSort
+    } = get()
     if (!workspacePath) return false
 
     // 删除前按当前排序拍平文件列表，预取被删文件的后继者，删除后自动打开。
     // 覆盖两种情形：被删项即当前文件；被删目录包含当前文件。
-    let nextFilePath: string | null = null
-    if (activeFilePath === relativePath || (activeFilePath && activeFilePath.startsWith(`${relativePath}/`))) {
-      const dir = fileSort.order === 'asc' ? 1 : -1
-      const flat: WorkbenchFileNode[] = []
-      const walk = (nodes: WorkbenchFileNode[]) => {
-        const sorted = [...nodes].sort((a, b) => {
-          if (a.isDirectory && !b.isDirectory) return -1
-          if (!a.isDirectory && b.isDirectory) return 1
-          if (fileSort.key === 'name' || a.isDirectory || b.isDirectory) {
-            return dir * a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
-          }
-          if (fileSort.key === 'mtime') return dir * ((a.mtime ?? 0) - (b.mtime ?? 0))
-          const diff = (a.size ?? 0) - (b.size ?? 0)
-          return diff !== 0
-            ? dir * diff
-            : a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
-        })
-        for (const n of sorted) {
-          if (n.isDirectory) {
-            if (n.children) walk(n.children)
-          } else {
-            flat.push(n)
-          }
-        }
-      }
-      walk(fileTree)
-      const idx = flat.findIndex(n => n.path === activeFilePath)
-      const isSurvivor = (n: WorkbenchFileNode) =>
-        n.path !== relativePath && !n.path.startsWith(`${relativePath}/`)
-      // 先向后取同序位的幸存文件，没有则向前取
-      let next: WorkbenchFileNode | undefined
-      for (let i = idx + 1; i < flat.length; i++) {
-        if (isSurvivor(flat[i])) { next = flat[i]; break }
-      }
-      if (!next) {
-        for (let i = idx - 1; i >= 0; i--) {
-          if (isSurvivor(flat[i])) { next = flat[i]; break }
-        }
-      }
-      nextFilePath = next?.path ?? null
+    const deletedPaths = [relativePath]
+    const hitsActive = !!activeFilePath && isDeletedPath(activeFilePath, deletedPaths)
+    const nextFilePath = hitsActive && activeFilePath
+      ? pickNextActiveFile(flattenSortedFiles(fileTree, fileSort), activeFilePath, deletedPaths)
+      : null
+    const previousTree = fileTree
+    const activeSnapshot = {
+      activeFilePath,
+      activeFileContent,
+      activeFileCategory,
+      activeFileDataUrl,
+      activeFileUrl,
+      activeFileMime,
+      activeFileSize,
+      activeFileOversized,
+      isDirty,
+      saveStatus,
+      conflictDiskContent
+    }
+
+    // 乐观移除：弹窗关闭后节点立即消失，磁盘删除在后台完成
+    set({ fileTree: removeTreePaths(fileTree, deletedPaths) })
+    if (hitsActive) {
+      set({
+        activeFilePath: null,
+        activeFileContent: '',
+        activeFileCategory: null,
+        activeFileDataUrl: null,
+        activeFileUrl: null,
+        activeFileMime: null,
+        activeFileSize: null,
+        activeFileOversized: false,
+        isDirty: false,
+        saveStatus: 'saved',
+        conflictDiskContent: null
+      })
+      void window.api.storeDelete('workbench_lastActiveFilePath')
     }
 
     try {
       const res = await window.api.workbench.deleteNode(workspacePath, relativePath)
       if (res.success) {
-        // 若当前打开的文件正是删除项或位于删除目录下，清理当前编辑状态
-        if (activeFilePath === relativePath || (activeFilePath && activeFilePath.startsWith(`${relativePath}/`))) {
-          set({
-            activeFilePath: null,
-            activeFileContent: '',
-            activeFileCategory: null,
-            activeFileDataUrl: null,
-            activeFileUrl: null,
-            activeFileMime: null,
-            activeFileSize: null,
-            activeFileOversized: false,
-            isDirty: false,
-        saveStatus: 'saved',
-        conflictDiskContent: null
-          })
-          void window.api.storeDelete('workbench_lastActiveFilePath')
-        }
         await get().loadFileTree()
         void get().refreshGitStatus()
         // 当前文件被删时自动切换到排序上的相邻文件；无任何文件则停在空状态
@@ -1305,11 +1467,15 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         }
         return true
       } else {
+        set({ fileTree: previousTree })
+        if (hitsActive) restoreActiveFileState(activeSnapshot)
         set({ error: res.error || '删除失败' })
         return false
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
+      set({ fileTree: previousTree })
+      if (hitsActive) restoreActiveFileState(activeSnapshot)
       set({ error: `删除操作异常: ${msg}` })
       return false
     }
@@ -1490,18 +1656,112 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     }
   },
 
+  /**
+   * 批量删除（移至回收站）。
+   * 交互对齐 VSCode：确认后节点立即从树里消失，编辑器马上切到相邻文件，
+   * 真正的磁盘删除在后台进行，结束后用一次整树重扫收敛结果。
+   * 失败项回滚到树里并提示，避免界面与磁盘长期不一致。
+   */
   deleteNodes: async (relativePaths: string[]) => {
-    const { workspacePath } = get()
+    const {
+      workspacePath,
+      activeFilePath,
+      activeFileContent,
+      activeFileCategory,
+      activeFileDataUrl,
+      activeFileUrl,
+      activeFileMime,
+      activeFileSize,
+      activeFileOversized,
+      isDirty,
+      saveStatus,
+      conflictDiskContent,
+      fileTree,
+      fileSort
+    } = get()
     if (!workspacePath || !relativePaths.length) return false
+
+    // 父目录已选中时其子项必然一并删除，去掉冗余目标减少一次 IPC 往返
+    const targets = relativePaths.filter(
+      p => !relativePaths.some(other => other !== p && p.startsWith(`${other}/`))
+    )
+    if (!targets.length) return false
+
+    const hitsActive = !!activeFilePath && isDeletedPath(activeFilePath, targets)
+    const nextFilePath = hitsActive && activeFilePath
+      ? pickNextActiveFile(flattenSortedFiles(fileTree, fileSort), activeFilePath, targets)
+      : null
+    const previousTree = fileTree
+    const activeSnapshot = {
+      activeFilePath,
+      activeFileContent,
+      activeFileCategory,
+      activeFileDataUrl,
+      activeFileUrl,
+      activeFileMime,
+      activeFileSize,
+      activeFileOversized,
+      isDirty,
+      saveStatus,
+      conflictDiskContent
+    }
+    /** 整体失败时把编辑器连同树一起还原，避免内容消失但文件还在磁盘上 */
+    const restoreOnFailure = (): void => {
+      set({ fileTree: previousTree })
+      if (!hitsActive) return
+      restoreActiveFileState(activeSnapshot)
+    }
+
+    // 乐观移除：先让界面响应，再等磁盘结果
+    set({ fileTree: removeTreePaths(fileTree, targets) })
+    if (hitsActive) {
+      set({
+        activeFilePath: null,
+        activeFileContent: '',
+        activeFileCategory: null,
+        activeFileDataUrl: null,
+        activeFileUrl: null,
+        activeFileMime: null,
+        activeFileSize: null,
+        activeFileOversized: false,
+        isDirty: false,
+        saveStatus: 'saved',
+        conflictDiskContent: null
+      })
+      void window.api.storeDelete('workbench_lastActiveFilePath')
+    }
+
     try {
-      const res = await window.api.workbench.deleteNodes(workspacePath, relativePaths)
-      if (res.success && res.data) {
-        await get().loadFileTree()
-        void get().refreshGitStatus()
-        return res.data.failed.length === 0
+      const res = await window.api.workbench.deleteNodes(workspacePath, targets)
+      if (!res.success || !res.data) {
+        restoreOnFailure()
+        set({ error: res.error || '删除失败' })
+        return false
       }
-      return false
-    } catch {
+
+      const failedPaths = res.data.failed.map(item => item.path)
+      if (failedPaths.length) {
+        // 失败项还在磁盘上，先放回树里；随后重扫以磁盘为准收敛。
+        // 当前文件只在删除失败时才恢复，否则它已进回收站，恢复会指向不存在的文件。
+        set({ fileTree: previousTree })
+        if (hitsActive && activeFilePath && isDeletedPath(activeFilePath, failedPaths)) {
+          restoreOnFailure()
+        }
+        const first = res.data.failed[0]
+        set({ error: `${failedPaths.length} 项删除失败（${first.path}: ${first.error}）` })
+      }
+
+      await get().loadFileTree()
+      void get().refreshGitStatus()
+      if (nextFilePath && !get().activeFilePath) {
+        const opened = await get().openFile(nextFilePath)
+        if (!opened) void window.api.storeDelete('workbench_lastActiveFilePath')
+      }
+      return failedPaths.length === 0
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      restoreOnFailure()
+      set({ error: `删除操作异常: ${msg}` })
       return false
     }
   },
@@ -1824,6 +2084,11 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     }
     set({ editorMode: mode })
     void window.api.storeSet('workbench_editorMode', mode)
+  },
+
+  setImageBackgroundTheme: (theme: ImageBackgroundTheme) => {
+    set({ imageBackgroundTheme: theme })
+    void window.api.storeSet('workbench_imageBackgroundTheme', theme)
   },
 
   askAi: (text: string, actionType: WorkbenchAiAction) => {

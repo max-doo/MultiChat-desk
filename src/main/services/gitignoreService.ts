@@ -78,6 +78,7 @@ const IDE_PATTERNS = ['.idea/', '.vscode/']
 // 应用生成物：保留 .multichat 下的配置与导图，只忽略可再生成的产物
 const APP_STATE_PATTERNS = [
   '.multichat/annotations/',
+  '.multichat/frontmatter-backup/',
   '.multichat/image/',
   '.multichat/results/',
   '.multichat/cache/',
