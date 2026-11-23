@@ -110,20 +110,23 @@ function parseFrontmatter(fm: string | null): ParsedFrontmatter {
         if (match) items.push(match[1].trim().replace(/^["']|["']$/g, ''))
       }
       if (items.length) {
+        // 来源列表按行保存，URL 里的标点不能被拼成一行再切开。
         f.value = isTagField(f.key)
           ? parseTagsFromFrontmatterValue(items.join(' ')).join(' ')
-          : items.join(' ')
+          : isSourcesField(f.key)
+            ? items.join('\n')
+            : items.join(' ')
         continue
       }
     }
     if (inline.startsWith('[') && inline.endsWith(']')) {
       f.isList = true
-      f.value = inline
+      const items = inline
         .slice(1, -1)
         .split(',')
         .map((s) => s.trim().replace(/^["']|["']$/g, ''))
         .filter(Boolean)
-        .join(' ')
+      f.value = isSourcesField(f.key) ? items.join('\n') : items.join(' ')
       continue
     }
     if (isTagField(f.key)) {
@@ -148,6 +151,14 @@ function yamlScalar(value: string): string {
 }
 
 function fieldLines(key: string, value: string, isList: boolean): string[] {
+  if (isSourcesField(key)) {
+    const items = value
+      .split(/\r?\n/)
+      .map((item) => item.trim())
+      .filter(Boolean)
+    if (!items.length) return [`${key}:`]
+    return [`${key}:`, ...items.map((item) => `  - ${yamlScalar(item)}`)]
+  }
   if (isList) {
     const items = isTagField(key)
       ? parseTagsFromFrontmatterValue(value)
@@ -193,6 +204,8 @@ function appendField(
 
 const isDateField = (k: string): boolean => /date|time|created|updated|captured|日期|时间/i.test(k)
 const isSourceField = (k: string): boolean => /^(?:source|source_?url|source_?link|来源)$/i.test(k)
+/** 普通文档的附加来源列表：第一来源仍在 source，后续来源按行累积在这里。 */
+const isSourcesField = (k: string): boolean => /^sources$/i.test(k.trim())
 const isTitleField = (k: string): boolean => /^(?:title|name|标题|名称)$/i.test(k)
 const isDescriptionField = (k: string): boolean => /^(?:description|summary|desc|描述|摘要|简介)$/i.test(k)
 const sameFieldValue = (a: string, b: string): boolean =>
@@ -377,8 +390,14 @@ export default function FrontmatterPanel({ frontmatter, filePath, onChange }: Pr
     })
   }, [entries, roleOf, ownership.kind])
 
-  const sourceEntries = dedupedEntries.filter(({ field }) => roleOf(field.key) === 'source')
-  const userEntries = dedupedEntries.filter(({ field }) => roleOf(field.key) === 'user')
+  // sources 的归属仍是用户字段（写回保护、改名规则都不变），但显示上归入
+  // 来源分组，和主来源放在一起。
+  const sourceEntries = dedupedEntries.filter(
+    ({ field }) => roleOf(field.key) === 'source' || isSourcesField(field.key)
+  )
+  const userEntries = dedupedEntries.filter(
+    ({ field }) => roleOf(field.key) === 'user' && !isSourcesField(field.key)
+  )
   const identityEntries = dedupedEntries.filter(({ field }) => roleOf(field.key) === 'identity')
   const technicalFieldCount = identityEntries.length
   const visibleFieldOrder: FieldEntry[] = [
@@ -402,7 +421,7 @@ export default function FrontmatterPanel({ frontmatter, filePath, onChange }: Pr
   const icon = (f: Field): string => {
     if (isTagField(f.key)) return 'sell'
     if (isDateField(f.key)) return 'calendar_month'
-    if (isSourceField(f.key) || /^(?:url|link|网址|链接)$/i.test(f.key) || URL_RE.test(f.value)) return 'link'
+    if (isSourceField(f.key) || isSourcesField(f.key) || /^(?:url|link|网址|链接)$/i.test(f.key) || URL_RE.test(f.value)) return 'link'
     if (isTitleField(f.key)) return 'title'
     if (isDescriptionField(f.key)) return 'description'
     return 'description'
@@ -907,6 +926,62 @@ export default function FrontmatterPanel({ frontmatter, filePath, onChange }: Pr
                       >
                         {formatDateValue(f.value)}
                       </button>
+                    ) : isSourcesField(f.key) && !f.complex ? (
+                      <span className="flex flex-col gap-1 min-w-0 flex-1">
+                        {f.value
+                          .split(/\r?\n/)
+                          .filter(Boolean)
+                          .map((item, itemIdx) => {
+                            const target = resolveSourceConversation(item, models)
+                            const rest = f.value
+                              .split(/\r?\n/)
+                              .filter((value) => value && value !== item)
+                            return (
+                              <span
+                                key={`${item}-${itemIdx}`}
+                                className="flex items-center gap-1 min-w-0"
+                              >
+                                <a
+                                  href={item}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  title={item}
+                                  className="min-w-0 truncate text-[13px] text-primary hover:underline"
+                                >
+                                  {item}
+                                </a>
+                                {target && (
+                                  <button
+                                    type="button"
+                                    title="在侧边栏打开会话"
+                                    aria-label="在侧边栏打开会话"
+                                    onClick={() =>
+                                      openConversationInAiSidebar(target.platformId, target.url)
+                                    }
+                                    className="shrink-0 text-gray-400 hover:text-primary transition-colors"
+                                  >
+                                    <AppIcon name="forum" size={14} />
+                                  </button>
+                                )}
+                                {canEditValue && (
+                                  <button
+                                    type="button"
+                                    aria-label={`移除来源 ${item}`}
+                                    title="移除来源"
+                                    onClick={() => {
+                                      // 删空时整段移除，避免留下一个空的 sources 属性。
+                                      if (rest.length) updateValue(idx, rest.join('\n'))
+                                      else commitEdits([{ start: f.start, end: f.end, lines: null }])
+                                    }}
+                                    className="shrink-0 text-gray-400 hover:text-red-500 transition-colors"
+                                  >
+                                    <AppIcon name="close" size={13} />
+                                  </button>
+                                )}
+                              </span>
+                            )
+                          })}
+                      </span>
                     ) : URL_RE.test(f.value) ? (
                       <span className="flex items-center gap-1 min-w-0 flex-1">
                         <a

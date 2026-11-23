@@ -13,8 +13,10 @@ import { AppIcon } from '../icons/AppIcon'
 import { extractLocalPath, collectLocalPaths } from './WorkbenchFileTree'
 import {
   WORKBENCH_SEND_FILE_EVENT,
+  WORKBENCH_SEND_IMAGE_EVENT,
   WORKBENCH_UPLOAD_NODES_EVENT,
   type WorkbenchSendFileDetail,
+  type WorkbenchSendImageDetail,
   type WorkbenchUploadNodesDetail
 } from './workbenchAiEvents'
 import { getFileCategory, type WorkbenchFileNode } from '../../../../shared/types/workbench'
@@ -965,6 +967,92 @@ export default function WorkbenchAiSidebar({ isActive = true }: WorkbenchAiSideb
     window.addEventListener(WORKBENCH_SEND_FILE_EVENT, handleSendFile)
     return () => window.removeEventListener(WORKBENCH_SEND_FILE_EVENT, handleSendFile)
   }, [openRightPane, uploadFilesToCurrentModel])
+
+  /**
+   * 图片右键「发送到 AI 侧边栏」：
+   * - workbench-file:// 直接解析真实磁盘路径上传，不复制临时文件；
+   * - blob:/data:/http(s): 走 create-temp-upload-file 落临时目录，上传完即清理。
+   */
+  useEffect(() => {
+    const handleSendImage = (event: Event) => {
+      const detail = (event as CustomEvent<WorkbenchSendImageDetail>).detail
+      const srcURL = detail?.srcURL?.trim()
+      if (!srcURL) return
+      if (useWorkbenchStore.getState().rightPane !== 'ai') openRightPane('ai')
+
+      runAfterPanePaint(() => {
+        void (async (): Promise<void> => {
+          const nameFromUrl = (() => {
+            try {
+              const u = new URL(srcURL)
+              const base = decodeURIComponent(u.pathname.split('/').pop() || '')
+              return detail.fileName?.trim() || base || 'image.png'
+            } catch {
+              return detail.fileName?.trim() || 'image.png'
+            }
+          })()
+
+          // workbench-file://：主进程解析白名单内真实路径，直接按文件上传
+          if (srcURL.startsWith('workbench-file://')) {
+            const resolved = await window.api.workbench.resolveFileUrl(srcURL)
+            if (!resolved.success || !resolved.data?.filePath) {
+              showToast('error', resolved.error || '无法解析图片路径')
+              return
+            }
+            const filePath = resolved.data.filePath
+            const fileName = filePath.split(/[/\\]/).pop() || nameFromUrl
+            await uploadFilesToCurrentModel([
+              { filePath, fileName, mimeType: getMimeType(fileName), size: 0 }
+            ])
+            return
+          }
+
+          // 其余协议：渲染层 fetch 拿到字节，经临时文件走既有上传管线
+          let tempFilePath: string | null = null
+          try {
+            const blob = await fetch(srcURL).then((res) => {
+              if (!res.ok) throw new Error(`下载失败 ${res.status}`)
+              return res.blob()
+            })
+            const mimeType = blob.type || getMimeType(nameFromUrl)
+            // 文件名补全扩展名，便于平台端识别图片类型
+            const extFromMime = mimeType.startsWith('image/')
+              ? `.${mimeType.slice('image/'.length).replace('jpeg', 'jpg')}`
+              : ''
+            const fileName = /\.[a-z0-9]+$/i.test(nameFromUrl)
+              ? nameFromUrl
+              : `${nameFromUrl}${extFromMime || '.png'}`
+            const temp = await window.api.createTempUploadFile({
+              fileName,
+              mimeType,
+              data: await blob.arrayBuffer()
+            })
+            if (!temp.success || !temp.data) {
+              showToast('error', temp.error || '准备图片失败')
+              return
+            }
+            tempFilePath = temp.data.filePath
+            await uploadFilesToCurrentModel([
+              {
+                filePath: temp.data.filePath,
+                fileName: temp.data.fileName,
+                mimeType: temp.data.mimeType || mimeType,
+                size: temp.data.size ?? blob.size
+              }
+            ])
+          } catch (err) {
+            console.error('[workbench-upload] 图片发送失败', err)
+            showToast('error', '发送图片到 AI 失败')
+          } finally {
+            if (tempFilePath) await window.api.cleanupUploadTemp(tempFilePath)
+          }
+        })()
+      })
+    }
+
+    window.addEventListener(WORKBENCH_SEND_IMAGE_EVENT, handleSendImage)
+    return () => window.removeEventListener(WORKBENCH_SEND_IMAGE_EVENT, handleSendImage)
+  }, [openRightPane, showToast, uploadFilesToCurrentModel])
 
   // 处理文件拖入释放并上传到当前 AI 对话框
   const handleDrop = useCallback(

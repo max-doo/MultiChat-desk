@@ -1473,6 +1473,23 @@ export async function registerIpcHandlers(
         }
     })
 
+    // 图片右键"发送到 AI 侧边栏"：workbench-file:// URL 只解析出真实路径，
+    // 让渲染层直接按磁盘文件上传，不必经过临时目录复制。
+    ipcMain.handle('workbench:resolve-file-url', async (_event, imageUrl: string) => {
+        try {
+            if (typeof imageUrl !== 'string' || !imageUrl.startsWith(`${WORKBENCH_FILE_SCHEME}://`)) {
+                return { success: false, error: '仅支持 workbench-file:// URL' }
+            }
+            const realPath = await resolveWorkbenchFileRequest(imageUrl)
+            if (!realPath) {
+                return { success: false, error: '图片路径不在已授权工作区内' }
+            }
+            return { success: true, data: { filePath: realPath } }
+        } catch (error) {
+            return { success: false, error: String(error) }
+        }
+    })
+
     ipcMain.handle('image:download-all', async (_event, payload: {
       items: Array<{ modelId: string; wcId: number | null; images: Array<{ src: string; mime?: string }> }>
     }) => {

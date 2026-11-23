@@ -4,13 +4,17 @@
  * 会话文档只保留四个语义字段：source_kind、source、platform、captured_at。
  * source_key 是来源身份缓存，只有归一化身份与原始地址不同时才保留；
  * id / updated_at 属于旧格式的应用状态，不再写入；title 归用户维护。
+ *
+ * 普通文档可以累积多个来源：第一个来源仍写在 source（原文入口、会话去重都只认
+ * 它），后续来源进 sources 列表。会话文档保持单来源，插入其他会话一律拒绝。
  */
 
-import { APP_STATE_ONLY_KEYS, CONVERSATION_APP_KEYS } from './frontmatterPolicy'
+import { CONVERSATION_APP_KEYS } from './frontmatterPolicy'
 import { noteConversationKey } from './noteIdentity'
 
 const FRONTMATTER_RE = /^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/
 const FIELD_RE = /^([A-Za-z0-9_-]+)\s*:\s*(.*)$/
+const SOURCES_KEY = 'sources'
 
 const unquote = (value: string): string => {
   const trimmed = value.trim()
@@ -24,6 +28,30 @@ const unquote = (value: string): string => {
 }
 
 const isUrl = (value: string): boolean => /^https:\/\//i.test(value)
+
+/** YAML 双引号标量：URL 里常带冒号和问号，统一加引号最省心。 */
+function quoteScalar(value: string): string {
+  return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+}
+
+function sourcesLines(items: string[]): string[] {
+  return [`${SOURCES_KEY}:`, ...items.map(item => `  - ${quoteScalar(item)}`)]
+}
+
+/** 读取 sources 列表：兼容块状 `- url`、单行 `[a, b]` 和误写的标量。 */
+function parseSourcesItems(lines: string[], span: FieldSpan): string[] {
+  const blockItems: string[] = []
+  for (let i = span.start + 1; i <= span.end; i++) {
+    const match = lines[i].match(/^\s*-\s+(.*)$/)
+    if (match) blockItems.push(unquote(match[1]))
+  }
+  if (blockItems.length) return blockItems.filter(Boolean)
+  const inline = span.value.trim()
+  if (inline.startsWith('[') && inline.endsWith(']')) {
+    return inline.slice(1, -1).split(',').map(item => unquote(item)).filter(Boolean)
+  }
+  return inline ? [unquote(inline)] : []
+}
 
 /**
  * 同一会话的 SPA 地址常带不同的查询参数或末尾斜杠；比较来源时先去掉这些
@@ -225,42 +253,78 @@ function normalizeLines(
     const appKey = (overrides.sourceKey || '').trim()
     // 回复摘录不是会话快照：补来源信息即可，不写 source_kind，避免把
     // 普通笔记自动升级成会话文档。
-    const desired: Array<[string, string]> = []
-    if (url) desired.push(['source', url])
-    if (appKey && appKey !== url) desired.push(['source_key', appKey])
-    if (nextPlatform) desired.push(['platform', nextPlatform])
-    // 已有采集时间原样保留；没有新值时也写入同一值，避免把“保留”误判成冲突。
-    if (nextCapturedAt) desired.push(['captured_at', nextCapturedAt])
-
-    const conflicts: string[] = []
-    for (const key of CONVERSATION_APP_KEYS) {
-      // 普通笔记里的 id / updated_at 是用户自己的字段，与来源无关。
-      if (APP_STATE_ONLY_KEYS.has(key)) continue
-      const current = first.get(key)
-      if (!current || !current.value) continue
-      if (key === 'source_url') {
-        if (!url || !sameSourceUrl(current.value, url)) conflicts.push(key)
-        continue
-      }
-      const desiredValue = desired.find(([name]) => name === key)?.[1] ?? ''
-      // source_key 只是来源地址的旧别名；没有单独写入计划时，同址即兼容。
-      if (key === 'source_key' && !desiredValue) {
-        if (sameSourceUrl(current.value, url)) continue
-        conflicts.push(key)
-        continue
-      }
-      const matches =
-        key === 'source' ? sameSourceUrl(current.value, desiredValue) : current.value === desiredValue
-      if (!desiredValue || !matches) conflicts.push(key)
-    }
-    if (conflicts.length) return { lines, conflict: [...new Set(conflicts)] }
-
     const next = [...lines]
     const missing: string[] = []
-    for (const [key, value] of desired) {
-      const span = first.get(key)
-      if (!span) missing.push(`${key}: ${value}`)
-      else if (!span.value) next[span.start] = `${key}: ${value}`
+    // 行内改写与插入都按原始索引记录，最后从后往前应用，避免前面的插入
+    // 让后面的行号整体偏移。
+    const edits: Array<{ start: number; end: number; lines: string[] | null }> = []
+
+    // 普通文档可以累积多个来源：第一个来源写 source（原文入口与会话去重
+    // 都只认它），之后的来源进 sources 列表，已有值一律不覆盖。
+    const sourcesSpan = first.get(SOURCES_KEY)
+    const listed = sourcesSpan ? parseSourcesItems(lines, sourcesSpan) : []
+    const known = [source, sourceUrl, isUrl(sourceKey) ? sourceKey : '', ...listed].filter(
+      (item): item is string => !!item
+    )
+    const alreadyLinked = !url || known.some(item => sameSourceUrl(item, url))
+    // 旧格式可能只有 source_url：它也承担“主来源”的位置，不能再补一个
+    // 指向别的会话的 source，否则同一篇文档会出现两个互不相同的来源地址。
+    const declared = first.get('source') ?? first.get('source_url')
+    const declaredName = first.get('source') ? 'source' : 'source_url'
+    const declaredUrl = declared?.value ?? ''
+    // 只写了 sources、没写 source 的文档：最早列出的来源升为主来源，避免
+    // 新插入的地址抢占 source 的位置。
+    const promote = !declaredUrl && listed.length ? listed[0] : ''
+    // 主来源优先级：已有 source / source_url > 列表里最早的一条 > 本次插入。
+    const primaryUrl = declaredUrl || promote || url
+    const rest = promote ? listed.slice(1) : [...listed]
+    if (url && !alreadyLinked && url !== primaryUrl) rest.push(url)
+
+    const writeSource = (value: string): void => {
+      if (declared) {
+        if (declared.value !== value) {
+          edits.push({ start: declared.start, end: declared.start, lines: [`${declaredName}: ${value}`] })
+        }
+        return
+      }
+      missing.push(`source: ${value}`)
+    }
+    if (primaryUrl) writeSource(primaryUrl)
+
+    const writeSources = (items: string[]): void => {
+      if (sourcesSpan) {
+        const replacement = items.length ? sourcesLines(items) : null
+        edits.push({ start: sourcesSpan.start, end: sourcesSpan.end, lines: replacement })
+        return
+      }
+      if (!items.length) return
+      const replacement = sourcesLines(items)
+      // 紧跟主来源放附加来源，属性面板里两个来源相邻更易读。
+      if (declared) edits.push({ start: declared.end + 1, end: declared.end, lines: replacement })
+      else missing.push(...replacement)
+    }
+    writeSources(rest)
+
+    if (appKey && appKey !== url) {
+      const span = first.get('source_key')
+      if (!span) missing.push(`source_key: ${appKey}`)
+      else if (!span.value) edits.push({ start: span.start, end: span.start, lines: [`source_key: ${appKey}`] })
+    }
+    // 平台与采集时间描述的是主来源。只有本次插入确实成为主来源时才补写，
+    // 否则会把第二个来源的平台写到第一个来源头上。
+    const describesPrimary = !!url && primaryUrl === url
+    if (nextPlatform && describesPrimary) {
+      const span = first.get('platform')
+      if (!span) missing.push(`platform: ${nextPlatform}`)
+      else if (!span.value) edits.push({ start: span.start, end: span.start, lines: [`platform: ${nextPlatform}`] })
+    }
+    if (nextCapturedAt && describesPrimary) {
+      const span = first.get('captured_at')
+      if (!span) missing.push(`captured_at: ${nextCapturedAt}`)
+      else if (!span.value) edits.push({ start: span.start, end: span.start, lines: [`captured_at: ${nextCapturedAt}`] })
+    }
+    for (const edit of [...edits].sort((a, b) => b.start - a.start)) {
+      next.splice(edit.start, edit.end - edit.start + 1, ...(edit.lines ?? []))
     }
     // 新字段放在最前，便于在属性面板中看到来源。
     next.unshift(...missing)

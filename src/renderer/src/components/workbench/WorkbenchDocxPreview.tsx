@@ -5,6 +5,7 @@ import { useWorkbenchStore, type WorkbenchAiAction } from '../../store/workbench
 import { AppIcon } from '../icons/AppIcon'
 import FileTypeIcon from './FileTypeIcon'
 import WorkbenchSendToAiButton from './WorkbenchSendToAiButton'
+import WorkbenchDocxToc, { type DocxDocumentLike } from './WorkbenchDocxToc'
 
 const ZOOM_MIN = 0.5
 const ZOOM_MAX = 3
@@ -105,6 +106,7 @@ export default function WorkbenchDocxPreview(): JSX.Element {
   const [zoom, setZoom] = useState(1)
   const zoomRef = useRef(1)
   const statsChipRef = useRef<HTMLDivElement | null>(null)
+  const [docxDocument, setDocxDocument] = useState<DocxDocumentLike | null>(null)
 
   const zoomStep = useCallback((direction: -1 | 1) => {
     setZoom((current) =>
@@ -221,12 +223,20 @@ export default function WorkbenchDocxPreview(): JSX.Element {
         // 等同在宿主页面执行未审查内容；预览不需要该特性，直接关闭。
         renderAltChunks: false
       }
-      await renderAsync(result.data.bytes, staging, staging, options)
+      // renderAsync 返回 parseAsync 产出的 WordDocument，里面保留了
+      // OOXML 大纲信息（outlineLevel/style 继承），TOC 靠它识别标题。
+      const doc = (await renderAsync(
+        result.data.bytes,
+        staging,
+        staging,
+        options
+      )) as DocxDocumentLike
       if (cancelled) {
         clearDocxContainer(staging)
         return
       }
       container.replaceChildren(...Array.from(staging.childNodes))
+      setDocxDocument(doc)
       fitToWidth()
       setStats(countDocxStats(container))
       setLoadState('ready')
@@ -236,6 +246,7 @@ export default function WorkbenchDocxPreview(): JSX.Element {
       if (cancelled) return
       console.error('[WorkbenchDocxPreview] 渲染 Word 文档失败:', error)
       clearDocxContainer(container)
+      setDocxDocument(null)
       setLoadError(error instanceof Error ? error.message : String(error))
       setLoadState('error')
     })
@@ -243,6 +254,7 @@ export default function WorkbenchDocxPreview(): JSX.Element {
     return () => {
       cancelled = true
       clearDocxContainer(container)
+      setDocxDocument(null)
     }
   }, [workspacePath, activeFilePath, oversized, reloadKey, fitToWidth])
 
@@ -563,6 +575,16 @@ export default function WorkbenchDocxPreview(): JSX.Element {
               onContextMenu={handleContextMenu}
             />
           </div>
+        )}
+
+        {/* 极简原位变形 Word 大纲导航 */}
+        {!oversized && loadState === 'ready' && (
+          <WorkbenchDocxToc
+            document={docxDocument}
+            contentRef={contentRef}
+            scrollContainerRef={scrollRef}
+            loadState={loadState}
+          />
         )}
 
         {loadState === 'loading' && !oversized && (

@@ -561,7 +561,10 @@ const api = {
       return () => { ipcRenderer.removeListener('workbench:html-contextmenu', handler) }
     },
     copyHtmlImageAt: (x: number, y: number): Promise<{ success: boolean; error?: string }> =>
-      ipcRenderer.invoke('workbench:copy-image-at', x, y)
+      ipcRenderer.invoke('workbench:copy-image-at', x, y),
+    // 图片右键"发送到 AI 侧边栏"：解析 workbench-file:// 拿到真实磁盘路径直接上传
+    resolveFileUrl: (imageUrl: string): Promise<{ success: boolean; data?: { filePath: string }; error?: string }> =>
+      ipcRenderer.invoke('workbench:resolve-file-url', imageUrl)
   },
   workbenchSelectFolder: (): Promise<{ success: boolean; data?: WorkbenchSelectFolderResult | null; error?: string }> =>
     ipcRenderer.invoke('workbench:select-folder'),

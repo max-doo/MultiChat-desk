@@ -7,6 +7,7 @@ import type {
 import { WORKBENCH_HTML_ANNOTATION_EVENT } from '../../../shared/types/htmlAnnotations'
 import { useWorkbenchStore } from '../store/workbenchStore'
 import { AppIcon } from './icons/AppIcon'
+import { requestSendImageToAi } from './workbench/workbenchAiEvents'
 
 interface ExtendedMenuItem extends ContextMenuItem {
   action?: () => void
@@ -176,6 +177,15 @@ export default function CustomContextMenu(): JSX.Element | null {
         if (image?.srcURL) {
           if (items.length) items.push({ type: 'separator' })
           items.push({
+            key: 'send_image_to_ai',
+            label: '发送到 AI 侧边栏',
+            icon: 'send',
+            color: 'text-blue-500',
+            action: () => {
+              requestSendImageToAi({ srcURL: image.srcURL })
+            }
+          })
+          items.push({
             key: 'copy_image',
             label: '复制图片',
             icon: 'image',
@@ -323,6 +333,15 @@ export default function CustomContextMenu(): JSX.Element | null {
 
       if (imgEl?.src) {
         if (items.length > 0) items.push({ type: 'separator' })
+        items.push({
+          key: 'send_image_to_ai',
+          label: '发送到 AI 侧边栏',
+          icon: 'send',
+          color: 'text-blue-500',
+          action: () => {
+            requestSendImageToAi({ srcURL: imgEl.src })
+          }
+        })
         items.push({
           key: 'copy_image',
           label: '复制图片',
