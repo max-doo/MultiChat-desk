@@ -1,6 +1,12 @@
 import { useEffect, useRef } from 'react'
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext'
-import type { LexicalNode, PointType } from 'lexical'
+import type {
+  EditorState,
+  LexicalEditor,
+  LexicalNode,
+  ParsableSerializedNode,
+  PointType
+} from 'lexical'
 import {
   $convertFromMarkdownString,
   $convertToMarkdownString,
@@ -72,6 +78,7 @@ import {
   trimBareUrl
 } from './workbenchBareLinks'
 import { normalizeWorkbenchLocalFileLink } from './workbenchLinks'
+import { allMarks } from './workbenchAnnotationUtils'
 
 export const HR_TRANSFORMER: ElementTransformer = {
   dependencies: [HorizontalRuleNode],
@@ -429,6 +436,27 @@ export const WORKBENCH_TRANSFORMERS = [
   )
 ]
 
+function stripMarkNodesForSerialization(node: ParsableSerializedNode): ParsableSerializedNode[] {
+  if (node.type === 'mark') {
+    return (node.children ?? []).flatMap(stripMarkNodesForSerialization)
+  }
+  if (!node.children) return [node]
+  return [{ ...node, children: node.children.flatMap(stripMarkNodesForSerialization) }]
+}
+
+export function serializeWorkbenchMarkdown(
+  editor: LexicalEditor,
+  state: EditorState = editor.getEditorState()
+): string {
+  const direct = state.read(() =>
+    allMarks().length === 0 ? $convertToMarkdownString(WORKBENCH_TRANSFORMERS) : null
+  )
+  if (direct !== null) return direct
+  const root = stripMarkNodesForSerialization(state.toJSON(true).root)[0]
+  const shadow = editor.parseEditorState({ root })
+  return shadow.read(() => $convertToMarkdownString(WORKBENCH_TRANSFORMERS))
+}
+
 /**
  * 分离 YAML Frontmatter 元数据与正文 Markdown
  */
@@ -709,16 +737,14 @@ export default function MarkdownSyncPlugin(): null {
       if (tags.has('code-exit')) return
       if (dirtyElements.size === 0 && dirtyLeaves.size === 0) return
 
-      editorState.read(() => {
-        const bodyMarkdown = $convertToMarkdownString(WORKBENCH_TRANSFORMERS)
-        const fullMarkdown = (frontmatterRef.current || '') + bodyMarkdown
+      const bodyMarkdown = serializeWorkbenchMarkdown(editor, editorState)
+      const fullMarkdown = (frontmatterRef.current || '') + bodyMarkdown
 
-        // 仅在内容实质发生改变时通知 store
-        if (fullMarkdown !== lastSyncedContentRef.current) {
-          lastSyncedContentRef.current = fullMarkdown
-          updateActiveContent(fullMarkdown)
-        }
-      })
+      // 仅在内容实质发生改变时通知 store
+      if (fullMarkdown !== lastSyncedContentRef.current) {
+        lastSyncedContentRef.current = fullMarkdown
+        updateActiveContent(fullMarkdown)
+      }
     })
   }, [editor, updateActiveContent])
 

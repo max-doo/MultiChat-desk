@@ -20,8 +20,14 @@ export default function WorkbenchPdfPreview(): JSX.Element {
 
   const ZOOM_MIN = 0.5
   const ZOOM_MAX = 3
-  const zoomBy = useCallback((delta: number) => {
-    setZoom((current) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round((current + delta) * 10) / 10)))
+  const ZOOM_STEP = 0.1
+  const zoomStep = useCallback((direction: -1 | 1) => {
+    setZoom((current) =>
+      Math.min(
+        ZOOM_MAX,
+        Math.max(ZOOM_MIN, Math.round((current + direction * ZOOM_STEP) * 10) / 10)
+      )
+    )
   }, [])
 
   // 格式化文件大小
@@ -64,7 +70,7 @@ export default function WorkbenchPdfPreview(): JSX.Element {
           <div className="flex items-center gap-0.5 rounded-md">
             <button
               type="button"
-              onClick={() => zoomBy(-0.1)}
+              onClick={() => zoomStep(-1)}
               disabled={zoom <= ZOOM_MIN}
               className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
               title="缩小"
@@ -81,7 +87,7 @@ export default function WorkbenchPdfPreview(): JSX.Element {
             </button>
             <button
               type="button"
-              onClick={() => zoomBy(0.1)}
+              onClick={() => zoomStep(1)}
               disabled={zoom >= ZOOM_MAX}
               className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
               title="放大"
@@ -172,6 +178,7 @@ export default function WorkbenchPdfPreview(): JSX.Element {
             fileSize={activeFileSize}
             reloadKey={reloadKey}
             zoom={zoom}
+            onZoomStep={zoomStep}
             onLoadState={handleLoadState}
           />
         )}

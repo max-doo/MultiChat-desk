@@ -85,16 +85,6 @@ export default function ProductModeOrderModal({ isOpen, onClose }: ProductModeOr
     setDragOverIndex(null)
   }
 
-  const handleMove = (index: number, direction: 'up' | 'down'): void => {
-    const targetIndex = direction === 'up' ? index - 1 : index + 1
-    if (targetIndex < 0 || targetIndex >= orderedList.length) return
-
-    const nextList = [...orderedList]
-    const [movedItem] = nextList.splice(index, 1)
-    nextList.splice(targetIndex, 0, movedItem)
-    commit(nextList, hiddenList)
-  }
-
   const handleToggleVisible = (mode: ProductMode): void => {
     if (hiddenList.includes(mode)) {
       commit(orderedList, hiddenList.filter(m => m !== mode))
@@ -180,32 +170,8 @@ export default function ProductModeOrderModal({ isOpen, onClose }: ProductModeOr
                   </div>
                 </div>
 
-                {/* 右侧：上移/下移 + 显隐开关 */}
+                {/* 右侧：显隐开关 */}
                 <div className="flex items-center gap-1 shrink-0 ml-2">
-                  <button
-                    type="button"
-                    disabled={index === 0}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      handleMove(index, 'up')
-                    }}
-                    className="w-7 h-7 flex items-center justify-center rounded-lg text-text-secondary hover:text-primary hover:bg-black/5 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
-                    title="上移"
-                  >
-                    <AppIcon name="arrow_upward" size={16} />
-                  </button>
-                  <button
-                    type="button"
-                    disabled={index === orderedList.length - 1}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      handleMove(index, 'down')
-                    }}
-                    className="w-7 h-7 flex items-center justify-center rounded-lg text-text-secondary hover:text-primary hover:bg-black/5 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
-                    title="下移"
-                  >
-                    <AppIcon name="arrow_downward" size={16} />
-                  </button>
                   <button
                     type="button"
                     disabled={hideDisabled}

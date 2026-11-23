@@ -3,7 +3,7 @@ import type { NoteConversation } from '../../../../shared/types/notes'
 import { MARKDOWN_EXTENSIONS } from '../../../../shared/types/workbench'
 import { mindmapFileKindOfPath } from '../../../../shared/utils/mindmap'
 import { useWorkbenchStore } from '../../store/workbenchStore'
-import ConversationMindmapPanel, { type MindmapMaterialRequest, type MindmapSource, type MindmapFileSyncHooks } from '../ConversationMindmapPanel'
+import ConversationMindmapPanel, { type MindmapMaterialRequest, type MindmapSource, type MindmapFileSyncHooks, type MindmapSelectionPreview } from '../ConversationMindmapPanel'
 
 /** 去掉 frontmatter 与图片语法：导图只关心文字结构，图片地址会干扰模型判断。 */
 function documentText(content: string): string {
@@ -38,7 +38,14 @@ export default function WorkbenchMindmapPanel(): JSX.Element {
     return [...MARKDOWN_EXTENSIONS].some(ext => lower.endsWith(ext))
   }, [activeFilePath, activeFileCategory])
 
-  const fileKind = useMemo(() => mindmapFileKindOfPath(activeFilePath || ''), [activeFilePath])
+  const selectionText = pendingSelection?.text.trim() || ''
+  const selectionPreview = useMemo<MindmapSelectionPreview | undefined>(() => {
+    if (!selectionText) return undefined
+    return { text: selectionText, onClear: () => setPendingSelection(null) }
+  }, [selectionText, setPendingSelection])
+  const clearSelection = useCallback(() => {
+    setPendingSelection(null)
+  }, [setPendingSelection])
 
   // 打开面板 / 切换文档即建档：用户主动点开思维导图侧栏即视为有生成意图，
   // 这里建一条空记录，让 ConversationMindmapPanel 的草稿键从一开始就稳定。
@@ -173,11 +180,6 @@ export default function WorkbenchMindmapPanel(): JSX.Element {
 
   return (
     <div className="h-full flex flex-col min-h-0">
-      {pendingSelection && (!fileKind || fileKind === 'pdf' || fileKind === 'html') && (
-        <div className="px-3 py-1.5 text-xs text-primary bg-primary/5 border-b border-primary/10">
-          已选中 {pendingSelection.text.length} 个字符，生成时只整理这段内容
-        </div>
-      )}
       <div className="flex-1 min-h-0">
         <ConversationMindmapPanel
           key={activeFilePath}
@@ -187,6 +189,8 @@ export default function WorkbenchMindmapPanel(): JSX.Element {
           materialProvider={materialProvider}
           onClose={closeRightPane}
           fileSyncHooks={fileSyncHooks}
+          selectionPreview={selectionPreview}
+          onSelectionGenerated={clearSelection}
         />
       </div>
     </div>

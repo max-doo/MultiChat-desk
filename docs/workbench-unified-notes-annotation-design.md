@@ -2,6 +2,8 @@
 
 > Created: 2026-11-21 21:08 (Asia/Shanghai, UTC+08:00)
 
+> 锚点在正文变化后的状态、未定位展示、对账版本保护和 HTML 预览接入，以 [工作台注释锚点生命周期与未定位清理设计](workbench-annotation-anchor-lifecycle-design.md) 为准；本文的存储根、scope 语义、迁移和删除策略不变。
+
 ## 1. 结论
 
 这份设计只保留一个用户可见的对象：**工作区里的 Markdown 文档**。保存整段会话、保存单条答复、从会话摘录一段文字，都只是创建文档的不同入口；高亮和评论则是文档的旁路数据，不进入正文。
@@ -527,13 +529,14 @@ Lexical 0.53.0 已经带 `@lexical/mark` 的 `MarkNode`：
 
 ### 7.6 编辑后的对账
 
-- `document` 标注：MarkNode 还在，就读取它当前的文本和前后文，更新 `quote/anchor`；MarkNode 被删掉，就把标注标记为未定位，保留评论。用户可以把文本重新选一遍并“重新关联”，或者删除标注。
+- `document` 标注：应用标注前先读取 MarkNode 当前覆盖的范围，不要先 `unwrapAllMarks()` 再全文搜索；MarkNode 还在时优先用当前范围更新 `quote/anchor`。MarkNode 被删掉后才进入精确/模糊解析，仍失败则标记为未定位并保留评论。用户可以把文本重新选一遍并“重新关联”，或者删除标注。
 - `source` 标注：文档里的 MarkNode 只是投影。用户在文档里改文字，不改 `source` 标注的 `anchor`；投影找不到时显示未定位，但原文页面仍然按原锚点回显。
 
 对账时机：
 
 - 评论保存/删除后。
 - 编辑器失焦。
+- 编辑停止 600ms 后（只更新本地未定位状态，写盘仍走失焦/保存/显式刷新）。
 - 切换文档或关闭工作台前。
 - 手动点击“刷新标注”。
 
@@ -832,8 +835,8 @@ annotations.deleteDocument({ workspaceRoot, relativePath, id })
 annotations.deleteSource({ sourceKey, id })
   -> { success, error? }
 
-annotations.reconcileDocument({ workspaceRoot, relativePath, anchors })
-  -> { success, data?: { updated: number, unlocated: string[] }, error? }
+annotations.reconcileDocument({ workspaceRoot, relativePath, resolutions })
+  -> { success, data?: { applied: string[], stale: string[], skipped: string[], annotations: Annotation[] }, error? }
 
 annotations.captureSource({
   annotationId: string,
@@ -883,7 +886,7 @@ notes.abandonMigration({ jobId })
 - `captureSource` 按 `annotationId` 幂等 upsert；同一 id 重复调用只更新同一条 source，不能追加。`ensureDocumentForSource` 只补文档，不写 source；用于文档失败后的重试或切换保存目标。它必须先确认默认库已有对应 `sourceKey`，不存在时返回 `SOURCE_NOT_FOUND`，不能凭空创建一篇没有标注的文档。
 - `upsert` 只写一条；同一 id 以 `updatedAt` 较新的为准。不同 id 永远都保留，不能因为 quote 相同就合并。
 - `delete` 必须显式传 id；不能从“当前列表里没有”推断删除。
-- `reconcileDocument` 只更新 document 标注的 `quote/anchor`，不能碰 source 标注。
+- `reconcileDocument` 只更新 document 标注，不能碰 source 标注；载荷、状态、`baseAnchorRevision` 和 `applied/stale/skipped` 返回以增量设计为准。
 - `captureSource` 文档创建失败时仍返回 `success: true` 和已保存的 `annotation`；`document` 为空，`documentError` 说明是“无活动工作区 / 工作区不可用 / 扫描不完整 / 超限 / 写入失败”中的一种，界面提示“未生成文档”并可重试。
 - `workbench.getDefaultWorkspace` 只读，返回默认会话库的实际路径和可写状态；修改默认库路径不是 v1 的 API。
 - `workbench.getSettings / setSettings` 只操作当前 `activeWorkspaceRoot` 的 `.multichat/settings.json`；默认会话库作为普通工作区打开后，同样通过这套接口读写自己的 `conversationDir`。全局捕捉在主进程内部读取默认库设置，不经过渲染层的跨根写接口。`conversationDir` 必须是工作区内相对路径，非法值直接拒绝，不能悄悄写到根目录。`legacyMigrationJob` 运行或暂停时，默认库的 `conversationDir` 修改被拒绝，任务按 `targetConversationDir` 继续。
@@ -921,7 +924,7 @@ notes.abandonMigration({ jobId })
 | 场景 | 行为 |
 |---|---|
 | 引文在文档中找不到 | 标注保留，侧栏显示未定位；不自动删除 |
-| 引文出现多次 | 用 `prefix/suffix + occurrence + offsetHint` 打分；仍不唯一时选取得分最高者，并在侧栏标“可能位置” |
+| 引文出现多次 | 用 `prefix/suffix + occurrence + offsetHint` 打分；仍不唯一时标记为 `ambiguous`，不自动选择，要求用户重新选定文本 |
 | 文档被外部改名 | 按路径、路径表、内容哈希三级找回；唯一才认领，多个候选不猜 |
 | 文档被外部删除 | `documents` 旁路文件保留；文档恢复后可重新关联；`sources` 旁路不受影响 |
 | 会话页面 DOM 改版 | 高亮可能暂时找不到；保留标注，重试和 DOM 变化后重新匹配；不因为一次 miss 删除 |

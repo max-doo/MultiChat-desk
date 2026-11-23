@@ -10,7 +10,7 @@ import { stat, writeFile, mkdtemp, rm, rename } from 'fs/promises'
 import { tmpdir } from 'os'
 import { randomUUID } from 'crypto'
 import type Store from 'electron-store'
-import { setQuitting, getQuickWindow, showAndFocusWindow, hideToolbarWindow, getCachedSelectionText, openDiagnosticsWindow, registerQuickPrimaryWebview, setQuickSidebarExpanded, handleWebviewContextMenuAction, setNoteManager } from './webviewManager'
+import { getQuickWindow, showAndFocusWindow, hideToolbarWindow, getCachedSelectionText, openDiagnosticsWindow, registerQuickPrimaryWebview, setQuickSidebarExpanded, handleWebviewContextMenuAction, setNoteManager } from './webviewManager'
 import type { WebviewContextMenuActionRequest } from '../shared/types/contextMenu'
 import { broadcastStateChange } from './stateBus'
 import { HistoryManager, normalizeHistory } from './api/historyManager'
@@ -186,7 +186,6 @@ export async function registerIpcHandlers(
         return { success: true }
     })
     ipcMain.handle('tray:quit-app', () => {
-        setQuitting(true)
         app.quit()
         return { success: true }
     })

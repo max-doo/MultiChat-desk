@@ -2,6 +2,7 @@ export interface ContextMenuItem {
   key: string
   label: string
   icon: string
+  color?: string
   shortcut?: string
   disabled?: boolean
   danger?: boolean

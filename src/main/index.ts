@@ -1,9 +1,9 @@
 
 
-import { app, BrowserWindow, globalShortcut, nativeTheme, powerMonitor, protocol, net, session } from 'electron'
+import { app, BrowserWindow, globalShortcut, ipcMain, nativeTheme, powerMonitor, protocol, net, session } from 'electron'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
-import { join } from 'path'
-import { readdir, rm } from 'fs/promises'
+import { extname, join } from 'path'
+import { readFile, readdir, rm } from 'fs/promises'
 import { tmpdir } from 'os'
 import Store from 'electron-store'
 import { initSummaryPrompts } from './summaryPrompts'
@@ -25,6 +25,24 @@ import {
 } from './services/workbenchService'
 import { initWorkbenchDownloadService } from './services/workbenchDownloadService'
 import { pathToFileURL } from 'url'
+import {
+  buildWorkbenchHtmlEditDocument,
+  WORKBENCH_HTML_EDIT_QUERY,
+  WORKBENCH_HTML_EDIT_RUNTIME,
+  WORKBENCH_HTML_EDIT_RUNTIME_QUERY,
+  WORKBENCH_HTML_EDIT_STYLE,
+  WORKBENCH_HTML_EDIT_STYLE_QUERY
+} from '../shared/utils/workbenchHtmlEditor'
+import {
+  WORKBENCH_HTML_ANNOTATION_QUERY,
+  WORKBENCH_HTML_ANNOTATION_RUNTIME_QUERY,
+  WORKBENCH_HTML_ANNOTATION_STYLE_QUERY
+} from '../shared/types/htmlAnnotations'
+import {
+  buildWorkbenchHtmlAnnotationDocument,
+  WORKBENCH_HTML_ANNOTATION_RUNTIME,
+  WORKBENCH_HTML_ANNOTATION_STYLE
+} from '../shared/utils/workbenchHtmlAnnotations'
 
 // 仅 Windows 需要该 GPU 后端修复；macOS 使用系统原生图形栈，不能套用 Windows 开关。
 if (process.platform === 'win32') {
@@ -130,6 +148,10 @@ const gotTheLock = app.requestSingleInstanceLock()
 if (!gotTheLock) {
   app.quit()
 } else {
+  let quitGuardReady = false
+  let quitRequestPending = false
+  let quitConfirmed = false
+
   app.on('second-instance', () => {
     const mainWindow = getMainWindow()
     if (mainWindow) {
@@ -195,6 +217,17 @@ if (!gotTheLock) {
     // 注入依赖：Store 实例，获取主窗口函数，打开浏览器窗口函数
     await registerIpcHandlers(store, getMainWindow, openBrowserWindowInternal)
 
+    ipcMain.on('app:quit-guard-ready', (event) => {
+      if (event.sender === getMainWindow()?.webContents) quitGuardReady = true
+    })
+    ipcMain.on('app:quit-response', (event, allow: unknown) => {
+      if (event.sender !== getMainWindow()?.webContents || !quitRequestPending) return
+      quitRequestPending = false
+      if (allow !== true) return
+      quitConfirmed = true
+      app.quit()
+    })
+
     // 工作台模式下 AI Webview 的下载直接落到当前工作区；其他模式保持系统保存框。
     initWorkbenchDownloadService(() => {
       if (store.get('productMode') !== 'workbench') return null
@@ -211,6 +244,104 @@ if (!gotTheLock) {
         const realPath = await resolveWorkbenchFileRequest(request.url)
         if (!realPath) {
           return new Response('Forbidden', { status: 403 })
+        }
+        const requestUrl = new URL(request.url)
+        const extension = extname(realPath).toLowerCase()
+        const isHtml = extension === '.html' || extension === '.htm'
+
+        // 标注预览：运行时只画高亮和转发选区，评论与持久化留在宿主 renderer。
+        if (isHtml && requestUrl.searchParams.get(WORKBENCH_HTML_ANNOTATION_RUNTIME_QUERY) === '1') {
+          return new Response(WORKBENCH_HTML_ANNOTATION_RUNTIME, {
+            headers: {
+              'content-type': 'text/javascript; charset=utf-8',
+              'cache-control': 'no-store'
+            }
+          })
+        }
+        if (isHtml && requestUrl.searchParams.get(WORKBENCH_HTML_ANNOTATION_STYLE_QUERY) === '1') {
+          return new Response(WORKBENCH_HTML_ANNOTATION_STYLE, {
+            headers: {
+              'content-type': 'text/css; charset=utf-8',
+              'cache-control': 'no-store'
+            }
+          })
+        }
+        if (isHtml && requestUrl.searchParams.get(WORKBENCH_HTML_ANNOTATION_QUERY) === '1') {
+          try {
+            const html = await readFile(realPath, 'utf8')
+            const legacyPath = requestUrl.searchParams.get('path')
+            const resourceUrl = (queryKey: string): string => {
+              const url = new URL(request.url)
+              url.search = ''
+              if (legacyPath) url.searchParams.set('path', legacyPath)
+              url.searchParams.set(queryKey, '1')
+              return url.toString()
+            }
+            return new Response(
+              buildWorkbenchHtmlAnnotationDocument(
+                html,
+                resourceUrl(WORKBENCH_HTML_ANNOTATION_RUNTIME_QUERY),
+                resourceUrl(WORKBENCH_HTML_ANNOTATION_STYLE_QUERY)
+              ),
+              {
+                headers: {
+                  'content-type': 'text/html; charset=utf-8',
+                  'cache-control': 'no-store'
+                }
+              }
+            )
+          } catch (err) {
+            console.error('[Main] 读取 HTML 标注预览失败:', err)
+            return new Response('Preview unavailable', { status: 500 })
+          }
+        }
+
+        // 可视化编辑：同一路径用专用 query 提供编辑文档、样式与运行时。
+        // 三份资源都保持 workbench-file:// 同源，预览 iframe 仍只开 allow-scripts。
+        if (isHtml && requestUrl.searchParams.get(WORKBENCH_HTML_EDIT_RUNTIME_QUERY) === '1') {
+          return new Response(WORKBENCH_HTML_EDIT_RUNTIME, {
+            headers: {
+              'content-type': 'text/javascript; charset=utf-8',
+              'cache-control': 'no-store'
+            }
+          })
+        }
+        if (isHtml && requestUrl.searchParams.get(WORKBENCH_HTML_EDIT_STYLE_QUERY) === '1') {
+          return new Response(WORKBENCH_HTML_EDIT_STYLE, {
+            headers: {
+              'content-type': 'text/css; charset=utf-8',
+              'cache-control': 'no-store'
+            }
+          })
+        }
+        if (isHtml && requestUrl.searchParams.get(WORKBENCH_HTML_EDIT_QUERY) === '1') {
+          try {
+            const html = await readFile(realPath, 'utf8')
+            const legacyPath = requestUrl.searchParams.get('path')
+            const resourceUrl = (queryKey: string): string => {
+              const url = new URL(request.url)
+              url.search = ''
+              if (legacyPath) url.searchParams.set('path', legacyPath)
+              url.searchParams.set(queryKey, '1')
+              return url.toString()
+            }
+            return new Response(
+              buildWorkbenchHtmlEditDocument(
+                html,
+                resourceUrl(WORKBENCH_HTML_EDIT_RUNTIME_QUERY),
+                resourceUrl(WORKBENCH_HTML_EDIT_STYLE_QUERY)
+              ),
+              {
+                headers: {
+                  'content-type': 'text/html; charset=utf-8',
+                  'cache-control': 'no-store'
+                }
+              }
+            )
+          } catch (err) {
+            console.error('[Main] 读取 HTML 编辑预览失败:', err)
+            return new Response('Preview unavailable', { status: 500 })
+          }
         }
         return net.fetch(pathToFileURL(realPath).toString(), {
           bypassCustomProtocolHandlers: true
@@ -286,7 +417,26 @@ if (!gotTheLock) {
     })
   })
 
-  app.on('before-quit', () => {
+  app.on('before-quit', (event) => {
+    const mainWindow = getMainWindow()
+    if (
+      !quitConfirmed &&
+      quitGuardReady &&
+      mainWindow &&
+      !mainWindow.isDestroyed() &&
+      !mainWindow.webContents.isDestroyed()
+    ) {
+      event.preventDefault()
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.show()
+      mainWindow.focus()
+      if (!quitRequestPending) {
+        quitRequestPending = true
+        mainWindow.webContents.send('app:quit-requested')
+      }
+      return
+    }
+
     setQuitting(true)
     agentTaskService.shutdown()
     stopDaemonServer()

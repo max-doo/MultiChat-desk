@@ -1,5 +1,250 @@
 # Session Log
 
+## 2026-11-23
+
+### 16:43 | Codex
+
+- done: 工作台 Markdown 编辑器改为正文固定居中：旁注栏脱离 flex 布局按右侧留白浮层定位，大纲导航跟随正文左缘
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchMarginNotes.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchMinimalToc.tsx`
+- lesson(promoted): Markdown 阅读区左右侧栏（旁注、大纲）不要参与 flex 布局流；以正文容器矩形为锚做绝对/固定定位，展开收起才不会推动正文。
+
+### 16:27 | Codex
+
+- done: 将 HTML 可排序容器的拖拽手柄移出工具条并放到容器左上角外侧；不可排序容器不渲染手柄，贴边无外侧空间时隐藏，避免遮挡正文。
+- context: 用户要求拖拽控件不能覆盖选中容器内部正文，只能在容器外侧显示。
+- decision: 优先放在容器左侧外侧并与顶边对齐；左侧无空间时放到容器上方外侧，且仅在完整位于容器外时显示。
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchHtmlVisualEditor.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchHtmlEditToolbar.tsx`
+  - `docs/workbench-html-visual-edit-plan.md`
+
+### 16:17 | Codex
+
+- done: 将 HTML 编辑背景色的透明选项并入完整取色器，并修复菜单失焦关闭与实时输入抢焦点问题。
+- context: 用户要求透明色直接放在背景颜色菜单中、菜单失焦后自动关闭，并且自建取色器具备原生 color picker 级别的取色能力。
+- decision: 取色器提供饱和度/明度区、色相、不透明度、Hex 与预设色，透明作为背景调色板首项；实时调色命令携带 preserveFocus，避免 iframe 抢走 Hex 输入焦点。
+- added:
+  - `src/renderer/src/components/workbench/WorkbenchHtmlColorPicker.tsx`
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchHtmlEditToolbar.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchHtmlVisualEditor.tsx`
+  - `src/shared/utils/workbenchHtmlEditor.ts`
+  - `docs/workbench-html-visual-edit-plan.md`
+- lesson(promoted): sandbox iframe 的宿主工具条做实时调色时，编辑运行时不能无条件 window.focus()，否则每次输入都会抢走父窗口焦点并关闭调色菜单；实时预览命令应显式 preserveFocus。
+
+### 16:06 | Codex
+
+- done: 实现 HTML 渲染预览的原位标注：选中文字右键标注，页面内高亮，点击高亮打开与文档一致的评论卡，支持修改和删除，不显示旁注栏。
+- context: 用户要求 HTML 只显示高亮，点击高亮再显示评论；复用 document 标注旁路存储。现有工作区包含未提交的 HTML 可视化编辑改动，本次只在该链路旁增加标注预览。
+- decision: 标注运行时作为 workbench-file:// 同源外部脚本注入，iframe 继续 sandbox=allow-scripts；评论正文和持久化留在宿主 renderer，运行时只接收 id 与 anchor。复用 AnnotationCommentCard，不引入旁注列表。
+- added:
+  - `src/shared/types/htmlAnnotations.ts`
+  - `src/shared/utils/workbenchHtmlAnnotations.ts`
+  - `src/renderer/src/components/workbench/WorkbenchHtmlAnnotationPreview.tsx`
+- modified:
+  - `src/main/index.ts`
+  - `src/shared/utils/workbenchHtmlEditor.ts`
+  - `src/renderer/src/components/workbench/WorkbenchCodePreview.tsx`
+  - `src/renderer/src/components/CustomContextMenu.tsx`
+- lesson(promoted): HTML 预览标注应把高亮运行时放在 iframe 内、评论 UI 放在宿主；空白点击、滚动和 Esc 必须由 iframe 运行时主动 postMessage 关闭评论卡，否则新建卡片会残留。
+
+### 15:58 | Codex
+
+- done: 为 HTML 可视化编辑工具条增加当前文字色和背景色回显，并支持透明背景。
+- context: 用户要求工具条识别选区当前文字色与背景色，背景色不是文字高亮，且需要透明色选项。
+- decision: 编辑器运行时在 selection 消息中上报计算样式；工具条用色块回显文字色与背景色，背景色改用填充图标并提供独立透明按钮。
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchHtmlEditToolbar.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchHtmlVisualEditor.tsx`
+  - `src/renderer/src/components/icons/AppIcon.tsx`
+  - `src/shared/utils/workbenchHtmlEditor.ts`
+  - `docs/workbench-html-visual-edit-plan.md`
+
+### 15:52 | Codex
+
+- done: 按用户截图修正导图侧栏：选区预览放到 logo 与标题下方，标题切换为将选中内容整理成思维导图，并保留一键清除
+- context: 用户指出前一版把选区预览放在标题上方且标题未变化，要求预览位于 logo/标题下方并改变标题文案
+- decision: 空状态在标题下方注入固定高度选区预览；选区模式标题使用将选中内容整理成思维导图；生成成功才自动清除选区，清除按钮可随时一键恢复全文
+- modified:
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchMindmapPanel.tsx`
+  - `docs/mindmap-selection-scope-prototype.html`
+  - `docs/mindmap-selection-scope-design.md`
+
+### 15:46 | Codex
+
+- done: 修正 HTML 可视化编辑态顶栏、编辑高亮与离开确认框样式。
+- context: 用户反馈模式分段控件被挤动、文件操作按钮被隐藏、编辑态使用紫色，以及弹窗不符合现有 UI。
+- decision: 保存按钮前置并保留全部文件操作，使模式分组位置固定；选中、hover 与拖拽落点改用应用主色；确认框沿用工作台浅色弹窗样式。
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchCodePreview.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchHtmlEditLeaveDialog.tsx`
+  - `src/shared/utils/workbenchHtmlEditor.ts`
+  - `docs/workbench-html-visual-edit-plan.md`
+
+### 13:21 | Codex
+
+- done: 在工作台 HTML 预览中完成渲染、可视化编辑、源码三态分离，加入可复用浮动工具栏、显式保存、未保存离开确认、产品模式切换守卫和托盘退出确认，并同步实现方案文档。
+- context: 按 docs/workbench-html-visual-edit-plan.md 实现；iframes 保持 sandbox=allow-scripts，不放开 allow-same-origin；保存复用 saveActiveFile/writeFile 直接覆写原文件，不新增保存 IPC。
+- decision: 编辑文档、运行时和样式由 workbench-file:// 查询参数提供，父子页面通过 postMessage 通信；工具栏复用 WorkbenchFloatingToolbarChrome；文件、工作区、编辑模式和托盘退出统一走 htmlEditLeaveGuard。
+- added:
+  - `docs/workbench-html-visual-edit-plan.md`
+  - `src/shared/utils/workbenchHtmlEditor.ts`
+  - `src/renderer/src/components/workbench/WorkbenchHtmlVisualEditor.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchHtmlEditToolbar.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFloatingToolbarChrome.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchHtmlEditLeaveDialog.tsx`
+- modified:
+  - `src/main/index.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/main/webviewManager.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/src/App.tsx`
+  - `src/renderer/src/components/Layout.tsx`
+  - `src/renderer/src/components/icons/AppIcon.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchCodePreview.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFloatingToolbarPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchStatusPill.tsx`
+  - `src/renderer/src/store/workbenchStore.ts`
+- lesson(promoted): sandbox iframe 内做可视化编辑时，可由主进程提供同源编辑文档与运行时，再用 postMessage 通信，避免放开 allow-same-origin；跨 iframe 拖拽应由外层 Pointer Capture 与覆盖层保持事件归属。
+- lesson(promoted): Electron 托盘退出若要经过渲染层确认，必须先建立 quit-guard-ready 握手，并在 before-quit 中 preventDefault 后等待 IPC 决策；取消退出时不能提前 setQuitting(true)，否则窗口关闭会绕回隐藏到托盘的既有行为。
+
+### 12:59 | Codex
+
+- done: 进一步统一选区交互：去掉长短选区与折叠分支，固定选区文本区域高度并内部滚动
+- context: 用户要求统一使用文档中有选区的方案，长选区不做专门折叠，固定 text area 高度即可
+- modified:
+  - `docs/mindmap-selection-scope-prototype.html`
+  - `docs/mindmap-selection-scope-design.md`
+
+### 12:59 | Codex
+
+- done: 修正 PDF 预览 Ctrl+滚轮缩放方向：向上放大、向下缩小
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchPdfViewer.tsx`
+- lesson(promoted): 滚轮缩放方向按 deltaY 语义映射：deltaY<0 为向上应放大，正值为向下应缩小；与图片预览和系统通用习惯保持一致，避免反向操作。
+
+### 12:57 | Codex
+
+- done: 修正原型：选区模式必须展示原始文字，长文本默认折叠并可展开；默认仍为全文生成
+- context: 用户指出选区导图应在右侧面板显示选中内容，只是内容较多时默认折叠
+- decision: 短选区直接展示，长选区默认折叠；展开仅作为查看行为，不引入范围选择或取消入口
+- modified:
+  - `docs/mindmap-selection-scope-prototype.html`
+  - `docs/mindmap-selection-scope-design.md`
+
+### 12:57 | Codex
+
+- done: 为 HTML 预览右键菜单的 AI 操作图标补齐与 Markdown 文档一致的配色
+- modified:
+  - `src/shared/types/contextMenu.ts`
+  - `src/renderer/src/components/CustomContextMenu.tsx`
+
+### 12:55 | Codex
+
+- done: PDF 预览支持 Ctrl/⌘ + 滚轮缩放，并统一缩放步进逻辑
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchPdfPreview.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchPdfViewer.tsx`
+- lesson(promoted): PDF 预览的 Ctrl+滚轮缩放要挂在非被动 wheel 监听上并累加 deltaY，触控板连续手势才不会一次跳过多档；缩放状态仍由 WorkbenchPdfPreview 统一持有，Viewer 只上报方向。
+
+### 12:54 | Codex
+
+- done: 根据反馈简化思维导图选区交互原型：删除范围选择，默认全文，选区仅作一次性隐式上下文
+- context: 用户指出生成范围不应让用户选择：选择部分文字后自动触发，默认按整篇文档生成
+- decision: 取消范围配置区；选区状态仅通过正文高亮、主按钮圆点和底部一行反馈表达，生成后恢复全文
+- modified:
+  - `docs/mindmap-selection-scope-prototype.html`
+  - `docs/mindmap-selection-scope-design.md`
+
+### 12:50 | Codex
+
+- done: 设计思维导图选区交互重设计，并交付可切换状态的 HTML 原型与设计说明
+- context: 用户提供截图反馈：顶部全宽选区提示占用容器宽度且交互不合理，要求用 HTML 展示重设计方案
+- decision: 将选区定义为生成卡片内的一次性作用范围，支持取消、生成后恢复全文，并取消顶部通知条
+- added:
+  - `docs/mindmap-selection-scope-prototype.html`
+  - `docs/mindmap-selection-scope-design.md`
+
+### 12:49 | Codex
+
+- done: 删除工作台划词菜单顶部标题，并将 HTML 预览右键菜单样式对齐 Markdown 右键菜单
+- modified:
+  - `src/renderer/src/components/CustomContextMenu.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchSelectionMenuPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchPdfViewer.tsx`
+
+### 12:48 | Codex
+
+- done: 对齐 HTML 预览右键菜单与 Markdown 文档右键菜单的样式
+- context: 用户截图显示 HTML 预览右键仍使用全局 CustomContextMenu；Markdown 文档使用 WorkbenchSelectionMenuPlugin 样式。
+
+### 12:46 | Codex
+
+- done: 删除工作台划词菜单顶部的 AI 划词协同/划词操作文字标题，并统一编辑器与 PDF 菜单结构
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchSelectionMenuPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchPdfViewer.tsx`
+
+### 12:36 | Codex
+
+- done: 移除工作台标注文字后的圆形序号：删除紧凑模式下的 data-annotation-index 写入与 ::after 伪元素样式
+- context: 用户反馈窄窗口才出现序号、宽窗口没有；定位为 960px 以下 compact 旁注模式的遗留视觉标记。保留 data-margin-notes-mode，因为正文选区逻辑仍依赖它判断紧凑模式
+- decision: 只移除序号渲染与无用的 DOM 标记同步，保留高亮底色、虚线边框和全部标注交互；不改宽窄屏布局与旁注定位
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchMarginNotes.tsx`
+  - `src/renderer/src/assets/index.css`
+
+### 12:20 | Codex
+
+- done: 修复工作台已有标注弹窗评论输入框被抢焦点：为所有标注投影与定位的 Lexical update 附加 SKIP_SELECTION_FOCUS_TAG，输入不再落入正文
+- context: 根因是 Lexical 0.53 选区更新会主动 rootElement.focus()；打开已有标注后的定位，以及 textarea 失焦对账触发的 cleanMarkNodes，都会把焦点抢回 contenteditable。桌面实测点击 textarea 后 0.2s、1.0s、2.0s 焦点仍在 TEXTAREA，测试文字未进入正文；lint、定向类型检查与 build 均通过
+- decision: 复用 Lexical 官方 SKIP_SELECTION_FOCUS_TAG 统一约束 annotation-sync 后台更新，只改焦点策略，不改标注数据与 Markdown 序列化
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchAnnotationPlugin.tsx`
+- lesson(promoted): Lexical 后台标注投影和选区定位即使带自定义 tag，也会在 discrete update 时抢走评论框焦点；同步链路必须附加 SKIP_SELECTION_FOCUS_TAG，避免输入落入 contenteditable
+- unresolved: 验收中发现 Markdown 导入器会丢失嵌套强调格式，已恢复测试文档原文，未在本任务修改
+
+### 12:02 | Codex
+
+- done: 重组 KNOWLEDGE.md 与 INDEX.md：按领域收敛为 15 个主题、166 条经验，合并重复条目，修正过时 IPC 类型与 tsc 基线，拆分 Git/CLI/工作台触发器并补齐 Cookie 证据链
+- context: KNOWLEDGE 原有 448 行、约 6.8 万字符；INDEX 的 react-state/notes-identity/cli-daemon 触发词分别膨胀到 119/69/55 个，Git 路由还指向错误的旧章节
+- decision: 保留单文件按 ### 分节，不拆多文件；路由改为按标题文本匹配，去掉数字编号依赖；条目统一为结论开头的单 bullet，历史细节压缩为证据句
+- modified:
+  - `.memory/KNOWLEDGE.md`
+  - `.memory/INDEX.md`
+- lesson: 知识库整理要先修与当前代码冲突的事实，再按领域归并；索引触发词超过 50 个时应拆分路由，而不是继续追加关键词
+- unresolved: 历史平台 DOM 观测仍有 2026-11 的时效性，后续遇到相关平台改版时应按当前 DOM 复核
+
+### 11:54 | Codex
+
+- done: 将 MarkNode 破坏 Markdown 格式连续性的经验写入 KNOWLEDGE，并在 INDEX 增加 lexical-markdown 路由；标注本次修复验证结果。
+- context: 实现方案 B 后，普通文档无标注时保持原序列化路径，存在标注时使用 toJSON(true)+parseEditorState 影子状态；无界面 Electron 验收已确认标注不再报错，编辑后自动保存的 Markdown 不含 *****。
+- modified:
+  - `.memory/INDEX.md`
+  - `.memory/KNOWLEDGE.md`
+  - `SESSION_LOG.md`
+
+### 11:49 | Codex
+
+- done: 工作台标注投影修复：统一用无 MarkNode 的影子状态序列化 Markdown，标注校验和正文回写共用，避免粗体/斜体标注被安全校验拒绝或写回时格式损坏。
+- context: 用户确认按独立审查后的方案 B 实施；问题是 @lexical/markdown 的 exportTextFormat 只识别直接相邻 TextNode，MarkNode 隔断格式连续性。
+- decision: 保留 after !== before 的安全 guard 和 annotation-sync 过滤；仅在树中存在 MarkNode 时走 toJSON(true) + parseEditorState 影子序列化，普通文档保持原路径。
+- modified:
+  - `src/renderer/src/components/workbench/MarkdownSyncPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchAnnotationPlugin.tsx`
+- lesson(promoted): Lexical MarkNode 会隔断 Markdown 导出器的相邻 TextNode 格式判断；标注旁路投影的序列化必须在 guard 和普通编辑回写两条路径统一剥离 MarkNode，否则会出现校验拒绝或静默格式损坏。
+
+### 11:26 | Codex
+
+- done: 主页模式设置弹窗：工作台挪到第二位、删除上下箭头按钮（保留拖拽排序）
+- decision: 默认顺序改为 [multi_ai, workbench, task_assignment, debate]，hidden 默认不变；PRODUCT_MODE_CONFIG_SCHEMA_VERSION 未递增（仅 order 变化，不属 hidden 迁移场景）
+- modified:
+  - `src/renderer/src/store/appStore.ts;src/renderer/src/components/ProductModeOrderModal.tsx`
+
 ## 2026-11-22
 
 ### 21:23 | Codex
@@ -3424,191 +3669,4 @@ ul`
 - modified:
   - `tsconfig.web.json`
 - lesson: tsconfig.web.json 缺少 target 导致存量 TS2802（Map 迭代需 es2015+）等 12 个类型错误，与本次改动无关；验证存量错误需 stash 对比
-
-## 2026-11-16
-
-### 23:14 | agent
-
-- done: 实施评审 P0-P3 全部代码层根治项：commands.ts 显式 query 参数跳过 readStdinIfPiped（根治开放 stdin 管道挂死）+ submit --wait 客户端两段化（stderr 早吐 taskId ack，实测对 1.3.1 daemon 正常）；idempotencyKey 全链贯通（CLI flag→ipcServer buildSubmitRequest→AgentTaskService 同 sessionKey 内存去重）；index.ts 启动写 cli.json（cliCmdPath/skillDir，覆盖便携版）；electron-builder-portable.yml 补回 skill extraResources（extends 数组覆盖语义，原为缺 skill 的 bug）；installer.nsh customInstall 补写 InstallLocation 到卸载键；SKILL.md/双包装脚本同步新契约与 --idempotency-key
-- context: 评审 P0-P3 落地；端到端对运行中的 1.3.1 daemon 实测：stdin 跳过/管道读取/两段式 stderr ack/cancel/task list 均正常；daemon 侧新功能（幂等键、cli.json）因已装实例占管无法实测，留 dev 验证
-- modified:
-  - `src/cli/commands.ts`
-  - `src/shared/types/agentTask.ts`
-  - `src/main/daemon/ipcServer.ts`
-  - `src/main/services/AgentTaskService.ts`
-  - `src/main/cliIntegration.ts`
-  - `src/main/index.ts`
-  - `electron-builder-portable.yml`
-  - `build/installer.nsh`
-  - `.devin/skills/multichat-cli/SKILL.md`
-  - `.devin/skills/multichat-cli/scripts/run_task.ps1`
-  - `.devin/skills/multichat-cli/scripts/run_task.sh`
-- lesson(promoted): electron-builder extends 对 extraResources 等数组字段是覆盖语义非合并：portable yml 重定义时必须重复声明父配置全部条目，否则静默丢资源（本次便携版丢 skill 目录实证）
-- lesson(promoted): submit --wait 的正确两段化在客户端而非协议层：daemon 协议不变（client 先 submit 无 wait 回 taskId 吐 stderr 再 task.status 长轮询），新旧 CLI/daemon 交叉兼容；若在 daemon 侧加 ack 先行响应，旧 client 首行即 resolve 会提前退出
-- unresolved: daemon 侧新代码（idempotencyKey 去重、writeCliManifest）需在安装版退出后 npm run dev 实测：关闭 MultiChat → npm run dev → node out/cli/index.js task submit --platform deepseek --query x --idempotency-key k1 两次应返回同 taskId；%APPDATA%\multichat-dev\cli.json 应生成
-
-### 23:02 | agent
-
-- done: 独立评审后修复 skill 脚本层缺陷：run_task.ps1 重构为两段式（submit 不带 --wait 先拿 taskId 吐 stderr → status --wait 轮询）、MULTICHAT_CLI 先 Test-Path 再分词（修含空格路径自伤）、CLI 调用统一 '' | 给空 stdin（堵住子进程继承开放管道的挂死）、Poll/Timeout 加 ValidateRange、加 Get-Process 便携版兜底解析；run_task.sh 同步两段式+taskId ack+stdin 防护+JSON success 判错（原退出码判错对已装 shim 无效）；SKILL.md 补开放 stdin 管道警告、便携版无卸载键说明、data.phase 终态判定表述、Get-Process 备选定位
-- context: subagent 独立评审结论：方案近优但缺 CLI 代码层根治；electron-builder-portable.yml 重定义 extraResources 会丢 skill 目录（extends 数组覆盖语义，疑似 bug 待修）
-- modified:
-  - `.devin/skills/multichat-cli/SKILL.md`
-  - `.devin/skills/multichat-cli/scripts/run_task.ps1`
-  - `.devin/skills/multichat-cli/scripts/run_task.sh`
-- lesson(promoted): 评审抓到的关键缺口：文档层缓解（两段式/警告）无法根治 CLI 源码缺陷——readStdinIfPiped 无条件先读 stdin 会让开放管道场景下所有提交挂死（连 --query-file 也救不了）；submit --wait 被杀丢 taskId 需客户端两段化（submit 不带 wait 先回 stderr ack 再 status 长轮询）
-- unresolved: CLI 代码层根治项待定：readStdinIfPiped 显式参数跳过、submit --wait 客户端两段化、cli.json 入口指示文件、portable extraResources 补 skill、installer 补写 InstallLocation、idempotencyKey 幂等提交
-
-### 22:48 | agent
-
-- done: 修复 multichat-cli skill 的 Agent 调用摩擦：SKILL.md 补注册表确定性入口定位、两段式 submit/status 后台等待范式、被杀调用≠任务取消的恢复警告、Windows 引号坑与旧 shim 吞退出码警告（顺带修正 run_task.sh 示例中不存在的 --wait 参数）；新增 run_task.ps1（自解析入口+临时文件传 query+JSON success 判定）；修复 multichat.cmd endlocal 吞 ERRORLEVEL 的退出码 bug
-- context: Devin 会话截图显示 agent 调 multichat CLI 走了 15+ 步：PATH 陈旧找不到入口 5 步 + submit --wait 前台超时被杀丢 taskId 重投 + 多次 status 轮询
-- added:
-  - `.devin/skills/multichat-cli/scripts/run_task.ps1`
-- modified:
-  - `.devin/skills/multichat-cli/SKILL.md`
-  - `build/cli/multichat.cmd`
-- lesson(promoted): cmd 批处理 setlocal/endlocal 会把子进程 ERRORLEVEL 复位吞掉退出码：退出码必须 endlocal & exit /b %ERRORLEVEL% 同行显式透传（%E% 在行解析时展开先于 endlocal 执行）
-- lesson(promoted): electron-builder NSIS 卸载键不写 InstallLocation，反推安装目录用 DisplayIcon（去 ,0 后缀）或 UninstallString 首个引号路径
-- lesson(promoted): PowerShell 函数 return @(x) 单元素数组在赋值时被解包成标量，x[0] 会取到字符串首字符；调用处必须 @(func) 强制数组
-
-### 22:23 | agent
-
-- done: 拉取 origin/main（5 个 macOS 相关提交）并与本地 CLI 功能提交 9c1ce6f 合并为 merge commit df31db8；仅 SESSION_LOG.md 冲突，按日期新旧保留双段（2026-11-16 在前、2026-11-14 在后）；Layout.tsx 自动合并（本地 CliAgentHint + 远程 entryButtons 重构共存）；.memory/sessions/2026-10-21.md 双侧内容一致自动落齐
-- context: 合并前本地曾有大量未提交改动，期间被提交为 9c1ce6f 后与远程分叉
-- modified:
-  - `SESSION_LOG.md`
-- unresolved: 本地领先 origin/main 2 个提交，尚未 push；tsconfig.web.json 定向检查存在 TaskModePanel/useWebviewLifecycle/MainPage/QuickPage/appStore 等历史 TS 报错，与本次合并无关
-
-### 22:02 | agent
-
-- done: 安装器 CLI 选项页说明文案中的 Agent 示例由 Devin 改为 Codex（Codex、Claude Code 等）
-- modified:
-  - `build/installer.nsh`
-
-### 21:42 | agent
-
-- done: 升级应用版本至 v1.3.1 并完成 NSIS 安装包打包（dist/MultiChat Setup 1.3.1.exe，125MB，latest.yml 已更新）
-- context: 版本号由 app.getVersion() 从 package.json 读取，package.json 与 package-lock.json 为唯一需同步位置；npm run build:win:nsis 一次性完成编译与 electron-builder NSIS 打包
-- modified:
-  - `package.json`
-  - `package-lock.json`
-- removed:
-  - 
-ul`
-
-### 18:06 | agent
-
-- done: 实现安装包可选装 multichat CLI 并加入 PATH + 应用内 Agent Skill 集成引导：NSIS 复选框页与 PATH 注册/卸载清理、cliIntegration 主进程模块（状态查询/PowerShell 补挂 PATH/Skill 目录定位）、cli:* IPC 与 preload 契约、设置抽屉集成区块、首启一次性引导卡片
-- context: 用户希望安装期可选装 CLI 并提醒用户给 AI Agent 装配套 Skill；验证过 npm run build 与 electron-builder NSIS 双侧编译，shim 实测 daemon status 连通
-- decision: CLI 对外命令名统一为 multichat（cli/ 子目录 shim，不污染 INSTDIR）；Skill 只给说明不代装；首启引导卡片用 PATH 检测 + store 标记实现一次性提示
-- added:
-  - `build/cli/multichat.cmd`
-  - `build/cli/multichat.sh`
-  - `src/shared/types/cli.ts`
-  - `src/main/cliIntegration.ts`
-  - `src/renderer/src/components/CliIntegrationSection.tsx`
-  - `src/renderer/src/components/CliAgentHint.tsx`
-  - `src/renderer/src/utils/cliGuide.ts`
-- modified:
-  - `build/installer.nsh`
-  - `electron-builder.yml`
-  - `src/main/ipcHandlers.ts`
-  - `src/preload/index.ts`
-  - `src/renderer/src/components/SettingsDrawer.tsx`
-  - `src/renderer/src/components/Layout.tsx`
-  - `.devin/skills/multichat-cli/SKILL.md`
-  - `.devin/skills/multichat-cli/scripts/run_task.sh`
-  - `build/MACOS_FIRST_OPEN.md`
-  - `AGENTS.md`
-- removed:
-  - `build/multichat-cli.cmd`
-  - `build/multichat-cli.sh`
-- lesson(promoted): electron-builder nsis.include 被注入到生成脚本头部（先于 common.nsh/MUI2/LogicLib），自定义 Function 体内用到的宏必须在 installer.nsh 自己 include（nsDialogs.nsh 会连带 LogicLib+WinMessages）；PATH 操作用 WriteRegExpandStr 保 REG_EXPAND_SZ，改完需 SendMessage HWND_BROADCAST WM_SETTINGCHANGE 广播
-
-### 17:39 | agent
-
-- done: 验证 session_log.py stdout UTF-8 修复
-- modified:
-  - `.memory/session_log.py`
-
-### 17:39 | agent
-
-- done: 为 multichat CLI 创建专属 skill（.devin/skills/multichat-cli）：SKILL.md 涵盖入口解析、preflight、submit→wait→result 工作流、research/追问/多平台 fan-out 场景、错误码表；scripts/run_task.sh 封装提交+轮询闭环，已用 deepseek 实测端到端通过
-- context: CLI 契约来自 src/cli/commands.ts + src/main/daemon/ipcServer.ts + docs/agent-cli-dev-plan.md；daemon 实测在线，platforms 返回 13 个平台
-- added:
-  - `.devin/skills/multichat-cli/SKILL.md`
-  - `.devin/skills/multichat-cli/scripts/run_task.sh`
-- lesson(promoted): done 终态的 task.status/submit --wait 响应已内嵌 reply，多数场景无需再调 task.result
-
-### 17:26 | agent
-
-- done: CLI输出契约优化：默认输出翻转为JSON（--json变兼容no-op），新增--text人类可读模式；done终态在单任务响应（submit --wait/status）内嵌reply省去一次result往返（Google LRO/AIP-151模式），task.list批量视图不内嵌；AgentTaskView加可选reply字段；验收脚本同步--text用例+新增D8内嵌断言，89 PASS/0 FAIL/0 SKIP，持久化记录内嵌链路实机验证
-- modified:
-  - `src/cli/commands.ts`
-  - `src/main/daemon/ipcServer.ts`
-  - `src/shared/types/agentTask.ts`
-  - `scripts/agent-cli-acceptance.mjs`
-- lesson(promoted): 异步任务API的业界模式：Google LRO(AIP-151)在operation done时直接内嵌response，单任务响应内嵌reply+批量列表不内嵌是省一次工具调用又不爆列表体积的平衡点；CLI翻转默认输出时isJsonMode改为!opts.text比加env开关更直观
-
-### 16:59 | agent
-
-- done: Agent CLI 真机E2E全量验收：新daemon起服后platforms(13平台)/task.list/token鉴权/submit-wait-done实测gemini21.5s+chatgpt27.3s均done，conversationUrl捕获归一，conversation追问落同页，FIFO排队queuedPosition=1，cancel三相(queued/preparing/generating)正确落地，CAPABILITY_UNSUPPORTED(claude research)正确，终态全量落盘；修复cancelled不落盘遗漏；验收脚本token感知后88 PASS/0 FAIL/0 SKIP
-- modified:
-  - `src/main/services/AgentTaskService.ts`
-  - `scripts/agent-cli-acceptance.mjs`
-- lesson(promoted): Electron系IDE终端自带ELECTRON_RUN_AS_NODE=1，须env -u ELECTRON_RUN_AS_NODE npm run dev否则electron.app undefined崩溃；kill_shell只杀npm壳electron主进程成孤儿仍占管道须taskkill //PID main //T；git-bash下node -e与heredoc中反斜杠管道路径被MSYS二次坍缩，管道测试要落盘为文件或用fromCharCode构造
-- unresolved: research深度研究实机路径未跑(耗时10min+)；wait超时返回实时快照与queueTimeout边界仅代码审查+mock验证
-
-### 16:10 | agent
-
-- done: Agent CLI 全量实施+独立worker验收：agentTask.ts契约、conversationUrl.ts共享URL工具、AgentTaskService（状态机/FIFO租约/就绪探针/轮询/双超时/取消/持久化200条7天TTL/shutdown）、ipcServer鉴权全平台修复+task.*路由+waitMs长轮询、CLI task命令组+platforms+三通道query+exit2语义；worker深审13项全修（queued取消不出队、poll单次exec零容忍、query型会话URL回归、auth墙跨origin误伤、taskId路径穿越、commander exitOverride顺序、双导航等），验收脚本84 PASS/0 FAIL
-- added:
-  - `src/shared/types/agentTask.ts`
-  - `src/shared/utils/conversationUrl.ts`
-  - `src/main/services/AgentTaskService.ts`
-  - `scripts/agent-cli-acceptance.mjs`
-- modified:
-  - `src/main/daemon/ipcServer.ts`
-  - `src/main/index.ts`
-  - `src/main/services/AutomationService.ts`
-  - `src/main/services/MindmapService.ts`
-  - `src/shared/utils/webviewScripts.ts`
-  - `src/cli/client.ts`
-  - `src/cli/commands.ts`
-  - `src/cli/index.ts`
-- lesson(promoted): commander exitOverride 必须在 registerCommands 之前调用——子命令在创建时拷贝 _exitCallback，后设不生效；daemon token 文件须放 getDataPath() 下而非管道名派生路径（Windows Named Pipe 名不能当文件路径）；executeJavaScript 在页面导航/重载期间会瞬时 reject，轮询需按空采计数容错而非单次失败即 INTERNAL；取消 queued 任务必须直接 finalize 出队，仅置标志会导致 pump 仍提取执行产生幽灵窗口
-- unresolved: 真实 E2E 未跑：需关闭旧版 MultiChat 实例释放 \.\pipe\multichat-daemon 后 npm run dev，再执行 platforms/task.submit→wait→result/FIFO排队/取消/DR/追问/断连清理等人工验收（验收脚本D5/D6会自动检测新daemon并执行协议级用例）
-
-### 16:04 | agent
-
-- done: Agent CLI 独立验收：深审 task.* 链路 + 新增 scripts/agent-cli-acceptance.mjs（88 用例：PASS=83 FAIL=1 SKIP=4）
-- context: 旧版 daemon 常驻本机管道（无 task.* 路由），新版 task.* 端到端需 npm run dev 实测
-- added:
-  - `scripts/agent-cli-acceptance.mjs`
-- lesson(promoted): 验收脚本：NODE_OPTIONS --require 注入 net.connect 重定向 shim 可在无 Electron 下做 CLI↔daemon 协议契约测试；commander 缺必填参数 exit 1 与契约'参数错误=2'不符；AgentTaskService.cancel 对 queued 任务不落地终态是状态机高危缺口
-
-### 15:02 | agent
-
-- done: 按独立 worker 深审结论修订 agent-cli-dev-plan.md：修正导航语义、waitMs 单请求原子化、socket 泄漏清理、响应契约兼容、双超时、verifySubmission、busy 分档、URL 校验、Windows 无鉴权、数据路径、终态顺序等 15 项设计错误
-- modified:
-  - `docs/agent-cli-dev-plan.md`
-- lesson(promoted): 评审 MultiChat daemon/CLI 设计时易漏的真实约束：ensureSessionReady 不负责导航（已加载会话原样返回）；sendResponse 引用作用域外 req 使非 Windows CLI 全挂；Windows Named Pipe 无 token 且 pipe 路径不能存 token 文件；DaemonResponse.error 是 string；每请求一新 socket，wait 挂起需 socket close 清理；generateSendMessageScript 仅附件场景 verifySubmission；generationStopSelectors 只适配 4 平台
-
-### 14:52 | agent
-
-- done: 合并 Agent CLI PRD 与技术方案为单一开发方案文档
-- added:
-  - `docs/agent-cli-dev-plan.md`
-- removed:
-  - `docs/agent-cli-prd.md`
-  - `docs/agent-cli-technical-design.md`
-
-### 14:48 | agent
-
-- done: 制定 Agent CLI 开发方案：PRD + 技术方案文档（task.* 异步任务协议、AgentTaskService 状态机、回复完成检测、wait 长轮询、会话语义）
-- context: 借鉴 WebAI-to-API 把网页版 AI 包装成本地 Agent 可调用服务；基于已有 cli/daemon/AutomationService/SessionManager 雏形
-- decision: model 参数一期仅声明元数据；MCP 二期；会话=每次新对话+可选追问；任务类型不固定，通用 query 提交
-- added:
-  - `docs/agent-cli-prd.md`
-  - `docs/agent-cli-technical-design.md`
 

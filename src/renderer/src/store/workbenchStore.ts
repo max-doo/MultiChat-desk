@@ -28,6 +28,7 @@ export interface SaveActiveFileResult {
   saved: boolean
   reason?: 'oversized' | 'conflict' | 'error' | 'binary' | 'no-active'
 }
+export type HtmlEditLeaveDecision = 'saved' | 'discarded' | 'cancelled'
 export type EditorMode = 'wysiwyg' | 'source'
 export type WorkbenchAiAction = 'ask' | 'explain' | 'polish' | 'summarize'
 /** 右侧栏与快捷窗口一致：AI 对话和思维导图同一时刻只显示一个（注释改为在编辑器右侧边距原位展示）。 */
@@ -163,6 +164,12 @@ interface WorkbenchStoreState {
   lastSavedAt: number | null
   // 外部冲突：保存时检测到磁盘 mtime 比内存新，拉回来的磁盘版本内容
   conflictDiskContent: string | null
+  // 可视化编辑期间注册的序列化回调：保存前拉取 iframe 内的最新 DOM
+  htmlEditFlusher: (() => Promise<string>) | null
+  // 切文件/切工作区前由可视化编辑组件接管确认，避免静默自动保存或直接丢改动
+  htmlEditLeaveGuard: (() => Promise<HtmlEditLeaveDecision>) | null
+  /** 当前是否处于 HTML 可视化编辑态；用于隐藏会遮挡浮层工具的通用状态胶囊。 */
+  htmlVisualEditing: boolean
 
   // 搜索相关
   searchQuery: string
@@ -224,6 +231,11 @@ interface WorkbenchStoreActions {
   saveActiveFile: () => Promise<SaveActiveFileResult>
   resolveExternalConflict: (choice: 'keep-mine' | 'take-disk') => Promise<boolean>
   updateActiveContent: (content: string) => void
+  setHtmlEditFlusher: (flusher: (() => Promise<string>) | null) => void
+  setHtmlEditLeaveGuard: (guard: (() => Promise<HtmlEditLeaveDecision>) | null) => void
+  setHtmlVisualEditing: (editing: boolean) => void
+  markActiveFileDirty: () => void
+  discardActiveFileChanges: (content?: string) => void
   createFile: (parentRelativeDir: string, fileName: string) => Promise<string | null>
   createFolder: (parentRelativeDir: string, folderName: string) => Promise<boolean>
   renameNode: (oldRelativePath: string, newRelativePath: string) => Promise<boolean>
@@ -417,6 +429,9 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   saveStatus: 'saved',
   lastSavedAt: null,
   conflictDiskContent: null,
+  htmlEditFlusher: null,
+  htmlEditLeaveGuard: null,
+  htmlVisualEditing: false,
 
   searchQuery: '',
   isSearching: false,
@@ -590,6 +605,16 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   },
 
   setWorkspaceFolder: async (dirPath: string, dirName?: string) => {
+    if (get().htmlVisualEditing) {
+      const leaveGuard = get().htmlEditLeaveGuard
+      if (!leaveGuard) {
+        set({ error: '可视化编辑尚未就绪，无法切换工作区' })
+        return
+      }
+      const decision = await leaveGuard()
+      if (decision === 'cancelled') return
+    }
+
     let activePath = dirPath
     let generation = get().workspaceGeneration
     try {
@@ -640,6 +665,15 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   },
 
   closeWorkspace: async () => {
+    if (get().htmlVisualEditing) {
+      const leaveGuard = get().htmlEditLeaveGuard
+      if (!leaveGuard) {
+        set({ error: '可视化编辑尚未就绪，无法关闭工作区' })
+        return
+      }
+      const decision = await leaveGuard()
+      if (decision === 'cancelled') return
+    }
     if (get().isDirty) {
       const saved = await get().saveActiveFile()
       if (!saved.saved) return
@@ -753,12 +787,23 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   },
 
   openFile: async (relativePath: string, options?: { keepActiveOnMissing?: boolean }) => {
-    const { workspacePath, activeFilePath, isDirty } = get()
+    const { workspacePath, activeFilePath } = get()
     if (!workspacePath) return false
     if (activeFilePath === relativePath) return true
 
-    // 脏状态防护：如果前一个文件有未保存的改动，立即强制刷盘
-    if (isDirty && activeFilePath) {
+    // 可视化编辑的未保存内容必须先由用户决定保存或放弃，不能静默刷盘。
+    if (get().htmlVisualEditing) {
+      const leaveGuard = get().htmlEditLeaveGuard
+      if (!leaveGuard) {
+        set({ error: '可视化编辑尚未就绪，无法切换文件' })
+        return false
+      }
+      const decision = await leaveGuard()
+      if (decision === 'cancelled') return false
+    }
+
+    // 源码模式的既有行为：前一个文件有未保存改动时先落盘，再切换。
+    if (get().isDirty && activeFilePath) {
       if (autoSaveTimer) {
         clearTimeout(autoSaveTimer)
         autoSaveTimer = null
@@ -853,6 +898,25 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   },
 
   saveActiveFile: async () => {
+    // 可视化编辑只在保存时序列化 iframe DOM：平时不写盘，也不与源码自动保存抢状态。
+    const flushHtmlEdit = get().htmlEditFlusher
+    const pathBeforeFlush = get().activeFilePath
+    if (flushHtmlEdit) {
+      try {
+        const html = await flushHtmlEdit()
+        if (get().activeFilePath !== pathBeforeFlush) {
+          return { saved: false, reason: 'no-active' }
+        }
+        if (typeof html === 'string' && html !== get().activeFileContent) {
+          set({ activeFileContent: html })
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        set({ saveStatus: 'error', error: `无法读取可视化编辑内容: ${message}` })
+        return { saved: false, reason: 'error' }
+      }
+    }
+
     const {
       workspacePath,
       activeFilePath,
@@ -947,6 +1011,40 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       autoSaveTimer = null
       void get().saveActiveFile()
     }, 1200)
+  },
+
+  setHtmlEditFlusher: (flusher) => {
+    // 进入可视化编辑后，源码模式的防抖自动保存必须失效；保存动作统一走显式按钮/Ctrl+S。
+    if (autoSaveTimer) {
+      clearTimeout(autoSaveTimer)
+      autoSaveTimer = null
+    }
+    set({ htmlEditFlusher: flusher })
+  },
+
+  setHtmlEditLeaveGuard: (guard) => set({ htmlEditLeaveGuard: guard }),
+
+  setHtmlVisualEditing: (editing) => set({ htmlVisualEditing: editing }),
+
+  markActiveFileDirty: () => {
+    if (autoSaveTimer) {
+      clearTimeout(autoSaveTimer)
+      autoSaveTimer = null
+    }
+    if (!get().isDirty) set({ isDirty: true })
+  },
+
+  discardActiveFileChanges: (content) => {
+    if (autoSaveTimer) {
+      clearTimeout(autoSaveTimer)
+      autoSaveTimer = null
+    }
+    set({
+      ...(typeof content === 'string' ? { activeFileContent: content } : {}),
+      isDirty: false,
+      saveStatus: 'saved',
+      conflictDiskContent: null
+    })
   },
 
   /**

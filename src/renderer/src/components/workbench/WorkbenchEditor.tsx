@@ -470,17 +470,17 @@ export default function WorkbenchEditor(): JSX.Element {
         {/* 编辑器画布可滚动容器 */}
         <div
           ref={wysiwygScrollRef}
-          className="flex-1 overflow-y-auto relative flex justify-center items-start"
+          className="flex-1 overflow-y-auto relative"
           onScroll={handleWysiwygScroll}
         >
           <div
             ref={stageRef}
-            className="relative w-full max-w-[1080px] flex justify-center items-start gap-6 px-6 pt-6 pb-20 min-h-full"
+            className="relative w-full min-h-full px-6 pt-6 pb-20"
           >
             <div
               ref={onRef}
               data-workbench-article="true"
-              className="relative flex-1 max-w-[760px] min-w-0 pl-16 pr-2"
+              className="relative mx-auto w-full max-w-[760px] min-w-0 px-16"
             >
             {/* Obsidian 式文档标题：点击行内重命名 */}
             <WorkbenchTitleBar />

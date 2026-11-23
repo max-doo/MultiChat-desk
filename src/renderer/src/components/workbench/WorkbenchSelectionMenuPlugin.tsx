@@ -153,9 +153,6 @@ export default function WorkbenchSelectionMenuPlugin(): JSX.Element | null {
         top: menuPosition.y
       }}
     >
-      <div className="px-3 py-1 font-semibold text-sm text-text-secondary/70 uppercase tracking-wider border-b border-black/5 dark:border-white/5 mb-1">
-        {isCodeFile ? '划词操作' : 'AI 划词协同'}
-      </div>
       {items.map((item) => (
         <button
           key={item.action}

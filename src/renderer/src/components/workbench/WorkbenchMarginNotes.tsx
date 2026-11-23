@@ -4,10 +4,12 @@ import { createPortal } from 'react-dom'
 import { useWorkbenchStore } from '../../store/workbenchStore'
 import { useAnnotationStore } from '../../store/annotationStore'
 import type { Annotation } from '../../../../shared/types/annotations'
-import { allMarks, findMarkDom, removeMarkById } from './workbenchAnnotationUtils'
+import { findMarkDom, removeMarkById } from './workbenchAnnotationUtils'
 import { AppIcon } from '../icons/AppIcon'
 
-const COMPACT_MARGIN_NOTES_WIDTH = 960
+const MARGIN_NOTES_WIDTH = 220
+const MARGIN_NOTES_MIN_WIDTH = 170
+const MARGIN_NOTES_GAP = 16
 
 function formatTime(timestamp: number): string {
   if (!timestamp) return ''
@@ -58,14 +60,12 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
   const [draftComment, setDraftComment] = useState('')
   const [busyId, setBusyId] = useState<string | null>(null)
   const [compactMode, setCompactMode] = useState(false)
+  const [notesBox, setNotesBox] = useState<{ left: number; width: number } | null>(null)
   const [anchorBox, setAnchorBox] = useState<{ marginTop: number; left: number } | null>(null)
   const [headerBox, setHeaderBox] = useState<{ left: number; top: number } | null>(null)
   const [asideEl, setAsideEl] = useState<HTMLElement | null>(null)
   const [editorRootEl, setEditorRootEl] = useState<HTMLElement | null>(null)
   const cardElementsRef = useRef<Map<string, HTMLDivElement>>(new Map())
-  // 展开/收起 aside 会撑开 flex 行使 stage 高度重排，滚动容器随之漂移；
-  // 记录切换前的 scrollTop，在布局稳定后恢复，避免"展开跳回顶部"。
-  const pendingScrollTopRef = useRef<number | null>(null)
   // 没有任何旁注时不渲染入口与栏头，避免空白控件常驻正文首行。
   const showAnchorTrigger = allNotes.length > 0 && (compactMode || !showMarginNotes)
   const orderedNotes = useMemo(
@@ -80,53 +80,39 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
     [orderedNotes, selectedId]
   )
 
-  const scrollerOf = useCallback((): HTMLElement | null => {
-    return (
-      stageRef.current
-        ?.closest<HTMLElement>('[data-workbench-editor="true"]')
-        ?.querySelector<HTMLElement>('.overflow-y-auto') ?? null
-    )
-  }, [stageRef])
-
   const handleToggleMarginNotes = useCallback((): void => {
-    pendingScrollTopRef.current = scrollerOf()?.scrollTop ?? null
     toggleMarginNotes()
-  }, [scrollerOf, toggleMarginNotes])
+  }, [toggleMarginNotes])
 
-  // aside 挂载/卸载后 flex 行高度重排完成时恢复 scrollTop
-  useLayoutEffect(() => {
-    const target = pendingScrollTopRef.current
-    if (target == null) return
-    pendingScrollTopRef.current = null
-    const scroller = scrollerOf()
-    if (!scroller) return
-    // 等两帧，让 aside 的 min-h-full 与卡片绝对定位完成布局
-    let raf2 = 0
-    const raf1 = requestAnimationFrame(() => {
-      raf2 = requestAnimationFrame(() => {
-        if (Math.abs(scroller.scrollTop - target) > 1) {
-          scroller.scrollTop = target
-        }
-      })
-    })
-    return () => {
-      cancelAnimationFrame(raf1)
-      cancelAnimationFrame(raf2)
-    }
-  }, [showMarginNotes, scrollerOf])
-
+  // 正文固定居中，旁注只使用右侧留白；留白不足时退出布局，避免挤压正文。
   useEffect(() => {
     const stage = stageRef.current
     if (!stage) return
 
-    const syncMode = (): void => {
-      const next = stage.clientWidth < COMPACT_MARGIN_NOTES_WIDTH
+    const syncLayout = (): void => {
+      const article = stage.querySelector<HTMLElement>('[data-workbench-article]')
+      if (!article) return
+      const stageRect = stage.getBoundingClientRect()
+      const content = article.querySelector<HTMLElement>('[contenteditable="true"]')
+      // 以正文右边缘为基准：正文居中后，旁注只占用其右侧留白。
+      const textRight = (content ?? article).getBoundingClientRect().right
+      const left = Math.round(textRight - stageRect.left + MARGIN_NOTES_GAP)
+      const available = Math.round(stageRect.width - left - 8)
+      // 右侧留白足够时用满栏宽，不足时按可用宽度收窄但仍保持可读。
+      const next = available < MARGIN_NOTES_MIN_WIDTH
+      const width = next
+        ? MARGIN_NOTES_MIN_WIDTH
+        : Math.min(MARGIN_NOTES_WIDTH, available)
       setCompactMode(previous => (previous === next ? previous : next))
+      // 窄屏只显示折叠入口，入口停在正文右缘外侧，不再用栏宽撑出布局。
+      setNotesBox({ left, width })
     }
 
-    syncMode()
-    const observer = new ResizeObserver(syncMode)
+    syncLayout()
+    const observer = new ResizeObserver(syncLayout)
     observer.observe(stage)
+    const article = stage.querySelector<HTMLElement>('[data-workbench-article]')
+    if (article) observer.observe(article)
     return () => observer.disconnect()
   }, [stageRef])
 
@@ -152,15 +138,15 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
 
     const measure = (): void => {
       const stageRect = stage.getBoundingClientRect()
-      const articleRect = article.getBoundingClientRect()
       const content = article.querySelector<HTMLElement>('[contenteditable="true"]')
       const firstLine = (content?.firstElementChild as HTMLElement | null) ?? content ?? article
       const lineRect = firstLine.getBoundingClientRect()
+      const textRight = (content ?? article).getBoundingClientRect().right
       setAnchorBox({
         marginTop: Math.max(0, Math.round(lineRect.top - stageRect.top)),
         left: compactMode
-          ? Math.max(8, stage.clientWidth - 64)
-          : Math.max(0, Math.round(articleRect.right - stageRect.left + 24))
+          ? Math.max(8, Math.min(stage.clientWidth - 64, Math.round(textRight - stageRect.left + 8)))
+          : Math.max(0, Math.round(textRight - stageRect.left + MARGIN_NOTES_GAP))
       })
     }
 
@@ -204,16 +190,9 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
       // 与折叠入口一致：首行在视口内时跟随首行，越过视口顶部后吸附。
       const firstLineTop = lineRect ? Math.round(lineRect.top - editorRect.top) : 8
       const stickyTop = Math.round(scrollerRect.top - editorRect.top + 8)
-      // 水平基准与折叠入口相同（正文右边缘 + 24），切换时栏头不会横向跳动。
-      const articleRect = article?.getBoundingClientRect()
+      // 栏头与旁注列同左缘，展开/收起时横向位置保持一致。
       setHeaderBox({
-        left: Math.max(
-          0,
-          Math.round(
-            (articleRect ? articleRect.right + 24 : asideEl.getBoundingClientRect().left) -
-              editorRect.left
-          )
-        ),
+        left: Math.max(0, Math.round(asideEl.getBoundingClientRect().left - editorRect.left)),
         top: Math.max(stickyTop, firstLineTop)
       })
     }
@@ -304,33 +283,10 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
     setPositions(nextPositions)
   }, [allNotes, compactMode, editor, showMarginNotes, stageRef])
 
-  // 窄屏下把旁注序号写到正文 MarkNode，宽屏时移除，避免影响原位旁注列
-  const syncMarkIndexes = useCallback((): void => {
-    const indexById = new Map(allNotes.map((note, index) => [note.id, index + 1]))
-    editor.getEditorState().read(() => {
-      for (const mark of allMarks()) {
-        const markIndex = mark
-          .getIDs()
-          .map(id => indexById.get(id))
-          .filter((index): index is number => index !== undefined)
-          .sort((a, b) => a - b)[0]
-
-        const dom = editor.getElementByKey(mark.getKey()) as HTMLElement | null
-        if (!dom) continue
-        if (compactMode && markIndex) {
-          dom.dataset.annotationIndex = String(markIndex)
-        } else {
-          delete dom.dataset.annotationIndex
-        }
-      }
-    })
-  }, [allNotes, compactMode, editor])
-
   // 当标注更新、编辑器变化或窗口缩放时重算
   useLayoutEffect(() => {
     computeLayout()
-    syncMarkIndexes()
-  }, [computeLayout, editingId, syncMarkIndexes])
+  }, [computeLayout, editingId])
 
   useEffect(() => {
     return editor.registerUpdateListener(() => {
@@ -338,10 +294,9 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
       // 统一在下一帧重算，避免停留在"找不到锚点"的旧状态。
       requestAnimationFrame(() => {
         computeLayout()
-        syncMarkIndexes()
       })
     })
-  }, [computeLayout, editor, syncMarkIndexes])
+  }, [computeLayout, editor])
 
   useEffect(() => {
     window.addEventListener('resize', computeLayout)
@@ -494,14 +449,14 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
             {anchorTrigger}
           </div>
         </div>
-        {/* 折叠时保留旁注列宽度占位，避免展开/收起时正文与控件横向跳动。 */}
-        {!compactMode && <aside className="w-[260px] shrink-0" aria-hidden="true" />}
       </>
     )
   }
 
   // 展开态但没有旁注：不渲染占宽的旁注列与空白栏头。
   if (allNotes.length === 0) return null
+  // 首次测量完成前不渲染，避免旁注列在默认 left=0 处闪一帧。
+  if (!notesBox) return null
 
   return (
     <>
@@ -567,7 +522,11 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
 
       <aside
         ref={setAsideEl}
-        className="w-[260px] shrink-0 relative min-h-full select-none"
+        className="absolute top-0 min-h-full select-none"
+        style={{
+          left: `${notesBox?.left ?? 0}px`,
+          width: `${notesBox?.width ?? MARGIN_NOTES_WIDTH}px`
+        }}
         aria-label="文档原位旁注"
       >
       {allNotes.length === 0 && (

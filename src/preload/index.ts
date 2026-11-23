@@ -86,6 +86,13 @@ const api = {
   trayShowMain: () => ipcRenderer.invoke('tray:show-main'),
   trayHideMain: () => ipcRenderer.invoke('tray:hide-main'),
   trayQuitApp: () => ipcRenderer.invoke('tray:quit-app'),
+  notifyQuitGuardReady: (): void => ipcRenderer.send('app:quit-guard-ready'),
+  onAppQuitRequested: (callback: () => void): (() => void) => {
+    const handler = (): void => callback()
+    ipcRenderer.on('app:quit-requested', handler)
+    return () => { ipcRenderer.removeListener('app:quit-requested', handler) }
+  },
+  respondAppQuit: (allow: boolean): void => ipcRenderer.send('app:quit-response', allow),
 
   // 快捷弹窗控制
   quickShow: (opts?: { focus?: boolean }) => ipcRenderer.invoke('quick:show', opts),

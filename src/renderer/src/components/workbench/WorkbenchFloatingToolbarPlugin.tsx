@@ -3,7 +3,6 @@ import { createPortal } from 'react-dom'
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext'
 import { useLexicalEditable } from '@lexical/react/useLexicalEditable'
 import { mergeRegister } from '@lexical/utils'
-import { AppIcon } from '../icons/AppIcon'
 import {
   $getSelection,
   $isRangeSelection,
@@ -22,6 +21,10 @@ import { $isCodeNode } from '@lexical/code'
 import { $isAtNodeEnd } from '@lexical/selection'
 import type { RangeSelection, TextNode, ElementNode } from 'lexical'
 import WorkbenchLinkEditor from './WorkbenchLinkEditor'
+import {
+  WORKBENCH_FLOATING_TOOLBAR_BASE_CLASS,
+  WorkbenchFloatingToolbarButton
+} from './WorkbenchFloatingToolbarChrome'
 import { WORKBENCH_ANNOTATE_COMMAND } from './WorkbenchAnnotationPlugin'
 
 /**
@@ -147,11 +150,6 @@ function FloatingToolbar({
     )
   }, [editor, updatePosition])
 
-  const btn = (active: boolean) =>
-    `w-8 h-8 flex items-center justify-center rounded-md transition-colors ${
-      active ? 'bg-primary/20 text-primary' : 'text-text-primary hover:bg-black/5 dark:hover:bg-white/10'
-    }`
-
   const openLinkEditor = (): void => {
     if (linkButtonRef.current) {
       onOpenLinkEditor(linkButtonRef.current, state.linkUrl)
@@ -163,76 +161,59 @@ function FloatingToolbar({
       ref={popupRef}
       role="toolbar"
       aria-label="浮动格式工具栏"
-      className="absolute left-0 top-0 z-40 flex items-center gap-0.5 p-1 rounded-xl bg-white dark:bg-gray-800 shadow-2xl border border-black/10 dark:border-white/10 opacity-0 will-change-transform"
+      className={`${WORKBENCH_FLOATING_TOOLBAR_BASE_CLASS} absolute left-0 top-0 z-40 opacity-0 will-change-transform`}
       style={{ transform: 'translate(-10000px, -10000px)' }}
     >
       {isEditable && (
         <>
-          <button
-            type="button"
+          <WorkbenchFloatingToolbarButton
+            icon="format_bold"
+            label="粗体"
+            active={state.isBold}
             onClick={() => editor.dispatchCommand(FORMAT_TEXT_COMMAND, 'bold')}
-            className={btn(state.isBold)}
-            title="粗体"
-          >
-            <AppIcon name="format_bold" size={19} />
-          </button>
-          <button
-            type="button"
+          />
+          <WorkbenchFloatingToolbarButton
+            icon="format_italic"
+            label="斜体"
+            active={state.isItalic}
             onClick={() => editor.dispatchCommand(FORMAT_TEXT_COMMAND, 'italic')}
-            className={btn(state.isItalic)}
-            title="斜体"
-          >
-            <AppIcon name="format_italic" size={19} />
-          </button>
-          <button
-            type="button"
+          />
+          <WorkbenchFloatingToolbarButton
+            icon="format_underlined"
+            label="下划线"
+            active={state.isUnderline}
             onClick={() => editor.dispatchCommand(FORMAT_TEXT_COMMAND, 'underline')}
-            className={btn(state.isUnderline)}
-            title="下划线"
-          >
-            <AppIcon name="format_underlined" size={19} />
-          </button>
-          <button
-            type="button"
+          />
+          <WorkbenchFloatingToolbarButton
+            icon="format_strikethrough"
+            label="删除线"
+            active={state.isStrikethrough}
             onClick={() => editor.dispatchCommand(FORMAT_TEXT_COMMAND, 'strikethrough')}
-            className={btn(state.isStrikethrough)}
-            title="删除线"
-          >
-            <AppIcon name="format_strikethrough" size={19} />
-          </button>
-          <button
-            type="button"
+          />
+          <WorkbenchFloatingToolbarButton
+            icon="code"
+            label="行内代码"
+            active={state.isCode}
             onClick={() => editor.dispatchCommand(FORMAT_TEXT_COMMAND, 'code')}
-            className={btn(state.isCode)}
-            title="行内代码"
-          >
-            <AppIcon name="code" size={19} />
-          </button>
-          <button
-            type="button"
+          />
+          <WorkbenchFloatingToolbarButton
+            icon="ink_highlighter"
+            label="高亮"
+            active={state.isHighlight}
             onClick={() => editor.dispatchCommand(FORMAT_TEXT_COMMAND, 'highlight')}
-            className={btn(state.isHighlight)}
-            title="高亮"
-          >
-            <AppIcon name="ink_highlighter" size={19} />
-          </button>
-          <button
-            type="button"
+          />
+          <WorkbenchFloatingToolbarButton
+            icon="annotation"
+            label="标注"
             onClick={() => editor.dispatchCommand(WORKBENCH_ANNOTATE_COMMAND, undefined)}
-            className={btn(false)}
-            title="标注"
-          >
-            <AppIcon name="annotation" size={19} />
-          </button>
-          <button
-            ref={linkButtonRef}
-            type="button"
+          />
+          <WorkbenchFloatingToolbarButton
+            buttonRef={linkButtonRef}
+            icon="link"
+            label={state.isLink ? '编辑链接' : '插入链接'}
+            active={state.isLink}
             onClick={openLinkEditor}
-            className={btn(state.isLink)}
-            title={state.isLink ? '编辑链接' : '插入链接'}
-          >
-            <AppIcon name="link" size={19} />
-          </button>
+          />
         </>
       )}
     </div>

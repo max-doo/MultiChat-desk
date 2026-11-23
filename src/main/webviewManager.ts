@@ -268,7 +268,7 @@ export function createTray(
             }
         },
         { type: 'separator' },
-        { label: '退出', click: () => { setQuitting(true); app.quit() } }
+        { label: '退出', click: () => { app.quit() } }
     ])
     selectionToolbarMenuItem = contextMenu.getMenuItemById('selection-toolbar-toggle') ?? null
     tray.setContextMenu(contextMenu)

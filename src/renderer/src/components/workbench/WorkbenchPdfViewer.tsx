@@ -9,6 +9,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
 const PDF_INITIAL_CHUNK_BYTES = 256 * 1024
 const PDF_RANGE_CHUNK_BYTES = 256 * 1024
+const PDF_WHEEL_ZOOM_THRESHOLD = 100
 
 interface PdfPageProps {
   pdf: PDFDocumentProxy
@@ -146,6 +147,7 @@ interface WorkbenchPdfViewerProps {
   fileSize: number
   reloadKey: number
   zoom: number
+  onZoomStep: (direction: -1 | 1) => void
   onLoadState: (state: 'loading' | 'ready' | 'error', message?: string) => void
 }
 
@@ -156,6 +158,7 @@ export default function WorkbenchPdfViewer({
   fileSize,
   reloadKey,
   zoom,
+  onZoomStep,
   onLoadState
 }: WorkbenchPdfViewerProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -179,6 +182,38 @@ export default function WorkbenchPdfViewer({
     observer.observe(element)
     return () => observer.disconnect()
   }, [])
+
+  useEffect(() => {
+    const element = containerRef.current
+    if (!element) return
+    let accumulatedDelta = 0
+
+    const handleWheel = (event: WheelEvent): void => {
+      if (!event.ctrlKey && !event.metaKey) return
+      event.preventDefault()
+
+      const deltaScale =
+        event.deltaMode === WheelEvent.DOM_DELTA_LINE
+          ? 16
+          : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+            ? 100
+            : 1
+      const delta = event.deltaY * deltaScale
+      if (delta === 0) return
+
+      if (Math.sign(delta) !== Math.sign(accumulatedDelta)) accumulatedDelta = 0
+      accumulatedDelta += delta
+      const steps = Math.trunc(accumulatedDelta / PDF_WHEEL_ZOOM_THRESHOLD)
+      if (steps === 0) return
+
+      accumulatedDelta -= steps * PDF_WHEEL_ZOOM_THRESHOLD
+      // deltaY 为负表示滚轮向上，按通用习惯向上放大、向下缩小
+      onZoomStep(steps > 0 ? -1 : 1)
+    }
+
+    element.addEventListener('wheel', handleWheel, { passive: false })
+    return () => element.removeEventListener('wheel', handleWheel)
+  }, [onZoomStep])
 
   const width = Math.round(fitWidth * zoom)
 
@@ -361,9 +396,6 @@ export default function WorkbenchPdfViewer({
           className="fixed z-50 min-w-[190px] py-1.5 bg-white/95 dark:bg-gray-800/95 backdrop-blur-md rounded-xl shadow-xl border border-black/10 dark:border-white/10 text-sm animate-in fade-in zoom-in-95 duration-100"
           style={{ left: menu.x, top: menu.y }}
         >
-          <div className="px-3 py-1 font-semibold text-sm text-text-secondary/70 uppercase tracking-wider border-b border-black/5 dark:border-white/5 mb-1">
-            AI 划词协同
-          </div>
           {actions.map((item) => (
             <button
               key={item.action}

@@ -57,6 +57,12 @@
 - 会话快照转标准 Markdown；工作台内捕捉写当前工作区，工作台外写默认会话库，归档目录默认 `conversations/`；捕捉按 `annotationId` 幂等
 - 旧笔记、旧标注和旧导图一次性迁移：普通会话到默认会话库，带 `workbench` 的记录按原工作区文档分流；原文高亮跨工作区共用，MarkNode 单 block 边界与验收标准齐全
 
+**[workbench-annotation-anchor-lifecycle-design.md](workbench-annotation-anchor-lifecycle-design.md)** - 注释锚点生命周期与未定位清理设计
+- 正文局部修改、完全删除、移动、重复文本和跨 block 时的锚点状态
+- 未定位标注持久化、旁注栏入口、重新定位与按 scope 分区清理
+- MarkNode 当前范围优先、对账修订保护、写放大控制和 HTML 预览接入
+- 不按时间自动删除注释，只提供显式清理；后续归档与保留期单独立项
+
 ### 💻 开发辅助
 **[WINDOWS_COMMANDS.md](WINDOWS_COMMANDS.md)** - Windows PowerShell 命令参考
 - Bash 与 PowerShell 命令对照

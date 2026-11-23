@@ -1,6 +1,14 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
-import { useWorkbenchStore } from '../../store/workbenchStore'
+import {
+  useWorkbenchStore,
+  type HtmlEditLeaveDecision
+} from '../../store/workbenchStore'
 import WorkbenchFindReplaceBar from './WorkbenchFindReplaceBar'
+import WorkbenchHtmlVisualEditor, {
+  type WorkbenchHtmlVisualEditorHandle
+} from './WorkbenchHtmlVisualEditor'
+import WorkbenchHtmlEditLeaveDialog from './WorkbenchHtmlEditLeaveDialog'
+import WorkbenchHtmlAnnotationPreview from './WorkbenchHtmlAnnotationPreview'
 import { AppIcon } from '../icons/AppIcon'
 
 // 零依赖高性能单行语法高亮器
@@ -56,14 +64,28 @@ export default function WorkbenchCodePreview(): JSX.Element {
   const saveStatus = useWorkbenchStore((s) => s.saveStatus)
   const updateActiveContent = useWorkbenchStore((s) => s.updateActiveContent)
   const saveActiveFile = useWorkbenchStore((s) => s.saveActiveFile)
+  const discardActiveFileChanges = useWorkbenchStore((s) => s.discardActiveFileChanges)
+  const setHtmlEditLeaveGuard = useWorkbenchStore((s) => s.setHtmlEditLeaveGuard)
   const openInSystem = useWorkbenchStore((s) => s.openInSystem)
   const revealFile = useWorkbenchStore((s) => s.revealFile)
   const [isEditing, setIsEditing] = useState(false)
   const [copied, setCopied] = useState(false)
   const [findOpen, setFindOpen] = useState(false)
   const [findReplaceFocus, setFindReplaceFocus] = useState(false)
-  // HTML 文件支持浏览器式渲染预览；viewMode 两态：render / source（源码即编辑）
-  const [viewMode, setViewMode] = useState<'render' | 'source'>('source')
+  // HTML 文件支持渲染 / 可视化编辑 / 源码三态；源码态即文本编辑
+  const [viewMode, setViewMode] = useState<'render' | 'edit' | 'source'>('source')
+  const [visualDirty, setVisualDirty] = useState(false)
+  const [leaveDialogOpen, setLeaveDialogOpen] = useState(false)
+  const [leaveBusy, setLeaveBusy] = useState(false)
+  const [editSession, setEditSession] = useState(0)
+  const visualEditorRef = useRef<WorkbenchHtmlVisualEditorHandle | null>(null)
+  const visualBaselineRef = useRef<string | null>(null)
+  const visualDirtyRef = useRef(false)
+  const leaveRequestRef = useRef<{
+    promise: Promise<HtmlEditLeaveDecision>
+    resolve: (decision: HtmlEditLeaveDecision) => void
+  } | null>(null)
+  const hadConflictRef = useRef(false)
 
   const isHtmlFile = useMemo(() => {
     const lower = (activeFilePath || '').toLowerCase()
@@ -72,6 +94,7 @@ export default function WorkbenchCodePreview(): JSX.Element {
 
   // HTML 源码模式即为可编辑状态；其他代码文件沿用查看/编辑分离
   const isEditable = isHtmlFile ? viewMode === 'source' : isEditing
+  const isVisualEditing = isHtmlFile && viewMode === 'edit'
 
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const codePreRef = useRef<HTMLPreElement | null>(null)
@@ -81,7 +104,38 @@ export default function WorkbenchCodePreview(): JSX.Element {
   useEffect(() => {
     setIsEditing(false)
     setViewMode(isHtmlFile ? 'render' : 'source')
+    setVisualDirty(false)
+    visualDirtyRef.current = false
+    setLeaveDialogOpen(false)
+    setLeaveBusy(false)
+    setEditSession(0)
+    visualBaselineRef.current = null
+    hadConflictRef.current = false
   }, [activeFilePath, isHtmlFile])
+
+  useEffect(() => {
+    if (isVisualEditing) setFindOpen(false)
+  }, [isVisualEditing])
+
+  // 冲突裁决走通用状态胶囊（take-disk / keep-mine）时，重建编辑 iframe 以对齐最终磁盘状态。
+  useEffect(() => {
+    if (saveStatus === 'conflict') {
+      hadConflictRef.current = true
+      return
+    }
+    if (
+      hadConflictRef.current &&
+      isVisualEditing &&
+      saveStatus === 'saved' &&
+      !isDirty
+    ) {
+      hadConflictRef.current = false
+      setVisualDirty(false)
+      visualDirtyRef.current = false
+      visualBaselineRef.current = useWorkbenchStore.getState().activeFileContent
+      setEditSession((value) => value + 1)
+    }
+  }, [saveStatus, isDirty, isVisualEditing])
 
   const lines = useMemo(() => {
     return activeFileContent.split('\n')
@@ -94,21 +148,141 @@ export default function WorkbenchCodePreview(): JSX.Element {
     return `${(activeFileSize / (1024 * 1024)).toFixed(1)} MB`
   }, [activeFileSize])
 
-  // Ctrl+S 保存
+  const finishLeaveRequest = useCallback((decision: HtmlEditLeaveDecision) => {
+    const request = leaveRequestRef.current
+    leaveRequestRef.current = null
+    setLeaveDialogOpen(false)
+    request?.resolve(decision)
+  }, [])
+
+  const requestLeaveVisualEdit = useCallback((): Promise<HtmlEditLeaveDecision> => {
+    if (!visualDirtyRef.current && !visualEditorRef.current?.hasChanges()) {
+      return Promise.resolve('saved')
+    }
+    if (leaveRequestRef.current) return leaveRequestRef.current.promise
+
+    let resolve!: (decision: HtmlEditLeaveDecision) => void
+    const promise = new Promise<HtmlEditLeaveDecision>((next) => {
+      resolve = next
+    })
+    leaveRequestRef.current = { promise, resolve }
+    setLeaveDialogOpen(true)
+    return promise
+  }, [])
+
+  const handleVisualSave = useCallback(async (): Promise<boolean> => {
+    if (saveStatus === 'saving') return false
+    const result = await saveActiveFile()
+    if (!result.saved) return false
+    visualEditorRef.current?.markSaved()
+    setVisualDirty(false)
+    visualDirtyRef.current = false
+    visualBaselineRef.current = useWorkbenchStore.getState().activeFileContent
+    return true
+  }, [saveActiveFile, saveStatus])
+
+  const handleModeClick = useCallback(
+    async (nextMode: 'render' | 'edit' | 'source') => {
+      if (nextMode === viewMode || saveStatus === 'saving' || leaveDialogOpen) return
+
+      // 进入可视化编辑前先落盘源码改动，避免编辑的是旧磁盘版本。
+      if (nextMode === 'edit') {
+        if (!isHtmlFile || !activeFileUrl || activeFileOversized) return
+        if (isDirty) {
+          const saved = await saveActiveFile()
+          if (!saved.saved) return
+        }
+        visualBaselineRef.current = useWorkbenchStore.getState().activeFileContent
+        setVisualDirty(false)
+        visualDirtyRef.current = false
+        setViewMode('edit')
+        return
+      }
+
+      // 退出可视化编辑时保留未保存结果，由用户决定写回还是放弃。
+      if (isVisualEditing) {
+        const decision = await requestLeaveVisualEdit()
+        if (decision === 'cancelled') return
+      }
+      setViewMode(nextMode)
+    },
+    [
+      viewMode,
+      saveStatus,
+      isHtmlFile,
+      activeFileUrl,
+      activeFileOversized,
+      isDirty,
+      saveActiveFile,
+      isVisualEditing,
+      leaveDialogOpen,
+      requestLeaveVisualEdit
+    ]
+  )
+
+  const handleConfirmSaveAndLeave = useCallback(async () => {
+    if (leaveBusy) return
+    setLeaveBusy(true)
+    const saved = await handleVisualSave()
+    setLeaveBusy(false)
+    // 保存失败/冲突时关闭确认框并留在编辑态，让用户看到状态栏里的处理入口。
+    finishLeaveRequest(saved ? 'saved' : 'cancelled')
+  }, [finishLeaveRequest, handleVisualSave, leaveBusy])
+
+  const handleDiscardAndLeave = useCallback(() => {
+    discardActiveFileChanges(visualBaselineRef.current ?? undefined)
+    setVisualDirty(false)
+    visualDirtyRef.current = false
+    // 目标文件/工作区切换若失败，仍留在编辑态时必须重建 iframe，避免画布继续显示已放弃的改动。
+    setEditSession((value) => value + 1)
+    finishLeaveRequest('discarded')
+  }, [discardActiveFileChanges, finishLeaveRequest])
+
+  const handleCancelLeave = useCallback(() => {
+    if (leaveBusy) return
+    finishLeaveRequest('cancelled')
+  }, [finishLeaveRequest, leaveBusy])
+
+  const handleVisualDirtyChange = useCallback((dirty: boolean) => {
+    visualDirtyRef.current = dirty
+    setVisualDirty(dirty)
+  }, [])
+
+  // 文件树、搜索、链接与工作区切换都在 store 内统一走这个确认入口。
+  useEffect(() => {
+    if (!isVisualEditing) return
+    setHtmlEditLeaveGuard(requestLeaveVisualEdit)
+    return () => setHtmlEditLeaveGuard(null)
+  }, [isVisualEditing, requestLeaveVisualEdit, setHtmlEditLeaveGuard])
+
+  useEffect(() => {
+    return () => {
+      const request = leaveRequestRef.current
+      leaveRequestRef.current = null
+      request?.resolve('cancelled')
+    }
+  }, [])
+
+  // Ctrl+S 保存；Ctrl+F/H 在可视化编辑态不打开代码查找条
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
+      if (leaveDialogOpen) return
       if (!(e.ctrlKey || e.metaKey)) return
       const k = e.key.toLowerCase()
       if (k === 's') {
         e.preventDefault()
-        void saveActiveFile()
-      } else if (k === 'f' || k === 'h') {
+        if (isVisualEditing) {
+          if (visualDirty || visualEditorRef.current?.hasChanges()) void handleVisualSave()
+        } else {
+          void saveActiveFile()
+        }
+      } else if ((k === 'f' || k === 'h') && !isVisualEditing) {
         e.preventDefault()
         setFindReplaceFocus(k === 'h')
         setFindOpen(true)
       }
     },
-    [saveActiveFile]
+    [handleVisualSave, isVisualEditing, leaveDialogOpen, saveActiveFile, visualDirty]
   )
 
   // 切换文件时关闭查找条
@@ -149,7 +323,10 @@ export default function WorkbenchCodePreview(): JSX.Element {
   // 复制全文
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(activeFileContent)
+      const text = isVisualEditing
+        ? (await visualEditorRef.current?.serializeCurrent()) ?? activeFileContent
+        : activeFileContent
+      await navigator.clipboard.writeText(text)
       setCopied(true)
       setTimeout(() => setCopied(false), 1800)
     } catch (err) {
@@ -171,8 +348,8 @@ export default function WorkbenchCodePreview(): JSX.Element {
 
         {/* 右侧：统计与操作 */}
         <div className="flex items-center gap-2 text-slate-400 text-sm shrink-0">
-          {/* 保存状态提示 (编辑模式下展示) */}
-          {isEditable && (
+          {/* 保存状态提示 (文本编辑或可视化编辑时展示) */}
+          {(isEditable || isVisualEditing) && (
             <div className="flex items-center gap-1 font-medium">
               {saveStatus === 'conflict' ? (
                 <span className="flex items-center gap-1 text-amber-400">
@@ -203,13 +380,31 @@ export default function WorkbenchCodePreview(): JSX.Element {
             </div>
           )}
 
-          {/* 模式切换：HTML 为 渲染/源码（源码即编辑）；其他代码为 查看/编辑 */}
+          {/* 保存按钮位于模式分组之前，模式分组与右侧文件操作保持固定位置 */}
+          {isVisualEditing && (
+            <button
+              type="button"
+              disabled={!visualDirty || saveStatus === 'saving'}
+              onClick={() => void handleVisualSave()}
+              className="h-7 px-2.5 flex items-center gap-1 rounded-md bg-primary text-white text-xs font-medium transition-colors hover:bg-primary/90 disabled:cursor-default disabled:opacity-40"
+              title="保存到原文件 (Ctrl+S)"
+            >
+              <AppIcon
+                name={saveStatus === 'saving' ? 'progress_activity' : 'save'}
+                size={16}
+                className={saveStatus === 'saving' ? 'animate-spin' : ''}
+              />
+              <span>保存</span>
+            </button>
+          )}
+
+          {/* 模式切换：HTML 为 渲染/编辑/源码；其他代码为 查看/编辑 */}
           <div className="flex items-center p-0.5 bg-slate-950/60 rounded-lg border border-slate-700/50">
             {isHtmlFile ? (
               <>
                 <button
                   type="button"
-                  onClick={() => setViewMode('render')}
+                  onClick={() => void handleModeClick('render')}
                   className={`px-2 py-0.5 rounded text-sm transition-colors ${
                     viewMode === 'render'
                       ? 'bg-slate-700 text-white font-medium'
@@ -221,7 +416,24 @@ export default function WorkbenchCodePreview(): JSX.Element {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setViewMode('source')}
+                  disabled={!activeFileUrl || activeFileOversized || saveStatus === 'saving'}
+                  onClick={() => void handleModeClick('edit')}
+                  className={`px-2 py-0.5 rounded text-sm transition-colors disabled:cursor-default disabled:opacity-40 ${
+                    viewMode === 'edit'
+                      ? 'bg-primary text-white font-medium'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                  title={
+                    activeFileOversized
+                      ? '文件过大，无法启用可视化编辑'
+                      : '直接在渲染结果上修改文字与结构'
+                  }
+                >
+                  编辑
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleModeClick('source')}
                   className={`px-2 py-0.5 rounded text-sm transition-colors ${
                     viewMode === 'source'
                       ? 'bg-blue-600 text-white font-medium'
@@ -302,16 +514,14 @@ export default function WorkbenchCodePreview(): JSX.Element {
       <div className="flex-1 flex overflow-hidden relative">
         {isHtmlFile && viewMode === 'render' ? (
           /* HTML 浏览器渲染预览：走 workbench-file:// 白名单协议，
-             sandbox 允许脚本执行但禁止弹窗/顶层导航/同源特权访问，
-             预览的是磁盘已保存版本 */
+             sandbox 允许脚本执行但禁止弹窗/顶层导航/同源特权访问；
+             标注高亮与评论卡在宿主层叠加，不占用正文宽度。 */
           <div className="flex-1 h-full relative bg-white">
             {activeFileUrl ? (
-              <iframe
+              <WorkbenchHtmlAnnotationPreview
                 key={`${activeFilePath}-${saveStatus}-${isDirty}`}
-                src={activeFileUrl}
-                sandbox="allow-scripts"
-                className="w-full h-full border-0 block"
-                title={activeFilePath || 'HTML Preview'}
+                filePath={activeFilePath || ''}
+                fileUrl={activeFileUrl}
               />
             ) : (
               <div className="w-full h-full flex flex-col items-center justify-center p-8 text-center bg-slate-900 text-slate-400">
@@ -325,6 +535,17 @@ export default function WorkbenchCodePreview(): JSX.Element {
               </div>
             )}
           </div>
+        ) : isVisualEditing && activeFileUrl ? (
+          <WorkbenchHtmlVisualEditor
+            key={`${activeFilePath || 'html-visual-editor'}-${editSession}`}
+            ref={visualEditorRef}
+            filePath={activeFilePath || ''}
+            fileUrl={activeFileUrl}
+            onDirtyChange={handleVisualDirtyChange}
+            onRequestSave={() => {
+              if (visualEditorRef.current?.hasChanges()) void handleVisualSave()
+            }}
+          />
         ) : activeFileOversized ? (
           <div className="flex-1 h-full flex flex-col items-center justify-center p-8 text-center bg-slate-900 select-none">
             <div className="w-16 h-16 rounded-2xl bg-amber-500/10 flex items-center justify-center text-amber-400 mb-4">
@@ -405,12 +626,21 @@ export default function WorkbenchCodePreview(): JSX.Element {
 
         {/* 编辑器内查找替换（Ctrl+F / Ctrl+H）；只读/渲染预览下禁用替换 */}
         <WorkbenchFindReplaceBar
-          open={findOpen && !activeFileOversized}
+          open={findOpen && !activeFileOversized && !isVisualEditing}
           replaceFocus={findReplaceFocus}
           onClose={() => setFindOpen(false)}
           canReplace={isEditable && !(isHtmlFile && viewMode === 'render')}
         />
       </div>
+
+      {leaveDialogOpen && (
+        <WorkbenchHtmlEditLeaveDialog
+          busy={leaveBusy}
+          onSave={() => void handleConfirmSaveAndLeave()}
+          onDiscard={handleDiscardAndLeave}
+          onCancel={handleCancelLeave}
+        />
+      )}
     </div>
   )
 }

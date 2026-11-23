@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>思维导图选区交互原型</title>
+  <style>
+    :root {
+      --page: #eef1f5;
+      --surface: #ffffff;
+      --surface-muted: #f7f8fa;
+      --line: #e2e5ea;
+      --line-strong: #cfd4dc;
+      --text: #1f2430;
+      --muted: #6b7280;
+      --primary: #2f5ed4;
+      --primary-dark: #2448a8;
+      --primary-soft: #eef4ff;
+      --selection: #2f6fed;
+      --danger: #c83e4d;
+      --shadow: 0 12px 30px rgba(23, 31, 47, 0.08), 0 2px 6px rgba(23, 31, 47, 0.05);
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      color: var(--text);
+      background: var(--page);
+    }
+
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; }
+    button, textarea { font: inherit; }
+    button { cursor: pointer; }
+    button:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {
+      outline: 2px solid var(--primary);
+      outline-offset: 2px;
+    }
+
+    .app {
+      height: 100vh;
+      min-height: 680px;
+      display: grid;
+      grid-template-columns: minmax(520px, 1fr) 420px;
+      gap: 12px;
+      padding: 12px;
+    }
+
+    .window, .panel {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      overflow: hidden;
+      box-shadow: var(--shadow);
+      min-height: 0;
+    }
+
+    .window { display: flex; flex-direction: column; }
+    .titlebar {
+      height: 42px;
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-bottom: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 12px;
+      background: #f9fafb;
+    }
+    .toolbar {
+      height: 48px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 18px;
+      border-bottom: 1px solid var(--line);
+    }
+    .tool {
+      width: 30px;
+      height: 30px;
+      border: 0;
+      border-radius: 7px;
+      background: transparent;
+      color: #697080;
+      display: grid;
+      place-items: center;
+    }
+    .tool:hover { background: #f0f2f5; }
+    .toolbar-spacer { flex: 1; }
+    .segment {
+      display: flex;
+      padding: 2px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #f8f9fb;
+    }
+    .segment button {
+      border: 0;
+      border-radius: 6px;
+      padding: 5px 12px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .segment button.active { background: white; color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+
+    .document {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+      padding: 34px 52px 72px;
+    }
+    .document h1 { margin: 0 0 22px; font-size: 30px; line-height: 1.25; letter-spacing: -0.02em; }
+    .meta { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 9px 14px; font-size: 13px; color: #4d5564; margin-bottom: 34px; }
+    .meta span:first-child { color: #8a909b; }
+    .document h2 { margin: 30px 0 14px; font-size: 20px; letter-spacing: -0.01em; }
+    .document p { max-width: 68ch; margin: 0 0 16px; color: #313846; font-size: 14px; line-height: 1.85; }
+    .selected-text { background: transparent; box-shadow: none; border-radius: 2px; }
+    body.scope-selection .selected-text {
+      background: color-mix(in srgb, var(--selection) 20%, white);
+      box-shadow: 0 0 0 1px color-mix(in srgb, var(--selection) 28%, white);
+    }
+
+    .panel { display: flex; flex-direction: column; }
+    .panel-header {
+      min-height: 52px;
+      flex: 0 0 auto;
+      padding: 0 14px 0 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--line);
+    }
+    .panel-title { display: flex; align-items: center; gap: 9px; font-size: 14px; font-weight: 600; }
+    .blue { color: var(--primary); }
+    .icon-button { width: 28px; height: 28px; border: 0; background: transparent; color: var(--muted); border-radius: 7px; display: grid; place-items: center; }
+    .icon-button:hover { background: #f1f3f6; color: var(--text); }
+
+    .panel-body {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+      padding: 28px 22px;
+      display: flex;
+      flex-direction: column;
+    }
+    .intro { display: flex; align-items: center; gap: 10px; margin-bottom: 22px; color: var(--primary); }
+    .intro h2 { margin: 0; color: var(--text); font-size: 16px; font-weight: 650; }
+
+    .selection-preview {
+      display: none;
+      margin-bottom: 12px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--surface-muted);
+      overflow: hidden;
+    }
+    body.scope-selection .selection-preview { display: block; }
+    .preview-head {
+      width: 100%;
+      border: 0;
+      background: transparent;
+      padding: 11px 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      text-align: left;
+      color: #4b5362;
+      font-size: 12px;
+      font-weight: 650;
+    }
+    .preview-head .mark-icon { color: var(--primary); display: grid; place-items: center; }
+    .preview-head .count { margin-left: auto; color: #626a78; font-weight: 500; }
+    .clear-selection {
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      padding: 2px 4px;
+      border-radius: 5px;
+      font-size: 12px;
+    }
+    .clear-selection:hover { color: var(--danger); background: #fff1f2; }
+
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: var(--surface-muted);
+      padding: 14px;
+      margin-bottom: 12px;
+    }
+    .model-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+    .model {
+      height: 34px;
+      padding: 0 11px 0 9px;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: white;
+      display: inline-flex;
+      gap: 8px;
+      align-items: center;
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 550;
+    }
+    .model-mark { width: 18px; height: 18px; border-radius: 5px; background: #1a73e8; color: white; display: grid; place-items: center; font-size: 10px; }
+    .clear-requirements { border: 0; background: transparent; color: var(--muted); font-size: 12px; }
+    textarea {
+      width: 100%;
+      min-height: 92px;
+      resize: vertical;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: white;
+      padding: 11px 12px;
+      color: var(--text);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+    textarea::placeholder { color: #6f7682; }
+    textarea:hover { border-color: var(--line-strong); }
+    textarea:focus { border-color: var(--primary); outline: none; box-shadow: 0 0 0 3px rgba(59,114,246,.10); }
+    .selection-preview .selection-text {
+      display: block;
+      width: calc(100% - 24px);
+      height: 112px;
+      min-height: 112px;
+      max-height: 112px;
+      margin: 0 12px 12px;
+      padding: 10px 11px;
+      resize: none;
+      overflow: auto;
+      border: 1px solid #d8e2f8;
+      background: white;
+      color: #3b4352;
+      font-size: 12px;
+      line-height: 1.65;
+      box-shadow: none;
+    }
+    .selection-preview .selection-text:focus { border-color: #b8cdf8; box-shadow: 0 0 0 3px rgba(59,114,246,.08); }
+
+    .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 22px; }
+    .primary, .secondary {
+      min-height: 42px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+    }
+    .primary { border: 0; background: var(--primary); color: white; }
+    .primary:hover { background: var(--primary-dark); }
+    .primary .selection-mark { display: none; }
+    body.scope-selection .primary .selection-mark {
+      display: inline-flex;
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: white;
+      box-shadow: 0 0 0 3px rgba(255,255,255,.18);
+    }
+    .secondary { border: 1px solid var(--line-strong); background: white; color: #394151; }
+    .secondary:hover { background: #f5f6f8; }
+    .footnote { margin: auto 0 0; text-align: center; color: #626a78; font-size: 12px; opacity: 0; transition: opacity 160ms ease; }
+    body.scope-selection .footnote { opacity: 1; }
+
+    .prototype-bar {
+      position: fixed;
+      left: 24px;
+      bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      border: 1px solid rgba(255,255,255,.7);
+      border-radius: 10px;
+      background: rgba(255,255,255,.86);
+      backdrop-filter: blur(8px);
+      box-shadow: 0 4px 12px rgba(23,31,47,.10);
+      font-size: 12px;
+      color: #5c6472;
+      z-index: 10;
+    }
+    .prototype-bar button { border: 1px solid var(--line-strong); background: white; border-radius: 6px; padding: 4px 8px; font-size: 11px; color: #3c4452; }
+    .prototype-bar button.active { border-color: var(--primary); color: var(--primary-dark); background: var(--primary-soft); }
+
+    svg { display: block; }
+    @media (max-width: 980px) {
+      .app { height: auto; min-height: 100vh; grid-template-columns: 1fr; }
+      .document { min-height: 620px; padding: 28px; }
+      .panel { min-height: 700px; }
+      .prototype-bar { position: static; margin: 0 12px 12px; width: calc(100% - 24px); }
+    }
+  </style>
+</head>
+<body class="scope-selection">
+  <main class="app">
+    <section class="window" aria-label="文档编辑器">
+      <div class="titlebar">DMX-Vault / 金山办公面试准备.md</div>
+      <div class="toolbar">
+        <button class="tool" aria-label="大纲"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/></svg></button>
+        <button class="tool" aria-label="Checked"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M9 6h11M9 12h11M9 18h11M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2"/></svg></button>
+        <button class="tool" aria-label="表格"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="4" y="5" width="16" height="14" rx="2"/><path d="M4 10h16M10 5v14"/></svg></button>
+        <div class="toolbar-spacer"></div>
+        <div class="segment"><button class="active">预览</button><button>源码</button></div>
+      </div>
+      <article class="document">
+        <h1>金山办公面试准备</h1>
+        <div class="meta">
+          <span>来源</span><span>chatgpt.com/c/6af6716f...</span>
+          <span>平台</span><span>ChatGPT</span>
+          <span>创建时间</span><span>2026/11/22 21:12</span>
+        </div>
+        <h2>金山办公 WPS AI 产品经理｜转正业务二面准备</h2>
+        <p>针对 2027 届 AI 应用专项 · 珠海 · 2026 年 11 月面试</p>
+        <h2>一、先判断：这轮面试究竟在考察什么？</h2>
+        <p>结合你的 WPS 表格 Agent 实习经历、岗位 JD，以及我检索到的金山办公公开面经，我认为——</p>
+        <p><span class="selected-text">你能否从一个具备 AI 技术理解、能够独立完成项目任务的实习生，成长为能够独立定义问题、判断业务价值、做产品取舍并推动结果的正式产品经理。</span></p>
+        <p><span class="selected-text">你有一个明显优势：你已经在金山办公内部实习过，接触过真实的 WPS AI 产品研发流程，甚至参与过内部评测平台从 0 到 1 的建设。这比单纯做过 AI Demo、只了解大模型技术的校招生更有说服力。</span></p>
+        <p><span class="selected-text">但也有一个潜在风险：你的核心实习经历集中在 AI 评测平台，面试官可能会怀疑你更适合测试或数据岗位，而不是能把功能做到用户场景里的产品经理。</span></p>
+      </article>
+    </section>
+
+    <aside class="panel" aria-label="思维导图生成面板">
+      <header class="panel-header">
+        <div class="panel-title">
+          <span class="blue"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="5" cy="12" r="2"/><circle cx="19" cy="6" r="2"/><circle cx="19" cy="18" r="2"/><path d="M7 12h4M11 12V7h6M11 12v5h6"/></svg></span>
+          思维导图
+        </div>
+        <button class="icon-button" aria-label="关闭"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
+      </header>
+
+      <div class="panel-body">
+        <div class="intro">
+          <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="5" cy="12" r="2"/><circle cx="19" cy="6" r="2"/><circle cx="19" cy="18" r="2"/><path d="M7 12h4M11 12V7h6M11 12v5h6"/></svg>
+          <h2 id="panelTitle">把这篇文档整理成思维导图</h2>
+        </div>
+
+        <section class="selection-preview">
+          <div class="preview-head">
+            <span class="mark-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 3v14l3-3 3 7 3-1-3-7h6z"/></svg></span>
+            <span>选区内容</span>
+            <span class="count" id="previewCount"></span>
+            <button class="clear-selection" type="button" onclick="setScope('all')" title="清除选区">清除</button>
+          </div>
+          <textarea class="selection-text" id="selectionText" aria-label="选区内容" readonly></textarea>
+        </section>
+
+        <section class="card">
+          <div class="model-row">
+            <button class="model"><span class="model-mark">D</span>DeepSeek <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8a909b" stroke-width="2"><path d="m7 10 5 5 5-5"/></svg></button>
+            <button class="clear-requirements">清空</button>
+          </div>
+          <textarea aria-label="额外要求" placeholder="额外要求（选填，例如：重点提炼核心论点与结论，省略客套与类比）..."></textarea>
+        </section>
+
+        <div class="actions">
+          <button class="primary" id="generateBtn"><span class="selection-mark" aria-hidden="true"></span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m12 3 1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM18 15l.8 2.2L21 18l-2.2.8L18 21l-.8-2.2L15 18l2.2-.8z"/></svg><span>生成导图</span></button>
+          <button class="secondary"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M5 20V5h9l5 5v10z"/><path d="M13 5v5h5M8 13h8M8 17h5"/></svg>手动创建空白导图</button>
+        </div>
+        <p class="footnote" id="footnote"></p>
+      </div>
+    </aside>
+  </main>
+
+  <div class="prototype-bar" role="group" aria-label="原型状态切换">
+    <span>原型状态</span>
+    <button id="selectionModeBtn" onclick="setScope('selection')">文档中有选区</button>
+    <button id="allModeBtn" onclick="setScope('all')">默认全文</button>
+  </div>
+
+  <script>
+    const selectedText = '你能否从一个具备 AI 技术理解、能够独立完成项目任务的实习生，成长为能够独立定义问题、判断业务价值、做产品取舍并推动结果的正式产品经理。\n你有一个明显优势：你已经在金山办公内部实习过，接触过真实的 WPS AI 产品研发流程，甚至参与过内部评测平台从 0 到 1 的建设。这比单纯做过 AI Demo、只了解大模型技术的校招生更有说服力。\n但也有一个潜在风险：你的核心实习经历集中在 AI 评测平台，面试官可能会怀疑你更适合测试或数据岗位，而不是能把功能做到用户场景里的产品经理。';
+
+    function setScope(scope) {
+      const hasSelection = scope === 'selection';
+      document.body.classList.toggle('scope-selection', hasSelection);
+      document.body.classList.toggle('scope-all', !hasSelection);
+      document.getElementById('selectionModeBtn').classList.toggle('active', scope === 'selection');
+      document.getElementById('allModeBtn').classList.toggle('active', scope === 'all');
+      document.getElementById('selectionText').value = selectedText;
+      document.getElementById('previewCount').textContent = `${selectedText.length} 字`;
+      document.getElementById('panelTitle').textContent = hasSelection ? '将选中内容整理成思维导图' : '把这篇文档整理成思维导图';
+      document.getElementById('footnote').textContent = hasSelection ? '生成后恢复按整篇文档整理' : '';
+    }
+
+    const query = location.search;
+    setScope(query.includes('selection') ? 'selection' : 'all');
+  </script>
+</body>
+</html>

@@ -151,7 +151,7 @@ export interface ProductModeConfig {
   hidden: ProductMode[]
 }
 
-export const ALL_PRODUCT_MODES: ProductMode[] = ['multi_ai', 'task_assignment', 'debate', 'workbench']
+export const ALL_PRODUCT_MODES: ProductMode[] = ['multi_ai', 'workbench', 'task_assignment', 'debate']
 
 export const DEFAULT_PRODUCT_MODE_CONFIG: ProductModeConfig = {
   order: [...ALL_PRODUCT_MODES],

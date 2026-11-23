@@ -8,6 +8,7 @@ import HistoryDrawer from './components/HistoryDrawer'
 import NoteCaptureModal from './components/NoteCaptureModal'
 import WorkbenchPage from './pages/WorkbenchPage'
 import { initializeStore, useAppStore, SummaryHistoryItem } from './store/appStore'
+import { useWorkbenchStore } from './store/workbenchStore'
 
 // 诊断页仅在 dev 构建 reachable：生产构建里 import.meta.env.DEV=false，
 // 下面的动态 import 会被 Rollup 当作死代码剔除，DiagnosticsPage 不会进包。
@@ -99,6 +100,35 @@ function MainApp(): JSX.Element {
     const off = registerDiagnosticsRelay()
     return off
   }, [registerDiagnosticsRelay])
+
+  // 托盘退出也要经过可视化编辑的未保存确认；窗口关闭本身只隐藏到托盘，不会丢稿。
+  useEffect(() => {
+    if (
+      !window.api.notifyQuitGuardReady ||
+      !window.api.onAppQuitRequested ||
+      !window.api.respondAppQuit
+    ) {
+      return
+    }
+    window.api.notifyQuitGuardReady()
+    return window.api.onAppQuitRequested(async () => {
+      const { htmlVisualEditing, htmlEditLeaveGuard } = useWorkbenchStore.getState()
+      if (!htmlVisualEditing) {
+        window.api.respondAppQuit(true)
+        return
+      }
+      if (!htmlEditLeaveGuard) {
+        window.api.respondAppQuit(false)
+        return
+      }
+      try {
+        const decision = await htmlEditLeaveGuard()
+        window.api.respondAppQuit(decision !== 'cancelled')
+      } catch {
+        window.api.respondAppQuit(false)
+      }
+    })
+  }, [])
 
   if (currentPage === 'quick') {
     return <><QuickPage /><NoteCaptureModal /></>

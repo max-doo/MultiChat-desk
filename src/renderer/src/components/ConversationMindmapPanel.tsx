@@ -21,6 +21,44 @@ export interface MindmapSource {
 }
 
 interface Draft { markdown: string; title: string; updatedAt: number; error?: string; conflict?: 'file-changed' }
+export interface MindmapSelectionPreview {
+  text: string
+  onClear: () => void
+}
+
+function SelectionPreview({
+  selection,
+  className = 'mx-3 mt-2 shrink-0'
+}: {
+  selection: MindmapSelectionPreview
+  className?: string
+}): JSX.Element {
+  return (
+    <div className={`${className} rounded-xl border border-gray-200 bg-gray-50/80`}>
+      <div className="flex h-8 items-center gap-1.5 px-2 text-xs text-primary">
+        <AppIcon name="text_select_start" size={14} className="shrink-0" />
+        <span className="font-medium">选区内容</span>
+        <span className="ml-auto text-text-secondary">{selection.text.length} 字</span>
+        <button
+          type="button"
+          onClick={selection.onClear}
+          className="rounded px-1.5 py-0.5 text-text-secondary hover:bg-red-50 hover:text-red-600"
+          title="清除选区"
+          aria-label="清除选区"
+        >
+          清除
+        </button>
+      </div>
+      <textarea
+        aria-label="选区内容"
+        readOnly
+        value={selection.text}
+        className="mx-2 mb-2 block h-28 w-[calc(100%-1rem)] resize-none overflow-auto rounded-lg border border-blue-100 bg-white px-2.5 py-2 text-xs leading-relaxed text-text-primary outline-none focus:border-primary/40"
+      />
+    </div>
+  )
+}
+
 // 保存失败/切换画布时保留编辑稿，回到该图后可以恢复，不复制对话快照。
 const drafts = new Map<string, Draft>()
 const saveQueues = new Map<string, Promise<void>>()
@@ -64,6 +102,7 @@ export function MindmapEditor({
   changedLines,
   onAskNode,
   onViewSource,
+  selectionPreview,
   onEdit
 }: {
   conversationId: string
@@ -83,6 +122,7 @@ export function MindmapEditor({
   changedLines?: number[]
   onAskNode?: (path: string[]) => void
   onViewSource?: (text: string) => void
+  selectionPreview?: MindmapSelectionPreview
   onEdit?: () => void
 }): JSX.Element {
   const ownPanelRef = useRef<LocalMindmapPanelRef | null>(null)
@@ -278,6 +318,7 @@ export function MindmapEditor({
         )}
       </div>
     </div>
+    {selectionPreview && <SelectionPreview selection={selectionPreview} />}
     {notice}
     {(failed && fileChanged) || externalChange ? <div role="alert" className="px-3 py-2 bg-amber-50 flex flex-wrap items-start gap-3 text-sm select-text">
       <span className="min-w-0 flex-1 text-amber-800 break-words">导图文件已在外部修改。{drafts.has(map.id) ? '覆盖会丢失文件里的改动，载入会丢弃画布上未保存的编辑。' : ''}</span>
@@ -324,7 +365,7 @@ export interface MindmapFileSyncHooks {
   revealFile: (mindmapId: string) => Promise<boolean>
 }
 
-export default function ConversationMindmapPanel({ source, conversation: fixedConversation, initialMapId, onOpenMubu, onClose, draggableHeader, onDragStart, onViewSource, materialProvider, variant = 'conversation', fileSyncHooks }: {
+export default function ConversationMindmapPanel({ source, conversation: fixedConversation, initialMapId, onOpenMubu, onClose, draggableHeader, onDragStart, onViewSource, materialProvider, variant = 'conversation', fileSyncHooks, selectionPreview, onSelectionGenerated }: {
   source?: MindmapSource
   conversation?: NoteConversation
   initialMapId?: string
@@ -338,6 +379,9 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
   variant?: 'conversation' | 'document'
   /** 工作台导图文件同步钩子：由 WorkbenchMindmapPanel 注入。 */
   fileSyncHooks?: MindmapFileSyncHooks
+  selectionPreview?: MindmapSelectionPreview
+  /** 选区导图任务进入终态后调用，用于清除一次性选区。 */
+  onSelectionGenerated?: () => void
 }): JSX.Element {
   const models = useAppStore(state => state.models)
   const savedPlatform = useAppStore(state => state.mindmapPlatformId)
@@ -453,6 +497,9 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
     const update = (next: MindmapTask): void => {
       if (!alive) return
       setTask(next)
+      if (next.kind === 'generate' && next.phase === 'done' && next.conversationId === conversationRef.current?.id) {
+        onSelectionGenerated?.()
+      }
       if (next.phase === 'done' && next.kind === 'modify' && next.mindmapId) {
         if (next.conversationId === conversationRef.current?.id && next.mindmapId === activeMapRef.current?.id) void refresh(true)
         void window.api.mindmapsCandidate(next.mindmapId).then(result => {
@@ -470,7 +517,7 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
     const before = revision
     void window.api.mindmapsTask().then(result => { if (before === revision && result.data) update(result.data) })
     return () => { alive = false; off() }
-  }, [])
+  }, [onSelectionGenerated])
 
   useEffect(() => {
     const nextMode = activeMap ? 'modify' : 'generate'
@@ -995,7 +1042,7 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
   </div>, document.body)
   return <div className="h-full flex flex-col min-h-0 bg-white">
     <div className="flex-1 min-h-0">
-      {activeMap && conversation ? <MindmapEditor key={`${activeMap.id}:${editorRevision}`} conversationId={conversation.id} resolveConversationId={source?.resolveId} map={activeMap} onReload={() => void reload()} controls={controls} notice={notice} panelRef={panelRef} editorRef={editorRef} onClose={onClose} draggableHeader={draggableHeader} onDragStart={onDragStart} previewMarkdown={candidatePreview?.markdown} changedLines={diff?.changedLines} onAskNode={source && conversation.url && variant !== 'document' ? ask : undefined} onViewSource={onViewSource} onEdit={clearMarks} /> : <div className="h-full flex flex-col">
+      {activeMap && conversation ? <MindmapEditor key={`${activeMap.id}:${editorRevision}`} conversationId={conversation.id} resolveConversationId={source?.resolveId} map={activeMap} onReload={() => void reload()} controls={controls} notice={notice} panelRef={panelRef} editorRef={editorRef} onClose={onClose} draggableHeader={draggableHeader} onDragStart={onDragStart} previewMarkdown={candidatePreview?.markdown} changedLines={diff?.changedLines} onAskNode={source && conversation.url && variant !== 'document' ? ask : undefined} onViewSource={onViewSource} selectionPreview={selectionPreview} onEdit={clearMarks} /> : <div className="h-full flex flex-col">
         <div
           className={`px-3 py-2.5 border-b border-gray-200/70 bg-white flex items-center justify-between gap-2 select-none ${
             draggableHeader ? 'drag-region' : ''
@@ -1034,14 +1081,19 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
         {notice}
         <div className="flex-1 min-h-0 flex flex-col p-5 overflow-y-auto">
           {/* 顶部插画与引导标题 */}
-          <div className="flex flex-col items-center text-center mt-3 mb-5 shrink-0">
+          <div className={`flex flex-col items-center text-center mt-3 shrink-0 ${selectionPreview ? 'mb-4' : 'mb-5'}`}>
             <div className="w-14 h-14 rounded-2xl bg-primary/10 text-primary flex items-center justify-center mb-3 border border-primary/20 shadow-2xs">
               <AppIcon name="diagram_flow_horizontal" size={30} />
             </div>
             <h2 className="text-base font-semibold text-gray-800">
-              {variant === 'document' ? '把这篇文档整理成思维导图' : '把当前对话整理成思维导图'}
+              {selectionPreview
+                ? '将选中内容整理成思维导图'
+                : variant === 'document'
+                  ? '把这篇文档整理成思维导图'
+                  : '把当前对话整理成思维导图'}
             </h2>
           </div>
+          {selectionPreview && <SelectionPreview selection={selectionPreview} className="mb-4 w-full shrink-0" />}
 
           {/* 生成配置卡片（模型选择器 + 额外要求合体） */}
           <div className="bg-gray-50/80 border border-gray-200/80 rounded-xl p-3 space-y-2.5 mb-3 shrink-0">

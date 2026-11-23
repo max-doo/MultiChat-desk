@@ -4,6 +4,7 @@ import type {
   WebviewContextMenuData,
   WorkbenchHtmlContextMenuData
 } from '../../../shared/types/contextMenu'
+import { WORKBENCH_HTML_ANNOTATION_EVENT } from '../../../shared/types/htmlAnnotations'
 import { useWorkbenchStore } from '../store/workbenchStore'
 import { AppIcon } from './icons/AppIcon'
 
@@ -23,6 +24,7 @@ interface MenuState {
   y: number
   items: ExtendedContextMenuEntry[]
   wcId?: number
+  workbenchStyle?: boolean
 }
 
 function isEditableEl(el: HTMLElement | null): boolean {
@@ -44,24 +46,28 @@ function appendWorkbenchAiItems(
       key: 'ask_ai',
       label: '向 AI 提问',
       icon: 'chat',
+      color: 'text-blue-500',
       action: () => askAi(selectedText, 'ask')
     },
     {
       key: 'explain_ai',
       label: '解释此内容',
       icon: 'psychology',
+      color: 'text-purple-500',
       action: () => askAi(selectedText, 'explain')
     },
     {
       key: 'polish_ai',
       label: '语言润色',
       icon: 'auto_fix_high',
+      color: 'text-emerald-500',
       action: () => askAi(selectedText, 'polish')
     },
     {
       key: 'summarize_ai',
       label: '提取关键要点',
       icon: 'format_list_bulleted',
+      color: 'text-cyan-500',
       action: () => askAi(selectedText, 'summarize')
     }
   )
@@ -104,6 +110,18 @@ export default function CustomContextMenu(): JSX.Element | null {
         if (!selectedText) return
 
         const items: ExtendedContextMenuEntry[] = []
+        if (!useWorkbenchStore.getState().htmlVisualEditing) {
+          items.push({
+            key: 'annotate',
+            label: '标注',
+            icon: 'annotation',
+            color: 'text-amber-500',
+            action: () => {
+              window.dispatchEvent(new CustomEvent(WORKBENCH_HTML_ANNOTATION_EVENT))
+            }
+          })
+          items.push({ type: 'separator' })
+        }
         appendWorkbenchAiItems(items, selectedText)
         items.push({ type: 'separator' })
         items.push({
@@ -119,7 +137,8 @@ export default function CustomContextMenu(): JSX.Element | null {
           visible: true,
           x: data.x,
           y: data.y,
-          items
+          items,
+          workbenchStyle: true
         })
       }
     )
@@ -264,7 +283,8 @@ export default function CustomContextMenu(): JSX.Element | null {
         visible: true,
         x: e.clientX,
         y: e.clientY,
-        items
+        items,
+        workbenchStyle: isNonCodeWorkbenchEditor
       })
     }
 
@@ -347,7 +367,11 @@ export default function CustomContextMenu(): JSX.Element | null {
 
       {/* 自绘上下文菜单浮层 */}
       <div
-        className="fixed z-50 w-52 rounded-2xl bg-white/95 dark:bg-gray-800/95 backdrop-blur-md border border-gray-200/80 dark:border-gray-700/80 shadow-float p-1.5 transition-all select-none animate-in fade-in zoom-in-95 duration-100"
+        className={`fixed z-50 select-none animate-in fade-in zoom-in-95 duration-100 ${
+          menuState.workbenchStyle
+            ? 'min-w-[190px] py-1.5 bg-white/95 dark:bg-gray-800/95 backdrop-blur-md rounded-xl shadow-xl border border-black/10 dark:border-white/10 text-sm'
+            : 'w-52 rounded-2xl bg-white/95 dark:bg-gray-800/95 backdrop-blur-md border border-gray-200/80 dark:border-gray-700/80 shadow-float p-1.5'
+        }`}
         style={{ left: menuPosition.x, top: menuPosition.y }}
         onMouseDown={(e) => e.stopPropagation()}
         role="menu"
@@ -357,7 +381,11 @@ export default function CustomContextMenu(): JSX.Element | null {
             return (
               <div
                 key={`sep-${idx}`}
-                className="my-1 border-t border-gray-100 dark:border-gray-700/60 mx-1"
+                className={`my-1 border-t ${
+                  menuState.workbenchStyle
+                    ? 'border-black/5 dark:border-white/5'
+                    : 'border-gray-100 dark:border-gray-700/60 mx-1'
+                }`}
                 role="separator"
               />
             )
@@ -373,15 +401,33 @@ export default function CustomContextMenu(): JSX.Element | null {
                 e.preventDefault()
                 handleItemClick(item)
               }}
-              className={`group w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl text-xs sm:text-sm text-text-primary transition-all duration-150 ${
-                item.disabled
-                  ? 'opacity-40 cursor-not-allowed'
-                  : 'hover:bg-primary/10 hover:text-primary active:scale-[0.98] cursor-pointer'
-              }`}
+              className={
+                menuState.workbenchStyle
+                  ? `group w-full flex items-center gap-2 px-3 py-1.5 text-left text-text-primary transition-colors ${
+                      item.disabled
+                        ? 'opacity-40 cursor-not-allowed'
+                        : 'hover:bg-black/5 dark:hover:bg-white/5 cursor-pointer'
+                    }`
+                  : `group w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl text-xs sm:text-sm text-text-primary transition-all duration-150 ${
+                      item.disabled
+                        ? 'opacity-40 cursor-not-allowed'
+                        : 'hover:bg-primary/10 hover:text-primary active:scale-[0.98] cursor-pointer'
+                    }`
+              }
             >
-              <AppIcon name={item.icon} size={18} className="text-text-secondary group-hover:text-primary transition-colors shrink-0" />
-              <span className="flex-1 text-left font-medium truncate">{item.label}</span>
-              {item.shortcut && (
+              <AppIcon
+                name={item.icon}
+                size={menuState.workbenchStyle ? 19 : 18}
+                className={
+                  menuState.workbenchStyle
+                    ? `shrink-0 ${item.color ?? 'text-text-secondary'}`
+                    : 'text-text-secondary group-hover:text-primary transition-colors shrink-0'
+                }
+              />
+              <span className={menuState.workbenchStyle ? 'font-medium' : 'flex-1 text-left font-medium truncate'}>
+                {item.label}
+              </span>
+              {item.shortcut && !menuState.workbenchStyle && (
                 <span className="text-[11px] font-mono text-text-secondary/60 group-hover:text-primary/70 tracking-wider">
                   {item.shortcut}
                 </span>

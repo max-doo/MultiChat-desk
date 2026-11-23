@@ -12,6 +12,11 @@ export default function WorkbenchStatusPill(): JSX.Element {
   const saveStatus = useWorkbenchStore((s) => s.saveStatus)
   const conflictDiskContent = useWorkbenchStore((s) => s.conflictDiskContent)
   const resolveExternalConflict = useWorkbenchStore((s) => s.resolveExternalConflict)
+  const htmlVisualEditing = useWorkbenchStore((s) => s.htmlVisualEditing)
+
+  // 可视化编辑自带底部状态条与浮动工具条；通用胶囊会遮挡它们。
+  // 冲突面板仍保留，用户需要在编辑态直接裁决磁盘版本。
+  if (htmlVisualEditing && saveStatus !== 'conflict') return <></>
 
   const { words: wordCount, chars: charCount } = countWords(activeFileContent)
   const isCodeView = activeFileCategory === 'code' || activeFileCategory === 'text'

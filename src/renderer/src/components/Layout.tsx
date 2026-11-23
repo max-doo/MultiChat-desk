@@ -1,4 +1,4 @@
-import { ReactNode, useEffect, useRef, useState } from 'react'
+import { ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 import { useAppStore, ProductMode, DisplayMode } from '../store/appStore'
 import { AppIcon } from './icons/AppIcon'
 
@@ -151,6 +151,37 @@ function Layout({ children }: LayoutProps): JSX.Element {
   const isFallbackDraggingRef = useRef(false)
   const dragFrameRef = useRef<number | null>(null)
   const dragMovePendingRef = useRef(false)
+  const productModeSwitchRef = useRef(false)
+
+  const handleProductModeChange = useCallback(
+    async (nextMode: ProductMode) => {
+      if (productModeSwitchRef.current) return
+
+      if (productMode === 'workbench' && nextMode !== 'workbench') {
+        const { htmlVisualEditing, htmlEditLeaveGuard } = useWorkbenchStore.getState()
+        if (htmlVisualEditing) {
+          if (!htmlEditLeaveGuard) {
+            useWorkbenchStore.setState({ error: '可视化编辑尚未就绪，无法切换模式' })
+            return
+          }
+          productModeSwitchRef.current = true
+          try {
+            const decision = await htmlEditLeaveGuard()
+            if (decision === 'cancelled') return
+          } finally {
+            productModeSwitchRef.current = false
+          }
+        }
+      }
+
+      setProductMode(nextMode)
+      if (nextMode === 'debate') {
+        setDisplayMode('two')
+        resetPaneRatios()
+      }
+    },
+    [productMode, resetPaneRatios, setDisplayMode, setProductMode]
+  )
 
   useEffect(() => {
     if (window.api.platform === 'darwin') return
@@ -288,13 +319,7 @@ function Layout({ children }: LayoutProps): JSX.Element {
                   key={item.key}
                   type="button"
                   title={item.title}
-                  onClick={() => {
-                    setProductMode(item.key as ProductMode)
-                    if (item.key === 'debate') {
-                      setDisplayMode('two')
-                      resetPaneRatios()
-                    }
-                  }}
+                  onClick={() => void handleProductModeChange(item.key as ProductMode)}
                   className={`px-2.5 py-1 rounded-md font-medium transition-all duration-200 ${
                     productMode === item.key 
                       ? 'bg-white dark:bg-gray-800 text-primary shadow-xs' 

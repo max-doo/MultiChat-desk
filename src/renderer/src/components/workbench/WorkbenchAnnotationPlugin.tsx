@@ -12,6 +12,7 @@ import {
   COMMAND_PRIORITY_EDITOR,
   COMMAND_PRIORITY_LOW,
   createCommand,
+  SKIP_SELECTION_FOCUS_TAG,
   SELECTION_CHANGE_COMMAND,
   $setSelection,
   type ElementNode,
@@ -20,19 +21,21 @@ import {
   type TextNode
 } from 'lexical'
 import { $createMarkNode, $isMarkNode } from '@lexical/mark'
-import { $convertToMarkdownString } from '@lexical/markdown'
 import type { Annotation } from '../../../../shared/types/annotations'
 import { buildAnchorAt, resolveAnchors } from '../../../../shared/utils/annotationAnchors'
 import { readConversationSource } from '../../../../shared/utils/conversationSource'
 import { useWorkbenchStore } from '../../store/workbenchStore'
 import { useAnnotationStore } from '../../store/annotationStore'
 import AnnotationCommentCard from '../AnnotationCommentCard'
-import { WORKBENCH_TRANSFORMERS } from './MarkdownSyncPlugin'
+import { serializeWorkbenchMarkdown } from './MarkdownSyncPlugin'
 import { allMarks, markAtTarget, unwrapAllMarks, unwrapMark } from './workbenchAnnotationUtils'
 
 export const WORKBENCH_ANNOTATE_COMMAND: LexicalCommand<void> = createCommand(
   'WORKBENCH_ANNOTATE_COMMAND'
 )
+
+// 标注投影和定位都是后台副作用，不能把焦点从评论输入框或弹层抢回正文。
+const ANNOTATION_SYNC_TAGS = ['annotation-sync', SKIP_SELECTION_FOCUS_TAG]
 
 interface TextSlice {
   node: TextNode
@@ -224,7 +227,7 @@ export default function WorkbenchAnnotationPlugin({
             else unwrapMark(mark)
           }
         },
-        { tag: 'annotation-sync', discrete: true }
+        { tag: ANNOTATION_SYNC_TAGS, discrete: true }
       )
     },
     [editor]
@@ -260,10 +263,7 @@ export default function WorkbenchAnnotationPlugin({
     if (appliedRef.current.token === token && appliedRef.current.version === importedRef.current.version) return
 
     const annotations = [...state.documentAnnotations, ...state.sourceAnnotations]
-    let before = ''
-    editor.getEditorState().read(() => {
-      before = $convertToMarkdownString(WORKBENCH_TRANSFORMERS)
-    })
+    const before = serializeWorkbenchMarkdown(editor)
 
     const unlocated: string[] = []
     editor.update(
@@ -289,15 +289,17 @@ export default function WorkbenchAnnotationPlugin({
           }
         }
       },
-      { tag: 'annotation-sync', discrete: true }
+      // 标注投影是后台副作用；失焦对账时若让 Lexical 同步选区焦点，
+      // 会把正在编辑的评论 textarea 焦点抢回正文。
+      { tag: ANNOTATION_SYNC_TAGS, discrete: true }
     )
 
-    let after = ''
-    editor.getEditorState().read(() => {
-      after = $convertToMarkdownString(WORKBENCH_TRANSFORMERS)
-    })
+    const after = serializeWorkbenchMarkdown(editor)
     if (after !== before) {
-      editor.update(() => unwrapAllMarks(), { tag: 'annotation-sync', discrete: true })
+      editor.update(() => unwrapAllMarks(), {
+        tag: ANNOTATION_SYNC_TAGS,
+        discrete: true
+      })
       console.error('[Annotation] 应用标注改变了 Markdown 序列化结果，已撤销本次应用')
       showHint('标注未能安全应用，正文保持不变')
       return
@@ -430,7 +432,7 @@ export default function WorkbenchAnnotationPlugin({
         const hit = resolveAnchors(text, [annotation])[0]
         if (hit) located = selectOffset(hit.start, hit.end)
       },
-      { tag: 'annotation-sync', discrete: true }
+      { tag: ANNOTATION_SYNC_TAGS, discrete: true }
     )
     if (!located) return
     requestAnimationFrame(() => {
@@ -461,7 +463,7 @@ export default function WorkbenchAnnotationPlugin({
           [...state.documentAnnotations, ...state.sourceAnnotations].map(item => item.id)
         )
         editor.update(() => cleanMarkNodes(valid, complete), {
-          tag: 'annotation-sync',
+          tag: ANNOTATION_SYNC_TAGS,
           discrete: true
         })
       }),
