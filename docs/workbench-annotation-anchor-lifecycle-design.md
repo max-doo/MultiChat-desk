@@ -90,7 +90,7 @@ interface Annotation {
   anchorState?: AnnotationAnchorState
   anchorReason?: AnnotationAnchorReason
 
-  /** 仅 document 标注使用；每次真正改写锚点时递增。 */
+  /** 仅 document 标注使用；每次持久化解析状态或锚点变化时递增。 */
   anchorRevision?: number
 
   /** 首次进入未定位的时间；恢复为 anchored/shifted 时清除。 */
@@ -107,6 +107,7 @@ interface Annotation {
 - `quote/anchor` 仍表示“最后一次成功定位到的文本和锚点”，与现有主设计一致。
 - `anchorRevision` 旧记录缺失时按 `1` 处理；新记录初始化为 `1`。
 - `lastAnchoredAt` 只在 `anchored/shifted` 时更新；`ambiguous/unlocated` 不更新。
+- `orphanedAt` 只在 `unlocated` 时设置；离开 `unlocated` 时清除。
 - `source` 标注不写 `anchorState/anchorRevision/orphanedAt/lastAnchoredAt`。它在文档中的投影是否定位成功，属于当前渲染状态，不应污染原文标注记录。
 - 不保存 `originalAnchor`。当前锚点已经是最后一次成功位置，原始引文用于展示；需要恢复旧位置时由用户重新选择文本，不做隐式回退。
 
@@ -133,6 +134,7 @@ shifted / ambiguous / unlocated
 
 - 所有新增字段可选，旧 JSON 可以继续读取。
 - `normalizeAnnotation` 需要保留并校验新增字段；旧记录读入后补默认值，不要求一次性升级磁盘文件。
+- 旧记录没有 `originalQuote` 时，UI 回退显示当前 `quote`；不强制回写磁盘。
 - `originalQuote` 也计入文本长度限制，避免绕过 20KB 的字段上限。
 
 ## 6. 锚点解析算法
@@ -163,6 +165,8 @@ shifted / ambiguous / unlocated
 4. 如果 MarkNode 已被完全删除或跨 block，进入后续精确/模糊解析。
 
 这一条优先于全文搜索。用户在高亮内部插入、删除或替换文字时，Lexical 仍保留 MarkNode 的情况很常见，不需要依赖相似度算法猜位置。
+
+投影流程固定为：收集旧 MarkNode range → 计算解析结果 → `unwrapAllMarks()` → 按结果重新包 MarkNode。不能先全部解包再反查旧位置。
 
 ### 6.3 优先级二：精确匹配
 
@@ -268,7 +272,7 @@ annotations.reconcileDocument(
 - `ambiguous/unlocated` 可以不带 `quote/anchor`。
 - 只有 `quote/anchor/state/reason/orphanedAt/lastAnchoredAt` 真正变化时才写盘；无变化记录进入 `skipped`。
 - 一次对账只做一次原子写；只有在 `applied.length > 0` 时广播 `annotations:changed`，避免广播循环。
-- 实际写入时递增 `anchorRevision`，并更新 `updatedAt`。
+- 实际写入时递增 `anchorRevision`，并更新 `updatedAt`；状态变化也递增，避免旧状态覆盖新状态。
 
 同时更新 `src/preload/index.ts` 的 `API` 类型、`src/preload/index.d.ts` 和 `src/renderer/src/env.d.ts`，保持 IPC 契约端到端一致。
 
@@ -379,6 +383,8 @@ HTML 重新定位：
 
 HTML 阶段 A 只做精确匹配，不承诺与 Lexical 共用模糊算法。如果后续需要在 HTML 内支持局部修改后的模糊重定位，再单独评估运行时算法和双实现维护成本。
 
+重复文本的严格歧义治理优先在文档侧完成。HTML 阶段 A 仍沿用运行时现有的“精确候选打分选最优”策略；如果运行时无法判断唯一位置，后续应让它返回 `ambiguous` id 列表，而不是让宿主猜测。该能力不阻塞阶段 A 的未定位可见性。
+
 ## 10. 容量与清理策略
 
 ### 10.1 本期策略
@@ -483,7 +489,7 @@ HTML 阶段 A 只做精确匹配，不承诺与 Lexical 共用模糊算法。如
 
 - 接近 500 条时有清理提示；超限错误包含未定位数量。
 - 2MB 写入失败时返回明确错误，不产生半写文件。
-- 新增 `originalQuote` 后，旧文件接近 2MB 时普通更新不会静默丢字段；失败时保留旧文件。
+- 新增 `originalQuote` 使序列化超过 2MB 时，写入失败并保留旧文件，不产生半写文件。
 - 文档重命名、移动后注释和新增字段完整保留。
 - 删除单个文件时旁路按显式删除逻辑清理；删除文件夹时保留子文档旁路一个版本，并在确认框说明。
 - 外部删除文档时旁路保留；本期没有按时间自动删除注释的后台任务。

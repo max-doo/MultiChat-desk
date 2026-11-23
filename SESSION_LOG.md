@@ -2,6 +2,14 @@
 
 ## 2026-11-23
 
+### 16:55 | Codex
+
+- done: 提交今日工作台迭代：HTML 可视化编辑/原位标注/导图选区/正文居中旁注/托盘退出守卫等 43 文件一个 feat 提交，知识库重组单独 docs(memory) 提交
+- added:
+  - `src/shared/utils/workbenchHtmlEditor.ts;src/shared/utils/workbenchHtmlAnnotations.ts;src/shared/types/htmlAnnotations.ts;src/renderer/src/components/workbench/WorkbenchHtmlVisualEditor.tsx;src/renderer/src/components/workbench/WorkbenchHtmlEditToolbar.tsx;src/renderer/src/components/workbench/WorkbenchHtmlColorPicker.tsx;src/renderer/src/components/workbench/WorkbenchHtmlEditLeaveDialog.tsx;src/renderer/src/components/workbench/WorkbenchHtmlAnnotationPreview.tsx;src/renderer/src/components/workbench/WorkbenchFloatingToolbarChrome.tsx;docs/workbench-html-visual-edit-plan.md;docs/workbench-annotation-anchor-lifecycle-design.md;docs/mindmap-selection-scope-design.md;docs/mindmap-selection-scope-prototype.html;.memory/sessions/2026-11-16.md`
+- modified:
+  - `src/main/index.ts;src/main/ipcHandlers.ts;src/main/webviewManager.ts;src/preload/index.ts;src/renderer/src/App.tsx;src/renderer/src/components/Layout.tsx;src/renderer/src/components/CustomContextMenu.tsx;src/renderer/src/store/workbenchStore.ts;src/renderer/src/store/appStore.ts;.memory/INDEX.md;.memory/KNOWLEDGE.md;SESSION_LOG.md`
+
 ### 16:43 | Codex
 
 - done: 工作台 Markdown 编辑器改为正文固定居中：旁注栏脱离 flex 布局按右侧留白浮层定位，大纲导航跟随正文左缘
