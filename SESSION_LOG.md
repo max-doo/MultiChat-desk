@@ -2,6 +2,20 @@
 
 ## 2026-11-23
 
+### 22:57 | Codex
+
+- done: 提交本次工作台改动的会话日志
+- modified:
+  - `SESSION_LOG.md`
+
+### 22:57 | Codex
+
+- done: 提交工作台迭代：docx 悬浮大纲(TocRail 复用)、图片右键发送到 AI 侧边栏(resolve-file-url IPC)、普通文档多来源 sources frontmatter、Agent 侧边栏高保真原型
+- added:
+  - `src/renderer/src/components/workbench/WorkbenchTocRail.tsx;src/renderer/src/components/workbench/WorkbenchDocxToc.tsx;docs/prototypes/agent_sidebar_prototype.html`
+- modified:
+  - `src/main/ipcHandlers.ts;src/preload/index.ts;src/renderer/src/components/CustomContextMenu.tsx;src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx;src/renderer/src/components/workbench/workbenchAiEvents.ts;src/renderer/src/components/workbench/FrontmatterPanel.tsx;src/renderer/src/components/workbench/WorkbenchDocxPreview.tsx;src/renderer/src/components/workbench/WorkbenchMinimalToc.tsx;src/shared/utils/conversationFrontmatter.ts;docs/workbench-unified-notes-annotation-design.md;docs/prototypes/minimalist-toc-showcase.html;SESSION_LOG.md`
+
 ### 22:56 | Antigravity
 
 - done: 更新用户消息气泡背景色与主操作按钮为项目标准主题色 (#3b82f6)
@@ -59,7 +73,7 @@
 - modified:
   - `src/shared/utils/conversationFrontmatter.ts`
   - `src/renderer/src/components/workbench/FrontmatterPanel.tsx`
-- lesson: frontmatter 多来源不能直接改 source 为列表：source 同时承担文档身份锚点，被会话去重与 source 标注按 1:1 依赖
+- lesson(promoted): frontmatter 多来源不能直接改 source 为列表：source 同时承担文档身份锚点，被会话去重与 source 标注按 1:1 依赖
 
 ### 22:17 | Codex
 
@@ -72,7 +86,7 @@
 - modified:
   - `src/renderer/src/components/workbench/WorkbenchMinimalToc.tsx`
   - `src/renderer/src/components/workbench/WorkbenchDocxPreview.tsx`
-- lesson: docx-preview 0.4.1 的 renderAsync 直接返回 WordDocument，不必拆成 parseAsync+renderDocument；OOXML 大纲层级在 paragraph.outlineLevel（顶层字段，不在 paragraphProps 里）+ style.paragraphProps.outlineLevel 继承；styleId 是中文论文模板自定义命名（a7/a0/1rgb181818）时按 className 识别完全失效，必须走 WordDocument 树
+- lesson(promoted): docx-preview 0.4.1 的 renderAsync 直接返回 WordDocument，不必拆成 parseAsync+renderDocument；OOXML 大纲层级在 paragraph.outlineLevel（顶层字段，不在 paragraphProps 里）+ style.paragraphProps.outlineLevel 继承；styleId 是中文论文模板自定义命名（a7/a0/1rgb181818）时按 className 识别完全失效，必须走 WordDocument 树
 
 ### 21:56 | Codex
 
@@ -93,7 +107,7 @@
   - `src/renderer/src/components/CustomContextMenu.tsx`
   - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
   - `src/renderer/src/components/workbench/workbenchAiEvents.ts`
-- lesson: 右键图片发送到 AI 复用既有 FileUploadData 上传管线；workbench-file:// 只在主进程可解析授权根，需专用 resolve IPC 把真实路径交还渲染层而非渲染层自行解码 URL
+- lesson(promoted): 右键图片发送到 AI 复用既有 FileUploadData 上传管线；workbench-file:// 只在主进程可解析授权根，需专用 resolve IPC 把真实路径交还渲染层而非渲染层自行解码 URL
 
 ### 21:49 | Codex
 

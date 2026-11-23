@@ -128,6 +128,8 @@ Long-term reusable lessons, durable decisions, and recurring project gotchas. Do
 
 - **`docx-preview` 默认会引入两个风险点**：`renderAltChunks` 会把文档内嵌的原始 HTML 写入 iframe `srcdoc`，等同执行未审查内容，预览应关闭；文档超链接是普通 `<a href>`，点击会让主窗口整页导航，必须在容器上拦截并改为 `shell` 外链或容器内锚点滚动（书签渲染为 `span[id]`）。内嵌图片和字体是 `URL.createObjectURL` 生成的 blob URL，卸载或重渲染前必须遍历 `img[src^="blob:"]` 与 `<style>` 中的 blob 地址 `revokeObjectURL`。
 
+- **docx 大纲识别要走 `WordDocument` 树，不能按渲染 className 匹配**：`docx-preview` 0.4.1 的 `renderAsync` 直接返回 `parseAsync` 产出的 `WordDocument`，不必拆成 `parseAsync + renderDocument` 两步。OOXML 大纲层级在 `paragraph.outlineLevel` 顶层字段和 `style.paragraphProps.outlineLevel` 样式继承上；渲染输出只把 styleId escape 成 `docx_<id>` class，中文论文模板的自定义 styleId（如 `a7`、`a0`）按 className 正则识别完全失效。悬浮大纲 UI 抽成 `WorkbenchTocRail` 公共组件，Lexical 与 docx 各自只做数据源适配（`items` + `resolveElement` 回调），避免平行复制交互。
+
 ### 笔记、快照与导图
 
 - **来源会话键保留完整规范化 URL 路径**：截取第一个 chat 片段会把 `chat/s/id1` 和 `chat/s/id2` 错误分到同一会话。来源会话入口的 UI 判定必须用 `isPlatformConversationPage` 的逐平台真实路径枚举，不能复用后台恢复用的宽松 `isConversationUrlForPlatform`，后者会命中同域名的设置页、搜索页和文档页。新增平台或路径时同步补 `scripts/agent-cli-acceptance.mjs` 的正负样例，负例至少覆盖同域名非会话页和非 AI 站点。
@@ -147,6 +149,8 @@ Long-term reusable lessons, durable decisions, and recurring project gotchas. Do
 - **笔记属性的 URL 字段默认动作是编辑，打开动作必须有独立入口**：`FrontmatterPanel` 把 `<a>` 直接当值渲染时，普通点击会按链接导航，编辑入口只能藏在修饰键里，用户无法发现。URL 值保留 `<a href>` 以维持修饰键和中键的浏览器打开语义，但普通点击必须 `preventDefault` 进入受控输入框并自动聚焦、全选；同时提供右侧独立图标（会话链接进 AI 侧栏、普通链接进浏览器），并在 `title` 中写明 `Ctrl/Cmd+点击在浏览器打开`。编辑态分支必须排在 URL 渲染分支之前，`Esc` 取消时用标记跳过随后触发的 blur 提交。主窗口 `setWindowOpenHandler` 已把 `target="_blank"` 转给 `shell.openExternal`，无需为外链另加 IPC。
 
 - **工作台标签对齐 Obsidian 并且要防泛滥**：YAML frontmatter 中的标签不含 `#` 前缀，`#` 只用于正文行内引导符；带 `#` 会被 YAML 包成引号字符串，破坏标准识别。解析与序列化需自动剔除 `#`、去重并格式化为 YAML 列表；属性面板聚合工作区已有标签，提供前缀或模糊匹配的下拉建议，支持方向键、Enter、Tab、鼠标点击和新建回车。检索端支持 `tag:#name`、`tag:name`、`#name` 语法，以及斜杠 `/` 的父子层级继承匹配。
+
+- **frontmatter 多来源不能改 `source` 为列表**：`source` 同时承担原文入口、会话去重与 source 标注归属的 1:1 身份锚点。普通文档累积多来源时第一来源仍在 `source`，后续来源进独立 `sources` 列表（YAML 块状 `- url`，属性面板按行解析、逐条展示与移除，URL 含逗号等标点不能用内联 `[a, b]` 或空格拼接）；`platform`/`captured_at` 只描述主来源，本次插入未成为主来源时不补写。会话文档保持单来源，跨会话插入继续返回 conflict。行内改写与插入要按原始索引记录编辑再从后往前应用，否则前面的插入会让后续行号整体偏移。
 
 ### 导图渲染与交互
 
@@ -227,6 +231,8 @@ Long-term reusable lessons, durable decisions, and recurring project gotchas. Do
 - **macOS 红绿灯和 Tray 图标有平台约束**：`trafficLightPosition` 只对 `titleBarStyle: 'hidden'` 生效，对 `hiddenInset` 不生效；坐标是 OS 点单位，红绿灯圆心约等于设定值加 6.5，无头机截屏像素坐标不等于 OS 坐标。Tray 彩色图标不能走 template，template 只保留 alpha 剪影会渲染成黑色；彩色应用图标不要调用 `setTemplateImage`，建议 `resize` 到约 22px。`Tray` 实例本身没有 `setTemplateImage` 方法，误调会崩溃，应对 `nativeImage` 调用；`assets/` 下没有 `tray-iconTemplate.png` 时回退 `logo.png`。
 
 - **跨源 sandbox iframe 的划词右键要由主进程转发**：iframe 内的 DOM `contextmenu` 不会冒泡到宿主 renderer。主窗口 `webContents` 的 `context-menu` 事件能取得子 frame 的 `frameURL` 和 `selectionText`；仅对目标协议且存在选区的 frame 调用 `preventDefault()`，再用“屏幕光标坐标减窗口内容区坐标”定位并经 IPC 交给宿主菜单。这样不改变 iframe 的 sandbox 边界，也不影响普通 DOM 和独立 webview 的右键链路。
+
+- **图片右键「发送到 AI」复用既有上传管线，`workbench-file://` 要专用 resolve IPC**：右键菜单通过 `WORKBENCH_SEND_IMAGE_EVENT` 把 `srcURL` 交给 AI 侧边栏，上传走既有 `FileUploadData`/`uploadFilesToCurrentModel` 管线。`workbench-file://` 的真实路径只有主进程能在授权白名单内解析（`resolveWorkbenchFileRequest`），渲染层不自行解码 URL，需 `workbench:resolve-file-url` IPC 把真实路径交还后直接按磁盘文件上传，不复制临时文件；`blob:`/`data:`/`http(s):` 则 `fetch` 取字节经 `create-temp-upload-file` 落临时目录，上传完 `cleanupUploadTemp` 清理。
 
 - **托盘退出要经过渲染层未保存守卫时不能提前置 quitting**：主窗口关闭是本应用“隐藏到托盘”的正常路径，只有真正退出才应 `setQuitting(true)`。托盘和 `tray:quit-app` 统一调用 `app.quit()`，主进程在 `before-quit` 中先 `preventDefault()`，显示主窗口并通过 `app:quit-guard-ready` 确认渲染层已注册监听，再发送退出请求；渲染层复用编辑离开守卫后回传 allow/cancel，确认后才置 quitting 并再次 `app.quit()`。若在托盘入口提前置 quitting，用户取消后窗口关闭将不再隐藏，状态也会污染后续生命周期。
 
