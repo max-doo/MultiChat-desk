@@ -2,6 +2,99 @@
 
 ## 2026-11-23
 
+### 22:56 | Antigravity
+
+- done: 更新用户消息气泡背景色与主操作按钮为项目标准主题色 (#3b82f6)
+- decision: 用户气泡统一使用 MultiChat Desk 主题色 primary (#3b82f6)，与全局 Tailwind 色彩体系一致
+- modified:
+  - `docs/prototypes/agent_sidebar_prototype.html`
+
+### 22:52 | Antigravity
+
+- done: 优化 Agent 侧边栏交互：拆分底部加号为添加文件组件、完全访问为权限下拉组件；将对话历史入口移至顶部新建会话后方
+- decision: 底部左侧解耦为独立添加文件按钮与权限模式下拉，消除语义混淆；顶部操作区按「新建会话 -> 对话历史 -> 折叠」编排
+- modified:
+  - `docs/prototypes/agent_sidebar_prototype.html`
+
+### 22:50 | Antigravity
+
+- done: 优化文档 TOC 原位展开药丸的阴影与边框视觉，使其更加柔和轻盈
+- decision: 将 TOC 胶囊由短焦距重阴影改为多层大扩散微阴影 (0 4px 20px -2px rgba(0,0,0,0.05) + 0 1px 4px rgba(0,0,0,0.02))，配合 border-black/[0.06] 与 backdrop-blur-sm，消除下边缘灰黑硬边感并补充暗色主题样式
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchTocRail.tsx`
+  - `docs/prototypes/minimalist-toc-showcase.html`
+
+### 22:44 | Antigravity
+
+- done: 重构侧边栏 Agent 原型为项目原生浅色风格，新增对话历史菜单栏，移除刷新与语音输入
+- decision: 保持与工作台一致的纯白浅色基调；顶部复用模型选择器并增加对话历史下拉菜单，移除本地 Agent 冗余的网页刷新按钮；底部胶囊输入栏严格按图2布局适配浅色形态并移除语音图标；对话输出维持纯净无外层容器
+- modified:
+  - `docs/prototypes/agent_sidebar_prototype.html`
+
+### 22:41 | Codex
+
+- done: 普通文档多来源：source 保持主来源，后续来源累积到 sources 列表；会话文档维持单来源；属性面板支持来源列表展示与逐条移除
+- modified:
+  - `src/shared/utils/conversationFrontmatter.ts`
+  - `src/renderer/src/components/workbench/FrontmatterPanel.tsx`
+  - `docs/workbench-unified-notes-annotation-design.md`
+
+### 22:38 | Antigravity
+
+- done: 创建工作台侧边栏集成自建 Agent 高保真交互原型
+- decision: 侧边栏头部无缝复用现有 WebviewCard 结构与模型选择器；对话流保持纯净无容器嵌套，原生呈现用时与工具调用链路；底部采用深色胶囊输入栏并对齐权限、状态与操作按钮
+- added:
+  - `docs/prototypes/agent_sidebar_prototype.html`
+
+### 22:38 | Codex
+
+- done: 补充多来源 frontmatter 文档说明
+- modified:
+  - `docs/workbench-unified-notes-annotation-design.md`
+
+### 22:37 | Codex
+
+- done: 普通文档支持累积多来源：source 保持首个来源，后续来源写入 sources 列表；会话文档维持单来源并拒绝跨会话插入
+- decision: 普通文档用独立 sources 列表累积来源，source 仍是唯一主来源（原文入口与会话去重只认它）；会话文档保持 1:1，跨会话插入继续返回 conflict
+- modified:
+  - `src/shared/utils/conversationFrontmatter.ts`
+  - `src/renderer/src/components/workbench/FrontmatterPanel.tsx`
+- lesson: frontmatter 多来源不能直接改 source 为列表：source 同时承担文档身份锚点，被会话去重与 source 标注按 1:1 依赖
+
+### 22:17 | Codex
+
+- done: Workbench Word 预览悬浮大纲导航（重构为 TocRail 公共 UI + 双数据源）
+- context: 用户验收发现 TOC 未出现：初版用 docx_样式名 正则识别标题失效，因论文用自定义 styleId；改走 parseAsync outlineLevel 后正常工作
+- decision: 抽出 WorkbenchTocRail 纯 UI 组件（items+resolveElement 回调），Lexical/docx 各自做数据源适配，避免平行复制 UI
+- added:
+  - `src/renderer/src/components/workbench/WorkbenchTocRail.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchDocxToc.tsx`
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchMinimalToc.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchDocxPreview.tsx`
+- lesson: docx-preview 0.4.1 的 renderAsync 直接返回 WordDocument，不必拆成 parseAsync+renderDocument；OOXML 大纲层级在 paragraph.outlineLevel（顶层字段，不在 paragraphProps 里）+ style.paragraphProps.outlineLevel 继承；styleId 是中文论文模板自定义命名（a7/a0/1rgb181818）时按 className 识别完全失效，必须走 WordDocument 树
+
+### 21:56 | Codex
+
+- done: 为 Workbench Word 预览新增极简悬浮大纲导航
+- context: docx-preview 0.4.1 不输出语义化 h1-h6 标签，只把 OOXML styleId escape 成 docx_<id> class，需要按 className 正则识别标题
+- decision: 平行新建 WorkbenchDocxToc 而不是改造 WorkbenchMinimalToc：后者耦合 useLexicalComposerContext，抽离会动到 Markdown 编辑器链路，超出最小充分复杂度
+- added:
+  - `src/renderer/src/components/workbench/WorkbenchDocxToc.tsx`
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchDocxPreview.tsx`
+
+### 21:50 | Codex
+
+- done: 所有图片右键新增'发送到 AI 侧边栏'：新增 WORKBENCH_SEND_IMAGE_EVENT 事件 + workbench:resolve-file-url IPC（只解析白名单内真实路径不复制）；workbench-file:// 直接按磁盘路径上传，blob/data/http 经 create-temp-upload-file 临时文件复用既有上传管线后清理
+- modified:
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/src/components/CustomContextMenu.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
+  - `src/renderer/src/components/workbench/workbenchAiEvents.ts`
+- lesson: 右键图片发送到 AI 复用既有 FileUploadData 上传管线；workbench-file:// 只在主进程可解析授权根，需专用 resolve IPC 把真实路径交还渲染层而非渲染层自行解码 URL
+
 ### 21:49 | Codex
 
 - done: 提交今日工作台迭代：标注锚点生命周期A/B、docx内嵌预览、KaTeX公式、文件树删除优化、图片背景持久化、工作区设置改版、frontmatter备份与旧笔记迁移修复、HTML预览图片右键

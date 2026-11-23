@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Workbench Agent Sidebar Prototype</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap');
+    
+    * {
+      box-sizing: border-box;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+      margin: 0;
+      padding: 0;
+      background: transparent;
+      user-select: none;
+      color: #1f2937;
+    }
+
+    .font-mono-code {
+      font-family: 'JetBrains Mono', Consolas, Menlo, Monaco, monospace;
+    }
+
+    /* Minimalist smooth scrollbar */
+    ::-webkit-scrollbar {
+      width: 5px;
+      height: 5px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(0, 0, 0, 0.12);
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(0, 0, 0, 0.22);
+    }
+
+    .rotate-loader {
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body class="p-2 sm:p-5 flex items-center justify-center min-h-screen">
+
+  <!-- Container: Workbench AI Sidebar Card (Strict Native Light Mode) -->
+  <div id="sidebar-card" class="w-full max-w-[460px] h-[780px] flex flex-col rounded-2xl overflow-hidden border border-gray-200 bg-white shadow-xl relative text-gray-800">
+
+    <!-- 1. Header: WebviewCard Top Bar (Model Picker on Left, Actions on Right) -->
+    <header class="h-11 px-3 border-b border-gray-100 bg-white flex items-center justify-between shrink-0 select-none z-30 relative">
+      
+      <!-- Left: Model Picker Dropdown -->
+      <div class="relative">
+        <button id="model-picker-btn" type="button" 
+          class="flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-gray-100 active:bg-gray-200/70 transition-colors text-left group">
+          <div id="current-model-icon" class="w-4 h-4 flex items-center justify-center shrink-0">
+            <!-- Agent Sparkle/Robot Icon -->
+            <svg class="w-4 h-4 text-blue-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456z" />
+            </svg>
+          </div>
+          <span id="current-model-name" class="text-[13px] font-semibold text-gray-800">本地 Agent</span>
+          <svg class="w-3.5 h-3.5 text-gray-400 group-hover:text-gray-600 transition-transform duration-150" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </button>
+
+        <!-- Model Dropdown Menu -->
+        <div id="model-dropdown-menu" 
+          class="hidden absolute left-0 top-full mt-1.5 w-52 rounded-xl border border-gray-200 py-1 shadow-xl z-50 transition-all bg-white text-gray-800">
+          
+          <!-- Option: 本地 Agent -->
+          <button type="button" onclick="selectModel('agent')" 
+            class="w-full flex items-center justify-between px-3 py-2 text-xs text-left hover:bg-gray-50 transition-colors">
+            <div class="flex items-center gap-2.5">
+              <div class="w-5 h-5 rounded-md bg-blue-50 text-blue-600 flex items-center justify-center">
+                <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm1 14.5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0zm0-4.5a1 1 0 0 1-2 0V7a1 1 0 0 1 2 0z"/>
+                </svg>
+              </div>
+              <div>
+                <div class="font-medium text-gray-900 flex items-center gap-1.5">
+                  本地 Agent
+                  <span class="text-[9px] px-1 py-0.2 rounded bg-blue-100 text-blue-700 font-mono-code font-normal">Active</span>
+                </div>
+                <div class="text-[10.5px] text-gray-400">本地自主规划与工具调用</div>
+              </div>
+            </div>
+            <svg id="agent-check" class="w-3.5 h-3.5 text-blue-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+          </button>
+
+          <div class="h-px my-1 bg-gray-100"></div>
+
+          <!-- Option: Gemini -->
+          <button type="button" onclick="selectModel('gemini')" 
+            class="w-full flex items-center justify-between px-3 py-2 text-xs text-left hover:bg-gray-50 transition-colors">
+            <div class="flex items-center gap-2.5">
+              <div class="w-5 h-5 rounded-md flex items-center justify-center">
+                <svg class="w-3.5 h-3.5" viewBox="0 0 24 24">
+                  <path fill="#4285F4" d="M12 24C12 17.37 6.63 12 0 12C6.63 12 12 6.63 12 0C12 6.63 17.37 12 24 12C17.37 12 12 17.37 12 24Z"/>
+                </svg>
+              </div>
+              <div>
+                <div class="font-medium text-gray-700">Gemini</div>
+                <div class="text-[10.5px] text-gray-400">Google Gemini Webview</div>
+              </div>
+            </div>
+            <svg id="gemini-check" class="w-3.5 h-3.5 text-blue-600 hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+          </button>
+
+          <!-- Option: ChatGPT -->
+          <button type="button" onclick="selectModel('chatgpt')" 
+            class="w-full flex items-center justify-between px-3 py-2 text-xs text-left hover:bg-gray-50 transition-colors">
+            <div class="flex items-center gap-2.5">
+              <div class="w-5 h-5 rounded-md flex items-center justify-center text-emerald-600">
+                <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1683a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4947z"/>
+                </svg>
+              </div>
+              <div>
+                <div class="font-medium text-gray-700">ChatGPT</div>
+                <div class="text-[10.5px] text-gray-400">OpenAI Webview</div>
+              </div>
+            </div>
+          </button>
+
+          <!-- Option: Claude -->
+          <button type="button" onclick="selectModel('claude')" 
+            class="w-full flex items-center justify-between px-3 py-2 text-xs text-left hover:bg-gray-50 transition-colors">
+            <div class="flex items-center gap-2.5">
+              <div class="w-5 h-5 rounded-md flex items-center justify-center text-amber-600">
+                <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M17.472 4.258L12 1.096 6.528 4.258a1.5 1.5 0 00-.75 1.3v12.884a1.5 1.5 0 00.75 1.3L12 22.904l5.472-3.162a1.5 1.5 0 00.75-1.3V5.558a1.5 1.5 0 00-.75-1.3z"/>
+                </svg>
+              </div>
+              <div>
+                <div class="font-medium text-gray-700">Claude</div>
+                <div class="text-[10.5px] text-gray-400">Anthropic Webview</div>
+              </div>
+            </div>
+          </button>
+        </div>
+      </div>
+
+      <!-- Right Header Actions: 新建会话 -> 对话历史 -> 折叠侧边栏 -->
+      <div class="flex items-center gap-1 text-gray-500">
+        
+        <!-- 1. 新建会话 (New Conversation) -->
+        <button type="button" onclick="handleNewSession()"
+          class="w-7 h-7 rounded-md hover:text-gray-800 hover:bg-gray-100 flex items-center justify-center transition-colors" 
+          title="新建会话">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 5v14M5 12h14"/>
+          </svg>
+        </button>
+
+        <!-- 2. 对话历史 (Directly AFTER 新建会话, menu format) -->
+        <div class="relative">
+          <button id="history-menu-btn" type="button" onclick="toggleHistoryMenu(event)"
+            class="h-7 px-2 rounded-md hover:text-gray-800 hover:bg-gray-100 flex items-center gap-1 transition-colors text-xs font-medium" 
+            title="对话历史">
+            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"></circle>
+              <polyline points="12 6 12 12 16 14"></polyline>
+            </svg>
+            <span class="text-xs">历史</span>
+            <svg class="w-3 h-3 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </button>
+
+          <!-- Conversation History Menu Popover (Right-aligned under button) -->
+          <div id="history-dropdown-menu" 
+            class="hidden absolute right-0 top-full mt-1.5 w-64 rounded-xl border border-gray-200 py-1 shadow-xl z-50 bg-white text-gray-800">
+            <div class="px-3 py-1.5 flex items-center justify-between border-b border-gray-100">
+              <span class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">对话历史</span>
+              <button type="button" onclick="handleNewSession()" class="text-[11px] text-blue-600 hover:text-blue-700 font-medium">+ 新对话</button>
+            </div>
+            
+            <div class="max-h-64 overflow-y-auto py-1">
+              <!-- Active History Item -->
+              <div class="px-3 py-2 text-xs hover:bg-blue-50/60 cursor-pointer flex items-start gap-2 bg-blue-50/40">
+                <span class="w-1.5 h-1.5 rounded-full bg-blue-600 mt-1.5 shrink-0"></span>
+                <div class="min-w-0 flex-1">
+                  <div class="font-medium text-gray-900 truncate">TOC 组件悬停胶囊原位变形</div>
+                  <div class="text-[10px] text-gray-400 mt-0.5">今天 22:31 · 3 步操作</div>
+                </div>
+              </div>
+
+              <!-- History Item 2 -->
+              <div class="px-3 py-2 text-xs hover:bg-gray-50 cursor-pointer flex items-start gap-2">
+                <span class="w-1.5 h-1.5 rounded-full bg-transparent mt-1.5 shrink-0"></span>
+                <div class="min-w-0 flex-1">
+                  <div class="text-gray-700 truncate">WorkbenchAiSidebar 接入本地 Agent 原型设计</div>
+                  <div class="text-[10px] text-gray-400 mt-0.5">今天 20:15 · 1 步操作</div>
+                </div>
+              </div>
+
+              <!-- History Item 3 -->
+              <div class="px-3 py-2 text-xs hover:bg-gray-50 cursor-pointer flex items-start gap-2">
+                <span class="w-1.5 h-1.5 rounded-full bg-transparent mt-1.5 shrink-0"></span>
+                <div class="min-w-0 flex-1">
+                  <div class="text-gray-700 truncate">修复工作台多文档 source 标注对账异常</div>
+                  <div class="text-[10px] text-gray-400 mt-0.5">昨天 16:40 · 6 步操作</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3. 折叠侧边栏 (Collapse Panel) -->
+        <button type="button" class="w-7 h-7 rounded-md hover:text-gray-800 hover:bg-gray-100 flex items-center justify-center transition-colors ml-0.5" title="折叠侧边栏">
+          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+            <line x1="15" y1="3" x2="15" y2="21"/>
+            <path d="M10 9l3 3-3 3"/>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- 2. Agent Operation View (Pure Native Light Mode) -->
+    <div id="agent-view" class="flex-1 flex flex-col min-h-0 relative bg-white">
+      
+      <!-- Conversation Message Stream: Natural, Unboxed (Matching Image 3 in Light Theme) -->
+      <main class="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+        
+        <!-- User Input Bubble (Project Primary Theme #3b82f6) -->
+        <div class="flex justify-end">
+          <div class="max-w-[88%] bg-[#3b82f6] text-white text-[13.5px] leading-relaxed px-3.5 py-2.5 rounded-2xl rounded-tr-sm shadow-sm select-text">
+            TOC 的组件跟原来的不太一样。原来的交互效果是 hover 到横线的时候，横线直接变成胶囊，而不是在横线外边再加上一个胶囊；你看一下旧代码是怎样写的，你直接抄过来不就行了
+          </div>
+        </div>
+
+        <!-- Agent Output: Directly rendered on background canvas, NO ENCLOSING CARD CONTAINER -->
+        <div class="space-y-3 pt-1 select-text">
+          
+          <!-- Thinking & Meta Bar (Image 3: 用时 4分钟 17秒 ⌵) -->
+          <div class="flex items-center gap-1.5 text-xs text-gray-400 select-none cursor-pointer hover:text-gray-600 w-fit group" onclick="toggleThinking()">
+            <span class="font-normal">用时 4分钟 17秒</span>
+            <svg id="thinking-chevron" class="w-3.5 h-3.5 transition-transform duration-200 group-hover:translate-y-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </div>
+
+          <!-- Collapsible Thinking Details -->
+          <div id="thinking-content" class="hidden pl-2.5 border-l-2 border-gray-200 py-1 text-xs text-gray-500 space-y-1.5 leading-relaxed font-mono-code bg-gray-50/60 rounded-r-lg">
+            <div>• 分析目标需求：回退 WorkbenchTocRail 悬停形态为早期原位变形胶囊</div>
+            <div>• 目标组件：<span class="text-gray-700">src/renderer/src/components/workbench/WorkbenchTocRail.tsx</span></div>
+            <div>• Git Commit 比较：<span class="text-blue-600">a86721d</span> vs <span class="text-blue-600">3e931a0</span></div>
+          </div>
+
+          <!-- Direct Natural Reasoning Stream -->
+          <p class="text-[13.5px] leading-relaxed text-gray-800">
+            让我对比一下旧版的交互效果。先查 git 看上一版 <code class="px-1.5 py-0.5 rounded bg-gray-100 text-gray-700 font-mono-code text-xs border border-gray-200/50">WorkbenchMinimalToc</code> 的实际行为：
+          </p>
+
+          <!-- Tool Call 1: Command Executed (Image 3: 运行了命令) -->
+          <div class="flex items-center gap-2 text-xs text-gray-500 font-mono-code py-0.5">
+            <svg class="w-3.5 h-3.5 text-gray-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="2" y="4" width="20" height="16" rx="2"/>
+              <path d="M7 15h10M7 9l3 3-3 3"/>
+            </svg>
+            <span>运行了命令</span>
+          </div>
+
+          <!-- Intermediary Reasoning Text -->
+          <p class="text-[13.5px] leading-relaxed text-gray-800">
+            看旧代码——旧版悬停逻辑是 <code class="px-1.5 py-0.5 rounded bg-gray-100 text-gray-700 font-mono-code text-xs border border-gray-200/50">title={h.title}</code> + 一个 portal 药丸在右侧显示。其实跟我现在写的一样。用户说“横线直接变成胶囊”——可能记错了，或者他指的是更早的版本（hover 直接变形而不是新增 portal）。让我看最早的 commit <code class="px-1.5 py-0.5 rounded bg-gray-100 text-gray-700 font-mono-code text-xs border border-gray-200/50">a86721d</code> 是怎么实现的：
+          </p>
+
+          <!-- Tool Call 2: Git Command (Image 3: 已运行 git show a86721d:src/... | Select-Object -...) -->
+          <div class="space-y-1.5">
+            <div class="flex items-center gap-2 text-xs text-gray-600 font-mono-code py-0.5 cursor-pointer hover:text-gray-900 group" onclick="toggleCommandOutput()">
+              <svg class="w-3.5 h-3.5 text-gray-400 group-hover:text-gray-600 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="2" y="4" width="20" height="16" rx="2"/>
+                <path d="M7 15h10M7 9l3 3-3 3"/>
+              </svg>
+              <span class="truncate">已运行 git show a86721d:src/renderer/src/components/workbench/WorkbenchMinimalToc.tsx | Select-Object -...</span>
+              <svg id="cmd-chevron" class="w-3 h-3 text-gray-400 shrink-0 ml-auto transition-transform" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </div>
+
+            <!-- Command Output Drawer -->
+            <div id="command-output" class="hidden rounded-lg bg-gray-50 border border-gray-200 p-2.5 font-mono-code text-xs text-gray-700 overflow-x-auto space-y-1">
+              <div class="text-gray-400">// git show a86721d (diff snippet)</div>
+              <div class="text-emerald-700">+ {!isHovered ? ( &lt;span className="w-4 h-0.5 bg-gray-400 rounded" /&gt; ) : (</div>
+              <div class="text-emerald-700">+   &lt;div className="px-2 py-0.5 rounded-full bg-gray-200 text-gray-800"&gt;{title}&lt;/div&gt;</div>
+              <div class="text-emerald-700">+ )}</div>
+            </div>
+          </div>
+
+          <!-- Reasoning Explanation Text -->
+          <p class="text-[13.5px] leading-relaxed text-gray-800">
+            找到了。最早版本 <code class="px-1.5 py-0.5 rounded bg-gray-100 text-gray-700 font-mono-code text-xs border border-gray-200/50">a86721d</code> 才是用户记得的效果——hover 时横线本身展开成胶囊（<code class="px-1.5 py-0.5 rounded bg-gray-100 text-gray-700 font-mono-code text-xs border border-gray-200/50">{!isHovered && &lt;span&gt;line&lt;/span&gt;} + 相邻 title max-w-0 -&gt; max-w-[260px]</code>），不是 portal 在外面再盖一个。
+          </p>
+          <p class="text-[13.5px] leading-relaxed text-gray-800">
+            后来 <code class="px-1.5 py-0.5 rounded bg-gray-100 text-gray-700 font-mono-code text-xs border border-gray-200/50">3e931a0</code> 改成了 portal 版本（为了“固定贴编辑区左缘”时 pill 不被 transform 裁切）。但用户的记忆/期望是更早那个原位变形效果。
+          </p>
+          <p class="text-[13.5px] leading-relaxed text-gray-800">
+            我把 Rail 改回 <code class="px-1.5 py-0.5 rounded bg-gray-100 text-gray-700 font-mono-code text-xs border border-gray-200/50">a86721d</code> 那套原位变形——`WorkbenchTocRail.tsx` 的 item JSX 换成旧版的：
+          </p>
+
+          <!-- Tool Call 3: Edit File & Ran Command (Image 3: 编辑了文件运行了命令) -->
+          <div class="space-y-1.5">
+            <div class="flex items-center gap-2 text-xs text-gray-500 font-mono-code py-0.5 cursor-pointer hover:text-gray-800 group" onclick="toggleDiffOutput()">
+              <svg class="w-3.5 h-3.5 text-gray-400 group-hover:text-gray-600 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 20h9"/>
+                <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+              </svg>
+              <span>编辑了文件运行了命令</span>
+              <span class="text-[10px] px-1.5 py-0.2 rounded bg-gray-100 text-gray-600 border border-gray-200 ml-1">WorkbenchTocRail.tsx</span>
+              <svg id="diff-chevron" class="w-3 h-3 text-gray-400 shrink-0 ml-auto transition-transform" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </div>
+
+            <!-- Diff Output Drawer -->
+            <div id="diff-output" class="hidden rounded-lg bg-gray-50 border border-gray-200 p-2.5 font-mono-code text-xs overflow-x-auto space-y-1">
+              <div class="text-gray-400">// src/renderer/src/components/workbench/WorkbenchTocRail.tsx</div>
+              <div class="text-rose-600">- &lt;WorkbenchTocPortal item={h} isHovered={hoveredId === h.id} /&gt;</div>
+              <div class="text-emerald-700">+ &lt;div className="relative flex items-center transition-all duration-150"&gt;</div>
+              <div class="text-emerald-700">+   {!isHovered ? &lt;span className="h-0.5 w-3 bg-gray-400 rounded-full" /&gt; : &lt;TocInlinePill title={h.title} /&gt;}</div>
+              <div class="text-emerald-700">+ &lt;/div&gt;</div>
+            </div>
+          </div>
+
+        </div>
+
+      </main>
+
+      <!-- 3. Bottom Input Box: Strictly Matching Image 2 Layout in Native Light Mode -->
+      <footer class="p-3 pt-0 shrink-0 bg-white">
+        
+        <!-- Light Capsule Container -->
+        <div class="w-full rounded-[20px] border border-gray-200 bg-gray-50/90 focus-within:bg-white focus-within:border-blue-500/70 focus-within:ring-2 focus-within:ring-blue-500/10 transition-all duration-150 flex flex-col justify-between shadow-sm">
+          
+          <!-- Text Input Area -->
+          <div class="px-4 pt-3 pb-1">
+            <textarea id="prompt-input" rows="2" 
+              placeholder="和 本地 Agent 一起工作"
+              class="w-full bg-transparent resize-none border-none outline-none text-[13.5px] leading-relaxed placeholder:text-gray-400 text-gray-800 font-normal"></textarea>
+          </div>
+
+          <!-- Bottom Tool Bar Inside Capsule -->
+          <div class="px-3 pb-2.5 pt-0.5 flex items-center justify-between text-xs select-none">
+            
+            <!-- Left: Two Separate UI Components (1. File Add + 2. Permission Selector) -->
+            <div class="flex items-center gap-1.5">
+              
+              <!-- Component 1: Add File / Attachment Button (+) -->
+              <div class="relative">
+                <input id="hidden-file-input" type="file" multiple class="hidden" onchange="handleFileSelect(event)">
+                <button type="button" onclick="document.getElementById('hidden-file-input').click()" 
+                  class="w-6 h-6 rounded-md hover:bg-gray-200/70 text-gray-500 hover:text-gray-800 flex items-center justify-center transition-colors"
+                  title="添加文件 / 附件">
+                  <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                    <line x1="12" y1="5" x2="12" y2="19"></line>
+                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                  </svg>
+                </button>
+              </div>
+
+              <!-- Component 2: Permission Mode Selector (完全访问 in Orange) -->
+              <div class="relative">
+                <button id="access-btn" type="button" onclick="toggleAccessMenu(event)" 
+                  class="flex items-center gap-1 font-medium text-[#ea580c] hover:text-[#c2410c] transition-colors py-0.5 px-1.5 rounded hover:bg-orange-50"
+                  title="权限模式设置">
+                  <span id="access-label">完全访问</span>
+                  <svg class="w-3 h-3 text-[#ea580c]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="6 9 12 15 18 9"></polyline>
+                  </svg>
+                </button>
+
+                <!-- Access Level Popover Menu -->
+                <div id="access-menu" class="hidden absolute left-0 bottom-full mb-2 w-44 rounded-xl border border-gray-200 py-1 shadow-xl z-50 bg-white text-gray-800">
+                  <button type="button" onclick="setAccess('完全访问')" class="w-full text-left px-3 py-1.5 hover:bg-gray-50 flex items-center justify-between text-xs">
+                    <span class="text-[#ea580c] font-medium">完全访问 (自动运行)</span>
+                    <span class="text-gray-400 text-[10px]">当前</span>
+                  </button>
+                  <button type="button" onclick="setAccess('受限模式')" class="w-full text-left px-3 py-1.5 hover:bg-gray-50 flex items-center justify-between text-xs">
+                    <span class="text-gray-700">受限模式 (需确认)</span>
+                  </button>
+                  <button type="button" onclick="setAccess('只读模式')" class="w-full text-left px-3 py-1.5 hover:bg-gray-50 flex items-center justify-between text-xs">
+                    <span class="text-gray-700">只读模式 (仅查询)</span>
+                  </button>
+                </div>
+              </div>
+
+            </div>
+
+            <!-- Right: Subagent Indicator + Round Blue Action Button (No Voice) -->
+            <div class="flex items-center gap-2.5">
+              
+              <!-- Subagent / Model Status Indicator (SWE-2 · Devin Max) -->
+              <div class="flex items-center gap-1.5 text-gray-600 text-[11.5px] px-1.5 py-0.5 rounded hover:bg-gray-200/60 cursor-pointer">
+                <svg id="status-spinner" class="w-3 h-3 text-gray-500 rotate-loader" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                  <circle cx="12" cy="12" r="10" stroke-opacity="0.25"></circle>
+                  <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor"></path>
+                </svg>
+                <span id="subagent-name" class="font-normal text-gray-800">SWE-2 · Devin</span>
+                <span class="text-[10.5px] text-gray-400 uppercase font-normal">Max</span>
+              </div>
+
+              <!-- Main Action Round Button: Solid Blue Circle with White Stop Square -->
+              <button id="primary-action-btn" type="button" onclick="toggleExecutionState()"
+                class="w-7 h-7 rounded-full bg-[#3b82f6] hover:bg-[#2563eb] text-white flex items-center justify-center transition-all shadow-sm shrink-0" 
+                title="终止运行 / 发送">
+                <!-- Running State: White Stop Square -->
+                <div id="btn-stop-icon" class="w-2.5 h-2.5 bg-white rounded-[1.5px]"></div>
+                <!-- Idle State: White Send Arrow -->
+                <svg id="btn-send-icon" class="w-3.5 h-3.5 hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                  <line x1="12" y1="19" x2="12" y2="5"></line>
+                  <polyline points="5 12 12 5 19 12"></polyline>
+                </svg>
+              </button>
+
+            </div>
+          </div>
+        </div>
+
+      </footer>
+
+    </div>
+
+    <!-- 4. Alternate View: Gemini Webview Mockup (Image 1 reference when switching back) -->
+    <div id="gemini-view" class="hidden flex-1 flex flex-col justify-between p-6 select-none bg-white text-zinc-800">
+      <div class="w-full flex justify-between items-center text-xs text-zinc-500">
+        <div class="flex items-center gap-1.5 font-medium">
+          <span>=</span>
+          <span>Gemini Neon</span>
+          <svg class="w-3 h-3 text-zinc-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+        </div>
+        <div class="flex items-center gap-2 text-zinc-400">
+          <span class="text-[11px]">下载应用</span>
+          <div class="w-5 h-5 rounded-full bg-blue-50 text-blue-500 flex items-center justify-center text-[10px] font-bold">G</div>
+        </div>
+      </div>
+
+      <div class="flex flex-col items-center gap-4 my-auto">
+        <svg class="w-12 h-12" viewBox="0 0 24 24">
+          <path fill="#4285F4" d="M12 24C12 17.37 6.63 12 0 12C6.63 12 12 6.63 12 0C12 6.63 17.37 12 24 12C17.37 12 12 17.37 12 24Z"/>
+        </svg>
+        <h3 class="text-xl font-normal text-zinc-700 tracking-tight">需要我为你做些什么？</h3>
+      </div>
+
+      <div class="w-full flex flex-col items-center gap-3">
+        <!-- Dialog / Task Switcher Pill (Image 1) -->
+        <div class="flex items-center bg-zinc-100 rounded-full p-0.5 text-xs text-zinc-600">
+          <span class="px-3 py-1 rounded-full bg-white shadow-sm font-medium text-zinc-800">对话</span>
+          <span class="px-3 py-1 text-zinc-500">任务</span>
+        </div>
+
+        <!-- Gemini Input Bar (Image 1) -->
+        <div class="w-full flex items-center justify-between border border-zinc-200 rounded-full px-4 py-2.5 bg-zinc-50 shadow-sm text-sm text-zinc-500">
+          <div class="flex items-center gap-2">
+            <span>+</span>
+            <span>问问 Gemini</span>
+          </div>
+          <svg class="w-4 h-4 text-zinc-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+          </svg>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Interactive State Engine -->
+  <script>
+    let isRunning = true;
+    let currentModel = 'agent';
+
+    // Model Picker Dropdown Toggle
+    const pickerBtn = document.getElementById('model-picker-btn');
+    const dropdownMenu = document.getElementById('model-dropdown-menu');
+    pickerBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      dropdownMenu.classList.toggle('hidden');
+      document.getElementById('history-dropdown-menu').classList.add('hidden');
+      document.getElementById('access-menu').classList.add('hidden');
+    });
+
+    // History Menu Toggle (Placed after New Session button)
+    function toggleHistoryMenu(e) {
+      e.stopPropagation();
+      const historyMenu = document.getElementById('history-dropdown-menu');
+      historyMenu.classList.toggle('hidden');
+      dropdownMenu.classList.add('hidden');
+      document.getElementById('access-menu').classList.add('hidden');
+    }
+
+    // New Session Action
+    function handleNewSession() {
+      document.getElementById('history-dropdown-menu').classList.add('hidden');
+      document.getElementById('prompt-input').value = '';
+      document.getElementById('prompt-input').focus();
+    }
+
+    // Toggle Access Popover
+    function toggleAccessMenu(e) {
+      e.stopPropagation();
+      const menu = document.getElementById('access-menu');
+      menu.classList.toggle('hidden');
+      dropdownMenu.classList.add('hidden');
+      document.getElementById('history-dropdown-menu').classList.add('hidden');
+    }
+
+    function setAccess(level) {
+      document.getElementById('access-label').innerText = level;
+      document.getElementById('access-menu').classList.add('hidden');
+    }
+
+    // Global Click Closes Dropdowns
+    document.addEventListener('click', () => {
+      dropdownMenu.classList.add('hidden');
+      document.getElementById('history-dropdown-menu').classList.add('hidden');
+      document.getElementById('access-menu').classList.add('hidden');
+    });
+
+    // Switch Model
+    function selectModel(model) {
+      currentModel = model;
+      dropdownMenu.classList.add('hidden');
+      
+      const nameEl = document.getElementById('current-model-name');
+      const iconEl = document.getElementById('current-model-icon');
+      const agentCheck = document.getElementById('agent-check');
+      const geminiCheck = document.getElementById('gemini-check');
+      const agentView = document.getElementById('agent-view');
+      const geminiView = document.getElementById('gemini-view');
+
+      if (model === 'agent') {
+        nameEl.innerText = '本地 Agent';
+        agentCheck.classList.remove('hidden');
+        geminiCheck.classList.add('hidden');
+        agentView.classList.remove('hidden');
+        geminiView.classList.add('hidden');
+        iconEl.innerHTML = `
+          <svg class="w-4 h-4 text-blue-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456z" />
+          </svg>`;
+      } else if (model === 'gemini') {
+        nameEl.innerText = 'Gemini';
+        agentCheck.classList.add('hidden');
+        geminiCheck.classList.remove('hidden');
+        agentView.classList.add('hidden');
+        geminiView.classList.remove('hidden');
+        iconEl.innerHTML = `
+          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24">
+            <path fill="#4285F4" d="M12 24C12 17.37 6.63 12 0 12C6.63 12 12 6.63 12 0C12 6.63 17.37 12 24 12C17.37 12 12 17.37 12 24Z"/>
+          </svg>`;
+      }
+    }
+
+    // Toggle Thinking Section
+    function toggleThinking() {
+      const content = document.getElementById('thinking-content');
+      const chevron = document.getElementById('thinking-chevron');
+      const isHidden = content.classList.contains('hidden');
+      if (isHidden) {
+        content.classList.remove('hidden');
+        chevron.style.transform = 'rotate(180deg)';
+      } else {
+        content.classList.add('hidden');
+        chevron.style.transform = 'rotate(0deg)';
+      }
+    }
+
+    // Toggle Command Output Drawer
+    function toggleCommandOutput() {
+      const output = document.getElementById('command-output');
+      const chevron = document.getElementById('cmd-chevron');
+      const isHidden = output.classList.contains('hidden');
+      if (isHidden) {
+        output.classList.remove('hidden');
+        chevron.style.transform = 'rotate(180deg)';
+      } else {
+        output.classList.add('hidden');
+        chevron.style.transform = 'rotate(0deg)';
+      }
+    }
+
+    // Toggle Diff Output Drawer
+    function toggleDiffOutput() {
+      const diff = document.getElementById('diff-output');
+      const chevron = document.getElementById('diff-chevron');
+      const isHidden = diff.classList.contains('hidden');
+      if (isHidden) {
+        diff.classList.remove('hidden');
+        chevron.style.transform = 'rotate(180deg)';
+      } else {
+        diff.classList.add('hidden');
+        chevron.style.transform = 'rotate(0deg)';
+      }
+    }
+
+    // File Input Handle (Demo)
+    function handleFileSelect(e) {
+      const files = Array.from(e.target.files);
+      if (files.length > 0) {
+        const input = document.getElementById('prompt-input');
+        input.value = `请帮我分析选中的文件: ${files.map(f => f.name).join(', ')}`;
+        input.focus();
+      }
+    }
+
+    // Toggle Running / Idle State (Button Icon + Spinner)
+    function toggleExecutionState() {
+      isRunning = !isRunning;
+      const stopIcon = document.getElementById('btn-stop-icon');
+      const sendIcon = document.getElementById('btn-send-icon');
+      const spinner = document.getElementById('status-spinner');
+      const btn = document.getElementById('primary-action-btn');
+
+      if (isRunning) {
+        stopIcon.classList.remove('hidden');
+        sendIcon.classList.add('hidden');
+        spinner.classList.add('rotate-loader');
+        spinner.style.opacity = '1';
+        btn.classList.add('bg-[#3b82f6]');
+        btn.classList.remove('bg-gray-400');
+      } else {
+        stopIcon.classList.add('hidden');
+        sendIcon.classList.remove('hidden');
+        spinner.classList.remove('rotate-loader');
+        spinner.style.opacity = '0.3';
+        btn.classList.remove('bg-[#3b82f6]');
+        btn.classList.add('bg-gray-400');
+      }
+    }
+  </script>
+</body>
+</html>

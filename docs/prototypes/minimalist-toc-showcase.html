@@ -151,18 +151,22 @@
       white-space: nowrap;
     }
 
-    /* 悬停激活态：横线直接展开为标题卡片（轻盈通透阴影，杜绝灰黑脏污感） */
+    /* 悬停激活态：横线直接展开为标题卡片（轻盈通透柔和阴影，杜绝灰黑脏污生硬感） */
     .toc-morph-slot.is-hovered .morph-pill {
       padding: 4px 12px 4px 10px;
-      background: rgba(255, 255, 255, 0.98);
-      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.04);
-      border: 1px solid rgba(226, 232, 240, 0.85);
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+      box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.05), 0 1px 4px rgba(0, 0, 0, 0.02);
+      border: 1px solid rgba(0, 0, 0, 0.06);
       transform: scale(1.02);
     }
     .dark .toc-morph-slot.is-hovered .morph-pill {
-      background: rgba(30, 41, 59, 0.94);
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-      border: 1px solid rgba(71, 85, 105, 0.6);
+      background: rgba(30, 41, 59, 0.95);
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+      box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.4), 0 2px 6px -1px rgba(0, 0, 0, 0.2);
+      border: 1px solid rgba(255, 255, 255, 0.1);
     }
 
     .toc-morph-slot.is-hovered .morph-title-content {
