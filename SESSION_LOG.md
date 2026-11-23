@@ -2,6 +2,308 @@
 
 ## 2026-11-23
 
+### 21:49 | Codex
+
+- done: 提交今日工作台迭代：标注锚点生命周期A/B、docx内嵌预览、KaTeX公式、文件树删除优化、图片背景持久化、工作区设置改版、frontmatter备份与旧笔记迁移修复、HTML预览图片右键
+- decision: 共用基础设施文件(ipc/preload/store/service)集中入第一个 feat commit，后续按功能分 commit；中间态编译不可得的文件不强行 hunk 拆分
+- added:
+  - `src/main/services/frontmatterBackupService.ts;src/renderer/src/components/workbench/WorkbenchDocxPreview.tsx;src/renderer/src/components/workbench/WorkbenchEquationNode.tsx;docs/design/workspace-settings-redesign.html`
+- modified:
+  - `src/main/ipcHandlers.ts;src/preload/index.ts;src/renderer/src/store/workbenchStore.ts;src/main/services/workbenchService.ts 等 36 文件`
+
+### 21:48 | Codex
+
+- done: docx/HTML 预览图片右键新增'复制图片'：blob/data/http 走渲染层 ClipboardItem（非 PNG/JPEG 先 canvas 转码），workbench-file:// 走主进程 copyImageAt 保留原编码；此前只有'另存为'
+- modified:
+  - `src/renderer/src/components/CustomContextMenu.tsx`
+- lesson: Electron 渲染层复制图片剪贴板只有 ClipboardItem 一条路且只支持 PNG/JPEG，blob: URL 主进程 fetch 不到；workbench-file:// 图片复制优先用 webContents.copyImageAt 保留原图编码，DOM img 中心点坐标即 CSS 像素
+
+### 21:40 | Codex
+
+- done: docx 预览新增 Word 口径字数统计：右下角字数 chip 显示总字数（选中时显示 已选/总数），点击展开详情（字数/字符数不计空格/计空格/段落数/中文字符/英文单词），CJK 逐字+西文按词计数
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchDocxPreview.tsx`
+
+### 21:33 | Codex
+
+- done: docx 预览增加缩放能力：工具栏缩放控件 + Ctrl/Cmd+滚轮缩放，与 PDF 预览一致；适应宽度基础上叠加手动缩放比例（0.5x-3x，步进0.1）
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchDocxPreview.tsx`
+
+### 21:20 | Codex
+
+- done: HTML 渲染预览 iframe 内嵌图片支持右键菜单：复制图片 + 图片另存为；workbench-file:// 协议 srcURL 经白名单解析后落盘
+- modified:
+  - `src/shared/types/contextMenu.ts`
+  - `src/main/webviewManager.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/src/components/CustomContextMenu.tsx`
+- lesson: workbench-file:// iframe 的右键由主进程 context-menu 捕获（params.frameURL 判定）转发给宿主自绘菜单；图片场景 params.mediaType==='image' 携带 srcURL/x/y，复制图靠 webContents.copyImageAt(x,y)，另存为走既有 save-image-from-url 但需加 workbench-file 分支 resolveWorkbenchFileRequest 拿真实路径再 copyFile
+
+### 21:11 | Codex
+
+- done: 新增迁移前 frontmatter 备份的查看与清理入口：跨已知工作区统计、只删正文仍存在的备份、清理后移除空目录；备份写入改为不覆盖已有备份；frontmatter-backup 纳入应用生成物忽略规则
+- added:
+  - `src/main/services/frontmatterBackupService.ts`
+- modified:
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/shared/types/workbench.ts`
+  - `src/renderer/src/components/workbench/WorkbenchWorkspaceSettings.tsx`
+  - `src/main/services/conversationFrontmatterRepair.ts`
+  - `src/main/services/workbenchService.ts`
+  - `src/main/services/gitignoreService.ts`
+- lesson: 备份清理必须只删原文档仍存在的条目，原文档消失后备份是唯一副本；跨工作区统计要复用默认库+最近工作区+当前工作区并集，只看当前工作区会经常为 0
+
+### 21:10 | Codex
+
+- done: 图片预览背景主题改为全局持久化偏好，切换图片/重启保持一致
+- modified:
+  - `src/renderer/src/store/workbenchStore.ts`
+  - `src/renderer/src/components/workbench/WorkbenchImagePreview.tsx`
+
+### 21:04 | Codex
+
+- done: Workbench Markdown 预览支持 LaTeX 公式渲染
+- context: Lexical Workbench 编辑器此前无公式节点；新增 KaTeX 渲染的行内/块级公式 DecoratorNode 与 markdown transformer
+- added:
+  - `src/renderer/src/components/workbench/WorkbenchEquationNode.tsx`
+- modified:
+  - `src/renderer/src/components/workbench/MarkdownSyncPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+  - `package.json`
+- lesson: @lexical/markdown 0.53 无内置 EQUATION transformer，需自行用 MultilineElementTransformer(...)+TextMatchTransformer($...$)实现；katex.render 的 CSS 需 import 'katex/dist/katex.min.css' 才会带字体
+
+### 20:58 | Codex
+
+- done: 修复旧笔记迁移入口在无可迁移资产时仍显示 1 条待迁移：工作台记录正文以 Markdown 文件为准，snapshot 副本不再计为迁移资产；无资产且无任务时隐藏迁移卡片与角标
+- modified:
+  - `src/main/noteManager.ts`
+  - `src/main/services/legacyMigrationService.ts`
+  - `src/renderer/src/components/workbench/WorkbenchWorkspaceSettings.tsx`
+- lesson: 工作台记录的 snapshot 只是历史副本，迁移资产判定必须排除它，否则纯副本记录会永久停留在待迁移
+
+### 20:45 | Codex
+
+- done: 补齐标注创建的显式失败提示，避免再次静默无反应
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchAnnotationPlugin.tsx`
+
+### 20:45 | Codex
+
+- done: 修复忽略规则分类胶囊缺少部分选中态：按命中规则数区分全选/部分/未选，部分选中时点击补齐整组
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchWorkspaceSettings.tsx`
+- lesson: 分类勾选的三态要用命中数判定（0=未选，全部=全选，其余=部分），只判断 some() 会把部分命中误显示成全选
+
+### 20:43 | Codex
+
+- done: 修复放弃旧笔记迁移后仍残留阻塞记录与进度：放弃时等在途记录收尾后清理阻塞标记、不再广播迟到进度事件；历史 abandoned 任务打开时自动收敛残留标记；一次性临时工作区已删除的记录改为把快照落到默认会话库
+- modified:
+  - `src/main/services/legacyMigrationService.ts`
+  - `src/renderer/src/components/workbench/WorkbenchWorkspaceSettings.tsx`
+- lesson: 放弃迁移必须等在途单条迁移落盘后再清阻塞标记，且放弃路径不能再 emit 进度事件，否则迟到事件会把进度条和阻塞计数刷回来
+
+### 20:42 | Codex
+
+- done: 修复点击标注无反应与新建草稿被对账覆盖的回归
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchAnnotationPlugin.tsx`
+- lesson(promoted): Lexical 选区端点偏移是段落内偏移，构建全文锚点前必须先映射到 block.start；仅首个 block 恰好相等会掩盖这个错误。
+- lesson(promoted): 新建标注草稿在落盘前必须用同步 ref 保护，避免失焦触发的异步对账把草稿从 store 覆盖掉。
+
+### 20:09 | Codex
+
+- done: 修复旧笔记迁移放弃后阻塞记录仍显示的问题：abandon 时清除所有记录的 migrationBlocked 标记，让旧笔记回到待迁移状态
+- modified:
+  - `src/main/services/legacyMigrationService.ts`
+  - `src/renderer/src/components/workbench/WorkbenchWorkspaceSettings.tsx`
+
+### 20:06 | Codex
+
+- done: 修复旧笔记迁移进度条在放弃后仍显示的问题
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchWorkspaceSettings.tsx`
+
+### 19:55 | Codex
+
+- done: 补完注释阶段 A/B 验收收尾：评论保存失败保留卡片可重试、展开态未解决面板避让已定位卡片、600ms 本地解析回灌投影让撤销后高亮重现；完成 HTML 未定位落盘、关窗 flush、阶段 B 模糊匹配与独立 worker 复核
+- context: 用户要求按 docs/workbench-annotation-anchor-lifecycle-design.md 实施阶段 A 与 B；独立 worker 结论为可直接交付，无 P0/P1 阻断项
+- decision: 编辑停止后的本地解析可以回灌 quote/anchor 到本地标注列表以触发重投影，但仍不写盘；source 锚点不回灌
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchAnnotationPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchMarginNotes.tsx`
+  - `src/main/services/annotationService.ts`
+  - `docs/workbench-annotation-anchor-lifecycle-design.md`
+- lesson(promoted): 撤销恢复文字但未恢复 MarkNode 时，高亮不会自动重现；编辑停止后的本地解析必须把新 quote/anchor 回灌到标注列表触发重投影，仅更新解析状态不够
+- lesson(promoted): 旁注栏的未解决面板若绝对定位在顶部，必须把自身高度计入已定位卡片的最小 top，否则第一条卡片会被盖住
+
+### 19:35 | Antigravity
+
+- done: 优化默认会话库状态呈现：正常隐藏可写文案，仅在异常或只读时告警
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchWorkspaceSettings.tsx`
+
+### 19:28 | Antigravity
+
+- done: 优化工作区设置UI并对齐侧栏底部原生FooterPopover规范，移除标题多余目录副标题，锁定Tab切换固定容器高度
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchWorkspaceSettings.tsx`
+
+### 19:16 | Antigravity
+
+- done: 对齐工作区设置真实渲染与原型：支持minWidth(400px)与固定高度(530px)避免切Tab高度跳动，优化预设激活判定(some匹配)、精简文案及SVG微图标
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchWorkspaceSettings.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFooterPopover.tsx`
+
+### 18:48 | Codex
+
+- done: 实现工作台注释锚点生命周期阶段 A 与阶段 B：MarkNode 优先、未定位持久化与可见分组、source/document 分离、HTML 未定位入口与重新定位、关闭窗口到托盘前 flush 握手、有限模糊匹配；补齐保存失败可重试与窄屏未解决入口
+- context: 按 docs/workbench-annotation-anchor-lifecycle-design.md 实施，未切分支未提交
+- decision: 不按时间 TTL 自动删除注释，未定位记录保留可见并提供手动清理；模糊匹配成功统一返回 shifted，短引文只做精确匹配
+- modified:
+  - `src/main/ipcHandlers.ts`
+  - `src/main/services/annotationService.ts`
+  - `src/main/webviewManager.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/src/App.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchAnnotationPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchHtmlAnnotationPreview.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchMarginNotes.tsx`
+  - `src/renderer/src/components/workbench/workbenchAnnotationUtils.ts`
+  - `src/renderer/src/store/annotationStore.ts`
+  - `src/renderer/src/store/workbenchStore.ts`
+  - `src/shared/types/annotations.ts`
+  - `src/shared/types/workbench.ts`
+  - `src/shared/utils/annotationAnchors.ts`
+  - `docs/workbench-annotation-anchor-lifecycle-design.md`
+  - `docs/workbench-unified-notes-annotation-design.md`
+  - `docs/DOCS_INDEX.md`
+- lesson(promoted): 新建注释打开评论框会触发编辑器失焦对账；对账若用磁盘结果回写 store 会冲掉尚未落盘的新建草稿，必须在 create 模式跳过 store 回写但仍保存正文
+- lesson(promoted): Lexical 选区端点可能是 ElementNode 而非 TextNode，整段选中或行首行尾必须同时处理两种端点，否则重新定位读不到选区
+- lesson(promoted): source 投影也要参与本地解析，否则删除投影目标后它既不显示也不进入未解决分组；但 source 结果不能写回磁盘锚点
+
+### 18:37 | Antigravity
+
+- done: 实现工作区设置UI极简重构：采用代码与忽略/存储与维护双标签分流，预设升级为紧凑交互胶囊，.gitignore编辑区直接展示不设折叠，去除所有冗余小绿点与假定Git标签，统一全局保存与脏检查
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchWorkspaceSettings.tsx`
+
+### 18:09 | Codex
+
+- done: 工作台引入 Word(.docx) 内嵌预览：新增 workbench:read-docx-bytes 二进制 IPC 与 WorkbenchDocxPreview，支持划词气泡/右键发送到 AI、链接安全处理、Blob URL 回收
+- context: 仅做 Word，表格与 PPT 不做
+- decision: 未采用方案中的 base64 dataUrl，改为 IPC 直接传 Uint8Array 并延迟 import docx-preview；实测 10MB 文档 base64 链路在主进程+渲染层各多占约 1.4x 与 2.3x 常驻内存
+- added:
+  - `src/renderer/src/components/workbench/WorkbenchDocxPreview.tsx`
+- modified:
+  - `src/shared/types/workbench.ts`
+  - `src/main/services/workbenchService.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
+  - `package.json`
+  - `package-lock.json`
+- lesson(promoted): docx-preview 的 ignoreWidth 会把页面压成窄条并写死正文宽度，应保留页宽再按容器 zoom 缩放；altChunk 会注入未沙箱 iframe，必须关闭；内嵌图走 blob URL，卸载需 revoke
+
+### 18:03 | Antigravity
+
+- done: 优化工作区设置UI并交付高保真交互HTML原型：去除多余绿点与Git标签，.gitignore编辑区直接展示不设折叠
+- added:
+  - `docs/design/workspace-settings-redesign.html`
+
+### 18:01 | Codex
+
+- done: 优化工作台批量删除卡顿：readTree 改限流并发+按需 realpath，批量删除统一一次 IPC 并乐观移除、确认即关弹窗
+- modified:
+  - `src/main/services/workbenchService.ts`
+  - `src/renderer/src/store/workbenchStore.ts`
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+- lesson: 工作台 readTree 逐条 assertSafePath 会对每个条目做两次 realpath，万级文件工作区单次扫描 6.9s；改为根路径缓存+仅 symlink 校验+24 路限流并发后 1.2s。批量删除必须先乐观移除再后台落盘，逐项调用单删接口会放大成 N 次整树重扫
+
+### 17:49 | Codex
+
+- done: 实现工作台注释锚点生命周期阶段A和阶段B：状态持久化、MarkNode优先、精确与有限模糊解析、IPC拆分、未解决UI、HTML未定位闭环和关闭flush握手
+- context: 按已批准的docs/workbench-annotation-anchor-lifecycle-design.md实施A和B两阶段
+- added:
+  - `docs/workbench-annotation-anchor-lifecycle-design.md`
+- modified:
+  - `src/shared/types/annotations.ts`
+  - `src/shared/utils/annotationAnchors.ts`
+  - `src/main/services/annotationService.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/main/webviewManager.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/src/store/annotationStore.ts`
+  - `src/renderer/src/store/workbenchStore.ts`
+  - `src/renderer/src/components/workbench/WorkbenchAnnotationPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchMarginNotes.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchHtmlAnnotationPreview.tsx`
+  - `src/renderer/src/App.tsx`
+- lesson: 注释对账必须拆分create/update-comment/reanchor语义，并用anchorRevision保护并发；投影更新统一带HISTORIC_TAG避免进入撤销栈
+- unresolved: npm run dev桌面端全场景人工验收未执行
+
+### 17:46 | Codex
+
+- done: 实现工作台注释锚点生命周期阶段A和阶段B：状态持久化、MarkNode优先、精确与有限模糊解析、IPC拆分、未解决UI、HTML未定位闭环和关闭flush握手
+- context: 按已批准的docs/workbench-annotation-anchor-lifecycle-design.md实施A和B两阶段
+- added:
+  - `docs/workbench-annotation-anchor-lifecycle-design.md`
+- modified:
+  - `src/shared/types/annotations.ts`
+  - `src/shared/utils/annotationAnchors.ts`
+  - `src/main/services/annotationService.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/main/webviewManager.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/src/store/annotationStore.ts`
+  - `src/renderer/src/store/workbenchStore.ts`
+  - `src/renderer/src/components/workbench/WorkbenchAnnotationPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchMarginNotes.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchHtmlAnnotationPreview.tsx`
+  - `src/renderer/src/App.tsx`
+- lesson: 注释对账必须拆分create/update-comment/reanchor语义，并用anchorRevision保护并发；投影更新统一带HISTORIC_TAG避免进入撤销栈
+- unresolved: npm run dev桌面端全场景人工验收未执行
+
+### 17:46 | Codex
+
+- done: 排查批量删除卡顿：定位到 hitsActive 走逐项 deleteNode 导致 N 次树重扫/导图对账/git 刷新
+- context: 工作台文件树批量删除 6 项（含正在预览的 PNG）卡住很久
+
+### 17:23 | root
+
+- done: 完成注释锚点文档的第二轮与最终复核修订：拆分 upsert、投影撤销栈、关闭到托盘 flush、HTML no-op、source 卡片动作和跨 block/重叠状态
+- context: 独立复核先后发现跨 block 误合并、评论 upsert 绕过修订号、投影进入撤销栈、关闭到托盘不 flush、HTML 对账循环等问题
+- decision: 保留阶段 A/B 方案；只补状态、版本保护和落盘时序，不扩大功能范围
+- modified:
+  - `docs/workbench-annotation-anchor-lifecycle-design.md`
+  - `docs/workbench-unified-notes-annotation-design.md`
+  - `docs/DOCS_INDEX.md`
+  - `.memory/KNOWLEDGE.md`
+  - `SESSION_LOG.md`
+
+### 17:06 | Codex
+
+- done: 大纲导航改为固定在编辑区左边缘，不再随居中正文左缘定位
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchMinimalToc.tsx`
+- lesson(promoted): 大纲/侧边导航的锚点按用户心智模型选择：贴编辑区左缘时用固定 left 定位，不要跟随居中正文测量。
+
+### 16:57 | root
+
+- done: 完成工作台注释锚点生命周期与未定位清理设计文档，并按独立 worker 审核意见修订
+- context: 现状为旁路 JSON 保留注释但未定位状态被 UI 隐藏；HTML 预览未消费 resolved 消息
+- decision: 采用阶段 A 未定位闭环 + 阶段 B 有限模糊匹配；不按时间自动删除注释，source 与 document 分区清理
+- added:
+  - `docs/workbench-annotation-anchor-lifecycle-design.md`
+- modified:
+  - `docs/DOCS_INDEX.md`
+  - `docs/workbench-unified-notes-annotation-design.md`
+- lesson(promoted): 锚点生命周期先保证未定位可见与对账完整，再引入模糊匹配；不要用旧渲染结果覆盖新锚点
+
 ### 16:55 | Codex
 
 - done: 提交今日工作台迭代：HTML 可视化编辑/原位标注/导图选区/正文居中旁注/托盘退出守卫等 43 文件一个 feat 提交，知识库重组单独 docs(memory) 提交

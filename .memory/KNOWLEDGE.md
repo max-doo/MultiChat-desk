@@ -76,6 +76,18 @@ Long-term reusable lessons, durable decisions, and recurring project gotchas. Do
 
 - **HTML 渲染预览标注不要把评论塞进 iframe**：`workbench-file://` 同一路径用标注 query 提供文档、CSS 与运行时三份同源资源，运行时只建立可见文本索引、CSS Highlight、选区与点击命中，`postMessage` 只传 `id` 与 anchor；评论正文、编辑卡和持久化留在宿主 renderer，iframe 仍保持 `sandbox="allow-scripts"`。空白点击、滚动和 Esc 必须由运行时主动发 `dismiss`，否则新建评论卡会在 iframe 内交互后残留；关闭编辑卡时还要发 `focus` 空 id 清掉聚焦高亮。
 
+- **注释锚点生命周期先保证未定位可见与对账完整，再引入模糊匹配**：应用标注前先收集 MarkNode 当前范围，不能先 `unwrapAllMarks()` 再全文搜索；只合并连续片段，分离副本按“同一 id 保留第一个”剥离，段落拆分导致的多 block 片段进入 `cross-block`。MarkNode 丢失后才走精确/模糊解析。未解决记录（unlocated/ambiguous/overlap）必须持久化状态并在旁注栏单独展示，批量清理按 document/source 分区，source 只能走独立删除且不能在文档选区重锚定。对账载荷携带 `baseAnchorRevision`，主进程只写真实变化并返回 `stale/skipped`；评论编辑只 patch comment，重新定位单独校验修订号。投影更新必须带 `HISTORIC_TAG` 以免进入撤销栈；切换文件、关闭工作区和关闭到托盘都必须 `await` 注释 flush。不要用按时间自动删除代替显式清理；模糊匹配只作为最后兜底，成功状态是 `shifted` 而不伪装成 `anchored`。
+
+- **新建注释在评论保存前不能被磁盘对账回写**：打开评论卡会让编辑器失焦并触发对账，若此时用磁盘结果 `setDocumentAnnotations`，会把尚未落盘的新建草稿从 store 冲掉，之后点“保存标注”找不到记录而静默失败。create 模式要跳过 store 回写，但显式 flush（切文件、关窗、退出）仍必须先保存正文，不能连正文一起跳过。
+
+- **Lexical 选区端点可能是 ElementNode 而不是 TextNode**：整段选中、行首行尾或跨格式选择时，`selection.anchor/focus.getNode()` 常返回 ElementNode，offset 是子节点索引而不是字符偏移。只按 TextNode 匹配会读不到选区，表现为“重新定位”无效。要同时处理两种端点，统一换算成 block 内纯文本偏移。该偏移仍是段落内坐标，构建全文锚点前必须加上所属 block 的 `start`；直接和全文偏移比较会让首段以外的创建静默失败。
+
+- **source 投影要参与本地解析，但不能写回磁盘锚点**：只解析 `documentAnnotations` 会让 source 投影在目标文字被删后既不显示、也不进入未解决分组。本地 UI 状态要同时包含 document 与 source 的解析结果，写盘对账只提交 document，source 锚点始终以原文页面为准。
+
+- **编辑停止后的解析必须回灌锚点，否则撤销后高亮不重现**：撤销可能恢复正文文字但不再恢复 MarkNode，此时只更新 `resolutionById` 不会触发重新投影，高亮会一直缺失。600ms 本地解析要把新的 `quote/anchor`（以及 `unlocated -> anchored` 的状态跃迁）回灌到本地标注列表触发重绘；回灌只改内存，写盘仍走失焦、保存和显式 flush。
+
+- **旁注栏的未解决面板要计入卡片布局**：未解决面板绝对定位在旁注栏顶部、不占文档流，已定位卡片若仍从 `headerOffset` 起排就会被第一条面板盖住。用 `ResizeObserver` 量面板实际高度，把它作为卡片 `top` 的下限，并随“清理未解决”展开收起重算。
+
 ### React 状态与组件生命周期
 
 - **跨页提升共享 UI 必须迁移实例与消费回调**：把抽屉、弹窗等共享 UI 提升到 App 层时，必须同时移除原页面实例，并把原页面回调接到新的 pending 状态消费点；只替换顶部状态变量会造成按钮可以触发，但没有实际恢复逻辑。
@@ -109,6 +121,12 @@ Long-term reusable lessons, durable decisions, and recurring project gotchas. Do
 - **本地文件预览不要把完整内容塞进 renderer**：图片经 `workbench-file://` 交给 `<img>` 流式解码，避免 base64 约 4/3 的文本放大；PDF 使用受信 IPC 分段，由 `PDFDataRangeTransport` 按需取块，renderer/store 不保留完整字节或 data URL。`workbench-file://` 只服务图片和 HTML iframe，CSP 的 `connect-src` 不列入该 scheme，也不为 PDF 打开 `corsEnabled` 或跨源 fetch。PDF.js 的 `requestDataRange(begin, end)` 是 end-exclusive，本项目 `readPdfRange` IPC 是闭区间，适配层必须传 `end - 1` 并处理 `end <= begin`；开发版已验证尾段 `[262144, 467290)` 转为 IPC `[262144, 467289]`，文字层和图片预览正常。
 
 - **PDF 滚轮缩放要拦截非被动 wheel 并累加增量**：缩放状态留在 `WorkbenchPdfPreview`，`WorkbenchPdfViewer` 只通过 `onZoomStep(direction)` 上报方向，工具栏与滚轮共用同一档位和上下限。方向按 `deltaY` 语义映射：负值（向上）放大、正值（向下）缩小，与图片预览及浏览器默认一致。`Ctrl/⌘ + 滚轮` 监听必须注册在 PDF 滚动容器上且 `passive: false`，否则 `preventDefault()` 无效、会同时触发 Chromium 页面缩放；触控板一次手势会连续派发小 `deltaY`，需按方向重置并累加，超过阈值才推进一步，否则会一帧跳过多档。`deltaMode` 为行或页时要换算成像素增量。
+
+- **Word 预览走二进制 IPC，不用 base64 dataUrl**：`workbench:read-docx-bytes` 返回 `Uint8Array`，渲染层解析完即释放，不写入 store。实测 10.5MB 文档：直接传字节时渲染进程外部内存增加约 1x 文件大小；base64 链路在主进程多常驻约 1.4x（字符串），渲染层再叠加约 2.3x（字符串 + `atob` 二进制串 + `Uint8Array`）。`docx-preview` 体积约 578KB，必须 `await import()` 懒加载，否则拖慢工作台首屏。
+
+- **`docx-preview` 的 `ignoreWidth` 会破坏版式**：它会去掉 `section` 的页宽，正文被压成约 360px 窄条并保持固定宽度，仅用 CSS 拉宽 `section` 无法让段落重排。正确做法是 `ignoreWidth: false` 保留 Word 页宽，渲染后测量 `section.docx` 宽度并按容器宽度对 `.docx-wrapper` 设置 `zoom`（只缩小不放大），再用 `ResizeObserver` 跟随右栏展开重算。
+
+- **`docx-preview` 默认会引入两个风险点**：`renderAltChunks` 会把文档内嵌的原始 HTML 写入 iframe `srcdoc`，等同执行未审查内容，预览应关闭；文档超链接是普通 `<a href>`，点击会让主窗口整页导航，必须在容器上拦截并改为 `shell` 外链或容器内锚点滚动（书签渲染为 `span[id]`）。内嵌图片和字体是 `URL.createObjectURL` 生成的 blob URL，卸载或重渲染前必须遍历 `img[src^="blob:"]` 与 `<style>` 中的 blob 地址 `revokeObjectURL`。
 
 ### 笔记、快照与导图
 
@@ -172,7 +190,7 @@ Long-term reusable lessons, durable decisions, and recurring project gotchas. Do
 
 - **切换文档的闪现要同时约束浮层和侧栏列表**：旧评论卡和旧旁注卡片来自两份异步状态，只清理其中一份仍会在新文档首帧闪出。浮层要记录打开时的文档身份并在提交阶段比对；侧栏要同时校验 `workspaceRoot` 与 `relativePath` 后才渲染标注列表。
 
-- **旁注与大纲不参与正文布局流，正文始终居中**：把旁注列作为 flex 兄弟节点会在展开时挤动正文，任何“占位补回”都只是把横向位移转移到别处。正文列应固定 `mx-auto` 居中，旁注改为绝对定位，水平基准取正文文本右缘加固定间距；用 `ResizeObserver` 测量右侧实际留白，够宽才展开卡片列，不足则收成计数入口，不留占位元素。大纲同理贴在正文左缘外侧，悬停标题用 body 级 `fixed` 浮层（优先向左展开），既不被目录自身滚动裁切，也不改变正文与滚动位置。
+- **旁注不参与正文布局流，正文始终居中；大纲贴编辑区左缘**：把旁注列作为 flex 兄弟节点会在展开时挤动正文，任何“占位补回”都只是把横向位移转移到别处。正文列应固定 `mx-auto` 居中，旁注改为绝对定位，水平基准取正文文本右缘加固定间距；用 `ResizeObserver` 测量右侧实际留白，够宽才展开卡片列，不足则收成计数入口，不留占位元素。大纲导航的锚点是编辑区左缘而不是正文左缘，直接用固定 `left` 定位，悬停标题用 body 级 `fixed` 浮层向右展开，既不被目录自身滚动裁切，也不改变正文与滚动位置。
 
 ### 窗口、划词与快捷键
 
