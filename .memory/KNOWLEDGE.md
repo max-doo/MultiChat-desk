@@ -1,446 +1,389 @@
 # Knowledge
 
-Long-term reusable lessons, durable decisions, and recurring project gotchas.
-
-Do not copy ordinary session history here. Promote only stable knowledge that is likely to help future agents across sessions.
-
-先读 INDEX.md，仅加载匹配的 `###` 主题。各主题中的实现位置以当前代码为准；站点 DOM、依赖版本和桌面交互结论仍需在对应环境验证。源码核对不等于运行时验收，具体待验收事项留在 SESSION_LOG/TODO，不在这里改写任务状态。
+Long-term reusable lessons, durable decisions, and recurring project gotchas. Do not copy ordinary session history here. Promote only stable knowledge that is likely to help future agents across sessions.
 
 新增知识应写清适用条件、有效结论和依据；未经证实的原因留在日志。新证据推翻旧结论时在原条目修正，避免并列冲突；新增主题同时更新 INDEX。具体样式数值、性能观测和工具默认值不升级为普遍规则。
 
-## Candidates for AGENTS.md
+## 领域知识
 
-- None yet. 全局纪律已在 AGENTS 中声明；领域经验经 INDEX 读取，不为凑数量提升 Known Gotchas。
+### Webview 采集与平台自动化
 
-## Debugging Lessons
+- **更新站点选择器时必须同时核对三条链路**：前台总结、后台导图和整段对话快照都走同一套共享选择器与采集脚本；站点补充候选统一维护在 `src/shared/config/selectors.ts` 与 `webviewScripts.ts`，渲染层对应路径只重导出。新增候选要按主机名合并，并确认本地旧配置不会屏蔽它；整段对话要识别用户与助手角色、去掉嵌套容器的重复命中，不能用最新助手回复替代整段对话。
 
-### 1. Webview 输入、选择器与回复采集
+- **不要把渲染后的 DOM 文本直接当 Markdown**：列表缩进、代码块和格式在网页渲染后会丢失或被改写。结构化输出应保留代码块原文，并把“尚未完成”和“已完成但无法解析”分开处理；快照和总结都不能用通用 HTML 转换替代平台适配。
 
-- 更新站点回复选择器时，必须检查前台总结、后台导图和整段对话快照的实际执行路径，并确认本地旧配置不会屏蔽新增候选。站点补充候选统一维护在共享配置中，按主机名合并到实际采集脚本；类名有变化的后缀时匹配稳定前缀。快照还需识别用户与助手角色，并去除嵌套容器的重复命中，不能以最新助手回复替代整段对话。
+- **虚拟代码框必须读取编辑器完整文档模型**：CodeMirror 只渲染视口附近内容，复制结果完整不代表 `textContent` 完整。先限定最新助手回复范围，优先从编辑器 `state.doc` 读取全文，再回退普通代码块；识别到虚拟编辑器却读不到模型时应明确失败，禁止保存可见片段。DOM 到 EditorView 的关联属于内部实现，需要兼容版本变化，诊断只保留计数。
 
-- 网页版 AI 将 Markdown 渲染为 DOM 后不能依赖标记整行相等或通用 HTML 转换保留列表缩进；结构化输出应保留代码块原文，并将未完成与已完成但无法解析分开处理。
+- **富文本注入要区分 DOM 文本、框架状态与幂等守卫**：Slate/Lexical/contenteditable 会把换行编码为节点，直接比较 `textContent` 与含换行提示词会造成重复注入。不能因 DOM 插入完成就认定框架状态同步成功；优先复用现有 insertText/paste 脚本和 `isAlreadySame` 守卫，使用编辑器适配的规范化读取，并在实际网页核对输入框内容与发送按钮状态。任务分配的两段式发送应复用已验证的 insertText 与 sendMessage 单脚本，不要直接操作 Slate 的 DOM span。
 
-- **虚拟代码框需要读取完整文档模型**：CodeMirror 只将视口附近内容渲染到 DOM，代码块复制结果完整并不代表 `textContent` 完整。需要按最新助手回复限定范围，从编辑器 `state.doc` 读取全文，再回退普通代码块；识别到虚拟编辑器却无法读取模型时应明确失败，禁止保存可见片段。DOM 到 EditorView 的关联属于内部实现，必须兼容版本变化并保留只含计数的诊断，不能以构建成功替代实际网页验证。
+- **正则匹配中文或非单词字符时显式关闭 `wordBoundary`**：某些匹配器默认给模式补 `\b`，中文、连字符和符号文本会因此匹配失败；共享自动化步骤应显式设置 `wordBoundary: false`，不要默认沿用单词边界。
 
-- **第三方响应式工具栏选择器需结合语义**：同一 `item-icon` 哈希类在窄屏可能是三点菜单，宽屏可能是直接复制按钮；结合父级工具栏与 SVG 语义区分操作。
+- **第三方响应式工具栏选择器要结合语义**：同一 `item-icon` 哈希类在窄屏可能是三点菜单，宽屏可能是复制按钮；结合父级工具栏和 SVG 语义区分操作。抓取第三方 DOM 时，class 可能带 hash 后缀，必须用 `[class*="语义前缀"]`，只有确认无 hash 的纯语义 class 才用精确写法；`selectors.ts` 的 `messageContainer` 同样遵循。
 
-- **拖拽上传不能信任 renderer 的 `File.path`**：renderer 文件对象的本地路径可能为空或不可用。应把文件内容经受限 IPC 写入主进程管理的临时目录，再将该路径交给 Webview/CDP 上传，并在流程结束后清理临时文件。
+- **平台改版时先查真实 DOM，再改候选**：豆包 `mdbox-theme-next` 改为 `md-box-root`、千问 `tongyi-markdown` 改为 `qk-markdown`，都会让旧候选全部 miss。排查第一步是用 Console 查当前真实 class，不要凭旧 DOM 记忆改。候选应容器级优先、段落级靠后，因为“最后一个可见候选”可能命中末尾多模态卡片或收尾提示。
 
-- **正则匹配包含中文或其他非单词字符时要显式关闭 wordBoundary**：某些匹配器默认会给模式自动补 `\b`，而中文、连字符、符号类文本会因此匹配失败。遇到这类场景时，必须显式设置 `wordBoundary: false`，不要默认沿用单词边界。
+- **豆包单轮回复可能是多个并列块**：一条助手回复被拆成多个 `data-render-engine="node"` 块，末块常是“需要我帮你……”收尾提示。`findMergedContentRoot` 对 hash 后缀 id 失效；应在 `generateGetLatestResponseScript` 中增加 `findDoubaoMultiBlockRoot`，从末块向上找第一个含至少两个 `[data-streaming], .md-box-root` 的祖先并立即返回，不要用长度守卫，向上层数收紧到 6。抓取结果明显短于屏幕正文，或把全部历史加用户 query 抓下来，分别说明命中末块或爬过头。
 
-- **富文本注入需区分 DOM 文本、框架状态与幂等守卫**：Slate/Lexical/contenteditable 会将换行编码为节点，直接比较 `textContent` 与含换行提示词可造成重复注入。不能仅因 DOM 插入完成就认定编辑器状态同步成功，也不能统一删除已有校验。优先复用现有插入/粘贴脚本及防重复守卫，使用编辑器适配的规范化读取，并在实际网页核对输入框内容与发送按钮状态。
+- **React hover tooltip 不能靠 dispatchEvent 自动抓全**：千问引用来源明细只在真实悬停后挂载，程序化 `mouseover`/`mouseenter`/`pointerover` 无效。可接受的降级是正文上标转 `[N]` 标记，抓取已经挂载的 tooltip，不强求完整；需要完整证据时只能使用真实鼠标或 CDP `Input.dispatchMouseEvent`，这属于重且跨层的验证手段。
 
-- **Webview 选择器抓取平台回复内容时的两类高频踩坑（以豆包/千问为例）**：
-  1. **hash 后缀 class 必须用属性子串选择器 `[class*="..."]`，不能用精确 class**：AI 平台前端打包后 class 常带 hash 后缀（豆包 `md-box-root`、千问 `source-card-item-mo9ULH` / `message-select-wrapper-answer-rqWekn`）。`document.querySelectorAll('.source-card-item')` 只匹配 class 列表里**精确等于** `source-card-item` 的元素，**不匹配** `source-card-item-mo9ULH`（hash 后缀是 class 名的一部分，不是独立 class）。后果：选择器静默 miss（`length===0`），抓取直接失败或漏数据，且无报错。**判别手法**：Console 跑 `document.querySelectorAll('.xxx').length` 得 0，但 `document.querySelectorAll('[class*="xxx"]').length` 得 N → 必是 hash 后缀。**规则**：抓取第三方平台 DOM 的选择器，凡 class 可能带 hash 的，一律用 `[class*="语义前缀"]`（如 `[class*="source-card-item"]`、`[class*="message-select-wrapper-answer"]`），只有确认无 hash 的纯语义 class（如 `.answer-common-card`）才用精确写法。`selectors.ts` 的 `messageContainer` 候选同样遵循此规则。
-  2. **平台改名 class 是选择器失效的首要根因，而非"选择器写法错"**：豆包把 `mdbox-theme-next` 改名 `md-box-root`、千问把 `tongyi-markdown` 体系整体换成 `qk-markdown`/`qk-md-*`，导致旧候选全 miss。**排查第一步永远是先 Console 查当前真实 class**（`document.querySelector('已知回复容器').className`），再据此写候选，不要凭旧 DOM 记忆改。新增候选应**容器级优先**（如 `#qk-markdown-react`、`[data-chat-answers-wrap]`），**段落级靠后或不用**——抓取逻辑取"最后一个可见候选"，段落级候选（如 `.qk-md-paragraph`）会命中回复末尾的多模态卡片块（视频/笔记卡 `.qk-md-has-multi-modal`），导致只抓到卡片标题而丢失正文。
-  3. **React `:hover`/合成事件驱动的 tooltip 无法用程序化 `dispatchEvent` 触发挂载**：千问引用来源明细只在悬停上标的 tooltip（`[class*="source-card-item"]`）里，且**常驻 DOM 但仅悬停过的上标才有**。程序化 `el.dispatchEvent(new MouseEvent('mouseover/mouseenter/pointerover',{bubbles:true}))` **无效**（`increased:false` 实测验证）——React 合成事件系统 + `:hover` CSS 只认真实鼠标位置。**结论**：这类 tooltip 来源**无法自动抓全**，只能靠用户手动悬停或 CDP `Input.dispatchMouseEvent` 真实硬件鼠标（重、跨层、违反"避免脆弱 DOM 依赖"）。可接受的降级：正文上标转 `[N]` 标记（`htmlToMarkdown.ts` 里对 `[data-index]` + class 含 `options-item` 的 span 输出 `[N]`）+ 抓取时尽力抓已挂载的 tooltip（能抓几个是几个，无速度影响），不强求完整。判别 tooltip 是否程序化可触发：Console 对未挂载 tooltip 的上标 dispatchEvent 各类 hover 事件，800ms 后看 `[class*="source-card-item"]` 数量是否增加。
-  4. **豆包单轮回复已被拆成多个并列渲染块，"取最后可见候选"会命中末块只抓到最后一句**：豆包现把一条助手回复拆成多个并列 `<div data-render-engine="node">` 块，每块内含 `.md-box-root[data-streaming="false"]`，外层包在 `<div data-container-type="block-v2">` 里。**末块常常只是"需要我帮你…/需要我帮你压缩字数…"之类的收尾提示**，不是正文。抓取逻辑取"最后一个可见候选"（`for i=unique.length-1; lastMessage=el; break`）会命中末块，导致只抓到最后一句。既有 `findMergedContentRoot` 只认 `id` 匹配 `/^markdown-content-[0-9]+$/` 的容器，对豆包 hash 后缀 id（`container-qX9Csx` 等）**完全失效**，救不回来。**判别手法（最近公共祖先，勿用长度守卫）**：选定块向上逐级 `parentElement`，对每个祖先跑 `querySelectorAll('[data-streaming], .md-box-root').length`，**第一个 `>=2` 的祖先立即返回、绝不再向上**——这就是单轮容器（含 ≥2 个本回复块的最近祖先必是单轮容器，更近的祖先只含 1 块）。**反例（已踩）**：用 `1.5x` 下限长度守卫（`rootText >= 末块×1.5`）方向反了——它只挡"合并到比正文还短的容器"，挡不住"爬过头到跨多轮根容器"；末块极短或正文短时不满足下限就跳过单轮容器，继续向上爬到跨轮根容器（含全部历史对话+用户query，blockCount 远≥2 且文本远超下限），把**全部对话+query**都抓下来。**修复**：`webviewScripts.ts` 的 `generateGetLatestResponseScript` 加 `findDoubaoMultiBlockRoot`，放 `findMergedContentRoot` 之后，**无长度守卫**，第一个 blockCount≥2 即返回，向上层数收紧到 6（单轮容器离末块约 3 层）作双保险。判别此坑：豆包抓取结果①明显短于屏幕可见正文且恰是末尾收尾句→命中末块；②反而把全部历史对话+用户query抓下来→合并爬过头到跨轮容器。
+- **诊断探针与生产匹配必须同语义**：`selectorDiagnostics.ts` 的只读探针应复用共享脚本的候选筛选、exclude、wordBoundary、可见性和排序语义；诊断不能触发点击。网络嗅探只用于受控开发诊断，不能默认启用，也不能把全量模型回复写入生产日志。
 
-- **语义兜底与诊断需有边界**：共享自动化步骤支持 regex、exclude、wordBoundary 和菜单入口候选；静态选择器失效时先核对真实 DOM，再使用可见性与语义兜底。网络嗅探仅用于受控开发诊断，不能默认启用或把全量模型回复写入生产日志；它不是当前回复采集必然可用的兜底数据源。
+- **工作台回复按钮注入要分开 replyItem、contentItem 和 userItemMarker**：ChatGPT 单轮 `.group` 同时含用户气泡、AI 正文和操作行，提取正文必须用 `[data-chatgpt-search-unit-key$=":assistant"]` 缩到 AI 块；豆包用户消息与 AI 回复共用 `w-full pl-14` 和 `message-action-bar`，用 `message_action_edit` 判别用户；Gemini `buttons-container-v2` 的父级是块级 footer，bar 向上爬要限高约 56px。高 CSP 平台（Gemini Trusted Types）禁止字符串到 DOM，`el.innerHTML = svgString` 或 `DOMParser.parseFromString` 会抛 `requires 'TrustedHTML' assignment`，SVG 必须用 `createElementNS` 程序化构建；ChatGPT 有两个 `turn-action-controls`，actionBar 必须限定 `[class*="actionRow"]`。
 
-- **诊断与生产匹配语义保持一致**：`selectorDiagnostics.ts` 的只读探针应与共享脚本中的候选筛选、exclude、wordBoundary、可见性和排序语义一致，避免探针命中但实际操作失败。诊断不能触发点击；修改生产匹配时检查对应探针，不把复制代码的逐字相等当成行为正确性的充分证明。
+- **工作台按钮的 fallback 与 observer 必须幂等**：没有原生 actionBar 时先复用已有 `.mc-action-bar`，不要每次 scan 新建；幂等判断要区分“有原生 bar 待迁移”（`!CFG.createBar && CFG.actionBar`）和“本就无原生 bar”（`createBar` 或无 actionBar 配置）。`MutationObserver` 要保存实例，重复注入先 `disconnect()`，不能只存布尔标记。不要在没命中原生 bar 时先给 replyEl 打 `__mcBtnsAttached`，否则 native bar 出现后按钮永远停在 fallback；`all:initial` 还会把 fallback 的 `display:flex` 重置成 0 高空壳，fallback 应用专用标记并在原生 bar 出现后迁移。DeepSeek 的正文是 `div.ds-markdown.ds-assistant-message-main-content`（思考块是不带该后缀的 `ds-markdown`），原生操作栏可能在回复块顶部或兄弟容器，`replyItem` 要命中同时包住回复和操作栏的公共祖先，`actionBar` 用 `div.ds-flex:has(> div.ds-button ~ div.ds-button)`；思考块头部按钮组不是回复操作栏。
 
-- **任务分配“两段式”发送失败的根因与替代方案**（任务分配模式两段式发送重构得出）：在第一段“注入(insertText)”阶段使用 `generateInsertTextScript` 注入富文本，而忽略了需要同步触发 `InputEvent` 来通知前端框架（如 Slate/React 受控组件）将输入框值更新，导致发送按钮被禁用。且若对 Slate 编辑器使用直接操作 DOM span 等元素会引发 Slate 的内部 `Cannot resolve a Slate node from DOM node` 错误。**修复**：改用人工两步流程，第一步注入使用多 AI 模式下已验证的 insertText 单脚本（带 `isAlreadySame` 防重复注入守卫），第二步确认发送使用已验证的 `sendMessage` 单脚本，以此复用经过磨练的底层脚本路径，最大化减少脆弱 DOM 依赖。
+- **提取正文前要清理 DOM 伴生噪点**：ChatGPT `h4.sr-only` 的“你说 / ChatGPT 说”、Gemini 的“Gemini 说”、`aria-hidden`、actionBar、`button`、`.mc-*` 都会污染 Markdown。`elementToMarkdown` 前先 `cloneNode(true)` 删除这些节点，再转换；不要只靠 XML 标签隔离。
 
-- **Webview 加载失败提示的三个静默漏洞**（WebviewCard 加载失败无提示回归修复得出）：① **`chrome-error://` 被当成功加载**：Chromium 对连接/DNS/SSL 错误（`ERR_CONNECTION_REFUSED`/`ERR_NAME_NOT_RESOLVED`/`ERR_SSL_PROTOCOL_ERROR` 等）会直接渲染内部 `chrome-error://` 错误页并**正常走完 `dom-ready`→`did-stop-loading`，主帧 `did-fail-load` 不再发出**。`handleDomReady` 检测到 `chrome-error://`/`data:text/html` 时若裸 `return`（不清计时器也不设 `loadError`），覆盖层永远不弹，用户只见白屏或 Chromium 自带错误页。**修复**：该分支必须主动 `clearLoadTimers()`+`setIsLoading(false)`+`setLoadError({category:'connection', errorCode:null, ...})`。② **慢速失败超时被 `did-stop-loading` 清掉**：`handleLoadStop` 第一行 `clearLoadTimers()`，若 Chromium 在失败路径上先发一次中间态 `did-stop-loading`，30s 超时兜底被清，之后既无 `did-fail-load` 也无超时，覆盖层不出现。**修复**：`handleLoadStop` 在 `loadError` 已存在或 `getURL()` 仍处 `chrome-error://` 残留态时短路 `return`（只 `syncNavigationState()`），不清计时器/不改状态。③ **休眠唤醒后 `-3` 静默**：`resume()` 重载 URL 时未把 `isFirstLoadRef.current` 置 `true`，唤醒后遇 `-3`（TUN/路由切换中断常见）走 `if (isFirstLoadRef.current)` 分支为 false → 不设 `loadError`。**修复**：`resume()` 中 `setIsHibernated(false)` 后立即 `isFirstLoadRef.current=true`。判别：连接类失败无覆盖层、慢速失败无超时兜底、唤醒失败静默 = 命中本坑。**关联**：与 `urlMismatch` 不能在加载途中触发的既有坑（KNOWLEDGE 上条）同属 WebviewCard 加载事件链，改动时一并审。
+- **图片下载优先语义 hook，不绑 CSS Modules 哈希类**：`aria-label`、`data-testid`、`data-icon-button`、`data-image-resource-id`、语义标签优先；中文 UI 补中文 label，同时加英文兜底。ChatGPT 预览下载按钮 aria-label 已从“保存”改为“下载”，语义标签可用 `download-generated-image-button`；豆包从 hover 浮层改为点 `[data-testid=mdbox_image]` 再点 `[data-testid=edit_image_download_button]`；文心用 `i.cos-icon-download`；Grok 生图旁按钮可直接下载；千问 `popMenuItem` 默认 invisible，必须 hover，下载项无 aria-label，只能靠 `popMenuItem:has(svg[class*="downloadIcon"])` 或 `:nth-of-type(2)`；元宝 aria-label 是小写 `download`，预览组件为 `hyc-photo-view-chrome-v2`。
 
-- **平台图片下载 DOM 选择器适配经验（image-download-dom 7 家实测得出）**：写 `imageDownload.steps` 时优先用语义 hook——`aria-label` / `data-testid` / `data-icon-button` / `data-image-resource-id` / 语义标签（`download-generated-image-button`），**避开 CSS Modules 哈希后缀类**（`grok-XXX`、`D5bm-XXXXX`、`imageItem-XXXXX`）。中文 UI 平台补中文 label，同时加英文兜底（`下载`/`Download`、`保存`/`Save`、`关闭`/`Close`）。**实测踩过的坑**：ChatGPT 预览 header 下载按钮 aria-label 已从"保存"改成"下载"（UI 改版致旧选择器失效）；豆包生图下载链从 hover 浮层改为"点 `[data-testid=mdbox_image]` → 点 `[data-testid=edit_image_download_button]`"；文心一言 action bar 用 `i.cos-icon-download`（i 元素不是 button，无 aria-label，靠 class 名定位）；Grok 生图旁 `button[aria-label="下载"]` + `data-icon-button` 一键直触下载无需开预览；千问 `popMenuItem` 默认 `invisible`，**必须 hover 触发**且下载项无 aria-label/text，只能靠 `popMenuItem:has(svg[class*="downloadIcon"])` 或 `:nth-of-type(2)` 定位；元宝下载按钮 aria-label 是**小写英文 `download`**（不是"下载"），预览组件是 `hyc-photo-view-chrome-v2`。**iab（Codex 内置浏览器）与 MultiChat `persist:shared` session 不共享登录态**，跨 session 验证要单独登录；智谱 chatglm.cn 有滑块 CAPTCHA 反爬。iab 用 `mcp__cua_repl__js` 的 `cua.listTabs/getTab/createBrowserTab` 驱动，`tab.playwright.evaluate` 只读 DOM（不能 dispatchEvent），`tab.playwright.waitForEvent('download')` 可验证下载触发。
-- **CLI `--gen-image` 兜底与平台实测**：`AgentTaskService.captureGeneratedImage` 在 `imageDownload.steps` click 未命中时**必须回退** `generateExtractImagesScript` 拿 `src` 列表，再按 `data:`/`blob:`/`http(s):` 分路径落盘（`data:` 主进程 Buffer 写文件；`blob:`/`http(s):` 走 `webContents.downloadURL`+`will-download` ctx）。qwen `imageItem-`/`imageWrapper-` class 已在 2026-11 改版，click 必失败但 extract 兜底可用，一次回复可能产 4 张图变体要全保。yiyan 未登录态永远只回文本反问"要不要试试"——平台侧行为非框架 bug，`imageError='生成超时未检测到图片'` 是正确容错。`phase==='done'` 时空 reply 也要写 TXT 占位文件，否则 Agent 拿不到结果路径。
-- **`generateExtractImagesScript` 生图探针的两个边界**（2026-11 doubao/chatgpt 实测）：① **探针须 `genImageOnly=true`，只认生图专用容器**（`generated-image-gallery`/`generated-image-preview`/`message_image_content`/`mdbox_image`/`image-box-grid`）——`findLatestContainer` 回落 `messageContainer`/`document.body` 会把**用户 `--image` 上传附件的回显缩略图**当"已生成"产物，chatgpt 实测 `imageReady` 提前为真 → 30s 提前 done 抓到上传参考图而非生成图。② **消息容器选择器要把生图容器并入 `messageContainer`**——豆包 `message_image_content` 是文本容器 `[data-streaming]` 的兄弟节点而非子节点，只放文本容器会 `images:[]` 永远探不到。③ 生成中骨架/占位（`[data-finished="false"]`、placeholder/skeleton 祖先）内的 img 是过程产物，`isInProgressArtifact` 过滤，但已确认生图容器（preview/mdbox）内的不算。
+- **CLI `--gen-image` 必须有提取兜底**：`AgentTaskService.captureGeneratedImage` 在 click 未命中时回退 `generateExtractImagesScript`，按 `data:`、`blob:`、`http(s):` 分路径落盘；`data:` 由主进程 Buffer 写文件，`blob:`/`http(s):` 走 `webContents.downloadURL` 和 `will-download` ctx。qwen `imageItem-`/`imageWrapper-` 改版后 extract 仍可用，一次可能产四张变体，要全部保留。yiyan 未登录只回文本反问，`imageError='生成超时未检测到图片'` 是正确容错；`phase==='done'` 时空 reply 也要写 TXT 占位文件。
 
-- **工作台回复按钮注入的三平台实测坑（2026-11 chatgpt/doubao/gemini）**：`generateInsertReplyButtonScript` 的 `replyItem` 命中容器与「提取正文容器」「用户消息」三者必须分开判定，混用会同时踩中：① ChatGPT 一轮对话是**单个 `.group` 容器同时含用户气泡+AI 正文+AI 操作行**（`turn-action-controls`），replyItem 只能命中整轮，提取 Markdown 必须用 `contentItem: ['[data-chatgpt-search-unit-key$=":assistant"]']` 缩到 AI 正文块，否则把用户消息也抓进去；② 豆包用户消息与 AI 回复**共用 `w-full pl-14` 容器 + `message-action-bar` 操作栏**，判别特征是操作栏内 `data-testid="message_action_edit"`（用户独有「编辑」按钮，AI 是 `like/dislike/朗读`）——`userItemMarker` 命中即跳过该容器；③ Gemini `buttons-container-v2` 的父级是 `display:block` 的 `response-container-footer`，bar 定位向上爬必须**限高 ~56px**，否则从单行按钮行爬进块级 footer、按钮被挤出可视行表现为「注入成功但看不到」。
-- **工作台回复按钮注入第二轮实测坑（2026-11 修复）**：④ **高 CSP 平台禁字符串→DOM**：Gemini 开 Trusted Types，`el.innerHTML = svgString` 与 `DOMParser.parseFromString` 都抛 `requires 'TrustedHTML' assignment`，且异常发生在 `bar.__mcBtnsAttached=true` 之后、`insertBefore` 之前——标记已设但按钮不存在，表现为「`attached:true` 但 `mcBtns:0`」极难排查。**修复**：注入 SVG 必须 `document.createElementNS(SVG_NS,'svg'/'path')` 程序化构建，不走任何 HTML/SVG 字符串解析。⑤ **ChatGPT 一轮有两个 `turn-action-controls`**：用户气泡行的（祖先 `flex-row-reverse`）+ AI 回复底部的（`actionRow-xxx` CSS-module 类）。`firstMatch` 按 DOM 序命中第一个 → 按钮挂到用户气泡下方。actionBar 选择器必须限定 `[class*="actionRow"]`。⑥ **平台 `sr-only` 说话人标签会被 htmlToMarkdown 当正文**：ChatGPT 的 `h4.sr-only` 里有「你说：」「ChatGPT 说：」、Gemini 有「Gemini 说」——`elementToMarkdown` 前必须 `cloneNode(true)` 删 `.sr-only/[class*="sr-only"]/[aria-hidden="true"]/actionBar/.mc-*/button` 再转换，否则插入文档带 UI 标签和用户消息。⑦ **流式渲染时序**：actionBar 在回复流式完成后才出现，`ensureButtons` 不能在「没命中 actionBar 就建 fallback bar」时给 `replyEl` 打 `__mcBtnsAttached`——否则原生 bar 出现后 ensureButtons 直接 return，按钮永远停在 fallback（`all:initial` 还会把 `display:flex` 重置成 0 高空壳）。fallback 用专用标记并在原生 bar 出现后迁移按钮。
-- **工作台回复按钮注入第三轮实测坑（2026-11 deepseek 修复）**：⑧ **fallback bar 无限 append**：`!bar` 分支每次都 `createElement('div')` 新建 `mc-action-bar` 挂到 replyEl 末尾，但幂等检查 `replyEl.querySelector('.mc-workbench-btn')` 找到的按钮在 fallback 里被判定「不算完事」→ 下次 scan 又建一个——DeepSeek（无原生 actionBar、走 createBar/fallback）实测堆了 2412 个节点。**修复**：① 建 fallback 前先 `replyEl.querySelector('.mc-action-bar')` 复用已有的；② 幂等判断区分「有原生 bar 待迁移」（`!CFG.createBar && CFG.actionBar`）和「本就无原生 bar」（`createBar` 或无 actionBar 配置）——后者按钮在 fallback 里也算完事直接 return。⑨ **DeepSeek 选择器**：AI 正文块是 `div.ds-markdown.ds-assistant-message-main-content`（思考块是另一个**不带该后缀**的 `ds-markdown`），DeepSeek 回复无集中操作栏 → `createBar: true`，replyItem 直接命中正文块。
-- **工作台回复按钮注入第四轮实测坑（2026-11 deepseek 位置修正）**：⑩ **DeepSeek 原生操作栏在回复块顶部而非底部**：`_245c867`（hash）是含 `div.ds-icon` 的容器，位于 `_74c0879` 内、`ds-think-content` **上方**、正文块之前——不是常规的「回复底部操作行」。按钮本身是 `div.ds-icon`（语义类）不是 `ds-button`。**选择器**：hash 类会随重渲染失效，用结构选择器 `div:has(> div.ds-icon ~ div.ds-icon)`（含 ≥2 个平级 ds-icon 子元素的容器）稳定命中，replyItem 配 `div.ds-message:has(...)` 整轮 + `contentItem` 缩到正文块。⑪ **observer 要存实例而非布尔标记**：旧版 `window.__mcInsertBtnObserver=true` 无法在重复注入时 disconnect，SPA 内导航/重复注入会并存新旧两套 scan（旧闭包按旧选择器再建 fallback → 重复按钮）。改存 `MutationObserver` 实例、重复注入先 `disconnect()`。
-- **工作台回复按钮注入第五轮实测坑（2026-11 deepseek 二次修正）**：⑫ **「已思考」行的按钮组会被误当回复操作栏**：DeepSeek `_5ab5d64`（`ds-think-content` 所在 `_74c0879` 顶部、含 div.ds-icon）其实是思考块的头部按钮组，不是回复底部操作栏。真正的回复操作栏 `div.ds-flex._965abe9`（含 6 个 `div.ds-button` 复制/重试/👍👎/朗读/分享）是 `ds-message` 的**兄弟节点**（同在父容器 `_4f9bf79` 下），不在 ds-message 内部。**配置**：`replyItem` 用 `div:has(> div.ds-message + div.ds-flex)` 命中含两者的父容器（`+` 紧邻兄弟限定，全页只命中 AI 那组；用户消息父容器不满足）；`actionBar` 用 `div.ds-flex:has(> div.ds-button ~ div.ds-button)`。**教训**：回复操作栏不一定在 replyItem 容器内部，可能在其兄弟容器——replyItem 要命中能同时包住回复+操作栏的公共祖先。
+- **生图探针必须限定生图容器**：设置 `genImageOnly=true`，只认 `generated-image-gallery`、`generated-image-preview`、`message_image_content`、`mdbox_image`、`image-box-grid`；不要回落到 `findLatestContainer` 的 `messageContainer` 或 `document.body`，否则会把用户 `--image` 上传缩略图当成生成结果。豆包生图容器可能是文本容器的兄弟，要并入 `messageContainer`；生成中骨架或占位内的 img 用 `isInProgressArtifact` 过滤，但已确认生图容器内的不算。
 
+- **Deep Research 跨域 iframe 提取是排查能力，不是已验收产品能力**：顶层 Webview 不能直接读取跨域报告 iframe，报告可能跨 child target 和 execution context，`about:blank` frame 也可能承载内容。可结合递归 `Target.setAutoAttach`、`Page.getFrameTree`、`Page.createIsolatedWorld` 与带 session/context 的 `Runtime.evaluate`，只 detach 自己附加的 debugger。真实报告完整性和耗时必须重新验证。
 
-### 2. 深度研究与跨 frame 提取
+- **Deep Research 选择器 2026-11 实测**：各平台已弃用 `data-testid`、`data-log-*`、`tagBtn-*`，转向 `aria-label`、`role` 和文本语义；菜单 role 多样，包括无 role 的 `button`、`listbox/option`、`menu/menuitem` 和自定义 `TOOLBOX-DRAWER-ITEM`。ChatGPT 的 `+` 用 `button[data-composer-navigation-target="add-context"]`；Perplexity 研究在 `+` 菜单的 `div[role=option]`；Qwen 经 `button[aria-label="选择模式"]` 到 `div[role=menuitem]` 的“深入研究”；Gemini 是“上传和工具”到“更多工具”的两级；豆包“深入研究”已下架；Kimi 是 `/deep-research` 独立页；元宝有 `data-application-id="application_id_deep_research"`；文心没有 DR 开关；DeepSeek“深度思考”是推理开关，不是 DR。
 
-- **Deep Research 跨域报告提取的边界**：顶层 Webview 脚本不能直接读取跨域报告 iframe。历史排查发现 ChatGPT 报告可能同时跨 child target 和 execution context；仅递归 target 或仅按 URL 筛选都不完整，`about:blank` frame 也可能承载报告。探索时可结合递归 `Target.setAutoAttach`、`Page.getFrameTree`、`Page.createIsolatedWorld` 与带 session/context 的 `Runtime.evaluate`，并只 detach 自己附加的 debugger。此为排查经验，不能视为当前已验收的产品能力；TODO 仍保留提取失败事项，真实报告完整性与耗时必须重新验证。
+- **AutomationStep 的菜单入口不一定是 button**：Qwen 是 `div.mode-select-open[role="button"]`，Gemini 是 `TOOLBOX-DRAWER-ITEM`，ChatGPT 菜单项是无 role 的 `<button>`；先查真实 tag/role，再写复合选择器。验收应在 iab 按 step 顺序 evaluate、点击、下一步，模拟整条链，不能只验证单个 selector。iab 用 `mcp__cua_repl__js` 的 `cua.listTabs/getTab/createBrowserTab` 驱动，`tab.playwright.evaluate` 只读 DOM，`tab.playwright.waitForEvent('download')` 可验证下载触发。iab 不共享 `persist:shared` 登录态；spawn 的子 agent 没有独立 iab 浏览器面，CUA 工作要由持有会话的 agent 执行。
 
-- **关键回退在能力边界识别稳定信号**：当多个调用点容易漏传可选参数时，Webview 能力边界可根据稳定页面信号识别是否需要回退，上层参数只表达等待模式等业务意图。需核对当前 Hooks 与调用链，不把历史 Deep Research 参数方案当成已实现能力。Electron main 改动后完整退出并重启开发应用；renderer HMR 或构建成功不能证明运行中的 main 已加载新代码。
+### 工作台编辑器
 
-- **Deep Research 选择器 2026-11 实测（docs/deep-research-dom/ 13 平台报告）**：各平台已弃用 `data-testid`/`data-log-*`/`tagBtn-*` 类钩子，转向 `aria-label` + `role` + 文本语义；菜单 role 多样化（无 role 的 `<button>`、`listbox/option`、`menu/menuitem`、自定义元素 `TOOLBOX-DRAWER-ITEM`），选择器须备多 role 候选。具体：chatgpt `+` 改 `button[data-composer-navigation-target="add-context"]`、菜单项为无 role button；perplexity 研究在 `+` 菜单 `div[role=option]`；qwen 经 `button[aria-label="选择模式"]` 菜单 → `div[role=menuitem]`"深入研究"；gemini 变两级（`aria-label="上传和工具"` → `更多工具` → item）；doubao "深入研究"已从 skill 栏下架；kimi 是 `<a href="/deep-research">` 独立页非切换；yuanbao 有 `data-application-id="application_id_deep_research"` 稳定钩子；文心无 DR 开关；deepseek"深度思考"是推理开关非 DR。iab 不共享 `persist:shared` 登录态；spawn 的子 agent 无独立 iab 浏览器面，CUA 浏览器工作须由持有会话的 agent 执行。
-- **AutomationStep 选择器编写/验收要点（2026-11 selectors v19 实测）**：`selector` 数组按顺序取第一个可见命中，之后 text/regex/exclude 过滤；菜单/模式入口不一定是 `<button>`（qwen 为 `div.mode-select-open[role="button"]`、gemini 为自定义 `TOOLBOX-DRAWER-ITEM`、chatgpt 菜单项为无 role `<button>`），写 opener 时先查真实 tag/role 再写 `tag[role=...]` 复合选择器。验收方式：iab 里按 step 顺序 evaluate 命中→点击→下一步，simulate 整个链而非只看单个 selector。
+- **受控与非受控混用时不要监听内部 markdown 反向同步**：组件同时接受 `initialMarkdown` 和内部编辑状态时，如果把内部 `markdown` 放进 effect 依赖，任何内部更新都会被判定为与外部不同并触发强制回滚。同步只应由外部显式变更触发；hover 操作按钮还要避免父子之间出现事件空隙导致 hover 闪退。
 
+- **Lexical CodeNode 高亮重建不能在同一次 mutation 提交内执行**：Prism 插件在 CodeNode mutation listener 中同步调用 `editor.update` 会并入当前提交并被覆盖。应使用 `queueMicrotask` 延后，重建前记录代码内字符偏移；恢复选区要同时处理 Text Point 和 CodeNode Element Point。连续 `LineBreakNode` 形成的空行必须用 element point；代码块是文档末节点时，Chromium 会把下方空白点击映射回代码末尾，需在根元素 `mousedown` 捕获，在代码外补段落并选中，该更新带独立 tag 让 Markdown 同步跳过。
 
-### 3. Markmap 布局、连线与命中区域
+- **Markdown 预览不能只改字号或套 playground 边距**：`PlaygroundEditorTheme__h1` 等标题使用固定 px 字号，却会继承 `body` 的 24px 行高，标题换行后行距小于字号；标题层级应分别声明相对 `line-height`，约为 1.3 到 1.4。引用块的 `margin-left: 20px` 会与边框、内边距叠成额外缩进，应移除外边距，只保留左边线和必要内边距。
 
-- **Markmap 节点内中文文本坍塌为单字竖排（垂直折行）**：Markmap 在初次向 SVG 插入 `<foreignObject>` 时尚未计算和指定其 `width` 属性。Chromium 渲染引擎在测量 `scrollWidth` 之前，面对无固定宽度的 SVG 容器，会将包含可断行字符（如中文 CJK 字符）的行内块级元素压缩至其最小内容宽度（min-content），导致每个汉字在字间断行坍塌为单字一行的竖排文本；随后 `_relayout()` 测得的 `scrollWidth` 仅为单个汉字宽度（~16px），并将 `foreignObject` 宽度永久固定为 16px。**解决方案**：在 CSS 中必须为外层容器 `.markmap-foreign`、其内部嵌套 `div` 以及 `.mm-node-item`、`.mm-node-title` 统一强制声明 `white-space: nowrap !important;` 与 `width: max-content !important;`，彻底杜绝软折行与竖向坍塌。
+- **裸链接导入和导出不能复用普通链接序列化**：`@lexical/markdown` 的 `LINK` transformer 会跳过 `AutoLinkNode`，需为裸 URL 单独增加 text-match transformer，并用 `$findMatchingParent(...)` 防止在已有链接内嵌套。导出不能拿 `exportChildren()` 与 URL 比较，`exportTextFormat` 会转义下划线、方括号等字符；应改用 `node.getTextContent()`，仅在子节点无格式时原样输出裸 URL。链接插入弹层复用应用内输入框，不用 `window.prompt`；hover 提示跳过“文字本身就是地址”的裸链接。
 
-- **外溢按钮影响节点测量**：Markmap 的 scrollWidth 可能包含绝对定位子元素，opacity:0 或父层零尺寸不等于不参与测量。非显示态按钮需核对 display:none，连线端点结合节点 offsetWidth、布局 rect 与 foreignObject 的 x/paddingX 校正，避免悬空。历史约 40px 偏移与 1–2px 穿透量是当时样式观测，当前值以实现和视觉验证为准。
+- **Lexical 本地文件链接不能交给默认 URL 归一化**：`LinkNode.sanitizeUrl()` 会把无协议文件名补成 `https://`；Markdown 导入与链接弹层应在进入 `LinkNode` 前识别已知文件扩展名并补 `./`。点击时按当前文档目录解析为工作区相对路径并交给 `openFile()`，不要使用 `anchor.href`。目标不存在时保留当前文档，不能复用“启动恢复时文件已删除就清空编辑器”的分支。
 
-- **节点按钮与折叠状态**：隐藏 Markmap 原生 circle，避免与自定义添加/折叠按钮重叠。按钮应脱离文本尺寸计算并保持稳定命中；是否显示不能改变连线几何。`initialExpandLevel: -1` 对应初始全展开，运行时展开全部需更新树的 fold 状态并 setData；仅在用户要求适配视图或视口无效时 fit，正常编辑与展开操作保留用户视口。
+- **GFM 表格导入必须裁掉单元格两侧的填充空白**：`TABLE_ROW_REG_EXP` 只负责取出首尾管道之间的整段内容，直接按 `|` 切分会把 `| a | b |` 的排版空格写进 Lexical 单元格。拆分后用 `[ \t]` 去掉首尾 ASCII 空格和制表符，不要用 `String.trim()`，它会删除全角空格和不换行空格。主页 `remark-gfm` 会按规范裁剪，编辑器必须保持一致。
 
-- **尺寸与连线几何保持一致**：Markmap 根据布局 rect 测量连线端点，外溢的绝对定位按钮可能增大 scrollWidth；需要结合真实节点 offsetWidth 和 paddingX 计算边缘，不能用透明度隐藏来假定按钮不占测量宽度。正交连线的中心点、折角和 spacing 应由当前实现计算；历史 46px、0.42 或其他数值是视觉取舍，不是通用约束。
+- **块级 HTML 表格要用占位标记桥接并保留原始 HTML**：`@lexical/markdown` 只识别 GFM 管道表格，`<table>` 会落入普通段落。导入前在代码围栏外扫描完整 `<table>…</table>`，替换为唯一占位标记，再由 element transformer 创建自定义 `DecoratorBlockNode`；节点保存原始 HTML，导出原样返回，保留 `rowspan`、`colspan` 和源码模式。预览用 `DOMParser` 加 React 白名单节点，不要注入原始 HTML。编辑单元格时在 focus 记录内容基线，blur 或 Ctrl/Cmd+S 只回写该单元格，不在输入过程中更新 Lexical 节点。
 
-- **包装层不能遮挡子孙节点**：默认大宽度的 foreignObject 包装 div 在 overflow:visible 下可成为透明命中遮罩。核对 localMindmap.css 中包装层的尺寸与 pointer-events，仅真实节点/按钮接受点击，SVG 连线不拦截事件；保留文字 nowrap/max-content 与按钮外溢需求，不能全层统一 width:auto 导致中文再次坍塌。
+- **标注投影不能参与正文 Markdown 判定**：`exportTextFormat` 只检查直接相邻的 `TextNode`，`MarkNode` 会隔断粗体、斜体等格式的连续性，导致同一段文本包标注后被导出成重复格式标记。所有正文序列化路径（标注安全校验、普通编辑回写）必须共用同一个无 `MarkNode` 的导出函数：存在标注时先从 `toJSON(true)` 递归展开 `type === 'mark'` 的节点，再用 `parseEditorState` 建立影子状态导出；保留原有 guard 和 `annotation-sync` 过滤。
 
+- **标注后台更新必须阻止 Lexical 迁移选区焦点**：打开已有标注、定位锚点以及失焦后的标注对账都会触发 `editor.update`；即使带自定义 `annotation-sync` tag，Lexical 仍可能在选区更新时调用 `rootElement.focus()`，把评论输入框的焦点抢回 `contenteditable`。所有此类后台更新应同时附加 `SKIP_SELECTION_FOCUS_TAG`，并用真实桌面交互确认输入停留在 textarea 且未写入正文。
 
-### 4. Markmap 可见性、缩放与视口
+- **Lexical 块拖拽控件需要独立左侧 gutter**：`DraggableBlockPlugin_EXPERIMENTAL` 默认把 handle 定位在锚点左缘加 4px，不会为自定义 `menuComponent` 预留宽度。工作台的 `+` 与拖拽手柄合计约 60px，文章容器至少保留 64px 左侧空间，否则首个正文字符会被控件覆盖。不能只靠浮动控件的透明背景判断布局是否安全。
 
-- **隐藏画布不能参与首次 fit**：Markmap.create(svg, options, data) 在数据布局完成后会 fit，autoFit:false 不能阻止这次初始化行为。当前 `useMindmapCanvas.ts` 创建实例时不传 data；SVG 可见且宽高有效后 setData，再按首次适配或变换无效状态 fit。正常树更新保留缩放和偏移，避免编辑或 ResizeObserver 的细微变化反复触发适配；尺寸阈值是实现取舍，不能固定为通用的 40px 规则。此机制可由源码核对；隐藏重开、拖动、缩放与新增节点的验收状态应查对应日志，不能由 lint/build 推断验收完成。
+- **工作台多格式预览与写盘安全**：只读或二进制文件（图片、PDF、DOCX 等）必须在 Zustand store、全局 Ctrl+S 和主进程 `writeFile` 三层拦截写盘，否则 Ctrl+S 会把空文本写入二进制文件。各格式专属预览组件在路由分发时绑定 `key={activeFilePath}`，切换文件时重置缩放、旋转和编辑状态。
 
+- **HTML 可视化编辑不要为了访问 DOM 放开 iframe 同源**：`workbench-file://` 可以在同一路径下按查询参数提供编辑文档、运行时和样式三份同源资源，iframe 继续使用 `sandbox="allow-scripts"`；父子页面只通过带来源标识的 `postMessage` 传递选区、脏状态、命令和序列化结果。跨 iframe 拖拽不要依赖事件冒泡，应由外层 Pointer Capture 加覆盖层保持指针归属，再把相对坐标下发 iframe。保存复用既有 `saveActiveFile()` 序列化后覆写原文件，不要为可视编辑另开一条没有冲突检测的写盘 IPC。
 
-### 5. Markmap 编辑与状态生命周期
+- **iframe 编辑工具条的实时调色不能抢宿主焦点**：编辑运行时若无条件执行 `window.focus()`，颜色滑杆和 Hex 输入的每次完整色值更新都会把焦点从宿主工具条抢回 iframe，父层输入失焦后菜单随即关闭，连续输入也被打断。颜色菜单的实时预览命令应携带 `preserveFocus` 并让运行时跳过聚焦；使用 palette 或 Enter 确认并关闭菜单后可保留原聚焦行为。sandbox iframe 内的 `execCommand` 在宿主持有焦点时仍能作用于 iframe 已保存的文字 Range，但仍需用真实文字选区做回归。
 
-- **编辑状态不能重建节点 DOM**：selectedNodeId/editingNodeId 的纯 UI 变化不要触发 setData，避免销毁正在编辑的 DOM、Range 和焦点。树数据变化才 setData，选中/编辑态通过 DOM class/属性同步；setData 后恢复高亮。Markmap 的 fit/centerNode 依赖完整 D3 transition 接口，不能把 transition 替换为原始 selection；当前采用 duration: 0，保留接口。点击命中需兼顾 foreignObject、包装 div 与节点本体。
+- **HTML 渲染预览标注不要把评论塞进 iframe**：`workbench-file://` 同一路径用标注 query 提供文档、CSS 与运行时三份同源资源，运行时只建立可见文本索引、CSS Highlight、选区与点击命中，`postMessage` 只传 `id` 与 anchor；评论正文、编辑卡和持久化留在宿主 renderer，iframe 仍保持 `sandbox="allow-scripts"`。空白点击、滚动和 Esc 必须由运行时主动发 `dismiss`，否则新建评论卡会在 iframe 内交互后残留；关闭编辑卡时还要发 `focus` 空 id 清掉聚焦高亮。
 
-- **树更新与事件命中**：避免在 setTree 更新函数里再次调用触发 setTree 的提交函数；基于 treeRef 的最新树执行编辑，保持持久化与 React 状态一致。透明包装层和 SVG 连线不应截获点击，只给实际节点与按钮开启 pointer-events。节点微背景是历史命中问题的处理经验，需结合当前样式及桌面 Hit Test 验证，不宣称对所有 Chromium 版本必然有效。
+### React 状态与组件生命周期
 
-- 在包含 SVG foreignObject 和 D3 zoom 的画布中，使用 DOM focus() 必须显式传入 { preventScroll: true }，否则 Chromium 会自动滚动最近的祖先容器导致整块画布视口突变；为浮动在节点边缘的操作按钮配置扩大命中范围的伪元素时，必须确保按钮自身具备独立的定位层级（relative + z-index），防止其父级绝对定位的伪元素将真实按钮遮挡拦截
-
-
-### 6. React 状态与共享 UI
-
-- **跨页提升共享 UI 必须迁移实例与消费回调**：把抽屉、弹窗等共享 UI 提升到 App 层时，必须同时移除原页面实例，并把原页面回调接到新的 pending 状态消费点；只替换顶部状态变量会造成按钮触发但没有实际恢复逻辑。
+- **跨页提升共享 UI 必须迁移实例与消费回调**：把抽屉、弹窗等共享 UI 提升到 App 层时，必须同时移除原页面实例，并把原页面回调接到新的 pending 状态消费点；只替换顶部状态变量会造成按钮可以触发，但没有实际恢复逻辑。
 
 - **持久化列表按稳定业务 ID 双层去重**：提示词、模型等列表来自磁盘配置时，读取侧和渲染侧都应按稳定业务 ID 去重；局部变量命名还应避免与旧 HMR 模块中的同名绑定产生歧义。
 
-- **同一事件中的状态更新不立即改变闭包值**：先 setState 再同步调用读取该 state 的函数，仍可能读到当前渲染的旧值。可直接传入新值，或在必须跨异步回调读取时同步更新 ref 镜像；不要一律增加镜像层。历史 API 总结的空快照问题说明了这种风险，但旧 useSummaryPanel 已删除，当前修改应定位实际持久化调用点。
+- **同一事件或定时回调读取最新状态要区分时序**：先 `setState` 再同步调用读取该 state 的函数，仍可能读到当前渲染的旧值。可直接传入新值，或在必须跨异步回调读取时同步更新 ref 镜像，但不要一律增加镜像层。依赖数组会按状态变化重建回调或定时器，这是可接受的实现选择；只有需要稳定调度器时才用 ref，不能把两种时序混用。
 
-- **定时回调需要最新状态时选择合适的同步方式**：依赖数组会按状态变化重建回调/定时器，这是可接受的实现选择；只有需要稳定调度器时才用 ref。effect 同步镜像适用于后续定时触发，同一事件立刻读取新值应直接传参或同步写 ref，不能把两种时序混用。
+- **React 初始化顺序与 TDZ**：渲染期执行的 `useMemo` 或派生表达式不能引用尚未初始化的 const/state，否则会触发 `ReferenceError`。`useEffect` 回调在提交后执行，不应笼统认定为渲染期立即执行；其依赖数组表达式仍在渲染期求值。被依赖状态先声明，递归树纯函数优先放模块作用域，避免初始化时自引用 `useCallback`。定向类型检查与实际页面触发应结合使用。
 
-- **React 初始化顺序与 TDZ**：渲染期执行的 useMemo/派生表达式不能引用尚未初始化的 const/state，否则会触发 ReferenceError。useEffect 回调在提交后执行，不应笼统认定为渲染期立即执行；其依赖数组表达式仍在渲染期求值。被依赖状态先声明，递归树纯函数优先放模块作用域，避免初始化时自引用 useCallback。定向类型检查与实际页面触发应结合使用。
+- **ResizeObserver 必须追踪 DOM 节点和父级提交时序**：同一组件在不同模式分支下分别渲染挂载了同一个 ref 的 DOM 元素时，如果 effect 只监听 `isActive` 而不监听 DOM 节点，Observer 会滞留旧节点并上报 0 宽度，新节点则永久冻结在 0px；应使用 callback ref 追踪 DOM 节点变化，并在 CSS Grid 列宽处提供 `minmax(0, 1fr)` 安全保底。子组件的 `useLayoutEffect` 先于父组件 ref 挂载执行，读取父级 `stageRef.current` 会拿到 `null` 并直接返回；应改为 `useEffect` 初始化 ResizeObserver，或在 ref 回调里建立观察，断点同时按容器 `clientWidth` 判定，不要误用窗口宽度。
 
-- **执行旧计划前重新核对代码锚点**：行号、Find/Replace 块和函数签名可能随代码演进漂移。修改前用 rg 和文件读取核对实际入口；在原授权范围内调整实施细节，只有目标、范围或风险发生实质变化时才重新确认。不能盲套旧计划，也不为每次锚点漂移增设计划文件。
+### 工作台文件与上传
 
-- 当React组件在不同模式分支下分别渲染挂载了同一个ref的DOM元素时，若useEffect仅监听isActive而不监听DOM节点或模式切换，会导致ResizeObserver滞留于已卸载节点并上报0宽度，新节点未被监听从而永久冻结在0px。必须使用callback ref追踪DOM节点变化，并在CSS Grid列宽处提供minmax(0, 1fr)安全保底
+- **外部文件导入不能信任 renderer 的 `File.path`**：Electron 32+ 已移除 `File.path`，本地路径用 `window.electron.webUtils.getPathForFile(file)`，`@electron-toolkit/preload` 的 `electronAPI` 已自带 `webUtils`。拖入目录也会作为条目出现在 `dataTransfer.files`，`getPathForFile` 返回目录路径，主进程 `stat.isDirectory` 区分后 `fs.cp recursive`。区分内部移动与外部导入看 `dataTransfer.types.includes('Files')`；paste 事件只派发到焦点元素，文件树容器需 `tabIndex={-1}` 并在 `onMouseDown` 里聚焦（跳过 `HTMLInputElement`）才能接 `onPaste`；`clipboardData.files` 为空时放行给编辑器。
 
-- **跨组件观察父级 DOM 尺寸要在提交后初始化**：子组件的 `useLayoutEffect` 先于父组件 ref 挂载执行，读取父级 `stageRef.current` 会拿到 `null` 并直接返回，之后没有重试，响应式分支会永久停在默认态。应改为 `useEffect` 初始化 `ResizeObserver`，或在 ref 回调里建立观察；断点同时按容器 `clientWidth` 判定，不要误用窗口宽度。
+- **交给 Webview/CDP 的上传路径必须由主进程管理**：renderer 文件对象的本地路径可能为空或不可用，不能直接传给 webview。应把文件内容经受限 IPC 写入主进程管理的临时目录，再把临时路径交给 Webview/CDP，流程结束清理。跨 webview 拖拽时，宿主侧挂 `absolute inset-0 z-40` 拖拽遮罩，用 Zustand `draggingNodes` 激活，捕获 drop 后经 `window.api.dispatchFileDrop` 发送 `Input.dispatchDragEvent`；文件夹要拦截并提示。
 
-- **旁注入口打开评论卡时不要复用正文选区联动**：选中标注会触发编辑器的选区定位，浮动格式条随即停在评论卡上方并遮挡输入区；窄屏旁注入口应自行滚动定位，再直接打开共享评论卡，不要依赖选中态去滚动。
+- **拖拽上传的成功必须以附件就绪为准**：`Input.dispatchDragEvent` 返回成功只代表事件已派发，未登录、页面未就绪、附件超限或落点错误时同样返回成功。drop 前读取 `generateFileUploadStateScript` 基线，drop 后以“文件名新命中或附件计数增加”且 `!busy` 连续稳定 3 次判定成功；落点脚本必须过滤不可见或禁用的输入框，找不到时明确失败，禁止回退到 `document.body` 的 `(10,10)`。折叠侧边栏不能靠 `dragenter` 展开后卸载条带，那会在 drop 前移除目标；应在 drop 时把 `draggingNodes` 快照交给常驻侧边栏，一次完成展开与上传。外部文件 drop 优先看 `dataTransfer.types.includes('Files')`；树节点或编辑器的 `stopPropagation` 会让窗口冒泡清理失效时，在 document 捕获阶段清理。
 
-- **旁注栏头必须挂到滚动层外，并按滚动视口定位**：把栏头放在随正文滚动的旁注列内，哪怕 `position: sticky` 也会随列内容离开可视区，滚动后无法关闭。展开态栏头应 portal 到编辑器根节点，用滚动容器的 `getBoundingClientRect()` 计算顶部内边距，使它固定在滚动视口顶部而不是盖住格式工具栏。
+- **同名附件才改后缀，临时副本要等附件就绪后再删**：基线 `attachmentCount > 0` 不等于“已有同名附件”，输入框里可能挂着上一轮的其他文件；只有 `nameMatched` 才需要加 8 位短后缀。CDP 拖拽按磁盘真实文件名派发，需要改名就复制到临时目录，但不能在 `dispatchFileDrop` 返回后立刻删，平台读取大文件是异步的；临时目录收集到列表，在整批附件解析稳定后的 `finally` 统一删除。
 
-- **吸附控件要同时读首行锚点与滚动容器视口，不能只按文档坐标 clamp**：旁注折叠入口的"首行对齐"与"滚动后吸附视口顶部"是两套坐标——文档坐标决定初始位置，滚动容器 `getBoundingClientRect()` 决定吸附上限，只按其一 clamp 会在滚动后飞出屏幕或展开瞬间跳回文档顶部。展开态控件本身也要 portal 到编辑器根节点而不是会滚动的旁注列。
+- **上传互斥锁必须有超时与代际号**：`uploadingRef` 只在 `finally` 释放时，如果 `webview.executeJavaScript` 或 `window.api.dispatchFileDrop` 永不 settle，后续上传会永久停在“正在上传上一批文件”。给脚本调用 5 秒、CDP 派发 15 秒的 `withTimeout`，锁记录 `startedAt` 并允许超时接管，用递增的 `uploadGenerationRef` 判定批次归属；旧批次迟到时既不能释放新批次的锁，也不能覆盖新批次的提示。“停止等待”只推进代际号并清空当前提示，不强行中断已经派发的拖拽。
 
-- **切换文档的闪现要同时约束浮层和侧栏列表**：旧评论卡与旧旁注卡片来自两份异步状态，只清理其中一份仍会在新文档首帧闪出。浮层要记录打开时的文档身份并在提交阶段比对；侧栏要同时校验 `workspaceRoot` 与 `relativePath` 后才渲染标注列表。
+- **上传提示复用项目 Toast**：一键发送当前文档前先保存未落盘内容；上传中显示信息态进度，成功后恢复成功提示，统一样式来自 `ControlBar`/`ModelOutputCard` 的 `notification-popup`、白底半透明、彩色细边框和 `shadow-float`，不另造状态条。失败和部分成功分别使用错误态和信息态。
 
-- UI 组件尺寸必须与应用核心面板（如 SettingsDrawer）规范看齐，避免局部页面为了紧凑而过度使用 text-xs 或 text-[10px] 导致可读性与点击舒适度下降
-- **AppIcon 的 size 不是最终渲染像素**：组件会乘 `OPTICAL_SCALE = 0.85` 抵消 Lucide 相对 Material 字体图标的视觉膨胀。因此旧 Material `text-base` 对应的 `size={16}` 只是保持原视觉尺寸；若要与 `WebviewCard` 中传入 `size={20}` 的前进/后退/刷新图标看起来一致，应用按钮也必须传 `size={20}`。统一顶栏或侧边栏图标时先按最终视觉尺寸比较，不要只看 prop 数值或误以为所有旧 16px 图标都应放大到 20。
+- **CLI `--image` 优先粘贴式上传，CDP 拖拽兜底**：`--image` 逐张走 `uploadAttachments` 和 `generateFileUploadStateScript` 轮询就绪。主进程 `readFile` 得到 base64，再由 `generatePasteFileUploadScript` 在页内用 `new File + DataTransfer + ClipboardEvent('paste')` 派发到输入框；主流编辑器都监听 paste，不依赖页面监听 drop，也不挑落点坐标。paste 失败再退回 `dispatchFileDrop`。就绪检测不能只按全文件名匹配，图片常只渲染缩略图或 chip；`nameMatches` 依次试全名、去扩展名主干、主干前 16 字符，并加 `hasAttachmentNode` 兜底。
 
-- 在包含受控/非受控混用场景（如 initialMarkdown）的 React 组件中，避免在依赖项中监听内部编辑状态（markdown）来进行同步，否则内部任何状态更新都会被判定为与外部不同并触发强制回滚；对于绝对定位的 hover 操作按钮，需避免子元素与父元素之间出现事件空隙导致 hover 闪退
+- **二进制文档只记指纹，不按 UTF-8 读正文**：PDF、Word（`doc/docx/docm`）、PPT（`ppt/pptx/pptm`）不能 `readFile(..., 'utf8')`，否则快照、哈希和“基于旧版本”判断全部失真。版本指纹统一为 `binary:<sha256(size:mtime)>`，生成时只 `stat` 补指纹，快照保持空串，复制或移动克隆记录也走同一分支。扩展名判定要覆盖 `docm`、`pptm`；多个同 size+mtime 候选无法可靠区分时返回 null 让用户确认，不猜绑定。思维导图文本材料（含 PDF/Word/PPT 选区）写成 `.md` 附件，原文件材料直接上传工作区文件，大文件跳过 Base64、优先 CDP 拖拽。
 
-- **工作台多格式预览与写盘安全**：在扩展文本编辑器支持只读或二进制文件（图片/PDF/DOCX 等）时，必须严格在 Zustand store、全局快捷键（Ctrl+S）与主进程 `writeFile` 三层严密拦截写盘调用，否则 Ctrl+S 会将空文本写入二进制文件造成不可逆数据破坏；各格式专属预览组件必须在路由分发时绑定 `key={activeFilePath}`，确保切换文件时自动重置缩放、旋转与编辑等局部状态。
+- **本地文件预览不要把完整内容塞进 renderer**：图片经 `workbench-file://` 交给 `<img>` 流式解码，避免 base64 约 4/3 的文本放大；PDF 使用受信 IPC 分段，由 `PDFDataRangeTransport` 按需取块，renderer/store 不保留完整字节或 data URL。`workbench-file://` 只服务图片和 HTML iframe，CSP 的 `connect-src` 不列入该 scheme，也不为 PDF 打开 `corsEnabled` 或跨源 fetch。PDF.js 的 `requestDataRange(begin, end)` 是 end-exclusive，本项目 `readPdfRange` IPC 是闭区间，适配层必须传 `end - 1` 并处理 `end <= begin`；开发版已验证尾段 `[262144, 467290)` 转为 IPC `[262144, 467289]`，文字层和图片预览正常。
 
+- **PDF 滚轮缩放要拦截非被动 wheel 并累加增量**：缩放状态留在 `WorkbenchPdfPreview`，`WorkbenchPdfViewer` 只通过 `onZoomStep(direction)` 上报方向，工具栏与滚轮共用同一档位和上下限。方向按 `deltaY` 语义映射：负值（向上）放大、正值（向下）缩小，与图片预览及浏览器默认一致。`Ctrl/⌘ + 滚轮` 监听必须注册在 PDF 滚动容器上且 `passive: false`，否则 `preventDefault()` 无效、会同时触发 Chromium 页面缩放；触控板一次手势会连续派发小 `deltaY`，需按方向重置并累加，超过阈值才推进一步，否则会一帧跳过多档。`deltaMode` 为行或页时要换算成像素增量。
 
-- **工作台文件树外部文件导入（拖入/粘贴）**：Electron 32+ 已移除 `File.path`，本地路径取 `window.electron.webUtils.getPathForFile(file)`（`@electron-toolkit/preload` 的 `electronAPI` 已自带 `webUtils`）；拖入的**目录也会作为条目出现在 `dataTransfer.files` 中**且 `getPathForFile` 返回目录路径，主进程 `stat.isDirectory` 区分后 `fs.cp recursive` 即可。区分内部移动与外部导入用 `e.dataTransfer.types.includes('Files')`（内部拖拽只设 `text/plain`）。paste 事件只派发到焦点元素，文件树容器需 `tabIndex={-1}` + `onMouseDown` 里 `currentTarget.focus()`（跳过 `HTMLInputElement`）才能接 `onPaste`；剪贴板文件经 `clipboardData.files` 取，为空的文本/图片粘贴放行给编辑器。
+### 笔记、快照与导图
 
-- **Lucide 图标方向不能沿用 Material 的旋转角度**：`Paperclip` 默认是从左下到右上的 45° 斜向；沿用 Material 字体图标时期给附件加的 `-rotate-90` 会变成另一条 45° 斜线。要让该图标垂直，应使用 `-rotate-45`。迁移同类图标时先核对 SVG 原始方向，不要机械保留旧字体图标的 rotate 类。
+- **来源会话键保留完整规范化 URL 路径**：截取第一个 chat 片段会把 `chat/s/id1` 和 `chat/s/id2` 错误分到同一会话。来源会话入口的 UI 判定必须用 `isPlatformConversationPage` 的逐平台真实路径枚举，不能复用后台恢复用的宽松 `isConversationUrlForPlatform`，后者会命中同域名的设置页、搜索页和文档页。新增平台或路径时同步补 `scripts/agent-cli-acceptance.mjs` 的正负样例，负例至少覆盖同域名非会话页和非 AI 站点。
 
-- **重做按钮应使用成套的 `Undo2`/`Redo2`**：`Repeat` 表示循环播放，不应作为编辑器的前进/重做图标。图标映射迁移后要按图形语义核对，而不是只看 Material 连字名与 Lucide 名称是否接近。
+- **工作台文档与导图以路径为身份、以指纹判改名**：记录键由“规范化工作区路径 + 相对路径”派生，不写文档 frontmatter。文档删除时导图立即删除；外部改名或移动无法与删除区分，只能在文件树刷新后对账：先让路径仍在的记录占位，再对路径消失的记录按 `size + mtime` 完全一致筛候选，唯一候选直接重连，多候选读文件比内容哈希，仍不唯一就按删除处理，绝不猜。对账索引必须由渲染层随文件树传入，主进程不自行扫盘；按 size+mtime 建桶后再匹配，避免整目录删除时的平方复杂度。删除前单独 `stat`，只有 ENOENT 才删；工作区根不可读时整轮跳过。保存成功后只更新哈希与指纹、不推进快照。生成任务持有生成开始时的 sourceKey，改名重连后用“旧路径到新路径”的映射跟随新记录。
 
-- **Lexical CodeNode 高亮重建不能在同一次 mutation 提交内执行**：Prism 高亮插件在 `CodeNode` mutation listener 中同步调用 `editor.update` 重建 children，会并入当前提交并随后被覆盖；选区虽按新节点恢复，却会落到幸存的旧节点上。应使用 `queueMicrotask` 延后重建，并在重建前记录代码内字符偏移。恢复选区时需同时处理 Text Point 和 CodeNode Element Point；连续 `LineBreakNode` 形成的空行必须用 element point 表示，`selectNext()` 会越过空行。代码块是文档末节点时，Chromium 会把下方空白点击映射回代码末尾，需在根元素 `mousedown` 捕获，在代码外补段落并选中；该更新必须带独立 tag 让 Markdown 同步跳过，否则仅点击空白就会把幻影空段落写回文件。
+- **导图文件即索引，不落 `index.json`**：`.multichat/mindmaps/*.mindmap.md` 由 `workbenchIndex` 按需扫描目录，`updatedAt` 取 frontmatter，外部新建文件回退 `mtime`；不存在索引损坏、索引与文件不一致、重建索引这些状态。`noteManager` 的 `serial` 队列是 promise 链且不可重入，public 方法不得在 serial 内再调用另一个也包 serial 的方法；`read()` 的返回值会被写路径透传，按文件组装的 `mindmaps` 只能放在 `readWithMindmaps()`，否则组装值写回记录 JSON 后 `prepareWorkbenchSource` 会把已删导图当“未迁移残留”复活。判断文件是否还在盘上必须用 `stat`，不能把 `EACCES` 等读失败误判成不存在。删除、改名、覆盖前校验 `id + source + 正文` 三者一致，正文比对两侧统一 `normalizeMindmapNewlines`。外部软件改导图正文不会更新 frontmatter 的 `updatedAt`，保存必须额外带编辑前正文 `expectedMarkdown` 与磁盘比对，冲突返回 `conflict:'file-changed'`。应用自写不能按时间窗抑制 watcher，写后记录 `size + mtime` 指纹，去抖后逐文件比对。工作区换盘或改名后旧记录绝对根失效，按相对路径认领要同时满足“旧根不存在 + 全库唯一 + 正文哈希一致”。
 
-- **Electron guest webview 拖拽穿透与跨栏文件上传**：Electron 中的 `<webview>` 是运行在独立 guest 渲染进程中的原生成员，宿主 DOM 中发起的 HTML5 拖拽滑入 `<webview>` 区域时，指针事件会被 guest 原生拦截，宿主将直接丢失 `dragover`/`drop` 事件且 webview 内部无法解析内部宿主数据。跨栏拖拽（如工作区文件树拖入侧边栏 AI 对话框）的可靠方案是在宿主侧挂载拖拽遮罩层（`absolute inset-0 z-40`），通过 Zustand store 广播 `draggingNodes` 激活感应层，并在捕获宿主 `drop` 后经由 CDP `Input.dispatchDragEvent`（`window.api.dispatchFileDrop`）向 webContents 发送真实的系统级拖拽事件，直接注入目标输入框；对文件夹进行拦截过滤并给出友好提示。
+- **导图追加修改必须复用生成页地址**：`.mindmap.md` frontmatter 只保存 `id/source/title/updatedAt`，`workbenchMindmapsFor()` 组装对象也没有 `generationSession`，文件读回后不能据此恢复原生成对话。`MindmapService` 在本次进程内按 `mapId` 保存最近生成页地址，`modify()` 按 `mapId + platformId` 取出并补进候选的 `generationSession`；`lastPage` 只作兜底，不能作为唯一来源，否则生成另一张导图会覆盖前一张地址。`run()` 只有拿到可校验的 `conversationUrl` 才会 `reused=true`，进而跳过来源文件读取和附件上传；地址缺失就会重新上传并新建对话。
 
-- **跨栏拖拽上传的“成功”必须以附件就绪为准**：`Input.dispatchDragEvent` 返回成功只代表事件已派发，不代表平台已挂载附件；未登录、页面未就绪、附件超限或落点错误时同样会返回成功。前端必须在 drop 前读取 `generateFileUploadStateScript` 基线，drop 后以「文件名新命中或附件计数增加」且 `!busy` 连续稳定 3 次判定成功；落点脚本必须过滤不可见/禁用输入框，找不到时明确失败，禁止回退到 `document.body` 的 `(10,10)`。折叠侧边栏的拖拽不能靠 `dragenter` 展开后卸载条带——那会在 drop 前移除目标并吞掉文件；应在 drop 时把 `draggingNodes` 快照交给常驻侧边栏，一次完成展开与上传。外部文件 drop 需要用 `dataTransfer.types.includes('Files')` 优先于 store 残留节点；树节点/编辑器的 `stopPropagation` 会让窗口冒泡清理失效，外部拖拽状态应在 document 捕获阶段清理。
-
-- **同名附件才改后缀，临时副本要等附件就绪后再删**：基线 `attachmentCount > 0` 不等于「已有同名附件」——输入框里可能挂着上一轮的其他文件，此时给本轮文件改名只会让用户看到的附件名莫名多出短后缀。正确触发条件只有 `nameMatched`：同名项已存在时新文件可能被平台替换或无法区分新旧，才加 8 位短后缀；不同名时附件数增加已足以判定本轮新增。走 CDP 拖拽时按磁盘真实文件名派发，需要改名就复制到临时目录，但**不能在 `dispatchFileDrop` 返回后立刻删**——平台读取拖入文件是异步的，大文件可能还没读完就被清理；临时目录应收集到列表，在整批附件解析稳定后的 `finally` 中统一删除。
-
-- **上传互斥锁必须有超时与代际号，否则一次挂起会永久锁死**：`uploadingRef` 若只在 `finally` 释放，而内部 `await` 的 `webview.executeJavaScript` / `window.api.dispatchFileDrop` 没有超时，页面重载、guest 崩溃或 CDP 挂起时 Promise 永不 settle，`finally` 不执行，后续所有拖拽都会停在「正在上传上一批文件」。正确做法是给每次脚本调用 5 秒、CDP 派发 15 秒的 `withTimeout`，给锁记录 `startedAt` 并在超时后允许接管，同时用递增的 `uploadGenerationRef` 判定批次归属：旧批次迟到时既不能释放新批次的锁，也不能覆盖新批次的提示。提供「停止等待」时只推进代际号并清空当前提示，不强行中断已派发的拖拽。
-
-- **工作台文件上传提示复用项目 Toast**：将当前文件一键发送到 AI 侧边栏时，上传前先保存未落盘的当前文档。上传过程中显示信息态进度提示，成功后恢复成功提示；两者统一复用 `ControlBar` / `ModelOutputCard` 的白底半透明、彩色细边框、`shadow-float` 与 `notification-popup` 样式，不另造状态条。失败和部分成功分别使用错误态与信息态。
-
-- **工作台 Markdown 预览不能只改字号或套用 playground 边距**：`PlaygroundEditorTheme__h1` 等标题使用固定 `px` 字号，但会继承 `body` 的固定 `24px` 行高，标题换行后行距小于字号；标题层级应分别声明相对 `line-height`（如 1.3/1.4）。引用块的 `margin-left: 20px` 会与边框、内边距叠成额外缩进，源代码中的 `>` 并不要求外层偏移；应移除该外边距，仅保留左边线和必要内边距。
-
-- **文件类型图标收敛时保留 Markdown/TXT 与图片原图标**：Material Symbols／Lucide 是通用操作图标体系，vscode-material-icon-theme 是按扩展名显示语言或文件品牌的另一体系，不能把后者当作 Lucide 迁移残留。工作台的 PDF、Word、Excel、PPT、代码与压缩包可以统一走 `FileTypeIcon` 本地 SVG；但 `.md`、`.markdown`、`.txt` 继续沿用原来的 `description` AppIcon，位图继续使用 `image`、`.svg` 使用 `draw`，不应纳入这次 SVG 统一范围。
-
-- **临时构造 `FileTypeIcon` 节点要补齐 `WorkbenchFileNode` 必填字段**：`FileTypeIcon` 接收完整的 `WorkbenchFileNode`，其中 `fullPath` 为必填绝对路径。预览类组件按 `activeFilePath` 临时拼节点时，`path` 与 `fullPath` 都要赋值；只补 `path` 会触发 TS2741。
-
-- **笔记属性的 URL 字段默认动作是编辑，打开动作必须有独立入口**：`FrontmatterPanel` 中把 `<a>` 直接当值渲染时，普通点击会按链接导航，编辑入口只能藏在修饰键里，用户实际无法发现也无法稳定修改。URL 值保留 `<a href>` 以维持修饰键/中键的浏览器打开语义，但普通点击必须 `preventDefault` 进入受控输入框并自动聚焦、全选；同时提供右侧独立图标（会话链接进 AI 侧栏、普通链接进浏览器），并在 `title` 中写明 `Ctrl/Cmd+点击在浏览器打开`。编辑态分支必须排在 URL 渲染分支之前，`Esc` 取消时用标记跳过随后触发的 blur 提交，否则取消仍会把草稿写回。主窗口 `setWindowOpenHandler` 已把 `target="_blank"` 转给 `shell.openExternal`，无需为外链另加 IPC。
-
-- **“是否展示来源会话入口”必须用严格会话页判定，不能复用自动化用的宽松判定**：`isConversationUrlForPlatform` 为后台恢复设计，只校验 origin 与通用会话路径段（`/c|chat|app|search|.../<id>`），同域名的设置页、搜索页、文档页都可能命中；拿它决定 UI 是否显示“在侧边栏打开会话”，会出现填任意平台站内链接都能打开侧栏的误报。`isPlatformConversationPage` 只接受逐平台枚举的真实路径（chatgpt `/c/<id>`、claude `/chat/<id>`、gemini `/app/<id>`、grok `/c/<id>`、perplexity `/search/<id>`、deepseek `/a/chat/s/<id>` 等）与明确平台的 query 会话键；新增平台或路径时同步补 `scripts/agent-cli-acceptance.mjs` 的正负样例，负例至少覆盖同域名非会话页与非 AI 站点。
-
-- **未映射的 `AppIcon` 名称会静默回退成警告三角**：`AppIcon` 对不在 `APP_ICON_MAP` 中的名称使用 `AlertTriangle` 兜底，因此主进程右键菜单传入的新图标名必须在映射表中同步登记；否则用户看到的不是目标图标，而是看似业务警告的三角形。来源会话入口应使用会话语义图标（如 `forum`），不要用文档图标表达打开会话。
-
-- **同一业务图标只能保留一个语义名**：标注图标统一用 `annotation` 映射到 `MessageSquarePlus`，不要再保留 `add_comment`、`sticky_note_2` 等多个名字指向同一或相近图形。修改图标时应全局替换调用点并删除旧映射，避免后续维护者不知道该改哪一个；右键菜单传入的 `icon` 字符串也要与 `APP_ICON_MAP` 使用同一个名字。
-
-- **工作台标签规范对齐 Obsidian 与防泛滥补全**：Obsidian 在 YAML Frontmatter 中存储标签不含 `#` 前缀（`#` 仅用于正文行内引导符），若带 `#` 会被 YAML 标量包裹为引号字符串破坏标准识别。标签解析与序列化需自动剔除 `#` 前缀、去重并强制格式化为 YAML 列表；属性面板标签输入框通过聚合工作区已有标签，提供基于关键词前缀/模糊匹配的下拉建议浮层（支持方向键、Enter、Tab、鼠标点击与新建回车），既保持与 Obsidian 的数据兼容，又从交互上避免了标签随手打带来的严重标签熵增。检索端需支持 `tag:#name`、`tag:name` 与 `#name` 语法，并支持斜杠 `/` 的父子层级嵌套继承匹配。
-
-- **工作台双视图切换要按文件记忆各自的滚动位置**：`WorkbenchEditor` 用 `editorMode` 条件渲染预览与源码，切换时整棵编辑器卸载，两套滚动容器都会从顶部重新挂载，浏览器不会代为保留位置。滚动记忆的键需包含工作区、相对路径与视图，避免同名文件或跨工作区串位；只存内存即可，不必写入配置。恢复预览时不能只赋值一次：Lexical 解析、字体与图片缩略图会继续改变内容高度，内容未撑开时 `scrollTop` 会被浏览器夹紧，若此时把该值写回记忆就会覆盖原位置。正确做法是恢复期间忽略 `scroll` 记录、用 `ResizeObserver` 或有限帧重试直到目标位置可达，并在用户滚轮、触摸或按键时立即结束恢复。源码侧在 `useLayoutEffect` 中恢复 `textarea.scrollTop` 并同步高亮层与行号列。
-
-- **工作台三栏弹性布局与拖拽写盘解耦**：三栏 Flex 布局（左栏 shrink-0 + 中栏 min-w + 右栏 shrink-0 + overflow-hidden）中，中间编辑器 min-w 不可设过大（保底 380px 为宜，避免占据过多可用宽度），右栏侧边栏容器应设置 `maxWidth: calc(100% - ...)` 进行纯 CSS 硬件保底，防止小窗口（如 1100px）下总宽溢出导致最右侧元素被截断。Store 动态 clamp 必须联动考虑窗口实际宽度、中栏保底线及左栏折叠状态；Splitter 拖拽时，高频 `pointermove` 只能更新内存状态，持久化写盘（`storeSet`）必须延迟到 `pointerup` 单次执行，彻底消除高频 IPC 同步写盘带来的界面粘滞卡顿；窗口 resize 监听通过 `requestAnimationFrame` 防抖并单向收敛，避免无谓 re-render。
-
-- **设置弹窗用单一面板承载，层级靠分区与留白建立**：远程地址、预设选项和文本编辑器不要各自包成带描边的卡片，否则在弹层 framework 内形成卡片套卡片。用标题行 + 细分隔线划分区块；预设复选框采用无边框网格，hover 时只给轻微背景；底部仅保留一个主保存动作并统一处理多个表单字段的保存，取消按钮降为文字按钮。
-
-- **Markdown 裸链接导入与导出不能直接复用普通链接序列化**：`@lexical/markdown` 的 `LINK` transformer 会跳过 `AutoLinkNode`，需为裸 URL 单独增加 text-match transformer，并在替换时用 `$findMatchingParent(textNode, $isLinkNode)` 防止在已有链接内嵌套。导出时不能拿 `exportChildren()` 的结果与 URL 比较：`exportTextFormat` 会转义下划线、方括号等字符，导致 `https://foo_bar` 永远不相等并被改写为显式链接；应改用 `node.getTextContent()`，仅在子节点无格式时原样输出裸 URL。链接插入弹层应复用应用内输入框而非 `window.prompt`，并在 hover 提示中跳过「显示文字本身就是地址」的裸链接，只对文字链接展示 URL。
-
-- **Lexical 本地文件链接不能交给默认 URL 归一化**：`LinkNode.sanitizeUrl()` 会对无协议地址调用 `formatUrl()`，普通文件名会被补成 `https://`，点击层再按浏览器 URL 处理就无法回到工作区文件。Markdown 导入与链接弹层应在进入 `LinkNode` 前识别已知文件扩展名，补 `./` 保留相对路径语义；点击时按当前文档目录解析为工作区相对路径并交给 `openFile()`，而不是使用 `anchor.href` 的绝对 URL。链接目标不存在时需保留当前文档，不能复用“启动恢复时文件已删除就清空编辑器”的分支。
-
-- **Lexical 自定义 GFM 表格导入必须裁掉单元格两侧的填充空白**：`TABLE_ROW_REG_EXP` 只负责取出首尾管道之间的整段内容，直接按 `|` 切分会把 `| a | b |` 中用于排版的空格原样写入 Lexical 单元格；主页的 `remark-gfm` 会按规范自动裁剪，因此同一份 Markdown 在两边表现不一致。拆分后应显式去掉单元格首尾的 ASCII 空格与制表符。不要用 `String.trim()` 代替，它还会删除全角空格和不换行空格，可能改变中文内容；按 GFM 的空白定义使用 `[ \t]` 即可。
-
-- **Lexical Markdown 不解析块级 HTML 表格，需用占位标记桥接并保留原始 HTML**：`@lexical/markdown` 只识别 GFM 管道表格，`<table>` 会落入普通段落。导入前可在代码围栏之外扫描完整 `<table>…</table>` 块，替换为唯一占位标记，再由 element transformer 创建自定义 `DecoratorBlockNode`；节点保存原始 HTML，导出时原样返回，才能保留 `rowspan`、`colspan` 与源码模式内容。富文本展示应通过 `DOMParser` 读取结构并用 React 白名单节点渲染，不要在编辑器内注入原始 HTML。若允许修改已有单元格，应在 focus 时记录单元格内容基线，在 blur 或 Ctrl/Cmd+S 时只回写该单元格并重新序列化 HTML；不要在输入过程中更新 Lexical 节点，否则节点重渲染会打断光标和输入法。验证时需同时检查 `rowspan/colspan`、单元格内 `strong/br`、表格后正文定位，以及编辑一处后源码中的 HTML 是否仍保留合并单元格结构。
-
-- **AppIcon 块级化居中与空状态对齐**：`AppIcon` 统一渲染为 SVG，赋予 `block` 类名后会脱离父级 inline/`text-center` 影响（SVG 变为块级元素后默认 `margin-left: 0` 靠左）。若要在空状态提示中与居中文本对齐，必须配合 `mx-auto` 或将父容器设为 `flex flex-col items-center` 进行水平居中对齐。
-
-- **Lexical 块拖拽控件需要独立左侧 gutter**：`DraggableBlockPlugin_EXPERIMENTAL` 默认把 handle 定位在锚点左缘加 4px，不会为自定义 `menuComponent` 预留宽度。工作台的 `+` 与拖拽手柄合计约 60px；若文章容器只保留 32px 左内边距，首个正文字符会被控件覆盖。应至少保留 64px 左侧空间，且不要仅靠浮动控件的透明背景判断布局是否安全。
-
-### 7. 划词、快捷键与窗口交互
-
-- **可重复交互的 Electron 悬浮窗口**：避免同时使用 `focusable: false` 和依赖完整 `click` 事件。用 `showInactive` 控制弹出时不抢焦点，让窗口保持可聚焦，并在 `pointerdown` 派发一次性动作。
-
-- **后台自愈按失效资源重启**：原生 Hook 静默失活时重启 Hook/UIA 并清理手势状态；仍健康的工具条 BrowserWindow 保持运行，避免重建后按钮失效。
-
-- **macOS 选区读取不得复用 Windows UIA helper**：Windows 的 PowerShell UIA helper 只能在 `win32` 启动；macOS 选区读取必须经过平台抽象，并在 AX 原生模块不可用或辅助功能权限不足时返回明确的 unsupported/permission 错误，不能静默启动 PowerShell、模拟复制或伪造读取成功。
-
-- **自动划词工具条用 UIA 真值校验**：Windows 工具条通过 TextPattern.GetSelection 非侵入读取外部选区，并比较按下/松开快照确认本次新选区；鼠标距离仅作粗筛，不发送 Ctrl+C。UIA 不可读时安全降级不弹，不把旧剪贴板或手势当选区。常驻 PowerShell helper 的行协议采用 base64 文本，显式 UTF-8，Console.Out.WriteLine/Flush 输出，stdin 关闭及超时需清理/重启。macOS 经平台 selectionReader，不能启动 Windows helper。
-
-- **Windows 后台窗口抢焦与置顶闪烁**：在 Windows 平台下，当 Electron 后台窗口或隐藏窗口试图直接调用 `window.show()` / `window.focus()` 时，操作系统防抢焦点机制（SetForegroundWindow 限制）会阻止其置顶并引发任务栏或窗口边框闪烁。解决方案：通过临时开启 `win.setAlwaysOnTop(true)` 再调用 `win.focus()`，并在 50ms 后自动恢复 `setAlwaysOnTop(false)`（需注意保存并尊重用户原本的 isAlwaysOnTop 状态），即可实现稳定强行聚焦与置顶。
-
-- 快捷窗口（quickWindow）是独立的 `BrowserWindow`，主窗口的 `did-attach-webview` 监听器不会自动继承给快捷窗口。任何新增窗口都必须单独为其 `webContents` 注册 `did-attach-webview` 事件，否则该窗口内 Webview 的脚本注入与链接拦截将完全失效，导致外部链接无法在系统浏览器中打开。修复方案：将注册逻辑提取为 `registerWebviewHandlers(webContents)` 公共函数，在所有宿主窗口中复用。
-
-- Electron 快捷键自动复制选中文本（Windows）：
-  1. **等待按键释放**：触发全局快捷键时先 `sleep(250)`，以防用户的物理手指仍按在 `Ctrl/Shift` 上导致模拟按键冲突（触发 `Ctrl+Shift+C`）。
-  2. **轻量模拟脚本**：使用 VBScript 写入 `.vbs` 文件并使用 `execFile('cscript.exe', ['//NoLogo', path])` 异步执行。VBS 启动仅需 ~10ms 且完全隐藏，比 PowerShell 更快且绝不抢焦。
-  3. **精确监测与兜底**：先 `clipboard.clear()` 再模拟按键，等待 150ms 写入缓冲后读取；若无新数据写入（说明用户未选中文本），将旧数据写回剪贴板还原，**但必须返回空字符串 `''`**，切勿将陈旧的旧剪贴板内容作为选中文本返回；且划词操作回调中必须拦截空文本，不唤起弹窗。
-
-- **[关键陷阱] 全局快捷键 + SendKeys 焦点顺序**：在全局快捷键回调中必须先执行模拟复制动作，**最后**再执行 `qw.show() / qw.focus()` 唤起并聚焦 Electron 快捷窗口。若顺序相反，焦点会立即被 Electron 夺走，按键模拟将打在 Electron 自身，导致外部文本复制失效。
-
-- **主窗口拖动按平台分支**：当前 Windows/Linux 标题栏由 Pointer Capture 与主进程拖动 IPC 实现，macOS 使用原生 app-region。不要将历史 Windows 拖动缺陷扩大为所有平台禁止 drag-region；修改时核对 Layout 与 ipcHandlers 的平台分支、最终 pointerup/cancel 提交及最大化行为。
-
-- **monio-napi 回调按实际载荷形状解包**：当前 inputHookManager 支持 EventJs 或 EventJs[]，批量载荷逐个 processEvent；不能只根据 d.ts 把数组当对象。字段全 undefined 时先检查脱敏后的形状信息，不猜字段或 OS 原因。纯 Node 隔离诊断还需排除消息泵和测试代码自身的解包问题。未单独验证的其他 callback 形状只能作为待查假设；未经运行时证据证实的根因不能升为有效知识。
-
-- **原生输入 Hook 的健康检查不能只看 `isRunning`**：原生对象仍标记为运行中，不代表回调线程还在持续派发事件。长运行场景应使用独立信号交叉判断：记录最后一次 Hook 回调时间，并用 Electron `powerMonitor.getSystemIdleTime()` 确认系统近期确有用户输入；当系统输入活跃而 Hook 回调持续陈旧时，主动重建监听。重建失败使用有上限的退避重试，并确保显式停止时取消待执行重试，避免用户关闭功能后监听自行复活。设置开关也只能在 Hook 实际启动成功后持久化为启用，失败路径必须回滚状态和窗口。
-
-- **不要用未经运行时验证的 `EventJs.time` 给拖选增加硬时长门槛**：`monio-napi` 的类型声明只能证明字段存在，不能证明不同原生后端的单位、基准和批量派发语义适合业务阈值。曾新增 `150–2000ms` 过滤后，用户重启开发服务器实测所有划词都无法进入工具条链路。已有 UIA 按下/松开选区快照能够确认是否产生本次新选区时，鼠标层只保留必要的拖动距离粗筛；不要在进入真值校验前用未验证的事件时长丢弃快速或长时间的合法选词。双击间隔继续使用主进程 `Date.now()`。
-
-- **划词与快捷键是两条路径**：全局鼠标手势不足以证明产生了文本选区，工具条还需 UIA 快照与本应用焦点守卫。用户主动触发的快捷操作可走 `shortcutManager.ts` 的复制路径，必须先读取再显示/聚焦窗口，并处理剪贴板恢复。
-
-- **快捷键录制过滤输入法暂态事件**：Process、Unidentified、Dead 以及 keyCode 229 不能作为最终主键；Ctrl+Shift 输入法切换可能产生这些事件，需等待有效物理键/功能键，避免仅按修饰键就提交。
-
-- **monio-napi 事件批处理会破坏拖拽时长判定**：`startListen` 的运行时回调可能一次派发多个事件；如果使用主进程 `Date.now()` 的最小时长门槛过滤拖拽，会把真实拖拽误判为无效。应以实际位移和松手时的选区读取作为最终判断，不要把跨事件的时间阈值当作唯一依据。
-
-- **工作台/含 `<webview>` 布局的分隔条要留足命中区域**：`<webview>` 是原生插件层，会优先接管落其矩形范围内的指针命中，DOM 侧的 `z-index` 与负 margin 无法保证分隔条可被点中（表现为窗口变小/非最大化时"拖不动"）。分隔条应做宽于视觉线的命中区（如 10px 外框 + 4px 视觉线、避免负 margin 叠进 webview 矩形），`onPointerDown` 后用 `setPointerCapture` + window 级 `pointermove/pointerup`，并配合全屏透明遮罩接管事件直到松手。
-
-- **Windows 多 WebView 无框窗口的最大化黑闪应绕开原生 overlay**：`titleBarOverlay` 的最大化按钮可能绕过 renderer IPC，直接触发原生 `maximize()` 并重建 Chromium swap chain。出现黑闪时，应移除 win32 overlay 控件，由自绘按钮调用基于工作区的 `setBounds`，同时保存还原边界。
-
-- **Windows 多 WebView 主窗口的拖动必须合并高频 pointermove**：保留 Pointer Capture 与 `setContentBounds`，按渲染帧限速合并移动事件，并在 `pointerup` / `pointercancel` 提交最终位置，避免 IPC 和窗口合成队列堆积导致卡顿与拖影。
-
-- 快捷操作快捷键（Ctrl+Shift+S/E/T/Q）的提示词注入流程：先通过 VBScript 模拟 `Ctrl+C` 自动复制选中文本，读取成功后，再展示并聚焦快捷窗口，最后发送 `quick:inject-prompt` IPC 完成一键总结。
-
-- quickWindow 初始配置 `alwaysOnTop: false, skipTaskbar: false`，让用户通过 pin 按钮自行决定是否置顶。`skipTaskbar: true` 会导致窗口被其他窗口遮挡后无法通过任务栏找回，用户体验差。isPinned 状态由前端 toggle 按钮驱动，通过 `quick:get-always-on-top` / `quick:set-always-on-top` IPC 控制。
-
-- **Frameless Electron 独立窗口使用 w-screen h-screen overflow-hidden 消除 body 背景溢出**：在 Electron 的无边框窗口（`frame: false`）中渲染独立页面时，如果该页面的最外层容器声明为 `w-full h-full`，但父级 HTML/Body 及 React `#root` 未声明高度（默认 height: auto），会导致容器高度发生塌陷，退化为内容高度。由于 Electron 窗口具有物理固定宽高（例如 900x700），塌陷容器下方多余的视口空间会被 `body` 的 CSS 背景（如 radial-gradient 等渐变背景）直接填充，表现为“诊断页底栏下方出现大片无用空白/渐变底色”。**正确做法**：将独立窗口的顶层容器直接声明为绝对视口宽高的 `w-screen h-screen overflow-hidden`，使其强制填充 Electron Window 并阻止 body 溢出滚动，同时使用 flex 布局的 `flex-1 overflow-auto` 赋予内部面板响应式滚动能力，底栏自然贴合底边。
-
-- **`WebContents.findInPage` 的 `findNext` 参数语义相反**：Electron `WebContents::FindInPage` 底层 C++ 将 `options.findNext` 直接映射给 `blink::mojom::FindOptions::new_session`。因此首次搜索或修改关键词时需传 `findNext: true`（开启新查找会话），而上下步进跳转时需传 `findNext: false`（延续当前查找会话）。
-
-- **macOS 26 System Events 移除了 `focused UI element` 对象语法**：`focused UI element of <process>` 在 macOS 26 编译报错 -2741；改读进程属性 `value of attribute "AXFocusedUIElement"`（selectionReader.ts）。AX/系统事件脚本跨版本易失效，升级 macOS 后需实测。
-
-- **macOS 红绿灯定位须用 `titleBarStyle: 'hidden'` + `trafficLightPosition`**：`trafficLightPosition` 对 `hiddenInset` 不生效（Inset 强制内嵌位）；坐标是 OS 点单位，红绿灯圆心≈设定值+6.5，无头机截屏像素坐标≠OS 坐标需按实际像素对齐。
-
-- **macOS Tray 彩色图标不能走 template 且方法在 nativeImage 上**：template image 只保留 alpha 剪影会渲染成黑色；要显示彩色应用图标不能调 `setTemplateImage`，图标建议 `resize` 到 ~22px。`Tray` 实例本身没有 `setTemplateImage` 方法（误调直接崩溃），应对 `nativeImage` 调用 `nativeImage.setTemplateImage(true)`；`assets/` 下无 `tray-iconTemplate.png` 时回退 `logo.png`。
-
-- **跨源 sandbox iframe 的划词右键需由主进程转发**：iframe 内的 DOM `contextmenu` 不会冒泡到宿主 renderer，宿主自绘菜单无法直接拿到选区。主窗口 `webContents` 的 `context-menu` 事件可以取得子 frame 的 `frameURL` 与 `selectionText`；仅对目标协议且存在选区的 frame 调用 `preventDefault()`，再用“屏幕光标坐标 - 窗口内容区坐标”定位并 IPC 交给宿主菜单。这样不改变 iframe 的 sandbox 边界，也不影响普通 DOM 和独立 webview 的右键链路。
-
-
-## Stable Decisions
-
-### 8. 笔记、快照与会话身份
-
-- 来源会话键应保留完整规范化URL路径，截取第一个chat片段会把chat/s/id1和chat/s/id2错误分为同一会话
-
-- **工作台文档与导图的绑定以路径为身份、以指纹判改名**：记录键由「规范化工作区路径 + 相对路径」派生，不写文档 frontmatter。文档删除时导图立即删除（应用内删除提示“不可恢复”，不做保留期）；外部改名/移动无法与删除区分，只能在文件树刷新后对账：先让路径仍在的记录占位，再对路径消失的记录按「size + mtime 完全一致」筛候选，唯一候选直接重连，多候选读文件比内容哈希，仍不唯一就按删除处理，绝不猜。对账索引必须由渲染层随文件树传入，主进程不再自行扫盘；按 size+mtime 建桶后再匹配，避免整目录删除时的平方复杂度。删除前再单独 stat 一次，只有 ENOENT 才删，工作区根不可读时整轮跳过。保存成功后只更新哈希与指纹、不推进快照，避免自动保存把导图面板刷成高频重载。生成任务持有的是生成开始时的 sourceKey，期间若被改名重连，保存时查对账留下的「旧路径→新路径」映射跟随新记录，比按内容回查更准，不会误挂到同内容的另一篇文档。
-
-- **工作台二进制文档只记指纹，不按 UTF-8 读正文**：PDF、Word（`doc/docx/docm`）、PPT（`ppt/pptx/pptm`）不能当文本读——`readFile(..., 'utf8')` 会产出乱码并让快照、哈希和“基于旧版本”判断全部失真。这类文档的版本指纹统一用 `binary:<sha256(size:mtime)>`，生成时只 `stat` 补指纹，快照保持空串；复制/移动克隆记录时也必须走同一分支，否则副本会带着伪造正文。扩展名判定要覆盖 `docm/pptm`，否则宏格式会被误当文本。二进制来源没有可读正文，多个同 size+mtime 候选无法可靠区分，改名判定应直接返回 null 让用户重新确认，而不是猜一个绑定。思维导图生成链路中，文本材料（含 PDF/Word/PPT 的选区）写成 `.md` 附件；原文件材料直接上传工作区文件，且大文件跳过 Base64 粘贴、优先 CDP 拖拽，避免几十 MB 转字符串占满渲染进程内存。
-
-- **工作台导图文件绑定：文件即索引，不落 `index.json`**（`.multichat/mindmaps/*.mindmap.md` 方案）：①`workbenchIndex` 是纯派生视图，每次按需扫描目录，`updatedAt` 取 frontmatter，外部新建文件退回 `mtime`；不存在索引损坏、索引与文件不一致、重建索引这些状态。②`noteManager` 的 `serial` 队列是 promise 链不可重入——public 方法不得在 serial 内再调另一个也包 serial 的方法；`read()` 的返回值会被写路径透传到 `write()`，按文件组装的 `mindmaps` 只能放在 `readWithMindmaps()`，否则组装值写回记录 JSON 后 `prepareWorkbenchSource` 会把已删导图当「未迁移残留」复活。③判断「文件是否还在盘上」必须用 `stat` 而非「读文件失败」——EACCES 等读失败会被误判成不存在。删除、改名、覆盖前都要校验 `id + source + 正文` 三者一致，正文比对两侧统一 `normalizeMindmapNewlines`。④外部软件改导图正文时不会更新 frontmatter 的 `updatedAt`，仅靠版本戳会把外部改动误判成无变化；保存必须额外带「编辑前正文」`expectedMarkdown` 与磁盘比对，冲突时返回 `conflict: 'file-changed'`，由用户显式选择覆盖或载入，不能静默覆盖。⑤应用自写不能按时间窗抑制 watcher：写完几百毫秒内外部又改同一文件时，事件会落在窗口里被一起吞掉；改为写后记录 `size + mtime` 指纹，watcher 去抖后逐文件比对，只有与应用写下的不同才广播。⑥工作区换盘/改名后旧记录的绝对根失效，按相对路径认领时要求「旧根不存在 + 全库唯一 + 正文哈希一致」三条同时成立，避免把另一工作区同名文档的记录搬走。
-
-- **工作台导图追加修改必须复用生成页地址，不能只看文件里的 `generationSession`**：工作台导图的 `.mindmap.md` frontmatter 只保存 `id/source/title/updatedAt`，`workbenchMindmapsFor()` 组装对象时也没有 `generationSession`；因此文件读回后不能据此恢复原生成对话。`MindmapService` 在本次进程内按 `mapId` 保存最近生成页地址，`modify()` 按 `mapId + platformId` 取出并补进候选的 `generationSession`；`lastPage` 只作兜底，不能作为唯一来源，否则生成另一张导图会覆盖前一张的地址。`run()` 只有拿到可校验的 `conversationUrl` 才会 `reused=true`，进而跳过来源文件读取和附件上传；若地址缺失就会重新上传并新建对话。
-
-- **文档来源在记录建立前只有路径，读记录必须先换 UUID**：工作台面板的 `source.id` 在尚未建档时是 `record?.id || activeFilePath`，而 `notes:get` 最终落到 `noteManager.file(id)` 的 UUID 校验（`/^[a-f0-9-]{36}$/`），直接传路径会得到「无效的笔记 ID」，与用户是否生成过导图无关——首次打开侧栏就会触发。凡是文档来源的读记录入口都必须先走 `resolveId()`（内部 `ensureRecord()` 建档）再 `notesGet`，并给 `resolveId` 加失败分支，避免异常变成未处理的 Promise 拒绝。可编辑的 HTML 走原文件上传时，上传前必须先 `saveActiveFile()` 落盘，否则拖上去的是磁盘旧版本；但它的版本哈希仍按文本计算，不能套用二进制文档的 `size:mtime` 指纹，否则每次保存都会在两种指纹口径之间跳变。
+- **文档来源在记录建立前只有路径，读记录必须先换 UUID**：工作台面板的 `source.id` 在尚未建档时是 `record?.id || activeFilePath`，而 `notes:get` 最终落到 `noteManager.file(id)` 的 UUID 校验，直接传路径会得到“无效的笔记 ID”。凡文档来源的读记录入口都必须先走 `resolveId()`（内部 `ensureRecord()` 建档）再 `notesGet`，并给 `resolveId` 加失败分支。可编辑 HTML 走原文件上传时必须先 `saveActiveFile()` 落盘，否则拖上去的是磁盘旧版本；它的版本哈希仍按文本计算，不能套二进制文档的 `size:mtime` 指纹。
 
 - **旧 `NoteManager.list()` 是破坏性读取，迁移和旧页读取不能复用**：`listUnlocked()` 会按 `sourceKey` 合并记录、按 `quote` 合并批注并 `rm` 旧 JSON。旧笔记迁移必须直接 `readdir + JSON.parse` 做只读原始快照，迁移期间 `notes:list/summaries/source/anchors-for-url/export/get` 也只能读快照；任务结束后普通 `list()` 不应再自动删除旧 JSON，同源合并只做内存视图。验收必须覆盖“同一 quote 两条不同评论都保留”和“迁移前后旧 JSON 数量不变”。
 
-- **旧笔记迁移的完成标记必须以目标回读为准，进度必须以磁盘任务为准**：`migrateOne()` 写文档、source/document 旁路或导图成功只说明调用没有抛错，不代表目标真的落盘；写 `migratedAt` 前必须回读三类目标，缺任一项就写 `migrationBlocked`（普通会话用 `verify-failed`，工作台目标文档缺失用 `workbench-unresolved`），绝不把失败伪装成已完成。工作台记录的目标文档不存在但仍有快照时，旧快照是唯一副本，必须保留 JSON 并标阻塞；只有系统临时目录下工作区已消失的早期误标记录可以重开迁移，普通工作区里用户主动删除的文档不能复活。新格式 `version: 2` 且无正文、无批注、无导图、无迁移标记的空工作台记录应直接跳过，否则 `pendingConversations` 永远不会收敛。迁移循环每处理一条都要重新读取持久化 job 再写进度：本地持有的 `running` 对象会把用户刚点的 `paused/abandoned` 覆盖回去；启动阶段、单条写入后、异常分支都不能用旧快照写状态。默认库不可写属于任务级暂停，不应把剩余记录逐条记成失败。验收口径应同时核对旧 JSON 标记分布（`migratedAt` 与 `migrationBlocked` 互斥）、默认库文档/旁路/导图唯一性、备份数量，以及 `pendingSummary` 与 `legacyMigrationJob` 是否一致。
+- **旧笔记迁移的完成标记以目标回读为准，进度以磁盘任务为准**：`migrateOne()` 写文档、source/document 旁路或导图成功只说明调用没有抛错，不代表目标真的落盘；写 `migratedAt` 前必须回读三类目标，缺任一项就写 `migrationBlocked`（普通会话用 `verify-failed`，工作台目标文档缺失用 `workbench-unresolved`）。工作台目标文档不存在但仍有快照时，旧快照是唯一副本，必须保留 JSON 并标阻塞；只有系统临时目录下工作区已消失的早期误标记录可以重开迁移，普通工作区里用户主动删除的文档不能复活。新格式 `version: 2` 且无正文、无批注、无导图、无迁移标记的空工作台记录应直接跳过。迁移循环每处理一条都要重新读取持久化 job 再写进度，本地持有的 `running` 对象不能把用户刚点的 `paused/abandoned` 覆盖回去；默认库不可写属于任务级暂停，不应把剩余记录逐条记成失败。验收口径同时核对旧 JSON 的 `migratedAt` 与 `migrationBlocked` 互斥、默认库文档/旁路/导图唯一性、备份数量，以及 `pendingSummary` 与 `legacyMigrationJob` 是否一致。
 
-- 抓取网页对话时，ChatGPT 等平台 DOM 自带无障碍头 (如 <h4>你说：</h4>)，在 htmlToMarkdown 时会被转为 Markdown 噪音；因此提取消息必须主动过滤 DOM 伴生噪点，使用 XML 标签隔离结构，彻底避免语法与格式污染
+- **笔记属性的 URL 字段默认动作是编辑，打开动作必须有独立入口**：`FrontmatterPanel` 把 `<a>` 直接当值渲染时，普通点击会按链接导航，编辑入口只能藏在修饰键里，用户无法发现。URL 值保留 `<a href>` 以维持修饰键和中键的浏览器打开语义，但普通点击必须 `preventDefault` 进入受控输入框并自动聚焦、全选；同时提供右侧独立图标（会话链接进 AI 侧栏、普通链接进浏览器），并在 `title` 中写明 `Ctrl/Cmd+点击在浏览器打开`。编辑态分支必须排在 URL 渲染分支之前，`Esc` 取消时用标记跳过随后触发的 blur 提交。主窗口 `setWindowOpenHandler` 已把 `target="_blank"` 转给 `shell.openExternal`，无需为外链另加 IPC。
 
-- **工作台文件树的隐藏规则以 Git 真实忽略结果为准，不再按“名字以点开头”判断**：`git ls-files --others --ignored --exclude-standard --directory -z -- .` 在任意工作区子目录执行都会返回相对该目录的 POSIX 路径，整目录被忽略时折叠为 `dir/`，目录内有已跟踪文件时返回其中被忽略的具体文件，因此既能正确显示未被忽略的 `.agents`/`.claude`/`.memory`，又不会因为“按名字猜”把用户主动管理的点号目录吞掉。非 Git 工作区该命令直接失败，应退回内置名单。应用与版本库内部目录（`.git`、`.multichat`、`.trash`）、Git 元文件（`.gitignore`、`.gitattributes`、`.gitmodules`）以及 `node_modules`、虚拟环境、`__pycache__` 等依赖缓存仍需无条件隐藏：前两类属于配置而非工作区内容，后者未必被 `.gitignore` 覆盖，放开会让整树扫描被大量文件拖慢；`.gitignore` 的编辑入口在工作区设置，不依赖文件树。外部导入（拖入/粘贴）拿不到源的忽略结果，只能按名字拦截同一批目录。文件树、标签扫描与全文搜索必须复用同一个过滤函数，否则会出现“树里看不到但搜索结果能命中”的不一致。
+- **工作台标签对齐 Obsidian 并且要防泛滥**：YAML frontmatter 中的标签不含 `#` 前缀，`#` 只用于正文行内引导符；带 `#` 会被 YAML 包成引号字符串，破坏标准识别。解析与序列化需自动剔除 `#`、去重并格式化为 YAML 列表；属性面板聚合工作区已有标签，提供前缀或模糊匹配的下拉建议，支持方向键、Enter、Tab、鼠标点击和新建回车。检索端支持 `tag:#name`、`tag:name`、`#name` 语法，以及斜杠 `/` 的父子层级继承匹配。
 
+### 导图渲染与交互
 
-### 9. 历史恢复、轮询、休眠与内存
+- **Markmap 中文文本会坍塌成单字竖排**：Markmap 首次向 SVG 插入 `<foreignObject>` 时尚未计算 width，Chromium 会把可断行中文压缩到最小内容宽度，随后 `_relayout()` 把宽度永久固定为约 16px。外层 `.markmap-foreign`、内部嵌套 div、`.mm-node-item` 和 `.mm-node-title` 必须统一声明 `white-space: nowrap !important` 与 `width: max-content !important`，不能只改其中一个节点。
 
-- **轮询抓取空结果不能累计稳定次数**：空字符串表示页面尚未产出、跨 frame 目标尚未出现或本次读取失败，不是“内容稳定”。只有非空且满足业务基线条件的内容才能累计稳定计数；空结果必须保持未完成并继续轮询，否则会在真实回复出现前误判结束。
+- **外溢按钮会同时影响测量和命中**：Markmap 的 `scrollWidth` 可能包含绝对定位子元素，`opacity: 0` 或父层零尺寸不等于不参与测量；非显示态按钮应核对 `display: none`。连线端点要结合节点 `offsetWidth`、布局 rect 与 `foreignObject` 的 x/paddingX 校正，不能用透明度隐藏来假定按钮不占宽度。包装层默认大宽度在 `overflow: visible` 下可能成为透明命中遮罩，必须让真实节点和按钮接受点击、SVG 连线不拦截事件；保留文字 nowrap/max-content 与按钮外溢需求，不能全层统一 `width: auto` 导致中文再次坍塌。历史约 40px 偏移和 1–2px 穿透量只是当时观测，当前值以实现和视觉验证为准。
 
-- **恢复历史时产品模式切换会重置会话锚点**：若恢复流程调用 `setProductMode`，必须在模式恢复完成后重新设置 `isNewSession`、`activeModels` 与 `currentConversationId`，否则后续总结或续写会失去当前历史会话上下文。
+- **节点按钮与折叠状态不能改变连线几何**：隐藏 Markmap 原生 circle，避免与自定义添加/折叠按钮重叠；按钮应脱离文本尺寸计算并保持稳定命中，是否显示不能改变连线几何。`initialExpandLevel: -1` 对应初始全展开，运行时展开全部需更新树的 fold 状态并 `setData`。
 
-- **辩论轮询必须在发送前取基线，并用 WebContents ID 绑定网页实例**：WebviewCard 的 useImperativeHandle 会在发送状态、加载状态或其他 React 渲染后创建新 ref 对象；比较 ref 对象引用会把同一网页误判为已替换，导致首轮轮询提前退出、后续轮次不再注入。应比较 getWebContentsId()，每次读取使用当前 ref，同时保留模式、会话 ID 与 URL 校验。基线必须在发送前通过非交互采集取得；发送后读取可能已得到本轮快速回复，导致一直等待到超时。只有当前内容非空、不同于基线且连续稳定才允许推进；空值或等于基线时重置稳定次数，禁止使用首次变化后永久放行的单向闩锁。暂停后继续等待已经发送的消息，不重复注入；超时保留已完成发言与当前发送状态供继续采集。
+- **隐藏画布不能参与首次 fit**：`Markmap.create(svg, options, data)` 在数据布局完成后会 fit，`autoFit: false` 不能阻止这次初始化行为。当前 `useMindmapCanvas.ts` 创建实例时不传 data；SVG 可见且宽高有效后再 `setData`，再按首次适配或变换无效状态 fit。正常树更新保留缩放和偏移，避免编辑或 ResizeObserver 的细微变化反复触发适配；尺寸阈值是实现取舍，不固定为通用 40px 规则。隐藏重开、拖动、缩放和新增节点的验收状态要查对应日志，不能由 lint/build 推断。
 
-- **轮转驱动的空回复应中止流程而非写占位继续推进**：`useDebateRunner.runNextTurn` 早期在 `getResponseFromSlot` 返回空时用 `appendDebateSpeech(..., speech || '（无回复）')` 写一条占位发言再 `advanceDebateTurn()` 继续下一轮——这会让没回复的空轮串起来，掩盖故障。**正确做法**：检测到空回复（`!speech || !speech.trim()`）时立即 `setDebatePhase('finished')` 并 `return`，不 `append`、不 `advance`，保留已完成的真实回合供用户查看。适用于一切「自动轮转、依赖对方真回复」的驱动场景。
+- **编辑状态不能重建节点 DOM**：`selectedNodeId`/`editingNodeId` 的纯 UI 变化不要触发 `setData`，避免销毁正在编辑的 DOM、Range 和焦点；树数据变化才 `setData`，选中或编辑态通过 DOM class/属性同步，`setData` 后恢复高亮。`fit/centerNode` 依赖完整 D3 transition 接口，不能把 transition 替换为原始 selection；当前采用 `duration: 0`，保留接口。避免在 `setTree` 更新函数里再次调用触发 `setTree` 的提交函数，基于 `treeRef` 的最新树执行编辑，保持持久化与 React 状态一致。
 
-- **内存优化先识别资源类型**：多个 AI SPA/WebContents 有基础内存开销，但历史 80–150MB 只是观测量，不是固定预算或不可优化下限。先测 main 日志、内存历史缓存、隐藏页面和后台会话，再处理真实占用。共享 persist:shared 是项目约束；隐藏/休眠/卸载影响会话连续性，不能默认清空 mountedWebviews。磁盘与内存历史上限必须分开维护，不能把裁剪后的内存数组直接覆写为全部磁盘记录。Chromium 内存开关需实测，不能当作现成修复。
+- **foreignObject 画布中的 focus 和命中区要显式处理**：包含 SVG foreignObject 和 D3 zoom 的画布中，DOM `focus()` 必须显式传入 `{ preventScroll: true }`，否则 Chromium 会滚动最近祖先容器导致视口突变。为浮动在节点边缘的操作按钮配置扩大命中范围的伪元素时，按钮自身必须具备独立定位层级（`relative + z-index`），防止父级绝对定位的伪元素遮挡真实按钮。
 
-- **Electron main 进程日志泄漏的隐蔽性**：`console.log(JSON.stringify(bigObj, null, 2))` 在流式场景下会按 chunk 数量（数百-数千次）放大，每个大字符串在 main 进程 stdout 缓冲区累积，导致稳态内存上涨且不触发 GC。生产构建必须用 `is.dev` 守卫所有调试级日志，仅保留错误级别和低频生命周期日志（开始/完成/耗时/字符数）。配套：main 进程 `console-message` 处理器要显式过滤高危前缀（如嗅探器的 `NETWORK_RESPONSE:`），避免 webview 内的全量响应体日志回流主进程。
+### 工作台 UI 与图标
 
-- **Webview 休眠必须 `loadURL('about:blank')` 才真省内存**：仅 `setIsHibernated(true)` + className `invisible` 隐藏（57efc27/eb4791d 原始版即如此）渲染进程页面层并未卸载，与 KNOWLEDGE「隐藏未销毁 webview 仍占完整渲染进程」结论一致，与「优化性能」初衷冲突。**正确做法（决策 D1）**：`suspend()` 在保存 URL+草稿后、置 `isHibernated` 前调 `webview.loadURL('about:blank')` 释放 V8 堆/DOM；`resume()` 调 `loadURL(targetUrl)` 重载 + 恢复草稿。注意：`loadURL('about:blank')` 后 webview 仍挂载 DOM（渲染进程对象不立即销毁），但页面层卸载已显著降内存；彻底释放需从 DOM 移除 `<webview>` 但会破坏 ref 稳定性与 persist:shared 绑定，不采用。
+- **`AppIcon` 的 `size` 不是最终渲染像素**：组件会乘 `OPTICAL_SCALE = 0.85` 抵消 Lucide 相对 Material 字体图标的视觉膨胀。旧 Material `text-base` 对应的 `size={16}` 只是保持原视觉尺寸；要与 `WebviewCard` 中 `size={20}` 的前进/后退/刷新图标看齐，应用按钮也应传 `size={20}`。统一顶栏或侧边栏图标时先按最终视觉尺寸比较，不要只看 prop 数值。
 
-- **Webview 总结的实际入口**：当前 SummaryPage 渲染 ModelOutputCard 与 SummaryPanel；SummaryPanel 使用 WebviewCard/useWebviewSummary 注入提示词，长文本走 Markdown 附件，由用户手动发送。修改前核对真实 ref 和调用点，旧 API/webview 模式切换及 useSummaryPanel 文档不适用于当前代码。
+- **图标方向不能沿用 Material 的旋转角度**：`Paperclip` 默认是左下到右上的 45° 斜向，沿用 Material 字体图标时期的 `-rotate-90` 会变成另一条 45° 斜线；要垂直应使用 `-rotate-45`。重做按钮应使用成套的 `Undo2`/`Redo2`，`Repeat` 表示循环播放，不应作为编辑器的前进/重做图标。迁移同类图标时先核对 SVG 原始方向和图形语义，不要机械保留旧 rotate 类或按名称接近程度猜。
 
-- **总结页模型卡片渲染口径必须按「有回复内容」过滤，不能直接渲染 getDisplayedModels 全集**：`SummaryPage.tsx` 渲染 `ModelOutputCard` 时若用 `displayedModels.map(...)` 全量渲染，会把用户当前页面根本没打开的模型（如 gemini/claude 等禁用模型）显示成「暂无回复内容」的 phantom 空回复框。phantom 模型进入 `displayedModels` 的两条路径：① `getDisplayedModels` 的 `models[index % models.length]` 兜底——空槽位直接取全局 `defaultModels` 第 N 个（index=1→gemini），不过滤 `enabled`；② `MainPage.tsx` 历史恢复时 `newOrder = [...item.models, ...其他所有模型]` 把未参与模型（含禁用）回填进 `multiAiSlots`。**正确做法**：渲染前按 `(modelResponses[m.id] || '').trim()` 过滤出 `renderableModels`，与同文件 `selectedModels` 的 `modelsWithData` 口径、`getAllResponses` 的 `targetModels`、`MainPage.tsx` 快照兜底的 `targetModelList` 保持一致；无任何回复时回落 `displayedModels` 保留加载/空态。口径不一致是本类 bug 根源。
+- **未映射的 `AppIcon` 名称会静默回退成警告三角**：`AppIcon` 对不在 `APP_ICON_MAP` 中的名称使用 `AlertTriangle` 兜底，主进程右键菜单传入的新图标名必须在映射表中同步登记，否则用户看到的是看似业务警告的三角形。来源会话入口应使用会话语义图标（如 `forum`），不要用文档图标表达打开会话。
 
-- **历史快照 `urlMismatch` 检测不能在加载途中的中间导航事件触发**：`WebviewCard` 的 `checkUrlMismatch()` 原在 `dom-ready` 与 `did-navigate` 里无条件调用，而这两个事件在 SPA 重定向链的**每一跳**都触发——加载途中 `getURL()` 必然偏离历史 `expectedUrl`（如先落 home URL 再重定向到 `/c/abc`），先误报 `urlMismatch=true` 弹「历史快照模式」覆盖层，等最终 URL 落定后又被后续事件纠正为 `false`，表现为覆盖层加载途中一闪而过、加载完成后消失（即使最终 URL 匹配成功也闪）。**正确做法**：最终判定放在 `did-stop-loading`（`handleLoadStop`，页面稳定、URL 已落定）；从 `dom-ready`/`did-navigate` 移除该调用。**保留** `did-navigate-in-page` 里的检测——它是首屏加载**之后**的 SPA 路由变化（`isLoading=false`、无 frame load），用来捕获「页面加载后被重定向到登录/错误页」这类真实偏离，且因不在加载途中而不会闪。判别：覆盖层只在加载途中瞬现、加载完即消失 = 命中本坑。**关联**：`readonlySnapshot` 的可见性/覆盖层条件 `(loadError || urlMismatch) && readonlySnapshot` 与 webview `invisible` 门控共用 `readonlySnapshot`，非回溯态必须传 `null` 而非空内容对象（见 plan 2026-07-02-history-snapshot-fallback）。
+- **同一业务图标只能保留一个语义名**：标注图标统一用 `annotation` 映射到 `MessageSquarePlus`，不要再保留 `add_comment`、`sticky_note_2` 等多个名字指向同一或相近图形。修改图标时全局替换调用点并删除旧映射；右键菜单传入的 `icon` 字符串也要与 `APP_ICON_MAP` 使用同一个名字。
 
-- **保活、休眠与销毁的语义不同**：display:none 保留 WebContents 与 live 页面；suspend/resume 导航 about:blank 再恢复 URL，可释放页面资源但丢失进行中的 live 状态；卸载 React Webview 会销毁底层 WebContents。短暂面板切换优先保活，长期释放按现有白名单休眠，明确销毁需求才卸载。导航或卸载不等于删除 persist:shared 登录态；旧总结 API 模式守卫不作为当前实现依据。
+- **文件类型图标收敛时保留 Markdown/TXT 与图片原图标**：Material Symbols/Lucide 是通用操作图标体系，vscode-material-icon-theme 是按扩展名显示语言或文件品牌的另一体系，不能把后者当作 Lucide 迁移残留。工作台的 PDF、Word、Excel、PPT、代码与压缩包可以统一走 `FileTypeIcon` 本地 SVG；`.md`、`.markdown`、`.txt` 继续沿用原来的 `description` AppIcon，位图继续用 `image`，`.svg` 用 `draw`，不纳入这次 SVG 统一范围。
 
-- **恢复历史与续写分支时防串台策略**（history-summary 串台修复得出）：在恢复非第一条历史记录（`history[0]`）并进行续写分支时，若 `appStore.ts` 中 `sendMessageToAll` 内部的 `lastItem` 仍使用默认的 `history[0]`，会导致续写时的 `conversationId` 仍锚定到最新一条历史对话中，造成串台。**修复**：全面引入并持久化 `currentConversationId` Store 字段，所有涉及新对话创建、续写、历史恢复、删除历史的路径必须同步更新 `currentConversationId`，且在所有消息发送和监测时均使用 ID 查找，而非无条件使用 `history[0]` 兜底。
+- **临时构造 `FileTypeIcon` 节点要补齐 `WorkbenchFileNode` 必填字段**：`FileTypeIcon` 接收完整的 `WorkbenchFileNode`，其中 `fullPath` 是必填绝对路径。预览类组件按 `activeFilePath` 临时拼节点时，`path` 和 `fullPath` 都要赋值；只补 `path` 会触发 TS2741。
 
-- **点击拦截注入按文档幂等，不能靠多触发点空转**：`registerWebviewHandlers` 原给同一 webContents 挂 `dom-ready` / `did-finish-load` / `did-frame-finish-load` / 3 秒 `attach-timeout` 四个触发点，实际只有第一次生效，其余被页面内 `__mmClickInterceptorInjected` 挡掉，只产生空转的 `executeJavaScript` 与刷屏日志（三个 webview 启动即 12 次执行）。**收敛做法**：主进程侧用 `documentGeneration` / `injectedGeneration` 记录状态，`dom-ready` 递增 generation 并注入，`did-finish-load` 与 `attach-timeout` 仅作失败兜底；注入进行中收到的新触发用 `pendingSource` 排队，结束后补跑；`tryInject` 先判 `webContents.getURL().startsWith('http')` 跳过 `about:blank`（初始页与 `suspend()` 休眠态）；仅在返回 `'injected'` 时打日志。实测三个 webview 各 1 行 `source=dom-ready`，稳态无重复。**为什么保留 DOM 注入而不改成主进程 `will-navigate` 白名单**：外链拦截必须发生在导航开始之前，`<a>` 默认点击的捕获监听是唯一可靠拦截点；`will-navigate` 只能观察不能阻止（当前实现只打日志），按需注入在时序上不可能拦住点击。主进程白名单方案需为 13 个平台维护登录/SSO 域名，漏一项就打断登录，属新增长期负担，无实际故障证据不采用。`window.open` 那半段与主进程 `setWindowOpenHandler` 重复，但属既有双重保障，非本次收敛范围。
+- **`AppIcon` 块级化后要显式居中**：`AppIcon` 统一渲染为 SVG，赋予 `block` 类名后会脱离父级 inline 或 `text-center` 的影响，默认 `margin-left: 0` 靠左。空状态提示中要与居中文本对齐，必须配合 `mx-auto`，或把父容器设为 `flex flex-col items-center`。
 
-- **工作台 AI 侧栏的非当前平台必须纳入生命周期治理**：只把其它平台的容器 `display:none` 会保留完整 SPA 的 WebContents/DOM；应按“窗口隐藏、离开工作台、右栏不是 AI、平台不是当前选择”统一延迟调用现有 `suspend()`，当前平台则保持 live。恢复后只恢复当前平台，不能顺带唤醒历史平台；生命周期操作要串行排队并取消旧 timer，避免 AI→标注→AI 的竞态误休眠。休眠前必须检查生成中的 Stop 控件、composer 附件/上传状态和本应用的注入/上传活动，平台专用 Stop selector 与通用候选要同时检查；无法确认页面就绪或忙碌时应保守保活。独立实测中，非当前 Gemini/ChatGPT Guest 约 30–39 秒后变为 `about:blank`，当前 Gemini 保持 644 节点；`about:blank` 只释放页面层，Guest 进程底座仍在，多平台累计不应解释为零成本。
+- **UI 组件尺寸向核心面板看齐**：组件尺寸应与 SettingsDrawer 等核心面板规范一致，避免局部页面为了紧凑过度使用 `text-xs` 或 `text-[10px]`，否则可读性和点击舒适度都会下降。
 
-- **本地文件预览不要把完整内容塞进 renderer，也不要为自定义 scheme 打开脚本 fetch 面**：图片经 `workbench-file://` 交 `<img>` 流式解码，避免 base64 的约 4/3 文本放大；PDF 使用受信 IPC 分段，由 `PDFDataRangeTransport` 按需取块，renderer/store 不保留完整字节或 data URL。`workbench-file://` 只服务图片和 HTML iframe，CSP 的 `connect-src` 不列入该 scheme，也不为方便 PDF 开启 `corsEnabled`/跨源 fetch；远程 AI 与主 renderer 的脚本读取边界应按“不可 fetch”验证。PDF.js 的 `requestDataRange(begin, end)` 是 **end-exclusive**，而本项目 `readPdfRange` IPC 采用闭区间，适配层必须传 `end - 1`，并处理 `end <= begin`；否则每段多读 1 字节并与相邻段重叠。最终开发版已验证大 PDF 初始 256KiB 之后的尾段请求 `[262144, 467290)` 被转换为 IPC `[262144, 467289]`，文字层和图片预览均正常。
+- **设置弹窗用单一面板承载，层级靠分区与留白建立**：远程地址、预设选项和文本编辑器不要各自包成带描边的卡片，否则在弹层 framework 内形成卡片套卡片。用标题行和细分隔线划分区块；预设复选框采用无边框网格，hover 时只给轻微背景；底部只保留一个主保存动作并统一处理多个表单字段，取消按钮降为文字按钮。
 
+- **工作台三栏布局与高频拖拽写盘要解耦**：三栏 Flex 布局中，左栏 `shrink-0`、中栏 `min-w`、右栏 `shrink-0 + overflow-hidden`；中间编辑器最小宽度不可设过大，保底约 380px 为宜，右栏用 `maxWidth: calc(100% - ...)` 做纯 CSS 硬件保底，防止 1100px 小窗口下总宽溢出。Store 动态 clamp 要联动窗口实际宽度、中栏保底线和左栏折叠状态；Splitter 的高频 `pointermove` 只更新内存状态，持久化 `storeSet` 延迟到 `pointerup` 单次执行，窗口 resize 监听用 `requestAnimationFrame` 防抖并单向收敛。
 
-### 10. 任务分配、辩论与 API 请求
+- **工作台双视图切换要按文件记忆各自滚动位置**：`WorkbenchEditor` 用 `editorMode` 条件渲染预览与源码，切换时整棵编辑器卸载，两套滚动容器都会从顶部重新挂载。滚动记忆键要包含工作区、相对路径与视图，避免同名文件或跨工作区串位；只存内存即可。恢复预览时不能只赋值一次：Lexical 解析、字体和图片缩略图会继续改变内容高度，内容未撑开时 `scrollTop` 会被浏览器夹紧，若此时写回记忆就会覆盖原位置。正确做法是恢复期间忽略 `scroll` 记录，用 `ResizeObserver` 或有限帧重试直到目标位置可达，并在用户滚轮、触摸或按键时立即结束恢复；源码侧在 `useLayoutEffect` 中恢复 `textarea.scrollTop` 并同步高亮层和行号列。
 
-- **模型切换携带业务上下文**：复用 Webview 面板时显式区分 productMode、slot 与窗口来源，防止全局模型选择污染其他面板。避免用永久 ref 加载锁阻断必要生命周期更新；核对当前 Webview Hooks 与调用点。
+- **旁注和评论卡定位不要复用正文选区联动**：选中标注会触发编辑器选区定位，浮动格式条会停在评论卡上方遮挡输入区；窄屏旁注入口应自行滚动定位，再直接打开共享评论卡，不依赖选中态滚动。旁注栏头必须挂到滚动层外并按滚动视口定位：把栏头放在随正文滚动的旁注列内，即使 `position: sticky` 也会随列内容离开可视区；展开态栏头应 portal 到编辑器根节点，用滚动容器的 `getBoundingClientRect()` 计算顶部内边距。吸附控件要同时读首行锚点和滚动容器视口，不能只按文档坐标 clamp，否则滚动后会飞出屏幕或展开瞬间跳回文档顶部。
 
-- **模式复用限于当前能力**：任务/辩论通过 slot-N 的 Webview ref 发送，优先复用共享自动化脚本。任务拆解的请求取消由 `split-task` / `abort-split-task` 及 currentTaskSplitAbortController 管理；当前已不存在 generate-summary 全局中止器，不能继续依赖旧总结取消链路。
+- **切换文档的闪现要同时约束浮层和侧栏列表**：旧评论卡和旧旁注卡片来自两份异步状态，只清理其中一份仍会在新文档首帧闪出。浮层要记录打开时的文档身份并在提交阶段比对；侧栏要同时校验 `workspaceRoot` 与 `relativePath` 后才渲染标注列表。
 
-- **renderer 的 `window.api` 类型有双源，加 IPC 方法必须两边都补**：本仓库 `tsconfig.web.json` 同时引用 `src/preload/index.d.ts` 和 `src/renderer/src/env.d.ts`，二者各自 `declare global { interface Window { api: {...} } }` 重复声明同一接口。只在 `index.d.ts` 加新方法，renderer 侧（appStore/DiagnosticsPage）tsc 仍报 `Property 'xxx' does not exist on Window['api']`，因为 `env.d.ts` 的独立声明没更新。**正确做法**：新增 `window.api` 方法时，`src/preload/index.ts`（实现）+ `src/preload/index.d.ts`（preload 侧类型）+ `src/renderer/src/env.d.ts`（renderer 侧类型）三处同步，签名逐字一致。这是预存技术债（双源），未统一前每次加方法都要两边补。判别：renderer tsc 报 Window.api 缺方法但 preload/index.d.ts 明明有 → 检查 env.d.ts 是否也声明了 Window.api。
+- **旁注与大纲不参与正文布局流，正文始终居中**：把旁注列作为 flex 兄弟节点会在展开时挤动正文，任何“占位补回”都只是把横向位移转移到别处。正文列应固定 `mx-auto` 居中，旁注改为绝对定位，水平基准取正文文本右缘加固定间距；用 `ResizeObserver` 测量右侧实际留白，够宽才展开卡片列，不足则收成计数入口，不留占位元素。大纲同理贴在正文左缘外侧，悬停标题用 body 级 `fixed` 浮层（优先向左展开），既不被目录自身滚动裁切，也不改变正文与滚动位置。
 
-- **IPC 的主窗口 getter 由注册函数注入**：ipcHandlers 中依赖 getMainWindow 的 handler 注册在 registerIpcHandlers 的参数作用域，沿用既有注入方式；reqId Map/控制器等持久状态按生命周期管理。不能因模块顶层没有该绑定就绕开当前层次结构；旧 currentSummaryAbortController 名称不再适用。
+### 窗口、划词与快捷键
 
-- **任务拆解复用供应商请求体配置**：taskSplitApi 通过 buildRequestBody 构建请求体并传 stream:false，保留 top_p、reasoning 等供应商适配，响应按一次性 JSON 解析。复用配置有维护价值，但不能据静态 body 差异断言 Model Not Found 的根因；排查先核对真实 model 标识、端点与错误证据，再检查供应商参数。
+- **快捷窗口保持可聚焦，被动弹出不要抢焦点**：避免同时使用 `focusable: false` 和依赖完整 `click` 事件；用 `showInactive` 控制被动弹出时不抢焦点，让窗口保持可聚焦，并在 `pointerdown` 派发一次性动作。快捷窗口初始配置应为 `alwaysOnTop: false`、`skipTaskbar: false`，让用户通过 pin 按钮决定是否置顶；`skipTaskbar: true` 会让窗口被其他窗口遮挡后无法从任务栏找回。`isPinned` 由前端 toggle 驱动，通过 `quick:get-always-on-top` / `quick:set-always-on-top` IPC 控制。
 
-- **API model 使用平台标识，name 仅展示**：useTaskSplit 从 summaryModels 取 `.id`，不能传用户别名 `.name`。历史讯飞 PathDomainError 的已纠正原因是 model 取值错误；请求体复用是独立改进。诊断可核对脱敏后的 id/name 和调用代码，禁止输出完整配置、API Key 或请求内容；当前 Webview 总结没有 API model 请求，不沿用旧 selectedAgent 调用示例。
+- **Windows 强制聚焦要临时置顶并恢复用户状态**：Electron 后台或隐藏窗口直接 `show()/focus()` 会被 `SetForegroundWindow` 限制拦截，并引发任务栏或边框闪烁。需要强制聚焦时，先 `win.setAlwaysOnTop(true)`，再 `win.focus()`，约 50ms 后恢复原来的 `isAlwaysOnTop` 状态；不要永久把窗口设为置顶。
 
-- **持久化提示词保持稳定 ID，升级以当前实现为准**：模板展示名称可修改，ID 是跨代码/磁盘主键，不能随改名更换。当前入口为 summaryPrompts.ts / summary-prompts；旧 agent-prompts 在新目录不存在时迁移。bootstrap 按 ID 补缺失预设，对已存在条目比较本地 body hash 与当前 seed hash：相同才按当前 seed 重写并保留本地 id/name，不同保留正文、只补缺失 description。不能假定改 seed 后所有旧文件都会自动升级，也不能为更新模板直接删除用户目录。辩论中的阶段分派与动态变量构建保留在 debatePrompts.ts，不强塞进扁平文件模板。
+- **全局快捷键自动复制必须先读取再显示窗口**：快捷键回调中先模拟复制，读取成功后再 `qw.show()/focus()`，最后发送 `quick:inject-prompt` 完成一键总结；顺序反了焦点会被 Electron 抢走，模拟按键打在 Electron 自身。触发全局快捷键后先等待约 250ms 释放物理按键，避免用户仍按着 Ctrl/Shift 导致组合键冲突。复制可通过写入临时 `.vbs` 并用 `execFile('cscript.exe', ['//NoLogo', path])` 异步执行，启动快且隐藏。先 `clipboard.clear()`，等待约 150ms 再读；若无新数据，恢复旧剪贴板但必须返回空字符串，回调中拦截空文本，不唤起弹窗。
 
-- **任务分配模式子任务必须携带 slotIndex（槽位索引），派发/cycle 一律按 slotIndex 走，modelId 仅作展示派生**：`taskAssignmentSlots` 是「按槽位顺序排列的模型 id 数组」（index=窗口位置），任务模式明确支持「多个窗口选同一个 AI」（见 Layout.tsx 文案）。用 `taskAssignmentSlots.findIndex(id => st.modelId)` 反查槽位会把所有同模型子任务命中第一个匹配槽位（slot 0），叠加 `if (slotIndex === -1) slotIndex = 0` 兜底 → 一键派发全部塞进 slot 0、其余窗口空转。**正确做法**：`TaskSubtask` 直接存 `slotIndex`，拆解时 `i % slotCount` 赋值，`handleSend` 按 `st.slotIndex` 聚合后 `webviewRefs.get(\`slot-${slotIndex}\`)` 分发，SubtaskList 的 cycle 按钮在 `0..slotCount-1` 间 +1 取模切槽位（同步更新派生 modelId）。同理：任何「slot 数组里同一值可出现多次」的语义都禁止用值反查 index，应让数据直接携带目标 index。**关联**：拆解数量也需告知模型——`buildTaskSplitSystemPrompt(windowCount)` 强制输出恰好 windowCount 个子任务，windowCount 由渲染层 `getDisplayedModels(...).length` 实时算出经 IPC 透传（`SplitTaskParams.windowCount` 端到端同步：taskSplitApi / ipcHandlers / preload index.ts / index.d.ts）。
+- **快捷窗口的 Webview 处理器要单独注册**：`quickWindow` 是独立 `BrowserWindow`，主窗口的 `did-attach-webview` 监听不会自动继承。任何新增宿主窗口都要为其 `webContents` 注册 `did-attach-webview`，否则窗口内 Webview 的脚本注入和链接拦截完全失效；把注册逻辑提取为 `registerWebviewHandlers(webContents)` 公共函数复用。
 
+- **自动划词与主动快捷键是两条路径**：全局鼠标手势不足以证明产生了文本选区；自动划词工具条要通过 UIA 的 `TextPattern.GetSelection` 非侵入读取外部选区，并比较按下/松开快照确认本次新选区，鼠标距离只作粗筛，不发送 Ctrl+C。UIA 不可读时安全降级不弹，不能把旧剪贴板或手势当选区。用户主动触发的快捷操作走 `shortcutManager.ts` 的复制路径，必须先读取再显示或聚焦窗口，并处理剪贴板恢复。
 
-### 11. CLI 与后台会话
+- **Windows UIA helper 不能复用到 macOS**：Windows 的 PowerShell UIA helper 只能在 `win32` 启动；macOS 选区读取必须经平台抽象，在 AX 原生模块不可用或辅助功能权限不足时返回明确的 unsupported 或 permission 错误，不能静默启动 PowerShell、模拟复制或伪造读取成功。常驻 PowerShell helper 的行协议使用 base64 文本、显式 UTF-8、`Console.Out.WriteLine/Flush` 输出；stdin 关闭和超时需清理或重启。
 
-- **Electron 跨窗口访问主窗口 webview 必须经主进程透传**：独立诊断窗口（`openDiagnosticsWindow`）不持有平台 `<webview>`（它们在主窗口 renderer 的 `useAppStore.webviewRefs`），诊断窗口 renderer 无法直接读主窗口 store。**正确模式**：诊断窗口 `window.api.diagnosticsProbe(modelId,type)` → 主进程 `ipcMain.handle('diagnostics:probe')` 用 `reqId` Map 关联 → `mainWin.webContents.send('diagnostics:probe-request',{reqId,...})` → 主窗口 `onDiagnosticsProbeRequest` 查 `webviewRefs.get(id).probeMessageContainer/probeResearchMode` → `diagnosticsProbeResponse(reqId,result)` → 主进程按 reqId resolve。主进程必须设超时（probe 5s / run-research 15s）兜底，返回统一 `{success,data?,error?}`。Map 放模块顶层，handler 注册在 `registerIpcHandlers` 体内。判别：任何「A 窗口要操作 B 窗口的 webview/DOM」需求都走此透传，不要试图让 A 窗口直接访问 B 的渲染进程对象。
+- **原生 Hook 的健康检查不能只看 `isRunning`**：原生对象仍标记运行中，不代表回调线程还在派发事件。记录最后一次 Hook 回调时间，并用 `powerMonitor.getSystemIdleTime()` 确认系统近期确有输入；系统输入活跃而 Hook 回调持续陈旧时，主动重建监听。重建失败使用有上限的退避重试，显式停止时取消待执行重试；设置开关只能在 Hook 实际启动成功后持久化为启用，失败路径回滚状态和窗口。原生 Hook 静默失活时重启 Hook/UIA 并清理手势状态，仍健康的工具条 BrowserWindow 保持运行。
 
-- **Headless BrowserWindow 后台限流**：通过 `new BrowserWindow({ show: false, ... })` 创建的隐藏 Daemon 会话窗口，Chromium 默认开启 `backgroundThrottling: true`，会将后台 tab 的 `setTimeout/setInterval` 降频至 ≤1Hz。必须在 `webPreferences` 中显式设置 `backgroundThrottling: false`，否则 `AutomationService` 注入的轮询脚本会严重超时。
+- **monio-napi 回调按实际载荷形状解包**：`inputHookManager` 支持 `EventJs` 或 `EventJs[]`，批量载荷要逐个 `processEvent`；不能只根据 d.ts 把数组当对象。字段全 undefined 时先检查脱敏后的形状信息，不猜字段或 OS 原因。纯 Node 隔离诊断还要排除消息泵和测试代码自身的解包问题；未经运行时证据证实的根因不能升为有效知识。
 
-- **Named Pipe Server 异步事件循环竞态**：Node `net.Socket` 的 `'data'` 事件回调在 `async` 函数中，当 `await handleRequest(...)` 暂停时，后续到达的数据包仍会同步触发新的 `'data'` 事件，修改共享的 `buffer` 变量，造成 lines 跳行或乱序。**正确模式**：在同步的 `'data'` 回调中仅做行分割，将完整行推入 per-socket `requestQueue: string[]`，然后用 `processQueue(socket)` 串行消费（加一个 `processing` flag 防止重入）。
+- **不要用未经运行时验证的 `EventJs.time` 给拖选加硬时长门槛**：类型声明只能证明字段存在，不能证明不同原生后端的单位、基准和批量派发语义适合业务阈值。曾新增 `150–2000ms` 过滤后，用户重启开发服务器实测所有划词都无法进入工具条链路。已有 UIA 按下/松开选区快照能确认是否产生本次新选区时，鼠标层只保留必要的拖动距离粗筛；双击间隔继续用主进程 `Date.now()`。`startListen` 的运行时回调可能一次派发多个事件，用主进程时间做最小时长门槛会把真实拖拽误判为无效；应以实际位移和松手时的选区读取作为最终判断。
 
-- **CLI `--json` 模式 stdout/stderr 分离**：在 `--json` 模式下，凡是连接失败、解析错误等错误信息都必须走 `process.stderr.write(...)`，而不是 `console.log`（会写 stdout）。只有最终成功的结构化数据才输出到 `stdout`，这样外部脚本才能安全地管道解析 stdout。
+- **快捷键录制要过滤输入法暂态事件**：`Process`、`Unidentified`、`Dead` 以及 `keyCode 229` 不能作为最终主键；Ctrl+Shift 输入法切换可能产生这些事件，需等待有效物理键或功能键，避免仅按修饰键就提交。
 
-- **commander `exitOverride` 必须在注册子命令之前调用**：子命令在 `command()` 创建时通过 `copyInheritedSettings` 拷贝 `_exitCallback`，后设 `program.exitOverride()` 对已注册子命令不生效，缺必填参数/未知 option 仍以默认 exit 1 退出。契约要求参数错误=2 时，先 `exitOverride()` 再 `registerCommands()`，在 catch 中把 `commander.*` 错误码映射为 exit 2，`commander.helpDisplayed`/`version` 映射 exit 0。
+- **主窗口拖动和最大化要按平台分支处理**：当前 Windows/Linux 标题栏由 Pointer Capture 与主进程拖动 IPC 实现，macOS 使用原生 `app-region`；不要把历史 Windows 拖动缺陷扩大成所有平台禁止 drag-region。Windows 多 WebView 主窗口拖动要合并高频 `pointermove`，按渲染帧限速，并在 `pointerup`/`pointercancel` 提交最终位置，避免 IPC 和窗口合成队列堆积。`titleBarOverlay` 的最大化按钮可能绕过 renderer IPC，直接触发原生 `maximize()` 并重建 Chromium swap chain；出现黑闪时移除 win32 overlay，由自绘按钮基于工作区 `setBounds`，同时保存还原边界。
 
-- **daemon token 文件必须放 `getDataPath()` 下而非管道名派生路径**：Windows `\\.\pipe\multichat-daemon` 是内核对象名不是文件路径，旧代码 `${PIPE_PATH}.token` 在 Windows 下不可写导致 token 机制被绕过。正确做法：`startDaemonServer(dataPath)` 时写 `<dataPath>/daemon.token`（0600），CLI 按 `%APPDATA%/<name>`、`%APPDATA%/<productName>`、`-dev` 后缀与便携版 `exeDir/data` 候选目录探测读取；鉴权检查放进 `handleRequest` 全平台统一执行，token 缺失（''）时 fail-closed 拒绝一切请求。
+- **含 `<webview>` 的分隔条要留足命中区域**：`<webview>` 是原生插件层，会优先接管落其矩形范围内的指针命中，DOM 的 `z-index` 和负 margin 无法保证分隔条可点中。分隔条应做宽于视觉线的命中区（如 10px 外框加 4px 视觉线，避免负 margin 叠进 webview 矩形），`onPointerDown` 后用 `setPointerCapture` 加 window 级 `pointermove/pointerup`，并配合全屏透明遮罩接管事件直到松手。
 
-- **后台任务轮询须容忍 `executeJavaScript` 瞬时失败**：页面发送消息后的整页导航/重载会使 `executeJavaScript` 单轮 reject，直接冒泡会把整个任务判 INTERNAL。正确做法：单轮脚本失败按"空采"计数累计（含连续上限升级 PAGE_NOT_READY / `wc.isDestroyed||isCrashed` 判 SESSION_LOST），不因一次失败终止轮询。
+- **无边框独立窗口用 `w-screen h-screen overflow-hidden` 消除 body 背景溢出**：Electron 无边框窗口中，最外层 `w-full h-full` 在 HTML/Body/#root 未声明高度时会塌陷为内容高度，下方多余视口被 body 背景填充，表现为诊断页底部大片空白。顶层容器直接声明 `w-screen h-screen overflow-hidden`，内部面板用 `flex-1 overflow-auto` 获得滚动能力，底栏自然贴底。
 
-- **取消 queued 任务必须直接 finalize 出队**：仅置 `cancelRequested`+`abort()` 对未执行任务是空操作——`pump()` 检查 `phase==='queued'` 仍会提取执行，产生取消后的幽灵窗口创建与导航副作用。`cancel()` 中 `phase==='queued'` 应 `splice` 出队并直接 `finalize('cancelled')`；同理 `finalize` 对所有终态（含 `cancelled`）都要落盘，否则重启后 `status` 丢终态视图。
+- **`WebContents.findInPage` 的 `findNext` 语义与直觉相反**：Electron 底层把 `options.findNext` 映射给 `blink::mojom::FindOptions::new_session`。首次搜索或修改关键词时传 `findNext: true` 开启新查找会话，上下步进时传 `findNext: false` 延续当前会话。
 
-- **杀 dev 进程要杀 Electron 主进程而非 npm 壳**：`kill_shell`/`Ctrl+C` 只终止 `npm run dev` 的 node 包装进程，`electron.exe` 主进程会变孤儿继续持有 Named Pipe 与端口，导致"新实例"实际仍是旧代码在响应（排查旧 bug 复现假象的元凶）。Windows 下须 `taskkill //PID <electron主进程PID> //T` 杀整棵树；git-bash 里 `node -e` 内联串与 heredoc 中的 `\\.\pipe\` 反斜杠会被 MSYS 二次坍缩成单斜杠导致 ENOENT，写管道测试须落盘为 `.mjs` 文件或用 `String.fromCharCode(92)` 构造路径。
+- **macOS 26 的 System Events 改读 `AXFocusedUIElement`**：`focused UI element of <process>` 在 macOS 26 编译报错 `-2741`；改读进程属性 `value of attribute "AXFocusedUIElement"`（`selectionReader.ts`）。AX 和系统事件脚本跨版本易失效，升级 macOS 后要实测。
 
-- **done 终态的单任务响应已内嵌 reply**：`task.status`/`task.submit --wait` 在 `phase=done` 时直接在 view 里带完整 `reply`（`respondTaskView` 内嵌），`task.list` 批量视图不内嵌。Agent 轮询到 done 即拿全文，多数场景无需再调 `task.result`。这是异步任务 API 的业界模式（对齐 Google LRO/AIP-151：operation done 时内嵌 response）——单任务内嵌省一次往返，批量不内嵌防爆列表体积。
+- **macOS 红绿灯和 Tray 图标有平台约束**：`trafficLightPosition` 只对 `titleBarStyle: 'hidden'` 生效，对 `hiddenInset` 不生效；坐标是 OS 点单位，红绿灯圆心约等于设定值加 6.5，无头机截屏像素坐标不等于 OS 坐标。Tray 彩色图标不能走 template，template 只保留 alpha 剪影会渲染成黑色；彩色应用图标不要调用 `setTemplateImage`，建议 `resize` 到约 22px。`Tray` 实例本身没有 `setTemplateImage` 方法，误调会崩溃，应对 `nativeImage` 调用；`assets/` 下没有 `tray-iconTemplate.png` 时回退 `logo.png`。
 
-- **daemon/CLI 评审易漏的真实约束清单**：`ensureSessionReady` 只保证窗口存在、不负责导航（已加载会话原样返回，导航须调用方显式 `loadURL`）；`DaemonResponse.error` 是 `string`（不是对象），稳定机器码走顶层 `code` 字段；每请求一新 socket，`waitMs` 长轮询挂起期间必须注册 `socket.once('close')` 清理订阅否则泄漏；`generateSendMessageScript` 的 verifySubmission 原本仅附件场景启用，agent 任务需显式开关；`generationStopSelectors` 只适配 chatgpt/claude/gemini/deepseek 4 平台，其余靠回复稳定兜底。
+- **跨源 sandbox iframe 的划词右键要由主进程转发**：iframe 内的 DOM `contextmenu` 不会冒泡到宿主 renderer。主窗口 `webContents` 的 `context-menu` 事件能取得子 frame 的 `frameURL` 和 `selectionText`；仅对目标协议且存在选区的 frame 调用 `preventDefault()`，再用“屏幕光标坐标减窗口内容区坐标”定位并经 IPC 交给宿主菜单。这样不改变 iframe 的 sandbox 边界，也不影响普通 DOM 和独立 webview 的右键链路。
 
-- **无 Electron 环境做 CLI↔daemon 契约测试**：`NODE_OPTIONS=--require <shim>` 注入 `net.connect` 重定向 shim 可在不启动 Electron 的情况下模拟管道做协议契约测试。历史坑位：commander 缺必填参数默认 exit 1 与"参数错误=2"契约不符（须 `exitOverride` 前置，见上条）；`AgentTaskService.cancel` 对 queued 任务不落地终态曾是状态机缺口。
+- **托盘退出要经过渲染层未保存守卫时不能提前置 quitting**：主窗口关闭是本应用“隐藏到托盘”的正常路径，只有真正退出才应 `setQuitting(true)`。托盘和 `tray:quit-app` 统一调用 `app.quit()`，主进程在 `before-quit` 中先 `preventDefault()`，显示主窗口并通过 `app:quit-guard-ready` 确认渲染层已注册监听，再发送退出请求；渲染层复用编辑离开守卫后回传 allow/cancel，确认后才置 quitting 并再次 `app.quit()`。若在托盘入口提前置 quitting，用户取消后窗口关闭将不再隐藏，状态也会污染后续生命周期。
 
-- **session_log.py 在 GBK 控制台打印 Unicode 会崩**：Windows GBK 终端无法编码 lesson 候选中的 `↔`/emoji 等字符，`main()` 打印 candidates 时 UnicodeEncodeError（日志本身已写入，崩在提示阶段）。修复：`main()` 开头 `sys.stdout.reconfigure(encoding="utf-8", errors="replace")`。
+### 历史、会话与运行时
 
-- **`.cmd` 批处理 shim 的 `endlocal` 会吞掉子进程退出码**：`setlocal`/`endlocal` 配对中 `endlocal` 把 ERRORLEVEL 恢复到 setlocal 前的值，shim 末行裸写 `endlocal` 导致 CLI 永远 exit 0（≤1.3.1 安装版实测 `task submit` 失败仍返回 0）。正确写法 `endlocal & exit /b %ERRORLEVEL%`——`%ERRORLEVEL%` 在行解析时展开，先于 `endlocal` 执行取到真实码。下游脚本/Agent 在修复铺量前必须按 JSON `success`/`code` 字段判错，不能信退出码。
+- **Webview 加载失败有三个静默漏洞**：Chromium 对连接、DNS、SSL 错误会渲染 `chrome-error://` 错误页，并正常走完 `dom-ready` 到 `did-stop-loading`，主帧 `did-fail-load` 可能不再发出；`handleDomReady` 检测到 `chrome-error://` 或 `data:text/html` 时必须 `clearLoadTimers()`、`setIsLoading(false)` 并设置 `loadError`，不能裸 `return`。`handleLoadStop` 第一行 `clearLoadTimers()` 会清掉慢速失败的 30s 兜底；如果 `loadError` 已存在或 `getURL()` 仍是 `chrome-error://` 残留态，应短路并只同步导航状态。`resume()` 重载 URL 后遇到 `-3`（TUN 或路由切换常见）时，`isFirstLoadRef.current` 若为 false 不会设置 `loadError`；应在 `setIsHibernated(false)` 后立即置 `true`。判别：连接类失败无覆盖层、慢速失败无超时兜底、唤醒失败静默。
 
-- **PowerShell 任务脚本两个坑**：① 函数 `return @($x)` 的单元素数组在赋值给变量时被 PS 解包成标量，`$v[0]` 取到的是字符串首字符——调用处必须 `$v = @(Func)` 强制数组；② 包装脚本里显式 `-Query`/`-QueryFile` 参数必须先于 stdin 读取判定，宿主 shell 若把 stdin 挂成不关闭的管道，`[Console]::In.ReadToEnd()` 会永久阻塞（复现了 CLI `readStdinIfPiped` 在 Agent shell 卡死的同类隐患）。
+- **恢复历史时产品模式切换会重置会话锚点**：如果恢复流程调用 `setProductMode`，必须在模式恢复完成后重新设置 `isNewSession`、`activeModels` 和 `currentConversationId`。恢复非第一条历史记录并续写时，`sendMessageToAll` 内部不能继续用 `lastItem` 或 `history[0]` 兜底，否则 `conversationId` 会锚定到最新一条历史造成串台。所有新对话、续写、历史恢复、删除历史路径都要同步更新 `currentConversationId`，发送和监测时按 ID 查找。
 
-- **`task submit --image` 附件上传：粘贴式优先于 CDP 拖拽，文件名匹配放宽**（2026-11 实测 doubao/chatgpt 图+文生图全过）：`--image` 链路 → `uploadAttachments` 逐张上传 → `generateFileUploadStateScript` 轮询就绪。**上传改用"粘贴式"**：主进程 `readFile`→base64→`generatePasteFileUploadScript` 在页内 `new File + DataTransfer + ClipboardEvent('paste')` 派发到输入框，主流 AI 编辑器（ProseMirror/Slate/Lexical）都监听 paste 解析附件，不依赖页面是否监听 drop、不挑落点坐标、不碰附件区 DOM——doubao 实测一次通过，paste 失败才退回 `dispatchFileDrop` 兜底。**就绪检测放宽**：`generateFileUploadStateScript` 原按全文件名文本匹配，图片类附件常只渲染缩略图/chip 不落全名（doubao 51 字符文件名 90s 超时根因）——现 `nameMatches` 依次试 全名→去扩展名主干→主干前 16 字符前缀，并加 `hasAttachmentNode` 兜底信号（composer 内可见附件容器/缩略图节点）。改之前先确认附件真落上去而非文件名漏检。
+- **`urlMismatch` 不能在加载途中的中间导航事件触发**：`WebviewCard` 的 `checkUrlMismatch()` 原在 `dom-ready` 与 `did-navigate` 无条件调用，而 SPA 重定向链每一跳都会让 `getURL()` 偏离历史 `expectedUrl`，表现为覆盖层加载途中一闪而过。最终判定放在 `did-stop-loading`，从 `dom-ready`/`did-navigate` 移除；保留 `did-navigate-in-page` 的检测，用于首屏加载后的 SPA 路由变化。`readonlySnapshot` 的覆盖层条件与 webview `invisible` 门控共用该状态，非回溯态必须传 `null` 而不是空内容对象。
 
-- **`submit --wait` 的防丢 taskId 两段化要在客户端做而非协议层**：正确实现是 CLI 先发无 waitMs 的 `task.submit` 立即拿 taskId → 把 ack JSON 吐 **stderr** → 再发 `task.status waitMs` 长轮询；daemon 协议与 stdout 契约零改动，新旧 CLI/daemon 任意交叉兼容。若改 daemon 在 submit 上先回一行 ack 再挂起，旧 client（首行 `\n` 即 resolve+cleanup）会把 ack 当最终响应提前退出。**配套**：`readStdinIfPiped` 改为仅未给 `--query`/`--query-file` 时读 stdin，根治宿主开放管道挂死；`--idempotency-key` 在同 sessionKey 的内存任务表去重（终态也命中），跨重启不落盘。
+- **点击拦截注入按文档幂等，不靠多触发点空转**：`registerWebviewHandlers` 原给同一 webContents 挂 `dom-ready`、`did-finish-load`、`did-frame-finish-load` 和 3 秒 `attach-timeout`，实际只有第一次生效，其余被 `__mmClickInterceptorInjected` 挡掉，只产生空转执行和刷屏日志。主进程侧用 `documentGeneration`/`injectedGeneration` 记录状态：`dom-ready` 递增 generation 并注入，`did-finish-load` 与 `attach-timeout` 只作失败兜底；注入中收到新触发用 `pendingSource` 排队，结束后补跑。`tryInject` 先判 `webContents.getURL().startsWith('http')` 跳过 `about:blank`，仅在返回 `'injected'` 时打日志。保留 DOM 注入而不是改成主进程 `will-navigate` 白名单，是因为外链拦截必须发生在导航开始之前，`<a>` 点击的捕获监听是唯一可靠拦截点；主进程白名单还要为 13 个平台维护登录和 SSO 域名，漏一项就打断登录。
 
-- **未登录检测不能靠"输入框是否存在"，也不能靠"页内登录入口"提前判墙**（2026-11 隔离实测）：chatgpt/qwen/chatglm 未登录页的 composer 照常渲染，`generateMindmapPageStateScript` 的 `ready` 为 true，旧逻辑会直接进入发送再失败；反向地，gemini/doubao/yiyan 游客可用却常驻"登录"按钮，提前按 CTA 判墙会把可用平台全部误杀（实测 gemini 从 done 变 AUTH_REQUIRED）。可靠判据只有两类：① 强信号（Cloudflare challenge 容器、`input[type=password]`/`tel`）连续 2 次命中即 `AUTH_REQUIRED`；② 发送脚本返回失败后再探测登录入口归因，命中才升级为 `AUTH_REQUIRED`，否则维持 `SEND_FAILED`。另：`isAuthWallUrl` 的正则必须容忍 `sign_in`/`log-in` 这类分隔写法——deepseek 未登录落 `/sign_in`，旧的 `signin` 字面量匹配不到，只能等满 30s 探针超时。
+- **轮询抓取空结果不能累计稳定次数**：空字符串表示页面尚未产出、跨 frame 目标尚未出现或本次读取失败，不是“内容稳定”。只有非空且满足业务基线条件的内容才能累计稳定计数；空结果必须保持未完成并继续轮询。辩论轮询还要在发送前通过非交互采集取基线，发送后读取可能已得到本轮快速回复；只有当前内容非空、不同于基线且连续稳定才推进。暂停后继续等待已经发送的消息，不重复注入；超时保留已完成发言和当前发送状态。
 
-- **"游客"与"已登录"只能靠凭证区分，DOM 做不到；但"有同名 cookie"也不等于已登录**（2026-11 两次隔离实测）：游客态同样持有大量 cookie（qwen 游客全是 `cna`/`tfstk`/`isg` 指纹类；deepseek 游客已有 `ds_session_id`；grok 游客的 `__Host-id-token-nonce` 会被 `token` 正则命中）。更关键的是**部分平台游客态会写同名账号 cookie**——chatglm 游客写 `chatglm_token`（JWT 里 `is_guest:true`）、yuanbao 游客写 `hy_user`（值形如 `a_did_...`）。因此判定必须两层：先按 `platformAuthCookies` 精确匹配名字，名字命中后再按 `platformAuthCookieRules` 看值否决游客。已实测可纯靠名字判定的名单：chatgpt `__Secure-next-auth.session-token`（`.0/.1` 分片）、gemini `SID`/`SAPISID`、doubao `sessionid`/`sid_tt`/`sid_guard`、grok `sso`/`sso-rw`、qwen `tongyi_sso_ticket`、yiyan `BDUSS`（须限定 `.baidu.com` 域，`.apollo.auto`/`.yoojia.com` 也有同名值）、arena `arena-auth-prod-v1`（实际名为 `.0`/`.1` 分片）。名单只能靠"登录态 vs 游客态"双向取样验证，只测登录态必然漏掉游客误判。
+- **辩论轮询要绑定 WebContents ID，空回复应中止流程**：`WebviewCard` 的 `useImperativeHandle` 会在发送状态、加载状态或其他 React 渲染后创建新 ref 对象，比较 ref 引用会把同一网页误判为已替换，导致首轮轮询提前退出。应比较 `getWebContentsId()`，每次读取使用当前 ref，同时保留模式、会话 ID 与 URL 校验。`useDebateRunner.runNextTurn` 在 `getResponseFromSlot` 返回空时不能用“（无回复）”占位后继续下一轮，否则空轮会串起来掩盖故障；检测到空回复应立即 `setDebatePhase('finished')` 并返回，不 append、不 advance。适用于一切自动轮转、依赖对方真回复的驱动场景。
 
-- **登录凭证不只在 cookie 里，必须双通道且"未命中 cookie"不等于游客**（2026-11 实测）：deepseek 已登录时 `chat.deepseek.com` 的 localStorage 有 `userToken`，cookie 只有设备标识；kimi 的 cookie 全是 `acw_tc`/`theme`/`Hm_lvt_*`，凭证是 localStorage 的 `refresh_token`（JWT）。因此判定顺序必须是「cookie 命中 → 已登录；否则 localStorage 给结论 → 采用；都没有 → 未知」，若在 cookie 未命中时直接返回 `signedIn:false`，会把 kimi/deepseek 的已登录用户挡在 `AUTH_REQUIRED` 前。localStorage 判定还要剥壳：deepseek 游客态的 `userToken` 值是 `{"value":null,"__version":"0"}`，非空字符串，按"非空即登录"会把游客判成已登录——须解析 JSON 后看 `value` 是否为空。
+- **内存优化先识别资源类型**：多个 AI SPA/WebContents 有基础内存开销，历史 80–150MB 只是观测量，不是固定预算或不可优化下限。先测 main 日志、内存历史缓存、隐藏页面和后台会话，再处理真实占用。共享 `persist:shared` 是项目约束；隐藏、休眠、卸载会影响会话连续性，不能默认清空 `mountedWebviews`。磁盘与内存历史上限必须分开维护，不能把裁剪后的内存数组直接覆写为全部磁盘记录；Chromium 内存开关需实测，不能当现成修复。
 
-- **qwen 的自动化站与登录站曾是两个产品，改动前先确认同源**（2026-11 实测）：`chat.qwen.ai`（Qwen Chat 国际版）与 `www.qianwen.com`（千问国内站，models 配置与用户登录所在）是不同站点，登录态与 DOM 都不通用。历史 `newConversationUrl` 指向 `chat.qwen.ai`，而选择器（`#qianwen-layout-right-panel`、`#qk-markdown-react`、`.tongyi-markdown`）与 `tongyi_sso_ticket` 都属于 `qianwen.com`，导致"用户已登录却报未登录"。现两者统一到 `www.qianwen.com/`，researchMode 两个站点的入口并存：`chat.qwen.ai` 是 `div.mode-select-open[role=button]` + `menuitem"深入研究"`，`qianwen.com` 是 `button[aria-label="研究"]` 的 `aria-pressed` 开关。切换后已实测不破坏自动化：首页与 `/chat/<id>` 都能写入输入框（普通 `contenteditable` div，走 `execCommand('insertText')` 分支）、发送按钮 `aria-label="发送消息"` 由 disabled 变为可用；`tongyi.aliyun.com/qianwen` 与 `qianwen.com` 均 301 到 `www.qianwen.com`，origin 统一，`isConversationUrlForPlatform` 的 `/chat/` 判定成立。域名迁移的落点不止选择器：`AutomationService.PLATFORM_DEFAULT_URLS`（无 `newConversationUrl` 时的兜底）、渲染层 `defaultModels` 的初始 `url`、`webviewManager` 按 hostname 取平台名的映射，三处都要同步；映射需保留旧 hostname，否则历史笔记会显示裸域名。
+- **Electron main 进程日志泄漏具有隐蔽性**：`console.log(JSON.stringify(bigObj, null, 2))` 在流式场景会按 chunk 数量放大，每个大字符串在 main 进程 stdout 缓冲区累积，导致稳态内存上涨且不触发 GC。生产构建必须用 `is.dev` 守卫所有调试级日志，只保留错误级别和低频生命周期日志（开始、完成、耗时、字符数）。main 进程 `console-message` 处理器要显式过滤高危前缀（如嗅探器的 `NETWORK_RESPONSE:`），避免 webview 内全量响应体日志回流主进程。
 
-- **主进程读选择器也要做版本校验**：渲染层 `getSelectors` 只接受 `stored.version >= defaultSelectors.version`，但 `AutomationService.getPlatformSelectors` 曾无条件采用 store 里的 `selectors.models[platformId]`。后果是用户一旦保存过旧版选择器，后台自动化会长期沿用其中的废弃字段（如 qwen 指向 `chat.qwen.ai`），改 `selectors.ts` 对 CLI 完全不生效。修法是主进程同样按版本比较，低于默认版本整体回退默认配置；实测 v19 回退默认、v20/21 仍用自定义。
+- **保活、休眠与销毁是三种语义**：`display: none` 保留 WebContents 和 live 页面；`suspend/resume` 导航 `about:blank` 再恢复 URL，可释放页面层资源但丢失进行中的 live 状态；卸载 React Webview 会销毁底层 WebContents。短暂面板切换优先保活，长期释放按现有白名单休眠，明确销毁需求才卸载。休眠实现应在保存 URL 和草稿后、置 `isHibernated` 前调用 `webview.loadURL('about:blank')`，恢复时 `loadURL(targetUrl)` 并恢复草稿；`about:blank` 后 webview 仍挂在 DOM，渲染进程对象不会立即销毁，页面层卸载已能显著降内存，彻底释放需移除 `<webview>` 但会破坏 ref 稳定性和 `persist:shared` 绑定，不采用。导航或卸载不等于删除 `persist:shared` 登录态。
 
-- **`aria-pressed` 开关类入口必须加幂等守卫**：`qianwen.com` 的"研究"按钮点一次取反，`generateEnableDeepResearchScript`/`generateDisableDeepResearchScript` 若被重复执行（重试、追问复用会话）会把状态翻回去。做法是在 `AutomationStep` 上加 `skipIfPressed`/`skipIfReleased`，`buildDeepResearchHelperFunctions` 里 `alreadyInState(step, el)` 命中即跳过点击并计入成功。实测连开两次仍为 `aria-pressed=true`，连关两次仍为 `false`。
+- **工作台 AI 侧栏的非当前平台必须纳入生命周期治理**：只把其他平台容器 `display: none` 会保留完整 SPA 的 WebContents/DOM。应按“窗口隐藏、离开工作台、右栏不是 AI、平台不是当前选择”统一延迟调用现有 `suspend()`，当前平台保持 live；恢复后只恢复当前平台，不能顺带唤醒历史平台。生命周期操作要串行排队并取消旧 timer，避免 AI 到标注再到 AI 的竞态误休眠。休眠前检查生成中的 Stop 控件、composer 附件和上传状态、本应用的注入和上传活动；平台专用 Stop selector 与通用候选都要查，无法确认页面就绪或忙碌时保守保活。独立实测中，非当前 Gemini/ChatGPT Guest 约 30–39 秒后变为 `about:blank`，当前 Gemini 保持 644 节点；`about:blank` 只释放页面层，Guest 进程底座仍在，多平台累计不应解释为零成本。
 
-- **应用运行期间 cookie 库被独占锁，离线读盘拿不到真实数据**：`Partitions/shared/Network/Cookies` 被 network service 进程以独占方式持有，`FileShare.ReadWrite` 与 `Copy-Item` 全部失败；用 `NtQuerySystemInformation(SystemExtendedHandleInformation)` + `DuplicateHandle` 复制句柄可只读取出完整快照（327 条 vs 复制文件的 35 条），但这只适合取证。判定必须走应用进程内的 `session.fromPartition('persist:shared')`。
+- **Webview 总结的当前入口是 SummaryPanel**：`SummaryPage` 渲染 `ModelOutputCard` 与 `SummaryPanel`；`SummaryPanel` 使用 `WebviewCard`/`useWebviewSummary` 注入提示词，长文本走 Markdown 附件，由用户手动发送。旧 API/webview 模式切换、`useSummaryPanel` 和 `generate-summary` 全局中止链路都已删除，不作为当前实现依据。修改前核对真实 ref 和调用点。
 
-- **工作区 Git 接入以路径写入暂存区代替 `git mv`**：Git 不存储重命名，普通 `fs.rename` 后执行 `git add -A` 同样会被识别为 rename，所以文件“反复出现在 Git 树上”的根因是路径变化没进暂存区。做法是在 `renameNode` 落盘后，用 `git ls-files -s -z --full-name` 取原 blob，再以一次 `git update-index -z --index-info` 同时写入“删除旧路径 + 原 blob 写入新路径”；这样只记录路径变化，不会把文件内容改动一并暂存（`git add` 会）。注意路径基准不统一：`ls-files` 与 `update-index` 需要仓库根相对路径，`status --porcelain=v1 -z` 也输出根相对路径，而 `status --porcelain=v2` 输出工作区相对路径，因此要先 `rev-parse --show-prefix` 补前缀。仅大小写改名在 Windows 上直接用同一套 `update-index` 即可被识别，不必特殊分支。变基或合并进行中（`.git/rebase-merge`、`rebase-apply`、`MERGE_HEAD` 存在）要跳过写索引，否则破坏可恢复性。
+- **总结页模型卡片必须按“有回复内容”过滤**：`SummaryPage.tsx` 若直接 `displayedModels.map(...)`，会把用户当前页面没打开的模型（如 gemini/claude 等禁用模型）显示成“暂无回复内容”的空框。phantom 模型进入 `displayedModels` 的两条路径是：`getDisplayedModels` 的 `models[index % models.length]` 兜底不按 `enabled` 过滤；`MainPage.tsx` 历史恢复时 `newOrder = [...item.models, ...其他所有模型]` 把未参与模型回填进 `multiAiSlots`。渲染前应按 `(modelResponses[m.id] || '').trim()` 过滤出 `renderableModels`，与 `selectedModels` 的 `modelsWithData`、`getAllResponses` 的 `targetModels`、`MainPage.tsx` 快照兜底的 `targetModelList` 保持一致；无任何回复时回落 `displayedModels` 保留加载/空态。
 
-- **Git 同步状态必须先 fetch 再判断 ahead/behind**：`git status --porcelain=v2 --branch` 的 `branch.ab` 比较的是本地缓存的 `refs/remotes/*`，远程有新提交但未 fetch 时会显示 `+0 -0`，导致拉取被判定为“已是最新”而实际什么也没做。正确顺序是：先做干净/分叉等本地前置检查，再 `git fetch --prune`，重新读状态后决定快进、显式合并或拒绝。拉取用 `pull --ff-only`，分叉交给显式的 `merge --no-edit`；合并冲突后立刻 `merge --abort` 回到操作前，比 `pull --rebase --autostash` 更可控——后者在本地有未提交改动时会产生二次冲突并留下 stash。另：`execFile` 不支持 `input` 选项，需要写 stdin（如 `update-index --index-info`）必须用 `spawn` 并显式 `stdin.end()`。
+- **下载监听要区分全局与单次任务**：`will-download` 属于 Session，多窗口共享同一登录 Session。全局批量下载路由应幂等注册；当前图片另存为等路径会按任务临时绑定监听，不能一律禁止。临时监听要匹配发起 WebContents 和 URL，在命中、失败、取消或超时等结束路径清理，避免误拦其他窗口下载或累积监听；实际清理覆盖要按对应代码核对。
 
-- **目录移动的 Git 重命名必须逐文件映射，索引查询要按仓库根执行**：只对“被移动的目录路径”执行 `update-index` 不会命中目录内文件，Git 仍会显示删除 + 新增。正确做法是读取旧目录前缀下的全部索引条目，按 `新前缀 + 旧路径剩余部分` 逐个写入“删除旧路径 + 原 blob 写入新路径”；目标前缀已有索引条目时跳过，避免覆盖未提交的同名文件。查询统一在 `repoRoot` 下执行并加 `--literal-pathspecs`：在子目录 cwd 下 `ls-files` 会把 pathspec 当成工作区相对路径，`[draft].md` 这类文件名还会被当成通配符而漏匹配；literal 目录 pathspec 即使目录已从磁盘移走仍能命中索引，也不必逐文件拼参数或全量扫描。
+- **代理/TUN 加载故障要分层诊断**：当前 main 初始化含 disable-quic 与 AutomationControlled 开关，Session 处理会清理 Electron UA 标识；这些是既有兼容配置，不能保证所有代理、站点或验证码可用，更不能把白屏一律归因于 QUIC 或自动化探针。应按加载事件、错误码、`render-process-gone` 和实际网络证据排查；导航超时和取消处理需与休眠/唤醒配合，详见 Webview 加载失败条目。
 
-- **Git 写操作队列清理要比较存储值**：`serialize` 中若把 `next.catch(() => undefined)` 存进 Map，清理时却比较原始 `next`，队列永远不会删除，同一工作区的所有后续操作都会排在一个已结束的 Promise 后面。应保存 `stored` 并在 `finally` 中比较 `stored`。
+### 任务分配、辩论与 API
+
+- **模型切换必须携带业务上下文**：复用 Webview 面板时显式区分 `productMode`、slot 与窗口来源，防止全局模型选择污染其他面板。避免用永久 ref 加载锁阻断必要生命周期更新；核对当前 Webview Hooks 与调用点。任务和辩论通过 `slot-N` 的 Webview ref 发送，优先复用共享自动化脚本；任务拆解的请求取消由 `split-task` / `abort-split-task` 及 `currentTaskSplitAbortController` 管理，当前不存在 `generate-summary` 全局中止器。
+
+- **任务分配子任务必须携带 `slotIndex`，不能用 modelId 反查槽位**：`taskAssignmentSlots` 是按槽位顺序排列的模型 id 数组，同一个 AI 可以占多个窗口。用 `findIndex(id => st.modelId)` 反查会把所有同模型子任务命中第一个匹配槽位，叠加 `slotIndex === -1` 兜底后，一键派发会全部塞进 slot 0。`TaskSubtask` 直接存 `slotIndex`，拆解时按 `i % slotCount` 赋值，`handleSend` 按 `st.slotIndex` 聚合后从 `webviewRefs.get('slot-' + slotIndex)` 分发；SubtaskList 的 cycle 按钮在 `0..slotCount-1` 间取模切槽位，并同步更新派生 modelId。任何“slot 数组里同一值可出现多次”的语义都禁止用值反查 index。拆解数量也要告诉模型：`buildTaskSplitSystemPrompt(windowCount)` 强制输出恰好 `windowCount` 个子任务，`windowCount` 由渲染层 `getDisplayedModels(...).length` 实时算出并经 `SplitTaskParams.windowCount` 端到端透传。
+
+- **IPC 类型的单一事实源是 preload 的 `API` 类型**：`src/preload/index.d.ts` 和 `src/renderer/src/env.d.ts` 都只声明 `api: API`，从 preload 导出的 `API` 类型派生，不维护两份方法签名。新增或修改 `window.api` 方法时，改 `src/preload/index.ts` 的实现和 `API` 类型即可；`index.d.ts`、`env.d.ts` 不应再手写一份方法列表。验证时运行两侧 tsc：
+  `npx tsc --noEmit -p tsconfig.node.json --composite false --incremental false`
+  `npx tsc --noEmit -p tsconfig.web.json --composite false --incremental false`
+  如果 renderer 报 `Window['api']` 缺方法，先检查 `API` 类型是否正确导出，而不是继续往 `env.d.ts` 补重复声明。
+
+- **IPC 的主窗口 getter 由注册函数注入**：`ipcHandlers` 中依赖 `getMainWindow` 的 handler 注册在 `registerIpcHandlers` 的参数作用域，沿用既有注入方式；`reqId` Map、控制器等持久状态按生命周期管理。不能因模块顶层没有该绑定就绕开当前层次结构；旧 `currentSummaryAbortController` 名称已不适用。
+
+- **任务拆解复用供应商请求体配置**：`taskSplitApi` 通过 `buildRequestBody` 构建请求体并传 `stream: false`，保留 `top_p`、reasoning 等供应商适配，响应按一次性 JSON 解析。复用配置有维护价值，但不能据静态 body 差异断言 `Model Not Found` 的根因；排查先核对真实 model 标识、端点与错误证据，再检查供应商参数。
+
+- **API model 使用平台标识，name 仅展示**：`useTaskSplit` 从 `summaryModels` 取 `.id`，不能传用户别名 `.name`。历史讯飞 `PathDomainError` 的已纠正原因是 model 取值错误；请求体复用是独立改进。诊断可核对脱敏后的 id/name 和调用代码，禁止输出完整配置、API Key 或请求内容。当前 Webview 总结没有 API model 请求，不沿用旧 `selectedAgent` 调用示例。
+
+- **持久化提示词保持稳定 ID，升级以当前实现为准**：模板展示名称可修改，ID 是跨代码和磁盘的主键，不能随改名更换。当前入口为 `summaryPrompts.ts` / `summary-prompts`；旧 `agent-prompts` 在新目录不存在时迁移。bootstrap 按 ID 补缺失预设，对已存在条目比较本地 body hash 与当前 seed hash：相同才按当前 seed 重写并保留本地 id/name，不同保留正文、只补缺失 description。不能假定改 seed 后所有旧文件都会自动升级，也不能为更新模板直接删除用户目录。辩论的阶段分派与动态变量构建保留在 `debatePrompts.ts`，不强塞进扁平文件模板。
+
+### CLI、Daemon 与登录态
+
+- **跨窗口访问主窗口 webview 必须经主进程透传**：独立诊断窗口不持有平台 `<webview>`，它们在主窗口 renderer 的 `useAppStore.webviewRefs`。正确模式是：诊断窗口调用 `window.api.diagnosticsProbe(modelId, type)`，主进程 `ipcMain.handle('diagnostics:probe')` 用 `reqId` Map 关联，再 `mainWin.webContents.send('diagnostics:probe-request', { reqId, ... })`；主窗口收到请求后查 `webviewRefs.get(id).probeMessageContainer/probeResearchMode`，通过 `diagnosticsProbeResponse(reqId, result)` 回传，主进程按 reqId resolve。主进程必须设超时（probe 5s、run-research 15s），返回统一 `{ success, data?, error? }`。任何“A 窗口要操作 B 窗口的 webview/DOM”需求都走此透传，不要让 A 直接访问 B 的渲染进程对象。
+
+- **Headless BrowserWindow 必须关闭后台限流**：通过 `new BrowserWindow({ show: false, ... })` 创建的隐藏 Daemon 会话窗口，Chromium 默认开启 `backgroundThrottling: true`，会把后台 tab 的 `setTimeout/setInterval` 降频到 ≤1Hz。必须在 `webPreferences` 显式设置 `backgroundThrottling: false`，否则 `AutomationService` 注入的轮询脚本会严重超时。
+
+- **Named Pipe Server 要串行化异步请求**：Node `net.Socket` 的 `'data'` 回调在 `async` 函数中，`await handleRequest(...)` 暂停时后续数据包仍会同步触发新的 `'data'`，修改共享 `buffer` 变量，造成 lines 跳行或乱序。正确模式是在同步 `'data'` 回调中只做行分割，把完整行推入 per-socket `requestQueue: string[]`，再用 `processQueue(socket)` 串行消费，并用 `processing` flag 防止重入。
+
+- **CLI `--json` 模式必须分离 stdout/stderr**：连接失败、解析错误等错误信息都必须走 `process.stderr.write(...)`，不能用 `console.log` 写 stdout；只有最终成功的结构化数据才输出到 stdout，外部脚本才能安全地管道解析。
+
+- **commander `exitOverride` 必须在注册子命令之前调用**：子命令在 `command()` 创建时通过 `copyInheritedSettings` 拷贝 `_exitCallback`，后设 `program.exitOverride()` 对已注册子命令不生效，缺必填参数或未知 option 仍会默认 exit 1。契约要求参数错误为 2 时，先 `exitOverride()` 再 `registerCommands()`，在 catch 中把 `commander.*` 错误码映射为 exit 2，`commander.helpDisplayed`/`version` 映射 exit 0。
+
+- **daemon token 文件必须放在 `getDataPath()` 下**：Windows `\\.\pipe\multichat-daemon` 是内核对象名，不是文件路径；旧代码用 `${PIPE_PATH}.token` 在 Windows 下不可写，导致 token 机制被绕过。正确做法是 `startDaemonServer(dataPath)` 时写 `<dataPath>/daemon.token`（0600），CLI 按 `%APPDATA%/<name>`、`%APPDATA%/<productName>`、`-dev` 后缀和便携版 `exeDir/data` 候选目录探测读取；鉴权检查放进 `handleRequest` 全平台统一执行，token 缺失时 fail-closed 拒绝所有请求。
+
+- **后台任务轮询要容忍 `executeJavaScript` 瞬时失败**：页面发送消息后的整页导航或重载会让单轮 `executeJavaScript` reject，直接冒泡会把整个任务判 INTERNAL。单轮脚本失败应按“空采”计数累计，含连续上限升级为 `PAGE_NOT_READY`；`wc.isDestroyed` 或 `isCrashed` 判 `SESSION_LOST`，不因一次失败终止轮询。
+
+- **取消 queued 任务必须直接 finalize 出队**：仅置 `cancelRequested` 和 `abort()` 对未执行任务是空操作，`pump()` 仍会提取执行，产生取消后的幽灵窗口创建与导航副作用。`cancel()` 中 `phase === 'queued'` 应 `splice` 出队并直接 `finalize('cancelled')`；`finalize` 对所有终态（含 `cancelled`）都要落盘，否则重启后 `status` 丢终态视图。
+
+- **done 终态的单任务响应已内嵌 reply**：`task.status` 和 `task.submit --wait` 在 `phase=done` 时直接在 view 里带完整 `reply`（`respondTaskView` 内嵌），`task.list` 批量视图不内嵌。Agent 轮询到 done 即拿全文，多数场景无需再调 `task.result`。这是对齐 Google LRO/AIP-151 的异步任务模式：单任务内嵌省一次往返，批量不内嵌防爆列表体积。
+
+- **daemon/CLI 评审易漏的真实约束**：`ensureSessionReady` 只保证窗口存在，不负责导航，已加载会话原样返回，导航须调用方显式 `loadURL`；`DaemonResponse.error` 是 `string`，稳定机器码走顶层 `code`；每请求一新 socket，`waitMs` 长轮询挂起期间必须注册 `socket.once('close')` 清理订阅，否则泄漏；`generateSendMessageScript` 的 verifySubmission 原本仅附件场景启用，agent 任务需显式开关；`generationStopSelectors` 只适配 chatgpt/claude/gemini/deepseek 四个平台，其余靠回复稳定兜底。
+
+- **无 Electron 环境可做 CLI 与 daemon 的协议契约测试**：用 `NODE_OPTIONS=--require <shim>` 注入 `net.connect` 重定向 shim，在不启动 Electron 的情况下模拟管道。历史坑位是 commander 缺必填参数默认 exit 1 与“参数错误=2”契约不符，以及 `AgentTaskService.cancel` 对 queued 任务不落地终态。
+
+- **`.cmd` 批处理 shim 的 `endlocal` 会吞掉子进程退出码**：`setlocal`/`endlocal` 配对中，`endlocal` 会把 `ERRORLEVEL` 恢复到 `setlocal` 前的值；shim 末行裸写 `endlocal` 会导致 CLI 永远 exit 0。正确写法是 `endlocal & exit /b %ERRORLEVEL%`，`%ERRORLEVEL%` 在行解析时展开，先于 `endlocal` 执行取到真实码。下游脚本在修复铺量前必须按 JSON `success`/`code` 判错，不能只信退出码。
+
+- **PowerShell 任务脚本有两个坑**：函数 `return @($x)` 的单元素数组在赋值给变量时会被 PowerShell 解包成标量，`$v[0]` 取到字符串首字符；调用处必须用 `$v = @(Func)` 强制数组。包装脚本里显式 `-Query`/`-QueryFile` 参数必须先于 stdin 读取判定；宿主 shell 把 stdin 挂成不关闭的管道时，`[Console]::In.ReadToEnd()` 会永久阻塞。
+
+- **`submit --wait` 的防丢 taskId 两段化放在客户端**：CLI 先发无 `waitMs` 的 `task.submit` 立即拿 taskId，把 ack JSON 写到 stderr，再发 `task.status waitMs` 长轮询；daemon 协议和 stdout 契约零改动，新旧 CLI/daemon 任意交叉兼容。若改 daemon 在 submit 上先回一行 ack 再挂起，旧 client 会把 ack 当最终响应提前退出。`readStdinIfPiped` 只在未给 `--query`/`--query-file` 时读 stdin，根治宿主开放管道挂死；`--idempotency-key` 在同 sessionKey 的内存任务表去重，终态也命中，跨重启不落盘。
+
+- **未登录检测不能靠输入框或登录入口提前判墙**：ChatGPT、Qwen、ChatGLM 未登录页的 composer 照常渲染，`generateMindmapPageStateScript` 的 `ready` 仍为 true；Gemini、豆包、文心游客可用却常驻“登录”按钮，提前按 CTA 判墙会把可用平台误杀。可靠判据只有两类：Cloudflare challenge 容器、`input[type=password]` 或 `tel` 等强信号连续 2 次命中即 `AUTH_REQUIRED`；发送脚本返回失败后再探测登录入口归因，命中才升级为 `AUTH_REQUIRED`，否则维持 `SEND_FAILED`。`isAuthWallUrl` 的正则必须容忍 `sign_in`、`log-in` 这类分隔写法，DeepSeek 未登录会落 `/sign_in`。
+
+- **游客与已登录只能靠凭证区分，且“有同名 cookie”不等于已登录**：游客态同样持有大量 cookie（Qwen 游客的 `cna`/`tfstk`/`isg`，DeepSeek 游客已有 `ds_session_id`，Grok 游客的 `__Host-id-token-nonce` 会被 `token` 正则命中）；部分平台游客态还会写同名账号 cookie，ChatGLM 游客写 `chatglm_token`（JWT 内 `is_guest:true`），元宝游客写 `hy_user`（值形如 `a_did_...`）。判定顺序是：先按 `platformAuthCookies` 精确匹配名字，名字命中后再按 `platformAuthCookieRules` 看值否决游客；cookie 未命中时读 localStorage，仍无结论才返回未知。不能因为 cookie 未命中就直接 `signedIn:false`。已实测可纯靠名字判定的名单：ChatGPT `__Secure-next-auth.session-token`（`.0/.1` 分片）、Gemini `SID`/`SAPISID`、豆包 `sessionid`/`sid_tt`/`sid_guard`、Grok `sso`/`sso-rw`、Qwen `tongyi_sso_ticket`、文心 `BDUSS`（须限定 `.baidu.com` 域）、Arena `arena-auth-prod-v1`（实际名为 `.0/.1` 分片）。名单必须靠登录态与游客态双向取样验证。
+
+- **登录凭证不只在 cookie 里，localStorage 也要剥壳**：DeepSeek 已登录时 `chat.deepseek.com` 的 localStorage 有 `userToken`，cookie 只有设备标识；Kimi 的 cookie 全是 `acw_tc`/`theme`/`Hm_lvt_*`，凭证是 localStorage 的 `refresh_token`（JWT）。localStorage 判定要解析 JSON 看 `value` 是否为空：DeepSeek 游客态的 `userToken` 值是 `{"value":null,"__version":"0"}`，非空字符串按“非空即登录”会把游客判成已登录。
+
+- **应用运行期间 Cookie 库被独占锁，离线读盘拿不到真实数据**：`Partitions/shared/Network/Cookies` 被 network service 进程以独占方式持有，`FileShare.ReadWrite` 和 `Copy-Item` 全部失败。用 `NtQuerySystemInformation(SystemExtendedHandleInformation)` 加 `DuplicateHandle` 复制句柄可只读取出完整快照（327 条，对比复制文件的 35 条），但这只适合取证；登录态判定必须走应用进程内的 `session.fromPartition('persist:shared')`。
+
+- **Qwen 的自动化站与登录站必须同源**：`chat.qwen.ai`（Qwen Chat 国际版）和 `www.qianwen.com`（千问国内站，models 配置和用户登录所在）是不同站点，登录态和 DOM 都不通用。历史 `newConversationUrl` 指向 `chat.qwen.ai`，但选择器（`#qianwen-layout-right-panel`、`#qk-markdown-react`、`.tongyi-markdown`）和 `tongyi_sso_ticket` 都属于 `qianwen.com`，导致“用户已登录却报未登录”。现两者统一到 `www.qianwen.com/`，但 researchMode 两个站点的入口并存：`chat.qwen.ai` 是 `div.mode-select-open[role=button]` 加 `menuitem`“深入研究”，`qianwen.com` 是 `button[aria-label="研究"]` 的 `aria-pressed` 开关。域名迁移的落点不止选择器：`AutomationService.PLATFORM_DEFAULT_URLS`、渲染层 `defaultModels` 的初始 `url`、`webviewManager` 按 hostname 取平台名的映射三处都要同步；映射需保留旧 hostname，否则历史笔记会显示裸域名。
+
+- **主进程读选择器也要做版本校验**：渲染层 `getSelectors` 只接受 `stored.version >= defaultSelectors.version`，但 `AutomationService.getPlatformSelectors` 曾无条件采用 store 里的 `selectors.models[platformId]`。用户保存过旧版选择器后，后台自动化会长期沿用废弃字段，改 `selectors.ts` 对 CLI 完全不生效。主进程也要按版本比较，低于默认版本整体回退默认配置。具体版本号只是当时证据，不要写死成规则。
+
+- **`aria-pressed` 开关类入口必须加幂等守卫**：`qianwen.com` 的“研究”按钮点一次取反，`generateEnableDeepResearchScript`/`generateDisableDeepResearchScript` 若被重复执行（重试、追问复用会话）会把状态翻回去。做法是在 `AutomationStep` 上加 `skipIfPressed`/`skipIfReleased`，`buildDeepResearchHelperFunctions` 里 `alreadyInState(step, el)` 命中即跳过点击并计入成功。实测连开两次仍为 `aria-pressed=true`，连关两次仍为 `false`。
+
+### Git 与开发工作流
+
+- **文件改名用 `update-index` 写路径变化，不用 `git mv`**：Git 不存储重命名，普通 `fs.rename` 后执行 `git add -A` 同样会被识别为 rename；根因是路径变化没有进暂存区。文件改名后先用 `git ls-files -s -z --full-name` 取原 blob，再用一次 `git update-index -z --index-info` 同时写入“删除旧路径 + 原 blob 写入新路径”，只记录路径变化，不会把内容改动一并暂存。路径基准不统一：`ls-files` 与 `update-index` 需要仓库根相对路径，`status --porcelain=v1 -z` 也输出根相对路径，而 `status --porcelain=v2` 输出工作区相对路径，因此要先 `rev-parse --show-prefix` 补前缀。仅大小写改名在 Windows 上也可直接用同一套 `update-index`。变基或合并进行中（`.git/rebase-merge`、`rebase-apply`、`MERGE_HEAD` 存在）要跳过写索引，否则破坏可恢复性。
+
+- **目录移动必须逐文件映射，索引查询按仓库根执行**：只对“被移动的目录路径”执行 `update-index` 不会命中目录内文件，Git 仍显示删除加新增。读取旧目录前缀下的全部索引条目，按“新前缀 + 旧路径剩余部分”逐个写入删除旧路径和原 blob 到新路径；目标前缀已有索引条目时跳过，避免覆盖未提交的同名文件。查询统一在 `repoRoot` 下执行并加 `--literal-pathspecs`：在子目录 cwd 下 `ls-files` 会把 pathspec 当成工作区相对路径，`[draft].md` 这类文件名还会被当通配符而漏匹配；literal 目录 pathspec 即使目录已从磁盘移走仍能命中索引。
+
+- **Git 同步状态必须先 fetch 再判断 ahead/behind**：`git status --porcelain=v2 --branch` 的 `branch.ab` 比较的是本地缓存的 `refs/remotes/*`，远程有新提交但未 fetch 时会显示 `+0 -0`，导致拉取被误判为“已是最新”。顺序应是先做干净/分叉等本地前置检查，再 `git fetch --prune`，重新读状态后决定快进、显式合并或拒绝。拉取用 `pull --ff-only`，分叉交给显式的 `merge --no-edit`；合并冲突后立刻 `merge --abort` 回到操作前，比 `pull --rebase --autostash` 更可控。`execFile` 不支持 `input` 选项，需要写 stdin（如 `update-index --index-info`）必须用 `spawn` 并显式 `stdin.end()`。
+
+- **首次推送不要依赖 `push.default`**：无上游分支时直接 `git push` 在 `simple`/`current`/`upstream` 配置下行为不同，可能报错或推到意外分支。界面确认后统一用 `push -u origin HEAD` 建立跟踪关系；未确认时返回 `no-upstream`，不执行推送。
+
+- **未跟踪大文件只提示、不自动处理**：用 `git status --porcelain=v2 -z --untracked-files=all` 后独立收集未跟踪路径并 `stat`，超过 50 MB 的记录到 `largeUntracked`；不要复用被 500 项上限截断的展示列表，否则大文件会漏报。主进程提交接口需用 `allowLargeFiles` 做兜底拒绝，避免只靠界面确认被绕过。未跟踪文件不阻止拉取（与远程同名时 Git 会拒绝），只有已跟踪改动阻止同步；`blockingChangeCount` 要独立计数，不能从截断列表推导。忽略必须由用户在设置里选择，不自动写 `.gitignore`、不自动 `git add`；GitHub 50 MiB 警告、100 MiB 拒绝，GitLab 与 Azure DevOps 限制不同，应用侧不自动启用 LFS。
 
 - **`.gitignore` 可视化编辑按行差异写回**：不要整体重排后覆写，否则会丢失用户注释、空行与取反规则的位置。只删除目标列表中不存在的规则行，在末尾追加缺失规则；同一模式重复出现时按次数保留。保存前比较打开时的磁盘快照，若已被其他程序修改则提示确认，避免静默覆盖。
 
 - **带凭据的远程地址不能脱敏后回填输入框**：`git remote get-url` 可能返回 `https://user:token@host/repo.git`。界面只展示脱敏值，但若把脱敏值填回输入框，用户直接保存就会把 `***` 写进 `.git/config`。应返回 `redacted` 标记，含凭据时不回填，要求重新输入；保存走 `remote set-url` 保留 refspec，凭据交给系统 Git 凭据管理器。
 
-- **首次推送不要依赖 `push.default`**：无上游分支时直接 `git push` 在 `simple`/`current`/`upstream` 配置下行为不同，可能报错或推到意外分支。界面确认后统一用 `push -u origin HEAD` 建立跟踪关系；未确认时返回 `no-upstream`，不执行推送。
+- **`git status` 会刷新并写回 `.git/index`，会与递归 watcher 形成自激循环**：工作区监听若不过滤 `.git`，每次状态刷新都会触发新的文件事件，表现为刷新图标持续闪烁。watcher 要忽略 `.git` 下的事件；读取状态时加 `--no-optional-locks`，让 `status` 只读、不改索引。后台刷新不要切换 loading，只有用户手动刷新才显示旋转。
 
-- **未跟踪大文件只提示、不自动处理**：`git status --porcelain=v2 -z --untracked-files=all` 后独立收集未跟踪路径并 `stat`，超过 50 MB 的记录到 `largeUntracked`；不要复用被 500 项上限截断的展示列表，否则大文件会漏报。主进程提交接口需用 `allowLargeFiles` 做兜底拒绝，避免只靠界面确认被绕过。未跟踪文件不阻止拉取（与远程同名时 Git 会拒绝），只有已跟踪改动阻止同步；`blockingChangeCount` 要独立计数，不能从截断列表推导。忽略必须由用户在设置里选择，不自动写 `.gitignore`、不自动 `git add`。GitHub 50 MiB 警告 / 100 MiB 拒绝，GitLab 与 Azure DevOps 限制不同，应用侧不自动启用 LFS。
+- **Git 写操作队列清理要比较存储值**：`serialize` 中若把 `next.catch(() => undefined)` 存进 Map，清理时却比较原始 `next`，队列永远不会删除，同一工作区的所有后续操作都会排在一个已结束的 Promise 后面。应保存 `stored` 并在 `finally` 中比较 `stored`。
 
-- **`git status` 会刷新并写回 `.git/index`，会与递归 watcher 形成自激循环**：工作区监听若不过滤 `.git`，每次状态刷新都会触发一次新的文件事件，表现为刷新图标持续闪烁。两层都要处理：watcher 忽略 `.git` 下的事件；读取状态时加 `--no-optional-locks`，让 `status` 只读、不改索引。后台刷新不要切换 loading，只有用户手动刷新才显示旋转。
+- **文件树隐藏规则以 Git 真实忽略结果为准**：`git ls-files --others --ignored --exclude-standard --directory -z -- .` 在任意工作区子目录执行都会返回相对该目录的 POSIX 路径，整目录被忽略时折叠为 `dir/`，目录内有已跟踪文件时返回其中被忽略的具体文件。因此既能显示未被忽略的 `.agents`/`.claude`/`.memory`，又不会因“名字以点开头”吞掉用户目录。非 Git 工作区该命令失败时退回内置名单。`.git`、`.multichat`、`.trash`、Git 元文件、`node_modules`、虚拟环境、`__pycache__` 仍需无条件隐藏；前两类属于配置而非工作区内容，后者未必被 `.gitignore` 覆盖。外部导入拿不到源的忽略结果，只能按名字拦截同一批目录。文件树、标签扫描和全文搜索必须复用同一个过滤函数。
 
+- **worktree 工作要先核对实际基线**：历史 Claude `EnterWorktree` 默认从远端默认分支创建，与本地未推送代码可能不同；具体工具默认值可能随版本变化。必须核对实际 ref、未提交改动及计划锚点；不要自动 stash/rebase/reset。创建或切换分支仍遵循 AGENTS 的明确授权要求，不能把历史操作命令当默认工作流。被其他 worktree 检出的分支不能强移指针；合并、切分支、处理未提交工作需有用户授权，不能自动 force、stash 或任选更长文档覆盖冲突。
 
-### 12. 构建、打包与开发验证
+- **新 checkout 的 Electron 安装缺失要先核对文件和安装输出**：旧 worktree 曾在 `npm install` 后缺少 `node_modules/electron/path.txt/dist`，开发启动失败。先核对安装输出和实际文件，不宣称每个 worktree 必然需要手动下载；只有确认 Electron 安装阶段缺失时才按现有依赖的 `install.js` 修复。此处不是创建 worktree 的授权。
 
-- **构建启用 JavaScript 混淆时不要通过函数 toString 生成 Webview 注入脚本**：在生产打包开启 JavaScript 混淆时，若通过 `Function.prototype.toString()` 生成要注入 Webview 执行的脚本，函数体内部变量可能会被主进程混淆器重命名，且可能依赖混淆器注入的主进程全局名称映射，进入隔离的 Webview 页面后执行报错（如变量未定义）。Webview 注入脚本应直接使用自包含的字符串模板（或 IIFE 源码字符串）编写，避免在主进程代码中使用函数 toString 注入。
+- **执行旧计划前重新核对代码锚点**：行号、Find/Replace 块和函数签名可能随代码演进漂移。修改前用 `rg` 和文件读取核对实际入口；在原授权范围内调整实施细节，只有目标、范围或风险发生实质变化时才重新确认。不能盲套旧计划，也不为每次锚点漂移增设计划文件。
 
-- **落地页文案不是代码事实**：产品页里的数字、角色名、预设数量等文案可能滞后于真实实现。改 README、方案文档或宣传页前，必须先 `ls` / `rg --files` 以实际预设目录和代码定义为准，不能照抄落地页的营销描述。
+- **杀 dev 进程要杀 Electron 主进程而不是 npm 壳**：`kill_shell` 或 Ctrl+C 只终止 `npm run dev` 的 node 包装进程，`electron.exe` 主进程会变孤儿继续持有 Named Pipe 和端口，导致“新实例”实际仍是旧代码在响应。Windows 下用 `taskkill //PID <electron主进程PID> //T` 杀整棵树；在 git-bash 里，`node -e` 内联串和 heredoc 中的 `\\.\pipe\` 反斜杠会被 MSYS 二次坍缩，写管道测试应落盘为 `.mjs` 文件或用 `String.fromCharCode(92)` 构造路径。
 
-- **下载监听区分全局与单次任务**：will-download 属于 Session，多窗口共享同一登录 Session。全局批量下载路由应幂等注册；当前图片另存为等路径会按任务临时绑定监听，不能一律禁止。临时监听需匹配发起 WebContents 与 URL，在命中、失败或取消/超时等结束路径清理，避免误拦其他窗口下载或累积监听；实际清理覆盖需按对应代码核对，不能由本条推断所有路径已验收。
+- **`session_log.py` 在 GBK 控制台打印 Unicode 会崩**：Windows GBK 终端无法编码 lesson 候选中的 `↔` 或 emoji，`main()` 打印 candidates 时抛 `UnicodeEncodeError`，日志本身已写入，崩在提示阶段。修复是在 `main()` 开头执行 `sys.stdout.reconfigure(encoding="utf-8", errors="replace")`。
 
-- **Windows 签名工具解压与符号链接权限**：历史 winCodeSign-2.6.0 包含 macOS 符号链接，Windows 7za 解压曾因权限不足失败；当时通过开发者模式/适当权限并在清缓存后重打验证。诊断先核对当前工具版本、实际 ERROR: Cannot create symbolic link 与系统权限，不把旧版本号或“必复现”当通用事实，也不擅自改系统设置。不要用 .cmd 包装 7za 吞错误码：历史 Go 解压链与 Node execFile 打包链对此兼容不同，出现过解压通过而 NSIS spawn EINVAL；应修真实权限/工具问题。缓存存在会掩盖解压失败，验证修复需区分缓存命中和新下载路径；具体版本与缓存位置以当前安装输出为准。
+- **落地页和宣传文案不是代码事实**：产品页里的数字、角色名、预设数量可能滞后于真实实现。改 README、方案文档或宣传页前，先 `ls`/`rg --files` 以实际预设目录和代码定义为准，不能照抄营销描述。
 
-- **代理/TUN 加载故障分层诊断**：当前 main 初始化含 disable-quic 与 AutomationControlled 开关，Session 处理会清理 Electron UA 标识。它们是既有兼容配置，不能保证所有代理、站点或验证码可用，更不能把白屏一律归因于 QUIC/自动化探针。按加载事件、错误码、render-process-gone 和实际网络证据排查；每次导航超时和取消处理需与休眠/唤醒配合，详见 Webview 采集主题。
+### 构建、打包与验证
 
-- **`@electron-toolkit/utils` 的 `is.dev` 在 Vite HMR 开发服务器中会崩溃**：`@electron-toolkit/utils` 的 `is` 对象内部使用了 `__dirname`、`child_process.spawnSync`、`path.join` 等 Node.js 特有 API。当 `shared/` 目录下的文件（如 `webviewScripts.ts`）被渲染进程引用时，`@electron-toolkit/utils` 会被 Vite 的依赖预构建（dependency pre-bundling）加载到浏览器环境中，触发 `__dirname is not defined` 和 `child_process has been externalized` 致命错误，导致开发服务器黑屏。**正确做法**：任何可能被渲染进程引用的代码（`shared/`、`renderer/` 目录），必须使用 `process.env.NODE_ENV !== 'production'` 替代 `is.dev`。`process.env.NODE_ENV` 是 Vite 等构建工具在编译时静态替换的环境变量，不依赖任何运行时模块，在主进程和渲染进程都能正确工作。`src/main/` 下的纯主进程文件使用 `is.dev` 是安全的，但为保持一致性也可统一使用 `process.env.NODE_ENV`。判别：若报错堆栈指向 `node_modules/.vite/deps/@electron-toolkit_utils.js` 且含 `__dirname`/`child_process` 字样，即命中本坑。
+- **启用 JavaScript 混淆时不要用函数 `toString()` 生成 Webview 注入脚本**：生产打包开启混淆后，通过 `Function.prototype.toString()` 生成注入脚本，函数体内部变量可能被主进程混淆器重命名，并依赖混淆器注入的主进程全局映射，进入隔离 Webview 后执行报错。注入脚本应直接使用自包含的字符串模板或 IIFE 源码字符串，避免在主进程代码中使用函数 toString 注入。
 
-- **开发组件的构建裁剪要检查引用图**：renderer 用 import.meta.env.DEV 控制动态 import 和路由/监听入口；只隐藏按钮不能证明其静态导入与依赖已从包中移除。是否剔除以构建后产物搜索为准，不笼统断言只有动态 import 才可能 tree-shake。
+- **`@electron-toolkit/utils` 的 `is.dev` 不能在 renderer/shared 中使用**：`is` 对象依赖 `__dirname`、`child_process.spawnSync`、`path.join` 等 Node API；`shared/` 文件被 Vite 依赖预构建加载到浏览器环境时，会触发 `__dirname is not defined` 和 `child_process has been externalized`，导致开发服务器黑屏。任何可能被渲染进程引用的代码（`shared/`、`renderer/`）都应使用 `process.env.NODE_ENV !== 'production'`；`src/main/` 下的纯主进程文件使用 `is.dev` 是安全的，但为一致性也可统一使用 `process.env.NODE_ENV`。判别：错误堆栈指向 `node_modules/.vite/deps/@electron-toolkit_utils.js` 且含 `__dirname`/`child_process`。
 
-- **开发 IPC 要显式限制运行时入口**：主进程 handle/on 注册有副作用，不能仅由 renderer 隐藏入口推断生产功能不可访问。沿用 main 开发态守卫，并核对注册条件；若要控制构建体积需检查实际 bundle，不把“永远无法静态剔除”当普遍结论。main 可用工具库 is.dev，renderer/shared 不导入 Node 工具库。
+- **开发组件的构建裁剪要检查引用图**：renderer 用 `import.meta.env.DEV` 控制动态 import 和路由/监听入口；只隐藏按钮不能证明静态导入和依赖已从包中移除。是否剔除以构建后产物搜索为准，不笼统断言只有动态 import 才可能 tree-shake。
 
-- **NSIS 安装后启动要区分权限与路径**：历史安装后启动曾出现约一分钟卡顿，排查涉及 elevated 安装进程通过 ExecShellAsUser、快捷方式落盘及 Shell/DCOM 降权路径。现有 installer.nsh 按账户类型选择启动方式，提权分支使用可执行文件路径而非快捷方式，普通分支避免不必要的降权调用。此为项目历史修复经验，不能只凭时长认定具体 COM 根因；修改安装脚本需按实际权限场景打包验收，并遵守打包配置变更的确认要求。
+- **开发 IPC 要显式限制运行时入口**：主进程 `handle/on` 注册有副作用，不能仅由 renderer 隐藏入口推断生产功能不可访问。沿用 main 的开发态守卫，并核对注册条件；若要控制构建体积，检查实际 bundle，不把“永远无法静态剔除”当普遍结论。main 可用工具库 `is.dev`，renderer/shared 不导入 Node 工具库。
 
-- **build 不等于类型检查或桌面验收**：electron-vite build 不执行 tsc。按 AGENTS 分别检查 tsconfig.node.json 与 tsconfig.web.json，根配置只有 references，单独 `npx tsc --noEmit` 不能代表两侧检查。已有类型错误与当前改动的错误应明确区分，不能把旧日志的通过记录当当前结果；UI、站点 DOM 与 main 行为需在重启后的 dev 中实际触发。
-  存量基线：`tsconfig.web.json` 未设 `target`，renderer 侧有 12 个既有类型错误（多为 TS2802 Map 迭代需 es2015+，另有 useWebviewLifecycle/QuickPage 各一处）。验证改动只需确认错误清单未新增、不涉及所改文件；需要精确区分时可 stash 对比。
+- **build 不等于类型检查或桌面验收**：electron-vite build 不执行 tsc。按 AGENTS 分别检查 `tsconfig.node.json` 与 `tsconfig.web.json`，根配置只有 references，单独 `npx tsc --noEmit` 不能代表两侧检查。验证时实时运行：
+  `npx tsc --noEmit -p tsconfig.node.json --composite false --incremental false`
+  `npx tsc --noEmit -p tsconfig.web.json --composite false --incremental false`
+  不要记录一次性错误数量作为长期基线；当前 `tsconfig.web.json` 已设置 `target: ES2020`，两侧均以实际输出为准。已有类型错误与当前改动的错误要明确区分，UI、站点 DOM 与 main 行为需在重启后的 dev 中实际触发。
 
-- **electron-builder `nsis.include` 注入到生成脚本头部，自定义代码须自带依赖**：`build/installer.nsh` 被 `scriptGenerator.include` 插到 makensis 脚本最前（先于 installer.nsi 的 common.nsh/MUI2/UAC→LogicLib），其中顶层 `Function` 体在定义点立即解析，用到的宏必须在本文件自行 `!include`——`nsDialogs.nsh` 会连带引入 `LogicLib.nsh`+`WinMessages.nsh`（含 `HWND_BROADCAST`/`WM_SETTINGCHANGE`/`BST_CHECKED`），而 `!macro` 体则延迟到插入点展开可依赖后文。可用钩子：`customInit`（.onInit 内设默认值，覆盖静默安装）、`customPageAfterChangeDir`（目录页后插 `Page custom`，MUI_HEADER_TEXT 不可用需用 `GetDlgItem 1037/1038`+`WM_SETTEXT` 改页头）、`customInstall`（装完文件后执行）、`customUnInstall`（卸载清理）。写用户 PATH 用 `WriteRegExpandStr HKCU Environment Path` 保住 `REG_EXPAND_SZ` 并 `SendMessage ${HWND_BROADCAST} ${WM_SETTINGCHANGE}` 广播；移除时分号分段精确匹配 `$INSTDIR\cli`，避免前缀误伤。
+- **Electron 系 IDE 终端的 `ELECTRON_RUN_AS_NODE=1` 必须清除**：Devin/VSCode 等 Electron 应用的集成终端会向子进程继承该变量，`npm run dev` 启动的 electron 退化为纯 Node，`require('electron').app` 为 undefined，main bundle 顶层 `app.isPackaged` 处即崩。bash 用 `env -u ELECTRON_RUN_AS_NODE npm run dev`，PowerShell 先 `Remove-Item Env:ELECTRON_RUN_AS_NODE` 再启动；该变量不是用户/系统环境变量，普通终端不受影响。
 
-- **Electron 系 IDE 终端自带 `ELECTRON_RUN_AS_NODE=1`，起 dev 必须清除**：Devin/VSCode 等 Electron 应用的集成终端会向子进程继承 `ELECTRON_RUN_AS_NODE=1`，`npm run dev` 启动的 electron 退化为纯 Node，`require('electron').app` 为 undefined，main  bundle 顶层 `app.isPackaged` 处即崩（Cannot read properties of undefined）。用 `env -u ELECTRON_RUN_AS_NODE npm run dev`（bash）或先 `Remove-Item Env:ELECTRON_RUN_AS_NODE`（PowerShell）再启动；该变量非用户/系统环境变量，普通终端不受影响。
+- **NSIS 安装后启动要区分权限与路径**：历史安装后启动曾出现约一分钟卡顿，排查涉及 elevated 安装进程通过 ExecShellAsUser、快捷方式落盘及 Shell/DCOM 降权路径。现有 installer.nsh 按账户类型选择启动方式，提权分支使用可执行文件路径而非快捷方式，普通分支避免不必要的降权调用。不能只凭时长认定具体 COM 根因；修改安装脚本要按实际权限场景打包验收。
 
-- **macOS Dock 图标显大通常是图稿没有留边距**：Apple 图标规范图稿约占画布 82% 并配透明边距，不是尺寸问题；`sips` 无合成能力，可用 Swift/AppKit `NSImage` 生成带透明边距的 PNG（`build/generate-mac-assets.sh`、`assets/dock-icon.png`），dev Dock 图标与打包 icns 共用该图。
+- **electron-builder `nsis.include` 会注入到生成脚本头部，自定义代码要自带依赖**：`build/installer.nsh` 被 `scriptGenerator.include` 插到 makensis 脚本最前，先于 installer.nsi 的 common.nsh/MUI2/UAC 和 LogicLib。顶层 `Function` 体在定义点立即解析，用到的宏必须在本文件自行 `!include`：`nsDialogs.nsh` 会连带引入 `LogicLib.nsh` 和 `WinMessages.nsh`（含 `HWND_BROADCAST`/`WM_SETTINGCHANGE`/`BST_CHECKED`），而 `!macro` 体延迟到插入点展开，可以依赖后文。可用钩子：`customInit`（.onInit 内设默认值，覆盖静默安装）、`customPageAfterChangeDir`（目录页后插 `Page custom`，MUI_HEADER_TEXT 不可用，需用 `GetDlgItem 1037/1038` + `WM_SETTEXT` 改页头）、`customInstall`、`customUnInstall`。写用户 PATH 用 `WriteRegExpandStr HKCU Environment Path` 保住 `REG_EXPAND_SZ` 并广播 `WM_SETTINGCHANGE`；移除时分号分段精确匹配 `$INSTDIR\cli`，避免前缀误伤。
 
-- **electron-builder NSIS 卸载键不写 `InstallLocation`**：1.3.1 实测 `HKLM\...\Uninstall\<appId>` 只有 `DisplayIcon`（`<dir>\MultiChat.exe,0`）与 `UninstallString`（`"<dir>\Uninstall MultiChat.exe" /allusers`）。Agent/脚本要定位安装目录（如找 `cli\multichat.cmd`）须反推：`DisplayIcon` 截 `,` 后缀取 dirname，或 `UninstallString` 取首个引号路径 dirname；HKCU/HKLM/WOW6432Node 三视图都查一遍。已在 `installer.nsh` `customInstall` 补写 `WriteRegStr SHELL_CONTEXT "${UNINSTALL_REGISTRY_KEY}" "InstallLocation" "$INSTDIR"`（卸载键名 = `UUID.v5(appId)`，模板 define `UNINSTALL_REGISTRY_KEY`/`SHELL_CONTEXT` 随 per-user/allusers 自动选 HKCU/HKLM）。
+- **NSIS 环境变量广播会按每个挂起窗口累计阻塞**：`SendMessage ${HWND_BROADCAST} ${WM_SETTINGCHANGE} ... /TIMEOUT=5000` 等价于 `SendMessageTimeoutW` 加 `SMTO_NORMAL`，超时按每个无响应顶层窗口分别累计，27 个挂起窗口乘 5 秒可能卡死两分钟以上。修复是用 `System::Call` 直调 `SendMessageTimeoutW(..., SMTO_ABORTIFHUNG(0x0002), 1000, ...)`，挂起窗口立即跳过，典型小于 100ms；`installer.nsh` 的 `McBroadcastEnvChange` 宏在装/卸两处共用，宏定义放在 `!ifndef BUILD_UNINSTALLER` 之外。要彻底零阻塞可换 `SendNotifyMessage` 异步投递，注册表先于广播写好，PATH 场景没有送达时序依赖。
 
-- **electron-builder `extends` 对数组字段是覆盖语义非合并**：`electron-builder-portable.yml` 重定义 `extraResources` 时父配置条目全部丢失——曾静默丢 `skill/multichat-cli` 资源目录。派生配置重定义数组字段（extraResources/files/extraFiles 等）必须重复声明父配置全部所需条目。
+- **electron-builder NSIS 卸载键不写 `InstallLocation`**：1.3.1 实测 `HKLM\...\Uninstall\<appId>` 只有 `DisplayIcon`（`<dir>\MultiChat.exe,0`）和 `UninstallString`（`"<dir>\Uninstall MultiChat.exe" /allusers`）。Agent 或脚本要定位安装目录（如找 `cli\multichat.cmd`）须反推：从 `DisplayIcon` 截掉 `,` 后缀取 dirname，或从 `UninstallString` 取首个引号路径 dirname；HKCU/HKLM/WOW6432Node 三视图都查一遍。`installer.nsh` 的 `customInstall` 可补写 `WriteRegStr SHELL_CONTEXT "${UNINSTALL_REGISTRY_KEY}" "InstallLocation" "$INSTDIR"`，卸载键名为 `UUID.v5(appId)`，`UNINSTALL_REGISTRY_KEY`/`SHELL_CONTEXT` 随 per-user/allusers 自动选 HKCU/HKLM。
 
-- **extraResources 按文件系统取文件，未提交进 git 的文件照样进安装包**：`run_task.ps1` 曾长期 `??` 未跟踪（非 .gitignore），本地打包一直带上它，但干净克隆或 CI 会静默缺文件。迁移/新增随包资源时顺手核对 `git status` 的 `??` 条目，确认该跟踪的都 `git add`。
+- **electron-builder `extends` 对数组字段是覆盖语义而非合并**：`electron-builder-portable.yml` 重定义 `extraResources` 时父配置条目全部丢失，曾静默丢掉 `skill/multichat-cli` 资源目录。派生配置重定义数组字段（`extraResources`/`files`/`extraFiles` 等）必须重复声明父配置全部所需条目。
 
-- **NSIS 环境变量广播会按每个挂起窗口累计阻塞**：`SendMessage ${HWND_BROADCAST} ${WM_SETTINGCHANGE} ... /TIMEOUT=5000` 等价 `SendMessageTimeoutW` + `SMTO_NORMAL`，超时按每个无响应顶层窗口分别累计（27 个挂起窗口 × 5s ≈ 卡死 2 分钟+，Scoop #6706 同型；桌面浏览器/IDE/终端挂起窗口很常见）。修复：`System::Call` 直调 `SendMessageTimeoutW(..., SMTO_ABORTIFHUNG(0x0002), 1000, ...)`，已挂起窗口立即跳过，典型 <100ms——`installer.nsh` 的 `McBroadcastEnvChange` 宏（装/卸两处共用，宏定义在 `!ifndef BUILD_UNINSTALLER` 之外两侧可见）；要彻底零阻塞可换 `SendNotifyMessage` 异步投递（注册表先于广播写好，PATH 场景无送达时序依赖）。
+- **`extraResources` 按文件系统取文件，未提交进 git 的文件照样进安装包**：`run_task.ps1` 曾长期是未跟踪文件，本地打包一直带上它，但干净克隆或 CI 会静默缺文件。迁移或新增随包资源时顺手核对 `git status` 的 `??` 条目，确认该跟踪的都 `git add`。
 
+- **macOS Dock 图标显大通常是图稿没有留边距**：Apple 图标规范图稿约占画布 82% 并配透明边距，不是尺寸问题。`sips` 没有合成能力，可用 Swift/AppKit `NSImage` 生成带透明边距的 PNG（`build/generate-mac-assets.sh`、`assets/dock-icon.png`），dev Dock 图标与打包 icns 共用该图。
 
-### 13. 历史架构与版本限定经验
+- **Windows 签名工具解压与符号链接权限是历史版本经验**：历史 winCodeSign 包含 macOS 符号链接，Windows 7za 解压曾因权限不足失败；当时通过开发者模式或适当权限并在清缓存后重打验证。诊断先核对当前工具版本、实际 `ERROR: Cannot create symbolic link` 和系统权限，不把旧版本号或“必复现”当通用事实，也不擅自改系统设置。不要用 `.cmd` 包装 7za 吞错误码；缓存存在会掩盖解压失败，验证修复要区分缓存命中和新下载路径。
+
+### 历史架构与版本限定
 
 仅在追溯旧架构、旧版本或用户授权的隔离开发时读取。本项目当前使用 Electron 42 与 Webview；本节不授权迁移架构、修改分支或照搬旧兼容补丁。
 
-- **通义千问点击即黑屏/渲染进程崩溃（0xC0000005）= Chromium 120 ScriptProcessorNode use-after-free**：Electron 28（Chromium 120）在 `ScriptProcessorNode::Process()` 中存在 use-after-free，崩溃码 `STATUS_ACCESS_VIOLATION / 0xC0000005`（退出码 `-1073741819`），上游已在 Chrome 121 修复。阿里云风控 SDK 在**用户点击（手势）**时创建 `ScriptProcessorNode` 做音频指纹——因 `AudioContext` 只能在手势后创建/恢复，故崩溃表现为"点击即黑屏"而非"加载即崩"。**干扰项**：控制台 `gyroscope/accelerometer ... not allowed` 与 `deviceorientation blocked by permissions policy` 只是 Permissions-Policy 阻断告警（已被策略挡掉，不会崩），且 Electron 无 `sensors` 权限类型，故 `setPermissionRequestHandler` 对此无效；`use-angle=gl` / `disableHardwareAcceleration` 等 GPU 开关也不对症（非 GPU/合成崩溃）。**正确修复**：在 webview 注入脚本（`getWebviewClickInterceptorScript`，`dom-ready` 即注入、先于点击）中对阿里云/通义域名（`hostname` 含 `aliyun.com` 或 `qwen.ai`）patch `AudioContext`/`webkitAudioContext`/`OfflineAudioContext`/`webkitOfflineAudioContext` 的 `createScriptProcessor` 为纯 JS 桩对象（含 `connect/disconnect/onaudioprocess/addEventListener` 等接口），永不进入原生音频线程，崩溃路径消除；指纹仍得确定性零缓冲结果，不影响页面功能。**彻底方案**：升级 Electron 28→29+（Chromium 121+ 含上游修复）。判别要点：点击触发 + 退出码 `-1073741819` + `ScriptProcessorNode is deprecated` 告警 = 命中本坑。
+- **通义千问点击即黑屏/渲染进程崩溃是 Chromium 120 的 ScriptProcessorNode use-after-free**：Electron 28（Chromium 120）在 `ScriptProcessorNode::Process()` 存在 use-after-free，崩溃码 `STATUS_ACCESS_VIOLATION / 0xC0000005`（退出码 `-1073741819`），上游在 Chrome 121 修复。阿里云风控 SDK 在用户点击（手势）时创建 `ScriptProcessorNode` 做音频指纹，因 `AudioContext` 只能在手势后创建或恢复，所以表现为点击即黑屏。控制台的 `gyroscope/accelerometer ... not allowed` 与 `deviceorientation blocked by permissions policy` 只是 Permissions-Policy 告警，Electron 没有 `sensors` 权限类型，`setPermissionRequestHandler` 对此无效；`use-angle=gl`/`disableHardwareAcceleration` 也不对症。当时的修复是在 `getWebviewClickInterceptorScript` 中 patch 阿里云/通义域名的 `AudioContext`/`webkitAudioContext`/`OfflineAudioContext`/`webkitOfflineAudioContext` 的 `createScriptProcessor` 为纯 JS 桩对象；彻底方案是升级 Electron 28 到 29+。判别：点击触发 + 退出码 `-1073741819` + `ScriptProcessorNode is deprecated` 告警。
 
-- **Webview 假象覆盖层截图 DPI 缩放比例跳跃**：当使用截图做 native window 的遮罩层时，应在主进程中使用 `image.resize()` 强制将图片尺寸调整为 1:1 DIP 物理尺寸，而非依靠浏览器 CSS 的 `background-size: 100% 100%` 让浏览器拉伸，否则会在高分屏（DPI > 1）下产生明显的重采样锯齿和尺寸抖动。
+- **WebContentsView 的 Windows 圆角、遮挡和截图还原**：`setBorderRadius` 在 Windows 下是 no-op；要实现圆角裁剪，需把 native view 设为透明并向页面注入 CSS，给 `html` 容器设置 `border-radius` 和 `overflow: hidden`。DOM 覆盖物激活时会被 native view 遮挡；当时最稳健的做法是在覆盖层打开时统一对所有 active WebContentsView 截图，隐藏真实视图并把截图作为静态背景，待抽屉关闭 300ms 动画结束后恢复。简单 dropdown 或侧滑菜单可以用 Electron 原生 Menu 重构，避开 z-index 冲突。截图做遮罩时要先用主进程 `image.resize()` 缩放到 1:1 DIP 物理尺寸，不能靠 CSS `background-size: 100% 100%` 拉伸，否则高分屏会出现重采样锯齿和尺寸抖动。
 
-- **Windows 平台 WebContentsView 圆角与遮挡漏洞**：(1) `setBorderRadius` 方法在 Windows 平台下为 no-op。若要实现 WebContentsView 无缝圆角裁剪，必须将 native view 设为透明（`#00000000`）并向 web 页面注入 CSS 样式，给 `html` 容器设置 `border-radius` 和 `overflow: hidden`。(2) 当 modal 框或抽屉组件等 DOM 覆盖物处于激活状态时，它们会被 native view 遮挡。相较于为每个插槽单独配置截图，最稳健的做法是在任何覆盖层打开时，统一对所有 active WebContentsView 启用“截屏障眼法”。
+- **旧 API 流式总结的生命周期经验**：`summaryApi`、`useSummaryPanel` 和 `generate-summary` 已删除，旧共享控制器互斥方案不再代表当前调用关系。可复用原则是：覆盖控制器前中止旧请求，异步闭包捕获本次控制器，完成时只清理仍属于本次请求的引用；流式 reader 在异常或取消路径取消并释放，避免向已销毁 sender 发送或继续空转。当前 taskSplit 是 `stream: false`，没有 reader/onChunk；未来引入流式接口时按新接口实际生命周期设计，不能照搬旧 IPC。
 
-- **DOM 覆盖 native 窗口的截图还原机制**：在将 `<webview>` 迁移至 WebContentsView 架构时，页面的 HTML dropdown 或侧滑菜单等会被 native view 挡住。修复方法：(1) 使用 Electron 原生 Menu 来重构 model 选项，避开 z-index 冲突；(2) 对于复杂侧拉抽屉（如历史、设置等），在触发打开时利用 `capturePage` 截取 native 视图作为静态背景图显示，同时将真实的 WebContentsView 隐藏，待抽屉关闭 300ms 动画结束后再恢复显示，达成无缝视觉欺骗。
-
-- **旧 API 流式总结的生命周期经验**：summaryApi/useSummaryPanel 和 generate-summary 已删除，旧共享控制器互斥方案不再作为当前调用关系。可复用原则是：覆盖控制器前中止旧请求，异步闭包捕获本次控制器，完成时只清理仍属于本次请求的引用；流式 reader 在异常/取消路径取消并释放，避免向已销毁 sender 发送或继续空转。当前 taskSplit 是 stream:false，无 reader/onChunk；如未来引入流式接口，按新接口实际生命周期设计，不能照搬旧 IPC。
-
-- **仅在用户授权的 worktree 工作中核对基线**：历史 Claude EnterWorktree 默认从远端默认分支创建，与本地未推送代码可能不同，具体工具默认值可能随版本变化。必须核对实际 ref、未提交改动及计划锚点；不要自动 stash/rebase/reset。创建或切换分支需遵循 AGENTS 的明确授权要求，不能把历史操作命令当默认工作流。
-
-- **新 checkout 的 Electron 安装缺失诊断**：旧 worktree 曾在 npm install 后缺少 node_modules/electron/path.txt/dist，开发启动失败。先核对安装输出与实际文件，不宣称每个 worktree 必然需要手动下载；只有确认 Electron 安装阶段缺失时才按现有依赖的 install.js 修复。此处不是创建 worktree 的授权。
-
-- **跨 worktree 分支保护**：被其他 worktree 检出的分支不能强移指针。历史 develop 与 C:/Project 路径仅是当时布局，不是当前目标；实际位置由 git worktree list 确认。合并、切分支、处理未提交工作需有用户授权，不能自动 force、stash 或任选更长文档覆盖冲突。
-
-### 14. 自包含原型与浏览器视觉验收
+### 原型与视觉验收
 
 - **用 `innerHTML` 重建含 `id` 的子节点后，后续渲染不能再引用旧节点**：自包含 HTML 原型中，如果渲染函数先写入容器 `innerHTML`，之后再按旧 `id` 查询该容器内的节点，首次渲染可能成功，但切换文档、新增标注等第二次渲染会得到 `null` 并中断交互。修复应删除冗余的旧节点引用，或始终在重建完成后重新查询；验收不能只截首屏，还要实际触发一次文档切换或数据更新后的重渲染。
-- **窄屏旁注必须按编辑容器宽度切换，而不是继续压缩正文**：固定宽度的旁注列留在 flex 布局中会优先挤占正文。宽屏保留原位卡片列；可用宽度不足时让旁注列退出布局，只保留行尾序号标记，并用单条绝对定位浮层承载注释。切换依据应是 `ResizeObserver` 测量的真实编辑区宽度，而不是窗口宽度，因为文件树和 AI 侧栏同样会改变正文可用空间。
+
+- **静态原型验收要覆盖交互状态和重复渲染**：首屏截图只能证明初始布局，不能证明切换、重复渲染、空态、错误态和窄屏分支。验收时应实际触发关键路径，并把浏览器截图与 DOM 状态一起作为证据；具体样式数值是视觉取舍，不升级为通用规则。

@@ -1,30 +1,33 @@
 # 知识索引与路由表
 
-> Created: 2026-10-05 11:09 (Asia/Shanghai, UTC+08:00)
-
 复杂修改、调试或需要历史经验时，先匹配任务关键词与文件路径，再读取 KNOWLEDGE.md 中对应的 `###` 章节。多个主题命中时只读确有依赖的章节；不要因此全文加载知识或归档日志。没有匹配主题时先查代码，确认有可复用经验后再新增主题和路由。
+
+本表按领域路由，每个 `###` 主题可以有多个入口。触发词只保留主关键词和稳定文件路径，不把整组字段名、函数名或历史版本号堆进同一行。单行触发词控制在约 15 个以内；单个章节的触发词超过约 50 个时，优先拆分章节和路由，而不是继续追加关键词。路由目标以标题文本匹配，不再依赖章节编号。
 
 ## L1 知识路由（按触发条件读取对应章节）
 
 | id | 触发词或文件路径 | KNOWLEDGE 章节 | 适用说明 |
 |---|---|---|---|
-| `webview-extraction` | selectors.ts、webviewScripts.ts、contenteditable、Slate、DOM、CodeMirror、回复采集 | ### 1. Webview 输入、选择器与回复采集 | 先确认当前 DOM 与调用链 |
-| `workbench-inject` | assistantReplyConfigs、generateInsertReplyButtonScript、mc-workbench-btn、工作台回复按钮、contentItem、userItemMarker、replyItem、actionBar | ### 1. Webview 输入、选择器与回复采集 | 注入定位坑在同主题末尾 |
-| `image-download` | imageDownload、clickDownloadButtons、generateClickDownloadButtonsScript、批量下载图片、原生下载、aria-label 下载、`--gen-image`、CLI 生图、generateExtractImagesScript、genImageOnly、生图容器、message_image_content | ### 1. Webview 输入、选择器与回复采集 | 图片下载选择器适配经验在同主题末尾 |
-| `research-frames` | Deep Research、研究报告、Qwen、iframe、CDP、OOPIF | ### 2. 深度研究与跨 frame 提取 | 提取方案不等于已验收能力 |
-| `research-selectors` | deep-research-dom、研究模式、选择器失效、aria-label、menuitem、menuitemradio、toolbox-drawer、选择模式、添加文件、深入研究、深度研究 | ### 2. 深度研究与跨 frame 提取 | 2026-11 全平台 DOM 实测结论在同主题末尾 |
-| `markmap-layout` | localMindmap.css、foreignObject、连线、折叠按钮、中文竖排、点击遮挡 | ### 3. Markmap 布局、连线与命中区域 | 布局与按钮测量 |
-| `markmap-viewport` | useMindmapCanvas.ts、Markmap.create、fit、zoom、ResizeObserver、隐藏画布 | ### 4. Markmap 可见性、缩放与视口 | 初始化和后续更新区分 |
-| `markmap-editing` | Markmap、setData、treeRef、contenteditable、节点编辑、选中态、preventScroll | ### 5. Markmap 编辑与状态生命周期 | 布局问题另读主题 3 |
-| `react-state` | useState、useMemo、useCallback、callback ref、闭包、共享抽屉、受控状态、旧计划、WorkbenchEditor、MarkdownSyncPlugin、WorkbenchCodeHighlightPlugin、Lexical CodeNode、代码块光标、LineBreakNode、code-exit、AutoLinkNode、裸链接、本地文件链接、workbenchLinks、LinkNode、https 前缀、HTML 表格、table、rowspan、colspan、DecoratorBlockNode、WorkbenchHtmlTableNode、WorkbenchUrlInputPopover、工作台多格式预览、写盘安全、WorkbenchFileTree、importExternalPaths、getPathForFile、文件树拖入、AppIcon、Lucide、图标迁移、图标回退、警告三角、APP_ICON_MAP、图标别名、单一语义名、annotation、add_comment、sticky_note_2、空状态、居中对齐、文件类型图标、FileTypeIcon、Material 文件图标、Paperclip、撤销、重做、前进、WorkbenchAiSidebar、拖拽上传、draggingNodes、一键发送文件、上传成功 toast、attachmentCount、nameMatched、同名附件、临时副本、右侧条带、dragenter、假成功、上传卡死、withTimeout、uploadingRef、停止等待、PlaygroundEditorTheme、Markdown 标题行距、引用缩进、FrontmatterPanel、笔记属性、source 链接、行内编辑、blur 提交、Ctrl 点击、setWindowOpenHandler、shell.openExternal、workbenchTags、标签补全、tag-suggest、标签搜索、滚动位置、scrollTop、预览源码切换、滚动恢复、三栏布局、截断、rightPaneWidth、拖拽写盘、设置弹窗、卡片套卡片、嵌套卡片、工作区设置、WorkbenchMarginNotes、旁注、margin notes、ResizeObserver、父级 ref、useLayoutEffect、断点、clientWidth、浮动格式条、选区联动、栏头、portal、sticky、滚动视口、切文档闪现、评论卡、documentKey、annotationsReady、DraggableBlockPlugin、拖拽 handle、正文重叠、左侧 gutter | ### 6. React 状态与共享 UI | 按实际时序选择状态方案 |
-| `markdown-table` | GFM 表格、单元格填充空格、cell padding、mapToTableCells、TABLE_ROW_REG_EXP、MarkdownSyncPlugin 表格 | ### 6. React 状态与共享 UI | 表格导入的空白裁剪与 Lexical 单元格解析 |
-| `selection-windows` | inputHookManager.ts、uiaSelectionHelper.ts、selectionReader.ts、shortcutManager.ts、WebviewFindBar.tsx、findInPage、UIA、monio、划词、焦点、标题栏、拖动、tray、托盘、trafficLightPosition、红绿灯、AXFocusedUIElement、分隔条、Splitter、webview遮挡、context-menu、iframe右键、HTML预览 | ### 7. 划词、快捷键与窗口交互 | 自动划词与主动快捷键分开 |
-| `notes-identity` | noteManager.ts、noteIdentity.ts、noteTranscript.ts、笔记、快照、URL路径、XML、批注、工作台导图、生成会话复用、lastPage、generationSession、改名重连、对账、size、mtime、contentHash、conversationUrl.ts、isConversationUrlForPlatform、isPlatformConversationPage、来源会话入口、二进制文档、workbenchBinaryHash、docm、pptm、PDF、Word、PPT、resolveId、无效的笔记 ID、无效的文件 ID、notesGet、HTML、gitService、gitignoreService、Git、git mv、update-index、暂存区、rename、pull、push、fetch、ahead、behind、merge --abort、largeUntracked、gitignore、工作区设置、remote set-url、literal-pathspecs、show-prefix、no-optional-locks、刷新闪烁、allowLargeFiles、listUnlocked、迁移只读快照、legacyMigrationJob、rawLegacyRecords、verify-failed、迁移收敛、listIgnoredPaths、readTree、文件树隐藏规则、隐藏文件、点号目录、.agents、.claude、check-ignore | ### 8. 笔记、快照与会话身份 | 整段对话采集另读主题 1；Git 接入、忽略规则、文件树隐藏规则与同步策略在同主题末尾 |
-| `history-lifecycle` | appStore.ts、useWebviewLifecycle.ts、历史恢复、currentConversationId、WebContents ID、轮询、休眠、hibernate、内存、日志量、getWebviewClickInterceptorScript、tryInject、点击拦截注入、dom-ready、attach-timeout、外链拦截、workbench-lifecycle、PDFDataRangeTransport、readPdfRange、workbench-file、corsEnabled | ### 9. 历史恢复、轮询、休眠与内存 | 保持磁盘/内存与会话边界；注入触发点收敛与 about:blank 跳过在同主题末尾 |
-| `task-api` | taskSplitApi.ts、requestBodyConfig.ts、useTaskSplit.ts、useDebateRunner.ts、ipcHandlers.ts、env.d.ts、任务分配、辩论、model ID、AbortController | ### 10. 任务分配、辩论与 API 请求 | 旧总结链路仅在历史主题 |
-| `cli-daemon` | src/cli/、src/main/daemon/、SessionManager.ts、AutomationService.ts、Named Pipe、CLI、后台会话、诊断透传、AgentTaskService、commander、taskkill、daemon.token、multichat.cmd、ERRORLEVEL、run_task.ps1、PATH、注册表定位、cli.json、idempotencyKey、stdin、taskId、登录态、AUTH_REQUIRED、AUTH_LOST、未登录、sign_in、authWall、AuthStateService、platformAuthCookies、platformAuthCookieRules、platformAuthStorage、signedIn、游客、guest、cookie、BDUSS、chatglm_token、is_guest、hy_user、a_did_、refresh_token、tongyi_sso_ticket、arena-auth、qianwen.com、chat.qwen.ai、aria-pressed、skipIfPressed、--image、附件上传、generatePasteFileUploadScript、uploadAttachments、generateFileUploadStateScript、粘贴上传、dispatchFileDrop、MIME_BY_EXT | ### 11. CLI 与后台会话 | 通信顺序、输出协议、登录态双通道与值判定、幂等开关 |
-| `build-verification` | electron.vite.config.ts、electron-builder、NSIS、winCodeSign、TUN、QUIC、混淆、toString、打包、tsc、构建验证、ELECTRON_RUN_AS_NODE、generate-mac-assets.sh、Dock 图标、icns、InstallLocation、UninstallString、卸载注册表、extends、extraResources、便携版、SendMessageTimeout、WM_SETTINGCHANGE、install-stamp | ### 12. 构建、打包与开发验证 | 平台/版本经验需核对环境 |
-| `historical-only` | WebContentsView、Electron 28、Chromium 120、summaryApi.ts、useSummaryPanel.ts、generate-summary、EnterWorktree、worktree、旧架构 | ### 13. 历史架构与版本限定经验 | 只在明确追溯或已授权工作中加载 |
-| `prototype-verification` | docs/prototypes、HTML 原型、高保真界面、静态原型、截图、浏览器验收、重渲染 | ### 14. 自包含原型与浏览器视觉验收 | 首屏截图之外必须验证切换与重复渲染 |
+| `webview-capture` | selectors.ts、webviewScripts.ts、contenteditable、Slate、CodeMirror、回复采集、整段对话、快照、虚拟代码框 | ### Webview 采集与平台自动化 | 先确认当前 DOM 与调用链；采集结果要区分未完成和解析失败 |
+| `webview-platform` | 平台改版、豆包、千问、工作台回复按钮、generateInsertReplyButtonScript、messageContainer、item-icon、sr-only、selectorDiagnostics | ### Webview 采集与平台自动化 | 平台 DOM、选择器语义与注入定位；改选择器时检查前台总结、后台导图和整段对话三条链路 |
+| `image-download` | imageDownload、clickDownloadButtons、generateExtractImagesScript、--gen-image、生图容器、message_image_content | ### Webview 采集与平台自动化 | 图片下载和生图提取；优先语义 hook，保留 click 失败后的 extract 兜底 |
+| `deep-research` | Deep Research、iframe、CDP、OOPIF、iab、AutomationStep、研究模式 | ### Webview 采集与平台自动化 | 提取能力边界与平台入口；排查经验不等于已验收产品能力 |
+| `workbench-editor` | Lexical、MarkdownSyncPlugin、CodeNode、AutoLinkNode、LinkNode、GFM 表格、HTML 表格、HTML 标注、annotation、DraggableBlockPlugin、WorkbenchHtmlVisualEditor、WorkbenchHtmlColorPicker、preserveFocus、allow-same-origin、postMessage | ### 工作台编辑器 | 编辑器导入、序列化、HTML 隔离编辑与标注；实时调色焦点和写盘安全也要核对 |
+| `react-state` | useState、useMemo、useCallback、callback ref、闭包、ResizeObserver、共享抽屉、TDZ、HMR | ### React 状态与组件生命周期 | 按实际时序选择状态方案；组件挂载和父级提交时序要单独核对 |
+| `workbench-files` | WorkbenchFileTree、importExternalPaths、getPathForFile、dispatchFileDrop、uploadAttachments、附件、PDF、workbench-file、二进制文档、PDF 滚轮缩放 | ### 工作台文件与上传 | 外部导入、跨 webview 拖拽、粘贴上传、临时副本和流式预览 |
+| `notes-mindmap` | noteManager、noteIdentity、noteTranscript、快照、resolveId、mindmap、generationSession、迁移、frontmatter、标签 | ### 笔记、快照与导图 | 笔记身份、版本指纹、改名重连、迁移与导图绑定 |
+| `markmap` | Markmap、foreignObject、setData、fit、scrollWidth、节点按钮、中文竖排 | ### 导图渲染与交互 | 布局、视口、命中区域和编辑生命周期 |
+| `workbench-ui` | AppIcon、Lucide、APP_ICON_MAP、FileTypeIcon、三栏布局、scrollTop、旁注、评论卡、设置弹窗、正文居中、大纲轨道 | ### 工作台 UI 与图标 | 图标体系、三栏布局、滚动恢复和浮层定位 |
+| `selection-windows` | quickWindow、划词、UIA、monio、shortcutManager、findInPage、tray、quit-guard-ready、before-quit、托盘退出、trafficLightPosition、Splitter、context-menu | ### 窗口、划词与快捷键 | 自动划词与主动快捷键分开；托盘退出与窗口经验按平台核对 |
+| `runtime` | history、currentConversationId、urlMismatch、轮询、辩论、hibernate、about:blank、SummaryPanel、download、TUN | ### 历史、会话与运行时 | 会话边界、加载失败、轮询、休眠与内存；源码核对不等于桌面验收 |
+| `task-api` | taskSplitApi、requestBodyConfig、slotIndex、windowCount、IPC、API、summaryPrompts、debatePrompts | ### 任务分配、辩论与 API | 请求体、槽位、IPC 类型和提示词升级 |
+| `cli-daemon` | src/cli、src/main/daemon、Named Pipe、backgroundThrottling、commander、daemon.token、task.submit、cancel、waitMs | ### CLI、Daemon 与登录态 | 通信顺序、任务终态、输出协议和 CLI 退出码 |
+| `platform-auth` | 登录态、AUTH_REQUIRED、AUTH_LOST、platformAuthCookies、platformAuthCookieRules、localStorage、tongyi_sso_ticket、qianwen、selector version | ### CLI、Daemon 与登录态 | 游客与已登录要双通道判定；站点同源和主进程选择器版本也要核对 |
+| `git-workflow` | gitService、update-index、git mv、fetch、ahead/behind、push -u、gitignore、remote set-url、worktree、文件树隐藏规则、落地页、README | ### Git 与开发工作流 | 索引写路径变化、同步策略、忽略规则、worktree 授权与文档事实核对 |
+| `build-verify` | electron.vite.config、electron-builder、NSIS、installer.nsh、winCodeSign、混淆、is.dev、ELECTRON_RUN_AS_NODE、tsc、extraResources、Dock 图标 | ### 构建、打包与验证 | 构建不等于类型检查或桌面验收；平台和版本经验需核对当前环境 |
+| `historical` | Electron 28、Chromium 120、ScriptProcessorNode、WebContentsView、summaryApi、useSummaryPanel、generate-summary | ### 历史架构与版本限定 | 只在明确追溯旧架构或已授权工作中加载 |
+| `prototype-verification` | docs/prototypes、自包含 HTML、innerHTML、视觉验收、重渲染、截图 | ### 原型与视觉验收 | 首屏截图之外必须验证切换、重复渲染和窄屏分支 |
 
-日常实现不默认读 TODO、CHANGELOG 或归档。需要近期上下文时读 SESSION_LOG；只有追溯更早会话才读 `.memory/sessions/` 对应日期。既有脚本只提示缺少路由的三级标题，不检查 INDEX 缺失、触发词质量或反向失效条目；维护时需确认章节标题与表格一致。
+需要近期上下文时读 SESSION_LOG；只有追溯更早会话才读 `.memory/sessions/` 对应日期。既有脚本只提示缺少路由的三级标题，不检查 INDEX 缺失、触发词质量或反向失效条目；维护时需确认章节标题与表格一致。
+
+新增、删除或重命名 `###` 主题时，必须同步本表：先确认目标标题在 KNOWLEDGE.md 中实际存在，再更新路由；不要继续使用旧编号或只改标题不改路由。
