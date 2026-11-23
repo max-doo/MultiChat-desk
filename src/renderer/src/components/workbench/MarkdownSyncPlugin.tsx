@@ -16,6 +16,7 @@ import {
   CHECK_LIST,
   isTableRowDivider,
   type ElementTransformer,
+  type MultilineElementTransformer,
   type TextMatchTransformer
 } from '@lexical/markdown'
 import {
@@ -77,6 +78,11 @@ import {
   matchBareLink,
   trimBareUrl
 } from './workbenchBareLinks'
+import {
+  $createWorkbenchEquationNode,
+  $isWorkbenchEquationNode,
+  WorkbenchEquationNode
+} from './WorkbenchEquationNode'
 import { normalizeWorkbenchLocalFileLink } from './workbenchLinks'
 import { allMarks } from './workbenchAnnotationUtils'
 
@@ -409,6 +415,55 @@ export const BARE_LINK_TRANSFORMER: TextMatchTransformer = {
   type: 'text-match'
 }
 
+/**
+ * 块级公式 $$...$$ → WorkbenchEquationNode（inline=false）
+ * 匹配以 $$ 开头、以 $$ 结尾的整段内容（可多行）。
+ */
+export const BLOCK_EQUATION_TRANSFORMER: MultilineElementTransformer = {
+  dependencies: [WorkbenchEquationNode],
+  export: (node: LexicalNode) => {
+    if (!$isWorkbenchEquationNode(node) || node.isInlineMode()) return null
+    const equation = node.getEquation()
+    if (!equation) return null
+    return `$$\n${equation}\n$$`
+  },
+  regExpStart: /^\$\$/,
+  regExpEnd: /^\$\$\s*$/,
+  replace: (rootNode, _children, _startMatch, _endMatch, linesInBetween) => {
+    const equation = (linesInBetween ?? []).join('\n').trim()
+    const equationNode = $createWorkbenchEquationNode(equation, false)
+    rootNode.append(equationNode)
+    equationNode.selectNext()
+    return true
+  },
+  type: 'multiline-element'
+}
+
+/**
+ * 行内公式 $...$ → WorkbenchEquationNode（inline=true）
+ * 匹配同一文本节点内、不含 $$/换行/首尾空格的 $...$ 片段。
+ */
+export const INLINE_EQUATION_TRANSFORMER: TextMatchTransformer = {
+  dependencies: [WorkbenchEquationNode],
+  export: (node: LexicalNode) => {
+    if (!$isWorkbenchEquationNode(node) || !node.isInlineMode()) return null
+    const equation = node.getEquation()
+    if (!equation) return null
+    return `$${equation}$`
+  },
+  importRegExp: /(?<!\$)\$([^$\n]|[^$\n][^$\n]*[^$\n ])\$(?!\$)/,
+  regExp: /^((?<!\$)\$([^$\n]|[^$\n][^$\n]*[^$\n ])\$(?!\$))$/,
+  replace: (textNode, match) => {
+    const matched = match[0]
+    const equation = matched.slice(1, -1).trim()
+    if (!equation) return
+    const equationNode = $createWorkbenchEquationNode(equation, true)
+    textNode.replace(equationNode)
+  },
+  trigger: '$',
+  type: 'text-match'
+}
+
 export const WORKBENCH_LINK_TRANSFORMER: TextMatchTransformer = {
   ...LINK,
   replace: (textNode, match) => {
@@ -427,9 +482,11 @@ export const WORKBENCH_LINK_TRANSFORMER: TextMatchTransformer = {
 export const WORKBENCH_TRANSFORMERS = [
   HTML_TABLE_TRANSFORMER,
   TABLE_TRANSFORMER,
+  BLOCK_EQUATION_TRANSFORMER,
   CHECK_LIST,
   HR_TRANSFORMER,
   IMAGE_TRANSFORMER,
+  INLINE_EQUATION_TRANSFORMER,
   BARE_LINK_TRANSFORMER,
   ...TRANSFORMERS.map((transformer) =>
     transformer === LINK ? WORKBENCH_LINK_TRANSFORMER : transformer

@@ -35,6 +35,7 @@ import { PendingInsertNode } from './PendingInsertNode'
 import { PendingBarNode } from './PendingBarNode'
 import { WorkbenchImageNode } from './WorkbenchImageNode'
 import { WorkbenchHtmlTableNode } from './WorkbenchHtmlTableNode'
+import { WorkbenchEquationNode } from './WorkbenchEquationNode'
 import WorkbenchImagePlugin from './WorkbenchImagePlugin'
 import WorkbenchSelectionMenuPlugin from './WorkbenchSelectionMenuPlugin'
 import WorkbenchFloatingToolbarPlugin from './WorkbenchFloatingToolbarPlugin'
@@ -53,6 +54,7 @@ import type { WorkbenchSourceEditorHandle } from './WorkbenchSourceEditor'
 import WorkbenchCodePreview from './WorkbenchCodePreview'
 import WorkbenchImagePreview from './WorkbenchImagePreview'
 import WorkbenchPdfPreview from './WorkbenchPdfPreview'
+import WorkbenchDocxPreview from './WorkbenchDocxPreview'
 import WorkbenchDocxCard from './WorkbenchDocxCard'
 import WorkbenchStatusPill from './WorkbenchStatusPill'
 import WorkbenchFindReplaceBar from './WorkbenchFindReplaceBar'
@@ -61,6 +63,7 @@ import {
   readEditorScroll,
   rememberEditorScroll
 } from './workbenchEditorScroll'
+import 'katex/dist/katex.min.css'
 
 const lexicalTheme = {
   paragraph: 'PlaygroundEditorTheme__paragraph',
@@ -340,6 +343,7 @@ export default function WorkbenchEditor(): JSX.Element {
         PendingBarNode,
         WorkbenchImageNode,
         WorkbenchHtmlTableNode,
+        WorkbenchEquationNode,
         MarkNode
       ],
       onError: (error: Error) => {
@@ -389,8 +393,11 @@ export default function WorkbenchEditor(): JSX.Element {
     return <WorkbenchPdfPreview key={activeFilePath} />
   }
 
-  // Word 文档卡片
+  // Word 文档内嵌预览；老格式与 PPT 等仍走提示卡片
   if (activeFileCategory === 'document') {
+    if (activeFilePath.toLowerCase().endsWith('.docx')) {
+      return <WorkbenchDocxPreview key={activeFilePath} />
+    }
     return <WorkbenchDocxCard key={activeFilePath} />
   }
 

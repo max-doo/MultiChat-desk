@@ -746,20 +746,32 @@ export default function WorkbenchAiSidebar({ isActive = true }: WorkbenchAiSideb
       // 若侧边栏当前处于折叠状态，则自动展开
       if (rightPane !== 'ai') openRightPane('ai')
 
-      if (currentModel) {
-        const modelId = currentModel.id
-        beginSidebarActivity(modelId)
-        void (async () => {
-          try {
-            const ref = await ensureSidebarLive(modelId)
-            if (ref) await ref.insertText(prompt)
-          } catch (error) {
-            console.warn(`[workbench-lifecycle] insert prompt failed ${modelId}:`, error)
-          } finally {
-            endSidebarActivity(modelId)
-          }
-        })()
+      if (!currentModel) {
+        showToast('error', '未选择 AI 模型')
+        return
       }
+
+      const modelId = currentModel.id
+      const modelName = currentModel.name
+      beginSidebarActivity(modelId)
+      void (async () => {
+        try {
+          const ref = await ensureSidebarLive(modelId)
+          if (!ref) {
+            showToast('error', `${modelName} 页面未就绪，请稍后重试`)
+            return
+          }
+          const result = await ref.insertText(prompt)
+          if (!result.success) {
+            showToast('error', `${modelName} 输入框未就绪，请稍后重试`)
+          }
+        } catch (error) {
+          console.warn(`[workbench-lifecycle] insert prompt failed ${modelId}:`, error)
+          showToast('error', `${modelName} 文本注入失败，请稍后重试`)
+        } finally {
+          endSidebarActivity(modelId)
+        }
+      })()
     }
 
     window.addEventListener('workbench:insert-prompt', handleInsertPrompt)
@@ -772,7 +784,8 @@ export default function WorkbenchAiSidebar({ isActive = true }: WorkbenchAiSideb
     openRightPane,
     ensureSidebarLive,
     beginSidebarActivity,
-    endSidebarActivity
+    endSidebarActivity,
+    showToast
   ])
 
   // 处理文件拖入释放并上传到当前 AI 对话框

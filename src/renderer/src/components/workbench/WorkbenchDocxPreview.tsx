@@ -1,0 +1,706 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { Options } from 'docx-preview'
+import { DOCX_PREVIEW_MAX_BYTES } from '../../../../shared/types/workbench'
+import { useWorkbenchStore, type WorkbenchAiAction } from '../../store/workbenchStore'
+import { AppIcon } from '../icons/AppIcon'
+import FileTypeIcon from './FileTypeIcon'
+import WorkbenchSendToAiButton from './WorkbenchSendToAiButton'
+
+const ZOOM_MIN = 0.5
+const ZOOM_MAX = 3
+const ZOOM_STEP = 0.1
+const WHEEL_ZOOM_THRESHOLD = 100
+
+// 与 Word 字数口径一致的统计：CJK 逐字计数，西文按词计数；
+// CJK 范围覆盖假名、谚文音节、扩展 A、兼容表意字、全角标点与竖排标点。
+const CJK_CHAR_RE = /[぀-ヿ㐀-䶿一-鿿豈-﫿︰-﹏＀-￯가-힯]/g
+
+interface DocxStats {
+  words: number
+  cjkChars: number
+  westernWords: number
+  charsNoSpace: number
+  charsWithSpace: number
+  paragraphs: number
+}
+
+function countDocxStats(container: HTMLElement): DocxStats {
+  const text = container.textContent ?? ''
+  const cjkChars = (text.match(CJK_CHAR_RE) || []).length
+  const westernWords = text
+    .replace(CJK_CHAR_RE, ' ')
+    .split(/\s+/)
+    .filter(Boolean).length
+  const paragraphs = Array.from(container.querySelectorAll('p')).filter(
+    (p) => (p.textContent ?? '').trim().length > 0
+  ).length
+  return {
+    words: cjkChars + westernWords,
+    cjkChars,
+    westernWords,
+    charsNoSpace: text.replace(/\s/g, '').length,
+    // Word 的“字符数(计空格)”不含段落换行
+    charsWithSpace: text.replace(/[\r\n]/g, '').length,
+    paragraphs
+  }
+}
+
+function countWordsInText(text: string): number {
+  const cjkChars = (text.match(CJK_CHAR_RE) || []).length
+  const westernWords = text
+    .replace(CJK_CHAR_RE, ' ')
+    .split(/\s+/)
+    .filter(Boolean).length
+  return cjkChars + westernWords
+}
+
+interface DocxMenuState {
+  x: number
+  y: number
+  text: string
+}
+
+/**
+ * docx-preview 把内嵌图片与字体转成 blob URL；卸载或重渲染前必须回收，
+ * 否则每次打开文档都会留下无法释放的 Blob。
+ */
+function revokeDocxBlobUrls(root: HTMLElement): void {
+  root.querySelectorAll('img[src^="blob:"]').forEach((img) => {
+    URL.revokeObjectURL((img as HTMLImageElement).src)
+  })
+  root.querySelectorAll('style').forEach((style) => {
+    const matches = style.textContent?.match(/blob:[^)"'\s]+/g)
+    matches?.forEach((url) => URL.revokeObjectURL(url))
+  })
+}
+
+function clearDocxContainer(container: HTMLElement): void {
+  revokeDocxBlobUrls(container)
+  container.replaceChildren()
+}
+
+export default function WorkbenchDocxPreview(): JSX.Element {
+  const activeFilePath = useWorkbenchStore((s) => s.activeFilePath)
+  const workspacePath = useWorkbenchStore((s) => s.workspacePath)
+  const activeFileSize = useWorkbenchStore((s) => s.activeFileSize)
+  const activeFileOversized = useWorkbenchStore((s) => s.activeFileOversized)
+  const openInSystem = useWorkbenchStore((s) => s.openInSystem)
+  const revealFile = useWorkbenchStore((s) => s.revealFile)
+  const askAi = useWorkbenchStore((s) => s.askAi)
+
+  const contentRef = useRef<HTMLDivElement | null>(null)
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+  const menuRef = useRef<HTMLDivElement | null>(null)
+  const bubbleRef = useRef<HTMLDivElement | null>(null)
+  // 右键会让 Chromium 先折叠选区，用最近一次文档内选区兜住操作对象；
+  // 左键重新点选、切换文件或执行动作后即失效。
+  const lastSelectionRef = useRef('')
+  const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [loadError, setLoadError] = useState('')
+  const [reloadKey, setReloadKey] = useState(0)
+  const [selectedText, setSelectedText] = useState('')
+  const [menu, setMenu] = useState<DocxMenuState | null>(null)
+  const [stats, setStats] = useState<DocxStats | null>(null)
+  const [statsOpen, setStatsOpen] = useState(false)
+  const [zoom, setZoom] = useState(1)
+  const zoomRef = useRef(1)
+  const statsChipRef = useRef<HTMLDivElement | null>(null)
+
+  const zoomStep = useCallback((direction: -1 | 1) => {
+    setZoom((current) =>
+      Math.min(
+        ZOOM_MAX,
+        Math.max(ZOOM_MIN, Math.round((current + direction * ZOOM_STEP) * 10) / 10)
+      )
+    )
+  }, [])
+
+  const oversized =
+    activeFileOversized || (typeof activeFileSize === 'number' && activeFileSize > DOCX_PREVIEW_MAX_BYTES)
+
+  const formattedSize = useMemo(() => {
+    if (activeFileSize === null) return ''
+    if (activeFileSize < 1024) return `${activeFileSize} B`
+    if (activeFileSize < 1024 * 1024) return `${(activeFileSize / 1024).toFixed(1)} KB`
+    return `${(activeFileSize / (1024 * 1024)).toFixed(1)} MB`
+  }, [activeFileSize])
+
+  const docxNode = useMemo(
+    () => ({
+      id: activeFilePath || 'preview.docx',
+      name: activeFilePath?.split(/[/\\]/).pop() || 'preview.docx',
+      path: activeFilePath || 'preview.docx',
+      fullPath: activeFilePath || 'preview.docx',
+      isDirectory: false,
+      extension: '.docx'
+    }),
+    [activeFilePath]
+  )
+
+  useEffect(() => {
+    setSelectedText('')
+    setMenu(null)
+    setStats(null)
+    setStatsOpen(false)
+    lastSelectionRef.current = ''
+  }, [activeFilePath])
+
+  const selectedWords = useMemo(
+    () => (selectedText ? countWordsInText(selectedText) : 0),
+    [selectedText]
+  )
+
+  /**
+   * 按容器宽度缩放整页文档。
+   * Word 页宽通常 21cm（约 794px），窄于容器时保持 1:1，避免文字被放大；
+   * 适应宽度只缩小不放大，用户手动缩放在此基础上叠加。
+   */
+  const fitToWidth = useCallback(() => {
+    const scroller = scrollRef.current
+    const container = contentRef.current
+    if (!scroller || !container) return
+    // 只处理本次渲染换入的 wrapper，避免匹配到游离节点或残留内容
+    const wrapper = Array.from(container.children).find((el) =>
+      el.classList.contains('docx-wrapper')
+    ) as HTMLElement | undefined
+    const page = wrapper?.querySelector<HTMLElement>('section.docx')
+    if (!wrapper || !page) return
+
+    // 先归零再量，避免上一次 zoom 影响测量结果
+    wrapper.style.zoom = '1'
+    // 与容器左右 padding 对齐（px-6 = 24px/侧）
+    const available = scroller.clientWidth - 48
+    const pageWidth = page.getBoundingClientRect().width
+    if (pageWidth <= 0 || available <= 0) return
+    wrapper.style.zoom = String(Math.min(1, available / pageWidth) * zoomRef.current)
+  }, [])
+
+  // 手动缩放改变时重算；走 ref 是为了避免 fitToWidth 依赖 zoom 后
+  // 被渲染 effect 级联触发整份文档重渲染。
+  useEffect(() => {
+    zoomRef.current = zoom
+    fitToWidth()
+  }, [zoom, fitToWidth])
+
+  // 渲染整份文档：字节只在本 effect 内流转，不进入全局 store；
+  // docx-preview 体积较大，改为按需动态加载，避免拖慢工作台首屏。
+  useEffect(() => {
+    const container = contentRef.current
+    if (!container || !workspacePath || !activeFilePath || oversized) return
+
+    let cancelled = false
+    setLoadState('loading')
+    setLoadError('')
+    clearDocxContainer(container)
+
+    const render = async (): Promise<void> => {
+      const result = await window.api.workbench.readDocxBytes(workspacePath, activeFilePath)
+      if (cancelled) return
+      if (!result.success || !result.data) {
+        throw new Error(result.error || '读取 Word 文档失败')
+      }
+      const { renderAsync } = await import('docx-preview')
+      if (cancelled) return
+
+      // 先让加载态完成一次绘制，再进入同步的 OOXML 解析与 DOM 构建。
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+      if (cancelled) return
+
+      // 渲染到游离节点再整体换入：刷新或切换文件时旧渲染不会追加到新内容上。
+      const staging = document.createElement('div')
+      const options: Partial<Options> = {
+        inWrapper: true,
+        breakPages: false,
+        // 保留 Word 页宽（ignoreWidth 会把页面压成窄条、正文宽度失真），
+        // 渲染后按容器宽度整体缩放，等价于常见的文档预览“适应宽度”。
+        ignoreWidth: false,
+        ignoreHeight: true,
+        renderComments: false,
+        renderChanges: false,
+        // altChunk 会把文档内嵌的原始 HTML 放进 iframe srcdoc，
+        // 等同在宿主页面执行未审查内容；预览不需要该特性，直接关闭。
+        renderAltChunks: false
+      }
+      await renderAsync(result.data.bytes, staging, staging, options)
+      if (cancelled) {
+        clearDocxContainer(staging)
+        return
+      }
+      container.replaceChildren(...Array.from(staging.childNodes))
+      fitToWidth()
+      setStats(countDocxStats(container))
+      setLoadState('ready')
+    }
+
+    void render().catch((error: unknown) => {
+      if (cancelled) return
+      console.error('[WorkbenchDocxPreview] 渲染 Word 文档失败:', error)
+      clearDocxContainer(container)
+      setLoadError(error instanceof Error ? error.message : String(error))
+      setLoadState('error')
+    })
+
+    return () => {
+      cancelled = true
+      clearDocxContainer(container)
+    }
+  }, [workspacePath, activeFilePath, oversized, reloadKey, fitToWidth])
+
+  // 右栏展开/折叠或窗口缩放后重算适应宽度
+  useEffect(() => {
+    const scroller = scrollRef.current
+    if (!scroller) return
+    const observer = new ResizeObserver(() => fitToWidth())
+    observer.observe(scroller)
+    return () => observer.disconnect()
+  }, [fitToWidth])
+
+  // 点击字数 chip 以外区域收起统计详情
+  useEffect(() => {
+    if (!statsOpen) return
+    const handleMouseDown = (event: MouseEvent): void => {
+      if (statsChipRef.current && !statsChipRef.current.contains(event.target as Node)) {
+        setStatsOpen(false)
+      }
+    }
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setStatsOpen(false)
+    }
+    document.addEventListener('mousedown', handleMouseDown, true)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handleMouseDown, true)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [statsOpen])
+
+  // Ctrl/Cmd + 滚轮缩放，与 PDF 预览一致：累计滚轮增量换算成步进，避免触控板过于灵敏
+  useEffect(() => {
+    const scroller = scrollRef.current
+    if (!scroller) return
+    let accumulatedDelta = 0
+
+    const handleWheel = (event: WheelEvent): void => {
+      if (!event.ctrlKey && !event.metaKey) return
+      event.preventDefault()
+
+      const deltaScale =
+        event.deltaMode === WheelEvent.DOM_DELTA_LINE
+          ? 16
+          : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+            ? 100
+            : 1
+      const delta = event.deltaY * deltaScale
+      if (delta === 0) return
+
+      if (Math.sign(delta) !== Math.sign(accumulatedDelta)) accumulatedDelta = 0
+      accumulatedDelta += delta
+      const steps = Math.trunc(accumulatedDelta / WHEEL_ZOOM_THRESHOLD)
+      if (steps === 0) return
+
+      accumulatedDelta -= steps * WHEEL_ZOOM_THRESHOLD
+      zoomStep(steps > 0 ? -1 : 1)
+    }
+
+    scroller.addEventListener('wheel', handleWheel, { passive: false })
+    return () => scroller.removeEventListener('wheel', handleWheel)
+  }, [zoomStep])
+
+  const readSelectionInside = useCallback((): string => {
+    const container = contentRef.current
+    const selection = window.getSelection()
+    if (!container || !selection || selection.rangeCount === 0) return ''
+    // 选区跨到文档外时，getSelection 仍会返回整段文本；
+    // 以整段 Range 的公共祖先是否在容器内判定，避免把文件树等选区误当作文档内容。
+    const range = selection.getRangeAt(0)
+    if (!container.contains(range.commonAncestorContainer)) return ''
+    return selection.toString().trim()
+  }, [])
+
+  const handleMouseUp = useCallback(() => {
+    const text = readSelectionInside()
+    lastSelectionRef.current = text
+    setSelectedText(text)
+  }, [readSelectionInside])
+
+  // 文档内的链接不能在主窗口内导航，否则整个工作台会被替换成目标页。
+  // 外链交给系统浏览器；书签锚点在预览容器内滚动。
+  const handleLinkClick = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    const anchor = (event.target as HTMLElement | null)?.closest('a')
+    const href = anchor?.getAttribute('href')?.trim()
+    if (!href) return
+    event.preventDefault()
+
+    if (href.startsWith('#')) {
+      const target = contentRef.current?.querySelector<HTMLElement>(
+        `[id="${CSS.escape(href.slice(1))}"], [name="${CSS.escape(href.slice(1))}"]`
+      )
+      target?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+      return
+    }
+    if (/^https?:\/\//i.test(href)) void window.api.openBrowserWindow(href)
+  }, [])
+
+  // 点到文档外收起快捷气泡；点击气泡自身不算
+  useEffect(() => {
+    const handleMouseDown = (event: MouseEvent): void => {
+      const target = event.target as Node | null
+      if (!target) return
+      if (menuRef.current?.contains(target)) return
+      if (bubbleRef.current?.contains(target)) return
+      const container = contentRef.current
+      if (container?.contains(target)) {
+        // 左键开始新的点选，旧选区不再代表用户意图
+        if (event.button === 0) lastSelectionRef.current = ''
+        setMenu(null)
+        return
+      }
+      setSelectedText('')
+      lastSelectionRef.current = ''
+      setMenu(null)
+    }
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        setSelectedText('')
+        lastSelectionRef.current = ''
+        setMenu(null)
+      }
+    }
+    document.addEventListener('mousedown', handleMouseDown, true)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handleMouseDown, true)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [])
+
+  const handleContextMenu = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      // 只接管本文档内的选区；选区已被折叠时退回最近一次文档内选区。
+      const text = readSelectionInside() || lastSelectionRef.current
+      if (!text) return
+      event.preventDefault()
+      event.stopPropagation()
+      setSelectedText(text)
+      setMenu({
+        x: Math.min(event.clientX, window.innerWidth - 220),
+        y: Math.min(event.clientY, window.innerHeight - 260),
+        text
+      })
+    },
+    [readSelectionInside]
+  )
+
+  useEffect(() => {
+    if (!menu) return
+    const handleClickOutside = (event: MouseEvent): void => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) setMenu(null)
+    }
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setMenu(null)
+    }
+    document.addEventListener('mousedown', handleClickOutside, true)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside, true)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [menu])
+
+  const runAction = (text: string, action: WorkbenchAiAction): void => {
+    if (!text) return
+    askAi(text, action)
+    window.getSelection()?.removeAllRanges()
+    lastSelectionRef.current = ''
+    setSelectedText('')
+    setMenu(null)
+  }
+
+  const copyText = async (text: string): Promise<void> => {
+    if (!text) return
+    await navigator.clipboard.writeText(text)
+    setMenu(null)
+  }
+
+  const actions: Array<{ action: WorkbenchAiAction; label: string; icon: string; color: string }> = [
+    { action: 'ask', label: '向 AI 提问', icon: 'chat', color: 'text-blue-500' },
+    { action: 'explain', label: '解释此内容', icon: 'psychology', color: 'text-purple-500' },
+    { action: 'polish', label: '语言润色', icon: 'auto_fix_high', color: 'text-emerald-500' },
+    { action: 'summarize', label: '提取关键要点', icon: 'format_list_bulleted', color: 'text-cyan-500' }
+  ]
+
+  return (
+    <div className="flex-1 h-full flex flex-col overflow-hidden bg-slate-100 dark:bg-gray-900">
+      <style>{`
+.docx-preview-content .docx-wrapper {
+  background: transparent;
+  padding: 0;
+  display: block;
+}
+.docx-preview-content .docx-wrapper > section.docx {
+  margin: 0 auto 20px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12), 0 10px 28px -16px rgba(15, 23, 42, 0.35);
+}
+.docx-preview-content .docx-wrapper > section.docx:last-child { margin-bottom: 0; }
+`}</style>
+
+      <div className="h-12 px-3 bg-white/80 dark:bg-gray-800/80 border-b border-black/5 dark:border-white/5 flex items-center justify-between gap-2 shrink-0 text-sm">
+        <div className="flex items-center gap-2 truncate">
+          <FileTypeIcon node={docxNode} className="w-[19px] h-[19px]" />
+          <span className="font-medium text-text-primary truncate" title={activeFilePath || ''}>
+            {activeFilePath}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-1.5 text-text-secondary">
+          <div className="flex items-center gap-0.5 rounded-md">
+            <button
+              type="button"
+              onClick={() => zoomStep(-1)}
+              disabled={zoom <= ZOOM_MIN}
+              className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
+              title="缩小"
+            >
+              <AppIcon name="zoom_out" size={18} />
+            </button>
+            <button
+              type="button"
+              onClick={() => setZoom(1)}
+              className="min-w-[46px] h-7 px-1 rounded-md text-xs font-medium tabular-nums hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors"
+              title="恢复到 100%"
+            >
+              {Math.round(zoom * 100)}%
+            </button>
+            <button
+              type="button"
+              onClick={() => zoomStep(1)}
+              disabled={zoom >= ZOOM_MAX}
+              className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
+              title="放大"
+            >
+              <AppIcon name="zoom_in" size={18} />
+            </button>
+          </div>
+
+          <div className="h-5 w-px bg-black/10 dark:bg-white/10 mx-0.5" />
+
+          <button
+            type="button"
+            onClick={() => setReloadKey((k) => k + 1)}
+            className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors"
+            title="刷新文档渲染"
+          >
+            <AppIcon name="refresh" size={19} />
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (activeFilePath) void openInSystem(activeFilePath)
+            }}
+            className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors"
+            title="使用系统默认程序打开"
+          >
+            <AppIcon name="open_in_new" size={19} />
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (activeFilePath) void revealFile(activeFilePath)
+            }}
+            className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors"
+            title="在系统资源管理器中定位"
+          >
+            <AppIcon name="folder_open" size={19} />
+          </button>
+        </div>
+      </div>
+
+      <div className="flex-1 w-full h-full relative overflow-hidden">
+        {oversized ? (
+          <div className="w-full h-full flex flex-col items-center justify-center p-8 text-center bg-white dark:bg-gray-900 text-text-primary">
+            <div className="w-16 h-16 rounded-2xl bg-amber-500/10 flex items-center justify-center text-amber-500 mb-4">
+              <FileTypeIcon node={docxNode} className="w-[30px] h-[30px]" />
+            </div>
+            <h3 className="text-base font-semibold mb-2">Word 文档超出内嵌预览上限</h3>
+            <p className="text-sm text-text-secondary max-w-sm mb-6 leading-relaxed">
+              该文件大小为 <span className="font-semibold text-text-primary">{formattedSize}</span>，超过工作台
+              10MB 的内嵌预览上限。可用系统默认应用打开查看与编辑。
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                if (activeFilePath) void openInSystem(activeFilePath)
+              }}
+              className="h-10 px-5 rounded-xl bg-primary text-white hover:bg-primary/90 text-sm font-medium flex items-center gap-2 shadow-sm transition-all"
+            >
+              <AppIcon name="open_in_new" size={19} />
+              <span>在本地打开</span>
+            </button>
+          </div>
+        ) : loadState === 'error' ? (
+          <div className="w-full h-full flex flex-col items-center justify-center p-8 text-center text-text-secondary">
+            <AppIcon name="error" size={36} className="text-rose-400 mb-2" />
+            <p className="text-sm mb-1 text-text-primary">未能渲染这份 Word 文档</p>
+            <p className="text-xs mb-4 max-w-md break-words">{loadError || '文件已损坏或格式不受支持'}</p>
+            <button
+              type="button"
+              onClick={() => {
+                if (activeFilePath) void openInSystem(activeFilePath)
+              }}
+              className="px-4 py-2 rounded-lg bg-primary text-white text-sm font-medium"
+            >
+              在本地打开
+            </button>
+          </div>
+        ) : (
+          <div ref={scrollRef} className="w-full h-full overflow-auto py-6 px-6">
+            <div
+              ref={contentRef}
+              className="docx-preview-content select-text"
+              data-workbench-editor="true"
+              onMouseUp={handleMouseUp}
+              onClick={handleLinkClick}
+              onContextMenu={handleContextMenu}
+            />
+          </div>
+        )}
+
+        {loadState === 'loading' && !oversized && (
+          <div className="absolute inset-0 flex items-center justify-center bg-slate-100/80 dark:bg-gray-900/80 text-text-secondary text-sm">
+            <AppIcon name="refresh" size={18} className="animate-spin mr-2" />
+            正在渲染文档
+          </div>
+        )}
+
+        {selectedText && !menu && (
+          <div
+            ref={bubbleRef}
+            // 点击气泡不能抢走文档选区，否则选区折叠后动作拿不到文本
+            onMouseDown={(event) => event.preventDefault()}
+            className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 rounded-full border border-black/5 bg-white/95 px-3 py-1.5 text-xs text-text-secondary shadow-float backdrop-blur-md dark:border-white/10 dark:bg-gray-900/90"
+          >
+            <span className="whitespace-nowrap pr-1 tabular-nums">已选 {selectedText.length} 字</span>
+            <div className="h-4 w-px bg-black/10 dark:bg-white/10" />
+            <button
+              type="button"
+              onClick={() => runAction(selectedText, 'ask')}
+              className="w-7 h-7 flex items-center justify-center rounded-full text-blue-500 hover:bg-blue-500/10 transition-colors"
+              title="发送到 AI 侧边栏"
+            >
+              <AppIcon name="send" size={16} />
+            </button>
+            <button
+              type="button"
+              onClick={() => runAction(selectedText, 'explain')}
+              className="w-7 h-7 flex items-center justify-center rounded-full text-purple-500 hover:bg-purple-500/10 transition-colors"
+              title="解释此内容"
+            >
+              <AppIcon name="psychology" size={16} />
+            </button>
+            <button
+              type="button"
+              onClick={() => runAction(selectedText, 'summarize')}
+              className="w-7 h-7 flex items-center justify-center rounded-full text-cyan-500 hover:bg-cyan-500/10 transition-colors"
+              title="提取关键要点"
+            >
+              <AppIcon name="format_list_bulleted" size={16} />
+            </button>
+            <button
+              type="button"
+              onClick={() => void copyText(selectedText)}
+              className="w-7 h-7 flex items-center justify-center rounded-full text-text-secondary hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
+              title="复制选中文本"
+            >
+              <AppIcon name="content_copy" size={16} />
+            </button>
+          </div>
+        )}
+
+        {menu && (
+          <div
+            ref={menuRef}
+            className="fixed z-50 min-w-[190px] py-1.5 bg-white/95 dark:bg-gray-800/95 backdrop-blur-md rounded-xl shadow-xl border border-black/10 dark:border-white/10 text-sm animate-in fade-in zoom-in-95 duration-100"
+            style={{ left: menu.x, top: menu.y }}
+          >
+            {actions.map((item) => (
+              <button
+                key={item.action}
+                type="button"
+                onClick={() => runAction(menu.text, item.action)}
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-text-primary hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+              >
+                <AppIcon name={item.icon} size={19} className={`text-[19px] ${item.color}`} />
+                <span className="font-medium">{item.label}</span>
+              </button>
+            ))}
+            <div className="my-1 border-t border-black/5 dark:border-white/5" />
+            <button
+              type="button"
+              onClick={() => void copyText(menu.text)}
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-text-secondary hover:text-text-primary hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+            >
+              <AppIcon name="content_copy" size={19} />
+              <span>复制选中文本</span>
+            </button>
+          </div>
+        )}
+
+        <div className="absolute bottom-3 right-3 z-10 flex items-center gap-2">
+          <WorkbenchSendToAiButton />
+          {stats && loadState === 'ready' && (
+            <div ref={statsChipRef} className="relative">
+              <button
+                type="button"
+                onClick={() => setStatsOpen((open) => !open)}
+                className="flex items-center gap-1 rounded-full border border-black/5 bg-white/85 px-2.5 py-1 text-xs text-text-secondary shadow-sm backdrop-blur-md transition-colors hover:text-text-primary dark:border-white/10 dark:bg-gray-900/80"
+                title="字数统计"
+              >
+                <AppIcon name="match_word" size={14} />
+                <span className="tabular-nums">
+                  {selectedText ? `${selectedWords} / ${stats.words.toLocaleString()}` : stats.words.toLocaleString()} 字
+                </span>
+              </button>
+              {statsOpen && (
+                <div className="absolute bottom-full right-0 mb-2 w-52 rounded-xl border border-black/10 bg-white/95 p-3 text-xs shadow-float backdrop-blur-md dark:border-white/10 dark:bg-gray-900/95">
+                  <dl className="space-y-1.5">
+                    <div className="flex justify-between">
+                      <dt className="text-text-secondary">字数</dt>
+                      <dd className="tabular-nums text-text-primary">{stats.words.toLocaleString()}</dd>
+                    </div>
+                    <div className="flex justify-between">
+                      <dt className="text-text-secondary">字符数（不计空格）</dt>
+                      <dd className="tabular-nums text-text-primary">{stats.charsNoSpace.toLocaleString()}</dd>
+                    </div>
+                    <div className="flex justify-between">
+                      <dt className="text-text-secondary">字符数（计空格）</dt>
+                      <dd className="tabular-nums text-text-primary">{stats.charsWithSpace.toLocaleString()}</dd>
+                    </div>
+                    <div className="flex justify-between">
+                      <dt className="text-text-secondary">段落数</dt>
+                      <dd className="tabular-nums text-text-primary">{stats.paragraphs.toLocaleString()}</dd>
+                    </div>
+                    <div className="flex justify-between">
+                      <dt className="text-text-secondary">中文字符</dt>
+                      <dd className="tabular-nums text-text-primary">{stats.cjkChars.toLocaleString()}</dd>
+                    </div>
+                    <div className="flex justify-between">
+                      <dt className="text-text-secondary">英文单词</dt>
+                      <dd className="tabular-nums text-text-primary">{stats.westernWords.toLocaleString()}</dd>
+                    </div>
+                  </dl>
+                </div>
+              )}
+            </div>
+          )}
+          {formattedSize && (
+            <div className="flex items-center gap-2 rounded-full border border-black/5 bg-white/85 px-2.5 py-1 text-xs text-text-secondary shadow-sm backdrop-blur-md dark:border-white/10 dark:bg-gray-900/80">
+              <span className="whitespace-nowrap" title={`大小 ${formattedSize}`}>
+                {formattedSize}
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
