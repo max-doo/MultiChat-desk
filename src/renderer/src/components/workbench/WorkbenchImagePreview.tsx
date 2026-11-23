@@ -2,8 +2,6 @@ import { useState, useRef, useMemo, useEffect, useCallback } from 'react'
 import { useWorkbenchStore } from '../../store/workbenchStore'
 import { AppIcon } from '../icons/AppIcon'
 
-type BackgroundTheme = 'checkerboard' | 'light' | 'dark'
-
 export default function WorkbenchImagePreview(): JSX.Element {
   const activeFilePath = useWorkbenchStore((s) => s.activeFilePath)
   const activeFileDataUrl = useWorkbenchStore((s) => s.activeFileDataUrl)
@@ -12,10 +10,11 @@ export default function WorkbenchImagePreview(): JSX.Element {
   const activeFileOversized = useWorkbenchStore((s) => s.activeFileOversized)
   const openInSystem = useWorkbenchStore((s) => s.openInSystem)
   const revealFile = useWorkbenchStore((s) => s.revealFile)
+  const bgTheme = useWorkbenchStore((s) => s.imageBackgroundTheme)
+  const setBgTheme = useWorkbenchStore((s) => s.setImageBackgroundTheme)
 
   const [scale, setScale] = useState(1)
   const [rotation, setRotation] = useState(0)
-  const [bgTheme, setBgTheme] = useState<BackgroundTheme>('checkerboard')
   const [naturalDimensions, setNaturalDimensions] = useState<{ width: number; height: number } | null>(null)
   const [isLoaded, setIsLoaded] = useState(false)
   const [loadError, setLoadError] = useState(false)
@@ -52,11 +51,8 @@ export default function WorkbenchImagePreview(): JSX.Element {
   }
 
   const toggleBgTheme = () => {
-    setBgTheme((current) => {
-      if (current === 'checkerboard') return 'light'
-      if (current === 'light') return 'dark'
-      return 'checkerboard'
-    })
+    const next = bgTheme === 'checkerboard' ? 'light' : bgTheme === 'light' ? 'dark' : 'checkerboard'
+    setBgTheme(next)
   }
 
   const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {

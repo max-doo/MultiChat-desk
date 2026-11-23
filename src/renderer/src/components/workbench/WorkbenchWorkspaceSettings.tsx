@@ -7,12 +7,29 @@ import type {
   LegacyMigrationResult,
   MigrationBlockedReason
 } from '../../../../shared/types/annotations'
+import type { FrontmatterBackupSummary } from '../../../../shared/types/workbench'
 import { AppIcon } from '../icons/AppIcon'
 import WorkbenchFooterPopover, { WorkbenchFooterPopoverHeader } from './WorkbenchFooterPopover'
 
 function formatSize(size: number): string {
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(0)} KB`
   return `${(size / (1024 * 1024)).toFixed(1)} MB`
+}
+
+const SHORT_CATEGORY_LABELS: Record<string, string> = {
+  system: '系统临时',
+  archive: '压缩包',
+  installer: '安装包',
+  office: 'PDF与文档',
+  video: '视频文件',
+  design: '设计源文件',
+  node: 'Node 依赖',
+  python: 'Python 缓存',
+  build: '构建产物',
+  editor: '编辑器临时',
+  ide: 'IDE 配置',
+  'app-state': '应用生成物',
+  'obsidian-state': 'Obsidian 状态'
 }
 
 /** 阻塞原因只展示用户能据此行动的中文说明；未映射的值保留原样便于诊断。 */
@@ -40,7 +57,6 @@ export default function WorkbenchWorkspaceSettings({
   anchorRef: { current: HTMLElement | null }
 }): JSX.Element {
   const workspacePath = useWorkbenchStore((s) => s.workspacePath)
-  const workspaceName = useWorkbenchStore((s) => s.workspaceName)
   const gitStatus = useWorkbenchStore((s) => s.gitStatus)
   const refreshGitStatus = useWorkbenchStore((s) => s.refreshGitStatus)
   const gitSetRemote = useWorkbenchStore((s) => s.gitSetRemote)
@@ -70,8 +86,14 @@ export default function WorkbenchWorkspaceSettings({
   const [migrationResult, setMigrationResult] = useState<LegacyMigrationResult | null>(null)
   const [migrationBusy, setMigrationBusy] = useState(false)
   const migrationBusyRef = useRef(false)
+  /** 已放弃的 jobId：迟到的进度事件和刷新结果都不能再把进度/阻塞刷回来。 */
+  const abandonedJobRef = useRef<string | null>(null)
+  const [backups, setBackups] = useState<FrontmatterBackupSummary | null>(null)
+  const [backupBusy, setBackupBusy] = useState(false)
+  const [backupNotice, setBackupNotice] = useState<string | null>(null)
   // 打开时磁盘上的文本快照，用于保存前检测外部修改
   const [diskText, setDiskText] = useState('')
+  const [activeTab, setActiveTab] = useState<'sync' | 'storage'>('sync')
 
   const load = useCallback(async () => {
     if (!workspacePath) return
@@ -145,7 +167,14 @@ export default function WorkbenchWorkspaceSettings({
       if (!alive) return
       setMigrationLoadError(error instanceof Error ? error.message : '旧笔记读取失败')
     })
-    const off = window.api.onNotesMigrationProgress(progress => setMigrationProgress(progress))
+    void window.api.notesFrontmatterBackups().then(result => {
+      if (!alive) return
+      if (result.success && result.data) setBackups(result.data)
+    }).catch(() => undefined)
+    const off = window.api.onNotesMigrationProgress(progress => {
+      if (progress.jobId === abandonedJobRef.current) return
+      setMigrationProgress(progress)
+    })
     return () => {
       alive = false
       off()
@@ -179,6 +208,8 @@ export default function WorkbenchWorkspaceSettings({
     migrationBusyRef.current = true
     setMigrationBusy(true)
     setError(null)
+    abandonedJobRef.current = null
+    setMigrationProgress(null)
     // 进度事件不带 status；先把本地 job 置为 running，让“暂停”在迁移期间可见。
     setMigrationPending(prev => {
       if (!prev?.job) return prev
@@ -199,6 +230,7 @@ export default function WorkbenchWorkspaceSettings({
     } finally {
       migrationBusyRef.current = false
       setMigrationBusy(false)
+      setMigrationProgress(null)
       const pending = await window.api.notesMigrationPending().catch(() => null)
       if (pending?.success && pending.data) {
         setMigrationPending(pending.data)
@@ -240,11 +272,45 @@ export default function WorkbenchWorkspaceSettings({
       setError(result.error || '放弃迁移失败')
       return
     }
+    abandonedJobRef.current = jobId
     setMigrationResult(null)
+    setMigrationProgress(null)
     const pending = await window.api.notesMigrationPending()
     if (pending.success && pending.data) {
       setMigrationPending(pending.data)
       setMigrationLoadError(null)
+    }
+  }
+
+  /** 清理迁移前备份：只删原文档仍存在的备份，正文已丢失的保留。 */
+  const clearBackups = async (): Promise<void> => {
+    if (backupBusy) return
+    const orphans = backups?.orphans ?? 0
+    const message = orphans > 0
+      ? `删除正文仍存在的原始备份？正文已不存在的 ${orphans} 份会保留。`
+      : '删除迁移前留下的原始备份？正文不受影响。'
+    if (!window.confirm(message)) return
+    setBackupBusy(true)
+    setBackupNotice(null)
+    setError(null)
+    try {
+      const result = await window.api.notesClearFrontmatterBackups()
+      if (!result.success || !result.data) {
+        setError(result.error || '清理备份失败')
+        return
+      }
+      const { removed, kept, errors } = result.data
+      setBackupNotice(
+        errors.length
+          ? `已删除 ${removed} 份，${errors.length} 份失败`
+          : kept > 0
+            ? `已删除 ${removed} 份，保留 ${kept} 份`
+            : `已删除 ${removed} 份`
+      )
+      const summary = await window.api.notesFrontmatterBackups()
+      if (summary.success && summary.data) setBackups(summary.data)
+    } finally {
+      setBackupBusy(false)
     }
   }
 
@@ -265,16 +331,23 @@ export default function WorkbenchWorkspaceSettings({
     .map((line) => line.trim())
     .filter((line) => line && !line.startsWith('#'))
   const hasPattern = (pattern: string): boolean => activePatterns.includes(pattern)
-  // 勾选状态以当前列表为准：手动删掉组内任意规则后，复选框自动回到未勾选
-  const isCategoryChecked = (category: GitignoreCategory): boolean =>
-    category.patterns.every((pattern) => hasPattern(pattern))
+  /** 分类勾选态：全部规则都在、只有部分在、一条都不在。 */
+  type CategoryState = 'all' | 'partial' | 'none'
+  const categoryState = (category: GitignoreCategory): CategoryState => {
+    const hit = category.patterns.filter((pattern) => hasPattern(pattern)).length
+    if (hit === 0) return 'none'
+    return hit === category.patterns.length ? 'all' : 'partial'
+  }
 
   // 文本编辑器允许调整顺序、注释和空行，因此按原文比较
   const isIgnoreDirty = ignoreText !== diskText
+  const remoteChanged = Boolean(remoteUrl.trim()) && remoteUrl.trim() !== (remotes[0]?.url ?? '')
+  const conversationDirChanged = conversationDirDraft.trim() !== conversationDir && Boolean(conversationDirDraft.trim())
+  const isDirty = isIgnoreDirty || remoteChanged || conversationDirChanged
 
-  /** 关闭前确认未保存的忽略规则，避免点遮罩或关闭按钮时静默丢弃勾选 */
+  /** 关闭前确认未保存的设置，避免点遮罩或关闭按钮时静默丢弃改动 */
   const requestClose = (): void => {
-    if (isIgnoreDirty && !window.confirm('忽略规则尚未保存，确定放弃这些改动？')) return
+    if (isDirty && !window.confirm('工作区设置尚未保存，确定放弃这些改动？')) return
     onClose()
   }
 
@@ -297,7 +370,8 @@ export default function WorkbenchWorkspaceSettings({
 
   /** 勾选/取消一个分类：只增删该组规则，不触碰其他组和用户手写条目 */
   const toggleCategory = (category: GitignoreCategory): void => {
-    const selected = isCategoryChecked(category)
+    // 部分选中时点击视为补齐，只有全部命中才取消整组。
+    const selected = categoryState(category) === 'all'
     setSaved(false)
     setIgnoreText((prev) => {
       const lines = prev.split(/\r?\n/)
@@ -363,10 +437,12 @@ export default function WorkbenchWorkspaceSettings({
   }
 
   const save = async (): Promise<void> => {
-    const remoteChanged = Boolean(remoteUrl.trim()) && remoteUrl.trim() !== remotes[0]?.url
-    if (!isIgnoreDirty && !remoteChanged) {
+    if (!isDirty) {
       setSaved(true)
       return
+    }
+    if (conversationDirChanged) {
+      await saveConversationDir()
     }
     if (isIgnoreDirty) {
       await saveIgnore()
@@ -374,9 +450,35 @@ export default function WorkbenchWorkspaceSettings({
     if (remoteChanged) {
       await saveRemote()
     }
+    setSaved(true)
   }
 
   const largeUntracked = gitStatus?.largeUntracked ?? []
+  const quickIgnoreExtensions = Array.from(
+    new Set(
+      largeUntracked
+        .map((item) => {
+          const name = item.path.split('/').pop() ?? item.path
+          // 没有扩展名时忽略整个文件名，避免生成 `*.` 这类无效规则
+          if (!name.includes('.')) return name
+          return `*.${name.split('.').pop()?.toLowerCase() ?? ''}`
+        })
+        .filter(Boolean)
+    )
+  )
+  const ignoreLineCount = ignoreText ? ignoreText.split(/\r?\n/).length : 0
+  const migrationPendingCount = migrationPending?.pendingConversations ?? 0
+  const migrationBlockedCount = migrationPending?.blockedConversations ?? 0
+  /** 有任务进行中/暂停时仍要露出进度与暂停入口，即使当前没有待迁移记录。 */
+  const migrationJobActive =
+    migrationPending?.job?.status === 'running' || migrationPending?.job?.status === 'paused'
+  /** 没有任何可迁移资产、也没有任务在跑时，整块迁移入口都不显示。 */
+  const showMigrationSection =
+    migrationPendingCount > 0 ||
+    migrationBlockedCount > 0 ||
+    migrationJobActive ||
+    migrationProgress !== null ||
+    migrationResult !== null
 
   if (!workspacePath) return <></>
 
@@ -388,323 +490,428 @@ export default function WorkbenchWorkspaceSettings({
     >
       <WorkbenchFooterPopoverHeader
         title="工作区设置"
-        subtitle={workspaceName}
         onClose={requestClose}
       />
-      <div className="flex min-h-0 flex-1 flex-col">
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-3">
+
+      {/* 顶部标签栏 */}
+      <div className="flex shrink-0 gap-5 border-b border-black/5 bg-white px-4 pt-2.5 text-xs dark:border-white/5 dark:bg-gray-800">
+        <button
+          type="button"
+          onClick={() => setActiveTab('sync')}
+          className={`pb-2 font-medium transition-colors ${
+            activeTab === 'sync'
+              ? 'border-b-2 border-primary text-primary'
+              : 'border-b-2 border-transparent text-text-secondary hover:text-text-primary'
+          }`}
+        >
+          代码与忽略
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('storage')}
+          className={`flex items-center gap-1.5 pb-2 font-medium transition-colors ${
+            activeTab === 'storage'
+              ? 'border-b-2 border-primary text-primary'
+              : 'border-b-2 border-transparent text-text-secondary hover:text-text-primary'
+          }`}
+        >
+          <span>存储与维护</span>
+          {migrationPendingCount + migrationBlockedCount > 0 && (
+            <span className="rounded-full bg-amber-100 px-1.5 py-0.2 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+              {migrationPendingCount + migrationBlockedCount}
+            </span>
+          )}
+        </button>
+      </div>
+
+      <div className="flex h-[470px] max-h-[min(640px,calc(100vh-80px))] min-h-0 flex-1 flex-col">
+        <div className="flex min-h-0 flex-1 flex-col space-y-4 overflow-y-auto p-4">
           {error && (
             <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300">
               {error}
             </div>
           )}
 
-          {largeUntracked.length > 0 && (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
-              <div className="flex items-center gap-1.5 font-medium">
-                <AppIcon name="warning" size={14} />
-                <span>{largeUntracked.length} 个未跟踪文件超过 50 MB</span>
-              </div>
-              <div className="mt-1 truncate" title={largeUntracked.map((item) => item.path).join('\n')}>
-                {largeUntracked[0].path} · {formatSize(largeUntracked[0].size)}
-                {largeUntracked.length > 1 ? ` 等 ${largeUntracked.length} 项` : ''}
-              </div>
-            </div>
-          )}
-
-          <section className="pb-3">
-            <div className="mb-2 flex items-baseline justify-between gap-3">
-              <h3 className="text-xs font-medium text-text-primary">会话归档</h3>
-              <span className="text-[11px] text-text-secondary">{conversationDir}</span>
-            </div>
-            <input
-              value={conversationDirDraft}
-              onChange={event => setConversationDirDraft(event.target.value)}
-              placeholder="conversations"
-              aria-label="会话归档目录"
-              className="h-8 w-full rounded-lg border border-black/10 bg-black/[0.02] px-2.5 font-mono text-xs text-text-primary focus:border-primary focus:bg-white focus:outline-none dark:border-white/10 dark:bg-white/[0.02] dark:focus:bg-gray-900"
-            />
-            <div className="mt-1.5 flex items-center justify-between gap-2">
-              <span className="min-w-0 flex-1 text-[11px] text-text-secondary">
-                {conversationDirWarning ??
-                  (conversationDirDraft !== conversationDir ? '尚未保存' : '工作区内相对目录')}
-              </span>
-              <button
-                type="button"
-                onClick={() => void saveConversationDir()}
-                disabled={conversationSaving || conversationDirDraft === conversationDir}
-                className="h-6 rounded-md px-2 text-[11px] text-primary hover:bg-primary/10 disabled:opacity-40"
-              >
-                保存
-              </button>
-            </div>
-          </section>
-
-          <section className="border-t border-black/5 pb-3 pt-3 dark:border-white/5">
-            <div className="mb-2 flex items-baseline justify-between gap-3">
-              <h3 className="text-xs font-medium text-text-primary">默认会话库</h3>
-              <span className="text-[11px] text-text-secondary">
-                {defaultWorkspaceError
-                  ? '不可用'
-                  : defaultWorkspace
-                  ? defaultWorkspace.writable
-                    ? '可写'
-                    : '不可写'
-                  : '读取中…'}
-              </span>
-            </div>
-            <p
-              className="truncate text-[11px] text-text-secondary"
-              title={defaultWorkspace?.path}
-            >
-              {defaultWorkspace?.path ?? defaultWorkspaceError ?? '—'}
-            </p>
-            {defaultWorkspace?.legacyPath && (
-              <p className="mt-1 truncate text-[11px] text-amber-600 dark:text-amber-400" title={defaultWorkspace.legacyPath}>
-                旧缓存位置：{defaultWorkspace.legacyPath}
-              </p>
-            )}
-          </section>
-
-          <section className="border-t border-black/5 pb-3 pt-3 dark:border-white/5">
-            <div className="mb-2 flex items-baseline justify-between gap-3">
-              <h3 className="text-xs font-medium text-text-primary">旧笔记迁移</h3>
-              <span className="text-[11px] text-text-secondary">
-                {migrationLoadError
-                  ? '读取失败'
-                  : migrationPending
-                  ? migrationPending.pendingConversations
-                    ? `${migrationPending.pendingConversations} 条待迁移`
-                    : migrationPending.blockedConversations
-                      ? `${migrationPending.blockedConversations} 条阻塞`
-                      : migrationPending.job
-                        ? '已全部处理'
-                        : '暂无旧数据'
-                  : '读取中…'}
-              </span>
-            </div>
-            {migrationLoadError && (
-              <p className="text-[11px] leading-4 text-rose-600 dark:text-rose-400">
-                {migrationLoadError}
-              </p>
-            )}
-            {migrationPending && (
-              <p className="text-[11px] leading-4 text-text-secondary">
-                {migrationPending.pendingAnnotations} 条标注 · {migrationPending.pendingMindmaps} 张导图。
-                普通会话写入默认会话库，工作台记录留在原工作区；旧数据不会删除。
-              </p>
-            )}
-            {migrationProgress && (
-              <div className="mt-2 rounded-lg bg-black/[0.03] px-2.5 py-2 text-[11px] text-text-secondary dark:bg-white/[0.04]">
-                <div className="flex justify-between">
-                  <span className="truncate">{migrationProgress.currentTitle || '迁移中'}</span>
-                  <span>
-                    {migrationProgress.completed}/{migrationProgress.total}
-                  </span>
-                </div>
-                {migrationProgress.blocked + migrationProgress.failed > 0 && (
-                  <p className="mt-0.5 text-amber-600 dark:text-amber-400">
-                    阻塞 {migrationProgress.blocked} · 失败 {migrationProgress.failed}
-                  </p>
-                )}
-              </div>
-            )}
-            {migrationResult && (
-              <div className="mt-2 space-y-1 text-[11px] text-text-secondary">
-                <p>
-                  完成 {migrationResult.migrated} · 阻塞 {migrationResult.blocked} · 失败{' '}
-                  {migrationResult.failed}
-                </p>
-                {migrationResult.report
-                  .filter(item => item.status !== 'migrated')
-                  .slice(0, 5)
-                  .map(item => (
-                    <p key={item.id} className="truncate" title={item.message || item.reason}>
-                      {item.title}：{item.reason ? blockedReasonLabel(item.reason) : item.message || item.status}
-                    </p>
-                  ))}
-              </div>
-            )}
-            {!!migrationPending?.blockedRecords.length && (
-              <div className="mt-2 space-y-1">
-                {migrationPending.blockedRecords.slice(0, 5).map(item => (
-                  <div key={item.id} className="flex items-center justify-between gap-2">
-                    <span className="min-w-0 truncate text-[11px] text-text-secondary" title={`${item.title}：${blockedReasonLabel(item.reason)}`}>
-                      {item.title}
+          {activeTab === 'sync' ? (
+            <>
+              {largeUntracked.length > 0 && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50/70 p-2.5 text-xs text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+                  <div className="flex items-center justify-between font-medium">
+                    <span className="flex items-center gap-1.5">
+                      <AppIcon name="warning" size={13} className="text-amber-600 dark:text-amber-400" />
+                      发现未跟踪的大文件
                     </span>
-                    <button
-                      type="button"
-                      onClick={() => void retryBlocked(item.id)}
-                      className="shrink-0 text-[11px] text-primary hover:underline"
-                    >
-                      重试
-                    </button>
+                    <span className="font-mono text-[11px] text-amber-700 dark:text-amber-300">
+                      {formatSize(largeUntracked[0].size)}
+                    </span>
                   </div>
-                ))}
-              </div>
-            )}
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              {migrationPending?.job?.status === 'running' ? (
-                <button
-                  type="button"
-                  onClick={() => void pauseMigration()}
-                  className="text-[11px] text-text-secondary hover:text-text-primary"
-                >
-                  暂停
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  disabled={migrationBusy || (!migrationPending?.pendingConversations && !migrationPending?.blockedConversations)}
-                  onClick={() =>
-                    void (migrationPending?.job?.status === 'paused'
-                      ? resumeMigration()
-                      : migrateLegacy(migrationPending?.job?.jobId))
-                  }
-                  className="text-[11px] text-primary hover:underline disabled:opacity-40"
-                >
-                  {migrationPending?.job?.status === 'paused' ? '继续迁移' : '开始迁移'}
-                </button>
-              )}
-              {migrationPending?.job && migrationPending.job.status !== 'abandoned' && (
-                <button
-                  type="button"
-                  onClick={() => void abandonMigration()}
-                  className="text-[11px] text-text-secondary hover:text-rose-500"
-                >
-                  放弃
-                </button>
-              )}
-            </div>
-          </section>
-
-          <section className="pb-3">
-            <div className="mb-2 flex items-baseline justify-between gap-3">
-              <h3 className="text-xs font-medium text-text-primary">远程仓库</h3>
-              <span className="max-w-[55%] truncate text-[11px] text-text-secondary">
-                {gitStatus?.remoteName ?? remotes[0]?.name}
-              </span>
-            </div>
-            {gitStatus?.isRepository || remotes.length > 0 ? (
-              <input
-                value={remoteUrl}
-                onChange={(event) => {
-                  setRemoteUrl(event.target.value)
-                  setSaved(false)
-                }}
-                placeholder={
-                  remotes.find((item) => item.name === (gitStatus?.remoteName ?? remotes[0]?.name))?.redacted
-                    ? '重新输入远程地址（当前地址含凭据）'
-                    : 'https://github.com/user/repo.git'
-                }
-                aria-label="远程仓库地址"
-                className="h-8 w-full rounded-lg border border-black/10 bg-black/[0.02] px-2.5 text-xs text-text-primary focus:border-primary focus:bg-white focus:outline-none dark:border-white/10 dark:bg-white/[0.02] dark:focus:bg-gray-900"
-              />
-            ) : (
-              <div className="flex h-8 items-center text-xs text-text-secondary">
-                {!gitStatus ? '读取中…' : gitStatus.available ? '尚未启用 Git' : '未检测到 Git'}
-              </div>
-            )}
-            {isSavingRemote && <p className="mt-1 text-[11px] text-text-secondary">正在保存远程地址…</p>}
-          </section>
-
-          <section className="border-t border-black/5 pt-3 dark:border-white/5">
-            <div className="mb-2 flex items-baseline justify-between gap-3">
-              <h3 className="text-xs font-medium text-text-primary">忽略规则</h3>
-              <span className="text-[11px] text-text-secondary" title="工作区根目录的 .gitignore">
-                {isLoading ? '读取中…' : isIgnoreDirty ? '未保存' : '.gitignore'}
-              </span>
-            </div>
-
-            {categories.length > 0 && (
-              <div className="mb-2 grid grid-cols-2 gap-x-3 gap-y-0.5">
-                {categories.map((category) => {
-                  const checked = isCategoryChecked(category)
-                  return (
-                    <label
-                      key={category.id}
-                      title={`${category.description}\n${category.patterns.join('\n')}`}
-                      className="flex min-w-0 cursor-pointer items-center gap-1.5 rounded-md py-1 text-text-primary hover:bg-black/5 dark:hover:bg-white/5"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => {
-                          toggleCategory(category)
+                  <div
+                    className="mt-1 truncate font-mono text-[11px] text-amber-800 dark:text-amber-300"
+                    title={largeUntracked.map((item) => item.path).join('\n')}
+                  >
+                    {largeUntracked[0].path}
+                    {largeUntracked.length > 1 ? ` 等 ${largeUntracked.length} 项` : ''}
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {quickIgnoreExtensions.map((ext) => (
+                      <button
+                        key={ext}
+                        type="button"
+                        onClick={() => {
+                          addPatterns([ext.startsWith('*.') ? ext : `*.${ext}`])
                           setSaved(false)
                         }}
-                        className="h-3.5 w-3.5 shrink-0 accent-primary"
-                      />
-                      <span className="truncate text-[11px]">{category.label}</span>
-                    </label>
-                  )
-                })}
-              </div>
-            )}
-
-            <textarea
-              value={ignoreText}
-              onChange={(event) => {
-                setSaved(false)
-                setIgnoreText(event.target.value)
-              }}
-              readOnly={isLoading}
-              spellCheck={false}
-              aria-label=".gitignore 内容"
-              placeholder="*.log"
-              className="min-h-[220px] w-full resize-y rounded-lg border border-black/10 bg-black/[0.02] p-2.5 font-mono text-xs leading-5 text-text-primary focus:border-primary focus:bg-white focus:outline-none dark:border-white/10 dark:bg-white/[0.02] dark:focus:bg-gray-900"
-            />
-
-            {largeUntracked.length > 0 && (
-              <div className="mt-3 border-t border-black/5 pt-3 dark:border-white/5">
-                <div className="mb-1.5 text-[11px] text-text-secondary">发现的未跟踪大文件，可快速忽略：</div>
-                <div className="flex flex-wrap gap-2">
-                  {Array.from(
-                    new Set(
-                      largeUntracked
-                        .map((item) => {
-                          const name = item.path.split('/').pop() ?? item.path
-                          // 没有扩展名时忽略整个文件名，避免生成 `*.` 这类无效规则
-                          if (!name.includes('.')) return name
-                          return `*.${name.split('.').pop()?.toLowerCase() ?? ''}`
-                        })
-                        .filter(Boolean)
-                    )
-                  ).map((ext) => (
-                    <button
-                      key={ext}
-                      type="button"
-                      onClick={() => {
-                        addPatterns([ext.startsWith('*.') ? ext : `*.${ext}`])
-                        setSaved(false)
-                      }}
-                      className="text-[11px] text-primary hover:underline"
-                    >
-                      忽略 {ext.startsWith('*.') ? ext : `*.${ext}`}
-                    </button>
-                  ))}
+                        className="rounded bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800 hover:bg-amber-200 dark:bg-amber-900/60 dark:text-amber-200 dark:hover:bg-amber-800"
+                      >
+                        + 忽略 {ext.startsWith('*.') ? ext : `*.${ext}`}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
-          </section>
+              )}
+
+              {/* 远程仓库 */}
+              <section>
+                <div className="mb-1.5 flex items-baseline justify-between gap-3">
+                  <h3 className="text-xs font-medium text-text-primary">远程仓库</h3>
+                  <span className="font-mono text-[11px] text-text-secondary">origin</span>
+                </div>
+                <input
+                  value={remoteUrl}
+                  disabled={!gitStatus?.isRepository && remotes.length === 0}
+                  onChange={(event) => {
+                    setRemoteUrl(event.target.value)
+                    setSaved(false)
+                  }}
+                  placeholder={
+                    !gitStatus?.isRepository && remotes.length === 0
+                      ? '工作区尚未启用 Git 仓库'
+                      : remotes.find((item) => item.name === (gitStatus?.remoteName ?? remotes[0]?.name))?.redacted
+                      ? '重新输入远程地址（当前地址含凭据）'
+                      : 'https://github.com/user/repo.git'
+                  }
+                  aria-label="远程仓库地址"
+                  className="h-8 w-full rounded-lg border border-slate-200 bg-slate-50/80 px-2.5 font-mono text-xs text-text-primary focus:border-primary focus:bg-white focus:outline-none disabled:bg-slate-100/70 disabled:text-text-secondary/70 dark:border-slate-700/80 dark:bg-slate-800/50 dark:disabled:bg-slate-800/30 dark:focus:bg-gray-900"
+                />
+                {isSavingRemote && <p className="mt-1 text-[11px] text-text-secondary">正在保存远程地址…</p>}
+              </section>
+
+              {/* 忽略规则 */}
+              <section>
+                <div className="mb-2 flex items-baseline justify-between gap-3">
+                  <h3 className="text-xs font-medium text-text-primary">忽略规则</h3>
+                  <span className="font-mono text-[11px] text-text-secondary" title="工作区根目录的 .gitignore">
+                    {isLoading ? '读取中…' : isIgnoreDirty ? '未保存' : '.gitignore'}
+                  </span>
+                </div>
+
+                {/* 智能预设胶囊 */}
+                {categories.length > 0 && (
+                  <div className="mb-2.5 flex flex-wrap gap-1.5">
+                    {categories.map((category) => {
+                      const state = categoryState(category)
+                      const displayLabel = SHORT_CATEGORY_LABELS[category.id] ?? category.label
+                      return (
+                        <button
+                          key={category.id}
+                          type="button"
+                          aria-pressed={state === 'all'}
+                          title={`${category.description}\n${category.patterns.join('\n')}${
+                            state === 'partial' ? '\n\n当前只应用了部分规则，点击补齐' : ''
+                          }`}
+                          onClick={() => toggleCategory(category)}
+                          className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium transition-all ${
+                            state === 'all'
+                              ? 'border border-blue-200 bg-blue-50 text-blue-700 shadow-xs dark:border-blue-800/80 dark:bg-blue-950/60 dark:text-blue-300'
+                              : state === 'partial'
+                                ? 'border border-blue-200/70 bg-blue-50/50 text-blue-600 dark:border-blue-800/50 dark:bg-blue-950/30 dark:text-blue-300'
+                              : 'border border-slate-200/80 bg-slate-50 text-slate-600 hover:bg-slate-100 dark:border-slate-700/60 dark:bg-slate-800/50 dark:text-slate-400 dark:hover:bg-slate-800'
+                          }`}
+                        >
+                          {state === 'all' ? (
+                            <svg className="h-3 w-3 shrink-0 text-blue-600 dark:text-blue-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                              <polyline points="20 6 9 17 4 12" />
+                            </svg>
+                          ) : state === 'partial' ? (
+                            <svg className="h-3 w-3 shrink-0 text-blue-500 dark:text-blue-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                              <line x1="5" y1="12" x2="19" y2="12" />
+                            </svg>
+                          ) : (
+                            <svg className="h-3 w-3 shrink-0 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <line x1="12" y1="5" x2="12" y2="19" />
+                              <line x1="5" y1="12" x2="19" y2="12" />
+                            </svg>
+                          )}
+                          <span className="truncate">{displayLabel}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+
+                {/* 直接可见的 .gitignore 编辑区 */}
+                <div className="overflow-hidden rounded-lg border border-slate-200 bg-slate-50/70 shadow-inner dark:border-slate-700/80 dark:bg-slate-950">
+                  <div className="flex items-center justify-between border-b border-slate-200 bg-slate-100/80 px-2.5 py-1.5 font-mono text-[11px] text-text-secondary dark:border-slate-800 dark:bg-slate-900/80">
+                    <span>规则源码</span>
+                    <span>{ignoreLineCount} 行</span>
+                  </div>
+                  <textarea
+                    value={ignoreText}
+                    onChange={(event) => {
+                      setSaved(false)
+                      setIgnoreText(event.target.value)
+                    }}
+                    readOnly={isLoading}
+                    spellCheck={false}
+                    aria-label=".gitignore 内容"
+                    placeholder="*.log"
+                    rows={8}
+                    className="block w-full resize-y bg-transparent p-2.5 font-mono text-xs leading-relaxed text-text-primary focus:outline-none"
+                  />
+                </div>
+              </section>
+            </>
+          ) : (
+            <>
+              {/* 会话归档 */}
+              <section>
+                <div className="mb-1.5 flex items-baseline justify-between gap-3">
+                  <h3 className="text-xs font-medium text-text-primary">会话归档目录</h3>
+                  <span className="font-mono text-[11px] text-text-secondary">工作区相对路径</span>
+                </div>
+                <input
+                  value={conversationDirDraft}
+                  onChange={event => {
+                    setConversationDirDraft(event.target.value)
+                    setSaved(false)
+                  }}
+                  placeholder="conversations"
+                  aria-label="会话归档目录"
+                  className="h-8 w-full rounded-lg border border-slate-200 bg-slate-50/80 px-2.5 font-mono text-xs text-text-primary focus:border-primary focus:bg-white focus:outline-none dark:border-slate-700/80 dark:bg-slate-800/50 dark:focus:bg-gray-900"
+                />
+                {conversationDirWarning && (
+                  <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
+                    {conversationDirWarning}
+                  </p>
+                )}
+              </section>
+
+              {/* 默认会话库 */}
+              <section className="rounded-lg border border-slate-200/80 bg-slate-50/60 p-2.5 dark:border-slate-800 dark:bg-slate-800/40">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-medium text-text-primary">全局默认会话库</h3>
+                  {defaultWorkspaceError ? (
+                    <span className="flex items-center gap-1 text-[11px] font-medium text-rose-600 dark:text-rose-400">
+                      <AppIcon name="warning" size={13} />
+                      不可用
+                    </span>
+                  ) : defaultWorkspace && !defaultWorkspace.writable ? (
+                    <span className="flex items-center gap-1 text-[11px] font-medium text-amber-600 dark:text-amber-400">
+                      <AppIcon name="warning" size={13} />
+                      无写入权限
+                    </span>
+                  ) : null}
+                </div>
+                <p
+                  className="mt-1 truncate font-mono text-[11px] text-text-secondary"
+                  title={defaultWorkspace?.path}
+                >
+                  {defaultWorkspace?.path ?? defaultWorkspaceError ?? '—'}
+                </p>
+                {defaultWorkspace?.legacyPath && (
+                  <p className="mt-1 truncate font-mono text-[11px] text-amber-600 dark:text-amber-400" title={defaultWorkspace.legacyPath}>
+                    旧缓存位置：{defaultWorkspace.legacyPath}
+                  </p>
+                )}
+              </section>
+
+              {/* 旧笔记迁移：没有可迁移资产时整块隐藏，避免出现永远无法消除的提示 */}
+              {showMigrationSection && (
+              <section className="rounded-lg border border-slate-200/80 p-3 dark:border-slate-800">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <h3 className="text-xs font-medium text-text-primary">旧笔记迁移</h3>
+                      {migrationPending?.pendingConversations ? (
+                        <span className="rounded bg-amber-50 px-1.5 py-0.2 text-[10px] font-medium text-amber-700 dark:bg-amber-950/60 dark:text-amber-400">
+                          {migrationPending.pendingConversations} 条待迁移
+                        </span>
+                      ) : migrationPending?.blockedConversations ? (
+                        <span className="rounded bg-rose-50 px-1.5 py-0.2 text-[10px] font-medium text-rose-700 dark:bg-rose-950/60 dark:text-rose-400">
+                          {migrationPending.blockedConversations} 条阻塞
+                        </span>
+                      ) : null}
+                    </div>
+                    {migrationPending && (
+                      <p className="mt-0.5 text-[11px] text-text-secondary">
+                        {migrationPending.pendingAnnotations} 条标注 · {migrationPending.pendingMindmaps} 张导图
+                      </p>
+                    )}
+                    {migrationLoadError && (
+                      <p className="mt-0.5 text-[11px] text-rose-600 dark:text-rose-400">
+                        {migrationLoadError}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {migrationPending?.job?.status === 'running' ? (
+                      <button
+                        type="button"
+                        onClick={() => void pauseMigration()}
+                        className="rounded px-2 py-1 text-xs text-text-secondary hover:bg-black/5 dark:hover:bg-white/5"
+                      >
+                        暂停
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={migrationBusy || (!migrationPending?.pendingConversations && !migrationPending?.blockedConversations)}
+                        onClick={() =>
+                          void (migrationPending?.job?.status === 'paused'
+                            ? resumeMigration()
+                            : migrateLegacy(migrationPending?.job?.jobId))
+                        }
+                        className="rounded bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-600 hover:bg-blue-100 dark:bg-blue-950/60 dark:text-blue-400 dark:hover:bg-blue-900/50 disabled:opacity-40"
+                      >
+                        {migrationPending?.job?.status === 'paused' ? '继续迁移' : '开始迁移'}
+                      </button>
+                    )}
+                    {migrationPending?.job && migrationPending.job.status !== 'abandoned' && (
+                      <button
+                        type="button"
+                        onClick={() => void abandonMigration()}
+                        className="text-xs text-text-secondary hover:text-rose-500"
+                      >
+                        放弃
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {migrationProgress && (
+                  <div className="mt-2.5 space-y-1.5 border-t border-slate-100 pt-2 text-[11px] dark:border-slate-800">
+                    <div className="flex justify-between text-text-secondary">
+                      <span className="truncate">{migrationProgress.currentTitle || '迁移中'}</span>
+                      <span className="font-mono">
+                        {migrationProgress.completed}/{migrationProgress.total}
+                      </span>
+                    </div>
+                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                      <div
+                        className="h-full bg-blue-600 rounded-full transition-all duration-300"
+                        style={{
+                          width: `${migrationProgress.total > 0 ? (migrationProgress.completed / migrationProgress.total) * 100 : 0}%`
+                        }}
+                      />
+                    </div>
+                    {migrationProgress.blocked + migrationProgress.failed > 0 && (
+                      <p className="text-amber-600 dark:text-amber-400">
+                        阻塞 {migrationProgress.blocked} · 失败 {migrationProgress.failed}
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {migrationResult && (
+                  <div className="mt-2 space-y-1 border-t border-slate-100 pt-2 text-[11px] text-text-secondary dark:border-slate-800">
+                    <p>
+                      完成 {migrationResult.migrated} · 阻塞 {migrationResult.blocked} · 失败 {migrationResult.failed}
+                    </p>
+                  </div>
+                )}
+
+                {!!migrationPending?.blockedRecords.length && (
+                  <div className="mt-2 space-y-1 border-t border-slate-100 pt-2 dark:border-slate-800">
+                    {migrationPending.blockedRecords.slice(0, 3).map((item) => (
+                      <div key={item.id} className="flex items-center justify-between gap-2">
+                        <span
+                          className="min-w-0 truncate text-[11px] text-text-secondary"
+                          title={`${item.title}：${blockedReasonLabel(item.reason)}`}
+                        >
+                          {item.title}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => void retryBlocked(item.id)}
+                          className="shrink-0 text-[11px] text-blue-600 hover:underline"
+                        >
+                          重试
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+              )}
+
+              {/* 迁移前备份：只在存在备份时出现，避免常驻空区块 */}
+              {!!backups?.files && (
+                <section className="rounded-lg border border-slate-200/80 p-3 dark:border-slate-800">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <h3 className="text-xs font-medium text-text-primary">迁移备份</h3>
+                      <p className="mt-0.5 text-[11px] text-text-secondary">
+                        {backups.files} 份 · {formatSize(backups.bytes)}
+                        {backups.orphans > 0 ? ` · ${backups.orphans} 份正文已缺失` : ''}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={backupBusy}
+                      onClick={() => void clearBackups()}
+                      className="shrink-0 rounded px-2 py-1 text-xs text-text-secondary hover:bg-black/5 hover:text-rose-500 disabled:opacity-40 dark:hover:bg-white/5"
+                    >
+                      {backupBusy ? '清理中' : '清理'}
+                    </button>
+                  </div>
+                  <div className="mt-2 space-y-1 border-t border-slate-100 pt-2 dark:border-slate-800">
+                    {backups.groups.slice(0, 3).map((group) => (
+                      <div key={group.workspaceRoot} className="flex items-center justify-between gap-2">
+                        <span className="min-w-0 truncate font-mono text-[11px] text-text-secondary" title={group.workspaceRoot}>
+                          {group.workspaceRoot}
+                        </span>
+                        <span className="shrink-0 font-mono text-[11px] text-text-secondary">{group.files}</span>
+                      </div>
+                    ))}
+                    {backups.groups.length > 3 && (
+                      <p className="text-[11px] text-text-secondary">等 {backups.groups.length} 个工作区</p>
+                    )}
+                  </div>
+                  {backupNotice && (
+                    <p className="mt-1.5 text-[11px] text-emerald-600 dark:text-emerald-400">{backupNotice}</p>
+                  )}
+                </section>
+              )}
+            </>
+          )}
         </div>
 
-        <div className="flex shrink-0 justify-end gap-2 border-t border-black/5 px-4 py-3 dark:border-white/5">
-          <button
-            type="button"
-            onClick={requestClose}
-            className="rounded-lg px-3 py-1.5 text-text-secondary hover:bg-black/5 dark:hover:bg-white/5"
-          >
-            取消
-          </button>
-          <button
-            type="button"
-            onClick={() => void save()}
-            disabled={isSaving || isSavingRemote || isLoading || (!isIgnoreDirty && !remoteUrl.trim() && !saved)}
-            className="min-w-[72px] rounded-lg bg-primary px-3 py-1.5 font-medium text-white hover:bg-primary/90 disabled:opacity-40"
-          >
-            {isSaving || isSavingRemote ? '保存中' : saved && !isIgnoreDirty ? '已保存' : '保存'}
-          </button>
+        {/* 底部保存与状态操作栏 */}
+        <div className="flex shrink-0 items-center justify-between border-t border-black/5 bg-black/[0.02] px-4 py-2.5 dark:border-white/5 dark:bg-white/[0.02]">
+          <div className="text-[11px] text-text-secondary">
+            {isDirty ? (
+              <span className="font-medium text-amber-600 dark:text-amber-400">未保存改动</span>
+            ) : saved ? (
+              <span className="font-medium text-emerald-600 dark:text-emerald-400">已保存</span>
+            ) : null}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={requestClose}
+              className="rounded-lg px-3 py-1.5 text-xs text-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              onClick={() => void save()}
+              disabled={isSaving || isSavingRemote || conversationSaving || isLoading || !isDirty}
+              className="min-w-[68px] rounded-lg bg-primary px-4 py-1.5 text-xs font-medium text-white hover:bg-primary/90 transition-all shadow-xs disabled:opacity-40 disabled:pointer-events-none"
+            >
+              {isSaving || isSavingRemote || conversationSaving ? '保存中' : '保存'}
+            </button>
+          </div>
         </div>
       </div>
     </WorkbenchFooterPopover>

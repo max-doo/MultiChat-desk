@@ -865,28 +865,25 @@ export default function WorkbenchFileTree(): JSX.Element {
 
     const { type, targetNode } = actionModal
 
-    if (type === 'deleteMulti') {
-      const targets = Array.from(selectedPaths)
-      // 命中当前文档时走逐项删除：它会顺带把编辑器切到相邻文档；
-      // 其余情况一次批量删除，主进程只清理一次、文件树只重扫一次。
-      const hitsActive = !!activeFilePath && targets.some(p =>
-        activeFilePath === p || activeFilePath.startsWith(`${p}/`))
-      if (hitsActive) {
-        for (const p of targets) await deleteNode(p)
-      } else {
-        await deleteNodes(targets)
-      }
-      setSelectedPaths(new Set())
-    } else if (type === 'delete' && targetNode) {
-      await deleteNode(targetNode.path)
-    } else if (type === 'cleanImages' && targetNode) {
-      const images = actionModal.unreferencedImages ?? []
-      if (images.length) {
-        await deleteNodes(images)
-      }
-    }
+    // 确认即关闭弹窗：删除在后台进行，进度不阻塞界面（与 VSCode 一致）。
+    // 命中当前文档的切换逻辑已收敛到 store，多选统一走一次批量 IPC。
+    const targets = type === 'deleteMulti'
+      ? Array.from(selectedPaths)
+      : type === 'cleanImages'
+      ? actionModal.unreferencedImages ?? []
+      : targetNode
+      ? [targetNode.path]
+      : []
 
     setActionModal(null)
+    if (!targets.length) return
+
+    if (type === 'deleteMulti' || type === 'cleanImages') {
+      setSelectedPaths(new Set())
+      void deleteNodes(targets)
+    } else {
+      void deleteNode(targets[0])
+    }
   }
 
   // 递归渲染树节点

@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>工作区设置 UI 优化方案 - MultiChat Desk</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            primary: {
+              DEFAULT: '#3b82f6',
+              50: '#eff6ff',
+              100: '#dbeafe',
+              500: '#3b82f6',
+              600: '#2563eb',
+              700: '#1d4ed8'
+            },
+            app: '#f8fafc',
+            'text-primary': '#0f172a',
+            'text-secondary': '#64748b'
+          },
+          fontFamily: {
+            sans: ['-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'Roboto', '"PingFang SC"', '"Hiragino Sans GB"', '"Microsoft YaHei"', 'sans-serif'],
+            mono: ['"JetBrains Mono"', '"Fira Code"', 'Menlo', 'Monaco', 'Consolas', 'monospace']
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar {
+      width: 5px;
+      height: 5px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(148, 163, 184, 0.35);
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(148, 163, 184, 0.6);
+    }
+    .dark ::-webkit-scrollbar-thumb {
+      background: rgba(100, 116, 139, 0.35);
+    }
+    .dark ::-webkit-scrollbar-thumb:hover {
+      background: rgba(100, 116, 139, 0.6);
+    }
+    .code-editor {
+      tab-size: 2;
+      line-height: 1.55;
+    }
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-800 dark:bg-slate-950 dark:text-slate-100 min-h-screen flex flex-col font-sans antialiased transition-colors duration-200">
+
+  <!-- Top Tool Bar -->
+  <header class="sticky top-0 z-50 bg-white/90 dark:bg-slate-900/90 backdrop-blur border-b border-slate-200 dark:border-slate-800 px-6 py-3 flex items-center justify-between shadow-xs">
+    <div class="flex items-center gap-3">
+      <div class="w-7 h-7 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-xs shadow-xs">
+        M
+      </div>
+      <div>
+        <div class="flex items-center gap-2">
+          <h1 class="text-sm font-semibold text-slate-900 dark:text-white">工作区设置 · 极简重构原型</h1>
+          <span class="text-xs text-slate-400">|</span>
+          <span class="text-xs text-slate-500 dark:text-slate-400">Let design speak for itself</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mode & Options -->
+    <div class="flex items-center gap-3">
+      <!-- Layout Mode -->
+      <div class="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-medium">
+        <button id="btnModeTabs" onclick="switchDesignMode('tabs')" class="px-3 py-1 rounded-md transition-all shadow-xs bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 flex items-center gap-1.5">
+          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          方案 A：双标签分流 (推荐)
+        </button>
+        <button id="btnModeStream" onclick="switchDesignMode('stream')" class="px-3 py-1 rounded-md transition-all text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white flex items-center gap-1.5">
+          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+          方案 B：单页流式卡片
+        </button>
+      </div>
+
+      <!-- Dark Mode Switcher -->
+      <button onclick="toggleDarkMode()" class="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors" title="切换深色/浅色模式">
+        <svg id="themeIconSun" class="w-4 h-4 hidden dark:block" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        <svg id="themeIconMoon" class="w-4 h-4 block dark:hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Grid -->
+  <main class="flex-1 max-w-7xl w-full mx-auto p-6 grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+
+    <!-- LEFT: The Interactive Window (Exact MultiChat Desk Popover Frame) -->
+    <div class="lg:col-span-6 flex flex-col items-center">
+      <div class="w-full mb-2 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 px-1">
+        <span class="font-medium">模拟设置窗口 (400px 标准侧栏宽度)</span>
+        <div class="flex items-center gap-2">
+          <span class="text-[11px]">预设展示样式：</span>
+          <button id="btnPresetStylePills" onclick="switchPresetStyle('pills')" class="font-medium text-blue-600 dark:text-blue-400 underline">胶囊标签</button>
+          <span class="text-slate-300 dark:text-slate-600">/</span>
+          <button id="btnPresetStyleCheckboxes" onclick="switchPresetStyle('checkboxes')" class="text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200">规整多选</button>
+        </div>
+      </div>
+
+      <!-- Window Popover Modal -->
+      <div id="popoverModal" class="w-full max-w-[410px] bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200/90 dark:border-slate-800 overflow-hidden flex flex-col transition-all duration-200">
+
+        <!-- Header: Strict, Clean, NO Git Tag, NO Green Dot -->
+        <div class="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-white dark:bg-slate-900">
+          <div>
+            <h2 class="text-sm font-semibold text-slate-900 dark:text-white leading-tight">工作区设置</h2>
+            <p class="text-xs text-slate-500 dark:text-slate-400 font-mono mt-0.5">masters-thesis</p>
+          </div>
+          <button class="p-1 rounded-md text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" title="关闭">
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+
+        <!-- Optional Tabs Header (Visible in Mode A) -->
+        <div id="tabsHeader" class="px-4 pt-2.5 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800">
+          <div class="flex gap-5 text-xs">
+            <button id="tabBtnSync" onclick="switchTab('sync')" class="pb-2 font-medium border-b-2 border-blue-600 text-blue-600 dark:text-blue-400 transition-colors">
+              代码与忽略
+            </button>
+            <button id="tabBtnStorage" onclick="switchTab('storage')" class="pb-2 font-medium border-b-2 border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 transition-colors flex items-center gap-1.5">
+              存储与维护
+              <span id="tabBadgeMigration" class="px-1.5 py-0.2 rounded-full text-[10px] bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 font-semibold">1</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Scrollable Modal Body -->
+        <div id="modalBody" class="p-4 overflow-y-auto max-h-[540px] space-y-4 text-xs">
+
+          <!-- Large Untracked Files Alert (Clean Minimalist Banner) -->
+          <div id="alertLargeFile" class="rounded-lg border border-amber-200 bg-amber-50/60 dark:border-amber-900/50 dark:bg-amber-950/25 p-2.5 flex items-start gap-2.5 transition-all">
+            <svg class="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center justify-between text-amber-900 dark:text-amber-200 font-medium">
+                <span>发现未跟踪的大文件</span>
+                <span class="font-mono text-[11px] text-amber-700 dark:text-amber-300">58.4 MB</span>
+              </div>
+              <p class="text-[11px] text-amber-700 dark:text-amber-400/80 truncate mt-0.5 font-mono">datasets/train_embeddings.tar.gz</p>
+              <div class="mt-2 flex items-center gap-2">
+                <button onclick="ignoreLargeFile('*.tar.gz')" class="px-2 py-0.5 rounded bg-amber-100 hover:bg-amber-200 dark:bg-amber-900/60 dark:hover:bg-amber-800 text-amber-800 dark:text-amber-200 font-medium text-[11px] transition-colors">
+                  + 忽略 *.tar.gz
+                </button>
+                <button onclick="dismissLargeAlert()" class="text-[11px] text-amber-600 dark:text-amber-400 hover:underline">
+                  忽略提示
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- PANE: SYNC & GITIGNORE -->
+          <div id="paneSync" class="space-y-4">
+
+            <!-- 1. Remote Repository (NO Green Dots, NO Clutter) -->
+            <div>
+              <div class="flex items-center justify-between mb-1.5">
+                <label class="font-medium text-slate-700 dark:text-slate-200">远程仓库</label>
+                <span class="font-mono text-[11px] text-slate-400">origin</span>
+              </div>
+              <input
+                id="remoteUrlInput"
+                type="text"
+                value="https://github.com/max-doo/masters-thesis.git"
+                oninput="markDirty()"
+                class="w-full h-8 px-2.5 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 rounded-lg font-mono text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:border-blue-500 focus:bg-white dark:focus:bg-slate-800 transition-all"
+                placeholder="https://github.com/user/repo.git"
+              />
+            </div>
+
+            <!-- 2. Ignore Rules (.gitignore) -->
+            <div>
+              <div class="flex items-center justify-between mb-2">
+                <label class="font-medium text-slate-700 dark:text-slate-200">忽略规则</label>
+                <span class="font-mono text-[11px] text-slate-400">.gitignore</span>
+              </div>
+
+              <!-- Preset Categories Container -->
+              <div id="presetsWrapper" class="mb-3">
+                <!-- Injected by JS: either pills or clean checkboxes -->
+                <div id="presetsContainer"></div>
+              </div>
+
+              <!-- Directly Visible .gitignore Editor (NO Folding / NO Drawer) -->
+              <div class="rounded-lg border border-slate-200 dark:border-slate-700/80 bg-slate-50 dark:bg-slate-950 overflow-hidden shadow-inner">
+                <div class="px-2.5 py-1.5 bg-slate-100/80 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between text-[11px] text-slate-500 font-mono">
+                  <span>规则源码</span>
+                  <span id="codeEditorLineCount">24 行</span>
+                </div>
+                <textarea
+                  id="rawIgnoreTextarea"
+                  oninput="handleRawTextareaInput(this.value)"
+                  spellcheck="false"
+                  rows="9"
+                  class="w-full p-2.5 bg-transparent font-mono text-xs text-slate-800 dark:text-slate-200 focus:outline-none resize-y code-editor block"
+                  placeholder="*.log"
+                ></textarea>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- PANE: STORAGE & MIGRATION -->
+          <div id="paneStorage" class="space-y-4 hidden">
+
+            <!-- 1. Conversation Archive Directory -->
+            <div>
+              <div class="flex items-center justify-between mb-1.5">
+                <label class="font-medium text-slate-700 dark:text-slate-200">会话归档目录</label>
+                <span class="text-[11px] text-slate-400 font-mono">相对路径</span>
+              </div>
+              <input
+                id="inputConversationDir"
+                type="text"
+                value="conversations"
+                oninput="markDirty()"
+                class="w-full h-8 px-2.5 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 rounded-lg font-mono text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:border-blue-500 focus:bg-white dark:focus:bg-slate-800 transition-all"
+                placeholder="conversations"
+              />
+            </div>
+
+            <!-- 2. Default Vault Info -->
+            <div class="rounded-lg border border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40 p-2.5">
+              <div class="flex items-center justify-between mb-1">
+                <span class="font-medium text-slate-700 dark:text-slate-200">全局默认会话库</span>
+                <span class="text-[11px] text-slate-400">可写</span>
+              </div>
+              <div class="flex items-center justify-between gap-2 mt-1">
+                <span class="font-mono text-[11px] text-slate-500 truncate" title="C:\Users\DMX\.multichat\vault">C:\Users\DMX\.multichat\vault</span>
+                <button onclick="copyVaultPath()" class="p-1 rounded text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors" title="复制路径">
+                  <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                </button>
+              </div>
+            </div>
+
+            <!-- 3. Legacy Notes Migration (Clean Minimalist Card) -->
+            <div class="rounded-lg border border-slate-200/80 dark:border-slate-800 p-3 space-y-2">
+              <div class="flex items-center justify-between">
+                <div>
+                  <div class="font-medium text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                    旧笔记迁移
+                    <span id="migrationStatusBadge" class="px-1.5 py-0.2 rounded text-[10px] bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-400 font-medium">
+                      12 条待迁移
+                    </span>
+                  </div>
+                  <div class="text-[11px] text-slate-400 mt-0.5">34 条标注 · 2 张导图</div>
+                </div>
+                <button
+                  id="btnStartMigration"
+                  onclick="triggerMigration()"
+                  class="px-2.5 py-1 rounded bg-blue-50 text-blue-600 hover:bg-blue-100 dark:bg-blue-950/60 dark:text-blue-400 dark:hover:bg-blue-900/50 font-medium text-xs transition-colors"
+                >
+                  开始迁移
+                </button>
+              </div>
+
+              <!-- Progress bar -->
+              <div id="migrationProgressContainer" class="hidden space-y-1 pt-1.5 border-t border-slate-100 dark:border-slate-800">
+                <div class="flex justify-between text-[11px] text-slate-500">
+                  <span id="migrationCurrentTitle" class="truncate">正在处理：学术综述.md</span>
+                  <span id="migrationProgressText" class="font-mono">0 / 12</span>
+                </div>
+                <div class="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                  <div id="migrationProgressBar" class="h-full bg-blue-600 rounded-full transition-all duration-300" style="width: 0%"></div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+        </div>
+
+        <!-- Footer -->
+        <div class="px-4 py-2.5 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900 flex items-center justify-between">
+          <div class="text-[11px] text-slate-400">
+            <span id="saveStatusIndicator"></span>
+          </div>
+          <div class="flex items-center gap-2">
+            <button class="px-3 py-1.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+              取消
+            </button>
+            <button
+              id="btnSaveMain"
+              onclick="saveSettings()"
+              class="px-4 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-500 font-medium transition-all disabled:opacity-40 disabled:pointer-events-none"
+              disabled
+            >
+              保存
+            </button>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Toast Feedback -->
+      <div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 px-3.5 py-1.5 bg-slate-900 text-white text-xs rounded-lg shadow-xl backdrop-blur transition-all duration-200 opacity-0 pointer-events-none translate-y-2 flex items-center gap-2 z-50">
+        <svg class="w-3.5 h-3.5 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+        <span id="toastMsg">已保存设置</span>
+      </div>
+    </div>
+
+    <!-- RIGHT: Direct Comparison & Design Rationale -->
+    <div class="lg:col-span-6 space-y-5 text-xs">
+
+      <!-- Changes Card -->
+      <div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5 shadow-xs">
+        <h3 class="text-sm font-bold text-slate-900 dark:text-white mb-3">本次针对性调整重点</h3>
+        <div class="space-y-3 text-slate-600 dark:text-slate-300 leading-relaxed">
+          <div class="flex items-start gap-2.5">
+            <span class="w-5 h-5 rounded-full bg-blue-100 text-blue-600 dark:bg-blue-900/50 dark:text-blue-300 flex items-center justify-center font-bold shrink-0 text-[11px]">1</span>
+            <div>
+              <strong class="text-slate-800 dark:text-slate-100 font-semibold">.gitignore 编辑区直接可见，不设折叠</strong>
+              <p class="text-slate-500 dark:text-slate-400 text-[11px] mt-0.5">代码区域直接位于预设下方，所见即所得。编辑区保留紧凑合理的 9 行高度并支持纵向拉伸，不再增加“展开/收起”的点击层级。</p>
+            </div>
+          </div>
+          <div class="flex items-start gap-2.5">
+            <span class="w-5 h-5 rounded-full bg-blue-100 text-blue-600 dark:bg-blue-900/50 dark:text-blue-300 flex items-center justify-center font-bold shrink-0 text-[11px]">2</span>
+            <div>
+              <strong class="text-slate-800 dark:text-slate-100 font-semibold">移除所有假定状态的小绿点与 Git 标签</strong>
+              <p class="text-slate-500 dark:text-slate-400 text-[11px] mt-0.5">彻底拿掉了标题处的 Git 徽标以及输入框旁的拟态指示灯，不做任何多余的装饰，杜绝不准确的连接状态假定。</p>
+            </div>
+          </div>
+          <div class="flex items-start gap-2.5">
+            <span class="w-5 h-5 rounded-full bg-blue-100 text-blue-600 dark:bg-blue-900/50 dark:text-blue-300 flex items-center justify-center font-bold shrink-0 text-[11px]">3</span>
+            <div>
+              <strong class="text-slate-800 dark:text-slate-100 font-semibold">预设提供“胶囊标签”与“规整多选”两种直观对照</strong>
+              <p class="text-slate-500 dark:text-slate-400 text-[11px] mt-0.5">在左上角提供一键切换：既可以查看更轻盈的“胶囊标签”（3行搞定），也可以查看对齐严整的“规整多选”布局，两者均与下方编辑器实时双向同步。</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Feature Interactive Tips -->
+      <div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5 shadow-xs space-y-2.5">
+        <h4 class="font-bold text-slate-800 dark:text-slate-200">即时互动测试</h4>
+        <ul class="space-y-1.5 text-slate-500 dark:text-slate-400 text-[11px] list-disc list-inside">
+          <li><strong>双向实时联动</strong>：点击任意预设，下方代码区域与行数自动增删；直接在代码区输入新行或删除旧行，上方预设勾选状态自适应刷新。</li>
+          <li><strong>方案 A vs 方案 B</strong>：点击顶部可在“双标签分流（无滚动条）”与“单页流式卡片”间切换。</li>
+          <li><strong>大文件一键加入忽略</strong>：点击大文件告警的“+ 忽略 *.tar.gz”，规则秒级注入文本框并消除警报。</li>
+          <li><strong>数据迁移状态跑通</strong>：切换至“存储与维护”标签，点击“开始迁移”可直观预览进度条流转。</li>
+        </ul>
+      </div>
+
+    </div>
+  </main>
+
+  <!-- Interactive Scripts -->
+  <script>
+    // 13 categories from gitignoreService.ts
+    const CATEGORIES = [
+      { id: 'system', label: '系统临时', patterns: ['.DS_Store', 'Thumbs.db', '*.tmp', '*~', '*.bak'], recommended: true, active: true },
+      { id: 'node', label: 'Node 依赖', patterns: ['node_modules/', 'npm-debug.log*'], recommended: true, active: true },
+      { id: 'python', label: 'Python 缓存', patterns: ['__pycache__/', '*.py[cod]', '.venv/', 'env/'], recommended: true, active: true },
+      { id: 'editor', label: '编辑器临时', patterns: ['*.swp', '*.swo'], recommended: true, active: true },
+      { id: 'app-state', label: '应用生成物', patterns: ['.multichat/annotations/', '.multichat/cache/'], recommended: true, active: true },
+      { id: 'obsidian-state', label: 'Obsidian 状态', patterns: ['.obsidian/workspace*', '.obsidian/cache/'], recommended: true, active: true },
+      { id: 'archive', label: '压缩包', patterns: ['*.zip', '*.tar.gz', '*.rar', '*.7z'], recommended: false, active: false },
+      { id: 'installer', label: '安装包', patterns: ['*.exe', '*.msi', '*.dmg', '*.AppImage'], recommended: false, active: false },
+      { id: 'office', label: 'PDF与文档', patterns: ['*.pdf', '*.docx', '*.xlsx'], recommended: false, active: false },
+      { id: 'video', label: '视频文件', patterns: ['*.mp4', '*.mov', '*.mkv'], recommended: false, active: false },
+      { id: 'design', label: '设计源文件', patterns: ['*.psd', '*.ai', '*.sketch'], recommended: false, active: false },
+      { id: 'build', label: '构建产物', patterns: ['dist/', 'build/', 'out/'], recommended: false, active: false },
+      { id: 'ide', label: 'IDE 配置', patterns: ['.idea/', '.vscode/'], recommended: false, active: false }
+    ];
+
+    let currentMode = 'tabs'; // 'tabs' | 'stream'
+    let currentTab = 'sync'; // 'sync' | 'storage'
+    let presetStyle = 'pills'; // 'pills' | 'checkboxes'
+    let isDirty = false;
+    let migrationRunning = false;
+
+    function init() {
+      renderPresets();
+      updateRawIgnoreContent();
+    }
+
+    // Switch between Pills and Checkboxes
+    function switchPresetStyle(style) {
+      presetStyle = style;
+      const btnP = document.getElementById('btnPresetStylePills');
+      const btnC = document.getElementById('btnPresetStyleCheckboxes');
+      if (style === 'pills') {
+        btnP.className = 'font-medium text-blue-600 dark:text-blue-400 underline';
+        btnC.className = 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200';
+      } else {
+        btnC.className = 'font-medium text-blue-600 dark:text-blue-400 underline';
+        btnP.className = 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200';
+      }
+      renderPresets();
+    }
+
+    // Render presets based on current style
+    function renderPresets() {
+      const container = document.getElementById('presetsContainer');
+      container.innerHTML = '';
+
+      if (presetStyle === 'pills') {
+        const wrap = document.createElement('div');
+        wrap.className = 'flex flex-wrap gap-1.5';
+        CATEGORIES.forEach(cat => {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.onclick = () => toggleCategory(cat.id);
+          if (cat.active) {
+            btn.className = 'inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium transition-all bg-blue-50 text-blue-700 border border-blue-200/90 dark:bg-blue-950/60 dark:text-blue-300 dark:border-blue-800/80';
+            btn.innerHTML = `<svg class="w-3 h-3 text-blue-600 dark:text-blue-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> ${cat.label}`;
+          } else {
+            btn.className = 'inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium transition-all bg-slate-50 text-slate-600 border border-slate-200/80 dark:bg-slate-800/50 dark:text-slate-400 dark:border-slate-700/60 hover:bg-slate-100 dark:hover:bg-slate-800';
+            btn.innerHTML = `<svg class="w-3 h-3 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> ${cat.label}`;
+          }
+          wrap.appendChild(btn);
+        });
+        container.appendChild(wrap);
+      } else {
+        // Clean, structured 2-column checkboxes
+        const grid = document.createElement('div');
+        grid.className = 'grid grid-cols-2 gap-x-3 gap-y-1.5 p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/40 border border-slate-200/60 dark:border-slate-800';
+        CATEGORIES.forEach(cat => {
+          const label = document.createElement('label');
+          label.className = 'flex items-center gap-2 cursor-pointer text-xs text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white select-none';
+          label.innerHTML = `
+            <input type="checkbox" ${cat.active ? 'checked' : ''} onchange="toggleCategory('${cat.id}')" class="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-3.5 h-3.5 accent-blue-600 cursor-pointer">
+            <span class="truncate">${cat.label}</span>
+          `;
+          grid.appendChild(label);
+        });
+        container.appendChild(grid);
+      }
+    }
+
+    // Toggle Category
+    function toggleCategory(catId) {
+      const cat = CATEGORIES.find(c => c.id === catId);
+      if (cat) {
+        cat.active = !cat.active;
+        renderPresets();
+        updateRawIgnoreContent();
+        markDirty();
+      }
+    }
+
+    // Update raw textarea
+    function updateRawIgnoreContent() {
+      let content = '# 由工作区设置生成\n';
+      CATEGORIES.filter(c => c.active).forEach(cat => {
+        content += `\n# ${cat.label}\n`;
+        cat.patterns.forEach(p => content += `${p}\n`);
+      });
+
+      const textarea = document.getElementById('rawIgnoreTextarea');
+      textarea.value = content.trim() + '\n';
+      
+      const lineCount = textarea.value.split('\n').length;
+      document.getElementById('codeEditorLineCount').innerText = `${lineCount} 行`;
+    }
+
+    // Handle manual input in textarea
+    function handleRawTextareaInput(val) {
+      markDirty();
+      const lineCount = val.split('\n').length;
+      document.getElementById('codeEditorLineCount').innerText = `${lineCount} 行`;
+
+      // Sync back to presets
+      const lines = val.split('\n').map(l => l.trim());
+      CATEGORIES.forEach(cat => {
+        const allPresent = cat.patterns.every(p => lines.includes(p));
+        cat.active = allPresent;
+      });
+      renderPresets();
+    }
+
+    // Switch between Tabs Mode and Stream Mode
+    function switchDesignMode(mode) {
+      currentMode = mode;
+      const btnTabs = document.getElementById('btnModeTabs');
+      const btnStream = document.getElementById('btnModeStream');
+      const tabsHeader = document.getElementById('tabsHeader');
+      const paneSync = document.getElementById('paneSync');
+      const paneStorage = document.getElementById('paneStorage');
+
+      if (mode === 'tabs') {
+        btnTabs.className = 'px-3 py-1 rounded-md transition-all shadow-xs bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 flex items-center gap-1.5 font-medium';
+        btnStream.className = 'px-3 py-1 rounded-md transition-all text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white flex items-center gap-1.5';
+        tabsHeader.classList.remove('hidden');
+        switchTab(currentTab);
+      } else {
+        btnStream.className = 'px-3 py-1 rounded-md transition-all shadow-xs bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 flex items-center gap-1.5 font-medium';
+        btnTabs.className = 'px-3 py-1 rounded-md transition-all text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white flex items-center gap-1.5';
+        tabsHeader.classList.add('hidden');
+        paneSync.classList.remove('hidden');
+        paneStorage.classList.remove('hidden');
+      }
+    }
+
+    // Switch active Tab
+    function switchTab(tab) {
+      currentTab = tab;
+      const tabBtnSync = document.getElementById('tabBtnSync');
+      const tabBtnStorage = document.getElementById('tabBtnStorage');
+      const paneSync = document.getElementById('paneSync');
+      const paneStorage = document.getElementById('paneStorage');
+
+      if (tab === 'sync') {
+        tabBtnSync.className = 'pb-2 font-medium border-b-2 border-blue-600 text-blue-600 dark:text-blue-400 transition-colors';
+        tabBtnStorage.className = 'pb-2 font-medium border-b-2 border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 transition-colors flex items-center gap-1.5';
+        paneSync.classList.remove('hidden');
+        paneStorage.classList.add('hidden');
+      } else {
+        tabBtnStorage.className = 'pb-2 font-medium border-b-2 border-blue-600 text-blue-600 dark:text-blue-400 transition-colors flex items-center gap-1.5';
+        tabBtnSync.className = 'pb-2 font-medium border-b-2 border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 transition-colors';
+        paneSync.classList.add('hidden');
+        paneStorage.classList.remove('hidden');
+      }
+    }
+
+    // Mark form as dirty
+    function markDirty() {
+      isDirty = true;
+      document.getElementById('btnSaveMain').disabled = false;
+      document.getElementById('saveStatusIndicator').innerHTML = '<span class="text-amber-600 dark:text-amber-400">未保存</span>';
+    }
+
+    // Ignore Large File
+    function ignoreLargeFile(pattern) {
+      const textarea = document.getElementById('rawIgnoreTextarea');
+      textarea.value = textarea.value.trimEnd() + `\n\n# 快速忽略大文件\n${pattern}\n`;
+      handleRawTextareaInput(textarea.value);
+      dismissLargeAlert();
+      showToast(`已追加 ${pattern}`);
+    }
+
+    function dismissLargeAlert() {
+      const alert = document.getElementById('alertLargeFile');
+      alert.style.opacity = '0';
+      alert.style.transform = 'translateY(-4px)';
+      setTimeout(() => alert.remove(), 180);
+    }
+
+    // Copy vault path
+    function copyVaultPath() {
+      navigator.clipboard.writeText('C:\\Users\\DMX\\.multichat\\vault');
+      showToast('已复制存储库路径');
+    }
+
+    // Simulate Migration
+    function triggerMigration() {
+      if (migrationRunning) return;
+      migrationRunning = true;
+      const btn = document.getElementById('btnStartMigration');
+      const progressContainer = document.getElementById('migrationProgressContainer');
+      const progressBar = document.getElementById('migrationProgressBar');
+      const progressText = document.getElementById('migrationProgressText');
+      const currentTitle = document.getElementById('migrationCurrentTitle');
+      const badge = document.getElementById('migrationStatusBadge');
+      const tabBadge = document.getElementById('tabBadgeMigration');
+
+      btn.disabled = true;
+      btn.innerText = '迁移中...';
+      progressContainer.classList.remove('hidden');
+
+      let current = 0;
+      const total = 12;
+      const titles = ['学术综述.md', '第1章_引言.md', '第2章_相关工作.md', '系统架构导图', '实验测评数据.json', '答辩备注.md'];
+
+      const interval = setInterval(() => {
+        current += 2;
+        if (current > total) current = total;
+        
+        const pct = Math.round((current / total) * 100);
+        progressBar.style.width = `${pct}%`;
+        progressText.innerText = `${current} / ${total}`;
+        currentTitle.innerText = `处理中：${titles[Math.floor((current / total) * (titles.length - 1))]}`;
+
+        if (current >= total) {
+          clearInterval(interval);
+          migrationRunning = false;
+          btn.innerText = '完成';
+          btn.className = 'px-2 py-0.5 rounded bg-emerald-50 text-emerald-600 dark:bg-emerald-950/60 dark:text-emerald-400 font-medium text-xs';
+          badge.className = 'px-1.5 py-0.2 rounded text-[10px] bg-emerald-50 text-emerald-600 dark:bg-emerald-950/60 dark:text-emerald-400 font-medium';
+          badge.innerText = '已完成';
+          if (tabBadge) tabBadge.remove();
+          showToast('12 条笔记迁移完成');
+        }
+      }, 300);
+    }
+
+    // Save All
+    function saveSettings() {
+      const btn = document.getElementById('btnSaveMain');
+      btn.disabled = true;
+      btn.innerText = '保存中';
+
+      setTimeout(() => {
+        isDirty = false;
+        btn.innerText = '已保存';
+        btn.className = 'px-4 py-1.5 rounded-lg bg-emerald-600 text-white font-medium transition-all shadow-xs';
+        document.getElementById('saveStatusIndicator').innerHTML = '';
+        showToast('工作区设置已保存');
+
+        setTimeout(() => {
+          btn.innerText = '保存';
+          btn.className = 'px-4 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-500 font-medium transition-all disabled:opacity-40 disabled:pointer-events-none';
+          btn.disabled = true;
+        }, 1200);
+      }, 500);
+    }
+
+    // Toast notification
+    function showToast(msg) {
+      const toast = document.getElementById('toast');
+      document.getElementById('toastMsg').innerText = msg;
+      toast.classList.remove('opacity-0', 'translate-y-2', 'pointer-events-none');
+      setTimeout(() => {
+        toast.classList.add('opacity-0', 'translate-y-2', 'pointer-events-none');
+      }, 2000);
+    }
+
+    // Toggle Dark Mode
+    function toggleDarkMode() {
+      document.documentElement.classList.toggle('dark');
+    }
+
+    // Init on load
+    init();
+  </script>
+</body>
+</html>
