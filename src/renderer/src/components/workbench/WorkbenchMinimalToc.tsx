@@ -15,14 +15,13 @@ interface Props {
 }
 
 const RAIL_WIDTH = 28
-const RAIL_GAP = 8
 const PILL_MAX_WIDTH = 260
 
 /**
  * Workbench 极简原位变形 Markdown 大纲导航
  *
  * 特性：
- * 1. 100% 透明无边框容器，贴在居中正文左缘外侧，零排版侵占；
+ * 1. 100% 透明无边框容器，贴在编辑区左边缘，零排版侵占；
  * 2. 静止态为左对齐精细横线，线长映射标题深度 (H1: 26px, H2: 18px, H3: 12px, H4+: 8px)；
  * 3. 鼠标 Hover 具体横线时，标题药丸向右展开（无多余蓝点，阴影轻盈通透）；
  * 4. 悬停只改变目录自身状态，正文与滚动位置保持不动；
@@ -34,41 +33,7 @@ export default function WorkbenchMinimalToc({ scrollContainerRef }: Props): JSX.
   const [headings, setHeadings] = useState<HeadingItem[]>([])
   const [activeKey, setActiveKey] = useState<string>('')
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null)
-  const [railLeft, setRailLeft] = useState<number | null>(null)
   const [pill, setPill] = useState<{ top: number; left: number; maxWidth: number } | null>(null)
-
-  // 大纲贴在居中正文左缘外侧，而不是窗口左缘；窗口缩放后始终跟随正文。
-  useEffect(() => {
-    const scroller = scrollContainerRef?.current
-    const editorRoot = scroller?.closest<HTMLElement>('[data-workbench-editor="true"]')
-    if (!scroller || !editorRoot) return
-
-    const measure = (): void => {
-      const article = editorRoot.querySelector<HTMLElement>('[data-workbench-article]')
-      const content = article?.querySelector<HTMLElement>('[contenteditable="true"]')
-      if (!article || !content) return
-      const editorRect = editorRoot.getBoundingClientRect()
-      // 以正文文本左缘为锚，让大纲跟着居中的阅读列走；过窄时收进视口。
-      const textLeft = Math.round(content.getBoundingClientRect().left - editorRect.left)
-      setRailLeft(
-        Math.min(
-          Math.max(textLeft - RAIL_GAP - RAIL_WIDTH, 8),
-          Math.max(8, Math.round(editorRect.width) - RAIL_WIDTH - 8)
-        )
-      )
-    }
-
-    measure()
-    const observer = new ResizeObserver(measure)
-    observer.observe(editorRoot)
-    const article = editorRoot.querySelector<HTMLElement>('[data-workbench-article]')
-    if (article) observer.observe(article)
-    window.addEventListener('resize', measure)
-    return () => {
-      observer.disconnect()
-      window.removeEventListener('resize', measure)
-    }
-  }, [scrollContainerRef])
 
   // 1. 扫描与监听 Lexical 编辑器中的所有标题节点
   useEffect(() => {
@@ -168,12 +133,10 @@ export default function WorkbenchMinimalToc({ scrollContainerRef }: Props): JSX.
     return null
   }
 
-  if (railLeft === null) return null
-
   return (
     <aside
       className="absolute top-1/2 -translate-y-1/2 z-20 flex flex-col items-start pointer-events-auto select-none bg-transparent border-0 shadow-none outline-none py-2"
-      style={{ left: `${railLeft}px`, width: `${RAIL_WIDTH}px` }}
+      style={{ left: '14px', width: `${RAIL_WIDTH}px` }}
       aria-label="Markdown 极简大纲导航"
       onMouseLeave={() => {
         setHoveredIndex(null)
