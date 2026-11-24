@@ -684,6 +684,42 @@ const api = {
       ipcRenderer.on('annotations:changed', handler)
       return () => { ipcRenderer.removeListener('annotations:changed', handler) }
     }
+  },
+
+  // 本地 Agent 会话控制
+  agentPrompt: (sessionId: string, prompt: string, attachments?: string[]): Promise<{ success: boolean; data?: unknown; error?: string }> =>
+    ipcRenderer.invoke('agent:prompt', { sessionId, prompt, attachments }),
+  agentAbort: (sessionId: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('agent:abort', { sessionId }),
+  agentNewSession: (cwd?: string): Promise<{ success: boolean; data?: { sessionId: string }; error?: string }> =>
+    ipcRenderer.invoke('agent:new-session', { cwd }),
+  agentListSessions: (): Promise<{ success: boolean; data?: Array<{ id: string; title: string; createdAt: number; updatedAt: number; cwd?: string; model?: string }>; error?: string }> =>
+    ipcRenderer.invoke('agent:list-sessions'),
+  agentResumeSession: (sessionId: string): Promise<{ success: boolean; data?: unknown; error?: string }> =>
+    ipcRenderer.invoke('agent:resume-session', { sessionId }),
+  agentResolveApproval: (requestId: string, decision: 'allow' | 'always' | 'deny', pattern?: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('agent:resolve-approval', { requestId, decision, pattern }),
+  agentSetPermissionMode: (sessionId: string, mode: 'full' | 'restricted' | 'readonly'): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('agent:set-permission-mode', { sessionId, mode }),
+  agentSetModel: (sessionId: string, model: string, provider?: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('agent:set-model', { sessionId, model, provider }),
+  agentListProviders: (): Promise<{ success: boolean; data?: Array<{ providerId: string; displayName: string; configured: boolean; authStatus?: { ok: boolean; error?: string }; models: string[] }>; error?: string }> =>
+    ipcRenderer.invoke('agent:list-providers'),
+  agentSetCredential: (providerId: string, cred: { type: 'api_key'; key: string; env?: string }): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('agent:set-credential', { providerId, cred }),
+  agentDeleteCredential: (providerId: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('agent:delete-credential', { providerId }),
+  agentGetActiveModel: (): Promise<{ success: boolean; data?: { providerId: string; modelId: string; baseUrl?: string }; error?: string }> =>
+    ipcRenderer.invoke('agent:get-active-model'),
+  onAgentEvent: (cb: (payload: { sessionId: string; event: unknown }) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: { sessionId: string; event: unknown }): void => cb(payload)
+    ipcRenderer.on('agent:event', handler)
+    return () => { ipcRenderer.removeListener('agent:event', handler) }
+  },
+  onAgentApprovalRequest: (cb: (payload: { requestId: string; sessionId: string; toolCallId: string; toolName: string; args: Record<string, unknown>; reason: string }) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: { requestId: string; sessionId: string; toolCallId: string; toolName: string; args: Record<string, unknown>; reason: string }): void => cb(payload)
+    ipcRenderer.on('agent:approval-request', handler)
+    return () => { ipcRenderer.removeListener('agent:approval-request', handler) }
   }
 }
 
