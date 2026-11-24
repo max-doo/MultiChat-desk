@@ -179,6 +179,8 @@ export default function WorkbenchEditor(): JSX.Element {
   const createFile = useWorkbenchStore((s) => s.createFile)
   const openInSystem = useWorkbenchStore((s) => s.openInSystem)
   const saveActiveFile = useWorkbenchStore((s) => s.saveActiveFile)
+  const isLeftCollapsed = useWorkbenchStore((s) => s.isLeftCollapsed)
+  const toggleLeftCollapse = useWorkbenchStore((s) => s.toggleLeftCollapse)
 
   const [floatingAnchorElem, setFloatingAnchorElem] = useState<HTMLDivElement | null>(null)
   const wysiwygScrollRef = useRef<HTMLDivElement | null>(null)
@@ -358,7 +360,18 @@ export default function WorkbenchEditor(): JSX.Element {
   // 空状态引导
   if (!activeFilePath) {
     return (
-      <div className="flex-1 h-full flex flex-col items-center justify-center p-8 text-center bg-white/40 dark:bg-gray-800/40 select-none">
+      <div className="relative flex-1 h-full flex flex-col items-center justify-center p-8 text-center bg-white/40 dark:bg-gray-800/40 select-none">
+        {isLeftCollapsed && (
+          <button
+            type="button"
+            onClick={toggleLeftCollapse}
+            className="absolute top-3 left-3 w-7 h-7 flex items-center justify-center rounded-full text-text-secondary hover:text-text-primary hover:bg-black/5 dark:hover:bg-white/10 transition-all duration-200"
+            title="展开侧边栏"
+            aria-label="展开侧边栏"
+          >
+            <AppIcon name="left_panel_open" size={20} />
+          </button>
+        )}
         <div className="w-16 h-16 mb-4 rounded-2xl bg-blue-500/10 dark:bg-blue-400/10 flex items-center justify-center text-blue-500 dark:text-blue-400">
           <AppIcon name="edit_note" size={30} />
         </div>

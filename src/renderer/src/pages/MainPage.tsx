@@ -548,9 +548,12 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
 
   // 划词在侧边栏提问
   useEffect(() => {
-    const unsub = window.api.onMainAskSidebar?.((text) => {
+    const unsub = window.api.onMainAskSidebar?.(({ text }) => {
       if (useAppStore.getState().displayMode !== 'one') {
         useAppStore.getState().setDisplayMode('one')
+      }
+      if (useAppStore.getState().productMode === 'workbench') {
+        return
       }
       handleAskSidebar(text)
     })

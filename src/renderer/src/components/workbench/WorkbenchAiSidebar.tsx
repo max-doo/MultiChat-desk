@@ -15,6 +15,9 @@ import {
   WORKBENCH_SEND_FILE_EVENT,
   WORKBENCH_SEND_IMAGE_EVENT,
   WORKBENCH_UPLOAD_NODES_EVENT,
+  getSidebarTargetByWcId,
+  registerSidebarWcId,
+  unregisterSidebarWcId,
   type WorkbenchSendFileDetail,
   type WorkbenchSendImageDetail,
   type WorkbenchUploadNodesDetail
@@ -220,20 +223,26 @@ function attachWorkbenchReplyButtons(
 
 interface WorkbenchAiSidebarProps {
   isActive?: boolean
+  instanceId?: 'primary' | 'secondary'
 }
 
-export default function WorkbenchAiSidebar({ isActive = true }: WorkbenchAiSidebarProps): JSX.Element | null {
+export default function WorkbenchAiSidebar({ isActive = true, instanceId = 'primary' }: WorkbenchAiSidebarProps): JSX.Element | null {
   const models = useAppStore((s) => s.models)
-  const sidebarModelId = useWorkbenchStore((s) => s.sidebarModelId)
-  const setSidebarModelId = useWorkbenchStore((s) => s.setSidebarModelId)
+  const isSecondary = instanceId === 'secondary'
+  const sidebarModelId = useWorkbenchStore((s) => (isSecondary ? s.sidebar2ModelId : s.sidebarModelId))
+  const setSidebarModelId = useWorkbenchStore((s) => (isSecondary ? s.setSidebar2ModelId : s.setSidebarModelId))
   const rightPane = useWorkbenchStore((s) => s.rightPane)
   const openRightPane = useWorkbenchStore((s) => s.openRightPane)
-  const closeRightPane = useWorkbenchStore((s) => s.closeRightPane)
+  const isAiSidebar2Open = useWorkbenchStore((s) => s.isAiSidebar2Open)
+  const openAiSidebar2 = useWorkbenchStore((s) => s.openAiSidebar2)
+  const closeAiSidebar2 = useWorkbenchStore((s) => s.closeAiSidebar2)
   const draggingNodes = useWorkbenchStore((s) => s.draggingNodes)
   const setDraggingNodes = useWorkbenchStore((s) => s.setDraggingNodes)
   const activeFilePath = useWorkbenchStore((s) => s.activeFilePath)
   const isDirty = useWorkbenchStore((s) => s.isDirty)
   const saveActiveFile = useWorkbenchStore((s) => s.saveActiveFile)
+  const instanceKey = isSecondary ? 'ai2' : 'ai'
+  const visible = isSecondary ? isAiSidebar2Open : rightPane === 'ai'
 
   // 侧边栏为隔离场景（isolated），切换目标与下拉选项一致使用全量模型；
   // 若按主界面阵容的 enabled 过滤，选中未启用模型时无法挂载对应 webview，导致"切换不了"
@@ -264,6 +273,7 @@ export default function WorkbenchAiSidebar({ isActive = true }: WorkbenchAiSideb
   }, [currentModel?.id])
 
   const sidebarRefs = useRef<Map<string, WebviewCardRef>>(new Map())
+  const registeredWcIdsRef = useRef<Map<string, number>>(new Map())
   const lifecycleEntriesRef = useRef<Map<string, SidebarLifecycleEntry>>(new Map())
   const mountedSidebarModelsRef = useRef(mountedSidebarModels)
   const activityCountsRef = useRef<Map<string, number>>(new Map())
@@ -337,10 +347,10 @@ export default function WorkbenchAiSidebar({ isActive = true }: WorkbenchAiSideb
     return (
       windowVisibleRef.current &&
       isActiveRef.current &&
-      rightPaneRef.current === 'ai' &&
+      (isSecondary ? isAiSidebar2Open : rightPaneRef.current === 'ai') &&
       currentModelIdRef.current === modelId
     )
-  }, [])
+  }, [isAiSidebar2Open, isSecondary])
 
   const ensureSidebarLive = useCallback(
     async (modelId: string): Promise<WebviewCardRef | null> => {
@@ -533,7 +543,7 @@ export default function WorkbenchAiSidebar({ isActive = true }: WorkbenchAiSideb
 
   useEffect(() => {
     reconcileSidebarLifecycles()
-  }, [isActive, rightPane, currentModel?.id, reconcileSidebarLifecycles])
+  }, [isActive, rightPane, isAiSidebar2Open, currentModel?.id, reconcileSidebarLifecycles])
 
   useEffect(() => {
     const off = window.api.onWindowVisibility((visible) => {
@@ -547,6 +557,10 @@ export default function WorkbenchAiSidebar({ isActive = true }: WorkbenchAiSideb
     disposedRef.current = false
     return () => {
       disposedRef.current = true
+      for (const wcId of registeredWcIdsRef.current.values()) {
+        unregisterSidebarWcId(wcId)
+      }
+      registeredWcIdsRef.current.clear()
       for (const entry of lifecycleEntriesRef.current.values()) {
         if (entry.timer) clearTimeout(entry.timer)
         entry.timer = null
@@ -626,26 +640,34 @@ export default function WorkbenchAiSidebar({ isActive = true }: WorkbenchAiSideb
       const last = lastInsertRef.current.get(p.platformId)
       if (last && last.hash === p.replyHash && Date.now() - last.at < 1500) return // 双击防抖
       lastInsertRef.current.set(p.platformId, { hash: p.replyHash, at: Date.now() })
-      if (rightPane !== 'ai') openRightPane('ai')
+      if (isSecondary) {
+        if (!isAiSidebar2Open) openAiSidebar2()
+      } else if (rightPane !== 'ai') {
+        openRightPane('ai')
+      }
       await insertReplyIntoActiveMarkdown(p.replyMd, {
         conversationUrl: p.conversationUrl,
         platformId: p.platformId
       })
     },
-    [insertReplyIntoActiveMarkdown, rightPane, openRightPane]
+    [insertReplyIntoActiveMarkdown, isAiSidebar2Open, isSecondary, rightPane, openAiSidebar2, openRightPane]
   )
 
   const handleSaveReply = useCallback(
     async (p: ReplyPayload): Promise<void> => {
       if (!p?.replyMd) return
-      if (rightPane !== 'ai') openRightPane('ai')
+      if (isSecondary) {
+        if (!isAiSidebar2Open) openAiSidebar2()
+      } else if (rightPane !== 'ai') {
+        openRightPane('ai')
+      }
       await saveReplyAsNewMarkdown(p.replyMd, {
         platformId: p.platformId,
         title: p.title,
         conversationUrl: p.conversationUrl
       })
     },
-    [saveReplyAsNewMarkdown, rightPane, openRightPane]
+    [saveReplyAsNewMarkdown, isAiSidebar2Open, isSecondary, rightPane, openAiSidebar2, openRightPane]
   )
 
   // 为每个已挂载的侧边栏 webview 注入按钮脚本 + 挂 console-message 监听
@@ -680,7 +702,8 @@ export default function WorkbenchAiSidebar({ isActive = true }: WorkbenchAiSideb
   // 笔记属性里的来源会话：切到对应平台并直接加载该会话地址
   useEffect(() => {
     if (!pendingConversationOpen) return
-    const { platformId, url, token } = pendingConversationOpen
+    const { platformId, url, token, target } = pendingConversationOpen
+    if ((target ?? 'ai') !== instanceKey) return
     consumeConversationOpen(token)
     if (!availableModels.some((model) => model.id === platformId)) return
     setSidebarModelId(platformId)
@@ -741,12 +764,18 @@ export default function WorkbenchAiSidebar({ isActive = true }: WorkbenchAiSideb
   // 监听来自划词动作的文本注入事件
   useEffect(() => {
     const handleInsertPrompt = (e: Event) => {
-      const customEvent = e as CustomEvent<{ prompt: string }>
+      const customEvent = e as CustomEvent<{ prompt: string; target?: 'ai' | 'ai2' }>
       const prompt = customEvent.detail?.prompt
       if (!prompt) return
+      const target = customEvent.detail?.target ?? 'ai'
+      if (target !== instanceKey) return
 
       // 若侧边栏当前处于折叠状态，则自动展开
-      if (rightPane !== 'ai') openRightPane('ai')
+      if (isSecondary) {
+        if (!isAiSidebar2Open) openAiSidebar2()
+      } else if (rightPane !== 'ai') {
+        openRightPane('ai')
+      }
 
       if (!currentModel) {
         showToast('error', '未选择 AI 模型')
@@ -783,12 +812,46 @@ export default function WorkbenchAiSidebar({ isActive = true }: WorkbenchAiSideb
   }, [
     currentModel,
     rightPane,
+    isAiSidebar2Open,
+    isSecondary,
+    instanceKey,
     openRightPane,
+    openAiSidebar2,
     ensureSidebarLive,
     beginSidebarActivity,
     endSidebarActivity,
     showToast
   ])
+
+  // 监听 webview 右键「在侧边栏中提问」：来源若为另一个 AI 侧边栏，则投到本栏，否则投到目标栏
+  useEffect(() => {
+    const handleAskSidebar = ({ text, wcId }: { text: string; wcId: number }) => {
+      if (!text.trim()) return
+      const workbench = useWorkbenchStore.getState()
+      const sourceTarget = getSidebarTargetByWcId(wcId)
+
+      // 仅由“选中来源所在实例”或“外部来源时的主实例”负责转发，避免双实例重复注入
+      if (isSecondary) {
+        if (sourceTarget !== 'ai2') return
+      } else if (sourceTarget === 'ai2') {
+        return
+      }
+
+      const target = sourceTarget === 'ai2' ? 'ai' : 'ai2'
+      if (target === 'ai2') {
+        if (!workbench.isAiSidebar2Open) openAiSidebar2()
+      } else if (workbench.rightPane !== 'ai') {
+        openRightPane('ai')
+      }
+
+      window.dispatchEvent(new CustomEvent('workbench:insert-prompt', {
+        detail: { prompt: text, target }
+      }))
+    }
+
+    const unsubscribe = window.api.onMainAskSidebar?.(handleAskSidebar)
+    return () => unsubscribe?.()
+  }, [currentModel, isSecondary, openAiSidebar2, openRightPane])
 
   // 处理文件拖入释放并上传到当前 AI 对话框
   const uploadFilesToCurrentModel = useCallback(
@@ -948,7 +1011,13 @@ export default function WorkbenchAiSidebar({ isActive = true }: WorkbenchAiSideb
     const handleSendFile = (event: Event) => {
       const detail = (event as CustomEvent<WorkbenchSendFileDetail>).detail
       if (!detail?.filePath || !detail.fileName) return
-      if (useWorkbenchStore.getState().rightPane !== 'ai') openRightPane('ai')
+      const target = detail.target ?? 'ai'
+      if (target !== instanceKey) return
+      if (isSecondary) {
+        if (!useWorkbenchStore.getState().isAiSidebar2Open) openAiSidebar2()
+      } else if (useWorkbenchStore.getState().rightPane !== 'ai') {
+        openRightPane('ai')
+      }
       runAfterPanePaint(() => {
         void uploadFilesToCurrentModel([
           {
@@ -966,7 +1035,7 @@ export default function WorkbenchAiSidebar({ isActive = true }: WorkbenchAiSideb
 
     window.addEventListener(WORKBENCH_SEND_FILE_EVENT, handleSendFile)
     return () => window.removeEventListener(WORKBENCH_SEND_FILE_EVENT, handleSendFile)
-  }, [openRightPane, uploadFilesToCurrentModel])
+  }, [instanceKey, isSecondary, openAiSidebar2, openRightPane, uploadFilesToCurrentModel])
 
   /**
    * 图片右键「发送到 AI 侧边栏」：
@@ -978,7 +1047,13 @@ export default function WorkbenchAiSidebar({ isActive = true }: WorkbenchAiSideb
       const detail = (event as CustomEvent<WorkbenchSendImageDetail>).detail
       const srcURL = detail?.srcURL?.trim()
       if (!srcURL) return
-      if (useWorkbenchStore.getState().rightPane !== 'ai') openRightPane('ai')
+      const target = detail.target ?? 'ai'
+      if (target !== instanceKey) return
+      if (isSecondary) {
+        if (!useWorkbenchStore.getState().isAiSidebar2Open) openAiSidebar2()
+      } else if (useWorkbenchStore.getState().rightPane !== 'ai') {
+        openRightPane('ai')
+      }
 
       runAfterPanePaint(() => {
         void (async (): Promise<void> => {
@@ -1052,7 +1127,7 @@ export default function WorkbenchAiSidebar({ isActive = true }: WorkbenchAiSideb
 
     window.addEventListener(WORKBENCH_SEND_IMAGE_EVENT, handleSendImage)
     return () => window.removeEventListener(WORKBENCH_SEND_IMAGE_EVENT, handleSendImage)
-  }, [openRightPane, showToast, uploadFilesToCurrentModel])
+  }, [instanceKey, isSecondary, openAiSidebar2, openRightPane, showToast, uploadFilesToCurrentModel])
 
   // 处理文件拖入释放并上传到当前 AI 对话框
   const handleDrop = useCallback(
@@ -1165,7 +1240,13 @@ export default function WorkbenchAiSidebar({ isActive = true }: WorkbenchAiSideb
     const handleUploadNodes = (event: Event) => {
       const detail = (event as CustomEvent<WorkbenchUploadNodesDetail>).detail
       if (!detail?.nodes?.length) return
-      if (useWorkbenchStore.getState().rightPane !== 'ai') openRightPane('ai')
+      const target = detail.target ?? 'ai'
+      if (target !== instanceKey) return
+      if (isSecondary) {
+        if (!useWorkbenchStore.getState().isAiSidebar2Open) openAiSidebar2()
+      } else if (useWorkbenchStore.getState().rightPane !== 'ai') {
+        openRightPane('ai')
+      }
       const mapped = mapNodesToUploads(detail.nodes)
       setDraggingNodes(null)
       if (mapped.files.length === 0) {
@@ -1181,9 +1262,10 @@ export default function WorkbenchAiSidebar({ isActive = true }: WorkbenchAiSideb
     return () => {
       window.removeEventListener(WORKBENCH_UPLOAD_NODES_EVENT, handleUploadNodes)
     }
-  }, [openRightPane, setDraggingNodes, showToast, uploadFilesToCurrentModel])
+  }, [instanceKey, isSecondary, openAiSidebar2, openRightPane, setDraggingNodes, showToast, uploadFilesToCurrentModel])
 
   const isDraggingActive = Boolean(draggingNodes && draggingNodes.length > 0) || isExternalFileDragging
+  if (!visible) return null
 
   return (
     <div
@@ -1193,7 +1275,7 @@ export default function WorkbenchAiSidebar({ isActive = true }: WorkbenchAiSideb
           setIsExternalFileDragging(true)
         }
       }}
-      className="flex flex-col h-full bg-white dark:bg-gray-900 border-l border-black/5 dark:border-white/5 overflow-hidden relative"
+      className="flex flex-col h-full flex-1 min-w-0 bg-white dark:bg-gray-900 border-l border-black/5 dark:border-white/5 overflow-hidden relative"
     >
       {/* 浮动上传状态提示 */}
       {toast && (
@@ -1280,22 +1362,39 @@ export default function WorkbenchAiSidebar({ isActive = true }: WorkbenchAiSideb
                 isolated={true}
                 flat={true}
                 captureContext="workbench"
-                webviewInstanceId={`workbench-sidebar-${model.id}`}
+                webviewInstanceId={isSecondary ? `workbench-sidebar2-${model.id}` : `workbench-sidebar-${model.id}`}
+                onWebviewReady={(wcId) => {
+                  const oldWcId = registeredWcIdsRef.current.get(model.id)
+                  if (oldWcId && oldWcId !== wcId) unregisterSidebarWcId(oldWcId)
+                  registeredWcIdsRef.current.set(model.id, wcId)
+                  registerSidebarWcId(wcId, instanceKey)
+                }}
                 onModelChange={handleModelChange}
                 headerActions={
                   <button
                     type="button"
-                    onClick={closeRightPane}
-                    className="w-7 h-7 rounded-full text-text-secondary hover:text-text-primary hover:bg-black/5 dark:hover:bg-white/10 flex items-center justify-center transition-all duration-200"
-                    title="折叠 AI 侧边栏"
-                    aria-label="折叠 AI 侧边栏"
+                    onClick={isSecondary ? closeAiSidebar2 : openAiSidebar2}
+                    className={`w-7 h-7 rounded-full flex items-center justify-center transition-all duration-200 ${
+                      !isSecondary && isAiSidebar2Open
+                        ? 'text-primary bg-blue-50 hover:bg-blue-100 dark:bg-primary/20 dark:hover:bg-primary/25'
+                        : 'text-text-secondary hover:text-text-primary hover:bg-black/5 dark:hover:bg-white/10'
+                    }`}
+                    title={isSecondary ? '关闭 AI 侧边栏' : '再打开一个 AI 侧边栏'}
+                    aria-label={isSecondary ? '关闭 AI 侧边栏' : '再打开一个 AI 侧边栏'}
                   >
-                    <AppIcon name="right_panel_close" size={20} />
+                    <AppIcon name={isSecondary ? 'close' : 'view_column_2'} size={20} />
                   </button>
                 }
                 ref={(ref) => {
                   if (ref) sidebarRefs.current.set(model.id, ref)
-                  else sidebarRefs.current.delete(model.id)
+                  else {
+                    sidebarRefs.current.delete(model.id)
+                    const oldWcId = registeredWcIdsRef.current.get(model.id)
+                    if (oldWcId) {
+                      registeredWcIdsRef.current.delete(model.id)
+                      unregisterSidebarWcId(oldWcId)
+                    }
+                  }
                 }}
               />
             </div>

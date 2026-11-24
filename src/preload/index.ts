@@ -110,13 +110,13 @@ const api = {
   quickHide: () => ipcRenderer.invoke('quick:hide'),
   quickRegisterPrimaryWebview: (id: number): Promise<{ success: boolean }> => ipcRenderer.invoke('quick:register-primary-webview', id),
   quickSetSidebarExpanded: (expanded: boolean, panelWidth: number): Promise<{ success: boolean; data?: number }> => ipcRenderer.invoke('quick:set-sidebar-expanded', expanded, panelWidth),
-  onQuickAskSidebar: (cb: (text: string) => void) => {
-    const handler = (_e: Electron.IpcRendererEvent, text: string): void => cb(text)
+  onQuickAskSidebar: (cb: (payload: { text: string; wcId: number }) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, payload: { text: string; wcId: number }): void => cb(payload)
     ipcRenderer.on('quick:ask-sidebar', handler)
     return () => { ipcRenderer.removeListener('quick:ask-sidebar', handler) }
   },
-  onMainAskSidebar: (cb: (text: string) => void) => {
-    const handler = (_e: Electron.IpcRendererEvent, text: string): void => cb(text)
+  onMainAskSidebar: (cb: (payload: { text: string; wcId: number }) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, payload: { text: string; wcId: number }): void => cb(payload)
     ipcRenderer.on('main:ask-sidebar', handler)
     return () => { ipcRenderer.removeListener('main:ask-sidebar', handler) }
   },

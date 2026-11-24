@@ -107,6 +107,8 @@ function WorkbenchPaneToggles(): JSX.Element {
   const rightPane = useWorkbenchStore((s) => s.rightPane)
   const openRightPane = useWorkbenchStore((s) => s.openRightPane)
   const closeRightPane = useWorkbenchStore((s) => s.closeRightPane)
+  const isAiSidebar2Open = useWorkbenchStore((s) => s.isAiSidebar2Open)
+  const closeAiSidebar2 = useWorkbenchStore((s) => s.closeAiSidebar2)
   const tone = (active: boolean): string =>
     `w-7 h-7 flex items-center justify-center rounded-lg transition-all duration-200 no-drag ${
       active
@@ -126,12 +128,19 @@ function WorkbenchPaneToggles(): JSX.Element {
       </button>
       <button
         type="button"
-        aria-label={rightPane === 'ai' ? '收起 AI 侧边栏' : '打开 AI 侧边栏'}
-        title={rightPane === 'ai' ? '收起 AI 侧边栏' : '打开 AI 侧边栏'}
-        onClick={() => rightPane === 'ai' ? closeRightPane() : openRightPane('ai')}
-        className={tone(rightPane === 'ai')}
+        aria-label={rightPane === 'ai' || isAiSidebar2Open ? '收起 AI 侧边栏' : '打开 AI 侧边栏'}
+        title={rightPane === 'ai' || isAiSidebar2Open ? '收起 AI 侧边栏' : '打开 AI 侧边栏'}
+        onClick={() => {
+          if (rightPane !== 'ai' && !isAiSidebar2Open) {
+            openRightPane('ai')
+            return
+          }
+          if (isAiSidebar2Open) closeAiSidebar2()
+          if (rightPane === 'ai') closeRightPane()
+        }}
+        className={tone(rightPane === 'ai' || isAiSidebar2Open)}
       >
-        <AppIcon name={rightPane === 'ai' ? 'right_panel_close' : 'right_panel_open'} size={16} />
+        <AppIcon name={rightPane === 'ai' || isAiSidebar2Open ? 'right_panel_close' : 'right_panel_open'} size={16} />
       </button>
     </>
   )

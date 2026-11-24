@@ -257,7 +257,7 @@ export default function QuickPage(): JSX.Element {
   }, [])
 
   useEffect(() => {
-    const unsubAsk = window.api.onQuickAskSidebar(text => {
+    const unsubAsk = window.api.onQuickAskSidebar(({ text }) => {
       if (!text.trim()) return
       pendingSidebarText.current = { id: ++pendingSequence.current, text }
       setSidebarError('')
