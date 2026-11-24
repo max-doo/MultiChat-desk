@@ -2273,6 +2273,17 @@ export async function registerIpcHandlers(
         }
     })
 
+    ipcMain.handle('workbench:copy-to-clipboard', async (_event, payload: { workspaceRoot: string; relativePaths: string[] }) => {
+        try {
+            assertActiveWorkspace(payload.workspaceRoot)
+            const data = await workbenchCopyNodesToClipboard(payload.workspaceRoot, payload.relativePaths)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
     ipcMain.handle('workbench:save-image', async (_event, payload: { workspaceRoot: string; documentRelativePath: string; dataUrl?: string; base64?: string; fileName?: string }) => {
         try {
             const data = await workbenchSaveImage(payload.workspaceRoot, payload.documentRelativePath, {

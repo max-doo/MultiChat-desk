@@ -508,6 +508,8 @@ const api = {
       ipcRenderer.invoke('workbench:save-image', { workspaceRoot, documentRelativePath, ...payload }),
     importImageFile: (workspaceRoot: string, documentRelativePath: string, sourceAbsolutePath: string): Promise<{ success: boolean; data?: { relativePath: string; thumbnailDataUrl: string }; error?: string }> =>
       ipcRenderer.invoke('workbench:import-image-file', { workspaceRoot, documentRelativePath, sourceAbsolutePath }),
+    copyToClipboard: (workspaceRoot: string, relativePaths: string[]): Promise<{ success: boolean; data?: { copied: number; imageCopied: boolean }; error?: string }> =>
+      ipcRenderer.invoke('workbench:copy-to-clipboard', { workspaceRoot, relativePaths }),
     findUnreferencedImages: (workspaceRoot: string, documentRelativePath: string): Promise<{ success: boolean; data?: { unreferenced: string[]; total: number }; error?: string }> =>
       ipcRenderer.invoke('workbench:find-unreferenced-images', { workspaceRoot, documentRelativePath }),
     deleteNodes: (workspaceRoot: string, relativePaths: string[]): Promise<{ success: boolean; data?: { deleted: string[]; failed: { path: string; error: string }[] }; error?: string }> =>

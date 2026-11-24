@@ -3,7 +3,9 @@
  * 提供安全路径校验、工作区文件树扫描、文件读写、节点增删改查、全文搜索与系统集成
  */
 
-import { app, dialog, shell, BrowserWindow, nativeImage } from 'electron'
+import { app, dialog, shell, BrowserWindow, nativeImage, clipboard } from 'electron'
+import { execFile } from 'child_process'
+import { promisify } from 'util'
 import type Store from 'electron-store'
 import path from 'path'
 import fs from 'fs'
@@ -13,6 +15,7 @@ import {
   readdir,
   readFile as fsReadFile,
   writeFile as fsWriteFile,
+  mkdtemp,
   mkdir,
   cp,
   rm,
@@ -20,6 +23,7 @@ import {
   open
 } from 'fs/promises'
 import { randomUUID } from 'crypto'
+import { tmpdir } from 'os'
 import {
   type WorkbenchFileNode,
   type WorkbenchSearchResult,
@@ -2171,4 +2175,78 @@ export async function search(workspaceRoot: string, query: string): Promise<Work
 
   await searchDir(safeRoot)
   return results
+}
+
+const execFileAsync = promisify(execFile)
+
+const WINDOWS_CLIPBOARD_SCRIPT = `
+param(
+  [Parameter(Mandatory=$true)][string]$PathsJson,
+  [string]$ImagePath = ''
+)
+$ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$paths = @($PathsJson | ConvertFrom-Json)
+if ($paths.Count -eq 0) { exit 0 }
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+$data = New-Object System.Windows.Forms.DataObject
+$data.SetFileDropList([string[]]$paths)
+if ($ImagePath -ne '' -and (Test-Path -LiteralPath $ImagePath -PathType Leaf)) {
+  try {
+    $bmp = New-Object System.Drawing.Bitmap($ImagePath)
+    $data.SetImage($bmp)
+  } catch {}
+}
+[System.Windows.Forms.Clipboard]::SetDataObject($data, $true)
+`
+
+/**
+ * 把工作台文件写入系统剪贴板：
+ * - Windows 走 PowerShell `SetFileDropList`（资源管理器语义：Ctrl+V 粘贴文件本体）
+ * - 单张图片额外写 `SetImage`，让聊天输入框/画图等直接得到图片内容
+ * - 其他平台退回 `clipboard.write`（写入文本路径 + 图片位图）
+ */
+export async function copyNodesToClipboard(
+  workspaceRoot: string,
+  relativePaths: string[]
+): Promise<{ copied: number; imageCopied: boolean }> {
+  const safeRoot = await assertSafePath(workspaceRoot, '')
+  const absPaths: string[] = []
+  for (const rel of relativePaths) {
+    const safe = await assertSafePath(safeRoot, rel)
+    absPaths.push(safe)
+  }
+  if (!absPaths.length) return { copied: 0, imageCopied: false }
+
+  const imageExts = new Set(['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.ico'])
+  const single = absPaths.length === 1 ? absPaths[0] : ''
+  const isImage = single !== '' && imageExts.has(path.extname(single).toLowerCase())
+
+  if (process.platform === 'win32') {
+    const tmpDir = await mkdtemp(path.join(tmpdir(), 'multichat-clip-'))
+    const scriptPath = path.join(tmpDir, 'copy-files.ps1')
+    try {
+      await fsWriteFile(scriptPath, WINDOWS_CLIPBOARD_SCRIPT, 'utf8')
+      await execFileAsync(
+        'powershell',
+        ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath,
+          '-PathsJson', JSON.stringify(absPaths),
+          '-ImagePath', isImage ? single : ''],
+        { windowsHide: true, timeout: 15000 }
+      )
+    } finally {
+      await rm(tmpDir, { recursive: true, force: true }).catch(() => undefined)
+    }
+    return { copied: absPaths.length, imageCopied: isImage }
+  }
+
+  // macOS / Linux 兜底：写入文本路径 + 图片位图
+  const text = absPaths.join('\n')
+  const image = isImage ? nativeImage.createFromPath(single) : null
+  clipboard.write({
+    text,
+    image: image && !image.isEmpty() ? image : undefined
+  })
+  return { copied: absPaths.length, imageCopied: isImage && image !== null && !image.isEmpty() }
 }

@@ -791,11 +791,13 @@ export default function WorkbenchFileTree(): JSX.Element {
       if (selection && !selection.isCollapsed && selection.toString()) return
       if (!selectedPaths.size) return
       e.preventDefault()
-      setTreeClipboard({
-        paths: Array.from(selectedPaths)
-      })
+      const paths = Array.from(selectedPaths)
+      setTreeClipboard({ paths })
+      if (workspacePath) {
+        void window.api.workbench.copyToClipboard(workspacePath, paths)
+      }
     },
-    [selectedPaths]
+    [selectedPaths, workspacePath]
   )
 
   /** 应用内粘贴：把树内剪贴板的节点复制到目标目录，生成 `-n` 副本 */
@@ -847,16 +849,18 @@ export default function WorkbenchFileTree(): JSX.Element {
       if (k === 'c') {
         if (!selectedPaths.size) return
         e.preventDefault()
-        setTreeClipboard({
-          paths: Array.from(selectedPaths)
-        })
+        const paths = Array.from(selectedPaths)
+        setTreeClipboard({ paths })
+        if (workspacePath) {
+          void window.api.workbench.copyToClipboard(workspacePath, paths)
+        }
       } else {
         if (!treeClipboard) return
         e.preventDefault()
         pasteTreeClipboard(resolveParentDir(null))
       }
     },
-    [selectedPaths, treeClipboard, pasteTreeClipboard, resolveParentDir, anchorPath, flatVisibleNodes, activeFilePath, beginInlineRename]
+    [selectedPaths, treeClipboard, pasteTreeClipboard, resolveParentDir, anchorPath, flatVisibleNodes, activeFilePath, beginInlineRename, workspacePath]
   )
 
   const handleModalSubmit = async (e: React.FormEvent) => {
@@ -1340,6 +1344,9 @@ export default function WorkbenchFileTree(): JSX.Element {
                     ? Array.from(selectedPaths)
                     : [contextMenu.node!.path]
                 setTreeClipboard({ paths })
+                if (workspacePath) {
+                  void window.api.workbench.copyToClipboard(workspacePath, paths)
+                }
                 setContextMenu(null)
               }}
               className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-text-primary hover:bg-black/5 dark:hover:bg-white/5"
