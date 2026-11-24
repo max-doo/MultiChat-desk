@@ -2,6 +2,12 @@
 
 ## 2026-11-24
 
+### 14:17 | Codex
+
+- done: 提交今日工作台改动：按功能拆 4 个 commit（agent rewind/fork + 命名统一、文件树复制写系统剪贴板、LaTeX 公式体系+标题上限/文案统一、Agent 空状态 2x2 卡片与 agent.png 头像），SESSION_LOG 单独提交；scratch/mock-agent-test/根级 assets/agent-avatar.png 判定为过程文件与重复资源未入库
+- modified:
+  - `SESSION_LOG.md`
+
 ### 14:13 | Codex
 
 - done: 修复 + 号菜单公式编辑弹层位置漂移：弹层是 fixed 定位，锚点必须用 pickerPosition（点击时计算的页面坐标），不能用 menuRef.getBoundingClientRect()（会跑到视口左上）
