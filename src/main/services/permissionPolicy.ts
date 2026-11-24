@@ -117,6 +117,10 @@ const BUILTIN_TOOL_EFFECTS: Readonly<Record<string, ToolEffect>> = {
   edit: { kind: 'write', paths: 'declared', reversible: true, description: '精确修改文件。' },
   bash: { kind: 'execute', paths: 'arbitrary', reversible: false, description: '执行 Bash 命令或进程。' },
   powershell: { kind: 'execute', paths: 'arbitrary', reversible: false, description: '执行 PowerShell 命令或进程。' }
+  ,
+  web_search: { kind: 'read', paths: 'none', reversible: true, description: '通过已登录平台联网搜索，无本地副作用。' }
+  ,
+  image_gen: { kind: 'read', paths: 'none', reversible: true, description: '通过已登录平台调用 AI 生图，产物落盘到应用数据目录，不触 workspace。' }
 }
 
 function effectKinds(effect: ToolEffect): ToolEffectKind[] {
@@ -149,12 +153,84 @@ export interface PermissionContext {
 
 export type PathBoundary = 'workspace' | 'allowed-read-root' | 'outside' | 'protected' | 'invalid'
 
+/**
+ * File/directory names and suffixes whose contents are treated as credentials.
+ * A read hitting any of these is upgraded to the `credential` risk tier and
+ * requires user confirmation in every mode — the file itself may be anywhere,
+ * what matters is that its contents would be sent to a remote model platform.
+ * Aligned with Claude Code's sensitive-file gating (.env, private keys, etc).
+ */
+const SENSITIVE_FILE_BASENAMES = new Set([
+  'id_rsa', 'id_dsa', 'id_ecdsa', 'id_ed25519', 'known_hosts', 'authorized_keys',
+  'credentials', 'config.json.credentials', 'netrc', '.netrc', 'htpasswd', '.htpasswd',
+  'shadow', 'passwd', 'pgpass', '.pgpass', 'my.cnf', 'kubeconfig'
+])
+
+const SENSITIVE_FILE_SUFFIXES = [
+  '.pem', '.key', '.pfx', '.p12', '.keystore', '.jks', '.kdbx', '.asc', '.gpg',
+  '.ppk', '.ovpn', '.mobileconfig'
+]
+
+const SENSITIVE_DIR_NAMES = new Set([
+  '.ssh', '.aws', '.gnupg', '.gpg', '.azure', '.kube', '.docker', '.config\\gcloud'
+])
+
+function isSensitiveFilePath(normalizedPath: string, input: string): boolean {
+  // Windows silently strips trailing dots/spaces, and NTFS ADS hides the
+  // real file behind a colon (`x.txt:.env`). Normalize both before matching.
+  const names = new Set<string>()
+  for (const candidate of [normalizedPath, input]) {
+    if (!candidate) continue
+    const rawName = basename(candidate).toLowerCase()
+    names.add(rawName.split(':')[0].replace(/[\s.]+$/, ''))
+    // `$env:X\.env`/`%X%\.env` won't resolve — basename of the literal tail.
+    const tail = candidate.replace(/[\\/]+/g, '\\').split('\\').pop()?.toLowerCase()
+    if (tail) names.add(tail.split(':')[0].replace(/[\s.]+$/, ''))
+  }
+  for (const name of names) {
+    if (name === '.env' || name.startsWith('.env.') || name.endsWith('.env')) return true
+    if (SENSITIVE_FILE_BASENAMES.has(name) || SENSITIVE_FILE_BASENAMES.has(name.replace(/^\./, ''))) {
+      return true
+    }
+    if (SENSITIVE_FILE_SUFFIXES.some((suffix) => name.endsWith(suffix))) return true
+  }
+  const normalized = normalizedPath.replace(/[\\/]+/g, '\\').toLowerCase()
+  for (const dir of SENSITIVE_DIR_NAMES) {
+    const sep = dir.includes('/') ? '/' : '\\'
+    const needle = `${sep}${dir.replace(/[\\/]+/g, sep)}${sep}`
+    if (normalized.includes(needle.replace(/\//g, '\\'))) {
+      return true
+    }
+  }
+  return false
+}
+
+/**
+ * PowerShell drive names that are NOT the filesystem — env vars, registry
+ * hives, functions, aliases, cert store, variables. `Get-ChildItem Env:`
+ * enumerates environment variables, not paths, so boundary-checking it as a
+ * file path misclassifies the read and leaks a misleading "outside
+ * workspace" verdict. Drive-qualified tokens matching these are filtered out
+ * of path inspection before `inspectPath` runs.
+ */
+const NON_FILE_PS_DRIVES = new Set([
+  'alias', 'cert', 'env', 'function', 'hkcu', 'hklm', 'hkcr', 'hkcc', 'hku',
+  'hk_users', 'variable', 'wsman'
+])
+
+function isNonFilePsDrive(token: string): boolean {
+  const match = token.match(/^([A-Za-z_][A-Za-z0-9_]*):/)
+  return !!match && NON_FILE_PS_DRIVES.has(match[1].toLowerCase())
+}
+
 export interface PathInspection {
   input: string
   absolute?: string
   normalized?: string
   relative?: string
   boundary: PathBoundary
+  /** File content is credential-shaped (.env, private key, cloud creds). */
+  sensitive?: boolean
 }
 
 export interface CommandInspection {
@@ -165,6 +241,10 @@ export interface CommandInspection {
   parseable: boolean
   /** Recognized as a read-only PowerShell pipeline. */
   readOnly: boolean
+  /** Touches the network but only fetches data (git fetch/pull/clone). */
+  networkRead?: boolean
+  /** Pushes/publishes to a remote (git push, npm publish, ...). */
+  networkWrite?: boolean
   /** Contains destructive/opaque shell syntax that auto mode must confirm. */
   requiresApproval: boolean
   highRisk: boolean
@@ -197,6 +277,12 @@ const READ_COMMANDS = new Set([
   'get-childitem', 'get-content', 'select-string', 'test-path'
 ])
 const SAFE_GIT_SUBCOMMANDS = new Set(['branch', 'diff', 'log', 'ls-files', 'rev-parse', 'show', 'status'])
+// Read-only but network-touching: still gated by `requiresApproval`, but
+// distinguished so policy can treat them differently from opaque commands.
+const NETWORK_READ_GIT = new Set(['fetch', 'ls-remote'])
+// Anything that mutates a remote, publishes artifacts, or writes the
+// worktree from remote data (pull merges; clone materializes a new tree).
+const NETWORK_WRITE_SUBCOMMANDS = new Set(['push', 'pull', 'clone', 'publish', 'deploy', 'release', 'unpublish'])
 const SAFE_NPM_SUBCOMMANDS = new Set(['list', 'ls', 'outdated', 'version'])
 const SAFE_PNPM_SUBCOMMANDS = new Set(['list', 'ls', 'why', 'version'])
 const READ_ONLY_POWERSHELL_COMMANDS = new Set([
@@ -278,6 +364,17 @@ export function inspectPath(
 ): PathInspection {
   const result: PathInspection = { input, boundary: 'invalid' }
   if (!input.trim()) return result
+  // Run the sensitive-file check on the raw input FIRST — it must fire even
+  // when the path cannot be expanded/resolved (`$env:`/`%VAR%` forms that
+  // `expandPathInput` returns undefined for), because the basename of the
+  // literal string is still where `.env`/`id_rsa` show up.
+  result.sensitive = isSensitiveFilePath(input, input)
+  // `Name:` alone is a PowerShell drive qualifier (Env:, HKCU:, Cert:, …),
+  // not a filesystem path. Boundary-checking it as a file would either
+  // misclassify it as workspace-relative (false allow on non-file stores) or
+  // leak a misleading "outside workspace" verdict. Mark it invalid so the
+  // caller falls back to command analysis or a denial.
+  if (/^[A-Za-z_][A-Za-z0-9_]*:$/.test(input.trim())) return result
   try {
     const expanded = expandPathInput(input)
     if (!expanded) return result
@@ -285,6 +382,9 @@ export function inspectPath(
     const normalized = canonicalExistingPath(absolute)
     result.absolute = absolute
     result.normalized = normalized
+    // Re-run on the resolved form too — env expansion may surface a
+    // sensitive basename the raw string did not show (e.g. `%X%\.env`).
+    result.sensitive = result.sensitive || isSensitiveFilePath(normalized ?? absolute, input)
     if (!normalized) return result
     const realWorkspace = canonicalExistingPath(resolve(workspaceRoot))
     if (!realWorkspace) return result
@@ -321,7 +421,21 @@ function pathArguments(toolName: string, args: unknown): string[] {
   if (Array.isArray(record.paths)) {
     return record.paths.filter((path): path is string => typeof path === 'string')
   }
-  if (TOOL_PATH_ARGUMENTS.has(toolName)) return []
+  // Unknown / MCP tools may carry file targets under differently-named fields
+  // (file, filePath, target, destination, source, dir, ...). Scan every string
+  // arg whose key *looks* path-like instead of trusting a fixed field list —
+  // a tool schema widening must not silently skip the boundary check.
+  if (!TOOL_PATH_ARGUMENTS.has(toolName)) {
+    const candidates: string[] = []
+    for (const [key, value] of Object.entries(record)) {
+      if (!/path|file|dir|folder|target|dest|source/i.test(key)) continue
+      if (typeof value === 'string' && value.trim()) candidates.push(value)
+      else if (Array.isArray(value)) {
+        candidates.push(...value.filter((item): item is string => typeof item === 'string' && !!item.trim()))
+      }
+    }
+    return candidates
+  }
   return []
 }
 
@@ -350,8 +464,10 @@ function commandTokens(command: string): string[] {
 
 function gitSubcommand(args: readonly string[]): string | undefined {
   for (let index = 0; index < args.length; index++) {
-    const value = args[index].toLowerCase()
-    if (value === '-c' || value === '--git-dir' || value === '--work-tree') {
+    const raw = args[index]
+    const value = raw.toLowerCase()
+    // `-C` is case-sensitive (capital C) — do NOT lowercase-compare it.
+    if (raw === '-C' || value === '-c' || value === '--git-dir' || value === '--work-tree') {
       index++
       continue
     }
@@ -389,7 +505,15 @@ function commandPathArguments(executable: string | undefined, args: readonly str
     for (let index = 0; index < args.length; index++) {
       const value = args[index]
       const lower = value.toLowerCase()
-      if (lower === '-c' || lower === '--git-dir' || lower === '--work-tree') {
+      // `-C <dir>`/`--git-dir`/`--work-tree` carry real filesystem paths and
+      // must be boundary-checked (a `-C D:\outside` would otherwise bypass
+      // every path check). `-c key=val` is a config override — the value is
+      // NOT a path and must not be extracted.
+      if (value === '-c') {
+        index++
+        continue
+      }
+      if (lower === '--git-dir' || lower === '--work-tree' || value === '-C') {
         if (args[index + 1]) paths.push(args[++index])
       } else if (lower.startsWith('--git-dir=') || lower.startsWith('--work-tree=')) {
         paths.push(value.slice(value.indexOf('=') + 1))
@@ -397,19 +521,30 @@ function commandPathArguments(executable: string | undefined, args: readonly str
     }
     return paths
   }
+  // Only tokens that are actually file-shaped reach the boundary check.
+  // `Env:`/`HKCU:` are PS drive qualifiers (not files), `{`/`|`/`Where-Object`
+  // are script syntax, and `PI_*`/bare names are expressions — none of these
+  // should trigger a path-boundary verdict even though a naive token scan
+  // picks them up. Absolute/UNC/relative paths and script file extensions are
+  // the only things we can meaningfully boundary-check inside a free-form
+  // shell script.
   const positional = args.filter(
-    (arg) => arg !== '--' && !arg.startsWith('-') && !/^[a-z][a-z0-9+.-]*:\/\//i.test(arg)
-  )
-  if (READ_COMMANDS.has(executable)) return positional
-  // For general commands, inspect only values that are syntactically paths.
-  // Treating PowerShell variables and expressions as paths makes safe scripts
-  // look invalid, while absolute/relative paths and common script files still
-  // provide the boundary information needed by auto mode.
-  return positional.filter(
     (arg) =>
-      /^(?:[A-Za-z]:[\\/]|\\\\|\.{1,2}[\\/]|~[\\/])/.test(arg) ||
-      /\.(?:bat|cmd|cjs|js|jsx|mjs|ps1|py|sh|ts|tsx)$/i.test(arg)
+      arg !== '--' &&
+      !arg.startsWith('-') &&
+      !/^[a-z][a-z0-9+.-]*:\/\//i.test(arg) &&
+      !isNonFilePsDrive(arg) &&
+      !/^[A-Za-z_][A-Za-z0-9_]*:$/.test(arg) &&
+      !/^[{}|;]/.test(arg) &&
+      (/^(?:[A-Za-z]:[\\/]|\\\\|\/|\.{1,2}[\\/]|~[\\/])/.test(arg) ||
+        // Env-var-anchored paths must also be inspected — otherwise
+        // `$env:X\.env` / `%USERPROFILE%\.env` slip past the sensitive-file
+        // check entirely. `expandPathInput` only expands a subset; the rest
+        // still get a basename check via the raw string.
+        /^(?:\$\{?env:|\$[A-Za-z_][A-Za-z0-9_]*|%[A-Za-z_][A-Za-z0-9_]*%)/i.test(arg) ||
+        /\.(?:bat|cmd|cjs|js|jsx|mjs|ps1|py|sh|ts|tsx)$/i.test(arg))
   )
+  return positional
 }
 
 function readOnlyPowerShell(command: string): boolean {
@@ -473,6 +608,18 @@ export function analyzeCommand(command: string): CommandInspection {
   const readOnly = readOnlyPowerShell(normalized)
   const simple = simpleCommand(executable, args)
   const highRisk = syntaxRisk || !simple || !executable || !KNOWN_COMMANDS.has(executable)
+  // Classify git/npm-style network effects so policy can distinguish "fetch
+  // from remote" from "mutate remote".
+  let networkRead = false
+  let networkWrite = false
+  if (executable === 'git') {
+    const sub = gitSubcommand(args)
+    if (sub && NETWORK_READ_GIT.has(sub)) networkRead = true
+    if (sub && NETWORK_WRITE_SUBCOMMANDS.has(sub)) networkWrite = true
+  } else if (executable === 'npm' || executable === 'pnpm') {
+    const sub = args[0]?.toLowerCase()
+    if (sub && NETWORK_WRITE_SUBCOMMANDS.has(sub)) networkWrite = true
+  }
   return {
     command,
     normalized,
@@ -480,6 +627,8 @@ export function analyzeCommand(command: string): CommandInspection {
     pathArguments,
     parseable: !!executable && KNOWN_COMMANDS.has(executable) && !highRisk,
     readOnly,
+    networkRead,
+    networkWrite,
     requiresApproval: !readOnly && (syntaxRisk || !executable || !KNOWN_COMMANDS.has(executable)),
     highRisk,
     reason: highRisk
@@ -523,9 +672,6 @@ function hardDenyReason(
   if (paths.some((path) => path.boundary === 'protected')) {
     return '目标路径属于受保护目录，任何 Mode 都不能放行。'
   }
-  if (context.modeId !== 'auto' && paths.some((path) => path.boundary === 'outside' || path.boundary === 'invalid')) {
-    return '文件工具只能访问工作区或已登记的资源目录；目标路径无法通过边界检查。'
-  }
   if (context.modeId === 'bypass' && risk === 'unknown') {
     return '工具副作用未登记，bypass 也不会放行未知工具。'
   }
@@ -551,6 +697,13 @@ function defaultDecision(
   paths: readonly PathInspection[],
   command?: CommandInspection
 ): PolicyDecision {
+  // Sensitive files are credential-shaped regardless of where they live —
+  // a read would ship the secret to the remote model platform, so they
+  // require explicit confirmation in every mode — bypass included. This
+  // check must run BEFORE the bypass early-return.
+  if (paths.some((path) => path.sensitive)) {
+    return context.interactive ? 'ask' : 'deny'
+  }
   if (context.modeId === 'bypass') return 'allow'
   // readonly mode: only read-only tools and read-only shell commands run;
   // every mutation is denied rather than deferred to approval.
@@ -558,7 +711,7 @@ function defaultDecision(
     if (risk === 'execute' && command && (command.readOnly || (command.parseable && !command.requiresApproval))) {
       return 'allow'
     }
-    if (risk === 'read' && paths.every((p) => p.boundary === 'workspace' || p.boundary === 'allowed-read-root')) {
+    if (risk === 'read' && paths.every((p) => p.boundary !== 'invalid' && !p.sensitive)) {
       return 'allow'
     }
     return 'deny'
@@ -568,6 +721,11 @@ function defaultDecision(
   // command analyzer (read-only PowerShell pipelines + simple read commands).
   if (risk === 'execute' && command && (command.readOnly || (command.parseable && !command.requiresApproval))) {
     return 'allow'
+  }
+  // Network mutations (push/publish/...) always need a human — they have an
+  // external blast radius that a local rule cannot contain.
+  if (command?.networkWrite) {
+    return context.interactive ? 'ask' : 'deny'
   }
   if (
     ['default', 'auto'].includes(context.modeId) &&
@@ -587,16 +745,19 @@ function defaultDecision(
   ) {
     return 'allow'
   }
+  // Network-read commands (git fetch/ls-remote) may auto-run in `auto` —
+  // they touch the network but do not modify local files. `pull`/`clone`
+  // write the worktree and stay on the approval path.
+  if (context.modeId === 'auto' && risk === 'execute' && command?.networkRead && !command.highRisk) {
+    return 'allow'
+  }
   if (
     risk === 'control' ||
     (risk === 'read' &&
       effectKinds(getToolEffect(context.toolName)).every((kind) => kind === 'read' || kind === 'control') &&
-      paths.every(
-        (path) =>
-          path.boundary === 'workspace' ||
-          path.boundary === 'allowed-read-root' ||
-          (context.modeId === 'auto' && path.boundary === 'outside')
-      ))
+      // Any boundary is readable: the workspace boundary governs writes and
+      // command execution, not reads. Sensitive files are handled above.
+      paths.every((path) => path.boundary !== 'invalid'))
   ) {
     return 'allow'
   }
@@ -606,16 +767,23 @@ function defaultDecision(
 /** Pure policy calculation. Never opens UI and never executes a command. */
 export function decidePermission(context: PermissionContext): PermissionDecisionResult {
   const effect = getToolEffect(context.toolName)
-  const risk = highestRiskEffect(effect)
+  const toolPaths = [...pathArguments(context.toolName, context.args)]
   const commandValue = commandArgument(context.args)
   const command = commandValue === undefined ? undefined : analyzeCommand(commandValue)
-  const requestedPaths = [...pathArguments(context.toolName, context.args), ...(command?.pathArguments ?? [])]
+  const requestedPaths = [...toolPaths, ...(command?.pathArguments ?? [])]
   const paths = requestedPaths.map((path) =>
     inspectPath(path, context.cwd, context.workspaceRoot, context.allowedReadRoots, [
       ...defaultProtectedRoots(),
       ...(context.protectedRoots ?? [])
     ])
   )
+  // A read/write targeting a credential-shaped file is escalated to the
+  // `credential` tier so it can never slip through on a generic read rule.
+  const risk: ToolEffectKind =
+    paths.some((path) => path.sensitive) &&
+    effectKinds(effect).every((kind) => kind === 'read' || kind === 'write' || kind === 'control')
+      ? 'credential'
+      : highestRiskEffect(effect)
   const base = {
     effect,
     risk,
@@ -627,7 +795,23 @@ export function decidePermission(context: PermissionContext): PermissionDecision
   if (hardReason) {
     return { ...base, decision: 'deny', reason: hardReason }
   }
+  // `unknown` splits into two bands: declared-read-only-shaped tools (the
+  // arg signature contains only path-like read fields and no command string)
+  // may still fall through to the standard rules; fully opaque tools stay
+  // ask/deny so an MCP or future tool cannot bypass review by being
+  // unregistered.
   if (risk === 'unknown' && context.modeId !== 'bypass') {
+    if (looksReadOnlyCall(context.args)) {
+      const decision = defaultDecision({ ...context, modeId: context.modeId }, 'read', paths, command)
+      return {
+        ...base,
+        decision,
+        reason:
+          decision === 'allow'
+            ? `Mode ${context.modeId} 将未登记但仅含只读参数的工具按 read 处理。`
+            : `工具 ${context.toolName} 未登记副作用；${context.interactive ? '需要用户确认。' : '当前无交互界面，按 fail-closed 处理。'}`
+      }
+    }
     const decision = context.interactive ? 'ask' : 'deny'
     return {
       ...base,
@@ -645,5 +829,52 @@ export function decidePermission(context: PermissionContext): PermissionDecision
         ? `Mode ${context.modeId} 对 ${risk} 副作用要求用户确认。`
         : `Mode ${context.modeId} 对 ${risk} 副作用要求确认，但当前无交互界面，按 fail-closed 拒绝。`
   return { ...base, decision, reason }
+}
+
+/**
+ * Heuristic: an unregistered tool whose args contain no command string and
+ * only read-shaped fields (path/paths/query/pattern/…) is treated as a read
+ * for policy purposes. This keeps genuinely opaque calls ask/deny while
+ * letting benign file/search helpers flow through the normal read path.
+ */
+function looksReadOnlyCall(args: unknown): boolean {
+  if (args === undefined || args === null) return true
+  if (typeof args === 'string') return false
+  if (typeof args !== 'object') return true
+  const record = args as Record<string, unknown>
+  // Positive whitelist. Two tiers:
+  //  - `readSemanticKeys` are unambiguous read fields (query/pattern/limit…);
+  //  - `pathLikeKeys` are read/WRITE-ambiguous (`path`/`file`/`dir`/`target` —
+  //    an unknown write tool often uses the same names for its target).
+  // A call is only treated as read-only when every key is whitelisted AND
+  // at least one unambiguous read field is present, so a bare `{file: ...}`
+  // cannot sneak a write past this heuristic.
+  const READ_SEMANTIC_KEYS = new Set([
+    'query', 'pattern', 'glob', 'regex', 'search', 'keyword', 'filter',
+    'limit', 'offset', 'max_results', 'maxresults',
+    'recursive', 'include', 'exclude', 'extensions', 'encoding'
+  ])
+  const PATH_LIKE_KEYS = new Set([
+    'path', 'paths', 'file', 'filepath', 'file_path', 'dir', 'directory',
+    'folder', 'cwd', 'root'
+  ])
+  // Almost-always-write field names — an unknown tool carrying these is
+  // not a read, no matter what other fields it also supplies.
+  const WRITE_HINT_KEYS = new Set(['target', 'destination', 'output', 'outfile', 'out'])
+  let hasReadSemantic = false
+  for (const key of Object.keys(record)) {
+    const lower = key.toLowerCase()
+    if (WRITE_HINT_KEYS.has(lower)) return false
+    if (READ_SEMANTIC_KEYS.has(lower)) {
+      hasReadSemantic = true
+      continue
+    }
+    if (PATH_LIKE_KEYS.has(lower)) continue
+    return false
+  }
+  // An args object with no keys at all is most likely a control/status call
+  // (`{}`, `ping`) — treat as read-only; anything with only path-like keys
+  // still requires a read-semantic key to qualify.
+  return Object.keys(record).length === 0 || hasReadSemantic
 }
 

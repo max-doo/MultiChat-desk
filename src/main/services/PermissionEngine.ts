@@ -56,7 +56,15 @@ const SAFE_COMMAND_HEADS = new Set([
   'grep', 'find', 'findstr', 'pwd', 'type', 'echo', 'printf',
   'which', 'where', 'whoami', 'hostname', 'uname', 'date', 'test',
   'get-childitem', 'get-content', 'get-item', 'get-location',
-  'get-process', 'get-service', 'get-date', 'get-command'
+  'get-process', 'get-service', 'get-date', 'get-command',
+  // PowerShell read-only pipeline members — kept in sync with
+  // READ_ONLY_POWERSHELL_COMMANDS in permissionPolicy.ts so the structural
+  // second-opinion sees the same safe surface as the regex analyzer.
+  'compare-object', 'convertto-csv', 'convertto-html', 'convertto-json',
+  'format-list', 'format-table', 'foreach-object', 'group-object',
+  'measure-object', 'out-string', 'resolve-path', 'select-object',
+  'select-string', 'sort-object', 'split-path', 'test-path',
+  'where-object', 'write-output'
 ])
 
 // Safe git subcommands
@@ -89,6 +97,8 @@ export class PermissionEngine {
       timer: NodeJS.Timeout
     }
   >()
+  /** requestId → normalized tool name, used to scope "always allow" entries. */
+  private requestToolNames = new Map<string, string>()
 
   constructor(
     private store: Store<Record<string, unknown>>,
@@ -137,10 +147,54 @@ export class PermissionEngine {
   private matchesUserAllowlist(normTool: string, args: Record<string, unknown>): boolean {
     if (normTool === 'bash' || normTool === 'powershell') {
       const cmd = String(args.command ?? args.cmd ?? args.script ?? '')
-      return cmd ? this.matchesAllowlist(normTool, cmd) : false
+      if (!cmd) return false
+      return this.matchesAllowlist(normTool, cmd) || this.matchesAllowlist('*', cmd)
     }
     const filePath = String(args.path ?? args.file_path ?? '')
-    return filePath ? this.matchesAllowlist(normTool, filePath) : false
+    if (!filePath) return false
+    return this.matchesAllowlist(normTool, filePath) || this.matchesAllowlist('*', filePath)
+  }
+
+  /**
+   * Shell-quote–based segmentation of a command into per-statement token
+   * lists. Used to verify that EVERY segment of a compound command stays
+   * inside the safe whitelist. Returns `undefined` when the command cannot
+   * be safely segmented — unknown ops, PowerShell/bash subexpression
+   * syntax (`@(...)`, `$(...)`, backticks) or redirection all fail closed,
+   * because a segment we cannot explain is not a segment we can trust.
+   */
+  public segmentedShellCommands(command: string): string[][] | undefined {
+    if (this.isHardDenied(command)) return undefined
+    // PowerShell/bash subexpression and command-substitution syntax that
+    // shell-quote does NOT surface as an op — a whitelist that cannot see
+    // these tokens cannot claim the command is safe. Environment-variable
+    // expansions (`$env:`, `${env:}`, `%VAR%`) also fail closed — the
+    // resolved path may be sensitive and the segmenter cannot evaluate it.
+    if (/@\(|\$\(|`|;\s*\(|=\s*\(|\bInvoke-Expression\b|\biex\b|\$\{?env:|%[A-Za-z_][A-Za-z0-9_]*%/i.test(command)) {
+      return undefined
+    }
+    const tokens = parseShellQuote(command)
+    const segments: string[][] = []
+    let current: string[] = []
+    for (const token of tokens) {
+      if (typeof token === 'string') {
+        current.push(token)
+      } else if (typeof token === 'object' && token !== null && 'op' in token) {
+        const op = (token as { op: string }).op
+        // Redirection, globs, env assignments and any other op we do not
+        // explicitly handle all fail closed — only statement separators
+        // are understood.
+        if (!['&&', '||', ';', '|', '&'].includes(op)) {
+          return undefined
+        }
+        if (current.length > 0) {
+          segments.push(current)
+          current = []
+        }
+      }
+    }
+    if (current.length > 0) segments.push(current)
+    return segments
   }
 
   public isHardDenied(commandOrPath: string): boolean {
@@ -153,34 +207,8 @@ export class PermissionEngine {
   }
 
   public isSafeShellCommand(command: string): boolean {
-    if (this.isHardDenied(command)) return false
-
-    // Parse command with shell-quote to inspect ops and tokens
-    const tokens = parseShellQuote(command)
-    const segments: string[][] = []
-    let currentSegment: string[] = []
-
-    for (const token of tokens) {
-      if (typeof token === 'string') {
-        currentSegment.push(token)
-      } else if (typeof token === 'object' && token !== null && 'op' in token) {
-        const op = (token as { op: string }).op
-        // Redirection to a file is a mutation, not safe/read-only
-        if (op === '>' || op === '>>' || op === '&>' || op === '2>' || op === '2>>') {
-          return false
-        }
-        if (op === '&&' || op === '||' || op === ';' || op === '|' || op === '&') {
-          if (currentSegment.length > 0) {
-            segments.push(currentSegment)
-            currentSegment = []
-          }
-        }
-      }
-    }
-    if (currentSegment.length > 0) {
-      segments.push(currentSegment)
-    }
-
+    const segments = this.segmentedShellCommands(command)
+    if (!segments) return false
     if (segments.length === 0) return true
 
     for (const seg of segments) {
@@ -231,7 +259,7 @@ export class PermissionEngine {
       return { allowed: true }
     }
 
-    const result = decidePermission({
+    let result = decidePermission({
       modeId,
       toolName: normTool,
       args,
@@ -240,6 +268,26 @@ export class PermissionEngine {
       workspaceRoot: cwd,
       interactive: true
     })
+
+    // Structural second opinion: when the policy wants to ASK on a shell
+    // command purely because the regex flagged the string, re-segment it
+    // and allow only if EVERY segment is on the safe whitelist. This runs
+    // AFTER decidePermission so hard denies (protected paths, sensitive
+    // files, command hard-deny patterns) are never overridden — and it is
+    // skipped entirely when the ask was caused by a sensitive or protected
+    // path, since a whitelist clean command reading `.env` must still
+    // surface for confirmation.
+    if (
+      modeId === 'auto' &&
+      result.decision === 'ask' &&
+      (normTool === 'powershell' || normTool === 'bash') &&
+      !result.paths.some((path) => path.sensitive || path.boundary === 'protected')
+    ) {
+      const cmdString = String(args.command ?? args.cmd ?? args.script ?? '')
+      if (cmdString && this.isSafeShellCommand(cmdString)) {
+        result = { ...result, decision: 'allow', reason: '复合命令逐段通过白名单检查。' }
+      }
+    }
 
     if (result.decision === 'allow') {
       return { allowed: true }
@@ -288,17 +336,21 @@ export class PermissionEngine {
       // 10 minutes timeout
       const timer = setTimeout(() => {
         this.pendingApprovals.delete(requestId)
+        this.requestToolNames.delete(requestId)
         resolve({ allowed: false, reason: 'Approval request timed out after 10 minutes' })
       }, 10 * 60 * 1000)
 
+      this.requestToolNames.set(requestId, toolName.toLowerCase())
       this.pendingApprovals.set(requestId, {
         sessionId,
         resolve: (allowed: boolean) => {
           clearTimeout(timer)
+          this.requestToolNames.delete(requestId)
           resolve(allowed ? { allowed: true } : { allowed: false, reason: 'Action denied by user' })
         },
         reject: (err: Error) => {
           clearTimeout(timer)
+          this.requestToolNames.delete(requestId)
           reject(err)
         },
         timer
@@ -325,18 +377,24 @@ export class PermissionEngine {
 
     if (decision === 'always') {
       if (pattern && pattern.trim()) {
-        this.addAllowlistEntry('*', pattern.trim())
+        // Scope the remembered permission to the tool that was approved —
+        // a wildcard-tool entry would let one approval on `powershell`
+        // silently bless the same target under `bash` or any future tool.
+        this.addAllowlistEntry(this.requestToolNames.get(requestId) ?? '*', pattern.trim())
       }
       pending.resolve(true)
+      this.requestToolNames.delete(requestId)
       return true
     }
 
     if (decision === 'allow') {
       pending.resolve(true)
+      this.requestToolNames.delete(requestId)
       return true
     }
 
     pending.resolve(false)
+    this.requestToolNames.delete(requestId)
     return true
   }
 
@@ -346,6 +404,7 @@ export class PermissionEngine {
         clearTimeout(item.timer)
         item.resolve(false)
         this.pendingApprovals.delete(id)
+        this.requestToolNames.delete(id)
       }
     }
   }

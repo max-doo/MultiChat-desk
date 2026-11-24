@@ -3,6 +3,7 @@ import { appendFile, mkdir } from 'fs/promises'
 import { dirname } from 'path'
 import type { BashOperations } from '@earendil-works/pi-coding-agent'
 import { decodeCommandOutput, getFallbackDecoder } from './encoding'
+import { redactShellOutput } from './redact'
 
 export interface ShellExecuteOptions {
   cwd: string
@@ -98,6 +99,7 @@ export class ShellTool {
 
     return new Promise<ShellExecutionResult>((resolve) => {
       let outputBuffer = ''
+      let pendingPreview = ''
       const rawChunks: Buffer[] = []
       let timedOut = false
       let aborted = false
@@ -130,17 +132,28 @@ export class ShellTool {
       const flushDecoded = async (): Promise<void> => {
         const fallback = await fallbackDecoderPromise
         const text = decodeCommandOutput(Buffer.concat(rawChunks), fallback)
-        outputBuffer = text.length > MAX_OUTPUT_BYTES ? text.slice(0, MAX_OUTPUT_BYTES) : text
+        const redacted = redactShellOutput(text)
+        outputBuffer = redacted.length > MAX_OUTPUT_BYTES ? redacted.slice(0, MAX_OUTPUT_BYTES) : redacted
       }
 
       const handleChunk = (data: Buffer): void => {
         rawChunks.push(data)
         if (options.onData) {
-          // Incremental, strict-UTF-8-only preview of just this chunk. A GBK or
-          // split multi-byte tail renders as replacement chars here but never
-          // as mojibake; the close handler re-decodes the full buffer with the
-          // ANSI code-page fallback for the authoritative result.
-          options.onData(decodeCommandOutput(data, null))
+          // Incremental preview of just this chunk. A GBK or split multi-byte
+          // tail renders as replacement chars here but never as mojibake; the
+          // close handler re-decodes the full buffer with the ANSI code-page
+          // fallback for the authoritative result. We hold back the last
+          // incomplete line so a secret split across two chunks doesn't leak
+          // one fragment in the preview before the redactor can see the
+          // whole `NAME=value` pair.
+          const text = decodeCommandOutput(data, null)
+          pendingPreview = (pendingPreview + text).replace(/\r\n/g, '\n')
+          const lastNewline = pendingPreview.lastIndexOf('\n')
+          if (lastNewline !== -1) {
+            const safe = pendingPreview.slice(0, lastNewline + 1)
+            pendingPreview = pendingPreview.slice(lastNewline + 1)
+            options.onData(redactShellOutput(safe))
+          }
         }
       }
 
@@ -150,6 +163,11 @@ export class ShellTool {
       child.on('close', async (exitCode) => {
         if (timeoutTimer) clearTimeout(timeoutTimer)
         const durationMs = Date.now() - startTime
+
+        if (pendingPreview && options.onData) {
+          options.onData(redactShellOutput(pendingPreview))
+          pendingPreview = ''
+        }
 
         await flushDecoded()
 

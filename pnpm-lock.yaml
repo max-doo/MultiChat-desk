@@ -23,6 +23,9 @@ importers:
       shell-quote:
         specifier: ^1.12.0
         version: 1.12.0
+      typebox:
+        specifier: 1.3.27
+        version: 1.3.27
     devDependencies:
       '@codemirror/commands':
         specifier: ^6.11.1
