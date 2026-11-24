@@ -99,6 +99,21 @@ export function generatePasteFileUploadScript(selectors: ModelSelector, fileName
           const ev2 = new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt });
           deepEditor.dispatchEvent(ev2);
         }
+        // input 命中纯 textarea 时，paste 里的 File 会被静默丢弃；
+        // 豆包等平台真实图片监听挂在并存的 contenteditable 编辑器上，
+        // 需对兄弟/同级 contenteditable 编辑器再派发一次兜底。
+        const ceCandidates = Array.from(
+          document.querySelectorAll('[contenteditable="true"],[role="textbox"]')
+        ).filter(el => el !== input && el !== deepEditor && visible(el));
+        // 就近优先：同 composer/form 容器内的 contenteditable 编辑器排最前。
+        const scope = input.closest('form,[class*="composer" i],[class*="editor" i],[class*="input" i],[class*="chat" i]') || input.parentElement || document.body;
+        const scored = ceCandidates
+          .map(el => ({ el, inScope: scope.contains(el) }))
+          .sort((a, b) => (b.inScope ? 1 : 0) - (a.inScope ? 1 : 0));
+        for (const target of scored.map(s => s.el).slice(0, 3)) {
+          const ev = new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt });
+          try { target.dispatchEvent(ev); } catch (e) {}
+        }
 
         return { success: true };
       } catch (error) {
@@ -133,11 +148,16 @@ export function generateDetectUploadedFileScript(fileName: string, timeoutMs = 2
     `
 }
 
-/** 限定在当前输入区附近，检查本轮唯一附件与上传状态。 */
-export function generateFileUploadStateScript(selectors: ModelSelector, fileName: string): string {
+/** 限定在当前输入区附近，检查本轮附件与上传状态；多文件名时按名单逐个核对。 */
+export function generateFileUploadStateScript(
+  selectors: ModelSelector,
+  fileName: string | string[]
+): string {
   return String.raw`(function () {
     const config = ${JSON.stringify(fileUploadSelectors)};
-    const fileName = ${JSON.stringify(fileName)};
+    const fileNames = ${JSON.stringify(fileName)};
+    const nameList = Array.isArray(fileNames) ? fileNames : [fileNames];
+    const fileName = nameList[0] || '';
     const visible = el => !!el && el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden';
     const find = (list, root = document, enabledOnly = false) => {
       for (const selector of list) {
@@ -146,18 +166,25 @@ export function generateFileUploadStateScript(selectors: ModelSelector, fileName
       return null;
     };
     const input = find(${JSON.stringify(selectors.textarea)});
-    if (!input) return { found: false, busy: false, sendReady: false, nameMatched: false, attachmentCount: 0 };
+    const empty = () => ({ found: false, busy: false, sendReady: false, nameMatched: false, attachmentCount: 0, matchedNames: [], missingNames: nameList.slice() });
+    if (!input) return empty();
     const ignored = el => !el || input.contains(el) || !!el.closest(config.ignored);
     // 文件名匹配放宽：图片类附件常只渲染缩略图不落全文件名。
     // 依次尝试 全名 → 去扩展名主干 → 主干前 16 字符前缀（chip 截断显示的兼容）。
-    const stem = fileName.replace(/\\.[^.]+$/, '');
-    const namePrefix = stem.slice(0, Math.min(16, stem.length));
-    const nameMatches = text => {
+    const matchers = nameList.map(name => {
+      const stem = name.replace(/\\.[^.]+$/, '');
+      const namePrefix = stem.slice(0, Math.min(16, stem.length));
+      return text => {
+        if (!text) return false;
+        if (text.includes(name)) return true;
+        if (stem && stem !== name && text.includes(stem)) return true;
+        if (namePrefix && namePrefix.length >= 8 && text.includes(namePrefix)) return true;
+        return false;
+      };
+    });
+    const matchFile = (text, matcher) => {
       if (!text) return false;
-      if (text.includes(fileName)) return true;
-      if (stem && stem !== fileName && text.includes(stem)) return true;
-      if (namePrefix && namePrefix.length >= 8 && text.includes(namePrefix)) return true;
-      return false;
+      return matcher(text);
     };
     const readText = root => {
       const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
@@ -168,9 +195,24 @@ export function generateFileUploadStateScript(selectors: ModelSelector, fileName
       }
       return parts.join('\n');
     };
+    // 返回每个待查文件名的命中下标：-1 = 未命中。
+    const matchFilesIn = root => {
+      const hits = matchers.map(() => -1);
+      const texts = [readText(root)];
+      const metaEls = [root, ...root.querySelectorAll(config.metadata)].filter(el => !ignored(el) && visible(el));
+      for (const el of metaEls) {
+        for (const key of ['aria-label','title','data-file-name']) {
+          const v = el.getAttribute(key);
+          if (v) texts.push(v);
+        }
+      }
+      for (let i = 0; i < matchers.length; i++) {
+        hits[i] = texts.some(t => matchFile(t, matchers[i])) ? 1 : -1;
+      }
+      return hits;
+    };
     const containsFile = root => {
-      if (nameMatches(readText(root))) return true;
-      return [root, ...root.querySelectorAll(config.metadata)].some(el => !ignored(el) && visible(el) && ['aria-label','title','data-file-name'].some(key => nameMatches(el.getAttribute(key) || '')));
+      return matchFilesIn(root).some(h => h === 1);
     };
     // 非文件名兜底信号：图片附件常只出缩略图/附件 chip，不落任何文件名文本。
     // 在 composer 子树找可见"附件缩略图"或"附件容器"节点（排除 input 自身与按钮图标）。
@@ -198,9 +240,12 @@ export function generateFileUploadStateScript(selectors: ModelSelector, fileName
     let fileRoot = null;
     let nameMatched = false;
     let attachmentCount = 0;
+    const matchedIdx = new Set();
     const sendSelectors = ${JSON.stringify(selectors.sendButton)};
     while (composer) {
-      const matched = containsFile(composer);
+      const hits = matchFilesIn(composer);
+      const matched = hits.some(h => h === 1);
+      hits.forEach((h, i) => { if (h === 1) matchedIdx.add(i); });
       const count = countAttachmentNodes(composer);
       if (matched || count > 0) {
         fileRoot ||= composer;
@@ -211,12 +256,14 @@ export function generateFileUploadStateScript(selectors: ModelSelector, fileName
       composer = composer.parentElement;
     }
     composer ||= fileRoot;
-    if (!composer) return { found: false, busy: false, sendReady: false, nameMatched: false, attachmentCount: 0 };
+    if (!composer) return empty();
     const statuses = readText(composer);
     const busy = [composer, ...composer.querySelectorAll(config.progress)].some(el => el.matches(config.progress) && !ignored(el) && visible(el)) || new RegExp(config.uploading, 'i').test(statuses);
     const error = new RegExp(config.failed, 'i').test(statuses) ? '平台报告附件上传或解析失败' : undefined;
     const send = find(sendSelectors, composer, true);
-    return { found: true, busy, error, sendFound: !!find(sendSelectors, composer), sendReady: !!send, nameMatched, attachmentCount };
+    const matchedNames = nameList.filter((_, i) => matchedIdx.has(i));
+    const missingNames = nameList.filter((_, i) => !matchedIdx.has(i));
+    return { found: true, busy, error, sendFound: !!find(sendSelectors, composer), sendReady: !!send, nameMatched, attachmentCount, matchedNames, missingNames };
   })();`
 }
 

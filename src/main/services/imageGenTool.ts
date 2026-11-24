@@ -1,5 +1,6 @@
 import { agentTaskService } from './AgentTaskService'
 import type { AgentToolResult } from '@earendil-works/pi-coding-agent'
+import { join, resolve } from 'path'
 import {
   AGENT_TASK_DEFAULT_TIMEOUT_MS,
   AGENT_TASK_MAX_TIMEOUT_MS,
@@ -11,6 +12,7 @@ interface ImageGenParams {
   prompt: string
   platform?: string
   timeout_sec?: number
+  images?: string[]
 }
 
 const importEsm = new Function('s', 'return import(s)') as <T>(s: string) => Promise<T>
@@ -18,11 +20,11 @@ const importEsm = new Function('s', 'return import(s)') as <T>(s: string) => Pro
 /**
  * 工作台 Agent 的 image_gen 工具定义。
  * 通过已登录的 AI 平台触发其原生"AI 生图"能力，等生成完成后由 AgentTaskService
- * 注入点击触发下载，落盘到应用数据目录（`.multichat/image/`）。
+ * 注入点击触发下载，落盘到 Agent 会话工作区的 `.multichat/image/`。
  * pi 内核与 typebox 都经运行时动态 import（`new Function` 逃逸 bundler 解析），
  * 与 webSearchTool / AgentSessionService.getPi() 同一模式。
  */
-export async function createImageGenTool() {
+export async function createImageGenTool(workspaceCwd?: string) {
   const { defineTool } = await importEsm<typeof import('@earendil-works/pi-coding-agent')>(
     '@earendil-works/pi-coding-agent'
   )
@@ -48,6 +50,13 @@ export async function createImageGenTool() {
     `图片描述：${p}\n\n` +
     `要求：\n` +
     `1. 必须真正触发生图（不要在回复里只给文字描述或 ASCII 示意）。\n` +
+    `2. 生成完成后把图片作为本次回复的产物输出；回复正文可以只写一句完成说明。`
+
+  const IMAGE_GEN_WITH_REF_PROMPT = (p: string) =>
+    `请基于附带的参考图，使用当前平台的 AI 生图能力，根据以下描述生成图片（图生图/参考改图）。\n\n` +
+    `图片描述：${p}\n\n` +
+    `要求：\n` +
+    `1. 必须真正以参考图为输入进行生图（不要在回复里只给文字描述或 ASCII 示意）。\n` +
     `2. 生成完成后把图片作为本次回复的产物输出；回复正文可以只写一句完成说明。`
 
   const POLL_INTERVAL_MS = 2_000
@@ -90,17 +99,25 @@ export async function createImageGenTool() {
     name: 'image_gen',
     label: 'Image Generation',
     description:
-      '通过 MultiChat 已登录的 AI 平台调用其原生 AI 生图能力，生成图片并落盘到应用数据目录。' +
+      '通过 MultiChat 已登录的 AI 平台调用其原生 AI 生图能力，生成图片并落盘到当前工作区的 .multichat/image/ 目录。' +
       '返回图片本地绝对路径列表（通常 1 张）与会话 URL。支持的平台：chatgpt/gemini/grok/qwen/doubao/yiyan/yuanbao；' +
       '默认 platform=auto 自动挑选已登录且生图下载链路已适配的平台。',
     promptSnippet: 'generate images via logged-in AI platforms, returns local file paths',
     promptGuidelines: [
       'Use image_gen when the user asks to generate, draw, or create an image/illustration/artwork.',
+      'Pass images (absolute file paths) to do image-to-image / reference-based generation. Omit images for pure text-to-image.',
       'Prefer the default platform="auto"; only pin a platform when the user names one.',
-      'The returned paths point into MultiChat app data (.multichat/image/). Read/copy the file from there if the user wants it elsewhere.'
+      'The returned paths point into the workspace .multichat/image/ directory. Read/copy the file from there if the user wants it elsewhere.',
+      'In your final response, mention each generated image path inline using backticks (e.g. `C:\\path\\to\\image.png`).'
     ],
     parameters: Type.Object({
       prompt: Type.String({ description: '图像描述（自然语言，会原样发给平台）' }),
+      images: Type.Optional(
+        Type.Array(Type.String({ description: '参考图本地绝对路径' }), {
+          description: '参考图绝对路径列表（图生图/参考改图）；留空表示纯文生图',
+          maxItems: 10
+        })
+      ),
       platform: Type.Optional(
         Type.Union(
           PLATFORM_IDS.map((id) => Type.Literal(id)) as unknown as [ReturnType<typeof Type.Literal>, ...ReturnType<typeof Type.Literal>[]],
@@ -121,13 +138,19 @@ export async function createImageGenTool() {
     async execute(_toolCallId: string, params: ImageGenParams, signal: AbortSignal | undefined): Promise<AgentToolResult<Record<string, unknown>>> {
       const platform = await resolvePlatform(params.platform ?? 'auto')
       const timeoutMs = params.timeout_sec ? Math.round(params.timeout_sec * 1000) : AGENT_TASK_DEFAULT_TIMEOUT_MS
+      const images = Array.isArray(params.images) ? params.images.filter((v) => typeof v === 'string' && v.trim().length > 0) : []
+
+      // 生图落盘到 Agent 会话工作区；cwd 缺失（非工作台会话）时回退应用数据目录。
+      const artifactDir = workspaceCwd && workspaceCwd.trim() ? join(resolve(workspaceCwd.trim()), '.multichat') : undefined
 
       const submit = await agentTaskService.submit({
         platform,
-        query: IMAGE_PROMPT(params.prompt),
+        query: images.length ? IMAGE_GEN_WITH_REF_PROMPT(params.prompt) : IMAGE_PROMPT(params.prompt),
         mode: 'chat',
         genImage: true,
-        timeoutMs
+        ...(images.length ? { images } : {}),
+        timeoutMs,
+        ...(artifactDir ? { artifactDir } : {})
       })
       if (!submit.success || !submit.data) {
         const msg = submit.error ?? 'submit failed'

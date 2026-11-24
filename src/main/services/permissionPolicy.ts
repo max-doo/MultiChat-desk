@@ -120,7 +120,7 @@ const BUILTIN_TOOL_EFFECTS: Readonly<Record<string, ToolEffect>> = {
   ,
   web_search: { kind: 'read', paths: 'none', reversible: true, description: '通过已登录平台联网搜索，无本地副作用。' }
   ,
-  image_gen: { kind: 'read', paths: 'none', reversible: true, description: '通过已登录平台调用 AI 生图，产物落盘到应用数据目录，不触 workspace。' }
+  image_gen: { kind: 'read', paths: 'none', reversible: true, description: '通过已登录平台调用 AI 生图，产物落盘到会话工作区的 .multichat/image/。' }
 }
 
 function effectKinds(effect: ToolEffect): ToolEffectKind[] {

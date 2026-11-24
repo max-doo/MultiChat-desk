@@ -23,6 +23,7 @@ import {
 import { authWallSelectors, generationStopSelectors, loginRequiredPlatforms } from '../../shared/config/selectors'
 import {
   generateEnableDeepResearchScript,
+  generateEnableImageGenerationScript,
   generateClickDownloadButtonsScript,
   generateExtractImagesScript,
   generateGetLatestResponseScript,
@@ -533,6 +534,14 @@ export class AgentTaskService {
       if (task.mode === 'deep_research') {
         const enabled = await this.exec<{ success: boolean; error?: string }>(wc, generateEnableDeepResearchScript(selectors.researchMode), '开启深度研究模式', signal)
         if (!enabled?.success) throw new TaskError('PAGE_NOT_READY', `深度研究模式开启失败: ${enabled?.error || '未知原因'}`)
+        await delay(500, signal)
+      }
+
+      // 生图任务需先开启平台生图模式，否则附件/提示词不会进入图生图流程。
+      // imageGeneration.steps 未配置的平台（如 kimi 已下架）跳过，由后续下载捕获兜底报错。
+      if (task.genImage && selectors.imageGeneration?.steps?.length) {
+        const enabled = await this.exec<{ success: boolean; error?: string }>(wc, generateEnableImageGenerationScript(selectors.imageGeneration), '开启生图模式', signal)
+        if (!enabled?.success) throw new TaskError('PAGE_NOT_READY', `生图模式开启失败: ${enabled?.error || '未知原因'}`)
         await delay(500, signal)
       }
 

@@ -17,6 +17,13 @@ const MIAO_PREAMBLE = `You are Miao, an agent focused on office work, note-takin
   - **File Changes**: List created, modified, moved, or deleted files by path with key changes (omit if none).
   - **Pending**: Include only for unresolved blockers, missing information, or items requiring user confirmation.`
 
+const FILE_REPORTING_SUFFIX = `
+
+## File & Artifact Reporting
+- When your work produces deliverable files (generated images, exported documents, reports, screenshots, archives, media), mention their paths inline in your final response using backticks (e.g. \`C:\\path\\to\\file.png\`). Place them naturally inside sentences — no special formatting needed.
+- Do not use Markdown image embeds (\`![...](...)\`) or link syntax for produced files; the interface renders them as openable attachments automatically.
+- Reading/editing existing workspace files does not need this treatment; only files the user would want to open as a result.`
+
 const DEFAULT_PREAMBLE =
   'You are a coding assistant running inside pi, a coding agent harness. Help users inspect files, run commands, and modify code.'
 
@@ -43,7 +50,7 @@ export function createSystemPromptTrimExtension(): {
     factory: (pi) => {
       pi.on('before_agent_start', (event: BeforeAgentStartEvent) => {
         const prompt = event.systemPrompt
-          .replace(DEFAULT_PREAMBLE, MIAO_PREAMBLE)
+          .replace(DEFAULT_PREAMBLE, MIAO_PREAMBLE + FILE_REPORTING_SUFFIX)
           .replace(/\n*<docs>[\s\S]*?<\/docs>\n*/, '\n')
         return { systemPrompt: prompt }
       })
