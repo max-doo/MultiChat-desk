@@ -2,6 +2,9 @@ import { useRef, useEffect, useState, useMemo, useCallback } from 'react'
 import { useAppStore } from '../../store/appStore'
 import { useWorkbenchStore } from '../../store/workbenchStore'
 import WebviewCard, { type WebviewCardRef } from '../WebviewCard'
+import AgentCard from './AgentCard'
+import { useAgentSessionStore } from '../../store/agentSessionStore'
+import type { DropdownOption } from '../CustomDropdown'
 import { assistantReplyConfigs } from '../../../../shared/config/selectors'
 import {
   generateInsertReplyButtonScript,
@@ -244,25 +247,52 @@ export default function WorkbenchAiSidebar({ isActive = true, instanceId = 'prim
   const instanceKey = isSecondary ? 'ai2' : 'ai'
   const visible = isSecondary ? isAiSidebar2Open : rightPane === 'ai'
 
+  // 本地 Agent 虚拟模型条目，用于侧边栏分叉渲染
+  const localAgentModel = useMemo(
+    () => ({
+      id: 'local-agent',
+      name: '本地 Agent',
+      url: '',
+      logo: '',
+      enabled: true
+    }),
+    []
+  )
+
+  const extraModelOptions = useMemo<DropdownOption<string>[]>(
+    () => [
+      {
+        value: 'local-agent',
+        label: '本地 Agent',
+        description: '基于 Pi 的本地开发智能体'
+      }
+    ],
+    []
+  )
+
   // 侧边栏为隔离场景（isolated），切换目标与下拉选项一致使用全量模型；
   // 若按主界面阵容的 enabled 过滤，选中未启用模型时无法挂载对应 webview，导致"切换不了"
   const availableModels = models
+  const availableModelsWithAgent = useMemo(() => {
+    return [localAgentModel, ...models]
+  }, [localAgentModel, models])
+
   const currentModel = useMemo(() => {
     return (
-      availableModels.find((m) => m.id === sidebarModelId) ||
+      availableModelsWithAgent.find((m) => m.id === sidebarModelId) ||
       availableModels[0] ||
       models[0]
     )
-  }, [models, sidebarModelId])
+  }, [availableModelsWithAgent, availableModels, models, sidebarModelId])
 
-  // 已挂载的模型集合，保证切换平台不丢失已有页面状态
+  // 已挂载的模型集合，保证切换平台不丢失已有页面状态（local-agent 为非 webview，不挂载）
   const [mountedSidebarModels, setMountedSidebarModels] = useState<Set<string>>(() => {
-    return new Set(currentModel ? [currentModel.id] : [])
+    return new Set(currentModel && currentModel.id !== 'local-agent' ? [currentModel.id] : [])
   })
 
-  // 保证 currentModel 始终加入 mountedSidebarModels，避免 store 异步更新导致遗漏
+  // 保证 currentModel 始终加入 mountedSidebarModels（排除 local-agent）
   useEffect(() => {
-    if (currentModel?.id) {
+    if (currentModel?.id && currentModel.id !== 'local-agent') {
       setMountedSidebarModels((prev) => {
         if (prev.has(currentModel.id)) return prev
         const next = new Set(prev)
@@ -690,11 +720,13 @@ export default function WorkbenchAiSidebar({ isActive = true, instanceId = 'prim
     return () => cleanups.forEach((fn) => fn())
   }, [mountedSidebarModels, handleInsertReply, handleSaveReply])
 
-  // 切换平台
+  // 切换平台（local-agent 为纯 React 卡片，不加入 mountedSidebarModels）
   const handleModelChange = useCallback(
     (modelId: string) => {
       setSidebarModelId(modelId)
-      setMountedSidebarModels((prev) => new Set(prev).add(modelId))
+      if (modelId !== 'local-agent') {
+        setMountedSidebarModels((prev) => new Set(prev).add(modelId))
+      }
     },
     [setSidebarModelId]
   )
@@ -779,6 +811,13 @@ export default function WorkbenchAiSidebar({ isActive = true, instanceId = 'prim
 
       if (!currentModel) {
         showToast('error', '未选择 AI 模型')
+        return
+      }
+
+      // 如果当前是本地 Agent，直接注入到 Agent Composer
+      if (currentModel.id === 'local-agent') {
+        useAgentSessionStore.getState().appendPromptText(prompt)
+        showToast('info', '已注入提示词到本地 Agent')
         return
       }
 
@@ -897,6 +936,22 @@ export default function WorkbenchAiSidebar({ isActive = true, instanceId = 'prim
 
         if (!currentModel) {
           showToast('error', '未选择 AI 模型')
+          return
+        }
+
+        // 本地 Agent 直接走附件通道注入 @path
+        if (currentModel.id === 'local-agent') {
+          const store = useAgentSessionStore.getState()
+          for (const f of filesToUpload) {
+            store.addAttachment(f.filePath)
+          }
+          const skippedNote = skippedFolders.length > 0 ? `；已跳过 ${skippedFolders.length} 个文件夹` : ''
+          showToast(
+            'success',
+            filesToUpload.length === 1
+              ? `已添加附件: ${filesToUpload[0].fileName}${skippedNote}`
+              : `已添加 ${filesToUpload.length} 个文件到本地 Agent${skippedNote}`
+          )
           return
         }
 
@@ -1342,6 +1397,31 @@ export default function WorkbenchAiSidebar({ isActive = true, instanceId = 'prim
           />
         )}
 
+        {/* 本地 Agent 界面卡片：当 currentModel.id === 'local-agent' 时展示 */}
+        <div
+          className="h-full w-full"
+          style={{ display: currentModel?.id === 'local-agent' ? 'block' : 'none' }}
+        >
+          <AgentCard
+            onModelChange={handleModelChange}
+            headerActions={
+              <button
+                type="button"
+                onClick={isSecondary ? closeAiSidebar2 : openAiSidebar2}
+                className={`w-7 h-7 rounded-full flex items-center justify-center transition-all duration-200 ${
+                  !isSecondary && isAiSidebar2Open
+                    ? 'text-primary bg-blue-50 hover:bg-blue-100 dark:bg-primary/20 dark:hover:bg-primary/25'
+                    : 'text-text-secondary hover:text-text-primary hover:bg-black/5 dark:hover:bg-white/10'
+                }`}
+                title={isSecondary ? '关闭 AI 侧边栏' : '再打开一个 AI 侧边栏'}
+                aria-label={isSecondary ? '关闭 AI 侧边栏' : '再打开一个 AI 侧边栏'}
+              >
+                <AppIcon name={isSecondary ? 'close' : 'view_column_2'} size={20} />
+              </button>
+            }
+          />
+        </div>
+
         {availableModels.map((model) => {
           if (!mountedSidebarModels.has(model.id)) return null
           const isCurrent = model.id === currentModel?.id
@@ -1362,6 +1442,7 @@ export default function WorkbenchAiSidebar({ isActive = true, instanceId = 'prim
                 isolated={true}
                 flat={true}
                 captureContext="workbench"
+                extraModelOptions={extraModelOptions}
                 webviewInstanceId={isSecondary ? `workbench-sidebar2-${model.id}` : `workbench-sidebar-${model.id}`}
                 onWebviewReady={(wcId) => {
                   const oldWcId = registeredWcIdsRef.current.get(model.id)

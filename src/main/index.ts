@@ -194,8 +194,9 @@ if (!gotTheLock) {
   app.commandLine.appendSwitch('disable-quic')
   // 开发态暴露 CDP 端口，便于直接检查 webview 内真实 DOM（注入按钮排障）
   if (!app.isPackaged) {
-    app.commandLine.appendSwitch('remote-debugging-port', '9223')
-    app.commandLine.appendSwitch('remote-allow-origins', 'http://127.0.0.1:9223')
+    const debugPort = process.env.MULTICHAT_DEBUG_PORT || '9223'
+    app.commandLine.appendSwitch('remote-debugging-port', debugPort)
+    app.commandLine.appendSwitch('remote-allow-origins', `http://127.0.0.1:${debugPort}`)
   }
 
   app.whenReady().then(async () => {

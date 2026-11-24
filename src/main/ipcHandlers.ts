@@ -98,6 +98,7 @@ import {
     ensureDocumentForSource,
     captureExcerptDocument
 } from './services/conversationDocumentService'
+import { AgentSessionService } from './services/AgentSessionService'
 import { LegacyMigrationService } from './services/legacyMigrationService'
 import {
     summarizeFrontmatterBackups,
@@ -148,6 +149,9 @@ export async function registerIpcHandlers(
 ): Promise<void> {
     const historyManager = new HistoryManager(store)
     await historyManager.ready
+    const agentSessionService = new AgentSessionService(store, () => getMainWindow()?.webContents ?? null)
+    await agentSessionService.init()
+    app.once('before-quit', () => agentSessionService.dispose())
     let customMaximizeState: {
         windowId: number
         restoreBounds: Electron.Rectangle
@@ -2693,6 +2697,291 @@ export async function registerIpcHandlers(
         try {
             if (!isAuthorizedWorkspaceRoot(payload.workspaceRoot)) return { success: false, error: '工作区未授权' }
             const data = await noteManager.workbenchTrashImpact(payload.workspaceRoot, payload.relativePaths)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    // ==========================================
+    // Local Agent Sidebar IPC Handlers
+    // ==========================================
+
+    ipcMain.handle('agent:prompt', async (_event, payload: { sessionId: string; prompt: string; attachments?: string[] }) => {
+        try {
+            await agentSessionService.prompt(payload.sessionId, payload.prompt, payload.attachments)
+            return { success: true }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('agent:abort', async (_event, payload: { sessionId: string }) => {
+        try {
+            await agentSessionService.abort(payload.sessionId)
+            return { success: true }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('agent:new-session', async (_event, payload?: { cwd?: string }) => {
+        try {
+            const data = await agentSessionService.newSession(payload?.cwd)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('agent:list-sessions', async () => {
+        try {
+            const data = await agentSessionService.listSessions()
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('agent:resume-session', async (_event, payload: { sessionId: string }) => {
+        try {
+            const data = await agentSessionService.resumeSession(payload.sessionId)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('agent:delete-session', async (_event, payload: { sessionId: string }) => {
+        try {
+            await agentSessionService.deleteSession(payload.sessionId)
+            return { success: true }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('agent:resolve-approval', async (_event, payload: { requestId: string; decision: 'allow' | 'always' | 'deny'; pattern?: string }) => {
+        try {
+            const resolved = agentSessionService.resolveApproval(payload.requestId, payload.decision, payload.pattern)
+            return { success: resolved }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('agent:set-permission-mode', async (_event, payload: { sessionId: string; mode: 'default' | 'auto' | 'bypass' | 'full' | 'restricted' | 'readonly' }) => {
+        try {
+            agentSessionService.setPermissionMode(payload.sessionId, payload.mode)
+            return { success: true }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('agent:set-model', async (_event, payload: { sessionId: string; model: string; provider?: string }) => {
+        try {
+            await agentSessionService.setModel(payload.sessionId, payload.model, payload.provider)
+            return { success: true }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('agent:list-providers', async () => {
+        try {
+            const data = agentSessionService.listProviders()
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('agent:list-skills', async (_event, payload: { cwd?: string }) => {
+        try {
+            const data = await agentSessionService.listSkills(payload?.cwd)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    // ── Agent 配置（设置弹窗）──────────────────────────────────────────────
+
+    ipcMain.handle('agent:get-config', async () => {
+        try {
+            const data = {
+                agentDir: agentSessionService.getAgentDir(),
+                skillDirCandidates: agentSessionService.getSkillDirCandidates(),
+                extraSkillDirs: agentSessionService.getExtraSkillDirs(),
+                allowlist: agentSessionService.getAllowlist(),
+                activeModel: agentSessionService.getActiveModel()
+            }
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('agent:set-skill-dirs', async (_event, payload: { dirs: string[] }) => {
+        try {
+            agentSessionService.setExtraSkillDirs(Array.isArray(payload?.dirs) ? payload.dirs : [])
+            return { success: true }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('agent:allowlist-add', async (_event, payload: { tool: string; pattern: string }) => {
+        try {
+            const data = agentSessionService.addAllowlistEntry(payload.tool ?? '*', payload.pattern ?? '')
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('agent:allowlist-remove', async (_event, payload: { id: string }) => {
+        try {
+            agentSessionService.removeAllowlistEntry(payload.id)
+            return { success: true }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('agent:set-credential', async (_event, payload: { providerId: string; cred: { type: 'api_key'; key: string; env?: string } }) => {
+        try {
+            await agentSessionService.setCredential(payload.providerId, payload.cred)
+            return { success: true }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('agent:delete-credential', async (_event, payload: { providerId: string }) => {
+        try {
+            await agentSessionService.deleteCredential(payload.providerId)
+            return { success: true }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('agent:get-active-model', async () => {
+        try {
+            const data = agentSessionService.getActiveModel()
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('agent:get-runtime-snapshot', async (_event, payload?: { sessionId?: string }) => {
+        try {
+            const data = agentSessionService.getRuntimeSnapshot(payload?.sessionId)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('agent:get-session-status', async (_event, payload?: { sessionId?: string }) => {
+        try {
+            const data = agentSessionService.getSessionStatus(payload?.sessionId)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('agent:set-thinking-level', async (_event, payload: { sessionId: string; level: string }) => {
+        try {
+            const data = agentSessionService.setThinkingLevel(
+                payload.sessionId,
+                payload.level as Parameters<typeof agentSessionService.setThinkingLevel>[1]
+            )
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('agent:login-provider', async (_event, payload: { providerId: string; type: 'api_key' | 'oauth' }) => {
+        try {
+            const data = agentSessionService.startProviderLogin(payload.providerId, payload.type)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('agent:respond-provider-auth', async (_event, payload: { operationId: string; value: string }) => {
+        try {
+            const data = agentSessionService.respondProviderAuth(payload.operationId, payload.value)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('agent:cancel-provider-auth', async (_event, payload: { operationId: string }) => {
+        try {
+            const data = agentSessionService.cancelProviderAuth(payload.operationId)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('agent:list-auth-operations', async () => {
+        try {
+            const data = agentSessionService.listAuthOperations()
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('agent:logout-provider', async (_event, payload: { providerId: string }) => {
+        try {
+            const data = await agentSessionService.logoutProvider(payload.providerId)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('agent:refresh-provider-models', async (_event, payload: { providerId: string }) => {
+        try {
+            const data = await agentSessionService.refreshProviderModels(payload.providerId)
             return { success: true, data }
         } catch (err: unknown) {
             const error = err instanceof Error ? err.message : String(err)

@@ -42,6 +42,8 @@ interface WebviewCardProps {
   onWebviewReady?: (webContentsId: number) => void
   /** 选区采集上下文：工作台内传 workbench，其余入口默认 global。 */
   captureContext?: CaptureContext
+  /** 外部额外注入的模型选项（如工作台本地 Agent），仅作 UI 选项展示不污染全局模型阵容 */
+  extraModelOptions?: DropdownOption<string>[]
 }
 
 // 重新导出 FileUploadData 类型供其他组件使用
@@ -117,7 +119,8 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
       sideLabel,
       webviewInstanceId,
       onWebviewReady,
-      captureContext = 'global'
+      captureContext = 'global',
+      extraModelOptions
     },
     ref
   ) => {
@@ -295,11 +298,14 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
         : models.filter((m) => m.id !== id)
 
     // 将模型列表转换为下拉菜单选项格式
-    const modelOptions: DropdownOption<string>[] = availableModels.map((m) => ({
+    const baseModelOptions: DropdownOption<string>[] = availableModels.map((m) => ({
       value: m.id,
       label: m.name,
       logo: m.logo
     }))
+    const modelOptions: DropdownOption<string>[] = extraModelOptions
+      ? [...extraModelOptions, ...baseModelOptions]
+      : baseModelOptions
 
     const handleNewConversation = (): void => {
       startNewConversation()
@@ -400,19 +406,31 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
                   const model = models.find((m) => m.id === option.value)
                   const hasDeepResearch = model && DEEP_RESEARCH_SUPPORTED_MODEL_IDS.has(model.id)
                   const hasImageGen = model && IMAGE_GENERATION_SUPPORTED_MODEL_IDS.has(model.id)
+                  const isLocalAgent = option.value === 'local-agent'
                   return (
                     <button
                       type="button"
                       onClick={onSelect}
                       className="w-full flex items-center justify-between gap-3 px-3 py-2 hover:bg-gray-100 transition-colors text-left"
                     >
-                      <div className="flex items-center gap-3">
-                        <img
-                          alt={model?.name || option.label}
-                          className="w-5 h-5"
-                          src={model?.logo || option.logo}
-                        />
-                        <span className="text-text-primary text-sm">{option.label}</span>
+                      <div className="flex items-center gap-3 min-w-0">
+                        {option.logo ? (
+                          <img
+                            alt={model?.name || option.label}
+                            className="w-5 h-5 shrink-0"
+                            src={model?.logo || option.logo}
+                          />
+                        ) : isLocalAgent ? (
+                          <div className="w-5 h-5 rounded-md bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+                            <AppIcon name="smart_toy" size={16} />
+                          </div>
+                        ) : null}
+                        <span className="text-text-primary text-sm truncate">{option.label}</span>
+                        {isLocalAgent && (
+                          <span className="text-[10px] px-1.5 py-0.2 rounded bg-blue-100 text-blue-700 font-mono font-medium shrink-0">
+                            Active
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0">
                         {hasDeepResearch && (

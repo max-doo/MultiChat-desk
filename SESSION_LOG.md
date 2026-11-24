@@ -2,6 +2,329 @@
 
 ## 2026-11-24
 
+### 13:09 | Codex
+
+- done: 工具调用展开区去卡片套卡片：统一单容器 header/内容/footer 三段结构
+- context: 原展开区外层 rounded-lg border bg-slate-50 p-3 卡片里再嵌 rounded border bg-white diff 卡片，用户要去掉嵌套感
+- decision: 保留外层容器作 header(标签+复制)/内容区/footer(状态) 三段；内层 diff 去边框直接渲染
+- modified:
+  - `src/renderer/src/components/workbench/agent/ToolGroup.tsx`
+
+### 13:06 | Antigravity
+
+- done: 去除模式选择弹窗顶部的 Header，并将弹窗宽度收窄为 w-72，优化内部图标与文字间距，使其更加紧凑精致
+- modified:
+  - `src/renderer/src/components/workbench/agent/AgentComposer.tsx`
+
+### 13:01 | Antigravity
+
+- done: 统一模式选择、上下文窗口与选模型弹窗的卡片骨架与视觉语言，将模式选择宽度扩展为320px实现说明单行完整容纳并补齐Header与Check选中标记
+- modified:
+  - `src/renderer/src/components/workbench/agent/AgentComposer.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentContextMeter.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentModelPicker.tsx`
+
+### 13:00 | Codex
+
+- done: 思考过程卡片改为可点击展开/收起，展开态完整显示多行文本
+- context: 原先 truncate 单行截断，长思考只能 hover 看 title tooltip；用户要求完整展示
+- decision: 保持极简风格：不加标题栏/折叠框，整行作为 button 切换 truncate ↔ whitespace-pre-wrap
+- modified:
+  - `src/renderer/src/components/workbench/agent/ThinkingBlock.tsx`
+
+### 12:58 | Codex
+
+- done: 修复 agent 无 shell 工具可用的问题：pi 默认激活工具只含 read/bash/edit/write，powershell 不在默认集内；项目原 excludeTools 在 Windows 把 bash 排除后，powershell 又从未被激活，导致模型无任何命令执行能力。新增 shellToolModifiers() 返回 ['+powershell']，createAgentSession 传入 tools 修饰符，在默认集上追加 powershell
+- context: 用户在 agent 会话中要求统计 markdown 数量，模型回复'没有列目录或执行命令的工具'
+- decision: 通过 tools:['+powershell'] 显式激活平台 shell 工具，而不是依赖 defaultTools 设置文件
+- modified:
+  - `src/main/services/shell.ts`
+  - `src/main/services/AgentSessionService.ts`
+- lesson: pi SDK 默认工具集是 read/bash/edit/write，powershell 是独立工具名、Windows 平台需用 +powershell 修饰符显式启用；excludedShellTools 只能二选一减一个，不能依赖默认集自动包含平台 shell
+
+### 12:58 | Codex
+
+- done: 修复 Agent 工具卡片：编辑文件展开后不显示编辑内容的问题
+- context: pi-coding-agent 的 edit 工具 result.details = { diff, patch, firstChangedLine }，patch 是标准 unified diff，diff 是带行号的展示用文本。原代码只看 args.diff 或 outputText，导致 diff 没有被解析渲染
+- decision: diff 提取顺序 result.details.patch > args.diff > outputText；parseDiff 失败时把 details.diff 作为 pre 文本兜底
+- modified:
+  - `src/renderer/src/components/workbench/agent/ToolGroup.tsx`
+
+### 12:55 | Antigravity
+
+- done: 统一输入框弹窗组件为 AgentPopover，合并模型选择与思考深度为单个底栏 Selector 并在弹窗 Footer 中通过 Slider 调节思考深度，弹窗精确定位在选择器上方
+- added:
+  - `src/renderer/src/components/workbench/agent/AgentPopover.tsx`
+- modified:
+  - `src/renderer/src/components/workbench/agent/AgentModelPicker.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentComposer.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentContextMeter.tsx`
+
+### 12:54 | Codex
+
+- done: 修复 Agent 会话列表标题始终显示'新会话'的问题：wireSession 订阅里在首个 user message_end 时提取文本写入 active.title；listSessions 合并时若活跃条目无 title 则回退到磁盘 firstMessage
+- context: 历史列表中每个会话都显示'新会话'，用户无法区分
+- decision: 在 message_end(role=user) 时一次性写入 title，避免重复覆盖；listSessions 增加磁盘 title 兜底，覆盖 resume 后未发新消息的场景
+- modified:
+  - `src/main/services/AgentSessionService.ts`
+
+### 12:47 | Antigravity
+
+- done: Simplified AgentContextMeter into an SVG progress circle representing context usage, opened detail popover on click instead of hover
+- decision: Replaced text string 'tokens/window · percent' with an SVG progress ring; removed hover trigger so menu only shows on explicit click
+- modified:
+  - `src/renderer/src/components/workbench/agent/AgentContextMeter.tsx`
+
+### 12:32 | Antigravity
+
+- done: Resolved tool output leakage into message stream by associating toolResult messages to toolCall and enhanced extractToolResultText; simplified thinking blocks into clean single-line italic text per user request
+- decision: Extracted tool output text recursively from content arrays and injected toolResult messages into tool-call.result while filtering standalone toolResult messages from the chat stream; stripped collapsible card wrapper from ThinkingBlock to display a pure single-line text
+- modified:
+  - `src/renderer/src/components/workbench/agent/ToolGroup.tsx`
+  - `src/renderer/src/components/workbench/agent/ThinkingBlock.tsx`
+  - `src/renderer/src/store/agentSessionStore.ts`
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+
+### 12:21 | Antigravity
+
+- done: Adopted minimalist tool group UI per reference screenshot, embedded command outputs inside collapsed tool items, and enlarged agent sidebar UI to 14px body typography
+- decision: Combined consecutive tool calls into a single minimalist ToolGroup row defaulted to collapsed; embedded outputs directly inside individual tool items upon expansion; removed standalone terminal cards from markdown body; boosted chat font to 14px body
+- added:
+  - `src/renderer/src/components/workbench/agent/ToolGroup.tsx`
+- modified:
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+  - `src/renderer/src/components/workbench/agent/ThinkingBlock.tsx`
+  - `src/renderer/src/components/workbench/agent/MarkdownRenderer.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentComposer.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentContextMeter.tsx`
+
+### 12:19 | Codex
+
+- done: 把 magpieProvider.ts 重构成通用的 CustomGatewayProvider：fetchModels/persistModels/loadStoredModels 走标准 OpenAI /v1/models 映射，富字段（native_endpoints/reasoning_levels/pricing/context_window）默认就有，enrichModel 留作异构网关的可选增强；magpie 变成一个配置实例 MAGPIE_PROVIDER，AgentSessionService 的 ensure/applyCatalog/refresh 全部走通用层
+- modified:
+  - `src/main/services/customGatewayProvider.ts`
+  - `src/main/services/AgentSessionService.ts`
+- removed:
+  - `src/main/services/magpieProvider.ts`
+- lesson: 通用 OpenAI 兼容网关 provider 的关键不在 fetch 而在模型→api adapter 的映射：标准 /v1/models 只有 id，需要 native_endpoints 才能区分 anthropic-messages/openai-responses/openai-completions；没有这个字段的网关只能默认 completions
+
+### 12:00 | Codex
+
+- done: magpie 网关模型目录自动获取：改走 fetch+registerProvider 重注册投影，绕开 pi composer refreshedExtensionModels 不生效的问题；启动 seed 用 models-store.json 持久化缓存，后台 fetch 实时拉取 211 项；picker 刷新按钮走同一链路
+- context: 本地 magpie 网关 http://127.0.0.1:3425 聚合多厂商模型，应用里此前只有一个 fallback 模型
+- modified:
+  - `src/main/services/magpieProvider.ts`
+  - `src/main/services/AgentSessionService.ts`
+  - `src/main/index.ts`
+- lesson: pi-coding-agent 的 extension refreshModels 返回值通过 composer 闭包 refreshedExtensionModels 投影，但 registerProvider({models}) 重注册时 validateExtensionProvider 校验的是裸入参而非 merge 后 effective —— 缺 baseUrl 会抛 'baseUrl is required'；可靠的目录更新路径是 fetch 后 registerProvider 重注册（recompose 直接投影 extension.models），持久化自己读写 models-store.json
+
+### 11:45 | Antigravity
+
+- done: Upgrade agent sidebar UI to assistant-ui visual standard with strict native light design system alignment
+- decision: Adopted Native Light assistant-ui styling with dedicated MarkdownRenderer to format unescaped terminal outputs, cardify markdown tables, and enhance thinking blocks without interfering with concurrent Codex backend development
+- added:
+  - `src/renderer/src/components/workbench/agent/MarkdownRenderer.tsx`
+- modified:
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+  - `src/renderer/src/components/workbench/agent/ThinkingBlock.tsx`
+  - `src/renderer/src/components/workbench/agent/BashToolUI.tsx`
+  - `src/renderer/src/components/workbench/agent/EditToolUI.tsx`
+  - `src/renderer/src/components/workbench/agent/ReadToolUI.tsx`
+  - `src/renderer/src/components/workbench/agent/ToolFallback.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentAuthDialog.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentProviderSettings.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentSkillsSettings.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentSettingsDialog.tsx`
+
+### 11:43 | Codex
+
+- done: magpie 供应商接入 /v1/models 动态模型目录：新增 src/main/services/magpieProvider.ts（fetchMagpieModels + refreshModels hook + endpoint→api 映射 + thinkingLevelMap 翻译），AgentSessionService.ensureMagpieProvider 改为始终注册并后台拉取真实目录；anthropic-messages 模型单独用网关根地址修复 /v1/v1/messages 404；网关在线时目录从 1 个模型扩到 211 个（openai-completions 184 / anthropic-messages 24 / openai-responses 3），离线时回退到静态 swe-2
+- context: 用户问为什么接的网关只有一个模型；根因是 ensureLocalDevinProvider 硬编码单个 devin/swe-2，没有调用网关 /v1/models
+- added:
+  - `src/main/services/magpieProvider.ts`
+- modified:
+  - `src/main/services/AgentSessionService.ts`
+- lesson: Pi extension refreshModels 的返回值不是直接进 getModels，而是经 composer 的 applyExtension 投影后作为 extension.models 生效；同时必须 publish({persist}) 才能把目录写进 models-store.json 供离线阶段复用。anthropic-messages API 的 baseUrl 必须是不含 /v1 的网关根地址，Anthropic SDK 会自己拼 /v1/messages，带 /v1 会变成 /v1/v1/messages 404。magpie 网关 /v1/models 每条记录用 native_endpoints 标出原生协议，映射规则：/v1/messages→anthropic-messages、/v1/responses→openai-responses、其他→openai-completions；reasoning_levels 可精确转成 thinkingLevelMap（不支持的档位置 null，pi 自动 clamp），'none' 要映射到 off。
+- unresolved: trae-cn 部分模型上游本身报 502/429 是网关侧配额/路由问题，不是本项目模型目录问题
+
+### 11:11 | codex
+
+- done: 认证进行中的供应商卡片增加可点击入口，关闭认证弹窗后可重新打开同一操作
+- modified:
+  - `src/renderer/src/components/workbench/agent/AgentProviderSettings.tsx`
+
+### 11:10 | codex
+
+- done: 收尾验证：独立配置弹窗挂到 Layout、thinking 无会话时持久化、context meter 真实响应显示 6.6k/262k·3%
+- context: 在 pnpm run dev 下通过 CDP 实际点击抽屉入口、切换 tab、打开模型 Picker、切换 thinking、发送真实请求
+- decision: AgentContextMeter 优先用 sessionStatus，回退 snapshot；新会话零用量不渲染
+- modified:
+  - `src/renderer/src/components/workbench/agent/AgentContextMeter.tsx`
+  - `src/main/services/AgentSessionService.ts`
+  - `src/renderer/src/store/agentSessionStore.ts`
+  - `docs/agent-provider-model-context-design.md`
+  - `.memory/KNOWLEDGE.md`
+  - `SESSION_LOG.md`
+
+### 11:06 | codex
+
+- done: 将 Agent 供应商配置改为独立弹窗，抽屉仅保留入口；补齐模型 Picker、thinking 档位、context 用量与供应商认证
+- context: 基于 Pi ModelRuntime 复用供应商与模型目录；弹窗挂到 Layout，Picker 空状态也能打开
+- decision: 抽屉不铺开供应商列表，配置统一进 AgentSettingsDialog；认证弹窗用 portal 避免被滚动容器裁剪
+- added:
+  - `src/shared/types/agentRuntime.ts`
+  - `src/main/services/ProviderAuthController.ts`
+  - `src/main/services/redact.ts`
+  - `src/renderer/src/components/workbench/agent/AgentAuthDialog.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentContextMeter.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentModelPicker.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentProviderSettings.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentSettingsDialog.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentSkillsSettings.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentThinkingPicker.tsx`
+  - `src/renderer/src/store/agentSettingsDialogStore.ts`
+  - `docs/agent-provider-model-context-design.md`
+- modified:
+  - `src/main/services/AgentSessionService.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/src/components/Layout.tsx`
+  - `src/renderer/src/components/SettingsDrawer.tsx`
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentComposer.tsx`
+  - `src/renderer/src/store/agentSessionStore.ts`
+  - `src/renderer/src/types/agent.ts`
+  - `docs/DOCS_INDEX.md`
+- removed:
+  - `src/renderer/src/components/workbench/agent/AgentSettingsModal.tsx`
+- lesson(promoted): Pi 的 getContextUsage() 在 compaction 后返回 tokens/percent 为 null，UI 必须区分未知与 0；registerProvider 的可用性刷新是异步的，init 里要 await refresh 才能让首个快照正确
+
+### 10:59 | Codex
+
+- done: 验收修复：空会话过滤改用 SessionInfo.messageCount===0（firstMessage 空会话时为占位串非空）；handleAgentEvent 改严格 sessionId 匹配防草稿态吸收其他会话事件
+- modified:
+  - `src/main/services/AgentSessionService.ts`
+  - `src/renderer/src/store/agentSessionStore.ts`
+- lesson: pi-coding-agent 的 SessionInfo.firstMessage 零消息时是占位字符串 '(no messages)' 而非空串，过滤空会话必须用 messageCount
+
+### 10:54 | Codex
+
+- done: Agent 会话历史支持删除（ConfirmModal 确认）+ AgentComposer @ 文件提及补全 + 新会话改草稿态懒创建避免空会话堆积
+- decision: 新建会话改为本地草稿态，首次 prompt 才经 createSession 落后端；listSessions 过滤零消息会话
+- modified:
+  - `src/main/services/AgentSessionService.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/src/types/agent.ts`
+  - `src/renderer/src/store/agentSessionStore.ts`
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentComposer.tsx`
+- lesson: Pi AgentSessionService 的 session 删除需先 abort+unsubscribe+dispose，再扫 sessionsDir 按 header.id 匹配删 .jsonl
+
+### 10:45 | Codex
+
+- done: 调整权限模式图标：默认->Pencil、自动->Play、全放行->TriangleAlert(红色警示语义)，picker 触发按钮同步显示当前模式图标
+- modified:
+  - `src/renderer/src/components/workbench/agent/AgentComposer.tsx`
+
+### 10:42 | Codex
+
+- done: 优化 AgentComposer 权限模式选择弹窗 UI：为默认/自动/全放行三种模式分别添加 ShieldCheck/Zap/FastForward 图标，移除选中项后的'当前'文字标记（选中态已由左侧高亮背景表达）
+- modified:
+  - `src/renderer/src/components/workbench/agent/AgentComposer.tsx`
+
+### 10:24 | codex
+
+- done: 补充开发文档：核对 login 持久化路径与 models.json 刷新语义，修正设置抽屉现状与改动文件清单
+- context: 文档落盘后核对 Pi ModelRuntime 源码，确认 login 经 CredentialStore.modify 落盘，refresh 会重新加载 models.json
+- decision: 自定义 provider 必须写 models.json 再 refresh；registerProvider 仅内存，不能作为持久化手段；设置抽屉已有入口应替换而非新增
+- modified:
+  - `docs/agent-provider-model-context-design.md`
+
+### 10:23 | codex
+
+- done: 调研 Pi Agent 供应商、模型选择与上下文用量实现，编写并落盘完整开发方案
+- context: MultiChat-agent-sidebar 的 Agent 配置入口在 AgentComposer/AgentSettingsModal，Provider 列表硬编码 9 项，baseUrl 未生效，缺少 thinking 与 context 展示
+- decision: 直接复用 Pi 1.6.0 ModelRuntime 作为唯一 provider/model/auth 适配层，移植 mu-agent 的认证状态机，不自研 adapter；Agent provider 配置与总结链路 apiConfig 保持隔离
+- added:
+  - `docs/agent-provider-model-context-design.md`
+- modified:
+  - `docs/DOCS_INDEX.md`
+- lesson: Pi 的 getContextUsage() 在 compaction 后可能返回 tokens:null，UI 必须区分未知与 0；context 占用用 usage.totalTokens，不要自行用 input+output 重算
+- unresolved: 方案尚未实施；自定义端点写入 models.json 列为第二阶段
+
+### 10:15 | Codex
+
+- done: 设置抽屉新增'本地 Agent'入口，打开 AgentSettingsModal 集中管理：模型凭证、权限模式(default/auto/bypass)、全局 Skills 目录勾选+自定义路径、命令放行名单；弹窗改为可滚动 max-h-85vh
+- modified:
+  - `src/renderer/src/components/SettingsDrawer.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentSettingsModal.tsx`
+
+### 10:03 | Codex
+
+- done: GUI 支持 /skill 调用：IPC 暴露 skills 列表 + Composer 斜杠自动补全
+- decision: 复用 pi DefaultResourceLoader 的 skill 发现(SKILL.md/.agents/.claude/agentDir)，listSkills 按 cwd 临时建 loader 实时取；GUI 用斜杠建议菜单填 /skill:name
+- modified:
+  - `src/main/services/AgentSessionService.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/src/types/agent.ts`
+  - `src/renderer/src/store/agentSessionStore.ts`
+  - `src/renderer/src/components/workbench/agent/AgentComposer.tsx`
+
+### 09:59 | Codex
+
+- done: 实现 Agent shell 平台挂载+UTF-8+权限决策内核；独立 worker 审核通过并修复 readonly 语义回归与流式 O(n2)
+- decision: shell 按平台 excludeTools 二选一+环境提示词；UTF-8 用 SDK UTF8_OUTPUT_PREFIX+decodeCommandOutput ANSI 兜底；权限内核移植 mu decidePermission，三档 default/auto/bypass+readonly 兼容档
+- added:
+  - `src/main/services/shell.ts`
+  - `src/main/services/encoding.ts`
+  - `src/main/services/permissionPolicy.ts`
+  - `docs/agent-shell-encoding-design.md`
+- modified:
+  - `src/main/services/AgentSessionService.ts`
+  - `src/main/services/AgentResourceLoader.ts`
+  - `src/main/services/ShellTool.ts`
+  - `src/main/services/PermissionEngine.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/src/types/agent.ts`
+  - `src/renderer/src/store/agentSessionStore.ts`
+  - `src/renderer/src/components/workbench/agent/AgentComposer.tsx`
+  - `package.json`
+- lesson: mu 0.85→pi 1.6 移植可用 beforeToolCall 钩子替代 pi.on(tool_call)；PowerShell [Console]::OutputEncoding=UTF8 前缀能把嵌套 cmd 输出一并转 UTF-8，是 Windows 中文乱码根治点
+
+### 09:49 | Codex
+
+- done: 调研 mu-agent/WebAI-to-API 与业界做法，实测 Windows UTF-8/shell 行为，产出 Agent shell+编码+权限设计文档
+- decision: shell 按平台二选一 excludeTools + 环境提示词；UTF-8 用 SDK 前缀 + WebAI decodeCommandOutput 兜底；权限内核迁移 mu decidePermission，模式收敛 default/auto/bypass
+- added:
+  - `docs/agent-shell-encoding-design.md`
+
+### 09:48 | Codex
+
+- done: 将 main 合并入 worktree 的 codex/agent-sidebar：解决依赖清单、会话日志与 package-lock 冲突，迁移 pnpm 锁文件，验证类型检查、lint、构建与 dev 启动
+- context: main 引入 pnpm 10 与依赖分层调整，worktree 同时在开发 Agent 侧边栏与工作台正文宽度/公式粘贴功能
+- decision: dependencies 仅保留主进程外部化运行时依赖（pi-coding-agent、electron-store、monio-napi、shell-quote），渲染层依赖移入 devDependencies；移除已无引用的 assistant-ui 依赖；删除 package-lock.json 并重生成 pnpm-lock.yaml
+- modified:
+  - `package.json`
+  - `AGENTS.md`
+  - `README.md`
+  - `SESSION_LOG.md`
+  - `docs/BUILD_GUIDE.md`
+  - `.gitignore`
+  - `pnpm-lock.yaml`
+  - `.memory/INDEX.md`
+  - `.memory/KNOWLEDGE.md`
+  - `src/renderer/src/assets/index.css`
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchToolbar.tsx`
+  - `src/renderer/src/store/workbenchStore.ts`
+- removed:
+  - `package-lock.json`
+- lesson(promoted): pnpm install 迁移 npm 生成的 node_modules 前必须先关闭正在运行的 Electron dev 实例，否则重命名 node_modules/electron 会报 EPERM
+- unresolved: Agent 侧边栏与工作台的合并后 UI 交互仍需在桌面窗口中手动走查
+
 ### 11:22 | Codex
 
 - done: 按 impeccable skill 的 document 模式生成 DESIGN.md(frontmatter token + 8 canonical section),AGENTS.md 的 UI 设计规范小节收敛为一行指针做渐进式披露
@@ -122,7 +445,84 @@
 - decision: mu-agent 的 permissions.ts+modes.ts+shell.ts 整文件搬运（接 IPC 审批卡片）；waa 的 encoding.ts 整文件搬（iconv-lite 依赖）；bash 输出走 buffer+decodeCommandOutput 兜底文件编码；cmd vs powershell 路线待定
 - unresolved: cmd.exe vs PowerShell 作为默认 shell 路线选择；只读模式档位需自补（mu 只有 default/auto/bypass）
 
+### 09:12 | Antigravity
+
+- done: 彻底修复 AgentCard 崩溃与输入框塌陷、端到端真机桌面客户端交互验收
+- decision: 纯 Zustand 接管 Agent 消息流；AgentComposer 设置 min-h-[44px] 与点击聚焦；自动跟随 Workbench 工作区目录
+- modified:
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentComposer.tsx`
+  - `src/renderer/src/store/agentSessionStore.ts`
+  - `src/renderer/src/components/workbench/agent/AgentSettingsModal.tsx`
+- lesson(promoted): 1) 移除无用的 assistant-ui 外部 runtime 彻底消除 status 校验与 ToolUI 崩溃；2) textarea 必须设置最小高度与兜底值，避免隐藏状态下 scrollHeight 计算为 0 导致高度塌陷；3) ReactMarkdown 行内代码需配合 Tailwind prose-code 规范，避免行内变量被渲染为巨型黑色 pre 块
+
+### 01:05 | Antigravity
+
+- done: 修复 convertMessage 中 user 消息携带 status 导致 assistant-ui 抛出 Uncaught Error 崩溃的问题
+- decision: assistant-ui 的 ThreadMessageConverter 严格限制 status 仅允许 assistant 消息携带；convertMessage 对 user 角色分支做显式区分，仅提取纯文本并剔除 status
+- modified:
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+
+### 01:01 | Antigravity
+
+- done: 对齐 AgentCard 与 WebviewCard 的 Header 布局规范、修复输入框 select-none 导致的无法输入问题并统一全量组件设计风格
+- decision: Header 统一遵循 WebviewCard 扁平模式布局规范（p-3、border-gray-200/60、h2 字体、AppIcon 尺寸 20），去除父级容器 select-none 并显式保证 Textarea 可输入与选区能力
+- modified:
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentComposer.tsx`
+  - `src/renderer/src/components/workbench/agent/BashToolUI.tsx`
+  - `src/renderer/src/components/workbench/agent/EditToolUI.tsx`
+  - `src/renderer/src/components/workbench/agent/ReadToolUI.tsx`
+  - `src/renderer/src/components/workbench/agent/ToolFallback.tsx`
+  - `src/renderer/src/components/workbench/agent/ThinkingBlock.tsx`
+  - `src/renderer/src/components/workbench/agent/ApprovalCard.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentSettingsModal.tsx`
+
+### 00:41 | Antigravity
+
+- done: 修复 AgentCard 中 ToolUI 未在 AssistantRuntimeProvider 内包裹导致的渲染崩溃白屏问题
+- decision: 将 AssistantRuntimeProvider 作为 AgentCard 顶层容器包裹所有 ToolUI 插槽与消息视口，确保 Aui 上下文全局有效
+- modified:
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+- lesson(promoted): 使用 @assistant-ui/react 时，makeAssistantToolUI 生成的组件内部强制依赖 AuiProvider 上下文，必须置于 AssistantRuntimeProvider 内部包裹渲染
+
+### 00:11 | Antigravity
+
+- done: Implement backend agent session, permission engine, resource loader, shell tool, IPC handlers and preload bridge
+- decision: Use dynamic import via new Function('s', 'return import(s)') for pure ESM @earendil-works/pi-coding-agent to support Electron CommonJS main build
+- added:
+  - `src/main/services/AgentSessionService.ts`
+  - `src/main/services/PermissionEngine.ts`
+  - `src/main/services/AgentResourceLoader.ts`
+  - `src/main/services/ShellTool.ts`
+- modified:
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `package.json`
+  - `package-lock.json`
+- lesson(promoted): When building with electron-vite CommonJS output, pure ESM packages must be loaded using dynamic import with Function constructor to prevent compiler converting import() to require()
+
 ## 2026-11-23
+
+### 23:59 | frontend
+
+- done: 实现工作台本地 Agent 侧边栏 UI、Zustand store、工具与审批卡片、凭证配置与文件拖拽集成
+- decision: 基于 assistant-ui 的 useExternalStoreRuntime 接管消息流，结合 react-diff-view 渲染 diff，WorkbenchAiSidebar 对 local-agent 分叉渲染并重定向拖拽与提示词注入
+- added:
+  - `src/renderer/src/types/agent.ts`
+  - `src/renderer/src/store/agentSessionStore.ts`
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+  - `src/renderer/src/components/workbench/agent/BashToolUI.tsx`
+  - `src/renderer/src/components/workbench/agent/EditToolUI.tsx`
+  - `src/renderer/src/components/workbench/agent/ReadToolUI.tsx`
+  - `src/renderer/src/components/workbench/agent/ToolFallback.tsx`
+  - `src/renderer/src/components/workbench/agent/ApprovalCard.tsx`
+  - `src/renderer/src/components/workbench/agent/ThinkingBlock.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentComposer.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentSettingsModal.tsx`
+- modified:
+  - `src/renderer/src/components/WebviewCard.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
 
 ### 22:57 | Codex
 

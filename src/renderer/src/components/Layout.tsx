@@ -14,6 +14,8 @@ import { useUpdateReminder } from '../hooks/useUpdateState'
 import SettingsDrawer from './SettingsDrawer'
 import CustomContextMenu from './CustomContextMenu'
 import CliAgentHint from './CliAgentHint'
+import { AgentSettingsDialog } from './workbench/agent/AgentSettingsDialog'
+import { useAgentSettingsDialogStore } from '../store/agentSettingsDialogStore'
 
 type WindowsCaptionIconName = 'minimize' | 'maximize' | 'restore' | 'close'
 
@@ -157,6 +159,8 @@ function Layout({ children }: LayoutProps): JSX.Element {
   const productModeConfig = useAppStore((s) => s.productModeConfig)
   const visibleProductModes = productModeConfig.order.filter(m => !productModeConfig.hidden.includes(m))
   const { hasUpdate } = useUpdateReminder()
+  const agentSettingsOpen = useAgentSettingsDialogStore((s) => s.isOpen)
+  const closeAgentSettings = useAgentSettingsDialogStore((s) => s.close)
   const isFallbackDraggingRef = useRef(false)
   const dragFrameRef = useRef<number | null>(null)
   const dragMovePendingRef = useRef(false)
@@ -443,6 +447,7 @@ function Layout({ children }: LayoutProps): JSX.Element {
       <CustomContextMenu />
       <CliAgentHint />
       <SettingsDrawer isOpen={isSettingsOpen} onClose={() => setSettingsOpen(false)} />
+      <AgentSettingsDialog isOpen={agentSettingsOpen} onClose={closeAgentSettings} />
     </div>
   )
 }

@@ -365,6 +365,10 @@ Long-term reusable lessons, durable decisions, and recurring project gotchas. Do
 
 ### 构建、打包与验证
 
+- **Electron CommonJS 主进程与纯 ESM 依赖的兼容**：在 `electron.vite.config.ts` 中开启 `build.externalizeDeps: true` 时，Vite 会将 `import ... from 'esm-pkg'` 转换为 CommonJS 的 `require('esm-pkg')`。若外部依赖（如 `@earendil-works/pi-coding-agent`）为纯 ESM 且 `package.json` 的 `exports` 仅定义了 `import` 而无 `require`/`default`，会导致 Node CJS 加载器抛出 `ERR_PACKAGE_PATH_NOT_EXPORTED`。解决方法：主进程中仅保留该包的 `import type` 静态类型导入，并在异步生命周期（如 `init()`）中使用 `new Function('s', 'return import(s)')('esm-pkg')` 动态加载运行时符号，既规避 Vite 编译期的 require 改写，又保证在 Node/Electron 运行时正确通过 ESM 解析器加载。
+
+- **pnpm 接管 npm 安装的 `node_modules` 前必须关闭运行中的 Electron 实例**：`pnpm install` 会把旧包迁移到 `node_modules/.ignored`；若本 worktree 的 `node_modules/electron/dist/electron.exe` 仍被 dev 进程占用，重命名会报 `EPERM`。先按命令行中的 worktree 路径找到并关闭对应的 `npm run dev`/Electron 进程，再执行 `pnpm install`，安装后确认 `install-electron` 已下载二进制再重新启动。
+
 - **启用 JavaScript 混淆时不要用函数 `toString()` 生成 Webview 注入脚本**：生产打包开启混淆后，通过 `Function.prototype.toString()` 生成注入脚本，函数体内部变量可能被主进程混淆器重命名，并依赖混淆器注入的主进程全局映射，进入隔离 Webview 后执行报错。注入脚本应直接使用自包含的字符串模板或 IIFE 源码字符串，避免在主进程代码中使用函数 toString 注入。
 
 - **`@electron-toolkit/utils` 的 `is.dev` 不能在 renderer/shared 中使用**：`is` 对象依赖 `__dirname`、`child_process.spawnSync`、`path.join` 等 Node API；`shared/` 文件被 Vite 依赖预构建加载到浏览器环境时，会触发 `__dirname is not defined` 和 `child_process has been externalized`，导致开发服务器黑屏。任何可能被渲染进程引用的代码（`shared/`、`renderer/`）都应使用 `process.env.NODE_ENV !== 'production'`；`src/main/` 下的纯主进程文件使用 `is.dev` 是安全的，但为一致性也可统一使用 `process.env.NODE_ENV`。判别：错误堆栈指向 `node_modules/.vite/deps/@electron-toolkit_utils.js` 且含 `__dirname`/`child_process`。
@@ -406,6 +410,25 @@ Long-term reusable lessons, durable decisions, and recurring project gotchas. Do
 
 - **旧 API 流式总结的生命周期经验**：`summaryApi`、`useSummaryPanel` 和 `generate-summary` 已删除，旧共享控制器互斥方案不再代表当前调用关系。可复用原则是：覆盖控制器前中止旧请求，异步闭包捕获本次控制器，完成时只清理仍属于本次请求的引用；流式 reader 在异常或取消路径取消并释放，避免向已销毁 sender 发送或继续空转。当前 taskSplit 是 `stream: false`，没有 reader/onChunk；未来引入流式接口时按新接口实际生命周期设计，不能照搬旧 IPC。
 
+### 本地 Agent 与 AI 侧边栏
+
+- **本地 Agent 交互UI避免引入外部重型聊天运行时库，优先采用 Zustand + 原生组件接管**：`@assistant-ui/react` 等库对消息格式有严苛的内部 schema 约束（例如 user 消息不可携带 status，或者子组件强制要求 AuiProvider 上下文），且与底层 Pi Coding Agent 的事件流模型存在语义分歧。采用 Zustand 统一维护消息、工具调用、思考过程与权限确认，直接驱动自定义组件（如 `BashToolUI`、`ThinkingBlock`），既解除了外部库崩溃风险，又能够与工作台 `WebviewCard` 保持完全一致的视觉与交互基线。
+
+- **动态高度文本输入框必须设置 min-height 兜底**：基于 `scrollHeight` 动态计算高度的 textarea，若在被隐藏（如父容器 `display: none`）或挂载动画帧内初始化，`scrollHeight` 会被浏览器计算为 `0`，从而把 inline style 锁定为 `0px` 造成输入框塌陷且不可聚焦。textarea 必须声明 `min-h-[44px]` 或在 auto-resize effect 中强制 `Math.max(minHeight, ...)` 兜底。
+
+- **ReactMarkdown 行内代码组件必须配合 isBlock 校验与 Tailwind prose 规范**：`react-markdown` 的 `code` 组件传参在不同版本中可能不附带 `inline` 布尔值，直接以 `!inline` 判断会导致所有行内变量与文件名被渲染为巨型黑色 `<pre>` 块。必须通过 `className && /language-/.test(className)` 判定代码块；同时配合 Tailwind `prose-code:before:content-none prose-code:after:content-none` 消除伪元素自动添加的字面量反引号。
+
+- **Electron 主进程加载纯 ESM 的 Pi Coding Agent 需使用动态 import**：当 Electron 主进程构建输出为 CommonJS 时，静态 `import ... from '@earendil-works/pi-coding-agent'` 会被打包器转换为 `require()`，触发 `ERR_PACKAGE_PATH_NOT_EXPORTED`。必须使用 `new Function('s', 'return import(s)')` 包装动态导入，避免构建器重写。
+
+- **Pi 的 `getContextUsage()` 必须区分"未知"与 0**：该方法读取最近一次 assistant 响应的 `usage.totalTokens`，compaction 之后、下一次响应之前会返回 `{ tokens: null, percent: null }`；模型没有 `contextWindow` 时直接返回 `undefined`。UI 不能把 `null` 当 0 渲染，也不要用 `input + output` 自行重算；上下文占用用 `getContextUsage()`，会话累计成本与 token 用 `getSessionStats()`，两者口径不同。
+
+- **`registerProvider()` 的可用性刷新是异步的，初始化要等一次 `refresh()`**：`ModelRegistry.registerProvider()` 内部只触发 `void this.refresh({ allowNetwork: false })`，注册后立刻读取 `getAvailableSnapshot()` 可能还没有把新 provider 标为可用，表现为模型 Picker 首次打开是空态。动态注册内置 provider 后应显式 `await modelRuntime.refresh({ allowNetwork: false, providers: [id] })`，再对外提供快照。
+
+- **`setThinkingLevel()` 会自动 clamp，必须回读实际值**：模型只支持部分档位时，SDK 会把越界档位收敛到最近可用档位，并且 `persist: true` 写入的是用户请求值而非实际生效值。UI 不能乐观写入请求档位，必须用 `session.thinkingLevel` 与 `getAvailableThinkingLevels()` 回读后再更新状态。没有活动会话时若要保留用户选择，应只持久化选择，等建会话时由 SDK 再 clamp。
+
+- **Pi 自定义 provider 目录更新的可靠路径是 `registerProvider` 重注册，不是 `refreshModels` 返回值**：pi-coding-agent 的 extension `refreshModels(context)` 返回值要经过 composer 闭包 `refreshedExtensionModels` 投影才进 `getModels()`，实测该投影链路在反复 recompose（`ModelRuntime.refresh({providers})` 每次先 `recomposeProvider` 重建闭包）下拿不到结果，模型数始终停在注册时的静态列表。可行的做法：后台 `fetch` 目录后直接 `registerProvider(providerId, {models, baseUrl, ...})` 重注册 —— `registerProvider` 会 merge 进 `extensionProviders` 并 `recomposeProvider` 重建 provider，`applyExtension` 把 `extension.models` 全量投影，不依赖 refreshedExtensionModels。两个坑：① `registerProvider` 里 `validateExtensionProvider` 校验的是**裸入参**不是 merge 后的 effective，重注册只传 `{models}` 会因 `config.baseUrl` 缺失抛 `"baseUrl" is required when defining custom models`，必须连同 `baseUrl`（以及 name/apiKey）一起传；② 持久化自己读写 `agentDir/models-store.json`（结构 `{providerId:{models,checkedAt}}`，与 FileModelsStore 同格式），启动时先读缓存 seed 注册，网关离线也能拿到完整目录。`anthropic-messages` 类模型的 `baseUrl` 必须是不含 `/v1` 的网关根地址，Anthropic SDK 会自己拼 `/v1/messages`，带 `/v1` 会变成 `/v1/v1/messages` 404。网关 `/v1/models` 每条记录用 `native_endpoints` 标出原生协议，映射规则：`/v1/messages`→`anthropic-messages`、`/v1/responses`→`openai-responses`、其他→`openai-completions`；`reasoning_levels` 可精确转成 `thinkingLevelMap`（不支持的档位置 `null`，pi 自动 clamp），`none` 要映射到 `off`。验证时注意：`remote-debugging-port 9223` 被已运行的 dev 实例占用时，spawn 新实例 CDP 会连到旧进程上得出"代码没生效"的假阴性，应把端口改成 env 可控（`MULTICHAT_DEBUG_PORT`）或先杀旧实例。
+
+- **自定义 OpenAI 兼容网关 provider 应该做成通用层而非厂商专属**：标准 `/v1/models` 只保证 `id`/`object`/`owned_by`，模型→api adapter 的区分需要 `native_endpoints` 这类非标准字段；没有这个字段的网关（LiteLLM/one-api 等）只能把全部模型默认 `openai-completions` 或让用户手选 protocol。通用实现 = `CustomGatewayProvider`（baseUrl+apiKey+fetch/persist/re-register）+ 可选 `enrichModel` hook 处理异构字段，具体网关（如本地 magpie）只保留一个配置实例而不是专属文件。
 ### 原型与视觉验收
 
 - **用 `innerHTML` 重建含 `id` 的子节点后，后续渲染不能再引用旧节点**：自包含 HTML 原型中，如果渲染函数先写入容器 `innerHTML`，之后再按旧 `id` 查询该容器内的节点，首次渲染可能成功，但切换文档、新增标注等第二次渲染会得到 `null` 并中断交互。修复应删除冗余的旧节点引用，或始终在重建完成后重新查询；验收不能只截首屏，还要实际触发一次文档切换或数据更新后的重渲染。

@@ -8,6 +8,7 @@ import AboutSection from './AboutSection'
 import CliIntegrationSection from './CliIntegrationSection'
 import ModelOrderModal from './ModelOrderModal'
 import ProductModeOrderModal from './ProductModeOrderModal'
+import { useAgentSettingsDialogStore } from '../store/agentSettingsDialogStore'
 import { openUpdateRelease, useUpdateReminder } from '../hooks/useUpdateState'
 import { AppIcon } from './icons/AppIcon'
 
@@ -696,6 +697,30 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
             <CliIntegrationSection />
           </div>
 
+          {/* 本地 Agent 配置 */}
+          <div>
+            <h3 className="flex items-center gap-2 font-semibold text-text-primary mb-4">
+              <AppIcon name="smart_toy" size={20} className="text-primary" />
+              本地 Agent
+            </h3>
+            <div className="p-4 rounded-xl glass-panel flex items-center justify-between">
+              <div>
+                <div className="text-sm text-text-primary font-medium">Agent 配置</div>
+                <div className="text-xs text-text-secondary mt-1">
+                  模型凭证、全局 Skills 目录与命令放行名单
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => useAgentSettingsDialogStore.getState().open()}
+                className="flex items-center gap-1 text-sm text-primary hover:opacity-80 transition-colors font-medium shrink-0 ml-4"
+              >
+                <AppIcon name="tune" size={16} />
+                配置
+              </button>
+            </div>
+          </div>
+
           {/* 关于 */}
           <div>
             <h3 className="flex items-center gap-2 font-semibold text-text-primary mb-4">
@@ -785,6 +810,7 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
         isOpen={modeOrderOpen}
         onClose={() => setModeOrderOpen(false)}
       />
+
     </>
   )
 }
