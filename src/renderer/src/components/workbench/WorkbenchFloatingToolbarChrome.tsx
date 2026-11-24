@@ -3,7 +3,7 @@ import { AppIcon } from '../icons/AppIcon'
 
 /** 富文本浮动工具条与 HTML 可视化编辑工具条共用的容器外观。 */
 export const WORKBENCH_FLOATING_TOOLBAR_BASE_CLASS =
-  'flex items-center gap-0.5 p-1 rounded-xl bg-white dark:bg-gray-800 shadow-2xl border border-black/10 dark:border-white/10'
+  'flex items-center gap-0.5 p-1 rounded-xl bg-white dark:bg-gray-800 shadow-lg border border-black/10 dark:border-white/10'
 
 export function WorkbenchFloatingToolbarButton({
   icon,

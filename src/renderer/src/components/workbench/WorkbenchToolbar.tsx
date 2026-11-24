@@ -79,6 +79,8 @@ export default function WorkbenchToolbar(): JSX.Element {
   const [editor] = useLexicalComposerContext()
   const editorMode = useWorkbenchStore((s) => s.editorMode)
   const setEditorMode = useWorkbenchStore((s) => s.setEditorMode)
+  const contentWidth = useWorkbenchStore((s) => s.contentWidth)
+  const setContentWidth = useWorkbenchStore((s) => s.setContentWidth)
   const activeFileSize = useWorkbenchStore((s) => s.activeFileSize)
   const largeDocument = (activeFileSize ?? 0) > 2 * 1024 * 1024
   const isLeftCollapsed = useWorkbenchStore((s) => s.isLeftCollapsed)
@@ -614,6 +616,36 @@ export default function WorkbenchToolbar(): JSX.Element {
 
       {/* 右侧：富文本/源码切换（字数与保存状态悬浮在编辑区右下角） */}
       <div className="flex items-center gap-2.5 text-text-secondary text-sm shrink-0">
+        <WorkbenchDropDown
+          buttonAriaLabel="正文宽度选项"
+          buttonTitle="正文宽度"
+          buttonClassName="h-8 px-2.5 flex items-center gap-1 rounded-md hover:bg-black/5 dark:hover:bg-white/10 text-text-secondary transition-colors text-sm"
+          buttonContent={
+            <>
+              <span>
+                {contentWidth === 'narrow' ? '窄' : contentWidth === 'wide' ? '宽' : '中'}
+              </span>
+              <AppIcon name="arrow_drop_down" size={16} />
+            </>
+          }
+        >
+          {(
+            [
+              { value: 'narrow', label: '窄', hint: '640px' },
+              { value: 'medium', label: '中', hint: '720px' },
+              { value: 'wide', label: '宽', hint: '880px' }
+            ] as const
+          ).map((item) => (
+            <WorkbenchDropDownItem
+              key={item.value}
+              className={itemClass(contentWidth === item.value)}
+              onClick={() => setContentWidth(item.value)}
+            >
+              <span className="w-6">{item.label}</span>
+              <span className="text-xs text-text-secondary">{item.hint}</span>
+            </WorkbenchDropDownItem>
+          ))}
+        </WorkbenchDropDown>
         <div className="flex items-center p-0.5 bg-black/5 dark:bg-white/5 rounded-lg border border-black/5 dark:border-white/5">
           <button
             type="button"

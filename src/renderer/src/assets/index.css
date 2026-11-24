@@ -588,7 +588,8 @@ webview[tabindex="-1"] {
   content: '\200B';
   width: 0.9em;
   height: 0.9em;
-  top: 50%;
+  /* 基于首行行高 (1.7em / 2 = 0.85em) 定位，避免多行文本时 top: 50% 错位到整段中间 */
+  top: 0.85em;
   left: 0;
   cursor: pointer;
   display: block;
@@ -621,7 +622,8 @@ webview[tabindex="-1"] {
   border-style: solid;
   position: absolute;
   display: block;
-  top: 45%;
+  /* 勾号基于首行对齐 (1.7em * 0.45 = 0.765em)，与复选框内部视觉居中一致 */
+  top: 0.765em;
   width: 0.2em;
   left: 0.35em;
   height: 0.4em;
