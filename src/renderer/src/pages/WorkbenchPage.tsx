@@ -18,6 +18,7 @@ export default function WorkbenchPage({ isActive = true }: WorkbenchPageProps): 
   const rightPaneWidth = useWorkbenchStore((s) => s.rightPaneWidth)
   const isLeftCollapsed = useWorkbenchStore((s) => s.isLeftCollapsed)
   const rightPane = useWorkbenchStore((s) => s.rightPane)
+  const isAiSidebar2Open = useWorkbenchStore((s) => s.isAiSidebar2Open)
   const setLeftPaneWidth = useWorkbenchStore((s) => s.setLeftPaneWidth)
   const setRightPaneWidth = useWorkbenchStore((s) => s.setRightPaneWidth)
   const error = useWorkbenchStore((s) => s.error)
@@ -207,7 +208,7 @@ export default function WorkbenchPage({ isActive = true }: WorkbenchPageProps): 
         </div>
 
         {/* 右栏可拖拽 Splitter */}
-        {rightPane && (
+        {(rightPane || isAiSidebar2Open) && (
           <div
             onPointerDown={handleRightSplitterPointerDown}
             className={`group relative w-[10px] -mr-[5px] h-full cursor-col-resize z-30 select-none shrink-0 ${
@@ -227,26 +228,32 @@ export default function WorkbenchPage({ isActive = true }: WorkbenchPageProps): 
         <div
           className="h-full shrink-0 overflow-hidden rounded-tl-xl bg-white dark:bg-gray-900 border-t border-black/5 dark:border-white/5"
           style={{
-            width: rightPane ? `${rightPaneWidth}px` : 0,
-            maxWidth: rightPane
+            width: rightPane || isAiSidebar2Open ? `${rightPaneWidth}px` : 0,
+            maxWidth: rightPane || isAiSidebar2Open
               ? `calc(100% - ${!isLeftCollapsed ? `${leftPaneWidth}px - 10px` : '5px'} - ${WORKBENCH_MIN_EDITOR_WIDTH}px)`
               : undefined,
-            display: rightPane ? 'block' : 'none'
+            display: rightPane || isAiSidebar2Open ? 'flex' : 'none'
           }}
         >
-          {/* AI 常驻；导图首次打开后保持挂载，避免未使用面板提前创建资源。 */}
-          <div className="h-full" style={{ display: rightPane === 'ai' ? 'block' : 'none' }}>
+          {/* AI 常驻；第二 AI 侧边栏按需挂载，导图首次打开后保持挂载。 */}
+          <div className="h-full min-w-0" style={{ display: rightPane === 'ai' ? 'flex' : 'none', flex: 1 }}>
             <WorkbenchAiSidebar isActive={isActive} />
           </div>
+          <div
+            className="h-full min-w-0 border-l border-black/5 dark:border-white/5"
+            style={{ display: isAiSidebar2Open ? 'flex' : 'none', flex: 1 }}
+          >
+            <WorkbenchAiSidebar isActive={isActive} instanceId="secondary" />
+          </div>
           {mountedRightPanes.has('mindmap') && (
-            <div className="h-full" style={{ display: rightPane === 'mindmap' ? 'block' : 'none' }}>
+            <div className="h-full min-w-0 border-l border-black/5 dark:border-white/5" style={{ display: rightPane === 'mindmap' ? 'flex' : 'none', flex: 1 }}>
               <WorkbenchMindmapPanel />
             </div>
           )}
         </div>
 
         {/* 当拖拽工作区文件且 AI 侧边栏未展开时，右侧显示展开停靠感应区（绝对浮层，避免挤压中间编辑器导致抖动） */}
-        {draggingNodes && rightPane !== 'ai' && (
+        {draggingNodes && rightPane !== 'ai' && !isAiSidebar2Open && (
           <div
             onDragOver={(e) => {
               e.preventDefault()

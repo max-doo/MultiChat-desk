@@ -380,7 +380,7 @@ export default function WorkbenchToolbar(): JSX.Element {
               title="展开侧边栏"
               aria-label="展开侧边栏"
             >
-              <AppIcon name="left_panel_open" size={16} />
+              <AppIcon name="left_panel_open" size={20} />
             </button>
             <div className="w-[1px] h-4 bg-black/10 dark:bg-white/10 mx-1 shrink-0" />
           </>

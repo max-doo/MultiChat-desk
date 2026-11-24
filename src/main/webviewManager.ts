@@ -1445,9 +1445,9 @@ export async function handleWebviewContextMenuAction(
                 if (selectedText) {
                     showAndFocusWindow(owner)
                     if (owner === quickWindow) {
-                        owner.webContents.send('quick:ask-sidebar', selectedText)
+                        owner.webContents.send('quick:ask-sidebar', { text: selectedText, wcId: wc.id })
                     } else {
-                        owner.webContents.send('main:ask-sidebar', selectedText)
+                        owner.webContents.send('main:ask-sidebar', { text: selectedText, wcId: wc.id })
                     }
                 }
                 break

@@ -67,6 +67,7 @@ export function getRightPaneMaxWidth(
   const collapsed = isLeftCollapsed ?? state?.isLeftCollapsed ?? false
   const leftW = collapsed ? 0 : (leftWidth ?? state?.leftPaneWidth ?? 260)
   const splitters = collapsed ? 5 : 10
+  const dualAi = state?.isAiSidebar2Open ?? false
 
   // 窗口剩余空间计算：确保留足左栏、中栏保底和分割条，避免小窗下三栏硬性尺寸之和溢出被 overflow 截断
   const maxAllowedByWindow = Math.max(
@@ -82,7 +83,9 @@ export function getRightPaneMaxWidth(
     }
   }
 
-  return Math.min(tierMax, maxAllowedByWindow)
+  // 双 AI 侧边栏并排时总宽度允许翻倍，仍受窗口剩余空间约束
+  const paneMax = dualAi ? tierMax * 2 : tierMax
+  return Math.min(paneMax, maxAllowedByWindow)
 }
 
 /**
@@ -200,8 +203,10 @@ interface WorkbenchStoreState {
   /** 待生成的选区范围；由编辑器划词菜单写入，导图面板消费后清空。 */
   pendingMindmapSelection: { text: string; headingPath: string[] } | null
   /** 待打开的来源会话；笔记属性里的会话图标写入，AI 侧边栏消费后清空。 */
-  pendingConversationOpen: { platformId: string; url: string; token: number } | null
+  pendingConversationOpen: { platformId: string; url: string; token: number; target?: 'ai' | 'ai2' } | null
   sidebarModelId: string
+  sidebar2ModelId: string
+  isAiSidebar2Open: boolean
   editorMode: EditorMode
   /** WYSIWYG 预览模式正文栏宽：narrow≈640px / medium≈720px / wide≈880px */
   contentWidth: WorkbenchContentWidth
@@ -288,12 +293,16 @@ interface WorkbenchStoreActions {
   closeRightPane: () => void
   setPendingMindmapSelection: (selection: { text: string; headingPath: string[] } | null) => void
   openConversationInAiSidebar: (platformId: string, url: string) => void
+  openConversationInAiSidebar2: (platformId: string, url: string) => void
+  openAiSidebar2: () => void
+  closeAiSidebar2: () => void
   consumeConversationOpen: (token: number) => void
   setSidebarModelId: (modelId: string) => void
+  setSidebar2ModelId: (modelId: string) => void
   setEditorMode: (mode: EditorMode) => void
   setContentWidth: (width: WorkbenchContentWidth) => void
   setImageBackgroundTheme: (theme: ImageBackgroundTheme) => void
-  askAi: (text: string, actionType: WorkbenchAiAction) => void
+  askAi: (text: string, actionType: WorkbenchAiAction, target?: 'ai' | 'ai2') => void
   clearError: () => void
   showNotice: (message: string) => void
   clearNotice: () => void
@@ -583,6 +592,8 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   pendingMindmapSelection: null,
   pendingConversationOpen: null,
   sidebarModelId: 'chatgpt',
+  sidebar2ModelId: 'gemini',
+  isAiSidebar2Open: false,
   editorMode: 'wysiwyg',
   contentWidth: 'medium',
   documentAnnotationFlusher: null,
@@ -619,6 +630,8 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         savedRightPane,
         savedRightCollapsed,
         savedSidebarModel,
+        savedSidebar2Model,
+        savedAiSidebar2Open,
         savedEditorMode,
         savedRecentWorkspaces,
         savedFileSort,
@@ -633,6 +646,8 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         window.api.storeGet('workbench_rightPane') as Promise<WorkbenchRightPane | null>,
         window.api.storeGet('workbench_isRightCollapsed') as Promise<boolean | null>,
         window.api.storeGet('workbench_sidebarModelId') as Promise<string | null>,
+        window.api.storeGet('workbench_sidebar2ModelId') as Promise<string | null>,
+        window.api.storeGet('workbench_isAiSidebar2Open') as Promise<boolean | null>,
         window.api.storeGet('workbench_editorMode') as Promise<EditorMode | null>,
         window.api.storeGet('workbench_recentWorkspaces') as Promise<string[] | null>,
         window.api.storeGet('workbench_fileSort') as Promise<WorkbenchSortPreference | null>,
@@ -670,6 +685,12 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       }
       if (typeof savedSidebarModel === 'string' && savedSidebarModel) {
         updates.sidebarModelId = savedSidebarModel
+      }
+      if (typeof savedSidebar2Model === 'string' && savedSidebar2Model) {
+        updates.sidebar2ModelId = savedSidebar2Model
+      }
+      if (typeof savedAiSidebar2Open === 'boolean') {
+        updates.isAiSidebar2Open = savedAiSidebar2Open
       }
       if (savedEditorMode === 'wysiwyg' || savedEditorMode === 'source') {
         updates.editorMode = savedEditorMode
@@ -2075,7 +2096,23 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
 
   openConversationInAiSidebar: (platformId, url) => {
     get().openRightPane('ai')
-    set({ pendingConversationOpen: { platformId, url, token: Date.now() } })
+    set({ pendingConversationOpen: { platformId, url, token: Date.now(), target: 'ai' } })
+  },
+
+  openConversationInAiSidebar2: (platformId, url) => {
+    set({ isAiSidebar2Open: true })
+    void window.api.storeSet('workbench_isAiSidebar2Open', true)
+    set({ pendingConversationOpen: { platformId, url, token: Date.now(), target: 'ai2' } })
+  },
+
+  openAiSidebar2: () => {
+    set({ isAiSidebar2Open: true })
+    void window.api.storeSet('workbench_isAiSidebar2Open', true)
+  },
+
+  closeAiSidebar2: () => {
+    set({ isAiSidebar2Open: false })
+    void window.api.storeSet('workbench_isAiSidebar2Open', false)
   },
 
   consumeConversationOpen: (token) =>
@@ -2086,6 +2123,11 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   setSidebarModelId: (modelId: string) => {
     set({ sidebarModelId: modelId })
     void window.api.storeSet('workbench_sidebarModelId', modelId)
+  },
+
+  setSidebar2ModelId: (modelId: string) => {
+    set({ sidebar2ModelId: modelId })
+    void window.api.storeSet('workbench_sidebar2ModelId', modelId)
   },
 
   setEditorMode: (mode: EditorMode) => {
@@ -2110,7 +2152,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     void window.api.storeSet('workbench_imageBackgroundTheme', theme)
   },
 
-  askAi: (text: string, actionType: WorkbenchAiAction) => {
+  askAi: (text: string, actionType: WorkbenchAiAction, target: 'ai' | 'ai2' = 'ai') => {
     const trimmed = text.trim()
     if (!trimmed) return
 
@@ -2131,15 +2173,19 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         break
     }
 
-    // 若右侧栏处于折叠状态，先自动展开
-    if (get().rightPane !== 'ai') {
+    // 若目标右侧栏处于折叠状态，先自动展开
+    if (target === 'ai2') {
+      if (!get().isAiSidebar2Open) {
+        get().openAiSidebar2()
+      }
+    } else if (get().rightPane !== 'ai') {
       get().openRightPane('ai')
     }
 
     // 通过 CustomEvent 通知 WorkbenchAiSidebar 注入文本
     window.dispatchEvent(
       new CustomEvent('workbench:insert-prompt', {
-        detail: { prompt: formattedPrompt }
+        detail: { prompt: formattedPrompt, target }
       })
     )
   },
@@ -2431,7 +2477,7 @@ if (typeof window !== 'undefined') {
     resizeRafId = window.requestAnimationFrame(() => {
       resizeRafId = null
       const current = useWorkbenchStore.getState()
-      if (!current.rightPane) return
+      if (!current.rightPane && !current.isAiSidebar2Open) return
       const maxAllowed = getRightPaneMaxWidth()
       if (current.rightPaneWidth > maxAllowed) {
         useWorkbenchStore.setState({ rightPaneWidth: maxAllowed })
