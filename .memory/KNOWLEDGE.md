@@ -46,6 +46,8 @@ Long-term reusable lessons, durable decisions, and recurring project gotchas. Do
 
 - **AutomationStep 的菜单入口不一定是 button**：Qwen 是 `div.mode-select-open[role="button"]`，Gemini 是 `TOOLBOX-DRAWER-ITEM`，ChatGPT 菜单项是无 role 的 `<button>`；先查真实 tag/role，再写复合选择器。验收应在 iab 按 step 顺序 evaluate、点击、下一步，模拟整条链，不能只验证单个 selector。iab 用 `mcp__cua_repl__js` 的 `cua.listTabs/getTab/createBrowserTab` 驱动，`tab.playwright.evaluate` 只读 DOM，`tab.playwright.waitForEvent('download')` 可验证下载触发。iab 不共享 `persist:shared` 登录态；spawn 的子 agent 没有独立 iab 浏览器面，CUA 工作要由持有会话的 agent 执行。
 
+- **图生图两条独立坑：附件没进编辑器 + 生图模式没开**：①`generatePasteFileUploadScript` 的合成 paste 事件只能落在 contenteditable/`role=textbox` 类编辑器上——命中纯 `<textarea>` 时 `clipboardData` 里的 File 被静默丢弃，附件根本没进输入框；豆包 `textarea` 首选选择器命中的是真实 `textarea.semi-input-textarea`，而图片监听挂在并存的 contenteditable 编辑器上，需在该脚本里对兄弟/同级 contenteditable 编辑器兜底再派发一次（就近优先、排除 input/deepEditor、限前几个）。②`genImage` 任务除 `captureGeneratedImage` 产物捕获外，还必须显式开生图模式——`AgentTaskService.execute` 原只调了 deep_research 分支的 `generateEnableDeepResearchScript`，漏调 `generateEnableImageGenerationScript(imageGeneration)`；豆包等平台必须先点"生图"技能项进入生图上下文，否则即使附件传上去也只是普通附件不出图。
+
 ### 工作台编辑器
 
 - **受控与非受控混用时不要监听内部 markdown 反向同步**：组件同时接受 `initialMarkdown` 和内部编辑状态时，如果把内部 `markdown` 放进 effect 依赖，任何内部更新都会被判定为与外部不同并触发强制回滚。同步只应由外部显式变更触发；hover 操作按钮还要避免父子之间出现事件空隙导致 hover 闪退。
@@ -433,6 +435,10 @@ Long-term reusable lessons, durable decisions, and recurring project gotchas. Do
 - **AgentCard 的 cwd/workspacePath 同步 effect 是跨工作区会话"点击无反应"的根因**：`agentSessionStore.resumeSession` 恢复一条 `cwd` ≠ 当前 `workspacePath` 的会话后，`AgentCard` 顶部两个 effect 检测到分叉会 `newSession()` 把刚恢复的消息清空，表现为历史 popover 点了没反应。跨工作区恢复的正确顺序必须是「先 `setWorkspaceFolder` → 等 effect 把会话重置到新工作区 draft → 再 `resumeSession`」，且工作区切换与 `resumeSession` 的 `set({messages})` 之间存在 React 调度竞态——需用 ref 标记「本次切换是为了 resume 该 cwd 的会话」让 effect1 跳过 draft 重置。回看失效工作区会话的豁免标志（`foreignReview`）必须放 `agentSessionStore` 共享，不能放组件 state：两个 AI 侧栏实例各自挂 `AgentCard` 时，组件内标志会导致一侧进入回看后被另一侧的同步 effect 清空共享 `messages`。
 
 - **pi 消息自带 `timestamp`/`durationMs`，直接透传不要自己计时**：`AssistantMessage`/`UserMessage` 都有 `timestamp`（请求/创建时间，毫秒）和 `durationMs`（该轮响应耗时，monotonic clock 测量）。`message_start`/`message_update`/`message_end` 事件的 `event.message` 以及 `resumeSession` 返回的 `rawData.messages` 都携带这两个字段，渲染层只需要在 `PiRawMessage`/`AgentMessage` 上加透传字段即可，不需要自己在 `turn_start`/`turn_end` 上打点。
+
+- **工作台 `image_gen` 落盘到哪个 `.multichat/image/` 取决于是否传 `artifactDir`**：`agentTaskService.submit` 不传 `artifactDir` 时回退到应用数据目录 `.multichat/`（`getDataPath()/.multichat/`）；只有显式传 `artifactDir`（绝对路径的产物根）才会落到该目录的 `image/`、`results/` 子目录。要让生图进用户工作区，需把会话 `cwd`（工作台 root）作为 `<cwd>/.multichat` 传给 `artifactDir`；注意 `artifactDir` 是产物根而不是图片目录本身，`AgentTaskService.artifactDirs()` 会再拼 `/image`、`/results`。`.multichat/image/` 已在 `gitignoreService` 的 `APP_STATE_PATTERNS` 中被忽略，不会污染工作区 git。
+
+- **会话列表项的运行态标注必须取"后端快照 ∪ 本地事件 set"的并集**：`agentSessionStore` 里 `sessions[].isRunning`（来自 `agentListSessions` IPC 快照）与 `runningSessionIds`（`agent_start`/`agent_end` 事件实时维护）是两个不同步的来源——`agent_start` 不触发 `fetchSessions`，而后端 `listSessions` 的 `active.isRunning` 也可能滞后于事件到达。合并规则：`item.isRunning = backend.isRunning || running.has(id)`，同时把后端报告 running 但本地 set 缺失的 id 回填进 set（否则 `setSessionId`/`resumeSession` 派生的顶层 `isRunning` 在"侧栏挂载前已在跑"的会话上会丢状态）。三个生命周期事件（`agent_start`/`agent_end`/`auto_retry_end`）还要同步刷 `sessions` 列表项，不等下一次 fetch。UI 侧打开历史菜单时主动 `fetchSessions()` 一次兜底"新跑起来但从未进过列表"的条目。
 ### 原型与视觉验收
 
 - **用 `innerHTML` 重建含 `id` 的子节点后，后续渲染不能再引用旧节点**：自包含 HTML 原型中，如果渲染函数先写入容器 `innerHTML`，之后再按旧 `id` 查询该容器内的节点，首次渲染可能成功，但切换文档、新增标注等第二次渲染会得到 `null` 并中断交互。修复应删除冗余的旧节点引用，或始终在重建完成后重新查询；验收不能只截首屏，还要实际触发一次文档切换或数据更新后的重渲染。

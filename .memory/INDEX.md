@@ -10,7 +10,7 @@
 |---|---|---|---|
 | `webview-capture` | selectors.ts、webviewScripts.ts、contenteditable、Slate、CodeMirror、回复采集、整段对话、快照、虚拟代码框 | ### Webview 采集与平台自动化 | 先确认当前 DOM 与调用链；采集结果要区分未完成和解析失败 |
 | `webview-platform` | 平台改版、豆包、千问、工作台回复按钮、generateInsertReplyButtonScript、messageContainer、item-icon、sr-only、selectorDiagnostics | ### Webview 采集与平台自动化 | 平台 DOM、选择器语义与注入定位；改选择器时检查前台总结、后台导图和整段对话三条链路 |
-| `image-download` | imageDownload、clickDownloadButtons、generateExtractImagesScript、--gen-image、生图容器、message_image_content | ### Webview 采集与平台自动化 | 图片下载和生图提取；优先语义 hook，保留 click 失败后的 extract 兜底 |
+| `image-download` | imageDownload、clickDownloadButtons、generateExtractImagesScript、--gen-image、生图容器、message_image_content、imageGeneration、generatePasteFileUploadScript | ### Webview 采集与平台自动化 | 图片下载和生图提取；优先语义 hook，保留 click 失败后的 extract 兜底 |
 | `deep-research` | Deep Research、iframe、CDP、OOPIF、iab、AutomationStep、研究模式 | ### Webview 采集与平台自动化 | 提取能力边界与平台入口；排查经验不等于已验收产品能力 |
 | `workbench-editor` | Lexical、MarkdownSyncPlugin、CodeNode、AutoLinkNode、LinkNode、GFM 表格、HTML 表格、HTML 标注、annotation、anchorRevision、unlocated、reanchor、block.start、pendingCreateRef、DraggableBlockPlugin、WorkbenchHtmlVisualEditor、preserveFocus、allow-same-origin、postMessage | ### 工作台编辑器 | 编辑器导入、序列化、HTML 隔离编辑与标注；注释锚点生命周期、实时调色焦点和写盘安全也要核对 |
 | `react-state` | useState、useMemo、useCallback、callback ref、闭包、ResizeObserver、共享抽屉、TDZ、HMR | ### React 状态与组件生命周期 | 按实际时序选择状态方案；组件挂载和父级提交时序要单独核对 |
@@ -27,7 +27,7 @@
 | `build-verify` | electron.vite.config、electron-builder、NSIS、installer.nsh、winCodeSign、混淆、is.dev、ELECTRON_RUN_AS_NODE、tsc、extraResources、Dock 图标、ERR_PACKAGE_PATH_NOT_EXPORTED、pi-coding-agent、pnpm install、EPERM | ### 构建、打包与验证 | 构建不等于类型检查或桌面验收；平台和版本经验需核对当前环境 |
 | `historical` | Electron 28、Chromium 120、ScriptProcessorNode、WebContentsView、summaryApi、useSummaryPanel、generate-summary | ### 历史架构与版本限定 | 只在明确追溯旧架构或已授权工作中加载 |
 | `prototype-verification` | docs/prototypes、自包含 HTML、innerHTML、视觉验收、重渲染、截图 | ### 原型与视觉验收 | 首屏截图之外必须验证切换、重复渲染和窄屏分支 |
-| `agent-sidebar` | AgentCard、WorkbenchAiSidebar、assistant-ui、makeAssistantToolUI、pi-coding-agent、PermissionEngine、AgentSessionService、timestamp、durationMs | ### 本地 Agent 与 AI 侧边栏 | 本地 Agent 运行时、工具渲染、权限引擎与 AuiProvider 上下文边界 |
+| `agent-sidebar` | AgentCard、WorkbenchAiSidebar、assistant-ui、makeAssistantToolUI、pi-coding-agent、PermissionEngine、AgentSessionService、timestamp、durationMs、image_gen、artifactDir | ### 本地 Agent 与 AI 侧边栏 | 本地 Agent 运行时、工具渲染、权限引擎与 AuiProvider 上下文边界 |
 
 需要近期上下文时读 SESSION_LOG；只有追溯更早会话才读 `.memory/sessions/` 对应日期。既有脚本只提示缺少路由的三级标题，不检查 INDEX 缺失、触发词质量或反向失效条目；维护时需确认章节标题与表格一致。
 

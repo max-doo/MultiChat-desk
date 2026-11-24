@@ -2,6 +2,335 @@
 
 ## 2026-11-24
 
+### 22:56 | Codex
+
+- done: 修复文件发送到 agent 侧边栏后，删除 chip/@ 再发同一文件被吞的 bug
+- decision: 删除 seenUploadRegistry 黑名单机制；mentionFile 自身的 attachments+@token 双重判重已足够处理回声，registry 引入永久拦截副作用
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
+  - `src/renderer/src/store/agentSessionStore.ts`
+- lesson: 按会话 key 的'已发送'登记器容易把'用户撤销后的合法重发'误判为回声；判重应该基于当前 UI 事实（attachments/composerInput）而不是历史事件登记
+
+### 22:56 | Codex
+
+- done: 代码预览顶部栏在左侧栏收起时补一个展开按钮
+- context: WorkbenchCodePreview 顶部栏在 isLeftCollapsed 时无展开入口
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchCodePreview.tsx`
+
+### 22:52 | Codex
+
+- done: 修复双 AI 侧栏模式下手动拖拽左/右分割条与窗口缩放仍可把右栏压缩过窄的问题
+- context: 用户反馈开启双栏后仍能手动压缩到非常窄
+- decision: 将双栏右栏最小宽度 RIGHT_PANE_DUAL_MIN 设为 640（每栏 320），主窗口双栏最小宽度 MAIN_MIN_WIDTH_DUAL_AI 提到 1360（并按屏幕 workArea.width 钳制），并在 clampRightPaneWidth/getRightPaneMaxWidth/setLeftPaneWidth/toggleLeftCollapse/openAiSidebar2/resize 全链路按 isAiSidebar2Open 动态保留双栏下限
+- modified:
+  - `src/main/webviewManager.ts`
+  - `src/renderer/src/store/workbenchStore.ts`
+  - `src/renderer/src/pages/WorkbenchPage.tsx`
+- lesson: 只抬高 openAiSidebar2 的初始宽度不够，clampRightPaneWidth、setLeftPaneWidth、toggleLeftCollapse、resize 与 CSS maxWidth 都会反向挤压双栏；且 Tailwind 动态类名 min-w-[\px] 不会被 JIT 编译，必须用 inline style 才能真正生效
+
+### 22:41 | Codex
+
+- done: 修复双 AI 侧栏过窄+关不掉：根因是 rightPaneWidth 持久化单栏值 300，双栏两实例 flex:1 各分 150px；openAiSidebar2 把右栏容器抬到 RIGHT_PANE_DUAL_MIN=600，closeAiSidebar2 收回单栏上限，初始化恢复双栏时同样补齐 600；主实例双栏按钮改为 toggle（isAiSidebar2Open 时关闭）
+- modified:
+  - `src/renderer/src/store/workbenchStore.ts`
+  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
+  - `src/main/ipcHandlers.ts`
+- lesson: 工作台右栏 rightPaneWidth 是整个容器宽而非单栏宽，双 AI 并排时两栏 flex:1 共享该值；开双栏必须把容器宽抬到每栏下限之和，否则下限再高的窗口 minWidth 也救不了 150px 竖排。store 的 getRightPaneMaxWidth 内部读 isAiSidebar2Open，调整顺序必须先 set 状态再算上限
+
+### 22:33 | Codex
+
+- done: 双侧 AI 侧栏模式下动态抬高主窗口最小宽度：新增 setMainWindowDualAiMinWidth（单栏 1100/双栏 1340），store-set 挂钩 workbench_isAiSidebar2Open，新增 window-set-dual-ai-min-width IPC 供初始化同步，窗口过窄时自动回宽并钳在工作区内
+- modified:
+  - `src/main/webviewManager.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/src/store/workbenchStore.ts`
+- lesson: 主窗口最小宽度需要随工作台侧栏组合动态变化时，不要改固定 minWidth 常量，而是 setMinimumSize 动态调整 + 持久化 key 的 store-set 联动 + 初始化显式同步通道，三条路径缺一不可（切换、启动恢复、运行时变更）
+
+### 22:28 | Antigravity
+
+- done: 统一 AI 侧边栏 Agent 卡片右上角操作按钮间距与尺寸规范
+- modified:
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+
+### 22:11 | Codex
+
+- done: web-ai-mode-design.md 终审收敛：4调研+5审核worker交叉修订，修正registerApiProvider注入/configured判据/会话抢占硬约束/transcript归属/搜索生图口径等6处，终审确认可交付
+- decision: 终审确认路线A registerApiProvider为最小侵入正路；平台会话抢占升级为共享per-platform锁硬约束；transcript归Pi SessionManager不落streamFn
+- modified:
+  - `docs/web-ai-mode-design.md`
+- unresolved: 各平台实际可选模型清单随套餐灰度变动，需M1用pnpm dev webview注入generateListModelsScript逐站实测后再写死
+
+### 22:10 | Codex
+
+- done: 调研并输出工作台 Agent Web AI 模式开发方案：WAA 可迁移资产审计 + 五平台 DOM 缺口 + Pi registerApiProvider 分流架构 + 多 worker 交叉审核修订
+- context: 用户要求为本地 Agent 新增免 API 的 Web AI 模式（登录网页版即可用），一期 GPT/Gemini/元宝/豆包/千问，复用侧边栏换运行内核，搜索生图沿用 WAA
+- decision: 采纳路线A：registerApiProvider({api:'web',streamSimple:WebAiStreamFn}) 挂进 ModelRegistry，createAgentSession 不动；否决路线B（上游分叉 AgentRuntimeBackend）
+- added:
+  - `docs/web-ai-mode-design.md`
+- lesson: Pi 自定义 api 的最小注入点是 registerApiProvider 而非给 createAgentSession 传 agent；登录态过滤必须在 buildProviders 投影层做，getAvailableSnapshot 只看 configured 不看网页登录态
+
+### 21:52 | Codex
+
+- done: 供应商设置：magpie与自定义供应商支持编辑端点baseUrl；override写入models.json并refresh生效
+- modified:
+  - `src/main/services/AgentSessionService.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/src/types/agent.ts`
+  - `src/renderer/src/store/agentSessionStore.ts`
+  - `src/renderer/src/components/workbench/agent/AgentProviderSettings.tsx`
+  - `src/shared/types/agentRuntime.ts`
+
+### 21:46 | Codex
+
+- done: chip 与输入框 @token 双向同步 + 修复上传去重误报：removeAttachment/clearAttachments 同步 removeFileMention 清输入框；setComposerInput 按 extractMentionTokens+mentionTokenMatchesPath 反向对账附件；全部重复(回声)静默吞掉、部分新鲜才提示
+- context: agent composer chip sync dedup toast
+- modified:
+  - `src/renderer/src/components/workbench/agent/filePathUtils.ts`
+  - `src/renderer/src/store/agentSessionStore.ts`
+  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
+- lesson: 去重提示要区分'全部重复(同事件回声)'与'部分重复(真新增)'：全部命中时静默 return，部分命中才 toast；输入框 @token 与 attachments 互为镜像，任何一侧的删除都要同步到另一侧
+
+### 21:45 | Antigravity
+
+- done: 优化历史记录抽屉(HistoryDrawer)视觉尺寸，对齐DESIGN.md规范将标题、搜索框、Tab与元信息收敛至text-body/text-label/text-caption语义token，缩减padding与图标尺寸
+- context: 用户反馈历史记录侧边栏整体UI偏大；排查发现标题因缺省字号继承了全局body的17px，Header为p-6，卡片内边距及多模型头像(24px)过大
+- decision: 严格复用DESIGN.md的7档字号token(text-body 14px、text-label 12px、text-caption 11px、text-title 19px、text-tiny 10px)，Header收敛至p-4，卡片调整至p-3，头像调为20px(h-5 w-5)，保持w-[500px]抽屉宽度同时提升信息密度
+- modified:
+  - `src/renderer/src/components/HistoryDrawer.tsx`
+
+### 21:44 | Codex
+
+- done: Agent配置弹窗供应商模型列表默认收起，点击展开/收起，修复全展开卡死
+- modified:
+  - `src/renderer/src/components/workbench/agent/AgentProviderSettings.tsx`
+
+### 21:43 | Codex
+
+- done: 工作台 Agent 输入框支持直接粘贴图片：textarea onPaste 捕获 image/* 剪贴板项转 dataUrl 存入新 imageAttachments，输入框上方显示 12x12 缩略图可删除；发送时经 IPC 传 images[] 给主进程，AgentSessionService 走 pi 原生 prompt({images}) 通道；用户气泡上方渲染 message.content 中 image parts（本地 dataUrl/会话恢复 base64 统一归一化）；空文本仅图片也可发送（给 pi 传空格兜底）
+- context: pi AgentSession.prompt 原生支持 images: ImageContent[]（base64+mimeType），粘贴路径与文件附件分离：图片走 imageAttachments 独立通道不拼 @path
+- decision: 图片以 dataUrl 存 zustand 内存态不落临时文件，发送时剥前缀传纯 base64；用户消息气泡在正文上方渲染 image parts，会话恢复时 convertPiContentParts 把 pi 的 image part 归一化为 dataUrl
+- modified:
+  - `src/renderer/src/types/agent.ts`
+  - `src/preload/index.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/main/services/AgentSessionService.ts`
+  - `src/renderer/src/store/agentSessionStore.ts`
+  - `src/renderer/src/components/workbench/agent/AgentComposer.tsx`
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+
+### 21:41 | Codex
+
+- done: 修复上传去重误报：sidebar 双实例(ai/ai2)共享同一 window 事件导致同一次拖入被二次处理并提示'重复的文件已跳过'；引入跨实例 seenUploadRegistry 按 sessionId/cwd 登记，发送后 prompt 统一清空
+- context: workbench dual-sidebar upload dedup toast false-positive
+- modified:
+  - `src/renderer/src/store/agentSessionStore.ts`
+  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
+  - `src/renderer/src/components/workbench/agent/filePathUtils.ts`
+- lesson: 工作台 AI 侧边栏在页面上挂载了主/副两个实例（instanceKey=ai/ai2），均监听同一全局 window CustomEvent；实例内 dedupe 无法识别对方已处理，跨实例副作用必须用模块级共享 registry 才能去重
+
+### 21:36 | Antigravity
+
+- done: 工作台 Agent 对话历史浮层体验升级：提升整体字阶（标题14px、副信息11px）、加宽至320px，将滚动列表最大高度限制扩大至 380px，彻底摆脱局促感
+- modified:
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+
+### 21:34 | Codex
+
+- done: 弹窗次级按钮补边框，避免与面板底色融为一体
+- modified:
+  - `src/renderer/src/components/ConfirmModal.tsx`
+  - `src/renderer/src/components/ImportCacheConfirmModal.tsx`
+- lesson: ConfirmModal 取消按钮曾漏写 border，bg-sidebar(半透明白) 叠在 bg-app(#fcfdff) 上几乎不可见；次按钮规范是 border + bg-sidebar + hover:bg-gray-100
+
+### 21:28 | Antigravity
+
+- done: 工作台 Agent 对话历史浮层增加方案二紧凑搜索栏：Header 下方内嵌轻量搜索行，支持即时过滤当前与外部工作区会话并带一键清空
+- modified:
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+  - `src/renderer/src/components/HistoryDrawer.tsx`
+
+### 21:26 | Codex
+
+- done: 工作台发文件到 AI 去重：webview 侧批内按绝对路径去重+上传前按文件名过滤页面已有附件；Agent 侧 mentionFile/addAttachment/prompt 三处按归一化路径+@token 去重，重复触发不再重复插入或附加
+- context: workbench uploadFilesToCurrentModel, agentSessionStore mentionFile/prompt, generateFileUploadStateScript
+- modified:
+  - `src/renderer/src/components/workbench/agent/filePathUtils.ts`
+  - `src/renderer/src/store/agentSessionStore.ts`
+  - `src/renderer/src/components/workbench/agent/AgentComposer.tsx`
+  - `src/shared/utils/webviewScripts.ts`
+  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
+- lesson: webview 侧上传前用 generateFileUploadStateScript 传文件名数组做 matched/missing 检测；Agent 侧 token 同时可能以相对路径或绝对路径出现，需用同一归一化规则判定
+
+### 21:22 | Codex
+
+- done: 修复 mention chip 点击后文件树不高亮：根因是 toWorkspaceRelative 用 normalizePath(lowercase) 后的路径 slice 返回，openFile 设的 activeFilePath 是全小写，与文件树 node.path 的真实大小写严格相等比较失败。双修：(1) filePathUtils.toWorkspaceRelative 改用原始路径切片保留大小写，normalizePath 仅作前缀比较；(2) AttachmentChips/InlineMentionText 点击时先用 findTreePathByAbs 在 fileTree 按大小写不敏感匹配真实 node.path，命中则 openFile(node.path)，未命中再回退 toWorkspaceRelative/revealFile，覆盖 token 大小写与磁盘不一致的边缘场景
+- modified:
+  - `src/renderer/src/components/workbench/agent/filePathUtils.ts`
+  - `src/renderer/src/components/workbench/agent/AttachmentChips.tsx`
+- lesson: 路径比较函数如果顺手做了 lowercase 归一，返回值不能直接当事实路径用——openFile/activeFilePath 与文件树 node.path 是严格字符串相等匹配，大小写差异会让高亮静默失效；凡是要回写进 store 的路径都必须保留原始大小写，归一只能用于比较
+
+### 21:22 | Codex
+
+- done: 追加消息从 followUp 改为 steer（下一个 turn 边界注入，不再等 final answer 跑完）
+- context: 用户实测发现追加要等上一轮 final answer 输出完才执行
+- decision: pi-agent-core agent-loop.js: steering 每轮 turn_end 后 poll、下个 LLM 请求前注入（回合边界插队）；followUp 要等内层 loop 完全退出才 poll（agent 决定停下才注入）。用户预期'追加'=steer 语义
+- modified:
+  - `src/renderer/src/store/agentSessionStore.ts`
+  - `src/main/services/AgentSessionService.ts`
+- lesson: pi steer vs followUp：steer=turn 边界插队（不打断流式），followUp=整个 run 结束才投递。交互式'追加要求'场景用 steer
+
+### 21:22 | Antigravity
+
+- done: 微调工作台 Agent 对话历史浮层：将标题前对话 icon 调整为与文字保持一致的灰度色，去除任何彩色高亮
+- modified:
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+
+### 21:19 | Antigravity
+
+- done: 优化 Agent 底层对话框选中流光效果：弱化外层与羽化光晕强度，降低扩散半径，放缓旋转与呼吸节奏
+- decision: 保留全色系 Conic-gradient 流光特征，但将弥散外层 blur 从 12px 收紧至 8px、inset 从 -5px 降至 -3px；将峰值透明度从 0.85 压低至 0.38（暗色 0.46），旋转与呼吸周期分别拉长至 6.5s 和 4.5s，使光效克制、柔和且不抢占视觉焦点
+- modified:
+  - `src/renderer/src/assets/index.css`
+  - `src/renderer/src/components/workbench/agent/AgentComposer.tsx`
+
+### 21:19 | Antigravity
+
+- done: 工作台 Agent 对话历史浮层重构：无点无描边极简、其他工作区默认折叠并固定在 Footer、强调新对话按钮并在标题前增加对话图标
+- context: 优化工作台 Agent 历史浮层交互与视觉体验
+- decision: 浮层设为 flex-col，主体滚动当前工作区，其他工作区折叠收拢并固定在底部 Footer，标题前放置 chat 图标，新对话按钮使用强调微按钮
+- modified:
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+
+### 21:17 | Codex
+
+- done: 把用户消息气泡里的 @path 引用从外部 chip 改成内联 chip：AttachmentChips.tsx 新增 InlineMentionText 组件，splitMentionSegments 把 userText 切成 text/mention 段、@token 就地渲染成可点击 chip（含文件名+图标，蓝底白字样式），同 resolved 路径的重复 token（prompt 自动拼接的 @absPath）按重复吞掉并 trim 尾部孤白；AgentCard user 气泡用 InlineMentionText 替换纯文本渲染，删除外部 AttachmentChips 块与 extractMentionedFilePaths
+- decision: token 末尾定位剥掉 TRAILING_PUNCT_RE 后的 @token 本体（如 @path，的逗号归普通文本），避免标点被吞或 chip 名带标点
+- modified:
+  - `src/renderer/src/components/workbench/agent/AttachmentChips.tsx`
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+
+### 21:05 | Codex
+
+- done: Agent 消息气泡显示拖入/@ 引用的文件附件：新增 store.mentionFile 统一'addAttachment+插入@token'，WorkbenchAiSidebar local-agent 上传分支与 AgentComposer '+'按钮改用之；AgentComposer 容器新增 onDrop/onDragOver 处理工作区节点/外部文件/text-plain 三种 payload；AttachmentChips 新增 extractMentionedFilePaths(text,cwd) 从 userText 提取 @path token 并按 cwd 归一去重；AgentCard user 气泡下方渲染 AttachmentChips（恢复会话/旧消息同样生效，无需改 IPC）；顺手修复 AttachmentChips INLINE_PATH_RE 的 no-useless-escape lint 报错
+- decision: user 消息附件不落 AgentMessage 字段：attachments 已通过 prompt 拼接的 @absPath 持久化进 pi text，气泡渲染端正则提取即可，新消息与 resume 恢复的旧消息走同一条链路
+- modified:
+  - `src/renderer/src/store/agentSessionStore.ts`
+  - `src/renderer/src/components/workbench/agent/AgentComposer.tsx`
+  - `src/renderer/src/components/workbench/agent/AttachmentChips.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+- lesson: Agent 侧边栏有 z-40 全屏拖拽感应层，composer 上的 onDrop 实际不触发，真正入口是 WorkbenchAiSidebar.handleDrop→uploadFilesToCurrentModel 的 local-agent 分支；composer 仅作兜底
+
+### 20:50 | Codex
+
+- done: 修复 review worker 发现的队列逻辑 bug
+- decision: 队列按 sessionId 隔离（Record）；主进程 prompt 兜底 isStreaming→followUp；queued user 按位置(最早 running)翻转不按文本；clearQueue 挪到 abort 成功之后；agent_end/agent_settled 兜底清 chip；LocalAgentEvent 联合类型替代 Record<string,unknown>
+- modified:
+  - `src/main/services/AgentSessionService.ts`
+  - `src/renderer/src/store/agentSessionStore.ts`
+  - `src/renderer/src/components/workbench/agent/AgentComposer.tsx`
+
+### 20:46 | Codex
+
+- done: Agent 运行中追加要求（follow-up 队列）
+- context: pi-coding-agent 原生支持 steer/followUp/clearQueue/queue_update；与 Codex/Claude Code/Cursor 的队列模型一致
+- decision: 运行中 prompt 走 streamingBehavior='followUp' 排队；abort 时 clearQueue 把未投递文本经 queue_cleared 事件回填到 composer；queue_update 事件驱动 chip 展示
+- modified:
+  - `src/main/services/AgentSessionService.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/src/types/agent.ts`
+  - `src/renderer/src/store/agentSessionStore.ts`
+  - `src/renderer/src/components/workbench/agent/AgentComposer.tsx`
+
+### 20:39 | Codex
+
+- done: 修复工作台 Agent 历史对话菜单不显示正在跑的任务标注：fetchSessions 合并 isRunning 取后端快照与本地 runningSessionIds 并集并回填 set；agent_start/agent_end/auto_retry_end 事件即时同步 sessions 列表项 isRunning；打开历史菜单时主动 fetchSessions 刷新。
+- modified:
+  - `src/renderer/src/store/agentSessionStore.ts`
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+- lesson(promoted): 列表项的运行态标注若同时存在'后端快照'和'事件驱动本地 set'两个来源，必须用并集合并，否则时序竞争会让标注丢失。
+
+### 20:35 | Codex
+
+- done: 修复工作台 image_gen 图生图上传失败：①paste 脚本在 textarea 命中时向并存 contenteditable 编辑器兜底派发；②AgentTaskService.execute 补开生图模式（generateEnableImageGenerationScript）
+- modified:
+  - `src/shared/utils/webviewScripts.ts;src/main/services/AgentTaskService.ts`
+- lesson(promoted): AI 平台图片上传的 paste 合成事件只能落在 contenteditable/role=textbox 类编辑器上——命中纯 textarea 时 File 对象被静默丢弃；豆包 textarea 首选命中的是真实 textarea 而非并存 contenteditable，故图片根本未进编辑器。genImage 任务除产物捕获外还必须显式开生图模式（imageGeneration.steps），否则平台不会把附件当参考图。
+
+### 20:31 | Codex
+
+- done: 取消工作台 .multichat 硬编码隐藏并交由 .gitignore 控制（含非 Git 工作区兜底），为 .multichat 及其 image/mindmap/annotation 子目录增加专属图标
+- modified:
+  - `src/main/services/gitignoreService.ts`
+  - `src/main/services/workbenchService.ts`
+  - `src/renderer/src/components/workbench/WorkbenchWorkspaceSettings.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+
+### 20:25 | Codex
+
+- done: 附件Chip兜底增强：extractInlineFilePaths扫描正文任意位置绝对路径（反引号/句中/列表项均可），URL用lookbehind排除
+- decision: 双层兜底：工具structuredContent为主，正文内联绝对路径兜底覆盖shell/脚本/忘加反引号场景
+- modified:
+  - `src/renderer/src/components/workbench/agent/AttachmentChips.tsx`
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+
+### 20:22 | Codex
+
+- done: 附件Chip数据源收敛：只从工具结果收集，不再解析正文路径；提示词改为反引号标记不限位置
+- decision: Chip可靠性优先：工具structuredContent驱动而非模型文本解析；反引号约定仅用于正文可读性，不作Chip数据源
+- modified:
+  - `src/renderer/src/components/workbench/agent/AttachmentChips.tsx`
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+  - `src/main/extensions/systemPromptTrim.ts`
+  - `src/main/services/imageGenTool.ts`
+- lesson: 路径呈现要分层：正文汇报交给模型自然语言（反引号标记增强可读），打开附件交给工具数据驱动——两层解耦比要求模型输出特定格式更稳
+
+### 20:17 | Codex
+
+- done: 附件Chip去重：extractFilePaths返回cleanText剔除纯路径行，正文Markdown不再重复显示路径
+- decision: Chip与正文职责分离：路径行只作Chip数据源不进Markdown渲染，复制按钮仍用原文保留完整文本
+- modified:
+  - `src/renderer/src/components/workbench/agent/AttachmentChips.tsx`
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+
+### 20:16 | Codex
+
+- done: 修复工作台 Agent 对话流在多轮工具调用及命令审批间隙误触发已完成的问题
+- decision: 将最新工作段的 isGroupRunning 与会话级 isRunning 及当前会话 pendingApprovals 绑定，并用 firstMsg.id 稳定工作段挂载键；在 agentSessionStore 同步 isRunning、忽略 willRetry 为 true 的中间 agent_end、补齐 auto_retry_end 兜底并修复 turn_end 先于 agent_end 置 complete 导致 turnDurationMs 漏记的问题
+- modified:
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+  - `src/renderer/src/store/agentSessionStore.ts`
+- unresolved: 需在 pnpm run dev 桌面端实际运行一次包含读文档与命令审批的多轮 Agent 任务做人工验收
+
+### 20:15 | Codex
+
+- done: 给工作台 image_gen 工具加 images 参数支持图生图/参考改图
+- modified:
+  - `src/main/services/imageGenTool.ts`
+
+### 20:10 | Codex
+
+- done: Agent最终回复附件Chips：路径文本提取+工具结果兜底，点击openFile/agentRevealFile；系统提示词追加File & Artifact Reporting约定
+- decision: 不用结构化attachments块，改为渲染层从最终回复独占一行的路径提取+工具structuredContent兜底，降低对模型遵守度的依赖
+- added:
+  - `src/renderer/src/components/workbench/agent/AttachmentChips.tsx`
+- modified:
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+  - `src/main/extensions/systemPromptTrim.ts`
+  - `src/main/services/imageGenTool.ts`
+- lesson: 提示词约定要轻：让模型继续自然语言汇报，把可点击化交给渲染层，比要求模型输出特定标签格式更稳
+
+### 20:07 | Codex
+
+- done: 修正工作台 image_gen 生图落盘位置：默认从应用数据目录改为会话工作区 .multichat/image/
+- modified:
+  - `src/main/services/imageGenTool.ts;src/main/services/AgentSessionService.ts;src/main/services/permissionPolicy.ts`
+- lesson(promoted): image_gen 工具经 agentTaskService.submit 提交任务时未传 artifactDir，导致落盘回退到应用数据 .multichat/；把会话 cwd 透传为 artifactDir 即可让图片落到工作区。注意 artifactDir 是产物根（服务内自拼 /image、/results），应传 <cwd>/.multichat 而非 <cwd>/.multichat/image。
+
 ### 19:51 | Codex
 
 - done: WorkPhaseBlock 默认收起：running 时不再自动展开（进度由标题 shimmer + 动态动作表达），完成后保持收起；加 userToggled ref 记住手动操作，状态变化不抢展开状态
