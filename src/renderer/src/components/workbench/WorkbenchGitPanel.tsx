@@ -347,7 +347,7 @@ export default function WorkbenchGitPanel({
                     type="button"
                     onClick={() => void gitAbortMerge()}
                     disabled={isGitBusy}
-                    className="mt-2 h-7 w-full rounded-md bg-amber-500/90 text-[11px] font-medium text-white hover:bg-amber-500 disabled:opacity-50"
+                    className="mt-2 h-7 w-full rounded-md bg-amber-500/90 text-caption font-medium text-white hover:bg-amber-500 disabled:opacity-50"
                   >
                     撤销本次拉取
                   </button>
@@ -355,7 +355,7 @@ export default function WorkbenchGitPanel({
               )}
 
               {hasLargeUntracked && (
-                <div className="mx-3 mt-3 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-[11px] leading-relaxed text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+                <div className="mx-3 mt-3 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-caption leading-relaxed text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
                   <div className="flex items-center gap-1.5 font-medium">
                     <AppIcon name="warning" size={14} />
                     <span>{status.largeUntracked.length} 个未跟踪文件超过 50 MB</span>
@@ -369,7 +369,7 @@ export default function WorkbenchGitPanel({
                       setIsOpen(false)
                       onOpenWorkspaceSettings()
                     }}
-                    className="mt-1.5 h-6 rounded-md bg-amber-500/90 px-2 text-[11px] font-medium text-white hover:bg-amber-500"
+                    className="mt-1.5 h-6 rounded-md bg-amber-500/90 px-2 text-caption font-medium text-white hover:bg-amber-500"
                   >
                     去忽略
                   </button>
@@ -390,14 +390,14 @@ export default function WorkbenchGitPanel({
                           {badge.label}
                         </span>
                         <span className="truncate flex-1 text-text-primary">{change.path.split('/').pop()}</span>
-                        <span className="max-w-[45%] shrink-0 truncate text-[10px] text-text-secondary/70">
+                        <span className="max-w-[45%] shrink-0 truncate text-tiny text-text-secondary/70">
                           {change.path.includes('/') ? change.path.slice(0, change.path.lastIndexOf('/')) : ''}
                         </span>
                       </div>
                     )
                   })}
                   {status.changesTruncated && (
-                    <div className="px-1.5 py-1 text-[11px] text-text-secondary">仅显示前 500 项</div>
+                    <div className="px-1.5 py-1 text-caption text-text-secondary">仅显示前 500 项</div>
                   )}
                 </div>
               ) : (
@@ -434,7 +434,7 @@ export default function WorkbenchGitPanel({
                     type="button"
                     onClick={() => void (diverged ? handleMerge() : handlePull())}
                     disabled={isGitBusy || isSyncing || !status.upstream}
-                    className="flex h-7 flex-1 items-center justify-center gap-1 rounded-md border border-black/10 text-[11px] text-text-primary hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/10 dark:hover:bg-white/5"
+                    className="flex h-7 flex-1 items-center justify-center gap-1 rounded-md border border-black/10 text-caption text-text-primary hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/10 dark:hover:bg-white/5"
                     title={
                       !status.upstream
                         ? '尚未关联远程分支'
@@ -454,7 +454,7 @@ export default function WorkbenchGitPanel({
                     type="button"
                     onClick={() => void handlePush()}
                     disabled={isGitBusy || isSyncing || status.detached || status.unborn || (!status.hasRemote && !status.upstream)}
-                    className="flex h-7 flex-1 items-center justify-center gap-1 rounded-md border border-black/10 text-[11px] text-text-primary hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/10 dark:hover:bg-white/5"
+                    className="flex h-7 flex-1 items-center justify-center gap-1 rounded-md border border-black/10 text-caption text-text-primary hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/10 dark:hover:bg-white/5"
                     title={
                       !status.hasRemote && !status.upstream
                         ? '尚未配置远程仓库，可在工作区设置中填写地址'
@@ -478,7 +478,7 @@ export default function WorkbenchGitPanel({
                       setIsOpen(false)
                       onOpenWorkspaceSettings()
                     }}
-                    className="mt-1.5 h-7 w-full rounded-md text-[11px] text-primary hover:bg-primary/5"
+                    className="mt-1.5 h-7 w-full rounded-md text-caption text-primary hover:bg-primary/5"
                   >
                     设置远程仓库
                   </button>
@@ -489,7 +489,7 @@ export default function WorkbenchGitPanel({
 
           {gitNotice && (
             <div
-              className={`flex items-start gap-1.5 border-t px-3 py-2 text-[11px] leading-relaxed ${
+              className={`flex items-start gap-1.5 border-t px-3 py-2 text-caption leading-relaxed ${
                 gitNotice.tone === 'error'
                   ? 'border-rose-100 bg-rose-50 text-rose-700 dark:border-rose-500/20 dark:bg-rose-500/10 dark:text-rose-300'
                   : gitNotice.tone === 'warning'

@@ -48,12 +48,12 @@ export default function AboutSection(): JSX.Element {
         <span className="text-text-primary text-sm font-medium flex items-center gap-2 truncate">
           检查新版本
           {hasUpdate && (
-            <span className="text-red-500 text-[10px] bg-red-50 px-1.5 py-0.5 rounded-full border border-red-200 font-medium whitespace-nowrap">
+            <span className="text-red-500 text-tiny bg-red-50 px-1.5 py-0.5 rounded-full border border-red-200 font-medium whitespace-nowrap">
               发现新版本 v{state.result?.latestVersion}
             </span>
           )}
         </span>
-        <span className={`text-[10px] truncate ${state.status === 'error' ? 'text-red-500' : 'text-text-secondary'}`}>
+        <span className={`text-tiny truncate ${state.status === 'error' ? 'text-red-500' : 'text-text-secondary'}`}>
           当前版本 v{currentVersion || state.result?.currentVersion || '—'} · {statusText}
         </span>
       </div>

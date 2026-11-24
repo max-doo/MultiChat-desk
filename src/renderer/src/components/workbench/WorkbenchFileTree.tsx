@@ -490,7 +490,7 @@ export default function WorkbenchFileTree(): JSX.Element {
     }
 
     if (/[\\/:*?"<>|]/.test(trimmed)) {
-      useWorkbenchStore.setState({ error: '名称不能包含 \\ / : * ? " < > |' })
+      useWorkbenchStore.setState({ error: '名称不能包含 \\ / : * ?" < > |' })
       return
     }
 
@@ -930,7 +930,7 @@ export default function WorkbenchFileTree(): JSX.Element {
                 ? 'attachment'
                 : isExpanded
                 ? 'folder_open'
-                : 'folder'} size={19} className={`text-[19px] shrink-0 ${isManagedAssetsDir ? 'text-slate-400' : 'text-amber-500'}`} />
+                : 'folder'} size={19} className={`shrink-0 ${isManagedAssetsDir ? 'text-slate-400' : 'text-amber-500'}`} />
             {isRenaming ? (
               <input
                 ref={renameInputRef}
@@ -1006,7 +1006,7 @@ export default function WorkbenchFileTree(): JSX.Element {
         }`}
       >
         {MARKDOWN_EXTENSIONS.has((node.extension || '').toLowerCase()) || IMAGE_EXTENSIONS.has((node.extension || '').toLowerCase()) || (node.extension || '').toLowerCase() === '.svg' ? (
-          <AppIcon name={getNodeIcon(node).icon} size={19} className={`text-[19px] shrink-0 ${getNodeIcon(node).color}`} />
+          <AppIcon name={getNodeIcon(node).icon} size={19} className={`shrink-0 ${getNodeIcon(node).color}`} />
         ) : (
           <FileTypeIcon node={node} className="w-[19px] h-[19px] shrink-0" />
         )}
@@ -1057,7 +1057,7 @@ export default function WorkbenchFileTree(): JSX.Element {
         {!isFile && (
           <span className="w-[19px] h-[19px] shrink-0" />
         )}
-        <AppIcon name={isFile ? 'description' : 'folder'} size={19} className={`text-[19px] shrink-0 ${
+        <AppIcon name={isFile ? 'description' : 'folder'} size={19} className={`shrink-0 ${
           isFile ? 'text-blue-500 dark:text-blue-400' : 'text-amber-500'
         }`} />
         <input
@@ -1194,7 +1194,7 @@ export default function WorkbenchFileTree(): JSX.Element {
             className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors"
             title="刷新目录"
           >
-            <AppIcon name="refresh" size={20} className={`text-[20px] ${isRefreshing || isLoadingTree ? 'animate-spin' : ''}`} />
+            <AppIcon name="refresh" size={20} className={`${isRefreshing || isLoadingTree ? 'animate-spin' : ''}`} />
           </button>
         </div>
 

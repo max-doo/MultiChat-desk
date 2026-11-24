@@ -651,7 +651,7 @@ export default function WorkbenchDocxPreview(): JSX.Element {
                 onClick={() => runAction(menu.text, item.action)}
                 className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-text-primary hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
               >
-                <AppIcon name={item.icon} size={19} className={`text-[19px] ${item.color}`} />
+                <AppIcon name={item.icon} size={19} className={`${item.color}`} />
                 <span className="font-medium">{item.label}</span>
               </button>
             ))}

@@ -55,7 +55,7 @@ export default function MindmapSidebarView({
             <button
               type="button"
               onClick={() => setSource('local')}
-              className="flex items-center gap-1 px-2 py-1 rounded-md text-xs sm:text-[13px] text-text-secondary hover:text-primary hover:bg-gray-100 transition-colors no-drag shrink-0"
+              className="flex items-center gap-1 px-2 py-1 rounded-md text-xs sm:text-body text-text-secondary hover:text-primary hover:bg-gray-100 transition-colors no-drag shrink-0"
               title="返回本地导图"
             >
               <AppIcon name="arrow_back" size={16} />

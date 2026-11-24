@@ -197,7 +197,7 @@ export default function WorkbenchFindReplaceBar({
   const pos = total === 0 ? 0 : currentIdx >= 0 ? currentIdx + 1 : 1
 
   const btnBase =
-    'h-6 px-1.5 flex items-center justify-center rounded text-[12px] transition-colors'
+    'h-6 px-1.5 flex items-center justify-center rounded text-label transition-colors'
   const iconBtn =
     'w-6 h-6 flex items-center justify-center rounded text-text-secondary hover:text-text-primary hover:bg-black/10 dark:hover:bg-white/10'
   const toggleBtn = (on: boolean) =>
@@ -218,9 +218,9 @@ export default function WorkbenchFindReplaceBar({
           onKeyDown={handleFindKeyDown}
           placeholder="查找"
           spellCheck={false}
-          className="w-44 h-6 px-1.5 rounded bg-black/5 dark:bg-white/5 text-[12px] text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-1 focus:ring-primary/40"
+          className="w-44 h-6 px-1.5 rounded bg-black/5 dark:bg-white/5 text-label text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-1 focus:ring-primary/40"
         />
-        <span className={`w-12 text-center text-[11px] tabular-nums ${total === 0 && query ? 'text-rose-500' : 'text-text-secondary'}`}>
+        <span className={`w-12 text-center text-caption tabular-nums ${total === 0 && query ? 'text-rose-500' : 'text-text-secondary'}`}>
           {total === 0 ? (query ? '无结果' : '') : `${pos}/${total}`}
         </span>
         <button type="button" onClick={goPrev} disabled={total === 0} className={iconBtn} title="上一个 (Shift+Enter)">
@@ -260,7 +260,7 @@ export default function WorkbenchFindReplaceBar({
           onKeyDown={handleReplaceKeyDown}
           placeholder="替换为"
           spellCheck={false}
-          className="w-44 h-6 px-1.5 rounded bg-black/5 dark:bg-white/5 text-[12px] text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-1 focus:ring-primary/40"
+          className="w-44 h-6 px-1.5 rounded bg-black/5 dark:bg-white/5 text-label text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-1 focus:ring-primary/40"
         />
         <button
           type="button"

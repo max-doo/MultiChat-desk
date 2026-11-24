@@ -274,7 +274,7 @@ export default function WorkbenchPage({ isActive = true }: WorkbenchPageProps): 
           >
             <div className="flex flex-col items-center gap-2 text-primary font-medium text-xs select-none p-2 text-center pointer-events-none">
               <AppIcon name="smart_toy" size={20} className="animate-bounce" />
-              <span className="[writing-mode:vertical-lr] tracking-widest text-[11px]">展开 AI 侧边栏</span>
+              <span className="[writing-mode:vertical-lr] tracking-widest text-caption">展开 AI 侧边栏</span>
             </div>
           </div>
         )}

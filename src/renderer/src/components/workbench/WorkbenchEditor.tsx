@@ -530,7 +530,7 @@ export default function WorkbenchEditor(): JSX.Element {
                   />
                 }
                 placeholder={
-                  <div className="absolute top-0 left-0 text-gray-400 dark:text-gray-500 text-[16px] pointer-events-none select-none">
+                  <div className="absolute top-0 left-0 text-gray-400 dark:text-gray-500 text-body-lg pointer-events-none select-none">
                     输入 Markdown 或富文本内容，支持使用 #、-、&gt; 等即时补全语法...
                   </div>
                 }

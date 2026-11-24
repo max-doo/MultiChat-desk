@@ -355,7 +355,7 @@ const WorkbenchSourceEditor = forwardRef<
   }
 
   return (
-    <div className="workbench-source-editor flex-1 flex overflow-hidden bg-white dark:bg-gray-900 font-mono text-[13px]">
+    <div className="workbench-source-editor flex-1 flex overflow-hidden bg-white dark:bg-gray-900 font-mono text-body">
       {/* 行号槽 */}
       <div
         ref={gutterRef}

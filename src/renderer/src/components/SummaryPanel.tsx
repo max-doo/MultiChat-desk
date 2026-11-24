@@ -421,7 +421,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
                     <div className="flex flex-col items-start gap-0.5">
                       <div className="whitespace-nowrap">{option.label}</div>
                       {option.description && (
-                        <div className={`text-[11px] ${isSelected ? 'text-primary/70' : 'text-gray-500'}`}>
+                        <div className={`text-caption ${isSelected ? 'text-primary/70' : 'text-gray-500'}`}>
                           {option.description}
                         </div>
                       )}
@@ -488,19 +488,19 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
                   disabled={sendDisabled}
                   className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-all duration-200 ${
                     sendDisabled
-                      ? "bg-gray-100 text-gray-400 cursor-not-allowed"
-                      : "bg-primary text-white hover:bg-blue-600 shadow-sm active:scale-95"
+                      ?"bg-gray-100 text-gray-400 cursor-not-allowed"
+                      :"bg-primary text-white hover:bg-blue-600 shadow-sm active:scale-95"
                   }`}
                   title={
                     webviewSummary.isGenerating
-                      ? "正在注入..."
+                      ?"正在注入..."
                       : selectedModels.length === 0
-                        ? "请至少选择一个模型"
-                        : "注入到 Webview"
+                        ?"请至少选择一个模型"
+                        :"注入到 Webview"
                   }
                   aria-label="注入到 Webview"
                 >
-                  <AppIcon name={webviewSummary.isGenerating ? "sync" : "arrow_upward"} size={18} className={`text-[18px] ${webviewSummary.isGenerating ? "animate-spin" : ""}`} />
+                  <AppIcon name={webviewSummary.isGenerating ?"sync" :"arrow_upward"} size={18} className={`${webviewSummary.isGenerating ?"animate-spin" :""}`} />
                 </button>
               )}
             </div>

@@ -216,7 +216,7 @@ function WorkbenchEquationComponent({
             className="w-full h-20 resize-y rounded-md border border-gray-300 dark:border-gray-600 bg-transparent px-2 py-1 font-mono text-xs text-text-primary focus:outline-none focus:ring-1 focus:ring-primary/40"
             spellCheck={false}
           />
-          <div className="mt-1 flex items-center justify-between text-[10px] text-text-secondary">
+          <div className="mt-1 flex items-center justify-between text-tiny text-text-secondary">
             <span className="flex items-center gap-1">
               <AppIcon name="function" size={12} />
               LaTeX · Enter 保存 / Esc 取消
@@ -225,7 +225,7 @@ function WorkbenchEquationComponent({
               type="button"
               onMouseDown={(e) => e.preventDefault()}
               onClick={commitEdit}
-              className="px-2 py-0.5 rounded bg-primary text-white text-[10px] hover:opacity-90"
+              className="px-2 py-0.5 rounded bg-primary text-white text-tiny hover:opacity-90"
             >
               保存
             </button>

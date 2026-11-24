@@ -255,7 +255,7 @@ function WorkbenchImageComponent({
             >
               <AppIcon name="open_in_new" size={14} />
             </button>
-            <span className="px-1 font-mono text-[10px] max-w-[200px] truncate" title={src}>
+            <span className="px-1 font-mono text-tiny max-w-[200px] truncate" title={src}>
               {src}
             </span>
           </div>

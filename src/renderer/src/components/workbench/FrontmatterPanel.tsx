@@ -571,7 +571,7 @@ export default function FrontmatterPanel({ frontmatter, filePath, onChange }: Pr
       className="mb-4"
       data-frontmatter-panel="true"
     >
-      <div className="w-full flex items-center gap-1.5 px-0 pt-0 pb-1.5 text-[12px] font-medium text-gray-400 dark:text-gray-500">
+      <div className="w-full flex items-center gap-1.5 px-0 pt-0 pb-1.5 text-label font-medium text-gray-400 dark:text-gray-500">
         <button
           type="button"
           onClick={() => setCollapsed((v) => !v)}
@@ -580,7 +580,7 @@ export default function FrontmatterPanel({ frontmatter, filePath, onChange }: Pr
           <AppIcon name={collapsed ? 'chevron_right' : 'expand_more'} size={16} />
           笔记属性
           {hasVisibleFields && (
-            <span className="ml-auto text-[11px] font-normal opacity-70">
+            <span className="ml-auto text-caption font-normal opacity-70">
               {visibleFieldOrder.length}
             </span>
           )}
@@ -607,12 +607,12 @@ export default function FrontmatterPanel({ frontmatter, filePath, onChange }: Pr
         <div className="pb-1">
           {isConversationDoc && (
             <div className="group flex items-center gap-3 min-h-[28px] rounded-md -mx-1 px-1">
-              <div className="flex items-center gap-1.5 w-32 shrink-0 text-[13px] text-gray-500 dark:text-gray-400">
+              <div className="flex items-center gap-1.5 w-32 shrink-0 text-body text-gray-500 dark:text-gray-400">
                 <AppIcon name="article" size={15} className="opacity-60" />
                 文档类型
               </div>
               <div className="flex-1 min-w-0 flex items-center gap-2">
-                <span className="text-[13px] text-text-primary">
+                <span className="text-body text-text-primary">
                   会话
                 </span>
               </div>
@@ -620,7 +620,7 @@ export default function FrontmatterPanel({ frontmatter, filePath, onChange }: Pr
                 <button
                   type="button"
                   onClick={() => setConvertConfirmOpen(true)}
-                  className="shrink-0 text-[12px] text-gray-400 hover:text-text-primary dark:text-gray-500 dark:hover:text-gray-200 transition-colors"
+                  className="shrink-0 text-label text-gray-400 hover:text-text-primary dark:text-gray-500 dark:hover:text-gray-200 transition-colors"
                 >
                   转为普通文档
                 </button>
@@ -661,7 +661,7 @@ export default function FrontmatterPanel({ frontmatter, filePath, onChange }: Pr
                       }`}
                     >
                   {/* 左列：图标 + 点击可重命名的 key */}
-                  <dt className="flex items-center gap-1.5 w-32 shrink-0 text-[13px] text-gray-500 dark:text-gray-400">
+                  <dt className="flex items-center gap-1.5 w-32 shrink-0 text-body text-gray-500 dark:text-gray-400">
                     <AppIcon name={icon(f)} size={15} className="opacity-60" />
                     {editingKeyIdx === idx && canEditKey ? (
                       <input
@@ -674,7 +674,7 @@ export default function FrontmatterPanel({ frontmatter, filePath, onChange }: Pr
                           if (e.key === 'Enter') commitKeyRename(idx)
                           if (e.key === 'Escape') setEditingKeyIdx(null)
                         }}
-                        className="w-full min-w-0 bg-white dark:bg-gray-800 border border-primary/50 rounded px-1 py-0 text-[12.5px] text-text-primary focus:outline-none focus:border-primary"
+                        className="w-full min-w-0 bg-white dark:bg-gray-800 border border-primary/50 rounded px-1 py-0 text-label text-text-primary focus:outline-none focus:border-primary"
                       />
                     ) : canEditKey ? (
                       <button
@@ -700,7 +700,7 @@ export default function FrontmatterPanel({ frontmatter, filePath, onChange }: Pr
                         {parseTagsFromFrontmatterValue(f.value).map((tag) => (
                           <span
                             key={tag}
-                            className="inline-flex items-center gap-1 px-2 py-[2px] rounded-md bg-violet-500/10 text-violet-600 dark:text-violet-300 text-[12.5px] leading-5 select-none"
+                            className="inline-flex items-center gap-1 px-2 py-[2px] rounded-md bg-violet-500/10 text-violet-600 dark:text-violet-300 text-label leading-5 select-none"
                           >
                             {tag}
                             <button
@@ -797,7 +797,7 @@ export default function FrontmatterPanel({ frontmatter, filePath, onChange }: Pr
                               }, 150)
                             }}
                             placeholder={f.value ? '' : '添加标签 (输入关键词匹配已有标签)'}
-                            className="w-full bg-transparent text-[13px] text-text-primary placeholder:text-gray-400/70 focus:outline-none"
+                            className="w-full bg-transparent text-body text-text-primary placeholder:text-gray-400/70 focus:outline-none"
                           />
 
                           {/* 标签自动补全下拉建议列表 */}
@@ -811,7 +811,7 @@ export default function FrontmatterPanel({ frontmatter, filePath, onChange }: Pr
                               >
                                 {currentTagSuggestions.length > 0 && (
                                   <>
-                                    <div className="px-2.5 py-1 text-[10.5px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
+                                    <div className="px-2.5 py-1 text-tiny font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
                                       {(tagDrafts[idx] || '').trim() ? '匹配已有标签' : '推荐标签'}
                                     </div>
                                     {currentTagSuggestions.map((item, sIdx) => {
@@ -851,7 +851,7 @@ export default function FrontmatterPanel({ frontmatter, filePath, onChange }: Pr
                                               <span className="truncate">{item.tag}</span>
                                             )}
                                           </div>
-                                          <span className="ml-2 shrink-0 px-1.5 py-0.2 rounded-full text-[10px] bg-black/5 dark:bg-white/10 text-gray-500 dark:text-gray-400">
+                                          <span className="ml-2 shrink-0 px-1.5 py-0.2 rounded-full text-tiny bg-black/5 dark:bg-white/10 text-gray-500 dark:text-gray-400">
                                             {item.count}
                                           </span>
                                         </div>
@@ -884,7 +884,7 @@ export default function FrontmatterPanel({ frontmatter, filePath, onChange }: Pr
                                           {normalizeTag(tagDrafts[idx] || '')}
                                         </span>
                                       </span>
-                                      <span className="text-[10px] opacity-60 ml-1">按空格/回车</span>
+                                      <span className="text-tiny opacity-60 ml-1">按空格/回车</span>
                                     </div>
                                   )}
                               </div>
@@ -911,7 +911,7 @@ export default function FrontmatterPanel({ frontmatter, filePath, onChange }: Pr
                           }
                         }}
                         placeholder="空"
-                        className="flex-1 min-w-[80px] bg-transparent text-[13px] text-text-primary placeholder:text-gray-400/70 focus:outline-none"
+                        className="flex-1 min-w-[80px] bg-transparent text-body text-text-primary placeholder:text-gray-400/70 focus:outline-none"
                       />
                     ) : isDateField(f.key) && formatDateValue(f.value) !== f.value ? (
                       <button
@@ -920,7 +920,7 @@ export default function FrontmatterPanel({ frontmatter, filePath, onChange }: Pr
                         onClick={() => {
                           if (canEditValue) startUrlEdit(idx, f.value)
                         }}
-                        className={`min-w-0 flex-1 truncate text-left text-[13px] text-text-primary ${
+                        className={`min-w-0 flex-1 truncate text-left text-body text-text-primary ${
                           canEditValue ? 'hover:text-primary' : 'cursor-default'
                         }`}
                       >
@@ -946,7 +946,7 @@ export default function FrontmatterPanel({ frontmatter, filePath, onChange }: Pr
                                   target="_blank"
                                   rel="noreferrer"
                                   title={item}
-                                  className="min-w-0 truncate text-[13px] text-primary hover:underline"
+                                  className="min-w-0 truncate text-body text-primary hover:underline"
                                 >
                                   {item}
                                 </a>
@@ -1000,7 +1000,7 @@ export default function FrontmatterPanel({ frontmatter, filePath, onChange }: Pr
                             e.preventDefault()
                             if (canEditValue) startUrlEdit(idx, f.value)
                           }}
-                          className={`min-w-0 truncate text-left text-[13px] text-primary ${
+                          className={`min-w-0 truncate text-left text-body text-primary ${
                             canEditValue ? 'hover:underline cursor-text' : 'cursor-default'
                           }`}
                         >
@@ -1036,7 +1036,7 @@ export default function FrontmatterPanel({ frontmatter, filePath, onChange }: Pr
                       </span>
                     ) : role === 'identity' && !f.complex ? (
                       <span
-                        className="min-w-0 flex-1 truncate text-[13px] text-text-secondary"
+                        className="min-w-0 flex-1 truncate text-body text-text-secondary"
                         title={f.value || undefined}
                       >
                         {f.value || '—'}
@@ -1050,11 +1050,11 @@ export default function FrontmatterPanel({ frontmatter, filePath, onChange }: Pr
                         }}
                         onBlur={() => setEditingUrlIdx(null)}
                         placeholder="空"
-                        className="flex-1 min-w-[80px] bg-transparent text-[13px] text-text-primary placeholder:text-gray-400/70 focus:outline-none"
+                        className="flex-1 min-w-[80px] bg-transparent text-body text-text-primary placeholder:text-gray-400/70 focus:outline-none"
                       />
                     ) : (
                       <span
-                        className="min-w-0 flex-1 truncate text-[13px] text-text-primary"
+                        className="min-w-0 flex-1 truncate text-body text-text-primary"
                         title={f.complex ? '嵌套结构，请在源码模式编辑' : undefined}
                       >
                         {f.complex ? '嵌套结构' : f.value || '—'}
@@ -1087,7 +1087,7 @@ export default function FrontmatterPanel({ frontmatter, filePath, onChange }: Pr
             <button
               type="button"
               onClick={() => setShowTechnical((value) => !value)}
-              className={`flex items-center gap-1 text-[12px] text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors ${
+              className={`flex items-center gap-1 text-label text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors ${
                 hasVisibleFields ? 'mt-1.5' : 'py-1'
               }`}
             >
@@ -1114,14 +1114,14 @@ export default function FrontmatterPanel({ frontmatter, filePath, onChange }: Pr
                   }
                 }}
                 placeholder="属性名"
-                className="flex-1 bg-white dark:bg-gray-800 border border-primary/50 rounded px-2 py-0.5 text-[12.5px] text-text-primary focus:outline-none focus:border-primary"
+                className="flex-1 bg-white dark:bg-gray-800 border border-primary/50 rounded px-2 py-0.5 text-label text-text-primary focus:outline-none focus:border-primary"
               />
             </div>
           ) : (
             <button
               type="button"
               onClick={() => setAdding(true)}
-              className={`flex items-center gap-1 text-[12px] text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors ${
+              className={`flex items-center gap-1 text-label text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors ${
                 hasVisibleFields ? 'mt-1.5' : 'py-1'
               }`}
             >

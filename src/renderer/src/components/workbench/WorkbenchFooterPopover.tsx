@@ -89,7 +89,7 @@ export function WorkbenchFooterPopoverHeader({
           {title}
         </div>
         {subtitle && (
-          <div className="truncate text-[11px] text-text-secondary" title={subtitle}>
+          <div className="truncate text-caption text-text-secondary" title={subtitle}>
             {subtitle}
           </div>
         )}

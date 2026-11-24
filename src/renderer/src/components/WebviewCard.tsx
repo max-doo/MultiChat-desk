@@ -652,7 +652,7 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
                         sourceAnnotations.refresh()
                       }
                     }}
-                    className="text-[11px] text-rose-500 hover:underline"
+                    className="text-caption text-rose-500 hover:underline"
                   >
                     删除标注
                   </button>
@@ -661,7 +661,7 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
               document.body
             )}
           {sourceAnnotations.error && (
-            <div className="absolute bottom-3 left-3 z-30 rounded-lg bg-rose-500/90 px-3 py-1.5 text-[11px] text-white shadow-lg">
+            <div className="absolute bottom-3 left-3 z-30 rounded-lg bg-rose-500/90 px-3 py-1.5 text-caption text-white shadow-lg">
               {sourceAnnotations.error}
             </div>
           )}

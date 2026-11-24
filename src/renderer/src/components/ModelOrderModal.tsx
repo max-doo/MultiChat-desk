@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useAppStore, DEFAULT_MODEL_ORDER, type ModelConfig } from '../store/appStore'
 import { AppIcon } from './icons/AppIcon'
+import Modal, { ModalHeader, ModalFooter } from './ui/Modal'
 
 interface ModelOrderModalProps {
   isOpen: boolean
@@ -23,8 +24,6 @@ export default function ModelOrderModal({ isOpen, onClose }: ModelOrderModalProp
       setDragOverIndex(null)
     }
   }, [isOpen, models])
-
-  if (!isOpen) return null
 
   const handleDragStart = (e: React.DragEvent<HTMLDivElement>, index: number): void => {
     setDraggedIndex(index)
@@ -92,35 +91,16 @@ export default function ModelOrderModal({ isOpen, onClose }: ModelOrderModalProp
   }
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-      {/* 遮罩层 */}
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+    <Modal open={isOpen} onClose={onClose} size="lg" variant="glass">
+      <ModalHeader
+        title="模型下拉列表排序"
+        subtitle="拖拽调整模型在窗口卡片及各下拉菜单中的顺序，常用模型可排在前面"
+        icon="swap_vert"
+        onClose={onClose}
+      />
 
-      {/* 弹窗主体 */}
-      <div className="relative w-full max-w-lg max-h-[85vh] glass-panel-heavy rounded-2xl shadow-float flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-        {/* 头部 */}
-        <div className="flex items-center justify-between p-4 border-b border-white/60">
-          <div className="flex items-center gap-2.5">
-            <AppIcon name="swap_vert" size={24} className="text-primary" />
-            <div>
-              <h3 className="text-base font-semibold text-text-primary">模型下拉列表排序</h3>
-              <p className="text-xs text-text-secondary mt-0.5">
-                拖拽调整模型在窗口卡片及各下拉菜单中的顺序，常用模型可排在前面
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded-full text-text-secondary hover:text-text-primary hover:bg-black/5 transition-colors"
-            title="关闭"
-          >
-            <AppIcon name="close" />
-          </button>
-        </div>
-
-        {/* 列表内容 */}
-        <div className="flex-1 p-4 overflow-y-auto space-y-2 select-none">
+      {/* 列表内容 */}
+      <div className="flex-1 space-y-2 overflow-y-auto p-4 select-none">
           {orderedList.map((model, index) => {
             const isDragging = draggedIndex === index
             const isDragOver = dragOverIndex === index && draggedIndex !== index
@@ -192,25 +172,24 @@ export default function ModelOrderModal({ isOpen, onClose }: ModelOrderModalProp
           })}
         </div>
 
-        {/* 底部操作栏 */}
-        <div className="flex items-center justify-between p-4 border-t border-white/60 bg-white/40">
-          <button
-            type="button"
-            onClick={handleResetDefault}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium text-text-secondary hover:text-primary hover:bg-black/5 transition-colors"
-          >
-            <AppIcon name="restart_alt" size={14} />
-            恢复默认排序
-          </button>
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-5 py-2 rounded-full bg-primary text-white font-medium shadow-soft hover:opacity-90 transition-all text-sm"
-          >
-            完成
-          </button>
-        </div>
-      </div>
-    </div>
+      {/* 底部操作栏 */}
+      <ModalFooter className="justify-between border-white/60 bg-white/40">
+        <button
+          type="button"
+          onClick={handleResetDefault}
+          className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-label font-medium text-text-secondary transition-colors hover:bg-black/5 hover:text-primary"
+        >
+          <AppIcon name="restart_alt" size={14} />
+          恢复默认排序
+        </button>
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-full bg-primary px-5 py-2 text-body font-medium text-white shadow-soft transition-all hover:opacity-90"
+        >
+          完成
+        </button>
+      </ModalFooter>
+    </Modal>
   )
 }

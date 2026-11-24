@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useAppStore, DEFAULT_PRODUCT_MODE_CONFIG, type ProductMode, type ProductModeConfig } from '../store/appStore'
 import { AppIcon } from './icons/AppIcon'
+import Modal, { ModalHeader, ModalFooter } from './ui/Modal'
 
 interface ProductModeOrderModalProps {
   isOpen: boolean
@@ -32,8 +33,6 @@ export default function ProductModeOrderModal({ isOpen, onClose }: ProductModeOr
       setDragOverIndex(null)
     }
   }, [isOpen, productModeConfig])
-
-  if (!isOpen) return null
 
   const commit = (order: ProductMode[], hidden: ProductMode[]): void => {
     const next: ProductModeConfig = { order, hidden }
@@ -102,35 +101,16 @@ export default function ProductModeOrderModal({ isOpen, onClose }: ProductModeOr
   const visibleCount = orderedList.length - hiddenList.length
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-      {/* 遮罩层 */}
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+    <Modal open={isOpen} onClose={onClose} size="lg" variant="glass">
+      <ModalHeader
+        title="主页模式设置"
+        subtitle="调整标题栏模式切换的顺序与显示，至少保留两个"
+        icon="view_column_2"
+        onClose={onClose}
+      />
 
-      {/* 弹窗主体 */}
-      <div className="relative w-full max-w-lg max-h-[85vh] glass-panel-heavy rounded-2xl shadow-float flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-        {/* 头部 */}
-        <div className="flex items-center justify-between p-4 border-b border-white/60">
-          <div className="flex items-center gap-2.5">
-            <AppIcon name="view_column_2" size={24} className="text-primary" />
-            <div>
-              <h3 className="text-base font-semibold text-text-primary">主页模式设置</h3>
-              <p className="text-xs text-text-secondary mt-0.5">
-                调整标题栏模式切换的顺序与显示，至少保留两个
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded-full text-text-secondary hover:text-text-primary hover:bg-black/5 transition-colors"
-            title="关闭"
-          >
-            <AppIcon name="close" />
-          </button>
-        </div>
-
-        {/* 列表内容 */}
-        <div className="flex-1 p-4 overflow-y-auto space-y-2 select-none">
+      {/* 列表内容 */}
+      <div className="flex-1 space-y-2 overflow-y-auto p-4 select-none">
           {orderedList.map((mode, index) => {
             const meta = MODE_META[mode]
             const isDragging = draggedIndex === index
@@ -164,7 +144,7 @@ export default function ProductModeOrderModal({ isOpen, onClose }: ProductModeOr
                     <span className={`text-sm font-medium truncate block ${isHidden ? 'text-text-secondary' : 'text-text-primary'}`}>
                       {meta.label}
                     </span>
-                    <span className="text-[11px] text-text-secondary/80 truncate block">
+                    <span className="text-caption text-text-secondary/80 truncate block">
                       {meta.description}
                     </span>
                   </div>
@@ -194,25 +174,24 @@ export default function ProductModeOrderModal({ isOpen, onClose }: ProductModeOr
           })}
         </div>
 
-        {/* 底部操作栏 */}
-        <div className="flex items-center justify-between p-4 border-t border-white/60 bg-white/40">
-          <button
-            type="button"
-            onClick={handleResetDefault}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium text-text-secondary hover:text-primary hover:bg-black/5 transition-colors"
-          >
-            <AppIcon name="restart_alt" size={14} />
-            恢复默认
-          </button>
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-5 py-2 rounded-full bg-primary text-white font-medium shadow-soft hover:opacity-90 transition-all text-sm"
-          >
-            完成
-          </button>
-        </div>
-      </div>
-    </div>
+      {/* 底部操作栏 */}
+      <ModalFooter className="justify-between border-white/60 bg-white/40">
+        <button
+          type="button"
+          onClick={handleResetDefault}
+          className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-label font-medium text-text-secondary transition-colors hover:bg-black/5 hover:text-primary"
+        >
+          <AppIcon name="restart_alt" size={14} />
+          恢复默认
+        </button>
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-full bg-primary px-5 py-2 text-body font-medium text-white shadow-soft transition-all hover:opacity-90"
+        >
+          完成
+        </button>
+      </ModalFooter>
+    </Modal>
   )
 }
