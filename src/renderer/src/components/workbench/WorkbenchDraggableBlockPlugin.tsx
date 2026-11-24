@@ -25,6 +25,8 @@ import {
 import { $createCodeNode } from '@lexical/code'
 import { INSERT_TABLE_COMMAND } from '@lexical/table'
 import { INSERT_HORIZONTAL_RULE_COMMAND } from '@lexical/react/LexicalHorizontalRuleNode'
+import { $createWorkbenchEquationNode } from './WorkbenchEquationNode'
+import WorkbenchEquationEditor from './WorkbenchEquationEditor'
 
 /**
  * 移植 playground DraggableBlockPlugin + ComponentPickerPlugin：
@@ -44,7 +46,12 @@ interface PickerOption {
   title: string
   icon: string
   keywords: string[]
-  onSelect: () => void
+  /**
+   * 默认由 selectOption 先在目标位置插入占位段落、把选区放进去再调用本回调；
+   * 返回 'defer-insert' 表示不走占位流程（例如需要先弹出编辑器的块类型），
+   * 由调用方在完成编辑后自行把节点插入 pickerState 指向的位置。
+   */
+  onSelect: () => 'defer-insert' | void
 }
 
 function isOnMenu(element: HTMLElement): boolean {
@@ -65,6 +72,7 @@ export default function WorkbenchDraggableBlockPlugin({
   const [isPickerOpen, setIsPickerOpen] = useState(false)
   const [highlightedIndex, setHighlightedIndex] = useState(0)
   const [pickerPosition, setPickerPosition] = useState<{ left: number; top: number } | null>(null)
+  const [equationEditor, setEquationEditor] = useState<{ anchorRect: DOMRect } | null>(null)
 
   const baseOptions = useMemo<PickerOption[]>(
     () => [
@@ -166,9 +174,26 @@ export default function WorkbenchDraggableBlockPlugin({
         icon: 'horizontal_rule',
         keywords: ['horizontal rule', 'divider', 'hr', '分割线'],
         onSelect: () => editor.dispatchCommand(INSERT_HORIZONTAL_RULE_COMMAND, undefined)
+      },
+      {
+        key: 'equation',
+        title: '公式块',
+        icon: 'function',
+        keywords: ['equation', 'formula', 'latex', 'katex', 'math', '公式', '数学'],
+        onSelect: () => {
+          // 与 SourceToolbar "插入公式"一致：先打开 LaTeX 编辑弹层，
+          // 保存时再把节点插入到 pickerState 指示的位置
+          // 弹层是 fixed 定位，锚点要用点击时计算好的 pickerPosition（页面坐标），
+          // 而不是 menuRef 的 transform 定位 rect（会跑到视口左上）
+          const anchorRect = pickerPosition
+            ? new DOMRect(pickerPosition.left, pickerPosition.top, 0, 0)
+            : (menuRef.current?.getBoundingClientRect() ?? new DOMRect(8, 8, 0, 0))
+          setEquationEditor({ anchorRect })
+          return 'defer-insert'
+        }
       }
     ],
-    [editor]
+    [editor, pickerPosition]
   )
 
   const options = baseOptions
@@ -201,6 +226,12 @@ export default function WorkbenchDraggableBlockPlugin({
         setIsPickerOpen(false)
         return
       }
+      // 需要延迟插入的选项（如公式块先弹编辑器），不走占位流程，直接调 onSelect
+      const result = option.onSelect()
+      if (result === 'defer-insert') {
+        setIsPickerOpen(false)
+        return
+      }
       setIsPickerOpen(false)
       editor.update(() => {
         const node = $getNodeByKey(pickerState.targetNodeKey)
@@ -214,7 +245,6 @@ export default function WorkbenchDraggableBlockPlugin({
           node.insertAfter(placeholder)
         }
         textNode.select()
-        option.onSelect()
         const latestPlaceholder = placeholder.getLatest()
         if ($isParagraphNode(latestPlaceholder)) {
           const onlyChild = latestPlaceholder.getFirstChild()
@@ -226,6 +256,25 @@ export default function WorkbenchDraggableBlockPlugin({
             latestPlaceholder.remove()
           }
         }
+      })
+    },
+    [editor, pickerState]
+  )
+
+  // 公式编辑器保存：把公式节点插入到 "+" 触发位置（pickerState.targetNodeKey 前后）
+  const applyEquation = useCallback(
+    (equation: string) => {
+      if (!pickerState) return
+      editor.update(() => {
+        const node = $getNodeByKey(pickerState.targetNodeKey)
+        if (!node) return
+        const equationNode = $createWorkbenchEquationNode(equation, false)
+        if (pickerState.insertBefore) {
+          node.insertBefore(equationNode)
+        } else {
+          node.insertAfter(equationNode)
+        }
+        equationNode.selectNext()
       })
     },
     [editor, pickerState]
@@ -293,7 +342,7 @@ export default function WorkbenchDraggableBlockPlugin({
         ? ReactDOM.createPortal(
             <div
               ref={pickerRef}
-              className="absolute z-50 w-56 rounded-xl bg-white dark:bg-gray-800 shadow-lg border border-black/10 dark:border-white/10 overflow-hidden text-sm"
+              className="absolute z-50 w-max min-w-40 max-w-64 whitespace-nowrap rounded-xl bg-white dark:bg-gray-800 shadow-lg border border-black/10 dark:border-white/10 overflow-hidden text-sm"
               style={{ left: pickerPosition.left, top: pickerPosition.top }}
             >
               <ul className="py-1 max-h-64 overflow-y-auto">
@@ -357,6 +406,19 @@ export default function WorkbenchDraggableBlockPlugin({
         isOnMenu={isOnMenu}
         onElementChanged={setDraggableElement}
       />
+
+      {equationEditor && (
+        <WorkbenchEquationEditor
+          anchorRect={equationEditor.anchorRect}
+          initialEquation=""
+          inline={false}
+          onApply={(equation) => {
+            applyEquation(equation)
+            setEquationEditor(null)
+          }}
+          onClose={() => setEquationEditor(null)}
+        />
+      )}
     </>
   )
 }

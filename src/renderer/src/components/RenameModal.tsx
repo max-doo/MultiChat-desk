@@ -57,6 +57,7 @@ function RenameModal({
         <div className="px-6 py-5">
           <input
             value={value}
+            maxLength={48}
             onChange={(e) => {
               setValue(e.target.value)
               if (error) setError('')

@@ -7,6 +7,8 @@ import type { HistoryItem, SummaryHistoryItem, HistoryKind, HistoryRecord, Histo
 
 export const DISK_LIMIT = 1000
 const STORAGE_VERSION = 1
+export const TITLE_MAX_LENGTH = 48
+const truncateTitle = (value: string): string => value.slice(0, TITLE_MAX_LENGTH)
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value)
 const strings = (value: unknown): value is string[] => Array.isArray(value) && value.every(item => typeof item === 'string')
 const textRecord = (value: unknown): boolean => object(value) && Object.values(value).every(item => typeof item === 'string')
@@ -17,7 +19,7 @@ export function normalizeHistory(value: unknown, kind: HistoryKind, index = 0): 
   if (kind === 'summary') {
     if (typeof value.title !== 'string' || !Array.isArray(value.messages) || !strings(value.selectedModels) || typeof value.timestamp !== 'number' || !Number.isFinite(value.timestamp)) throw new Error('总结历史格式无效')
     if (!value.messages.every(message => object(message) && (message.role === 'user' || message.role === 'assistant') && typeof message.content === 'string')) throw new Error('总结消息格式无效')
-    return { ...value, id } as unknown as SummaryHistoryItem
+    return { ...value, id, title: truncateTitle(value.title) } as unknown as SummaryHistoryItem
   }
   if (!strings(value.models)) throw new Error('对话模型格式无效')
   const timestamp = typeof value.timestamp === 'number' ? value.timestamp : 0
@@ -26,7 +28,7 @@ export function normalizeHistory(value: unknown, kind: HistoryKind, index = 0): 
   const createdAt = typeof value.createdAt === 'number' ? value.createdAt : timestamp
   const updatedAt = typeof value.updatedAt === 'number' ? value.updatedAt : createdAt
   if (!Number.isFinite(createdAt) || !Number.isFinite(updatedAt) || (value.urls !== undefined && !textRecord(value.urls))) throw new Error('对话时间或来源格式无效')
-  return { ...value, id, createdAt, updatedAt, turns } as unknown as HistoryItem
+  return { ...value, id, createdAt, updatedAt, turns, ...(typeof value.title === 'string' ? { title: truncateTitle(value.title) } : {}) } as unknown as HistoryItem
 }
 
 export class HistoryManager {
@@ -108,7 +110,7 @@ export class HistoryManager {
     if (kind === 'conversation') {
       const item = record as HistoryItem
       this.searchText.set(`conversation:${item.id}`, `${item.title || ''} ${item.turns[0]?.userMessage || ''}`.toLowerCase())
-      this.lists.conversation.set(item.id, { id: item.id, createdAt: item.createdAt, updatedAt: item.updatedAt, title: (item.title || item.turns[0]?.userMessage || (item.productMode === 'debate' ? '辩论' : '未命名会话')).slice(0, 200), models: item.models, productMode: item.productMode, displayMode: item.displayMode, turnCount: item.productMode === 'debate' ? item.debateTurns?.length ?? 0 : item.turns.length, hasSnapshot: item.turns.some(turn => Object.values(turn.responses).some(Boolean)) || !!item.debateTurns?.length })
+      this.lists.conversation.set(item.id, { id: item.id, createdAt: item.createdAt, updatedAt: item.updatedAt, title: (item.title || item.turns[0]?.userMessage || (item.productMode === 'debate' ? '辩论' : '未命名会话')).slice(0, TITLE_MAX_LENGTH), models: item.models, productMode: item.productMode, displayMode: item.displayMode, turnCount: item.productMode === 'debate' ? item.debateTurns?.length ?? 0 : item.turns.length, hasSnapshot: item.turns.some(turn => Object.values(turn.responses).some(Boolean)) || !!item.debateTurns?.length })
     } else {
       const item = record as SummaryHistoryItem
       this.searchText.set(`summary:${item.id}`, `${item.title} ${item.messages.map(message => message.content).join(' ')}`.toLowerCase())

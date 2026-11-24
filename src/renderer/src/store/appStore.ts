@@ -1084,11 +1084,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   historyReadWarning: null,
   retryHistorySave: flushHistoryWrites,
   addHistory: async (item) => {
-    set(state => ({ history: [item, ...state.history.filter(old => old.id !== item.id)].slice(0, 100) }))
+    const entry = item.title ? { ...item, title: item.title.slice(0, 48) } : item
+    set(state => ({ history: [entry, ...state.history.filter(old => old.id !== item.id)].slice(0, 100) }))
     await writeHistory(() => window.api.historyCreate('conversation', item))
   },
   updateHistory: async (id, updates) => {
-    set(state => ({ history: state.history.map(item => item.id === id ? { ...item, ...updates, ...(updates.urls ? { urls: { ...item.urls, ...updates.urls } } : {}) } : item) }))
+    const patch = updates.title ? { ...updates, title: updates.title.slice(0, 48) } : updates
+    set(state => ({ history: state.history.map(item => item.id === id ? { ...item, ...patch, ...(patch.urls ? { urls: { ...item.urls, ...patch.urls } } : {}) } : item) }))
     await writeHistory(() => window.api.historyUpdate('conversation', id, updates))
   },
   removeHistory: async (id) => get().removeHistories([id]),
@@ -1105,11 +1107,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   historyLoadedCount: 0,
   summaryHistoryLoadedCount: 0,
   addSummaryHistory: async (item) => {
-    set(state => ({ summaryHistory: [item, ...state.summaryHistory.filter(old => old.id !== item.id)].slice(0, 100) }))
+    const entry = { ...item, title: item.title.slice(0, 48) }
+    set(state => ({ summaryHistory: [entry, ...state.summaryHistory.filter(old => old.id !== item.id)].slice(0, 100) }))
     await writeHistory(() => window.api.historyCreate('summary', item))
   },
   updateSummaryHistory: async (id, updates) => {
-    set(state => ({ summaryHistory: state.summaryHistory.map(item => item.id === id ? { ...item, ...updates } : item) }))
+    const patch = updates.title ? { ...updates, title: updates.title.slice(0, 48) } : updates
+    set(state => ({ summaryHistory: state.summaryHistory.map(item => item.id === id ? { ...item, ...patch } : item) }))
     await writeHistory(() => window.api.historyUpdate('summary', id, updates))
   },
   removeSummaryHistory: async (id) => get().removeSummaryHistories([id]),

@@ -306,8 +306,8 @@ export function AgentComposer(): JSX.Element {
             onKeyDown={handleKeyDown}
             placeholder={
               !isWorkspaceReady
-                ? '请先在工作台打开一个文件夹以启用本地 Agent'
-                : '和 本地 Agent 一起工作（Enter 发送，Shift+Enter 换行，@ 引用文件）...'
+                ? '请先在工作台打开一个文件夹以启用 Agent'
+                : '和 Agent 一起工作（Enter 发送，Shift+Enter 换行，@ 引用文件）...'
             }
             className="w-full bg-transparent resize-none border-none outline-none text-body leading-relaxed placeholder:text-text-secondary/70 text-text-primary disabled:cursor-not-allowed font-normal select-text min-h-[48px]"
             style={{ userSelect: 'text', minHeight: '48px' }}

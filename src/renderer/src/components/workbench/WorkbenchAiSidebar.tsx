@@ -263,8 +263,8 @@ export default function WorkbenchAiSidebar({ isActive = true, instanceId = 'prim
     () => [
       {
         value: 'local-agent',
-        label: '本地 Agent',
-        description: '基于 Pi 的本地开发智能体'
+        label: 'Agent',
+        description: '基于 Pi 的开发智能体'
       }
     ],
     []
@@ -814,10 +814,9 @@ export default function WorkbenchAiSidebar({ isActive = true, instanceId = 'prim
         return
       }
 
-      // 如果当前是本地 Agent，直接注入到 Agent Composer
+      // 如果当前是 Agent，直接注入到 Agent Composer
       if (currentModel.id === 'local-agent') {
         useAgentSessionStore.getState().appendPromptText(prompt)
-        showToast('info', '已注入提示词到本地 Agent')
         return
       }
 
@@ -939,19 +938,12 @@ export default function WorkbenchAiSidebar({ isActive = true, instanceId = 'prim
           return
         }
 
-        // 本地 Agent 直接走附件通道注入 @path
+        // Agent 直接走附件通道注入 @path
         if (currentModel.id === 'local-agent') {
           const store = useAgentSessionStore.getState()
           for (const f of filesToUpload) {
             store.addAttachment(f.filePath)
           }
-          const skippedNote = skippedFolders.length > 0 ? `；已跳过 ${skippedFolders.length} 个文件夹` : ''
-          showToast(
-            'success',
-            filesToUpload.length === 1
-              ? `已添加附件: ${filesToUpload[0].fileName}${skippedNote}`
-              : `已添加 ${filesToUpload.length} 个文件到本地 Agent${skippedNote}`
-          )
           return
         }
 
@@ -1397,7 +1389,7 @@ export default function WorkbenchAiSidebar({ isActive = true, instanceId = 'prim
           />
         )}
 
-        {/* 本地 Agent 界面卡片：当 currentModel.id === 'local-agent' 时展示 */}
+        {/* Agent 界面卡片：当 currentModel.id === 'local-agent' 时展示 */}
         <div
           className="h-full w-full"
           style={{ display: currentModel?.id === 'local-agent' ? 'block' : 'none' }}

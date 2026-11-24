@@ -31,6 +31,7 @@ import { $isLinkNode } from '@lexical/link'
 import { INSERT_TABLE_COMMAND } from '@lexical/table'
 import { INSERT_HORIZONTAL_RULE_COMMAND } from '@lexical/react/LexicalHorizontalRuleNode'
 import { INSERT_WORKBENCH_IMAGE_COMMAND } from './WorkbenchImagePlugin'
+import { $createWorkbenchEquationNode } from './WorkbenchEquationNode'
 import { $findMatchingParent, $getNearestNodeOfType } from '@lexical/utils'
 import { useWorkbenchStore } from '../../store/workbenchStore'
 import WorkbenchDropDown, {
@@ -38,6 +39,7 @@ import WorkbenchDropDown, {
   WorkbenchDropDownDivider
 } from './WorkbenchDropDown'
 import WorkbenchLinkEditor from './WorkbenchLinkEditor'
+import WorkbenchEquationEditor from './WorkbenchEquationEditor'
 
 type BlockType =
   | 'paragraph'
@@ -104,6 +106,11 @@ export default function WorkbenchToolbar(): JSX.Element {
     initialUrl: string | null
   } | null>(null)
   const linkButtonRef = useRef<HTMLButtonElement | null>(null)
+  const equationButtonRef = useRef<HTMLButtonElement | null>(null)
+  const [equationEditor, setEquationEditor] = useState<{
+    anchorRect: DOMRect
+    inline: boolean
+  } | null>(null)
 
   // 与 playground $updateToolbar 等价：随选区变化刷新块类型 / 行内格式 / 链接 / 对齐
   const $updateToolbar = useCallback(() => {
@@ -283,6 +290,39 @@ export default function WorkbenchToolbar(): JSX.Element {
   const applyHorizontalRule = useCallback(() => {
     editor.dispatchCommand(INSERT_HORIZONTAL_RULE_COMMAND, undefined)
   }, [editor])
+
+  // 在光标处插入公式节点：块级插入到当前块之后，行内插入选区内
+  const insertEquation = useCallback(
+    (inline: boolean) => {
+      const button = equationButtonRef.current
+      if (!button) return
+      setEquationEditor({ anchorRect: button.getBoundingClientRect(), inline })
+    },
+    []
+  )
+
+  const applyEquation = useCallback(
+    (equation: string) => {
+      const inline = equationEditor?.inline ?? false
+      editor.update(
+        () => {
+          const selection = $getSelection()
+          if (!$isRangeSelection(selection)) return
+          const node = $createWorkbenchEquationNode(equation, inline)
+          if (inline) {
+            selection.insertNodes([node])
+          } else {
+            // 块级公式：取锚点所在顶层块，插到它后面，光标落到新段落
+            const topBlock = selection.anchor.getNode().getTopLevelElementOrThrow()
+            topBlock.insertAfter(node)
+          }
+          node.selectNext()
+        },
+        { discrete: true }
+      )
+    },
+    [editor, equationEditor]
+  )
 
   const openLinkEditor = useCallback(() => {
     const button = linkButtonRef.current
@@ -583,6 +623,26 @@ export default function WorkbenchToolbar(): JSX.Element {
           <AppIcon name="image" size={20} />
         </button>
 
+        <WorkbenchDropDown
+          buttonAriaLabel="插入公式"
+          buttonTitle="插入公式"
+          buttonClassName="w-8 h-8 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 text-text-primary transition-colors"
+          buttonContent={
+            <span ref={equationButtonRef} className="flex items-center justify-center">
+              <AppIcon name="function" size={20} />
+            </span>
+          }
+        >
+          <WorkbenchDropDownItem className={itemClass(false)} onClick={() => insertEquation(true)}>
+            <AppIcon name="function" size={18} className="text-text-secondary" />
+            <span>行内公式</span>
+          </WorkbenchDropDownItem>
+          <WorkbenchDropDownItem className={itemClass(false)} onClick={() => insertEquation(false)}>
+            <AppIcon name="function" size={18} className="text-text-secondary" />
+            <span>块级公式</span>
+          </WorkbenchDropDownItem>
+        </WorkbenchDropDown>
+
         <div className="w-[1px] h-4 bg-black/10 dark:bg-white/10 mx-1 shrink-0" />
 
         {/* 对齐方式下拉：portal + 当前对齐回显 */}
@@ -681,6 +741,15 @@ export default function WorkbenchToolbar(): JSX.Element {
           anchorRect={linkEditor.anchorRect}
           initialUrl={linkEditor.initialUrl}
           onClose={() => setLinkEditor(null)}
+        />
+      )}
+      {equationEditor && (
+        <WorkbenchEquationEditor
+          anchorRect={equationEditor.anchorRect}
+          initialEquation=""
+          inline={equationEditor.inline}
+          onApply={applyEquation}
+          onClose={() => setEquationEditor(null)}
         />
       )}
     </>

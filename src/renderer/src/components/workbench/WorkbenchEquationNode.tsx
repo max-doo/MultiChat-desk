@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { JSX } from 'react'
+import { createPortal } from 'react-dom'
+import type { JSX, MouseEvent as ReactMouseEvent } from 'react'
 import type { EditorConfig, LexicalNode, NodeKey, SerializedLexicalNode, Spread } from 'lexical'
 import { $applyNodeReplacement, $getNodeByKey, DecoratorNode } from 'lexical'
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext'
 import { useLexicalNodeSelection } from '@lexical/react/useLexicalNodeSelection'
 import katex from 'katex'
 import { AppIcon } from '../icons/AppIcon'
+import { useWorkbenchStore } from '../../store/workbenchStore'
+import WorkbenchEquationEditor from './WorkbenchEquationEditor'
 
 export type SerializedWorkbenchEquationNode = Spread<
   {
@@ -19,7 +22,7 @@ export type SerializedWorkbenchEquationNode = Spread<
  * 工作台 Markdown 数学公式节点（KaTeX 渲染）
  * - inline=true: 行内公式，Markdown 序列化为 $...$，作为行内元素嵌在段落里
  * - inline=false: 块级公式，Markdown 序列化为 $$...$$
- * - 双击弹出源码编辑框，Enter/失焦保存，Esc 取消
+ * - 双击弹出共享公式编辑弹层（WorkbenchEquationEditor），支持 KaTeX 预览与清除
  */
 export class WorkbenchEquationNode extends DecoratorNode<JSX.Element> {
   __equation: string
@@ -114,6 +117,11 @@ interface WorkbenchEquationComponentProps {
   nodeKey: NodeKey
 }
 
+interface EquationMenuState {
+  x: number
+  y: number
+}
+
 function WorkbenchEquationComponent({
   equation,
   inline,
@@ -122,10 +130,11 @@ function WorkbenchEquationComponent({
   const [editor] = useLexicalComposerContext()
   const [isSelected, setSelected, clearSelection] = useLexicalNodeSelection(nodeKey)
   const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(equation)
   const katexRef = useRef<HTMLElement | null>(null)
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const [renderError, setRenderError] = useState<string | null>(null)
+  const [menu, setMenu] = useState<EquationMenuState | null>(null)
+  const menuRef = useRef<HTMLDivElement | null>(null)
+  const wrapperRef = useRef<HTMLElement | null>(null)
 
   useEffect(() => {
     const element = katexRef.current
@@ -143,26 +152,28 @@ function WorkbenchEquationComponent({
     }
   }, [equation, inline])
 
+  // 右键菜单：点击外部 / Esc / 失焦关闭
   useEffect(() => {
-    if (editing) {
-      setDraft(equation)
-      // 等 textarea 挂载后聚焦
-      requestAnimationFrame(() => {
-        textareaRef.current?.focus()
-        textareaRef.current?.select()
-      })
+    if (!menu) return
+    const close = (): void => setMenu(null)
+    const handleKeyDown = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setMenu(null)
     }
-  }, [editing, equation])
-
-  const commitEdit = useCallback(() => {
-    const next = draft.trim()
-    setEditing(false)
-    if (next && next !== equation) {
-      editor.update(() => {
-        $getEquationNodeByKey(nodeKey)?.setEquation(next)
-      })
+    const handlePointerDown = (e: MouseEvent): void => {
+      if (menuRef.current?.contains(e.target as Node)) return
+      close()
     }
-  }, [draft, equation, editor, nodeKey])
+    document.addEventListener('mousedown', handlePointerDown)
+    document.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('blur', close)
+    window.addEventListener('resize', close)
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+      document.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('blur', close)
+      window.removeEventListener('resize', close)
+    }
+  }, [menu])
 
   const openEditor = useCallback(() => {
     clearSelection()
@@ -170,10 +181,76 @@ function WorkbenchEquationComponent({
     setEditing(true)
   }, [clearSelection, setSelected])
 
+  const applyEquation = useCallback(
+    (next: string) => {
+      if (next === equation) return
+      editor.update(() => {
+        $getEquationNodeByKey(nodeKey)?.setEquation(next)
+      })
+    },
+    [editor, equation, nodeKey]
+  )
+
+  // 清除公式：整体删除节点（弹层"清除"按钮 + 清空内容保存两条入口共用）
+  const clearEquation = useCallback(() => {
+    editor.update(() => {
+      $getEquationNodeByKey(nodeKey)?.remove()
+    })
+  }, [editor, nodeKey])
+
+  const handleContextMenu = useCallback(
+    (e: ReactMouseEvent): void => {
+      // 公式是 decorator，浏览器选区拿不到源码；这里接管右键，
+      // 给全局 CustomContextMenu 让位前先阻止它。
+      e.preventDefault()
+      e.stopPropagation()
+      if (!isSelected) {
+        clearSelection()
+        setSelected(true)
+      }
+      const menuWidth = 176
+      const menuHeight = 320
+      setMenu({
+        x: Math.max(8, Math.min(e.clientX, window.innerWidth - menuWidth - 8)),
+        y: Math.max(8, Math.min(e.clientY, window.innerHeight - menuHeight - 8))
+      })
+    },
+    [clearSelection, isSelected, setSelected]
+  )
+
+  const copyLatex = useCallback(() => {
+    setMenu(null)
+    const source = inline ? `$${equation}$` : `$$${equation}$$`
+    void navigator.clipboard.writeText(source)
+  }, [equation, inline])
+
+  const handleAiAction = useCallback(
+    (actionType: 'ask' | 'explain' | 'polish' | 'summarize') => {
+      setMenu(null)
+      useWorkbenchStore.getState().askAi(equation, actionType)
+    },
+    [equation]
+  )
+
+  const editEquation = useCallback(() => {
+    setMenu(null)
+    openEditor()
+  }, [openEditor])
+
+  const removeEquation = useCallback(() => {
+    setMenu(null)
+    editor.update(() => {
+      $getEquationNodeByKey(nodeKey)?.remove()
+    })
+  }, [editor, nodeKey])
+
   const Wrapper = inline ? 'span' : 'div'
+  const editingRect = editing ? wrapperRef.current?.getBoundingClientRect() : null
 
   return (
     <Wrapper
+      // @ts-expect-error span/div 的 ref 类型在联合标签下不一致，这里只用于读布局
+      ref={wrapperRef}
       className={
         inline
           ? `workbench-equation workbench-equation-inline relative cursor-default rounded px-0.5 transition-colors ${
@@ -190,47 +267,97 @@ function WorkbenchEquationComponent({
         }
       }}
       onDoubleClick={openEditor}
+      onContextMenu={handleContextMenu}
       title={renderError ? `公式语法错误: ${renderError}` : undefined}
     >
       <span ref={katexRef} className={renderError ? 'text-red-500 font-mono text-sm' : ''} />
 
-      {editing && (
-        <div
-          className="absolute left-0 top-full z-50 mt-1 w-80 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-float p-2 text-left"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <textarea
-            ref={textareaRef}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault()
-                commitEdit()
-              } else if (e.key === 'Escape') {
-                e.preventDefault()
-                setEditing(false)
-              }
-            }}
-            onBlur={commitEdit}
-            className="w-full h-20 resize-y rounded-md border border-gray-300 dark:border-gray-600 bg-transparent px-2 py-1 font-mono text-xs text-text-primary focus:outline-none focus:ring-1 focus:ring-primary/40"
-            spellCheck={false}
-          />
-          <div className="mt-1 flex items-center justify-between text-tiny text-text-secondary">
-            <span className="flex items-center gap-1">
-              <AppIcon name="function" size={12} />
-              LaTeX · Enter 保存 / Esc 取消
-            </span>
+      {menu &&
+        createPortal(
+          <div
+            ref={menuRef}
+            role="menu"
+            className="fixed z-50 min-w-[176px] select-none rounded-xl border border-black/10 bg-white/95 py-1.5 text-sm shadow-xl backdrop-blur-md dark:border-white/10 dark:bg-gray-800/95"
+            style={{ left: menu.x, top: menu.y }}
+            onContextMenu={(e) => e.preventDefault()}
+          >
             <button
               type="button"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={commitEdit}
-              className="px-2 py-0.5 rounded bg-primary text-white text-tiny hover:opacity-90"
+              role="menuitem"
+              className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left font-medium text-text-primary transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+              onClick={() => handleAiAction('ask')}
             >
-              保存
+              <AppIcon name="chat" size={19} className="shrink-0 text-blue-500" />
+              向 AI 提问
             </button>
-          </div>
-        </div>
+            <button
+              type="button"
+              role="menuitem"
+              className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left font-medium text-text-primary transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+              onClick={() => handleAiAction('explain')}
+            >
+              <AppIcon name="psychology" size={19} className="shrink-0 text-purple-500" />
+              解释此公式
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left font-medium text-text-primary transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+              onClick={() => handleAiAction('polish')}
+            >
+              <AppIcon name="auto_fix_high" size={19} className="shrink-0 text-emerald-500" />
+              语言润色
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left font-medium text-text-primary transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+              onClick={() => handleAiAction('summarize')}
+            >
+              <AppIcon name="format_list_bulleted" size={19} className="shrink-0 text-cyan-500" />
+              提取关键要点
+            </button>
+            <div className="my-1 border-t border-black/5 dark:border-white/5" role="separator" />
+            <button
+              type="button"
+              role="menuitem"
+              className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left font-medium text-text-primary transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+              onClick={editEquation}
+            >
+              <AppIcon name="edit" size={19} className="shrink-0 text-text-secondary" />
+              编辑公式
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left font-medium text-text-primary transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+              onClick={copyLatex}
+            >
+              <AppIcon name="content_copy" size={19} className="shrink-0 text-text-secondary" />
+              复制 LaTeX
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left font-medium text-red-500 transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+              onClick={removeEquation}
+            >
+              <AppIcon name="delete" size={19} className="shrink-0" />
+              删除公式
+            </button>
+          </div>,
+          document.body
+        )}
+
+      {editing && (
+        <WorkbenchEquationEditor
+          anchorRect={editingRect ?? new DOMRect(8, 8, 0, 0)}
+          initialEquation={equation}
+          inline={inline}
+          onApply={applyEquation}
+          onClear={clearEquation}
+          onClose={() => setEditing(false)}
+        />
       )}
     </Wrapper>
   )

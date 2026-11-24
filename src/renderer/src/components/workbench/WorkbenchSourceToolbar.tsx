@@ -10,6 +10,7 @@ import WorkbenchDropDown, {
   WorkbenchDropDownDivider
 } from './WorkbenchDropDown'
 import WorkbenchUrlInputPopover from './WorkbenchUrlInputPopover'
+import WorkbenchEquationEditor from './WorkbenchEquationEditor'
 
 type SourceBlockType = 'paragraph' | 'h1' | 'h2' | 'h3' | 'h4' | 'bullet' | 'number' | 'check' | 'quote' | 'code'
 
@@ -47,7 +48,12 @@ export default function WorkbenchSourceToolbar({
 
   const lastBlockRef = useRef<SourceBlockType>('paragraph')
   const linkButtonRef = useRef<HTMLButtonElement | null>(null)
+  const equationButtonRef = useRef<HTMLButtonElement | null>(null)
   const [linkPopover, setLinkPopover] = useState<{ anchorRect: DOMRect } | null>(null)
+  const [equationPopover, setEquationPopover] = useState<{
+    anchorRect: DOMRect
+    inline: boolean
+  } | null>(null)
 
   const apply = (action: SourceToolbarAction): void => {
     editorRef.current?.applyAction(action)
@@ -127,6 +133,22 @@ export default function WorkbenchSourceToolbar({
       })()
     }
     input.click()
+  }
+
+  // 与富文本工具栏同一入口：弹层输入 LaTeX，保存时写 $..$ / $$..$$ 标记
+  const openEquationPopover = (inline: boolean): void => {
+    const button = equationButtonRef.current
+    if (!button) return
+    setEquationPopover({ anchorRect: button.getBoundingClientRect(), inline })
+  }
+
+  const applyEquation = (equation: string): void => {
+    if (!equationPopover) return
+    if (equationPopover.inline) {
+      apply({ kind: 'insert', text: `$${equation}$` })
+    } else {
+      apply({ kind: 'insert', text: `$$\n${equation}\n$$\n`, ensureBlankLine: true })
+    }
   }
 
   // 撤销/重做走浏览器 textarea 原生栈
@@ -359,6 +381,26 @@ export default function WorkbenchSourceToolbar({
         >
           <AppIcon name="image" size={20} />
         </button>
+
+        <WorkbenchDropDown
+          buttonAriaLabel="插入公式"
+          buttonTitle="插入公式"
+          buttonClassName="w-8 h-8 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 text-text-primary transition-colors"
+          buttonContent={
+            <span ref={equationButtonRef} className="flex items-center justify-center">
+              <AppIcon name="function" size={20} />
+            </span>
+          }
+        >
+          <WorkbenchDropDownItem className={itemClass(false)} onClick={() => openEquationPopover(true)}>
+            <AppIcon name="function" size={18} className="text-text-secondary" />
+            <span>行内公式</span>
+          </WorkbenchDropDownItem>
+          <WorkbenchDropDownItem className={itemClass(false)} onClick={() => openEquationPopover(false)}>
+            <AppIcon name="function" size={18} className="text-text-secondary" />
+            <span>块级公式</span>
+          </WorkbenchDropDownItem>
+        </WorkbenchDropDown>
       </div>
 
       <div className="flex items-center gap-2.5 text-text-secondary text-sm shrink-0">
@@ -404,6 +446,15 @@ export default function WorkbenchSourceToolbar({
             })
           }}
           onClose={() => setLinkPopover(null)}
+        />
+      )}
+      {equationPopover && (
+        <WorkbenchEquationEditor
+          anchorRect={equationPopover.anchorRect}
+          initialEquation=""
+          inline={equationPopover.inline}
+          onApply={applyEquation}
+          onClose={() => setEquationPopover(null)}
         />
       )}
     </>

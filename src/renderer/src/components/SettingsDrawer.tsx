@@ -697,11 +697,11 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
             <CliIntegrationSection />
           </div>
 
-          {/* 本地 Agent 配置 */}
+          {/* Agent 配置 */}
           <div>
             <h3 className="flex items-center gap-2 font-semibold text-text-primary mb-4">
               <AppIcon name="smart_toy" size={20} className="text-primary" />
-              本地 Agent
+              Agent
             </h3>
             <div className="p-4 rounded-xl glass-panel flex items-center justify-between">
               <div>
