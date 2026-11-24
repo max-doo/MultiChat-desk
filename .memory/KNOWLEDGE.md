@@ -365,6 +365,8 @@ Long-term reusable lessons, durable decisions, and recurring project gotchas. Do
 
 ### 构建、打包与验证
 
+- **Electron CommonJS 主进程与纯 ESM 依赖的兼容**：在 `electron.vite.config.ts` 中开启 `build.externalizeDeps: true` 时，Vite 会将 `import ... from 'esm-pkg'` 转换为 CommonJS 的 `require('esm-pkg')`。若外部依赖（如 `@earendil-works/pi-coding-agent`）为纯 ESM 且 `package.json` 的 `exports` 仅定义了 `import` 而无 `require`/`default`，会导致 Node CJS 加载器抛出 `ERR_PACKAGE_PATH_NOT_EXPORTED`。解决方法：主进程中仅保留该包的 `import type` 静态类型导入，并在异步生命周期（如 `init()`）中使用 `new Function('s', 'return import(s)')('esm-pkg')` 动态加载运行时符号，既规避 Vite 编译期的 require 改写，又保证在 Node/Electron 运行时正确通过 ESM 解析器加载。
+
 - **启用 JavaScript 混淆时不要用函数 `toString()` 生成 Webview 注入脚本**：生产打包开启混淆后，通过 `Function.prototype.toString()` 生成注入脚本，函数体内部变量可能被主进程混淆器重命名，并依赖混淆器注入的主进程全局映射，进入隔离 Webview 后执行报错。注入脚本应直接使用自包含的字符串模板或 IIFE 源码字符串，避免在主进程代码中使用函数 toString 注入。
 
 - **`@electron-toolkit/utils` 的 `is.dev` 不能在 renderer/shared 中使用**：`is` 对象依赖 `__dirname`、`child_process.spawnSync`、`path.join` 等 Node API；`shared/` 文件被 Vite 依赖预构建加载到浏览器环境时，会触发 `__dirname is not defined` 和 `child_process has been externalized`，导致开发服务器黑屏。任何可能被渲染进程引用的代码（`shared/`、`renderer/`）都应使用 `process.env.NODE_ENV !== 'production'`；`src/main/` 下的纯主进程文件使用 `is.dev` 是安全的，但为一致性也可统一使用 `process.env.NODE_ENV`。判别：错误堆栈指向 `node_modules/.vite/deps/@electron-toolkit_utils.js` 且含 `__dirname`/`child_process`。
@@ -405,6 +407,16 @@ Long-term reusable lessons, durable decisions, and recurring project gotchas. Do
 - **WebContentsView 的 Windows 圆角、遮挡和截图还原**：`setBorderRadius` 在 Windows 下是 no-op；要实现圆角裁剪，需把 native view 设为透明并向页面注入 CSS，给 `html` 容器设置 `border-radius` 和 `overflow: hidden`。DOM 覆盖物激活时会被 native view 遮挡；当时最稳健的做法是在覆盖层打开时统一对所有 active WebContentsView 截图，隐藏真实视图并把截图作为静态背景，待抽屉关闭 300ms 动画结束后恢复。简单 dropdown 或侧滑菜单可以用 Electron 原生 Menu 重构，避开 z-index 冲突。截图做遮罩时要先用主进程 `image.resize()` 缩放到 1:1 DIP 物理尺寸，不能靠 CSS `background-size: 100% 100%` 拉伸，否则高分屏会出现重采样锯齿和尺寸抖动。
 
 - **旧 API 流式总结的生命周期经验**：`summaryApi`、`useSummaryPanel` 和 `generate-summary` 已删除，旧共享控制器互斥方案不再代表当前调用关系。可复用原则是：覆盖控制器前中止旧请求，异步闭包捕获本次控制器，完成时只清理仍属于本次请求的引用；流式 reader 在异常或取消路径取消并释放，避免向已销毁 sender 发送或继续空转。当前 taskSplit 是 `stream: false`，没有 reader/onChunk；未来引入流式接口时按新接口实际生命周期设计，不能照搬旧 IPC。
+
+### 本地 Agent 与 AI 侧边栏
+
+- **本地 Agent 交互UI避免引入外部重型聊天运行时库，优先采用 Zustand + 原生组件接管**：`@assistant-ui/react` 等库对消息格式有严苛的内部 schema 约束（例如 user 消息不可携带 status，或者子组件强制要求 AuiProvider 上下文），且与底层 Pi Coding Agent 的事件流模型存在语义分歧。采用 Zustand 统一维护消息、工具调用、思考过程与权限确认，直接驱动自定义组件（如 `BashToolUI`、`ThinkingBlock`），既解除了外部库崩溃风险，又能够与工作台 `WebviewCard` 保持完全一致的视觉与交互基线。
+
+- **动态高度文本输入框必须设置 min-height 兜底**：基于 `scrollHeight` 动态计算高度的 textarea，若在被隐藏（如父容器 `display: none`）或挂载动画帧内初始化，`scrollHeight` 会被浏览器计算为 `0`，从而把 inline style 锁定为 `0px` 造成输入框塌陷且不可聚焦。textarea 必须声明 `min-h-[44px]` 或在 auto-resize effect 中强制 `Math.max(minHeight, ...)` 兜底。
+
+- **ReactMarkdown 行内代码组件必须配合 isBlock 校验与 Tailwind prose 规范**：`react-markdown` 的 `code` 组件传参在不同版本中可能不附带 `inline` 布尔值，直接以 `!inline` 判断会导致所有行内变量与文件名被渲染为巨型黑色 `<pre>` 块。必须通过 `className && /language-/.test(className)` 判定代码块；同时配合 Tailwind `prose-code:before:content-none prose-code:after:content-none` 消除伪元素自动添加的字面量反引号。
+
+- **Electron 主进程加载纯 ESM 的 Pi Coding Agent 需使用动态 import**：当 Electron 主进程构建输出为 CommonJS 时，静态 `import ... from '@earendil-works/pi-coding-agent'` 会被打包器转换为 `require()`，触发 `ERR_PACKAGE_PATH_NOT_EXPORTED`。必须使用 `new Function('s', 'return import(s)')` 包装动态导入，避免构建器重写。
 
 ### 原型与视觉验收
 
