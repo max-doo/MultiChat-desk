@@ -78,7 +78,7 @@ function ConfirmModal({
           <button
             onClick={onCancel}
             disabled={isConfirming}
-            className="h-9 flex-1 rounded-lg bg-sidebar px-4 text-body font-medium text-text-secondary transition-colors hover:bg-gray-100 disabled:opacity-50"
+            className="h-9 flex-1 rounded-lg border border-gray-200 bg-sidebar px-4 text-body font-medium text-text-secondary transition-colors hover:bg-gray-100 disabled:opacity-50 dark:border-white/10"
           >
             {cancelText}
           </button>

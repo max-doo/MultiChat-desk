@@ -75,7 +75,7 @@ function ImportCacheConfirmModal({
       <ModalFooter className="justify-end">
         <button
           onClick={onCancel}
-          className="h-9 rounded-lg px-4 text-body text-text-secondary transition-colors hover:text-text-primary"
+          className="h-9 rounded-lg border border-gray-200 bg-sidebar px-4 text-body text-text-secondary transition-colors hover:bg-gray-100 dark:border-white/10"
         >
           取消
         </button>

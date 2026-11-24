@@ -9,6 +9,7 @@ import NoteCaptureModal from './components/NoteCaptureModal'
 import WorkbenchPage from './pages/WorkbenchPage'
 import { initializeStore, useAppStore, SummaryHistoryItem } from './store/appStore'
 import { useWorkbenchStore } from './store/workbenchStore'
+import { useAgentSessionStore } from './store/agentSessionStore'
 
 // 诊断页仅在 dev 构建 reachable：生产构建里 import.meta.env.DEV=false，
 // 下面的动态 import 会被 Rollup 当作死代码剔除，DiagnosticsPage 不会进包。
@@ -22,6 +23,7 @@ function MainApp(): JSX.Element {
   const setHistoryOpen = useAppStore((s) => s.setHistoryOpen)
   const historyInitialTab = useAppStore((s) => s.historyInitialTab)
   const setPendingHistoryRestore = useAppStore((s) => s.setPendingHistoryRestore)
+  const setProductMode = useAppStore((s) => s.setProductMode)
   const [isInitialized, setIsInitialized] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [hasWorkbenchOpened, setHasWorkbenchOpened] = useState(false)
@@ -246,6 +248,33 @@ function MainApp(): JSX.Element {
           setHistoryOpen(false)
           setInitialSummaryItem(item)
           setCurrentPage('summary')
+        }}
+        onSelectAgentSession={(sessionId) => {
+          // 选中 Agent 会话：进入工作台并恢复该会话
+          setHistoryOpen(false)
+          setCurrentPage('main')
+          setProductMode('workbench')
+          const workbench = useWorkbenchStore.getState()
+          workbench.openRightPane('ai')
+          const agent = useAgentSessionStore.getState()
+          void agent.initListeners()
+          const session = agent.sessions.find((s) => s.id === sessionId)
+          const normalize = (p?: string | null) =>
+            (p || '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+          const targetCwd = session?.cwd
+          if (targetCwd && normalize(targetCwd) !== normalize(workbench.workspacePath)) {
+            void workbench.setWorkspaceFolder(targetCwd).then((result) => {
+              if (result === 'switched') {
+                void agent.resumeSession(sessionId)
+              } else if (result !== 'cancelled') {
+                // 目录失效时降级为只读回看
+                agent.setForeignReview(true)
+                void agent.resumeSession(sessionId)
+              }
+            })
+          } else {
+            void agent.resumeSession(sessionId)
+          }
         }}
       />
       <NoteCaptureModal />

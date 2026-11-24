@@ -2,31 +2,36 @@ import type { HistoryListItem, SummaryHistoryListItem } from '../../../shared/ty
 import { useState, useEffect } from 'react'
 import { Virtuoso } from 'react-virtuoso'
 import { useAppStore, HistoryItem, SummaryHistoryItem } from '../store/appStore'
+import { useAgentSessionStore } from '../store/agentSessionStore'
 import ConfirmModal from './ConfirmModal'
 import RenameModal from './RenameModal'
 import logo from '../assets/logo.png'
 import { openUpdateRelease, useUpdateReminder } from '../hooks/useUpdateState'
 import { AppIcon } from './icons/AppIcon'
+import type { AgentSessionSummary } from '../types/agent'
+
+type HistoryTab = 'conversation' | 'summary' | 'agent'
 
 interface HistoryDrawerProps {
   isOpen: boolean
   onClose: () => void
   onSelectHistory?: (item: HistoryItem) => void
   onSelectSummaryHistory?: (item: SummaryHistoryItem) => void
+  onSelectAgentSession?: (sessionId: string) => void
   activeHistoryId?: string
   /** 打开时自动定位到该 Tab；不传则维持上次状态 */
-  initialTab?: 'conversation' | 'summary'
+  initialTab?: HistoryTab
 }
 
 /**
  * 历史记录抽屉组件
- * 从左侧滑出，显示对话历史记录和总结历史记录
+ * 从左侧滑出，显示对话历史记录、总结历史记录和 Agent 会话记录
  */
-function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistory, activeHistoryId, initialTab }: HistoryDrawerProps): JSX.Element {
+function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistory, onSelectAgentSession, activeHistoryId, initialTab }: HistoryDrawerProps): JSX.Element {
   const [searchQuery, setSearchQuery] = useState('')
   const [isSelectionMode, setIsSelectionMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
-  const [activeTab, setActiveTab] = useState<'conversation' | 'summary'>('conversation')
+  const [activeTab, setActiveTab] = useState<HistoryTab>('conversation')
   const [showConfirmDelete, setShowConfirmDelete] = useState(false)
   const [showRenameModal, setShowRenameModal] = useState(false)
   const [renameType, setRenameType] = useState<'conversation' | 'summary'>('conversation')
@@ -57,6 +62,17 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
     updateSummaryHistory,
     models
   } = useAppStore()
+  const agentSessions = useAgentSessionStore((s) => s.sessions)
+  const agentFetchSessions = useAgentSessionStore((s) => s.fetchSessions)
+  const agentDeleteSession = useAgentSessionStore((s) => s.deleteSession)
+  const agentCurrentSessionId = useAgentSessionStore((s) => s.currentSessionId)
+
+  // 抽屉打开时拉取一次 Agent 会话列表；会话内新消息返回后列表已在 store 中
+  useEffect(() => {
+    if (isOpen) {
+      void agentFetchSessions()
+    }
+  }, [isOpen, agentFetchSessions])
 
   // 是否还有更老的磁盘记录未加载进内存
   const hasMoreHistory = history.length < historyTotalCount
@@ -84,9 +100,10 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
   useEffect(() => {
     let active = true
     setSearchResults(null)
-    if (!searchQuery.trim()) return
+    // Agent 会话仅内存中已有列表，直接本地过滤；历史/总结走磁盘搜索
+    if (!searchQuery.trim() || activeTab === 'agent') return
     const timer = setTimeout(() => {
-      void window.api.historySearch(activeTab, searchQuery).then(result => {
+      void window.api.historySearch(activeTab as 'conversation' | 'summary', searchQuery).then(result => {
         if (active && result.success) setSearchResults(result.data || [])
       })
     }, 200)
@@ -94,6 +111,14 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
   }, [searchQuery, activeTab, history, summaryHistory])
   const filteredHistory = (searchResults && activeTab === 'conversation' ? searchResults as HistoryListItem[] : history.filter(item => item.title.toLowerCase().includes(searchQuery.toLowerCase())))
   const filteredSummaryHistory = (searchResults && activeTab === 'summary' ? searchResults as SummaryHistoryListItem[] : summaryHistory.filter(item => item.title.toLowerCase().includes(searchQuery.toLowerCase()) || item.preview.toLowerCase().includes(searchQuery.toLowerCase())))
+  const queryLower = searchQuery.trim().toLowerCase()
+  const filteredAgentSessions: AgentSessionSummary[] = queryLower === ''
+    ? agentSessions
+    : agentSessions.filter(item =>
+      (item.title || '').toLowerCase().includes(queryLower) ||
+      (item.model || '').toLowerCase().includes(queryLower) ||
+      (item.cwd || '').toLowerCase().includes(queryLower)
+    )
 
   // 获取模型名称
   const getModelNames = (modelIds: string[]) => {
@@ -131,8 +156,10 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
     if (selectedIds.length > 0) {
       if (activeTab === 'conversation') {
         removeHistories(selectedIds)
-      } else {
+      } else if (activeTab === 'summary') {
         removeSummaryHistories(selectedIds)
+      } else {
+        selectedIds.forEach(id => void agentDeleteSession(id))
       }
       setSelectedIds([])
       setIsSelectionMode(false)
@@ -176,6 +203,17 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
     }
   }
 
+  // 处理选择 Agent 会话
+  const handleSelectAgent = (item: AgentSessionSummary) => {
+    if (isSelectionMode) {
+      setSelectedIds(prev =>
+        prev.includes(item.id) ? prev.filter(i => i !== item.id) : [...prev, item.id]
+      )
+      return
+    }
+    onSelectAgentSession?.(item.id)
+  }
+
   return (
     <>
       {/* 遮罩层 */}
@@ -210,7 +248,7 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
           onClick={e => e.stopPropagation()}
         >
           {/* 头部 */}
-          <div className="relative flex items-center justify-between p-6 border-b border-white/40">
+          <div className="relative flex items-center justify-between p-4 border-b border-white/40">
             {/* 左侧 Logo 和产品名称 */}
             {hasUpdate ? (
               <button
@@ -219,34 +257,34 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
                 className="flex items-center gap-2 text-text-primary rounded-lg hover:bg-white/60 transition-colors"
                 title="发现新版本，打开发布页"
               >
-                <img src={logo} alt="MultiChat Logo" className="w-7 h-7 object-contain" />
-                <span className="font-semibold text-primary text-sm tracking-wide">MultiChat</span>
-                <span className="text-tiny leading-none font-bold text-red-500 bg-red-50 border border-red-200 px-1.5 py-1 rounded-full">NEW</span>
+                <img src={logo} alt="MultiChat Logo" className="w-6 h-6 object-contain" />
+                <span className="font-semibold text-primary text-body tracking-wide">MultiChat</span>
+                <span className="text-tiny leading-none font-bold text-red-500 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded-full">NEW</span>
               </button>
             ) : (
               <div className="flex items-center gap-2 text-text-primary">
-                <img src={logo} alt="MultiChat Logo" className="w-7 h-7 object-contain" />
-                <span className="font-semibold text-primary text-sm tracking-wide">MultiChat</span>
+                <img src={logo} alt="MultiChat Logo" className="w-6 h-6 object-contain" />
+                <span className="font-semibold text-primary text-body tracking-wide">MultiChat</span>
               </div>
             )}
 
-            {historyReadWarning && <span className="text-xs text-amber-700" title={historyReadWarning}>历史读取提示</span>}
-            {historySaveError && <button className="text-sm text-red-600" title={historySaveError} onClick={() => void retryHistorySave()}>历史保存失败，重试</button>}
+            {historyReadWarning && <span className="text-caption text-amber-700" title={historyReadWarning}>历史读取提示</span>}
+            {historySaveError && <button className="text-label text-red-600 hover:underline" title={historySaveError} onClick={() => void retryHistorySave()}>历史保存失败，重试</button>}
             {/* 中间标题 */}
             <div className="absolute left-1/2 transform -translate-x-1/2">
-              <h2 className="text-lg font-semibold text-text-primary">历史记录</h2>
+              <h2 className="text-title font-semibold text-text-primary">历史记录</h2>
             </div>
 
             <div className="flex items-center gap-2 z-10">
               {!isSelectionMode ? (
                 <>
-                  {(activeTab === 'conversation' ? history.length > 0 : summaryHistory.length > 0) && (
+                  {(activeTab === 'conversation' ? history.length > 0 : activeTab === 'summary' ? summaryHistory.length > 0 : agentSessions.length > 0) && (
                     <button
                       onClick={toggleSelectionMode}
-                      className="text-text-secondary hover:text-red-400 transition-colors p-1"
+                      className="text-text-secondary hover:text-red-500 transition-colors p-1 rounded-md hover:bg-black/5"
                       title="开启多选删除"
                     >
-                      <AppIcon name="delete" />
+                      <AppIcon name="delete" size={16} />
                     </button>
                   )}
                 </>
@@ -254,14 +292,14 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
                 <>
                   <button
                     onClick={toggleSelectionMode}
-                    className="text-sm px-3 py-1.5 rounded-lg bg-sidebar text-text-secondary hover:text-text-primary hover:bg-gray-100 transition-all border border-gray-200"
+                    className="text-label px-2.5 py-1 rounded-lg bg-sidebar text-text-secondary hover:text-text-primary hover:bg-gray-100 transition-all border border-gray-200"
                   >
                     取消
                   </button>
                   <button
                     disabled={selectedIds.length === 0}
                     onClick={() => setShowConfirmDelete(true)}
-                    className="text-sm px-3 py-1.5 rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-text-primary border border-red-500/20 hover:border-red-500 transition-all disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-1.5"
+                    className="text-label px-2.5 py-1 rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white border border-red-500/20 hover:border-red-500 transition-all disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-1.5"
                   >
                     <AppIcon name="delete" size={14} />
                     确认删除 {selectedIds.length > 0 && `(${selectedIds.length})`}
@@ -272,34 +310,34 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
                 onClick={onClose}
                 className="text-text-secondary hover:text-text-primary transition-colors ml-1"
               >
-                <AppIcon name="close" size={24} />
+                <AppIcon name="close" size={20} />
               </button>
             </div>
           </div>
 
         {/* 搜索框 */}
-        <div className="p-4">
-          <div className="flex items-center gap-3 px-4 py-2 bg-sidebar rounded-lg border border-gray-200 focus-within:border-primary/50">
+        <div className="p-3 pb-2">
+          <div className="flex items-center gap-2.5 px-3 py-2 bg-sidebar rounded-lg border border-gray-200 focus-within:border-primary/50 transition-colors">
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="搜索历史记录..."
-              className="flex-1 bg-transparent border-0 focus:outline-none text-text-secondary placeholder-gray-500"
+              className="flex-1 bg-transparent border-0 focus:outline-none text-body text-text-primary placeholder:text-text-secondary/70"
             />
-            <AppIcon name="search" className="text-text-secondary" />
+            <AppIcon name="search" size={16} className="text-text-secondary flex-shrink-0" />
           </div>
         </div>
 
         {/* 标签页 */}
-        <div className="flex px-6 gap-8 border-b border-gray-200">
+        <div className="flex px-4 gap-6 border-b border-gray-200">
           <button
             onClick={() => {
               setActiveTab('conversation')
               setIsSelectionMode(false)
               setSelectedIds([])
             }}
-            className={`py-3 text-sm font-medium transition-all border-b-2 ${activeTab === 'conversation'
+            className={`py-2.5 text-body font-medium transition-all border-b-2 ${activeTab === 'conversation'
               ? 'border-primary text-primary'
               : 'border-transparent text-text-secondary hover:text-text-primary'
               }`}
@@ -312,17 +350,30 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
               setIsSelectionMode(false)
               setSelectedIds([])
             }}
-            className={`py-3 text-sm font-medium transition-all border-b-2 ${activeTab === 'summary'
+            className={`py-2.5 text-body font-medium transition-all border-b-2 ${activeTab === 'summary'
               ? 'border-primary text-primary'
               : 'border-transparent text-text-secondary hover:text-text-primary'
               }`}
           >
             总结历史
           </button>
+          <button
+            onClick={() => {
+              setActiveTab('agent')
+              setIsSelectionMode(false)
+              setSelectedIds([])
+            }}
+            className={`py-2.5 text-body font-medium transition-all border-b-2 ${activeTab === 'agent'
+              ? 'border-primary text-primary'
+              : 'border-transparent text-text-secondary hover:text-text-primary'
+              }`}
+          >
+            Agent 会话
+          </button>
         </div>
 
         {/* 历史记录列表 */}
-        <div className="flex-1 overflow-y-auto p-4">
+        <div className="flex-1 overflow-y-auto p-3">
           {activeTab === 'conversation' ? (
             /* 对话历史列表 */
             filteredHistory.length === 0 ? (
@@ -339,10 +390,10 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
                   const isActive = activeHistoryId === item.id
                   const displayTitle = item.title || '(无消息)'
                   return (
-                    <div className="pb-3">
+                    <div className="pb-2.5">
                       <div
                         onClick={() => handleSelect(item)}
-                        className={`group p-4 rounded-lg bg-sidebar/50 border transition-all ${isSelected
+                        className={`group p-3 rounded-lg bg-sidebar/50 border transition-all ${isSelected
                           ? 'border-primary bg-primary/5'
                           : isActive
                             ? 'border-primary/60 bg-primary/10'
@@ -360,7 +411,7 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
                         )}
                         <div className="flex-1 min-w-0">
                           <div className="flex items-start justify-between gap-2">
-                            <p className={`line-clamp-2 flex-1 transition-colors ${isSelected ? 'text-primary' : 'text-text-secondary'}`}>
+                            <p className={`text-body font-medium line-clamp-2 flex-1 transition-colors ${isSelected ? 'text-primary' : 'text-text-primary'}`}>
                               {displayTitle}
                             </p>
                             {!isSelectionMode && (
@@ -373,7 +424,7 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
                                   className="text-gray-500 hover:text-primary transition-all p-1"
                                   title="重命名"
                                 >
-                                  <AppIcon name="edit" size={20} />
+                                  <AppIcon name="edit" size={16} />
                                 </button>
                                 <button
                                   onClick={(e) => {
@@ -384,12 +435,12 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
                                   className="text-gray-500 hover:text-red-400 transition-all p-1"
                                   title="删除记录"
                                 >
-                                  <AppIcon name="delete" size={20} />
+                                  <AppIcon name="delete" size={16} />
                                 </button>
                               </div>
                             )}
                           </div>
-                          <div className="flex items-center justify-between text-xs text-gray-500 mt-2">
+                          <div className="flex items-center justify-between text-caption text-text-secondary mt-2">
                             <div className="flex items-center gap-2">
                               <span>{new Date(item.createdAt).toLocaleString('zh-CN')}</span>
                               {item.productMode && (
@@ -397,7 +448,7 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
                                   {item.productMode === 'multi_ai' ? '多模型' : item.productMode === 'task_assignment' ? '任务分发' : '双主辩论'}
                                 </span>
                               )}
-                              <span className="text-gray-600">
+                              <span className="text-text-secondary">
                                 {item.productMode === 'debate'
                                   ? `${item.turnCount} 轮辩论`
                                   : `${item.turnCount} 轮`}
@@ -414,7 +465,7 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
                                       key={modelId}
                                       src={model.logo}
                                       alt={model.name}
-                                      className="inline-block h-6 w-6 rounded-full ring-1 ring-gray-800 bg-gray-100 object-contain p-0.5"
+                                      className="inline-block h-5 w-5 rounded-full ring-1 ring-white/80 bg-gray-100 object-contain p-0.5"
                                     />
                                   )
                                 })}
@@ -438,7 +489,7 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
                 )}
               </>
             )
-          ) : (
+          ) : activeTab === 'summary' ? (
             /* 总结历史列表 */
             filteredSummaryHistory.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-gray-500">
@@ -453,10 +504,10 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
                   const isSelected = selectedIds.includes(item.id)
                   const isActive = activeHistoryId === item.id
                   return (
-                    <div className="pb-3">
+                    <div className="pb-2.5">
                       <div
                         onClick={() => handleSelectSummary(item)}
-                        className={`group p-4 rounded-lg bg-sidebar/50 border transition-all ${isSelected
+                        className={`group p-3 rounded-lg bg-sidebar/50 border transition-all ${isSelected
                           ? 'border-primary bg-primary/5'
                           : isActive
                             ? 'border-primary/60 bg-primary/10'
@@ -475,10 +526,10 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
                         <div className="flex-1 min-w-0">
                           <div className="flex items-start justify-between gap-2">
                             <div className="flex-1 min-w-0">
-                              <h3 className={`font-medium mb-1 line-clamp-1 ${isSelected ? 'text-primary' : 'text-text-primary'}`}>
+                              <h3 className={`text-body font-medium mb-1 line-clamp-1 ${isSelected ? 'text-primary' : 'text-text-primary'}`}>
                                 {item.title}
                               </h3>
-                              <p className="text-text-secondary text-sm line-clamp-2">{getSummaryPreviewText(item)}</p>
+                              <p className="text-text-secondary text-label line-clamp-2">{getSummaryPreviewText(item)}</p>
                             </div>
                             {!isSelectionMode && (
                               <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0">
@@ -490,7 +541,7 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
                                   className="text-gray-500 hover:text-primary transition-all p-1"
                                   title="重命名"
                                 >
-                                  <AppIcon name="edit" size={20} />
+                                  <AppIcon name="edit" size={16} />
                                 </button>
                                 <button
                                   onClick={(e) => {
@@ -501,12 +552,12 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
                                   className="text-gray-500 hover:text-red-400 transition-all p-1"
                                   title="删除记录"
                                 >
-                                  <AppIcon name="delete" size={20} />
+                                  <AppIcon name="delete" size={16} />
                                 </button>
                               </div>
                             )}
                           </div>
-                          <div className="flex items-center justify-between text-xs text-gray-500 mt-3">
+                          <div className="flex items-center justify-between text-caption text-text-secondary mt-2">
                             <span>{new Date(item.timestamp).toLocaleString('zh-CN')}</span>
                             <div className="flex items-center gap-2" title={getModelNames(item.selectedModels)}>
                               <span className="whitespace-nowrap">{item.selectedModels.length} 个模型</span>
@@ -519,7 +570,7 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
                                       key={modelId}
                                       src={model.logo}
                                       alt={model.name}
-                                      className="inline-block h-6 w-6 rounded-full ring-1 ring-gray-800 bg-gray-100 object-contain p-0.5"
+                                      className="inline-block h-5 w-5 rounded-full ring-1 ring-white/80 bg-gray-100 object-contain p-0.5"
                                     />
                                   )
                                 })}
@@ -543,14 +594,86 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
                 )}
               </>
             )
+          ) : (
+            /* Agent 会话列表 */
+            filteredAgentSessions.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full text-gray-500">
+                <AppIcon name="smart_toy" size={36} className="mb-2" />
+                <p>{searchQuery ? '未找到匹配的会话' : '暂无 Agent 会话'}</p>
+              </div>
+            ) : (
+              <Virtuoso
+                data={filteredAgentSessions}
+                itemContent={(_index, item) => {
+                  const isSelected = selectedIds.includes(item.id)
+                  const isActive = agentCurrentSessionId === item.id
+                  return (
+                    <div className="pb-2.5">
+                      <div
+                        onClick={() => handleSelectAgent(item)}
+                        className={`group p-3 rounded-lg bg-sidebar/50 border transition-all ${isSelected
+                          ? 'border-primary bg-primary/5'
+                          : isActive
+                            ? 'border-primary/60 bg-primary/10'
+                            : 'border-gray-200 hover:border-primary/50'
+                          } cursor-pointer flex items-center gap-3 relative`}
+                      >
+                        {isActive && (
+                          <div className="absolute left-0 top-3 bottom-3 w-1 rounded-r-full bg-primary" />
+                        )}
+                        {isSelectionMode && (
+                          <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors flex-shrink-0 ${isSelected ? 'bg-primary border-primary' : 'border-gray-500'
+                            }`}>
+                            {isSelected && <AppIcon name="check" size={12} className="text-black font-bold" />}
+                          </div>
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex-1 min-w-0">
+                              <h3 className={`text-body font-medium line-clamp-1 ${isSelected ? 'text-primary' : 'text-text-primary'}`}>
+                                {item.title || '新对话'}
+                              </h3>
+                              <p className="text-caption text-text-secondary mt-1 line-clamp-1">
+                                {[
+                                  item.model,
+                                  item.cwd,
+                                  new Date(item.updatedAt || item.createdAt).toLocaleString('zh-CN')
+                                ].filter(Boolean).join(' · ')}
+                              </p>
+                            </div>
+                            {!isSelectionMode && (
+                              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setSelectedIds([item.id])
+                                    setShowConfirmDelete(true)
+                                  }}
+                                  className="text-gray-500 hover:text-red-400 transition-all p-1"
+                                  title="删除记录"
+                                >
+                                  <AppIcon name="delete" size={16} />
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                }}
+              />
+            )
           )}
         </div>
 
         {/* 底部统计 */}
-        <div className="p-4 border-t border-gray-200 text-xs text-gray-500 text-center">
+        <div className="px-4 py-3 border-t border-gray-200 text-caption text-text-secondary text-center">
           {isSelectionMode
             ? `已选择 ${selectedIds.length} 条记录`
-            : `已加载 ${activeTab === 'conversation' ? history.length : summaryHistory.length} / 共 ${activeTab === 'conversation' ? historyTotalCount : summaryHistoryTotalCount} 条记录`
+            : activeTab === 'agent'
+              ? `共 ${agentSessions.length} 条会话`
+              : `已加载 ${activeTab === 'conversation' ? history.length : summaryHistory.length} / 共 ${activeTab === 'conversation' ? historyTotalCount : summaryHistoryTotalCount} 条记录`
           }
           <div className="mt-1">新增时每类最多保留 1000 条，优先移除最早更新的记录；可在设置中导出完整备份。</div>
         </div>
@@ -560,8 +683,8 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
         isOpen={showConfirmDelete}
         title="确认删除"
         message={selectedIds.length === 1
-          ? `确定要删除这条${activeTab === 'conversation' ? '对话' : '总结'}记录吗？此操作无法撤销。`
-          : `确定要删除选中的 ${selectedIds.length} 条${activeTab === 'conversation' ? '对话' : '总结'}记录吗？此操作无法撤销。`
+          ? `确定要删除这条${activeTab === 'conversation' ? '对话' : activeTab === 'summary' ? '总结' : 'Agent 会话'}记录吗？此操作无法撤销。`
+          : `确定要删除选中的 ${selectedIds.length} 条${activeTab === 'conversation' ? '对话' : activeTab === 'summary' ? '总结' : 'Agent 会话'}记录吗？此操作无法撤销。`
         }
         confirmText="确认删除"
         onConfirm={confirmDelete}
