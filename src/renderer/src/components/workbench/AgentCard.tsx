@@ -24,6 +24,7 @@ import { AgentComposer } from './agent/AgentComposer'
 import ChangedFilesCard from './agent/ChangedFilesCard'
 import { MarkdownRenderer } from './agent/MarkdownRenderer'
 import { WorkPhaseBlock } from './agent/WorkPhaseBlock'
+import { AttachmentChips, InlineMentionText, collectToolAttachmentPaths, extractInlineFilePaths } from './agent/AttachmentChips'
 import type { AgentMessage, PiContentPart } from '../../types/agent'
 
 interface AgentCardProps {
@@ -88,6 +89,7 @@ export default function AgentCard({
   const resumeSession = useAgentSessionStore((s) => s.resumeSession)
   const deleteSession = useAgentSessionStore((s) => s.deleteSession)
   const initListeners = useAgentSessionStore((s) => s.initListeners)
+  const fetchSessions = useAgentSessionStore((s) => s.fetchSessions)
   const rewindLastUserMessage = useAgentSessionStore((s) => s.rewindLastUserMessage)
   const forkSession = useAgentSessionStore((s) => s.forkSession)
   const copyText = useAgentSessionStore((s) => s.copyText)
@@ -95,6 +97,8 @@ export default function AgentCard({
   const setForeignReview = useAgentSessionStore((s) => s.setForeignReview)
 
   const [historyMenuOpen, setHistoryMenuOpen] = useState(false)
+  const [foreignHistoryOpen, setForeignHistoryOpen] = useState(false)
+  const [historySearchQuery, setHistorySearchQuery] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null)
   /** 待确认的跨工作区会话：cwd 与当前工作区不一致时先弹窗再恢复。 */
   const [pendingForeignSession, setPendingForeignSession] = useState<{ id: string; cwd: string } | null>(null)
@@ -456,24 +460,38 @@ export default function AgentCard({
         </div>
 
           {/* Right Header Actions — matches WebviewCard icon button pattern */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1">
             {/* New Session */}
             <button
               type="button"
               onClick={handleNewSession}
-              className="flex items-center justify-center rounded-full text-text-secondary hover:text-primary transition-colors"
+              className="w-7 h-7 rounded-full flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-black/5 dark:hover:bg-white/10 transition-all duration-200"
               title="新建会话"
+              aria-label="新建会话"
             >
               <AppIcon name="annotation" size={20} />
             </button>
 
             {/* History Popover */}
-            <div className="relative">
+            <div className="relative flex items-center justify-center">
               <button
                 type="button"
-                onClick={() => setHistoryMenuOpen(!historyMenuOpen)}
-                className="flex items-center justify-center rounded-full text-text-secondary hover:text-primary transition-colors"
+                onClick={() => {
+                  const nextOpen = !historyMenuOpen
+                  setHistoryMenuOpen(nextOpen)
+                  if (nextOpen) {
+                    setForeignHistoryOpen(false)
+                    setHistorySearchQuery('')
+                    void fetchSessions()
+                  }
+                }}
+                className={`w-7 h-7 rounded-full flex items-center justify-center transition-all duration-200 ${
+                  historyMenuOpen
+                    ? 'text-primary bg-blue-50 hover:bg-blue-100 dark:bg-primary/20 dark:hover:bg-primary/25'
+                    : 'text-text-secondary hover:text-text-primary hover:bg-black/5 dark:hover:bg-white/10'
+                }`}
                 title="对话历史"
+                aria-label="对话历史"
               >
                 <AppIcon name="history" size={20} />
               </button>
@@ -484,93 +502,169 @@ export default function AgentCard({
                     className="fixed inset-0 z-popover"
                     onClick={() => setHistoryMenuOpen(false)}
                   />
-                  <div className="absolute right-0 top-full mt-1.5 w-64 rounded-xl border border-gray-200 py-1 shadow-lg z-popover bg-white text-text-primary text-label">
-                    <div className="px-3 py-1.5 flex items-center justify-between border-b border-gray-100">
-                      <span className="text-caption font-semibold text-text-secondary uppercase tracking-wider">
+                  <div className="absolute right-0 top-full mt-1.5 w-80 max-h-[80vh] rounded-xl border border-gray-200/90 dark:border-gray-700 shadow-lg z-popover bg-white dark:bg-slate-800 text-text-primary flex flex-col overflow-hidden">
+                    {/* Header: 对话历史 + 强调的新对话按钮 */}
+                    <div className="px-3.5 py-2.5 flex items-center justify-between border-b border-gray-100 dark:border-gray-700/60 shrink-0">
+                      <span className="text-body font-semibold text-text-primary dark:text-gray-100 tracking-tight">
                         对话历史
                       </span>
                       <button
                         type="button"
                         onClick={handleNewSession}
-                        className="text-caption text-primary hover:opacity-80 font-medium"
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary hover:bg-primary/90 text-white text-label font-medium shadow-sm transition-all active:scale-95"
                       >
-                        + 新对话
+                        <AppIcon name="add" size={13} strokeWidth={2.5} />
+                        <span>新对话</span>
                       </button>
                     </div>
 
-                    <div className="max-h-64 overflow-y-auto py-1">
-                      {sessions.length === 0 ? (
-                        <div className="px-3 py-4 text-center text-text-secondary text-caption">
-                          暂无历史对话
-                        </div>
-                      ) : (
-                        sessions.map((item) => {
-                          const isCurrent = item.id === currentSessionId
-                          const isItemRunning = item.isRunning ?? false
-                          const foreignWorkspace =
-                            item.cwd && normalizePath(item.cwd) !== normalizePath(workspacePath)
-                              ? baseName(item.cwd)
-                              : null
-                          const dateStr = item.updatedAt
-                            ? new Date(item.updatedAt).toLocaleTimeString([], {
-                                hour: '2-digit',
-                                minute: '2-digit'
-                              })
-                            : ''
-                          return (
-                            <div
-                              key={item.id}
-                              onClick={() => handleSelectSession(item.id)}
-                              className={`group px-3 py-2 hover:bg-blue-50/60 cursor-pointer flex items-start gap-2 transition-colors ${
-                                isCurrent ? 'bg-blue-50/40' : ''
-                              }`}
-                            >
-                              <span
-                                className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${
-                                  isCurrent ? 'bg-primary' : 'bg-transparent'
-                                }`}
-                              />
-                              <div className="min-w-0 flex-1">
-                                <div className="font-medium text-text-primary truncate">
-                                  {item.title || '新对话'}
-                                </div>
-                                <div className="text-tiny font-mono text-text-secondary mt-0.5">
-                                  {dateStr ? `${dateStr} · ` : ''}
-                                  {item.model || 'SWE-2'}
-                                </div>
+                    {/* Compact Search Bar (方案二：轻量搜索行) */}
+                    <div className="px-3 py-2 border-b border-gray-100 dark:border-gray-700/60 bg-gray-50/50 dark:bg-slate-800/50 shrink-0">
+                      <div className="flex items-center gap-2 px-2.5 py-1.5 bg-white dark:bg-slate-700/60 rounded-lg border border-gray-200/70 dark:border-gray-600/60 focus-within:border-primary/60 transition-colors">
+                        <AppIcon name="search" size={14} className="text-text-secondary/60 shrink-0" />
+                        <input
+                          type="text"
+                          value={historySearchQuery}
+                          onChange={(e) => setHistorySearchQuery(e.target.value)}
+                          placeholder="搜索历史对话..."
+                          className="w-full bg-transparent text-label text-text-primary dark:text-gray-100 placeholder:text-text-secondary/50 focus:outline-none"
+                        />
+                        {historySearchQuery && (
+                          <button
+                            type="button"
+                            onClick={() => setHistorySearchQuery('')}
+                            className="text-text-secondary/60 hover:text-text-primary p-0.5 rounded"
+                          >
+                            <AppIcon name="close" size={12} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {(() => {
+                      const query = historySearchQuery.trim().toLowerCase()
+                      const matchesQuery = (item: (typeof sessions)[number]) => {
+                        if (!query) return true
+                        const title = (item.title || '').toLowerCase()
+                        const model = (item.model || '').toLowerCase()
+                        const cwd = (item.cwd || '').toLowerCase()
+                        return title.includes(query) || model.includes(query) || cwd.includes(query)
+                      }
+
+                      const currentWorkspaceSessions = sessions
+                        .filter(
+                          (item) => !item.cwd || normalizePath(item.cwd) === normalizePath(workspacePath)
+                        )
+                        .filter(matchesQuery)
+                      const foreignWorkspaceSessions = sessions
+                        .filter(
+                          (item) => item.cwd && normalizePath(item.cwd) !== normalizePath(workspacePath)
+                        )
+                        .filter(matchesQuery)
+
+                      const isForeignSectionOpen = foreignHistoryOpen || Boolean(query)
+
+                      const renderSessionItem = (item: (typeof sessions)[number], isForeign: boolean) => {
+                        const isCurrent = item.id === currentSessionId
+                        const isItemRunning = item.isRunning ?? false
+                        const foreignWorkspace = isForeign && item.cwd ? baseName(item.cwd) : null
+                        const dateStr = item.updatedAt
+                          ? new Date(item.updatedAt).toLocaleTimeString([], {
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })
+                          : ''
+
+                        return (
+                          <div
+                            key={item.id}
+                            onClick={() => handleSelectSession(item.id)}
+                            className={`group px-3.5 py-2.5 hover:bg-gray-100/70 dark:hover:bg-slate-700/50 cursor-pointer flex items-start gap-2.5 transition-colors ${
+                              isCurrent ? 'bg-blue-50/60 dark:bg-blue-900/20' : ''
+                            }`}
+                          >
+                            <AppIcon
+                              name="chat"
+                              size={16}
+                              className="shrink-0 mt-0.5 text-text-secondary dark:text-gray-400"
+                            />
+                            <div className="min-w-0 flex-1">
+                              <div className="font-medium text-text-primary dark:text-gray-100 truncate text-body leading-snug">
+                                {item.title || '新对话'}
+                              </div>
+                              <div className="text-caption font-mono text-text-secondary dark:text-gray-400 mt-1 flex items-center gap-1.5">
+                                <span>{[dateStr, item.model].filter(Boolean).join(' · ')}</span>
                                 {foreignWorkspace && (
-                                  <div
-                                    className="text-tiny text-text-secondary/70 mt-0.5 truncate flex items-center gap-1"
+                                  <span
+                                    className="inline-flex items-center gap-1 text-text-secondary/70 truncate max-w-[130px]"
                                     title={item.cwd}
                                   >
-                                    <AppIcon name="folder" size={11} />
-                                    {foreignWorkspace}
-                                  </div>
+                                    <AppIcon name="folder" size={11} className="shrink-0" />
+                                    <span className="truncate">{foreignWorkspace}</span>
+                                  </span>
                                 )}
                               </div>
-                              {isItemRunning && (
-                                <AppIcon
-                                  name="progress_activity"
-                                  size={14}
-                                  className="shrink-0 mt-0.5 text-primary animate-spin"
-                                />
-                              )}
+                            </div>
+                            {isItemRunning && (
+                              <AppIcon
+                                name="progress_activity"
+                                size={14}
+                                className="shrink-0 mt-0.5 text-primary animate-spin"
+                              />
+                            )}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setDeleteTarget({ id: item.id, title: item.title || '新对话' })
+                              }}
+                              className="shrink-0 mt-0.5 p-0.5 rounded text-gray-400 opacity-0 group-hover:opacity-100 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 transition-all"
+                              title="删除会话"
+                            >
+                              <AppIcon name="delete" size={15} />
+                            </button>
+                          </div>
+                        )
+                      }
+
+                      return (
+                        <>
+                          {/* Current Workspace Sessions (Scrollable) */}
+                          <div className="max-h-[380px] overflow-y-auto py-1">
+                            {currentWorkspaceSessions.length === 0 ? (
+                              <div className="px-3 py-4 text-center text-text-secondary text-caption">
+                                {query ? '无匹配对话' : '暂无历史对话'}
+                              </div>
+                            ) : (
+                              currentWorkspaceSessions.map((item) => renderSessionItem(item, false))
+                            )}
+                          </div>
+
+                          {/* Foreign Workspace Sessions (Pinned Footer, Collapsed by Default) */}
+                          {foreignWorkspaceSessions.length > 0 && (
+                            <div className="border-t border-gray-100 dark:border-gray-700/70 bg-gray-50/50 dark:bg-slate-800/80 shrink-0">
                               <button
                                 type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  setDeleteTarget({ id: item.id, title: item.title || '新对话' })
-                                }}
-                                className="shrink-0 mt-0.5 p-0.5 rounded text-gray-400 opacity-0 group-hover:opacity-100 hover:text-red-500 hover:bg-red-50 transition-all"
-                                title="删除会话"
+                                onClick={() => setForeignHistoryOpen(!foreignHistoryOpen)}
+                                className="w-full px-3.5 py-2.5 flex items-center gap-2 text-text-secondary hover:text-text-primary hover:bg-gray-100/60 dark:hover:bg-slate-700/40 cursor-pointer select-none transition-colors"
                               >
-                                <AppIcon name="delete" size={14} />
+                                <AppIcon
+                                  name={isForeignSectionOpen ? 'expand_more' : 'chevron_right'}
+                                  size={15}
+                                  className="text-text-secondary transition-transform"
+                                />
+                                <span className="text-label font-medium">其他工作区</span>
                               </button>
+                              {isForeignSectionOpen && (
+                                <div className="border-t border-gray-100 dark:border-gray-700/60 max-h-60 overflow-y-auto py-1 bg-white dark:bg-slate-800">
+                                  {foreignWorkspaceSessions.map((item) => renderSessionItem(item, true))}
+                                </div>
+                              )}
                             </div>
-                          )
-                        })
-                      )}
-                    </div>
+                          )}
+                        </>
+                      )
+                    })()}
                   </div>
                 </>
               )}
@@ -581,8 +675,9 @@ export default function AgentCard({
               <button
                 type="button"
                 onClick={closeRightPane}
-                className="flex items-center justify-center rounded-full text-text-secondary hover:text-primary transition-colors"
+                className="w-7 h-7 rounded-full flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-black/5 dark:hover:bg-white/10 transition-all duration-200"
                 title="折叠 AI 侧边栏"
+                aria-label="折叠 AI 侧边栏"
               >
                 <AppIcon name="right_panel_close" size={20} />
               </button>
@@ -669,6 +764,7 @@ export default function AgentCard({
                   .filter((c) => c.type === 'text')
                   .map((c) => c.text)
                   .join('')
+                const userImages = message.content.filter((c) => c.type === 'image')
                 // Resolve the session-entry id bound to this bubble by text.
                 // The main process already restricts rewind to the LAST user
                 // message, so the edit button is only meaningful there.
@@ -677,9 +773,21 @@ export default function AgentCard({
                 const canRewind = !isRunning && isLastUserMessage
                 return (
                   <div key={message.id} className="group my-1">
+                    {userImages.length > 0 && (
+                      <div className="mb-1 flex flex-wrap justify-end gap-1.5">
+                        {userImages.map((img, i) => (
+                          <img
+                            key={i}
+                            src={img.data ?? ''}
+                            alt="粘贴的图片"
+                            className="max-h-32 max-w-[220px] rounded-lg border border-slate-200/70 object-cover shadow-xs"
+                          />
+                        ))}
+                      </div>
+                    )}
                     <div className="flex justify-end">
                       <div className="max-w-[85%] bg-primary text-white text-body leading-relaxed px-4 py-2.5 rounded-2xl rounded-tr-sm shadow-xs break-words whitespace-pre-wrap select-text">
-                        {userText}
+                        <InlineMentionText text={userText} cwd={currentCwd ?? undefined} />
                       </div>
                     </div>
                     <div className="mt-1 flex items-center justify-end gap-0.5 pr-1 opacity-0 transition-opacity group-hover:opacity-100">
@@ -711,9 +819,12 @@ export default function AgentCard({
               // Work group：连续 assistant 消息的工作段（reasoning/tool-call
               // 折叠进"思考中"，最后一条的 final text 外显）。
               const groupMsgs = item.msgs
+              const firstMsg = groupMsgs[0]
               const finalMsg = groupMsgs[groupMsgs.length - 1]
-              const isGroupRunning = groupMsgs.some((m) => m.status === 'running')
               const finalMsgIndex = messages.indexOf(finalMsg)
+              const isLatestGroup = finalMsgIndex === messages.length - 1
+              const hasPendingApproval = pendingApprovals.some((r) => !currentSessionId || r.sessionId === currentSessionId)
+              const isGroupRunning = groupMsgs.some((m) => m.status === 'running') || (isLatestGroup && (isRunning || hasPendingApproval))
               const nextMsg = messages[finalMsgIndex + 1]
               const isTurnFinal = !nextMsg || nextMsg.role === 'user'
               const isForkMenuTarget = forkMenuOpenFor === finalMsg.id
@@ -739,6 +850,23 @@ export default function AgentCard({
               }
 
               const assistantText = lastTextPart?.text?.trim() ?? ''
+
+              // 附件 Chips：主数据源是工具结果（image_gen 的 imageFiles 等），
+              // 兜底是正文任意位置的绝对路径——shell/脚本等"非工具产物"场景，
+              // 模型忘记反引号、路径嵌在句中时仍能识别。
+              const attachmentPaths = (() => {
+                const merged = [
+                  ...collectToolAttachmentPaths(groupMsgs),
+                  ...extractInlineFilePaths(assistantText)
+                ]
+                const seen = new Set<string>()
+                return merged.filter((p) => {
+                  const key = p.replace(/\\/g, '/').toLowerCase()
+                  if (seen.has(key)) return false
+                  seen.add(key)
+                  return true
+                })
+              })()
 
               // 折叠区内容：组内所有 reasoning + tool-group + 非 final 的 text
               const workBlocks: { key: string; node: JSX.Element }[] = []
@@ -808,7 +936,7 @@ export default function AgentCard({
               }
 
               return (
-                <div key={finalMsg.id} className="group space-y-2.5 my-2">
+                <div key={firstMsg.id} className="group space-y-2.5 my-2">
                   {/* 发送后等待首个 part 的间隙：组内还没有任何 block */}
                   {isGroupRunning && workBlocks.length === 0 && textBlocks.length === 0 && (
                     <WorkPhaseBlock isRunning durationMs={undefined}>
@@ -833,6 +961,10 @@ export default function AgentCard({
                   {textBlocks.map((b) => (
                     <div key={b.key}>{b.node}</div>
                   ))}
+
+                  {attachmentPaths.length > 0 && !isGroupRunning && (
+                    <AttachmentChips paths={attachmentPaths} cwd={currentCwd ?? undefined} />
+                  )}
 
                   {!isGroupRunning && isTurnFinal && currentSessionId && currentCwd && (
                     <ChangedFilesCard

@@ -936,8 +936,13 @@ webview[tabindex="-1"] {
 }
 
 @keyframes aura-breathe {
-  0%, 100% { opacity: 0.55; transform: scale(1); }
-  50% { opacity: 0.85; transform: scale(1.015); }
+  0%, 100% { opacity: 0.22; transform: scale(1); }
+  50% { opacity: 0.38; transform: scale(1.006); }
+}
+
+@keyframes aura-breathe-dark {
+  0%, 100% { opacity: 0.30; transform: scale(1); }
+  50% { opacity: 0.46; transform: scale(1.006); }
 }
 
 @keyframes avatar-float {
@@ -949,11 +954,11 @@ webview[tabindex="-1"] {
   animation: avatar-float 4.5s ease-in-out infinite;
 }
 
-/* 1. 外层弥散流光气场 (Ambient Flowing Aura: 12px 模糊，灵动流动) */
+/* 1. 外层弥散流光气场 (Ambient Flowing Aura: 8px 柔化模糊，收敛适度扩散) */
 .composer-ambient-aura {
   position: absolute;
-  inset: -5px;
-  border-radius: 20px;
+  inset: -3px;
+  border-radius: 19px;
   background: conic-gradient(
     from var(--angle),
     #3b82f6 0deg,
@@ -962,14 +967,14 @@ webview[tabindex="-1"] {
     #D2E8FF 270deg,
     #3b82f6 360deg
   );
-  filter: blur(12px);
+  filter: blur(8px);
   z-index: 1;
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* 2. 贴身柔化流光边缘 (Close Feathered Flow: 3px 柔化羽化，拒绝硬粗实线) */
+/* 2. 贴身柔化流光边缘 (Close Feathered Flow: 2.5px 柔化羽化，拒绝硬粗实线) */
 .composer-feathered-flow {
   position: absolute;
   inset: -1px;
@@ -982,24 +987,24 @@ webview[tabindex="-1"] {
     #D2E8FF 270deg,
     #3b82f6 360deg
   );
-  filter: blur(3px);
+  filter: blur(2.5px);
   z-index: 2;
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.35s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* 聚焦时激活流光旋转 (失焦时动画完全休眠) */
+/* 聚焦时激活流光旋转 (失焦时动画完全休眠；放缓节奏并适度弱化透明度) */
 .group:focus-within .composer-ambient-aura,
 .composer-focused .composer-ambient-aura {
-  opacity: 0.55;
-  animation: rotate-border 4s linear infinite, aura-breathe 3.5s ease-in-out infinite;
+  opacity: 0.22;
+  animation: rotate-border 6.5s linear infinite, aura-breathe 4.5s ease-in-out infinite;
 }
 
 .group:focus-within .composer-feathered-flow,
 .composer-focused .composer-feathered-flow {
-  opacity: 0.7;
-  animation: rotate-border 4s linear infinite;
+  opacity: 0.36;
+  animation: rotate-border 6.5s linear infinite;
 }
 
 /* 输入框实体表面 */
@@ -1022,7 +1027,7 @@ webview[tabindex="-1"] {
 .composer-focused .composer-surface {
   border-color: rgba(203, 213, 225, 0.8) !important;
   background-color: #ffffff !important;
-  box-shadow: 0 4px 20px -3px rgba(59, 130, 246, 0.14), 0 2px 6px -1px rgba(0, 0, 0, 0.04) !important;
+  box-shadow: 0 4px 14px -3px rgba(59, 130, 246, 0.08), 0 2px 5px -1px rgba(0, 0, 0, 0.04) !important;
 }
 
 /* 深色模式下的极光羽化与输入框实体 */
@@ -1039,18 +1044,20 @@ webview[tabindex="-1"] {
 
 .dark .group:focus-within .composer-ambient-aura,
 .dark .composer-focused .composer-ambient-aura {
-  opacity: 0.65;
+  opacity: 0.30;
+  animation: rotate-border 6.5s linear infinite, aura-breathe-dark 4.5s ease-in-out infinite;
 }
 
 .dark .group:focus-within .composer-feathered-flow,
 .dark .composer-focused .composer-feathered-flow {
-  opacity: 0.8;
+  opacity: 0.45;
+  animation: rotate-border 6.5s linear infinite;
 }
 
 .dark .group:focus-within .composer-surface,
 .dark .composer-focused .composer-surface {
   border-color: rgba(255, 255, 255, 0.18) !important;
   background-color: #1e293b !important;
-  box-shadow: 0 6px 24px -3px rgba(0, 0, 0, 0.5) !important;
+  box-shadow: 0 4px 18px -3px rgba(0, 0, 0, 0.45) !important;
 }
 

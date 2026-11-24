@@ -9,6 +9,7 @@ import { assistantReplyConfigs } from '../../../../shared/config/selectors'
 import {
   generateInsertReplyButtonScript,
   generateWorkbenchLifecycleStateScript,
+  generateFileUploadStateScript,
   type FileUploadData
 } from '../../../../shared/utils/webviewScripts'
 import { defaultSelectors } from '../../../../shared/config/selectors'
@@ -26,6 +27,7 @@ import {
   type WorkbenchUploadNodesDetail
 } from './workbenchAiEvents'
 import { getFileCategory, type WorkbenchFileNode } from '../../../../shared/types/workbench'
+import { dedupeByKey } from './agent/filePathUtils'
 
 const INSERT_PREFIX = '__MC_INSERT_CURRENT__'
 const SAVE_PREFIX = '__MC_SAVE_NEW__'
@@ -893,8 +895,16 @@ export default function WorkbenchAiSidebar({ isActive = true, instanceId = 'prim
 
   // 处理文件拖入释放并上传到当前 AI 对话框
   const uploadFilesToCurrentModel = useCallback(
-    async (filesToUpload: FileUploadData[], skippedFolders: string[] = []): Promise<void> => {
-      if (filesToUpload.length === 0) return
+    async (rawFiles: FileUploadData[], skippedFolders: string[] = []): Promise<void> => {
+      if (rawFiles.length === 0) return
+      const workspacePath = useWorkbenchStore.getState().workspacePath
+      // 批内去重：同一文件可能经文件树节点 / OS 拖入 / text/plain 三条路径
+      // 同时到达，先按归一化绝对路径合并，再决定是否真正上传。
+      const filesToUpload = dedupeByKey(rawFiles, (f) => f.filePath, workspacePath)
+      if (filesToUpload.length < rawFiles.length) {
+        const dupCount = rawFiles.length - filesToUpload.length
+        console.warn(`[workbench-upload] 批内重复文件已过滤 ${dupCount} 个`)
+      }
       const activeLock = uploadingRef.current
       if (activeLock && Date.now() - activeLock.startedAt < UPLOAD_LOCK_STALE_MS) {
         showToast('info', '正在上传上一批文件，请稍候')
@@ -941,8 +951,11 @@ export default function WorkbenchAiSidebar({ isActive = true, instanceId = 'prim
         // Agent 直接走附件通道注入 @path
         if (currentModel.id === 'local-agent') {
           const store = useAgentSessionStore.getState()
+          // mentionFile 自身已按"附件 + 输入框 @token"双重判重，
+          // 同一事件回声 / 用户手动删附件后的合法重发都交给它处理；
+          // 这里不再叠加额外的"已发送"登记，避免撤销附件后被永久拦截。
           for (const f of filesToUpload) {
-            store.addAttachment(f.filePath)
+            store.mentionFile(f.filePath)
           }
           return
         }
@@ -954,17 +967,51 @@ export default function WorkbenchAiSidebar({ isActive = true, instanceId = 'prim
           return
         }
 
+        // 上传前查重：页面里已存在同名附件的条目直接跳过，避免重复上传。
+        let pendingFiles = filesToUpload
+        try {
+          const modelSelectors = defaultSelectors.models[currentModel.id]
+          const webview = activeRef.getWebview?.()
+          if (modelSelectors && webview) {
+            const stateScript = generateFileUploadStateScript(
+              modelSelectors,
+              filesToUpload.map((f) => f.fileName)
+            )
+            const state = (await webview.executeJavaScript(stateScript)) as {
+              missingNames?: string[]
+              matchedNames?: string[]
+              attachmentCount?: number
+            }
+            const missing = new Set((state.missingNames || []).map((n) => n.toLowerCase()))
+            const matched = new Set((state.matchedNames || []).map((n) => n.toLowerCase()))
+            if (matched.size > 0) {
+              pendingFiles = filesToUpload.filter((f) =>
+                missing.size > 0
+                  ? missing.has(f.fileName.toLowerCase())
+                  : !matched.has(f.fileName.toLowerCase())
+              )
+            }
+            if (pendingFiles.length < filesToUpload.length) {
+              showToast('info', `已跳过 ${filesToUpload.length - pendingFiles.length} 个重复文件`)
+            }
+            if (pendingFiles.length === 0) return
+          }
+        } catch {
+          // 检测脚本失败不阻断上传，维持原有逐个上传流程。
+          pendingFiles = filesToUpload
+        }
+
         let successCount = 0
         let failCount = 0
         const errors: string[] = []
         const skippedNote = skippedFolders.length > 0 ? `；已跳过 ${skippedFolders.length} 个文件夹` : ''
 
-        for (let i = 0; i < filesToUpload.length; i++) {
+        for (let i = 0; i < pendingFiles.length; i++) {
           if (!isCurrentUpload()) return
-          const file = filesToUpload[i]
+          const file = pendingFiles[i]
           showToast(
             'info',
-            `正在上传 (${i + 1}/${filesToUpload.length})`,
+            `正在上传 (${i + 1}/${pendingFiles.length})`,
             0
           )
 
@@ -989,7 +1036,7 @@ export default function WorkbenchAiSidebar({ isActive = true, instanceId = 'prim
             errors.push(`${file.fileName}: ${res.error || '上传失败'}`)
           }
 
-          if (i < filesToUpload.length - 1) {
+          if (i < pendingFiles.length - 1) {
             await new Promise((r) => setTimeout(r, 150))
           }
         }
@@ -998,23 +1045,23 @@ export default function WorkbenchAiSidebar({ isActive = true, instanceId = 'prim
         if (failCount === 0) {
           showToast(
             'success',
-            filesToUpload.length === 1
+            pendingFiles.length === 1
               ? `上传完成${skippedNote}`
-              : `上传完成 (${successCount}/${filesToUpload.length})${skippedNote}`
+              : `上传完成 (${successCount}/${pendingFiles.length})${skippedNote}`
           )
         } else if (successCount === 0) {
           console.warn('[workbench-upload] 全部上传失败', errors)
           showToast(
             'error',
-            (filesToUpload.length === 1
-              ? `上传失败：${filesToUpload[0].fileName}`
+            (pendingFiles.length === 1
+              ? `上传失败：${pendingFiles[0].fileName}`
               : `上传失败 (${failCount} 个文件)`) + skippedNote
           )
         } else {
           console.warn('[workbench-upload] 部分上传失败', errors)
           showToast(
             'info',
-            `已上传 ${successCount}/${filesToUpload.length}，${failCount} 个失败${skippedNote}`
+            `已上传 ${successCount}/${pendingFiles.length}，${failCount} 个失败${skippedNote}`
           )
         }
       } catch (err) {
@@ -1399,14 +1446,14 @@ export default function WorkbenchAiSidebar({ isActive = true, instanceId = 'prim
             headerActions={
               <button
                 type="button"
-                onClick={isSecondary ? closeAiSidebar2 : openAiSidebar2}
+                onClick={isSecondary ? closeAiSidebar2 : (isAiSidebar2Open ? closeAiSidebar2 : openAiSidebar2)}
                 className={`w-7 h-7 rounded-full flex items-center justify-center transition-all duration-200 ${
                   !isSecondary && isAiSidebar2Open
                     ? 'text-primary bg-blue-50 hover:bg-blue-100 dark:bg-primary/20 dark:hover:bg-primary/25'
                     : 'text-text-secondary hover:text-text-primary hover:bg-black/5 dark:hover:bg-white/10'
                 }`}
-                title={isSecondary ? '关闭 AI 侧边栏' : '再打开一个 AI 侧边栏'}
-                aria-label={isSecondary ? '关闭 AI 侧边栏' : '再打开一个 AI 侧边栏'}
+                title={isSecondary || isAiSidebar2Open ? '关闭 AI 侧边栏' : '再打开一个 AI 侧边栏'}
+                aria-label={isSecondary || isAiSidebar2Open ? '关闭 AI 侧边栏' : '再打开一个 AI 侧边栏'}
               >
                 <AppIcon name={isSecondary ? 'close' : 'view_column_2'} size={20} />
               </button>
@@ -1446,14 +1493,14 @@ export default function WorkbenchAiSidebar({ isActive = true, instanceId = 'prim
                 headerActions={
                   <button
                     type="button"
-                    onClick={isSecondary ? closeAiSidebar2 : openAiSidebar2}
+                    onClick={isSecondary ? closeAiSidebar2 : (isAiSidebar2Open ? closeAiSidebar2 : openAiSidebar2)}
                     className={`w-7 h-7 rounded-full flex items-center justify-center transition-all duration-200 ${
                       !isSecondary && isAiSidebar2Open
                         ? 'text-primary bg-blue-50 hover:bg-blue-100 dark:bg-primary/20 dark:hover:bg-primary/25'
                         : 'text-text-secondary hover:text-text-primary hover:bg-black/5 dark:hover:bg-white/10'
                     }`}
-                    title={isSecondary ? '关闭 AI 侧边栏' : '再打开一个 AI 侧边栏'}
-                    aria-label={isSecondary ? '关闭 AI 侧边栏' : '再打开一个 AI 侧边栏'}
+                    title={isSecondary || isAiSidebar2Open ? '关闭 AI 侧边栏' : '再打开一个 AI 侧边栏'}
+                    aria-label={isSecondary || isAiSidebar2Open ? '关闭 AI 侧边栏' : '再打开一个 AI 侧边栏'}
                   >
                     <AppIcon name={isSecondary ? 'close' : 'view_column_2'} size={20} />
                   </button>
