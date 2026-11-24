@@ -13,6 +13,9 @@ const importEsm = new Function('s', 'return import(s)') as <T>(s: string) => Pro
 export interface AgentResourceLoaderOptions {
   cwd: string
   agentDir?: string
+  appendSystemPrompt?: string[]
+  /** Extra skill roots beyond `<agentDir>/skills` and the cwd's own skills dir. */
+  extraSkillDirs?: string[]
 }
 
 export class AgentResourceLoader {
@@ -23,7 +26,12 @@ export class AgentResourceLoader {
   constructor(options: AgentResourceLoaderOptions) {
     this.cwd = options.cwd
     this.agentDir = options.agentDir ?? join(homedir(), '.pi', 'agent')
+    this.appendSystemPromptExtra = options.appendSystemPrompt ?? []
+    this.extraSkillDirs = options.extraSkillDirs ?? []
   }
+
+  private appendSystemPromptExtra: string[]
+  private extraSkillDirs: string[]
 
   private async ensureLoader(): Promise<DefaultResourceLoaderType> {
     if (this.loader) return this.loader
@@ -32,16 +40,15 @@ export class AgentResourceLoader {
       '@earendil-works/pi-coding-agent'
     )
 
-    const additionalSkillPaths: string[] = []
-    const claudeSkillsDir = join(this.cwd, '.claude', 'skills')
-    if (existsSync(claudeSkillsDir)) {
-      additionalSkillPaths.push(claudeSkillsDir)
-    }
+    const additionalSkillPaths: string[] = this.extraSkillDirs.filter((dir) => existsSync(dir))
 
     this.loader = new DefaultResourceLoader({
       cwd: this.cwd,
       agentDir: this.agentDir,
-      additionalSkillPaths: additionalSkillPaths.length > 0 ? additionalSkillPaths : undefined
+      additionalSkillPaths: additionalSkillPaths.length > 0 ? additionalSkillPaths : undefined,
+      appendSystemPromptOverride: this.appendSystemPromptExtra.length
+        ? (base: string[]) => [...base, ...this.appendSystemPromptExtra]
+        : undefined
     })
 
     return this.loader

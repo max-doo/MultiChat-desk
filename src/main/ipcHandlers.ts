@@ -2767,7 +2767,7 @@ export async function registerIpcHandlers(
         }
     })
 
-    ipcMain.handle('agent:set-permission-mode', async (_event, payload: { sessionId: string; mode: 'full' | 'restricted' | 'readonly' }) => {
+    ipcMain.handle('agent:set-permission-mode', async (_event, payload: { sessionId: string; mode: 'default' | 'auto' | 'bypass' | 'full' | 'restricted' | 'readonly' }) => {
         try {
             agentSessionService.setPermissionMode(payload.sessionId, payload.mode)
             return { success: true }
@@ -2791,6 +2791,64 @@ export async function registerIpcHandlers(
         try {
             const data = agentSessionService.listProviders()
             return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('agent:list-skills', async (_event, payload: { cwd?: string }) => {
+        try {
+            const data = await agentSessionService.listSkills(payload?.cwd)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    // ── Agent 配置（设置弹窗）──────────────────────────────────────────────
+
+    ipcMain.handle('agent:get-config', async () => {
+        try {
+            const data = {
+                agentDir: agentSessionService.getAgentDir(),
+                skillDirCandidates: agentSessionService.getSkillDirCandidates(),
+                extraSkillDirs: agentSessionService.getExtraSkillDirs(),
+                allowlist: agentSessionService.getAllowlist(),
+                activeModel: agentSessionService.getActiveModel()
+            }
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('agent:set-skill-dirs', async (_event, payload: { dirs: string[] }) => {
+        try {
+            agentSessionService.setExtraSkillDirs(Array.isArray(payload?.dirs) ? payload.dirs : [])
+            return { success: true }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('agent:allowlist-add', async (_event, payload: { tool: string; pattern: string }) => {
+        try {
+            const data = agentSessionService.addAllowlistEntry(payload.tool ?? '*', payload.pattern ?? '')
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('agent:allowlist-remove', async (_event, payload: { id: string }) => {
+        try {
+            agentSessionService.removeAllowlistEntry(payload.id)
+            return { success: true }
         } catch (err: unknown) {
             const error = err instanceof Error ? err.message : String(err)
             return { success: false, error }

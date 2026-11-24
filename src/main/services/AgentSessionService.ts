@@ -15,6 +15,7 @@ import type {
 import type { AnyModel, Model, Api } from '@earendil-works/pi-ai'
 import { PermissionEngine, type PermissionMode, type ApprovalRequest } from './PermissionEngine'
 import { AgentResourceLoader } from './AgentResourceLoader'
+import { excludedShellTools, shellEnvironmentPrompt, shellToolForPlatform } from './shell'
 
 const importEsm = new Function('s', 'return import(s)') as <T>(s: string) => Promise<T>
 
@@ -57,6 +58,7 @@ export interface ProviderListItem {
 export class AgentSessionService {
   private sessionsDir: string
   private agentDir: string
+  private skillDirCandidates: string[]
   private permissionEngine: PermissionEngine
   private pi: PiModule | null = null
   private modelRuntime: ModelRuntimeType | null = null
@@ -74,7 +76,20 @@ export class AgentSessionService {
     const isDev = basename(store.path).includes('-dev')
     const baseDir = join(dirname(store.path), 'history', ...(isDev ? ['dev'] : []))
     this.sessionsDir = join(baseDir, 'agent-sessions')
-    this.agentDir = join(homedir(), '.pi', 'agent')
+    // Agent config lives in the app's own data directory (multichat/agent/),
+    // not pi's default ~/.pi/agent — keeps credentials, models, settings and
+    // global skills self-contained and portable-mode aware. `agentDir/skills`
+    // is the global-skills root pi's loader scans automatically.
+    this.agentDir = join(dirname(store.path), 'agent')
+    // Optional extra global-skill roots the user can opt into. Presets follow
+    // common agent-skill conventions; any custom absolute path is allowed.
+    this.skillDirCandidates = [
+      join(this.agentDir, 'skills'),
+      join(homedir(), '.agents', 'skills'),
+      join(homedir(), '.claude', 'skills'),
+      join(homedir(), '.pi', 'agent', 'skills'),
+      join(homedir(), '.mu', 'skills')
+    ]
 
     this.permissionEngine = new PermissionEngine(store, (req: ApprovalRequest) => {
       this.sendApprovalRequest(req)
@@ -94,6 +109,27 @@ export class AgentSessionService {
       }
     }
     return this.pi
+  }
+
+  private piShellConfig: { shell: string; args?: string[] } | null = null
+
+  /** Resolve the real shell executable once via pi's own detector; caches the result. */
+  private async resolveShellConfigForPrompt(): Promise<void> {
+    if (this.piShellConfig !== null) return
+    try {
+      const mod = await importEsm<typeof import('@earendil-works/pi-coding-agent')>(
+        '@earendil-works/pi-coding-agent'
+      )
+      this.piShellConfig =
+        shellToolForPlatform() === 'powershell' ? mod.getPowerShellConfig() : mod.getShellConfig()
+    } catch {
+      this.piShellConfig = { shell: '' }
+    }
+  }
+
+  private resolveShellExecutable(): string | undefined {
+    const shell = this.piShellConfig?.shell
+    return shell ? shell : undefined
   }
 
   public async init(): Promise<void> {
@@ -162,19 +198,20 @@ export class AgentSessionService {
     sessionId: string,
     session: AgentSession,
     cwd: string,
-    permissionMode: PermissionMode = 'restricted'
+    permissionMode: PermissionMode = 'default'
   ): ActiveSessionEntry {
     // Intercept tool calls for permission validation & approvals
     session.agent.beforeToolCall = async (context) => {
       const active = this.activeSessions.get(sessionId)
-      const currentMode = active?.permissionMode ?? 'restricted'
+      const currentMode = active?.permissionMode ?? 'default'
 
       const check = await this.permissionEngine.checkOrRequestApproval({
         sessionId,
         mode: currentMode,
         toolCallId: context.toolCall.id,
         toolName: context.toolCall.name,
-        args: (context.args as Record<string, unknown>) ?? {}
+        args: (context.args as Record<string, unknown>) ?? {},
+        cwd
       })
 
       if (!check.allowed) {
@@ -223,7 +260,16 @@ export class AgentSessionService {
     const sessionManager = SessionManager.create(resolvedCwd, this.sessionsDir)
     const sessionId = sessionManager.getSessionId()
 
-    const resourceLoader = new AgentResourceLoader({ cwd: resolvedCwd, agentDir: this.agentDir })
+    await this.resolveShellConfigForPrompt()
+    const shellTool = shellToolForPlatform()
+    const envPrompt = shellEnvironmentPrompt(resolvedCwd, [shellTool], () => this.resolveShellExecutable() ?? '')
+
+    const resourceLoader = new AgentResourceLoader({
+      cwd: resolvedCwd,
+      agentDir: this.agentDir,
+      appendSystemPrompt: [envPrompt],
+      extraSkillDirs: this.getExtraSkillDirs()
+    })
     await resourceLoader.reload()
 
     const modelObj = this.getActiveModelObject()
@@ -234,10 +280,11 @@ export class AgentSessionService {
       modelRuntime: this.modelRuntime ?? undefined,
       model: modelObj,
       sessionManager,
-      resourceLoader: resourceLoader.getRawLoader()
+      resourceLoader: resourceLoader.getRawLoader(),
+      excludeTools: excludedShellTools()
     })
 
-    this.wireSession(sessionId, session, resolvedCwd, 'restricted')
+    this.wireSession(sessionId, session, resolvedCwd, 'default')
 
     return { sessionId }
   }
@@ -294,7 +341,16 @@ export class AgentSessionService {
     const sessionManager = SessionManager.open(sessionFile, this.sessionsDir)
     const cwd = sessionManager.getCwd() || process.cwd()
 
-    const resourceLoader = new AgentResourceLoader({ cwd, agentDir: this.agentDir })
+    await this.resolveShellConfigForPrompt()
+    const shellTool = shellToolForPlatform()
+    const envPrompt = shellEnvironmentPrompt(cwd, [shellTool], () => this.resolveShellExecutable() ?? '')
+
+    const resourceLoader = new AgentResourceLoader({
+      cwd,
+      agentDir: this.agentDir,
+      appendSystemPrompt: [envPrompt],
+      extraSkillDirs: this.getExtraSkillDirs()
+    })
     await resourceLoader.reload()
 
     const modelObj = this.getActiveModelObject()
@@ -305,10 +361,11 @@ export class AgentSessionService {
       modelRuntime: this.modelRuntime ?? undefined,
       model: modelObj,
       sessionManager,
-      resourceLoader: resourceLoader.getRawLoader()
+      resourceLoader: resourceLoader.getRawLoader(),
+      excludeTools: excludedShellTools()
     })
 
-    const entry = this.wireSession(sessionId, session, cwd, 'restricted')
+    const entry = this.wireSession(sessionId, session, cwd, 'default')
 
     return {
       sessionId,
@@ -465,6 +522,28 @@ export class AgentSessionService {
     return result
   }
 
+  /**
+   * List Agent Skills discoverable from a workspace — SKILL.md packages in
+   * `skills/`, `.agents/skills`, `.claude/skills` and the agent dir's global
+   * skills. Loads a throwaway resource loader per call so it always reflects
+   * the on-disk state, not a stale session snapshot.
+   */
+  public async listSkills(cwd?: string): Promise<Array<{ name: string; description: string; filePath: string; disableModelInvocation: boolean }>> {
+    const resolvedCwd = cwd && cwd.trim() ? cwd.trim() : this.activeSessions.values().next().value?.cwd ?? process.cwd()
+    const loader = new AgentResourceLoader({ cwd: resolvedCwd, agentDir: this.agentDir, extraSkillDirs: this.getExtraSkillDirs() })
+    try {
+      await loader.reload()
+    } catch {
+      return []
+    }
+    return loader.getSkills().skills.map((s) => ({
+      name: s.name,
+      description: s.description,
+      filePath: s.filePath,
+      disableModelInvocation: s.disableModelInvocation
+    }))
+  }
+
   public async setCredential(
     providerId: string,
     cred: { type: 'api_key'; key: string; env?: string }
@@ -522,5 +601,44 @@ export class AgentSessionService {
       modelId: mod,
       baseUrl: modelObj?.baseUrl ?? (prov === 'magpie' ? 'http://127.0.0.1:3425/v1' : undefined)
     }
+  }
+
+  // ── Agent 配置读写（供设置弹窗）────────────────────────────────────────────
+
+  /** The app's own agent dir; `<dir>/skills` is the always-on global skills root. */
+  public getAgentDir(): string {
+    return this.agentDir
+  }
+
+  /** Skill-dir candidates discovered on disk (app dir + common agent-skill dirs). */
+  public getSkillDirCandidates(): Array<{ path: string; exists: boolean; isDefault: boolean }> {
+    return this.skillDirCandidates.map((path, i) => ({
+      path,
+      exists: existsSync(path),
+      isDefault: i === 0
+    }))
+  }
+
+  /** Extra skill dirs the user has opted into (persisted). */
+  public getExtraSkillDirs(): string[] {
+    const list = this.store.get('agent_extra_skill_dirs')
+    return Array.isArray(list) ? (list as string[]) : []
+  }
+
+  public setExtraSkillDirs(dirs: string[]): void {
+    const clean = dirs.map((d) => d.trim()).filter(Boolean)
+    this.store.set('agent_extra_skill_dirs', clean)
+  }
+
+  public getAllowlist(): ReturnType<PermissionEngine['getAllowlist']> {
+    return this.permissionEngine.getAllowlist()
+  }
+
+  public addAllowlistEntry(tool: string, pattern: string): ReturnType<PermissionEngine['addAllowlistEntry']> {
+    return this.permissionEngine.addAllowlistEntry(tool, pattern)
+  }
+
+  public removeAllowlistEntry(id: string): void {
+    this.permissionEngine.removeAllowlistEntry(id)
   }
 }

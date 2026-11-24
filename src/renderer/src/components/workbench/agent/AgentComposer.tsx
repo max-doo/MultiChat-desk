@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { Plus, ChevronDown, Loader2, ArrowUp, Square, X, Settings2 } from 'lucide-react'
 import { useAgentSessionStore } from '../../../store/agentSessionStore'
 import { useWorkbenchStore } from '../../../store/workbenchStore'
-import type { AgentPermissionMode } from '../../../types/agent'
+import type { AgentPermissionMode, AgentSkill } from '../../../types/agent'
 
 interface AgentComposerProps {
   onOpenSettings: () => void
@@ -21,11 +21,43 @@ export function AgentComposer({ onOpenSettings }: AgentComposerProps): JSX.Eleme
   const prompt = useAgentSessionStore((s) => s.prompt)
   const abort = useAgentSessionStore((s) => s.abort)
   const activeModel = useAgentSessionStore((s) => s.activeModel)
+  const skills = useAgentSessionStore((s) => s.skills)
+  const fetchSkills = useAgentSessionStore((s) => s.fetchSkills)
 
   const [accessMenuOpen, setAccessMenuOpen] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const isWorkspaceReady = Boolean(workspacePath)
+
+  // Refresh the skill list whenever the workspace changes so `/` suggestions
+  // reflect the skills of the folder the user is actually working in.
+  useEffect(() => {
+    if (isWorkspaceReady) {
+      void fetchSkills(workspacePath ?? undefined)
+    }
+  }, [isWorkspaceReady, workspacePath, fetchSkills])
+
+  // Skill autocomplete: show suggestions when the input is a `/`-prefixed
+  // command (pi expands `/skill:name args` to the skill's body on submit).
+  const skillQuery = (() => {
+    if (!composerInput.startsWith('/')) return null
+    const head = composerInput.split(/\s/, 1)[0]
+    return head.startsWith('/skill:') ? head.slice('/skill:'.length) : head.slice(1)
+  })()
+  const skillSuggestions = (() => {
+    if (skillQuery === null || !skills.length) return []
+    const q = skillQuery.toLowerCase()
+    return skills.filter((s) => s.name.toLowerCase().includes(q)).slice(0, 8)
+  })()
+  const skillMenuOpen = skillQuery !== null && skillSuggestions.length > 0
+
+  const applySkill = (skill: AgentSkill): void => {
+    const rest = composerInput.startsWith('/skill:')
+      ? composerInput.slice(composerInput.indexOf(skill.name) + skill.name.length)
+      : ''
+    setComposerInput(`/skill:${skill.name}${rest.startsWith(' ') ? rest : ' '}`)
+    textareaRef.current?.focus()
+  }
 
   // Auto-resize textarea height
   useEffect(() => {
@@ -74,12 +106,12 @@ export function AgentComposer({ onOpenSettings }: AgentComposerProps): JSX.Eleme
   }
 
   const permissionModeLabels: Record<AgentPermissionMode, { label: string; color: string; desc: string }> = {
-    full: { label: '完全访问', color: 'text-amber-600', desc: '除高危黑名单外自动放行' },
-    restricted: { label: '受限模式', color: 'text-primary', desc: '写操作/高危命令需弹窗确认' },
-    readonly: { label: '只读模式', color: 'text-purple-600', desc: '仅允许只读查询，禁止修改' }
+    default: { label: '默认模式', color: 'text-primary', desc: '工作区内编辑直接执行，命令需确认' },
+    auto: { label: '自动模式', color: 'text-amber-600', desc: '工作区内编辑和一般命令自动执行' },
+    bypass: { label: '全放行', color: 'text-rose-600', desc: '跳过可确认项，高危与未知仍拒绝' }
   }
 
-  const currentModeInfo = permissionModeLabels[permissionMode] || permissionModeLabels.restricted
+  const currentModeInfo = permissionModeLabels[permissionMode] || permissionModeLabels.default
 
   return (
     <footer className="p-3 pt-0 shrink-0 bg-white relative">
@@ -110,8 +142,28 @@ export function AgentComposer({ onOpenSettings }: AgentComposerProps): JSX.Eleme
       {/* Main Capsule Container */}
       <div
         onClick={() => textareaRef.current?.focus()}
-        className="w-full rounded-xl border border-gray-200 bg-gray-50/80 focus-within:bg-white focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-primary/10 transition-all duration-150 flex flex-col justify-between cursor-text"
+        className="relative w-full rounded-xl border border-gray-200 bg-gray-50/80 focus-within:bg-white focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-primary/10 transition-all duration-150 flex flex-col justify-between cursor-text"
       >
+        {/* Skill Suggestions */}
+        {skillMenuOpen && (
+          <div className="absolute left-0 bottom-full mb-1.5 w-full rounded-xl border border-gray-200 py-1 shadow-xl z-50 bg-white text-text-primary text-xs max-h-56 overflow-y-auto">
+            {skillSuggestions.map((skill) => (
+              <button
+                key={skill.filePath}
+                type="button"
+                onClick={() => applySkill(skill)}
+                className="w-full text-left px-3 py-1.5 hover:bg-gray-50 flex items-baseline gap-2 transition-colors"
+              >
+                <span className="font-medium text-primary shrink-0">/{skill.name}</span>
+                <span className="truncate text-text-secondary text-[10px]">{skill.description}</span>
+                {skill.disableModelInvocation && (
+                  <span className="ml-auto shrink-0 text-[9px] text-text-secondary/70">显式调用</span>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* Text Input Area */}
         <div className="px-3 pt-2.5 pb-1">
           <textarea
@@ -166,7 +218,7 @@ export function AgentComposer({ onOpenSettings }: AgentComposerProps): JSX.Eleme
                     onClick={() => setAccessMenuOpen(false)}
                   />
                   <div className="absolute left-0 bottom-full mb-2 w-48 rounded-xl border border-gray-200 py-1 shadow-xl z-50 bg-white text-text-primary text-xs">
-                    {(['restricted', 'full', 'readonly'] as AgentPermissionMode[]).map((mode) => {
+                    {(['default', 'auto', 'bypass'] as AgentPermissionMode[]).map((mode) => {
                       const item = permissionModeLabels[mode]
                       const isCurrent = permissionMode === mode
                       return (

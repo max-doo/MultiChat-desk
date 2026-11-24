@@ -6,6 +6,8 @@ import type {
   AgentApprovalRequest,
   AgentProviderInfo,
   AgentPermissionMode,
+  AgentSkill,
+  AgentConfig,
   AgentIpcApi,
   PiContentPart
 } from '../types/agent'
@@ -79,6 +81,8 @@ interface AgentSessionState {
   activeModel: string
   activeProvider: string
   providers: AgentProviderInfo[]
+  skills: AgentSkill[]
+  agentConfig: AgentConfig | null
   composerInput: string
   attachments: string[]
   settingsOpen: boolean
@@ -105,12 +109,17 @@ interface AgentSessionState {
     pattern?: string
   ) => Promise<void>
   fetchProviders: () => Promise<void>
+  fetchSkills: (cwd?: string) => Promise<void>
   setCredential: (
     providerId: string,
     cred: { type: 'api_key'; key: string; env?: string; baseUrl?: string }
   ) => Promise<boolean>
   deleteCredential: (providerId: string) => Promise<boolean>
   setModel: (model: string, provider?: string) => Promise<boolean>
+  fetchConfig: () => Promise<void>
+  setSkillDirs: (dirs: string[]) => Promise<boolean>
+  addAllowlist: (tool: string, pattern: string) => Promise<boolean>
+  removeAllowlist: (id: string) => Promise<boolean>
 
   handleAgentEvent: (sessionId: string, event: PiEventPayload) => void
   handleApprovalRequest: (request: AgentApprovalRequest) => void
@@ -122,11 +131,13 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
   sessions: [],
   messages: [],
   isRunning: false,
-  permissionMode: 'restricted',
+  permissionMode: 'default',
   pendingApprovals: [],
   activeModel: 'devin/swe-2',
   activeProvider: 'magpie',
   providers: [],
+  skills: [],
+  agentConfig: null,
   composerInput: '',
   attachments: [],
   settingsOpen: false,
@@ -187,6 +198,7 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
     // Load active model / providers / sessions initially
     void get().fetchProviders()
     void get().fetchSessions()
+    void get().fetchSkills()
 
     return () => {
       cleanupEvent?.()
@@ -404,6 +416,17 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
     }
   },
 
+  fetchSkills: async (cwd) => {
+    try {
+      const res = await getAgentApi().agentListSkills(cwd)
+      if (res.success && res.data) {
+        set({ skills: res.data })
+      }
+    } catch (err) {
+      console.warn('[agentSessionStore] fetchSkills error:', err)
+    }
+  },
+
   setCredential: async (providerId, cred) => {
     try {
       const res = await getAgentApi().agentSetCredential(providerId, cred)
@@ -443,6 +466,56 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
       }
     } catch (err) {
       console.error('[agentSessionStore] setModel error:', err)
+    }
+    return false
+  },
+
+  fetchConfig: async () => {
+    try {
+      const res = await getAgentApi().agentGetConfig()
+      if (res.success && res.data) {
+        set({ agentConfig: res.data })
+      }
+    } catch (err) {
+      console.warn('[agentSessionStore] fetchConfig error:', err)
+    }
+  },
+
+  setSkillDirs: async (dirs) => {
+    try {
+      const res = await getAgentApi().agentSetSkillDirs(dirs)
+      if (res.success) {
+        await get().fetchConfig()
+        return true
+      }
+    } catch (err) {
+      console.error('[agentSessionStore] setSkillDirs error:', err)
+    }
+    return false
+  },
+
+  addAllowlist: async (tool, pattern) => {
+    try {
+      const res = await getAgentApi().agentAllowlistAdd(tool, pattern)
+      if (res.success) {
+        await get().fetchConfig()
+        return true
+      }
+    } catch (err) {
+      console.error('[agentSessionStore] addAllowlist error:', err)
+    }
+    return false
+  },
+
+  removeAllowlist: async (id) => {
+    try {
+      const res = await getAgentApi().agentAllowlistRemove(id)
+      if (res.success) {
+        await get().fetchConfig()
+        return true
+      }
+    } catch (err) {
+      console.error('[agentSessionStore] removeAllowlist error:', err)
     }
     return false
   },

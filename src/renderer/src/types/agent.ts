@@ -1,4 +1,4 @@
-export type AgentPermissionMode = 'full' | 'restricted' | 'readonly'
+export type AgentPermissionMode = 'default' | 'auto' | 'bypass'
 
 export interface PiContentPart {
   type: 'text' | 'reasoning' | 'tool-call'
@@ -47,6 +47,34 @@ export interface AgentProviderInfo {
   models: string[]
 }
 
+export interface AgentSkill {
+  name: string
+  description: string
+  filePath: string
+  disableModelInvocation: boolean
+}
+
+export interface AgentSkillDirCandidate {
+  path: string
+  exists: boolean
+  isDefault: boolean
+}
+
+export interface AgentAllowlistEntry {
+  id: string
+  tool: string
+  pattern: string
+  createdAt: number
+}
+
+export interface AgentConfig {
+  agentDir: string
+  skillDirCandidates: AgentSkillDirCandidate[]
+  extraSkillDirs: string[]
+  allowlist: AgentAllowlistEntry[]
+  activeModel: { providerId: string; modelId: string; baseUrl?: string }
+}
+
 export interface AgentIpcApi {
   agentPrompt: (
     sessionId: string,
@@ -72,7 +100,7 @@ export interface AgentIpcApi {
   ) => Promise<{ success: boolean; error?: string }>
   agentSetPermissionMode: (
     sessionId: string,
-    mode: AgentPermissionMode
+    mode: AgentPermissionMode | 'full' | 'restricted' | 'readonly'
   ) => Promise<{ success: boolean; error?: string }>
   agentSetModel: (
     sessionId: string,
@@ -94,6 +122,18 @@ export interface AgentIpcApi {
     data?: { providerId: string; modelId: string; baseUrl?: string }
     error?: string
   }>
+  agentListSkills: (cwd?: string) => Promise<{
+    success: boolean
+    data?: AgentSkill[]
+    error?: string
+  }>
+  agentGetConfig: () => Promise<{ success: boolean; data?: AgentConfig; error?: string }>
+  agentSetSkillDirs: (dirs: string[]) => Promise<{ success: boolean; error?: string }>
+  agentAllowlistAdd: (
+    tool: string,
+    pattern: string
+  ) => Promise<{ success: boolean; data?: AgentAllowlistEntry; error?: string }>
+  agentAllowlistRemove: (id: string) => Promise<{ success: boolean; error?: string }>
   onAgentEvent?: (cb: (payload: { sessionId: string; event: unknown }) => void) => () => void
   onAgentApprovalRequest?: (cb: (payload: AgentApprovalRequest) => void) => () => void
 }

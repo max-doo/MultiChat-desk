@@ -34,6 +34,7 @@
   "dependencies": {
     "@earendil-works/pi-coding-agent": "^1.6.0",
     "electron-store": "^8.1.0",
+    "iconv-lite": "^0.7.3",
     "monio-napi": "^1.0.13",
     "shell-quote": "^1.12.0"
   },

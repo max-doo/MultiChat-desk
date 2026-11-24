@@ -1,8 +1,15 @@
 import { randomUUID } from 'crypto'
 import type Store from 'electron-store'
 import { parse as parseShellQuote } from 'shell-quote'
+import { decidePermission, parseMode, type ModeId } from './permissionPolicy'
 
-export type PermissionMode = 'full' | 'restricted' | 'readonly'
+/**
+ * Permission modes as accepted at the boundary. Canonical modes are
+ * `default`/`auto`/`bypass`; legacy values are still accepted everywhere a
+ * mode string flows in and mapped to the closest canonical mode by
+ * `parseMode` (`restricted`/`readonly` → `default`, `full` → `auto`).
+ */
+export type PermissionMode = ModeId | 'full' | 'restricted' | 'readonly'
 
 export interface AllowlistEntry {
   id: string
@@ -126,6 +133,16 @@ export class PermissionEngine {
     return false
   }
 
+  /** Allowlist match for a tool call — checks the command or file-path target. */
+  private matchesUserAllowlist(normTool: string, args: Record<string, unknown>): boolean {
+    if (normTool === 'bash' || normTool === 'powershell') {
+      const cmd = String(args.command ?? args.cmd ?? args.script ?? '')
+      return cmd ? this.matchesAllowlist(normTool, cmd) : false
+    }
+    const filePath = String(args.path ?? args.file_path ?? '')
+    return filePath ? this.matchesAllowlist(normTool, filePath) : false
+  }
+
   public isHardDenied(commandOrPath: string): boolean {
     for (const rx of HARD_DENY_PATTERNS) {
       if (rx.test(commandOrPath)) {
@@ -201,80 +218,39 @@ export class PermissionEngine {
   public checkToolPermission(
     mode: PermissionMode,
     toolName: string,
-    args: Record<string, unknown>
+    args: Record<string, unknown>,
+    cwd: string
   ): ToolCheckResult {
     const normTool = toolName.toLowerCase()
+    const modeId = parseMode(mode)
 
-    // 1. Full mode: allow everything unless blocked by hard-deny
-    if (mode === 'full') {
-      if (normTool === 'bash' || normTool === 'powershell') {
-        const cmd = String(args.command ?? '')
-        if (this.isHardDenied(cmd)) {
-          return { allowed: false, reason: 'Command blocked by hard-deny security policy' }
-        }
-      }
+    // Preserve the old engine's user allowlist escape hatch before delegating
+    // to the ported policy kernel: an explicit allowlist match allows the call
+    // in any mode without surfacing an approval prompt.
+    if (this.matchesUserAllowlist(normTool, args)) {
       return { allowed: true }
     }
 
-    // 2. Readonly mode: only read-only operations allowed, all mutations blocked
-    if (mode === 'readonly') {
-      if (normTool === 'read' || normTool === 'grep' || normTool === 'find' || normTool === 'ls') {
-        return { allowed: true }
-      }
-      if (normTool === 'bash' || normTool === 'powershell') {
-        const cmd = String(args.command ?? '')
-        if (this.isSafeShellCommand(cmd)) {
-          return { allowed: true }
-        }
-        return { allowed: false, reason: 'Shell command blocked: not a read-only command in readonly mode' }
-      }
-      return { allowed: false, reason: `Tool "${toolName}" is not permitted in read-only mode` }
-    }
+    const result = decidePermission({
+      modeId,
+      toolName: normTool,
+      args,
+      sessionId: '',
+      cwd,
+      workspaceRoot: cwd,
+      interactive: true
+    })
 
-    // 3. Restricted mode (default)
-    // Always check hard-deny first
-    if (normTool === 'bash' || normTool === 'powershell') {
-      const cmd = String(args.command ?? '')
-      if (this.isHardDenied(cmd)) {
-        return { allowed: false, reason: 'Command blocked by hard-deny security policy' }
-      }
-      if (this.isSafeShellCommand(cmd)) {
-        return { allowed: true }
-      }
-      if (this.matchesAllowlist(normTool, cmd)) {
-        return { allowed: true }
-      }
-      return {
-        allowed: false,
-        needsApproval: true,
-        reason: `Command requires approval: ${cmd}`
-      }
-    }
-
-    if (normTool === 'read' || normTool === 'grep' || normTool === 'find' || normTool === 'ls') {
+    if (result.decision === 'allow') {
       return { allowed: true }
     }
-
-    if (normTool === 'edit' || normTool === 'write') {
-      const filePath = String(args.path ?? args.file_path ?? '')
-      if (this.isHardDenied(filePath)) {
-        return { allowed: false, reason: 'File path blocked by hard-deny policy' }
-      }
-      if (this.matchesAllowlist(normTool, filePath)) {
-        return { allowed: true }
-      }
-      return {
-        allowed: false,
-        needsApproval: true,
-        reason: `${normTool === 'edit' ? 'Editing' : 'Writing'} file requires approval: ${filePath}`
-      }
+    if (result.decision === 'deny') {
+      return { allowed: false, reason: result.reason }
     }
-
-    // Other tools in restricted mode: require approval
     return {
       allowed: false,
       needsApproval: true,
-      reason: `Tool "${toolName}" requires approval`
+      reason: result.reason
     }
   }
 
@@ -284,9 +260,10 @@ export class PermissionEngine {
     toolCallId: string
     toolName: string
     args: Record<string, unknown>
+    cwd: string
   }): Promise<{ allowed: boolean; reason?: string }> {
-    const { sessionId, mode, toolCallId, toolName, args } = params
-    const check = this.checkToolPermission(mode, toolName, args)
+    const { sessionId, mode, toolCallId, toolName, args, cwd } = params
+    const check = this.checkToolPermission(mode, toolName, args, cwd)
 
     if (check.allowed) {
       return { allowed: true }

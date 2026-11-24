@@ -699,7 +699,7 @@ const api = {
     ipcRenderer.invoke('agent:resume-session', { sessionId }),
   agentResolveApproval: (requestId: string, decision: 'allow' | 'always' | 'deny', pattern?: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('agent:resolve-approval', { requestId, decision, pattern }),
-  agentSetPermissionMode: (sessionId: string, mode: 'full' | 'restricted' | 'readonly'): Promise<{ success: boolean; error?: string }> =>
+  agentSetPermissionMode: (sessionId: string, mode: 'default' | 'auto' | 'bypass' | 'full' | 'restricted' | 'readonly'): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('agent:set-permission-mode', { sessionId, mode }),
   agentSetModel: (sessionId: string, model: string, provider?: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('agent:set-model', { sessionId, model, provider }),
@@ -711,6 +711,25 @@ const api = {
     ipcRenderer.invoke('agent:delete-credential', { providerId }),
   agentGetActiveModel: (): Promise<{ success: boolean; data?: { providerId: string; modelId: string; baseUrl?: string }; error?: string }> =>
     ipcRenderer.invoke('agent:get-active-model'),
+  agentListSkills: (cwd?: string): Promise<{ success: boolean; data?: Array<{ name: string; description: string; filePath: string; disableModelInvocation: boolean }>; error?: string }> =>
+    ipcRenderer.invoke('agent:list-skills', { cwd }),
+  agentGetConfig: (): Promise<{
+    success: boolean
+    data?: {
+      agentDir: string
+      skillDirCandidates: Array<{ path: string; exists: boolean; isDefault: boolean }>
+      extraSkillDirs: string[]
+      allowlist: Array<{ id: string; tool: string; pattern: string; createdAt: number }>
+      activeModel: { providerId: string; modelId: string; baseUrl?: string }
+    }
+    error?: string
+  }> => ipcRenderer.invoke('agent:get-config'),
+  agentSetSkillDirs: (dirs: string[]): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('agent:set-skill-dirs', { dirs }),
+  agentAllowlistAdd: (tool: string, pattern: string): Promise<{ success: boolean; data?: { id: string; tool: string; pattern: string; createdAt: number }; error?: string }> =>
+    ipcRenderer.invoke('agent:allowlist-add', { tool, pattern }),
+  agentAllowlistRemove: (id: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('agent:allowlist-remove', { id }),
   onAgentEvent: (cb: (payload: { sessionId: string; event: unknown }) => void): (() => void) => {
     const handler = (_event: Electron.IpcRendererEvent, payload: { sessionId: string; event: unknown }): void => cb(payload)
     ipcRenderer.on('agent:event', handler)
