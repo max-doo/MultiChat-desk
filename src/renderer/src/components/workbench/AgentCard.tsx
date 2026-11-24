@@ -119,8 +119,8 @@ export default function AgentCard({
     const list: DropdownOption<string>[] = [
       {
         value: 'local-agent',
-        label: '本地 Agent',
-        description: '基于 Pi 的本地开发智能体'
+        label: 'Agent',
+        description: '工作台知识与写作智能体'
       }
     ]
     for (const m of models) {
@@ -132,6 +132,63 @@ export default function AgentCard({
     }
     return list
   }, [models])
+
+  const vaultName = useMemo(() => {
+    if (!workspacePath) return ''
+    const parts = workspacePath.replace(/[/\\]+$/, '').split(/[/\\]/)
+    return parts[parts.length - 1] || workspacePath
+  }, [workspacePath])
+
+  const activeFileName = useMemo(() => {
+    if (!activeFilePath) return ''
+    const parts = activeFilePath.split(/[/\\]/)
+    return parts[parts.length - 1] || activeFilePath
+  }, [activeFilePath])
+
+  const suggestions = useMemo(
+    () => [
+      {
+        icon: PenTool,
+        label: '方案大纲起草',
+        prompt: '请帮我起草一份结构严谨、逻辑清晰的方案大纲，包含核心目标、实施要点与具体步骤：'
+      },
+      {
+        icon: Sparkles,
+        label: activeFileName ? '润色当前文档' : '文档深度润色',
+        prompt: activeFilePath
+          ? `请结合当前正在编辑的文档 @${activeFilePath}，帮我进行深度润色与结构优化，修正错别字与语病，提升专业度并保持行文连贯。`
+          : '请帮我润色以下内容，修正语法与冗余表达，提升专业度并保持行文连贯：\n\n'
+      },
+      {
+        icon: ListChecks,
+        label: '提炼要点与待办',
+        prompt: activeFilePath
+          ? `请阅读当前文档 @${activeFilePath}，帮我提炼核心要点与关键结论，并整理出清晰的后续待办清单（Action Items）。`
+          : '请帮我提炼长文材料的核心要点与关键结论，并整理出清晰的后续待办清单（Action Items）：\n\n'
+      },
+      {
+        icon: BookOpen,
+        label: '知识库脉络梳理',
+        prompt: '请结合当前知识库中的笔记与文档，帮我梳理主要的主题内容与知识关联脉络。'
+      }
+    ],
+    [activeFileName, activeFilePath]
+  )
+
+  const handleFillPrompt = useCallback(
+    (promptText: string): void => {
+      setComposerInput(promptText)
+      setTimeout(() => {
+        const textarea = viewportRef.current?.parentElement?.querySelector('textarea')
+        if (textarea) {
+          textarea.focus()
+          const len = promptText.length
+          textarea.setSelectionRange(len, len)
+        }
+      }, 0)
+    },
+    [setComposerInput]
+  )
 
   const handleNewSession = useCallback((): void => {
     setHistoryMenuOpen(false)
@@ -208,16 +265,14 @@ export default function AgentCard({
                 onModelChange?.(modelId)
               }
             }}
-            placeholder="本地 Agent"
+            placeholder="Agent"
             className="relative"
             dropdownWidth="w-48"
             buttonClassName={`flex items-center justify-between gap-2 rounded-lg px-2 py-1 -ml-2 transition-colors ${isRunning ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-100'}`}
             renderButton={(): JSX.Element => (
               <div className="flex items-center gap-2">
-                <div className="w-6 h-6 rounded-md bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
-                  <AppIcon name="smart_toy" size={16} />
-                </div>
-                <h2 className="font-semibold text-text-primary">本地 Agent</h2>
+                <img src={agentAvatar} alt="Agent" className="w-6 h-6 shrink-0" />
+                <h2 className="font-semibold text-text-primary">Agent</h2>
               </div>
             )}
             renderOption={(option, _isSelected, onSelect): JSX.Element => {
@@ -237,9 +292,7 @@ export default function AgentCard({
                         src={model?.logo || option.logo}
                       />
                     ) : isLocalAgent ? (
-                      <div className="w-5 h-5 rounded-md bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
-                        <AppIcon name="smart_toy" size={16} />
-                      </div>
+                      <img src={agentAvatar} alt="Agent" className="w-5 h-5 shrink-0" />
                     ) : null}
                     <span className="text-text-primary text-sm truncate">{option.label}</span>
                   </div>
@@ -372,40 +425,54 @@ export default function AgentCard({
           >
             {/* Empty state */}
             {messages.length === 0 && (
-              <div className="h-full flex flex-col items-center justify-center text-center p-6 my-auto">
-                <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center mb-2.5">
-                  <AppIcon name="smart_toy" size={22} />
+              <div className="h-full flex flex-col items-center justify-center text-center p-6 my-auto select-none">
+                {/* Hero Icon with Ambient Glow */}
+                <div className="relative mb-4 flex items-center justify-center">
+                  <div className="absolute w-20 h-20 rounded-full bg-blue-500/10 blur-xl pointer-events-none" />
+                  <img src={agentAvatar} alt="Agent" className="relative w-12 h-12" />
                 </div>
-                <h3 className="font-semibold text-text-primary text-body mb-1">本地开发 Agent</h3>
-                <p className="text-caption text-text-secondary max-w-xs leading-relaxed mb-3">
-                  已加载 AGENTS.md 规范与本地工具链，支持自主阅读、编辑代码并执行命令。
-                </p>
 
+                {/* Title */}
+                <h3 className="font-semibold text-text-primary text-xl tracking-tight mb-2">
+                  今天想梳理或写点什么？
+                </h3>
+
+                {/* Vault Badge or Subtitle */}
                 {workspacePath ? (
-                  <div className="flex items-center gap-1.5 text-caption text-text-secondary bg-gray-50 border border-gray-200/70 px-2.5 py-1 rounded-full mb-3">
-                    <FolderOpen className="w-3 h-3 text-primary" />
-                    <span className="truncate max-w-[200px]">{workspacePath}</span>
+                  <div
+                    className="inline-flex items-center gap-1.5 text-caption text-text-secondary bg-gray-100/80 hover:bg-gray-100 px-3 py-1 rounded-full border border-gray-200/50 transition-colors mb-6 cursor-default"
+                    title={workspacePath}
+                  >
+                    <FolderOpen className="w-3.5 h-3.5 text-primary/80 shrink-0" />
+                    <span className="font-medium text-text-primary truncate max-w-[200px]">
+                      {vaultName}
+                    </span>
                   </div>
                 ) : (
-                  <div className="text-caption text-amber-700 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-lg mb-3">
-                    提示: 请先在工作台打开文件夹
-                  </div>
+                  <p className="text-body text-text-secondary mb-6">
+                    在左侧工作台打开文件夹以启用知识库
+                  </p>
                 )}
 
-                <div className="flex flex-col gap-1.5 w-full max-w-xs">
-                  {[
-                    { icon: Sparkles, text: '分析当前项目结构与工作区概览' },
-                    { icon: FileCode2, text: '检查 AGENTS.md 规范与当前代码质量' },
-                    { icon: Terminal, text: '运行代码检查与类型构建' }
-                  ].map(({ icon: Icon, text }) => (
+                {/* 2x2 Suggestion Grid */}
+                <div className="grid grid-cols-2 gap-2.5 w-full max-w-sm">
+                  {suggestions.map((item) => (
                     <button
-                      key={text}
+                      key={item.label}
                       type="button"
-                      onClick={() => void prompt(text)}
-                      className="w-full text-left p-2 rounded-lg border border-gray-200 hover:bg-gray-50 hover:border-primary/40 transition-colors text-label text-text-primary flex items-center gap-2"
+                      disabled={!workspacePath}
+                      onClick={() => handleFillPrompt(item.prompt)}
+                      className="group flex flex-col items-start p-3.5 rounded-xl border border-gray-200/80 bg-white/80 hover:bg-white hover:border-primary/40 hover:shadow-xs transition-all text-left disabled:opacity-40 disabled:cursor-not-allowed"
                     >
-                      <Icon className="w-3.5 h-3.5 text-primary shrink-0" />
-                      <span>{text}</span>
+                      <div className="flex items-center justify-between w-full mb-2.5">
+                        <div className="w-7 h-7 rounded-lg bg-gray-50 border border-gray-100 flex items-center justify-center text-text-secondary group-hover:text-primary group-hover:bg-blue-50/60 group-hover:border-primary/20 transition-colors">
+                          <item.icon className="w-4 h-4" />
+                        </div>
+                        <ArrowUpRight className="w-3.5 h-3.5 text-gray-300 opacity-0 group-hover:opacity-100 group-hover:text-primary transition-all -translate-x-0.5 group-hover:translate-x-0" />
+                      </div>
+                      <span className="text-body font-medium text-text-primary group-hover:text-primary transition-colors leading-snug">
+                        {item.label}
+                      </span>
                     </button>
                   ))}
                 </div>

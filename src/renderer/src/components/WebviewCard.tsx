@@ -43,7 +43,7 @@ interface WebviewCardProps {
   onWebviewReady?: (webContentsId: number) => void
   /** 选区采集上下文：工作台内传 workbench，其余入口默认 global。 */
   captureContext?: CaptureContext
-  /** 外部额外注入的模型选项（如工作台本地 Agent），仅作 UI 选项展示不污染全局模型阵容 */
+  /** 外部额外注入的模型选项（如工作台 Agent），仅作 UI 选项展示不污染全局模型阵容 */
   extraModelOptions?: DropdownOption<string>[]
 }
 
