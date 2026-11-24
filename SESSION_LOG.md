@@ -2,6 +2,373 @@
 
 ## 2026-11-24
 
+### 19:51 | Codex
+
+- done: WorkPhaseBlock 默认收起：running 时不再自动展开（进度由标题 shimmer + 动态动作表达），完成后保持收起；加 userToggled ref 记住手动操作，状态变化不抢展开状态
+- modified:
+  - `src/renderer/src/components/workbench/agent/WorkPhaseBlock.tsx`
+
+### 19:49 | Codex
+
+- done: WorkPhaseBlock 标题行加单行截断：button 加 w-full，activity/已完成 span 加 min-w-0 flex-1 truncate，长 prompt/命令不再换行溢出
+- modified:
+  - `src/renderer/src/components/workbench/agent/WorkPhaseBlock.tsx`
+
+### 19:46 | Codex
+
+- done: work-group 合并逻辑回调：一个 user query 后所有连续 assistant 合并为一个组，组内 reasoning/tool-call/中间过渡 text 全部折叠进'思考中/已完成'，只有组内最后一个非空 text 外显为 final answer；中间过渡 text 用斜体灰字样式与 reasoning 同级；assistantText 改用 lastTextPart.text 保证复制到的是 final answer
+- modified:
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+
+### 19:40 | Codex
+
+- done: 修复 work-group 分组边界：buildRenderItems 改为'含 text 的 assistant 收尾一段，前面 pending 的无文字工作并入该组'，每段模型文字独立结算'已完成 Ns'，不再整轮合并；组耗时改用段首消息 timestamp（turnDurationMs 仅留给本轮最后一组），修复中间段误算整轮耗时；text-shimmer 改 background-repeat:repeat-x + 亮带收窄（42-58%），渐变无限平铺保证任意 position 下文字都被覆盖，根治闪没
+- modified:
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+  - `src/renderer/src/assets/index.css`
+- lesson: text-shimmer 的 background-size:200% + position ±100% 在两端仍会让渐变半移出文字；稳态方案是 repeat-x 无限平铺 + 亮带只占中段，任意位置文字都被基色或亮带覆盖
+
+### 19:20 | Codex
+
+- done: WorkPhaseBlock 折叠标题改为动态动作：新增 activity prop，AgentCard 用 describeActivity 从最后一个进行中 part 生成中文动词短语（正在读取 xxx.md / 正在编辑 xxx / 正在运行 xxx / 正在搜索 xxx / 正在思考…）；等待首个 part 的间隙也走 WorkPhaseBlock 占位，保持 UI 一致
+- modified:
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+  - `src/renderer/src/components/workbench/agent/WorkPhaseBlock.tsx`
+
+### 19:11 | Codex
+
+- done: docs 段从精简一行改为彻底删除：before_agent_start 返回 forceSystemPrompt=event.systemPrompt 剥掉 docs 块
+- decision: customSections 空值无法删段，改用 before_agent_start 返回 systemPrompt 走 forceSystemPrompt 投影路径
+- modified:
+  - `src/main/extensions/systemPromptTrim.ts`
+
+### 19:09 | Codex
+
+- done: 工作台 Agent 系统提示词优化：Miao 身份句强化(标注 pi 只是 harness)、web_search/image_gen snippet 去双前缀、新增 systemPromptTrim inline extension 把 pi docs 段精简成一行
+- decision: 用 before_agent_start 的 systemPromptOptions.sections.docs 覆写精简 docs 段，保住 SDK 自动 tools/rules；不用 customPrompt 以免丢失三段
+- added:
+  - `src/main/extensions/systemPromptTrim.ts`
+- modified:
+  - `src/main/services/shell.ts`
+  - `src/main/services/webSearchTool.ts`
+  - `src/main/services/imageGenTool.ts`
+  - `src/main/services/AgentSessionService.ts`
+
+### 19:02 | Codex
+
+- done: 工作台本地 Agent 系统提示词追加身份声明：助手名为 Miao（appendSystemPrompt，不改 pi harness preamble）
+- decision: 用 appendSystemPrompt 注入身份而非替换 SDK preamble，保留 tools/rules/docs 段
+- modified:
+  - `src/main/services/shell.ts`
+  - `src/main/services/AgentSessionService.ts`
+
+### 19:00 | Codex
+
+- done: 对话流文件定位链路：openFile 成功后自动展开祖先目录并复用 expandAncestorsOf action；WorkbenchFileTree 监听 activeFilePath scrollIntoView 跟随定位（修复修改摘要点击后侧边栏不高亮）；ToolGroup read/edit 工具行文件名改为可点击 button，经 toWorkspaceRelative 归一到 workspace 后 openFile，出界 fallback agentRevealFile；resolveAbsolute/toWorkspaceRelative/normalizePath 抽到 agent/filePathUtils.ts 共享
+- added:
+  - `src/renderer/src/components/workbench/agent/filePathUtils.ts`
+- modified:
+  - `src/renderer/src/components/workbench/agent/ToolGroup.tsx`
+  - `src/renderer/src/components/workbench/agent/ChangedFilesCard.tsx`
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+  - `src/renderer/src/store/workbenchStore.ts`
+- lesson: Electron 文件树跟随定位要两步配合：store 层展开祖先目录（expandedFolderIds 存目录 posix path，id===path）+ 组件层 useEffect 对 activeFilePath 做 requestAnimationFrame 后的 scrollIntoView；只设高亮不展开父级会导致节点不可见
+
+### 18:57 | Codex
+
+- done: AgentCard 消息流按工作段分组渲染：连续 assistant 合并为 work-group，reasoning/tool-call 折叠进 WorkPhaseBlock（进行中'思考中' shimmer / 完成后'已完成 Xs' 自动收起），text 外显为 final answer；修复 shimmer 文字消失（background-size 250%/±200% 导致渐变移出容器 → 200%/±100%）；清理未使用 finalIsRunning；agent_end 兜底不再覆盖 aborted 状态
+- modified:
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+  - `src/renderer/src/components/workbench/agent/WorkPhaseBlock.tsx`
+  - `src/renderer/src/assets/index.css`
+  - `src/renderer/src/store/agentSessionStore.ts`
+  - `src/main/services/AgentSessionService.ts`
+- lesson: CSS text-shimmer 动画必须保证渐变覆盖整个动画周期：background-size 设 200% 且 background-position 仅在 ±100% 间往返，超过 200% 的位移会让渐变完全移出容器导致文字瞬间消失
+
+### 18:54 | Codex
+
+- done: 重构 Agent auto 模式权限策略：放开越界读，新增敏感文件(credential)检查，命令分 networkRead/networkWrite 分级，接入 shell-quote 结构化二次校验，收紧 always-allow 粒度到工具级，修复 git -C 路径提取与 looksReadOnlyCall 字段歧义
+- decision: 越界读全模式放开（读不破坏）；敏感文件(.env/密钥/云凭据)单独设卡所有模式 ask；git pull/clone 归 networkWrite 需审批；always-allow 按实际工具名而非 * 存储
+- modified:
+  - `src/main/services/permissionPolicy.ts`
+  - `src/main/services/PermissionEngine.ts`
+- lesson: 白名单分段校验必须 fail-closed：shell-quote 未识别的 op 和 PS/bash 子表达式语法(@(,$(,反引号)一律拒绝，'分不出错≠安全'；git -c/-C 大小写敏感，不能统一 lower() 比较
+
+### 18:48 | Codex
+
+- done: 修复编辑文件后 ChangedFilesCard 不显示：persistFileChanges 异步落盘，renderer 在 turn_end/message_end 后立即 mount 卡片调 agentGetFileChanges，比 persist 快拿到 null 且 loadStartedRef 防重试。给 active 记 pendingFileChangePersist，getFileChanges 先 await（3s 超时兜底）
+- modified:
+  - `src/main/services/AgentSessionService.ts`
+
+### 18:47 | Codex
+
+- done: 按 worker 复核修复 cwd fallback：shellCustomTool 调用从 cwd ?? process.cwd() 改为 cwd && cwd.trim() ? cwd : process.cwd()，空字符串/纯空白 cwd 正确回落
+- modified:
+  - `src/main/services/AgentSessionService.ts`
+
+### 18:44 | Codex
+
+- done: 把 redactShellOutput 接入 agent 实际执行链路：AgentSessionService 新增 shellCustomTool() 通过 customTools 注册带自定义 BashOperations 的 powershell/bash 定义，覆盖 pi 内置实现，使 ShellTool.execute 的输出脱敏在真实工具调用上生效
+- modified:
+  - `src/main/services/AgentSessionService.ts`
+
+### 18:44 | Codex
+
+- done: 修复 message_end merge 回归：事件对 user/toolResult 也触发，会覆盖 assistant 消息内容（工具卡片消失、首行出现用户 query）。补 event.message?.role==='assistant' 守卫
+- modified:
+  - `src/renderer/src/store/agentSessionStore.ts`
+
+### 18:39 | Codex
+
+- done: 工作台对话流进行中态视觉统一为 text-shimmer 文字扫光：index.css 加 .text-shimmer（slate-400 基色+近白亮带，background-clip:text + background-position 动画），穿透子级用 -webkit-text-fill-color；ThinkingBlock/ToolItem/ToolGroup 去掉 Loader2 转圈改 shimmer；AgentCard 加两处'正在思考…'占位（assistant 已建但 content 空、user 已发出 assistant 未创建）；修复 message_end 不 merge content 导致 tool-call part 缺失→vacuous allToolsDone→提前 complete 的根因
+- modified:
+  - `src/renderer/src/assets/index.css`
+  - `src/renderer/src/components/workbench/agent/ThinkingBlock.tsx`
+  - `src/renderer/src/components/workbench/agent/ToolGroup.tsx`
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+  - `src/renderer/src/store/agentSessionStore.ts`
+
+### 18:35 | Codex
+
+- done: 按 worker 审核意见修复沙箱拦截：补 POSIX / 绝对路径形态防止越界读放行；redactShellOutput 改为关键字结尾整词匹配+补 PEM BLOCK 形态；ShellTool onData 改行级缓冲防止 chunk 边界泄露 secret 片段；删除无效的 SHELL_SCRIPT_TOOLS 死代码
+- modified:
+  - `src/main/services/permissionPolicy.ts src/main/services/redact.ts src/main/services/ShellTool.ts`
+
+### 18:30 | Codex
+
+- done: 把耗时统计从单条 assistant message.durationMs 改成「用户 query 发出 → 整轮 agent run 结束」的 turnDurationMs；UI 同步切换字段；resumeSession 用最近一条 user.timestamp → assistant.timestamp+durationMs 近似恢复
+- modified:
+  - `src/renderer/src/types/agent.ts`
+  - `src/renderer/src/store/agentSessionStore.ts`
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+
+### 18:27 | Codex
+
+- done: 把 AgentCard 消息操作行的时间戳·用时从分支按钮后挪到复制按钮后
+- modified:
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+
+### 18:27 | Codex
+
+- done: 优化 agent shell 沙箱拦截策略：修复 Get-ChildItem Env:/HKCU:/Cert: 等 PowerShell provider 被误当文件路径做边界检查的 bug；命令路径抽取改为只抽形如真实路径的 token；新增 redactShellOutput 对 shell 输出做 env/密钥脱敏（KV/表格/JWT/GitHub/AWS 等格式）
+- modified:
+  - `src/main/services/permissionPolicy.ts src/main/services/redact.ts src/main/services/ShellTool.ts src/main/services/AgentSessionService.ts`
+
+### 18:26 | Codex
+
+- done: 工作台Agent支持多并发会话运行：后端isRunning标记+前端runningSessionIds集合+历史列表转圈指示
+- context: 工作台右侧Agent原本UI只支持单会话。本次改造让后端activeSessions天然支持多session并行的基础上，前端通过runningSessionIds集合追踪所有运行中session，新建会话不再阻塞旧会话，历史对话列表用转圈图标实时显示运行状态
+- decision: 保留isRunning作为currentSessionId派生字段而非完全重构，最小化对现有组件的侵入；事件流按sessionId路由更新对应状态，非当前session的message事件仍被丢弃但running状态正确追踪
+- modified:
+  - `src/main/services/AgentSessionService.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/src/types/agent.ts`
+  - `src/renderer/src/store/agentSessionStore.ts`
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+- lesson: Electron+Zustand架构下，把单值状态改成集合状态时，可以保留原字段作为当前选中项的派生视图，避免大面积重构组件层
+
+### 18:20 | Codex
+
+- done: 修复 agent_end 覆盖 abort/error 状态：只在 status==='running' 时才标 complete，保留 abort/error 终态不被覆盖
+- modified:
+  - `src/renderer/src/store/agentSessionStore.ts`
+
+### 18:19 | Codex
+
+- done: 在 AgentCard 对话流中给每轮最后一条 assistant 消息加时间戳+用时，显示在分支按钮后
+- modified:
+  - `src/renderer/src/types/agent.ts`
+  - `src/renderer/src/store/agentSessionStore.ts`
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+- lesson(promoted): pi 的 AssistantMessage/UserMessage 自带 timestamp(ms) 和 durationMs，message_start/message_update/message_end 事件与 resumeSession 的 rawData 都会携带，直接透传即可，不需要自己计时
+
+### 18:18 | Codex
+
+- done: 修复 ChangedFilesCard 每轮重复显示:session 级 index.json 单记录被所有 turn-final message 共享→加 turnIndex 绑定;main turn_start 按 state.messages 数 user 得 turn 序号写入 meta;renderer 每条 assistant 算 messageTurnIndex,卡片仅当 record.turnIndex===turnIndex 时渲染;旧记录无 turnIndex 走 allowLegacy 只在最后一条 turn-final 显示
+- context: 用户截图:read 文件那一轮没改文件却也显示已修改1个文件卡片
+- decision: turnIndex 用语义对齐:main 数 state.messages 里 user 数而非进程内计数器,保证 resume 后与 renderer 按 user 分隔的 turn 序号一致
+- modified:
+  - `"src/main/services/AgentSessionService.ts"`
+  - `"src/renderer/src/components/workbench/AgentCard.tsx"`
+  - `"src/renderer/src/components/workbench/agent/ChangedFilesCard.tsx"`
+  - `"src/shared/types/agentRuntime.ts"`
+- lesson: pi-agent turn_start 时当前 turn 的 user message 已入 agent.state.messages;state.messages 不含 turn_start/turn_end 事件类型只含 user/assistant entry
+
+### 18:17 | Codex
+
+- done: 修复工作台对话流中工具等待期间 spinner 不显示的问题：pi 在 tool_execution_start 前就发 message_end，store 此前在 message_end 时无条件标 complete 导致 status 提前变 complete。改为 message_end 仅在消息内所有 tool-call 都有 result 时才标 complete；tool_execution_end 时若全部收齐也标 complete；新增 turn_end 兜底把 running 的 assistant 消息标 complete
+- modified:
+  - `src/renderer/src/store/agentSessionStore.ts`
+
+### 18:13 | Codex
+
+- done: 优化工作台对话流工具调用展示：web_search/image_gen/grep/find/ls 显示关键入参；write 工具用 args.content 合成 unified diff 复用 Diff 视图；单个工具调用时自动展开唯一结果
+- modified:
+  - `src/renderer/src/components/workbench/agent/ToolGroup.tsx`
+
+### 18:13 | Codex
+
+- done: 修复 ChangedFilesCard：文件名重复展示(第二行改为仅在有目录时显示目录部分)；文件名可点击→openFile 在编辑区打开,workspace 外文件兜底 agentRevealFile 打开所在文件夹
+- context: 用户反馈截图:自我介绍.md 文件名重复两行;期望点击文件直接在编辑区打开而非打开文件夹
+- decision: 复用 workbenchStore.openFile 而非新 IPC;toWorkspaceRelative 统一处理绝对/相对路径转 ws 相对,外部文件 fallback reveal
+- modified:
+  - `src/renderer/src/components/workbench/agent/ChangedFilesCard.tsx`
+
+### 18:07 | Codex
+
+- done: 排查 Agent 文件修改卡片不显示：坏 index.json(files空/baseline空/target有值/无cwd)是旧构建产物写入，当前代码已修复 turn 事件乱序与 persist 逻辑；清理 7 处 fc-debug；persist 写 blob 失败时不再保留悬空 blobs 元数据
+- context: ChangedFilesCard files.length===0 return null；用户对话 17:16 写入的 index.json 缺 cwd 字段=旧版代码产物
+- decision: 用 turn_start 先 flush 半成品 tfc + tool_execution_end 同步捕获 tfc 闭包 + turn_end/agent_end 兜底 persist，应对 pi-agent 不 await 异步 listener 的事件乱序
+- modified:
+  - `src/main/services/AgentSessionService.ts`
+- unresolved: 未在 dev 环境实测一次真实 agent 改文件抓 index.json 验证（需重启 dev 会打断用户）；shell 工具改文件不覆盖、agent:reveal-file 无路径白名单为遗留 minor
+
+### 18:00 | Codex
+
+- done: 修复web_search返回空结果：done态改用getResult()取reply
+- modified:
+  - `src/main/services/webSearchTool.ts`
+- lesson: AgentTaskService.getView()不返回reply正文（只有replyChars），done态正文必须走getResult()；daemon waitForTaskView同样模式
+
+### 17:53 | Codex
+
+- done: 为工作台 Agent 注册 image_gen 工具，通过已登录 AI 平台触发原生 AI 生图能力并下载落盘到应用数据目录
+- context: 沿用 web_search 工具同一思路：pi-coding-agent 的 customTools 扩展点 + typebox schema + AgentTaskService.submit/poll；平台挑选基于 capabilities() 的 imageGeneration+imageDownload 双标记
+- decision: image_gen 在 permissionPolicy 中登记为 kind=read/paths=none 与 web_search 同级——产物落盘到应用数据目录 .multichat/image/，workspace 无副作用，default/auto 模式默认放行；chatglm/kimi 因仅 imageGeneration 无 imageDownload 被排除在 platform 枚举外（submit 会被 CAPABILITY_UNSUPPORTED 拦截）
+- added:
+  - `src/main/services/imageGenTool.ts`
+- modified:
+  - `src/main/services/AgentSessionService.ts`
+  - `src/main/services/permissionPolicy.ts`
+- lesson: AgentTaskService.submit 的 genImage=true 与 deep_research 互斥；image_gen 必须用 mode='chat'。平台是否支持完整生图链路要看 imageDownload 而非 imageGeneration（前者覆盖下载点击适配）
+
+### 17:50 | Codex
+
+- done: 工作台Agent web_search工具注册（pi customTools+AgentTaskService）
+- context: 用户要求把multichat cli搜索能力封装为工作台Agent侧边栏内置工具
+- decision: 用pi内核customTools SDK扩展点而非MCP/skill；web_search登记为read类默认放行；typebox提为直接依赖解决运行时解析
+- added:
+  - `src/main/services/webSearchTool.ts`
+- modified:
+  - `src/main/services/AgentSessionService.ts`
+  - `src/main/services/permissionPolicy.ts`
+  - `package.json`
+- lesson: pi内核ToolDefinition经customTools字段注入createAgentSession；typebox是pi传递依赖但运行时经new Function逃逸bundler解析需提升为直接依赖
+
+### 17:47 | Codex
+
+- done: Agent 设置弹窗改定高 85vh，供应商模型列表默认全部展开，外层容器滚动
+- modified:
+  - `src/renderer/src/components/workbench/agent/AgentSettingsDialog.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentProviderSettings.tsx`
+
+### 17:45 | Codex
+
+- done: Agent 设置侧边栏提至第 2 项；排查并优化 Agent 设置弹窗卡顿；新增自定义 OpenAI 兼容网关接入
+- modified:
+  - `src/renderer/src/components/SettingsDrawer.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentProviderSettings.tsx`
+  - `src/renderer/src/types/agent.ts`
+  - `src/main/services/AgentSessionService.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+
+### 17:32 | Antigravity
+
+- done: 优化 Agent 窗口视觉与动效：去除全屏动态色斑背景以规避 GPU 与内存开销，恢复浅色面板与轻量卡片；保留输入框聚焦双层羽化流光动效，并为未选中输入框增加精致微阴影与 hover 层次
+- decision: 全屏大尺寸高斯模糊结合无限循环 translate 会持续占据合成器显存并导致整屏重绘；改用纯净浅色面板并将灵动动效局部收敛于输入框 focus-within，实现未输入时 0 性能损耗与点击时的主题色灵动流光兼得
+- modified:
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+  - `src/renderer/src/assets/index.css`
+
+### 17:32 | Antigravity
+
+- done: 移除工作台模型下拉项 Agent 的 Active 标签，并将 Agent 对话流用户 query 气泡右上角圆角调整为 rounded-tr-sm
+- context: 用户反馈：工作台模式下 Agent 选项后无需显示 active 标签；Agent 对话流中用户 query 气泡右上角圆角需改小以呈现对话气泡感
+- decision: WebviewCard 下拉选项中移除 isLocalAgent 的 Active badge；AgentCard 中将无效的 rounded-tr-xs 修复为合法的 Tailwind rounded-tr-sm (2px)，使气泡右上角呈现精致的气泡导向角
+- modified:
+  - `src/renderer/src/components/WebviewCard.tsx`
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+
+### 17:23 | Antigravity
+
+- done: 实现 Agent 窗口灵动极光流光背景、通透透明 Header、毛玻璃提示词卡片与极光羽化流光对话框
+- context: 用户希望 Agent 窗口具有灵动的流光渐变背景与微交互，但保持简约与极简，去除刺目的粗描边，卡片升级为毛玻璃质感，严格保持原有 AI 回复及用户气泡样式不变
+- decision: 采用双层极光羽化流光架构 (3px 贴身柔化羽化 + 12px 弥散流动气场) 消除粗黑硬边，Header 完全透明贯穿全窗口渐变，4 个快捷卡片重构为 Glassmorphism 毛玻璃
+- modified:
+  - `src/renderer/src/assets/index.css`
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentComposer.tsx`
+
+### 17:15 | Codex
+
+- done: Agent 末尾增加文件变更卡片（已修改 N 个文件，可折叠、可撤销/恢复），runtime 通过 tool_execution_start/end 事件抓 baseline/target 快照（mtime+size+sha1），撤销/恢复前做完整性校验，冲突时按钮置灰不解释
+- context: 用户面向办公人群，diff 卡片改成卡片形态 + 撤销带二次确认 + 恢复同样做外部修改校验
+- decision: 快照存 agent-sessions/{id}/file-changes/{sha1}.{before,after} blob + index.json；用 tool_execution_start 事件（args 完整）抓 baseline、tool_execution_end 抓 target；toolCallId→filePath 映射存 ActiveSessionEntry.pendingToolFiles
+- modified:
+  - `src/shared/types/agentRuntime.ts; src/main/services/AgentSessionService.ts; src/main/ipcHandlers.ts; src/preload/index.ts; src/renderer/src/components/workbench/AgentCard.tsx; src/renderer/src/components/workbench/agent/ChangedFilesCard.tsx`
+- lesson: pi-agent 的 tool_execution_end 事件没有 args 字段，只有 toolCallId，想拿文件路径必须用 start 事件时缓存映射；beforeToolCall hook 是同步权限校验不是异步文件快照点
+
+### 17:09 | Codex
+
+- done: 修复工作台 Agent 历史跨工作区点击无反应：handleSelectSession 拦截跨工作区会话弹 ConfirmModal；先 setWorkspaceFolder 再 resumeSession，resumeAfterSwitchRef 阻断 effect1 竞态；setWorkspaceFolder 改为返回 switched/cancelled/failed 区分取消与失败；目录失效降级只读回看（agentSessionStore.foreignReview 共享标志防双侧栏清空），回看态 cwd 对齐自动退出；列表项加 folder 图标标注非当前工作区
+- decision: 回看豁免标志放 agentSessionStore 而非组件 state：双侧栏复用 AgentCard 时共享同一标志，避免一侧回看被另一侧的 cwd 同步 effect 清空
+- modified:
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+  - `src/renderer/src/store/agentSessionStore.ts`
+  - `src/renderer/src/store/workbenchStore.ts`
+- lesson(promoted): AgentCard 顶部两个 cwd/workspacePath 同步 effect 是'点击无反应'根因：resume 后 currentCwd≠workspacePath 触发 newSession 清空；跨工作区恢复必须保证顺序=先切工作区→effect 重置 draft→再 resume，且需 ref 标记防止 effect1 与 resumeSession 的 React 调度竞态
+
+### 16:21 | Codex
+
+- done: 重构 Agent 上下文压缩为持久化分层：L1 tool_result 写入前截断 + L2 turn_end context_edit 持久掩码（percent 回落自我解除）+ L3 fileIndex 程序拼接 pinned
+- decision: L2 从 transformContext(每请求改投影、percent 永不回落、全量扫死循环) 改为 turn_end 返回 context_edit entry(appendContextEdit 持久化进投影)——这是业界 clear_tool_uses 的 pi 等价物，清了就清了；maskResultChars(4000)独立于 L1 hardCap(8000)避免死代码；fileIndex 程序拼接 summary+fileIndex 而非靠模型复述；toolResultUseModel 摘要并发 Promise.all
+- modified:
+  - `src/main/extensions/contextCompression.ts`
+  - `src/shared/types/agentCompression.ts`
+- unresolved: dumpText fire-and-forget(模型立即 read 可能拿半截);keepRecentToolCalls 按调用条数非轮数(与业界 keep:{tool_uses}一致);turn_end 时 percent>=70 每轮 getEntries 全量扫(可接受)
+
+### 16:11 | Codex
+
+- done: 按业界分层重构 Agent 上下文压缩：L1 tool_result 写入前截断（零 cache 损耗）+ L2 context 仅 token 水位触发观测掩码（keepRecent 保鲜）+ L3 session_before_compact 摘要带文件索引不变量
+- context: 业界 context-editing 共识：不按轮数触发（token 水位为主）、改历史前缀击穿 KV-Cache 故 L1 用写入前截断零损耗、tool_result 是主要压缩目标（可 re-fetch）、tool_call 入参仅截超大载荷保留索引、保鲜最近 3-5 个 tool_result
+- decision: 三层归位：L1 tool_result 入库前截断不动历史前缀零 cache 损耗；L2 context 用 ctx.getContextUsage().percent>=triggerPercent 真实 token 水位门控（替代字符估算），keepRecentToolCalls 保鲜，excludeTools 豁免；L3 摘要 details 落 readFiles/modifiedFiles 作为跨压缩存活的外置文件索引锚点防级联失真；tool_call 事件弃用（改的是执行参数非模型视图）
+- modified:
+  - `src/main/extensions/contextCompression.ts`
+  - `src/shared/types/agentCompression.ts`
+  - `docs/agent-context-compression-plan.md`
+- unresolved: L2 内 dumpText 仍 fire-and-forget；Sub-agent 隔离/Repo Map 常驻属更上游架构未实现；compression 配置改动对活会话需重建生效
+
+### 14:33 | Codex
+
+- done: 实现 Agent 上下文压缩：tool_call 入参裁剪 + tool_result 结果截断/可选模型摘要 + session_before_compact 自定义摘要（当前模型） + 手动 compact IPC/UI + auto-compaction 开关与状态
+- context: pi-coding-agent SDK 自带 auto-compaction 与 tool_call/tool_result/context/session_before_compact 事件钩子；压缩模型默认 ctx.model（当前模型）；压缩提示词复用 pi 内置 structured summary 模板；SDK 原生 compaction.* 走 settingsManager，自定义 agent_compression 走 electron-store
+- decision: 用 InlineExtension(extensionFactories) 接入压缩而非自研引擎（SDK 既定接入点，tool_call/tool_result 事件只在 ExtensionRunner emit）；压缩失败一律 return undefined 回退 SDK 默认；toolResultUseModel 默认关避免串行 LLM 开销；uuidv7 换成 crypto.randomUUID 消除对 pi-ai 运行时依赖（顺带绕开 tmp/pi-src 环境污染导致的 build 失败）
+- added:
+  - `src/main/extensions/contextCompression.ts`
+  - `src/shared/types/agentCompression.ts`
+  - `docs/agent-context-compression-plan.md`
+- modified:
+  - `src/main/services/AgentSessionService.ts`
+  - `src/main/services/AgentResourceLoader.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/shared/types/agentRuntime.ts`
+  - `src/renderer/src/types/agent.ts`
+  - `src/renderer/src/store/agentSessionStore.ts`
+  - `src/renderer/src/components/workbench/agent/AgentContextMeter.tsx`
+- unresolved: tool_call 的 dumpText 为 fire-and-forget，极端情况下原文可能未写完占位符已生效（best-effort）；compression.* 配置改动对已有 session 需重建生效；auto-compaction 的 reserveTokens/keepRecentTokens 当前用 SDK 默认+settings.json，未做 UI 配置项
+
+### 14:22 | Codex
+
+- done: 修复 LaTeX 公式粘贴被双转义：新增 equationPaste.ts 切块+续行符净化，WorkbenchEquationPastePlugin 用其直接建公式节点绕过 markdown import
+- added:
+  - `src/renderer/src/components/workbench/equationPaste.ts`
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchEquationPastePlugin.tsx`
+- lesson: @lexical/markdown 0.53 的 import 会按 CommonMark 处理行尾 \ 为硬换行并执行 unescapeText，export 时对 \ 做 \\ 转义；LaTeX 片段必须绕过 markdown import 直接建节点
+
 ### 14:17 | Codex
 
 - done: 提交今日工作台改动：按功能拆 4 个 commit（agent rewind/fork + 命名统一、文件树复制写系统剪贴板、LaTeX 公式体系+标题上限/文案统一、Agent 空状态 2x2 卡片与 agent.png 头像），SESSION_LOG 单独提交；scratch/mock-agent-test/根级 assets/agent-avatar.png 判定为过程文件与重复资源未入库
