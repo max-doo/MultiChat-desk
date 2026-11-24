@@ -62,6 +62,8 @@ export default function WorkbenchCodePreview(): JSX.Element {
   const activeFileOversized = useWorkbenchStore((s) => s.activeFileOversized)
   const isDirty = useWorkbenchStore((s) => s.isDirty)
   const saveStatus = useWorkbenchStore((s) => s.saveStatus)
+  const isLeftCollapsed = useWorkbenchStore((s) => s.isLeftCollapsed)
+  const toggleLeftCollapse = useWorkbenchStore((s) => s.toggleLeftCollapse)
   const updateActiveContent = useWorkbenchStore((s) => s.updateActiveContent)
   const saveActiveFile = useWorkbenchStore((s) => s.saveActiveFile)
   const discardActiveFileChanges = useWorkbenchStore((s) => s.discardActiveFileChanges)
@@ -340,6 +342,20 @@ export default function WorkbenchCodePreview(): JSX.Element {
       <div className="h-10 px-3 bg-slate-800/90 border-b border-slate-700/60 flex items-center justify-between gap-2 shrink-0 select-none text-sm">
         {/* 左侧：文件信息 */}
         <div className="flex items-center gap-2 truncate">
+          {isLeftCollapsed && (
+            <>
+              <button
+                type="button"
+                onClick={toggleLeftCollapse}
+                className="w-7 h-7 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-100 hover:bg-white/10 transition-all duration-200 shrink-0"
+                title="展开侧边栏"
+                aria-label="展开侧边栏"
+              >
+                <AppIcon name="left_panel_open" size={20} />
+              </button>
+              <div className="w-[1px] h-4 bg-white/10 shrink-0" />
+            </>
+          )}
           <AppIcon name="code" size={19} className="text-amber-400" />
           <span className="font-mono text-sm text-slate-200 truncate" title={activeFilePath || ''}>
             {activeFilePath}

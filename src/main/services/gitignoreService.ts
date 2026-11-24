@@ -280,4 +280,151 @@ export async function appendGitignorePatterns(
   return { added }
 }
 
+interface CompiledGitignoreRule {
+  negated: boolean
+  dirOnly: boolean
+  anchored: boolean
+  regex: RegExp
+}
+
+function globToRegexSource(pattern: string): string {
+  let out = ''
+  let index = 0
+  while (index < pattern.length) {
+    const char = pattern[index]
+    if (char === '\\' && index + 1 < pattern.length) {
+      out += pattern[index + 1].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      index += 2
+      continue
+    }
+    if (char === '*' && pattern[index + 1] === '*') {
+      const prevIsSlash = index === 0 || pattern[index - 1] === '/'
+      const nextIsSlash = index + 2 === pattern.length || pattern[index + 2] === '/'
+      if (prevIsSlash && nextIsSlash) {
+        if (index + 2 < pattern.length && pattern[index + 2] === '/') {
+          out += '(?:.*/)?'
+          index += 3
+        } else {
+          out += '.*'
+          index += 2
+        }
+        continue
+      }
+      out += '.*'
+      index += 2
+      continue
+    }
+    if (char === '*') {
+      out += '[^/]*'
+      index += 1
+      continue
+    }
+    if (char === '?') {
+      out += '[^/]'
+      index += 1
+      continue
+    }
+    if (char === '[') {
+      const close = pattern.indexOf(']', index + 1)
+      if (close > index + 1) {
+        let body = pattern.slice(index + 1, close)
+        if (body.startsWith('!')) body = `^${body.slice(1)}`
+        out += `[${body}]`
+        index = close + 1
+        continue
+      }
+    }
+    out += char.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    index += 1
+  }
+  return out
+}
+
+function parseGitignorePattern(rawLine: string): CompiledGitignoreRule | null {
+  let line = rawLine.replace(/\r$/, '')
+  while (line.endsWith(' ') && !line.endsWith('\\ ')) {
+    line = line.slice(0, -1)
+  }
+  if (!line || line.startsWith('#')) return null
+
+  let negated = false
+  if (line.startsWith('!')) {
+    negated = true
+    line = line.slice(1)
+  } else if (line.startsWith('\\#') || line.startsWith('\\!')) {
+    line = line.slice(1)
+  }
+
+  if (!line) return null
+
+  let dirOnly = false
+  if (line.endsWith('/') && !line.endsWith('\\/')) {
+    dirOnly = true
+    line = line.replace(/\/+$/, '')
+  }
+  if (!line) return null
+
+  const hasLeadingSlash = line.startsWith('/')
+  if (hasLeadingSlash) {
+    line = line.replace(/^\/+/, '')
+  }
+  if (!line) return null
+
+  const anchored = hasLeadingSlash || line.includes('/')
+  const source = globToRegexSource(line)
+  try {
+    return {
+      negated,
+      dirOnly,
+      anchored,
+      regex: new RegExp(`^${source}$`)
+    }
+  } catch {
+    return null
+  }
+}
+
+export function compileGitignoreMatcher(
+  content: string
+): (relativePosix: string, isDirectory: boolean) => boolean {
+  const rules = content
+    .split('\n')
+    .map(parseGitignorePattern)
+    .filter((rule): rule is CompiledGitignoreRule => rule !== null)
+  if (!rules.length) return () => false
+
+  return (relativePosix: string, isDirectory: boolean): boolean => {
+    const segments = relativePosix.split('/').filter(Boolean)
+    for (let index = 0; index < segments.length; index += 1) {
+      const prefix = segments.slice(0, index + 1).join('/')
+      const prefixName = segments[index]
+      const prefixIsDir = index < segments.length - 1 ? true : isDirectory
+      let ignored = false
+      for (const rule of rules) {
+        if (rule.dirOnly && !prefixIsDir) continue
+        const target = rule.anchored ? prefix : prefixName
+        if (rule.regex.test(target)) {
+          ignored = !rule.negated
+        }
+      }
+      if (ignored) return true
+    }
+    return false
+  }
+}
+
+export async function createGitignoreMatcher(
+  workspaceRoot: string
+): Promise<(relativePosix: string, isDirectory: boolean) => boolean> {
+  const filePath = path.join(workspaceRoot, '.gitignore')
+  try {
+    const fileStat = await stat(filePath)
+    if (!fileStat.isFile()) return () => false
+    const content = await readFile(filePath, 'utf-8')
+    return compileGitignoreMatcher(content)
+  } catch {
+    return () => false
+  }
+}
+
 

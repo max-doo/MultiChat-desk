@@ -59,6 +59,7 @@ export default function WorkbenchWorkspaceSettings({
   const workspacePath = useWorkbenchStore((s) => s.workspacePath)
   const gitStatus = useWorkbenchStore((s) => s.gitStatus)
   const refreshGitStatus = useWorkbenchStore((s) => s.refreshGitStatus)
+  const loadFileTree = useWorkbenchStore((s) => s.loadFileTree)
   const gitSetRemote = useWorkbenchStore((s) => s.gitSetRemote)
 
   const [ignoreText, setIgnoreText] = useState('')
@@ -410,6 +411,7 @@ export default function WorkbenchWorkspaceSettings({
         return
       }
       await refreshGitStatus()
+      await loadFileTree()
       setDiskText(ignoreText)
       setSaved(true)
     } catch (err) {

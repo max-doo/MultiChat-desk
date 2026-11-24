@@ -45,14 +45,21 @@ import {
   extractInlineTags
 } from '../../shared/utils/workbenchTags'
 import { listIgnoredPaths, recordWorkspaceMove } from './gitService'
-import { appendGitignorePatterns, DEFAULT_GITIGNORE } from './gitignoreService'
+import {
+  appendGitignorePatterns,
+  createGitignoreMatcher,
+  DEFAULT_GITIGNORE
+} from './gitignoreService'
 import type {
   DefaultWorkspaceInfo,
   WorkbenchWorkspaceSession
 } from '../../shared/types/annotations'
 
 // 应用与版本库内部目录：无论是否被 Git 忽略，都不参与文件树展示
-const INTERNAL_DIR_NAMES = new Set(['.git', '.multichat', '.trash'])
+const INTERNAL_DIR_NAMES = new Set(['.git', '.trash'])
+
+// 外部导入或跨区移动时额外拦截的工作区元数据目录
+const BLOCKED_IMPORT_NAMES = new Set(['.git', '.multichat', '.trash'])
 
 // Git 元文件：属于版本控制配置而非工作区内容，不在文件树中展示
 const GIT_META_FILE_NAMES = new Set(['.gitignore', '.gitattributes', '.gitmodules'])
@@ -219,22 +226,37 @@ function isInternalPath(relativePosix: string): boolean {
 }
 
 /** 生成文件树/搜索共用的节点过滤函数：内部目录、依赖缓存与 Git 忽略路径不展示 */
-function createEntryFilter(ignoredPaths: Set<string> | null) {
-  return (relativePosix: string, name: string): boolean => {
+function createEntryFilter(
+  ignoredPaths: Set<string> | null,
+  gitignoreMatcher?: (relativePosix: string, isDirectory: boolean) => boolean
+) {
+  return (relativePosix: string, name: string, isDirectory: boolean = false): boolean => {
     if (isInternalPath(relativePosix)) return true
     if (GIT_META_FILE_NAMES.has(name)) return true
     if (ALWAYS_HIDDEN_NAMES.has(name) || name.endsWith('.egg-info')) return true
     if (ignoredPaths) {
       return ignoredPaths.has(relativePosix) || ignoredPaths.has(`${relativePosix}/`)
     }
+    if (gitignoreMatcher) {
+      return gitignoreMatcher(relativePosix, isDirectory)
+    }
     return false
   }
+}
+
+async function createWorkspaceFilter(safeRoot: string) {
+  const ignoredPaths = await listIgnoredPaths(safeRoot)
+  if (ignoredPaths) {
+    return createEntryFilter(ignoredPaths)
+  }
+  const gitignoreMatcher = await createGitignoreMatcher(safeRoot)
+  return createEntryFilter(null, gitignoreMatcher)
 }
 
 /** 外部导入时按名字拦截：源可能不在工作区内，拿不到 Git 忽略结果 */
 function isBlockedImportName(name: string): boolean {
   return (
-    INTERNAL_DIR_NAMES.has(name) ||
+    BLOCKED_IMPORT_NAMES.has(name) ||
     GIT_META_FILE_NAMES.has(name) ||
     ALWAYS_HIDDEN_NAMES.has(name) ||
     name.endsWith('.egg-info')
@@ -892,15 +914,14 @@ export async function isKnownWorkspaceRoot(
 
 /**
  * 递归扫描工作区文件树
- * - 只隐藏 Git 忽略的路径与应用内部目录；未被忽略的点号目录（如 .agents/.claude）正常显示
+ * - 只隐藏 Git/.gitignore 忽略的路径与 .git/.trash 内部目录；未被忽略的点号目录（如 .multichat/.agents/.claude）正常显示
  * - 文件夹在前，同级按自然语言顺序排序
  * - 安全跳过符号链接越界节点
  */
 export async function readTree(workspaceRoot: string): Promise<WorkbenchFileNode[]> {
   const safeRoot = await assertSafePath(workspaceRoot, '')
   authorizeWorkspaceRoot(safeRoot)
-  const ignoredPaths = await listIgnoredPaths(safeRoot)
-  const isFiltered = createEntryFilter(ignoredPaths)
+  const isFiltered = await createWorkspaceFilter(safeRoot)
   const rootCmp = process.platform === 'win32' ? safeRoot.toLowerCase() : safeRoot
   const rootPrefix = rootCmp.endsWith(path.sep) ? rootCmp : rootCmp + path.sep
 
@@ -955,7 +976,7 @@ export async function readTree(workspaceRoot: string): Promise<WorkbenchFileNode
 
     const scanned = await Promise.all(entries.map(async (entry): Promise<WorkbenchFileNode | null> => {
       const fullEntryPath = path.join(currentDir, entry.name)
-      if (isFiltered(toPosixRelativePath(safeRoot, fullEntryPath), entry.name)) return null
+      if (isFiltered(toPosixRelativePath(safeRoot, fullEntryPath), entry.name, entry.isDirectory())) return null
 
       try {
         // 只有符号链接可能指向工作区外，普通条目的路径必然落在根目录内，
@@ -966,10 +987,9 @@ export async function readTree(workspaceRoot: string): Promise<WorkbenchFileNode
         if (!entryPath) return null
         const relPosix = toPosixRelativePath(safeRoot, entryPath)
         // 链接指向被忽略的目标时同样隐藏，与按真实路径过滤的旧行为一致
-        if (entry.isSymbolicLink() && isFiltered(relPosix, entry.name)) return null
-
         const entryStat = await withScanSlot(() => stat(entryPath))
         const isDirectory = entryStat.isDirectory()
+        if (entry.isSymbolicLink() && isFiltered(relPosix, entry.name, isDirectory)) return null
 
         if (isDirectory) {
           // 软链接目录可能指回祖先，用祖先链检测环；普通目录路径唯一，无需去重
@@ -1973,7 +1993,7 @@ export async function openFileInSystem(workspaceRoot: string, relativePath: stri
  */
 export async function getWorkspaceTags(workspaceRoot: string): Promise<WorkspaceTagInfo[]> {
   const safeRoot = await assertSafePath(workspaceRoot, '')
-  const isFiltered = createEntryFilter(await listIgnoredPaths(safeRoot))
+  const isFiltered = await createWorkspaceFilter(safeRoot)
   const tagCounts = new Map<string, number>()
   const startTime = Date.now()
   const MAX_SCAN_TIME_MS = 3000
@@ -1993,8 +2013,10 @@ export async function getWorkspaceTags(workspaceRoot: string): Promise<Workspace
 
       try {
         const safeEntryPath = await assertSafePath(safeRoot, path.relative(safeRoot, fullEntryPath))
-        if (isFiltered(toPosixRelativePath(safeRoot, safeEntryPath), entry.name)) continue
+        const relPosix = toPosixRelativePath(safeRoot, safeEntryPath)
+        if (isFiltered(relPosix, entry.name, entry.isDirectory())) continue
         const entryStat = await stat(safeEntryPath)
+        if (entry.isSymbolicLink() && isFiltered(relPosix, entry.name, entryStat.isDirectory())) continue
 
         if (entryStat.isDirectory()) {
           await scanDir(safeEntryPath)
@@ -2056,7 +2078,7 @@ export async function search(workspaceRoot: string, query: string): Promise<Work
   }
 
   const safeRoot = await assertSafePath(workspaceRoot, '')
-  const isFiltered = createEntryFilter(await listIgnoredPaths(safeRoot))
+  const isFiltered = await createWorkspaceFilter(safeRoot)
   const startTime = Date.now()
   const lowerQuery = trimmed.toLowerCase()
   const tagQueryInfo = parseTagSearchQuery(trimmed)
@@ -2083,10 +2105,14 @@ export async function search(workspaceRoot: string, query: string): Promise<Work
 
       try {
         const safeEntryPath = await assertSafePath(safeRoot, path.relative(safeRoot, fullEntryPath))
-        if (isFiltered(toPosixRelativePath(safeRoot, safeEntryPath), entry.name)) {
+        const relPosix = toPosixRelativePath(safeRoot, safeEntryPath)
+        if (isFiltered(relPosix, entry.name, entry.isDirectory())) {
           continue
         }
         const entryStat = await stat(safeEntryPath)
+        if (entry.isSymbolicLink() && isFiltered(relPosix, entry.name, entryStat.isDirectory())) {
+          continue
+        }
 
         if (entryStat.isDirectory()) {
           await searchDir(safeEntryPath)

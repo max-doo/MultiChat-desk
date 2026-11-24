@@ -7,12 +7,31 @@ import FileTypeIcon from './FileTypeIcon'
 import WorkbenchGitPanel from './WorkbenchGitPanel'
 import WorkbenchVaultPopover from './WorkbenchVaultPopover'
 import WorkbenchWorkspaceSettings from './WorkbenchWorkspaceSettings'
-import { AppIcon } from '../icons/AppIcon'
+import { AppIcon, type AppIconName } from '../icons/AppIcon'
 import { requestUploadNodesToAi } from './workbenchAiEvents'
 
 /** 新建节点输入框默认占位名，提交时若用户未修改则使用 */
 const DEFAULT_FILE_NAME = '未命名笔记.md'
 const DEFAULT_FOLDER_NAME = '新建文件夹'
+
+function resolveMultichatFolderVisual(
+  nodePath: string
+): { icon: AppIconName; colorClass: string } | null {
+  const normalized = nodePath.replace(/\\/g, '/').toLowerCase()
+  if (normalized === '.multichat') {
+    return { icon: 'folder_managed', colorClass: 'text-slate-500 dark:text-slate-400' }
+  }
+  if (normalized === '.multichat/image' || normalized === '.multichat/images') {
+    return { icon: 'image', colorClass: 'text-sky-500' }
+  }
+  if (normalized === '.multichat/mindmap' || normalized === '.multichat/mindmaps') {
+    return { icon: 'diagram_flow_horizontal', colorClass: 'text-indigo-500' }
+  }
+  if (normalized === '.multichat/annotation' || normalized === '.multichat/annotations') {
+    return { icon: 'annotation', colorClass: 'text-emerald-500' }
+  }
+  return null
+}
 
 interface ContextMenuState {
   x: number
@@ -913,10 +932,23 @@ export default function WorkbenchFileTree(): JSX.Element {
       const isDropTarget = dropTargetDir === node.path
       // assets/ 目录受管：显示特殊图标且不可拖拽（避免与文档附件目录联动逻辑冲突）
       const isManagedAssetsDir = node.path.split('/').includes('assets')
+      const multichatVisual = resolveMultichatFolderVisual(node.path)
+      const folderIconName: AppIconName = isManagedAssetsDir
+        ? 'attachment'
+        : multichatVisual
+        ? multichatVisual.icon
+        : isExpanded
+        ? 'folder_open'
+        : 'folder'
+      const folderIconColorClass = isManagedAssetsDir
+        ? 'text-slate-400'
+        : multichatVisual
+        ? multichatVisual.colorClass
+        : 'text-amber-500'
       return (
         <div key={node.id} className="select-none">
           <div
-            draggable={!isManagedAssetsDir && !isRenaming}
+            draggable={!isManagedAssetsDir && !multichatVisual && !isRenaming}
             data-folder-node={node.path}
             onDragStart={(e) => handleDragStart(e, node)}
             onDragEnd={handleDragEnd}
@@ -941,11 +973,7 @@ export default function WorkbenchFileTree(): JSX.Element {
             } text-text-primary`}
           >
             <AppIcon name={isExpanded ? 'expand_more' : 'chevron_right'} size={19} className="text-text-secondary transition-transform duration-150 shrink-0" />
-            <AppIcon name={isManagedAssetsDir
-                ? 'attachment'
-                : isExpanded
-                ? 'folder_open'
-                : 'folder'} size={19} className={`shrink-0 ${isManagedAssetsDir ? 'text-slate-400' : 'text-amber-500'}`} />
+            <AppIcon name={folderIconName} size={19} className={`shrink-0 ${folderIconColorClass}`} />
             {isRenaming ? (
               <input
                 ref={renameInputRef}
