@@ -206,7 +206,7 @@ multichat platforms
 
 - **Windows**：前往 [GitHub Releases](https://github.com/max-doo/MultiChat-desk/releases) 下载安装版或便携版。
 - **macOS**：同一 Release 页提供 dmg 安装包——文件名含 `arm64` 的适用于 Apple 芯片（M 系列），无后缀的适用于 Intel 芯片。安装包未做 Apple 签名与公证，首次打开请右键 → 打开（详见包内 `FIRST_OPEN_ON_MACOS.md`）。
-- **Linux**：仓库提供 `npm run build:linux` 构建脚本，暂无正式发布物。
+- **Linux**：仓库提供 `pnpm run build:linux` 构建脚本，暂无正式发布物。
 - **产品介绍**：访问 [MultiChat Desk 落地页](https://multichat.top)。
 
 本文按当前仓库源码介绍功能；下载的发布包可能尚未包含最新源码改动，请结合 [变更日志](CHANGELOG.md) 和对应 Release 说明查看。
@@ -233,38 +233,38 @@ multichat platforms
 ### 环境要求
 
 - Node.js 20.x 或更高版本
-- npm 10.x 或更高版本
+- pnpm 10.x 或更高版本
 - 网络连接；部分 AI 平台可能需要代理
 - Windows 与 macOS 是当前开发和发布验证平台；Linux 仅提供构建脚本，未做发布验证
 
-项目只使用 npm，不使用 pnpm、yarn 或其他包管理器。
+项目只使用 pnpm，不使用 npm、yarn 或其他包管理器。
 
 ### 安装与开发
 
 ```bash
 git clone https://github.com/max-doo/MultiChat-desk.git
 cd MultiChat-desk
-npm install
-npm run dev
+pnpm install
+pnpm run dev
 ```
 
 ### 检查与构建
 
 ```bash
 # 静态检查
-npm run lint
+pnpm run lint
 
 # 构建 main / preload / renderer / CLI
-npm run build
+pnpm run build
 
 # Windows 安装版与便携版
-npm run build:win:nsis
-npm run build:win:portable
-npm run build:win:all
+pnpm run build:win:nsis
+pnpm run build:win:portable
+pnpm run build:win:all
 
 # 在对应操作系统上构建
-npm run build:mac
-npm run build:linux
+pnpm run build:mac
+pnpm run build:linux
 ```
 
 构建产物位于 `out/` 或 `dist/`。这两个目录是生成目录，不要手工修改。
@@ -306,14 +306,14 @@ assets/         # 应用资源
 ### 如何重置开发态配置？
 
 ```bash
-npm run clean:store
+pnpm run clean:store
 ```
 
 该命令清理应用及开发态目录下的 `config.json` / `config-dev.json`；执行前请确认不需要保留其中的设置、历史记录和 API 配置。
 
 ### 修改平台选择器后如何验证？
 
-先运行 `npm run lint` 和 `npm run build`，再用 `npm run dev` 在真实桌面窗口中登录并触发对应平台的发送、收集、总结或上传流程。静态检查不能替代 Webview、焦点、鼠标和平台网页的实际验收。
+先运行 `pnpm run lint` 和 `pnpm run build`，再用 `pnpm run dev` 在真实桌面窗口中登录并触发对应平台的发送、收集、总结或上传流程。静态检查不能替代 Webview、焦点、鼠标和平台网页的实际验收。
 
 <a id="links"></a>
 ## 🔗 项目链接

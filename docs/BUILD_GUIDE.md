@@ -24,7 +24,7 @@
 
 - **操作系统**：Windows 10/11（主要开发平台）
 - **Node.js**：20.x LTS 或更高版本
-- **包管理器**：npm 10.x+ 或 pnpm 8.x+
+- **包管理器**：pnpm 10.x+
 - **磁盘空间**：至少 2GB 可用空间
 
 ### 安装依赖
@@ -35,8 +35,6 @@ git clone https://github.com/your-username/multichat.git
 cd multichat
 
 # 安装依赖
-npm install
-# 或使用 pnpm（推荐）
 pnpm install
 ```
 
@@ -44,10 +42,10 @@ pnpm install
 
 ```bash
 # 确保开发环境正常
-npm run dev
+pnpm run dev
 
 # 测试构建（不打包）
-npm run build
+pnpm run build
 ```
 
 ---
@@ -57,7 +55,7 @@ npm run build
 ### 推荐：一键构建所有版本
 
 ```bash
-npm run build:win:all
+pnpm run build:win:all
 ```
 
 **输出文件：**
@@ -75,42 +73,42 @@ npm run build:win:all
 
 ```bash
 # 启动开发服务器（支持热更新）
-npm run dev
+pnpm run dev
 
 # 编译代码（不打包）
-npm run build
+pnpm run build
 
 # 预览编译结果
-npm run preview
+pnpm run preview
 ```
 
 ### Windows 打包命令
 
 | 命令 | 说明 | 输出 | 耗时 |
 |------|------|------|------|
-| `npm run build:win` | 构建所有 Windows 版本 | NSIS + Portable + ZIP | ~5分钟 |
-| `npm run build:win:nsis` | 只构建安装版 | MultiChat Setup 1.0.0.exe | ~3分钟 |
-| `npm run build:win:portable` | 只构建便携版 | MultiChat-Portable-1.0.0.zip | ~3分钟 |
-| `npm run build:win:all` | 构建安装版和便携版 | Setup + Portable | ~4分钟 |
+| `pnpm run build:win` | 构建所有 Windows 版本 | NSIS + Portable + ZIP | ~5分钟 |
+| `pnpm run build:win:nsis` | 只构建安装版 | MultiChat Setup 1.0.0.exe | ~3分钟 |
+| `pnpm run build:win:portable` | 只构建便携版 | MultiChat-Portable-1.0.0.zip | ~3分钟 |
+| `pnpm run build:win:all` | 构建安装版和便携版 | Setup + Portable | ~4分钟 |
 
 ### 其他平台命令
 
 ```bash
 # macOS（需要在 macOS 系统上运行）
-npm run build:mac
+pnpm run build:mac
 
 # Linux
-npm run build:linux
+pnpm run build:linux
 ```
 
 ### 辅助命令
 
 ```bash
 # 清理存储的配置（用于测试）
-npm run clean:store
+pnpm run clean:store
 
 # 生成便携版标记文件
-npm run add-portable-marker
+pnpm run add-portable-marker
 ```
 
 ---
@@ -144,7 +142,7 @@ MultiChat 支持两种打包模式，满足不同用户需求：
 
 **构建命令：**
 ```bash
-npm run build:win:nsis
+pnpm run build:win:nsis
 ```
 
 ---
@@ -182,7 +180,7 @@ MultiChat-Portable-1.0.0\
 
 **构建命令：**
 ```bash
-npm run build:win:portable
+pnpm run build:win:portable
 ```
 
 ---
@@ -210,7 +208,7 @@ npm install
 # 编辑 package.json 中的 version 字段
 
 # 6. 构建所有版本
-npm run build:win:all
+pnpm run build:win:all
 
 # 7. 检查输出
 ls -lh dist-build-run/
@@ -235,7 +233,7 @@ npm install
 # 编辑 package.json 中的 version 字段
 
 # 6. 构建所有版本
-npm run build:win:all
+pnpm run build:win:all
 
 # 7. 检查输出
 Get-ChildItem dist-build-run
@@ -246,7 +244,7 @@ Get-ChildItem dist-build-run
 #### 步骤 1: 编译代码
 
 ```bash
-npm run build
+pnpm run build
 ```
 
 **输出目录：** `out/`
@@ -257,7 +255,7 @@ npm run build
 #### 步骤 2: 生成便携版标记（仅便携版需要）
 
 ```bash
-npm run add-portable-marker
+pnpm run add-portable-marker
 ```
 
 **效果：**
@@ -438,7 +436,7 @@ git push origin v1.0.1
 rm -rf dist-build-run out
 
 # 构建所有版本
-npm run build:win:all
+pnpm run build:win:all
 
 # 验证输出
 ls -lh dist-build-run/
@@ -600,7 +598,7 @@ taskkill /IM electron.exe /F 2>$null | Out-Null
 Remove-Item -Recurse -Force dist-build-run -ErrorAction SilentlyContinue
 
 # 3) 重新构建
-npm run build:win:nsis
+pnpm run build:win:nsis
 ```
 
 ### Q1: 构建失败：electron 下载超时

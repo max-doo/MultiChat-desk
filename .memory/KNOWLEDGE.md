@@ -367,6 +367,8 @@ Long-term reusable lessons, durable decisions, and recurring project gotchas. Do
 
 - **Electron CommonJS 主进程与纯 ESM 依赖的兼容**：在 `electron.vite.config.ts` 中开启 `build.externalizeDeps: true` 时，Vite 会将 `import ... from 'esm-pkg'` 转换为 CommonJS 的 `require('esm-pkg')`。若外部依赖（如 `@earendil-works/pi-coding-agent`）为纯 ESM 且 `package.json` 的 `exports` 仅定义了 `import` 而无 `require`/`default`，会导致 Node CJS 加载器抛出 `ERR_PACKAGE_PATH_NOT_EXPORTED`。解决方法：主进程中仅保留该包的 `import type` 静态类型导入，并在异步生命周期（如 `init()`）中使用 `new Function('s', 'return import(s)')('esm-pkg')` 动态加载运行时符号，既规避 Vite 编译期的 require 改写，又保证在 Node/Electron 运行时正确通过 ESM 解析器加载。
 
+- **pnpm 接管 npm 安装的 `node_modules` 前必须关闭运行中的 Electron 实例**：`pnpm install` 会把旧包迁移到 `node_modules/.ignored`；若本 worktree 的 `node_modules/electron/dist/electron.exe` 仍被 dev 进程占用，重命名会报 `EPERM`。先按命令行中的 worktree 路径找到并关闭对应的 `npm run dev`/Electron 进程，再执行 `pnpm install`，安装后确认 `install-electron` 已下载二进制再重新启动。
+
 - **启用 JavaScript 混淆时不要用函数 `toString()` 生成 Webview 注入脚本**：生产打包开启混淆后，通过 `Function.prototype.toString()` 生成注入脚本，函数体内部变量可能被主进程混淆器重命名，并依赖混淆器注入的主进程全局映射，进入隔离 Webview 后执行报错。注入脚本应直接使用自包含的字符串模板或 IIFE 源码字符串，避免在主进程代码中使用函数 toString 注入。
 
 - **`@electron-toolkit/utils` 的 `is.dev` 不能在 renderer/shared 中使用**：`is` 对象依赖 `__dirname`、`child_process.spawnSync`、`path.join` 等 Node API；`shared/` 文件被 Vite 依赖预构建加载到浏览器环境时，会触发 `__dirname is not defined` 和 `child_process has been externalized`，导致开发服务器黑屏。任何可能被渲染进程引用的代码（`shared/`、`renderer/`）都应使用 `process.env.NODE_ENV !== 'production'`；`src/main/` 下的纯主进程文件使用 `is.dev` 是安全的，但为一致性也可统一使用 `process.env.NODE_ENV`。判别：错误堆栈指向 `node_modules/.vite/deps/@electron-toolkit_utils.js` 且含 `__dirname`/`child_process`。

@@ -9,7 +9,7 @@ MultiChat Desk 是基于 Electron 的桌面应用，通过多个 Webview 并行�
 
 - Language/runtime: TypeScript (strict), Node.js, Electron 42
 - Frameworks: React 18, Tailwind CSS 3, Zustand 4
-- Package manager: npm (禁止使用其他包管理器)
+- Package manager: pnpm 10.x (禁止使用 npm / yarn 安装依赖；锁文件为 `pnpm-lock.yaml`)
 - Build Tool: electron-vite (HMR dev), electron-builder
 
 ## Project Structure & Module Organization
@@ -24,15 +24,15 @@ MultiChat Desk 是基于 Electron 的桌面应用，通过多个 Webview 并行�
 
 ## Build, Test, and Development Commands
 
-- `npm run dev`：启动 electron-vite 开发服务器（HMR）；打开桌面窗口。
-- `npm run build`：打包 CLI / main / preload / renderer 到 `out/`；当前脚本不运行 `tsc` 类型检查。
-- `npm run lint` / `npm run lint:fix`：对 `src/**/*.{ts,tsx}` 跑 ESLint。
-- `npm run build:win:nsis` / `build:win:portable` / `build:win:all`：Windows 安装包 / 便携版 / 全部。
-- `npm run build:mac` / `build:linux`:对应平台打包，需在该 OS 上执行。
-- `npm run clean:store`：清理本地配置（路径按 `package.json` 的 `productName || name` 计算，当前目录名为 `multichat` / `multichat-dev`，删除 `config.json` / `config-dev.json`），用于重置开发态。
-- PowerShell 调试可读 bundle：`$env:MM_OBFUSCATE='0'` 后执行 `npm run build`；完成后 `Remove-Item Env:MM_OBFUSCATE` 恢复默认混淆。
+- `pnpm run dev`：启动 electron-vite 开发服务器（HMR）；打开桌面窗口。
+- `pnpm run build`：打包 CLI / main / preload / renderer 到 `out/`；当前脚本不运行 `tsc` 类型检查。
+- `pnpm run lint` / `pnpm run lint:fix`：对 `src/**/*.{ts,tsx}` 跑 ESLint。
+- `pnpm run build:win:nsis` / `build:win:portable` / `build:win:all`：Windows 安装包 / 便携版 / 全部。
+- `pnpm run build:mac` / `build:linux`:对应平台打包，需在该 OS 上执行。
+- `pnpm run clean:store`：清理本地配置（路径按 `package.json` 的 `productName || name` 计算，当前目录名为 `multichat` / `multichat-dev`，删除 `config.json` / `config-dev.json`），用于重置开发态。
+- PowerShell 调试可读 bundle：`$env:MM_OBFUSCATE='0'` 后执行 `pnpm run build`；完成后 `Remove-Item Env:MM_OBFUSCATE` 恢复默认混淆。
 - 定向类型检查：`npx tsc --noEmit -p tsconfig.node.json --composite false --incremental false` / `npx tsc --noEmit -p tsconfig.web.json --composite false --incremental false`；根配置仅含 references，不用根目录的 `npx tsc --noEmit` 代替两侧检查。
-- 项目未配置测试运行器；验证 = `npm run lint` + `npm run build` + `npm run dev` 中手动验证。
+- 项目未配置测试运行器；验证 = `pnpm run lint` + `pnpm run build` + `pnpm run dev` 中手动验证。
 
 ## Coding Style & Naming Conventions
 
@@ -66,8 +66,8 @@ MultiChat Desk 是基于 Electron 的桌面应用，通过多个 Webview 并行�
 
 ## Testing Guidelines
 
-- 项目未配置自动化测试运行器，所有的测试都必须在 `npm run dev` 桌面环境下手动进行验证。
-- 验证流程需要遵循：`npm run lint` -> `npm run build` -> `npm run dev` 运行测试流程。
+- 项目未配置自动化测试运行器，所有的测试都必须在 `pnpm run dev` 桌面环境下手动进行验证。
+- 验证流程需要遵循：`pnpm run lint` -> `pnpm run build` -> `pnpm run dev` 运行测试流程。
 - 如果某项功能无法在当前开发机独立完成测试，必须在任务结束时清楚说明原因并列出最小等价验证步骤。
 
 ## Done Criteria
@@ -84,7 +84,7 @@ A session or task is considered complete when:
 项目专属完成标准：
 
 - 行为已落到正确的层（main / preload / renderer），IPC 契约端到端同步。
-- 受影响的链路在 `npm run dev` 中已被实际触发验证；如无法验证，需明确说明并给出最小等价检查。
+- 受影响的链路在 `pnpm run dev` 中已被实际触发验证；如无法验证，需明确说明并给出最小等价检查。
 - 没有牵动无关文件。
 
 ## Commit & Pull Request Guidelines
@@ -117,4 +117,4 @@ A session or task is considered complete when:
 ## Known Gotchas
 
 - 仅保留违反后会在知识路由前立即造成致命错误或不可逆损害的全局规则，最多 3–5 条；不为凑数量新增。
-- npm、分层、IPC、Session 与安全约束已在对应章节声明；领域排错经验留在 KNOWLEDGE 并通过 INDEX 按需读取，避免重复注入。
+- 包管理器、分层、IPC、Session 与安全约束已在对应章节声明；领域排错经验留在 KNOWLEDGE 并通过 INDEX 按需读取，避免重复注入。

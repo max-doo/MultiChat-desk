@@ -34,6 +34,7 @@ export interface DocumentAnnotationFlushResult {
 }
 export type HtmlEditLeaveDecision = 'saved' | 'discarded' | 'cancelled'
 export type EditorMode = 'wysiwyg' | 'source'
+export type WorkbenchContentWidth = 'narrow' | 'medium' | 'wide'
 export type WorkbenchAiAction = 'ask' | 'explain' | 'polish' | 'summarize'
 /** 右侧栏与快捷窗口一致：AI 对话和思维导图同一时刻只显示一个（注释改为在编辑器右侧边距原位展示）。 */
 export type WorkbenchRightPane = 'ai' | 'mindmap' | null
@@ -202,6 +203,8 @@ interface WorkbenchStoreState {
   pendingConversationOpen: { platformId: string; url: string; token: number } | null
   sidebarModelId: string
   editorMode: EditorMode
+  /** WYSIWYG 预览模式正文栏宽：narrow≈640px / medium≈720px / wide≈880px */
+  contentWidth: WorkbenchContentWidth
   /** 由 WorkbenchAnnotationPlugin 注册；切文件、关闭和退出前等待最后一次对账。 */
   documentAnnotationFlusher: (() => Promise<DocumentAnnotationFlushResult>) | null
 
@@ -288,6 +291,7 @@ interface WorkbenchStoreActions {
   consumeConversationOpen: (token: number) => void
   setSidebarModelId: (modelId: string) => void
   setEditorMode: (mode: EditorMode) => void
+  setContentWidth: (width: WorkbenchContentWidth) => void
   setImageBackgroundTheme: (theme: ImageBackgroundTheme) => void
   askAi: (text: string, actionType: WorkbenchAiAction) => void
   clearError: () => void
@@ -580,6 +584,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   pendingConversationOpen: null,
   sidebarModelId: 'chatgpt',
   editorMode: 'wysiwyg',
+  contentWidth: 'medium',
   documentAnnotationFlusher: null,
 
   error: null,
@@ -617,7 +622,8 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         savedEditorMode,
         savedRecentWorkspaces,
         savedFileSort,
-        savedImageBackgroundTheme
+        savedImageBackgroundTheme,
+        savedContentWidth
       ] = await Promise.all([
         window.api.storeGet('workbench_lastWorkspacePath') as Promise<string | null>,
         window.api.storeGet('workbench_lastActiveFilePath') as Promise<string | null>,
@@ -630,7 +636,8 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         window.api.storeGet('workbench_editorMode') as Promise<EditorMode | null>,
         window.api.storeGet('workbench_recentWorkspaces') as Promise<string[] | null>,
         window.api.storeGet('workbench_fileSort') as Promise<WorkbenchSortPreference | null>,
-        window.api.storeGet('workbench_imageBackgroundTheme') as Promise<ImageBackgroundTheme | null>
+        window.api.storeGet('workbench_imageBackgroundTheme') as Promise<ImageBackgroundTheme | null>,
+        window.api.storeGet('workbench_contentWidth') as Promise<WorkbenchContentWidth | null>
       ])
 
       const updates: Partial<WorkbenchStoreState> = { isInitialized: true }
@@ -666,6 +673,13 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       }
       if (savedEditorMode === 'wysiwyg' || savedEditorMode === 'source') {
         updates.editorMode = savedEditorMode
+      }
+      if (
+        savedContentWidth === 'narrow' ||
+        savedContentWidth === 'medium' ||
+        savedContentWidth === 'wide'
+      ) {
+        updates.contentWidth = savedContentWidth
       }
       if (Array.isArray(savedRecentWorkspaces)) {
         updates.recentWorkspaces = savedRecentWorkspaces.filter(
@@ -2084,6 +2098,11 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     }
     set({ editorMode: mode })
     void window.api.storeSet('workbench_editorMode', mode)
+  },
+
+  setContentWidth: (width: WorkbenchContentWidth) => {
+    set({ contentWidth: width })
+    void window.api.storeSet('workbench_contentWidth', width)
   },
 
   setImageBackgroundTheme: (theme: ImageBackgroundTheme) => {

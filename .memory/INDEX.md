@@ -24,7 +24,7 @@
 | `cli-daemon` | src/cli、src/main/daemon、Named Pipe、backgroundThrottling、commander、daemon.token、task.submit、cancel、waitMs | ### CLI、Daemon 与登录态 | 通信顺序、任务终态、输出协议和 CLI 退出码 |
 | `platform-auth` | 登录态、AUTH_REQUIRED、AUTH_LOST、platformAuthCookies、platformAuthCookieRules、localStorage、tongyi_sso_ticket、qianwen、selector version | ### CLI、Daemon 与登录态 | 游客与已登录要双通道判定；站点同源和主进程选择器版本也要核对 |
 | `git-workflow` | gitService、update-index、git mv、fetch、ahead/behind、push -u、gitignore、remote set-url、worktree、文件树隐藏规则、落地页、README | ### Git 与开发工作流 | 索引写路径变化、同步策略、忽略规则、worktree 授权与文档事实核对 |
-| `build-verify` | electron.vite.config、electron-builder、NSIS、installer.nsh、winCodeSign、混淆、is.dev、ELECTRON_RUN_AS_NODE、tsc、extraResources、Dock 图标、ERR_PACKAGE_PATH_NOT_EXPORTED、pi-coding-agent | ### 构建、打包与验证 | 构建不等于类型检查或桌面验收；平台和版本经验需核对当前环境 |
+| `build-verify` | electron.vite.config、electron-builder、NSIS、installer.nsh、winCodeSign、混淆、is.dev、ELECTRON_RUN_AS_NODE、tsc、extraResources、Dock 图标、ERR_PACKAGE_PATH_NOT_EXPORTED、pi-coding-agent、pnpm install、EPERM | ### 构建、打包与验证 | 构建不等于类型检查或桌面验收；平台和版本经验需核对当前环境 |
 | `historical` | Electron 28、Chromium 120、ScriptProcessorNode、WebContentsView、summaryApi、useSummaryPanel、generate-summary | ### 历史架构与版本限定 | 只在明确追溯旧架构或已授权工作中加载 |
 | `prototype-verification` | docs/prototypes、自包含 HTML、innerHTML、视觉验收、重渲染、截图 | ### 原型与视觉验收 | 首屏截图之外必须验证切换、重复渲染和窄屏分支 |
 | `agent-sidebar` | AgentCard、WorkbenchAiSidebar、assistant-ui、makeAssistantToolUI、pi-coding-agent、PermissionEngine、AgentSessionService | ### 本地 Agent 与 AI 侧边栏 | 本地 Agent 运行时、工具渲染、权限引擎与 AuiProvider 上下文边界 |

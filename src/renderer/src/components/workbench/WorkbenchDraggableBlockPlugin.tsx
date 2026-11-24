@@ -293,7 +293,7 @@ export default function WorkbenchDraggableBlockPlugin({
         ? ReactDOM.createPortal(
             <div
               ref={pickerRef}
-              className="absolute z-50 w-56 rounded-xl bg-white dark:bg-gray-800 shadow-2xl border border-black/10 dark:border-white/10 overflow-hidden text-sm"
+              className="absolute z-50 w-56 rounded-xl bg-white dark:bg-gray-800 shadow-lg border border-black/10 dark:border-white/10 overflow-hidden text-sm"
               style={{ left: pickerPosition.left, top: pickerPosition.top }}
             >
               <ul className="py-1 max-h-64 overflow-y-auto">

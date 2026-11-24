@@ -2,6 +2,54 @@
 
 ## 2026-11-24
 
+### 09:48 | Codex
+
+- done: 将 main 合并入 worktree 的 codex/agent-sidebar：解决依赖清单、会话日志与 package-lock 冲突，迁移 pnpm 锁文件，验证类型检查、lint、构建与 dev 启动
+- context: main 引入 pnpm 10 与依赖分层调整，worktree 同时在开发 Agent 侧边栏与工作台正文宽度/公式粘贴功能
+- decision: dependencies 仅保留主进程外部化运行时依赖（pi-coding-agent、electron-store、monio-napi、shell-quote），渲染层依赖移入 devDependencies；移除已无引用的 assistant-ui 依赖；删除 package-lock.json 并重生成 pnpm-lock.yaml
+- modified:
+  - `package.json`
+  - `AGENTS.md`
+  - `README.md`
+  - `SESSION_LOG.md`
+  - `docs/BUILD_GUIDE.md`
+  - `.gitignore`
+  - `pnpm-lock.yaml`
+  - `.memory/INDEX.md`
+  - `.memory/KNOWLEDGE.md`
+  - `src/renderer/src/assets/index.css`
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchToolbar.tsx`
+  - `src/renderer/src/store/workbenchStore.ts`
+- removed:
+  - `package-lock.json`
+- lesson(promoted): pnpm install 迁移 npm 生成的 node_modules 前必须先关闭正在运行的 Electron dev 实例，否则重命名 node_modules/electron 会报 EPERM
+- unresolved: Agent 侧边栏与工作台的合并后 UI 交互仍需在桌面窗口中手动走查
+
+### 09:36 | Codex
+
+- done: 从 worktree 恢复依赖与打包改动到 main：补 4 个幽灵依赖、迁移 pnpm、修复 postinstall 二进制下载、删除 package-lock.json
+- decision: dependencies 只保留主进程运行时依赖 electron-store 与 monio-napi，渲染层依赖移到 devDependencies；postinstall 补 install-electron 解决 electron@42 无 postinstall 导致 pnpm 装完无二进制
+- added:
+  - `pnpm-lock.yaml`
+- modified:
+  - `package.json`
+  - `AGENTS.md`
+  - `README.md`
+  - `docs/BUILD_GUIDE.md`
+  - `.gitignore`
+- removed:
+  - `package-lock.json`
+- lesson: electron@42.5.1 的 package.json 没有 scripts 字段，二进制是懒加载的；pnpm install 后 dist 为空，必须显式跑 install-electron，否则 pnpm run dev 报 Electron uninstall
+- unresolved: worktree 中 16 个 workbench 改动已恢复但未提交；需确认与本次依赖改动分开提交
+
+### 09:29 | Codex
+
+- done: 调研 WebAI-to-API(agent waa) 与 mu-agent 两个项目对 pi-agent 的封装资产，输出三主题可复用性评估（权限引擎/UTF-8/shell 挂载）
+- context: 用户要求探索两个基于 pi-agent 的旧项目能否迁移复用到 MultiChat-desk 的 Agent 侧边栏开发
+- decision: mu-agent 的 permissions.ts+modes.ts+shell.ts 整文件搬运（接 IPC 审批卡片）；waa 的 encoding.ts 整文件搬（iconv-lite 依赖）；bash 输出走 buffer+decodeCommandOutput 兜底文件编码；cmd vs powershell 路线待定
+- unresolved: cmd.exe vs PowerShell 作为默认 shell 路线选择；只读模式档位需自补（mu 只有 default/auto/bypass）
+
 ### 09:12 | Antigravity
 
 - done: 彻底修复 AgentCard 崩溃与输入框塌陷、端到端真机桌面客户端交互验收

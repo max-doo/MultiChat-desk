@@ -42,6 +42,7 @@ import WorkbenchFloatingToolbarPlugin from './WorkbenchFloatingToolbarPlugin'
 import WorkbenchLinkHoverPlugin from './WorkbenchLinkHoverPlugin'
 import WorkbenchLinkClickPlugin from './WorkbenchLinkClickPlugin'
 import WorkbenchLinkPastePlugin from './WorkbenchLinkPastePlugin'
+import WorkbenchEquationPastePlugin from './WorkbenchEquationPastePlugin'
 import WorkbenchDraggableBlockPlugin from './WorkbenchDraggableBlockPlugin'
 import WorkbenchTableCellResizerPlugin from './WorkbenchTableCellResizerPlugin'
 import WorkbenchTableActionMenuPlugin from './WorkbenchTableActionMenuPlugin'
@@ -173,6 +174,7 @@ export default function WorkbenchEditor(): JSX.Element {
   const activeFileDataUrl = useWorkbenchStore((s) => s.activeFileDataUrl)
   const updateActiveContent = useWorkbenchStore((s) => s.updateActiveContent)
   const editorMode = useWorkbenchStore((s) => s.editorMode)
+  const contentWidth = useWorkbenchStore((s) => s.contentWidth)
   const workspacePath = useWorkbenchStore((s) => s.workspacePath)
   const createFile = useWorkbenchStore((s) => s.createFile)
   const openInSystem = useWorkbenchStore((s) => s.openInSystem)
@@ -487,7 +489,13 @@ export default function WorkbenchEditor(): JSX.Element {
             <div
               ref={onRef}
               data-workbench-article="true"
-              className="relative mx-auto w-full max-w-[760px] min-w-0 px-16"
+              className={`relative mx-auto w-full min-w-0 px-16 ${
+                contentWidth === 'narrow'
+                  ? 'max-w-[768px]'
+                  : contentWidth === 'wide'
+                    ? 'max-w-[1008px]'
+                    : 'max-w-[848px]'
+              }`}
             >
             {/* Obsidian 式文档标题：点击行内重命名 */}
             <WorkbenchTitleBar />
@@ -560,6 +568,7 @@ export default function WorkbenchEditor(): JSX.Element {
         <WorkbenchCodeHighlightPlugin />
         <WorkbenchImagePlugin />
         <WorkbenchLinkPastePlugin />
+        <WorkbenchEquationPastePlugin />
         <WorkbenchLinkClickPlugin />
         <WorkbenchSelectionMenuPlugin />
         <WorkbenchLinkHoverPlugin />
