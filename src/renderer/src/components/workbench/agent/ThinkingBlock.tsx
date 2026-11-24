@@ -1,4 +1,3 @@
-import { Loader2 } from 'lucide-react'
 import { useState } from 'react'
 
 interface ThinkingBlockProps {
@@ -26,15 +25,13 @@ export function ThinkingBlock({ thinking, isRunning = false }: ThinkingBlockProp
       title={expanded ? '点击收起' : '点击展开完整思考'}
     >
       <span className="pt-1 shrink-0">
-        {isRunning ? (
-          <Loader2 className="w-3 h-3 text-primary animate-spin" />
-        ) : (
-          <span className="block w-1.5 h-1.5 rounded-full bg-slate-300" />
-        )}
+        <span className="block w-1.5 h-1.5 rounded-full bg-slate-300" />
       </span>
 
       <span
-        className={`italic tracking-tight text-slate-500 flex-1 min-w-0 ${
+        className={`italic tracking-tight flex-1 min-w-0 ${
+          isRunning ? 'text-shimmer' : 'text-slate-500'
+        } ${
           expanded ? 'whitespace-pre-wrap break-words' : 'truncate'
         }`}
       >

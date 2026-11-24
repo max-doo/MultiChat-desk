@@ -21,12 +21,50 @@ import { ToolGroup } from './agent/ToolGroup'
 import { ApprovalCard } from './agent/ApprovalCard'
 import { ThinkingBlock } from './agent/ThinkingBlock'
 import { AgentComposer } from './agent/AgentComposer'
+import ChangedFilesCard from './agent/ChangedFilesCard'
 import { MarkdownRenderer } from './agent/MarkdownRenderer'
-import type { PiContentPart } from '../../types/agent'
+import { WorkPhaseBlock } from './agent/WorkPhaseBlock'
+import type { AgentMessage, PiContentPart } from '../../types/agent'
 
 interface AgentCardProps {
   onModelChange?: (modelId: string) => void
   headerActions?: React.ReactNode
+}
+
+/** 规范化路径用于工作区相等比较：统一分隔符、去尾斜杠；按 Windows 语义不区分大小写。 */
+function normalizePath(p: string | null | undefined): string {
+  if (!p) return ''
+  return p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+}
+
+function baseName(p: string): string {
+  const parts = p.replace(/[/\\]+$/, '').split(/[/\\]/)
+  return parts[parts.length - 1] || p
+}
+
+function formatMessageTime(timestamp: number): string {
+  const date = new Date(timestamp)
+  const now = new Date()
+  const sameDay = date.toDateString() === now.toDateString()
+  if (sameDay) {
+    return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+  }
+  return date.toLocaleString('zh-CN', {
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  })
+}
+
+function formatDuration(durationMs: number): string {
+  if (!Number.isFinite(durationMs) || durationMs < 0) return ''
+  if (durationMs < 1000) return `${Math.round(durationMs)}ms`
+  const totalSeconds = durationMs / 1000
+  if (totalSeconds < 60) return `${totalSeconds.toFixed(1)}s`
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = Math.round(totalSeconds % 60)
+  return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`
 }
 
 export default function AgentCard({
@@ -37,6 +75,7 @@ export default function AgentCard({
   const workspacePath = useWorkbenchStore((s) => s.workspacePath)
   const activeFilePath = useWorkbenchStore((s) => s.activeFilePath)
   const closeRightPane = useWorkbenchStore((s) => s.closeRightPane)
+  const setWorkspaceFolder = useWorkbenchStore((s) => s.setWorkspaceFolder)
 
   const messages = useAgentSessionStore((s) => s.messages)
   const isRunning = useAgentSessionStore((s) => s.isRunning)
@@ -52,9 +91,13 @@ export default function AgentCard({
   const rewindLastUserMessage = useAgentSessionStore((s) => s.rewindLastUserMessage)
   const forkSession = useAgentSessionStore((s) => s.forkSession)
   const copyText = useAgentSessionStore((s) => s.copyText)
+  const foreignReview = useAgentSessionStore((s) => s.foreignReview)
+  const setForeignReview = useAgentSessionStore((s) => s.setForeignReview)
 
   const [historyMenuOpen, setHistoryMenuOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null)
+  /** 待确认的跨工作区会话：cwd 与当前工作区不一致时先弹窗再恢复。 */
+  const [pendingForeignSession, setPendingForeignSession] = useState<{ id: string; cwd: string } | null>(null)
   const [rewindConfirmOpen, setRewindConfirmOpen] = useState(false)
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [forkMenuOpenFor, setForkMenuOpenFor] = useState<string | null>(null)
@@ -99,8 +142,16 @@ export default function AgentCard({
 
   // Sync workspacePath to AgentSession
   const prevWorkspaceRef = useRef<string | null>(workspacePath)
+  /** 工作区切换是"为了 resume 某条该工作区会话"而触发时置位；effect1 据此跳过 draft 重置，避免清掉即将恢复的消息。 */
+  const resumeAfterSwitchRef = useRef<string | null>(null)
   useEffect(() => {
     if (workspacePath && prevWorkspaceRef.current !== null && workspacePath !== prevWorkspaceRef.current) {
+      if (resumeAfterSwitchRef.current && normalizePath(resumeAfterSwitchRef.current) === normalizePath(workspacePath)) {
+        resumeAfterSwitchRef.current = null
+        prevWorkspaceRef.current = workspacePath
+        return
+      }
+      setForeignReview(false)
       void newSession(workspacePath)
     }
     prevWorkspaceRef.current = workspacePath
@@ -109,10 +160,18 @@ export default function AgentCard({
   useEffect(() => {
     // Only reset the draft when the bound workspace actually diverges; a null
     // session id is already the draft state and needs no further reset.
+    // 失效工作区回看态下不重置：currentCwd 是失效路径，用户仍在浏览历史消息。
+    // 回看态在 cwd 重新对齐工作区时自动退出（回看中新提问会在当前工作区开新会话）。
+    if (foreignReview) {
+      if (!currentCwd || !workspacePath || normalizePath(currentCwd) === normalizePath(workspacePath)) {
+        setForeignReview(false)
+      }
+      return
+    }
     if (workspacePath && currentCwd && currentCwd !== workspacePath) {
       void newSession(workspacePath)
     }
-  }, [currentCwd, workspacePath, newSession])
+  }, [currentCwd, workspacePath, newSession, foreignReview])
 
   // Model picker options
   const modelOptions = useMemo<DropdownOption<string>[]>(() => {
@@ -199,11 +258,39 @@ export default function AgentCard({
     (sessionId: string): void => {
       setHistoryMenuOpen(false)
       if (sessionId !== currentSessionId) {
+        const session = sessions.find((s) => s.id === sessionId)
+        const sessionCwd = session?.cwd
+        // 跨工作区会话：先弹窗确认；失效路径走只读回看；同工作区直接恢复。
+        if (sessionCwd && normalizePath(sessionCwd) !== normalizePath(workspacePath)) {
+          setPendingForeignSession({ id: sessionId, cwd: sessionCwd })
+          return
+        }
         void resumeSession(sessionId)
       }
     },
-    [currentSessionId, resumeSession]
+    [currentSessionId, resumeSession, sessions, workspacePath]
   )
+
+  const handleConfirmForeignSession = useCallback(async (): Promise<void> => {
+    const pending = pendingForeignSession
+    setPendingForeignSession(null)
+    if (!pending) return
+    // 标记"接下来发生的工作区切换是为了 resume 这条会话"，effect1 见标记跳过 draft 重置。
+    resumeAfterSwitchRef.current = pending.cwd
+    const result = await setWorkspaceFolder(pending.cwd)
+    if (result === 'switched') {
+      setForeignReview(false)
+      void resumeSession(pending.id)
+      return
+    }
+    resumeAfterSwitchRef.current = null
+    // 用户取消（可视化编辑未保存选择留下）：不进回看，保持现状。
+    if (result === 'cancelled') return
+    // 目录失效（已删除/改名/盘符脱机）：setWorkspaceFolder 的 error 通道已提示；
+    // 降级为只读回看——不切工作区直接恢复消息，标记豁免防 effect 清空。
+    setForeignReview(true)
+    void resumeSession(pending.id)
+  }, [pendingForeignSession, resumeSession, setWorkspaceFolder])
 
   const handleConfirmDeleteSession = useCallback(async (): Promise<void> => {
     if (!deleteTarget) return
@@ -212,8 +299,8 @@ export default function AgentCard({
   }, [deleteTarget, deleteSession])
 
   type GroupedBlock =
-    | { type: 'reasoning'; reasoning: string; isRunning: boolean }
-    | { type: 'text'; text: string }
+    | { type: 'reasoning'; reasoning: string; isRunning: boolean; part: PiContentPart }
+    | { type: 'text'; text: string; part: PiContentPart }
     | { type: 'tool-group'; parts: PiContentPart[]; isRunning: boolean }
 
   const groupContentParts = (parts: PiContentPart[], isMsgRunning: boolean): GroupedBlock[] => {
@@ -224,13 +311,15 @@ export default function AgentCard({
         blocks.push({
           type: 'reasoning',
           reasoning: part.reasoning || '',
-          isRunning: isMsgRunning && i === parts.length - 1
+          isRunning: isMsgRunning && i === parts.length - 1,
+          part
         })
       } else if (part.type === 'text') {
         if (part.text?.trim()) {
           blocks.push({
             type: 'text',
-            text: part.text
+            text: part.text,
+            part
           })
         }
       } else if (part.type === 'tool-call') {
@@ -251,10 +340,73 @@ export default function AgentCard({
     return blocks
   }
 
+  // 把消息流分组成"工作段"：一个 user query 后面连续的 assistant 全合并成
+  // 一个 work-group——组内所有 reasoning/tool-call/中间过渡 text 都折叠进
+  // "思考中/已完成"，只有组内最后一个非空 text 外显为 final answer。
+  type RenderItem =
+    | { kind: 'user'; msg: AgentMessage }
+    | { kind: 'work'; msgs: AgentMessage[]; hasText: boolean }
+
+  const buildRenderItems = (list: AgentMessage[]): RenderItem[] => {
+    const items: RenderItem[] = []
+    for (const m of list) {
+      if (m.role === 'user') {
+        items.push({ kind: 'user', msg: m })
+        continue
+      }
+      const text = m.content
+        .filter((c) => c.type === 'text')
+        .map((c) => c.text ?? '')
+        .join('')
+        .trim()
+      const last = items[items.length - 1]
+      if (last && last.kind === 'work') {
+        last.msgs.push(m)
+        if (text) last.hasText = true
+      } else {
+        items.push({ kind: 'work', msgs: [m], hasText: Boolean(text) })
+      }
+    }
+    return items
+  }
+
+  // 折叠区标题的动态动作描述：跟随当前进行中的 part
+  // （正在读 xxx / 正在编辑 xxx / 正在运行 xxx / 正在搜 xxx / 正在思考…）。
+  const describeActivity = (part: PiContentPart): string => {
+    if (part.type === 'reasoning') return '正在思考…'
+    const name = (part.toolName || '').toLowerCase()
+    const args = typeof part.args === 'object' && part.args !== null ? part.args : {}
+    const rawPath = (args as { path?: string; filePath?: string; file_path?: string }).path
+      || (args as { filePath?: string }).filePath
+      || (args as { file_path?: string }).file_path
+      || ''
+    const fileName = rawPath ? rawPath.split(/[/\\]/).pop() || rawPath : ''
+    const command = typeof part.args === 'string'
+      ? part.args
+      : ((args as { command?: string; cmd?: string }).command || (args as { cmd?: string }).cmd || '')
+    const inline = (args as { query?: string; prompt?: string; pattern?: string }).query
+      || (args as { prompt?: string }).prompt
+      || (args as { pattern?: string }).pattern
+      || ''
+
+    if (name === 'read' || name === 'read_file') return fileName ? `正在读取 ${fileName}` : '正在读取文件'
+    if (['edit', 'write', 'edit_file', 'str_replace', 'multi_edit', 'apply_patch'].includes(name)) {
+      return fileName ? `正在编辑 ${fileName}` : '正在编辑文件'
+    }
+    if (['bash', 'powershell', 'cmd', 'terminal', 'shell'].includes(name)) {
+      return command ? `正在运行 ${command}` : '正在运行命令'
+    }
+    if (name === 'web_search') return inline ? `正在搜索 ${inline}` : '正在联网搜索'
+    if (name === 'grep' || name === 'find') return inline ? `正在查找 ${inline}` : '正在查找'
+    if (name === 'ls') return fileName ? `正在列出 ${fileName}` : '正在列出目录'
+    if (name === 'image_gen') return inline ? `正在生成图片 ${inline}` : '正在生成图片'
+    return name ? `正在调用 ${name}` : '正在调用工具'
+  }
+
   return (
-    <div className="flex flex-col h-full bg-white overflow-hidden">
-      {/* Header — matches WebviewCard flat header layout: p-3 border-b border-gray-200/60 */}
-      <div className="p-3 border-b border-gray-200/60 bg-white flex justify-between items-center shrink-0">
+    <div className="flex flex-col h-full bg-white dark:bg-gray-900 overflow-hidden">
+      {/* Header */}
+      <div className="p-3 border-b border-gray-200/60 dark:border-white/10 bg-white dark:bg-gray-900 flex justify-between items-center shrink-0">
         {/* Left: Model Picker Dropdown — matches WebviewCard CustomDropdown pattern */}
         <div>
           <CustomDropdown
@@ -268,7 +420,7 @@ export default function AgentCard({
             placeholder="Agent"
             className="relative"
             dropdownWidth="w-48"
-            buttonClassName={`flex items-center justify-between gap-2 rounded-lg px-2 py-1 -ml-2 transition-colors ${isRunning ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-100'}`}
+            buttonClassName={`flex items-center justify-between gap-2 rounded-lg px-2 py-1 -ml-2 transition-colors ${isRunning ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-100 dark:hover:bg-gray-800'}`}
             renderButton={(): JSX.Element => (
               <div className="flex items-center gap-2">
                 <img src={agentAvatar} alt="Agent" className="w-6 h-6 shrink-0" />
@@ -354,6 +506,11 @@ export default function AgentCard({
                       ) : (
                         sessions.map((item) => {
                           const isCurrent = item.id === currentSessionId
+                          const isItemRunning = item.isRunning ?? false
+                          const foreignWorkspace =
+                            item.cwd && normalizePath(item.cwd) !== normalizePath(workspacePath)
+                              ? baseName(item.cwd)
+                              : null
                           const dateStr = item.updatedAt
                             ? new Date(item.updatedAt).toLocaleTimeString([], {
                                 hour: '2-digit',
@@ -381,7 +538,23 @@ export default function AgentCard({
                                   {dateStr ? `${dateStr} · ` : ''}
                                   {item.model || 'SWE-2'}
                                 </div>
+                                {foreignWorkspace && (
+                                  <div
+                                    className="text-tiny text-text-secondary/70 mt-0.5 truncate flex items-center gap-1"
+                                    title={item.cwd}
+                                  >
+                                    <AppIcon name="folder" size={11} />
+                                    {foreignWorkspace}
+                                  </div>
+                                )}
                               </div>
+                              {isItemRunning && (
+                                <AppIcon
+                                  name="progress_activity"
+                                  size={14}
+                                  className="shrink-0 mt-0.5 text-primary animate-spin"
+                                />
+                              )}
                               <button
                                 type="button"
                                 onClick={(e) => {
@@ -419,6 +592,14 @@ export default function AgentCard({
 
         {/* Main Thread Viewport */}
         <div className="flex-1 flex flex-col min-h-0 relative">
+          {/* 失效工作区回看提示：cwd 已失效的会话恢复后，新消息会在当前工作区开新会话 */}
+          {foreignReview && (
+            <div className="px-4 pt-2 shrink-0">
+              <div className="text-tiny text-text-secondary bg-gray-50 border border-gray-200/60 rounded-lg px-3 py-1.5">
+                回看已失效工作区的对话 · 新消息将在当前工作区开始新对话
+              </div>
+            </div>
+          )}
           <div
             ref={viewportRef}
             className="flex-1 overflow-y-auto px-4 py-3 space-y-3"
@@ -426,10 +607,9 @@ export default function AgentCard({
             {/* Empty state */}
             {messages.length === 0 && (
               <div className="h-full flex flex-col items-center justify-center text-center p-6 my-auto select-none">
-                {/* Hero Icon with Ambient Glow */}
+                {/* Hero Icon */}
                 <div className="relative mb-4 flex items-center justify-center">
-                  <div className="absolute w-20 h-20 rounded-full bg-blue-500/10 blur-xl pointer-events-none" />
-                  <img src={agentAvatar} alt="Agent" className="relative w-12 h-12" />
+                  <img src={agentAvatar} alt="Agent" className="w-12 h-12 avatar-breathing select-none" />
                 </div>
 
                 {/* Title */}
@@ -440,7 +620,7 @@ export default function AgentCard({
                 {/* Vault Badge or Subtitle */}
                 {workspacePath ? (
                   <div
-                    className="inline-flex items-center gap-1.5 text-caption text-text-secondary bg-gray-100/80 hover:bg-gray-100 px-3 py-1 rounded-full border border-gray-200/50 transition-colors mb-6 cursor-default"
+                    className="inline-flex items-center gap-1.5 text-caption text-text-secondary bg-gray-100 dark:bg-gray-800 hover:bg-gray-200/80 dark:hover:bg-gray-700 px-3 py-1 rounded-full border border-gray-200/60 dark:border-white/10 transition-colors mb-6 cursor-default"
                     title={workspacePath}
                   >
                     <FolderOpen className="w-3.5 h-3.5 text-primary/80 shrink-0" />
@@ -462,10 +642,10 @@ export default function AgentCard({
                       type="button"
                       disabled={!workspacePath}
                       onClick={() => handleFillPrompt(item.prompt)}
-                      className="group flex flex-col items-start p-3.5 rounded-xl border border-gray-200/80 bg-white/80 hover:bg-white hover:border-primary/40 hover:shadow-xs transition-all text-left disabled:opacity-40 disabled:cursor-not-allowed"
+                      className="group flex flex-col items-start p-3.5 rounded-xl border border-gray-200/80 dark:border-white/10 bg-white dark:bg-gray-800/80 hover:border-primary/40 hover:shadow-xs hover:-translate-y-0.5 transition-all text-left disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       <div className="flex items-center justify-between w-full mb-2.5">
-                        <div className="w-7 h-7 rounded-lg bg-gray-50 border border-gray-100 flex items-center justify-center text-text-secondary group-hover:text-primary group-hover:bg-blue-50/60 group-hover:border-primary/20 transition-colors">
+                        <div className="w-7 h-7 rounded-lg bg-gray-50 dark:bg-gray-700/60 border border-gray-200/60 dark:border-white/10 flex items-center justify-center text-text-secondary group-hover:text-primary group-hover:bg-blue-50/80 transition-colors shadow-2xs">
                           <item.icon className="w-4 h-4" />
                         </div>
                         <ArrowUpRight className="w-3.5 h-3.5 text-gray-300 opacity-0 group-hover:opacity-100 group-hover:text-primary transition-all -translate-x-0.5 group-hover:translate-x-0" />
@@ -480,10 +660,11 @@ export default function AgentCard({
             )}
 
             {/* Messages Stream */}
-            {messages
-              .filter((m) => m.role === 'user' || m.role === 'assistant')
-              .map((message) => {
-              if (message.role === 'user') {
+            {buildRenderItems(
+              messages.filter((m) => m.role === 'user' || m.role === 'assistant')
+            ).map((item) => {
+              if (item.kind === 'user') {
+                const message = item.msg
                 const userText = message.content
                   .filter((c) => c.type === 'text')
                   .map((c) => c.text)
@@ -497,7 +678,7 @@ export default function AgentCard({
                 return (
                   <div key={message.id} className="group my-1">
                     <div className="flex justify-end">
-                      <div className="max-w-[85%] bg-primary text-white text-body leading-relaxed px-4 py-2.5 rounded-2xl rounded-tr-xs shadow-xs break-words whitespace-pre-wrap select-text">
+                      <div className="max-w-[85%] bg-primary text-white text-body leading-relaxed px-4 py-2.5 rounded-2xl rounded-tr-sm shadow-xs break-words whitespace-pre-wrap select-text">
                         {userText}
                       </div>
                     </div>
@@ -527,68 +708,153 @@ export default function AgentCard({
                 )
               }
 
-              // Assistant message
-              const isMsgRunning = message.status === 'running'
-              const blocks = groupContentParts(message.content, isMsgRunning)
-              const assistantText = message.content
-                .filter((c) => c.type === 'text')
-                .map((c) => c.text ?? '')
-                .join('\n')
-                .trim()
-              const msgIndex = messages.indexOf(message)
-              // Only the final assistant message of a turn carries the
-              // actions row — the branch/copy buttons belong to the turn's
-              // closing reply, not to intermediate tool/reasoning bubbles.
-              const nextMsg = messages[msgIndex + 1]
+              // Work group：连续 assistant 消息的工作段（reasoning/tool-call
+              // 折叠进"思考中"，最后一条的 final text 外显）。
+              const groupMsgs = item.msgs
+              const finalMsg = groupMsgs[groupMsgs.length - 1]
+              const isGroupRunning = groupMsgs.some((m) => m.status === 'running')
+              const finalMsgIndex = messages.indexOf(finalMsg)
+              const nextMsg = messages[finalMsgIndex + 1]
               const isTurnFinal = !nextMsg || nextMsg.role === 'user'
-              const isForkMenuTarget = forkMenuOpenFor === message.id
+              const isForkMenuTarget = forkMenuOpenFor === finalMsg.id
 
-              return (
-                <div key={message.id} className="group space-y-2.5 my-2">
-                  {blocks.map((block, bIdx) => {
-                    if (block.type === 'reasoning') {
-                      return (
+              // Turn number = count of user messages before this group
+              let messageTurnIndex = 0
+              for (let i = 0; i < finalMsgIndex; i++) {
+                if (messages[i].role === 'user') messageTurnIndex++
+              }
+              const isLastTurnFinal =
+                isTurnFinal &&
+                !messages
+                  .slice(finalMsgIndex + 1)
+                  .some((m) => m.role === 'assistant')
+
+              // 先找组内"最后一个非空 text part"作为 final answer 外显；
+              // 其余 text 视为中间过渡，进折叠区。
+              let lastTextPart: PiContentPart | null = null
+              for (const m of groupMsgs) {
+                for (const p of m.content) {
+                  if (p.type === 'text' && p.text?.trim()) lastTextPart = p
+                }
+              }
+
+              const assistantText = lastTextPart?.text?.trim() ?? ''
+
+              // 折叠区内容：组内所有 reasoning + tool-group + 非 final 的 text
+              const workBlocks: { key: string; node: JSX.Element }[] = []
+              const textBlocks: { key: string; node: JSX.Element }[] = []
+              // 当前动作：最后一个仍在进行中的 part（reasoning 尾块 or 未返结果的 tool-call）
+              let activityPart: PiContentPart | null = null
+              for (const m of groupMsgs) {
+                const mRunning = m.status === 'running'
+                const blocks = groupContentParts(m.content, mRunning)
+                blocks.forEach((block, bIdx) => {
+                  const key = `${m.id}:${bIdx}`
+                  if (block.type === 'reasoning') {
+                    if (block.isRunning) activityPart = block.part
+                    workBlocks.push({
+                      key,
+                      node: (
                         <ThinkingBlock
-                          key={bIdx}
                           thinking={block.reasoning}
                           isRunning={block.isRunning}
                         />
                       )
+                    })
+                  } else if (block.type === 'tool-group') {
+                    const running = block.parts.find(
+                      (p) => block.isRunning && p.result === undefined && !p.isError
+                    )
+                    if (running) activityPart = running
+                    workBlocks.push({
+                      key,
+                      node: <ToolGroup parts={block.parts} isRunning={block.isRunning} cwd={currentCwd ?? undefined} />
+                    })
+                  } else if (block.type === 'text') {
+                    if (block.part === lastTextPart) {
+                      textBlocks.push({
+                        key,
+                        node: (
+                          <div className="w-full">
+                            <MarkdownRenderer content={block.text} />
+                          </div>
+                        )
+                      })
+                    } else {
+                      // 中间过渡文字：斜体灰字，与 reasoning 同级
+                      workBlocks.push({
+                        key,
+                        node: (
+                          <div className="py-0.5 text-caption italic text-slate-400 select-text">
+                            {block.text}
+                          </div>
+                        )
+                      })
                     }
+                  }
+                })
+              }
 
-                    if (block.type === 'tool-group') {
-                      return (
-                        <ToolGroup
-                          key={bIdx}
-                          parts={block.parts}
-                          isRunning={block.isRunning}
-                        />
-                      )
-                    }
+              // 组耗时：该组第一条消息的 timestamp 到 finalMsg 结束；
+              // turnDurationMs（整轮耗时）只在最后一组存在，直接用。
+              let workDurationMs = finalMsg.turnDurationMs
+              if (workDurationMs === undefined && finalMsg.timestamp !== undefined) {
+                const end = finalMsg.timestamp + (finalMsg.durationMs ?? 0)
+                const firstTs = groupMsgs[0]?.timestamp
+                if (firstTs !== undefined) {
+                  const d = end - firstTs
+                  if (d > 0) workDurationMs = d
+                }
+              }
 
-                    if (block.type === 'text') {
-                      return (
-                        <div key={bIdx} className="w-full">
-                          <MarkdownRenderer content={block.text} />
-                        </div>
-                      )
-                    }
+              return (
+                <div key={finalMsg.id} className="group space-y-2.5 my-2">
+                  {/* 发送后等待首个 part 的间隙：组内还没有任何 block */}
+                  {isGroupRunning && workBlocks.length === 0 && textBlocks.length === 0 && (
+                    <WorkPhaseBlock isRunning durationMs={undefined}>
+                      <ThinkingBlock thinking="" isRunning />
+                    </WorkPhaseBlock>
+                  )}
 
-                    return null
-                  })}
+                  {/* final answer 之前的所有工作 → "思考中"折叠区 */}
+                  {workBlocks.length > 0 && (
+                    <WorkPhaseBlock
+                      isRunning={isGroupRunning}
+                      durationMs={workDurationMs}
+                      activity={isGroupRunning && activityPart ? describeActivity(activityPart) : undefined}
+                    >
+                      {workBlocks.map((b) => (
+                        <div key={b.key}>{b.node}</div>
+                      ))}
+                    </WorkPhaseBlock>
+                  )}
 
-                  {message.error && (
+                  {/* final answer */}
+                  {textBlocks.map((b) => (
+                    <div key={b.key}>{b.node}</div>
+                  ))}
+
+                  {!isGroupRunning && isTurnFinal && currentSessionId && currentCwd && (
+                    <ChangedFilesCard
+                      sessionId={currentSessionId}
+                      cwd={currentCwd}
+                      turnIndex={messageTurnIndex}
+                      allowLegacy={isLastTurnFinal}
+                    />
+                  )}
+
+                  {finalMsg.error && (
                     <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-red-600 text-body font-medium">
-                      {message.error}
+                      {finalMsg.error}
                     </div>
                   )}
 
-                  {!isMsgRunning && isTurnFinal && (
+                  {!isGroupRunning && isTurnFinal && (
                     <div className="relative flex items-center gap-0.5 -ml-1.5 opacity-0 transition-opacity group-hover:opacity-100">
                       <button
                         type="button"
                         onClick={() =>
-                          setForkMenuOpenFor((cur) => (cur === message.id ? null : message.id))
+                          setForkMenuOpenFor((cur) => (cur === finalMsg.id ? null : finalMsg.id))
                         }
                         className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-caption text-text-secondary transition-colors hover:bg-gray-100 hover:text-text-primary"
                         title="从当前位置创建分支会话"
@@ -620,18 +886,41 @@ export default function AgentCard({
                       )}
                       <button
                         type="button"
-                        onClick={() => handleCopy(message.id, assistantText)}
+                        onClick={() => handleCopy(finalMsg.id, assistantText)}
                         className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-caption text-text-secondary transition-colors hover:bg-gray-100 hover:text-text-primary"
                         title="复制本轮回复文本"
                       >
                         <Copy className="h-3.5 w-3.5" />
-                        <span>{copiedId === message.id ? '已复制' : '复制'}</span>
+                        <span>{copiedId === finalMsg.id ? '已复制' : '复制'}</span>
                       </button>
+                      {(finalMsg.timestamp || finalMsg.createdAt) && (
+                        <span
+                          className="px-1 text-caption text-text-secondary select-none"
+                          title={
+                            finalMsg.turnDurationMs !== undefined
+                              ? `完成于 ${formatMessageTime(finalMsg.timestamp ?? finalMsg.createdAt!)} · 用时 ${formatDuration(finalMsg.turnDurationMs)}`
+                              : `开始于 ${formatMessageTime(finalMsg.timestamp ?? finalMsg.createdAt!)}`
+                          }
+                        >
+                          {formatMessageTime(finalMsg.timestamp ?? finalMsg.createdAt!)}
+                          {finalMsg.turnDurationMs !== undefined &&
+                            ` · ${formatDuration(finalMsg.turnDurationMs)}`}
+                        </span>
+                      )}
                     </div>
                   )}
                 </div>
               )
             })}
+
+            {/* 用户消息已发出、assistant message_start 还没到的间隙 */}
+            {isRunning &&
+              messages.length > 0 &&
+              messages[messages.length - 1].role === 'user' && (
+                <div className="my-2">
+                  <ThinkingBlock thinking="" isRunning />
+                </div>
+              )}
 
             {/* Pending Approvals */}
             {pendingApprovals.map((req) => (
@@ -663,6 +952,20 @@ export default function AgentCard({
             await rewindLastUserMessage()
           }}
           onCancel={() => setRewindConfirmOpen(false)}
+        />
+
+        <ConfirmModal
+          isOpen={pendingForeignSession !== null}
+          title="切换工作区"
+          message={
+            pendingForeignSession
+              ? `该对话属于工作区「${baseName(pendingForeignSession.cwd)}」，切换并继续？`
+              : ''
+          }
+          confirmText="切换并打开"
+          type="info"
+          onConfirm={handleConfirmForeignSession}
+          onCancel={() => setPendingForeignSession(null)}
         />
       </div>
   )

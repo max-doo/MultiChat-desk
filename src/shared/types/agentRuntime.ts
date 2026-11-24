@@ -114,4 +114,60 @@ export interface AgentSessionStatus {
   active: AgentActiveModel
   context: AgentContextUsage | null
   stats: AgentSessionStats | null
+  compaction: {
+    enabled: boolean
+    isCompacting: boolean
+    reserveTokens: number
+    keepRecentTokens: number
+  } | null
 }
+export interface AgentSessionStatus {
+  active: AgentActiveModel
+  context: AgentContextUsage | null
+  stats: AgentSessionStats | null
+  compaction: {
+    enabled: boolean
+    isCompacting: boolean
+    reserveTokens: number
+    keepRecentTokens: number
+  } | null
+}
+
+/** A single file touched by an edit/write tool call within one agent turn. */
+export interface AgentFileChange {
+  path: string
+  name: string
+  isNew: boolean
+  added: number
+  deleted: number
+}
+
+/** Persisted snapshot of one file at a specific point in the turn lifecycle. */
+export interface AgentFileSnapshot {
+  path: string
+  /** File modification time in ms, or null when the file does not exist yet. */
+  mtimeMs: number | null
+  /** File size in bytes, or null when the file does not exist yet. */
+  size: number | null
+  /** SHA-1 of file contents, or null when the file does not exist yet. */
+  sha1: string | null
+}
+
+/** Revert/redo lifecycle for one file within a turn. */
+export type AgentFileChangeStatus = 'applied' | 'undone'
+
+/** Turn-scoped record stored by the main process for undo/redo. */
+export interface AgentTurnFileChanges {
+  /** 1-based turn number (matches the Nth user message) that produced these
+   * changes. Lets the renderer pin the card to the correct turn's closing
+   * assistant message rather than showing it after every turn. */
+  turnIndex?: number
+  /** Files touched during this turn, in the order they were first edited. */
+  files: AgentFileChange[]
+  /** Path → baseline snapshot taken before the first write in this turn. */
+  baseline: Record<string, AgentFileSnapshot>
+  /** Path → snapshot taken after the last write in this turn. */
+  target: Record<string, AgentFileSnapshot>
+  status: AgentFileChangeStatus
+}
+

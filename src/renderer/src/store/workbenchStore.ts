@@ -234,13 +234,16 @@ interface WorkbenchStoreState {
 interface WorkbenchStoreActions {
   initWorkbench: () => Promise<void>
   selectWorkspaceFolder: () => Promise<void>
-  setWorkspaceFolder: (dirPath: string, dirName?: string) => Promise<void>
+  /** 切换工作区；返回切换结果供调用方区分「取消」与「失败」。 */
+  setWorkspaceFolder: (dirPath: string, dirName?: string) => Promise<'switched' | 'cancelled' | 'failed'>
   closeWorkspace: () => Promise<void>
   removeRecentWorkspace: (dirPath: string) => void
   loadFileTree: () => Promise<void>
   toggleFolder: (folderId: string) => void
   expandAllFolders: () => void
   collapseAllFolders: () => void
+  /** 展开某文件路径的全部祖先目录，供 openFile 后侧边栏定位复用。 */
+  expandAncestorsOf: (relativePath: string) => void
   openFile: (
     relativePath: string,
     options?: { keepActiveOnMissing?: boolean }
@@ -785,10 +788,10 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       const leaveGuard = get().htmlEditLeaveGuard
       if (!leaveGuard) {
         set({ error: '可视化编辑尚未就绪，无法切换工作区' })
-        return
+        return 'failed'
       }
       const decision = await leaveGuard()
-      if (decision === 'cancelled') return
+      if (decision === 'cancelled') return 'cancelled'
     }
 
     let activePath = dirPath
@@ -797,13 +800,13 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       const res = await window.api.workbench.activateWorkspace(dirPath)
       if (!res.success || !res.data) {
         set({ error: res.error || '打开工作区失败' })
-        return
+        return 'failed'
       }
       activePath = res.data.activeWorkspaceRoot
       generation = res.data.generation
     } catch (err) {
       set({ error: `打开工作区失败: ${err instanceof Error ? err.message : String(err)}` })
-      return
+      return 'failed'
     }
     const name = dirName || activePath.split(/[/\\]/).filter(Boolean).pop() || 'Workspace'
     const defaultPath = get().defaultWorkspacePath
@@ -838,6 +841,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     void window.api.workbench.mindmapMigrate(activePath).catch(() => undefined)
     await get().loadFileTree()
     void get().refreshGitStatus()
+    return 'switched'
   },
 
   closeWorkspace: async () => {
@@ -967,10 +971,25 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     set({ expandedFolderIds: new Set<string>() })
   },
 
+  expandAncestorsOf: (relativePath: string) => {
+    const next = new Set(get().expandedFolderIds)
+    let p: string | null = relativePath
+    while (p) {
+      const idx = p.lastIndexOf('/')
+      p = idx === -1 ? null : p.slice(0, idx)
+      if (p) next.add(p)
+    }
+    set({ expandedFolderIds: next })
+  },
+
   openFile: async (relativePath: string, options?: { keepActiveOnMissing?: boolean }) => {
     const { workspacePath, activeFilePath } = get()
     if (!workspacePath) return false
-    if (activeFilePath === relativePath) return true
+    if (activeFilePath === relativePath) {
+      // 已是激活文件时也保证祖先目录展开（外部定位入口点击同一文件仍可见）。
+      get().expandAncestorsOf(relativePath)
+      return true
+    }
 
     // 可视化编辑的未保存内容必须先由用户决定保存或放弃，不能静默刷盘。
     if (get().htmlVisualEditing) {
@@ -1024,6 +1043,8 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
           editorMode: oversizedForWysiwyg ? 'source' : get().editorMode
         })
         void window.api.storeSet('workbench_lastActiveFilePath', relativePath)
+        // 让侧边栏文件树能定位到该文件：展开所有祖先目录（id===path）。
+        get().expandAncestorsOf(relativePath)
         return true
       } else {
         // 恢复上次打开的文件时，文件可能已在应用外被删除：清掉失效的恢复点，

@@ -5,24 +5,54 @@ import {
   FileEdit,
   FileText,
   Wrench,
-  Loader2,
   AlertCircle,
   Check,
   Copy,
-  X
+  X,
+  Globe,
+  Image as ImageIcon,
+  Search,
+  FileSearch,
+  FolderOpen
 } from 'lucide-react'
 import { parseDiff, Diff, Hunk } from 'react-diff-view'
 import 'react-diff-view/style/index.css'
 import type { PiContentPart } from '../../../types/agent'
+import { useWorkbenchStore } from '../../../store/workbenchStore'
+import { resolveAbsolute, toWorkspaceRelative } from './filePathUtils'
 
 interface ToolGroupProps {
   parts: PiContentPart[]
   isRunning?: boolean
+  /** 会话 cwd：read/edit 工具行的文件名点击时用于把工具上报路径
+   *  归一到 workspace 相对路径再 openFile + 侧边栏定位。 */
+  cwd?: string
 }
 
 interface SingleItemProps {
   part: PiContentPart
   isRunning?: boolean
+  defaultExpanded?: boolean
+  cwd?: string
+}
+
+// 编辑类工具名集合（与 AgentSessionService 的文件改动捕获保持一致）
+const EDIT_TOOL_NAMES = new Set(['edit', 'write', 'edit_file', 'str_replace', 'multi_edit', 'apply_patch'])
+
+// 从工具入参中提取路径（覆盖 path / filePath / file_path 三种形态）
+function extractArgPath(args: unknown): string {
+  if (typeof args !== 'object' || args === null) return ''
+  const obj = args as { path?: string; filePath?: string; file_path?: string }
+  return obj.path || obj.filePath || obj.file_path || ''
+}
+
+// 把 write 工具的 content 参数包装成 unified diff，复用 Diff 视图展示"新文件全文"
+function buildWriteDiff(filePath: string, content: string): string {
+  if (!content) return ''
+  const lines = content.split('\n')
+  const name = filePath || 'file'
+  const body = lines.map((line) => `+${line}`).join('\n')
+  return `--- /dev/null\n+++ b/${name}\n@@ -0,0 +1,${lines.length} @@\n${body}`
 }
 
 // 深度提取与格式化工具调用输出文本（支持 pi-agent-core 的 content 数组及各种结构）
@@ -85,13 +115,16 @@ function extractToolResultText(result: unknown): string {
 }
 
 // 单条工具调用的渲染项（默认折叠，展开后显示内嵌结果）
-function ToolItem({ part, isRunning = false }: SingleItemProps): JSX.Element {
-  const [expanded, setExpanded] = useState(false)
+function ToolItem({ part, isRunning = false, defaultExpanded = false, cwd }: SingleItemProps): JSX.Element {
+  const [expanded, setExpanded] = useState(defaultExpanded)
   const [copied, setCopied] = useState(false)
+  const workspacePath = useWorkbenchStore((s) => s.workspacePath)
+  const openFile = useWorkbenchStore((s) => s.openFile)
 
   const toolName = (part.toolName || 'tool').toLowerCase()
   const isError = Boolean(part.isError)
   const isPartRunning = isRunning && part.result === undefined && !isError
+  const isEditTool = EDIT_TOOL_NAMES.has(toolName)
 
   const outputText = useMemo(() => extractToolResultText(part.result), [part.result])
 
@@ -104,18 +137,43 @@ function ToolItem({ part, isRunning = false }: SingleItemProps): JSX.Element {
 
   // 文件路径提取
   const filePath = useMemo(() => {
-    if (typeof part.args === 'object' && part.args !== null) {
-      const obj = part.args as { path?: string; filePath?: string }
-      return obj.path || obj.filePath || ''
-    }
-    return ''
+    return extractArgPath(part.args)
   }, [part.args])
 
   const fileName = filePath ? filePath.split(/[/\\]/).pop() || filePath : ''
 
+  // 点击文件名：优先在工作区内 openFile（触发侧边栏定位），落不到
+  // workspace 内时退回系统资源管理器定位所在目录。
+  const handleFileNameClick = (e: React.MouseEvent): void => {
+    e.stopPropagation()
+    if (!filePath) return
+    const rel = cwd && workspacePath ? toWorkspaceRelative(workspacePath, cwd, filePath) : null
+    if (rel) {
+      void openFile(rel).then((opened) => {
+        if (!opened) void window.api.agentRevealFile(resolveAbsolute(cwd!, filePath))
+      })
+    } else if (cwd) {
+      void window.api.agentRevealFile(resolveAbsolute(cwd, filePath))
+    }
+  }
+
+  // 搜索/生成类工具的关键入参（单行尾随展示）
+  const inlineArg = useMemo(() => {
+    if (typeof part.args !== 'object' || part.args === null) return ''
+    const obj = part.args as { query?: string; prompt?: string; pattern?: string }
+    return obj.query || obj.prompt || obj.pattern || ''
+  }, [part.args])
+
+  // write 工具：result 没有 details.diff，用 args.content 合成"全文新增"的 diff
+  const writeDiff = useMemo(() => {
+    if (toolName !== 'write' || typeof part.args !== 'object' || part.args === null) return ''
+    const content = (part.args as { content?: unknown }).content
+    return typeof content === 'string' ? buildWriteDiff(filePath, content) : ''
+  }, [toolName, part.args, filePath])
+
   // Diff 解析（针对 edit）
   const parsedDiff = useMemo(() => {
-    if (toolName !== 'edit' && toolName !== 'write' && toolName !== 'edit_file') return []
+    if (!isEditTool) return []
     const resultDetails = (typeof part.result === 'object' && part.result !== null && 'details' in part.result)
       ? (part.result as { details?: unknown }).details
       : undefined
@@ -127,18 +185,18 @@ function ToolItem({ part, isRunning = false }: SingleItemProps): JSX.Element {
       ((typeof part.args === 'object' && part.args && 'diff' in part.args)
         ? String((part.args as { diff: unknown }).diff || '')
         : '')
-    const diffStr = patchStr || outputText
+    const diffStr = patchStr || writeDiff || outputText
     if (!diffStr) return []
     try {
       return parseDiff(diffStr)
     } catch {
       return []
     }
-  }, [toolName, part.args, part.result, outputText])
+  }, [isEditTool, part.args, part.result, outputText, writeDiff])
 
   // 展示用 diff 文本：parseDiff 失败时把 details.diff 原样展示，比 "Successfully replaced…" 更有信息量
   const displayDiffText = useMemo(() => {
-    if (toolName !== 'edit' && toolName !== 'write' && toolName !== 'edit_file') return ''
+    if (!isEditTool) return ''
     if (parsedDiff.length > 0) return ''
     const resultDetails = (typeof part.result === 'object' && part.result !== null && 'details' in part.result)
       ? (part.result as { details?: unknown }).details
@@ -148,7 +206,15 @@ function ToolItem({ part, isRunning = false }: SingleItemProps): JSX.Element {
       if (typeof d === 'string' && d) return d
     }
     return ''
-  }, [toolName, part.result, parsedDiff])
+  }, [isEditTool, part.result, parsedDiff])
+
+  // 无 diff 可解析时的 write 兜底：直接展示写入内容，比 "(无返回内容)" 更有信息量
+  const writeContentFallback = useMemo(() => {
+    if (toolName !== 'write' || parsedDiff.length > 0 || displayDiffText) return ''
+    if (typeof part.args !== 'object' || part.args === null) return ''
+    const content = (part.args as { content?: unknown }).content
+    return typeof content === 'string' ? content : ''
+  }, [toolName, parsedDiff, displayDiffText, part.args])
 
   const handleCopy = (e: React.MouseEvent): void => {
     e.stopPropagation()
@@ -171,14 +237,79 @@ function ToolItem({ part, isRunning = false }: SingleItemProps): JSX.Element {
       )
     }
 
-    if (toolName === 'edit' || toolName === 'write' || toolName === 'edit_file') {
+    if (isEditTool) {
       return (
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <FileEdit className="w-3.5 h-3.5 text-purple-600 shrink-0" />
           <span className="text-body text-slate-800 font-medium">已编辑</span>
-          <span className="font-mono text-body text-slate-700 truncate underline decoration-slate-300 underline-offset-2">
+          <button
+            type="button"
+            onClick={handleFileNameClick}
+            title={filePath}
+            className="font-mono text-body text-slate-700 truncate underline decoration-slate-300 underline-offset-2 hover:text-primary transition-colors"
+          >
             {fileName || filePath || '文件'}
-          </span>
+          </button>
+        </div>
+      )
+    }
+
+    if (toolName === 'web_search') {
+      return (
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <Globe className="w-3.5 h-3.5 text-sky-600 shrink-0" />
+          <span className="text-body text-slate-800 font-medium shrink-0">联网搜索</span>
+          {inlineArg && (
+            <span className="text-body text-slate-600 truncate">{inlineArg}</span>
+          )}
+        </div>
+      )
+    }
+
+    if (toolName === 'image_gen') {
+      return (
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <ImageIcon className="w-3.5 h-3.5 text-violet-600 shrink-0" />
+          <span className="text-body text-slate-800 font-medium shrink-0">生成图片</span>
+          {inlineArg && (
+            <span className="text-body text-slate-600 truncate">{inlineArg}</span>
+          )}
+        </div>
+      )
+    }
+
+    if (toolName === 'grep') {
+      return (
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <Search className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+          <span className="text-body text-slate-800 font-medium shrink-0">搜索</span>
+          {inlineArg && (
+            <span className="font-mono text-body text-slate-700 truncate">{inlineArg}</span>
+          )}
+        </div>
+      )
+    }
+
+    if (toolName === 'find') {
+      return (
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <FileSearch className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+          <span className="text-body text-slate-800 font-medium shrink-0">查找</span>
+          {inlineArg && (
+            <span className="font-mono text-body text-slate-700 truncate">{inlineArg}</span>
+          )}
+        </div>
+      )
+    }
+
+    if (toolName === 'ls') {
+      return (
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <FolderOpen className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+          <span className="text-body text-slate-800 font-medium shrink-0">列出目录</span>
+          {filePath && (
+            <span className="font-mono text-body text-slate-700 truncate">{filePath}</span>
+          )}
         </div>
       )
     }
@@ -188,9 +319,14 @@ function ToolItem({ part, isRunning = false }: SingleItemProps): JSX.Element {
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <FileText className="w-3.5 h-3.5 text-amber-600 shrink-0" />
           <span className="text-body text-slate-800 font-medium">已读取</span>
-          <span className="font-mono text-body text-slate-700 truncate underline decoration-slate-300 underline-offset-2">
+          <button
+            type="button"
+            onClick={handleFileNameClick}
+            title={filePath}
+            className="font-mono text-body text-slate-700 truncate underline decoration-slate-300 underline-offset-2 hover:text-primary transition-colors"
+          >
             {fileName || filePath || '文件'}
-          </span>
+          </button>
         </div>
       )
     }
@@ -211,10 +347,8 @@ function ToolItem({ part, isRunning = false }: SingleItemProps): JSX.Element {
         onClick={() => setExpanded(!expanded)}
         className="w-full flex items-center justify-between py-1 px-1.5 rounded-md hover:bg-slate-100/70 transition-colors text-left group cursor-pointer"
       >
-        <div className="flex items-center gap-2 min-w-0 flex-1">
-          {isPartRunning ? (
-            <Loader2 className="w-3.5 h-3.5 text-primary animate-spin shrink-0" />
-          ) : isError ? (
+        <div className={`flex items-center gap-2 min-w-0 flex-1 ${isPartRunning ? 'text-shimmer' : ''}`}>
+          {isError ? (
             <AlertCircle className="w-3.5 h-3.5 text-rose-500 shrink-0" />
           ) : null}
 
@@ -272,8 +406,8 @@ function ToolItem({ part, isRunning = false }: SingleItemProps): JSX.Element {
               </div>
             ) : (
               /* 标准输出 / 结果展示区 */
-              <pre className="max-h-72 overflow-y-auto whitespace-pre-wrap break-all font-mono text-caption text-slate-700 leading-relaxed selection:bg-blue-100">
-                {displayDiffText || outputText || (isPartRunning ? '等待输出…' : '(无返回内容)')}
+          <pre className="max-h-72 overflow-y-auto whitespace-pre-wrap break-all font-mono text-caption text-slate-700 leading-relaxed selection:bg-blue-100">
+                {displayDiffText || writeContentFallback || outputText || (isPartRunning ? '等待输出…' : '(无返回内容)')}
               </pre>
             )}
           </div>
@@ -285,8 +419,8 @@ function ToolItem({ part, isRunning = false }: SingleItemProps): JSX.Element {
                 <X className="w-3 h-3" /> 执行失败
               </span>
             ) : isPartRunning ? (
-              <span className="text-primary flex items-center gap-1">
-                <Loader2 className="w-3 h-3 animate-spin" /> 执行中
+            <span className="text-shimmer flex items-center gap-1">
+              执行中
               </span>
             ) : (
               <span className="text-emerald-600 flex items-center gap-1">
@@ -300,7 +434,7 @@ function ToolItem({ part, isRunning = false }: SingleItemProps): JSX.Element {
   )
 }
 
-export function ToolGroup({ parts, isRunning = false }: ToolGroupProps): JSX.Element | null {
+export function ToolGroup({ parts, isRunning = false, cwd }: ToolGroupProps): JSX.Element | null {
   const [groupExpanded, setGroupExpanded] = useState(false)
 
   if (parts.length === 0) return null
@@ -319,7 +453,7 @@ export function ToolGroup({ parts, isRunning = false }: ToolGroupProps): JSX.Ele
       const name = (p.toolName || '').toLowerCase()
       if (name === 'bash' || name === 'powershell' || name === 'cmd' || name === 'terminal' || name === 'shell') {
         bashCount++
-      } else if (name === 'edit' || name === 'write' || name === 'edit_file') {
+      } else if (EDIT_TOOL_NAMES.has(name)) {
         editCount++
       } else if (name === 'read' || name === 'read_file') {
         readCount++
@@ -345,7 +479,7 @@ export function ToolGroup({ parts, isRunning = false }: ToolGroupProps): JSX.Ele
   const MainIcon = useMemo(() => {
     const hasEdit = parts.some((p) => {
       const name = (p.toolName || '').toLowerCase()
-      return name === 'edit' || name === 'write' || name === 'edit_file'
+      return EDIT_TOOL_NAMES.has(name)
     })
     if (hasEdit) return FileEdit
     const hasBash = parts.some((p) => {
@@ -371,15 +505,13 @@ export function ToolGroup({ parts, isRunning = false }: ToolGroupProps): JSX.Ele
         onClick={() => setGroupExpanded(!groupExpanded)}
         className="flex items-center gap-2 py-1 px-1.5 rounded-md hover:bg-slate-100/70 transition-colors text-left cursor-pointer group text-body text-slate-700"
       >
-        {hasRunning ? (
-          <Loader2 className="w-4 h-4 text-primary animate-spin shrink-0" />
-        ) : hasError ? (
+        {hasError ? (
           <AlertCircle className="w-4 h-4 text-rose-500 shrink-0" />
         ) : (
           <MainIcon className="w-4 h-4 text-slate-600 group-hover:text-slate-900 transition-colors shrink-0" />
         )}
 
-        <span className="font-medium text-body text-slate-800">
+        <span className={`font-medium text-body ${hasRunning ? 'text-shimmer' : 'text-slate-800'}`}>
           {summaryTitle}
         </span>
 
@@ -394,7 +526,13 @@ export function ToolGroup({ parts, isRunning = false }: ToolGroupProps): JSX.Ele
       {groupExpanded && (
         <div className="mt-1 pl-3.5 border-l-2 border-slate-200/80 space-y-0.5 py-0.5">
           {parts.map((part, idx) => (
-            <ToolItem key={part.toolCallId || idx} part={part} isRunning={isRunning} />
+            <ToolItem
+              key={part.toolCallId || idx}
+              part={part}
+              isRunning={isRunning}
+              defaultExpanded={parts.length === 1}
+              cwd={cwd}
+            />
           ))}
         </div>
       )}

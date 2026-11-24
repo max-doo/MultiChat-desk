@@ -219,6 +219,17 @@ export default function WorkbenchFileTree(): JSX.Element {
     setInlineRename(null)
   }, [workspacePath])
 
+  // 外部动作（修改摘要卡片 / 工具调用文件名）打开文件后，让树跟随定位：
+  // openFile 已展开祖先目录，这里等 DOM 更新后把节点滚进视野。
+  useEffect(() => {
+    if (!activeFilePath || isSearchMode) return
+    const raf = requestAnimationFrame(() => {
+      const el = document.querySelector(`[data-file-node="${CSS.escape(activeFilePath)}"]`)
+      el?.scrollIntoView({ block: 'nearest' })
+    })
+    return () => cancelAnimationFrame(raf)
+  }, [activeFilePath, isSearchMode, fileTree])
+
   // 文件树重扫后校验剪贴板快照：复制过的节点可能已被删除/移动，逐条剔除失效项
   useEffect(() => {
     setTreeClipboard((prev) => {

@@ -5,7 +5,8 @@ import type {
   DefaultResourceLoader as DefaultResourceLoaderType,
   ResourceLoader,
   Skill,
-  ResourceDiagnostic
+  ResourceDiagnostic,
+  InlineExtension
 } from '@earendil-works/pi-coding-agent'
 
 const importEsm = new Function('s', 'return import(s)') as <T>(s: string) => Promise<T>
@@ -16,6 +17,8 @@ export interface AgentResourceLoaderOptions {
   appendSystemPrompt?: string[]
   /** Extra skill roots beyond `<agentDir>/skills` and the cwd's own skills dir. */
   extraSkillDirs?: string[]
+  /** Inline extensions (e.g. context compression) loaded without a file path. */
+  extensionFactories?: InlineExtension[]
 }
 
 export class AgentResourceLoader {
@@ -28,10 +31,12 @@ export class AgentResourceLoader {
     this.agentDir = options.agentDir ?? join(homedir(), '.pi', 'agent')
     this.appendSystemPromptExtra = options.appendSystemPrompt ?? []
     this.extraSkillDirs = options.extraSkillDirs ?? []
+    this.extensionFactories = options.extensionFactories ?? []
   }
 
   private appendSystemPromptExtra: string[]
   private extraSkillDirs: string[]
+  private extensionFactories: InlineExtension[]
 
   private async ensureLoader(): Promise<DefaultResourceLoaderType> {
     if (this.loader) return this.loader
@@ -46,6 +51,7 @@ export class AgentResourceLoader {
       cwd: this.cwd,
       agentDir: this.agentDir,
       additionalSkillPaths: additionalSkillPaths.length > 0 ? additionalSkillPaths : undefined,
+      extensionFactories: this.extensionFactories.length > 0 ? this.extensionFactories : undefined,
       appendSystemPromptOverride: this.appendSystemPromptExtra.length
         ? (base: string[]) => [...base, ...this.appendSystemPromptExtra]
         : undefined

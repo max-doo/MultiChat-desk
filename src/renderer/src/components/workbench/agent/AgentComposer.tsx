@@ -216,7 +216,7 @@ export function AgentComposer(): JSX.Element {
   const supportsThinking = Boolean(active?.supportsThinking && thinkingLevels.length > 1)
 
   return (
-    <footer className="p-3 pt-0 shrink-0 bg-white relative">
+    <footer className="p-3 pt-0 shrink-0 bg-transparent relative">
       {/* Attachment Chips */}
       {attachments.length > 0 && (
         <div className="mb-1.5 flex flex-wrap gap-1.5 px-1">
@@ -241,11 +241,19 @@ export function AgentComposer(): JSX.Element {
         </div>
       )}
 
-      {/* Main Capsule Container */}
+      {/* Main Capsule Container with Feathered Aura Flow */}
       <div
         onClick={() => textareaRef.current?.focus()}
-        className="relative w-full rounded-2xl border border-slate-200/90 bg-slate-50/70 focus-within:bg-white focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-primary/10 transition-all duration-150 flex flex-col justify-between cursor-text shadow-2xs"
+        className="group relative w-full rounded-2xl cursor-text transition-all duration-300"
       >
+        {/* 1. 外层弥散流光气场 (Ambient Flowing Aura: 12px 模糊，灵动流转) */}
+        <div className="composer-ambient-aura" />
+
+        {/* 2. 贴身柔化流光边缘 (Close Feathered Flow: 3px 羽化，无生硬粗线) */}
+        <div className="composer-feathered-flow" />
+
+        {/* 3. 输入框实体表面 (微透玻璃，将流光自然漫透) */}
+        <div className="composer-surface relative w-full flex flex-col justify-between">
         {/* Skill Suggestions */}
         {skillMenuOpen && (
           <div className="absolute left-0 bottom-full mb-1.5 w-full rounded-xl border border-gray-200 py-1 shadow-lg z-popover bg-white text-text-primary text-label max-h-56 overflow-y-auto">
@@ -480,6 +488,7 @@ export function AgentComposer(): JSX.Element {
           </div>
         </div>
       </div>
-    </footer>
+    </div>
+  </footer>
   )
 }

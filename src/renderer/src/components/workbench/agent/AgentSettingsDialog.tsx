@@ -21,7 +21,7 @@ export function AgentSettingsDialog({ isOpen, onClose }: AgentSettingsDialogProp
         onClick={onClose}
       />
 
-      <div className="relative w-full max-w-xl max-h-[85vh] glass-panel-heavy rounded-2xl shadow-float flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+      <div className="relative w-full max-w-xl h-[85vh] glass-panel-heavy rounded-2xl shadow-float flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
         <div className="flex items-center justify-between p-4 border-b border-white/60 shrink-0">
           <div className="flex items-center gap-2.5">
             <AppIcon name="smart_toy" size={24} className="text-primary" />

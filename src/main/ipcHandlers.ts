@@ -585,7 +585,8 @@ export async function registerIpcHandlers(
                     filePath,
                     fileName,
                     mimeType,
-                    size: info.size
+                    size: info.size,
+                    mtimeMs: info.mtimeMs
                 }
             }
         } catch (error) {
@@ -2958,12 +2959,105 @@ export async function registerIpcHandlers(
         }
     })
 
+    ipcMain.handle('agent:get-file-changes', async (_event, payload: { sessionId: string }) => {
+        try {
+            const data = await agentSessionService.getFileChanges(payload.sessionId)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('agent:revert-file-changes', async (_event, payload: { sessionId: string }) => {
+        try {
+            const err = await agentSessionService.revertFileChanges(payload.sessionId)
+            if (err) return { success: false, error: err }
+            return { success: true }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('agent:reapply-file-changes', async (_event, payload: { sessionId: string }) => {
+        try {
+            const err = await agentSessionService.reapplyFileChanges(payload.sessionId)
+            if (err) return { success: false, error: err }
+            return { success: true }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('agent:reveal-file', async (_event, payload: { path: string }) => {
+        try {
+            const { shell } = await import('electron')
+            shell.showItemInFolder(payload.path)
+            return { success: true }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('agent:check-files-stale', async (_event, payload: { sessionId: string; paths: string[]; kind: 'baseline' | 'target' }) => {
+        try {
+            const data = await agentSessionService.checkFilesStale(payload.sessionId, payload.paths, payload.kind)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
     ipcMain.handle('agent:set-thinking-level', async (_event, payload: { sessionId: string; level: string }) => {
         try {
             const data = agentSessionService.setThinkingLevel(
                 payload.sessionId,
                 payload.level as Parameters<typeof agentSessionService.setThinkingLevel>[1]
             )
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('agent:compact', async (_event, payload: { sessionId: string; instructions?: string }) => {
+        try {
+            await agentSessionService.compactSession(payload.sessionId, payload.instructions)
+            return { success: true }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('agent:set-auto-compaction', async (_event, payload: { sessionId: string; enabled: boolean }) => {
+        try {
+            const data = agentSessionService.setAutoCompaction(payload.sessionId, payload.enabled)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('agent:get-compaction-config', async () => {
+        try {
+            const data = agentSessionService.getCompressionConfig()
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('agent:set-compaction-config', async (_event, payload: { config: Record<string, unknown> }) => {
+        try {
+            const data = agentSessionService.setCompressionConfig(payload.config as Partial<import('../shared/types/agentCompression').CompressionConfig>)
             return { success: true, data }
         } catch (err: unknown) {
             const error = err instanceof Error ? err.message : String(err)
@@ -3024,6 +3118,38 @@ export async function registerIpcHandlers(
     ipcMain.handle('agent:refresh-provider-models', async (_event, payload: { providerId: string }) => {
         try {
             const data = await agentSessionService.refreshProviderModels(payload.providerId)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('agent:list-custom-gateways', async () => {
+        try {
+            const data = agentSessionService.listCustomGateways()
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('agent:add-custom-gateway', async (_event, payload: { providerId: string; name: string; baseUrl: string; apiKey?: string }) => {
+        try {
+            await agentSessionService.addCustomGateway(payload)
+            const data = agentSessionService.getRuntimeSnapshot()
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('agent:remove-custom-gateway', async (_event, payload: { providerId: string }) => {
+        try {
+            await agentSessionService.removeCustomGateway(payload.providerId)
+            const data = agentSessionService.getRuntimeSnapshot()
             return { success: true, data }
         } catch (err: unknown) {
             const error = err instanceof Error ? err.message : String(err)

@@ -1,6 +1,6 @@
-import { mkdir, readFile, readdir, rm } from 'fs/promises'
+import { mkdir, readFile, readdir, rm, stat, writeFile, unlink } from 'fs/promises'
 import { existsSync } from 'fs'
-import { join, dirname, basename } from 'path'
+import { join, dirname, basename, resolve } from 'path'
 import { homedir } from 'os'
 import type { WebContents } from 'electron'
 import type Store from 'electron-store'
@@ -9,6 +9,7 @@ import type {
   ModelRegistry as ModelRegistryType,
   ModelRuntime as ModelRuntimeType,
   SessionManager as SessionManagerType,
+  SettingsManager as SettingsManagerType,
   AgentSession,
   AgentSessionEvent,
   ProviderModelConfig
@@ -17,9 +18,14 @@ import type { AnyModel, Model, Api, ThinkingLevel } from '@earendil-works/pi-ai'
 import { PermissionEngine, type PermissionMode, type ApprovalRequest } from './PermissionEngine'
 import { AgentResourceLoader } from './AgentResourceLoader'
 import { excludedShellTools, shellEnvironmentPrompt, shellToolForPlatform, shellToolModifiers } from './shell'
-import { MAGPIE_PROVIDER } from './customGatewayProvider'
+import { createWebSearchTool } from './webSearchTool'
+import { createImageGenTool } from './imageGenTool'
+import { ShellTool } from './ShellTool'
+import { CustomGatewayProvider, MAGPIE_PROVIDER } from './customGatewayProvider'
 import { ProviderAuthController } from './ProviderAuthController'
-import { safeError } from './redact'
+import { safeError, redactCredential } from './redact'
+import { createContextCompressionExtension, DEFAULT_COMPRESSION_CONFIG, type CompressionConfig } from '../extensions/contextCompression'
+import { createSystemPromptTrimExtension } from '../extensions/systemPromptTrim'
 import type {
   AgentActiveModel,
   AgentAuthOperation,
@@ -32,6 +38,11 @@ import type {
   AgentSessionStatus,
   AgentThinkingLevel
 } from '../../shared/types/agentRuntime'
+import type {
+  AgentFileSnapshot,
+  AgentTurnFileChanges
+} from '../../shared/types/agentRuntime'
+import { createHash } from 'crypto'
 
 const importEsm = new Function('s', 'return import(s)') as <T>(s: string) => Promise<T>
 
@@ -40,6 +51,7 @@ interface PiModule {
   ModelRegistry: typeof ModelRegistryType
   ModelRuntime: typeof ModelRuntimeType
   SessionManager: typeof SessionManagerType
+  SettingsManager: typeof SettingsManagerType
 }
 
 export interface ActiveSessionEntry {
@@ -51,7 +63,21 @@ export interface ActiveSessionEntry {
   createdAt: number
   updatedAt: number
   title?: string
+  isRunning?: boolean
   unsubscribe: () => void
+  /** Turn id → file-change accumulator for the currently streaming turn. */
+  turnFileChanges?: AgentTurnFileChanges
+  /** toolCallId → filePath, populated on tool_execution_start so
+   * tool_execution_end (which lacks `args`) can resolve the touched path. */
+  pendingToolFiles?: Map<string, string>
+  /** In-flight target captures so turn_end can wait for them before persisting. */
+  pendingCaptures?: Promise<unknown>[]
+  /** Persist is async (blob writes); the renderer may query before it lands.
+   * Track the in-flight write so getFileChanges can wait instead of returning null. */
+  pendingFileChangePersist?: Promise<void>
+  /** 1-based counter of turns seen via `turn_start`; persisted with the
+   * file-change record so the renderer can pin the card to the right turn. */
+  turnCounter?: number
 }
 
 export interface SessionListItem {
@@ -62,6 +88,7 @@ export interface SessionListItem {
   updatedAt: number
   cwd?: string
   model?: string
+  isRunning?: boolean
 }
 
 export interface ProviderListItem {
@@ -76,10 +103,22 @@ const STATUS_EVENTS = new Set([
   'message_end',
   'agent_end',
   'agent_settled',
+  'compaction_start',
   'compaction_end',
   'thinking_level_changed',
   'model_select'
 ])
+
+const COMPRESSION_STORE_KEY = 'agent_compression'
+
+const CUSTOM_GATEWAYS_STORE_KEY = 'agent_custom_gateways'
+
+export interface CustomGatewaySpec {
+  providerId: string
+  name: string
+  baseUrl: string
+  apiKey?: string
+}
 
 export class AgentSessionService {
   private sessionsDir: string
@@ -136,13 +175,47 @@ export class AgentSessionService {
         createAgentSession: mod.createAgentSession,
         ModelRegistry: mod.ModelRegistry,
         ModelRuntime: mod.ModelRuntime,
-        SessionManager: mod.SessionManager
+        SessionManager: mod.SessionManager,
+        SettingsManager: mod.SettingsManager
       }
     }
     return this.pi
   }
 
+  private compressionDir(): string {
+    return join(this.agentDir, 'compression')
+  }
+
+  private buildCompressionExtensions() {
+    const cfg = this.getCompressionConfig()
+    return [createContextCompressionExtension(cfg, this.compressionDir()), createSystemPromptTrimExtension()]
+  }
+
   private piShellConfig: { shell: string; args?: string[] } | null = null
+
+  /**
+   * Build a shell ToolDefinition whose exec goes through ShellTool so output
+   * gets redacted before it reaches the model. `customTools` overrides the
+   * built-in definition of the same name, so registering `powershell` here
+   * replaces pi's default implementation while `tools`/`excludeTools` keep
+   * the activation/exclusion shape unchanged.
+   */
+  private async shellCustomTool(cwd: string) {
+    const mod = await importEsm<typeof import('@earendil-works/pi-coding-agent')>(
+      '@earendil-works/pi-coding-agent'
+    )
+    const operations = ShellTool.createBashOperations(
+      join(this.sessionsDir, 'shell-audit.log')
+    )
+    // createPowerShellToolDefinition returns a ToolDefinition specialized to the
+    // shell schema; customTools expects the wider ToolDefinition<TSchema>, so
+    // widen via `unknown`. Runtime behavior is unaffected.
+    const definition = shellToolForPlatform() === 'powershell'
+      ? mod.createPowerShellToolDefinition(cwd, { operations })
+      : mod.createBashToolDefinition(cwd, { operations })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return definition as any
+  }
 
   /** Resolve the real shell executable once via pi's own detector; caches the result. */
   private async resolveShellConfigForPrompt(): Promise<void> {
@@ -177,6 +250,68 @@ export class AgentSessionService {
 
     // Ensure the local magpie gateway provider is registered
     await this.ensureMagpieProvider()
+
+    // Restore user-defined OpenAI-compatible gateways saved from prior runs.
+    for (const spec of this.listCustomGateways()) {
+      await this.registerCustomGateway(spec).catch(() => undefined)
+    }
+  }
+
+  public listCustomGateways(): CustomGatewaySpec[] {
+    const raw = this.store.get(CUSTOM_GATEWAYS_STORE_KEY)
+    if (!Array.isArray(raw)) return []
+    return raw.filter(
+      (item): item is CustomGatewaySpec =>
+        Boolean(item) &&
+        typeof item === 'object' &&
+        typeof (item as CustomGatewaySpec).providerId === 'string' &&
+        typeof (item as CustomGatewaySpec).baseUrl === 'string'
+    )
+  }
+
+  /**
+   * Register a user-supplied OpenAI-compatible gateway. Persists the spec so
+   * the provider comes back on next launch. Idempotent by providerId.
+   */
+  public async addCustomGateway(spec: CustomGatewaySpec): Promise<void> {
+    const id = spec.providerId.trim()
+    if (!id) throw new Error('providerId 不能为空')
+    if (id === MAGPIE_PROVIDER.providerId) throw new Error('该 providerId 已被内置占用')
+    const list = this.listCustomGateways().filter((item) => item.providerId !== id)
+    list.push({ ...spec, providerId: id })
+    this.store.set(CUSTOM_GATEWAYS_STORE_KEY, list)
+    await this.registerCustomGateway({ ...spec, providerId: id })
+  }
+
+  public async removeCustomGateway(providerId: string): Promise<void> {
+    const list = this.listCustomGateways().filter((item) => item.providerId !== providerId)
+    this.store.set(CUSTOM_GATEWAYS_STORE_KEY, list)
+    // ModelRuntime does not expose an unregister for extension providers;
+    // a restart drops the registration. Flag the change so the UI can hint.
+    this.sendRuntimeChanged('refresh')
+  }
+
+  private async registerCustomGateway(spec: CustomGatewaySpec): Promise<void> {
+    if (!this.modelRegistry || !this.modelRuntime) return
+    const gateway = new CustomGatewayProvider({
+      providerId: spec.providerId,
+      name: spec.name || spec.providerId,
+      baseUrl: spec.baseUrl,
+      apiKey: spec.apiKey
+    })
+    const stored = await gateway.loadStoredModels(this.agentDir)
+    this.modelRegistry.registerProvider(spec.providerId, {
+      name: spec.name || spec.providerId,
+      baseUrl: spec.baseUrl,
+      apiKey: spec.apiKey ?? 'custom-gateway',
+      models: stored
+    })
+    await this.modelRuntime.refresh({ allowNetwork: false, providers: [spec.providerId] })
+    // Fetch live catalog in the background; failure keeps stored/empty.
+    void gateway
+      .fetchModels()
+      .then((models) => this.applyGatewayCatalog(gateway, models))
+      .catch(() => undefined)
   }
 
   private async ensureMagpieProvider(): Promise<void> {
@@ -212,7 +347,7 @@ export class AgentSessionService {
    * no reliance on pi's refreshModels/publish extension pipeline.
    */
   private async applyGatewayCatalog(
-    provider: typeof MAGPIE_PROVIDER,
+    provider: CustomGatewayProvider,
     models: ProviderModelConfig[]
   ): Promise<void> {
     if (!this.modelRegistry || !this.modelRuntime || models.length === 0) return
@@ -276,6 +411,299 @@ export class AgentSessionService {
     return text
   }
 
+  /**
+   * Resolve a file path from tool args to an absolute path.
+   * Accepts absolute paths unchanged; joins relative paths against `cwd`.
+   */
+  private resolveFilePath(cwd: string, filePath: string): string {
+    if (/^[a-zA-Z]:[\\/]/.test(filePath) || filePath.startsWith('/')) {
+      return filePath
+    }
+    // UNC paths and ~ expansion are intentionally NOT joined to cwd —
+    // they are returned as-is so the caller sees the literal value.
+    if (filePath.startsWith('\\\\') || filePath === '~' || filePath.startsWith('~/') || filePath.startsWith('~\\')) {
+      return filePath
+    }
+    return join(cwd, filePath)
+  }
+
+  /**
+   * Snapshot the current on-disk state of one file.
+   * `sha1` is null when the file does not exist (a "new file" baseline).
+   */
+  private async captureFileSnapshot(absolutePath: string): Promise<AgentFileSnapshot> {
+    try {
+      const info = await stat(absolutePath)
+      const content = await readFile(absolutePath)
+      const sha1 = createHash('sha1').update(content).digest('hex')
+      return { path: absolutePath, mtimeMs: info.mtimeMs, size: info.size, sha1 }
+    } catch {
+      return { path: absolutePath, mtimeMs: null, size: null, sha1: null }
+    }
+  }
+
+  /** Extract +added/-deleted line counts from an edit/write tool result payload. */
+  private countDiffLines(result: unknown): { added: number; deleted: number } {
+    let diff = ''
+    if (result && typeof result === 'object') {
+      const det = (result as { details?: unknown }).details
+      if (det && typeof det === 'object') {
+        const d = det as { patch?: unknown; diff?: unknown }
+        if (typeof d.patch === 'string') diff = d.patch
+        else if (typeof d.diff === 'string') diff = d.diff
+      }
+      if (!diff && 'content' in (result as Record<string, unknown>)) {
+        const c = (result as { content?: unknown }).content
+        if (Array.isArray(c)) {
+          diff = c
+            .map((x) => (typeof x === 'string' ? x : (x as { text?: string })?.text ?? ''))
+            .filter(Boolean)
+            .join('\n')
+        } else if (typeof c === 'string') {
+          diff = c
+        }
+      }
+    }
+    if (!diff) return { added: 0, deleted: 0 }
+    let added = 0
+    let deleted = 0
+    for (const line of diff.split('\n')) {
+      if (line.startsWith('+') && !line.startsWith('+++')) added++
+      else if (line.startsWith('-') && !line.startsWith('---')) deleted++
+    }
+    return { added, deleted }
+  }
+
+  private fileChangesDir(sessionId: string): string {
+    return join(this.sessionsDir, sessionId, 'file-changes')
+  }
+
+  /** Persist the turn-scoped snapshot record + baseline/target content blobs. */
+  private async persistFileChanges(
+    sessionId: string,
+    cwd: string,
+    tfc: AgentTurnFileChanges,
+    turnIndex?: number
+  ): Promise<void> {
+    const resolvedCwd = resolve(cwd)
+    const dir = this.fileChangesDir(sessionId)
+    await mkdir(dir, { recursive: true })
+    const blobName = (path: string, kind: 'before' | 'after'): string =>
+      `${createHash('sha1').update(path).digest('hex').slice(0, 16)}.${kind}`
+
+    const blobs: Record<string, string> = {}
+    await Promise.all(
+      Object.entries(tfc.baseline).map(async ([path]) => {
+        const name = blobName(path, 'before')
+        const abs = join(dir, name)
+        if (!existsSync(abs)) {
+          try {
+            const content = await readFile(this.resolveFilePath(resolvedCwd, path))
+            await writeFile(abs, content)
+            blobs[`baseline:${path}`] = name
+          } catch {
+            // baseline for a new file = absent blob; nothing to write
+          }
+        } else {
+          blobs[`baseline:${path}`] = name
+        }
+      })
+    )
+    await Promise.all(
+      Object.entries(tfc.target).map(async ([path]) => {
+        const name = blobName(path, 'after')
+        const abs = join(dir, name)
+        try {
+          const content = await readFile(this.resolveFilePath(resolvedCwd, path))
+          await writeFile(abs, content)
+          blobs[`target:${path}`] = name
+        } catch {
+          // file was deleted after the turn → no after-blob
+        }
+      })
+    )
+
+    const metaPath = join(dir, 'index.json')
+    const meta = {
+      cwd: resolvedCwd,
+      turnIndex: turnIndex ?? tfc.turnIndex,
+      files: tfc.files,
+      baseline: tfc.baseline,
+      target: tfc.target,
+      status: tfc.status,
+      blobs,
+      updatedAt: Date.now()
+    }
+    await writeFile(metaPath, JSON.stringify(meta, null, 2), 'utf8')
+  }
+
+  private async loadFileChanges(
+    sessionId: string
+  ): Promise<
+    | (AgentTurnFileChanges & { cwd?: string; blobs?: Record<string, string> })
+    | null
+  > {
+    try {
+      const raw = await readFile(join(this.fileChangesDir(sessionId), 'index.json'), 'utf8')
+      return JSON.parse(raw)
+    } catch {
+      return null
+    }
+  }
+
+  private async readBlob(sessionId: string, name: string): Promise<Buffer | null> {
+    try {
+      return await readFile(join(this.fileChangesDir(sessionId), name))
+    } catch {
+      return null
+    }
+  }
+
+  private async snapshotMatches(snapshot: AgentFileSnapshot, absolutePath: string): Promise<boolean> {
+    const current = await this.captureFileSnapshot(absolutePath)
+    if (snapshot.sha1 === null) return current.sha1 === null
+    if (current.sha1 === null) return false
+    return current.sha1 === snapshot.sha1
+  }
+
+  /** Public IPC surface -------------------------------------------------- */
+
+  /** Return the persisted file-change record for a session, or null. */
+  public async getFileChanges(sessionId: string): Promise<AgentTurnFileChanges | null> {
+    // Persist happens asynchronously after turn_end/agent_end; wait for the
+    // in-flight write before reading, otherwise the renderer's mount-time query
+    // races ahead of the disk write and the card never shows.
+    const pending = this.activeSessions.get(sessionId)?.pendingFileChangePersist
+    if (pending) {
+      await Promise.race([pending, new Promise<void>((r) => setTimeout(r, 3000))])
+    }
+    const meta = await this.loadFileChanges(sessionId)
+    if (!meta) return null
+    const { blobs: _blobs, ...rest } = meta
+    return rest
+  }
+
+  /** Check whether each listed path still matches its stored snapshot hash. */
+  public async checkFilesStale(
+    sessionId: string,
+    paths: string[],
+    kind: 'baseline' | 'target'
+  ): Promise<Record<string, boolean>> {
+    const meta = await this.loadFileChanges(sessionId)
+    const cwd = meta?.cwd ?? this.activeSessions.get(sessionId)?.cwd ?? ''
+    const snapshots =
+      kind === 'baseline' ? meta?.baseline ?? {} : meta?.target ?? {}
+    const result: Record<string, boolean> = {}
+    for (const p of paths) {
+      const snap = snapshots[p]
+      if (!snap) {
+        result[p] = false
+        continue
+      }
+      const abs = this.resolveFilePath(cwd, p)
+      result[p] = !(await this.snapshotMatches(snap, abs))
+    }
+    return result
+  }
+
+  /**
+   * Revert all files touched in the latest turn back to their baseline state.
+   * Returns an error string on validation failure, null on success.
+   */
+  public async revertFileChanges(sessionId: string): Promise<string | null> {
+    const meta = await this.loadFileChanges(sessionId)
+    if (!meta || meta.files.length === 0) return '没有可撤销的文件修改'
+    if (meta.status === 'undone') return '本次修改已被撤销'
+    const rawCwd = meta.cwd ?? this.activeSessions.get(sessionId)?.cwd ?? ''
+    const cwd = rawCwd ? resolve(rawCwd) : ''
+    if (!cwd) return '无法确定工作目录'
+
+    // Validate: every touched file must still match its target snapshot.
+    for (const file of meta.files) {
+      const target = meta.target[file.path]
+      if (!target) continue
+      const abs = this.resolveFilePath(cwd, file.path)
+      const ok = await this.snapshotMatches(target, abs)
+      if (!ok) return `文件 "${file.name}" 在此期间被外部修改，无法安全撤销`
+    }
+
+    // Apply baseline content.
+    for (const file of meta.files) {
+      const baseline = meta.baseline[file.path]
+      const abs = this.resolveFilePath(cwd, file.path)
+      if (!baseline || baseline.sha1 === null) {
+        // File did not exist before this turn → delete it.
+        try {
+          await unlink(abs)
+        } catch {
+          // already gone
+        }
+      } else {
+        const blobName = meta.blobs?.[`baseline:${file.path}`]
+        const content = blobName ? await this.readBlob(sessionId, blobName) : null
+        if (content === null) return `缺少 "${file.name}" 的基线快照，无法撤销`
+        await writeFile(abs, content)
+      }
+    }
+
+    meta.status = 'undone'
+    await writeFile(
+      join(this.fileChangesDir(sessionId), 'index.json'),
+      JSON.stringify(meta, null, 2),
+      'utf8'
+    )
+    return null
+  }
+
+  /**
+   * Re-apply the target state after a successful revert.
+   * Validates that files have not been modified since the revert.
+   */
+  public async reapplyFileChanges(sessionId: string): Promise<string | null> {
+    const meta = await this.loadFileChanges(sessionId)
+    if (!meta || meta.files.length === 0) return '没有可恢复的文件修改'
+    if (meta.status !== 'undone') return '本次修改尚未撤销'
+    const rawCwd = meta.cwd ?? this.activeSessions.get(sessionId)?.cwd ?? ''
+    const cwd = rawCwd ? resolve(rawCwd) : ''
+    if (!cwd) return '无法确定工作目录'
+
+    // Validate: every touched file must still match its baseline snapshot.
+    for (const file of meta.files) {
+      const baseline = meta.baseline[file.path]
+      const abs = this.resolveFilePath(cwd, file.path)
+      const ok = baseline
+        ? await this.snapshotMatches(baseline, abs)
+        : (await this.captureFileSnapshot(abs)).sha1 === null
+      if (!ok) return `文件 "${file.name}" 在撤销后被外部修改，无法安全恢复`
+    }
+
+    // Re-apply target content.
+    for (const file of meta.files) {
+      const target = meta.target[file.path]
+      const abs = this.resolveFilePath(cwd, file.path)
+      if (!target || target.sha1 === null) {
+        try {
+          await unlink(abs)
+        } catch {
+          // already gone
+        }
+      } else {
+        const blobName = meta.blobs?.[`target:${file.path}`]
+        const content = blobName ? await this.readBlob(sessionId, blobName) : null
+        if (content === null) return `缺少 "${file.name}" 的目标快照，无法恢复`
+        await writeFile(abs, content)
+      }
+    }
+
+    meta.status = 'applied'
+    await writeFile(
+      join(this.fileChangesDir(sessionId), 'index.json'),
+      JSON.stringify(meta, null, 2),
+      'utf8'
+    )
+    return null
+  }
+
   private getActiveModelObject(providerId?: string, modelId?: string): Model<Api> | undefined {
     if (!this.modelRegistry) return undefined
     const prov = providerId || (this.store.get('agent_active_provider') as string) || this.defaultProvider
@@ -302,6 +730,10 @@ export class AgentSessionService {
       const active = this.activeSessions.get(sessionId)
       const currentMode = active?.permissionMode ?? 'default'
 
+      const toolName = (context.toolCall.name || '').toLowerCase()
+      const args = (context.args as Record<string, unknown>) ?? {}
+
+
       const check = await this.permissionEngine.checkOrRequestApproval({
         sessionId,
         mode: currentMode,
@@ -311,10 +743,60 @@ export class AgentSessionService {
         cwd
       })
 
+
       if (!check.allowed) {
         return {
           block: true,
           reason: check.reason || 'Action denied by security policy or user'
+        }
+      }
+
+      // Capture baseline snapshots *after* the permission check passes and
+      // *before* the tool mutates the file. The hook is awaited by pi-agent,
+      // so the write cannot start until the snapshot is on disk. Running
+      // after the check avoids capturing a baseline for a call that is then
+      // denied, and keeps the window between snapshot and write minimal.
+      if (
+        toolName === 'edit' ||
+        toolName === 'write' ||
+        toolName === 'edit_file' ||
+        toolName === 'str_replace' ||
+        toolName === 'multi_edit' ||
+        toolName === 'apply_patch'
+      ) {
+        const filePath =
+          (args.path as string | undefined) ??
+          (args.filePath as string | undefined)
+        if (filePath && active) {
+          // Lazily create the accumulator when turn_start hasn't fired yet
+          // (edge cases: resumed session, prompt without prior user turn).
+          active.turnFileChanges ??= {
+            files: [],
+            baseline: {},
+            target: {},
+            status: 'applied'
+          }
+          const tfc = active.turnFileChanges
+          const abs = this.resolveFilePath(active.cwd, filePath)
+          if (!tfc.baseline[filePath]) {
+            const snap = await this.captureFileSnapshot(abs)
+            tfc.baseline[filePath] = snap
+            const name = filePath.split(/[/\\]/).pop() || filePath
+            const exists = tfc.files.some((f) => f.path === filePath)
+            if (!exists) {
+              tfc.files.push({
+                path: filePath,
+                name,
+                isNew: snap.sha1 === null,
+                added: 0,
+                deleted: 0
+              })
+            }
+          }
+          if (context.toolCall.id) {
+            active.pendingToolFiles ??= new Map()
+            active.pendingToolFiles.set(context.toolCall.id, filePath)
+          }
         }
       }
 
@@ -326,10 +808,114 @@ export class AgentSessionService {
       const active = this.activeSessions.get(sessionId)
       if (active) {
         active.updatedAt = Date.now()
+        if (event.type === 'agent_start') {
+          active.isRunning = true
+        } else if (event.type === 'agent_end' || event.type === 'agent_settled') {
+          active.isRunning = false
+        }
         if (!active.title && event.type === 'message_end' && event.message.role === 'user') {
           const text = this.extractUserText(event.message.content)
           if (text) {
             active.title = text
+          }
+        }
+
+        // Track turn lifecycle for file-change snapshots
+        if (event.type === 'turn_start') {
+          // A previous turn's accumulator may still be alive when turn_start
+          // arrives (pi-agent does not await async listeners). Persist it now
+          // so its baseline/files aren't silently dropped before we reset.
+          const prevTfc = active.turnFileChanges
+          const prevPending = active.pendingCaptures ?? []
+          if (prevTfc && prevTfc.files.length > 0) {
+            const prevTurn = active.turnCounter
+            const flushPrev = Promise.race([
+              Promise.all(prevPending),
+              new Promise<unknown[]>((r) => setTimeout(() => r([]), 1500))
+            ])
+            active.pendingFileChangePersist = flushPrev
+              .then(() => this.persistFileChanges(sessionId, active.cwd, prevTfc, prevTurn))
+              .then(() => undefined)
+              .catch(() => undefined)
+          }
+          // Turn number = count of user messages in the live transcript at
+          // turn_start (turn N opens with user message #N). Using the actual
+          // message history keeps the index aligned across session resumes —
+          // a process-local counter would restart at 1 while the renderer's
+          // per-message turn index keeps counting historical turns.
+          const msgs = active.session.agent.state.messages as Array<{ role?: string }>
+          active.turnCounter = msgs.filter((m) => m.role === 'user').length
+          active.turnFileChanges = { files: [], baseline: {}, target: {}, status: 'applied' }
+          active.pendingToolFiles = new Map()
+          active.pendingCaptures = []
+        } else if (event.type === 'tool_execution_end' && active.turnFileChanges) {
+          const toolName = (event.toolName || '').toLowerCase()
+          if (
+            toolName === 'edit' ||
+            toolName === 'write' ||
+            toolName === 'edit_file' ||
+            toolName === 'str_replace' ||
+            toolName === 'multi_edit' ||
+            toolName === 'apply_patch'
+          ) {
+            const filePath = event.toolCallId ? active.pendingToolFiles?.get(event.toolCallId) : undefined
+            if (filePath && active.turnFileChanges.baseline[filePath]) {
+              // Capture the tfc reference *now* — the async .then must not
+              // re-read active.turnFileChanges, which may have been reset by
+              // a following turn_start before the snapshot resolves.
+              const tfc = active.turnFileChanges
+              const abs = this.resolveFilePath(active.cwd, filePath)
+              const capture = this.captureFileSnapshot(abs)
+                .then((snap) => {
+                  tfc.target[filePath] = snap
+                  const entry = tfc.files.find((f) => f.path === filePath)
+                  if (entry) {
+                    const counts = this.countDiffLines(event.result)
+                    entry.added += counts.added
+                    entry.deleted += counts.deleted
+                  }
+                })
+                .catch(() => undefined)
+              active.pendingCaptures = active.pendingCaptures ?? []
+              active.pendingCaptures.push(capture)
+            }
+            if (event.toolCallId) active.pendingToolFiles?.delete(event.toolCallId)
+          }
+        } else if (event.type === 'turn_end' && active.turnFileChanges) {
+          const tfc = active.turnFileChanges
+          const pending = active.pendingCaptures ?? []
+          active.turnFileChanges = undefined
+          active.pendingToolFiles = undefined
+          active.pendingCaptures = undefined
+          if (tfc.files.length > 0) {
+            const turnIdx = active.turnCounter
+            const flush = Promise.race([
+              Promise.all(pending),
+              new Promise<unknown[]>((r) => setTimeout(() => r([]), 1500))
+            ])
+            active.pendingFileChangePersist = flush
+              .then(() => this.persistFileChanges(sessionId, active.cwd, tfc, turnIdx))
+              .then(() => undefined)
+              .catch(() => undefined)
+          }
+        } else if (event.type === 'agent_end' || event.type === 'agent_settled') {
+          // Safety net: if turn_end never fired (abort / missed event) the
+          // accumulator may still hold work. Flush it so the card isn't lost.
+          const tfc = active.turnFileChanges
+          const pending = active.pendingCaptures ?? []
+          if (tfc && (tfc.files.length > 0 || pending.length > 0)) {
+            active.turnFileChanges = undefined
+            active.pendingToolFiles = undefined
+            active.pendingCaptures = undefined
+            const turnIdx = active.turnCounter
+            const flush = Promise.race([
+              Promise.all(pending),
+              new Promise<unknown[]>((r) => setTimeout(() => r([]), 1500))
+            ])
+            active.pendingFileChangePersist = flush
+              .then(() => this.persistFileChanges(sessionId, active.cwd, tfc, turnIdx))
+              .then(() => undefined)
+              .catch(() => undefined)
           }
         }
       }
@@ -371,7 +957,8 @@ export class AgentSessionService {
       cwd: resolvedCwd,
       agentDir: this.agentDir,
       appendSystemPrompt: [envPrompt],
-      extraSkillDirs: this.getExtraSkillDirs()
+      extraSkillDirs: this.getExtraSkillDirs(),
+      extensionFactories: this.buildCompressionExtensions()
     })
     await resourceLoader.reload()
 
@@ -385,8 +972,10 @@ export class AgentSessionService {
       thinkingLevel: this.getStoredThinkingLevel(),
       sessionManager,
       resourceLoader: resourceLoader.getRawLoader(),
+      settingsManager: (await this.getPi()).SettingsManager.create(resolvedCwd, this.agentDir),
       excludeTools: excludedShellTools(),
-      tools: shellToolModifiers()
+      tools: shellToolModifiers(),
+      customTools: [await createWebSearchTool(), await createImageGenTool(), await this.shellCustomTool(cwd && cwd.trim() ? cwd : process.cwd())]
     })
 
     this.wireSession(sessionId, session, resolvedCwd, 'default')
@@ -455,7 +1044,8 @@ export class AgentSessionService {
       cwd,
       agentDir: this.agentDir,
       appendSystemPrompt: [envPrompt],
-      extraSkillDirs: this.getExtraSkillDirs()
+      extraSkillDirs: this.getExtraSkillDirs(),
+      extensionFactories: this.buildCompressionExtensions()
     })
     await resourceLoader.reload()
 
@@ -469,8 +1059,10 @@ export class AgentSessionService {
       thinkingLevel: this.getStoredThinkingLevel(),
       sessionManager,
       resourceLoader: resourceLoader.getRawLoader(),
+      settingsManager: (await this.getPi()).SettingsManager.create(cwd, this.agentDir),
       excludeTools: excludedShellTools(),
-      tools: shellToolModifiers()
+      tools: shellToolModifiers(),
+      customTools: [await createWebSearchTool(), await createImageGenTool(), await this.shellCustomTool(cwd && cwd.trim() ? cwd : process.cwd())]
     })
 
     const entry = this.wireSession(sessionId, session, cwd, 'default')
@@ -520,6 +1112,27 @@ export class AgentSessionService {
     this.permissionEngine.cancelPendingApprovalsForSession(sessionId)
     const active = this.activeSessions.get(sessionId)
     if (active) {
+      // Flush any in-flight file-change record so the card still reflects
+      // the edits that already happened before the abort. pi-agent may not
+      // emit turn_end on abort, so pendingCaptures would otherwise leak.
+      const tfc = active.turnFileChanges
+      const pending = active.pendingCaptures ?? []
+      active.turnFileChanges = undefined
+      active.pendingToolFiles = undefined
+      active.pendingCaptures = undefined
+      if (tfc && tfc.files.length > 0) {
+        // Aborted captures may never settle; give them a short grace period
+        // then persist whatever baseline/target pairs we already have.
+        const turnIdx = active.turnCounter
+        const flush = Promise.race([
+          Promise.all(pending),
+          new Promise<unknown[]>((r) => setTimeout(() => r([]), 1500))
+        ])
+        active.pendingFileChangePersist = flush
+          .then(() => this.persistFileChanges(sessionId, active.cwd, tfc, turnIdx))
+          .then(() => undefined)
+          .catch(() => undefined)
+      }
       await active.session.abort()
     }
   }
@@ -642,7 +1255,8 @@ export class AgentSessionService {
       cwd,
       agentDir: this.agentDir,
       appendSystemPrompt: [envPrompt],
-      extraSkillDirs: this.getExtraSkillDirs()
+      extraSkillDirs: this.getExtraSkillDirs(),
+      extensionFactories: this.buildCompressionExtensions()
     })
     await resourceLoader.reload()
 
@@ -655,13 +1269,29 @@ export class AgentSessionService {
       thinkingLevel: this.getStoredThinkingLevel(),
       sessionManager: forkedManager,
       resourceLoader: resourceLoader.getRawLoader(),
+      settingsManager: (await this.getPi()).SettingsManager.create(cwd, this.agentDir),
       excludeTools: excludedShellTools(),
-      tools: shellToolModifiers()
+      tools: shellToolModifiers(),
+      customTools: [await createWebSearchTool(), await createImageGenTool(), await this.shellCustomTool(cwd && cwd.trim() ? cwd : process.cwd())]
     })
 
     const newSessionId = forkedManager.getSessionId()
     this.wireSession(newSessionId, forkedSession, cwd, active.permissionMode)
     this.store.set('agent_current_session', newSessionId)
+
+    // Carry over the parent's file-change record so the fork can undo/redo
+    // work that happened before the fork point.
+    try {
+      const parentDir = this.fileChangesDir(sessionId)
+      const childDir = this.fileChangesDir(newSessionId)
+      if (existsSync(parentDir)) {
+        await mkdir(childDir, { recursive: true })
+        const { cp } = await import('fs/promises')
+        await cp(parentDir, childDir, { recursive: true })
+      }
+    } catch {
+      // Best-effort; fork still succeeds without file-change history.
+    }
 
     // Name the fork "<source name> 分支" and keep incrementing the suffix
     // until it is unique among existing sessions.
@@ -795,7 +1425,8 @@ export class AgentSessionService {
         createdAt: active.createdAt,
         updatedAt: active.updatedAt,
         cwd: active.cwd,
-        model: active.modelId
+        model: active.modelId,
+        isRunning: active.isRunning ?? false
       })
       seen.add(id)
     }
@@ -874,7 +1505,7 @@ export class AgentSessionService {
     const active = this.getActiveModelInfo(sessionId)
     const session = this.resolveSession(sessionId)
     if (!session) {
-      return { active, context: null, stats: null }
+      return { active, context: null, stats: null, compaction: null }
     }
     let context: AgentContextUsage | null = null
     try {
@@ -897,7 +1528,43 @@ export class AgentSessionService {
     } catch {
       stats = null
     }
-    return { active, context, stats }
+    let compaction: AgentSessionStatus['compaction'] = null
+    try {
+      const cs = session.settingsManager?.getCompactionSettings(session.model ?? undefined)
+      compaction = {
+        enabled: session.autoCompactionEnabled,
+        isCompacting: session.isCompacting,
+        reserveTokens: cs?.reserveTokens ?? 0,
+        keepRecentTokens: cs?.keepRecentTokens ?? 0
+      }
+    } catch {
+      compaction = null
+    }
+    return { active, context, stats, compaction }
+  }
+
+  public async compactSession(sessionId: string, instructions?: string): Promise<void> {
+    const active = this.activeSessions.get(sessionId)
+    if (!active) throw new Error(`Cannot compact inactive session: ${sessionId}`)
+    await active.session.compact(instructions)
+  }
+
+  public setAutoCompaction(sessionId: string, enabled: boolean): AgentSessionStatus | null {
+    const active = this.activeSessions.get(sessionId)
+    if (!active) return null
+    active.session.setAutoCompactionEnabled(enabled)
+    return this.getSessionStatus(sessionId)
+  }
+
+  public getCompressionConfig(): CompressionConfig {
+    const stored = this.store.get(COMPRESSION_STORE_KEY) as Partial<CompressionConfig> | undefined
+    return { ...DEFAULT_COMPRESSION_CONFIG, ...(stored && typeof stored === 'object' ? stored : {}) }
+  }
+
+  public setCompressionConfig(patch: Partial<CompressionConfig>): CompressionConfig {
+    const next = { ...this.getCompressionConfig(), ...patch }
+    this.store.set(COMPRESSION_STORE_KEY, next)
+    return next
   }
 
   public setThinkingLevel(sessionId: string, level: AgentThinkingLevel): AgentActiveModel {
@@ -948,6 +1615,23 @@ export class AgentSessionService {
     if (providerId === MAGPIE_PROVIDER.providerId) {
       const models = await MAGPIE_PROVIDER.fetchModels()
       await this.applyGatewayCatalog(MAGPIE_PROVIDER, models)
+      return this.getRuntimeSnapshot()
+    }
+    // User-defined OpenAI-compatible gateways go through the same catalog flow
+    // as the built-in magpie provider so /v1/models results get persisted.
+    const custom = this.listCustomGateways().find((item) => item.providerId === providerId)
+    if (custom) {
+      const gateway = new CustomGatewayProvider({
+        providerId: custom.providerId,
+        name: custom.name || custom.providerId,
+        baseUrl: custom.baseUrl,
+        apiKey: custom.apiKey
+      })
+      const models = await gateway.fetchModels()
+      if (models.length === 0) {
+        throw new Error(`刷新 ${providerId} 模型失败：未获取到任何模型`)
+      }
+      await this.applyGatewayCatalog(gateway, models)
       return this.getRuntimeSnapshot()
     }
     const result = await runtime.refresh({ allowNetwork: true, force: true, providers: [providerId] })
@@ -1111,6 +1795,7 @@ export class AgentSessionService {
     const key = cred.key.trim()
     if (!key) throw new Error('API Key 不能为空')
 
+    redactCredential(key)
     await runtime.login(providerId, 'api_key', {
       prompt: async () => key,
       notify: () => undefined

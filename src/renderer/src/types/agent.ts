@@ -10,6 +10,7 @@ import type {
   AgentSessionStatus,
   AgentThinkingLevel
 } from '../../../shared/types/agentRuntime'
+import type { CompressionConfig } from '../../../shared/types/agentCompression'
 
 export type {
   AgentActiveModel,
@@ -45,6 +46,12 @@ export interface AgentMessage {
   status: 'running' | 'complete' | 'aborted' | 'error'
   error?: string
   createdAt?: number
+  /** Unix ms；assistant 消息为 pi 的 timestamp（请求开始），其余为本地 Date.now()。 */
+  timestamp?: number
+  /** 本轮请求耗时（毫秒），来自 pi AssistantMessage.durationMs。 */
+  durationMs?: number
+  /** 用户 query → 整轮 agent run 结束的总耗时（毫秒），挂在该轮最后一条 assistant 消息上。 */
+  turnDurationMs?: number
 }
 
 export interface AgentSessionSummary {
@@ -54,6 +61,7 @@ export interface AgentSessionSummary {
   updatedAt: number
   cwd?: string
   model?: string
+  isRunning?: boolean
 }
 
 export interface AgentApprovalRequest {
@@ -188,6 +196,18 @@ export interface AgentIpcApi {
     sessionId: string,
     level: AgentThinkingLevel
   ) => Promise<{ success: boolean; data?: AgentActiveModel; error?: string }>
+  agentCompact: (
+    sessionId: string,
+    instructions?: string
+  ) => Promise<{ success: boolean; error?: string }>
+  agentSetAutoCompaction: (
+    sessionId: string,
+    enabled: boolean
+  ) => Promise<{ success: boolean; data?: AgentSessionStatus | null; error?: string }>
+  agentGetCompactionConfig: () => Promise<{ success: boolean; data?: CompressionConfig; error?: string }>
+  agentSetCompactionConfig: (
+    config: Partial<CompressionConfig>
+  ) => Promise<{ success: boolean; data?: CompressionConfig; error?: string }>
   agentLoginProvider: (
     providerId: string,
     type: AgentAuthType
@@ -208,6 +228,20 @@ export interface AgentIpcApi {
     providerId: string
   ) => Promise<{ success: boolean; data?: AgentRuntimeSnapshot; error?: string }>
   agentRefreshProviderModels: (
+    providerId: string
+  ) => Promise<{ success: boolean; data?: AgentRuntimeSnapshot; error?: string }>
+  agentListCustomGateways?: () => Promise<{
+    success: boolean
+    data?: Array<{ providerId: string; name: string; baseUrl: string; apiKey?: string }>
+    error?: string
+  }>
+  agentAddCustomGateway?: (spec: {
+    providerId: string
+    name: string
+    baseUrl: string
+    apiKey?: string
+  }) => Promise<{ success: boolean; data?: AgentRuntimeSnapshot; error?: string }>
+  agentRemoveCustomGateway?: (
     providerId: string
   ) => Promise<{ success: boolean; data?: AgentRuntimeSnapshot; error?: string }>
   onAgentProviderAuthChanged?: (cb: (payload: { operation: AgentAuthOperation }) => void) => () => void

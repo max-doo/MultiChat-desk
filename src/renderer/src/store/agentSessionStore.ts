@@ -35,6 +35,8 @@ interface PiRawMessage {
   id?: string
   role?: string
   content?: string | PiRawPart[]
+  timestamp?: number
+  durationMs?: number
 }
 
 interface PiEventPayload {
@@ -83,6 +85,7 @@ interface AgentSessionState {
   sessions: AgentSessionSummary[]
   messages: AgentMessage[]
   isRunning: boolean
+  runningSessionIds: Set<string>
   permissionMode: AgentPermissionMode
   pendingApprovals: AgentApprovalRequest[]
   activeModel: string
@@ -91,6 +94,7 @@ interface AgentSessionState {
   snapshot: AgentRuntimeSnapshot | null
   authOperations: Record<string, AgentAuthOperation>
   sessionStatus: AgentSessionStatus | null
+  isCompacting: boolean
   snapshotLoading: boolean
   skills: AgentSkill[]
   agentConfig: AgentConfig | null
@@ -98,9 +102,16 @@ interface AgentSessionState {
   attachments: string[]
   settingsOpen: boolean
   branchUserEntries: Array<{ entryId: string; text: string }>
+  /**
+   * 失效工作区回看态：resume 一条 cwd 已失效（目录删除/改名/脱机）的会话后置位。
+   * 置位期间 AgentCard 的工作区同步 effect 不得因 cwd !== workspacePath 清空消息；
+   * 两个 AI 侧栏实例共享此标志，避免一侧回看被另一侧的同步逻辑清空。
+   */
+  foreignReview: boolean
 
   // Actions
   setSessionId: (id: string | null) => void
+  setForeignReview: (value: boolean) => void
   setPermissionMode: (mode: AgentPermissionMode) => Promise<void>
   setComposerInput: (val: string) => void
   appendPromptText: (text: string) => void
@@ -137,6 +148,8 @@ interface AgentSessionState {
   fetchSnapshot: (sessionId?: string) => Promise<void>
   fetchSessionStatus: (sessionId?: string) => Promise<void>
   setThinkingLevel: (level: AgentThinkingLevel) => Promise<boolean>
+  compact: (instructions?: string) => Promise<boolean>
+  setAutoCompaction: (enabled: boolean) => Promise<boolean>
   loginProvider: (providerId: string, type: AgentAuthType) => Promise<AgentAuthOperation | null>
   respondProviderAuth: (operationId: string, value: string) => Promise<boolean>
   cancelProviderAuth: (operationId: string) => Promise<boolean>
@@ -158,6 +171,7 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
   sessions: [],
   messages: [],
   isRunning: false,
+  runningSessionIds: new Set<string>(),
   permissionMode: 'default',
   pendingApprovals: [],
   activeModel: 'devin/swe-2',
@@ -166,6 +180,7 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
   snapshot: null,
   authOperations: {},
   sessionStatus: null,
+  isCompacting: false,
   snapshotLoading: false,
   skills: [],
   agentConfig: null,
@@ -173,8 +188,14 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
   attachments: [],
   settingsOpen: false,
   branchUserEntries: [],
+  foreignReview: false,
 
-  setSessionId: (id) => set({ currentSessionId: id }),
+  setSessionId: (id) =>
+    set((s) => ({
+      currentSessionId: id,
+      isRunning: id ? s.runningSessionIds.has(id) : false
+    })),
+  setForeignReview: (value) => set({ foreignReview: value }),
 
   refreshBranchEntries: async () => {
     const sessionId = get().currentSessionId
@@ -314,7 +335,8 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
       pendingApprovals: [],
       composerInput: '',
       attachments: [],
-      branchUserEntries: []
+      branchUserEntries: [],
+      foreignReview: false
     })
     return null
   },
@@ -334,7 +356,8 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
           pendingApprovals: [],
           composerInput: '',
           attachments: [],
-          branchUserEntries: []
+          branchUserEntries: [],
+          foreignReview: false
         })
         void get().fetchSessions()
         void get().fetchSnapshot(sessionId)
@@ -400,8 +423,30 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
               role,
               content: enrichedParts,
               status: 'complete',
-              createdAt: Date.now()
+              createdAt: m.timestamp ?? Date.now(),
+              timestamp: m.timestamp,
+              durationMs: m.durationMs
             })
+          }
+
+          // 给每轮最后一条 assistant 消息补上「query → 该轮结束」的耗时：
+          // 最近一条 user.timestamp → 该 assistant.timestamp + durationMs
+          for (let i = restoredMessages.length - 1; i >= 0; i--) {
+            const msg = restoredMessages[i]
+            if (msg.role !== 'assistant') continue
+            const next = restoredMessages[i + 1]
+            if (next && next.role === 'assistant') continue
+            if (msg.timestamp === undefined || msg.durationMs === undefined) continue
+            let userTs: number | undefined
+            for (let j = i - 1; j >= 0; j--) {
+              if (restoredMessages[j].role === 'user' && restoredMessages[j].timestamp) {
+                userTs = restoredMessages[j].timestamp
+                break
+              }
+            }
+            if (userTs !== undefined) {
+              msg.turnDurationMs = msg.timestamp + msg.durationMs - userTs
+            }
           }
         }
 
@@ -409,11 +454,12 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
           currentSessionId: sessionId,
           currentCwd: rawData?.cwd || null,
           messages: restoredMessages,
-          isRunning: false,
           pendingApprovals: [],
           activeModel: rawData?.model || get().activeModel,
-          activeProvider: rawData?.provider || get().activeProvider
+          activeProvider: rawData?.provider || get().activeProvider,
+          isRunning: get().runningSessionIds.has(sessionId)
         })
+        // isRunning is derived from runningSessionIds — populated by live events.
         void get().fetchSnapshot(sessionId)
         void get().fetchSessionStatus(sessionId)
         void get().refreshBranchEntries()
@@ -474,7 +520,8 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
       role: 'user',
       content: [{ type: 'text', text: fullPrompt }],
       status: 'complete',
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      timestamp: Date.now()
     }
 
     const assistantMsg: AgentMessage = {
@@ -487,7 +534,7 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
 
     set((s) => ({
       messages: [...s.messages, userMsg, assistantMsg],
-      isRunning: true,
+      runningSessionIds: new Set(s.runningSessionIds).add(sessionId),
       composerInput: '',
       attachments: []
     }))
@@ -496,7 +543,11 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
       const res = await getAgentApi().agentPrompt(sessionId, fullPrompt, attachList)
       if (!res.success) {
         set((s) => ({
-          isRunning: false,
+          runningSessionIds: (() => {
+            const next = new Set(s.runningSessionIds)
+            next.delete(sessionId)
+            return next
+          })(),
           messages: s.messages.map((m) =>
             m.id === assistantMsg.id
               ? {
@@ -512,7 +563,11 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err)
       set((s) => ({
-        isRunning: false,
+        runningSessionIds: (() => {
+          const next = new Set(s.runningSessionIds)
+          next.delete(sessionId)
+          return next
+        })(),
         messages: s.messages.map((m) =>
           m.id === assistantMsg.id
             ? {
@@ -533,7 +588,11 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
     try {
       await getAgentApi().agentAbort(sessionId)
       set((s) => ({
-        isRunning: false,
+        runningSessionIds: (() => {
+          const next = new Set(s.runningSessionIds)
+          next.delete(sessionId)
+          return next
+        })(),
         pendingApprovals: [],
         messages: s.messages.map((m, idx) =>
           idx === s.messages.length - 1 && m.role === 'assistant'
@@ -556,7 +615,7 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
    */
   rewindLastUserMessage: async () => {
     const sessionId = get().currentSessionId
-    if (!sessionId || get().isRunning) return false
+    if (!sessionId || get().runningSessionIds.has(sessionId)) return false
     try {
       const res = await getAgentApi().agentRewind(sessionId)
       if (!res.success || !res.data) {
@@ -598,7 +657,7 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
    */
   forkSession: async () => {
     const sessionId = get().currentSessionId
-    if (!sessionId || get().isRunning) return false
+    if (!sessionId || get().runningSessionIds.has(sessionId)) return false
     try {
       const res = await getAgentApi().agentForkSession(sessionId)
       if (!res.success || !res.data) {
@@ -762,6 +821,37 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
     return false
   },
 
+  compact: async (instructions) => {
+    const sessionId = get().currentSessionId
+    if (!sessionId) return false
+    try {
+      const res = await getAgentApi().agentCompact(sessionId, instructions)
+      if (res.success) {
+        void get().fetchSessionStatus(sessionId)
+        return true
+      }
+    } catch (err) {
+      console.error('[agentSessionStore] compact error:', err)
+    }
+    return false
+  },
+
+  setAutoCompaction: async (enabled) => {
+    const sessionId = get().currentSessionId
+    if (!sessionId) return false
+    try {
+      const res = await getAgentApi().agentSetAutoCompaction(sessionId, enabled)
+      if (res.success) {
+        if (res.data) set({ sessionStatus: res.data })
+        void get().fetchSessionStatus(sessionId)
+        return true
+      }
+    } catch (err) {
+      console.error('[agentSessionStore] setAutoCompaction error:', err)
+    }
+    return false
+  },
+
   loginProvider: async (providerId, type) => {
     try {
       const res = await getAgentApi().agentLoginProvider(providerId, type)
@@ -896,30 +986,67 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
 
   handleAgentEvent: (sessionId, event) => {
     const currentSessionId = get().currentSessionId
-    // Strict match: draft state (null) must not absorb events from any real session.
+
+    switch (event.type) {
+      case 'agent_start': {
+        set((s) => {
+          const next = new Set(s.runningSessionIds)
+          next.add(sessionId)
+          return {
+            runningSessionIds: next,
+            isRunning: sessionId === currentSessionId ? true : s.isRunning
+          }
+        })
+        return
+      }
+      case 'agent_end': {
+        set((s) => {
+          const next = new Set(s.runningSessionIds)
+          next.delete(sessionId)
+          // 用户 query → 整轮 run 结束的耗时，记到最后一条 assistant 消息上
+          let turnDurationMs: number | undefined
+          if (sessionId === currentSessionId) {
+            for (let i = s.messages.length - 1; i >= 0; i--) {
+              const m = s.messages[i]
+              if (m.role === 'user' && m.timestamp) {
+                turnDurationMs = Date.now() - m.timestamp
+                break
+              }
+            }
+          }
+          return {
+            runningSessionIds: next,
+            isRunning: sessionId === currentSessionId ? false : s.isRunning,
+            // only touch the visible transcript when the event is for the
+            // session currently on screen
+            messages:
+              sessionId === currentSessionId
+                ? s.messages.map((m, idx) =>
+                    idx === s.messages.length - 1 &&
+                    m.role === 'assistant' &&
+                    m.status === 'running'
+                      ? { ...m, status: 'complete', turnDurationMs }
+                      : m
+                  )
+                : s.messages
+          }
+        })
+        void get().fetchSessions()
+        if (sessionId === currentSessionId) {
+          void get().fetchSessionStatus()
+          void get().fetchSnapshot()
+        }
+        return
+      }
+    }
+
+    // Events below only render into the visible transcript; drop them for
+    // sessions that aren't currently on screen.
     if (sessionId !== currentSessionId) {
       return
     }
 
     switch (event.type) {
-      case 'agent_start': {
-        set({ isRunning: true })
-        break
-      }
-      case 'agent_end': {
-        set((s) => ({
-          isRunning: false,
-          messages: s.messages.map((m, idx) =>
-            idx === s.messages.length - 1 && m.role === 'assistant'
-              ? { ...m, status: 'complete' }
-              : m
-          )
-        }))
-        void get().fetchSessions()
-        void get().fetchSessionStatus()
-        void get().fetchSnapshot()
-        break
-      }
       case 'turn_start': {
         set((s) => {
           const last = s.messages[s.messages.length - 1]
@@ -944,12 +1071,15 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
       case 'message_start': {
         if (event.message?.role === 'assistant') {
           const newId = event.message.id || `msg_a_${Date.now()}`
+          const msgTimestamp = event.message.timestamp ?? Date.now()
           set((s) => {
             const last = s.messages[s.messages.length - 1]
             if (last && last.role === 'assistant' && last.content.length === 0) {
               return {
                 messages: s.messages.map((m, idx) =>
-                  idx === s.messages.length - 1 ? { ...m, id: newId } : m
+                  idx === s.messages.length - 1
+                    ? { ...m, id: newId, timestamp: m.timestamp ?? msgTimestamp }
+                    : m
                 )
               }
             }
@@ -961,7 +1091,8 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
                   role: 'assistant',
                   content: [],
                   status: 'running',
-                  createdAt: Date.now()
+                  createdAt: Date.now(),
+                  timestamp: msgTimestamp
                 }
               ]
             }
@@ -972,6 +1103,7 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
       case 'message_update': {
         if (event.message && event.message.content) {
           const parts = convertPiContentParts(event.message.content)
+          const msgTimestamp = event.message.timestamp
           set((s) => {
             const msgs = [...s.messages]
             const lastIdx = msgs.length - 1
@@ -997,7 +1129,8 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
               })
               msgs[lastIdx] = {
                 ...msgs[lastIdx],
-                content: mergedParts
+                content: mergedParts,
+                timestamp: msgs[lastIdx].timestamp ?? msgTimestamp
               }
               return { messages: msgs }
             }
@@ -1082,7 +1215,16 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
                 return p
               })
               if (found) {
-                msgs[i] = { ...m, content }
+                // 该消息内所有 tool-call 都拿到 result 后，才把消息标 complete。
+                // message_end 在工具执行开始前就会到达，不能作为完成信号。
+                const allToolsDone = content.every(
+                  (p) => p.type !== 'tool-call' || p.result !== undefined || p.isError
+                )
+                msgs[i] = {
+                  ...m,
+                  content,
+                  status: allToolsDone ? 'complete' : m.status
+                }
                 return { messages: msgs }
               }
             }
@@ -1095,8 +1237,47 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
         set((s) => {
           const msgs = [...s.messages]
           const lastIdx = msgs.length - 1
-          if (lastIdx >= 0 && msgs[lastIdx].role === 'assistant') {
-            msgs[lastIdx] = { ...msgs[lastIdx], status: 'complete' }
+           // 仅当事件本身是 assistant 消息且落在末尾 assistant 上才处理。
+           // message_end 对 user/toolResult 也会触发：user 的 query 会污染上一条
+           // assistant 首行，toolResult 的正文会覆盖 assistant 的 tool-call parts。
+           if (lastIdx >= 0 && msgs[lastIdx].role === 'assistant' && event.message?.role === 'assistant') {
+            const msgTimestamp = event.message?.timestamp
+            // pi 的 message_end 在 tool_execution_start 之前到达，其 message.content
+            // 已含完整 toolCall blocks，但 message_update 的最后一次推送可能还没
+            // 把它们 merge 进来。先补齐 tool-call parts，否则 content 里没有
+            // tool-call 时 allToolsDone 会 vacuous true，消息被误标 complete。
+            if (event.message?.content) {
+              const incoming = convertPiContentParts(event.message.content)
+              const prevToolMap = new Map<string, PiContentPart>()
+              for (const p of msgs[lastIdx].content) {
+                if (p.type === 'tool-call' && p.toolCallId) {
+                  prevToolMap.set(p.toolCallId, p)
+                }
+              }
+              const merged = incoming.map((p) => {
+                if (p.type === 'tool-call' && p.toolCallId && prevToolMap.has(p.toolCallId)) {
+                  const prev = prevToolMap.get(p.toolCallId)!
+                  return {
+                    ...p,
+                    result: prev.result ?? p.result,
+                    isError: prev.isError ?? p.isError,
+                    durationMs: prev.durationMs ?? p.durationMs
+                  }
+                }
+                return p
+              })
+              msgs[lastIdx] = { ...msgs[lastIdx], content: merged }
+            }
+            // pi 在 tool_execution_start 之前就发 message_end——若消息里还有
+            // 未完成 tool-call，保持 running，等 tool_execution_end 补齐。
+            const allToolsDone = msgs[lastIdx].content.every(
+              (p) => p.type !== 'tool-call' || p.result !== undefined || p.isError
+            )
+            msgs[lastIdx] = {
+              ...msgs[lastIdx],
+              timestamp: msgs[lastIdx].timestamp ?? msgTimestamp,
+              ...(allToolsDone ? { status: 'complete' as const } : {})
+            }
             return { messages: msgs }
           }
           return s
@@ -1105,7 +1286,31 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
         void get().refreshBranchEntries()
         break
       }
+      case 'turn_end': {
+        // 一个 turn 包含 assistant 消息 + 其所有 toolResult；turn_end 到达
+        // 时该 turn 的工具调用必然都已结束（个别丢失的 end 事件也在此兜底）。
+        set((s) => {
+          const msgs = [...s.messages]
+          for (let i = msgs.length - 1; i >= 0; i--) {
+            const m = msgs[i]
+            if (m.role !== 'assistant') break
+            if (m.status === 'running') {
+              msgs[i] = { ...m, status: 'complete' }
+            }
+          }
+          return { messages: msgs }
+        })
+        break
+      }
       case 'compaction_end':
+        set({ isCompacting: false })
+        void get().fetchSessionStatus()
+        void get().fetchSnapshot()
+        break
+      case 'compaction_start':
+        set({ isCompacting: true })
+        void get().fetchSessionStatus()
+        break
       case 'thinking_level_changed':
       case 'agent_settled': {
         void get().fetchSessionStatus()

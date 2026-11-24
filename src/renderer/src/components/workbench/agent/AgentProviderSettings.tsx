@@ -1,8 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ChevronDown, ChevronRight, Key, LogOut, RefreshCw, Search, ShieldCheck } from 'lucide-react'
+import { Key, LogOut, Plus, RefreshCw, Search, ShieldCheck, Trash2 } from 'lucide-react'
 import { useAgentSessionStore } from '../../../store/agentSessionStore'
-import type { AgentProvider } from '../../../types/agent'
+import type { AgentAuthOperation } from '../../../types/agent'
+import type { AgentProvider, AgentIpcApi } from '../../../types/agent'
 import { AgentAuthDialog } from './AgentAuthDialog'
+
+function getAgentApi(): AgentIpcApi {
+  return window.api as unknown as AgentIpcApi
+}
 
 const SOURCE_LABELS: Record<string, string> = {
   stored: '已登录',
@@ -29,7 +34,6 @@ export function AgentProviderSettings(): JSX.Element {
   const snapshot = useAgentSessionStore((s) => s.snapshot)
   const snapshotLoading = useAgentSessionStore((s) => s.snapshotLoading)
   const authOperations = useAgentSessionStore((s) => s.authOperations)
-  const fetchSnapshot = useAgentSessionStore((s) => s.fetchSnapshot)
   const loginProvider = useAgentSessionStore((s) => s.loginProvider)
   const respondProviderAuth = useAgentSessionStore((s) => s.respondProviderAuth)
   const cancelProviderAuth = useAgentSessionStore((s) => s.cancelProviderAuth)
@@ -37,16 +41,33 @@ export function AgentProviderSettings(): JSX.Element {
   const refreshProviderModels = useAgentSessionStore((s) => s.refreshProviderModels)
 
   const [query, setQuery] = useState('')
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [busyProvider, setBusyProvider] = useState<string | null>(null)
   const [showAll, setShowAll] = useState<Record<string, boolean>>({})
   const [dialogId, setDialogId] = useState<string | null>(null)
-
-  useEffect(() => {
-    void fetchSnapshot()
-  }, [fetchSnapshot])
+  const [customOpen, setCustomOpen] = useState(false)
+  const [customSaving, setCustomSaving] = useState(false)
+  const [customSpec, setCustomSpec] = useState({ providerId: '', name: '', baseUrl: '', apiKey: '' })
+  const [customError, setCustomError] = useState<string | null>(null)
+  const [customIds, setCustomIds] = useState<Set<string>>(new Set())
 
   const providers = snapshot?.providers ?? []
+  // snapshot 拉取已由 initListeners + onAgentRuntimeChanged 保证；避免打开
+  // dialog 时再触发一次全量 buildProviders + IPC 序列化，减少卡顿。
+
+  // Load persisted custom gateways once so rows can show a delete affordance.
+  useEffect(() => {
+    let cancelled = false
+    void getAgentApi()
+      .agentListCustomGateways?.()
+      .then((res) => {
+        if (cancelled || !res?.success || !res.data) return
+        setCustomIds(new Set(res.data.map((item) => item.providerId)))
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [snapshot])
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -73,6 +94,62 @@ export function AgentProviderSettings(): JSX.Element {
   }, [filtered])
 
   const activeOperation = dialogId ? authOperations[dialogId] : undefined
+  // 行内不再对每个 provider 做 Object.values 扫描；提到外层一次计算。
+  const runningByProvider = useMemo(() => {
+    const map: Record<string, AgentAuthOperation> = {}
+    for (const op of Object.values(authOperations)) {
+      if (op.status === 'running' || op.status === 'waiting') map[op.providerId] = op
+    }
+    return map
+  }, [authOperations])
+
+  const handleAddCustom = async (): Promise<void> => {
+    const providerId = customSpec.providerId.trim()
+    const baseUrl = customSpec.baseUrl.trim()
+    const name = customSpec.name.trim()
+    const apiKey = customSpec.apiKey.trim()
+    if (!providerId || !baseUrl) {
+      setCustomError('providerId 和 baseUrl 必填')
+      return
+    }
+    if (!/^https?:\/\//i.test(baseUrl)) {
+      setCustomError('baseUrl 需要以 http:// 或 https:// 开头')
+      return
+    }
+    setCustomSaving(true)
+    setCustomError(null)
+    try {
+      const res = await getAgentApi().agentAddCustomGateway?.({
+        providerId,
+        name: name || providerId,
+        baseUrl,
+        apiKey: apiKey || undefined
+      })
+      if (!res?.success) {
+        setCustomError(res?.error || '保存失败')
+        return
+      }
+      setCustomIds((prev) => new Set([...prev, providerId]))
+      setCustomSpec({ providerId: '', name: '', baseUrl: '', apiKey: '' })
+      setCustomOpen(false)
+    } finally {
+      setCustomSaving(false)
+    }
+  }
+
+  const handleRemoveCustom = async (providerId: string): Promise<void> => {
+    setBusyProvider(providerId)
+    try {
+      await getAgentApi().agentRemoveCustomGateway?.(providerId)
+      setCustomIds((prev) => {
+        const next = new Set(prev)
+        next.delete(providerId)
+        return next
+      })
+    } finally {
+      setBusyProvider(null)
+    }
+  }
 
   const handleLogin = async (provider: AgentProvider, type: 'api_key' | 'oauth'): Promise<void> => {
     setBusyProvider(provider.id)
@@ -112,11 +189,8 @@ export function AgentProviderSettings(): JSX.Element {
           <span className="text-caption text-text-secondary">{list.length}</span>
         </div>
         {visible.map((provider) => {
-          const isOpen = expanded[provider.id] ?? false
           const isBusy = busyProvider === provider.id
-          const running = Object.values(authOperations).find(
-            (op) => op.providerId === provider.id && (op.status === 'running' || op.status === 'waiting')
-          )
+          const running = runningByProvider[provider.id]
           return (
             <div key={provider.id} className="rounded-lg border border-gray-100 bg-white/60">
               <div className="flex items-start justify-between gap-3 px-3 py-2.5">
@@ -151,6 +225,17 @@ export function AgentProviderSettings(): JSX.Element {
                   )}
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
+                  {customIds.has(provider.id) && (
+                    <button
+                      type="button"
+                      onClick={() => void handleRemoveCustom(provider.id)}
+                      disabled={isBusy}
+                      className="w-6 h-6 rounded-md text-text-secondary hover:text-rose-600 hover:bg-rose-50 disabled:opacity-40 flex items-center justify-center transition-colors"
+                      title="移除自定义网关（重启后完全卸载）"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  )}
                   {provider.apiKeyAvailable && (
                     <button
                       type="button"
@@ -195,37 +280,27 @@ export function AgentProviderSettings(): JSX.Element {
                   >
                     <RefreshCw className={`w-3 h-3 ${isBusy ? 'animate-spin' : ''}`} />
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setExpanded((prev) => ({ ...prev, [provider.id]: !isOpen }))}
-                    className="w-6 h-6 rounded-md text-text-secondary hover:text-primary hover:bg-blue-50/60 flex items-center justify-center transition-colors"
-                    title="模型列表"
-                  >
-                    {isOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-                  </button>
                 </div>
               </div>
-              {isOpen && (
-                <div className="border-t border-gray-100 px-3 py-2 space-y-1 max-h-52 overflow-y-auto">
-                  {provider.models.length === 0 && (
-                    <div className="text-caption text-text-secondary">暂无模型目录</div>
-                  )}
-                  {provider.models.map((model) => (
-                    <div
-                      key={`${model.providerId}:${model.id}`}
-                      className={`flex items-center gap-2 text-caption ${model.available ? 'text-text-primary' : 'text-text-secondary/70'}`}
-                    >
-                      <span className="w-1 h-1 rounded-full bg-current shrink-0" />
-                      <span className="truncate">{model.name}</span>
-                      {model.reasoning && <span className="shrink-0 text-tiny text-primary/70">思考</span>}
-                      {model.input.includes('image') && <span className="shrink-0 text-tiny text-text-secondary">图像</span>}
-                      <span className="ml-auto shrink-0 font-mono text-tiny">
-                        {model.contextWindow ? `${Math.round(model.contextWindow / 1000)}k` : ''}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
+              <div className="border-t border-gray-100 px-3 py-2 space-y-1">
+                {provider.models.length === 0 && (
+                  <div className="text-caption text-text-secondary">暂无模型目录</div>
+                )}
+                {provider.models.map((model) => (
+                  <div
+                    key={`${model.providerId}:${model.id}`}
+                    className={`flex items-center gap-2 text-caption ${model.available ? 'text-text-primary' : 'text-text-secondary/70'}`}
+                  >
+                    <span className="w-1 h-1 rounded-full bg-current shrink-0" />
+                    <span className="truncate">{model.name}</span>
+                    {model.reasoning && <span className="shrink-0 text-tiny text-primary/70">思考</span>}
+                    {model.input.includes('image') && <span className="shrink-0 text-tiny text-text-secondary">图像</span>}
+                    <span className="ml-auto shrink-0 font-mono text-tiny">
+                      {model.contextWindow ? `${Math.round(model.contextWindow / 1000)}k` : ''}
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
           )
         })}
@@ -254,6 +329,72 @@ export function AgentProviderSettings(): JSX.Element {
           className="w-full pl-8 pr-3 py-1.5 rounded-lg glass-panel text-label text-text-primary placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary/20"
         />
       </div>
+
+      <div className="flex items-center justify-between">
+        <span className="text-caption text-text-secondary">自定义 OpenAI 兼容网关</span>
+        <button
+          type="button"
+          onClick={() => {
+            setCustomError(null)
+            setCustomOpen((prev) => !prev)
+          }}
+          className="flex items-center gap-1 px-2 py-1 rounded-md text-caption text-text-secondary hover:text-primary hover:bg-blue-50/60 transition-colors"
+        >
+          <Plus className="w-3 h-3" />
+          添加网关
+        </button>
+      </div>
+
+      {customOpen && (
+        <div className="rounded-lg border border-gray-100 bg-white/60 p-3 space-y-2">
+          <input
+            type="text"
+            value={customSpec.providerId}
+            onChange={(e) => setCustomSpec((prev) => ({ ...prev, providerId: e.target.value }))}
+            placeholder="providerId（如 my-gateway）"
+            className="w-full px-2 py-1.5 rounded-md glass-panel text-label text-text-primary placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary/20 font-mono"
+          />
+          <input
+            type="text"
+            value={customSpec.name}
+            onChange={(e) => setCustomSpec((prev) => ({ ...prev, name: e.target.value }))}
+            placeholder="显示名称（可选）"
+            className="w-full px-2 py-1.5 rounded-md glass-panel text-label text-text-primary placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary/20"
+          />
+          <input
+            type="text"
+            value={customSpec.baseUrl}
+            onChange={(e) => setCustomSpec((prev) => ({ ...prev, baseUrl: e.target.value }))}
+            placeholder="http://host:port/v1"
+            className="w-full px-2 py-1.5 rounded-md glass-panel text-label text-text-primary placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary/20 font-mono"
+          />
+          <input
+            type="password"
+            value={customSpec.apiKey}
+            onChange={(e) => setCustomSpec((prev) => ({ ...prev, apiKey: e.target.value }))}
+            placeholder="API Key（可选）"
+            className="w-full px-2 py-1.5 rounded-md glass-panel text-label text-text-primary placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary/20 font-mono"
+          />
+          {customError && <div className="text-caption text-rose-600">{customError}</div>}
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setCustomOpen(false)}
+              className="px-2 py-1 rounded-md text-caption text-text-secondary hover:text-text-primary transition-colors"
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleAddCustom()}
+              disabled={customSaving}
+              className="px-3 py-1 rounded-md bg-primary text-white text-caption font-medium hover:opacity-90 disabled:opacity-50 transition-colors"
+            >
+              {customSaving ? '保存中…' : '保存'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {snapshotLoading && providers.length === 0 && (
         <div className="text-caption text-text-secondary py-2">正在读取模型目录…</div>

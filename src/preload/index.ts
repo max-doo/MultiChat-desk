@@ -36,6 +36,7 @@ import type {
   AgentSessionStatus,
   AgentThinkingLevel
 } from '../shared/types/agentRuntime'
+import type { CompressionConfig } from '../shared/types/agentCompression'
 import type {
   WorkbenchFileNode,
   WorkbenchSearchResult,
@@ -59,6 +60,7 @@ interface FileData {
   fileName: string
   mimeType: string
   size: number
+  mtimeMs?: number
 }
 
 interface GetFileInfoResult {
@@ -703,7 +705,7 @@ const api = {
     ipcRenderer.invoke('agent:abort', { sessionId }),
   agentNewSession: (cwd?: string): Promise<{ success: boolean; data?: { sessionId: string }; error?: string }> =>
     ipcRenderer.invoke('agent:new-session', { cwd }),
-  agentListSessions: (): Promise<{ success: boolean; data?: Array<{ id: string; title: string; createdAt: number; updatedAt: number; cwd?: string; model?: string }>; error?: string }> =>
+  agentListSessions: (): Promise<{ success: boolean; data?: Array<{ id: string; title: string; createdAt: number; updatedAt: number; cwd?: string; model?: string; isRunning?: boolean }>; error?: string }> =>
     ipcRenderer.invoke('agent:list-sessions'),
   agentResumeSession: (sessionId: string): Promise<{ success: boolean; data?: unknown; error?: string }> =>
     ipcRenderer.invoke('agent:resume-session', { sessionId }),
@@ -754,6 +756,14 @@ const api = {
     ipcRenderer.invoke('agent:get-session-status', { sessionId }),
   agentSetThinkingLevel: (sessionId: string, level: AgentThinkingLevel): Promise<{ success: boolean; data?: AgentActiveModel; error?: string }> =>
     ipcRenderer.invoke('agent:set-thinking-level', { sessionId, level }),
+  agentCompact: (sessionId: string, instructions?: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('agent:compact', { sessionId, instructions }),
+  agentSetAutoCompaction: (sessionId: string, enabled: boolean): Promise<{ success: boolean; data?: AgentSessionStatus | null; error?: string }> =>
+    ipcRenderer.invoke('agent:set-auto-compaction', { sessionId, enabled }),
+  agentGetCompactionConfig: (): Promise<{ success: boolean; data?: CompressionConfig; error?: string }> =>
+    ipcRenderer.invoke('agent:get-compaction-config'),
+  agentSetCompactionConfig: (config: Partial<CompressionConfig>): Promise<{ success: boolean; data?: CompressionConfig; error?: string }> =>
+    ipcRenderer.invoke('agent:set-compaction-config', { config }),
   agentLoginProvider: (providerId: string, type: AgentAuthType): Promise<{ success: boolean; data?: AgentAuthOperation; error?: string }> =>
     ipcRenderer.invoke('agent:login-provider', { providerId, type }),
   agentRespondProviderAuth: (operationId: string, value: string): Promise<{ success: boolean; data?: AgentAuthOperation; error?: string }> =>
@@ -766,6 +776,12 @@ const api = {
     ipcRenderer.invoke('agent:logout-provider', { providerId }),
   agentRefreshProviderModels: (providerId: string): Promise<{ success: boolean; data?: AgentRuntimeSnapshot; error?: string }> =>
     ipcRenderer.invoke('agent:refresh-provider-models', { providerId }),
+  agentListCustomGateways: (): Promise<{ success: boolean; data?: Array<{ providerId: string; name: string; baseUrl: string; apiKey?: string }>; error?: string }> =>
+    ipcRenderer.invoke('agent:list-custom-gateways'),
+  agentAddCustomGateway: (spec: { providerId: string; name: string; baseUrl: string; apiKey?: string }): Promise<{ success: boolean; data?: AgentRuntimeSnapshot; error?: string }> =>
+    ipcRenderer.invoke('agent:add-custom-gateway', spec),
+  agentRemoveCustomGateway: (providerId: string): Promise<{ success: boolean; data?: AgentRuntimeSnapshot; error?: string }> =>
+    ipcRenderer.invoke('agent:remove-custom-gateway', { providerId }),
   onAgentProviderAuthChanged: (cb: (payload: { operation: AgentAuthOperation }) => void): (() => void) => {
     const handler = (_event: Electron.IpcRendererEvent, payload: { operation: AgentAuthOperation }): void => cb(payload)
     ipcRenderer.on('agent:provider-auth-changed', handler)
@@ -790,7 +806,17 @@ const api = {
     const handler = (_event: Electron.IpcRendererEvent, payload: { requestId: string; sessionId: string; toolCallId: string; toolName: string; args: Record<string, unknown>; reason: string }): void => cb(payload)
     ipcRenderer.on('agent:approval-request', handler)
     return () => { ipcRenderer.removeListener('agent:approval-request', handler) }
-  }
+  },
+  agentGetFileChanges: (sessionId: string): Promise<{ success: boolean; data?: import('../shared/types/agentRuntime').AgentTurnFileChanges | null; error?: string }> =>
+    ipcRenderer.invoke('agent:get-file-changes', { sessionId }),
+  agentRevertFileChanges: (sessionId: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('agent:revert-file-changes', { sessionId }),
+  agentReapplyFileChanges: (sessionId: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('agent:reapply-file-changes', { sessionId }),
+  agentRevealFile: (absolutePath: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('agent:reveal-file', { path: absolutePath }),
+  agentCheckFilesStale: (sessionId: string, paths: string[], kind: 'baseline' | 'target'): Promise<{ success: boolean; data?: Record<string, boolean>; error?: string }> =>
+    ipcRenderer.invoke('agent:check-files-stale', { sessionId, paths, kind })
 }
 
 // 暴露 API 到渲染进程

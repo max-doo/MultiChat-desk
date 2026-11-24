@@ -106,6 +106,41 @@ body {
   animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
+/* 文本高光扫过：用于"思考中"等进行中状态。
+   关键：渐变图设为容器 200% 且水平无限平铺（repeat-x），
+   亮带只占中间一小段，任何 position 下文字都被渐变完整覆盖、不会消失。 */
+@keyframes text-shimmer {
+  0% {
+    background-position: 100% center;
+  }
+  100% {
+    background-position: -100% center;
+  }
+}
+
+.text-shimmer {
+  background-image: linear-gradient(
+    100deg,
+    rgb(148 163 184) 0%,
+    rgb(148 163 184) 42%,
+    rgb(241 245 249) 50%,
+    rgb(148 163 184) 58%,
+    rgb(148 163 184) 100%
+  );
+  background-size: 200% 100%;
+  background-repeat: repeat-x;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: text-shimmer 1.6s linear infinite;
+}
+
+/* 包在容器上时让子级文字也透出高光（svg 图标不受 text-fill 影响） */
+.text-shimmer,
+.text-shimmer *:not(svg):not(svg *) {
+  -webkit-text-fill-color: transparent;
+}
+
 /* 模态弹窗入场动画（供 ui/Modal 使用） */
 @keyframes modal-fade-in {
   from { opacity: 0; }
@@ -883,5 +918,139 @@ webview[tabindex="-1"] {
 }
 .pdf-text-layer .markedContent {
   display: contents;
+}
+
+/* ========================================================================= */
+/* MultiChat Agent 输入框灵动流光微动效系统                                 */
+/* ========================================================================= */
+
+@property --angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
+@keyframes rotate-border {
+  0% { --angle: 0deg; }
+  100% { --angle: 360deg; }
+}
+
+@keyframes aura-breathe {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50% { opacity: 0.85; transform: scale(1.015); }
+}
+
+@keyframes avatar-float {
+  0%, 100% { transform: translateY(0px) scale(1); }
+  50% { transform: translateY(-4px) scale(1.03); }
+}
+
+.avatar-breathing {
+  animation: avatar-float 4.5s ease-in-out infinite;
+}
+
+/* 1. 外层弥散流光气场 (Ambient Flowing Aura: 12px 模糊，灵动流动) */
+.composer-ambient-aura {
+  position: absolute;
+  inset: -5px;
+  border-radius: 20px;
+  background: conic-gradient(
+    from var(--angle),
+    #3b82f6 0deg,
+    #FFC8DA 90deg,
+    #3b82f6 180deg,
+    #D2E8FF 270deg,
+    #3b82f6 360deg
+  );
+  filter: blur(12px);
+  z-index: 1;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* 2. 贴身柔化流光边缘 (Close Feathered Flow: 3px 柔化羽化，拒绝硬粗实线) */
+.composer-feathered-flow {
+  position: absolute;
+  inset: -1px;
+  border-radius: 17px;
+  background: conic-gradient(
+    from var(--angle),
+    #3b82f6 0deg,
+    #FFC8DA 90deg,
+    #3b82f6 180deg,
+    #D2E8FF 270deg,
+    #3b82f6 360deg
+  );
+  filter: blur(3px);
+  z-index: 2;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* 聚焦时激活流光旋转 (失焦时动画完全休眠) */
+.group:focus-within .composer-ambient-aura,
+.composer-focused .composer-ambient-aura {
+  opacity: 0.55;
+  animation: rotate-border 4s linear infinite, aura-breathe 3.5s ease-in-out infinite;
+}
+
+.group:focus-within .composer-feathered-flow,
+.composer-focused .composer-feathered-flow {
+  opacity: 0.7;
+  animation: rotate-border 4s linear infinite;
+}
+
+/* 输入框实体表面 */
+.composer-surface {
+  position: relative;
+  z-index: 10;
+  border-radius: 16px;
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  background-color: #ffffff;
+  box-shadow: 0 2px 8px -1px rgba(0, 0, 0, 0.06), 0 1px 3px -1px rgba(0, 0, 0, 0.04);
+  transition: all 0.25s ease;
+}
+
+.composer-surface:hover {
+  border-color: rgba(203, 213, 225, 0.9);
+  box-shadow: 0 4px 12px -2px rgba(0, 0, 0, 0.08), 0 2px 4px -1px rgba(0, 0, 0, 0.04);
+}
+
+.group:focus-within .composer-surface,
+.composer-focused .composer-surface {
+  border-color: rgba(203, 213, 225, 0.8) !important;
+  background-color: #ffffff !important;
+  box-shadow: 0 4px 20px -3px rgba(59, 130, 246, 0.14), 0 2px 6px -1px rgba(0, 0, 0, 0.04) !important;
+}
+
+/* 深色模式下的极光羽化与输入框实体 */
+.dark .composer-surface {
+  border-color: rgba(255, 255, 255, 0.09);
+  background-color: #1e293b;
+  box-shadow: 0 2px 8px -1px rgba(0, 0, 0, 0.35);
+}
+
+.dark .composer-surface:hover {
+  border-color: rgba(255, 255, 255, 0.14);
+  box-shadow: 0 4px 14px -2px rgba(0, 0, 0, 0.45);
+}
+
+.dark .group:focus-within .composer-ambient-aura,
+.dark .composer-focused .composer-ambient-aura {
+  opacity: 0.65;
+}
+
+.dark .group:focus-within .composer-feathered-flow,
+.dark .composer-focused .composer-feathered-flow {
+  opacity: 0.8;
+}
+
+.dark .group:focus-within .composer-surface,
+.dark .composer-focused .composer-surface {
+  border-color: rgba(255, 255, 255, 0.18) !important;
+  background-color: #1e293b !important;
+  box-shadow: 0 6px 24px -3px rgba(0, 0, 0, 0.5) !important;
 }
 

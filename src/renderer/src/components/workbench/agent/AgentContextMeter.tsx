@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Gauge } from 'lucide-react'
+import { Gauge, ChevronsToAxisHorizontal } from 'lucide-react'
 import { useAgentSessionStore } from '../../../store/agentSessionStore'
 import { AgentPopover } from './AgentPopover'
 
@@ -18,11 +18,15 @@ export function formatTokens(value: number): string {
 export function AgentContextMeter(): JSX.Element | null {
   const status = useAgentSessionStore((s) => s.sessionStatus)
   const snapshot = useAgentSessionStore((s) => s.snapshot)
+  const isCompacting = useAgentSessionStore((s) => s.isCompacting)
+  const compact = useAgentSessionStore((s) => s.compact)
+  const currentSessionId = useAgentSessionStore((s) => s.currentSessionId)
   const [open, setOpen] = useState(false)
 
   const stats = status ? status.stats : snapshot?.stats ?? null
   const cost = stats?.cost ?? 0
   const context = status ? status.context : snapshot?.context ?? null
+  const compaction = status?.compaction ?? null
   const tokens = context?.tokens ?? null
   const percent = context?.percent ?? null
   const known = tokens !== null && percent !== null
@@ -62,11 +66,11 @@ export function AgentContextMeter(): JSX.Element | null {
       <button
         type="button"
         onClick={() => setOpen((prev) => !prev)}
-        className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-slate-200/60 transition-colors cursor-pointer group"
+        className={`w-7 h-7 rounded-full flex items-center justify-center hover:bg-slate-200/60 transition-colors cursor-pointer group ${isCompacting ? 'animate-pulse' : ''}`}
         title={titleText}
       >
         <svg
-          className="w-4 h-4 transform -rotate-90"
+          className={`w-4 h-4 transform -rotate-90 ${isCompacting ? 'animate-spin' : ''}`}
           viewBox="0 0 20 20"
         >
           {/* 背景底环 */}
@@ -114,14 +118,16 @@ export function AgentContextMeter(): JSX.Element | null {
             {known && (
               <span
                 className={`px-1.5 py-0.5 rounded-full text-tiny font-semibold ${
-                  percentRounded! > 90
+                  isCompacting
+                    ? 'bg-violet-50 text-violet-600'
+                    : percentRounded! > 90
                     ? 'bg-rose-50 text-rose-600'
                     : percentRounded! > 70
                     ? 'bg-amber-50 text-amber-600'
                     : 'bg-primary/10 text-primary'
                 }`}
               >
-                {percentRounded}% 已用
+                {isCompacting ? '压缩中…' : `${percentRounded}% 已用`}
               </span>
             )}
           </div>
@@ -149,6 +155,22 @@ export function AgentContextMeter(): JSX.Element | null {
             ) : (
               <div className="text-text-secondary leading-relaxed text-caption py-1">
                 上下文占用将在下次模型响应后更新
+              </div>
+            )}
+
+            {compaction && (
+              <div className="flex items-center justify-between text-caption text-slate-600">
+                <span>上下文压缩</span>
+                <button
+                  type="button"
+                  disabled={isCompacting || !currentSessionId}
+                  onClick={() => void compact()}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-tiny font-medium text-primary hover:bg-primary/10 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  title={isCompacting ? '压缩进行中' : '立即压缩上下文'}
+                >
+                  <ChevronsToAxisHorizontal className="w-3 h-3" />
+                  {isCompacting ? '压缩中…' : '立即压缩'}
+                </button>
               </div>
             )}
 
