@@ -154,7 +154,7 @@ export default function WorkbenchLinkHoverPlugin(): JSX.Element | null {
   return createPortal(
     <div
       role="tooltip"
-      className="pointer-events-none fixed z-[130] rounded-md bg-gray-900/95 px-2 py-1 text-[11px] leading-relaxed text-white shadow-lg ring-1 ring-black/10 dark:bg-gray-950/95"
+      className="pointer-events-none fixed z-[130] rounded-md bg-gray-900/95 px-2 py-1 text-caption leading-relaxed text-white shadow-lg ring-1 ring-black/10 dark:bg-gray-950/95"
       style={{
         left: tip.left,
         top: tip.top,

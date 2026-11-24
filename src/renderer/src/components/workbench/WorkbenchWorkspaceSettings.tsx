@@ -494,7 +494,7 @@ export default function WorkbenchWorkspaceSettings({
       />
 
       {/* 顶部标签栏 */}
-      <div className="flex shrink-0 gap-5 border-b border-black/5 bg-white px-4 pt-2.5 text-xs dark:border-white/5 dark:bg-gray-800">
+      <div className="flex shrink-0 gap-5 border-b border-black/5 bg-white px-4 pt-2.5 text-body dark:border-white/5 dark:bg-gray-800">
         <button
           type="button"
           onClick={() => setActiveTab('sync')}
@@ -517,7 +517,7 @@ export default function WorkbenchWorkspaceSettings({
         >
           <span>存储与维护</span>
           {migrationPendingCount + migrationBlockedCount > 0 && (
-            <span className="rounded-full bg-amber-100 px-1.5 py-0.2 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+            <span className="rounded-full bg-amber-100 px-1.5 py-0.2 text-tiny font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
               {migrationPendingCount + migrationBlockedCount}
             </span>
           )}
@@ -527,7 +527,7 @@ export default function WorkbenchWorkspaceSettings({
       <div className="flex h-[470px] max-h-[min(640px,calc(100vh-80px))] min-h-0 flex-1 flex-col">
         <div className="flex min-h-0 flex-1 flex-col space-y-4 overflow-y-auto p-4">
           {error && (
-            <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300">
+            <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-body text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300">
               {error}
             </div>
           )}
@@ -535,18 +535,18 @@ export default function WorkbenchWorkspaceSettings({
           {activeTab === 'sync' ? (
             <>
               {largeUntracked.length > 0 && (
-                <div className="rounded-lg border border-amber-200 bg-amber-50/70 p-2.5 text-xs text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+                <div className="rounded-lg border border-amber-200 bg-amber-50/70 p-2.5 text-body text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
                   <div className="flex items-center justify-between font-medium">
                     <span className="flex items-center gap-1.5">
-                      <AppIcon name="warning" size={13} className="text-amber-600 dark:text-amber-400" />
+                      <AppIcon name="warning" size={16} className="text-amber-600 dark:text-amber-400" />
                       发现未跟踪的大文件
                     </span>
-                    <span className="font-mono text-[11px] text-amber-700 dark:text-amber-300">
+                    <span className="font-mono text-caption text-amber-700 dark:text-amber-300">
                       {formatSize(largeUntracked[0].size)}
                     </span>
                   </div>
                   <div
-                    className="mt-1 truncate font-mono text-[11px] text-amber-800 dark:text-amber-300"
+                    className="mt-1 truncate font-mono text-caption text-amber-800 dark:text-amber-300"
                     title={largeUntracked.map((item) => item.path).join('\n')}
                   >
                     {largeUntracked[0].path}
@@ -561,7 +561,7 @@ export default function WorkbenchWorkspaceSettings({
                           addPatterns([ext.startsWith('*.') ? ext : `*.${ext}`])
                           setSaved(false)
                         }}
-                        className="rounded bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800 hover:bg-amber-200 dark:bg-amber-900/60 dark:text-amber-200 dark:hover:bg-amber-800"
+                        className="rounded bg-amber-100 px-2 py-0.5 text-caption font-medium text-amber-800 hover:bg-amber-200 dark:bg-amber-900/60 dark:text-amber-200 dark:hover:bg-amber-800"
                       >
                         + 忽略 {ext.startsWith('*.') ? ext : `*.${ext}`}
                       </button>
@@ -573,8 +573,8 @@ export default function WorkbenchWorkspaceSettings({
               {/* 远程仓库 */}
               <section>
                 <div className="mb-1.5 flex items-baseline justify-between gap-3">
-                  <h3 className="text-xs font-medium text-text-primary">远程仓库</h3>
-                  <span className="font-mono text-[11px] text-text-secondary">origin</span>
+                  <h3 className="text-body font-semibold text-text-primary">远程仓库</h3>
+                  <span className="font-mono text-caption text-text-secondary">origin</span>
                 </div>
                 <input
                   value={remoteUrl}
@@ -591,16 +591,16 @@ export default function WorkbenchWorkspaceSettings({
                       : 'https://github.com/user/repo.git'
                   }
                   aria-label="远程仓库地址"
-                  className="h-8 w-full rounded-lg border border-slate-200 bg-slate-50/80 px-2.5 font-mono text-xs text-text-primary focus:border-primary focus:bg-white focus:outline-none disabled:bg-slate-100/70 disabled:text-text-secondary/70 dark:border-slate-700/80 dark:bg-slate-800/50 dark:disabled:bg-slate-800/30 dark:focus:bg-gray-900"
+                  className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50/80 px-2.5 font-mono text-body text-text-primary focus:border-primary focus:bg-white focus:outline-none disabled:bg-slate-100/70 disabled:text-text-secondary/70 dark:border-slate-700/80 dark:bg-slate-800/50 dark:disabled:bg-slate-800/30 dark:focus:bg-gray-900"
                 />
-                {isSavingRemote && <p className="mt-1 text-[11px] text-text-secondary">正在保存远程地址…</p>}
+                {isSavingRemote && <p className="mt-1 text-caption text-text-secondary">正在保存远程地址…</p>}
               </section>
 
               {/* 忽略规则 */}
               <section>
                 <div className="mb-2 flex items-baseline justify-between gap-3">
-                  <h3 className="text-xs font-medium text-text-primary">忽略规则</h3>
-                  <span className="font-mono text-[11px] text-text-secondary" title="工作区根目录的 .gitignore">
+                  <h3 className="text-body font-semibold text-text-primary">忽略规则</h3>
+                  <span className="font-mono text-caption text-text-secondary" title="工作区根目录的 .gitignore">
                     {isLoading ? '读取中…' : isIgnoreDirty ? '未保存' : '.gitignore'}
                   </span>
                 </div>
@@ -620,7 +620,7 @@ export default function WorkbenchWorkspaceSettings({
                             state === 'partial' ? '\n\n当前只应用了部分规则，点击补齐' : ''
                           }`}
                           onClick={() => toggleCategory(category)}
-                          className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium transition-all ${
+                          className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-body font-medium transition-all ${
                             state === 'all'
                               ? 'border border-blue-200 bg-blue-50 text-blue-700 shadow-xs dark:border-blue-800/80 dark:bg-blue-950/60 dark:text-blue-300'
                               : state === 'partial'
@@ -651,7 +651,7 @@ export default function WorkbenchWorkspaceSettings({
 
                 {/* 直接可见的 .gitignore 编辑区 */}
                 <div className="overflow-hidden rounded-lg border border-slate-200 bg-slate-50/70 shadow-inner dark:border-slate-700/80 dark:bg-slate-950">
-                  <div className="flex items-center justify-between border-b border-slate-200 bg-slate-100/80 px-2.5 py-1.5 font-mono text-[11px] text-text-secondary dark:border-slate-800 dark:bg-slate-900/80">
+                  <div className="flex items-center justify-between border-b border-slate-200 bg-slate-100/80 px-2.5 py-1.5 font-mono text-caption text-text-secondary dark:border-slate-800 dark:bg-slate-900/80">
                     <span>规则源码</span>
                     <span>{ignoreLineCount} 行</span>
                   </div>
@@ -666,7 +666,7 @@ export default function WorkbenchWorkspaceSettings({
                     aria-label=".gitignore 内容"
                     placeholder="*.log"
                     rows={8}
-                    className="block w-full resize-y bg-transparent p-2.5 font-mono text-xs leading-relaxed text-text-primary focus:outline-none"
+                    className="block w-full resize-y bg-transparent p-2.5 font-mono text-body leading-relaxed text-text-primary focus:outline-none"
                   />
                 </div>
               </section>
@@ -676,8 +676,8 @@ export default function WorkbenchWorkspaceSettings({
               {/* 会话归档 */}
               <section>
                 <div className="mb-1.5 flex items-baseline justify-between gap-3">
-                  <h3 className="text-xs font-medium text-text-primary">会话归档目录</h3>
-                  <span className="font-mono text-[11px] text-text-secondary">工作区相对路径</span>
+                  <h3 className="text-body font-semibold text-text-primary">会话归档目录</h3>
+                  <span className="font-mono text-caption text-text-secondary">工作区相对路径</span>
                 </div>
                 <input
                   value={conversationDirDraft}
@@ -687,10 +687,10 @@ export default function WorkbenchWorkspaceSettings({
                   }}
                   placeholder="conversations"
                   aria-label="会话归档目录"
-                  className="h-8 w-full rounded-lg border border-slate-200 bg-slate-50/80 px-2.5 font-mono text-xs text-text-primary focus:border-primary focus:bg-white focus:outline-none dark:border-slate-700/80 dark:bg-slate-800/50 dark:focus:bg-gray-900"
+                  className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50/80 px-2.5 font-mono text-body text-text-primary focus:border-primary focus:bg-white focus:outline-none dark:border-slate-700/80 dark:bg-slate-800/50 dark:focus:bg-gray-900"
                 />
                 {conversationDirWarning && (
-                  <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
+                  <p className="mt-1 text-caption text-amber-600 dark:text-amber-400">
                     {conversationDirWarning}
                   </p>
                 )}
@@ -699,27 +699,27 @@ export default function WorkbenchWorkspaceSettings({
               {/* 默认会话库 */}
               <section className="rounded-lg border border-slate-200/80 bg-slate-50/60 p-2.5 dark:border-slate-800 dark:bg-slate-800/40">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-xs font-medium text-text-primary">全局默认会话库</h3>
+                  <h3 className="text-body font-semibold text-text-primary">全局默认会话库</h3>
                   {defaultWorkspaceError ? (
-                    <span className="flex items-center gap-1 text-[11px] font-medium text-rose-600 dark:text-rose-400">
-                      <AppIcon name="warning" size={13} />
+                    <span className="flex items-center gap-1 text-caption font-medium text-rose-600 dark:text-rose-400">
+                      <AppIcon name="warning" size={16} />
                       不可用
                     </span>
                   ) : defaultWorkspace && !defaultWorkspace.writable ? (
-                    <span className="flex items-center gap-1 text-[11px] font-medium text-amber-600 dark:text-amber-400">
-                      <AppIcon name="warning" size={13} />
+                    <span className="flex items-center gap-1 text-caption font-medium text-amber-600 dark:text-amber-400">
+                      <AppIcon name="warning" size={16} />
                       无写入权限
                     </span>
                   ) : null}
                 </div>
                 <p
-                  className="mt-1 truncate font-mono text-[11px] text-text-secondary"
+                  className="mt-1 truncate font-mono text-caption text-text-secondary"
                   title={defaultWorkspace?.path}
                 >
                   {defaultWorkspace?.path ?? defaultWorkspaceError ?? '—'}
                 </p>
                 {defaultWorkspace?.legacyPath && (
-                  <p className="mt-1 truncate font-mono text-[11px] text-amber-600 dark:text-amber-400" title={defaultWorkspace.legacyPath}>
+                  <p className="mt-1 truncate font-mono text-caption text-amber-600 dark:text-amber-400" title={defaultWorkspace.legacyPath}>
                     旧缓存位置：{defaultWorkspace.legacyPath}
                   </p>
                 )}
@@ -731,24 +731,24 @@ export default function WorkbenchWorkspaceSettings({
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="flex items-center gap-1.5">
-                      <h3 className="text-xs font-medium text-text-primary">旧笔记迁移</h3>
+                      <h3 className="text-body font-semibold text-text-primary">旧笔记迁移</h3>
                       {migrationPending?.pendingConversations ? (
-                        <span className="rounded bg-amber-50 px-1.5 py-0.2 text-[10px] font-medium text-amber-700 dark:bg-amber-950/60 dark:text-amber-400">
+                        <span className="rounded bg-amber-50 px-1.5 py-0.2 text-tiny font-medium text-amber-700 dark:bg-amber-950/60 dark:text-amber-400">
                           {migrationPending.pendingConversations} 条待迁移
                         </span>
                       ) : migrationPending?.blockedConversations ? (
-                        <span className="rounded bg-rose-50 px-1.5 py-0.2 text-[10px] font-medium text-rose-700 dark:bg-rose-950/60 dark:text-rose-400">
+                        <span className="rounded bg-rose-50 px-1.5 py-0.2 text-tiny font-medium text-rose-700 dark:bg-rose-950/60 dark:text-rose-400">
                           {migrationPending.blockedConversations} 条阻塞
                         </span>
                       ) : null}
                     </div>
                     {migrationPending && (
-                      <p className="mt-0.5 text-[11px] text-text-secondary">
+                      <p className="mt-0.5 text-caption text-text-secondary">
                         {migrationPending.pendingAnnotations} 条标注 · {migrationPending.pendingMindmaps} 张导图
                       </p>
                     )}
                     {migrationLoadError && (
-                      <p className="mt-0.5 text-[11px] text-rose-600 dark:text-rose-400">
+                      <p className="mt-0.5 text-caption text-rose-600 dark:text-rose-400">
                         {migrationLoadError}
                       </p>
                     )}
@@ -758,7 +758,7 @@ export default function WorkbenchWorkspaceSettings({
                       <button
                         type="button"
                         onClick={() => void pauseMigration()}
-                        className="rounded px-2 py-1 text-xs text-text-secondary hover:bg-black/5 dark:hover:bg-white/5"
+                        className="rounded px-2 py-1 text-body text-text-secondary hover:bg-black/5 dark:hover:bg-white/5"
                       >
                         暂停
                       </button>
@@ -771,7 +771,7 @@ export default function WorkbenchWorkspaceSettings({
                             ? resumeMigration()
                             : migrateLegacy(migrationPending?.job?.jobId))
                         }
-                        className="rounded bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-600 hover:bg-blue-100 dark:bg-blue-950/60 dark:text-blue-400 dark:hover:bg-blue-900/50 disabled:opacity-40"
+                        className="rounded bg-blue-50 px-2.5 py-1 text-body font-medium text-blue-600 hover:bg-blue-100 dark:bg-blue-950/60 dark:text-blue-400 dark:hover:bg-blue-900/50 disabled:opacity-40"
                       >
                         {migrationPending?.job?.status === 'paused' ? '继续迁移' : '开始迁移'}
                       </button>
@@ -780,7 +780,7 @@ export default function WorkbenchWorkspaceSettings({
                       <button
                         type="button"
                         onClick={() => void abandonMigration()}
-                        className="text-xs text-text-secondary hover:text-rose-500"
+                        className="text-body text-text-secondary hover:text-rose-500"
                       >
                         放弃
                       </button>
@@ -789,7 +789,7 @@ export default function WorkbenchWorkspaceSettings({
                 </div>
 
                 {migrationProgress && (
-                  <div className="mt-2.5 space-y-1.5 border-t border-slate-100 pt-2 text-[11px] dark:border-slate-800">
+                  <div className="mt-2.5 space-y-1.5 border-t border-slate-100 pt-2 text-caption dark:border-slate-800">
                     <div className="flex justify-between text-text-secondary">
                       <span className="truncate">{migrationProgress.currentTitle || '迁移中'}</span>
                       <span className="font-mono">
@@ -813,7 +813,7 @@ export default function WorkbenchWorkspaceSettings({
                 )}
 
                 {migrationResult && (
-                  <div className="mt-2 space-y-1 border-t border-slate-100 pt-2 text-[11px] text-text-secondary dark:border-slate-800">
+                  <div className="mt-2 space-y-1 border-t border-slate-100 pt-2 text-caption text-text-secondary dark:border-slate-800">
                     <p>
                       完成 {migrationResult.migrated} · 阻塞 {migrationResult.blocked} · 失败 {migrationResult.failed}
                     </p>
@@ -825,7 +825,7 @@ export default function WorkbenchWorkspaceSettings({
                     {migrationPending.blockedRecords.slice(0, 3).map((item) => (
                       <div key={item.id} className="flex items-center justify-between gap-2">
                         <span
-                          className="min-w-0 truncate text-[11px] text-text-secondary"
+                          className="min-w-0 truncate text-caption text-text-secondary"
                           title={`${item.title}：${blockedReasonLabel(item.reason)}`}
                         >
                           {item.title}
@@ -833,7 +833,7 @@ export default function WorkbenchWorkspaceSettings({
                         <button
                           type="button"
                           onClick={() => void retryBlocked(item.id)}
-                          className="shrink-0 text-[11px] text-blue-600 hover:underline"
+                          className="shrink-0 text-caption text-blue-600 hover:underline"
                         >
                           重试
                         </button>
@@ -849,8 +849,8 @@ export default function WorkbenchWorkspaceSettings({
                 <section className="rounded-lg border border-slate-200/80 p-3 dark:border-slate-800">
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
-                      <h3 className="text-xs font-medium text-text-primary">迁移备份</h3>
-                      <p className="mt-0.5 text-[11px] text-text-secondary">
+                      <h3 className="text-body font-semibold text-text-primary">迁移备份</h3>
+                      <p className="mt-0.5 text-caption text-text-secondary">
                         {backups.files} 份 · {formatSize(backups.bytes)}
                         {backups.orphans > 0 ? ` · ${backups.orphans} 份正文已缺失` : ''}
                       </p>
@@ -859,7 +859,7 @@ export default function WorkbenchWorkspaceSettings({
                       type="button"
                       disabled={backupBusy}
                       onClick={() => void clearBackups()}
-                      className="shrink-0 rounded px-2 py-1 text-xs text-text-secondary hover:bg-black/5 hover:text-rose-500 disabled:opacity-40 dark:hover:bg-white/5"
+                      className="shrink-0 rounded px-2 py-1 text-body text-text-secondary hover:bg-black/5 hover:text-rose-500 disabled:opacity-40 dark:hover:bg-white/5"
                     >
                       {backupBusy ? '清理中' : '清理'}
                     </button>
@@ -867,18 +867,18 @@ export default function WorkbenchWorkspaceSettings({
                   <div className="mt-2 space-y-1 border-t border-slate-100 pt-2 dark:border-slate-800">
                     {backups.groups.slice(0, 3).map((group) => (
                       <div key={group.workspaceRoot} className="flex items-center justify-between gap-2">
-                        <span className="min-w-0 truncate font-mono text-[11px] text-text-secondary" title={group.workspaceRoot}>
+                        <span className="min-w-0 truncate font-mono text-caption text-text-secondary" title={group.workspaceRoot}>
                           {group.workspaceRoot}
                         </span>
-                        <span className="shrink-0 font-mono text-[11px] text-text-secondary">{group.files}</span>
+                        <span className="shrink-0 font-mono text-caption text-text-secondary">{group.files}</span>
                       </div>
                     ))}
                     {backups.groups.length > 3 && (
-                      <p className="text-[11px] text-text-secondary">等 {backups.groups.length} 个工作区</p>
+                      <p className="text-caption text-text-secondary">等 {backups.groups.length} 个工作区</p>
                     )}
                   </div>
                   {backupNotice && (
-                    <p className="mt-1.5 text-[11px] text-emerald-600 dark:text-emerald-400">{backupNotice}</p>
+                    <p className="mt-1.5 text-caption text-emerald-600 dark:text-emerald-400">{backupNotice}</p>
                   )}
                 </section>
               )}
@@ -888,7 +888,7 @@ export default function WorkbenchWorkspaceSettings({
 
         {/* 底部保存与状态操作栏 */}
         <div className="flex shrink-0 items-center justify-between border-t border-black/5 bg-black/[0.02] px-4 py-2.5 dark:border-white/5 dark:bg-white/[0.02]">
-          <div className="text-[11px] text-text-secondary">
+          <div className="text-caption text-text-secondary">
             {isDirty ? (
               <span className="font-medium text-amber-600 dark:text-amber-400">未保存改动</span>
             ) : saved ? (
@@ -899,7 +899,7 @@ export default function WorkbenchWorkspaceSettings({
             <button
               type="button"
               onClick={requestClose}
-              className="rounded-lg px-3 py-1.5 text-xs text-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+              className="rounded-lg px-3 py-1.5 text-body text-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
             >
               取消
             </button>
@@ -907,7 +907,7 @@ export default function WorkbenchWorkspaceSettings({
               type="button"
               onClick={() => void save()}
               disabled={isSaving || isSavingRemote || conversationSaving || isLoading || !isDirty}
-              className="min-w-[68px] rounded-lg bg-primary px-4 py-1.5 text-xs font-medium text-white hover:bg-primary/90 transition-all shadow-xs disabled:opacity-40 disabled:pointer-events-none"
+              className="min-w-[68px] rounded-lg bg-primary px-4 py-1.5 text-body font-medium text-white hover:bg-primary/90 transition-all shadow-xs disabled:opacity-40 disabled:pointer-events-none"
             >
               {isSaving || isSavingRemote || conversationSaving ? '保存中' : '保存'}
             </button>

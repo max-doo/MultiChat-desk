@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { AppIcon } from './icons/AppIcon'
+import Modal from './ui/Modal'
 
 interface ConfirmModalProps {
   isOpen: boolean
@@ -26,7 +27,6 @@ function ConfirmModal({
   onCancel,
   type = 'danger'
 }: ConfirmModalProps): JSX.Element | null {
-  if (!isOpen) return null
   const [isConfirming, setIsConfirming] = useState(false)
 
   const handleConfirm = async (): Promise<void> => {
@@ -65,42 +65,33 @@ function ConfirmModal({
   const theme = getThemeClasses()
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-      {/* 遮罩层 */}
-      <div 
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
-        onClick={onCancel}
-      />
-      
-      {/* 弹窗内容 */}
-      <div className="relative w-full max-w-sm bg-app border border-gray-200 rounded-xl shadow-2xl p-6 animate-in zoom-in-95 duration-200">
-        <div className="flex items-center gap-3 mb-4">
-          <AppIcon name={theme.iconName} size={30} className={`text-3xl ${theme.icon}`} />
-          <h3 className="text-xl font-semibold text-text-primary">{title}</h3>
+    <Modal open={isOpen} onClose={onCancel} size="sm" variant="solid">
+      <div className="p-5">
+        <div className="mb-4 flex items-center gap-3">
+          <AppIcon name={theme.iconName} size={20} className={theme.icon} />
+          <h3 className="text-title font-semibold text-text-primary">{title}</h3>
         </div>
-        
-        <p className="text-text-secondary mb-8 leading-relaxed">
-          {message}
-        </p>
-        
+
+        <p className="mb-6 text-body leading-relaxed text-text-secondary">{message}</p>
+
         <div className="flex gap-3">
           <button
             onClick={onCancel}
             disabled={isConfirming}
-            className="flex-1 px-4 py-2 bg-sidebar text-text-secondary rounded-lg hover:bg-gray-100 transition-colors font-medium"
+            className="h-9 flex-1 rounded-lg bg-sidebar px-4 text-body font-medium text-text-secondary transition-colors hover:bg-gray-100 disabled:opacity-50"
           >
             {cancelText}
           </button>
           <button
             onClick={handleConfirm}
             disabled={isConfirming}
-            className={`flex-1 px-4 py-2 text-text-primary rounded-lg transition-colors font-medium ${theme.button}`}
+            className={`h-9 flex-1 rounded-lg px-4 text-body font-medium text-white transition-colors disabled:opacity-50 ${theme.button}`}
           >
             {confirmText}
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   )
 }
 

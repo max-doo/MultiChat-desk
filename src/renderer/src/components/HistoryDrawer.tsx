@@ -221,7 +221,7 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
               >
                 <img src={logo} alt="MultiChat Logo" className="w-7 h-7 object-contain" />
                 <span className="font-semibold text-primary text-sm tracking-wide">MultiChat</span>
-                <span className="text-[9px] leading-none font-bold text-red-500 bg-red-50 border border-red-200 px-1.5 py-1 rounded-full">NEW</span>
+                <span className="text-tiny leading-none font-bold text-red-500 bg-red-50 border border-red-200 px-1.5 py-1 rounded-full">NEW</span>
               </button>
             ) : (
               <div className="flex items-center gap-2 text-text-primary">
@@ -393,7 +393,7 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
                             <div className="flex items-center gap-2">
                               <span>{new Date(item.createdAt).toLocaleString('zh-CN')}</span>
                               {item.productMode && (
-                                <span className="px-1.5 py-0.5 rounded text-[10px] bg-primary/10 text-primary border border-primary/20 leading-none">
+                                <span className="px-1.5 py-0.5 rounded text-tiny bg-primary/10 text-primary border border-primary/20 leading-none">
                                   {item.productMode === 'multi_ai' ? '多模型' : item.productMode === 'task_assignment' ? '任务分发' : '双主辩论'}
                                 </span>
                               )}

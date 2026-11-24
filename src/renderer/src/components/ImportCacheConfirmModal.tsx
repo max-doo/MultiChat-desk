@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { AppIcon } from './icons/AppIcon'
+import Modal, { ModalHeader, ModalFooter } from './ui/Modal'
 interface ImportCacheConfirmModalProps {
   isOpen: boolean
   file: string
@@ -38,61 +38,56 @@ function ImportCacheConfirmModal({
   const [overwriteBusiness, setOverwriteBusiness] = useState(false)
   const [importing, setImporting] = useState(false)
   useEffect(() => { if (isOpen) setOverwriteBusiness(false) }, [isOpen])
-  if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/60" onClick={onCancel} />
-      <div className="relative w-[520px] max-h-[80vh] bg-app border border-gray-200 rounded-lg shadow-2xl flex flex-col">
-        {/* 头部 */}
-        <div className="flex items-center justify-between p-4 border-b border-gray-200">
-          <h3 className="text-lg font-semibold text-text-primary">恢复配置与业务数据</h3>
-          <button onClick={onCancel} className="text-text-secondary hover:text-text-primary transition-colors">
-            <AppIcon name="close" />
-          </button>
+    <Modal open={isOpen} onClose={onCancel} size="lg" variant="solid" maxHeight="80vh">
+      <ModalHeader title="恢复配置与业务数据" onClose={onCancel} />
+
+      {/* 内容 */}
+      <div className="flex-1 space-y-3 overflow-y-auto p-4 text-body">
+        <p className="text-text-secondary">
+          将从文件导入以下数据，<span className="font-medium text-yellow-600">覆盖</span>现有同名配置；历史、笔记和导图按 ID 合并：
+        </p>
+        <div className="truncate text-caption text-gray-500" title={file}>来源：{file}</div>
+
+        <div className="space-y-1">
+          {keys.map(k => {
+            const isConflict = conflicts.includes(k)
+            const label = CACHE_KEY_LABELS[k] || k
+            return (
+              <div key={k} className="flex items-center justify-between rounded bg-sidebar/50 px-3 py-1.5">
+                <span className="text-text-primary">{label}</span>
+                <span className={`text-tiny ${isConflict ? 'text-yellow-600' : 'text-gray-500'}`}>
+                  {businessCounts?.[k] ? `新增 ${businessCounts[k].added} · 相同 ${businessCounts[k].unchanged} · 冲突 ${businessCounts[k].conflicts}` : isConflict ? '将覆盖现有配置' : '新增'}
+                </span>
+              </div>
+            )
+          })}
         </div>
 
-        {/* 内容 */}
-        <div className="flex-1 p-4 space-y-3 overflow-y-auto text-sm">
-          <p className="text-text-secondary">
-            将从文件导入以下数据，<span className="text-yellow-600 font-medium">覆盖</span>现有同名配置；历史、笔记和导图按 ID 合并：
-          </p>
-          <div className="text-[11px] text-gray-500 truncate" title={file}>来源：{file}</div>
-
-          <div className="space-y-1">
-            {keys.map(k => {
-              const isConflict = conflicts.includes(k)
-              const label = CACHE_KEY_LABELS[k] || k
-              return (
-                <div key={k} className="flex items-center justify-between px-3 py-1.5 bg-sidebar/50 rounded">
-                  <span className="text-text-primary">{label}</span>
-                  <span className={`text-[10px] ${isConflict ? 'text-yellow-600' : 'text-gray-500'}`}>
-                    {businessCounts?.[k] ? `新增 ${businessCounts[k].added} · 相同 ${businessCounts[k].unchanged} · 冲突 ${businessCounts[k].conflicts}` : isConflict ? '将覆盖现有配置' : '新增'}
-                  </span>
-                </div>
-              )
-            })}
-          </div>
-
-          {businessCounts && <label className="flex items-center gap-2 text-sm text-text-secondary"><input type="checkbox" checked={overwriteBusiness} onChange={event => setOverwriteBusiness(event.target.checked)} />覆盖同 ID 的冲突业务记录（默认保留本地）</label>}
-          <p className="text-[11px] text-gray-500">
-            导入前已自动备份当前缓存为导出文件（若失败不阻断导入）。导入后建议重启应用以使全部变更生效。
-          </p>
-        </div>
-
-        {/* 底部操作 */}
-        <div className="flex justify-end gap-3 p-4 border-t border-gray-200">
-          <button onClick={onCancel} className="px-4 py-2 text-text-secondary hover:text-text-primary transition-colors text-sm">取消</button>
-          <button
-            disabled={importing}
-            onClick={async () => { setImporting(true); try { await onConfirm(overwriteBusiness) } finally { setImporting(false) } }}
-            className="px-4 py-2 bg-primary text-white font-medium rounded-md hover:opacity-90 transition-colors text-sm"
-          >
-            确认导入
-          </button>
-        </div>
+        {businessCounts && <label className="flex items-center gap-2 text-body text-text-secondary"><input type="checkbox" checked={overwriteBusiness} onChange={event => setOverwriteBusiness(event.target.checked)} />覆盖同 ID 的冲突业务记录（默认保留本地）</label>}
+        <p className="text-caption text-gray-500">
+          导入前已自动备份当前缓存为导出文件（若失败不阻断导入）。导入后建议重启应用以使全部变更生效。
+        </p>
       </div>
-    </div>
+
+      {/* 底部操作 */}
+      <ModalFooter className="justify-end">
+        <button
+          onClick={onCancel}
+          className="h-9 rounded-lg px-4 text-body text-text-secondary transition-colors hover:text-text-primary"
+        >
+          取消
+        </button>
+        <button
+          disabled={importing}
+          onClick={async () => { setImporting(true); try { await onConfirm(overwriteBusiness) } finally { setImporting(false) } }}
+          className="h-9 rounded-lg bg-primary px-4 text-body font-medium text-white transition-colors hover:opacity-90 disabled:opacity-50"
+        >
+          确认导入
+        </button>
+      </ModalFooter>
+    </Modal>
   )
 }
 

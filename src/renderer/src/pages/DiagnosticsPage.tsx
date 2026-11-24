@@ -179,7 +179,7 @@ function DiagnosticsPage(): JSX.Element {
       <div className="flex flex-1 min-h-0 bg-white">
         {/* 左侧 platform 列表 */}
         <div className="w-48 border-r border-gray-100 overflow-auto bg-gray-50/50 p-2 space-y-1 flex flex-col shrink-0">
-          <div className="px-2.5 py-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">AI 平台</div>
+          <div className="px-2.5 py-1 text-tiny font-semibold text-gray-400 uppercase tracking-wider">AI 平台</div>
           {platformIds.map((id) => {
             const isSelected = selectedId === id
             return (
@@ -397,7 +397,7 @@ function ResearchReportView({ report }: { report: ResearchProbeReport }): JSX.El
               </td>
               <td className="px-4 py-3 text-gray-600 select-none">
                 {s.matchedVia ? (
-                  <span className="px-2 py-0.5 bg-gray-100 rounded text-gray-600 text-[10px] font-sans">
+                  <span className="px-2 py-0.5 bg-gray-100 rounded text-gray-600 text-tiny font-sans">
                     {s.matchedVia}
                   </span>
                 ) : '—'}
@@ -539,14 +539,14 @@ function DomReportView({ report }: { report: DomProbeReport }): JSX.Element {
       
       {report.ancestors && report.ancestors.length > 0 && (
         <div className="border border-gray-200/80 rounded-xl p-4 bg-white shadow-xs">
-          <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-3 select-none">祖先链（根 → 目标）</div>
+          <div className="text-caption font-semibold text-gray-400 uppercase tracking-wider mb-3 select-none">祖先链（根 → 目标）</div>
           <div className="relative pl-4 border-l border-dashed border-gray-200 space-y-3">
             {report.ancestors.map((n, i) => (
               <div key={i} className="relative flex items-center gap-2">
                 {/* 节点点号连接指示线标记 */}
                 <div className="absolute -left-[21px] w-2.5 h-2.5 rounded-full bg-white border-2 border-blue-400" />
                 <ColorizedFingerprint node={n} />
-                {!n.isVisible && <span className="text-[10px] px-1 bg-red-50 text-red-500 border border-red-200 rounded font-sans select-none">不可见</span>}
+                {!n.isVisible && <span className="text-tiny px-1 bg-red-50 text-red-500 border border-red-200 rounded font-sans select-none">不可见</span>}
               </div>
             ))}
           </div>
@@ -555,7 +555,7 @@ function DomReportView({ report }: { report: DomProbeReport }): JSX.Element {
 
       {report.subtree && (
         <div className="border border-gray-200/80 rounded-xl p-4 bg-white shadow-xs">
-          <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-3 select-none">子树</div>
+          <div className="text-caption font-semibold text-gray-400 uppercase tracking-wider mb-3 select-none">子树</div>
           <div className="overflow-auto max-h-[360px] pr-2">
             <SubtreeView node={report.subtree} depth={0} defaultOpenDepth={3} />
           </div>
@@ -579,7 +579,7 @@ function TargetCard({ target, selector }: { target: NodeFingerprint; selector?: 
   
   return (
     <div className="border border-blue-200 rounded-xl p-4 bg-gradient-to-r from-blue-50/40 to-indigo-50/10 shadow-xs">
-      <div className="text-[11px] font-semibold text-blue-500 uppercase tracking-wider mb-2 select-none">当前选中元素</div>
+      <div className="text-caption font-semibold text-blue-500 uppercase tracking-wider mb-2 select-none">当前选中元素</div>
       <div className="py-1"><ColorizedFingerprint node={target} className="text-sm" /></div>
       {selector && (
         <div className="mt-3 flex items-center gap-2">
@@ -609,8 +609,8 @@ function SubtreeView({ node, depth, defaultOpenDepth }: { node: TreeNode; depth:
           <span className="w-4 inline-block shrink-0" />
         )}
         <ColorizedFingerprint node={node} />
-        {!node.isVisible && <span className="text-[10px] px-1 bg-red-50 text-red-500 border border-red-200 rounded font-sans shrink-0 select-none">不可见</span>}
-        {node.visibleTextLen > 0 && <span className="text-[10px] text-gray-400 font-sans shrink-0 select-none">({node.visibleTextLen} 字)</span>}
+        {!node.isVisible && <span className="text-tiny px-1 bg-red-50 text-red-500 border border-red-200 rounded font-sans shrink-0 select-none">不可见</span>}
+        {node.visibleTextLen > 0 && <span className="text-tiny text-gray-400 font-sans shrink-0 select-none">({node.visibleTextLen} 字)</span>}
       </div>
       {open && hasChildren && (
         <div className="mt-0.5 border-l border-gray-100 ml-4 pl-1">

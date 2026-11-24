@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import Modal from './ui/Modal'
 
 interface RenameModalProps {
   isOpen: boolean
@@ -32,8 +33,6 @@ function RenameModal({
     setIsConfirming(false)
   }, [isOpen, initialValue])
 
-  if (!isOpen) return null
-
   const handleConfirm = async (): Promise<void> => {
     const trimmed = value.trim()
     if (!trimmed) {
@@ -50,14 +49,10 @@ function RenameModal({
   }
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-      <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
-        onClick={onCancel}
-      />
-      <div className="relative w-full max-w-md bg-app border border-gray-200 rounded-xl shadow-2xl animate-in zoom-in-95 duration-200">
-        <div className="px-6 pt-5 pb-4 border-b border-gray-200">
-          <h3 className="text-lg font-semibold text-text-primary">{title}</h3>
+    <Modal open={isOpen} onClose={onCancel} size="md" variant="solid">
+      <div>
+        <div className="border-b border-gray-200 px-6 pb-4 pt-5 dark:border-white/10">
+          <h3 className="text-title font-semibold text-text-primary">{title}</h3>
         </div>
         <div className="px-6 py-5">
           <input
@@ -70,32 +65,32 @@ function RenameModal({
               if (e.key === 'Enter') handleConfirm()
               if (e.key === 'Escape') onCancel()
             }}
-            className="w-full px-4 py-2.5 rounded-lg bg-sidebar border border-gray-200 focus:outline-none focus:border-primary/60 text-text-primary placeholder-gray-500"
+            className="w-full rounded-lg border border-gray-200 bg-sidebar px-4 py-2.5 text-body text-text-primary placeholder-gray-500 focus:border-primary/60 focus:outline-none dark:border-white/10 dark:bg-white/5"
             placeholder={placeholder}
             autoFocus
           />
           {error ? (
-            <div className="mt-2 text-sm text-red-400">{error}</div>
+            <div className="mt-2 text-body text-red-400">{error}</div>
           ) : null}
         </div>
-        <div className="px-6 pb-5 flex items-center justify-end gap-3">
+        <div className="flex items-center justify-end gap-3 px-6 pb-5">
           <button
             onClick={onCancel}
             disabled={isConfirming}
-            className="text-sm px-4 py-2 rounded-lg bg-sidebar text-text-secondary hover:bg-gray-100 transition-all border border-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="rounded-lg border border-gray-200 bg-sidebar px-4 py-2 text-body text-text-secondary transition-all hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10"
           >
             {cancelText}
           </button>
           <button
             onClick={handleConfirm}
             disabled={isConfirming}
-            className="text-sm px-4 py-2 rounded-lg bg-primary text-white hover:opacity-90 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            className="rounded-lg bg-primary px-4 py-2 text-body font-medium text-white transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {confirmText}
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   )
 }
 

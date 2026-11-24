@@ -1350,7 +1350,7 @@ export default function WorkbenchAnnotationPlugin({
               popover.mode === 'edit' ? (
                 <button
                   type="button"
-                  className="text-[11px] text-rose-500 hover:underline"
+                  className="text-caption text-rose-500 hover:underline"
                   onClick={() => void deletePopoverAnnotation()}
                 >
                   删除标注

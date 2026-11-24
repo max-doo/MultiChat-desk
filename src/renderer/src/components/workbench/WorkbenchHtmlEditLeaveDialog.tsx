@@ -1,5 +1,5 @@
-import { useEffect } from 'react'
 import { AppIcon } from '../icons/AppIcon'
+import Modal from '../ui/Modal'
 
 interface WorkbenchHtmlEditLeaveDialogProps {
   busy: boolean
@@ -14,26 +14,19 @@ export default function WorkbenchHtmlEditLeaveDialog({
   onDiscard,
   onCancel
 }: WorkbenchHtmlEditLeaveDialogProps): JSX.Element {
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent): void => {
-      if (event.key !== 'Escape' || busy) return
-      event.preventDefault()
-      onCancel()
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [busy, onCancel])
-
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4 backdrop-blur-xs">
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="workbench-html-edit-leave-title"
-        className="w-[380px] max-w-full rounded-2xl border border-black/10 bg-white p-5 text-sm shadow-2xl dark:border-white/10 dark:bg-gray-800"
-      >
+    <Modal
+      open
+      onClose={onCancel}
+      size="sm"
+      variant="solid"
+      closeOnBackdrop={!busy}
+      closeOnEscape={!busy}
+      className="p-5 text-body"
+    >
+      <div aria-labelledby="workbench-html-edit-leave-title">
         <div className="flex items-center justify-between font-semibold text-text-primary">
-          <h3 id="workbench-html-edit-leave-title">保存修改？</h3>
+          <h3 id="workbench-html-edit-leave-title" className="text-title">保存修改？</h3>
           <button
             type="button"
             disabled={busy}
@@ -46,7 +39,7 @@ export default function WorkbenchHtmlEditLeaveDialog({
           </button>
         </div>
 
-        <p className="mt-4 leading-relaxed text-text-secondary">
+        <p className="mt-4 text-body leading-relaxed text-text-secondary">
           退出编辑前，将当前修改写回原文件。
         </p>
 
@@ -55,7 +48,7 @@ export default function WorkbenchHtmlEditLeaveDialog({
             type="button"
             disabled={busy}
             onClick={onDiscard}
-            className="mr-auto rounded-lg px-2.5 py-1.5 font-medium text-rose-600 transition-colors hover:bg-rose-50 disabled:cursor-default disabled:opacity-40 dark:text-rose-400 dark:hover:bg-rose-500/10"
+            className="mr-auto rounded-lg px-2.5 py-1.5 text-body font-medium text-rose-600 transition-colors hover:bg-rose-50 disabled:cursor-default disabled:opacity-40 dark:text-rose-400 dark:hover:bg-rose-500/10"
           >
             放弃修改
           </button>
@@ -63,7 +56,7 @@ export default function WorkbenchHtmlEditLeaveDialog({
             type="button"
             disabled={busy}
             onClick={onCancel}
-            className="rounded-lg border border-black/10 px-3 py-1.5 font-medium text-text-secondary transition-colors hover:bg-black/5 disabled:cursor-default disabled:opacity-40 dark:border-white/10 dark:hover:bg-white/5"
+            className="rounded-lg border border-black/10 px-3 py-1.5 text-body font-medium text-text-secondary transition-colors hover:bg-black/5 disabled:cursor-default disabled:opacity-40 dark:border-white/10 dark:hover:bg-white/5"
           >
             取消
           </button>
@@ -71,12 +64,12 @@ export default function WorkbenchHtmlEditLeaveDialog({
             type="button"
             disabled={busy}
             onClick={onSave}
-            className="rounded-lg bg-primary px-3 py-1.5 font-medium text-white shadow-xs transition-colors hover:bg-primary/90 disabled:cursor-default disabled:opacity-50"
+            className="rounded-lg bg-primary px-3 py-1.5 text-body font-medium text-white shadow-xs transition-colors hover:bg-primary/90 disabled:cursor-default disabled:opacity-50"
           >
             {busy ? '保存中…' : '保存并退出'}
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   )
 }

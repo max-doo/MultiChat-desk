@@ -422,7 +422,7 @@ const LocalMindmapPanel = forwardRef<LocalMindmapPanelRef, { initialMarkdown?: s
               <span className="truncate flex-1">导出图片（SVG）</span>
             </button>
             <div className="my-1 border-t border-gray-100" />
-            <div className="px-2.5 py-1.5 text-text-secondary/80 text-[11px] space-y-0.5 select-none bg-gray-50/50 rounded-lg">
+            <div className="px-2.5 py-1.5 text-text-secondary/80 text-caption space-y-0.5 select-none bg-gray-50/50 rounded-lg">
               <div className="font-medium text-gray-400 pb-0.5">快捷键指南</div>
               <p>左键空白处拖动框选</p>
               <p>Ctrl / Shift 点击多选</p>

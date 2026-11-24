@@ -495,9 +495,9 @@ export function ColorPickerMenu({
               commitHex(draft, true)
             }
           }}
-          className="h-7 min-w-0 flex-1 rounded-md border border-black/10 bg-black/[0.02] px-2 font-mono text-[11px] uppercase text-text-primary outline-none focus:border-primary dark:border-white/10 dark:bg-white/[0.03]"
+          className="h-7 min-w-0 flex-1 rounded-md border border-black/10 bg-black/[0.02] px-2 font-mono text-caption uppercase text-text-primary outline-none focus:border-primary dark:border-white/10 dark:bg-white/[0.03]"
         />
-        <span className="w-8 shrink-0 text-right font-mono text-[10px] tabular-nums text-text-secondary">
+        <span className="w-8 shrink-0 text-right font-mono text-tiny tabular-nums text-text-secondary">
           {Math.round(alpha * 100)}%
         </span>
       </div>

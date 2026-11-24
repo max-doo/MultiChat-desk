@@ -41,6 +41,10 @@ MultiChat Desk 是基于 Electron 的桌面应用，通过多个 Webview 并行�
 - 改前先检索现有实现和相邻调用点，优先复用 `src/main/`、`src/renderer/src/utils/` 与现有组件。
 - 不做无关重构，不顺手改命名 / 结构 / 样式；保持 DRY 与小步修改。
 
+## UI 设计规范（Design Token）
+
+涉及前端 UI（字号、颜色、间距、层级、圆角、阴影、弹窗、图标尺寸）时，遵循 `DESIGN.md`；该文件是设计系统的唯一权威，token 在 `tailwind.config.js` 中定义。
+
 ## Architecture Constraints
 
 - **分层边界**：`src/main` 主进程能力 / 窗口 / Session / IPC / 数据 / 总结链路；`src/preload` 仅做安全桥接;`src/renderer` 仅做 UI / 状态 / 页面逻辑 / Webview 交互。禁止跨层塞逻辑。

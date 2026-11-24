@@ -146,7 +146,7 @@ export default function ShortcutRecorder({
                 {formatToBadges(activeModifiers.join('+')).map((b, i) => (
                   <span
                     key={i}
-                    className="px-1 py-0.5 text-[10px] font-mono bg-primary/10 text-primary border border-primary/20 rounded"
+                    className="px-1 py-0.5 text-tiny font-mono bg-primary/10 text-primary border border-primary/20 rounded"
                   >
                     {b}
                   </span>
@@ -162,7 +162,7 @@ export default function ShortcutRecorder({
             {formatToBadges(value).map((badge, idx) => (
               <span
                 key={idx}
-                className="px-1.5 py-0.5 text-[11px] font-mono bg-gray-100 border border-gray-300 rounded text-text-primary shadow-2xs font-medium"
+                className="px-1.5 py-0.5 text-caption font-mono bg-gray-100 border border-gray-300 rounded text-text-primary shadow-2xs font-medium"
               >
                 {badge}
               </span>
@@ -170,11 +170,11 @@ export default function ShortcutRecorder({
           </div>
         ) : (
           <div className="flex items-center gap-1 flex-wrap opacity-60">
-            <span className="text-[10px] text-gray-400 mr-0.5">未设置:</span>
+            <span className="text-tiny text-gray-400 mr-0.5">未设置:</span>
             {formatToBadges(placeholder || '').map((badge, idx) => (
               <span
                 key={idx}
-                className="px-1.5 py-0.5 text-[10px] font-mono bg-gray-50 border border-gray-200 rounded text-gray-500"
+                className="px-1.5 py-0.5 text-tiny font-mono bg-gray-50 border border-gray-200 rounded text-gray-500"
               >
                 {badge}
               </span>

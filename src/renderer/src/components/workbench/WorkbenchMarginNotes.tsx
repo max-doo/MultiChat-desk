@@ -582,20 +582,20 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
         ref={unresolvedPanelRef}
         className="rounded-lg border border-rose-500/30 border-l-[3px] border-l-rose-500/70 bg-white p-2.5 text-left shadow-sm dark:bg-gray-800 dark:border-rose-400/30 dark:border-l-rose-400/60"
       >
-        <div className="text-[11px] font-semibold text-rose-600 dark:text-rose-400">
+        <div className="text-caption font-semibold text-rose-600 dark:text-rose-400">
           未解决 {unresolvedCount}
           {unresolvedDocumentNotes.length > 0 && (
             <button
               type="button"
               onClick={openCleanup}
-              className="ml-2 rounded px-1.5 py-0.5 text-[10px] font-normal text-rose-600/80 hover:bg-rose-100 dark:text-rose-400/80 dark:hover:bg-rose-900/40"
+              className="ml-2 rounded px-1.5 py-0.5 text-tiny font-normal text-rose-600/80 hover:bg-rose-100 dark:text-rose-400/80 dark:hover:bg-rose-900/40"
             >
               清理未解决
             </button>
           )}
         </div>
         {showCleanup && (
-          <div className="mt-1.5 rounded-md border border-rose-500/20 bg-rose-50/60 p-1.5 text-[11px] dark:bg-rose-950/20">
+          <div className="mt-1.5 rounded-md border border-rose-500/20 bg-rose-50/60 p-1.5 text-caption dark:bg-rose-950/20">
             {unresolvedDocumentNotes.map(item => (
               <label key={item.id} className="flex items-start gap-2 py-0.5">
                 <input
@@ -619,7 +619,7 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
               <button
                 type="button"
                 onClick={() => setShowCleanup(false)}
-                className="rounded px-1.5 py-0.5 text-[10px] text-text-secondary hover:bg-black/5 dark:hover:bg-white/10"
+                className="rounded px-1.5 py-0.5 text-tiny text-text-secondary hover:bg-black/5 dark:hover:bg-white/10"
               >
                 取消
               </button>
@@ -627,7 +627,7 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
                 type="button"
                 disabled={!cleanupIds.length || Boolean(busyId)}
                 onClick={() => void cleanupUnresolved()}
-                className="rounded bg-rose-600 px-1.5 py-0.5 text-[10px] font-semibold text-white hover:bg-rose-700 disabled:opacity-40"
+                className="rounded bg-rose-600 px-1.5 py-0.5 text-tiny font-semibold text-white hover:bg-rose-700 disabled:opacity-40"
               >
                 删除
               </button>
@@ -640,7 +640,7 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
             return (
               <div
                 key={item.id}
-                className="rounded-md bg-rose-50/70 p-1.5 text-[11px] dark:bg-rose-950/30"
+                className="rounded-md bg-rose-50/70 p-1.5 text-caption dark:bg-rose-950/30"
               >
                 <div className="line-through decoration-rose-400/60 break-words text-text-secondary/70">
                   {item.originalQuote || item.quote}
@@ -662,7 +662,7 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
                     // 重新定位读取的是正文当前选区；按下按钮不能把焦点从编辑器抢走。
                     onMouseDown={event => event.preventDefault()}
                     onClick={() => editor.dispatchCommand(WORKBENCH_REANCHOR_COMMAND, item.id)}
-                    className="rounded px-1.5 py-0.5 text-[10px] text-primary hover:bg-primary/10 disabled:opacity-40"
+                    className="rounded px-1.5 py-0.5 text-tiny text-primary hover:bg-primary/10 disabled:opacity-40"
                   >
                     重新定位
                   </button>
@@ -670,7 +670,7 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
                     type="button"
                     disabled={busyId === item.id}
                     onClick={event => void handleDeleteNote(event, item)}
-                    className="rounded px-1.5 py-0.5 text-[10px] text-rose-600 hover:bg-rose-100 disabled:opacity-40 dark:text-rose-400 dark:hover:bg-rose-900/40"
+                    className="rounded px-1.5 py-0.5 text-tiny text-rose-600 hover:bg-rose-100 disabled:opacity-40 dark:text-rose-400 dark:hover:bg-rose-900/40"
                   >
                     删除
                   </button>
@@ -686,7 +686,7 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
             return (
               <div
                 key={item.id}
-                className="rounded-md bg-amber-50/70 p-1.5 text-[11px] dark:bg-amber-950/30"
+                className="rounded-md bg-amber-50/70 p-1.5 text-caption dark:bg-amber-950/30"
               >
                 <div className="line-through decoration-amber-400/60 break-words text-text-secondary/70">
                   {item.originalQuote || item.quote}
@@ -707,14 +707,14 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
                         window.open(item.source.url, '_blank', 'noopener,noreferrer')
                       }
                     }}
-                    className="rounded px-1.5 py-0.5 text-[10px] text-primary hover:bg-primary/10"
+                    className="rounded px-1.5 py-0.5 text-tiny text-primary hover:bg-primary/10"
                   >
                     打开原文
                   </button>
                   <button
                     type="button"
                     onClick={() => window.dispatchEvent(new Event('workbench:markdown-imported'))}
-                    className="rounded px-1.5 py-0.5 text-[10px] text-text-secondary hover:bg-black/5 dark:hover:bg-white/10"
+                    className="rounded px-1.5 py-0.5 text-tiny text-text-secondary hover:bg-black/5 dark:hover:bg-white/10"
                   >
                     刷新投影
                   </button>
@@ -722,7 +722,7 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
                     type="button"
                     disabled={busyId === item.id}
                     onClick={event => void handleDeleteNote(event, item)}
-                    className="rounded px-1.5 py-0.5 text-[10px] text-rose-600 hover:bg-rose-100 disabled:opacity-40 dark:text-rose-400 dark:hover:bg-rose-900/40"
+                    className="rounded px-1.5 py-0.5 text-tiny text-rose-600 hover:bg-rose-100 disabled:opacity-40 dark:text-rose-400 dark:hover:bg-rose-900/40"
                   >
                     删除原文标注
                   </button>
@@ -749,7 +749,7 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
                 <button
                   type="button"
                   onClick={() => setShowCompactUnresolved(previous => !previous)}
-                  className="h-7 rounded-md border border-rose-500/30 bg-white/95 px-2 text-[11px] font-semibold text-rose-600 shadow-sm hover:bg-rose-50 dark:border-rose-400/30 dark:bg-gray-800/95 dark:text-rose-400"
+                  className="h-7 rounded-md border border-rose-500/30 bg-white/95 px-2 text-caption font-semibold text-rose-600 shadow-sm hover:bg-rose-50 dark:border-rose-400/30 dark:bg-gray-800/95 dark:text-rose-400"
                 >
                   未解决 {unresolvedCount}
                 </button>
@@ -849,7 +849,7 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
       )}
 
       {documentAnnotationCount >= ANNOTATION_CLEANUP_THRESHOLD && (
-        <div className="mb-2 rounded-lg border border-amber-500/30 bg-amber-50/80 p-2 text-[11px] text-amber-700 dark:border-amber-400/30 dark:bg-amber-950/40 dark:text-amber-300">
+        <div className="mb-2 rounded-lg border border-amber-500/30 bg-amber-50/80 p-2 text-caption text-amber-700 dark:border-amber-400/30 dark:bg-amber-950/40 dark:text-amber-300">
           当前文档标注 {documentAnnotationCount} 条，建议清理未解决注释
         </div>
       )}
@@ -901,19 +901,19 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
                   placeholder="写下你的注释笔记 (Enter 保存)..."
                 />
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] text-text-secondary/60">Enter 保存 / Esc 取消</span>
+                  <span className="text-tiny text-text-secondary/60">Enter 保存 / Esc 取消</span>
                   <div className="flex gap-1.5">
                     <button
                       type="button"
                       onClick={() => setEditingId(null)}
-                      className="px-2 py-0.5 text-[11px] rounded text-text-secondary hover:bg-black/5 dark:hover:bg-white/10"
+                      className="px-2 py-0.5 text-caption rounded text-text-secondary hover:bg-black/5 dark:hover:bg-white/10"
                     >
                       取消
                     </button>
                     <button
                       type="button"
                       onClick={() => void handleSaveComment(item.id, draftComment)}
-                      className="px-2.5 py-0.5 text-[11px] rounded-lg bg-primary hover:bg-primary/90 text-white font-medium shadow-xs"
+                      className="px-2.5 py-0.5 text-caption rounded-lg bg-primary hover:bg-primary/90 text-white font-medium shadow-xs"
                     >
                       保存
                     </button>
@@ -924,7 +924,7 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
               <div>
                 {/* 便签注释正文：点击可就地编辑 */}
                 <div
-                  className="text-[13px] leading-relaxed text-text-primary break-words whitespace-pre-wrap"
+                  className="text-body leading-relaxed text-text-primary break-words whitespace-pre-wrap"
                   title="点击可编辑注释"
                   onClick={e => {
                     e.stopPropagation()
@@ -941,7 +941,7 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
                 </div>
 
                 {/* 底部信息与操作条 */}
-                <div className="mt-1.5 flex items-center justify-between text-[10px] text-text-secondary/60">
+                <div className="mt-1.5 flex items-center justify-between text-tiny text-text-secondary/60">
                   <span>{formatTime(item.updatedAt || item.createdAt)}</span>
                   <div className="flex items-center gap-1 opacity-60 hover:opacity-100 transition-opacity">
                     <button

@@ -97,7 +97,7 @@ export default function WorkbenchVaultPopover({
                   >
                     {name}
                   </span>
-                  <span className="shrink-0 rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                  <span className="shrink-0 rounded bg-primary/15 px-1.5 py-0.5 text-tiny font-medium text-primary">
                     预设
                   </span>
                 </div>

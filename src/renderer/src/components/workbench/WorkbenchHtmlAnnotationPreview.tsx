@@ -713,7 +713,7 @@ export default function WorkbenchHtmlAnnotationPreview({
                 const annotation = annotations.find((item) => item.id === id)
                 if (!annotation) return null
                 return (
-                  <div key={id} className="mb-2 rounded-md bg-rose-50/70 p-2 text-[11px] dark:bg-rose-950/30">
+                  <div key={id} className="mb-2 rounded-md bg-rose-50/70 p-2 text-caption dark:bg-rose-950/30">
                     <div className="line-through decoration-rose-400/60 break-words text-text-secondary/70">
                       {annotation.originalQuote || annotation.quote}
                     </div>
@@ -733,7 +733,7 @@ export default function WorkbenchHtmlAnnotationPreview({
                           setShowUnresolved(false)
                           showHint('请选择新文字，再点击“标注”保存位置')
                         }}
-                        className="rounded px-1.5 py-0.5 text-[10px] text-primary hover:bg-primary/10"
+                        className="rounded px-1.5 py-0.5 text-tiny text-primary hover:bg-primary/10"
                       >
                         重新定位
                       </button>
@@ -743,7 +743,7 @@ export default function WorkbenchHtmlAnnotationPreview({
                           if (busyRef.current) return
                           void deleteUnlocatedAnnotation(id)
                         }}
-                        className="rounded px-1.5 py-0.5 text-[10px] text-rose-600 hover:bg-rose-100 dark:text-rose-400 dark:hover:bg-rose-900/40"
+                        className="rounded px-1.5 py-0.5 text-tiny text-rose-600 hover:bg-rose-100 dark:text-rose-400 dark:hover:bg-rose-900/40"
                       >
                         删除
                       </button>
@@ -755,7 +755,7 @@ export default function WorkbenchHtmlAnnotationPreview({
                 <button
                   type="button"
                   onClick={openCleanup}
-                  className="w-full rounded px-1.5 py-0.5 text-[10px] text-rose-600 hover:bg-rose-100 dark:text-rose-400 dark:hover:bg-rose-900/40"
+                  className="w-full rounded px-1.5 py-0.5 text-tiny text-rose-600 hover:bg-rose-100 dark:text-rose-400 dark:hover:bg-rose-900/40"
                 >
                   清理未解决
                 </button>
@@ -772,7 +772,7 @@ export default function WorkbenchHtmlAnnotationPreview({
             const annotation = annotations.find((item) => item.id === id)
             if (!annotation) return null
             return (
-              <label key={id} className="mt-1.5 flex items-start gap-2 text-[11px] text-text-secondary">
+              <label key={id} className="mt-1.5 flex items-start gap-2 text-caption text-text-secondary">
                 <input
                   type="checkbox"
                   checked={cleanupIds.includes(id)}
@@ -795,7 +795,7 @@ export default function WorkbenchHtmlAnnotationPreview({
             <button
               type="button"
               onClick={() => setShowCleanup(false)}
-              className="rounded px-2 py-1 text-[11px] text-text-secondary hover:bg-black/5 dark:hover:bg-white/10"
+              className="rounded px-2 py-1 text-caption text-text-secondary hover:bg-black/5 dark:hover:bg-white/10"
             >
               取消
             </button>
@@ -803,7 +803,7 @@ export default function WorkbenchHtmlAnnotationPreview({
               type="button"
               disabled={busy || cleanupIds.length === 0}
               onClick={() => void deleteUnlocatedAnnotations()}
-              className="rounded bg-rose-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-rose-700 disabled:opacity-40"
+              className="rounded bg-rose-600 px-2 py-1 text-caption font-semibold text-white hover:bg-rose-700 disabled:opacity-40"
             >
               删除
             </button>
@@ -829,7 +829,7 @@ export default function WorkbenchHtmlAnnotationPreview({
             card.mode === 'edit' ? (
               <button
                 type="button"
-                className="text-[11px] text-rose-500 hover:underline disabled:opacity-40"
+                className="text-caption text-rose-500 hover:underline disabled:opacity-40"
                 disabled={busy}
                 onClick={() => void deleteAnnotation()}
               >

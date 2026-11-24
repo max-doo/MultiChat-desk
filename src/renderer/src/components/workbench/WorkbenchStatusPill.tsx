@@ -43,7 +43,7 @@ export default function WorkbenchStatusPill(): JSX.Element {
           <span className="font-medium">文件在磁盘上被修改</span>
         </div>
         {conflictDiskContent !== null && (
-          <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-amber-100/60 dark:bg-amber-900/30 p-2 font-mono text-[11px] leading-relaxed text-amber-900/90 dark:text-amber-100/80">
+          <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-amber-100/60 dark:bg-amber-900/30 p-2 font-mono text-caption leading-relaxed text-amber-900/90 dark:text-amber-100/80">
             {conflictDiskContent}
           </pre>
         )}

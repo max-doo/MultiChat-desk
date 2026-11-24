@@ -449,7 +449,7 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
             >
               <img src={logo} alt="MultiChat Logo" className="w-7 h-7 object-contain" />
               <span className="font-semibold text-primary text-sm tracking-wide">MultiChat</span>
-              <span className="text-[9px] leading-none font-bold text-red-500 bg-red-50 border border-red-200 px-1.5 py-1 rounded-full">NEW</span>
+              <span className="text-tiny leading-none font-bold text-red-500 bg-red-50 border border-red-200 px-1.5 py-1 rounded-full">NEW</span>
             </button>
           ) : (
             <div className="flex items-center gap-2 text-text-primary">
@@ -541,10 +541,10 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
                         <div className="flex items-center gap-2 min-w-0">
                           <span className="text-text-primary text-sm truncate font-medium">{prompt.name}</span>
                           {prompt.isDefault && (
-                            <span className="px-1.5 py-0.5 bg-primary/10 text-primary text-[10px] rounded shrink-0 font-medium">预设</span>
+                            <span className="px-1.5 py-0.5 bg-primary/10 text-primary text-tiny rounded shrink-0 font-medium">预设</span>
                           )}
                         </div>
-                        <div className="text-[11px] text-text-secondary truncate h-[14px] leading-[14px]">
+                        <div className="text-caption text-text-secondary truncate h-[14px] leading-[14px]">
                           {prompt.description || ''}
                         </div>
                       </div>
@@ -713,7 +713,7 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
                   <AppIcon name="help" size={20} className="text-primary" />
                   <div className="flex flex-col">
                     <span className="text-text-primary text-sm font-medium">查看使用说明</span>
-                    <span className="text-text-secondary text-[10px]">查看功能说明与常见问题</span>
+                    <span className="text-text-secondary text-tiny">查看功能说明与常见问题</span>
                   </div>
                 </div>
                 <AppIcon name="open_in_new" className="text-text-secondary group-hover:text-primary transition-colors" />

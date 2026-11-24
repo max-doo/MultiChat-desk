@@ -169,13 +169,13 @@ export default function WorkbenchHtmlEditToolbar({
         label="缩小字号"
         onClick={() => onCommand('fontDown')}
       >
-        <span className="text-[12px] font-semibold leading-none">A-</span>
+        <span className="text-label font-semibold leading-none">A-</span>
       </WorkbenchFloatingToolbarButton>
       <WorkbenchFloatingToolbarButton
         label="放大字号"
         onClick={() => onCommand('fontUp')}
       >
-        <span className="text-[12px] font-semibold leading-none">A+</span>
+        <span className="text-label font-semibold leading-none">A+</span>
       </WorkbenchFloatingToolbarButton>
 
       <div className="relative">

@@ -798,7 +798,7 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
                 : 'text-text-primary hover:bg-gray-100/80 active:bg-gray-200/60'
             }`}
           >
-            <AppIcon name={icon} size={17} className={`text-[17px] shrink-0 transition-colors ${
+            <AppIcon name={icon} size={17} className={`text-body-lg shrink-0 transition-colors ${
  danger
  ? 'text-red-500 group-hover:text-red-600'
  : active
@@ -815,7 +815,7 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
             {sorted.length > 0 && (
               <div>
                 {sorted.length > 1 && (
-                  <div className="px-2.5 py-1 text-[11px] font-medium text-text-secondary/70 select-none">
+                  <div className="px-2.5 py-1 text-caption font-medium text-text-secondary/70 select-none">
                     导图版本 ({sorted.length})
                   </div>
                 )}
@@ -1004,7 +1004,7 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
           {models.find(model => model.id === platform)?.logo ? <img src={models.find(model => model.id === platform)?.logo} alt="生成模型" className="w-4 h-4 object-contain" /> : <AppIcon name="smart_toy" size={16} />}
         </span>} />
         <textarea ref={textareaRef} aria-label={mode === 'generate' ? '新图要求（选填）' : '导图修改要求'} rows={1} maxLength={mode === 'modify' ? MINDMAP_REQUIREMENTS_LIMIT : undefined} value={request} disabled={busy || preparing} onChange={event => changeRequest(event.target.value)} placeholder={mode === 'generate' ? '输入新图要求（可选）…' : adjustFromCurrent ? '基于当前图描述想调整的内容…' : candidate ? '继续调整候选稿…' : '描述想调整的内容…'} className="flex-1 min-w-0 resize-none bg-transparent text-sm text-text-primary placeholder:text-text-secondary/50 focus:outline-none leading-5 py-1.5 px-1 max-h-[72px] disabled:opacity-50" onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void submit() } }} />
-        <button type="button" disabled={busy || preparing || !platform || !models.some(model => model.id === platform) || (mode === 'modify' && (!request.trim() || (!!candidateConflict && !adjustFromCurrent)))} aria-label={submitLabel} title={submitLabel} className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 bg-primary text-white hover:brightness-95 disabled:bg-gray-100 disabled:text-gray-400" onClick={() => void submit()}><AppIcon name={busy || preparing ? 'sync' : 'arrow_upward'} size={18} className={`text-[18px] ${busy || preparing ? 'animate-spin' : ''}`} /></button>
+        <button type="button" disabled={busy || preparing || !platform || !models.some(model => model.id === platform) || (mode === 'modify' && (!request.trim() || (!!candidateConflict && !adjustFromCurrent)))} aria-label={submitLabel} title={submitLabel} className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 bg-primary text-white hover:brightness-95 disabled:bg-gray-100 disabled:text-gray-400" onClick={() => void submit()}><AppIcon name={busy || preparing ? 'sync' : 'arrow_upward'} size={18} className={`${busy || preparing ? 'animate-spin' : ''}`} /></button>
       </div>
       <div className="mt-1.5 px-1 flex items-center justify-between gap-2 text-xs text-gray-500">
         <div className="flex flex-wrap gap-x-3 gap-y-1 items-center min-w-0 flex-1">

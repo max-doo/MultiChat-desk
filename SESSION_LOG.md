@@ -2,6 +2,49 @@
 
 ## 2026-11-24
 
+### 11:22 | Codex
+
+- done: 按 impeccable skill 的 document 模式生成 DESIGN.md(frontmatter token + 8 canonical section),AGENTS.md 的 UI 设计规范小节收敛为一行指针做渐进式披露
+- decision: DESIGN.md 用 impeccable 官方 spec(YAML frontmatter + 固定 8 节顺序);AGENTS.md 不再承载具体 token 表,只声明'涉及前端 UI 时读 DESIGN.md'
+- added:
+  - `DESIGN.md`
+- modified:
+  - `AGENTS.md`
+
+### 11:15 | Codex
+
+- done: 全量收敛任意字号:text-[Npx] 119处批量映射到 tiny/caption/label/body/body-lg/title/title-lg,37文件;AppIcon 上 size 冗余的 text-[Npx] 类删除而非换名;顺手修 ConversationMindmapPanel 4处 buttonclassName 拼写错误导致样式从未生效的存量 bug
+- decision: text-[17-20px] 是 AppIcon 冗余类,size prop 已控尺寸,删除比换 text-title 名更正;text-[0.9em] 是 inline code 相对单位合法保留;text-[#hex] 是颜色值误报不动
+- modified:
+  - `37个 tsx 文件(components/、components/workbench/、pages/)含全部 text-[Npx] 处`
+  - `ConversationMindmapPanel.tsx buttonClassName 修复`
+- unresolved: text-xs/sm/base/lg 原生 Tailwind 刻度(66文件)未迁,合法但非语义 token,继续渐进收敛
+
+### 11:10 | Codex
+
+- done: 将设计 token 规范与统一 Modal 用法写入 AGENTS.md 的 UI 设计规范小节,完成遗漏检查(剩余 z-[90-130] 与 text-[10/11px] 均为合规特例,不需收敛)
+- decision: z-[90]/[95]/[110]/[120]/[130] 及 ConversationMindmapPanel 内嵌 modal 属合规特例(需压在 modal 之上或有自定义焦点圈),不纳入统一 token;WorkspaceSettings 内 text-[10/11px] 即 tiny/caption 语义,合法保留
+- modified:
+  - `AGENTS.md`
+
+### 11:03 | Codex
+
+- done: 建立设计 token 体系(fontSize/zIndex),新建统一 ui/Modal 组件并迁移全部 6 个对话框,ConfirmModal 字体收敛、WorkbenchWorkspaceSettings 升一档
+- decision: 字号 token 以已认可区域 SettingsDrawer 的 text-sm(14px)为 body 基准,新增 tiny/caption/label/body/body-lg/title/title-lg;图标保留 19px(FileTree 认可值);Modal 分 solid/glass 两变体覆盖现有两类弹窗
+- added:
+  - `src/renderer/src/components/ui/Modal.tsx`
+- modified:
+  - `tailwind.config.js`
+  - `src/renderer/src/assets/index.css`
+  - `src/renderer/src/components/ConfirmModal.tsx`
+  - `src/renderer/src/components/ImportCacheConfirmModal.tsx`
+  - `src/renderer/src/components/RenameModal.tsx`
+  - `src/renderer/src/components/ModelOrderModal.tsx`
+  - `src/renderer/src/components/ProductModeOrderModal.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchHtmlEditLeaveDialog.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchWorkspaceSettings.tsx`
+- unresolved: 其余组件任意字号/图标 size 渐进收敛,未全局替换;ConversationMindmapPanel/NoteCaptureModal/CliAgentHint 等定制浮层未迁 Modal;dark 色板未纳入本次
+
 ### 10:28 | Codex
 
 - done: 双开 AI 侧边栏时主栏'再开一个'按钮高亮，与快捷窗口 toggle 行为对齐

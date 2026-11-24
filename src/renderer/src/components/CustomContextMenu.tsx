@@ -527,7 +527,7 @@ export default function CustomContextMenu(): JSX.Element | null {
                 {item.label}
               </span>
               {item.shortcut && !menuState.workbenchStyle && (
-                <span className="text-[11px] font-mono text-text-secondary/60 group-hover:text-primary/70 tracking-wider">
+                <span className="text-caption font-mono text-text-secondary/60 group-hover:text-primary/70 tracking-wider">
                   {item.shortcut}
                 </span>
               )}

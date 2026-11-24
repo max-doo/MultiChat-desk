@@ -153,7 +153,7 @@ export default function NoteCaptureModal(): JSX.Element | null {
                 <button
                   type="button"
                   disabled={busy}
-                  className="text-[11px] text-text-secondary hover:text-primary disabled:opacity-40"
+                  className="text-caption text-text-secondary hover:text-primary disabled:opacity-40"
                   onClick={() => void save(true)}
                 >
                   保存到默认会话库
