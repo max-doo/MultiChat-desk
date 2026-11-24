@@ -1,3 +1,29 @@
+import type {
+  AgentActiveModel,
+  AgentAuthOperation,
+  AgentAuthType,
+  AgentContextUsage,
+  AgentProvider,
+  AgentProviderModel,
+  AgentRuntimeSnapshot,
+  AgentSessionStats,
+  AgentSessionStatus,
+  AgentThinkingLevel
+} from '../../../shared/types/agentRuntime'
+
+export type {
+  AgentActiveModel,
+  AgentAuthOperation,
+  AgentAuthType,
+  AgentContextUsage,
+  AgentProvider,
+  AgentProviderModel,
+  AgentRuntimeSnapshot,
+  AgentSessionStats,
+  AgentSessionStatus,
+  AgentThinkingLevel
+}
+
 export type AgentPermissionMode = 'default' | 'auto' | 'bypass'
 
 export interface PiContentPart {
@@ -93,6 +119,9 @@ export interface AgentIpcApi {
   agentResumeSession: (
     sessionId: string
   ) => Promise<{ success: boolean; data?: unknown; error?: string }>
+  agentDeleteSession: (
+    sessionId: string
+  ) => Promise<{ success: boolean; error?: string }>
   agentResolveApproval: (
     requestId: string,
     decision: 'allow' | 'always' | 'deny',
@@ -134,6 +163,47 @@ export interface AgentIpcApi {
     pattern: string
   ) => Promise<{ success: boolean; data?: AgentAllowlistEntry; error?: string }>
   agentAllowlistRemove: (id: string) => Promise<{ success: boolean; error?: string }>
+  agentGetRuntimeSnapshot: (sessionId?: string) => Promise<{
+    success: boolean
+    data?: AgentRuntimeSnapshot
+    error?: string
+  }>
+  agentGetSessionStatus: (sessionId?: string) => Promise<{
+    success: boolean
+    data?: AgentSessionStatus | null
+    error?: string
+  }>
+  agentSetThinkingLevel: (
+    sessionId: string,
+    level: AgentThinkingLevel
+  ) => Promise<{ success: boolean; data?: AgentActiveModel; error?: string }>
+  agentLoginProvider: (
+    providerId: string,
+    type: AgentAuthType
+  ) => Promise<{ success: boolean; data?: AgentAuthOperation; error?: string }>
+  agentRespondProviderAuth: (
+    operationId: string,
+    value: string
+  ) => Promise<{ success: boolean; data?: AgentAuthOperation; error?: string }>
+  agentCancelProviderAuth: (
+    operationId: string
+  ) => Promise<{ success: boolean; data?: AgentAuthOperation; error?: string }>
+  agentListAuthOperations: () => Promise<{
+    success: boolean
+    data?: AgentAuthOperation[]
+    error?: string
+  }>
+  agentLogoutProvider: (
+    providerId: string
+  ) => Promise<{ success: boolean; data?: AgentRuntimeSnapshot; error?: string }>
+  agentRefreshProviderModels: (
+    providerId: string
+  ) => Promise<{ success: boolean; data?: AgentRuntimeSnapshot; error?: string }>
+  onAgentProviderAuthChanged?: (cb: (payload: { operation: AgentAuthOperation }) => void) => () => void
+  onAgentRuntimeChanged?: (cb: (payload: { reason: string }) => void) => () => void
+  onAgentSessionStatus?: (
+    cb: (payload: { sessionId: string; status: AgentSessionStatus }) => void
+  ) => () => void
   onAgentEvent?: (cb: (payload: { sessionId: string; event: unknown }) => void) => () => void
   onAgentApprovalRequest?: (cb: (payload: AgentApprovalRequest) => void) => () => void
 }

@@ -8,7 +8,7 @@ import AboutSection from './AboutSection'
 import CliIntegrationSection from './CliIntegrationSection'
 import ModelOrderModal from './ModelOrderModal'
 import ProductModeOrderModal from './ProductModeOrderModal'
-import { AgentSettingsModal } from './workbench/agent/AgentSettingsModal'
+import { useAgentSettingsDialogStore } from '../store/agentSettingsDialogStore'
 import { openUpdateRelease, useUpdateReminder } from '../hooks/useUpdateState'
 import { AppIcon } from './icons/AppIcon'
 
@@ -175,7 +175,6 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
 
   const [modelOrderOpen, setModelOrderOpen] = useState(false)
   const [modeOrderOpen, setModeOrderOpen] = useState(false)
-  const [agentSettingsOpen, setAgentSettingsOpen] = useState(false)
 
   // 快捷键设置状态
   const [shortcuts, setShortcuts] = useState<Record<string, string>>({
@@ -708,12 +707,12 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
               <div>
                 <div className="text-sm text-text-primary font-medium">Agent 配置</div>
                 <div className="text-xs text-text-secondary mt-1">
-                  模型凭证、权限模式、全局 Skills 目录与命令放行名单
+                  模型凭证、全局 Skills 目录与命令放行名单
                 </div>
               </div>
               <button
                 type="button"
-                onClick={() => setAgentSettingsOpen(true)}
+                onClick={() => useAgentSettingsDialogStore.getState().open()}
                 className="flex items-center gap-1 text-sm text-primary hover:opacity-80 transition-colors font-medium shrink-0 ml-4"
               >
                 <AppIcon name="tune" size={16} />
@@ -812,11 +811,6 @@ function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps): JSX.Element {
         onClose={() => setModeOrderOpen(false)}
       />
 
-      {/* 本地 Agent 配置弹窗 */}
-      <AgentSettingsModal
-        isOpen={agentSettingsOpen}
-        onClose={() => setAgentSettingsOpen(false)}
-      />
     </>
   )
 }

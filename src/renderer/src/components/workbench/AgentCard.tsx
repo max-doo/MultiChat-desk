@@ -1,6 +1,4 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import {
   Sparkles,
   FileCode2,
@@ -12,14 +10,12 @@ import { useWorkbenchStore } from '../../store/workbenchStore'
 import { useAgentSessionStore } from '../../store/agentSessionStore'
 import CustomDropdown, { type DropdownOption } from '../CustomDropdown'
 import { AppIcon } from '../icons/AppIcon'
-import { BashToolUI } from './agent/BashToolUI'
-import { EditToolUI } from './agent/EditToolUI'
-import { ReadToolUI } from './agent/ReadToolUI'
-import { ToolFallback } from './agent/ToolFallback'
+import ConfirmModal from '../ConfirmModal'
+import { ToolGroup } from './agent/ToolGroup'
 import { ApprovalCard } from './agent/ApprovalCard'
 import { ThinkingBlock } from './agent/ThinkingBlock'
 import { AgentComposer } from './agent/AgentComposer'
-import { AgentSettingsModal } from './agent/AgentSettingsModal'
+import { MarkdownRenderer } from './agent/MarkdownRenderer'
 import type { PiContentPart } from '../../types/agent'
 
 interface AgentCardProps {
@@ -44,10 +40,11 @@ export default function AgentCard({
   const prompt = useAgentSessionStore((s) => s.prompt)
   const newSession = useAgentSessionStore((s) => s.newSession)
   const resumeSession = useAgentSessionStore((s) => s.resumeSession)
+  const deleteSession = useAgentSessionStore((s) => s.deleteSession)
   const initListeners = useAgentSessionStore((s) => s.initListeners)
 
   const [historyMenuOpen, setHistoryMenuOpen] = useState(false)
-  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null)
   const viewportRef = useRef<HTMLDivElement>(null)
 
   // Initialize IPC listeners on mount
@@ -73,11 +70,12 @@ export default function AgentCard({
   }, [workspacePath, newSession])
 
   useEffect(() => {
-    // If no session or current session's workspace doesn't match active workspace
-    if (workspacePath && (!currentSessionId || (currentCwd && currentCwd !== workspacePath))) {
+    // Only reset the draft when the bound workspace actually diverges; a null
+    // session id is already the draft state and needs no further reset.
+    if (workspacePath && currentCwd && currentCwd !== workspacePath) {
       void newSession(workspacePath)
     }
-  }, [currentSessionId, currentCwd, workspacePath, newSession])
+  }, [currentCwd, workspacePath, newSession])
 
   // Model picker options
   const modelOptions = useMemo<DropdownOption<string>[]>(() => {
@@ -113,73 +111,50 @@ export default function AgentCard({
     [currentSessionId, resumeSession]
   )
 
-  const renderToolPart = (part: PiContentPart, idx: number, isMsgRunning: boolean): JSX.Element => {
-    const toolName = (part.toolName || '').toLowerCase()
-    const isPartRunning = isMsgRunning && part.result === undefined && !part.isError
+  const handleConfirmDeleteSession = useCallback(async (): Promise<void> => {
+    if (!deleteTarget) return
+    await deleteSession(deleteTarget.id)
+    setDeleteTarget(null)
+  }, [deleteTarget, deleteSession])
 
-    if (
-      toolName === 'bash' ||
-      toolName === 'powershell' ||
-      toolName === 'cmd' ||
-      toolName === 'terminal' ||
-      toolName === 'shell'
-    ) {
-      const command =
-        typeof part.args === 'string'
-          ? part.args
-          : (part.args as { command?: string; cmd?: string })?.command ||
-            (part.args as { command?: string; cmd?: string })?.cmd ||
-            ''
-      return (
-        <BashToolUI
-          key={idx}
-          command={command}
-          result={part.result}
-          isError={part.isError}
-          isRunning={isPartRunning}
-          durationMs={part.durationMs}
-        />
-      )
+  type GroupedBlock =
+    | { type: 'reasoning'; reasoning: string; isRunning: boolean }
+    | { type: 'text'; text: string }
+    | { type: 'tool-group'; parts: PiContentPart[]; isRunning: boolean }
+
+  const groupContentParts = (parts: PiContentPart[], isMsgRunning: boolean): GroupedBlock[] => {
+    const blocks: GroupedBlock[] = []
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i]
+      if (part.type === 'reasoning') {
+        blocks.push({
+          type: 'reasoning',
+          reasoning: part.reasoning || '',
+          isRunning: isMsgRunning && i === parts.length - 1
+        })
+      } else if (part.type === 'text') {
+        if (part.text?.trim()) {
+          blocks.push({
+            type: 'text',
+            text: part.text
+          })
+        }
+      } else if (part.type === 'tool-call') {
+        const last = blocks[blocks.length - 1]
+        const isPartRunning = isMsgRunning && part.result === undefined && !part.isError
+        if (last && last.type === 'tool-group') {
+          last.parts.push(part)
+          last.isRunning = last.isRunning || isPartRunning
+        } else {
+          blocks.push({
+            type: 'tool-group',
+            parts: [part],
+            isRunning: isPartRunning
+          })
+        }
+      }
     }
-
-    if (toolName === 'edit' || toolName === 'write' || toolName === 'edit_file') {
-      const obj = part.args as { path?: string; filePath?: string; diff?: string } | undefined
-      return (
-        <EditToolUI
-          key={idx}
-          path={obj?.path || obj?.filePath || ''}
-          diff={obj?.diff || ''}
-          result={part.result}
-          isError={part.isError}
-          isRunning={isPartRunning}
-        />
-      )
-    }
-
-    if (toolName === 'read' || toolName === 'read_file') {
-      const obj = part.args as { path?: string; filePath?: string; lines?: string | number[] } | undefined
-      return (
-        <ReadToolUI
-          key={idx}
-          path={obj?.path || obj?.filePath || ''}
-          lines={obj?.lines}
-          result={part.result}
-          isError={part.isError}
-          isRunning={isPartRunning}
-        />
-      )
-    }
-
-    return (
-      <ToolFallback
-        key={idx}
-        toolName={part.toolName || 'tool'}
-        args={part.args}
-        result={part.result}
-        isError={part.isError}
-        isRunning={isPartRunning}
-      />
-    )
+    return blocks
   }
 
   return (
@@ -264,18 +239,18 @@ export default function AgentCard({
               {historyMenuOpen && (
                 <>
                   <div
-                    className="fixed inset-0 z-40"
+                    className="fixed inset-0 z-popover"
                     onClick={() => setHistoryMenuOpen(false)}
                   />
-                  <div className="absolute right-0 top-full mt-1.5 w-64 rounded-xl border border-gray-200 py-1 shadow-xl z-50 bg-white text-text-primary text-xs">
+                  <div className="absolute right-0 top-full mt-1.5 w-64 rounded-xl border border-gray-200 py-1 shadow-lg z-popover bg-white text-text-primary text-label">
                     <div className="px-3 py-1.5 flex items-center justify-between border-b border-gray-100">
-                      <span className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider">
+                      <span className="text-caption font-semibold text-text-secondary uppercase tracking-wider">
                         对话历史
                       </span>
                       <button
                         type="button"
                         onClick={handleNewSession}
-                        className="text-[11px] text-primary hover:opacity-80 font-medium"
+                        className="text-caption text-primary hover:opacity-80 font-medium"
                       >
                         + 新对话
                       </button>
@@ -283,7 +258,7 @@ export default function AgentCard({
 
                     <div className="max-h-64 overflow-y-auto py-1">
                       {sessions.length === 0 ? (
-                        <div className="px-3 py-4 text-center text-text-secondary text-xs">
+                        <div className="px-3 py-4 text-center text-text-secondary text-caption">
                           暂无历史对话
                         </div>
                       ) : (
@@ -299,7 +274,7 @@ export default function AgentCard({
                             <div
                               key={item.id}
                               onClick={() => handleSelectSession(item.id)}
-                              className={`px-3 py-2 hover:bg-blue-50/60 cursor-pointer flex items-start gap-2 transition-colors ${
+                              className={`group px-3 py-2 hover:bg-blue-50/60 cursor-pointer flex items-start gap-2 transition-colors ${
                                 isCurrent ? 'bg-blue-50/40' : ''
                               }`}
                             >
@@ -312,11 +287,22 @@ export default function AgentCard({
                                 <div className="font-medium text-text-primary truncate">
                                   {item.title || '新对话'}
                                 </div>
-                                <div className="text-[10px] text-text-secondary mt-0.5">
+                                <div className="text-tiny font-mono text-text-secondary mt-0.5">
                                   {dateStr ? `${dateStr} · ` : ''}
                                   {item.model || 'SWE-2'}
                                 </div>
                               </div>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setDeleteTarget({ id: item.id, title: item.title || '新对话' })
+                                }}
+                                className="shrink-0 mt-0.5 p-0.5 rounded text-gray-400 opacity-0 group-hover:opacity-100 hover:text-red-500 hover:bg-red-50 transition-all"
+                                title="删除会话"
+                              >
+                                <AppIcon name="delete" size={14} />
+                              </button>
                             </div>
                           )
                         })
@@ -353,18 +339,18 @@ export default function AgentCard({
                 <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center mb-2.5">
                   <AppIcon name="smart_toy" size={22} />
                 </div>
-                <h3 className="font-semibold text-text-primary text-sm mb-1">本地开发 Agent</h3>
-                <p className="text-xs text-text-secondary max-w-xs leading-relaxed mb-3">
+                <h3 className="font-semibold text-text-primary text-body mb-1">本地开发 Agent</h3>
+                <p className="text-caption text-text-secondary max-w-xs leading-relaxed mb-3">
                   已加载 AGENTS.md 规范与本地工具链，支持自主阅读、编辑代码并执行命令。
                 </p>
 
                 {workspacePath ? (
-                  <div className="flex items-center gap-1.5 text-[11px] text-text-secondary bg-gray-50 border border-gray-200/70 px-2.5 py-1 rounded-full mb-3">
+                  <div className="flex items-center gap-1.5 text-caption text-text-secondary bg-gray-50 border border-gray-200/70 px-2.5 py-1 rounded-full mb-3">
                     <FolderOpen className="w-3 h-3 text-primary" />
                     <span className="truncate max-w-[200px]">{workspacePath}</span>
                   </div>
                 ) : (
-                  <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-lg mb-3">
+                  <div className="text-caption text-amber-700 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-lg mb-3">
                     提示: 请先在工作台打开文件夹
                   </div>
                 )}
@@ -379,7 +365,7 @@ export default function AgentCard({
                       key={text}
                       type="button"
                       onClick={() => void prompt(text)}
-                      className="w-full text-left p-2 rounded-lg border border-gray-200 hover:bg-gray-50 hover:border-primary/40 transition-colors text-xs text-text-primary flex items-center gap-2"
+                      className="w-full text-left p-2 rounded-lg border border-gray-200 hover:bg-gray-50 hover:border-primary/40 transition-colors text-label text-text-primary flex items-center gap-2"
                     >
                       <Icon className="w-3.5 h-3.5 text-primary shrink-0" />
                       <span>{text}</span>
@@ -390,15 +376,17 @@ export default function AgentCard({
             )}
 
             {/* Messages Stream */}
-            {messages.map((message) => {
+            {messages
+              .filter((m) => m.role === 'user' || m.role === 'assistant')
+              .map((message) => {
               if (message.role === 'user') {
                 const userText = message.content
                   .filter((c) => c.type === 'text')
                   .map((c) => c.text)
                   .join('')
                 return (
-                  <div key={message.id} className="flex justify-end">
-                    <div className="max-w-[88%] bg-primary text-white text-[13px] leading-relaxed px-3.5 py-2 rounded-2xl rounded-tr-sm shadow-xs break-words whitespace-pre-wrap">
+                  <div key={message.id} className="flex justify-end my-1">
+                    <div className="max-w-[85%] bg-primary text-white text-body leading-relaxed px-4 py-2.5 rounded-2xl rounded-tr-xs shadow-xs break-words whitespace-pre-wrap select-text">
                       {userText}
                     </div>
                   </div>
@@ -407,74 +395,44 @@ export default function AgentCard({
 
               // Assistant message
               const isMsgRunning = message.status === 'running'
+              const blocks = groupContentParts(message.content, isMsgRunning)
+
               return (
-                <div key={message.id} className="space-y-1.5">
-                  {message.content.map((part, pIdx) => {
-                    if (part.type === 'reasoning') {
+                <div key={message.id} className="space-y-2.5 my-2">
+                  {blocks.map((block, bIdx) => {
+                    if (block.type === 'reasoning') {
                       return (
                         <ThinkingBlock
-                          key={pIdx}
-                          thinking={part.reasoning || ''}
-                          isRunning={isMsgRunning && pIdx === message.content.length - 1}
+                          key={bIdx}
+                          thinking={block.reasoning}
+                          isRunning={block.isRunning}
                         />
                       )
                     }
 
-                    if (part.type === 'text') {
-                      if (!part.text?.trim()) return null
+                    if (block.type === 'tool-group') {
                       return (
-                        <div
-                          key={pIdx}
-                          className="prose prose-sm max-w-none text-text-primary text-[13px] leading-relaxed select-text prose-code:before:content-none prose-code:after:content-none prose-headings:text-text-primary prose-strong:text-text-primary prose-table:text-text-secondary prose-th:text-text-primary"
-                        >
-                          <ReactMarkdown
-                            remarkPlugins={[remarkGfm]}
-                            components={{
-                              pre({ children }) {
-                                return (
-                                  <pre className="p-2.5 my-2 rounded-lg bg-gray-900 text-gray-100 font-mono text-xs overflow-x-auto select-text">
-                                    {children}
-                                  </pre>
-                                )
-                              },
-                              code({ className, children, ...props }) {
-                                const isBlock = Boolean(className && /language-/.test(className))
-                                if (isBlock) {
-                                  return (
-                                    <code className={className} {...props}>
-                                      {children}
-                                    </code>
-                                  )
-                                }
-                                return (
-                                  <code
-                                    className="px-1.5 py-0.5 mx-0.5 rounded bg-gray-100 text-gray-800 font-mono text-[11.5px] border border-gray-200/60"
-                                    {...props}
-                                  >
-                                    {children}
-                                  </code>
-                                )
-                              },
-                              p({ children }) {
-                                return <p className="mb-2 last:mb-0 leading-relaxed">{children}</p>
-                              }
-                            }}
-                          >
-                            {part.text || ''}
-                          </ReactMarkdown>
-                        </div>
+                        <ToolGroup
+                          key={bIdx}
+                          parts={block.parts}
+                          isRunning={block.isRunning}
+                        />
                       )
                     }
 
-                    if (part.type === 'tool-call') {
-                      return renderToolPart(part, pIdx, isMsgRunning)
+                    if (block.type === 'text') {
+                      return (
+                        <div key={bIdx} className="w-full">
+                          <MarkdownRenderer content={block.text} />
+                        </div>
+                      )
                     }
 
                     return null
                   })}
 
                   {message.error && (
-                    <div className="p-2 rounded-lg bg-red-50 border border-red-200 text-red-600 text-xs">
+                    <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-red-600 text-body font-medium">
                       {message.error}
                     </div>
                   )}
@@ -489,13 +447,16 @@ export default function AgentCard({
           </div>
 
           {/* Composer */}
-          <AgentComposer onOpenSettings={() => setSettingsOpen(true)} />
+          <AgentComposer />
         </div>
 
-        {/* Settings Modal */}
-        <AgentSettingsModal
-          isOpen={settingsOpen}
-          onClose={() => setSettingsOpen(false)}
+        <ConfirmModal
+          isOpen={deleteTarget !== null}
+          title="删除会话"
+          message={deleteTarget ? `确定要删除会话「${deleteTarget.title}」吗？此操作无法撤销。` : ''}
+          confirmText="确认删除"
+          onConfirm={handleConfirmDeleteSession}
+          onCancel={() => setDeleteTarget(null)}
         />
       </div>
   )

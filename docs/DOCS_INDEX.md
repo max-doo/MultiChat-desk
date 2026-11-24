@@ -135,6 +135,7 @@
 - API 配置：[API_CONFIG_GUIDE.md](API_CONFIG_GUIDE.md)
 - 模型管理：[README.md](README.md#模型管理)
 - DOM 选择器：[README.md](README.md#dom-选择器配置)
+- Agent 供应商、模型与上下文：[agent-provider-model-context-design.md](agent-provider-model-context-design.md)
 
 ### 发布相关
 - 发布流程：[BUILD_GUIDE.md](BUILD_GUIDE.md#发布流程)

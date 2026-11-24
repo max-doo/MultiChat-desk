@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Terminal, ChevronDown, ChevronRight, Check, Copy, AlertCircle, Loader2 } from 'lucide-react'
+import { Terminal, ChevronDown, Check, Copy, AlertCircle, Loader2 } from 'lucide-react'
 
 interface BashToolUIProps {
   command?: string
@@ -30,7 +30,7 @@ export function BashToolUI({
     setTimeout(() => setCopied(false), 2000)
   }
 
-  // Tail last 200 lines if too long
+  // 截断过长输出防止极端卡顿（保留后 200 行）
   const lines = outputText.split('\n')
   const truncatedText =
     lines.length > 200
@@ -38,53 +38,83 @@ export function BashToolUI({
       : outputText
 
   return (
-    <div className="my-1 text-xs font-mono select-none">
-      <div
-        role="button"
+    <div className="my-2 select-none rounded-xl border border-slate-200/90 bg-slate-50/50 shadow-2xs overflow-hidden transition-all duration-150">
+      <button
+        type="button"
         tabIndex={0}
         onClick={() => setExpanded(!expanded)}
-        onKeyDown={(e) => e.key === 'Enter' && setExpanded(!expanded)}
-        className="flex items-center gap-2 py-1 px-2 rounded hover:bg-gray-100 cursor-pointer text-text-secondary hover:text-text-primary transition-colors group"
+        className="w-full flex items-center justify-between px-3.5 py-2 text-left hover:bg-slate-100/60 transition-colors cursor-pointer group"
       >
-        {isRunning ? (
-          <Loader2 className="w-3.5 h-3.5 text-blue-500 animate-spin shrink-0" />
-        ) : isError ? (
-          <AlertCircle className="w-3.5 h-3.5 text-red-500 shrink-0" />
-        ) : (
-          <Terminal className="w-3.5 h-3.5 text-gray-400 group-hover:text-gray-600 shrink-0" />
-        )}
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          {/* 工具小图标 Badge */}
+          <div
+            className={`w-5 h-5 rounded-md flex items-center justify-center shrink-0 ${
+              isRunning
+                ? 'bg-primary/10 text-primary'
+                : isError
+                ? 'bg-red-50 text-red-500'
+                : 'bg-slate-200/60 text-slate-700'
+            }`}
+          >
+            {isRunning ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : isError ? (
+              <AlertCircle className="w-3.5 h-3.5" />
+            ) : (
+              <Terminal className="w-3.5 h-3.5" />
+            )}
+          </div>
 
-        <span className="truncate flex-1 font-medium text-text-primary">
-          {isRunning ? '正在运行: ' : isError ? '运行出错: ' : '已运行: '}
-          <span className="text-text-secondary font-normal">{displayCommand}</span>
-        </span>
+          <span className="text-caption font-medium text-text-primary shrink-0">
+            {isRunning ? '正在运行' : isError ? '运行出错' : '已运行'}
+          </span>
 
-        {durationMs !== undefined && (
-          <span className="text-[10px] text-gray-400 shrink-0">{durationMs}ms</span>
-        )}
+          {/* 命令胶囊 */}
+          <span className="px-2 py-0.5 rounded-md bg-white text-text-primary border border-slate-200/80 font-mono text-caption truncate max-w-[240px] shadow-2xs">
+            {displayCommand}
+          </span>
+        </div>
 
-        {expanded ? (
-          <ChevronDown className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-        ) : (
-          <ChevronRight className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-        )}
-      </div>
+        <div className="flex items-center gap-2 shrink-0 ml-2">
+          {durationMs !== undefined && (
+            <span className="text-tiny font-mono text-text-secondary">{durationMs}ms</span>
+          )}
+          <ChevronDown
+            className={`w-3.5 h-3.5 text-text-secondary transition-transform duration-200 ${
+              expanded ? 'rotate-180 text-text-primary' : 'group-hover:text-text-primary'
+            }`}
+          />
+        </div>
+      </button>
 
+      {/* 展开的浅色终端视窗 */}
       {expanded && (
-        <div className="mt-1 ml-5 p-2.5 rounded-lg bg-gray-900 text-gray-100 border border-gray-800 text-[11px] leading-relaxed relative select-text">
-          <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-gray-800 text-gray-400">
-            <span className="truncate pr-2 font-mono text-[10.5px] text-gray-300">$ {displayCommand}</span>
+        <div className="border-t border-slate-200/80 bg-white p-3 text-caption leading-relaxed relative select-text">
+          <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-100">
+            <span className="truncate pr-2 font-mono text-caption text-text-primary font-medium">
+              $ {displayCommand}
+            </span>
             <button
               type="button"
               onClick={handleCopy}
-              className="p-1 rounded hover:bg-gray-800 text-gray-400 hover:text-white transition-colors shrink-0"
-              title="复制命令及输出"
+              className="flex items-center gap-1 p-1 px-1.5 rounded hover:bg-slate-100 text-text-secondary hover:text-text-primary transition-colors shrink-0 text-tiny"
+              title="复制命令与输出"
             >
-              {copied ? <Check className="w-3 h-3 text-green-400" /> : <Copy className="w-3 h-3" />}
+              {copied ? (
+                <>
+                  <Check className="w-3 h-3 text-emerald-600" />
+                  <span className="text-emerald-600 font-medium">已复制</span>
+                </>
+              ) : (
+                <>
+                  <Copy className="w-3 h-3" />
+                  <span>复制</span>
+                </>
+              )}
             </button>
           </div>
 
-          <pre className="max-h-56 overflow-y-auto whitespace-pre-wrap break-all font-mono">
+          <pre className="max-h-60 overflow-y-auto whitespace-pre-wrap break-all font-mono text-caption text-slate-700 bg-slate-50/70 p-3 rounded-lg border border-slate-100 leading-relaxed selection:bg-blue-100">
             {truncatedText || (isRunning ? '等待命令输出...' : '(无标准输出)')}
           </pre>
         </div>

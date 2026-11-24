@@ -1407,12 +1407,16 @@ export default function WorkbenchAiSidebar({ isActive = true, instanceId = 'prim
             headerActions={
               <button
                 type="button"
-                onClick={closeRightPane}
-                className="w-7 h-7 rounded-full text-text-secondary hover:text-text-primary hover:bg-black/5 dark:hover:bg-white/10 flex items-center justify-center transition-all duration-200"
-                title="折叠 AI 侧边栏"
-                aria-label="折叠 AI 侧边栏"
+                onClick={isSecondary ? closeAiSidebar2 : openAiSidebar2}
+                className={`w-7 h-7 rounded-full flex items-center justify-center transition-all duration-200 ${
+                  !isSecondary && isAiSidebar2Open
+                    ? 'text-primary bg-blue-50 hover:bg-blue-100 dark:bg-primary/20 dark:hover:bg-primary/25'
+                    : 'text-text-secondary hover:text-text-primary hover:bg-black/5 dark:hover:bg-white/10'
+                }`}
+                title={isSecondary ? '关闭 AI 侧边栏' : '再打开一个 AI 侧边栏'}
+                aria-label={isSecondary ? '关闭 AI 侧边栏' : '再打开一个 AI 侧边栏'}
               >
-                <AppIcon name="right_panel_close" size={20} />
+                <AppIcon name={isSecondary ? 'close' : 'view_column_2'} size={20} />
               </button>
             }
           />

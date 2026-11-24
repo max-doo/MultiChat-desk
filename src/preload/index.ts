@@ -29,6 +29,14 @@ import type {
 import type { CliIntegrationStatus } from '../shared/types/cli'
 import type { TaskSplitTask } from '../shared/types/taskSplit'
 import type {
+  AgentActiveModel,
+  AgentAuthOperation,
+  AgentAuthType,
+  AgentRuntimeSnapshot,
+  AgentSessionStatus,
+  AgentThinkingLevel
+} from '../shared/types/agentRuntime'
+import type {
   WorkbenchFileNode,
   WorkbenchSearchResult,
   WorkbenchFileInfo,
@@ -697,6 +705,8 @@ const api = {
     ipcRenderer.invoke('agent:list-sessions'),
   agentResumeSession: (sessionId: string): Promise<{ success: boolean; data?: unknown; error?: string }> =>
     ipcRenderer.invoke('agent:resume-session', { sessionId }),
+  agentDeleteSession: (sessionId: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('agent:delete-session', { sessionId }),
   agentResolveApproval: (requestId: string, decision: 'allow' | 'always' | 'deny', pattern?: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('agent:resolve-approval', { requestId, decision, pattern }),
   agentSetPermissionMode: (sessionId: string, mode: 'default' | 'auto' | 'bypass' | 'full' | 'restricted' | 'readonly'): Promise<{ success: boolean; error?: string }> =>
@@ -730,6 +740,39 @@ const api = {
     ipcRenderer.invoke('agent:allowlist-add', { tool, pattern }),
   agentAllowlistRemove: (id: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('agent:allowlist-remove', { id }),
+  agentGetRuntimeSnapshot: (sessionId?: string): Promise<{ success: boolean; data?: AgentRuntimeSnapshot; error?: string }> =>
+    ipcRenderer.invoke('agent:get-runtime-snapshot', { sessionId }),
+  agentGetSessionStatus: (sessionId?: string): Promise<{ success: boolean; data?: AgentSessionStatus | null; error?: string }> =>
+    ipcRenderer.invoke('agent:get-session-status', { sessionId }),
+  agentSetThinkingLevel: (sessionId: string, level: AgentThinkingLevel): Promise<{ success: boolean; data?: AgentActiveModel; error?: string }> =>
+    ipcRenderer.invoke('agent:set-thinking-level', { sessionId, level }),
+  agentLoginProvider: (providerId: string, type: AgentAuthType): Promise<{ success: boolean; data?: AgentAuthOperation; error?: string }> =>
+    ipcRenderer.invoke('agent:login-provider', { providerId, type }),
+  agentRespondProviderAuth: (operationId: string, value: string): Promise<{ success: boolean; data?: AgentAuthOperation; error?: string }> =>
+    ipcRenderer.invoke('agent:respond-provider-auth', { operationId, value }),
+  agentCancelProviderAuth: (operationId: string): Promise<{ success: boolean; data?: AgentAuthOperation; error?: string }> =>
+    ipcRenderer.invoke('agent:cancel-provider-auth', { operationId }),
+  agentListAuthOperations: (): Promise<{ success: boolean; data?: AgentAuthOperation[]; error?: string }> =>
+    ipcRenderer.invoke('agent:list-auth-operations'),
+  agentLogoutProvider: (providerId: string): Promise<{ success: boolean; data?: AgentRuntimeSnapshot; error?: string }> =>
+    ipcRenderer.invoke('agent:logout-provider', { providerId }),
+  agentRefreshProviderModels: (providerId: string): Promise<{ success: boolean; data?: AgentRuntimeSnapshot; error?: string }> =>
+    ipcRenderer.invoke('agent:refresh-provider-models', { providerId }),
+  onAgentProviderAuthChanged: (cb: (payload: { operation: AgentAuthOperation }) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: { operation: AgentAuthOperation }): void => cb(payload)
+    ipcRenderer.on('agent:provider-auth-changed', handler)
+    return () => { ipcRenderer.removeListener('agent:provider-auth-changed', handler) }
+  },
+  onAgentRuntimeChanged: (cb: (payload: { reason: string }) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: { reason: string }): void => cb(payload)
+    ipcRenderer.on('agent:runtime-changed', handler)
+    return () => { ipcRenderer.removeListener('agent:runtime-changed', handler) }
+  },
+  onAgentSessionStatus: (cb: (payload: { sessionId: string; status: AgentSessionStatus }) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: { sessionId: string; status: AgentSessionStatus }): void => cb(payload)
+    ipcRenderer.on('agent:session-status', handler)
+    return () => { ipcRenderer.removeListener('agent:session-status', handler) }
+  },
   onAgentEvent: (cb: (payload: { sessionId: string; event: unknown }) => void): (() => void) => {
     const handler = (_event: Electron.IpcRendererEvent, payload: { sessionId: string; event: unknown }): void => cb(payload)
     ipcRenderer.on('agent:event', handler)

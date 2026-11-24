@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { useWorkbenchStore } from './workbenchStore'
+import { useAgentSettingsDialogStore } from './agentSettingsDialogStore'
 import type {
   AgentMessage,
   AgentSessionSummary,
@@ -9,7 +10,13 @@ import type {
   AgentSkill,
   AgentConfig,
   AgentIpcApi,
-  PiContentPart
+  PiContentPart,
+  AgentActiveModel,
+  AgentAuthOperation,
+  AgentAuthType,
+  AgentRuntimeSnapshot,
+  AgentSessionStatus,
+  AgentThinkingLevel
 } from '../types/agent'
 
 interface PiRawPart {
@@ -81,6 +88,10 @@ interface AgentSessionState {
   activeModel: string
   activeProvider: string
   providers: AgentProviderInfo[]
+  snapshot: AgentRuntimeSnapshot | null
+  authOperations: Record<string, AgentAuthOperation>
+  sessionStatus: AgentSessionStatus | null
+  snapshotLoading: boolean
   skills: AgentSkill[]
   agentConfig: AgentConfig | null
   composerInput: string
@@ -100,7 +111,9 @@ interface AgentSessionState {
   initListeners: () => () => void
   fetchSessions: () => Promise<void>
   newSession: (cwd?: string) => Promise<string | null>
+  createSession: (cwd?: string) => Promise<string | null>
   resumeSession: (sessionId: string) => Promise<boolean>
+  deleteSession: (sessionId: string) => Promise<boolean>
   prompt: (text: string, attachments?: string[]) => Promise<void>
   abort: () => Promise<void>
   resolveApproval: (
@@ -116,6 +129,15 @@ interface AgentSessionState {
   ) => Promise<boolean>
   deleteCredential: (providerId: string) => Promise<boolean>
   setModel: (model: string, provider?: string) => Promise<boolean>
+  fetchSnapshot: (sessionId?: string) => Promise<void>
+  fetchSessionStatus: (sessionId?: string) => Promise<void>
+  setThinkingLevel: (level: AgentThinkingLevel) => Promise<boolean>
+  loginProvider: (providerId: string, type: AgentAuthType) => Promise<AgentAuthOperation | null>
+  respondProviderAuth: (operationId: string, value: string) => Promise<boolean>
+  cancelProviderAuth: (operationId: string) => Promise<boolean>
+  logoutProvider: (providerId: string) => Promise<boolean>
+  refreshProviderModels: (providerId: string) => Promise<boolean>
+  openAgentSettings: () => void
   fetchConfig: () => Promise<void>
   setSkillDirs: (dirs: string[]) => Promise<boolean>
   addAllowlist: (tool: string, pattern: string) => Promise<boolean>
@@ -136,6 +158,10 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
   activeModel: 'devin/swe-2',
   activeProvider: 'magpie',
   providers: [],
+  snapshot: null,
+  authOperations: {},
+  sessionStatus: null,
+  snapshotLoading: false,
   skills: [],
   agentConfig: null,
   composerInput: '',
@@ -182,6 +208,9 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
     const api = getAgentApi()
     let cleanupEvent: (() => void) | undefined
     let cleanupApproval: (() => void) | undefined
+    let cleanupAuth: (() => void) | undefined
+    let cleanupRuntime: (() => void) | undefined
+    let cleanupStatus: (() => void) | undefined
 
     if (typeof api.onAgentEvent === 'function') {
       cleanupEvent = api.onAgentEvent(({ sessionId, event }) => {
@@ -195,14 +224,48 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
       })
     }
 
+    if (typeof api.onAgentProviderAuthChanged === 'function') {
+      cleanupAuth = api.onAgentProviderAuthChanged(({ operation }) => {
+        set((s) => ({ authOperations: { ...s.authOperations, [operation.id]: operation } }))
+        if (operation.status === 'success') {
+          void get().fetchSnapshot()
+        }
+      })
+    }
+
+    if (typeof api.onAgentRuntimeChanged === 'function') {
+      cleanupRuntime = api.onAgentRuntimeChanged(() => {
+        void get().fetchSnapshot()
+      })
+    }
+
+    if (typeof api.onAgentSessionStatus === 'function') {
+      cleanupStatus = api.onAgentSessionStatus(({ sessionId, status }) => {
+        const current = get().currentSessionId
+        if (current && sessionId !== current) return
+        set({ sessionStatus: status })
+      })
+    }
+
     // Load active model / providers / sessions initially
     void get().fetchProviders()
     void get().fetchSessions()
     void get().fetchSkills()
+    void get().fetchSnapshot()
+    void api.agentListAuthOperations?.().then((res) => {
+      if (res.success && res.data) {
+        const map: Record<string, AgentAuthOperation> = {}
+        for (const operation of res.data) map[operation.id] = operation
+        set({ authOperations: map })
+      }
+    }).catch(() => undefined)
 
     return () => {
       cleanupEvent?.()
       cleanupApproval?.()
+      cleanupAuth?.()
+      cleanupRuntime?.()
+      cleanupStatus?.()
     }
   },
 
@@ -217,7 +280,25 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
     }
   },
 
+  // Reset to a draft state without touching the backend: the real session is
+  // created lazily on the first `prompt`. This avoids accumulating empty
+  // sessions in the history list.
   newSession: async (cwd) => {
+    const activeWorkspace = useWorkbenchStore.getState().workspacePath
+    const targetCwd = cwd || activeWorkspace || null
+    set({
+      currentSessionId: null,
+      currentCwd: targetCwd,
+      messages: [],
+      isRunning: false,
+      pendingApprovals: [],
+      composerInput: '',
+      attachments: []
+    })
+    return null
+  },
+
+  createSession: async (cwd) => {
     try {
       const activeWorkspace = useWorkbenchStore.getState().workspacePath
       const targetCwd = cwd || activeWorkspace || undefined
@@ -234,10 +315,12 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
           attachments: []
         })
         void get().fetchSessions()
+        void get().fetchSnapshot(sessionId)
+        void get().fetchSessionStatus(sessionId)
         return sessionId
       }
     } catch (err) {
-      console.error('[agentSessionStore] newSession error:', err)
+      console.error('[agentSessionStore] createSession error:', err)
     }
     return null
   },
@@ -255,13 +338,45 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
         const restoredMessages: AgentMessage[] = []
 
         if (rawData?.messages && Array.isArray(rawData.messages)) {
+          // 1. 建立 toolCallId -> result 映射表
+          const toolResultsMap = new Map<string, unknown>()
+          for (const m of rawData.messages) {
+            const mRole = String(m.role || '').toLowerCase()
+            if (mRole === 'toolresult' || mRole === 'tool') {
+              const tcId = (m as { toolCallId?: string }).toolCallId
+              if (tcId) {
+                toolResultsMap.set(tcId, m.content)
+              }
+            }
+          }
+
+          // 2. 仅恢复 user 和 assistant 消息，并将 toolResult 注入对应 tool-call
           for (let i = 0; i < rawData.messages.length; i++) {
             const m = rawData.messages[i]
+            const mRole = String(m.role || '').toLowerCase()
+            // 阻断 toolResult 独立流出到消息列表，避免在正文中裸露渲染
+            if (mRole === 'toolresult' || mRole === 'tool') {
+              continue
+            }
+
             const role = (m.role || 'assistant') as AgentMessage['role']
+            const parts = convertPiContentParts(m.content)
+
+            // 注入匹配的 toolResult
+            const enrichedParts = parts.map((p) => {
+              if (p.type === 'tool-call' && p.toolCallId && toolResultsMap.has(p.toolCallId)) {
+                return {
+                  ...p,
+                  result: p.result ?? toolResultsMap.get(p.toolCallId)
+                }
+              }
+              return p
+            })
+
             restoredMessages.push({
               id: m.id || `msg_restored_${i}`,
               role,
-              content: convertPiContentParts(m.content),
+              content: enrichedParts,
               status: 'complete',
               createdAt: Date.now()
             })
@@ -277,12 +392,36 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
           activeModel: rawData?.model || get().activeModel,
           activeProvider: rawData?.provider || get().activeProvider
         })
+        void get().fetchSnapshot(sessionId)
+        void get().fetchSessionStatus(sessionId)
         return true
       }
     } catch (err) {
       console.error('[agentSessionStore] resumeSession error:', err)
     }
     return false
+  },
+
+  deleteSession: async (sessionId: string) => {
+    try {
+      const res = await getAgentApi().agentDeleteSession(sessionId)
+      if (!res.success) {
+        console.error('[agentSessionStore] deleteSession error:', res.error)
+        return false
+      }
+
+      const wasCurrent = get().currentSessionId === sessionId
+      set({ sessions: get().sessions.filter((s) => s.id !== sessionId) })
+
+      if (wasCurrent) {
+        // Back to a draft state; a fresh session is created lazily on next prompt.
+        set({ currentSessionId: null, messages: [], isRunning: false, pendingApprovals: [] })
+      }
+      return true
+    } catch (err) {
+      console.error('[agentSessionStore] deleteSession error:', err)
+      return false
+    }
   },
 
   prompt: async (text: string, attachments?: string[]) => {
@@ -294,7 +433,7 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
 
     // If workspace changed or no session exists, initiate session for active workspace
     if (!sessionId || (activeWorkspace && currentCwd && currentCwd !== activeWorkspace)) {
-      sessionId = await get().newSession(activeWorkspace || undefined)
+      sessionId = await get().createSession(activeWorkspace || undefined)
       if (!sessionId) return
     }
 
@@ -462,12 +601,144 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
           activeModel: model,
           activeProvider: provider || get().activeProvider
         })
+        void get().fetchSnapshot()
+        void get().fetchSessionStatus()
         return true
       }
     } catch (err) {
       console.error('[agentSessionStore] setModel error:', err)
     }
     return false
+  },
+
+  fetchSnapshot: async (sessionId) => {
+    set({ snapshotLoading: true })
+    try {
+      const res = await getAgentApi().agentGetRuntimeSnapshot(sessionId ?? get().currentSessionId ?? undefined)
+      if (res.success && res.data) {
+        set({
+          snapshot: res.data,
+          activeModel: res.data.active.modelId,
+          activeProvider: res.data.active.providerId,
+          snapshotLoading: false
+        })
+      } else {
+        set({ snapshotLoading: false })
+      }
+    } catch (err) {
+      console.warn('[agentSessionStore] fetchSnapshot error:', err)
+      set({ snapshotLoading: false })
+    }
+  },
+
+  fetchSessionStatus: async (sessionId) => {
+    try {
+      const res = await getAgentApi().agentGetSessionStatus(sessionId ?? get().currentSessionId ?? undefined)
+      if (res.success) {
+        set({ sessionStatus: res.data ?? null })
+      }
+    } catch (err) {
+      console.warn('[agentSessionStore] fetchSessionStatus error:', err)
+    }
+  },
+
+  setThinkingLevel: async (level) => {
+    const sessionId = get().currentSessionId ?? ''
+    try {
+      const res = await getAgentApi().agentSetThinkingLevel(sessionId, level)
+      if (res.success && res.data) {
+        set((s) => ({
+          sessionStatus: s.sessionStatus ? { ...s.sessionStatus, active: res.data as AgentActiveModel } : s.sessionStatus
+        }))
+        void get().fetchSnapshot()
+        return true
+      }
+    } catch (err) {
+      console.error('[agentSessionStore] setThinkingLevel error:', err)
+    }
+    return false
+  },
+
+  loginProvider: async (providerId, type) => {
+    try {
+      const res = await getAgentApi().agentLoginProvider(providerId, type)
+      if (res.success && res.data) {
+        set((s) => ({ authOperations: { ...s.authOperations, [res.data!.id]: res.data! } }))
+        return res.data
+      }
+      if (res.error) {
+        const failed: AgentAuthOperation = {
+          id: `error:${providerId}`,
+          providerId,
+          providerName: providerId,
+          type,
+          status: 'error',
+          events: [],
+          error: res.error
+        }
+        set((s) => ({ authOperations: { ...s.authOperations, [failed.id]: failed } }))
+        return failed
+      }
+    } catch (err) {
+      console.error('[agentSessionStore] loginProvider error:', err)
+    }
+    return null
+  },
+
+  respondProviderAuth: async (operationId, value) => {
+    try {
+      const res = await getAgentApi().agentRespondProviderAuth(operationId, value)
+      if (res.success && res.data) {
+        set((s) => ({ authOperations: { ...s.authOperations, [res.data!.id]: res.data! } }))
+        return true
+      }
+    } catch (err) {
+      console.error('[agentSessionStore] respondProviderAuth error:', err)
+    }
+    return false
+  },
+
+  cancelProviderAuth: async (operationId) => {
+    try {
+      const res = await getAgentApi().agentCancelProviderAuth(operationId)
+      if (res.success && res.data) {
+        set((s) => ({ authOperations: { ...s.authOperations, [res.data!.id]: res.data! } }))
+        return true
+      }
+    } catch (err) {
+      console.error('[agentSessionStore] cancelProviderAuth error:', err)
+    }
+    return false
+  },
+
+  logoutProvider: async (providerId) => {
+    try {
+      const res = await getAgentApi().agentLogoutProvider(providerId)
+      if (res.success && res.data) {
+        set({ snapshot: res.data })
+        return true
+      }
+    } catch (err) {
+      console.error('[agentSessionStore] logoutProvider error:', err)
+    }
+    return false
+  },
+
+  refreshProviderModels: async (providerId) => {
+    try {
+      const res = await getAgentApi().agentRefreshProviderModels(providerId)
+      if (res.success && res.data) {
+        set({ snapshot: res.data })
+        return true
+      }
+    } catch (err) {
+      console.error('[agentSessionStore] refreshProviderModels error:', err)
+    }
+    return false
+  },
+
+  openAgentSettings: () => {
+    useAgentSettingsDialogStore.getState().open()
   },
 
   fetchConfig: async () => {
@@ -522,7 +793,8 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
 
   handleAgentEvent: (sessionId, event) => {
     const currentSessionId = get().currentSessionId
-    if (currentSessionId && sessionId && sessionId !== currentSessionId) {
+    // Strict match: draft state (null) must not absorb events from any real session.
+    if (sessionId !== currentSessionId) {
       return
     }
 
@@ -541,6 +813,8 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
           )
         }))
         void get().fetchSessions()
+        void get().fetchSessionStatus()
+        void get().fetchSnapshot()
         break
       }
       case 'turn_start': {
@@ -688,21 +962,29 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
         if (!toolCallId) break
         set((s) => {
           const msgs = [...s.messages]
-          const last = msgs[msgs.length - 1]
-          if (!last || last.role !== 'assistant') return s
-          const content = last.content.map((p) => {
-            if (p.type === 'tool-call' && p.toolCallId === toolCallId) {
-              return {
-                ...p,
-                result,
-                isError: Boolean(isError),
-                durationMs
+          for (let i = msgs.length - 1; i >= 0; i--) {
+            const m = msgs[i]
+            if (m.role === 'assistant') {
+              let found = false
+              const content = m.content.map((p) => {
+                if (p.type === 'tool-call' && p.toolCallId === toolCallId) {
+                  found = true
+                  return {
+                    ...p,
+                    result,
+                    isError: Boolean(isError),
+                    durationMs
+                  }
+                }
+                return p
+              })
+              if (found) {
+                msgs[i] = { ...m, content }
+                return { messages: msgs }
               }
             }
-            return p
-          })
-          msgs[msgs.length - 1] = { ...last, content }
-          return { messages: msgs }
+          }
+          return s
         })
         break
       }
@@ -716,6 +998,14 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
           }
           return s
         })
+        void get().fetchSessionStatus()
+        break
+      }
+      case 'compaction_end':
+      case 'thinking_level_changed':
+      case 'agent_settled': {
+        void get().fetchSessionStatus()
+        void get().fetchSnapshot()
         break
       }
       default:

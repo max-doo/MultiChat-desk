@@ -11,6 +11,16 @@ export function excludedShellTools(platform: NodeJS.Platform = process.platform)
 }
 
 /**
+ * `tools` modifiers passed to `createAgentSession` so the platform shell tool is
+ * activated on top of pi's default set (read/bash/edit/write). The pi default
+ * list never includes `powershell`, so on Windows it must be added explicitly;
+ * the other shell tool is removed via `excludeTools`.
+ */
+export function shellToolModifiers(platform: NodeJS.Platform = process.platform): string[] {
+  return [`+${shellToolForPlatform(platform)}`]
+}
+
+/**
  * Fresh execution facts for the model, independent of saved prompts and history.
  * Tells the model which shell syntax to emit (PowerShell vs bash) instead of
  * teaching it how to use a shell — models on Windows otherwise produce POSIX

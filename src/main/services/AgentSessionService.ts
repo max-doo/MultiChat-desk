@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile, readdir } from 'fs/promises'
+import { mkdir, readFile, readdir, rm } from 'fs/promises'
 import { existsSync } from 'fs'
 import { join, dirname, basename } from 'path'
 import { homedir } from 'os'
@@ -10,12 +10,28 @@ import type {
   ModelRuntime as ModelRuntimeType,
   SessionManager as SessionManagerType,
   AgentSession,
-  AgentSessionEvent
+  AgentSessionEvent,
+  ProviderModelConfig
 } from '@earendil-works/pi-coding-agent'
-import type { AnyModel, Model, Api } from '@earendil-works/pi-ai'
+import type { AnyModel, Model, Api, ThinkingLevel } from '@earendil-works/pi-ai'
 import { PermissionEngine, type PermissionMode, type ApprovalRequest } from './PermissionEngine'
 import { AgentResourceLoader } from './AgentResourceLoader'
-import { excludedShellTools, shellEnvironmentPrompt, shellToolForPlatform } from './shell'
+import { excludedShellTools, shellEnvironmentPrompt, shellToolForPlatform, shellToolModifiers } from './shell'
+import { MAGPIE_PROVIDER } from './customGatewayProvider'
+import { ProviderAuthController } from './ProviderAuthController'
+import { safeError } from './redact'
+import type {
+  AgentActiveModel,
+  AgentAuthOperation,
+  AgentAuthType,
+  AgentContextUsage,
+  AgentProvider,
+  AgentProviderModel,
+  AgentRuntimeSnapshot,
+  AgentSessionStats,
+  AgentSessionStatus,
+  AgentThinkingLevel
+} from '../../shared/types/agentRuntime'
 
 const importEsm = new Function('s', 'return import(s)') as <T>(s: string) => Promise<T>
 
@@ -55,18 +71,28 @@ export interface ProviderListItem {
   models: string[]
 }
 
+const STATUS_EVENTS = new Set([
+  'message_end',
+  'agent_end',
+  'agent_settled',
+  'compaction_end',
+  'thinking_level_changed',
+  'model_select'
+])
+
 export class AgentSessionService {
   private sessionsDir: string
   private agentDir: string
   private skillDirCandidates: string[]
   private permissionEngine: PermissionEngine
+  private authController: ProviderAuthController
   private pi: PiModule | null = null
   private modelRuntime: ModelRuntimeType | null = null
   private modelRegistry: ModelRegistryType | null = null
   private activeSessions = new Map<string, ActiveSessionEntry>()
 
   // Default fallback provider & model for local SWE-2 / Devin
-  private defaultProvider = 'magpie'
+  private defaultProvider = MAGPIE_PROVIDER.providerId
   private defaultModel = 'devin/swe-2'
 
   constructor(
@@ -94,6 +120,10 @@ export class AgentSessionService {
     this.permissionEngine = new PermissionEngine(store, (req: ApprovalRequest) => {
       this.sendApprovalRequest(req)
     })
+    this.authController = new ProviderAuthController(
+      () => this.modelRuntime,
+      (operation: AgentAuthOperation) => this.sendAuthOperation(operation)
+    )
   }
 
   private async getPi(): Promise<PiModule> {
@@ -144,33 +174,59 @@ export class AgentSessionService {
     })
     this.modelRegistry = new ModelRegistry(this.modelRuntime)
 
-    // Ensure local Devin / Magpie provider is registered
-    this.ensureLocalDevinProvider()
+    // Ensure the local magpie gateway provider is registered
+    await this.ensureMagpieProvider()
   }
 
-  private ensureLocalDevinProvider(): void {
-    if (!this.modelRegistry) return
-    const existing = this.modelRegistry.find('magpie', 'devin/swe-2')
-    if (!existing) {
-      this.modelRegistry.registerProvider('magpie', {
-        name: 'Magpie (Local Devin)',
-        baseUrl: 'http://127.0.0.1:3425/v1',
-        apiKey: 'magpie',
-        api: 'openai-completions',
-        models: [
-          {
-            id: 'devin/swe-2',
-            name: 'SWE-2 · Devin',
-            api: 'openai-completions',
-            reasoning: true,
-            input: ['text', 'image'],
-            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-            contextWindow: 262000,
-            maxTokens: 128000
-          }
-        ]
+  private async ensureMagpieProvider(): Promise<void> {
+    if (!this.modelRegistry || !this.modelRuntime) return
+    const provider = MAGPIE_PROVIDER
+    const registered = this.modelRuntime.getRegisteredProviderConfig(provider.providerId)
+    if (!registered) {
+      // Seed the catalog from the last persisted fetch so a cold start with
+      // the gateway offline still exposes the full model list.
+      const stored = await provider.loadStoredModels(this.agentDir)
+      this.modelRegistry.registerProvider(provider.providerId, {
+        name: provider.name,
+        baseUrl: provider.baseUrl,
+        apiKey: provider.apiKey,
+        models: stored.length > 0 ? stored : provider.seedModels
       })
     }
+    // registerProvider kicks off an async availability refresh; wait for it so
+    // the first snapshot already reports the local models as usable.
+    await this.modelRuntime.refresh({ allowNetwork: false, providers: [provider.providerId] })
+    // Pull the live catalog in the background; failures keep the static
+    // fallback above, so the gateway being down never blocks startup.
+    void provider
+      .fetchModels()
+      .then((models) => this.applyGatewayCatalog(provider, models))
+      .catch(() => undefined)
+  }
+
+  /**
+   * Re-register a custom gateway provider with the freshly fetched catalog.
+   * registerProvider merges into extensionProviders and recomposes, so the
+   * provider's getModels projection picks the new list up immediately —
+   * no reliance on pi's refreshModels/publish extension pipeline.
+   */
+  private async applyGatewayCatalog(
+    provider: typeof MAGPIE_PROVIDER,
+    models: ProviderModelConfig[]
+  ): Promise<void> {
+    if (!this.modelRegistry || !this.modelRuntime || models.length === 0) return
+    // registerProvider validates the incoming config on its own (not the
+    // merged result), so baseUrl must be passed again or the custom-model
+    // definitions fail the "baseUrl is required" check.
+    this.modelRegistry.registerProvider(provider.providerId, {
+      name: provider.name,
+      baseUrl: provider.baseUrl,
+      apiKey: provider.apiKey,
+      models
+    })
+    await this.modelRuntime.refresh({ allowNetwork: false, providers: [provider.providerId] })
+    await provider.persistModels(this.agentDir, models).catch(() => undefined)
+    this.sendRuntimeChanged('refresh')
   }
 
   private sendApprovalRequest(request: ApprovalRequest): void {
@@ -184,7 +240,39 @@ export class AgentSessionService {
     const wc = this.getWebContents()
     if (wc && !wc.isDestroyed()) {
       wc.send('agent:event', { sessionId, event })
+      if (STATUS_EVENTS.has(event.type)) {
+        const status = this.getSessionStatus(sessionId)
+        if (status) {
+          wc.send('agent:session-status', { sessionId, status })
+        }
+      }
     }
+  }
+
+  private sendAuthOperation(operation: AgentAuthOperation): void {
+    const wc = this.getWebContents()
+    if (wc && !wc.isDestroyed()) {
+      wc.send('agent:provider-auth-changed', { operation })
+    }
+  }
+
+  private sendRuntimeChanged(reason: 'login' | 'logout' | 'refresh' | 'model'): void {
+    const wc = this.getWebContents()
+    if (wc && !wc.isDestroyed()) {
+      wc.send('agent:runtime-changed', { reason })
+    }
+  }
+
+  private extractUserText(content: unknown): string {
+    if (typeof content === 'string') return content.trim()
+    if (!Array.isArray(content)) return ''
+    const text = content
+      .filter((part): part is { type: 'text'; text: string } =>
+        !!part && typeof part === 'object' && (part as { type?: string }).type === 'text')
+      .map((part) => part.text)
+      .join('')
+      .trim()
+    return text
   }
 
   private getActiveModelObject(providerId?: string, modelId?: string): Model<Api> | undefined {
@@ -192,6 +280,14 @@ export class AgentSessionService {
     const prov = providerId || (this.store.get('agent_active_provider') as string) || this.defaultProvider
     const mod = modelId || (this.store.get('agent_active_model') as string) || this.defaultModel
     return this.modelRegistry.find(prov, mod)
+  }
+
+  private getStoredThinkingLevel(): ThinkingLevel {
+    const stored = this.store.get('agent_thinking_level')
+    const levels: AgentThinkingLevel[] = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
+    return typeof stored === 'string' && levels.includes(stored as AgentThinkingLevel)
+      ? (stored as ThinkingLevel)
+      : 'medium'
   }
 
   private wireSession(
@@ -229,6 +325,12 @@ export class AgentSessionService {
       const active = this.activeSessions.get(sessionId)
       if (active) {
         active.updatedAt = Date.now()
+        if (!active.title && event.type === 'message_end' && event.message.role === 'user') {
+          const text = this.extractUserText(event.message.content)
+          if (text) {
+            active.title = text
+          }
+        }
       }
       this.forwardEvent(sessionId, event)
     })
@@ -279,12 +381,15 @@ export class AgentSessionService {
       agentDir: this.agentDir,
       modelRuntime: this.modelRuntime ?? undefined,
       model: modelObj,
+      thinkingLevel: this.getStoredThinkingLevel(),
       sessionManager,
       resourceLoader: resourceLoader.getRawLoader(),
-      excludeTools: excludedShellTools()
+      excludeTools: excludedShellTools(),
+      tools: shellToolModifiers()
     })
 
     this.wireSession(sessionId, session, resolvedCwd, 'default')
+    this.store.set('agent_current_session', sessionId)
 
     return { sessionId }
   }
@@ -360,12 +465,15 @@ export class AgentSessionService {
       agentDir: this.agentDir,
       modelRuntime: this.modelRuntime ?? undefined,
       model: modelObj,
+      thinkingLevel: this.getStoredThinkingLevel(),
       sessionManager,
       resourceLoader: resourceLoader.getRawLoader(),
-      excludeTools: excludedShellTools()
+      excludeTools: excludedShellTools(),
+      tools: shellToolModifiers()
     })
 
     const entry = this.wireSession(sessionId, session, cwd, 'default')
+    this.store.set('agent_current_session', sessionId)
 
     return {
       sessionId,
@@ -415,6 +523,52 @@ export class AgentSessionService {
     }
   }
 
+  public async deleteSession(sessionId: string): Promise<void> {
+    const active = this.activeSessions.get(sessionId)
+    if (active) {
+      try {
+        await active.session.abort()
+      } catch {
+        // ignore
+      }
+      active.unsubscribe()
+      try {
+        active.session.dispose()
+      } catch {
+        // ignore
+      }
+      this.activeSessions.delete(sessionId)
+    }
+
+    try {
+      const files = await readdir(this.sessionsDir)
+      for (const file of files) {
+        if (!file.endsWith('.jsonl')) continue
+        const fullPath = join(this.sessionsDir, file)
+        try {
+          const content = await readFile(fullPath, 'utf8')
+          const firstLine = content.slice(0, content.indexOf('\n'))
+          if (firstLine) {
+            const header = JSON.parse(firstLine)
+            if (header.id === sessionId) {
+              await rm(fullPath, { force: true })
+              break
+            }
+          }
+        } catch {
+          // ignore unreadable entries
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    const current = this.store.get('agent_current_session')
+    if (current === sessionId) {
+      this.store.delete('agent_current_session')
+    }
+  }
+
   public async listSessions(): Promise<SessionListItem[]> {
     await mkdir(this.sessionsDir, { recursive: true })
     const { SessionManager } = await this.getPi()
@@ -422,12 +576,20 @@ export class AgentSessionService {
 
     const result: SessionListItem[] = []
     const seen = new Set<string>()
+    const diskTitleById = new Map<string, string>()
+    for (const item of diskSessions) {
+      if (item.firstMessage) {
+        diskTitleById.set(item.id, item.firstMessage)
+      }
+    }
 
     // First include active sessions
     for (const [id, active] of this.activeSessions.entries()) {
+      const messageCount = active.session.agent.state.messages?.length ?? 0
+      if (messageCount === 0) continue
       result.push({
         id,
-        title: active.title || '新会话',
+        title: active.title || diskTitleById.get(id) || '新会话',
         createdAt: active.createdAt,
         updatedAt: active.updatedAt,
         cwd: active.cwd,
@@ -439,6 +601,7 @@ export class AgentSessionService {
     // Then merge with disk sessions
     for (const item of diskSessions) {
       if (!seen.has(item.id)) {
+        if (item.messageCount === 0) continue
         result.push({
           id: item.id,
           title: item.firstMessage || '新会话',
@@ -469,11 +632,15 @@ export class AgentSessionService {
   }
 
   public async setModel(sessionId: string, modelId: string, providerId?: string): Promise<void> {
-    if (!this.modelRegistry) return
-    const prov = providerId || this.defaultProvider
-    const modelObj = this.modelRegistry.find(prov, modelId)
+    if (!this.modelRuntime) {
+      await this.init()
+    }
+    const runtime = this.modelRuntime
+    if (!runtime) throw new Error('Agent 运行时尚未初始化')
+    const prov = providerId || (this.store.get('agent_active_provider') as string) || this.defaultProvider
+    const modelObj = runtime.getModel(prov, modelId)
     if (!modelObj) {
-      throw new Error(`Model ${prov}:${modelId} not found in ModelRegistry`)
+      throw new Error(`找不到模型 ${prov}:${modelId}`)
     }
 
     this.store.set('agent_active_provider', prov)
@@ -483,43 +650,228 @@ export class AgentSessionService {
     if (active) {
       active.modelId = modelId
       active.providerId = prov
-      await active.session.setModel(modelObj)
+      await active.session.setModel(modelObj, { persist: true })
     }
+    this.sendRuntimeChanged('model')
+  }
+
+  public getRuntimeSnapshot(sessionId?: string): AgentRuntimeSnapshot {
+    const providers = this.buildProviders()
+    const active = this.getActiveModelInfo(sessionId)
+    const status = this.getSessionStatus(sessionId)
+    return {
+      providers,
+      active,
+      context: status?.context ?? null,
+      stats: status?.stats ?? null
+    }
+  }
+
+  public getSessionStatus(sessionId?: string): AgentSessionStatus | null {
+    const active = this.getActiveModelInfo(sessionId)
+    const session = this.resolveSession(sessionId)
+    if (!session) {
+      return { active, context: null, stats: null }
+    }
+    let context: AgentContextUsage | null = null
+    try {
+      const usage = session.getContextUsage()
+      context = usage ? { tokens: usage.tokens, contextWindow: usage.contextWindow, percent: usage.percent } : null
+    } catch {
+      context = null
+    }
+    let stats: AgentSessionStats | null = null
+    try {
+      const raw = session.getSessionStats()
+      stats = {
+        input: raw.tokens.input,
+        output: raw.tokens.output,
+        cacheRead: raw.tokens.cacheRead,
+        cacheWrite: raw.tokens.cacheWrite,
+        total: raw.tokens.total,
+        cost: raw.cost
+      }
+    } catch {
+      stats = null
+    }
+    return { active, context, stats }
+  }
+
+  public setThinkingLevel(sessionId: string, level: AgentThinkingLevel): AgentActiveModel {
+    const session = this.resolveSession(sessionId)
+    if (!session) {
+      // No live session yet: remember the choice so the next session starts with it.
+      // The SDK clamps it to the model's supported levels when the session is created.
+      this.store.set('agent_thinking_level', level)
+      return this.getActiveModelInfo(sessionId)
+    }
+    session.setThinkingLevel(level as ThinkingLevel, { persist: true })
+    this.store.set('agent_thinking_level', session.thinkingLevel)
+    return this.getActiveModelInfo(sessionId)
+  }
+
+  public startProviderLogin(providerId: string, type: AgentAuthType): AgentAuthOperation {
+    const operation = this.authController.start(providerId, type)
+    this.sendRuntimeChanged('login')
+    return operation
+  }
+
+  public respondProviderAuth(operationId: string, value: string): AgentAuthOperation {
+    const operation = this.authController.respond(operationId, value)
+    this.sendRuntimeChanged('login')
+    return operation
+  }
+
+  public cancelProviderAuth(operationId: string): AgentAuthOperation {
+    return this.authController.cancel(operationId)
+  }
+
+  public listAuthOperations(): AgentAuthOperation[] {
+    return this.authController.list()
+  }
+
+  public async logoutProvider(providerId: string): Promise<AgentRuntimeSnapshot> {
+    const runtime = this.modelRuntime
+    if (!runtime) throw new Error('Agent 运行时尚未初始化')
+    await runtime.logout(providerId)
+    await runtime.refresh({ allowNetwork: false, providers: [providerId] })
+    this.sendRuntimeChanged('logout')
+    return this.getRuntimeSnapshot()
+  }
+
+  public async refreshProviderModels(providerId: string): Promise<AgentRuntimeSnapshot> {
+    const runtime = this.modelRuntime
+    if (!runtime) throw new Error('Agent 运行时尚未初始化')
+    if (providerId === MAGPIE_PROVIDER.providerId) {
+      const models = await MAGPIE_PROVIDER.fetchModels()
+      await this.applyGatewayCatalog(MAGPIE_PROVIDER, models)
+      return this.getRuntimeSnapshot()
+    }
+    const result = await runtime.refresh({ allowNetwork: true, force: true, providers: [providerId] })
+    const error = result.errors.get(providerId)
+    if (error) throw new Error(`刷新 ${providerId} 模型失败：${safeError(error)}`)
+    this.sendRuntimeChanged('refresh')
+    return this.getRuntimeSnapshot()
+  }
+
+  public dispose(): void {
+    this.authController.dispose()
+    void this.modelRuntime?.settleCredentialWrites().catch(() => undefined)
+  }
+
+  private resolveSession(sessionId?: string): AgentSession | null {
+    if (sessionId) {
+      const entry = this.activeSessions.get(sessionId)
+      if (entry) return entry.session
+    }
+    const current = this.store.get('agent_current_session')
+    if (typeof current === 'string') {
+      const entry = this.activeSessions.get(current)
+      if (entry) return entry.session
+    }
+    return this.activeSessions.values().next().value?.session ?? null
+  }
+
+  private getActiveModelInfo(sessionId?: string): AgentActiveModel {
+    const session = this.resolveSession(sessionId)
+    const storedProvider = (this.store.get('agent_active_provider') as string) || this.defaultProvider
+    const storedModel = (this.store.get('agent_active_model') as string) || this.defaultModel
+    const providerId = session?.model?.provider ?? storedProvider
+    const modelId = session?.model?.id ?? storedModel
+    const modelName =
+      session?.model?.name || this.modelRuntime?.getModel(providerId, modelId)?.name || modelId
+
+    let availableThinkingLevels: AgentThinkingLevel[] = []
+    let supportsThinking = false
+    let thinkingLevel: AgentThinkingLevel = this.getStoredThinkingLevel() as AgentThinkingLevel
+    if (session) {
+      try {
+        availableThinkingLevels = session.getAvailableThinkingLevels() as AgentThinkingLevel[]
+        supportsThinking = session.supportsThinking()
+        thinkingLevel = session.thinkingLevel as AgentThinkingLevel
+      } catch {
+        availableThinkingLevels = []
+      }
+    }
+    if (!availableThinkingLevels.length) {
+      const model = this.modelRuntime?.getModel(providerId, modelId)
+      supportsThinking = Boolean(model?.reasoning)
+      availableThinkingLevels = supportsThinking ? ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] : ['off']
+      thinkingLevel = availableThinkingLevels.includes(thinkingLevel) ? thinkingLevel : availableThinkingLevels[0]
+    }
+
+    return {
+      providerId,
+      modelId,
+      modelName,
+      thinkingLevel,
+      availableThinkingLevels,
+      supportsThinking
+    }
+  }
+
+  private buildProviders(): AgentProvider[] {
+    const runtime = this.modelRuntime
+    if (!runtime) return []
+    const availableKeys = new Set(runtime.getAvailableSnapshot().map((model) => `${model.provider}:${model.id}`))
+    return runtime.getProviders().map((provider) => {
+      const status = runtime.getProviderAuthStatus(provider.id)
+      const models: AgentProviderModel[] = runtime.getModels(provider.id).map((model) => ({
+        providerId: model.provider,
+        id: model.id,
+        name: model.name || model.id,
+        available: availableKeys.has(`${model.provider}:${model.id}`),
+        reasoning: model.reasoning,
+        input: model.input.filter((value): value is 'text' | 'image' => value === 'text' || value === 'image'),
+        contextWindow: model.contextWindow,
+        maxTokens: model.maxTokens
+      }))
+      const configured = status.configured || models.some((model) => model.available)
+      const authType: AgentAuthType | undefined = configured
+        ? runtime.isUsingOAuth(provider.id)
+          ? 'oauth'
+          : 'api_key'
+        : undefined
+      return {
+        id: provider.id,
+        name: provider.name || provider.id,
+        configured,
+        ...(authType ? { authType } : {}),
+        ...(status.source ? { authSource: status.source } : {}),
+        ...(status.label ? { authLabel: status.label } : {}),
+        apiKeyAvailable: Boolean(provider.auth.apiKey?.login),
+        oauthAvailable: Boolean(provider.auth.oauth),
+        ...(provider.auth.oauth?.name ? { oauthName: provider.auth.oauth.name } : {}),
+        ...(provider.auth.oauth?.loginLabel ? { oauthLoginLabel: provider.auth.oauth.loginLabel } : {}),
+        ...(provider.auth.oauth?.isSubscription ? { isSubscription: true } : {}),
+        modelCount: models.length,
+        availableModelCount: models.filter((model) => model.available).length,
+        models
+      }
+    })
   }
 
   public listProviders(): ProviderListItem[] {
     if (!this.modelRegistry) return []
 
-    const popularProviders = [
-      { id: 'magpie', name: 'Magpie (Local Devin)' },
-      { id: 'anthropic', name: 'Anthropic' },
-      { id: 'openai', name: 'OpenAI' },
-      { id: 'deepseek', name: 'DeepSeek' },
-      { id: 'google', name: 'Google Gemini' },
-      { id: 'openrouter', name: 'OpenRouter' },
-      { id: 'groq', name: 'Groq' },
-      { id: 'xai', name: 'xAI' },
-      { id: 'mistral', name: 'Mistral' }
-    ]
+    return this.modelRegistry.getAll().length > 0 ? this.listProviderItems() : []
+  }
 
-    const result: ProviderListItem[] = []
-
-    for (const p of popularProviders) {
-      const status = this.modelRegistry.getProviderAuthStatus(p.id)
-      const models = this.modelRegistry.getModelsOfType('chat', p.id).map((m) => m.id)
-      result.push({
-        providerId: p.id,
-        displayName: p.name,
+  private listProviderItems(): ProviderListItem[] {
+    if (!this.modelRuntime) return []
+    return this.modelRuntime.getProviders().map((provider) => {
+      const status = this.modelRuntime!.getProviderAuthStatus(provider.id)
+      return {
+        providerId: provider.id,
+        displayName: provider.name || provider.id,
         configured: status.configured,
         authStatus: {
           ok: status.configured,
-          error: status.configured ? undefined : 'Unconfigured'
+          error: status.configured ? undefined : status.label
         },
-        models: models.length > 0 ? models : (p.id === 'magpie' ? ['devin/swe-2'] : [])
-      })
-    }
-
-    return result
+        models: this.modelRuntime!.getModels(provider.id).map((model) => model.id)
+      }
+    })
   }
 
   /**
@@ -548,47 +900,28 @@ export class AgentSessionService {
     providerId: string,
     cred: { type: 'api_key'; key: string; env?: string }
   ): Promise<void> {
-    if (this.modelRuntime) {
-      await this.modelRuntime.setRuntimeApiKey(providerId, cred.key)
-    }
+    const runtime = this.modelRuntime
+    if (!runtime) throw new Error('Agent 运行时尚未初始化')
+    const provider = runtime.getProvider(providerId)
+    if (!provider) throw new Error(`供应商不存在：${providerId}`)
+    if (!provider.auth.apiKey?.login) throw new Error(`${provider.name || providerId} 不支持 API Key 登录`)
+    const key = cred.key.trim()
+    if (!key) throw new Error('API Key 不能为空')
 
-    // Persist to ~/.pi/agent/auth.json
-    try {
-      const authPath = join(this.agentDir, 'auth.json')
-      await mkdir(this.agentDir, { recursive: true })
-      let authData: Record<string, unknown> = {}
-      if (existsSync(authPath)) {
-        try {
-          authData = JSON.parse(await readFile(authPath, 'utf-8'))
-        } catch {
-          authData = {}
-        }
-      }
-      authData[providerId] = {
-        type: cred.type,
-        key: cred.key
-      }
-      await writeFile(authPath, JSON.stringify(authData, null, 2), 'utf-8')
-    } catch (err) {
-      console.error('[AgentSessionService] Failed to persist auth.json:', err)
-    }
+    await runtime.login(providerId, 'api_key', {
+      prompt: async () => key,
+      notify: () => undefined
+    })
+    await runtime.refresh({ allowNetwork: false, providers: [providerId] })
+    this.sendRuntimeChanged('login')
   }
 
   public async deleteCredential(providerId: string): Promise<void> {
-    if (this.modelRuntime) {
-      await this.modelRuntime.removeRuntimeApiKey(providerId)
-    }
-
-    try {
-      const authPath = join(this.agentDir, 'auth.json')
-      if (existsSync(authPath)) {
-        const authData = JSON.parse(await readFile(authPath, 'utf-8'))
-        delete authData[providerId]
-        await writeFile(authPath, JSON.stringify(authData, null, 2), 'utf-8')
-      }
-    } catch (err) {
-      console.error('[AgentSessionService] Failed to delete from auth.json:', err)
-    }
+    const runtime = this.modelRuntime
+    if (!runtime) throw new Error('Agent 运行时尚未初始化')
+    await runtime.logout(providerId)
+    await runtime.refresh({ allowNetwork: false, providers: [providerId] })
+    this.sendRuntimeChanged('logout')
   }
 
   public getActiveModel(): { providerId: string; modelId: string; baseUrl?: string } {
@@ -599,7 +932,8 @@ export class AgentSessionService {
     return {
       providerId: prov,
       modelId: mod,
-      baseUrl: modelObj?.baseUrl ?? (prov === 'magpie' ? 'http://127.0.0.1:3425/v1' : undefined)
+      baseUrl:
+        modelObj?.baseUrl ?? (prov === MAGPIE_PROVIDER.providerId ? MAGPIE_PROVIDER.baseUrl : undefined)
     }
   }
 
