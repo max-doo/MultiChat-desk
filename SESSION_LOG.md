@@ -2,6 +2,97 @@
 
 ## 2026-11-24
 
+### 14:13 | Codex
+
+- done: 修复 + 号菜单公式编辑弹层位置漂移：弹层是 fixed 定位，锚点必须用 pickerPosition（点击时计算的页面坐标），不能用 menuRef.getBoundingClientRect()（会跑到视口左上）
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchDraggableBlockPlugin.tsx`
+
+### 14:13 | Codex
+
+- done: 修复 MD 编辑器 + 号菜单：公式块点击后改为先弹 LaTeX 编辑弹层，保存后再插入节点（不再插入空节点导致无反应）；列表宽度从固定 w-56 改为 w-max 自适应；notes 图标由 StickyNote 换成 Pilcrow
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchDraggableBlockPlugin.tsx`
+  - `src/renderer/src/components/icons/AppIcon.tsx`
+
+### 14:05 | Antigravity
+
+- done: 将 AgentCard 空白页优化为现代 2x2 微卡片布局，增大字号去除冗余说明，改为填入提示词交互
+- decision: 采用 2x2 网格与 ArrowUpRight 悬浮微动效，移除卡片冗长二次副标题，点击卡片改为填入输入框并聚焦光标
+- modified:
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+
+### 13:54 | Codex
+
+- done: Markdown 编辑器新增 LaTeX 公式插入入口（富文本/源码工具栏+拖拽菜单），统一公式编辑弹层支持 KaTeX 实时预览与清除，修复 function 图标缺失回退警示符号
+- added:
+  - `src/renderer/src/components/workbench/WorkbenchEquationEditor.tsx`
+- modified:
+  - `src/renderer/src/components/icons/AppIcon.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchToolbar.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchSourceToolbar.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchEquationNode.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchDraggableBlockPlugin.tsx`
+
+### 13:54 | Antigravity
+
+- done: 简化工作台 Agent 空白页设计，对齐知识工作者与文档写作场景
+- decision: 去除开发者专用技术术语（如开发 Agent、AGENTS.md、类型构建等），采用极简 Hero 问候与 4 类高频知识办公微卡片，并智能感知当前打开文档
+- modified:
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+
+### 13:37 | Codex
+
+- done: 会话/总结/Agent 会话标题统一加 48 字符上限：normalizeHistory 落盘截断、RenameModal 输入框 maxLength、appStore addHistory/updateHistory 本地 state 同步截断、AgentSessionService listSessions title 截断、列表索引 slice(0,200) 收敛为同一常量
+- modified:
+  - `src/main/api/historyManager.ts`
+  - `src/main/services/AgentSessionService.ts`
+  - `src/renderer/src/components/RenameModal.tsx`
+  - `src/renderer/src/store/appStore.ts`
+
+### 13:32 | Codex
+
+- done: 删除所有和agent相关的本地字样
+- modified:
+  - `src/renderer/src/components/SettingsDrawer.tsx`
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentComposer.tsx`
+  - `src/renderer/src/components/WebviewCard.tsx`
+
+### 13:23 | Codex
+
+- done: 调研 pi-coding-agent 撤回/fork 机制并实现 GUI：用户气泡编辑撤回一步(navigateTree)+复制；助手末条加分支(createBranchedSession)+复制；仅撤回最近一条用户消息，代码文件不回滚
+- context: pi SDK navigateTree 仅移动 leaf 指针实现分支撤回，不回滚文件；fork 走 createBranchedSession 生成新 jsonl；GUI 只允许撤回最后一条用户消息以保稳定
+- added:
+  - `src/main/services/AgentSessionService.ts(rewindToUserMessage/forkSessionFromUserMessage/listBranchUserEntries)`
+- modified:
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/src/types/agent.ts`
+  - `src/renderer/src/store/agentSessionStore.ts`
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+
+### 13:16 | Codex
+
+- done: LaTeX 公式节点右键菜单：KaTeX decorator 接管 contextmenu，弹出 fixed 浮层菜单（向 AI 提问/解释此公式/语言润色/提取关键要点 + 编辑公式/复制 LaTeX/删除公式），复制时按 inline/block 分别写 \$...\$ / \$\$...\$\$，菜单含视口边界检测、Esc/外点/失焦关闭，样式对齐 workbench 菜单
+- context: 公式是 Lexical decorator，浏览器选区取不到源码，全局 CustomContextMenu 也无公式入口；onContextMenu 中 e.stopPropagation 阻止全局菜单接管
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchEquationNode.tsx`
+- unresolved: pnpm run build 失败：react-diff-view 在 package.json 已声明但 node_modules 未安装（既有环境问题，需 pnpm install）
+
+### 13:14 | Codex
+
+- done: 移除本地 Agent 附件添加成功后的 toast（已添加附件/已添加 N 个文件到本地 Agent）
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
+
+### 13:12 | Codex
+
+- done: 移除选中内容向本地 Agent 提问时的'已注入提示词到本地 Agent'info toast
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
+
 ### 13:09 | Codex
 
 - done: 工具调用展开区去卡片套卡片：统一单容器 header/内容/footer 三段结构
