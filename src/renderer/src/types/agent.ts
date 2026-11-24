@@ -28,9 +28,13 @@ export type {
 export type AgentPermissionMode = 'default' | 'auto' | 'bypass'
 
 export interface PiContentPart {
-  type: 'text' | 'reasoning' | 'tool-call'
+  type: 'text' | 'reasoning' | 'tool-call' | 'image'
   text?: string
   reasoning?: string
+  /** image part：dataUrl/base64 用于气泡内渲染，filePath 仅本地预览兜底。 */
+  data?: string
+  mimeType?: string
+  filePath?: string
   toolCallId?: string
   toolName?: string
   args?: Record<string, unknown> | string
@@ -113,7 +117,9 @@ export interface AgentIpcApi {
   agentPrompt: (
     sessionId: string,
     prompt: string,
-    attachments?: string[]
+    attachments?: string[],
+    streamingBehavior?: 'steer' | 'followUp',
+    images?: Array<{ data: string; mimeType: string }>
   ) => Promise<{ success: boolean; data?: unknown; error?: string }>
   agentAbort: (sessionId: string) => Promise<{ success: boolean; error?: string }>
   agentNewSession: (
@@ -150,6 +156,9 @@ export interface AgentIpcApi {
     sessionId: string,
     mode: AgentPermissionMode | 'full' | 'restricted' | 'readonly'
   ) => Promise<{ success: boolean; error?: string }>
+  agentGetPermissionMode: (
+    sessionId?: string
+  ) => Promise<{ success: boolean; data?: 'default' | 'auto' | 'bypass' | 'readonly'; error?: string }>
   agentSetModel: (
     sessionId: string,
     model: string,
@@ -243,6 +252,10 @@ export interface AgentIpcApi {
   }) => Promise<{ success: boolean; data?: AgentRuntimeSnapshot; error?: string }>
   agentRemoveCustomGateway?: (
     providerId: string
+  ) => Promise<{ success: boolean; data?: AgentRuntimeSnapshot; error?: string }>
+  agentSetProviderBaseUrl?: (
+    providerId: string,
+    baseUrl: string | null
   ) => Promise<{ success: boolean; data?: AgentRuntimeSnapshot; error?: string }>
   onAgentProviderAuthChanged?: (cb: (payload: { operation: AgentAuthOperation }) => void) => () => void
   onAgentRuntimeChanged?: (cb: (payload: { reason: string }) => void) => () => void

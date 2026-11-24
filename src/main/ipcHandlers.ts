@@ -10,7 +10,7 @@ import { stat, writeFile, mkdtemp, rm, rename } from 'fs/promises'
 import { tmpdir } from 'os'
 import { randomUUID } from 'crypto'
 import type Store from 'electron-store'
-import { getQuickWindow, showAndFocusWindow, hideToolbarWindow, getCachedSelectionText, openDiagnosticsWindow, registerQuickPrimaryWebview, setQuickSidebarExpanded, handleWebviewContextMenuAction, setNoteManager } from './webviewManager'
+import { getQuickWindow, showAndFocusWindow, hideToolbarWindow, getCachedSelectionText, openDiagnosticsWindow, registerQuickPrimaryWebview, setQuickSidebarExpanded, setMainWindowDualAiMinWidth, handleWebviewContextMenuAction, setNoteManager } from './webviewManager'
 import type { WebviewContextMenuActionRequest } from '../shared/types/contextMenu'
 import { broadcastStateChange } from './stateBus'
 import { HistoryManager, normalizeHistory } from './api/historyManager'
@@ -497,6 +497,18 @@ export async function registerIpcHandlers(
         if (!win || win.isDestroyed()) return { success: false, error: '窗口已销毁' }
         win.setAlwaysOnTop(pinned)
         return { success: true, data: win.isAlwaysOnTop() }
+    })
+
+    // 工作台初始化恢复双 AI 侧栏状态后，渲染层主动同步一次主窗口最小宽度
+    // （store-set 只在开关切换时触发，历史持久化状态需要这条显式通道）。
+    ipcMain.handle('window-set-dual-ai-min-width', (_event, enabled: boolean) => {
+        if (typeof enabled !== 'boolean') return { success: false }
+        try {
+            setMainWindowDualAiMinWidth(enabled)
+            return { success: true }
+        } catch (error) {
+            return { success: false, error: error instanceof Error ? error.message : String(error) }
+        }
     })
 
     // IPC 处理器：文件选择
@@ -1154,6 +1166,15 @@ export async function registerIpcHandlers(
     ipcMain.handle('store-set', (_event, key: string, value: unknown) => {
         if (key === 'history' || key === 'summaryHistory' || key === 'historyStorageVersion') throw new Error('历史数据请通过专用接口保存')
         store.set(key, value)
+        // 工作台双 AI 侧栏开关持久化时，联动调整主窗口最小宽度；
+        // 窗口调整失败不应让持久化失败，避免打断渲染层的开关流程。
+        if (key === 'workbench_isAiSidebar2Open' && typeof value === 'boolean') {
+            try {
+                setMainWindowDualAiMinWidth(value)
+            } catch (error) {
+                console.error('[IPC] 调整主窗口最小宽度失败:', error)
+            }
+        }
     })
     ipcMain.handle('store-delete', (_event, key: string) => {
         if (key === 'history' || key === 'summaryHistory' || key === 'historyStorageVersion') throw new Error('历史数据请通过专用接口删除')
@@ -2721,9 +2742,9 @@ export async function registerIpcHandlers(
     // Local Agent Sidebar IPC Handlers
     // ==========================================
 
-    ipcMain.handle('agent:prompt', async (_event, payload: { sessionId: string; prompt: string; attachments?: string[] }) => {
+    ipcMain.handle('agent:prompt', async (_event, payload: { sessionId: string; prompt: string; attachments?: string[]; streamingBehavior?: 'steer' | 'followUp'; images?: Array<{ data: string; mimeType: string }> }) => {
         try {
-            await agentSessionService.prompt(payload.sessionId, payload.prompt, payload.attachments)
+            await agentSessionService.prompt(payload.sessionId, payload.prompt, payload.attachments, payload.streamingBehavior, payload.images)
             return { success: true }
         } catch (err: unknown) {
             const error = err instanceof Error ? err.message : String(err)
@@ -2825,6 +2846,16 @@ export async function registerIpcHandlers(
         try {
             agentSessionService.setPermissionMode(payload.sessionId, payload.mode)
             return { success: true }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('agent:get-permission-mode', async (_event, payload?: { sessionId?: string }) => {
+        try {
+            const data = agentSessionService.getPermissionMode(payload?.sessionId)
+            return { success: true, data }
         } catch (err: unknown) {
             const error = err instanceof Error ? err.message : String(err)
             return { success: false, error }
@@ -3118,6 +3149,16 @@ export async function registerIpcHandlers(
     ipcMain.handle('agent:refresh-provider-models', async (_event, payload: { providerId: string }) => {
         try {
             const data = await agentSessionService.refreshProviderModels(payload.providerId)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('agent:set-provider-base-url', async (_event, payload: { providerId: string; baseUrl: string | null }) => {
+        try {
+            const data = await agentSessionService.setProviderBaseUrl(payload.providerId, payload.baseUrl)
             return { success: true, data }
         } catch (err: unknown) {
             const error = err instanceof Error ? err.message : String(err)

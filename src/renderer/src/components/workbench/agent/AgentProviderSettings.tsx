@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Key, LogOut, Plus, RefreshCw, Search, ShieldCheck, Trash2 } from 'lucide-react'
+import { ChevronDown, Key, LogOut, Pencil, Plus, RefreshCw, Search, ShieldCheck, Trash2 } from 'lucide-react'
 import { useAgentSessionStore } from '../../../store/agentSessionStore'
 import type { AgentAuthOperation } from '../../../types/agent'
 import type { AgentProvider, AgentIpcApi } from '../../../types/agent'
@@ -39,10 +39,16 @@ export function AgentProviderSettings(): JSX.Element {
   const cancelProviderAuth = useAgentSessionStore((s) => s.cancelProviderAuth)
   const logoutProvider = useAgentSessionStore((s) => s.logoutProvider)
   const refreshProviderModels = useAgentSessionStore((s) => s.refreshProviderModels)
+  const setProviderBaseUrl = useAgentSessionStore((s) => s.setProviderBaseUrl)
 
   const [query, setQuery] = useState('')
   const [busyProvider, setBusyProvider] = useState<string | null>(null)
   const [showAll, setShowAll] = useState<Record<string, boolean>>({})
+  const [expandedProviders, setExpandedProviders] = useState<Set<string>>(new Set())
+  const [editingBaseUrl, setEditingBaseUrl] = useState<string | null>(null)
+  const [baseUrlDraft, setBaseUrlDraft] = useState('')
+  const [baseUrlSaving, setBaseUrlSaving] = useState(false)
+  const [baseUrlError, setBaseUrlError] = useState<string | null>(null)
   const [dialogId, setDialogId] = useState<string | null>(null)
   const [customOpen, setCustomOpen] = useState(false)
   const [customSaving, setCustomSaving] = useState(false)
@@ -170,6 +176,41 @@ export function AgentProviderSettings(): JSX.Element {
     setBusyProvider(null)
   }
 
+  const toggleProvider = (providerId: string): void => {
+    setExpandedProviders((prev) => {
+      const next = new Set(prev)
+      if (next.has(providerId)) next.delete(providerId)
+      else next.add(providerId)
+      return next
+    })
+  }
+
+  const startEditBaseUrl = (provider: AgentProvider): void => {
+    setEditingBaseUrl(provider.id)
+    setBaseUrlDraft(provider.baseUrl ?? '')
+    setBaseUrlError(null)
+  }
+
+  const saveBaseUrl = async (provider: AgentProvider): Promise<void> => {
+    const trimmed = baseUrlDraft.trim()
+    if (trimmed && !/^https?:\/\//i.test(trimmed)) {
+      setBaseUrlError('baseUrl 需要以 http:// 或 https:// 开头')
+      return
+    }
+    setBaseUrlSaving(true)
+    setBaseUrlError(null)
+    const ok = await setProviderBaseUrl(provider.id, trimmed || null)
+    setBaseUrlSaving(false)
+    if (ok) {
+      setEditingBaseUrl(null)
+    } else {
+      setBaseUrlError('保存失败')
+    }
+  }
+
+  const isEndpointEditable = (provider: AgentProvider): boolean =>
+    provider.id === 'magpie' || customIds.has(provider.id)
+
   const handleDialogSubmit = async (operationId: string, value: string): Promise<boolean> => {
     return respondProviderAuth(operationId, value)
   }
@@ -182,6 +223,7 @@ export function AgentProviderSettings(): JSX.Element {
     if (list.length === 0) return null
     const isExpanded = showAll[title] ?? false
     const visible = isExpanded ? list : list.slice(0, defaultVisible)
+    const searching = query.trim().length > 0
     return (
       <div className="space-y-2">
         <div className="flex items-center justify-between px-0.5">
@@ -191,10 +233,16 @@ export function AgentProviderSettings(): JSX.Element {
         {visible.map((provider) => {
           const isBusy = busyProvider === provider.id
           const running = runningByProvider[provider.id]
+          const providerOpen = searching || expandedProviders.has(provider.id)
+          const endpointEditable = isEndpointEditable(provider)
+          const isEditingThis = editingBaseUrl === provider.id
           return (
             <div key={provider.id} className="rounded-lg border border-gray-100 bg-white/60">
               <div className="flex items-start justify-between gap-3 px-3 py-2.5">
-                <div className="min-w-0 flex-1">
+                <div
+                  className="min-w-0 flex-1 cursor-pointer"
+                  onClick={() => toggleProvider(provider.id)}
+                >
                   <div className="flex items-center gap-2">
                     <span
                       className={`w-1.5 h-1.5 rounded-full shrink-0 ${
@@ -210,10 +258,30 @@ export function AgentProviderSettings(): JSX.Element {
                     <span>
                       {provider.availableModelCount}/{provider.modelCount} 个模型
                     </span>
+                    {endpointEditable && provider.baseUrl && (
+                      <>
+                        <span>·</span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            startEditBaseUrl(provider)
+                          }}
+                          className="flex items-center gap-1 truncate hover:text-primary transition-colors"
+                          title={provider.baseUrl}
+                        >
+                          <span className="truncate font-mono">{provider.baseUrl}</span>
+                          <Pencil className="w-2.5 h-2.5 shrink-0 opacity-60" />
+                        </button>
+                      </>
+                    )}
                     {running && (
                       <button
                         type="button"
-                        onClick={() => setDialogId(running.id)}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setDialogId(running.id)
+                        }}
                         className="text-primary hover:opacity-80 transition-opacity"
                       >
                         认证中
@@ -231,12 +299,12 @@ export function AgentProviderSettings(): JSX.Element {
                       onClick={() => void handleRemoveCustom(provider.id)}
                       disabled={isBusy}
                       className="w-6 h-6 rounded-md text-text-secondary hover:text-rose-600 hover:bg-rose-50 disabled:opacity-40 flex items-center justify-center transition-colors"
-                      title="移除自定义网关（重启后完全卸载）"
+                    title="移除自定义供应商（重启后完全卸载）"
                     >
                       <Trash2 className="w-3 h-3" />
                     </button>
                   )}
-                  {provider.apiKeyAvailable && (
+                  {provider.apiKeyAvailable && !endpointEditable && (
                     <button
                       type="button"
                       onClick={() => void handleLogin(provider, 'api_key')}
@@ -273,6 +341,19 @@ export function AgentProviderSettings(): JSX.Element {
                   )}
                   <button
                     type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      toggleProvider(provider.id)
+                    }}
+                    className="w-6 h-6 rounded-md text-text-secondary hover:text-primary hover:bg-blue-50/60 flex items-center justify-center transition-colors"
+                    title={providerOpen ? '收起模型列表' : '展开模型列表'}
+                  >
+                    <ChevronDown
+                      className={`w-3 h-3 transition-transform ${providerOpen ? 'rotate-180' : ''}`}
+                    />
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => void handleRefresh(provider)}
                     disabled={isBusy}
                     className="w-6 h-6 rounded-md text-text-secondary hover:text-primary hover:bg-blue-50/60 disabled:opacity-40 flex items-center justify-center transition-colors"
@@ -282,25 +363,61 @@ export function AgentProviderSettings(): JSX.Element {
                   </button>
                 </div>
               </div>
-              <div className="border-t border-gray-100 px-3 py-2 space-y-1">
-                {provider.models.length === 0 && (
-                  <div className="text-caption text-text-secondary">暂无模型目录</div>
-                )}
-                {provider.models.map((model) => (
-                  <div
-                    key={`${model.providerId}:${model.id}`}
-                    className={`flex items-center gap-2 text-caption ${model.available ? 'text-text-primary' : 'text-text-secondary/70'}`}
-                  >
-                    <span className="w-1 h-1 rounded-full bg-current shrink-0" />
-                    <span className="truncate">{model.name}</span>
-                    {model.reasoning && <span className="shrink-0 text-tiny text-primary/70">思考</span>}
-                    {model.input.includes('image') && <span className="shrink-0 text-tiny text-text-secondary">图像</span>}
-                    <span className="ml-auto shrink-0 font-mono text-tiny">
-                      {model.contextWindow ? `${Math.round(model.contextWindow / 1000)}k` : ''}
-                    </span>
+              {isEditingThis && (
+                <div className="border-t border-gray-100 px-3 py-2 space-y-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="text"
+                      value={baseUrlDraft}
+                      onChange={(e) => setBaseUrlDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') void saveBaseUrl(provider)
+                        if (e.key === 'Escape') setEditingBaseUrl(null)
+                      }}
+                      placeholder="https://host/v1"
+                      autoFocus
+                      className="flex-1 px-2 py-1 rounded-md glass-panel text-caption text-text-primary placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary/20 font-mono"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void saveBaseUrl(provider)}
+                      disabled={baseUrlSaving}
+                      className="px-2 py-1 rounded-md bg-primary text-white text-caption font-medium hover:opacity-90 disabled:opacity-50 transition-colors shrink-0"
+                    >
+                      {baseUrlSaving ? '…' : '保存'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditingBaseUrl(null)}
+                      className="px-2 py-1 rounded-md text-caption text-text-secondary hover:text-text-primary transition-colors shrink-0"
+                    >
+                      取消
+                    </button>
                   </div>
-                ))}
-              </div>
+                  {baseUrlError && <div className="text-caption text-rose-600">{baseUrlError}</div>}
+                </div>
+              )}
+              {providerOpen && (
+                <div className="border-t border-gray-100 px-3 py-2 space-y-1">
+                  {provider.models.length === 0 && (
+                    <div className="text-caption text-text-secondary">暂无模型目录</div>
+                  )}
+                  {provider.models.map((model) => (
+                    <div
+                      key={`${model.providerId}:${model.id}`}
+                      className={`flex items-center gap-2 text-caption ${model.available ? 'text-text-primary' : 'text-text-secondary/70'}`}
+                    >
+                      <span className="w-1 h-1 rounded-full bg-current shrink-0" />
+                      <span className="truncate">{model.name}</span>
+                      {model.reasoning && <span className="shrink-0 text-tiny text-primary/70">思考</span>}
+                      {model.input.includes('image') && <span className="shrink-0 text-tiny text-text-secondary">图像</span>}
+                      <span className="ml-auto shrink-0 font-mono text-tiny">
+                        {model.contextWindow ? `${Math.round(model.contextWindow / 1000)}k` : ''}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )
         })}
@@ -331,7 +448,7 @@ export function AgentProviderSettings(): JSX.Element {
       </div>
 
       <div className="flex items-center justify-between">
-        <span className="text-caption text-text-secondary">自定义 OpenAI 兼容网关</span>
+        <span className="text-caption text-text-secondary">自定义供应商</span>
         <button
           type="button"
           onClick={() => {
@@ -341,7 +458,7 @@ export function AgentProviderSettings(): JSX.Element {
           className="flex items-center gap-1 px-2 py-1 rounded-md text-caption text-text-secondary hover:text-primary hover:bg-blue-50/60 transition-colors"
         >
           <Plus className="w-3 h-3" />
-          添加网关
+          添加供应商
         </button>
       </div>
 
@@ -349,23 +466,23 @@ export function AgentProviderSettings(): JSX.Element {
         <div className="rounded-lg border border-gray-100 bg-white/60 p-3 space-y-2">
           <input
             type="text"
-            value={customSpec.providerId}
-            onChange={(e) => setCustomSpec((prev) => ({ ...prev, providerId: e.target.value }))}
-            placeholder="providerId（如 my-gateway）"
-            className="w-full px-2 py-1.5 rounded-md glass-panel text-label text-text-primary placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary/20 font-mono"
+            value={customSpec.name}
+            onChange={(e) => setCustomSpec((prev) => ({ ...prev, name: e.target.value }))}
+            placeholder="名称（如 OpenRouter）"
+            className="w-full px-2 py-1.5 rounded-md glass-panel text-label text-text-primary placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary/20"
           />
           <input
             type="text"
-            value={customSpec.name}
-            onChange={(e) => setCustomSpec((prev) => ({ ...prev, name: e.target.value }))}
-            placeholder="显示名称（可选）"
-            className="w-full px-2 py-1.5 rounded-md glass-panel text-label text-text-primary placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary/20"
+            value={customSpec.providerId}
+            onChange={(e) => setCustomSpec((prev) => ({ ...prev, providerId: e.target.value }))}
+            placeholder="providerId（如 openrouter）"
+            className="w-full px-2 py-1.5 rounded-md glass-panel text-label text-text-primary placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary/20 font-mono"
           />
           <input
             type="text"
             value={customSpec.baseUrl}
             onChange={(e) => setCustomSpec((prev) => ({ ...prev, baseUrl: e.target.value }))}
-            placeholder="http://host:port/v1"
+            placeholder="https://host/v1"
             className="w-full px-2 py-1.5 rounded-md glass-panel text-label text-text-primary placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary/20 font-mono"
           />
           <input

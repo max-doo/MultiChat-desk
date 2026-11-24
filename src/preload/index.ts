@@ -95,6 +95,7 @@ const api = {
   maximizeWindow: (): void => ipcRenderer.send('window-maximize'),
   closeWindow: (): void => ipcRenderer.send('window-close'),
   setWindowAlwaysOnTop: (pinned: boolean): Promise<{ success: boolean; data?: boolean; error?: string }> => ipcRenderer.invoke('window-set-always-on-top', pinned),
+  setWindowDualAiMinWidth: (enabled: boolean): Promise<{ success: boolean }> => ipcRenderer.invoke('window-set-dual-ai-min-width', enabled),
 
   // 系统托盘控制
   trayShowMain: () => ipcRenderer.invoke('tray:show-main'),
@@ -699,8 +700,8 @@ const api = {
   },
 
   // Agent 会话控制
-  agentPrompt: (sessionId: string, prompt: string, attachments?: string[]): Promise<{ success: boolean; data?: unknown; error?: string }> =>
-    ipcRenderer.invoke('agent:prompt', { sessionId, prompt, attachments }),
+  agentPrompt: (sessionId: string, prompt: string, attachments?: string[], streamingBehavior?: 'steer' | 'followUp', images?: Array<{ data: string; mimeType: string }>): Promise<{ success: boolean; data?: unknown; error?: string }> =>
+    ipcRenderer.invoke('agent:prompt', { sessionId, prompt, attachments, streamingBehavior, images }),
   agentAbort: (sessionId: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('agent:abort', { sessionId }),
   agentNewSession: (cwd?: string): Promise<{ success: boolean; data?: { sessionId: string }; error?: string }> =>
@@ -721,6 +722,8 @@ const api = {
     ipcRenderer.invoke('agent:resolve-approval', { requestId, decision, pattern }),
   agentSetPermissionMode: (sessionId: string, mode: 'default' | 'auto' | 'bypass' | 'full' | 'restricted' | 'readonly'): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('agent:set-permission-mode', { sessionId, mode }),
+  agentGetPermissionMode: (sessionId?: string): Promise<{ success: boolean; data?: 'default' | 'auto' | 'bypass' | 'readonly'; error?: string }> =>
+    ipcRenderer.invoke('agent:get-permission-mode', sessionId ? { sessionId } : {}),
   agentSetModel: (sessionId: string, model: string, provider?: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('agent:set-model', { sessionId, model, provider }),
   agentListProviders: (): Promise<{ success: boolean; data?: Array<{ providerId: string; displayName: string; configured: boolean; authStatus?: { ok: boolean; error?: string }; models: string[] }>; error?: string }> =>
@@ -776,6 +779,8 @@ const api = {
     ipcRenderer.invoke('agent:logout-provider', { providerId }),
   agentRefreshProviderModels: (providerId: string): Promise<{ success: boolean; data?: AgentRuntimeSnapshot; error?: string }> =>
     ipcRenderer.invoke('agent:refresh-provider-models', { providerId }),
+  agentSetProviderBaseUrl: (providerId: string, baseUrl: string | null): Promise<{ success: boolean; data?: AgentRuntimeSnapshot; error?: string }> =>
+    ipcRenderer.invoke('agent:set-provider-base-url', { providerId, baseUrl }),
   agentListCustomGateways: (): Promise<{ success: boolean; data?: Array<{ providerId: string; name: string; baseUrl: string; apiKey?: string }>; error?: string }> =>
     ipcRenderer.invoke('agent:list-custom-gateways'),
   agentAddCustomGateway: (spec: { providerId: string; name: string; baseUrl: string; apiKey?: string }): Promise<{ success: boolean; data?: AgentRuntimeSnapshot; error?: string }> =>

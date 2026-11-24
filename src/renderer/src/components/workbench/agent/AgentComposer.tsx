@@ -1,15 +1,17 @@
-import { useState, useRef, useEffect } from 'react'
-import { Plus, ChevronDown, Loader2, ArrowUp, Square, X, Brain, Pencil, Play, TriangleAlert, Folder, Check } from 'lucide-react'
+import { useState, useRef, useEffect, useCallback } from 'react'
+import { Plus, ChevronDown, Loader2, ArrowUp, Square, X, Brain, Pencil, Play, TriangleAlert, Folder, Check, SendHorizonal } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useAgentSessionStore } from '../../../store/agentSessionStore'
 import { useWorkbenchStore } from '../../../store/workbenchStore'
 import type { AgentPermissionMode, AgentSkill, AgentThinkingLevel } from '../../../types/agent'
 import type { WorkbenchFileNode } from '../../../../../shared/types/workbench'
 import FileTypeIcon from '../FileTypeIcon'
+import { extractLocalPath } from '../WorkbenchFileTree'
 import { AgentModelPicker } from './AgentModelPicker'
 import { THINKING_LABELS } from './AgentThinkingPicker'
 import { AgentContextMeter } from './AgentContextMeter'
 import { AgentPopover } from './AgentPopover'
+import { isFileMentioned } from './filePathUtils'
 
 interface AtMention {
   query: string
@@ -34,9 +36,19 @@ export function AgentComposer(): JSX.Element {
   const setComposerInput = useAgentSessionStore((s) => s.setComposerInput)
   const attachments = useAgentSessionStore((s) => s.attachments)
   const addAttachment = useAgentSessionStore((s) => s.addAttachment)
+  const mentionFile = useAgentSessionStore((s) => s.mentionFile)
   const removeAttachment = useAgentSessionStore((s) => s.removeAttachment)
+  const imageAttachments = useAgentSessionStore((s) => s.imageAttachments)
+  const addImageAttachment = useAgentSessionStore((s) => s.addImageAttachment)
+  const removeImageAttachment = useAgentSessionStore((s) => s.removeImageAttachment)
   const prompt = useAgentSessionStore((s) => s.prompt)
   const abort = useAgentSessionStore((s) => s.abort)
+  const queuedSteering = useAgentSessionStore((s) =>
+    s.currentSessionId ? s.queuedSteering[s.currentSessionId] ?? [] : []
+  )
+  const queuedFollowUp = useAgentSessionStore((s) =>
+    s.currentSessionId ? s.queuedFollowUp[s.currentSessionId] ?? [] : []
+  )
   const activeModel = useAgentSessionStore((s) => s.activeModel)
   const snapshot = useAgentSessionStore((s) => s.snapshot)
   const sessionStatus = useAgentSessionStore((s) => s.sessionStatus)
@@ -116,7 +128,9 @@ export function AgentComposer(): JSX.Element {
     if (!atMention) return
     const before = composerInput.slice(0, atMention.triggerIndex)
     const after = composerInput.slice(atMention.triggerIndex + atMention.query.length + 1)
-    const insert = `@${node.path}`
+    // 已存在指向该文件的 @token 时不再重复插入，只替换当前正在输入的查询段。
+    const exists = isFileMentioned(composerInput, node.fullPath, workspacePath)
+    const insert = exists ? '' : `@${node.path}`
     setComposerInput(`${before}${insert} ${after}`)
     addAttachment(node.fullPath)
     setAtMention(null)
@@ -169,22 +183,43 @@ export function AgentComposer(): JSX.Element {
     }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      if (isRunning) return
       if (!isWorkspaceReady) return
-      if (composerInput.trim() || attachments.length > 0) {
+      if (composerInput.trim() || attachments.length > 0 || imageAttachments.length > 0) {
         void prompt(composerInput)
       }
     }
   }
 
-  const handleActionClick = (): void => {
-    if (isRunning) {
-      void abort()
-    } else {
-      if (!isWorkspaceReady) return
-      if (composerInput.trim() || attachments.length > 0) {
-        void prompt(composerInput)
+  const handleSendClick = (): void => {
+    if (!isWorkspaceReady) return
+    if (composerInput.trim() || attachments.length > 0 || imageAttachments.length > 0) {
+      void prompt(composerInput)
+    }
+  }
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>): void => {
+    const items = e.clipboardData?.items
+    if (!items?.length) return
+    const imageFiles = Array.from(items)
+      .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+      .map((item) => item.getAsFile())
+      .filter((f): f is File => f !== null)
+    if (imageFiles.length === 0) return
+    // 有图片时接管粘贴：文件走附件，不再向 textarea 插入二进制占位文本。
+    e.preventDefault()
+    setAtMention(null)
+    for (const file of imageFiles) {
+      const reader = new FileReader()
+      reader.onload = () => {
+        const dataUrl = typeof reader.result === 'string' ? reader.result : ''
+        if (!dataUrl) return
+        addImageAttachment({
+          dataUrl,
+          mimeType: file.type || 'image/png',
+          name: file.name || 'pasted-image'
+        })
       }
+      reader.readAsDataURL(file)
     }
   }
 
@@ -193,13 +228,72 @@ export function AgentComposer(): JSX.Element {
       if (window.api?.selectFile) {
         const filePath = await window.api.selectFile()
         if (filePath) {
-          addAttachment(filePath)
+          mentionFile(filePath)
         }
       }
     } catch {
       // ignore
     }
   }
+
+  const handleComposerDrop = useCallback(
+    (e: React.DragEvent): void => {
+      e.preventDefault()
+      e.stopPropagation()
+      setAtMention(null)
+
+      // 1) Workbench file-tree nodes carry a rich payload — preferred source.
+      const customData = e.dataTransfer?.getData('application/x-multichat-workspace-files')
+      if (customData) {
+        try {
+          const nodes = JSON.parse(customData) as Array<{
+            path: string
+            fullPath?: string
+            name?: string
+            isDirectory?: boolean
+          }>
+          const files = nodes.filter((n) => !n.isDirectory)
+          if (files.length > 0) {
+            for (const node of files) {
+              const abs = node.fullPath || node.path
+              mentionFile(abs)
+            }
+            return
+          }
+        } catch {
+          // fall through
+        }
+      }
+
+      // 2) OS-level file drop (Explorer / other apps).
+      const types = e.dataTransfer ? Array.from(e.dataTransfer.types) : []
+      if (types.includes('Files') && e.dataTransfer?.files?.length) {
+        const paths = Array.from(e.dataTransfer.files)
+          .map((f) => extractLocalPath(f))
+          .filter(Boolean)
+        if (paths.length > 0) {
+          for (const abs of paths) mentionFile(abs)
+          return
+        }
+      }
+
+      // 3) text/plain fallback: one or more absolute paths.
+      const textPlain = e.dataTransfer?.getData('text/plain')
+      if (textPlain) {
+        const lines = textPlain
+          .split(/\r?\n/)
+          .map((l) => l.trim())
+          .filter(Boolean)
+        const looksLikePath = (s: string): boolean =>
+          /^[A-Za-z]:[\\/]/.test(s) || s.startsWith('/') || s.startsWith('~/')
+        const pathLines = lines.filter(looksLikePath)
+        if (pathLines.length > 0) {
+          for (const abs of pathLines) mentionFile(abs)
+        }
+      }
+    },
+    [mentionFile]
+  )
 
   const permissionModeLabels: Record<AgentPermissionMode, { label: string; color: string; desc: string; icon: LucideIcon }> = {
     default: { label: '默认模式', color: 'text-primary', desc: '工作区内编辑直接执行，命令需确认', icon: Pencil },
@@ -217,9 +311,54 @@ export function AgentComposer(): JSX.Element {
 
   return (
     <footer className="p-3 pt-0 shrink-0 bg-transparent relative">
+      {/* Queued instructions waiting to be delivered to the running agent */}
+      {(queuedFollowUp.length > 0 || queuedSteering.length > 0) && (
+        <div className="mb-2 flex flex-wrap items-center gap-1.5">
+          {queuedFollowUp.map((text, i) => (
+            <span
+              key={`fu-${i}`}
+              className="inline-flex items-center gap-1 max-w-full truncate rounded-full border border-slate-200 bg-slate-50/80 px-2.5 py-1 text-caption text-slate-500"
+              title={`待执行：${text}`}
+            >
+              <Loader2 className="w-3 h-3 animate-spin text-slate-400 shrink-0" />
+              <span className="truncate">{text}</span>
+            </span>
+          ))}
+          {queuedSteering.map((text, i) => (
+            <span
+              key={`st-${i}`}
+              className="inline-flex items-center gap-1 max-w-full truncate rounded-full border border-amber-200 bg-amber-50/80 px-2.5 py-1 text-caption text-amber-700"
+              title={`打断中：${text}`}
+            >
+              <SendHorizonal className="w-3 h-3 shrink-0" />
+              <span className="truncate">{text}</span>
+            </span>
+          ))}
+        </div>
+      )}
       {/* Attachment Chips */}
-      {attachments.length > 0 && (
+      {(attachments.length > 0 || imageAttachments.length > 0) && (
         <div className="mb-1.5 flex flex-wrap gap-1.5 px-1">
+          {imageAttachments.map((img, idx) => (
+            <span
+              key={`img-${idx}`}
+              className="group/img relative inline-flex h-12 w-12 items-center justify-center overflow-hidden rounded-lg border border-blue-200/70 bg-blue-50"
+            >
+              <img
+                src={img.dataUrl}
+                alt={img.name || '粘贴的图片'}
+                className="h-full w-full object-cover"
+              />
+              <button
+                type="button"
+                onClick={() => removeImageAttachment(idx)}
+                className="absolute right-0.5 top-0.5 rounded-full bg-black/55 p-0.5 text-white opacity-0 transition-opacity group-hover/img:opacity-100"
+                title="移除图片"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          ))}
           {attachments.map((filePath, idx) => {
             const fileName = filePath.split(/[/\\]/).pop() || filePath
             return (
@@ -244,12 +383,24 @@ export function AgentComposer(): JSX.Element {
       {/* Main Capsule Container with Feathered Aura Flow */}
       <div
         onClick={() => textareaRef.current?.focus()}
+        onDragOver={(e) => {
+          e.preventDefault()
+          e.stopPropagation()
+          if (e.dataTransfer) {
+            try {
+              e.dataTransfer.dropEffect = 'copy'
+            } catch {
+              // ignore
+            }
+          }
+        }}
+        onDrop={handleComposerDrop}
         className="group relative w-full rounded-2xl cursor-text transition-all duration-300"
       >
-        {/* 1. 外层弥散流光气场 (Ambient Flowing Aura: 12px 模糊，灵动流转) */}
+        {/* 1. 外层弥散流光气场 (Ambient Flowing Aura: 8px 柔化模糊，收敛适度扩散) */}
         <div className="composer-ambient-aura" />
 
-        {/* 2. 贴身柔化流光边缘 (Close Feathered Flow: 3px 羽化，无生硬粗线) */}
+        {/* 2. 贴身柔化流光边缘 (Close Feathered Flow: 2.5px 羽化，柔润无生硬粗线) */}
         <div className="composer-feathered-flow" />
 
         {/* 3. 输入框实体表面 (微透玻璃，将流光自然漫透) */}
@@ -312,10 +463,13 @@ export function AgentComposer(): JSX.Element {
             value={composerInput}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
             placeholder={
               !isWorkspaceReady
                 ? '请先在工作台打开一个文件夹以启用 Agent'
-                : '和 Agent 一起工作（Enter 发送，Shift+Enter 换行，@ 引用文件）...'
+                : isRunning
+                ? '补充要求，可粘贴图片，Enter 排队执行，Shift+Enter 换行'
+                : '和 Agent 一起工作（Enter 发送，可粘贴图片，@ 引用文件）...'
             }
             className="w-full bg-transparent resize-none border-none outline-none text-body leading-relaxed placeholder:text-text-secondary/70 text-text-primary disabled:cursor-not-allowed font-normal select-text min-h-[48px]"
             style={{ userSelect: 'text', minHeight: '48px' }}
@@ -465,26 +619,50 @@ export function AgentComposer(): JSX.Element {
               </AgentPopover>
             </div>
 
-            {/* Action Button: Send or Stop */}
-            <button
-              type="button"
-              onClick={handleActionClick}
-              disabled={!isRunning && (!isWorkspaceReady || (!composerInput.trim() && attachments.length === 0))}
-              className={`w-8 h-8 rounded-full flex items-center justify-center transition-all shadow-xs shrink-0 ${
-                isRunning
-                  ? 'bg-primary hover:opacity-90 text-white'
-                  : !isWorkspaceReady || (!composerInput.trim() && attachments.length === 0)
-                  ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
-                  : 'bg-primary hover:opacity-90 text-white'
-              }`}
-              title={isRunning ? '终止运行' : '发送消息'}
-            >
-              {isRunning ? (
-                <Square className="w-3 h-3 fill-current" />
-              ) : (
+            {/* Action Button: while running, input present → queue (追加);
+                input empty → stop (暂停). Same blue either way. */}
+            {isRunning ? (
+              <button
+                type="button"
+                onClick={() => {
+                  if (composerInput.trim() || attachments.length > 0 || imageAttachments.length > 0) {
+                    handleSendClick()
+                  } else {
+                    void abort()
+                  }
+                }}
+                className="w-8 h-8 rounded-full flex items-center justify-center transition-all shadow-xs shrink-0 bg-primary hover:opacity-90 text-white"
+                title={
+                  composerInput.trim() || attachments.length > 0 || imageAttachments.length > 0
+                    ? '排队到当前任务后执行'
+                    : '终止运行'
+                }
+              >
+                {composerInput.trim() || attachments.length > 0 || imageAttachments.length > 0 ? (
+                  <ArrowUp className="w-4 h-4" />
+                ) : (
+                  <Square className="w-3 h-3 fill-current" />
+                )}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleSendClick}
+                disabled={
+                  !isWorkspaceReady ||
+                  (!composerInput.trim() && attachments.length === 0 && imageAttachments.length === 0)
+                }
+                className={`w-8 h-8 rounded-full flex items-center justify-center transition-all shadow-xs shrink-0 ${
+                  !isWorkspaceReady ||
+                  (!composerInput.trim() && attachments.length === 0 && imageAttachments.length === 0)
+                    ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                    : 'bg-primary hover:opacity-90 text-white'
+                }`}
+                title="发送消息"
+              >
                 <ArrowUp className="w-4 h-4" />
-              )}
-            </button>
+              </button>
+            )}
           </div>
         </div>
       </div>

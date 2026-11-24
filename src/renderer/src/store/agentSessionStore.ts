@@ -1,6 +1,15 @@
 import { create } from 'zustand'
 import { useWorkbenchStore } from './workbenchStore'
 import { useAgentSettingsDialogStore } from './agentSettingsDialogStore'
+import {
+  dedupePathsByAbsolute,
+  extractMentionTokens,
+  isFileMentioned,
+  mentionTokenMatchesPath,
+  normalizePath,
+  removeFileMention,
+  toMentionToken
+} from '../components/workbench/agent/filePathUtils'
 import type {
   AgentMessage,
   AgentSessionSummary,
@@ -23,6 +32,8 @@ interface PiRawPart {
   type: string
   text?: string
   thinking?: string
+  data?: string
+  mimeType?: string
   id?: string
   name?: string
   arguments?: Record<string, unknown> | string
@@ -50,6 +61,12 @@ interface PiEventPayload {
   result?: unknown
   isError?: boolean
   durationMs?: number
+  willRetry?: boolean
+  success?: boolean
+  finalError?: string
+  steering?: readonly string[]
+  followUp?: readonly string[]
+  texts?: string[]
 }
 
 function getAgentApi(): AgentIpcApi {
@@ -74,12 +91,28 @@ function convertPiContentParts(rawContent?: string | PiRawPart[]): PiContentPart
         toolName: p.name || '',
         args: p.arguments || p.args || {}
       })
+    } else if (p.type === 'image' && typeof p.data === 'string') {
+      // 会话恢复时 pi 存的 data 是纯 base64；本地新发送的是 dataUrl。
+      // 统一为 dataUrl 供 <img src> 使用。
+      const mime = p.mimeType || 'image/png'
+      const data = p.data.startsWith('data:') ? p.data : `data:${mime};base64,${p.data}`
+      parts.push({ type: 'image', data, mimeType: mime })
     }
   }
   return parts
 }
 
+/** 待发送图片附件：dataUrl 用于缩略图渲染与上传，name 仅为展示兜底。 */
+export interface AgentImageAttachment {
+  /** data URL（data:image/png;base64,...）或纯 base64，统一按 dataUrl 使用。 */
+  dataUrl: string
+  mimeType: string
+  name?: string
+}
+
 interface AgentSessionState {
+  /** 是否已有组件注册过 IPC 监听；防止重复订阅同一事件流 */
+  listenersReady: boolean
   currentSessionId: string | null
   currentCwd: string | null
   sessions: AgentSessionSummary[]
@@ -88,6 +121,9 @@ interface AgentSessionState {
   runningSessionIds: Set<string>
   permissionMode: AgentPermissionMode
   pendingApprovals: AgentApprovalRequest[]
+  /** 运行中已排队待投递的消息，按 sessionId 隔离（steering = 立即打断, followUp = 本轮结束后继续） */
+  queuedSteering: Record<string, string[]>
+  queuedFollowUp: Record<string, string[]>
   activeModel: string
   activeProvider: string
   providers: AgentProviderInfo[]
@@ -100,6 +136,7 @@ interface AgentSessionState {
   agentConfig: AgentConfig | null
   composerInput: string
   attachments: string[]
+  imageAttachments: AgentImageAttachment[]
   settingsOpen: boolean
   branchUserEntries: Array<{ entryId: string; text: string }>
   /**
@@ -113,11 +150,15 @@ interface AgentSessionState {
   setSessionId: (id: string | null) => void
   setForeignReview: (value: boolean) => void
   setPermissionMode: (mode: AgentPermissionMode) => Promise<void>
+  fetchPermissionMode: () => Promise<void>
   setComposerInput: (val: string) => void
   appendPromptText: (text: string) => void
   addAttachment: (path: string) => void
+  mentionFile: (absPath: string) => void
   removeAttachment: (index: number) => void
   clearAttachments: () => void
+  addImageAttachment: (img: AgentImageAttachment) => void
+  removeImageAttachment: (index: number) => void
   setSettingsOpen: (open: boolean) => void
   refreshBranchEntries: () => Promise<void>
 
@@ -155,6 +196,7 @@ interface AgentSessionState {
   cancelProviderAuth: (operationId: string) => Promise<boolean>
   logoutProvider: (providerId: string) => Promise<boolean>
   refreshProviderModels: (providerId: string) => Promise<boolean>
+  setProviderBaseUrl: (providerId: string, baseUrl: string | null) => Promise<boolean>
   openAgentSettings: () => void
   fetchConfig: () => Promise<void>
   setSkillDirs: (dirs: string[]) => Promise<boolean>
@@ -166,6 +208,7 @@ interface AgentSessionState {
 }
 
 export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
+  listenersReady: false,
   currentSessionId: null,
   currentCwd: null,
   sessions: [],
@@ -174,6 +217,8 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
   runningSessionIds: new Set<string>(),
   permissionMode: 'default',
   pendingApprovals: [],
+  queuedSteering: {},
+  queuedFollowUp: {},
   activeModel: 'devin/swe-2',
   activeProvider: 'magpie',
   providers: [],
@@ -186,6 +231,7 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
   agentConfig: null,
   composerInput: '',
   attachments: [],
+  imageAttachments: [],
   settingsOpen: false,
   branchUserEntries: [],
   foreignReview: false,
@@ -214,16 +260,42 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
   setPermissionMode: async (mode) => {
     set({ permissionMode: mode })
     const sessionId = get().currentSessionId
-    if (sessionId) {
-      try {
-        await getAgentApi().agentSetPermissionMode(sessionId, mode)
-      } catch (err) {
-        console.warn('[agentSessionStore] Failed to sync permission mode:', err)
+    try {
+      // Always persist on main side — even before a session exists, so the
+      // mode is picked up by the next newSession / resumeSession.
+      await getAgentApi().agentSetPermissionMode(sessionId ?? '', mode)
+    } catch (err) {
+      console.warn('[agentSessionStore] Failed to sync permission mode:', err)
+    }
+  },
+  fetchPermissionMode: async () => {
+    try {
+      const res = await getAgentApi().agentGetPermissionMode(get().currentSessionId ?? undefined)
+      if (res.success && res.data) {
+        const normalized: AgentPermissionMode =
+          res.data === 'auto' || res.data === 'bypass' ? res.data : 'default'
+        set({ permissionMode: normalized })
       }
+    } catch (err) {
+      console.warn('[agentSessionStore] fetchPermissionMode error:', err)
     }
   },
 
-  setComposerInput: (val) => set({ composerInput: val }),
+  /**
+   * 输入框文本更新入口。除了保存文本外，还按当前文本中的 @token
+   * 与 attachments 做反向对账：用户删掉某个 @file 时，对应附件 chip
+   * 一并移除；用户手动补 @file 时，对应路径重新登记为附件。
+   * 这样 chip 与文本互为单一事实来源，不会出现两边脱节。
+   */
+  setComposerInput: (val) =>
+    set((s) => {
+      const workspacePath = useWorkbenchStore.getState().workspacePath
+      const tokens = extractMentionTokens(val)
+      const attachments = s.attachments.filter((path) =>
+        tokens.some((token) => mentionTokenMatchesPath(token, path, workspacePath))
+      )
+      return { composerInput: val, attachments }
+    }),
 
   appendPromptText: (text) =>
     set((s) => ({
@@ -232,20 +304,86 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
 
   addAttachment: (path) =>
     set((s) => {
-      if (s.attachments.includes(path)) return s
+      const key = normalizePath(path)
+      if (s.attachments.some((p) => normalizePath(p) === key)) return s
       return { attachments: [...s.attachments, path] }
     }),
 
-  removeAttachment: (index) =>
-    set((s) => ({
-      attachments: s.attachments.filter((_, i) => i !== index)
-    })),
+  /**
+   * 文件拖入 / @ 引用统一入口：登记附件并把 `@<path>` token 追加到输入框。
+   * 工作区内文件用相对路径 token（与 @-mention 一致），外部文件用绝对路径，
+   * 保证 token 文本在消息气泡与 pi 端 prompt 中都能还原出同一引用。
+   * 同一文件（附件或输入框已有 @token）重复触发时保持现状，不再重复插入。
+   */
+  mentionFile: (absPath) =>
+    set((s) => {
+      if (!absPath) return s
+      const workspacePath = useWorkbenchStore.getState().workspacePath
+      const token = toMentionToken(absPath, workspacePath)
+      const key = normalizePath(absPath)
+      const alreadyAttached = s.attachments.some((p) => normalizePath(p) === key)
+      const alreadyMentioned = isFileMentioned(s.composerInput, absPath, workspacePath)
+      if (alreadyAttached && alreadyMentioned) return s
+      const needsSpace = s.composerInput.length > 0 && !/[\s@]$/.test(s.composerInput)
+      const composerInput = alreadyMentioned
+        ? s.composerInput
+        : `${s.composerInput}${needsSpace ? ' ' : ''}@${token} `
+      return {
+        attachments: alreadyAttached ? s.attachments : [...s.attachments, absPath],
+        composerInput
+      }
+    }),
 
-  clearAttachments: () => set({ attachments: [] }),
+  removeAttachment: (index) =>
+    set((s) => {
+      const target = s.attachments[index]
+      const workspacePath = useWorkbenchStore.getState().workspacePath
+      const composerInput = target
+        ? removeFileMention(s.composerInput, target, workspacePath)
+        : s.composerInput
+      return {
+        attachments: s.attachments.filter((_, i) => i !== index),
+        composerInput
+      }
+    }),
+
+  clearAttachments: () =>
+    set((s) => {
+      const workspacePath = useWorkbenchStore.getState().workspacePath
+      let composerInput = s.composerInput
+      for (const path of s.attachments) {
+        composerInput = removeFileMention(composerInput, path, workspacePath)
+      }
+      return { attachments: [], composerInput }
+    }),
+
+  addImageAttachment: (img) =>
+    set((s) => {
+      if (!img?.dataUrl) return s
+      // 同一 base64 去重，避免重复粘贴/拖入同一张图。
+      if (s.imageAttachments.some((x) => x.dataUrl === img.dataUrl)) return s
+      return { imageAttachments: [...s.imageAttachments, img] }
+    }),
+
+  removeImageAttachment: (index) =>
+    set((s) => ({
+      imageAttachments: s.imageAttachments.filter((_, i) => i !== index)
+    })),
 
   setSettingsOpen: (open) => set({ settingsOpen: open }),
 
   initListeners: () => {
+    // 已注册过监听（例如另一个 AgentCard 实例仍挂着）：仅补拉数据，不重复订阅，
+    // 否则每条事件会被 handleAgentEvent 处理多次。
+    if (get().listenersReady) {
+      void get().fetchProviders()
+      void get().fetchSessions()
+      void get().fetchSkills()
+      void get().fetchSnapshot()
+      void get().fetchPermissionMode()
+      return () => undefined
+    }
+    set({ listenersReady: true })
     const api = getAgentApi()
     let cleanupEvent: (() => void) | undefined
     let cleanupApproval: (() => void) | undefined
@@ -293,6 +431,7 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
     void get().fetchSessions()
     void get().fetchSkills()
     void get().fetchSnapshot()
+    void get().fetchPermissionMode()
     void api.agentListAuthOperations?.().then((res) => {
       if (res.success && res.data) {
         const map: Record<string, AgentAuthOperation> = {}
@@ -314,7 +453,24 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
     try {
       const res = await getAgentApi().agentListSessions()
       if (res.success && res.data) {
-        set({ sessions: res.data })
+        // isRunning 取后端快照与本地 runningSessionIds 的并集：
+        // - 后端快照覆盖"侧栏挂载前已在跑"的会话；
+        // - 本地 set 覆盖"agent_start 已到达但后端 listSessions 时序滞后"的会话。
+        const running = get().runningSessionIds
+        const sessions = res.data.map((item) => ({
+          ...item,
+          isRunning: item.isRunning === true || running.has(item.id)
+        }))
+        // 后端报告在跑但本地 set 缺失的会话，补进 set，
+        // 保持 setSessionId/resumeSession 派生的顶层 isRunning 正确。
+        let runningNext: Set<string> | null = null
+        for (const item of sessions) {
+          if (item.isRunning && !running.has(item.id)) {
+            runningNext ??= new Set(running)
+            runningNext.add(item.id)
+          }
+        }
+        set(runningNext ? { sessions, runningSessionIds: runningNext } : { sessions })
       }
     } catch (err) {
       console.warn('[agentSessionStore] fetchSessions error:', err)
@@ -379,6 +535,7 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
           model?: string
           provider?: string
           cwd?: string
+          permissionMode?: string
         } | null
         const restoredMessages: AgentMessage[] = []
 
@@ -457,6 +614,9 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
           pendingApprovals: [],
           activeModel: rawData?.model || get().activeModel,
           activeProvider: rawData?.provider || get().activeProvider,
+          permissionMode: rawData?.permissionMode === 'auto' || rawData?.permissionMode === 'bypass'
+            ? rawData.permissionMode
+            : 'default',
           isRunning: get().runningSessionIds.has(sessionId)
         })
         // isRunning is derived from runningSessionIds — populated by live events.
@@ -495,7 +655,8 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
 
   prompt: async (text: string, attachments?: string[]) => {
     const trimmed = text.trim()
-    if (!trimmed) return
+    const imageAttachments = get().imageAttachments
+    if (!trimmed && imageAttachments.length === 0) return
     let sessionId = get().currentSessionId
     const activeWorkspace = useWorkbenchStore.getState().workspacePath
     const currentCwd = get().currentCwd
@@ -506,41 +667,71 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
       if (!sessionId) return
     }
 
-    const attachList = attachments || get().attachments
+    // 附件按绝对路径去重（cwd 兜底工作区），避免同一文件经绝对/相对两种
+    // 形态同时到达 agent。
+    const cwd = get().currentCwd || useWorkbenchStore.getState().workspacePath
+    const attachList = dedupePathsByAbsolute(attachments || get().attachments, cwd)
     let fullPrompt = trimmed
     if (attachList.length > 0) {
-      const paths = attachList.map((p) => `@${p}`).join(' ')
-      if (!fullPrompt.includes(paths)) {
+      const pending = attachList.filter((p) => !isFileMentioned(fullPrompt, p, cwd))
+      if (pending.length > 0) {
+        const paths = pending.map((p) => `@${p}`).join(' ')
         fullPrompt = `${fullPrompt} ${paths}`
       }
     }
 
+    // If this session is already running, steer the new instruction in: pi's
+    // agent loop polls steering after each turn_end and injects it before the
+    // next LLM request — this is "insert at next turn", NOT abort mid-stream.
+    const wasRunning = get().runningSessionIds.has(sessionId)
+
+    const imageParts: PiContentPart[] = imageAttachments.map((img) => ({
+      type: 'image',
+      data: img.dataUrl,
+      mimeType: img.mimeType
+    }))
     const userMsg: AgentMessage = {
       id: `msg_u_${Date.now()}`,
       role: 'user',
-      content: [{ type: 'text', text: fullPrompt }],
-      status: 'complete',
+      content: [...imageParts, { type: 'text', text: fullPrompt }],
+      status: wasRunning ? 'running' : 'complete',
       createdAt: Date.now(),
       timestamp: Date.now()
     }
 
-    const assistantMsg: AgentMessage = {
-      id: `msg_a_${Date.now()}`,
-      role: 'assistant',
-      content: [],
-      status: 'running',
-      createdAt: Date.now()
-    }
+    // Only append a placeholder assistant message when we expect a fresh turn
+    // to start immediately; queued inputs reuse the in-flight assistant entry.
+    const assistantMsg: AgentMessage | null = wasRunning
+      ? null
+      : {
+          id: `msg_a_${Date.now()}`,
+          role: 'assistant',
+          content: [],
+          status: 'running',
+          createdAt: Date.now()
+        }
 
     set((s) => ({
-      messages: [...s.messages, userMsg, assistantMsg],
+      messages: assistantMsg ? [...s.messages, userMsg, assistantMsg] : [...s.messages, userMsg],
       runningSessionIds: new Set(s.runningSessionIds).add(sessionId),
+      isRunning: s.currentSessionId === sessionId ? true : s.isRunning,
       composerInput: '',
-      attachments: []
+      attachments: [],
+      imageAttachments: []
     }))
 
     try {
-      const res = await getAgentApi().agentPrompt(sessionId, fullPrompt, attachList)
+      const images = imageAttachments.map((img) => ({
+        data: img.dataUrl.includes(',') ? img.dataUrl.split(',', 2)[1] : img.dataUrl,
+        mimeType: img.mimeType
+      }))
+      const res = await getAgentApi().agentPrompt(
+        sessionId,
+        fullPrompt || ' ',
+        attachList,
+        wasRunning ? 'steer' : undefined,
+        images.length > 0 ? images : undefined
+      )
       if (!res.success) {
         set((s) => ({
           runningSessionIds: (() => {
@@ -548,15 +739,18 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
             next.delete(sessionId)
             return next
           })(),
+          isRunning: s.currentSessionId === sessionId ? false : s.isRunning,
           messages: s.messages.map((m) =>
-            m.id === assistantMsg.id
+            assistantMsg && m.id === assistantMsg.id
               ? {
                   ...m,
                   status: 'error',
                   error: res.error || '执行出错',
                   content: [{ type: 'text', text: `错误: ${res.error || '执行失败'}` }]
                 }
-              : m
+              : m.id === userMsg.id
+                ? { ...m, status: 'error', error: res.error || '发送失败' }
+                : m
           )
         }))
       }
@@ -568,15 +762,18 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
           next.delete(sessionId)
           return next
         })(),
+        isRunning: s.currentSessionId === sessionId ? false : s.isRunning,
         messages: s.messages.map((m) =>
-          m.id === assistantMsg.id
+          assistantMsg && m.id === assistantMsg.id
             ? {
                 ...m,
                 status: 'error',
                 error: errorMsg,
                 content: [{ type: 'text', text: `异常: ${errorMsg}` }]
               }
-            : m
+            : m.id === userMsg.id
+              ? { ...m, status: 'error', error: errorMsg }
+              : m
         )
       }))
     }
@@ -593,6 +790,7 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
           next.delete(sessionId)
           return next
         })(),
+        isRunning: s.currentSessionId === sessionId ? false : s.isRunning,
         pendingApprovals: [],
         messages: s.messages.map((m, idx) =>
           idx === s.messages.length - 1 && m.role === 'assistant'
@@ -930,6 +1128,19 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
     return false
   },
 
+  setProviderBaseUrl: async (providerId, baseUrl) => {
+    try {
+      const res = await getAgentApi().agentSetProviderBaseUrl?.(providerId, baseUrl)
+      if (res?.success && res.data) {
+        set({ snapshot: res.data })
+        return true
+      }
+    } catch (err) {
+      console.error('[agentSessionStore] setProviderBaseUrl error:', err)
+    }
+    return false
+  },
+
   openAgentSettings: () => {
     useAgentSettingsDialogStore.getState().open()
   },
@@ -994,12 +1205,22 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
           next.add(sessionId)
           return {
             runningSessionIds: next,
-            isRunning: sessionId === currentSessionId ? true : s.isRunning
+            isRunning: sessionId === currentSessionId ? true : s.isRunning,
+            // 历史菜单的 isRunning 标注随事件即时更新，不依赖下一次 fetchSessions。
+            sessions: s.sessions.some((item) => item.id === sessionId)
+              ? s.sessions.map((item) =>
+                  item.id === sessionId ? { ...item, isRunning: true } : item
+                )
+              : s.sessions
           }
         })
         return
       }
       case 'agent_end': {
+        if (event.willRetry) {
+          void get().fetchSessions()
+          return
+        }
         set((s) => {
           const next = new Set(s.runningSessionIds)
           next.delete(sessionId)
@@ -1017,6 +1238,22 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
           return {
             runningSessionIds: next,
             isRunning: sessionId === currentSessionId ? false : s.isRunning,
+            // Belt-and-suspenders: pi should have emitted queue_update([]) when
+            // draining, but clear any stale chips in case it didn't (abort /
+            // clearQueue paths don't always emit one).
+            queuedSteering: (() => {
+              const q = { ...s.queuedSteering }
+              delete q[sessionId]
+              return q
+            })(),
+            queuedFollowUp: (() => {
+              const q = { ...s.queuedFollowUp }
+              delete q[sessionId]
+              return q
+            })(),
+            sessions: s.sessions.map((item) =>
+              item.id === sessionId ? { ...item, isRunning: false } : item
+            ),
             // only touch the visible transcript when the event is for the
             // session currently on screen
             messages:
@@ -1024,7 +1261,8 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
                 ? s.messages.map((m, idx) =>
                     idx === s.messages.length - 1 &&
                     m.role === 'assistant' &&
-                    m.status === 'running'
+                    m.status !== 'aborted' &&
+                    m.status !== 'error'
                       ? { ...m, status: 'complete', turnDurationMs }
                       : m
                   )
@@ -1038,6 +1276,45 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
         }
         return
       }
+      case 'auto_retry_end': {
+        if (event.success === false) {
+          set((s) => {
+            const next = new Set(s.runningSessionIds)
+            next.delete(sessionId)
+            return {
+              runningSessionIds: next,
+              isRunning: sessionId === currentSessionId ? false : s.isRunning,
+              sessions: s.sessions.map((item) =>
+                item.id === sessionId ? { ...item, isRunning: false } : item
+              ),
+              messages:
+                sessionId === currentSessionId
+                  ? s.messages.map((m, idx) =>
+                      idx === s.messages.length - 1 &&
+                      m.role === 'assistant' &&
+                      m.status === 'running'
+                        ? {
+                            ...m,
+                            status: event.finalError ? 'error' : 'complete',
+                            ...(event.finalError ? { error: event.finalError } : {})
+                          }
+                        : m
+                    )
+                  : s.messages
+            }
+          })
+        }
+        return
+      }
+      case 'queue_update': {
+        // Pending steering/followUp arrays — surfaced in the composer so the
+        // user can see what's waiting to be delivered.
+        set((s) => ({
+          queuedSteering: { ...s.queuedSteering, [sessionId]: [...(event.steering ?? [])] },
+          queuedFollowUp: { ...s.queuedFollowUp, [sessionId]: [...(event.followUp ?? [])] }
+        }))
+        return
+      }
     }
 
     // Events below only render into the visible transcript; drop them for
@@ -1047,6 +1324,29 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
     }
 
     switch (event.type) {
+      case 'queue_cleared': {
+        // Abort-time: undelivered queued messages come back so the user can
+        // edit or resend. Put them into the composer (append, don't clobber).
+        const texts = event.texts ?? []
+        set((s) => {
+          const steering = { ...s.queuedSteering }
+          const followUp = { ...s.queuedFollowUp }
+          delete steering[sessionId]
+          delete followUp[sessionId]
+          return {
+            queuedSteering: steering,
+            queuedFollowUp: followUp,
+            ...(texts.length > 0
+              ? {
+                  composerInput: s.composerInput
+                    ? `${s.composerInput}\n\n${texts.join('\n\n')}`
+                    : texts.join('\n\n')
+                }
+              : {})
+          }
+        })
+        return
+      }
       case 'turn_start': {
         set((s) => {
           const last = s.messages[s.messages.length - 1]
@@ -1069,6 +1369,21 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
         break
       }
       case 'message_start': {
+        // A queued follow-up user message gets its own message_start when pi
+        // actually delivers it into a turn. Flip our local "queued" user row
+        // (status 'running') to complete. Match by position (earliest running
+        // user), not text — pi may rewrite the prompt text (skill/template
+        // expansion, image hints) so exact content comparison is unreliable,
+        // and duplicate texts would otherwise flip the wrong row.
+        if (event.message?.role === 'user') {
+          set((s) => {
+            const idx = s.messages.findIndex((m) => m.role === 'user' && m.status === 'running')
+            if (idx === -1) return s
+            const next = [...s.messages]
+            next[idx] = { ...next[idx], status: 'complete' }
+            return { messages: next }
+          })
+        }
         if (event.message?.role === 'assistant') {
           const newId = event.message.id || `msg_a_${Date.now()}`
           const msgTimestamp = event.message.timestamp ?? Date.now()
@@ -1078,7 +1393,7 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
               return {
                 messages: s.messages.map((m, idx) =>
                   idx === s.messages.length - 1
-                    ? { ...m, id: newId, timestamp: m.timestamp ?? msgTimestamp }
+                    ? { ...m, id: newId, status: 'running', timestamp: m.timestamp ?? msgTimestamp }
                     : m
                 )
               }
@@ -1313,6 +1628,13 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
         break
       case 'thinking_level_changed':
       case 'agent_settled': {
+        set((s) => {
+          const steering = { ...s.queuedSteering }
+          const followUp = { ...s.queuedFollowUp }
+          delete steering[sessionId]
+          delete followUp[sessionId]
+          return { queuedSteering: steering, queuedFollowUp: followUp }
+        })
         void get().fetchSessionStatus()
         void get().fetchSnapshot()
         break

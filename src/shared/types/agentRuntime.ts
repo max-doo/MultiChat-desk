@@ -64,6 +64,8 @@ export interface AgentProviderModel {
 export interface AgentProvider {
   id: string
   name: string
+  /** Effective request baseUrl after any user override; gateway providers only. */
+  baseUrl?: string
   configured: boolean
   authType?: AgentAuthType
   authSource?: 'stored' | 'runtime' | 'environment' | 'fallback' | 'models_json_key' | 'models_json_command'

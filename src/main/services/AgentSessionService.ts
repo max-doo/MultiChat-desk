@@ -16,6 +16,7 @@ import type {
 } from '@earendil-works/pi-coding-agent'
 import type { AnyModel, Model, Api, ThinkingLevel } from '@earendil-works/pi-ai'
 import { PermissionEngine, type PermissionMode, type ApprovalRequest } from './PermissionEngine'
+import { parseMode } from './permissionPolicy'
 import { AgentResourceLoader } from './AgentResourceLoader'
 import { excludedShellTools, shellEnvironmentPrompt, shellToolForPlatform, shellToolModifiers } from './shell'
 import { createWebSearchTool } from './webSearchTool'
@@ -90,6 +91,9 @@ export interface SessionListItem {
   model?: string
   isRunning?: boolean
 }
+
+/** Events emitted by this service on top of pi's own AgentSessionEvent set. */
+type LocalAgentEvent = { type: 'queue_cleared'; texts: string[] }
 
 export interface ProviderListItem {
   providerId: string
@@ -372,11 +376,11 @@ export class AgentSessionService {
     }
   }
 
-  private forwardEvent(sessionId: string, event: AgentSessionEvent): void {
+  private forwardEvent(sessionId: string, event: AgentSessionEvent | LocalAgentEvent): void {
     const wc = this.getWebContents()
     if (wc && !wc.isDestroyed()) {
       wc.send('agent:event', { sessionId, event })
-      if (STATUS_EVENTS.has(event.type)) {
+      if (typeof event.type === 'string' && STATUS_EVENTS.has(event.type)) {
         const status = this.getSessionStatus(sessionId)
         if (status) {
           wc.send('agent:session-status', { sessionId, status })
@@ -719,6 +723,15 @@ export class AgentSessionService {
       : 'medium'
   }
 
+  private getStoredPermissionMode(): PermissionMode {
+    const stored = this.store.get('agent_permission_mode')
+    if (typeof stored !== 'string') return 'default'
+    const parsed = parseMode(stored)
+    // parseMode returns ExtendedModeId ('readonly' allowed); ActiveSessionEntry
+    // holds the legacy-tolerant PermissionMode so 'readonly' is also fine.
+    return parsed
+  }
+
   private wireSession(
     sessionId: string,
     session: AgentSession,
@@ -975,10 +988,10 @@ export class AgentSessionService {
       settingsManager: (await this.getPi()).SettingsManager.create(resolvedCwd, this.agentDir),
       excludeTools: excludedShellTools(),
       tools: shellToolModifiers(),
-      customTools: [await createWebSearchTool(), await createImageGenTool(), await this.shellCustomTool(cwd && cwd.trim() ? cwd : process.cwd())]
+      customTools: [await createWebSearchTool(), await createImageGenTool(resolvedCwd), await this.shellCustomTool(cwd && cwd.trim() ? cwd : process.cwd())]
     })
 
-    this.wireSession(sessionId, session, resolvedCwd, 'default')
+    this.wireSession(sessionId, session, resolvedCwd, this.getStoredPermissionMode())
     this.store.set('agent_current_session', sessionId)
 
     return { sessionId }
@@ -1062,10 +1075,10 @@ export class AgentSessionService {
       settingsManager: (await this.getPi()).SettingsManager.create(cwd, this.agentDir),
       excludeTools: excludedShellTools(),
       tools: shellToolModifiers(),
-      customTools: [await createWebSearchTool(), await createImageGenTool(), await this.shellCustomTool(cwd && cwd.trim() ? cwd : process.cwd())]
+      customTools: [await createWebSearchTool(), await createImageGenTool(cwd), await this.shellCustomTool(cwd && cwd.trim() ? cwd : process.cwd())]
     })
 
-    const entry = this.wireSession(sessionId, session, cwd, 'default')
+    const entry = this.wireSession(sessionId, session, cwd, this.getStoredPermissionMode())
     this.store.set('agent_current_session', sessionId)
 
     return {
@@ -1078,7 +1091,13 @@ export class AgentSessionService {
     }
   }
 
-  public async prompt(sessionId: string, promptText: string, attachments?: string[]): Promise<void> {
+  public async prompt(
+    sessionId: string,
+    promptText: string,
+    attachments?: string[],
+    streamingBehavior?: 'steer' | 'followUp',
+    images?: Array<{ data: string; mimeType: string }>
+  ): Promise<void> {
     let active = this.activeSessions.get(sessionId)
     if (!active) {
       await this.resumeSession(sessionId)
@@ -1097,8 +1116,19 @@ export class AgentSessionService {
       }
     }
 
+    // If the agent is already streaming and the caller didn't specify how to
+    // queue, default to steer (inject at next turn boundary) — covers the
+    // resume-a-running-session window where the renderer's optimistic
+    // runningSessionIds hasn't caught up yet.
+    const behavior =
+      streamingBehavior ?? (active.session.isStreaming ? 'steer' : undefined)
+
     // Execute session prompt asynchronously
-    active.session.prompt(finalPrompt).catch((err: Error) => {
+    const imageParts =
+      images && images.length > 0
+        ? images.map((img) => ({ type: 'image' as const, data: img.data, mimeType: img.mimeType }))
+        : undefined
+    active.session.prompt(finalPrompt, { streamingBehavior: behavior, images: imageParts }).catch((err: Error) => {
       console.error(`[AgentSessionService] Error during prompt for session ${sessionId}:`, err)
       this.forwardEvent(sessionId, {
         type: 'agent_end',
@@ -1134,6 +1164,21 @@ export class AgentSessionService {
           .catch(() => undefined)
       }
       await active.session.abort()
+
+      // Recover queued (not yet delivered) follow-up/steering texts back to
+      // the composer AFTER abort succeeded, so a failed abort doesn't lose them.
+      try {
+        const queued = active.session.clearQueue()
+        const texts = [...queued.steering, ...queued.followUp].filter(Boolean)
+        if (texts.length > 0) {
+          this.forwardEvent(sessionId, {
+            type: 'queue_cleared',
+            texts
+          })
+        }
+      } catch {
+        // clearQueue is best-effort; never let it mask the abort result.
+      }
     }
   }
 
@@ -1272,7 +1317,7 @@ export class AgentSessionService {
       settingsManager: (await this.getPi()).SettingsManager.create(cwd, this.agentDir),
       excludeTools: excludedShellTools(),
       tools: shellToolModifiers(),
-      customTools: [await createWebSearchTool(), await createImageGenTool(), await this.shellCustomTool(cwd && cwd.trim() ? cwd : process.cwd())]
+      customTools: [await createWebSearchTool(), await createImageGenTool(cwd), await this.shellCustomTool(cwd && cwd.trim() ? cwd : process.cwd())]
     })
 
     const newSessionId = forkedManager.getSessionId()
@@ -1398,6 +1443,9 @@ export class AgentSessionService {
     const seen = new Set<string>()
     const diskTitleById = new Map<string, string>()
     const diskNameById = new Map<string, string>()
+    // pi SessionManager.listAll 不解析 jsonl 里的 model_change 事件；
+    // 文件名规则是 `<timestamp>_<sessionId>.jsonl`，可据此定位文件并读最后一条 model_change。
+    const diskModelById = await this.readDiskSessionModels()
     for (const item of diskSessions) {
       if (item.firstMessage) {
         diskTitleById.set(item.id, item.firstMessage)
@@ -1441,13 +1489,63 @@ export class AgentSessionService {
           name: item.name,
           createdAt: new Date(item.created).getTime(),
           updatedAt: new Date(item.modified).getTime(),
-          cwd: item.cwd
+          cwd: item.cwd,
+          model: diskModelById.get(item.id)
         })
         seen.add(item.id)
       }
     }
 
     return result.sort((a, b) => b.updatedAt - a.updatedAt)
+  }
+
+  /**
+   * 逐个读 sessionsDir 下的 .jsonl，取最后一条 `model_change` 事件的 provider/modelId。
+   * 会话文件通常 <200KB，串行读几十个文件对一年历史规模足够；解析失败静默跳过，
+   * 保证 model 永远来自真实事件而不是前端占位。
+   */
+  private async readDiskSessionModels(): Promise<Map<string, string>> {
+    const map = new Map<string, string>()
+    try {
+      const files = await readdir(this.sessionsDir)
+      for (const file of files) {
+        if (!file.endsWith('.jsonl')) continue
+        try {
+          const content = await readFile(join(this.sessionsDir, file), 'utf8')
+          let model: string | undefined
+          let sessionId: string | undefined
+          for (const line of content.split('\n')) {
+            if (!line) continue
+            if (!sessionId && line.includes('"type":"session"')) {
+              try {
+                const parsed = JSON.parse(line) as { id?: string }
+                sessionId = parsed.id
+              } catch {
+                // ignore
+              }
+            }
+            if (line.includes('"type":"model_change"')) {
+              try {
+                const parsed = JSON.parse(line) as { provider?: string; modelId?: string }
+                if (parsed.modelId) {
+                  model = parsed.provider ? `${parsed.provider}/${parsed.modelId}` : parsed.modelId
+                }
+              } catch {
+                // ignore
+              }
+            }
+          }
+          if (sessionId && model) {
+            map.set(sessionId, model)
+          }
+        } catch {
+          // ignore single file failures
+        }
+      }
+    } catch {
+      // ignore dir failures
+    }
+    return map
   }
 
   public resolveApproval(
@@ -1459,10 +1557,22 @@ export class AgentSessionService {
   }
 
   public setPermissionMode(sessionId: string, mode: PermissionMode): void {
+    // Normalize legacy aliases ('full'→'auto', 'restricted'→'default',
+    // 'readonly' preserved) so the persisted value round-trips cleanly.
+    const normalized = parseMode(mode)
+    this.store.set('agent_permission_mode', normalized)
     const active = this.activeSessions.get(sessionId)
     if (active) {
-      active.permissionMode = mode
+      active.permissionMode = normalized
     }
+  }
+
+  public getPermissionMode(sessionId?: string): PermissionMode {
+    if (sessionId) {
+      const active = this.activeSessions.get(sessionId)
+      if (active) return active.permissionMode
+    }
+    return this.getStoredPermissionMode()
   }
 
   public async setModel(sessionId: string, modelId: string, providerId?: string): Promise<void> {
@@ -1641,6 +1751,67 @@ export class AgentSessionService {
     return this.getRuntimeSnapshot()
   }
 
+  /**
+   * Set (or clear) the baseUrl for a provider the user owns — the built-in
+   * magpie gateway or a custom gateway. Persists the override in models.json
+   * so `refresh()` picks it up on the next compose pass; no restart needed.
+   * Returns the new snapshot so the renderer updates immediately.
+   */
+  public async setProviderBaseUrl(providerId: string, baseUrl: string | null): Promise<AgentRuntimeSnapshot> {
+    const runtime = this.modelRuntime
+    if (!runtime) throw new Error('Agent 运行时尚未初始化')
+
+    const isCustom = this.listCustomGateways().some((item) => item.providerId === providerId)
+    const isMagpie = providerId === MAGPIE_PROVIDER.providerId
+    if (!isCustom && !isMagpie) {
+      throw new Error('该供应商不支持修改端点')
+    }
+
+    const trimmed = (baseUrl ?? '').trim()
+    if (trimmed && !/^https?:\/\//i.test(trimmed)) {
+      throw new Error('baseUrl 需要以 http:// 或 https:// 开头')
+    }
+
+    // Custom gateways persist their endpoint in the gateway spec itself so a
+    // cold start re-registers with the right address.
+    if (isCustom) {
+      const list = this.listCustomGateways().map((item) =>
+        item.providerId === providerId ? { ...item, baseUrl: trimmed || item.baseUrl } : item
+      )
+      this.store.set(CUSTOM_GATEWAYS_STORE_KEY, list)
+    }
+
+    await this.writeProviderBaseUrlOverride(providerId, trimmed || null)
+    await runtime.refresh({ allowNetwork: false, force: true, providers: [providerId] })
+    this.sendRuntimeChanged('refresh')
+    return this.getRuntimeSnapshot()
+  }
+
+  /**
+   * Merge `{ providers: { [id]: { baseUrl } } }` into models.json. A null
+   * baseUrl removes the override (and the provider block if it becomes
+   * empty). Preserves every other provider/model entry untouched.
+   */
+  private async writeProviderBaseUrlOverride(providerId: string, baseUrl: string | null): Promise<void> {
+    const path = join(this.agentDir, 'models.json')
+    let doc: { providers?: Record<string, Record<string, unknown>> } & Record<string, unknown> = {}
+    try {
+      const parsed = JSON.parse(await readFile(path, 'utf8')) as typeof doc
+      if (parsed && typeof parsed === 'object') doc = parsed
+    } catch {
+      doc = {}
+    }
+    const providers = { ...(doc.providers ?? {}) }
+    const entry = { ...(providers[providerId] ?? {}) }
+    if (baseUrl) entry.baseUrl = baseUrl
+    else delete entry.baseUrl
+    if (Object.keys(entry).length > 0) providers[providerId] = entry
+    else delete providers[providerId]
+    doc.providers = providers
+    await mkdir(dirname(path), { recursive: true })
+    await writeFile(path, JSON.stringify(doc, null, 2), 'utf8')
+  }
+
   public dispose(): void {
     this.authController.dispose()
     void this.modelRuntime?.settleCredentialWrites().catch(() => undefined)
@@ -1722,6 +1893,7 @@ export class AgentSessionService {
       return {
         id: provider.id,
         name: provider.name || provider.id,
+        ...(provider.baseUrl ? { baseUrl: provider.baseUrl } : {}),
         configured,
         ...(authType ? { authType } : {}),
         ...(status.source ? { authSource: status.source } : {}),
