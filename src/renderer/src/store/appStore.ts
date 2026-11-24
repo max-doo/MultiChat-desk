@@ -493,7 +493,6 @@ export const IMAGE_GENERATION_SUPPORTED_MODEL_IDS = new Set([
   'grok',
   'chatgpt',
   'qwen',
-  'kimi',
   'doubao',
   'yuanbao',
   'chatglm',

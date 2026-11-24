@@ -425,11 +425,6 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
                           <img src={agentAvatar} alt="Agent" className="w-5 h-5 shrink-0" />
                         ) : null}
                         <span className="text-text-primary text-sm truncate">{option.label}</span>
-                        {isLocalAgent && (
-                          <span className="text-[10px] px-1.5 py-0.2 rounded bg-blue-100 text-blue-700 font-mono font-medium shrink-0">
-                            Active
-                          </span>
-                        )}
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0">
                         {hasDeepResearch && (

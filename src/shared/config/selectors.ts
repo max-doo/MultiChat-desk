@@ -763,15 +763,9 @@ export const defaultSelectors: SelectorsConfig = {
           // 在首页：shortcut 存在 = 未开启 = 已关闭，skipIfExists 直接算成功
           { selector: ['a.publisher-shortcut__link[href="/deep-research"]'], skipIfExists: true, optional: true, countsAsSuccess: true }
         ]
-      },
-      imageGeneration: {
-        steps: [
-          { selector: ['button', '[role="button"]'], text: ['生图', '画图', '图像生成', 'Image'], delay: 500 }
-        ],
-        cancelSteps: [
-          { selector: ['button[aria-label*="删除"]', 'button[aria-label*="remove"]'], delay: 200, optional: true }
-        ]
       }
+      // 2026-11 实测：Kimi 已下架 AI 生图入口（技能栏/设置内均无相关开关），
+      // imageGeneration 配置移除 --image 对该平台应提示不支持
     },
     doubao: {
       textarea: [
