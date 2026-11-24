@@ -203,7 +203,10 @@ export default function WorkbenchPage({ isActive = true }: WorkbenchPageProps): 
         )}
 
         {/* 中栏：Meta Lexical 编辑器（侧栏折叠时对应角贴齐窗口边缘，不再圆角） */}
-        <div className={`flex-1 h-full min-w-[${WORKBENCH_MIN_EDITOR_WIDTH}px] overflow-hidden flex flex-col bg-white dark:bg-gray-900 border-l border-t border-r border-black/5 dark:border-white/5 ${isLeftCollapsed ? '' : 'rounded-tl-xl'} ${rightPane ? 'rounded-tr-xl' : ''}`}>
+        <div
+          className={`flex-1 h-full overflow-hidden flex flex-col bg-white dark:bg-gray-900 border-l border-t border-r border-black/5 dark:border-white/5 ${isLeftCollapsed ? '' : 'rounded-tl-xl'} ${rightPane || isAiSidebar2Open ? 'rounded-tr-xl' : ''}`}
+          style={{ minWidth: WORKBENCH_MIN_EDITOR_WIDTH }}
+        >
           <WorkbenchEditor />
         </div>
 

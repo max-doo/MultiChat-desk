@@ -35,6 +35,10 @@ export function getNoteManager(): NoteManager | null {
 const registeredWebContentsSet = new WeakSet<Electron.WebContents>()
 
 // 主窗口引用
+// 主窗口最小宽度基线：工作台三栏（文件树260 + 编辑器~460 + AI侧边栏300）+ 分割条 ≈ 1100。
+const MAIN_MIN_WIDTH_SINGLE = 1100
+// 双 AI 侧栏并排时右侧至少 640（每栏 320），再叠加左栏 260 + 编辑器保底 380 + 分割条 10，下限提到 1360。
+const MAIN_MIN_WIDTH_DUAL_AI = 1360
 let mainWindow: BrowserWindow | null = null
 let quickWindow: BrowserWindow | null = null
 export function getQuickWindow(): BrowserWindow | null { return quickWindow }
@@ -69,6 +73,26 @@ export function showBackgroundPreview(win: BrowserWindow, owner: BrowserWindow |
 
 const quickPrimaryWebviews = new Set<number>()
 let quickSidebarExpanded = false
+
+/**
+ * 主窗口最小宽度随工作台双 AI 侧栏状态切换：双栏并排时抬高到下限，
+ * 低于新下限的现有窗口顺带回宽并钳在屏幕工作区内；恢复单栏时回到默认最小宽度。
+ */
+export function setMainWindowDualAiMinWidth(enabled: boolean): void {
+    const win = mainWindow
+    if (!win || win.isDestroyed()) return
+    const bounds = win.getBounds()
+    const area = screen.getDisplayMatching(bounds).workArea
+    const minWidth = enabled ? Math.min(MAIN_MIN_WIDTH_DUAL_AI, area.width) : MAIN_MIN_WIDTH_SINGLE
+    const [, minHeight] = win.getMinimumSize()
+    win.setMinimumSize(minWidth, minHeight)
+    if (!enabled) return
+    if (win.isMaximized()) return
+    if (bounds.width >= minWidth) return
+    const width = minWidth
+    const x = Math.min(Math.max(bounds.x, area.x), Math.max(area.x, area.x + area.width - width))
+    win.setBounds({ ...bounds, x, width })
+}
 
 export function registerQuickPrimaryWebview(id: number): boolean {
     const guest = webContents.fromId(id)
@@ -537,8 +561,9 @@ export function createWindow(): void {
         width: 1400,
         height: 900,
         // 工作台三栏（文件树260 + 编辑器~460 + AI侧边栏300）+ 分割条 ≈ 1100，
-        // 低于该宽度时编辑器被挤压成竖排单字，不可读
-        minWidth: 1100,
+        // 低于该宽度时编辑器被挤压成竖排单字，不可读；
+        // 双 AI 侧栏并排时由 setMainWindowDualAiMinWidth 动态抬高该下限。
+        minWidth: MAIN_MIN_WIDTH_SINGLE,
         minHeight: 700,
         // 启动时先隐藏窗口，待 ready-to-show（首帧渲染完成）后再 show，
         // 避免窗口立即显示透明背景在 Windows 上合成成黑色导致的启动黑屏。

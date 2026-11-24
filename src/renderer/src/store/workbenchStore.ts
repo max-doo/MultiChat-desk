@@ -50,6 +50,8 @@ export interface WorkbenchSortPreference {
 // 右侧 AI 侧边栏宽度限制：随窗口宽度分档，避免小窗下侧边栏过宽挤压编辑器
 export const WORKBENCH_MIN_EDITOR_WIDTH = 380
 const RIGHT_PANE_MIN = 300
+// 双 AI 侧栏并排时整个右栏容器的下限：两栏各至少 320，避免挤压成窄条不可读。
+const RIGHT_PANE_DUAL_MIN = 640
 const RIGHT_PANE_MAX_TIERS: Array<{ minWindowWidth: number; maxPaneWidth: number }> = [
   { minWindowWidth: 1680, maxPaneWidth: 960 },
   { minWindowWidth: 1440, maxPaneWidth: 640 },
@@ -60,22 +62,24 @@ const RIGHT_PANE_MAX_TIERS: Array<{ minWindowWidth: number; maxPaneWidth: number
 export function getRightPaneMaxWidth(
   windowWidth?: number,
   leftWidth?: number,
-  isLeftCollapsed?: boolean
+  isLeftCollapsed?: boolean,
+  isDualAi?: boolean
 ): number {
   const winW = typeof window === 'undefined' ? 1400 : (windowWidth ?? window.innerWidth)
   const state = typeof useWorkbenchStore !== 'undefined' ? useWorkbenchStore.getState() : null
   const collapsed = isLeftCollapsed ?? state?.isLeftCollapsed ?? false
   const leftW = collapsed ? 0 : (leftWidth ?? state?.leftPaneWidth ?? 260)
   const splitters = collapsed ? 5 : 10
-  const dualAi = state?.isAiSidebar2Open ?? false
+  const dualAi = isDualAi ?? state?.isAiSidebar2Open ?? false
+  const minPane = dualAi ? RIGHT_PANE_DUAL_MIN : RIGHT_PANE_MIN
 
   // 窗口剩余空间计算：确保留足左栏、中栏保底和分割条，避免小窗下三栏硬性尺寸之和溢出被 overflow 截断
   const maxAllowedByWindow = Math.max(
-    RIGHT_PANE_MIN,
+    minPane,
     winW - leftW - WORKBENCH_MIN_EDITOR_WIDTH - splitters
   )
 
-  let tierMax = RIGHT_PANE_MIN
+  let tierMax = minPane
   for (const tier of RIGHT_PANE_MAX_TIERS) {
     if (winW >= tier.minWindowWidth) {
       tierMax = tier.maxPaneWidth
@@ -84,7 +88,7 @@ export function getRightPaneMaxWidth(
   }
 
   // 双 AI 侧边栏并排时总宽度允许翻倍，仍受窗口剩余空间约束
-  const paneMax = dualAi ? tierMax * 2 : tierMax
+  const paneMax = dualAi ? Math.max(minPane, tierMax * 2) : tierMax
   return Math.min(paneMax, maxAllowedByWindow)
 }
 
@@ -138,10 +142,14 @@ function clampRightPaneWidth(
   width: number,
   windowWidth?: number,
   leftWidth?: number,
-  isLeftCollapsed?: boolean
+  isLeftCollapsed?: boolean,
+  isDualAi?: boolean
 ): number {
-  const maxAllowed = getRightPaneMaxWidth(windowWidth, leftWidth, isLeftCollapsed)
-  return Math.max(RIGHT_PANE_MIN, Math.min(maxAllowed, width))
+  const state = typeof useWorkbenchStore !== 'undefined' ? useWorkbenchStore.getState() : null
+  const dualAi = isDualAi ?? state?.isAiSidebar2Open ?? false
+  const maxAllowed = getRightPaneMaxWidth(windowWidth, leftWidth, isLeftCollapsed, dualAi)
+  const minAllowed = Math.min(dualAi ? RIGHT_PANE_DUAL_MIN : RIGHT_PANE_MIN, maxAllowed)
+  return Math.max(minAllowed, Math.min(maxAllowed, width))
 }
 
 interface WorkbenchStoreState {
@@ -659,19 +667,20 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       ])
 
       const updates: Partial<WorkbenchStoreState> = { isInitialized: true }
+      const winW = typeof window !== 'undefined' ? window.innerWidth : 1400
       if (typeof savedLeftWidth === 'number' && savedLeftWidth >= 260 && savedLeftWidth <= 480) {
         updates.leftPaneWidth = savedLeftWidth
       }
-      if (typeof savedRightWidth === 'number' && savedRightWidth >= RIGHT_PANE_MIN) {
-        updates.rightPaneWidth = clampRightPaneWidth(
-          savedRightWidth,
-          typeof window !== 'undefined' ? window.innerWidth : 1400,
-          updates.leftPaneWidth ?? 260,
-          updates.isLeftCollapsed ?? false
-        )
-      }
       if (typeof savedLeftCollapsed === 'boolean') {
         updates.isLeftCollapsed = savedLeftCollapsed
+      }
+      const resolvedDualAi = typeof savedAiSidebar2Open === 'boolean' ? savedAiSidebar2Open : false
+      const resolvedLeftCollapsed = updates.isLeftCollapsed ?? false
+      if (resolvedDualAi && !resolvedLeftCollapsed && winW >= 260 + WORKBENCH_MIN_EDITOR_WIDTH + RIGHT_PANE_DUAL_MIN + 10) {
+        const maxLeft = Math.max(260, winW - WORKBENCH_MIN_EDITOR_WIDTH - RIGHT_PANE_DUAL_MIN - 10)
+        if ((updates.leftPaneWidth ?? 260) > maxLeft) {
+          updates.leftPaneWidth = maxLeft
+        }
       }
       // 新键优先；老版本只有布尔折叠状态，迁移成「AI 展开 / 全部收起」。
       // 注释已从右侧独立抽屉迁移为文档原位边距流，历史保存的 annotations 回退为 null。
@@ -692,8 +701,23 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       if (typeof savedSidebar2Model === 'string' && savedSidebar2Model) {
         updates.sidebar2ModelId = savedSidebar2Model
       }
+      if (typeof savedRightWidth === 'number' && savedRightWidth >= RIGHT_PANE_MIN) {
+        updates.rightPaneWidth = clampRightPaneWidth(
+          savedRightWidth,
+          winW,
+          updates.leftPaneWidth ?? 260,
+          resolvedLeftCollapsed,
+          resolvedDualAi
+        )
+      }
       if (typeof savedAiSidebar2Open === 'boolean') {
         updates.isAiSidebar2Open = savedAiSidebar2Open
+        // 恢复的持久化状态不会经过 store-set，主动同步一次主窗口最小宽度
+        void window.api.setWindowDualAiMinWidth(savedAiSidebar2Open)
+        // 恢复为双栏时，右栏容器持久化宽度可能仍是单栏值（如 300），抬到双栏下限保证两栏可读。
+        if (savedAiSidebar2Open && (updates.rightPaneWidth ?? 0) < RIGHT_PANE_DUAL_MIN) {
+          updates.rightPaneWidth = RIGHT_PANE_DUAL_MIN
+        }
       }
       if (savedEditorMode === 'wysiwyg' || savedEditorMode === 'source') {
         updates.editorMode = savedEditorMode
@@ -2074,10 +2098,24 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
 
   setLeftPaneWidth: (width: number, persist = true) => {
     const winW = typeof window === 'undefined' ? 1400 : window.innerWidth
-    const hasRight = !!get().rightPane
-    const maxLeftAllowed = Math.max(260, winW - WORKBENCH_MIN_EDITOR_WIDTH - (hasRight ? RIGHT_PANE_MIN : 0) - 10)
+    const state = get()
+    const hasRight = !!state.rightPane || state.isAiSidebar2Open
+    const rightReserve = hasRight
+      ? (state.isAiSidebar2Open ? RIGHT_PANE_DUAL_MIN : RIGHT_PANE_MIN)
+      : 0
+    const maxLeftAllowed = Math.max(260, winW - WORKBENCH_MIN_EDITOR_WIDTH - rightReserve - 10)
     const clamped = Math.max(260, Math.min(480, Math.min(maxLeftAllowed, width)))
-    set({ leftPaneWidth: clamped })
+    const nextState: Partial<WorkbenchStoreState> = { leftPaneWidth: clamped }
+    if (hasRight) {
+      const clampedRight = clampRightPaneWidth(state.rightPaneWidth, winW, clamped, state.isLeftCollapsed, state.isAiSidebar2Open)
+      if (clampedRight !== state.rightPaneWidth) {
+        nextState.rightPaneWidth = clampedRight
+        if (persist) {
+          void window.api.storeSet('workbench_rightPaneWidth', clampedRight)
+        }
+      }
+    }
+    set(nextState)
     if (persist) {
       void window.api.storeSet('workbench_leftPaneWidth', clamped)
     }
@@ -2094,8 +2132,30 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   },
 
   toggleLeftCollapse: () => {
-    const next = !get().isLeftCollapsed
-    set({ isLeftCollapsed: next })
+    const state = get()
+    const next = !state.isLeftCollapsed
+    const nextState: Partial<WorkbenchStoreState> = { isLeftCollapsed: next }
+    if (!next) {
+      const winW = typeof window === 'undefined' ? 1400 : window.innerWidth
+      const hasRight = !!state.rightPane || state.isAiSidebar2Open
+      const rightReserve = hasRight
+        ? (state.isAiSidebar2Open ? RIGHT_PANE_DUAL_MIN : RIGHT_PANE_MIN)
+        : 0
+      const maxLeftAllowed = Math.max(260, winW - WORKBENCH_MIN_EDITOR_WIDTH - rightReserve - 10)
+      const clampedLeft = Math.max(260, Math.min(480, Math.min(maxLeftAllowed, state.leftPaneWidth)))
+      if (clampedLeft !== state.leftPaneWidth) {
+        nextState.leftPaneWidth = clampedLeft
+        void window.api.storeSet('workbench_leftPaneWidth', clampedLeft)
+      }
+      if (hasRight) {
+        const clampedRight = clampRightPaneWidth(state.rightPaneWidth, winW, clampedLeft, false, state.isAiSidebar2Open)
+        if (clampedRight !== state.rightPaneWidth) {
+          nextState.rightPaneWidth = clampedRight
+          void window.api.storeSet('workbench_rightPaneWidth', clampedRight)
+        }
+      }
+    }
+    set(nextState)
     void window.api.storeSet('workbench_isLeftCollapsed', next)
   },
 
@@ -2121,19 +2181,50 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   },
 
   openConversationInAiSidebar2: (platformId, url) => {
-    set({ isAiSidebar2Open: true })
+    const state = get()
+    const winW = typeof window === 'undefined' ? 1400 : window.innerWidth
+    const width = Math.max(state.rightPaneWidth, RIGHT_PANE_DUAL_MIN)
+    const nextState: Partial<WorkbenchStoreState> = { isAiSidebar2Open: true, rightPaneWidth: width }
+    if (!state.isLeftCollapsed && winW >= 260 + WORKBENCH_MIN_EDITOR_WIDTH + RIGHT_PANE_DUAL_MIN + 10) {
+      const maxLeft = Math.max(260, winW - WORKBENCH_MIN_EDITOR_WIDTH - RIGHT_PANE_DUAL_MIN - 10)
+      if (state.leftPaneWidth > maxLeft) {
+        nextState.leftPaneWidth = maxLeft
+        void window.api.storeSet('workbench_leftPaneWidth', maxLeft)
+      }
+    }
+    set(nextState)
     void window.api.storeSet('workbench_isAiSidebar2Open', true)
+    void window.api.storeSet('workbench_rightPaneWidth', width)
     set({ pendingConversationOpen: { platformId, url, token: Date.now(), target: 'ai2' } })
   },
 
   openAiSidebar2: () => {
-    set({ isAiSidebar2Open: true })
+    // 开启第二侧栏时把整个右栏容器抬到双栏下限（不低于当前值），否则两栏挤在原单栏宽度里各 ~150px。
+    const state = get()
+    const winW = typeof window === 'undefined' ? 1400 : window.innerWidth
+    const width = Math.max(state.rightPaneWidth, RIGHT_PANE_DUAL_MIN)
+    const nextState: Partial<WorkbenchStoreState> = { isAiSidebar2Open: true, rightPaneWidth: width }
+    if (!state.isLeftCollapsed && winW >= 260 + WORKBENCH_MIN_EDITOR_WIDTH + RIGHT_PANE_DUAL_MIN + 10) {
+      const maxLeft = Math.max(260, winW - WORKBENCH_MIN_EDITOR_WIDTH - RIGHT_PANE_DUAL_MIN - 10)
+      if (state.leftPaneWidth > maxLeft) {
+        nextState.leftPaneWidth = maxLeft
+        void window.api.storeSet('workbench_leftPaneWidth', maxLeft)
+      }
+    }
+    set(nextState)
     void window.api.storeSet('workbench_isAiSidebar2Open', true)
+    void window.api.storeSet('workbench_rightPaneWidth', width)
   },
 
   closeAiSidebar2: () => {
+    // 关闭第二侧栏后，右栏回到单栏：宽度若超出单栏上限则收回，避免留下空荡的宽栏。
+    // 必须先置 false 再算单栏上限——getRightPaneMaxWidth 内部读 isAiSidebar2Open 决定是否翻倍。
     set({ isAiSidebar2Open: false })
+    const singleMax = getRightPaneMaxWidth()
+    const width = Math.min(get().rightPaneWidth, singleMax)
+    set({ rightPaneWidth: width })
     void window.api.storeSet('workbench_isAiSidebar2Open', false)
+    void window.api.storeSet('workbench_rightPaneWidth', width)
   },
 
   consumeConversationOpen: (token) =>
@@ -2499,9 +2590,22 @@ if (typeof window !== 'undefined') {
       resizeRafId = null
       const current = useWorkbenchStore.getState()
       if (!current.rightPane && !current.isAiSidebar2Open) return
-      const maxAllowed = getRightPaneMaxWidth()
-      if (current.rightPaneWidth > maxAllowed) {
-        useWorkbenchStore.setState({ rightPaneWidth: maxAllowed })
+      const winW = window.innerWidth
+      const nextState: Partial<WorkbenchStoreState> = {}
+      let leftW = current.leftPaneWidth
+      if (current.isAiSidebar2Open && !current.isLeftCollapsed) {
+        const maxLeft = Math.max(260, winW - WORKBENCH_MIN_EDITOR_WIDTH - RIGHT_PANE_DUAL_MIN - 10)
+        if (leftW > maxLeft) {
+          leftW = maxLeft
+          nextState.leftPaneWidth = leftW
+        }
+      }
+      const clampedRight = clampRightPaneWidth(current.rightPaneWidth, winW, leftW, current.isLeftCollapsed, current.isAiSidebar2Open)
+      if (clampedRight !== current.rightPaneWidth) {
+        nextState.rightPaneWidth = clampedRight
+      }
+      if (Object.keys(nextState).length > 0) {
+        useWorkbenchStore.setState(nextState)
       }
     })
   })
