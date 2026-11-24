@@ -694,7 +694,7 @@ const api = {
     }
   },
 
-  // 本地 Agent 会话控制
+  // Agent 会话控制
   agentPrompt: (sessionId: string, prompt: string, attachments?: string[]): Promise<{ success: boolean; data?: unknown; error?: string }> =>
     ipcRenderer.invoke('agent:prompt', { sessionId, prompt, attachments }),
   agentAbort: (sessionId: string): Promise<{ success: boolean; error?: string }> =>
@@ -707,6 +707,12 @@ const api = {
     ipcRenderer.invoke('agent:resume-session', { sessionId }),
   agentDeleteSession: (sessionId: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('agent:delete-session', { sessionId }),
+  agentRewind: (sessionId: string, entryId?: string): Promise<{ success: boolean; data?: { editorText: string }; error?: string }> =>
+    ipcRenderer.invoke('agent:rewind', { sessionId, entryId }),
+  agentForkSession: (sessionId: string, leafId?: string): Promise<{ success: boolean; data?: { sessionId: string }; error?: string }> =>
+    ipcRenderer.invoke('agent:fork-session', { sessionId, leafId }),
+  agentListBranchUserEntries: (sessionId: string): Promise<{ success: boolean; data?: Array<{ entryId: string; text: string }>; error?: string }> =>
+    ipcRenderer.invoke('agent:list-branch-user-entries', { sessionId }),
   agentResolveApproval: (requestId: string, decision: 'allow' | 'always' | 'deny', pattern?: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('agent:resolve-approval', { requestId, decision, pattern }),
   agentSetPermissionMode: (sessionId: string, mode: 'default' | 'auto' | 'bypass' | 'full' | 'restricted' | 'readonly'): Promise<{ success: boolean; error?: string }> =>

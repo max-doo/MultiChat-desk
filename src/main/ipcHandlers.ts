@@ -55,6 +55,7 @@ import {
   openFileInSystem as workbenchOpenFileInSystem,
   saveImage as workbenchSaveImage,
   importImageFile as workbenchImportImageFile,
+  copyNodesToClipboard as workbenchCopyNodesToClipboard,
   findUnreferencedImages as workbenchFindUnreferencedImages,
   deleteNodes as workbenchDeleteNodes,
   importExternalPaths as workbenchImportExternalPaths,
@@ -2762,6 +2763,36 @@ export async function registerIpcHandlers(
         try {
             await agentSessionService.deleteSession(payload.sessionId)
             return { success: true }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('agent:rewind', async (_event, payload: { sessionId: string; entryId?: string }) => {
+        try {
+            const data = await agentSessionService.rewindToUserMessage(payload.sessionId, payload.entryId)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('agent:fork-session', async (_event, payload: { sessionId: string; leafId?: string }) => {
+        try {
+            const data = await agentSessionService.forkSessionAtLeaf(payload.sessionId, payload.leafId)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('agent:list-branch-user-entries', async (_event, payload: { sessionId: string }) => {
+        try {
+            const data = agentSessionService.listBranchUserEntries(payload.sessionId)
+            return { success: true, data }
         } catch (err: unknown) {
             const error = err instanceof Error ? err.message : String(err)
             return { success: false, error }

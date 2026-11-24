@@ -247,11 +247,11 @@ export default function WorkbenchAiSidebar({ isActive = true, instanceId = 'prim
   const instanceKey = isSecondary ? 'ai2' : 'ai'
   const visible = isSecondary ? isAiSidebar2Open : rightPane === 'ai'
 
-  // 本地 Agent 虚拟模型条目，用于侧边栏分叉渲染
+  // Agent 虚拟模型条目，用于侧边栏分叉渲染
   const localAgentModel = useMemo(
     () => ({
       id: 'local-agent',
-      name: '本地 Agent',
+      name: 'Agent',
       url: '',
       logo: '',
       enabled: true

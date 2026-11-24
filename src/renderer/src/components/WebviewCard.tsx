@@ -15,6 +15,7 @@ import { useSourceAnnotations } from '../hooks/useSourceAnnotations'
 import WebviewFindBar from './WebviewFindBar'
 import AnnotationCommentCard from './AnnotationCommentCard'
 import { AppIcon } from './icons/AppIcon'
+import agentAvatar from '../assets/logos/agent.png'
 
 interface WebviewCardProps {
   id: string
@@ -421,9 +422,7 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
                             src={model?.logo || option.logo}
                           />
                         ) : isLocalAgent ? (
-                          <div className="w-5 h-5 rounded-md bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
-                            <AppIcon name="smart_toy" size={16} />
-                          </div>
+                          <img src={agentAvatar} alt="Agent" className="w-5 h-5 shrink-0" />
                         ) : null}
                         <span className="text-text-primary text-sm truncate">{option.label}</span>
                         {isLocalAgent && (

@@ -97,6 +97,7 @@ interface AgentSessionState {
   composerInput: string
   attachments: string[]
   settingsOpen: boolean
+  branchUserEntries: Array<{ entryId: string; text: string }>
 
   // Actions
   setSessionId: (id: string | null) => void
@@ -107,6 +108,7 @@ interface AgentSessionState {
   removeAttachment: (index: number) => void
   clearAttachments: () => void
   setSettingsOpen: (open: boolean) => void
+  refreshBranchEntries: () => Promise<void>
 
   initListeners: () => () => void
   fetchSessions: () => Promise<void>
@@ -116,6 +118,9 @@ interface AgentSessionState {
   deleteSession: (sessionId: string) => Promise<boolean>
   prompt: (text: string, attachments?: string[]) => Promise<void>
   abort: () => Promise<void>
+  rewindLastUserMessage: () => Promise<boolean>
+  forkSession: () => Promise<boolean>
+  copyText: (text: string) => Promise<boolean>
   resolveApproval: (
     requestId: string,
     decision: 'allow' | 'always' | 'deny',
@@ -167,8 +172,23 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
   composerInput: '',
   attachments: [],
   settingsOpen: false,
+  branchUserEntries: [],
 
   setSessionId: (id) => set({ currentSessionId: id }),
+
+  refreshBranchEntries: async () => {
+    const sessionId = get().currentSessionId
+    if (!sessionId) {
+      set({ branchUserEntries: [] })
+      return
+    }
+    try {
+      const res = await getAgentApi().agentListBranchUserEntries(sessionId)
+      set({ branchUserEntries: res.success && res.data ? res.data : [] })
+    } catch {
+      set({ branchUserEntries: [] })
+    }
+  },
 
   setPermissionMode: async (mode) => {
     set({ permissionMode: mode })
@@ -293,7 +313,8 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
       isRunning: false,
       pendingApprovals: [],
       composerInput: '',
-      attachments: []
+      attachments: [],
+      branchUserEntries: []
     })
     return null
   },
@@ -312,7 +333,8 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
           isRunning: false,
           pendingApprovals: [],
           composerInput: '',
-          attachments: []
+          attachments: [],
+          branchUserEntries: []
         })
         void get().fetchSessions()
         void get().fetchSnapshot(sessionId)
@@ -394,6 +416,7 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
         })
         void get().fetchSnapshot(sessionId)
         void get().fetchSessionStatus(sessionId)
+        void get().refreshBranchEntries()
         return true
       }
     } catch (err) {
@@ -520,6 +543,86 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
       }))
     } catch (err) {
       console.warn('[agentSessionStore] abort error:', err)
+    }
+  },
+
+  /**
+   * Rewind the conversation by one step: the leaf moves to the parent of the
+   * most recent user message, that prompt text goes back into the composer,
+   * and the local timeline is trimmed so the abandoned branch is no longer
+   * shown. File edits already applied by the agent are intentionally left
+   * alone — Pi does not snapshot the workspace, and silently reverting code
+   * would be destructive.
+   */
+  rewindLastUserMessage: async () => {
+    const sessionId = get().currentSessionId
+    if (!sessionId || get().isRunning) return false
+    try {
+      const res = await getAgentApi().agentRewind(sessionId)
+      if (!res.success || !res.data) {
+        console.warn('[agentSessionStore] rewind failed:', res.error)
+        return false
+      }
+      const editorText = res.data.editorText ?? ''
+      // Trim the local timeline back to just before the last user message so
+      // the abandoned branch (user prompt + assistant reply + tool calls) is
+      // no longer rendered. The entries stay in the session file.
+      set((s) => {
+        const msgs = [...s.messages]
+        let cut = -1
+        for (let i = msgs.length - 1; i >= 0; i--) {
+          if (msgs[i].role === 'user') {
+            cut = i
+            break
+          }
+        }
+        return {
+          messages: cut >= 0 ? msgs.slice(0, cut) : msgs,
+          composerInput: editorText,
+          pendingApprovals: []
+        }
+      })
+      void get().refreshBranchEntries()
+      void get().fetchSessionStatus(sessionId)
+      return true
+    } catch (err) {
+      console.warn('[agentSessionStore] rewind error:', err)
+      return false
+    }
+  },
+
+  /**
+   * Fork the current session at its latest position: the full conversation
+   * (including the selected turn's assistant reply) is copied into a new
+   * session file, the UI switches to it, and the original stays in history.
+   */
+  forkSession: async () => {
+    const sessionId = get().currentSessionId
+    if (!sessionId || get().isRunning) return false
+    try {
+      const res = await getAgentApi().agentForkSession(sessionId)
+      if (!res.success || !res.data) {
+        console.warn('[agentSessionStore] fork failed:', res.error)
+        return false
+      }
+      const ok = await get().resumeSession(res.data.sessionId)
+      if (!ok) return false
+      void get().fetchSessions()
+      return true
+    } catch (err) {
+      console.warn('[agentSessionStore] fork error:', err)
+      return false
+    }
+  },
+
+  copyText: async (text: string) => {
+    if (!text) return false
+    try {
+      await navigator.clipboard.writeText(text)
+      return true
+    } catch (err) {
+      console.warn('[agentSessionStore] copy failed:', err)
+      return false
     }
   },
 
@@ -999,6 +1102,7 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
           return s
         })
         void get().fetchSessionStatus()
+        void get().refreshBranchEntries()
         break
       }
       case 'compaction_end':

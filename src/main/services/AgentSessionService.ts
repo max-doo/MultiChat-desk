@@ -57,6 +57,7 @@ export interface ActiveSessionEntry {
 export interface SessionListItem {
   id: string
   title: string
+  name?: string
   createdAt: number
   updatedAt: number
   cwd?: string
@@ -523,6 +524,195 @@ export class AgentSessionService {
     }
   }
 
+  /**
+   * Rewind the conversation to just before the given user-message entry and
+   * hand its text back to the composer. Pi stores the session as an append-only
+   * tree, so this only moves the leaf pointer — file edits already applied to
+   * the workspace are NOT rolled back. The abandoned branch stays in the
+   * session file and is still reachable via the tree.
+   *
+   * Only the most recent user message on the current branch is accepted, which
+   * limits the operation to a single step back and keeps the behaviour
+   * predictable while this feature settles.
+   */
+  public async rewindToUserMessage(
+    sessionId: string,
+    entryId?: string
+  ): Promise<{ editorText: string }> {
+    const active = this.activeSessions.get(sessionId)
+    if (!active) {
+      throw new Error(`Session ${sessionId} is not active`)
+    }
+    const session = active.session
+    const sessionManager = session.sessionManager
+
+    // Resolve the target entry: explicit id, else the last user message on the
+    // active branch. Restricting to the last user message enforces the
+    // "one-step rewind only" contract.
+    let targetId = entryId
+    let targetEntry = targetId ? sessionManager.getEntry(targetId) : undefined
+    if (!targetEntry) {
+      const branch = sessionManager.getBranch()
+      for (let i = branch.length - 1; i >= 0; i--) {
+        const entry = branch[i]
+        if (entry.type === 'message' && entry.message.role === 'user') {
+          targetId = entry.id
+          targetEntry = entry
+          break
+        }
+      }
+    }
+    if (!targetId || !targetEntry || targetEntry.type !== 'message' || targetEntry.message.role !== 'user') {
+      throw new Error('没有可撤回的用户消息')
+    }
+
+    // Guard: never rewind past an earlier user turn — only the latest user
+    // message on the branch may be rewound.
+    const branch = sessionManager.getBranch()
+    const lastUserEntry = [...branch]
+      .reverse()
+      .find((e) => e.type === 'message' && e.message.role === 'user')
+    if (!lastUserEntry || lastUserEntry.id !== targetId) {
+      throw new Error('当前版本仅支持撤回最近一条用户消息')
+    }
+
+    const result = await session.navigateTree(targetId, {})
+    if (result.cancelled) {
+      throw new Error('撤回被取消')
+    }
+    const editorText =
+      result.editorText ??
+      this.extractUserText((targetEntry as { message: { content: unknown } }).message.content)
+    return { editorText }
+  }
+
+  /**
+   * Fork the current session at a specific leaf entry (or at the current leaf
+   * when leafId is omitted). The new session contains the full history up to
+   * that point — the selected turn's assistant reply stays inside the branch,
+   * unlike rewind which rewinds to *before* a user prompt.
+   *
+   * createBranchedSession() mutates the manager it is called on (it rewrites
+   * fileEntries / sessionFile / sessionId in place), so it must never run on
+   * the live session manager. We open a throwaway manager on the current
+   * session file first, mirroring pi's own /fork flow
+   * (agent-session-runtime.js does SessionManager.open(...).createBranchedSession).
+   */
+  public async forkSessionAtLeaf(
+    sessionId: string,
+    leafId?: string
+  ): Promise<{ sessionId: string }> {
+    const active = this.activeSessions.get(sessionId)
+    if (!active) {
+      throw new Error(`Session ${sessionId} is not active`)
+    }
+
+    const { SessionManager, createAgentSession } = await this.getPi()
+    const cwd = active.cwd
+
+    const liveManager = active.session.sessionManager
+    const sourceFile = liveManager.getSessionFile()
+    let scratchManager = liveManager
+    if (liveManager.isPersisted()) {
+      if (!sourceFile || !existsSync(sourceFile)) {
+        throw new Error('原会话尚未保存到磁盘，无法创建分支')
+      }
+      scratchManager = SessionManager.open(sourceFile, this.sessionsDir)
+    }
+
+    let forkedManager: SessionManagerType
+    const targetLeafId = leafId ?? scratchManager.getLeafId()
+    if (targetLeafId) {
+      const forkedPath = scratchManager.createBranchedSession(targetLeafId)
+      if (!forkedPath) {
+        throw new Error('创建分支会话失败')
+      }
+      forkedManager = SessionManager.open(forkedPath, this.sessionsDir)
+    } else {
+      // Empty branch point: create a fresh session that still records its
+      // lineage via parentSession.
+      forkedManager = SessionManager.create(cwd, this.sessionsDir)
+      forkedManager.newSession(sourceFile ? { parentSession: sourceFile } : undefined)
+    }
+
+    await this.resolveShellConfigForPrompt()
+    const shellTool = shellToolForPlatform()
+    const envPrompt = shellEnvironmentPrompt(cwd, [shellTool], () => this.resolveShellExecutable() ?? '')
+    const resourceLoader = new AgentResourceLoader({
+      cwd,
+      agentDir: this.agentDir,
+      appendSystemPrompt: [envPrompt],
+      extraSkillDirs: this.getExtraSkillDirs()
+    })
+    await resourceLoader.reload()
+
+    const modelObj = this.getActiveModelObject()
+    const { session: forkedSession } = await createAgentSession({
+      cwd,
+      agentDir: this.agentDir,
+      modelRuntime: this.modelRuntime ?? undefined,
+      model: modelObj,
+      thinkingLevel: this.getStoredThinkingLevel(),
+      sessionManager: forkedManager,
+      resourceLoader: resourceLoader.getRawLoader(),
+      excludeTools: excludedShellTools(),
+      tools: shellToolModifiers()
+    })
+
+    const newSessionId = forkedManager.getSessionId()
+    this.wireSession(newSessionId, forkedSession, cwd, active.permissionMode)
+    this.store.set('agent_current_session', newSessionId)
+
+    // Name the fork "<source name> 分支" and keep incrementing the suffix
+    // until it is unique among existing sessions.
+    try {
+      const sourceName = (() => {
+        try {
+          return liveManager.getSessionName() ?? active.title
+        } catch {
+          return active.title
+        }
+      })()
+      const base = (sourceName && sourceName.trim()) || '新会话'
+      const existing = new Set(
+        (await this.listSessions()).map((s) => (s.name ?? s.title).trim())
+      )
+      let candidate = `${base} 分支`
+      let counter = 2
+      while (existing.has(candidate)) {
+        candidate = `${base} 分支${counter}`
+        counter++
+      }
+      forkedSession.setSessionName(candidate)
+      const forkedEntry = this.activeSessions.get(newSessionId)
+      if (forkedEntry) forkedEntry.title = candidate
+    } catch {
+      // Naming is best-effort; the fork itself must succeed regardless.
+    }
+
+    return { sessionId: newSessionId }
+  }
+
+  /**
+   * List the user messages on the current branch of an active session, mapped
+   * to their session-entry ids. The renderer needs these ids to bind
+   * rewind/fork actions to concrete bubbles. Only entries on the active
+   * branch are returned, so ids always resolve after navigation.
+   */
+  public listBranchUserEntries(sessionId: string): Array<{ entryId: string; text: string }> {
+    const active = this.activeSessions.get(sessionId)
+    if (!active) return []
+    const branch = active.session.sessionManager.getBranch()
+    const result: Array<{ entryId: string; text: string }> = []
+    for (const entry of branch) {
+      if (entry.type === 'message' && entry.message.role === 'user') {
+        const text = this.extractUserText(entry.message.content)
+        if (text) result.push({ entryId: entry.id, text })
+      }
+    }
+    return result
+  }
+
   public async deleteSession(sessionId: string): Promise<void> {
     const active = this.activeSessions.get(sessionId)
     if (active) {
@@ -577,9 +767,13 @@ export class AgentSessionService {
     const result: SessionListItem[] = []
     const seen = new Set<string>()
     const diskTitleById = new Map<string, string>()
+    const diskNameById = new Map<string, string>()
     for (const item of diskSessions) {
       if (item.firstMessage) {
         diskTitleById.set(item.id, item.firstMessage)
+      }
+      if (item.name) {
+        diskNameById.set(item.id, item.name)
       }
     }
 
@@ -587,9 +781,17 @@ export class AgentSessionService {
     for (const [id, active] of this.activeSessions.entries()) {
       const messageCount = active.session.agent.state.messages?.length ?? 0
       if (messageCount === 0) continue
+      const liveName = (() => {
+        try {
+          return active.session.sessionManager.getSessionName()
+        } catch {
+          return undefined
+        }
+      })()
       result.push({
         id,
-        title: active.title || diskTitleById.get(id) || '新会话',
+        title: (liveName || active.title || diskTitleById.get(id) || '新会话').slice(0, 48),
+        name: liveName ?? diskNameById.get(id),
         createdAt: active.createdAt,
         updatedAt: active.updatedAt,
         cwd: active.cwd,
@@ -604,7 +806,8 @@ export class AgentSessionService {
         if (item.messageCount === 0) continue
         result.push({
           id: item.id,
-          title: item.firstMessage || '新会话',
+          title: (item.name || item.firstMessage || '新会话').slice(0, 48),
+          name: item.name,
           createdAt: new Date(item.created).getTime(),
           updatedAt: new Date(item.modified).getTime(),
           cwd: item.cwd

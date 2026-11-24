@@ -122,6 +122,17 @@ export interface AgentIpcApi {
   agentDeleteSession: (
     sessionId: string
   ) => Promise<{ success: boolean; error?: string }>
+  agentRewind: (
+    sessionId: string,
+    entryId?: string
+  ) => Promise<{ success: boolean; data?: { editorText: string }; error?: string }>
+  agentForkSession: (
+    sessionId: string,
+    leafId?: string
+  ) => Promise<{ success: boolean; data?: { sessionId: string }; error?: string }>
+  agentListBranchUserEntries: (
+    sessionId: string
+  ) => Promise<{ success: boolean; data?: Array<{ entryId: string; text: string }>; error?: string }>
   agentResolveApproval: (
     requestId: string,
     decision: 'allow' | 'always' | 'deny',

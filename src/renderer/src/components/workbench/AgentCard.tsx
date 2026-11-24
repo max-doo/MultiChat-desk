@@ -1,11 +1,17 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import {
   Sparkles,
-  FileCode2,
-  Terminal,
-  FolderOpen
+  PenTool,
+  ListChecks,
+  BookOpen,
+  FolderOpen,
+  GitBranch,
+  Copy,
+  Pencil,
+  ArrowUpRight
 } from 'lucide-react'
 import { useAppStore } from '../../store/appStore'
+import agentAvatar from '../../assets/logos/agent.png'
 import { useWorkbenchStore } from '../../store/workbenchStore'
 import { useAgentSessionStore } from '../../store/agentSessionStore'
 import CustomDropdown, { type DropdownOption } from '../CustomDropdown'
@@ -29,6 +35,7 @@ export default function AgentCard({
 }: AgentCardProps): JSX.Element {
   const models = useAppStore((s) => s.models)
   const workspacePath = useWorkbenchStore((s) => s.workspacePath)
+  const activeFilePath = useWorkbenchStore((s) => s.activeFilePath)
   const closeRightPane = useWorkbenchStore((s) => s.closeRightPane)
 
   const messages = useAgentSessionStore((s) => s.messages)
@@ -37,15 +44,45 @@ export default function AgentCard({
   const currentSessionId = useAgentSessionStore((s) => s.currentSessionId)
   const currentCwd = useAgentSessionStore((s) => s.currentCwd)
   const pendingApprovals = useAgentSessionStore((s) => s.pendingApprovals)
-  const prompt = useAgentSessionStore((s) => s.prompt)
+  const setComposerInput = useAgentSessionStore((s) => s.setComposerInput)
   const newSession = useAgentSessionStore((s) => s.newSession)
   const resumeSession = useAgentSessionStore((s) => s.resumeSession)
   const deleteSession = useAgentSessionStore((s) => s.deleteSession)
   const initListeners = useAgentSessionStore((s) => s.initListeners)
+  const rewindLastUserMessage = useAgentSessionStore((s) => s.rewindLastUserMessage)
+  const forkSession = useAgentSessionStore((s) => s.forkSession)
+  const copyText = useAgentSessionStore((s) => s.copyText)
 
   const [historyMenuOpen, setHistoryMenuOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null)
+  const [rewindConfirmOpen, setRewindConfirmOpen] = useState(false)
+  const [copiedId, setCopiedId] = useState<string | null>(null)
+  const [forkMenuOpenFor, setForkMenuOpenFor] = useState<string | null>(null)
+  const [isForking, setIsForking] = useState(false)
   const viewportRef = useRef<HTMLDivElement>(null)
+
+  const handleConfirmFork = useCallback(async (): Promise<void> => {
+    if (isForking) return
+    setIsForking(true)
+    try {
+      await forkSession()
+    } finally {
+      setIsForking(false)
+    }
+  }, [forkSession, isForking])
+
+  const copyTimerRef = useRef<number | null>(null)
+  const handleCopy = useCallback(
+    (key: string, text: string): void => {
+      void copyText(text).then((ok) => {
+        if (!ok) return
+        setCopiedId(key)
+        if (copyTimerRef.current) window.clearTimeout(copyTimerRef.current)
+        copyTimerRef.current = window.setTimeout(() => setCopiedId(null), 1500)
+      })
+    },
+    [copyText]
+  )
 
   // Initialize IPC listeners on mount
   useEffect(() => {
@@ -384,10 +421,40 @@ export default function AgentCard({
                   .filter((c) => c.type === 'text')
                   .map((c) => c.text)
                   .join('')
+                // Resolve the session-entry id bound to this bubble by text.
+                // The main process already restricts rewind to the LAST user
+                // message, so the edit button is only meaningful there.
+                const lastUserIdx = messages.reduce((acc, m, i) => (m.role === 'user' ? i : acc), -1)
+                const isLastUserMessage = messages.indexOf(message) === lastUserIdx
+                const canRewind = !isRunning && isLastUserMessage
                 return (
-                  <div key={message.id} className="flex justify-end my-1">
-                    <div className="max-w-[85%] bg-primary text-white text-body leading-relaxed px-4 py-2.5 rounded-2xl rounded-tr-xs shadow-xs break-words whitespace-pre-wrap select-text">
-                      {userText}
+                  <div key={message.id} className="group my-1">
+                    <div className="flex justify-end">
+                      <div className="max-w-[85%] bg-primary text-white text-body leading-relaxed px-4 py-2.5 rounded-2xl rounded-tr-xs shadow-xs break-words whitespace-pre-wrap select-text">
+                        {userText}
+                      </div>
+                    </div>
+                    <div className="mt-1 flex items-center justify-end gap-0.5 pr-1 opacity-0 transition-opacity group-hover:opacity-100">
+                      {canRewind && (
+                        <button
+                          type="button"
+                          onClick={() => setRewindConfirmOpen(true)}
+                          className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-caption text-text-secondary transition-colors hover:bg-gray-100 hover:text-text-primary"
+                          title="编辑并撤回此条消息"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                          <span>编辑</span>
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleCopy(message.id, userText)}
+                        className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-caption text-text-secondary transition-colors hover:bg-gray-100 hover:text-text-primary"
+                        title="复制消息内容"
+                      >
+                        <Copy className="h-3.5 w-3.5" />
+                        <span>{copiedId === message.id ? '已复制' : '复制'}</span>
+                      </button>
                     </div>
                   </div>
                 )
@@ -396,9 +463,21 @@ export default function AgentCard({
               // Assistant message
               const isMsgRunning = message.status === 'running'
               const blocks = groupContentParts(message.content, isMsgRunning)
+              const assistantText = message.content
+                .filter((c) => c.type === 'text')
+                .map((c) => c.text ?? '')
+                .join('\n')
+                .trim()
+              const msgIndex = messages.indexOf(message)
+              // Only the final assistant message of a turn carries the
+              // actions row — the branch/copy buttons belong to the turn's
+              // closing reply, not to intermediate tool/reasoning bubbles.
+              const nextMsg = messages[msgIndex + 1]
+              const isTurnFinal = !nextMsg || nextMsg.role === 'user'
+              const isForkMenuTarget = forkMenuOpenFor === message.id
 
               return (
-                <div key={message.id} className="space-y-2.5 my-2">
+                <div key={message.id} className="group space-y-2.5 my-2">
                   {blocks.map((block, bIdx) => {
                     if (block.type === 'reasoning') {
                       return (
@@ -436,6 +515,53 @@ export default function AgentCard({
                       {message.error}
                     </div>
                   )}
+
+                  {!isMsgRunning && isTurnFinal && (
+                    <div className="relative flex items-center gap-0.5 -ml-1.5 opacity-0 transition-opacity group-hover:opacity-100">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setForkMenuOpenFor((cur) => (cur === message.id ? null : message.id))
+                        }
+                        className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-caption text-text-secondary transition-colors hover:bg-gray-100 hover:text-text-primary"
+                        title="从当前位置创建分支会话"
+                      >
+                        <GitBranch className="h-3.5 w-3.5" />
+                        <span>分支</span>
+                      </button>
+                      {isForkMenuTarget && (
+                        <>
+                          <div
+                            className="fixed inset-0 z-popover"
+                            onClick={() => setForkMenuOpenFor(null)}
+                          />
+                          <div className="absolute left-0 bottom-full mb-1.5 z-popover w-32 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
+                            <button
+                              type="button"
+                              disabled={isForking}
+                              onClick={() => {
+                                setForkMenuOpenFor(null)
+                                void handleConfirmFork()
+                              }}
+                              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-caption text-text-primary transition-colors hover:bg-gray-50 disabled:opacity-50"
+                            >
+                              <GitBranch className="h-3.5 w-3.5 text-primary" />
+                              <span>{isForking ? '创建中…' : '创建分支'}</span>
+                            </button>
+                          </div>
+                        </>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleCopy(message.id, assistantText)}
+                        className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-caption text-text-secondary transition-colors hover:bg-gray-100 hover:text-text-primary"
+                        title="复制本轮回复文本"
+                      >
+                        <Copy className="h-3.5 w-3.5" />
+                        <span>{copiedId === message.id ? '已复制' : '复制'}</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
               )
             })}
@@ -457,6 +583,19 @@ export default function AgentCard({
           confirmText="确认删除"
           onConfirm={handleConfirmDeleteSession}
           onCancel={() => setDeleteTarget(null)}
+        />
+
+        <ConfirmModal
+          isOpen={rewindConfirmOpen}
+          title="撤回并编辑"
+          message="将回到这条提问之前的状态，原提问会重新填入输入框供修改后重新发送。本轮 Agent 已修改的文件不会被还原（当前版本不支持代码回滚）。"
+          confirmText="撤回并编辑"
+          type="warning"
+          onConfirm={async () => {
+            setRewindConfirmOpen(false)
+            await rewindLastUserMessage()
+          }}
+          onCancel={() => setRewindConfirmOpen(false)}
         />
       </div>
   )
