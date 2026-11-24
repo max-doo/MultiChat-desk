@@ -2,6 +2,59 @@
 
 ## 2026-11-24
 
+### 10:28 | Codex
+
+- done: 双开 AI 侧边栏时主栏'再开一个'按钮高亮，与快捷窗口 toggle 行为对齐
+- context: 用户要求双开时主侧边栏按钮显示激活态
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
+
+### 10:27 | Codex
+
+- done: 修正左侧工作区栏展开按钮尺寸：WorkbenchEditor/WorkbenchToolbar/WorkbenchSourceToolbar 中 left_panel_open 从 16 改为 20；回退右侧 AI 栏图标误调
+- context: 用户要求调大左侧工作区栏展开图标，之前误改右侧 AI 栏
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx;src/renderer/src/components/workbench/WorkbenchToolbar.tsx;src/renderer/src/components/workbench/WorkbenchSourceToolbar.tsx;src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
+
+### 10:26 | Codex
+
+- done: 主侧边栏'再开一个'图标从 20 调到 22
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
+
+### 10:24 | Codex
+
+- done: 调整 AI 侧边栏头部按钮：第二栏关闭改 X 图标，主栏'再开一个'改用更粗的 view_column_2 图标与其他 header 按钮对齐
+- context: 用户反馈第二栏关闭按钮应为叉，主栏打开按钮视觉偏小需与编辑栏图标一致
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
+
+### 10:17 | Codex
+
+- done: 修复工作台空状态(未打开文档)下左栏收起后无展开入口的交互bug：在空状态页左上角补充与工具栏一致的'展开侧边栏'悬浮按钮，仅在 isLeftCollapsed 时显示
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+- lesson: WorkbenchEditor 在无活动文档时提前 return，导致 WorkbenchToolbar/SourceToolbar 中的展开侧边栏按钮不渲染；涉及多种渲染分支的组件中，布局恢复入口需在每个分支独立可用
+
+### 10:16 | Codex
+
+- done: 修正工作台顶部按钮语义：窗口顶栏按钮负责关闭整个 AI 侧边栏（含第二栏），侧边栏内部按钮负责再开一个；双栏时最大宽度翻倍
+- context: 用户反馈顶部按钮无法关闭侧边栏，且双栏需要更大宽度
+- decision: 顶栏按钮聚合控制两个 AI 栏的开关；getRightPaneMaxWidth 在 isAiSidebar2Open 时 tierMax*2，仍受窗口剩余空间约束
+- modified:
+  - `src/renderer/src/components/Layout.tsx;src/renderer/src/store/workbenchStore.ts`
+
+### 10:11 | Codex
+
+- done: 工作台 AI 侧边栏支持双实例：顶部按钮改为再开一个侧边栏，支持在 A 栏选中内容右键到 B 栏提问
+- context: 用户要求把工作台 AI 侧边栏顶部按钮从收起改为再打开一个侧边栏，复用现有组件，实现跨栏选中提问
+- decision: 复用 WorkbenchAiSidebar 为实例化组件，用 wcId 注册表识别来源，通过 target 字段路由 insert-prompt 到指定栏
+- added:
+  - `无`
+- modified:
+  - `src/main/webviewManager.ts;src/preload/index.ts;src/renderer/src/components/Layout.tsx;src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx;src/renderer/src/components/workbench/workbenchAiEvents.ts;src/renderer/src/pages/MainPage.tsx;src/renderer/src/pages/QuickPage.tsx;src/renderer/src/pages/WorkbenchPage.tsx;src/renderer/src/store/workbenchStore.ts`
+- unresolved: 需在 pnpm run dev 中实际验证双栏并排、跨栏右键提问、关闭第二栏
+
 ### 09:36 | Codex
 
 - done: 从 worktree 恢复依赖与打包改动到 main：补 4 个幽灵依赖、迁移 pnpm、修复 postinstall 二进制下载、删除 package-lock.json
