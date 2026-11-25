@@ -1,4 +1,6 @@
 import { useRef, useEffect, useState, useMemo, useCallback } from 'react'
+import TurndownService from 'turndown'
+import { gfm } from 'turndown-plugin-gfm'
 import { useAppStore } from '../../store/appStore'
 import { useWorkbenchStore } from '../../store/workbenchStore'
 import WebviewCard, { type WebviewCardRef } from '../WebviewCard'
@@ -8,6 +10,7 @@ import type { DropdownOption } from '../CustomDropdown'
 import { assistantReplyConfigs } from '../../../../shared/config/selectors'
 import {
   generateInsertReplyButtonScript,
+  generateGeminiCanvasSaveButtonScript,
   generateWorkbenchLifecycleStateScript,
   generateFileUploadStateScript,
   type FileUploadData
@@ -31,6 +34,14 @@ import { dedupeByKey } from './agent/filePathUtils'
 
 const INSERT_PREFIX = '__MC_INSERT_CURRENT__'
 const SAVE_PREFIX = '__MC_SAVE_NEW__'
+const CANVAS_SAVE_PREFIX = '__MC_GEMINI_CANVAS_SAVE__'
+
+const canvasSaveTurndown = new TurndownService({
+  headingStyle: 'atx',
+  codeBlockStyle: 'fenced',
+  bulletListMarker: '-'
+})
+canvasSaveTurndown.use(gfm)
 
 const MIME_BY_EXT: Record<string, string> = {
   '.png': 'image/png',
@@ -184,12 +195,19 @@ interface ReplyPayload {
   title: string
 }
 
+interface CanvasSavePayload {
+  x: number
+  y: number
+  title: string
+}
+
 /** 给一个 workbench 侧边栏 webview 注入按钮脚本 + 挂载 console-message 监听。 */
 function attachWorkbenchReplyButtons(
   webview: Electron.WebviewTag,
   modelId: string,
   onInsert: (p: ReplyPayload) => void,
-  onSave: (p: ReplyPayload) => void
+  onSave: (p: ReplyPayload) => void,
+  onCanvasSave?: (p: CanvasSavePayload) => void
 ): () => void {
   const cfg = assistantReplyConfigs[modelId] || {}
   const inject = (): void => {
@@ -202,10 +220,20 @@ function attachWorkbenchReplyButtons(
           modelSel || ({ messageContainer: [] } as never)
         )
       ).catch(() => undefined)
+      if (modelId === 'gemini') {
+        void webview.executeJavaScript(generateGeminiCanvasSaveButtonScript()).catch(() => undefined)
+      }
     } catch { /* webview 可能已导航 */ }
   }
   const onConsole = (e: Electron.ConsoleMessageEvent): void => {
     const msg = e.message || ''
+    if (msg.startsWith(CANVAS_SAVE_PREFIX)) {
+      try {
+        const payload = JSON.parse(msg.slice(CANVAS_SAVE_PREFIX.length)) as CanvasSavePayload
+        onCanvasSave?.(payload)
+      } catch { /* 解析失败忽略 */ }
+      return
+    }
     const isInsert = msg.startsWith(INSERT_PREFIX)
     const isSave = msg.startsWith(SAVE_PREFIX)
     if (!isInsert && !isSave) return
@@ -702,6 +730,50 @@ export default function WorkbenchAiSidebar({ isActive = true, instanceId = 'prim
     [saveReplyAsNewMarkdown, isAiSidebar2Open, isSecondary, rightPane, openAiSidebar2, openRightPane]
   )
 
+  /**
+   * Gemini Canvas「存为文档」：收到注入脚本回传的 copy 菜单项坐标后，
+   * 走 sendMouseClick 真实点击原生复制项 → 轮询剪贴板 → Turndown → 存为新文档。
+   */
+  const handleCanvasSave = useCallback(
+    async (modelId: string, p: CanvasSavePayload): Promise<void> => {
+      const ref = sidebarRefs.current.get(modelId)
+      const webview = ref?.getWebview?.()
+      if (!webview || !window.api?.sendMouseClick) return
+      const wcId = webview.getWebContentsId()
+      const clipboardBefore = (await window.api.readClipboardText?.().catch(() => '')) || ''
+      const click = await window.api.sendMouseClick(wcId, p.x, p.y)
+      if (!click?.success) return
+      // 轮询剪贴板等 Gemini 写入完成（toast 出现与否不可靠，以剪贴板变化为准）
+      const deadline = Date.now() + 6000
+      let md = ''
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 250))
+        const html = (await window.api.readClipboardHTML?.().catch(() => '')) || ''
+        const text = (await window.api.readClipboardText?.().catch(() => '')) || ''
+        if (html && html.trim().length > 100 && html !== clipboardBefore) {
+          try { md = canvasSaveTurndown.turndown(html).trim() } catch { /* 转 md 失败用 text */ }
+          if (md) break
+        }
+        if (text && text.trim().length > 100 && text !== clipboardBefore) {
+          md = text.trim()
+          break
+        }
+      }
+      if (!md) return
+      if (isSecondary) {
+        if (!isAiSidebar2Open) openAiSidebar2()
+      } else if (rightPane !== 'ai') {
+        openRightPane('ai')
+      }
+      await saveReplyAsNewMarkdown(md, {
+        platformId: modelId,
+        title: p.title || document.title || '',
+        conversationUrl: webview.getURL?.() || ''
+      })
+    },
+    [isAiSidebar2Open, isSecondary, rightPane, openAiSidebar2, openRightPane, saveReplyAsNewMarkdown]
+  )
+
   // 为每个已挂载的侧边栏 webview 注入按钮脚本 + 挂 console-message 监听
   useEffect(() => {
     const cleanups: Array<() => void> = []
@@ -714,13 +786,14 @@ export default function WorkbenchAiSidebar({ isActive = true, instanceId = 'prim
             webview,
             modelId,
             (p) => void handleInsertReply(p),
-            (p) => void handleSaveReply(p)
+            (p) => void handleSaveReply(p),
+            (p) => void handleCanvasSave(modelId, p)
           )
         )
       }
     })
     return () => cleanups.forEach((fn) => fn())
-  }, [mountedSidebarModels, handleInsertReply, handleSaveReply])
+  }, [mountedSidebarModels, handleInsertReply, handleSaveReply, handleCanvasSave])
 
   // 切换平台（local-agent 为纯 React 卡片，不加入 mountedSidebarModels）
   const handleModelChange = useCallback(

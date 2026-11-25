@@ -3590,3 +3590,156 @@ export function generateInsertReplyButtonScript(
     })();
   `
 }
+
+/**
+ * 在 Gemini Deep Research Canvas 的导出菜单中注入「存为文档」菜单项。
+ * 该菜单是懒渲染的 mat-mdc-menu-panel（每次点开重建 DOM），所以用 MutationObserver
+ * 在菜单出现时 clone 一个真实 GEM-MENU-ITEM 改 label/value/icon 插入。
+ * 点击时取原生 copy 菜单项的中心坐标，console.log 把坐标回传给渲染层，
+ * 由调用方走 sendMouseClick 真实点击原生 copy 项 → 读剪贴板。
+ */
+export function generateGeminiCanvasSaveButtonScript(): string {
+  return `
+    (function() {
+      var BOUND_KEY = '__mcGeminiCanvasSaveBoundV6';
+      if (document.documentElement && document.documentElement[BOUND_KEY]) return;
+      if (document.documentElement) document.documentElement[BOUND_KEY] = true;
+      var OBS_KEY = '__mcGeminiCanvasSaveObs';
+      try { var old = window[OBS_KEY]; if (old && old.disconnect) old.disconnect(); } catch (e) {}
+
+      var PREFIX = '__MC_GEMINI_CANVAS_SAVE__';
+      var ITEM_VALUE = 'mc-save-note';
+      var ITEM_LABEL = '存为文档';
+      // 与对话框注入的「存为新文档」按钮同一套视觉：蓝图标 + 浅蓝底
+      var ACCENT = '#2563eb';
+      var ACCENT_HOVER = '#1d4ed8';
+      // 菜单底色本身就是浅灰蓝，#eff6ff 在上面几乎看不出来，这里加深一档
+      var CHIP = '#dbeafe';
+      var CHIP_HOVER = '#bfdbfe';
+      // 与对话框注入的「存为新文档」按钮同一枚图标：文件 + 加号
+      var SVG_NS = 'http://www.w3.org/2000/svg';
+      var SAVE_ICON_PATHS = [
+        ['path', { d: 'M11.35 22H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.706.706l3.588 3.588A2.4 2.4 0 0 1 20 8v5.35' }],
+        ['path', { d: 'M14 2v5a1 1 0 0 0 1 1h5' }],
+        ['path', { d: 'M14 19h6' }],
+        ['path', { d: 'M17 16v6' }]
+      ];
+
+      function makeSaveIcon(size) {
+        var svg = document.createElementNS(SVG_NS, 'svg');
+        svg.setAttribute('width', size);
+        svg.setAttribute('height', size);
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('fill', 'none');
+        svg.setAttribute('stroke', 'currentColor');
+        svg.setAttribute('stroke-width', '2');
+        svg.setAttribute('stroke-linecap', 'round');
+        svg.setAttribute('stroke-linejoin', 'round');
+        for (var i = 0; i < SAVE_ICON_PATHS.length; i++) {
+          var p = document.createElementNS(SVG_NS, SAVE_ICON_PATHS[i][0]);
+          var attrs = SAVE_ICON_PATHS[i][1];
+          for (var k in attrs) { if (attrs.hasOwnProperty(k)) p.setAttribute(k, attrs[k]); }
+          svg.appendChild(p);
+        }
+        return svg;
+      }
+
+      function isVisible(el) {
+        try {
+          if (!el || !el.isConnected) return false;
+          var r = el.getBoundingClientRect();
+          if (!r || r.width <= 0 || r.height <= 0) return false;
+          var s = window.getComputedStyle(el);
+          return s && s.display !== 'none' && s.visibility !== 'hidden';
+        } catch (e) { return false; }
+      }
+
+      function canvasTitle() {
+        var panel = document.querySelector('deep-research-immersive-panel');
+        if (!panel) return '';
+        var h = panel.querySelector('.markdown.markdown-main-panel h1, .markdown h1');
+        if (h && h.textContent && h.textContent.trim()) return h.textContent.trim();
+        return (document.title || '').replace(/\\s*[-–—]\\s*Google Gemini\\s*$/i, '').trim();
+      }
+
+      function injectItem(menuPanel) {
+        if (!menuPanel || menuPanel.querySelector('gem-menu-item[value="' + ITEM_VALUE + '"]')) return;
+        var content = menuPanel.querySelector('.mat-mdc-menu-content') || menuPanel;
+        var copyItem = content.querySelector('gem-menu-item[value="copy"], gem-menu-item[data-test-id="copy-button"]');
+        if (!copyItem) return;
+        // 菜单项不一定直接挂在 .mat-mdc-menu-content 下（Gemini 用 COPY-BUTTON/GEM-MENU-ITEM
+        // 等 wrapper 包一层），插入点必须取 copy 项所在的顶层子节点，否则 insertBefore 抛
+        // NotFoundError 并中断整轮 scan。
+        var copyHost = copyItem.parentElement;
+        var anchor = copyHost && copyHost !== content && content.contains(copyHost) ? copyHost : copyItem;
+        var clone = copyItem.cloneNode(true);
+        clone.setAttribute('value', ITEM_VALUE);
+        clone.setAttribute('aria-label', ITEM_LABEL);
+        clone.removeAttribute('data-test-id');
+        clone.removeAttribute('jslog');
+        clone.classList.add('mc-canvas-save-item');
+        var label = clone.querySelector('.label');
+        if (label) label.textContent = ITEM_LABEL;
+        // 原生项图标由 .lumi-symbols 的 ::before 按 fonticon 属性渲染 ligature，
+        // 这里去掉属性后伪元素为空，改用与工作台「存为新文档」按钮相同的 SVG，
+        // 并套同款浅蓝底 + 强调色，和原生菜单项区分开。
+        var icon = clone.querySelector('mat-icon');
+        if (icon) {
+          icon.removeAttribute('fonticon');
+          icon.removeAttribute('data-mat-icon-name');
+          icon.textContent = '';
+          icon.style.cssText =
+            'width:26px;height:26px;margin:-1px 0 -1px -1px;' +
+            'border-radius:7px;background:' + CHIP + ';color:' + ACCENT + ';' +
+            'display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;';
+          icon.appendChild(makeSaveIcon(20));
+          clone.addEventListener('mouseenter', function() {
+            icon.style.background = CHIP_HOVER;
+            icon.style.color = ACCENT_HOVER;
+          });
+          clone.addEventListener('mouseleave', function() {
+            icon.style.background = CHIP;
+            icon.style.color = ACCENT;
+          });
+        }
+        clone.addEventListener('click', function(ev) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          // 找原生 copy 菜单项的坐标回传，由主进程 sendMouseClick 真实点击
+          var nativeCopy = content.querySelector('gem-menu-item[value="copy"], gem-menu-item[data-test-id="copy-button"]');
+          var rect = (nativeCopy || copyItem).getBoundingClientRect();
+          try {
+            console.log(PREFIX + JSON.stringify({
+              x: Math.round(rect.left + rect.width / 2),
+              y: Math.round(rect.top + rect.height / 2),
+              title: canvasTitle()
+            }));
+          } catch (e) {}
+        });
+        content.insertBefore(clone, anchor);
+      }
+
+      function scan() {
+        // 只在 Gemini 画布打开时注入，避免把菜单项加到普通对话的操作菜单里
+        if (!document.querySelector('deep-research-immersive-panel')) return;
+        var panels = document.querySelectorAll('.mat-mdc-menu-panel[role="menu"]');
+        for (var i = 0; i < panels.length; i++) {
+          if (isVisible(panels[i])) injectItem(panels[i]);
+        }
+      }
+
+      var scheduled = false;
+      function scheduleScan() {
+        if (scheduled) return;
+        scheduled = true;
+        setTimeout(function() { scheduled = false; scan(); }, 120);
+      }
+      try {
+        var obs = new MutationObserver(scheduleScan);
+        obs.observe(document.body || document.documentElement, { childList: true, subtree: true });
+        try { window[OBS_KEY] = obs; } catch (e) {}
+      } catch (e) {}
+      scan();
+    })();
+  `
+}
