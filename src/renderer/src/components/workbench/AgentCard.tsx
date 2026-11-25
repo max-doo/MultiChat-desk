@@ -10,13 +10,14 @@ import {
   Pencil,
   ArrowUpRight
 } from 'lucide-react'
-import { useAppStore } from '../../store/appStore'
+import { useAppStore, DEEP_RESEARCH_SUPPORTED_MODEL_IDS, IMAGE_GENERATION_SUPPORTED_MODEL_IDS } from '../../store/appStore'
 import agentAvatar from '../../assets/logos/agent.png'
 import { useWorkbenchStore } from '../../store/workbenchStore'
 import { useAgentSessionStore } from '../../store/agentSessionStore'
 import CustomDropdown, { type DropdownOption } from '../CustomDropdown'
 import { AppIcon } from '../icons/AppIcon'
 import ConfirmModal from '../ConfirmModal'
+import RenameModal from '../RenameModal'
 import { ToolGroup } from './agent/ToolGroup'
 import { ApprovalCard } from './agent/ApprovalCard'
 import { ThinkingBlock } from './agent/ThinkingBlock'
@@ -88,6 +89,7 @@ export default function AgentCard({
   const newSession = useAgentSessionStore((s) => s.newSession)
   const resumeSession = useAgentSessionStore((s) => s.resumeSession)
   const deleteSession = useAgentSessionStore((s) => s.deleteSession)
+  const renameSession = useAgentSessionStore((s) => s.renameSession)
   const initListeners = useAgentSessionStore((s) => s.initListeners)
   const fetchSessions = useAgentSessionStore((s) => s.fetchSessions)
   const rewindLastUserMessage = useAgentSessionStore((s) => s.rewindLastUserMessage)
@@ -100,6 +102,7 @@ export default function AgentCard({
   const [foreignHistoryOpen, setForeignHistoryOpen] = useState(false)
   const [historySearchQuery, setHistorySearchQuery] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null)
+  const [renameTarget, setRenameTarget] = useState<{ id: string; title: string } | null>(null)
   /** 待确认的跨工作区会话：cwd 与当前工作区不一致时先弹窗再恢复。 */
   const [pendingForeignSession, setPendingForeignSession] = useState<{ id: string; cwd: string } | null>(null)
   const [rewindConfirmOpen, setRewindConfirmOpen] = useState(false)
@@ -186,7 +189,8 @@ export default function AgentCard({
         description: '工作台知识与写作智能体'
       }
     ]
-    for (const m of models) {
+    const visibleModels = models.filter((m) => !m.hidden)
+    for (const m of visibleModels) {
       list.push({
         value: m.id,
         label: m.name,
@@ -207,6 +211,12 @@ export default function AgentCard({
     const parts = activeFilePath.split(/[/\\]/)
     return parts[parts.length - 1] || activeFilePath
   }, [activeFilePath])
+
+  const currentSessionTitle = useMemo(() => {
+    if (!currentSessionId) return ''
+    const title = sessions.find((s) => s.id === currentSessionId)?.title || ''
+    return title === '新会话' ? '' : title
+  }, [currentSessionId, sessions])
 
   const suggestions = useMemo(
     () => [
@@ -410,7 +420,7 @@ export default function AgentCard({
   return (
     <div className="flex flex-col h-full bg-white dark:bg-gray-900 overflow-hidden">
       {/* Header */}
-      <div className="p-3 border-b border-gray-200/60 dark:border-white/10 bg-white dark:bg-gray-900 flex justify-between items-center shrink-0">
+      <div className="relative p-3 border-b border-gray-200/60 dark:border-white/10 bg-white dark:bg-gray-900 flex justify-between items-center shrink-0">
         {/* Left: Model Picker Dropdown — matches WebviewCard CustomDropdown pattern */}
         <div>
           <CustomDropdown
@@ -433,6 +443,8 @@ export default function AgentCard({
             )}
             renderOption={(option, _isSelected, onSelect): JSX.Element => {
               const model = models.find((m) => m.id === option.value)
+              const hasDeepResearch = model && DEEP_RESEARCH_SUPPORTED_MODEL_IDS.has(model.id)
+              const hasImageGen = model && IMAGE_GENERATION_SUPPORTED_MODEL_IDS.has(model.id)
               const isLocalAgent = option.value === 'local-agent'
               return (
                 <button
@@ -452,12 +464,32 @@ export default function AgentCard({
                     ) : null}
                     <span className="text-text-primary text-sm truncate">{option.label}</span>
                   </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {hasDeepResearch && (
+                      <AppIcon name="biotech" size={16} className="text-gray-400 hover:text-gray-600 transition-colors" title="深度研究" />
+                    )}
+                    {hasImageGen && (
+                      <AppIcon name="image" size={16} className="text-gray-400 hover:text-gray-600 transition-colors" title="AI 生图" />
+                    )}
+                  </div>
                 </button>
               )
             }}
             options={modelOptions}
           />
         </div>
+
+        {/* Center: current conversation title */}
+        {currentSessionTitle && (
+          <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 max-w-[42%] px-2 pointer-events-none">
+            <span
+              className="block truncate text-label text-text-secondary"
+              title={currentSessionTitle}
+            >
+              {currentSessionTitle}
+            </span>
+          </div>
+        )}
 
           {/* Right Header Actions — matches WebviewCard icon button pattern */}
           <div className="flex items-center gap-1">
@@ -612,6 +644,17 @@ export default function AgentCard({
                                 className="shrink-0 mt-0.5 text-primary animate-spin"
                               />
                             )}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setRenameTarget({ id: item.id, title: item.name || item.title || '' })
+                              }}
+                              className="shrink-0 mt-0.5 p-0.5 rounded text-gray-400 opacity-0 group-hover:opacity-100 hover:text-primary hover:bg-blue-50 dark:hover:bg-primary/20 transition-all"
+                              title="重命名"
+                            >
+                              <AppIcon name="edit" size={15} />
+                            </button>
                             <button
                               type="button"
                               onClick={(e) => {
@@ -904,7 +947,7 @@ export default function AgentCard({
                         key,
                         node: (
                           <div className="w-full">
-                            <MarkdownRenderer content={block.text} />
+                            <MarkdownRenderer content={block.text} cwd={currentCwd ?? undefined} />
                           </div>
                         )
                       })
@@ -1071,6 +1114,20 @@ export default function AgentCard({
           confirmText="确认删除"
           onConfirm={handleConfirmDeleteSession}
           onCancel={() => setDeleteTarget(null)}
+        />
+
+        <RenameModal
+          isOpen={renameTarget !== null}
+          title="重命名会话"
+          placeholder="输入新的会话标题"
+          initialValue={renameTarget?.title ?? ''}
+          onConfirm={async (value) => {
+            if (renameTarget) {
+              await renameSession(renameTarget.id, value)
+            }
+            setRenameTarget(null)
+          }}
+          onCancel={() => setRenameTarget(null)}
         />
 
         <ConfirmModal

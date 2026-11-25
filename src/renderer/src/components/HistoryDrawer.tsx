@@ -34,7 +34,7 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
   const [activeTab, setActiveTab] = useState<HistoryTab>('conversation')
   const [showConfirmDelete, setShowConfirmDelete] = useState(false)
   const [showRenameModal, setShowRenameModal] = useState(false)
-  const [renameType, setRenameType] = useState<'conversation' | 'summary'>('conversation')
+  const [renameType, setRenameType] = useState<'conversation' | 'summary' | 'agent'>('conversation')
   const [renameTargetId, setRenameTargetId] = useState<string>('')
   const [renameValue, setRenameValue] = useState('')
   const [isLoadingMore, setIsLoadingMore] = useState(false)
@@ -65,6 +65,7 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
   const agentSessions = useAgentSessionStore((s) => s.sessions)
   const agentFetchSessions = useAgentSessionStore((s) => s.fetchSessions)
   const agentDeleteSession = useAgentSessionStore((s) => s.deleteSession)
+  const agentRenameSession = useAgentSessionStore((s) => s.renameSession)
   const agentCurrentSessionId = useAgentSessionStore((s) => s.currentSessionId)
 
   // 抽屉打开时拉取一次 Agent 会话列表；会话内新消息返回后列表已在 store 中
@@ -130,7 +131,7 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
   // 获取第一条总结用户消息作为预览
   const getSummaryPreviewText = (item: SummaryHistoryListItem): string => item.preview || '无预览内容'
 
-  const openRename = (type: 'conversation' | 'summary', id: string, currentText: string) => {
+  const openRename = (type: 'conversation' | 'summary' | 'agent', id: string, currentText: string) => {
     setRenameType(type)
     setRenameTargetId(id)
     setRenameValue(currentText)
@@ -226,14 +227,16 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
       <RenameModal
         isOpen={showRenameModal}
         title="重命名"
-        placeholder={renameType === 'conversation' ? '输入新的对话标题' : '输入新的总结标题'}
+        placeholder={renameType === 'summary' ? '输入新的总结标题' : '输入新的对话标题'}
         initialValue={renameValue}
         onCancel={closeRename}
         onConfirm={async (value) => {
           if (renameType === 'conversation') {
             await updateHistory(renameTargetId, { title: value })
-          } else {
+          } else if (renameType === 'summary') {
             await updateSummaryHistory(renameTargetId, { title: value })
+          } else {
+            await agentRenameSession(renameTargetId, value)
           }
           closeRename()
         }}
@@ -643,6 +646,16 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
                             </div>
                             {!isSelectionMode && (
                               <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    openRename('agent', item.id, item.name || item.title || '')
+                                  }}
+                                  className="text-gray-500 hover:text-primary transition-all p-1"
+                                  title="重命名"
+                                >
+                                  <AppIcon name="edit" size={16} />
+                                </button>
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation()

@@ -23,6 +23,7 @@ import type {
   AgentActiveModel,
   AgentAuthOperation,
   AgentAuthType,
+  AgentFavoriteModel,
   AgentRuntimeSnapshot,
   AgentSessionStatus,
   AgentThinkingLevel
@@ -67,11 +68,24 @@ interface PiEventPayload {
   steering?: readonly string[]
   followUp?: readonly string[]
   texts?: string[]
+  /** session_info_changed：会话显示名（pi session_info.name） */
+  name?: string
 }
 
 function getAgentApi(): AgentIpcApi {
   return window.api as unknown as AgentIpcApi
 }
+
+/**
+ * Shared IPC-subscription bookkeeping for `initListeners`.
+ * The subscriptions are global to the renderer, but every mount point
+ * (AgentCard, AgentProviderSettings, ...) calls initListeners/cleanup on its
+ * own lifecycle. A reference count keeps the real subscription alive until
+ * the last mount point unmounts, so one dialog closing can never tear down
+ * channels that other consumers still rely on.
+ */
+let ipcListenerRefs = 0
+let ipcListenerTeardown: (() => void) | null = null
 
 function convertPiContentParts(rawContent?: string | PiRawPart[]): PiContentPart[] {
   if (!rawContent) return []
@@ -168,6 +182,7 @@ interface AgentSessionState {
   createSession: (cwd?: string) => Promise<string | null>
   resumeSession: (sessionId: string) => Promise<boolean>
   deleteSession: (sessionId: string) => Promise<boolean>
+  renameSession: (sessionId: string, name: string) => Promise<boolean>
   prompt: (text: string, attachments?: string[]) => Promise<void>
   abort: () => Promise<void>
   rewindLastUserMessage: () => Promise<boolean>
@@ -197,6 +212,8 @@ interface AgentSessionState {
   logoutProvider: (providerId: string) => Promise<boolean>
   refreshProviderModels: (providerId: string) => Promise<boolean>
   setProviderBaseUrl: (providerId: string, baseUrl: string | null) => Promise<boolean>
+  setProviderDisabled: (providerId: string, disabled: boolean) => Promise<boolean>
+  setFavoriteModels: (favorites: AgentFavoriteModel[]) => Promise<boolean>
   openAgentSettings: () => void
   fetchConfig: () => Promise<void>
   setSkillDirs: (dirs: string[]) => Promise<boolean>
@@ -373,15 +390,25 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
   setSettingsOpen: (open) => set({ settingsOpen: open }),
 
   initListeners: () => {
-    // 已注册过监听（例如另一个 AgentCard 实例仍挂着）：仅补拉数据，不重复订阅，
-    // 否则每条事件会被 handleAgentEvent 处理多次。
-    if (get().listenersReady) {
+    ipcListenerRefs += 1
+    // 已有活动订阅（例如另一个 AgentCard 实例仍挂着）：仅补拉数据，不重复订阅，
+    // 否则每条事件会被 handleAgentEvent 处理多次。cleanup 按引用计数在
+    // 最后一个挂载点卸载时才真正拆掉 IPC 通道。
+    if (ipcListenerTeardown) {
       void get().fetchProviders()
       void get().fetchSessions()
       void get().fetchSkills()
       void get().fetchSnapshot()
       void get().fetchPermissionMode()
-      return () => undefined
+      return () => {
+        ipcListenerRefs -= 1
+        if (ipcListenerRefs <= 0) {
+          ipcListenerRefs = 0
+          ipcListenerTeardown?.()
+          ipcListenerTeardown = null
+          set({ listenersReady: false })
+        }
+      }
     }
     set({ listenersReady: true })
     const api = getAgentApi()
@@ -440,12 +467,23 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
       }
     }).catch(() => undefined)
 
-    return () => {
+    const teardown = (): void => {
       cleanupEvent?.()
       cleanupApproval?.()
       cleanupAuth?.()
       cleanupRuntime?.()
       cleanupStatus?.()
+    }
+    ipcListenerTeardown = teardown
+
+    return () => {
+      ipcListenerRefs -= 1
+      if (ipcListenerRefs <= 0) {
+        ipcListenerRefs = 0
+        if (ipcListenerTeardown === teardown) ipcListenerTeardown = null
+        teardown()
+        set({ listenersReady: false })
+      }
     }
   },
 
@@ -649,6 +687,28 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
       return true
     } catch (err) {
       console.error('[agentSessionStore] deleteSession error:', err)
+      return false
+    }
+  },
+
+  renameSession: async (sessionId: string, name: string) => {
+    const trimmed = name.trim()
+    if (!trimmed) return false
+    try {
+      const res = await getAgentApi().agentRenameSession(sessionId, trimmed)
+      if (!res.success) {
+        console.error('[agentSessionStore] renameSession error:', res.error)
+        return false
+      }
+      const title = trimmed.slice(0, 48)
+      set((s) => ({
+        sessions: s.sessions.map((item) =>
+          item.id === sessionId ? { ...item, title, name: trimmed } : item
+        )
+      }))
+      return true
+    } catch (err) {
+      console.error('[agentSessionStore] renameSession error:', err)
       return false
     }
   },
@@ -1141,6 +1201,33 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
     return false
   },
 
+  setProviderDisabled: async (providerId, disabled) => {
+    try {
+      const res = await getAgentApi().agentSetProviderDisabled?.(providerId, disabled)
+      if (res?.success && res.data) {
+        set({ snapshot: res.data })
+        void get().fetchSessionStatus()
+        return true
+      }
+    } catch (err) {
+      console.error('[agentSessionStore] setProviderDisabled error:', err)
+    }
+    return false
+  },
+
+  setFavoriteModels: async (favorites) => {
+    try {
+      const res = await getAgentApi().agentSetFavoriteModels?.(favorites)
+      if (res?.success && res.data) {
+        set({ snapshot: res.data })
+        return true
+      }
+    } catch (err) {
+      console.error('[agentSessionStore] setFavoriteModels error:', err)
+    }
+    return false
+  },
+
   openAgentSettings: () => {
     useAgentSettingsDialogStore.getState().open()
   },
@@ -1199,6 +1286,18 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
     const currentSessionId = get().currentSessionId
 
     switch (event.type) {
+      case 'session_info_changed': {
+        // pi 在 setSessionName 后广播；保持历史列表标题与会话名一致。
+        const name = typeof event.name === 'string' ? event.name.trim() : ''
+        if (!name) return
+        const title = name.slice(0, 48)
+        set((s) => ({
+          sessions: s.sessions.map((item) =>
+            item.id === sessionId ? { ...item, title, name } : item
+          )
+        }))
+        return
+      }
       case 'agent_start': {
         set((s) => {
           const next = new Set(s.runningSessionIds)

@@ -3,6 +3,7 @@ import type {
   AgentAuthOperation,
   AgentAuthType,
   AgentContextUsage,
+  AgentFavoriteModel,
   AgentProvider,
   AgentProviderModel,
   AgentRuntimeSnapshot,
@@ -17,6 +18,7 @@ export type {
   AgentAuthOperation,
   AgentAuthType,
   AgentContextUsage,
+  AgentFavoriteModel,
   AgentProvider,
   AgentProviderModel,
   AgentRuntimeSnapshot,
@@ -61,6 +63,8 @@ export interface AgentMessage {
 export interface AgentSessionSummary {
   id: string
   title: string
+  /** 用户自定义的会话名称（pi session_info）；存在时 title 与其一致 */
+  name?: string
   createdAt: number
   updatedAt: number
   cwd?: string
@@ -135,6 +139,10 @@ export interface AgentIpcApi {
   ) => Promise<{ success: boolean; data?: unknown; error?: string }>
   agentDeleteSession: (
     sessionId: string
+  ) => Promise<{ success: boolean; error?: string }>
+  agentRenameSession: (
+    sessionId: string,
+    name: string
   ) => Promise<{ success: boolean; error?: string }>
   agentRewind: (
     sessionId: string,
@@ -256,6 +264,13 @@ export interface AgentIpcApi {
   agentSetProviderBaseUrl?: (
     providerId: string,
     baseUrl: string | null
+  ) => Promise<{ success: boolean; data?: AgentRuntimeSnapshot; error?: string }>
+  agentSetProviderDisabled?: (
+    providerId: string,
+    disabled: boolean
+  ) => Promise<{ success: boolean; data?: AgentRuntimeSnapshot; error?: string }>
+  agentSetFavoriteModels?: (
+    favorites: AgentFavoriteModel[]
   ) => Promise<{ success: boolean; data?: AgentRuntimeSnapshot; error?: string }>
   onAgentProviderAuthChanged?: (cb: (payload: { operation: AgentAuthOperation }) => void) => () => void
   onAgentRuntimeChanged?: (cb: (payload: { reason: string }) => void) => () => void

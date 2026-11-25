@@ -32,6 +32,7 @@ import type {
   AgentActiveModel,
   AgentAuthOperation,
   AgentAuthType,
+  AgentFavoriteModel,
   AgentRuntimeSnapshot,
   AgentSessionStatus,
   AgentThinkingLevel
@@ -712,6 +713,8 @@ const api = {
     ipcRenderer.invoke('agent:resume-session', { sessionId }),
   agentDeleteSession: (sessionId: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('agent:delete-session', { sessionId }),
+  agentRenameSession: (sessionId: string, name: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('agent:rename-session', { sessionId, name }),
   agentRewind: (sessionId: string, entryId?: string): Promise<{ success: boolean; data?: { editorText: string }; error?: string }> =>
     ipcRenderer.invoke('agent:rewind', { sessionId, entryId }),
   agentForkSession: (sessionId: string, leafId?: string): Promise<{ success: boolean; data?: { sessionId: string }; error?: string }> =>
@@ -787,6 +790,10 @@ const api = {
     ipcRenderer.invoke('agent:add-custom-gateway', spec),
   agentRemoveCustomGateway: (providerId: string): Promise<{ success: boolean; data?: AgentRuntimeSnapshot; error?: string }> =>
     ipcRenderer.invoke('agent:remove-custom-gateway', { providerId }),
+  agentSetProviderDisabled: (providerId: string, disabled: boolean): Promise<{ success: boolean; data?: AgentRuntimeSnapshot; error?: string }> =>
+    ipcRenderer.invoke('agent:set-provider-disabled', { providerId, disabled }),
+  agentSetFavoriteModels: (favorites: AgentFavoriteModel[]): Promise<{ success: boolean; data?: AgentRuntimeSnapshot; error?: string }> =>
+    ipcRenderer.invoke('agent:set-favorite-models', { favorites }),
   onAgentProviderAuthChanged: (cb: (payload: { operation: AgentAuthOperation }) => void): (() => void) => {
     const handler = (_event: Electron.IpcRendererEvent, payload: { operation: AgentAuthOperation }): void => cb(payload)
     ipcRenderer.on('agent:provider-auth-changed', handler)
