@@ -2,6 +2,14 @@
 
 ## 2026-11-25
 
+### 12:47 | Codex
+
+- done: 提交当前工作区改动：按功能拆 5 个 commit（HTML 预览缩放、重命名/外部变更 URL 同步、Git 右键撤回/删除/忽略菜单、快捷窗口模态失焦保护、记忆文档）
+- decision: .tmp/、scratch/ 与 assets/agent-avatar.png 判定为过程文件与重复资源未入库（与此前口径一致）
+- modified:
+  - `已提交文件见 git log 430376d..a68e90f`
+- unresolved: 右键菜单撤回交互未在 pnpm run dev 桌面窗口实际点击验证
+
 ### 12:45 | Antigravity
 
 - done: 实现工作台版本管理列表右键菜单：支持 M/T 撤回修改、D 恢复删除、R/C 撤回重命名或移出待提交、A 移出待提交或移入回收站、U 一键加入 .gitignore 或移入回收站，并同步编辑器重载与浮层防误关
