@@ -128,7 +128,7 @@ Main
 
 `WebAiStreamFn(model, context, options)` 内部：
 
-1. `ContextFlattener` 把 `context`（`TranscriptContext`：system message + tools 定义 + messages）折叠成一条网页 prompt。tools 转成文本说明（名称+参数 schema+`<tool_call>` 调用格式）；历史按 WAA 标签方案折叠；超长走 `compress.ts` 式确定性压缩。
+1. `ContextFlattener` 把 `context`（`TranscriptContext`：system message + tools 定义 + messages）折叠成一条网页 prompt——组装分「身份层（复用 `AgentResourceLoader` 的 system prompt）+ WAA 式 web 契约段 + `<tools>` 现渲染」三层，见 4.6.1；历史按 WAA 标签方案折叠；超长走 `compress.ts` 式确定性压缩。
 2. `WebAiSessionPool.acquire(platform)` 取该平台后台 `WebContents`（经 `sessionManager.getOrCreateSession('__agent_<platform>')` 复用 `persist:shared` 会话；FIFO 队列与轮询/完成判定借鉴 `AgentTaskService`，但 `AgentTaskService` 只暴露 `submit/getView/cancel` 一次性任务 API，**不能直接复用**，需 `WebAiSessionPool` 自管租约或让 `AgentTaskService` 开放会话租约），导航到 `newConversationUrl` 或续接 `conversationUrl`。第一期固定用 `persist:shared` 当前默认账号，不做 Gemini `/u/{n}` 多账号选择。
 3. 若目标模型 ≠ 页面当前模型 → `generateSelectModelScript` 切到 `context`/`model` 指定项。
 4. `generateSendMessageScript` 提交 prompt。
@@ -156,6 +156,14 @@ Web AI 模型无原生 function-calling，Agent 要用 shell/read/write/web_sear
 - 检出后产出 Pi `AssistantMessage` 含 `toolCalls`，交给 agent-loop 正常执行 `beforeToolCall`（权限审批）→ tool → `toolResult` 追加进 transcript，下一 turn `ContextFlattener` 把 toolResult 折成 `<tool_result>` 段回喂网页。
 - **能力边界**：文本 tool_call 依赖模型遵从格式，稳定性弱于原生；`auto` 权限模式风险更高（模型可伪造 tool_call），Web AI 模式建议默认收紧 `permissionMode` 或在 UI 标注。
 
+### 4.6.1 系统提示词组装：身份复用 + WAA 式注入
+
+Web AI 模式的 prompt 组装与 API 模式**不同**——API 模式靠 Pi 原生 channel（system message + tools 数组 + messages 结构），Web AI 模式必须把这整包**拍平成一条网页 prompt**。拆法分两层，身份/行为规范复用、注入方式用 WAA：
+
+- **身份层（复用 API 模式，不写第二份）**：直接用 `AgentResourceLoader.getSystemPrompt()` + `getAppendSystemPrompt()`（`AgentSessionService.ts:969-976` 注入的 `envPrompt` 等追加段也在内），得到当前 Agent 的身份、行为规范、`AGENTS.md`/`CLAUDE.md` 项目上下文、skills 清单——**与 API 模式同源同一份**，不改内容。
+- **注入方式（WAA 式，参照 `agent/src/system.ts`）**：API 模式的 system message 在 Web AI 里没有对应 channel，必须平铺成**单条文本**。WAA 的做法是把 Pi 那套 XML section 结构整段搬进 system 文本：`<capabilities>`（声明"你能读写文件、跑 shell"防模型谎称没权限）、`<tool_call_format>`（`<tool_call>{json}</tool_call>` 信封规范）、`<message_format>`（`<user_query>`/`<tool_result>`/`<system>`/`<file>` 标签语义）、`<rules>`（行为约束）、`<run_limits>`（工具轮数上限的诚实契约）、`<cwd>`。`ContextFlattener` 在身份层之后拼上这套 web 契约段。
+- **`<tools>` 段（WAA `renderToolsPrompt` 蓝本，wire-build 时渲染）**：API 模式 tools 是结构化数组，Web AI 里要把当前声明的工具（除 `invalid_tool_call` 外）在**每次发 wire 请求时**现渲染成 `<tools>- name: desc\n  Parameters: {schema}</tools>` 文本段——保证声明集永远是 live 的单一事实源，不随历史漂移。
+- **边界**：身份层的"本地 CLI agent、coding assistant"表述在 Web AI 语境下仍成立（WAA system.ts 同款措辞）；但 `<capabilities>` 里要补 Web 特有的一句——"网页会话内建的联网搜索/grounding 直接用、不经 `<tool_call>`，网页 canvas/文档产物用户打不开、交付只能走工作区文件"。
 ### 4.7 上下文与 usage
 
 - Web AI 拿不到真实 token usage：`AgentContextMeter` 显示 `context=null`（组件已容忍 `null`）或「字符数/估算上下文窗口」降级；`stats` 返回 null 或仅计字符。

@@ -27,7 +27,7 @@
 | `build-verify` | electron.vite.config、electron-builder、NSIS、installer.nsh、winCodeSign、混淆、is.dev、ELECTRON_RUN_AS_NODE、tsc、extraResources、Dock 图标、ERR_PACKAGE_PATH_NOT_EXPORTED、pi-coding-agent、pnpm install、EPERM | ### 构建、打包与验证 | 构建不等于类型检查或桌面验收；平台和版本经验需核对当前环境 |
 | `historical` | Electron 28、Chromium 120、ScriptProcessorNode、WebContentsView、summaryApi、useSummaryPanel、generate-summary | ### 历史架构与版本限定 | 只在明确追溯旧架构或已授权工作中加载 |
 | `prototype-verification` | docs/prototypes、自包含 HTML、innerHTML、视觉验收、重渲染、截图 | ### 原型与视觉验收 | 首屏截图之外必须验证切换、重复渲染和窄屏分支 |
-| `agent-sidebar` | AgentCard、WorkbenchAiSidebar、assistant-ui、makeAssistantToolUI、pi-coding-agent、PermissionEngine、AgentSessionService、timestamp、durationMs、image_gen、artifactDir | ### 本地 Agent 与 AI 侧边栏 | 本地 Agent 运行时、工具渲染、权限引擎与 AuiProvider 上下文边界 |
+| `agent-sidebar` | AgentCard、WorkbenchAiSidebar、assistant-ui、makeAssistantToolUI、pi-coding-agent、PermissionEngine、AgentSessionService、commandAnalyzer、powershellAstHelper、timestamp、durationMs、image_gen、artifactDir | ### 本地 Agent 与 AI 侧边栏 | 本地 Agent 运行时、工具渲染、权限引擎与 AuiProvider 上下文边界 |
 
 需要近期上下文时读 SESSION_LOG；只有追溯更早会话才读 `.memory/sessions/` 对应日期。既有脚本只提示缺少路由的三级标题，不检查 INDEX 缺失、触发词质量或反向失效条目；维护时需确认章节标题与表格一致。
 

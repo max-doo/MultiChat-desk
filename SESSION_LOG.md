@@ -1,6 +1,219 @@
 # Session Log
 
+## 2026-11-25
+
+### 09:36 | Antigravity
+
+- done: Refine SettingsPage back button, top spacing, and revert ModelOrderCard to top-header single-column layout
+- modified:
+  - `src/renderer/src/components/Layout.tsx`
+  - `src/renderer/src/pages/SettingsPage.tsx`
+
+### 09:34 | Antigravity
+
+- done: 编写工作台 Git Gutter 变更标记开发与性能内存审视文档
+- decision: 对标业界常规：未跟踪文件仅保留文件树 U 徽标不在编辑器内全篇标绿，工作区编辑器默认对比 Git Index (:0:)，采用单活动文件基准缓存与 1MiB/20000行熔断防止内存与主线程卡顿
+- added:
+  - `docs/workbench-git-gutter-design.md`
+
+### 09:32 | codex
+
+- done: 调整设置页顶栏与侧栏视觉：设置页隐藏多AI/工作台/设置/历史入口，标题栏改为返回主页；移除标题副说明；底部品牌改为 MultiChat。
+- context: UI 改动按 DESIGN.md token，仅调整设置页相关链路。验证通过：eslint、tsc web、pnpm run build；未进行桌面截图验收。
+- decision: 设置页返回入口统一放在标题栏，移除侧栏重复返回按钮；从总结页进入设置时仍按 settingsReturnPage 显示返回总结页。
+- modified:
+  - `src/renderer/src/components/Layout.tsx`
+  - `src/renderer/src/pages/SettingsPage.tsx`
+  - `src/renderer/src/App.tsx`
+
+### 09:30 | Antigravity
+
+- done: 完成 auto/bypass 模式安全审查并落地近期加固方案：修复 AST/bash/policy 多项 P1 绕过、P2 竞态与文案透传、P3 误拦，补充应用凭据目录保护与 UI 三模式描述
+- decision: 近期保留应用层 AST 边界（Auto 放宽普通跨区读、严守 workspace 写与凭据拦截；Bypass 仅受 HARD_DENY 与 protectedRoots 约束并纳入应用 auth.json/Partitions 目录）；OS 级 workspace-write 沙箱留待后续引入。
+- added:
+  - `src/main/services/commandAnalyzer/externalCommandGate.ts`
+- modified:
+  - `src/main/services/commandAnalyzer/powershellAstHelper.ts`
+  - `src/main/services/commandAnalyzer/psAstAnalyzer.ts`
+  - `src/main/services/commandAnalyzer/bashAnalyzer.ts`
+  - `src/main/services/permissionPolicy.ts`
+  - `src/main/services/PermissionEngine.ts`
+  - `src/main/services/AgentSessionService.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/renderer/src/components/workbench/agent/AgentComposer.tsx`
+- lesson(promoted): PowerShell AST 结构化字段必须直接从 Helper 序列化输出，避免在 Node 侧对 200 字符截断文本做正则猜测；且 AST/segment 判定返回 readOnly:false 时绝对不能再被旧正则 readOnlyPowerShell 或 simpleCommand 翻案。
+- unresolved: 真实 Electron dev 界面中的人工端到端交互回归需重启 pnpm run dev 后触发验证。
+
+### 09:27 | Antigravity
+
+- done: Optimize SettingsPage layout, simplify descriptions, and unify Agent settings UI
+- modified:
+  - `src/renderer/src/pages/SettingsPage.tsx`
+  - `src/renderer/src/components/icons/AppIcon.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentProviderSettings.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentSkillsSettings.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentAuthDialog.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentSettingsDialog.tsx`
+- lesson: Keep 1D ordered dropdown settings as vertical single-column lists rather than 2D grids to avoid order ambiguity; pair a side metadata column inside the card to prevent wide empty rows
+
+### 09:19 | Antigravity
+
+- done: 独立审阅并优化工作台 Markdown 源码保真方案，落地 P0 噪声隔离/文件信封保真与 P1 Lexical 同源块级 Source Map、局部序列化及 250ms 防抖冲刷
+- decision: 放弃 Command 白名单与外部 remark-parse 依赖，改为 Lexical 同源块扫描 + Anchor-LCS 局部兜底 + prevEditorState 单块基线懒缓存 + 250ms 防抖与显式 flushMarkdownSync
+- added:
+  - `src/renderer/src/components/workbench/markdownSourceMap.ts`
+- modified:
+  - `docs/workbench-markdown-source-fidelity-fix.md`
+  - `src/renderer/src/components/workbench/MarkdownSyncPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchAnnotationPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchTableCellResizerPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchMinimalToc.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+  - `src/renderer/src/store/workbenchStore.ts`
+  - `src/renderer/src/App.tsx`
+- unresolved: 需在 pnpm run dev 桌面端手动验证富文本编辑、IME 组合输入、标注创建、待确认 AI 插入、拖拽块及 Undo/Redo 端到端交互
+
+### 09:13 | Antigravity
+
+- done: 界面与模式改为仅该区块两列布局，模型列表改为纯拖拽排序并支持显隐联动与生图/深度研究图标展示，任务与导图模型选择器仅同步显隐不展示能力图标
+- modified:
+  - `src/renderer/src/pages/SettingsPage.tsx`
+  - `src/renderer/src/store/appStore.ts`
+  - `src/renderer/src/components/WebviewCard.tsx`
+  - `src/renderer/src/components/SummaryPanel.tsx`
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+  - `src/renderer/src/components/modes/TaskModePanel.tsx`
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+
+### 08:57 | Antigravity
+
+- done: 移除设置页全部二级弹窗，将模式排序、模型排序、Agent配置与认证、提示词编辑/删除确认、数据恢复预览均内联到设置页中完成
+- modified:
+  - `src/renderer/src/pages/SettingsPage.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentAuthDialog.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentProviderSettings.tsx`
+  - `src/renderer/src/components/CliIntegrationSection.tsx`
+- removed:
+  - `src/renderer/src/components/ModelOrderModal.tsx`
+  - `src/renderer/src/components/ProductModeOrderModal.tsx`
+  - `src/renderer/src/components/ImportCacheConfirmModal.tsx`
+
+### 08:52 | Antigravity
+
+- done: 重构设置页为二级页面，采用透明背景侧边栏导航与连续内容区滚动联动
+- added:
+  - `src/renderer/src/pages/SettingsPage.tsx`
+- modified:
+  - `src/renderer/src/App.tsx`
+  - `src/renderer/src/components/Layout.tsx`
+  - `src/renderer/src/store/appStore.ts`
+- removed:
+  - `src/renderer/src/components/SettingsDrawer.tsx`
+
+### 00:55 | Codex
+
+- done: Agent 会话支持重命名：新增 agent:rename-session IPC + renameSession（活跃会话走 setSessionName，磁盘会话用 SessionManager 追加 session_info）；历史抽屉与 Agent 卡片历史弹层加铅笔入口复用 RenameModal；listSessions 已透传 name，store 处理 session_info_changed 同步标题
+- modified:
+  - `src/main/services/AgentSessionService.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/src/types/agent.ts`
+  - `src/renderer/src/store/agentSessionStore.ts`
+  - `src/renderer/src/components/HistoryDrawer.tsx`
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+- lesson: pi 的会话命名就是 appendSessionInfo 写 session_info 条目（非消息、不进 LLM 上下文），listAll 会读 name；磁盘会话直接 SessionManager.open().appendSessionInfo() 即可持久化，无需起完整 AgentSession
+
+### 00:44 | Codex
+
+- done: Agent 侧边栏顶部居中显示当前对话标题
+- context: 标题取 AgentSessionSummary.title（首轮 message_end 后生成），sessions 在 agent_end 时刷新，无需额外拉取；小字号 text-label + text-secondary，绝对定位居中，pointer-events-none 不挡按钮
+- modified:
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+
+### 00:44 | Codex
+
+- done: 保留 HR 分隔线用户原始写法（---/***/___），修复导出统一变 *** 的问题
+- added:
+  - `src/renderer/src/components/workbench/WorkbenchHorizontalRuleNode.tsx`
+- modified:
+  - `src/renderer/src/components/workbench/MarkdownSyncPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+
+### 00:29 | Codex
+
+- done: 命令安全 AST 化改造：新增 commandAnalyzer/ 目录（powershellAstHelper+psAstAnalyzer+bashAnalyzer），permissionPolicy/PermissionEngine/AgentSessionService 接入 AST 判定；截图 PowerShell 案例 readOnly=true 修复。独立 worker 验收发现 2 个 P1（bash -lc 合并 flag 绕过、.prop= 属性赋值漏拦）已修复；P2（analyzer=null fallback 区分、helper dispose 清理链）已补。pnpm lint+build+typecheck 全过
+- context: auto 模式 PowerShell  只读命令误拦；方案=PS 官方 AST helper（内联 -Command）+ bash shell-quote 递归下钻 + .NET 静态方法白名单；文档 docs/command-safety-ast-plan.md
+- decision: helper 不落盘 ps1 文件；analyzer=null 时允许 isSafeShellCommand fallback（helper 挂）但 readOnly=false 不 fallback（明确判危险）；convertfrom-json 不进只读词表；dispose() 链: AgentSessionService→PermissionEngine→cachedHelper
+- added:
+  - `src/main/services/commandAnalyzer/powershellAstHelper.ts;src/main/services/commandAnalyzer/psAstAnalyzer.ts;src/main/services/commandAnalyzer/bashAnalyzer.ts`
+- modified:
+  - `src/main/services/permissionPolicy.ts;src/main/services/PermissionEngine.ts;src/main/services/AgentSessionService.ts`
+- lesson: PowerShell AST [type]::method 调用节点是 InvokeMemberExpressionAst 不是 TypeExpressionAst;[System.Predicate[T]] 不能带变量类型参数,scriptblock 直接传 FindAll 即可;bash 合并 flag -lc/-ic 会绕过独立 -c 匹配,必须正则识别
+- unresolved: scripts/_tmp_build 目录壳子还在（Remove-Item 被拦）；真实 Electron dev 环境手动验收矩阵还没跑——文档 §7 用例需要在 pnpm dev 里实际走一遍
+
+### 00:28 | Codex
+
+- done: HTML 渲染预览加刷新按钮
+- context: Workbench HTML 渲染模式 iframe 只在挂载时打时间戳，外部改文件后无法手动刷新
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchCodePreview.tsx`
+
+### 00:16 | Codex
+
+- done: WorkPhaseBlock 已完成耗时改为 Xm Ys 格式（<60s 仅显示秒，整分钟不补 0s）
+- modified:
+  - `src/renderer/src/components/workbench/agent/WorkPhaseBlock.tsx`
+
+### 00:15 | Codex
+
+- done: 撰写命令安全 AST 化改造方案 docs/command-safety-ast-plan.md，独立 worker 审查后按 4 个 P1 + 3 个 P2 修订（analyzeCommand 签名、helper 内联 -Command、scriptblock 递归语义、quote-state 配平、ExpandableStringExpressionAst、convertfrom-json 移出词表）
+- context: auto 模式 PowerShell  只读命令误拦；方案 = PS 官方 AST helper + bash shell-quote 递归下钻 + .NET 静态方法白名单
+- decision: helper 用内联 -Command 单行脚本不落盘 ps1；convertfrom-json 不进只读词表（gadget 风险）；AST 可用时 isSafeShellCommand 仅作对照不参与判定
+- added:
+  - `docs/command-safety-ast-plan.md`
+
+### 00:12 | Codex
+
+- done: 文件树 Git 徽标改为仅末尾标记，取消文件名/图标着色
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+
+### 00:11 | Codex
+
+- done: 删除 AgentContextMeter tooltip 中的'点击查看详情'提示
+- modified:
+  - `src/renderer/src/components/workbench/agent/AgentContextMeter.tsx`
+
+### 00:06 | Codex
+
+- done: 工作台文件树按 VSCode 风格显示 Git 状态徽标（M/U/D/R/!）与文件名着色，目录聚合后代最高优先级状态
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+
 ## 2026-11-24
+
+### 23:59 | Codex
+
+- done: 将 Agent model picker 及相关代码中的'思考深度'统一更名为'思考强度'（AgentModelPicker footer/不支持提示、AgentComposer 注释与 tooltip）
+- modified:
+  - `src/renderer/src/components/workbench/agent/AgentModelPicker.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentComposer.tsx`
+
+### 23:42 | Codex
+
+- done: Agent 供应商停用开关、常用模型集与思考档位真实值回读
+- context: 用户要求模型设置里供应商可停用、可配置常用模型集置顶展示；并质疑 7 档思考滑块是否真实
+- decision: 停用/常用模型集持久化到 electron-store（agent_disabled_providers/agent_favorite_models），不经 models.json；snapshot 携带 favorites 与每模型 thinkingLevels，picker 常用栏置顶+禁用组跳过
+- modified:
+  - `src/main/services/AgentSessionService.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/src/types/agent.ts`
+  - `src/renderer/src/store/agentSessionStore.ts`
+  - `src/renderer/src/components/workbench/agent/AgentProviderSettings.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentModelPicker.tsx`
+  - `src/shared/types/agentRuntime.ts`
+- lesson: getActiveModelInfo 无会话时曾 fallback 固定 7 档思考档位；正确做法是按 model.thinkingLevelMap 复现 pi getSupportedThinkingLevels 规则（null=不支持，xhigh/max opt-in），SWE-2 实为 medium/high/max 3 档
 
 ### 22:56 | Codex
 
@@ -4934,300 +5147,4 @@
 - done: 按新模板简化 Agent Skill 安装指引文案：路径由运行时解析、去掉硬编码 .agents/skills 与 POSIX 家目录写法，天然兼容 macOS
 - modified:
   - `src/renderer/src/utils/cliGuide.ts`
-
-## 2026-11-18
-
-### 17:46 | agent
-
-- done: README 更新 macOS 支持声明
-- context: mac dmg 已在 Release 提供，README 此前只写 Windows 下载
-- modified:
-  - `README.md`
-
-### 17:28 | agent
-
-- done: macOS CLI/Skill 集成缺口修复：CliAgentHint 在 darwin 打包版可弹出、status 增加 platform 字段、设置页加复制调用命令、multichat.sh/run_task.sh 加执行位、SKILL.md 补 mac/Linux cli.json 路径
-- modified:
-  - `src/shared/types/cli.ts`
-  - `src/main/cliIntegration.ts`
-  - `src/renderer/src/components/CliAgentHint.tsx`
-  - `src/renderer/src/components/CliIntegrationSection.tsx`
-  - `.agents/skills/multichat-cli/SKILL.md`
-  - `build/cli/multichat.sh`
-  - `.agents/skills/multichat-cli/scripts/run_task.sh`
-- lesson: macOS Electron 应用常驻旧进程会让 open 只激活而不重启，验证新版本前必须先 kill 旧实例（单实例锁）；electron-builder extraFiles 不会自动补可执行位，.sh 入口需在仓库内 chmod +x
-
-### 17:46 | Codex
-
-- done: 核查 CliAgentHint 弹窗触发逻辑：isPackaged+onPath+!hintDismissed；.install-stamp 由 NSIS 每次安装重写，关闭时清除
-- context: 用户截图询问 multichat 就绪弹窗是否只在安装后首次打开提醒
-
-### 16:59 | Codex
-
-- done: 生图捕获修复+附件改粘贴式上传：doubao/chatgpt 图+文生图实测全通过
-- context: doubao/chatgpt --image + --gen-image 图生图链路验收
-- modified:
-  - `src/shared/config/selectors.ts`
-  - `src/shared/utils/webviewScripts.ts`
-  - `src/main/services/AgentTaskService.ts`
-  - `src/main/services/AutomationService.ts`
-- lesson(promoted): CLI --image 附件上传改用'粘贴式'优于 CDP 拖拽：主进程 readFile→base64→页内 new File+DataTransfer+ClipboardEvent(paste) 派发到输入框，主流 AI 编辑器(ProseMirror/Slate/Lexical)都监听 paste 解析附件，不依赖 drop 监听/落点坐标/附件区 DOM；doubao 实测一次通过，旧拖拽 90s 超时根因是附件 chip 只渲染缩略图不落文件名文本致 found 检测永远 false
-- lesson(promoted): extractImages 生图探针必须只认生图专用容器(genImageOnly)：messageContainer 兜底 document.body 会把用户上传附件的回显缩略图当'已生成'产物，chatgpt 实测提前 done 抓到上传参考图而非生成图
-
-### 16:39 | Codex
-
-- done: Raised attachment upload timeouts for CLI --image path: uploadAttachments 30s->90s, generateSendMessageScript secondary confirm 15s->30s (named constant + comment), based on agent report of gemini/doubao image-upload timeouts
-- modified:
-  - `src/main/services/AutomationService.ts`
-  - `src/shared/utils/webviewScripts.ts`
-- lesson: --image upload has two layered timeouts (drop->ready 30s, ready->send 15s) both hardcoded; gemini/doubao OCR/preview latency can exceed the short ones — keep primary poll long enough to absorb that
-
-### 16:36 | Codex
-
-- done: 修复豆包/ChatGPT 生图捕获：消息容器补生图选择器+extractImages 过滤过程产物
-- context: CLI --gen-image 生图下载链路验收
-- modified:
-  - `src/shared/config/selectors.ts`
-  - `src/shared/utils/webviewScripts.ts`
-- lesson: extractImages 的 findLatestContainer 依赖 messageContainer 命中含图容器——豆包生图 message_image_content 是文本容器[data-streaming]的兄弟节点，须把生图容器并入 messageContainer;ChatGPT 生成中 Placeholder 骨架含半成品 img 会被误判为完成,需 isInProgressArtifact 按 data-finished/placeholder 标记过滤
-
-### 16:32 | Codex
-
-- done: Addressed agent feedback on multichat-cli skill: simplified cli.json lookup to install dir, flagged gemini/doubao image-upload flakiness, documented imageError markdown-URL recovery, and steered cli.json reads away from cat
-- modified:
-  - `.agents/skills/multichat-cli/SKILL.md`
-- lesson: External agents reported real failure modes not covered by the skill: platform-specific --image upload flakiness, imageError recovery via reply markdown URLs, and the implicit cat habit for reading APPDATA manifests — these belong in the skill, not left for the agent to discover
-
-### 13:22 | Codex
-
-- done: 提交 11-18 CLI Agent 链路改动（feat 2225c7b + chore 7350e34）并重新构建 NSIS 安装包 dist/MultiChat Setup 1.3.1.exe（签名通过，124.3MB）；删除脚本误产生的 nul 残留文件
-- context: 用户要求提交修改并重新打包安装包；lint 0 errors（存量 warning），electron-builder 签名通过
-- modified:
-  - `dist/MultiChat Setup 1.3.1.exe`
-- removed:
-  - 
-ul`
-- lesson: Windows 下脚本把输出重定向到 nul 会在仓库根目录生成名为 nul 的实体文件，需用 \\?\ 前缀路径删除
-
-### 13:16 | Codex
-
-- done: 把主进程选择器版本校验写入 KNOWLEDGE，并标记对应 lesson 已提升
-- modified:
-  - `.memory/KNOWLEDGE.md`
-
-### 13:16 | Codex
-
-- done: 补上主进程选择器版本校验：低于默认版本的已保存配置整体作废，避免旧版 qwen 域名继续生效；验证 v19 回退默认、v20/21 仍用自定义
-- modified:
-  - `src/main/services/AutomationService.ts`
-- lesson(promoted): 主进程 AutomationService 读 store 选择器时要和渲染层 getSelectors 一样做 version 比较，否则旧配置里的废弃域名会长期生效
-
-### 13:13 | Codex
-
-- done: 把千问域名切换的实测结论（发送链路、研究模式幂等、三处域名落点）并入 KNOWLEDGE 既有条目
-- modified:
-  - `.memory/KNOWLEDGE.md`
-- lesson(promoted): 千问切换 qianwen.com 后自动化可用：contenteditable + execCommand 写入正常，发送按钮由 disabled 变可用
-
-### 13:13 | Codex
-
-- done: 千问域名切换验收：qianwen.com 首页与会话页的输入/发送按钮试运行均通过，研究模式开关幂等；旧域名 tongyi.aliyun.com 301 到 www.qianwen.com，origin 统一
-- context: 用户批注：千问域名切换是否影响自动化入口
-- decision: 桌面端默认入口、后台自动化兜底 URL 一并改为 https://www.qianwen.com/；笔记平台名保留新旧两个 hostname 映射
-- modified:
-  - `src/renderer/src/store/appStore.ts`
-  - `src/main/services/AutomationService.ts`
-  - `src/main/webviewManager.ts`
-  - `scripts/agent-cli-acceptance.mjs`
-- lesson(promoted): 千问自动化实测：首页与 /chat/<id> 的输入框是普通 contenteditable div，走 execCommand('insertText') 分支可用；发送按钮 aria-label 为「发送消息」，输入后由 disabled 变可用
-- lesson(promoted): 域名迁移要同时检查四类落点：选择器 newConversationUrl、主进程兜底 URL 表、渲染层默认模型列表、按 hostname 映射的展示名
-
-### 13:04 | Codex
-
-- done: 登录态值判定收尾：域名按标签边界匹配，补注释说明名字命中不等于已登录
-- modified:
-  - `src/main/services/AuthStateService.ts`
-
-### 13:02 | Codex
-
-- done: 补正登录态判定：chatglm/yuanbao 游客态会写同名 cookie，改为按 JWT is_guest 与 a_did_ 前缀做值判定
-- modified:
-  - `src/shared/config/selectors.ts`
-  - `src/main/services/AuthStateService.ts`
-  - `.agents/skills/multichat-cli/SKILL.md`
-  - `.memory/KNOWLEDGE.md`
-  - `.memory/INDEX.md`
-- lesson: 登录态名单必须用游客态与登录态双向取样；只看登录态会把游客写同名 cookie 的平台误判
-
-### 12:53 | Codex
-
-- done: CLI 登录态识别修复：补齐 chatglm/yiyan/arena/qwen 的 cookie 名单与 kimi localStorage 通道；修正 deepseek 空壳 userToken 误判；qwen 自动化站对齐 qianwen.com 并给 aria-pressed 开关加幂等守卫
-- decision: qwen 自动化目标站从 chat.qwen.ai 改为 www.qianwen.com，与登录态和选择器同源
-- modified:
-  - `src/shared/config/selectors.ts`
-  - `src/main/services/AuthStateService.ts`
-  - `src/main/services/AgentTaskService.ts`
-  - `src/shared/utils/webviewScripts.ts`
-  - `.agents/skills/multichat-cli/SKILL.md`
-  - `.memory/KNOWLEDGE.md`
-  - `.memory/INDEX.md`
-- lesson: 登录态判定必须 cookie + localStorage 双通道，且 cookie 未命中不等于游客；aria-pressed 开关类步骤需要 skipIfPressed 幂等守卫
-
-### 11:47 | Codex
-
-- done: 登录态判定改为双通道：cookie 名单 + 页面 localStorage；deepseek 认 userToken，qwen 认 qwen_token_logged_out_marker；localStorage 只读已打开 WebContents，不额外开窗
-- context: 真实 persist:shared 实测：deepseek 已登录任务 9.5s 正常返回；qwen 会话落在 /c/guest 为游客；应用运行期 cookie 库被文件锁，外部读取不可靠
-- decision: 不采用游客 URL 模式与通用 cookie 启发式，只用可验证的明确键；判不出返回 unknown 由页面侧兜底
-- modified:
-  - `src/shared/config/selectors.ts`
-  - `src/main/services/AuthStateService.ts`
-  - `.agents/skills/multichat-cli/SKILL.md`
-  - `.memory/KNOWLEDGE.md`
-  - `.memory/INDEX.md`
-- lesson(promoted): 应用运行期间 Chromium 的 Cookies 库被独占锁，离线复制会得到空库或旧快照；判定登录态必须在应用进程内读，且凭证可能只在 localStorage（deepseek userToken）而非 cookie
-
-### 11:03 | Codex
-
-- done: 新增 cookie 级登录态判定：AuthStateService 按平台账号 cookie 名单区分已登录/游客，platforms 暴露 signedIn/loginRequired，新增 multichat auth 命令，登录门槛平台在 submit 阶段快速失败
-- context: 隔离环境 --user-data-dir 全新目录；真实 persist:shared 只读导出 cookie 名验证名单：chatgpt/gemini/doubao/grok/yuanbao 命中，qwen/deepseek/claude 为游客
-- decision: 移除通用'名字像凭证'启发式：__Host-id-token-nonce 等访客 cookie 会被误判为已登录；只保留平台名单精确匹配，判不出时返回 unknown 交由页面检测
-- added:
-  - `src/main/services/AuthStateService.ts`
-- modified:
-  - `src/shared/config/selectors.ts`
-  - `src/shared/types/agentTask.ts`
-  - `src/main/services/AgentTaskService.ts`
-  - `src/main/daemon/ipcServer.ts`
-  - `src/cli/commands.ts`
-  - `.agents/skills/multichat-cli/SKILL.md`
-- lesson(promoted): cookie 是区分游客与已登录的唯一可靠信号：游客态同样有大量指纹/统计 cookie，甚至 deepseek 的 ds_session_id 游客态就存在，必须按平台账号 cookie 名精确匹配，不能靠'有 cookie'或通用命名规则
-- unresolved: qwen/deepseek/claude 尚无可靠的登录态 cookie 名单，当前返回 unknown，其登录门槛仍靠页面侧检测兜底
-
-### 10:34 | Codex
-
-- done: CLI 任务链路增加登录态识别：preparing 阶段人机验证/密码框强信号连续两次判 AUTH_REQUIRED；发送失败后用页内登录入口归因；URL 登录墙正则支持 sign_in 等分隔写法
-- context: 隔离验收用 --user-data-dir 指向全新目录，未复用本机缓存；DeepSeek 落 /sign_in 未被旧正则命中；gemini/doubao/yiyan/chatglm 游客可正常作答
-- decision: 页内登录按钮不作提前判墙依据，只在发送失败后归因，避免误伤游客可用平台
-- modified:
-  - `src/shared/config/selectors.ts`
-  - `src/shared/utils/webviewScripts.ts`
-  - `src/shared/utils/conversationUrl.ts`
-  - `src/shared/types/agentTask.ts`
-  - `src/main/services/AgentTaskService.ts`
-  - `.agents/skills/multichat-cli/SKILL.md`
-- lesson(promoted): 未登录页的输入框同样可见，不能靠 ready 探针判断登录态；页面顶栏常驻登录入口也不等于未登录，只有在提交失败后归因才可靠
-- unresolved: chatglm 未登录时实际可作答，若后续平台收紧游客策略需重新实测
-
-### 09:54 | Codex
-
-- done: Reviewed multichat-cli SKILL.md vs CLI impl; fixed busySignal/gen-image/imageFiles drift
-- modified:
-  - `.agents/skills/multichat-cli/SKILL.md`
-- lesson: --gen-image submit check only requires imageDownload.steps (AgentTaskService:196); imageGeneration is an optional page-side mode toggle, not a gate. busySignal=adapted covers only chatgpt/claude/gemini/deepseek via generationStopSelectors.
-
-### 09:52 | Codex
-
-- done: 更新 1.3.1 CHANGELOG 的 CLI 条目并新增 README CLI 章节
-- modified:
-  - `CHANGELOG.md`
-  - `README.md`
-
-### 09:28 | Codex
-
-- done: CLI --gen-image 验收完成：6/7 imageDownload 平台实测通过，qwen click 兜底回退生效，yiyan 受平台登录限制（非框架 bug）
-- decision: click-download 未命中时回退 generateExtractImagesScript + data:/downloadURL 直存；done 态空 reply 也强制写 TXT 占位
-- modified:
-  - `src/main/services/AgentTaskService.ts`
-  - `src/main/services/ImageDownloadService.ts`
-  - `docs/cli-image-generation-plan.md`
-- lesson: 多平台一次性跑比单平台更暴露问题：qwen 的 imageItem- class 已改版 → click steps 选不中 → 必须留 extract 兜底；yiyan 未登录不会真生图，框架容错合理
-
-### 09:16 | Codex
-
-- done: CLI 生图改为 prompt 直发模式并多平台验收：--gen-image 不调生图入口，extractImages 探针 + imageDownload 点下载；6/7 平台端到端真实出图落盘（chatgpt/gemini/doubao/yuanbao/grok，yiyan 未登录未出图，qwen SEND_FAILED 为平台兼容问题）
-- decision: --gen-image 不再调 imageGeneration.steps 入口（headless 下不通用且多数平台凭 prompt 出图）；图片探针用 generateExtractImagesScript 而非 imageDownload.steps[0]；poll 把图片挂载+!busy 计入完成信号解决纯图回复卡死
-- modified:
-  - `src/main/services/AgentTaskService.ts`
-  - `src/shared/config/selectors.ts`
-  - `.agents/skills/multichat-cli/SKILL.md`
-  - `docs/cli-image-generation-plan.md`
-- unresolved: yiyan 需登录才真实生图；qwen sendButton/verifySubmission 失效为平台发送适配问题，与生图无关
-
-### 00:55 | Codex
-
-- done: 按调研结论修改 selectors.ts：chatgpt/perplexity/qwen/gemini/grok/doubao researchMode 全量重写，新增 yuanbao researchMode；version 18→19；iab 实测验收 chatgpt/perplexity/qwen/gemini/yuanbao 全链路选择器命中
-- modified:
-  - `src/shared/config/selectors.ts`
-- lesson(promoted): qwen 模式入口是 div.mode-select-open[role=button] 不是 button；AutomationStep 验收需模拟 selector 数组顺序取第一个可见命中+text/regex/exclude 过滤链
-- unresolved: grok/claude/chatglm/deepseek 选择器未在登录态实测；cancelSteps 选中态钩子未复核
-
-### 00:49 | Codex
-
-- done: CLI 生图与产物落盘端到端验证通过：task submit --gen-image + --artifact-dir（默认 cwd/.multichat）+ results/image 目录 + replyFile/imageFiles 契约 + doubao 真实出图落盘
-- decision: 产物根目录由 CLI --artifact-dir（默认 cwd/.multichat）透传给 daemon，回退应用数据目录；image-ready 探针用 imageDownload.steps[0].selector；TXT 文件名 {platform}-{taskId[:8]}.txt
-- modified:
-  - `src/shared/types/agentTask.ts`
-  - `src/main/services/AgentTaskService.ts`
-  - `src/main/daemon/ipcServer.ts`
-  - `src/cli/commands.ts`
-  - `.agents/skills/multichat-cli/SKILL.md`
-  - `docs/cli-image-generation-plan.md`
-- unresolved: grok/yiyan/qwen/gemini 等平台 imageGeneration.steps 需在真实登录态与 UI 下逐平台复测（headless 下选择器未命中或未激活），CLI 框架已在 doubao 验证
-
-### 00:42 | Codex
-
-- done: Deep Research DOM 探索：主进程 iab 实测 13 平台 + 3 audit worker 复核，14 份报告落 docs/deep-research-dom/；chatgpt/perplexity/qwen steps 全失效，doubao/grok/deepseek 无 DR 功能或入口
-- added:
-  - `docs/deep-research-dom/{chatgpt`
-  - `perplexity`
-  - `gemini`
-  - `grok`
-  - `qwen`
-  - `doubao`
-  - `kimi`
-  - `yuanbao`
-  - `yiyan`
-  - `arena`
-  - `claude`
-  - `chatglm`
-  - `deepseek}.md`
-- modified:
-  - `docs/deep-research-dom/README.md`
-- lesson(promoted): 各平台已弃用 data-testid/data-log-*/tagBtn-* 钩子，转向 aria-label+role+文本语义；菜单 role 多样化（button/listbox+option/menu+menuitem/自定义元素），选择器须多 role 候选；iab 不共享 persist:shared 登录态，子 agent 无独立 iab 面
-- unresolved: grok/claude/chatglm/deepseek 需在已登录 persist:shared webview 复核；selectors.ts 修复未实施（仅出报告）
-
-### 00:41 | Codex
-
-- done: Deep Research DOM 审核 worker：claude/chatglm/deepseek 三个被拦平台分别记录为 BLOCKED(login)/BLOCKED(captcha)/BLOCKED(login)，deepseek 的 researchMode 语义确认为'深度思考'而非 Deep Research；三份报告写入 docs/deep-research-dom/
-- context: 子 agent 无独立 iab 浏览器面，三平台分别被登录态/滑块验证拦截，报告记录可验证的选择器静态分析与登录后复核步骤
-- modified:
-  - `docs/deep-research-dom/claude.md`
-  - `docs/deep-research-dom/chatglm.md`
-  - `docs/deep-research-dom/deepseek.md`
-
-### 00:37 | Codex
-
-- done: CLI 生图与产物落盘：task submit --gen-image + .multichat/image 落盘 + .multichat/results TXT + replyFile/imageFiles 契约字段 + platforms 新列 + will-download 框架抽为 ImageDownloadService
-- decision: will-download 框架从 ipcHandlers 抽到独立 ImageDownloadService，杜绝 services→ipcHandlers 反向 import；image-ready 探针改用 imageDownload.steps[0].selector 而非 extractImages；--text 模式产物路径写 stderr 保 stdout 纯净
-- added:
-  - `src/main/services/ImageDownloadService.ts`
-- modified:
-  - `src/shared/types/agentTask.ts`
-  - `src/main/services/AgentTaskService.ts`
-  - `src/main/daemon/ipcServer.ts`
-  - `src/main/ipcHandlers.ts`
-  - `src/cli/commands.ts`
-  - `.agents/skills/multichat-cli/SKILL.md`
-  - `.agents/skills/multichat-cli/scripts/run_task.ps1`
-  - `.agents/skills/multichat-cli/scripts/run_task.sh`
-  - `docs/cli-image-generation-plan.md`
-- unresolved: 各平台 imageGeneration.steps 在 headless BrowserWindow 下部分不生效（doubao 技能条不激活/qwen 工具栏缺/gemini toolbox 未命中/grok 需登录），属平台级选择器适配遗留，需真实 UI 逐平台复测
-
-### 00:27 | Codex
-
-- done: Deep Research DOM 审计（audit_a：chatgpt/perplexity/qwen/doubao）— 每个平台的失效选择器与新 DOM 链记录到 docs/deep-research-dom/
-- context: iab 浏览器在子代理中不可用（Browser is not available: iab）— live DOM 验证由 /root 在同一 iab 会话执行，audit_a 负责整合与报告
-- modified:
-  - `docs/deep-research-dom/`
-- unresolved: claude/chatglm/deepseek 未验证（无登录/滑块/登出）;doubao 的深入研究疑似被移除;chatgpt sendButton/reportContainer 需实测
 
