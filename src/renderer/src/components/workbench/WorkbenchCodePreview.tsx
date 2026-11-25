@@ -80,6 +80,8 @@ export default function WorkbenchCodePreview(): JSX.Element {
   const [leaveDialogOpen, setLeaveDialogOpen] = useState(false)
   const [leaveBusy, setLeaveBusy] = useState(false)
   const [editSession, setEditSession] = useState(0)
+  // 渲染预览刷新：只重新挂载 iframe，不触发磁盘重读
+  const [previewReloadKey, setPreviewReloadKey] = useState(0)
   const visualEditorRef = useRef<WorkbenchHtmlVisualEditorHandle | null>(null)
   const visualBaselineRef = useRef<string | null>(null)
   const visualDirtyRef = useRef(false)
@@ -111,6 +113,7 @@ export default function WorkbenchCodePreview(): JSX.Element {
     setLeaveDialogOpen(false)
     setLeaveBusy(false)
     setEditSession(0)
+    setPreviewReloadKey(0)
     visualBaselineRef.current = null
     hadConflictRef.current = false
   }, [activeFilePath, isHtmlFile])
@@ -500,6 +503,18 @@ export default function WorkbenchCodePreview(): JSX.Element {
             <AppIcon name={copied ? 'check' : 'content_copy'} size={19} />
           </button>
 
+          {/* HTML 渲染预览：重新加载 iframe，获取外部修改后的磁盘版本 */}
+          {isHtmlFile && viewMode === 'render' && (
+            <button
+              type="button"
+              onClick={() => setPreviewReloadKey((k) => k + 1)}
+              className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
+              title="刷新渲染预览"
+            >
+              <AppIcon name="refresh" size={19} />
+            </button>
+          )}
+
           {/* 系统默认编辑器打开 */}
           <button
             type="button"
@@ -535,7 +550,7 @@ export default function WorkbenchCodePreview(): JSX.Element {
           <div className="flex-1 h-full relative bg-white">
             {activeFileUrl ? (
               <WorkbenchHtmlAnnotationPreview
-                key={`${activeFilePath}-${saveStatus}-${isDirty}`}
+                key={`${activeFilePath}-${saveStatus}-${isDirty}-${previewReloadKey}`}
                 filePath={activeFilePath || ''}
                 fileUrl={activeFileUrl}
               />

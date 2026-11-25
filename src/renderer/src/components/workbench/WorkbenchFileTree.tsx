@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useWorkbenchStore } from '../../store/workbenchStore'
 import type { WorkbenchFileNode } from '../../../../shared/types/workbench'
+import type { GitFileChange } from '../../../../shared/types/workbench'
 import { MARKDOWN_EXTENSIONS } from '../../../../shared/types/workbench'
 import WorkbenchSearch from './WorkbenchSearch'
 import FileTypeIcon from './FileTypeIcon'
@@ -128,6 +129,63 @@ const IMAGE_EXTENSIONS = new Set([
   '.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico', '.bmp', '.avif', '.tiff', '.tif'
 ])
 
+/**
+ * 文件树 Git 装饰（VSCode 风格：末尾字母徽标 + 文件名着色）
+ * modified → M，conflicted → !，deleted → D，untracked/staged added|copied → U，
+ * staged renamed → R，其余暂存改动 → A；未暂存状态优先于纯暂存状态
+ */
+type GitBadgeCode = 'M' | 'A' | 'D' | 'R' | 'C' | 'U' | '!'
+
+interface GitBadge {
+  letter: GitBadgeCode
+  colorClass: string
+  label: string
+}
+
+const GIT_BADGE_STYLES: Record<GitBadgeCode, { colorClass: string; label: string }> = {
+  M: { colorClass: 'text-amber-500', label: '已修改' },
+  A: { colorClass: 'text-emerald-500', label: '已暂存' },
+  D: { colorClass: 'text-rose-500', label: '已删除' },
+  R: { colorClass: 'text-blue-500', label: '已重命名' },
+  C: { colorClass: 'text-blue-500', label: '已复制' },
+  U: { colorClass: 'text-emerald-500', label: '未跟踪' },
+  '!': { colorClass: 'text-rose-500', label: '冲突' }
+}
+
+function resolveFileGitBadge(change: GitFileChange): GitBadge {
+  let letter: GitBadgeCode
+  if (change.conflicted) {
+    letter = '!'
+  } else if (change.unstaged === 'modified' || change.unstaged === 'typechange') {
+    letter = 'M'
+  } else if (change.unstaged === 'deleted') {
+    letter = 'D'
+  } else if (change.untracked) {
+    letter = 'U'
+  } else if (change.staged === 'modified' || change.staged === 'typechange' || change.staged === 'deleted') {
+    letter = change.staged === 'deleted' ? 'D' : 'M'
+  } else if (change.staged === 'added' || change.staged === 'copied') {
+    letter = 'U'
+  } else if (change.staged === 'renamed') {
+    letter = 'R'
+  } else {
+    letter = 'A'
+  }
+  const style = GIT_BADGE_STYLES[letter]
+  return { letter, colorClass: style.colorClass, label: style.label }
+}
+
+/** 目录徽标：取后代中优先级最高的状态（冲突 > 删除 > 修改 > 未跟踪/新增 > 改名/复制 > 其他暂存） */
+const GIT_BADGE_PRIORITY: GitBadgeCode[] = ['!', 'D', 'M', 'U', 'R', 'C', 'A']
+
+function mergeGitBadgeCodes(letters: Iterable<GitBadgeCode>): GitBadgeCode | null {
+  const set = new Set(letters)
+  for (const code of GIT_BADGE_PRIORITY) {
+    if (set.has(code)) return code
+  }
+  return null
+}
+
 function getNodeIcon(node: WorkbenchFileNode): { icon: string; color: string } {
   if (node.isDirectory) {
     return { icon: 'folder', color: 'text-amber-500' }
@@ -158,6 +216,7 @@ export default function WorkbenchFileTree(): JSX.Element {
   const isLoadingTree = useWorkbenchStore((s) => s.isLoadingTree)
   const activeFilePath = useWorkbenchStore((s) => s.activeFilePath)
   const isDirty = useWorkbenchStore((s) => s.isDirty)
+  const gitStatus = useWorkbenchStore((s) => s.gitStatus)
 
   const loadFileTree = useWorkbenchStore((s) => s.loadFileTree)
   const toggleFolder = useWorkbenchStore((s) => s.toggleFolder)
@@ -340,6 +399,56 @@ export default function WorkbenchFileTree(): JSX.Element {
   )
 
   const sortedFileTree = useMemo(() => sortNodes(fileTree), [fileTree, sortNodes])
+
+  /** 文件级 Git 徽标：改动路径 → 徽标；重命名旧路径也标记，便于看出改动来源 */
+  const gitFileBadges = useMemo(() => {
+    const map = new Map<string, GitBadge>()
+    if (!gitStatus?.isRepository) return map
+    for (const change of gitStatus.changes) {
+      map.set(change.path, resolveFileGitBadge(change))
+      if (change.oldPath && !map.has(change.oldPath)) {
+        map.set(change.oldPath, resolveFileGitBadge(change))
+      }
+    }
+    return map
+  }, [gitStatus])
+
+  /** 目录级 Git 徽标：聚合全部后代文件状态，取优先级最高者（VSCode 语义） */
+  const gitDirBadges = useMemo(() => {
+    const dirCodes = new Map<string, Set<GitBadgeCode>>()
+    for (const [filePath, badge] of gitFileBadges) {
+      const lastSlash = filePath.lastIndexOf('/')
+      let dir = lastSlash === -1 ? '' : filePath.slice(0, lastSlash)
+      while (dir) {
+        let codes = dirCodes.get(dir)
+        if (!codes) {
+          codes = new Set()
+          dirCodes.set(dir, codes)
+        }
+        codes.add(badge.letter)
+        const idx = dir.lastIndexOf('/')
+        dir = idx === -1 ? '' : dir.slice(0, idx)
+      }
+    }
+    const map = new Map<string, GitBadge>()
+    for (const [dir, codes] of dirCodes) {
+      const code = mergeGitBadgeCodes(codes)
+      if (!code) continue
+      const style = GIT_BADGE_STYLES[code]
+      map.set(dir, { letter: code, colorClass: style.colorClass, label: style.label })
+    }
+    return map
+  }, [gitFileBadges])
+
+  const gitBadgeFor = useCallback(
+    (node: WorkbenchFileNode): GitBadge | null => {
+      if (!gitStatus?.isRepository) return null
+      return node.isDirectory
+        ? gitDirBadges.get(node.path) ?? null
+        : gitFileBadges.get(node.path) ?? null
+    },
+    [gitStatus?.isRepository, gitDirBadges, gitFileBadges]
+  )
 
   /** 跨工作区移动的目标：最近工作区 + 默认库，排除当前工作区 */
   const moveTargets = useMemo(() => {
@@ -925,6 +1034,15 @@ export default function WorkbenchFileTree(): JSX.Element {
     const isExpanded = expandedFolderIds.has(node.id)
     const isActive = activeFilePath === node.path
     const isRenaming = inlineRename?.node.id === node.id
+    const gitBadge = gitBadgeFor(node)
+    const gitBadgeElement = gitBadge ? (
+      <span
+        className={`ml-auto shrink-0 text-[11px] font-semibold leading-none ${gitBadge.colorClass}`}
+        title={`Git: ${gitBadge.label}`}
+      >
+        {gitBadge.letter}
+      </span>
+    ) : null
 
     if (node.isDirectory) {
       const children = node.children ? sortNodes(node.children) : []
@@ -999,7 +1117,10 @@ export default function WorkbenchFileTree(): JSX.Element {
                 className="flex-1 min-w-0 h-6 px-1.5 rounded-[3px] border border-primary/70 bg-white dark:bg-gray-900 text-text-primary text-sm focus:outline-none focus:ring-1 focus:ring-primary/40"
               />
             ) : (
-              <span className="truncate flex-1 font-medium">{node.name}</span>
+              <>
+                <span className="truncate flex-1 font-medium">{node.name}</span>
+                {gitBadgeElement}
+              </>
             )}
           </div>
           {isExpanded && (
@@ -1083,6 +1204,7 @@ export default function WorkbenchFileTree(): JSX.Element {
             {isActive && isDirty && (
               <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" title="未保存的修改" />
             )}
+            {gitBadgeElement}
           </>
         )}
       </div>

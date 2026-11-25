@@ -57,7 +57,7 @@ export function AgentContextMeter(): JSX.Element | null {
   const dashOffset = circumference * (1 - clampedPercent / 100)
 
   const titleText = known
-    ? `上下文占用 ${percentRounded}% (${formatTokens(tokens)} / ${formatTokens(context.contextWindow)})，点击查看详情`
+    ? `上下文占用 ${percentRounded}% (${formatTokens(tokens)} / ${formatTokens(context.contextWindow)})`
     : '上下文占用将在下次模型响应后更新'
 
   return (

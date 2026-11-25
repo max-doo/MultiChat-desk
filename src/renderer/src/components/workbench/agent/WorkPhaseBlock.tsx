@@ -12,8 +12,13 @@ interface WorkPhaseBlockProps {
 }
 
 function formatSeconds(ms: number): string {
-  const secs = ms / 1000
-  return secs >= 10 ? `${Math.round(secs)}s` : `${secs.toFixed(1)}s`
+  const totalSecs = Math.round(ms / 1000)
+  if (totalSecs < 60) {
+    return `${totalSecs}s`
+  }
+  const mins = Math.floor(totalSecs / 60)
+  const secs = totalSecs % 60
+  return secs === 0 ? `${mins}m` : `${mins}m ${secs}s`
 }
 
 /**

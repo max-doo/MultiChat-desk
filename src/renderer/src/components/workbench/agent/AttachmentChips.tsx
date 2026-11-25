@@ -335,3 +335,76 @@ export function InlineMentionText({ text, cwd }: InlineMentionTextProps): JSX.El
 
   return <>{nodes}</>
 }
+
+/**
+ * 判断 inline-code 文本是否"像相对路径"：含路径分隔符且带扩展名。
+ * 仅做候选收敛，不做存在性判断；真正的"能不能打开"由文件树命中决定。
+ */
+const INLINE_REL_PATH_CANDIDATE = (text: string): boolean => {
+  const t = text.trim()
+  // 至少要有一段分隔符 + 一个 .ext 结尾；裸单词/正则/代码片段直接过滤。
+  return /[/\\]/.test(t) && /\.[A-Za-z0-9]{1,10}$/.test(t)
+}
+
+interface InlineFileCodeProps {
+  /** inline-code 的原始文本（候选相对/绝对路径）。 */
+  text: string
+  /** 会话 cwd，用于把相对路径还原成绝对路径。 */
+  cwd?: string
+}
+
+/**
+ * Agent 正文 inline-code 的路径 chip 化：
+ * - 仅当文本能在当前文件树中 resolve 到真实节点时才渲染成可点击 chip；
+ *   查不到（不存在的路径、目录外、非路径文本）一律退化为普通 <code>，
+ *   保证"能点的就一定能打开"，宁可漏认也不出现打不开的假 chip。
+ * - 打开链路与 AttachmentChips/InlineMentionText 完全一致：
+ *   文件树 node.path → openFile，失败回退 agentRevealFile(abs)。
+ */
+export function InlineFileCode({ text, cwd }: InlineFileCodeProps): JSX.Element {
+  const openFile = useWorkbenchStore((s) => s.openFile)
+  // 订阅 fileTree 作为依赖：树可能晚于消息渲染加载，到位后需重算，
+  // 否则"本该识别的路径"会因树为空而永久退化成 code。
+  const fileTree = useWorkbenchStore((s) => s.fileTree)
+
+  const resolved = useMemo(() => {
+    if (!cwd || !INLINE_REL_PATH_CANDIDATE(text)) return null
+    const abs = resolveAbsolute(cwd, text.trim())
+    const treeRel = findTreePathByAbs(fileTree, abs)
+    // 只在文件树里真实存在时才认：这是"点开必然有效"的硬保证。
+    if (!treeRel) return null
+    const name = abs.replace(/[/\\]+$/, '').split(/[/\\]/).pop() || abs
+    return { abs, treeRel, name, category: getFileCategory(name) }
+  }, [text, cwd, fileTree])
+
+  const handleClick = useCallback(() => {
+    if (!resolved) return
+    void openFile(resolved.treeRel).then((opened) => {
+      if (!opened) void window.api.agentRevealFile(resolved.abs)
+    })
+  }, [resolved, openFile])
+
+  // 非路径或文件树查不到：保持原有 inline-code 外观，不引入假交互。
+  if (!resolved) {
+    return (
+      <code className="px-1.5 py-0.5 mx-0.5 rounded bg-slate-100 text-slate-800 font-mono text-caption border border-slate-200/70 inline-block align-baseline">
+        {text}
+      </code>
+    )
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation()
+        handleClick()
+      }}
+      title={resolved.abs}
+      className="mx-0.5 inline-flex translate-y-px items-center gap-1 rounded-md border border-slate-200/80 bg-slate-100 px-1.5 py-0.5 align-baseline text-caption font-mono text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-200"
+    >
+      {iconForCategory(resolved.category)}
+      <span className="max-w-52 truncate">{resolved.name}</span>
+    </button>
+  )
+}

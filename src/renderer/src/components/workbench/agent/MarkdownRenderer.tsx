@@ -2,9 +2,12 @@ import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Check, Copy, Code2 } from 'lucide-react'
+import { InlineFileCode } from './AttachmentChips'
 
 interface MarkdownRendererProps {
   content: string
+  /** 会话 cwd：inline-code 检测到工作区内真实路径时 chip 化所需的解析基准。 */
+  cwd?: string
 }
 
 interface CodeBlockProps {
@@ -66,7 +69,7 @@ function CodeBlock({ language, code }: CodeBlockProps): JSX.Element {
   )
 }
 
-export function MarkdownRenderer({ content }: MarkdownRendererProps): JSX.Element {
+export function MarkdownRenderer({ content, cwd }: MarkdownRendererProps): JSX.Element {
   return (
     <div className="text-body text-slate-800 leading-relaxed select-text space-y-2.5">
       <ReactMarkdown
@@ -117,7 +120,7 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps): JSX.Elemen
           },
 
           // 代码与代码块
-          code({ className, children, ...props }) {
+          code({ className, children }) {
             const match = /language-(\w+)/.exec(className || '')
             const codeText = String(children).replace(/\n$/, '')
             const isBlock = Boolean(match) || codeText.includes('\n')
@@ -131,15 +134,10 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps): JSX.Elemen
               )
             }
 
-            // 行内代码：轻量浅色 Badge
-            return (
-              <code
-                className="px-1.5 py-0.5 mx-0.5 rounded bg-slate-100 text-slate-800 font-mono text-caption border border-slate-200/70 inline-block align-baseline"
-                {...props}
-              >
-                {children}
-              </code>
-            )
+            // 行内代码：含路径分隔符+扩展名的片段交给 InlineFileCode 判定——
+            // 文件树里真实存在则渲染成可点击 chip，否则原样 code badge，
+            // 保证"能点的必然能打开"，宁可漏认也不出现打不开的假 chip。
+            return <InlineFileCode text={codeText} cwd={cwd} />
           },
 
           pre({ children }) {

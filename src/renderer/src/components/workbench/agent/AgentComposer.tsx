@@ -297,8 +297,8 @@ export function AgentComposer(): JSX.Element {
 
   const permissionModeLabels: Record<AgentPermissionMode, { label: string; color: string; desc: string; icon: LucideIcon }> = {
     default: { label: '默认模式', color: 'text-primary', desc: '工作区内编辑直接执行，命令需确认', icon: Pencil },
-    auto: { label: '自动模式', color: 'text-amber-600', desc: '工作区内编辑和一般命令自动执行', icon: Play },
-    bypass: { label: '全放行', color: 'text-rose-600', desc: '跳过可确认项，高危与未知仍拒绝', icon: TriangleAlert }
+    auto: { label: '自动模式', color: 'text-amber-600', desc: '只读与工作区内写入自动执行，越权写/高危需确认', icon: Play },
+    bypass: { label: '全放行', color: 'text-rose-600', desc: '跳过确认，仅拦截系统破坏与凭据目录（无 OS 沙箱）', icon: TriangleAlert }
   }
 
   const currentModeInfo = permissionModeLabels[permissionMode] || permissionModeLabels.default
@@ -572,26 +572,21 @@ export function AgentComposer(): JSX.Element {
             {/* 上下文圆形仪表 */}
             <AgentContextMeter />
 
-            {/* 合并后的模型选择与思考深度 Selector */}
+            {/* 合并后的模型选择与思考强度 Selector */}
             <div className="relative inline-flex items-center min-w-0">
               <button
                 type="button"
                 onClick={() => setModelPickerOpen((prev) => !prev)}
-                disabled={isRunning}
                 className={`flex items-center gap-1.5 text-slate-700 hover:text-slate-900 text-label px-2.5 py-1 rounded-lg bg-slate-100/70 hover:bg-slate-200/70 border border-slate-200/60 disabled:opacity-50 transition-all min-w-0 ${
                   modelPickerOpen ? 'bg-slate-200/80 border-slate-300' : ''
                 }`}
                 title={
                   supportsThinking
-                    ? `${modelLabel} · 思考深度: ${THINKING_LABELS[thinkingLevel] ?? thinkingLevel}`
+                    ? `${modelLabel} · 思考强度: ${THINKING_LABELS[thinkingLevel] ?? thinkingLevel}`
                     : modelLabel
                 }
               >
-                {isRunning ? (
-                  <Loader2 className="w-3.5 h-3.5 text-primary animate-spin shrink-0" />
-                ) : (
-                  <Brain className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                )}
+                <Brain className="w-3.5 h-3.5 text-slate-500 shrink-0" />
                 <span className="font-medium truncate max-w-[120px]">{modelLabel}</span>
                 {supportsThinking && (
                   <>
