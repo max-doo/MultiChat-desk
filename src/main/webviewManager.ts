@@ -1072,22 +1072,57 @@ export function createQuickWindow(store: Store<Record<string, unknown>>): void {
     win.on('resized', saveSize)
 
     let blurHideTimeout: ReturnType<typeof setTimeout> | null = null
+    let activeSheetCount = 0
+    let waitingModalRelease = false
+
     const cancelBlurHide = (): void => {
         if (blurHideTimeout) clearTimeout(blurHideTimeout)
         blurHideTimeout = null
+        waitingModalRelease = false
+    }
+
+    const hasActiveModalDialog = (): boolean => {
+        if (activeSheetCount > 0 || !win.isEnabled()) return true
+        for (const [preview, owner] of backgroundPreviewOwners) {
+            if (owner === win && !preview.isDestroyed() && preview.isVisible() && !preview.isEnabled()) {
+                return true
+            }
+        }
+        return false
     }
 
     // 未固定时失焦隐藏；短暂延迟让 Webview 内部或任务网页的焦点切换完成。
+    // 打开原生文件选择等模态对话框时，宿主窗口会被系统禁用（或 macOS 处于 sheet 中），期间保持显示。
     const scheduleBlurHide = (): void => {
-        cancelBlurHide()
+        if (blurHideTimeout) clearTimeout(blurHideTimeout)
         blurHideTimeout = setTimeout(() => {
             blurHideTimeout = null
-            if (win.isDestroyed() || !win.isVisible() || win.isAlwaysOnTop() || win.isFocused()) return
+            if (win.isDestroyed() || !win.isVisible() || win.isAlwaysOnTop() || win.isFocused()) {
+                waitingModalRelease = false
+                return
+            }
+            if (hasActiveModalDialog()) {
+                waitingModalRelease = true
+                scheduleBlurHide()
+                return
+            }
             const focusedContents = webContents.getFocusedWebContents()
-            if (focusedContents === win.webContents || focusedContents?.hostWebContents === win.webContents) return
+            if (focusedContents === win.webContents || focusedContents?.hostWebContents === win.webContents) {
+                waitingModalRelease = false
+                return
+            }
             for (const [preview, owner] of backgroundPreviewOwners) {
                 if (owner === win && !preview.isDestroyed() && preview.isVisible() &&
-                    (preview.isFocused() || focusedContents === preview.webContents || focusedContents?.hostWebContents === preview.webContents)) return
+                    (preview.isFocused() || focusedContents === preview.webContents || focusedContents?.hostWebContents === preview.webContents)) {
+                    waitingModalRelease = false
+                    return
+                }
+            }
+            if (waitingModalRelease) {
+                // 模态对话框关闭后系统恢复宿主窗口焦点可能晚到一帧，补等一个检测周期再确认。
+                waitingModalRelease = false
+                scheduleBlurHide()
+                return
             }
             win.hide()
         }, 150)
@@ -1096,6 +1131,17 @@ export function createQuickWindow(store: Store<Record<string, unknown>>): void {
     win.on('blur', scheduleBlurHide)
     win.on('focus', cancelBlurHide)
     win.on('hide', cancelBlurHide)
+    win.on('sheet-begin', () => {
+        activeSheetCount += 1
+        cancelBlurHide()
+    })
+    win.on('sheet-end', () => {
+        activeSheetCount = Math.max(0, activeSheetCount - 1)
+        if (activeSheetCount === 0 && !win.isDestroyed() && win.isVisible() && !win.isFocused()) {
+            waitingModalRelease = true
+            scheduleBlurHide()
+        }
+    })
     win.on('closed', () => {
         cancelBlurHide()
         scheduleQuickBlurHide = null
