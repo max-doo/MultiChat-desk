@@ -567,11 +567,11 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
     }
 
     return (
-      <footer className="mt-0 flex flex-col gap-4 w-full">
+      <footer className="mt-0 mx-auto flex flex-col gap-4 w-full max-w-7xl">
         {/* 控制栏主体 */}
         <div className="relative flex items-center gap-6">
           {/* 左侧：功能按钮 */}
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-6 shrink-0">
             {productMode === 'debate' ? (
               <DebateRoundStepper />
             ) : (
@@ -726,7 +726,7 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
             <DebateModePanel showNotification={showNotification} />
           ) : (
             <div
-              className={`relative flex-grow flex gap-4 p-3 rounded-[24px] glass-panel-heavy shadow-float focus-within:border-gray-200 focus-within:ring-1 focus-within:ring-gray-200 ${isFileDragOver ? 'border-primary/70 ring-2 ring-primary/30 bg-blue-50/50' : ''
+              className={`relative flex-grow min-w-0 flex gap-4 p-3 rounded-[24px] glass-panel-heavy shadow-float focus-within:border-gray-200 focus-within:ring-1 focus-within:ring-gray-200 ${isFileDragOver ? 'border-primary/70 ring-2 ring-primary/30 bg-blue-50/50' : ''
                 } ${message.trim() && !textInserted ? 'items-start' : 'items-center'}`}
               onDragEnter={(event) => {
                 if (!hasFileInDragEvent(event)) return

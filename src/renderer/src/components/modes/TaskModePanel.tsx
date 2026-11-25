@@ -226,7 +226,7 @@ function TaskModePanel({ showNotification }: TaskModePanelProps): JSX.Element {
   }
 
   return (
-    <div className="relative flex-grow flex items-center gap-4 p-3 rounded-[24px] glass-panel-heavy shadow-float focus-within:border-gray-200 focus-within:ring-1 focus-within:ring-gray-200" style={{ height: '96px', flexShrink: 0, boxSizing: 'border-box' }}>
+    <div className="relative flex-grow min-w-0 flex items-center gap-4 p-3 rounded-[24px] glass-panel-heavy shadow-float focus-within:border-gray-200 focus-within:ring-1 focus-within:ring-gray-200" style={{ height: '96px', boxSizing: 'border-box' }}>
       {/* 子任务弹层（split / inserted 阶段） */}
       {(isSplit || isInserted) && <SubtaskList subtasks={taskState.subtasks} collapsed={taskState.collapsed} />}
 

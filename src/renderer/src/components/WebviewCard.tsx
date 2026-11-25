@@ -321,7 +321,7 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
     if (!enabled) {
       return (
         <div
-          className={`flex flex-col h-full opacity-50 overflow-hidden ${flat ? 'bg-white' : 'rounded-2xl glass-panel shadow-soft'} ${compact ? '' : 'min-h-[480px]'}`}
+          className={`flex flex-col h-full opacity-50 overflow-hidden ${flat ? 'bg-white' : 'rounded-2xl glass-panel shadow-md ring-1 ring-black/5'} ${compact ? '' : 'min-h-[480px]'}`}
         >
           <div
             className={`p-4 border-b ${flat ? 'border-gray-200/60 bg-white' : 'border-white/40'} flex justify-between items-center`}
@@ -340,7 +340,7 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
 
     return (
       <div
-        className={`flex flex-col h-full overflow-hidden ${flat ? 'bg-white' : 'rounded-2xl glass-panel shadow-soft'} ${compact ? '' : 'min-h-[480px]'}`}
+        className={`flex flex-col h-full overflow-hidden ${flat ? 'bg-white' : 'rounded-2xl glass-panel shadow-md ring-1 ring-black/5'} ${compact ? '' : 'min-h-[480px]'}`}
       >
         {!hideHeader && (
           <div

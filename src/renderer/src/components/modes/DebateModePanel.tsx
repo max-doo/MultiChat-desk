@@ -57,7 +57,7 @@ function DebateModePanel({ showNotification }: DebateModePanelProps): JSX.Elemen
 
   if (isIdle) {
     return (
-      <div className="relative flex-grow flex items-center gap-4 p-3 rounded-[24px] glass-panel-heavy shadow-float focus-within:border-gray-200 focus-within:ring-1 focus-within:ring-gray-200" style={{ height: '96px', flexShrink: 0, boxSizing: 'border-box' }}>
+      <div className="relative flex-grow min-w-0 flex items-center gap-4 p-3 rounded-[24px] glass-panel-heavy shadow-float focus-within:border-gray-200 focus-within:ring-1 focus-within:ring-gray-200" style={{ height: '96px', boxSizing: 'border-box' }}>
         <textarea
           value={topic}
           onChange={(e) => useAppStore.getState().setDebateTopic(e.target.value)}
@@ -80,7 +80,7 @@ function DebateModePanel({ showNotification }: DebateModePanelProps): JSX.Elemen
 
   // running / paused / finished
   return (
-    <div className="relative flex-grow flex items-center gap-4 p-3 rounded-[24px] glass-panel-heavy shadow-float" style={{ height: '96px', flexShrink: 0, boxSizing: 'border-box', minWidth: 0, overflow: 'hidden' }}>
+    <div className="relative flex-grow min-w-0 flex items-center gap-4 p-3 rounded-[24px] glass-panel-heavy shadow-float" style={{ height: '96px', boxSizing: 'border-box', overflow: 'hidden' }}>
       {/* 左：状态信息 */}
       <div className="flex flex-col flex-shrink-0 min-w-[120px]">
         <span className="text-xs text-text-secondary">
