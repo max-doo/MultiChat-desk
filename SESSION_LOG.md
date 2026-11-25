@@ -2,6 +2,119 @@
 
 ## 2026-11-25
 
+### 11:21 | Codex
+
+- done: Gemini 画布导出菜单「存为文档」改用与工作台回复按钮同款文件+加号图标，并加浅蓝底高亮以区分原生菜单项
+- context: 用户要求图标与对话框注入的新建文档按钮一致，并用高亮做区分；通过 CDP 实测 Gemini 画布菜单渲染
+- decision: 图标直接复用 generateInsertReplyButtonScript 的 save SVG 路径；高亮用 26x26 浅蓝圆角底（#dbeafe）而非仅改图标颜色，因为 #eff6ff 在菜单浅灰蓝底上不可见；脚本 guard key 升到 V6 以便已注入页面重新执行
+- modified:
+  - `src/shared/utils/webviewScripts.ts`
+- lesson: Gemini 菜单底色本身是浅灰蓝，工作台 dark UI 上可见的 #eff6ff chip 在菜单里几乎不可见；跨背景复用时需要按目标底色加深一档
+
+### 11:16 | Codex
+
+- done: Canvas「存为文档」菜单项图标复用工作台「存为新文档」SVG 并加高亮色
+- context: 用户希望菜单项图标与对话框注入的存为新文档按钮一致，并用高亮区分原生项
+- decision: 去掉 mat-icon 的 fonticon 属性让伪元素为空，改用 createElementNS 构建与 ICON_DEFS.save 相同的文件+加号 SVG(20px)，图标着 #1a73e8 强调色；guard 升到 V4
+- modified:
+  - `src/shared/utils/webviewScripts.ts`
+- lesson: Gemini 菜单 mat-icon 只要移除 fonticon 属性伪元素就不再出字形，可安全改挂自定义 SVG
+
+### 11:08 | Codex
+
+- done: 修正 Gemini Canvas「存为文档」菜单项图标尺寸/字形异常
+- context: 用户反馈注入图标比其他菜单项大且字形错乱；实测 mat-icon 由 .lumi-symbols 的 ::before 按 fonticon 属性渲染 ligature，原脚本同时写入 textContent 导致双层字形，且 note_add 不在该字体子集里
+- decision: 去掉 textContent 只留 fonticon/data-mat-icon-name，图标名改用 edit_note；guard key 升到 V3 以便已注入页面被新脚本替换
+- modified:
+  - `src/shared/utils/webviewScripts.ts`
+- lesson: Gemini 菜单 mat-icon 的 ::before content 由 fonticon 属性驱动，文本内容必须为空；Luminous Symbols 里 note_add/note/save/sticky_note_2/insert_drive_file 等缺失会渲染成残字，可用的是 edit_note/article/notes/description/docs
+
+### 10:46 | Codex
+
+- done: 修复 Gemini Canvas「存为文档」菜单项注入失败
+- context: 通过 CDP(9223) 连接运行中的 MultiChat webview 逐层排查：注入脚本已执行(bound=true)、MutationObserver 正常触发、copy 菜单项可定位可 clone，最终发现 insertBefore 的父节点错误导致 DOMException 被静默吞掉
+- decision: 插入点改为 copy 项所在的顶层子节点(content 直接子节点)，并把 guard key 升级为 V2 让旧注入能被替换；scan 增加 deep-research-immersive-panel 存在性判断，保证只在画布打开时注入
+- modified:
+  - `src/shared/utils/webviewScripts.ts`
+  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
+- lesson: Gemini 菜单 gem-menu-item 外面还包着 COPY-BUTTON 等 wrapper，不在 .mat-mdc-menu-content 直接子级；clone 后必须插到 copy 项所在顶层子节点之前，否则 insertBefore 抛 NotFoundError 且异常静默中断整轮注入
+
+### 10:40 | Codex
+
+- done: 补齐 Markdown 源码扫描的代码围栏尾随空格兼容，消除 770 份文档审计中剩余的 9 个 1:N 悬空映射；全量标脏回归 0 失败。
+- modified:
+  - `src/renderer/src/components/workbench/markdownSourceMap.ts; .memory/KNOWLEDGE.md; SESSION_LOG.md`
+
+### 10:32 | Codex
+
+- done: 补强工作台 Markdown 复合块回写：为 1:N 块内节点保存载入基线，只有真实内容变化才拆组；完成源码、类型、lint、构建和隔离回写回归验证，并恢复论文文件到 HEAD。
+- modified:
+  - `src/renderer/src/components/workbench/markdownSourceMap.ts; src/renderer/src/components/workbench/MarkdownSyncPlugin.tsx; .memory/INDEX.md; .memory/KNOWLEDGE.md; SESSION_LOG.md`
+
+### 10:30 | Codex
+
+- done: Gemini Deep Research Canvas 导出菜单注入「存为文档」菜单项
+- context: 画布导出菜单懒渲染 mat-mdc-menu-panel，MutationObserver 检测到菜单出现就 clone gem-menu-item[value=copy] 改成 mc-save-note/存为文档/note_add icon 插到 copy 前；点击回传原生 copy 项坐标，渲染层 sendMouseClick 真实点击 → 轮询剪贴板 → Turndown → saveReplyAsNewMarkdown
+- decision: 复用现有 Deep Research 复制提取链路而非 DOM 爬取，菜单项用 clone 真实 GEM-MENU-ITEM 保样式一致
+- modified:
+  - `src/shared/utils/webviewScripts.ts`
+  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
+- lesson: Gemini Canvas 标题在 .markdown h1 而非 toolbar；菜单项是 GEM-MENU-ITEM 自定义元素 role=menuitem 非 button
+
+### 10:29 | Codex
+
+- done: 修复工作台 Markdown 增量拼装在 1 个源码块对应多个 Lexical 顶层节点时的重复回写：数量不等的对齐区间整体降为复合块，避免原文与未绑定节点双重输出。
+- modified:
+  - `src/renderer/src/components/workbench/markdownSourceMap.ts`
+- lesson(promoted): Markdown Source Map 的 Patience 对齐在节点数与源码块数不等时不能做贪心 1:1 前后缀匹配；否则未绑定的额外 Lexical 节点会在增量拼装时与整块 raw 重复输出，导致文件在每次载入后持续膨胀。
+
+### 10:08 | Codex
+
+- done: Git Gutter 预览模式色条从左侧移至右侧：WorkbenchGitGutterPlugin 按 [data-workbench-article] 正文右缘 +8px 计算 barLeft 存入 positions，渲染 left: pos.left，CSS 移除固定 left:10px
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchGitGutterPlugin.tsx src/renderer/src/assets/index.css`
+
+### 10:05 | Codex
+
+- done: 工作空间 Git 历史改为提交 DAG + SVG 泳道树形图
+- context: 现有历史面板直接展示 git log --graph ASCII，单分支只有一列星号，分叉时提交文字列宽会漂移。
+- decision: 主进程返回完整 hash、父提交和引用，渲染层按 input/output swimlanes 计算布局；不引入图形依赖，不继续解析 ASCII graph。
+- added:
+  - `src/renderer/src/components/workbench/GitHistoryGraph.tsx`
+  - `src/renderer/src/utils/gitGraphLayout.ts`
+- modified:
+  - `src/main/services/gitService.ts`
+  - `src/shared/types/workbench.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/src/components/workbench/WorkbenchGitPanel.tsx`
+- unresolved: 桌面窗口的实际视觉验收尚未完成：开发态启动时已有 MultiChat 实例占用单实例锁，需重启应用后检查分叉、合并和深色模式表现。
+
+### 10:04 | Codex
+
+- done: Git Gutter 修复审查发现的缺陷：预览模式 markers 重构为 GitGutterPlugin 自包含响应式链路（订阅 baseline/content + 250ms 防抖重扫 + patience 对齐）；focus/renameNode 补 refreshGitBaseline；CM lineMarkerChange 恒 true 修复 reconfigure 不刷新；删除指示器改锚行上方+git-also-deleted 组合标记；Frontmatter 对比双侧 LF 归一化；MAX_DIFF_STEPS 降 5000+worker try/catch 兜底；baseline 行数缓存
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchGitGutterPlugin.tsx src/renderer/src/components/workbench/MarkdownSyncPlugin.tsx src/renderer/src/components/workbench/WorkbenchEditor.tsx src/renderer/src/components/workbench/WorkbenchSourceEditor.tsx src/renderer/src/components/workbench/markdownSourceMap.ts src/renderer/src/utils/gitDiff.ts src/renderer/src/utils/gitDiff.worker.ts src/renderer/src/hooks/useGitLineDiff.ts src/renderer/src/store/workbenchStore.ts src/renderer/src/assets/index.css`
+- lesson: CodeMirror gutter 的 lineMarkerChange 在 Compartment.reconfigure 触发的 update 中必须返回 true，docChanged/viewportChanged 均为 false 会让新 marker 静默不生效；Myers diff trace 每层 Int32Array(2*max+1) 峰值内存 O(max*D)，maxSteps 必须与行数联动或严格 cap
+- unresolved: 预览模式需在 pnpm dev 实测：编辑后块标记更新、CRLF frontmatter 不误标、外部 git 操作后标记刷新
+
+### 09:56 | Codex
+
+- done: 实现工作台 Git 行内/块级变更标记（Git Gutter）：主进程 getFileBaseline 走 Index :0: 基准（cat-file -s 探大小熔断 1MiB、NUL 二进制检测），IPC workbench:git-baseline；渲染层 gitBaseline 单文件缓存 + seq 防竞态；Myers 行 Diff（FNV-1a 哈希）+ 熔断（1MiB/2万行/单行1万/5万步）+ >4000行 Web Worker；代码/文本查看与编辑 + HTML 源码行号 data-* 属性伪元素标记；Markdown 源码迁移 CodeMirror 6 原生 gutter（根治软折行错位+虚拟滚动）；Markdown 预览按 markdownSourceMap 块行号投影外挂覆盖层；FrontmatterPanel 左侧修改色条；保存后 1s 节流刷新 gitStatus；commit/pull/merge 成功后重拉基准
+- decision: 对齐 VSCode QuickDiff 以 Git Index(:0:)为基准：未跟踪/冲突/unborn 不画标记；WorkbenchSourceEditor 按方案迁移至 CodeMirror 6 复用已有依赖，无新增生产依赖
+- added:
+  - `src/renderer/src/utils/gitDiff.ts src/renderer/src/utils/gitDiff.worker.ts src/renderer/src/hooks/useGitLineDiff.ts src/renderer/src/components/workbench/WorkbenchGitGutterPlugin.tsx`
+- modified:
+  - `src/shared/types/workbench.ts src/main/services/gitService.ts src/main/ipcHandlers.ts src/preload/index.ts src/renderer/src/store/workbenchStore.ts src/renderer/src/components/workbench/WorkbenchCodePreview.tsx src/renderer/src/components/workbench/WorkbenchSourceEditor.tsx src/renderer/src/components/workbench/WorkbenchEditor.tsx src/renderer/src/components/workbench/MarkdownSyncPlugin.tsx src/renderer/src/components/workbench/markdownSourceMap.ts src/renderer/src/components/workbench/FrontmatterPanel.tsx src/renderer/src/assets/index.css`
+- unresolved: 需在 pnpm dev 实测：CRLF 无误报、打字 250ms 防抖、commit 后标记清除、大文件熔断、Lexical 拖拽手柄与标注兼容
+
+### 09:52 | Antigravity
+
+- done: 版本管理面板：变更文件可点击打开并同步导航高亮；新增改动/历史双标签页，历史标签页展示 Git 图形化提交日志
+- added:
+  - `src/shared/types/workbench.ts(GitLogLine)`
+- modified:
+  - `src/main/services/gitService.ts src/main/ipcHandlers.ts src/preload/index.ts src/renderer/src/components/workbench/WorkbenchGitPanel.tsx`
+
 ### 09:36 | Antigravity
 
 - done: Refine SettingsPage back button, top spacing, and revert ModelOrderCard to top-header single-column layout

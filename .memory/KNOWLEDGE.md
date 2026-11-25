@@ -66,6 +66,8 @@ Long-term reusable lessons, durable decisions, and recurring project gotchas. Do
 
 - **标注投影不能参与正文 Markdown 判定**：`exportTextFormat` 只检查直接相邻的 `TextNode`，`MarkNode` 会隔断粗体、斜体等格式的连续性，导致同一段文本包标注后被导出成重复格式标记。所有正文序列化路径（标注安全校验、普通编辑回写）必须共用同一个无 `MarkNode` 的导出函数：存在标注时先从 `toJSON(true)` 递归展开 `type === 'mark'` 的节点，再用 `parseEditorState` 建立影子状态导出；保留原有 guard 和 `annotation-sync` 过滤。
 
+- **Markdown 源码块与 Lexical 顶层节点数量不等时不能做贪心 1:1 对齐**：松散列表后的续行段落可能让一个源码 `list` 块对应多个 Lexical 顶层节点。若 Patience 对齐在数量不一致时仍按类型配对前缀或后缀，剩余节点会既没有单块映射、也没有进入 `CompositeSourceGroup`；增量拼装随后先透传整块原始 Markdown，再逐个导出这些节点，造成同一段内容重复并在每次载入后持续膨胀。数量不等且两侧都非空的区间必须整体降为复合块，保证未编辑时只输出一次 raw，组内变更拆组后也只逐节点导出一次。扫描器的块边界还必须容忍 CommonMark 的闭合代码围栏尾随空格/制表符；否则它会把后续正文吞进代码块，与 Lexical 的实际顶层节点再次形成同类错位。
+
 - **标注后台更新必须阻止 Lexical 迁移选区焦点**：打开已有标注、定位锚点以及失焦后的标注对账都会触发 `editor.update`；即使带自定义 `annotation-sync` tag，Lexical 仍可能在选区更新时调用 `rootElement.focus()`，把评论输入框的焦点抢回 `contenteditable`。所有此类后台更新应同时附加 `SKIP_SELECTION_FOCUS_TAG`，并用真实桌面交互确认输入停留在 textarea 且未写入正文。
 
 - **Lexical 块拖拽控件需要独立左侧 gutter**：`DraggableBlockPlugin_EXPERIMENTAL` 默认把 handle 定位在锚点左缘加 4px，不会为自定义 `menuComponent` 预留宽度。工作台的 `+` 与拖拽手柄合计约 60px，文章容器至少保留 64px 左侧空间，否则首个正文字符会被控件覆盖。不能只靠浮动控件的透明背景判断布局是否安全。
