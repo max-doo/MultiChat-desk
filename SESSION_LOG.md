@@ -2,6 +2,107 @@
 
 ## 2026-11-25
 
+### 13:25 | Codex
+
+- done: 工作台md编辑器补引用块入口：顶部工具栏加快捷引用按钮，浮动工具栏加引用切换按钮
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchToolbar.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFloatingToolbarPlugin.tsx`
+
+### 13:21 | Antigravity
+
+- done: 修复 WorkbenchGitPanel 中 closePopover 的 useCallback 误放在 if (!workspacePath) return null 之后的 Rules of Hooks 报错
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchGitPanel.tsx`
+- lesson: React 组件中所有 Hook（含后补的 useCallback）必须严格位于首个条件 return 之前；ESLint 未开启 react-hooks/rules-of-hooks 时，修改组件后需自检 Hook 调用顺序
+
+### 13:17 | Antigravity
+
+- done: 优化版本管理面板字号对齐与反馈交互：列表/输入框/主按钮升回 DESIGN.md text-body(14px)，次按钮使用 text-label(12px) 与右键菜单协调一致；将 gitNotice 拆分为 2.6s 自动消散的不占位悬浮胶囊（成功/信息，去除 gitInit/gitCommit 冗余成功提示并在关闭弹层时清理）与可关闭内嵌圆角警示卡（错误/警告）
+- decision: 保留 history 列表行高 h-10(40px) 与 GIT_GRAPH_ROW_HEIGHT 对齐，避免 SVG 提交轨断线；仅对 error/warning 保留常驻与关闭按钮
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchGitPanel.tsx`
+  - `src/renderer/src/store/workbenchStore.ts`
+
+### 13:09 | Antigravity
+
+- done: 完成工作台与 Agent 侧栏 UI 体系审计重构：清理 5 个零引用死组件，抽取 FormControls/WorkbenchPreviewChrome/WorkbenchSelectionMenu/formatFileSize，统一 DESIGN.md 字体阶梯、AppIcon 尺寸、Modal 弹窗壳、z-index 层级、暗色模式与 Tailwind v3 有效类名（不改变 UI 布局与元素顺序）
+- decision: 保留现有布局、组件顺序与视觉结构，只收敛重复 UI 壳与规范偏移；Tailwind v3 无 animate-in/shadow-xs/py-0.2/w-6.5/h-18 等类名，统一替换为 tailwind.config.js 与 DESIGN.md 约定 token
+- added:
+  - `src/renderer/src/components/ui/FormControls.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchPreviewChrome.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchSelectionMenu.tsx`
+  - `src/renderer/src/utils/formatBytes.ts`
+- modified:
+  - `DESIGN.md`
+  - `src/renderer/src/types/agent.ts`
+  - `src/renderer/src/pages/WorkbenchPage.tsx`
+  - `src/renderer/src/components/icons/AppIcon.tsx`
+  - `src/renderer/src/components/ui/Modal.tsx`
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+  - `src/renderer/src/components/workbench/FrontmatterPanel.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchAnnotationPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchCodePreview.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchDocxCard.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchDocxPreview.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchDraggableBlockPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchDropDown.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchEquationEditor.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchEquationNode.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFindReplaceBar.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFloatingToolbarPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFooterPopover.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchGitPanel.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchHtmlAnnotationPreview.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchHtmlColorPicker.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchHtmlEditLeaveDialog.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchHtmlEditToolbar.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchHtmlVisualEditor.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchImageNode.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchImagePreview.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchLinkHoverPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchMarginNotes.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchMindmapPanel.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchPdfPreview.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchPdfViewer.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchSearch.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchSelectionMenuPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchSendToAiButton.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchSourceToolbar.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchStatusPill.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchTableActionMenuPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchTitleBar.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchTocRail.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchToolbar.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchUrlInputPopover.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchVaultPopover.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchWorkspaceSettings.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentAuthDialog.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentComposer.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentContextMeter.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentModelPicker.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentPopover.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentProviderSettings.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentSettingsDialog.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentSkillsSettings.tsx`
+  - `src/renderer/src/components/workbench/agent/ApprovalCard.tsx`
+  - `src/renderer/src/components/workbench/agent/AttachmentChips.tsx`
+  - `src/renderer/src/components/workbench/agent/ChangedFilesCard.tsx`
+  - `src/renderer/src/components/workbench/agent/MarkdownRenderer.tsx`
+  - `src/renderer/src/components/workbench/agent/ThinkingBlock.tsx`
+  - `src/renderer/src/components/workbench/agent/ToolGroup.tsx`
+  - `src/renderer/src/components/workbench/agent/WorkPhaseBlock.tsx`
+- removed:
+  - `src/renderer/src/components/workbench/agent/AgentThinkingPicker.tsx`
+  - `src/renderer/src/components/workbench/agent/BashToolUI.tsx`
+  - `src/renderer/src/components/workbench/agent/EditToolUI.tsx`
+  - `src/renderer/src/components/workbench/agent/ReadToolUI.tsx`
+  - `src/renderer/src/components/workbench/agent/ToolFallback.tsx`
+- lesson: React 18 下组件可选 ref prop 类型应声明为 Ref<T>（而非 RefObject<T | null>），与 StrictNullChecks 兼容；JSX 注释 {/* ... */} 不能直接放在 createPortal(arg1, arg2) 的非标签位置
+
 ### 12:47 | Codex
 
 - done: 提交当前工作区改动：按功能拆 5 个 commit（HTML 预览缩放、重命名/外部变更 URL 同步、Git 右键撤回/删除/忽略菜单、快捷窗口模态失焦保护、记忆文档）
