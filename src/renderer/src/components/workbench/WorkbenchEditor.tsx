@@ -50,6 +50,7 @@ import WorkbenchCodeHighlightPlugin from './WorkbenchCodeHighlightPlugin'
 import WorkbenchSourceEditor from './WorkbenchSourceEditor'
 import WorkbenchAnnotationPlugin from './WorkbenchAnnotationPlugin'
 import WorkbenchMarginNotes from './WorkbenchMarginNotes'
+import WorkbenchGitGutterPlugin from './WorkbenchGitGutterPlugin'
 import WorkbenchMinimalToc from './WorkbenchMinimalToc'
 import type { WorkbenchSourceEditorHandle } from './WorkbenchSourceEditor'
 import WorkbenchCodePreview from './WorkbenchCodePreview'
@@ -304,6 +305,23 @@ export default function WorkbenchEditor(): JSX.Element {
     [activeFileContent]
   )
 
+  // frontmatter 相对 Git Index 是否被修改（整块文本对比）
+  const gitBaselineContent = useWorkbenchStore((s) => s.gitBaselineContent)
+  const gitBaselineStatus = useWorkbenchStore((s) => s.gitBaselineStatus)
+  const gitBaselinePath = useWorkbenchStore((s) => s.gitBaselinePath)
+  const frontmatterGitModified = useMemo(() => {
+    if (
+      gitBaselineStatus !== 'ok' ||
+      gitBaselineContent === null ||
+      gitBaselinePath !== activeFilePath
+    ) return false
+    const baselineFm = parseMarkdownWithFrontmatter(gitBaselineContent).frontmatter
+    // baseline 已 LF 归一化，activeFileContent 保留磁盘原始换行：两侧统一再比
+    const normalize = (value: string | null): string | null =>
+      value === null ? null : value.replace(/\r\n?/g, '\n')
+    return normalize(baselineFm) !== normalize(parsedFrontmatter)
+  }, [gitBaselineStatus, gitBaselineContent, gitBaselinePath, activeFilePath, parsedFrontmatter])
+
   // 面板编辑 frontmatter 后：拼回正文（保留前导 BOM）+ 通知 MarkdownSyncPlugin 更新 frontmatterRef，
   // 否则 Lexical 下次回写会用旧 ref 把面板改动覆盖掉
   const handleFrontmatterChange = useCallback(
@@ -519,6 +537,7 @@ export default function WorkbenchEditor(): JSX.Element {
               frontmatter={parsedFrontmatter}
               filePath={activeFilePath}
               onChange={handleFrontmatterChange}
+              gitModified={frontmatterGitModified}
             />
 
             {/* placeholder 与正文同容器定位，避免标题/属性面板高度变化后漂移 */}
@@ -562,6 +581,9 @@ export default function WorkbenchEditor(): JSX.Element {
 
           {/* 右侧边距原位批注便签 */}
           <WorkbenchMarginNotes stageRef={stageRef} />
+
+          {/* 块级 Git Gutter 外挂覆盖层（不进入 ContentEditable） */}
+          <WorkbenchGitGutterPlugin stageRef={stageRef} />
         </div>
         </div>
 

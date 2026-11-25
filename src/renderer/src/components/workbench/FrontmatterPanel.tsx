@@ -21,6 +21,8 @@ interface Props {
   filePath?: string | null
   /** 面板把编辑后的完整 frontmatter 块（含 --- 分隔线）回传；null 表示整块删除 */
   onChange: (nextFrontmatter: string | null) => void
+  /** frontmatter 相对 Git Index 是否有改动；true 时左侧显示修改色条 */
+  gitModified?: boolean
 }
 
 interface Field {
@@ -257,7 +259,7 @@ function displayKey(key: string): string {
 
 // 对齐 Obsidian「笔记属性」：点击 key 重命名、值行内编辑、tags 可增删 chip、
 // hover 出行尾删除按钮、底部"添加属性"；无属性时同样露出"添加属性"入口
-export default function FrontmatterPanel({ frontmatter, filePath, onChange }: Props): JSX.Element {
+export default function FrontmatterPanel({ frontmatter, filePath, onChange, gitModified }: Props): JSX.Element {
   const parsed = useMemo(() => parseFrontmatter(frontmatter), [frontmatter])
   const fields = parsed.fields
   const ownership = useMemo(
@@ -568,7 +570,7 @@ export default function FrontmatterPanel({ frontmatter, filePath, onChange }: Pr
 
   return (
     <div
-      className="mb-4"
+      className={`mb-4 relative ${gitModified ? 'pl-2 border-l-[3px] border-sky-400' : ''}`}
       data-frontmatter-panel="true"
     >
       <div className="w-full flex items-center gap-1.5 px-0 pt-0 pb-1.5 text-label font-medium text-gray-400 dark:text-gray-500">

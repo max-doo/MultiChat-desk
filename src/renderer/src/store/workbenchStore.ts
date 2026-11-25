@@ -6,6 +6,7 @@ import {
   type WorkspaceTagInfo,
   type GitStatus,
   type GitActionResult,
+  type GitBaselineStatus,
   getFileCategory,
   MARKDOWN_EXTENSIONS
 } from '../../../shared/types/workbench'
@@ -241,6 +242,12 @@ interface WorkbenchStoreState {
   isGitLoading: boolean
   isGitBusy: boolean
   gitNotice: { tone: 'success' | 'info' | 'warning' | 'error'; message: string } | null
+
+  // 编辑器行内/块级标记的 Git 基准（仅当前活动文件单份缓存）
+  gitBaselinePath: string | null
+  gitBaselineStatus: 'idle' | 'loading' | GitBaselineStatus
+  gitBaselineSha: string | null
+  gitBaselineContent: string | null
 }
 
 interface WorkbenchStoreActions {
@@ -330,6 +337,7 @@ interface WorkbenchStoreActions {
   confirmMindmapDeletions: (targets: Array<{ conversationId: string; relativePath: string }>) => Promise<void>
 
   refreshGitStatus: (options?: { showLoading?: boolean }) => Promise<void>
+  refreshGitBaseline: () => Promise<void>
   gitCommit: (title: string, body?: string, allowLargeFiles?: boolean) => Promise<GitActionResult>
   gitPull: () => Promise<GitActionResult>
   gitMergeUpstream: () => Promise<GitActionResult>
@@ -353,6 +361,10 @@ let gitStatusSeq = 0
 /** 同一时刻只保留一个在途的状态请求：连续触发时合并为最后一次，避免 Git 命令排队拖住刷新图标 */
 let gitStatusInFlight = false
 let gitStatusPending = false
+/** 当前活动文件 Git 基准的请求序号，切文件/工作区切换后过期结果丢弃 */
+let gitBaselineSeq = 0
+/** 保存后节流刷新文件树 Git 徽标的定时器 */
+let gitStatusRefreshTimer: ReturnType<typeof setTimeout> | null = null
 /**
  * 最近一次对账发现的改名映射（旧路径 → 新路径）。
  * 应用关闭期间的外部改名只在重新载入时对账一次，恢复上次打开的文档要能跟着走。
@@ -625,6 +637,10 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   isGitLoading: false,
   isGitBusy: false,
   gitNotice: null,
+  gitBaselinePath: null,
+  gitBaselineStatus: 'idle',
+  gitBaselineSha: null,
+  gitBaselineContent: null,
 
   initWorkbench: async () => {
     if (get().isInitialized) return
@@ -637,7 +653,10 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         })
         // 用户可能在终端或其他编辑器里改动过仓库：回到窗口时同步一次版本状态
         window.addEventListener('focus', () => {
-          if (get().workspacePath) void get().refreshGitStatus()
+          if (get().workspacePath) {
+            void get().refreshGitStatus()
+            void get().refreshGitBaseline()
+          }
         })
       }
       const [
@@ -868,7 +887,14 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       searchResults: []
     })
     void window.api.storeSet('workbench_recentWorkspaces', nextRecent)
-    set({ gitStatus: null, gitNotice: null })
+    set({
+      gitStatus: null,
+      gitNotice: null,
+      gitBaselinePath: null,
+      gitBaselineStatus: 'idle',
+      gitBaselineSha: null,
+      gitBaselineContent: null
+    })
     // 旧版本导图记录在全局笔记目录，先迁到 .multichat/mindmaps 文件。
     void window.api.workbench.mindmapMigrate(activePath).catch(() => undefined)
     await get().loadFileTree()
@@ -935,7 +961,11 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       searchQuery: '',
       searchResults: [],
       gitStatus: null,
-      gitNotice: null
+      gitNotice: null,
+      gitBaselinePath: null,
+      gitBaselineStatus: 'idle',
+      gitBaselineSha: null,
+      gitBaselineContent: null
     })
     void window.api.storeDelete('workbench_lastActiveFilePath')
     await get().loadFileTree()
@@ -1079,6 +1109,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         void window.api.storeSet('workbench_lastActiveFilePath', relativePath)
         // 让侧边栏文件树能定位到该文件：展开所有祖先目录（id===path）。
         get().expandAncestorsOf(relativePath)
+        void get().refreshGitBaseline()
         return true
       } else {
         // 恢复上次打开的文件时，文件可能已在应用外被删除：清掉失效的恢复点，
@@ -1102,6 +1133,12 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
             lastSavedAt: null,
             conflictDiskContent: null,
             error: null
+          })
+          set({
+            gitBaselinePath: null,
+            gitBaselineStatus: 'idle',
+            gitBaselineSha: null,
+            gitBaselineContent: null
           })
           void window.api.storeDelete('workbench_lastActiveFilePath')
           return false
@@ -1130,6 +1167,12 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
           lastSavedAt: null,
           conflictDiskContent: null,
           error: null
+        })
+        set({
+          gitBaselinePath: null,
+          gitBaselineStatus: 'idle',
+          gitBaselineSha: null,
+          gitBaselineContent: null
         })
         void window.api.storeDelete('workbench_lastActiveFilePath')
         return false
@@ -1224,6 +1267,12 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         if (activeFileCategory === 'markdown') {
           void get().loadWorkspaceTags()
         }
+        // 保存后文件树 M 徽标与编辑器标记需与磁盘一致；去抖合并连续保存
+        if (gitStatusRefreshTimer) clearTimeout(gitStatusRefreshTimer)
+        gitStatusRefreshTimer = setTimeout(() => {
+          gitStatusRefreshTimer = null
+          void get().refreshGitStatus()
+        }, 1000)
         return { saved: true }
       } else {
         set({
@@ -1417,6 +1466,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         if (activeFilePath === oldRelativePath) {
           set({ activeFilePath: newRelativePath })
           void window.api.storeSet('workbench_lastActiveFilePath', newRelativePath)
+          void get().refreshGitBaseline()
 
           // 主进程可能已重写 .md 内容（assets 路径替换），重新读盘同步渲染层状态
           // 否则 isDirty + 旧内容会在下一次 autoSave 覆盖掉主进程的修改
@@ -1437,6 +1487,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
           const updatedActive = newRelativePath + activeFilePath.slice(oldRelativePath.length)
           set({ activeFilePath: updatedActive })
           void window.api.storeSet('workbench_lastActiveFilePath', updatedActive)
+          void get().refreshGitBaseline()
         }
         await get().loadFileTree()
         // 移动/重命名已在主进程写入暂存区，这里刷新以显示新的重命名条目
@@ -1558,6 +1609,12 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         isDirty: false,
         saveStatus: 'saved',
         conflictDiskContent: null
+      })
+      set({
+        gitBaselinePath: null,
+        gitBaselineStatus: 'idle',
+        gitBaselineSha: null,
+        gitBaselineContent: null
       })
       void window.api.storeDelete('workbench_lastActiveFilePath')
     }
@@ -1836,6 +1893,12 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         saveStatus: 'saved',
         conflictDiskContent: null
       })
+      set({
+        gitBaselinePath: null,
+        gitBaselineStatus: 'idle',
+        gitBaselineSha: null,
+        gitBaselineContent: null
+      })
       void window.api.storeDelete('workbench_lastActiveFilePath')
     }
 
@@ -1938,6 +2001,12 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
           saveStatus: 'saved',
           conflictDiskContent: null
         })
+        set({
+          gitBaselinePath: null,
+          gitBaselineStatus: 'idle',
+          gitBaselineSha: null,
+          gitBaselineContent: null
+        })
         void window.api.storeDelete('workbench_lastActiveFilePath')
       }
       await get().loadFileTree()
@@ -1981,6 +2050,10 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     const previousTree = get().fileTree
     set({ fileTree: nextTree })
 
+    // 外部 Git 操作（add/commit/checkout/reset）会改变 Index 基准：
+    // 若返回相同 blobSha 前端可跳过重算，但这里统一重拉让 seq 判定更简单安全。
+    void get().refreshGitBaseline()
+
     const { activeFilePath, isDirty, lastSavedAt } = get()
     // 对账复用刚扫出的文件树：正常路径下主进程不再遍历磁盘。
     // 外部改名要等对账结果，编辑器才能跟到新路径，而不是当作文件消失。
@@ -2013,6 +2086,12 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         saveStatus: 'saved',
         lastSavedAt: null,
         conflictDiskContent: null
+      })
+      set({
+        gitBaselinePath: null,
+        gitBaselineStatus: 'idle',
+        gitBaselineSha: null,
+        gitBaselineContent: null
       })
       void window.api.storeDelete('workbench_lastActiveFilePath')
       return
@@ -2418,6 +2497,63 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   },
 
   /**
+   * 拉取当前活动文件的 Git Index 基准内容。
+   * 仅保留单份缓存：非文本/未跟踪/超大/非仓库统一置空，
+   * 切换工作区或文件后由 openFile / 清理逻辑重新触发。
+   */
+  refreshGitBaseline: async () => {
+    const { workspacePath, activeFilePath, activeFileCategory } = get()
+    const seq = ++gitBaselineSeq
+    if (
+      !workspacePath ||
+      !activeFilePath ||
+      !activeFileCategory ||
+      (activeFileCategory !== 'markdown' &&
+        activeFileCategory !== 'code' &&
+        activeFileCategory !== 'text')
+    ) {
+      set({
+        gitBaselinePath: null,
+        gitBaselineStatus: 'idle',
+        gitBaselineSha: null,
+        gitBaselineContent: null
+      })
+      return
+    }
+
+    set({ gitBaselineStatus: 'loading', gitBaselinePath: activeFilePath })
+    try {
+      const res = await window.api.workbench.gitBaseline(workspacePath, activeFilePath)
+      // 请求期间已切走：丢弃过期结果
+      if (seq !== gitBaselineSeq || get().activeFilePath !== activeFilePath) return
+      if (!res.success || !res.data) {
+        set({ gitBaselineStatus: 'error', gitBaselineContent: null })
+        return
+      }
+      const data = res.data
+      if (data.status === 'ok' && typeof data.content === 'string') {
+        // 与磁盘保存内容一致归一化：基准 CRLF→LF，避免与编辑器文本产生纯换行差异
+        const content = data.content.replace(/\r\n?/g, '\n')
+        set({
+          gitBaselineStatus: 'ok',
+          gitBaselineSha: data.blobSha ?? null,
+          gitBaselineContent: content
+        })
+      } else {
+        set({
+          gitBaselineStatus: data.status,
+          gitBaselineSha: data.blobSha ?? null,
+          gitBaselineContent: null
+        })
+      }
+    } catch {
+      if (seq === gitBaselineSeq && get().activeFilePath === activeFilePath) {
+        set({ gitBaselineStatus: 'error', gitBaselineContent: null })
+      }
+    }
+  },
+
+  /**
    * 提交前先落盘当前编辑内容：否则自动保存会在提交后用旧内容覆盖，出现“提交了但文件又变脏”。
    * 只提交工作区范围，未暂存的改动会一并纳入，与界面上“全部改动”的表述一致。
    */
@@ -2434,6 +2570,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       const res = await window.api.workbench.gitCommit(workspacePath, title, body, allowLargeFiles)
       const result = res.success && res.data ? res.data : { success: false, failure: 'failed' as const, error: res.error || '提交失败' }
       await get().refreshGitStatus()
+      if (result.success) await get().refreshGitBaseline()
       if (result.success) {
         set({ gitNotice: { tone: 'success', message: '已提交' } })
       } else {
@@ -2463,6 +2600,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         await get().handleExternalFsChanged(workspacePath)
       }
       await get().refreshGitStatus()
+      if (result.success) await get().refreshGitBaseline()
       set({
         gitNotice: result.success
           ? { tone: 'success', message: result.hint ?? '已拉取远程改动' }
@@ -2491,6 +2629,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         await get().handleExternalFsChanged(workspacePath)
       }
       await get().refreshGitStatus()
+      if (result.success) await get().refreshGitBaseline()
       set({
         gitNotice: result.success
           ? { tone: 'success', message: '已合并远程改动' }

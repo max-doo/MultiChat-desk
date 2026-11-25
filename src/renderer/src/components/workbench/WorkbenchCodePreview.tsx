@@ -3,6 +3,7 @@ import {
   useWorkbenchStore,
   type HtmlEditLeaveDecision
 } from '../../store/workbenchStore'
+import { useGitLineDiff } from '../../hooks/useGitLineDiff'
 import WorkbenchFindReplaceBar from './WorkbenchFindReplaceBar'
 import WorkbenchHtmlVisualEditor, {
   type WorkbenchHtmlVisualEditorHandle
@@ -95,6 +96,16 @@ export default function WorkbenchCodePreview(): JSX.Element {
     const lower = (activeFilePath || '').toLowerCase()
     return lower.endsWith('.html') || lower.endsWith('.htm')
   }, [activeFilePath])
+
+  // Git 行内标记：仅源码/文本编辑态需要；渲染/可视化编辑态仅保留顶栏状态提示
+  const gitDiff = useGitLineDiff(activeFileContent)
+  const showGitGutter =
+    gitDiff.active && (isHtmlFile ? viewMode === 'source' : true)
+  const gitStatus = useWorkbenchStore((s) => s.gitStatus)
+  const fileGitChange = useMemo(() => {
+    if (!activeFilePath || !gitStatus?.changes) return null
+    return gitStatus.changes.find(c => c.path === activeFilePath) ?? null
+  }, [activeFilePath, gitStatus])
 
   // HTML 源码模式即为可编辑状态；其他代码文件沿用查看/编辑分离
   const isEditable = isHtmlFile ? viewMode === 'source' : isEditing
@@ -363,6 +374,15 @@ export default function WorkbenchCodePreview(): JSX.Element {
           <span className="font-mono text-sm text-slate-200 truncate" title={activeFilePath || ''}>
             {activeFilePath}
           </span>
+          {/* HTML 渲染/可视化编辑态保留顶栏状态提示，不做行级 DOM 映射 */}
+          {isHtmlFile && viewMode !== 'source' && fileGitChange && !fileGitChange.untracked && (
+            <span
+              className="ml-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-700/80 text-sky-300 border border-slate-600/60 select-none shrink-0"
+              title="切换至源码模式查看具体修改行"
+            >
+              {fileGitChange.staged === 'added' ? 'A' : fileGitChange.conflicted ? '!' : 'M'}
+            </span>
+          )}
         </div>
 
         {/* 右侧：统计与操作 */}
@@ -602,11 +622,22 @@ export default function WorkbenchCodePreview(): JSX.Element {
             {/* 行号侧边栏 */}
             <div
               ref={lineNumbersRef}
-              className="w-12 py-4 select-none overflow-hidden text-right pr-3 font-mono text-sm leading-6 text-slate-600 bg-slate-950/40 border-r border-slate-800 shrink-0"
+              className="w-12 py-4 select-none overflow-hidden text-right pr-3 font-mono text-sm leading-6 text-slate-600 bg-slate-950/40 border-r border-slate-800 shrink-0 relative"
             >
-              {lines.map((_, idx) => (
-                <div key={idx}>{idx + 1}</div>
-              ))}
+              {lines.map((_, idx) => {
+                const mark = showGitGutter ? gitDiff.lineMarks[idx] : undefined
+                const delCount = showGitGutter ? gitDiff.deletedAfter.get(idx) : undefined
+                return (
+                  <div
+                    key={idx}
+                    data-git-change={mark}
+                    data-git-del={delCount ? 'after' : undefined}
+                    className="relative"
+                  >
+                    {idx + 1}
+                  </div>
+                )
+              })}
             </div>
 
             {/* 编辑模式 / 查看模式（HTML 源码态即可编辑） */}

@@ -1,31 +1,140 @@
 import {
-  useMemo,
   useRef,
   useEffect,
   useLayoutEffect,
   useImperativeHandle,
   forwardRef
 } from 'react'
-import Prism from 'prismjs'
-import 'prismjs/components/prism-markdown'
+import { Annotation, Compartment, EditorState, type Extension } from '@codemirror/state'
+import {
+  EditorView,
+  drawSelection,
+  highlightActiveLine,
+  highlightActiveLineGutter,
+  keymap,
+  lineNumbers,
+  gutter,
+  GutterMarker,
+  placeholder
+} from '@codemirror/view'
+import {
+  defaultKeymap,
+  history,
+  historyKeymap,
+  indentWithTab,
+  isolateHistory
+} from '@codemirror/commands'
+import { indentUnit, syntaxHighlighting, HighlightStyle } from '@codemirror/language'
+import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
+import { tags } from '@lezer/highlight'
 import { useWorkbenchStore } from '../../store/workbenchStore'
 import { readEditorScroll, rememberEditorScroll } from './workbenchEditorScroll'
+import { useGitLineDiff } from '../../hooks/useGitLineDiff'
 
 /**
- * 源码模式编辑器：透明 textarea 叠在 Prism 高亮渲染层之上，左侧行号槽。
- * - 行号随滚动同步（行号列与代码行同字号同 line-height）
- * - 高亮用 prismjs 的 markdown grammar（标题/加粗/斜体/代码/链接/列表/引用分色）
- * - textarea 负责输入与光标，背景层只负责渲染，两者字号字体必须一致
- *
- * 通过 ref 暴露 applyAction：供源码模式工具栏在光标/选区处执行
- * 行内包裹（**…**）、行前缀（#、-、>）、字面量插入（表格、分割线）三类操作。
+ * 源码模式编辑器：CodeMirror 6 内核。
+ * - 原生 lineNumbers + 自定义 Git Gutter 与 lineWrapping 像素级对齐，
+ *   彻底解决旧「透明 textarea + gutterRef」在软折行下的行号错位。
+ * - 视口虚拟滚动，数万行文档 DOM 常驻仅几十行。
+ * - 通过 ref 暴露 applyAction / setSelection，供工具栏与查找定位复用。
  */
 
-const FONT_STYLE: React.CSSProperties = {
-  fontFamily: "'JetBrains Mono', Menlo, Consolas, 'Courier New', monospace",
-  fontSize: 13,
-  lineHeight: '1.7',
-  tabSize: 2
+const externalChange = Annotation.define<boolean>()
+
+// Compartment 用于按需重配置 Git Gutter 扩展，避免重建整个编辑器
+const gitGutterCompartment = new Compartment()
+
+const markdownHighlight = HighlightStyle.define([
+  { tag: tags.heading, color: 'var(--color-primary, #1d4ed8)', fontWeight: '600' },
+  { tag: tags.strong, fontWeight: '700' },
+  { tag: tags.emphasis, fontStyle: 'italic' },
+  { tag: tags.strikethrough, textDecoration: 'line-through' },
+  { tag: [tags.link, tags.url], color: '#2563eb' },
+  { tag: tags.monospace, color: '#953800' },
+  { tag: tags.quote, color: '#57606a' },
+  { tag: tags.processingInstruction, color: '#64748b' }
+])
+
+const editorTheme = EditorView.theme({
+  '&': {
+    height: '100%',
+    fontSize: '13px',
+    color: 'var(--color-text-primary, #1f2937)',
+    backgroundColor: 'transparent'
+  },
+  '&.cm-focused': { outline: 'none' },
+  '.cm-scroller': {
+    overflow: 'auto',
+    fontFamily: "'JetBrains Mono', Menlo, Consolas, 'Courier New', monospace",
+    lineHeight: '1.7'
+  },
+  '.cm-content': {
+    padding: '24px 16px 80px',
+    caretColor: 'var(--color-primary, #3b82f6)'
+  },
+  '.cm-line': { padding: '0' },
+  '.cm-gutters': {
+    backgroundColor: 'rgba(0, 0, 0, 0.02)',
+    color: 'var(--color-text-secondary, #94a3b8)',
+    border: 'none',
+    borderRight: '1px solid rgba(0, 0, 0, 0.05)'
+  },
+  '.cm-lineNumbers .cm-gutterElement': {
+    padding: '0 10px 0 6px',
+    minWidth: '3.5rem',
+    textAlign: 'right'
+  },
+  '.cm-gitGutter .cm-gutterElement': {
+    display: 'flex',
+    alignItems: 'stretch',
+    justifyContent: 'flex-end',
+    width: '8px',
+    padding: '0'
+  },
+  '.cm-activeLine, .cm-activeLineGutter': {
+    backgroundColor: 'rgba(59, 130, 246, 0.06)'
+  },
+  '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': {
+    backgroundColor: 'rgba(59, 130, 246, 0.16)'
+  },
+  '.cm-content ::selection': { backgroundColor: 'rgba(59, 130, 246, 0.16)' }
+})
+
+class GitGutterMarker extends GutterMarker {
+  constructor(
+    private readonly kind: 'added' | 'modified' | 'deleted',
+    private readonly alsoDeleted = false
+  ) {
+    super()
+  }
+  override toDOM(): Node {
+    const el = document.createElement('span')
+    el.className = `cm-git-gutter-marker git-${this.kind}`
+    if (this.alsoDeleted) el.classList.add('git-also-deleted')
+    return el
+  }
+}
+
+function buildGitGutterExtension(
+  lineMarks: Array<'added' | 'modified' | undefined>,
+  deletedAfter: Map<number, number>
+): Extension {
+  return gutter({
+    class: 'cm-gitGutter',
+    lineMarker(view, line) {
+      const lineNo = view.state.doc.lineAt(line.from).number - 1
+      const del = deletedAfter.get(lineNo)
+      const mark = lineMarks[lineNo]
+      if (mark === 'added' || mark === 'modified') {
+        return new GitGutterMarker(mark, !!del)
+      }
+      if (del) return new GitGutterMarker('deleted')
+      return null
+    },
+    // Compartment.reconfigure 触发的 update 中 docChanged/viewportChanged 均为 false，
+    // 必须始终返回 true 让 marker 随 diff 结果刷新。
+    lineMarkerChange: () => true
+  })
 }
 
 export type SourceToolbarAction =
@@ -43,132 +152,156 @@ const WorkbenchSourceEditor = forwardRef<
   WorkbenchSourceEditorHandle,
   { value: string; onChange: (v: string) => void }
 >(function WorkbenchSourceEditor({ value, onChange }, ref): JSX.Element {
-  const preRef = useRef<HTMLPreElement | null>(null)
-  const gutterRef = useRef<HTMLDivElement | null>(null)
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const hostRef = useRef<HTMLDivElement | null>(null)
+  const viewRef = useRef<EditorView | null>(null)
+  const valueRef = useRef(value)
+  const onChangeRef = useRef(onChange)
+  valueRef.current = value
+  onChangeRef.current = onChange
+
   const workspacePath = useWorkbenchStore((s) => s.workspacePath)
   const activeFilePath = useWorkbenchStore((s) => s.activeFilePath)
+  const gitDiff = useGitLineDiff(value)
 
-  const lineCount = useMemo(() => value.split('\n').length, [value])
-
-  const highlighted = useMemo(() => {
-    try {
-      return Prism.highlight(value, Prism.languages.markdown, 'markdown')
-    } catch {
-      // 兜底：纯文本 HTML 转义
-      return value
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-    }
-  }, [value])
-
-  // 滚动同步：textarea 滚动时同步背景层与行号列
-  const syncScrollLayers = (): void => {
-    const ta = textareaRef.current
-    if (!ta) return
-    if (preRef.current) {
-      preRef.current.scrollTop = ta.scrollTop
-      preRef.current.scrollLeft = ta.scrollLeft
-    }
-    if (gutterRef.current) {
-      gutterRef.current.scrollTop = ta.scrollTop
-    }
-  }
-
-  const handleScroll = (): void => {
-    const ta = textareaRef.current
-    if (!ta) return
-    syncScrollLayers()
-    if (activeFilePath) {
-      rememberEditorScroll(workspacePath, activeFilePath, 'source', ta.scrollTop)
-    }
-  }
-
+  // 保存滚动位置：用户滚动时实时记忆，组件卸载前由 store 兜底
   useEffect(() => {
-    handleScroll()
+    if (!hostRef.current) return
+
+    const gitGutter = buildGitGutterExtension(
+      gitDiff.active ? gitDiff.lineMarks : [],
+      gitDiff.active ? gitDiff.deletedAfter : new Map()
+    )
+
+    const view = new EditorView({
+      parent: hostRef.current,
+      state: EditorState.create({
+        doc: valueRef.current,
+        extensions: [
+          lineNumbers(),
+          gitGutterCompartment.of(gitGutter),
+          highlightActiveLineGutter(),
+          highlightActiveLine(),
+          drawSelection(),
+          history(),
+          markdown({ base: markdownLanguage, completeHTMLTags: false, pasteURLAsLink: false }),
+          keymap.of([indentWithTab, ...historyKeymap, ...defaultKeymap]),
+          indentUnit.of('  '),
+          EditorState.tabSize.of(2),
+          syntaxHighlighting(markdownHighlight),
+          EditorView.lineWrapping,
+          editorTheme,
+          placeholder('编写 Markdown 内容...'),
+          EditorView.contentAttributes.of({
+            'aria-label': 'Markdown 源码编辑器',
+            spellcheck: 'false',
+            autocorrect: 'off',
+            autocapitalize: 'off'
+          }),
+          EditorView.updateListener.of(update => {
+            if (!update.docChanged) return
+            if (update.transactions.some(tr => tr.annotation(externalChange))) return
+            onChangeRef.current(update.state.doc.toString())
+          }),
+          EditorView.domEventHandlers({
+            scroll: (_event, view) => {
+              if (activeFilePath) {
+                rememberEditorScroll(workspacePath, activeFilePath, 'source', view.scrollDOM.scrollTop)
+              }
+            }
+          })
+        ]
+      })
+    })
+    viewRef.current = view
+    return () => {
+      viewRef.current = null
+      view.destroy()
+    }
+    // 仅在文件切换时重建编辑器；gitGutter 随 diff 变化由下方 effect 更新
+  }, [activeFilePath])
+
+  // diff 变化时重建 gutter 扩展（轻量，gutter 只渲染视口内行）
+  useEffect(() => {
+    const view = viewRef.current
+    if (!view) return
+    const ext = buildGitGutterExtension(
+      gitDiff.active ? gitDiff.lineMarks : [],
+      gitDiff.active ? gitDiff.deletedAfter : new Map()
+    )
+    // CodeMirror 不允许直接替换已注册 gutter；用 dispatch 重配置代价高，
+    // 改为整体重建 editor state 代价过大。采用 Compartment 按需重配置。
+    // 这里直接重建整个扩展槽：把旧 gutter 替换为新配置。
+    view.dispatch({
+      effects: gitGutterCompartment.reconfigure(ext)
+    })
+  }, [gitDiff])
+
+  // 外部内容变化（切文件、外部修改、富文本回写）时同步进 CM；
+  // 用 externalChange 注解避免被当成用户输入再次回写。
+  useEffect(() => {
+    const view = viewRef.current
+    if (!view || view.state.doc.toString() === value) return
+    view.dispatch({
+      changes: { from: 0, to: view.state.doc.length, insert: value },
+      annotations: [externalChange.of(true), isolateHistory.of('full')]
+    })
   }, [value])
 
-  // 从预览切回源码时，等 textarea 完成首帧布局后恢复上次滚动位置
+  // 从预览切回源码时恢复上次滚动位置
   useLayoutEffect(() => {
-    const ta = textareaRef.current
-    if (!ta || !activeFilePath) return
-    ta.scrollTop = readEditorScroll(workspacePath, activeFilePath, 'source')
-    syncScrollLayers()
+    const view = viewRef.current
+    if (!view || !activeFilePath) return
+    const saved = readEditorScroll(workspacePath, activeFilePath, 'source')
+    view.scrollDOM.scrollTop = saved
   }, [activeFilePath, workspacePath])
 
-  const lineNumbers = useMemo(
-    () => Array.from({ length: lineCount }, (_, i) => i + 1),
-    [lineCount]
-  )
-
-  // 在光标处插入 markdown 图片语法，并同步调整光标位置
-  const insertMarkdownAtCursor = (text: string): void => {
-    const ta = textareaRef.current
-    if (!ta) {
-      onChange(value + text)
+  const commitEdit = (start: number, end: number, text: string, selStart: number, selEnd: number): void => {
+    const view = viewRef.current
+    if (!view) {
+      onChange(valueRef.current.slice(0, start) + text + valueRef.current.slice(end))
       return
     }
-    const start = ta.selectionStart
-    const end = ta.selectionEnd
-    const next = value.slice(0, start) + text + value.slice(end)
-    onChange(next)
-    requestAnimationFrame(() => {
-      ta.focus()
-      ta.setSelectionRange(start + text.length, start + text.length)
+    view.dispatch({
+      changes: { from: start, to: end, insert: text },
+      selection: { anchor: selStart, head: selEnd },
+      userEvent: 'input'
     })
+    view.focus()
   }
 
-  // 提交 textarea 编辑：替换 [start, end) 区间内容并恢复光标
-  const commitEdit = (start: number, end: number, text: string, selStart: number, selEnd: number): void => {
-    const ta = textareaRef.current
-    const next = value.slice(0, start) + text + value.slice(end)
-    onChange(next)
-    requestAnimationFrame(() => {
-      if (!ta) return
-      ta.focus()
-      ta.setSelectionRange(selStart, selEnd)
-    })
-  }
-
-  // 行内包裹：给选中文本加/去 before..after 标记（如 **、*、`、==、<u>…</u>）
+  // 行内包裹：给选中文本加/去 before..after 标记（**、*、`、==、<u>…</u>）
   const applyWrap = (before: string, after: string, placeholder?: string): void => {
-    const ta = textareaRef.current
-    if (!ta) return
-    const start = ta.selectionStart
-    const end = ta.selectionEnd
-    const selected = value.slice(start, end)
+    const view = viewRef.current
+    if (!view) return
+    const { from, to } = view.state.selection.main
+    const doc = view.state.doc.toString()
+    const selected = doc.slice(from, to)
 
-    // 已包裹则视为取消：去掉外层标记
     if (
-      start >= before.length &&
-      value.slice(start - before.length, start) === before &&
-      value.slice(end, end + after.length) === after
+      from >= before.length &&
+      doc.slice(from - before.length, from) === before &&
+      doc.slice(to, to + after.length) === after
     ) {
-      commitEdit(start - before.length, end + after.length, selected, start - before.length, end - before.length)
+      commitEdit(from - before.length, to + after.length, selected, from - before.length, to - before.length)
       return
     }
 
     const content = selected || placeholder || ''
     const wrapped = before + content + after
-    if (selected) {
-      commitEdit(start, end, wrapped, start + before.length, start + before.length + content.length)
-    } else {
-      commitEdit(start, end, wrapped, start + before.length, start + before.length + content.length)
-    }
+    commitEdit(from, to, wrapped, from + before.length, from + before.length + content.length)
   }
 
   // 行前缀：对选区覆盖到的每一行加/去前缀（# 、- 、1. 、[ ]、> 、```）
   const applyLinePrefix = (prefix: string): void => {
-    const ta = textareaRef.current
-    if (!ta) return
-    const start = ta.selectionStart
-    const end = ta.selectionEnd
-    const lineStart = value.lastIndexOf('\n', start - 1) + 1
-    let lineEnd = value.indexOf('\n', end)
-    if (lineEnd === -1) lineEnd = value.length
+    const view = viewRef.current
+    if (!view) return
+    const { from, to } = view.state.selection.main
+    const doc = view.state.doc.toString()
+    const lineStart = doc.lastIndexOf('\n', from - 1) + 1
+    let lineEnd = doc.indexOf('\n', to)
+    if (lineEnd === -1) lineEnd = doc.length
 
-    const block = value.slice(lineStart, lineEnd)
+    const block = doc.slice(lineStart, lineEnd)
     const lines = block.split('\n')
     const allPrefixed = lines.every((l) => l.startsWith(prefix) || l.trim() === '')
     const nextLines = allPrefixed
@@ -180,96 +313,48 @@ const WorkbenchSourceEditor = forwardRef<
 
   // 字面量插入：表格模板、分割线等；ensureBlankLine 保证与前文之间有空行
   const applyInsert = (text: string, ensureBlankLine?: boolean): void => {
-    const ta = textareaRef.current
-    if (!ta) {
-      onChange(value + text)
+    const view = viewRef.current
+    if (!view) {
+      onChange(valueRef.current + text)
       return
     }
-    const start = ta.selectionStart
-    const end = ta.selectionEnd
+    const { from, to } = view.state.selection.main
+    const doc = view.state.doc.toString()
     let prefix = ''
     if (ensureBlankLine) {
-      const before = value.slice(0, start)
+      const before = doc.slice(0, from)
       if (before.length > 0 && !before.endsWith('\n\n')) {
         prefix = before.endsWith('\n') ? '\n' : '\n\n'
       }
     }
-    commitEdit(start, end, prefix + text, start + prefix.length + text.length, start + prefix.length + text.length)
+    commitEdit(from, to, prefix + text, from + prefix.length + text.length, from + prefix.length + text.length)
   }
 
-  // Tab/Shift+Tab 缩进：选区覆盖的每一行加/去两个空格；无选区时在光标处插入两个空格
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
-    if (e.key !== 'Tab') return
-    e.preventDefault()
-    const ta = textareaRef.current
-    if (!ta) return
-    const start = ta.selectionStart
-    const end = ta.selectionEnd
-    const INDENT = '  '
-
-    const lineStart = value.lastIndexOf('\n', start - 1) + 1
-    // 选区末尾恰好落在换行符后（即下一行行首）时，不把下一行算作被覆盖行
-    const effectiveEnd = end > start && value[end - 1] === '\n' ? end - 1 : end
-    const lastLineEnd = (() => {
-      const idx = value.indexOf('\n', effectiveEnd)
-      return idx === -1 ? value.length : idx
-    })()
-
-    if (e.shiftKey) {
-      // 反缩进：每行移除行首的两个空格或一个 Tab
-      const block = value.slice(lineStart, lastLineEnd)
-      const lines = block.split('\n')
-      let totalRemoved = 0
-      let firstLineRemoved = 0
-      const nextLines = lines.map((l, i) => {
-        const cut = l.startsWith(INDENT) ? INDENT.length : l.startsWith('\t') ? 1 : 0
-        if (i === 0) firstLineRemoved = cut
-        totalRemoved += cut
-        return l.slice(cut)
-      })
-      if (totalRemoved === 0) return
-      const nextBlock = nextLines.join('\n')
-      const newStart = Math.max(lineStart, start - firstLineRemoved)
-      const newEnd = Math.max(newStart, end - totalRemoved)
-      commitEdit(lineStart, lastLineEnd, nextBlock, newStart, newEnd)
+  // 在光标处插入 markdown 图片语法，并同步调整光标位置
+  const insertMarkdownAtCursor = (text: string): void => {
+    const view = viewRef.current
+    if (!view) {
+      onChange(valueRef.current + text)
       return
     }
-
-    if (start === end) {
-      // 无选区：光标处直接插入缩进
-      commitEdit(start, end, INDENT, start + INDENT.length, start + INDENT.length)
-      return
-    }
-
-    // 有选区：每行行首加缩进（空行跳过），光标保持在原行行首
-    const block = value.slice(lineStart, lastLineEnd)
-    const lines = block.split('\n')
-    const indented = lines.map((l) => (l.trim() === '' ? l : INDENT + l)).join('\n')
-    const newStart = start === lineStart ? start : start + INDENT.length
-    commitEdit(
-      lineStart,
-      lastLineEnd,
-      indented,
-      newStart,
-      end + INDENT.length * lines.filter((l) => l.trim() !== '').length
-    )
+    const { from } = view.state.selection.main
+    commitEdit(from, from, text, from + text.length, from + text.length)
   }
 
   useImperativeHandle(
     ref,
     () => ({
       setSelection: (start: number, end: number) => {
-        const ta = textareaRef.current
-        if (!ta) return
-        ta.focus()
-        ta.setSelectionRange(start, end)
-        // 滚动到选区：用临时 mirror 计算 offset 太复杂，这里用粗略行高估算
-        const lineHeight = 13 * 1.7
-        const linesBefore = value.slice(0, start).split('\n').length - 1
-        const gutterH = ta.clientHeight
-        const target = linesBefore * lineHeight - gutterH / 2
-        ta.scrollTop = Math.max(0, target)
-        handleScroll()
+        const view = viewRef.current
+        if (!view) return
+        const docLen = view.state.doc.length
+        const anchor = Math.min(Math.max(0, start), docLen)
+        const head = Math.min(Math.max(0, end), docLen)
+        view.dispatch({
+          selection: { anchor, head },
+          effects: EditorView.scrollIntoView(head, { y: 'center' })
+        })
+        view.focus()
       },
       applyAction: (action) => {
         switch (action.kind) {
@@ -285,12 +370,11 @@ const WorkbenchSourceEditor = forwardRef<
         }
       }
     }),
-    // applyAction 内部只用 ref 与最新 value/onChange（每次渲染重新闭包即可）
-    [value, onChange]
+    []
   )
 
   // 粘贴图片：clipboard 中的图片 File → 存 assets → 插入 ![](path)
-  const handlePaste = async (e: React.ClipboardEvent<HTMLTextAreaElement>): Promise<void> => {
+  const handlePaste = async (e: React.ClipboardEvent<HTMLDivElement>): Promise<void> => {
     const files = Array.from(e.clipboardData?.files ?? [])
     const images = files.filter((f) => f.type.startsWith('image/'))
     if (!images.length || !workspacePath || !activeFilePath) return
@@ -318,7 +402,7 @@ const WorkbenchSourceEditor = forwardRef<
   }
 
   // 拖拽图片：本地文件 → 存 assets → 插入 ![](path)
-  const handleDrop = async (e: React.DragEvent<HTMLTextAreaElement>): Promise<void> => {
+  const handleDrop = async (e: React.DragEvent<HTMLDivElement>): Promise<void> => {
     const files = Array.from(e.dataTransfer?.files ?? [])
     const images = files.filter((f) => f.type.startsWith('image/'))
     if (!images.length || !workspacePath || !activeFilePath) return
@@ -356,59 +440,12 @@ const WorkbenchSourceEditor = forwardRef<
 
   return (
     <div className="workbench-source-editor flex-1 flex overflow-hidden bg-white dark:bg-gray-900 font-mono text-body">
-      {/* 行号槽 */}
       <div
-        ref={gutterRef}
-        className="shrink-0 overflow-hidden text-right select-none border-r border-black/5 dark:border-white/5 bg-black/[0.02] dark:bg-white/[0.02] text-text-secondary/50"
-        style={{ width: '3.5rem' }}
-        aria-hidden="true"
-      >
-        <div style={{ ...FONT_STYLE, padding: '24px 10px 24px 0' }}>
-          {lineNumbers.map((n) => (
-            <div key={n}>{n}</div>
-          ))}
-        </div>
-      </div>
-
-      {/* 编辑区：背景高亮层 + 前景透明 textarea */}
-      <div className="relative flex-1 overflow-hidden">
-        <pre
-          ref={preRef}
-          aria-hidden="true"
-          className="absolute inset-0 overflow-auto whitespace-pre-wrap break-all text-text-primary"
-          style={{
-            ...FONT_STYLE,
-            margin: 0,
-            padding: '24px 16px 80px',
-            pointerEvents: 'none'
-          }}
-        >
-          <code
-            dangerouslySetInnerHTML={{ __html: highlighted + '\n' }}
-            style={FONT_STYLE}
-          />
-        </pre>
-
-        <textarea
-          ref={textareaRef}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          onKeyDown={handleKeyDown}
-          onScroll={handleScroll}
-          onPaste={(e) => void handlePaste(e)}
-          onDrop={(e) => void handleDrop(e)}
-          placeholder="编写 Markdown 内容..."
-          spellCheck={false}
-          autoCorrect="off"
-          autoCapitalize="off"
-          className="absolute inset-0 w-full h-full resize-none bg-transparent text-transparent caret-primary focus:outline-none whitespace-pre-wrap break-all"
-          style={{
-            ...FONT_STYLE,
-            padding: '24px 16px 80px',
-            caretColor: 'var(--color-primary, #3b82f6)'
-          }}
-        />
-      </div>
+        ref={hostRef}
+        className="flex-1 h-full overflow-hidden"
+        onPaste={(e) => void handlePaste(e)}
+        onDrop={(e) => void handleDrop(e)}
+      />
     </div>
   )
 })

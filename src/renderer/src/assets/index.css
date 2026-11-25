@@ -1061,3 +1061,99 @@ webview[tabindex="-1"] {
   box-shadow: 0 4px 18px -3px rgba(0, 0, 0, 0.45) !important;
 }
 
+/* ============================================================
+ * 工作台 Git 行内标记（Gutter）：零额外 DOM 节点，
+ * 通过行号 <div> 的 data-git-change / data-git-del 属性由伪元素着色
+ * ============================================================ */
+[data-git-change='added']::after,
+[data-git-change='modified']::after {
+  content: '';
+  position: absolute;
+  right: -1px;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  border-radius: 1px;
+}
+[data-git-change='added']::after {
+  background: #34d399;
+}
+[data-git-change='modified']::after {
+  background: #38bdf8;
+}
+/* 纯删除指示：在紧邻下一行的上方缝隙绘制红色小三角 */
+[data-git-del='after']::before {
+  content: '';
+  position: absolute;
+  right: -1px;
+  top: -3px;
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid #f43f5e;
+  z-index: 2;
+}
+
+/* ============================================================
+ * Markdown 源码编辑器（CodeMirror 6）Git Gutter 扩展配色
+ * ============================================================ */
+.cm-git-gutter-marker {
+  display: inline-block;
+  width: 3px;
+  height: 100%;
+  border-radius: 1px;
+  position: relative;
+}
+.cm-git-gutter-marker.git-added {
+  background: #34d399;
+}
+.cm-git-gutter-marker.git-modified {
+  background: #38bdf8;
+}
+.cm-git-gutter-marker.git-deleted {
+  background: #f43f5e;
+  height: 5px;
+  margin-bottom: auto;
+  clip-path: polygon(50% 0, 0 100%, 100% 100%);
+}
+/* 同一行既有新增/修改又有删除锚点时，竖条之外再叠红色上三角 */
+.cm-git-gutter-marker.git-also-deleted::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -5px;
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid #f43f5e;
+}
+
+/* ============================================================
+ * Markdown 预览（Lexical）块级 Git Gutter 覆盖层
+ * ============================================================ */
+.workbench-git-gutter-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  z-index: 5;
+}
+.workbench-git-gutter-overlay .git-block-bar {
+  position: absolute;
+  width: 3px;
+  border-radius: 1px;
+}
+.workbench-git-gutter-overlay .git-block-bar.git-added {
+  background: #34d399;
+}
+.workbench-git-gutter-overlay .git-block-bar.git-modified {
+  background: #38bdf8;
+}
+.workbench-git-gutter-overlay .git-block-bar.git-deleted {
+  background: #f43f5e;
+  height: 5px;
+  clip-path: polygon(50% 0, 0 100%, 100% 100%);
+}
+
