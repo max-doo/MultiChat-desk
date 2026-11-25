@@ -131,7 +131,7 @@ export function AgentModelPicker({ onClose }: AgentModelPickerProps): JSX.Elemen
         className={`w-full text-left px-2.5 py-2 rounded-lg flex items-center justify-between transition-colors ${
           isActive
             ? 'bg-blue-50/80 dark:bg-primary/15'
-            : 'hover:bg-slate-50 dark:hover:bg-white/5'
+            : 'hover:bg-black/[0.045] dark:hover:bg-white/[0.07]'
         } disabled:opacity-60`}
       >
         <div className="min-w-0 flex-1">
@@ -155,9 +155,9 @@ export function AgentModelPicker({ onClose }: AgentModelPickerProps): JSX.Elemen
   }
 
   return (
-    <div className="flex flex-col text-label w-full select-none bg-white dark:bg-gray-800">
+    <div className="flex flex-col text-label w-full select-none">
       {/* 搜索 Header */}
-      <div className="px-3.5 py-2.5 border-b border-slate-100 bg-white dark:border-white/10 dark:bg-gray-800">
+      <div className="px-3.5 py-2.5 border-b border-black/[0.06] dark:border-white/10">
         <div className="flex items-center gap-2">
           <AppIcon
             name="search"
@@ -182,7 +182,7 @@ export function AgentModelPicker({ onClose }: AgentModelPickerProps): JSX.Elemen
       </div>
 
       {/* 模型列表 */}
-      <div className="max-h-[280px] overflow-y-auto px-2 py-2 bg-white dark:bg-gray-800 space-y-2">
+      <div className="max-h-[280px] overflow-y-auto px-2 py-2 space-y-2">
         {total === 0 && favoriteItems.length === 0 && (
           <div className="px-3 py-6 text-center space-y-2">
             <div className="text-text-secondary text-label">没有可用模型</div>
@@ -246,13 +246,13 @@ export function AgentModelPicker({ onClose }: AgentModelPickerProps): JSX.Elemen
       </div>
 
       {error && (
-        <div className="px-3.5 py-2 border-t border-slate-100 text-label text-rose-600 bg-white dark:border-white/10 dark:bg-gray-800 dark:text-rose-400">
+        <div className="px-3.5 py-2 border-t border-black/[0.06] text-label text-rose-600 dark:border-white/10 dark:text-rose-400">
           {error}
         </div>
       )}
 
       {/* 底部 Footer: 思考强度设置 */}
-      <div className="border-t border-slate-100 bg-white px-3.5 py-3 dark:border-white/10 dark:bg-gray-800">
+      <div className="border-t border-black/[0.06] px-3.5 py-3 dark:border-white/10">
         {supportsThinking ? (
           <div className="space-y-2.5">
             <div className="flex items-center justify-between">

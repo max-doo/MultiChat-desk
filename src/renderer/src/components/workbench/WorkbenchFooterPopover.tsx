@@ -69,7 +69,7 @@ export default function WorkbenchFooterPopover({
       role="dialog"
       aria-label={ariaLabel}
       style={{ left: inset, bottom, width }}
-      className="fixed z-popover flex max-h-[min(720px,calc(100vh-32px))] flex-col overflow-hidden rounded-xl border border-black/10 bg-white text-body shadow-xl dark:border-white/10 dark:bg-gray-800"
+      className="fixed z-popover flex max-h-[min(720px,calc(100vh-32px))] flex-col overflow-hidden liquid-glass-modal rounded-xl text-body"
     >
       {children}
     </div>,

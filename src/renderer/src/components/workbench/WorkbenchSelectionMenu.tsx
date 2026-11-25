@@ -31,7 +31,7 @@ const WorkbenchSelectionMenu = forwardRef<HTMLDivElement, WorkbenchSelectionMenu
     return (
       <div
         ref={ref}
-        className="fixed z-popover min-w-[190px] py-1.5 bg-white/95 dark:bg-gray-800/95 backdrop-blur-md rounded-xl shadow-xl border border-black/10 dark:border-white/10 text-body"
+        className="fixed z-popover min-w-[190px] py-1.5 liquid-glass-menu rounded-xl text-body"
         style={{ left: x, top: y }}
       >
         {items.map((item) => (

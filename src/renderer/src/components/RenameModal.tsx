@@ -49,9 +49,9 @@ function RenameModal({
   }
 
   return (
-    <Modal open={isOpen} onClose={onCancel} size="md" variant="solid">
+    <Modal open={isOpen} onClose={onCancel} size="md" variant="glass">
       <div>
-        <div className="border-b border-gray-200 px-6 pb-4 pt-5 dark:border-white/10">
+        <div className="border-b border-black/5 px-6 pb-4 pt-5 dark:border-white/10">
           <h3 className="text-title font-semibold text-text-primary">{title}</h3>
         </div>
         <div className="px-6 py-5">
@@ -66,7 +66,7 @@ function RenameModal({
               if (e.key === 'Enter') handleConfirm()
               if (e.key === 'Escape') onCancel()
             }}
-            className="w-full rounded-lg border border-gray-200 bg-sidebar px-4 py-2.5 text-body text-text-primary placeholder-gray-500 focus:border-primary/60 focus:outline-none dark:border-white/10 dark:bg-white/5"
+            className="w-full rounded-lg border border-black/10 bg-white/75 px-4 py-2.5 text-body text-text-primary placeholder-gray-500 focus:border-primary/60 focus:bg-white focus:outline-none dark:border-white/10 dark:bg-white/5 dark:focus:bg-white/10"
             placeholder={placeholder}
             autoFocus
           />
@@ -78,7 +78,7 @@ function RenameModal({
           <button
             onClick={onCancel}
             disabled={isConfirming}
-            className="rounded-lg border border-gray-200 bg-sidebar px-4 py-2 text-body text-text-secondary transition-all hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10"
+            className="rounded-lg border border-black/10 bg-black/[0.04] px-4 py-2 text-body text-text-secondary transition-all hover:bg-black/[0.08] hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-white/[0.06] dark:hover:bg-white/[0.12]"
           >
             {cancelText}
           </button>

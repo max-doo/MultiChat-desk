@@ -414,7 +414,7 @@ function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isAc
                 renderOption={(option, isSelected, onSelect) => (
                   <button
                     onClick={onSelect}
-                    className={`block w-full px-3 py-2 text-left text-xs transition-colors hover:bg-gray-100/80 rounded-lg ${
+                    className={`block w-full px-3 py-2 text-left text-xs transition-colors hover:bg-black/[0.05] dark:hover:bg-white/[0.08] rounded-lg ${
                       isSelected ? 'text-primary bg-primary/5 font-medium' : 'text-text-secondary'
                     }`}
                   >

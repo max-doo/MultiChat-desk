@@ -177,7 +177,7 @@ function CustomDropdown<T = string>({
             onPointerDown={() => setIsOpen(false)}
             onClick={() => setIsOpen(false)}
           />
-          <div className={`absolute ${dropdownPositionClass} left-0 ${dropdownWidth} bg-sidebar backdrop-blur-md border border-gray-200/50 rounded-lg shadow-xl z-30 py-1 max-h-64 overflow-y-auto`}>
+          <div className={`absolute ${dropdownPositionClass} left-0 ${dropdownWidth} liquid-glass-menu rounded-xl z-30 py-1 max-h-64 overflow-y-auto`}>
             {renderContent ? (
               // 使用自定义内容渲染，传入关闭函数
               renderContent(() => setIsOpen(false))
@@ -199,7 +199,7 @@ function CustomDropdown<T = string>({
                       key={String(option.value)}
                       type="button"
                       onClick={() => handleSelect(option.value)}
-                      className="w-full flex items-center gap-3 px-3 py-2 hover:bg-gray-100 transition-colors text-left"
+                      className="w-full flex items-center gap-3 px-3 py-2 hover:bg-black/[0.05] dark:hover:bg-white/[0.08] transition-colors text-left"
                     >
                       <span className={`text-sm ${isSelected ? 'text-primary' : 'text-text-secondary'}`}>
                         {option.label}

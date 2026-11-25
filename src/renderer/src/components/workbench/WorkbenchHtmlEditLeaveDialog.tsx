@@ -19,7 +19,7 @@ export default function WorkbenchHtmlEditLeaveDialog({
       open
       onClose={onCancel}
       size="sm"
-      variant="solid"
+      variant="glass"
       closeOnBackdrop={!busy}
       closeOnEscape={!busy}
       className="p-5 text-body"

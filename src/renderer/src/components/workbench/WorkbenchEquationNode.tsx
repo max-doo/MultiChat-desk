@@ -277,7 +277,7 @@ function WorkbenchEquationComponent({
           <div
             ref={menuRef}
             role="menu"
-            className="fixed z-popover min-w-[176px] select-none rounded-xl border border-black/10 bg-white/95 py-1.5 text-body shadow-xl backdrop-blur-md dark:border-white/10 dark:bg-gray-800/95"
+            className="fixed z-popover min-w-[176px] select-none liquid-glass-menu rounded-xl py-1.5 text-body"
             style={{ left: menu.x, top: menu.y }}
             onContextMenu={(e) => e.preventDefault()}
           >

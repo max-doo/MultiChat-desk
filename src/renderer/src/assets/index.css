@@ -44,6 +44,66 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.9);
 }
 
+/* 仿液态玻璃：8px 轻模糊 + 高可读微透渐变 + 玻璃高光边与内发光
+   仅用于弹窗本体、下拉菜单与局部浮层；禁止用于全屏 fixed inset-0 遮罩，避免 Electron 跨 webview 卡顿 */
+.liquid-glass-menu {
+  background:
+    radial-gradient(125% 70% at 22% 0%, rgba(255, 255, 255, 0.58) 0%, rgba(255, 255, 255, 0) 58%),
+    linear-gradient(160deg, rgba(255, 255, 255, 0.86) 0%, rgba(246, 250, 255, 0.78) 55%, rgba(242, 247, 255, 0.84) 100%);
+  backdrop-filter: blur(8px) saturate(145%);
+  -webkit-backdrop-filter: blur(8px) saturate(145%);
+  border: 1px solid rgba(255, 255, 255, 0.82);
+  box-shadow:
+    inset 0 1.5px 0 0 rgba(255, 255, 255, 0.96),
+    inset 0 -1px 0 0 rgba(59, 130, 246, 0.08),
+    inset 0 0 16px 0 rgba(255, 255, 255, 0.36),
+    0 0 0 1px rgba(15, 23, 42, 0.065),
+    0 16px 36px -10px rgba(15, 23, 42, 0.16),
+    0 6px 14px -4px rgba(59, 130, 246, 0.09);
+}
+
+.dark .liquid-glass-menu {
+  background:
+    radial-gradient(125% 70% at 22% 0%, rgba(255, 255, 255, 0.09) 0%, rgba(255, 255, 255, 0) 58%),
+    linear-gradient(160deg, rgba(35, 42, 54, 0.84) 0%, rgba(24, 29, 39, 0.78) 55%, rgba(30, 36, 48, 0.83) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.24),
+    inset 0 -1px 0 0 rgba(96, 165, 250, 0.08),
+    inset 0 0 16px 0 rgba(255, 255, 255, 0.03),
+    0 0 0 1px rgba(0, 0, 0, 0.44),
+    0 20px 44px -10px rgba(0, 0, 0, 0.62);
+}
+
+.liquid-glass-modal {
+  background:
+    radial-gradient(125% 70% at 22% 0%, rgba(255, 255, 255, 0.65) 0%, rgba(255, 255, 255, 0) 58%),
+    linear-gradient(160deg, rgba(255, 255, 255, 0.88) 0%, rgba(246, 250, 255, 0.82) 55%, rgba(242, 247, 255, 0.87) 100%);
+  backdrop-filter: blur(8px) saturate(145%);
+  -webkit-backdrop-filter: blur(8px) saturate(145%);
+  border: 1px solid rgba(255, 255, 255, 0.84);
+  box-shadow:
+    inset 0 1.5px 0 0 rgba(255, 255, 255, 0.98),
+    inset 0 -1px 0 0 rgba(59, 130, 246, 0.09),
+    inset 0 0 20px 0 rgba(255, 255, 255, 0.42),
+    0 0 0 1px rgba(15, 23, 42, 0.07),
+    0 22px 48px -12px rgba(15, 23, 42, 0.18),
+    0 8px 20px -6px rgba(59, 130, 246, 0.10);
+}
+
+.dark .liquid-glass-modal {
+  background:
+    radial-gradient(125% 70% at 22% 0%, rgba(255, 255, 255, 0.09) 0%, rgba(255, 255, 255, 0) 58%),
+    linear-gradient(160deg, rgba(35, 42, 54, 0.86) 0%, rgba(24, 29, 39, 0.80) 55%, rgba(30, 36, 48, 0.85) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.24),
+    inset 0 -1px 0 0 rgba(96, 165, 250, 0.08),
+    inset 0 0 18px 0 rgba(255, 255, 255, 0.03),
+    0 0 0 1px rgba(0, 0, 0, 0.45),
+    0 24px 52px -12px rgba(0, 0, 0, 0.64);
+}
+
 /* 滚动条样式 */
 ::-webkit-scrollbar {
   width: 8px;
@@ -327,6 +387,88 @@ webview[tabindex="-1"] {
 .PlaygroundEditorTheme__textSuperscript {
   font-size: 0.8em;
   vertical-align: super;
+}
+.PlaygroundEditorTheme__footnoteRef {
+  cursor: pointer;
+}
+.workbench-footnote-ref-pill {
+  font-size: 0.72em;
+  color: rgb(37, 99, 235);
+  background-color: rgba(59, 130, 246, 0.12);
+}
+.workbench-footnote-ref-pill:hover {
+  background-color: rgba(59, 130, 246, 0.22);
+}
+.dark .workbench-footnote-ref-pill {
+  color: rgb(96, 165, 250);
+  background-color: rgba(59, 130, 246, 0.2);
+}
+.dark .workbench-footnote-ref-pill:hover {
+  background-color: rgba(59, 130, 246, 0.32);
+}
+[data-footnote-missing='true'] .workbench-footnote-ref-pill {
+  color: rgb(217, 119, 6);
+  background-color: rgba(245, 158, 11, 0.14);
+  border: 1px dashed rgba(245, 158, 11, 0.55);
+}
+.dark [data-footnote-missing='true'] .workbench-footnote-ref-pill {
+  color: rgb(251, 191, 36);
+  background-color: rgba(245, 158, 11, 0.18);
+  border-color: rgba(251, 191, 36, 0.5);
+}
+.PlaygroundEditorTheme__footnoteDef {
+  position: relative;
+  margin: 4px 0;
+  padding: 2px 0;
+  border-radius: 4px;
+  font-size: 0.92em;
+  line-height: 1.6;
+  color: #4b5563;
+}
+.dark .PlaygroundEditorTheme__footnoteDef {
+  color: #9ca3af;
+}
+.PlaygroundEditorTheme__footnoteDef::before {
+  content: attr(data-footnote-def-id);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  margin-right: 8px;
+  border-radius: 4px;
+  font-size: 0.78em;
+  font-weight: 600;
+  line-height: 1;
+  vertical-align: 1px;
+  color: rgb(37, 99, 235);
+  background-color: rgba(59, 130, 246, 0.12);
+  cursor: pointer;
+  user-select: none;
+}
+.dark .PlaygroundEditorTheme__footnoteDef::before {
+  color: rgb(147, 197, 253);
+  background-color: rgba(59, 130, 246, 0.22);
+}
+.PlaygroundEditorTheme__footnoteDef[data-footnote-unreferenced='true']::before {
+  color: #6b7280;
+  background-color: rgba(107, 114, 128, 0.14);
+}
+.dark .PlaygroundEditorTheme__footnoteDef[data-footnote-unreferenced='true']::before {
+  color: #9ca3af;
+  background-color: rgba(156, 163, 175, 0.2);
+}
+.workbench-footnote-flash {
+  animation: workbench-footnote-pulse 1.2s ease-out;
+}
+@keyframes workbench-footnote-pulse {
+  0% {
+    background-color: rgba(59, 130, 246, 0.12);
+  }
+  100% {
+    background-color: transparent;
+  }
 }
 .PlaygroundEditorTheme__textLowercase {
   text-transform: lowercase;

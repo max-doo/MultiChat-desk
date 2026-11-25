@@ -468,8 +468,8 @@ export default function CustomContextMenu(): JSX.Element | null {
       <div
         className={`fixed z-50 select-none animate-in fade-in zoom-in-95 duration-100 ${
           menuState.workbenchStyle
-            ? 'min-w-[190px] py-1.5 bg-white/95 dark:bg-gray-800/95 backdrop-blur-md rounded-xl shadow-xl border border-black/10 dark:border-white/10 text-sm'
-            : 'w-52 rounded-2xl bg-white/95 dark:bg-gray-800/95 backdrop-blur-md border border-gray-200/80 dark:border-gray-700/80 shadow-float p-1.5'
+            ? 'min-w-[190px] py-1.5 liquid-glass-menu rounded-xl text-sm'
+            : 'w-52 rounded-2xl liquid-glass-menu p-1.5'
         }`}
         style={{ left: menuPosition.x, top: menuPosition.y }}
         onMouseDown={(e) => e.stopPropagation()}

@@ -497,7 +497,7 @@ export default function WorkbenchWorkspaceSettings({
       />
 
       {/* 顶部标签栏 */}
-      <div className="flex shrink-0 gap-5 border-b border-black/5 bg-white px-4 pt-2.5 text-body dark:border-white/5 dark:bg-gray-800">
+      <div className="flex shrink-0 gap-5 border-b border-black/5 px-4 pt-2.5 text-body dark:border-white/5">
         <button
           type="button"
           onClick={() => setActiveTab('sync')}

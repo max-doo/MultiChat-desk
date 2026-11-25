@@ -1,0 +1,1684 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="dark" data-grad-palette="horizon-silk">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MultiChat Desk · 深色模式设计原型</title>
+  <!-- Created: 2026-11-25 16:56 (+08:00) -->
+  <style>
+    :root {
+      --font-sans: "Google Sans Flex", "Google Sans", "PingFang SC", "Microsoft YaHei", "Noto Sans SC", -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-mono: "JetBrains Mono", "Cascadia Code", "Consolas", "Menlo", monospace;
+
+      /* Light Mode (Exact --app-bg from index.css) */
+      --bg-canvas: radial-gradient(ellipse at bottom, #FFFEF5 0%, #FFF2F5 30%, #F5F9FF 65%, #EBF4FF 100%);
+      --noise-opacity: 0;
+      --glass-bg: rgba(255, 255, 255, 0.70);
+      --glass-border: rgba(255, 255, 255, 0.82);
+      --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.90);
+      --glass-heavy-bg: rgba(255, 255, 255, 0.85);
+      --glass-heavy-border: rgba(255, 255, 255, 0.92);
+      --glass-heavy-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.96);
+
+      --surface-solid: #FFFFFF;
+      --surface-elevated: #F8FAFC;
+      --surface-code: #F1F4F8;
+      --surface-subtle: rgba(15, 23, 42, 0.045);
+      --surface-hover: rgba(15, 23, 42, 0.065);
+      --surface-input: rgba(255, 255, 255, 0.65);
+
+      --border-subtle: rgba(15, 23, 42, 0.07);
+      --border-strong: rgba(15, 23, 42, 0.13);
+
+      --text-primary: #1F2937;
+      --text-secondary: #6B7280;
+      --text-muted: #9CA3AF;
+
+      --primary: #3B82F6;
+      --primary-fill: #3B82F6;
+      --primary-fill-hover: #2563EB;
+      --primary-soft-bg: rgba(239, 246, 255, 0.88);
+      --primary-soft-border: rgba(147, 197, 253, 0.95);
+
+      --seg-track-bg: rgba(229, 231, 235, 0.65);
+      --seg-active-bg: #FFFFFF;
+      --seg-active-text: #3B82F6;
+      --seg-active-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+
+      --shadow-soft: 0 10px 34px -10px rgba(15, 23, 42, 0.10), 0 4px 12px rgba(15, 23, 42, 0.05);
+      --shadow-float: 0 12px 32px rgba(83, 156, 254, 0.14), 0 4px 12px rgba(0, 0, 0, 0.04);
+      --shadow-modal: 0 24px 60px -12px rgba(15, 23, 42, 0.22);
+
+      --badge-green-bg: rgba(16, 185, 129, 0.12);
+      --badge-green-text: #047857;
+      --badge-amber-bg: rgba(245, 158, 11, 0.12);
+      --badge-amber-text: #B45309;
+      --switch-off: #CBD5E1;
+      --mark-bg: rgba(252, 211, 77, 0.24);
+      --mark-border: rgba(217, 119, 6, 0.6);
+      --scrollbar-thumb: rgba(15, 23, 42, 0.16);
+    }
+
+    /* Dark Mode: Neutral Dark Gray (Zinc) Component Surfaces + Asymmetric Blue & Hint-of-Pink Glow */
+    html.dark {
+      --noise-opacity: 0.012;
+
+      /* Neutral Dark Gray Translucent Glass (54%~72% opacity + top specular sheen, zero blue cast) */
+      --glass-bg: rgba(24, 24, 27, 0.54);
+      --glass-sheen: radial-gradient(125% 70% at 20% 0%, rgba(255, 255, 255, 0.055) 0%, rgba(255, 255, 255, 0) 58%);
+      --glass-border: rgba(255, 255, 255, 0.10);
+      --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.09);
+      --glass-heavy-bg: rgba(27, 27, 31, 0.72);
+      --glass-heavy-sheen: radial-gradient(125% 70% at 20% 0%, rgba(255, 255, 255, 0.075) 0%, rgba(255, 255, 255, 0) 58%);
+      --glass-heavy-border: rgba(255, 255, 255, 0.135);
+      --glass-heavy-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.13);
+
+      /* Neutral Dark Gray Solid Surfaces for Workbench Editor & Solid Modals */
+      --surface-solid: #18181B;
+      --surface-elevated: rgba(255, 255, 255, 0.05);
+      --surface-code: #111114;
+      --surface-subtle: rgba(255, 255, 255, 0.055);
+      --surface-hover: rgba(255, 255, 255, 0.095);
+      --surface-input: rgba(255, 255, 255, 0.06);
+
+      --border-subtle: rgba(255, 255, 255, 0.08);
+      --border-strong: rgba(255, 255, 255, 0.14);
+
+      --text-primary: #F4F4F5;
+      --text-secondary: #A1A1AA;
+      --text-muted: #71717A;
+
+      --primary: #60A5FA;
+      --primary-fill: #3B82F6;
+      --primary-fill-hover: #4F92FA;
+      --primary-soft-bg: rgba(59, 130, 246, 0.18);
+      --primary-soft-border: rgba(96, 165, 250, 0.42);
+
+      --seg-track-bg: rgba(255, 255, 255, 0.07);
+      --seg-active-bg: rgba(255, 255, 255, 0.13);
+      --seg-active-text: #FFFFFF;
+      --seg-active-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10), 0 1px 3px rgba(0, 0, 0, 0.25);
+
+      --shadow-soft: 0 12px 32px -12px rgba(0, 0, 0, 0.42);
+      --shadow-float: 0 16px 40px -10px rgba(0, 0, 0, 0.50);
+      --shadow-modal: 0 28px 70px -14px rgba(0, 0, 0, 0.72), 0 0 0 1px rgba(255, 255, 255, 0.08);
+
+      --badge-green-bg: rgba(52, 211, 153, 0.14);
+      --badge-green-text: #34D399;
+      --badge-amber-bg: rgba(251, 191, 36, 0.14);
+      --badge-amber-text: #FBBF24;
+      --switch-off: rgba(255, 255, 255, 0.16);
+      --mark-bg: rgba(252, 211, 77, 0.12);
+      --mark-border: rgba(251, 191, 36, 0.55);
+      --scrollbar-thumb: rgba(255, 255, 255, 0.15);
+    }
+
+    /* 3 Bottom-Only Seamless Fused Gradients: Top 45% stays pure #101115; Bottom fuses Blue -> Cool Mist -> Soft Pink seamlessly */
+    html.dark[data-grad-palette="horizon-silk"] {
+      --bg-canvas:
+        radial-gradient(142% 62% at 50% 106%,
+          rgba(16, 17, 21, 0) 0%,
+          rgba(16, 17, 21, 0.10) 20%,
+          rgba(16, 17, 21, 0.38) 42%,
+          rgba(16, 17, 21, 0.76) 64%,
+          rgba(16, 17, 21, 0.96) 80%,
+          #101115 90%),
+        linear-gradient(96deg,
+          #1B4B9C 0%,
+          #245CB3 24%,
+          #335A9E 46%,
+          #4E4974 66%,
+          #69415E 84%,
+          #753E54 100%);
+    }
+    html.dark[data-grad-palette="horizon-wave"] {
+      --bg-canvas:
+        radial-gradient(145% 64% at 50% 106%,
+          rgba(16, 17, 21, 0) 0%,
+          rgba(16, 17, 21, 0.08) 22%,
+          rgba(16, 17, 21, 0.34) 44%,
+          rgba(16, 17, 21, 0.74) 66%,
+          rgba(16, 17, 21, 0.96) 82%,
+          #101115 92%),
+        radial-gradient(85% 44% at 32% 104%,
+          rgba(96, 165, 250, 0.22) 0%,
+          rgba(255, 200, 218, 0.10) 54%,
+          rgba(16, 17, 21, 0) 84%),
+        linear-gradient(106deg,
+          #19499B 0%,
+          #2764BD 26%,
+          #3B5FA1 48%,
+          #594A75 70%,
+          #7A415B 100%);
+    }
+    html.dark[data-grad-palette="horizon-mist"] {
+      --bg-canvas:
+        radial-gradient(138% 60% at 50% 106%,
+          rgba(16, 17, 21, 0) 0%,
+          rgba(16, 17, 21, 0.14) 22%,
+          rgba(16, 17, 21, 0.46) 44%,
+          rgba(16, 17, 21, 0.80) 66%,
+          rgba(16, 17, 21, 0.97) 82%,
+          #101115 92%),
+        linear-gradient(96deg,
+          #1A3D78 0%,
+          #244D8F 26%,
+          #314B7B 48%,
+          #483F61 70%,
+          #5D374B 100%);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      height: 100%;
+      font-family: var(--font-sans);
+      background: #0B0B0D;
+      color: var(--text-primary);
+      font-size: 14px;
+      line-height: 21px;
+      -webkit-font-smoothing: antialiased;
+      overflow: hidden;
+    }
+
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 99px; }
+
+    /* Prototype Frame */
+    .studio-shell {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      padding: 10px 14px 14px;
+      gap: 10px;
+      background: #0B0B0D;
+      transition: background 0.25s ease;
+    }
+    html:not(.dark) .studio-shell { background: #E5ECF4; }
+
+    .studio-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 6px 12px;
+      border-radius: 12px;
+      background: rgba(24, 24, 27, 0.92);
+      border: 1px solid rgba(255, 255, 255, 0.10);
+      color: #E5E7EB;
+      font-size: 12px;
+      flex-shrink: 0;
+      flex-wrap: wrap;
+    }
+    html:not(.dark) .studio-bar {
+      background: rgba(255, 255, 255, 0.90);
+      border-color: rgba(15, 23, 42, 0.08);
+      color: #1F2937;
+    }
+
+    .studio-brand { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+    .studio-badge {
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.08);
+      color: #D1D5DB;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+    }
+    html:not(.dark) .studio-badge { background: #EFF6FF; color: #2563EB; border-color: #BFDBFE; }
+
+    .studio-tabs, .studio-controls { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .studio-tab {
+      border: 1px solid transparent;
+      background: transparent;
+      color: inherit;
+      opacity: 0.68;
+      padding: 4px 10px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .studio-tab:hover { opacity: 1; background: rgba(128, 128, 128, 0.14); }
+    .studio-tab.active {
+      opacity: 1;
+      background: rgba(59, 130, 246, 0.22);
+      color: #7CB3FF;
+      border-color: rgba(96, 165, 250, 0.35);
+    }
+    html:not(.dark) .studio-tab.active { background: #EFF6FF; color: #2563EB; border-color: #BFDBFE; }
+
+    .studio-pill-group {
+      display: inline-flex;
+      padding: 2px;
+      border-radius: 9px;
+      background: rgba(128, 128, 128, 0.16);
+      gap: 2px;
+    }
+    .studio-pill-btn {
+      border: none;
+      background: transparent;
+      color: inherit;
+      opacity: 0.72;
+      padding: 4px 9px;
+      border-radius: 7px;
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .studio-pill-btn.active {
+      opacity: 1;
+      background: #3B82F6;
+      color: #FFFFFF;
+      box-shadow: 0 2px 8px rgba(59, 130, 246, 0.4);
+    }
+    .studio-pill-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+    /* Electron Window */
+    .electron-window {
+      position: relative;
+      flex: 1;
+      min-height: 0;
+      border-radius: 14px;
+      overflow: hidden;
+      background: var(--bg-canvas);
+      color: var(--text-primary);
+      border: 1px solid var(--border-strong);
+      box-shadow: 0 28px 70px -16px rgba(0, 0, 0, 0.72);
+      display: flex;
+      flex-direction: column;
+      transition: background 0.3s ease, color 0.2s ease;
+    }
+    html:not(.dark) .electron-window { box-shadow: 0 20px 50px -15px rgba(15, 23, 42, 0.18); }
+
+    .electron-window::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      opacity: var(--noise-opacity);
+      z-index: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    }
+
+    .glass-panel {
+      background: var(--glass-sheen, none), var(--glass-bg);
+      backdrop-filter: blur(22px) saturate(140%);
+      -webkit-backdrop-filter: blur(22px) saturate(140%);
+      border: 1px solid var(--glass-border);
+      box-shadow: var(--glass-highlight), var(--shadow-soft);
+    }
+
+    .glass-panel-heavy {
+      background: var(--glass-heavy-sheen, none), var(--glass-heavy-bg);
+      backdrop-filter: blur(22px) saturate(145%);
+      -webkit-backdrop-filter: blur(22px) saturate(145%);
+      border: 1px solid var(--glass-heavy-border);
+      box-shadow: var(--glass-heavy-highlight), var(--shadow-float);
+    }
+
+    /* Titlebar */
+    .titlebar {
+      position: relative;
+      z-index: 10;
+      height: 38px;
+      padding-left: 16px;
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      flex-shrink: 0;
+      user-select: none;
+    }
+    .titlebar-left { display: flex; align-items: center; gap: 10px; }
+
+    .mode-segmented {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px;
+      border-radius: 8px;
+      background: var(--seg-track-bg);
+      gap: 2px;
+    }
+    .mode-seg-btn {
+      border: none;
+      background: transparent;
+      color: var(--text-secondary);
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .mode-seg-btn:hover { color: var(--text-primary); }
+    .mode-seg-btn.active {
+      background: var(--seg-active-bg);
+      color: var(--seg-active-text);
+      box-shadow: var(--seg-active-shadow);
+    }
+
+    .nav-entry-btn {
+      height: 28px;
+      padding: 0 8px;
+      border-radius: 8px;
+      border: none;
+      background: transparent;
+      color: var(--text-secondary);
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 12px;
+      cursor: pointer;
+      position: relative;
+      transition: all 0.15s ease;
+    }
+    .nav-entry-btn:hover, .nav-entry-btn.active {
+      color: var(--primary);
+      background: var(--surface-hover);
+    }
+
+    .layout-pill {
+      display: inline-flex;
+      align-items: center;
+      padding: 3px;
+      gap: 2px;
+      border-radius: 999px;
+    }
+    .layout-pill-btn {
+      width: 30px;
+      height: 22px;
+      border-radius: 999px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--text-secondary);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .layout-pill-btn:hover { color: var(--primary); background: var(--surface-subtle); }
+    .layout-pill-btn.active {
+      background: var(--primary-soft-bg);
+      color: var(--primary);
+      border-color: var(--primary-soft-border);
+    }
+    .layout-glyph {
+      width: 16px;
+      height: 10px;
+      border: 1.4px solid currentColor;
+      border-radius: 2px;
+      display: flex;
+    }
+    .layout-glyph.grid-4 { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
+    .layout-glyph > span { flex: 1; border-right: 1.4px solid currentColor; }
+    .layout-glyph > span:last-child { border-right: none; }
+    .layout-glyph.grid-4 > span { border-right: 1.4px solid currentColor; border-bottom: 1.4px solid currentColor; }
+    .layout-glyph.grid-4 > span:nth-child(2n) { border-right: none; }
+    .layout-glyph.grid-4 > span:nth-child(n+3) { border-bottom: none; }
+
+    .titlebar-right { display: flex; align-items: center; justify-content: flex-end; height: 100%; }
+    .win-captions { display: flex; height: 100%; }
+    .win-cap-btn {
+      width: 46px;
+      height: 100%;
+      border: none;
+      background: transparent;
+      color: var(--text-primary);
+      opacity: 0.78;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+    .win-cap-btn:hover { background: var(--surface-hover); opacity: 1; }
+    .win-cap-btn.close:hover { background: #C42B1C; color: #FFFFFF; opacity: 1; }
+
+    .app-main {
+      position: relative;
+      z-index: 1;
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .page-view { display: none; height: 100%; width: 100%; min-height: 0; }
+    .page-view.active { display: flex; flex-direction: column; }
+
+    /* ==================== 1. MAIN PAGE ==================== */
+    .main-grid-wrap {
+      flex: 1;
+      min-height: 0;
+      padding: 10px 20px 14px;
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+    .main-grid-wrap.cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .main-grid-wrap.cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .main-grid-wrap.cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+
+    .webview-card {
+      border-radius: 16px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+    .webview-header {
+      padding: 10px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border-subtle);
+      flex-shrink: 0;
+    }
+    .model-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 2px 6px;
+      margin-left: -6px;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    .model-chip:hover { background: var(--surface-subtle); }
+    .model-chip h3 { font-size: 13.5px; font-weight: 600; color: var(--text-primary); }
+
+    .icon-btn {
+      width: 28px;
+      height: 28px;
+      border-radius: 999px;
+      border: none;
+      background: transparent;
+      color: var(--text-secondary);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .icon-btn:hover { background: var(--surface-hover); color: var(--text-primary); }
+    .icon-btn.active { background: var(--primary-soft-bg); color: var(--primary); }
+
+    .webview-body {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 12px 14px 14px;
+      overflow-y: auto;
+    }
+    .wv-topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+    .wv-center-welcome {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      gap: 12px;
+      margin: auto 0;
+      padding: 12px 4px;
+    }
+    .wv-welcome-title {
+      font-size: 19px;
+      line-height: 27px;
+      font-weight: 500;
+      color: var(--text-primary);
+      letter-spacing: -0.01em;
+    }
+    .wv-menu-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      width: 100%;
+      margin-top: auto;
+      padding: 0 6px 14px;
+      font-size: 12.5px;
+      color: var(--text-secondary);
+    }
+    .wv-menu-row { display: flex; align-items: center; gap: 10px; }
+
+    .wv-inner-input {
+      border-radius: 16px;
+      border: 1px solid var(--border-strong);
+      background: var(--surface-input);
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    .wv-inner-input.pill {
+      flex-direction: row;
+      align-items: center;
+      border-radius: 999px;
+      padding: 8px 12px;
+    }
+    .wv-inner-text { font-size: 12.5px; line-height: 1.5; color: var(--text-primary); opacity: 0.9; }
+    .wv-inner-placeholder { font-size: 12.5px; color: var(--text-muted); flex: 1; }
+    .wv-inner-foot {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: var(--text-secondary);
+      font-size: 11.5px;
+    }
+    .wv-mini-send {
+      width: 26px;
+      height: 26px;
+      border-radius: 999px;
+      background: var(--text-primary);
+      color: var(--surface-solid);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    html:not(.dark) .wv-mini-send { background: #1F2937; color: #FFFFFF; }
+
+    /* ControlBar */
+    .control-bar-wrap { padding: 0 20px 18px; flex-shrink: 0; }
+    .control-bar { display: flex; align-items: center; gap: 20px; }
+    .func-group { display: flex; align-items: center; gap: 18px; flex-shrink: 0; }
+    .func-btn {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      border: none;
+      background: transparent;
+      color: var(--text-secondary);
+      font-size: 11.5px;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    .func-btn:hover, .func-btn.active { color: var(--primary); }
+    .func-circle {
+      width: 40px;
+      height: 40px;
+      border-radius: 999px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.16s ease;
+    }
+    .func-btn:hover .func-circle, .func-btn.active .func-circle {
+      background: var(--primary-soft-bg);
+      border-color: var(--primary-soft-border);
+      color: var(--primary);
+    }
+
+    .composer-box {
+      flex: 1;
+      min-width: 0;
+      height: 78px;
+      padding: 12px 14px;
+      border-radius: 22px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .composer-textarea {
+      flex: 1;
+      height: 100%;
+      border: none;
+      background: transparent;
+      color: var(--text-primary);
+      font-family: inherit;
+      font-size: 13.5px;
+      line-height: 22px;
+      resize: none;
+      outline: none;
+    }
+    .composer-textarea::placeholder { color: var(--text-secondary); }
+
+    .send-circle {
+      width: 42px;
+      height: 42px;
+      border-radius: 999px;
+      border: none;
+      background: var(--primary-fill);
+      color: #FFFFFF;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      flex-shrink: 0;
+      box-shadow: 0 4px 16px rgba(59, 130, 246, 0.42);
+      transition: transform 0.12s ease, background 0.15s;
+    }
+    .send-circle:hover { background: var(--primary-fill-hover); transform: translateY(-1px); }
+
+    .summary-cta {
+      flex-shrink: 0;
+      height: 40px;
+      padding: 0 18px;
+      border-radius: 999px;
+      border: none;
+      background: linear-gradient(135deg, #3B82F6 0%, #2563EB 100%);
+      color: #FFFFFF;
+      font-size: 13px;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      box-shadow: 0 8px 24px -4px rgba(59, 130, 246, 0.45);
+    }
+
+    /* ==================== 2. WORKBENCH PAGE ==================== */
+    .workbench-layout { flex: 1; min-height: 0; display: flex; width: 100%; }
+    .wb-left {
+      width: 242px;
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid var(--border-subtle);
+      user-select: none;
+    }
+    .wb-left-toolbar {
+      height: 44px;
+      padding: 0 10px;
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .wb-tool-icons { display: flex; align-items: center; gap: 2px; }
+    .wb-tree-scroll { flex: 1; overflow-y: auto; padding: 8px 6px; font-size: 13px; }
+    .tree-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 8px;
+      border-radius: 6px;
+      cursor: pointer;
+      color: var(--text-primary);
+    }
+    .tree-item:hover { background: var(--surface-subtle); }
+    .tree-item.active { background: var(--primary-soft-bg); color: var(--primary); font-weight: 500; }
+    .tree-git { margin-left: auto; font-size: 11px; font-weight: 600; }
+    .wb-left-footer {
+      height: 40px;
+      border-top: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 10px;
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+
+    .wb-center {
+      flex: 1;
+      min-width: 0;
+      background: var(--surface-solid);
+      border-top: 1px solid var(--border-subtle);
+      border-left: 1px solid var(--border-subtle);
+      border-right: 1px solid var(--border-subtle);
+      border-radius: 12px 12px 0 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      position: relative;
+      margin-left: 4px;
+    }
+    .wb-editor-toolbar {
+      height: 42px;
+      padding: 0 14px;
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+    .wb-fmt-group { display: flex; align-items: center; gap: 2px; }
+    .wb-fmt-btn {
+      height: 28px;
+      min-width: 28px;
+      padding: 0 6px;
+      border-radius: 6px;
+      border: none;
+      background: transparent;
+      color: var(--text-secondary);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .wb-fmt-btn:hover { background: var(--surface-subtle); color: var(--text-primary); }
+    .wb-fmt-btn.active { background: var(--primary-soft-bg); color: var(--primary); }
+
+    .wb-doc-scroll { flex: 1; overflow-y: auto; padding: 28px 46px 72px; }
+    .wb-doc-inner { max-width: 720px; margin: 0 auto; }
+    .wb-doc-title { font-size: 24px; line-height: 32px; font-weight: 700; margin-bottom: 12px; }
+    .wb-frontmatter {
+      border: 1px solid var(--border-subtle);
+      background: var(--surface-elevated);
+      border-radius: 10px;
+      padding: 10px 14px;
+      margin-bottom: 22px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 12px;
+    }
+    .fm-row { display: flex; align-items: center; gap: 12px; }
+    .fm-key { width: 64px; color: var(--text-muted); font-size: 11px; }
+    .fm-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+    .fm-tag {
+      padding: 1px 8px;
+      border-radius: 999px;
+      background: var(--primary-soft-bg);
+      color: var(--primary);
+      font-size: 11px;
+      font-weight: 500;
+    }
+    .wb-prose h2 {
+      font-size: 18px;
+      font-weight: 700;
+      margin: 22px 0 10px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    .wb-prose p { opacity: 0.9; line-height: 1.75; margin-bottom: 12px; }
+    .wb-quote {
+      border-left: 3px solid var(--primary);
+      padding: 8px 14px;
+      margin: 14px 0;
+      background: var(--surface-elevated);
+      border-radius: 0 8px 8px 0;
+      color: var(--text-secondary);
+      font-size: 13.5px;
+    }
+    .wb-mark {
+      background: var(--mark-bg);
+      border-bottom: 1px dashed var(--mark-border);
+      padding: 0 2px;
+      border-radius: 2px;
+    }
+    .wb-code-block {
+      background: var(--surface-code);
+      border: 1px solid var(--border-subtle);
+      border-radius: 8px;
+      padding: 12px 14px;
+      font-family: var(--font-mono);
+      font-size: 12.5px;
+      line-height: 1.6;
+      margin: 14px 0;
+    }
+    .tok-kw { color: #7CB3FF; }
+    .tok-fn { color: #F472B6; }
+    .tok-str { color: #34D399; }
+    .tok-cm { color: #64748B; }
+    html:not(.dark) .tok-kw { color: #0550AE; }
+    html:not(.dark) .tok-fn { color: #CF222E; }
+    html:not(.dark) .tok-str { color: #116329; }
+
+    .wb-status-pill {
+      position: absolute;
+      right: 18px;
+      bottom: 14px;
+      padding: 4px 12px;
+      border-radius: 999px;
+      font-size: 11px;
+      color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .wb-right {
+      width: 340px;
+      flex-shrink: 0;
+      margin-left: 6px;
+      background: var(--surface-solid);
+      border-top: 1px solid var(--border-subtle);
+      border-left: 1px solid var(--border-subtle);
+      border-radius: 12px 0 0 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .agent-header {
+      height: 42px;
+      padding: 0 12px;
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .agent-stream { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+    .agent-user-bubble {
+      align-self: flex-end;
+      max-width: 85%;
+      background: var(--primary-fill);
+      color: #FFFFFF;
+      padding: 9px 13px;
+      border-radius: 16px 16px 4px 16px;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    .agent-thinking {
+      border: 1px solid var(--border-subtle);
+      background: var(--surface-elevated);
+      border-radius: 10px;
+      padding: 8px 10px;
+      font-size: 12px;
+      color: var(--text-secondary);
+      display: flex;
+      justify-content: space-between;
+    }
+    .agent-tool-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 10px;
+      border-radius: 8px;
+      border: 1px solid var(--border-subtle);
+      background: var(--surface-subtle);
+      font-size: 11.5px;
+      color: var(--text-secondary);
+      align-self: flex-start;
+    }
+    .agent-composer-wrap { padding: 10px 12px 12px; border-top: 1px solid var(--border-subtle); }
+    .agent-composer {
+      border: 1px solid var(--border-strong);
+      background: var(--surface-elevated);
+      border-radius: 14px;
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    /* ==================== 3. SUMMARY PAGE ==================== */
+    .summary-layout { flex: 1; min-height: 0; display: flex; width: 100%; }
+    .summary-left { flex: 1; min-width: 0; padding: 14px 20px 20px; display: flex; flex-direction: column; gap: 12px; overflow: hidden; }
+    .summary-cards-scroll { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding-right: 4px; }
+    .output-card { border-radius: 12px; overflow: hidden; }
+    .output-card.selected { border-color: var(--primary-soft-border); }
+    .output-card-head {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .check-box {
+      width: 18px;
+      height: 18px;
+      border-radius: 5px;
+      border: 1.5px solid var(--text-muted);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+    }
+    .check-box.checked { background: var(--primary-fill); border-color: var(--primary-fill); color: #FFFFFF; }
+    .output-card-body { padding: 14px 16px; font-size: 13px; line-height: 1.7; color: var(--text-secondary); }
+    .output-card-body strong { color: var(--text-primary); }
+    .summary-splitter { width: 4px; background: var(--border-subtle); cursor: col-resize; flex-shrink: 0; }
+    .summary-right { width: 43%; padding: 14px 20px 20px; display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+    .summary-composer { padding: 8px 10px; border-radius: 16px; display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+    .template-pill {
+      height: 30px;
+      padding: 0 12px;
+      border-radius: 999px;
+      background: var(--primary-soft-bg);
+      border: 1px solid var(--primary-soft-border);
+      color: var(--primary);
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    /* ==================== 4. SETTINGS PAGE ==================== */
+    .settings-layout { flex: 1; min-height: 0; display: flex; width: 100%; }
+    .settings-nav {
+      width: 236px;
+      flex-shrink: 0;
+      padding: 10px 12px 18px 20px;
+      border-right: 1px solid var(--border-subtle);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      user-select: none;
+    }
+    .settings-nav h1 { font-size: 24px; line-height: 32px; font-weight: 700; margin-bottom: 16px; padding-left: 4px; }
+    .nav-group-label { font-size: 11px; font-weight: 500; color: var(--text-muted); padding: 0 10px; margin-bottom: 6px; }
+    .settings-nav-item {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--text-secondary);
+      font-size: 13.5px;
+      cursor: pointer;
+      text-align: left;
+    }
+    .settings-nav-item:hover { background: var(--surface-subtle); color: var(--text-primary); }
+    .settings-nav-item.active {
+      background: var(--glass-heavy-bg);
+      border-color: var(--glass-border);
+      color: var(--primary);
+      font-weight: 500;
+      box-shadow: var(--glass-highlight);
+    }
+    .settings-content { flex: 1; overflow-y: auto; padding: 14px 36px 40px; }
+    .settings-inner { max-width: 720px; margin: 0 auto; display: flex; flex-direction: column; gap: 24px; }
+    .sec-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+    .sec-icon {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      background: var(--primary-soft-bg);
+      color: var(--primary);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .sec-title { font-size: 18px; font-weight: 600; }
+    .settings-card { border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+    .theme-cards-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .theme-option {
+      border-radius: 10px;
+      padding: 10px;
+      border: 1px solid var(--border-subtle);
+      background: var(--surface-subtle);
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .theme-option.active { border-color: var(--primary-soft-border); background: var(--primary-soft-bg); }
+    .theme-preview-mini { height: 46px; border-radius: 7px; border: 1px solid var(--border-subtle); position: relative; overflow: hidden; }
+    .toggle-switch {
+      width: 36px;
+      height: 20px;
+      border-radius: 99px;
+      background: var(--switch-off);
+      position: relative;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .toggle-switch.on { background: var(--primary-fill); }
+    .toggle-switch::after {
+      content: "";
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 16px;
+      height: 16px;
+      border-radius: 99px;
+      background: #FFFFFF;
+      transition: transform 0.2s;
+    }
+    .toggle-switch.on::after { transform: translateX(16px); }
+    .dark-input {
+      height: 36px;
+      width: 100%;
+      border-radius: 8px;
+      border: 1px solid var(--border-strong);
+      background: var(--surface-subtle);
+      padding: 0 10px;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      color: var(--text-primary);
+      outline: none;
+    }
+
+    /* ==================== 5. OVERLAYS ==================== */
+    .overlays-stage { flex: 1; min-height: 0; position: relative; display: flex; overflow: hidden; }
+    .history-drawer { width: 360px; height: 100%; border-right: 1px solid var(--border-strong); display: flex; flex-direction: column; }
+    .drawer-tabs { display: flex; gap: 20px; padding: 0 16px; border-bottom: 1px solid var(--border-subtle); }
+    .drawer-tab { padding: 10px 0; font-size: 13.5px; font-weight: 500; color: var(--text-secondary); border-bottom: 2px solid transparent; }
+    .drawer-tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+    .history-card { padding: 12px; border-radius: 10px; border: 1px solid var(--border-subtle); background: var(--surface-subtle); }
+    .history-card.active { border-color: var(--primary-soft-border); background: var(--primary-soft-bg); }
+    .modal-showcase {
+      flex: 1;
+      background: transparent;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 24px;
+      padding: 24px;
+      flex-wrap: wrap;
+    }
+    .modal-card { width: 336px; overflow: hidden; display: flex; flex-direction: column; }
+    .modal-solid { background: var(--surface-solid); border: 1px solid var(--border-strong); border-radius: 12px; box-shadow: var(--shadow-modal); }
+    .modal-glass { border-radius: 16px; }
+    .btn-primary { height: 34px; padding: 0 14px; border-radius: 8px; border: none; background: var(--primary-fill); color: #FFFFFF; font-size: 13px; font-weight: 500; cursor: pointer; }
+    .btn-secondary { height: 34px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--border-strong); background: var(--surface-subtle); color: var(--text-secondary); font-size: 13px; cursor: pointer; }
+    .btn-danger { height: 34px; padding: 0 14px; border-radius: 8px; border: none; background: #DC2626; color: #FFFFFF; font-size: 13px; font-weight: 500; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <div class="studio-shell">
+    <!-- Top Prototype Switcher -->
+    <div class="studio-bar">
+      <div class="studio-brand">
+        <span>MultiChat Desk · 深色模式原型 v7</span>
+        <span class="studio-badge">顶部纯底色 · 底部晴蓝融粉</span>
+      </div>
+      <div class="studio-tabs" id="pageTabs">
+        <button class="studio-tab active" data-page="main">主对话页</button>
+        <button class="studio-tab" data-page="workbench">工作台</button>
+        <button class="studio-tab" data-page="summary">总结页</button>
+        <button class="studio-tab" data-page="settings">设置页</button>
+        <button class="studio-tab" data-page="overlays">历史抽屉 & 弹窗</button>
+      </div>
+      <div class="studio-controls">
+        <div class="studio-pill-group" id="gradPaletteSwitch" title="三档顶部纯色+底部无缝融合渐变">
+          <button class="studio-pill-btn active" data-palette="horizon-silk">晴蓝融粉(推荐)</button>
+          <button class="studio-pill-btn" data-palette="horizon-wave">流波微倾</button>
+          <button class="studio-pill-btn" data-palette="horizon-mist">浅雾柔和</button>
+        </div>
+        <div class="studio-pill-group" id="themeSwitch">
+          <button class="studio-pill-btn active" data-theme="dark">深色 Dark</button>
+          <button class="studio-pill-btn" data-theme="light">浅色 Light</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Simulated Electron Desktop Window -->
+    <div class="electron-window">
+      <header class="titlebar">
+        <div class="titlebar-left">
+          <div class="mode-segmented" id="productModeSeg">
+            <button class="mode-seg-btn active" data-mode="multi_ai">多AI</button>
+            <button class="mode-seg-btn" data-mode="task_assignment">任务分配</button>
+            <button class="mode-seg-btn" data-mode="debate">辩论</button>
+            <button class="mode-seg-btn" data-mode="workbench">工作台</button>
+          </div>
+          <button class="nav-entry-btn" id="btnSettingsNav" title="设置">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.6.85 1 1.51 1H21a2 2 0 0 1 0 4h-.09c-.66 0-1.25.4-1.51 1Z"/></svg>
+            <span>设置</span>
+          </button>
+          <button class="nav-entry-btn" id="btnHistoryNav" title="历史记录">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg>
+            <span>历史</span>
+          </button>
+        </div>
+
+        <div style="display:flex;align-items:center;justify-content:center;">
+          <div class="layout-pill glass-panel" id="layoutPill">
+            <button class="layout-pill-btn" data-cols="2" title="双窗口"><div class="layout-glyph"><span></span><span></span></div></button>
+            <button class="layout-pill-btn" data-cols="3" title="三窗口"><div class="layout-glyph"><span></span><span></span><span></span></div></button>
+            <button class="layout-pill-btn active" data-cols="4" title="四窗口"><div class="layout-glyph grid-4"><span></span><span></span><span></span><span></span></div></button>
+          </div>
+          <div id="wbBreadcrumb" style="display:none;align-items:center;gap:6px;font-size:12px;">
+            <span style="font-weight:600;">KnowledgeVault</span>
+            <span style="opacity:0.45;">/</span>
+            <span style="color:var(--text-secondary);font-family:var(--font-mono);">architecture/dark-mode-spec.md</span>
+            <span style="width:6px;height:6px;border-radius:99px;background:var(--primary);"></span>
+          </div>
+        </div>
+
+        <div class="titlebar-right">
+          <div id="wbRightToggles" style="display:none;align-items:center;gap:4px;margin-right:8px;">
+            <button class="icon-btn" title="思维导图"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="9" width="5" height="6" rx="1"/><rect x="16" y="4" width="5" height="5" rx="1"/><rect x="16" y="15" width="5" height="5" rx="1"/><path d="M8 12h4m0-5v10m0-10h4m-4 10h4"/></svg></button>
+            <button class="icon-btn active" title="AI 侧边栏"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg></button>
+          </div>
+          <div class="win-captions">
+            <button class="win-cap-btn"><svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 5h10v1H0z" fill="currentColor"/></svg></button>
+            <button class="win-cap-btn"><svg width="10" height="10" viewBox="0 0 10 10"><path fill-rule="evenodd" d="M0 0h10v10H0V0Zm1 1v8h8V1H1Z" fill="currentColor"/></svg></button>
+            <button class="win-cap-btn close"><svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 0l10 10M10 0L0 10" stroke="currentColor" stroke-width="1.1"/></svg></button>
+          </div>
+        </div>
+      </header>
+
+      <main class="app-main">
+        <!-- ==================== 1. MAIN PAGE ==================== -->
+        <section class="page-view active" id="page-main">
+          <div class="main-grid-wrap cols-4" id="mainWebviewGrid">
+            <!-- ChatGPT -->
+            <div class="webview-card glass-panel">
+              <div class="webview-header">
+                <div class="model-chip">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9.5" stroke="currentColor" stroke-width="1.5" opacity="0.85"/><path d="M12 7.5a3 3 0 0 1 2.6 1.5l1.8 1a3 3 0 0 1 1 4.1l-.5.9a3 3 0 0 1-4.1 1l-.8-.4-.8.4a3 3 0 0 1-4.1-1l-.5-.9a3 3 0 0 1 1-4.1l1.8-1A3 3 0 0 1 12 7.5Z" stroke="currentColor" stroke-width="1.3"/></svg>
+                  <h3>ChatGPT</h3>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="opacity:0.55"><path d="m6 9 6 6 6-6"/></svg>
+                </div>
+                <button class="icon-btn" title="刷新"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg></button>
+              </div>
+              <div class="webview-body">
+                <div class="wv-topbar">
+                  <span style="display:flex;align-items:center;gap:8px;"><span>☰</span><span style="color:var(--primary);font-weight:500;">✦ 升级</span></span>
+                  <span>⚙</span>
+                </div>
+                <div class="wv-menu-list">
+                  <div class="wv-menu-row"><span>🖼</span><span>生成图片</span></div>
+                  <div class="wv-menu-row"><span>🔗</span><span>搜索或联网</span></div>
+                  <div class="wv-menu-row"><span>🌐</span><span>选择模型</span></div>
+                </div>
+                <div class="wv-inner-input">
+                  <div class="wv-inner-text">2026年上半年，全球各主要经济体针对 AI 大模型的监管政策</div>
+                  <div class="wv-inner-foot">
+                    <span style="font-size:16px;">+</span>
+                    <div style="display:flex;align-items:center;gap:10px;">
+                      <span>Instant ▾</span>
+                      <span class="wv-mini-send">↑</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Gemini -->
+            <div class="webview-card glass-panel">
+              <div class="webview-header">
+                <div class="model-chip">
+                  <svg width="18" height="18" viewBox="0 0 24 24"><defs><linearGradient id="gGem2" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#60A5FA"/><stop offset="50%" stop-color="#A78BFA"/><stop offset="100%" stop-color="#F472B6"/></linearGradient></defs><path d="M12 2c.6 5.2 4.8 9.4 10 10-5.2.6-9.4 4.8-10 10-.6-5.2-4.8-9.4-10-10 5.2-.6 9.4-4.8 10-10Z" fill="url(#gGem2)"/></svg>
+                  <h3>Gemini</h3>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="opacity:0.55"><path d="m6 9 6 6 6-6"/></svg>
+                </div>
+                <button class="icon-btn" title="刷新"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg></button>
+              </div>
+              <div class="webview-body">
+                <div class="wv-topbar">
+                  <span>☰ &nbsp; Gemini Flash ▾</span>
+                  <span>✎</span>
+                </div>
+                <div class="wv-center-welcome">
+                  <svg width="28" height="28" viewBox="0 0 24 24"><path d="M12 2c.6 5.2 4.8 9.4 10 10-5.2.6-9.4 4.8-10 10-.6-5.2-4.8-9.4-10-10 5.2-.6 9.4-4.8 10-10Z" fill="url(#gGem2)"/></svg>
+                  <div class="wv-welcome-title">嗨，<span style="color:var(--primary);">mike</span>，今天有<br/>什么安排？</div>
+                </div>
+                <div class="wv-inner-input pill">
+                  <span style="font-size:16px;color:var(--text-secondary);">+</span>
+                  <span class="wv-inner-placeholder">问问 Gemini</span>
+                  <span style="color:var(--text-secondary);font-size:13px;">🎙</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Grok -->
+            <div class="webview-card glass-panel" id="thirdCard">
+              <div class="webview-header">
+                <div class="model-chip">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.7"/><path d="M6 18 18 6" stroke="currentColor" stroke-width="1.7"/></svg>
+                  <h3>Grok</h3>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="opacity:0.55"><path d="m6 9 6 6 6-6"/></svg>
+                </div>
+                <button class="icon-btn" title="刷新"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg></button>
+              </div>
+              <div class="webview-body">
+                <div class="wv-topbar"><span>☰</span><span>👻</span></div>
+                <div class="wv-center-welcome">
+                  <div style="font-size:22px;font-weight:700;letter-spacing:-0.02em;display:flex;align-items:center;gap:8px;">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="2"/><path d="M5 19 19 5" stroke="currentColor" stroke-width="2"/></svg>
+                    <span>Grok</span>
+                  </div>
+                </div>
+                <div class="wv-inner-input pill">
+                  <span style="font-size:16px;color:var(--text-secondary);">+</span>
+                  <span class="wv-inner-placeholder">问 Grok</span>
+                  <span style="font-size:11px;color:var(--text-secondary);">Fast ▾</span>
+                  <span class="wv-mini-send">ılı</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Perplexity -->
+            <div class="webview-card glass-panel" id="fourthCard">
+              <div class="webview-header">
+                <div class="model-chip">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 3v18M4.5 7.5 19.5 16.5M19.5 7.5 4.5 16.5" stroke="#2DD4BF" stroke-width="1.6"/></svg>
+                  <h3>Perplexity</h3>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="opacity:0.55"><path d="m6 9 6 6 6-6"/></svg>
+                </div>
+                <button class="icon-btn" title="刷新"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg></button>
+              </div>
+              <div class="webview-body">
+                <div class="wv-topbar">
+                  <span style="display:flex;align-items:center;gap:6px;"><span>☰</span><span style="color:#2DD4BF;font-weight:600;">perplexity</span></span>
+                </div>
+                <div class="wv-center-welcome">
+                  <div class="wv-welcome-title">你想了解什么？</div>
+                </div>
+                <div class="wv-inner-input">
+                  <div class="wv-inner-placeholder">输入 / 以提问或搜索模式</div>
+                  <div class="wv-inner-foot">
+                    <span>+ &nbsp; 🔍 ▾ &nbsp; 🖼 &nbsp; 🌐</span>
+                    <span class="wv-mini-send" style="background:var(--surface-hover);color:var(--text-primary);">→</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="control-bar-wrap">
+            <div class="control-bar">
+              <div class="func-group">
+                <button class="func-btn">
+                  <span class="func-circle glass-panel"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg></span>
+                  <span>AI 生图</span>
+                </button>
+                <button class="func-btn">
+                  <span class="func-circle glass-panel"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M9 3h6M10 3v5l-4.5 8.5A2 2 0 0 0 7.2 19.5h9.6a2 2 0 0 0 1.7-3L14 8V3"/></svg></span>
+                  <span>深度研究</span>
+                </button>
+                <button class="func-btn">
+                  <span class="func-circle glass-panel"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 5v14M5 12h14"/></svg></span>
+                  <span>开启新对话</span>
+                </button>
+              </div>
+
+              <div class="composer-box glass-panel-heavy">
+                <button class="icon-btn" title="上传文件"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></button>
+                <textarea class="composer-textarea" placeholder="向 AI 模型提问...">2026年上半年，全球各主要经济体针对 AI 大模型的监管政策</textarea>
+                <button class="send-circle" title="发送"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
+              </div>
+
+              <button class="summary-cta">
+                <span>✦</span>
+                <span>生成总结</span>
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <!-- ==================== 2. WORKBENCH PAGE ==================== -->
+        <section class="page-view" id="page-workbench">
+          <div class="workbench-layout">
+            <aside class="wb-left">
+              <div class="wb-left-toolbar">
+                <div class="wb-tool-icons">
+                  <button class="icon-btn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg></button>
+                  <button class="icon-btn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M12 11v6M9 14h6"/></svg></button>
+                  <button class="icon-btn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2Z"/></svg></button>
+                  <button class="icon-btn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 6h18M6 12h12M10 18h4"/></svg></button>
+                </div>
+                <button class="icon-btn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg></button>
+              </div>
+              <div class="wb-tree-scroll">
+                <div class="tree-item"><span style="opacity:0.6">▾</span><span style="color:#F59E0B;">📁</span><span style="font-weight:500;">architecture</span><span class="tree-git" style="color:#F59E0B;">M</span></div>
+                <div class="tree-item active" style="padding-left:24px;"><span style="color:var(--primary);">📄</span><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">dark-mode-spec.md</span><span style="width:6px;height:6px;border-radius:99px;background:var(--primary);"></span><span class="tree-git" style="color:#F59E0B;">M</span></div>
+                <div class="tree-item" style="padding-left:24px;"><span style="color:var(--primary);">📄</span><span>webview-sync.md</span><span class="tree-git" style="color:#34D399;">U</span></div>
+                <div class="tree-item"><span style="opacity:0.6">▾</span><span style="color:#F59E0B;">📁</span><span style="font-weight:500;">research-notes</span></div>
+                <div class="tree-item" style="padding-left:24px;"><span style="color:var(--primary);">📄</span><span>2026-ai-policy.md</span></div>
+                <div class="tree-item" style="padding-left:24px;"><span style="color:var(--primary);">📄</span><span>fluent-acrylic.md</span></div>
+                <div class="tree-item"><span style="opacity:0.6">▸</span><span style="color:#A855F7;">📎</span><span>assets</span></div>
+                <div class="tree-item" style="padding-left:20px;"><span style="color:var(--primary);">📄</span><span>README.md</span></div>
+              </div>
+              <div class="wb-left-footer">
+                <span style="display:flex;align-items:center;gap:6px;"><span style="width:7px;height:7px;border-radius:99px;background:#34D399;"></span>KnowledgeVault</span>
+                <span style="font-family:var(--font-mono);font-size:11px;">main · 2M</span>
+              </div>
+            </aside>
+
+            <div class="wb-center">
+              <div class="wb-editor-toolbar">
+                <div class="wb-fmt-group">
+                  <button class="wb-fmt-btn">H1</button>
+                  <button class="wb-fmt-btn">H2</button>
+                  <button class="wb-fmt-btn" style="font-weight:700;">B</button>
+                  <button class="wb-fmt-btn" style="font-style:italic;">I</button>
+                  <button class="wb-fmt-btn" style="font-family:var(--font-mono);">&lt;/&gt;</button>
+                  <button class="wb-fmt-btn">❝</button>
+                  <button class="wb-fmt-btn">☑</button>
+                </div>
+                <div class="wb-fmt-group">
+                  <button class="wb-fmt-btn active">预览编辑</button>
+                  <button class="wb-fmt-btn">源码</button>
+                </div>
+              </div>
+
+              <div class="wb-doc-scroll">
+                <div class="wb-doc-inner">
+                  <div class="wb-doc-title">MultiChat Desk 深色模式视觉规范</div>
+                  <div class="wb-frontmatter">
+                    <div class="fm-row">
+                      <span class="fm-key">tags</span>
+                      <div class="fm-tags"><span class="fm-tag">design-system</span><span class="fm-tag">dark-mode</span><span class="fm-tag">neutral-gray</span></div>
+                    </div>
+                    <div class="fm-row">
+                      <span class="fm-key">status</span>
+                      <span style="color:var(--text-secondary);">Aligned with DESIGN.md · 2026-11-25</span>
+                    </div>
+                  </div>
+                  <div class="wb-prose">
+                    <h2>1. 顶部纯暗底 + 底部晴蓝融粉渐变</h2>
+                    <p>窗口顶部（含标题栏与窗口控制按钮区）完全保留纯净深炭灰 <code style="font-family:var(--font-mono);padding:1px 5px;border-radius:4px;background:var(--surface-code);font-size:12px;">#101115</code>，避免任何额外色光干扰；所有渐变仅从底部向上缓缓透出，并通过多停靠点横向连续过渡让 <span class="wb-mark">晴蓝与微粉自然熔合为一整条流畅的呼吸地平线</span>。</p>
+                    <div class="wb-quote">上层 6 段椭圆渐隐罩叠在微斜的横向蓝粉渐变之上，彻底消除了分体光斑的生硬边界。</div>
+                    <h2>2. 统一 CSS 变量示例</h2>
+                    <div class="wb-code-block"><span class="tok-cm">/* index.css · 顶部纯底色 + 底部无缝融合蓝粉渐变 */</span>
+<span class="tok-kw">.dark</span> {
+  <span class="tok-fn">--app-bg</span>:
+    <span class="tok-str">radial-gradient(142% 62% at 50% 106%, transparent 0%, rgba(16,17,21,0.38) 42%, #101115 90%)</span>,
+    <span class="tok-str">linear-gradient(96deg, #1B4B9C 0%, #245CB3 24%, #335A9E 46%, #4E4974 66%, #753E54 100%)</span>;
+  <span class="tok-fn">--glass-bg</span>: <span class="tok-str">rgba(24, 24, 27, 0.54)</span>;
+  <span class="tok-fn">--surface-solid</span>: <span class="tok-str">#18181B</span>;
+}</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="wb-status-pill glass-panel">
+                <span>1,428 字</span>
+                <span style="opacity:0.35;">|</span>
+                <span style="color:var(--badge-green-text);">已保存</span>
+              </div>
+            </div>
+
+            <aside class="wb-right">
+              <div class="agent-header">
+                <div style="display:flex;align-items:center;gap:8px;font-weight:600;font-size:13px;">
+                  <span style="width:20px;height:20px;border-radius:6px;background:var(--primary-soft-bg);color:var(--primary);display:inline-flex;align-items:center;justify-content:center;font-size:11px;">✦</span>
+                  <span>Agent</span>
+                  <span style="font-size:11px;font-weight:500;padding:2px 7px;border-radius:99px;background:var(--surface-subtle);color:var(--text-secondary);">Claude Sonnet</span>
+                </div>
+                <button class="icon-btn"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 5v14M5 12h14"/></svg></button>
+              </div>
+              <div class="agent-stream">
+                <div class="agent-user-bubble">去掉顶部额外颜色让标题栏保持纯背景色，渐变全部放在底部并让蓝粉融合自然，不要生硬。</div>
+                <div class="agent-thinking"><span>已思考 0.9s · 椭圆渐隐罩 × 连续多段地平线渐变</span><span>▾</span></div>
+                <div class="agent-tool-chip"><span>📄 已收拢顶部光斑并融合底部蓝粉过渡</span></div>
+                <div style="font-size:13px;line-height:1.65;opacity:0.92;">
+                  改用双层“顶部遮罩 + 底部熔融渐变”方案：<br/>
+                  1. <strong>顶部纯背景</strong>：上半区 100% 保持 <code>#101115</code>，窗口按钮栏清爽无杂色。<br/>
+                  2. <strong>底部无界融合</strong>：以连续多色带从晴蓝过渡到柔粉，再用 6 段椭圆曲线向上融进底色，消除分体光斑的生硬感。
+                </div>
+              </div>
+              <div class="agent-composer-wrap">
+                <div class="agent-composer">
+                  <div style="font-size:12.5px;color:var(--text-muted);min-height:36px;">输入指令，或用 @ 引用知识库笔记...</div>
+                  <div style="display:flex;align-items:center;justify-content:space-between;">
+                    <span style="font-size:11px;color:var(--text-secondary);padding:2px 7px;border-radius:6px;background:var(--surface-subtle);">Auto · 32% ctx</span>
+                    <button class="send-circle" style="width:30px;height:30px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
+                  </div>
+                </div>
+              </div>
+            </aside>
+          </div>
+        </section>
+
+        <!-- ==================== 3. SUMMARY PAGE ==================== -->
+        <section class="page-view" id="page-summary">
+          <div class="summary-layout">
+            <div class="summary-left">
+              <button class="nav-entry-btn" style="align-self:flex-start;padding-left:0;font-size:13.5px;" onclick="switchPage('main')">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg>
+                <span>返回对话窗口</span>
+              </button>
+              <div style="padding:8px 12px;border-radius:8px;background:var(--badge-amber-bg);color:var(--badge-amber-text);font-size:12px;border:1px solid rgba(251,191,36,0.22);">
+                ⓘ 本次总结包含 1 个模型的本地历史快照（实时页面不可用）
+              </div>
+              <div class="summary-cards-scroll">
+                <div class="output-card glass-panel selected">
+                  <div class="output-card-head">
+                    <div style="display:flex;align-items:center;gap:10px;"><span class="check-box checked">✓</span><span style="font-weight:600;">ChatGPT</span></div>
+                    <button class="icon-btn">⧉</button>
+                  </div>
+                  <div class="output-card-body"><strong>EU AI Act 2026 H1 进展：</strong>通用大模型透明度义务全面进入执法阶段，重点覆盖训练数据版权摘要与系统性风险评估。</div>
+                </div>
+                <div class="output-card glass-panel selected">
+                  <div class="output-card-head">
+                    <div style="display:flex;align-items:center;gap:10px;"><span class="check-box checked">✓</span><span style="font-weight:600;">Gemini</span><span style="font-size:11px;padding:1px 7px;border-radius:5px;background:var(--badge-amber-bg);color:var(--badge-amber-text);">快照</span></div>
+                    <button class="icon-btn">⧉</button>
+                  </div>
+                  <div class="output-card-body"><strong>亚太与北美对比：</strong>美国以联邦行政令与州级安全法案并行，东亚侧重生成式内容标识与算力基础设施备案。</div>
+                </div>
+                <div class="output-card glass-panel">
+                  <div class="output-card-head">
+                    <div style="display:flex;align-items:center;gap:10px;"><span class="check-box"></span><span style="font-weight:600;">Perplexity</span></div>
+                    <button class="icon-btn">⧉</button>
+                  </div>
+                  <div class="output-card-body">已检索 18 份 2026 年上半年官方法规公报与行业合规指南，附完整引用来源。</div>
+                </div>
+              </div>
+            </div>
+            <div class="summary-splitter"></div>
+            <div class="summary-right">
+              <div class="webview-card glass-panel" style="flex:1;">
+                <div class="webview-header">
+                  <div class="model-chip"><h3>Gemini · 总结引擎</h3></div>
+                  <button class="icon-btn">↻</button>
+                </div>
+                <div class="webview-body">
+                  <div style="font-size:13px;line-height:1.7;opacity:0.92;">
+                    <p style="margin-bottom:10px;"><strong>综合最佳报告 · 2026 H1 全球 AI 监管对比</strong></p>
+                    <p style="color:var(--text-secondary);">已整合 ChatGPT 与 Gemini 的核心观点，按合规义务、风险分级、执法时间表三个维度输出结构化对比结论…</p>
+                  </div>
+                  <div class="wv-inner-input pill"><span class="wv-inner-placeholder">总结内容已注入，可在上方继续追问...</span></div>
+                </div>
+              </div>
+              <div class="summary-composer glass-panel-heavy">
+                <button class="template-pill">综合最佳 ▾</button>
+                <input type="text" style="flex:1;border:none;background:transparent;color:var(--text-primary);font-size:13px;outline:none;" placeholder="输入补充要求（可选）..." />
+                <button class="send-circle" style="width:32px;height:32px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ==================== 4. SETTINGS PAGE ==================== -->
+        <section class="page-view" id="page-settings">
+          <div class="settings-layout">
+            <aside class="settings-nav">
+              <div>
+                <h1>设置</h1>
+                <div style="margin-bottom:18px;">
+                  <div class="nav-group-label">常用与交互</div>
+                  <button class="settings-nav-item active">界面与外观</button>
+                  <button class="settings-nav-item">Agent 配置</button>
+                  <button class="settings-nav-item">任务与总结</button>
+                  <button class="settings-nav-item">划词工具条</button>
+                  <button class="settings-nav-item">全局快捷键</button>
+                </div>
+                <div style="border-top:1px solid var(--border-subtle);padding-top:14px;">
+                  <div class="nav-group-label">数据与系统</div>
+                  <button class="settings-nav-item">数据与备份</button>
+                  <button class="settings-nav-item">命令行集成</button>
+                  <button class="settings-nav-item">关于与更新</button>
+                </div>
+              </div>
+              <div style="font-size:12px;color:var(--text-secondary);padding:0 6px;">MultiChat Desk</div>
+            </aside>
+            <div class="settings-content">
+              <div class="settings-inner">
+                <div>
+                  <div class="sec-head"><span class="sec-icon">◐</span><h2 class="sec-title">外观与主题</h2></div>
+                  <div class="settings-card glass-panel">
+                    <div class="theme-cards-row">
+                      <div class="theme-option" onclick="setTheme('light')">
+                        <div class="theme-preview-mini" style="background:radial-gradient(ellipse at bottom,#FFFEF5 0%,#FFF2F5 30%,#F5F9FF 65%,#EBF4FF 100%);"></div>
+                        <span style="font-size:12.5px;font-weight:500;">浅色模式</span>
+                      </div>
+                      <div class="theme-option active" onclick="setTheme('dark')">
+                        <div class="theme-preview-mini" id="darkThemePreviewMini" style="background:radial-gradient(142% 62% at 50% 106%, rgba(16,17,21,0) 0%, rgba(16,17,21,0.38) 42%, #101115 90%), linear-gradient(96deg, #1B4B9C 0%, #245CB3 24%, #335A9E 46%, #4E4974 66%, #69415E 84%, #753E54 100%);"></div>
+                        <span style="font-size:12.5px;font-weight:500;color:var(--primary);">深色模式（底光蓝粉+深灰玻璃）</span>
+                      </div>
+                      <div class="theme-option">
+                        <div class="theme-preview-mini" style="background:linear-gradient(135deg,#EBF4FF 50%,#18181B 50%);"></div>
+                        <span style="font-size:12.5px;font-weight:500;">跟随系统</span>
+                      </div>
+                    </div>
+                    <div style="padding:10px 12px;border-radius:8px;background:var(--surface-code);border:1px solid var(--border-subtle);font-family:var(--font-mono);font-size:11.5px;color:var(--text-secondary);line-height:1.55;word-break:break-word;" id="gradFormulaPreview">
+                      --app-bg: radial-gradient(142% 62% at 50% 106%, transparent 0%, rgba(16,17,21,0.38) 42%, #101115 90%), linear-gradient(96deg, #1B4B9C 0%, #245CB3 24%, #335A9E 46%, #4E4974 66%, #69415E 84%, #753E54 100%);
+                    </div>
+                    <div style="display:flex;align-items:center;justify-content:space-between;padding-top:6px;border-top:1px solid var(--border-subtle);">
+                      <div>
+                        <div style="font-weight:500;">同步内嵌 AI 网页深色主题</div>
+                        <div style="font-size:11.5px;color:var(--text-secondary);">通过 Electron nativeTheme 让 ChatGPT、Gemini 等自动切换深色皮肤</div>
+                      </div>
+                      <div class="toggle-switch on" onclick="this.classList.toggle('on')"></div>
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <div class="sec-head"><span class="sec-icon">🤖</span><h2 class="sec-title">Agent 配置</h2></div>
+                  <div class="settings-card glass-panel">
+                    <div>
+                      <div style="font-size:12px;font-weight:500;margin-bottom:6px;">API Endpoint</div>
+                      <input class="dark-input" value="https://api.example.com/v1" />
+                    </div>
+                    <div style="display:flex;align-items:center;justify-content:space-between;">
+                      <div>
+                        <div style="font-weight:500;">启用划词悬浮工具条</div>
+                        <div style="font-size:11.5px;color:var(--text-secondary);">选中文本自动弹出快捷操作栏</div>
+                      </div>
+                      <div class="toggle-switch on" onclick="this.classList.toggle('on')"></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ==================== 5. OVERLAYS ==================== -->
+        <section class="page-view" id="page-overlays">
+          <div class="overlays-stage">
+            <aside class="history-drawer glass-panel-heavy">
+              <div style="padding:14px 16px;border-bottom:1px solid var(--border-subtle);display:flex;align-items:center;justify-content:space-between;">
+                <span style="font-size:16px;font-weight:600;">历史记录</span>
+                <button class="icon-btn">✕</button>
+              </div>
+              <div style="padding:10px 14px;"><input class="dark-input" placeholder="搜索对话、总结或 Agent 会话..." /></div>
+              <div class="drawer-tabs">
+                <div class="drawer-tab active">对话历史</div>
+                <div class="drawer-tab">总结历史</div>
+                <div class="drawer-tab">Agent 会话</div>
+              </div>
+              <div style="flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:10px;">
+                <div class="history-card active">
+                  <div style="font-weight:500;margin-bottom:6px;">2026年上半年全球 AI 大模型监管政策对比</div>
+                  <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-secondary);">
+                    <span>11/25 13:10 · 多模型</span><span>4 个模型</span>
+                  </div>
+                </div>
+                <div class="history-card">
+                  <div style="font-weight:500;margin-bottom:6px;">Electron Webview 内存休眠调度重构</div>
+                  <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-secondary);">
+                    <span>11/24 21:15 · 双主辩论</span><span>2 个模型</span>
+                  </div>
+                </div>
+              </div>
+            </aside>
+            <div class="modal-showcase">
+              <div class="modal-card modal-solid">
+                <div style="padding:14px 16px;border-bottom:1px solid var(--border-subtle);display:flex;justify-content:space-between;align-items:center;">
+                  <div><div style="font-size:16px;font-weight:600;">确认删除会话</div><div style="font-size:11px;color:var(--text-secondary);">Modal variant="solid"</div></div>
+                  <button class="icon-btn">✕</button>
+                </div>
+                <div style="padding:16px;font-size:13.5px;color:var(--text-secondary);line-height:1.6;">确定要将「<strong style="color:var(--text-primary);">AI 监管政策对比</strong>」移至回收站吗？</div>
+                <div style="padding:12px 16px;border-top:1px solid var(--border-subtle);display:flex;justify-content:flex-end;gap:8px;">
+                  <button class="btn-secondary">取消</button>
+                  <button class="btn-danger">确认删除</button>
+                </div>
+              </div>
+              <div class="modal-card modal-glass glass-panel-heavy">
+                <div style="padding:14px 16px;border-bottom:1px solid var(--border-subtle);display:flex;justify-content:space-between;align-items:center;">
+                  <div><div style="font-size:16px;font-weight:600;">调整模型顺序</div><div style="font-size:11px;color:var(--text-secondary);">Modal variant="glass"</div></div>
+                  <button class="icon-btn">✕</button>
+                </div>
+                <div style="padding:14px 16px;display:flex;flex-direction:column;gap:8px;">
+                  <div style="padding:8px 12px;border-radius:8px;background:var(--surface-subtle);border:1px solid var(--border-subtle);display:flex;justify-content:space-between;"><span>☰ ChatGPT</span><span style="color:var(--primary);font-size:12px;">已启用</span></div>
+                  <div style="padding:8px 12px;border-radius:8px;background:var(--surface-subtle);border:1px solid var(--border-subtle);display:flex;justify-content:space-between;"><span>☰ Gemini</span><span style="color:var(--primary);font-size:12px;">已启用</span></div>
+                  <div style="padding:8px 12px;border-radius:8px;background:var(--surface-subtle);border:1px solid var(--border-subtle);display:flex;justify-content:space-between;"><span>☰ Grok</span><span style="color:var(--primary);font-size:12px;">已启用</span></div>
+                </div>
+                <div style="padding:12px 16px;border-top:1px solid var(--border-subtle);display:flex;justify-content:flex-end;gap:8px;">
+                  <button class="btn-secondary">关闭</button>
+                  <button class="btn-primary">保存顺序</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <script>
+    const htmlEl = document.documentElement
+    const pageTabs = document.querySelectorAll('#pageTabs .studio-tab')
+    const pages = document.querySelectorAll('.page-view')
+    const paletteBtns = document.querySelectorAll('#gradPaletteSwitch .studio-pill-btn')
+    const themeBtns = document.querySelectorAll('#themeSwitch .studio-pill-btn')
+    const segBtns = document.querySelectorAll('#productModeSeg .mode-seg-btn')
+    const layoutBtns = document.querySelectorAll('#layoutPill .layout-pill-btn')
+    const layoutPill = document.getElementById('layoutPill')
+    const wbBreadcrumb = document.getElementById('wbBreadcrumb')
+    const wbRightToggles = document.getElementById('wbRightToggles')
+    const mainGrid = document.getElementById('mainWebviewGrid')
+    const thirdCard = document.getElementById('thirdCard')
+    const fourthCard = document.getElementById('fourthCard')
+    const btnSettings = document.getElementById('btnSettingsNav')
+    const btnHistory = document.getElementById('btnHistoryNav')
+    const gradFormulaPreview = document.getElementById('gradFormulaPreview')
+
+    const PALETTE_CSS = {
+      'horizon-silk': 'radial-gradient(142% 62% at 50% 106%, rgba(16,17,21,0) 0%, rgba(16,17,21,0.38) 42%, #101115 90%), linear-gradient(96deg, #1B4B9C 0%, #245CB3 24%, #335A9E 46%, #4E4974 66%, #69415E 84%, #753E54 100%)',
+      'horizon-wave': 'radial-gradient(145% 64% at 50% 106%, rgba(16,17,21,0) 0%, rgba(16,17,21,0.34) 44%, #101115 92%), radial-gradient(85% 44% at 32% 104%, rgba(96,165,250,0.22) 0%, rgba(255,200,218,0.10) 54%, transparent 84%), linear-gradient(106deg, #19499B 0%, #2764BD 26%, #3B5FA1 48%, #594A75 70%, #7A415B 100%)',
+      'horizon-mist': 'radial-gradient(138% 60% at 50% 106%, rgba(16,17,21,0) 0%, rgba(16,17,21,0.46) 44%, #101115 92%), linear-gradient(96deg, #1A3D78 0%, #244D8F 26%, #314B7B 48%, #483F61 70%, #5D374B 100%)'
+    }
+
+    function switchPage(pageId) {
+      pageTabs.forEach(t => t.classList.toggle('active', t.dataset.page === pageId))
+      pages.forEach(p => p.classList.toggle('active', p.id === `page-${pageId}`))
+
+      const isWorkbench = pageId === 'workbench'
+      const isMain = pageId === 'main'
+      layoutPill.style.display = isMain ? 'inline-flex' : 'none'
+      wbBreadcrumb.style.display = isWorkbench ? 'flex' : 'none'
+      wbRightToggles.style.display = isWorkbench ? 'flex' : 'none'
+
+      segBtns.forEach(b => b.classList.toggle('active', isWorkbench ? b.dataset.mode === 'workbench' : b.dataset.mode === 'multi_ai'))
+      btnSettings.classList.toggle('active', pageId === 'settings')
+      btnHistory.classList.toggle('active', pageId === 'overlays')
+    }
+
+    function setTheme(mode) {
+      const isDark = mode === 'dark'
+      htmlEl.classList.toggle('dark', isDark)
+      themeBtns.forEach(b => b.classList.toggle('active', b.dataset.theme === mode))
+      paletteBtns.forEach(b => { b.disabled = !isDark })
+    }
+
+    pageTabs.forEach(tab => tab.addEventListener('click', () => switchPage(tab.dataset.page)))
+    segBtns.forEach(btn => btn.addEventListener('click', () => switchPage(btn.dataset.mode === 'workbench' ? 'workbench' : 'main')))
+    btnSettings.addEventListener('click', () => switchPage('settings'))
+    btnHistory.addEventListener('click', () => switchPage('overlays'))
+    themeBtns.forEach(btn => btn.addEventListener('click', () => setTheme(btn.dataset.theme)))
+
+    const darkThemePreviewMini = document.getElementById('darkThemePreviewMini')
+    paletteBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const pal = btn.dataset.palette
+        htmlEl.setAttribute('data-grad-palette', pal)
+        paletteBtns.forEach(b => b.classList.toggle('active', b === btn))
+        gradFormulaPreview.textContent = `--app-bg: ${PALETTE_CSS[pal]};`
+        if (darkThemePreviewMini) darkThemePreviewMini.style.background = PALETTE_CSS[pal]
+      })
+    })
+
+    layoutBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const cols = btn.dataset.cols
+        layoutBtns.forEach(b => b.classList.toggle('active', b === btn))
+        mainGrid.className = `main-grid-wrap cols-${cols}`
+        thirdCard.style.display = cols === '2' ? 'none' : 'flex'
+        fourthCard.style.display = cols === '4' ? 'flex' : 'none'
+      })
+    })
+  </script>
+</body>
+</html>

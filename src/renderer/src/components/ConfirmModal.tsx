@@ -65,7 +65,7 @@ function ConfirmModal({
   const theme = getThemeClasses()
 
   return (
-    <Modal open={isOpen} onClose={onCancel} size="sm" variant="solid">
+    <Modal open={isOpen} onClose={onCancel} size="sm" variant="glass">
       <div className="p-5">
         <div className="mb-4 flex items-center gap-3">
           <AppIcon name={theme.iconName} size={20} className={theme.icon} />
@@ -78,7 +78,7 @@ function ConfirmModal({
           <button
             onClick={onCancel}
             disabled={isConfirming}
-            className="h-9 flex-1 rounded-lg border border-gray-200 bg-sidebar px-4 text-body font-medium text-text-secondary transition-colors hover:bg-gray-100 disabled:opacity-50 dark:border-white/10"
+            className="h-9 flex-1 rounded-lg border border-black/10 bg-black/[0.04] px-4 text-body font-medium text-text-secondary transition-colors hover:bg-black/[0.08] hover:text-text-primary disabled:opacity-50 dark:border-white/10 dark:bg-white/[0.06] dark:hover:bg-white/[0.12]"
           >
             {cancelText}
           </button>

@@ -1,0 +1,1495 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MultiChat Desk — 仿液态玻璃高保真原型</title>
+  <!-- Created: 2026-11-25 16:08 (+08:00) -->
+  <style>
+    :root {
+      --bg-canvas: radial-gradient(ellipse at bottom, #FFFEF5 0%, #FFF2F5 30%, #F5F9FF 65%, #EBF4FF 100%);
+      --text-primary: #1f2937;
+      --text-secondary: #6b7280;
+      --primary: #3b82f6;
+      --hairline: rgba(15, 23, 42, 0.07);
+      --hover-fill: rgba(15, 23, 42, 0.05);
+      --active-fill: rgba(59, 130, 246, 0.11);
+      --code-bg: #f1f5f9;
+      --doc-bg: rgba(255, 255, 255, 0.88);
+      --doc-border: rgba(15, 23, 42, 0.08);
+      --input-bg: rgba(248, 250, 252, 0.85);
+      --input-border: rgba(148, 163, 184, 0.35);
+      --pill-bg: rgba(255, 255, 255, 0.92);
+      --font-sans: "Google Sans Flex", "Google Sans", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+      --font-mono: "JetBrains Mono", Consolas, Menlo, Monaco, monospace;
+    }
+
+    html.dark {
+      --bg-canvas: radial-gradient(ellipse at top left, #151c2c 0%, #10141d 45%, #0c1018 100%);
+      --text-primary: #f1f5f9;
+      --text-secondary: #94a3b8;
+      --primary: #60a5fa;
+      --hairline: rgba(255, 255, 255, 0.1);
+      --hover-fill: rgba(255, 255, 255, 0.08);
+      --active-fill: rgba(96, 165, 250, 0.18);
+      --code-bg: #1e293b;
+      --doc-bg: rgba(24, 30, 41, 0.9);
+      --doc-border: rgba(255, 255, 255, 0.08);
+      --input-bg: rgba(15, 23, 42, 0.55);
+      --input-border: rgba(255, 255, 255, 0.14);
+      --pill-bg: rgba(30, 36, 48, 0.92);
+    }
+
+    * {
+      box-sizing: border-box;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: var(--font-sans);
+      font-size: 14px;
+      line-height: 1.5;
+      color: var(--text-primary);
+      background: var(--bg-canvas);
+      transition: background 0.2s ease, color 0.2s ease;
+    }
+
+    button, input {
+      font-family: inherit;
+    }
+
+    /* =====================================================================
+     * 三套核心材质表面：
+     * 1) solid      —— 当前现状（纯实色）
+     * 2) faux-zero  —— 仿液态玻璃 · 零模糊纯合成（Zero backdrop-filter）
+     * 3) faux-light —— 仿液态玻璃 · 轻模糊 8px（小范围低开销透色）
+     * ===================================================================== */
+
+    .glass-surface {
+      position: relative;
+      isolation: isolate;
+      transition: background 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+    }
+
+    /* --- 1. 当前实色 --- */
+    [data-glass-mode="solid"] .glass-surface {
+      background: #ffffff;
+      border: 1px solid rgba(15, 23, 42, 0.11);
+      box-shadow: 0 12px 28px -8px rgba(15, 23, 42, 0.14), 0 4px 10px -2px rgba(15, 23, 42, 0.06);
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+    }
+    html.dark [data-glass-mode="solid"] .glass-surface {
+      background: #1f2937;
+      border: 1px solid rgba(255, 255, 255, 0.11);
+      box-shadow: 0 18px 36px -10px rgba(0, 0, 0, 0.52);
+    }
+
+    /* --- 2. 仿液态玻璃 · 零模糊纯合成（Zero backdrop-filter） ---
+     * 核心思路：
+     * - 仅用高可读性微透斜向渐变（91%~96% 不透明，保证文字压在代码/文本上无重影）
+     * - 用 mask-composite 1px Fresnel 渐变亮边 + 多层 inset 高光模拟曲面折射
+     * - 完全不使用 backdrop-filter 与 SVG filter，避免 Electron 跨 webview 重绘采样
+     */
+    [data-glass-mode="faux-zero"] .glass-surface {
+      background:
+        radial-gradient(125% 70% at 22% 0%, rgba(255, 255, 255, 0.86) 0%, rgba(255, 255, 255, 0) 58%),
+        linear-gradient(160deg, rgba(255, 255, 255, 0.96) 0%, rgba(245, 249, 255, 0.91) 54%, rgba(240, 247, 255, 0.94) 100%);
+      border: 1px solid rgba(255, 255, 255, 0.88);
+      box-shadow:
+        inset 0 1.5px 0 0 rgba(255, 255, 255, 1),
+        inset 0 -1px 0 0 rgba(59, 130, 246, 0.09),
+        inset 0 0 20px 0 rgba(255, 255, 255, 0.55),
+        0 0 0 1px rgba(15, 23, 42, 0.07),
+        0 20px 44px -12px rgba(15, 23, 42, 0.16),
+        0 8px 18px -6px rgba(59, 130, 246, 0.11);
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+    }
+    [data-glass-mode="faux-zero"] .glass-surface::before {
+      content: "";
+      position: absolute;
+      inset: -1px;
+      border-radius: inherit;
+      padding: 1px;
+      background: linear-gradient(
+        138deg,
+        rgba(255, 255, 255, 1) 0%,
+        rgba(191, 219, 254, 0.82) 28%,
+        rgba(255, 255, 255, 0.42) 56%,
+        rgba(219, 234, 254, 0.88) 84%,
+        rgba(255, 255, 255, 0.98) 100%
+      );
+      -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+      -webkit-mask-composite: xor;
+      mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+      mask-composite: exclude;
+      pointer-events: none;
+      z-index: 2;
+    }
+    html.dark [data-glass-mode="faux-zero"] .glass-surface {
+      background:
+        radial-gradient(125% 70% at 22% 0%, rgba(255, 255, 255, 0.10) 0%, rgba(255, 255, 255, 0) 58%),
+        linear-gradient(160deg, rgba(36, 43, 56, 0.96) 0%, rgba(26, 31, 42, 0.92) 54%, rgba(31, 37, 50, 0.95) 100%);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      box-shadow:
+        inset 0 1px 0 0 rgba(255, 255, 255, 0.28),
+        inset 0 -1px 0 0 rgba(96, 165, 250, 0.10),
+        inset 0 0 18px 0 rgba(255, 255, 255, 0.04),
+        0 0 0 1px rgba(0, 0, 0, 0.48),
+        0 24px 52px -12px rgba(0, 0, 0, 0.65);
+    }
+    html.dark [data-glass-mode="faux-zero"] .glass-surface::before {
+      background: linear-gradient(
+        138deg,
+        rgba(255, 255, 255, 0.36) 0%,
+        rgba(147, 197, 253, 0.22) 30%,
+        rgba(255, 255, 255, 0.06) 58%,
+        rgba(255, 255, 255, 0.22) 100%
+      );
+    }
+
+    /* --- 3. 仿液态玻璃 · 轻模糊 8px（对照档） --- */
+    [data-glass-mode="faux-light"] .glass-surface {
+      background:
+        radial-gradient(125% 70% at 22% 0%, rgba(255, 255, 255, 0.62) 0%, rgba(255, 255, 255, 0) 58%),
+        linear-gradient(160deg, rgba(255, 255, 255, 0.86) 0%, rgba(246, 250, 255, 0.78) 55%, rgba(242, 247, 255, 0.84) 100%);
+      border: 1px solid rgba(255, 255, 255, 0.84);
+      backdrop-filter: blur(8px) saturate(145%);
+      -webkit-backdrop-filter: blur(8px) saturate(145%);
+      box-shadow:
+        inset 0 1.5px 0 0 rgba(255, 255, 255, 0.96),
+        inset 0 -1px 0 0 rgba(59, 130, 246, 0.09),
+        inset 0 0 18px 0 rgba(255, 255, 255, 0.42),
+        0 0 0 1px rgba(15, 23, 42, 0.065),
+        0 20px 44px -12px rgba(15, 23, 42, 0.15),
+        0 8px 18px -6px rgba(59, 130, 246, 0.10);
+    }
+    [data-glass-mode="faux-light"] .glass-surface::before {
+      content: "";
+      position: absolute;
+      inset: -1px;
+      border-radius: inherit;
+      padding: 1px;
+      background: linear-gradient(
+        138deg,
+        rgba(255, 255, 255, 1) 0%,
+        rgba(191, 219, 254, 0.78) 28%,
+        rgba(255, 255, 255, 0.35) 56%,
+        rgba(219, 234, 254, 0.85) 84%,
+        rgba(255, 255, 255, 0.96) 100%
+      );
+      -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+      -webkit-mask-composite: xor;
+      mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+      mask-composite: exclude;
+      pointer-events: none;
+      z-index: 2;
+    }
+    html.dark [data-glass-mode="faux-light"] .glass-surface {
+      background:
+        radial-gradient(125% 70% at 22% 0%, rgba(255, 255, 255, 0.09) 0%, rgba(255, 255, 255, 0) 58%),
+        linear-gradient(160deg, rgba(35, 42, 54, 0.82) 0%, rgba(24, 29, 39, 0.76) 55%, rgba(30, 36, 48, 0.81) 100%);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      backdrop-filter: blur(8px) saturate(140%);
+      -webkit-backdrop-filter: blur(8px) saturate(140%);
+      box-shadow:
+        inset 0 1px 0 0 rgba(255, 255, 255, 0.24),
+        inset 0 -1px 0 0 rgba(96, 165, 250, 0.08),
+        inset 0 0 18px 0 rgba(255, 255, 255, 0.03),
+        0 0 0 1px rgba(0, 0, 0, 0.42),
+        0 24px 52px -12px rgba(0, 0, 0, 0.62);
+    }
+    html.dark [data-glass-mode="faux-light"] .glass-surface::before {
+      background: linear-gradient(
+        138deg,
+        rgba(255, 255, 255, 0.36) 0%,
+        rgba(147, 197, 253, 0.2) 30%,
+        rgba(255, 255, 255, 0.06) 58%,
+        rgba(255, 255, 255, 0.22) 100%
+      );
+    }
+
+    /* 高光可选开关（方便单独感受边缘高光的作用） */
+    [data-rim="off"] .glass-surface::before {
+      display: none;
+    }
+
+    /* 菜单项悬停/激活胶囊 */
+    .menu-item {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 7px 10px;
+      border: 0;
+      border-radius: 9px;
+      background: transparent;
+      color: var(--text-primary);
+      font-size: 13px;
+      text-align: left;
+      cursor: pointer;
+      transition: background 0.12s ease, transform 0.1s ease;
+    }
+    .menu-item:hover {
+      background: var(--hover-fill);
+    }
+    [data-glass-mode^="faux"] .menu-item:hover {
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
+    }
+    html.dark[data-glass-mode^="faux"] .menu-item:hover {
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+    }
+    .menu-item.is-selected {
+      background: var(--active-fill);
+      color: var(--primary);
+      font-weight: 600;
+    }
+    .menu-item.is-danger {
+      color: #e11d48;
+    }
+    html.dark .menu-item.is-danger {
+      color: #fb7185;
+    }
+    .menu-item.is-danger:hover {
+      background: rgba(244, 63, 94, 0.10);
+    }
+
+    .divider {
+      height: 1px;
+      margin: 4px 6px;
+      background: var(--hairline);
+    }
+
+    /* =====================================================================
+     * 顶部控制条 & 场景布局
+     * ===================================================================== */
+    .top-bar {
+      position: sticky;
+      top: 12px;
+      z-index: 60;
+      max-width: 1220px;
+      margin: 12px auto 0;
+      padding: 10px 14px;
+      border-radius: 16px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      background: var(--pill-bg);
+      border: 1px solid var(--hairline);
+      box-shadow: 0 10px 30px -10px rgba(15, 23, 42, 0.14);
+    }
+
+    .brand-block {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .brand-badge {
+      width: 30px;
+      height: 30px;
+      border-radius: 9px;
+      background: linear-gradient(135deg, #3b82f6 0%, #60a5fa 60%, #a5b4fc 100%);
+      color: #fff;
+      display: grid;
+      place-items: center;
+      font-weight: 700;
+      font-size: 13px;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.5), 0 4px 10px rgba(59,130,246,0.28);
+    }
+    .brand-title {
+      font-size: 14px;
+      font-weight: 600;
+      margin: 0;
+    }
+    .brand-sub {
+      font-size: 11px;
+      color: var(--text-secondary);
+      margin: 0;
+    }
+
+    .controls-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .seg-group {
+      display: inline-flex;
+      padding: 3px;
+      border-radius: 11px;
+      background: rgba(15, 23, 42, 0.05);
+      border: 1px solid var(--hairline);
+      gap: 2px;
+    }
+    html.dark .seg-group {
+      background: rgba(255, 255, 255, 0.05);
+    }
+    .seg-btn {
+      border: 0;
+      background: transparent;
+      color: var(--text-secondary);
+      font-size: 12px;
+      font-weight: 500;
+      padding: 5px 10px;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+    }
+    .seg-btn:hover {
+      color: var(--text-primary);
+    }
+    .seg-btn.active {
+      background: #ffffff;
+      color: var(--text-primary);
+      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.10), inset 0 1px 0 rgba(255,255,255,0.9);
+      font-weight: 600;
+    }
+    html.dark .seg-btn.active {
+      background: #2b3545;
+      color: #fff;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255,255,255,0.14);
+    }
+
+    .perf-banner {
+      max-width: 1220px;
+      margin: 12px auto 0;
+      padding: 10px 16px;
+      border-radius: 12px;
+      background: var(--doc-bg);
+      border: 1px solid var(--doc-border);
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      font-size: 12px;
+    }
+    .perf-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 9px;
+      border-radius: 999px;
+      font-weight: 600;
+      font-size: 11px;
+    }
+    .perf-tag.good { background: rgba(16, 185, 129, 0.12); color: #059669; }
+    .perf-tag.warn { background: rgba(245, 158, 11, 0.14); color: #d97706; }
+    .perf-tag.neutral { background: rgba(100, 116, 139, 0.12); color: var(--text-secondary); }
+    html.dark .perf-tag.good { color: #34d399; }
+    html.dark .perf-tag.warn { color: #fbbf24; }
+
+    /* =====================================================================
+     * 展示舞台（带真实的底层复杂内容，用来压测易读性）
+     * ===================================================================== */
+    .stage-wrap {
+      max-width: 1220px;
+      margin: 14px auto 32px;
+      padding: 0 12px;
+    }
+
+    .stage-frame {
+      position: relative;
+      border-radius: 20px;
+      border: 1px solid var(--doc-border);
+      overflow: hidden;
+      min-height: 760px;
+      box-shadow: 0 20px 50px -20px rgba(15, 23, 42, 0.18);
+    }
+
+    /* 背景场景 1：工作台密集文本+代码+表格 */
+    .bg-workbench {
+      display: grid;
+      grid-template-columns: 220px 1fr 310px;
+      min-height: 760px;
+      background: var(--doc-bg);
+    }
+    @media (max-width: 980px) {
+      .bg-workbench {
+        grid-template-columns: 1fr;
+      }
+      .wb-sidebar, .wb-right { display: none; }
+    }
+    .wb-sidebar {
+      border-right: 1px solid var(--hairline);
+      padding: 14px 12px;
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+    .wb-tree-row {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 5px 8px;
+      border-radius: 7px;
+      margin-bottom: 2px;
+    }
+    .wb-tree-row.active {
+      background: var(--active-fill);
+      color: var(--primary);
+      font-weight: 600;
+    }
+    .wb-main {
+      padding: 20px 28px;
+      position: relative;
+    }
+    .wb-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      border-radius: 10px;
+      border: 1px solid var(--hairline);
+      background: rgba(15, 23, 42, 0.02);
+      margin-bottom: 18px;
+    }
+    html.dark .wb-toolbar {
+      background: rgba(255, 255, 255, 0.03);
+    }
+    .wb-article h1 {
+      margin: 0 0 10px;
+      font-size: 21px;
+      font-weight: 700;
+    }
+    .wb-article p {
+      margin: 0 0 12px;
+      color: var(--text-primary);
+      line-height: 1.72;
+    }
+    .wb-code {
+      background: var(--code-bg);
+      border: 1px solid var(--hairline);
+      border-radius: 10px;
+      padding: 12px 14px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      line-height: 1.6;
+      overflow-x: auto;
+      margin: 12px 0;
+    }
+    .wb-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+      margin-top: 12px;
+    }
+    .wb-table th, .wb-table td {
+      border: 1px solid var(--hairline);
+      padding: 7px 10px;
+      text-align: left;
+    }
+    .wb-table th {
+      background: rgba(15, 23, 42, 0.04);
+      font-weight: 600;
+    }
+    html.dark .wb-table th {
+      background: rgba(255, 255, 255, 0.05);
+    }
+    .wb-right {
+      border-left: 1px solid var(--hairline);
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    /* 背景场景 2：多模型彩色渐变对比（测试透色感） */
+    .bg-gradient-cards {
+      display: none;
+      min-height: 760px;
+      padding: 20px;
+      background:
+        radial-gradient(circle at 15% 20%, rgba(255, 200, 218, 0.65) 0%, transparent 45%),
+        radial-gradient(circle at 82% 18%, rgba(59, 130, 246, 0.32) 0%, transparent 48%),
+        radial-gradient(circle at 50% 88%, rgba(255, 245, 214, 0.85) 0%, transparent 52%),
+        #f5f9ff;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+    html.dark .bg-gradient-cards {
+      background:
+        radial-gradient(circle at 18% 22%, rgba(236, 72, 153, 0.22) 0%, transparent 42%),
+        radial-gradient(circle at 82% 20%, rgba(59, 130, 246, 0.28) 0%, transparent 46%),
+        radial-gradient(circle at 50% 88%, rgba(245, 158, 11, 0.16) 0%, transparent 48%),
+        #0d121c;
+    }
+    [data-scene="gradient"] .bg-workbench { display: none; }
+    [data-scene="gradient"] .bg-gradient-cards { display: grid; }
+    @media (max-width: 820px) {
+      [data-scene="gradient"] .bg-gradient-cards { grid-template-columns: 1fr; }
+    }
+    .wv-card {
+      border-radius: 16px;
+      border: 1px solid var(--doc-border);
+      background: rgba(255, 255, 255, 0.62);
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    html.dark .wv-card {
+      background: rgba(22, 28, 40, 0.72);
+    }
+
+    /* =====================================================================
+     * 前景悬浮组件演示层（直接叠放在密集内容上，直观验收可读性）
+     * ===================================================================== */
+    .showcase-overlay {
+      position: absolute;
+      inset: 0;
+      padding: 20px;
+      pointer-events: none;
+      display: grid;
+      grid-template-columns: 295px 418px 1fr;
+      grid-template-rows: auto 1fr;
+      gap: 18px;
+      align-items: start;
+      z-index: 20;
+    }
+    @media (max-width: 1140px) {
+      .stage-frame {
+        min-height: auto;
+      }
+      .bg-workbench,
+      .bg-gradient-cards {
+        min-height: 260px;
+      }
+      .showcase-overlay {
+        position: relative;
+        grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+        background: rgba(15, 23, 42, 0.04);
+      }
+    }
+    .showcase-slot {
+      pointer-events: auto;
+      position: relative;
+    }
+
+    /* 触发按钮 */
+    .trigger-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 11px;
+      border-radius: 9px;
+      border: 1px solid var(--hairline);
+      background: var(--pill-bg);
+      color: var(--text-primary);
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      box-shadow: 0 2px 6px rgba(15, 23, 42, 0.06);
+      transition: background 0.14s ease, border-color 0.14s ease;
+    }
+    .trigger-btn:hover {
+      border-color: rgba(59, 130, 246, 0.45);
+    }
+
+    /* Dropdowns */
+    .dropdown-panel {
+      margin-top: 8px;
+      border-radius: 13px;
+      padding: 5px;
+      width: 226px;
+    }
+    .model-picker-panel {
+      margin-top: 8px;
+      border-radius: 15px;
+      overflow: hidden;
+      width: 100%;
+    }
+    .picker-search {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 12px;
+      border-bottom: 1px solid var(--hairline);
+    }
+    .picker-search input {
+      width: 100%;
+      border: 0;
+      outline: 0;
+      background: transparent;
+      color: var(--text-primary);
+      font-size: 13px;
+    }
+    .picker-list {
+      max-height: 230px;
+      overflow-y: auto;
+      padding: 6px;
+    }
+    .picker-group-btn {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border: 0;
+      background: transparent;
+      color: var(--text-secondary);
+      font-size: 11px;
+      font-weight: 600;
+      padding: 5px 8px;
+      border-radius: 7px;
+      cursor: pointer;
+    }
+    .picker-group-btn:hover {
+      background: var(--hover-fill);
+      color: var(--text-primary);
+    }
+    .picker-footer {
+      border-top: 1px solid var(--hairline);
+      padding: 10px 12px 12px;
+    }
+
+    /* Thinking slider */
+    .slider-track {
+      position: relative;
+      height: 22px;
+      border-radius: 999px;
+      background: rgba(148, 163, 184, 0.24);
+      overflow: hidden;
+      margin-top: 8px;
+    }
+    .slider-fill {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(90deg, #3b82f6 0%, #D2E8FF 40%, #FFC8DA 72%, #FFF5D6 100%);
+      transition: clip-path 0.15s ease;
+    }
+    .slider-thumb {
+      position: absolute;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      width: 18px;
+      height: 18px;
+      border-radius: 999px;
+      background: #fff;
+      box-shadow: 0 2px 6px rgba(15, 23, 42, 0.25);
+      pointer-events: none;
+      transition: left 0.15s ease;
+    }
+    .slider-input {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      opacity: 0;
+      cursor: pointer;
+      margin: 0;
+    }
+    .slider-labels {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 5px;
+      font-size: 11px;
+      color: var(--text-secondary);
+    }
+    .slider-labels button {
+      border: 0;
+      background: transparent;
+      padding: 0;
+      font-size: 11px;
+      color: inherit;
+      cursor: pointer;
+    }
+    .slider-labels button.active {
+      color: var(--primary);
+      font-weight: 600;
+    }
+
+    /* Context Menu + Submenu */
+    .context-wrap {
+      position: relative;
+      display: inline-block;
+      margin-top: 8px;
+    }
+    .context-panel {
+      width: 226px;
+      border-radius: 14px;
+      padding: 5px;
+    }
+    .submenu-panel {
+      position: absolute;
+      left: calc(100% + 6px);
+      top: -4px;
+      width: 188px;
+      border-radius: 13px;
+      padding: 5px;
+      z-index: 30;
+    }
+    @media (max-width: 1140px) {
+      .submenu-panel {
+        position: relative;
+        left: 0;
+        top: 6px;
+        margin-left: 18px;
+      }
+    }
+
+    /* Modals */
+    .modal-card {
+      border-radius: 18px;
+      overflow: hidden;
+      width: 100%;
+    }
+    .modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 13px 16px;
+      border-bottom: 1px solid var(--hairline);
+    }
+    .modal-title-wrap {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      min-width: 0;
+    }
+    .modal-title {
+      font-size: 16px;
+      font-weight: 600;
+      margin: 0;
+    }
+    .modal-sub {
+      font-size: 11px;
+      color: var(--text-secondary);
+      margin: 2px 0 0;
+    }
+    .modal-body {
+      padding: 14px 16px;
+    }
+    .modal-footer {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      padding: 11px 16px;
+      border-top: 1px solid var(--hairline);
+    }
+    .btn-primary {
+      height: 34px;
+      padding: 0 15px;
+      border-radius: 9px;
+      border: 0;
+      background: #3b82f6;
+      color: #fff;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.28), 0 4px 12px rgba(59,130,246,0.28);
+    }
+    .btn-primary:hover { opacity: 0.92; }
+    .btn-danger {
+      height: 34px;
+      padding: 0 15px;
+      border-radius: 9px;
+      border: 0;
+      background: #dc2626;
+      color: #fff;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.25), 0 4px 12px rgba(220,38,38,0.24);
+    }
+    .btn-secondary {
+      height: 34px;
+      padding: 0 15px;
+      border-radius: 9px;
+      border: 1px solid var(--hairline);
+      background: rgba(15, 23, 42, 0.04);
+      color: var(--text-secondary);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    html.dark .btn-secondary {
+      background: rgba(255, 255, 255, 0.06);
+    }
+    .btn-secondary:hover {
+      background: var(--hover-fill);
+      color: var(--text-primary);
+    }
+    .close-icon-btn {
+      width: 28px;
+      height: 28px;
+      border-radius: 999px;
+      border: 0;
+      background: transparent;
+      color: var(--text-secondary);
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+    }
+    .close-icon-btn:hover {
+      background: var(--hover-fill);
+      color: var(--text-primary);
+    }
+
+    /* 真正的全屏模拟 Modal（用于点击体验居中弹窗 + 透明/dim遮罩） */
+    .live-modal-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      background: rgba(0, 0, 0, 0.25);
+      /* 严格不使用全屏 backdrop-blur，防止 Electron 合成器卡顿 */
+    }
+    .live-modal-backdrop.open {
+      display: flex;
+    }
+    .live-modal-backdrop.no-dim {
+      background: transparent;
+    }
+    .live-modal-box {
+      width: 100%;
+      max-width: 440px;
+      animation: zoomIn 0.16s ease-out;
+    }
+    @keyframes zoomIn {
+      from { opacity: 0; transform: scale(0.96); }
+      to { opacity: 1; transform: scale(1); }
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 7px;
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 600;
+    }
+    .badge-blue {
+      background: rgba(59, 130, 246, 0.12);
+      color: var(--primary);
+    }
+    .badge-amber {
+      background: rgba(245, 158, 11, 0.15);
+      color: #d97706;
+    }
+    html.dark .badge-amber { color: #fbbf24; }
+  </style>
+</head>
+<body data-glass-mode="faux-zero" data-scene="workbench" data-rim="on">
+
+  <!-- 顶部控制条 -->
+  <header class="top-bar">
+    <div class="brand-block">
+      <div class="brand-badge">MC</div>
+      <div>
+        <h1 class="brand-title">MultiChat Desk · 仿液态玻璃高保真原型</h1>
+        <p class="brand-sub">对比「当前实色」vs「零模糊纯合成仿液态玻璃」vs「轻模糊 8px」的质感、可读性与性能开销</p>
+      </div>
+    </div>
+
+    <div class="controls-row">
+      <!-- 材质切换 -->
+      <div class="seg-group" role="group" aria-label="材质方案">
+        <button type="button" class="seg-btn" data-set-mode="solid">当前实色</button>
+        <button type="button" class="seg-btn active" data-set-mode="faux-zero">仿液态玻璃（零模糊推荐）</button>
+        <button type="button" class="seg-btn" data-set-mode="faux-light">仿液态玻璃（8px 轻模糊）</button>
+      </div>
+
+      <!-- 底层背景切换 -->
+      <div class="seg-group" role="group" aria-label="底层背景">
+        <button type="button" class="seg-btn active" data-set-scene="workbench">工作台密集文档</button>
+        <button type="button" class="seg-btn" data-set-scene="gradient">渐变 + 多模型卡片</button>
+      </div>
+
+      <!-- 边缘高光开关 -->
+      <button type="button" id="toggle-rim-btn" class="trigger-btn">玻璃高光边：开</button>
+
+      <!-- 明暗切换 -->
+      <button type="button" id="toggle-theme-btn" class="trigger-btn">浅色模式</button>
+
+      <!-- 真弹窗预览按钮 -->
+      <button type="button" id="open-live-modal-btn" class="btn-primary" style="height: 31px; padding: 0 12px; font-size: 12px;">
+        弹出真实居中 Modal
+      </button>
+    </div>
+  </header>
+
+  <!-- 当前方案性能与实现拆解条 -->
+  <div class="perf-banner">
+    <div id="perf-summary">
+      <strong>零模糊纯合成仿液态玻璃：</strong>仅用渐变半透底（91%–96%）+ <code>mask-composite</code> 1px 渐变高光边 + 多层 <code>inset</code> 折射光晕，<strong>0 个 <code>backdrop-filter</code></strong>。
+    </div>
+    <div style="display:flex; gap:8px; align-items:center;">
+      <span id="perf-badge" class="perf-tag good">GPU 采样重绘：零开销（不触发跨 webview 模糊）</span>
+      <span class="perf-tag neutral">全局快捷键：右键画布也可预览菜单</span>
+    </div>
+  </div>
+
+  <!-- 主展示舞台 -->
+  <main class="stage-wrap">
+    <div class="stage-frame" id="stage-frame">
+
+      <!-- 底层场景 A：模拟工作台密集文档（最考验半透明易读性） -->
+      <div class="bg-workbench">
+        <aside class="wb-sidebar">
+          <div style="font-weight:600; color:var(--text-primary); margin-bottom:10px;">工作区文件树</div>
+          <div class="wb-tree-row">📁 docs/</div>
+          <div class="wb-tree-row active">📄 液态玻璃性能评估.md</div>
+          <div class="wb-tree-row">📄 DESIGN.md</div>
+          <div class="wb-tree-row">📄 Modal.tsx</div>
+          <div class="wb-tree-row">📄 CustomDropdown.tsx</div>
+          <div class="wb-tree-row">📄 AgentModelPicker.tsx</div>
+          <div class="wb-tree-row">📄 WorkbenchDropDown.tsx</div>
+        </aside>
+
+        <section class="wb-main">
+          <div class="wb-toolbar">
+            <span style="font-weight:600; font-size:12px;">正文 ▾</span>
+            <span style="opacity:.3">|</span>
+            <span style="font-weight:700; font-size:12px;">B</span>
+            <span style="font-style:italic; font-size:12px;">I</span>
+            <span style="font-size:12px;">&lt;/&gt;</span>
+            <span style="font-size:12px;">fx 公式</span>
+            <span style="font-size:12px; margin-left:auto; color:var(--text-secondary);">以下正文故意垫在悬浮层下，用来压测文字易读性</span>
+          </div>
+
+          <article class="wb-article">
+            <h1>Electron 下为什么不能盲目堆叠大面积 backdrop-filter？</h1>
+            <p>
+              当弹窗或下拉菜单跨越底层 <code>&lt;webview&gt;</code>、长文档滚动容器以及玻璃侧栏时，大半径的 <code>backdrop-filter: blur(24px)</code> 会迫使 Chromium 合成器在每一帧对下层像素做离屏拷贝与高斯卷积。视觉上哪怕只差几毫秒，在低功耗本或连续拖拽分隔条时都会表现为掉帧。
+            </p>
+            <div class="wb-code">
+              <code>// 仿液态玻璃（零模糊合成）关键在于：高光边缘 + 方向性光泽 + 适度微透<br>
+background: linear-gradient(160deg, rgba(255,255,255,0.93), rgba(247,250,255,0.87));<br>
+box-shadow: inset 0 1.5px 0 rgba(255,255,255,0.98), 0 20px 44px -12px rgba(15,23,42,0.16);</code>
+            </div>
+            <table class="wb-table">
+              <thead>
+                <tr><th>方案</th><th>实时采样开销</th><th>跨 &lt;webview&gt; 稳定性</th><th>暗色模式易读性</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>全屏遮罩 blur</td><td>高（全屏逐帧采样）</td><td>差（易卡顿）</td><td>需额外压暗层</td></tr>
+                <tr><td>仿液态玻璃（零模糊）</td><td>极低（纯合成纹理）</td><td>极佳（不依赖穿透）</td><td>高（对比度恒定）</td></tr>
+                <tr><td>仿液态玻璃（8px 轻模糊）</td><td>低（采样半径 1/3）</td><td>局部可用</td><td>中高</td></tr>
+              </tbody>
+            </table>
+          </article>
+        </section>
+
+        <aside class="wb-right">
+          <div>
+            <div style="font-weight:600; font-size:13px; margin-bottom:8px;">Agent 侧栏预览区</div>
+            <p style="font-size:12px; color:var(--text-secondary); line-height:1.6;">
+              右侧栏展示的是高密度的交互内容：工具调用卡片、代码 Diff、上下文额度条，底部浮动出模型选择器和权限模式弹层。
+            </p>
+          </div>
+          <div style="padding:10px; border-radius:12px; border:1px solid var(--hairline); font-size:12px; color:var(--text-secondary);">
+            Composer 输入区占位（点击左中侧弹出组件进行交互对比）
+          </div>
+        </aside>
+      </div>
+
+      <!-- 底层场景 B：MultiChat 主界面渐变 + AI 卡片 -->
+      <div class="bg-gradient-cards">
+        <div class="wv-card">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <strong>Claude · 多模型对照槽位</strong>
+            <span class="badge badge-blue">网页会话</span>
+          </div>
+          <p style="margin:0; font-size:13px; color:var(--text-secondary); line-height:1.7;">
+            在带粉蓝黄弥散渐变背景的主界面中，仿液态玻璃的顶部高光条与微透淡冷色梯度会从卡片顶部与边缘反射出来，即使不启用 real blur，也能呈现出饱满的玻璃厚度感。
+          </p>
+        </div>
+        <div class="wv-card">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <strong>Gemini · 深度推理槽位</strong>
+            <span class="badge badge-amber">高对比测试</span>
+          </div>
+          <p style="margin:0; font-size:13px; color:var(--text-secondary); line-height:1.7;">
+            切换顶部的「当前实色」「零模糊推荐」「8px 轻模糊」按钮，可以立刻观察两种玻璃边界和纯白死板卡片之间的差别。
+          </p>
+        </div>
+      </div>
+
+      <!-- 前景悬浮组件真实交互区 -->
+      <div class="showcase-overlay">
+
+        <!-- 槽位 1：AgentModelPicker（含搜索、分组折叠、思考滑块） -->
+        <div class="showcase-slot">
+          <button type="button" class="trigger-btn" id="toggle-picker-btn">
+            <span>Agent 模型选择器</span>
+            <span style="color:var(--primary); font-weight:600;" id="picker-selected-label">Gemini 3 Pro · 高</span>
+            <span id="picker-arrow">▾</span>
+          </button>
+
+          <div class="glass-surface model-picker-panel" id="model-picker-panel">
+            <div class="picker-search">
+              <span style="color:var(--text-secondary); font-size:12px;">🔍</span>
+              <input type="text" id="picker-search-input" placeholder="搜索模型、厂商或上下文..." />
+            </div>
+
+            <div class="picker-list" id="picker-list">
+              <!-- 由 JS 渲染模型分组，支持搜索与折叠 -->
+            </div>
+
+            <div class="picker-footer">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <span style="font-size:12px; font-weight:600;">思考强度</span>
+                <span class="badge badge-blue" id="thinking-badge">高</span>
+              </div>
+              <div class="slider-track">
+                <div class="slider-fill" id="slider-fill"></div>
+                <div class="slider-thumb" id="slider-thumb"></div>
+                <input type="range" class="slider-input" id="thinking-range" min="0" max="4" step="1" value="3" aria-label="思考强度" />
+              </div>
+              <div class="slider-labels" id="slider-labels">
+                <button type="button" data-lvl="0">关闭</button>
+                <button type="button" data-lvl="1">极低</button>
+                <button type="button" data-lvl="2">低</button>
+                <button type="button" data-lvl="3" class="active">高</button>
+                <button type="button" data-lvl="4">极高</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 槽位 2：通用下拉菜单（CustomDropdown / WorkbenchDropDown）+ 右键菜单含二级菜单 -->
+        <div class="showcase-slot" style="display:flex; flex-direction:column; gap:12px;">
+          <div>
+            <button type="button" class="trigger-btn" id="toggle-dropdown-btn">
+              <span>工具栏 / 模型下拉</span>
+              <span id="dropdown-current" style="color:var(--primary); font-weight:600;">正文段落</span>
+              <span>▾</span>
+            </button>
+            <div class="glass-surface dropdown-panel" id="toolbar-dropdown">
+              <button type="button" class="menu-item is-selected" data-dd-item="正文段落">
+                <span>¶</span><span style="flex:1;">正文段落</span><span style="font-size:11px; opacity:.7;">✓</span>
+              </button>
+              <button type="button" class="menu-item" data-dd-item="一级标题 H1">
+                <span style="font-weight:700;">H1</span><span style="flex:1;">一级标题</span>
+              </button>
+              <button type="button" class="menu-item" data-dd-item="二级标题 H2">
+                <span style="font-weight:700;">H2</span><span style="flex:1;">二级标题</span>
+              </button>
+              <div class="divider"></div>
+              <button type="button" class="menu-item" data-dd-item="代码块">
+                <span style="font-family:var(--font-mono);">&lt;/&gt;</span><span style="flex:1;">代码块</span>
+              </button>
+              <button type="button" class="menu-item" data-dd-item="引用块">
+                <span>❝</span><span style="flex:1;">引用块</span>
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <button type="button" class="trigger-btn" id="toggle-ctx-btn">
+              <span>文件树右键菜单（含子菜单）</span>
+              <span>▾</span>
+            </button>
+            <div class="context-wrap" id="context-wrap">
+              <div class="glass-surface context-panel" id="context-panel">
+                <button type="button" class="menu-item"><span>✏️</span><span style="flex:1;">重命名</span><span style="font-size:11px; color:var(--text-secondary);">F2</span></button>
+                <button type="button" class="menu-item"><span>📋</span><span style="flex:1;">复制文件路径</span><span style="font-size:11px; color:var(--text-secondary);">Ctrl+C</span></button>
+                <button type="button" class="menu-item" id="submenu-trigger" style="justify-content:space-between;">
+                  <span style="display:flex; align-items:center; gap:10px;"><span>📁</span><span>移动到其他工作区</span></span>
+                  <span style="color:var(--text-secondary);">›</span>
+                </button>
+                <div class="divider"></div>
+                <button type="button" class="menu-item is-danger"><span>🗑️</span><span style="flex:1;">删除（移至回收站）</span></button>
+              </div>
+
+              <div class="glass-surface submenu-panel" id="submenu-panel">
+                <button type="button" class="menu-item"><span>🏠</span><span style="flex:1;">默认会话库</span></button>
+                <button type="button" class="menu-item"><span>📂</span><span style="flex:1;">Product-Specs</span></button>
+                <button type="button" class="menu-item"><span>📂</span><span style="flex:1;">Research-Notes</span></button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 槽位 3：Modal 弹窗对比（确认弹窗 + 设置弹窗） -->
+        <div class="showcase-slot" style="display:flex; flex-direction:column; gap:14px;">
+          <!-- 确认小弹窗 -->
+          <div class="glass-surface modal-card">
+            <div class="modal-body" style="padding:18px 18px 16px;">
+              <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
+                <span style="width:24px; height:24px; border-radius:999px; background:rgba(239,68,68,0.14); color:#ef4444; display:grid; place-items:center; font-weight:700; font-size:13px;">!</span>
+                <h3 style="margin:0; font-size:17px; font-weight:600;">确认删除此会话？</h3>
+              </div>
+              <p style="margin:0 0 16px; font-size:13px; color:var(--text-secondary); line-height:1.6;">
+                删除后将同时清理本地关联的思维导图缓存，源文件仍可通过回收站还原。请注意观察弹窗顶部亮边、边缘折射感与正文高对比易读性。
+              </p>
+              <div style="display:flex; gap:10px;">
+                <button type="button" class="btn-secondary" style="flex:1;" id="demo-cancel-btn">取消</button>
+                <button type="button" class="btn-danger" style="flex:1;" id="demo-confirm-btn">确认删除</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 设置弹窗预览 -->
+          <div class="glass-surface modal-card">
+            <div class="modal-header">
+              <div class="modal-title-wrap">
+                <span style="font-size:18px;">🤖</span>
+                <div>
+                  <h3 class="modal-title">Agent 配置</h3>
+                  <p class="modal-sub">统一弹窗容器 · 非全屏模糊，零拖动卡顿</p>
+                </div>
+              </div>
+              <button type="button" class="close-icon-btn" aria-label="关闭">✕</button>
+            </div>
+            <div class="modal-body" style="display:flex; flex-direction:column; gap:10px;">
+              <div style="display:flex; gap:6px;">
+                <span class="seg-btn active" style="background:var(--active-fill); color:var(--primary); box-shadow:none;">供应商</span>
+                <span class="seg-btn">技能与权限</span>
+              </div>
+              <div style="display:flex; align-items:center; justify-content:space-between; padding:9px 11px; border-radius:10px; border:1px solid var(--hairline); background:rgba(15,23,42,0.02);">
+                <div>
+                  <div style="font-weight:600; font-size:13px;">Anthropic (OAuth)</div>
+                  <div style="font-size:11px; color:var(--text-secondary);">已连接 · Claude Sonnet 4 / Opus 4</div>
+                </div>
+                <span class="badge badge-blue">已认证</span>
+              </div>
+              <div style="display:flex; align-items:center; justify-content:space-between; padding:9px 11px; border-radius:10px; border:1px solid var(--hairline); background:rgba(15,23,42,0.02);">
+                <div>
+                  <div style="font-weight:600; font-size:13px;">OpenAI Compatible</div>
+                  <div style="font-size:11px; color:var(--text-secondary);">自定义接口与代理配置</div>
+                </div>
+                <span class="badge badge-amber">待配置</span>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn-secondary">恢复默认</button>
+              <button type="button" class="btn-primary">完成</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </main>
+
+  <!-- 真实居中 Modal（点击顶部“弹出真实居中 Modal”触发） -->
+  <div class="live-modal-backdrop" id="live-modal-backdrop">
+    <div class="glass-surface modal-card live-modal-box" id="live-modal-box" role="dialog" aria-modal="true" aria-label="重命名对话">
+      <div class="modal-header">
+        <div class="modal-title-wrap">
+          <span style="font-size:18px;">✨</span>
+          <div>
+            <h3 class="modal-title">重命名当前会话</h3>
+            <p class="modal-sub">遮罩仅使用纯色 bg-black/25（无全屏 blur）</p>
+          </div>
+        </div>
+        <button type="button" class="close-icon-btn" id="close-live-modal-btn" aria-label="关闭">✕</button>
+      </div>
+      <div class="modal-body">
+        <input
+          type="text"
+          id="live-modal-input"
+          value="液态玻璃性能与易读性设计方案"
+          style="width:100%; padding:9px 12px; border-radius:10px; border:1px solid var(--input-border); background:var(--input-bg); color:var(--text-primary); outline:none; font-size:14px;"
+        />
+        <p style="margin:8px 0 0; font-size:11px; color:var(--text-secondary);">
+          点击遮罩外部或按 Esc 关闭，测试在弹窗出现/关闭时的视觉质感与响应速度。
+        </p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn-secondary" id="cancel-live-modal-btn">取消</button>
+        <button type="button" class="btn-primary" id="save-live-modal-btn">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 动态右键演示菜单（右键舞台任意空白处呼出） -->
+  <div class="glass-surface context-panel" id="floating-ctx-menu" style="display:none; position:fixed; z-index:90;">
+    <button type="button" class="menu-item"><span>💬</span><span style="flex:1;">向 AI 提问</span></button>
+    <button type="button" class="menu-item"><span>🧠</span><span style="flex:1;">解释此内容</span></button>
+    <button type="button" class="menu-item"><span>✨</span><span style="flex:1;">语言润色</span></button>
+    <div class="divider"></div>
+    <button type="button" class="menu-item"><span>📋</span><span style="flex:1;">复制</span><span style="font-size:11px; color:var(--text-secondary);">Ctrl+C</span></button>
+  </div>
+
+  <script>
+    const MODEL_GROUPS = [
+      {
+        id: 'anthropic',
+        name: 'Anthropic',
+        models: [
+          { id: 'claude-sonnet-4', name: 'Claude Sonnet 4', meta: 'anthropic · 200k 上下文' },
+          { id: 'claude-opus-4', name: 'Claude Opus 4', meta: 'anthropic · 200k 上下文' }
+        ]
+      },
+      {
+        id: 'google',
+        name: 'Google',
+        models: [
+          { id: 'gemini-3-pro', name: 'Gemini 3 Pro', meta: 'google · 1000k 上下文' },
+          { id: 'gemini-3-flash', name: 'Gemini 3 Flash', meta: 'google · 1000k 上下文' }
+        ]
+      },
+      {
+        id: 'openai',
+        name: 'OpenAI',
+        models: [
+          { id: 'gpt-5', name: 'GPT-5', meta: 'openai · 400k 上下文' },
+          { id: 'o3', name: 'o3', meta: 'openai · 200k 上下文' }
+        ]
+      }
+    ];
+
+    const THINKING_LEVELS = ['关闭', '极低', '低', '高', '极高'];
+
+    const state = {
+      mode: 'faux-zero',
+      scene: 'workbench',
+      rim: true,
+      dark: false,
+      pickerOpen: true,
+      dropdownOpen: true,
+      contextOpen: true,
+      submenuOpen: true,
+      selectedModelId: 'gemini-3-pro',
+      selectedModelName: 'Gemini 3 Pro',
+      thinkingIdx: 3,
+      collapsed: {},
+      query: ''
+    };
+
+    const PERF_INFO = {
+      solid: {
+        html: '<strong>当前实色（对照组）：</strong>纯白/深灰实底（<code>#ffffff</code> / <code>#1f2937</code>），无层次高光与透感。',
+        badge: 'GPU 采样重绘：零开销 · 视觉偏平',
+        cls: 'perf-tag neutral'
+      },
+      'faux-zero': {
+        html: '<strong>零模糊纯合成仿液态玻璃（推荐）：</strong>高可读渐变微透底（91%–96%）+ <code>mask-composite</code> 1px 渐变亮边 + <code>inset</code> 折射高光，<strong>0 个 <code>backdrop-filter</code></strong>。',
+        badge: 'GPU 采样重绘：零开销 · 跨 <webview> 无卡顿',
+        cls: 'perf-tag good'
+      },
+      'faux-light': {
+        html: '<strong>轻模糊 8px 仿液态玻璃（对照档）：</strong>保留相同高光边，外加小半径 <code>blur(8px) saturate(145%)</code>，底层色彩更柔化但需局部离屏采样。',
+        badge: 'GPU 采样重绘：低开销（核半径约为 24px 的 1/3）',
+        cls: 'perf-tag warn'
+      }
+    };
+
+    function renderModeAndScene() {
+      document.body.setAttribute('data-glass-mode', state.mode);
+      document.body.setAttribute('data-scene', state.scene);
+      document.body.setAttribute('data-rim', state.rim ? 'on' : 'off');
+      document.documentElement.classList.toggle('dark', state.dark);
+
+      document.querySelectorAll('[data-set-mode]').forEach((btn) => {
+        btn.classList.toggle('active', btn.getAttribute('data-set-mode') === state.mode);
+      });
+      document.querySelectorAll('[data-set-scene]').forEach((btn) => {
+        btn.classList.toggle('active', btn.getAttribute('data-set-scene') === state.scene);
+      });
+
+      const rimBtn = document.getElementById('toggle-rim-btn');
+      rimBtn.textContent = `玻璃高光边：${state.rim ? '开' : '关'}`;
+      document.getElementById('toggle-theme-btn').textContent = state.dark ? '深色模式' : '浅色模式';
+
+      const info = PERF_INFO[state.mode];
+      document.getElementById('perf-summary').innerHTML = info.html;
+      const badge = document.getElementById('perf-badge');
+      badge.textContent = info.badge;
+      badge.className = info.cls;
+    }
+
+    function renderPickerList() {
+      const container = document.getElementById('picker-list');
+      const q = state.query.trim().toLowerCase();
+      container.innerHTML = '';
+
+      let count = 0;
+      MODEL_GROUPS.forEach((group) => {
+        const matched = group.models.filter((m) =>
+          !q || m.name.toLowerCase().includes(q) || group.name.toLowerCase().includes(q) || m.meta.toLowerCase().includes(q)
+        );
+        if (!matched.length) return;
+        count += matched.length;
+
+        const isCollapsed = !q && Boolean(state.collapsed[group.id]);
+
+        const groupBtn = document.createElement('button');
+        groupBtn.type = 'button';
+        groupBtn.className = 'picker-group-btn';
+        groupBtn.innerHTML = `<span>${isCollapsed ? '▸' : '▾'} ${group.name}</span><span>${matched.length}</span>`;
+        groupBtn.addEventListener('click', () => {
+          state.collapsed[group.id] = !state.collapsed[group.id];
+          renderPickerList();
+        });
+        container.appendChild(groupBtn);
+
+        if (!isCollapsed) {
+          matched.forEach((m) => {
+            const isSelected = m.id === state.selectedModelId;
+            const row = document.createElement('button');
+            row.type = 'button';
+            row.className = `menu-item ${isSelected ? 'is-selected' : ''}`;
+            row.style.justifyContent = 'space-between';
+            row.innerHTML = `
+              <div style="min-width:0;">
+                <div style="font-size:13px; line-height:1.25;">${m.name}</div>
+                <div style="font-size:11px; color:var(--text-secondary); font-weight:400;">${m.meta}</div>
+              </div>
+              ${isSelected ? '<span style="font-size:12px;">✓</span>' : ''}
+            `;
+            row.addEventListener('click', () => {
+              state.selectedModelId = m.id;
+              state.selectedModelName = m.name;
+              updatePickerLabel();
+              renderPickerList();
+            });
+            container.appendChild(row);
+          });
+        }
+      });
+
+      if (count === 0) {
+        const empty = document.createElement('div');
+        empty.style.cssText = 'padding:18px; text-align:center; font-size:12px; color:var(--text-secondary);';
+        empty.textContent = '没有匹配的模型';
+        container.appendChild(empty);
+      }
+    }
+
+    function updatePickerLabel() {
+      const lvl = THINKING_LEVELS[state.thinkingIdx];
+      document.getElementById('picker-selected-label').textContent = `${state.selectedModelName} · ${lvl}`;
+      document.getElementById('thinking-badge').textContent = lvl;
+      const ratio = state.thinkingIdx / (THINKING_LEVELS.length - 1);
+      document.getElementById('slider-fill').style.clipPath = `inset(0 calc((100% - 22px) * ${1 - ratio}) 0 0 round 9999px)`;
+      document.getElementById('slider-thumb').style.left = `calc(11px + (100% - 22px) * ${ratio})`;
+      document.querySelectorAll('#slider-labels button').forEach((btn) => {
+        btn.classList.toggle('active', Number(btn.getAttribute('data-lvl')) === state.thinkingIdx);
+      });
+    }
+
+    // 绑定控制条事件
+    document.querySelectorAll('[data-set-mode]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        state.mode = btn.getAttribute('data-set-mode');
+        renderModeAndScene();
+      });
+    });
+
+    document.querySelectorAll('[data-set-scene]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        state.scene = btn.getAttribute('data-set-scene');
+        renderModeAndScene();
+      });
+    });
+
+    document.getElementById('toggle-rim-btn').addEventListener('click', () => {
+      state.rim = !state.rim;
+      renderModeAndScene();
+    });
+
+    document.getElementById('toggle-theme-btn').addEventListener('click', () => {
+      state.dark = !state.dark;
+      renderModeAndScene();
+    });
+
+    // 组件折叠交互
+    document.getElementById('toggle-picker-btn').addEventListener('click', () => {
+      state.pickerOpen = !state.pickerOpen;
+      document.getElementById('model-picker-panel').style.display = state.pickerOpen ? 'block' : 'none';
+    });
+
+    document.getElementById('toggle-dropdown-btn').addEventListener('click', () => {
+      state.dropdownOpen = !state.dropdownOpen;
+      document.getElementById('toolbar-dropdown').style.display = state.dropdownOpen ? 'block' : 'none';
+    });
+
+    document.getElementById('toggle-ctx-btn').addEventListener('click', () => {
+      state.contextOpen = !state.contextOpen;
+      document.getElementById('context-wrap').style.display = state.contextOpen ? 'inline-block' : 'none';
+    });
+
+    document.getElementById('submenu-trigger').addEventListener('click', () => {
+      state.submenuOpen = !state.submenuOpen;
+      document.getElementById('submenu-panel').style.display = state.submenuOpen ? 'block' : 'none';
+    });
+
+    // 工具栏下拉选项点击
+    document.querySelectorAll('#toolbar-dropdown [data-dd-item]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const val = btn.getAttribute('data-dd-item');
+        document.getElementById('dropdown-current').textContent = val;
+        document.querySelectorAll('#toolbar-dropdown [data-dd-item]').forEach((el) => {
+          const active = el === btn;
+          el.classList.toggle('is-selected', active);
+          const check = el.querySelector('.dd-check');
+          if (check) check.remove();
+        });
+      });
+    });
+
+    // 搜索与思考滑块
+    document.getElementById('picker-search-input').addEventListener('input', (e) => {
+      state.query = e.target.value;
+      renderPickerList();
+    });
+
+    document.getElementById('thinking-range').addEventListener('input', (e) => {
+      state.thinkingIdx = Number(e.target.value);
+      updatePickerLabel();
+    });
+
+    document.querySelectorAll('#slider-labels button').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        state.thinkingIdx = Number(btn.getAttribute('data-lvl'));
+        document.getElementById('thinking-range').value = String(state.thinkingIdx);
+        updatePickerLabel();
+      });
+    });
+
+    // 真实居中 Modal 交互
+    const liveBackdrop = document.getElementById('live-modal-backdrop');
+    const openLiveModal = () => {
+      liveBackdrop.classList.add('open');
+      setTimeout(() => document.getElementById('live-modal-input').select(), 20);
+    };
+    const closeLiveModal = () => liveBackdrop.classList.remove('open');
+
+    document.getElementById('open-live-modal-btn').addEventListener('click', openLiveModal);
+    document.getElementById('close-live-modal-btn').addEventListener('click', closeLiveModal);
+    document.getElementById('cancel-live-modal-btn').addEventListener('click', closeLiveModal);
+    document.getElementById('save-live-modal-btn').addEventListener('click', closeLiveModal);
+    liveBackdrop.addEventListener('click', (e) => {
+      if (e.target === liveBackdrop) closeLiveModal();
+    });
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        closeLiveModal();
+        document.getElementById('floating-ctx-menu').style.display = 'none';
+      }
+    });
+
+    // 画布右键呼出动态上下文菜单
+    const floatingCtx = document.getElementById('floating-ctx-menu');
+    document.getElementById('stage-frame').addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      floatingCtx.style.display = 'block';
+      floatingCtx.style.left = `${Math.min(e.clientX, window.innerWidth - 240)}px`;
+      floatingCtx.style.top = `${Math.min(e.clientY, window.innerHeight - 180)}px`;
+    });
+    window.addEventListener('click', (e) => {
+      if (!floatingCtx.contains(e.target)) {
+        floatingCtx.style.display = 'none';
+      }
+    });
+
+    // 初始化渲染
+    renderModeAndScene();
+    renderPickerList();
+    updatePickerLabel();
+  </script>
+</body>
+</html>

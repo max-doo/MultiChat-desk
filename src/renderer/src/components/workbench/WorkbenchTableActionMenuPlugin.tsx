@@ -324,7 +324,7 @@ function TableActionMenu({
   return createPortal(
     <div
       ref={dropDownRef}
-      className="fixed z-popover w-56 py-1 bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-black/10 dark:border-white/10 opacity-0"
+      className="fixed z-popover w-56 py-1 liquid-glass-menu rounded-xl opacity-0"
       style={{ top: -10000, left: -10000 }}
       role="menu"
     >

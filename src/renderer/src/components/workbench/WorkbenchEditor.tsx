@@ -35,8 +35,13 @@ import { PendingBarNode } from './PendingBarNode'
 import { WorkbenchImageNode } from './WorkbenchImageNode'
 import { WorkbenchHtmlTableNode } from './WorkbenchHtmlTableNode'
 import { WorkbenchEquationNode } from './WorkbenchEquationNode'
+import {
+  WorkbenchFootnoteDefNode,
+  WorkbenchFootnoteRefNode
+} from './WorkbenchFootnoteNode'
 import { WorkbenchHorizontalRuleNode } from './WorkbenchHorizontalRuleNode'
 import WorkbenchImagePlugin from './WorkbenchImagePlugin'
+import WorkbenchFootnotePlugin from './WorkbenchFootnotePlugin'
 import WorkbenchSelectionMenuPlugin from './WorkbenchSelectionMenuPlugin'
 import WorkbenchFloatingToolbarPlugin from './WorkbenchFloatingToolbarPlugin'
 import WorkbenchLinkHoverPlugin from './WorkbenchLinkHoverPlugin'
@@ -165,7 +170,9 @@ const lexicalTheme = {
     right: 'PlaygroundEditorTheme__tableAlignmentRight'
   },
   hr: 'PlaygroundEditorTheme__hr',
-  hrSelected: 'PlaygroundEditorTheme__hrSelected'
+  hrSelected: 'PlaygroundEditorTheme__hrSelected',
+  footnoteRef: 'PlaygroundEditorTheme__footnoteRef',
+  footnoteDef: 'PlaygroundEditorTheme__footnoteDef'
 }
 
 export default function WorkbenchEditor(): JSX.Element {
@@ -367,6 +374,8 @@ export default function WorkbenchEditor(): JSX.Element {
         WorkbenchImageNode,
         WorkbenchHtmlTableNode,
         WorkbenchEquationNode,
+        WorkbenchFootnoteRefNode,
+        WorkbenchFootnoteDefNode,
         MarkNode
       ],
       onError: (error: Error) => {
@@ -603,6 +612,7 @@ export default function WorkbenchEditor(): JSX.Element {
         <MarkdownSyncPlugin />
         <WorkbenchCodeHighlightPlugin />
         <WorkbenchImagePlugin />
+        <WorkbenchFootnotePlugin />
         <WorkbenchLinkPastePlugin />
         <WorkbenchEquationPastePlugin />
         <WorkbenchLinkClickPlugin />

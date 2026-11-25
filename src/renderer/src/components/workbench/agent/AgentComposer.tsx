@@ -404,13 +404,13 @@ export function AgentComposer(): JSX.Element {
         <div className="composer-surface relative w-full flex flex-col justify-between">
         {/* Skill Suggestions */}
         {skillMenuOpen && (
-          <div className="absolute left-0 bottom-full mb-1.5 w-full rounded-xl border border-gray-200 py-1 shadow-lg z-popover bg-white text-text-primary text-label max-h-56 overflow-y-auto dark:border-white/10 dark:bg-gray-800">
+          <div className="absolute left-0 bottom-full mb-1.5 w-full liquid-glass-menu rounded-xl py-1 z-popover text-text-primary text-label max-h-56 overflow-y-auto">
             {skillSuggestions.map((skill) => (
               <button
                 key={skill.filePath}
                 type="button"
                 onClick={() => applySkill(skill)}
-                className="w-full text-left px-3 py-1.5 hover:bg-gray-50 dark:hover:bg-white/5 flex items-baseline gap-2 transition-colors"
+                className="w-full text-left px-3 py-1.5 hover:bg-black/[0.045] dark:hover:bg-white/[0.07] flex items-baseline gap-2 transition-colors"
               >
                 <span className="font-medium text-primary shrink-0">/{skill.name}</span>
                 <span className="truncate text-text-secondary text-caption">{skill.description}</span>
@@ -426,7 +426,7 @@ export function AgentComposer(): JSX.Element {
         {atMenuOpen && (
           <div
             ref={atListRef}
-            className="absolute left-0 bottom-full mb-1.5 w-full rounded-xl border border-gray-200 py-1 shadow-lg z-popover bg-white text-text-primary text-label max-h-56 overflow-y-auto dark:border-white/10 dark:bg-gray-800"
+            className="absolute left-0 bottom-full mb-1.5 w-full liquid-glass-menu rounded-xl py-1 z-popover text-text-primary text-label max-h-56 overflow-y-auto"
           >
             {atSuggestions.map((node, idx) => (
               <button
@@ -436,7 +436,7 @@ export function AgentComposer(): JSX.Element {
                 onMouseEnter={() => setAtIndex(idx)}
                 onClick={() => applyAtMention(node)}
                 className={`w-full text-left px-3 py-1.5 flex items-center gap-2 transition-colors ${
-                  idx === atIndex ? 'bg-blue-50 dark:bg-primary/15' : 'hover:bg-gray-50 dark:hover:bg-white/5'
+                  idx === atIndex ? 'bg-blue-50/80 dark:bg-primary/15' : 'hover:bg-black/[0.045] dark:hover:bg-white/[0.07]'
                 }`}
               >
                 {node.isDirectory ? (
@@ -510,7 +510,7 @@ export function AgentComposer(): JSX.Element {
                 align="left"
                 className="w-72 max-w-[calc(100vw-48px)] p-1"
               >
-                <div className="flex flex-col text-label w-full select-none bg-white dark:bg-gray-800">
+                <div className="flex flex-col text-label w-full select-none">
                   {/* 模式列表 */}
                   <div className="space-y-0.5">
                     {(['default', 'auto', 'bypass'] as AgentPermissionMode[]).map((mode) => {
@@ -526,8 +526,8 @@ export function AgentComposer(): JSX.Element {
                           }}
                           className={`w-full text-left px-2.5 py-2 rounded-lg flex items-center justify-between transition-colors ${
                             isCurrent
-                              ? 'bg-blue-50/60 dark:bg-primary/15 font-medium'
-                              : 'hover:bg-gray-50 dark:hover:bg-white/5'
+                              ? 'bg-blue-50/75 dark:bg-primary/15 font-medium'
+                              : 'hover:bg-black/[0.045] dark:hover:bg-white/[0.07]'
                           }`}
                         >
                           <div className="flex items-center gap-2 min-w-0">

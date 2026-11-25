@@ -38,7 +38,7 @@ interface NavSectionItem {
 }
 
 const BASE_NAV_SECTIONS: NavSectionItem[] = [
-  { id: 'interface', label: '界面与模式', icon: 'view_column_2', group: 'general' },
+  { id: 'interface', label: '界面与模式', icon: 'web_asset', group: 'general' },
   { id: 'agent', label: 'Agent 配置', icon: 'smart_toy', group: 'general' },
   { id: 'summary', label: '任务与总结', icon: 'account_tree', group: 'general' },
   { id: 'selection', label: '划词工具条', icon: 'text_select_start', group: 'general' },
@@ -1046,7 +1046,7 @@ export default function SettingsPage(): JSX.Element {
         <div className="mx-auto max-w-3xl space-y-8 pb-24">
           {/* 1. 界面与模式 */}
           <section ref={setSectionRef('interface')} data-section-id="interface">
-            <SectionHeader icon="view_column_2" title="界面与模式" />
+            <SectionHeader icon="web_asset" title="界面与模式" />
             <div className="space-y-4">
               <ProductModeOrderCard />
               <ModelOrderCard />

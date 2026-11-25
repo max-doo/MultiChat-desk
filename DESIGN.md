@@ -62,11 +62,10 @@ components:
     note: "实色卡片弹窗（ConfirmModal / RenameModal / HtmlEditLeaveDialog）"
   modal-glass:
     backgroundColor: "rgba(255, 255, 255, 0.85)"
-    backdropFilter: "blur(24px)"
-    border: "1px solid rgba(255, 255, 255, 0.9)"
+    backdropFilter: "blur(8px) saturate(145%)"
+    border: "1px solid rgba(255, 255, 255, 0.84)"
     rounded: "{rounded.2xl}"
-    shadow: "shadow-float"
-    note: "玻璃拟态弹窗（ModelOrderModal / ProductModeOrderModal）"
+    note: "仿液态玻璃弹窗（liquid-glass-modal，默认所有 Modal 使用，无视觉遮罩）"
   button-primary:
     backgroundColor: "{colors.primary}"
     textColor: "#ffffff"
@@ -94,7 +93,7 @@ components:
 
 ## Overview
 
-MultiChat Desk 是一个 Electron 多模型聊天工作台，UI 属于 **Operate** 模式——用户在此完成任务（多平台发送、总结、工作台编辑），信息密度高，一致性优先于表现力。视觉语言是"轻玻璃拟态 + 实色卡片"的混合体：主区域与导航用半透明玻璃面板（`glass-panel`/`glass-panel-heavy`）营造层级，弹窗与表单用实色卡片保证可读性。整体调性冷静、专业、略带柔和，避免纯黑纯白的高对比。
+MultiChat Desk 是一个 Electron 多模型聊天工作台，UI 属于 **Operate** 模式——用户在此完成任务（多平台发送、总结、工作台编辑），信息密度高，一致性优先于表现力。视觉语言是"仿液态玻璃 + 轻玻璃拟态"的协同体系：主区域与导航沿用 `glass-panel`/`glass-panel-heavy` 营造层级，弹窗、下拉菜单与局部浮层采用 `liquid-glass-modal`/`liquid-glass-menu`（8px 轻模糊 + 高可读微透渐变 + 亮边内高光，支持明暗双色），兼顾性能与可读性。整体调性冷静、专业、略带柔和，避免纯黑纯白的高对比。
 
 设计系统的 token 在 `tailwind.config.js` 的 `theme.extend` 中定义，本文件是唯一的规范文档。新增 UI 时先查 token 表，**禁止新增 `text-[Npx]`、`z-[N]`、`size={非档位}` 任意值**；发现旧散值按迁移规则顺手收敛，不做全局替换。
 
@@ -149,7 +148,7 @@ MultiChat Desk 是一个 Electron 多模型聊天工作台，UI 属于 **Operate
 | 模态/弹窗 | `shadow-xl`/`shadow-2xl` | 实色 modal |
 | 品牌浮层 | `shadow-soft`/`shadow-float` | 玻璃面板、主按钮 hover、玻璃 modal |
 
-`glass-panel`(blur 20px/border white/0.8）与 `glass-panel-heavy`(blur 24px/border white/0.9）是唯二的玻璃类，分别在浅色/需要更强层级时使用。
+`glass-panel`(blur 20px/border white/0.8）与 `glass-panel-heavy`(blur 24px/border white/0.9）用于常驻面板；`liquid-glass-menu` 与 `liquid-glass-modal`（blur 8px + saturate 145% + 高可读微透渐变 + inset 亮边高光，含 `.dark` 适配）专用于下拉菜单、右键菜单、局部浮层与模态弹窗本体。
 
 ## Shapes
 
@@ -178,9 +177,9 @@ MultiChat Desk 是一个 Electron 多模型聊天工作台，UI 属于 **Operate
 </Modal>
 ```
 
-- `variant="solid"`：实色卡片（`bg-app` + `border-gray-200` + `rounded-xl` + `shadow-2xl`)，用于 ConfirmModal / RenameModal / HtmlEditLeaveDialog 风格——默认选这个
-- `variant="glass"`：玻璃拟态（`glass-panel-heavy` + `rounded-2xl` + `shadow-float`)，用于 AgentSettingsDialog 这类"设置/管理"型弹窗
-- `backdrop`：`solid` 默认 `'none'`（透明全屏事件拦截层，无视觉遮罩），`glass` 默认 `'dim'`（轻量 `bg-black/25` 压暗）；禁用全屏 `backdrop-blur` 与遮罩淡入动画，仅保留面板 `modal-zoom-in` 入场动画
+- `variant="glass"`（默认）：仿液态玻璃（`liquid-glass-modal` + `rounded-2xl`，8px 轻模糊 + 方向性渐变微透底 + 玻璃高光边与内发光，明暗双色），用于所有通用弹窗
+- `variant="solid"`：实色卡片（`bg-app` + `border-gray-200` + `rounded-xl` + `shadow-2xl`），仅需完全不透明底色时显式指定
+- `backdrop`：默认 `'none'`（透明全屏事件拦截层，无视觉遮罩）；如需轻微压暗可显式传 `'dim'`（`bg-black/25`）。禁用全屏 `backdrop-blur` 与遮罩淡入动画，仅保留面板 `modal-zoom-in` 入场动画
 - `closeOnBackdrop`/`closeOnEscape` 默认 `true`；有 `busy` 状态的对话框传 `false`
 - `ModalFooter` 默认 `justify-end`，需要左右分布传 `className="justify-between"`
 

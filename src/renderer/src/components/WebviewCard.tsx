@@ -414,7 +414,7 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
                     <button
                       type="button"
                       onClick={onSelect}
-                      className="w-full flex items-center justify-between gap-3 px-3 py-2 hover:bg-gray-100 transition-colors text-left"
+                      className="w-full flex items-center justify-between gap-3 px-3 py-2 hover:bg-black/[0.05] dark:hover:bg-white/[0.08] transition-colors text-left"
                     >
                       <div className="flex items-center gap-3 min-w-0">
                         {option.logo ? (

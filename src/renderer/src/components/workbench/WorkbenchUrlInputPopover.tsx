@@ -122,7 +122,7 @@ export default function WorkbenchUrlInputPopover({
         ref={popoverRef}
         role="dialog"
         aria-label="链接"
-        className="fixed z-[120] flex items-center gap-1 rounded-xl border border-black/10 bg-white p-1.5 shadow-lg dark:border-white/10 dark:bg-gray-800"
+        className="fixed z-[120] flex items-center gap-1 liquid-glass-menu rounded-xl p-1.5"
         style={{ width: position.width, left: position.left, top: position.top }}
       >
         <AppIcon name="link" size={16} className="ml-1 shrink-0 text-text-secondary" />

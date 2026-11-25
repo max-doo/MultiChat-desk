@@ -40,7 +40,7 @@ export default function AnnotationCommentCard({
   return (
     <div
       data-annotation-popover="true"
-      className={`w-[320px] rounded-xl border border-black/10 bg-white p-3 text-text-primary shadow-xl no-drag dark:border-white/10 dark:bg-gray-800 ${className}`}
+      className={`w-[320px] liquid-glass-menu rounded-xl p-3 text-text-primary no-drag ${className}`}
       style={style}
     >
       <div className="flex items-center justify-between gap-2">

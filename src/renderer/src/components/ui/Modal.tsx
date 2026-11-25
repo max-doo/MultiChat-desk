@@ -15,7 +15,7 @@ const SIZE_CLASS: Record<ModalSize, string> = {
 const PANEL_CLASS: Record<ModalVariant, string> = {
   solid:
     'bg-app border border-gray-200 rounded-xl shadow-2xl dark:border-gray-700 dark:bg-gray-800',
-  glass: 'glass-panel-heavy rounded-2xl shadow-float'
+  glass: 'liquid-glass-modal rounded-2xl'
 }
 
 const BACKDROP_CLASS: Record<ModalBackdrop, string> = {
@@ -33,7 +33,7 @@ export interface ModalProps {
   onClose: () => void
   variant?: ModalVariant
   size?: ModalSize
-  /** 背景遮罩模式：solid 默认 'none'（透明拦截层），glass 默认 'dim'（轻量压暗） */
+  /** 背景遮罩模式：默认 'none'（透明拦截层，无视觉遮罩） */
   backdrop?: ModalBackdrop
   /** 点遮罩是否关闭，默认 true */
   closeOnBackdrop?: boolean
@@ -49,14 +49,14 @@ export interface ModalProps {
 
 /**
  * 统一模态弹窗基础组件。
- * - variant 'solid'：实色卡片（ConfirmModal / RenameModal / HtmlEditLeaveDialog 风格）
- * - variant 'glass'：玻璃拟态（AgentSettingsDialog 风格）
+ * - variant 'glass'（默认）：仿液态玻璃（8px 轻模糊 + 高光边缘），所有通用弹窗默认使用
+ * - variant 'solid'：实色卡片（仅需要完全不透明背景时显式指定）
  * 只负责事件拦截层/轻量遮罩 + 容器壳 + 层级 + 动画，不约束内部 header/body/footer 结构。
  */
 export default function Modal({
   open,
   onClose,
-  variant = 'solid',
+  variant = 'glass',
   size = 'md',
   backdrop,
   closeOnBackdrop = true,
@@ -79,7 +79,7 @@ export default function Modal({
 
   if (!open) return null
 
-  const resolvedBackdrop: ModalBackdrop = backdrop ?? (variant === 'glass' ? 'dim' : 'none')
+  const resolvedBackdrop: ModalBackdrop = backdrop ?? 'none'
 
   return createPortal(
     <div className={`fixed inset-0 ${zIndexClass} flex items-center justify-center p-4`}>

@@ -220,7 +220,7 @@ export function AgentAuthDialog({
       open
       onClose={onClose}
       size="md"
-      variant="solid"
+      variant="glass"
       zIndexClass="z-[110]"
       closeOnBackdrop={false}
     >

@@ -276,7 +276,7 @@ function TaskModePanel({ showNotification }: TaskModePanelProps): JSX.Element {
           renderOption={(option, _isSelected, onSelect) => {
             const model = models.find(m => m.id === option.value)
             return (
-              <button type="button" onClick={onSelect} className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-gray-100 transition-colors text-left">
+              <button type="button" onClick={onSelect} className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-black/[0.05] dark:hover:bg-white/[0.08] transition-colors text-left">
                 {model?.logo || option.logo
                   ? <img alt={model?.name || option.label} className="w-[18px] h-[18px]" src={model?.logo || option.logo} />
                   : <AppIcon name="smart_toy" size={16} className="text-text-secondary" />}

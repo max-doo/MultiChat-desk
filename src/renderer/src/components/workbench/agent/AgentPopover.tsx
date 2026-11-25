@@ -53,7 +53,7 @@ export function AgentPopover({
         onClick={(e) => e.stopPropagation()}
         className={`absolute ${positionClass} ${
           align === 'left' ? 'left-0' : 'right-0'
-        } rounded-xl border border-slate-200/90 bg-white shadow-xl z-popover overflow-hidden text-label dark:border-white/10 dark:bg-gray-800 ${className}`}
+        } liquid-glass-menu rounded-xl z-popover overflow-hidden text-label ${className}`}
       >
         {children}
       </div>

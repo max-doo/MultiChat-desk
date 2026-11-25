@@ -1030,7 +1030,7 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
       </div>
     </>}
   </div>
-  const modal = (title: string, children: ReactNode, close: () => void): ReactNode => createPortal(<div className="fixed inset-0 z-[100] bg-black/25 flex items-center justify-center p-4 no-drag" onKeyDown={event => {
+  const modal = (title: string, children: ReactNode, close: () => void): ReactNode => createPortal(<div className="fixed inset-0 z-[100] bg-transparent flex items-center justify-center p-4 no-drag" onKeyDown={event => {
     event.stopPropagation()
     if (event.key === 'Escape' && !preparing) close()
     if (event.key === 'Tab') {
@@ -1040,7 +1040,7 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
     }
   }}>
-    <div role="dialog" aria-modal="true" aria-label={title} className="w-full max-w-md rounded-xl border border-gray-200 bg-white p-5 shadow-xl space-y-3"><h2 className="text-base font-medium">{title}</h2>{children}</div>
+    <div role="dialog" aria-modal="true" aria-label={title} className="w-full max-w-md rounded-2xl liquid-glass-modal p-5 space-y-3"><h2 className="text-base font-medium">{title}</h2>{children}</div>
   </div>, document.body)
   return <div className="h-full flex flex-col min-h-0 bg-white">
     <div className="flex-1 min-h-0">
@@ -1125,7 +1125,7 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
                       key={String(option.value)}
                       type="button"
                       onClick={onSelect}
-                      className={`w-full flex items-center gap-2.5 px-3 py-2 hover:bg-gray-100 transition-colors text-left ${
+                      className={`w-full flex items-center gap-2.5 px-3 py-2 hover:bg-black/[0.05] dark:hover:bg-white/[0.08] transition-colors text-left ${
                         isSelected ? 'bg-primary/5 text-primary font-medium' : 'text-gray-700'
                       }`}
                     >
