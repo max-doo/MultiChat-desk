@@ -101,7 +101,6 @@ import {
   MessageCircle,
   MessageSquare,
   MessageSquarePlus,
-  MessageSquareQuote,
   MessagesSquare,
   Microscope,
   Minimize,
@@ -196,12 +195,29 @@ function PdfIcon(props: SVGProps<SVGSVGElement>): JSX.Element {
   )
 }
 
+function FootnoteIcon(props: SVGProps<SVGSVGElement>): JSX.Element {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      {...props}
+    >
+      <rect x="4" y="4" width="16" height="16" rx="4" />
+      <path d="M10 9.3 11.3 8h1.7v8" />
+    </svg>
+  )
+}
+
 export const APP_ICON_MAP = {
   "account_tree": ListTree,
   "diagram_flow_horizontal": DiagramFlowHorizontal,
   "add": Plus,
   "annotation": MessageSquarePlus,
-  "footnote": MessageSquareQuote,
+  "footnote": FootnoteIcon,
   "ads_click": MousePointerClick,
   "apps": LayoutGrid,
   "arrow_back": ArrowLeft,

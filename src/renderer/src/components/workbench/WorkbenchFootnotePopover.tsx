@@ -149,7 +149,7 @@ export default function WorkbenchFootnotePopover({
           placeholder="编号"
           aria-label="脚注编号"
           spellCheck={false}
-          className={`h-8 w-24 shrink-0 rounded-lg border bg-transparent px-2 text-body text-text-primary outline-none transition-colors ${
+          className={`h-8 w-24 shrink-0 rounded-lg border bg-white px-2 text-body text-text-primary outline-none transition-colors ${
             hasInvalidChars || hasOverwriteConflict
               ? 'border-red-500/70 focus:border-red-500'
               : 'border-black/10 focus:border-primary/50 dark:border-white/10'
@@ -217,7 +217,7 @@ export default function WorkbenchFootnotePopover({
         aria-label="脚注内容"
         spellCheck={false}
         rows={2}
-        className="mt-2 w-full resize-none rounded-lg border border-black/10 bg-transparent px-2.5 py-2 text-body text-text-primary outline-none focus:border-primary/50 dark:border-white/10"
+        className="mt-2 w-full resize-none rounded-lg border border-black/10 bg-white px-2.5 py-2 text-body text-text-primary outline-none focus:border-primary/50 dark:border-white/10"
       />
 
       {hasInvalidChars && (

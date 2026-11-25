@@ -12,7 +12,6 @@ export default function WorkbenchSearch({ onClose }: WorkbenchSearchProps): JSX.
   const isSearching = useWorkbenchStore((s) => s.isSearching)
   const searchResults = useWorkbenchStore((s) => s.searchResults)
   const searchFiles = useWorkbenchStore((s) => s.searchFiles)
-  const clearSearch = useWorkbenchStore((s) => s.clearSearch)
   const openFile = useWorkbenchStore((s) => s.openFile)
   const workspacePath = useWorkbenchStore((s) => s.workspacePath)
   const setDraggingNodes = useWorkbenchStore((s) => s.setDraggingNodes)
@@ -22,8 +21,20 @@ export default function WorkbenchSearch({ onClose }: WorkbenchSearchProps): JSX.
     inputRef.current?.focus()
   }, [])
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.preventDefault()
+      onClose?.()
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [onClose])
+
   const handleResultClick = async (result: WorkbenchSearchResult) => {
-    await openFile(result.filePath)
+    const opened = await openFile(result.filePath)
+    if (opened) onClose?.()
   }
 
   // 高亮匹配关键词文本
@@ -67,35 +78,26 @@ export default function WorkbenchSearch({ onClose }: WorkbenchSearchProps): JSX.
           <AppIcon name="search" size={19} className="text-text-secondary absolute left-2 pointer-events-none" />
           <input
             ref={inputRef}
+            data-workbench-search-input
             type="text"
             value={searchQuery}
             onChange={(e) => searchFiles(e.target.value)}
             placeholder="全文搜索或搜索标签 (#tag, tag:#tag)..."
-            className="w-full h-8 pl-8 pr-14 rounded-lg bg-black/5 dark:bg-white/5 border border-transparent focus:border-primary/40 focus:bg-white dark:focus:bg-gray-800 text-text-primary text-body placeholder:text-text-secondary/60 focus:outline-none transition-all"
+            className="w-full h-8 pl-8 pr-9 rounded-lg bg-black/5 dark:bg-white/5 border border-transparent focus:border-primary/40 focus:bg-white dark:focus:bg-gray-800 text-text-primary text-body placeholder:text-text-secondary/60 focus:outline-none transition-all"
           />
           <div className="absolute right-1.5 flex items-center gap-1">
             {isSearching ? (
               <span className="w-3.5 h-3.5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-            ) : searchQuery ? (
-              <button
-                type="button"
-                onClick={clearSearch}
-                className="w-5 h-5 flex items-center justify-center rounded-full text-text-secondary hover:text-text-primary hover:bg-black/10 dark:hover:bg-white/10"
-                title="清空搜索"
-              >
-                <AppIcon name="close" size={14} />
-              </button>
             ) : null}
-            {onClose && (
-              <button
-                type="button"
-                onClick={onClose}
-                className="w-5 h-5 flex items-center justify-center rounded-full text-text-secondary hover:text-text-primary hover:bg-black/10 dark:hover:bg-white/10"
-                title="返回文件树"
-              >
-                <AppIcon name="arrow_back" size={14} />
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-5 h-5 flex items-center justify-center rounded-full text-text-secondary hover:text-text-primary hover:bg-black/10 dark:hover:bg-white/10"
+              title="退出搜索"
+              aria-label="退出搜索"
+            >
+              <AppIcon name="close" size={16} />
+            </button>
           </div>
         </div>
       </div>

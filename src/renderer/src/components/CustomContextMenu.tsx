@@ -6,6 +6,7 @@ import type {
 } from '../../../shared/types/contextMenu'
 import { WORKBENCH_HTML_ANNOTATION_EVENT } from '../../../shared/types/htmlAnnotations'
 import { useWorkbenchStore } from '../store/workbenchStore'
+import { captureContextOf } from '../utils/annotationCaptureContext'
 import { AppIcon } from './icons/AppIcon'
 import { requestSendImageToAi } from './workbench/workbenchAiEvents'
 
@@ -128,11 +129,18 @@ export default function CustomContextMenu(): JSX.Element | null {
     if (!window.api?.onWebviewContextMenu) return
     const removeListener = window.api.onWebviewContextMenu((data: WebviewContextMenuData) => {
       if (!data.items || data.items.length === 0) return
+      // 摘录为文档会落到工作台工作区，只有工作台内的 AI webview 才有上下文；
+      // 其他宿主（多 AI 视图、快捷窗口）下隐藏，避免用户找不到文档落点。
+      const items =
+        captureContextOf(data.wcId) !== 'workbench'
+          ? data.items.filter((entry) => !('key' in entry && entry.key === 'excerpt'))
+          : data.items
+      if (items.length === 0) return
       setMenuState({
         visible: true,
         x: data.x,
         y: data.y,
-        items: data.items,
+        items,
         wcId: data.wcId
       })
     })

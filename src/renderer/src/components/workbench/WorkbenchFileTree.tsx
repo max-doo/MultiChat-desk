@@ -216,6 +216,7 @@ export default function WorkbenchFileTree(): JSX.Element {
   const [isRenamingBusy, setIsRenamingBusy] = useState(false)
   const [isCleaningImages, setIsCleaningImages] = useState(false)
   const inlineInputRef = useRef<HTMLInputElement | null>(null)
+  const searchButtonRef = useRef<HTMLButtonElement | null>(null)
   const renameInputRef = useRef<HTMLInputElement | null>(null)
   const isRenameCancelledRef = useRef(false)
   const isRenamingBusyRef = useRef(false)
@@ -250,6 +251,21 @@ export default function WorkbenchFileTree(): JSX.Element {
     setInlineCreate(null)
     setInlineRename(null)
   }, [workspacePath])
+
+  const handleSearchToggle = useCallback(() => {
+    if (!isSearchMode) {
+      setIsSearchMode(true)
+      return
+    }
+
+    const searchInput = document.querySelector<HTMLInputElement>('[data-workbench-search-input]')
+    searchInput?.focus()
+  }, [isSearchMode])
+
+  const closeSearch = useCallback(() => {
+    setIsSearchMode(false)
+    requestAnimationFrame(() => searchButtonRef.current?.focus())
+  }, [])
 
   // 外部动作（修改摘要卡片 / 工具调用文件名）打开文件后，让树跟随定位：
   // openFile 已展开祖先目录，这里等 DOM 更新后把节点滚进视野。
@@ -930,6 +946,12 @@ export default function WorkbenchFileTree(): JSX.Element {
     (e: React.KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
 
+      if (e.key === 'Escape' && isSearchMode) {
+        e.preventDefault()
+        closeSearch()
+        return
+      }
+
       // F2: 重命名选中的节点（VSCode 风格快捷键）
       if (e.key === 'F2') {
         const targetPath =
@@ -966,7 +988,7 @@ export default function WorkbenchFileTree(): JSX.Element {
         pasteTreeClipboard(resolveParentDir(null))
       }
     },
-    [selectedPaths, treeClipboard, pasteTreeClipboard, resolveParentDir, anchorPath, flatVisibleNodes, activeFilePath, beginInlineRename, workspacePath]
+    [selectedPaths, treeClipboard, pasteTreeClipboard, resolveParentDir, anchorPath, flatVisibleNodes, activeFilePath, beginInlineRename, workspacePath, isSearchMode, closeSearch]
   )
 
   const handleModalSubmit = async (e: React.FormEvent) => {
@@ -1233,12 +1255,14 @@ export default function WorkbenchFileTree(): JSX.Element {
       <div className="h-12 px-3 border-b border-black/5 dark:border-white/5 flex items-center justify-between gap-1 shrink-0">
         <div className="flex items-center gap-0.5 text-text-secondary">
           <button
+            ref={searchButtonRef}
             type="button"
-            onClick={() => setIsSearchMode(!isSearchMode)}
+            onClick={handleSearchToggle}
             className={`w-8 h-8 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 transition-colors ${
               isSearchMode ? 'text-primary bg-black/5 dark:bg-white/10' : ''
             }`}
             title="搜索笔记"
+            aria-label="搜索笔记"
           >
             <AppIcon name="search" size={20} />
           </button>
@@ -1357,7 +1381,7 @@ export default function WorkbenchFileTree(): JSX.Element {
         }}
       >
         {isSearchMode ? (
-          <WorkbenchSearch onClose={() => setIsSearchMode(false)} />
+          <WorkbenchSearch onClose={closeSearch} />
         ) : (
           <>
             {fileTree.length === 0 && !isLoadingTree && (

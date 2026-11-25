@@ -40,39 +40,39 @@ export default function AnnotationCommentCard({
   return (
     <div
       data-annotation-popover="true"
-      className={`w-[320px] liquid-glass-menu rounded-xl p-3 text-text-primary no-drag ${className}`}
+      className={`w-[360px] liquid-glass-menu rounded-xl border-amber-500/70 p-4 text-text-primary no-drag dark:border-amber-400/70 ${className}`}
       style={style}
     >
       <div className="flex items-center justify-between gap-2">
-        <strong className="text-sm">{title}</strong>
+        <strong className="text-body font-semibold">{title}</strong>
         <button
           type="button"
           aria-label="关闭"
-          className="text-text-secondary hover:text-text-primary"
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-text-secondary hover:bg-black/5 hover:text-text-primary dark:hover:bg-white/10"
           onClick={onCancel}
         >
           <AppIcon name="close" size={16} />
         </button>
       </div>
-      <p className="mt-2 max-h-20 overflow-y-auto rounded-r-md border-l-4 border-amber-300 bg-amber-50/60 p-2 text-xs text-text-secondary dark:bg-amber-300/10">
+      <p className="mt-2 max-h-24 overflow-y-auto rounded-lg bg-amber-50/70 p-2.5 text-label text-text-secondary dark:bg-amber-300/10">
         {quote}
       </p>
       {showInput && (
         <textarea
           autoFocus={autoFocus}
-          className="mt-3 min-h-20 w-full resize-y rounded-lg border border-black/10 p-2 text-sm outline-none focus:border-primary dark:border-white/10 dark:bg-transparent"
+          className="mt-3 min-h-24 w-full resize-y rounded-lg border border-black/10 bg-white/80 p-2.5 text-body text-text-primary outline-none focus:border-primary dark:border-white/10 dark:bg-transparent"
           placeholder={placeholder}
           value={value}
           onChange={event => onChange(event.target.value)}
         />
       )}
-      {error && <p className="mt-1 text-xs text-rose-600">{error}</p>}
-      <div className="mt-2 flex items-center justify-between gap-2">
+      {error && <p className="mt-1 text-label text-rose-600">{error}</p>}
+      <div className="mt-3 flex items-center justify-between gap-2">
         <div className="min-w-0">{footerStart}</div>
-        <div className="flex shrink-0 gap-2">
+        <div className="flex shrink-0 gap-1.5">
           <button
             type="button"
-            className="rounded-lg px-2 py-1 text-xs text-text-secondary"
+            className="h-8 rounded-lg px-3 text-label text-text-secondary hover:bg-black/5 dark:hover:bg-white/10"
             onClick={onCancel}
           >
             取消
@@ -80,7 +80,7 @@ export default function AnnotationCommentCard({
           <button
             type="button"
             disabled={busy}
-            className="rounded-lg bg-primary px-3 py-1 text-xs text-white disabled:opacity-40"
+            className="h-8 rounded-lg bg-primary px-4 text-label font-medium text-white hover:opacity-90 disabled:opacity-40"
             onClick={onSave}
           >
             {busy ? '保存中…' : saveLabel}
