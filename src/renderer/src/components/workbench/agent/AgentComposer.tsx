@@ -579,8 +579,8 @@ export function AgentComposer(): JSX.Element {
               <button
                 type="button"
                 onClick={() => setModelPickerOpen((prev) => !prev)}
-                className={`flex items-center gap-1.5 text-slate-700 hover:text-slate-900 text-label px-2.5 py-1 rounded-lg bg-slate-100/70 hover:bg-slate-200/70 border border-slate-200/60 disabled:opacity-50 transition-all min-w-0 dark:text-gray-200 dark:hover:text-white dark:bg-white/5 dark:hover:bg-white/10 dark:border-white/10 ${
-                  modelPickerOpen ? 'bg-slate-200/80 border-slate-300 dark:bg-white/15 dark:border-white/20' : ''
+                className={`flex items-center gap-1.5 text-text-primary hover:bg-slate-100/80 text-label px-2 py-1 rounded-lg disabled:opacity-50 transition-colors min-w-0 dark:text-gray-200 dark:hover:bg-white/10 ${
+                  modelPickerOpen ? 'bg-slate-100 dark:bg-white/10' : ''
                 }`}
                 title={
                   supportsThinking
@@ -588,12 +588,11 @@ export function AgentComposer(): JSX.Element {
                     : modelLabel
                 }
               >
-                <AppIcon name="psychology" size={14} className="text-slate-500 dark:text-slate-400 shrink-0" />
-                <span className="font-medium truncate max-w-[120px]">{modelLabel}</span>
+                <span className="font-medium truncate max-w-[140px]">{modelLabel}</span>
                 {supportsThinking && (
                   <>
                     <span className="text-slate-300 dark:text-slate-600">·</span>
-                    <span className="text-slate-500 dark:text-slate-400 text-caption shrink-0">
+                    <span className="text-primary font-medium text-label shrink-0">
                       {THINKING_LABELS[thinkingLevel] ?? thinkingLevel}
                     </span>
                   </>
@@ -601,7 +600,7 @@ export function AgentComposer(): JSX.Element {
                 <AppIcon
                   name="expand_more"
                   size={12}
-                  className={`text-slate-400 shrink-0 transition-transform duration-150 ${
+                  className={`text-text-secondary shrink-0 transition-transform duration-150 ${
                     modelPickerOpen ? 'rotate-180 text-primary' : ''
                   }`}
                 />
