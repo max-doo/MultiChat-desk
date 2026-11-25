@@ -1,7 +1,15 @@
 import { randomUUID } from 'crypto'
 import type Store from 'electron-store'
 import { parse as parseShellQuote } from 'shell-quote'
-import { decidePermission, parseMode, type ModeId } from './permissionPolicy'
+import {
+  decidePermission,
+  parseMode,
+  type CommandAnalyzerVerdict,
+  type ModeId
+} from './permissionPolicy'
+import { disposePowerShellAstHelper, getPowerShellAstHelper } from './commandAnalyzer/powershellAstHelper'
+import { analyzePowerShellAst } from './commandAnalyzer/psAstAnalyzer'
+import { analyzeBashCommand } from './commandAnalyzer/bashAnalyzer'
 
 /**
  * Permission modes as accepted at the boundary. Canonical modes are
@@ -35,36 +43,38 @@ export interface ToolCheckResult {
 
 const ALLOWLIST_STORE_KEY = 'agent_permission_allowlist'
 
-// Hard-deny regex patterns that are ALWAYS blocked across ALL modes (including full mode)
+// Hard-deny regex patterns that are ALWAYS blocked across ALL modes (including bypass mode)
 const HARD_DENY_PATTERNS: RegExp[] = [
-  /\brm\s+-(?:r|rf|fr)\s+(?:\/|\/\*|~\/|[A-Za-z]:[\\/])/i,
-  /\brmdir\s+\/s\s+\/q\s+[A-Za-z]:[\\/]/i,
+  /\brm\s+(?:-[a-z]*f[a-z]*\s+-[a-z]*r[a-z]*|-[a-z]*r[a-z]*\s+-[a-z]*f[a-z]*|-(?:r|rf|fr))\s+(?:--no-preserve-root\s+)?(?:\/|\/\*|~\/|[A-Za-z]:[\\/])/i,
+  /\b(?:rd|rmdir)\s+\/s\s+\/q\s+[A-Za-z]:[\\/]/i,
   /\bdel\s+\/s\s+\/q\s+[A-Za-z]:[\\/]/i,
+  /\bremove-item\b[^\r\n]*(?:-recurse|-r\b)[^\r\n]*(?:[A-Za-z]:[\\/]\s|[A-Za-z]:[\\/]$|\/\*|~\/)/i,
   /\b(?:format|format-volume|mkfs)\b/i,
   /\bdd\s+.*of=\/dev\//i,
   /\breg\s+delete\s+hklm/i,
   /\b(?:shutdown|restart-computer|stop-process\s+-name\s+system)\b/i,
   /\b(?:init\s+0|reboot|halt|poweroff)\b/i,
   /\|\s*(?:iex|invoke-expression|sh|bash)\b/i,
+  /\b(?:iex|invoke-expression)\s*(?:\(|["'$])/i,
+  /\b(?:powershell|pwsh)\b[^\r\n]*\s-(?:e|en|enc|encodedcommand)\b/i,
   /(?:curl|wget)\s+.*\|\s*(?:sh|bash|iex|invoke-expression)\b/i,
   /(?:\$env:WINDIR|System32|[\\/]Windows[\\/]System32|[\\/]etc[\\/]shadow|[\\/]etc[\\/]passwd|\.ssh[\\/])/i
 ]
 
-// Known safe/read-only command heads (can run without approval in restricted mode and in readonly mode)
+// Known safe/read-only command heads (fallback only — scriptblock cmdlets
+// like ForEach-Object/Where-Object are excluded because shell-quote cannot
+// inspect `{ ... }` bodies).
 const SAFE_COMMAND_HEADS = new Set([
   'dir', 'ls', 'cat', 'head', 'tail', 'more', 'less', 'wc',
   'grep', 'find', 'findstr', 'pwd', 'type', 'echo', 'printf',
   'which', 'where', 'whoami', 'hostname', 'uname', 'date', 'test',
   'get-childitem', 'get-content', 'get-item', 'get-location',
   'get-process', 'get-service', 'get-date', 'get-command',
-  // PowerShell read-only pipeline members — kept in sync with
-  // READ_ONLY_POWERSHELL_COMMANDS in permissionPolicy.ts so the structural
-  // second-opinion sees the same safe surface as the regex analyzer.
   'compare-object', 'convertto-csv', 'convertto-html', 'convertto-json',
-  'format-list', 'format-table', 'foreach-object', 'group-object',
+  'format-list', 'format-table', 'group-object',
   'measure-object', 'out-string', 'resolve-path', 'select-object',
   'select-string', 'sort-object', 'split-path', 'test-path',
-  'where-object', 'write-output'
+  'write-output'
 ])
 
 // Safe git subcommands
@@ -102,7 +112,11 @@ export class PermissionEngine {
 
   constructor(
     private store: Store<Record<string, unknown>>,
-    private onApprovalRequest?: (request: ApprovalRequest) => void
+    private onApprovalRequest?: (request: ApprovalRequest) => void,
+    private resolveShell: () => Promise<{ exe: string; args: string[] }> = async () => {
+      throw new Error('resolveShell not injected')
+    },
+    private extraProtectedRoots: readonly string[] = []
   ) {}
 
   public getAllowlist(): AllowlistEntry[] {
@@ -243,21 +257,63 @@ export class PermissionEngine {
     return true
   }
 
-  public checkToolPermission(
+  /**
+   * Ask the shell-specific analyzer for an AST/segment verdict. Returns
+   * `null` when analysis is unavailable (helper down, unparseable, depth
+   * exceeded) — the caller fails closed to the regex/whitelist path.
+   */
+  private async analyzeCommandVerdict(
+    normTool: string,
+    cmd: string,
+    resolveShell: () => Promise<{ exe: string; args: string[] }> = this.resolveShell
+  ): Promise<CommandAnalyzerVerdict | null> {
+    if (!cmd.trim() || cmd.length > 4000) return null
+    try {
+      if (normTool === 'powershell') {
+        const helper = getPowerShellAstHelper(resolveShell)
+        const parsed = await helper.analyze(cmd)
+        if (!parsed) return null
+        const v = analyzePowerShellAst(parsed)
+        return { readOnly: v.readOnly, writeOps: v.writeOps, pathArguments: v.pathArguments, commands: v.commands, rejectReason: v.rejectReason }
+      }
+      if (normTool === 'bash') {
+        const v = analyzeBashCommand(cmd)
+        return { readOnly: v.readOnly, pathArguments: v.pathArguments, commands: v.commands, rejectReason: v.rejectReason }
+      }
+    } catch {
+      return null
+    }
+    return null
+  }
+
+  /**
+   * Async policy check — shell commands go through the AST analyzer first;
+   * unavailable analyzer fails closed to the regex/segment path.
+   */
+  public async checkToolPermissionAsync(
     mode: PermissionMode,
     toolName: string,
     args: Record<string, unknown>,
-    cwd: string
-  ): ToolCheckResult {
+    cwd: string,
+    resolveShell: () => Promise<{ exe: string; args: string[] }> = this.resolveShell
+  ): Promise<ToolCheckResult> {
     const normTool = toolName.toLowerCase()
     const modeId = parseMode(mode)
 
-    // Preserve the old engine's user allowlist escape hatch before delegating
-    // to the ported policy kernel: an explicit allowlist match allows the call
-    // in any mode without surfacing an approval prompt.
-    if (this.matchesUserAllowlist(normTool, args)) {
-      return { allowed: true }
+    const cmd = String(args.command ?? args.cmd ?? args.script ?? '')
+
+    // Hard-deny gate runs in EVERY mode including bypass — `rm -rf /`,
+    // `format-volume`, `reg delete hklm` are system-level damage that no
+    // permission mode should execute. This precedes the user allowlist so
+    // an "always allow" entry cannot bless a hard-denied string.
+    if (cmd && this.isHardDenied(cmd)) {
+      return { allowed: false, reason: '命令命中硬性拒绝规则，任何模式都不能放行。' }
     }
+
+    const analyzerVerdict =
+      normTool === 'powershell' || normTool === 'bash'
+        ? await this.analyzeCommandVerdict(normTool, cmd, resolveShell)
+        : null
 
     let result = decidePermission({
       modeId,
@@ -266,25 +322,31 @@ export class PermissionEngine {
       sessionId: '',
       cwd,
       workspaceRoot: cwd,
-      interactive: true
-    })
+      interactive: true,
+      protectedRoots: this.extraProtectedRoots
+    }, analyzerVerdict)
 
-    // Structural second opinion: when the policy wants to ASK on a shell
-    // command purely because the regex flagged the string, re-segment it
-    // and allow only if EVERY segment is on the safe whitelist. This runs
-    // AFTER decidePermission so hard denies (protected paths, sensitive
-    // files, command hard-deny patterns) are never overridden — and it is
-    // skipped entirely when the ask was caused by a sensitive or protected
-    // path, since a whitelist clean command reading `.env` must still
-    // surface for confirmation.
+    // User allowlist may promote an `ask` (except protected or sensitive targets),
+    // never override a hard/readonly `deny`.
+    if (
+      result.decision === 'ask' &&
+      !result.paths.some((path) => path.boundary === 'protected' || path.sensitive) &&
+      this.matchesUserAllowlist(normTool, args)
+    ) {
+      return { allowed: true }
+    }
+
+    // Structural second opinion: bash-only fallback when the analyzer was
+    // unavailable (`null`). PowerShell never falls back to `shell-quote`
+    // because POSIX tokenization cannot inspect PowerShell scriptblocks.
     if (
       modeId === 'auto' &&
       result.decision === 'ask' &&
-      (normTool === 'powershell' || normTool === 'bash') &&
-      !result.paths.some((path) => path.sensitive || path.boundary === 'protected')
+      normTool === 'bash' &&
+      !result.paths.some((path) => path.sensitive || path.boundary === 'protected') &&
+      analyzerVerdict === null
     ) {
-      const cmdString = String(args.command ?? args.cmd ?? args.script ?? '')
-      if (cmdString && this.isSafeShellCommand(cmdString)) {
+      if (cmd && this.isSafeShellCommand(cmd)) {
         result = { ...result, decision: 'allow', reason: '复合命令逐段通过白名单检查。' }
       }
     }
@@ -311,7 +373,7 @@ export class PermissionEngine {
     cwd: string
   }): Promise<{ allowed: boolean; reason?: string }> {
     const { sessionId, mode, toolCallId, toolName, args, cwd } = params
-    const check = this.checkToolPermission(mode, toolName, args, cwd)
+    const check = await this.checkToolPermissionAsync(mode, toolName, args, cwd, this.resolveShell)
 
     if (check.allowed) {
       return { allowed: true }
@@ -407,5 +469,10 @@ export class PermissionEngine {
         this.requestToolNames.delete(id)
       }
     }
+  }
+
+  /** Kill the resident PowerShell AST helper if one was spawned. */
+  public dispose(): void {
+    disposePowerShellAstHelper()
   }
 }

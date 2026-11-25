@@ -152,7 +152,7 @@ export async function registerIpcHandlers(
     await historyManager.ready
     const agentSessionService = new AgentSessionService(store, () => getMainWindow()?.webContents ?? null)
     await agentSessionService.init()
-    app.once('before-quit', () => agentSessionService.dispose())
+    app.once('will-quit', () => agentSessionService.dispose())
     let customMaximizeState: {
         windowId: number
         restoreBounds: Electron.Rectangle
@@ -2802,6 +2802,16 @@ export async function registerIpcHandlers(
         }
     })
 
+    ipcMain.handle('agent:rename-session', async (_event, payload: { sessionId: string; name: string }) => {
+        try {
+            await agentSessionService.renameSession(payload.sessionId, payload.name)
+            return { success: true }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
     ipcMain.handle('agent:rewind', async (_event, payload: { sessionId: string; entryId?: string }) => {
         try {
             const data = await agentSessionService.rewindToUserMessage(payload.sessionId, payload.entryId)
@@ -3191,6 +3201,26 @@ export async function registerIpcHandlers(
         try {
             await agentSessionService.removeCustomGateway(payload.providerId)
             const data = agentSessionService.getRuntimeSnapshot()
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('agent:set-provider-disabled', async (_event, payload: { providerId: string; disabled: boolean }) => {
+        try {
+            const data = agentSessionService.setProviderDisabled(payload.providerId, payload.disabled === true)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('agent:set-favorite-models', async (_event, payload: { favorites: Array<{ providerId: string; modelId: string }> }) => {
+        try {
+            const data = agentSessionService.setFavoriteModels(Array.isArray(payload?.favorites) ? payload.favorites : [])
             return { success: true, data }
         } catch (err: unknown) {
             const error = err instanceof Error ? err.message : String(err)

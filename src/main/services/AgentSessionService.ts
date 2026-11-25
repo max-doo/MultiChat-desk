@@ -43,6 +43,7 @@ import type {
   AgentFileSnapshot,
   AgentTurnFileChanges
 } from '../../shared/types/agentRuntime'
+import type { AgentFavoriteModel } from '../../shared/types/agentRuntime'
 import { createHash } from 'crypto'
 
 const importEsm = new Function('s', 'return import(s)') as <T>(s: string) => Promise<T>
@@ -117,6 +118,10 @@ const COMPRESSION_STORE_KEY = 'agent_compression'
 
 const CUSTOM_GATEWAYS_STORE_KEY = 'agent_custom_gateways'
 
+const DISABLED_PROVIDERS_STORE_KEY = 'agent_disabled_providers'
+
+const FAVORITE_MODELS_STORE_KEY = 'agent_favorite_models'
+
 export interface CustomGatewaySpec {
   providerId: string
   name: string
@@ -161,9 +166,39 @@ export class AgentSessionService {
       join(homedir(), '.mu', 'skills')
     ]
 
-    this.permissionEngine = new PermissionEngine(store, (req: ApprovalRequest) => {
-      this.sendApprovalRequest(req)
-    })
+    this.permissionEngine = new PermissionEngine(
+      store,
+      (req: ApprovalRequest) => {
+        this.sendApprovalRequest(req)
+      },
+      async () => {
+        // Adapter for the AST helper: reuse pi's own shell detector and
+        // translate {shell,args} → {exe,args}.
+        await this.resolveShellConfigForPrompt()
+        const cfg = this.piShellConfig
+        // Fall back to the Windows-bundled powershell.exe when pi's detector
+        // fails (no pwsh on PATH, dev env quirk) — AST helper must not die
+        // just because the optional shell was undetected.
+        const shell =
+          cfg?.shell ||
+          (process.platform === 'win32'
+            ? join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+            : '/bin/sh')
+        const args =
+          cfg?.args ??
+          (process.platform === 'win32'
+            ? ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command']
+            : ['-c'])
+        if (!shell) throw new Error('shell unavailable')
+        return { exe: shell, args }
+      },
+      [
+        join(this.agentDir, 'auth.json'),
+        join(this.agentDir, 'models.json'),
+        this.store.path,
+        join(dirname(this.store.path), 'Partitions')
+      ]
+    )
     this.authController = new ProviderAuthController(
       () => this.modelRuntime,
       (operation: AgentAuthOperation) => this.sendAuthOperation(operation)
@@ -710,8 +745,16 @@ export class AgentSessionService {
 
   private getActiveModelObject(providerId?: string, modelId?: string): Model<Api> | undefined {
     if (!this.modelRegistry) return undefined
-    const prov = providerId || (this.store.get('agent_active_provider') as string) || this.defaultProvider
-    const mod = modelId || (this.store.get('agent_active_model') as string) || this.defaultModel
+    let prov = providerId || (this.store.get('agent_active_provider') as string) || this.defaultProvider
+    let mod = modelId || (this.store.get('agent_active_model') as string) || this.defaultModel
+    if (this.isProviderDisabled(prov)) {
+      const fallback = this.firstEnabledModel()
+      if (!fallback) return undefined
+      prov = fallback.providerId
+      mod = fallback.modelId
+      this.store.set('agent_active_provider', prov)
+      this.store.set('agent_active_model', mod)
+    }
     return this.modelRegistry.find(prov, mod)
   }
 
@@ -1018,29 +1061,7 @@ export class AgentSessionService {
     const { SessionManager, createAgentSession } = await this.getPi()
 
     // Otherwise find session file on disk
-    let sessionFile: string | undefined
-    try {
-      const files = await readdir(this.sessionsDir)
-      for (const file of files) {
-        if (!file.endsWith('.jsonl')) continue
-        const fullPath = join(this.sessionsDir, file)
-        try {
-          const content = await readFile(fullPath, 'utf8')
-          const firstLine = content.slice(0, content.indexOf('\n'))
-          if (firstLine) {
-            const header = JSON.parse(firstLine)
-            if (header.id === sessionId) {
-              sessionFile = fullPath
-              break
-            }
-          }
-        } catch {
-          // ignore
-        }
-      }
-    } catch {
-      // ignore
-    }
+    const sessionFile = await this.findSessionFile(sessionId)
 
     if (!sessionFile) {
       throw new Error(`Session ${sessionId} not found on disk`)
@@ -1405,6 +1426,23 @@ export class AgentSessionService {
       this.activeSessions.delete(sessionId)
     }
 
+    const sessionFile = await this.findSessionFile(sessionId)
+    if (sessionFile) {
+      await rm(sessionFile, { force: true }).catch(() => undefined)
+    }
+
+    const current = this.store.get('agent_current_session')
+    if (current === sessionId) {
+      this.store.delete('agent_current_session')
+    }
+  }
+
+  /**
+   * Locate the on-disk .jsonl file for a session id by matching the header's
+   * `id` field. Shared by resumeSession (read path) and renameSession
+   * (append path).
+   */
+  private async findSessionFile(sessionId: string): Promise<string | undefined> {
     try {
       const files = await readdir(this.sessionsDir)
       for (const file of files) {
@@ -1416,8 +1454,7 @@ export class AgentSessionService {
           if (firstLine) {
             const header = JSON.parse(firstLine)
             if (header.id === sessionId) {
-              await rm(fullPath, { force: true })
-              break
+              return fullPath
             }
           }
         } catch {
@@ -1427,11 +1464,37 @@ export class AgentSessionService {
     } catch {
       // ignore
     }
+    return undefined
+  }
 
-    const current = this.store.get('agent_current_session')
-    if (current === sessionId) {
-      this.store.delete('agent_current_session')
+  /**
+   * Rename a session's display title. pi persists the name as a `session_info`
+   * entry in the session file, so renaming works for both live sessions
+   * (setSessionName, emits session_info_changed) and disk-only sessions
+   * (open a throwaway manager just to append the entry).
+   */
+  public async renameSession(sessionId: string, name: string): Promise<void> {
+    const sanitized = name.replace(/[\r\n]+/g, ' ').trim()
+    if (!sanitized) {
+      throw new Error('会话标题不能为空')
     }
+
+    const active = this.activeSessions.get(sessionId)
+    if (active) {
+      active.session.setSessionName(sanitized)
+      active.title = sanitized
+      return
+    }
+
+    const sessionFile = await this.findSessionFile(sessionId)
+    if (!sessionFile) {
+      throw new Error(`Session ${sessionId} not found on disk`)
+    }
+    const { SessionManager } = await this.getPi()
+    // The entry becomes a child of the current leaf; harmless for the
+    // conversation tree since session_info is metadata, not a message.
+    const manager = SessionManager.open(sessionFile, this.sessionsDir)
+    manager.appendSessionInfo(sanitized)
   }
 
   public async listSessions(): Promise<SessionListItem[]> {
@@ -1582,6 +1645,9 @@ export class AgentSessionService {
     const runtime = this.modelRuntime
     if (!runtime) throw new Error('Agent 运行时尚未初始化')
     const prov = providerId || (this.store.get('agent_active_provider') as string) || this.defaultProvider
+    if (this.isProviderDisabled(prov)) {
+      throw new Error(`供应商 ${prov} 已停用`)
+    }
     const modelObj = runtime.getModel(prov, modelId)
     if (!modelObj) {
       throw new Error(`找不到模型 ${prov}:${modelId}`)
@@ -1606,6 +1672,7 @@ export class AgentSessionService {
     return {
       providers,
       active,
+      favorites: this.getFavoriteModels(),
       context: status?.context ?? null,
       stats: status?.stats ?? null
     }
@@ -1814,6 +1881,7 @@ export class AgentSessionService {
 
   public dispose(): void {
     this.authController.dispose()
+    this.permissionEngine.dispose()
     void this.modelRuntime?.settleCredentialWrites().catch(() => undefined)
   }
 
@@ -1832,8 +1900,17 @@ export class AgentSessionService {
 
   private getActiveModelInfo(sessionId?: string): AgentActiveModel {
     const session = this.resolveSession(sessionId)
-    const storedProvider = (this.store.get('agent_active_provider') as string) || this.defaultProvider
-    const storedModel = (this.store.get('agent_active_model') as string) || this.defaultModel
+    let storedProvider = (this.store.get('agent_active_provider') as string) || this.defaultProvider
+    let storedModel = (this.store.get('agent_active_model') as string) || this.defaultModel
+    if (this.isProviderDisabled(storedProvider)) {
+      const fallback = this.firstEnabledModel()
+      if (fallback) {
+        storedProvider = fallback.providerId
+        storedModel = fallback.modelId
+        this.store.set('agent_active_provider', storedProvider)
+        this.store.set('agent_active_model', storedModel)
+      }
+    }
     const providerId = session?.model?.provider ?? storedProvider
     const modelId = session?.model?.id ?? storedModel
     const modelName =
@@ -1853,8 +1930,8 @@ export class AgentSessionService {
     }
     if (!availableThinkingLevels.length) {
       const model = this.modelRuntime?.getModel(providerId, modelId)
-      supportsThinking = Boolean(model?.reasoning)
-      availableThinkingLevels = supportsThinking ? ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] : ['off']
+      availableThinkingLevels = this.levelsForModel(model)
+      supportsThinking = availableThinkingLevels.length > 1 || Boolean(model?.reasoning)
       thinkingLevel = availableThinkingLevels.includes(thinkingLevel) ? thinkingLevel : availableThinkingLevels[0]
     }
 
@@ -1871,18 +1948,21 @@ export class AgentSessionService {
   private buildProviders(): AgentProvider[] {
     const runtime = this.modelRuntime
     if (!runtime) return []
+    const disabledSet = this.getDisabledProviderIds()
     const availableKeys = new Set(runtime.getAvailableSnapshot().map((model) => `${model.provider}:${model.id}`))
     return runtime.getProviders().map((provider) => {
+      const disabled = disabledSet.has(provider.id)
       const status = runtime.getProviderAuthStatus(provider.id)
       const models: AgentProviderModel[] = runtime.getModels(provider.id).map((model) => ({
         providerId: model.provider,
         id: model.id,
         name: model.name || model.id,
-        available: availableKeys.has(`${model.provider}:${model.id}`),
+        available: !disabled && availableKeys.has(`${model.provider}:${model.id}`),
         reasoning: model.reasoning,
         input: model.input.filter((value): value is 'text' | 'image' => value === 'text' || value === 'image'),
         contextWindow: model.contextWindow,
-        maxTokens: model.maxTokens
+        maxTokens: model.maxTokens,
+        thinkingLevels: this.levelsForModel(model)
       }))
       const configured = status.configured || models.some((model) => model.available)
       const authType: AgentAuthType | undefined = configured
@@ -1905,9 +1985,113 @@ export class AgentSessionService {
         ...(provider.auth.oauth?.isSubscription ? { isSubscription: true } : {}),
         modelCount: models.length,
         availableModelCount: models.filter((model) => model.available).length,
-        models
+        models,
+        disabled
       }
     })
+  }
+
+  /** Compute the thinking levels a model actually accepts, mirroring pi's
+   * getSupportedThinkingLevels: reasoning models get all levels through high
+   * unless thinkingLevelMap marks a level null; xhigh/max are opt-in. */
+  private levelsForModel(model: Model<Api> | undefined): AgentThinkingLevel[] {
+    if (!model?.reasoning) return ['off']
+    const order: AgentThinkingLevel[] = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
+    const map = model.thinkingLevelMap as Partial<Record<AgentThinkingLevel, string | null>> | undefined
+    return order.filter((level) => {
+      const mapped = map?.[level]
+      if (mapped === null) return false
+      if (level === 'xhigh' || level === 'max') return mapped !== undefined
+      return true
+    })
+  }
+
+  private getDisabledProviderIds(): Set<string> {
+    const raw = this.store.get(DISABLED_PROVIDERS_STORE_KEY)
+    if (!Array.isArray(raw)) return new Set()
+    return new Set(raw.filter((value): value is string => typeof value === 'string'))
+  }
+
+  private isProviderDisabled(providerId: string): boolean {
+    return this.getDisabledProviderIds().has(providerId)
+  }
+
+  private firstEnabledModel(): { providerId: string; modelId: string } | null {
+    const runtime = this.modelRuntime
+    if (!runtime) return null
+    const disabled = this.getDisabledProviderIds()
+    for (const model of runtime.getAvailableSnapshot()) {
+      if (!disabled.has(model.provider)) return { providerId: model.provider, modelId: model.id }
+    }
+    return null
+  }
+
+  private getFavoriteModelKeys(): Set<string> {
+    const raw = this.store.get(FAVORITE_MODELS_STORE_KEY)
+    if (!Array.isArray(raw)) return new Set()
+    return new Set(
+      raw.filter((value): value is string => typeof value === 'string' && value.includes(':'))
+    )
+  }
+
+  public getFavoriteModels(): AgentFavoriteModel[] {
+    const runtime = this.modelRuntime
+    if (!runtime) return []
+    const disabled = this.getDisabledProviderIds()
+    const result: AgentFavoriteModel[] = []
+    for (const key of this.getFavoriteModelKeys()) {
+      const sep = key.indexOf(':')
+      const providerId = key.slice(0, sep)
+      const modelId = key.slice(sep + 1)
+      if (!providerId || !modelId || disabled.has(providerId)) continue
+      if (!runtime.getModel(providerId, modelId)) continue
+      result.push({ providerId, modelId })
+    }
+    return result
+  }
+
+  public setProviderDisabled(providerId: string, disabled: boolean): AgentRuntimeSnapshot {
+    const runtime = this.modelRuntime
+    if (!runtime) throw new Error('Agent 运行时尚未初始化')
+    if (!runtime.getProvider(providerId)) throw new Error(`供应商不存在：${providerId}`)
+    const set = this.getDisabledProviderIds()
+    if (disabled) set.add(providerId)
+    else set.delete(providerId)
+    this.store.set(DISABLED_PROVIDERS_STORE_KEY, [...set])
+    if (disabled) {
+      // Drop the provider's models from favorites so the picker section stays clean.
+      const favorites = [...this.getFavoriteModelKeys()].filter((key) => !key.startsWith(`${providerId}:`))
+      this.store.set(FAVORITE_MODELS_STORE_KEY, favorites)
+      const activeProvider = (this.store.get('agent_active_provider') as string) || this.defaultProvider
+      if (activeProvider === providerId) {
+        const fallback = this.firstEnabledModel()
+        if (fallback) {
+          this.store.set('agent_active_provider', fallback.providerId)
+          this.store.set('agent_active_model', fallback.modelId)
+        }
+      }
+    }
+    this.sendRuntimeChanged('refresh')
+    return this.getRuntimeSnapshot()
+  }
+
+  public setFavoriteModels(favorites: AgentFavoriteModel[]): AgentRuntimeSnapshot {
+    const runtime = this.modelRuntime
+    if (!runtime) throw new Error('Agent 运行时尚未初始化')
+    const disabled = this.getDisabledProviderIds()
+    const keys: string[] = []
+    const seen = new Set<string>()
+    for (const fav of favorites) {
+      if (!fav || disabled.has(fav.providerId)) continue
+      if (!runtime.getModel(fav.providerId, fav.modelId)) continue
+      const key = `${fav.providerId}:${fav.modelId}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      keys.push(key)
+    }
+    this.store.set(FAVORITE_MODELS_STORE_KEY, keys)
+    this.sendRuntimeChanged('refresh')
+    return this.getRuntimeSnapshot()
   }
 
   public listProviders(): ProviderListItem[] {
@@ -1985,8 +2169,15 @@ export class AgentSessionService {
   }
 
   public getActiveModel(): { providerId: string; modelId: string; baseUrl?: string } {
-    const prov = (this.store.get('agent_active_provider') as string) || this.defaultProvider
-    const mod = (this.store.get('agent_active_model') as string) || this.defaultModel
+    let prov = (this.store.get('agent_active_provider') as string) || this.defaultProvider
+    let mod = (this.store.get('agent_active_model') as string) || this.defaultModel
+    if (this.isProviderDisabled(prov)) {
+      const fallback = this.firstEnabledModel()
+      if (fallback) {
+        prov = fallback.providerId
+        mod = fallback.modelId
+      }
+    }
     const modelObj = this.modelRegistry?.find(prov, mod) as (AnyModel & { baseUrl?: string }) | undefined
 
     return {

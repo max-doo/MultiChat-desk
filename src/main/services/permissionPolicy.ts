@@ -11,6 +11,7 @@
 import { existsSync, lstatSync, realpathSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, relative, resolve } from 'node:path'
+import { gateExternalCommand, looksLikeInspectablePath } from './commandAnalyzer/externalCommandGate'
 
 // ─── modes ───────────────────────────────────────────────────────────────────
 
@@ -44,7 +45,7 @@ export const MODE_DEFINITIONS: readonly ModeDefinition[] = [
   {
     id: 'bypass',
     aliases: ['yolo'],
-    description: '跳过可确认项；硬性禁止和未知风险仍然拒绝。'
+    description: '跳过操作确认，仅拦截系统破坏与受保护凭据目录（无 OS 级沙箱隔离）。'
   }
 ]
 
@@ -175,11 +176,13 @@ const SENSITIVE_DIR_NAMES = new Set([
   '.ssh', '.aws', '.gnupg', '.gpg', '.azure', '.kube', '.docker', '.config\\gcloud'
 ])
 
-function isSensitiveFilePath(normalizedPath: string, input: string): boolean {
+export function isSensitiveFilePath(normalizedPath: string, input: string): boolean {
   // Windows silently strips trailing dots/spaces, and NTFS ADS hides the
   // real file behind a colon (`x.txt:.env`). Normalize both before matching.
   const names = new Set<string>()
-  for (const candidate of [normalizedPath, input]) {
+  for (const rawCandidate of [normalizedPath, input]) {
+    if (!rawCandidate) continue
+    const candidate = rawCandidate.replace(/^["']|["']$/g, '')
     if (!candidate) continue
     const rawName = basename(candidate).toLowerCase()
     names.add(rawName.split(':')[0].replace(/[\s.]+$/, ''))
@@ -241,6 +244,12 @@ export interface CommandInspection {
   parseable: boolean
   /** Recognized as a read-only PowerShell pipeline. */
   readOnly: boolean
+  /** Which analyzer produced the verdict (for debugging/telemetry). */
+  analyzer?: 'powershell-ast' | 'bash-segments' | 'unavailable'
+  /** AST/segment analysis proved the whole command is read-only. */
+  astReadOnly?: boolean
+  /** AST/segment analysis found write ops — caller boundary-checks paths. */
+  astWriteOps?: boolean
   /** Touches the network but only fetches data (git fetch/pull/clone). */
   networkRead?: boolean
   /** Pushes/publishes to a remote (git push, npm publish, ...). */
@@ -249,6 +258,18 @@ export interface CommandInspection {
   requiresApproval: boolean
   highRisk: boolean
   reason?: string
+}
+
+/** Per-shell AST/segment verdict plugged in by the caller. */
+export interface CommandAnalyzerVerdict {
+  readOnly: boolean
+  /** Command writes file content to path args — caller boundary-checks them. */
+  writeOps?: boolean
+  pathArguments?: string[]
+  /** Executables/wrapper heads observed during analysis. */
+  commands?: string[]
+  /** Why read-only was rejected (debug). */
+  rejectReason?: string
 }
 
 export type PolicyDecision = 'allow' | 'ask' | 'deny'
@@ -273,18 +294,15 @@ const KNOWN_COMMANDS = new Set([
   'test-path', 'write-output'
 ])
 const READ_COMMANDS = new Set([
-  'cat', 'dir', 'find', 'grep', 'head', 'ls', 'rg', 'sed', 'tail', 'type',
+  'cat', 'dir', 'find', 'grep', 'head', 'ls', 'rg', 'tail', 'type',
   'get-childitem', 'get-content', 'select-string', 'test-path'
 ])
-const SAFE_GIT_SUBCOMMANDS = new Set(['branch', 'diff', 'log', 'ls-files', 'rev-parse', 'show', 'status'])
 // Read-only but network-touching: still gated by `requiresApproval`, but
 // distinguished so policy can treat them differently from opaque commands.
 const NETWORK_READ_GIT = new Set(['fetch', 'ls-remote'])
 // Anything that mutates a remote, publishes artifacts, or writes the
 // worktree from remote data (pull merges; clone materializes a new tree).
 const NETWORK_WRITE_SUBCOMMANDS = new Set(['push', 'pull', 'clone', 'publish', 'deploy', 'release', 'unpublish'])
-const SAFE_NPM_SUBCOMMANDS = new Set(['list', 'ls', 'outdated', 'version'])
-const SAFE_PNPM_SUBCOMMANDS = new Set(['list', 'ls', 'why', 'version'])
 const READ_ONLY_POWERSHELL_COMMANDS = new Set([
   'compare-object', 'convertto-csv', 'convertto-html', 'convertto-json', 'format-list',
   'format-table', 'foreach-object', 'get-childitem', 'get-content', 'get-item',
@@ -480,54 +498,24 @@ function gitSubcommand(args: readonly string[]): string | undefined {
 
 function simpleCommand(executable: string | undefined, args: readonly string[]): boolean {
   if (!executable) return false
+  if (['find', 'rg', 'git', 'npm', 'pnpm', 'node', 'python', 'py', 'tsc'].includes(executable)) {
+    const gated = gateExternalCommand(executable, args, isSensitiveFilePath)
+    return gated?.allowed === true
+  }
   if (READ_COMMANDS.has(executable) || ['cd', 'echo', 'get-location', 'pwd', 'where', 'whoami', 'write-output'].includes(executable)) {
     return true
   }
-  if (executable === 'git') {
-    return (
-      SAFE_GIT_SUBCOMMANDS.has(gitSubcommand(args) ?? '') &&
-      !args.some((arg) => /^(?:--output(?:=|$)|-o(?:$|=))/.test(arg.toLowerCase()))
-    )
-  }
-  if (executable === 'npm') {
-    return args.length === 1 && (args[0] === '-v' || args[0] === '--version' || SAFE_NPM_SUBCOMMANDS.has(args[0].toLowerCase()))
-  }
-  if (executable === 'pnpm') {
-    return args.length === 1 && (args[0] === '-v' || args[0] === '--version' || SAFE_PNPM_SUBCOMMANDS.has(args[0].toLowerCase()))
-  }
-  return ['node', 'python', 'py'].includes(executable) && args.length === 1 && ['-v', '--version'].includes(args[0])
+  return false
 }
 
 function commandPathArguments(executable: string | undefined, args: readonly string[]): string[] {
   if (!executable) return []
   if (executable === 'git') {
-    const paths: string[] = []
-    for (let index = 0; index < args.length; index++) {
-      const value = args[index]
-      const lower = value.toLowerCase()
-      // `-C <dir>`/`--git-dir`/`--work-tree` carry real filesystem paths and
-      // must be boundary-checked (a `-C D:\outside` would otherwise bypass
-      // every path check). `-c key=val` is a config override — the value is
-      // NOT a path and must not be extracted.
-      if (value === '-c') {
-        index++
-        continue
-      }
-      if (lower === '--git-dir' || lower === '--work-tree' || value === '-C') {
-        if (args[index + 1]) paths.push(args[++index])
-      } else if (lower.startsWith('--git-dir=') || lower.startsWith('--work-tree=')) {
-        paths.push(value.slice(value.indexOf('=') + 1))
-      }
-    }
-    return paths
+    const gated = gateExternalCommand('git', args, isSensitiveFilePath)
+    return gated?.pathArgs ?? []
   }
-  // Only tokens that are actually file-shaped reach the boundary check.
-  // `Env:`/`HKCU:` are PS drive qualifiers (not files), `{`/`|`/`Where-Object`
-  // are script syntax, and `PI_*`/bare names are expressions — none of these
-  // should trigger a path-boundary verdict even though a naive token scan
-  // picks them up. Absolute/UNC/relative paths and script file extensions are
-  // the only things we can meaningfully boundary-check inside a free-form
-  // shell script.
+  // Only tokens that are actually file-shaped or credential-shaped reach the
+  // boundary check.
   const positional = args.filter(
     (arg) =>
       arg !== '--' &&
@@ -536,13 +524,7 @@ function commandPathArguments(executable: string | undefined, args: readonly str
       !isNonFilePsDrive(arg) &&
       !/^[A-Za-z_][A-Za-z0-9_]*:$/.test(arg) &&
       !/^[{}|;]/.test(arg) &&
-      (/^(?:[A-Za-z]:[\\/]|\\\\|\/|\.{1,2}[\\/]|~[\\/])/.test(arg) ||
-        // Env-var-anchored paths must also be inspected — otherwise
-        // `$env:X\.env` / `%USERPROFILE%\.env` slip past the sensitive-file
-        // check entirely. `expandPathInput` only expands a subset; the rest
-        // still get a basename check via the raw string.
-        /^(?:\$\{?env:|\$[A-Za-z_][A-Za-z0-9_]*|%[A-Za-z_][A-Za-z0-9_]*%)/i.test(arg) ||
-        /\.(?:bat|cmd|cjs|js|jsx|mjs|ps1|py|sh|ts|tsx)$/i.test(arg))
+      looksLikeInspectablePath(arg, isSensitiveFilePath)
   )
   return positional
 }
@@ -589,7 +571,37 @@ function readOnlyPowerShell(command: string): boolean {
   )
 }
 
-export function analyzeCommand(command: string): CommandInspection {
+function formatRejectReason(rejectReason: string): string {
+  if (rejectReason === 'ast-truncated') return '命令语法树过长，需要人工确认。'
+  if (rejectReason === 'parse-error') return '命令存在语法解析错误，需要人工确认。'
+  if (rejectReason === 'unparseable') return '命令包含无法安全解析的语法结构（如重定向、复杂展开或注释），需要确认。'
+  if (rejectReason === 'denied segment') return '命令包含非只读或未在白名单内的子命令，需要确认。'
+  if (rejectReason.startsWith('denied command: ')) {
+    return `命令包含非只读命令（${rejectReason.slice('denied command: '.length)}），需要确认。`
+  }
+  if (rejectReason.startsWith('unwhitelisted command: ')) {
+    return `命令未列入只读白名单（${rejectReason.slice('unwhitelisted command: '.length)}），需要确认。`
+  }
+  if (rejectReason.startsWith('denied external command: ')) {
+    return `外部命令包含写入或执行参数（${rejectReason.slice('denied external command: '.length)}），需要确认。`
+  }
+  if (rejectReason.startsWith('denied invocation operator: ')) {
+    return `命令包含动态调用操作符（${rejectReason.slice('denied invocation operator: '.length)}），需要确认。`
+  }
+  if (rejectReason.startsWith('non-local assignment lhs')) {
+    return '命令包含环境变量、作用域或属性赋值操作，需要确认。'
+  }
+  if (rejectReason.startsWith('denied node type: ') || rejectReason.startsWith('unknown node type: ')) {
+    return `命令包含受限或未支持的语法节点（${rejectReason.split(': ').slice(1).join(': ')}），需要确认。`
+  }
+  return `命令包含非只读操作（${rejectReason}），需要确认。`
+}
+
+export function analyzeCommand(
+  command: string,
+  toolName?: 'powershell' | 'bash',
+  analyzerVerdict?: CommandAnalyzerVerdict | null
+): CommandInspection {
   const normalized = command.trim().replace(/\s+/g, ' ')
   const tokens = commandTokens(normalized)
   const executable = commandExecutable(normalized)
@@ -605,9 +617,14 @@ export function analyzeCommand(command: string): CommandInspection {
     /(?:^|[\s;&|])(?:rm|rmdir|rd|del|erase|remove-item|clear-content|set-content|out-file|format-volume|stop-computer|restart-computer|shutdown|sudo|runas|start-process|invoke-expression|iex)\b|(?:>|>>|2>|2>>)|[;&|]|\$\(|`|-encodedcommand\b|frombase64string|(?:curl|wget|invoke-webrequest|invoke-restmethod)\b[^\r\n]*(?:-x\s*(?:post|put|patch|delete)|--data(?:-raw)?|--upload-file|-body)\b|(?:python|py|node|powershell|pwsh)\b[^\r\n]*(?:\s-c\s|\s-e\s|\s--eval(?:uate)?\b)/i
   const destructiveGit = /^git(?:\.exe)?\s+(?:[^\r\n]*\s)?(?:clean\b|reset\s+--hard\b|checkout\s+--\s|restore\b)/i.test(normalized)
   const syntaxRisk = highRiskPattern.test(normalized) || destructiveGit
-  const readOnly = readOnlyPowerShell(normalized)
-  const simple = simpleCommand(executable, args)
-  const highRisk = syntaxRisk || !simple || !executable || !KNOWN_COMMANDS.has(executable)
+  const hasAnalyzerVerdict = analyzerVerdict !== undefined && analyzerVerdict !== null
+  const astReadOnly = analyzerVerdict?.readOnly === true
+  const astRejected = hasAnalyzerVerdict && !astReadOnly
+  // When the AST/segment analyzer returned a definitive `readOnly: false`,
+  // never let legacy regex/simpleCommand heuristics overturn it.
+  const readOnly = astReadOnly || (!hasAnalyzerVerdict && readOnlyPowerShell(normalized))
+  const simple = !hasAnalyzerVerdict && simpleCommand(executable, args)
+  const highRisk = astReadOnly ? false : astRejected || syntaxRisk || !simple || !executable || !KNOWN_COMMANDS.has(executable)
   // Classify git/npm-style network effects so policy can distinguish "fetch
   // from remote" from "mutate remote".
   let networkRead = false
@@ -624,18 +641,29 @@ export function analyzeCommand(command: string): CommandInspection {
     command,
     normalized,
     executable,
-    pathArguments,
-    parseable: !!executable && KNOWN_COMMANDS.has(executable) && !highRisk,
+    pathArguments: [...pathArguments, ...(analyzerVerdict?.pathArguments ?? [])],
+    analyzer: analyzerVerdict == null ? 'unavailable' : toolName === 'powershell' ? 'powershell-ast' : 'bash-segments',
+    astReadOnly: astReadOnly || undefined,
+    astWriteOps: analyzerVerdict?.writeOps || undefined,
+    parseable: astReadOnly || (!hasAnalyzerVerdict && !!executable && KNOWN_COMMANDS.has(executable) && !highRisk),
     readOnly,
     networkRead,
     networkWrite,
-    requiresApproval: !readOnly && (syntaxRisk || !executable || !KNOWN_COMMANDS.has(executable)),
+    requiresApproval:
+      !astReadOnly &&
+      (astRejected || (!readOnly && (syntaxRisk || !executable || !KNOWN_COMMANDS.has(executable)))),
     highRisk,
-    reason: highRisk
-      ? syntaxRisk
-        ? '命令包含重定向、管道、复合执行、脚本求值或高风险操作。'
-        : '命令未通过 bypass 的简单命令 allowlist。'
-      : undefined
+    reason: astReadOnly
+      ? undefined
+      : analyzerVerdict?.rejectReason
+        ? formatRejectReason(analyzerVerdict.rejectReason)
+        : analyzerVerdict?.writeOps
+          ? '命令包含文件写入操作，需要确认。'
+          : highRisk
+            ? syntaxRisk
+              ? '命令包含重定向、管道、复合执行、脚本求值或高风险操作。'
+              : '命令未通过简单命令白名单检查。'
+            : undefined
   }
 }
 
@@ -677,16 +705,6 @@ function hardDenyReason(
   }
   if (risk === 'execute' && !command && context.modeId === 'bypass') {
     return 'bypass 不会放行缺少命令参数的执行调用。'
-  }
-  if (command?.highRisk && context.modeId === 'bypass') {
-    return command.reason || 'bypass 不会放行无法安全审查的命令。'
-  }
-  if (
-    context.modeId === 'bypass' &&
-    risk === 'execute' &&
-    (!command?.parseable || !command.executable || !KNOWN_COMMANDS.has(command.executable))
-  ) {
-    return 'bypass 只放行可识别且未命中高风险模式的命令。'
   }
   return undefined
 }
@@ -736,6 +754,20 @@ function defaultDecision(
   ) {
     return 'allow'
   }
+  // Workspace-scoped file writes via shell — `... | Out-File tmp.txt` is the
+  // shell equivalent of the `write` tool hitting a workspace path. AST proved
+  // the command's only effect is writing to extracted path args; when every
+  // path is inside the workspace, auto allows it just like `write`/`edit`.
+  if (
+    context.modeId === 'auto' &&
+    risk === 'execute' &&
+    command?.astWriteOps &&
+    command.pathArguments !== undefined &&
+    command.pathArguments.length > 0 &&
+    paths.every((path) => path.boundary === 'workspace')
+  ) {
+    return 'allow'
+  }
   if (
     context.modeId === 'auto' &&
     risk === 'execute' &&
@@ -765,11 +797,21 @@ function defaultDecision(
 }
 
 /** Pure policy calculation. Never opens UI and never executes a command. */
-export function decidePermission(context: PermissionContext): PermissionDecisionResult {
+export function decidePermission(
+  context: PermissionContext,
+  analyzerVerdict?: CommandAnalyzerVerdict | null
+): PermissionDecisionResult {
   const effect = getToolEffect(context.toolName)
   const toolPaths = [...pathArguments(context.toolName, context.args)]
   const commandValue = commandArgument(context.args)
-  const command = commandValue === undefined ? undefined : analyzeCommand(commandValue)
+  const command =
+    commandValue === undefined
+      ? undefined
+      : analyzeCommand(
+          commandValue,
+          context.toolName === 'powershell' || context.toolName === 'bash' ? context.toolName : undefined,
+          analyzerVerdict
+        )
   const requestedPaths = [...toolPaths, ...(command?.pathArguments ?? [])]
   const paths = requestedPaths.map((path) =>
     inspectPath(path, context.cwd, context.workspaceRoot, context.allowedReadRoots, [
@@ -820,13 +862,31 @@ export function decidePermission(context: PermissionContext): PermissionDecision
     }
   }
   const decision = defaultDecision(context, risk, paths, command)
+  const askReason = (() => {
+    if (paths.some((p) => p.sensitive)) {
+      return '目标涉及凭据或敏感文件，需要用户确认。'
+    }
+    if (command?.networkWrite) {
+      return '命令涉及远端仓库或包发布等外部写入操作，需要用户确认。'
+    }
+    if (
+      paths.some((p) => p.boundary === 'outside' || p.boundary === 'invalid') &&
+      (command?.astWriteOps || risk === 'write')
+    ) {
+      return '写入目标位于工作区之外或路径无法静态解析，需要用户确认。'
+    }
+    if (command?.reason) {
+      return command.reason
+    }
+    return `Mode ${context.modeId} 对 ${risk} 副作用要求用户确认。`
+  })()
   const reason =
     decision === 'allow'
       ? context.modeId === 'bypass'
-        ? 'bypass 放行已登记且通过边界检查的调用。'
+        ? 'bypass 放行通过底层边界检查的调用。'
         : `Mode ${context.modeId} 默认允许该调用。`
       : context.interactive
-        ? `Mode ${context.modeId} 对 ${risk} 副作用要求用户确认。`
+        ? askReason
         : `Mode ${context.modeId} 对 ${risk} 副作用要求确认，但当前无交互界面，按 fail-closed 拒绝。`
   return { ...base, decision, reason }
 }
