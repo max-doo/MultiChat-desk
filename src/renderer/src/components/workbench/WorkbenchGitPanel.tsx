@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useWorkbenchStore } from '../../store/workbenchStore'
 import type { GitFileChange, GitHistoryItem, GitStatus } from '../../../../shared/types/workbench'
+import type { GitCommitDetail, GitCommitFile } from '../../../../shared/types/workbench'
 import { buildGitGraphLayout } from '../../utils/gitGraphLayout'
 import {
   GIT_BADGE_LEGEND_ORDER,
@@ -63,8 +64,25 @@ function relativeTime(unixSeconds: number): string {
   return `${Math.floor(months / 12)} 年前`
 }
 
+/** 展开详情里展示的完整时间戳 */
+function fullTimeLabel(unixSeconds: number): string {
+  const date = new Date(unixSeconds * 1000)
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+}
+
 function isDeletedChange(change: GitFileChange): boolean {
   return change.staged === 'deleted' || change.unstaged === 'deleted'
+}
+
+/** 历史提交文件状态 → 状态徽标字母；typechange 归并到 Modified */
+function commitFileBadgeCode(status: GitCommitFile['status']): 'M' | 'A' | 'D' | 'R' | 'C' {
+  switch (status) {
+    case 'added': return 'A'
+    case 'deleted': return 'D'
+    case 'renamed': return 'R'
+    case 'copied': return 'C'
+    default: return 'M'
+  }
 }
 
 type ChangeMenuEntry =
@@ -116,6 +134,8 @@ export default function WorkbenchGitPanel({
   const [isLogLoading, setIsLogLoading] = useState(false)
   const [logLoaded, setLogLoaded] = useState(false)
   const [logError, setLogError] = useState<string | null>(null)
+  const [expandedCommitId, setExpandedCommitId] = useState<string | null>(null)
+  const [commitDetails, setCommitDetails] = useState<Record<string, GitCommitDetail | 'loading' | 'error'>>({})
   const [isSyncing, setIsSyncing] = useState(false)
   const [title, setTitle] = useState('')
   const [titleTouched, setTitleTouched] = useState(false)
@@ -164,6 +184,47 @@ export default function WorkbenchGitPanel({
     status?.repoRoot && workspacePath && normalizePath(status.repoRoot) !== normalizePath(workspacePath)
   )
 
+  // 工作区是仓库子目录时，把仓库相对路径换算回工作区相对路径用于 openFile/revealFile
+  const toWorkspaceRelativePath = useCallback(
+    (repoRelativePath: string): string | null => {
+      if (!status?.repoRoot || !workspacePath) return repoRelativePath
+      const repoRoot = normalizePath(status.repoRoot).replace(/\/+$/, '')
+      const ws = normalizePath(workspacePath).replace(/\/+$/, '')
+      if (repoRoot === ws) return repoRelativePath
+      const prefix = `${repoRoot}/`
+      if (!ws.startsWith(prefix)) return null
+      // 工作区相对仓库根的目录前缀，加上文件在仓库内的相对路径
+      const workspacePrefixInRepo = ws.slice(prefix.length)
+      if (!repoRelativePath.startsWith(`${workspacePrefixInRepo}/`)) return null
+      return repoRelativePath.slice(workspacePrefixInRepo.length + 1)
+    },
+    [status?.repoRoot, workspacePath]
+  )
+
+  const toggleCommitDetail = useCallback(
+    (commitId: string) => {
+      if (expandedCommitId === commitId) {
+        setExpandedCommitId(null)
+        return
+      }
+      setExpandedCommitId(commitId)
+      if (commitDetails[commitId] || !workspacePath) return
+      setCommitDetails((prev) => ({ ...prev, [commitId]: 'loading' }))
+      void window.api.workbench
+        .gitCommitDetail(workspacePath, commitId)
+        .then((res) => {
+          setCommitDetails((prev) => ({
+            ...prev,
+            [commitId]: res.success && res.data ? res.data : 'error'
+          }))
+        })
+        .catch(() => {
+          setCommitDetails((prev) => ({ ...prev, [commitId]: 'error' }))
+        })
+    },
+    [expandedCommitId, commitDetails, workspacePath]
+  )
+
   const open = useCallback(() => {
     setIsOpen(true)
     setTitle('')
@@ -197,6 +258,8 @@ export default function WorkbenchGitPanel({
     setLogItems([])
     setLogLoaded(false)
     setLogError(null)
+    setExpandedCommitId(null)
+    setCommitDetails({})
     setContextMenu(null)
     setConfirmAction(null)
     setLegendOpen(false)
@@ -652,6 +715,7 @@ export default function WorkbenchGitPanel({
         <WorkbenchFooterPopover
           anchorRef={triggerRef}
           ariaLabel="版本管理"
+          contentHeight={480}
           disableDismiss={Boolean(confirmAction || contextMenu || legendOpen)}
           onRequestClose={() => {
             if (!useWorkbenchStore.getState().isGitBusy) closePopover()
@@ -709,7 +773,7 @@ export default function WorkbenchGitPanel({
                 <button
                   type="button"
                   onClick={() => setActiveTab('changes')}
-                  className={`relative flex items-center gap-1.5 px-2 py-2 text-label transition-colors ${
+                  className={`relative flex items-center gap-1.5 px-3 py-2.5 text-body transition-colors ${
                     activeTab === 'changes'
                       ? 'font-medium text-primary'
                       : 'text-text-secondary hover:text-text-primary'
@@ -728,7 +792,7 @@ export default function WorkbenchGitPanel({
                 <button
                   type="button"
                   onClick={() => setActiveTab('history')}
-                  className={`relative flex items-center gap-1.5 px-2 py-2 text-label transition-colors ${
+                  className={`relative flex items-center gap-1.5 px-3 py-2.5 text-body transition-colors ${
                     activeTab === 'history'
                       ? 'font-medium text-primary'
                       : 'text-text-secondary hover:text-text-primary'
@@ -823,7 +887,7 @@ export default function WorkbenchGitPanel({
                           setContextMenu(null)
                           setBadgeTooltip(null)
                         }}
-                        className="min-h-0 flex-1 overflow-y-auto px-1.5 py-1.5"
+                        className="h-full min-h-0 flex-1 overflow-y-auto px-1.5 py-1.5"
                       >
                         {changes.map((change) => {
                           const badge = resolveFileGitBadge(change)
@@ -881,17 +945,23 @@ export default function WorkbenchGitPanel({
                         )}
                       </div>
                     ) : (
-                      <div className="px-3 py-5 text-center text-body text-text-secondary">没有未提交的改动</div>
+                      <div className="flex h-full flex-1 items-center justify-center px-3 py-5 text-body text-text-secondary">
+                        没有未提交的改动
+                      </div>
                     )}
                   </>
                 ) : (
-                  <div className="min-h-0 flex-1 overflow-y-auto px-2 py-1.5">
+                  <div className="h-full min-h-0 flex-1 overflow-y-auto px-2 py-1.5">
                     {isLogLoading && logItems.length === 0 ? (
-                      <div className="px-3 py-6 text-center text-body text-text-secondary">读取中…</div>
+                      <div className="flex h-full items-center justify-center px-3 py-6 text-body text-text-secondary">
+                        读取中…
+                      </div>
                     ) : logError ? (
-                      <div className="px-3 py-5 text-center text-body text-rose-500">{logError}</div>
+                      <div className="flex h-full items-center justify-center px-3 py-5 text-rose-500">{logError}</div>
                     ) : graphLayout.rows.length === 0 ? (
-                      <div className="px-3 py-6 text-center text-body text-text-secondary">还没有提交记录</div>
+                      <div className="flex h-full items-center justify-center px-3 py-6 text-body text-text-secondary">
+                        还没有提交记录
+                      </div>
                     ) : (
                       <div className="flex flex-col">
                         {graphLayout.rows.map((row) => {
@@ -908,33 +978,130 @@ export default function WorkbenchGitPanel({
                           tooltipLines.push(
                             item.pushed ? '已在远程仓库' : '仅本地，尚未推送到远程'
                           )
+                          const isExpanded = expandedCommitId === item.id
+                          const detail = commitDetails[item.id]
                           return (
-                            <div
-                              key={item.id}
-                              className="flex h-10 items-center gap-1.5 rounded-md px-1 hover:bg-black/5 dark:hover:bg-white/5"
-                              title={tooltipLines.join('\n')}
-                            >
-                              <GitHistoryGraph row={row} laneCount={graphLayout.laneCount} />
-                              <div className="min-w-0 flex-1">
-                                <div className="flex items-center gap-1.5">
-                                  <span className="min-w-0 flex-1 truncate text-body leading-5 text-text-primary">
-                                    {item.message}
-                                  </span>
-                                  {item.refs.slice(0, 2).map((ref) => (
-                                    <span
-                                      key={ref}
-                                      className="max-w-[96px] shrink-0 truncate rounded-full bg-primary/10 px-1.5 py-0.5 text-tiny font-semibold leading-none text-primary"
-                                    >
-                                      {ref}
+                            <div key={item.id} className="rounded-md">
+                              <div
+                                role="button"
+                                tabIndex={0}
+                                aria-expanded={isExpanded}
+                                onClick={() => toggleCommitDetail(item.id)}
+                                onKeyDown={(event) => {
+                                  if (event.key === 'Enter' || event.key === ' ') {
+                                    event.preventDefault()
+                                    toggleCommitDetail(item.id)
+                                  }
+                                }}
+                                className={`flex h-10 cursor-pointer items-center gap-1.5 rounded-md px-1 hover:bg-black/5 dark:hover:bg-white/5 ${
+                                  isExpanded ? 'bg-black/5 dark:bg-white/5' : ''
+                                }`}
+                                title={tooltipLines.join('\n')}
+                              >
+                                <GitHistoryGraph row={row} laneCount={graphLayout.laneCount} />
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="min-w-0 flex-1 truncate text-body leading-5 text-text-primary">
+                                      {item.message}
                                     </span>
-                                  ))}
-                                </div>
-                                <div className="flex items-center gap-1.5 text-caption leading-4 text-text-secondary/75">
-                                  <span className="shrink-0 font-mono">{item.shortId}</span>
-                                  <span className="truncate">{item.author}</span>
-                                  <span className="ml-auto shrink-0">{timeLabel}</span>
+                                    {item.refs.slice(0, 2).map((ref) => (
+                                      <span
+                                        key={ref}
+                                        className="max-w-[96px] shrink-0 truncate rounded-full bg-primary/10 px-1.5 py-0.5 text-tiny font-semibold leading-none text-primary"
+                                      >
+                                        {ref}
+                                      </span>
+                                    ))}
+                                    <AppIcon
+                                      name={isExpanded ? 'expand_less' : 'expand_more'}
+                                      size={14}
+                                      className="shrink-0 text-text-secondary/60"
+                                    />
+                                  </div>
+                                  <div className="flex items-center gap-1.5 text-caption leading-4 text-text-secondary/75">
+                                    <span className="shrink-0 font-mono">{item.shortId}</span>
+                                    <span className="truncate">{item.author}</span>
+                                    <span className="ml-auto shrink-0">{timeLabel}</span>
+                                  </div>
                                 </div>
                               </div>
+                              {isExpanded && (
+                                <div className="ml-[13px] border-l border-black/10 pl-2.5 pr-1 pb-1.5 dark:border-white/10">
+                                  {detail === 'loading' || detail === undefined ? (
+                                    <div className="px-2 py-2 text-caption text-text-secondary">读取文件列表…</div>
+                                  ) : detail === 'error' ? (
+                                    <div className="px-2 py-2 text-caption text-rose-500">读取提交详情失败</div>
+                                  ) : (
+                                    <>
+                                      <div className="px-2 pt-1.5 text-caption text-text-secondary/75">
+                                        {detail.author} · {fullTimeLabel(detail.date)}
+                                      </div>
+                                      {detail.body && (
+                                        <div className="whitespace-pre-wrap px-2 pt-1.5 text-caption leading-relaxed text-text-secondary">
+                                          {detail.body}
+                                        </div>
+                                      )}
+                                      <div className="px-2 pt-1 text-caption text-text-secondary/75">
+                                        {detail.files.length} 个文件
+                                        {(detail.insertions > 0 || detail.deletions > 0) && (
+                                          <span className="ml-1.5 font-mono">
+                                            <span className="text-emerald-600 dark:text-emerald-400">+{detail.insertions}</span>
+                                            {' / '}
+                                            <span className="text-rose-500">-{detail.deletions}</span>
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="pt-0.5">
+                                        {detail.files.map((file) => {
+                                          const badge = GIT_BADGE_STYLES[commitFileBadgeCode(file.status)]
+                                          const wsPath = toWorkspaceRelativePath(file.path)
+                                          const openable = file.status !== 'deleted' && wsPath !== null
+                                          return (
+                                            <div
+                                              key={`${file.oldPath ?? ''}:${file.path}`}
+                                              onClick={openable ? () => void openFile(wsPath) : undefined}
+                                              className={`flex items-center gap-2 rounded-md px-2 py-1 text-body ${
+                                                openable
+                                                  ? 'cursor-pointer hover:bg-black/5 dark:hover:bg-white/5'
+                                                  : 'cursor-default opacity-70'
+                                              }`}
+                                              title={
+                                                file.status === 'deleted'
+                                                  ? `${file.path}（已删除）`
+                                                  : wsPath === null
+                                                    ? `${file.path}（不在当前工作区内）`
+                                                    : file.path
+                                              }
+                                            >
+                                              <span
+                                                className={`flex h-4 w-4 shrink-0 items-center justify-center rounded font-mono text-tiny font-semibold ${badge.bgClass} ${badge.colorClass}`}
+                                              >
+                                                {badge.letter}
+                                              </span>
+                                              <span className="min-w-0 flex-1 truncate text-caption text-text-primary">
+                                                {file.oldPath ? `${file.oldPath.split('/').pop()} → ${file.path.split('/').pop()}` : file.path.split('/').pop()}
+                                              </span>
+                                              {(file.insertions !== null || file.deletions !== null) && (
+                                                <span className="shrink-0 font-mono text-tiny">
+                                                  {file.insertions !== null && file.insertions > 0 && (
+                                                    <span className="text-emerald-600 dark:text-emerald-400">+{file.insertions}</span>
+                                                  )}
+                                                  {file.deletions !== null && file.deletions > 0 && (
+                                                    <span className="text-rose-500"> -{file.deletions}</span>
+                                                  )}
+                                                </span>
+                                              )}
+                                            </div>
+                                          )
+                                        })}
+                                        {detail.filesTruncated && (
+                                          <div className="px-2 py-1 text-caption text-text-secondary">仅显示前 500 个文件</div>
+                                        )}
+                                      </div>
+                                    </>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           )
                         })}

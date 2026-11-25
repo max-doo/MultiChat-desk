@@ -49,6 +49,7 @@ import type {
   GitStatus,
   GitActionResult,
   GitHistoryItem,
+  GitCommitDetail,
   GitBaselineResult,
   GitignoreSnapshot,
   GitignoreCategory,
@@ -552,6 +553,8 @@ const api = {
       ipcRenderer.invoke('workbench:git-set-remote', { workspaceRoot, url, name }),
     gitLog: (workspaceRoot: string, limit?: number): Promise<{ success: boolean; data?: GitHistoryItem[]; error?: string }> =>
       ipcRenderer.invoke('workbench:git-log', { workspaceRoot, limit }),
+    gitCommitDetail: (workspaceRoot: string, commitId: string): Promise<{ success: boolean; data?: GitCommitDetail | null; error?: string }> =>
+      ipcRenderer.invoke('workbench:git-commit-detail', { workspaceRoot, commitId }),
     gitBaseline: (workspaceRoot: string, relativePath: string): Promise<{ success: boolean; data?: GitBaselineResult; error?: string }> =>
       ipcRenderer.invoke('workbench:git-baseline', { workspaceRoot, relativePath }),
     gitDiscardFile: (workspaceRoot: string, payload: { path: string; oldPath?: string }): Promise<{ success: boolean; data?: GitActionResult; error?: string }> =>

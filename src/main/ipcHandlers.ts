@@ -127,6 +127,7 @@ import {
     listRemotes as gitListRemotes,
     setRemoteUrl as gitSetRemoteUrl,
     getLog as gitGetLog,
+    getCommitDetail as gitGetCommitDetail,
     getFileBaseline as gitGetFileBaseline,
     discardChange as gitDiscardChange,
     cleanupIndexAfterTrash as gitCleanupIndexAfterTrash,
@@ -2596,6 +2597,16 @@ export async function registerIpcHandlers(
     ipcMain.handle('workbench:git-log', async (_event, payload: { workspaceRoot: string; limit?: number }) => {
         try {
             const data = await gitGetLog(payload.workspaceRoot, payload.limit)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('workbench:git-commit-detail', async (_event, payload: { workspaceRoot: string; commitId: string }) => {
+        try {
+            const data = await gitGetCommitDetail(payload.workspaceRoot, payload.commitId)
             return { success: true, data }
         } catch (err: unknown) {
             const error = err instanceof Error ? err.message : String(err)

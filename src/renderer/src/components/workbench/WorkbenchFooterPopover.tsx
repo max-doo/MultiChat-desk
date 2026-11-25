@@ -10,6 +10,11 @@ interface WorkbenchFooterPopoverProps {
   ariaLabel: string
   /** 存在二级右键菜单或确认弹窗时暂停外部点击与 Esc 关闭，避免底层浮层先一步消失 */
   disableDismiss?: boolean
+  /**
+   * 内容区固定高度（px）。不传时弹层高度随内容伸缩（原有行为）；
+   * 传入后弹层高度固定为该值 + 触发器间隙，并在窗口变矮时自动压缩。
+   */
+  contentHeight?: number
 }
 
 export default function WorkbenchFooterPopover({
@@ -17,10 +22,12 @@ export default function WorkbenchFooterPopover({
   onRequestClose,
   children,
   ariaLabel,
-  disableDismiss = false
+  disableDismiss = false,
+  contentHeight
 }: WorkbenchFooterPopoverProps): JSX.Element | null {
   const panelRef = useRef<HTMLDivElement | null>(null)
   const [bottom, setBottom] = useState<number | null>(null)
+  const [viewportHeight, setViewportHeight] = useState(() => window.innerHeight)
   // 弹层宽度跟随左侧边栏，拖动分隔条时实时贴合
   const leftPaneWidth = useWorkbenchStore((s) => s.leftPaneWidth)
 
@@ -28,6 +35,7 @@ export default function WorkbenchFooterPopover({
     const rect = anchorRef.current?.getBoundingClientRect()
     if (!rect) return
     setBottom(window.innerHeight - rect.top + 4)
+    setViewportHeight(window.innerHeight)
   }, [anchorRef])
 
   useEffect(() => {
@@ -62,6 +70,11 @@ export default function WorkbenchFooterPopover({
   // 弹层宽度与左侧边栏一致，左右各留 4px 呼吸缝，形成"从侧栏浮起"的一体感
   const inset = 4
   const width = Math.max(200, Math.min(leftPaneWidth - inset * 2, window.innerWidth - inset * 2))
+  // 内容区可用高度上限：视口减去触发器占用的底部距离，再留 8px 顶边距
+  const maxContentHeight = Math.max(120, viewportHeight - bottom - 8)
+  // 窗口过矮时允许压缩到 maxContentHeight，保证弹层不超出视口顶部
+  const resolvedContentHeight =
+    contentHeight === undefined ? undefined : Math.min(contentHeight, maxContentHeight)
 
   return createPortal(
     <div
@@ -71,7 +84,13 @@ export default function WorkbenchFooterPopover({
       style={{ left: inset, bottom, width }}
       className="fixed z-popover flex max-h-[min(720px,calc(100vh-32px))] flex-col overflow-hidden liquid-glass-modal rounded-xl text-body"
     >
-      {children}
+      {resolvedContentHeight === undefined ? (
+        children
+      ) : (
+        <div className="flex min-h-0 flex-col" style={{ height: resolvedContentHeight }}>
+          {children}
+        </div>
+      )}
     </div>,
     document.body
   )
@@ -89,16 +108,10 @@ export function WorkbenchFooterPopoverHeader({
   onClose: () => void
 }): JSX.Element {
   return (
-    <div className="flex shrink-0 items-center gap-2 border-b border-black/5 px-4 py-2.5 dark:border-white/5">
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-body font-semibold text-text-primary" title={title}>
-          {title}
-        </div>
-        {subtitle && (
-          <div className="truncate text-caption text-text-secondary" title={subtitle}>
-            {subtitle}
-          </div>
-        )}
+    <div className="flex shrink-0 items-center gap-2 px-4 py-2.5">
+      <div className="flex min-w-0 flex-1 items-baseline gap-1.5" title={subtitle ? `${title} ${subtitle}` : title}>
+        <span className="shrink-0 text-body font-semibold text-text-primary">{title}</span>
+        {subtitle && <span className="min-w-0 truncate text-caption text-text-secondary">{subtitle}</span>}
       </div>
       {actions}
       <button

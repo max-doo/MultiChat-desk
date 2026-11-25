@@ -13,6 +13,8 @@ import { appendGitignorePatterns, DEFAULT_GITIGNORE_PATTERNS } from './gitignore
 import type {
   GitActionResult,
   GitBaselineResult,
+  GitCommitDetail,
+  GitCommitFile,
   GitFileChange,
   GitHistoryItem,
   GitRemoteInfo,
@@ -1234,6 +1236,8 @@ export async function push(workspaceRoot: string, setUpstream: boolean): Promise
 const LOG_FIELD_SEPARATOR = '\x1f'
 const LOG_RECORD_SEPARATOR = '\x1e'
 
+const MAX_COMMIT_DETAIL_FILES = 500
+
 function parseLogOutput(stdout: string, unpushedIds: Set<string>): GitHistoryItem[] {
   const commits: GitHistoryItem[] = []
   for (const record of stdout.split(LOG_RECORD_SEPARATOR)) {
@@ -1305,6 +1309,139 @@ export async function getLog(workspaceRoot: string, limit = 50): Promise<GitHist
       : []
   )
   return parseLogOutput(result.stdout, unpushedIds)
+}
+
+const COMMIT_FILE_STATUS_MAP: Record<string, GitCommitFile['status']> = {
+  A: 'added',
+  M: 'modified',
+  D: 'deleted',
+  R: 'renamed',
+  C: 'copied',
+  T: 'typechange'
+}
+
+interface CommitStatRow {
+  insertions: number | null
+  deletions: number | null
+  path: string
+  oldPath?: string
+}
+
+/**
+ * 读取单条提交的详情：元信息 + numstat 文件统计。
+ * numstat/name-status 都走 -z 输出：R/C 会带双路径，其余单路径；
+ * 行数与状态码分别解析后再按 newPath 合并，避免混排格式误判。
+ * 只读操作，不走写队列。
+ */
+export async function getCommitDetail(
+  workspaceRoot: string,
+  commitId: string
+): Promise<GitCommitDetail | null> {
+  if (!workspaceRoot || !/^[0-9a-f]{7,40}$/i.test(commitId)) return null
+  const repo = await resolveRepo(workspaceRoot)
+  if (!repo) return null
+
+  const format = `--format=%H${LOG_FIELD_SEPARATOR}%h${LOG_FIELD_SEPARATOR}%P${LOG_FIELD_SEPARATOR}%s${LOG_FIELD_SEPARATOR}%b${LOG_FIELD_SEPARATOR}%an${LOG_FIELD_SEPARATOR}%ae${LOG_FIELD_SEPARATOR}%at${LOG_FIELD_SEPARATOR}%D`
+  const commonArgs = [
+    '--no-optional-locks',
+    '-c',
+    'i18n.logOutputEncoding=UTF-8',
+    'show',
+    format,
+    '-z',
+    '--color=never',
+    '-M',
+    commitId
+  ]
+
+  const [numstatResult, nameStatusResult] = await Promise.all([
+    runGit(workspaceRoot, [...commonArgs, '--numstat']),
+    runGit(workspaceRoot, [...commonArgs, '--name-status'])
+  ])
+  if (!numstatResult.ok || !nameStatusResult.ok) return null
+
+  // 两种输出都遵循：<头部元信息>\0<记录>\0…；numstat 记录是 ins\tdel\tpath，
+  // name-status 记录是 STATUS\0path（R/C 为 STATUS\0new\0old）。
+  const numTokens = numstatResult.stdout.split('\0')
+  const nameTokens = nameStatusResult.stdout.split('\0')
+  const numHeader = (numTokens.shift() ?? '').split(LOG_FIELD_SEPARATOR)
+  const nameHeader = (nameTokens.shift() ?? '').split(LOG_FIELD_SEPARATOR)
+  const header = numHeader.length >= 9 ? numHeader : nameHeader
+  if (header.length < 9) return null
+  const [id, shortId, parentsRaw, subject, body, author, email, dateRaw, refsRaw] = header
+
+  const statRows = new Map<string, CommitStatRow>()
+  for (const token of numTokens) {
+    if (!token) continue
+    const match = token.match(/^(-|\d+)\t(-|\d+)\t([\s\S]*)$/)
+    if (!match) continue
+    const [, insRaw, delRaw, pathPart] = match
+    const paths = pathPart.split('\0').filter(Boolean)
+    const filePath = normalizeGitPath(paths[paths.length - 1] ?? '')
+    const oldPath = paths.length > 1 ? normalizeGitPath(paths[0]) : undefined
+    if (!filePath) continue
+    statRows.set(filePath, {
+      insertions: insRaw === '-' ? null : Number(insRaw),
+      deletions: delRaw === '-' ? null : Number(delRaw),
+      path: filePath,
+      oldPath
+    })
+  }
+
+  const files: GitCommitFile[] = []
+  let insertions = 0
+  let deletions = 0
+  let filesTruncated = false
+
+  for (let index = 0; index < nameTokens.length; index += 1) {
+    const token = nameTokens[index]
+    if (!token) continue
+    const statusCode = COMMIT_FILE_STATUS_MAP[token.slice(0, 1)]
+    if (!statusCode) continue
+    const isRenameOrCopy = token.startsWith('R') || token.startsWith('C')
+    const newToken = nameTokens[index + 1]
+    const oldToken = isRenameOrCopy ? nameTokens[index + 2] : undefined
+    if (!newToken) break
+    index += isRenameOrCopy ? 2 : 1
+
+    const filePath = normalizeGitPath(newToken)
+    const oldPath = oldToken ? normalizeGitPath(oldToken) : undefined
+    if (!filePath) continue
+
+    const stat = statRows.get(filePath)
+    const ins = stat?.insertions ?? 0
+    const del = stat?.deletions ?? 0
+    insertions += ins
+    deletions += del
+
+    if (files.length >= MAX_COMMIT_DETAIL_FILES) {
+      filesTruncated = true
+      continue
+    }
+    files.push({
+      path: filePath,
+      oldPath: oldPath ?? stat?.oldPath,
+      status: statusCode,
+      insertions: ins,
+      deletions: del
+    })
+  }
+
+  return {
+    id,
+    shortId,
+    subject,
+    body: body.trim(),
+    author,
+    email,
+    date: parseInt(dateRaw || '0', 10),
+    parentIds: parentsRaw ? parentsRaw.split(/\s+/).filter(Boolean) : [],
+    refs: refsRaw ? refsRaw.split(', ').map(ref => ref.trim()).filter(Boolean) : [],
+    files,
+    insertions,
+    deletions,
+    filesTruncated
+  }
 }
 
 /**

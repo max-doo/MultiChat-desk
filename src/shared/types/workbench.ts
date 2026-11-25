@@ -193,6 +193,38 @@ export interface GitRemoteInfo {
   redacted: boolean
 }
 
+/** 提交详情中的单个文件改动；路径为仓库根相对 POSIX 路径 */
+export interface GitCommitFile {
+  path: string
+  /** 重命名/复制来源路径 */
+  oldPath?: string
+  status: 'added' | 'modified' | 'deleted' | 'renamed' | 'copied' | 'typechange'
+  /** numstat 无法计数（二进制文件）时为 null */
+  insertions: number | null
+  deletions: number | null
+}
+
+/** 单条提交的完整详情；numstat 只统计文本文件，二进制行数为 null */
+export interface GitCommitDetail {
+  id: string
+  shortId: string
+  /** 提交标题（subject） */
+  subject: string
+  /** 完整提交说明（含 body） */
+  body: string
+  author: string
+  email: string
+  /** Unix 秒级时间戳 */
+  date: number
+  parentIds: string[]
+  refs: string[]
+  files: GitCommitFile[]
+  insertions: number
+  deletions: number
+  /** 文件列表被 MAX 截断时 true，需要提示可能不完整 */
+  filesTruncated: boolean
+}
+
 /** 迁移前 frontmatter 备份：按工作区聚合，供设置面板展示与清理 */
 export interface FrontmatterBackupGroup {
   workspaceRoot: string
