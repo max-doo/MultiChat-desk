@@ -180,6 +180,8 @@ export interface GitHistoryItem {
   date: number
   /** 分支/标签引用名 */
   refs: string[]
+  /** 是否已在任一远程分支上；本地提交尚未推送时为 false */
+  pushed: boolean
 }
 
 /** 仓库远程地址；只读展示，凭据由系统 Git 凭据管理器保存 */

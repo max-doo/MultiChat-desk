@@ -1,13 +1,8 @@
 import type { GitGraphRow } from '../../utils/gitGraphLayout'
 import { GIT_GRAPH_LANE_WIDTH, GIT_GRAPH_ROW_HEIGHT } from '../../utils/gitGraphLayout'
 
-const LANE_COLOR_CLASSES = [
-  'text-emerald-500 dark:text-emerald-400',
-  'text-sky-500 dark:text-sky-400',
-  'text-violet-500 dark:text-violet-400',
-  'text-amber-500 dark:text-amber-400',
-  'text-rose-500 dark:text-rose-400'
-] as const
+const PUSHED_COLOR_CLASS = 'text-slate-400 dark:text-slate-500'
+const UNPUSHED_COLOR_CLASS = 'text-amber-500 dark:text-amber-400'
 
 const NODE_Y = GIT_GRAPH_ROW_HEIGHT / 2
 
@@ -15,8 +10,8 @@ function laneX(index: number): number {
   return (index + 1) * GIT_GRAPH_LANE_WIDTH
 }
 
-function laneClassName(color: number): string {
-  return LANE_COLOR_CLASSES[color % LANE_COLOR_CLASSES.length]
+function statusClassName(pushed: boolean): string {
+  return pushed ? PUSHED_COLOR_CLASS : UNPUSHED_COLOR_CLASS
 }
 
 function findLastLaneIndex(lanes: GitGraphRow['outputLanes'], id: string): number {
@@ -70,7 +65,7 @@ export default function GitHistoryGraph({
           return (
             <path
               key={`incoming-${lane.id}-${index}`}
-              className={laneClassName(lane.color)}
+              className={statusClassName(row.item.pushed)}
               d={transitionPath(laneX(index), nodeX, 0, NODE_Y)}
               fill="none"
               stroke="currentColor"
@@ -86,7 +81,7 @@ export default function GitHistoryGraph({
         return (
           <path
             key={`through-${lane.id}-${index}`}
-            className={laneClassName(lane.color)}
+            className={statusClassName(lane.pushed)}
             d={transitionPath(laneX(index), laneX(outputIndex), 0, GIT_GRAPH_ROW_HEIGHT)}
             fill="none"
             stroke="currentColor"
@@ -105,7 +100,7 @@ export default function GitHistoryGraph({
         return (
           <path
             key={`parent-${parentId}-${index}`}
-            className={laneClassName(row.outputLanes[outputIndex].color)}
+            className={statusClassName(row.item.pushed)}
             d={transitionPath(nodeX, laneX(outputIndex), NODE_Y, GIT_GRAPH_ROW_HEIGHT)}
             fill="none"
             stroke="currentColor"
@@ -116,21 +111,21 @@ export default function GitHistoryGraph({
         )
       })}
 
-      <g className={laneClassName(row.color)}>
+      <g className={statusClassName(row.item.pushed)}>
         {isHead || isMerge ? (
           <>
             <circle
               cx={nodeX}
               cy={NODE_Y}
-              r={isHead ? 5.25 : 4.5}
+              r={isHead ? 6 : 5.25}
               fill="none"
               stroke="currentColor"
               strokeWidth={1.5}
             />
-            <circle cx={nodeX} cy={NODE_Y} r={isHead ? 2.25 : 1.75} fill="currentColor" />
+            <circle cx={nodeX} cy={NODE_Y} r={isHead ? 2.5 : 1.75} fill="currentColor" />
           </>
         ) : (
-          <circle cx={nodeX} cy={NODE_Y} r={3.25} fill="currentColor" />
+          <circle cx={nodeX} cy={NODE_Y} r={3.75} fill="currentColor" />
         )}
       </g>
     </svg>

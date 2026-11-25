@@ -3,6 +3,12 @@ import { createPortal } from 'react-dom'
 import { useWorkbenchStore } from '../../store/workbenchStore'
 import type { GitFileChange, GitHistoryItem, GitStatus } from '../../../../shared/types/workbench'
 import { buildGitGraphLayout } from '../../utils/gitGraphLayout'
+import {
+  GIT_BADGE_LEGEND_ORDER,
+  GIT_BADGE_STYLES,
+  resolveFileGitBadge,
+  type GitStatusBadgeMeta
+} from '../../utils/gitStatusBadge'
 import ConfirmModal from '../ConfirmModal'
 import { AppIcon } from '../icons/AppIcon'
 import GitHistoryGraph from './GitHistoryGraph'
@@ -23,24 +29,6 @@ function defaultCommitTitle(isFirstCommit: boolean): string {
   if (isFirstCommit) return 'Initial commit'
   const now = new Date()
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`
-}
-
-function changeBadge(change: GitFileChange): { label: string; className: string } {
-  if (change.conflicted) return { label: '!', className: 'text-rose-500' }
-  if (change.untracked) return { label: 'U', className: 'text-emerald-500' }
-  const code = change.staged ?? change.unstaged
-  switch (code) {
-    case 'added':
-      return { label: 'A', className: 'text-emerald-500' }
-    case 'deleted':
-      return { label: 'D', className: 'text-rose-500' }
-    case 'renamed':
-      return { label: 'R', className: 'text-amber-500' }
-    case 'copied':
-      return { label: 'C', className: 'text-sky-500' }
-    default:
-      return { label: 'M', className: 'text-amber-500' }
-  }
 }
 
 /** footer 只展示短分支名；完整名称通过 tooltip 和弹层标题补足 */
@@ -133,9 +121,13 @@ export default function WorkbenchGitPanel({
   const [titleTouched, setTitleTouched] = useState(false)
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; change: GitFileChange } | null>(null)
   const [confirmAction, setConfirmAction] = useState<ConfirmChangeAction | null>(null)
+  const [legendOpen, setLegendOpen] = useState(false)
+  const [badgeTooltip, setBadgeTooltip] = useState<{ meta: GitStatusBadgeMeta; x: number; y: number } | null>(null)
   const triggerRef = useRef<HTMLButtonElement | null>(null)
   const titleRef = useRef<HTMLInputElement | null>(null)
   const contextMenuRef = useRef<HTMLDivElement | null>(null)
+  const legendButtonRef = useRef<HTMLButtonElement | null>(null)
+  const legendPopoverRef = useRef<HTMLDivElement | null>(null)
 
   const fetchLog = useCallback(async () => {
     if (!workspacePath) return
@@ -207,13 +199,46 @@ export default function WorkbenchGitPanel({
     setLogError(null)
     setContextMenu(null)
     setConfirmAction(null)
+    setLegendOpen(false)
+    setBadgeTooltip(null)
   }, [workspacePath])
 
   useEffect(() => {
     if (!isOpen || activeTab !== 'changes') {
       setContextMenu(null)
+      setLegendOpen(false)
+      setBadgeTooltip(null)
     }
   }, [isOpen, activeTab])
+
+  useEffect(() => {
+    if (!legendOpen) return
+    const handlePointerDown = (event: MouseEvent): void => {
+      const target = event.target
+      if (
+        target instanceof Node &&
+        (legendPopoverRef.current?.contains(target) || legendButtonRef.current?.contains(target))
+      ) {
+        return
+      }
+      setLegendOpen(false)
+    }
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        event.stopPropagation()
+        setLegendOpen(false)
+      }
+    }
+    const close = (): void => setLegendOpen(false)
+    document.addEventListener('mousedown', handlePointerDown)
+    window.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('resize', close)
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+      window.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('resize', close)
+    }
+  }, [legendOpen])
 
   useEffect(() => {
     if (!contextMenu) return
@@ -300,7 +325,8 @@ export default function WorkbenchGitPanel({
           // 同步流程不替用户确认大文件：命中时保留改动，引导去设置里忽略。
           const result = await gitCommit(effectiveTitle)
           if (result.success) {
-            await gitPull()
+            const pullResult = await gitPull()
+            if (pullResult.success) setLogLoaded(false)
           } else if (result.failure === 'large-files') {
             onOpenWorkspaceSettings()
           }
@@ -312,7 +338,8 @@ export default function WorkbenchGitPanel({
     }
     setIsSyncing(true)
     try {
-      await gitPull()
+      const result = await gitPull()
+      if (result.success) setLogLoaded(false)
     } finally {
       setIsSyncing(false)
     }
@@ -329,12 +356,14 @@ export default function WorkbenchGitPanel({
         `将当前分支「${branchName(status) ?? 'HEAD'}」推送到远程，并关联为跟踪分支？`
       )
       if (!confirmed) return
-      await gitPush(true)
+      const result = await gitPush(true)
+      if (result.success) setLogLoaded(false)
       return
     }
     setIsSyncing(true)
     try {
-      await gitPush(false)
+      const result = await gitPush(false)
+      if (result.success) setLogLoaded(false)
     } finally {
       setIsSyncing(false)
     }
@@ -349,7 +378,8 @@ export default function WorkbenchGitPanel({
     if (!confirmed) return
     setIsSyncing(true)
     try {
-      await gitMergeUpstream()
+      const result = await gitMergeUpstream()
+      if (result.success) setLogLoaded(false)
     } finally {
       setIsSyncing(false)
     }
@@ -622,7 +652,7 @@ export default function WorkbenchGitPanel({
         <WorkbenchFooterPopover
           anchorRef={triggerRef}
           ariaLabel="版本管理"
-          disableDismiss={Boolean(confirmAction || contextMenu)}
+          disableDismiss={Boolean(confirmAction || contextMenu || legendOpen)}
           onRequestClose={() => {
             if (!useWorkbenchStore.getState().isGitBusy) closePopover()
           }}
@@ -709,6 +739,35 @@ export default function WorkbenchGitPanel({
                     <span className="absolute inset-x-1 bottom-0 h-0.5 rounded-full bg-primary" />
                   )}
                 </button>
+                {activeTab === 'changes' && (
+                  <button
+                    ref={legendButtonRef}
+                    type="button"
+                    onClick={() => {
+                      setContextMenu(null)
+                      setBadgeTooltip(null)
+                      setLegendOpen((prev) => !prev)
+                    }}
+                    aria-expanded={legendOpen}
+                    className={`ml-auto flex items-center gap-1 self-center rounded-full px-2 py-0.5 text-caption transition-colors ${
+                      legendOpen
+                        ? 'bg-primary/10 text-primary'
+                        : 'text-text-secondary hover:bg-black/5 hover:text-text-primary dark:hover:bg-white/5'
+                    }`}
+                    title="状态符号说明"
+                  >
+                    <AppIcon name="help" size={14} />
+                    <span>状态说明</span>
+                  </button>
+                )}
+                {activeTab === 'history' && (
+                  <div className="ml-auto flex items-center gap-1.5 pr-1 text-caption text-text-secondary/75">
+                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-slate-400 dark:bg-slate-500" />
+                    <span>已推送</span>
+                    <span className="ml-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
+                    <span>未推送</span>
+                  </div>
+                )}
               </div>
 
               <div className="relative flex min-h-0 flex-1 flex-col">
@@ -760,11 +819,14 @@ export default function WorkbenchGitPanel({
 
                     {changeCount > 0 ? (
                       <div
-                        onScroll={() => setContextMenu(null)}
+                        onScroll={() => {
+                          setContextMenu(null)
+                          setBadgeTooltip(null)
+                        }}
                         className="min-h-0 flex-1 overflow-y-auto px-1.5 py-1.5"
                       >
                         {changes.map((change) => {
-                          const badge = changeBadge(change)
+                          const badge = resolveFileGitBadge(change)
                           const deleted = isDeletedChange(change)
                           const isMenuTarget =
                             contextMenu?.change.path === change.path &&
@@ -777,6 +839,8 @@ export default function WorkbenchGitPanel({
                                 event.preventDefault()
                                 event.stopPropagation()
                                 if (isGitBusy) return
+                                setLegendOpen(false)
+                                setBadgeTooltip(null)
                                 setContextMenu({ x: event.clientX, y: event.clientY, change })
                               }}
                               className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-body transition-colors ${
@@ -792,8 +856,16 @@ export default function WorkbenchGitPanel({
                                     : change.path
                               }
                             >
-                              <span className={`w-3.5 shrink-0 text-center font-mono text-label font-semibold ${badge.className}`}>
-                                {badge.label}
+                              <span
+                                onMouseEnter={(event) => {
+                                  const rect = event.currentTarget.getBoundingClientRect()
+                                  setBadgeTooltip({ meta: badge, x: rect.left, y: rect.top })
+                                }}
+                                onMouseLeave={() => setBadgeTooltip(null)}
+                                aria-label={badge.tooltip}
+                                className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md font-mono text-caption font-semibold ${badge.bgClass} ${badge.colorClass}`}
+                              >
+                                {badge.letter}
                               </span>
                               <span className="min-w-0 flex-1 truncate text-text-primary">
                                 {change.path.split('/').pop()}
@@ -833,6 +905,9 @@ export default function WorkbenchGitPanel({
                           if (item.refs.length > 0) {
                             tooltipLines.push(`分支/标签：${item.refs.join(', ')}`)
                           }
+                          tooltipLines.push(
+                            item.pushed ? '已在远程仓库' : '仅本地，尚未推送到远程'
+                          )
                           return (
                             <div
                               key={item.id}
@@ -1011,7 +1086,7 @@ export default function WorkbenchGitPanel({
           style={{ left: contextMenuPosition.left, top: contextMenuPosition.top }}
           onMouseDown={(event) => event.stopPropagation()}
           onContextMenu={(event) => event.preventDefault()}
-          className="fixed z-popover min-w-[208px] rounded-xl border border-black/10 bg-white/95 py-1 text-body shadow-xl backdrop-blur-md dark:border-white/10 dark:bg-gray-800/95"
+          className="fixed z-popover min-w-[208px] liquid-glass-menu rounded-xl py-1 text-body"
         >
           {contextMenuItems.map((entry, idx) => {
             if ('type' in entry) {
@@ -1056,6 +1131,69 @@ export default function WorkbenchGitPanel({
         onConfirm={handleConfirmAction}
         onCancel={() => setConfirmAction(null)}
       />
+
+      {badgeTooltip && !contextMenu && createPortal(
+        <div
+          role="tooltip"
+          style={{
+            left: Math.max(8, Math.min(badgeTooltip.x, window.innerWidth - 260)),
+            top: Math.max(8, badgeTooltip.y - 34)
+          }}
+          className="pointer-events-none fixed z-popover flex items-center gap-1.5 liquid-glass-menu rounded-lg px-2.5 py-1 text-caption text-text-primary"
+        >
+          <span className={`font-mono font-semibold ${badgeTooltip.meta.colorClass}`}>
+            {badgeTooltip.meta.letter}
+          </span>
+          <span>{badgeTooltip.meta.label}</span>
+          <span className="font-mono text-text-secondary">({badgeTooltip.meta.gitWord})</span>
+          <span className="text-text-secondary">· {badgeTooltip.meta.shortDesc}</span>
+        </div>,
+        document.body
+      )}
+
+      {legendOpen && legendButtonRef.current && (() => {
+        const rect = legendButtonRef.current.getBoundingClientRect()
+        const width = 272
+        const left = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8))
+        const top = Math.max(8, Math.min(rect.bottom + 6, window.innerHeight - 310))
+        return createPortal(
+          <div
+            ref={legendPopoverRef}
+            data-footer-popover-portal="true"
+            role="dialog"
+            aria-label="状态符号说明"
+            style={{ left, top, width }}
+            onMouseDown={(event) => event.stopPropagation()}
+            className="fixed z-popover liquid-glass-menu rounded-xl p-3"
+          >
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-label font-semibold text-text-primary">状态说明</span>
+              <span className="text-caption text-text-secondary">悬停徽标可查看</span>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              {GIT_BADGE_LEGEND_ORDER.map((code) => {
+                const meta = GIT_BADGE_STYLES[code]
+                return (
+                  <div
+                    key={code}
+                    className="flex items-center gap-2 rounded-lg bg-black/[0.03] px-2 py-1 dark:bg-white/[0.04]"
+                  >
+                    <span
+                      className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md font-mono text-caption font-semibold ${meta.bgClass} ${meta.colorClass}`}
+                    >
+                      {meta.letter}
+                    </span>
+                    <span className="text-label font-medium text-text-primary">{meta.label}</span>
+                    <span className="text-caption text-text-secondary">{meta.shortDesc}</span>
+                    <span className="ml-auto font-mono text-tiny text-text-secondary/75">{meta.gitWord}</span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>,
+          document.body
+        )
+      })()}
     </div>
   )
 }

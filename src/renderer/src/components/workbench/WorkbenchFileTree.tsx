@@ -1,8 +1,14 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useWorkbenchStore } from '../../store/workbenchStore'
 import type { WorkbenchFileNode } from '../../../../shared/types/workbench'
-import type { GitFileChange } from '../../../../shared/types/workbench'
 import { MARKDOWN_EXTENSIONS } from '../../../../shared/types/workbench'
+import {
+  GIT_BADGE_STYLES,
+  mergeGitBadgeCodes,
+  resolveFileGitBadge,
+  type GitBadgeCode,
+  type GitStatusBadgeMeta as GitBadge
+} from '../../utils/gitStatusBadge'
 import WorkbenchSearch from './WorkbenchSearch'
 import FileTypeIcon from './FileTypeIcon'
 import WorkbenchGitPanel from './WorkbenchGitPanel'
@@ -131,62 +137,7 @@ const IMAGE_EXTENSIONS = new Set([
   '.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico', '.bmp', '.avif', '.tiff', '.tif'
 ])
 
-/**
- * 文件树 Git 装饰（VSCode 风格：末尾字母徽标 + 文件名着色）
- * modified → M，conflicted → !，deleted → D，untracked/staged added|copied → U，
- * staged renamed → R，其余暂存改动 → A；未暂存状态优先于纯暂存状态
- */
-type GitBadgeCode = 'M' | 'A' | 'D' | 'R' | 'C' | 'U' | '!'
-
-interface GitBadge {
-  letter: GitBadgeCode
-  colorClass: string
-  label: string
-}
-
-const GIT_BADGE_STYLES: Record<GitBadgeCode, { colorClass: string; label: string }> = {
-  M: { colorClass: 'text-amber-500', label: '已修改' },
-  A: { colorClass: 'text-emerald-500', label: '已暂存' },
-  D: { colorClass: 'text-rose-500', label: '已删除' },
-  R: { colorClass: 'text-blue-500', label: '已重命名' },
-  C: { colorClass: 'text-blue-500', label: '已复制' },
-  U: { colorClass: 'text-emerald-500', label: '未跟踪' },
-  '!': { colorClass: 'text-rose-500', label: '冲突' }
-}
-
-function resolveFileGitBadge(change: GitFileChange): GitBadge {
-  let letter: GitBadgeCode
-  if (change.conflicted) {
-    letter = '!'
-  } else if (change.unstaged === 'modified' || change.unstaged === 'typechange') {
-    letter = 'M'
-  } else if (change.unstaged === 'deleted') {
-    letter = 'D'
-  } else if (change.untracked) {
-    letter = 'U'
-  } else if (change.staged === 'modified' || change.staged === 'typechange' || change.staged === 'deleted') {
-    letter = change.staged === 'deleted' ? 'D' : 'M'
-  } else if (change.staged === 'added' || change.staged === 'copied') {
-    letter = 'U'
-  } else if (change.staged === 'renamed') {
-    letter = 'R'
-  } else {
-    letter = 'A'
-  }
-  const style = GIT_BADGE_STYLES[letter]
-  return { letter, colorClass: style.colorClass, label: style.label }
-}
-
-/** 目录徽标：取后代中优先级最高的状态（冲突 > 删除 > 修改 > 未跟踪/新增 > 改名/复制 > 其他暂存） */
-const GIT_BADGE_PRIORITY: GitBadgeCode[] = ['!', 'D', 'M', 'U', 'R', 'C', 'A']
-
-function mergeGitBadgeCodes(letters: Iterable<GitBadgeCode>): GitBadgeCode | null {
-  const set = new Set(letters)
-  for (const code of GIT_BADGE_PRIORITY) {
-    if (set.has(code)) return code
-  }
-  return null
-}
+// Git 状态徽标映射与聚合逻辑统一由 ../../utils/gitStatusBadge 提供
 
 function getNodeIcon(node: WorkbenchFileNode): { icon: string; color: string } {
   if (node.isDirectory) {
@@ -437,8 +388,7 @@ export default function WorkbenchFileTree(): JSX.Element {
     for (const [dir, codes] of dirCodes) {
       const code = mergeGitBadgeCodes(codes)
       if (!code) continue
-      const style = GIT_BADGE_STYLES[code]
-      map.set(dir, { letter: code, colorClass: style.colorClass, label: style.label })
+      map.set(dir, GIT_BADGE_STYLES[code])
     }
     return map
   }, [gitFileBadges])
@@ -1466,7 +1416,7 @@ export default function WorkbenchFileTree(): JSX.Element {
       {contextMenu && (
         <div
           ref={menuRef}
-          className="fixed z-popover min-w-[170px] py-1 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-black/10 dark:border-white/10 text-body"
+          className="fixed z-popover min-w-[170px] py-1 liquid-glass-menu rounded-xl text-body"
           style={{ left: contextMenu.x, top: contextMenu.y }}
         >
           {contextMenu.node && (
@@ -1621,7 +1571,7 @@ export default function WorkbenchFileTree(): JSX.Element {
                   {isMoveMenuOpen && (
                     <div
                       onMouseEnter={() => setIsMoveMenuOpen(true)}
-                      className={`absolute top-0 -mt-1 max-h-[280px] min-w-[190px] max-w-[240px] overflow-y-auto rounded-xl border border-black/10 bg-white py-1 text-body shadow-xl dark:border-white/10 dark:bg-gray-800 ${
+                      className={`absolute top-0 -mt-1 max-h-[280px] min-w-[190px] max-w-[240px] overflow-y-auto liquid-glass-menu rounded-xl py-1 text-body ${
                         contextMenu.x + 170 + 200 > window.innerWidth ? 'right-full mr-0.5' : 'left-full ml-0.5'
                       }`}
                     >
@@ -1759,7 +1709,7 @@ export default function WorkbenchFileTree(): JSX.Element {
         open={actionModal !== null}
         onClose={() => setActionModal(null)}
         size="sm"
-        variant="solid"
+        variant="glass"
         className="w-[360px] p-5 text-body"
       >
         {actionModal && (

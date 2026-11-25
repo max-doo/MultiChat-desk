@@ -1234,7 +1234,7 @@ export async function push(workspaceRoot: string, setUpstream: boolean): Promise
 const LOG_FIELD_SEPARATOR = '\x1f'
 const LOG_RECORD_SEPARATOR = '\x1e'
 
-function parseLogOutput(stdout: string): GitHistoryItem[] {
+function parseLogOutput(stdout: string, unpushedIds: Set<string>): GitHistoryItem[] {
   const commits: GitHistoryItem[] = []
   for (const record of stdout.split(LOG_RECORD_SEPARATOR)) {
     const raw = record.trim()
@@ -1251,7 +1251,8 @@ function parseLogOutput(stdout: string): GitHistoryItem[] {
       message,
       author,
       date: parseInt(dateRaw || '0', 10),
-      refs
+      refs,
+      pushed: !unpushedIds.has(id)
     })
   }
   return commits
@@ -1267,24 +1268,43 @@ export async function getLog(workspaceRoot: string, limit = 50): Promise<GitHist
   if (version.spawnError) return []
   const repo = await resolveRepo(workspaceRoot)
   if (!repo) return []
+  const cappedLimit = String(Math.min(limit, 200))
 
-  const result = await runGit(
-    workspaceRoot,
-    [
+  // 显示上限内的提交与“未进入远程跟踪分支”的提交用同一遍历顺序读取，
+  // 只多执行一次本地 rev-list，避免为每个节点单独做可达性判断。
+  const [result, unpushedResult] = await Promise.all([
+    runGit(
+      workspaceRoot,
+      [
+        '--no-optional-locks',
+        '-c',
+        'i18n.logOutputEncoding=UTF-8',
+        'log',
+        `--format=%H${LOG_FIELD_SEPARATOR}%h${LOG_FIELD_SEPARATOR}%P${LOG_FIELD_SEPARATOR}%s${LOG_FIELD_SEPARATOR}%an${LOG_FIELD_SEPARATOR}%at${LOG_FIELD_SEPARATOR}%D${LOG_RECORD_SEPARATOR}`,
+        '--all',
+        '--topo-order',
+        '--decorate=short',
+        '--color=never',
+        '-n', cappedLimit
+      ]
+    ),
+    runGit(workspaceRoot, [
       '--no-optional-locks',
-      '-c',
-      'i18n.logOutputEncoding=UTF-8',
-      'log',
-      `--format=%H${LOG_FIELD_SEPARATOR}%h${LOG_FIELD_SEPARATOR}%P${LOG_FIELD_SEPARATOR}%s${LOG_FIELD_SEPARATOR}%an${LOG_FIELD_SEPARATOR}%at${LOG_FIELD_SEPARATOR}%D${LOG_RECORD_SEPARATOR}`,
+      'rev-list',
       '--all',
+      '--not',
+      '--remotes',
       '--topo-order',
-      '--decorate=short',
-      '--color=never',
-      '-n', String(Math.min(limit, 200))
-    ]
-  )
+      '-n', cappedLimit
+    ])
+  ])
   if (!result.ok) return []
-  return parseLogOutput(result.stdout)
+  const unpushedIds = new Set(
+    unpushedResult.ok
+      ? unpushedResult.stdout.split(/\r?\n/).map(line => line.trim()).filter(Boolean)
+      : []
+  )
+  return parseLogOutput(result.stdout, unpushedIds)
 }
 
 /**
