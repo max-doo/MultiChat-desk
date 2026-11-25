@@ -2,6 +2,200 @@
 
 ## 2026-11-25
 
+### 17:32 | Codex
+
+- done: 按功能模块拆分提交当前未提交改动
+- context: 用户要求提交当前修改；工作区含液态玻璃 UI、Git 远程状态可视化、脚注/上下标、Markdown rehype-raw 及记忆日志五组改动，另有 .tmp/、scratch/、assets/agent-avatar.png 未跟踪过程文件沿用历史口径不入库
+- decision: 按功能拆 5 个 commit：refactor(ui)液态玻璃体系、feat(git)远程状态可视化、feat(workbench)脚注上下标、feat(agent)rehype-raw、docs(memory)会话日志与经验沉淀
+- modified:
+  - `DESIGN.md`
+  - `src/renderer/src/assets/index.css`
+  - `src/main/services/gitService.ts`
+  - `src/renderer/src/components/workbench/WorkbenchGitPanel.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFootnotePlugin.tsx`
+  - `src/renderer/src/components/ModelOutputCard.tsx`
+  - `.memory/INDEX.md`
+  - `.memory/KNOWLEDGE.md`
+  - `SESSION_LOG.md`
+
+### 17:29 | Antigravity
+
+- done: 将脚注悬浮 tooltip 从毛玻璃改为实色白底卡片（dark 下为 gray-800），避免正文透底影响阅读
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchFootnotePlugin.tsx`
+
+### 17:24 | Antigravity
+
+- done: 补充富文本粘贴脚注语法识别（避免被转义为 &#91;^id&#93;）并将脚注定义块改为极简无框序号样式
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchFootnotePlugin.tsx`
+  - `src/renderer/src/assets/index.css`
+- lesson(promoted): Lexical MarkdownShortcutPlugin 仅响应键入不拦截粘贴；手贴 [^id]: 或 [^id] 落入普通 TextNode 后会被 exportTextFormat 转义为 &#91;^id&#93;，需在 PASTE_COMMAND (COMMAND_PRIORITY_HIGH) 跳过内部 clipboard 与代码上下文后用 $generateNodesFromMarkdownString 即时转换。
+
+### 17:14 | Antigravity
+
+- done: 将编辑器浮动格式工具栏恢复为实色白底，避免正文上方毛玻璃产生视觉侵入感
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchFloatingToolbarChrome.tsx`
+
+### 17:10 | Antigravity
+
+- done: 修复工作台脚注重复覆盖与自动递增检测，支持 GFM 1 对多复用、空内容插入及渲染态定义块
+- decision: 遵循 GFM 1 对多脚注标准（多处引用指向同一定义，遵循 First Definition Wins）：插入已有编号且内容留空时仅插入引用不覆盖原定义；输入已有编号同时填写新内容时拦截并提示改用递增编号或清空仅引用；新增脚注允许内容留空占位。
+- added:
+  - `src/renderer/src/components/workbench/workbenchFootnotes.ts`
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchFootnoteNode.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFootnotePopover.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFootnotePlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchToolbar.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchSourceToolbar.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchSourceEditor.tsx`
+  - `src/renderer/src/components/workbench/MarkdownSyncPlugin.tsx`
+  - `src/renderer/src/components/workbench/markdownSourceMap.ts`
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+  - `src/renderer/src/assets/index.css`
+- lesson(promoted): 在 Lexical ElementNode 承载 Markdown 块级语法（如 [^id]: 定义行）时，markdownSourceMap.ts 的 isSpecialBlockLine 与 scanMarkdownSourceBlocks 必须同步识别该块边界，否则连续多条定义会被合并为单个段落并导致 1:N 错位；同时 ElementTransformer.regExp 只需匹配行首前缀，由 @lexical/markdown 保留剩余文本节点以解析行内格式。
+
+### 16:56 | Antigravity
+
+- done: 深色模式原型 v7（顶部纯暗背景色 + 底部晴蓝融粉无缝连续渐变 + 深灰高光玻璃卡片）落盘至 docs/prototypes/dark-mode-prototype.html 归档待后续开发
+- context: 用户确认深色模式原型效果满意，要求暂不进行代码开发，先将原型放入 docs 目录下留档
+- added:
+  - `docs/prototypes/dark-mode-prototype.html`
+
+### 16:56 | Codex
+
+- done: 脚注工具栏图标与正文段落图标去重：保留正文段落 ¶(notes)，插入脚注改用 footnote(MessageSquareQuote) 图标
+- modified:
+  - `src/renderer/src/components/icons/AppIcon.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchToolbar.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchSourceToolbar.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFootnotePopover.tsx`
+
+### 16:49 | Codex
+
+- done: workbench markdown 上标/下标/脚注：渲染层 rehype-raw + remark-gfm 脚注；Lexical 侧 sup/sub 走 TextMatchTransformer(<sup>/<sub>)，脚注引用 WorkbenchFootnoteRefNode decorator + 定义行文末透传；两个工具栏(富文本+源码)加 x² 下拉与插入脚注弹层
+- decision: 上下标导出用 <sup>/<sub> 行内 HTML（无 markdown 原生语法），remark-gfm 已自带脚注支持；脚注定义行不落节点，作为普通段落文本透传，编辑时按 id 去重重写
+- added:
+  - `src/renderer/src/components/workbench/WorkbenchFootnoteNode.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFootnotePlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFootnotePopover.tsx`
+- modified:
+  - `src/renderer/src/components/workbench/MarkdownSyncPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchToolbar.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchSourceToolbar.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchSourceEditor.tsx`
+  - `src/renderer/src/components/ModelOutputCard.tsx`
+  - `src/renderer/src/components/workbench/agent/MarkdownRenderer.tsx`
+  - `src/renderer/src/components/icons/AppIcon.tsx`
+  - `src/renderer/src/assets/index.css`
+  - `package.json`
+  - `pnpm-lock.yaml`
+
+### 16:27 | Antigravity
+
+- done: 全量弹窗与下拉/菜单/浮层接入 8px 轻模糊仿液态玻璃效果并移除弹窗视觉遮罩
+- context: 用户确认采用 8px 轻模糊仿液态玻璃方案，且弹窗不加暗色遮罩，需兼顾 Electron 性能、明暗模式与易读性
+- decision: 在 index.css 新增明暗双色 liquid-glass-menu 与 liquid-glass-modal（8px blur + saturate 145% + 方向性渐变微透底 + inset 高光亮边），Modal 默认改为 variant=glass 且 backdrop=none（仅透明点击拦截层）；用 border + 多层 box-shadow 替代 ::before 伪元素以兼容 overflow-y-auto 与 overflow-hidden
+- modified:
+  - `DESIGN.md`
+  - `src/renderer/src/assets/index.css`
+  - `src/renderer/src/components/ui/Modal.tsx`
+  - `src/renderer/src/components/ConfirmModal.tsx`
+  - `src/renderer/src/components/RenameModal.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentAuthDialog.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchHtmlEditLeaveDialog.tsx`
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+  - `src/renderer/src/components/CustomDropdown.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchDropDown.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentPopover.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentModelPicker.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentComposer.tsx`
+  - `src/renderer/src/components/CustomContextMenu.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchSelectionMenu.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchGitPanel.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchTableActionMenuPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchEquationNode.tsx`
+  - `src/renderer/src/components/LocalMindmapPanel.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFooterPopover.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchWorkspaceSettings.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchUrlInputPopover.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchEquationEditor.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchHtmlColorPicker.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFloatingToolbarChrome.tsx`
+  - `src/renderer/src/components/AnnotationCommentCard.tsx`
+  - `src/renderer/src/components/WebviewCard.tsx`
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+  - `src/renderer/src/components/modes/TaskModePanel.tsx`
+  - `src/renderer/src/components/SummaryPanel.tsx`
+- unresolved: 需在 pnpm run dev 桌面实机中目视检查弹窗无遮罩与跨 webview 菜单表现
+
+### 16:15 | Antigravity
+
+- done: 核查全项目弹窗与下拉菜单毛玻璃现状并输出仿液态玻璃高保真交互原型
+- context: 用户关注之前有的毛玻璃效果为何消失，并希望在不拖慢 Electron 跨 webview 性能的前提下预览兼顾易读性的仿液态玻璃效果
+- decision: 原型中提供当前实色、零模糊纯合成仿液态玻璃（渐变微透+mask-composite高光边+多层inset折射，0个backdrop-filter）和8px轻模糊三档实时切换对比
+- added:
+  - `docs/prototypes/liquid-glass-showcase.html`
+
+### 16:08 | Antigravity
+
+- done: 评估并修复工作台 Markdown 图片识别问题（尾部硬换行空白、含空格本地路径、可选标题与 Pandoc {#...} 属性），并对齐源码扫描器与节点序列化
+- decision: 由 markdownSourceMap.ts 统一导出 IMAGE_BLOCK_REGEX 供扫描器与 MarkdownSyncPlugin 共用，避免顶层块切分错位
+- modified:
+  - `src/renderer/src/components/workbench/markdownSourceMap.ts`
+  - `src/renderer/src/components/workbench/MarkdownSyncPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchImageNode.tsx`
+- lesson(promoted): 修改工作台 Markdown ElementTransformer 正则时，必须同步更新 markdownSourceMap.ts 的同源块正则（最好直接共用导出常量），否则 Lexical AST 与 SourceBlock 1:N 错位会导致源码保真退化为复合块并在邻块编辑时误伤原文
+
+### 16:07 | Antigravity
+
+- done: 修复版本管理面板 Tab 栏重复渲染两个状态说明按钮的嵌套 JSX 问题
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchGitPanel.tsx`
+
+### 16:06 | Codex
+
+- done: 设置页「界面与模式」图标由 view_column_2 (Columns2) 换成 web_asset (AppWindow)，更贴界面/模式语义
+- modified:
+  - `src/renderer/src/components/icons/AppIcon.tsx`
+  - `src/renderer/src/pages/SettingsPage.tsx`
+
+### 16:03 | Antigravity
+
+- done: 统一文件树与版本管理面板的 Git 状态徽标与配色，补齐精简 Tooltip 与状态说明浮卡（U 统一简称为新文件）
+- decision: 保留 M/U/D/R/A/C/! 字母，统一由 gitStatusBadge.ts 提供精简中文标签、英文原词与短描述；Tooltip 与状态说明浮卡仅按需展示，不挤占主列表
+- added:
+  - `src/renderer/src/utils/gitStatusBadge.ts`
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchGitPanel.tsx`
+- unresolved: 未在 pnpm run dev 桌面窗口内实际交互验收，需手动启动确认
+
+### 14:23 | Codex
+
+- done: Git 历史图连线颜色改为跟随节点同步状态，泳道按等待提交的远程状态着色
+- context: 用户反馈节点已区分已推送/未推送，但连线仍沿用泳道色；要求线色跟随节点
+- decision: 布局层为每条泳道记录等待提交的 pushed 状态；入线与出线跟随当前节点状态，穿行线跟随目标提交状态，使颜色在相邻节点之间自然衔接
+- modified:
+  - `src/renderer/src/utils/gitGraphLayout.ts`
+  - `src/renderer/src/components/workbench/GitHistoryGraph.tsx`
+
+### 14:18 | Codex
+
+- done: Git 历史图按远程同步状态给节点着色，并补充已推送/未推送图例与提交提示
+- context: 用户要求 Git 树节点颜色可区分已推送到远程与仅本地提交，并参考 VS Code 提交图样式
+- decision: 主进程用 rev-list --all --not --remotes 计算显示范围内未推送提交；渲染层保留泳道连线色，节点用灰色/琥珀色表达同步状态
+- modified:
+  - `src/main/services/gitService.ts`
+  - `src/renderer/src/components/workbench/GitHistoryGraph.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchGitPanel.tsx`
+  - `src/shared/types/workbench.ts`
+- lesson(promoted): Git 提交图区分远程状态可用 rev-list --all --not --remotes 得到未推送集合，避免逐提交执行 contains 查询
+
 ### 14:08 | Codex
 
 - done: 按功能模块提交 5 个 commit 并构建 Windows NSIS 安装包 1.3.5

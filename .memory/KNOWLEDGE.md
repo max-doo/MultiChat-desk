@@ -66,7 +66,7 @@ Long-term reusable lessons, durable decisions, and recurring project gotchas. Do
 
 - **标注投影不能参与正文 Markdown 判定**：`exportTextFormat` 只检查直接相邻的 `TextNode`，`MarkNode` 会隔断粗体、斜体等格式的连续性，导致同一段文本包标注后被导出成重复格式标记。所有正文序列化路径（标注安全校验、普通编辑回写）必须共用同一个无 `MarkNode` 的导出函数：存在标注时先从 `toJSON(true)` 递归展开 `type === 'mark'` 的节点，再用 `parseEditorState` 建立影子状态导出；保留原有 guard 和 `annotation-sync` 过滤。
 
-- **Markdown 源码块与 Lexical 顶层节点数量不等时不能做贪心 1:1 对齐**：松散列表后的续行段落可能让一个源码 `list` 块对应多个 Lexical 顶层节点。若 Patience 对齐在数量不一致时仍按类型配对前缀或后缀，剩余节点会既没有单块映射、也没有进入 `CompositeSourceGroup`；增量拼装随后先透传整块原始 Markdown，再逐个导出这些节点，造成同一段内容重复并在每次载入后持续膨胀。数量不等且两侧都非空的区间必须整体降为复合块，保证未编辑时只输出一次 raw，组内变更拆组后也只逐节点导出一次。扫描器的块边界还必须容忍 CommonMark 的闭合代码围栏尾随空格/制表符；否则它会把后续正文吞进代码块，与 Lexical 的实际顶层节点再次形成同类错位。预览高亮不参与回写，可对未匹配的 1:N 复合段按块类型做有界近似映射，避免源码已有标记而预览整段缺失；预览覆盖层首次测量不能依赖 `requestAnimationFrame`，窗口遮挡或后台时可能长期暂停，应先同步测量，再用 `ResizeObserver` 加 rAF 合并后续重算。
+- **Markdown 源码块与 Lexical 顶层节点数量不等时不能做贪心 1:1 对齐**：松散列表后的续行段落可能让一个源码 `list` 块对应多个 Lexical 顶层节点。若 Patience 对齐在数量不一致时仍按类型配对前缀或后缀，剩余节点会既没有单块映射、也没有进入 `CompositeSourceGroup`；增量拼装随后先透传整块原始 Markdown，再逐个导出这些节点，造成同一段内容重复并在每次载入后持续膨胀。数量不等且两侧都非空的区间必须整体降为复合块，保证未编辑时只输出一次 raw，组内变更拆组后也只逐节点导出一次。扫描器的块边界还必须容忍 CommonMark 的闭合代码围栏尾随空格/制表符；修改 `MarkdownSyncPlugin.tsx` 中 `ElementTransformer` 的块级正则（如 `IMAGE_TRANSFORMER`）时，也必须与 `markdownSourceMap.ts` 共用导出正则常量，避免与 Lexical 顶层节点切分错位导致保真退化为复合块及邻块编辑误伤原文。预览高亮不参与回写，可对未匹配的 1:N 复合段按块类型做有界近似映射，避免源码已有标记而预览整段缺失；预览覆盖层首次测量不能依赖 `requestAnimationFrame`，窗口遮挡或后台时可能长期暂停，应先同步测量，再用 `ResizeObserver` 加 rAF 合并后续重算。
 
 - **标注后台更新必须阻止 Lexical 迁移选区焦点**：打开已有标注、定位锚点以及失焦后的标注对账都会触发 `editor.update`；即使带自定义 `annotation-sync` tag，Lexical 仍可能在选区更新时调用 `rootElement.focus()`，把评论输入框的焦点抢回 `contenteditable`。所有此类后台更新应同时附加 `SKIP_SELECTION_FOCUS_TAG`，并用真实桌面交互确认输入停留在 textarea 且未写入正文。
 
@@ -95,6 +95,8 @@ Long-term reusable lessons, durable decisions, and recurring project gotchas. Do
 - **重命名或外部改名命中当前文件时必须原子刷新 `activeFileUrl` 与分类**：`renameNode` 与 `handleExternalFsChanged` 只改 `activeFilePath` 而不重读 `fileUrl`/`category`（外部改名不会改变 `mtime`），会导致 HTML 标注/编辑 iframe 与图片预览继续请求已删除的旧 `workbench-file://` 地址并报 `Preview unavailable`。受影响时需先校验可视化编辑离开守卫与未保存落盘，再在单次 `set` 中原子更新路径、URL 与元数据；`WorkbenchCodePreview` 应直接按文件类型初始化 `viewMode` 并把 `activeFileUrl` 纳入 iframe 预览组件 `key`。
 
 - **HTML 渲染预览的 `Ctrl+滚轮` 缩放应在 iframe 运行时内设置 `documentElement.style.zoom`**：渲染预览由独立源 `sandbox="allow-scripts"` iframe 承载，滚轮事件不会冒泡到宿主；需在标注运行时内以 `{ passive: false, capture: true }` 拦截 `Ctrl/Cmd + wheel`（带阈值累加）并通过 `postMessage` 与宿主工具栏双向同步缩放比例。在 Electron 42（Chromium）中 `document.documentElement.style.zoom` 会随视口自然重排排版且 `Range.getBoundingClientRect()` 与 `clientX/Y` 已按缩放比同步，标注命中与评论卡定位无需额外换算，也不会污染可视编辑源码。
+
+- **Lexical `ElementNode` 承载块级 Markdown 前缀语法时需同步切分 Source Map、只匹配前缀并补齐粘贴转换**：当用自定义 `ElementNode`（如脚注定义 `WorkbenchFootnoteDefNode`）渲染 `[^id]: 内容` 时，`markdownSourceMap.ts` 的 `isSpecialBlockLine` 与 `scanMarkdownSourceBlocks` 必须同步识别该块边界，否则连续多条定义行会被扫描器合并成单段落并引发 1:N 错位；同时 `ElementTransformer.regExp` 只应匹配行首前缀（如 `[^id]: `），让 `@lexical/markdown` 对剩余文本节点继续执行加粗、链接等行内转换。此外 `MarkdownShortcutPlugin` 仅响应键入不拦截粘贴，手贴 `[^id]:` 或 `[^id]` 落入普通 `TextNode` 后会被 `exportTextFormat` 转义为 `&#91;^id&#93;`，需在 `PASTE_COMMAND`（`COMMAND_PRIORITY_HIGH`）跳过 `application/x-lexical-editor` 与代码上下文后用 `$generateNodesFromMarkdownString` 即时转换（单行纯行内片段需拆出段落子节点避免拆段）。
 
 ### React 状态与组件生命周期
 
@@ -348,6 +350,8 @@ Long-term reusable lessons, durable decisions, and recurring project gotchas. Do
 - **目录移动必须逐文件映射，索引查询按仓库根执行**：只对“被移动的目录路径”执行 `update-index` 不会命中目录内文件，Git 仍显示删除加新增。读取旧目录前缀下的全部索引条目，按“新前缀 + 旧路径剩余部分”逐个写入删除旧路径和原 blob 到新路径；目标前缀已有索引条目时跳过，避免覆盖未提交的同名文件。查询统一在 `repoRoot` 下执行并加 `--literal-pathspecs`：在子目录 cwd 下 `ls-files` 会把 pathspec 当成工作区相对路径，`[draft].md` 这类文件名还会被当通配符而漏匹配；literal 目录 pathspec 即使目录已从磁盘移走仍能命中索引。
 
 - **Git 同步状态必须先 fetch 再判断 ahead/behind**：`git status --porcelain=v2 --branch` 的 `branch.ab` 比较的是本地缓存的 `refs/remotes/*`，远程有新提交但未 fetch 时会显示 `+0 -0`，导致拉取被误判为“已是最新”。顺序应是先做干净/分叉等本地前置检查，再 `git fetch --prune`，重新读状态后决定快进、显式合并或拒绝。拉取用 `pull --ff-only`，分叉交给显式的 `merge --no-edit`；合并冲突后立刻 `merge --abort` 回到操作前，比 `pull --rebase --autostash` 更可控。`execFile` 不支持 `input` 选项，需要写 stdin（如 `update-index --index-info`）必须用 `spawn` 并显式 `stdin.end()`。
+
+- **提交图的远程状态用一次 `rev-list` 差集计算**：判断显示中的提交是否已进入任一远程跟踪分支，执行 `git rev-list --all --not --remotes --topo-order -n <limit>` 得到本地独有提交集合，再与 `git log --all --topo-order` 的结果比对即可；不要为每个节点执行 `branch -r --contains`。两次命令使用同一显示上限和拓扑顺序，避免为不可见提交付出遍历成本。`refs/remotes/*` 仍是本地缓存，历史读取保持只读、不自动 fetch；未 fetch 时状态可能滞后。
 
 - **首次推送不要依赖 `push.default`**：无上游分支时直接 `git push` 在 `simple`/`current`/`upstream` 配置下行为不同，可能报错或推到意外分支。界面确认后统一用 `push -u origin HEAD` 建立跟踪关系；未确认时返回 `no-upstream`，不执行推送。
 
