@@ -1,6 +1,6 @@
 /**
- * 工作台模式网页下载落盘：AI Webview 触发的原生下载直接保存到当前工作区根目录。
- * 非工作台模式不拦截，保持 Electron 默认的保存对话框行为。
+ * 工作台模式网页下载：AI Webview 触发的原生下载弹出系统保存框，默认打开当前工作区根目录。
+ * 非工作台模式不接管，保持 Electron 默认的保存对话框行为。
  */
 import { session } from 'electron'
 import { existsSync } from 'fs'
@@ -11,7 +11,7 @@ type WorkspaceProvider = () => string | null
 
 let workspaceProvider: WorkspaceProvider | null = null
 let registered = false
-// 同一批并发下载可能拿到同名建议文件名，落盘前先占位，避免互相覆盖。
+// 并发下载可能拿到同名建议文件名，先占位，避免多个保存框默认到同一路径。
 const reservedPaths = new Set<string>()
 
 const MAX_BASE_NAME = 160
@@ -77,16 +77,17 @@ export function initWorkbenchDownloadService(provider: WorkspaceProvider): void 
       const workspaceRoot = workspaceProvider?.()
       if (!workspaceRoot || !existsSync(workspaceRoot)) return
 
-      const filePath = uniquePath(workspaceRoot, safeFileName(item.getFilename(), item.getURL()))
-      item.setSavePath(filePath)
-      reservedPaths.add(reserveKey(filePath))
+      const suggestedPath = uniquePath(workspaceRoot, safeFileName(item.getFilename(), item.getURL()))
+      // 不调用 setSavePath：保留 Electron 默认保存框，仅把默认目录指向当前工作区。
+      item.setSaveDialogOptions({ defaultPath: suggestedPath })
+      reservedPaths.add(reserveKey(suggestedPath))
       item.once('done', (_e, state) => {
-        reservedPaths.delete(reserveKey(filePath))
-        console.log('[workbench-dl] done file=%s state=%s', filePath, state)
+        reservedPaths.delete(reserveKey(suggestedPath))
+        console.log('[workbench-dl] done file=%s state=%s', item.getSavePath(), state)
       })
       console.log(
-        '[workbench-dl] save to workspace file=%s url=%s',
-        filePath,
+        '[workbench-dl] save dialog default file=%s url=%s',
+        suggestedPath,
         (item.getURL() || '').slice(0, 120)
       )
     } catch (err) {

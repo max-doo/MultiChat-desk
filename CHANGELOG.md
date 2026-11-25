@@ -14,6 +14,9 @@ Release-facing changelog. 仅记录用户可见或与发布相关的变化。
 
 ## [Unreleased]
 
+### Changed
+- **工作台 AI 网页下载改为系统保存框**: 工作台模式下 AI Webview 触发的原生下载不再静默落盘，改为弹出系统保存对话框，默认打开当前工作区，也可另选保存位置。
+
 ## [1.3.5] - 2026-11-21
 
 ### Added / Improved

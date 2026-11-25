@@ -229,7 +229,7 @@ if (!gotTheLock) {
       app.quit()
     })
 
-    // 工作台模式下 AI Webview 的下载直接落到当前工作区；其他模式保持系统保存框。
+    // 工作台模式下 AI Webview 的下载弹出系统保存框，默认目录为当前工作区。
     initWorkbenchDownloadService(() => {
       if (store.get('productMode') !== 'workbench') return null
       const workspaceRoot = store.get('workbench_lastWorkspacePath')
