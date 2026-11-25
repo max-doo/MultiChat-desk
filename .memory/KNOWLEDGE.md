@@ -402,6 +402,8 @@ Long-term reusable lessons, durable decisions, and recurring project gotchas. Do
   `npx tsc --noEmit -p tsconfig.web.json --composite false --incremental false`
   不要记录一次性错误数量作为长期基线；当前 `tsconfig.web.json` 已设置 `target: ES2020`，两侧均以实际输出为准。已有类型错误与当前改动的错误要明确区分，UI、站点 DOM 与 main 行为需在重启后的 dev 中实际触发。
 
+- **dev server 端到端验收可走 remote-debugging-port=9223 CDP**：`pnpm run dev` 的 Electron 主进程对 renderer 暴露 `--remote-debugging-port=9223`。Node ≥22 用原生 `WebSocket` 连 `http://127.0.0.1:9223/json/list` 里 `type=page && url==='http://127.0.0.1:5300/'` 的目标，`Runtime.evaluate` 里 `await import('/src/store/workbenchStore.ts')`（Vite 模块路径）即可拿到真实 Zustand store 实例，直接驱动 `openFile`/`saveActiveFile`/`refreshGitStatus`/`searchFiles`/`handleExternalFsChanged` 等动作做行为级验收，无需 UI 自动化。注意 `WorkbenchFileNode` 字段是 `path`/`isDirectory`（非 `relativePath`/`type`）；改动的真实文件务必读后写回恢复原内容。IPC 也可走 `window.api.workbench.*`。
+
 - **Electron 系 IDE 终端的 `ELECTRON_RUN_AS_NODE=1` 必须清除**：Devin/VSCode 等 Electron 应用的集成终端会向子进程继承该变量，`npm run dev` 启动的 electron 退化为纯 Node，`require('electron').app` 为 undefined，main bundle 顶层 `app.isPackaged` 处即崩。bash 用 `env -u ELECTRON_RUN_AS_NODE npm run dev`，PowerShell 先 `Remove-Item Env:ELECTRON_RUN_AS_NODE` 再启动；该变量不是用户/系统环境变量，普通终端不受影响。
 
 - **NSIS 安装后启动要区分权限与路径**：历史安装后启动曾出现约一分钟卡顿，排查涉及 elevated 安装进程通过 ExecShellAsUser、快捷方式落盘及 Shell/DCOM 降权路径。现有 installer.nsh 按账户类型选择启动方式，提权分支使用可执行文件路径而非快捷方式，普通分支避免不必要的降权调用。不能只凭时长认定具体 COM 根因；修改安装脚本要按实际权限场景打包验收。

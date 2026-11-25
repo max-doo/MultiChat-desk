@@ -2,6 +2,93 @@
 
 ## 2026-11-25
 
+### 22:26 | Codex
+
+- done: 分模块提交2笔并准备打包 NSIS 安装包
+- context: perf(workbench) P0/P1 性能优化50文件 + docs/memory/agent-avatar；lint/tsc 双侧通过
+- modified:
+  - `git 提交e8360c5/db8be41`
+
+### 21:50 | Codex
+
+- done: workbench 性能优化变更端到端验收：通过 dev server (Electron remote-debugging 9223 + Vite import stores) 驱动 workbenchStore 真实动作，覆盖 P0/P1 主要链路
+- context: 用户已启动 pnpm run dev；masters-thesis 工作区 7645 节点
+- modified:
+  - `.tmp/cdp/*.mjs`（验收脚本，过程文件）
+- lesson(promoted): dev server 验收可走 remote-debugging-port=9223 CDP；页面内 import('/src/store/*.ts') 拿真实 store 实例驱动 openFile/saveActiveFile/refreshGitStatus 等动作，无需 UI 自动化
+
+### 21:28 | Antigravity
+
+- done: Landed all 17 P0 and 10 P1 workbench performance and memory optimizations across main, preload, shared, and renderer layers via 4 parallel workers; passed full eslint, node/web tsc, and production build.
+- context: Executed from docs/workbench-performance-memory-optimization-plan.md with disjoint file ownership across 4 workers.
+- decision: Kept IPC/store contracts synchronized (knownBlobSha baseline short-circuit, gitRepoStamp, extractFileTags, sourceSyncFlusher/flushActiveEditorSync, MindmapVisibilityContext, and WorkbenchEditor isActive guard); deferred P2 items as planned.
+- modified:
+  - `src/main/ipcHandlers.ts`
+  - `src/main/noteManager.ts`
+  - `src/main/services/AgentSessionService.ts`
+  - `src/main/services/AgentTaskService.ts`
+  - `src/main/services/annotationService.ts`
+  - `src/main/services/gitService.ts`
+  - `src/main/services/workbenchService.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/src/components/LocalMindmapPanel.tsx`
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchAnnotationPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchCodePreview.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchDocxPreview.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchDraggableBlockPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFindReplaceBar.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFloatingToolbarPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFootnotePlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchGitGutterPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchHtmlAnnotationPreview.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchHtmlVisualEditor.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchMarginNotes.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchMindmapPanel.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchMinimalToc.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchPdfViewer.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchSourceEditor.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchStatusPill.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchTableCellResizerPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchTocRail.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentComposer.tsx`
+  - `src/renderer/src/components/workbench/agent/ChangedFilesCard.tsx`
+  - `src/renderer/src/components/workbench/agent/MarkdownRenderer.tsx`
+  - `src/renderer/src/components/workbench/markdownSourceMap.ts`
+  - `src/renderer/src/hooks/useGitLineDiff.ts`
+  - `src/renderer/src/hooks/useMindmapCanvas.ts`
+  - `src/renderer/src/hooks/useSourceAnnotations.ts`
+  - `src/renderer/src/hooks/useWebviewLifecycle.ts`
+  - `src/renderer/src/pages/WorkbenchPage.tsx`
+  - `src/renderer/src/store/agentSessionStore.ts`
+  - `src/renderer/src/store/annotationStore.ts`
+  - `src/renderer/src/store/workbenchStore.ts`
+  - `src/renderer/src/utils/gitDiff.ts`
+  - `src/renderer/src/utils/wordCount.ts`
+  - `src/shared/types/workbench.ts`
+  - `src/shared/utils/annotationAnchors.ts`
+  - `src/shared/utils/webviewScripts.ts`
+  - `src/shared/utils/workbenchHtmlAnnotations.ts`
+  - `src/shared/utils/workbenchHtmlEditor.ts`
+- unresolved: Interactive desktop smoke testing in pnpm run dev (large workspace file tree/git, 5k-line annotated markdown, 15+ round Agent streaming, 100+ page PDF/5MB DOCX resize, and Ctrl+F/Ctrl+S focus isolation) remains to be verified interactively.
+
+### 21:04 | Antigravity
+
+- done: 完成工作台全链路性能与内存深度源码审查，并输出分级优化开发文档
+- context: 基于体验零下降标准将 17 项纯正向收益优化列为 P0，10 项需权衡 UX/配套防护的优化列为 P1，7 项长尾优化列为 P2
+- added:
+  - `docs/workbench-performance-memory-optimization-plan.md`
+
+### 20:20 | Codex
+
+- done: 分模块提交4笔并打包 NSIS 安装包
+- context: Git提交详情面板、Agent模型选择器收藏+最近使用、.bib/.bst代码编辑器+脚注段中解析修复；dist/MultiChat Setup 1.3.5.exe 115.9MB
+- modified:
+  - `git 提交c770545/5521062/f16c6ad/96365a2`
+
 ### 20:05 | Codex
 
 - done: 最近使用模型同时显示收藏星标与移出按钮
