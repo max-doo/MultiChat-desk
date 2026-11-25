@@ -535,7 +535,10 @@ export const FOOTNOTE_REF_TRANSFORMER: TextMatchTransformer = {
     return `[^${node.getFootnoteId()}]`
   },
   importRegExp: FOOTNOTE_REF_MATCH_RE,
-  regExp: /^\[\^([^\]\s:]+)\](?!:)$/,
+  // 不要求行首：MarkdownShortcut 在光标前的文本上 match($ 截断到光标位置)，
+  // 去掉 ^ 才能在段落中段输入 `[^id]` 时正确触发节点替换；保留 `$` 与 `(?!:)`
+  // 排除 `[^id]:` 定义行前缀。
+  regExp: /\[\^([^\]\s:]+)\](?!:)$/,
   replace: (textNode, match) => {
     const id = match[1]
     if (!id) return

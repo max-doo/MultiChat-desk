@@ -300,6 +300,7 @@ export const CODE_EXTENSIONS = new Set([
   '.graphql', '.gql', '.proto',
   '.vue', '.svelte',
   '.lua', '.r', '.dart',
+  '.bib', '.bst',
   '.conf', '.cfg', '.properties', '.lock', '.prisma', '.diff', '.patch'
 ])
 

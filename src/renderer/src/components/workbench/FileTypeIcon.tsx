@@ -50,6 +50,8 @@ import powerpointIcon from '../../assets/file-icons/powerpoint.svg'
 import logIcon from '../../assets/file-icons/log.svg'
 import zipIcon from '../../assets/file-icons/zip.svg'
 import documentIcon from '../../assets/file-icons/document.svg'
+import bibIcon from '../../assets/file-icons/bibliography.svg'
+import bibtexStyleIcon from '../../assets/file-icons/bibtex-style.svg'
 
 const EXT_TO_ICON: Record<string, string> = {
   '.ts': tsIcon,
@@ -131,6 +133,8 @@ const EXT_TO_ICON: Record<string, string> = {
   '.pps': powerpointIcon,
   '.odp': powerpointIcon,
   '.log': logIcon,
+  '.bib': bibIcon,
+  '.bst': bibtexStyleIcon,
   '.zip': zipIcon,
   '.tar': zipIcon,
   '.gz': zipIcon,
