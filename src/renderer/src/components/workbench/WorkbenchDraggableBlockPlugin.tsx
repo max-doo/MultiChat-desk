@@ -27,6 +27,7 @@ import { INSERT_TABLE_COMMAND } from '@lexical/table'
 import { INSERT_HORIZONTAL_RULE_COMMAND } from '@lexical/react/LexicalHorizontalRuleNode'
 import { $createWorkbenchEquationNode } from './WorkbenchEquationNode'
 import WorkbenchEquationEditor from './WorkbenchEquationEditor'
+import { useWorkbenchStore } from '../../store/workbenchStore'
 
 /**
  * 移植 playground DraggableBlockPlugin + ComponentPickerPlugin：
@@ -64,6 +65,7 @@ export default function WorkbenchDraggableBlockPlugin({
   anchorElem: HTMLElement | null
 }): JSX.Element | null {
   const [editor] = useLexicalComposerContext()
+  const isDark = useWorkbenchStore((s) => s.markdownBackgroundTheme) === 'dark'
   const menuRef = useRef<HTMLDivElement | null>(null)
   const pickerRef = useRef<HTMLDivElement | null>(null)
   const targetLineRef = useRef<HTMLDivElement | null>(null)
@@ -342,7 +344,12 @@ export default function WorkbenchDraggableBlockPlugin({
         ? ReactDOM.createPortal(
             <div
               ref={pickerRef}
-              className="absolute z-popover w-max min-w-40 max-w-64 whitespace-nowrap rounded-xl bg-white dark:bg-gray-800 shadow-lg border border-black/10 dark:border-white/10 overflow-hidden text-body"
+              data-reader-dropdown={isDark ? 'dark' : 'light'}
+              className={`absolute z-popover w-max min-w-40 max-w-64 whitespace-nowrap rounded-xl shadow-lg border overflow-hidden text-body ${
+                isDark
+                  ? 'dark liquid-glass-menu border-white/15'
+                  : 'bg-white dark:bg-gray-800 border-black/10 dark:border-white/10'
+              }`}
               style={{ left: pickerPosition.left, top: pickerPosition.top }}
             >
               <ul className="py-1 max-h-64 overflow-y-auto">
@@ -357,7 +364,9 @@ export default function WorkbenchDraggableBlockPlugin({
                       onMouseEnter={() => setHighlightedIndex(i)}
                       className={`w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors ${
                         highlightedIndex === i
-                          ? 'bg-primary/10 text-primary'
+                          ? isDark
+                            ? 'bg-primary/20 text-blue-300'
+                            : 'bg-primary/10 text-primary'
                           : 'text-text-primary hover:bg-black/5 dark:hover:bg-white/5'
                       }`}
                     >

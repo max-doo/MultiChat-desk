@@ -43,6 +43,12 @@ export type WorkbenchRightPane = 'ai' | 'mindmap' | null
 export type WorkbenchSortKey = 'name' | 'mtime' | 'size'
 export type WorkbenchSortOrder = 'asc' | 'desc'
 export type ImageBackgroundTheme = 'checkerboard' | 'light' | 'dark'
+export type ReaderBackgroundTheme = 'light' | 'sepia' | 'green' | 'dark'
+
+const READER_BG_THEMES = new Set<ReaderBackgroundTheme>(['light', 'sepia', 'green', 'dark'])
+function isReaderBackgroundTheme(value: unknown): value is ReaderBackgroundTheme {
+  return typeof value === 'string' && READER_BG_THEMES.has(value as ReaderBackgroundTheme)
+}
 
 export interface WorkbenchSortPreference {
   key: WorkbenchSortKey
@@ -214,6 +220,10 @@ interface WorkbenchStoreState {
   showMarginNotes: boolean
   /** 图片预览画布背景，全局持久化，切换图片后保持一致 */
   imageBackgroundTheme: ImageBackgroundTheme
+  /** Markdown 编辑/预览、PDF 预览、Word 预览各自独立持久化的背景主题 */
+  markdownBackgroundTheme: ReaderBackgroundTheme
+  pdfBackgroundTheme: ReaderBackgroundTheme
+  docxBackgroundTheme: ReaderBackgroundTheme
   /** 待生成的选区范围；由编辑器划词菜单写入，导图面板消费后清空。 */
   pendingMindmapSelection: { text: string; headingPath: string[] } | null
   /** 待打开的来源会话；笔记属性里的会话图标写入，AI 侧边栏消费后清空。 */
@@ -328,6 +338,9 @@ interface WorkbenchStoreActions {
   setEditorMode: (mode: EditorMode) => void
   setContentWidth: (width: WorkbenchContentWidth) => void
   setImageBackgroundTheme: (theme: ImageBackgroundTheme) => void
+  setMarkdownBackgroundTheme: (theme: ReaderBackgroundTheme) => void
+  setPdfBackgroundTheme: (theme: ReaderBackgroundTheme) => void
+  setDocxBackgroundTheme: (theme: ReaderBackgroundTheme) => void
   askAi: (text: string, actionType: WorkbenchAiAction, target?: 'ai' | 'ai2') => void
   clearError: () => void
   showNotice: (message: string) => void
@@ -642,6 +655,9 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   rightPane: 'ai',
   showMarginNotes: false,
   imageBackgroundTheme: 'checkerboard',
+  markdownBackgroundTheme: 'light',
+  pdfBackgroundTheme: 'light',
+  docxBackgroundTheme: 'light',
   pendingMindmapSelection: null,
   pendingConversationOpen: null,
   sidebarModelId: 'chatgpt',
@@ -696,6 +712,9 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         savedRecentWorkspaces,
         savedFileSort,
         savedImageBackgroundTheme,
+        savedMarkdownBgTheme,
+        savedPdfBgTheme,
+        savedDocxBgTheme,
         savedContentWidth
       ] = await Promise.all([
         window.api.storeGet('workbench_lastWorkspacePath') as Promise<string | null>,
@@ -712,6 +731,9 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         window.api.storeGet('workbench_recentWorkspaces') as Promise<string[] | null>,
         window.api.storeGet('workbench_fileSort') as Promise<WorkbenchSortPreference | null>,
         window.api.storeGet('workbench_imageBackgroundTheme') as Promise<ImageBackgroundTheme | null>,
+        window.api.storeGet('workbench_markdownBgTheme') as Promise<ReaderBackgroundTheme | null>,
+        window.api.storeGet('workbench_pdfBgTheme') as Promise<ReaderBackgroundTheme | null>,
+        window.api.storeGet('workbench_docxBgTheme') as Promise<ReaderBackgroundTheme | null>,
         window.api.storeGet('workbench_contentWidth') as Promise<WorkbenchContentWidth | null>
       ])
 
@@ -796,6 +818,15 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         savedImageBackgroundTheme === 'dark'
       ) {
         updates.imageBackgroundTheme = savedImageBackgroundTheme
+      }
+      if (isReaderBackgroundTheme(savedMarkdownBgTheme)) {
+        updates.markdownBackgroundTheme = savedMarkdownBgTheme
+      }
+      if (isReaderBackgroundTheme(savedPdfBgTheme)) {
+        updates.pdfBackgroundTheme = savedPdfBgTheme
+      }
+      if (isReaderBackgroundTheme(savedDocxBgTheme)) {
+        updates.docxBackgroundTheme = savedDocxBgTheme
       }
 
       // 确保默认工作区存在（首次启动会创建），随后无论上次是否有保存的工作区，都先把默认路径放到 store
@@ -2480,6 +2511,21 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   setImageBackgroundTheme: (theme: ImageBackgroundTheme) => {
     set({ imageBackgroundTheme: theme })
     void window.api.storeSet('workbench_imageBackgroundTheme', theme)
+  },
+
+  setMarkdownBackgroundTheme: (theme: ReaderBackgroundTheme) => {
+    set({ markdownBackgroundTheme: theme })
+    void window.api.storeSet('workbench_markdownBgTheme', theme)
+  },
+
+  setPdfBackgroundTheme: (theme: ReaderBackgroundTheme) => {
+    set({ pdfBackgroundTheme: theme })
+    void window.api.storeSet('workbench_pdfBgTheme', theme)
+  },
+
+  setDocxBackgroundTheme: (theme: ReaderBackgroundTheme) => {
+    set({ docxBackgroundTheme: theme })
+    void window.api.storeSet('workbench_docxBgTheme', theme)
   },
 
   askAi: (text: string, actionType: WorkbenchAiAction, target: 'ai' | 'ai2' = 'ai') => {

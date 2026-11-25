@@ -17,16 +17,16 @@ export function PreviewHeader({
 }: PreviewHeaderProps): JSX.Element {
   const barClass =
     theme === 'dark'
-      ? `${compact ? 'h-10' : 'h-12'} px-3 bg-slate-800/90 border-b border-slate-700/60 flex items-center justify-between gap-2 shrink-0 select-none text-body`
+      ? `${compact ? 'h-10' : 'h-12'} px-3 bg-[#252526]/95 backdrop-blur-md border-b border-white/[0.08] flex items-center justify-between gap-2 shrink-0 select-none text-body text-[#E4E4E7]`
       : `${compact ? 'h-10' : 'h-12'} px-3 bg-white/80 dark:bg-gray-800/80 border-b border-black/5 dark:border-white/5 flex items-center justify-between gap-2 shrink-0 select-none text-body`
 
   return (
-    <div className={barClass}>
+    <div className={barClass} data-reader-toolbar={theme === 'dark' ? 'dark' : 'light'}>
       <div className="flex items-center gap-2 truncate">{left}</div>
       {right && (
         <div
           className={`flex items-center shrink-0 ${
-            theme === 'dark' ? 'gap-2 text-slate-400 text-body' : 'gap-1.5 text-text-secondary'
+            theme === 'dark' ? 'gap-1.5 text-[#A1A1AA] text-body' : 'gap-1.5 text-text-secondary'
           }`}
         >
           {right}
@@ -64,11 +64,11 @@ export function PreviewZoomControls({
 }: PreviewZoomControlsProps): JSX.Element {
   const btnClass =
     theme === 'dark'
-      ? 'w-7 h-7 flex items-center justify-center rounded-md hover:bg-slate-700 text-slate-300 hover:text-white transition-colors disabled:opacity-40 disabled:hover:bg-transparent'
+      ? 'w-7 h-7 flex items-center justify-center rounded-md hover:bg-white/10 text-[#D4D4D4] hover:text-white transition-colors disabled:opacity-40 disabled:hover:bg-transparent'
       : 'w-7 h-7 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors disabled:opacity-40 disabled:hover:bg-transparent'
   const labelClass =
     theme === 'dark'
-      ? 'min-w-[44px] h-7 px-1 rounded-md text-label font-medium tabular-nums text-slate-300 hover:bg-slate-700 hover:text-white transition-colors'
+      ? 'min-w-[44px] h-7 px-1 rounded-md text-label font-medium tabular-nums text-[#D4D4D4] hover:bg-white/10 hover:text-white transition-colors'
       : 'min-w-[46px] h-7 px-1 rounded-md text-label font-medium tabular-nums hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors'
 
   return (
@@ -127,7 +127,7 @@ export function PreviewFallbackState({
 }: PreviewFallbackStateProps): JSX.Element {
   const containerClass =
     theme === 'dark'
-      ? 'flex-1 h-full flex flex-col items-center justify-center p-8 text-center bg-slate-900 select-none'
+      ? 'flex-1 h-full flex flex-col items-center justify-center p-8 text-center bg-[#1E1E1E] select-none'
       : 'w-full h-full flex flex-col items-center justify-center p-8 text-center bg-white dark:bg-gray-900 text-text-primary select-none'
 
   const inner = (
@@ -135,7 +135,7 @@ export function PreviewFallbackState({
       {icon}
       <h3
         className={`text-body-lg font-semibold mb-1 ${
-          theme === 'dark' ? 'text-slate-100' : 'text-text-primary'
+          theme === 'dark' ? 'text-[#E4E4E7]' : 'text-text-primary'
         }`}
       >
         {title}
@@ -143,7 +143,7 @@ export function PreviewFallbackState({
       {description && (
         <p
           className={`text-body max-w-sm mb-6 leading-relaxed ${
-            theme === 'dark' ? 'text-slate-400' : 'text-text-secondary'
+            theme === 'dark' ? 'text-[#A1A1AA]' : 'text-text-secondary'
           }`}
         >
           {description}

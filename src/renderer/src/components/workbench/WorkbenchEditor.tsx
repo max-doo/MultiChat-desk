@@ -183,6 +183,8 @@ export default function WorkbenchEditor(): JSX.Element {
   const updateActiveContent = useWorkbenchStore((s) => s.updateActiveContent)
   const editorMode = useWorkbenchStore((s) => s.editorMode)
   const contentWidth = useWorkbenchStore((s) => s.contentWidth)
+  const markdownBackgroundTheme = useWorkbenchStore((s) => s.markdownBackgroundTheme)
+  const isMarkdownDark = markdownBackgroundTheme === 'dark'
   const workspacePath = useWorkbenchStore((s) => s.workspacePath)
   const createFile = useWorkbenchStore((s) => s.createFile)
   const openInSystem = useWorkbenchStore((s) => s.openInSystem)
@@ -419,7 +421,10 @@ export default function WorkbenchEditor(): JSX.Element {
   // 代码文件专属预览与编辑
   if (activeFileCategory === 'code') {
     return (
-      <div className="relative flex-1 h-full flex flex-col overflow-hidden">
+      <div
+        className="relative flex-1 h-full flex flex-col overflow-hidden dark"
+        data-reader-theme="dark"
+      >
         <WorkbenchCodePreview key={activeFilePath} />
         <WorkbenchStatusPill />
       </div>
@@ -447,7 +452,10 @@ export default function WorkbenchEditor(): JSX.Element {
   // 纯文本文件 (txt, log, csv 等)
   if (activeFileCategory === 'text') {
     return (
-      <div className="relative flex-1 h-full flex flex-col overflow-hidden">
+      <div
+        className="relative flex-1 h-full flex flex-col overflow-hidden dark"
+        data-reader-theme="dark"
+      >
         <WorkbenchCodePreview key={activeFilePath} />
         <WorkbenchStatusPill />
       </div>
@@ -483,8 +491,9 @@ export default function WorkbenchEditor(): JSX.Element {
   if (editorMode === 'source') {
     return (
       <div
-        className="relative flex-1 h-full flex flex-col overflow-hidden bg-white dark:bg-gray-900"
+        className={`relative flex-1 h-full flex flex-col overflow-hidden bg-white ${isMarkdownDark ? 'dark' : ''}`}
         data-workbench-editor="true"
+        data-reader-theme={isMarkdownDark ? 'dark' : undefined}
       >
         <WorkbenchSourceToolbar editorRef={sourceEditorRef} />
         <WorkbenchSourceEditor
@@ -510,8 +519,9 @@ export default function WorkbenchEditor(): JSX.Element {
   // 富文本编辑模式 (Meta Lexical)
   return (
     <div
-      className="relative flex-1 h-full flex flex-col overflow-hidden bg-white dark:bg-gray-900"
+      className={`relative flex-1 h-full flex flex-col overflow-hidden bg-white ${isMarkdownDark ? 'dark' : ''}`}
       data-workbench-editor="true"
+      data-reader-theme={isMarkdownDark ? 'dark' : undefined}
     >
       <LexicalComposer initialConfig={initialConfig}>
         {/* 顶部富文本格式工具栏 */}
@@ -520,7 +530,8 @@ export default function WorkbenchEditor(): JSX.Element {
         {/* 编辑器画布可滚动容器 */}
         <div
           ref={wysiwygScrollRef}
-          className="flex-1 overflow-y-auto relative"
+          className="flex-1 overflow-y-auto relative wb-reader-canvas transition-colors duration-150"
+          data-reader-canvas={markdownBackgroundTheme}
           onScroll={handleWysiwygScroll}
         >
           <div

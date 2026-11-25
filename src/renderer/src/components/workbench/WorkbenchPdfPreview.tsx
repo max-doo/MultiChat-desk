@@ -5,6 +5,7 @@ import { AppIcon } from '../icons/AppIcon'
 import FileTypeIcon from './FileTypeIcon'
 import WorkbenchSendToAiButton from './WorkbenchSendToAiButton'
 import WorkbenchPdfViewer from './WorkbenchPdfViewer'
+import WorkbenchReaderThemePicker from './WorkbenchReaderThemePicker'
 import {
   PreviewFallbackState,
   PreviewHeader,
@@ -19,6 +20,9 @@ export default function WorkbenchPdfPreview(): JSX.Element {
   const activeFileOversized = useWorkbenchStore((s) => s.activeFileOversized)
   const openInSystem = useWorkbenchStore((s) => s.openInSystem)
   const revealFile = useWorkbenchStore((s) => s.revealFile)
+  const pdfBackgroundTheme = useWorkbenchStore((s) => s.pdfBackgroundTheme)
+  const setPdfBackgroundTheme = useWorkbenchStore((s) => s.setPdfBackgroundTheme)
+  const isDark = pdfBackgroundTheme === 'dark'
 
   const [reloadKey, setReloadKey] = useState(0)
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
@@ -53,10 +57,20 @@ export default function WorkbenchPdfPreview(): JSX.Element {
     extension: '.pdf'
   }), [activeFilePath])
 
+  const headerIconBtnClass = isDark
+    ? 'w-8 h-8 flex items-center justify-center rounded-md hover:bg-white/10 text-[#D4D4D4] hover:text-white transition-colors'
+    : 'w-8 h-8 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors'
+
   return (
-    <div className="flex-1 h-full flex flex-col overflow-hidden bg-slate-100 dark:bg-gray-900">
+    <div
+      className={`flex-1 h-full flex flex-col overflow-hidden ${
+        isDark ? 'dark bg-[#1E1E1E]' : 'bg-slate-100 dark:bg-gray-900'
+      }`}
+      data-reader-theme={isDark ? 'dark' : undefined}
+    >
       {/* 顶部工具栏 */}
       <PreviewHeader
+        theme={isDark ? 'dark' : 'light'}
         left={
           <>
             <FileTypeIcon node={pdfNode} className="w-[19px] h-[19px]" />
@@ -68,6 +82,7 @@ export default function WorkbenchPdfPreview(): JSX.Element {
         right={
           <>
             <PreviewZoomControls
+              theme={isDark ? 'dark' : 'light'}
               zoom={zoom}
               minZoom={ZOOM_MIN}
               maxZoom={ZOOM_MAX}
@@ -76,12 +91,17 @@ export default function WorkbenchPdfPreview(): JSX.Element {
               onReset={() => setZoom(1)}
             />
 
-            <div className="h-5 w-px bg-black/10 dark:bg-white/10 mx-0.5" />
+            <WorkbenchReaderThemePicker
+              value={pdfBackgroundTheme}
+              onChange={setPdfBackgroundTheme}
+            />
+
+            <div className={`h-5 w-px mx-0.5 ${isDark ? 'bg-white/10' : 'bg-black/10 dark:bg-white/10'}`} />
 
             <button
               type="button"
               onClick={() => setReloadKey((k) => k + 1)}
-              className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors"
+              className={headerIconBtnClass}
               title="刷新文档渲染"
             >
               <AppIcon name="refresh" size={19} />
@@ -92,7 +112,7 @@ export default function WorkbenchPdfPreview(): JSX.Element {
               onClick={() => {
                 if (activeFilePath) void openInSystem(activeFilePath)
               }}
-              className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors"
+              className={headerIconBtnClass}
               title="使用系统默认程序打开"
             >
               <AppIcon name="open_in_new" size={19} />
@@ -103,7 +123,7 @@ export default function WorkbenchPdfPreview(): JSX.Element {
               onClick={() => {
                 if (activeFilePath) void revealFile(activeFilePath)
               }}
-              className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors"
+              className={headerIconBtnClass}
               title="在系统资源管理器中定位"
             >
               <AppIcon name="folder_open" size={19} />
@@ -113,9 +133,10 @@ export default function WorkbenchPdfPreview(): JSX.Element {
       />
 
       {/* PDF 渲染容器 */}
-      <div className="flex-1 w-full h-full relative overflow-hidden bg-gray-200 dark:bg-gray-950">
+      <div className="flex-1 w-full h-full relative overflow-hidden bg-gray-200 dark:bg-[#141414]">
         {activeFileOversized ? (
           <PreviewFallbackState
+            theme={isDark ? 'dark' : 'light'}
             icon={
               <div className="w-16 h-16 rounded-2xl bg-amber-500/10 flex items-center justify-center text-amber-500 mb-4">
                 <FileTypeIcon node={pdfNode} className="w-[30px] h-[30px]" />
@@ -134,6 +155,7 @@ export default function WorkbenchPdfPreview(): JSX.Element {
           />
         ) : loadState === 'error' || !workspacePath || !activeFilePath || !activeFileSize ? (
           <PreviewFallbackState
+            theme={isDark ? 'dark' : 'light'}
             icon={<AppIcon name="error" size={24} className="text-rose-400 mb-2" />}
             title="未能加载 PDF 数据或文件已损坏"
             description={loadError || '缺少可加载的文件路径'}
@@ -149,6 +171,7 @@ export default function WorkbenchPdfPreview(): JSX.Element {
             fileSize={activeFileSize}
             reloadKey={reloadKey}
             zoom={zoom}
+            backgroundTheme={pdfBackgroundTheme}
             onZoomStep={zoomStep}
             onLoadState={handleLoadState}
           />

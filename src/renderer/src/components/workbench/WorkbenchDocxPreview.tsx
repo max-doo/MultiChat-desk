@@ -8,6 +8,7 @@ import FileTypeIcon from './FileTypeIcon'
 import WorkbenchSendToAiButton from './WorkbenchSendToAiButton'
 import WorkbenchDocxToc, { type DocxDocumentLike } from './WorkbenchDocxToc'
 import WorkbenchSelectionMenu, { WORKBENCH_AI_SELECTION_ACTIONS } from './WorkbenchSelectionMenu'
+import WorkbenchReaderThemePicker from './WorkbenchReaderThemePicker'
 import {
   PreviewFallbackState,
   PreviewHeader,
@@ -96,6 +97,9 @@ export default function WorkbenchDocxPreview(): JSX.Element {
   const openInSystem = useWorkbenchStore((s) => s.openInSystem)
   const revealFile = useWorkbenchStore((s) => s.revealFile)
   const askAi = useWorkbenchStore((s) => s.askAi)
+  const docxBackgroundTheme = useWorkbenchStore((s) => s.docxBackgroundTheme)
+  const setDocxBackgroundTheme = useWorkbenchStore((s) => s.setDocxBackgroundTheme)
+  const isDark = docxBackgroundTheme === 'dark'
 
   const contentRef = useRef<HTMLDivElement | null>(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
@@ -442,8 +446,17 @@ export default function WorkbenchDocxPreview(): JSX.Element {
     []
   )
 
+  const headerIconBtnClass = isDark
+    ? 'w-8 h-8 flex items-center justify-center rounded-md hover:bg-white/10 text-[#D4D4D4] hover:text-white transition-colors'
+    : 'w-8 h-8 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors'
+
   return (
-    <div className="flex-1 h-full flex flex-col overflow-hidden bg-slate-100 dark:bg-gray-900">
+    <div
+      className={`flex-1 h-full flex flex-col overflow-hidden ${
+        isDark ? 'dark bg-[#1E1E1E]' : 'bg-slate-100 dark:bg-gray-900'
+      }`}
+      data-reader-theme={isDark ? 'dark' : undefined}
+    >
       <style>{`
 .docx-preview-content .docx-wrapper {
   background: transparent;
@@ -458,6 +471,7 @@ export default function WorkbenchDocxPreview(): JSX.Element {
 `}</style>
 
       <PreviewHeader
+        theme={isDark ? 'dark' : 'light'}
         left={
           <>
             <FileTypeIcon node={docxNode} className="w-[19px] h-[19px]" />
@@ -469,6 +483,7 @@ export default function WorkbenchDocxPreview(): JSX.Element {
         right={
           <>
             <PreviewZoomControls
+              theme={isDark ? 'dark' : 'light'}
               zoom={zoom}
               minZoom={ZOOM_MIN}
               maxZoom={ZOOM_MAX}
@@ -477,12 +492,17 @@ export default function WorkbenchDocxPreview(): JSX.Element {
               onReset={() => setZoom(1)}
             />
 
-            <div className="h-5 w-px bg-black/10 dark:bg-white/10 mx-0.5" />
+            <WorkbenchReaderThemePicker
+              value={docxBackgroundTheme}
+              onChange={setDocxBackgroundTheme}
+            />
+
+            <div className={`h-5 w-px mx-0.5 ${isDark ? 'bg-white/10' : 'bg-black/10 dark:bg-white/10'}`} />
 
             <button
               type="button"
               onClick={() => setReloadKey((k) => k + 1)}
-              className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors"
+              className={headerIconBtnClass}
               title="刷新文档渲染"
             >
               <AppIcon name="refresh" size={19} />
@@ -492,7 +512,7 @@ export default function WorkbenchDocxPreview(): JSX.Element {
               onClick={() => {
                 if (activeFilePath) void openInSystem(activeFilePath)
               }}
-              className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors"
+              className={headerIconBtnClass}
               title="使用系统默认程序打开"
             >
               <AppIcon name="open_in_new" size={19} />
@@ -502,7 +522,7 @@ export default function WorkbenchDocxPreview(): JSX.Element {
               onClick={() => {
                 if (activeFilePath) void revealFile(activeFilePath)
               }}
-              className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors"
+              className={headerIconBtnClass}
               title="在系统资源管理器中定位"
             >
               <AppIcon name="folder_open" size={19} />
@@ -514,6 +534,7 @@ export default function WorkbenchDocxPreview(): JSX.Element {
       <div className="flex-1 w-full h-full relative overflow-hidden">
         {oversized ? (
           <PreviewFallbackState
+            theme={isDark ? 'dark' : 'light'}
             icon={
               <div className="w-16 h-16 rounded-2xl bg-amber-500/10 flex items-center justify-center text-amber-500 mb-4">
                 <FileTypeIcon node={docxNode} className="w-[30px] h-[30px]" />
@@ -533,6 +554,7 @@ export default function WorkbenchDocxPreview(): JSX.Element {
           />
         ) : loadState === 'error' ? (
           <PreviewFallbackState
+            theme={isDark ? 'dark' : 'light'}
             icon={<AppIcon name="error" size={24} className="text-rose-400 mb-2" />}
             title="未能渲染这份 Word 文档"
             description={loadError || '文件已损坏或格式不受支持'}
@@ -542,7 +564,11 @@ export default function WorkbenchDocxPreview(): JSX.Element {
             }}
           />
         ) : (
-          <div ref={scrollRef} className="w-full h-full overflow-auto py-6 px-6">
+          <div
+            ref={scrollRef}
+            className="w-full h-full overflow-auto py-6 px-6 wb-docx-viewport transition-colors duration-150"
+            data-docx-theme={docxBackgroundTheme}
+          >
             <div
               ref={contentRef}
               className="docx-preview-content select-text"
@@ -565,7 +591,11 @@ export default function WorkbenchDocxPreview(): JSX.Element {
         )}
 
         {loadState === 'loading' && !oversized && (
-          <div className="absolute inset-0 flex items-center justify-center bg-slate-100/80 dark:bg-gray-900/80 text-text-secondary text-body">
+          <div
+            className={`absolute inset-0 flex items-center justify-center text-text-secondary text-body ${
+              isDark ? 'bg-[#1E1E1E]/85' : 'bg-slate-100/80 dark:bg-gray-900/80'
+            }`}
+          >
             <AppIcon name="refresh" size={19} className="animate-spin mr-2" />
             正在渲染文档
           </div>

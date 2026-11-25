@@ -69,11 +69,13 @@ export function WorkbenchDropDownDivider(): JSX.Element {
 function DropDownItems({
   children,
   dropDownRef,
-  onClose
+  onClose,
+  isDark = false
 }: {
   children: ReactNode
   dropDownRef: React.RefObject<HTMLDivElement | null>
   onClose: () => void
+  isDark?: boolean
 }): JSX.Element {
   const [items, setItems] = useState<React.RefObject<HTMLButtonElement | null>[]>()
   const [highlightedItem, setHighlightedItem] =
@@ -129,7 +131,8 @@ function DropDownItems({
       <div
         ref={dropDownRef as React.RefObject<HTMLDivElement>}
         onKeyDown={handleKeyDown}
-        className="fixed z-popover py-1 liquid-glass-menu rounded-xl text-body"
+        data-reader-dropdown={isDark ? 'dark' : 'light'}
+        className={`fixed z-popover py-1 liquid-glass-menu rounded-xl text-body ${isDark ? 'dark' : ''}`}
         style={{ top: -10000, left: -10000 }}
         role="menu"
       >
@@ -145,6 +148,7 @@ export default function WorkbenchDropDown({
   buttonTitle,
   buttonContent,
   buttonClassName = '',
+  isDark = false,
   children
 }: {
   disabled?: boolean
@@ -152,6 +156,7 @@ export default function WorkbenchDropDown({
   buttonTitle?: string
   buttonContent: ReactNode
   buttonClassName?: string
+  isDark?: boolean
   children: ReactNode
 }): JSX.Element {
   const dropDownRef = useRef<HTMLDivElement | null>(null)
@@ -211,7 +216,7 @@ export default function WorkbenchDropDown({
 
       {showDropDown &&
         createPortal(
-          <DropDownItems dropDownRef={dropDownRef} onClose={handleClose}>
+          <DropDownItems dropDownRef={dropDownRef} onClose={handleClose} isDark={isDark}>
             {children}
           </DropDownItems>,
           buttonRef.current?.ownerDocument?.body ?? document.body

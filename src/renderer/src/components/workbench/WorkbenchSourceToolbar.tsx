@@ -16,6 +16,7 @@ import {
   collectFootnoteStateFromMarkdown,
   type FootnoteUsageSnapshot
 } from './workbenchFootnotes'
+import WorkbenchReaderThemePicker from './WorkbenchReaderThemePicker'
 
 type SourceBlockType = 'paragraph' | 'h1' | 'h2' | 'h3' | 'h4' | 'bullet' | 'number' | 'check' | 'quote' | 'code'
 
@@ -46,6 +47,9 @@ export default function WorkbenchSourceToolbar({
 }): JSX.Element {
   const editorMode = useWorkbenchStore((s) => s.editorMode)
   const setEditorMode = useWorkbenchStore((s) => s.setEditorMode)
+  const markdownBackgroundTheme = useWorkbenchStore((s) => s.markdownBackgroundTheme)
+  const setMarkdownBackgroundTheme = useWorkbenchStore((s) => s.setMarkdownBackgroundTheme)
+  const isDark = markdownBackgroundTheme === 'dark'
   const activeFileSize = useWorkbenchStore((s) => s.activeFileSize)
   const largeDocument = (activeFileSize ?? 0) > 2 * 1024 * 1024
   const isLeftCollapsed = useWorkbenchStore((s) => s.isLeftCollapsed)
@@ -198,7 +202,14 @@ export default function WorkbenchSourceToolbar({
 
   return (
     <>
-      <div className="h-12 px-3 bg-white/70 dark:bg-gray-800/70 backdrop-blur-md border-b border-black/5 dark:border-white/5 flex items-center justify-between gap-2 shrink-0 select-none text-body">
+      <div
+        data-reader-toolbar={isDark ? 'dark' : 'light'}
+        className={`h-12 px-3 backdrop-blur-md border-b flex items-center justify-between gap-2 shrink-0 select-none text-body ${
+          isDark
+            ? 'bg-[#252526]/95 border-white/[0.08]'
+            : 'bg-white/70 dark:bg-gray-800/70 border-black/5 dark:border-white/5'
+        }`}
+      >
       <div className="flex items-center gap-0.5 overflow-x-auto no-scrollbar">
         {isLeftCollapsed && (
           <>
@@ -235,6 +246,7 @@ export default function WorkbenchSourceToolbar({
         <div className="w-[1px] h-4 bg-black/10 dark:bg-white/10 mx-1 shrink-0" />
 
         <WorkbenchDropDown
+          isDark={isDark}
           buttonAriaLabel="段落格式选项"
           buttonTitle="段落格式"
           buttonClassName="h-8 px-2.5 flex items-center gap-1 rounded-md hover:bg-black/5 dark:hover:bg-white/10 text-text-primary transition-colors font-medium text-body"
@@ -344,6 +356,7 @@ export default function WorkbenchSourceToolbar({
 
         {/* 上标 / 下标：写入 <sup>/<sub> 行内 HTML */}
         <WorkbenchDropDown
+          isDark={isDark}
           buttonAriaLabel="上下标"
           buttonTitle="上下标 (<sup>/<sub>)"
           buttonClassName="h-8 px-1.5 flex items-center justify-center rounded-md text-text-primary transition-colors hover:bg-black/5 dark:hover:bg-white/10 font-medium"
@@ -429,6 +442,7 @@ export default function WorkbenchSourceToolbar({
         </button>
 
         <WorkbenchDropDown
+          isDark={isDark}
           buttonAriaLabel="插入公式"
           buttonTitle="插入公式"
           buttonClassName="w-8 h-8 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 text-text-primary transition-colors"
@@ -461,15 +475,19 @@ export default function WorkbenchSourceToolbar({
         </button>
       </div>
 
-      <div className="flex items-center gap-2.5 text-text-secondary text-body shrink-0">
-        <div className="flex items-center p-0.5 bg-black/5 dark:bg-white/5 rounded-lg border border-black/5 dark:border-white/5">
+      <div className="flex items-center gap-2 text-text-secondary text-body shrink-0">
+        <WorkbenchReaderThemePicker
+          value={markdownBackgroundTheme}
+          onChange={setMarkdownBackgroundTheme}
+        />
+        <div className="flex items-center p-0.5 bg-black/5 dark:bg-white/10 rounded-lg border border-black/5 dark:border-white/10">
           <button
             type="button"
             disabled={largeDocument}
             onClick={() => setEditorMode('wysiwyg')}
             className={`px-2.5 py-1 rounded-md text-body font-medium transition-all ${
               editorMode === 'wysiwyg'
-                ? 'bg-white dark:bg-gray-700 text-primary shadow-sm'
+                ? 'bg-white dark:bg-[#323236] text-primary dark:text-blue-300 shadow-sm'
                 : 'text-text-secondary hover:text-text-primary'
             } disabled:cursor-not-allowed disabled:opacity-40`}
             title={largeDocument ? '超过 2MB 的文档固定使用源码模式' : '预览模式'}
@@ -481,7 +499,7 @@ export default function WorkbenchSourceToolbar({
             onClick={() => setEditorMode('source')}
             className={`px-2.5 py-1 rounded-md text-body font-medium transition-all ${
               editorMode === 'source'
-                ? 'bg-white dark:bg-gray-700 text-primary shadow-sm'
+                ? 'bg-white dark:bg-[#323236] text-primary dark:text-blue-300 shadow-sm'
                 : 'text-text-secondary hover:text-text-primary'
             }`}
             title="原始 Markdown 源码模式"

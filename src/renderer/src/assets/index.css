@@ -62,10 +62,11 @@ body {
     0 6px 14px -4px rgba(59, 130, 246, 0.09);
 }
 
-.dark .liquid-glass-menu {
+.dark .liquid-glass-menu,
+.liquid-glass-menu.dark {
   background:
     radial-gradient(125% 70% at 22% 0%, rgba(255, 255, 255, 0.09) 0%, rgba(255, 255, 255, 0) 58%),
-    linear-gradient(160deg, rgba(35, 42, 54, 0.84) 0%, rgba(24, 29, 39, 0.78) 55%, rgba(30, 36, 48, 0.83) 100%);
+    linear-gradient(160deg, rgba(42, 42, 46, 0.92) 0%, rgba(30, 30, 32, 0.88) 55%, rgba(36, 36, 40, 0.92) 100%);
   border: 1px solid rgba(255, 255, 255, 0.14);
   box-shadow:
     inset 0 1px 0 0 rgba(255, 255, 255, 0.24),
@@ -73,6 +74,13 @@ body {
     inset 0 0 16px 0 rgba(255, 255, 255, 0.03),
     0 0 0 1px rgba(0, 0, 0, 0.44),
     0 20px 44px -10px rgba(0, 0, 0, 0.62);
+}
+
+[data-reader-dropdown='dark'] .text-text-primary {
+  color: #e4e4e7;
+}
+[data-reader-dropdown='dark'] .text-text-secondary {
+  color: #a1a1aa;
 }
 
 .liquid-glass-modal {
@@ -490,6 +498,7 @@ webview[tabindex="-1"] {
 .PlaygroundEditorTheme__mark {
     background: rgba(252, 211, 77, 0.15);
     border-bottom: 1px dashed rgba(217, 119, 6, 0.6);
+    color: inherit;
     padding-bottom: 1px;
     cursor: pointer;
 }
@@ -1294,4 +1303,211 @@ webview[tabindex="-1"] {
   height: 5px;
   clip-path: polygon(50% 0, 0 100%, 100% 100%);
 }
+
+/* ============================================================
+ * 工作台阅读/编辑区背景主题系统（纸白 / 羊皮纸 / 豆沙绿 / 中性暗黑）
+ * 纸白、羊皮纸、豆沙绿保持顶部工具栏浅色一致，仅调整下方画布与纸张；
+ * 中性暗黑同步切换工具栏、画布、代码阅读器与纸张反色。
+ * ============================================================ */
+
+[data-reader-toolbar='dark'] {
+  background-color: rgba(37, 37, 38, 0.94);
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+  color: #e4e4e7;
+}
+[data-reader-toolbar='dark'] .text-text-primary {
+  color: #e4e4e7;
+}
+[data-reader-toolbar='dark'] .text-text-secondary {
+  color: #a1a1aa;
+}
+
+/* 羊皮纸画布 (#F7F1E3) */
+.wb-reader-canvas[data-reader-canvas='sepia'] {
+  background-color: #f7f1e3;
+  color: #3b3026;
+}
+.wb-reader-canvas[data-reader-canvas='sepia'] .text-text-primary,
+.wb-reader-canvas[data-reader-canvas='sepia'] [data-workbench-title='true'] button,
+.wb-reader-canvas[data-reader-canvas='sepia'] [data-workbench-title='true'] input {
+  color: #3b3026;
+}
+.wb-reader-canvas[data-reader-canvas='sepia'] .text-text-secondary {
+  color: #786858;
+}
+.wb-reader-canvas[data-reader-canvas='sepia'] .PlaygroundEditorTheme__h1,
+.wb-reader-canvas[data-reader-canvas='sepia'] .PlaygroundEditorTheme__h2 {
+  color: #2d2218;
+  border-bottom-color: rgba(95, 75, 50, 0.14);
+}
+.wb-reader-canvas[data-reader-canvas='sepia'] .PlaygroundEditorTheme__quote {
+  color: #6e5d4b;
+  border-left-color: rgba(95, 75, 50, 0.28);
+}
+.wb-reader-canvas[data-reader-canvas='sepia'] .PlaygroundEditorTheme__textCode {
+  background-color: rgba(95, 75, 50, 0.08);
+}
+.wb-reader-canvas[data-reader-canvas='sepia'] .PlaygroundEditorTheme__code {
+  background-color: #efe6d5;
+}
+.wb-reader-canvas[data-reader-canvas='sepia'] .PlaygroundEditorTheme__code:before {
+  background-color: #e6dbc7;
+  border-right-color: #d5c7af;
+  color: #786858;
+}
+.wb-reader-canvas[data-reader-canvas='sepia'] .PlaygroundEditorTheme__tableCell {
+  border-color: rgba(95, 75, 50, 0.22);
+}
+.wb-reader-canvas[data-reader-canvas='sepia'] .PlaygroundEditorTheme__tableCellHeader {
+  background-color: rgba(95, 75, 50, 0.07);
+}
+.wb-reader-canvas[data-reader-canvas='sepia'] .PlaygroundEditorTheme__tableRowStriping tr:nth-child(even) {
+  background-color: rgba(95, 75, 50, 0.035);
+}
+.wb-reader-canvas[data-reader-canvas='sepia'] .PlaygroundEditorTheme__hr:after {
+  background-color: rgba(95, 75, 50, 0.25);
+}
+
+/* 豆沙绿柔和画布 (#E3EDCD) */
+.wb-reader-canvas[data-reader-canvas='green'] {
+  background-color: #e3edcd;
+  color: #1f2937;
+}
+.wb-reader-canvas[data-reader-canvas='green'] .text-text-primary,
+.wb-reader-canvas[data-reader-canvas='green'] [data-workbench-title='true'] button,
+.wb-reader-canvas[data-reader-canvas='green'] [data-workbench-title='true'] input {
+  color: #1f2937;
+}
+.wb-reader-canvas[data-reader-canvas='green'] .text-text-secondary {
+  color: #526052;
+}
+.wb-reader-canvas[data-reader-canvas='green'] .PlaygroundEditorTheme__h1,
+.wb-reader-canvas[data-reader-canvas='green'] .PlaygroundEditorTheme__h2 {
+  color: #182418;
+  border-bottom-color: rgba(31, 41, 55, 0.12);
+}
+.wb-reader-canvas[data-reader-canvas='green'] .PlaygroundEditorTheme__quote {
+  color: #435343;
+  border-left-color: rgba(67, 83, 67, 0.26);
+}
+.wb-reader-canvas[data-reader-canvas='green'] .PlaygroundEditorTheme__textCode {
+  background-color: rgba(31, 41, 55, 0.07);
+}
+.wb-reader-canvas[data-reader-canvas='green'] .PlaygroundEditorTheme__code {
+  background-color: #d6e3bc;
+}
+.wb-reader-canvas[data-reader-canvas='green'] .PlaygroundEditorTheme__code:before {
+  background-color: #cbd9ae;
+  border-right-color: #bccaa0;
+  color: #526052;
+}
+.wb-reader-canvas[data-reader-canvas='green'] .PlaygroundEditorTheme__tableCell {
+  border-color: rgba(31, 41, 55, 0.2);
+}
+.wb-reader-canvas[data-reader-canvas='green'] .PlaygroundEditorTheme__tableCellHeader {
+  background-color: rgba(31, 41, 55, 0.06);
+}
+.wb-reader-canvas[data-reader-canvas='green'] .PlaygroundEditorTheme__tableRowStriping tr:nth-child(even) {
+  background-color: rgba(31, 41, 55, 0.03);
+}
+.wb-reader-canvas[data-reader-canvas='green'] .PlaygroundEditorTheme__hr:after {
+  background-color: rgba(31, 41, 55, 0.22);
+}
+
+/* 中性暗黑画布 (#1E1E1E) 与通用静态字色覆盖 */
+[data-reader-theme='dark'] {
+  background-color: #1e1e1e;
+  color: #e4e4e7;
+}
+[data-reader-theme='dark'] .text-text-primary {
+  color: #e4e4e7;
+}
+[data-reader-theme='dark'] .text-text-secondary {
+  color: #a1a1aa;
+}
+.wb-reader-canvas[data-reader-canvas='dark'] {
+  background-color: #1e1e1e;
+  color: #e4e4e7;
+}
+[data-reader-theme='dark'] .PlaygroundEditorTheme__h1,
+[data-reader-theme='dark'] .PlaygroundEditorTheme__h2 {
+  color: #f4f4f5;
+  border-bottom-color: rgba(255, 255, 255, 0.1);
+}
+[data-reader-theme='dark'] .PlaygroundEditorTheme__code {
+  background-color: #252526;
+}
+[data-reader-theme='dark'] .PlaygroundEditorTheme__code:before {
+  background-color: #202022;
+  border-right-color: rgba(255, 255, 255, 0.1);
+  color: #858585;
+}
+[data-reader-theme='dark'] ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+}
+[data-reader-theme='dark'] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.32);
+}
+
+/* PDF 预览画布与纸张色调适配 */
+.wb-pdf-viewport[data-pdf-theme='sepia'] {
+  background-color: #eae1ce;
+}
+.wb-pdf-viewport[data-pdf-theme='sepia'] [data-pdf-page] {
+  background-color: #f7f1e3;
+}
+.wb-pdf-viewport[data-pdf-theme='sepia'] [data-pdf-page] canvas[data-pdf-base-canvas='true'] {
+  mix-blend-mode: multiply;
+}
+
+.wb-pdf-viewport[data-pdf-theme='green'] {
+  background-color: #d3dfba;
+}
+.wb-pdf-viewport[data-pdf-theme='green'] [data-pdf-page] {
+  background-color: #e3edcd;
+}
+.wb-pdf-viewport[data-pdf-theme='green'] [data-pdf-page] canvas[data-pdf-base-canvas='true'] {
+  mix-blend-mode: multiply;
+}
+
+.wb-pdf-viewport[data-pdf-theme='dark'] {
+  background-color: #141414;
+}
+.wb-pdf-viewport[data-pdf-theme='dark'] [data-pdf-page] {
+  background-color: #1e1e1e;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.45);
+}
+.wb-pdf-viewport[data-pdf-theme='dark'] [data-pdf-page] canvas[data-pdf-base-canvas='true'] {
+  filter: invert(0.882) hue-rotate(180deg);
+}
+
+/* Word (.docx) 预览画布与纸张色调适配 */
+.wb-docx-viewport[data-docx-theme='sepia'] {
+  background-color: #eae1ce;
+}
+.wb-docx-viewport[data-docx-theme='sepia'] .docx-preview-content .docx-wrapper > section.docx {
+  background-color: #f7f1e3 !important;
+  color: #3b3026;
+}
+
+.wb-docx-viewport[data-docx-theme='green'] {
+  background-color: #d3dfba;
+}
+.wb-docx-viewport[data-docx-theme='green'] .docx-preview-content .docx-wrapper > section.docx {
+  background-color: #e3edcd !important;
+  color: #1f2937;
+}
+
+.wb-docx-viewport[data-docx-theme='dark'] {
+  background-color: #141414;
+}
+.wb-docx-viewport[data-docx-theme='dark'] .docx-preview-content .docx-wrapper > section.docx {
+  filter: invert(0.882) hue-rotate(180deg);
+  box-shadow: none !important;
+  outline: 1px solid rgba(0, 0, 0, 0.18);
+}
+.wb-docx-viewport[data-docx-theme='dark'] .docx-preview-content .docx-wrapper > section.docx :is(img, svg, video, canvas) {
+  filter: invert(1) hue-rotate(180deg);
+}
+
 

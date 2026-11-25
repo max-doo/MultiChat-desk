@@ -2,7 +2,11 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import * as pdfjsLib from 'pdfjs-dist'
 import type { PDFDocumentProxy } from 'pdfjs-dist'
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
-import { useWorkbenchStore, type WorkbenchAiAction } from '../../store/workbenchStore'
+import {
+  useWorkbenchStore,
+  type ReaderBackgroundTheme,
+  type WorkbenchAiAction
+} from '../../store/workbenchStore'
 import WorkbenchSelectionMenu, { WORKBENCH_AI_SELECTION_ACTIONS } from './WorkbenchSelectionMenu'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
@@ -11,23 +15,85 @@ const PDF_INITIAL_CHUNK_BYTES = 256 * 1024
 const PDF_RANGE_CHUNK_BYTES = 256 * 1024
 const PDF_WHEEL_ZOOM_THRESHOLD = 100
 
+interface ImageBox {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+/**
+ * 解析 PDF.js 操作指令流中的位图绘制坐标，映射到当前视口 CSS 像素矩形。
+ * 暗黑模式下用于把局部照片/扫描图原样保留，不被底层整页滤镜反色。
+ */
+function extractPdfImageBoxes(
+  opList: Awaited<ReturnType<Awaited<ReturnType<PDFDocumentProxy['getPage']>>['getOperatorList']>>,
+  viewport: ReturnType<Awaited<ReturnType<PDFDocumentProxy['getPage']>>['getViewport']>
+): ImageBox[] {
+  const boxes: ImageBox[] = []
+  const stack: number[][] = []
+  let ctm: number[] = [...viewport.transform]
+  const { OPS, Util } = pdfjsLib
+
+  for (let i = 0; i < opList.fnArray.length; i += 1) {
+    const fn = opList.fnArray[i]
+    const args = opList.argsArray[i]
+    if (fn === OPS.save) {
+      stack.push([...ctm])
+    } else if (fn === OPS.restore) {
+      if (stack.length > 0) ctm = stack.pop()!
+    } else if (fn === OPS.transform && Array.isArray(args)) {
+      ctm = Util.transform(ctm, args as number[])
+    } else if (fn === OPS.paintFormXObjectBegin) {
+      stack.push([...ctm])
+      if (Array.isArray(args?.[0])) {
+        ctm = Util.transform(ctm, args[0] as number[])
+      }
+    } else if (fn === OPS.paintFormXObjectEnd) {
+      if (stack.length > 0) ctm = stack.pop()!
+    } else if (fn === OPS.paintImageXObject || fn === OPS.paintInlineImageXObject) {
+      const bounds = [0, 0, 0, 0]
+      Util.axialAlignedBoundingBox([0, 0, 1, 1], ctm, bounds)
+      const x0 = Math.max(0, Math.floor(bounds[0]))
+      const y0 = Math.max(0, Math.floor(bounds[1]))
+      const x1 = Math.min(Math.ceil(viewport.width), Math.ceil(bounds[2]))
+      const y1 = Math.min(Math.ceil(viewport.height), Math.ceil(bounds[3]))
+      const width = x1 - x0
+      const height = y1 - y0
+      if (width >= 4 && height >= 4) {
+        boxes.push({ x: x0, y: y0, width, height })
+      }
+    }
+  }
+  return boxes
+}
+
 interface PdfPageProps {
   pdf: PDFDocumentProxy
   pageNumber: number
   width: number
+  isDark: boolean
   onSelect: (event: MouseEvent, pageElement: HTMLDivElement) => void
 }
 
 /**
- * 单页：canvas 负责绘制，textLayer 负责文字选区。
+ * 单页：canvas 负责绘制，textLayer 负责文字选区；暗黑模式下叠加无滤镜图片还原层。
  * 只在接近视口时渲染，离开较远后释放位图，避免长文档把内存吃满。
  */
-function PdfPage({ pdf, pageNumber, width, onSelect }: PdfPageProps): JSX.Element {
+function PdfPage({ pdf, pageNumber, width, isDark, onSelect }: PdfPageProps): JSX.Element {
   const pageRef = useRef<HTMLDivElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null)
   const textRef = useRef<HTMLDivElement | null>(null)
+  const imageBoxesRef = useRef<{
+    boxes: ImageBox[]
+    ratio: number
+    cssWidth: number
+    cssHeight: number
+  } | null>(null)
   const [size, setSize] = useState<{ width: number; height: number } | null>(null)
   const [near, setNear] = useState(false)
+  const [renderSeq, setRenderSeq] = useState(0)
 
   useEffect(() => {
     const element = pageRef.current
@@ -77,11 +143,13 @@ function PdfPage({ pdf, pageNumber, width, onSelect }: PdfPageProps): JSX.Elemen
       const scale = width / baseViewport.width
       const viewport = page.getViewport({ scale })
       const ratio = Math.min(window.devicePixelRatio || 1, 2)
+      const cssWidth = Math.floor(viewport.width)
+      const cssHeight = Math.floor(viewport.height)
 
       canvas.width = Math.floor(viewport.width * ratio)
       canvas.height = Math.floor(viewport.height * ratio)
-      canvas.style.width = `${Math.floor(viewport.width)}px`
-      canvas.style.height = `${Math.floor(viewport.height)}px`
+      canvas.style.width = `${cssWidth}px`
+      canvas.style.height = `${cssHeight}px`
 
       const context = canvas.getContext('2d')
       if (!context) return
@@ -89,6 +157,16 @@ function PdfPage({ pdf, pageNumber, width, onSelect }: PdfPageProps): JSX.Elemen
       renderTask = page.render({ canvas, canvasContext: context, viewport })
       await renderTask.promise
       if (cancelled) return
+
+      const opList = await page.getOperatorList()
+      if (cancelled) return
+      imageBoxesRef.current = {
+        boxes: extractPdfImageBoxes(opList, viewport),
+        ratio,
+        cssWidth,
+        cssHeight
+      }
+      setRenderSeq((seq) => seq + 1)
 
       textContainer.replaceChildren()
       textContainer.style.width = `${viewport.width}px`
@@ -117,9 +195,44 @@ function PdfPage({ pdf, pageNumber, width, onSelect }: PdfPageProps): JSX.Elemen
       // 离开视口后释放位图，长文档滚动时内存不会线性增长
       canvas.width = 0
       canvas.height = 0
+      if (overlayCanvasRef.current) {
+        overlayCanvasRef.current.width = 0
+        overlayCanvasRef.current.height = 0
+      }
+      imageBoxesRef.current = null
       textContainer.replaceChildren()
     }
   }, [near, size, pdf, pageNumber, width])
+
+  // 暗黑模式下把未反色原图区域从底图拷贝到无滤镜叠加层，保证照片/插图保持原貌
+  useEffect(() => {
+    const overlay = overlayCanvasRef.current
+    const baseCanvas = canvasRef.current
+    const meta = imageBoxesRef.current
+    if (!overlay || !baseCanvas || !meta || !isDark || baseCanvas.width === 0 || meta.boxes.length === 0) {
+      if (overlay) {
+        overlay.width = 0
+        overlay.height = 0
+      }
+      return
+    }
+    overlay.width = baseCanvas.width
+    overlay.height = baseCanvas.height
+    overlay.style.width = `${meta.cssWidth}px`
+    overlay.style.height = `${meta.cssHeight}px`
+    const ctx = overlay.getContext('2d')
+    if (!ctx) return
+    ctx.clearRect(0, 0, overlay.width, overlay.height)
+    for (const box of meta.boxes) {
+      const sx = Math.floor(box.x * meta.ratio)
+      const sy = Math.floor(box.y * meta.ratio)
+      const sw = Math.min(overlay.width - sx, Math.ceil(box.width * meta.ratio))
+      const sh = Math.min(overlay.height - sy, Math.ceil(box.height * meta.ratio))
+      if (sw > 0 && sh > 0) {
+        ctx.drawImage(baseCanvas, sx, sy, sw, sh, sx, sy, sw, sh)
+      }
+    }
+  }, [isDark, renderSeq])
 
   return (
     <div
@@ -129,7 +242,8 @@ function PdfPage({ pdf, pageNumber, width, onSelect }: PdfPageProps): JSX.Elemen
       style={{ width: Math.floor(width), height: size ? size.height : 640 }}
       onContextMenu={(event) => onSelect(event.nativeEvent, event.currentTarget)}
     >
-      <canvas ref={canvasRef} className="block" />
+      <canvas ref={canvasRef} data-pdf-base-canvas="true" className="block" />
+      <canvas ref={overlayCanvasRef} className="block pointer-events-none absolute inset-0" />
       <div ref={textRef} className="pdf-text-layer" />
     </div>
   )
@@ -147,6 +261,7 @@ interface WorkbenchPdfViewerProps {
   fileSize: number
   reloadKey: number
   zoom: number
+  backgroundTheme: ReaderBackgroundTheme
   onZoomStep: (direction: -1 | 1) => void
   onLoadState: (state: 'loading' | 'ready' | 'error', message?: string) => void
 }
@@ -158,6 +273,7 @@ export default function WorkbenchPdfViewer({
   fileSize,
   reloadKey,
   zoom,
+  backgroundTheme,
   onZoomStep,
   onLoadState
 }: WorkbenchPdfViewerProps): JSX.Element {
@@ -367,7 +483,11 @@ export default function WorkbenchPdfViewer({
   }
 
   return (
-    <div ref={containerRef} className="w-full h-full overflow-auto bg-gray-200 dark:bg-gray-950 py-6">
+    <div
+      ref={containerRef}
+      className="w-full h-full overflow-auto bg-gray-200 dark:bg-[#141414] py-6 wb-pdf-viewport transition-colors duration-150"
+      data-pdf-theme={backgroundTheme}
+    >
       {pdf && (
         <div className="flex flex-col gap-6">
           {Array.from({ length: pdf.numPages }, (_, index) => (
@@ -376,6 +496,7 @@ export default function WorkbenchPdfViewer({
               pdf={pdf}
               pageNumber={index + 1}
               width={width}
+              isDark={backgroundTheme === 'dark'}
               onSelect={handleSelect}
             />
           ))}

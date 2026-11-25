@@ -49,7 +49,7 @@ function highlightCodeLine(line: string): React.ReactNode {
     }
     const [full, comment, str, kw, bool, num, type, fn] = match
     if (comment) {
-      nodes.push(<span key={match.index} className="text-slate-500 italic">{comment}</span>)
+      nodes.push(<span key={match.index} className="text-[#858585] italic">{comment}</span>)
     } else if (str) {
       nodes.push(<span key={match.index} className="text-emerald-400">{str}</span>)
     } else if (kw) {
@@ -420,7 +420,7 @@ export default function WorkbenchCodePreview(): JSX.Element {
   }
 
   return (
-    <div className="flex-1 h-full flex flex-col overflow-hidden bg-slate-900 text-slate-100 select-text">
+    <div className="flex-1 h-full flex flex-col overflow-hidden bg-[#1E1E1E] text-[#E4E4E7] select-text">
       {/* 顶部工具栏 */}
       <PreviewHeader
         theme="dark"
@@ -432,7 +432,7 @@ export default function WorkbenchCodePreview(): JSX.Element {
                 <button
                   type="button"
                   onClick={toggleLeftCollapse}
-                  className="w-7 h-7 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-100 hover:bg-white/10 transition-all duration-200 shrink-0"
+                  className="w-7 h-7 flex items-center justify-center rounded-full text-[#A1A1AA] hover:text-[#E4E4E7] hover:bg-white/10 transition-all duration-200 shrink-0"
                   title="展开侧边栏"
                   aria-label="展开侧边栏"
                 >
@@ -442,13 +442,13 @@ export default function WorkbenchCodePreview(): JSX.Element {
               </>
             )}
             <AppIcon name="code" size={19} className="text-amber-400" />
-            <span className="font-mono text-body text-slate-200 truncate" title={activeFilePath || ''}>
+            <span className="font-mono text-body text-[#E4E4E7] truncate" title={activeFilePath || ''}>
               {activeFilePath}
             </span>
             {/* HTML 渲染/可视化编辑态保留顶栏状态提示，不做行级 DOM 映射 */}
             {isHtmlFile && viewMode !== 'source' && fileGitChange && !fileGitChange.untracked && (
               <span
-                className="ml-1 px-1.5 py-0.5 rounded-full text-tiny font-semibold bg-slate-700/80 text-sky-300 border border-slate-600/60 select-none shrink-0"
+                className="ml-1 px-1.5 py-0.5 rounded-full text-tiny font-semibold bg-white/10 text-sky-300 border border-white/15 select-none shrink-0"
                 title="切换至源码模式查看具体修改行"
               >
                 {fileGitChange.staged === 'added' ? 'A' : fileGitChange.conflicted ? '!' : 'M'}
@@ -509,12 +509,12 @@ export default function WorkbenchCodePreview(): JSX.Element {
                 <button
                   type="button"
                   onClick={() => setPreviewReloadKey((k) => k + 1)}
-                  className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
+                  className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-white/10 text-[#D4D4D4] hover:text-white transition-colors"
                   title="刷新渲染预览"
                 >
                   <AppIcon name="refresh" size={19} />
                 </button>
-                <div className="h-4 w-px bg-slate-700/80" />
+                <div className="h-4 w-px bg-white/10" />
               </>
             )}
             {isVisualEditing && (
@@ -535,7 +535,7 @@ export default function WorkbenchCodePreview(): JSX.Element {
             )}
 
             {/* 模式切换：HTML 为 渲染/编辑/源码；其他代码为 查看/编辑 */}
-            <div className="flex items-center p-0.5 bg-slate-950/60 rounded-lg border border-slate-700/50">
+            <div className="flex items-center p-0.5 bg-[#181818] rounded-lg border border-white/10">
               {isHtmlFile ? (
                 <>
                   <button
@@ -543,8 +543,8 @@ export default function WorkbenchCodePreview(): JSX.Element {
                     onClick={() => void handleModeClick('render')}
                     className={`px-2 py-0.5 rounded text-body transition-colors ${
                       viewMode === 'render'
-                        ? 'bg-slate-700 text-white font-medium'
-                        : 'text-slate-400 hover:text-slate-200'
+                        ? 'bg-[#323236] text-white font-medium'
+                        : 'text-[#A1A1AA] hover:text-[#E4E4E7]'
                     }`}
                     title="浏览器渲染预览（磁盘已保存版本）"
                   >
@@ -557,7 +557,7 @@ export default function WorkbenchCodePreview(): JSX.Element {
                     className={`px-2 py-0.5 rounded text-body transition-colors disabled:cursor-default disabled:opacity-40 ${
                       viewMode === 'edit'
                         ? 'bg-primary text-white font-medium'
-                        : 'text-slate-400 hover:text-slate-200'
+                        : 'text-[#A1A1AA] hover:text-[#E4E4E7]'
                     }`}
                     title={
                       activeFileOversized
@@ -573,7 +573,7 @@ export default function WorkbenchCodePreview(): JSX.Element {
                     className={`px-2 py-0.5 rounded text-body transition-colors ${
                       viewMode === 'source'
                         ? 'bg-blue-600 text-white font-medium'
-                        : 'text-slate-400 hover:text-slate-200'
+                        : 'text-[#A1A1AA] hover:text-[#E4E4E7]'
                     }`}
                     title="源码编辑模式（Ctrl+S 保存）"
                   >
@@ -587,8 +587,8 @@ export default function WorkbenchCodePreview(): JSX.Element {
                     onClick={() => setIsEditing(false)}
                     className={`px-2 py-0.5 rounded text-body transition-colors ${
                       !isEditing
-                        ? 'bg-slate-700 text-white font-medium'
-                        : 'text-slate-400 hover:text-slate-200'
+                        ? 'bg-[#323236] text-white font-medium'
+                        : 'text-[#A1A1AA] hover:text-[#E4E4E7]'
                     }`}
                     title="只读代码高亮视图"
                   >
@@ -600,7 +600,7 @@ export default function WorkbenchCodePreview(): JSX.Element {
                     className={`px-2 py-0.5 rounded text-body transition-colors ${
                       isEditing
                         ? 'bg-blue-600 text-white font-medium'
-                        : 'text-slate-400 hover:text-slate-200'
+                        : 'text-[#A1A1AA] hover:text-[#E4E4E7]'
                     }`}
                     title="代码编辑模式 (可保存)"
                   >
@@ -614,7 +614,7 @@ export default function WorkbenchCodePreview(): JSX.Element {
             <button
               type="button"
               onClick={() => void handleCopy()}
-              className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
+              className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-white/10 text-[#D4D4D4] hover:text-white transition-colors"
               title="复制代码全文"
             >
               <AppIcon name={copied ? 'check' : 'content_copy'} size={19} />
@@ -626,7 +626,7 @@ export default function WorkbenchCodePreview(): JSX.Element {
               onClick={() => {
                 if (activeFilePath) void openInSystem(activeFilePath)
               }}
-              className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
+              className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-white/10 text-[#D4D4D4] hover:text-white transition-colors"
               title="在系统默认编辑器中打开 (如 VSCode)"
             >
               <AppIcon name="open_in_new" size={19} />
@@ -638,7 +638,7 @@ export default function WorkbenchCodePreview(): JSX.Element {
               onClick={() => {
                 if (activeFilePath) void revealFile(activeFilePath)
               }}
-              className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
+              className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-white/10 text-[#D4D4D4] hover:text-white transition-colors"
               title="在资源管理器中显示"
             >
               <AppIcon name="folder_open" size={19} />
@@ -664,13 +664,13 @@ export default function WorkbenchCodePreview(): JSX.Element {
                 onZoomReset={handlePreviewZoomReset}
               />
             ) : (
-              <div className="w-full h-full flex flex-col items-center justify-center p-8 text-center bg-slate-900 text-slate-400">
+              <div className="w-full h-full flex flex-col items-center justify-center p-8 text-center bg-[#1E1E1E] text-[#A1A1AA]">
                 <AppIcon name="error" size={24} className="mb-3" />
                 <p className="text-body">未能生成预览地址</p>
               </div>
             )}
             {isDirty && (
-              <div className="absolute top-3 right-3 z-10 px-2.5 py-1 rounded-lg bg-slate-900/85 text-label text-amber-300 border border-amber-400/30 backdrop-blur-sm select-none">
+              <div className="absolute top-3 right-3 z-10 px-2.5 py-1 rounded-lg bg-[#252526]/90 text-label text-amber-300 border border-amber-400/30 backdrop-blur-sm select-none">
                 预览为磁盘已保存版本，有未保存修改
               </div>
             )}
@@ -710,7 +710,7 @@ export default function WorkbenchCodePreview(): JSX.Element {
             {/* 行号侧边栏 */}
             <div
               ref={lineNumbersRef}
-              className="w-12 py-4 select-none overflow-hidden text-right pr-3 font-mono text-sm leading-6 text-slate-600 bg-slate-950/40 border-r border-slate-800 shrink-0 relative"
+              className="w-12 py-4 select-none overflow-hidden text-right pr-3 font-mono text-sm leading-6 text-[#858585] bg-[#181818] border-r border-white/[0.08] shrink-0 relative"
             >
               {lines.map((_, idx) => {
                 const mark = showGitGutter ? gitDiff.lineMarks[idx] : undefined
@@ -735,7 +735,7 @@ export default function WorkbenchCodePreview(): JSX.Element {
                 <pre
                   ref={codePreRef}
                   aria-hidden="true"
-                  className="absolute inset-0 h-full py-4 px-4 font-mono text-sm leading-6 bg-transparent text-slate-100 overflow-auto whitespace-pre tab-4 m-0 pointer-events-none"
+                  className="absolute inset-0 h-full py-4 px-4 font-mono text-sm leading-6 bg-transparent text-[#E4E4E7] overflow-auto whitespace-pre tab-4 m-0 pointer-events-none"
                 >
                   <code>
                     {lines.map((line, idx) => (
@@ -751,7 +751,7 @@ export default function WorkbenchCodePreview(): JSX.Element {
                   onChange={(e) => updateActiveContent(e.target.value)}
                   onScroll={handleScroll}
                   placeholder="输入或粘贴代码..."
-                  className="absolute inset-0 w-full h-full py-4 px-4 font-mono text-sm leading-6 resize-none bg-transparent text-transparent caret-slate-100 focus:outline-none overflow-auto whitespace-pre tab-4 placeholder:text-slate-500"
+                  className="absolute inset-0 w-full h-full py-4 px-4 font-mono text-sm leading-6 resize-none bg-transparent text-transparent caret-[#E4E4E7] focus:outline-none overflow-auto whitespace-pre tab-4 placeholder:text-[#858585]"
                   spellCheck={false}
                 />
               </div>
@@ -759,7 +759,7 @@ export default function WorkbenchCodePreview(): JSX.Element {
               <pre
                 ref={codePreRef}
                 onScroll={handleScroll}
-                className="flex-1 h-full py-4 px-4 font-mono text-sm sm:text-sm leading-6 bg-transparent text-slate-100 overflow-auto whitespace-pre tab-4 m-0 selection:bg-blue-600/40"
+                className="flex-1 h-full py-4 px-4 font-mono text-sm sm:text-sm leading-6 bg-transparent text-[#E4E4E7] overflow-auto whitespace-pre tab-4 m-0 selection:bg-blue-600/40"
               >
                 <code>
                   {lines.map((line, idx) => (

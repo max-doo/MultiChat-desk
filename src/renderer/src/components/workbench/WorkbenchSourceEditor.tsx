@@ -45,10 +45,11 @@ import {
 
 const externalChange = Annotation.define<boolean>()
 
-// Compartment 用于按需重配置 Git Gutter 扩展，避免重建整个编辑器
+// Compartment 用于按需重配置 Git Gutter 与主题扩展，避免重建整个编辑器
 const gitGutterCompartment = new Compartment()
+const themeCompartment = new Compartment()
 
-const markdownHighlight = HighlightStyle.define([
+const lightMarkdownHighlight = HighlightStyle.define([
   { tag: tags.heading, color: 'var(--color-primary, #1d4ed8)', fontWeight: '600' },
   { tag: tags.strong, fontWeight: '700' },
   { tag: tags.emphasis, fontStyle: 'italic' },
@@ -59,50 +60,72 @@ const markdownHighlight = HighlightStyle.define([
   { tag: tags.processingInstruction, color: '#64748b' }
 ])
 
-const editorTheme = EditorView.theme({
-  '&': {
-    height: '100%',
-    fontSize: '13px',
-    color: 'var(--color-text-primary, #1f2937)',
-    backgroundColor: 'transparent'
-  },
-  '&.cm-focused': { outline: 'none' },
-  '.cm-scroller': {
-    overflow: 'auto',
-    fontFamily: "'JetBrains Mono', Menlo, Consolas, 'Courier New', monospace",
-    lineHeight: '1.7'
-  },
-  '.cm-content': {
-    padding: '24px 16px 80px',
-    caretColor: 'var(--color-primary, #3b82f6)'
-  },
-  '.cm-line': { padding: '0' },
-  '.cm-gutters': {
-    backgroundColor: 'rgba(0, 0, 0, 0.02)',
-    color: 'var(--color-text-secondary, #94a3b8)',
-    border: 'none',
-    borderRight: '1px solid rgba(0, 0, 0, 0.05)'
-  },
-  '.cm-lineNumbers .cm-gutterElement': {
-    padding: '0 10px 0 6px',
-    minWidth: '3.5rem',
-    textAlign: 'right'
-  },
-  '.cm-gitGutter .cm-gutterElement': {
-    display: 'flex',
-    alignItems: 'stretch',
-    justifyContent: 'flex-end',
-    width: '8px',
-    padding: '0'
-  },
-  '.cm-activeLine, .cm-activeLineGutter': {
-    backgroundColor: 'rgba(59, 130, 246, 0.06)'
-  },
-  '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': {
-    backgroundColor: 'rgba(59, 130, 246, 0.16)'
-  },
-  '.cm-content ::selection': { backgroundColor: 'rgba(59, 130, 246, 0.16)' }
-})
+const darkMarkdownHighlight = HighlightStyle.define([
+  { tag: tags.heading, color: '#79c0ff', fontWeight: '600' },
+  { tag: tags.strong, color: '#f4f4f5', fontWeight: '700' },
+  { tag: tags.emphasis, color: '#e4e4e7', fontStyle: 'italic' },
+  { tag: tags.strikethrough, color: '#a1a1aa', textDecoration: 'line-through' },
+  { tag: [tags.link, tags.url], color: '#79c0ff' },
+  { tag: tags.monospace, color: '#ffa657' },
+  { tag: tags.quote, color: '#a1a1aa' },
+  { tag: tags.processingInstruction, color: '#858585' }
+])
+
+function buildEditorTheme(isDark: boolean): Extension {
+  return EditorView.theme({
+    '&': {
+      height: '100%',
+      fontSize: '13px',
+      color: isDark ? '#e4e4e7' : 'var(--wb-reader-text, #1f2937)',
+      backgroundColor: 'transparent'
+    },
+    '&.cm-focused': { outline: 'none' },
+    '.cm-scroller': {
+      overflow: 'auto',
+      fontFamily: "'JetBrains Mono', Menlo, Consolas, 'Courier New', monospace",
+      lineHeight: '1.7'
+    },
+    '.cm-content': {
+      padding: '24px 16px 80px',
+      caretColor: isDark ? '#60a5fa' : 'var(--color-primary, #3b82f6)'
+    },
+    '.cm-line': { padding: '0' },
+    '.cm-gutters': {
+      backgroundColor: isDark ? '#181818' : 'rgba(0, 0, 0, 0.02)',
+      color: isDark ? '#858585' : 'var(--color-text-secondary, #94a3b8)',
+      border: 'none',
+      borderRight: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid rgba(0, 0, 0, 0.05)'
+    },
+    '.cm-lineNumbers .cm-gutterElement': {
+      padding: '0 10px 0 6px',
+      minWidth: '3.5rem',
+      textAlign: 'right'
+    },
+    '.cm-gitGutter .cm-gutterElement': {
+      display: 'flex',
+      alignItems: 'stretch',
+      justifyContent: 'flex-end',
+      width: '8px',
+      padding: '0'
+    },
+    '.cm-activeLine, .cm-activeLineGutter': {
+      backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(59, 130, 246, 0.06)'
+    },
+    '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': {
+      backgroundColor: isDark ? 'rgba(59, 130, 246, 0.28)' : 'rgba(59, 130, 246, 0.16)'
+    },
+    '.cm-content ::selection': {
+      backgroundColor: isDark ? 'rgba(59, 130, 246, 0.28)' : 'rgba(59, 130, 246, 0.16)'
+    }
+  })
+}
+
+function buildThemeExtensions(isDark: boolean): Extension[] {
+  return [
+    syntaxHighlighting(isDark ? darkMarkdownHighlight : lightMarkdownHighlight),
+    buildEditorTheme(isDark)
+  ]
+}
 
 class GitGutterMarker extends GutterMarker {
   constructor(
@@ -171,6 +194,8 @@ const WorkbenchSourceEditor = forwardRef<
 
   const workspacePath = useWorkbenchStore((s) => s.workspacePath)
   const activeFilePath = useWorkbenchStore((s) => s.activeFilePath)
+  const markdownBackgroundTheme = useWorkbenchStore((s) => s.markdownBackgroundTheme)
+  const isDark = markdownBackgroundTheme === 'dark'
   const gitDiff = useGitLineDiff(value)
 
   // 保存滚动位置：用户滚动时实时记忆，组件卸载前由 store 兜底
@@ -197,9 +222,8 @@ const WorkbenchSourceEditor = forwardRef<
           keymap.of([indentWithTab, ...historyKeymap, ...defaultKeymap]),
           indentUnit.of('  '),
           EditorState.tabSize.of(2),
-          syntaxHighlighting(markdownHighlight),
           EditorView.lineWrapping,
-          editorTheme,
+          themeCompartment.of(buildThemeExtensions(isDark)),
           placeholder('编写 Markdown 内容...'),
           EditorView.contentAttributes.of({
             'aria-label': 'Markdown 源码编辑器',
@@ -229,6 +253,15 @@ const WorkbenchSourceEditor = forwardRef<
     }
     // 仅在文件切换时重建编辑器；gitGutter 随 diff 变化由下方 effect 更新
   }, [activeFilePath])
+
+  // 主题变化时按 Compartment 原位切换语法高亮与行号/选区配色，保留编辑器实例与撤销历史
+  useEffect(() => {
+    const view = viewRef.current
+    if (!view) return
+    view.dispatch({
+      effects: themeCompartment.reconfigure(buildThemeExtensions(isDark))
+    })
+  }, [isDark])
 
   // diff 变化时重建 gutter 扩展（轻量，gutter 只渲染视口内行）
   useEffect(() => {
@@ -503,7 +536,10 @@ const WorkbenchSourceEditor = forwardRef<
   }
 
   return (
-    <div className="workbench-source-editor flex-1 flex overflow-hidden bg-white dark:bg-gray-900 font-mono text-body">
+    <div
+      className="workbench-source-editor wb-reader-canvas flex-1 flex overflow-hidden bg-white dark:bg-[#1E1E1E] font-mono text-body transition-colors duration-150"
+      data-reader-canvas={markdownBackgroundTheme}
+    >
       <div
         ref={hostRef}
         className="flex-1 h-full overflow-hidden"
