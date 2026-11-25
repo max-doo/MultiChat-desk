@@ -17,7 +17,7 @@
 | `workbench-files` | WorkbenchFileTree、importExternalPaths、getPathForFile、dispatchFileDrop、uploadAttachments、附件、PDF、workbench-file、二进制文档、PDF 滚轮缩放、docx-preview、Word 预览、read-docx-bytes | ### 工作台文件与上传 | 外部导入、跨 webview 拖拽、粘贴上传、临时副本和流式预览；Office 预览的内存与版式取舍 |
 | `notes-mindmap` | noteManager、noteIdentity、noteTranscript、快照、resolveId、mindmap、generationSession、迁移、frontmatter、标签 | ### 笔记、快照与导图 | 笔记身份、版本指纹、改名重连、迁移与导图绑定 |
 | `markmap` | Markmap、foreignObject、setData、fit、scrollWidth、节点按钮、中文竖排 | ### 导图渲染与交互 | 布局、视口、命中区域和编辑生命周期 |
-| `workbench-ui` | AppIcon、Lucide、APP_ICON_MAP、FileTypeIcon、三栏布局、scrollTop、旁注、评论卡、设置弹窗、正文居中、大纲轨道、Modal、backdrop-blur、弹窗卡顿 | ### 工作台 UI 与图标 | 图标体系、三栏布局、滚动恢复、浮层定位与弹窗合成性能 |
+| `workbench-ui` | AppIcon、Lucide、APP_ICON_MAP、FileTypeIcon、三栏布局、scrollTop、旁注、评论卡、设置弹窗、正文居中、大纲轨道、Modal、backdrop-blur、弹窗卡顿、WorkbenchReaderThemePicker、WorkbenchSearch、文件树搜索、搜索退出、Esc | ### 工作台 UI 与图标 | 图标体系、三栏布局、滚动恢复、浮层定位、阅读背景主题、搜索交互与弹窗合成性能 |
 | `selection-windows` | quickWindow、划词、UIA、monio、shortcutManager、findInPage、tray、quit-guard-ready、before-quit、托盘退出、trafficLightPosition、Splitter、context-menu | ### 窗口、划词与快捷键 | 自动划词与主动快捷键分开；托盘退出与窗口经验按平台核对 |
 | `runtime` | history、currentConversationId、urlMismatch、轮询、辩论、hibernate、about:blank、SummaryPanel、download、TUN | ### 历史、会话与运行时 | 会话边界、加载失败、轮询、休眠与内存；源码核对不等于桌面验收 |
 | `task-api` | taskSplitApi、requestBodyConfig、slotIndex、windowCount、IPC、API、summaryPrompts、debatePrompts | ### 任务分配、辩论与 API | 请求体、槽位、IPC 类型和提示词升级 |

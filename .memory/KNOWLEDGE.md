@@ -208,6 +208,10 @@ Long-term reusable lessons, durable decisions, and recurring project gotchas. Do
 
 - **弹窗遮罩不要叠加全屏模糊与淡入动画**：Electron 下 `fixed inset-0` 的 `backdrop-blur-sm` 再配透明度动画，会让合成器跨 `<webview>` 与下层 glass-panel 反复全屏采样重绘，确认弹窗出现明显卡顿。统一 `Modal` 的 `backdrop` 分两档：`none` 用透明拦截层保留阻断 webview 穿透与点外部关闭的语义，`dim` 用 `bg-black/25` 纯色压暗且不做遮罩动画；只保留面板自身的 `modal-zoom-in`。
 
+- **工作台局部阅读暗黑主题不能只靠 `.dark` 类名切换**：`tailwind.config.js` 的 `text-primary`（`#1f2937`）与 `text-secondary`（`#6b7280`）是静态 Hex 值，局部挂载 `.dark` 时这两类字色不会自动反转；必须配合容器属性选择器（如 `[data-reader-theme='dark']` / `[data-reader-toolbar='dark']`）显式覆写字色与下拉菜单容器（`WorkbenchDropDown`、块插入菜单等 portal 到 `body` 的浮层需单独透传暗黑状态）。HTML 原生 `<mark>` 元素在 Chromium UA 样式表默认带 `color: black`，暗黑模式下必须在 `.PlaygroundEditorTheme__mark` 显式声明 `color: inherit`。对 Word `section.docx` 施加 `invert(...) hue-rotate(180deg)` 暗化纸张时，需清除原有 `box-shadow` 改用细 `outline`（避免阴影反色成白光圈），并对内部 `img/svg/video/canvas` 做反向 `invert(1) hue-rotate(180deg)` 还原媒体原色；PDF 页面则用浅色 `mix-blend-mode: multiply` 着色、暗黑 `invert(0.882) hue-rotate(180deg)`。
+
+- **工作台文件树搜索是局部状态，不是独立模式**：工具栏搜索按钮首次点击只进入搜索态并聚焦输入框，已处于搜索态时再次点击应聚焦输入框，不应反向退出；退出统一收敛到输入框关闭按钮、`Esc` 和“打开结果成功”三条路径。`WorkbenchSearch` 不需要同时放“清空”和“返回”两个语义相近的按钮，退出时由文件树侧把焦点还给工具栏搜索按钮。点击搜索结果后调用 `openFile`，其返回值表示文档是否真正打开；成功后才退出搜索，`openFile` 自身已经展开祖先目录，文件树的 `activeFilePath` 跟随 effect 会完成滚动定位。
+
 ### 窗口、划词与快捷键
 
 - **快捷窗口保持可聚焦，被动弹出不要抢焦点**：避免同时使用 `focusable: false` 和依赖完整 `click` 事件；用 `showInactive` 控制被动弹出时不抢焦点，让窗口保持可聚焦，并在 `pointerdown` 派发一次性动作。快捷窗口初始配置应为 `alwaysOnTop: false`、`skipTaskbar: false`，让用户通过 pin 按钮决定是否置顶；`skipTaskbar: true` 会让窗口被其他窗口遮挡后无法从任务栏找回。`isPinned` 由前端 toggle 驱动，通过 `quick:get-always-on-top` / `quick:set-always-on-top` IPC 控制。

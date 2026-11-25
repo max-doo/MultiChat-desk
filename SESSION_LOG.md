@@ -2,6 +2,111 @@
 
 ## 2026-11-25
 
+### 18:26 | Codex
+
+- done: 优化脚注输入弹层：将编号输入框与脚注内容输入框改为白色背景，保留边框、焦点与错误状态。
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchFootnotePopover.tsx`
+
+### 18:23 | Codex
+
+- done: 将标注卡片从单侧左描边改为整圈标注色描边，并让选中态以更深的琥珀色和光环强调。
+- modified:
+  - `src/renderer/src/components/AnnotationCommentCard.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchMarginNotes.tsx`
+
+### 18:23 | Codex
+
+- done: 优化工作台文件树搜索交互：工具栏搜索按钮进入/聚焦搜索，搜索框移除重复返回与清空按钮并统一退出，Esc 退出，打开搜索结果成功后自动返回文件树
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchSearch.tsx`
+- lesson(promoted): 工作台搜索属于文件树局部状态：退出入口应收敛为关闭按钮/Esc/打开结果，工具栏搜索按钮在进入搜索态后应聚焦输入框而不是反向退出；openFile 已负责展开祖先目录和定位。
+
+### 18:21 | Codex
+
+- done: 优化工作台标注评论卡片尺寸：统一设计系统字号与按钮触控高度，编辑输入区改为正文档位，并适度加宽旁注栏与卡片留白。
+- modified:
+  - `src/renderer/src/components/AnnotationCommentCard.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchMarginNotes.tsx`
+- lesson: 工作台局部浮层应优先使用 DESIGN.md 的语义字号和 32px 控件高度，避免用 text-caption/tiny 与 py-0.5 把 Operate 工具卡片做得过小。完整构建可能被工作区既有未提交语法错误阻断，需用定向类型检查区分责任边界。
+
+### 18:20 | Codex
+
+- done: 简化标注导出为脚注：隐藏侧栏时去掉下载入口、弹窗改为复用 ConfirmModal（固定 highlight 格式、全部 anchored 标注、另存为直写工作空间）
+- modified:
+  - `src/renderer/src/components/workbench/AnnotationExportFootnoteModal.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchMarginNotes.tsx`
+  - `src/preload/index.ts`
+  - `src/main/ipcHandlers.ts`
+
+### 18:14 | Antigravity
+
+- done: Add non-destructive annotation-to-footnote export feature and rename 注释 to 标注 in WorkbenchMarginNotes
+- added:
+  - `src/renderer/src/components/workbench/annotationFootnoteExport.ts`
+  - `src/renderer/src/components/workbench/AnnotationExportFootnoteModal.tsx`
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchMarginNotes.tsx`
+
+### 18:08 | Codex
+
+- done: 右键菜单'摘录为文档'仅在工作台 AI 侧栏显示，多AI视图与快捷窗口中隐藏（文档落点在工作台工作区，其他宿主下用户无法定位）
+- decision: 渲染层按 captureContextOf(wcId) 过滤 excerpt 菜单项；主进程不用改，无需 IPC 同步 webview 归属
+- modified:
+  - `src/renderer/src/components/CustomContextMenu.tsx`
+
+### 18:05 | Antigravity
+
+- done: PDF 暗黑模式下通过 PDF.js getOperatorList 解析位图区域并叠加无滤镜原图还原层，保持照片与扫描图片原样显示
+- modified:
+  - `src/renderer/src/assets/index.css`
+  - `src/renderer/src/components/workbench/WorkbenchPdfViewer.tsx`
+
+### 17:53 | Antigravity
+
+- done: 修复暗黑模式下块插入菜单未变暗与评论标注文字变黑问题，并优化顶部背景切换按钮可见性
+- modified:
+  - `src/renderer/src/assets/index.css`
+  - `src/renderer/src/components/workbench/WorkbenchDraggableBlockPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchReaderThemePicker.tsx`
+- lesson(promoted): HTML 原生 <mark> 元素在 Chromium UA 样式表默认带 color: black，暗黑模式下需显式在 .PlaygroundEditorTheme__mark 声明 color: inherit；挂在 document.body 的块插入菜单需显式读取阅读主题状态适配暗黑样式
+
+### 17:47 | Antigravity
+
+- done: 实现同工作区静态 cd/Set-Location 受限放行并修复 bypass 模式权限单调性（auto 放行的只读参数未登记工具与缺命令执行分支不再在 bypass 下被硬拒绝）
+- decision: cd 目标在 AST/segment 阶段提取为 cdTargets，由 decidePermission 按模拟 cwd 逐段校验工作区边界并用新 cwd 复核后续相对路径；移除 hardDenyReason 中 bypass 对 unknown 工具和缺命令调用的硬拒分支，保证 bypass >= auto >= default 单调性
+- modified:
+  - `src/main/services/commandAnalyzer/externalCommandGate.ts;src/main/services/commandAnalyzer/psAstAnalyzer.ts;src/main/services/commandAnalyzer/bashAnalyzer.ts;src/main/services/permissionPolicy.ts;src/main/services/PermissionEngine.ts`
+- unresolved: 尚未在 pnpm run dev 桌面窗口中进行界面端到端人工验证
+
+### 17:47 | Antigravity
+
+- done: 为工作台 Markdown 编辑（富文本与源码）、PDF 预览和 Word 预览新增四档背景预设（纸白/羊皮纸/豆沙绿/中性暗黑）及各自独立持久化，暗黑模式下同步切换顶部工具栏与图标，并将代码阅读器统一至中性暗黑 #1E1E1E 体系
+- decision: 纸白/羊皮纸/豆沙绿保持顶部工具栏浅色一致，仅中性暗黑同步切换工具栏与图标；PDF/Word 非白底连同纸张本身着色或暗黑反色，不额外加开关，依托三端独立持久化应对彩图 PDF 场景
+- added:
+  - `src/renderer/src/components/workbench/WorkbenchReaderThemePicker.tsx`
+- modified:
+  - `src/renderer/src/store/workbenchStore.ts`
+  - `src/renderer/src/assets/index.css`
+  - `src/renderer/src/components/workbench/WorkbenchDropDown.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchPreviewChrome.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchCodePreview.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchToolbar.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchSourceToolbar.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchSourceEditor.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchPdfPreview.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchPdfViewer.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchDocxPreview.tsx`
+- lesson(promoted): tailwind.config.js 的 text-primary (#1f2937) 与 text-secondary (#6b7280) 为静态 Hex，局部挂载 .dark 不会自动变色，需配合容器属性选择器显式覆写；Word section.docx 施加 invert 滤镜时需清除原 box-shadow 并反色还原 img/svg
+
+### 17:45 | Codex
+
+- done: 替换脚注按钮图标为自定义 lucide 风格 SVG：圆角方框 rx=4 + 单笔画数字 1（AppIcon footnote），不再使用 MessageSquareQuote 评论气泡图标
+- modified:
+  - `src/renderer/src/components/icons/AppIcon.tsx`
+
 ### 17:32 | Codex
 
 - done: 按功能模块拆分提交当前未提交改动
