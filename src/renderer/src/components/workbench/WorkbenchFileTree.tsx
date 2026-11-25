@@ -265,6 +265,7 @@ export default function WorkbenchFileTree(): JSX.Element {
   const inlineInputRef = useRef<HTMLInputElement | null>(null)
   const renameInputRef = useRef<HTMLInputElement | null>(null)
   const isRenameCancelledRef = useRef(false)
+  const isRenamingBusyRef = useRef(false)
   const isCreateCancelledRef = useRef(false)
   const menuRef = useRef<HTMLDivElement | null>(null)
   const workspaceButtonRef = useRef<HTMLButtonElement | null>(null)
@@ -618,29 +619,43 @@ export default function WorkbenchFileTree(): JSX.Element {
       isRenameCancelledRef.current = false
       return
     }
-    if (!inlineRename || isRenamingBusy) return
+    if (!inlineRename || isRenamingBusy || isRenamingBusyRef.current) return
 
     const targetNode = inlineRename.node
     const trimmed = inlineRenameValue.trim()
-    setInlineRename(null)
 
     if (!trimmed || trimmed === targetNode.name) {
+      setInlineRename(null)
       return
     }
 
     if (/[\\/:*?"<>|]/.test(trimmed)) {
+      setInlineRename(null)
       useWorkbenchStore.setState({ error: '名称不能包含 \\ / : * ?" < > |' })
       return
     }
 
+    isRenamingBusyRef.current = true
     setIsRenamingBusy(true)
     try {
       const parts = targetNode.path.split('/')
       parts[parts.length - 1] = trimmed
       const newPath = parts.join('/')
-      await renameNode(targetNode.path, newPath)
+      const ok = await renameNode(targetNode.path, newPath)
+      if (ok) {
+        setSelectedPaths((prev) => {
+          if (!prev.has(targetNode.path)) return prev
+          const next = new Set(prev)
+          next.delete(targetNode.path)
+          next.add(newPath)
+          return next
+        })
+        setAnchorPath((prev) => (prev === targetNode.path ? newPath : prev))
+      }
     } finally {
+      isRenamingBusyRef.current = false
       setIsRenamingBusy(false)
+      setInlineRename(null)
     }
   }, [inlineRename, inlineRenameValue, isRenamingBusy, renameNode])
 

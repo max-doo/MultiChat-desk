@@ -487,6 +487,23 @@ function removeTreePaths(nodes: WorkbenchFileNode[], deletedPaths: readonly stri
  * 删除失败时还原编辑器：乐观移除已经清空了内容，必须把原状态写回去，
  * 否则文件还在磁盘上却显示为空文档。
  */
+function buildActiveFilePayload(relativePath: string, data: WorkbenchFileInfo) {
+  return {
+    activeFilePath: relativePath,
+    activeFileContent: data.content,
+    activeFileCategory: data.category || getFileCategory(relativePath),
+    activeFileDataUrl: data.dataUrl || null,
+    activeFileUrl: data.fileUrl || null,
+    activeFileMime: data.mimeType || null,
+    activeFileSize: data.size,
+    activeFileOversized: !!data.isOversized,
+    isDirty: false,
+    saveStatus: 'saved' as const,
+    lastSavedAt: data.mtime,
+    conflictDiskContent: null
+  }
+}
+
 function restoreActiveFileState(
   snapshot: Pick<
     WorkbenchStoreState,
@@ -1090,18 +1107,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       if (res.success && res.data) {
         const oversizedForWysiwyg = res.data.size > 2 * 1024 * 1024
         set({
-          activeFilePath: relativePath,
-          activeFileContent: res.data.content,
-          activeFileCategory: res.data.category || getFileCategory(relativePath),
-          activeFileDataUrl: res.data.dataUrl || null,
-          activeFileUrl: res.data.fileUrl || null,
-          activeFileMime: res.data.mimeType || null,
-          activeFileSize: res.data.size,
-          activeFileOversized: !!res.data.isOversized,
-          isDirty: false,
-          saveStatus: 'saved',
-          lastSavedAt: res.data.mtime,
-          conflictDiskContent: null,
+          ...buildActiveFilePayload(relativePath, res.data),
           error: null,
           // 2MB 以上固定源码模式；切回小文件时沿用用户上次的偏好。
           editorMode: oversizedForWysiwyg ? 'source' : get().editorMode
@@ -1458,40 +1464,94 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   renameNode: async (oldRelativePath: string, newRelativePath: string) => {
     const { workspacePath, activeFilePath } = get()
     if (!workspacePath) return false
+    if (oldRelativePath === newRelativePath) return true
+
+    const hitsActive =
+      !!activeFilePath &&
+      (activeFilePath === oldRelativePath || activeFilePath.startsWith(`${oldRelativePath}/`))
+
+    if (hitsActive) {
+      // 可视化编辑的未保存改动先交由用户决定保存或放弃，避免重命名重建预览后静默丢失
+      if (get().htmlVisualEditing) {
+        const leaveGuard = get().htmlEditLeaveGuard
+        if (!leaveGuard) {
+          set({ error: '可视化编辑尚未就绪，无法重命名当前文件' })
+          return false
+        }
+        const decision = await leaveGuard()
+        if (decision === 'cancelled') return false
+      }
+
+      get().flushMarkdownSync()
+      const annotationFlush = await get().flushDocumentAnnotations()
+      if (!annotationFlush.saved) {
+        set({ error: annotationFlush.error || '标注同步未完成，无法安全重命名' })
+        return false
+      }
+
+      if (get().isDirty) {
+        if (autoSaveTimer) {
+          clearTimeout(autoSaveTimer)
+          autoSaveTimer = null
+        }
+        const saved = await get().saveActiveFile()
+        if (!saved.saved) {
+          set({ error: '当前文件保存未完成，无法安全重命名' })
+          return false
+        }
+      }
+    }
 
     try {
       const res = await window.api.workbench.renameNode(workspacePath, oldRelativePath, newRelativePath)
       if (res.success) {
-        // 若当前打开的文件恰好是被重命名的节点或在其子目录中，同步更新路径
-        if (activeFilePath === oldRelativePath) {
-          set({ activeFilePath: newRelativePath })
-          void window.api.storeSet('workbench_lastActiveFilePath', newRelativePath)
-          void get().refreshGitBaseline()
-
-          // 主进程可能已重写 .md 内容（assets 路径替换），重新读盘同步渲染层状态
-          // 否则 isDirty + 旧内容会在下一次 autoSave 覆盖掉主进程的修改
-          const extension = `.${newRelativePath.split('.').pop()?.toLowerCase() ?? ''}`
-          if (MARKDOWN_EXTENSIONS.has(extension)) {
-            try {
-              const fileRes = await window.api.workbench.readFile(workspacePath, newRelativePath)
-              if (fileRes.success && fileRes.data) {
-                set({
-                  activeFileContent: fileRes.data.content,
-                  isDirty: false,
-                  lastSavedAt: fileRes.data.mtime
-                })
-              }
-            } catch { /* noop：读失败不阻断，保持原状态 */ }
+        // 若重命名的是目录，同步迁移已展开文件夹集合，避免树折叠
+        const prevExpanded = get().expandedFolderIds
+        let nextExpanded: Set<string> | null = null
+        for (const id of prevExpanded) {
+          if (id === oldRelativePath || id.startsWith(`${oldRelativePath}/`)) {
+            if (!nextExpanded) nextExpanded = new Set(prevExpanded)
+            nextExpanded.delete(id)
+            nextExpanded.add(newRelativePath + id.slice(oldRelativePath.length))
           }
-        } else if (activeFilePath && activeFilePath.startsWith(`${oldRelativePath}/`)) {
-          const updatedActive = newRelativePath + activeFilePath.slice(oldRelativePath.length)
-          set({ activeFilePath: updatedActive })
-          void window.api.storeSet('workbench_lastActiveFilePath', updatedActive)
+        }
+        if (nextExpanded) {
+          set({ expandedFolderIds: nextExpanded })
+        }
+
+        const currentActive = get().activeFilePath
+        const nextActivePath =
+          currentActive === oldRelativePath
+            ? newRelativePath
+            : currentActive && currentActive.startsWith(`${oldRelativePath}/`)
+              ? newRelativePath + currentActive.slice(oldRelativePath.length)
+              : null
+
+        if (nextActivePath) {
+          // 重新读取新路径的完整元数据与 URL（HTML/图片依赖 activeFileUrl，改扩展名需同步 category，
+          // .md 可能被主进程替换 assets/ 路径），在一次 set 内原子更新避免预览加载旧路径。
+          let refreshed = false
+          try {
+            const fileRes = await window.api.workbench.readFile(workspacePath, nextActivePath)
+            if (fileRes.success && fileRes.data) {
+              set(buildActiveFilePayload(nextActivePath, fileRes.data))
+              refreshed = true
+            }
+          } catch { /* noop：读失败时退回最小路径同步 */ }
+
+          if (!refreshed) {
+            set({
+              activeFilePath: nextActivePath,
+              activeFileCategory: getFileCategory(nextActivePath),
+              activeFileUrl: null,
+              activeFileDataUrl: null
+            })
+          }
+          void window.api.storeSet('workbench_lastActiveFilePath', nextActivePath)
           void get().refreshGitBaseline()
         }
+        // loadFileTree 内部已刷新 Git 状态与工作区标签
         await get().loadFileTree()
-        // 移动/重命名已在主进程写入暂存区，这里刷新以显示新的重命名条目
-        void get().refreshGitStatus()
         return true
       } else {
         set({ error: res.error || '重命名失败' })
@@ -2062,10 +2122,6 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       ? reconciled?.relinks.find(link => link.from === activeFilePath)?.to ??
         (findNode(nextTree, activeFilePath) ? null : findRenamedNode(previousTree, nextTree, activeFilePath))
       : null
-    if (renamedTo) {
-      set({ activeFilePath: renamedTo })
-      void window.api.storeSet('workbench_lastActiveFilePath', renamedTo)
-    }
     const currentPath = renamedTo ?? activeFilePath
     if (!currentPath) return
 
@@ -2097,50 +2153,89 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       return
     }
 
-    // 文件还在：对比 mtime 决定是否重载内容；父目录 rename 会让 activeFilePath 失配
-    // （其原路径消失走上面的清空分支），此处仅处理同路径内容变更
+    // 文件还在：对比 mtime 决定是否重载内容；外部重命名（mtime 不变）也要刷新 activeFileUrl 与分类
     const node = findNode(nextTree, currentPath)
     if (!node || node.isDirectory) return
 
     const mtimeChanged =
       typeof node.mtime === 'number' &&
       (lastSavedAt === null || Math.abs(node.mtime - lastSavedAt) > 1)
-    if (!mtimeChanged) return
-
-    // 磁盘版本领先内存 → dirty 时标冲突等用户裁决，干净时静默重载
-    const diskNewer = lastSavedAt !== null && node.mtime! - lastSavedAt > 2
-    const { activeFileCategory } = get()
+    const diskNewer = typeof node.mtime === 'number' && lastSavedAt !== null && node.mtime - lastSavedAt > 2
+    const nextCategory = getFileCategory(currentPath)
     const reloadable =
-      activeFileCategory === 'markdown' ||
-      activeFileCategory === 'text' ||
-      activeFileCategory === 'code'
-    if (!reloadable) return
+      nextCategory === 'markdown' ||
+      nextCategory === 'text' ||
+      nextCategory === 'code'
 
-    if (diskNewer && isDirty) {
-      let diskContent = ''
-      try {
-        const fileRes = await window.api.workbench.readFile(workspacePath, currentPath)
-        if (fileRes.success && fileRes.data) diskContent = fileRes.data.content
-      } catch { /* noop */ }
-      set({ saveStatus: 'conflict', conflictDiskContent: diskContent })
+    if (!renamedTo && (!mtimeChanged || !reloadable)) return
+
+    let fileRes: { success: boolean; data?: WorkbenchFileInfo } | null = null
+    try {
+      fileRes = await window.api.workbench.readFile(workspacePath, currentPath)
+    } catch {
+      fileRes = null
+    }
+
+    if (renamedTo) {
+      void window.api.storeSet('workbench_lastActiveFilePath', renamedTo)
+      void get().refreshGitBaseline()
+    }
+
+    if (isDirty) {
+      if (diskNewer) {
+        set({
+          ...(renamedTo && fileRes?.success && fileRes.data
+            ? {
+                activeFilePath: currentPath,
+                activeFileCategory: fileRes.data.category || nextCategory,
+                activeFileDataUrl: fileRes.data.dataUrl || null,
+                activeFileUrl: fileRes.data.fileUrl || null,
+                activeFileMime: fileRes.data.mimeType || null,
+                activeFileSize: fileRes.data.size,
+                activeFileOversized: !!fileRes.data.isOversized
+              }
+            : renamedTo
+              ? {
+                  activeFilePath: currentPath,
+                  activeFileCategory: nextCategory,
+                  activeFileUrl: null,
+                  activeFileDataUrl: null
+                }
+              : {}),
+          saveStatus: 'conflict',
+          conflictDiskContent: fileRes?.success && fileRes.data ? fileRes.data.content : ''
+        })
+      } else if (renamedTo) {
+        set(
+          fileRes?.success && fileRes.data
+            ? {
+                activeFilePath: currentPath,
+                activeFileCategory: fileRes.data.category || nextCategory,
+                activeFileDataUrl: fileRes.data.dataUrl || null,
+                activeFileUrl: fileRes.data.fileUrl || null,
+                activeFileMime: fileRes.data.mimeType || null,
+                activeFileSize: fileRes.data.size,
+                activeFileOversized: !!fileRes.data.isOversized
+              }
+            : {
+                activeFilePath: currentPath,
+                activeFileCategory: nextCategory,
+                activeFileUrl: null,
+                activeFileDataUrl: null
+              }
+        )
+      }
       return
     }
-    if (isDirty) return
 
-    const fileRes = await window.api.workbench.readFile(workspacePath, currentPath)
-    if (fileRes.success && fileRes.data) {
+    if (fileRes?.success && fileRes.data) {
+      set(buildActiveFilePayload(currentPath, fileRes.data))
+    } else if (renamedTo) {
       set({
-        activeFileContent: fileRes.data.content,
-        activeFileCategory: fileRes.data.category || getFileCategory(currentPath),
-        activeFileDataUrl: fileRes.data.dataUrl || null,
-        activeFileUrl: fileRes.data.fileUrl || null,
-        activeFileMime: fileRes.data.mimeType || null,
-        activeFileSize: fileRes.data.size,
-        activeFileOversized: !!fileRes.data.isOversized,
-        isDirty: false,
-        saveStatus: 'saved',
-        lastSavedAt: fileRes.data.mtime,
-        conflictDiskContent: null
+        activeFilePath: currentPath,
+        activeFileCategory: nextCategory,
+        activeFileUrl: null,
+        activeFileDataUrl: null
       })
     }
   },

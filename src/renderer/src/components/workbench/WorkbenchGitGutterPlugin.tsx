@@ -9,7 +9,9 @@ import {
   scanMarkdownSourceBlocks,
   getLexicalBlockKind,
   getLexicalNodeHint,
-  alignWithPatienceAnchors
+  alignWithPatienceAnchors,
+  kindsCompatible,
+  type SourceBlockKind
 } from './markdownSourceMap'
 import { $isPendingInsertNode } from './PendingInsertNode'
 
@@ -24,6 +26,53 @@ interface OverlayBar {
 }
 
 const SYNC_DEBOUNCE_MS = 250
+
+/**
+ * 同步层遇到 1:N 块会整段放弃映射，以保证回写只透传一次原文；
+ * 预览高亮不写文档，可在该段内按块类型顺序补齐可安全对应的节点，
+ * 避免源码已有标记、预览却整段没有标记。
+ */
+function mapApproximateSegment(
+  nodeInfos: Array<{ key: NodeKey; kind: SourceBlockKind }>,
+  blocks: Array<{ kind: SourceBlockKind }>,
+  segment: { cStart: number; cEnd: number; bStart: number; bEnd: number },
+  target: Map<NodeKey, number>
+): void {
+  let nodeIdx = segment.cStart
+  let blockIdx = segment.bStart
+
+  while (nodeIdx < segment.cEnd && blockIdx < segment.bEnd) {
+    if (kindsCompatible(nodeInfos[nodeIdx].kind, blocks[blockIdx].kind)) {
+      target.set(nodeInfos[nodeIdx].key, blockIdx)
+      nodeIdx++
+      blockIdx++
+      continue
+    }
+
+    let nextNode = -1
+    let nextBlock = -1
+    for (let distance = 1; distance <= 4 && nextNode < 0; distance++) {
+      for (let nodeAhead = 0; nodeAhead <= distance; nodeAhead++) {
+        const blockAhead = distance - nodeAhead
+        const candidateNode = nodeIdx + nodeAhead
+        const candidateBlock = blockIdx + blockAhead
+        if (
+          candidateNode < segment.cEnd &&
+          candidateBlock < segment.bEnd &&
+          kindsCompatible(nodeInfos[candidateNode].kind, blocks[candidateBlock].kind)
+        ) {
+          nextNode = candidateNode
+          nextBlock = candidateBlock
+          break
+        }
+      }
+    }
+
+    if (nextNode < 0) return
+    nodeIdx = nextNode
+    blockIdx = nextBlock
+  }
+}
 
 /**
  * Markdown 预览模式的块级 Git Gutter 外挂覆盖层。
@@ -138,7 +187,10 @@ export default function WorkbenchGitGutterPlugin({ stageRef }: Props): JSX.Eleme
         } else if (blocks.length > 0 && nodeInfos.length > 0) {
           const segments = alignWithPatienceAnchors(nodeInfos, blocks)
           for (const seg of segments) {
-            if (!seg.matched) continue
+            if (!seg.matched) {
+              mapApproximateSegment(nodeInfos, blocks, seg, nodeKeyToBlockIdx)
+              continue
+            }
             if (seg.cEnd - seg.cStart === 1 && seg.bEnd - seg.bStart === 1) {
               nodeKeyToBlockIdx.set(nodeInfos[seg.cStart].key, seg.bStart)
             } else {
@@ -214,7 +266,8 @@ export default function WorkbenchGitGutterPlugin({ stageRef }: Props): JSX.Eleme
       }
       setPositions(next)
     }
-    frameId = requestAnimationFrame(measure)
+    // 首帧直接测量：窗口被遮挡时 rAF 可能长时间不派发，不能让它阻塞首次投影
+    measure()
 
     // 图片/公式加载会撑高正文，监听 stage 尺寸变化重算
     const observer = new ResizeObserver(() => {
