@@ -585,6 +585,14 @@ export default function WorkbenchToolbar(): JSX.Element {
         >
           <AppIcon name="checklist" size={20} />
         </button>
+        <button
+          type="button"
+          onClick={formatQuote}
+          className={iconBtnClass(blockType === 'quote')}
+          title="引用区块"
+        >
+          <AppIcon name="format_quote" size={20} />
+        </button>
 
         <div className="w-[1px] h-4 bg-black/10 dark:bg-white/10 mx-1 shrink-0" />
 

@@ -9,6 +9,7 @@ import {
   $isTextNode,
   $isParagraphNode,
   $isElementNode,
+  $createParagraphNode,
   COMMAND_PRIORITY_LOW,
   FORMAT_TEXT_COMMAND,
   getDOMSelection,
@@ -18,7 +19,8 @@ import {
 } from 'lexical'
 import { $isLinkNode } from '@lexical/link'
 import { $isCodeNode } from '@lexical/code'
-import { $isAtNodeEnd } from '@lexical/selection'
+import { $isQuoteNode, $createQuoteNode } from '@lexical/rich-text'
+import { $isAtNodeEnd, $setBlocksType } from '@lexical/selection'
 import type { RangeSelection, TextNode, ElementNode } from 'lexical'
 import WorkbenchLinkEditor from './WorkbenchLinkEditor'
 import {
@@ -68,6 +70,7 @@ interface ToolbarState {
   isStrikethrough: boolean
   isCode: boolean
   isHighlight: boolean
+  isQuote: boolean
 }
 
 const VERTICAL_GAP = 10
@@ -203,6 +206,19 @@ function FloatingToolbar({
             onClick={() => editor.dispatchCommand(FORMAT_TEXT_COMMAND, 'highlight')}
           />
           <WorkbenchFloatingToolbarButton
+            icon="format_quote"
+            label="引用"
+            active={state.isQuote}
+            onClick={() =>
+              editor.update(() => {
+                const selection = $getSelection()
+                $setBlocksType(selection, () =>
+                  state.isQuote ? $createParagraphNode() : $createQuoteNode()
+                )
+              })
+            }
+          />
+          <WorkbenchFloatingToolbarButton
             icon="annotation"
             label="标注"
             onClick={() => editor.dispatchCommand(WORKBENCH_ANNOTATE_COMMAND, undefined)}
@@ -235,7 +251,8 @@ export default function WorkbenchFloatingToolbarPlugin({
     isUnderline: false,
     isStrikethrough: false,
     isCode: false,
-    isHighlight: false
+    isHighlight: false,
+    isQuote: false
   })
   const [linkEditor, setLinkEditor] = useState<{
     anchorRect: DOMRect
@@ -272,6 +289,10 @@ export default function WorkbenchFloatingToolbarPlugin({
       const linkNode = $isLinkNode(parent) ? parent : $isLinkNode(node) ? node : null
       const isLink = linkNode !== null
       const isCodeBlock = $isCodeNode(selection.anchor.getNode().getParent())
+      const topElement =
+        selection.anchor.getNode().getKey() === 'root'
+          ? selection.anchor.getNode()
+          : selection.anchor.getNode().getTopLevelElementOrThrow()
 
       let isText =
         !isCodeBlock &&
@@ -292,7 +313,8 @@ export default function WorkbenchFloatingToolbarPlugin({
         isUnderline: selection.hasFormat('underline'),
         isStrikethrough: selection.hasFormat('strikethrough'),
         isCode: selection.hasFormat('code'),
-        isHighlight: selection.hasFormat('highlight')
+        isHighlight: selection.hasFormat('highlight'),
+        isQuote: $isQuoteNode(topElement)
       })
     })
   }, [editor])
