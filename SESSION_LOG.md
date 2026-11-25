@@ -2,6 +2,96 @@
 
 ## 2026-11-25
 
+### 20:05 | Codex
+
+- done: 最近使用模型同时显示收藏星标与移出按钮
+- context: 非收藏的最近使用模型悬浮操作区改为星标在左、× 在右；星标按钮不再随 showRemoveRecent 条件隐藏，文本区按是否存在 × 动态预留 pr-14/pr-7
+- modified:
+  - `src/renderer/src/components/workbench/agent/AgentModelPicker.tsx`
+
+### 20:02 | Codex
+
+- done: 常用区支持移除最近使用并改为悬浮操作
+- context: 最近使用但非收藏模型在常用区 hover 显示 ×，点击从 agent_recent_models 移除；收藏星标和 × 均绝对定位在卡片右侧，整行 hover 触发，不占卡片宽度；新增 agent:remove-recent-models IPC 与主进程 removeRecentModels
+- decision: 收藏行显示星标，非收藏最近使用行显示 ×；当前激活模型的 check 仅保留在收藏/普通模型行
+- modified:
+  - `src/main/services/AgentSessionService.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/src/types/agent.ts`
+  - `src/renderer/src/store/agentSessionStore.ts`
+  - `src/renderer/src/components/workbench/agent/AgentModelPicker.tsx`
+
+### 19:58 | Codex
+
+- done: 模型选择弹窗星标改为整行 hover 触发
+- context: 用户澄清 hover 范围是模型卡片整行，而非星标按钮本身。新增 hoveredRowKey 行级状态，onMouseEnter/onMouseLeave 在 renderModelRow 根节点切换，收藏按钮 opacity 由当前行 hover 状态决定
+- modified:
+  - `src/renderer/src/components/workbench/agent/AgentModelPicker.tsx`
+
+### 19:57 | Codex
+
+- done: 模型选择弹窗星标改为仅鼠标进入按钮时显示
+- context: 用户截图显示星标仍常亮；源码已是 Tailwind group-hover 隐藏版且 Vite 实时模块返回最新代码。为避免运行进程/CSS HMR 状态差异，改为每个星标按钮 inline opacity:0 + onMouseEnter/onMouseLeave 直接控制 opacity
+- modified:
+  - `src/renderer/src/components/workbench/agent/AgentModelPicker.tsx`
+
+### 19:53 | Codex
+
+- done: 工作台 .bib/.bst 文件改用代码编辑器打开并配专属图标：CODE_EXTENSIONS 新增 .bib/.bst，FileTypeIcon 引入 material 主题 bibliography/bibtex-style 图标
+- added:
+  - `src/renderer/src/assets/file-icons/bibliography.svg`
+  - `src/renderer/src/assets/file-icons/bibtex-style.svg`
+- modified:
+  - `src/shared/types/workbench.ts`
+  - `src/renderer/src/components/workbench/FileTypeIcon.tsx`
+
+### 19:52 | Codex
+
+- done: AgentModelPicker 常用区合并收藏+最近使用、新增行内星标切换
+- context: AgentModelPicker 弹窗；原 favorites 区改为 favorites+recent（前端去重、置前 favorites），新增 RECENT_MODELS_STORE_KEY 持久化、setModel 写入、8 条淘汰上限；行右侧 hover 显示星标，收藏时常显实心星
+- decision: recent 存于 electron-store 键 agent_recent_models，最多 8 条，按 LRU 推入；favorites 在前端去重优先，recent 仅补充非收藏项
+- modified:
+  - `src/main/services/AgentSessionService.ts`
+  - `src/shared/types/agentRuntime.ts`
+  - `src/renderer/src/components/workbench/agent/AgentModelPicker.tsx`
+
+### 19:37 | Codex
+
+- done: 上下文用量弹窗字号升档（标题/正文 caption→label），与其他 Agent 弹窗对齐
+- modified:
+  - `src/renderer/src/components/workbench/agent/AgentContextMeter.tsx`
+
+### 19:19 | Codex
+
+- done: Git 历史时间戳还原为相对时间，展开详情新增『作者 · 完整时间戳(秒级)』行
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchGitPanel.tsx`
+
+### 19:18 | Codex
+
+- done: Git 历史列表时间戳由相对时间（N 分钟前/小时前/天前）改为自适应精确时间：今天只显 HH:MM，今年显 MM-DD HH:MM，跨年补 YYYY-；并加 tabular-nums 等宽数字对齐
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchGitPanel.tsx`
+
+### 18:48 | Codex
+
+- done: Git 历史面板支持点击提交查看详情：展开文件改动列表，含状态徽标、增删行统计、点击打开文件；新增 gitCommitDetail IPC 与主进程 getCommitDetail（git show --numstat + --name-status -z）
+- modified:
+  - `src/main/services/gitService.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/shared/types/workbench.ts`
+  - `src/renderer/src/components/workbench/WorkbenchGitPanel.tsx`
+
+### 18:40 | Codex
+
+- done: 版本管理弹窗改为固定高度：WorkbenchFooterPopover 新增 contentHeight prop + 视口压缩自适应；Git 弹窗传 480px，历史/改动空态撑满居中
+- decision: contentHeight 做成可选 prop 而非全局默认，未传时保持原动态高度，Vault/WorkspaceSettings 两个调用方零影响
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchFooterPopover.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchGitPanel.tsx`
+
 ### 18:26 | Codex
 
 - done: 优化脚注输入弹层：将编号输入框与脚注内容输入框改为白色背景，保留边框、焦点与错误状态。
