@@ -11,6 +11,11 @@ import WorkbenchDropDown, {
 } from './WorkbenchDropDown'
 import WorkbenchUrlInputPopover from './WorkbenchUrlInputPopover'
 import WorkbenchEquationEditor from './WorkbenchEquationEditor'
+import WorkbenchFootnotePopover, { type FootnoteInsertMode } from './WorkbenchFootnotePopover'
+import {
+  collectFootnoteStateFromMarkdown,
+  type FootnoteUsageSnapshot
+} from './workbenchFootnotes'
 
 type SourceBlockType = 'paragraph' | 'h1' | 'h2' | 'h3' | 'h4' | 'bullet' | 'number' | 'check' | 'quote' | 'code'
 
@@ -54,6 +59,13 @@ export default function WorkbenchSourceToolbar({
     anchorRect: DOMRect
     inline: boolean
   } | null>(null)
+  const footnoteButtonRef = useRef<HTMLButtonElement | null>(null)
+  const [footnotePopover, setFootnotePopover] = useState<{
+    anchorRect: DOMRect
+    snapshot: FootnoteUsageSnapshot
+  } | null>(null)
+
+  const activeFileContent = useWorkbenchStore((s) => s.activeFileContent)
 
   const apply = (action: SourceToolbarAction): void => {
     editorRef.current?.applyAction(action)
@@ -149,6 +161,17 @@ export default function WorkbenchSourceToolbar({
     } else {
       apply({ kind: 'insert', text: `$$\n${equation}\n$$\n`, ensureBlankLine: true })
     }
+  }
+
+  // 插入脚注：扫描源码内所有引用与定义（跳过代码块），计算不冲突的自增编号
+  const openFootnotePopover = (): void => {
+    const button = footnoteButtonRef.current
+    if (!button) return
+    const snapshot = collectFootnoteStateFromMarkdown(activeFileContent)
+    setFootnotePopover({
+      anchorRect: button.getBoundingClientRect(),
+      snapshot
+    })
   }
 
   // 撤销/重做走浏览器 textarea 原生栈
@@ -319,6 +342,29 @@ export default function WorkbenchSourceToolbar({
           <AppIcon name="ink_highlighter" size={20} />
         </button>
 
+        {/* 上标 / 下标：写入 <sup>/<sub> 行内 HTML */}
+        <WorkbenchDropDown
+          buttonAriaLabel="上下标"
+          buttonTitle="上下标 (<sup>/<sub>)"
+          buttonClassName="h-8 px-1.5 flex items-center justify-center rounded-md text-text-primary transition-colors hover:bg-black/5 dark:hover:bg-white/10 font-medium"
+          buttonContent={<span className="text-body leading-none">x²</span>}
+        >
+          <WorkbenchDropDownItem
+            className={itemClass(false)}
+            onClick={() => apply({ kind: 'wrap', before: '<sup>', after: '</sup>' })}
+          >
+            <AppIcon name="format_superscript" size={19} className="text-text-secondary" />
+            <span>上标</span>
+          </WorkbenchDropDownItem>
+          <WorkbenchDropDownItem
+            className={itemClass(false)}
+            onClick={() => apply({ kind: 'wrap', before: '<sub>', after: '</sub>' })}
+          >
+            <AppIcon name="format_subscript" size={19} className="text-text-secondary" />
+            <span>下标</span>
+          </WorkbenchDropDownItem>
+        </WorkbenchDropDown>
+
         <div className="w-[1px] h-4 bg-black/10 dark:bg-white/10 mx-1 shrink-0" />
 
         <button
@@ -401,6 +447,18 @@ export default function WorkbenchSourceToolbar({
             <span>块级公式</span>
           </WorkbenchDropDownItem>
         </WorkbenchDropDown>
+
+        {/* 插入脚注：标记 [^id] 落在光标处，定义行追加到文末 */}
+        <button
+          ref={footnoteButtonRef}
+          type="button"
+          onClick={openFootnotePopover}
+          className={iconBtnClass(false)}
+          title="插入脚注"
+          aria-label="插入脚注"
+        >
+          <AppIcon name="footnote" size={20} />
+        </button>
       </div>
 
       <div className="flex items-center gap-2.5 text-text-secondary text-body shrink-0">
@@ -455,6 +513,18 @@ export default function WorkbenchSourceToolbar({
           inline={equationPopover.inline}
           onApply={applyEquation}
           onClose={() => setEquationPopover(null)}
+        />
+      )}
+      {footnotePopover && (
+        <WorkbenchFootnotePopover
+          anchorRect={footnotePopover.anchorRect}
+          defaultId={footnotePopover.snapshot.nextId}
+          existingDefinitions={footnotePopover.snapshot.definitions}
+          usedIds={footnotePopover.snapshot.usedIds}
+          onApply={(payload: { id: string; content: string; mode: FootnoteInsertMode }) =>
+            apply({ kind: 'insertFootnote', ...payload })
+          }
+          onClose={() => setFootnotePopover(null)}
         />
       )}
     </>

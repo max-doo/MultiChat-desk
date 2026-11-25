@@ -30,6 +30,10 @@ import { tags } from '@lezer/highlight'
 import { useWorkbenchStore } from '../../store/workbenchStore'
 import { readEditorScroll, rememberEditorScroll } from './workbenchEditorScroll'
 import { useGitLineDiff } from '../../hooks/useGitLineDiff'
+import {
+  collectFootnoteStateFromMarkdown,
+  isValidFootnoteId
+} from './workbenchFootnotes'
 
 /**
  * 源码模式编辑器：CodeMirror 6 内核。
@@ -141,6 +145,12 @@ export type SourceToolbarAction =
   | { kind: 'wrap'; before: string; after?: string; placeholder?: string }
   | { kind: 'linePrefix'; prefix: string }
   | { kind: 'insert'; text: string; ensureBlankLine?: boolean }
+  | {
+      kind: 'insertFootnote'
+      id: string
+      content: string
+      mode?: 'create' | 'reuse-ref' | 'fill-missing-def'
+    }
 
 export interface WorkbenchSourceEditorHandle {
   applyAction: (action: SourceToolbarAction) => void
@@ -330,6 +340,57 @@ const WorkbenchSourceEditor = forwardRef<
     commitEdit(from, to, prefix + text, from + prefix.length + text.length, from + prefix.length + text.length)
   }
 
+  // 插入脚注：标记 [^id] 落在光标处；仅当该 id 尚无定义且非复用模式时，才在文末追加定义行（绝不覆盖旧定义）
+  const applyInsertFootnote = (
+    rawId: string,
+    rawContent: string,
+    mode: 'create' | 'reuse-ref' | 'fill-missing-def' = 'create'
+  ): void => {
+    const id = rawId.trim()
+    const content = rawContent.trim()
+    if (!isValidFootnoteId(id)) return
+
+    const view = viewRef.current
+    const marker = `[^${id}]`
+    const definitionLine = content ? `[^${id}]: ${content}` : `[^${id}]:`
+    if (!view) {
+      const snapshot = collectFootnoteStateFromMarkdown(valueRef.current)
+      const shouldAppendDef = !snapshot.defIds.has(id) && mode !== 'reuse-ref'
+      onChange(
+        shouldAppendDef
+          ? valueRef.current + marker + '\n\n' + definitionLine
+          : valueRef.current + marker
+      )
+      return
+    }
+    const { from, to } = view.state.selection.main
+    const doc = view.state.doc.toString()
+    const snapshot = collectFootnoteStateFromMarkdown(doc)
+    const shouldAppendDef = !snapshot.defIds.has(id) && mode !== 'reuse-ref'
+
+    const changes: Array<{ from: number; to: number; insert: string }> = [
+      { from, to, insert: marker }
+    ]
+    if (shouldAppendDef) {
+      const tail =
+        to === doc.length
+          ? '\n\n'
+          : doc.endsWith('\n\n')
+            ? ''
+            : doc.endsWith('\n')
+              ? '\n'
+              : '\n\n'
+      changes.push({ from: doc.length, to: doc.length, insert: tail + definitionLine })
+    }
+
+    view.dispatch({
+      changes,
+      selection: { anchor: from + marker.length },
+      userEvent: 'input'
+    })
+    view.focus()
+  }
+
   // 在光标处插入 markdown 图片语法，并同步调整光标位置
   const insertMarkdownAtCursor = (text: string): void => {
     const view = viewRef.current
@@ -366,6 +427,9 @@ const WorkbenchSourceEditor = forwardRef<
             break
           case 'insert':
             applyInsert(action.text, action.ensureBlankLine)
+            break
+          case 'insertFootnote':
+            applyInsertFootnote(action.id, action.content, action.mode)
             break
         }
       }

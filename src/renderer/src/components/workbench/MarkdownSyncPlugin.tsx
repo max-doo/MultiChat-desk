@@ -5,7 +5,8 @@ import type {
   LexicalEditor,
   LexicalNode,
   ParsableSerializedNode,
-  PointType
+  PointType,
+  TextNode
 } from 'lexical'
 import {
   $addUpdateTag,
@@ -91,9 +92,19 @@ import {
   $isWorkbenchEquationNode,
   WorkbenchEquationNode
 } from './WorkbenchEquationNode'
+import {
+  $createWorkbenchFootnoteDefNode,
+  $createWorkbenchFootnoteRefNode,
+  $isWorkbenchFootnoteDefNode,
+  $isWorkbenchFootnoteRefNode,
+  WorkbenchFootnoteDefNode,
+  WorkbenchFootnoteRefNode
+} from './WorkbenchFootnoteNode'
+import { FOOTNOTE_DEF_PREFIX_RE, FOOTNOTE_REF_MATCH_RE } from './workbenchFootnotes'
 import { normalizeWorkbenchLocalFileLink } from './workbenchLinks'
 import { allMarks } from './workbenchAnnotationUtils'
 import {
+  IMAGE_BLOCK_REGEX,
   assembleIncrementalMarkdown,
   buildWorkbenchSourceState,
   collectDirtyTopLevelBlocks,
@@ -328,14 +339,23 @@ export const IMAGE_TRANSFORMER: ElementTransformer = {
   dependencies: [WorkbenchImageNode],
   export: (node: LexicalNode) => {
     if (!$isWorkbenchImageNode(node)) return null
-    return `![${node.getAltText()}](${node.getSrc()})`
+    const rawSrc = node.getSrc()
+    const title = node.getTitle()
+    const attributes = node.getAttributes() ?? ''
+    const formattedSrc = title !== undefined && /\s/.test(rawSrc) ? `<${rawSrc}>` : rawSrc
+    const titlePart = title !== undefined ? ` "${title.replace(/"/g, '\\"')}"` : ''
+    return `![${node.getAltText()}](${formattedSrc}${titlePart})${attributes}`
   },
-  regExp: /^!\[([^\]]*)\]\(([^)\s]+)\)$/,
+  regExp: IMAGE_BLOCK_REGEX,
   replace: (parentNode, _children, match) => {
-    const [, altText, src] = match
-    const img = $createWorkbenchImageNode(src, altText || '')
+    const [, altText, angleSrc, plainSrc, doubleTitle, singleTitle, attributes] = match
+    const src = (angleSrc ?? plainSrc ?? '').trim()
+    if (!src) return false
+    const title = doubleTitle ?? singleTitle
+    const img = $createWorkbenchImageNode(src, altText || '', title, attributes)
     parentNode.replace(img)
     img.selectNext()
+    return true
   },
   type: 'element'
 }
@@ -428,6 +448,103 @@ export const INLINE_EQUATION_TRANSFORMER: TextMatchTransformer = {
   type: 'text-match'
 }
 
+// —— 上下标 <sup>..</sup> / <sub>..</sub>：markdown 无原生语法，按行内 HTML 处理 ——
+// export 用 TextNode 自带的 hasFormat('superscript'/'subscript')；
+// import 把 <sup>..</sup> 拆出后对该 TextNode 打对应 format。
+const SUPERSCRIPT_REGEX = /<sup>([^<]+)<\/sup>/
+const SUBSCRIPT_REGEX = /<sub>([^<]+)<\/sub>/
+
+function $importScriptFormat(
+  textNode: TextNode,
+  match: RegExpMatchArray,
+  format: 'superscript' | 'subscript'
+): void {
+  const matched = match[1]
+  if (!matched) return
+  const node = $createTextNode(matched)
+  node.setFormat(format)
+  textNode.replace(node)
+}
+
+export const SUPERSCRIPT_TRANSFORMER: TextMatchTransformer = {
+  dependencies: [],
+  export: (node: LexicalNode, _exportChildren, exportFormat) => {
+    if (!$isTextNode(node) || !node.hasFormat('superscript')) return null
+    return `<sup>${exportFormat(node, node.getTextContent())}</sup>`
+  },
+  importRegExp: SUPERSCRIPT_REGEX,
+  regExp: SUPERSCRIPT_REGEX,
+  replace: (textNode, match) => $importScriptFormat(textNode, match, 'superscript'),
+  trigger: '>',
+  type: 'text-match'
+}
+
+export const SUBSCRIPT_TRANSFORMER: TextMatchTransformer = {
+  dependencies: [],
+  export: (node: LexicalNode, _exportChildren, exportFormat) => {
+    if (!$isTextNode(node) || !node.hasFormat('subscript')) return null
+    return `<sub>${exportFormat(node, node.getTextContent())}</sub>`
+  },
+  importRegExp: SUBSCRIPT_REGEX,
+  regExp: SUBSCRIPT_REGEX,
+  replace: (textNode, match) => $importScriptFormat(textNode, match, 'subscript'),
+  trigger: '>',
+  type: 'text-match'
+}
+
+// —— 脚注定义行 [^id]: 内容 ——
+// 块级 ElementNode：编辑器内显示渲染态序号徽章，内部保留完整行内富文本编辑能力，
+// 导出回标准 GFM `[^id]: 内容`（空定义导出为 `[^id]:`）。
+export const FOOTNOTE_DEF_TRANSFORMER: ElementTransformer = {
+  dependencies: [WorkbenchFootnoteDefNode],
+  export: (node: LexicalNode, exportChildren) => {
+    if (!$isWorkbenchFootnoteDefNode(node)) return null
+    const body = exportChildren(node)
+    return body.length > 0 ? `[^${node.getFootnoteId()}]: ${body}` : `[^${node.getFootnoteId()}]:`
+  },
+  regExp: FOOTNOTE_DEF_PREFIX_RE,
+  replace: (parentNode, children, match, isImport) => {
+    const id = match[1]
+    if (!id) return false
+    if (!isImport) {
+      // 在编辑器内手动键入 `[^id]: ` 快捷转换时，避免产生重复 id 的定义块
+      const root = $getRoot()
+      for (const child of root.getChildren()) {
+        if ($isWorkbenchFootnoteDefNode(child) && child.getFootnoteId() === id) {
+          return false
+        }
+      }
+    }
+    const defNode = $createWorkbenchFootnoteDefNode(id)
+    defNode.append(...children)
+    parentNode.replace(defNode)
+    if (!isImport) {
+      defNode.selectEnd()
+    }
+    return true
+  },
+  type: 'element'
+}
+
+// —— 脚注引用 [^id]：行内装饰节点 ——
+// importRegExp 用 (?!:) 排除定义前缀，避免把定义行首的标记当成引用。
+export const FOOTNOTE_REF_TRANSFORMER: TextMatchTransformer = {
+  dependencies: [WorkbenchFootnoteRefNode],
+  export: (node: LexicalNode) => {
+    if (!$isWorkbenchFootnoteRefNode(node)) return null
+    return `[^${node.getFootnoteId()}]`
+  },
+  importRegExp: FOOTNOTE_REF_MATCH_RE,
+  regExp: /^\[\^([^\]\s:]+)\](?!:)$/,
+  replace: (textNode, match) => {
+    const id = match[1]
+    if (!id) return
+    textNode.replace($createWorkbenchFootnoteRefNode(id))
+  },
+  trigger: ']',
+  type: 'text-match'
+}
+
 export const WORKBENCH_LINK_TRANSFORMER: TextMatchTransformer = {
   ...LINK,
   replace: (textNode, match) => {
@@ -447,10 +564,14 @@ export const WORKBENCH_TRANSFORMERS = [
   HTML_TABLE_TRANSFORMER,
   TABLE_TRANSFORMER,
   BLOCK_EQUATION_TRANSFORMER,
+  FOOTNOTE_DEF_TRANSFORMER,
   CHECK_LIST,
   HR_TRANSFORMER,
   IMAGE_TRANSFORMER,
   INLINE_EQUATION_TRANSFORMER,
+  FOOTNOTE_REF_TRANSFORMER,
+  SUPERSCRIPT_TRANSFORMER,
+  SUBSCRIPT_TRANSFORMER,
   BARE_LINK_TRANSFORMER,
   ...TRANSFORMERS.map((transformer) =>
     transformer === LINK ? WORKBENCH_LINK_TRANSFORMER : transformer

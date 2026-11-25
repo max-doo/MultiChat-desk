@@ -13,6 +13,8 @@ export type SerializedWorkbenchImageNode = Spread<
   {
     src: string
     altText: string
+    title?: string
+    attributes?: string
   },
   SerializedDecoratorBlockNode
 >
@@ -25,32 +27,50 @@ export type SerializedWorkbenchImageNode = Spread<
 export class WorkbenchImageNode extends DecoratorBlockNode {
   __src: string
   __altText: string
+  __title?: string
+  __attributes?: string
 
   static getType(): string {
     return 'workbench-image'
   }
 
   static clone(node: WorkbenchImageNode): WorkbenchImageNode {
-    return new WorkbenchImageNode(node.__src, node.__altText, node.__key)
+    return new WorkbenchImageNode(
+      node.__src,
+      node.__altText,
+      node.__key,
+      node.__title,
+      node.__attributes
+    )
   }
 
-  constructor(src: string, altText: string, key?: NodeKey) {
+  constructor(
+    src: string,
+    altText: string,
+    key?: NodeKey,
+    title?: string,
+    attributes?: string
+  ) {
     super('', key)
     this.__src = src
     this.__altText = altText
+    this.__title = title
+    this.__attributes = attributes
   }
 
   exportJSON(): SerializedWorkbenchImageNode {
     return {
       ...super.exportJSON(),
       src: this.__src,
-      altText: this.__altText
+      altText: this.__altText,
+      ...(this.__title !== undefined ? { title: this.__title } : {}),
+      ...(this.__attributes !== undefined ? { attributes: this.__attributes } : {})
     }
   }
 
   static importJSON(serializedNode: SerializedWorkbenchImageNode): WorkbenchImageNode {
-    const { src, altText } = serializedNode
-    return $applyNodeReplacement($createWorkbenchImageNode(src, altText))
+    const { src, altText, title, attributes } = serializedNode
+    return $applyNodeReplacement($createWorkbenchImageNode(src, altText, title, attributes))
   }
 
   getSrc(): string {
@@ -59,6 +79,14 @@ export class WorkbenchImageNode extends DecoratorBlockNode {
 
   getAltText(): string {
     return this.getLatest().__altText
+  }
+
+  getTitle(): string | undefined {
+    return this.getLatest().__title
+  }
+
+  getAttributes(): string | undefined {
+    return this.getLatest().__attributes
   }
 
   setAltText(altText: string): this {
@@ -91,8 +119,13 @@ export class WorkbenchImageNode extends DecoratorBlockNode {
   }
 }
 
-export function $createWorkbenchImageNode(src: string, altText = ''): WorkbenchImageNode {
-  return $applyNodeReplacement(new WorkbenchImageNode(src, altText))
+export function $createWorkbenchImageNode(
+  src: string,
+  altText = '',
+  title?: string,
+  attributes?: string
+): WorkbenchImageNode {
+  return $applyNodeReplacement(new WorkbenchImageNode(src, altText, undefined, title, attributes))
 }
 
 export function $isWorkbenchImageNode(

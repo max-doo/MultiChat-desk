@@ -24,10 +24,13 @@ import { $isWorkbenchHtmlTableNode } from './WorkbenchHtmlTableNode'
 import { $isWorkbenchEquationNode } from './WorkbenchEquationNode'
 import { $isWorkbenchHorizontalRuleNode } from './WorkbenchHorizontalRuleNode'
 import { $isWorkbenchImageNode } from './WorkbenchImageNode'
+import { $isWorkbenchFootnoteDefNode } from './WorkbenchFootnoteNode'
+import { FOOTNOTE_DEF_LINE_RE, FOOTNOTE_DEF_PREFIX_RE } from './workbenchFootnotes'
 
 export type SourceBlockKind =
   | 'heading'
   | 'paragraph'
+  | 'footnote-def'
   | 'list'
   | 'quote'
   | 'code'
@@ -112,7 +115,9 @@ const QUOTE_REGEX = /^>\s/
 const CODE_START_REGEX = /^([ \t]*`{3,})([\w-]+)?[ \t]?/
 const CODE_SINGLE_LINE_REGEX = /^[ \t]*```[^`]+(?:(?:`{1,2}|`{4,})[^`]+)*```(?:[^`]|$)/
 const HR_REGEX = /^(---|\*\*\*|___)\s?$/
-const IMAGE_REGEX = /^!\[([^\]]*)\]\(([^)\s]+)\)$/
+// 与 MarkdownSyncPlugin 的 IMAGE_TRANSFORMER 共用：支持行尾硬换行空白、含空格本地路径（如 Pasted image）、<...> 路径、可选标题及 Pandoc {#fig-...} 属性
+export const IMAGE_BLOCK_REGEX =
+  /^[ \t]{0,3}!\[([^\]]*)\]\([ \t]*(?:<([^>\n]*[^\s>\n][^>\n]*)>|((?:[^\s()]|\([^()\n]*\))(?:[^()\n]|\([^()\n]*\))*?))(?:[ \t]+(?:"([^"\n]*)"|'([^'\n]*)'))?[ \t]*\)(\{[^}\n]+\})?[ \t]*$/
 const TABLE_ROW_REGEX = /^(?:\|)(.+)(?:\|)\s?$/
 const BLOCK_EQUATION_START_REGEX = /^\$\$/
 const BLOCK_EQUATION_END_REGEX = /^\$\$\s*$/
@@ -348,11 +353,12 @@ function isSpecialBlockLine(line: string): boolean {
     HEADING_REGEX.test(line) ||
     QUOTE_REGEX.test(line) ||
     HR_REGEX.test(line) ||
-    IMAGE_REGEX.test(line) ||
+    IMAGE_BLOCK_REGEX.test(line) ||
     TABLE_ROW_REGEX.test(line) ||
     CODE_START_REGEX.test(line) ||
     CODE_SINGLE_LINE_REGEX.test(line) ||
     BLOCK_EQUATION_START_REGEX.test(line) ||
+    FOOTNOTE_DEF_LINE_RE.test(line) ||
     getListLineType(line) !== null
   )
 }
@@ -394,6 +400,8 @@ function buildTextHint(kind: SourceBlockKind, raw: string): string {
     }
   } else if (kind === 'equation') {
     text = text.replace(/^\$\$|\$\$\s*$/g, '')
+  } else if (kind === 'footnote-def') {
+    text = text.replace(FOOTNOTE_DEF_PREFIX_RE, '')
   }
   return text.replace(/\s+/g, ' ').trim().slice(0, 80)
 }
@@ -496,8 +504,12 @@ export function scanMarkdownSourceBlocks(bodyRaw: string): {
       spans.push({ kind: 'horizontalrule', pStart: i, pEnd: i })
       continue
     }
-    if (IMAGE_REGEX.test(line)) {
+    if (IMAGE_BLOCK_REGEX.test(line)) {
       spans.push({ kind: 'image', pStart: i, pEnd: i })
+      continue
+    }
+    if (FOOTNOTE_DEF_LINE_RE.test(line)) {
+      spans.push({ kind: 'footnote-def', pStart: i, pEnd: i })
       continue
     }
 
@@ -648,6 +660,7 @@ export function getLexicalBlockKind(node: LexicalNode): SourceBlockKind {
   if ($isWorkbenchEquationNode(node)) return 'equation'
   if ($isWorkbenchHorizontalRuleNode(node)) return 'horizontalrule'
   if ($isWorkbenchImageNode(node)) return 'image'
+  if ($isWorkbenchFootnoteDefNode(node)) return 'footnote-def'
   return 'other'
 }
 

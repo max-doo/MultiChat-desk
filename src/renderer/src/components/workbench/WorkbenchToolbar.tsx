@@ -40,6 +40,12 @@ import WorkbenchDropDown, {
 } from './WorkbenchDropDown'
 import WorkbenchLinkEditor from './WorkbenchLinkEditor'
 import WorkbenchEquationEditor from './WorkbenchEquationEditor'
+import WorkbenchFootnotePopover, { type FootnoteInsertMode } from './WorkbenchFootnotePopover'
+import { INSERT_FOOTNOTE_COMMAND } from './WorkbenchFootnotePlugin'
+import {
+  collectFootnoteStateFromLexical,
+  type FootnoteUsageSnapshot
+} from './workbenchFootnotes'
 
 type BlockType =
   | 'paragraph'
@@ -98,6 +104,8 @@ export default function WorkbenchToolbar(): JSX.Element {
   const [isStrikethrough, setIsStrikethrough] = useState(false)
   const [isHighlight, setIsHighlight] = useState(false)
   const [isCode, setIsCode] = useState(false)
+  const [isSuperscript, setIsSuperscript] = useState(false)
+  const [isSubscript, setIsSubscript] = useState(false)
   const [canUndo, setCanUndo] = useState(false)
   const [canRedo, setCanRedo] = useState(false)
   const [isEditable, setIsEditable] = useState(() => editor.isEditable())
@@ -110,6 +118,11 @@ export default function WorkbenchToolbar(): JSX.Element {
   const [equationEditor, setEquationEditor] = useState<{
     anchorRect: DOMRect
     inline: boolean
+  } | null>(null)
+  const footnoteButtonRef = useRef<HTMLButtonElement | null>(null)
+  const [footnoteEditor, setFootnoteEditor] = useState<{
+    anchorRect: DOMRect
+    snapshot: FootnoteUsageSnapshot
   } | null>(null)
 
   // 与 playground $updateToolbar 等价：随选区变化刷新块类型 / 行内格式 / 链接 / 对齐
@@ -151,6 +164,8 @@ export default function WorkbenchToolbar(): JSX.Element {
       setIsStrikethrough(selection.hasFormat('strikethrough'))
       setIsHighlight(selection.hasFormat('highlight'))
       setIsUnderline(selection.hasFormat('underline'))
+      setIsSuperscript(selection.hasFormat('superscript'))
+      setIsSubscript(selection.hasFormat('subscript'))
 
       setElementFormat($isElementNode(element) ? element.getFormatType() : 'left')
     }
@@ -266,11 +281,37 @@ export default function WorkbenchToolbar(): JSX.Element {
   }, [blockType, editor, $setBlocksToParagraph])
 
   const applyFormat = useCallback(
-    (format: 'bold' | 'italic' | 'underline' | 'strikethrough' | 'code' | 'highlight') => {
+    (
+      format:
+        | 'bold'
+        | 'italic'
+        | 'underline'
+        | 'strikethrough'
+        | 'code'
+        | 'highlight'
+        | 'superscript'
+        | 'subscript'
+    ) => {
       editor.dispatchCommand(FORMAT_TEXT_COMMAND, format)
     },
     [editor]
   )
+
+  // Ctrl+. 上标 / Ctrl+, 下标（对齐 Google Docs / Word 约定）
+  useEffect(() => {
+    const handler = (e: KeyboardEvent): void => {
+      if (!e.ctrlKey && !e.metaKey) return
+      if (e.key === '.') {
+        e.preventDefault()
+        applyFormat('superscript')
+      } else if (e.key === ',') {
+        e.preventDefault()
+        applyFormat('subscript')
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [applyFormat])
 
   const applyAlign = useCallback(
     (align: ElementFormatType) => {
@@ -299,6 +340,28 @@ export default function WorkbenchToolbar(): JSX.Element {
       setEquationEditor({ anchorRect: button.getBoundingClientRect(), inline })
     },
     []
+  )
+
+  // 插入脚注：扫描当前 Lexical 状态内所有引用与定义，计算不冲突的自增编号
+  const openFootnoteEditor = useCallback(() => {
+    const button = footnoteButtonRef.current
+    if (!button) return
+    let snapshot: FootnoteUsageSnapshot | null = null
+    editor.getEditorState().read(() => {
+      snapshot = collectFootnoteStateFromLexical()
+    })
+    if (!snapshot) return
+    setFootnoteEditor({
+      anchorRect: button.getBoundingClientRect(),
+      snapshot
+    })
+  }, [editor])
+
+  const applyFootnote = useCallback(
+    (payload: { id: string; content: string; mode: FootnoteInsertMode }) => {
+      editor.dispatchCommand(INSERT_FOOTNOTE_COMMAND, payload)
+    },
+    [editor]
   )
 
   const applyEquation = useCallback(
@@ -558,6 +621,39 @@ export default function WorkbenchToolbar(): JSX.Element {
           <AppIcon name="ink_highlighter" size={20} />
         </button>
 
+        {/* 上标 / 下标：Markdown 序列化为 <sup>/<sub>，Word 式紧凑下拉 */}
+        <WorkbenchDropDown
+          buttonAriaLabel="上下标"
+          buttonTitle="上下标 (Ctrl+. / Ctrl+,)"
+          buttonClassName={`h-8 px-1.5 flex items-center justify-center rounded-md transition-colors font-medium ${
+            isSuperscript || isSubscript
+              ? 'bg-primary/15 text-primary'
+              : 'text-text-primary hover:bg-black/5 dark:hover:bg-white/10'
+          }`}
+          buttonContent={
+            <span className="text-body leading-none">
+              x{isSubscript ? '₂' : '²'}
+            </span>
+          }
+        >
+          <WorkbenchDropDownItem
+            className={itemClass(isSuperscript)}
+            onClick={() => applyFormat('superscript')}
+          >
+            <AppIcon name="format_superscript" size={19} className="text-text-secondary" />
+            <span>上标</span>
+            <span className="ml-auto text-label text-text-secondary">Ctrl+.</span>
+          </WorkbenchDropDownItem>
+          <WorkbenchDropDownItem
+            className={itemClass(isSubscript)}
+            onClick={() => applyFormat('subscript')}
+          >
+            <AppIcon name="format_subscript" size={19} className="text-text-secondary" />
+            <span>下标</span>
+            <span className="ml-auto text-label text-text-secondary">Ctrl+,</span>
+          </WorkbenchDropDownItem>
+        </WorkbenchDropDown>
+
         <div className="w-[1px] h-4 bg-black/10 dark:bg-white/10 mx-1 shrink-0" />
 
         {/* 列表快捷按钮：active 态跟随块类型 */}
@@ -650,6 +746,18 @@ export default function WorkbenchToolbar(): JSX.Element {
             <span>块级公式</span>
           </WorkbenchDropDownItem>
         </WorkbenchDropDown>
+
+        {/* 插入脚注：编号 [^id] 引用插到光标处，定义行追加到文末 */}
+        <button
+          ref={footnoteButtonRef}
+          type="button"
+          onClick={openFootnoteEditor}
+          className={iconBtnClass(false)}
+          title="插入脚注"
+          aria-label="插入脚注"
+        >
+          <AppIcon name="footnote" size={20} />
+        </button>
 
         <div className="w-[1px] h-4 bg-black/10 dark:bg-white/10 mx-1 shrink-0" />
 
@@ -758,6 +866,16 @@ export default function WorkbenchToolbar(): JSX.Element {
           inline={equationEditor.inline}
           onApply={applyEquation}
           onClose={() => setEquationEditor(null)}
+        />
+      )}
+      {footnoteEditor && (
+        <WorkbenchFootnotePopover
+          anchorRect={footnoteEditor.anchorRect}
+          defaultId={footnoteEditor.snapshot.nextId}
+          existingDefinitions={footnoteEditor.snapshot.definitions}
+          usedIds={footnoteEditor.snapshot.usedIds}
+          onApply={applyFootnote}
+          onClose={() => setFootnoteEditor(null)}
         />
       )}
     </>
