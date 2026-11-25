@@ -2,6 +2,82 @@
 
 ## 2026-11-25
 
+### 14:08 | Codex
+
+- done: 按功能模块提交 5 个 commit 并构建 Windows NSIS 安装包 1.3.5
+- context: 用户要求提交修改并构建安装包；工作区含下载保存框、弹窗性能、布局限宽、模型选择器四组未提交改动及记忆日志改动，另有 .tmp/、scratch/、assets/agent-avatar.png 未跟踪过程文件未纳入提交
+- decision: 按功能拆分提交：下载保存框、弹窗遮罩性能、控制栏限宽与卡片阴影、Agent 模型选择器、记忆日志；构建使用当前 package.json 版本 1.3.5，未额外升版
+- modified:
+  - `src/main/index.ts`
+  - `src/main/services/workbenchDownloadService.ts`
+  - `CHANGELOG.md`
+  - `src/renderer/src/components/ui/Modal.tsx`
+  - `src/renderer/src/components/ConfirmModal.tsx`
+  - `src/renderer/src/assets/index.css`
+  - `DESIGN.md`
+  - `src/renderer/src/components/ControlBar.tsx`
+  - `src/renderer/src/components/WebviewCard.tsx`
+  - `src/renderer/src/components/modes/DebateModePanel.tsx`
+  - `src/renderer/src/components/modes/TaskModePanel.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentModelPicker.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentComposer.tsx`
+
+### 14:01 | Antigravity
+
+- done: AgentModelPicker 供应商列表支持折叠与展开
+- modified:
+  - `src/renderer/src/components/workbench/agent/AgentModelPicker.tsx`
+
+### 13:59 | Antigravity
+
+- done: 调整思考强度滑块渐变为越高越暖并移除无条件显示的大脑图标
+- modified:
+  - `src/renderer/src/components/workbench/agent/AgentModelPicker.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentComposer.tsx`
+
+### 13:55 | Antigravity
+
+- done: 优化 Agent 侧边栏 Model Picker 组件及思考强度渐变滑块
+- modified:
+  - `src/renderer/src/components/workbench/agent/AgentModelPicker.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentComposer.tsx`
+
+### 13:38 | Antigravity
+
+- done: 将底部控制栏最大宽度由 max-w-5xl (1024px) 调整为 max-w-7xl (1280px)，确保在主窗口最小宽度 (1100px) 下可撑满并与卡片外缘对齐
+- modified:
+  - `src/renderer/src/components/ControlBar.tsx`
+
+### 13:35 | Codex
+
+- done: 工作台 AI Webview 原生下载改为弹出系统保存框，默认目录为当前工作区
+- context: 工作台下载原先由 workbenchDownloadService 在 will-download 中直接 setSavePath，静默落盘到工作区根目录
+- decision: 保留 will-download 识别与默认文件名生成，改用 downloadItem.setSaveDialogOptions({ defaultPath }) 而不调用 setSavePath，让 Electron 走默认保存框
+- modified:
+  - `src/main/services/workbenchDownloadService.ts`
+  - `src/main/index.ts`
+  - `CHANGELOG.md`
+- lesson(promoted): Electron will-download 中 setSavePath 会跳过系统保存框；要保留保存框并指定默认位置，应使用 item.setSaveDialogOptions({ defaultPath })。
+
+### 13:33 | Antigravity
+
+- done: 排查确认弹窗弹出卡顿原因并移除 Modal 全屏模糊与遮罩淡入动画，solid 弹窗改用透明点击拦截层，glass 弹窗保留轻量纯色压暗
+- modified:
+  - `src/renderer/src/components/ui/Modal.tsx`
+  - `src/renderer/src/components/ConfirmModal.tsx`
+  - `src/renderer/src/assets/index.css`
+  - `DESIGN.md`
+- lesson(promoted): Electron/Chromium 中全屏 fixed inset-0 叠 backdrop-blur-sm 再加 opacity 淡入动画会触发合成器跨 webview 与下层 glass-panel 反复全屏采样重绘导致弹窗明显卡顿；solid 确认弹窗改用 bg-transparent 透明事件拦截层（保留阻断 webview 穿透与点击外部关闭语义），glass 大弹窗仅用无动画轻量纯色压暗（bg-black/25）。
+
+### 13:31 | Antigravity
+
+- done: 限制多AI/任务分配/辩论模式底部操作栏全屏最大宽度并居中，同时收敛 WebviewCard 阴影避免被外层滚动容器底边裁切形成分界线
+- modified:
+  - `src/renderer/src/components/ControlBar.tsx`
+  - `src/renderer/src/components/modes/TaskModePanel.tsx`
+  - `src/renderer/src/components/modes/DebateModePanel.tsx`
+  - `src/renderer/src/components/WebviewCard.tsx`
+
 ### 13:27 | Codex
 
 - done: 提交工作台改动：按功能拆 4 个 commit（md 编辑器引用块入口、Git 面板反馈/Hooks 修复、工作台 UI 体系审计重构、会话日志）

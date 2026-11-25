@@ -204,6 +204,8 @@ Long-term reusable lessons, durable decisions, and recurring project gotchas. Do
 
 - **旁注不参与正文布局流，正文始终居中；大纲贴编辑区左缘**：把旁注列作为 flex 兄弟节点会在展开时挤动正文，任何“占位补回”都只是把横向位移转移到别处。正文列应固定 `mx-auto` 居中，旁注改为绝对定位，水平基准取正文文本右缘加固定间距；用 `ResizeObserver` 测量右侧实际留白，够宽才展开卡片列，不足则收成计数入口，不留占位元素。大纲导航的锚点是编辑区左缘而不是正文左缘，直接用固定 `left` 定位，悬停标题用 body 级 `fixed` 浮层向右展开，既不被目录自身滚动裁切，也不改变正文与滚动位置。
 
+- **弹窗遮罩不要叠加全屏模糊与淡入动画**：Electron 下 `fixed inset-0` 的 `backdrop-blur-sm` 再配透明度动画，会让合成器跨 `<webview>` 与下层 glass-panel 反复全屏采样重绘，确认弹窗出现明显卡顿。统一 `Modal` 的 `backdrop` 分两档：`none` 用透明拦截层保留阻断 webview 穿透与点外部关闭的语义，`dim` 用 `bg-black/25` 纯色压暗且不做遮罩动画；只保留面板自身的 `modal-zoom-in`。
+
 ### 窗口、划词与快捷键
 
 - **快捷窗口保持可聚焦，被动弹出不要抢焦点**：避免同时使用 `focusable: false` 和依赖完整 `click` 事件；用 `showInactive` 控制被动弹出时不抢焦点，让窗口保持可聚焦，并在 `pointerdown` 派发一次性动作。快捷窗口初始配置应为 `alwaysOnTop: false`、`skipTaskbar: false`，让用户通过 pin 按钮决定是否置顶；`skipTaskbar: true` 会让窗口被其他窗口遮挡后无法从任务栏找回。`isPinned` 由前端 toggle 驱动，通过 `quick:get-always-on-top` / `quick:set-always-on-top` IPC 控制。
@@ -271,6 +273,8 @@ Long-term reusable lessons, durable decisions, and recurring project gotchas. Do
 - **总结页模型卡片必须按“有回复内容”过滤**：`SummaryPage.tsx` 若直接 `displayedModels.map(...)`，会把用户当前页面没打开的模型（如 gemini/claude 等禁用模型）显示成“暂无回复内容”的空框。phantom 模型进入 `displayedModels` 的两条路径是：`getDisplayedModels` 的 `models[index % models.length]` 兜底不按 `enabled` 过滤；`MainPage.tsx` 历史恢复时 `newOrder = [...item.models, ...其他所有模型]` 把未参与模型回填进 `multiAiSlots`。渲染前应按 `(modelResponses[m.id] || '').trim()` 过滤出 `renderableModels`，与 `selectedModels` 的 `modelsWithData`、`getAllResponses` 的 `targetModels`、`MainPage.tsx` 快照兜底的 `targetModelList` 保持一致；无任何回复时回落 `displayedModels` 保留加载/空态。
 
 - **下载监听要区分全局与单次任务**：`will-download` 属于 Session，多窗口共享同一登录 Session。全局批量下载路由应幂等注册；当前图片另存为等路径会按任务临时绑定监听，不能一律禁止。临时监听要匹配发起 WebContents 和 URL，在命中、失败、取消或超时等结束路径清理，避免误拦其他窗口下载或累积监听；实际清理覆盖要按对应代码核对。
+
+- **will-download 的保存框与默认目录**：在 `will-download` 中调用 `item.setSavePath()` 会跳过系统保存框并直接落盘；需要保留保存框、只指定默认位置时，应调用 `item.setSaveDialogOptions({ defaultPath })`，不要设置 savePath。
 
 - **代理/TUN 加载故障要分层诊断**：当前 main 初始化含 disable-quic 与 AutomationControlled 开关，Session 处理会清理 Electron UA 标识；这些是既有兼容配置，不能保证所有代理、站点或验证码可用，更不能把白屏一律归因于 QUIC 或自动化探针。应按加载事件、错误码、`render-process-gone` 和实际网络证据排查；导航超时和取消处理需与休眠/唤醒配合，详见 Webview 加载失败条目。
 
