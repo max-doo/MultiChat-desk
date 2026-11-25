@@ -179,10 +179,10 @@ export default function WorkbenchTocRail({
                       : 'max-w-0 opacity-0 -translate-x-2 pointer-events-none'
                   }`}
                 >
-                  <span className="text-tiny font-mono px-1.5 py-0.2 rounded bg-blue-50 text-primary font-bold shrink-0 dark:bg-blue-950/60 dark:text-blue-300">
+                  <span className="text-tiny font-mono px-1.5 py-0.5 rounded bg-blue-50 text-primary font-bold shrink-0 dark:bg-blue-950/60 dark:text-blue-300">
                     H{item.level}
                   </span>
-                  <span className="text-xs font-medium text-text-primary dark:text-gray-100 truncate">
+                  <span className="text-label font-medium text-text-primary dark:text-gray-100 truncate">
                     {item.title}
                   </span>
                 </div>

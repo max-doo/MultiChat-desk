@@ -452,7 +452,7 @@ const WorkbenchHtmlVisualEditor = forwardRef<
         {selection && (
           <div
             ref={toolbarWrapRef}
-            className="absolute z-40"
+            className="absolute z-dropdown"
             style={{
               left: toolbarPos?.left ?? 0,
               top: toolbarPos?.top ?? 0,
@@ -475,7 +475,7 @@ const WorkbenchHtmlVisualEditor = forwardRef<
             aria-label="拖动排序"
             data-html-drag-handle
             onPointerDown={handleBeginDrag}
-            className={`absolute z-40 flex h-6 w-6 items-center justify-center rounded-md border border-primary/40 bg-white/95 text-primary shadow-md backdrop-blur-sm transition-colors dark:bg-gray-800/95 ${
+            className={`absolute z-dropdown flex h-6 w-6 items-center justify-center rounded-md border border-primary/40 bg-white/95 text-primary shadow-md backdrop-blur-sm transition-colors dark:bg-gray-800/95 ${
               isDragging
                 ? 'cursor-grabbing bg-primary text-white'
                 : 'cursor-grab hover:bg-primary hover:text-white'
@@ -486,10 +486,10 @@ const WorkbenchHtmlVisualEditor = forwardRef<
           </button>
         )}
 
-        {isDragging && <div className="absolute inset-0 z-30 cursor-grabbing" />}
+        {isDragging && <div className="absolute inset-0 z-dropdown cursor-grabbing" />}
 
         {failed && (
-          <div className="absolute inset-x-0 top-0 z-20 flex items-center justify-center gap-2 bg-amber-500/95 px-3 py-2 text-xs text-white">
+          <div className="absolute inset-x-0 top-0 z-20 flex items-center justify-center gap-2 bg-amber-500/95 px-3 py-2 text-label text-white">
             <AppIcon name="warning" size={15} />
             <span>编辑脚本未启动，请使用源码模式</span>
           </div>

@@ -734,7 +734,7 @@ export default function WorkbenchHtmlAnnotationPreview({
       />
 
       {frameFailed && (
-        <div className="absolute inset-x-0 top-0 z-20 flex items-center justify-center gap-2 bg-amber-500/95 px-3 py-2 text-xs text-white">
+        <div className="absolute inset-x-0 top-0 z-20 flex items-center justify-center gap-2 bg-amber-500/95 px-3 py-2 text-label text-white">
           <AppIcon name="warning" size={15} />
           <span>标注脚本未启动，暂时无法添加标注</span>
         </div>
@@ -742,7 +742,7 @@ export default function WorkbenchHtmlAnnotationPreview({
 
       {hint && (
         <div
-          className={`pointer-events-none absolute left-1/2 z-40 -translate-x-1/2 rounded-lg bg-slate-900/90 px-3 py-1.5 text-xs text-white shadow-lg ${
+          className={`pointer-events-none absolute left-1/2 z-popover -translate-x-1/2 rounded-lg bg-slate-900/90 px-3 py-1.5 text-label text-white shadow-lg ${
             frameFailed ? 'top-12' : 'top-3'
           }`}
         >
@@ -751,13 +751,13 @@ export default function WorkbenchHtmlAnnotationPreview({
       )}
 
       {annotations.length >= 400 && (
-        <div className="absolute left-1/2 top-12 z-30 -translate-x-1/2 rounded-lg border border-amber-500/30 bg-amber-50/95 px-3 py-1.5 text-xs text-amber-700 shadow-sm dark:border-amber-400/30 dark:bg-amber-950/80 dark:text-amber-300">
+        <div className="absolute left-1/2 top-12 z-dropdown -translate-x-1/2 rounded-lg border border-amber-500/30 bg-amber-50/95 px-3 py-1.5 text-label text-amber-700 shadow-sm dark:border-amber-400/30 dark:bg-amber-950/80 dark:text-amber-300">
           当前文档标注 {annotations.length} 条，建议清理未解决注释
         </div>
       )}
 
       {unresolvedError && (
-        <div className="absolute left-1/2 top-12 z-30 -translate-x-1/2 rounded-lg border border-rose-500/30 bg-rose-50/95 px-3 py-1.5 text-xs text-rose-600 shadow-sm dark:border-rose-400/30 dark:bg-rose-950/80 dark:text-rose-300">
+        <div className="absolute left-1/2 top-12 z-dropdown -translate-x-1/2 rounded-lg border border-rose-500/30 bg-rose-50/95 px-3 py-1.5 text-label text-rose-600 shadow-sm dark:border-rose-400/30 dark:bg-rose-950/80 dark:text-rose-300">
           {unresolvedError}
         </div>
       )}
@@ -767,7 +767,7 @@ export default function WorkbenchHtmlAnnotationPreview({
           <button
             type="button"
             onClick={() => setShowUnresolved((previous) => !previous)}
-            className="rounded-lg border border-rose-500/30 bg-white/95 px-2 py-1 text-xs font-semibold text-rose-600 shadow-sm dark:bg-gray-800/95 dark:text-rose-400"
+            className="rounded-lg border border-rose-500/30 bg-white/95 px-2 py-1 text-label font-semibold text-rose-600 shadow-sm dark:bg-gray-800/95 dark:text-rose-400"
           >
             未定位 {unlocatedIds.length}
           </button>
@@ -797,7 +797,7 @@ export default function WorkbenchHtmlAnnotationPreview({
                           setShowUnresolved(false)
                           showHint('请选择新文字，再点击“标注”保存位置')
                         }}
-                        className="rounded px-1.5 py-0.5 text-tiny text-primary hover:bg-primary/10"
+                        className="rounded px-1.5 py-0.5 text-caption text-primary hover:bg-primary/10"
                       >
                         重新定位
                       </button>
@@ -807,7 +807,7 @@ export default function WorkbenchHtmlAnnotationPreview({
                           if (busyRef.current) return
                           void deleteUnlocatedAnnotation(id)
                         }}
-                        className="rounded px-1.5 py-0.5 text-tiny text-rose-600 hover:bg-rose-100 dark:text-rose-400 dark:hover:bg-rose-900/40"
+                        className="rounded px-1.5 py-0.5 text-caption text-rose-600 hover:bg-rose-100 dark:text-rose-400 dark:hover:bg-rose-900/40"
                       >
                         删除
                       </button>
@@ -819,7 +819,7 @@ export default function WorkbenchHtmlAnnotationPreview({
                 <button
                   type="button"
                   onClick={openCleanup}
-                  className="w-full rounded px-1.5 py-0.5 text-tiny text-rose-600 hover:bg-rose-100 dark:text-rose-400 dark:hover:bg-rose-900/40"
+                  className="w-full rounded px-1.5 py-0.5 text-caption text-rose-600 hover:bg-rose-100 dark:text-rose-400 dark:hover:bg-rose-900/40"
                 >
                   清理未解决
                 </button>
@@ -830,8 +830,8 @@ export default function WorkbenchHtmlAnnotationPreview({
       )}
 
       {showCleanup && (
-        <div className="absolute right-3 top-14 z-30 w-72 rounded-lg border border-rose-500/30 bg-white p-3 text-left shadow-lg dark:bg-gray-800">
-          <div className="text-xs font-semibold text-text-primary">清理未解决</div>
+        <div className="absolute right-3 top-14 z-dropdown w-72 rounded-lg border border-rose-500/30 bg-white p-3 text-left shadow-lg dark:bg-gray-800">
+          <div className="text-label font-semibold text-text-primary">清理未解决</div>
           {unlocatedIds.map((id) => {
             const annotation = annotations.find((item) => item.id === id)
             if (!annotation) return null
@@ -877,7 +877,7 @@ export default function WorkbenchHtmlAnnotationPreview({
 
       {card && (
         <AnnotationCommentCard
-          className="absolute z-30"
+          className="absolute z-dropdown"
           style={{ left: card.left, top: card.top }}
           title={card.mode === 'create' ? '标注' : '修改评论'}
           quote={card.quote}

@@ -1,14 +1,12 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Plus, ChevronDown, Loader2, ArrowUp, Square, X, Brain, Pencil, Play, TriangleAlert, Folder, Check, SendHorizonal } from 'lucide-react'
-import type { LucideIcon } from 'lucide-react'
+import { AppIcon } from '../../icons/AppIcon'
 import { useAgentSessionStore } from '../../../store/agentSessionStore'
 import { useWorkbenchStore } from '../../../store/workbenchStore'
-import type { AgentPermissionMode, AgentSkill, AgentThinkingLevel } from '../../../types/agent'
+import { THINKING_LABELS, type AgentPermissionMode, type AgentSkill, type AgentThinkingLevel } from '../../../types/agent'
 import type { WorkbenchFileNode } from '../../../../../shared/types/workbench'
 import FileTypeIcon from '../FileTypeIcon'
 import { extractLocalPath } from '../WorkbenchFileTree'
 import { AgentModelPicker } from './AgentModelPicker'
-import { THINKING_LABELS } from './AgentThinkingPicker'
 import { AgentContextMeter } from './AgentContextMeter'
 import { AgentPopover } from './AgentPopover'
 import { isFileMentioned } from './filePathUtils'
@@ -295,14 +293,13 @@ export function AgentComposer(): JSX.Element {
     [mentionFile]
   )
 
-  const permissionModeLabels: Record<AgentPermissionMode, { label: string; color: string; desc: string; icon: LucideIcon }> = {
-    default: { label: '默认模式', color: 'text-primary', desc: '工作区内编辑直接执行，命令需确认', icon: Pencil },
-    auto: { label: '自动模式', color: 'text-amber-600', desc: '只读与工作区内写入自动执行，越权写/高危需确认', icon: Play },
-    bypass: { label: '全放行', color: 'text-rose-600', desc: '跳过确认，仅拦截系统破坏与凭据目录（无 OS 沙箱）', icon: TriangleAlert }
+  const permissionModeLabels: Record<AgentPermissionMode, { label: string; color: string; desc: string; icon: string }> = {
+    default: { label: '默认模式', color: 'text-primary', desc: '工作区内编辑直接执行，命令需确认', icon: 'edit' },
+    auto: { label: '自动模式', color: 'text-amber-600 dark:text-amber-400', desc: '只读与工作区内写入自动执行，越权写/高危需确认', icon: 'play_arrow' },
+    bypass: { label: '全放行', color: 'text-rose-600 dark:text-rose-400', desc: '跳过确认，仅拦截系统破坏与凭据目录（无 OS 沙箱）', icon: 'warning' }
   }
 
   const currentModeInfo = permissionModeLabels[permissionMode] || permissionModeLabels.default
-  const CurrentModeIcon = currentModeInfo.icon
   const active = sessionStatus?.active ?? snapshot?.active
   const modelLabel = active?.modelName || activeModel
   const thinkingLevel: AgentThinkingLevel = active?.thinkingLevel ?? 'off'
@@ -317,20 +314,20 @@ export function AgentComposer(): JSX.Element {
           {queuedFollowUp.map((text, i) => (
             <span
               key={`fu-${i}`}
-              className="inline-flex items-center gap-1 max-w-full truncate rounded-full border border-slate-200 bg-slate-50/80 px-2.5 py-1 text-caption text-slate-500"
+              className="inline-flex items-center gap-1 max-w-full truncate rounded-full border border-slate-200 bg-slate-50/80 px-2.5 py-1 text-caption text-slate-500 dark:border-white/10 dark:bg-white/5 dark:text-slate-300"
               title={`待执行：${text}`}
             >
-              <Loader2 className="w-3 h-3 animate-spin text-slate-400 shrink-0" />
+              <AppIcon name="progress_activity" size={12} className="animate-spin text-slate-400 shrink-0" />
               <span className="truncate">{text}</span>
             </span>
           ))}
           {queuedSteering.map((text, i) => (
             <span
               key={`st-${i}`}
-              className="inline-flex items-center gap-1 max-w-full truncate rounded-full border border-amber-200 bg-amber-50/80 px-2.5 py-1 text-caption text-amber-700"
+              className="inline-flex items-center gap-1 max-w-full truncate rounded-full border border-amber-200 bg-amber-50/80 px-2.5 py-1 text-caption text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300"
               title={`打断中：${text}`}
             >
-              <SendHorizonal className="w-3 h-3 shrink-0" />
+              <AppIcon name="send" size={12} className="shrink-0" />
               <span className="truncate">{text}</span>
             </span>
           ))}
@@ -342,7 +339,7 @@ export function AgentComposer(): JSX.Element {
           {imageAttachments.map((img, idx) => (
             <span
               key={`img-${idx}`}
-              className="group/img relative inline-flex h-12 w-12 items-center justify-center overflow-hidden rounded-lg border border-blue-200/70 bg-blue-50"
+              className="group/img relative inline-flex h-12 w-12 items-center justify-center overflow-hidden rounded-lg border border-blue-200/70 bg-blue-50 dark:border-blue-400/25 dark:bg-blue-500/10"
             >
               <img
                 src={img.dataUrl}
@@ -355,7 +352,7 @@ export function AgentComposer(): JSX.Element {
                 className="absolute right-0.5 top-0.5 rounded-full bg-black/55 p-0.5 text-white opacity-0 transition-opacity group-hover/img:opacity-100"
                 title="移除图片"
               >
-                <X className="h-3 w-3" />
+                <AppIcon name="close" size={12} />
               </button>
             </span>
           ))}
@@ -364,15 +361,15 @@ export function AgentComposer(): JSX.Element {
             return (
               <span
                 key={idx}
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-50 border border-blue-200/70 text-blue-700 text-caption font-mono"
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-50 border border-blue-200/70 text-blue-700 text-caption font-mono dark:bg-blue-500/15 dark:border-blue-400/25 dark:text-blue-300"
               >
                 <span className="truncate max-w-[140px]">{fileName}</span>
                 <button
                   type="button"
                   onClick={() => removeAttachment(idx)}
-                  className="hover:text-blue-900 rounded-full p-0.5"
+                  className="hover:text-blue-900 dark:hover:text-blue-100 rounded-full p-0.5"
                 >
-                  <X className="w-3 h-3" />
+                  <AppIcon name="close" size={12} />
                 </button>
               </span>
             )
@@ -397,28 +394,28 @@ export function AgentComposer(): JSX.Element {
         onDrop={handleComposerDrop}
         className="group relative w-full rounded-2xl cursor-text transition-all duration-300"
       >
-        {/* 1. 外层弥散流光气场 (Ambient Flowing Aura: 8px 柔化模糊，收敛适度扩散) */}
+        {/* 1. 外层弥散流光气场 */}
         <div className="composer-ambient-aura" />
 
-        {/* 2. 贴身柔化流光边缘 (Close Feathered Flow: 2.5px 羽化，柔润无生硬粗线) */}
+        {/* 2. 贴身柔化流光边缘 */}
         <div className="composer-feathered-flow" />
 
-        {/* 3. 输入框实体表面 (微透玻璃，将流光自然漫透) */}
+        {/* 3. 输入框实体表面 */}
         <div className="composer-surface relative w-full flex flex-col justify-between">
         {/* Skill Suggestions */}
         {skillMenuOpen && (
-          <div className="absolute left-0 bottom-full mb-1.5 w-full rounded-xl border border-gray-200 py-1 shadow-lg z-popover bg-white text-text-primary text-label max-h-56 overflow-y-auto">
+          <div className="absolute left-0 bottom-full mb-1.5 w-full rounded-xl border border-gray-200 py-1 shadow-lg z-popover bg-white text-text-primary text-label max-h-56 overflow-y-auto dark:border-white/10 dark:bg-gray-800">
             {skillSuggestions.map((skill) => (
               <button
                 key={skill.filePath}
                 type="button"
                 onClick={() => applySkill(skill)}
-                className="w-full text-left px-3 py-1.5 hover:bg-gray-50 flex items-baseline gap-2 transition-colors"
+                className="w-full text-left px-3 py-1.5 hover:bg-gray-50 dark:hover:bg-white/5 flex items-baseline gap-2 transition-colors"
               >
                 <span className="font-medium text-primary shrink-0">/{skill.name}</span>
                 <span className="truncate text-text-secondary text-caption">{skill.description}</span>
                 {skill.disableModelInvocation && (
-                  <span className="ml-auto shrink-0 text-tiny text-text-secondary/70">显式调用</span>
+                  <span className="ml-auto shrink-0 text-caption text-text-secondary/70">显式调用</span>
                 )}
               </button>
             ))}
@@ -429,7 +426,7 @@ export function AgentComposer(): JSX.Element {
         {atMenuOpen && (
           <div
             ref={atListRef}
-            className="absolute left-0 bottom-full mb-1.5 w-full rounded-xl border border-gray-200 py-1 shadow-lg z-popover bg-white text-text-primary text-label max-h-56 overflow-y-auto"
+            className="absolute left-0 bottom-full mb-1.5 w-full rounded-xl border border-gray-200 py-1 shadow-lg z-popover bg-white text-text-primary text-label max-h-56 overflow-y-auto dark:border-white/10 dark:bg-gray-800"
           >
             {atSuggestions.map((node, idx) => (
               <button
@@ -439,11 +436,11 @@ export function AgentComposer(): JSX.Element {
                 onMouseEnter={() => setAtIndex(idx)}
                 onClick={() => applyAtMention(node)}
                 className={`w-full text-left px-3 py-1.5 flex items-center gap-2 transition-colors ${
-                  idx === atIndex ? 'bg-blue-50' : 'hover:bg-gray-50'
+                  idx === atIndex ? 'bg-blue-50 dark:bg-primary/15' : 'hover:bg-gray-50 dark:hover:bg-white/5'
                 }`}
               >
                 {node.isDirectory ? (
-                  <Folder className="w-3.5 h-3.5 shrink-0 text-amber-500" />
+                  <AppIcon name="folder" size={14} className="shrink-0 text-amber-500" />
                 ) : (
                   <FileTypeIcon node={node} className="w-3.5 h-3.5" />
                 )}
@@ -485,10 +482,10 @@ export function AgentComposer(): JSX.Element {
               type="button"
               disabled={!isWorkspaceReady}
               onClick={() => void handleSelectFiles()}
-              className="w-7 h-7 rounded-lg hover:bg-slate-200/70 disabled:opacity-40 text-slate-500 hover:text-slate-800 flex items-center justify-center transition-colors"
+              className="w-7 h-7 rounded-lg hover:bg-slate-200/70 disabled:opacity-40 text-slate-500 hover:text-slate-800 flex items-center justify-center transition-colors dark:text-slate-400 dark:hover:bg-white/10 dark:hover:text-gray-200"
               title="添加附件 / 注入文件路径"
             >
-              <Plus className="w-4 h-4" />
+              <AppIcon name="add" size={16} />
             </button>
 
             {/* Permission Mode Selector */}
@@ -496,14 +493,14 @@ export function AgentComposer(): JSX.Element {
               <button
                 type="button"
                 onClick={() => setAccessMenuOpen(!accessMenuOpen)}
-                className={`flex items-center gap-1 font-medium ${currentModeInfo.color} hover:opacity-80 transition-colors py-1 px-2 rounded-lg hover:bg-slate-200/50 text-label ${
-                  accessMenuOpen ? 'bg-slate-200/50' : ''
+                className={`flex items-center gap-1 font-medium ${currentModeInfo.color} hover:opacity-80 transition-colors py-1 px-2 rounded-lg hover:bg-slate-200/50 dark:hover:bg-white/10 text-label ${
+                  accessMenuOpen ? 'bg-slate-200/50 dark:bg-white/10' : ''
                 }`}
                 title="切换权限模式"
               >
-                <CurrentModeIcon className="w-3.5 h-3.5" />
+                <AppIcon name={currentModeInfo.icon} size={14} />
                 <span>{currentModeInfo.label}</span>
-                <ChevronDown className="w-3 h-3" />
+                <AppIcon name="expand_more" size={12} />
               </button>
 
               {/* Access Mode Menu 直接挂载在按钮上方 */}
@@ -513,13 +510,12 @@ export function AgentComposer(): JSX.Element {
                 align="left"
                 className="w-72 max-w-[calc(100vw-48px)] p-1"
               >
-                <div className="flex flex-col text-label w-full select-none bg-white">
+                <div className="flex flex-col text-label w-full select-none bg-white dark:bg-gray-800">
                   {/* 模式列表 */}
                   <div className="space-y-0.5">
                     {(['default', 'auto', 'bypass'] as AgentPermissionMode[]).map((mode) => {
                       const item = permissionModeLabels[mode]
                       const isCurrent = permissionMode === mode
-                      const ModeIcon = item.icon
                       return (
                         <button
                           key={mode}
@@ -530,24 +526,30 @@ export function AgentComposer(): JSX.Element {
                           }}
                           className={`w-full text-left px-2.5 py-2 rounded-lg flex items-center justify-between transition-colors ${
                             isCurrent
-                              ? 'bg-blue-50/60 font-medium'
-                              : 'hover:bg-gray-50'
+                              ? 'bg-blue-50/60 dark:bg-primary/15 font-medium'
+                              : 'hover:bg-gray-50 dark:hover:bg-white/5'
                           }`}
                         >
                           <div className="flex items-center gap-2 min-w-0">
                             <div
-                              className={`w-6.5 h-6.5 rounded-md flex items-center justify-center shrink-0 ${
+                              className={`w-6 h-6 rounded-md flex items-center justify-center shrink-0 ${
                                 mode === 'default'
-                                  ? 'bg-blue-50 text-primary'
+                                  ? 'bg-blue-50 text-primary dark:bg-primary/15'
                                   : mode === 'auto'
-                                  ? 'bg-amber-50 text-amber-600'
-                                  : 'bg-rose-50 text-rose-600'
+                                  ? 'bg-amber-50 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400'
+                                  : 'bg-rose-50 text-rose-600 dark:bg-rose-500/15 dark:text-rose-400'
                               }`}
                             >
-                              <ModeIcon size={13} className="shrink-0" />
+                              <AppIcon name={item.icon} size={12} className="shrink-0" />
                             </div>
                             <div className="min-w-0">
-                              <div className={`text-body leading-tight ${isCurrent ? 'text-slate-900 font-semibold' : 'text-slate-800 font-medium'}`}>
+                              <div
+                                className={`text-body leading-tight ${
+                                  isCurrent
+                                    ? 'text-slate-900 dark:text-white font-semibold'
+                                    : 'text-slate-800 dark:text-gray-200 font-medium'
+                                }`}
+                              >
                                 {item.label}
                               </div>
                               <div className="text-caption text-text-secondary truncate mt-0.5 whitespace-nowrap">
@@ -556,7 +558,7 @@ export function AgentComposer(): JSX.Element {
                             </div>
                           </div>
                           {isCurrent && (
-                            <Check className="w-3.5 h-3.5 text-primary shrink-0 ml-1.5" />
+                            <AppIcon name="check" size={14} className="text-primary shrink-0 ml-1.5" />
                           )}
                         </button>
                       )
@@ -577,8 +579,8 @@ export function AgentComposer(): JSX.Element {
               <button
                 type="button"
                 onClick={() => setModelPickerOpen((prev) => !prev)}
-                className={`flex items-center gap-1.5 text-slate-700 hover:text-slate-900 text-label px-2.5 py-1 rounded-lg bg-slate-100/70 hover:bg-slate-200/70 border border-slate-200/60 disabled:opacity-50 transition-all min-w-0 ${
-                  modelPickerOpen ? 'bg-slate-200/80 border-slate-300' : ''
+                className={`flex items-center gap-1.5 text-slate-700 hover:text-slate-900 text-label px-2.5 py-1 rounded-lg bg-slate-100/70 hover:bg-slate-200/70 border border-slate-200/60 disabled:opacity-50 transition-all min-w-0 dark:text-gray-200 dark:hover:text-white dark:bg-white/5 dark:hover:bg-white/10 dark:border-white/10 ${
+                  modelPickerOpen ? 'bg-slate-200/80 border-slate-300 dark:bg-white/15 dark:border-white/20' : ''
                 }`}
                 title={
                   supportsThinking
@@ -586,18 +588,20 @@ export function AgentComposer(): JSX.Element {
                     : modelLabel
                 }
               >
-                <Brain className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                <AppIcon name="psychology" size={14} className="text-slate-500 dark:text-slate-400 shrink-0" />
                 <span className="font-medium truncate max-w-[120px]">{modelLabel}</span>
                 {supportsThinking && (
                   <>
-                    <span className="text-slate-300">·</span>
-                    <span className="text-slate-500 text-caption shrink-0">
+                    <span className="text-slate-300 dark:text-slate-600">·</span>
+                    <span className="text-slate-500 dark:text-slate-400 text-caption shrink-0">
                       {THINKING_LABELS[thinkingLevel] ?? thinkingLevel}
                     </span>
                   </>
                 )}
-                <ChevronDown
-                  className={`w-3 h-3 text-slate-400 shrink-0 transition-transform duration-150 ${
+                <AppIcon
+                  name="expand_more"
+                  size={12}
+                  className={`text-slate-400 shrink-0 transition-transform duration-150 ${
                     modelPickerOpen ? 'rotate-180 text-primary' : ''
                   }`}
                 />
@@ -626,7 +630,7 @@ export function AgentComposer(): JSX.Element {
                     void abort()
                   }
                 }}
-                className="w-8 h-8 rounded-full flex items-center justify-center transition-all shadow-xs shrink-0 bg-primary hover:opacity-90 text-white"
+                className="w-8 h-8 rounded-full flex items-center justify-center transition-all shadow-sm shrink-0 bg-primary hover:opacity-90 text-white"
                 title={
                   composerInput.trim() || attachments.length > 0 || imageAttachments.length > 0
                     ? '排队到当前任务后执行'
@@ -634,9 +638,9 @@ export function AgentComposer(): JSX.Element {
                 }
               >
                 {composerInput.trim() || attachments.length > 0 || imageAttachments.length > 0 ? (
-                  <ArrowUp className="w-4 h-4" />
+                  <AppIcon name="arrow_upward" size={16} />
                 ) : (
-                  <Square className="w-3 h-3 fill-current" />
+                  <AppIcon name="stop" size={12} className="fill-current" />
                 )}
               </button>
             ) : (
@@ -647,15 +651,15 @@ export function AgentComposer(): JSX.Element {
                   !isWorkspaceReady ||
                   (!composerInput.trim() && attachments.length === 0 && imageAttachments.length === 0)
                 }
-                className={`w-8 h-8 rounded-full flex items-center justify-center transition-all shadow-xs shrink-0 ${
+                className={`w-8 h-8 rounded-full flex items-center justify-center transition-all shadow-sm shrink-0 ${
                   !isWorkspaceReady ||
                   (!composerInput.trim() && attachments.length === 0 && imageAttachments.length === 0)
-                    ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                    ? 'bg-slate-200 text-slate-400 cursor-not-allowed dark:bg-white/10 dark:text-slate-500'
                     : 'bg-primary hover:opacity-90 text-white'
                 }`}
                 title="发送消息"
               >
-                <ArrowUp className="w-4 h-4" />
+                <AppIcon name="arrow_upward" size={16} />
               </button>
             )}
           </div>

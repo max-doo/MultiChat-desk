@@ -1,5 +1,5 @@
-import { ChevronDown } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { AppIcon } from '../../icons/AppIcon'
 
 interface WorkPhaseBlockProps {
   isRunning: boolean
@@ -53,26 +53,28 @@ export function WorkPhaseBlock({
       <button
         type="button"
         onClick={handleToggle}
-        className="flex w-full items-center gap-1.5 py-1 px-1 rounded-md hover:bg-slate-100/70 transition-colors text-left cursor-pointer group"
+        className="flex w-full items-center gap-1.5 py-1 px-1 rounded-md hover:bg-slate-100/70 dark:hover:bg-white/5 transition-colors text-left cursor-pointer group"
       >
         <span
           className={`min-w-0 flex-1 truncate text-body font-medium ${
-            isRunning ? 'text-shimmer' : 'text-slate-500'
+            isRunning ? 'text-shimmer' : 'text-slate-500 dark:text-slate-400'
           }`}
         >
           {isRunning
             ? activity || '思考中'
             : `已完成${durationMs !== undefined ? ` ${formatSeconds(durationMs)}` : ''}`}
         </span>
-        <ChevronDown
-          className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 ${
+        <AppIcon
+          name="expand_more"
+          size={14}
+          className={`text-slate-400 transition-transform duration-200 ${
             expanded ? 'rotate-180' : ''
           }`}
         />
       </button>
 
       {expanded && (
-        <div className="mt-0.5 pl-2 border-l-2 border-slate-200/70 space-y-0.5 py-0.5">
+        <div className="mt-0.5 pl-2 border-l-2 border-slate-200/70 dark:border-white/10 space-y-0.5 py-0.5">
           {children}
         </div>
       )}

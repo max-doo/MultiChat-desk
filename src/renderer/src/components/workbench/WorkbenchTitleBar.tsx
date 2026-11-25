@@ -128,7 +128,7 @@ export default function WorkbenchTitleBar(): JSX.Element | null {
               aria-label="在侧边栏查看原文"
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-text-secondary hover:bg-black/5 hover:text-text-primary dark:hover:bg-white/10"
             >
-              <AppIcon name="forum" size={18} />
+              <AppIcon name="forum" size={19} />
             </button>
           )}
         </div>

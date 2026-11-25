@@ -408,7 +408,7 @@ export default function WorkbenchToolbar(): JSX.Element {
 
   return (
     <>
-      <div className="h-12 px-3 bg-white/70 dark:bg-gray-800/70 backdrop-blur-md border-b border-black/5 dark:border-white/5 flex items-center justify-between gap-2 shrink-0 select-none text-sm">
+      <div className="h-12 px-3 bg-white/70 dark:bg-gray-800/70 backdrop-blur-md border-b border-black/5 dark:border-white/5 flex items-center justify-between gap-2 shrink-0 select-none text-body">
       {/* 左侧：格式化与排版工具组 */}
       <div className="flex items-center gap-0.5 overflow-x-auto no-scrollbar">
         {isLeftCollapsed && (
@@ -452,16 +452,16 @@ export default function WorkbenchToolbar(): JSX.Element {
         <WorkbenchDropDown
           buttonAriaLabel="段落格式选项"
           buttonTitle="段落格式"
-          buttonClassName="h-8 px-2.5 flex items-center gap-1 rounded-md hover:bg-black/5 dark:hover:bg-white/10 text-text-primary transition-colors font-medium text-sm"
+          buttonClassName="h-8 px-2.5 flex items-center gap-1 rounded-md hover:bg-black/5 dark:hover:bg-white/10 text-text-primary transition-colors font-medium text-body"
           buttonContent={
             <>
               <span className="min-w-[3.5rem] text-left">{BLOCK_TYPE_LABELS[blockType]}</span>
-              <AppIcon name="arrow_drop_down" size={18} />
+              <AppIcon name="arrow_drop_down" size={19} />
             </>
           }
         >
           <WorkbenchDropDownItem className={itemClass(blockType === 'paragraph')} onClick={formatParagraph}>
-            <AppIcon name="notes" size={18} className="text-text-secondary" />
+            <AppIcon name="notes" size={19} className="text-text-secondary" />
             <span>正文段落</span>
           </WorkbenchDropDownItem>
           {(['h1', 'h2', 'h3', 'h4'] as const).map((level) => (
@@ -470,7 +470,7 @@ export default function WorkbenchToolbar(): JSX.Element {
               className={itemClass(blockType === level)}
               onClick={() => formatHeading(level)}
             >
-              <span className="text-xs font-mono text-text-secondary w-5">{level.toUpperCase()}</span>
+              <span className="text-label font-mono text-text-secondary w-5">{level.toUpperCase()}</span>
               <span className={level === 'h1' ? 'font-bold' : level === 'h2' ? 'font-semibold' : ''}>
                 {BLOCK_TYPE_LABELS[level]}
               </span>
@@ -478,24 +478,24 @@ export default function WorkbenchToolbar(): JSX.Element {
           ))}
           <WorkbenchDropDownDivider />
           <WorkbenchDropDownItem className={itemClass(blockType === 'bullet')} onClick={formatBulletList}>
-            <AppIcon name="format_list_bulleted" size={18} className="text-text-secondary" />
+            <AppIcon name="format_list_bulleted" size={19} className="text-text-secondary" />
             <span>无序列表</span>
           </WorkbenchDropDownItem>
           <WorkbenchDropDownItem className={itemClass(blockType === 'number')} onClick={formatNumberedList}>
-            <AppIcon name="format_list_numbered" size={18} className="text-text-secondary" />
+            <AppIcon name="format_list_numbered" size={19} className="text-text-secondary" />
             <span>有序列表</span>
           </WorkbenchDropDownItem>
           <WorkbenchDropDownItem className={itemClass(blockType === 'check')} onClick={formatCheckList}>
-            <AppIcon name="checklist" size={18} className="text-text-secondary" />
+            <AppIcon name="checklist" size={19} className="text-text-secondary" />
             <span>待办清单</span>
           </WorkbenchDropDownItem>
           <WorkbenchDropDownDivider />
           <WorkbenchDropDownItem className={itemClass(blockType === 'quote')} onClick={formatQuote}>
-            <AppIcon name="format_quote" size={18} className="text-text-secondary" />
+            <AppIcon name="format_quote" size={19} className="text-text-secondary" />
             <span>引用区块</span>
           </WorkbenchDropDownItem>
           <WorkbenchDropDownItem className={itemClass(blockType === 'code')} onClick={formatCodeBlock}>
-            <AppIcon name="terminal" size={18} className="text-text-secondary" />
+            <AppIcon name="terminal" size={19} className="text-text-secondary" />
             <span>代码区块</span>
           </WorkbenchDropDownItem>
         </WorkbenchDropDown>
@@ -642,11 +642,11 @@ export default function WorkbenchToolbar(): JSX.Element {
           }
         >
           <WorkbenchDropDownItem className={itemClass(false)} onClick={() => insertEquation(true)}>
-            <AppIcon name="function" size={18} className="text-text-secondary" />
+            <AppIcon name="function" size={19} className="text-text-secondary" />
             <span>行内公式</span>
           </WorkbenchDropDownItem>
           <WorkbenchDropDownItem className={itemClass(false)} onClick={() => insertEquation(false)}>
-            <AppIcon name="function" size={18} className="text-text-secondary" />
+            <AppIcon name="function" size={19} className="text-text-secondary" />
             <span>块级公式</span>
           </WorkbenchDropDownItem>
         </WorkbenchDropDown>
@@ -683,11 +683,11 @@ export default function WorkbenchToolbar(): JSX.Element {
       </div>
 
       {/* 右侧：富文本/源码切换（字数与保存状态悬浮在编辑区右下角） */}
-      <div className="flex items-center gap-2.5 text-text-secondary text-sm shrink-0">
+      <div className="flex items-center gap-2.5 text-text-secondary text-body shrink-0">
         <WorkbenchDropDown
           buttonAriaLabel="正文宽度选项"
           buttonTitle="正文宽度"
-          buttonClassName="h-8 px-2.5 flex items-center gap-1 rounded-md hover:bg-black/5 dark:hover:bg-white/10 text-text-secondary transition-colors text-sm"
+          buttonClassName="h-8 px-2.5 flex items-center gap-1 rounded-md hover:bg-black/5 dark:hover:bg-white/10 text-text-secondary transition-colors text-body"
           buttonContent={
             <>
               <span>
@@ -710,7 +710,7 @@ export default function WorkbenchToolbar(): JSX.Element {
               onClick={() => setContentWidth(item.value)}
             >
               <span className="w-6">{item.label}</span>
-              <span className="text-xs text-text-secondary">{item.hint}</span>
+              <span className="text-label text-text-secondary">{item.hint}</span>
             </WorkbenchDropDownItem>
           ))}
         </WorkbenchDropDown>
@@ -719,9 +719,9 @@ export default function WorkbenchToolbar(): JSX.Element {
             type="button"
             disabled={largeDocument}
             onClick={() => setEditorMode('wysiwyg')}
-            className={`px-2.5 py-1 rounded-md text-sm font-medium transition-all ${
+            className={`px-2.5 py-1 rounded-md text-body font-medium transition-all ${
               editorMode === 'wysiwyg'
-                ? 'bg-white dark:bg-gray-700 text-primary shadow-xs'
+                ? 'bg-white dark:bg-gray-700 text-primary shadow-sm'
                 : 'text-text-secondary hover:text-text-primary'
             } disabled:cursor-not-allowed disabled:opacity-40`}
             title={largeDocument ? '超过 2MB 的文档固定使用源码模式' : '预览模式'}
@@ -731,9 +731,9 @@ export default function WorkbenchToolbar(): JSX.Element {
           <button
             type="button"
             onClick={() => setEditorMode('source')}
-            className={`px-2.5 py-1 rounded-md text-sm font-medium transition-all ${
+            className={`px-2.5 py-1 rounded-md text-body font-medium transition-all ${
               editorMode === 'source'
-                ? 'bg-white dark:bg-gray-700 text-primary shadow-xs'
+                ? 'bg-white dark:bg-gray-700 text-primary shadow-sm'
                 : 'text-text-secondary hover:text-text-primary'
             }`}
             title="原始 Markdown 源码模式"

@@ -4,18 +4,21 @@ export interface AgentPopoverProps {
   open: boolean
   onClose: () => void
   align?: 'left' | 'right'
+  /** 弹出方向：top 在触发器上方（默认，用于底部 Composer）；bottom 在触发器下方（用于顶栏） */
+  placement?: 'top' | 'bottom'
   className?: string
   children: React.ReactNode
 }
 
 /**
- * 统一的 Agent 输入框弹窗组件容器
- * 锚定在触发选择器上方弹出，具备统一的圆角、阴影、层级和过渡动画
+ * 统一的 Agent 弹窗组件容器
+ * 锚定在触发选择器上方或下方弹出，具备统一的圆角、阴影、层级和点击外部/Esc 关闭
  */
 export function AgentPopover({
   open,
   onClose,
   align = 'right',
+  placement = 'top',
   className = '',
   children
 }: AgentPopoverProps): JSX.Element | null {
@@ -32,6 +35,8 @@ export function AgentPopover({
 
   if (!open) return null
 
+  const positionClass = placement === 'bottom' ? 'top-full mt-1.5' : 'bottom-full mb-2'
+
   return (
     <>
       {/* 外部遮罩：点击外部区域关闭 */}
@@ -42,13 +47,13 @@ export function AgentPopover({
           onClose()
         }}
       />
-      {/* 弹窗实体：直接位于触发选择器的正上方 */}
+      {/* 弹窗实体 */}
       <div
         ref={popoverRef}
         onClick={(e) => e.stopPropagation()}
-        className={`absolute bottom-full mb-2 ${
+        className={`absolute ${positionClass} ${
           align === 'left' ? 'left-0' : 'right-0'
-        } rounded-2xl border border-slate-200/90 bg-white shadow-xl z-popover overflow-hidden text-label animate-in fade-in zoom-in-95 duration-100 ${className}`}
+        } rounded-xl border border-slate-200/90 bg-white shadow-xl z-popover overflow-hidden text-label dark:border-white/10 dark:bg-gray-800 ${className}`}
       >
         {children}
       </div>

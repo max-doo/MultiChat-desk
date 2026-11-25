@@ -2,10 +2,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Options } from 'docx-preview'
 import { DOCX_PREVIEW_MAX_BYTES } from '../../../../shared/types/workbench'
 import { useWorkbenchStore, type WorkbenchAiAction } from '../../store/workbenchStore'
+import { formatFileSize } from '../../utils/formatBytes'
 import { AppIcon } from '../icons/AppIcon'
 import FileTypeIcon from './FileTypeIcon'
 import WorkbenchSendToAiButton from './WorkbenchSendToAiButton'
 import WorkbenchDocxToc, { type DocxDocumentLike } from './WorkbenchDocxToc'
+import WorkbenchSelectionMenu, { WORKBENCH_AI_SELECTION_ACTIONS } from './WorkbenchSelectionMenu'
+import {
+  PreviewFallbackState,
+  PreviewHeader,
+  PreviewMetaPill,
+  PreviewZoomControls
+} from './WorkbenchPreviewChrome'
 
 const ZOOM_MIN = 0.5
 const ZOOM_MAX = 3
@@ -120,12 +128,7 @@ export default function WorkbenchDocxPreview(): JSX.Element {
   const oversized =
     activeFileOversized || (typeof activeFileSize === 'number' && activeFileSize > DOCX_PREVIEW_MAX_BYTES)
 
-  const formattedSize = useMemo(() => {
-    if (activeFileSize === null) return ''
-    if (activeFileSize < 1024) return `${activeFileSize} B`
-    if (activeFileSize < 1024 * 1024) return `${(activeFileSize / 1024).toFixed(1)} KB`
-    return `${(activeFileSize / (1024 * 1024)).toFixed(1)} MB`
-  }, [activeFileSize])
+  const formattedSize = useMemo(() => formatFileSize(activeFileSize), [activeFileSize])
 
   const docxNode = useMemo(
     () => ({
@@ -434,12 +437,10 @@ export default function WorkbenchDocxPreview(): JSX.Element {
     setMenu(null)
   }
 
-  const actions: Array<{ action: WorkbenchAiAction; label: string; icon: string; color: string }> = [
-    { action: 'ask', label: '向 AI 提问', icon: 'chat', color: 'text-blue-500' },
-    { action: 'explain', label: '解释此内容', icon: 'psychology', color: 'text-purple-500' },
-    { action: 'polish', label: '语言润色', icon: 'auto_fix_high', color: 'text-emerald-500' },
-    { action: 'summarize', label: '提取关键要点', icon: 'format_list_bulleted', color: 'text-cyan-500' }
-  ]
+  const docxSelectionActions = useMemo(
+    () => WORKBENCH_AI_SELECTION_ACTIONS.filter((item) => item.action !== 'mindmap'),
+    []
+  )
 
   return (
     <div className="flex-1 h-full flex flex-col overflow-hidden bg-slate-100 dark:bg-gray-900">
@@ -456,114 +457,90 @@ export default function WorkbenchDocxPreview(): JSX.Element {
 .docx-preview-content .docx-wrapper > section.docx:last-child { margin-bottom: 0; }
 `}</style>
 
-      <div className="h-12 px-3 bg-white/80 dark:bg-gray-800/80 border-b border-black/5 dark:border-white/5 flex items-center justify-between gap-2 shrink-0 text-sm">
-        <div className="flex items-center gap-2 truncate">
-          <FileTypeIcon node={docxNode} className="w-[19px] h-[19px]" />
-          <span className="font-medium text-text-primary truncate" title={activeFilePath || ''}>
-            {activeFilePath}
-          </span>
-        </div>
+      <PreviewHeader
+        left={
+          <>
+            <FileTypeIcon node={docxNode} className="w-[19px] h-[19px]" />
+            <span className="font-medium text-text-primary truncate" title={activeFilePath || ''}>
+              {activeFilePath}
+            </span>
+          </>
+        }
+        right={
+          <>
+            <PreviewZoomControls
+              zoom={zoom}
+              minZoom={ZOOM_MIN}
+              maxZoom={ZOOM_MAX}
+              onZoomOut={() => zoomStep(-1)}
+              onZoomIn={() => zoomStep(1)}
+              onReset={() => setZoom(1)}
+            />
 
-        <div className="flex items-center gap-1.5 text-text-secondary">
-          <div className="flex items-center gap-0.5 rounded-md">
+            <div className="h-5 w-px bg-black/10 dark:bg-white/10 mx-0.5" />
+
             <button
               type="button"
-              onClick={() => zoomStep(-1)}
-              disabled={zoom <= ZOOM_MIN}
-              className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
-              title="缩小"
+              onClick={() => setReloadKey((k) => k + 1)}
+              className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors"
+              title="刷新文档渲染"
             >
-              <AppIcon name="zoom_out" size={18} />
+              <AppIcon name="refresh" size={19} />
             </button>
             <button
               type="button"
-              onClick={() => setZoom(1)}
-              className="min-w-[46px] h-7 px-1 rounded-md text-xs font-medium tabular-nums hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors"
-              title="恢复到 100%"
+              onClick={() => {
+                if (activeFilePath) void openInSystem(activeFilePath)
+              }}
+              className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors"
+              title="使用系统默认程序打开"
             >
-              {Math.round(zoom * 100)}%
+              <AppIcon name="open_in_new" size={19} />
             </button>
             <button
               type="button"
-              onClick={() => zoomStep(1)}
-              disabled={zoom >= ZOOM_MAX}
-              className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
-              title="放大"
+              onClick={() => {
+                if (activeFilePath) void revealFile(activeFilePath)
+              }}
+              className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors"
+              title="在系统资源管理器中定位"
             >
-              <AppIcon name="zoom_in" size={18} />
+              <AppIcon name="folder_open" size={19} />
             </button>
-          </div>
-
-          <div className="h-5 w-px bg-black/10 dark:bg-white/10 mx-0.5" />
-
-          <button
-            type="button"
-            onClick={() => setReloadKey((k) => k + 1)}
-            className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors"
-            title="刷新文档渲染"
-          >
-            <AppIcon name="refresh" size={19} />
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              if (activeFilePath) void openInSystem(activeFilePath)
-            }}
-            className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors"
-            title="使用系统默认程序打开"
-          >
-            <AppIcon name="open_in_new" size={19} />
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              if (activeFilePath) void revealFile(activeFilePath)
-            }}
-            className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 hover:text-text-primary transition-colors"
-            title="在系统资源管理器中定位"
-          >
-            <AppIcon name="folder_open" size={19} />
-          </button>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       <div className="flex-1 w-full h-full relative overflow-hidden">
         {oversized ? (
-          <div className="w-full h-full flex flex-col items-center justify-center p-8 text-center bg-white dark:bg-gray-900 text-text-primary">
-            <div className="w-16 h-16 rounded-2xl bg-amber-500/10 flex items-center justify-center text-amber-500 mb-4">
-              <FileTypeIcon node={docxNode} className="w-[30px] h-[30px]" />
-            </div>
-            <h3 className="text-base font-semibold mb-2">Word 文档超出内嵌预览上限</h3>
-            <p className="text-sm text-text-secondary max-w-sm mb-6 leading-relaxed">
-              该文件大小为 <span className="font-semibold text-text-primary">{formattedSize}</span>，超过工作台
-              10MB 的内嵌预览上限。可用系统默认应用打开查看与编辑。
-            </p>
-            <button
-              type="button"
-              onClick={() => {
-                if (activeFilePath) void openInSystem(activeFilePath)
-              }}
-              className="h-10 px-5 rounded-xl bg-primary text-white hover:bg-primary/90 text-sm font-medium flex items-center gap-2 shadow-sm transition-all"
-            >
-              <AppIcon name="open_in_new" size={19} />
-              <span>在本地打开</span>
-            </button>
-          </div>
+          <PreviewFallbackState
+            icon={
+              <div className="w-16 h-16 rounded-2xl bg-amber-500/10 flex items-center justify-center text-amber-500 mb-4">
+                <FileTypeIcon node={docxNode} className="w-[30px] h-[30px]" />
+              </div>
+            }
+            title="Word 文档超出内嵌预览上限"
+            description={
+              <>
+                该文件大小为 <span className="font-semibold text-text-primary">{formattedSize}</span>，超过工作台
+                10MB 的内嵌预览上限。可用系统默认应用打开查看与编辑。
+              </>
+            }
+            actionLabel="在本地打开"
+            onAction={() => {
+              if (activeFilePath) void openInSystem(activeFilePath)
+            }}
+          />
         ) : loadState === 'error' ? (
-          <div className="w-full h-full flex flex-col items-center justify-center p-8 text-center text-text-secondary">
-            <AppIcon name="error" size={36} className="text-rose-400 mb-2" />
-            <p className="text-sm mb-1 text-text-primary">未能渲染这份 Word 文档</p>
-            <p className="text-xs mb-4 max-w-md break-words">{loadError || '文件已损坏或格式不受支持'}</p>
-            <button
-              type="button"
-              onClick={() => {
-                if (activeFilePath) void openInSystem(activeFilePath)
-              }}
-              className="px-4 py-2 rounded-lg bg-primary text-white text-sm font-medium"
-            >
-              在本地打开
-            </button>
-          </div>
+          <PreviewFallbackState
+            icon={<AppIcon name="error" size={24} className="text-rose-400 mb-2" />}
+            title="未能渲染这份 Word 文档"
+            description={loadError || '文件已损坏或格式不受支持'}
+            actionLabel="在本地打开"
+            onAction={() => {
+              if (activeFilePath) void openInSystem(activeFilePath)
+            }}
+          />
         ) : (
           <div ref={scrollRef} className="w-full h-full overflow-auto py-6 px-6">
             <div
@@ -588,8 +565,8 @@ export default function WorkbenchDocxPreview(): JSX.Element {
         )}
 
         {loadState === 'loading' && !oversized && (
-          <div className="absolute inset-0 flex items-center justify-center bg-slate-100/80 dark:bg-gray-900/80 text-text-secondary text-sm">
-            <AppIcon name="refresh" size={18} className="animate-spin mr-2" />
+          <div className="absolute inset-0 flex items-center justify-center bg-slate-100/80 dark:bg-gray-900/80 text-text-secondary text-body">
+            <AppIcon name="refresh" size={19} className="animate-spin mr-2" />
             正在渲染文档
           </div>
         )}
@@ -599,7 +576,7 @@ export default function WorkbenchDocxPreview(): JSX.Element {
             ref={bubbleRef}
             // 点击气泡不能抢走文档选区，否则选区折叠后动作拿不到文本
             onMouseDown={(event) => event.preventDefault()}
-            className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 rounded-full border border-black/5 bg-white/95 px-3 py-1.5 text-xs text-text-secondary shadow-float backdrop-blur-md dark:border-white/10 dark:bg-gray-900/90"
+            className="absolute bottom-3 left-1/2 -translate-x-1/2 z-dropdown flex items-center gap-1 rounded-full border border-black/5 bg-white/95 px-3 py-1.5 text-label text-text-secondary shadow-float backdrop-blur-md dark:border-white/10 dark:bg-gray-900/90"
           >
             <span className="whitespace-nowrap pr-1 tabular-nums">已选 {selectedText.length} 字</span>
             <div className="h-4 w-px bg-black/10 dark:bg-white/10" />
@@ -639,42 +616,26 @@ export default function WorkbenchDocxPreview(): JSX.Element {
         )}
 
         {menu && (
-          <div
+          <WorkbenchSelectionMenu
             ref={menuRef}
-            className="fixed z-50 min-w-[190px] py-1.5 bg-white/95 dark:bg-gray-800/95 backdrop-blur-md rounded-xl shadow-xl border border-black/10 dark:border-white/10 text-sm animate-in fade-in zoom-in-95 duration-100"
-            style={{ left: menu.x, top: menu.y }}
-          >
-            {actions.map((item) => (
-              <button
-                key={item.action}
-                type="button"
-                onClick={() => runAction(menu.text, item.action)}
-                className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-text-primary hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
-              >
-                <AppIcon name={item.icon} size={19} className={`${item.color}`} />
-                <span className="font-medium">{item.label}</span>
-              </button>
-            ))}
-            <div className="my-1 border-t border-black/5 dark:border-white/5" />
-            <button
-              type="button"
-              onClick={() => void copyText(menu.text)}
-              className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-text-secondary hover:text-text-primary hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
-            >
-              <AppIcon name="content_copy" size={19} />
-              <span>复制选中文本</span>
-            </button>
-          </div>
+            x={menu.x}
+            y={menu.y}
+            items={docxSelectionActions}
+            onSelectAction={(action) => {
+              if (action !== 'mindmap') runAction(menu.text, action)
+            }}
+            onCopy={() => void copyText(menu.text)}
+          />
         )}
 
-        <div className="absolute bottom-3 right-3 z-10 flex items-center gap-2">
+        <div className="absolute bottom-3 right-3 z-dropdown flex items-center gap-2">
           <WorkbenchSendToAiButton />
           {stats && loadState === 'ready' && (
             <div ref={statsChipRef} className="relative">
               <button
                 type="button"
                 onClick={() => setStatsOpen((open) => !open)}
-                className="flex items-center gap-1 rounded-full border border-black/5 bg-white/85 px-2.5 py-1 text-xs text-text-secondary shadow-sm backdrop-blur-md transition-colors hover:text-text-primary dark:border-white/10 dark:bg-gray-900/80"
+                className="flex h-9 items-center gap-1 rounded-full border border-black/5 bg-white/85 px-2.5 text-label text-text-secondary shadow-sm backdrop-blur-md transition-colors hover:text-text-primary dark:border-white/10 dark:bg-gray-900/80"
                 title="字数统计"
               >
                 <AppIcon name="match_word" size={14} />
@@ -683,7 +644,7 @@ export default function WorkbenchDocxPreview(): JSX.Element {
                 </span>
               </button>
               {statsOpen && (
-                <div className="absolute bottom-full right-0 mb-2 w-52 rounded-xl border border-black/10 bg-white/95 p-3 text-xs shadow-float backdrop-blur-md dark:border-white/10 dark:bg-gray-900/95">
+                <div className="absolute bottom-full right-0 mb-2 w-52 rounded-xl border border-black/10 bg-white/95 p-3 text-label shadow-float backdrop-blur-md dark:border-white/10 dark:bg-gray-900/95">
                   <dl className="space-y-1.5">
                     <div className="flex justify-between">
                       <dt className="text-text-secondary">字数</dt>
@@ -715,11 +676,9 @@ export default function WorkbenchDocxPreview(): JSX.Element {
             </div>
           )}
           {formattedSize && (
-            <div className="flex items-center gap-2 rounded-full border border-black/5 bg-white/85 px-2.5 py-1 text-xs text-text-secondary shadow-sm backdrop-blur-md dark:border-white/10 dark:bg-gray-900/80">
-              <span className="whitespace-nowrap" title={`大小 ${formattedSize}`}>
-                {formattedSize}
-              </span>
-            </div>
+            <PreviewMetaPill title={`大小 ${formattedSize}`}>
+              <span className="whitespace-nowrap">{formattedSize}</span>
+            </PreviewMetaPill>
           )}
         </div>
       </div>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { AppIcon } from '../../icons/AppIcon'
+import Modal from '../../ui/Modal'
+import { Button, WORKBENCH_INPUT_CLASS } from '../../ui/FormControls'
 import type { AgentAuthOperation } from '../../../types/agent'
 
 interface AgentAuthDialogProps {
@@ -64,14 +65,8 @@ export function AgentAuthDialog({
         ? 'text-emerald-600'
         : 'text-primary'
 
-  const panel = (
-    <div
-      className={
-        inline
-          ? 'mt-2 flex flex-col overflow-hidden rounded-lg border border-primary/25 bg-white/80 text-text-primary dark:border-white/15 dark:bg-white/5'
-          : 'flex w-full max-w-md flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white text-text-primary shadow-2xl dark:border-white/15 dark:bg-slate-900'
-      }
-    >
+  const panelContent = (
+    <>
       <div className="flex items-start justify-between gap-3 border-b border-black/[0.05] px-4 py-3 dark:border-white/10">
         <div className="min-w-0">
           <div className="text-caption text-text-secondary">供应商认证</div>
@@ -101,7 +96,7 @@ export function AgentAuthDialog({
         {operation.events.map((event, index) => (
           <div
             key={`${event.type}:${index}`}
-            className="space-y-1 rounded-lg border border-white/70 bg-white/60 px-3 py-2 text-label text-text-primary dark:border-white/10 dark:bg-white/5"
+            className="space-y-1 rounded-lg border border-black/5 bg-white/60 px-3 py-2 text-label text-text-primary dark:border-white/10 dark:bg-white/5"
           >
             {event.message && <p className="break-words leading-relaxed">{event.message}</p>}
             {event.instructions && <p className="leading-relaxed text-text-secondary">{event.instructions}</p>}
@@ -166,7 +161,7 @@ export function AgentAuthDialog({
             <select
               value={value}
               onChange={(e) => setValue(e.target.value)}
-              className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50/80 px-3 text-body text-text-primary focus:border-primary focus:bg-white focus:outline-none dark:border-slate-700/80 dark:bg-slate-800/50 dark:focus:bg-slate-800"
+              className={`w-full ${WORKBENCH_INPUT_CLASS}`}
             >
               <option value="">请选择</option>
               {operation.prompt.options?.map((option) => (
@@ -185,7 +180,7 @@ export function AgentAuthDialog({
               onKeyDown={(e) => {
                 if (e.key === 'Enter') void handleSubmit()
               }}
-              className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50/80 px-3 font-mono text-body text-text-primary placeholder:text-gray-400 focus:border-primary focus:bg-white focus:outline-none dark:border-slate-700/80 dark:bg-slate-800/50 dark:focus:bg-slate-800"
+              className={`w-full font-mono ${WORKBENCH_INPUT_CLASS}`}
             />
           )}
         </div>
@@ -193,45 +188,43 @@ export function AgentAuthDialog({
 
       <div className="flex items-center justify-end gap-2 border-t border-black/[0.05] px-4 py-2.5 dark:border-white/10">
         {isActive && (
-          <button
-            type="button"
-            onClick={() => void onCancel(operation.id)}
-            className="h-8 rounded-lg border border-gray-200 bg-sidebar px-3.5 text-label font-medium text-text-secondary transition-colors hover:bg-gray-100 dark:border-white/10 dark:bg-white/5 dark:hover:bg-white/10"
-          >
+          <Button variant="secondary" size="sm" onClick={() => void onCancel(operation.id)}>
             取消
-          </button>
+          </Button>
         )}
         {operation.prompt && (
-          <button
-            type="button"
-            onClick={() => void handleSubmit()}
-            disabled={!canSubmit}
-            className="h-8 rounded-lg bg-primary px-4 text-label font-medium text-white shadow-soft transition-opacity hover:opacity-90 disabled:opacity-50"
-          >
+          <Button variant="primary" size="sm" onClick={() => void handleSubmit()} disabled={!canSubmit}>
             {submitting ? '提交中…' : '提交'}
-          </button>
+          </Button>
         )}
         {!isActive && !operation.prompt && (
-          <button
-            type="button"
-            onClick={onClose}
-            className="h-8 rounded-lg bg-primary px-4 text-label font-medium text-white shadow-soft transition-opacity hover:opacity-90"
-          >
+          <Button variant="primary" size="sm" onClick={onClose}>
             完成
-          </button>
+          </Button>
         )}
       </div>
-    </div>
+    </>
   )
 
   if (inline) {
-    return panel
+    return (
+      <div className="mt-2 flex flex-col overflow-hidden rounded-lg border border-primary/25 bg-white/80 text-text-primary dark:border-white/15 dark:bg-white/5">
+        {panelContent}
+      </div>
+    )
   }
 
-  return createPortal(
-    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/40 p-4 backdrop-blur-xs">
-      {panel}
-    </div>,
-    document.body
+  // 特例 z-[110]：认证弹窗可从 AgentSettingsDialog（z-modal 100）内触发，需稳定叠放在设置弹窗之上
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      size="md"
+      variant="solid"
+      zIndexClass="z-[110]"
+      closeOnBackdrop={false}
+    >
+      {panelContent}
+    </Modal>
   )
 }

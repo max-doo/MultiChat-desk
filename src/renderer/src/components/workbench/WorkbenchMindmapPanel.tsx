@@ -168,14 +168,14 @@ export default function WorkbenchMindmapPanel(): JSX.Element {
   }, [activeFilePath, setPendingSelection])
 
   if (!workspacePath || !activeFilePath) {
-    return <div className="h-full flex items-center justify-center p-6 text-sm text-text-secondary">打开一篇文档后即可生成思维导图</div>
+    return <div className="h-full flex items-center justify-center p-6 text-body text-text-secondary">打开一篇文档后即可生成思维导图</div>
   }
   if (!supported) {
-    return <div className="h-full flex items-center justify-center p-6 text-sm text-text-secondary">该格式暂不支持生成思维导图</div>
+    return <div className="h-full flex items-center justify-center p-6 text-body text-text-secondary">该格式暂不支持生成思维导图</div>
   }
   // 文件来源没有可编辑正文；有选区时按文本片段生成，没有选区才上传原文件。
   if (loading && !record) {
-    return <div className="h-full flex items-center justify-center text-sm text-text-secondary">正在载入…</div>
+    return <div className="h-full flex items-center justify-center text-body text-text-secondary">正在载入…</div>
   }
 
   return (

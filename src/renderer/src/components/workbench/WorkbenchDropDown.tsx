@@ -129,7 +129,7 @@ function DropDownItems({
       <div
         ref={dropDownRef as React.RefObject<HTMLDivElement>}
         onKeyDown={handleKeyDown}
-        className="fixed z-50 py-1 bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-black/10 dark:border-white/10 text-sm"
+        className="fixed z-popover py-1 bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-black/10 dark:border-white/10 text-body"
         style={{ top: -10000, left: -10000 }}
         role="menu"
       >

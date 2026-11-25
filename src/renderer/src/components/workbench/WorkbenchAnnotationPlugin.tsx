@@ -1330,7 +1330,7 @@ export default function WorkbenchAnnotationPlugin({
   return (
     <>
       {hint && (
-        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-50 px-3 py-1.5 rounded-lg bg-amber-500 text-white text-xs shadow-lg">
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-popover px-3 py-1.5 rounded-lg bg-amber-500 text-white text-label shadow-lg">
           {hint}
         </div>
       )}
@@ -1339,7 +1339,7 @@ export default function WorkbenchAnnotationPlugin({
         anchorElem &&
         createPortal(
           <AnnotationCommentCard
-            className="absolute z-50"
+            className="absolute z-popover"
             style={{ left: popover.left, top: popover.top }}
             title={popover.mode === 'create' ? '标注' : '修改评论'}
             quote={popover.quote}

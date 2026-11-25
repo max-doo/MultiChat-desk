@@ -10,7 +10,13 @@ import WorkbenchHtmlVisualEditor, {
 } from './WorkbenchHtmlVisualEditor'
 import WorkbenchHtmlEditLeaveDialog from './WorkbenchHtmlEditLeaveDialog'
 import WorkbenchHtmlAnnotationPreview from './WorkbenchHtmlAnnotationPreview'
+import { formatFileSize } from '../../utils/formatBytes'
 import { AppIcon } from '../icons/AppIcon'
+import {
+  PreviewFallbackState,
+  PreviewHeader,
+  PreviewZoomControls
+} from './WorkbenchPreviewChrome'
 
 const HTML_ZOOM_LEVELS = [0.25, 0.33, 0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3]
 const HTML_ZOOM_MIN = HTML_ZOOM_LEVELS[0]
@@ -189,12 +195,7 @@ export default function WorkbenchCodePreview(): JSX.Element {
     return activeFileContent.split('\n')
   }, [activeFileContent])
 
-  const formattedSize = useMemo(() => {
-    if (activeFileSize === null) return ''
-    if (activeFileSize < 1024) return `${activeFileSize} B`
-    if (activeFileSize < 1024 * 1024) return `${(activeFileSize / 1024).toFixed(1)} KB`
-    return `${(activeFileSize / (1024 * 1024)).toFixed(1)} MB`
-  }, [activeFileSize])
+  const formattedSize = useMemo(() => formatFileSize(activeFileSize), [activeFileSize])
 
   const finishLeaveRequest = useCallback((decision: HtmlEditLeaveDecision) => {
     const request = leaveRequestRef.current
@@ -421,243 +422,230 @@ export default function WorkbenchCodePreview(): JSX.Element {
   return (
     <div className="flex-1 h-full flex flex-col overflow-hidden bg-slate-900 text-slate-100 select-text">
       {/* 顶部工具栏 */}
-      <div className="h-10 px-3 bg-slate-800/90 border-b border-slate-700/60 flex items-center justify-between gap-2 shrink-0 select-none text-sm">
-        {/* 左侧：文件信息 */}
-        <div className="flex items-center gap-2 truncate">
-          {isLeftCollapsed && (
-            <>
-              <button
-                type="button"
-                onClick={toggleLeftCollapse}
-                className="w-7 h-7 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-100 hover:bg-white/10 transition-all duration-200 shrink-0"
-                title="展开侧边栏"
-                aria-label="展开侧边栏"
-              >
-                <AppIcon name="left_panel_open" size={20} />
-              </button>
-              <div className="w-[1px] h-4 bg-white/10 shrink-0" />
-            </>
-          )}
-          <AppIcon name="code" size={19} className="text-amber-400" />
-          <span className="font-mono text-sm text-slate-200 truncate" title={activeFilePath || ''}>
-            {activeFilePath}
-          </span>
-          {/* HTML 渲染/可视化编辑态保留顶栏状态提示，不做行级 DOM 映射 */}
-          {isHtmlFile && viewMode !== 'source' && fileGitChange && !fileGitChange.untracked && (
-            <span
-              className="ml-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-700/80 text-sky-300 border border-slate-600/60 select-none shrink-0"
-              title="切换至源码模式查看具体修改行"
-            >
-              {fileGitChange.staged === 'added' ? 'A' : fileGitChange.conflicted ? '!' : 'M'}
-            </span>
-          )}
-        </div>
-
-        {/* 右侧：统计与操作 */}
-        <div className="flex items-center gap-2 text-slate-400 text-sm shrink-0">
-          {/* 保存状态提示 (文本编辑或可视化编辑时展示) */}
-          {(isEditable || isVisualEditing) && (
-            <div className="flex items-center gap-1 font-medium">
-              {saveStatus === 'conflict' ? (
-                <span className="flex items-center gap-1 text-amber-400">
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-                  <span>冲突</span>
-                </span>
-              ) : saveStatus === 'saving' ? (
-                <span className="flex items-center gap-1 text-amber-400">
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-                  <span>保存中</span>
-                </span>
-              ) : saveStatus === 'error' ? (
-                <span className="flex items-center gap-1 text-rose-400">
-                  <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
-                  <span>保存失败</span>
-                </span>
-              ) : isDirty ? (
-                <span className="flex items-center gap-1 text-blue-400">
-                  <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />
-                  <span>未保存</span>
-                </span>
-              ) : (
-                <span className="flex items-center gap-1 text-emerald-400">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                  <span>已保存</span>
-                </span>
-              )}
-            </div>
-          )}
-
-          {/* 缩放控件与保存按钮位于模式分组之前，使模式分组与右侧文件操作保持固定位置 */}
-          {isHtmlFile && viewMode === 'render' && (
-            <>
-              <div className="flex items-center gap-0.5">
-                <button
-                  type="button"
-                  onClick={() => handlePreviewZoomStep(-1)}
-                  disabled={previewZoom <= HTML_ZOOM_MIN}
-                  className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-slate-700 text-slate-300 hover:text-white transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
-                  title="缩小 (Ctrl+滚轮 / Ctrl+-)"
-                >
-                  <AppIcon name="zoom_out" size={18} />
-                </button>
-                <button
-                  type="button"
-                  onClick={handlePreviewZoomReset}
-                  className="min-w-[44px] h-7 px-1 rounded-md text-xs font-medium tabular-nums text-slate-300 hover:bg-slate-700 hover:text-white transition-colors"
-                  title="恢复到 100% (Ctrl+0)"
-                >
-                  {Math.round(previewZoom * 100)}%
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handlePreviewZoomStep(1)}
-                  disabled={previewZoom >= HTML_ZOOM_MAX}
-                  className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-slate-700 text-slate-300 hover:text-white transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
-                  title="放大 (Ctrl+滚轮 / Ctrl+=)"
-                >
-                  <AppIcon name="zoom_in" size={18} />
-                </button>
-              </div>
-              {/* HTML 渲染预览：重新加载 iframe，获取外部修改后的磁盘版本 */}
-              <button
-                type="button"
-                onClick={() => setPreviewReloadKey((k) => k + 1)}
-                className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
-                title="刷新渲染预览"
-              >
-                <AppIcon name="refresh" size={19} />
-              </button>
-              <div className="h-4 w-px bg-slate-700/80" />
-            </>
-          )}
-          {isVisualEditing && (
-            <button
-              type="button"
-              disabled={!visualDirty || saveStatus === 'saving'}
-              onClick={() => void handleVisualSave()}
-              className="h-7 px-2.5 flex items-center gap-1 rounded-md bg-primary text-white text-xs font-medium transition-colors hover:bg-primary/90 disabled:cursor-default disabled:opacity-40"
-              title="保存到原文件 (Ctrl+S)"
-            >
-              <AppIcon
-                name={saveStatus === 'saving' ? 'progress_activity' : 'save'}
-                size={16}
-                className={saveStatus === 'saving' ? 'animate-spin' : ''}
-              />
-              <span>保存</span>
-            </button>
-          )}
-
-          {/* 模式切换：HTML 为 渲染/编辑/源码；其他代码为 查看/编辑 */}
-          <div className="flex items-center p-0.5 bg-slate-950/60 rounded-lg border border-slate-700/50">
-            {isHtmlFile ? (
+      <PreviewHeader
+        theme="dark"
+        compact
+        left={
+          <>
+            {isLeftCollapsed && (
               <>
                 <button
                   type="button"
-                  onClick={() => void handleModeClick('render')}
-                  className={`px-2 py-0.5 rounded text-sm transition-colors ${
-                    viewMode === 'render'
-                      ? 'bg-slate-700 text-white font-medium'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                  title="浏览器渲染预览（磁盘已保存版本）"
+                  onClick={toggleLeftCollapse}
+                  className="w-7 h-7 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-100 hover:bg-white/10 transition-all duration-200 shrink-0"
+                  title="展开侧边栏"
+                  aria-label="展开侧边栏"
                 >
-                  渲染
+                  <AppIcon name="left_panel_open" size={20} />
                 </button>
-                <button
-                  type="button"
-                  disabled={!activeFileUrl || activeFileOversized || saveStatus === 'saving'}
-                  onClick={() => void handleModeClick('edit')}
-                  className={`px-2 py-0.5 rounded text-sm transition-colors disabled:cursor-default disabled:opacity-40 ${
-                    viewMode === 'edit'
-                      ? 'bg-primary text-white font-medium'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                  title={
-                    activeFileOversized
-                      ? '文件过大，无法启用可视化编辑'
-                      : '直接在渲染结果上修改文字与结构'
-                  }
-                >
-                  编辑
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void handleModeClick('source')}
-                  className={`px-2 py-0.5 rounded text-sm transition-colors ${
-                    viewMode === 'source'
-                      ? 'bg-blue-600 text-white font-medium'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                  title="源码编辑模式（Ctrl+S 保存）"
-                >
-                  源码
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  onClick={() => setIsEditing(false)}
-                  className={`px-2 py-0.5 rounded text-sm transition-colors ${
-                    !isEditing
-                      ? 'bg-slate-700 text-white font-medium'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                  title="只读代码高亮视图"
-                >
-                  查看
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsEditing(true)}
-                  className={`px-2 py-0.5 rounded text-sm transition-colors ${
-                    isEditing
-                      ? 'bg-blue-600 text-white font-medium'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                  title="代码编辑模式 (可保存)"
-                >
-                  编辑
-                </button>
+                <div className="w-[1px] h-4 bg-white/10 shrink-0" />
               </>
             )}
-          </div>
+            <AppIcon name="code" size={19} className="text-amber-400" />
+            <span className="font-mono text-body text-slate-200 truncate" title={activeFilePath || ''}>
+              {activeFilePath}
+            </span>
+            {/* HTML 渲染/可视化编辑态保留顶栏状态提示，不做行级 DOM 映射 */}
+            {isHtmlFile && viewMode !== 'source' && fileGitChange && !fileGitChange.untracked && (
+              <span
+                className="ml-1 px-1.5 py-0.5 rounded-full text-tiny font-semibold bg-slate-700/80 text-sky-300 border border-slate-600/60 select-none shrink-0"
+                title="切换至源码模式查看具体修改行"
+              >
+                {fileGitChange.staged === 'added' ? 'A' : fileGitChange.conflicted ? '!' : 'M'}
+              </span>
+            )}
+          </>
+        }
+        right={
+          <>
+            {/* 保存状态提示 (文本编辑或可视化编辑时展示) */}
+            {(isEditable || isVisualEditing) && (
+              <div className="flex items-center gap-1 font-medium">
+                {saveStatus === 'conflict' ? (
+                  <span className="flex items-center gap-1 text-amber-400">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                    <span>冲突</span>
+                  </span>
+                ) : saveStatus === 'saving' ? (
+                  <span className="flex items-center gap-1 text-amber-400">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                    <span>保存中</span>
+                  </span>
+                ) : saveStatus === 'error' ? (
+                  <span className="flex items-center gap-1 text-rose-400">
+                    <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
+                    <span>保存失败</span>
+                  </span>
+                ) : isDirty ? (
+                  <span className="flex items-center gap-1 text-blue-400">
+                    <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />
+                    <span>未保存</span>
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1 text-emerald-400">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                    <span>已保存</span>
+                  </span>
+                )}
+              </div>
+            )}
 
-          {/* 复制按钮 */}
-          <button
-            type="button"
-            onClick={() => void handleCopy()}
-            className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
-            title="复制代码全文"
-          >
-            <AppIcon name={copied ? 'check' : 'content_copy'} size={19} />
-          </button>
+            {/* 缩放控件与保存按钮位于模式分组之前，使模式分组与右侧文件操作保持固定位置 */}
+            {isHtmlFile && viewMode === 'render' && (
+              <>
+                <PreviewZoomControls
+                  theme="dark"
+                  zoom={previewZoom}
+                  minZoom={HTML_ZOOM_MIN}
+                  maxZoom={HTML_ZOOM_MAX}
+                  onZoomOut={() => handlePreviewZoomStep(-1)}
+                  onZoomIn={() => handlePreviewZoomStep(1)}
+                  onReset={handlePreviewZoomReset}
+                  zoomOutTitle="缩小 (Ctrl+滚轮 / Ctrl+-)"
+                  zoomInTitle="放大 (Ctrl+滚轮 / Ctrl+=)"
+                  resetTitle="恢复到 100% (Ctrl+0)"
+                />
+                {/* HTML 渲染预览：重新加载 iframe，获取外部修改后的磁盘版本 */}
+                <button
+                  type="button"
+                  onClick={() => setPreviewReloadKey((k) => k + 1)}
+                  className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
+                  title="刷新渲染预览"
+                >
+                  <AppIcon name="refresh" size={19} />
+                </button>
+                <div className="h-4 w-px bg-slate-700/80" />
+              </>
+            )}
+            {isVisualEditing && (
+              <button
+                type="button"
+                disabled={!visualDirty || saveStatus === 'saving'}
+                onClick={() => void handleVisualSave()}
+                className="h-7 px-2.5 flex items-center gap-1 rounded-md bg-primary text-white text-label font-medium transition-colors hover:bg-primary/90 disabled:cursor-default disabled:opacity-40"
+                title="保存到原文件 (Ctrl+S)"
+              >
+                <AppIcon
+                  name={saveStatus === 'saving' ? 'progress_activity' : 'save'}
+                  size={16}
+                  className={saveStatus === 'saving' ? 'animate-spin' : ''}
+                />
+                <span>保存</span>
+              </button>
+            )}
 
-          {/* 系统默认编辑器打开 */}
-          <button
-            type="button"
-            onClick={() => {
-              if (activeFilePath) void openInSystem(activeFilePath)
-            }}
-            className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
-            title="在系统默认编辑器中打开 (如 VSCode)"
-          >
-            <AppIcon name="open_in_new" size={19} />
-          </button>
+            {/* 模式切换：HTML 为 渲染/编辑/源码；其他代码为 查看/编辑 */}
+            <div className="flex items-center p-0.5 bg-slate-950/60 rounded-lg border border-slate-700/50">
+              {isHtmlFile ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => void handleModeClick('render')}
+                    className={`px-2 py-0.5 rounded text-body transition-colors ${
+                      viewMode === 'render'
+                        ? 'bg-slate-700 text-white font-medium'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                    title="浏览器渲染预览（磁盘已保存版本）"
+                  >
+                    渲染
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!activeFileUrl || activeFileOversized || saveStatus === 'saving'}
+                    onClick={() => void handleModeClick('edit')}
+                    className={`px-2 py-0.5 rounded text-body transition-colors disabled:cursor-default disabled:opacity-40 ${
+                      viewMode === 'edit'
+                        ? 'bg-primary text-white font-medium'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                    title={
+                      activeFileOversized
+                        ? '文件过大，无法启用可视化编辑'
+                        : '直接在渲染结果上修改文字与结构'
+                    }
+                  >
+                    编辑
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleModeClick('source')}
+                    className={`px-2 py-0.5 rounded text-body transition-colors ${
+                      viewMode === 'source'
+                        ? 'bg-blue-600 text-white font-medium'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                    title="源码编辑模式（Ctrl+S 保存）"
+                  >
+                    源码
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setIsEditing(false)}
+                    className={`px-2 py-0.5 rounded text-body transition-colors ${
+                      !isEditing
+                        ? 'bg-slate-700 text-white font-medium'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                    title="只读代码高亮视图"
+                  >
+                    查看
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsEditing(true)}
+                    className={`px-2 py-0.5 rounded text-body transition-colors ${
+                      isEditing
+                        ? 'bg-blue-600 text-white font-medium'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                    title="代码编辑模式 (可保存)"
+                  >
+                    编辑
+                  </button>
+                </>
+              )}
+            </div>
 
-          {/* 在资源管理器定位 */}
-          <button
-            type="button"
-            onClick={() => {
-              if (activeFilePath) void revealFile(activeFilePath)
-            }}
-            className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
-            title="在资源管理器中显示"
-          >
-            <AppIcon name="folder_open" size={19} />
-          </button>
-        </div>
-      </div>
+            {/* 复制按钮 */}
+            <button
+              type="button"
+              onClick={() => void handleCopy()}
+              className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
+              title="复制代码全文"
+            >
+              <AppIcon name={copied ? 'check' : 'content_copy'} size={19} />
+            </button>
+
+            {/* 系统默认编辑器打开 */}
+            <button
+              type="button"
+              onClick={() => {
+                if (activeFilePath) void openInSystem(activeFilePath)
+              }}
+              className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
+              title="在系统默认编辑器中打开 (如 VSCode)"
+            >
+              <AppIcon name="open_in_new" size={19} />
+            </button>
+
+            {/* 在资源管理器定位 */}
+            <button
+              type="button"
+              onClick={() => {
+                if (activeFilePath) void revealFile(activeFilePath)
+              }}
+              className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
+              title="在资源管理器中显示"
+            >
+              <AppIcon name="folder_open" size={19} />
+            </button>
+          </>
+        }
+      />
 
       {/* 代码内容区域 */}
       <div className="flex-1 flex overflow-hidden relative">
@@ -677,12 +665,12 @@ export default function WorkbenchCodePreview(): JSX.Element {
               />
             ) : (
               <div className="w-full h-full flex flex-col items-center justify-center p-8 text-center bg-slate-900 text-slate-400">
-                <AppIcon name="error" size={36} className="mb-3" />
-                <p className="text-sm">未能生成预览地址</p>
+                <AppIcon name="error" size={24} className="mb-3" />
+                <p className="text-body">未能生成预览地址</p>
               </div>
             )}
             {isDirty && (
-              <div className="absolute top-3 right-3 z-10 px-2.5 py-1 rounded-lg bg-slate-900/85 text-xs text-amber-300 border border-amber-400/30 backdrop-blur-sm select-none">
+              <div className="absolute top-3 right-3 z-10 px-2.5 py-1 rounded-lg bg-slate-900/85 text-label text-amber-300 border border-amber-400/30 backdrop-blur-sm select-none">
                 预览为磁盘已保存版本，有未保存修改
               </div>
             )}
@@ -699,25 +687,24 @@ export default function WorkbenchCodePreview(): JSX.Element {
             }}
           />
         ) : activeFileOversized ? (
-          <div className="flex-1 h-full flex flex-col items-center justify-center p-8 text-center bg-slate-900 select-none">
-            <div className="w-16 h-16 rounded-2xl bg-amber-500/10 flex items-center justify-center text-amber-400 mb-4">
-              <AppIcon name="code" size={30} />
-            </div>
-            <h3 className="text-base font-semibold text-slate-100 mb-1">代码文件超出直接加载上限</h3>
-            <p className="text-sm text-slate-400 max-w-sm mb-6 leading-relaxed">
-              当前文件大小为 <span className="font-semibold text-slate-200">{formattedSize}</span>，超出工作台 5MB 文本直接加载与渲染保护上限。建议在本地系统默认关联的代码编辑器（如 VSCode）中全速打开查看。
-            </p>
-            <button
-              type="button"
-              onClick={() => {
-                if (activeFilePath) void openInSystem(activeFilePath)
-              }}
-              className="h-10 px-5 rounded-xl bg-blue-600 text-white hover:bg-blue-700 text-sm font-medium flex items-center gap-2 shadow-sm transition-all"
-            >
-              <AppIcon name="open_in_new" size={19} />
-              <span>在系统编辑器中打开</span>
-            </button>
-          </div>
+          <PreviewFallbackState
+            theme="dark"
+            icon={
+              <div className="w-16 h-16 rounded-2xl bg-amber-500/10 flex items-center justify-center text-amber-400 mb-4">
+                <AppIcon name="code" size={24} />
+              </div>
+            }
+            title="代码文件超出直接加载上限"
+            description={
+              <>
+                当前文件大小为 <span className="font-semibold text-slate-200">{formattedSize}</span>，超出工作台 5MB 文本直接加载与渲染保护上限。建议在本地系统默认关联的代码编辑器（如 VSCode）中全速打开查看。
+              </>
+            }
+            actionLabel="在系统编辑器中打开"
+            onAction={() => {
+              if (activeFilePath) void openInSystem(activeFilePath)
+            }}
+          />
         ) : (
           <>
             {/* 行号侧边栏 */}

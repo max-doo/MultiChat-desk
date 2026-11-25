@@ -198,7 +198,7 @@ export default function WorkbenchHtmlEditToolbar({
         {openPicker === 'text' && (
           <div
             ref={pickerRef}
-            className="absolute left-1/2 top-full z-50 mt-1 -translate-x-1/2"
+            className="absolute left-1/2 top-full z-popover mt-1 -translate-x-1/2"
             onBlur={(event) => {
               const next = event.relatedTarget
               if (next instanceof Node && event.currentTarget.contains(next)) return
@@ -240,7 +240,7 @@ export default function WorkbenchHtmlEditToolbar({
         {openPicker === 'background' && (
           <div
             ref={pickerRef}
-            className="absolute left-1/2 top-full z-50 mt-1 -translate-x-1/2"
+            className="absolute left-1/2 top-full z-popover mt-1 -translate-x-1/2"
             onBlur={(event) => {
               const next = event.relatedTarget
               if (next instanceof Node && event.currentTarget.contains(next)) return

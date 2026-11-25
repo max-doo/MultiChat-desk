@@ -1434,6 +1434,22 @@ export default function WorkbenchAiSidebar({ isActive = true, instanceId = 'prim
   const isDraggingActive = Boolean(draggingNodes && draggingNodes.length > 0) || isExternalFileDragging
   if (!visible) return null
 
+  const splitHeaderAction = (
+    <button
+      type="button"
+      onClick={isSecondary ? closeAiSidebar2 : isAiSidebar2Open ? closeAiSidebar2 : openAiSidebar2}
+      className={`w-7 h-7 rounded-full flex items-center justify-center transition-all duration-200 ${
+        !isSecondary && isAiSidebar2Open
+          ? 'text-primary bg-blue-50 hover:bg-blue-100 dark:bg-primary/20 dark:hover:bg-primary/25'
+          : 'text-text-secondary hover:text-text-primary hover:bg-black/5 dark:hover:bg-white/10'
+      }`}
+      title={isSecondary || isAiSidebar2Open ? '关闭 AI 侧边栏' : '再打开一个 AI 侧边栏'}
+      aria-label={isSecondary || isAiSidebar2Open ? '关闭 AI 侧边栏' : '再打开一个 AI 侧边栏'}
+    >
+      <AppIcon name={isSecondary ? 'close' : 'view_column_2'} size={20} />
+    </button>
+  )
+
   return (
     <div
       onDragEnter={(e) => {
@@ -1448,18 +1464,18 @@ export default function WorkbenchAiSidebar({ isActive = true, instanceId = 'prim
       {toast && (
         <div
           data-upload-toast
-          className={`absolute top-28 left-1/2 -translate-x-1/2 max-w-[calc(100%-1.5rem)] px-4 py-2.5 rounded-xl text-sm font-medium flex items-center gap-2 shadow-float z-50 notification-popup backdrop-blur-md transition-all ${
+          className={`absolute top-28 left-1/2 -translate-x-1/2 max-w-[calc(100%-1.5rem)] px-4 py-2.5 rounded-xl text-body font-medium flex items-center gap-2 shadow-float z-popover notification-popup backdrop-blur-md transition-all ${
             toast.type === 'success'
-              ? 'bg-white/90 border border-green-200 text-green-700'
+              ? 'bg-white/90 border border-green-200 text-green-700 dark:bg-gray-800/95 dark:border-emerald-500/30 dark:text-emerald-300'
               : toast.type === 'error'
-              ? 'bg-white/90 border border-red-200 text-red-700'
-              : 'bg-white/90 border border-blue-200 text-blue-700'
+              ? 'bg-white/90 border border-red-200 text-red-700 dark:bg-gray-800/95 dark:border-rose-500/30 dark:text-rose-300'
+              : 'bg-white/90 border border-blue-200 text-blue-700 dark:bg-gray-800/95 dark:border-blue-500/30 dark:text-blue-300'
           }`}
         >
           <AppIcon
             name={toast.type === 'success' ? 'check_circle' : toast.type === 'error' ? 'error' : 'info'}
             size={16}
-            className={`text-base flex-shrink-0 ${
+            className={`flex-shrink-0 ${
               toast.type === 'success'
                 ? 'text-green-500'
                 : toast.type === 'error'
@@ -1472,7 +1488,7 @@ export default function WorkbenchAiSidebar({ isActive = true, instanceId = 'prim
             <button
               type="button"
               onClick={stopWaitingForUpload}
-              className="shrink-0 px-2 py-1 rounded-md text-xs font-medium text-blue-700 bg-blue-500/10 hover:bg-blue-500/20 transition-colors"
+              className="shrink-0 px-2 py-1 rounded-md text-label font-medium text-blue-700 bg-blue-500/10 hover:bg-blue-500/20 transition-colors dark:text-blue-300"
             >
               停止等待
             </button>
@@ -1505,7 +1521,7 @@ export default function WorkbenchAiSidebar({ isActive = true, instanceId = 'prim
               setIsExternalFileDragging(false)
             }}
             onDrop={handleDrop}
-            className="absolute inset-0 z-40 bg-transparent cursor-copy"
+            className="absolute inset-0 z-popover bg-transparent cursor-copy"
           />
         )}
 
@@ -1516,21 +1532,7 @@ export default function WorkbenchAiSidebar({ isActive = true, instanceId = 'prim
         >
           <AgentCard
             onModelChange={handleModelChange}
-            headerActions={
-              <button
-                type="button"
-                onClick={isSecondary ? closeAiSidebar2 : (isAiSidebar2Open ? closeAiSidebar2 : openAiSidebar2)}
-                className={`w-7 h-7 rounded-full flex items-center justify-center transition-all duration-200 ${
-                  !isSecondary && isAiSidebar2Open
-                    ? 'text-primary bg-blue-50 hover:bg-blue-100 dark:bg-primary/20 dark:hover:bg-primary/25'
-                    : 'text-text-secondary hover:text-text-primary hover:bg-black/5 dark:hover:bg-white/10'
-                }`}
-                title={isSecondary || isAiSidebar2Open ? '关闭 AI 侧边栏' : '再打开一个 AI 侧边栏'}
-                aria-label={isSecondary || isAiSidebar2Open ? '关闭 AI 侧边栏' : '再打开一个 AI 侧边栏'}
-              >
-                <AppIcon name={isSecondary ? 'close' : 'view_column_2'} size={20} />
-              </button>
-            }
+            headerActions={splitHeaderAction}
           />
         </div>
 
@@ -1563,21 +1565,7 @@ export default function WorkbenchAiSidebar({ isActive = true, instanceId = 'prim
                   registerSidebarWcId(wcId, instanceKey)
                 }}
                 onModelChange={handleModelChange}
-                headerActions={
-                  <button
-                    type="button"
-                    onClick={isSecondary ? closeAiSidebar2 : (isAiSidebar2Open ? closeAiSidebar2 : openAiSidebar2)}
-                    className={`w-7 h-7 rounded-full flex items-center justify-center transition-all duration-200 ${
-                      !isSecondary && isAiSidebar2Open
-                        ? 'text-primary bg-blue-50 hover:bg-blue-100 dark:bg-primary/20 dark:hover:bg-primary/25'
-                        : 'text-text-secondary hover:text-text-primary hover:bg-black/5 dark:hover:bg-white/10'
-                    }`}
-                    title={isSecondary || isAiSidebar2Open ? '关闭 AI 侧边栏' : '再打开一个 AI 侧边栏'}
-                    aria-label={isSecondary || isAiSidebar2Open ? '关闭 AI 侧边栏' : '再打开一个 AI 侧边栏'}
-                  >
-                    <AppIcon name={isSecondary ? 'close' : 'view_column_2'} size={20} />
-                  </button>
-                }
+                headerActions={splitHeaderAction}
                 ref={(ref) => {
                   if (ref) sidebarRefs.current.set(model.id, ref)
                   else {

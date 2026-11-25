@@ -711,7 +711,7 @@ export default function FrontmatterPanel({ frontmatter, filePath, onChange, gitM
                               onClick={() => removeTag(idx, tag)}
                               className="leading-none opacity-60 hover:!opacity-100 transition-opacity ml-0.5"
                             >
-                              <AppIcon name="close" size={13} />
+                              <AppIcon name="close" size={12} />
                             </button>
                           </span>
                         ))}
@@ -809,7 +809,7 @@ export default function FrontmatterPanel({ frontmatter, filePath, onChange, gitM
                               (tagDrafts[idx] && normalizeTag(tagDrafts[idx]))) && (
                               <div
                                 ref={tagDropdownRef}
-                                className="absolute left-0 top-full mt-1.5 z-50 min-w-[210px] max-w-[320px] max-h-60 overflow-y-auto rounded-lg shadow-xl border border-black/10 dark:border-white/10 bg-white dark:bg-gray-800 py-1 text-xs select-none"
+                                className="absolute left-0 top-full mt-1.5 z-popover min-w-[210px] max-w-[320px] max-h-60 overflow-y-auto rounded-lg shadow-xl border border-black/10 dark:border-white/10 bg-white dark:bg-gray-800 py-1 text-label select-none"
                               >
                                 {currentTagSuggestions.length > 0 && (
                                   <>
@@ -853,7 +853,7 @@ export default function FrontmatterPanel({ frontmatter, filePath, onChange, gitM
                                               <span className="truncate">{item.tag}</span>
                                             )}
                                           </div>
-                                          <span className="ml-2 shrink-0 px-1.5 py-0.2 rounded-full text-tiny bg-black/5 dark:bg-white/10 text-gray-500 dark:text-gray-400">
+                                          <span className="ml-2 shrink-0 px-1.5 py-0.5 rounded-full text-tiny bg-black/5 dark:bg-white/10 text-gray-500 dark:text-gray-400">
                                             {item.count}
                                           </span>
                                         </div>
@@ -977,7 +977,7 @@ export default function FrontmatterPanel({ frontmatter, filePath, onChange, gitM
                                     }}
                                     className="shrink-0 text-gray-400 hover:text-red-500 transition-colors"
                                   >
-                                    <AppIcon name="close" size={13} />
+                                    <AppIcon name="close" size={12} />
                                   </button>
                                 )}
                               </span>

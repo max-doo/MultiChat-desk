@@ -342,7 +342,7 @@ export default function WorkbenchDraggableBlockPlugin({
         ? ReactDOM.createPortal(
             <div
               ref={pickerRef}
-              className="absolute z-50 w-max min-w-40 max-w-64 whitespace-nowrap rounded-xl bg-white dark:bg-gray-800 shadow-lg border border-black/10 dark:border-white/10 overflow-hidden text-sm"
+              className="absolute z-popover w-max min-w-40 max-w-64 whitespace-nowrap rounded-xl bg-white dark:bg-gray-800 shadow-lg border border-black/10 dark:border-white/10 overflow-hidden text-body"
               style={{ left: pickerPosition.left, top: pickerPosition.top }}
             >
               <ul className="py-1 max-h-64 overflow-y-auto">
@@ -361,7 +361,7 @@ export default function WorkbenchDraggableBlockPlugin({
                           : 'text-text-primary hover:bg-black/5 dark:hover:bg-white/5'
                       }`}
                     >
-                      <AppIcon name={option.icon} size={18} className="text-text-secondary shrink-0" />
+                      <AppIcon name={option.icon} size={19} className="text-text-secondary shrink-0" />
                       <span>{option.title}</span>
                     </button>
                   </li>
@@ -387,20 +387,20 @@ export default function WorkbenchDraggableBlockPlugin({
               title="点击下方插入新内容（Alt+点击在上方插入）"
               className="w-7 h-7 flex items-center justify-center rounded-md text-text-secondary hover:text-text-primary hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
             >
-              <AppIcon name="add" size={18} />
+              <AppIcon name="add" size={19} />
             </button>
             <div
               className="w-7 h-7 flex items-center justify-center rounded-md text-text-secondary hover:text-text-primary hover:bg-black/10 dark:hover:bg-white/10 cursor-grab active:cursor-grabbing transition-colors"
               title="按住拖拽调整段落位置"
             >
-              <AppIcon name="drag_indicator" size={18} />
+              <AppIcon name="drag_indicator" size={19} />
             </div>
           </div>
         }
         targetLineComponent={
           <div
             ref={targetLineRef}
-            className="pointer-events-none absolute left-0 top-0 h-[2.5px] bg-primary opacity-0 will-change-transform rounded-full shadow-xs z-10"
+            className="pointer-events-none absolute left-0 top-0 h-[2.5px] bg-primary opacity-0 will-change-transform rounded-full shadow-sm z-10"
           />
         }
         isOnMenu={isOnMenu}

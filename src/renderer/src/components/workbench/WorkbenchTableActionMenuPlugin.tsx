@@ -324,7 +324,7 @@ function TableActionMenu({
   return createPortal(
     <div
       ref={dropDownRef}
-      className="fixed z-50 w-56 py-1 bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-black/10 dark:border-white/10 opacity-0"
+      className="fixed z-popover w-56 py-1 bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-black/10 dark:border-white/10 opacity-0"
       style={{ top: -10000, left: -10000 }}
       role="menu"
     >
@@ -571,7 +571,7 @@ function TableCellActionMenuContainer({
   return (
     <div
       ref={menuButtonRef}
-      className="workbench-table-action-container absolute left-0 top-0 z-30 will-change-transform"
+      className="workbench-table-action-container absolute left-0 top-0 z-dropdown will-change-transform"
     >
       {tableCellNode != null && (
         <button

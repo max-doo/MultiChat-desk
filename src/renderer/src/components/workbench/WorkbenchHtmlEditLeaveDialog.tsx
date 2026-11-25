@@ -64,7 +64,7 @@ export default function WorkbenchHtmlEditLeaveDialog({
             type="button"
             disabled={busy}
             onClick={onSave}
-            className="rounded-lg bg-primary px-3 py-1.5 text-body font-medium text-white shadow-xs transition-colors hover:bg-primary/90 disabled:cursor-default disabled:opacity-50"
+            className="rounded-lg bg-primary px-3 py-1.5 text-body font-medium text-white shadow-sm transition-colors hover:bg-primary/90 disabled:cursor-default disabled:opacity-50"
           >
             {busy ? '保存中…' : '保存并退出'}
           </button>

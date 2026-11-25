@@ -164,7 +164,7 @@ function FloatingToolbar({
       ref={popupRef}
       role="toolbar"
       aria-label="浮动格式工具栏"
-      className={`${WORKBENCH_FLOATING_TOOLBAR_BASE_CLASS} absolute left-0 top-0 z-40 opacity-0 will-change-transform`}
+      className={`${WORKBENCH_FLOATING_TOOLBAR_BASE_CLASS} absolute left-0 top-0 z-dropdown opacity-0 will-change-transform`}
       style={{ transform: 'translate(-10000px, -10000px)' }}
     >
       {isEditable && (

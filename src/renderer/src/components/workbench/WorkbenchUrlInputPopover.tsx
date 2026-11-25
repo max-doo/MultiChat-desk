@@ -116,50 +116,53 @@ export default function WorkbenchUrlInputPopover({
   }
 
   return createPortal(
-    <div
-      ref={popoverRef}
-      role="dialog"
-      aria-label="链接"
-      className="fixed z-[120] flex items-center gap-1 rounded-xl border border-black/10 bg-white p-1.5 shadow-lg dark:border-white/10 dark:bg-gray-800"
-      style={{ width: position.width, left: position.left, top: position.top }}
-    >
-      <AppIcon name="link" size={16} className="ml-1 shrink-0 text-text-secondary" />
-      <input
-        ref={inputRef}
-        value={url}
-        onChange={(event) => setUrl(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key !== 'Enter' || event.nativeEvent.isComposing) return
-          event.preventDefault()
-          applyUrl()
-        }}
-        placeholder="粘贴或输入链接"
-        aria-label="链接地址"
-        spellCheck={false}
-        className="h-8 min-w-0 flex-1 bg-transparent px-1 text-sm text-text-primary outline-none placeholder:text-text-secondary/70"
-      />
-      {onRemove && (
+    <>
+      {/* 特例 z-[120]：链接弹层需压在 Modal/浮动工具条之上 */}
+      <div
+        ref={popoverRef}
+        role="dialog"
+        aria-label="链接"
+        className="fixed z-[120] flex items-center gap-1 rounded-xl border border-black/10 bg-white p-1.5 shadow-lg dark:border-white/10 dark:bg-gray-800"
+        style={{ width: position.width, left: position.left, top: position.top }}
+      >
+        <AppIcon name="link" size={16} className="ml-1 shrink-0 text-text-secondary" />
+        <input
+          ref={inputRef}
+          value={url}
+          onChange={(event) => setUrl(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key !== 'Enter' || event.nativeEvent.isComposing) return
+            event.preventDefault()
+            applyUrl()
+          }}
+          placeholder="粘贴或输入链接"
+          aria-label="链接地址"
+          spellCheck={false}
+          className="h-8 min-w-0 flex-1 bg-transparent px-1 text-body text-text-primary outline-none placeholder:text-text-secondary/70"
+        />
+        {onRemove && (
+          <button
+            type="button"
+            onClick={removeUrl}
+            title="移除链接"
+            aria-label="移除链接"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-black/5 hover:text-text-primary dark:hover:bg-white/10"
+          >
+            <AppIcon name="delete" size={16} />
+          </button>
+        )}
         <button
           type="button"
-          onClick={removeUrl}
-          title="移除链接"
-          aria-label="移除链接"
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-black/5 hover:text-text-primary dark:hover:bg-white/10"
+          onClick={applyUrl}
+          disabled={!normalizedUrl}
+          title="应用链接"
+          aria-label="应用链接"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary text-white transition-colors hover:bg-primary/90 disabled:cursor-default disabled:opacity-35"
         >
-          <AppIcon name="delete" size={17} />
+          <AppIcon name="check" size={19} />
         </button>
-      )}
-      <button
-        type="button"
-        onClick={applyUrl}
-        disabled={!normalizedUrl}
-        title="应用链接"
-        aria-label="应用链接"
-        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary text-white transition-colors hover:bg-primary/90 disabled:cursor-default disabled:opacity-35"
-      >
-        <AppIcon name="check" size={18} />
-      </button>
-    </div>,
+      </div>
+    </>,
     document.body
   )
 }

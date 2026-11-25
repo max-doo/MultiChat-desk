@@ -144,7 +144,7 @@ MultiChat Desk 是一个 Electron 多模型聊天工作台，UI 属于 **Operate
 
 | 层级 | 类 | 场景 |
 |---|---|---|
-| 控件内阴影 | `shadow-xs`/`shadow-sm` | 输入框、小按钮 |
+| 控件内阴影 | `shadow-sm` | 输入框、小按钮 |
 | 卡片/下拉 | `shadow-md`/`shadow-lg` | 下拉菜单、浮卡 |
 | 模态/弹窗 | `shadow-xl`/`shadow-2xl` | 实色 modal |
 | 品牌浮层 | `shadow-soft`/`shadow-float` | 玻璃面板、主按钮 hover、玻璃 modal |

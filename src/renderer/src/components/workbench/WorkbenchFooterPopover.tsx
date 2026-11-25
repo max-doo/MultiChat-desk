@@ -69,7 +69,7 @@ export default function WorkbenchFooterPopover({
       role="dialog"
       aria-label={ariaLabel}
       style={{ left: inset, bottom, width }}
-      className="fixed z-50 flex max-h-[min(720px,calc(100vh-32px))] flex-col overflow-hidden rounded-xl border border-black/10 bg-white text-sm shadow-xl animate-in fade-in zoom-in-95 duration-100 dark:border-white/10 dark:bg-gray-800"
+      className="fixed z-popover flex max-h-[min(720px,calc(100vh-32px))] flex-col overflow-hidden rounded-xl border border-black/10 bg-white text-body shadow-xl dark:border-white/10 dark:bg-gray-800"
     >
       {children}
     </div>,
@@ -91,7 +91,7 @@ export function WorkbenchFooterPopoverHeader({
   return (
     <div className="flex shrink-0 items-center gap-2 border-b border-black/5 px-4 py-2.5 dark:border-white/5">
       <div className="min-w-0 flex-1">
-        <div className="truncate text-sm font-semibold text-text-primary" title={title}>
+        <div className="truncate text-body font-semibold text-text-primary" title={title}>
           {title}
         </div>
         {subtitle && (

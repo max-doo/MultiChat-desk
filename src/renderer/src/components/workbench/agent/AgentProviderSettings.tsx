@@ -2,10 +2,10 @@ import { useEffect, useMemo, useState } from 'react'
 import { useAgentSessionStore } from '../../../store/agentSessionStore'
 import type { AgentAuthOperation, AgentProvider, AgentProviderModel, AgentIpcApi } from '../../../types/agent'
 import { AppIcon } from '../../icons/AppIcon'
+import { Button, WORKBENCH_INPUT_CLASS } from '../../ui/FormControls'
 import { AgentAuthDialog } from './AgentAuthDialog'
 
-const INPUT_CLASS =
-  'h-9 rounded-lg border border-slate-200 bg-slate-50/80 px-3 text-label text-text-primary placeholder:text-gray-400 focus:border-primary focus:bg-white focus:outline-none dark:border-slate-700/80 dark:bg-slate-800/50 dark:focus:bg-slate-800'
+const INPUT_CLASS = `${WORKBENCH_INPUT_CLASS} text-label`
 
 function getAgentApi(): AgentIpcApi {
   return window.api as unknown as AgentIpcApi
@@ -482,21 +482,21 @@ export function AgentProviderSettings({ inlineAuth = false }: { inlineAuth?: boo
                       autoFocus
                       className={`min-w-0 flex-1 font-mono ${INPUT_CLASS}`}
                     />
-                    <button
-                      type="button"
+                    <Button
+                      variant="primary"
                       onClick={() => void saveBaseUrl(provider)}
                       disabled={baseUrlSaving}
-                      className="h-9 shrink-0 rounded-lg bg-primary px-3.5 text-label font-medium text-white shadow-soft transition-opacity hover:opacity-90 disabled:opacity-50"
+                      className="shrink-0 px-3.5 text-label"
                     >
                       {baseUrlSaving ? '…' : '保存'}
-                    </button>
-                    <button
-                      type="button"
+                    </Button>
+                    <Button
+                      variant="secondary"
                       onClick={() => setEditingBaseUrl(null)}
-                      className="h-9 shrink-0 rounded-lg border border-gray-200 bg-sidebar px-3 text-label text-text-secondary transition-colors hover:bg-gray-100 dark:border-white/10 dark:bg-white/5"
+                      className="shrink-0 px-3 text-label"
                     >
                       取消
-                    </button>
+                    </Button>
                   </div>
                   {baseUrlError && <div className="text-label text-rose-600 dark:text-rose-400">{baseUrlError}</div>}
                 </div>
@@ -642,21 +642,21 @@ export function AgentProviderSettings({ inlineAuth = false }: { inlineAuth?: boo
           </div>
           {customError && <div className="text-label text-rose-600 dark:text-rose-400">{customError}</div>}
           <div className="flex justify-end gap-2">
-            <button
-              type="button"
+            <Button
+              variant="secondary"
               onClick={() => setCustomOpen(false)}
-              className="h-9 rounded-lg border border-gray-200 bg-sidebar px-3.5 text-label text-text-secondary transition-colors hover:bg-gray-100 dark:border-white/10 dark:bg-white/5"
+              className="px-3.5 text-label font-normal"
             >
               取消
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+              variant="primary"
               onClick={() => void handleAddCustom()}
               disabled={customSaving}
-              className="h-9 rounded-lg bg-primary px-4 text-label font-medium text-white shadow-soft transition-opacity hover:opacity-90 disabled:opacity-50"
+              className="text-label"
             >
               {customSaving ? '保存中…' : '保存'}
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -678,7 +678,7 @@ export function AgentProviderSettings({ inlineAuth = false }: { inlineAuth?: boo
             {favoriteModels.map(({ provider, model }) => (
               <div
                 key={`${provider.id}:${model.id}`}
-                className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-white/80 bg-white/80 px-2.5 py-1 text-label shadow-2xs dark:border-white/10 dark:bg-white/10"
+                className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-white/80 bg-white/80 px-2.5 py-1 text-label shadow-sm dark:border-white/10 dark:bg-white/10"
               >
                 <span className="truncate font-medium text-text-primary">{model.name}</span>
                 <span className="shrink-0 font-mono text-tiny text-text-secondary">{provider.id}</span>

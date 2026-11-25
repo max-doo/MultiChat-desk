@@ -1,22 +1,7 @@
 import { useState, useMemo } from 'react'
-import {
-  ChevronDown,
-  Terminal,
-  FileEdit,
-  FileText,
-  Wrench,
-  AlertCircle,
-  Check,
-  Copy,
-  X,
-  Globe,
-  Image as ImageIcon,
-  Search,
-  FileSearch,
-  FolderOpen
-} from 'lucide-react'
 import { parseDiff, Diff, Hunk } from 'react-diff-view'
 import 'react-diff-view/style/index.css'
+import { AppIcon } from '../../icons/AppIcon'
 import type { PiContentPart } from '../../../types/agent'
 import { useWorkbenchStore } from '../../../store/workbenchStore'
 import { resolveAbsolute, toWorkspaceRelative } from './filePathUtils'
@@ -229,8 +214,8 @@ function ToolItem({ part, isRunning = false, defaultExpanded = false, cwd }: Sin
     if (toolName === 'bash' || toolName === 'powershell' || toolName === 'cmd' || toolName === 'terminal' || toolName === 'shell') {
       return (
         <div className="flex items-center gap-2 min-w-0 flex-1">
-          <Terminal className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-          <span className="font-mono text-body text-slate-800 truncate">
+          <AppIcon name="terminal" size={14} className="text-slate-500 dark:text-slate-400 shrink-0" />
+          <span className="font-mono text-body text-slate-800 dark:text-gray-200 truncate">
             {command || '运行了命令'}
           </span>
         </div>
@@ -240,13 +225,13 @@ function ToolItem({ part, isRunning = false, defaultExpanded = false, cwd }: Sin
     if (isEditTool) {
       return (
         <div className="flex items-center gap-2 min-w-0 flex-1">
-          <FileEdit className="w-3.5 h-3.5 text-purple-600 shrink-0" />
-          <span className="text-body text-slate-800 font-medium">已编辑</span>
+          <AppIcon name="file_edit" size={14} className="text-purple-600 dark:text-purple-400 shrink-0" />
+          <span className="text-body text-slate-800 dark:text-gray-200 font-medium">已编辑</span>
           <button
             type="button"
             onClick={handleFileNameClick}
             title={filePath}
-            className="font-mono text-body text-slate-700 truncate underline decoration-slate-300 underline-offset-2 hover:text-primary transition-colors"
+            className="font-mono text-body text-slate-700 dark:text-gray-300 truncate underline decoration-slate-300 dark:decoration-slate-600 underline-offset-2 hover:text-primary transition-colors"
           >
             {fileName || filePath || '文件'}
           </button>
@@ -257,10 +242,10 @@ function ToolItem({ part, isRunning = false, defaultExpanded = false, cwd }: Sin
     if (toolName === 'web_search') {
       return (
         <div className="flex items-center gap-2 min-w-0 flex-1">
-          <Globe className="w-3.5 h-3.5 text-sky-600 shrink-0" />
-          <span className="text-body text-slate-800 font-medium shrink-0">联网搜索</span>
+          <AppIcon name="public" size={14} className="text-sky-600 dark:text-sky-400 shrink-0" />
+          <span className="text-body text-slate-800 dark:text-gray-200 font-medium shrink-0">联网搜索</span>
           {inlineArg && (
-            <span className="text-body text-slate-600 truncate">{inlineArg}</span>
+            <span className="text-body text-slate-600 dark:text-gray-400 truncate">{inlineArg}</span>
           )}
         </div>
       )
@@ -269,10 +254,10 @@ function ToolItem({ part, isRunning = false, defaultExpanded = false, cwd }: Sin
     if (toolName === 'image_gen') {
       return (
         <div className="flex items-center gap-2 min-w-0 flex-1">
-          <ImageIcon className="w-3.5 h-3.5 text-violet-600 shrink-0" />
-          <span className="text-body text-slate-800 font-medium shrink-0">生成图片</span>
+          <AppIcon name="image" size={14} className="text-violet-600 dark:text-violet-400 shrink-0" />
+          <span className="text-body text-slate-800 dark:text-gray-200 font-medium shrink-0">生成图片</span>
           {inlineArg && (
-            <span className="text-body text-slate-600 truncate">{inlineArg}</span>
+            <span className="text-body text-slate-600 dark:text-gray-400 truncate">{inlineArg}</span>
           )}
         </div>
       )
@@ -281,10 +266,10 @@ function ToolItem({ part, isRunning = false, defaultExpanded = false, cwd }: Sin
     if (toolName === 'grep') {
       return (
         <div className="flex items-center gap-2 min-w-0 flex-1">
-          <Search className="w-3.5 h-3.5 text-teal-600 shrink-0" />
-          <span className="text-body text-slate-800 font-medium shrink-0">搜索</span>
+          <AppIcon name="search" size={14} className="text-teal-600 dark:text-teal-400 shrink-0" />
+          <span className="text-body text-slate-800 dark:text-gray-200 font-medium shrink-0">搜索</span>
           {inlineArg && (
-            <span className="font-mono text-body text-slate-700 truncate">{inlineArg}</span>
+            <span className="font-mono text-body text-slate-700 dark:text-gray-300 truncate">{inlineArg}</span>
           )}
         </div>
       )
@@ -293,10 +278,10 @@ function ToolItem({ part, isRunning = false, defaultExpanded = false, cwd }: Sin
     if (toolName === 'find') {
       return (
         <div className="flex items-center gap-2 min-w-0 flex-1">
-          <FileSearch className="w-3.5 h-3.5 text-teal-600 shrink-0" />
-          <span className="text-body text-slate-800 font-medium shrink-0">查找</span>
+          <AppIcon name="find_in_page" size={14} className="text-teal-600 dark:text-teal-400 shrink-0" />
+          <span className="text-body text-slate-800 dark:text-gray-200 font-medium shrink-0">查找</span>
           {inlineArg && (
-            <span className="font-mono text-body text-slate-700 truncate">{inlineArg}</span>
+            <span className="font-mono text-body text-slate-700 dark:text-gray-300 truncate">{inlineArg}</span>
           )}
         </div>
       )
@@ -305,10 +290,10 @@ function ToolItem({ part, isRunning = false, defaultExpanded = false, cwd }: Sin
     if (toolName === 'ls') {
       return (
         <div className="flex items-center gap-2 min-w-0 flex-1">
-          <FolderOpen className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-          <span className="text-body text-slate-800 font-medium shrink-0">列出目录</span>
+          <AppIcon name="folder_open" size={14} className="text-amber-600 dark:text-amber-400 shrink-0" />
+          <span className="text-body text-slate-800 dark:text-gray-200 font-medium shrink-0">列出目录</span>
           {filePath && (
-            <span className="font-mono text-body text-slate-700 truncate">{filePath}</span>
+            <span className="font-mono text-body text-slate-700 dark:text-gray-300 truncate">{filePath}</span>
           )}
         </div>
       )
@@ -317,13 +302,13 @@ function ToolItem({ part, isRunning = false, defaultExpanded = false, cwd }: Sin
     if (toolName === 'read' || toolName === 'read_file') {
       return (
         <div className="flex items-center gap-2 min-w-0 flex-1">
-          <FileText className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-          <span className="text-body text-slate-800 font-medium">已读取</span>
+          <AppIcon name="description" size={14} className="text-amber-600 dark:text-amber-400 shrink-0" />
+          <span className="text-body text-slate-800 dark:text-gray-200 font-medium">已读取</span>
           <button
             type="button"
             onClick={handleFileNameClick}
             title={filePath}
-            className="font-mono text-body text-slate-700 truncate underline decoration-slate-300 underline-offset-2 hover:text-primary transition-colors"
+            className="font-mono text-body text-slate-700 dark:text-gray-300 truncate underline decoration-slate-300 dark:decoration-slate-600 underline-offset-2 hover:text-primary transition-colors"
           >
             {fileName || filePath || '文件'}
           </button>
@@ -333,8 +318,8 @@ function ToolItem({ part, isRunning = false, defaultExpanded = false, cwd }: Sin
 
     return (
       <div className="flex items-center gap-2 min-w-0 flex-1">
-        <Wrench className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-        <span className="text-body text-slate-800 font-medium">调用了 {toolName}</span>
+        <AppIcon name="build" size={14} className="text-slate-500 dark:text-slate-400 shrink-0" />
+        <span className="text-body text-slate-800 dark:text-gray-200 font-medium">调用了 {toolName}</span>
       </div>
     )
   }
@@ -345,11 +330,11 @@ function ToolItem({ part, isRunning = false, defaultExpanded = false, cwd }: Sin
       <button
         type="button"
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center justify-between py-1 px-1.5 rounded-md hover:bg-slate-100/70 transition-colors text-left group cursor-pointer"
+        className="w-full flex items-center justify-between py-1 px-1.5 rounded-md hover:bg-slate-100/70 dark:hover:bg-white/5 transition-colors text-left group cursor-pointer"
       >
         <div className={`flex items-center gap-2 min-w-0 flex-1 ${isPartRunning ? 'text-shimmer' : ''}`}>
           {isError ? (
-            <AlertCircle className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+            <AppIcon name="error" size={14} className="text-rose-500 shrink-0" />
           ) : null}
 
           {renderItemHeader()}
@@ -359,9 +344,11 @@ function ToolItem({ part, isRunning = false, defaultExpanded = false, cwd }: Sin
           {part.durationMs !== undefined && (
             <span className="text-caption font-mono text-slate-400">{part.durationMs}ms</span>
           )}
-          <ChevronDown
-            className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 ${
-              expanded ? 'rotate-180 text-slate-700' : 'group-hover:text-slate-600'
+          <AppIcon
+            name="expand_more"
+            size={14}
+            className={`text-slate-400 transition-transform duration-200 ${
+              expanded ? 'rotate-180 text-slate-700 dark:text-gray-200' : 'group-hover:text-slate-600 dark:group-hover:text-gray-300'
             }`}
           />
         </div>
@@ -369,19 +356,19 @@ function ToolItem({ part, isRunning = false, defaultExpanded = false, cwd }: Sin
 
       {/* 点击展开后的内嵌视窗（命令 + 运行结果，绝不单独在外部展示） */}
       {expanded && (
-        <div className="my-1.5 ml-5 rounded-lg border border-slate-200/90 bg-slate-50/70 select-text shadow-2xs overflow-hidden">
+        <div className="my-1.5 ml-5 rounded-lg border border-slate-200/90 bg-slate-50/70 select-text shadow-sm overflow-hidden dark:border-white/10 dark:bg-white/[0.03]">
           {/* 顶栏：标签 + 复制按钮 */}
-          <div className="flex items-center justify-between px-3 py-1.5 border-b border-slate-200/60 text-caption font-mono text-slate-500 select-none">
-            <span className="font-medium uppercase tracking-wider text-tiny text-slate-500">
+          <div className="flex items-center justify-between px-3 py-1.5 border-b border-slate-200/60 text-caption font-mono text-slate-500 select-none dark:border-white/10 dark:text-slate-400">
+            <span className="font-medium uppercase tracking-wider text-caption text-slate-500 dark:text-slate-400">
               {toolName === 'bash' || toolName === 'powershell' || toolName === 'cmd' ? 'Shell' : toolName}
             </span>
             <button
               type="button"
               onClick={handleCopy}
-              className="flex items-center gap-1 text-tiny text-slate-500 hover:text-slate-800 px-1.5 py-0.5 rounded hover:bg-slate-200/60 transition-colors"
+              className="flex items-center gap-1 text-caption text-slate-500 hover:text-slate-800 px-1.5 py-0.5 rounded hover:bg-slate-200/60 transition-colors dark:text-slate-400 dark:hover:text-gray-100 dark:hover:bg-white/10"
               title="复制全部"
             >
-              {copied ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+              {copied ? <AppIcon name="check" size={12} className="text-emerald-600 dark:text-emerald-400" /> : <AppIcon name="content_copy" size={12} />}
               <span>{copied ? '已复制' : '复制'}</span>
             </button>
           </div>
@@ -390,7 +377,7 @@ function ToolItem({ part, isRunning = false, defaultExpanded = false, cwd }: Sin
           <div className="px-3 py-2">
             {/* 如果是命令，首先显示执行的命令行 */}
             {command && (
-              <div className="font-mono text-caption text-slate-800 font-semibold mb-2 select-text whitespace-pre-wrap break-all">
+              <div className="font-mono text-caption text-slate-800 dark:text-gray-200 font-semibold mb-2 select-text whitespace-pre-wrap break-all">
                 $ {command}
               </div>
             )}
@@ -406,25 +393,25 @@ function ToolItem({ part, isRunning = false, defaultExpanded = false, cwd }: Sin
               </div>
             ) : (
               /* 标准输出 / 结果展示区 */
-          <pre className="max-h-72 overflow-y-auto whitespace-pre-wrap break-all font-mono text-caption text-slate-700 leading-relaxed selection:bg-blue-100">
+              <pre className="max-h-72 overflow-y-auto whitespace-pre-wrap break-all font-mono text-caption text-slate-700 dark:text-slate-300 leading-relaxed selection:bg-blue-100 dark:selection:bg-blue-500/30">
                 {displayDiffText || writeContentFallback || outputText || (isPartRunning ? '等待输出…' : '(无返回内容)')}
               </pre>
             )}
           </div>
 
           {/* 状态反馈脚标 */}
-          <div className="flex items-center justify-end gap-2 px-3 py-1.5 border-t border-slate-200/60 text-tiny font-medium select-none">
+          <div className="flex items-center justify-end gap-2 px-3 py-1.5 border-t border-slate-200/60 text-caption font-medium select-none dark:border-white/10">
             {isError ? (
-              <span className="text-rose-600 flex items-center gap-1">
-                <X className="w-3 h-3" /> 执行失败
+              <span className="text-rose-600 dark:text-rose-400 flex items-center gap-1">
+                <AppIcon name="close" size={12} /> 执行失败
               </span>
             ) : isPartRunning ? (
-            <span className="text-shimmer flex items-center gap-1">
-              执行中
+              <span className="text-shimmer flex items-center gap-1">
+                执行中
               </span>
             ) : (
-              <span className="text-emerald-600 flex items-center gap-1">
-                <Check className="w-3 h-3" /> 成功
+              <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                <AppIcon name="check" size={12} /> 成功
               </span>
             )}
           </div>
@@ -476,23 +463,23 @@ export function ToolGroup({ parts, isRunning = false, cwd }: ToolGroupProps): JS
   const hasError = parts.some((p) => p.isError)
 
   // 决定主图标
-  const MainIcon = useMemo(() => {
+  const mainIconName = useMemo(() => {
     const hasEdit = parts.some((p) => {
       const name = (p.toolName || '').toLowerCase()
       return EDIT_TOOL_NAMES.has(name)
     })
-    if (hasEdit) return FileEdit
+    if (hasEdit) return 'file_edit'
     const hasBash = parts.some((p) => {
       const name = (p.toolName || '').toLowerCase()
       return name === 'bash' || name === 'powershell' || name === 'cmd' || name === 'terminal'
     })
-    if (hasBash) return Terminal
+    if (hasBash) return 'terminal'
     const hasRead = parts.some((p) => {
       const name = (p.toolName || '').toLowerCase()
       return name === 'read' || name === 'read_file'
     })
-    if (hasRead) return FileText
-    return Wrench
+    if (hasRead) return 'description'
+    return 'build'
   }, [parts])
 
   // 如果只有 1 个工具调用，也包装进极简折叠组，保持全链路风格 100% 统一
@@ -503,28 +490,30 @@ export function ToolGroup({ parts, isRunning = false, cwd }: ToolGroupProps): JS
         type="button"
         tabIndex={0}
         onClick={() => setGroupExpanded(!groupExpanded)}
-        className="flex items-center gap-2 py-1 px-1.5 rounded-md hover:bg-slate-100/70 transition-colors text-left cursor-pointer group text-body text-slate-700"
+        className="flex items-center gap-2 py-1 px-1.5 rounded-md hover:bg-slate-100/70 dark:hover:bg-white/5 transition-colors text-left cursor-pointer group text-body text-slate-700 dark:text-gray-300"
       >
         {hasError ? (
-          <AlertCircle className="w-4 h-4 text-rose-500 shrink-0" />
+          <AppIcon name="error" size={16} className="text-rose-500 shrink-0" />
         ) : (
-          <MainIcon className="w-4 h-4 text-slate-600 group-hover:text-slate-900 transition-colors shrink-0" />
+          <AppIcon name={mainIconName} size={16} className="text-slate-600 dark:text-slate-400 group-hover:text-slate-900 dark:group-hover:text-white transition-colors shrink-0" />
         )}
 
-        <span className={`font-medium text-body ${hasRunning ? 'text-shimmer' : 'text-slate-800'}`}>
+        <span className={`font-medium text-body ${hasRunning ? 'text-shimmer' : 'text-slate-800 dark:text-gray-200'}`}>
           {summaryTitle}
         </span>
 
-        <ChevronDown
-          className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 shrink-0 ${
-            groupExpanded ? 'rotate-180 text-slate-700' : 'group-hover:text-slate-600'
+        <AppIcon
+          name="expand_more"
+          size={14}
+          className={`text-slate-400 transition-transform duration-200 shrink-0 ${
+            groupExpanded ? 'rotate-180 text-slate-700 dark:text-gray-200' : 'group-hover:text-slate-600 dark:group-hover:text-gray-300'
           }`}
         />
       </button>
 
       {/* 展开后展示的内嵌列表 */}
       {groupExpanded && (
-        <div className="mt-1 pl-3.5 border-l-2 border-slate-200/80 space-y-0.5 py-0.5">
+        <div className="mt-1 pl-3.5 border-l-2 border-slate-200/80 dark:border-white/10 space-y-0.5 py-0.5">
           {parts.map((part, idx) => (
             <ToolItem
               key={part.toolCallId || idx}

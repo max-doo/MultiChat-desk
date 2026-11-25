@@ -204,7 +204,7 @@ export default function WorkbenchFindReplaceBar({
     `${iconBtn} ${on ? 'bg-primary/15 text-primary dark:bg-primary/25' : ''}`
 
   return (
-    <div className="absolute top-2 right-3 z-40 flex flex-col gap-1 rounded-lg border border-black/10 dark:border-white/10 bg-white/95 dark:bg-gray-800/95 shadow-lg backdrop-blur px-1.5 py-1.5 select-none">
+    <div className="absolute top-2 right-3 z-dropdown flex flex-col gap-1 rounded-lg border border-black/10 dark:border-white/10 bg-white/95 dark:bg-gray-800/95 shadow-lg backdrop-blur px-1.5 py-1.5 select-none">
       {/* 查找行 */}
       <div className="flex items-center gap-0.5">
         <input

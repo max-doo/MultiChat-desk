@@ -29,6 +29,16 @@ export type {
 
 export type AgentPermissionMode = 'default' | 'auto' | 'bypass'
 
+export const THINKING_LABELS: Record<AgentThinkingLevel, string> = {
+  off: '关闭',
+  minimal: '极低',
+  low: '低',
+  medium: '中',
+  high: '高',
+  xhigh: '极高',
+  max: '最大'
+}
+
 export interface PiContentPart {
   type: 'text' | 'reasoning' | 'tool-call' | 'image'
   text?: string

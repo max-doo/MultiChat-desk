@@ -560,7 +560,7 @@ export function ColorPickerMenu({
             aria-label="透明背景"
             aria-pressed={alpha <= 0.001}
             onClick={() => onChoose('transparent')}
-            className={`relative h-5 w-5 overflow-hidden rounded-[4px] border transition-transform hover:scale-110 ${
+            className={`relative h-5 w-5 overflow-hidden rounded-sm border transition-transform hover:scale-110 ${
               alpha <= 0.001
                 ? 'border-primary ring-2 ring-primary/30 ring-offset-1 ring-offset-white dark:ring-offset-gray-800'
                 : 'border-black/15 dark:border-white/20'
@@ -580,7 +580,7 @@ export function ColorPickerMenu({
               aria-label={`${label} ${color.toUpperCase()}`}
               aria-pressed={selected}
               onClick={() => onChoose(color)}
-              className={`h-5 w-5 rounded-[4px] border transition-transform hover:scale-110 ${
+              className={`h-5 w-5 rounded-sm border transition-transform hover:scale-110 ${
                 selected
                   ? 'border-primary ring-2 ring-primary/30 ring-offset-1 ring-offset-white dark:ring-offset-gray-800'
                   : 'border-black/15 dark:border-white/20'

@@ -9,6 +9,7 @@ import type {
 } from '../../../../shared/types/annotations'
 import type { FrontmatterBackupSummary } from '../../../../shared/types/workbench'
 import { AppIcon } from '../icons/AppIcon'
+import { WORKBENCH_INPUT_CLASS } from '../ui/FormControls'
 import WorkbenchFooterPopover, { WorkbenchFooterPopoverHeader } from './WorkbenchFooterPopover'
 
 function formatSize(size: number): string {
@@ -519,7 +520,7 @@ export default function WorkbenchWorkspaceSettings({
         >
           <span>存储与维护</span>
           {migrationPendingCount + migrationBlockedCount > 0 && (
-            <span className="rounded-full bg-amber-100 px-1.5 py-0.2 text-tiny font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+            <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-tiny font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
               {migrationPendingCount + migrationBlockedCount}
             </span>
           )}
@@ -593,7 +594,7 @@ export default function WorkbenchWorkspaceSettings({
                       : 'https://github.com/user/repo.git'
                   }
                   aria-label="远程仓库地址"
-                  className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50/80 px-2.5 font-mono text-body text-text-primary focus:border-primary focus:bg-white focus:outline-none disabled:bg-slate-100/70 disabled:text-text-secondary/70 dark:border-slate-700/80 dark:bg-slate-800/50 dark:disabled:bg-slate-800/30 dark:focus:bg-gray-900"
+                  className={`w-full px-2.5 font-mono ${WORKBENCH_INPUT_CLASS}`}
                 />
                 {isSavingRemote && <p className="mt-1 text-caption text-text-secondary">正在保存远程地址…</p>}
               </section>
@@ -624,7 +625,7 @@ export default function WorkbenchWorkspaceSettings({
                           onClick={() => toggleCategory(category)}
                           className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-body font-medium transition-all ${
                             state === 'all'
-                              ? 'border border-blue-200 bg-blue-50 text-blue-700 shadow-xs dark:border-blue-800/80 dark:bg-blue-950/60 dark:text-blue-300'
+                              ? 'border border-blue-200 bg-blue-50 text-blue-700 shadow-sm dark:border-blue-800/80 dark:bg-blue-950/60 dark:text-blue-300'
                               : state === 'partial'
                                 ? 'border border-blue-200/70 bg-blue-50/50 text-blue-600 dark:border-blue-800/50 dark:bg-blue-950/30 dark:text-blue-300'
                               : 'border border-slate-200/80 bg-slate-50 text-slate-600 hover:bg-slate-100 dark:border-slate-700/60 dark:bg-slate-800/50 dark:text-slate-400 dark:hover:bg-slate-800'
@@ -689,7 +690,7 @@ export default function WorkbenchWorkspaceSettings({
                   }}
                   placeholder="conversations"
                   aria-label="会话归档目录"
-                  className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50/80 px-2.5 font-mono text-body text-text-primary focus:border-primary focus:bg-white focus:outline-none dark:border-slate-700/80 dark:bg-slate-800/50 dark:focus:bg-gray-900"
+                  className={`w-full px-2.5 font-mono ${WORKBENCH_INPUT_CLASS}`}
                 />
                 {conversationDirWarning && (
                   <p className="mt-1 text-caption text-amber-600 dark:text-amber-400">
@@ -735,11 +736,11 @@ export default function WorkbenchWorkspaceSettings({
                     <div className="flex items-center gap-1.5">
                       <h3 className="text-body font-semibold text-text-primary">旧笔记迁移</h3>
                       {migrationPending?.pendingConversations ? (
-                        <span className="rounded bg-amber-50 px-1.5 py-0.2 text-tiny font-medium text-amber-700 dark:bg-amber-950/60 dark:text-amber-400">
+                        <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-tiny font-semibold text-amber-700 dark:bg-amber-950/60 dark:text-amber-400">
                           {migrationPending.pendingConversations} 条待迁移
                         </span>
                       ) : migrationPending?.blockedConversations ? (
-                        <span className="rounded bg-rose-50 px-1.5 py-0.2 text-tiny font-medium text-rose-700 dark:bg-rose-950/60 dark:text-rose-400">
+                        <span className="rounded-full bg-rose-100 px-1.5 py-0.5 text-tiny font-semibold text-rose-700 dark:bg-rose-950/60 dark:text-rose-400">
                           {migrationPending.blockedConversations} 条阻塞
                         </span>
                       ) : null}
@@ -909,7 +910,7 @@ export default function WorkbenchWorkspaceSettings({
               type="button"
               onClick={() => void save()}
               disabled={isSaving || isSavingRemote || conversationSaving || isLoading || !isDirty}
-              className="min-w-[68px] rounded-lg bg-primary px-4 py-1.5 text-body font-medium text-white hover:bg-primary/90 transition-all shadow-xs disabled:opacity-40 disabled:pointer-events-none"
+              className="min-w-[68px] rounded-lg bg-primary px-4 py-1.5 text-body font-medium text-white hover:bg-primary/90 transition-all shadow-sm disabled:opacity-40 disabled:pointer-events-none"
             >
               {isSaving || isSavingRemote || conversationSaving ? '保存中' : '保存'}
             </button>

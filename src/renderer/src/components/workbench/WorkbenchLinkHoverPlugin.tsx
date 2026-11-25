@@ -152,6 +152,7 @@ export default function WorkbenchLinkHoverPlugin(): JSX.Element | null {
   if (!tip) return null
 
   return createPortal(
+    // 特例 z-[130]：链接悬浮提示需压在弹窗与弹层之上
     <div
       role="tooltip"
       className="pointer-events-none fixed z-[130] rounded-md bg-gray-900/95 px-2 py-1 text-caption leading-relaxed text-white shadow-lg ring-1 ring-black/10 dark:bg-gray-950/95"

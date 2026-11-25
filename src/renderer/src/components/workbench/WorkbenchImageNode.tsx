@@ -222,8 +222,8 @@ function WorkbenchImageComponent({
         }}
       >
         {loadError ? (
-          <div className="flex items-center gap-2 px-4 py-3 rounded-lg border border-dashed border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 text-sm select-none">
-            <AppIcon name="broken_image" size={18} />
+          <div className="flex items-center gap-2 px-4 py-3 rounded-lg border border-dashed border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 text-body select-none">
+            <AppIcon name="broken_image" size={19} />
             <span>图片加载失败: {src}</span>
           </div>
         ) : thumb ? (
@@ -235,8 +235,8 @@ function WorkbenchImageComponent({
             draggable={false}
           />
         ) : (
-          <div className="flex items-center gap-2 px-4 py-6 rounded-lg border border-black/10 dark:border-white/10 bg-black/5 dark:bg-white/5 text-text-secondary text-sm">
-            <AppIcon name="image" size={18} className="animate-pulse" />
+          <div className="flex items-center gap-2 px-4 py-6 rounded-lg border border-black/10 dark:border-white/10 bg-black/5 dark:bg-white/5 text-text-secondary text-body">
+            <AppIcon name="image" size={19} className="animate-pulse" />
             <span>加载中…</span>
           </div>
         )}

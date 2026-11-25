@@ -6,6 +6,7 @@ import WorkbenchAiSidebar from '../components/workbench/WorkbenchAiSidebar'
 import WorkbenchMindmapPanel from '../components/workbench/WorkbenchMindmapPanel'
 import { requestUploadNodesToAi } from '../components/workbench/workbenchAiEvents'
 import { AppIcon } from '../components/icons/AppIcon'
+import { StatusBanner } from '../components/ui/FormControls'
 
 interface WorkbenchPageProps {
   isActive?: boolean
@@ -52,62 +53,58 @@ export default function WorkbenchPage({ isActive = true }: WorkbenchPageProps): 
     })
   }, [rightPane])
 
-  // 处理拖拽分隔条 (Left Splitter)
-  const handleLeftSplitterPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    e.preventDefault()
-    const splitter = e.currentTarget
-    const pointerId = e.pointerId
-    splitter.setPointerCapture(pointerId)
-    setIsDraggingLeft(true)
-    let currentWidth = useWorkbenchStore.getState().leftPaneWidth
-    const handlePointerMove = (moveEvent: PointerEvent) => {
-      // 拖拽高频过程中仅更新内存状态，避免每帧高频 IPC 写盘引发界面粘滞卡顿
-      currentWidth = setLeftPaneWidth(moveEvent.clientX, false)
-    }
-    const handlePointerUp = () => {
-      setIsDraggingLeft(false)
-      try {
-        splitter.releasePointerCapture(pointerId)
-      } catch {
-        // ignore
+  const startPaneDrag = useCallback(
+    (
+      e: React.PointerEvent<HTMLDivElement>,
+      side: 'left' | 'right'
+    ) => {
+      e.preventDefault()
+      const splitter = e.currentTarget
+      const pointerId = e.pointerId
+      splitter.setPointerCapture(pointerId)
+      const setDragging = side === 'left' ? setIsDraggingLeft : setIsDraggingRight
+      setDragging(true)
+      let currentWidth =
+        side === 'left'
+          ? useWorkbenchStore.getState().leftPaneWidth
+          : useWorkbenchStore.getState().rightPaneWidth
+      const handlePointerMove = (moveEvent: PointerEvent) => {
+        // 拖拽高频过程中仅更新内存状态，避免每帧高频 IPC 写盘引发界面粘滞卡顿
+        currentWidth =
+          side === 'left'
+            ? setLeftPaneWidth(moveEvent.clientX, false)
+            : setRightPaneWidth(window.innerWidth - moveEvent.clientX, false)
       }
-      window.removeEventListener('pointermove', handlePointerMove)
-      window.removeEventListener('pointerup', handlePointerUp)
-      // 拖拽结束时单次持久化落盘
-      void window.api.storeSet('workbench_leftPaneWidth', currentWidth)
-    }
-    window.addEventListener('pointermove', handlePointerMove)
-    window.addEventListener('pointerup', handlePointerUp)
-  }, [setLeftPaneWidth])
+      const handlePointerUp = () => {
+        setDragging(false)
+        try {
+          splitter.releasePointerCapture(pointerId)
+        } catch {
+          // ignore
+        }
+        window.removeEventListener('pointermove', handlePointerMove)
+        window.removeEventListener('pointerup', handlePointerUp)
+        // 拖拽结束时单次持久化落盘
+        void window.api.storeSet(
+          side === 'left' ? 'workbench_leftPaneWidth' : 'workbench_rightPaneWidth',
+          currentWidth
+        )
+      }
+      window.addEventListener('pointermove', handlePointerMove)
+      window.addEventListener('pointerup', handlePointerUp)
+    },
+    [setLeftPaneWidth, setRightPaneWidth]
+  )
 
-  // 处理拖拽分隔条 (Right Splitter)
-  const handleRightSplitterPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    e.preventDefault()
-    const splitter = e.currentTarget
-    const pointerId = e.pointerId
-    splitter.setPointerCapture(pointerId)
-    setIsDraggingRight(true)
-    let currentWidth = useWorkbenchStore.getState().rightPaneWidth
-    const handlePointerMove = (moveEvent: PointerEvent) => {
-      const nextWidth = window.innerWidth - moveEvent.clientX
-      // 拖拽高频过程中仅更新内存状态，避免每帧高频 IPC 写盘引发界面粘滞卡顿
-      currentWidth = setRightPaneWidth(nextWidth, false)
-    }
-    const handlePointerUp = () => {
-      setIsDraggingRight(false)
-      try {
-        splitter.releasePointerCapture(pointerId)
-      } catch {
-        // ignore
-      }
-      window.removeEventListener('pointermove', handlePointerMove)
-      window.removeEventListener('pointerup', handlePointerUp)
-      // 拖拽结束时单次持久化落盘
-      void window.api.storeSet('workbench_rightPaneWidth', currentWidth)
-    }
-    window.addEventListener('pointermove', handlePointerMove)
-    window.addEventListener('pointerup', handlePointerUp)
-  }, [setRightPaneWidth])
+  const handleLeftSplitterPointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => startPaneDrag(e, 'left'),
+    [startPaneDrag]
+  )
+
+  const handleRightSplitterPointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => startPaneDrag(e, 'right'),
+    [startPaneDrag]
+  )
 
   if (!isInitialized) {
     return (
@@ -124,54 +121,43 @@ export default function WorkbenchPage({ isActive = true }: WorkbenchPageProps): 
     >
       {/* 调整窗格宽度时的透明事件保护遮罩 */}
       {(isDraggingLeft || isDraggingRight) && (
-        <div className="fixed inset-0 z-50 cursor-col-resize select-none bg-transparent" />
+        <div className="fixed inset-0 z-popover cursor-col-resize select-none bg-transparent" />
       )}
 
       {/* 错误提示浮层 */}
-      {error && (
-        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-50 px-4 py-2 bg-rose-500 text-white rounded-xl shadow-xl flex items-center gap-2 text-xs animate-in fade-in slide-in-from-top duration-200">
-          <AppIcon name="error" size={16} />
-          <span>{error}</span>
-          <button
-            type="button"
-            onClick={clearError}
-            className="w-4 h-4 flex items-center justify-center hover:bg-white/20 rounded-full"
-          >
-            <AppIcon name="close" size={12} />
-          </button>
-        </div>
-      )}
+      {error && <StatusBanner tone="error" message={error} onClose={clearError} />}
 
       {/* 成功类轻提示：与错误条共用位置，不堆叠 */}
       {!error && notice && (
-        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-50 px-4 py-2 bg-emerald-500 text-white rounded-xl shadow-xl flex items-center gap-2 text-xs animate-in fade-in slide-in-from-top duration-200">
-          <AppIcon name="check_circle" size={16} />
-          <span>{notice.message}</span>
-          <button
-            type="button"
-            onClick={clearNotice}
-            className="w-4 h-4 flex items-center justify-center hover:bg-white/20 rounded-full"
-          >
-            <AppIcon name="close" size={12} />
-          </button>
-        </div>
+        <StatusBanner tone="success" message={notice.message} onClose={clearNotice} />
       )}
 
       {/* 对账判定为外部删除的导图确认条 */}
       {pendingMindmapDeletions && pendingMindmapDeletions.length > 0 && (
-        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-50 px-4 py-2 bg-amber-500 text-white rounded-xl shadow-xl flex items-center gap-3 text-xs animate-in fade-in slide-in-from-top duration-200">
-          <span>检测到 {pendingMindmapDeletions.length} 份文档已消失，将删除对应笔记记录</span>
-          <button
-            type="button"
-            onClick={() => void confirmMindmapDeletions(pendingMindmapDeletions)}
-            className="px-2 py-1 bg-white/20 hover:bg-white/30 rounded"
-          >全部确认</button>
-          <button
-            type="button"
-            onClick={() => useWorkbenchStore.setState({ pendingMindmapDeletions: null })}
-            className="px-2 py-1 hover:bg-white/20 rounded"
-          >忽略</button>
-        </div>
+        <StatusBanner
+          tone="warning"
+          showIcon={false}
+          className="gap-3"
+          message={`检测到 ${pendingMindmapDeletions.length} 份文档已消失，将删除对应笔记记录`}
+          actions={
+            <>
+              <button
+                type="button"
+                onClick={() => void confirmMindmapDeletions(pendingMindmapDeletions)}
+                className="px-2 py-1 bg-white/20 hover:bg-white/30 rounded"
+              >
+                全部确认
+              </button>
+              <button
+                type="button"
+                onClick={() => useWorkbenchStore.setState({ pendingMindmapDeletions: null })}
+                className="px-2 py-1 hover:bg-white/20 rounded"
+              >
+                忽略
+              </button>
+            </>
+          }
+        />
       )}
 
       <div className="flex flex-1 h-full min-w-0">
@@ -189,7 +175,7 @@ export default function WorkbenchPage({ isActive = true }: WorkbenchPageProps): 
         {!isLeftCollapsed && (
           <div
             onPointerDown={handleLeftSplitterPointerDown}
-            className={`group relative w-[10px] -ml-[5px] h-full cursor-col-resize z-30 select-none shrink-0 ${
+            className={`group relative w-[10px] -ml-[5px] h-full cursor-col-resize z-dropdown select-none shrink-0 ${
               isDraggingLeft ? 'bg-primary/60' : 'bg-transparent'
             }`}
             title="拖拽调整左栏宽度"
@@ -214,7 +200,7 @@ export default function WorkbenchPage({ isActive = true }: WorkbenchPageProps): 
         {(rightPane || isAiSidebar2Open) && (
           <div
             onPointerDown={handleRightSplitterPointerDown}
-            className={`group relative w-[10px] -mr-[5px] h-full cursor-col-resize z-30 select-none shrink-0 ${
+            className={`group relative w-[10px] -mr-[5px] h-full cursor-col-resize z-dropdown select-none shrink-0 ${
               isDraggingRight ? 'bg-primary/60' : 'bg-transparent'
             }`}
             title="拖拽调整侧边栏宽度"
@@ -272,10 +258,10 @@ export default function WorkbenchPage({ isActive = true }: WorkbenchPageProps): 
               const nodes = useWorkbenchStore.getState().draggingNodes
               if (nodes?.length) requestUploadNodesToAi({ nodes })
             }}
-            className="absolute right-0 top-0 bottom-0 w-14 flex flex-col items-center justify-center bg-primary/15 hover:bg-primary/25 border-l-2 border-dashed border-primary/60 cursor-pointer animate-in fade-in slide-in-from-right duration-200 z-40 transition-colors shadow-2xl backdrop-blur-sm"
+            className="absolute right-0 top-0 bottom-0 w-14 flex flex-col items-center justify-center bg-primary/15 hover:bg-primary/25 border-l-2 border-dashed border-primary/60 cursor-pointer z-popover transition-colors shadow-2xl backdrop-blur-sm"
             title="拖拽到此处展开 AI 侧边栏"
           >
-            <div className="flex flex-col items-center gap-2 text-primary font-medium text-xs select-none p-2 text-center pointer-events-none">
+            <div className="flex flex-col items-center gap-2 text-primary font-medium text-label select-none p-2 text-center pointer-events-none">
               <AppIcon name="smart_toy" size={20} className="animate-bounce" />
               <span className="[writing-mode:vertical-lr] tracking-widest text-caption">展开 AI 侧边栏</span>
             </div>

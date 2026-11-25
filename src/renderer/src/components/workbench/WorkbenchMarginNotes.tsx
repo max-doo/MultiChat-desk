@@ -544,9 +544,9 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
         aria-label={`${compactMode ? '打开' : '展开'}注释，共 ${totalCount} 条，未解决 ${unresolvedCount} 条`}
       >
         <AppIcon name="annotation" size={16} />
-        <span className="text-xs font-semibold">{allNotes.length}</span>
+        <span className="text-label font-semibold">{allNotes.length}</span>
         {unresolvedCount > 0 && (
-          <span className="text-xs font-semibold text-rose-600 dark:text-rose-400">
+          <span className="text-label font-semibold text-rose-600 dark:text-rose-400">
             · {unresolvedCount}
           </span>
         )}
@@ -588,7 +588,7 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
             <button
               type="button"
               onClick={openCleanup}
-              className="ml-2 rounded px-1.5 py-0.5 text-tiny font-normal text-rose-600/80 hover:bg-rose-100 dark:text-rose-400/80 dark:hover:bg-rose-900/40"
+              className="ml-2 rounded px-1.5 py-0.5 text-caption font-normal text-rose-600/80 hover:bg-rose-100 dark:text-rose-400/80 dark:hover:bg-rose-900/40"
             >
               清理未解决
             </button>
@@ -619,7 +619,7 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
               <button
                 type="button"
                 onClick={() => setShowCleanup(false)}
-                className="rounded px-1.5 py-0.5 text-tiny text-text-secondary hover:bg-black/5 dark:hover:bg-white/10"
+                className="rounded px-1.5 py-0.5 text-caption text-text-secondary hover:bg-black/5 dark:hover:bg-white/10"
               >
                 取消
               </button>
@@ -627,7 +627,7 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
                 type="button"
                 disabled={!cleanupIds.length || Boolean(busyId)}
                 onClick={() => void cleanupUnresolved()}
-                className="rounded bg-rose-600 px-1.5 py-0.5 text-tiny font-semibold text-white hover:bg-rose-700 disabled:opacity-40"
+                className="rounded bg-rose-600 px-1.5 py-0.5 text-caption font-semibold text-white hover:bg-rose-700 disabled:opacity-40"
               >
                 删除
               </button>
@@ -662,7 +662,7 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
                     // 重新定位读取的是正文当前选区；按下按钮不能把焦点从编辑器抢走。
                     onMouseDown={event => event.preventDefault()}
                     onClick={() => editor.dispatchCommand(WORKBENCH_REANCHOR_COMMAND, item.id)}
-                    className="rounded px-1.5 py-0.5 text-tiny text-primary hover:bg-primary/10 disabled:opacity-40"
+                    className="rounded px-1.5 py-0.5 text-caption text-primary hover:bg-primary/10 disabled:opacity-40"
                   >
                     重新定位
                   </button>
@@ -670,7 +670,7 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
                     type="button"
                     disabled={busyId === item.id}
                     onClick={event => void handleDeleteNote(event, item)}
-                    className="rounded px-1.5 py-0.5 text-tiny text-rose-600 hover:bg-rose-100 disabled:opacity-40 dark:text-rose-400 dark:hover:bg-rose-900/40"
+                    className="rounded px-1.5 py-0.5 text-caption text-rose-600 hover:bg-rose-100 disabled:opacity-40 dark:text-rose-400 dark:hover:bg-rose-900/40"
                   >
                     删除
                   </button>
@@ -707,14 +707,14 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
                         window.open(item.source.url, '_blank', 'noopener,noreferrer')
                       }
                     }}
-                    className="rounded px-1.5 py-0.5 text-tiny text-primary hover:bg-primary/10"
+                    className="rounded px-1.5 py-0.5 text-caption text-primary hover:bg-primary/10"
                   >
                     打开原文
                   </button>
                   <button
                     type="button"
                     onClick={() => window.dispatchEvent(new Event('workbench:markdown-imported'))}
-                    className="rounded px-1.5 py-0.5 text-tiny text-text-secondary hover:bg-black/5 dark:hover:bg-white/10"
+                    className="rounded px-1.5 py-0.5 text-caption text-text-secondary hover:bg-black/5 dark:hover:bg-white/10"
                   >
                     刷新投影
                   </button>
@@ -722,7 +722,7 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
                     type="button"
                     disabled={busyId === item.id}
                     onClick={event => void handleDeleteNote(event, item)}
-                    className="rounded px-1.5 py-0.5 text-tiny text-rose-600 hover:bg-rose-100 disabled:opacity-40 dark:text-rose-400 dark:hover:bg-rose-900/40"
+                    className="rounded px-1.5 py-0.5 text-caption text-rose-600 hover:bg-rose-100 disabled:opacity-40 dark:text-rose-400 dark:hover:bg-rose-900/40"
                   >
                     删除原文标注
                   </button>
@@ -738,7 +738,7 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
     if (!anchorBox || totalCount === 0) return null
     return (
       <>
-        <div className="absolute inset-0 z-30 no-drag pointer-events-none select-none">
+        <div className="absolute inset-0 z-dropdown no-drag pointer-events-none select-none">
           <div
             className="sticky pointer-events-auto w-fit"
             style={{ top: '8px', marginTop: `${anchorBox.marginTop}px`, marginLeft: `${anchorBox.left}px` }}
@@ -778,7 +778,7 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
         createPortal(
           <div
             data-margin-notes-header="true"
-            className="absolute z-30 select-none"
+            className="absolute z-dropdown select-none"
             style={{ left: `${headerBox.left}px`, top: `${headerBox.top}px` }}
           >
             <div className="flex items-center gap-1 h-9 rounded-lg border border-black/10 bg-white/95 dark:bg-gray-800/95 dark:border-white/10 shadow-sm pl-1.5 pr-1">
@@ -790,8 +790,8 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
                 aria-label="收起注释"
               >
                 <AppIcon name="annotation" size={16} />
-                <span className="text-xs font-semibold">注释</span>
-                <span className="text-xs font-semibold text-amber-600/70 dark:text-amber-400/70">
+                <span className="text-label font-semibold">注释</span>
+                <span className="text-label font-semibold text-amber-600/70 dark:text-amber-400/70">
                   {totalCount}
                 </span>
               </button>
@@ -825,7 +825,7 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
                   title="隐藏注释"
                   aria-label="隐藏注释"
                 >
-                  <AppIcon name="close" size={13} />
+                  <AppIcon name="close" size={12} />
                 </button>
               </div>
             </div>
@@ -843,7 +843,7 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
         aria-label="文档原位旁注"
       >
       {totalCount === 0 && (
-        <div className="pt-8 text-center text-xs text-text-secondary/50 leading-relaxed px-2">
+        <div className="pt-8 text-center text-label text-text-secondary/50 leading-relaxed px-2">
           选中文本后点击“标注”<br />注释将直接停靠在文字右侧
         </div>
       )}
@@ -897,11 +897,11 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
                       setEditingId(null)
                     }
                   }}
-                  className="w-full h-18 resize-none rounded-lg border border-black/10 bg-white p-2 text-xs text-text-primary outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 dark:bg-gray-900 dark:border-white/10"
+                  className="w-full h-20 resize-none rounded-lg border border-black/10 bg-white p-2 text-label text-text-primary outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 dark:bg-gray-900 dark:border-white/10"
                   placeholder="写下你的注释笔记 (Enter 保存)..."
                 />
                 <div className="flex items-center justify-between">
-                  <span className="text-tiny text-text-secondary/60">Enter 保存 / Esc 取消</span>
+                  <span className="text-caption text-text-secondary/60">Enter 保存 / Esc 取消</span>
                   <div className="flex gap-1.5">
                     <button
                       type="button"
@@ -913,7 +913,7 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
                     <button
                       type="button"
                       onClick={() => void handleSaveComment(item.id, draftComment)}
-                      className="px-2.5 py-0.5 text-caption rounded-lg bg-primary hover:bg-primary/90 text-white font-medium shadow-xs"
+                      className="px-2.5 py-0.5 text-caption rounded-lg bg-primary hover:bg-primary/90 text-white font-medium shadow-sm"
                     >
                       保存
                     </button>

@@ -3,7 +3,7 @@ import * as pdfjsLib from 'pdfjs-dist'
 import type { PDFDocumentProxy } from 'pdfjs-dist'
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { useWorkbenchStore, type WorkbenchAiAction } from '../../store/workbenchStore'
-import { AppIcon } from '../icons/AppIcon'
+import WorkbenchSelectionMenu, { WORKBENCH_AI_SELECTION_ACTIONS } from './WorkbenchSelectionMenu'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
@@ -366,14 +366,6 @@ export default function WorkbenchPdfViewer({
     setMenu(null)
   }
 
-  const actions: Array<{ action: WorkbenchAiAction | 'mindmap'; label: string; icon: string; color: string }> = [
-    { action: 'ask', label: '向 AI 提问', icon: 'chat', color: 'text-blue-500' },
-    { action: 'explain', label: '解释此内容', icon: 'psychology', color: 'text-purple-500' },
-    { action: 'polish', label: '语言润色', icon: 'auto_fix_high', color: 'text-emerald-500' },
-    { action: 'summarize', label: '提取关键要点', icon: 'format_list_bulleted', color: 'text-cyan-500' },
-    { action: 'mindmap', label: '生成思维导图', icon: 'account_tree', color: 'text-indigo-500' }
-  ]
-
   return (
     <div ref={containerRef} className="w-full h-full overflow-auto bg-gray-200 dark:bg-gray-950 py-6">
       {pdf && (
@@ -391,32 +383,14 @@ export default function WorkbenchPdfViewer({
       )}
 
       {menu && (
-        <div
+        <WorkbenchSelectionMenu
           ref={menuRef}
-          className="fixed z-50 min-w-[190px] py-1.5 bg-white/95 dark:bg-gray-800/95 backdrop-blur-md rounded-xl shadow-xl border border-black/10 dark:border-white/10 text-sm animate-in fade-in zoom-in-95 duration-100"
-          style={{ left: menu.x, top: menu.y }}
-        >
-          {actions.map((item) => (
-            <button
-              key={item.action}
-              type="button"
-              onClick={() => (item.action === 'mindmap' ? createMindmap() : runAction(item.action))}
-              className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-text-primary hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
-            >
-              <AppIcon name={item.icon} size={19} className={`${item.color}`} />
-              <span className="font-medium">{item.label}</span>
-            </button>
-          ))}
-          <div className="my-1 border-t border-black/5 dark:border-white/5" />
-          <button
-            type="button"
-            onClick={() => void copySelection()}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-text-secondary hover:text-text-primary hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
-          >
-            <AppIcon name="content_copy" size={19} />
-            <span>复制选中文本</span>
-          </button>
-        </div>
+          x={menu.x}
+          y={menu.y}
+          items={WORKBENCH_AI_SELECTION_ACTIONS}
+          onSelectAction={(action) => (action === 'mindmap' ? createMindmap() : runAction(action))}
+          onCopy={() => void copySelection()}
+        />
       )}
     </div>
   )

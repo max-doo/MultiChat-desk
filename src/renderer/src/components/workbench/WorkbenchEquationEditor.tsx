@@ -125,69 +125,70 @@ export default function WorkbenchEquationEditor({
   }, [onClear, onClose])
 
   return createPortal(
-    <div
-      ref={popoverRef}
-      role="dialog"
-      aria-label="公式"
-      className="fixed z-[120] rounded-xl border border-black/10 bg-white p-2.5 shadow-lg dark:border-white/10 dark:bg-gray-800"
-      style={{ width: position.width, left: position.left, top: position.top }}
-    >
-      {/* KaTeX 实时预览区 */}
+      // 特例 z-[120]：编辑器弹层需压在 Modal/浮动工具条之上
       <div
-        className={`min-h-[44px] rounded-md border border-black/5 bg-black/[0.02] px-3 py-2 dark:border-white/5 dark:bg-white/[0.03] ${
-          inline ? 'text-left' : 'text-center'
-        }`}
+        ref={popoverRef}
+        role="dialog"
+        aria-label="公式"
+        className="fixed z-[120] rounded-xl border border-black/10 bg-white p-2.5 shadow-lg dark:border-white/10 dark:bg-gray-800"
+        style={{ width: position.width, left: position.left, top: position.top }}
       >
-        {trimmed ? (
-          <div
-            ref={previewRef}
-            className={renderError ? 'font-mono text-xs text-red-500' : 'text-text-primary'}
-          />
-        ) : (
-          <span className="text-xs text-text-secondary/70">输入 LaTeX，下方实时预览</span>
-        )}
-      </div>
-
-      <textarea
-        ref={textareaRef}
-        value={draft}
-        onChange={(event) => setDraft(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.nativeEvent.isComposing) return
-          if (event.key === 'Enter' && !event.shiftKey) {
-            event.preventDefault()
-            applyEquation()
-          }
-        }}
-        placeholder={inline ? '例如：E = mc^2' : '例如：\\frac{a}{b}'}
-        aria-label="LaTeX 公式"
-        spellCheck={false}
-        className="mt-2 h-20 w-full resize-y rounded-md border border-black/10 bg-transparent px-2 py-1.5 font-mono text-xs text-text-primary outline-none placeholder:text-text-secondary/70 focus:ring-1 focus:ring-primary/40 dark:border-white/10"
-      />
-
-      <div className="mt-1.5 flex items-center justify-between gap-2 text-tiny text-text-secondary">
-        <span className="flex min-w-0 items-center gap-1">
-          <AppIcon name="function" size={13} className="shrink-0 text-primary" />
-          <span className="truncate">
-            {renderError
-              ? `语法错误：${renderError}`
-              : inline
-                ? '行内公式 · Enter 保存 / Esc 取消'
-                : '块级公式 · Enter 保存 / Esc 取消'}
-          </span>
-        </span>
-        <span className="flex shrink-0 items-center gap-1">
-          {onClear && (
-            <button
-              type="button"
-              onClick={clearEquation}
-              title="清除公式"
-              className="flex h-6 items-center gap-1 rounded px-1.5 text-red-500 transition-colors hover:bg-red-500/10"
-            >
-              <AppIcon name="delete" size={13} />
-              清除
-            </button>
+        {/* KaTeX 实时预览区 */}
+        <div
+          className={`min-h-[44px] rounded-md border border-black/5 bg-black/[0.02] px-3 py-2 dark:border-white/5 dark:bg-white/[0.03] ${
+            inline ? 'text-left' : 'text-center'
+          }`}
+        >
+          {trimmed ? (
+            <div
+              ref={previewRef}
+              className={renderError ? 'font-mono text-label text-red-500' : 'text-text-primary'}
+            />
+          ) : (
+            <span className="text-label text-text-secondary/70">输入 LaTeX，下方实时预览</span>
           )}
+        </div>
+
+        <textarea
+          ref={textareaRef}
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.nativeEvent.isComposing) return
+            if (event.key === 'Enter' && !event.shiftKey) {
+              event.preventDefault()
+              applyEquation()
+            }
+          }}
+          placeholder={inline ? '例如：E = mc^2' : '例如：\\frac{a}{b}'}
+          aria-label="LaTeX 公式"
+          spellCheck={false}
+          className="mt-2 h-20 w-full resize-y rounded-md border border-black/10 bg-transparent px-2 py-1.5 font-mono text-label text-text-primary outline-none placeholder:text-text-secondary/70 focus:ring-1 focus:ring-primary/40 dark:border-white/10"
+        />
+
+        <div className="mt-1.5 flex items-center justify-between gap-2 text-caption text-text-secondary">
+          <span className="flex min-w-0 items-center gap-1">
+            <AppIcon name="function" size={12} className="shrink-0 text-primary" />
+            <span className="truncate">
+              {renderError
+                ? `语法错误：${renderError}`
+                : inline
+                  ? '行内公式 · Enter 保存 / Esc 取消'
+                  : '块级公式 · Enter 保存 / Esc 取消'}
+            </span>
+          </span>
+          <span className="flex shrink-0 items-center gap-1">
+            {onClear && (
+              <button
+                type="button"
+                onClick={clearEquation}
+                title="清除公式"
+                className="flex h-6 items-center gap-1 rounded px-1.5 text-red-500 transition-colors hover:bg-red-500/10"
+              >
+                <AppIcon name="delete" size={12} />
+                清除
+              </button>
+            )}
           <button
             type="button"
             onClick={applyEquation}

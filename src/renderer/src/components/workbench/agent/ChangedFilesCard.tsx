@@ -1,12 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import {
-  ChevronDown,
-  FileCheck2,
-  FileWarning,
-  FolderOpen,
-  Loader2,
-  Undo2
-} from 'lucide-react'
+import { AppIcon } from '../../icons/AppIcon'
 import ConfirmModal from '../../ConfirmModal'
 import { useWorkbenchStore } from '../../../store/workbenchStore'
 import { resolveAbsolute, toWorkspaceRelative } from './filePathUtils'
@@ -180,7 +173,7 @@ export function ChangedFilesCard({
 
   return (
     <>
-      <div className="mt-1 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-2xs dark:border-white/10 dark:bg-white/[0.03]">
+      <div className="mt-1 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-white/10 dark:bg-white/[0.03]">
         <button
           type="button"
           onClick={() => (open ? setOpen(false) : void ensureLoaded(true))}
@@ -190,20 +183,20 @@ export function ChangedFilesCard({
           <span
             className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md ${
               undone
-                ? 'bg-gray-100 text-gray-500 dark:bg-white/10'
+                ? 'bg-gray-100 text-gray-500 dark:bg-white/10 dark:text-gray-400'
                 : staleCount > 0
-                  ? 'bg-amber-50 text-amber-600'
-                  : 'bg-emerald-50 text-emerald-600'
+                  ? 'bg-amber-50 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400'
+                  : 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400'
             }`}
           >
             {loading ? (
-              <Loader2 className="h-3 w-3 animate-spin" />
+              <AppIcon name="progress_activity" size={12} className="animate-spin" />
             ) : undone ? (
-              <Undo2 className="h-3 w-3" />
+              <AppIcon name="undo" size={12} />
             ) : staleCount > 0 ? (
-              <FileWarning className="h-3 w-3" />
+              <AppIcon name="file_warning" size={12} />
             ) : (
-              <FileCheck2 className="h-3 w-3" />
+              <AppIcon name="file_check" size={12} />
             )}
           </span>
           <span className="min-w-0 flex-1 text-caption text-text-primary">
@@ -211,13 +204,15 @@ export function ChangedFilesCard({
               {undone ? '已撤销' : '已修改'} {total} 个文件
             </span>
             {staleCount > 0 && !undone && (
-              <span className="ml-1.5 text-[10px] text-amber-600">
+              <span className="ml-1.5 text-caption text-amber-600 dark:text-amber-400">
                 {staleCount} 个已被外部修改
               </span>
             )}
           </span>
-          <ChevronDown
-            className={`h-3.5 w-3.5 shrink-0 text-text-secondary transition-transform ${
+          <AppIcon
+            name="expand_more"
+            size={14}
+            className={`shrink-0 text-text-secondary transition-transform ${
               open ? 'rotate-180' : ''
             }`}
           />
@@ -240,32 +235,32 @@ export function ChangedFilesCard({
                         type="button"
                         onClick={() => void handleOpenInEditor(change.path)}
                         title={abs}
-                        className="block max-w-full truncate text-left font-mono text-[11.5px] text-text-primary transition-colors hover:text-primary"
+                        className="block max-w-full truncate text-left font-mono text-label text-text-primary transition-colors hover:text-primary"
                       >
                         {change.name}
                       </button>
                       {hasDir && (
-                        <div className="truncate text-[10px] text-text-secondary">
+                        <div className="truncate text-caption text-text-secondary">
                           {dirPart}
                         </div>
                       )}
                     </div>
                     {change.isNew ? (
-                      <span className="shrink-0 rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">
+                      <span className="shrink-0 rounded-full bg-emerald-50 px-1.5 py-0.5 text-tiny font-semibold text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
                         新建
                       </span>
                     ) : stale ? (
-                      <span className="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-text-secondary">
+                      <span className="shrink-0 rounded-full bg-gray-100 px-1.5 py-0.5 text-tiny font-semibold text-text-secondary dark:bg-white/10">
                         已变化
                       </span>
                     ) : null}
                     {!change.isNew && (
-                      <span className="shrink-0 font-mono text-[10.5px] text-text-secondary">
+                      <span className="shrink-0 font-mono text-caption text-text-secondary">
                         {change.added > 0 && (
-                          <span className="text-emerald-600">+{change.added}</span>
+                          <span className="text-emerald-600 dark:text-emerald-400">+{change.added}</span>
                         )}{' '}
                         {change.deleted > 0 && (
-                          <span className="text-rose-500">-{change.deleted}</span>
+                          <span className="text-rose-500 dark:text-rose-400">-{change.deleted}</span>
                         )}
                       </span>
                     )}
@@ -273,9 +268,9 @@ export function ChangedFilesCard({
                       type="button"
                       onClick={() => void window.api.agentRevealFile(abs)}
                       title="打开所在文件夹"
-                      className="shrink-0 rounded p-1 text-text-secondary transition-colors hover:bg-gray-100 hover:text-text-primary"
+                      className="shrink-0 rounded p-1 text-text-secondary transition-colors hover:bg-gray-100 hover:text-text-primary dark:hover:bg-white/10"
                     >
-                      <FolderOpen className="h-3 w-3" />
+                      <AppIcon name="folder_open" size={12} />
                     </button>
                   </div>
                 )
@@ -284,7 +279,7 @@ export function ChangedFilesCard({
 
             <div className="flex items-center justify-end gap-2 border-t border-gray-100 bg-gray-50/60 px-3 py-1.5 dark:border-white/5 dark:bg-white/[0.02]">
               {error && (
-                <span className="mr-auto text-[10.5px] text-rose-500">{error}</span>
+                <span className="mr-auto text-caption text-rose-500 dark:text-rose-400">{error}</span>
               )}
               {!undone && (
                 <button
@@ -298,7 +293,7 @@ export function ChangedFilesCard({
                         ? '部分文件已被外部修改，无法安全撤销'
                         : undefined
                   }
-                  className="rounded-md border border-gray-200 bg-white px-2.5 py-0.5 text-caption text-rose-600 transition-colors hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white dark:border-white/10 dark:bg-transparent"
+                  className="rounded-md border border-gray-200 bg-white px-2.5 py-0.5 text-caption text-rose-600 transition-colors hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white dark:border-white/10 dark:bg-transparent dark:text-rose-400 dark:hover:bg-rose-500/10"
                 >
                   撤销全部修改
                 </button>
@@ -315,7 +310,7 @@ export function ChangedFilesCard({
                         ? '文件已被外部修改，无法安全恢复'
                         : undefined
                   }
-                  className="rounded-md border border-gray-200 bg-white px-2.5 py-0.5 text-caption text-text-secondary transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/10 dark:bg-transparent"
+                  className="rounded-md border border-gray-200 bg-white px-2.5 py-0.5 text-caption text-text-secondary transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/10 dark:bg-transparent dark:hover:bg-white/10"
                 >
                   恢复
                 </button>

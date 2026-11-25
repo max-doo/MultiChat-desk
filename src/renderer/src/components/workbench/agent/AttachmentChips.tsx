@@ -1,15 +1,10 @@
 import { useCallback, useMemo, type ReactNode } from 'react'
-import {
-  File as FileIcon,
-  FileText,
-  FileCode,
-  FileSpreadsheet,
-  Image as ImageIcon
-} from 'lucide-react'
+import { AppIcon } from '../../icons/AppIcon'
+import FileTypeIcon from '../FileTypeIcon'
 import type { PiContentPart } from '../../../types/agent'
 import { useWorkbenchStore } from '../../../store/workbenchStore'
 import { resolveAbsolute, toWorkspaceRelative } from './filePathUtils'
-import { getFileCategory, type WorkbenchFileCategory, type WorkbenchFileNode } from '../../../../../shared/types/workbench'
+import { MARKDOWN_EXTENSIONS, type WorkbenchFileNode } from '../../../../../shared/types/workbench'
 
 /**
  * 最终回复附件 Chip：
@@ -108,22 +103,28 @@ export function collectToolAttachmentPaths(messages: { content: PiContentPart[] 
   return [...out]
 }
 
-function iconForCategory(category: WorkbenchFileCategory): JSX.Element {
-  const cls = 'w-3.5 h-3.5 shrink-0'
-  switch (category) {
-    case 'image':
-      return <ImageIcon className={`${cls} text-violet-600`} />
-    case 'markdown':
-    case 'text':
-      return <FileText className={`${cls} text-slate-500`} />
-    case 'code':
-      return <FileCode className={`${cls} text-teal-600`} />
-    case 'document':
-    case 'pdf':
-      return <FileSpreadsheet className={`${cls} text-amber-600`} />
-    default:
-      return <FileIcon className={`${cls} text-slate-500`} />
+const BITMAP_EXTENSIONS = new Set([
+  '.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.avif', '.tiff', '.tif', '.ico'
+])
+
+function renderFileChipIcon(absPath: string, name: string): JSX.Element {
+  const dot = name.lastIndexOf('.')
+  const ext = dot !== -1 ? name.slice(dot).toLowerCase() : ''
+  if (BITMAP_EXTENSIONS.has(ext)) {
+    return <AppIcon name="image" size={14} className="shrink-0 text-violet-600 dark:text-violet-400" />
   }
+  if (ext === '.svg') {
+    return <AppIcon name="draw" size={14} className="shrink-0 text-violet-600 dark:text-violet-400" />
+  }
+  if (MARKDOWN_EXTENSIONS.has(ext) || ext === '.txt') {
+    return <AppIcon name="description" size={14} className="shrink-0 text-slate-500 dark:text-slate-400" />
+  }
+  return (
+    <FileTypeIcon
+      node={{ id: absPath, name, path: absPath, fullPath: absPath, isDirectory: false, extension: ext }}
+      className="w-3.5 h-3.5"
+    />
+  )
 }
 
 /** 在文件树里按绝对路径（大小写不敏感）查找节点，返回树内真实相对 path。 */
@@ -158,7 +159,7 @@ export function AttachmentChips({ paths, cwd }: AttachmentChipsProps): JSX.Eleme
         const abs = cwd ? resolveAbsolute(cwd, p) : p
         const rel = cwd && workspacePath ? toWorkspaceRelative(workspacePath, cwd, p) : null
         const name = abs.replace(/[/\\]+$/, '').split(/[/\\]/).pop() || abs
-        return { raw: p, abs, rel, name, category: getFileCategory(name) }
+        return { raw: p, abs, rel, name }
       }),
     [paths, cwd, workspacePath]
   )
@@ -190,9 +191,9 @@ export function AttachmentChips({ paths, cwd }: AttachmentChipsProps): JSX.Eleme
           type="button"
           onClick={() => handleClick(item)}
           title={item.abs}
-          className="inline-flex items-center gap-1.5 max-w-60 rounded-full border border-slate-200/90 bg-slate-50/80 px-2.5 py-1 text-caption text-slate-700 transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
+          className="inline-flex items-center gap-1.5 max-w-60 rounded-full border border-slate-200/90 bg-slate-50/80 px-2.5 py-1 text-caption text-slate-700 transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary dark:border-white/10 dark:bg-white/5 dark:text-gray-200 dark:hover:border-primary/40 dark:hover:bg-primary/15"
         >
-          {iconForCategory(item.category)}
+          {renderFileChipIcon(item.abs, item.name)}
           <span className="truncate font-medium">{item.name}</span>
         </button>
       ))}
@@ -315,7 +316,6 @@ export function InlineMentionText({ text, cwd }: InlineMentionTextProps): JSX.El
     }
     const abs = seg.resolved ?? seg.value.slice(1)
     const name = abs.replace(/[/\\]+$/, '').split(/[/\\]/).pop() || abs
-    const category = getFileCategory(name)
     return (
       <button
         key={i}
@@ -327,7 +327,7 @@ export function InlineMentionText({ text, cwd }: InlineMentionTextProps): JSX.El
         title={abs}
         className="mx-0.5 inline-flex translate-y-px items-center gap-1 rounded-md bg-white/20 px-1.5 py-0.5 align-baseline text-caption font-medium text-white transition-colors hover:bg-white/30 [&_svg]:!text-white/85"
       >
-        {iconForCategory(category)}
+        {renderFileChipIcon(abs, name)}
         <span className="max-w-52 truncate">{name}</span>
       </button>
     )
@@ -374,7 +374,7 @@ export function InlineFileCode({ text, cwd }: InlineFileCodeProps): JSX.Element 
     // 只在文件树里真实存在时才认：这是"点开必然有效"的硬保证。
     if (!treeRel) return null
     const name = abs.replace(/[/\\]+$/, '').split(/[/\\]/).pop() || abs
-    return { abs, treeRel, name, category: getFileCategory(name) }
+    return { abs, treeRel, name }
   }, [text, cwd, fileTree])
 
   const handleClick = useCallback(() => {
@@ -387,7 +387,7 @@ export function InlineFileCode({ text, cwd }: InlineFileCodeProps): JSX.Element 
   // 非路径或文件树查不到：保持原有 inline-code 外观，不引入假交互。
   if (!resolved) {
     return (
-      <code className="px-1.5 py-0.5 mx-0.5 rounded bg-slate-100 text-slate-800 font-mono text-caption border border-slate-200/70 inline-block align-baseline">
+      <code className="px-1.5 py-0.5 mx-0.5 rounded bg-slate-100 text-slate-800 font-mono text-caption border border-slate-200/70 inline-block align-baseline dark:bg-white/10 dark:text-slate-200 dark:border-white/10">
         {text}
       </code>
     )
@@ -401,9 +401,9 @@ export function InlineFileCode({ text, cwd }: InlineFileCodeProps): JSX.Element 
         handleClick()
       }}
       title={resolved.abs}
-      className="mx-0.5 inline-flex translate-y-px items-center gap-1 rounded-md border border-slate-200/80 bg-slate-100 px-1.5 py-0.5 align-baseline text-caption font-mono text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-200"
+      className="mx-0.5 inline-flex translate-y-px items-center gap-1 rounded-md border border-slate-200/80 bg-slate-100 px-1.5 py-0.5 align-baseline text-caption font-mono text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-200 dark:border-white/10 dark:bg-white/10 dark:text-gray-200 dark:hover:bg-white/15"
     >
-      {iconForCategory(resolved.category)}
+      {renderFileChipIcon(resolved.abs, resolved.name)}
       <span className="max-w-52 truncate">{resolved.name}</span>
     </button>
   )

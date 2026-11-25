@@ -9,6 +9,8 @@ import WorkbenchGitPanel from './WorkbenchGitPanel'
 import WorkbenchVaultPopover from './WorkbenchVaultPopover'
 import WorkbenchWorkspaceSettings from './WorkbenchWorkspaceSettings'
 import { AppIcon, type AppIconName } from '../icons/AppIcon'
+import Modal from '../ui/Modal'
+import { Button } from '../ui/FormControls'
 import { requestUploadNodesToAi } from './workbenchAiEvents'
 
 /** 新建节点输入框默认占位名，提交时若用户未修改则使用 */
@@ -1052,7 +1054,7 @@ export default function WorkbenchFileTree(): JSX.Element {
     const gitBadge = gitBadgeFor(node)
     const gitBadgeElement = gitBadge ? (
       <span
-        className={`ml-auto shrink-0 text-[11px] font-semibold leading-none ${gitBadge.colorClass}`}
+        className={`ml-auto shrink-0 text-caption font-semibold leading-none ${gitBadge.colorClass}`}
         title={`Git: ${gitBadge.label}`}
       >
         {gitBadge.letter}
@@ -1097,7 +1099,7 @@ export default function WorkbenchFileTree(): JSX.Element {
               handleNodeClick(e, node)
             }}
             style={{ paddingLeft: `${level * 14 + 8}px` }}
-            className={`flex items-center gap-1.5 py-1 px-2 rounded-md cursor-pointer text-sm transition-colors group ${
+            className={`flex items-center gap-1.5 py-1 px-2 rounded-md cursor-pointer text-body transition-colors group ${
               isDropTarget
                 ? 'bg-primary/15 ring-1 ring-inset ring-primary/50'
                 : selectedPaths.has(node.path) || isRenaming
@@ -1129,7 +1131,7 @@ export default function WorkbenchFileTree(): JSX.Element {
                 onClick={(e) => e.stopPropagation()}
                 onMouseDown={(e) => e.stopPropagation()}
                 disabled={isRenamingBusy}
-                className="flex-1 min-w-0 h-6 px-1.5 rounded-[3px] border border-primary/70 bg-white dark:bg-gray-900 text-text-primary text-sm focus:outline-none focus:ring-1 focus:ring-primary/40"
+                className="flex-1 min-w-0 h-6 px-1.5 rounded-sm border border-primary/70 bg-white dark:bg-gray-900 text-text-primary text-body focus:outline-none focus:ring-1 focus:ring-primary/40"
               />
             ) : (
               <>
@@ -1146,7 +1148,7 @@ export default function WorkbenchFileTree(): JSX.Element {
               ) : !showInlineHere ? (
                 <div
                   style={{ paddingLeft: `${(level + 1) * 14 + 24}px` }}
-                  className="py-1 text-sm text-text-secondary/60 italic"
+                  className="py-1 text-body text-text-secondary/60 italic"
                 >
                   (空目录)
                 </div>
@@ -1176,7 +1178,7 @@ export default function WorkbenchFileTree(): JSX.Element {
           handleNodeClick(e, node)
         }}
         style={{ paddingLeft: `${level * 14 + 24}px` }}
-        className={`flex items-center gap-1.5 py-1 px-2 rounded-md cursor-pointer text-sm transition-colors group select-none ${
+        className={`flex items-center gap-1.5 py-1 px-2 rounded-md cursor-pointer text-body transition-colors group select-none ${
           isActive
             ? 'bg-blue-500/10 dark:bg-blue-500/20 text-primary dark:text-blue-400 font-medium'
             : selectedPaths.has(node.path) || isRenaming
@@ -1211,7 +1213,7 @@ export default function WorkbenchFileTree(): JSX.Element {
             onClick={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
             disabled={isRenamingBusy}
-            className="flex-1 min-w-0 h-6 px-1.5 rounded-[3px] border border-primary/70 bg-white dark:bg-gray-900 text-text-primary text-sm focus:outline-none focus:ring-1 focus:ring-primary/40"
+            className="flex-1 min-w-0 h-6 px-1.5 rounded-sm border border-primary/70 bg-white dark:bg-gray-900 text-text-primary text-body focus:outline-none focus:ring-1 focus:ring-primary/40"
           />
         ) : (
           <>
@@ -1258,7 +1260,7 @@ export default function WorkbenchFileTree(): JSX.Element {
           onBlur={() => void commitInlineCreate()}
           disabled={isCreating}
           placeholder={isFile ? DEFAULT_FILE_NAME : DEFAULT_FOLDER_NAME}
-          className="flex-1 min-w-0 h-6 px-1.5 rounded-[3px] border border-primary/70 bg-white dark:bg-gray-900 text-text-primary text-sm focus:outline-none focus:ring-1 focus:ring-primary/40"
+          className="flex-1 min-w-0 h-6 px-1.5 rounded-sm border border-primary/70 bg-white dark:bg-gray-900 text-text-primary text-body focus:outline-none focus:ring-1 focus:ring-primary/40"
         />
       </div>
     )
@@ -1267,7 +1269,7 @@ export default function WorkbenchFileTree(): JSX.Element {
   return (
     <div
       tabIndex={-1}
-      className="flex flex-col h-full overflow-hidden text-sm select-none border-r border-black/5 dark:border-white/5 outline-none"
+      className="flex flex-col h-full overflow-hidden text-body select-none border-r border-black/5 dark:border-white/5 outline-none"
       onMouseDown={(e) => {
         // 点击任意处让容器获得焦点，从而能接收 paste 事件；不打断子元素交互
         if (e.target instanceof HTMLInputElement) return
@@ -1320,7 +1322,7 @@ export default function WorkbenchFileTree(): JSX.Element {
             {isSortMenuOpen && (
               <div
                 ref={sortMenuRef}
-                className="absolute top-full left-0 mt-1 z-50 min-w-[150px] py-1 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-black/10 dark:border-white/10 text-sm animate-in fade-in zoom-in-95 duration-100"
+                className="absolute top-full left-0 mt-1 z-popover min-w-[150px] py-1 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-black/10 dark:border-white/10 text-body"
               >
                 {(Object.keys(SORT_LABELS) as SortMenuKey[]).map((key) => (
                   <button
@@ -1334,7 +1336,7 @@ export default function WorkbenchFileTree(): JSX.Element {
                   >
                     <span className="flex-1">{SORT_LABELS[key]}</span>
                     {fileSort.key === key && (
-                      <AppIcon name="check" size={18} className="text-primary" />
+                      <AppIcon name="check" size={19} className="text-primary" />
                     )}
                   </button>
                 ))}
@@ -1347,7 +1349,7 @@ export default function WorkbenchFileTree(): JSX.Element {
                   }}
                   className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-text-primary hover:bg-black/5 dark:hover:bg-white/5"
                 >
-                  <AppIcon name={fileSort.order === 'asc' ? 'arrow_upward' : 'arrow_downward'} size={18} className="text-text-secondary" />
+                  <AppIcon name={fileSort.order === 'asc' ? 'arrow_upward' : 'arrow_downward'} size={19} className="text-text-secondary" />
                   <span className="flex-1">{fileSort.order === 'asc' ? '升序' : '降序'}</span>
                 </button>
               </div>
@@ -1410,7 +1412,7 @@ export default function WorkbenchFileTree(): JSX.Element {
           <>
             {fileTree.length === 0 && !isLoadingTree && (
               <div className="py-10 px-4 flex flex-col items-center justify-center text-center text-text-secondary/70">
-                <AppIcon name="folder_off" size={30} className="mx-auto mb-2 opacity-40 block" />
+                <AppIcon name="folder_off" size={24} className="mx-auto mb-2 opacity-40 block" />
                 <span>当前工作区为空，点击上方图标新建笔记</span>
               </div>
             )}
@@ -1430,12 +1432,12 @@ export default function WorkbenchFileTree(): JSX.Element {
               setIsWorkspaceSettingsOpen(false)
               setIsVaultMenuOpen((v) => !v)
             }}
-            className="flex h-10 min-w-0 flex-1 items-center gap-1.5 px-3 text-sm font-medium text-text-primary transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+            className="flex h-10 min-w-0 flex-1 items-center gap-1.5 px-3 text-body font-medium text-text-primary transition-colors hover:bg-black/5 dark:hover:bg-white/5"
             title={workspacePath || ''}
           >
             <AppIcon name="folder_open" size={19} className="shrink-0 text-amber-500" />
             <span className="min-w-0 flex-1 truncate text-left">{workspaceName || '未选工作区'}</span>
-            <AppIcon name="unfold_more" size={18} className="shrink-0 text-text-secondary" />
+            <AppIcon name="unfold_more" size={19} className="shrink-0 text-text-secondary" />
           </button>
           <WorkbenchGitPanel onOpenWorkspaceSettings={() => setIsWorkspaceSettingsOpen(true)} />
           <button
@@ -1448,7 +1450,7 @@ export default function WorkbenchFileTree(): JSX.Element {
             className="flex h-10 w-8 shrink-0 items-center justify-center text-text-secondary transition-colors hover:bg-black/5 hover:text-text-primary dark:hover:bg-white/5"
             title="工作区设置"
           >
-            <AppIcon name="settings" size={18} />
+            <AppIcon name="settings" size={19} />
           </button>
         </div>
 
@@ -1464,7 +1466,7 @@ export default function WorkbenchFileTree(): JSX.Element {
       {contextMenu && (
         <div
           ref={menuRef}
-          className="fixed z-50 min-w-[170px] py-1 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-black/10 dark:border-white/10 text-sm animate-in fade-in zoom-in-95 duration-100"
+          className="fixed z-popover min-w-[170px] py-1 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-black/10 dark:border-white/10 text-body"
           style={{ left: contextMenu.x, top: contextMenu.y }}
         >
           {contextMenu.node && (
@@ -1619,7 +1621,7 @@ export default function WorkbenchFileTree(): JSX.Element {
                   {isMoveMenuOpen && (
                     <div
                       onMouseEnter={() => setIsMoveMenuOpen(true)}
-                      className={`absolute top-0 -mt-1 max-h-[280px] min-w-[190px] max-w-[240px] overflow-y-auto rounded-xl border border-black/10 bg-white py-1 text-sm shadow-xl dark:border-white/10 dark:bg-gray-800 ${
+                      className={`absolute top-0 -mt-1 max-h-[280px] min-w-[190px] max-w-[240px] overflow-y-auto rounded-xl border border-black/10 bg-white py-1 text-body shadow-xl dark:border-white/10 dark:bg-gray-800 ${
                         contextMenu.x + 170 + 200 > window.innerWidth ? 'right-full mr-0.5' : 'left-full ml-0.5'
                       }`}
                     >
@@ -1753,13 +1755,16 @@ export default function WorkbenchFileTree(): JSX.Element {
       )}
 
       {/* 删除 / 清理未引用图片 弹窗（重命名已改为 VSCode 式内联交互，不再弹窗） */}
-      {actionModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs">
-          <form
-            onSubmit={handleModalSubmit}
-            className="w-[360px] p-5 bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-black/10 dark:border-white/10 flex flex-col gap-4 text-sm"
-          >
-            <div className="flex items-center justify-between font-semibold text-sm text-text-primary">
+      <Modal
+        open={actionModal !== null}
+        onClose={() => setActionModal(null)}
+        size="sm"
+        variant="solid"
+        className="w-[360px] p-5 text-body"
+      >
+        {actionModal && (
+          <form onSubmit={handleModalSubmit} className="flex flex-col gap-4">
+            <div className="flex items-center justify-between font-semibold text-title text-text-primary">
               <span>
                 {actionModal.type === 'deleteMulti'
                   ? '确认批量删除'
@@ -1770,21 +1775,21 @@ export default function WorkbenchFileTree(): JSX.Element {
               <button
                 type="button"
                 onClick={() => setActionModal(null)}
-                className="text-text-secondary hover:text-text-primary"
+                className="flex h-8 w-8 items-center justify-center rounded-full text-text-secondary hover:bg-black/5 hover:text-text-primary dark:hover:bg-white/10"
               >
                 <AppIcon name="close" size={19} />
               </button>
             </div>
 
             {actionModal.type === 'deleteMulti' || actionModal.type === 'delete' ? (
-              <div className="text-text-secondary text-sm leading-relaxed space-y-2">
+              <div className="text-text-secondary text-body leading-relaxed space-y-2">
                 <p>
                   {actionModal.type === 'deleteMulti'
                     ? <>确定要将选中的 <strong className="text-text-primary">{selectedPaths.size}</strong> 项移至系统回收站吗？</>
                     : <>确定要将「<strong className="text-text-primary">{actionModal.targetNode?.name}</strong>」移至系统回收站吗？</>}
                 </p>
                 {!!actionModal.mindmapImpact?.mindmaps && (
-                  <div className="rounded-lg bg-amber-50 px-3 py-2 text-amber-800">
+                  <div className="rounded-lg bg-amber-50 px-3 py-2 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
                     <p>
                       <strong>{actionModal.mindmapImpact.documents}</strong> 篇文档的{' '}
                       <strong>{actionModal.mindmapImpact.mindmaps}</strong> 张思维导图会一并删除，且无法恢复；
@@ -1793,7 +1798,7 @@ export default function WorkbenchFileTree(): JSX.Element {
                   </div>
                 )}
                 {!!actionModal.annotationCount && (
-                  <div className="rounded-lg bg-amber-50 px-3 py-2 text-amber-800">
+                  <div className="rounded-lg bg-amber-50 px-3 py-2 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
                     <p>
                       文档里的 <strong>{actionModal.annotationCount}</strong> 条标注会一起删除；
                       原文标注不受影响。
@@ -1802,21 +1807,21 @@ export default function WorkbenchFileTree(): JSX.Element {
                 )}
               </div>
             ) : actionModal.type === 'cleanImages' ? (
-              <div className="text-text-secondary text-sm leading-relaxed">
+              <div className="text-text-secondary text-body leading-relaxed">
                 {actionModal.unreferencedImages && actionModal.unreferencedImages.length > 0 ? (
                   <>
                     <p className="mb-2">
                       「<strong className="text-text-primary">{actionModal.targetNode?.name}</strong>」
                       的附件目录中有 <strong className="text-rose-500">{actionModal.unreferencedImages.length}</strong> 张图片未被文档引用：
                     </p>
-                    <div className="max-h-[180px] overflow-y-auto rounded-lg border border-black/10 dark:border-white/10 bg-black/[0.02] dark:bg-white/[0.02] p-2 font-mono text-xs">
+                    <div className="max-h-[180px] overflow-y-auto rounded-lg border border-black/10 dark:border-white/10 bg-black/[0.02] dark:bg-white/[0.02] p-2 font-mono text-label">
                       {actionModal.unreferencedImages.map((p) => (
                         <div key={p} className="truncate py-0.5" title={p}>
                           {p.split('/').pop()}
                         </div>
                       ))}
                     </div>
-                    <p className="mt-2 text-xs">确认后将移至系统回收站（可恢复）。</p>
+                    <p className="mt-2 text-label">确认后将移至系统回收站（可恢复）。</p>
                   </>
                 ) : (
                   <p>该文档的附件目录中没有未引用的图片。</p>
@@ -1825,26 +1830,22 @@ export default function WorkbenchFileTree(): JSX.Element {
             ) : null}
 
             <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setActionModal(null)}
-                className="px-3 py-1.5 rounded-lg border border-black/10 dark:border-white/10 hover:bg-black/5 dark:hover:bg-white/5 text-text-secondary"
-              >
+              <Button variant="secondary" onClick={() => setActionModal(null)}>
                 取消
-              </button>
-              <button
+              </Button>
+              <Button
                 type="submit"
+                variant="danger"
                 disabled={actionModal.type === 'cleanImages' && !(actionModal.unreferencedImages?.length)}
-                className="px-3 py-1.5 rounded-lg text-white font-medium shadow-xs bg-rose-500 hover:bg-rose-600 disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {actionModal.type === 'delete' || actionModal.type === 'deleteMulti'
                   ? '确认移入回收站'
                   : `清理 ${actionModal.unreferencedImages?.length ?? 0} 张`}
-              </button>
+              </Button>
             </div>
           </form>
-        </div>
-      )}
+        )}
+      </Modal>
 
       {/* 管理仓库弹窗：列出最近工作区、切换/移除、打开新目录、关闭当前工作区 */}
       {isWorkspaceSettingsOpen && (

@@ -1,15 +1,4 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
-import {
-  Sparkles,
-  PenTool,
-  ListChecks,
-  BookOpen,
-  FolderOpen,
-  GitBranch,
-  Copy,
-  Pencil,
-  ArrowUpRight
-} from 'lucide-react'
 import { useAppStore, DEEP_RESEARCH_SUPPORTED_MODEL_IDS, IMAGE_GENERATION_SUPPORTED_MODEL_IDS } from '../../store/appStore'
 import agentAvatar from '../../assets/logos/agent.png'
 import { useWorkbenchStore } from '../../store/workbenchStore'
@@ -18,6 +7,7 @@ import CustomDropdown, { type DropdownOption } from '../CustomDropdown'
 import { AppIcon } from '../icons/AppIcon'
 import ConfirmModal from '../ConfirmModal'
 import RenameModal from '../RenameModal'
+import { AgentPopover } from './agent/AgentPopover'
 import { ToolGroup } from './agent/ToolGroup'
 import { ApprovalCard } from './agent/ApprovalCard'
 import { ThinkingBlock } from './agent/ThinkingBlock'
@@ -221,26 +211,26 @@ export default function AgentCard({
   const suggestions = useMemo(
     () => [
       {
-        icon: PenTool,
+        icon: 'pen_tool',
         label: '方案大纲起草',
         prompt: '请帮我起草一份结构严谨、逻辑清晰的方案大纲，包含核心目标、实施要点与具体步骤：'
       },
       {
-        icon: Sparkles,
+        icon: 'auto_awesome',
         label: activeFileName ? '润色当前文档' : '文档深度润色',
         prompt: activeFilePath
           ? `请结合当前正在编辑的文档 @${activeFilePath}，帮我进行深度润色与结构优化，修正错别字与语病，提升专业度并保持行文连贯。`
           : '请帮我润色以下内容，修正语法与冗余表达，提升专业度并保持行文连贯：\n\n'
       },
       {
-        icon: ListChecks,
+        icon: 'checklist',
         label: '提炼要点与待办',
         prompt: activeFilePath
           ? `请阅读当前文档 @${activeFilePath}，帮我提炼核心要点与关键结论，并整理出清晰的后续待办清单（Action Items）。`
           : '请帮我提炼长文材料的核心要点与关键结论，并整理出清晰的后续待办清单（Action Items）：\n\n'
       },
       {
-        icon: BookOpen,
+        icon: 'auto_stories',
         label: '知识库脉络梳理',
         prompt: '请结合当前知识库中的笔记与文档，帮我梳理主要的主题内容与知识关联脉络。'
       }
@@ -438,7 +428,7 @@ export default function AgentCard({
             renderButton={(): JSX.Element => (
               <div className="flex items-center gap-2">
                 <img src={agentAvatar} alt="Agent" className="w-6 h-6 shrink-0" />
-                <h2 className="font-semibold text-text-primary">Agent</h2>
+                <h2 className="text-body-lg font-semibold text-text-primary">Agent</h2>
               </div>
             )}
             renderOption={(option, _isSelected, onSelect): JSX.Element => {
@@ -450,7 +440,7 @@ export default function AgentCard({
                 <button
                   type="button"
                   onClick={onSelect}
-                  className="w-full flex items-center justify-between gap-3 px-3 py-2 hover:bg-gray-100 transition-colors text-left"
+                  className="w-full flex items-center justify-between gap-3 px-3 py-2 hover:bg-gray-100 dark:hover:bg-white/10 transition-colors text-left"
                 >
                   <div className="flex items-center gap-3 min-w-0">
                     {option.logo ? (
@@ -462,7 +452,7 @@ export default function AgentCard({
                     ) : isLocalAgent ? (
                       <img src={agentAvatar} alt="Agent" className="w-5 h-5 shrink-0" />
                     ) : null}
-                    <span className="text-text-primary text-sm truncate">{option.label}</span>
+                    <span className="text-text-primary text-body truncate">{option.label}</span>
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
                     {hasDeepResearch && (
@@ -528,13 +518,13 @@ export default function AgentCard({
                 <AppIcon name="history" size={20} />
               </button>
 
-              {historyMenuOpen && (
-                <>
-                  <div
-                    className="fixed inset-0 z-popover"
-                    onClick={() => setHistoryMenuOpen(false)}
-                  />
-                  <div className="absolute right-0 top-full mt-1.5 w-80 max-h-[80vh] rounded-xl border border-gray-200/90 dark:border-gray-700 shadow-lg z-popover bg-white dark:bg-slate-800 text-text-primary flex flex-col overflow-hidden">
+              <AgentPopover
+                open={historyMenuOpen}
+                onClose={() => setHistoryMenuOpen(false)}
+                align="right"
+                placement="bottom"
+                className="w-80 max-h-[80vh] flex flex-col text-text-primary"
+              >
                     {/* Header: 对话历史 + 强调的新对话按钮 */}
                     <div className="px-3.5 py-2.5 flex items-center justify-between border-b border-gray-100 dark:border-gray-700/60 shrink-0">
                       <span className="text-body font-semibold text-text-primary dark:text-gray-100 tracking-tight">
@@ -545,7 +535,7 @@ export default function AgentCard({
                         onClick={handleNewSession}
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary hover:bg-primary/90 text-white text-label font-medium shadow-sm transition-all active:scale-95"
                       >
-                        <AppIcon name="add" size={13} strokeWidth={2.5} />
+                        <AppIcon name="add" size={14} strokeWidth={2.5} />
                         <span>新对话</span>
                       </button>
                     </div>
@@ -631,7 +621,7 @@ export default function AgentCard({
                                     className="inline-flex items-center gap-1 text-text-secondary/70 truncate max-w-[130px]"
                                     title={item.cwd}
                                   >
-                                    <AppIcon name="folder" size={11} className="shrink-0" />
+                                    <AppIcon name="folder" size={12} className="shrink-0" />
                                     <span className="truncate">{foreignWorkspace}</span>
                                   </span>
                                 )}
@@ -708,9 +698,7 @@ export default function AgentCard({
                         </>
                       )
                     })()}
-                  </div>
-                </>
-              )}
+              </AgentPopover>
             </div>
 
             {/* Collapse Panel or Custom Header Actions */}
@@ -733,7 +721,7 @@ export default function AgentCard({
           {/* 失效工作区回看提示：cwd 已失效的会话恢复后，新消息会在当前工作区开新会话 */}
           {foreignReview && (
             <div className="px-4 pt-2 shrink-0">
-              <div className="text-tiny text-text-secondary bg-gray-50 border border-gray-200/60 rounded-lg px-3 py-1.5">
+              <div className="text-caption text-text-secondary bg-gray-50 border border-gray-200/60 rounded-lg px-3 py-1.5 dark:bg-white/5 dark:border-white/10">
                 回看已失效工作区的对话 · 新消息将在当前工作区开始新对话
               </div>
             </div>
@@ -751,7 +739,7 @@ export default function AgentCard({
                 </div>
 
                 {/* Title */}
-                <h3 className="font-semibold text-text-primary text-xl tracking-tight mb-2">
+                <h3 className="font-semibold text-text-primary text-title tracking-tight mb-2">
                   今天想梳理或写点什么？
                 </h3>
 
@@ -761,7 +749,7 @@ export default function AgentCard({
                     className="inline-flex items-center gap-1.5 text-caption text-text-secondary bg-gray-100 dark:bg-gray-800 hover:bg-gray-200/80 dark:hover:bg-gray-700 px-3 py-1 rounded-full border border-gray-200/60 dark:border-white/10 transition-colors mb-6 cursor-default"
                     title={workspacePath}
                   >
-                    <FolderOpen className="w-3.5 h-3.5 text-primary/80 shrink-0" />
+                    <AppIcon name="folder_open" size={14} className="text-primary/80 shrink-0" />
                     <span className="font-medium text-text-primary truncate max-w-[200px]">
                       {vaultName}
                     </span>
@@ -780,13 +768,13 @@ export default function AgentCard({
                       type="button"
                       disabled={!workspacePath}
                       onClick={() => handleFillPrompt(item.prompt)}
-                      className="group flex flex-col items-start p-3.5 rounded-xl border border-gray-200/80 dark:border-white/10 bg-white dark:bg-gray-800/80 hover:border-primary/40 hover:shadow-xs hover:-translate-y-0.5 transition-all text-left disabled:opacity-40 disabled:cursor-not-allowed"
+                      className="group flex flex-col items-start p-3.5 rounded-xl border border-gray-200/80 dark:border-white/10 bg-white dark:bg-gray-800/80 hover:border-primary/40 hover:shadow-sm hover:-translate-y-0.5 transition-all text-left disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       <div className="flex items-center justify-between w-full mb-2.5">
-                        <div className="w-7 h-7 rounded-lg bg-gray-50 dark:bg-gray-700/60 border border-gray-200/60 dark:border-white/10 flex items-center justify-center text-text-secondary group-hover:text-primary group-hover:bg-blue-50/80 transition-colors shadow-2xs">
-                          <item.icon className="w-4 h-4" />
+                        <div className="w-7 h-7 rounded-lg bg-gray-50 dark:bg-gray-700/60 border border-gray-200/60 dark:border-white/10 flex items-center justify-center text-text-secondary group-hover:text-primary group-hover:bg-blue-50/80 dark:group-hover:bg-primary/15 transition-colors shadow-sm">
+                          <AppIcon name={item.icon} size={16} />
                         </div>
-                        <ArrowUpRight className="w-3.5 h-3.5 text-gray-300 opacity-0 group-hover:opacity-100 group-hover:text-primary transition-all -translate-x-0.5 group-hover:translate-x-0" />
+                        <AppIcon name="arrow_outward" size={14} className="text-gray-300 dark:text-gray-600 opacity-0 group-hover:opacity-100 group-hover:text-primary transition-all -translate-x-0.5 group-hover:translate-x-0" />
                       </div>
                       <span className="text-body font-medium text-text-primary group-hover:text-primary transition-colors leading-snug">
                         {item.label}
@@ -823,13 +811,13 @@ export default function AgentCard({
                             key={i}
                             src={img.data ?? ''}
                             alt="粘贴的图片"
-                            className="max-h-32 max-w-[220px] rounded-lg border border-slate-200/70 object-cover shadow-xs"
+                            className="max-h-32 max-w-[220px] rounded-lg border border-slate-200/70 dark:border-white/10 object-cover shadow-sm"
                           />
                         ))}
                       </div>
                     )}
                     <div className="flex justify-end">
-                      <div className="max-w-[85%] bg-primary text-white text-body leading-relaxed px-4 py-2.5 rounded-2xl rounded-tr-sm shadow-xs break-words whitespace-pre-wrap select-text">
+                      <div className="max-w-[85%] bg-primary text-white text-body leading-relaxed px-4 py-2.5 rounded-2xl rounded-tr-sm shadow-sm break-words whitespace-pre-wrap select-text">
                         <InlineMentionText text={userText} cwd={currentCwd ?? undefined} />
                       </div>
                     </div>
@@ -838,20 +826,20 @@ export default function AgentCard({
                         <button
                           type="button"
                           onClick={() => setRewindConfirmOpen(true)}
-                          className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-caption text-text-secondary transition-colors hover:bg-gray-100 hover:text-text-primary"
+                          className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-caption text-text-secondary transition-colors hover:bg-gray-100 hover:text-text-primary dark:hover:bg-white/10"
                           title="编辑并撤回此条消息"
                         >
-                          <Pencil className="h-3.5 w-3.5" />
+                          <AppIcon name="edit" size={14} />
                           <span>编辑</span>
                         </button>
                       )}
                       <button
                         type="button"
                         onClick={() => handleCopy(message.id, userText)}
-                        className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-caption text-text-secondary transition-colors hover:bg-gray-100 hover:text-text-primary"
+                        className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-caption text-text-secondary transition-colors hover:bg-gray-100 hover:text-text-primary dark:hover:bg-white/10"
                         title="复制消息内容"
                       >
-                        <Copy className="h-3.5 w-3.5" />
+                        <AppIcon name="content_copy" size={14} />
                         <span>{copiedId === message.id ? '已复制' : '复制'}</span>
                       </button>
                     </div>
@@ -1019,7 +1007,7 @@ export default function AgentCard({
                   )}
 
                   {finalMsg.error && (
-                    <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-red-600 text-body font-medium">
+                    <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-red-600 text-body font-medium dark:bg-rose-500/10 dark:border-rose-500/30 dark:text-rose-300">
                       {finalMsg.error}
                     </div>
                   )}
@@ -1031,41 +1019,39 @@ export default function AgentCard({
                         onClick={() =>
                           setForkMenuOpenFor((cur) => (cur === finalMsg.id ? null : finalMsg.id))
                         }
-                        className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-caption text-text-secondary transition-colors hover:bg-gray-100 hover:text-text-primary"
+                        className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-caption text-text-secondary transition-colors hover:bg-gray-100 hover:text-text-primary dark:hover:bg-white/10"
                         title="从当前位置创建分支会话"
                       >
-                        <GitBranch className="h-3.5 w-3.5" />
+                        <AppIcon name="git_branch" size={14} />
                         <span>分支</span>
                       </button>
-                      {isForkMenuTarget && (
-                        <>
-                          <div
-                            className="fixed inset-0 z-popover"
-                            onClick={() => setForkMenuOpenFor(null)}
-                          />
-                          <div className="absolute left-0 bottom-full mb-1.5 z-popover w-32 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
-                            <button
-                              type="button"
-                              disabled={isForking}
-                              onClick={() => {
-                                setForkMenuOpenFor(null)
-                                void handleConfirmFork()
-                              }}
-                              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-caption text-text-primary transition-colors hover:bg-gray-50 disabled:opacity-50"
-                            >
-                              <GitBranch className="h-3.5 w-3.5 text-primary" />
-                              <span>{isForking ? '创建中…' : '创建分支'}</span>
-                            </button>
-                          </div>
-                        </>
-                      )}
+                      <AgentPopover
+                        open={isForkMenuTarget}
+                        onClose={() => setForkMenuOpenFor(null)}
+                        align="left"
+                        placement="top"
+                        className="w-32 py-1"
+                      >
+                        <button
+                          type="button"
+                          disabled={isForking}
+                          onClick={() => {
+                            setForkMenuOpenFor(null)
+                            void handleConfirmFork()
+                          }}
+                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-caption text-text-primary transition-colors hover:bg-gray-50 dark:hover:bg-white/5 disabled:opacity-50"
+                        >
+                          <AppIcon name="git_branch" size={14} className="text-primary" />
+                          <span>{isForking ? '创建中…' : '创建分支'}</span>
+                        </button>
+                      </AgentPopover>
                       <button
                         type="button"
                         onClick={() => handleCopy(finalMsg.id, assistantText)}
-                        className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-caption text-text-secondary transition-colors hover:bg-gray-100 hover:text-text-primary"
+                        className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-caption text-text-secondary transition-colors hover:bg-gray-100 hover:text-text-primary dark:hover:bg-white/10"
                         title="复制本轮回复文本"
                       >
-                        <Copy className="h-3.5 w-3.5" />
+                        <AppIcon name="content_copy" size={14} />
                         <span>{copiedId === finalMsg.id ? '已复制' : '复制'}</span>
                       </button>
                       {(finalMsg.timestamp || finalMsg.createdAt) && (

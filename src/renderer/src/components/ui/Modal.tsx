@@ -32,6 +32,8 @@ export interface ModalProps {
   closeOnEscape?: boolean
   /** 内容区最大高度，默认 85vh */
   maxHeight?: string
+  /** 覆盖外层 z-index，默认 z-modal；仅在压在另一个 Modal 之上时传特例并附注释 */
+  zIndexClass?: string
   className?: string
   children: ReactNode
 }
@@ -50,6 +52,7 @@ export default function Modal({
   closeOnBackdrop = true,
   closeOnEscape = true,
   maxHeight = '85vh',
+  zIndexClass = 'z-modal',
   className = '',
   children
 }: ModalProps): JSX.Element | null {
@@ -67,7 +70,7 @@ export default function Modal({
   if (!open) return null
 
   return createPortal(
-    <div className="fixed inset-0 z-modal flex items-center justify-center p-4">
+    <div className={`fixed inset-0 ${zIndexClass} flex items-center justify-center p-4`}>
       <div
         className={`absolute inset-0 bg-black/60 backdrop-blur-sm ${OVERLAY_ANIM}`}
         onClick={closeOnBackdrop ? onClose : undefined}

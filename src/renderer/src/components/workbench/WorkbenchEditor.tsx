@@ -392,15 +392,15 @@ export default function WorkbenchEditor(): JSX.Element {
           </button>
         )}
         <div className="w-16 h-16 mb-4 rounded-2xl bg-blue-500/10 dark:bg-blue-400/10 flex items-center justify-center text-blue-500 dark:text-blue-400">
-          <AppIcon name="edit_note" size={30} />
+          <AppIcon name="edit_note" size={24} />
         </div>
-        <h3 className="text-base font-semibold text-text-primary mb-1">未打开任何文档</h3>
+        <h3 className="text-body-lg font-semibold text-text-primary mb-1">未打开任何文档</h3>
         <button
           type="button"
           onClick={() => void createFile('', '未命名笔记.md')}
-          className="h-8 mt-4 px-4 rounded-lg bg-primary text-white hover:bg-primary/90 text-xs font-medium flex items-center gap-1.5 shadow-sm transition-all"
+          className="h-9 mt-4 px-4 rounded-lg bg-primary text-white hover:opacity-90 text-body font-medium flex items-center gap-1.5 shadow-sm transition-all"
         >
-          <AppIcon name="note_add" size={17} />
+          <AppIcon name="note_add" size={16} />
           <span>新建笔记</span>
         </button>
       </div>
@@ -450,10 +450,10 @@ export default function WorkbenchEditor(): JSX.Element {
     return (
       <div className="flex-1 h-full flex flex-col items-center justify-center p-8 text-center bg-white dark:bg-gray-900 select-none">
         <div className="w-16 h-16 rounded-2xl bg-slate-500/10 flex items-center justify-center text-slate-500 mb-4">
-          <AppIcon name="draft" size={30} />
+          <AppIcon name="draft" size={24} />
         </div>
-        <h3 className="text-base font-semibold text-text-primary mb-1">未识别格式的二进制文件</h3>
-        <p className="text-xs text-text-secondary max-w-sm mb-6 leading-relaxed">
+        <h3 className="text-body-lg font-semibold text-text-primary mb-1">未识别格式的二进制文件</h3>
+        <p className="text-body text-text-secondary max-w-sm mb-6 leading-relaxed">
           该文件属于二进制或暂不支持直接预览的格式。您可以在系统默认关联应用中打开它。
         </p>
         <button
@@ -461,9 +461,9 @@ export default function WorkbenchEditor(): JSX.Element {
           onClick={() => {
             if (activeFilePath) void openInSystem(activeFilePath)
           }}
-          className="h-9 px-5 rounded-xl bg-primary text-white hover:bg-primary/90 text-xs font-medium flex items-center gap-2 shadow-sm transition-all"
+          className="h-9 px-4 rounded-lg bg-primary text-white hover:opacity-90 text-body font-medium flex items-center gap-2 shadow-sm transition-all"
         >
-          <AppIcon name="open_in_new" size={17} />
+          <AppIcon name="open_in_new" size={16} />
           <span>在系统默认程序中打开</span>
         </button>
       </div>
