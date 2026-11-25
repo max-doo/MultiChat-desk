@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkbenchStore } from '../../store/workbenchStore'
-import type { GitFileChange, GitStatus } from '../../../../shared/types/workbench'
+import type { GitFileChange, GitHistoryItem, GitStatus } from '../../../../shared/types/workbench'
+import { buildGitGraphLayout } from '../../utils/gitGraphLayout'
 import { AppIcon } from '../icons/AppIcon'
+import GitHistoryGraph from './GitHistoryGraph'
 import WorkbenchFooterPopover, { WorkbenchFooterPopoverHeader } from './WorkbenchFooterPopover'
 
 function pad(value: number): string {
@@ -57,6 +59,24 @@ function branchName(status: GitStatus | null): string | null {
   return 'HEAD'
 }
 
+function relativeTime(unixSeconds: number): string {
+  const diff = Math.max(0, Math.floor(Date.now() / 1000) - unixSeconds)
+  if (diff < 60) return '刚刚'
+  const minutes = Math.floor(diff / 60)
+  if (minutes < 60) return `${minutes} 分钟前`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours} 小时前`
+  const days = Math.floor(hours / 24)
+  if (days < 30) return `${days} 天前`
+  const months = Math.floor(days / 30)
+  if (months < 12) return `${months} 个月前`
+  return `${Math.floor(months / 12)} 年前`
+}
+
+function isDeletedChange(change: GitFileChange): boolean {
+  return change.staged === 'deleted' || change.unstaged === 'deleted'
+}
+
 /**
  * 工作区版本管理：状态、提交与远程同步。
  * 入口由 footer 与仓库切换并排提供，这里只负责状态徽标与向上展开的面板。
@@ -79,13 +99,38 @@ export default function WorkbenchGitPanel({
   const gitPush = useWorkbenchStore((s) => s.gitPush)
   const gitInit = useWorkbenchStore((s) => s.gitInit)
   const clearGitNotice = useWorkbenchStore((s) => s.clearGitNotice)
+  const openFile = useWorkbenchStore((s) => s.openFile)
 
   const [isOpen, setIsOpen] = useState(false)
+  const [activeTab, setActiveTab] = useState<'changes' | 'history'>('changes')
+  const [logItems, setLogItems] = useState<GitHistoryItem[]>([])
+  const [isLogLoading, setIsLogLoading] = useState(false)
+  const [logLoaded, setLogLoaded] = useState(false)
+  const [logError, setLogError] = useState<string | null>(null)
   const [isSyncing, setIsSyncing] = useState(false)
   const [title, setTitle] = useState('')
   const [titleTouched, setTitleTouched] = useState(false)
   const triggerRef = useRef<HTMLButtonElement | null>(null)
   const titleRef = useRef<HTMLInputElement | null>(null)
+
+  const fetchLog = useCallback(async () => {
+    if (!workspacePath) return
+    setIsLogLoading(true)
+    setLogError(null)
+    try {
+      const res = await window.api.workbench.gitLog(workspacePath, 50)
+      if (res.success && res.data) {
+        setLogItems(res.data)
+        setLogLoaded(true)
+      } else {
+        setLogError(res.error ?? '读取提交历史失败')
+      }
+    } catch (err: unknown) {
+      setLogError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setIsLogLoading(false)
+    }
+  }, [workspacePath])
 
   const status = gitStatus
   const changes = status?.changes ?? []
@@ -107,17 +152,30 @@ export default function WorkbenchGitPanel({
     setIsOpen(true)
     setTitle('')
     setTitleTouched(false)
+    setLogLoaded(false)
     void refreshGitStatus({ showLoading: true })
   }, [refreshGitStatus])
 
   useEffect(() => {
-    if (isOpen) titleRef.current?.focus()
-  }, [isOpen])
+    if (isOpen && activeTab === 'changes') titleRef.current?.focus()
+  }, [isOpen, activeTab])
+
+  useEffect(() => {
+    if (isOpen && activeTab === 'history' && status?.isRepository && !logLoaded && !isLogLoading) {
+      void fetchLog()
+    }
+  }, [isOpen, activeTab, status?.isRepository, logLoaded, isLogLoading, fetchLog])
 
   // 切换工作区时关闭，避免把上一个仓库的提交标题带到新工作区
   useEffect(() => {
     setIsOpen(false)
+    setActiveTab('changes')
+    setLogItems([])
+    setLogLoaded(false)
+    setLogError(null)
   }, [workspacePath])
+
+  const graphLayout = useMemo(() => buildGitGraphLayout(logItems), [logItems])
 
   const branchLabel = useMemo(() => {
     if (!status) return '版本管理'
@@ -155,6 +213,7 @@ export default function WorkbenchGitPanel({
     if (result.success) {
       setTitle('')
       setTitleTouched(false)
+      setLogLoaded(false)
     }
   }
 
@@ -299,12 +358,19 @@ export default function WorkbenchGitPanel({
               <div className="flex shrink-0 items-center gap-1">
                 <button
                   type="button"
-                  onClick={() => void refreshGitStatus({ showLoading: true })}
-                  disabled={isGitLoading}
+                  onClick={() => {
+                    void refreshGitStatus({ showLoading: true })
+                    if (activeTab === 'history' && status?.isRepository) {
+                      void fetchLog()
+                    } else {
+                      setLogLoaded(false)
+                    }
+                  }}
+                  disabled={isGitLoading || isLogLoading}
                   className="w-6 h-6 flex items-center justify-center rounded-md text-text-secondary hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-40"
                   title="刷新"
                 >
-                  <AppIcon name="refresh" size={15} className={isGitLoading ? 'animate-spin' : ''} />
+                  <AppIcon name="refresh" size={15} className={isGitLoading || isLogLoading ? 'animate-spin' : ''} />
                 </button>
               </div>
             }
@@ -332,158 +398,266 @@ export default function WorkbenchGitPanel({
             </div>
           ) : (
             <>
-              {status.merging && (
-                <div className="mx-3 mt-3 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
-                  <div className="flex items-center gap-1.5 font-medium">
-                    <AppIcon name="warning" size={14} />
-                    <span>合并尚未完成</span>
-                  </div>
-                  <p className="mt-1 leading-relaxed">
-                    {status.conflictCount > 0
-                      ? `${status.conflictCount} 个文件有冲突。撤销后文件回到拉取前的状态。`
-                      : '撤销后文件回到拉取前的状态。'}
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => void gitAbortMerge()}
-                    disabled={isGitBusy}
-                    className="mt-2 h-7 w-full rounded-md bg-amber-500/90 text-caption font-medium text-white hover:bg-amber-500 disabled:opacity-50"
-                  >
-                    撤销本次拉取
-                  </button>
-                </div>
-              )}
-
-              {hasLargeUntracked && (
-                <div className="mx-3 mt-3 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-caption leading-relaxed text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
-                  <div className="flex items-center gap-1.5 font-medium">
-                    <AppIcon name="warning" size={14} />
-                    <span>{status.largeUntracked.length} 个未跟踪文件超过 50 MB</span>
-                  </div>
-                  <p className="mt-1 truncate" title={status.largeUntracked.map((item) => item.path).join('\n')}>
-                    {status.largeUntracked[0].path}
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsOpen(false)
-                      onOpenWorkspaceSettings()
-                    }}
-                    className="mt-1.5 h-6 rounded-md bg-amber-500/90 px-2 text-caption font-medium text-white hover:bg-amber-500"
-                  >
-                    去忽略
-                  </button>
-                </div>
-              )}
-
-              {changeCount > 0 ? (
-                <div className="min-h-0 flex-1 overflow-y-auto px-1.5 py-1.5">
-                  {changes.map((change) => {
-                    const badge = changeBadge(change)
-                    return (
-                      <div
-                        key={`${change.oldPath ?? ''}:${change.path}`}
-                        className="flex items-center gap-2 rounded-md px-1.5 py-1 text-xs"
-                        title={change.oldPath ? `${change.oldPath} → ${change.path}` : change.path}
-                      >
-                        <span className={`w-3 shrink-0 text-center font-mono font-semibold ${badge.className}`}>
-                          {badge.label}
-                        </span>
-                        <span className="truncate flex-1 text-text-primary">{change.path.split('/').pop()}</span>
-                        <span className="max-w-[45%] shrink-0 truncate text-tiny text-text-secondary/70">
-                          {change.path.includes('/') ? change.path.slice(0, change.path.lastIndexOf('/')) : ''}
-                        </span>
-                      </div>
-                    )
-                  })}
-                  {status.changesTruncated && (
-                    <div className="px-1.5 py-1 text-caption text-text-secondary">仅显示前 500 项</div>
-                  )}
-                </div>
-              ) : (
-                <div className="px-3 py-4 text-center text-xs text-text-secondary">没有未提交的改动</div>
-              )}
-
-              <div className="border-t border-black/5 p-2.5 dark:border-white/5">
-                <input
-                  ref={titleRef}
-                  value={titleTouched ? title : ''}
-                  placeholder={defaultCommitTitle(Boolean(status.unborn))}
-                  onChange={(event) => {
-                    setTitle(event.target.value)
-                    setTitleTouched(true)
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') void handleCommit()
-                    if (event.key === 'Escape') setIsOpen(false)
-                  }}
-                  className="mb-2 h-8 w-full rounded-lg border border-black/15 bg-black/5 px-2.5 text-xs text-text-primary focus:border-primary focus:bg-white focus:outline-none dark:border-white/15 dark:bg-white/5 dark:focus:bg-gray-900"
-                />
+              <div className="flex shrink-0 border-b border-black/5 px-3 dark:border-white/5">
                 <button
                   type="button"
-                  onClick={() => void handleCommit()}
-                  disabled={!canCommit || isGitBusy}
-                  className="mb-2 flex h-8 w-full items-center justify-center gap-1.5 rounded-lg bg-primary text-xs font-medium text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
+                  onClick={() => setActiveTab('changes')}
+                  className={`relative flex items-center gap-1.5 px-2 py-2 text-label transition-colors ${
+                    activeTab === 'changes'
+                      ? 'font-medium text-primary'
+                      : 'text-text-secondary hover:text-text-primary'
+                  }`}
                 >
-                  <AppIcon name="git_commit" size={15} />
-                  <span>提交 {changeCount > 0 ? changeCount : ''} 项改动</span>
+                  <span>改动</span>
+                  {changeCount > 0 && (
+                    <span className="rounded-full bg-amber-500/15 px-1.5 text-tiny font-medium text-amber-600 dark:text-amber-400">
+                      {changeCount}
+                    </span>
+                  )}
+                  {activeTab === 'changes' && (
+                    <span className="absolute inset-x-1 bottom-0 h-0.5 rounded-full bg-primary" />
+                  )}
                 </button>
-
-                <div className="flex gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => void (diverged ? handleMerge() : handlePull())}
-                    disabled={isGitBusy || isSyncing || !status.upstream}
-                    className="flex h-7 flex-1 items-center justify-center gap-1 rounded-md border border-black/10 text-caption text-text-primary hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/10 dark:hover:bg-white/5"
-                    title={
-                      !status.upstream
-                        ? '尚未关联远程分支'
-                        : dirtyForSync
-                          ? '先提交或忽略本地改动再拉取'
-                          : diverged
-                            ? '本地与远程都有新提交，点击合并'
-                            : behindOnly
-                              ? `拉取 ${status.behind} 个提交`
-                              : '已是最新'
-                    }
-                  >
-                    <AppIcon name={diverged ? 'git_merge' : 'cloud_download'} size={14} />
-                    <span>{diverged ? '合并' : '拉取'}</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void handlePush()}
-                    disabled={isGitBusy || isSyncing || status.detached || status.unborn || (!status.hasRemote && !status.upstream)}
-                    className="flex h-7 flex-1 items-center justify-center gap-1 rounded-md border border-black/10 text-caption text-text-primary hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/10 dark:hover:bg-white/5"
-                    title={
-                      !status.hasRemote && !status.upstream
-                        ? '尚未配置远程仓库，可在工作区设置中填写地址'
-                        : status.detached
-                          ? '当前不在任何分支上'
-                          : !status.upstream
-                            ? '首次推送并关联远程分支'
-                            : status.ahead > 0
-                              ? `推送 ${status.ahead} 个提交`
-                              : '已是最新'
-                    }
-                  >
-                    <AppIcon name="cloud_upload" size={14} />
-                    <span>推送</span>
-                  </button>
-                </div>
-                {!status.hasRemote && !status.upstream && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsOpen(false)
-                      onOpenWorkspaceSettings()
-                    }}
-                    className="mt-1.5 h-7 w-full rounded-md text-caption text-primary hover:bg-primary/5"
-                  >
-                    设置远程仓库
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('history')}
+                  className={`relative flex items-center gap-1.5 px-2 py-2 text-label transition-colors ${
+                    activeTab === 'history'
+                      ? 'font-medium text-primary'
+                      : 'text-text-secondary hover:text-text-primary'
+                  }`}
+                >
+                  <span>历史</span>
+                  {activeTab === 'history' && (
+                    <span className="absolute inset-x-1 bottom-0 h-0.5 rounded-full bg-primary" />
+                  )}
+                </button>
               </div>
+
+              {activeTab === 'changes' ? (
+                <>
+                  {status.merging && (
+                    <div className="mx-3 mt-3 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+                      <div className="flex items-center gap-1.5 font-medium">
+                        <AppIcon name="warning" size={14} />
+                        <span>合并尚未完成</span>
+                      </div>
+                      <p className="mt-1 leading-relaxed">
+                        {status.conflictCount > 0
+                          ? `${status.conflictCount} 个文件有冲突。撤销后文件回到拉取前的状态。`
+                          : '撤销后文件回到拉取前的状态。'}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => void gitAbortMerge()}
+                        disabled={isGitBusy}
+                        className="mt-2 h-7 w-full rounded-md bg-amber-500/90 text-caption font-medium text-white hover:bg-amber-500 disabled:opacity-50"
+                      >
+                        撤销本次拉取
+                      </button>
+                    </div>
+                  )}
+
+                  {hasLargeUntracked && (
+                    <div className="mx-3 mt-3 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-caption leading-relaxed text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+                      <div className="flex items-center gap-1.5 font-medium">
+                        <AppIcon name="warning" size={14} />
+                        <span>{status.largeUntracked.length} 个未跟踪文件超过 50 MB</span>
+                      </div>
+                      <p className="mt-1 truncate" title={status.largeUntracked.map((item) => item.path).join('\n')}>
+                        {status.largeUntracked[0].path}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsOpen(false)
+                          onOpenWorkspaceSettings()
+                        }}
+                        className="mt-1.5 h-6 rounded-md bg-amber-500/90 px-2 text-caption font-medium text-white hover:bg-amber-500"
+                      >
+                        去忽略
+                      </button>
+                    </div>
+                  )}
+
+                  {changeCount > 0 ? (
+                    <div className="min-h-0 flex-1 overflow-y-auto px-1.5 py-1.5">
+                      {changes.map((change) => {
+                        const badge = changeBadge(change)
+                        const deleted = isDeletedChange(change)
+                        return (
+                          <div
+                            key={`${change.oldPath ?? ''}:${change.path}`}
+                            onClick={deleted ? undefined : () => void openFile(change.path)}
+                            className={`flex items-center gap-2 rounded-md px-1.5 py-1 text-xs transition-colors ${
+                              deleted
+                                ? 'cursor-default opacity-60'
+                                : 'cursor-pointer hover:bg-black/5 dark:hover:bg-white/5'
+                            }`}
+                            title={
+                              deleted
+                                ? `${change.path}（已删除，无法打开）`
+                                : change.oldPath
+                                  ? `${change.oldPath} → ${change.path}`
+                                  : change.path
+                            }
+                          >
+                            <span className={`w-3 shrink-0 text-center font-mono font-semibold ${badge.className}`}>
+                              {badge.label}
+                            </span>
+                            <span className="min-w-0 flex-1 truncate text-text-primary">
+                              {change.path.split('/').pop()}
+                            </span>
+                            <span className="max-w-[45%] shrink-0 truncate text-tiny text-text-secondary/70">
+                              {change.path.includes('/') ? change.path.slice(0, change.path.lastIndexOf('/')) : ''}
+                            </span>
+                          </div>
+                        )
+                      })}
+                      {status.changesTruncated && (
+                        <div className="px-1.5 py-1 text-caption text-text-secondary">仅显示前 500 项</div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="px-3 py-4 text-center text-xs text-text-secondary">没有未提交的改动</div>
+                  )}
+
+                  <div className="border-t border-black/5 p-2.5 dark:border-white/5">
+                    <input
+                      ref={titleRef}
+                      value={titleTouched ? title : ''}
+                      placeholder={defaultCommitTitle(Boolean(status.unborn))}
+                      onChange={(event) => {
+                        setTitle(event.target.value)
+                        setTitleTouched(true)
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') void handleCommit()
+                        if (event.key === 'Escape') setIsOpen(false)
+                      }}
+                      className="mb-2 h-8 w-full rounded-lg border border-black/15 bg-black/5 px-2.5 text-xs text-text-primary focus:border-primary focus:bg-white focus:outline-none dark:border-white/15 dark:bg-white/5 dark:focus:bg-gray-900"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void handleCommit()}
+                      disabled={!canCommit || isGitBusy}
+                      className="mb-2 flex h-8 w-full items-center justify-center gap-1.5 rounded-lg bg-primary text-xs font-medium text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <AppIcon name="git_commit" size={15} />
+                      <span>提交 {changeCount > 0 ? changeCount : ''} 项改动</span>
+                    </button>
+
+                    <div className="flex gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => void (diverged ? handleMerge() : handlePull())}
+                        disabled={isGitBusy || isSyncing || !status.upstream}
+                        className="flex h-7 flex-1 items-center justify-center gap-1 rounded-md border border-black/10 text-caption text-text-primary hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/10 dark:hover:bg-white/5"
+                        title={
+                          !status.upstream
+                            ? '尚未关联远程分支'
+                            : dirtyForSync
+                              ? '先提交或忽略本地改动再拉取'
+                              : diverged
+                                ? '本地与远程都有新提交，点击合并'
+                                : behindOnly
+                                  ? `拉取 ${status.behind} 个提交`
+                                  : '已是最新'
+                        }
+                      >
+                        <AppIcon name={diverged ? 'git_merge' : 'cloud_download'} size={14} />
+                        <span>{diverged ? '合并' : '拉取'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handlePush()}
+                        disabled={isGitBusy || isSyncing || status.detached || status.unborn || (!status.hasRemote && !status.upstream)}
+                        className="flex h-7 flex-1 items-center justify-center gap-1 rounded-md border border-black/10 text-caption text-text-primary hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/10 dark:hover:bg-white/5"
+                        title={
+                          !status.hasRemote && !status.upstream
+                            ? '尚未配置远程仓库，可在工作区设置中填写地址'
+                            : status.detached
+                              ? '当前不在任何分支上'
+                              : !status.upstream
+                                ? '首次推送并关联远程分支'
+                                : status.ahead > 0
+                                  ? `推送 ${status.ahead} 个提交`
+                                  : '已是最新'
+                        }
+                      >
+                        <AppIcon name="cloud_upload" size={14} />
+                        <span>推送</span>
+                      </button>
+                    </div>
+                    {!status.hasRemote && !status.upstream && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsOpen(false)
+                          onOpenWorkspaceSettings()
+                        }}
+                        className="mt-1.5 h-7 w-full rounded-md text-caption text-primary hover:bg-primary/5"
+                      >
+                        设置远程仓库
+                      </button>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div className="min-h-0 flex-1 overflow-y-auto px-2 py-1.5">
+                  {isLogLoading && logItems.length === 0 ? (
+                    <div className="px-3 py-6 text-center text-xs text-text-secondary">读取中…</div>
+                  ) : logError ? (
+                    <div className="px-3 py-5 text-center text-xs text-rose-500">{logError}</div>
+                  ) : graphLayout.rows.length === 0 ? (
+                    <div className="px-3 py-6 text-center text-xs text-text-secondary">还没有提交记录</div>
+                  ) : (
+                    <div className="flex flex-col">
+                      {graphLayout.rows.map((row) => {
+                        const { item } = row
+                        const timeLabel = relativeTime(item.date)
+                        const fullDate = new Date(item.date * 1000).toLocaleString()
+                        const tooltipLines = [
+                          `${item.id} ${item.message}`,
+                          `${item.author} · ${fullDate}`
+                        ]
+                        if (item.refs.length > 0) {
+                          tooltipLines.push(`分支/标签：${item.refs.join(', ')}`)
+                        }
+                        return (
+                          <div
+                            key={item.id}
+                            className="flex h-10 items-center gap-1.5 rounded-md px-1 hover:bg-black/5 dark:hover:bg-white/5"
+                            title={tooltipLines.join('\n')}
+                          >
+                            <GitHistoryGraph row={row} laneCount={graphLayout.laneCount} />
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-1.5">
+                                <span className="min-w-0 flex-1 truncate text-xs leading-4 text-text-primary">
+                                  {item.message}
+                                </span>
+                                {item.refs.slice(0, 2).map((ref) => (
+                                  <span
+                                    key={ref}
+                                    className="max-w-[96px] shrink-0 truncate rounded bg-primary/10 px-1 py-0.5 text-tiny font-medium leading-none text-primary"
+                                  >
+                                    {ref}
+                                  </span>
+                                ))}
+                              </div>
+                              <div className="mt-0.5 flex items-center gap-1.5 text-tiny text-text-secondary/75">
+                                <span className="shrink-0 font-mono">{item.shortId}</span>
+                                <span className="truncate">{item.author}</span>
+                                <span className="ml-auto shrink-0">{timeLabel}</span>
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
             </>
           )}
 

@@ -125,7 +125,9 @@ import {
     push as gitPush,
     initRepository as gitInitRepository,
     listRemotes as gitListRemotes,
-    setRemoteUrl as gitSetRemoteUrl
+    setRemoteUrl as gitSetRemoteUrl,
+    getLog as gitGetLog,
+    getFileBaseline as gitGetFileBaseline
 } from './services/gitService'
 import {
     readGitignore as readWorkspaceGitignore,
@@ -2557,6 +2559,27 @@ export async function registerIpcHandlers(
     ipcMain.handle('workbench:git-set-remote', async (_event, payload: { workspaceRoot: string; url: string; name?: string }) => {
         try {
             const data = await gitSetRemoteUrl(payload.workspaceRoot, payload.url, payload.name)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('workbench:git-log', async (_event, payload: { workspaceRoot: string; limit?: number }) => {
+        try {
+            const data = await gitGetLog(payload.workspaceRoot, payload.limit)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    // 编辑器行内/块级标记的基线读取：与 git-status 走同一串行队列，先探大小再读内容
+    ipcMain.handle('workbench:git-baseline', async (_event, payload: { workspaceRoot: string; relativePath: string }) => {
+        try {
+            const data = await gitGetFileBaseline(payload.workspaceRoot, payload.relativePath)
             return { success: true, data }
         } catch (err: unknown) {
             const error = err instanceof Error ? err.message : String(err)

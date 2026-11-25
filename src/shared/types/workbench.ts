@@ -90,6 +90,38 @@ export interface GitStatus {
   largeUntracked: Array<{ path: string; size: number }>
 }
 
+/** 编辑器行内/块级变更标记的基线读取结果 */
+export type GitBaselineStatus =
+  | 'ok'          // 成功拿到基准文本
+  | 'none'        // 非 Git 仓库 / 未跟踪 / unborn / 冲突中 / 无索引条目
+  | 'binary'      // 基准对象含 NUL 字节或非文本
+  | 'too-large'   // 基准对象超过安全大小上限，熔断降级
+  | 'error'       // Git 命令异常
+
+export interface GitBaselineResult {
+  status: GitBaselineStatus
+  /** Index 条目的对象哈希；用于判定提交/拉取/外部修改后基准是否发生变化 */
+  blobSha?: string
+  /** 仅 status === 'ok' 时返回；已按 UTF-8 解码，未做换行归一化 */
+  content?: string
+  byteLength?: number
+  error?: string
+}
+
+export type GitLineChangeKind = 'added' | 'modified'
+
+export interface GitDiffHunk {
+  /** 新文件中起始行号（0-indexed） */
+  newStart: number
+  /** 新文件中覆盖行数；纯删除时为 0 */
+  newCount: number
+  /** 旧文件中起始行号（0-indexed） */
+  oldStart: number
+  /** 旧文件中覆盖行数；纯新增时为 0 */
+  oldCount: number
+  kind: 'added' | 'modified' | 'deleted'
+}
+
 export type GitActionFailure =
   | 'not-installed'
   | 'not-repository'
@@ -132,6 +164,22 @@ export interface GitignoreCategory {
   /** 默认勾选：几乎不会与知识库正文冲突的通用项 */
   recommended: boolean
   patterns: string[]
+}
+
+/** Git 历史提交；父提交用于在渲染层计算泳道连接 */
+export interface GitHistoryItem {
+  /** 完整提交 hash，作为提交图和父提交关系的稳定标识 */
+  id: string
+  /** 界面上展示的短 hash */
+  shortId: string
+  /** 父提交完整 hash；合并提交会有多个 */
+  parentIds: string[]
+  message: string
+  author: string
+  /** Unix 秒级时间戳 */
+  date: number
+  /** 分支/标签引用名 */
+  refs: string[]
 }
 
 /** 仓库远程地址；只读展示，凭据由系统 Git 凭据管理器保存 */

@@ -11,7 +11,9 @@ import { stat } from 'fs/promises'
 import { appendGitignorePatterns, DEFAULT_GITIGNORE_PATTERNS } from './gitignoreService'
 import type {
   GitActionResult,
+  GitBaselineResult,
   GitFileChange,
+  GitHistoryItem,
   GitRemoteInfo,
   GitStatus
 } from '../../shared/types/workbench'
@@ -24,11 +26,21 @@ const MAX_CHANGED_FILES = 500
 const LARGE_FILE_WARN_BYTES = 50 * 1024 * 1024
 /** 大文件体积扫描的未跟踪文件上限，避免异常仓库拖慢状态刷新 */
 const MAX_UNTRACKED_SCAN = 2000
+/** 编辑器行内标记的基准内容上限：超过即熔断，不读入内存 */
+const GIT_BASELINE_MAX_BYTES = 1024 * 1024
 
 interface GitRunResult {
   ok: boolean
   code: number
   stdout: string
+  stderr: string
+  spawnError: NodeJS.ErrnoException | null
+}
+
+interface GitRunBufferResult {
+  ok: boolean
+  code: number
+  stdout: Buffer
   stderr: string
   spawnError: NodeJS.ErrnoException | null
 }
@@ -119,6 +131,70 @@ function runGit(
     } else {
       child.stdin?.end()
     }
+  })
+}
+
+/**
+ * 与 runGit 相同的安全与超时约束，但以原始 Buffer 收集 stdout。
+ * 二进制/大对象读取必须先聚合 Buffer 再统一解码，
+ * 避免多字节 UTF-8 字符跨 chunk 被 toString 截断。
+ */
+function runGitBuffer(
+  workspaceRoot: string,
+  args: string[],
+  timeoutMs: number = GIT_TIMEOUT_MS
+): Promise<GitRunBufferResult> {
+  return new Promise(resolve => {
+    const child = spawn(
+      'git',
+      args,
+      {
+        cwd: workspaceRoot,
+        windowsHide: true,
+        env: {
+          ...process.env,
+          GIT_TERMINAL_PROMPT: '0',
+          GIT_EDITOR: 'true',
+          GIT_MERGE_AUTOEDIT: 'no'
+        }
+      }
+    )
+
+    const chunks: Buffer[] = []
+    let stderr = ''
+    let settled = false
+    let spawnError: NodeJS.ErrnoException | null = null
+    const timer = setTimeout(() => {
+      child.kill()
+    }, timeoutMs)
+
+    const finish = (code: number): void => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      resolve({
+        ok: code === 0 && !spawnError,
+        code,
+        stdout: Buffer.concat(chunks),
+        stderr,
+        spawnError
+      })
+    }
+
+    child.stdout?.on('data', (chunk: Buffer) => {
+      chunks.push(chunk)
+    })
+    child.stderr?.on('data', (chunk: Buffer) => {
+      if (stderr.length < 1024 * 1024) stderr += chunk.toString('utf8')
+    })
+    child.on('error', (error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT') spawnError = error
+      finish(1)
+    })
+    child.on('close', (code: number | null) => {
+      finish(code ?? 1)
+    })
+    child.stdin?.end()
   })
 }
 
@@ -727,6 +803,86 @@ export async function getStatus(workspaceRoot: string): Promise<GitStatus> {
   return serialize(workspaceRoot, () => readStatus(workspaceRoot))
 }
 
+/**
+ * 读取文件在 Git Index（`:0:<repoPath>`）中的基准内容。
+ * 与 VSCode QuickDiffProvider 一致：未暂存时等价于 HEAD；
+ * 工作台内移动文件后 recordWorkspaceMove 已把原 blob 写入新路径索引，
+ * 因此查询新路径可自动延续历史。
+ *
+ * 熔断顺序：先 `ls-files -s` 拿 blobSha → `cat-file -s` 探大小（≤1MiB）→
+ * `cat-file -p` 读原始字节 → 前 1024 字节 NUL 检测 → UTF-8 解码。
+ * 冲突态（stage !== '0'）、未跟踪、unborn、非仓库均返回 none，不进入编辑器标记。
+ */
+export async function getFileBaseline(
+  workspaceRoot: string,
+  relativePath: string
+): Promise<GitBaselineResult> {
+  if (!workspaceRoot || !relativePath) return { status: 'none' }
+  return serialize(workspaceRoot, async () => {
+    const version = await runGit(workspaceRoot, ['--version'])
+    if (version.spawnError) return { status: 'none' }
+
+    const repo = await resolveRepo(workspaceRoot)
+    if (!repo) return { status: 'none' }
+
+    // 防范 .. 逃逸与 .git 内部文件：与 assertSafePath 同思路的相对路径校验
+    const normalized = normalizeGitPath(relativePath).replace(/^\/+/, '')
+    if (
+      !normalized ||
+      normalized === '.' ||
+      normalized.startsWith('../') ||
+      normalized.includes('/../') ||
+      normalized.split('/').includes('.git')
+    ) {
+      return { status: 'none' }
+    }
+    const repoPath = toRepoPath(repo.prefix, normalized)
+
+    const entries = await readIndexEntries(repo.repoRoot, [repoPath])
+    if (!entries.length) return { status: 'none' }
+    // 存在 stage 1/2/3 条目说明处于合并冲突中间态，不画标记以免干扰解决
+    if (entries.some(entry => entry.stage !== '0')) return { status: 'none' }
+    const entry = entries.find(item => item.repoPath === repoPath) ?? entries[0]
+
+    const sizeResult = await runGit(
+      workspaceRoot,
+      ['cat-file', '-s', entry.sha],
+      undefined,
+      IGNORED_PATHS_TIMEOUT_MS
+    )
+    if (!sizeResult.ok) {
+      return { status: 'error', error: firstMeaningfulLine(sizeResult.stderr) || '读取基准对象大小失败' }
+    }
+    const byteLength = Number.parseInt(sizeResult.stdout.trim(), 10)
+    if (!Number.isFinite(byteLength)) {
+      return { status: 'error', error: '基准对象大小解析失败' }
+    }
+    if (byteLength > GIT_BASELINE_MAX_BYTES) {
+      return { status: 'too-large', blobSha: entry.sha, byteLength }
+    }
+
+    const contentResult = await runGitBuffer(
+      workspaceRoot,
+      ['cat-file', '-p', entry.sha],
+      GIT_TIMEOUT_MS
+    )
+    if (!contentResult.ok) {
+      return { status: 'error', error: firstMeaningfulLine(contentResult.stderr) || '读取基准内容失败' }
+    }
+    const buffer = contentResult.stdout
+    // 与 readFile 一致的二进制判定：前 1024 字节含 NUL 即视为非文本
+    if (buffer.subarray(0, Math.min(1024, buffer.length)).includes(0)) {
+      return { status: 'binary', blobSha: entry.sha, byteLength }
+    }
+    return {
+      status: 'ok',
+      blobSha: entry.sha,
+      content: buffer.toString('utf8'),
+      byteLength
+    }
+  })
+}
+
 async function pathExists(target: string): Promise<boolean> {
   try {
     await stat(target)
@@ -1058,6 +1214,64 @@ export async function push(workspaceRoot: string, setUpstream: boolean): Promise
     }
     return { success: false, failure: 'failed', error: explainGitError(text) }
   })
+}
+
+// ─── Git 历史记录 ───
+
+const LOG_FIELD_SEPARATOR = '\x1f'
+const LOG_RECORD_SEPARATOR = '\x1e'
+
+function parseLogOutput(stdout: string): GitHistoryItem[] {
+  const commits: GitHistoryItem[] = []
+  for (const record of stdout.split(LOG_RECORD_SEPARATOR)) {
+    const raw = record.trim()
+    if (!raw) continue
+    const parts = raw.split(LOG_FIELD_SEPARATOR)
+    if (parts.length < 7) continue
+    const [id, shortId, parentsRaw, message, author, dateRaw, refsRaw] = parts
+    const parentIds = parentsRaw ? parentsRaw.split(/\s+/).filter(Boolean) : []
+    const refs = refsRaw ? refsRaw.split(', ').map(ref => ref.trim()).filter(Boolean) : []
+    commits.push({
+      id,
+      shortId,
+      parentIds,
+      message,
+      author,
+      date: parseInt(dateRaw || '0', 10),
+      refs
+    })
+  }
+  return commits
+}
+
+/**
+ * 读取 Git 提交历史；返回提交 DAG，泳道布局由渲染层计算。
+ * 只读操作，不写索引，不走 serialize 队列。
+ */
+export async function getLog(workspaceRoot: string, limit = 50): Promise<GitHistoryItem[]> {
+  if (!workspaceRoot) return []
+  const version = await runGit(workspaceRoot, ['--version'])
+  if (version.spawnError) return []
+  const repo = await resolveRepo(workspaceRoot)
+  if (!repo) return []
+
+  const result = await runGit(
+    workspaceRoot,
+    [
+      '--no-optional-locks',
+      '-c',
+      'i18n.logOutputEncoding=UTF-8',
+      'log',
+      `--format=%H${LOG_FIELD_SEPARATOR}%h${LOG_FIELD_SEPARATOR}%P${LOG_FIELD_SEPARATOR}%s${LOG_FIELD_SEPARATOR}%an${LOG_FIELD_SEPARATOR}%at${LOG_FIELD_SEPARATOR}%D${LOG_RECORD_SEPARATOR}`,
+      '--all',
+      '--topo-order',
+      '--decorate=short',
+      '--color=never',
+      '-n', String(Math.min(limit, 200))
+    ]
+  )
+  if (!result.ok) return []
+  return parseLogOutput(result.stdout)
 }
 
 /**

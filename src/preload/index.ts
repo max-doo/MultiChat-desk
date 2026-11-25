@@ -48,6 +48,8 @@ import type {
   WorkspaceTagInfo,
   GitStatus,
   GitActionResult,
+  GitHistoryItem,
+  GitBaselineResult,
   GitignoreSnapshot,
   GitignoreCategory,
   GitRemoteInfo,
@@ -546,6 +548,10 @@ const api = {
       ipcRenderer.invoke('workbench:git-remotes', { workspaceRoot }),
     gitSetRemote: (workspaceRoot: string, url: string, name?: string): Promise<{ success: boolean; data?: GitActionResult; error?: string }> =>
       ipcRenderer.invoke('workbench:git-set-remote', { workspaceRoot, url, name }),
+    gitLog: (workspaceRoot: string, limit?: number): Promise<{ success: boolean; data?: GitHistoryItem[]; error?: string }> =>
+      ipcRenderer.invoke('workbench:git-log', { workspaceRoot, limit }),
+    gitBaseline: (workspaceRoot: string, relativePath: string): Promise<{ success: boolean; data?: GitBaselineResult; error?: string }> =>
+      ipcRenderer.invoke('workbench:git-baseline', { workspaceRoot, relativePath }),
     readGitignore: (workspaceRoot: string): Promise<{ success: boolean; data?: GitignoreSnapshot; error?: string }> =>
       ipcRenderer.invoke('workbench:gitignore-read', { workspaceRoot }),
     writeGitignore: (workspaceRoot: string, content: string): Promise<{ success: boolean; error?: string }> =>
