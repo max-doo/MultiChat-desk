@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ChevronDown, Key, LogOut, Pencil, Plus, RefreshCw, Search, ShieldCheck, Trash2 } from 'lucide-react'
 import { useAgentSessionStore } from '../../../store/agentSessionStore'
-import type { AgentAuthOperation } from '../../../types/agent'
-import type { AgentProvider, AgentIpcApi } from '../../../types/agent'
+import type { AgentAuthOperation, AgentProvider, AgentProviderModel, AgentIpcApi } from '../../../types/agent'
+import { AppIcon } from '../../icons/AppIcon'
 import { AgentAuthDialog } from './AgentAuthDialog'
+
+const INPUT_CLASS =
+  'h-9 rounded-lg border border-slate-200 bg-slate-50/80 px-3 text-label text-text-primary placeholder:text-gray-400 focus:border-primary focus:bg-white focus:outline-none dark:border-slate-700/80 dark:bg-slate-800/50 dark:focus:bg-slate-800'
 
 function getAgentApi(): AgentIpcApi {
   return window.api as unknown as AgentIpcApi
@@ -30,7 +32,7 @@ function groupOf(provider: AgentProvider): 'connected' | 'attention' | 'availabl
   return 'connected'
 }
 
-export function AgentProviderSettings(): JSX.Element {
+export function AgentProviderSettings({ inlineAuth = false }: { inlineAuth?: boolean } = {}): JSX.Element {
   const snapshot = useAgentSessionStore((s) => s.snapshot)
   const snapshotLoading = useAgentSessionStore((s) => s.snapshotLoading)
   const authOperations = useAgentSessionStore((s) => s.authOperations)
@@ -40,6 +42,8 @@ export function AgentProviderSettings(): JSX.Element {
   const logoutProvider = useAgentSessionStore((s) => s.logoutProvider)
   const refreshProviderModels = useAgentSessionStore((s) => s.refreshProviderModels)
   const setProviderBaseUrl = useAgentSessionStore((s) => s.setProviderBaseUrl)
+  const setProviderDisabled = useAgentSessionStore((s) => s.setProviderDisabled)
+  const setFavoriteModels = useAgentSessionStore((s) => s.setFavoriteModels)
 
   const [query, setQuery] = useState('')
   const [busyProvider, setBusyProvider] = useState<string | null>(null)
@@ -55,6 +59,26 @@ export function AgentProviderSettings(): JSX.Element {
   const [customSpec, setCustomSpec] = useState({ providerId: '', name: '', baseUrl: '', apiKey: '' })
   const [customError, setCustomError] = useState<string | null>(null)
   const [customIds, setCustomIds] = useState<Set<string>>(new Set())
+  const [favBusy, setFavBusy] = useState<string | null>(null)
+  const [availableExpanded, setAvailableExpanded] = useState(false)
+
+  const favoriteKeys = useMemo(
+    () => new Set((snapshot?.favorites ?? []).map((f) => `${f.providerId}:${f.modelId}`)),
+    [snapshot]
+  )
+
+  const favoriteModels = useMemo(() => {
+    const providers = snapshot?.providers ?? []
+    return (snapshot?.favorites ?? [])
+      .map((fav) => {
+        const provider = providers.find((p) => p.id === fav.providerId)
+        const model = provider?.models.find((m) => m.id === fav.modelId)
+        return provider && model ? { provider, model } : null
+      })
+      .filter((entry): entry is { provider: AgentProvider; model: AgentProviderModel } =>
+        Boolean(entry)
+      )
+  }, [snapshot])
 
   const providers = snapshot?.providers ?? []
   // snapshot 拉取已由 initListeners + onAgentRuntimeChanged 保证；避免打开
@@ -75,15 +99,34 @@ export function AgentProviderSettings(): JSX.Element {
     }
   }, [snapshot])
 
+  // Settings can open without any AgentCard mounted; make sure the shared
+  // IPC listeners (including agent:provider-auth-changed) are actually
+  // subscribed, otherwise auth state updates never reach this dialog.
+  const initListeners = useAgentSessionStore((s) => s.initListeners)
+  useEffect(() => initListeners(), [initListeners])
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
     if (!q) return providers
-    return providers.filter(
-      (provider) =>
-        provider.name.toLowerCase().includes(q) ||
-        provider.id.toLowerCase().includes(q) ||
-        provider.models.some((model) => model.name.toLowerCase().includes(q) || model.id.toLowerCase().includes(q))
-    )
+    const result: AgentProvider[] = []
+    for (const provider of providers) {
+      const providerHit =
+        provider.name.toLowerCase().includes(q) || provider.id.toLowerCase().includes(q)
+      const models = providerHit
+        ? provider.models
+        : provider.models.filter(
+            (model) => model.name.toLowerCase().includes(q) || model.id.toLowerCase().includes(q)
+          )
+      if (providerHit || models.length > 0) {
+        result.push({
+          ...provider,
+          models,
+          modelCount: models.length,
+          availableModelCount: models.filter((m) => m.available).length
+        })
+      }
+    }
+    return result
   }, [providers, query])
 
   const groups = useMemo(() => {
@@ -176,6 +219,27 @@ export function AgentProviderSettings(): JSX.Element {
     setBusyProvider(null)
   }
 
+  const handleToggleDisabled = async (provider: AgentProvider): Promise<void> => {
+    setBusyProvider(provider.id)
+    await setProviderDisabled(provider.id, !provider.disabled)
+    setBusyProvider(null)
+  }
+
+  const handleToggleFavorite = async (providerId: string, modelId: string): Promise<void> => {
+    const key = `${providerId}:${modelId}`
+    if (favBusy === key) return
+    setFavBusy(key)
+    const next = new Set(favoriteKeys)
+    if (next.has(key)) next.delete(key)
+    else next.add(key)
+    const favorites = [...next].map((entry) => {
+      const sep = entry.indexOf(':')
+      return { providerId: entry.slice(0, sep), modelId: entry.slice(sep + 1) }
+    })
+    await setFavoriteModels(favorites)
+    setFavBusy(null)
+  }
+
   const toggleProvider = (providerId: string): void => {
     setExpandedProviders((prev) => {
       const next = new Set(prev)
@@ -227,7 +291,7 @@ export function AgentProviderSettings(): JSX.Element {
     return (
       <div className="space-y-2">
         <div className="flex items-center justify-between px-0.5">
-          <span className="text-caption font-medium text-text-secondary">{title}</span>
+          <span className="text-label font-medium text-text-secondary">{title}</span>
           <span className="text-caption text-text-secondary">{list.length}</span>
         </div>
         {visible.map((provider) => {
@@ -237,26 +301,34 @@ export function AgentProviderSettings(): JSX.Element {
           const endpointEditable = isEndpointEditable(provider)
           const isEditingThis = editingBaseUrl === provider.id
           return (
-            <div key={provider.id} className="rounded-lg border border-gray-100 bg-white/60">
-              <div className="flex items-start justify-between gap-3 px-3 py-2.5">
+            <div
+              key={provider.id}
+              className={`rounded-lg border border-white/70 bg-white/55 transition-colors hover:bg-white/75 dark:border-white/10 dark:bg-white/5 dark:hover:bg-white/10 ${provider.disabled ? 'opacity-60' : ''}`}
+            >
+              <div className="flex items-start justify-between gap-3 px-3.5 py-2.5">
                 <div
                   className="min-w-0 flex-1 cursor-pointer"
                   onClick={() => toggleProvider(provider.id)}
                 >
                   <div className="flex items-center gap-2">
                     <span
-                      className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                        provider.configured ? 'bg-emerald-500' : 'bg-gray-300'
+                      className={`h-2 w-2 shrink-0 rounded-full ${
+                        provider.disabled ? 'bg-gray-300 dark:bg-gray-600' : provider.configured ? 'bg-emerald-500' : 'bg-gray-300 dark:bg-gray-600'
                       }`}
                     />
-                    <span className="text-body text-text-primary truncate">{provider.name}</span>
-                    <code className="text-tiny text-text-secondary truncate">{provider.id}</code>
+                    <span className={`truncate text-body font-medium ${provider.disabled ? 'text-text-secondary' : 'text-text-primary'}`}>
+                      {provider.name}
+                    </span>
+                    <code className="truncate font-mono text-caption text-text-secondary">{provider.id}</code>
+                    {provider.disabled && (
+                      <span className="shrink-0 rounded bg-black/5 px-1.5 py-0.5 text-tiny text-text-secondary dark:bg-white/10">已停用</span>
+                    )}
                   </div>
-                  <div className="mt-1 flex items-center gap-2 text-caption text-text-secondary">
+                  <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-caption text-text-secondary">
                     <span>{authLabel(provider)}</span>
                     <span>·</span>
                     <span>
-                      {provider.availableModelCount}/{provider.modelCount} 个模型
+                      {provider.availableModelCount}/{provider.modelCount} 模型
                     </span>
                     {endpointEditable && provider.baseUrl && (
                       <>
@@ -267,11 +339,11 @@ export function AgentProviderSettings(): JSX.Element {
                             e.stopPropagation()
                             startEditBaseUrl(provider)
                           }}
-                          className="flex items-center gap-1 truncate hover:text-primary transition-colors"
+                          className="flex min-w-0 items-center gap-1 truncate transition-colors hover:text-primary"
                           title={provider.baseUrl}
                         >
                           <span className="truncate font-mono">{provider.baseUrl}</span>
-                          <Pencil className="w-2.5 h-2.5 shrink-0 opacity-60" />
+                          <AppIcon name="edit" size={12} className="shrink-0 opacity-70" />
                         </button>
                       </>
                     )}
@@ -282,26 +354,26 @@ export function AgentProviderSettings(): JSX.Element {
                           e.stopPropagation()
                           setDialogId(running.id)
                         }}
-                        className="text-primary hover:opacity-80 transition-opacity"
+                        className="font-medium text-primary hover:underline"
                       >
                         认证中
                       </button>
                     )}
                   </div>
                   {provider.error && (
-                    <div className="mt-1 text-caption text-rose-600 break-words">{provider.error}</div>
+                    <div className="mt-1 break-words text-label text-rose-600 dark:text-rose-400">{provider.error}</div>
                   )}
                 </div>
-                <div className="flex items-center gap-1 shrink-0">
+                <div className="flex shrink-0 items-center gap-1">
                   {customIds.has(provider.id) && (
                     <button
                       type="button"
                       onClick={() => void handleRemoveCustom(provider.id)}
                       disabled={isBusy}
-                      className="w-6 h-6 rounded-md text-text-secondary hover:text-rose-600 hover:bg-rose-50 disabled:opacity-40 flex items-center justify-center transition-colors"
-                    title="移除自定义供应商（重启后完全卸载）"
+                      className="flex h-8 w-8 items-center justify-center rounded-full text-text-secondary transition-colors hover:bg-rose-500/10 hover:text-rose-500 disabled:opacity-40"
+                      title="移除自定义供应商（重启后完全卸载）"
                     >
-                      <Trash2 className="w-3 h-3" />
+                      <AppIcon name="delete" size={15} />
                     </button>
                   )}
                   {provider.apiKeyAvailable && !endpointEditable && (
@@ -309,11 +381,11 @@ export function AgentProviderSettings(): JSX.Element {
                       type="button"
                       onClick={() => void handleLogin(provider, 'api_key')}
                       disabled={isBusy || Boolean(running)}
-                      className="px-2 py-1 rounded-md text-caption text-text-secondary hover:text-primary hover:bg-blue-50/60 disabled:opacity-40 transition-colors flex items-center gap-1"
+                      className="flex h-8 items-center gap-1 rounded-lg px-2.5 text-label font-medium text-text-secondary transition-colors hover:bg-black/5 hover:text-primary disabled:opacity-40 dark:hover:bg-white/10"
                       title="配置 API Key"
                     >
-                      <Key className="w-3 h-3" />
-                      Key
+                      <AppIcon name="key" size={14} />
+                      <span>Key</span>
                     </button>
                   )}
                   {provider.oauthAvailable && (
@@ -321,11 +393,11 @@ export function AgentProviderSettings(): JSX.Element {
                       type="button"
                       onClick={() => void handleLogin(provider, 'oauth')}
                       disabled={isBusy || Boolean(running)}
-                      className="px-2 py-1 rounded-md text-caption text-text-secondary hover:text-primary hover:bg-blue-50/60 disabled:opacity-40 transition-colors flex items-center gap-1"
+                      className="flex h-8 items-center gap-1 rounded-lg px-2.5 text-label font-medium text-text-secondary transition-colors hover:bg-black/5 hover:text-primary disabled:opacity-40 dark:hover:bg-white/10"
                       title={provider.oauthName || 'OAuth 登录'}
                     >
-                      <ShieldCheck className="w-3 h-3" />
-                      {provider.isSubscription ? '订阅' : 'OAuth'}
+                      <AppIcon name="verified_user" size={14} />
+                      <span>{provider.isSubscription ? '订阅' : 'OAuth'}</span>
                     </button>
                   )}
                   {provider.configured && (provider.authSource === 'stored' || provider.authSource === 'runtime') && (
@@ -333,10 +405,10 @@ export function AgentProviderSettings(): JSX.Element {
                       type="button"
                       onClick={() => void handleLogout(provider)}
                       disabled={isBusy}
-                      className="w-6 h-6 rounded-md text-text-secondary hover:text-rose-600 hover:bg-rose-50 disabled:opacity-40 flex items-center justify-center transition-colors"
+                      className="flex h-8 w-8 items-center justify-center rounded-full text-text-secondary transition-colors hover:bg-rose-500/10 hover:text-rose-500 disabled:opacity-40"
                       title="退出登录"
                     >
-                      <LogOut className="w-3 h-3" />
+                      <AppIcon name="logout" size={15} />
                     </button>
                   )}
                   <button
@@ -345,27 +417,59 @@ export function AgentProviderSettings(): JSX.Element {
                       e.stopPropagation()
                       toggleProvider(provider.id)
                     }}
-                    className="w-6 h-6 rounded-md text-text-secondary hover:text-primary hover:bg-blue-50/60 flex items-center justify-center transition-colors"
+                    className="flex h-8 w-8 items-center justify-center rounded-full text-text-secondary transition-colors hover:bg-black/5 hover:text-primary dark:hover:bg-white/10"
                     title={providerOpen ? '收起模型列表' : '展开模型列表'}
                   >
-                    <ChevronDown
-                      className={`w-3 h-3 transition-transform ${providerOpen ? 'rotate-180' : ''}`}
+                    <AppIcon
+                      name="expand_more"
+                      size={16}
+                      className={`transition-transform ${providerOpen ? 'rotate-180' : ''}`}
                     />
                   </button>
                   <button
                     type="button"
                     onClick={() => void handleRefresh(provider)}
                     disabled={isBusy}
-                    className="w-6 h-6 rounded-md text-text-secondary hover:text-primary hover:bg-blue-50/60 disabled:opacity-40 flex items-center justify-center transition-colors"
+                    className="flex h-8 w-8 items-center justify-center rounded-full text-text-secondary transition-colors hover:bg-black/5 hover:text-primary disabled:opacity-40 dark:hover:bg-white/10"
                     title="刷新模型列表"
                   >
-                    <RefreshCw className={`w-3 h-3 ${isBusy ? 'animate-spin' : ''}`} />
+                    <AppIcon name="refresh" size={15} className={isBusy ? 'animate-spin' : ''} />
+                  </button>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={!provider.disabled}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      void handleToggleDisabled(provider)
+                    }}
+                    disabled={isBusy || !provider.configured}
+                    title={
+                      !provider.configured
+                        ? '接入供应商后才能启停'
+                        : provider.disabled
+                          ? '启用供应商'
+                          : '停用供应商'
+                    }
+                    className={`relative ml-1 h-5 w-9 shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${
+                      !provider.configured
+                        ? 'bg-gray-200 dark:bg-gray-700'
+                        : provider.disabled
+                          ? 'bg-gray-300 dark:bg-gray-600'
+                          : 'bg-primary'
+                    }`}
+                  >
+                    <span
+                      className={`absolute top-[2px] h-4 w-4 rounded-full bg-white shadow transition-all ${
+                        provider.disabled || !provider.configured ? 'left-[2px]' : 'left-[18px]'
+                      }`}
+                    />
                   </button>
                 </div>
               </div>
               {isEditingThis && (
-                <div className="border-t border-gray-100 px-3 py-2 space-y-1.5">
-                  <div className="flex items-center gap-1.5">
+                <div className="space-y-2 border-t border-black/[0.05] px-3.5 py-2.5 dark:border-white/10">
+                  <div className="flex items-center gap-2">
                     <input
                       type="text"
                       value={baseUrlDraft}
@@ -376,46 +480,71 @@ export function AgentProviderSettings(): JSX.Element {
                       }}
                       placeholder="https://host/v1"
                       autoFocus
-                      className="flex-1 px-2 py-1 rounded-md glass-panel text-caption text-text-primary placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary/20 font-mono"
+                      className={`min-w-0 flex-1 font-mono ${INPUT_CLASS}`}
                     />
                     <button
                       type="button"
                       onClick={() => void saveBaseUrl(provider)}
                       disabled={baseUrlSaving}
-                      className="px-2 py-1 rounded-md bg-primary text-white text-caption font-medium hover:opacity-90 disabled:opacity-50 transition-colors shrink-0"
+                      className="h-9 shrink-0 rounded-lg bg-primary px-3.5 text-label font-medium text-white shadow-soft transition-opacity hover:opacity-90 disabled:opacity-50"
                     >
                       {baseUrlSaving ? '…' : '保存'}
                     </button>
                     <button
                       type="button"
                       onClick={() => setEditingBaseUrl(null)}
-                      className="px-2 py-1 rounded-md text-caption text-text-secondary hover:text-text-primary transition-colors shrink-0"
+                      className="h-9 shrink-0 rounded-lg border border-gray-200 bg-sidebar px-3 text-label text-text-secondary transition-colors hover:bg-gray-100 dark:border-white/10 dark:bg-white/5"
                     >
                       取消
                     </button>
                   </div>
-                  {baseUrlError && <div className="text-caption text-rose-600">{baseUrlError}</div>}
+                  {baseUrlError && <div className="text-label text-rose-600 dark:text-rose-400">{baseUrlError}</div>}
+                </div>
+              )}
+              {inlineAuth && activeOperation && activeOperation.providerId === provider.id && (
+                <div className="border-t border-black/[0.05] px-3.5 pb-3 dark:border-white/10">
+                  <AgentAuthDialog
+                    inline
+                    operation={activeOperation}
+                    onClose={() => setDialogId(null)}
+                    onSubmit={handleDialogSubmit}
+                    onCancel={handleDialogCancel}
+                  />
                 </div>
               )}
               {providerOpen && (
-                <div className="border-t border-gray-100 px-3 py-2 space-y-1">
+                <div className="space-y-1 border-t border-black/[0.05] px-3.5 py-2.5 dark:border-white/10">
                   {provider.models.length === 0 && (
-                    <div className="text-caption text-text-secondary">暂无模型目录</div>
+                    <div className="text-label text-text-secondary">暂无模型目录</div>
                   )}
-                  {provider.models.map((model) => (
-                    <div
-                      key={`${model.providerId}:${model.id}`}
-                      className={`flex items-center gap-2 text-caption ${model.available ? 'text-text-primary' : 'text-text-secondary/70'}`}
-                    >
-                      <span className="w-1 h-1 rounded-full bg-current shrink-0" />
-                      <span className="truncate">{model.name}</span>
-                      {model.reasoning && <span className="shrink-0 text-tiny text-primary/70">思考</span>}
-                      {model.input.includes('image') && <span className="shrink-0 text-tiny text-text-secondary">图像</span>}
-                      <span className="ml-auto shrink-0 font-mono text-tiny">
-                        {model.contextWindow ? `${Math.round(model.contextWindow / 1000)}k` : ''}
-                      </span>
-                    </div>
-                  ))}
+                  {provider.models.map((model) => {
+                    const key = `${model.providerId}:${model.id}`
+                    const fav = favoriteKeys.has(key)
+                    return (
+                      <div
+                        key={key}
+                        className={`flex items-center gap-2 py-0.5 text-label ${model.available || provider.disabled ? 'text-text-primary' : 'text-text-secondary/70'} ${provider.disabled ? 'opacity-70' : ''}`}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => void handleToggleFavorite(provider.id, model.id)}
+                          disabled={provider.disabled || favBusy === key}
+                          title={fav ? '移出常用模型' : '加入常用模型'}
+                          className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-black/5 disabled:opacity-40 dark:hover:bg-white/10 ${
+                            fav ? 'text-amber-500' : 'text-gray-300 hover:text-amber-400 dark:text-gray-600'
+                          }`}
+                        >
+                          <AppIcon name="star" size={14} fill={fav ? 'currentColor' : 'none'} />
+                        </button>
+                        <span className="truncate">{model.name}</span>
+                        {model.reasoning && <span className="shrink-0 text-tiny text-primary/80">思考</span>}
+                        {model.input.includes('image') && <span className="shrink-0 text-tiny text-text-secondary">图像</span>}
+                        <span className="ml-auto shrink-0 font-mono text-tiny text-text-secondary">
+                          {model.contextWindow ? `${Math.round(model.contextWindow / 1000)}k` : ''}
+                        </span>
+                      </div>
+                    )
+                  })}
                 </div>
               )}
             </div>
@@ -425,7 +554,7 @@ export function AgentProviderSettings(): JSX.Element {
           <button
             type="button"
             onClick={() => setShowAll((prev) => ({ ...prev, [title]: !isExpanded }))}
-            className="text-caption text-primary hover:opacity-80 transition-opacity"
+            className="text-label text-primary hover:opacity-80 transition-opacity"
           >
             {isExpanded ? '收起' : `显示全部 ${list.length} 个`}
           </button>
@@ -434,70 +563,89 @@ export function AgentProviderSettings(): JSX.Element {
     )
   }
 
-  return (
-    <div className="space-y-3">
-      <div className="relative">
-        <Search className="w-3.5 h-3.5 text-text-secondary absolute left-2.5 top-1/2 -translate-y-1/2" />
-        <input
-          type="text"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="搜索供应商或模型"
-          className="w-full pl-8 pr-3 py-1.5 rounded-lg glass-panel text-label text-text-primary placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary/20"
-        />
-      </div>
+  const hasConfiguredGroups = groups.connected.length > 0 || groups.attention.length > 0
+  const showAvailableGroup =
+    query.trim().length > 0 || !hasConfiguredGroups || availableExpanded
 
-      <div className="flex items-center justify-between">
-        <span className="text-caption text-text-secondary">自定义供应商</span>
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2">
+        <div className="relative min-w-0 flex-1">
+          <AppIcon
+            name="search"
+            size={16}
+            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary"
+          />
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="搜索供应商或模型"
+            className={`w-full pl-9 pr-8 ${INPUT_CLASS}`}
+          />
+          {query && (
+            <button
+              type="button"
+              onClick={() => setQuery('')}
+              className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full text-text-secondary hover:bg-black/5 hover:text-text-primary dark:hover:bg-white/10"
+              aria-label="清空搜索"
+            >
+              <AppIcon name="close" size={14} />
+            </button>
+          )}
+        </div>
         <button
           type="button"
           onClick={() => {
             setCustomError(null)
             setCustomOpen((prev) => !prev)
           }}
-          className="flex items-center gap-1 px-2 py-1 rounded-md text-caption text-text-secondary hover:text-primary hover:bg-blue-50/60 transition-colors"
+          className="flex h-9 shrink-0 items-center gap-1 rounded-lg border border-gray-200 bg-sidebar px-3 text-label font-medium text-text-primary transition-colors hover:border-primary/40 hover:text-primary dark:border-white/10 dark:bg-white/5"
         >
-          <Plus className="w-3 h-3" />
-          添加供应商
+          <AppIcon name={customOpen ? 'close' : 'add'} size={14} />
+          <span>{customOpen ? '收起' : '自定义'}</span>
         </button>
       </div>
 
       {customOpen && (
-        <div className="rounded-lg border border-gray-100 bg-white/60 p-3 space-y-2">
-          <input
-            type="text"
-            value={customSpec.name}
-            onChange={(e) => setCustomSpec((prev) => ({ ...prev, name: e.target.value }))}
-            placeholder="名称（如 OpenRouter）"
-            className="w-full px-2 py-1.5 rounded-md glass-panel text-label text-text-primary placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary/20"
-          />
-          <input
-            type="text"
-            value={customSpec.providerId}
-            onChange={(e) => setCustomSpec((prev) => ({ ...prev, providerId: e.target.value }))}
-            placeholder="providerId（如 openrouter）"
-            className="w-full px-2 py-1.5 rounded-md glass-panel text-label text-text-primary placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary/20 font-mono"
-          />
-          <input
-            type="text"
-            value={customSpec.baseUrl}
-            onChange={(e) => setCustomSpec((prev) => ({ ...prev, baseUrl: e.target.value }))}
-            placeholder="https://host/v1"
-            className="w-full px-2 py-1.5 rounded-md glass-panel text-label text-text-primary placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary/20 font-mono"
-          />
-          <input
-            type="password"
-            value={customSpec.apiKey}
-            onChange={(e) => setCustomSpec((prev) => ({ ...prev, apiKey: e.target.value }))}
-            placeholder="API Key（可选）"
-            className="w-full px-2 py-1.5 rounded-md glass-panel text-label text-text-primary placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary/20 font-mono"
-          />
-          {customError && <div className="text-caption text-rose-600">{customError}</div>}
+        <div className="space-y-2.5 rounded-lg border border-primary/25 bg-white/80 p-3.5 dark:border-white/15 dark:bg-white/5">
+          <div className="text-body font-medium text-text-primary">添加自定义供应商</div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <input
+              type="text"
+              value={customSpec.name}
+              onChange={(e) => setCustomSpec((prev) => ({ ...prev, name: e.target.value }))}
+              placeholder="名称（如 OpenRouter）"
+              className={`w-full ${INPUT_CLASS}`}
+            />
+            <input
+              type="text"
+              value={customSpec.providerId}
+              onChange={(e) => setCustomSpec((prev) => ({ ...prev, providerId: e.target.value }))}
+              placeholder="providerId（如 openrouter）"
+              className={`w-full font-mono ${INPUT_CLASS}`}
+            />
+            <input
+              type="text"
+              value={customSpec.baseUrl}
+              onChange={(e) => setCustomSpec((prev) => ({ ...prev, baseUrl: e.target.value }))}
+              placeholder="https://host/v1"
+              className={`w-full font-mono ${INPUT_CLASS}`}
+            />
+            <input
+              type="password"
+              value={customSpec.apiKey}
+              onChange={(e) => setCustomSpec((prev) => ({ ...prev, apiKey: e.target.value }))}
+              placeholder="API Key（可选）"
+              className={`w-full font-mono ${INPUT_CLASS}`}
+            />
+          </div>
+          {customError && <div className="text-label text-rose-600 dark:text-rose-400">{customError}</div>}
           <div className="flex justify-end gap-2">
             <button
               type="button"
               onClick={() => setCustomOpen(false)}
-              className="px-2 py-1 rounded-md text-caption text-text-secondary hover:text-text-primary transition-colors"
+              className="h-9 rounded-lg border border-gray-200 bg-sidebar px-3.5 text-label text-text-secondary transition-colors hover:bg-gray-100 dark:border-white/10 dark:bg-white/5"
             >
               取消
             </button>
@@ -505,7 +653,7 @@ export function AgentProviderSettings(): JSX.Element {
               type="button"
               onClick={() => void handleAddCustom()}
               disabled={customSaving}
-              className="px-3 py-1 rounded-md bg-primary text-white text-caption font-medium hover:opacity-90 disabled:opacity-50 transition-colors"
+              className="h-9 rounded-lg bg-primary px-4 text-label font-medium text-white shadow-soft transition-opacity hover:opacity-90 disabled:opacity-50"
             >
               {customSaving ? '保存中…' : '保存'}
             </button>
@@ -513,23 +661,88 @@ export function AgentProviderSettings(): JSX.Element {
         </div>
       )}
 
+      <div className="space-y-2 rounded-lg border border-white/70 bg-white/55 px-3.5 py-2.5 dark:border-white/10 dark:bg-white/5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <AppIcon name="star" size={14} className="text-amber-500" fill="currentColor" />
+            <span className="text-label font-medium text-text-primary">默认模型集</span>
+          </div>
+          <span className="text-caption text-text-secondary">{favoriteModels.length}</span>
+        </div>
+        {favoriteModels.length === 0 ? (
+          <div className="text-caption text-text-secondary">
+            展开下方供应商并点亮星标即可置顶到模型选择器
+          </div>
+        ) : (
+          <div className="flex flex-wrap gap-1.5">
+            {favoriteModels.map(({ provider, model }) => (
+              <div
+                key={`${provider.id}:${model.id}`}
+                className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-white/80 bg-white/80 px-2.5 py-1 text-label shadow-2xs dark:border-white/10 dark:bg-white/10"
+              >
+                <span className="truncate font-medium text-text-primary">{model.name}</span>
+                <span className="shrink-0 font-mono text-tiny text-text-secondary">{provider.id}</span>
+                <button
+                  type="button"
+                  onClick={() => void handleToggleFavorite(provider.id, model.id)}
+                  disabled={favBusy === `${provider.id}:${model.id}`}
+                  title="移出默认模型集"
+                  className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-text-secondary transition-colors hover:bg-rose-500/10 hover:text-rose-500 disabled:opacity-40"
+                >
+                  <AppIcon name="close" size={12} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {snapshotLoading && providers.length === 0 && (
-        <div className="text-caption text-text-secondary py-2">正在读取模型目录…</div>
+        <div className="py-2 text-label text-text-secondary">正在读取模型目录…</div>
       )}
       {!snapshotLoading && providers.length === 0 && (
-        <div className="text-caption text-text-secondary py-2">没有可用的供应商目录</div>
+        <div className="py-2 text-label text-text-secondary">没有可用的供应商目录</div>
       )}
 
       {renderGroup('已连接', groups.connected, 8)}
       {renderGroup('需要处理', groups.attention, 8)}
-      {renderGroup('可连接', groups.available, 6)}
 
-      <AgentAuthDialog
-        operation={activeOperation ?? null}
-        onClose={() => setDialogId(null)}
-        onSubmit={handleDialogSubmit}
-        onCancel={handleDialogCancel}
-      />
+      {groups.available.length > 0 && (
+        showAvailableGroup ? (
+          <div className="space-y-2">
+            {hasConfiguredGroups && !query.trim() && (
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setAvailableExpanded(false)}
+                  className="text-caption text-text-secondary transition-colors hover:text-primary"
+                >
+                  收起可连接列表
+                </button>
+              </div>
+            )}
+            {renderGroup('可连接', groups.available, 8)}
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setAvailableExpanded(true)}
+            className="flex w-full items-center justify-between rounded-lg border border-white/70 bg-white/45 px-3.5 py-2.5 text-left text-label text-text-secondary transition-colors hover:bg-white/75 hover:text-text-primary dark:border-white/10 dark:bg-white/5 dark:hover:bg-white/10"
+          >
+            <span>浏览其他可连接供应商（{groups.available.length}）</span>
+            <AppIcon name="expand_more" size={16} />
+          </button>
+        )
+      )}
+
+      {!inlineAuth && (
+        <AgentAuthDialog
+          operation={activeOperation ?? null}
+          onClose={() => setDialogId(null)}
+          onSubmit={handleDialogSubmit}
+          onCancel={handleDialogCancel}
+        />
+      )}
     </div>
   )
 }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Plus, Trash2, FolderOpen } from 'lucide-react'
 import { useAgentSessionStore } from '../../../store/agentSessionStore'
+import { AppIcon } from '../../icons/AppIcon'
 
 const TOOL_OPTIONS = [
   { value: '*', label: '所有工具' },
@@ -11,7 +11,10 @@ const TOOL_OPTIONS = [
   { value: 'edit', label: 'edit' }
 ]
 
-export function AgentSkillsSettings(): JSX.Element {
+const INPUT_CLASS =
+  'h-9 rounded-lg border border-slate-200 bg-slate-50/80 px-3 text-label text-text-primary placeholder:text-gray-400 focus:border-primary focus:bg-white focus:outline-none dark:border-slate-700/80 dark:bg-slate-800/50 dark:focus:bg-slate-800'
+
+export function AgentSkillsSettings({ compact = false }: { compact?: boolean } = {}): JSX.Element {
   const agentConfig = useAgentSessionStore((s) => s.agentConfig)
   const fetchConfig = useAgentSessionStore((s) => s.fetchConfig)
   const setSkillDirs = useAgentSessionStore((s) => s.setSkillDirs)
@@ -47,19 +50,23 @@ export function AgentSkillsSettings(): JSX.Element {
   }
 
   return (
-    <div className="space-y-4 text-label">
+    <div className="space-y-5 text-label">
       <div>
-        <div className="flex items-center gap-1.5 text-text-primary font-medium mb-2">
-          <FolderOpen className="w-3.5 h-3.5 text-text-secondary" />
+        <div className="mb-2 flex items-center gap-2 text-body font-medium text-text-primary">
+          <AppIcon name="folder_open" size={16} className="text-primary" />
           <span>全局 Skills 目录</span>
         </div>
-        <div className="rounded-lg border border-gray-100 divide-y divide-gray-100 max-h-40 overflow-y-auto">
+        <div
+          className={`overflow-hidden rounded-lg border border-white/70 bg-white/55 divide-y divide-black/[0.05] dark:border-white/10 dark:bg-white/5 dark:divide-white/10 ${
+            compact ? 'max-h-40 overflow-y-auto' : ''
+          }`}
+        >
           {candidates.map((candidate) => {
             const checked = candidate.isDefault || extraDirs.includes(candidate.path)
             return (
               <label
                 key={candidate.path}
-                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-black/[0.02] cursor-pointer"
+                className="flex cursor-pointer items-center gap-2.5 px-3 py-2 transition-colors hover:bg-white/80 dark:hover:bg-white/10"
               >
                 <input
                   type="checkbox"
@@ -72,24 +79,28 @@ export function AgentSkillsSettings(): JSX.Element {
                   }}
                   className="rounded accent-primary"
                 />
-                <span className="font-mono text-caption text-text-secondary truncate" title={candidate.path}>
+                <span className="truncate font-mono text-label text-text-primary" title={candidate.path}>
                   {candidate.path}
                 </span>
-                {candidate.isDefault && <span className="ml-auto shrink-0 text-tiny text-primary">默认</span>}
+                {candidate.isDefault && (
+                  <span className="ml-auto shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-tiny font-medium text-primary">
+                    默认
+                  </span>
+                )}
                 {!candidate.isDefault && !candidate.exists && (
-                  <span className="ml-auto shrink-0 text-tiny text-text-secondary/70">不存在</span>
+                  <span className="ml-auto shrink-0 text-tiny text-text-secondary/70">未创建</span>
                 )}
               </label>
             )
           })}
         </div>
-        <div className="mt-1.5 flex gap-1.5">
+        <div className="mt-2 flex items-center gap-2">
           <input
             type="text"
             value={newDir}
             onChange={(e) => setNewDir(e.target.value)}
-            placeholder="自定义绝对路径"
-            className="flex-1 px-2.5 py-1.5 rounded-lg glass-panel font-mono text-caption text-text-primary placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary/20"
+            placeholder="添加自定义绝对路径"
+            className={`min-w-0 flex-1 font-mono ${INPUT_CLASS}`}
           />
           <button
             type="button"
@@ -98,37 +109,40 @@ export function AgentSkillsSettings(): JSX.Element {
               if (dir && !extraDirs.includes(dir)) setExtraDirs((prev) => [...prev, dir])
               setNewDir('')
             }}
-            className="px-2.5 rounded-lg glass-panel text-text-secondary hover:text-primary flex items-center gap-1 text-caption transition-colors"
+            disabled={!newDir.trim()}
+            className="flex h-9 shrink-0 items-center gap-1 rounded-lg border border-gray-200 bg-sidebar px-3 text-label font-medium text-text-primary transition-colors hover:border-primary/40 hover:text-primary disabled:opacity-40 dark:border-white/10 dark:bg-white/5"
           >
-            <Plus className="w-3 h-3" />
-            添加
+            <AppIcon name="add" size={14} />
+            <span>添加</span>
           </button>
-          <button
-            type="button"
-            onClick={() => void handleSaveDirs()}
-            disabled={!dirty || savingDirs}
-            className="px-2.5 rounded-lg bg-primary/90 text-white disabled:opacity-40 text-caption transition-opacity"
-          >
-            {savingDirs ? '保存中' : '保存'}
-          </button>
+          {dirty && (
+            <button
+              type="button"
+              onClick={() => void handleSaveDirs()}
+              disabled={savingDirs}
+              className="h-9 shrink-0 rounded-lg bg-primary px-3.5 text-label font-medium text-white shadow-soft transition-opacity hover:opacity-90 disabled:opacity-40"
+            >
+              {savingDirs ? '保存中…' : '保存变更'}
+            </button>
+          )}
         </div>
         {customDirs.length > 0 && (
-          <div className="mt-1.5 space-y-1">
+          <div className="mt-2 flex flex-wrap gap-1.5">
             {customDirs.map((dir) => (
               <div
                 key={dir}
-                className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-primary/5 border border-primary/15"
+                className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-primary/20 bg-primary/5 px-2.5 py-1"
               >
-                <span className="font-mono text-caption text-text-secondary truncate flex-1" title={dir}>
+                <span className="truncate font-mono text-caption text-text-primary" title={dir}>
                   {dir}
                 </span>
                 <button
                   type="button"
                   onClick={() => setExtraDirs((prev) => prev.filter((item) => item !== dir))}
-                  className="text-text-secondary hover:text-rose-600 shrink-0 transition-colors"
+                  className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-text-secondary transition-colors hover:bg-rose-500/10 hover:text-rose-500"
                   title="移除"
                 >
-                  <Trash2 className="w-3 h-3" />
+                  <AppIcon name="close" size={12} />
                 </button>
               </div>
             ))}
@@ -136,35 +150,39 @@ export function AgentSkillsSettings(): JSX.Element {
         )}
       </div>
 
-      <div>
-        <div className="text-text-primary font-medium mb-2">命令放行名单</div>
+      <div className="border-t border-black/[0.05] pt-4 dark:border-white/10">
+        <div className="mb-2 text-body font-medium text-text-primary">命令放行名单</div>
         {allowlist.length > 0 && (
-          <div className="rounded-lg border border-gray-100 divide-y divide-gray-100 max-h-32 overflow-y-auto mb-1.5">
+          <div
+            className={`mb-2 overflow-hidden rounded-lg border border-white/70 bg-white/55 divide-y divide-black/[0.05] dark:border-white/10 dark:bg-white/5 dark:divide-white/10 ${
+              compact ? 'max-h-32 overflow-y-auto' : ''
+            }`}
+          >
             {allowlist.map((entry) => (
-              <div key={entry.id} className="flex items-center gap-2 px-2.5 py-1.5">
-                <span className="px-1.5 py-0.5 rounded bg-black/5 text-text-secondary font-mono text-tiny shrink-0">
+              <div key={entry.id} className="flex items-center gap-2.5 px-3 py-2">
+                <span className="shrink-0 rounded bg-black/5 px-1.5 py-0.5 font-mono text-caption text-text-secondary dark:bg-white/10">
                   {entry.tool}
                 </span>
-                <span className="font-mono text-caption text-text-secondary truncate flex-1" title={entry.pattern}>
+                <span className="min-w-0 flex-1 truncate font-mono text-label text-text-primary" title={entry.pattern}>
                   {entry.pattern}
                 </span>
                 <button
                   type="button"
                   onClick={() => void removeAllowlist(entry.id)}
-                  className="text-text-secondary hover:text-rose-600 shrink-0 transition-colors"
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-text-secondary transition-colors hover:bg-rose-500/10 hover:text-rose-500"
                   title="移除"
                 >
-                  <Trash2 className="w-3 h-3" />
+                  <AppIcon name="delete" size={14} />
                 </button>
               </div>
             ))}
           </div>
         )}
-        <div className="flex gap-1.5">
+        <div className="flex items-center gap-2">
           <select
             value={newTool}
             onChange={(e) => setNewTool(e.target.value)}
-            className="w-24 px-2 py-1.5 rounded-lg glass-panel text-caption text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+            className={`w-28 shrink-0 ${INPUT_CLASS}`}
           >
             {TOOL_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>
@@ -176,8 +194,8 @@ export function AgentSkillsSettings(): JSX.Element {
             type="text"
             value={newPattern}
             onChange={(e) => setNewPattern(e.target.value)}
-            placeholder="命令前缀"
-            className="flex-1 px-2.5 py-1.5 rounded-lg glass-panel font-mono text-caption text-text-primary placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary/20"
+            placeholder="输入命令前缀（如 git status）"
+            className={`min-w-0 flex-1 font-mono ${INPUT_CLASS}`}
           />
           <button
             type="button"
@@ -188,9 +206,10 @@ export function AgentSkillsSettings(): JSX.Element {
               setNewPattern('')
             }}
             disabled={!newPattern.trim()}
-            className="px-2.5 rounded-lg glass-panel text-text-secondary hover:text-primary disabled:opacity-40 text-caption transition-colors"
+            className="flex h-9 shrink-0 items-center gap-1 rounded-lg border border-gray-200 bg-sidebar px-3 text-label font-medium text-text-primary transition-colors hover:border-primary/40 hover:text-primary disabled:opacity-40 dark:border-white/10 dark:bg-white/5"
           >
-            添加
+            <AppIcon name="add" size={14} />
+            <span>添加</span>
           </button>
         </div>
       </div>

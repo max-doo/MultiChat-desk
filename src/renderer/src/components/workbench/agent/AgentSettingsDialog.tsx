@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { Key, SlidersHorizontal } from 'lucide-react'
 import { AppIcon } from '../../icons/AppIcon'
 import { AgentProviderSettings } from './AgentProviderSettings'
 import { AgentSkillsSettings } from './AgentSkillsSettings'
@@ -47,7 +46,7 @@ export function AgentSettingsDialog({ isOpen, onClose }: AgentSettingsDialogProp
                 : 'text-text-secondary hover:text-text-primary hover:bg-black/5'
             }`}
           >
-            <Key className="w-3.5 h-3.5" />
+            <AppIcon name="key" size={14} />
             供应商
           </button>
           <button
@@ -59,13 +58,13 @@ export function AgentSettingsDialog({ isOpen, onClose }: AgentSettingsDialogProp
                 : 'text-text-secondary hover:text-text-primary hover:bg-black/5'
             }`}
           >
-            <SlidersHorizontal className="w-3.5 h-3.5" />
+            <AppIcon name="tune" size={14} />
             技能与权限
           </button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-4 py-3">
-          {tab === 'providers' ? <AgentProviderSettings /> : <AgentSkillsSettings />}
+          {tab === 'providers' ? <AgentProviderSettings /> : <AgentSkillsSettings compact />}
         </div>
       </div>
     </div>

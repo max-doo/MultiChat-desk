@@ -59,6 +59,7 @@ export interface AgentProviderModel {
   input: Array<'text' | 'image'>
   contextWindow: number
   maxTokens: number
+  thinkingLevels?: AgentThinkingLevel[]
 }
 
 export interface AgentProvider {
@@ -79,6 +80,12 @@ export interface AgentProvider {
   availableModelCount: number
   models: AgentProviderModel[]
   error?: string
+  disabled?: boolean
+}
+
+export interface AgentFavoriteModel {
+  providerId: string
+  modelId: string
 }
 
 export interface AgentContextUsage {
@@ -108,6 +115,7 @@ export interface AgentActiveModel {
 export interface AgentRuntimeSnapshot {
   providers: AgentProvider[]
   active: AgentActiveModel
+  favorites: AgentFavoriteModel[]
   context: AgentContextUsage | null
   stats: AgentSessionStats | null
 }
