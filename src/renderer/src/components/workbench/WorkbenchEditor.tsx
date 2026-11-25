@@ -1,4 +1,4 @@
-import { useMemo, useCallback, useState, useRef, useEffect } from 'react'
+import { memo, useMemo, useCallback, useState, useRef, useEffect } from 'react'
 import { LexicalComposer } from '@lexical/react/LexicalComposer'
 import { RichTextPlugin } from '@lexical/react/LexicalRichTextPlugin'
 import { ContentEditable } from '@lexical/react/LexicalContentEditable'
@@ -175,12 +175,79 @@ const lexicalTheme = {
   footnoteDef: 'PlaygroundEditorTheme__footnoteDef'
 }
 
-export default function WorkbenchEditor(): JSX.Element {
+const selectFrontmatterSlice = (state: { activeFileContent: string }): string | null =>
+  parseMarkdownWithFrontmatter(state.activeFileContent).frontmatter
+
+/**
+ * 独立订阅 frontmatter 切片：正文编辑不改变 frontmatter 字符串引用，
+ * 避免每 250ms 写回触发 WorkbenchEditor 与 LexicalComposer 全量重渲染。
+ */
+const WorkbenchFrontmatterSection = memo(function WorkbenchFrontmatterSection({
+  activeFilePath
+}: {
+  activeFilePath: string
+}): JSX.Element {
+  const parsedFrontmatter = useWorkbenchStore(selectFrontmatterSlice)
+  const updateActiveContent = useWorkbenchStore((s) => s.updateActiveContent)
+  const gitBaselineContent = useWorkbenchStore((s) => s.gitBaselineContent)
+  const gitBaselineStatus = useWorkbenchStore((s) => s.gitBaselineStatus)
+  const gitBaselinePath = useWorkbenchStore((s) => s.gitBaselinePath)
+
+  const frontmatterGitModified = useMemo(() => {
+    if (
+      gitBaselineStatus !== 'ok' ||
+      gitBaselineContent === null ||
+      gitBaselinePath !== activeFilePath
+    ) {
+      return false
+    }
+    const baselineFm = parseMarkdownWithFrontmatter(gitBaselineContent).frontmatter
+    // baseline 已 LF 归一化，activeFileContent 保留磁盘原始换行：两侧统一再比
+    const normalize = (value: string | null): string | null =>
+      value === null ? null : value.replace(/\r\n?/g, '\n')
+    return normalize(baselineFm) !== normalize(parsedFrontmatter)
+  }, [gitBaselineStatus, gitBaselineContent, gitBaselinePath, activeFilePath, parsedFrontmatter])
+
+  // 面板编辑 frontmatter 后：拼回正文（保留前导 BOM）+ 通知 MarkdownSyncPlugin 更新 frontmatterRef，
+  // 否则 Lexical 下次回写会用旧 ref 把面板改动覆盖掉
+  const handleFrontmatterChange = useCallback(
+    (nextFrontmatter: string | null) => {
+      const currentContent = useWorkbenchStore.getState().activeFileContent
+      const { bom, markdownBody } = parseMarkdownWithFrontmatter(currentContent)
+      const next = bom + (nextFrontmatter || '') + markdownBody
+      if (next === currentContent) return
+      window.dispatchEvent(
+        new CustomEvent('workbench:frontmatter-changed', {
+          detail: { frontmatter: nextFrontmatter }
+        })
+      )
+      updateActiveContent(next)
+    },
+    [updateActiveContent]
+  )
+
+  return (
+    <FrontmatterPanel
+      frontmatter={parsedFrontmatter}
+      filePath={activeFilePath}
+      onChange={handleFrontmatterChange}
+      gitModified={frontmatterGitModified}
+    />
+  )
+})
+
+interface WorkbenchEditorProps {
+  isActive?: boolean
+}
+
+function WorkbenchEditor({ isActive = true }: WorkbenchEditorProps): JSX.Element {
   const activeFilePath = useWorkbenchStore((s) => s.activeFilePath)
-  const activeFileContent = useWorkbenchStore((s) => s.activeFileContent)
   const activeFileCategory = useWorkbenchStore((s) => s.activeFileCategory)
   const activeFileDataUrl = useWorkbenchStore((s) => s.activeFileDataUrl)
-  const updateActiveContent = useWorkbenchStore((s) => s.updateActiveContent)
+  const activeFileSize = useWorkbenchStore((s) => s.activeFileSize)
+  const hasOtherTextContent = useWorkbenchStore((s) =>
+    s.activeFileCategory === 'other' ? s.activeFileContent.length > 0 : false
+  )
   const editorMode = useWorkbenchStore((s) => s.editorMode)
   const contentWidth = useWorkbenchStore((s) => s.contentWidth)
   const markdownBackgroundTheme = useWorkbenchStore((s) => s.markdownBackgroundTheme)
@@ -200,25 +267,28 @@ export default function WorkbenchEditor(): JSX.Element {
   const [findOpen, setFindOpen] = useState(false)
   const [findReplaceFocus, setFindReplaceFocus] = useState(false)
 
-  // Ctrl+F / Ctrl+H / Ctrl+S：编辑器内查找、查找替换、保存
+  // Ctrl+F / Ctrl+H / Ctrl+S：编辑器内查找、查找替换、保存（隐藏工作台时不响应）
   useEffect(() => {
+    if (!isActive) return
     const onKey = (e: KeyboardEvent): void => {
       const mod = e.ctrlKey || e.metaKey
       if (!mod || !activeFilePath) return
       const k = e.key.toLowerCase()
       if (k === 'f' || k === 'h') {
+        if (activeFileCategory === 'code' || activeFileCategory === 'text') return
         e.preventDefault()
-        useWorkbenchStore.getState().flushMarkdownSync()
+        useWorkbenchStore.getState().flushActiveEditorSync()
         setFindReplaceFocus(k === 'h')
         setFindOpen(true)
       } else if (k === 's') {
         e.preventDefault()
+        useWorkbenchStore.getState().flushActiveEditorSync()
         void saveActiveFile()
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [activeFilePath, saveActiveFile])
+  }, [isActive, activeFilePath, activeFileCategory, saveActiveFile])
 
   // 切换文件或文件类别时关闭查找条
   useEffect(() => {
@@ -308,46 +378,6 @@ export default function WorkbenchEditor(): JSX.Element {
     [activeFilePath, workspacePath]
   )
 
-  // frontmatter 与正文分离：面板编辑属性，Lexical 只吃 body
-  const parsedFrontmatter = useMemo(
-    () => parseMarkdownWithFrontmatter(activeFileContent).frontmatter,
-    [activeFileContent]
-  )
-
-  // frontmatter 相对 Git Index 是否被修改（整块文本对比）
-  const gitBaselineContent = useWorkbenchStore((s) => s.gitBaselineContent)
-  const gitBaselineStatus = useWorkbenchStore((s) => s.gitBaselineStatus)
-  const gitBaselinePath = useWorkbenchStore((s) => s.gitBaselinePath)
-  const frontmatterGitModified = useMemo(() => {
-    if (
-      gitBaselineStatus !== 'ok' ||
-      gitBaselineContent === null ||
-      gitBaselinePath !== activeFilePath
-    ) return false
-    const baselineFm = parseMarkdownWithFrontmatter(gitBaselineContent).frontmatter
-    // baseline 已 LF 归一化，activeFileContent 保留磁盘原始换行：两侧统一再比
-    const normalize = (value: string | null): string | null =>
-      value === null ? null : value.replace(/\r\n?/g, '\n')
-    return normalize(baselineFm) !== normalize(parsedFrontmatter)
-  }, [gitBaselineStatus, gitBaselineContent, gitBaselinePath, activeFilePath, parsedFrontmatter])
-
-  // 面板编辑 frontmatter 后：拼回正文（保留前导 BOM）+ 通知 MarkdownSyncPlugin 更新 frontmatterRef，
-  // 否则 Lexical 下次回写会用旧 ref 把面板改动覆盖掉
-  const handleFrontmatterChange = useCallback(
-    (nextFrontmatter: string | null) => {
-      const { bom, markdownBody } = parseMarkdownWithFrontmatter(activeFileContent)
-      const next = bom + (nextFrontmatter || '') + markdownBody
-      if (next === activeFileContent) return
-      window.dispatchEvent(
-        new CustomEvent('workbench:frontmatter-changed', {
-          detail: { frontmatter: nextFrontmatter }
-        })
-      )
-      updateActiveContent(next)
-    },
-    [activeFileContent, updateActiveContent]
-  )
-
   const onRef = useCallback((_floatingAnchorElem: HTMLDivElement | null) => {
     if (_floatingAnchorElem !== null) {
       setFloatingAnchorElem(_floatingAnchorElem)
@@ -425,7 +455,7 @@ export default function WorkbenchEditor(): JSX.Element {
         className="relative flex-1 h-full flex flex-col overflow-hidden dark"
         data-reader-theme="dark"
       >
-        <WorkbenchCodePreview key={activeFilePath} />
+        <WorkbenchCodePreview key={activeFilePath} isActive={isActive} />
         <WorkbenchStatusPill />
       </div>
     )
@@ -456,14 +486,19 @@ export default function WorkbenchEditor(): JSX.Element {
         className="relative flex-1 h-full flex flex-col overflow-hidden dark"
         data-reader-theme="dark"
       >
-        <WorkbenchCodePreview key={activeFilePath} />
+        <WorkbenchCodePreview key={activeFilePath} isActive={isActive} />
         <WorkbenchStatusPill />
       </div>
     )
   }
 
   // 未识别格式的二进制文件处理
-  if (activeFileCategory === 'other' && !activeFileContent && !activeFileDataUrl) {
+  if (
+    activeFileCategory === 'other' &&
+    !hasOtherTextContent &&
+    !activeFileDataUrl &&
+    (activeFileSize ?? 0) >= 0
+  ) {
     return (
       <div className="flex-1 h-full flex flex-col items-center justify-center p-8 text-center bg-white dark:bg-gray-900 select-none">
         <div className="w-16 h-16 rounded-2xl bg-slate-500/10 flex items-center justify-center text-slate-500 mb-4">
@@ -496,11 +531,7 @@ export default function WorkbenchEditor(): JSX.Element {
         data-reader-theme={isMarkdownDark ? 'dark' : undefined}
       >
         <WorkbenchSourceToolbar editorRef={sourceEditorRef} />
-        <WorkbenchSourceEditor
-          ref={sourceEditorRef}
-          value={activeFileContent}
-          onChange={updateActiveContent}
-        />
+        <WorkbenchSourceEditor ref={sourceEditorRef} />
         <WorkbenchFindReplaceBar
           open={findOpen}
           replaceFocus={findReplaceFocus}
@@ -553,12 +584,7 @@ export default function WorkbenchEditor(): JSX.Element {
             <WorkbenchTitleBar />
 
             {/* Obsidian 式笔记属性面板：frontmatter 与正文分离，不进入 Lexical */}
-            <FrontmatterPanel
-              frontmatter={parsedFrontmatter}
-              filePath={activeFilePath}
-              onChange={handleFrontmatterChange}
-              gitModified={frontmatterGitModified}
-            />
+            <WorkbenchFrontmatterSection activeFilePath={activeFilePath} />
 
             {/* placeholder 与正文同容器定位，避免标题/属性面板高度变化后漂移 */}
             <div className="relative">
@@ -643,3 +669,5 @@ export default function WorkbenchEditor(): JSX.Element {
     </div>
   )
 }
+
+export default memo(WorkbenchEditor)

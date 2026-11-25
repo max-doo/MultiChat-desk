@@ -25,9 +25,12 @@ import {
   ANNOTATION_MAX_TEXT,
   normalizeAnnotation
 } from '../../shared/utils/annotationAnchors'
+import { getFileCategory } from '../../shared/types/workbench'
 
 const ANNOTATION_DIR = '.multichat/annotations'
 const UUID_RE = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i
+/** 标注内容指纹读取上限（5MB）：避免大文本或二进制文件引发主进程 OOM/卡顿 */
+const MAX_ANNOTATION_TEXT_BYTES = 5 * 1024 * 1024
 
 export class AnnotationLimitError extends Error {}
 export class AnnotationCorruptError extends Error {}
@@ -43,8 +46,29 @@ const locks = new Map<string, Promise<unknown>>()
 function serial<T>(key: string, operation: () => Promise<T>): Promise<T> {
   const prev = locks.get(key) ?? Promise.resolve()
   const next = prev.then(operation, operation)
-  locks.set(key, next.then(() => undefined, () => undefined))
+  const stored = next.then(() => undefined, () => undefined)
+  locks.set(key, stored)
+  void stored.finally(() => {
+    if (locks.get(key) === stored) locks.delete(key)
+  })
   return next
+}
+
+/** 轻量级内存索引：工作区 rootKey → (文档 relativePath → 标注文件名 .json) */
+const docPathIndex = new Map<string, Map<string, string>>()
+
+function setDocPathIndex(workspaceRoot: string, relativePath: string, fileName: string): void {
+  const rKey = rootKey(workspaceRoot)
+  let map = docPathIndex.get(rKey)
+  if (!map) {
+    map = new Map<string, string>()
+    docPathIndex.set(rKey, map)
+  }
+  map.set(posix(relativePath), fileName)
+}
+
+function deleteDocPathIndex(workspaceRoot: string, relativePath: string): void {
+  docPathIndex.get(rootKey(workspaceRoot))?.delete(posix(relativePath))
 }
 
 const annotationRevision = (annotation: Annotation): number =>
@@ -170,7 +194,7 @@ export async function listDocumentAnnotationsWithRecovery(
   return { annotations: found.annotations.filter(item => item.scope === 'document'), file: found }
 }
 
-/** 文档指纹：contentHash 判断“正文是否变过”，size/mtime 只用于外部改名预筛。 */
+/** 文档指纹：contentHash 判断“正文是否变过”，size/mtime 只用于外部改名预筛；二进制或超大文件跳过全文读取。 */
 async function fingerprintOf(
   workspaceRoot: string,
   relativePath: string
@@ -179,11 +203,17 @@ async function fingerprintOf(
     const absolute = path.join(workspaceRoot, relativePath)
     const info = await stat(absolute)
     if (!info.isFile()) return undefined
+    const mtime = Math.round(info.mtimeMs)
+    const category = getFileCategory(relativePath)
+    const isTextAnnotatable = category === 'markdown' || category === 'code' || category === 'text'
+    if (!isTextAnnotatable || info.size > MAX_ANNOTATION_TEXT_BYTES) {
+      return { size: info.size, mtime }
+    }
     const content = await readFile(absolute, 'utf8')
     return {
       contentHash: `sha256:${createHash('sha256').update(content).digest('hex')}`,
       size: info.size,
-      mtime: Math.round(info.mtimeMs)
+      mtime
     }
   } catch {
     // 文档暂时不可读时不认领，保留旁路文件
@@ -234,6 +264,7 @@ export async function createDocumentAnnotation(
       annotations: mergeAnnotations(current?.annotations ?? [], [normalized], writeTime)
     }
     await atomicWrite(filePath, next)
+    setDocPathIndex(ref.workspaceRoot, relativePath, path.basename(filePath))
     return normalized
   })
 }
@@ -373,6 +404,8 @@ export async function rekeyDocumentAnnotations(
       annotations: mergeAnnotations(target?.annotations ?? [], source.annotations, now)
     })
     await rm(sourcePath, { force: true })
+    deleteDocPathIndex(workspaceRoot, from)
+    setDocPathIndex(workspaceRoot, to, path.basename(targetPath))
   })
 }
 
@@ -381,7 +414,9 @@ export async function removeDocumentAnnotations(
   workspaceRoot: string,
   relativePath: string
 ): Promise<void> {
-  await rm(documentFile(workspaceRoot, posix(relativePath)), { force: true })
+  const normalized = posix(relativePath)
+  deleteDocPathIndex(workspaceRoot, normalized)
+  await rm(documentFile(workspaceRoot, normalized), { force: true })
 }
 
 /**
@@ -420,12 +455,14 @@ export async function moveDocumentAnnotationsAcrossWorkspaces(
       annotations: mergeAnnotations(target?.annotations ?? [], source.annotations, now)
     })
     await rm(sourcePath, { force: true })
+    deleteDocPathIndex(sourceWorkspaceRoot, from)
+    setDocPathIndex(targetWorkspaceRoot, to, path.basename(targetPath))
     return source.annotations.length
   })
 }
 
 /**
- * 外部改名找回：新路径 hash → relativePath 扫描 → contentHash+size+mtime 唯一候选。
+ * 外部改名找回：新路径 hash → 内存索引 / 单遍扫描（relativePath 与 contentHash+size+mtime 同步收集）。
  * 返回命中的文件内容；不唯一时返回 null，绝不猜测。
  */
 export async function findDocumentAnnotationFile(
@@ -434,83 +471,128 @@ export async function findDocumentAnnotationFile(
   fingerprint?: { contentHash?: string; size?: number; mtime?: number }
 ): Promise<DocumentAnnotationFile | null> {
   const target = posix(relativePath)
-  const direct = await readJson<DocumentAnnotationFile>(documentFile(workspaceRoot, target))
+  const directPath = documentFile(workspaceRoot, target)
+  const direct = await readJson<DocumentAnnotationFile>(directPath)
   if (direct) {
+    setDocPathIndex(workspaceRoot, target, path.basename(directPath))
     // 同一路径就是同一篇文档：正文编辑必然改变 contentHash，不能因此丢掉已有标注。
     // contentHash 只用于“文档被改名/移动后按内容找回”，不参与同路径认领。
-    if (
+    const needsSync =
       direct.document.relativePath !== target ||
       (fingerprint?.contentHash && direct.document.contentHash !== fingerprint.contentHash) ||
       (fingerprint?.size !== undefined && direct.document.size !== fingerprint.size) ||
       (fingerprint?.mtime !== undefined && direct.document.mtime !== fingerprint.mtime)
-    ) {
-      direct.document = {
-        ...direct.document,
-        relativePath: target,
-        contentHash: fingerprint?.contentHash ?? direct.document.contentHash,
-        size: fingerprint?.size ?? direct.document.size,
-        mtime: fingerprint?.mtime ?? direct.document.mtime,
-        updatedAt: Date.now()
-      }
-      await atomicWrite(documentFile(workspaceRoot, target), direct)
+    if (needsSync) {
+      const key = `document\n${rootKey(workspaceRoot)}\n${target}`
+      return serial(key, async () => {
+        const latest = (await readJson<DocumentAnnotationFile>(directPath)) ?? direct
+        const latestNeedsSync =
+          latest.document.relativePath !== target ||
+          (fingerprint?.contentHash && latest.document.contentHash !== fingerprint.contentHash) ||
+          (fingerprint?.size !== undefined && latest.document.size !== fingerprint.size) ||
+          (fingerprint?.mtime !== undefined && latest.document.mtime !== fingerprint.mtime)
+        if (!latestNeedsSync) return latest
+        const updated: DocumentAnnotationFile = {
+          ...latest,
+          document: {
+            ...latest.document,
+            relativePath: target,
+            contentHash: fingerprint?.contentHash ?? latest.document.contentHash,
+            size: fingerprint?.size ?? latest.document.size,
+            mtime: fingerprint?.mtime ?? latest.document.mtime,
+            updatedAt: Date.now()
+          }
+        }
+        await atomicWrite(directPath, updated)
+        return updated
+      })
     }
     return direct
   }
 
   const dir = path.join(workspaceRoot, ANNOTATION_DIR, 'documents')
-  let names: string[]
-  try {
-    names = (await readdir(dir)).filter(name => name.endsWith('.json'))
-  } catch {
-    return null
-  }
-  const directPath = documentFile(workspaceRoot, target)
-  const candidates: Array<{ file: DocumentAnnotationFile; filePath: string }> = []
-  for (const name of names) {
-    const filePath = path.join(dir, name)
+  const indexedFileName = docPathIndex.get(rootKey(workspaceRoot))?.get(target)
+  let hit: { file: DocumentAnnotationFile; filePath: string } | null = null
+
+  if (indexedFileName && indexedFileName !== path.basename(directPath)) {
+    const indexedPath = path.join(dir, indexedFileName)
     try {
-      const file = await readJson<DocumentAnnotationFile>(filePath)
-      if (!file) continue
-      // direct 分支已处理同路径；这里只收集改名前的旧旁路。
-      if (filePath === directPath) continue
-      if (file.document.relativePath === target) candidates.push({ file, filePath })
+      const indexedFile = await readJson<DocumentAnnotationFile>(indexedPath)
+      if (indexedFile && posix(indexedFile.document?.relativePath ?? '') === target) {
+        hit = { file: indexedFile, filePath: indexedPath }
+      } else {
+        deleteDocPathIndex(workspaceRoot, target)
+      }
     } catch {
-      // 单个损坏文件不影响其他文档
+      deleteDocPathIndex(workspaceRoot, target)
     }
   }
-  if (!candidates.length && fingerprint?.contentHash) {
+
+  if (!hit) {
+    let names: string[]
+    try {
+      names = (await readdir(dir)).filter(name => name.endsWith('.json'))
+    } catch {
+      return null
+    }
+
+    const pathMatches: Array<{ file: DocumentAnnotationFile; filePath: string }> = []
+    const hashMatches: Array<{ file: DocumentAnnotationFile; filePath: string }> = []
+    const freshIndex = new Map<string, string>()
+
     for (const name of names) {
       const filePath = path.join(dir, name)
       try {
         const file = await readJson<DocumentAnnotationFile>(filePath)
         if (!file) continue
-        if (file.document.contentHash !== fingerprint.contentHash) continue
-        if (fingerprint.size !== undefined && file.document.size !== undefined && file.document.size !== fingerprint.size) continue
-        if (fingerprint.mtime !== undefined && file.document.mtime !== undefined && file.document.mtime !== fingerprint.mtime) continue
-        candidates.push({ file, filePath })
+        if (file.document?.relativePath) {
+          freshIndex.set(posix(file.document.relativePath), name)
+        }
+        // direct 分支已处理同路径；这里只收集改名前的旧旁路。
+        if (filePath === directPath) continue
+        if (posix(file.document?.relativePath ?? '') === target) {
+          pathMatches.push({ file, filePath })
+        } else if (
+          !pathMatches.length &&
+          fingerprint?.contentHash &&
+          file.document?.contentHash === fingerprint.contentHash &&
+          (fingerprint.size === undefined || file.document.size === undefined || file.document.size === fingerprint.size) &&
+          (fingerprint.mtime === undefined || file.document.mtime === undefined || file.document.mtime === fingerprint.mtime)
+        ) {
+          hashMatches.push({ file, filePath })
+        }
       } catch {
-        // ignore corrupt
+        // 单个损坏文件不影响其他文档
       }
     }
+    docPathIndex.set(rootKey(workspaceRoot), freshIndex)
+
+    const candidates = pathMatches.length ? pathMatches : hashMatches
+    if (candidates.length !== 1) return null
+    hit = candidates[0]
   }
-  if (candidates.length !== 1) return null
-  const hit = candidates[0]
-  const next: DocumentAnnotationFile = {
-    ...hit.file,
-    document: {
-      ...hit.file.document,
-      relativePath: target,
-      contentHash: fingerprint?.contentHash ?? hit.file.document.contentHash,
-      size: fingerprint?.size ?? hit.file.document.size,
-      mtime: fingerprint?.mtime ?? hit.file.document.mtime,
-      updatedAt: Date.now()
+
+  const resolvedHit = hit
+  const key = `document\n${rootKey(workspaceRoot)}\n${target}`
+  return serial(key, async () => {
+    const next: DocumentAnnotationFile = {
+      ...resolvedHit.file,
+      document: {
+        ...resolvedHit.file.document,
+        relativePath: target,
+        contentHash: fingerprint?.contentHash ?? resolvedHit.file.document.contentHash,
+        size: fingerprint?.size ?? resolvedHit.file.document.size,
+        mtime: fingerprint?.mtime ?? resolvedHit.file.document.mtime,
+        updatedAt: Date.now()
+      }
     }
-  }
-  await atomicWrite(documentFile(workspaceRoot, target), next)
-  if (hit.filePath !== documentFile(workspaceRoot, target)) {
-    await rm(hit.filePath, { force: true }).catch(() => undefined)
-  }
-  return next
+    await atomicWrite(directPath, next)
+    if (resolvedHit.filePath !== directPath) {
+      await rm(resolvedHit.filePath, { force: true }).catch(() => undefined)
+    }
+    setDocPathIndex(workspaceRoot, target, path.basename(directPath))
+    return next
+  })
 }
 
 /** 重新对账：更新 document 标注的解析状态与锚点，不碰 source。 */

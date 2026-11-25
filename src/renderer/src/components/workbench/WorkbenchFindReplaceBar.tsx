@@ -74,7 +74,7 @@ export default function WorkbenchFindReplaceBar({
   canReplace,
   onRevealMatch
 }: Props): JSX.Element | null {
-  const activeFileContent = useWorkbenchStore((s) => s.activeFileContent)
+  const activeFileContent = useWorkbenchStore((s) => (open ? s.activeFileContent : ''))
   const updateActiveContent = useWorkbenchStore((s) => s.updateActiveContent)
   const activeFilePath = useWorkbenchStore((s) => s.activeFilePath)
 
@@ -89,8 +89,8 @@ export default function WorkbenchFindReplaceBar({
   const prevContentRef = useRef(activeFileContent)
 
   const matches = useMemo(
-    () => findMatches(activeFileContent, query, caseSensitive, wholeWord),
-    [activeFileContent, query, caseSensitive, wholeWord]
+    () => (open ? findMatches(activeFileContent, query, caseSensitive, wholeWord) : []),
+    [open, activeFileContent, query, caseSensitive, wholeWord]
   )
 
   // 打开时聚焦并预选查找词；读取当前编辑器选区作为初始查找词
@@ -115,6 +115,10 @@ export default function WorkbenchFindReplaceBar({
 
   // 内容变化（自动保存/外部同步）后校正当前索引：尽量定位到"下一个"匹配
   useEffect(() => {
+    if (!open) {
+      prevContentRef.current = activeFileContent
+      return
+    }
     if (prevContentRef.current === activeFileContent) return
     const prev = prevContentRef.current
     prevContentRef.current = activeFileContent
@@ -126,7 +130,7 @@ export default function WorkbenchFindReplaceBar({
       const next = matches.findIndex((m) => m.index >= anchor)
       return next === -1 ? matches.length - 1 : next
     })
-  }, [activeFileContent])
+  }, [open, activeFileContent, matches])
 
   const reveal = useCallback(
     (idx: number) => {

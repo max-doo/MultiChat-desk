@@ -505,6 +505,50 @@ export class NoteManager {
     }
   }
 
+  /** 关闭指定工作区的导图目录监听并清理对应缓存与改名映射（切换/关闭工作区时调用）。 */
+  releaseWorkspace(workspaceRoot: string): void {
+    if (!workspaceRoot) return
+    const key = workbenchRootKey(workspaceRoot)
+    const timer = this.mindmapNotifyTimers.get(key)
+    if (timer) {
+      clearTimeout(timer)
+      this.mindmapNotifyTimers.delete(key)
+    }
+    const watcher = this.mindmapWatchers.get(key)
+    if (watcher) {
+      this.mindmapWatchers.delete(key)
+      try { watcher.close() } catch { /* 已关闭 */ }
+    }
+    this.mindmapScanCache.delete(key)
+    this.mindmapSelfWrites.delete(key)
+    const relinkPrefix = `${key}\n`
+    for (const relinkKey of this.relinks.keys()) {
+      if (relinkKey.startsWith(relinkPrefix)) {
+        this.relinks.delete(relinkKey)
+      }
+    }
+  }
+
+  /** 快速判断指定工作区是否有工作台导图/笔记记录；用于无记录工作区短路对账 IPC。 */
+  async hasWorkbenchRecords(workspaceRoot: string): Promise<boolean> {
+    if (!workspaceRoot) return false
+    const root = workbenchRootKey(workspaceRoot)
+    if (this.cache) {
+      for (const value of this.cache.values()) {
+        if (value.workbench && workbenchRootKey(value.workbench.workspaceRoot) === root) {
+          return true
+        }
+      }
+      return false
+    }
+    return this.serial(async () => {
+      const values = await this.cachedValues()
+      return values.some(
+        value => value.workbench && workbenchRootKey(value.workbench.workspaceRoot) === root
+      )
+    })
+  }
+
   /** 关闭全部导图目录监听（应用退出时调用）。 */
   shutdownMindmapWatchers(): void {
     for (const timer of this.mindmapNotifyTimers.values()) clearTimeout(timer)
@@ -514,6 +558,7 @@ export class NoteManager {
     }
     this.mindmapWatchers.clear()
     this.mindmapScanCache.clear()
+    this.mindmapSelfWrites.clear()
   }
 
   /** 写导图文件并让扫描缓存失效（写后读必须看到新内容）。 */

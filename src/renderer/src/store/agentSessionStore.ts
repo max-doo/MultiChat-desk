@@ -11,6 +11,10 @@ import {
   toMentionToken
 } from '../components/workbench/agent/filePathUtils'
 import type {
+  AgentFileChangeStatus,
+  AgentTurnFileChanges
+} from '../../../shared/types/agentRuntime'
+import type {
   AgentMessage,
   AgentSessionSummary,
   AgentApprovalRequest,
@@ -86,6 +90,13 @@ function getAgentApi(): AgentIpcApi {
  */
 let ipcListenerRefs = 0
 let ipcListenerTeardown: (() => void) | null = null
+let lastSkillsKey: string | undefined
+let skillsFetchInFlight: { key: string; promise: Promise<void> } | null = null
+let resumeAfterSwitchCwd: string | null = null
+
+function normalizeWorkspaceKey(p?: string | null): string {
+  return p ? normalizePath(p) : ''
+}
 
 function convertPiContentParts(rawContent?: string | PiRawPart[]): PiContentPart[] {
   if (!rawContent) return []
@@ -153,6 +164,7 @@ interface AgentSessionState {
   imageAttachments: AgentImageAttachment[]
   settingsOpen: boolean
   branchUserEntries: Array<{ entryId: string; text: string }>
+  fileChangesRecord: AgentTurnFileChanges | null
   /**
    * 失效工作区回看态：resume 一条 cwd 已失效（目录删除/改名/脱机）的会话后置位。
    * 置位期间 AgentCard 的工作区同步 effect 不得因 cwd !== workspacePath 清空消息；
@@ -163,6 +175,10 @@ interface AgentSessionState {
   // Actions
   setSessionId: (id: string | null) => void
   setForeignReview: (value: boolean) => void
+  setResumeAfterSwitchCwd: (cwd: string | null) => void
+  consumeResumeAfterSwitchCwd: (cwd: string | null | undefined) => boolean
+  fetchFileChanges: (sessionId?: string) => Promise<void>
+  setFileChangesStatus: (status: AgentFileChangeStatus) => void
   setPermissionMode: (mode: AgentPermissionMode) => Promise<void>
   fetchPermissionMode: () => Promise<void>
   setComposerInput: (val: string) => void
@@ -194,7 +210,7 @@ interface AgentSessionState {
     pattern?: string
   ) => Promise<void>
   fetchProviders: () => Promise<void>
-  fetchSkills: (cwd?: string) => Promise<void>
+  fetchSkills: (cwd?: string, force?: boolean) => Promise<void>
   setCredential: (
     providerId: string,
     cred: { type: 'api_key'; key: string; env?: string; baseUrl?: string }
@@ -252,14 +268,56 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
   imageAttachments: [],
   settingsOpen: false,
   branchUserEntries: [],
+  fileChangesRecord: null,
   foreignReview: false,
 
-  setSessionId: (id) =>
+  setSessionId: (id) => {
+    const prevId = get().currentSessionId
     set((s) => ({
       currentSessionId: id,
-      isRunning: id ? s.runningSessionIds.has(id) : false
-    })),
+      isRunning: id ? s.runningSessionIds.has(id) : false,
+      ...(id !== prevId ? { fileChangesRecord: null } : {})
+    }))
+    if (id && id !== prevId) {
+      void get().fetchFileChanges(id)
+    }
+  },
   setForeignReview: (value) => set({ foreignReview: value }),
+  setResumeAfterSwitchCwd: (cwd) => {
+    resumeAfterSwitchCwd = cwd
+  },
+  consumeResumeAfterSwitchCwd: (cwd) => {
+    if (!resumeAfterSwitchCwd || !cwd) return false
+    if (normalizePath(resumeAfterSwitchCwd) === normalizePath(cwd)) {
+      resumeAfterSwitchCwd = null
+      return true
+    }
+    return false
+  },
+  fetchFileChanges: async (sessionId) => {
+    const targetId = sessionId ?? get().currentSessionId
+    if (!targetId) {
+      set({ fileChangesRecord: null })
+      return
+    }
+    try {
+      const res = await window.api.agentGetFileChanges(targetId)
+      if (get().currentSessionId !== targetId) return
+      if (res.success && res.data && res.data.files.length > 0) {
+        set({ fileChangesRecord: res.data })
+      } else {
+        set({ fileChangesRecord: null })
+      }
+    } catch {
+      if (get().currentSessionId === targetId) {
+        set({ fileChangesRecord: null })
+      }
+    }
+  },
+  setFileChangesStatus: (status) =>
+    set((s) => ({
+      fileChangesRecord: s.fileChangesRecord ? { ...s.fileChangesRecord, status } : null
+    })),
 
   refreshBranchEntries: async () => {
     const sessionId = get().currentSessionId
@@ -396,11 +454,6 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
     // 否则每条事件会被 handleAgentEvent 处理多次。cleanup 按引用计数在
     // 最后一个挂载点卸载时才真正拆掉 IPC 通道。
     if (ipcListenerTeardown) {
-      void get().fetchProviders()
-      void get().fetchSessions()
-      void get().fetchSkills()
-      void get().fetchSnapshot()
-      void get().fetchPermissionMode()
       return () => {
         ipcListenerRefs -= 1
         if (ipcListenerRefs <= 0) {
@@ -457,7 +510,7 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
     // Load active model / providers / sessions initially
     void get().fetchProviders()
     void get().fetchSessions()
-    void get().fetchSkills()
+    void get().fetchSkills(useWorkbenchStore.getState().workspacePath ?? undefined)
     void get().fetchSnapshot()
     void get().fetchPermissionMode()
     void api.agentListAuthOperations?.().then((res) => {
@@ -522,6 +575,17 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
   newSession: async (cwd) => {
     const activeWorkspace = useWorkbenchStore.getState().workspacePath
     const targetCwd = cwd || activeWorkspace || null
+    const state = get()
+    if (
+      state.currentSessionId === null &&
+      state.currentCwd === targetCwd &&
+      state.messages.length === 0 &&
+      state.pendingApprovals.length === 0 &&
+      state.fileChangesRecord === null &&
+      !state.foreignReview
+    ) {
+      return null
+    }
     set({
       currentSessionId: null,
       currentCwd: targetCwd,
@@ -531,6 +595,7 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
       composerInput: '',
       attachments: [],
       branchUserEntries: [],
+      fileChangesRecord: null,
       foreignReview: false
     })
     return null
@@ -552,6 +617,7 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
           composerInput: '',
           attachments: [],
           branchUserEntries: [],
+          fileChangesRecord: null,
           foreignReview: false
         })
         void get().fetchSessions()
@@ -651,6 +717,7 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
           currentCwd: rawData?.cwd || null,
           messages: restoredMessages,
           pendingApprovals: [],
+          fileChangesRecord: null,
           activeModel: rawData?.model || get().activeModel,
           activeProvider: rawData?.provider || get().activeProvider,
           permissionMode: rawData?.permissionMode === 'auto' || rawData?.permissionMode === 'bypass'
@@ -661,7 +728,7 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
         // isRunning is derived from runningSessionIds — populated by live events.
         void get().fetchSnapshot(sessionId)
         void get().fetchSessionStatus(sessionId)
-        void get().refreshBranchEntries()
+        void get().fetchFileChanges(sessionId)
         return true
       }
     } catch (err) {
@@ -683,7 +750,13 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
 
       if (wasCurrent) {
         // Back to a draft state; a fresh session is created lazily on next prompt.
-        set({ currentSessionId: null, messages: [], isRunning: false, pendingApprovals: [] })
+        set({
+          currentSessionId: null,
+          messages: [],
+          isRunning: false,
+          pendingApprovals: [],
+          fileChangesRecord: null
+        })
       }
       return true
     } catch (err) {
@@ -900,8 +973,8 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
           pendingApprovals: []
         }
       })
-      void get().refreshBranchEntries()
       void get().fetchSessionStatus(sessionId)
+      void get().fetchFileChanges(sessionId)
       return true
     } catch (err) {
       console.warn('[agentSessionStore] rewind error:', err)
@@ -976,15 +1049,33 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
     }
   },
 
-  fetchSkills: async (cwd) => {
-    try {
-      const res = await getAgentApi().agentListSkills(cwd)
-      if (res.success && res.data) {
-        set({ skills: res.data })
+  fetchSkills: async (cwd, force = false) => {
+    const key = normalizeWorkspaceKey(cwd)
+    if (!force) {
+      if (skillsFetchInFlight?.key === key) {
+        return skillsFetchInFlight.promise
       }
-    } catch (err) {
-      console.warn('[agentSessionStore] fetchSkills error:', err)
+      if (lastSkillsKey === key) {
+        return
+      }
     }
+    const promise = (async () => {
+      try {
+        const res = await getAgentApi().agentListSkills(cwd)
+        if (res.success && res.data) {
+          lastSkillsKey = key
+          set({ skills: res.data })
+        }
+      } catch (err) {
+        console.warn('[agentSessionStore] fetchSkills error:', err)
+      } finally {
+        if (skillsFetchInFlight?.key === key) {
+          skillsFetchInFlight = null
+        }
+      }
+    })()
+    skillsFetchInFlight = { key, promise }
+    return promise
   },
 
   setCredential: async (providerId, cred) => {
@@ -1102,7 +1193,7 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
       const res = await getAgentApi().agentSetAutoCompaction(sessionId, enabled)
       if (res.success) {
         if (res.data) set({ sessionStatus: res.data })
-        void get().fetchSessionStatus(sessionId)
+        else void get().fetchSessionStatus(sessionId)
         return true
       }
     } catch (err) {
@@ -1261,7 +1352,10 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
     try {
       const res = await getAgentApi().agentSetSkillDirs(dirs)
       if (res.success) {
+        lastSkillsKey = undefined
         await get().fetchConfig()
+        const ws = useWorkbenchStore.getState().workspacePath
+        if (ws) void get().fetchSkills(ws, true)
         return true
       }
     } catch (err) {
@@ -1274,7 +1368,10 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
     try {
       const res = await getAgentApi().agentAllowlistAdd(tool, pattern)
       if (res.success) {
+        lastSkillsKey = undefined
         await get().fetchConfig()
+        const ws = useWorkbenchStore.getState().workspacePath
+        if (ws) void get().fetchSkills(ws, true)
         return true
       }
     } catch (err) {
@@ -1287,7 +1384,10 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
     try {
       const res = await getAgentApi().agentAllowlistRemove(id)
       if (res.success) {
+        lastSkillsKey = undefined
         await get().fetchConfig()
+        const ws = useWorkbenchStore.getState().workspacePath
+        if (ws) void get().fetchSkills(ws, true)
         return true
       }
     } catch (err) {
@@ -1384,8 +1484,8 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
         })
         void get().fetchSessions()
         if (sessionId === currentSessionId) {
-          void get().fetchSessionStatus()
           void get().fetchSnapshot()
+          void get().fetchFileChanges(sessionId)
         }
         return
       }
@@ -1710,8 +1810,6 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
           }
           return s
         })
-        void get().fetchSessionStatus()
-        void get().refreshBranchEntries()
         break
       }
       case 'turn_end': {
@@ -1732,12 +1830,10 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
       }
       case 'compaction_end':
         set({ isCompacting: false })
-        void get().fetchSessionStatus()
         void get().fetchSnapshot()
         break
       case 'compaction_start':
         set({ isCompacting: true })
-        void get().fetchSessionStatus()
         break
       case 'thinking_level_changed':
       case 'agent_settled': {
@@ -1748,7 +1844,6 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
           delete followUp[sessionId]
           return { queuedSteering: steering, queuedFollowUp: followUp }
         })
-        void get().fetchSessionStatus()
         void get().fetchSnapshot()
         break
       }

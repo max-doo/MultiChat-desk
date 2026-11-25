@@ -101,7 +101,8 @@ function myersDiff(a: Uint32Array, b: Uint32Array, maxSteps: number): Int8Array 
 
     for (let d = 0; d <= max; d++) {
       if (d > maxSteps) return null
-      const vPrev = d === 0 ? null : v.slice()
+      // 每层仅保存 [-d, +d] 范围的 2d+1 个槽位，避免保存整条 2*max+1 导致 ~1.6GB 内存峰值
+      trace.push(v.subarray(max - d, max + d + 1).slice())
       for (let k = -d; k <= d; k += 2) {
         const idx = k + max
         let x: number
@@ -121,31 +122,26 @@ function myersDiff(a: Uint32Array, b: Uint32Array, maxSteps: number): Int8Array 
           break
         }
       }
-      if (d === 0) {
-        trace.push(v.slice())
-      } else {
-        trace.push(vPrev!)
-      }
       if (found >= 0) break
     }
 
     if (found < 0) return null
 
-    // 回溯：从最深 d 层往 0 走，重建删除/插入序列
+    // 回溯：从最深 d 层往 0 走，重建删除/插入序列（按 k + d 索引压缩后的层切片）
     const midOps: number[] = []
     let x = midN
     let y = midM
     for (let d = found; d > 0; d--) {
       const vD = trace[d]
       const k = x - y
-      const idx = k + max
+      const idx = k + d
       let prevK: number
       if (k === -d || (k !== d && vD[idx - 1] < vD[idx + 1])) {
         prevK = k + 1
       } else {
         prevK = k - 1
       }
-      const prevX = vD[prevK + max]
+      const prevX = vD[prevK + d]
       const prevY = prevX - prevK
       while (x > prevX && y > prevY) {
         midOps.push(0)

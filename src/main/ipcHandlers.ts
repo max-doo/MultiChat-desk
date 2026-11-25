@@ -51,6 +51,7 @@ import {
     deleteNode as workbenchDeleteNode,
     search as workbenchSearch,
     getWorkspaceTags as workbenchGetWorkspaceTags,
+    extractFileTags as workbenchExtractFileTags,
     revealFile as workbenchRevealFile,
   openFileInSystem as workbenchOpenFileInSystem,
   saveImage as workbenchSaveImage,
@@ -68,6 +69,7 @@ import {
   setWorkspaceSettings as workbenchSetWorkspaceSettings,
   activateWorkspace as workbenchActivateWorkspace,
   closeWorkspace as workbenchCloseWorkspace,
+  getActiveWorkspaceRoot as workbenchGetActiveWorkspaceRoot,
   assertActiveWorkspace,
   statFile as workbenchStatFile,
   isAuthorizedWorkspaceRoot,
@@ -129,6 +131,7 @@ import {
     getLog as gitGetLog,
     getCommitDetail as gitGetCommitDetail,
     getFileBaseline as gitGetFileBaseline,
+    getGitRepoStamp as gitGetRepoStamp,
     discardChange as gitDiscardChange,
     cleanupIndexAfterTrash as gitCleanupIndexAfterTrash,
     ignorePath as gitIgnorePath
@@ -458,14 +461,35 @@ export async function registerIpcHandlers(
                 }
 
                 const session = target.session
+                let cleaned = false
+                let timeoutTimer: ReturnType<typeof setTimeout> | null = null
+                const cleanup = (): void => {
+                    if (cleaned) return
+                    cleaned = true
+                    if (timeoutTimer) {
+                        clearTimeout(timeoutTimer)
+                        timeoutTimer = null
+                    }
+                    session.removeListener('will-download', once)
+                    target.removeListener('destroyed', cleanup)
+                }
                 const once = (_ev: Electron.Event, item: Electron.DownloadItem): void => {
-                    if (item.getURL() === url) {
+                    const itemUrl = item.getURL()
+                    const chain = typeof item.getURLChain === 'function' ? item.getURLChain() : []
+                    if (itemUrl === url || chain.includes(url)) {
                         item.setSavePath(savePath)
-                        session.removeListener('will-download', once)
+                        cleanup()
                     }
                 }
+                timeoutTimer = setTimeout(cleanup, 30_000)
+                target.once('destroyed', cleanup)
                 session.on('will-download', once)
-                target.downloadURL(url)
+                try {
+                    target.downloadURL(url)
+                } catch (err) {
+                    cleanup()
+                    throw err
+                }
                 return { success: true, filePath: savePath }
             }
 
@@ -1883,12 +1907,23 @@ export async function registerIpcHandlers(
     })
 
     ipcMain.handle('workbench:activate-workspace', async (_event, payload: { workspaceRoot: string }) => {
-        try { return { success: true, data: await workbenchActivateWorkspace(store, payload.workspaceRoot) } }
+        try {
+            const prevRoot = workbenchGetActiveWorkspaceRoot()
+            const data = await workbenchActivateWorkspace(store, payload.workspaceRoot)
+            if (prevRoot && rootKeyOf(prevRoot) !== rootKeyOf(data.activeWorkspaceRoot)) {
+                noteManager.releaseWorkspace(prevRoot)
+            }
+            return { success: true, data }
+        }
         catch (err: unknown) { return { success: false, error: err instanceof Error ? err.message : String(err) } }
     })
 
     ipcMain.handle('workbench:close-workspace', async (_event, payload: { workspaceRoot: string; generation: number }) => {
-        try { return { success: true, data: await workbenchCloseWorkspace(store, payload.workspaceRoot, payload.generation) } }
+        try {
+            const data = await workbenchCloseWorkspace(store, payload.workspaceRoot, payload.generation)
+            noteManager.releaseWorkspace(payload.workspaceRoot)
+            return { success: true, data }
+        }
         catch (err: unknown) { return { success: false, error: err instanceof Error ? err.message : String(err) } }
     })
 
@@ -2301,6 +2336,17 @@ export async function registerIpcHandlers(
         }
     })
 
+    ipcMain.handle('workbench:extract-file-tags', async (_event, payload: { workspaceRoot: string; relativePath: string; content?: string }) => {
+        try {
+            assertActiveWorkspace(payload.workspaceRoot)
+            const data = await workbenchExtractFileTags(payload.workspaceRoot, payload.relativePath, payload.content)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
     ipcMain.handle('workbench:reveal-file', async (_event, payload: string | { workspaceRoot: string; relativePath: string }, relPath?: string) => {
         try {
             const workspaceRoot = typeof payload === 'string' ? payload : payload?.workspaceRoot
@@ -2614,10 +2660,20 @@ export async function registerIpcHandlers(
         }
     })
 
-    // 编辑器行内/块级标记的基线读取：与 git-status 走同一串行队列，先探大小再读内容
-    ipcMain.handle('workbench:git-baseline', async (_event, payload: { workspaceRoot: string; relativePath: string }) => {
+    // 编辑器行内/块级标记的基线读取：先探索引 sha（命中 knownBlobSha 直接返回 unchanged），再探大小与内容
+    ipcMain.handle('workbench:git-baseline', async (_event, payload: { workspaceRoot: string; relativePath: string; knownBlobSha?: string }) => {
         try {
-            const data = await gitGetFileBaseline(payload.workspaceRoot, payload.relativePath)
+            const data = await gitGetFileBaseline(payload.workspaceRoot, payload.relativePath, payload.knownBlobSha)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('workbench:git-repo-stamp', async (_event, payload: { workspaceRoot: string }) => {
+        try {
+            const data = await gitGetRepoStamp(payload.workspaceRoot)
             return { success: true, data }
         } catch (err: unknown) {
             const error = err instanceof Error ? err.message : String(err)
@@ -2780,6 +2836,9 @@ export async function registerIpcHandlers(
         try {
             if (!isAuthorizedWorkspaceRoot(payload.workspaceRoot)) return { success: false, error: '工作区未授权' }
             if (!Array.isArray(payload.index)) return { success: false, error: '缺少文件树索引' }
+            if (!(await noteManager.hasWorkbenchRecords(payload.workspaceRoot))) {
+                return { success: true, data: { deleted: 0, relinked: 0, relinks: [], pendingDeletions: [] } }
+            }
             const index = new Map(payload.index.map(item => [item.path, { size: item.size, mtime: item.mtime }]))
             const data = await noteManager.reconcileWorkbenchSources(payload.workspaceRoot, index, {
                 force: payload.force,

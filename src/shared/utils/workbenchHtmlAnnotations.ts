@@ -101,7 +101,7 @@ export const WORKBENCH_HTML_ANNOTATION_RUNTIME = String.raw`
 
     if (activeId) {
       activeId = '';
-      renderHighlights();
+      updateFocusHighlight();
       emitDismiss(true);
     }
   }
@@ -209,18 +209,34 @@ export const WORKBENCH_HTML_ANNOTATION_RUNTIME = String.raw`
     return score;
   }
 
-  function rangeFromOffsets(index, start, end) {
-    var startPart = null;
-    var endPart = null;
-    for (var i = 0; i < index.nodes.length; i += 1) {
-      var part = index.nodes[i];
-      if (!startPart && start >= part.start && start < part.end) startPart = part;
-      if (end > part.start && end <= part.end) {
-        endPart = part;
-        break;
+  function findNodePartIndex(nodes, offset, isEnd, startIndex) {
+    var lo = startIndex || 0;
+    var hi = nodes.length - 1;
+    while (lo <= hi) {
+      var mid = (lo + hi) >> 1;
+      var part = nodes[mid];
+      if (isEnd) {
+        if (offset <= part.start) hi = mid - 1;
+        else if (offset > part.end) lo = mid + 1;
+        else return mid;
+      } else {
+        if (offset < part.start) hi = mid - 1;
+        else if (offset >= part.end) lo = mid + 1;
+        else return mid;
       }
     }
-    if (!startPart || !endPart) return null;
+    return -1;
+  }
+
+  function rangeFromOffsets(index, start, end) {
+    var nodes = index.nodes;
+    if (!nodes.length) return null;
+    var startIdx = findNodePartIndex(nodes, start, false, 0);
+    if (startIdx < 0) return null;
+    var endIdx = findNodePartIndex(nodes, end, true, startIdx);
+    if (endIdx < 0) return null;
+    var startPart = nodes[startIdx];
+    var endPart = nodes[endIdx];
     try {
       var range = document.createRange();
       range.setStart(startPart.node, start - startPart.start);
@@ -307,7 +323,42 @@ export const WORKBENCH_HTML_ANNOTATION_RUNTIME = String.raw`
     }
   }
 
-  function renderHighlights() {
+  function updateFocusHighlight() {
+    if (!SUPPORTED) return;
+    try {
+      CSS.highlights.delete(FOCUS_NAME);
+    } catch (err) {
+      /* noop */
+    }
+    if (!activeId || !targets.length) return;
+    var focusTarget = null;
+    for (var i = 0; i < targets.length; i += 1) {
+      if (targets[i].id === activeId) {
+        focusTarget = targets[i];
+        break;
+      }
+    }
+    if (focusTarget) {
+      try {
+        CSS.highlights.set(FOCUS_NAME, new Highlight(focusTarget.range));
+      } catch (err) {
+        /* noop */
+      }
+    } else {
+      activeId = '';
+      post('dismiss');
+    }
+  }
+
+  function syncAnnotations() {
+    if (!annotations.length) {
+      targets = [];
+      activeId = '';
+      clearHighlights();
+      post('resolved', { matched: 0, unlocated: [] });
+      return;
+    }
+
     if (!SUPPORTED) {
       post('resolved', {
         unlocated: annotations.map(function (item) {
@@ -333,21 +384,7 @@ export const WORKBENCH_HTML_ANNOTATION_RUNTIME = String.raw`
       }
     }
 
-    var focusTarget =
-      activeId &&
-      targets.find(function (item) {
-        return item.id === activeId;
-      });
-    if (focusTarget) {
-      try {
-        CSS.highlights.set(FOCUS_NAME, new Highlight(focusTarget.range));
-      } catch (err) {
-        /* noop */
-      }
-    } else if (activeId) {
-      activeId = '';
-      post('dismiss');
-    }
+    updateFocusHighlight();
 
     post('resolved', {
       matched: targets.length,
@@ -356,10 +393,11 @@ export const WORKBENCH_HTML_ANNOTATION_RUNTIME = String.raw`
   }
 
   function scheduleResolve() {
+    if (!annotations.length) return;
     if (resolveTimer) clearTimeout(resolveTimer);
     resolveTimer = setTimeout(function () {
       resolveTimer = null;
-      renderHighlights();
+      syncAnnotations();
     }, 220);
   }
 
@@ -574,7 +612,7 @@ export const WORKBENCH_HTML_ANNOTATION_RUNTIME = String.raw`
     if (!hit) {
       if (activeId) {
         activeId = '';
-        renderHighlights();
+        updateFocusHighlight();
       }
       emitDismiss(true);
       return;
@@ -584,7 +622,7 @@ export const WORKBENCH_HTML_ANNOTATION_RUNTIME = String.raw`
     event.stopPropagation();
     if (event.stopImmediatePropagation) event.stopImmediatePropagation();
     activeId = hit.target.id;
-    renderHighlights();
+    updateFocusHighlight();
     post('hit', {
       id: hit.target.id,
       rect: hit.rect
@@ -594,7 +632,7 @@ export const WORKBENCH_HTML_ANNOTATION_RUNTIME = String.raw`
   function onScroll() {
     if (activeId) {
       activeId = '';
-      renderHighlights();
+      updateFocusHighlight();
       emitDismiss(true);
       return;
     }
@@ -658,7 +696,7 @@ export const WORKBENCH_HTML_ANNOTATION_RUNTIME = String.raw`
     if (event.key !== 'Escape' || !activeId) return;
     event.preventDefault();
     activeId = '';
-    renderHighlights();
+    updateFocusHighlight();
     emitDismiss(true);
   }
 
@@ -689,7 +727,7 @@ export const WORKBENCH_HTML_ANNOTATION_RUNTIME = String.raw`
       ) {
         activeId = '';
       }
-      renderHighlights();
+      syncAnnotations();
       return;
     }
     if (data.type === 'capture') {
@@ -698,7 +736,7 @@ export const WORKBENCH_HTML_ANNOTATION_RUNTIME = String.raw`
     }
     if (data.type === 'focus') {
       activeId = typeof data.id === 'string' ? data.id : '';
-      renderHighlights();
+      updateFocusHighlight();
     }
   }
 
@@ -709,7 +747,6 @@ export const WORKBENCH_HTML_ANNOTATION_RUNTIME = String.raw`
   document.addEventListener('keydown', onKeyDown, true);
   window.addEventListener('wheel', onWheel, { passive: false, capture: true });
   document.addEventListener('scroll', onScroll, true);
-  window.addEventListener('scroll', onScroll, true);
   window.addEventListener('message', onMessage);
   window.addEventListener('resize', scheduleResolve);
 

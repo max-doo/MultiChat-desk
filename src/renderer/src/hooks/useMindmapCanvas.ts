@@ -41,14 +41,30 @@ interface D3LinkData {
   target?: D3NodeDatum
 }
 
+interface NodeLayoutMetric {
+  width: number
+  height: number
+  level: number
+}
+
+function extractNodeIdFromContent(content: string | undefined): string | null {
+  if (!content) return null
+  const match = content.match(/data-node-id="([^"]+)"/)
+  return match ? match[1] : null
+}
+
 /**
- * 依据真实 DOM 节点边界与 D3 坐标计算紧密贴合、绝对居中的正交折线
+ * 依据预读取的真实 DOM 节点边界与 D3 坐标计算紧密贴合、绝对居中的正交折线（纯内存计算，零 DOM 读取）
  * 彻底消除虚增宽度与缝隙：源节点右边缘 (x1, y1) -> midX -> 垂直分支 -> 目标节点左边缘 (x2, y2)
  */
-function getOrthogonalStepPath(pathEl: SVGPathElement, d: string): string {
+function computeOrthogonalStepPath(
+  pathEl: SVGPathElement,
+  d: string,
+  nodeMetrics: ReadonlyMap<string, NodeLayoutMetric>
+): string {
   if (!d) return d
 
-  // 1. 尝试从 D3 __data__ 中提取节点信息与精确物理边界
+  // 1. 尝试从 D3 __data__ 中提取节点信息与预读取的物理边界
   const data = (pathEl as unknown as { __data__?: D3LinkData }).__data__
   if (data?.source?.state?.rect && data?.target?.state?.rect) {
     const src = data.source.state.rect
@@ -60,32 +76,20 @@ function getOrthogonalStepPath(pathEl: SVGPathElement, d: string): string {
     let srcLevel = 2 // 0: root, 1: level 1, 2: level 2+
     let tgtLevel = 2
 
-    const svg = pathEl.ownerSVGElement
-    if (svg) {
-      const srcIdMatch = data.source.content?.match(/data-node-id="([^"]+)"/)
-      const srcId = srcIdMatch ? srcIdMatch[1] : null
-      const tgtIdMatch = data.target.content?.match(/data-node-id="([^"]+)"/)
-      const tgtId = tgtIdMatch ? tgtIdMatch[1] : null
+    const srcId = extractNodeIdFromContent(data.source.content)
+    const tgtId = extractNodeIdFromContent(data.target.content)
 
-      if (srcId) {
-        const srcEl = svg.querySelector<HTMLElement>(`.mm-node-item[data-node-id="${srcId}"]`)
-        if (srcEl && srcEl.offsetWidth > 0) {
-          // offsetWidth 为纯物理元素宽度（绝不包含浮动操作按钮等溢出内容）
-          realSrcWidth = srcEl.offsetWidth
-          realSrcHeight = srcEl.offsetHeight
-          if (srcEl.classList.contains('mm-node-root')) srcLevel = 0
-          else if (srcEl.classList.contains('mm-node-l1')) srcLevel = 1
-        }
-      }
+    const srcMetric = srcId ? nodeMetrics.get(srcId) : undefined
+    if (srcMetric && srcMetric.width > 0) {
+      realSrcWidth = srcMetric.width
+      realSrcHeight = srcMetric.height
+      srcLevel = srcMetric.level
+    }
 
-      if (tgtId) {
-        const tgtEl = svg.querySelector<HTMLElement>(`.mm-node-item[data-node-id="${tgtId}"]`)
-        if (tgtEl && tgtEl.offsetHeight > 0) {
-          realTgtHeight = tgtEl.offsetHeight
-          if (tgtEl.classList.contains('mm-node-l1')) tgtLevel = 1
-          else if (tgtEl.classList.contains('mm-node-root')) tgtLevel = 0
-        }
-      }
+    const tgtMetric = tgtId ? nodeMetrics.get(tgtId) : undefined
+    if (tgtMetric && tgtMetric.height > 0) {
+      realTgtHeight = tgtMetric.height
+      tgtLevel = tgtMetric.level
     }
 
     // 源节点右侧边垂直居中点：
@@ -144,40 +148,6 @@ function curveToStepPath(d: string): string {
   const midX = Math.round((x1 + x2) / 2)
 
   return `M${x1},${y1}L${midX},${y1}L${midX},${y2}L${x2},${y2}`
-}
-
-// ── 全局拦截 SVGPathElement.setAttribute，确保 D3 / Markmap 写入的所有 d 属性即时转为垂直居中折线 ──
-if (
-  typeof window !== 'undefined' &&
-  window.SVGPathElement &&
-  !(window as unknown as { __mm_step_path_patched?: boolean }).__mm_step_path_patched
-) {
-  const win = window as unknown as { __mm_step_path_patched?: boolean }
-  win.__mm_step_path_patched = true
-
-  const origSetAttribute = SVGPathElement.prototype.setAttribute
-  SVGPathElement.prototype.setAttribute = function (name: string, value: string): void {
-    if (name === 'd' && typeof value === 'string') {
-      if (this.classList.contains('markmap-link') || this.closest?.('svg.markmap')) {
-        value = getOrthogonalStepPath(this, value)
-      }
-    }
-    origSetAttribute.call(this, name, value)
-  }
-
-  const origSetAttributeNS = SVGPathElement.prototype.setAttributeNS
-  SVGPathElement.prototype.setAttributeNS = function (
-    ns: string | null,
-    name: string,
-    value: string
-  ): void {
-    if (name === 'd' && typeof value === 'string') {
-      if (this.classList.contains('markmap-link') || this.closest?.('svg.markmap')) {
-        value = getOrthogonalStepPath(this, value)
-      }
-    }
-    origSetAttributeNS.call(this, ns, name, value)
-  }
 }
 
 /**
@@ -278,6 +248,7 @@ export function useMindmapCanvas({
   const containerRef = useRef<HTMLDivElement>(null)
   const svgRef = useRef<SVGSVGElement>(null)
   const markmapRef = useRef<Markmap | null>(null)
+  const mutationObserverRef = useRef<MutationObserver | null>(null)
   const [canvasVisible, setCanvasVisible] = useState(false)
   const needsInitialFitRef = useRef(true)
 
@@ -298,25 +269,52 @@ export function useMindmapCanvas({
     if (markmapRef.current === mm) needsInitialFitRef.current = false
   }, [])
 
-  // 强制全量将当前 SVG 内所有曲线转为折线，并校准 foreignObject 起始坐标
+  // 读写分离批处理将当前 SVG 内所有曲线转为折线，并校准 foreignObject 起始坐标
   const convertLinksToStep = useCallback(() => {
-    if (!svgRef.current) return
-    const foreignObjects = svgRef.current.querySelectorAll<SVGForeignObjectElement>('foreignObject.markmap-foreign')
-    foreignObjects.forEach((fo) => {
+    const svg = svgRef.current
+    if (!svg) return
+
+    // 第一阶段：单次遍历读取全部节点几何与连线数据，避免读写交替引发强制同步回流
+    const dirtyForeignObjects: SVGForeignObjectElement[] = []
+    svg.querySelectorAll<SVGForeignObjectElement>('foreignObject.markmap-foreign').forEach((fo) => {
       if (fo.getAttribute('x') !== '0') {
-        fo.setAttribute('x', '0')
+        dirtyForeignObjects.push(fo)
       }
     })
-    const links = svgRef.current.querySelectorAll<SVGPathElement>('path.markmap-link')
-    links.forEach((path) => {
+
+    const nodeMetrics = new Map<string, NodeLayoutMetric>()
+    svg.querySelectorAll<HTMLElement>('.mm-node-item').forEach((el) => {
+      const id = el.getAttribute('data-node-id')
+      if (!id) return
+      const width = el.offsetWidth
+      const height = el.offsetHeight
+      if (width <= 0 && height <= 0) return
+      let level = 2
+      if (el.classList.contains('mm-node-root')) level = 0
+      else if (el.classList.contains('mm-node-l1')) level = 1
+      nodeMetrics.set(id, { width, height, level })
+    })
+
+    const pathUpdates: Array<{ path: SVGPathElement; stepD: string }> = []
+    svg.querySelectorAll<SVGPathElement>('path.markmap-link').forEach((path) => {
       const d = path.getAttribute('d')
-      if (d) {
-        const stepD = getOrthogonalStepPath(path, d)
-        if (stepD !== d) {
-          path.setAttribute('d', stepD)
-        }
+      if (!d) return
+      const stepD = computeOrthogonalStepPath(path, d, nodeMetrics)
+      if (stepD !== d) {
+        pathUpdates.push({ path, stepD })
       }
     })
+
+    // 第二阶段：集中写回 DOM
+    for (let i = 0; i < dirtyForeignObjects.length; i += 1) {
+      dirtyForeignObjects[i].setAttribute('x', '0')
+    }
+    for (let i = 0; i < pathUpdates.length; i += 1) {
+      pathUpdates[i].path.setAttribute('d', pathUpdates[i].stepD)
+    }
+
+    // 清空本轮自身修改产生的 MutationRecord，防止触发二次微任务
+    mutationObserverRef.current?.takeRecords()
   }, [])
 
   // ── 同步按钮尺寸和可见性；节点过小时隐藏整组操作按钮 ──
@@ -652,9 +650,20 @@ export function useMindmapCanvas({
     const selected = new Set(selectedNodeIdsRef.current)
     const changed = new Set(changedLinesRef.current || [])
     svgRef.current.classList.toggle('mm-readonly', readOnlyRef.current)
+    const nodeById = new Map<string, MindNode>()
+    if (changed.size > 0) {
+      const collect = (n: MindNode): void => {
+        nodeById.set(n.id, n)
+        for (let i = 0; i < n.children.length; i += 1) {
+          collect(n.children[i])
+        }
+      }
+      collect(treeRef.current)
+    }
     svgRef.current.querySelectorAll('.mm-node-item').forEach((el) => {
-      el.classList.toggle('mm-selected', selected.has(el.getAttribute('data-node-id') || ''))
-      const node = findNode(treeRef.current, el.getAttribute('data-node-id') || '')
+      const id = el.getAttribute('data-node-id') || ''
+      el.classList.toggle('mm-selected', selected.has(id))
+      const node = changed.size > 0 ? nodeById.get(id) : undefined
       el.classList.toggle('mm-changed', node?.sourceLine !== undefined && changed.has(node.sourceLine))
     })
   }, [])
@@ -718,58 +727,117 @@ export function useMindmapCanvas({
     syncSelectionClass()
   }, [selectedNodeIds, changedLines, readOnly, syncSelectionClass])
 
-  // ── MutationObserver 监听 SVG 内部路径变化，确保任何时刻连线都是垂直居中直角折线 ──
+  // ── MutationObserver 监听 SVG 内部路径变化，在微任务末尾读写分离批处理转为直角折线 ──
   useEffect(() => {
-    if (!svgRef.current) return
+    const svg = svgRef.current
+    if (!svg || !active) return
 
     const observer = new MutationObserver((mutations) => {
-      for (const m of mutations) {
+      let needsLinkConvert = false
+      let needsZoomUpdate = false
+
+      for (let i = 0; i < mutations.length; i += 1) {
+        const m = mutations[i]
         if (m.type === 'attributes') {
           if (m.attributeName === 'd') {
-            const path = m.target as SVGPathElement
-            const d = path.getAttribute('d')
-            if (d && d.includes('C')) {
-              const stepD = getOrthogonalStepPath(path, d)
-              if (stepD !== d) {
-                path.setAttribute('d', stepD)
+            const target = m.target
+            if (target instanceof SVGPathElement && target.classList.contains('markmap-link')) {
+              const d = target.getAttribute('d')
+              if (d && d.includes('C')) {
+                needsLinkConvert = true
               }
             }
           } else if (m.attributeName === 'transform') {
-            if (m.target === markmapRef.current?.g.node()) updateZoomCss()
+            if (m.target === markmapRef.current?.g.node()) {
+              needsZoomUpdate = true
+            }
           }
         } else if (m.type === 'childList') {
-          m.addedNodes.forEach((node) => {
+          for (let j = 0; j < m.addedNodes.length; j += 1) {
+            const node = m.addedNodes[j]
             if (node instanceof SVGPathElement && node.classList.contains('markmap-link')) {
-              const d = node.getAttribute('d')
-              if (d) {
-                const stepD = getOrthogonalStepPath(node, d)
-                if (stepD !== d) {
-                  node.setAttribute('d', stepD)
-                }
-              }
+              needsLinkConvert = true
+              break
             }
-          })
+            if (node instanceof Element && node.querySelector('path.markmap-link')) {
+              needsLinkConvert = true
+              break
+            }
+          }
         }
       }
+
+      if (needsLinkConvert) convertLinksToStep()
+      if (needsZoomUpdate) updateZoomCss()
     })
 
-    observer.observe(svgRef.current, {
+    mutationObserverRef.current = observer
+    observer.observe(svg, {
       subtree: true,
       attributes: true,
       childList: true,
       attributeFilter: ['d', 'transform']
     })
 
-    return () => observer.disconnect()
-  }, [updateZoomCss])
+    return () => {
+      if (mutationObserverRef.current === observer) {
+        mutationObserverRef.current = null
+      }
+      observer.disconnect()
+    }
+  }, [active, convertLinksToStep, updateZoomCss])
 
-  // ── 监听尺寸变化，校准连线与按钮缩放，保留用户视口 ──
+  // ── 监听尺寸变化，校准连线与按钮缩放，保留用户视口（rAF + 100ms 节流） ──
   useEffect(() => {
     const svg = svgRef.current
     if (!svg) return
 
     let lastW = svg.clientWidth || 0
     let lastH = svg.clientHeight || 0
+    let rafId: number | null = null
+    let throttleTimer: ReturnType<typeof setTimeout> | null = null
+    let lastRunAt = 0
+
+    const runResizeRecalc = (): void => {
+      lastRunAt = performance.now()
+      // 仅重新校准连线与按钮缩放比例，绝不调用 fit() 重新居中导致画面跳动！
+      convertLinksToStep()
+      updateZoomCss()
+      // 笔记页展开原文栏后，只平移被遮住的选中节点，不改变用户缩放。
+      const selectedId = selectedNodeIdRef.current
+      if (onNodeSelect && selectedId) {
+        const item = svg.querySelector<HTMLElement>(`.mm-node-item[data-node-id="${CSS.escape(selectedId)}"]`)
+        const group = item?.closest<SVGGElement>('.markmap-node')
+        const data = (group as (SVGGElement & { __data__?: INode }) | null)?.__data__
+        if (data) void markmapRef.current?.ensureVisible(data, { left: 24, right: 24, top: 56, bottom: 72 })
+      }
+    }
+
+    const scheduleResizeRecalc = (): void => {
+      const elapsed = performance.now() - lastRunAt
+      if (elapsed >= 100) {
+        if (throttleTimer !== null) {
+          clearTimeout(throttleTimer)
+          throttleTimer = null
+        }
+        if (rafId === null) {
+          rafId = requestAnimationFrame(() => {
+            rafId = null
+            runResizeRecalc()
+          })
+        }
+      } else if (throttleTimer === null) {
+        throttleTimer = setTimeout(() => {
+          throttleTimer = null
+          if (rafId === null) {
+            rafId = requestAnimationFrame(() => {
+              rafId = null
+              runResizeRecalc()
+            })
+          }
+        }, Math.max(16, 100 - elapsed))
+      }
+    }
 
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
@@ -783,17 +851,7 @@ export function useMindmapCanvas({
         if (lastW > 0 && lastH > 0 && (Math.abs(width - lastW) > 10 || Math.abs(height - lastH) > 10)) {
           lastW = width
           lastH = height
-          // 仅重新校准连线与按钮缩放比例，绝不调用 fit() 重新居中导致画面跳动！
-          convertLinksToStep()
-          updateZoomCss()
-          // 笔记页展开原文栏后，只平移被遮住的选中节点，不改变用户缩放。
-          const selectedId = selectedNodeIdRef.current
-          if (onNodeSelect && selectedId) {
-            const item = svg.querySelector<HTMLElement>(`.mm-node-item[data-node-id="${CSS.escape(selectedId)}"]`)
-            const group = item?.closest<SVGGElement>('.markmap-node')
-            const data = (group as (SVGGElement & { __data__?: INode }) | null)?.__data__
-            if (data) void markmapRef.current?.ensureVisible(data, { left: 24, right: 24, top: 56, bottom: 72 })
-          }
+          scheduleResizeRecalc()
         } else if (lastW === 0 || lastH === 0) {
           lastW = width
           lastH = height
@@ -803,7 +861,11 @@ export function useMindmapCanvas({
 
     // 观察 SVG 本身，才能感知大纲切换和祖先侧栏的 display:none。
     observer.observe(svg)
-    return () => observer.disconnect()
+    return () => {
+      if (rafId !== null) cancelAnimationFrame(rafId)
+      if (throttleTimer !== null) clearTimeout(throttleTimer)
+      observer.disconnect()
+    }
   }, [convertLinksToStep, updateZoomCss, onNodeSelect])
 
   // ── 捕获阶段代理鼠标交互（避免 Markmap 内部 stopPropagation 拦截双击与点击） ──
@@ -812,6 +874,8 @@ export function useMindmapCanvas({
     if (!container || !active) return
 
     let suppressClick = false
+    let moveRafId: number | null = null
+    let pendingMovePoint: { x: number; y: number } | null = null
     let gesture: {
       startX: number
       startY: number
@@ -820,15 +884,24 @@ export function useMindmapCanvas({
       originalSelection: string[]
       moving: boolean
       branches: MindNode[]
+      draggingBranchIds: Set<string>
       overlay: HTMLDivElement | null
       drop: { id: string; position: MindmapDropPosition; element: HTMLElement } | null
     } | null = null
 
+    const cancelPendingMove = (): void => {
+      if (moveRafId !== null) {
+        cancelAnimationFrame(moveRafId)
+        moveRafId = null
+      }
+      pendingMovePoint = null
+    }
     const clearDrop = (): void => {
       gesture?.drop?.element.removeAttribute('data-drop-position')
       if (gesture) gesture.drop = null
     }
     const cancelGesture = (): void => {
+      cancelPendingMove()
       clearDrop()
       gesture?.overlay?.remove()
       container.classList.remove('mm-gesturing', 'mm-panning')
@@ -876,15 +949,12 @@ export function useMindmapCanvas({
         startX: e.clientX, startY: e.clientY, nodeId,
         baseSelection: e.ctrlKey || e.metaKey || e.shiftKey ? [...selectedNodeIdsRef.current] : [],
         originalSelection: [...selectedNodeIdsRef.current],
-        moving: false, branches: [], overlay: null, drop: null
+        moving: false, branches: [], draggingBranchIds: new Set(), overlay: null, drop: null
       }
     }
 
-    const handleMouseMove = (e: MouseEvent): void => {
+    const processMouseMove = (clientX: number, clientY: number): void => {
       if (!gesture) return
-      const distance = Math.hypot(e.clientX - gesture.startX, e.clientY - gesture.startY)
-      if (!gesture.moving && distance < 4) return
-      e.preventDefault()
       if (!gesture.moving) {
         gesture.moving = true
         suppressClick = true
@@ -895,22 +965,29 @@ export function useMindmapCanvas({
         if (gesture.nodeId) {
           if (!selectedNodeIdsRef.current.includes(gesture.nodeId)) setSelection([gesture.nodeId])
           gesture.branches = getSelectedBranches(treeRef.current, new Set(selectedNodeIdsRef.current))
+          const branchIds = new Set<string>()
+          const collectBranchIds = (node: MindNode): void => {
+            branchIds.add(node.id)
+            for (let i = 0; i < node.children.length; i += 1) collectBranchIds(node.children[i])
+          }
+          for (let i = 0; i < gesture.branches.length; i += 1) collectBranchIds(gesture.branches[i])
+          gesture.draggingBranchIds = branchIds
           gesture.overlay.textContent = gesture.branches.length
             ? `${stripMindmapInlineFormat(gesture.branches[0].content)}${gesture.branches.length > 1 ? ` 等 ${gesture.branches.length} 个分支` : ''}`
             : '根节点不能移动'
           svgRef.current?.querySelectorAll<HTMLElement>('.mm-node-item').forEach(el => {
             const id = el.getAttribute('data-node-id') || ''
-            if (gesture?.branches.some(node => findNode(node, id))) el.classList.add('mm-dragging')
+            if (branchIds.has(id)) el.classList.add('mm-dragging')
           })
         }
       }
       const bounds = container.getBoundingClientRect()
       const overlay = gesture.overlay!
       if (!gesture.nodeId) {
-        const left = Math.min(e.clientX, gesture.startX)
-        const top = Math.min(e.clientY, gesture.startY)
-        const right = Math.max(e.clientX, gesture.startX)
-        const bottom = Math.max(e.clientY, gesture.startY)
+        const left = Math.min(clientX, gesture.startX)
+        const top = Math.min(clientY, gesture.startY)
+        const right = Math.max(clientX, gesture.startX)
+        const bottom = Math.max(clientY, gesture.startY)
         Object.assign(overlay.style, {
           left: `${left - bounds.left}px`, top: `${top - bounds.top}px`,
           width: `${right - left}px`, height: `${bottom - top}px`
@@ -923,25 +1000,29 @@ export function useMindmapCanvas({
             if (id) ids.add(id)
           }
         })
-        setSelection(Array.from(ids))
-        syncSelectionClass()
+        const prev = selectedNodeIdsRef.current
+        const unchanged = prev.length === ids.size && prev.every((id) => ids.has(id))
+        if (!unchanged) {
+          setSelection(Array.from(ids))
+          syncSelectionClass()
+        }
         return
       }
-      Object.assign(overlay.style, { left: `${e.clientX - bounds.left + 12}px`, top: `${e.clientY - bounds.top + 12}px` })
+      Object.assign(overlay.style, { left: `${clientX - bounds.left + 12}px`, top: `${clientY - bounds.top + 12}px` })
       clearDrop()
       if (!gesture.branches.length) return
       // 使用屏幕坐标检测吸附距离，缩放后仍保持相同的鼠标容差。
       let nearest = 18
       svgRef.current?.querySelectorAll<HTMLElement>('.mm-node-item').forEach(el => {
         const id = el.getAttribute('data-node-id') || ''
-        if (gesture!.branches.some(node => findNode(node, id))) return
+        if (gesture!.draggingBranchIds.has(id)) return
         const rect = el.getBoundingClientRect()
-        const dx = Math.max(rect.left - e.clientX, 0, e.clientX - rect.right)
-        const dy = Math.max(rect.top - e.clientY, 0, e.clientY - rect.bottom)
+        const dx = Math.max(rect.left - clientX, 0, clientX - rect.right)
+        const dy = Math.max(rect.top - clientY, 0, clientY - rect.bottom)
         const distance = Math.hypot(dx, dy)
         if (distance > nearest) return
         nearest = distance
-        const ratio = (e.clientY - rect.top) / rect.height
+        const ratio = (clientY - rect.top) / rect.height
         const position: MindmapDropPosition = id === treeRef.current.id ? 'child'
           : ratio < 0.25 ? 'before' : ratio > 0.75 ? 'after' : 'child'
         gesture!.drop = { id, position, element: el }
@@ -953,9 +1034,33 @@ export function useMindmapCanvas({
       } else overlay.textContent = '拖到节点上吸附；Esc 取消'
     }
 
+    const handleMouseMove = (e: MouseEvent): void => {
+      if (!gesture) return
+      const distance = Math.hypot(e.clientX - gesture.startX, e.clientY - gesture.startY)
+      if (!gesture.moving && distance < 4) return
+      e.preventDefault()
+      pendingMovePoint = { x: e.clientX, y: e.clientY }
+      if (moveRafId === null) {
+        moveRafId = requestAnimationFrame(() => {
+          moveRafId = null
+          const point = pendingMovePoint
+          pendingMovePoint = null
+          if (point) processMouseMove(point.x, point.y)
+        })
+      }
+    }
+
     const handleMouseUp = (e: MouseEvent): void => {
       container.classList.remove('mm-panning')
       if (!gesture || e.button !== 0) return
+      if (moveRafId !== null) {
+        cancelAnimationFrame(moveRafId)
+        moveRafId = null
+      }
+      if (pendingMovePoint || gesture.moving) {
+        pendingMovePoint = null
+        processMouseMove(e.clientX, e.clientY)
+      }
       const { nodeId, moving, drop } = gesture
       if (moving && nodeId && drop) {
         const next = moveBranches(treeRef.current, new Set(selectedNodeIdsRef.current), drop.id, drop.position)

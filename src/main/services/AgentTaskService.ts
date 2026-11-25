@@ -40,6 +40,12 @@ const POLL_INTERVAL_MS = 1500
 const READY_PROBE_DEADLINE_MS = 30_000
 const SCRIPT_TIMEOUT_MS = 10_000
 const EMPTY_READS_LIMIT = 8
+/** 任务结束且无新排队任务后，无头浏览器窗口的空闲保活时间（3 分钟后销毁回收内存） */
+const IDLE_SESSION_TIMEOUT_MS = 3 * 60_000
+/** 内存中保留的终态任务与索引上限 */
+const MAX_IN_MEMORY_TERMINAL_TASKS = 100
+/** 内存中保留完整 reply 正文的最近终态任务数；更早任务按需从磁盘回读 */
+const INLINE_REPLY_KEEP_RECENT = 10
 
 class TaskError extends Error {
   constructor(public readonly code: AgentTaskErrorCode, message: string) {
@@ -54,6 +60,8 @@ interface TaskEntry extends AgentTask {
   stableCount: number
   authSuspects: number
   execErrors: number
+  replyChars?: number
+  replyStripped?: boolean
   queueTimer?: ReturnType<typeof setTimeout>
   timeoutTimer?: ReturnType<typeof setTimeout>
   removeCloseListener?: () => void
@@ -131,6 +139,7 @@ export class AgentTaskService {
   private tasks = new Map<string, TaskEntry>()
   private queues = new Map<string, string[]>()
   private running = new Map<string, string>()
+  private idleTimers = new Map<string, ReturnType<typeof setTimeout>>()
   private listeners = new Set<() => void>()
   private persistedIndex = new Map<string, PersistedAgentTaskRecord>()
   private persistDir = ''
@@ -285,7 +294,25 @@ export class AgentTaskService {
 
   public async getResult(taskId: string): Promise<AgentTaskResult | null> {
     const task = this.tasks.get(taskId)
-    if (task) return this.toResult(task)
+    if (task) {
+      if (task.phase === 'done' && task.replyStripped) {
+        const record = await this.readPersisted(taskId)
+        if (record) {
+          return {
+            taskId,
+            phase: record.phase,
+            ...(record.reply !== undefined ? { reply: record.reply } : {}),
+            ...(record.replyFile ? { replyFile: record.replyFile } : {}),
+            ...(record.imageFiles?.length ? { imageFiles: record.imageFiles } : {}),
+            ...(record.imageError ? { imageError: record.imageError } : {}),
+            ...(record.conversationUrl ? { conversationUrl: record.conversationUrl } : {}),
+            ...(record.startedAt !== undefined && record.completedAt !== undefined ? { durationMs: record.completedAt - record.createdAt } : {}),
+            ...(record.error ? { error: record.error } : {})
+          }
+        }
+      }
+      return this.toResult(task)
+    }
     const record = await this.readPersisted(taskId)
     if (!record) return null
     return {
@@ -424,6 +451,10 @@ export class AgentTaskService {
   /** 应用退出：取消运行中任务并把 pending wait 以 SESSION_LOST 唤醒。 */
   public shutdown(): void {
     this.shuttingDown = true
+    for (const timer of this.idleTimers.values()) {
+      clearTimeout(timer)
+    }
+    this.idleTimers.clear()
     for (const task of this.tasks.values()) {
       if (isAgentTaskTerminal(task.phase)) continue
       task.abortReason ??= { code: 'SESSION_LOST', message: 'MultiChat 正在退出' }
@@ -431,6 +462,29 @@ export class AgentTaskService {
       this.finalize(task, 'failed', task.abortReason)
     }
     this.emit()
+  }
+
+  private clearIdleTimer(sessionKey: string): void {
+    const timer = this.idleTimers.get(sessionKey)
+    if (timer) {
+      clearTimeout(timer)
+      this.idleTimers.delete(sessionKey)
+    }
+  }
+
+  private scheduleIdleRelease(sessionKey: string): void {
+    this.clearIdleTimer(sessionKey)
+    if (this.shuttingDown || this.running.has(sessionKey)) return
+    if ((this.queues.get(sessionKey)?.length ?? 0) > 0) return
+    const timer = setTimeout(() => {
+      this.idleTimers.delete(sessionKey)
+      if (this.shuttingDown || this.running.has(sessionKey)) return
+      if ((this.queues.get(sessionKey)?.length ?? 0) > 0) return
+      if (sessionManager.destroySession(sessionKey)) {
+        console.log(`[AgentTask] 释放空闲无头会话窗口: ${sessionKey}`)
+      }
+    }, IDLE_SESSION_TIMEOUT_MS)
+    this.idleTimers.set(sessionKey, timer)
   }
 
   // ==================== 队列与租约 ====================
@@ -451,6 +505,7 @@ export class AgentTaskService {
       const taskId = queue.shift()
       const task = taskId ? this.tasks.get(taskId) : undefined
       if (!task || task.phase !== 'queued') continue
+      this.clearIdleTimer(sessionKey)
       this.running.set(sessionKey, task.id)
       if (task.queueTimer) {
         clearTimeout(task.queueTimer)
@@ -832,7 +887,12 @@ export class AgentTaskService {
         this.running.delete(task.sessionKey)
         this.pump(task.sessionKey)
       }
+      if (!this.running.has(task.sessionKey) && (this.queues.get(task.sessionKey)?.length ?? 0) === 0) {
+        this.scheduleIdleRelease(task.sessionKey)
+      }
     }
+    task.replyChars = task.reply.length
+    task.baseline = ''
     void this.persist(task)
       .catch(err => console.warn(`[AgentTask] 结果落盘失败 taskId=${task.id}:`, err))
       .finally(release)
@@ -856,7 +916,7 @@ export class AgentTaskService {
       mode: task.mode,
       phase: task.phase,
       ...(this.queuedPosition(task) !== undefined ? { queuedPosition: this.queuedPosition(task) } : {}),
-      replyChars: task.reply.length,
+      replyChars: task.replyChars ?? task.reply.length,
       busy: task.busy,
       elapsedMs: (task.completedAt ?? Date.now()) - task.createdAt,
       ...(task.conversationUrl || task.followUpUrl ? { conversationUrl: task.conversationUrl ?? task.followUpUrl } : {}),
@@ -946,7 +1006,46 @@ export class AgentTaskService {
     } finally {
       await rm(temporary, { force: true }).catch(() => undefined)
     }
-    this.persistedIndex.set(task.id, record)
+    this.persistedIndex.set(task.id, this.stripPersistedReply(record))
+    this.pruneInMemoryTerminalTasks()
+  }
+
+  private stripPersistedReply(record: PersistedAgentTaskRecord): PersistedAgentTaskRecord {
+    if (record.reply === undefined) return record
+    const { reply: _reply, ...summary } = record
+    return summary
+  }
+
+  private pruneInMemoryTerminalTasks(): void {
+    const terminalTasks: TaskEntry[] = []
+    for (const entry of this.tasks.values()) {
+      if (isAgentTaskTerminal(entry.phase)) {
+        terminalTasks.push(entry)
+      }
+    }
+    if (terminalTasks.length > INLINE_REPLY_KEEP_RECENT) {
+      terminalTasks.sort((a, b) => (b.completedAt ?? b.createdAt) - (a.completedAt ?? a.createdAt))
+      for (let i = INLINE_REPLY_KEEP_RECENT; i < terminalTasks.length; i++) {
+        const entry = terminalTasks[i]
+        if (entry.reply && this.persistedIndex.has(entry.id)) {
+          entry.replyChars = entry.reply.length
+          entry.reply = ''
+          entry.replyStripped = true
+        }
+        if (i >= MAX_IN_MEMORY_TERMINAL_TASKS && this.persistedIndex.has(entry.id)) {
+          this.tasks.delete(entry.id)
+        }
+      }
+    }
+
+    if (this.persistedIndex.size > MAX_IN_MEMORY_TERMINAL_TASKS) {
+      const sorted = Array.from(this.persistedIndex.values()).sort(
+        (a, b) => (b.completedAt ?? b.savedAt) - (a.completedAt ?? a.savedAt)
+      )
+      for (const overflow of sorted.slice(MAX_IN_MEMORY_TERMINAL_TASKS)) {
+        this.persistedIndex.delete(overflow.taskId)
+      }
+    }
   }
 
   private async readPersisted(taskId: string): Promise<PersistedAgentTaskRecord | null> {
@@ -957,14 +1056,15 @@ export class AgentTaskService {
       const raw = await readFile(join(this.persistDir, `${taskId}.json`), 'utf8')
       const record = JSON.parse(raw) as PersistedAgentTaskRecord
       if (record?.version !== 1 || record.taskId !== taskId) return null
-      this.persistedIndex.set(taskId, record)
+      this.persistedIndex.set(taskId, this.stripPersistedReply(record))
+      this.pruneInMemoryTerminalTasks()
       return record
     } catch {
       return null
     }
   }
 
-  /** 启动惰性清理：加载索引 + 删除过期/超量记录（最多 200 条或 7 天）。 */
+  /** 启动惰性清理：加载索引 + 删除过期/超量记录（最多 200 条或 7 天），内存索引剥离大正文并限制 100 条。 */
   private async sweepPersisted(): Promise<void> {
     await mkdir(this.persistDir, { recursive: true })
     const entries = await readdir(this.persistDir, { withFileTypes: true })
@@ -978,7 +1078,7 @@ export class AgentTaskService {
           await rm(join(this.persistDir, entry.name), { force: true }).catch(() => undefined)
           continue
         }
-        records.push(record)
+        records.push(this.stripPersistedReply(record))
       } catch {
         await rm(join(this.persistDir, entry.name), { force: true }).catch(() => undefined)
       }
@@ -987,7 +1087,7 @@ export class AgentTaskService {
     for (const overflow of records.slice(AGENT_TASK_PERSIST_LIMIT)) {
       await rm(join(this.persistDir, `${overflow.taskId}.json`), { force: true }).catch(() => undefined)
     }
-    for (const record of records.slice(0, AGENT_TASK_PERSIST_LIMIT)) {
+    for (const record of records.slice(0, Math.min(AGENT_TASK_PERSIST_LIMIT, MAX_IN_MEMORY_TERMINAL_TASKS))) {
       this.persistedIndex.set(record.taskId, record)
     }
   }

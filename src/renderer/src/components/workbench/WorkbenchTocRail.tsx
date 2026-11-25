@@ -48,42 +48,80 @@ export default function WorkbenchTocRail({
     }
   }, [])
 
-  // ScrollSpy 滚动监听与当前阅读进度判定
+  // ScrollSpy 滚动监听与当前阅读进度判定（有序标题二分查找 O(log H)）
   useEffect(() => {
     const container = scrollContainerRef?.current
     if (!container || items.length === 0) return
 
-    let ticking = false
-    const onScroll = (): void => {
-      if (ticking) return
-      ticking = true
-      requestAnimationFrame(() => {
-        ticking = false
-        const scrollTop = container.scrollTop
-        const containerRect = container.getBoundingClientRect()
-        let currentKey = items[0]?.key || ''
+    let rafId = 0
+    const updateActive = (): void => {
+      rafId = 0
+      const scrollTop = container.scrollTop
+      const containerRect = container.getBoundingClientRect()
+      // 视口上部 100px 黄金阅读感知线
+      const threshold = scrollTop + 100
 
-        for (const item of items) {
-          const dom = resolveElement(item.key)
-          if (!dom) continue
-          const domRect = dom.getBoundingClientRect()
-          const relativeTop = container.scrollTop + (domRect.top - containerRect.top)
-          // 视口上部 100px 黄金阅读感知线
-          if (relativeTop - 100 <= scrollTop) {
-            currentKey = item.key
-          } else {
-            break
+      let lo = 0
+      let hi = items.length - 1
+      let bestIdx = 0
+
+      while (lo <= hi) {
+        const mid = (lo + hi) >> 1
+        let probe = mid
+        let dom = resolveElement(items[probe].key)
+        if (!dom) {
+          // 偶发缺失 DOM 时向两侧邻近位置探测，确保仍严格收敛
+          let offset = 1
+          while (mid + offset <= hi || mid - offset >= lo) {
+            if (mid + offset <= hi) {
+              const rightDom = resolveElement(items[mid + offset].key)
+              if (rightDom) {
+                probe = mid + offset
+                dom = rightDom
+                break
+              }
+            }
+            if (mid - offset >= lo) {
+              const leftDom = resolveElement(items[mid - offset].key)
+              if (leftDom) {
+                probe = mid - offset
+                dom = leftDom
+                break
+              }
+            }
+            offset += 1
           }
+          if (!dom) break
         }
-        setActiveKey(currentKey)
-      })
+
+        const domRect = dom.getBoundingClientRect()
+        const relativeTop = scrollTop + (domRect.top - containerRect.top)
+        if (relativeTop <= threshold) {
+          bestIdx = probe
+          lo = probe + 1
+        } else {
+          hi = probe - 1
+        }
+      }
+
+      const currentKey = items[bestIdx]?.key || ''
+      setActiveKey(currentKey)
+    }
+
+    const onScroll = (): void => {
+      if (rafId) return
+      rafId = requestAnimationFrame(updateActive)
     }
 
     container.addEventListener('scroll', onScroll, { passive: true })
-    onScroll()
+    updateActive()
 
     return () => {
       container.removeEventListener('scroll', onScroll)
+      if (rafId) {
+        cancelAnimationFrame(rafId)
+        rafId = 0
+      }
     }
   }, [items, scrollContainerRef, resolveElement])
 

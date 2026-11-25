@@ -41,6 +41,7 @@ export const WORKBENCH_HTML_EDIT_RUNTIME = String.raw`
   var selectedEl = null;
   var hoverEl = null;
   var dragSrc = null;
+  var dropHintEl = null;
   var observer = null;
   var dirty = false;
   var reportedDirty = false;
@@ -441,11 +442,9 @@ export const WORKBENCH_HTML_EDIT_RUNTIME = String.raw`
   }
 
   function clearDropHints() {
-    var marked = document.querySelectorAll(
-      '.' + DROPBEFORE + ',.' + DROPAFTER
-    );
-    for (var i = 0; i < marked.length; i += 1) {
-      marked[i].classList.remove(DROPBEFORE, DROPAFTER, HORIZ);
+    if (dropHintEl) {
+      dropHintEl.classList.remove(DROPBEFORE, DROPAFTER, HORIZ);
+      dropHintEl = null;
     }
   }
 
@@ -459,10 +458,21 @@ export const WORKBENCH_HTML_EDIT_RUNTIME = String.raw`
   function dragMove(x, y) {
     if (!dragSrc) return;
     var hit = findDropTarget(x, y);
+    if (hit && hit.target === dropHintEl) {
+      var wantBefore = !!hit.before;
+      var wantHoriz = !!hit.horizontal;
+      var hasBefore = dropHintEl.classList.contains(DROPBEFORE);
+      var hasAfter = dropHintEl.classList.contains(DROPAFTER);
+      var hasHoriz = dropHintEl.classList.contains(HORIZ);
+      if ((wantBefore ? hasBefore && !hasAfter : hasAfter && !hasBefore) && wantHoriz === hasHoriz) {
+        return;
+      }
+    }
     clearDropHints();
     if (hit) {
-      hit.target.classList.add(hit.before ? DROPBEFORE : DROPAFTER);
-      if (hit.horizontal) hit.target.classList.add(HORIZ);
+      dropHintEl = hit.target;
+      dropHintEl.classList.add(hit.before ? DROPBEFORE : DROPAFTER);
+      if (hit.horizontal) dropHintEl.classList.add(HORIZ);
     }
   }
 

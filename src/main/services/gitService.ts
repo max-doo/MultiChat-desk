@@ -48,24 +48,53 @@ interface GitRunBufferResult {
   spawnError: NodeJS.ErrnoException | null
 }
 
-/** 同一工作区的 Git 写操作串行执行，避免索引锁冲突 */
-const queues = new Map<string, Promise<unknown>>()
+/** 同一工作区的 Git 写操作串行执行，避免索引锁冲突；只读查询不排队 */
+const writeQueues = new Map<string, Promise<unknown>>()
 
 function queueKey(workspaceRoot: string): string {
   const resolved = path.resolve(workspaceRoot)
   return process.platform === 'win32' ? resolved.toLowerCase() : resolved
 }
 
-function serialize<T>(workspaceRoot: string, task: () => Promise<T>): Promise<T> {
+function serializeWrite<T>(workspaceRoot: string, task: () => Promise<T>): Promise<T> {
   const key = queueKey(workspaceRoot)
-  const previous = queues.get(key) ?? Promise.resolve()
+  const previous = writeQueues.get(key) ?? Promise.resolve()
   const next = previous.catch(() => undefined).then(task)
   const stored = next.catch(() => undefined)
-  queues.set(key, stored)
+  writeQueues.set(key, stored)
   void stored.finally(() => {
-    if (queues.get(key) === stored) queues.delete(key)
+    if (writeQueues.get(key) === stored) writeQueues.delete(key)
   })
   return next
+}
+
+/** 进程级 git --version 可用性缓存：成功永久缓存，spawn 失败按 30s TTL 重试 */
+const GIT_UNAVAILABLE_RETRY_MS = 30_000
+let gitAvailableCache: { ok: boolean; checkedAt: number } | null = null
+let gitAvailableInFlight: Promise<boolean> | null = null
+
+async function ensureGitAvailable(cwd: string): Promise<boolean> {
+  if (gitAvailableCache) {
+    if (gitAvailableCache.ok) return true
+    if (Date.now() - gitAvailableCache.checkedAt < GIT_UNAVAILABLE_RETRY_MS) {
+      return false
+    }
+  }
+  if (gitAvailableInFlight) return gitAvailableInFlight
+  gitAvailableInFlight = runGit(cwd, ['--version'], undefined, IGNORED_PATHS_TIMEOUT_MS)
+    .then(result => {
+      const ok = !result.spawnError && result.ok
+      gitAvailableCache = { ok, checkedAt: Date.now() }
+      return ok
+    })
+    .catch(() => {
+      gitAvailableCache = { ok: false, checkedAt: Date.now() }
+      return false
+    })
+    .finally(() => {
+      gitAvailableInFlight = null
+    })
+  return gitAvailableInFlight
 }
 
 function runGit(
@@ -207,6 +236,11 @@ function runGitBuffer(
  * - 非 Git 仓库或 Git 不可用时返回 null，由调用方退回内置规则
  */
 export async function listIgnoredPaths(workspaceRoot: string): Promise<Set<string> | null> {
+  if (!workspaceRoot) return null
+  if (!(await ensureGitAvailable(workspaceRoot))) return null
+  const repo = await resolveRepo(workspaceRoot)
+  if (!repo) return null
+
   const result = await runGit(
     workspaceRoot,
     [
@@ -224,7 +258,12 @@ export async function listIgnoredPaths(workspaceRoot: string): Promise<Set<strin
     IGNORED_PATHS_TIMEOUT_MS
   )
   // 非 Git 仓库时 git 直接报错，调用方退回内置规则
-  if (!result.ok) return null
+  if (!result.ok) {
+    if (isNotRepoError(result.stderr || result.stdout)) {
+      invalidateRepoCache(workspaceRoot)
+    }
+    return null
+  }
 
   const paths = new Set<string>()
   for (const record of result.stdout.split('\0')) {
@@ -299,40 +338,102 @@ interface RepoContext {
   repoRoot: string
   /** 工作区相对仓库根的路径，末尾带 /；工作区即仓库根时为空串 */
   prefix: string
+  gitDir: string
+}
+
+const NON_REPO_CACHE_TTL_MS = 10_000
+const repoCache = new Map<string, { value: RepoContext | null; expiresAt: number }>()
+const repoInFlight = new Map<string, Promise<RepoContext | null>>()
+
+function isNotRepoError(text: string): boolean {
+  return /\bnot a git repository\b/i.test(text)
+}
+
+export function invalidateRepoCache(workspaceRoot?: string): void {
+  if (!workspaceRoot) {
+    repoCache.clear()
+    return
+  }
+  repoCache.delete(queueKey(workspaceRoot))
 }
 
 async function resolveRepo(workspaceRoot: string): Promise<RepoContext | null> {
-  const inside = await runGit(workspaceRoot, ['rev-parse', '--is-inside-work-tree'])
-  if (!inside.ok || inside.stdout.trim() !== 'true') return null
-  const [top, prefix] = await Promise.all([
-    runGit(workspaceRoot, ['rev-parse', '--show-toplevel']),
-    runGit(workspaceRoot, ['rev-parse', '--show-prefix'])
-  ])
-  if (!top.ok) return null
-  return {
-    repoRoot: normalizeGitPath(top.stdout.trim()),
-    prefix: normalizeGitPath(prefix.stdout.trim())
+  if (!workspaceRoot) return null
+  const key = queueKey(workspaceRoot)
+  const cached = repoCache.get(key)
+  if (cached) {
+    if (cached.value !== null || Date.now() < cached.expiresAt) {
+      return cached.value
+    }
   }
+  const existingFlight = repoInFlight.get(key)
+  if (existingFlight) return existingFlight
+
+  const probe = (async (): Promise<RepoContext | null> => {
+    const res = await runGit(
+      workspaceRoot,
+      ['rev-parse', '--show-toplevel', '--is-inside-work-tree', '--absolute-git-dir', '--show-prefix'],
+      undefined,
+      IGNORED_PATHS_TIMEOUT_MS
+    )
+    if (!res.ok) {
+      repoCache.set(key, { value: null, expiresAt: Date.now() + NON_REPO_CACHE_TTL_MS })
+      return null
+    }
+    const lines = res.stdout.split(/\r?\n/)
+    const repoRoot = normalizeGitPath((lines[0] ?? '').trim())
+    const inside = (lines[1] ?? '').trim()
+    const gitDir = normalizeGitPath((lines[2] ?? '').trim())
+    const prefix = normalizeGitPath((lines[3] ?? '').trim())
+    if (inside !== 'true' || !repoRoot || !gitDir) {
+      repoCache.set(key, { value: null, expiresAt: Date.now() + NON_REPO_CACHE_TTL_MS })
+      return null
+    }
+    const value: RepoContext = { repoRoot, prefix, gitDir }
+    repoCache.set(key, { value, expiresAt: Number.POSITIVE_INFINITY })
+    return value
+  })().finally(() => {
+    repoInFlight.delete(key)
+  })
+
+  repoInFlight.set(key, probe)
+  return probe
 }
 
-/** 读取远程地址；优先 origin，没有时按名称排序 */
+/** 快速读取 .git/HEAD 与 .git/index 的 mtime 指纹（无 Git 子进程开销），用于焦点冷却判断 */
+export async function getGitRepoStamp(workspaceRoot: string): Promise<string | null> {
+  if (!workspaceRoot) return null
+  if (!(await ensureGitAvailable(workspaceRoot))) return null
+  const repo = await resolveRepo(workspaceRoot)
+  if (!repo) return null
+  const [headInfo, indexInfo] = await Promise.all([
+    stat(path.join(repo.gitDir, 'HEAD')).catch(() => null),
+    stat(path.join(repo.gitDir, 'index')).catch(() => null)
+  ])
+  return `${headInfo?.mtimeMs ?? 0}:${indexInfo?.mtimeMs ?? 0}:${indexInfo?.size ?? 0}`
+}
+
+/** 读取远程地址；优先 origin，没有时按名称排序（只读操作，不进写队列） */
 export async function listRemotes(workspaceRoot: string): Promise<GitRemoteInfo[]> {
-  return serialize(workspaceRoot, async () => {
-    const repo = await resolveRepo(workspaceRoot)
-    if (!repo) return []
-    const names = await runGit(workspaceRoot, ['remote'])
-    if (!names.ok) return []
-    const remotes: GitRemoteInfo[] = []
-    for (const name of names.stdout.split(/\r?\n/).map(line => line.trim()).filter(Boolean)) {
-      const url = await runGit(workspaceRoot, ['remote', 'get-url', name])
-      const rawUrl = url.ok ? url.stdout.trim() : ''
-      const safeUrl = redactRemoteUrl(rawUrl)
-      remotes.push({ name, url: safeUrl, redacted: rawUrl !== safeUrl })
-    }
-    return remotes.sort((a, b) =>
-      a.name === 'origin' ? -1 : b.name === 'origin' ? 1 : a.name.localeCompare(b.name)
-    )
-  })
+  if (!workspaceRoot) return []
+  if (!(await ensureGitAvailable(workspaceRoot))) return []
+  const repo = await resolveRepo(workspaceRoot)
+  if (!repo) return []
+  const names = await runGit(workspaceRoot, ['remote'])
+  if (!names.ok) {
+    if (isNotRepoError(names.stderr || names.stdout)) invalidateRepoCache(workspaceRoot)
+    return []
+  }
+  const remotes: GitRemoteInfo[] = []
+  for (const name of names.stdout.split(/\r?\n/).map(line => line.trim()).filter(Boolean)) {
+    const url = await runGit(workspaceRoot, ['remote', 'get-url', name])
+    const rawUrl = url.ok ? url.stdout.trim() : ''
+    const safeUrl = redactRemoteUrl(rawUrl)
+    remotes.push({ name, url: safeUrl, redacted: rawUrl !== safeUrl })
+  }
+  return remotes.sort((a, b) =>
+    a.name === 'origin' ? -1 : b.name === 'origin' ? 1 : a.name.localeCompare(b.name)
+  )
 }
 
 /**
@@ -344,7 +445,7 @@ export async function setRemoteUrl(
   url: string,
   name = 'origin'
 ): Promise<GitActionResult> {
-  return serialize(workspaceRoot, async () => {
+  return serializeWrite(workspaceRoot, async () => {
     const repo = await resolveRepo(workspaceRoot)
     if (!repo) {
       return { success: false, failure: 'not-repository', error: '当前工作区还不是 Git 仓库' }
@@ -440,15 +541,11 @@ async function stageMoves(
   const repo = await resolveRepo(workspaceRoot)
   if (!repo) return { staged: 0 }
   // 变基/合并进行中时索引属于中间状态，此时改索引会破坏可恢复性
-  const gitDir = await runGit(workspaceRoot, ['rev-parse', '--absolute-git-dir'])
-  if (gitDir.ok) {
-    const dir = gitDir.stdout.trim()
-    const inProgress =
-      (await pathExists(path.join(dir, 'rebase-merge'))) ||
-      (await pathExists(path.join(dir, 'rebase-apply'))) ||
-      (await pathExists(path.join(dir, 'MERGE_HEAD')))
-    if (inProgress) return { staged: 0 }
-  }
+  const inProgress =
+    (await pathExists(path.join(repo.gitDir, 'rebase-merge'))) ||
+    (await pathExists(path.join(repo.gitDir, 'rebase-apply'))) ||
+    (await pathExists(path.join(repo.gitDir, 'MERGE_HEAD')))
+  if (inProgress) return { staged: 0 }
 
   // 只处理无冲突的普通条目，冲突态交给用户先解决
   const cleanEntries: IndexEntry[] = []
@@ -515,7 +612,7 @@ export async function recordWorkspaceMove(
 ): Promise<void> {
   if (!moves.length) return
   try {
-    await serialize(workspaceRoot, async () => {
+    await serializeWrite(workspaceRoot, async () => {
       const result = await stageMoves(workspaceRoot, moves)
       if (result.error) {
         console.warn('[Git] 移动未写入暂存区:', result.error)
@@ -723,12 +820,33 @@ function emptyStatus(error: string | null, available: boolean, isRepository: boo
   }
 }
 
-/** 实际读取状态；调用方负责串行化，避免与写操作抢索引锁 */
+const UNTRACKED_STAT_CONCURRENCY = 32
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  mapper: (item: T) => Promise<R>
+): Promise<R[]> {
+  if (!items.length) return []
+  const results = new Array<R>(items.length)
+  let nextIndex = 0
+  const workerCount = Math.min(limit, items.length)
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (nextIndex < items.length) {
+        const index = nextIndex++
+        results[index] = await mapper(items[index])
+      }
+    })
+  )
+  return results
+}
+
+/** 实际读取状态；使用 --no-optional-locks 只读执行，不阻塞在写队列之后 */
 async function readStatus(workspaceRoot: string): Promise<GitStatus> {
   if (!workspaceRoot) return emptyStatus('未打开工作区', false, false)
 
-  const version = await runGit(workspaceRoot, ['--version'])
-  if (version.spawnError) {
+  if (!(await ensureGitAvailable(workspaceRoot))) {
     return emptyStatus('未检测到 Git，可安装后使用版本管理', false, false)
   }
 
@@ -738,16 +856,20 @@ async function readStatus(workspaceRoot: string): Promise<GitStatus> {
   const status = emptyStatus(null, true, true)
   status.repoRoot = repo.repoRoot
 
-  const [raw, gitDir, remotes] = await Promise.all([
+  const [raw, remotes] = await Promise.all([
     // status 默认会顺手刷新并写回 .git/index；在递归监听工作区时会形成刷新循环。
     // 禁用可选锁后 status 只读，不会因为“看一眼状态”而改动索引。
     runGit(workspaceRoot, ['--no-optional-locks', 'status', '--porcelain=v2', '-z', '--branch', '--untracked-files=all', '--', '.']),
-    runGit(workspaceRoot, ['rev-parse', '--absolute-git-dir']),
     runGit(workspaceRoot, ['remote'])
   ])
 
   if (!raw.ok) {
-    status.error = explainGitError(raw.stderr || raw.stdout)
+    const errText = raw.stderr || raw.stdout
+    if (isNotRepoError(errText)) {
+      invalidateRepoCache(workspaceRoot)
+      return emptyStatus(null, true, false)
+    }
+    status.error = explainGitError(errText)
     return status
   }
 
@@ -768,26 +890,25 @@ async function readStatus(workspaceRoot: string): Promise<GitStatus> {
   status.hasRemote = remoteNames.length > 0
   status.remoteName = remoteNames.includes('origin') ? 'origin' : remoteNames[0] ?? null
 
-  if (gitDir.ok) {
-    const dir = gitDir.stdout.trim()
-    status.merging = await pathExists(path.join(dir, 'MERGE_HEAD'))
-    status.rebasing =
-      (await pathExists(path.join(dir, 'rebase-merge'))) ||
-      (await pathExists(path.join(dir, 'rebase-apply')))
-  }
+  status.merging = await pathExists(path.join(repo.gitDir, 'MERGE_HEAD'))
+  status.rebasing =
+    (await pathExists(path.join(repo.gitDir, 'rebase-merge'))) ||
+    (await pathExists(path.join(repo.gitDir, 'rebase-apply')))
 
   // 只检查未跟踪文件：已跟踪的大文件是历史遗留，提示也无法改变既成事实。
-  // 使用独立收集的未跟踪路径，避免展示列表被截断时漏掉大文件。
+  // 使用独立收集的未跟踪路径，避免展示列表被截断时漏掉大文件；限流并发 stat 避免句柄风暴。
   if (parsed.untrackedPaths.length) {
-    const sizes = await Promise.all(
-      parsed.untrackedPaths.map(async (relativePath) => {
+    const sizes = await mapWithConcurrency(
+      parsed.untrackedPaths,
+      UNTRACKED_STAT_CONCURRENCY,
+      async (relativePath) => {
         try {
           const info = await stat(path.join(repo.repoRoot, toRepoPath(repo.prefix, relativePath)))
           return { path: relativePath, size: info.size }
         } catch {
           return null
         }
-      })
+      }
     )
     status.largeUntracked = sizes.filter(
       (item): item is { path: string; size: number } =>
@@ -800,10 +921,10 @@ async function readStatus(workspaceRoot: string): Promise<GitStatus> {
 
 /**
  * 读取工作区 Git 状态；未安装 Git 或不是仓库时返回可展示的说明而不是抛错。
- * 走同一队列：Windows 上 Git 读索引时也会加锁，和提交/推送并发会互相失败。
+ * 只读操作（status 带 --no-optional-locks），不阻塞在慢速网络写操作之后。
  */
 export async function getStatus(workspaceRoot: string): Promise<GitStatus> {
-  return serialize(workspaceRoot, () => readStatus(workspaceRoot))
+  return readStatus(workspaceRoot)
 }
 
 /**
@@ -839,63 +960,67 @@ function normalizeSafeWorkspaceRelativePath(relativePath: string): string | null
 
 export async function getFileBaseline(
   workspaceRoot: string,
-  relativePath: string
+  relativePath: string,
+  knownBlobSha?: string
 ): Promise<GitBaselineResult> {
   if (!workspaceRoot || !relativePath) return { status: 'none' }
-  return serialize(workspaceRoot, async () => {
-    const version = await runGit(workspaceRoot, ['--version'])
-    if (version.spawnError) return { status: 'none' }
+  if (!(await ensureGitAvailable(workspaceRoot))) return { status: 'none' }
 
-    const repo = await resolveRepo(workspaceRoot)
-    if (!repo) return { status: 'none' }
+  const repo = await resolveRepo(workspaceRoot)
+  if (!repo) return { status: 'none' }
 
-    const normalized = normalizeSafeWorkspaceRelativePath(relativePath)
-    if (!normalized) return { status: 'none' }
-    const repoPath = toRepoPath(repo.prefix, normalized)
+  const normalized = normalizeSafeWorkspaceRelativePath(relativePath)
+  if (!normalized) return { status: 'none' }
+  const repoPath = toRepoPath(repo.prefix, normalized)
 
-    const entries = await readIndexEntries(repo.repoRoot, [repoPath])
-    if (!entries.length) return { status: 'none' }
-    // 存在 stage 1/2/3 条目说明处于合并冲突中间态，不画标记以免干扰解决
-    if (entries.some(entry => entry.stage !== '0')) return { status: 'none' }
-    const entry = entries.find(item => item.repoPath === repoPath) ?? entries[0]
+  const entries = await readIndexEntries(repo.repoRoot, [repoPath])
+  if (!entries.length) return { status: 'none' }
+  // 存在 stage 1/2/3 条目说明处于合并冲突中间态，不画标记以免干扰解决
+  if (entries.some(entry => entry.stage !== '0')) return { status: 'none' }
+  const entry = entries.find(item => item.repoPath === repoPath) ?? entries[0]
 
-    const sizeResult = await runGit(
-      workspaceRoot,
-      ['cat-file', '-s', entry.sha],
-      undefined,
-      IGNORED_PATHS_TIMEOUT_MS
-    )
-    if (!sizeResult.ok) {
-      return { status: 'error', error: firstMeaningfulLine(sizeResult.stderr) || '读取基准对象大小失败' }
-    }
-    const byteLength = Number.parseInt(sizeResult.stdout.trim(), 10)
-    if (!Number.isFinite(byteLength)) {
-      return { status: 'error', error: '基准对象大小解析失败' }
-    }
-    if (byteLength > GIT_BASELINE_MAX_BYTES) {
-      return { status: 'too-large', blobSha: entry.sha, byteLength }
-    }
+  // 索引对象 SHA 与前端缓存一致：跳过 cat-file -s / cat-file -p 与大文本 IPC 传输
+  if (knownBlobSha && entry.sha === knownBlobSha) {
+    return { status: 'unchanged', blobSha: entry.sha }
+  }
 
-    const contentResult = await runGitBuffer(
-      workspaceRoot,
-      ['cat-file', '-p', entry.sha],
-      GIT_TIMEOUT_MS
-    )
-    if (!contentResult.ok) {
-      return { status: 'error', error: firstMeaningfulLine(contentResult.stderr) || '读取基准内容失败' }
-    }
-    const buffer = contentResult.stdout
-    // 与 readFile 一致的二进制判定：前 1024 字节含 NUL 即视为非文本
-    if (buffer.subarray(0, Math.min(1024, buffer.length)).includes(0)) {
-      return { status: 'binary', blobSha: entry.sha, byteLength }
-    }
-    return {
-      status: 'ok',
-      blobSha: entry.sha,
-      content: buffer.toString('utf8'),
-      byteLength
-    }
-  })
+  const sizeResult = await runGit(
+    workspaceRoot,
+    ['cat-file', '-s', entry.sha],
+    undefined,
+    IGNORED_PATHS_TIMEOUT_MS
+  )
+  if (!sizeResult.ok) {
+    if (isNotRepoError(sizeResult.stderr)) invalidateRepoCache(workspaceRoot)
+    return { status: 'error', error: firstMeaningfulLine(sizeResult.stderr) || '读取基准对象大小失败' }
+  }
+  const byteLength = Number.parseInt(sizeResult.stdout.trim(), 10)
+  if (!Number.isFinite(byteLength)) {
+    return { status: 'error', error: '基准对象大小解析失败' }
+  }
+  if (byteLength > GIT_BASELINE_MAX_BYTES) {
+    return { status: 'too-large', blobSha: entry.sha, byteLength }
+  }
+
+  const contentResult = await runGitBuffer(
+    workspaceRoot,
+    ['cat-file', '-p', entry.sha],
+    GIT_TIMEOUT_MS
+  )
+  if (!contentResult.ok) {
+    return { status: 'error', error: firstMeaningfulLine(contentResult.stderr) || '读取基准内容失败' }
+  }
+  const buffer = contentResult.stdout
+  // 与 readFile 一致的二进制判定：前 1024 字节含 NUL 即视为非文本
+  if (buffer.subarray(0, Math.min(1024, buffer.length)).includes(0)) {
+    return { status: 'binary', blobSha: entry.sha, byteLength }
+  }
+  return {
+    status: 'ok',
+    blobSha: entry.sha,
+    content: buffer.toString('utf8'),
+    byteLength
+  }
 }
 
 async function pathExists(target: string): Promise<boolean> {
@@ -938,7 +1063,7 @@ export interface CommitOptions {
 
 /** 提交工作区内的全部改动；工作区是仓库子目录时不会带上仓库其他部分 */
 export async function commit(workspaceRoot: string, options: CommitOptions): Promise<GitActionResult> {
-  return serialize(workspaceRoot, async () => {
+  return serializeWrite(workspaceRoot, async () => {
     const status = await readStatus(workspaceRoot)
     const blocked = blockedByState(status)
     if (blocked) return blocked
@@ -986,7 +1111,7 @@ export async function commit(workspaceRoot: string, options: CommitOptions): Pro
 
 /** 只允许快进：远程有新提交且本地无分叉时直接更新 */
 export async function pullFastForward(workspaceRoot: string): Promise<GitActionResult> {
-  return serialize(workspaceRoot, async () => {
+  return serializeWrite(workspaceRoot, async () => {
     let status = await readStatus(workspaceRoot)
     let blocked = blockedByState(status)
     if (blocked) return blocked
@@ -1062,7 +1187,7 @@ export async function pullFastForward(workspaceRoot: string): Promise<GitActionR
 
 /** 分叉时显式合并远程改动；失败会中止合并，回到操作前状态 */
 export async function mergeUpstream(workspaceRoot: string): Promise<GitActionResult> {
-  return serialize(workspaceRoot, async () => {
+  return serializeWrite(workspaceRoot, async () => {
     let status = await readStatus(workspaceRoot)
     let blocked = blockedByState(status)
     if (blocked) return blocked
@@ -1138,7 +1263,7 @@ export async function mergeUpstream(workspaceRoot: string): Promise<GitActionRes
 
 /** 撤销进行中的合并（pull/merge 冲突后），恢复操作前状态 */
 export async function abortMerge(workspaceRoot: string): Promise<GitActionResult> {
-  return serialize(workspaceRoot, async () => {
+  return serializeWrite(workspaceRoot, async () => {
     const status = await readStatus(workspaceRoot)
     if (!status.isRepository) {
       return { success: false, failure: 'not-repository', error: '当前工作区还不是 Git 仓库' }
@@ -1156,7 +1281,7 @@ export async function abortMerge(workspaceRoot: string): Promise<GitActionResult
 
 /** 推送当前分支；首次推送需要界面先确认，再传入 setUpstream */
 export async function push(workspaceRoot: string, setUpstream: boolean): Promise<GitActionResult> {
-  return serialize(workspaceRoot, async () => {
+  return serializeWrite(workspaceRoot, async () => {
     let status = await readStatus(workspaceRoot)
     let blocked = blockedByState(status)
     if (blocked) return blocked
@@ -1268,8 +1393,7 @@ function parseLogOutput(stdout: string, unpushedIds: Set<string>): GitHistoryIte
  */
 export async function getLog(workspaceRoot: string, limit = 50): Promise<GitHistoryItem[]> {
   if (!workspaceRoot) return []
-  const version = await runGit(workspaceRoot, ['--version'])
-  if (version.spawnError) return []
+  if (!(await ensureGitAvailable(workspaceRoot))) return []
   const repo = await resolveRepo(workspaceRoot)
   if (!repo) return []
   const cappedLimit = String(Math.min(limit, 200))
@@ -1450,13 +1574,15 @@ export async function getCommitDetail(
  * 只追加缺失规则，已有 .gitignore 不被覆盖。
  */
 export async function initRepository(workspaceRoot: string): Promise<GitActionResult> {
-  return serialize(workspaceRoot, async () => {
+  return serializeWrite(workspaceRoot, async () => {
+    invalidateRepoCache(workspaceRoot)
     const repo = await resolveRepo(workspaceRoot)
     if (repo) return { success: true }
     const result = await runGit(workspaceRoot, ['init'])
     if (!result.ok) {
       return { success: false, failure: 'failed', error: explainGitError(result.stderr || result.stdout) }
     }
+    invalidateRepoCache(workspaceRoot)
     // 只在没有 .gitignore 时补默认规则；已有规则属于用户配置，不在初始化时擅自追加
     let hasGitignore = false
     try {
@@ -1508,7 +1634,7 @@ export async function discardChange(
     return { success: false, failure: 'failed', error: '非法的相对路径' }
   }
 
-  return serialize(workspaceRoot, async () => {
+  return serializeWrite(workspaceRoot, async () => {
     const status = await readStatus(workspaceRoot)
     const blocked = blockedByState(status)
     if (blocked) return blocked
@@ -1694,7 +1820,7 @@ export async function cleanupIndexAfterTrash(
     return { success: false, failure: 'failed', error: '非法的相对路径' }
   }
 
-  return serialize(workspaceRoot, async () => {
+  return serializeWrite(workspaceRoot, async () => {
     const status = await readStatus(workspaceRoot)
     const blocked = blockedByState(status)
     if (blocked) return blocked
@@ -1739,7 +1865,7 @@ export async function ignorePath(
     return { success: false, failure: 'failed', error: '不能忽略 .gitignore 文件本身' }
   }
 
-  return serialize(workspaceRoot, async () => {
+  return serializeWrite(workspaceRoot, async () => {
     const status = await readStatus(workspaceRoot)
     const blocked = blockedByState(status)
     if (blocked) return blocked

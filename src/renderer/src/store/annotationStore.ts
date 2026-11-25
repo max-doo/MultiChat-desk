@@ -134,15 +134,28 @@ export const useAnnotationStore = create<AnnotationStore>((set, get) => ({
   setResolutions: (entries, token) => {
     if (typeof token === 'number' && token !== get().token) return
     set(state => {
+      let changed = false
+      for (const entry of entries) {
+        const prev = state.resolutionById[entry.id]
+        if (!prev || prev.state !== entry.state || prev.reason !== entry.reason) {
+          changed = true
+          break
+        }
+      }
+      if (!changed) return state
       const resolutionById = { ...state.resolutionById }
       for (const entry of entries) {
         resolutionById[entry.id] = { state: entry.state, reason: entry.reason }
       }
+      const nextUnlocated = Object.entries(resolutionById)
+        .filter(([, resolution]) => isUnresolvedAnchorState(resolution.state))
+        .map(([id]) => id)
+      const sameUnlocated =
+        nextUnlocated.length === state.unlocatedIds.length &&
+        nextUnlocated.every((id, idx) => id === state.unlocatedIds[idx])
       return {
         resolutionById,
-        unlocatedIds: Object.entries(resolutionById)
-          .filter(([, resolution]) => isUnresolvedAnchorState(resolution.state))
-          .map(([id]) => id)
+        unlocatedIds: sameUnlocated ? state.unlocatedIds : nextUnlocated
       }
     })
   },

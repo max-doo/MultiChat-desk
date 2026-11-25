@@ -93,6 +93,7 @@ export interface GitStatus {
 /** 编辑器行内/块级变更标记的基线读取结果 */
 export type GitBaselineStatus =
   | 'ok'          // 成功拿到基准文本
+  | 'unchanged'   // 传入 knownBlobSha 与当前索引一致，沿用现有基线缓存
   | 'none'        // 非 Git 仓库 / 未跟踪 / unborn / 冲突中 / 无索引条目
   | 'binary'      // 基准对象含 NUL 字节或非文本
   | 'too-large'   // 基准对象超过安全大小上限，熔断降级

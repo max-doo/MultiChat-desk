@@ -5,7 +5,7 @@
 
 import type { ModelSelector } from '../config/selectors'
 import { getHtmlToMarkdownScript } from './htmlToMarkdown'
-import { noteMessageSelectors, generationStopSelectors, mindmapCodeSelectors, responseMessageSelectors, fileUploadSelectors, type AssistantReplyConfig } from '../config/selectors'
+import { noteMessageSelectors, generationStopSelectors, authWallSelectors, mindmapCodeSelectors, responseMessageSelectors, fileUploadSelectors, type AssistantReplyConfig } from '../config/selectors'
 import { MINDMAP_TAGS } from './mindmap'
 import { MINDMAP_EDIT_TAGS, MINDMAP_REWRITE_TAGS } from './mindmapEdits'
 import { NOTE_CLICK_PREFIX, NOTE_DISMISS_PREFIX } from '../types/notes'
@@ -2893,7 +2893,7 @@ export function generateMindmapPageStateScript(
 
 /**
  * 工作台侧边栏自动休眠前检查页面是否仍在工作。
- * 返回结构固定；无法确认输入框或脚本执行失败时由调用方按 busy=true 处理。
+ * 使用 DOM 语义可见性探针替代 getClientRects() 几何检查，避免隐藏容器或未登录页死循环保活。
  */
 export function generateWorkbenchLifecycleStateScript(
   selectors: ModelSelector,
@@ -2901,24 +2901,52 @@ export function generateWorkbenchLifecycleStateScript(
 ): string {
   return String.raw`(function () {
     const config = ${JSON.stringify(fileUploadSelectors)};
-    const visible = el => !!el && el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden' && getComputedStyle(el).opacity !== '0';
+    const isSemanticallyVisible = el => {
+      if (!el || !el.isConnected) return false;
+      if (el.closest('[hidden], [aria-hidden="true"]')) return false;
+      let cur = el;
+      while (cur && cur.nodeType === 1) {
+        const style = getComputedStyle(cur);
+        if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+          return false;
+        }
+        cur = cur.parentElement;
+      }
+      return true;
+    };
     const find = (list, root = document) => {
       for (const selector of list) {
         try {
-          const el = Array.from(root.querySelectorAll(selector)).find(visible);
+          const el = Array.from(root.querySelectorAll(selector)).find(isSemanticallyVisible);
           if (el) return el;
         } catch {}
       }
       return null;
     };
-    const input = find(${JSON.stringify(selectors.textarea)});
-    if (!input) return { ready: false, busy: true, reason: 'not-ready' };
+
+    const href = location.href || '';
+    if (!document.body || href === 'about:blank' || href.startsWith('chrome-error://')) {
+      return { ready: false, busy: false, reason: 'not-ready' };
+    }
 
     const stops = ${JSON.stringify(generationStopSelectors[platformId] || [])};
     const genericStops = ['button[aria-label*="Stop" i]', 'button[aria-label*="停止"]', 'button[data-testid="stop-button"]'];
-    if (find([...stops, ...genericStops])) {
+    const stopEl = find([...stops, ...genericStops]);
+    if (stopEl && !stopEl.disabled && stopEl.getAttribute('aria-disabled') !== 'true') {
       return { ready: true, busy: true, reason: 'generating' };
     }
+    const streamingIndicators = ['[data-streaming="true"]', '[data-is-streaming="true"]', '.result-streaming'];
+    if (find(streamingIndicators)) {
+      return { ready: true, busy: true, reason: 'generating' };
+    }
+
+    const authWall = ${JSON.stringify(authWallSelectors.wall)};
+    if (find(authWall)) {
+      return { ready: false, busy: false, reason: 'auth-wall' };
+    }
+
+    const input = find(${JSON.stringify(selectors.textarea)});
+    if (!input) return { ready: false, busy: false, reason: 'not-ready' };
 
     // 输入框到发送按钮之间是 composer；只在这里找附件与上传状态，避免把会话正文误判为待发送内容。
     let composer = input.parentElement;
@@ -2931,10 +2959,10 @@ export function generateWorkbenchLifecycleStateScript(
       probe = probe.parentElement;
     }
     composer ||= input.parentElement;
-    if (!composer) return { ready: true, busy: true, reason: 'composer-unknown' };
+    if (!composer) return { ready: true, busy: false, reason: 'idle' };
 
     const ignored = el => !el || input.contains(el) || !!el.closest(config.ignored);
-    if (Array.from(composer.querySelectorAll(config.progress)).some(el => !ignored(el) && visible(el))) {
+    if (Array.from(composer.querySelectorAll(config.progress)).some(el => !ignored(el) && isSemanticallyVisible(el))) {
       return { ready: true, busy: true, reason: 'uploading' };
     }
     const composerText = (composer.innerText || composer.textContent || '').slice(0, 20000);
@@ -2948,19 +2976,20 @@ export function generateWorkbenchLifecycleStateScript(
       '[class*="attachment" i],[class*="upload-item" i],[class*="file-chip" i],[class*="file-pill" i]'
     );
     for (const el of dedicated) {
-      if (ignored(el) || !visible(el)) continue;
+      if (ignored(el) || !isSemanticallyVisible(el)) continue;
       if (el.closest('button,[role="button"],svg')) continue;
       return { ready: true, busy: true, reason: 'attachment-chip' };
     }
 
     const metadata = composer.querySelectorAll('img,[aria-label],[title],[data-file-name]');
     for (const el of metadata) {
-      if (ignored(el) || !visible(el)) continue;
+      if (ignored(el) || !isSemanticallyVisible(el)) continue;
       if (el.closest('button,[role="button"],svg')) continue;
       if (el.tagName === 'IMG') {
         const src = el.currentSrc || el.src || '';
-        const rect = el.getBoundingClientRect();
-        if ((src.startsWith('blob:') || src.startsWith('data:')) && rect.width >= 24 && rect.height >= 24) {
+        const w = el.naturalWidth || el.width || el.getBoundingClientRect().width;
+        const h = el.naturalHeight || el.height || el.getBoundingClientRect().height;
+        if ((src.startsWith('blob:') || src.startsWith('data:')) && w >= 24 && h >= 24) {
           return { ready: true, busy: true, reason: 'attachment-image' };
         }
         continue;
@@ -2995,14 +3024,23 @@ export function generateNoteHighlightScript(
       const notes = ${JSON.stringify(notes)};
       const focusedId = ${JSON.stringify(focusedNoteId ?? '')};
       window.__multichatNoteDispose?.();
+      if (!notes.length) {
+        CSS.highlights.delete('multichat-notes');
+        CSS.highlights.delete('multichat-note-focus');
+        return { matched: 0, focusedMatched: false, supported: true };
+      }
       const compact = value => (value || '').replace(/[\s\u200b-\u200d\ufeff]/g, '');
       const hiddenTextSelector = '.sr-only,[class*="sr-only"]:not(.not-sr-only),[class*="visually-hidden"],[class*="screen-reader"],[aria-hidden="true"],[hidden]';
       const anchorHiddenTextSelector = '.sr-only,[class*="sr-only"]:not(.not-sr-only),[class*="visually-hidden"],[class*="screen-reader"],[hidden]';
       let targets = [];
       let focused = null;
       const render = () => {
+        const compactExactList = notes.map(note => compact(note.anchor.exact)).filter(Boolean);
         const roots = Array.from(document.querySelectorAll('main,[role="main"]'));
-        const root = roots.find(el => notes.some(note => note.anchor.exact && compact(el.innerText || el.textContent).includes(compact(note.anchor.exact)))) || document.body;
+        const root = roots.find(el => {
+          const elText = compact(el.innerText || el.textContent);
+          return compactExactList.some(exact => elText.includes(exact));
+        }) || document.body;
         const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
         const nodes = [];
         let text = '';

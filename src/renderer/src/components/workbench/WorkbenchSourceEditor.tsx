@@ -134,6 +134,13 @@ class GitGutterMarker extends GutterMarker {
   ) {
     super()
   }
+  override eq(other: GutterMarker): boolean {
+    return (
+      other instanceof GitGutterMarker &&
+      other.kind === this.kind &&
+      other.alsoDeleted === this.alsoDeleted
+    )
+  }
   override toDOM(): Node {
     const el = document.createElement('span')
     el.className = `cm-git-gutter-marker git-${this.kind}`
@@ -141,6 +148,14 @@ class GitGutterMarker extends GutterMarker {
     return el
   }
 }
+
+const ADDED_MARKER = new GitGutterMarker('added', false)
+const ADDED_DELETED_MARKER = new GitGutterMarker('added', true)
+const MODIFIED_MARKER = new GitGutterMarker('modified', false)
+const MODIFIED_DELETED_MARKER = new GitGutterMarker('modified', true)
+const DELETED_MARKER = new GitGutterMarker('deleted', false)
+
+const SOURCE_SYNC_DEBOUNCE_MS = 250
 
 function buildGitGutterExtension(
   lineMarks: Array<'added' | 'modified' | undefined>,
@@ -152,15 +167,18 @@ function buildGitGutterExtension(
       const lineNo = view.state.doc.lineAt(line.from).number - 1
       const del = deletedAfter.get(lineNo)
       const mark = lineMarks[lineNo]
-      if (mark === 'added' || mark === 'modified') {
-        return new GitGutterMarker(mark, !!del)
-      }
-      if (del) return new GitGutterMarker('deleted')
+      if (mark === 'added') return del ? ADDED_DELETED_MARKER : ADDED_MARKER
+      if (mark === 'modified') return del ? MODIFIED_DELETED_MARKER : MODIFIED_MARKER
+      if (del) return DELETED_MARKER
       return null
     },
-    // Compartment.reconfigure 触发的 update 中 docChanged/viewportChanged 均为 false，
-    // 必须始终返回 true 让 marker 随 diff 结果刷新。
-    lineMarkerChange: () => true
+    // 仅在文档内容变更或 Compartment.reconfigure 刷新 diff 时重算 gutter marker，避免光标移动重建 DOM
+    lineMarkerChange(update) {
+      return (
+        update.docChanged ||
+        update.transactions.some((tr) => tr.reconfigured)
+      )
+    }
   })
 }
 
@@ -183,12 +201,24 @@ export interface WorkbenchSourceEditorHandle {
 
 const WorkbenchSourceEditor = forwardRef<
   WorkbenchSourceEditorHandle,
-  { value: string; onChange: (v: string) => void }
->(function WorkbenchSourceEditor({ value, onChange }, ref): JSX.Element {
+  { value?: string; onChange?: (v: string) => void }
+>(function WorkbenchSourceEditor({ value: propValue, onChange: propOnChange }, ref): JSX.Element {
+  const storeValue = useWorkbenchStore((s) =>
+    propValue === undefined ? s.activeFileContent : ''
+  )
+  const updateActiveContent = useWorkbenchStore((s) => s.updateActiveContent)
+  const setSourceSyncFlusher = useWorkbenchStore((s) => s.setSourceSyncFlusher)
+  const value = propValue ?? storeValue
+  const onChange = propOnChange ?? updateActiveContent
+
   const hostRef = useRef<HTMLDivElement | null>(null)
   const viewRef = useRef<EditorView | null>(null)
   const valueRef = useRef(value)
   const onChangeRef = useRef(onChange)
+  const lastEmittedValueRef = useRef(value)
+  const pendingSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const hasPendingSyncRef = useRef(false)
+  const flushSyncRef = useRef<() => void>(() => undefined)
   valueRef.current = value
   onChangeRef.current = onChange
 
@@ -198,9 +228,45 @@ const WorkbenchSourceEditor = forwardRef<
   const isDark = markdownBackgroundTheme === 'dark'
   const gitDiff = useGitLineDiff(value)
 
+  // 注册同步 flusher：保存、切换模式、切文件或 Ctrl+F 前同步落入 store
+  useEffect(() => {
+    const flushSync = (): void => {
+      if (pendingSyncTimerRef.current) {
+        clearTimeout(pendingSyncTimerRef.current)
+        pendingSyncTimerRef.current = null
+      }
+      if (!hasPendingSyncRef.current) return
+      hasPendingSyncRef.current = false
+      const view = viewRef.current
+      if (!view) return
+      const nextText = view.state.doc.toString()
+      if (nextText === lastEmittedValueRef.current && nextText === valueRef.current) {
+        return
+      }
+      lastEmittedValueRef.current = nextText
+      onChangeRef.current(nextText)
+    }
+    flushSyncRef.current = flushSync
+    setSourceSyncFlusher(flushSync)
+    return () => {
+      if (pendingSyncTimerRef.current) {
+        clearTimeout(pendingSyncTimerRef.current)
+        pendingSyncTimerRef.current = null
+      }
+      setSourceSyncFlusher(null)
+    }
+  }, [setSourceSyncFlusher])
+
   // 保存滚动位置：用户滚动时实时记忆，组件卸载前由 store 兜底
   useEffect(() => {
     if (!hostRef.current) return
+
+    if (pendingSyncTimerRef.current) {
+      clearTimeout(pendingSyncTimerRef.current)
+      pendingSyncTimerRef.current = null
+    }
+    hasPendingSyncRef.current = false
+    lastEmittedValueRef.current = valueRef.current
 
     const gitGutter = buildGitGutterExtension(
       gitDiff.active ? gitDiff.lineMarks : [],
@@ -234,7 +300,17 @@ const WorkbenchSourceEditor = forwardRef<
           EditorView.updateListener.of(update => {
             if (!update.docChanged) return
             if (update.transactions.some(tr => tr.annotation(externalChange))) return
-            onChangeRef.current(update.state.doc.toString())
+            if (!hasPendingSyncRef.current) {
+              hasPendingSyncRef.current = true
+              useWorkbenchStore.getState().markSourcePendingSync()
+            }
+            if (pendingSyncTimerRef.current) {
+              clearTimeout(pendingSyncTimerRef.current)
+            }
+            pendingSyncTimerRef.current = setTimeout(() => {
+              pendingSyncTimerRef.current = null
+              flushSyncRef.current()
+            }, SOURCE_SYNC_DEBOUNCE_MS)
           }),
           EditorView.domEventHandlers({
             scroll: (_event, view) => {
@@ -248,6 +324,11 @@ const WorkbenchSourceEditor = forwardRef<
     })
     viewRef.current = view
     return () => {
+      if (pendingSyncTimerRef.current) {
+        clearTimeout(pendingSyncTimerRef.current)
+        pendingSyncTimerRef.current = null
+      }
+      hasPendingSyncRef.current = false
       viewRef.current = null
       view.destroy()
     }
@@ -280,10 +361,23 @@ const WorkbenchSourceEditor = forwardRef<
   }, [gitDiff])
 
   // 外部内容变化（切文件、外部修改、富文本回写）时同步进 CM；
-  // 用 externalChange 注解避免被当成用户输入再次回写。
+  // 用 externalChange 注解避免被当成用户输入再次回写，并借助 lastEmittedValueRef 跳过自身回写触发的 doc.toString() 比对。
   useEffect(() => {
     const view = viewRef.current
-    if (!view || view.state.doc.toString() === value) return
+    if (!view) return
+    if (!hasPendingSyncRef.current && value === lastEmittedValueRef.current) {
+      return
+    }
+    if (view.state.doc.toString() === value) {
+      lastEmittedValueRef.current = value
+      return
+    }
+    if (pendingSyncTimerRef.current) {
+      clearTimeout(pendingSyncTimerRef.current)
+      pendingSyncTimerRef.current = null
+    }
+    hasPendingSyncRef.current = false
+    lastEmittedValueRef.current = value
     view.dispatch({
       changes: { from: 0, to: view.state.doc.length, insert: value },
       annotations: [externalChange.of(true), isolateHistory.of('full')]

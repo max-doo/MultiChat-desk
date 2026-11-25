@@ -1,9 +1,36 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react'
+import { Annotation, Compartment, EditorState, type Extension } from '@codemirror/state'
+import {
+  EditorView,
+  drawSelection,
+  highlightActiveLine,
+  highlightActiveLineGutter,
+  keymap,
+  lineNumbers,
+  gutter,
+  GutterMarker,
+  placeholder
+} from '@codemirror/view'
+import {
+  defaultKeymap,
+  history,
+  historyKeymap,
+  indentWithTab,
+  isolateHistory
+} from '@codemirror/commands'
+import {
+  HighlightStyle,
+  StreamLanguage,
+  type StringStream,
+  syntaxHighlighting
+} from '@codemirror/language'
+import { tags } from '@lezer/highlight'
 import {
   useWorkbenchStore,
   type HtmlEditLeaveDecision
 } from '../../store/workbenchStore'
 import { useGitLineDiff } from '../../hooks/useGitLineDiff'
+import { readEditorScroll, rememberEditorScroll } from './workbenchEditorScroll'
 import WorkbenchFindReplaceBar from './WorkbenchFindReplaceBar'
 import WorkbenchHtmlVisualEditor, {
   type WorkbenchHtmlVisualEditorHandle
@@ -32,50 +59,425 @@ function stepHtmlZoom(current: number, direction: -1 | 1): number {
   return HTML_ZOOM_MIN
 }
 
-// 零依赖高性能单行语法高亮器
-function highlightCodeLine(line: string): React.ReactNode {
-  if (!line) return ' '
+const externalChange = Annotation.define<boolean>()
+const CODE_SYNC_DEBOUNCE_MS = 250
+const LONG_LINE_HIGHLIGHT_LIMIT = 2_000
+const LARGE_FILE_HIGHLIGHT_BYTES = 1024 * 1024
 
-  const tokenRegex =
-    /(\/\/[^\n]*|\/\*[\s\S]*?\*\/|#[^\n]*)|("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`)|(\b(?:const|let|var|function|return|if|else|for|while|do|switch|case|break|continue|import|from|export|default|class|interface|type|extends|implements|new|this|typeof|instanceof|async|await|try|catch|finally|throw|def|self|yield|lambda|in|is|not|and|or|pass|elif|print|SELECT|FROM|WHERE|INSERT|INTO|VALUES|UPDATE|SET|DELETE|CREATE|TABLE|ALTER|DROP)\b)|(\b(?:true|false|null|undefined|None|True|False|nil)\b)|(\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b|0x[0-9a-fA-F]+\b)|(\b(?:string|number|boolean|any|void|never|unknown|object|Array|Promise|Record|Map|Set|int|float|str)\b)|(\b[a-zA-Z_$][a-zA-Z0-9_$]*(?=\s*\())/g
+const readOnlyCompartment = new Compartment()
+const languageCompartment = new Compartment()
+const gitGutterCompartment = new Compartment()
 
-  const nodes: React.ReactNode[] = []
-  let lastIndex = 0
-  let match: RegExpExecArray | null
+const PLAIN_TEXT_EXTENSIONS = new Set([
+  'log',
+  'txt',
+  'csv',
+  'tsv',
+  'env',
+  'ini',
+  'conf',
+  'lock'
+])
 
-  while ((match = tokenRegex.exec(line)) !== null) {
-    if (match.index > lastIndex) {
-      nodes.push(line.slice(lastIndex, match.index))
-    }
-    const [full, comment, str, kw, bool, num, type, fn] = match
-    if (comment) {
-      nodes.push(<span key={match.index} className="text-[#858585] italic">{comment}</span>)
-    } else if (str) {
-      nodes.push(<span key={match.index} className="text-emerald-400">{str}</span>)
-    } else if (kw) {
-      nodes.push(<span key={match.index} className="text-purple-400 font-semibold">{kw}</span>)
-    } else if (bool) {
-      nodes.push(<span key={match.index} className="text-rose-400">{bool}</span>)
-    } else if (num) {
-      nodes.push(<span key={match.index} className="text-amber-400">{num}</span>)
-    } else if (type) {
-      nodes.push(<span key={match.index} className="text-sky-300">{type}</span>)
-    } else if (fn) {
-      nodes.push(<span key={match.index} className="text-blue-300">{fn}</span>)
-    } else {
-      nodes.push(full)
-    }
-    lastIndex = match.index + full.length
-  }
+const darkCodeHighlight = HighlightStyle.define([
+  { tag: tags.comment, color: '#858585', fontStyle: 'italic' },
+  { tag: [tags.string, tags.special(tags.string)], color: '#34d399' },
+  { tag: [tags.keyword, tags.controlKeyword, tags.operatorKeyword, tags.definitionKeyword], color: '#c084fc', fontWeight: '600' },
+  { tag: [tags.bool, tags.null, tags.atom], color: '#fb7185' },
+  { tag: tags.number, color: '#fbbf24' },
+  { tag: [tags.typeName, tags.className, tags.tagName], color: '#7dd3fc' },
+  { tag: [tags.propertyName, tags.attributeName, tags.function(tags.variableName)], color: '#93c5fd' },
+  { tag: tags.heading, color: '#79c0ff', fontWeight: '600' },
+  { tag: tags.strong, color: '#f4f4f5', fontWeight: '700' },
+  { tag: tags.emphasis, color: '#e4e4e7', fontStyle: 'italic' },
+  { tag: [tags.link, tags.url], color: '#79c0ff' },
+  { tag: tags.monospace, color: '#ffa657' }
+])
 
-  if (lastIndex < line.length) {
-    nodes.push(line.slice(lastIndex))
-  }
-
-  return nodes
+function buildCodeEditorTheme(isEditable: boolean): Extension {
+  return EditorView.theme(
+    {
+      '&': {
+        height: '100%',
+        fontSize: '13px',
+        color: '#e4e4e7',
+        backgroundColor: 'transparent'
+      },
+      '&.cm-focused': { outline: 'none' },
+      '.cm-scroller': {
+        overflow: 'auto',
+        fontFamily: "'JetBrains Mono', Menlo, Consolas, 'Courier New', monospace",
+        lineHeight: '1.65'
+      },
+      '.cm-content': {
+        padding: '16px 16px 80px',
+        caretColor: isEditable ? '#e4e4e7' : 'transparent'
+      },
+      '.cm-cursorLayer': {
+        display: isEditable ? 'block' : 'none'
+      },
+      '.cm-line': { padding: '0' },
+      '.cm-gutters': {
+        backgroundColor: '#181818',
+        color: '#858585',
+        border: 'none',
+        borderRight: '1px solid rgba(255, 255, 255, 0.08)'
+      },
+      '.cm-lineNumbers .cm-gutterElement': {
+        padding: '0 10px 0 6px',
+        minWidth: '3rem',
+        textAlign: 'right'
+      },
+      '.cm-gitGutter .cm-gutterElement': {
+        display: 'flex',
+        alignItems: 'stretch',
+        justifyContent: 'flex-end',
+        width: '8px',
+        padding: '0'
+      },
+      '.cm-activeLine, .cm-activeLineGutter': {
+        backgroundColor: 'rgba(255, 255, 255, 0.04)'
+      },
+      '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': {
+        backgroundColor: 'rgba(59, 130, 246, 0.28)'
+      },
+      '.cm-content ::selection': {
+        backgroundColor: 'rgba(59, 130, 246, 0.28)'
+      }
+    },
+    { dark: true }
+  )
 }
 
-export default function WorkbenchCodePreview(): JSX.Element {
+class CodeGitGutterMarker extends GutterMarker {
+  constructor(
+    private readonly kind: 'added' | 'modified' | 'deleted',
+    private readonly alsoDeleted = false
+  ) {
+    super()
+  }
+  override eq(other: GutterMarker): boolean {
+    return (
+      other instanceof CodeGitGutterMarker &&
+      other.kind === this.kind &&
+      other.alsoDeleted === this.alsoDeleted
+    )
+  }
+  override toDOM(): Node {
+    const el = document.createElement('span')
+    el.className = `cm-git-gutter-marker git-${this.kind}`
+    if (this.alsoDeleted) el.classList.add('git-also-deleted')
+    return el
+  }
+}
+
+const CODE_ADDED_MARKER = new CodeGitGutterMarker('added', false)
+const CODE_ADDED_DELETED_MARKER = new CodeGitGutterMarker('added', true)
+const CODE_MODIFIED_MARKER = new CodeGitGutterMarker('modified', false)
+const CODE_MODIFIED_DELETED_MARKER = new CodeGitGutterMarker('modified', true)
+const CODE_DELETED_MARKER = new CodeGitGutterMarker('deleted', false)
+
+function buildCodeGitGutter(
+  lineMarks: Array<'added' | 'modified' | undefined>,
+  deletedAfter: Map<number, number>
+): Extension {
+  return gutter({
+    class: 'cm-gitGutter',
+    lineMarker(view, line) {
+      const lineNo = view.state.doc.lineAt(line.from).number - 1
+      const del = deletedAfter.get(lineNo)
+      const mark = lineMarks[lineNo]
+      if (mark === 'added') return del ? CODE_ADDED_DELETED_MARKER : CODE_ADDED_MARKER
+      if (mark === 'modified') return del ? CODE_MODIFIED_DELETED_MARKER : CODE_MODIFIED_MARKER
+      if (del) return CODE_DELETED_MARKER
+      return null
+    },
+    lineMarkerChange(update) {
+      return update.docChanged || update.transactions.some((tr) => tr.reconfigured)
+    }
+  })
+}
+
+interface StreamLangSpec {
+  keywords: Set<string>
+  atoms: Set<string>
+  types: Set<string>
+  slashComments?: boolean
+  hashComments?: boolean
+  dashComments?: boolean
+  blockComments?: boolean
+  markupTags?: boolean
+  jsonKeys?: boolean
+  yamlKeys?: boolean
+  cssMode?: boolean
+  backtickStrings?: boolean
+}
+
+const COMMON_JS_KEYWORDS = new Set([
+  'const', 'let', 'var', 'function', 'return', 'if', 'else', 'for', 'while', 'do',
+  'switch', 'case', 'break', 'continue', 'import', 'from', 'export', 'default',
+  'class', 'interface', 'type', 'extends', 'implements', 'new', 'this', 'super',
+  'typeof', 'instanceof', 'async', 'await', 'try', 'catch', 'finally', 'throw',
+  'in', 'of', 'as', 'enum', 'public', 'private', 'protected', 'readonly', 'static'
+])
+const COMMON_ATOMS = new Set(['true', 'false', 'null', 'undefined', 'NaN', 'Infinity', 'None', 'True', 'False', 'nil'])
+const COMMON_TYPES = new Set([
+  'string', 'number', 'boolean', 'any', 'void', 'never', 'unknown', 'object',
+  'Array', 'Promise', 'Record', 'Map', 'Set', 'int', 'float', 'str', 'bool', 'usize', 'i32', 'u32'
+])
+
+const STREAM_SPECS: Record<string, StreamLangSpec> = {
+  js: {
+    keywords: COMMON_JS_KEYWORDS,
+    atoms: COMMON_ATOMS,
+    types: COMMON_TYPES,
+    slashComments: true,
+    blockComments: true,
+    backtickStrings: true
+  },
+  json: {
+    keywords: new Set(),
+    atoms: new Set(['true', 'false', 'null']),
+    types: new Set(),
+    slashComments: true,
+    blockComments: true,
+    jsonKeys: true
+  },
+  markup: {
+    keywords: new Set(['doctype']),
+    atoms: COMMON_ATOMS,
+    types: new Set(),
+    markupTags: true
+  },
+  css: {
+    keywords: new Set(['@import', '@media', '@keyframes', '@layer', '@supports', 'important']),
+    atoms: new Set(['inherit', 'initial', 'unset', 'none', 'auto', 'solid', 'flex', 'grid', 'block', 'inline']),
+    types: new Set(),
+    blockComments: true,
+    cssMode: true
+  },
+  py: {
+    keywords: new Set([
+      'def', 'class', 'return', 'if', 'elif', 'else', 'for', 'while', 'break', 'continue',
+      'import', 'from', 'as', 'pass', 'raise', 'try', 'except', 'finally', 'with',
+      'yield', 'lambda', 'in', 'is', 'not', 'and', 'or', 'async', 'await', 'global', 'nonlocal'
+    ]),
+    atoms: new Set(['True', 'False', 'None', 'self', 'cls']),
+    types: COMMON_TYPES,
+    hashComments: true
+  },
+  shell: {
+    keywords: new Set([
+      'if', 'then', 'else', 'elif', 'fi', 'for', 'while', 'do', 'done', 'case', 'esac',
+      'in', 'function', 'return', 'exit', 'export', 'local', 'readonly', 'echo', 'cd'
+    ]),
+    atoms: new Set(['true', 'false']),
+    types: new Set(),
+    hashComments: true,
+    backtickStrings: true
+  },
+  yaml: {
+    keywords: new Set(),
+    atoms: new Set(['true', 'false', 'null', 'yes', 'no', 'on', 'off']),
+    types: new Set(),
+    hashComments: true,
+    yamlKeys: true
+  },
+  sql: {
+    keywords: new Set([
+      'SELECT', 'FROM', 'WHERE', 'INSERT', 'INTO', 'VALUES', 'UPDATE', 'SET', 'DELETE',
+      'CREATE', 'TABLE', 'ALTER', 'DROP', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'ON', 'AS',
+      'GROUP', 'BY', 'ORDER', 'HAVING', 'LIMIT', 'UNION', 'AND', 'OR', 'NOT', 'IN', 'IS',
+      'select', 'from', 'where', 'insert', 'into', 'values', 'update', 'set', 'delete',
+      'create', 'table', 'alter', 'drop', 'join', 'left', 'right', 'inner', 'on', 'as',
+      'group', 'by', 'order', 'having', 'limit', 'union', 'and', 'or', 'not', 'in', 'is'
+    ]),
+    atoms: new Set(['NULL', 'TRUE', 'FALSE', 'null', 'true', 'false']),
+    types: new Set(['INT', 'INTEGER', 'TEXT', 'VARCHAR', 'BOOLEAN', 'DATE', 'TIMESTAMP', 'int', 'text', 'varchar']),
+    dashComments: true,
+    blockComments: true
+  },
+  clike: {
+    keywords: new Set([
+      ...COMMON_JS_KEYWORDS,
+      'struct', 'fn', 'impl', 'trait', 'pub', 'use', 'mod', 'mut', 'match', 'package',
+      'func', 'defer', 'go', 'chan', 'select', 'namespace', 'using', 'virtual', 'override', 'void'
+    ]),
+    atoms: COMMON_ATOMS,
+    types: COMMON_TYPES,
+    slashComments: true,
+    blockComments: true,
+    hashComments: true
+  }
+}
+
+const EXT_TO_LANG_KEY: Record<string, string> = {
+  js: 'js', mjs: 'js', cjs: 'js', jsx: 'js', ts: 'js', mts: 'js', cts: 'js', tsx: 'js',
+  json: 'json', jsonc: 'json', json5: 'json',
+  html: 'markup', htm: 'markup', xml: 'markup', svg: 'markup', vue: 'markup', svelte: 'markup',
+  css: 'css', scss: 'css', less: 'css',
+  py: 'py', pyw: 'py',
+  sh: 'shell', bash: 'shell', zsh: 'shell', ps1: 'shell', psm1: 'shell',
+  yml: 'yaml', yaml: 'yaml', toml: 'yaml',
+  sql: 'sql',
+  c: 'clike', h: 'clike', cpp: 'clike', cc: 'clike', hpp: 'clike', cs: 'clike',
+  java: 'clike', go: 'clike', rs: 'clike', kt: 'clike', swift: 'clike', php: 'clike',
+  md: 'markdown', markdown: 'markdown'
+}
+
+interface StreamParserState {
+  inBlockComment: boolean
+  inHtmlComment: boolean
+  inTag: boolean
+}
+
+const languageCache = new Map<string, Extension>()
+
+function getStreamLanguageExtension(langKey: string): Extension | null {
+  const cached = languageCache.get(langKey)
+  if (cached) return cached
+  const spec = STREAM_SPECS[langKey]
+  if (!spec) return null
+
+  const ext = StreamLanguage.define<StreamParserState>({
+    startState: () => ({ inBlockComment: false, inHtmlComment: false, inTag: false }),
+    token(stream: StringStream, state: StreamParserState): string | null {
+      if (state.inBlockComment) {
+        if (stream.match(/.*?\*\//)) {
+          state.inBlockComment = false
+        } else {
+          stream.skipToEnd()
+        }
+        return 'comment'
+      }
+      if (state.inHtmlComment) {
+        if (stream.match(/.*?-->/)) {
+          state.inHtmlComment = false
+        } else {
+          stream.skipToEnd()
+        }
+        return 'comment'
+      }
+
+      if (stream.eatSpace()) return null
+
+      if (spec.markupTags && stream.match('<!--')) {
+        if (!stream.match(/.*?-->/)) {
+          state.inHtmlComment = true
+        }
+        return 'comment'
+      }
+
+      if (spec.blockComments && stream.match('/*')) {
+        if (!stream.match(/.*?\*\//)) {
+          state.inBlockComment = true
+        }
+        return 'comment'
+      }
+      if (spec.slashComments && stream.match('//')) {
+        stream.skipToEnd()
+        return 'comment'
+      }
+      if (spec.hashComments && stream.match('#')) {
+        stream.skipToEnd()
+        return 'comment'
+      }
+      if (spec.dashComments && stream.match('--')) {
+        stream.skipToEnd()
+        return 'comment'
+      }
+
+      if (spec.markupTags) {
+        if (stream.match(/<\/?[A-Za-z][\w:-]*/)) {
+          state.inTag = true
+          return 'tagName'
+        }
+        if (state.inTag) {
+          if (stream.match(/\/?>/)) {
+            state.inTag = false
+            return 'tagName'
+          }
+          if (stream.match(/[A-Za-z_][\w:-]*(?=\s*=)/)) {
+            return 'attributeName'
+          }
+        }
+      }
+
+      const ch = stream.peek()
+      if (ch === '"' || ch === "'" || (spec.backtickStrings && ch === '`')) {
+        const quote = stream.next()!
+        let escaped = false
+        while (!stream.eol()) {
+          const next = stream.next()
+          if (escaped) {
+            escaped = false
+          } else if (next === '\\') {
+            escaped = true
+          } else if (next === quote) {
+            break
+          }
+        }
+        if (spec.jsonKeys && quote === '"' && stream.match(/^\s*:/, false)) {
+          return 'propertyName'
+        }
+        return 'string'
+      }
+
+      if (spec.yamlKeys && stream.sol() && stream.match(/^-?\s*[A-Za-z0-9_.-]+(?=\s*:)/)) {
+        return 'propertyName'
+      }
+
+      if (spec.cssMode && stream.match(/#[0-9a-fA-F]{3,8}\b/)) {
+        return 'number'
+      }
+
+      if (stream.match(/0x[0-9a-fA-F]+\b|\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b/)) {
+        return 'number'
+      }
+
+      if (stream.match(/[A-Za-z_$][\w$-]*/)) {
+        const word = stream.current()
+        if (spec.cssMode && stream.match(/^\s*:/, false)) return 'propertyName'
+        if (spec.keywords.has(word)) return 'keyword'
+        if (spec.atoms.has(word)) return 'atom'
+        if (spec.types.has(word)) return 'typeName'
+        if (stream.match(/^\s*\(/, false)) return 'variableName.function'
+        return null
+      }
+
+      stream.next()
+      return null
+    }
+  })
+
+  languageCache.set(langKey, ext)
+  return ext
+}
+
+function getFileExtension(filePath: string | null): string {
+  if (!filePath) return ''
+  const base = filePath.split(/[/\\]/).pop() ?? ''
+  const dot = base.lastIndexOf('.')
+  return dot >= 0 ? base.slice(dot + 1).toLowerCase() : ''
+}
+
+function hasVeryLongLine(text: string, limit: number): boolean {
+  let lineStart = 0
+  for (;;) {
+    const nl = text.indexOf('\n', lineStart)
+    if (nl === -1) {
+      return text.length - lineStart > limit
+    }
+    if (nl - lineStart > limit) return true
+    lineStart = nl + 1
+  }
+}
+
+export default function WorkbenchCodePreview({
+  isActive = true
+}: {
+  isActive?: boolean
+} = {}): JSX.Element {
   const activeFilePath = useWorkbenchStore((s) => s.activeFilePath)
   const activeFileContent = useWorkbenchStore((s) => s.activeFileContent)
   const activeFileSize = useWorkbenchStore((s) => s.activeFileSize)
@@ -89,8 +491,10 @@ export default function WorkbenchCodePreview(): JSX.Element {
   const saveActiveFile = useWorkbenchStore((s) => s.saveActiveFile)
   const discardActiveFileChanges = useWorkbenchStore((s) => s.discardActiveFileChanges)
   const setHtmlEditLeaveGuard = useWorkbenchStore((s) => s.setHtmlEditLeaveGuard)
+  const setSourceSyncFlusher = useWorkbenchStore((s) => s.setSourceSyncFlusher)
   const openInSystem = useWorkbenchStore((s) => s.openInSystem)
   const revealFile = useWorkbenchStore((s) => s.revealFile)
+  const workspacePath = useWorkbenchStore((s) => s.workspacePath)
   const isHtmlFile = useMemo(() => {
     const lower = (activeFilePath || '').toLowerCase()
     return lower.endsWith('.html') || lower.endsWith('.htm')
@@ -119,23 +523,34 @@ export default function WorkbenchCodePreview(): JSX.Element {
   } | null>(null)
   const hadConflictRef = useRef(false)
 
+  // HTML 源码模式即为可编辑状态；其他代码文件沿用查看/编辑分离
+  const isEditable = isHtmlFile ? viewMode === 'source' : isEditing
+  const isVisualEditing = isHtmlFile && viewMode === 'edit'
+  const showCodeEditor =
+    !(isHtmlFile && viewMode === 'render') &&
+    !(isVisualEditing && activeFileUrl) &&
+    !activeFileOversized
+
   // Git 行内标记：仅源码/文本编辑态需要；渲染/可视化编辑态仅保留顶栏状态提示
-  const gitDiff = useGitLineDiff(activeFileContent)
-  const showGitGutter =
-    gitDiff.active && (isHtmlFile ? viewMode === 'source' : true)
+  const gitDiff = useGitLineDiff(showCodeEditor ? activeFileContent : '')
   const gitStatus = useWorkbenchStore((s) => s.gitStatus)
   const fileGitChange = useMemo(() => {
     if (!activeFilePath || !gitStatus?.changes) return null
     return gitStatus.changes.find(c => c.path === activeFilePath) ?? null
   }, [activeFilePath, gitStatus])
 
-  // HTML 源码模式即为可编辑状态；其他代码文件沿用查看/编辑分离
-  const isEditable = isHtmlFile ? viewMode === 'source' : isEditing
-  const isVisualEditing = isHtmlFile && viewMode === 'edit'
-
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null)
-  const codePreRef = useRef<HTMLPreElement | null>(null)
-  const lineNumbersRef = useRef<HTMLDivElement | null>(null)
+  const cmHostRef = useRef<HTMLDivElement | null>(null)
+  const cmViewRef = useRef<EditorView | null>(null)
+  const contentRef = useRef(activeFileContent)
+  const updateActiveContentRef = useRef(updateActiveContent)
+  const isEditableRef = useRef(isEditable)
+  const lastEmittedValueRef = useRef(activeFileContent)
+  const pendingSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const hasPendingSyncRef = useRef(false)
+  const flushSyncRef = useRef<() => void>(() => undefined)
+  contentRef.current = activeFileContent
+  updateActiveContentRef.current = updateActiveContent
+  isEditableRef.current = isEditable
 
   // 切换文件重置编辑与菜单状态；HTML 默认进入渲染预览
   useEffect(() => {
@@ -191,11 +606,231 @@ export default function WorkbenchCodePreview(): JSX.Element {
     return () => window.removeEventListener('workbench:git-file-reloaded', handler)
   }, [activeFilePath])
 
-  const lines = useMemo(() => {
-    return activeFileContent.split('\n')
+  const formattedSize = useMemo(() => formatFileSize(activeFileSize), [activeFileSize])
+
+  // 注册源码同步 flusher：保存、切换模式、切文件或 Ctrl+F 前同步落入 store
+  useEffect(() => {
+    const flushCodeSync = (): void => {
+      if (pendingSyncTimerRef.current) {
+        clearTimeout(pendingSyncTimerRef.current)
+        pendingSyncTimerRef.current = null
+      }
+      if (!hasPendingSyncRef.current) return
+      hasPendingSyncRef.current = false
+      const view = cmViewRef.current
+      if (!view) return
+      const nextText = view.state.doc.toString()
+      if (nextText === lastEmittedValueRef.current && nextText === contentRef.current) {
+        return
+      }
+      lastEmittedValueRef.current = nextText
+      updateActiveContentRef.current(nextText)
+    }
+    flushSyncRef.current = flushCodeSync
+    if (!showCodeEditor) {
+      setSourceSyncFlusher(null)
+      return
+    }
+    setSourceSyncFlusher(flushCodeSync)
+    return () => {
+      if (pendingSyncTimerRef.current) {
+        clearTimeout(pendingSyncTimerRef.current)
+        pendingSyncTimerRef.current = null
+      }
+      setSourceSyncFlusher(null)
+    }
+  }, [setSourceSyncFlusher, showCodeEditor])
+
+  // 决定当前文件是否需要语法高亮（.log/.txt/.csv 或超大/超长单行降级纯文本）
+  const langKey = useMemo(() => {
+    if (!showCodeEditor) return ''
+    const ext = getFileExtension(activeFilePath)
+    if (!ext || PLAIN_TEXT_EXTENSIONS.has(ext)) return ''
+    const mapped = EXT_TO_LANG_KEY[ext]
+    if (!mapped) return ''
+    const text = contentRef.current
+    if (text.length > LARGE_FILE_HIGHLIGHT_BYTES || hasVeryLongLine(text, LONG_LINE_HIGHLIGHT_LIMIT)) {
+      return ''
+    }
+    return mapped
+  }, [activeFilePath, showCodeEditor])
+
+  // 挂载 CodeMirror 6 实例（仅在文件路径或视图进入代码态时重建）
+  useEffect(() => {
+    if (!showCodeEditor || !cmHostRef.current) return
+
+    if (pendingSyncTimerRef.current) {
+      clearTimeout(pendingSyncTimerRef.current)
+      pendingSyncTimerRef.current = null
+    }
+    hasPendingSyncRef.current = false
+    lastEmittedValueRef.current = contentRef.current
+
+    const initialLangExt =
+      langKey && langKey !== 'markdown'
+        ? getStreamLanguageExtension(langKey) ?? []
+        : []
+
+    const initialGutter = buildCodeGitGutter(
+      gitDiff.active ? gitDiff.lineMarks : [],
+      gitDiff.active ? gitDiff.deletedAfter : new Map()
+    )
+
+    const view = new EditorView({
+      parent: cmHostRef.current,
+      state: EditorState.create({
+        doc: contentRef.current,
+        extensions: [
+          lineNumbers(),
+          gitGutterCompartment.of(initialGutter),
+          highlightActiveLineGutter(),
+          highlightActiveLine(),
+          drawSelection(),
+          history(),
+          languageCompartment.of(initialLangExt),
+          syntaxHighlighting(darkCodeHighlight),
+          readOnlyCompartment.of([
+            EditorState.readOnly.of(!isEditableRef.current),
+            buildCodeEditorTheme(isEditableRef.current)
+          ]),
+          keymap.of([indentWithTab, ...historyKeymap, ...defaultKeymap]),
+          EditorState.tabSize.of(4),
+          placeholder('输入或粘贴代码...'),
+          EditorView.contentAttributes.of({
+            'aria-label': '代码编辑器',
+            spellcheck: 'false',
+            autocorrect: 'off',
+            autocapitalize: 'off'
+          }),
+          EditorView.updateListener.of((update) => {
+            if (!update.docChanged) return
+            if (update.transactions.some((tr) => tr.annotation(externalChange))) return
+            if (!hasPendingSyncRef.current) {
+              hasPendingSyncRef.current = true
+              useWorkbenchStore.getState().markSourcePendingSync()
+            }
+            if (pendingSyncTimerRef.current) {
+              clearTimeout(pendingSyncTimerRef.current)
+            }
+            pendingSyncTimerRef.current = setTimeout(() => {
+              pendingSyncTimerRef.current = null
+              flushSyncRef.current()
+            }, CODE_SYNC_DEBOUNCE_MS)
+          }),
+          EditorView.domEventHandlers({
+            scroll: (_event, cmView) => {
+              if (activeFilePath) {
+                rememberEditorScroll(workspacePath, activeFilePath, 'source', cmView.scrollDOM.scrollTop)
+              }
+            }
+          })
+        ]
+      })
+    })
+    cmViewRef.current = view
+
+    let disposed = false
+    if (langKey === 'markdown') {
+      void import('@codemirror/lang-markdown').then(({ markdown, markdownLanguage }) => {
+        if (disposed || cmViewRef.current !== view) return
+        view.dispatch({
+          effects: languageCompartment.reconfigure(
+            markdown({ base: markdownLanguage, completeHTMLTags: false, pasteURLAsLink: false })
+          )
+        })
+      })
+    }
+
+    return () => {
+      disposed = true
+      if (pendingSyncTimerRef.current) {
+        clearTimeout(pendingSyncTimerRef.current)
+        pendingSyncTimerRef.current = null
+      }
+      hasPendingSyncRef.current = false
+      cmViewRef.current = null
+      view.destroy()
+    }
+  }, [activeFilePath, showCodeEditor, langKey, workspacePath])
+
+  // 切换查看 / 编辑态时原位更新 readOnly 与光标显示，保留撤销历史与滚动位置
+  useEffect(() => {
+    const view = cmViewRef.current
+    if (!view) return
+    if (!isEditable) {
+      flushSyncRef.current()
+    }
+    view.dispatch({
+      effects: readOnlyCompartment.reconfigure([
+        EditorState.readOnly.of(!isEditable),
+        buildCodeEditorTheme(isEditable)
+      ])
+    })
+  }, [isEditable])
+
+  // Git Diff 变化时通过 Compartment 原位刷新 Gutter
+  useEffect(() => {
+    const view = cmViewRef.current
+    if (!view) return
+    const ext = buildCodeGitGutter(
+      gitDiff.active ? gitDiff.lineMarks : [],
+      gitDiff.active ? gitDiff.deletedAfter : new Map()
+    )
+    view.dispatch({
+      effects: gitGutterCompartment.reconfigure(ext)
+    })
+  }, [gitDiff])
+
+  // 外部内容变化（重读磁盘、查找替换、Git 撤回等）同步进 CM6，跳过自身防抖回写
+  useEffect(() => {
+    const view = cmViewRef.current
+    if (!view) return
+    if (!hasPendingSyncRef.current && activeFileContent === lastEmittedValueRef.current) {
+      return
+    }
+    if (view.state.doc.toString() === activeFileContent) {
+      lastEmittedValueRef.current = activeFileContent
+      return
+    }
+    if (pendingSyncTimerRef.current) {
+      clearTimeout(pendingSyncTimerRef.current)
+      pendingSyncTimerRef.current = null
+    }
+    hasPendingSyncRef.current = false
+    lastEmittedValueRef.current = activeFileContent
+    view.dispatch({
+      changes: { from: 0, to: view.state.doc.length, insert: activeFileContent },
+      annotations: [externalChange.of(true), isolateHistory.of('full')]
+    })
   }, [activeFileContent])
 
-  const formattedSize = useMemo(() => formatFileSize(activeFileSize), [activeFileSize])
+  // 进入或切回代码视图时恢复滚动位置
+  useLayoutEffect(() => {
+    const view = cmViewRef.current
+    if (!view || !activeFilePath || !showCodeEditor) return
+    const saved = readEditorScroll(workspacePath, activeFilePath, 'source')
+    view.scrollDOM.scrollTop = saved
+    const rafId = requestAnimationFrame(() => {
+      if (cmViewRef.current === view) {
+        view.scrollDOM.scrollTop = saved
+      }
+    })
+    return () => cancelAnimationFrame(rafId)
+  }, [activeFilePath, workspacePath, showCodeEditor])
+
+  const revealRangeInCodeMirror = useCallback((start: number, end: number): boolean => {
+    const view = cmViewRef.current
+    if (!view) return false
+    const docLen = view.state.doc.length
+    const anchor = Math.min(Math.max(0, start), docLen)
+    const head = Math.min(Math.max(0, end), docLen)
+    view.dispatch({
+      selection: { anchor, head },
+      effects: EditorView.scrollIntoView(head, { y: 'center' })
+    })
+    view.focus()
+    return true
+  }, [])
 
   const finishLeaveRequest = useCallback((decision: HtmlEditLeaveDecision) => {
     const request = leaveRequestRef.current
@@ -234,10 +869,12 @@ export default function WorkbenchCodePreview(): JSX.Element {
     async (nextMode: 'render' | 'edit' | 'source') => {
       if (nextMode === viewMode || saveStatus === 'saving' || leaveDialogOpen) return
 
+      useWorkbenchStore.getState().flushActiveEditorSync()
+
       // 进入可视化编辑前先落盘源码改动，避免编辑的是旧磁盘版本。
       if (nextMode === 'edit') {
         if (!isHtmlFile || !activeFileUrl || activeFileOversized) return
-        if (isDirty) {
+        if (useWorkbenchStore.getState().isDirty) {
           const saved = await saveActiveFile()
           if (!saved.saved) return
         }
@@ -323,7 +960,7 @@ export default function WorkbenchCodePreview(): JSX.Element {
   // Ctrl+S 保存；Ctrl+F/H 在可视化编辑态不打开代码查找条；HTML 渲染态支持 Ctrl+加减/0 缩放
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      if (leaveDialogOpen) return
+      if (!isActive || leaveDialogOpen) return
       if (!(e.ctrlKey || e.metaKey)) return
       const k = e.key.toLowerCase()
       if (k === 's') {
@@ -331,10 +968,12 @@ export default function WorkbenchCodePreview(): JSX.Element {
         if (isVisualEditing) {
           if (visualDirty || visualEditorRef.current?.hasChanges()) void handleVisualSave()
         } else {
+          useWorkbenchStore.getState().flushActiveEditorSync()
           void saveActiveFile()
         }
       } else if ((k === 'f' || k === 'h') && !isVisualEditing) {
         e.preventDefault()
+        useWorkbenchStore.getState().flushActiveEditorSync()
         setFindReplaceFocus(k === 'h')
         setFindOpen(true)
       } else if (isHtmlFile && viewMode === 'render') {
@@ -361,6 +1000,7 @@ export default function WorkbenchCodePreview(): JSX.Element {
       handlePreviewZoomReset,
       handlePreviewZoomStep,
       handleVisualSave,
+      isActive,
       isHtmlFile,
       isVisualEditing,
       leaveDialogOpen,
@@ -376,41 +1016,20 @@ export default function WorkbenchCodePreview(): JSX.Element {
   }, [activeFilePath])
 
   useEffect(() => {
+    if (!isActive) return
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [handleKeyDown])
-
-  // 滚动同步
-  const handleScroll = (e: React.UIEvent<HTMLElement>) => {
-    const target = e.currentTarget
-    if (lineNumbersRef.current) {
-      lineNumbersRef.current.scrollTop = target.scrollTop
-    }
-    // 编辑态：textarea 驱动背景高亮层滚动对齐
-    if (isEditable && codePreRef.current && target !== codePreRef.current) {
-      codePreRef.current.scrollTop = target.scrollTop
-      codePreRef.current.scrollLeft = target.scrollLeft
-    }
-  }
-
-  // 内容变化后保持高亮层与行号槽对齐（文件切换 / 外部更新）
-  useEffect(() => {
-    const ta = textareaRef.current
-    if (lineNumbersRef.current && ta) {
-      lineNumbersRef.current.scrollTop = ta.scrollTop
-    }
-    if (isEditable && codePreRef.current && ta) {
-      codePreRef.current.scrollTop = ta.scrollTop
-      codePreRef.current.scrollLeft = ta.scrollLeft
-    }
-  }, [activeFileContent, isEditable])
+  }, [handleKeyDown, isActive])
 
   // 复制全文
   const handleCopy = async () => {
     try {
-      const text = isVisualEditing
-        ? (await visualEditorRef.current?.serializeCurrent()) ?? activeFileContent
-        : activeFileContent
+      let text = activeFileContent
+      if (isVisualEditing) {
+        text = (await visualEditorRef.current?.serializeCurrent()) ?? activeFileContent
+      } else if (showCodeEditor && cmViewRef.current) {
+        text = cmViewRef.current.state.doc.toString()
+      }
       await navigator.clipboard.writeText(text)
       setCopied(true)
       setTimeout(() => setCopied(false), 1800)
@@ -656,7 +1275,7 @@ export default function WorkbenchCodePreview(): JSX.Element {
           <div className="flex-1 h-full relative bg-white">
             {activeFileUrl ? (
               <WorkbenchHtmlAnnotationPreview
-                key={`${activeFilePath}-${activeFileUrl}-${saveStatus}-${isDirty}-${previewReloadKey}`}
+                key={`${activeFilePath}-${activeFileUrl}-${previewReloadKey}`}
                 filePath={activeFilePath || ''}
                 fileUrl={activeFileUrl}
                 zoom={previewZoom}
@@ -706,72 +1325,10 @@ export default function WorkbenchCodePreview(): JSX.Element {
             }}
           />
         ) : (
-          <>
-            {/* 行号侧边栏 */}
-            <div
-              ref={lineNumbersRef}
-              className="w-12 py-4 select-none overflow-hidden text-right pr-3 font-mono text-sm leading-6 text-[#858585] bg-[#181818] border-r border-white/[0.08] shrink-0 relative"
-            >
-              {lines.map((_, idx) => {
-                const mark = showGitGutter ? gitDiff.lineMarks[idx] : undefined
-                const delCount = showGitGutter ? gitDiff.deletedAfter.get(idx) : undefined
-                return (
-                  <div
-                    key={idx}
-                    data-git-change={mark}
-                    data-git-del={delCount ? 'after' : undefined}
-                    className="relative"
-                  >
-                    {idx + 1}
-                  </div>
-                )
-              })}
-            </div>
-
-            {/* 编辑模式 / 查看模式（HTML 源码态即可编辑） */}
-            {isEditable ? (
-              /* 编辑态：背景高亮层 + 前景透明 textarea，与查看态共用同一高亮器 */
-              <div className="flex-1 relative overflow-hidden">
-                <pre
-                  ref={codePreRef}
-                  aria-hidden="true"
-                  className="absolute inset-0 h-full py-4 px-4 font-mono text-sm leading-6 bg-transparent text-[#E4E4E7] overflow-auto whitespace-pre tab-4 m-0 pointer-events-none"
-                >
-                  <code>
-                    {lines.map((line, idx) => (
-                      <div key={idx} className="leading-6">
-                        {highlightCodeLine(line)}
-                      </div>
-                    ))}
-                  </code>
-                </pre>
-                <textarea
-                  ref={textareaRef}
-                  value={activeFileContent}
-                  onChange={(e) => updateActiveContent(e.target.value)}
-                  onScroll={handleScroll}
-                  placeholder="输入或粘贴代码..."
-                  className="absolute inset-0 w-full h-full py-4 px-4 font-mono text-sm leading-6 resize-none bg-transparent text-transparent caret-[#E4E4E7] focus:outline-none overflow-auto whitespace-pre tab-4 placeholder:text-[#858585]"
-                  spellCheck={false}
-                />
-              </div>
-            ) : (
-              <pre
-                ref={codePreRef}
-                onScroll={handleScroll}
-                className="flex-1 h-full py-4 px-4 font-mono text-sm sm:text-sm leading-6 bg-transparent text-[#E4E4E7] overflow-auto whitespace-pre tab-4 m-0 selection:bg-blue-600/40"
-              >
-                <code>
-                  {lines.map((line, idx) => (
-                    <div key={idx} className="leading-6">
-                      {highlightCodeLine(line)}
-                    </div>
-                  ))}
-                </code>
-              </pre>
-            )}
-
-          </>
+          <div
+            ref={cmHostRef}
+            className="flex-1 h-full overflow-hidden"
+          />
         )}
 
         {/* 编辑器内查找替换（Ctrl+F / Ctrl+H）；只读/渲染预览下禁用替换 */}
@@ -780,6 +1337,11 @@ export default function WorkbenchCodePreview(): JSX.Element {
           replaceFocus={findReplaceFocus}
           onClose={() => setFindOpen(false)}
           canReplace={isEditable && !(isHtmlFile && viewMode === 'render')}
+          onRevealMatch={
+            showCodeEditor
+              ? (start, end) => revealRangeInCodeMirror(start, end)
+              : undefined
+          }
         />
       </div>
 

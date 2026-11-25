@@ -112,9 +112,18 @@ export function useWebviewLifecycle({
 
   // 休眠 URL、输入草稿与恢复互斥标记。
   const [isHibernated, setIsHibernated] = useState(false)
+  const isHibernatedRef = useRef(false)
   const hibernatedUrlRef = useRef<string | null>(null)
   const hibernatedDraftRef = useRef<string>('')
   const isResumingRef = useRef(false)
+  const unmountedRef = useRef(false)
+
+  useEffect(() => {
+    unmountedRef.current = false
+    return () => {
+      unmountedRef.current = true
+    }
+  }, [])
 
   useEffect(() => {
     const webview = webviewRef.current
@@ -533,7 +542,7 @@ export function useWebviewLifecycle({
       if (!webview) {
         return { success: false, error: 'Webview ref 为空' }
       }
-      if (isHibernated) {
+      if (isHibernatedRef.current) {
         return { success: false, error: 'Already hibernated' }
       }
 
@@ -552,13 +561,24 @@ export function useWebviewLifecycle({
           }
         }
 
-        // Phase 2: 保存当前 URL（优先用真实当前 URL，回退到 props.url）
+        // Phase 2: 保存当前 URL（过滤 about:blank / 错误页，回退到已加载或初始 URL）
         let savedUrl = ''
         try {
-          savedUrl = webview.getURL() || url
+          const current = webview.getURL() || ''
+          if (
+            current &&
+            current !== 'about:blank' &&
+            !current.startsWith('chrome-error://') &&
+            !current.startsWith('data:text/html')
+          ) {
+            savedUrl = current
+          }
         } catch (e) {
           console.warn(`[${name}] 休眠时获取 URL 失败:`, e)
-          savedUrl = url
+        }
+        if (!savedUrl) {
+          const fallback = loadedUrlRef.current || url
+          savedUrl = fallback && fallback !== 'about:blank' ? fallback : url
         }
 
         // Phase 3: 先保存状态再导航，避免导航事件回调读到已清空的状态
@@ -572,6 +592,7 @@ export function useWebviewLifecycle({
           console.warn(`[${name}] 休眠时导航到 about:blank 失败:`, e)
         }
 
+        isHibernatedRef.current = true
         setIsHibernated(true)
         // 休眠后页面层已卸载，loadedUrlRef 置空，唤醒时由 resume 重新 loadURL
         loadedUrlRef.current = null
@@ -596,7 +617,7 @@ export function useWebviewLifecycle({
       if (!webview) {
         return { success: false, error: 'Webview ref 为空' }
       }
-      if (!isHibernated) {
+      if (!isHibernatedRef.current) {
         return { success: false, error: 'Not hibernated' }
       }
       if (isResumingRef.current) {
@@ -606,6 +627,7 @@ export function useWebviewLifecycle({
       isResumingRef.current = true
 
       try {
+        isHibernatedRef.current = false
         setIsHibernated(false)
         setIsLoading(true)
         setIsReady(false)
@@ -626,7 +648,7 @@ export function useWebviewLifecycle({
           let restored = false
           for (let attempt = 0; attempt < 30; attempt++) {
             await new Promise(resolve => setTimeout(resolve, 1000))
-            if (!webviewRef.current || webviewRef.current !== webview) break
+            if (unmountedRef.current || !webviewRef.current || webviewRef.current !== webview) break
             try {
               const code = generateInsertTextScript(draftToRestore, id, selectors)
               const result = await webview.executeJavaScript(code)
@@ -640,8 +662,12 @@ export function useWebviewLifecycle({
               }
             }
           }
+          if (unmountedRef.current) {
+            return { success: false, error: 'Unmounted' }
+          }
           if (!restored) {
             console.warn(`[${name}] 恢复输入草稿超时`)
+            isHibernatedRef.current = true
             setIsHibernated(true)
             return { success: false, error: '恢复输入草稿超时' }
           }
@@ -664,7 +690,7 @@ export function useWebviewLifecycle({
      * 查询是否处于休眠状态
      */
     isHibernated: (): boolean => {
-      return isHibernated
+      return isHibernatedRef.current
     }
   }
 

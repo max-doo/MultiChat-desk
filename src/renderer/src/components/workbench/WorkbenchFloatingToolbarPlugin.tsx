@@ -139,7 +139,8 @@ function FloatingToolbar({
   useLayoutEffect(() => {
     editor.read('latest', updatePosition)
     return mergeRegister(
-      editor.registerUpdateListener(({ editorState }) => {
+      editor.registerUpdateListener(({ editorState, tags }) => {
+        if (tags.has('annotation-sync')) return
         editorState.read(updatePosition)
       }),
       editor.registerCommand(
@@ -276,7 +277,7 @@ export default function WorkbenchFloatingToolbarPlugin({
             getDOMSelectionPoints(nativeSelection, rootElement).anchorNode
           ))
       ) {
-        setState((prev) => ({ ...prev, isText: false }))
+        setState((prev) => (prev.isText ? { ...prev, isText: false } : prev))
         return
       }
 
@@ -294,17 +295,17 @@ export default function WorkbenchFloatingToolbarPlugin({
           ? selection.anchor.getNode()
           : selection.anchor.getNode().getTopLevelElementOrThrow()
 
+      const selectionText = selection.getTextContent()
       let isText =
         !isCodeBlock &&
-        selection.getTextContent() !== '' &&
+        selectionText !== '' &&
         ($isTextNode(node) || $isParagraphNode(node) || $isElementNode(node))
 
-      const rawTextContent = selection.getTextContent().replace(/\n/g, '')
-      if (!selection.isCollapsed() && rawTextContent === '') {
+      if (isText && !selection.isCollapsed() && selectionText.replace(/\n/g, '') === '') {
         isText = false
       }
 
-      setState({
+      const nextState: ToolbarState = {
         isText,
         isLink,
         linkUrl: linkNode?.getURL() ?? null,
@@ -315,18 +316,36 @@ export default function WorkbenchFloatingToolbarPlugin({
         isCode: selection.hasFormat('code'),
         isHighlight: selection.hasFormat('highlight'),
         isQuote: $isQuoteNode(topElement)
+      }
+      setState((prev) => {
+        if (
+          prev.isText === nextState.isText &&
+          prev.isLink === nextState.isLink &&
+          prev.linkUrl === nextState.linkUrl &&
+          prev.isBold === nextState.isBold &&
+          prev.isItalic === nextState.isItalic &&
+          prev.isUnderline === nextState.isUnderline &&
+          prev.isStrikethrough === nextState.isStrikethrough &&
+          prev.isCode === nextState.isCode &&
+          prev.isHighlight === nextState.isHighlight &&
+          prev.isQuote === nextState.isQuote
+        ) {
+          return prev
+        }
+        return nextState
       })
     })
   }, [editor])
 
   useEffect(() => {
     return mergeRegister(
-      editor.registerUpdateListener(() => {
+      editor.registerUpdateListener(({ tags }) => {
+        if (tags.has('annotation-sync')) return
         updatePopup()
       }),
       editor.registerRootListener(() => {
         if (editor.getRootElement() === null) {
-          setState((prev) => ({ ...prev, isText: false }))
+          setState((prev) => (prev.isText ? { ...prev, isText: false } : prev))
         }
       })
     )

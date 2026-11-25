@@ -1,10 +1,33 @@
+import { useEffect, useRef, useState } from 'react'
 import { useWorkbenchStore } from '../../store/workbenchStore'
 import { formatFileSize } from '../../utils/formatBytes'
 import { countWords } from '../../utils/wordCount'
 import { AppIcon } from '../icons/AppIcon'
 import WorkbenchSendToAiButton from './WorkbenchSendToAiButton'
 
+const COUNT_DEBOUNCE_MS = 300
+
+function countLines(text: string): number {
+  let lines = 1
+  for (let i = 0; i < text.length; i++) {
+    if (text.charCodeAt(i) === 10) lines += 1
+  }
+  return lines
+}
+
+function computeStats(
+  content: string,
+  isCodeView: boolean
+): { words: number; chars: number; lines: number } {
+  if (isCodeView) {
+    return { words: 0, chars: 0, lines: countLines(content) }
+  }
+  const { words, chars } = countWords(content)
+  return { words, chars, lines: 0 }
+}
+
 export default function WorkbenchStatusPill(): JSX.Element {
+  const activeFilePath = useWorkbenchStore((s) => s.activeFilePath)
   const activeFileContent = useWorkbenchStore((s) => s.activeFileContent)
   const activeFileCategory = useWorkbenchStore((s) => s.activeFileCategory)
   const activeFileSize = useWorkbenchStore((s) => s.activeFileSize)
@@ -13,13 +36,29 @@ export default function WorkbenchStatusPill(): JSX.Element {
   const resolveExternalConflict = useWorkbenchStore((s) => s.resolveExternalConflict)
   const htmlVisualEditing = useWorkbenchStore((s) => s.htmlVisualEditing)
 
+  const isCodeView = activeFileCategory === 'code' || activeFileCategory === 'text'
+  const [stats, setStats] = useState<{ words: number; chars: number; lines: number }>(() =>
+    computeStats(activeFileContent, isCodeView)
+  )
+  const prevFilePathRef = useRef(activeFilePath)
+
+  useEffect(() => {
+    if (prevFilePathRef.current !== activeFilePath) {
+      prevFilePathRef.current = activeFilePath
+      setStats(computeStats(activeFileContent, isCodeView))
+      return
+    }
+    const timer = setTimeout(() => {
+      setStats(computeStats(activeFileContent, isCodeView))
+    }, COUNT_DEBOUNCE_MS)
+    return () => clearTimeout(timer)
+  }, [activeFileContent, activeFilePath, isCodeView])
+
   // 可视化编辑自带底部状态条与浮动工具条；通用胶囊会遮挡它们。
   // 冲突面板仍保留，用户需要在编辑态直接裁决磁盘版本。
   if (htmlVisualEditing && saveStatus !== 'conflict') return <></>
 
-  const { words: wordCount, chars: charCount } = countWords(activeFileContent)
-  const isCodeView = activeFileCategory === 'code' || activeFileCategory === 'text'
-  const lineCount = activeFileContent.split('\n').length
+  const { words: wordCount, chars: charCount, lines: lineCount } = stats
   const formattedSize = formatFileSize(activeFileSize)
 
   // 冲突态：脱离纯展示定位，变成可操作浮层

@@ -23,11 +23,15 @@ export interface WordCountResult {
   chars: number
 }
 
+const wordSegmenter =
+  typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function'
+    ? new Intl.Segmenter(undefined, { granularity: 'word' })
+    : null
+
 function countNonCjkWords(text: string): number {
-  if (typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function') {
-    const segmenter = new Intl.Segmenter(undefined, { granularity: 'word' })
+  if (wordSegmenter) {
     let count = 0
-    for (const { segment, isWordLike } of segmenter.segment(text)) {
+    for (const { segment, isWordLike } of wordSegmenter.segment(text)) {
       if (isWordLike && WORD_LIKE_REGEX.test(segment)) count += 1
     }
     return count
@@ -40,28 +44,37 @@ function countNonCjkWords(text: string): number {
 export function countWords(text: string): WordCountResult {
   if (!text) return { words: 0, chars: 0 }
 
-  const chars = Array.from(text)
+  let chars = 0
   let cjkChars = 0
-  const nonCjkParts: string[] = []
-  let buffer = ''
+  let nonCjkWords = 0
+  let nonCjkStart = -1
 
-  for (const ch of chars) {
-    if (CJK_CHAR_REGEX.test(ch)) {
+  for (let i = 0; i < text.length; ) {
+    const cp = text.codePointAt(i)!
+    const step = cp > 0xffff ? 2 : 1
+    chars += 1
+
+    // ASCII 字符（<= 0x7F）绝不命中 CJK，跳过单字符 slice 与正则匹配
+    const isCjk = cp > 0x7f && CJK_CHAR_REGEX.test(text.slice(i, i + step))
+    if (isCjk) {
       cjkChars += 1
-      if (buffer) {
-        nonCjkParts.push(buffer)
-        buffer = ''
+      if (nonCjkStart !== -1) {
+        nonCjkWords += countNonCjkWords(text.slice(nonCjkStart, i))
+        nonCjkStart = -1
       }
-    } else {
-      buffer += ch
+    } else if (nonCjkStart === -1) {
+      nonCjkStart = i
     }
-  }
-  if (buffer) nonCjkParts.push(buffer)
 
-  const nonCjkWords = nonCjkParts.reduce((sum, part) => sum + countNonCjkWords(part), 0)
+    i += step
+  }
+
+  if (nonCjkStart !== -1) {
+    nonCjkWords += countNonCjkWords(text.slice(nonCjkStart))
+  }
 
   return {
     words: cjkChars + nonCjkWords,
-    chars: chars.length
+    chars
   }
 }

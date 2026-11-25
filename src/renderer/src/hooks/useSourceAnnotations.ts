@@ -45,6 +45,7 @@ export function useSourceAnnotations(
   const [hit, setHit] = useState<SourceHighlight | null>(null)
   const generationRef = useRef(0)
   const cssKeyRef = useRef<string | null>(null)
+  const injectedRef = useRef(false)
   const [tick, setTick] = useState(0)
 
   const refresh = useCallback(() => setTick(value => value + 1), [])
@@ -98,6 +99,17 @@ export function useSourceAnnotations(
   useEffect(() => {
     const webview = webviewRef.current
     if (!webview || !enabled || !sourceKey) return
+    if (annotations.length === 0) {
+      if (injectedRef.current) {
+        injectedRef.current = false
+        try {
+          void webview.executeJavaScript('window.__multichatNoteDispose?.()').catch(() => undefined)
+        } catch {
+          // guest 已销毁
+        }
+      }
+      return
+    }
     let timer: ReturnType<typeof setTimeout> | undefined
     let disposed = false
     const draw = (): void => {
@@ -119,6 +131,7 @@ export function useSourceAnnotations(
           })
           .catch(() => undefined)
       }
+      injectedRef.current = true
       void webview
         // 只把定位所需字段交给第三方页面；评论正文留在渲染层。
         .executeJavaScript(
@@ -176,10 +189,13 @@ export function useSourceAnnotations(
       webview.removeEventListener('dom-ready', schedule)
       webview.removeEventListener('did-stop-loading', schedule)
       webview.removeEventListener('did-navigate-in-page', schedule)
-      try {
-        void webview.executeJavaScript('window.__multichatNoteDispose?.()').catch(() => undefined)
-      } catch {
-        // guest 已销毁
+      if (injectedRef.current) {
+        injectedRef.current = false
+        try {
+          void webview.executeJavaScript('window.__multichatNoteDispose?.()').catch(() => undefined)
+        } catch {
+          // guest 已销毁
+        }
       }
     }
   }, [webviewRef, enabled, sourceKey, annotations])

@@ -1,5 +1,6 @@
-import { mkdir, readFile, readdir, rm, stat, writeFile, unlink } from 'fs/promises'
-import { existsSync } from 'fs'
+import { mkdir, open, readFile, readdir, rm, stat, writeFile, unlink } from 'fs/promises'
+import { createReadStream, existsSync } from 'fs'
+import { createInterface } from 'readline'
 import { join, dirname, basename, resolve } from 'path'
 import { homedir } from 'os'
 import type { WebContents } from 'electron'
@@ -66,6 +67,8 @@ export interface ActiveSessionEntry {
   updatedAt: number
   title?: string
   isRunning?: boolean
+  /** Count of in-flight permission approval prompts for this session (never LRU-evict while > 0) */
+  pendingApprovalCount?: number
   unsubscribe: () => void
   /** Turn id → file-change accumulator for the currently streaming turn. */
   turnFileChanges?: AgentTurnFileChanges
@@ -125,6 +128,30 @@ const FAVORITE_MODELS_STORE_KEY = 'agent_favorite_models'
 const RECENT_MODELS_STORE_KEY = 'agent_recent_models'
 
 const RECENT_MODELS_LIMIT = 8
+/** Max idle sessions retained in activeSessions (running / pending-approval sessions are exempt) */
+const MAX_IDLE_ACTIVE_SESSIONS = 4
+/** Trailing-edge throttle window (ms) for coalescing consecutive message_update events */
+const MESSAGE_UPDATE_THROTTLE_MS = 36
+/** Byte slice read from start of .jsonl when locating a session file by header.id */
+const SESSION_HEADER_PEEK_BYTES = 8192
+
+interface DiskSessionMeta {
+  id: string
+  filePath: string
+  cwd: string
+  name?: string
+  firstMessage: string
+  messageCount: number
+  createdAt: number
+  updatedAt: number
+  model?: string
+}
+
+interface SessionMetaCacheEntry {
+  size: number
+  mtimeMs: number
+  meta: DiskSessionMeta | null
+}
 
 export interface CustomGatewaySpec {
   providerId: string
@@ -143,6 +170,15 @@ export class AgentSessionService {
   private modelRuntime: ModelRuntimeType | null = null
   private modelRegistry: ModelRegistryType | null = null
   private activeSessions = new Map<string, ActiveSessionEntry>()
+  /** In-memory disk session metadata cache keyed by full .jsonl path + { size, mtimeMs } */
+  private sessionMetaCache = new Map<string, SessionMetaCacheEntry>()
+  /** Fast sessionId → .jsonl filePath cache populated by findSessionFile / listSessions */
+  private sessionFilePathCache = new Map<string, string>()
+  /** Trailing-edge pending message_update coalescing buffer per sessionId */
+  private pendingMessageUpdates = new Map<
+    string,
+    { event: AgentSessionEvent | LocalAgentEvent; timer: ReturnType<typeof setTimeout> }
+  >()
 
   // Default fallback provider & model for local SWE-2 / Devin
   private defaultProvider = MAGPIE_PROVIDER.providerId
@@ -415,7 +451,7 @@ export class AgentSessionService {
     }
   }
 
-  private forwardEvent(sessionId: string, event: AgentSessionEvent | LocalAgentEvent): void {
+  private emitEventImmediate(sessionId: string, event: AgentSessionEvent | LocalAgentEvent): void {
     const wc = this.getWebContents()
     if (wc && !wc.isDestroyed()) {
       wc.send('agent:event', { sessionId, event })
@@ -426,6 +462,46 @@ export class AgentSessionService {
         }
       }
     }
+  }
+
+  private flushPendingMessageUpdate(sessionId: string): void {
+    const pending = this.pendingMessageUpdates.get(sessionId)
+    if (!pending) return
+    clearTimeout(pending.timer)
+    this.pendingMessageUpdates.delete(sessionId)
+    this.emitEventImmediate(sessionId, pending.event)
+  }
+
+  private clearPendingMessageUpdate(sessionId: string): void {
+    const pending = this.pendingMessageUpdates.get(sessionId)
+    if (!pending) return
+    clearTimeout(pending.timer)
+    this.pendingMessageUpdates.delete(sessionId)
+  }
+
+  private forwardEvent(sessionId: string, event: AgentSessionEvent | LocalAgentEvent): void {
+    if (event.type === 'message_update') {
+      const existing = this.pendingMessageUpdates.get(sessionId)
+      if (existing) {
+        existing.event = event
+        return
+      }
+      const buffered = {
+        event,
+        timer: setTimeout(() => {
+          const current = this.pendingMessageUpdates.get(sessionId)
+          if (current !== buffered) return
+          this.pendingMessageUpdates.delete(sessionId)
+          this.emitEventImmediate(sessionId, buffered.event)
+        }, MESSAGE_UPDATE_THROTTLE_MS)
+      }
+      this.pendingMessageUpdates.set(sessionId, buffered)
+      return
+    }
+
+    // Flush any buffered streaming snapshot before emitting message_end / agent_end / tool / lifecycle events
+    this.flushPendingMessageUpdate(sessionId)
+    this.emitEventImmediate(sessionId, event)
   }
 
   private sendAuthOperation(operation: AgentAuthOperation): void {
@@ -794,14 +870,26 @@ export class AgentSessionService {
       const args = (context.args as Record<string, unknown>) ?? {}
 
 
-      const check = await this.permissionEngine.checkOrRequestApproval({
-        sessionId,
-        mode: currentMode,
-        toolCallId: context.toolCall.id,
-        toolName: context.toolCall.name,
-        args: (context.args as Record<string, unknown>) ?? {},
-        cwd
-      })
+      const activeBefore = this.activeSessions.get(sessionId)
+      if (activeBefore) {
+        activeBefore.pendingApprovalCount = (activeBefore.pendingApprovalCount ?? 0) + 1
+      }
+      let check: Awaited<ReturnType<PermissionEngine['checkOrRequestApproval']>>
+      try {
+        check = await this.permissionEngine.checkOrRequestApproval({
+          sessionId,
+          mode: currentMode,
+          toolCallId: context.toolCall.id,
+          toolName: context.toolCall.name,
+          args: (context.args as Record<string, unknown>) ?? {},
+          cwd
+        })
+      } finally {
+        const activeAfter = this.activeSessions.get(sessionId)
+        if (activeAfter && activeAfter.pendingApprovalCount) {
+          activeAfter.pendingApprovalCount = Math.max(0, activeAfter.pendingApprovalCount - 1)
+        }
+      }
 
 
       if (!check.allowed) {
@@ -993,8 +1081,48 @@ export class AgentSessionService {
       unsubscribe
     }
 
+    this.activeSessions.delete(sessionId)
     this.activeSessions.set(sessionId, entry)
+    this.evictIdleSessions(sessionId)
     return entry
+  }
+
+  private touchActiveSession(sessionId: string): ActiveSessionEntry | undefined {
+    const entry = this.activeSessions.get(sessionId)
+    if (entry) {
+      this.activeSessions.delete(sessionId)
+      this.activeSessions.set(sessionId, entry)
+    }
+    return entry
+  }
+
+  private evictIdleSessions(protectSessionId?: string): void {
+    let idleCount = 0
+    for (const entry of this.activeSessions.values()) {
+      const busy = !!entry.isRunning || (entry.pendingApprovalCount ?? 0) > 0
+      if (!busy) idleCount++
+    }
+    if (idleCount <= MAX_IDLE_ACTIVE_SESSIONS) return
+
+    for (const [id, entry] of this.activeSessions.entries()) {
+      if (idleCount <= MAX_IDLE_ACTIVE_SESSIONS) break
+      if (id === protectSessionId) continue
+      const busy = !!entry.isRunning || (entry.pendingApprovalCount ?? 0) > 0
+      if (busy) continue
+      this.clearPendingMessageUpdate(id)
+      try {
+        entry.unsubscribe()
+      } catch {
+        // ignore
+      }
+      try {
+        entry.session.dispose()
+      } catch {
+        // ignore
+      }
+      this.activeSessions.delete(id)
+      idleCount--
+    }
   }
 
   public async newSession(cwd?: string): Promise<{ sessionId: string }> {
@@ -1050,7 +1178,7 @@ export class AgentSessionService {
     }
 
     // Check if session is already active in memory
-    const existing = this.activeSessions.get(sessionId)
+    const existing = this.touchActiveSession(sessionId)
     if (existing) {
       return {
         sessionId,
@@ -1123,10 +1251,10 @@ export class AgentSessionService {
     streamingBehavior?: 'steer' | 'followUp',
     images?: Array<{ data: string; mimeType: string }>
   ): Promise<void> {
-    let active = this.activeSessions.get(sessionId)
+    let active = this.touchActiveSession(sessionId)
     if (!active) {
       await this.resumeSession(sessionId)
-      active = this.activeSessions.get(sessionId)
+      active = this.touchActiveSession(sessionId)
     }
 
     if (!active) {
@@ -1414,6 +1542,7 @@ export class AgentSessionService {
   }
 
   public async deleteSession(sessionId: string): Promise<void> {
+    this.clearPendingMessageUpdate(sessionId)
     const active = this.activeSessions.get(sessionId)
     if (active) {
       try {
@@ -1432,12 +1561,44 @@ export class AgentSessionService {
 
     const sessionFile = await this.findSessionFile(sessionId)
     if (sessionFile) {
+      this.sessionMetaCache.delete(sessionFile)
       await rm(sessionFile, { force: true }).catch(() => undefined)
     }
+    this.sessionFilePathCache.delete(sessionId)
 
     const current = this.store.get('agent_current_session')
     if (current === sessionId) {
       this.store.delete('agent_current_session')
+    }
+  }
+
+  /**
+   * Read only the first 8KB of a .jsonl file to extract the session header `id`
+   * (falling back to full read only if the first line exceeds 8KB).
+   */
+  private async readSessionHeaderId(fullPath: string): Promise<string | undefined> {
+    const handle = await open(fullPath, 'r')
+    try {
+      const buf = Buffer.allocUnsafe(SESSION_HEADER_PEEK_BYTES)
+      const { bytesRead } = await handle.read(buf, 0, SESSION_HEADER_PEEK_BYTES, 0)
+      if (bytesRead <= 0) return undefined
+      const slice = buf.toString('utf8', 0, bytesRead)
+      const newlineIdx = slice.indexOf('\n')
+      let firstLine: string
+      if (newlineIdx >= 0) {
+        firstLine = slice.slice(0, newlineIdx)
+      } else if (bytesRead === SESSION_HEADER_PEEK_BYTES) {
+        const full = await readFile(fullPath, 'utf8')
+        const fullNl = full.indexOf('\n')
+        firstLine = fullNl >= 0 ? full.slice(0, fullNl) : full
+      } else {
+        firstLine = slice
+      }
+      if (!firstLine.trim()) return undefined
+      const header = JSON.parse(firstLine) as { type?: string; id?: string }
+      return header.type === 'session' && typeof header.id === 'string' ? header.id : undefined
+    } finally {
+      await handle.close()
     }
   }
 
@@ -1447,17 +1608,44 @@ export class AgentSessionService {
    * (append path).
    */
   private async findSessionFile(sessionId: string): Promise<string | undefined> {
+    const cachedPath = this.sessionFilePathCache.get(sessionId)
+    if (cachedPath) {
+      try {
+        const headerId = await this.readSessionHeaderId(cachedPath)
+        if (headerId === sessionId) return cachedPath
+      } catch {
+        // cache stale; fall through to dir scan
+      }
+      this.sessionFilePathCache.delete(sessionId)
+    }
+
+    for (const [filePath, entry] of this.sessionMetaCache.entries()) {
+      if (entry.meta?.id === sessionId) {
+        try {
+          await stat(filePath)
+          this.sessionFilePathCache.set(sessionId, filePath)
+          return filePath
+        } catch {
+          this.sessionMetaCache.delete(filePath)
+        }
+      }
+    }
+
     try {
-      const files = await readdir(this.sessionsDir)
+      const files = (await readdir(this.sessionsDir)).filter((f) => f.endsWith('.jsonl'))
+      // Prioritize filenames containing sessionId (standard `<ts>_<sessionId>.jsonl`)
+      files.sort((a, b) => {
+        const aHit = a.includes(sessionId) ? 0 : 1
+        const bHit = b.includes(sessionId) ? 0 : 1
+        return aHit - bHit
+      })
       for (const file of files) {
-        if (!file.endsWith('.jsonl')) continue
         const fullPath = join(this.sessionsDir, file)
         try {
-          const content = await readFile(fullPath, 'utf8')
-          const firstLine = content.slice(0, content.indexOf('\n'))
-          if (firstLine) {
-            const header = JSON.parse(firstLine)
-            if (header.id === sessionId) {
+          const headerId = await this.readSessionHeaderId(fullPath)
+          if (headerId) {
+            this.sessionFilePathCache.set(headerId, fullPath)
+            if (headerId === sessionId) {
               return fullPath
             }
           }
@@ -1501,18 +1689,150 @@ export class AgentSessionService {
     manager.appendSessionInfo(sanitized)
   }
 
+  /**
+   * Stream-parse a single .jsonl session file once to build both list metadata and model.
+   * Cached by { filePath, size, mtimeMs } so unchanged files are never re-read.
+   */
+  private async parseDiskSessionFile(filePath: string, fallbackMtimeMs: number): Promise<DiskSessionMeta | null> {
+    const stream = createReadStream(filePath, { encoding: 'utf8' })
+    const rl = createInterface({ input: stream, crlfDelay: Infinity })
+    let header: { id?: string; cwd?: string; timestamp?: string } | null = null
+    let name: string | undefined
+    let model: string | undefined
+    let messageCount = 0
+    let firstMessage = ''
+    let lastActivityTime = 0
+
+    try {
+      for await (const line of rl) {
+        if (!line) continue
+        let entry: Record<string, unknown>
+        try {
+          entry = JSON.parse(line) as Record<string, unknown>
+        } catch {
+          continue
+        }
+        if (!header) {
+          if (entry.type !== 'session' || typeof entry.id !== 'string') {
+            return null
+          }
+          header = {
+            id: entry.id,
+            cwd: typeof entry.cwd === 'string' ? entry.cwd : '',
+            timestamp: typeof entry.timestamp === 'string' ? entry.timestamp : undefined
+          }
+          continue
+        }
+        if (entry.type === 'session_info') {
+          const rawName = typeof entry.name === 'string' ? entry.name.trim() : ''
+          name = rawName || undefined
+          continue
+        }
+        if (entry.type === 'model_change') {
+          const modelId = typeof entry.modelId === 'string' ? entry.modelId : ''
+          const provider = typeof entry.provider === 'string' ? entry.provider : ''
+          if (modelId) {
+            model = provider ? `${provider}/${modelId}` : modelId
+          }
+          continue
+        }
+        if (entry.type !== 'message') continue
+
+        messageCount++
+        const msg = entry.message as { role?: string; content?: unknown; timestamp?: unknown } | undefined
+        if (msg && typeof msg.timestamp === 'number' && Number.isFinite(msg.timestamp)) {
+          lastActivityTime = Math.max(lastActivityTime, msg.timestamp)
+        } else if (typeof entry.timestamp === 'string') {
+          const parsed = Date.parse(entry.timestamp)
+          if (!Number.isNaN(parsed)) {
+            lastActivityTime = Math.max(lastActivityTime, parsed)
+          }
+        }
+        if (!firstMessage && msg?.role === 'user') {
+          const text = this.extractUserText(msg.content)
+          if (text) firstMessage = text
+        }
+      }
+    } catch {
+      return null
+    } finally {
+      rl.close()
+      stream.destroy()
+    }
+
+    if (!header?.id) return null
+    const headerTime = header.timestamp ? Date.parse(header.timestamp) : NaN
+    const createdAt = !Number.isNaN(headerTime) ? headerTime : fallbackMtimeMs
+    const updatedAt =
+      lastActivityTime > 0
+        ? lastActivityTime
+        : !Number.isNaN(headerTime)
+          ? headerTime
+          : fallbackMtimeMs
+
+    return {
+      id: header.id,
+      filePath,
+      cwd: header.cwd ?? '',
+      name,
+      firstMessage: firstMessage || '(no messages)',
+      messageCount,
+      createdAt,
+      updatedAt,
+      model
+    }
+  }
+
   public async listSessions(): Promise<SessionListItem[]> {
     await mkdir(this.sessionsDir, { recursive: true })
-    const { SessionManager } = await this.getPi()
-    const diskSessions = await SessionManager.listAll(this.sessionsDir)
+    let files: string[] = []
+    try {
+      files = (await readdir(this.sessionsDir)).filter((f) => f.endsWith('.jsonl'))
+    } catch {
+      files = []
+    }
+
+    const currentPaths = new Set(files.map((f) => join(this.sessionsDir, f)))
+    for (const cachedPath of this.sessionMetaCache.keys()) {
+      if (!currentPaths.has(cachedPath)) {
+        const prev = this.sessionMetaCache.get(cachedPath)
+        if (prev?.meta?.id) this.sessionFilePathCache.delete(prev.meta.id)
+        this.sessionMetaCache.delete(cachedPath)
+      }
+    }
+
+    const diskSessions: DiskSessionMeta[] = []
+    const STAT_CONCURRENCY = 16
+    let idx = 0
+    const workers = Array.from({ length: Math.min(STAT_CONCURRENCY, files.length) }, async () => {
+      while (idx < files.length) {
+        const file = files[idx++]
+        const fullPath = join(this.sessionsDir, file)
+        try {
+          const info = await stat(fullPath)
+          if (!info.isFile()) continue
+          const cached = this.sessionMetaCache.get(fullPath)
+          if (cached && cached.size === info.size && cached.mtimeMs === info.mtimeMs) {
+            if (cached.meta) diskSessions.push(cached.meta)
+            continue
+          }
+          const meta = await this.parseDiskSessionFile(fullPath, info.mtimeMs)
+          this.sessionMetaCache.set(fullPath, { size: info.size, mtimeMs: info.mtimeMs, meta })
+          if (meta) {
+            this.sessionFilePathCache.set(meta.id, fullPath)
+            diskSessions.push(meta)
+          }
+        } catch {
+          // ignore unreadable entry
+        }
+      }
+    })
+    await Promise.all(workers)
 
     const result: SessionListItem[] = []
     const seen = new Set<string>()
     const diskTitleById = new Map<string, string>()
     const diskNameById = new Map<string, string>()
-    // pi SessionManager.listAll 不解析 jsonl 里的 model_change 事件；
-    // 文件名规则是 `<timestamp>_<sessionId>.jsonl`，可据此定位文件并读最后一条 model_change。
-    const diskModelById = await this.readDiskSessionModels()
     for (const item of diskSessions) {
       if (item.firstMessage) {
         diskTitleById.set(item.id, item.firstMessage)
@@ -1554,65 +1874,16 @@ export class AgentSessionService {
           id: item.id,
           title: (item.name || item.firstMessage || '新会话').slice(0, 48),
           name: item.name,
-          createdAt: new Date(item.created).getTime(),
-          updatedAt: new Date(item.modified).getTime(),
+          createdAt: item.createdAt,
+          updatedAt: item.updatedAt,
           cwd: item.cwd,
-          model: diskModelById.get(item.id)
+          model: item.model
         })
         seen.add(item.id)
       }
     }
 
     return result.sort((a, b) => b.updatedAt - a.updatedAt)
-  }
-
-  /**
-   * 逐个读 sessionsDir 下的 .jsonl，取最后一条 `model_change` 事件的 provider/modelId。
-   * 会话文件通常 <200KB，串行读几十个文件对一年历史规模足够；解析失败静默跳过，
-   * 保证 model 永远来自真实事件而不是前端占位。
-   */
-  private async readDiskSessionModels(): Promise<Map<string, string>> {
-    const map = new Map<string, string>()
-    try {
-      const files = await readdir(this.sessionsDir)
-      for (const file of files) {
-        if (!file.endsWith('.jsonl')) continue
-        try {
-          const content = await readFile(join(this.sessionsDir, file), 'utf8')
-          let model: string | undefined
-          let sessionId: string | undefined
-          for (const line of content.split('\n')) {
-            if (!line) continue
-            if (!sessionId && line.includes('"type":"session"')) {
-              try {
-                const parsed = JSON.parse(line) as { id?: string }
-                sessionId = parsed.id
-              } catch {
-                // ignore
-              }
-            }
-            if (line.includes('"type":"model_change"')) {
-              try {
-                const parsed = JSON.parse(line) as { provider?: string; modelId?: string }
-                if (parsed.modelId) {
-                  model = parsed.provider ? `${parsed.provider}/${parsed.modelId}` : parsed.modelId
-                }
-              } catch {
-                // ignore
-              }
-            }
-          }
-          if (sessionId && model) {
-            map.set(sessionId, model)
-          }
-        } catch {
-          // ignore single file failures
-        }
-      }
-    } catch {
-      // ignore dir failures
-    }
-    return map
   }
 
   public resolveApproval(
@@ -1886,6 +2157,25 @@ export class AgentSessionService {
   }
 
   public dispose(): void {
+    for (const timer of this.pendingMessageUpdates.values()) {
+      clearTimeout(timer.timer)
+    }
+    this.pendingMessageUpdates.clear()
+    for (const entry of this.activeSessions.values()) {
+      try {
+        entry.unsubscribe()
+      } catch {
+        // ignore
+      }
+      try {
+        entry.session.dispose()
+      } catch {
+        // ignore
+      }
+    }
+    this.activeSessions.clear()
+    this.sessionMetaCache.clear()
+    this.sessionFilePathCache.clear()
     this.authController.dispose()
     this.permissionEngine.dispose()
     void this.modelRuntime?.settleCredentialWrites().catch(() => undefined)

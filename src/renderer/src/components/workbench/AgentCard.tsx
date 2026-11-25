@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import { memo, useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useAppStore, DEEP_RESEARCH_SUPPORTED_MODEL_IDS, IMAGE_GENERATION_SUPPORTED_MODEL_IDS } from '../../store/appStore'
 import agentAvatar from '../../assets/logos/agent.png'
 import { useWorkbenchStore } from '../../store/workbenchStore'
@@ -17,11 +17,15 @@ import { MarkdownRenderer } from './agent/MarkdownRenderer'
 import { WorkPhaseBlock } from './agent/WorkPhaseBlock'
 import { AttachmentChips, InlineMentionText, collectToolAttachmentPaths, extractInlineFilePaths } from './agent/AttachmentChips'
 import type { AgentMessage, PiContentPart } from '../../types/agent'
+import type { AgentTurnFileChanges } from '../../../../shared/types/agentRuntime'
 
 interface AgentCardProps {
+  isVisible?: boolean
   onModelChange?: (modelId: string) => void
   headerActions?: React.ReactNode
 }
+
+const EMPTY_PATHS: string[] = []
 
 /** 规范化路径用于工作区相等比较：统一分隔符、去尾斜杠；按 Windows 语义不区分大小写。 */
 function normalizePath(p: string | null | undefined): string {
@@ -59,7 +63,489 @@ function formatDuration(durationMs: number): string {
   return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`
 }
 
-export default function AgentCard({
+type GroupedBlock =
+  | { type: 'reasoning'; reasoning: string; isRunning: boolean; part: PiContentPart }
+  | { type: 'text'; text: string; part: PiContentPart }
+  | { type: 'tool-group'; parts: PiContentPart[]; isRunning: boolean }
+
+function groupContentParts(parts: PiContentPart[], isMsgRunning: boolean): GroupedBlock[] {
+  const blocks: GroupedBlock[] = []
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i]
+    if (part.type === 'reasoning') {
+      blocks.push({
+        type: 'reasoning',
+        reasoning: part.reasoning || '',
+        isRunning: isMsgRunning && i === parts.length - 1,
+        part
+      })
+    } else if (part.type === 'text') {
+      if (part.text?.trim()) {
+        blocks.push({
+          type: 'text',
+          text: part.text,
+          part
+        })
+      }
+    } else if (part.type === 'tool-call') {
+      const last = blocks[blocks.length - 1]
+      const isPartRunning = isMsgRunning && part.result === undefined && !part.isError
+      if (last && last.type === 'tool-group') {
+        last.parts.push(part)
+        last.isRunning = last.isRunning || isPartRunning
+      } else {
+        blocks.push({
+          type: 'tool-group',
+          parts: [part],
+          isRunning: isPartRunning
+        })
+      }
+    }
+  }
+  return blocks
+}
+
+// 把消息流分组成"工作段"：一个 user query 后面连续的 assistant 全合并成
+// 一个 work-group——组内所有 reasoning/tool-call/中间过渡 text 都折叠进
+// "思考中/已完成"，只有组内最后一个非空 text 外显为 final answer。
+type PrecomputedRenderItem =
+  | {
+      kind: 'user'
+      msg: AgentMessage
+      isLastUserMessage: boolean
+    }
+  | {
+      kind: 'work'
+      msgs: AgentMessage[]
+      hasText: boolean
+      firstMsgId: string
+      hasRunningMsg: boolean
+      isLatestGroup: boolean
+      isTurnFinal: boolean
+      isLastTurnFinal: boolean
+      messageTurnIndex: number
+    }
+
+function computeRenderItems(messages: AgentMessage[]): PrecomputedRenderItem[] {
+  let lastUserIdx = -1
+  let lastAssistantIdx = -1
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const role = messages[i].role
+    if (lastUserIdx === -1 && role === 'user') lastUserIdx = i
+    if (lastAssistantIdx === -1 && role === 'assistant') lastAssistantIdx = i
+    if (lastUserIdx !== -1 && lastAssistantIdx !== -1) break
+  }
+
+  const items: PrecomputedRenderItem[] = []
+  let userCount = 0
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i]
+    if (m.role !== 'user' && m.role !== 'assistant') continue
+    if (m.role === 'user') {
+      userCount++
+      items.push({
+        kind: 'user',
+        msg: m,
+        isLastUserMessage: i === lastUserIdx
+      })
+      continue
+    }
+    const hasMsgText = m.content.some((c) => c.type === 'text' && Boolean(c.text?.trim()))
+    const last = items[items.length - 1]
+    const nextMsg = messages[i + 1]
+    const isTurnFinal = !nextMsg || nextMsg.role === 'user'
+    const isLastTurnFinal = isTurnFinal && i >= lastAssistantIdx
+    const isLatestGroup = i === messages.length - 1
+    if (last && last.kind === 'work') {
+      last.msgs.push(m)
+      if (hasMsgText) last.hasText = true
+      if (m.status === 'running') last.hasRunningMsg = true
+      last.isLatestGroup = isLatestGroup
+      last.isTurnFinal = isTurnFinal
+      last.isLastTurnFinal = isLastTurnFinal
+    } else {
+      items.push({
+        kind: 'work',
+        msgs: [m],
+        hasText: hasMsgText,
+        firstMsgId: m.id,
+        hasRunningMsg: m.status === 'running',
+        isLatestGroup,
+        isTurnFinal,
+        isLastTurnFinal,
+        messageTurnIndex: userCount
+      })
+    }
+  }
+  return items
+}
+
+// 折叠区标题的动态动作描述：跟随当前进行中的 part
+// （正在读 xxx / 正在编辑 xxx / 正在运行 xxx / 正在搜 xxx / 正在思考…）。
+function describeActivity(part: PiContentPart): string {
+  if (part.type === 'reasoning') return '正在思考…'
+  const name = (part.toolName || '').toLowerCase()
+  const args = typeof part.args === 'object' && part.args !== null ? part.args : {}
+  const rawPath = (args as { path?: string; filePath?: string; file_path?: string }).path
+    || (args as { filePath?: string }).filePath
+    || (args as { file_path?: string }).file_path
+    || ''
+  const fileName = rawPath ? rawPath.split(/[/\\]/).pop() || rawPath : ''
+  const command = typeof part.args === 'string'
+    ? part.args
+    : ((args as { command?: string; cmd?: string }).command || (args as { cmd?: string }).cmd || '')
+  const inline = (args as { query?: string; prompt?: string; pattern?: string }).query
+    || (args as { prompt?: string }).prompt
+    || (args as { pattern?: string }).pattern
+    || ''
+
+  if (name === 'read' || name === 'read_file') return fileName ? `正在读取 ${fileName}` : '正在读取文件'
+  if (['edit', 'write', 'edit_file', 'str_replace', 'multi_edit', 'apply_patch'].includes(name)) {
+    return fileName ? `正在编辑 ${fileName}` : '正在编辑文件'
+  }
+  if (['bash', 'powershell', 'cmd', 'terminal', 'shell'].includes(name)) {
+    return command ? `正在运行 ${command}` : '正在运行命令'
+  }
+  if (name === 'web_search') return inline ? `正在搜索 ${inline}` : '正在联网搜索'
+  if (name === 'grep' || name === 'find') return inline ? `正在查找 ${inline}` : '正在查找'
+  if (name === 'ls') return fileName ? `正在列出 ${fileName}` : '正在列出目录'
+  if (name === 'image_gen') return inline ? `正在生成图片 ${inline}` : '正在生成图片'
+  return name ? `正在调用 ${name}` : '正在调用工具'
+}
+
+interface AgentUserMessageItemProps {
+  message: AgentMessage
+  cwd?: string
+  canRewind: boolean
+  isCopied: boolean
+  onCopy: (key: string, text: string) => void
+  onRewindClick: () => void
+}
+
+const AgentUserMessageItem = memo(function AgentUserMessageItem({
+  message,
+  cwd,
+  canRewind,
+  isCopied,
+  onCopy,
+  onRewindClick
+}: AgentUserMessageItemProps): JSX.Element {
+  const userText = useMemo(
+    () =>
+      message.content
+        .filter((c) => c.type === 'text')
+        .map((c) => c.text)
+        .join(''),
+    [message.content]
+  )
+  const userImages = useMemo(
+    () => message.content.filter((c) => c.type === 'image'),
+    [message.content]
+  )
+
+  return (
+    <div className="group my-1">
+      {userImages.length > 0 && (
+        <div className="mb-1 flex flex-wrap justify-end gap-1.5">
+          {userImages.map((img, i) => (
+            <img
+              key={i}
+              src={img.data ?? ''}
+              alt="粘贴的图片"
+              className="max-h-32 max-w-[220px] rounded-lg border border-slate-200/70 dark:border-white/10 object-cover shadow-sm"
+            />
+          ))}
+        </div>
+      )}
+      <div className="flex justify-end">
+        <div className="max-w-[85%] bg-primary text-white text-body leading-relaxed px-4 py-2.5 rounded-2xl rounded-tr-sm shadow-sm break-words whitespace-pre-wrap select-text">
+          <InlineMentionText text={userText} cwd={cwd} />
+        </div>
+      </div>
+      <div className="mt-1 flex items-center justify-end gap-0.5 pr-1 opacity-0 transition-opacity group-hover:opacity-100">
+        {canRewind && (
+          <button
+            type="button"
+            onClick={onRewindClick}
+            className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-caption text-text-secondary transition-colors hover:bg-gray-100 hover:text-text-primary dark:hover:bg-white/10"
+            title="编辑并撤回此条消息"
+          >
+            <AppIcon name="edit" size={14} />
+            <span>编辑</span>
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => onCopy(message.id, userText)}
+          className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-caption text-text-secondary transition-colors hover:bg-gray-100 hover:text-text-primary dark:hover:bg-white/10"
+          title="复制消息内容"
+        >
+          <AppIcon name="content_copy" size={14} />
+          <span>{isCopied ? '已复制' : '复制'}</span>
+        </button>
+      </div>
+    </div>
+  )
+})
+
+interface AgentWorkGroupItemProps {
+  msgs: AgentMessage[]
+  sessionId: string | null
+  cwd: string | null
+  isGroupRunning: boolean
+  isTurnFinal: boolean
+  turnFileChanges: AgentTurnFileChanges | null
+  isCopied: boolean
+  isForkMenuOpen: boolean
+  isForking: boolean
+  onCopy: (key: string, text: string) => void
+  onToggleForkMenu: (msgId: string) => void
+  onCloseForkMenu: () => void
+  onConfirmFork: () => Promise<void>
+}
+
+function areWorkGroupPropsEqual(
+  prev: AgentWorkGroupItemProps,
+  next: AgentWorkGroupItemProps
+): boolean {
+  if (
+    prev.sessionId !== next.sessionId ||
+    prev.cwd !== next.cwd ||
+    prev.isGroupRunning !== next.isGroupRunning ||
+    prev.isTurnFinal !== next.isTurnFinal ||
+    prev.turnFileChanges !== next.turnFileChanges ||
+    prev.isCopied !== next.isCopied ||
+    prev.isForkMenuOpen !== next.isForkMenuOpen ||
+    prev.isForking !== next.isForking ||
+    prev.onCopy !== next.onCopy ||
+    prev.onToggleForkMenu !== next.onToggleForkMenu ||
+    prev.onCloseForkMenu !== next.onCloseForkMenu ||
+    prev.onConfirmFork !== next.onConfirmFork
+  ) {
+    return false
+  }
+  if (prev.msgs.length !== next.msgs.length) return false
+  for (let i = 0; i < prev.msgs.length; i++) {
+    if (prev.msgs[i] !== next.msgs[i]) return false
+  }
+  return true
+}
+
+const AgentWorkGroupItem = memo(function AgentWorkGroupItem({
+  msgs: groupMsgs,
+  sessionId,
+  cwd,
+  isGroupRunning,
+  isTurnFinal,
+  turnFileChanges,
+  isCopied,
+  isForkMenuOpen,
+  isForking,
+  onCopy,
+  onToggleForkMenu,
+  onCloseForkMenu,
+  onConfirmFork
+}: AgentWorkGroupItemProps): JSX.Element {
+  const finalMsg = groupMsgs[groupMsgs.length - 1]
+
+  // 先找组内"最后一个非空 text part"作为 final answer 外显；
+  // 其余 text 视为中间过渡，进折叠区。
+  let lastTextPart: PiContentPart | null = null
+  for (const m of groupMsgs) {
+    for (const p of m.content) {
+      if (p.type === 'text' && p.text?.trim()) lastTextPart = p
+    }
+  }
+  const assistantText = lastTextPart?.text?.trim() ?? ''
+
+  // 附件 Chips：主数据源是工具结果（image_gen 的 imageFiles 等），
+  // 兜底是正文任意位置的绝对路径——仅在非流式运行态时计算，避免流式输出期间反复跑正则。
+  const attachmentPaths = useMemo(() => {
+    if (isGroupRunning) return EMPTY_PATHS
+    const merged = [
+      ...collectToolAttachmentPaths(groupMsgs),
+      ...extractInlineFilePaths(assistantText)
+    ]
+    if (merged.length === 0) return EMPTY_PATHS
+    const seen = new Set<string>()
+    return merged.filter((p) => {
+      const key = p.replace(/\\/g, '/').toLowerCase()
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+  }, [isGroupRunning, groupMsgs, assistantText])
+
+  // 折叠区内容：组内所有 reasoning + tool-group + 非 final 的 text
+  const workBlocks: { key: string; node: JSX.Element }[] = []
+  const textBlocks: { key: string; node: JSX.Element }[] = []
+  let activityPart: PiContentPart | null = null
+  for (const m of groupMsgs) {
+    const mRunning = m.status === 'running'
+    const blocks = groupContentParts(m.content, mRunning)
+    blocks.forEach((block, bIdx) => {
+      const key = `${m.id}:${bIdx}`
+      if (block.type === 'reasoning') {
+        if (block.isRunning) activityPart = block.part
+        workBlocks.push({
+          key,
+          node: (
+            <ThinkingBlock
+              thinking={block.reasoning}
+              isRunning={block.isRunning}
+            />
+          )
+        })
+      } else if (block.type === 'tool-group') {
+        const running = block.parts.find(
+          (p) => block.isRunning && p.result === undefined && !p.isError
+        )
+        if (running) activityPart = running
+        workBlocks.push({
+          key,
+          node: <ToolGroup parts={block.parts} isRunning={block.isRunning} cwd={cwd ?? undefined} />
+        })
+      } else if (block.type === 'text') {
+        if (block.part === lastTextPart) {
+          textBlocks.push({
+            key,
+            node: (
+              <div className="w-full">
+                <MarkdownRenderer content={block.text} cwd={cwd ?? undefined} />
+              </div>
+            )
+          })
+        } else {
+          workBlocks.push({
+            key,
+            node: (
+              <div className="py-0.5 text-caption italic text-slate-400 select-text">
+                {block.text}
+              </div>
+            )
+          })
+        }
+      }
+    })
+  }
+
+  let workDurationMs = finalMsg.turnDurationMs
+  if (workDurationMs === undefined && finalMsg.timestamp !== undefined) {
+    const end = finalMsg.timestamp + (finalMsg.durationMs ?? 0)
+    const firstTs = groupMsgs[0]?.timestamp
+    if (firstTs !== undefined) {
+      const d = end - firstTs
+      if (d > 0) workDurationMs = d
+    }
+  }
+
+  return (
+    <div className="group space-y-2.5 my-2">
+      {/* 发送后等待首个 part 的间隙：组内还没有任何 block */}
+      {isGroupRunning && workBlocks.length === 0 && textBlocks.length === 0 && (
+        <WorkPhaseBlock isRunning durationMs={undefined}>
+          <ThinkingBlock thinking="" isRunning />
+        </WorkPhaseBlock>
+      )}
+
+      {/* final answer 之前的所有工作 → "思考中"折叠区 */}
+      {workBlocks.length > 0 && (
+        <WorkPhaseBlock
+          isRunning={isGroupRunning}
+          durationMs={workDurationMs}
+          activity={isGroupRunning && activityPart ? describeActivity(activityPart) : undefined}
+        >
+          {workBlocks.map((b) => (
+            <div key={b.key}>{b.node}</div>
+          ))}
+        </WorkPhaseBlock>
+      )}
+
+      {/* final answer */}
+      {textBlocks.map((b) => (
+        <div key={b.key}>{b.node}</div>
+      ))}
+
+      {attachmentPaths.length > 0 && !isGroupRunning && (
+        <AttachmentChips paths={attachmentPaths} cwd={cwd ?? undefined} />
+      )}
+
+      {turnFileChanges && sessionId && cwd && (
+        <ChangedFilesCard
+          sessionId={sessionId}
+          cwd={cwd}
+          record={turnFileChanges}
+        />
+      )}
+
+      {finalMsg.error && (
+        <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-red-600 text-body font-medium dark:bg-rose-500/10 dark:border-rose-500/30 dark:text-rose-300">
+          {finalMsg.error}
+        </div>
+      )}
+
+      {!isGroupRunning && isTurnFinal && (
+        <div className="relative flex items-center gap-0.5 -ml-1.5 opacity-0 transition-opacity group-hover:opacity-100">
+          <button
+            type="button"
+            onClick={() => onToggleForkMenu(finalMsg.id)}
+            className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-caption text-text-secondary transition-colors hover:bg-gray-100 hover:text-text-primary dark:hover:bg-white/10"
+            title="从当前位置创建分支会话"
+          >
+            <AppIcon name="git_branch" size={14} />
+            <span>分支</span>
+          </button>
+          <AgentPopover
+            open={isForkMenuOpen}
+            onClose={onCloseForkMenu}
+            align="left"
+            placement="top"
+            className="w-32 py-1"
+          >
+            <button
+              type="button"
+              disabled={isForking}
+              onClick={() => {
+                onCloseForkMenu()
+                void onConfirmFork()
+              }}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-caption text-text-primary transition-colors hover:bg-gray-50 dark:hover:bg-white/5 disabled:opacity-50"
+            >
+              <AppIcon name="git_branch" size={14} className="text-primary" />
+              <span>{isForking ? '创建中…' : '创建分支'}</span>
+            </button>
+          </AgentPopover>
+          <button
+            type="button"
+            onClick={() => onCopy(finalMsg.id, assistantText)}
+            className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-caption text-text-secondary transition-colors hover:bg-gray-100 hover:text-text-primary dark:hover:bg-white/10"
+            title="复制本轮回复文本"
+          >
+            <AppIcon name="content_copy" size={14} />
+            <span>{isCopied ? '已复制' : '复制'}</span>
+          </button>
+          {(finalMsg.timestamp || finalMsg.createdAt) && (
+            <span
+              className="px-1 text-caption text-text-secondary select-none"
+              title={
+                finalMsg.turnDurationMs !== undefined
+                  ? `完成于 ${formatMessageTime(finalMsg.timestamp ?? finalMsg.createdAt!)} · 用时 ${formatDuration(finalMsg.turnDurationMs)}`
+                  : `开始于 ${formatMessageTime(finalMsg.timestamp ?? finalMsg.createdAt!)}`
+              }
+            >
+              {formatMessageTime(finalMsg.timestamp ?? finalMsg.createdAt!)}
+              {finalMsg.turnDurationMs !== undefined &&
+                ` · ${formatDuration(finalMsg.turnDurationMs)}`}
+            </span>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}, areWorkGroupPropsEqual)
+
+function AgentCard({
+  isVisible = true,
   onModelChange,
   headerActions
 }: AgentCardProps): JSX.Element {
@@ -87,6 +573,9 @@ export default function AgentCard({
   const copyText = useAgentSessionStore((s) => s.copyText)
   const foreignReview = useAgentSessionStore((s) => s.foreignReview)
   const setForeignReview = useAgentSessionStore((s) => s.setForeignReview)
+  const fileChangesRecord = useAgentSessionStore((s) => s.fileChangesRecord)
+  const setResumeAfterSwitchCwd = useAgentSessionStore((s) => s.setResumeAfterSwitchCwd)
+  const consumeResumeAfterSwitchCwd = useAgentSessionStore((s) => s.consumeResumeAfterSwitchCwd)
 
   const [historyMenuOpen, setHistoryMenuOpen] = useState(false)
   const [foreignHistoryOpen, setForeignHistoryOpen] = useState(false)
@@ -99,17 +588,34 @@ export default function AgentCard({
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [forkMenuOpenFor, setForkMenuOpenFor] = useState<string | null>(null)
   const [isForking, setIsForking] = useState(false)
+  const isForkingRef = useRef(false)
   const viewportRef = useRef<HTMLDivElement>(null)
+  const autoFollowRef = useRef(true)
+  const scrollRafRef = useRef<number | null>(null)
 
   const handleConfirmFork = useCallback(async (): Promise<void> => {
-    if (isForking) return
+    if (isForkingRef.current) return
+    isForkingRef.current = true
     setIsForking(true)
     try {
       await forkSession()
     } finally {
+      isForkingRef.current = false
       setIsForking(false)
     }
-  }, [forkSession, isForking])
+  }, [forkSession])
+
+  const handleToggleForkMenu = useCallback((msgId: string): void => {
+    setForkMenuOpenFor((cur) => (cur === msgId ? null : msgId))
+  }, [])
+
+  const handleCloseForkMenu = useCallback((): void => {
+    setForkMenuOpenFor(null)
+  }, [])
+
+  const handleRewindClick = useCallback((): void => {
+    setRewindConfirmOpen(true)
+  }, [])
 
   const copyTimerRef = useRef<number | null>(null)
   const handleCopy = useCallback(
@@ -130,21 +636,73 @@ export default function AgentCard({
     return () => cleanup()
   }, [initListeners])
 
-  // Auto-scroll to bottom on messages update
-  useEffect(() => {
-    if (viewportRef.current) {
-      viewportRef.current.scrollTop = viewportRef.current.scrollHeight
+  const renderItems = useMemo(() => computeRenderItems(messages), [messages])
+  const lastUserMsgId = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'user') return messages[i].id
     }
-  }, [messages, pendingApprovals])
+    return null
+  }, [messages])
+  const hasPendingApproval = useMemo(
+    () => pendingApprovals.some((r) => !currentSessionId || r.sessionId === currentSessionId),
+    [pendingApprovals, currentSessionId]
+  )
 
-  // Sync workspacePath to AgentSession
-  const prevWorkspaceRef = useRef<string | null>(workspacePath)
-  /** 工作区切换是"为了 resume 某条该工作区会话"而触发时置位；effect1 据此跳过 draft 重置，避免清掉即将恢复的消息。 */
-  const resumeAfterSwitchRef = useRef<string | null>(null)
+  const prevLastUserMsgIdRef = useRef<string | null>(lastUserMsgId)
+  const prevSessionIdRef = useRef<string | null>(currentSessionId)
+
+  const handleViewportScroll = useCallback((): void => {
+    if (!isVisible) return
+    const el = viewportRef.current
+    if (!el) return
+    const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+    autoFollowRef.current = distanceToBottom <= 80
+  }, [isVisible])
+
+  // Smart auto-scroll: follow streaming via rAF only when near bottom,
+  // and always jump to bottom when the user sends a message or switches session.
   useEffect(() => {
+    if (currentSessionId !== prevSessionIdRef.current) {
+      prevSessionIdRef.current = currentSessionId
+      autoFollowRef.current = true
+    }
+    if (lastUserMsgId !== prevLastUserMsgIdRef.current) {
+      prevLastUserMsgIdRef.current = lastUserMsgId
+      if (lastUserMsgId !== null) {
+        autoFollowRef.current = true
+      }
+    }
+    if (!isVisible || !autoFollowRef.current) return
+    if (!viewportRef.current) return
+    if (scrollRafRef.current !== null) return
+    scrollRafRef.current = requestAnimationFrame(() => {
+      scrollRafRef.current = null
+      const el = viewportRef.current
+      if (el && autoFollowRef.current) {
+        el.scrollTop = el.scrollHeight
+      }
+    })
+  }, [messages, pendingApprovals, isVisible, currentSessionId, lastUserMsgId])
+
+  useEffect(() => {
+    return () => {
+      if (scrollRafRef.current !== null) {
+        cancelAnimationFrame(scrollRafRef.current)
+        scrollRafRef.current = null
+      }
+      if (copyTimerRef.current) {
+        window.clearTimeout(copyTimerRef.current)
+        copyTimerRef.current = null
+      }
+    }
+  }, [])
+
+  // Sync workspacePath to AgentSession (only active/visible instance acts to avoid dual-sidebar double resets)
+  const prevWorkspaceRef = useRef<string | null>(workspacePath)
+  useEffect(() => {
+    if (!isVisible) return
     if (workspacePath && prevWorkspaceRef.current !== null && workspacePath !== prevWorkspaceRef.current) {
-      if (resumeAfterSwitchRef.current && normalizePath(resumeAfterSwitchRef.current) === normalizePath(workspacePath)) {
-        resumeAfterSwitchRef.current = null
+      if (consumeResumeAfterSwitchCwd(workspacePath)) {
         prevWorkspaceRef.current = workspacePath
         return
       }
@@ -152,9 +710,10 @@ export default function AgentCard({
       void newSession(workspacePath)
     }
     prevWorkspaceRef.current = workspacePath
-  }, [workspacePath, newSession])
+  }, [workspacePath, newSession, isVisible, consumeResumeAfterSwitchCwd, setForeignReview])
 
   useEffect(() => {
+    if (!isVisible) return
     // Only reset the draft when the bound workspace actually diverges; a null
     // session id is already the draft state and needs no further reset.
     // 失效工作区回看态下不重置：currentCwd 是失效路径，用户仍在浏览历史消息。
@@ -165,10 +724,10 @@ export default function AgentCard({
       }
       return
     }
-    if (workspacePath && currentCwd && currentCwd !== workspacePath) {
+    if (workspacePath && currentCwd && normalizePath(currentCwd) !== normalizePath(workspacePath)) {
       void newSession(workspacePath)
     }
-  }, [currentCwd, workspacePath, newSession, foreignReview])
+  }, [currentCwd, workspacePath, newSession, foreignReview, isVisible, setForeignReview])
 
   // Model picker options
   const modelOptions = useMemo<DropdownOption<string>[]>(() => {
@@ -280,132 +839,27 @@ export default function AgentCard({
     setPendingForeignSession(null)
     if (!pending) return
     // 标记"接下来发生的工作区切换是为了 resume 这条会话"，effect1 见标记跳过 draft 重置。
-    resumeAfterSwitchRef.current = pending.cwd
+    setResumeAfterSwitchCwd(pending.cwd)
     const result = await setWorkspaceFolder(pending.cwd)
     if (result === 'switched') {
       setForeignReview(false)
       void resumeSession(pending.id)
       return
     }
-    resumeAfterSwitchRef.current = null
+    setResumeAfterSwitchCwd(null)
     // 用户取消（可视化编辑未保存选择留下）：不进回看，保持现状。
     if (result === 'cancelled') return
     // 目录失效（已删除/改名/盘符脱机）：setWorkspaceFolder 的 error 通道已提示；
     // 降级为只读回看——不切工作区直接恢复消息，标记豁免防 effect 清空。
     setForeignReview(true)
     void resumeSession(pending.id)
-  }, [pendingForeignSession, resumeSession, setWorkspaceFolder])
+  }, [pendingForeignSession, resumeSession, setWorkspaceFolder, setResumeAfterSwitchCwd, setForeignReview])
 
   const handleConfirmDeleteSession = useCallback(async (): Promise<void> => {
     if (!deleteTarget) return
     await deleteSession(deleteTarget.id)
     setDeleteTarget(null)
   }, [deleteTarget, deleteSession])
-
-  type GroupedBlock =
-    | { type: 'reasoning'; reasoning: string; isRunning: boolean; part: PiContentPart }
-    | { type: 'text'; text: string; part: PiContentPart }
-    | { type: 'tool-group'; parts: PiContentPart[]; isRunning: boolean }
-
-  const groupContentParts = (parts: PiContentPart[], isMsgRunning: boolean): GroupedBlock[] => {
-    const blocks: GroupedBlock[] = []
-    for (let i = 0; i < parts.length; i++) {
-      const part = parts[i]
-      if (part.type === 'reasoning') {
-        blocks.push({
-          type: 'reasoning',
-          reasoning: part.reasoning || '',
-          isRunning: isMsgRunning && i === parts.length - 1,
-          part
-        })
-      } else if (part.type === 'text') {
-        if (part.text?.trim()) {
-          blocks.push({
-            type: 'text',
-            text: part.text,
-            part
-          })
-        }
-      } else if (part.type === 'tool-call') {
-        const last = blocks[blocks.length - 1]
-        const isPartRunning = isMsgRunning && part.result === undefined && !part.isError
-        if (last && last.type === 'tool-group') {
-          last.parts.push(part)
-          last.isRunning = last.isRunning || isPartRunning
-        } else {
-          blocks.push({
-            type: 'tool-group',
-            parts: [part],
-            isRunning: isPartRunning
-          })
-        }
-      }
-    }
-    return blocks
-  }
-
-  // 把消息流分组成"工作段"：一个 user query 后面连续的 assistant 全合并成
-  // 一个 work-group——组内所有 reasoning/tool-call/中间过渡 text 都折叠进
-  // "思考中/已完成"，只有组内最后一个非空 text 外显为 final answer。
-  type RenderItem =
-    | { kind: 'user'; msg: AgentMessage }
-    | { kind: 'work'; msgs: AgentMessage[]; hasText: boolean }
-
-  const buildRenderItems = (list: AgentMessage[]): RenderItem[] => {
-    const items: RenderItem[] = []
-    for (const m of list) {
-      if (m.role === 'user') {
-        items.push({ kind: 'user', msg: m })
-        continue
-      }
-      const text = m.content
-        .filter((c) => c.type === 'text')
-        .map((c) => c.text ?? '')
-        .join('')
-        .trim()
-      const last = items[items.length - 1]
-      if (last && last.kind === 'work') {
-        last.msgs.push(m)
-        if (text) last.hasText = true
-      } else {
-        items.push({ kind: 'work', msgs: [m], hasText: Boolean(text) })
-      }
-    }
-    return items
-  }
-
-  // 折叠区标题的动态动作描述：跟随当前进行中的 part
-  // （正在读 xxx / 正在编辑 xxx / 正在运行 xxx / 正在搜 xxx / 正在思考…）。
-  const describeActivity = (part: PiContentPart): string => {
-    if (part.type === 'reasoning') return '正在思考…'
-    const name = (part.toolName || '').toLowerCase()
-    const args = typeof part.args === 'object' && part.args !== null ? part.args : {}
-    const rawPath = (args as { path?: string; filePath?: string; file_path?: string }).path
-      || (args as { filePath?: string }).filePath
-      || (args as { file_path?: string }).file_path
-      || ''
-    const fileName = rawPath ? rawPath.split(/[/\\]/).pop() || rawPath : ''
-    const command = typeof part.args === 'string'
-      ? part.args
-      : ((args as { command?: string; cmd?: string }).command || (args as { cmd?: string }).cmd || '')
-    const inline = (args as { query?: string; prompt?: string; pattern?: string }).query
-      || (args as { prompt?: string }).prompt
-      || (args as { pattern?: string }).pattern
-      || ''
-
-    if (name === 'read' || name === 'read_file') return fileName ? `正在读取 ${fileName}` : '正在读取文件'
-    if (['edit', 'write', 'edit_file', 'str_replace', 'multi_edit', 'apply_patch'].includes(name)) {
-      return fileName ? `正在编辑 ${fileName}` : '正在编辑文件'
-    }
-    if (['bash', 'powershell', 'cmd', 'terminal', 'shell'].includes(name)) {
-      return command ? `正在运行 ${command}` : '正在运行命令'
-    }
-    if (name === 'web_search') return inline ? `正在搜索 ${inline}` : '正在联网搜索'
-    if (name === 'grep' || name === 'find') return inline ? `正在查找 ${inline}` : '正在查找'
-    if (name === 'ls') return fileName ? `正在列出 ${fileName}` : '正在列出目录'
-    if (name === 'image_gen') return inline ? `正在生成图片 ${inline}` : '正在生成图片'
-    return name ? `正在调用 ${name}` : '正在调用工具'
-  }
 
   return (
     <div className="flex flex-col h-full bg-white dark:bg-gray-900 overflow-hidden">
@@ -563,7 +1017,7 @@ export default function AgentCard({
                       </div>
                     </div>
 
-                    {(() => {
+                    {historyMenuOpen && (() => {
                       const query = historySearchQuery.trim().toLowerCase()
                       const matchesQuery = (item: (typeof sessions)[number]) => {
                         if (!query) return true
@@ -728,6 +1182,7 @@ export default function AgentCard({
           )}
           <div
             ref={viewportRef}
+            onScroll={handleViewportScroll}
             className="flex-1 overflow-y-auto px-4 py-3 space-y-3"
           >
             {/* Empty state */}
@@ -786,291 +1241,56 @@ export default function AgentCard({
             )}
 
             {/* Messages Stream */}
-            {buildRenderItems(
-              messages.filter((m) => m.role === 'user' || m.role === 'assistant')
-            ).map((item) => {
+            {renderItems.map((item) => {
               if (item.kind === 'user') {
-                const message = item.msg
-                const userText = message.content
-                  .filter((c) => c.type === 'text')
-                  .map((c) => c.text)
-                  .join('')
-                const userImages = message.content.filter((c) => c.type === 'image')
-                // Resolve the session-entry id bound to this bubble by text.
-                // The main process already restricts rewind to the LAST user
-                // message, so the edit button is only meaningful there.
-                const lastUserIdx = messages.reduce((acc, m, i) => (m.role === 'user' ? i : acc), -1)
-                const isLastUserMessage = messages.indexOf(message) === lastUserIdx
-                const canRewind = !isRunning && isLastUserMessage
+                const canRewind = !isRunning && item.isLastUserMessage
                 return (
-                  <div key={message.id} className="group my-1">
-                    {userImages.length > 0 && (
-                      <div className="mb-1 flex flex-wrap justify-end gap-1.5">
-                        {userImages.map((img, i) => (
-                          <img
-                            key={i}
-                            src={img.data ?? ''}
-                            alt="粘贴的图片"
-                            className="max-h-32 max-w-[220px] rounded-lg border border-slate-200/70 dark:border-white/10 object-cover shadow-sm"
-                          />
-                        ))}
-                      </div>
-                    )}
-                    <div className="flex justify-end">
-                      <div className="max-w-[85%] bg-primary text-white text-body leading-relaxed px-4 py-2.5 rounded-2xl rounded-tr-sm shadow-sm break-words whitespace-pre-wrap select-text">
-                        <InlineMentionText text={userText} cwd={currentCwd ?? undefined} />
-                      </div>
-                    </div>
-                    <div className="mt-1 flex items-center justify-end gap-0.5 pr-1 opacity-0 transition-opacity group-hover:opacity-100">
-                      {canRewind && (
-                        <button
-                          type="button"
-                          onClick={() => setRewindConfirmOpen(true)}
-                          className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-caption text-text-secondary transition-colors hover:bg-gray-100 hover:text-text-primary dark:hover:bg-white/10"
-                          title="编辑并撤回此条消息"
-                        >
-                          <AppIcon name="edit" size={14} />
-                          <span>编辑</span>
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => handleCopy(message.id, userText)}
-                        className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-caption text-text-secondary transition-colors hover:bg-gray-100 hover:text-text-primary dark:hover:bg-white/10"
-                        title="复制消息内容"
-                      >
-                        <AppIcon name="content_copy" size={14} />
-                        <span>{copiedId === message.id ? '已复制' : '复制'}</span>
-                      </button>
-                    </div>
-                  </div>
+                  <AgentUserMessageItem
+                    key={item.msg.id}
+                    message={item.msg}
+                    cwd={currentCwd ?? undefined}
+                    canRewind={canRewind}
+                    isCopied={copiedId === item.msg.id}
+                    onCopy={handleCopy}
+                    onRewindClick={handleRewindClick}
+                  />
                 )
               }
 
-              // Work group：连续 assistant 消息的工作段（reasoning/tool-call
-              // 折叠进"思考中"，最后一条的 final text 外显）。
-              const groupMsgs = item.msgs
-              const firstMsg = groupMsgs[0]
-              const finalMsg = groupMsgs[groupMsgs.length - 1]
-              const finalMsgIndex = messages.indexOf(finalMsg)
-              const isLatestGroup = finalMsgIndex === messages.length - 1
-              const hasPendingApproval = pendingApprovals.some((r) => !currentSessionId || r.sessionId === currentSessionId)
-              const isGroupRunning = groupMsgs.some((m) => m.status === 'running') || (isLatestGroup && (isRunning || hasPendingApproval))
-              const nextMsg = messages[finalMsgIndex + 1]
-              const isTurnFinal = !nextMsg || nextMsg.role === 'user'
-              const isForkMenuTarget = forkMenuOpenFor === finalMsg.id
-
-              // Turn number = count of user messages before this group
-              let messageTurnIndex = 0
-              for (let i = 0; i < finalMsgIndex; i++) {
-                if (messages[i].role === 'user') messageTurnIndex++
-              }
-              const isLastTurnFinal =
-                isTurnFinal &&
-                !messages
-                  .slice(finalMsgIndex + 1)
-                  .some((m) => m.role === 'assistant')
-
-              // 先找组内"最后一个非空 text part"作为 final answer 外显；
-              // 其余 text 视为中间过渡，进折叠区。
-              let lastTextPart: PiContentPart | null = null
-              for (const m of groupMsgs) {
-                for (const p of m.content) {
-                  if (p.type === 'text' && p.text?.trim()) lastTextPart = p
-                }
-              }
-
-              const assistantText = lastTextPart?.text?.trim() ?? ''
-
-              // 附件 Chips：主数据源是工具结果（image_gen 的 imageFiles 等），
-              // 兜底是正文任意位置的绝对路径——shell/脚本等"非工具产物"场景，
-              // 模型忘记反引号、路径嵌在句中时仍能识别。
-              const attachmentPaths = (() => {
-                const merged = [
-                  ...collectToolAttachmentPaths(groupMsgs),
-                  ...extractInlineFilePaths(assistantText)
-                ]
-                const seen = new Set<string>()
-                return merged.filter((p) => {
-                  const key = p.replace(/\\/g, '/').toLowerCase()
-                  if (seen.has(key)) return false
-                  seen.add(key)
-                  return true
-                })
-              })()
-
-              // 折叠区内容：组内所有 reasoning + tool-group + 非 final 的 text
-              const workBlocks: { key: string; node: JSX.Element }[] = []
-              const textBlocks: { key: string; node: JSX.Element }[] = []
-              // 当前动作：最后一个仍在进行中的 part（reasoning 尾块 or 未返结果的 tool-call）
-              let activityPart: PiContentPart | null = null
-              for (const m of groupMsgs) {
-                const mRunning = m.status === 'running'
-                const blocks = groupContentParts(m.content, mRunning)
-                blocks.forEach((block, bIdx) => {
-                  const key = `${m.id}:${bIdx}`
-                  if (block.type === 'reasoning') {
-                    if (block.isRunning) activityPart = block.part
-                    workBlocks.push({
-                      key,
-                      node: (
-                        <ThinkingBlock
-                          thinking={block.reasoning}
-                          isRunning={block.isRunning}
-                        />
-                      )
-                    })
-                  } else if (block.type === 'tool-group') {
-                    const running = block.parts.find(
-                      (p) => block.isRunning && p.result === undefined && !p.isError
-                    )
-                    if (running) activityPart = running
-                    workBlocks.push({
-                      key,
-                      node: <ToolGroup parts={block.parts} isRunning={block.isRunning} cwd={currentCwd ?? undefined} />
-                    })
-                  } else if (block.type === 'text') {
-                    if (block.part === lastTextPart) {
-                      textBlocks.push({
-                        key,
-                        node: (
-                          <div className="w-full">
-                            <MarkdownRenderer content={block.text} cwd={currentCwd ?? undefined} />
-                          </div>
-                        )
-                      })
-                    } else {
-                      // 中间过渡文字：斜体灰字，与 reasoning 同级
-                      workBlocks.push({
-                        key,
-                        node: (
-                          <div className="py-0.5 text-caption italic text-slate-400 select-text">
-                            {block.text}
-                          </div>
-                        )
-                      })
-                    }
-                  }
-                })
-              }
-
-              // 组耗时：该组第一条消息的 timestamp 到 finalMsg 结束；
-              // turnDurationMs（整轮耗时）只在最后一组存在，直接用。
-              let workDurationMs = finalMsg.turnDurationMs
-              if (workDurationMs === undefined && finalMsg.timestamp !== undefined) {
-                const end = finalMsg.timestamp + (finalMsg.durationMs ?? 0)
-                const firstTs = groupMsgs[0]?.timestamp
-                if (firstTs !== undefined) {
-                  const d = end - firstTs
-                  if (d > 0) workDurationMs = d
-                }
-              }
+              const finalMsg = item.msgs[item.msgs.length - 1]
+              const isGroupRunning =
+                item.hasRunningMsg || (item.isLatestGroup && (isRunning || hasPendingApproval))
+              const turnFileChanges =
+                !isGroupRunning &&
+                item.isTurnFinal &&
+                currentSessionId &&
+                currentCwd &&
+                fileChangesRecord &&
+                fileChangesRecord.files.length > 0 &&
+                (fileChangesRecord.turnIndex !== undefined
+                  ? fileChangesRecord.turnIndex === item.messageTurnIndex
+                  : item.isLastTurnFinal)
+                  ? fileChangesRecord
+                  : null
+              const isForkMenuOpen = forkMenuOpenFor === finalMsg.id
 
               return (
-                <div key={firstMsg.id} className="group space-y-2.5 my-2">
-                  {/* 发送后等待首个 part 的间隙：组内还没有任何 block */}
-                  {isGroupRunning && workBlocks.length === 0 && textBlocks.length === 0 && (
-                    <WorkPhaseBlock isRunning durationMs={undefined}>
-                      <ThinkingBlock thinking="" isRunning />
-                    </WorkPhaseBlock>
-                  )}
-
-                  {/* final answer 之前的所有工作 → "思考中"折叠区 */}
-                  {workBlocks.length > 0 && (
-                    <WorkPhaseBlock
-                      isRunning={isGroupRunning}
-                      durationMs={workDurationMs}
-                      activity={isGroupRunning && activityPart ? describeActivity(activityPart) : undefined}
-                    >
-                      {workBlocks.map((b) => (
-                        <div key={b.key}>{b.node}</div>
-                      ))}
-                    </WorkPhaseBlock>
-                  )}
-
-                  {/* final answer */}
-                  {textBlocks.map((b) => (
-                    <div key={b.key}>{b.node}</div>
-                  ))}
-
-                  {attachmentPaths.length > 0 && !isGroupRunning && (
-                    <AttachmentChips paths={attachmentPaths} cwd={currentCwd ?? undefined} />
-                  )}
-
-                  {!isGroupRunning && isTurnFinal && currentSessionId && currentCwd && (
-                    <ChangedFilesCard
-                      sessionId={currentSessionId}
-                      cwd={currentCwd}
-                      turnIndex={messageTurnIndex}
-                      allowLegacy={isLastTurnFinal}
-                    />
-                  )}
-
-                  {finalMsg.error && (
-                    <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-red-600 text-body font-medium dark:bg-rose-500/10 dark:border-rose-500/30 dark:text-rose-300">
-                      {finalMsg.error}
-                    </div>
-                  )}
-
-                  {!isGroupRunning && isTurnFinal && (
-                    <div className="relative flex items-center gap-0.5 -ml-1.5 opacity-0 transition-opacity group-hover:opacity-100">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setForkMenuOpenFor((cur) => (cur === finalMsg.id ? null : finalMsg.id))
-                        }
-                        className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-caption text-text-secondary transition-colors hover:bg-gray-100 hover:text-text-primary dark:hover:bg-white/10"
-                        title="从当前位置创建分支会话"
-                      >
-                        <AppIcon name="git_branch" size={14} />
-                        <span>分支</span>
-                      </button>
-                      <AgentPopover
-                        open={isForkMenuTarget}
-                        onClose={() => setForkMenuOpenFor(null)}
-                        align="left"
-                        placement="top"
-                        className="w-32 py-1"
-                      >
-                        <button
-                          type="button"
-                          disabled={isForking}
-                          onClick={() => {
-                            setForkMenuOpenFor(null)
-                            void handleConfirmFork()
-                          }}
-                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-caption text-text-primary transition-colors hover:bg-gray-50 dark:hover:bg-white/5 disabled:opacity-50"
-                        >
-                          <AppIcon name="git_branch" size={14} className="text-primary" />
-                          <span>{isForking ? '创建中…' : '创建分支'}</span>
-                        </button>
-                      </AgentPopover>
-                      <button
-                        type="button"
-                        onClick={() => handleCopy(finalMsg.id, assistantText)}
-                        className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-caption text-text-secondary transition-colors hover:bg-gray-100 hover:text-text-primary dark:hover:bg-white/10"
-                        title="复制本轮回复文本"
-                      >
-                        <AppIcon name="content_copy" size={14} />
-                        <span>{copiedId === finalMsg.id ? '已复制' : '复制'}</span>
-                      </button>
-                      {(finalMsg.timestamp || finalMsg.createdAt) && (
-                        <span
-                          className="px-1 text-caption text-text-secondary select-none"
-                          title={
-                            finalMsg.turnDurationMs !== undefined
-                              ? `完成于 ${formatMessageTime(finalMsg.timestamp ?? finalMsg.createdAt!)} · 用时 ${formatDuration(finalMsg.turnDurationMs)}`
-                              : `开始于 ${formatMessageTime(finalMsg.timestamp ?? finalMsg.createdAt!)}`
-                          }
-                        >
-                          {formatMessageTime(finalMsg.timestamp ?? finalMsg.createdAt!)}
-                          {finalMsg.turnDurationMs !== undefined &&
-                            ` · ${formatDuration(finalMsg.turnDurationMs)}`}
-                        </span>
-                      )}
-                    </div>
-                  )}
-                </div>
+                <AgentWorkGroupItem
+                  key={item.firstMsgId}
+                  msgs={item.msgs}
+                  sessionId={currentSessionId}
+                  cwd={currentCwd}
+                  isGroupRunning={isGroupRunning}
+                  isTurnFinal={item.isTurnFinal}
+                  turnFileChanges={turnFileChanges}
+                  isCopied={copiedId === finalMsg.id}
+                  isForkMenuOpen={isForkMenuOpen}
+                  isForking={isForkMenuOpen ? isForking : false}
+                  onCopy={handleCopy}
+                  onToggleForkMenu={handleToggleForkMenu}
+                  onCloseForkMenu={handleCloseForkMenu}
+                  onConfirmFork={handleConfirmFork}
+                />
               )
             })}
 
@@ -1145,3 +1365,5 @@ export default function AgentCard({
       </div>
   )
 }
+
+export default memo(AgentCard)

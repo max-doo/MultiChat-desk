@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { AppIcon } from '../../icons/AppIcon'
 import { useAgentSessionStore } from '../../../store/agentSessionStore'
 import { useWorkbenchStore } from '../../../store/workbenchStore'
@@ -15,6 +15,9 @@ interface AtMention {
   query: string
   triggerIndex: number
 }
+
+const EMPTY_QUEUE: readonly string[] = []
+const EMPTY_FILES: WorkbenchFileNode[] = []
 
 function flattenFileTree(nodes: WorkbenchFileNode[], out: WorkbenchFileNode[] = []): WorkbenchFileNode[] {
   for (const node of nodes) {
@@ -42,10 +45,10 @@ export function AgentComposer(): JSX.Element {
   const prompt = useAgentSessionStore((s) => s.prompt)
   const abort = useAgentSessionStore((s) => s.abort)
   const queuedSteering = useAgentSessionStore((s) =>
-    s.currentSessionId ? s.queuedSteering[s.currentSessionId] ?? [] : []
+    s.currentSessionId ? s.queuedSteering[s.currentSessionId] ?? EMPTY_QUEUE : EMPTY_QUEUE
   )
   const queuedFollowUp = useAgentSessionStore((s) =>
-    s.currentSessionId ? s.queuedFollowUp[s.currentSessionId] ?? [] : []
+    s.currentSessionId ? s.queuedFollowUp[s.currentSessionId] ?? EMPTY_QUEUE : EMPTY_QUEUE
   )
   const activeModel = useAgentSessionStore((s) => s.activeModel)
   const snapshot = useAgentSessionStore((s) => s.snapshot)
@@ -95,16 +98,20 @@ export function AgentComposer(): JSX.Element {
   // `@` file mention: suggest workspace files/directories, reusing the same
   // popover pattern as the skill menu. Selecting a file inserts `@<relPath>`
   // into the text and attaches its absolute path so it reaches the agent.
-  const flatFiles = (() => flattenFileTree(fileTree))()
-  const atSuggestions = (() => {
-    if (!atMention) return []
+  const isAtMentionOpen = atMention !== null
+  const flatFiles = useMemo(
+    () => (isAtMentionOpen ? flattenFileTree(fileTree) : EMPTY_FILES),
+    [isAtMentionOpen, fileTree]
+  )
+  const atSuggestions = useMemo(() => {
+    if (!atMention) return EMPTY_FILES
     const q = atMention.query.toLowerCase()
     const filtered = flatFiles.filter((f) =>
       !q || f.name.toLowerCase().includes(q) || f.path.toLowerCase().includes(q)
     )
     filtered.sort((a, b) => Number(b.isDirectory) - Number(a.isDirectory) || a.path.localeCompare(b.path))
     return filtered.slice(0, 30)
-  })()
+  }, [atMention, flatFiles])
   const atMenuOpen = atMention !== null && atSuggestions.length > 0
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>): void => {

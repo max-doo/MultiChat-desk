@@ -29,16 +29,21 @@ const FUZZY_MIN_MARGIN = 0.08
 
 export const compactAnnotationText = (value: string): string => value.replace(COMPACT_RE, '')
 
+export interface CompactTextIndex {
+  compact: string
+  offsets: number[]
+}
+
 /** 忽略空白和零宽字符，记录压缩文本到原文本的偏移。 */
-export function compactWithOffsets(text: string): { compact: string; offsets: number[] } {
+export function compactWithOffsets(text: string): CompactTextIndex {
   const offsets: number[] = []
-  let compact = ''
+  const chars: string[] = []
   for (let i = 0; i < text.length; i++) {
     if (COMPACT_TEST_RE.test(text[i])) continue
     offsets.push(i)
-    compact += text[i]
+    chars.push(text[i])
   }
-  return { compact, offsets }
+  return { compact: chars.join(''), offsets }
 }
 
 function lowerBound(values: number[], target: number): number {
@@ -69,6 +74,7 @@ export interface AnnotationAnchorResolution {
 export interface ResolveAnnotationAnchorOptions {
   blocks?: AnnotationAnchorBlock[]
   allowFuzzy?: boolean
+  precomputedCompact?: CompactTextIndex
 }
 
 const contextScore = (text: string, start: number, end: number, anchor: AnnotationAnchor): number => {
@@ -331,10 +337,12 @@ function resolveOne(
 export function resolveAnnotationAnchors(
   text: string,
   annotations: Array<Pick<Annotation, 'id' | 'anchor'>>,
-  options: ResolveAnnotationAnchorOptions = {}
+  options: ResolveAnnotationAnchorOptions = {},
+  precomputedCompact?: CompactTextIndex
 ): AnnotationAnchorResolution[] {
   if (!annotations.length) return []
-  const { compact, offsets } = compactWithOffsets(text)
+  const { compact, offsets } =
+    precomputedCompact ?? options.precomputedCompact ?? compactWithOffsets(text)
   if (!compact) {
     return annotations.map(annotation => ({
       id: annotation.id,
@@ -380,9 +388,10 @@ export function buildAnchorAt(
   text: string,
   start: number,
   end: number,
-  contextLength = 48
+  contextLength = 48,
+  precomputedCompact?: CompactTextIndex
 ): AnnotationAnchor {
-  const { compact, offsets } = compactWithOffsets(text)
+  const { compact, offsets } = precomputedCompact ?? compactWithOffsets(text)
   const compactStart = lowerBound(offsets, Math.max(0, Math.min(start, text.length)))
   const compactEnd = lowerBound(offsets, Math.max(0, Math.min(end, text.length)))
   const exact = compact.slice(compactStart, compactEnd)

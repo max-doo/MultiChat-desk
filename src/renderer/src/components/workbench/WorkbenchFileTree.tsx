@@ -1,7 +1,6 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import { memo, useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useWorkbenchStore } from '../../store/workbenchStore'
-import type { WorkbenchFileNode } from '../../../../shared/types/workbench'
-import { MARKDOWN_EXTENSIONS } from '../../../../shared/types/workbench'
+import { getFileCategory, MARKDOWN_EXTENSIONS, type WorkbenchFileNode } from '../../../../shared/types/workbench'
 import {
   GIT_BADGE_STYLES,
   mergeGitBadgeCodes,
@@ -137,6 +136,42 @@ const IMAGE_EXTENSIONS = new Set([
   '.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico', '.bmp', '.avif', '.tiff', '.tif'
 ])
 
+const NAME_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
+
+interface TreeSortOption {
+  key: SortMenuKey
+  order: 'asc' | 'desc'
+}
+
+function sortNodeList(nodes: WorkbenchFileNode[], fileSort: TreeSortOption): WorkbenchFileNode[] {
+  const { key, order } = fileSort
+  const dir = order === 'asc' ? 1 : -1
+  return [...nodes].sort((a, b) => {
+    if (a.isDirectory && !b.isDirectory) return -1
+    if (!a.isDirectory && b.isDirectory) return 1
+    if (key === 'name') {
+      return dir * NAME_COLLATOR.compare(a.name, b.name)
+    }
+    if (key === 'mtime') {
+      return dir * ((a.mtime ?? 0) - (b.mtime ?? 0))
+    }
+    // size：目录没有 size 概念，统一按名称排序保持一致体验
+    if (!a.isDirectory && !b.isDirectory) {
+      const diff = (a.size ?? 0) - (b.size ?? 0)
+      if (diff !== 0) return dir * diff
+    }
+    return NAME_COLLATOR.compare(a.name, b.name)
+  })
+}
+
+function sortTreeNodes(nodes: WorkbenchFileNode[], fileSort: TreeSortOption): WorkbenchFileNode[] {
+  return sortNodeList(nodes, fileSort).map((node) =>
+    node.isDirectory && node.children && node.children.length > 0
+      ? { ...node, children: sortTreeNodes(node.children, fileSort) }
+      : node
+  )
+}
+
 // Git 状态徽标映射与聚合逻辑统一由 ../../utils/gitStatusBadge 提供
 
 function getNodeIcon(node: WorkbenchFileNode): { icon: string; color: string } {
@@ -161,15 +196,332 @@ function getNodeIcon(node: WorkbenchFileNode): { icon: string; color: string } {
   return { icon: 'draft', color: 'text-text-secondary/70' }
 }
 
-export default function WorkbenchFileTree(): JSX.Element {
+interface InlineCreateInputProps {
+  type: 'file' | 'folder'
+  level: number
+  isCreating: boolean
+  onCommit: (value: string) => void
+  onCancel: () => void
+}
+
+/** 独立管理输入状态的新建输入框，避免键入时重渲染整棵文件树 */
+const InlineCreateInput = memo(function InlineCreateInput({
+  type,
+  level,
+  isCreating,
+  onCommit,
+  onCancel
+}: InlineCreateInputProps): JSX.Element {
+  const [value, setValue] = useState('')
+  const inputRef = useRef<HTMLInputElement | null>(null)
+  const cancelledRef = useRef(false)
+  const submittedRef = useRef(false)
+  const isFile = type === 'file'
+
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => inputRef.current?.focus())
+    return () => cancelAnimationFrame(raf)
+  }, [])
+
+  return (
+    <div
+      style={{ paddingLeft: `${level * 14 + (isFile ? 24 : 8)}px` }}
+      className="flex items-center gap-1.5 py-1 px-2"
+    >
+      {!isFile && <span className="w-[19px] h-[19px] shrink-0" />}
+      <AppIcon
+        name={isFile ? 'description' : 'folder'}
+        size={19}
+        className={`shrink-0 ${isFile ? 'text-blue-500 dark:text-blue-400' : 'text-amber-500'}`}
+      />
+      <input
+        ref={inputRef}
+        type="text"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            if (e.nativeEvent.isComposing) return
+            e.preventDefault()
+            submittedRef.current = true
+            onCommit(value)
+          } else if (e.key === 'Escape') {
+            e.preventDefault()
+            cancelledRef.current = true
+            onCancel()
+          }
+        }}
+        onBlur={() => {
+          if (cancelledRef.current || submittedRef.current) return
+          submittedRef.current = true
+          onCommit(value)
+        }}
+        disabled={isCreating}
+        placeholder={isFile ? DEFAULT_FILE_NAME : DEFAULT_FOLDER_NAME}
+        className="flex-1 min-w-0 h-6 px-1.5 rounded-sm border border-primary/70 bg-white dark:bg-gray-900 text-text-primary text-body focus:outline-none focus:ring-1 focus:ring-primary/40"
+      />
+    </div>
+  )
+})
+
+interface InlineRenameInputProps {
+  initialName: string
+  isDirectory: boolean
+  isBusy: boolean
+  onCommit: (value: string) => void
+  onCancel: () => void
+}
+
+/** 独立管理输入状态的重命名输入框，避免键入时重渲染整棵文件树 */
+const InlineRenameInput = memo(function InlineRenameInput({
+  initialName,
+  isDirectory,
+  isBusy,
+  onCommit,
+  onCancel
+}: InlineRenameInputProps): JSX.Element {
+  const [value, setValue] = useState(initialName)
+  const inputRef = useRef<HTMLInputElement | null>(null)
+  const cancelledRef = useRef(false)
+  const submittedRef = useRef(false)
+
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => {
+      const input = inputRef.current
+      if (!input) return
+      input.scrollIntoView({ block: 'nearest' })
+      input.focus()
+      const [start, end] = getRenameSelectionRange(initialName, isDirectory)
+      input.setSelectionRange(start, end)
+    })
+    return () => cancelAnimationFrame(raf)
+  }, [initialName, isDirectory])
+
+  return (
+    <input
+      ref={inputRef}
+      type="text"
+      value={value}
+      onChange={(e) => setValue(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          if (e.nativeEvent.isComposing) return
+          e.preventDefault()
+          e.stopPropagation()
+          submittedRef.current = true
+          onCommit(value)
+        } else if (e.key === 'Escape') {
+          e.preventDefault()
+          e.stopPropagation()
+          cancelledRef.current = true
+          onCancel()
+        }
+      }}
+      onBlur={() => {
+        if (cancelledRef.current || submittedRef.current) return
+        submittedRef.current = true
+        onCommit(value)
+      }}
+      onClick={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
+      disabled={isBusy}
+      className="flex-1 min-w-0 h-6 px-1.5 rounded-sm border border-primary/70 bg-white dark:bg-gray-900 text-text-primary text-body focus:outline-none focus:ring-1 focus:ring-primary/40"
+    />
+  )
+})
+
+interface FileTreeRowProps {
+  node: WorkbenchFileNode
+  level: number
+  isExpanded: boolean
+  isSelected: boolean
+  isActive: boolean
+  isRenaming: boolean
+  isRenamingBusy: boolean
+  isDropTarget: boolean
+  gitBadge: GitBadge | null
+  onNodeClick: (e: React.MouseEvent, node: WorkbenchFileNode) => void
+  onContextMenu: (e: React.MouseEvent, node: WorkbenchFileNode) => void
+  onDragStart: (e: React.DragEvent, node: WorkbenchFileNode) => void
+  onDragEnd: () => void
+  onNodeDragOver: (e: React.DragEvent, node: WorkbenchFileNode) => void
+  onNodeDragLeave: (node: WorkbenchFileNode) => void
+  onNodeDrop: (e: React.DragEvent, node: WorkbenchFileNode) => void
+  onFileDragOver: (e: React.DragEvent, node: WorkbenchFileNode) => void
+  onFileDrop: (e: React.DragEvent, node: WorkbenchFileNode) => void
+  onCommitRename: (value: string) => void
+  onCancelRename: () => void
+}
+
+const FileTreeRow = memo(function FileTreeRow({
+  node,
+  level,
+  isExpanded,
+  isSelected,
+  isActive,
+  isRenaming,
+  isRenamingBusy,
+  isDropTarget,
+  gitBadge,
+  onNodeClick,
+  onContextMenu,
+  onDragStart,
+  onDragEnd,
+  onNodeDragOver,
+  onNodeDragLeave,
+  onNodeDrop,
+  onFileDragOver,
+  onFileDrop,
+  onCommitRename,
+  onCancelRename
+}: FileTreeRowProps): JSX.Element {
+  // 仅当前激活文件行订阅 isDirty，编辑器变脏/保存不再重渲染整棵树
+  const isDirty = useWorkbenchStore((s) => (isActive && !node.isDirectory ? s.isDirty : false))
+
+  const gitBadgeElement = gitBadge ? (
+    <span
+      className={`ml-auto shrink-0 text-caption font-semibold leading-none ${gitBadge.colorClass}`}
+      title={`Git: ${gitBadge.label}`}
+    >
+      {gitBadge.letter}
+    </span>
+  ) : null
+
+  if (node.isDirectory) {
+    // assets/ 目录受管：显示特殊图标且不可拖拽（避免与文档附件目录联动逻辑冲突）
+    const isManagedAssetsDir = node.path.split('/').includes('assets')
+    const multichatVisual = resolveMultichatFolderVisual(node.path)
+    const folderIconName: AppIconName = isManagedAssetsDir
+      ? 'attachment'
+      : multichatVisual
+      ? multichatVisual.icon
+      : isExpanded
+      ? 'folder_open'
+      : 'folder'
+    const folderIconColorClass = isManagedAssetsDir
+      ? 'text-slate-400'
+      : multichatVisual
+      ? multichatVisual.colorClass
+      : 'text-amber-500'
+
+    return (
+      <div
+        draggable={!isManagedAssetsDir && !multichatVisual && !isRenaming}
+        data-folder-node={node.path}
+        onDragStart={(e) => onDragStart(e, node)}
+        onDragEnd={onDragEnd}
+        onDragOver={(e) => onNodeDragOver(e, node)}
+        onDragLeave={() => onNodeDragLeave(node)}
+        onDrop={(e) => onNodeDrop(e, node)}
+        onContextMenu={(e) => {
+          if (isRenaming) return
+          onContextMenu(e, node)
+        }}
+        onClick={(e) => {
+          if (isRenaming) return
+          onNodeClick(e, node)
+        }}
+        style={{ paddingLeft: `${level * 14 + 8}px` }}
+        className={`select-none flex items-center gap-1.5 py-1 px-2 rounded-md cursor-pointer text-body transition-colors group ${
+          isDropTarget
+            ? 'bg-primary/15 ring-1 ring-inset ring-primary/50'
+            : isSelected || isRenaming
+            ? 'bg-black/10 dark:bg-white/10'
+            : 'hover:bg-black/5 dark:hover:bg-white/5'
+        } text-text-primary`}
+      >
+        <AppIcon
+          name={isExpanded ? 'expand_more' : 'chevron_right'}
+          size={19}
+          className="text-text-secondary transition-transform duration-150 shrink-0"
+        />
+        <AppIcon name={folderIconName} size={19} className={`shrink-0 ${folderIconColorClass}`} />
+        {isRenaming ? (
+          <InlineRenameInput
+            initialName={node.name}
+            isDirectory={true}
+            isBusy={isRenamingBusy}
+            onCommit={onCommitRename}
+            onCancel={onCancelRename}
+          />
+        ) : (
+          <>
+            <span className="truncate flex-1 font-medium">{node.name}</span>
+            {gitBadgeElement}
+          </>
+        )}
+      </div>
+    )
+  }
+
+  const ext = (node.extension || '').toLowerCase()
+  const useAppIcon = MARKDOWN_EXTENSIONS.has(ext) || IMAGE_EXTENSIONS.has(ext) || ext === '.svg'
+  const iconVisual = useAppIcon ? getNodeIcon(node) : null
+
+  return (
+    <div
+      data-file-node={node.path}
+      draggable={!isRenaming}
+      onDragStart={(e) => onDragStart(e, node)}
+      onDragEnd={onDragEnd}
+      onDragOver={(e) => onFileDragOver(e, node)}
+      onDrop={(e) => onFileDrop(e, node)}
+      onContextMenu={(e) => {
+        if (isRenaming) return
+        onContextMenu(e, node)
+      }}
+      onClick={(e) => {
+        if (isRenaming) return
+        onNodeClick(e, node)
+      }}
+      style={{ paddingLeft: `${level * 14 + 24}px` }}
+      className={`flex items-center gap-1.5 py-1 px-2 rounded-md cursor-pointer text-body transition-colors group select-none ${
+        isActive
+          ? 'bg-blue-500/10 dark:bg-blue-500/20 text-primary dark:text-blue-400 font-medium'
+          : isSelected || isRenaming
+          ? 'bg-black/10 dark:bg-white/10 text-text-primary'
+          : 'text-text-primary hover:bg-black/5 dark:hover:bg-white/5'
+      }`}
+    >
+      {iconVisual ? (
+        <AppIcon name={iconVisual.icon} size={19} className={`shrink-0 ${iconVisual.color}`} />
+      ) : (
+        <FileTypeIcon node={node} className="w-[19px] h-[19px] shrink-0" />
+      )}
+      {isRenaming ? (
+        <InlineRenameInput
+          initialName={node.name}
+          isDirectory={false}
+          isBusy={isRenamingBusy}
+          onCommit={onCommitRename}
+          onCancel={onCancelRename}
+        />
+      ) : (
+        <>
+          <span className="truncate flex-1">{node.name}</span>
+          {isActive && isDirty && (
+            <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" title="未保存的修改" />
+          )}
+          {gitBadgeElement}
+        </>
+      )}
+    </div>
+  )
+})
+
+type VisibleTreeRow =
+  | { kind: 'node'; node: WorkbenchFileNode; level: number; isExpanded: boolean }
+  | { kind: 'inlineCreate'; key: string; type: 'file' | 'folder'; level: number }
+  | { kind: 'empty'; key: string; level: number }
+
+function WorkbenchFileTree(): JSX.Element {
   const workspacePath = useWorkbenchStore((s) => s.workspacePath)
   const workspaceName = useWorkbenchStore((s) => s.workspaceName)
   const fileTree = useWorkbenchStore((s) => s.fileTree)
   const expandedFolderIds = useWorkbenchStore((s) => s.expandedFolderIds)
   const isLoadingTree = useWorkbenchStore((s) => s.isLoadingTree)
   const activeFilePath = useWorkbenchStore((s) => s.activeFilePath)
-  const isDirty = useWorkbenchStore((s) => s.isDirty)
-  const gitStatus = useWorkbenchStore((s) => s.gitStatus)
+  const gitChanges = useWorkbenchStore((s) => (s.gitStatus?.isRepository ? s.gitStatus.changes : null))
 
   const loadFileTree = useWorkbenchStore((s) => s.loadFileTree)
   const toggleFolder = useWorkbenchStore((s) => s.toggleFolder)
@@ -210,38 +562,29 @@ export default function WorkbenchFileTree(): JSX.Element {
   const [isSortMenuOpen, setIsSortMenuOpen] = useState(false)
   const [isCreating, setIsCreating] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
-  const [inlineInputValue, setInlineInputValue] = useState('')
   const [inlineRename, setInlineRename] = useState<InlineRenameState | null>(null)
-  const [inlineRenameValue, setInlineRenameValue] = useState('')
   const [isRenamingBusy, setIsRenamingBusy] = useState(false)
   const [isCleaningImages, setIsCleaningImages] = useState(false)
-  const inlineInputRef = useRef<HTMLInputElement | null>(null)
   const searchButtonRef = useRef<HTMLButtonElement | null>(null)
-  const renameInputRef = useRef<HTMLInputElement | null>(null)
-  const isRenameCancelledRef = useRef(false)
   const isRenamingBusyRef = useRef(false)
-  const isCreateCancelledRef = useRef(false)
+  const isCreatingRef = useRef(false)
   const menuRef = useRef<HTMLDivElement | null>(null)
   const workspaceButtonRef = useRef<HTMLButtonElement | null>(null)
   const settingsButtonRef = useRef<HTMLButtonElement | null>(null)
   const sortMenuRef = useRef<HTMLDivElement | null>(null)
 
-  // 内联重命名输入框出现时聚焦并选中去除后缀名的文件名（VSCode 风格）
-  useEffect(() => {
-    if (inlineRename) {
-      requestAnimationFrame(() => {
-        const input = renameInputRef.current
-        if (!input) return
-        input.scrollIntoView({ block: 'nearest' })
-        input.focus()
-        const [start, end] = getRenameSelectionRange(
-          inlineRename.node.name,
-          inlineRename.node.isDirectory
-        )
-        input.setSelectionRange(start, end)
-      })
-    }
-  }, [inlineRename?.node.id])
+  const fileTreeRef = useRef(fileTree)
+  fileTreeRef.current = fileTree
+  const selectedPathsRef = useRef(selectedPaths)
+  selectedPathsRef.current = selectedPaths
+  const anchorPathRef = useRef(anchorPath)
+  anchorPathRef.current = anchorPath
+  const dragStateRef = useRef(dragState)
+  dragStateRef.current = dragState
+  const inlineCreateRef = useRef(inlineCreate)
+  inlineCreateRef.current = inlineCreate
+  const inlineRenameRef = useRef(inlineRename)
+  inlineRenameRef.current = inlineRename
 
   // 切换工作区/文件树刷新时清理失效选中与内联命名态
   useEffect(() => {
@@ -297,14 +640,6 @@ export default function WorkbenchFileTree(): JSX.Element {
     })
   }, [fileTree])
 
-  // 内联新建输入框出现时聚焦（VSCode 行为：空白输入框等待用户输入）
-  useEffect(() => {
-    if (inlineCreate) {
-      setInlineInputValue('')
-      requestAnimationFrame(() => inlineInputRef.current?.focus())
-    }
-  }, [inlineCreate])
-
   // 关闭上下文菜单
   useEffect(() => {
     if (!contextMenu) return
@@ -343,45 +678,20 @@ export default function WorkbenchFileTree(): JSX.Element {
     }
   }, [isSortMenuOpen])
 
-  // 按当前排序偏好对树节点排序（目录始终在前）
-  const sortNodes = useCallback(
-    (nodes: WorkbenchFileNode[]): WorkbenchFileNode[] => {
-      const { key, order } = fileSort
-      const dir = order === 'asc' ? 1 : -1
-      return [...nodes].sort((a, b) => {
-        if (a.isDirectory && !b.isDirectory) return -1
-        if (!a.isDirectory && b.isDirectory) return 1
-        if (key === 'name') {
-          return dir * a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
-        }
-        if (key === 'mtime') {
-          return dir * ((a.mtime ?? 0) - (b.mtime ?? 0))
-        }
-        // size：目录没有 size 概念，统一按名称排序保持一致体验
-        if (!a.isDirectory && !b.isDirectory) {
-          const diff = (a.size ?? 0) - (b.size ?? 0)
-          if (diff !== 0) return dir * diff
-        }
-        return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
-      })
-    },
-    [fileSort]
-  )
-
-  const sortedFileTree = useMemo(() => sortNodes(fileTree), [fileTree, sortNodes])
+  const sortedFileTree = useMemo(() => sortTreeNodes(fileTree, fileSort), [fileTree, fileSort])
 
   /** 文件级 Git 徽标：改动路径 → 徽标；重命名旧路径也标记，便于看出改动来源 */
   const gitFileBadges = useMemo(() => {
     const map = new Map<string, GitBadge>()
-    if (!gitStatus?.isRepository) return map
-    for (const change of gitStatus.changes) {
+    if (!gitChanges) return map
+    for (const change of gitChanges) {
       map.set(change.path, resolveFileGitBadge(change))
       if (change.oldPath && !map.has(change.oldPath)) {
         map.set(change.oldPath, resolveFileGitBadge(change))
       }
     }
     return map
-  }, [gitStatus])
+  }, [gitChanges])
 
   /** 目录级 Git 徽标：聚合全部后代文件状态，取优先级最高者（VSCode 语义） */
   const gitDirBadges = useMemo(() => {
@@ -409,16 +719,6 @@ export default function WorkbenchFileTree(): JSX.Element {
     return map
   }, [gitFileBadges])
 
-  const gitBadgeFor = useCallback(
-    (node: WorkbenchFileNode): GitBadge | null => {
-      if (!gitStatus?.isRepository) return null
-      return node.isDirectory
-        ? gitDirBadges.get(node.path) ?? null
-        : gitFileBadges.get(node.path) ?? null
-    },
-    [gitStatus?.isRepository, gitDirBadges, gitFileBadges]
-  )
-
   /** 跨工作区移动的目标：最近工作区 + 默认库，排除当前工作区 */
   const moveTargets = useMemo(() => {
     const seen = new Set<string>()
@@ -435,33 +735,70 @@ export default function WorkbenchFileTree(): JSX.Element {
     return out
   }, [defaultWorkspacePath, recentWorkspaces, workspacePath])
 
-  /** 可见节点扁平化（按当前展开状态与排序），用于 Shift 范围选择 */
+  /** 可见节点扁平化（直接复用已排序的 sortedFileTree），用于 Shift 范围选择 */
   const flatVisibleNodes = useMemo(() => {
     const out: WorkbenchFileNode[] = []
     const walk = (nodes: WorkbenchFileNode[]) => {
       for (const n of nodes) {
         out.push(n)
         if (n.isDirectory && expandedFolderIds.has(n.id) && n.children) {
-          walk(sortNodes(n.children))
+          walk(n.children)
         }
       }
     }
     walk(sortedFileTree)
     return out
-  }, [sortedFileTree, expandedFolderIds, sortNodes])
+  }, [sortedFileTree, expandedFolderIds])
+
+  const flatVisibleNodesRef = useRef(flatVisibleNodes)
+  flatVisibleNodesRef.current = flatVisibleNodes
+
+  const visibleRows = useMemo<VisibleTreeRow[]>(() => {
+    const rows: VisibleTreeRow[] = []
+    if (inlineCreate && inlineCreate.parentDir === '') {
+      rows.push({ kind: 'inlineCreate', key: '__create_root__', type: inlineCreate.type, level: 0 })
+    }
+    const walk = (nodes: WorkbenchFileNode[], level: number): void => {
+      for (let i = 0; i < nodes.length; i += 1) {
+        const n = nodes[i]
+        const isExpanded = n.isDirectory && expandedFolderIds.has(n.id)
+        rows.push({ kind: 'node', node: n, level, isExpanded })
+        if (isExpanded) {
+          const showInlineHere = inlineCreate !== null && inlineCreate.parentDir === n.path
+          if (showInlineHere) {
+            rows.push({
+              kind: 'inlineCreate',
+              key: `__create_${n.path}__`,
+              type: inlineCreate.type,
+              level: level + 1
+            })
+          }
+          if (n.children && n.children.length > 0) {
+            walk(n.children, level + 1)
+          } else if (!showInlineHere) {
+            rows.push({ kind: 'empty', key: `__empty_${n.path}__`, level: level + 1 })
+          }
+        }
+      }
+    }
+    walk(sortedFileTree, 0)
+    return rows
+  }, [sortedFileTree, expandedFolderIds, inlineCreate])
 
   /** 节点点击（VSCode：普通点击单选、Ctrl/Cmd 切换、Shift 从锚点范围选择） */
   const handleNodeClick = useCallback(
     (e: React.MouseEvent, node: WorkbenchFileNode) => {
       const isCtrl = e.ctrlKey || e.metaKey
       const isShift = e.shiftKey
+      const currentAnchor = anchorPathRef.current
+      const visible = flatVisibleNodesRef.current
 
-      if (isShift && anchorPath) {
-        const ai = flatVisibleNodes.findIndex((n) => n.path === anchorPath)
-        const bi = flatVisibleNodes.findIndex((n) => n.path === node.path)
+      if (isShift && currentAnchor) {
+        const ai = visible.findIndex((n) => n.path === currentAnchor)
+        const bi = visible.findIndex((n) => n.path === node.path)
         if (ai !== -1 && bi !== -1) {
           const [lo, hi] = ai < bi ? [ai, bi] : [bi, ai]
-          const range = flatVisibleNodes.slice(lo, hi + 1).map((n) => n.path)
+          const range = visible.slice(lo, hi + 1).map((n) => n.path)
           setSelectedPaths(new Set(range))
         } else {
           setSelectedPaths(new Set([node.path]))
@@ -486,7 +823,7 @@ export default function WorkbenchFileTree(): JSX.Element {
         if (!isCtrl && !isShift) void openFile(node.path)
       }
     },
-    [anchorPath, flatVisibleNodes, toggleFolder, openFile]
+    [toggleFolder, openFile]
   )
 
   /** 展开 set 中的祖先目录，保证选中项/新建输入框可见 */
@@ -513,11 +850,14 @@ export default function WorkbenchFileTree(): JSX.Element {
         return idx === -1 ? '' : node.path.slice(0, idx)
       }
       // 无右键上下文时：跟随最后一个选中项（VSCode 语义）
+      const currentAnchor = anchorPathRef.current
+      const visible = flatVisibleNodesRef.current
+      const activePath = useWorkbenchStore.getState().activeFilePath
       const anchor =
-        anchorPath && flatVisibleNodes.find((n) => n.path === anchorPath)
-          ? flatVisibleNodes.find((n) => n.path === anchorPath)!
-          : activeFilePath
-          ? flatVisibleNodes.find((n) => n.path === activeFilePath) ?? null
+        currentAnchor && visible.find((n) => n.path === currentAnchor)
+          ? visible.find((n) => n.path === currentAnchor)!
+          : activePath
+          ? visible.find((n) => n.path === activePath) ?? null
           : null
       if (anchor) {
         if (anchor.isDirectory) return anchor.path
@@ -526,13 +866,12 @@ export default function WorkbenchFileTree(): JSX.Element {
       }
       return ''
     },
-    [activeFilePath, anchorPath, flatVisibleNodes]
+    []
   )
 
   const beginInlineCreate = useCallback(
     (type: 'file' | 'folder', contextNode: WorkbenchFileNode | null) => {
       setInlineRename(null)
-      isCreateCancelledRef.current = false
       const parentDir = resolveParentDir(contextNode)
       if (parentDir) {
         expandAncestors([parentDir])
@@ -543,54 +882,46 @@ export default function WorkbenchFileTree(): JSX.Element {
   )
 
   const cancelInlineCreate = useCallback(() => {
-    isCreateCancelledRef.current = true
     setInlineCreate(null)
   }, [])
 
-  const commitInlineCreate = useCallback(async () => {
-    if (isCreateCancelledRef.current) {
-      isCreateCancelledRef.current = false
-      return
-    }
-    if (!inlineCreate || isCreating) return
-    const fallback = inlineCreate.type === 'file' ? DEFAULT_FILE_NAME : DEFAULT_FOLDER_NAME
-    const name = inlineInputValue.trim() || fallback
+  const commitInlineCreate = useCallback(async (rawValue: string) => {
+    const targetCreate = inlineCreateRef.current
+    if (!targetCreate || isCreatingRef.current) return
+    const fallback = targetCreate.type === 'file' ? DEFAULT_FILE_NAME : DEFAULT_FOLDER_NAME
+    const name = rawValue.trim() || fallback
+    isCreatingRef.current = true
     setIsCreating(true)
     try {
-      if (inlineCreate.type === 'file') {
-        await createFile(inlineCreate.parentDir, name)
+      if (targetCreate.type === 'file') {
+        await createFile(targetCreate.parentDir, name)
       } else {
-        await createFolder(inlineCreate.parentDir, name)
+        await createFolder(targetCreate.parentDir, name)
       }
     } finally {
+      isCreatingRef.current = false
       setIsCreating(false)
       setInlineCreate(null)
     }
-  }, [inlineCreate, inlineInputValue, isCreating, createFile, createFolder])
+  }, [createFile, createFolder])
 
   const beginInlineRename = useCallback((node: WorkbenchFileNode) => {
     setInlineCreate(null)
-    isRenameCancelledRef.current = false
     setInlineRename({ node })
-    setInlineRenameValue(node.name)
     setSelectedPaths(new Set([node.path]))
     setAnchorPath(node.path)
   }, [])
 
   const cancelInlineRename = useCallback(() => {
-    isRenameCancelledRef.current = true
     setInlineRename(null)
   }, [])
 
-  const commitInlineRename = useCallback(async () => {
-    if (isRenameCancelledRef.current) {
-      isRenameCancelledRef.current = false
-      return
-    }
-    if (!inlineRename || isRenamingBusy || isRenamingBusyRef.current) return
+  const commitInlineRename = useCallback(async (rawValue: string) => {
+    const currentRename = inlineRenameRef.current
+    if (!currentRename || isRenamingBusyRef.current) return
 
-    const targetNode = inlineRename.node
-    const trimmed = inlineRenameValue.trim()
+    const targetNode = currentRename.node
+    const trimmed = rawValue.trim()
 
     if (!trimmed || trimmed === targetNode.name) {
       setInlineRename(null)
@@ -625,19 +956,20 @@ export default function WorkbenchFileTree(): JSX.Element {
       setIsRenamingBusy(false)
       setInlineRename(null)
     }
-  }, [inlineRename, inlineRenameValue, isRenamingBusy, renameNode])
+  }, [renameNode])
 
   // ---- 拖拽移动（VSCode 风格） ----
   const handleDragStart = useCallback(
     (e: React.DragEvent, node: WorkbenchFileNode) => {
       e.dataTransfer.effectAllowed = 'copyMove'
       e.dataTransfer.setData('text/plain', node.fullPath || node.path)
+      const currentSelected = selectedPathsRef.current
       // 拖已选中集合中的一项 → 整组移动；拖未选中项 → 改为单选并只拖它
       const paths =
-        selectedPaths.has(node.path) && selectedPaths.size > 1
-          ? Array.from(selectedPaths)
+        currentSelected.has(node.path) && currentSelected.size > 1
+          ? Array.from(currentSelected)
           : [node.path]
-      if (!selectedPaths.has(node.path)) {
+      if (!currentSelected.has(node.path)) {
         setSelectedPaths(new Set([node.path]))
         setAnchorPath(node.path)
       }
@@ -656,7 +988,7 @@ export default function WorkbenchFileTree(): JSX.Element {
           }
         }
       }
-      walk(fileTree)
+      walk(fileTreeRef.current)
       if (nodesToDrag.length === 0) {
         nodesToDrag.push(node)
       }
@@ -680,7 +1012,7 @@ export default function WorkbenchFileTree(): JSX.Element {
         // ignore
       }
     },
-    [selectedPaths, fileTree, setDraggingNodes]
+    [setDraggingNodes]
   )
 
   const handleDragEnd = useCallback(() => {
@@ -693,29 +1025,31 @@ export default function WorkbenchFileTree(): JSX.Element {
   /** 判断 node 是否可作为当前拖拽的有效目标目录 */
   const isValidDropDir = useCallback(
     (node: WorkbenchFileNode): boolean => {
-      if (!dragState || !node.isDirectory) return false
+      const currentDrag = dragStateRef.current
+      if (!currentDrag || !node.isDirectory) return false
       // 不允许拖到任一被拖目录自身或其后代
-      return !dragState.paths.some(
+      return !currentDrag.paths.some(
         (p) => node.path === p || node.path.startsWith(`${p}/`)
       )
     },
-    [dragState]
+    []
   )
 
   /** 外部文件/文件夹拖入：目录节点 dragover（内部拖拽与外部文件共享高亮态） */
   const isExternalFileDrag = useCallback((e: React.DragEvent): boolean => {
-    return !dragState && e.dataTransfer.types.includes('Files')
-  }, [dragState])
+    return !dragStateRef.current && e.dataTransfer.types.includes('Files')
+  }, [])
 
   /** 拖到文件上 = 放入其父目录（VSCode 行为），返回父目录路径，无效则 null */
   const resolveFileDropParent = useCallback(
     (node: WorkbenchFileNode): string | null => {
-      if (!dragState || node.isDirectory) return null
-      if (dragState.paths.includes(node.path)) return null // 拖到被拖文件自身
+      const currentDrag = dragStateRef.current
+      if (!currentDrag || node.isDirectory) return null
+      if (currentDrag.paths.includes(node.path)) return null // 拖到被拖文件自身
       const idx = node.path.lastIndexOf('/')
       return idx === -1 ? '' : node.path.slice(0, idx)
     },
-    [dragState]
+    []
   )
 
   const handleNodeDragOver = useCallback(
@@ -739,6 +1073,10 @@ export default function WorkbenchFileTree(): JSX.Element {
     [isValidDropDir, isExternalFileDrag]
   )
 
+  const handleNodeDragLeave = useCallback((node: WorkbenchFileNode) => {
+    setDropTargetDir((v) => (v === node.path ? null : v))
+  }, [])
+
   const handleNodeDrop = useCallback(
     (e: React.DragEvent, node: WorkbenchFileNode) => {
       e.preventDefault()
@@ -753,13 +1091,14 @@ export default function WorkbenchFileTree(): JSX.Element {
         setDropTargetDir(null)
         return
       }
-      if (isValidDropDir(node) && dragState) {
+      const currentDrag = dragStateRef.current
+      if (isValidDropDir(node) && currentDrag) {
         expandAncestors([node.path])
-        void moveNodes(dragState.paths, node.path)
+        void moveNodes(currentDrag.paths, node.path)
       }
       handleDragEnd()
     },
-    [isValidDropDir, dragState, expandAncestors, moveNodes, handleDragEnd, isExternalFileDrag, importExternalItems]
+    [isValidDropDir, expandAncestors, moveNodes, handleDragEnd, isExternalFileDrag, importExternalItems]
   )
 
   const handleFileDragOver = useCallback(
@@ -811,12 +1150,13 @@ export default function WorkbenchFileTree(): JSX.Element {
         return
       }
       const parent = resolveFileDropParent(node)
-      if (parent !== null && dragState) {
-        void moveNodes(dragState.paths, parent)
+      const currentDrag = dragStateRef.current
+      if (parent !== null && currentDrag) {
+        void moveNodes(currentDrag.paths, parent)
       }
       handleDragEnd()
     },
-    [resolveFileDropParent, dragState, moveNodes, handleDragEnd, isExternalFileDrag, importExternalItems]
+    [resolveFileDropParent, moveNodes, handleDragEnd, isExternalFileDrag, importExternalItems]
   )
 
   // 根目录空白区：拖到文件上时冒泡不触发（子节点已 stopPropagation），仅空白生效
@@ -829,13 +1169,13 @@ export default function WorkbenchFileTree(): JSX.Element {
         setDropTargetDir(null)
         return
       }
-      if (!dragState) return
+      if (!dragStateRef.current) return
       e.preventDefault()
       e.dataTransfer.dropEffect = 'move'
       setIsRootDropActive(true)
       setDropTargetDir(null)
     },
-    [dragState, isExternalFileDrag]
+    [isExternalFileDrag]
   )
 
   const handleRootDrop = useCallback(
@@ -848,19 +1188,20 @@ export default function WorkbenchFileTree(): JSX.Element {
         setDropTargetDir(null)
         return
       }
-      if (dragState) {
-        void moveNodes(dragState.paths, '')
+      const currentDrag = dragStateRef.current
+      if (currentDrag) {
+        void moveNodes(currentDrag.paths, '')
       }
       handleDragEnd()
     },
-    [dragState, moveNodes, handleDragEnd, isExternalFileDrag, importExternalItems]
+    [moveNodes, handleDragEnd, isExternalFileDrag, importExternalItems]
   )
 
   const handleContextMenu = useCallback((e: React.MouseEvent, node: WorkbenchFileNode | null) => {
     e.preventDefault()
     e.stopPropagation()
     // VSCode：右键未选中节点时，先将其变为单选；已选中则保留多选作用于菜单
-    if (node && !selectedPaths.has(node.path)) {
+    if (node && !selectedPathsRef.current.has(node.path)) {
       setSelectedPaths(new Set([node.path]))
       setAnchorPath(node.path)
     }
@@ -868,7 +1209,7 @@ export default function WorkbenchFileTree(): JSX.Element {
     const y = Math.min(e.clientY, window.innerHeight - 200)
     setIsMoveMenuOpen(false)
     setContextMenu({ x, y, node })
-  }, [selectedPaths])
+  }, [])
 
   const getUploadNodes = useCallback((): WorkbenchFileNode[] => {
     const node = contextMenu?.node
@@ -1016,226 +1357,6 @@ export default function WorkbenchFileTree(): JSX.Element {
     } else {
       void deleteNode(targets[0])
     }
-  }
-
-  // 递归渲染树节点
-  const renderNode = (node: WorkbenchFileNode, level = 0) => {
-    const isExpanded = expandedFolderIds.has(node.id)
-    const isActive = activeFilePath === node.path
-    const isRenaming = inlineRename?.node.id === node.id
-    const gitBadge = gitBadgeFor(node)
-    const gitBadgeElement = gitBadge ? (
-      <span
-        className={`ml-auto shrink-0 text-caption font-semibold leading-none ${gitBadge.colorClass}`}
-        title={`Git: ${gitBadge.label}`}
-      >
-        {gitBadge.letter}
-      </span>
-    ) : null
-
-    if (node.isDirectory) {
-      const children = node.children ? sortNodes(node.children) : []
-      const showInlineHere = inlineCreate !== null && inlineCreate.parentDir === node.path
-      const isDropTarget = dropTargetDir === node.path
-      // assets/ 目录受管：显示特殊图标且不可拖拽（避免与文档附件目录联动逻辑冲突）
-      const isManagedAssetsDir = node.path.split('/').includes('assets')
-      const multichatVisual = resolveMultichatFolderVisual(node.path)
-      const folderIconName: AppIconName = isManagedAssetsDir
-        ? 'attachment'
-        : multichatVisual
-        ? multichatVisual.icon
-        : isExpanded
-        ? 'folder_open'
-        : 'folder'
-      const folderIconColorClass = isManagedAssetsDir
-        ? 'text-slate-400'
-        : multichatVisual
-        ? multichatVisual.colorClass
-        : 'text-amber-500'
-      return (
-        <div key={node.id} className="select-none">
-          <div
-            draggable={!isManagedAssetsDir && !multichatVisual && !isRenaming}
-            data-folder-node={node.path}
-            onDragStart={(e) => handleDragStart(e, node)}
-            onDragEnd={handleDragEnd}
-            onDragOver={(e) => handleNodeDragOver(e, node)}
-            onDragLeave={() => setDropTargetDir((v) => (v === node.path ? null : v))}
-            onDrop={(e) => handleNodeDrop(e, node)}
-            onContextMenu={(e) => {
-              if (isRenaming) return
-              handleContextMenu(e, node)
-            }}
-            onClick={(e) => {
-              if (isRenaming) return
-              handleNodeClick(e, node)
-            }}
-            style={{ paddingLeft: `${level * 14 + 8}px` }}
-            className={`flex items-center gap-1.5 py-1 px-2 rounded-md cursor-pointer text-body transition-colors group ${
-              isDropTarget
-                ? 'bg-primary/15 ring-1 ring-inset ring-primary/50'
-                : selectedPaths.has(node.path) || isRenaming
-                ? 'bg-black/10 dark:bg-white/10'
-                : 'hover:bg-black/5 dark:hover:bg-white/5'
-            } text-text-primary`}
-          >
-            <AppIcon name={isExpanded ? 'expand_more' : 'chevron_right'} size={19} className="text-text-secondary transition-transform duration-150 shrink-0" />
-            <AppIcon name={folderIconName} size={19} className={`shrink-0 ${folderIconColorClass}`} />
-            {isRenaming ? (
-              <input
-                ref={renameInputRef}
-                type="text"
-                value={inlineRenameValue}
-                onChange={(e) => setInlineRenameValue(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    if (e.nativeEvent.isComposing) return
-                    e.preventDefault()
-                    e.stopPropagation()
-                    void commitInlineRename()
-                  } else if (e.key === 'Escape') {
-                    e.preventDefault()
-                    e.stopPropagation()
-                    cancelInlineRename()
-                  }
-                }}
-                onBlur={() => void commitInlineRename()}
-                onClick={(e) => e.stopPropagation()}
-                onMouseDown={(e) => e.stopPropagation()}
-                disabled={isRenamingBusy}
-                className="flex-1 min-w-0 h-6 px-1.5 rounded-sm border border-primary/70 bg-white dark:bg-gray-900 text-text-primary text-body focus:outline-none focus:ring-1 focus:ring-primary/40"
-              />
-            ) : (
-              <>
-                <span className="truncate flex-1 font-medium">{node.name}</span>
-                {gitBadgeElement}
-              </>
-            )}
-          </div>
-          {isExpanded && (
-            <div>
-              {showInlineHere && renderInlineInput(level + 1)}
-              {children.length > 0 ? (
-                children.map((child: WorkbenchFileNode) => renderNode(child, level + 1))
-              ) : !showInlineHere ? (
-                <div
-                  style={{ paddingLeft: `${(level + 1) * 14 + 24}px` }}
-                  className="py-1 text-body text-text-secondary/60 italic"
-                >
-                  (空目录)
-                </div>
-              ) : null}
-            </div>
-          )}
-        </div>
-      )
-    }
-
-    // 文件节点
-    return (
-      <div
-        key={node.id}
-        data-file-node={node.path}
-        draggable={!isRenaming}
-        onDragStart={(e) => handleDragStart(e, node)}
-        onDragEnd={handleDragEnd}
-        onDragOver={(e) => handleFileDragOver(e, node)}
-        onDrop={(e) => handleFileDrop(e, node)}
-        onContextMenu={(e) => {
-          if (isRenaming) return
-          handleContextMenu(e, node)
-        }}
-        onClick={(e) => {
-          if (isRenaming) return
-          handleNodeClick(e, node)
-        }}
-        style={{ paddingLeft: `${level * 14 + 24}px` }}
-        className={`flex items-center gap-1.5 py-1 px-2 rounded-md cursor-pointer text-body transition-colors group select-none ${
-          isActive
-            ? 'bg-blue-500/10 dark:bg-blue-500/20 text-primary dark:text-blue-400 font-medium'
-            : selectedPaths.has(node.path) || isRenaming
-            ? 'bg-black/10 dark:bg-white/10 text-text-primary'
-            : 'text-text-primary hover:bg-black/5 dark:hover:bg-white/5'
-        }`}
-      >
-        {MARKDOWN_EXTENSIONS.has((node.extension || '').toLowerCase()) || IMAGE_EXTENSIONS.has((node.extension || '').toLowerCase()) || (node.extension || '').toLowerCase() === '.svg' ? (
-          <AppIcon name={getNodeIcon(node).icon} size={19} className={`shrink-0 ${getNodeIcon(node).color}`} />
-        ) : (
-          <FileTypeIcon node={node} className="w-[19px] h-[19px] shrink-0" />
-        )}
-        {isRenaming ? (
-          <input
-            ref={renameInputRef}
-            type="text"
-            value={inlineRenameValue}
-            onChange={(e) => setInlineRenameValue(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                if (e.nativeEvent.isComposing) return
-                e.preventDefault()
-                e.stopPropagation()
-                void commitInlineRename()
-              } else if (e.key === 'Escape') {
-                e.preventDefault()
-                e.stopPropagation()
-                cancelInlineRename()
-              }
-            }}
-            onBlur={() => void commitInlineRename()}
-            onClick={(e) => e.stopPropagation()}
-            onMouseDown={(e) => e.stopPropagation()}
-            disabled={isRenamingBusy}
-            className="flex-1 min-w-0 h-6 px-1.5 rounded-sm border border-primary/70 bg-white dark:bg-gray-900 text-text-primary text-body focus:outline-none focus:ring-1 focus:ring-primary/40"
-          />
-        ) : (
-          <>
-            <span className="truncate flex-1">{node.name}</span>
-            {isActive && isDirty && (
-              <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" title="未保存的修改" />
-            )}
-            {gitBadgeElement}
-          </>
-        )}
-      </div>
-    )
-  }
-
-  /** 树内联新建输入框（VSCode 风格） */
-  const renderInlineInput = (level: number) => {
-    const isFile = inlineCreate?.type === 'file'
-    return (
-      <div
-        style={{ paddingLeft: `${level * 14 + (isFile ? 24 : 8)}px` }}
-        className="flex items-center gap-1.5 py-1 px-2"
-      >
-        {!isFile && (
-          <span className="w-[19px] h-[19px] shrink-0" />
-        )}
-        <AppIcon name={isFile ? 'description' : 'folder'} size={19} className={`shrink-0 ${
-          isFile ? 'text-blue-500 dark:text-blue-400' : 'text-amber-500'
-        }`} />
-        <input
-          ref={inlineInputRef}
-          type="text"
-          value={inlineInputValue}
-          onChange={(e) => setInlineInputValue(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              if (e.nativeEvent.isComposing) return
-              e.preventDefault()
-              void commitInlineCreate()
-            } else if (e.key === 'Escape') {
-              e.preventDefault()
-              cancelInlineCreate()
-            }
-          }}
-          onBlur={() => void commitInlineCreate()}
-          disabled={isCreating}
-          placeholder={isFile ? DEFAULT_FILE_NAME : DEFAULT_FOLDER_NAME}
-          className="flex-1 min-w-0 h-6 px-1.5 rounded-sm border border-primary/70 bg-white dark:bg-gray-900 text-text-primary text-body focus:outline-none focus:ring-1 focus:ring-primary/40"
-        />
-      </div>
-    )
   }
 
   return (
@@ -1390,8 +1511,61 @@ export default function WorkbenchFileTree(): JSX.Element {
                 <span>当前工作区为空，点击上方图标新建笔记</span>
               </div>
             )}
-            {inlineCreate && inlineCreate.parentDir === '' && renderInlineInput(0)}
-            {sortedFileTree.map((node) => renderNode(node))}
+            {visibleRows.map((row) => {
+              if (row.kind === 'inlineCreate') {
+                return (
+                  <InlineCreateInput
+                    key={row.key}
+                    type={row.type}
+                    level={row.level}
+                    isCreating={isCreating}
+                    onCommit={commitInlineCreate}
+                    onCancel={cancelInlineCreate}
+                  />
+                )
+              }
+              if (row.kind === 'empty') {
+                return (
+                  <div
+                    key={row.key}
+                    style={{ paddingLeft: `${row.level * 14 + 24}px` }}
+                    className="py-1 text-body text-text-secondary/60 italic"
+                  >
+                    (空目录)
+                  </div>
+                )
+              }
+              const { node, level, isExpanded } = row
+              const isRenaming = inlineRename?.node.id === node.id
+              const gitBadge = node.isDirectory
+                ? gitDirBadges.get(node.path) ?? null
+                : gitFileBadges.get(node.path) ?? null
+              return (
+                <FileTreeRow
+                  key={node.id}
+                  node={node}
+                  level={level}
+                  isExpanded={isExpanded}
+                  isSelected={selectedPaths.has(node.path)}
+                  isActive={activeFilePath === node.path}
+                  isRenaming={isRenaming}
+                  isRenamingBusy={isRenaming && isRenamingBusy}
+                  isDropTarget={node.isDirectory && dropTargetDir === node.path}
+                  gitBadge={gitBadge}
+                  onNodeClick={handleNodeClick}
+                  onContextMenu={handleContextMenu}
+                  onDragStart={handleDragStart}
+                  onDragEnd={handleDragEnd}
+                  onNodeDragOver={handleNodeDragOver}
+                  onNodeDragLeave={handleNodeDragLeave}
+                  onNodeDrop={handleNodeDrop}
+                  onFileDragOver={handleFileDragOver}
+                  onFileDrop={handleFileDrop}
+                  onCommitRename={commitInlineRename}
+                  onCancelRename={cancelInlineRename}
+                />
+              )
+            })}
           </>
         )}
       </div>
@@ -1701,11 +1875,14 @@ export default function WorkbenchFileTree(): JSX.Element {
                   const impact = workspacePath && targets.length
                     ? await window.api.workbench.mindmapImpact(workspacePath, targets)
                     : null
-                  // 删除文档会一并删除 documents/ 旁路；确认框要写明影响范围。
+                  // 删除文档会一并删除 documents/ 旁路；确认框要写明影响范围（二进制/媒体文件无文本标注，跳过查询）。
                   let annotationCount = 0
                   if (workspacePath && !multi && contextMenu.node && !contextMenu.node.isDirectory) {
-                    const result = await window.api.annotations.listDocument(workspacePath, contextMenu.node.path)
-                    if (result.success && result.data) annotationCount = result.data.length
+                    const category = contextMenu.node.category ?? getFileCategory(contextMenu.node.name)
+                    if (category === 'markdown' || category === 'text' || category === 'code') {
+                      const result = await window.api.annotations.listDocument(workspacePath, contextMenu.node.path)
+                      if (result.success && result.data) annotationCount = result.data.length
+                    }
                   }
                   setActionModal(
                     multi
@@ -1833,3 +2010,5 @@ export default function WorkbenchFileTree(): JSX.Element {
     </div>
   )
 }
+
+export default memo(WorkbenchFileTree)

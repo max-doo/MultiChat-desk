@@ -11,7 +11,8 @@ import {
   $isDecoratorNode,
   $isElementNode,
   $isParagraphNode,
-  $isTextNode
+  $isTextNode,
+  HISTORIC_TAG
 } from 'lexical'
 import { $isHeadingNode, $isQuoteNode } from '@lexical/rich-text'
 import { $isListNode } from '@lexical/list'
@@ -85,6 +86,8 @@ export interface WorkbenchSourceState {
   originalFirstBlockId: string | null
   originalNodeOrder: NodeKey[]
   dirtyBlockKeys: Set<NodeKey>
+  /** 单块导出字符串缓存：仅当块本次变脏时重算，避免已改旧块/新增块每 250ms 重复重建 Shadow EditorState */
+  exportedBlockCache: Map<NodeKey, string>
   /** Lexical nodes whose key already got mapped into baseline when loaded */
   hasStructuralChanges: boolean
 }
@@ -890,6 +893,7 @@ export function buildWorkbenchSourceState(
     originalFirstBlockId,
     originalNodeOrder,
     dirtyBlockKeys: new Set<NodeKey>(),
+    exportedBlockCache: new Map<NodeKey, string>(),
     hasStructuralChanges: false
   }
 }
@@ -983,9 +987,15 @@ export function collectDirtyTopLevelBlocks(
   dirtyElements: Map<NodeKey, boolean>,
   dirtyLeaves: Set<NodeKey>,
   sourceState: WorkbenchSourceState,
-  transformers: Transformer[]
+  transformers: Transformer[],
+  tags?: Set<string>
 ): void {
   const newlyDirtiedKeys: NodeKey[] = []
+
+  // undo/redo 或显式历史回退时全表失效，避免任何缓存命中旧文本
+  if (tags?.has(HISTORIC_TAG) || tags?.has('history-merge')) {
+    sourceState.exportedBlockCache.clear()
+  }
 
   editorState.read(() => {
     const markKey = (key: NodeKey): void => {
@@ -995,6 +1005,8 @@ export function collectDirtyTopLevelBlocks(
       const top = node.getTopLevelElement()
       if (!top || $isPendingInsertNode(top)) return
       const topKey = top.getKey()
+      // 任何变脏均立刻使单块导出缓存失效
+      sourceState.exportedBlockCache.delete(topKey)
       if (!sourceState.dirtyBlockKeys.has(topKey)) {
         sourceState.dirtyBlockKeys.add(topKey)
         newlyDirtiedKeys.push(topKey)
@@ -1008,24 +1020,27 @@ export function collectDirtyTopLevelBlocks(
       markKey(key)
     })
 
-    // 若顶层节点顺序/数量相对初始发生变化（插/删/拆/并/拖拽），记为结构变化
-    const currentKeys = $getRoot()
-      .getChildren()
-      .filter((n) => !$isPendingInsertNode(n))
-      .map((n) => n.getKey())
-
-    if (currentKeys.length !== sourceState.originalNodeOrder.length) {
-      sourceState.hasStructuralChanges = true
-    } else {
-      let sameOrder = true
-      for (let i = 0; i < currentKeys.length; i++) {
-        if (currentKeys[i] !== sourceState.originalNodeOrder[i]) {
-          sameOrder = false
+    // 若顶层节点顺序/数量相对初始发生变化（插/删/拆/并/拖拽），记为结构变化；
+    // 直接遍历兄弟链避免每次击键分配 3 个全顶层块数组
+    const expectedOrder = sourceState.originalNodeOrder
+    const expectedLen = expectedOrder.length
+    let idx = 0
+    let structuralChanged = false
+    let child = $getRoot().getFirstChild()
+    while (child !== null) {
+      if (!$isPendingInsertNode(child)) {
+        if (idx >= expectedLen || child.getKey() !== expectedOrder[idx]) {
+          structuralChanged = true
           break
         }
+        idx++
       }
-      sourceState.hasStructuralChanges = !sameOrder
+      child = child.getNextSibling()
     }
+    if (idx !== expectedLen) {
+      structuralChanged = true
+    }
+    sourceState.hasStructuralChanges = structuralChanged
   })
 
   // 仅为首次变脏的已映射原始块，从 prevEditorState 抽取一次单块导出基线（O(1 block)）
@@ -1099,6 +1114,26 @@ export function assembleIncrementalMarkdown(
     }
   }
 
+  const getOrExportBlock = (nodeKey: NodeKey): string | null => {
+    const cached = sourceState.exportedBlockCache.get(nodeKey)
+    if (cached !== undefined) return cached
+    const exported = exportSingleTopLevelNode(editor, editorState, nodeKey, transformers)
+    if (exported !== null) {
+      sourceState.exportedBlockCache.set(nodeKey, exported)
+    }
+    return exported
+  }
+
+  // 清理已从文档删除的陈旧缓存键，防止长会话编辑后持续累积
+  if (sourceState.exportedBlockCache.size > snapshots.length + 64) {
+    const liveKeys = new Set(snapshots.map((s) => s.key))
+    for (const key of sourceState.exportedBlockCache.keys()) {
+      if (!liveKeys.has(key)) {
+        sourceState.exportedBlockCache.delete(key)
+      }
+    }
+  }
+
   const parts: string[] = []
   let prevEmittedEmpty = false
   let hasEmittedAny = false
@@ -1123,7 +1158,7 @@ export function assembleIncrementalMarkdown(
           }
           if (!sourceState.dirtyBlockKeys.has(nodeKey)) continue
           const baselineExport = group.baselineExports?.get(nodeKey)
-          const currentExport = exportSingleTopLevelNode(editor, editorState, nodeKey, transformers)
+          const currentExport = getOrExportBlock(nodeKey)
           if (baselineExport === undefined || currentExport === null || currentExport !== baselineExport) {
             intact = false
             break
@@ -1135,6 +1170,7 @@ export function assembleIncrementalMarkdown(
       if (intact) {
         for (const nodeKey of unchangedDirtyKeys) {
           sourceState.dirtyBlockKeys.delete(nodeKey)
+          sourceState.exportedBlockCache.delete(nodeKey)
         }
         if (!hasEmittedAny) {
           if (sourceState.originalFirstBlockId === group.firstOriginalBlockId) {
@@ -1174,9 +1210,10 @@ export function assembleIncrementalMarkdown(
             block.baselineExport = prevExport
           }
         }
-        const currentExport = exportSingleTopLevelNode(editor, editorState, snap.key, transformers) ?? ''
+        const currentExport = getOrExportBlock(snap.key) ?? ''
         if (block.baselineExport !== undefined && currentExport === block.baselineExport) {
           sourceState.dirtyBlockKeys.delete(snap.key)
+          sourceState.exportedBlockCache.delete(snap.key)
           blockText = block.raw
           isCleanOriginal = true
         } else {
@@ -1184,7 +1221,7 @@ export function assembleIncrementalMarkdown(
         }
       }
     } else {
-      const currentExport = exportSingleTopLevelNode(editor, editorState, snap.key, transformers) ?? ''
+      const currentExport = getOrExportBlock(snap.key) ?? ''
       blockText = convertEol(currentExport, eol)
     }
 

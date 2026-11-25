@@ -20,9 +20,10 @@ import {
   type ElementNode,
   type LexicalCommand,
   type LexicalNode,
+  type NodeKey,
   type TextNode
 } from 'lexical'
-import { $createMarkNode, $isMarkNode } from '@lexical/mark'
+import { $createMarkNode, $isMarkNode, MarkNode } from '@lexical/mark'
 import type {
   Annotation,
   AnnotationAnchor,
@@ -33,6 +34,7 @@ import type {
 import {
   buildAnchorAt,
   compactAnnotationText,
+  compactWithOffsets,
   resolveAnnotationAnchors,
   resolveAnchors
 } from '../../../../shared/utils/annotationAnchors'
@@ -398,13 +400,15 @@ function resolveProjectedAnnotations(
   documentAnnotations: Annotation[],
   sourceAnnotations: Annotation[]
 ): ProjectedResolution[] {
+  const annotations = [...documentAnnotations, ...sourceAnnotations]
+  if (!annotations.length) return []
   const { text, blocks } = collectDocumentText()
   const markGroups = collectMarkRangeGroups(blocks)
   const blockRanges = blocks.map(block => ({
     start: block.start,
     end: block.end
   }))
-  const annotations = [...documentAnnotations, ...sourceAnnotations]
+  const precomputedCompact = compactWithOffsets(text)
   const raw = new Map<string, ProjectedResolution>()
 
   for (const annotation of annotations) {
@@ -413,10 +417,16 @@ function resolveProjectedAnnotations(
       resolution = resolveMarkGroups(annotation, markGroups.get(annotation.id), blocks)
     }
     if (!resolution) {
-      const [exact] = resolveAnnotationAnchors(text, [annotation], {
-        blocks: blockRanges,
-        allowFuzzy: annotation.scope === 'document'
-      })
+      const [exact] = resolveAnnotationAnchors(
+        text,
+        [annotation],
+        {
+          blocks: blockRanges,
+          allowFuzzy: annotation.scope === 'document',
+          precomputedCompact
+        },
+        precomputedCompact
+      )
       resolution = exact
         ? {
             state: exact.state,
@@ -438,7 +448,7 @@ function resolveProjectedAnnotations(
         start !== undefined && end !== undefined ? text.slice(start, end) : undefined,
       anchor:
         start !== undefined && end !== undefined
-          ? buildAnchorAt(text, start, end)
+          ? buildAnchorAt(text, start, end, 48, precomputedCompact)
           : undefined
     })
   }
@@ -519,6 +529,20 @@ export default function WorkbenchAnnotationPlugin({
   })
   const importedRef = useRef<{ token: number; version: number }>({ token: 0, version: 0 })
   const appliedRef = useRef<{ token: number; version: number }>({ token: 0, version: -1 })
+  const markKeysRef = useRef<Set<NodeKey>>(new Set())
+  const lastProjectedSnapshotRef = useRef<{
+    token: number
+    editorMode: string
+    items: Map<
+      string,
+      {
+        state: AnnotationAnchorState | undefined
+        quote: string
+        exact: string
+        occurrence: number | undefined
+      }
+    >
+  } | null>(null)
   const showHintRef = useRef<(text: string) => void>(() => undefined)
 
   const sourceKey = readConversationSource(activeFileContent)?.sourceKey ?? null
@@ -614,6 +638,34 @@ export default function WorkbenchAnnotationPlugin({
     if (importedRef.current.token !== token) return
     if (appliedRef.current.token === token && appliedRef.current.version === importedRef.current.version) return
 
+    const snapshotItems = new Map<
+      string,
+      {
+        state: AnnotationAnchorState | undefined
+        quote: string
+        exact: string
+        occurrence: number | undefined
+      }
+    >()
+    for (const item of [...state.documentAnnotations, ...state.sourceAnnotations]) {
+      snapshotItems.set(item.id, {
+        state: item.anchorState,
+        quote: item.quote,
+        exact: item.anchor.exact,
+        occurrence: item.anchor.occurrence
+      })
+    }
+
+    if (state.documentAnnotations.length === 0 && state.sourceAnnotations.length === 0) {
+      const hasMarks = editor.getEditorState().read(() => allMarks().length > 0)
+      if (!hasMarks) {
+        appliedRef.current = { token, version: importedRef.current.version }
+        lastProjectedSnapshotRef.current = { token, editorMode, items: snapshotItems }
+        useAnnotationStore.getState().setResolutions([], token)
+        return
+      }
+    }
+
     const before = serializeWorkbenchMarkdown(editor)
 
     const projected = editor.getEditorState().read(() =>
@@ -655,6 +707,13 @@ export default function WorkbenchAnnotationPlugin({
       return
     }
     appliedRef.current = { token, version: importedRef.current.version }
+    for (const item of projected) {
+      const prevMeta = snapshotItems.get(item.annotation.id)
+      if (prevMeta) {
+        prevMeta.state = item.state
+      }
+    }
+    lastProjectedSnapshotRef.current = { token, editorMode, items: snapshotItems }
     useAnnotationStore.getState().setResolutions(
       projected.map(({ annotation, state, reason }) => ({
         id: annotation.id,
@@ -663,15 +722,97 @@ export default function WorkbenchAnnotationPlugin({
       })),
       token
     )
-  }, [activeFilePath, editor, showHint, workspacePath])
+  }, [activeFilePath, editor, editorMode, showHint, workspacePath])
 
-  // 标注增删改后重新投影：删除要清掉正文残留，评论保存和撤销重做要重算未定位。
+  // 标注增删改后重新投影：删除要清掉正文残留，评论保存和撤销重做要重算未定位；
+  // 纯 offsetHint 数值位移或评论内容编辑且正文 MarkNode 完好时，跳过重建与 2 次全篇序列化。
   useEffect(() => {
     if (editorMode !== 'wysiwyg') return
     const token = useAnnotationStore.getState().token
+    const allAnnotations = [...documentAnnotations, ...sourceAnnotations]
+    const prev = lastProjectedSnapshotRef.current
+
+    const buildSnapshot = () => {
+      const items = new Map<
+        string,
+        {
+          state: AnnotationAnchorState | undefined
+          quote: string
+          exact: string
+          occurrence: number | undefined
+        }
+      >()
+      for (const item of allAnnotations) {
+        items.set(item.id, {
+          state: item.anchorState,
+          quote: item.quote,
+          exact: item.anchor.exact,
+          occurrence: item.anchor.occurrence
+        })
+      }
+      return { token, editorMode, items }
+    }
+
+    let needsReproject =
+      !prev ||
+      prev.token !== token ||
+      prev.editorMode !== editorMode ||
+      prev.items.size !== allAnnotations.length
+
+    if (!needsReproject && prev) {
+      for (const item of allAnnotations) {
+        const prevItem = prev.items.get(item.id)
+        if (
+          !prevItem ||
+          prevItem.state !== item.anchorState ||
+          prevItem.quote !== item.quote ||
+          prevItem.exact !== item.anchor.exact ||
+          prevItem.occurrence !== item.anchor.occurrence
+        ) {
+          needsReproject = true
+          break
+        }
+      }
+    }
+
+    if (!needsReproject) {
+      // 校验当前编辑器内 MarkNode 集合是否与内存状态一致（例如撤销拆除了 MarkNode）
+      const missingOrStaleMark = editor.getEditorState().read(() => {
+        if (allAnnotations.length === 0) {
+          return markKeysRef.current.size > 0
+        }
+        const presentIds = new Set<string>()
+        for (const mark of allMarks()) {
+          for (const id of mark.getIDs()) {
+            if (id) presentIds.add(id)
+          }
+        }
+        for (const item of allAnnotations) {
+          const isUnresolved =
+            item.anchorState === 'unlocated' || item.anchorState === 'ambiguous'
+          if (isUnresolved && presentIds.has(item.id)) return true
+          if (
+            (item.anchorState === 'anchored' || item.anchorState === 'shifted') &&
+            !presentIds.has(item.id)
+          ) {
+            return true
+          }
+        }
+        return false
+      })
+      if (missingOrStaleMark) {
+        needsReproject = true
+      }
+    }
+
+    if (!needsReproject) {
+      lastProjectedSnapshotRef.current = buildSnapshot()
+      return
+    }
+
     importedRef.current = { token, version: importedRef.current.version + 1 }
     applyAnnotations()
-  }, [documentAnnotations, sourceAnnotations, editorMode, applyAnnotations])
+  }, [documentAnnotations, sourceAnnotations, editorMode, applyAnnotations, editor])
 
   // 文档切换：并行拉取 document 与 source 两路标注。
   useEffect(() => {
@@ -815,14 +956,75 @@ export default function WorkbenchAnnotationPlugin({
 
   // 每次 update 清理重复 id、零 id 和跨文档粘贴的无效 id。
   useEffect(() => {
+    editor.getEditorState().read(() => {
+      markKeysRef.current.clear()
+      for (const mark of allMarks()) {
+        markKeysRef.current.add(mark.getKey())
+      }
+    })
+    let markMutatedThisCycle = false
     return mergeRegister(
-      editor.registerUpdateListener(({ tags }) => {
+      editor.registerMutationListener(MarkNode, mutations => {
+        for (const [key, type] of mutations) {
+          if (type === 'destroyed') markKeysRef.current.delete(key)
+          else markKeysRef.current.add(key)
+        }
+        markMutatedThisCycle = true
+      }),
+      editor.registerUpdateListener(({ editorState, dirtyElements, dirtyLeaves, tags }) => {
+        const hadMarkMutation = markMutatedThisCycle
+        markMutatedThisCycle = false
         if (tags.has('sync-external') || tags.has('annotation-sync')) return
+        if (dirtyElements.size === 0 && dirtyLeaves.size === 0) return
+
         const state = useAnnotationStore.getState()
         const complete = readyRef.current.document && readyRef.current.source
         const valid = new Set(
           [...state.documentAnnotations, ...state.sourceAnnotations].map(item => item.id)
         )
+
+        const needsCleanup = editorState.read(() => {
+          // 文档中没有任何 MarkNode 且本次未触及 MarkNode：跳过 discrete 更新
+          if (markKeysRef.current.size === 0 && !hadMarkMutation) {
+            return false
+          }
+          let touchesMark = hadMarkMutation
+          if (!touchesMark) {
+            const hasMarkAncestor = (nodeKey: NodeKey): boolean => {
+              let node: LexicalNode | null = editorState._nodeMap.get(nodeKey) ?? null
+              while (node) {
+                if ($isMarkNode(node)) return true
+                node = node.getParent()
+              }
+              return false
+            }
+            for (const key of dirtyLeaves) {
+              if (hasMarkAncestor(key)) {
+                touchesMark = true
+                break
+              }
+            }
+            if (!touchesMark) {
+              for (const [key] of dirtyElements) {
+                if (key !== 'root' && hasMarkAncestor(key)) {
+                  touchesMark = true
+                  break
+                }
+              }
+            }
+          }
+          if (!touchesMark) return false
+
+          for (const mark of allMarks()) {
+            const ids = mark.getIDs().filter(Boolean)
+            if (!ids.length) return true
+            if (new Set(ids).size !== ids.length) return true
+            if (complete && !ids.every(id => valid.has(id))) return true
+          }
+          return false
+        })
+
+        if (!needsCleanup) return
         editor.update(() => cleanMarkNodes(valid, complete), {
           tag: ANNOTATION_SYNC_TAGS,
           discrete: true
@@ -979,10 +1181,15 @@ export default function WorkbenchAnnotationPlugin({
       void persistResolutions({ save: true })
     }
     root?.addEventListener('blur', persistOnBlur)
-    const unregisterReconcileListener = editor.registerUpdateListener(({ tags }) => {
-      if (tags.has('sync-external') || tags.has('annotation-sync')) return
-      scheduleReconcile()
-    })
+    const unregisterReconcileListener = editor.registerUpdateListener(
+      ({ dirtyElements, dirtyLeaves, tags }) => {
+        if (tags.has('sync-external') || tags.has('annotation-sync')) return
+        if (dirtyElements.size === 0 && dirtyLeaves.size === 0) return
+        const state = useAnnotationStore.getState()
+        if (!state.documentAnnotations.length && !state.sourceAnnotations.length) return
+        scheduleReconcile()
+      }
+    )
     return () => {
       unregisterReconcileListener()
       root?.removeEventListener('blur', persistOnBlur)

@@ -69,7 +69,10 @@ export default function WorkbenchDraggableBlockPlugin({
   const menuRef = useRef<HTMLDivElement | null>(null)
   const pickerRef = useRef<HTMLDivElement | null>(null)
   const targetLineRef = useRef<HTMLDivElement | null>(null)
-  const [draggableElement, setDraggableElement] = useState<HTMLElement | null>(null)
+  const draggableElementRef = useRef<HTMLElement | null>(null)
+  const handleElementChanged = useCallback((el: HTMLElement | null) => {
+    draggableElementRef.current = el
+  }, [])
   const [pickerState, setPickerState] = useState<PickerState | null>(null)
   const [isPickerOpen, setIsPickerOpen] = useState(false)
   const [highlightedIndex, setHighlightedIndex] = useState(0)
@@ -308,6 +311,7 @@ export default function WorkbenchDraggableBlockPlugin({
 
   const openComponentPicker = useCallback(
     (e: React.MouseEvent) => {
+      const draggableElement = draggableElementRef.current
       if (!draggableElement || !editor) return
 
       let targetNodeKey: NodeKey | null = null
@@ -331,7 +335,7 @@ export default function WorkbenchDraggableBlockPlugin({
       setHighlightedIndex(0)
       setIsPickerOpen(true)
     },
-    [draggableElement, editor]
+    [editor]
   )
 
   if (anchorElem === null) {
@@ -413,7 +417,7 @@ export default function WorkbenchDraggableBlockPlugin({
           />
         }
         isOnMenu={isOnMenu}
-        onElementChanged={setDraggableElement}
+        onElementChanged={handleElementChanged}
       />
 
       {equationEditor && (

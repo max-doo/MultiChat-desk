@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback, useMemo, forwardRef, useImperativeHandle } from 'react'
+import React, { createContext, useContext, useEffect, useRef, useState, useCallback, useMemo, forwardRef, useImperativeHandle } from 'react'
 import { createPortal } from 'react-dom'
 import { globalCSS } from 'markmap-view'
 import CustomDropdown from './CustomDropdown'
@@ -10,6 +10,8 @@ import { exportMindmapPng, exportMindmapSvg } from '../utils/mindmapExport'
 import mindmapCSS from '../styles/localMindmap.css?inline'
 import { AppIcon } from './icons/AppIcon'
 
+export const MindmapVisibilityContext = createContext<boolean>(true)
+
 export interface LocalMindmapPanelRef {
   exportPng: () => void
   exportSvg: () => void
@@ -19,7 +21,9 @@ export interface LocalMindmapPanelRef {
   insertNode: (parentId: string, text: string) => boolean
 }
 
-const LocalMindmapPanel = forwardRef<LocalMindmapPanelRef, { initialMarkdown?: string; onChange?: (markdown: string) => void; onOpenMubu?: () => void; previewMarkdown?: string; changedLines?: number[]; onAskNode?: (path: string[]) => void; onViewSource?: (text: string) => void }>(function LocalMindmapPanel({ initialMarkdown, onChange, onOpenMubu, previewMarkdown, changedLines, onAskNode, onViewSource }, ref): JSX.Element {
+const LocalMindmapPanel = forwardRef<LocalMindmapPanelRef, { initialMarkdown?: string; onChange?: (markdown: string) => void; onOpenMubu?: () => void; previewMarkdown?: string; changedLines?: number[]; onAskNode?: (path: string[]) => void; onViewSource?: (text: string) => void; isVisible?: boolean }>(function LocalMindmapPanel({ initialMarkdown, onChange, onOpenMubu, previewMarkdown, changedLines, onAskNode, onViewSource, isVisible }, ref): JSX.Element {
+  const contextVisible = useContext(MindmapVisibilityContext)
+  const effectiveVisible = isVisible ?? contextVisible
   const [viewMode, setViewMode] = useState<'mindmap' | 'markdown'>('mindmap')
 
   // Markdown 与树
@@ -147,7 +151,7 @@ const LocalMindmapPanel = forwardRef<LocalMindmapPanelRef, { initialMarkdown?: s
 
   const canvas = useMindmapCanvas({
     tree: previewTree || tree,
-    active: viewMode === 'mindmap',
+    active: viewMode === 'mindmap' && effectiveVisible,
     editingNodeIdRef,
     onTreeChange: commitTreeChange,
     handleUndo,
@@ -449,7 +453,7 @@ const LocalMindmapPanel = forwardRef<LocalMindmapPanelRef, { initialMarkdown?: s
             value={previewMarkdown ?? markdown}
             readOnly={readOnly}
             onChange={handleMarkdownChange}
-            active={viewMode === 'markdown'}
+            active={viewMode === 'markdown' && effectiveVisible}
             viewSwitcher={viewSwitcher}
             actions={<>
               {onOpenMubu && <CustomDropdown value={null} onChange={() => {}} displayText="更多" dropdownWidth="w-40 !left-auto right-0 !z-50" buttonClassName="h-7 px-2 rounded text-gray-500 hover:bg-gray-100 flex items-center gap-1 text-sm" renderContent={close => <div className="p-1 text-sm">

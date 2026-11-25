@@ -70,6 +70,88 @@ interface DocxMenuState {
   text: string
 }
 
+interface DocxTocItem {
+  text: string
+  level: number
+}
+
+interface DocxParagraphNodeLike {
+  type?: string
+  styleName?: string
+  outlineLevel?: number
+  children?: DocxParagraphNodeLike[]
+  text?: string
+}
+
+function readParagraphText(node: DocxParagraphNodeLike): string {
+  if (typeof node.text === 'string') return node.text
+  if (!Array.isArray(node.children)) return ''
+  let out = ''
+  for (let i = 0; i < node.children.length; i += 1) {
+    out += readParagraphText(node.children[i])
+  }
+  return out
+}
+
+/**
+ * 同步提取轻量的目录大纲，避免把体积庞大的 WordDocument AST 长期留在 React state。
+ */
+function extractDocxTocItems(doc: DocxDocumentLike): DocxTocItem[] {
+  const styleLevelById = new Map<string, number>()
+  const styles = doc.stylesPart?.styles
+  if (Array.isArray(styles)) {
+    for (let i = 0; i < styles.length; i += 1) {
+      const style = styles[i]
+      const level = style?.paragraphProps?.outlineLevel
+      if (style?.id && typeof level === 'number') {
+        styleLevelById.set(style.id, level)
+      }
+    }
+  }
+
+  const items: DocxTocItem[] = []
+  const visit = (node: DocxParagraphNodeLike): void => {
+    if (!node) return
+    if (node.type === 'paragraph') {
+      const own = typeof node.outlineLevel === 'number' ? node.outlineLevel : undefined
+      const viaStyle = node.styleName ? styleLevelById.get(node.styleName) : undefined
+      const level = own ?? viaStyle
+      if (typeof level === 'number' && level >= 0 && level < 9) {
+        const text = readParagraphText(node).trim()
+        if (text) items.push({ text, level: level + 1 })
+      }
+    }
+    if (Array.isArray(node.children)) {
+      for (let i = 0; i < node.children.length; i += 1) {
+        visit(node.children[i])
+      }
+    }
+  }
+
+  const bodyChildren = doc.documentPart?.body?.children as DocxParagraphNodeLike[] | undefined
+  if (Array.isArray(bodyChildren)) {
+    for (let i = 0; i < bodyChildren.length; i += 1) {
+      visit(bodyChildren[i])
+    }
+  }
+  return items
+}
+
+function buildLightweightDocxOutlineDoc(items: DocxTocItem[]): DocxDocumentLike | null {
+  if (items.length === 0) return null
+  return {
+    documentPart: {
+      body: {
+        children: items.map((item) => ({
+          type: 'paragraph',
+          outlineLevel: item.level - 1,
+          text: item.text
+        }))
+      }
+    }
+  }
+}
+
 /**
  * docx-preview 把内嵌图片与字体转成 blob URL；卸载或重渲染前必须回收，
  * 否则每次打开文档都会留下无法释放的 Blob。
@@ -78,8 +160,18 @@ function revokeDocxBlobUrls(root: HTMLElement): void {
   root.querySelectorAll('img[src^="blob:"]').forEach((img) => {
     URL.revokeObjectURL((img as HTMLImageElement).src)
   })
+  root.querySelectorAll('image').forEach((img) => {
+    const href = img.getAttribute('href')
+    if (href && href.startsWith('blob:')) URL.revokeObjectURL(href)
+    const xlinkHref = img.getAttributeNS('http://www.w3.org/1999/xlink', 'href')
+    if (xlinkHref && xlinkHref.startsWith('blob:')) URL.revokeObjectURL(xlinkHref)
+  })
   root.querySelectorAll('style').forEach((style) => {
     const matches = style.textContent?.match(/blob:[^)"'\s]+/g)
+    matches?.forEach((url) => URL.revokeObjectURL(url))
+  })
+  root.querySelectorAll('[style*="blob:"]').forEach((el) => {
+    const matches = el.getAttribute('style')?.match(/blob:[^)"'\s]+/g)
     matches?.forEach((url) => URL.revokeObjectURL(url))
   })
 }
@@ -117,6 +209,7 @@ export default function WorkbenchDocxPreview(): JSX.Element {
   const [statsOpen, setStatsOpen] = useState(false)
   const [zoom, setZoom] = useState(1)
   const zoomRef = useRef(1)
+  const basePageWidthRef = useRef(0)
   const statsChipRef = useRef<HTMLDivElement | null>(null)
   const [docxDocument, setDocxDocument] = useState<DocxDocumentLike | null>(null)
 
@@ -172,16 +265,19 @@ export default function WorkbenchDocxPreview(): JSX.Element {
     const wrapper = Array.from(container.children).find((el) =>
       el.classList.contains('docx-wrapper')
     ) as HTMLElement | undefined
-    const page = wrapper?.querySelector<HTMLElement>('section.docx')
-    if (!wrapper || !page) return
+    if (!wrapper) return
 
-    // 先归零再量，避免上一次 zoom 影响测量结果
-    wrapper.style.zoom = '1'
+    let baseWidth = basePageWidthRef.current
+    if (baseWidth <= 0) {
+      const page = wrapper.querySelector<HTMLElement>('section.docx')
+      if (!page) return
+      baseWidth = page.offsetWidth
+      if (baseWidth > 0) basePageWidthRef.current = baseWidth
+    }
     // 与容器左右 padding 对齐（px-6 = 24px/侧）
     const available = scroller.clientWidth - 48
-    const pageWidth = page.getBoundingClientRect().width
-    if (pageWidth <= 0 || available <= 0) return
-    wrapper.style.zoom = String(Math.min(1, available / pageWidth) * zoomRef.current)
+    if (baseWidth <= 0 || available <= 0) return
+    wrapper.style.zoom = String(Math.min(1, available / baseWidth) * zoomRef.current)
   }, [])
 
   // 手动缩放改变时重算；走 ref 是为了避免 fitToWidth 依赖 zoom 后
@@ -198,6 +294,8 @@ export default function WorkbenchDocxPreview(): JSX.Element {
     if (!container || !workspacePath || !activeFilePath || oversized) return
 
     let cancelled = false
+    let staging: HTMLDivElement | null = null
+    basePageWidthRef.current = 0
     setLoadState('loading')
     setLoadError('')
     clearDocxContainer(container)
@@ -216,7 +314,7 @@ export default function WorkbenchDocxPreview(): JSX.Element {
       if (cancelled) return
 
       // 渲染到游离节点再整体换入：刷新或切换文件时旧渲染不会追加到新内容上。
-      const staging = document.createElement('div')
+      staging = document.createElement('div')
       const options: Partial<Options> = {
         inWrapper: true,
         breakPages: false,
@@ -231,7 +329,7 @@ export default function WorkbenchDocxPreview(): JSX.Element {
         renderAltChunks: false
       }
       // renderAsync 返回 parseAsync 产出的 WordDocument，里面保留了
-      // OOXML 大纲信息（outlineLevel/style 继承），TOC 靠它识别标题。
+      // OOXML 大纲信息（outlineLevel/style 继承），同步提取轻量大纲后即释放重 AST。
       const doc = (await renderAsync(
         result.data.bytes,
         staging,
@@ -240,16 +338,30 @@ export default function WorkbenchDocxPreview(): JSX.Element {
       )) as DocxDocumentLike
       if (cancelled) {
         clearDocxContainer(staging)
+        staging = null
         return
       }
+      const outlineDoc = buildLightweightDocxOutlineDoc(extractDocxTocItems(doc))
       container.replaceChildren(...Array.from(staging.childNodes))
-      setDocxDocument(doc)
+      staging = null
+
+      const wrapper = Array.from(container.children).find((el) =>
+        el.classList.contains('docx-wrapper')
+      ) as HTMLElement | undefined
+      const page = wrapper?.querySelector<HTMLElement>('section.docx')
+      basePageWidthRef.current = page ? page.offsetWidth : 0
+
+      setDocxDocument(outlineDoc)
       fitToWidth()
       setStats(countDocxStats(container))
       setLoadState('ready')
     }
 
     void render().catch((error: unknown) => {
+      if (staging) {
+        clearDocxContainer(staging)
+        staging = null
+      }
       if (cancelled) return
       console.error('[WorkbenchDocxPreview] 渲染 Word 文档失败:', error)
       clearDocxContainer(container)
@@ -260,18 +372,33 @@ export default function WorkbenchDocxPreview(): JSX.Element {
 
     return () => {
       cancelled = true
+      if (staging) {
+        clearDocxContainer(staging)
+        staging = null
+      }
+      basePageWidthRef.current = 0
       clearDocxContainer(container)
       setDocxDocument(null)
     }
   }, [workspacePath, activeFilePath, oversized, reloadKey, fitToWidth])
 
-  // 右栏展开/折叠或窗口缩放后重算适应宽度
+  // 右栏展开/折叠或窗口缩放后重算适应宽度（rAF 节流）
   useEffect(() => {
     const scroller = scrollRef.current
     if (!scroller) return
-    const observer = new ResizeObserver(() => fitToWidth())
+    let rafId: number | null = null
+    const observer = new ResizeObserver(() => {
+      if (rafId !== null) return
+      rafId = requestAnimationFrame(() => {
+        rafId = null
+        fitToWidth()
+      })
+    })
     observer.observe(scroller)
-    return () => observer.disconnect()
+    return () => {
+      if (rafId !== null) cancelAnimationFrame(rafId)
+      observer.disconnect()
+    }
   }, [fitToWidth])
 
   // 点击字数 chip 以外区域收起统计详情

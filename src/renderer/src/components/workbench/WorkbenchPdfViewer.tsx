@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import * as pdfjsLib from 'pdfjs-dist'
-import type { PDFDocumentProxy } from 'pdfjs-dist'
+import type { PDFDocumentProxy, PDFPageProxy, PageViewport } from 'pdfjs-dist'
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import {
   useWorkbenchStore,
@@ -14,6 +14,9 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 const PDF_INITIAL_CHUNK_BYTES = 256 * 1024
 const PDF_RANGE_CHUNK_BYTES = 256 * 1024
 const PDF_WHEEL_ZOOM_THRESHOLD = 100
+const PDF_RESIZE_DEBOUNCE_MS = 120
+const PDF_PAGE_CLEANUP_BUFFER = 6
+const DEFAULT_PDF_ASPECT_RATIO = 1.414
 
 interface ImageBox {
   x: number
@@ -71,76 +74,83 @@ function extractPdfImageBoxes(
 interface PdfPageProps {
   pdf: PDFDocumentProxy
   pageNumber: number
-  width: number
+  displayWidth: number
+  renderWidth: number
+  defaultAspectRatio: number
+  initialAspectRatio?: number
   isDark: boolean
+  isNear: boolean
+  registerPageElement: (pageNumber: number, element: HTMLDivElement | null) => void
+  onPageLoaded: (pageNumber: number, page: PDFPageProxy) => void
+  onAspectRatio: (pageNumber: number, ratio: number) => void
   onSelect: (event: MouseEvent, pageElement: HTMLDivElement) => void
 }
 
 /**
- * 单页：canvas 负责绘制，textLayer 负责文字选区；暗黑模式下叠加无滤镜图片还原层。
- * 只在接近视口时渲染，离开较远后释放位图，避免长文档把内存吃满。
+ * 单页：canvas 负责绘制，textLayer 负责文字选区；暗黑模式下按需提取图片坐标并裁剪叠加。
+ * 仅在进入共享 IntersectionObserver 的 near 区域后按需调用 getPage()，离开后清空位图。
  */
-function PdfPage({ pdf, pageNumber, width, isDark, onSelect }: PdfPageProps): JSX.Element {
+const PdfPage = memo(function PdfPage({
+  pdf,
+  pageNumber,
+  displayWidth,
+  renderWidth,
+  defaultAspectRatio,
+  initialAspectRatio,
+  isDark,
+  isNear,
+  registerPageElement,
+  onPageLoaded,
+  onAspectRatio,
+  onSelect
+}: PdfPageProps): JSX.Element {
   const pageRef = useRef<HTMLDivElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null)
   const textRef = useRef<HTMLDivElement | null>(null)
-  const imageBoxesRef = useRef<{
-    boxes: ImageBox[]
+  const renderedMetaRef = useRef<{
+    page: PDFPageProxy
+    viewport: PageViewport
     ratio: number
-    cssWidth: number
-    cssHeight: number
   } | null>(null)
-  const [size, setSize] = useState<{ width: number; height: number } | null>(null)
-  const [near, setNear] = useState(false)
+  const imageBoxesRef = useRef<ImageBox[] | null>(null)
+  const [aspectRatio, setAspectRatio] = useState<number>(
+    () => initialAspectRatio ?? defaultAspectRatio
+  )
   const [renderSeq, setRenderSeq] = useState(0)
 
   useEffect(() => {
-    const element = pageRef.current
-    if (!element) return
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const visible = entries.some((entry) => entry.isIntersecting)
-        setNear(visible)
-      },
-      { rootMargin: '1200px 0px' }
-    )
-    observer.observe(element)
-    return () => observer.disconnect()
-  }, [])
+    setAspectRatio(initialAspectRatio ?? defaultAspectRatio)
+  }, [pdf, pageNumber, initialAspectRatio, defaultAspectRatio])
 
-  // 先量出页面尺寸占位，渲染时再按同一尺寸绘制，避免滚动跳动
   useEffect(() => {
-    let cancelled = false
-    void pdf
-      .getPage(pageNumber)
-      .then((page) => {
-        if (cancelled) return
-        const base = page.getViewport({ scale: 1 })
-        const viewport = page.getViewport({ scale: width / base.width })
-        setSize({ width: Math.floor(viewport.width), height: Math.floor(viewport.height) })
-      })
-      .catch(() => undefined)
-    return () => {
-      cancelled = true
-    }
-  }, [pdf, pageNumber, width])
+    const element = pageRef.current
+    registerPageElement(pageNumber, element)
+    return () => registerPageElement(pageNumber, null)
+  }, [pageNumber, registerPageElement])
 
   useEffect(() => {
     const canvas = canvasRef.current
     const textContainer = textRef.current
-    if (!near || !size || !canvas || !textContainer) return
+    if (!isNear || !canvas || !textContainer || renderWidth <= 0) return
 
     let cancelled = false
-    let renderTask: ReturnType<Awaited<ReturnType<PDFDocumentProxy['getPage']>>['render']> | null = null
+    let renderTask: ReturnType<PDFPageProxy['render']> | null = null
     let textLayer: { cancel: () => void } | null = null
 
     const render = async (): Promise<void> => {
       const page = await pdf.getPage(pageNumber)
       if (cancelled) return
 
+      onPageLoaded(pageNumber, page)
       const baseViewport = page.getViewport({ scale: 1 })
-      const scale = width / baseViewport.width
+      if (baseViewport.width > 0) {
+        const trueRatio = baseViewport.height / baseViewport.width
+        onAspectRatio(pageNumber, trueRatio)
+        setAspectRatio((prev) => (Math.abs(prev - trueRatio) > 1e-4 ? trueRatio : prev))
+      }
+
+      const scale = renderWidth / baseViewport.width
       const viewport = page.getViewport({ scale })
       const ratio = Math.min(window.devicePixelRatio || 1, 2)
       const cssWidth = Math.floor(viewport.width)
@@ -158,14 +168,8 @@ function PdfPage({ pdf, pageNumber, width, isDark, onSelect }: PdfPageProps): JS
       await renderTask.promise
       if (cancelled) return
 
-      const opList = await page.getOperatorList()
-      if (cancelled) return
-      imageBoxesRef.current = {
-        boxes: extractPdfImageBoxes(opList, viewport),
-        ratio,
-        cssWidth,
-        cssHeight
-      }
+      renderedMetaRef.current = { page, viewport, ratio }
+      imageBoxesRef.current = null
       setRenderSeq((seq) => seq + 1)
 
       textContainer.replaceChildren()
@@ -199,55 +203,136 @@ function PdfPage({ pdf, pageNumber, width, isDark, onSelect }: PdfPageProps): JS
         overlayCanvasRef.current.width = 0
         overlayCanvasRef.current.height = 0
       }
+      renderedMetaRef.current = null
       imageBoxesRef.current = null
       textContainer.replaceChildren()
     }
-  }, [near, size, pdf, pageNumber, width])
+  }, [isNear, pdf, pageNumber, renderWidth, onPageLoaded, onAspectRatio])
 
-  // 暗黑模式下把未反色原图区域从底图拷贝到无滤镜叠加层，保证照片/插图保持原貌
+  // 暗黑模式下按需提取图片坐标并按实际包围盒尺寸裁剪绘制到无滤镜叠加层，亮色模式完全跳过 getOperatorList
   useEffect(() => {
     const overlay = overlayCanvasRef.current
     const baseCanvas = canvasRef.current
-    const meta = imageBoxesRef.current
-    if (!overlay || !baseCanvas || !meta || !isDark || baseCanvas.width === 0 || meta.boxes.length === 0) {
+    const meta = renderedMetaRef.current
+    if (!overlay || !baseCanvas || !meta || !isDark || baseCanvas.width === 0) {
       if (overlay) {
         overlay.width = 0
         overlay.height = 0
       }
       return
     }
-    overlay.width = baseCanvas.width
-    overlay.height = baseCanvas.height
-    overlay.style.width = `${meta.cssWidth}px`
-    overlay.style.height = `${meta.cssHeight}px`
-    const ctx = overlay.getContext('2d')
-    if (!ctx) return
-    ctx.clearRect(0, 0, overlay.width, overlay.height)
-    for (const box of meta.boxes) {
-      const sx = Math.floor(box.x * meta.ratio)
-      const sy = Math.floor(box.y * meta.ratio)
-      const sw = Math.min(overlay.width - sx, Math.ceil(box.width * meta.ratio))
-      const sh = Math.min(overlay.height - sy, Math.ceil(box.height * meta.ratio))
-      if (sw > 0 && sh > 0) {
-        ctx.drawImage(baseCanvas, sx, sy, sw, sh, sx, sy, sw, sh)
+
+    let cancelled = false
+
+    const paintCroppedOverlay = (boxes: ImageBox[]): void => {
+      if (cancelled || !overlay || !baseCanvas || baseCanvas.width === 0 || boxes.length === 0) {
+        if (overlay) {
+          overlay.width = 0
+          overlay.height = 0
+        }
+        return
+      }
+      let minX = Infinity
+      let minY = Infinity
+      let maxX = 0
+      let maxY = 0
+      for (const box of boxes) {
+        const sx = Math.max(0, Math.floor(box.x * meta.ratio))
+        const sy = Math.max(0, Math.floor(box.y * meta.ratio))
+        const ex = Math.min(baseCanvas.width, Math.ceil((box.x + box.width) * meta.ratio))
+        const ey = Math.min(baseCanvas.height, Math.ceil((box.y + box.height) * meta.ratio))
+        if (ex > sx && ey > sy) {
+          if (sx < minX) minX = sx
+          if (sy < minY) minY = sy
+          if (ex > maxX) maxX = ex
+          if (ey > maxY) maxY = ey
+        }
+      }
+      const cropW = maxX - minX
+      const cropH = maxY - minY
+      if (cropW <= 0 || cropH <= 0) {
+        overlay.width = 0
+        overlay.height = 0
+        return
+      }
+      overlay.width = cropW
+      overlay.height = cropH
+      overlay.style.left = `${minX / meta.ratio}px`
+      overlay.style.top = `${minY / meta.ratio}px`
+      overlay.style.width = `${cropW / meta.ratio}px`
+      overlay.style.height = `${cropH / meta.ratio}px`
+      const ctx = overlay.getContext('2d')
+      if (!ctx) return
+      ctx.clearRect(0, 0, cropW, cropH)
+      for (const box of boxes) {
+        const sx = Math.max(0, Math.floor(box.x * meta.ratio))
+        const sy = Math.max(0, Math.floor(box.y * meta.ratio))
+        const ex = Math.min(baseCanvas.width, Math.ceil((box.x + box.width) * meta.ratio))
+        const ey = Math.min(baseCanvas.height, Math.ceil((box.y + box.height) * meta.ratio))
+        const sw = ex - sx
+        const sh = ey - sy
+        if (sw > 0 && sh > 0) {
+          ctx.drawImage(baseCanvas, sx, sy, sw, sh, sx - minX, sy - minY, sw, sh)
+        }
       }
     }
+
+    if (imageBoxesRef.current !== null) {
+      paintCroppedOverlay(imageBoxesRef.current)
+      return () => {
+        cancelled = true
+      }
+    }
+
+    void meta.page
+      .getOperatorList()
+      .then((opList) => {
+        if (cancelled || renderedMetaRef.current !== meta) return
+        const boxes = extractPdfImageBoxes(opList, meta.viewport)
+        imageBoxesRef.current = boxes
+        paintCroppedOverlay(boxes)
+      })
+      .catch(() => undefined)
+
+    return () => {
+      cancelled = true
+    }
   }, [isDark, renderSeq])
+
+  const outerWidth = Math.floor(displayWidth)
+  const outerHeight = Math.floor(displayWidth * aspectRatio)
+  const committedWidth = Math.floor(renderWidth)
+  const committedHeight = Math.floor(renderWidth * aspectRatio)
+  const previewScale = renderWidth > 0 && displayWidth !== renderWidth ? displayWidth / renderWidth : 1
 
   return (
     <div
       ref={pageRef}
       data-pdf-page={pageNumber}
-      className="relative mx-auto bg-white shadow-[0_2px_10px_rgba(15,23,42,0.14)]"
-      style={{ width: Math.floor(width), height: size ? size.height : 640 }}
+      className="relative mx-auto overflow-hidden bg-white shadow-[0_2px_10px_rgba(15,23,42,0.14)]"
+      style={{ width: outerWidth, height: outerHeight }}
       onContextMenu={(event) => onSelect(event.nativeEvent, event.currentTarget)}
     >
-      <canvas ref={canvasRef} data-pdf-base-canvas="true" className="block" />
-      <canvas ref={overlayCanvasRef} className="block pointer-events-none absolute inset-0" />
-      <div ref={textRef} className="pdf-text-layer" />
+      <div
+        className="relative"
+        style={
+          previewScale !== 1
+            ? {
+                width: committedWidth,
+                height: committedHeight,
+                transform: `scale(${previewScale})`,
+                transformOrigin: 'top left'
+              }
+            : { width: committedWidth, height: committedHeight }
+        }
+      >
+        <canvas ref={canvasRef} data-pdf-base-canvas="true" className="block" />
+        <canvas ref={overlayCanvasRef} className="block pointer-events-none absolute" />
+        <div ref={textRef} className="pdf-text-layer" />
+      </div>
     </div>
   )
-}
+})
 
 interface PdfMenuState {
   x: number
@@ -279,7 +364,18 @@ export default function WorkbenchPdfViewer({
 }: WorkbenchPdfViewerProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null)
+  const [defaultAspectRatio, setDefaultAspectRatio] = useState(DEFAULT_PDF_ASPECT_RATIO)
   const [fitWidth, setFitWidth] = useState(720)
+  const displayWidth = Math.round(fitWidth * zoom)
+  const [renderWidth, setRenderWidth] = useState(displayWidth)
+  const prevPdfRef = useRef<PDFDocumentProxy | null>(null)
+  const [nearPages, setNearPages] = useState<Set<number>>(() => new Set())
+  const nearPagesRef = useRef<Set<number>>(new Set())
+  const observerRef = useRef<IntersectionObserver | null>(null)
+  const pageElementsRef = useRef<Map<Element, number>>(new Map())
+  const elementByPageRef = useRef<Map<number, HTMLDivElement>>(new Map())
+  const aspectRatiosRef = useRef<Map<number, number>>(new Map())
+  const loadedPagesRef = useRef<Map<number, PDFPageProxy>>(new Map())
   const [menu, setMenu] = useState<PdfMenuState | null>(null)
   const menuRef = useRef<HTMLDivElement | null>(null)
   const askAi = useWorkbenchStore((s) => s.askAi)
@@ -289,14 +385,124 @@ export default function WorkbenchPdfViewer({
   useEffect(() => {
     const element = containerRef.current
     if (!element) return
+    let rafId: number | null = null
     const update = (): void => {
       const available = element.clientWidth - 48
       setFitWidth(Math.max(320, Math.min(available, 1100)))
     }
     update()
-    const observer = new ResizeObserver(update)
+    const observer = new ResizeObserver(() => {
+      if (rafId !== null) return
+      rafId = requestAnimationFrame(() => {
+        rafId = null
+        update()
+      })
+    })
     observer.observe(element)
-    return () => observer.disconnect()
+    return () => {
+      if (rafId !== null) cancelAnimationFrame(rafId)
+      observer.disconnect()
+    }
+  }, [])
+
+  // Resize / 缩放防抖 120ms 再重绘高分 Canvas；防抖期间由子页通过 CSS transform: scale 平滑过渡
+  useEffect(() => {
+    if (prevPdfRef.current !== pdf) {
+      prevPdfRef.current = pdf
+      setRenderWidth(displayWidth)
+      return
+    }
+    if (displayWidth === renderWidth) return
+    const timer = setTimeout(() => {
+      setRenderWidth(displayWidth)
+    }, PDF_RESIZE_DEBOUNCE_MS)
+    return () => clearTimeout(timer)
+  }, [pdf, displayWidth, renderWidth])
+
+  // 单一共享 IntersectionObserver 监测全部页容器，并对缓冲区间外的离屏页调用 page.cleanup()
+  useEffect(() => {
+    nearPagesRef.current = new Set()
+    setNearPages(new Set())
+    const root = containerRef.current
+    if (!pdf || !root) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        let changed = false
+        const next = new Set(nearPagesRef.current)
+        for (const entry of entries) {
+          const pageNumber = pageElementsRef.current.get(entry.target)
+          if (pageNumber === undefined) continue
+          if (entry.isIntersecting) {
+            if (!next.has(pageNumber)) {
+              next.add(pageNumber)
+              changed = true
+            }
+          } else if (next.has(pageNumber)) {
+            next.delete(pageNumber)
+            changed = true
+          }
+        }
+        if (!changed) return
+
+        nearPagesRef.current = next
+        setNearPages(next)
+
+        if (next.size > 0 && loadedPagesRef.current.size > 0) {
+          let minNear = Infinity
+          let maxNear = -Infinity
+          next.forEach((p) => {
+            if (p < minNear) minNear = p
+            if (p > maxNear) maxNear = p
+          })
+          loadedPagesRef.current.forEach((pageProxy, loadedPageNumber) => {
+            if (
+              loadedPageNumber < minNear - PDF_PAGE_CLEANUP_BUFFER ||
+              loadedPageNumber > maxNear + PDF_PAGE_CLEANUP_BUFFER
+            ) {
+              if (pageProxy.cleanup()) {
+                loadedPagesRef.current.delete(loadedPageNumber)
+              }
+            }
+          })
+        }
+      },
+      { root, rootMargin: '1200px 0px' }
+    )
+
+    observerRef.current = observer
+    pageElementsRef.current.forEach((_pageNumber, element) => {
+      observer.observe(element)
+    })
+
+    return () => {
+      observer.disconnect()
+      if (observerRef.current === observer) {
+        observerRef.current = null
+      }
+    }
+  }, [pdf])
+
+  const registerPageElement = useCallback((pageNumber: number, element: HTMLDivElement | null) => {
+    const prev = elementByPageRef.current.get(pageNumber)
+    if (prev && prev !== element) {
+      observerRef.current?.unobserve(prev)
+      pageElementsRef.current.delete(prev)
+      elementByPageRef.current.delete(pageNumber)
+    }
+    if (element) {
+      elementByPageRef.current.set(pageNumber, element)
+      pageElementsRef.current.set(element, pageNumber)
+      observerRef.current?.observe(element)
+    }
+  }, [])
+
+  const onPageLoaded = useCallback((pageNumber: number, page: PDFPageProxy) => {
+    loadedPagesRef.current.set(pageNumber, page)
+  }, [])
+
+  const onAspectRatio = useCallback((pageNumber: number, ratio: number) => {
+    aspectRatiosRef.current.set(pageNumber, ratio)
   }, [])
 
   useEffect(() => {
@@ -331,8 +537,6 @@ export default function WorkbenchPdfViewer({
     return () => element.removeEventListener('wheel', handleWheel)
   }, [onZoomStep])
 
-  const width = Math.round(fitWidth * zoom)
-
   useEffect(() => {
     if (!workspacePath || !relativePath || fileSize <= 0) return
     let cancelled = false
@@ -340,7 +544,10 @@ export default function WorkbenchPdfViewer({
     let document: PDFDocumentProxy | null = null
     let loadingTask: ReturnType<typeof pdfjsLib.getDocument> | null = null
     let rangeTransport: pdfjsLib.PDFDataRangeTransport | null = null
+    aspectRatiosRef.current.clear()
+    loadedPagesRef.current.clear()
     setPdf(null)
+    setDefaultAspectRatio(DEFAULT_PDF_ASPECT_RATIO)
     onLoadState('loading')
 
     const markError = (message: string): void => {
@@ -402,6 +609,23 @@ export default function WorkbenchPdfViewer({
         void document.destroy()
         return
       }
+
+      // 打开时仅读取第 1 页获取默认宽高比，其余页等进入视口附近再按需 getPage
+      let initialAspect = DEFAULT_PDF_ASPECT_RATIO
+      if (document.numPages >= 1) {
+        const firstPage = await document.getPage(1)
+        if (cancelled) {
+          void document.destroy()
+          return
+        }
+        loadedPagesRef.current.set(1, firstPage)
+        const vp1 = firstPage.getViewport({ scale: 1 })
+        if (vp1.width > 0) {
+          initialAspect = vp1.height / vp1.width
+          aspectRatiosRef.current.set(1, initialAspect)
+        }
+      }
+      setDefaultAspectRatio(initialAspect)
       setPdf(document)
       onLoadState('ready')
     }
@@ -414,6 +638,8 @@ export default function WorkbenchPdfViewer({
 
     return () => {
       cancelled = true
+      loadedPagesRef.current.clear()
+      aspectRatiosRef.current.clear()
       rangeTransport?.abort()
       if (document) void document.destroy()
       else if (loadingTask) void loadingTask.destroy()
@@ -490,16 +716,26 @@ export default function WorkbenchPdfViewer({
     >
       {pdf && (
         <div className="flex flex-col gap-6">
-          {Array.from({ length: pdf.numPages }, (_, index) => (
-            <PdfPage
-              key={index + 1}
-              pdf={pdf}
-              pageNumber={index + 1}
-              width={width}
-              isDark={backgroundTheme === 'dark'}
-              onSelect={handleSelect}
-            />
-          ))}
+          {Array.from({ length: pdf.numPages }, (_, index) => {
+            const pageNumber = index + 1
+            return (
+              <PdfPage
+                key={pageNumber}
+                pdf={pdf}
+                pageNumber={pageNumber}
+                displayWidth={displayWidth}
+                renderWidth={renderWidth}
+                defaultAspectRatio={defaultAspectRatio}
+                initialAspectRatio={aspectRatiosRef.current.get(pageNumber)}
+                isDark={backgroundTheme === 'dark'}
+                isNear={nearPages.has(pageNumber)}
+                registerPageElement={registerPageElement}
+                onPageLoaded={onPageLoaded}
+                onAspectRatio={onAspectRatio}
+                onSelect={handleSelect}
+              />
+            )
+          })}
         </div>
       )}
 

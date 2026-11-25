@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useMemo, useCallback } from 'react'
+import { memo, useRef, useEffect, useState, useMemo, useCallback } from 'react'
 import TurndownService from 'turndown'
 import { gfm } from 'turndown-plugin-gfm'
 import { useAppStore } from '../../store/appStore'
@@ -150,6 +150,12 @@ const TOAST_MESSAGE_MAX_CHARS = 64
 const UPLOAD_LOCK_STALE_MS = 3 * 60_000
 /** 工作台离开前台后的交互宽限；到点仍忙时会重新排期。 */
 const SIDEBAR_HIBERNATE_GRACE_MS = 30_000
+/** 侧栏折叠后保持挂载的宽限期，短时反复开关不重载网页。 */
+const SIDEBAR_COLLAPSE_GRACE_MS = 45_000
+/** 页面持续处于未就绪（加载失败/未登录态等）时允许休眠的宽限期。 */
+const SIDEBAR_NOT_READY_GRACE_MS = 60_000
+/** 休眠超过该阈值且仍处于后台的非当前平台，完全卸载 WebviewCard 回收 guest 进程。 */
+const SIDEBAR_UNMOUNT_IDLE_MS = 10 * 60_000
 /** 休眠恢复后等待页面和输入框重新就绪，避免紧接着的上传/注入落在加载中的页面。 */
 const SIDEBAR_RESUME_READY_TIMEOUT_MS = 30_000
 
@@ -158,6 +164,7 @@ type SidebarLifecyclePhase = 'live' | 'scheduled' | 'suspending' | 'suspended' |
 interface SidebarLifecycleEntry {
   phase: SidebarLifecyclePhase
   timer: ReturnType<typeof setTimeout> | null
+  unmountTimer: ReturnType<typeof setTimeout> | null
   queue: Promise<void>
   desiredLive: boolean
 }
@@ -259,7 +266,7 @@ interface WorkbenchAiSidebarProps {
   instanceId?: 'primary' | 'secondary'
 }
 
-export default function WorkbenchAiSidebar({ isActive = true, instanceId = 'primary' }: WorkbenchAiSidebarProps): JSX.Element | null {
+function WorkbenchAiSidebar({ isActive = true, instanceId = 'primary' }: WorkbenchAiSidebarProps): JSX.Element | null {
   const models = useAppStore((s) => s.models)
   const isSecondary = instanceId === 'secondary'
   const sidebarModelId = useWorkbenchStore((s) => (isSecondary ? s.sidebar2ModelId : s.sidebarModelId))
@@ -319,6 +326,12 @@ export default function WorkbenchAiSidebar({ isActive = true, instanceId = 'prim
   const [mountedSidebarModels, setMountedSidebarModels] = useState<Set<string>>(() => {
     return new Set(currentModel && currentModel.id !== 'local-agent' ? [currentModel.id] : [])
   })
+  // 侧栏主体是否挂载：折叠后先保留宽限期，超时再卸载以防短时切换反复重载。
+  const [shouldMountBody, setShouldMountBody] = useState<boolean>(() => visible)
+  // 本地 Agent 懒挂载：纯网页 AI 用户不挂载 <AgentCard>，首次使用后再保留其局部状态。
+  const [hasUsedAgent, setHasUsedAgent] = useState<boolean>(
+    () => visible && currentModel?.id === 'local-agent'
+  )
 
   // 保证 currentModel 始终加入 mountedSidebarModels（排除 local-agent）
   useEffect(() => {
@@ -332,12 +345,22 @@ export default function WorkbenchAiSidebar({ isActive = true, instanceId = 'prim
     }
   }, [currentModel?.id])
 
+  useEffect(() => {
+    if (visible && currentModel?.id === 'local-agent') {
+      setHasUsedAgent(true)
+    }
+  }, [visible, currentModel?.id])
+
   const sidebarRefs = useRef<Map<string, WebviewCardRef>>(new Map())
   const registeredWcIdsRef = useRef<Map<string, number>>(new Map())
   const lifecycleEntriesRef = useRef<Map<string, SidebarLifecycleEntry>>(new Map())
+  const preservedStateRef = useRef<Map<string, { url?: string; draft?: string }>>(new Map())
+  const notReadySinceRef = useRef<Map<string, number>>(new Map())
+  const collapseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const mountedSidebarModelsRef = useRef(mountedSidebarModels)
   const activityCountsRef = useRef<Map<string, number>>(new Map())
   const isActiveRef = useRef(isActive)
+  const visibleRef = useRef(visible)
   const windowVisibleRef = useRef(true)
   const rightPaneRef = useRef(rightPane)
   const currentModelIdRef = useRef(currentModel?.id ?? null)
@@ -346,6 +369,7 @@ export default function WorkbenchAiSidebar({ isActive = true, instanceId = 'prim
 
   mountedSidebarModelsRef.current = mountedSidebarModels
   isActiveRef.current = isActive
+  visibleRef.current = visible
   rightPaneRef.current = rightPane
   currentModelIdRef.current = currentModel?.id ?? null
 
@@ -396,12 +420,66 @@ export default function WorkbenchAiSidebar({ isActive = true, instanceId = 'prim
     const entry: SidebarLifecycleEntry = {
       phase: 'live',
       timer: null,
+      unmountTimer: null,
       queue: Promise.resolve(),
       desiredLive: true
     }
     lifecycleEntriesRef.current.set(modelId, entry)
     return entry
   }, [])
+
+  const restorePreservedState = useCallback(
+    async (modelId: string): Promise<void> => {
+      const preserved = preservedStateRef.current.get(modelId)
+      if (!preserved) return
+      const ref = sidebarRefs.current.get(modelId)
+      if (!ref) return
+      const modelUrl = availableModels.find((m) => m.id === modelId)?.url
+      if (
+        preserved.url &&
+        preserved.url !== modelUrl &&
+        !preserved.url.startsWith('about:blank') &&
+        !preserved.url.startsWith('chrome-error://')
+      ) {
+        const targetUrl = preserved.url
+        preserved.url = undefined
+        try {
+          if (ref.getCurrentUrl() !== targetUrl) {
+            ref.loadURL(targetUrl)
+            return
+          }
+        } catch {
+          // ignore
+        }
+      } else {
+        preserved.url = undefined
+      }
+
+      const draft = preserved.draft
+      if (!draft) {
+        preservedStateRef.current.delete(modelId)
+        return
+      }
+      preserved.draft = undefined
+      preservedStateRef.current.delete(modelId)
+
+      for (let attempt = 0; attempt < 15; attempt++) {
+        if (disposedRef.current) return
+        const latestRef = sidebarRefs.current.get(modelId)
+        if (!latestRef || latestRef.isHibernated()) return
+        if (latestRef.isReady()) {
+          try {
+            const res = await latestRef.insertText(draft)
+            if (res.success) return
+          } catch {
+            // retry while editor initializes
+          }
+        }
+        await new Promise((resolve) => setTimeout(resolve, 500))
+      }
+    },
+    [availableModels]
+  )
 
   const isSidebarSurfaceActive = useCallback((modelId: string): boolean => {
     return (
@@ -420,9 +498,17 @@ export default function WorkbenchAiSidebar({ isActive = true, instanceId = 'prim
         clearTimeout(entry.timer)
         entry.timer = null
       }
+      if (entry.unmountTimer) {
+        clearTimeout(entry.unmountTimer)
+        entry.unmountTimer = null
+      }
       return enqueueSidebarLifecycleTask(entry, async () => {
         if (disposedRef.current) return null
         let ref = sidebarRefs.current.get(modelId)
+        for (let wait = 0; !ref && wait < 20 && !disposedRef.current; wait++) {
+          await new Promise((resolve) => setTimeout(resolve, 16))
+          ref = sidebarRefs.current.get(modelId)
+        }
         if (!ref) return null
 
         if (ref.isHibernated()) {
@@ -436,6 +522,7 @@ export default function WorkbenchAiSidebar({ isActive = true, instanceId = 'prim
             console.warn(`[workbench-lifecycle] resume failed ${modelId}:`, result.error)
             return null
           }
+          preservedStateRef.current.delete(modelId)
         }
 
         const deadline = Date.now() + SIDEBAR_RESUME_READY_TIMEOUT_MS
@@ -460,6 +547,40 @@ export default function WorkbenchAiSidebar({ isActive = true, instanceId = 'prim
 
   const attemptSidebarSuspendRef = useRef<(modelId: string) => Promise<void>>(async () => undefined)
 
+  const scheduleSuspendedUnmount = useCallback(
+    (modelId: string): void => {
+      if (disposedRef.current) return
+      const entry = getLifecycleEntry(modelId)
+      if (entry.unmountTimer) clearTimeout(entry.unmountTimer)
+      entry.unmountTimer = setTimeout(() => {
+        entry.unmountTimer = null
+        if (
+          disposedRef.current ||
+          entry.desiredLive ||
+          entry.phase !== 'suspended' ||
+          isSidebarSurfaceActive(modelId) ||
+          currentModelIdRef.current === modelId
+        ) {
+          return
+        }
+        if (entry.timer) {
+          clearTimeout(entry.timer)
+          entry.timer = null
+        }
+        lifecycleEntriesRef.current.delete(modelId)
+        notReadySinceRef.current.delete(modelId)
+        console.log(`[workbench-lifecycle] unmount idle ${modelId}`)
+        setMountedSidebarModels((prev) => {
+          if (!prev.has(modelId)) return prev
+          const next = new Set(prev)
+          next.delete(modelId)
+          return next
+        })
+      }, SIDEBAR_UNMOUNT_IDLE_MS)
+    },
+    [getLifecycleEntry, isSidebarSurfaceActive]
+  )
+
   const scheduleSidebarSuspend = useCallback(
     (modelId: string): void => {
       if (disposedRef.current) return
@@ -467,37 +588,76 @@ export default function WorkbenchAiSidebar({ isActive = true, instanceId = 'prim
       entry.desiredLive = false
       if (entry.timer) clearTimeout(entry.timer)
       entry.timer = null
-      if (entry.phase === 'suspended') return
+      if (entry.phase === 'suspended') {
+        if (currentModelIdRef.current !== modelId && !entry.unmountTimer) {
+          scheduleSuspendedUnmount(modelId)
+        }
+        return
+      }
       if (entry.phase !== 'suspending' && entry.phase !== 'resuming') entry.phase = 'scheduled'
       entry.timer = setTimeout(() => {
         entry.timer = null
         void attemptSidebarSuspendRef.current(modelId)
       }, SIDEBAR_HIBERNATE_GRACE_MS)
     },
-    [getLifecycleEntry]
+    [getLifecycleEntry, scheduleSuspendedUnmount]
   )
 
   const isSidebarPageBusy = useCallback(async (modelId: string): Promise<boolean> => {
     if ((activityCountsRef.current.get(modelId) || 0) > 0) return true
     if (uploadingRef.current || conversationPlatformRef.current === modelId) return true
     const ref = sidebarRefs.current.get(modelId)
-    if (!ref) return true
+    if (!ref) return false
     if (ref.isHibernated()) return false
     const webview = ref.getWebview()
     const selectors = defaultSelectors.models[modelId]
-    if (!webview || !selectors) return true
+    if (!webview || !selectors) return false
     try {
       const state = (await webview.executeJavaScript(
         generateWorkbenchLifecycleStateScript(selectors, modelId)
       )) as { ready?: boolean; busy?: boolean; reason?: string } | null
-      if (!state || state.ready !== true || state.busy !== false) {
-        console.log(`[workbench-lifecycle] keep ${modelId}: ${state?.reason || 'unknown'}`)
+      if (!state) return true
+      if (state.busy === true) {
+        notReadySinceRef.current.delete(modelId)
+        console.log(`[workbench-lifecycle] keep ${modelId}: ${state.reason || 'busy'}`)
         return true
       }
+      if (state.ready === true) {
+        notReadySinceRef.current.delete(modelId)
+        return false
+      }
+      if (state.reason === 'auth-wall') {
+        notReadySinceRef.current.delete(modelId)
+        console.log(`[workbench-lifecycle] hibernate ${modelId}: auth-wall`)
+        return false
+      }
+      const now = Date.now()
+      const firstAt = notReadySinceRef.current.get(modelId)
+      if (firstAt === undefined) {
+        notReadySinceRef.current.set(modelId, now)
+        console.log(`[workbench-lifecycle] keep ${modelId}: ${state.reason || 'not-ready'} (grace)`)
+        return true
+      }
+      if (now - firstAt < SIDEBAR_NOT_READY_GRACE_MS) {
+        return true
+      }
+      notReadySinceRef.current.delete(modelId)
+      console.log(`[workbench-lifecycle] hibernate ${modelId}: long not-ready`)
       return false
     } catch (error) {
-      console.log(`[workbench-lifecycle] keep ${modelId}: state check failed`, error)
-      return true
+      const now = Date.now()
+      const firstAt = notReadySinceRef.current.get(modelId)
+      if (firstAt === undefined) {
+        notReadySinceRef.current.set(modelId, now)
+        console.log(`[workbench-lifecycle] keep ${modelId}: state check failed (grace)`, error)
+        return true
+      }
+      if (now - firstAt < SIDEBAR_NOT_READY_GRACE_MS) {
+        return true
+      }
+      notReadySinceRef.current.delete(modelId)
+      console.log(`[workbench-lifecycle] hibernate ${modelId}: state check repeatedly failed`)
+      return false
     }
   }, [])
 
@@ -529,17 +689,17 @@ export default function WorkbenchAiSidebar({ isActive = true, instanceId = 'prim
         return
       }
 
-      await enqueueSidebarLifecycleTask(entry, async () => {
+      const suspended = await enqueueSidebarLifecycleTask(entry, async (): Promise<boolean> => {
         if (
           disposedRef.current ||
           entry.desiredLive ||
           isSidebarSurfaceActive(modelId)
-        ) return
+        ) return false
         const ref = sidebarRefs.current.get(modelId)
-        if (!ref) return
+        if (!ref) return false
         if (ref.isHibernated()) {
           entry.phase = 'suspended'
-          return
+          return true
         }
         entry.phase = 'suspending'
         console.log(`[workbench-lifecycle] suspend ${modelId}`)
@@ -547,14 +707,24 @@ export default function WorkbenchAiSidebar({ isActive = true, instanceId = 'prim
         await waitForSidebarCommit()
         const success = result.success || result.error === 'Already hibernated'
         entry.phase = success ? 'suspended' : 'live'
-        if (!success) {
+        if (result.success) {
+          preservedStateRef.current.set(modelId, {
+            url: result.savedUrl,
+            draft: result.savedDraft
+          })
+        } else if (!success) {
           console.warn(`[workbench-lifecycle] suspend failed ${modelId}:`, result.error)
         }
+        return success
       })
 
       if (disposedRef.current) return
       if (entry.desiredLive || isSidebarSurfaceActive(modelId)) {
         void ensureSidebarLive(modelId)
+      } else if (suspended) {
+        if (currentModelIdRef.current !== modelId) {
+          scheduleSuspendedUnmount(modelId)
+        }
       } else if (entry.phase === 'live') {
         scheduleSidebarSuspend(modelId)
       }
@@ -564,7 +734,8 @@ export default function WorkbenchAiSidebar({ isActive = true, instanceId = 'prim
       getLifecycleEntry,
       isSidebarPageBusy,
       isSidebarSurfaceActive,
-      scheduleSidebarSuspend
+      scheduleSidebarSuspend,
+      scheduleSuspendedUnmount
     ]
   )
   attemptSidebarSuspendRef.current = attemptSidebarSuspend
@@ -597,6 +768,88 @@ export default function WorkbenchAiSidebar({ isActive = true, instanceId = 'prim
   )
 
   useEffect(() => {
+    if (visible) {
+      if (collapseTimerRef.current) {
+        clearTimeout(collapseTimerRef.current)
+        collapseTimerRef.current = null
+      }
+      setShouldMountBody(true)
+      return
+    }
+    if (!shouldMountBody) return
+
+    const scheduleCollapseCleanup = (): void => {
+      if (collapseTimerRef.current) clearTimeout(collapseTimerRef.current)
+      collapseTimerRef.current = setTimeout(() => {
+        collapseTimerRef.current = null
+        void (async () => {
+          if (disposedRef.current || visibleRef.current) return
+          const activeId = currentModelIdRef.current
+          if (activeId && activeId !== 'local-agent' && mountedSidebarModelsRef.current.has(activeId)) {
+            if (await isSidebarPageBusy(activeId)) {
+              if (!disposedRef.current && !visibleRef.current) {
+                scheduleCollapseCleanup()
+              }
+              return
+            }
+          }
+          if (disposedRef.current || visibleRef.current) return
+
+          // 卸载前为未休眠的当前/后台平台保存 URL 与输入草稿
+          for (const modelId of mountedSidebarModelsRef.current) {
+            const ref = sidebarRefs.current.get(modelId)
+            if (ref && !ref.isHibernated()) {
+              try {
+                const res = await ref.suspend()
+                if (res.success) {
+                  preservedStateRef.current.set(modelId, {
+                    url: res.savedUrl,
+                    draft: res.savedDraft
+                  })
+                }
+              } catch {
+                // ignore
+              }
+            }
+          }
+          if (disposedRef.current || visibleRef.current) return
+
+          for (const entry of lifecycleEntriesRef.current.values()) {
+            if (entry.timer) clearTimeout(entry.timer)
+            if (entry.unmountTimer) clearTimeout(entry.unmountTimer)
+            entry.timer = null
+            entry.unmountTimer = null
+          }
+          lifecycleEntriesRef.current.clear()
+          notReadySinceRef.current.clear()
+
+          // 收缩为仅保留当前选中模型，展开时不再并发重载全部历史平台
+          setMountedSidebarModels((prev) => {
+            const cur = currentModelIdRef.current
+            if (cur && cur !== 'local-agent') {
+              if (prev.size === 1 && prev.has(cur)) return prev
+              return new Set([cur])
+            }
+            return prev.size === 0 ? prev : new Set()
+          })
+          if (currentModelIdRef.current !== 'local-agent') {
+            setHasUsedAgent(false)
+          }
+          setShouldMountBody(false)
+        })()
+      }, SIDEBAR_COLLAPSE_GRACE_MS)
+    }
+
+    scheduleCollapseCleanup()
+    return () => {
+      if (collapseTimerRef.current) {
+        clearTimeout(collapseTimerRef.current)
+        collapseTimerRef.current = null
+      }
+    }
+  }, [visible, shouldMountBody, isSidebarPageBusy])
+
+  useEffect(() => {
     mountedSidebarModelsRef.current = mountedSidebarModels
     reconcileSidebarLifecycles()
   }, [mountedSidebarModels, reconcileSidebarLifecycles])
@@ -617,15 +870,22 @@ export default function WorkbenchAiSidebar({ isActive = true, instanceId = 'prim
     disposedRef.current = false
     return () => {
       disposedRef.current = true
+      if (collapseTimerRef.current) {
+        clearTimeout(collapseTimerRef.current)
+        collapseTimerRef.current = null
+      }
       for (const wcId of registeredWcIdsRef.current.values()) {
         unregisterSidebarWcId(wcId)
       }
       registeredWcIdsRef.current.clear()
       for (const entry of lifecycleEntriesRef.current.values()) {
         if (entry.timer) clearTimeout(entry.timer)
+        if (entry.unmountTimer) clearTimeout(entry.unmountTimer)
         entry.timer = null
+        entry.unmountTimer = null
       }
       lifecycleEntriesRef.current.clear()
+      notReadySinceRef.current.clear()
       activityCountsRef.current.clear()
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
       toastTimerRef.current = null
@@ -776,6 +1036,7 @@ export default function WorkbenchAiSidebar({ isActive = true, instanceId = 'prim
 
   // 为每个已挂载的侧边栏 webview 注入按钮脚本 + 挂 console-message 监听
   useEffect(() => {
+    if (!shouldMountBody) return
     const cleanups: Array<() => void> = []
     mountedSidebarModels.forEach((modelId) => {
       const ref = sidebarRefs.current.get(modelId)
@@ -793,13 +1054,15 @@ export default function WorkbenchAiSidebar({ isActive = true, instanceId = 'prim
       }
     })
     return () => cleanups.forEach((fn) => fn())
-  }, [mountedSidebarModels, handleInsertReply, handleSaveReply, handleCanvasSave])
+  }, [shouldMountBody, mountedSidebarModels, handleInsertReply, handleSaveReply, handleCanvasSave])
 
   // 切换平台（local-agent 为纯 React 卡片，不加入 mountedSidebarModels）
   const handleModelChange = useCallback(
     (modelId: string) => {
       setSidebarModelId(modelId)
-      if (modelId !== 'local-agent') {
+      if (modelId === 'local-agent') {
+        setHasUsedAgent(true)
+      } else {
         setMountedSidebarModels((prev) => new Set(prev).add(modelId))
       }
     },
@@ -891,6 +1154,7 @@ export default function WorkbenchAiSidebar({ isActive = true, instanceId = 'prim
 
       // 如果当前是 Agent，直接注入到 Agent Composer
       if (currentModel.id === 'local-agent') {
+        setHasUsedAgent(true)
         useAgentSessionStore.getState().appendPromptText(prompt)
         return
       }
@@ -1023,6 +1287,7 @@ export default function WorkbenchAiSidebar({ isActive = true, instanceId = 'prim
 
         // Agent 直接走附件通道注入 @path
         if (currentModel.id === 'local-agent') {
+          setHasUsedAgent(true)
           const store = useAgentSessionStore.getState()
           // mentionFile 自身已按"附件 + 输入框 @token"双重判重，
           // 同一事件回声 / 用户手动删附件后的合法重发都交给它处理；
@@ -1432,23 +1697,27 @@ export default function WorkbenchAiSidebar({ isActive = true, instanceId = 'prim
   }, [instanceKey, isSecondary, openAiSidebar2, openRightPane, setDraggingNodes, showToast, uploadFilesToCurrentModel])
 
   const isDraggingActive = Boolean(draggingNodes && draggingNodes.length > 0) || isExternalFileDragging
-  if (!visible) return null
 
-  const splitHeaderAction = (
-    <button
-      type="button"
-      onClick={isSecondary ? closeAiSidebar2 : isAiSidebar2Open ? closeAiSidebar2 : openAiSidebar2}
-      className={`w-7 h-7 rounded-full flex items-center justify-center transition-all duration-200 ${
-        !isSecondary && isAiSidebar2Open
-          ? 'text-primary bg-blue-50 hover:bg-blue-100 dark:bg-primary/20 dark:hover:bg-primary/25'
-          : 'text-text-secondary hover:text-text-primary hover:bg-black/5 dark:hover:bg-white/10'
-      }`}
-      title={isSecondary || isAiSidebar2Open ? '关闭 AI 侧边栏' : '再打开一个 AI 侧边栏'}
-      aria-label={isSecondary || isAiSidebar2Open ? '关闭 AI 侧边栏' : '再打开一个 AI 侧边栏'}
-    >
-      <AppIcon name={isSecondary ? 'close' : 'view_column_2'} size={20} />
-    </button>
+  const splitHeaderAction = useMemo(
+    () => (
+      <button
+        type="button"
+        onClick={isSecondary ? closeAiSidebar2 : isAiSidebar2Open ? closeAiSidebar2 : openAiSidebar2}
+        className={`w-7 h-7 rounded-full flex items-center justify-center transition-all duration-200 ${
+          !isSecondary && isAiSidebar2Open
+            ? 'text-primary bg-blue-50 hover:bg-blue-100 dark:bg-primary/20 dark:hover:bg-primary/25'
+            : 'text-text-secondary hover:text-text-primary hover:bg-black/5 dark:hover:bg-white/10'
+        }`}
+        title={isSecondary || isAiSidebar2Open ? '关闭 AI 侧边栏' : '再打开一个 AI 侧边栏'}
+        aria-label={isSecondary || isAiSidebar2Open ? '关闭 AI 侧边栏' : '再打开一个 AI 侧边栏'}
+      >
+        <AppIcon name={isSecondary ? 'close' : 'view_column_2'} size={20} />
+      </button>
+    ),
+    [isSecondary, isAiSidebar2Open, closeAiSidebar2, openAiSidebar2]
   )
+
+  if (!shouldMountBody) return null
 
   return (
     <div
@@ -1525,16 +1794,19 @@ export default function WorkbenchAiSidebar({ isActive = true, instanceId = 'prim
           />
         )}
 
-        {/* Agent 界面卡片：当 currentModel.id === 'local-agent' 时展示 */}
-        <div
-          className="h-full w-full"
-          style={{ display: currentModel?.id === 'local-agent' ? 'block' : 'none' }}
-        >
-          <AgentCard
-            onModelChange={handleModelChange}
-            headerActions={splitHeaderAction}
-          />
-        </div>
+        {/* Agent 界面卡片：首次使用后懒挂载，切回网页 AI 时隐藏保活局部滚动/折叠状态 */}
+        {hasUsedAgent && (
+          <div
+            className="h-full w-full"
+            style={{ display: currentModel?.id === 'local-agent' ? 'block' : 'none' }}
+          >
+            <AgentCard
+              isVisible={visible && isActive && currentModel?.id === 'local-agent'}
+              onModelChange={handleModelChange}
+              headerActions={splitHeaderAction}
+            />
+          </div>
+        )}
 
         {availableModels.map((model) => {
           if (!mountedSidebarModels.has(model.id)) return null
@@ -1563,6 +1835,7 @@ export default function WorkbenchAiSidebar({ isActive = true, instanceId = 'prim
                   if (oldWcId && oldWcId !== wcId) unregisterSidebarWcId(oldWcId)
                   registeredWcIdsRef.current.set(model.id, wcId)
                   registerSidebarWcId(wcId, instanceKey)
+                  void restorePreservedState(model.id)
                 }}
                 onModelChange={handleModelChange}
                 headerActions={splitHeaderAction}
@@ -1585,3 +1858,5 @@ export default function WorkbenchAiSidebar({ isActive = true, instanceId = 'prim
     </div>
   )
 }
+
+export default memo(WorkbenchAiSidebar)

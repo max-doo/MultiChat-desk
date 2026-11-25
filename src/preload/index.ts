@@ -509,6 +509,8 @@ const api = {
       ipcRenderer.invoke('workbench:search', { workspaceRoot, query }),
     getWorkspaceTags: (workspaceRoot: string): Promise<{ success: boolean; data?: WorkspaceTagInfo[]; error?: string }> =>
       ipcRenderer.invoke('workbench:get-workspace-tags', { workspaceRoot }),
+    extractFileTags: (workspaceRoot: string, relativePath: string, content?: string): Promise<{ success: boolean; data?: WorkspaceTagInfo[]; error?: string }> =>
+      ipcRenderer.invoke('workbench:extract-file-tags', { workspaceRoot, relativePath, content }),
     revealFile: (workspaceRoot: string, relativePath: string): Promise<{ success: boolean; error?: string }> =>
       ipcRenderer.invoke('workbench:reveal-file', { workspaceRoot, relativePath }),
     openInSystem: (workspaceRoot: string, relativePath: string): Promise<{ success: boolean; error?: string }> =>
@@ -555,8 +557,10 @@ const api = {
       ipcRenderer.invoke('workbench:git-log', { workspaceRoot, limit }),
     gitCommitDetail: (workspaceRoot: string, commitId: string): Promise<{ success: boolean; data?: GitCommitDetail | null; error?: string }> =>
       ipcRenderer.invoke('workbench:git-commit-detail', { workspaceRoot, commitId }),
-    gitBaseline: (workspaceRoot: string, relativePath: string): Promise<{ success: boolean; data?: GitBaselineResult; error?: string }> =>
-      ipcRenderer.invoke('workbench:git-baseline', { workspaceRoot, relativePath }),
+    gitBaseline: (workspaceRoot: string, relativePath: string, knownBlobSha?: string): Promise<{ success: boolean; data?: GitBaselineResult; error?: string }> =>
+      ipcRenderer.invoke('workbench:git-baseline', { workspaceRoot, relativePath, knownBlobSha }),
+    gitRepoStamp: (workspaceRoot: string): Promise<{ success: boolean; data?: string | null; error?: string }> =>
+      ipcRenderer.invoke('workbench:git-repo-stamp', { workspaceRoot }),
     gitDiscardFile: (workspaceRoot: string, payload: { path: string; oldPath?: string }): Promise<{ success: boolean; data?: GitActionResult; error?: string }> =>
       ipcRenderer.invoke('workbench:git-discard-file', { workspaceRoot, ...payload }),
     gitTrashFile: (workspaceRoot: string, relativePath: string): Promise<{ success: boolean; data?: GitActionResult; error?: string }> =>

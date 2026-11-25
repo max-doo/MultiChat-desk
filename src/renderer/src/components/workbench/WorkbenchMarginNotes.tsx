@@ -8,7 +8,7 @@ import { isUnresolvedAnchorState } from '../../../../shared/utils/annotationAnch
 import { WORKBENCH_REANCHOR_COMMAND } from './WorkbenchAnnotationPlugin'
 import { resolveSourceConversation } from '../../utils/noteSourceConversation'
 import { useAppStore } from '../../store/appStore'
-import { findMarkDom, removeMarkById } from './workbenchAnnotationUtils'
+import { allMarks, findMarkDom, removeMarkById } from './workbenchAnnotationUtils'
 import { AppIcon } from '../icons/AppIcon'
 import AnnotationExportFootnoteModal from './AnnotationExportFootnoteModal'
 
@@ -125,6 +125,7 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
     const stage = stageRef.current
     if (!stage) return
 
+    let rafId = 0
     const syncLayout = (): void => {
       const article = stage.querySelector<HTMLElement>('[data-workbench-article]')
       if (!article) return
@@ -141,15 +142,26 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
         : Math.min(MARGIN_NOTES_WIDTH, available)
       setCompactMode(previous => (previous === next ? previous : next))
       // 窄屏只显示折叠入口，入口停在正文右缘外侧，不再用栏宽撑出布局。
-      setNotesBox({ left, width })
+      setNotesBox(prev => (prev && prev.left === left && prev.width === width ? prev : { left, width }))
+    }
+
+    const scheduleSyncLayout = (): void => {
+      if (rafId) return
+      rafId = requestAnimationFrame(() => {
+        rafId = 0
+        syncLayout()
+      })
     }
 
     syncLayout()
-    const observer = new ResizeObserver(syncLayout)
+    const observer = new ResizeObserver(scheduleSyncLayout)
     observer.observe(stage)
     const article = stage.querySelector<HTMLElement>('[data-workbench-article]')
     if (article) observer.observe(article)
-    return () => observer.disconnect()
+    return () => {
+      if (rafId) cancelAnimationFrame(rafId)
+      observer.disconnect()
+    }
   }, [stageRef])
 
   useLayoutEffect(() => {
@@ -166,39 +178,52 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
   useLayoutEffect(() => {
     const stage = stageRef.current
     if (!stage || !showAnchorTrigger) {
-      setAnchorBox(null)
+      setAnchorBox(prev => (prev === null ? prev : null))
       return
     }
     const article = stage.querySelector<HTMLElement>('[data-workbench-article]')
     if (!article) return
 
+    let rafId = 0
     const measure = (): void => {
       const stageRect = stage.getBoundingClientRect()
       const content = article.querySelector<HTMLElement>('[contenteditable="true"]')
       const firstLine = (content?.firstElementChild as HTMLElement | null) ?? content ?? article
       const lineRect = firstLine.getBoundingClientRect()
       const textRight = (content ?? article).getBoundingClientRect().right
-      setAnchorBox({
+      const nextBox = {
         marginTop: Math.max(0, Math.round(lineRect.top - stageRect.top)),
         left: compactMode
           ? Math.max(8, Math.min(stage.clientWidth - 64, Math.round(textRight - stageRect.left + 8)))
           : Math.max(0, Math.round(textRight - stageRect.left + MARGIN_NOTES_GAP))
+      }
+      setAnchorBox(prev =>
+        prev && prev.marginTop === nextBox.marginTop && prev.left === nextBox.left ? prev : nextBox
+      )
+    }
+
+    const scheduleMeasure = (): void => {
+      if (rafId) return
+      rafId = requestAnimationFrame(() => {
+        rafId = 0
+        measure()
       })
     }
 
     measure()
-    const observer = new ResizeObserver(measure)
+    const observer = new ResizeObserver(scheduleMeasure)
     observer.observe(article)
     const content = article.querySelector<HTMLElement>('[contenteditable="true"]')
     if (content) observer.observe(content)
     const scroller = stage.closest<HTMLElement>('[data-workbench-editor="true"]')
       ?.querySelector<HTMLElement>('.overflow-y-auto')
-    scroller?.addEventListener('scroll', measure, { passive: true })
-    window.addEventListener('resize', measure)
+    scroller?.addEventListener('scroll', scheduleMeasure, { passive: true })
+    window.addEventListener('resize', scheduleMeasure)
     return () => {
+      if (rafId) cancelAnimationFrame(rafId)
       observer.disconnect()
-      scroller?.removeEventListener('scroll', measure)
-      window.removeEventListener('resize', measure)
+      scroller?.removeEventListener('scroll', scheduleMeasure)
+      window.removeEventListener('resize', scheduleMeasure)
     }
   }, [stageRef, showAnchorTrigger, compactMode, allNotes.length, activeFilePath])
 
@@ -210,10 +235,11 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
       stage?.closest<HTMLElement>('[data-workbench-editor="true"]') ?? null
     setEditorRootEl(editorRoot)
     if (!stage || !editorRoot || compactMode || !showMarginNotes || !asideEl) {
-      setHeaderBox(null)
+      setHeaderBox(prev => (prev === null ? prev : null))
       return
     }
 
+    let rafId = 0
     const measure = (): void => {
       const scroller = editorRoot.querySelector<HTMLElement>('.overflow-y-auto')
       if (!scroller) return
@@ -227,25 +253,37 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
       const firstLineTop = lineRect ? Math.round(lineRect.top - editorRect.top) : 8
       const stickyTop = Math.round(scrollerRect.top - editorRect.top + 8)
       // 栏头与旁注列同左缘，展开/收起时横向位置保持一致。
-      setHeaderBox({
+      const nextBox = {
         left: Math.max(0, Math.round(asideEl.getBoundingClientRect().left - editorRect.left)),
         top: Math.max(stickyTop, firstLineTop)
+      }
+      setHeaderBox(prev =>
+        prev && prev.left === nextBox.left && prev.top === nextBox.top ? prev : nextBox
+      )
+    }
+
+    const scheduleMeasure = (): void => {
+      if (rafId) return
+      rafId = requestAnimationFrame(() => {
+        rafId = 0
+        measure()
       })
     }
 
     measure()
-    const observer = new ResizeObserver(measure)
+    const observer = new ResizeObserver(scheduleMeasure)
     observer.observe(stage)
     observer.observe(asideEl)
     const scroller = stage
       .closest<HTMLElement>('[data-workbench-editor="true"]')
       ?.querySelector<HTMLElement>('.overflow-y-auto')
-    scroller?.addEventListener('scroll', measure, { passive: true })
-    window.addEventListener('resize', measure)
+    scroller?.addEventListener('scroll', scheduleMeasure, { passive: true })
+    window.addEventListener('resize', scheduleMeasure)
     return () => {
+      if (rafId) cancelAnimationFrame(rafId)
       observer.disconnect()
-      scroller?.removeEventListener('scroll', measure)
-      window.removeEventListener('resize', measure)
+      scroller?.removeEventListener('scroll', scheduleMeasure)
+      window.removeEventListener('resize', scheduleMeasure)
     }
   }, [stageRef, compactMode, showMarginNotes, activeFilePath, asideEl])
 
@@ -284,14 +322,37 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
   // 会全部堆在 aside 顶部（文档开头）闪一帧才归位。
   const computeLayout = useCallback((): void => {
     if (!stageRef.current || allNotes.length === 0) {
-      setPositions(new Map())
+      setPositions(prev => (prev.size === 0 ? prev : new Map()))
       return
     }
+
+    // 单遍遍历 MarkNode 建立 id -> 首个正文 DOM 映射，将 O(M×AST) 降为 O(AST+M)
+    const markDomById = new Map<string, HTMLElement>()
+    editor.getEditorState().read(() => {
+      for (const mark of allMarks()) {
+        const ids = mark.getIDs()
+        if (!ids.length) continue
+        let dom: HTMLElement | null = null
+        for (const child of mark.getChildren()) {
+          const el = editor.getElementByKey(child.getKey())
+          if (el) {
+            dom = el as HTMLElement
+            break
+          }
+        }
+        if (!dom) continue
+        for (const id of ids) {
+          if (id && !markDomById.has(id)) {
+            markDomById.set(id, dom)
+          }
+        }
+      }
+    })
 
     const stageRect = stageRef.current.getBoundingClientRect()
     const headerOffset = 44
     const itemsWithDesired = allNotes.map(item => {
-      const dom = findMarkDom(editor, item.id)
+      const dom = markDomById.get(item.id) ?? null
       // 找不到正文锚点时不给卡片位置，避免落到文档顶部形成"卡片跑到最上面"。
       if (!dom) return { item, desiredTop: null }
       const domRect = dom.getBoundingClientRect()
@@ -325,7 +386,19 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
       currentBottom = finalTop + height + CARD_GAP
     }
 
-    setPositions(nextPositions)
+    setPositions(prev => {
+      if (prev.size === nextPositions.size) {
+        let same = true
+        for (const [id, top] of nextPositions) {
+          if (prev.get(id) !== top) {
+            same = false
+            break
+          }
+        }
+        if (same) return prev
+      }
+      return nextPositions
+    })
   }, [allNotes, compactMode, editor, showMarginNotes, stageRef, unresolvedPanelHeight])
 
   // 面板高度会随“清理未解决”展开和未解决条目增减变化，用 ResizeObserver 跟随。
@@ -348,19 +421,28 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
   }, [computeLayout, editingId])
 
   useEffect(() => {
-    return editor.registerUpdateListener(() => {
-      // 标注投影走 annotation-sync 更新，MarkNode 落到 DOM 后才能测到位置；
-      // 统一在下一帧重算，避免停留在"找不到锚点"的旧状态。
-      requestAnimationFrame(() => {
+    let rafId = 0
+    const scheduleLayout = (): void => {
+      if (rafId) return
+      rafId = requestAnimationFrame(() => {
+        rafId = 0
         computeLayout()
       })
+    }
+    const unregister = editor.registerUpdateListener(({ dirtyElements, dirtyLeaves }) => {
+      if (allNotes.length === 0) return
+      if (dirtyElements.size === 0 && dirtyLeaves.size === 0) return
+      // 标注投影走 annotation-sync 更新，MarkNode 落到 DOM 后才能测到位置；
+      // 统一在下一帧重算，避免停留在"找不到锚点"的旧状态。
+      scheduleLayout()
     })
-  }, [computeLayout, editor])
-
-  useEffect(() => {
-    window.addEventListener('resize', computeLayout)
-    return () => window.removeEventListener('resize', computeLayout)
-  }, [computeLayout])
+    window.addEventListener('resize', scheduleLayout)
+    return () => {
+      if (rafId) cancelAnimationFrame(rafId)
+      unregister()
+      window.removeEventListener('resize', scheduleLayout)
+    }
+  }, [allNotes.length, computeLayout, editor])
 
   // 激活标注联动滚动
   const handleSelectNote = (id: string): void => {

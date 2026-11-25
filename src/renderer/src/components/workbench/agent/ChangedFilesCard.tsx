@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppIcon } from '../../icons/AppIcon'
 import ConfirmModal from '../../ConfirmModal'
 import { useWorkbenchStore } from '../../../store/workbenchStore'
+import { useAgentSessionStore } from '../../../store/agentSessionStore'
 import { resolveAbsolute, toWorkspaceRelative } from './filePathUtils'
 import type {
   AgentFileChange,
@@ -12,15 +13,7 @@ import type {
 interface ChangedFilesCardProps {
   sessionId: string
   cwd: string
-  /** 1-based turn number this card is bound to. The session record carries
-   * the turn that produced the edits; only that turn's closing message should
-   * render the card. Records written before turn binding existed have no
-   * `turnIndex` — those fall back to `allowLegacy`. */
-  turnIndex?: number
-  /** Render even when the persisted record has no `turnIndex` (legacy data).
-   * Pass `true` only on the last turn-final message so legacy records don't
-   * repeat on every turn. */
-  allowLegacy?: boolean
+  record: AgentTurnFileChanges
   /** When true, render the undo/redo controls. */
   interactive?: boolean
 }
@@ -40,88 +33,69 @@ interface FileRowState {
 export function ChangedFilesCard({
   sessionId,
   cwd,
-  turnIndex,
-  allowLegacy = false,
+  record,
   interactive = true
 }: ChangedFilesCardProps): JSX.Element | null {
   const workspacePath = useWorkbenchStore((s) => s.workspacePath)
   const openFile = useWorkbenchStore((s) => s.openFile)
+  const setFileChangesStatus = useAgentSessionStore((s) => s.setFileChangesStatus)
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [confirming, setConfirming] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [record, setRecord] = useState<AgentTurnFileChanges | null | 'loading'>('loading')
-  const [rows, setRows] = useState<FileRowState[] | null>(null)
-  const loadStartedRef = useRef(false)
+  const [staleMap, setStaleMap] = useState<Record<string, boolean>>({})
+  const checkSeqRef = useRef(0)
 
-  const ensureLoaded = useCallback(async (expandAfter = false): Promise<void> => {
-    if (loadStartedRef.current) {
-      if (expandAfter) setOpen(true)
-      return
-    }
-    loadStartedRef.current = true
-    setLoading(true)
-    try {
-      const res = await window.api.agentGetFileChanges(sessionId)
-      if (res.success && res.data && res.data.files.length > 0) {
-        const data = res.data
-        // The session keeps only the most recent change record. If it belongs
-        // to a different turn than this message, don't render here — the card
-        // should only hang off the turn that actually produced the edits.
-        if (
-          data.turnIndex !== undefined
-            ? data.turnIndex !== turnIndex
-            : !allowLegacy
-        ) {
-          setRecord(null)
-          return
-        }
-        setRecord(data)
-        const paths = data.files.map((f) => f.path)
-        const staleRes = await window.api
-          .agentCheckFilesStale(sessionId, paths, 'target')
-          .catch(() => null)
-        const staleMap = staleRes?.data ?? {}
-        const nextRows: FileRowState[] = await Promise.all(
-          data.files.map(async (f) => {
-            const target = data.target[f.path]
-            const baseline = data.baseline[f.path]
-            const stale = staleMap[f.path] === true
-            return { change: f, baseline, target, stale }
-          })
-        )
-        setRows(nextRows)
-      } else {
-        setRecord(null)
+  const checkStale = useCallback(
+    async (kind: 'baseline' | 'target'): Promise<void> => {
+      if (record.files.length === 0) {
+        setStaleMap({})
+        return
       }
-    } catch {
-      setRecord(null)
-    } finally {
-      setLoading(false)
-      if (expandAfter) setOpen(true)
-    }
-  }, [sessionId, cwd, turnIndex, allowLegacy])
+      const seq = ++checkSeqRef.current
+      setLoading(true)
+      try {
+        const paths = record.files.map((f) => f.path)
+        const staleRes = await window.api
+          .agentCheckFilesStale(sessionId, paths, kind)
+          .catch(() => null)
+        if (checkSeqRef.current !== seq) return
+        setStaleMap(staleRes?.data ?? {})
+      } finally {
+        if (checkSeqRef.current === seq) {
+          setLoading(false)
+        }
+      }
+    },
+    [sessionId, record.files]
+  )
+
+  const prevTargetRef = useRef<Record<string, AgentFileSnapshot> | null>(null)
 
   useEffect(() => {
-    void ensureLoaded()
-  }, [ensureLoaded])
+    // Only refresh target staleness when the record's target snapshots change
+    // while applied; flipping applied -> undone should keep redo available.
+    if (record.status === 'applied' && prevTargetRef.current !== record.target) {
+      prevTargetRef.current = record.target
+      void checkStale('target')
+    }
+  }, [record.status, record.target, checkStale])
+
+  const rows = useMemo<FileRowState[]>(() => {
+    return record.files.map((f) => ({
+      change: f,
+      baseline: record.baseline[f.path],
+      target: record.target[f.path],
+      stale: staleMap[f.path] === true
+    }))
+  }, [record, staleMap])
 
   const staleCount = useMemo(
-    () => (rows ?? []).filter((r) => r.stale).length,
+    () => rows.filter((r) => r.stale).length,
     [rows]
   )
-  const canUndo =
-    interactive &&
-    record !== 'loading' &&
-    record !== null &&
-    record.status === 'applied' &&
-    staleCount === 0
-  const canRedo =
-    interactive &&
-    record !== 'loading' &&
-    record !== null &&
-    record.status === 'undone' &&
-    staleCount === 0
+  const canUndo = interactive && record.status === 'applied' && staleCount === 0
+  const canRedo = interactive && record.status === 'undone' && staleCount === 0
 
   const handleUndo = async (): Promise<void> => {
     setConfirming(false)
@@ -131,7 +105,7 @@ export function ChangedFilesCard({
       setError(res.error || '撤销失败')
       return
     }
-    setRecord((r) => (r && r !== 'loading' ? { ...r, status: 'undone' } : r))
+    setFileChangesStatus('undone')
   }
 
   const handleRedo = async (): Promise<void> => {
@@ -141,7 +115,16 @@ export function ChangedFilesCard({
       setError(res.error || '恢复失败')
       return
     }
-    setRecord((r) => (r && r !== 'loading' ? { ...r, status: 'applied' } : r))
+    setFileChangesStatus('applied')
+  }
+
+  const handleToggleOpen = (): void => {
+    if (open) {
+      setOpen(false)
+      return
+    }
+    setOpen(true)
+    void checkStale(record.status === 'undone' ? 'baseline' : 'target')
   }
 
   const handleOpenInEditor = useCallback(
@@ -161,10 +144,7 @@ export function ChangedFilesCard({
     [cwd, workspacePath, openFile]
   )
 
-  if (record === 'loading') {
-    return null
-  }
-  if (record === null || record.files.length === 0) {
+  if (record.files.length === 0) {
     return null
   }
 
@@ -176,7 +156,7 @@ export function ChangedFilesCard({
       <div className="mt-1 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-white/10 dark:bg-white/[0.03]">
         <button
           type="button"
-          onClick={() => (open ? setOpen(false) : void ensureLoaded(true))}
+          onClick={handleToggleOpen}
           aria-expanded={open}
           className="flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-gray-50 dark:hover:bg-white/5"
         >

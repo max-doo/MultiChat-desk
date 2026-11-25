@@ -44,7 +44,7 @@ import {
   extractFrontmatterTags,
   extractInlineTags
 } from '../../shared/utils/workbenchTags'
-import { listIgnoredPaths, recordWorkspaceMove } from './gitService'
+import { listIgnoredPaths, recordWorkspaceMove, invalidateRepoCache } from './gitService'
 import {
   appendGitignorePatterns,
   createGitignoreMatcher,
@@ -77,6 +77,35 @@ const ALWAYS_HIDDEN_NAMES = new Set([
   'Thumbs.db',
   '$RECYCLE.BIN'
 ])
+
+// 目录与文件自然排序复用的单例 Collator
+const NAME_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
+
+/** 限流并发执行文件系统操作，避免万级工作区同时打开过多句柄 */
+function createScanLimiter(concurrency: number) {
+  let active = 0
+  const waiters: Array<() => void> = []
+  const acquire = (): Promise<void> => {
+    if (active < concurrency) {
+      active++
+      return Promise.resolve()
+    }
+    return new Promise<void>((resolve) => waiters.push(resolve))
+  }
+  const release = (): void => {
+    const next = waiters.shift()
+    if (next) next()
+    else active--
+  }
+  return async <T>(task: () => Promise<T>): Promise<T> => {
+    await acquire()
+    try {
+      return await task()
+    } finally {
+      release()
+    }
+  }
+}
 
 // 图片 MIME 类型映射
 const IMAGE_MIME_TYPES: Record<string, string> = {
@@ -439,10 +468,11 @@ function lockCopyTarget(key: string): Promise<() => void> {
   const prev = copyTargetLocks.get(key) ?? Promise.resolve()
   let release: () => void
   const next = new Promise<void>((resolve) => { release = resolve })
-  copyTargetLocks.set(key, prev.then(() => next))
-  return prev.then(() => () => {
+  const tail = prev.catch(() => undefined).then(() => next)
+  copyTargetLocks.set(key, tail)
+  return prev.catch(() => undefined).then(() => () => {
     release()
-    if (copyTargetLocks.get(key) === next) copyTargetLocks.delete(key)
+    if (copyTargetLocks.get(key) === tail) copyTargetLocks.delete(key)
   })
 }
 
@@ -451,20 +481,23 @@ function normalizeWatchKey(workspaceRoot: string): string {
   return process.platform === 'win32' ? resolved.toLowerCase() : resolved
 }
 
-/** 判断事件路径是否落在工作区的 .git 目录内（递归监听会报告相对根路径） */
-function isGitInternalPath(relativeOrName: string): boolean {
-  const normalized = relativeOrName.split('\\').join('/')
-  return normalized === '.git' || normalized.startsWith('.git/')
-}
-
 /**
- * 判断事件路径是否落在应用自己的状态目录内。
- * `.multichat/` 只放导图文件、索引与缓存，不参与文件树展示，
- * 每次画布保存都广播整树重扫纯属浪费；外部改动由导图目录自己的 watcher 负责失效。
+ * 判断 fs.watch 事件路径是否属于工作区高噪/隐藏目录：
+ * 与 readTree 无条件隐藏规则对齐（.git、.trash、.multichat、依赖与虚拟环境目录等），
+ * 保留 .gitignore 等配置文件变化以便及时刷新过滤结果。
  */
-function isAppStatePath(relativeOrName: string): boolean {
-  const normalized = relativeOrName.split('\\').join('/')
-  return normalized === '.multichat' || normalized.startsWith('.multichat/')
+function isWatchIgnoredPath(relativeOrName: string): boolean {
+  const normalized = relativeOrName.split('\\').join('/').replace(/^\/+|\/+$/g, '')
+  if (!normalized) return false
+  const segments = normalized.split('/')
+  const first = segments[0]
+  if (INTERNAL_DIR_NAMES.has(first) || first === '.multichat') return true
+  for (const segment of segments) {
+    if (ALWAYS_HIDDEN_NAMES.has(segment) || segment.endsWith('.egg-info')) {
+      return true
+    }
+  }
+  return false
 }
 
 /**
@@ -484,11 +517,8 @@ export function watchWorkspace(workspaceRoot: string): void {
     // recursive: Windows/macOS 原生递归；Linux (Electron ≥30, inotify) 亦支持。
     // 目录不存在或被删时 fs.watch 直接抛错，交给外层兜底
     watcher = fs.watch(resolvedRoot, { recursive: true, persistent: false }, (_eventType, fileName) => {
-      // .git 内部变化不代表工作区文件变化：git status 每次都会重写 .git/index，
-      // 不排除会形成「刷新状态 → 索引变化 → 再刷新」的自激循环。
-      if (fileName && isGitInternalPath(String(fileName))) return
-      // .multichat 变化同理：导图保存不该触发整树重扫与 Git 刷新。
-      if (fileName && isAppStatePath(String(fileName))) return
+      // .git / .multichat / node_modules / .venv / __pycache__ 等内部或高噪目录不触发整树重扫与 Git 刷新
+      if (fileName && isWatchIgnoredPath(String(fileName))) return
       const state = workbenchWatchers.get(key)
       if (!state) return
       if (state.debounceTimer) clearTimeout(state.debounceTimer)
@@ -765,11 +795,26 @@ title: 欢迎使用
  * - 已经初始化过、但目录被删除时不静默重建：会话库不可用必须让调用方明确报错，
  *   否则捕捉和迁移会把数据写进一个用户以为已经删除的新目录。
  */
+let confirmedDefaultWorkspacePath: string | null = null
+
 export async function ensureDefaultWorkspace(
   store: Store<Record<string, unknown>>
 ): Promise<WorkbenchSelectFolderResult> {
   const defaultPath = canonicalDefaultWorkspacePath()
   const stored = store.get(DEFAULT_WORKSPACE_STORE_KEY)
+  if (confirmedDefaultWorkspacePath === defaultPath && stored === defaultPath) {
+    const alive = await stat(defaultPath).then(
+      info => info.isDirectory(),
+      () => false
+    )
+    if (alive) {
+      authorizeWorkspaceRoot(defaultPath)
+      return { path: defaultPath, name: path.basename(defaultPath) }
+    }
+    confirmedDefaultWorkspacePath = null
+    throw new Error('CONVERSATION_LIBRARY_UNAVAILABLE')
+  }
+
   let initialized = typeof stored === 'string' && stored.length > 0
   if (typeof stored === 'string' && stored.length > 0 && !(await samePhysicalPath(stored, defaultPath))) {
     // 旧缓存只清理键，绝不删除旧目录内容。
@@ -798,7 +843,10 @@ export async function ensureDefaultWorkspace(
   await ensureDefaultGitignore(defaultPath).catch(() => undefined)
   await ensureAnnotationGitignore(defaultPath)
 
-  store.set(DEFAULT_WORKSPACE_STORE_KEY, defaultPath)
+  if (stored !== defaultPath) {
+    store.set(DEFAULT_WORKSPACE_STORE_KEY, defaultPath)
+  }
+  confirmedDefaultWorkspacePath = defaultPath
   authorizeWorkspaceRoot(defaultPath)
   return { path: defaultPath, name: path.basename(defaultPath) }
 }
@@ -829,7 +877,12 @@ export async function activateWorkspace(
     if (!info.isDirectory()) throw new Error('工作区路径不是文件夹')
     if (!(await directoryWritable(resolved))) throw new Error('工作区不可写')
     authorizeWorkspaceRoot(resolved)
-    if (activeWorkspaceRoot) unwatchWorkspace(activeWorkspaceRoot)
+    if (activeWorkspaceRoot) {
+      unwatchWorkspace(activeWorkspaceRoot)
+      invalidateRepoCache(activeWorkspaceRoot)
+      clearWorkspaceTagCache(activeWorkspaceRoot)
+    }
+    invalidateRepoCache(resolved)
     activeWorkspaceRoot = resolved
     activeGeneration += 1
     store.set(WORKBENCH_LAST_WORKSPACE_KEY, resolved)
@@ -856,7 +909,10 @@ export async function closeWorkspace(
     }
     if (rootKey(activeWorkspaceRoot) === rootKey(defaultWorkspace.path)) throw new Error('默认工作区不可关闭')
     if (!(await directoryWritable(defaultWorkspace.path))) throw new Error('默认工作区不可写，暂时无法关闭')
-    unwatchWorkspace(activeWorkspaceRoot)
+    const closingRoot = activeWorkspaceRoot
+    unwatchWorkspace(closingRoot)
+    invalidateRepoCache(closingRoot)
+    clearWorkspaceTagCache(closingRoot)
     activeWorkspaceRoot = defaultWorkspace.path
     activeGeneration += 1
     store.set(WORKBENCH_LAST_WORKSPACE_KEY, defaultWorkspace.path)
@@ -927,31 +983,7 @@ export async function readTree(workspaceRoot: string): Promise<WorkbenchFileNode
 
   // 目录扫描是纯 IO 等待，串行会让万级文件的工作区耗时到秒级；
   // 限流并发后既能把等待重叠起来，又不会一次打开过多句柄。
-  const SCAN_CONCURRENCY = 24
-  let activeScans = 0
-  const scanWaiters: Array<() => void> = []
-  const acquireScanSlot = (): Promise<void> => {
-    if (activeScans < SCAN_CONCURRENCY) {
-      activeScans++
-      return Promise.resolve()
-    }
-    return new Promise<void>((resolve) => scanWaiters.push(resolve))
-  }
-  const releaseScanSlot = (): void => {
-    const next = scanWaiters.shift()
-    // 让出的槽位直接转交给等待者，activeScans 保持不变
-    if (next) next()
-    else activeScans--
-  }
-  /** 在并发槽内执行一次文件系统调用，保证同时打开的句柄数有上限 */
-  const withScanSlot = async <T>(task: () => Promise<T>): Promise<T> => {
-    await acquireScanSlot()
-    try {
-      return await task()
-    } finally {
-      releaseScanSlot()
-    }
-  }
+  const withScanSlot = createScanLimiter(24)
 
   /** 解析符号链接的真实路径；越界或无法解析时返回 null */
   async function resolveSymlink(fullPath: string): Promise<string | null> {
@@ -1033,7 +1065,7 @@ export async function readTree(workspaceRoot: string): Promise<WorkbenchFileNode
     nodes.sort((a, b) => {
       if (a.isDirectory && !b.isDirectory) return -1
       if (!a.isDirectory && b.isDirectory) return 1
-      return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
+      return NAME_COLLATOR.compare(a.name, b.name)
     })
 
     return nodes
@@ -1987,6 +2019,41 @@ export async function openFileInSystem(workspaceRoot: string, relativePath: stri
   }
 }
 
+interface WorkspaceTagCacheEntry {
+  fileTagsByPath: Map<string, Set<string>>
+  tagCounts: Map<string, number>
+}
+
+const workspaceTagCache = new Map<string, WorkspaceTagCacheEntry>()
+const searchGenerations = new Map<string, number>()
+
+function clearWorkspaceTagCache(workspaceRoot: string): void {
+  if (!workspaceRoot) return
+  workspaceTagCache.delete(normalizeWatchKey(workspaceRoot))
+}
+
+function extractMarkdownTagSet(fileContent: string): Set<string> {
+  const fileTags = new Set<string>()
+  const fm = extractFrontmatterTags(fileContent)
+  for (const t of fm.tags) {
+    fileTags.add(t)
+  }
+  const inlines = extractInlineTags(fileContent)
+  for (const item of inlines) {
+    fileTags.add(item.tag)
+  }
+  return fileTags
+}
+
+function sortWorkspaceTags(tagCounts: Map<string, number>): WorkspaceTagInfo[] {
+  const result: WorkspaceTagInfo[] = []
+  for (const [tag, count] of tagCounts.entries()) {
+    if (count > 0) result.push({ tag, count })
+  }
+  result.sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag))
+  return result
+}
+
 /**
  * 扫描工作区所有 Markdown 文件中的标签（包括 Frontmatter 与正文行内标签）
  * 返回聚合去重后的标签及其出现频次，按频次降序、字母升序排列
@@ -1994,73 +2061,127 @@ export async function openFileInSystem(workspaceRoot: string, relativePath: stri
 export async function getWorkspaceTags(workspaceRoot: string): Promise<WorkspaceTagInfo[]> {
   const safeRoot = await assertSafePath(workspaceRoot, '')
   const isFiltered = await createWorkspaceFilter(safeRoot)
+  const rootCmp = process.platform === 'win32' ? safeRoot.toLowerCase() : safeRoot
+  const rootPrefix = rootCmp.endsWith(path.sep) ? rootCmp : rootCmp + path.sep
+  const withScanSlot = createScanLimiter(16)
+  const fileTagsByPath = new Map<string, Set<string>>()
   const tagCounts = new Map<string, number>()
   const startTime = Date.now()
   const MAX_SCAN_TIME_MS = 3000
 
-  async function scanDir(dir: string): Promise<void> {
-    if (Date.now() - startTime > MAX_SCAN_TIME_MS) return
-    let entries
-    try {
-      entries = await readdir(dir, { withFileTypes: true })
-    } catch {
-      return
-    }
+  async function resolveSymlink(fullPath: string): Promise<string | null> {
+    const real = await realpath(fullPath).catch(() => null)
+    if (!real) return null
+    const cmp = process.platform === 'win32' ? real.toLowerCase() : real
+    if (cmp !== rootCmp && !cmp.startsWith(rootPrefix)) return null
+    return real
+  }
 
-    for (const entry of entries) {
-      if (Date.now() - startTime > MAX_SCAN_TIME_MS) break
-      const fullEntryPath = path.join(dir, entry.name)
+  async function scanDir(currentDir: string, ancestors: ReadonlySet<string>): Promise<void> {
+    if (Date.now() - startTime > MAX_SCAN_TIME_MS) return
+    const entries = await withScanSlot(
+      () => readdir(currentDir, { withFileTypes: true })
+    ).catch(() => null)
+    if (!entries) return
+
+    await Promise.all(entries.map(async (entry) => {
+      if (Date.now() - startTime > MAX_SCAN_TIME_MS) return
+      const fullEntryPath = path.join(currentDir, entry.name)
+      if (isFiltered(toPosixRelativePath(safeRoot, fullEntryPath), entry.name, entry.isDirectory())) return
 
       try {
-        const safeEntryPath = await assertSafePath(safeRoot, path.relative(safeRoot, fullEntryPath))
-        const relPosix = toPosixRelativePath(safeRoot, safeEntryPath)
-        if (isFiltered(relPosix, entry.name, entry.isDirectory())) continue
-        const entryStat = await stat(safeEntryPath)
-        if (entry.isSymbolicLink() && isFiltered(relPosix, entry.name, entryStat.isDirectory())) continue
+        const entryPath = entry.isSymbolicLink()
+          ? await resolveSymlink(fullEntryPath)
+          : fullEntryPath
+        if (!entryPath) return
+        const relPosix = toPosixRelativePath(safeRoot, entryPath)
+        const entryStat = await withScanSlot(() => stat(entryPath))
+        const isDirectory = entryStat.isDirectory()
+        if (entry.isSymbolicLink() && isFiltered(relPosix, entry.name, isDirectory)) return
 
-        if (entryStat.isDirectory()) {
-          await scanDir(safeEntryPath)
+        if (isDirectory) {
+          const dirKey = process.platform === 'win32' ? entryPath.toLowerCase() : entryPath
+          if (entry.isSymbolicLink() && ancestors.has(dirKey)) return
+          const nextAncestors = new Set(ancestors)
+          nextAncestors.add(dirKey)
+          await scanDir(entryPath, nextAncestors)
         } else {
           const ext = path.extname(entry.name).toLowerCase()
           if (!MARKDOWN_EXTENSIONS.has(ext) || entryStat.size > MAX_SEARCH_FILE_SIZE) {
-            continue
+            return
           }
+          if (Date.now() - startTime > MAX_SCAN_TIME_MS) return
 
-          const fileContent = await fsReadFile(safeEntryPath, 'utf-8')
-          const fileTags = new Set<string>()
-
-          // 1. 提取 Frontmatter 标签
-          const fm = extractFrontmatterTags(fileContent)
-          for (const t of fm.tags) {
-            fileTags.add(t)
-          }
-
-          // 2. 提取正文行内标签
-          const inlines = extractInlineTags(fileContent)
-          for (const item of inlines) {
-            fileTags.add(item.tag)
-          }
-
-          // 汇总该文件引用的所有唯一标签频次
-          for (const tag of fileTags) {
-            tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1)
+          const fileContent = await withScanSlot(() => fsReadFile(entryPath, 'utf-8'))
+          const fileTags = extractMarkdownTagSet(fileContent)
+          if (fileTags.size > 0) {
+            fileTagsByPath.set(relPosix, fileTags)
+            for (const tag of fileTags) {
+              tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1)
+            }
           }
         }
       } catch {
-        continue
+        // 忽略无法访问或失效条目
+      }
+    }))
+  }
+
+  await scanDir(safeRoot, new Set([rootCmp]))
+  workspaceTagCache.set(normalizeWatchKey(workspaceRoot), { fileTagsByPath, tagCounts })
+  return sortWorkspaceTags(tagCounts)
+}
+
+/**
+ * 增量提取单个 Markdown 文件的标签并更新工作区标签缓存，避免自动保存触发全量扫盘
+ */
+export async function extractFileTags(
+  workspaceRoot: string,
+  relativePath: string,
+  content?: string
+): Promise<WorkspaceTagInfo[]> {
+  const wsKey = normalizeWatchKey(workspaceRoot)
+  const cache = workspaceTagCache.get(wsKey)
+  if (!cache) {
+    return getWorkspaceTags(workspaceRoot)
+  }
+
+  const normalizedRel = relativePath.split('\\').join('/').replace(/^\/+/, '')
+  let fileContent: string
+  if (typeof content === 'string') {
+    fileContent = content
+  } else {
+    const safePath = await assertSafePath(workspaceRoot, normalizedRel)
+    const info = await stat(safePath)
+    if (!info.isFile() || info.size > MAX_SEARCH_FILE_SIZE) {
+      return sortWorkspaceTags(cache.tagCounts)
+    }
+    fileContent = await fsReadFile(safePath, 'utf-8')
+  }
+
+  const nextTags = extractMarkdownTagSet(fileContent)
+  const prevTags = cache.fileTagsByPath.get(normalizedRel)
+  if (prevTags) {
+    for (const tag of prevTags) {
+      if (!nextTags.has(tag)) {
+        const nextCount = (cache.tagCounts.get(tag) || 0) - 1
+        if (nextCount > 0) cache.tagCounts.set(tag, nextCount)
+        else cache.tagCounts.delete(tag)
       }
     }
   }
+  for (const tag of nextTags) {
+    if (!prevTags || !prevTags.has(tag)) {
+      cache.tagCounts.set(tag, (cache.tagCounts.get(tag) || 0) + 1)
+    }
+  }
+  if (nextTags.size > 0) {
+    cache.fileTagsByPath.set(normalizedRel, nextTags)
+  } else {
+    cache.fileTagsByPath.delete(normalizedRel)
+  }
 
-  await scanDir(safeRoot)
-
-  const result: WorkspaceTagInfo[] = Array.from(tagCounts.entries()).map(([tag, count]) => ({
-    tag,
-    count
-  }))
-
-  result.sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag))
-  return result
+  return sortWorkspaceTags(cache.tagCounts)
 }
 
 /**
@@ -2069,69 +2190,97 @@ export async function getWorkspaceTags(workspaceRoot: string): Promise<Workspace
  * - 检索 .md, .markdown, .txt 且大小 < 2MB 的文件
  * - 逐行匹配，截取前后各 30 个字符作为上下文预览
  * - 最多返回 100 条匹配结果
- * - 超过 1500ms 主动截断让渡
+ * - 超过 1500ms 主动截断让渡；同工作区新搜索到达时取消前序扫描
  */
 export async function search(workspaceRoot: string, query: string): Promise<WorkbenchSearchResult[]> {
+  const wsKey = normalizeWatchKey(workspaceRoot)
+  const gen = (searchGenerations.get(wsKey) ?? 0) + 1
+  searchGenerations.set(wsKey, gen)
+
   const trimmed = query.trim()
   if (!trimmed) {
     return []
   }
 
   const safeRoot = await assertSafePath(workspaceRoot, '')
+  if (searchGenerations.get(wsKey) !== gen) return []
   const isFiltered = await createWorkspaceFilter(safeRoot)
+  if (searchGenerations.get(wsKey) !== gen) return []
+
+  const rootCmp = process.platform === 'win32' ? safeRoot.toLowerCase() : safeRoot
+  const rootPrefix = rootCmp.endsWith(path.sep) ? rootCmp : rootCmp + path.sep
+  const withScanSlot = createScanLimiter(16)
   const startTime = Date.now()
   const lowerQuery = trimmed.toLowerCase()
   const tagQueryInfo = parseTagSearchQuery(trimmed)
   const results: WorkbenchSearchResult[] = []
 
-  async function searchDir(dir: string): Promise<void> {
-    if (results.length >= MAX_SEARCH_RESULTS || Date.now() - startTime > MAX_SEARCH_TIME_MS) {
-      return
-    }
+  const isStopped = (): boolean =>
+    searchGenerations.get(wsKey) !== gen ||
+    results.length >= MAX_SEARCH_RESULTS ||
+    Date.now() - startTime > MAX_SEARCH_TIME_MS
 
-    let entries
-    try {
-      entries = await readdir(dir, { withFileTypes: true })
-    } catch {
-      return
-    }
+  async function resolveSymlink(fullPath: string): Promise<string | null> {
+    const real = await realpath(fullPath).catch(() => null)
+    if (!real) return null
+    const cmp = process.platform === 'win32' ? real.toLowerCase() : real
+    if (cmp !== rootCmp && !cmp.startsWith(rootPrefix)) return null
+    return real
+  }
 
-    for (const entry of entries) {
-      if (results.length >= MAX_SEARCH_RESULTS || Date.now() - startTime > MAX_SEARCH_TIME_MS) {
-        break
+  async function searchDir(currentDir: string, ancestors: ReadonlySet<string>): Promise<void> {
+    if (isStopped()) return
+
+    const entries = await withScanSlot(
+      () => readdir(currentDir, { withFileTypes: true })
+    ).catch(() => null)
+    if (!entries || isStopped()) return
+
+    await Promise.all(entries.map(async (entry) => {
+      if (isStopped()) return
+
+      const fullEntryPath = path.join(currentDir, entry.name)
+      if (isFiltered(toPosixRelativePath(safeRoot, fullEntryPath), entry.name, entry.isDirectory())) {
+        return
       }
 
-      const fullEntryPath = path.join(dir, entry.name)
-
       try {
-        const safeEntryPath = await assertSafePath(safeRoot, path.relative(safeRoot, fullEntryPath))
-        const relPosix = toPosixRelativePath(safeRoot, safeEntryPath)
-        if (isFiltered(relPosix, entry.name, entry.isDirectory())) {
-          continue
-        }
-        const entryStat = await stat(safeEntryPath)
-        if (entry.isSymbolicLink() && isFiltered(relPosix, entry.name, entryStat.isDirectory())) {
-          continue
+        const entryPath = entry.isSymbolicLink()
+          ? await resolveSymlink(fullEntryPath)
+          : fullEntryPath
+        if (!entryPath || isStopped()) return
+
+        const relPosix = toPosixRelativePath(safeRoot, entryPath)
+        const entryStat = await withScanSlot(() => stat(entryPath))
+        const isDirectory = entryStat.isDirectory()
+        if (entry.isSymbolicLink() && isFiltered(relPosix, entry.name, isDirectory)) {
+          return
         }
 
-        if (entryStat.isDirectory()) {
-          await searchDir(safeEntryPath)
+        if (isDirectory) {
+          const dirKey = process.platform === 'win32' ? entryPath.toLowerCase() : entryPath
+          if (entry.isSymbolicLink() && ancestors.has(dirKey)) return
+          const nextAncestors = new Set(ancestors)
+          nextAncestors.add(dirKey)
+          await searchDir(entryPath, nextAncestors)
         } else {
           const ext = path.extname(entry.name).toLowerCase()
           if (!SEARCHABLE_EXTENSIONS.has(ext) || entryStat.size > MAX_SEARCH_FILE_SIZE) {
-            continue
+            return
           }
+          if (isStopped()) return
 
-          const fileContent = await fsReadFile(safeEntryPath, 'utf-8')
+          const fileContent = await withScanSlot(() => fsReadFile(entryPath, 'utf-8'))
+          if (isStopped()) return
+
           const lines = fileContent.split(/\r?\n/)
-          const relPosix = toPosixRelativePath(safeRoot, safeEntryPath)
           const isMarkdown = MARKDOWN_EXTENSIONS.has(ext)
 
           // 1. 如果为标签搜索语法，优先做标签维度精准匹配（Frontmatter + 正文行内标签）
           if (tagQueryInfo.isTagQuery && isMarkdown) {
-            // Frontmatter 标签匹配
             const fm = extractFrontmatterTags(fileContent)
             for (const ft of fm.tags) {
+              if (results.length >= MAX_SEARCH_RESULTS) break
               if (matchTag(ft, tagQueryInfo.tagTerm)) {
                 const lineNum = fm.lineMap.get(ft.toLowerCase()) || 1
                 const lineContent = (lines[lineNum - 1] || `tags: ${ft}`).trim()
@@ -2142,11 +2291,9 @@ export async function search(workspaceRoot: string, query: string): Promise<Work
                   content: lineContent,
                   preview: `标签: ${ft}`
                 })
-                if (results.length >= MAX_SEARCH_RESULTS) break
               }
             }
 
-            // 正文行内标签匹配
             const inlines = extractInlineTags(fileContent)
             for (const it of inlines) {
               if (results.length >= MAX_SEARCH_RESULTS) break
@@ -2166,14 +2313,12 @@ export async function search(workspaceRoot: string, query: string): Promise<Work
                 })
               }
             }
-            continue
+            return
           }
 
           // 2. 普通文本内容全文行匹配
           for (let i = 0; i < lines.length; i++) {
-            if (results.length >= MAX_SEARCH_RESULTS || Date.now() - startTime > MAX_SEARCH_TIME_MS) {
-              break
-            }
+            if (isStopped()) break
 
             const lineText = lines[i]
             const matchIndex = lineText.toLowerCase().indexOf(lowerQuery)
@@ -2194,12 +2339,12 @@ export async function search(workspaceRoot: string, query: string): Promise<Work
           }
         }
       } catch {
-        continue
+        // 忽略无法访问或失效条目
       }
-    }
+    }))
   }
 
-  await searchDir(safeRoot)
+  await searchDir(safeRoot, new Set([rootCmp]))
   return results
 }
 

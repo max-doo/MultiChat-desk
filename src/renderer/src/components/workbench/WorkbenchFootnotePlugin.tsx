@@ -15,6 +15,7 @@ import {
   createCommand,
   type LexicalCommand,
   type LexicalNode,
+  type NodeKey,
   type PasteCommandType
 } from 'lexical'
 import { $isCodeNode } from '@lexical/code'
@@ -24,7 +25,9 @@ import {
   $createWorkbenchFootnoteDefNode,
   $createWorkbenchFootnoteRefNode,
   $isWorkbenchFootnoteDefNode,
-  $isWorkbenchFootnoteRefNode
+  $isWorkbenchFootnoteRefNode,
+  WorkbenchFootnoteDefNode,
+  WorkbenchFootnoteRefNode
 } from './WorkbenchFootnoteNode'
 import {
   FOOTNOTE_DEF_LINE_RE,
@@ -195,7 +198,36 @@ export default function WorkbenchFootnotePlugin(): JSX.Element | null {
 
     const hideTip = (): void => {
       activeRefEl.current = null
-      setTip(null)
+      setTip((prev) => (prev === null ? prev : null))
+    }
+
+    const footnoteRefKeys = new Set<NodeKey>()
+    const footnoteDefKeys = new Set<NodeKey>()
+    let syncRafId = 0
+
+    editor.getEditorState().read(() => {
+      const walk = (node: LexicalNode): void => {
+        if ($isWorkbenchFootnoteRefNode(node)) {
+          footnoteRefKeys.add(node.getKey())
+          return
+        }
+        if ($isWorkbenchFootnoteDefNode(node)) {
+          footnoteDefKeys.add(node.getKey())
+        }
+        if ($isElementNode(node)) {
+          for (const child of node.getChildren()) walk(child)
+        }
+      }
+      walk($getRoot())
+    })
+
+    const scheduleSyncStatuses = (): void => {
+      if (footnoteRefKeys.size === 0 && footnoteDefKeys.size === 0) return
+      if (syncRafId) return
+      syncRafId = requestAnimationFrame(() => {
+        syncRafId = 0
+        syncStatuses()
+      })
     }
 
     let detachDom = (): void => {}
@@ -292,16 +324,18 @@ export default function WorkbenchFootnotePlugin(): JSX.Element | null {
       root.addEventListener('pointerover', handlePointerOver)
       root.addEventListener('pointerout', handlePointerOut)
       root.addEventListener('click', handleClick)
-      window.addEventListener('scroll', hideTip, true)
+      window.addEventListener('scroll', hideTip, { capture: true, passive: true })
       window.addEventListener('blur', hideTip)
 
-      syncStatuses()
+      if (footnoteRefKeys.size > 0 || footnoteDefKeys.size > 0) {
+        syncStatuses()
+      }
 
       detachDom = () => {
         root.removeEventListener('pointerover', handlePointerOver)
         root.removeEventListener('pointerout', handlePointerOut)
         root.removeEventListener('click', handleClick)
-        window.removeEventListener('scroll', hideTip, true)
+        window.removeEventListener('scroll', hideTip, { capture: true })
         window.removeEventListener('blur', hideTip)
       }
     }
@@ -360,17 +394,37 @@ export default function WorkbenchFootnotePlugin(): JSX.Element | null {
         },
         COMMAND_PRIORITY_HIGH
       ),
+      editor.registerMutationListener(WorkbenchFootnoteRefNode, (mutations) => {
+        for (const [key, kind] of mutations) {
+          if (kind === 'destroyed') footnoteRefKeys.delete(key)
+          else footnoteRefKeys.add(key)
+        }
+        scheduleSyncStatuses()
+      }),
+      editor.registerMutationListener(WorkbenchFootnoteDefNode, (mutations) => {
+        for (const [key, kind] of mutations) {
+          if (kind === 'destroyed') footnoteDefKeys.delete(key)
+          else footnoteDefKeys.add(key)
+        }
+        scheduleSyncStatuses()
+      }),
       editor.registerRootListener((nextRoot) => {
         hideTip()
         attachDom(nextRoot)
       }),
-      editor.registerUpdateListener(() => {
+      editor.registerUpdateListener(({ dirtyElements, dirtyLeaves, tags }) => {
+        if (tags.has('annotation-sync')) return
+        if (dirtyElements.size === 0 && dirtyLeaves.size === 0) return
         hideTip()
-        requestAnimationFrame(syncStatuses)
+        scheduleSyncStatuses()
       })
     )
 
     return () => {
+      if (syncRafId) {
+        cancelAnimationFrame(syncRafId)
+        syncRafId = 0
+      }
       detachDom()
       unregister()
     }

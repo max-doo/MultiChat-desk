@@ -193,7 +193,7 @@ export default function WorkbenchPage({ isActive = true }: WorkbenchPageProps): 
           className={`flex-1 h-full overflow-hidden flex flex-col bg-white dark:bg-gray-900 border-l border-t border-r border-black/5 dark:border-white/5 ${isLeftCollapsed ? '' : 'rounded-tl-xl'} ${rightPane || isAiSidebar2Open ? 'rounded-tr-xl' : ''}`}
           style={{ minWidth: WORKBENCH_MIN_EDITOR_WIDTH }}
         >
-          <WorkbenchEditor />
+          <WorkbenchEditor isActive={isActive} />
         </div>
 
         {/* 右栏可拖拽 Splitter */}
@@ -228,15 +228,14 @@ export default function WorkbenchPage({ isActive = true }: WorkbenchPageProps): 
           <div className="h-full min-w-0" style={{ display: rightPane === 'ai' ? 'flex' : 'none', flex: 1 }}>
             <WorkbenchAiSidebar isActive={isActive} />
           </div>
-          <div
-            className="h-full min-w-0 border-l border-black/5 dark:border-white/5"
-            style={{ display: isAiSidebar2Open ? 'flex' : 'none', flex: 1 }}
-          >
-            <WorkbenchAiSidebar isActive={isActive} instanceId="secondary" />
-          </div>
+          {isAiSidebar2Open && (
+            <div className="h-full min-w-0 border-l border-black/5 dark:border-white/5 flex flex-1">
+              <WorkbenchAiSidebar isActive={isActive} instanceId="secondary" />
+            </div>
+          )}
           {mountedRightPanes.has('mindmap') && (
             <div className="h-full min-w-0 border-l border-black/5 dark:border-white/5" style={{ display: rightPane === 'mindmap' ? 'flex' : 'none', flex: 1 }}>
-              <WorkbenchMindmapPanel />
+              <WorkbenchMindmapPanel isVisible={rightPane === 'mindmap' && isActive} />
             </div>
           )}
         </div>

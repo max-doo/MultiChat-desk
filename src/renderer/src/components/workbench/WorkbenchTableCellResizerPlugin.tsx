@@ -62,11 +62,24 @@ function TableCellResizer({editor}: {editor: LexicalEditor}): JSX.Element {
   const targetRef = useRef<HTMLElement | null>(null);
   const resizerRef = useRef<HTMLDivElement | null>(null);
   const tableRectRef = useRef<DOMRect | null>(null);
+  const cellRectRef = useRef<DOMRect | null>(null);
+  const cellZoomRef = useRef<number>(1);
+  const latestPointerPosRef = useRef<PointerPosition | null>(null);
+  const pointerMoveRafRef = useRef<number>(0);
   const [hasTable, setHasTable] = useState(false);
 
   const pointerStartPosRef = useRef<PointerPosition | null>(null);
   const resizeCleanupRef = useRef<(() => void) | null>(null);
-  useEffect(() => () => resizeCleanupRef.current?.(), []);
+  useEffect(
+    () => () => {
+      resizeCleanupRef.current?.();
+      if (pointerMoveRafRef.current) {
+        cancelAnimationFrame(pointerMoveRafRef.current);
+        pointerMoveRafRef.current = 0;
+      }
+    },
+    [],
+  );
   const [pointerCurrentPos, updatePointerCurrentPos] =
     useState<PointerPosition | null>(null);
 
@@ -77,12 +90,19 @@ function TableCellResizer({editor}: {editor: LexicalEditor}): JSX.Element {
     useState<PointerDraggingDirection | null>(null);
 
   const resetState = useCallback(() => {
+    if (pointerMoveRafRef.current) {
+      cancelAnimationFrame(pointerMoveRafRef.current);
+      pointerMoveRafRef.current = 0;
+    }
+    latestPointerPosRef.current = null;
     updateActiveCell(null);
     targetRef.current = null;
     updateDraggingDirection(null);
     updateHoveredDirection(null);
     pointerStartPosRef.current = null;
     tableRectRef.current = null;
+    cellRectRef.current = null;
+    cellZoomRef.current = 1;
   }, []);
 
   useEffect(() => {
@@ -126,10 +146,18 @@ function TableCellResizer({editor}: {editor: LexicalEditor}): JSX.Element {
       if (draggingDirection) {
         event.preventDefault();
         event.stopPropagation();
-        updatePointerCurrentPos({
+        latestPointerPosRef.current = {
           x: event.clientX,
           y: event.clientY,
-        });
+        };
+        if (!pointerMoveRafRef.current) {
+          pointerMoveRafRef.current = requestAnimationFrame(() => {
+            pointerMoveRafRef.current = 0;
+            if (latestPointerPosRef.current) {
+              updatePointerCurrentPos(latestPointerPosRef.current);
+            }
+          });
+        }
         return;
       }
       if (resizerRef.current && resizerRef.current.contains(target)) {
@@ -160,6 +188,8 @@ function TableCellResizer({editor}: {editor: LexicalEditor}): JSX.Element {
 
             targetRef.current = target;
             tableRectRef.current = tableElement.getBoundingClientRect();
+            cellRectRef.current = cell.elem.getBoundingClientRect();
+            cellZoomRef.current = calculateZoomLevel(cell.elem);
             updateActiveCell(cell);
           });
         } else if (cell == null) {
@@ -340,13 +370,22 @@ function TableCellResizer({editor}: {editor: LexicalEditor}): JSX.Element {
           if (activeCell === null) {
             return;
           }
+          // 取消挂起 rAF 前先同步冲刷末帧指针坐标，确保落点与最终释放位置一致
+          const finalPos = {x: event.clientX, y: event.clientY};
+          latestPointerPosRef.current = finalPos;
+          if (pointerMoveRafRef.current) {
+            cancelAnimationFrame(pointerMoveRafRef.current);
+            pointerMoveRafRef.current = 0;
+          }
+          updatePointerCurrentPos(finalPos);
+
           const zoom = calculateZoomLevel(event.target as Element);
 
           if (isHeightChanging(direction)) {
-            const heightChange = (event.clientY - y) / zoom;
+            const heightChange = (finalPos.y - y) / zoom;
             updateRowHeight(heightChange);
           } else {
-            const widthChange = (event.clientX - x) / zoom;
+            const widthChange = (finalPos.x - x) / zoom;
             updateColumnWidth(widthChange);
           }
 
@@ -390,10 +429,10 @@ function TableCellResizer({editor}: {editor: LexicalEditor}): JSX.Element {
   );
 
   const getResizers = useCallback(() => {
-    if (activeCell) {
-      const {height, width, top, left} =
-        activeCell.elem.getBoundingClientRect();
-      const zoom = calculateZoomLevel(activeCell.elem);
+    const cellRect = cellRectRef.current;
+    if (activeCell && cellRect) {
+      const {height, width, top, left} = cellRect;
+      const zoom = cellZoomRef.current;
       const zoneWidth = 16; // Pixel width of the zone where you can drag the edge
       const styles: Record<string, CSSProperties> = {
         bottom: {

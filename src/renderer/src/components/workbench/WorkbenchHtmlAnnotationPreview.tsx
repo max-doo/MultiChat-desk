@@ -431,10 +431,11 @@ export default function WorkbenchHtmlAnnotationPreview({
       if (data.type === 'resolved' && Array.isArray(data.unlocated)) {
         setUnlocatedIds(data.unlocated)
         const unlocated = data.unlocated as string[]
-        const fingerprint = buildResolutionFingerprint(allAnnotations, unlocated)
+        const currentAnnotations = annotationsRef.current
+        const fingerprint = buildResolutionFingerprint(currentAnnotations, unlocated)
         if (fingerprint === resolutionFingerprintRef.current) return
         if (!workspacePath || !filePath) return
-        const resolutions = allAnnotations.map((item) => ({
+        const resolutions = currentAnnotations.map((item) => ({
           id: item.id,
           state: unlocated.includes(item.id) ? 'unlocated' as const : 'anchored' as const,
           baseAnchorRevision: item.anchorRevision ?? 1
@@ -466,7 +467,6 @@ export default function WorkbenchHtmlAnnotationPreview({
     window.addEventListener('message', handleMessage)
     return () => window.removeEventListener('message', handleMessage)
   }, [
-    allAnnotations,
     clearCaptureTimer,
     clearRelocateTimer,
     closeCard,
@@ -696,22 +696,26 @@ export default function WorkbenchHtmlAnnotationPreview({
     if (!workspacePath || !filePath || busyRef.current) return
     setBusy(true)
     setError(null)
+    const deletedIds = new Set<string>()
     const failedIds: string[] = []
     try {
       for (const id of ids) {
         const result = await window.api.annotations.deleteDocument(workspacePath, filePath, id)
         if (result.success) {
-          setAnnotations((previous) => previous.filter((item) => item.id !== id))
-          setUnlocatedIds((previous) => previous.filter((item) => item !== id))
-          setCleanupIds((previous) => previous.filter((item) => item !== id))
+          deletedIds.add(id)
         } else {
           failedIds.push(id)
         }
+      }
+      if (deletedIds.size > 0) {
+        setAnnotations((previous) => previous.filter((item) => !deletedIds.has(item.id)))
+        setUnlocatedIds((previous) => previous.filter((item) => !deletedIds.has(item)))
       }
       if (failedIds.length) {
         setCleanupIds(failedIds)
         setError(`${failedIds.length} 条标注删除失败`)
       } else {
+        setCleanupIds([])
         setShowCleanup(false)
         showHint('未定位标注已清理')
       }

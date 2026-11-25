@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext'
 import { createPortal } from 'react-dom'
 import { $getRoot, type NodeKey } from 'lexical'
 import { useWorkbenchStore } from '../../store/workbenchStore'
-import { computeGitLineDiff } from '../../utils/gitDiff'
+import { useGitLineDiff } from '../../hooks/useGitLineDiff'
 import {
   extractMarkdownEnvelope,
   scanMarkdownSourceBlocks,
@@ -24,8 +24,6 @@ interface OverlayBar {
   key: NodeKey
   kind: 'added' | 'modified' | 'deleted'
 }
-
-const SYNC_DEBOUNCE_MS = 250
 
 /**
  * 同步层遇到 1:N 块会整段放弃映射，以保证回写只透传一次原文；
@@ -88,147 +86,137 @@ export default function WorkbenchGitGutterPlugin({ stageRef }: Props): JSX.Eleme
   const gitBaselineStatus = useWorkbenchStore(s => s.gitBaselineStatus)
   const gitBaselinePath = useWorkbenchStore(s => s.gitBaselinePath)
 
+  const baselineBody = useMemo(
+    () =>
+      gitBaselineStatus === 'ok' &&
+      typeof gitBaselineContent === 'string' &&
+      gitBaselinePath === activeFilePath
+        ? extractMarkdownEnvelope(gitBaselineContent).body
+        : null,
+    [gitBaselineStatus, gitBaselineContent, gitBaselinePath, activeFilePath]
+  )
+  const currentBody = useMemo(
+    () => extractMarkdownEnvelope(activeFileContent).body,
+    [activeFileContent]
+  )
+  const currentBodyRef = useRef(currentBody)
+  currentBodyRef.current = currentBody
+
+  // 复用 useGitLineDiff：超过 4,000 行自动派发至 Web Worker，避免主线程 Myers 阻塞
+  const diff = useGitLineDiff(currentBody, { baselineOverride: baselineBody })
+
   const [bars, setBars] = useState<OverlayBar[]>([])
   const [positions, setPositions] = useState<Map<string, { top: number; height: number; left: number; kind: OverlayBar['kind'] }>>(new Map())
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const seqRef = useRef(0)
 
-  // 响应式重算：baseline 就绪/变化、activeFileContent 回写（含 250ms 防抖节拍）
   useEffect(() => {
-    const seq = ++seqRef.current
-    if (debounceRef.current) {
-      clearTimeout(debounceRef.current)
-      debounceRef.current = null
+    if (!diff.active || !activeFilePath) {
+      setBars([])
+      return
     }
 
-    const compute = (): void => {
-      if (
-        gitBaselineStatus !== 'ok' ||
-        gitBaselineContent === null ||
-        gitBaselinePath !== activeFilePath ||
-        !activeFilePath
-      ) {
-        setBars([])
-        return
+    const scanned = scanMarkdownSourceBlocks(currentBodyRef.current)
+    const nextBars: OverlayBar[] = []
+
+    editor.getEditorState().read(() => {
+      const topNodes = $getRoot()
+        .getChildren()
+        .filter((n) => !$isPendingInsertNode(n))
+
+      // 将 diff 行号区间标记到源码块（与导入顺序一致）
+      interface MarkedBlock {
+        kind: 'added' | 'modified' | 'deleted'
       }
-
-      const baselineBody = extractMarkdownEnvelope(gitBaselineContent).body
-      const currentBody = extractMarkdownEnvelope(activeFileContent).body
-      const diff = computeGitLineDiff(baselineBody, currentBody)
-      if (diff.truncated) {
-        setBars([])
-        return
-      }
-
-      const scanned = scanMarkdownSourceBlocks(currentBody)
-      const nextBars: OverlayBar[] = []
-
-      editor.getEditorState().read(() => {
-        const topNodes = $getRoot()
-          .getChildren()
-          .filter((n) => !$isPendingInsertNode(n))
-
-        // 将 diff 行号区间标记到源码块（与导入顺序一致）
-        interface MarkedBlock {
-          kind: 'added' | 'modified' | 'deleted'
+      const blockMarks = new Map<number, MarkedBlock>()
+      scanned.blocks.forEach((block, idx) => {
+        if (block.startLine === undefined || block.endLine === undefined) return
+        let hasAdded = false
+        let hasModified = false
+        for (let i = block.startLine; i <= block.endLine && i < diff.lineMarks.length; i++) {
+          if (diff.lineMarks[i] === 'modified') hasModified = true
+          else if (diff.lineMarks[i] === 'added') hasAdded = true
         }
-        const blockMarks = new Map<number, MarkedBlock>()
-        scanned.blocks.forEach((block, idx) => {
-          if (block.startLine === undefined || block.endLine === undefined) return
-          let hasAdded = false
-          let hasModified = false
-          for (let i = block.startLine; i <= block.endLine && i < diff.lineMarks.length; i++) {
-            if (diff.lineMarks[i] === 'modified') hasModified = true
-            else if (diff.lineMarks[i] === 'added') hasAdded = true
-          }
-          if (hasModified) blockMarks.set(idx, { kind: 'modified' })
-          else if (hasAdded) blockMarks.set(idx, { kind: 'added' })
-        })
-        // 纯删除：锚到其后仍存在（起始行 ≥ 删除行号）的第一个块；
-        // 若该块本身已有 added/modified 标记，则额外登记一条 deleted 供 overlay 叠加三角
-        const extraDeletedBlockIdx: number[] = []
-        for (const [lineNo] of diff.deletedAfter) {
-          let bestIdx = -1
-          let bestStart = Infinity
-          scanned.blocks.forEach((block, idx) => {
-            if (block.startLine === undefined) return
-            if (block.startLine >= lineNo && block.startLine < bestStart) {
-              bestIdx = idx
-              bestStart = block.startLine
-            }
-          })
-          if (bestIdx >= 0) {
-            const prev = blockMarks.get(bestIdx)
-            blockMarks.set(bestIdx, { kind: prev ? prev.kind : 'deleted' })
-            if (prev) extraDeletedBlockIdx.push(bestIdx)
-          }
-        }
-
-        // blocks → 顶层 Lexical 节点对齐：先 fast-path 1:1，失配走锚点 LIS
-        const nodeInfos = topNodes.map((n) => ({
-          key: n.getKey(),
-          kind: getLexicalBlockKind(n),
-          hint: getLexicalNodeHint(n)
-        }))
-        const blocks = scanned.blocks
-
-        const nodeKeyToBlockIdx = new Map<NodeKey, number>()
-        const exactFastPath =
-          nodeInfos.length === blocks.length &&
-          nodeInfos.every((info, i) => {
-            const blockKind = blocks[i].kind
-            return info.kind === blockKind || (info.kind === 'paragraph' && blockKind === 'image')
-          })
-
-        if (exactFastPath) {
-          for (let i = 0; i < nodeInfos.length; i++) {
-            nodeKeyToBlockIdx.set(nodeInfos[i].key, i)
-          }
-        } else if (blocks.length > 0 && nodeInfos.length > 0) {
-          const segments = alignWithPatienceAnchors(nodeInfos, blocks)
-          for (const seg of segments) {
-            if (!seg.matched) {
-              mapApproximateSegment(nodeInfos, blocks, seg, nodeKeyToBlockIdx)
-              continue
-            }
-            if (seg.cEnd - seg.cStart === 1 && seg.bEnd - seg.bStart === 1) {
-              nodeKeyToBlockIdx.set(nodeInfos[seg.cStart].key, seg.bStart)
-            } else {
-              // 复合段：首个节点锚到组首块，其余节点共享该组
-              for (let c = seg.cStart; c < seg.cEnd; c++) {
-                nodeKeyToBlockIdx.set(nodeInfos[c].key, seg.bStart)
-              }
-            }
-          }
-        }
-
-        for (const [nodeKey, blockIdx] of nodeKeyToBlockIdx) {
-          const mark = blockMarks.get(blockIdx)
-          if (mark) nextBars.push({ key: nodeKey, kind: mark.kind })
-          if (extraDeletedBlockIdx.includes(blockIdx)) {
-            nextBars.push({ key: nodeKey, kind: 'deleted' })
-          }
-        }
+        if (hasModified) blockMarks.set(idx, { kind: 'modified' })
+        else if (hasAdded) blockMarks.set(idx, { kind: 'added' })
       })
 
-      if (seq === seqRef.current) setBars(nextBars)
-    }
-
-    debounceRef.current = setTimeout(compute, SYNC_DEBOUNCE_MS)
-    return () => {
-      if (debounceRef.current) {
-        clearTimeout(debounceRef.current)
-        debounceRef.current = null
+      // 纯删除：scanned.blocks 按 startLine 升序，二分查找首个 startLine >= lineNo 的块 O(D_del log B)
+      const findFirstBlockAtOrAfter = (lineNo: number): number => {
+        let lo = 0
+        let hi = scanned.blocks.length
+        while (lo < hi) {
+          const mid = (lo + hi) >> 1
+          const startLine = scanned.blocks[mid].startLine
+          if (startLine !== undefined && startLine < lineNo) {
+            lo = mid + 1
+          } else {
+            hi = mid
+          }
+        }
+        while (lo < scanned.blocks.length && scanned.blocks[lo].startLine === undefined) {
+          lo++
+        }
+        return lo < scanned.blocks.length ? lo : -1
       }
-    }
-  }, [
-    editor,
-    activeFilePath,
-    activeFileContent,
-    gitBaselineContent,
-    gitBaselineStatus,
-    gitBaselinePath
-  ])
+
+      const extraDeletedBlockSet = new Set<number>()
+      for (const [lineNo] of diff.deletedAfter) {
+        const bestIdx = findFirstBlockAtOrAfter(lineNo)
+        if (bestIdx >= 0) {
+          const prev = blockMarks.get(bestIdx)
+          blockMarks.set(bestIdx, { kind: prev ? prev.kind : 'deleted' })
+          if (prev) extraDeletedBlockSet.add(bestIdx)
+        }
+      }
+
+      // blocks → 顶层 Lexical 节点对齐：先 fast-path 1:1，失配走锚点 LIS
+      const nodeInfos = topNodes.map((n) => ({
+        key: n.getKey(),
+        kind: getLexicalBlockKind(n),
+        hint: getLexicalNodeHint(n)
+      }))
+      const blocks = scanned.blocks
+
+      const nodeKeyToBlockIdx = new Map<NodeKey, number>()
+      const exactFastPath =
+        nodeInfos.length === blocks.length &&
+        nodeInfos.every((info, i) => {
+          const blockKind = blocks[i].kind
+          return info.kind === blockKind || (info.kind === 'paragraph' && blockKind === 'image')
+        })
+
+      if (exactFastPath) {
+        for (let i = 0; i < nodeInfos.length; i++) {
+          nodeKeyToBlockIdx.set(nodeInfos[i].key, i)
+        }
+      } else if (blocks.length > 0 && nodeInfos.length > 0) {
+        const segments = alignWithPatienceAnchors(nodeInfos, blocks)
+        for (const seg of segments) {
+          if (!seg.matched) {
+            mapApproximateSegment(nodeInfos, blocks, seg, nodeKeyToBlockIdx)
+            continue
+          }
+          if (seg.cEnd - seg.cStart === 1 && seg.bEnd - seg.bStart === 1) {
+            nodeKeyToBlockIdx.set(nodeInfos[seg.cStart].key, seg.bStart)
+          } else {
+            // 复合段：首个节点锚到组首块，其余节点共享该组
+            for (let c = seg.cStart; c < seg.cEnd; c++) {
+              nodeKeyToBlockIdx.set(nodeInfos[c].key, seg.bStart)
+            }
+          }
+        }
+      }
+
+      for (const [nodeKey, blockIdx] of nodeKeyToBlockIdx) {
+        const mark = blockMarks.get(blockIdx)
+        if (mark) nextBars.push({ key: nodeKey, kind: mark.kind })
+        if (extraDeletedBlockSet.has(blockIdx)) {
+          nextBars.push({ key: nodeKey, kind: 'deleted' })
+        }
+      }
+    })
+
+    setBars(nextBars)
+  }, [editor, activeFilePath, diff])
 
   // 文件切换时立即清空，避免上一文档的标记闪现
   useEffect(() => {

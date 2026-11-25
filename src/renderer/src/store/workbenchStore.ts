@@ -199,6 +199,8 @@ interface WorkbenchStoreState {
   htmlVisualEditing: boolean
   /** 富文本 Markdown 防抖同步注册的冲刷回调：切模式/保存/切文件前同步落入 activeFileContent */
   markdownSyncFlusher: (() => void) | null
+  /** 源码模式防抖同步注册的冲刷回调：切模式/保存/切文件/Git 操作前同步落入 activeFileContent */
+  sourceSyncFlusher: (() => void) | null
 
   // 搜索相关
   searchQuery: string
@@ -268,7 +270,7 @@ interface WorkbenchStoreActions {
   setWorkspaceFolder: (dirPath: string, dirName?: string) => Promise<'switched' | 'cancelled' | 'failed'>
   closeWorkspace: () => Promise<void>
   removeRecentWorkspace: (dirPath: string) => void
-  loadFileTree: () => Promise<void>
+  loadFileTree: (options?: { skipGitStatus?: boolean }) => Promise<void>
   toggleFolder: (folderId: string) => void
   expandAllFolders: () => void
   collapseAllFolders: () => void
@@ -286,6 +288,10 @@ interface WorkbenchStoreActions {
   setMarkdownSyncFlusher: (flusher: (() => void) | null) => void
   flushMarkdownSync: () => void
   markMarkdownPendingSync: () => void
+  setSourceSyncFlusher: (flusher: (() => void) | null) => void
+  flushSourceSync: () => void
+  markSourcePendingSync: () => void
+  flushActiveEditorSync: () => void
   resolveExternalConflict: (choice: 'keep-mine' | 'take-disk') => Promise<boolean>
   updateActiveContent: (content: string) => void
   setHtmlEditFlusher: (flusher: (() => Promise<string>) | null) => void
@@ -379,8 +385,18 @@ let gitStatusSeq = 0
 /** 同一时刻只保留一个在途的状态请求：连续触发时合并为最后一次，避免 Git 命令排队拖住刷新图标 */
 let gitStatusInFlight = false
 let gitStatusPending = false
-/** 当前活动文件 Git 基准的请求序号，切文件/工作区切换后过期结果丢弃 */
+/** 焦点防抖与仓库状态指纹：避免未切回工作台或短时间内反复 alt-tab 重复触发 git status */
+let lastGitRefreshAt = 0
+let lastGitRepoStamp: string | null = null
+/** 当前活动文件 Git 基准的请求序号与在途合批状态 */
 let gitBaselineSeq = 0
+let gitBaselinePromise: Promise<void> | null = null
+let gitBaselinePending = false
+/** 外部文件系统变更 in-flight 与 pending 合批锁 */
+let externalFsInFlight = false
+let externalFsPendingWorkspace: string | null = null
+/** 最近一次 loadFileTree 对账产生的改名映射（供 gitPull/merge 等同步更新活动文件） */
+let lastLoadTreeRelinks: Array<{ from: string; to: string }> = []
 /** 保存后节流刷新文件树 Git 徽标的定时器 */
 let gitStatusRefreshTimer: ReturnType<typeof setTimeout> | null = null
 /**
@@ -612,6 +628,145 @@ function reconcileMindmaps(
     .catch(() => null)
 }
 
+/**
+ * 文件树刷新后，按磁盘最新状态对齐当前打开的文档（处理外部改名、删除与磁盘修改）。
+ */
+async function reconcileActiveFileWithTree(
+  workspacePath: string,
+  previousTree: WorkbenchFileNode[],
+  nextTree: WorkbenchFileNode[],
+  relinks: Array<{ from: string; to: string }>,
+  options?: { skipBaselineRefresh?: boolean }
+): Promise<void> {
+  const store = useWorkbenchStore.getState()
+  if (store.workspacePath !== workspacePath) return
+  store.flushActiveEditorSync()
+  const { activeFilePath, isDirty, lastSavedAt } = useWorkbenchStore.getState()
+  const renamedTo = activeFilePath
+    ? relinks.find(link => link.from === activeFilePath)?.to ??
+      (findNode(nextTree, activeFilePath) ? null : findRenamedNode(previousTree, nextTree, activeFilePath))
+    : null
+  const currentPath = renamedTo ?? activeFilePath
+  if (!currentPath) return
+
+  const allPaths = collectTreePaths(nextTree, new Set<string>())
+
+  // 文件被外部删除/移走（或被重命名成别的路径）：清空编辑器
+  if (!allPaths.has(currentPath)) {
+    useWorkbenchStore.setState({
+      activeFilePath: null,
+      activeFileContent: '',
+      activeFileCategory: null,
+      activeFileDataUrl: null,
+      activeFileUrl: null,
+      activeFileMime: null,
+      activeFileSize: null,
+      activeFileOversized: false,
+      isDirty: false,
+      saveStatus: 'saved',
+      lastSavedAt: null,
+      conflictDiskContent: null
+    })
+    useWorkbenchStore.setState({
+      gitBaselinePath: null,
+      gitBaselineStatus: 'idle',
+      gitBaselineSha: null,
+      gitBaselineContent: null
+    })
+    void window.api.storeDelete('workbench_lastActiveFilePath')
+    return
+  }
+
+  // 文件还在：对比 mtime 决定是否重载内容；外部重命名（mtime 不变）也要刷新 activeFileUrl 与分类
+  const node = findNode(nextTree, currentPath)
+  if (!node || node.isDirectory) return
+
+  const mtimeChanged =
+    typeof node.mtime === 'number' &&
+    (lastSavedAt === null || Math.abs(node.mtime - lastSavedAt) > 1)
+  const diskNewer = typeof node.mtime === 'number' && lastSavedAt !== null && node.mtime - lastSavedAt > 2
+  const nextCategory = getFileCategory(currentPath)
+  const reloadable =
+    nextCategory === 'markdown' ||
+    nextCategory === 'text' ||
+    nextCategory === 'code'
+
+  if (!renamedTo && (!mtimeChanged || !reloadable)) return
+
+  let fileRes: { success: boolean; data?: WorkbenchFileInfo } | null = null
+  try {
+    fileRes = await window.api.workbench.readFile(workspacePath, currentPath)
+  } catch {
+    fileRes = null
+  }
+  if (useWorkbenchStore.getState().workspacePath !== workspacePath) return
+
+  if (renamedTo) {
+    void window.api.storeSet('workbench_lastActiveFilePath', renamedTo)
+    if (!options?.skipBaselineRefresh) {
+      void useWorkbenchStore.getState().refreshGitBaseline()
+    }
+  }
+
+  if (isDirty) {
+    if (diskNewer) {
+      useWorkbenchStore.setState({
+        ...(renamedTo && fileRes?.success && fileRes.data
+          ? {
+              activeFilePath: currentPath,
+              activeFileCategory: fileRes.data.category || nextCategory,
+              activeFileDataUrl: fileRes.data.dataUrl || null,
+              activeFileUrl: fileRes.data.fileUrl || null,
+              activeFileMime: fileRes.data.mimeType || null,
+              activeFileSize: fileRes.data.size,
+              activeFileOversized: !!fileRes.data.isOversized
+            }
+          : renamedTo
+            ? {
+                activeFilePath: currentPath,
+                activeFileCategory: nextCategory,
+                activeFileUrl: null,
+                activeFileDataUrl: null
+              }
+            : {}),
+        saveStatus: 'conflict',
+        conflictDiskContent: fileRes?.success && fileRes.data ? fileRes.data.content : ''
+      })
+    } else if (renamedTo) {
+      useWorkbenchStore.setState(
+        fileRes?.success && fileRes.data
+          ? {
+              activeFilePath: currentPath,
+              activeFileCategory: fileRes.data.category || nextCategory,
+              activeFileDataUrl: fileRes.data.dataUrl || null,
+              activeFileUrl: fileRes.data.fileUrl || null,
+              activeFileMime: fileRes.data.mimeType || null,
+              activeFileSize: fileRes.data.size,
+              activeFileOversized: !!fileRes.data.isOversized
+            }
+          : {
+              activeFilePath: currentPath,
+              activeFileCategory: nextCategory,
+              activeFileUrl: null,
+              activeFileDataUrl: null
+            }
+      )
+    }
+    return
+  }
+
+  if (fileRes?.success && fileRes.data) {
+    useWorkbenchStore.setState(buildActiveFilePayload(currentPath, fileRes.data))
+  } else if (renamedTo) {
+    useWorkbenchStore.setState({
+      activeFilePath: currentPath,
+      activeFileCategory: nextCategory,
+      activeFileUrl: null,
+      activeFileDataUrl: null
+    })
+  }
+}
+
 export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   // 初始状态
   workspacePath: null,
@@ -641,6 +796,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   htmlEditLeaveGuard: null,
   htmlVisualEditing: false,
   markdownSyncFlusher: null,
+  sourceSyncFlusher: null,
 
   searchQuery: '',
   isSearching: false,
@@ -689,12 +845,32 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         window.api.workbench.onFsChanged((payload) => {
           void get().handleExternalFsChanged(payload.workspaceRoot)
         })
-        // 用户可能在终端或其他编辑器里改动过仓库：回到窗口时同步一次版本状态
+        // 用户可能在终端或其他编辑器里改动过仓库：仅在处于工作台且冷却期已过或 .git/HEAD/.git/index 变化时同步
         window.addEventListener('focus', () => {
-          if (get().workspacePath) {
+          const { workspacePath } = get()
+          if (!workspacePath) return
+          if (useAppStore.getState().productMode !== 'workbench') return
+          if (Date.now() - lastGitRefreshAt >= 2500) {
             void get().refreshGitStatus()
             void get().refreshGitBaseline()
+            return
           }
+          void window.api.workbench.gitRepoStamp(workspacePath)
+            .then((res) => {
+              if (!res.success || !res.data) return
+              if (lastGitRepoStamp === null) {
+                lastGitRepoStamp = res.data
+                return
+              }
+              if (res.data !== lastGitRepoStamp) {
+                lastGitRepoStamp = res.data
+                if (get().workspacePath === workspacePath && useAppStore.getState().productMode === 'workbench') {
+                  void get().refreshGitStatus()
+                  void get().refreshGitBaseline()
+                }
+              }
+            })
+            .catch(() => undefined)
         })
       }
       const [
@@ -944,6 +1120,10 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       clearTimeout(gitNoticeTimer)
       gitNoticeTimer = null
     }
+    lastGitRefreshAt = 0
+    lastGitRepoStamp = null
+    gitBaselinePending = false
+    externalFsPendingWorkspace = null
     set({
       gitStatus: null,
       gitNotice: null,
@@ -955,7 +1135,6 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     // 旧版本导图记录在全局笔记目录，先迁到 .multichat/mindmaps 文件。
     void window.api.workbench.mindmapMigrate(activePath).catch(() => undefined)
     await get().loadFileTree()
-    void get().refreshGitStatus()
     return 'switched'
   },
 
@@ -969,7 +1148,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       const decision = await leaveGuard()
       if (decision === 'cancelled') return
     }
-    get().flushMarkdownSync()
+    get().flushActiveEditorSync()
     const annotationFlush = await get().flushDocumentAnnotations()
     if (!annotationFlush.saved) {
       set({ error: annotationFlush.error || '标注同步未完成，无法关闭工作区' })
@@ -1028,9 +1207,12 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       gitBaselineSha: null,
       gitBaselineContent: null
     })
+    lastGitRefreshAt = 0
+    lastGitRepoStamp = null
+    gitBaselinePending = false
+    externalFsPendingWorkspace = null
     void window.api.storeDelete('workbench_lastActiveFilePath')
     await get().loadFileTree()
-    void get().refreshGitStatus()
   },
 
   removeRecentWorkspace: (dirPath: string) => {
@@ -1041,7 +1223,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     void window.api.storeSet('workbench_recentWorkspaces', nextRecent)
   },
 
-  loadFileTree: async () => {
+  loadFileTree: async (options) => {
     const { workspacePath } = get()
     if (!workspacePath) return
     set({ isLoadingTree: true, error: null })
@@ -1052,16 +1234,21 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         void get().loadWorkspaceTags()
         // 应用关闭期间的外部删除/改名，在重新载入工作区时补齐。
         // 等对账返回再结束载入，恢复上次打开的文档才能拿到改名映射。
-        await reconcileMindmaps(workspacePath, res.data)
+        const reconciled = await reconcileMindmaps(workspacePath, res.data)
+        lastLoadTreeRelinks = reconciled?.relinks ?? []
         // 文件树变化后同步版本管理状态：外部改动、拉取、移动都会反映到这里
-        void get().refreshGitStatus()
+        if (!options?.skipGitStatus) {
+          void get().refreshGitStatus()
+        }
       } else {
+        lastLoadTreeRelinks = []
         set({
           isLoadingTree: false,
           error: res.error || '读取文件目录失败'
         })
       }
     } catch (err) {
+      lastLoadTreeRelinks = []
       const msg = err instanceof Error ? err.message : String(err)
       set({ isLoadingTree: false, error: msg })
     }
@@ -1126,7 +1313,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       if (decision === 'cancelled') return false
     }
 
-    get().flushMarkdownSync()
+    get().flushActiveEditorSync()
     const annotationFlush = await get().flushDocumentAnnotations()
     if (!annotationFlush.saved) {
       set({ error: annotationFlush.error || '标注同步未完成，无法安全切换文件' })
@@ -1234,7 +1421,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
 
   saveActiveFile: async () => {
     // 富文本模式可能存在 250ms 防抖同步窗口，保存前先同步冲刷为最新 activeFileContent
-    get().flushMarkdownSync()
+    get().flushActiveEditorSync()
 
     // 可视化编辑只在保存时序列化 iframe DOM：平时不写盘，也不与源码自动保存抢状态。
     const flushHtmlEdit = get().htmlEditFlusher
@@ -1315,7 +1502,13 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
           activeFileSize: res.data.size
         })
         if (activeFileCategory === 'markdown') {
-          void get().loadWorkspaceTags()
+          void window.api.workbench.extractFileTags(workspacePath, activeFilePath, content)
+            .then((tagRes) => {
+              if (tagRes.success && tagRes.data && get().workspacePath === workspacePath) {
+                set({ workspaceTags: tagRes.data })
+              }
+            })
+            .catch(() => undefined)
         }
         // 保存后文件树 M 徽标与编辑器标记需与磁盘一致；去抖合并连续保存
         if (gitStatusRefreshTimer) clearTimeout(gitStatusRefreshTimer)
@@ -1368,6 +1561,25 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
 
   markMarkdownPendingSync: () => {
     if (!get().isDirty) set({ isDirty: true })
+  },
+
+  setSourceSyncFlusher: (flusher) => set({ sourceSyncFlusher: flusher }),
+
+  flushSourceSync: () => {
+    const flusher = get().sourceSyncFlusher
+    if (!flusher) return
+    try {
+      flusher()
+    } catch { /* noop */ }
+  },
+
+  markSourcePendingSync: () => {
+    if (!get().isDirty) set({ isDirty: true })
+  },
+
+  flushActiveEditorSync: () => {
+    get().flushMarkdownSync()
+    get().flushSourceSync()
   },
 
   updateActiveContent: (content: string) => {
@@ -1461,7 +1673,6 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       const res = await window.api.workbench.createNode(workspacePath, relPath, 'file')
       if (res.success) {
         await get().loadFileTree()
-        void get().refreshGitStatus()
         await get().openFile(relPath)
         return relPath
       } else {
@@ -1492,7 +1703,6 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         next.add(relPath)
         set({ expandedFolderIds: next })
         await get().loadFileTree()
-        void get().refreshGitStatus()
         return true
       } else {
         set({ error: res.error || '创建文件夹失败' })
@@ -1526,7 +1736,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         if (decision === 'cancelled') return false
       }
 
-      get().flushMarkdownSync()
+      get().flushActiveEditorSync()
       const annotationFlush = await get().flushDocumentAnnotations()
       if (!annotationFlush.saved) {
         set({ error: annotationFlush.error || '标注同步未完成，无法安全重命名' })
@@ -1727,7 +1937,6 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       const res = await window.api.workbench.deleteNode(workspacePath, relativePath)
       if (res.success) {
         await get().loadFileTree()
-        void get().refreshGitStatus()
         // 当前文件被删时自动切换到排序上的相邻文件；无任何文件则停在空状态
         if (nextFilePath) {
           const opened = await get().openFile(nextFilePath)
@@ -1775,7 +1984,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     if (!md) return fail('回复内容为空')
 
     // 先落盘清 dirty，避免防抖回写覆盖本次插入
-    get().flushMarkdownSync()
+    get().flushActiveEditorSync()
     if (get().isDirty) {
       const saved = await get().saveActiveFile()
       if (!saved.saved) return fail('当前文件保存未完成')
@@ -1886,7 +2095,6 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     // createFile 已 openFile，同步最新内容与保存态
     set({ activeFileContent: content, isDirty: false, saveStatus: 'saved' })
     await get().loadFileTree()
-    void get().refreshGitStatus()
     return { success: true }
   },
 
@@ -2027,7 +2235,6 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       }
 
       await get().loadFileTree()
-      void get().refreshGitStatus()
       if (nextFilePath && !get().activeFilePath) {
         const opened = await get().openFile(nextFilePath)
         if (!opened) void window.api.storeDelete('workbench_lastActiveFilePath')
@@ -2052,7 +2259,6 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       const res = await window.api.workbench.importExternalPaths(workspacePath, targetDirRelative, sourceAbsolutePaths)
       if (res.success && res.data) {
         await get().loadFileTree()
-        void get().refreshGitStatus()
         if (res.data.failed.length > 0) {
           const first = res.data.failed[0]
           set({ error: `${res.data.failed.length} 项导入失败（${first.path}: ${first.error}）` })
@@ -2073,15 +2279,18 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
    * 当前文档在移动范围内时先落盘，移动成功后清理编辑状态，避免脏内容丢失。
    */
   moveToWorkspace: async (targetWorkspaceRoot: string, relativePaths: string[]) => {
-    const { workspacePath, activeFilePath, isDirty } = get()
+    const { workspacePath, activeFilePath } = get()
     if (!workspacePath || !targetWorkspaceRoot || !relativePaths.length) return null
     const hitsActive = !!activeFilePath && relativePaths.some(p =>
       activeFilePath === p || activeFilePath.startsWith(`${p}/`))
-    if (hitsActive && isDirty) {
-      const saved = await get().saveActiveFile()
-      if (!saved.saved) {
-        set({ error: '当前文件保存未完成，无法移动到其他工作区' })
-        return null
+    if (hitsActive) {
+      get().flushActiveEditorSync()
+      if (get().isDirty) {
+        const saved = await get().saveActiveFile()
+        if (!saved.saved) {
+          set({ error: '当前文件保存未完成，无法移动到其他工作区' })
+          return null
+        }
       }
     }
     try {
@@ -2114,7 +2323,6 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         void window.api.storeDelete('workbench_lastActiveFilePath')
       }
       await get().loadFileTree()
-      void get().refreshGitStatus()
       if (res.data.failed.length) {
         const first = res.data.failed[0]
         set({ error: `${res.data.failed.length} 项移动失败（${first.path}: ${first.error}）` })
@@ -2139,148 +2347,42 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
    *    （用户编辑中不覆盖，等切换/手动刷新时读盘）
    */
   handleExternalFsChanged: async (workspaceRoot: string) => {
-    const { workspacePath } = get()
-    if (!workspacePath) return
-
-    // 路径规范化对齐（Windows 大小写不敏感）：不一致说明是过期 watcher 的事件，忽略
     const normalize = (p: string): string => p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
-    if (normalize(workspaceRoot) !== normalize(workspacePath)) return
+    const currentWorkspace = get().workspacePath
+    if (!currentWorkspace || normalize(workspaceRoot) !== normalize(currentWorkspace)) return
 
-    const res = await window.api.workbench.readTree(workspacePath)
-    if (!res.success || !res.data) return
-    // 外部改动（终端、其他编辑器）同样会改变 Git 状态
-    void get().refreshGitStatus()
-    const nextTree = res.data
-    const previousTree = get().fileTree
-    set({ fileTree: nextTree })
-
-    // 外部 Git 操作（add/commit/checkout/reset）会改变 Index 基准：
-    // 若返回相同 blobSha 前端可跳过重算，但这里统一重拉让 seq 判定更简单安全。
-    void get().refreshGitBaseline()
-
-    const { activeFilePath, isDirty, lastSavedAt } = get()
-    // 对账复用刚扫出的文件树：正常路径下主进程不再遍历磁盘。
-    // 外部改名要等对账结果，编辑器才能跟到新路径，而不是当作文件消失。
-    const reconciled = await reconcileMindmaps(workspacePath, nextTree)
-    const renamedTo = activeFilePath
-      ? reconciled?.relinks.find(link => link.from === activeFilePath)?.to ??
-        (findNode(nextTree, activeFilePath) ? null : findRenamedNode(previousTree, nextTree, activeFilePath))
-      : null
-    const currentPath = renamedTo ?? activeFilePath
-    if (!currentPath) return
-
-    const allPaths = collectTreePaths(nextTree, new Set<string>())
-
-    // 文件被外部删除/移走（或被重命名成别的路径）：清空编辑器
-    if (!allPaths.has(currentPath)) {
-      set({
-        activeFilePath: null,
-        activeFileContent: '',
-        activeFileCategory: null,
-        activeFileDataUrl: null,
-        activeFileUrl: null,
-        activeFileMime: null,
-        activeFileSize: null,
-        activeFileOversized: false,
-        isDirty: false,
-        saveStatus: 'saved',
-        lastSavedAt: null,
-        conflictDiskContent: null
-      })
-      set({
-        gitBaselinePath: null,
-        gitBaselineStatus: 'idle',
-        gitBaselineSha: null,
-        gitBaselineContent: null
-      })
-      void window.api.storeDelete('workbench_lastActiveFilePath')
+    if (externalFsInFlight) {
+      externalFsPendingWorkspace = workspaceRoot
       return
     }
 
-    // 文件还在：对比 mtime 决定是否重载内容；外部重命名（mtime 不变）也要刷新 activeFileUrl 与分类
-    const node = findNode(nextTree, currentPath)
-    if (!node || node.isDirectory) return
-
-    const mtimeChanged =
-      typeof node.mtime === 'number' &&
-      (lastSavedAt === null || Math.abs(node.mtime - lastSavedAt) > 1)
-    const diskNewer = typeof node.mtime === 'number' && lastSavedAt !== null && node.mtime - lastSavedAt > 2
-    const nextCategory = getFileCategory(currentPath)
-    const reloadable =
-      nextCategory === 'markdown' ||
-      nextCategory === 'text' ||
-      nextCategory === 'code'
-
-    if (!renamedTo && (!mtimeChanged || !reloadable)) return
-
-    let fileRes: { success: boolean; data?: WorkbenchFileInfo } | null = null
+    externalFsInFlight = true
     try {
-      fileRes = await window.api.workbench.readFile(workspacePath, currentPath)
-    } catch {
-      fileRes = null
-    }
+      let targetRoot: string | null = workspaceRoot
+      while (targetRoot) {
+        externalFsPendingWorkspace = null
+        const activeRoot = get().workspacePath
+        if (!activeRoot || normalize(targetRoot) !== normalize(activeRoot)) break
 
-    if (renamedTo) {
-      void window.api.storeSet('workbench_lastActiveFilePath', renamedTo)
-      void get().refreshGitBaseline()
-    }
+        const res = await window.api.workbench.readTree(activeRoot)
+        if (!res.success || !res.data || get().workspacePath !== activeRoot) break
 
-    if (isDirty) {
-      if (diskNewer) {
-        set({
-          ...(renamedTo && fileRes?.success && fileRes.data
-            ? {
-                activeFilePath: currentPath,
-                activeFileCategory: fileRes.data.category || nextCategory,
-                activeFileDataUrl: fileRes.data.dataUrl || null,
-                activeFileUrl: fileRes.data.fileUrl || null,
-                activeFileMime: fileRes.data.mimeType || null,
-                activeFileSize: fileRes.data.size,
-                activeFileOversized: !!fileRes.data.isOversized
-              }
-            : renamedTo
-              ? {
-                  activeFilePath: currentPath,
-                  activeFileCategory: nextCategory,
-                  activeFileUrl: null,
-                  activeFileDataUrl: null
-                }
-              : {}),
-          saveStatus: 'conflict',
-          conflictDiskContent: fileRes?.success && fileRes.data ? fileRes.data.content : ''
-        })
-      } else if (renamedTo) {
-        set(
-          fileRes?.success && fileRes.data
-            ? {
-                activeFilePath: currentPath,
-                activeFileCategory: fileRes.data.category || nextCategory,
-                activeFileDataUrl: fileRes.data.dataUrl || null,
-                activeFileUrl: fileRes.data.fileUrl || null,
-                activeFileMime: fileRes.data.mimeType || null,
-                activeFileSize: fileRes.data.size,
-                activeFileOversized: !!fileRes.data.isOversized
-              }
-            : {
-                activeFilePath: currentPath,
-                activeFileCategory: nextCategory,
-                activeFileUrl: null,
-                activeFileDataUrl: null
-              }
-        )
+        // 外部改动（终端、其他编辑器）同样会改变 Git 状态与索引基准
+        void get().refreshGitStatus()
+        void get().refreshGitBaseline()
+
+        const nextTree = res.data
+        const previousTree = get().fileTree
+        set({ fileTree: nextTree })
+
+        const reconciled = await reconcileMindmaps(activeRoot, nextTree)
+        if (get().workspacePath !== activeRoot) break
+
+        await reconcileActiveFileWithTree(activeRoot, previousTree, nextTree, reconciled?.relinks ?? [])
+        targetRoot = externalFsPendingWorkspace
       }
-      return
-    }
-
-    if (fileRes?.success && fileRes.data) {
-      set(buildActiveFilePayload(currentPath, fileRes.data))
-    } else if (renamedTo) {
-      set({
-        activeFilePath: currentPath,
-        activeFileCategory: nextCategory,
-        activeFileUrl: null,
-        activeFileDataUrl: null
-      })
+    } finally {
+      externalFsInFlight = false
     }
   },
 
@@ -2489,8 +2591,8 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   },
 
   setEditorMode: (mode: EditorMode) => {
-    if (get().editorMode === 'wysiwyg' && mode !== 'wysiwyg') {
-      get().flushMarkdownSync()
+    if (get().editorMode !== mode) {
+      get().flushActiveEditorSync()
     }
     // 2MB 以上文档固定源码模式：Lexical 整篇导入会卡死，且标注也无法安全映射。
     const size = get().activeFileSize ?? 0
@@ -2626,9 +2728,11 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     // 连续触发时以最后一次请求为准，避免旧状态覆盖新状态。
     gitStatusInFlight = true
     const seq = ++gitStatusSeq
+    lastGitRefreshAt = Date.now()
     try {
       do {
         gitStatusPending = false
+        lastGitRefreshAt = Date.now()
         const res = await window.api.workbench.gitStatus(workspacePath)
         // 请求期间切换了工作区：丢弃过期结果，避免把上一个仓库的状态显示到新工作区
         if (get().workspacePath !== workspacePath || seq !== gitStatusSeq) break
@@ -2651,21 +2755,18 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   },
 
   /**
-   * 拉取当前活动文件的 Git Index 基准内容。
+   * 拉取当前活动文件的 Git Index 基准内容（支持 in-flight 合并与 knownBlobSha 短路）。
    * 仅保留单份缓存：非文本/未跟踪/超大/非仓库统一置空，
    * 切换工作区或文件后由 openFile / 清理逻辑重新触发。
    */
   refreshGitBaseline: async () => {
+    const isTextCategory = (category: WorkbenchFileCategory | null): boolean =>
+      category === 'markdown' || category === 'code' || category === 'text'
+
     const { workspacePath, activeFilePath, activeFileCategory } = get()
-    const seq = ++gitBaselineSeq
-    if (
-      !workspacePath ||
-      !activeFilePath ||
-      !activeFileCategory ||
-      (activeFileCategory !== 'markdown' &&
-        activeFileCategory !== 'code' &&
-        activeFileCategory !== 'text')
-    ) {
+    if (!workspacePath || !activeFilePath || !isTextCategory(activeFileCategory)) {
+      ++gitBaselineSeq
+      gitBaselinePending = false
       set({
         gitBaselinePath: null,
         gitBaselineStatus: 'idle',
@@ -2675,36 +2776,102 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       return
     }
 
-    set({ gitBaselineStatus: 'loading', gitBaselinePath: activeFilePath })
-    try {
-      const res = await window.api.workbench.gitBaseline(workspacePath, activeFilePath)
-      // 请求期间已切走：丢弃过期结果
-      if (seq !== gitBaselineSeq || get().activeFilePath !== activeFilePath) return
-      if (!res.success || !res.data) {
-        set({ gitBaselineStatus: 'error', gitBaselineContent: null })
-        return
-      }
-      const data = res.data
-      if (data.status === 'ok' && typeof data.content === 'string') {
-        // 与磁盘保存内容一致归一化：基准 CRLF→LF，避免与编辑器文本产生纯换行差异
-        const content = data.content.replace(/\r\n?/g, '\n')
+    if (gitBaselinePromise) {
+      gitBaselinePending = true
+      if (get().gitBaselinePath !== activeFilePath) {
         set({
-          gitBaselineStatus: 'ok',
-          gitBaselineSha: data.blobSha ?? null,
-          gitBaselineContent: content
-        })
-      } else {
-        set({
-          gitBaselineStatus: data.status,
-          gitBaselineSha: data.blobSha ?? null,
+          gitBaselinePath: activeFilePath,
+          gitBaselineStatus: 'loading',
+          gitBaselineSha: null,
           gitBaselineContent: null
         })
       }
-    } catch {
-      if (seq === gitBaselineSeq && get().activeFilePath === activeFilePath) {
-        set({ gitBaselineStatus: 'error', gitBaselineContent: null })
-      }
+      return gitBaselinePromise
     }
+
+    const seq = ++gitBaselineSeq
+    const run = (async () => {
+      try {
+        do {
+          gitBaselinePending = false
+          const state = get()
+          const targetWorkspace = state.workspacePath
+          const targetPath = state.activeFilePath
+          const targetCategory = state.activeFileCategory
+          if (!targetWorkspace || !targetPath || !isTextCategory(targetCategory)) {
+            if (seq === gitBaselineSeq) {
+              set({
+                gitBaselinePath: null,
+                gitBaselineStatus: 'idle',
+                gitBaselineSha: null,
+                gitBaselineContent: null
+              })
+            }
+            break
+          }
+
+          const hasReusableCache =
+            state.gitBaselinePath === targetPath &&
+            !!state.gitBaselineSha &&
+            ((state.gitBaselineStatus === 'ok' && typeof state.gitBaselineContent === 'string') ||
+              state.gitBaselineStatus === 'binary' ||
+              state.gitBaselineStatus === 'too-large')
+
+          const knownBlobSha = hasReusableCache ? (state.gitBaselineSha ?? undefined) : undefined
+          if (!hasReusableCache) {
+            set({
+              gitBaselineStatus: 'loading',
+              gitBaselinePath: targetPath,
+              gitBaselineSha: null,
+              gitBaselineContent: null
+            })
+          }
+
+          try {
+            const res = await window.api.workbench.gitBaseline(targetWorkspace, targetPath, knownBlobSha)
+            // 请求期间已切走工作区或文件：丢弃过期结果，若后续有 pending 会由循环补拉
+            if (seq !== gitBaselineSeq || get().workspacePath !== targetWorkspace || get().activeFilePath !== targetPath) {
+              continue
+            }
+            if (!res.success || !res.data) {
+              set({ gitBaselinePath: targetPath, gitBaselineStatus: 'error', gitBaselineSha: null, gitBaselineContent: null })
+              continue
+            }
+            const data = res.data
+            if (data.status === 'unchanged') {
+              // SHA 一致且本地仍持有有效基线：保持现有 gitBaselineContent / gitBaselineStatus / gitBaselineSha 不变
+              continue
+            }
+            if (data.status === 'ok' && typeof data.content === 'string') {
+              // 与磁盘保存内容一致归一化：基准 CRLF→LF，避免与编辑器文本产生纯换行差异
+              const content = data.content.replace(/\r\n?/g, '\n')
+              set({
+                gitBaselinePath: targetPath,
+                gitBaselineStatus: 'ok',
+                gitBaselineSha: data.blobSha ?? null,
+                gitBaselineContent: content
+              })
+            } else {
+              set({
+                gitBaselinePath: targetPath,
+                gitBaselineStatus: data.status,
+                gitBaselineSha: data.blobSha ?? null,
+                gitBaselineContent: null
+              })
+            }
+          } catch {
+            if (seq === gitBaselineSeq && get().workspacePath === targetWorkspace && get().activeFilePath === targetPath) {
+              set({ gitBaselinePath: targetPath, gitBaselineStatus: 'error', gitBaselineSha: null, gitBaselineContent: null })
+            }
+          }
+        } while (gitBaselinePending)
+      } finally {
+        gitBaselinePromise = null
+      }
+    })()
+
+    gitBaselinePromise = run
+    return run
   },
 
   /**
@@ -2712,12 +2879,13 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
    * 只提交工作区范围，未暂存的改动会一并纳入，与界面上“全部改动”的表述一致。
    */
   gitCommit: async (title, body, allowLargeFiles) => {
-    const { workspacePath, isDirty } = get()
+    const { workspacePath } = get()
     if (!workspacePath) return { success: false, failure: 'not-repository', error: '未打开工作区' }
     if (get().isGitBusy) return { success: false, failure: 'failed', error: '正在执行其他操作' }
     set({ isGitBusy: true })
     try {
-      if (isDirty) {
+      get().flushActiveEditorSync()
+      if (get().isDirty) {
         const saved = await get().saveActiveFile()
         if (!saved.saved) return { success: false, failure: 'failed', error: '当前文件保存失败，未提交' }
       }
@@ -2749,9 +2917,10 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       const res = await window.api.workbench.gitPull(workspacePath)
       const result = res.success && res.data ? res.data : { success: false, failure: 'failed' as const, error: res.error || '拉取失败' }
       if (result.success) {
-        // 远程改动可能重命名/删除了当前打开的文档，先重扫文件树再按磁盘状态对齐编辑器
-        await get().loadFileTree()
-        await get().handleExternalFsChanged(workspacePath)
+        // 远程改动可能重命名/删除了当前打开的文档，单次扫树后按磁盘状态对齐编辑器（不重复调 handleExternalFsChanged 二次扫盘）
+        const previousTree = get().fileTree
+        await get().loadFileTree({ skipGitStatus: true })
+        await reconcileActiveFileWithTree(workspacePath, previousTree, get().fileTree, lastLoadTreeRelinks, { skipBaselineRefresh: true })
       }
       await get().refreshGitStatus()
       if (result.success) await get().refreshGitBaseline()
@@ -2779,8 +2948,9 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       const res = await window.api.workbench.gitMergeUpstream(workspacePath)
       const result = res.success && res.data ? res.data : { success: false, failure: 'failed' as const, error: res.error || '合并失败' }
       if (result.success) {
-        await get().loadFileTree()
-        await get().handleExternalFsChanged(workspacePath)
+        const previousTree = get().fileTree
+        await get().loadFileTree({ skipGitStatus: true })
+        await reconcileActiveFileWithTree(workspacePath, previousTree, get().fileTree, lastLoadTreeRelinks, { skipBaselineRefresh: true })
       }
       await get().refreshGitStatus()
       if (result.success) await get().refreshGitBaseline()
@@ -2807,10 +2977,12 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       const res = await window.api.workbench.gitAbortMerge(workspacePath)
       const result = res.success && res.data ? res.data : { success: false, failure: 'failed' as const, error: res.error || '撤销失败' }
       if (result.success) {
-        await get().loadFileTree()
-        await get().handleExternalFsChanged(workspacePath)
+        const previousTree = get().fileTree
+        await get().loadFileTree({ skipGitStatus: true })
+        await reconcileActiveFileWithTree(workspacePath, previousTree, get().fileTree, lastLoadTreeRelinks, { skipBaselineRefresh: true })
       }
       await get().refreshGitStatus()
+      if (result.success) await get().refreshGitBaseline()
       get().setGitNotice(
         result.success
           ? { tone: 'info', message: '已撤销本次合并，文件回到操作前状态' }
@@ -2827,12 +2999,13 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   },
 
   gitPush: async (setUpstream) => {
-    const { workspacePath, isDirty } = get()
+    const { workspacePath } = get()
     if (!workspacePath) return { success: false, failure: 'not-repository', error: '未打开工作区' }
     if (get().isGitBusy) return { success: false, failure: 'failed', error: '正在执行其他操作' }
     set({ isGitBusy: true })
     try {
-      if (isDirty) {
+      get().flushActiveEditorSync()
+      if (get().isDirty) {
         const saved = await get().saveActiveFile()
         if (!saved.saved) return { success: false, failure: 'failed', error: '当前文件保存失败，未推送' }
       }
@@ -2908,7 +3081,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       // 若当前编辑器正打开目标文件，先刷清 Lexical 增量缓冲并取消自动保存定时器，
       // 防止撤回磁盘内容后几百毫秒被残留的自动保存写回旧文本。
       if (activeFilePath === change.path) {
-        get().flushMarkdownSync()
+        get().flushActiveEditorSync()
         if (autoSaveTimer) {
           clearTimeout(autoSaveTimer)
           autoSaveTimer = null
@@ -2926,7 +3099,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         return result
       }
 
-      await get().loadFileTree()
+      await get().loadFileTree({ skipGitStatus: true })
 
       const currentActive = get().activeFilePath
       const reloadPath =
@@ -3036,7 +3209,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     }
 
     if (hitsActive) {
-      get().flushMarkdownSync()
+      get().flushActiveEditorSync()
       if (autoSaveTimer) {
         clearTimeout(autoSaveTimer)
         autoSaveTimer = null
@@ -3076,7 +3249,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         return result
       }
 
-      await get().loadFileTree()
+      await get().loadFileTree({ skipGitStatus: true })
       await get().refreshGitStatus()
       if (nextFilePath) {
         const opened = await get().openFile(nextFilePath)
@@ -3106,7 +3279,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
           ? res.data
           : { success: false, failure: 'failed' as const, error: res.error || '更新忽略规则失败' }
       if (result.success) {
-        await get().loadFileTree()
+        await get().loadFileTree({ skipGitStatus: true })
         await get().refreshGitStatus()
         get().setGitNotice({ tone: 'success', message: result.hint ?? '已加入忽略规则' })
       } else {

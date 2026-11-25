@@ -337,6 +337,9 @@ const WorkbenchHtmlVisualEditor = forwardRef<
 
   useEffect(() => {
     if (!isDragging) return
+    let rafId: number | null = null
+    let pendingCoords: { x: number; y: number } | null = null
+
     const coordinates = (event: PointerEvent): { x: number; y: number } => {
       const iframe = iframeRef.current
       if (!iframe) return { x: 0, y: 0 }
@@ -346,16 +349,37 @@ const WorkbenchHtmlVisualEditor = forwardRef<
         y: Math.max(0, Math.min(rect.height - 1, event.clientY - rect.top))
       }
     }
+    const cancelPendingMove = (): void => {
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId)
+        rafId = null
+      }
+      pendingCoords = null
+    }
     const handleMove = (event: PointerEvent): void => {
-      const { x, y } = coordinates(event)
-      postToFrame({ type: 'drag-move', x, y })
+      pendingCoords = coordinates(event)
+      if (rafId === null) {
+        rafId = requestAnimationFrame(() => {
+          rafId = null
+          if (!pendingCoords) return
+          const { x, y } = pendingCoords
+          pendingCoords = null
+          postToFrame({ type: 'drag-move', x, y })
+        })
+      }
     }
     const handleUp = (event: PointerEvent): void => {
-      const { x, y } = coordinates(event)
-      postToFrame({ type: 'drag-end', x, y })
+      const finalCoords = coordinates(event)
+      const hadPending = pendingCoords !== null || rafId !== null
+      cancelPendingMove()
+      if (hadPending) {
+        postToFrame({ type: 'drag-move', x: finalCoords.x, y: finalCoords.y })
+      }
+      postToFrame({ type: 'drag-end', x: finalCoords.x, y: finalCoords.y })
       setIsDragging(false)
     }
     const handleCancel = (): void => {
+      cancelPendingMove()
       postToFrame({ type: 'drag-cancel' })
       setIsDragging(false)
     }
@@ -364,6 +388,7 @@ const WorkbenchHtmlVisualEditor = forwardRef<
     window.addEventListener('pointercancel', handleCancel, true)
     window.addEventListener('blur', handleCancel)
     return () => {
+      cancelPendingMove()
       window.removeEventListener('pointermove', handleMove, true)
       window.removeEventListener('pointerup', handleUp, true)
       window.removeEventListener('pointercancel', handleCancel, true)
