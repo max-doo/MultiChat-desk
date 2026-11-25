@@ -2,6 +2,15 @@
 
 ## 2026-11-25
 
+### 13:27 | Codex
+
+- done: 提交工作台改动：按功能拆 4 个 commit（md 编辑器引用块入口、Git 面板反馈/Hooks 修复、工作台 UI 体系审计重构、会话日志）
+- context: 用户要求提交修改
+- decision: .tmp/、scratch/、assets/agent-avatar.png 沿用此前判定作为过程文件不入库；GitPanel 字号/反馈改造与审计重构同 hunk 交织不可干净拆分，整文件归入 fix commit
+- modified:
+  - `已提交文件见 git log 6d9e110..79387be`
+- unresolved: 工作台 UI 审计重构与引用块入口未在 pnpm run dev 桌面窗口实际验证
+
 ### 13:25 | Codex
 
 - done: 工作台md编辑器补引用块入口：顶部工具栏加快捷引用按钮，浮动工具栏加引用切换按钮
