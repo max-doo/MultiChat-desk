@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import rehypeRaw from 'rehype-raw'
 import type { Components } from 'react-markdown'
 import { AppIcon } from './icons/AppIcon'
 
@@ -289,6 +290,7 @@ function ModelOutputCard({
               >
                 <ReactMarkdown 
                   remarkPlugins={[remarkGfm]}
+                  rehypePlugins={[rehypeRaw]}
                   components={markdownComponents}
                 >
                   {content}

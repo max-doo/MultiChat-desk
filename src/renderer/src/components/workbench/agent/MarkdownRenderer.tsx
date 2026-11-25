@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import rehypeRaw from 'rehype-raw'
 import { AppIcon } from '../../icons/AppIcon'
 import { InlineFileCode } from './AttachmentChips'
 
@@ -74,6 +75,7 @@ export function MarkdownRenderer({ content, cwd }: MarkdownRendererProps): JSX.E
     <div className="text-body text-slate-800 dark:text-gray-200 leading-relaxed select-text space-y-2.5">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeRaw]}
         components={{
           // 表格
           table({ children }) {
