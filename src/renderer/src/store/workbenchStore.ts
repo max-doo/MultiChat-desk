@@ -359,6 +359,7 @@ export type WorkbenchStore = WorkbenchStoreState & WorkbenchStoreActions
 let autoSaveTimer: ReturnType<typeof setTimeout> | null = null
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 let noticeTimer: ReturnType<typeof setTimeout> | null = null
+let gitNoticeTimer: ReturnType<typeof setTimeout> | null = null
 let currentSearchSeq = 0
 let fsWatcherBound = false
 let gitStatusSeq = 0
@@ -908,6 +909,10 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       searchResults: []
     })
     void window.api.storeSet('workbench_recentWorkspaces', nextRecent)
+    if (gitNoticeTimer) {
+      clearTimeout(gitNoticeTimer)
+      gitNoticeTimer = null
+    }
     set({
       gitStatus: null,
       gitNotice: null,
@@ -963,6 +968,10 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     }
     const activePath = session.data.activeWorkspaceRoot
     const activeName = activePath.split(/[/\\]/).filter(Boolean).pop() || 'Workspace'
+    if (gitNoticeTimer) {
+      clearTimeout(gitNoticeTimer)
+      gitNoticeTimer = null
+    }
     set({
       workspacePath: activePath,
       workspaceGeneration: session.data.generation,
@@ -2671,14 +2680,14 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       await get().refreshGitStatus()
       if (result.success) await get().refreshGitBaseline()
       if (result.success) {
-        set({ gitNotice: { tone: 'success', message: '已提交' } })
+        get().clearGitNotice()
       } else {
-        set({ gitNotice: { tone: 'error', message: result.error || '提交失败' } })
+        get().setGitNotice({ tone: 'error', message: result.error || '提交失败' })
       }
       return result
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      set({ gitNotice: { tone: 'error', message } })
+      get().setGitNotice({ tone: 'error', message })
       return { success: false, failure: 'failed', error: message }
     } finally {
       set({ isGitBusy: false })
@@ -2700,15 +2709,15 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       }
       await get().refreshGitStatus()
       if (result.success) await get().refreshGitBaseline()
-      set({
-        gitNotice: result.success
+      get().setGitNotice(
+        result.success
           ? { tone: 'success', message: result.hint ?? '已拉取远程改动' }
           : { tone: 'warning', message: result.hint ? `${result.error}：${result.hint}` : result.error || '拉取失败' }
-      })
+      )
       return result
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      set({ gitNotice: { tone: 'error', message } })
+      get().setGitNotice({ tone: 'error', message })
       return { success: false, failure: 'failed', error: message }
     } finally {
       set({ isGitBusy: false })
@@ -2729,15 +2738,15 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       }
       await get().refreshGitStatus()
       if (result.success) await get().refreshGitBaseline()
-      set({
-        gitNotice: result.success
+      get().setGitNotice(
+        result.success
           ? { tone: 'success', message: '已合并远程改动' }
           : { tone: 'warning', message: result.hint ? `${result.error}：${result.hint}` : result.error || '合并失败' }
-      })
+      )
       return result
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      set({ gitNotice: { tone: 'error', message } })
+      get().setGitNotice({ tone: 'error', message })
       return { success: false, failure: 'failed', error: message }
     } finally {
       set({ isGitBusy: false })
@@ -2756,15 +2765,15 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         await get().handleExternalFsChanged(workspacePath)
       }
       await get().refreshGitStatus()
-      set({
-        gitNotice: result.success
+      get().setGitNotice(
+        result.success
           ? { tone: 'info', message: '已撤销本次合并，文件回到操作前状态' }
           : { tone: 'error', message: result.error || '撤销失败' }
-      })
+      )
       return result
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      set({ gitNotice: { tone: 'error', message } })
+      get().setGitNotice({ tone: 'error', message })
       return { success: false, failure: 'failed', error: message }
     } finally {
       set({ isGitBusy: false })
@@ -2784,15 +2793,15 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       const res = await window.api.workbench.gitPush(workspacePath, setUpstream)
       const result = res.success && res.data ? res.data : { success: false, failure: 'failed' as const, error: res.error || '推送失败' }
       await get().refreshGitStatus()
-      set({
-        gitNotice: result.success
+      get().setGitNotice(
+        result.success
           ? { tone: 'success', message: result.hint ?? '已推送到远程' }
           : { tone: 'warning', message: result.hint ? `${result.error}：${result.hint}` : result.error || '推送失败' }
-      })
+      )
       return result
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      set({ gitNotice: { tone: 'error', message } })
+      get().setGitNotice({ tone: 'error', message })
       return { success: false, failure: 'failed', error: message }
     } finally {
       set({ isGitBusy: false })
@@ -2807,15 +2816,15 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       const res = await window.api.workbench.gitInit(workspacePath)
       const result = res.success && res.data ? res.data : { success: false, failure: 'failed' as const, error: res.error || '初始化失败' }
       await get().refreshGitStatus()
-      set({
-        gitNotice: result.success
-          ? { tone: 'success', message: '已在此工作区初始化 Git 仓库' }
-          : { tone: 'error', message: result.error || '初始化失败' }
-      })
+      if (result.success) {
+        get().clearGitNotice()
+      } else {
+        get().setGitNotice({ tone: 'error', message: result.error || '初始化失败' })
+      }
       return result
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      set({ gitNotice: { tone: 'error', message } })
+      get().setGitNotice({ tone: 'error', message })
       return { success: false, failure: 'failed', error: message }
     } finally {
       set({ isGitBusy: false })
@@ -2832,12 +2841,12 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       const result = res.success && res.data ? res.data : { success: false, failure: 'failed' as const, error: res.error || '保存远程地址失败' }
       await get().refreshGitStatus()
       if (!result.success) {
-        set({ gitNotice: { tone: 'error', message: result.error || '保存远程地址失败' } })
+        get().setGitNotice({ tone: 'error', message: result.error || '保存远程地址失败' })
       }
       return result
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      set({ gitNotice: { tone: 'error', message } })
+      get().setGitNotice({ tone: 'error', message })
       return { success: false, failure: 'failed', error: message }
     } finally {
       set({ isGitBusy: false })
@@ -2867,7 +2876,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
           : { success: false, failure: 'failed' as const, error: res.error || '撤回修改失败' }
 
       if (!result.success) {
-        set({ gitNotice: { tone: 'error', message: result.error || '撤回修改失败' } })
+        get().setGitNotice({ tone: 'error', message: result.error || '撤回修改失败' })
         return result
       }
 
@@ -2930,11 +2939,11 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       }
 
       await get().refreshGitStatus()
-      set({ gitNotice: { tone: 'success', message: result.hint ?? '已撤回修改' } })
+      get().setGitNotice({ tone: 'success', message: result.hint ?? '已撤回修改' })
       return result
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      set({ gitNotice: { tone: 'error', message } })
+      get().setGitNotice({ tone: 'error', message })
       return { success: false, failure: 'failed', error: message }
     } finally {
       set({ isGitBusy: false })
@@ -3017,7 +3026,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
 
       if (!result.success) {
         if (hitsActive) restoreActiveFileState(activeSnapshot)
-        set({ gitNotice: { tone: 'error', message: result.error || '移入回收站失败' } })
+        get().setGitNotice({ tone: 'error', message: result.error || '移入回收站失败' })
         return result
       }
 
@@ -3027,12 +3036,12 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         const opened = await get().openFile(nextFilePath)
         if (!opened) void window.api.storeDelete('workbench_lastActiveFilePath')
       }
-      set({ gitNotice: { tone: 'info', message: '已移至系统回收站' } })
+      get().setGitNotice({ tone: 'info', message: '已移至系统回收站' })
       return result
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       if (hitsActive) restoreActiveFileState(activeSnapshot)
-      set({ gitNotice: { tone: 'error', message } })
+      get().setGitNotice({ tone: 'error', message })
       return { success: false, failure: 'failed', error: message }
     } finally {
       set({ isGitBusy: false })
@@ -3053,23 +3062,41 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       if (result.success) {
         await get().loadFileTree()
         await get().refreshGitStatus()
-        set({ gitNotice: { tone: 'success', message: result.hint ?? '已加入忽略规则' } })
+        get().setGitNotice({ tone: 'success', message: result.hint ?? '已加入忽略规则' })
       } else {
-        set({ gitNotice: { tone: 'error', message: result.error || '更新忽略规则失败' } })
+        get().setGitNotice({ tone: 'error', message: result.error || '更新忽略规则失败' })
       }
       return result
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      set({ gitNotice: { tone: 'error', message } })
+      get().setGitNotice({ tone: 'error', message })
       return { success: false, failure: 'failed', error: message }
     } finally {
       set({ isGitBusy: false })
     }
   },
 
-  setGitNotice: (notice) => set({ gitNotice: notice }),
+  setGitNotice: (notice) => {
+    if (gitNoticeTimer) {
+      clearTimeout(gitNoticeTimer)
+      gitNoticeTimer = null
+    }
+    set({ gitNotice: notice })
+    if (notice && (notice.tone === 'success' || notice.tone === 'info')) {
+      gitNoticeTimer = setTimeout(() => {
+        gitNoticeTimer = null
+        set({ gitNotice: null })
+      }, 2600)
+    }
+  },
 
-  clearGitNotice: () => set({ gitNotice: null })
+  clearGitNotice: () => {
+    if (gitNoticeTimer) {
+      clearTimeout(gitNoticeTimer)
+      gitNoticeTimer = null
+    }
+    set({ gitNotice: null })
+  }
 }))
 
 // 窗口缩小时，已存的侧边栏宽度可能超过可用上限，监听 resize 被动收敛。
