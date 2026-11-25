@@ -241,6 +241,8 @@ export interface CommandInspection {
   normalized: string
   executable?: string
   pathArguments?: string[]
+  /** Static `cd` / `Set-Location` directory targets verified downstream. */
+  cdTargets?: string[]
   parseable: boolean
   /** Recognized as a read-only PowerShell pipeline. */
   readOnly: boolean
@@ -266,6 +268,8 @@ export interface CommandAnalyzerVerdict {
   /** Command writes file content to path args — caller boundary-checks them. */
   writeOps?: boolean
   pathArguments?: string[]
+  /** Static `cd` / `Set-Location` directory targets — caller verifies workspace boundary. */
+  cdTargets?: string[]
   /** Executables/wrapper heads observed during analysis. */
   commands?: string[]
   /** Why read-only was rejected (debug). */
@@ -575,6 +579,7 @@ function formatRejectReason(rejectReason: string): string {
   if (rejectReason === 'ast-truncated') return '命令语法树过长，需要人工确认。'
   if (rejectReason === 'parse-error') return '命令存在语法解析错误，需要人工确认。'
   if (rejectReason === 'unparseable') return '命令包含无法安全解析的语法结构（如重定向、复杂展开或注释），需要确认。'
+  if (rejectReason === 'unsafe cd target') return '目录切换（cd）仅支持工作区内的静态文件系统路径，需要确认。'
   if (rejectReason === 'denied segment') return '命令包含非只读或未在白名单内的子命令，需要确认。'
   if (rejectReason.startsWith('denied command: ')) {
     return `命令包含非只读命令（${rejectReason.slice('denied command: '.length)}），需要确认。`
@@ -642,6 +647,7 @@ export function analyzeCommand(
     normalized,
     executable,
     pathArguments: [...pathArguments, ...(analyzerVerdict?.pathArguments ?? [])],
+    cdTargets: analyzerVerdict?.cdTargets,
     analyzer: analyzerVerdict == null ? 'unavailable' : toolName === 'powershell' ? 'powershell-ast' : 'bash-segments',
     astReadOnly: astReadOnly || undefined,
     astWriteOps: analyzerVerdict?.writeOps || undefined,
@@ -692,19 +698,13 @@ function redactSensitive(value: string): string {
 }
 
 function hardDenyReason(
-  context: PermissionContext,
-  risk: ToolEffectKind,
+  _context: PermissionContext,
+  _risk: ToolEffectKind,
   paths: readonly PathInspection[],
-  command?: CommandInspection
+  _command?: CommandInspection
 ): string | undefined {
   if (paths.some((path) => path.boundary === 'protected')) {
     return '目标路径属于受保护目录，任何 Mode 都不能放行。'
-  }
-  if (context.modeId === 'bypass' && risk === 'unknown') {
-    return '工具副作用未登记，bypass 也不会放行未知工具。'
-  }
-  if (risk === 'execute' && !command && context.modeId === 'bypass') {
-    return 'bypass 不会放行缺少命令参数的执行调用。'
   }
   return undefined
 }
@@ -720,6 +720,9 @@ function defaultDecision(
   // require explicit confirmation in every mode — bypass included. This
   // check must run BEFORE the bypass early-return.
   if (paths.some((path) => path.sensitive)) {
+    return context.interactive ? 'ask' : 'deny'
+  }
+  if (risk === 'execute' && !command) {
     return context.interactive ? 'ask' : 'deny'
   }
   if (context.modeId === 'bypass') return 'allow'
@@ -813,12 +816,58 @@ export function decidePermission(
           analyzerVerdict
         )
   const requestedPaths = [...toolPaths, ...(command?.pathArguments ?? [])]
-  const paths = requestedPaths.map((path) =>
-    inspectPath(path, context.cwd, context.workspaceRoot, context.allowedReadRoots, [
-      ...defaultProtectedRoots(),
-      ...(context.protectedRoots ?? [])
-    ])
+  const protectedList = [...defaultProtectedRoots(), ...(context.protectedRoots ?? [])]
+  const cdTargets = command?.cdTargets ?? []
+  const cdInspections: PathInspection[] = []
+  const cdDirsForPaths: string[] = []
+  let simCwd = context.cwd
+  let allCdInWorkspace = true
+  for (const cdTarget of cdTargets) {
+    const inspection = inspectPath(
+      cdTarget,
+      simCwd,
+      context.workspaceRoot,
+      context.allowedReadRoots,
+      protectedList
+    )
+    cdInspections.push(inspection)
+    if (inspection.boundary === 'workspace' && !inspection.sensitive && inspection.normalized) {
+      simCwd = inspection.normalized
+      if (comparePath(simCwd) !== comparePath(context.cwd)) {
+        cdDirsForPaths.push(simCwd)
+      }
+    } else {
+      allCdInWorkspace = false
+    }
+  }
+  const basePathInspections = requestedPaths.map((path) =>
+    inspectPath(path, context.cwd, context.workspaceRoot, context.allowedReadRoots, protectedList)
   )
+  const extraPathInspections: PathInspection[] = []
+  if (cdDirsForPaths.length > 0 && requestedPaths.length > 0) {
+    const uniqueDirs = [...new Set(cdDirsForPaths.map((d) => comparePath(d)))].map(
+      (norm) => cdDirsForPaths.find((d) => comparePath(d) === norm)!
+    )
+    for (const dir of uniqueDirs) {
+      for (const path of requestedPaths) {
+        extraPathInspections.push(
+          inspectPath(path, dir, context.workspaceRoot, context.allowedReadRoots, protectedList)
+        )
+      }
+    }
+  }
+  const paths = [...basePathInspections, ...cdInspections, ...extraPathInspections]
+  const effectiveCommand: CommandInspection | undefined =
+    command && cdTargets.length > 0 && !allCdInWorkspace
+      ? {
+          ...command,
+          readOnly: false,
+          astReadOnly: undefined,
+          requiresApproval: true,
+          highRisk: true,
+          reason: command.reason ?? '目录切换（cd）目标位于工作区之外或无法静态解析，需要确认。'
+        }
+      : command
   // A read/write targeting a credential-shaped file is escalated to the
   // `credential` tier so it can never slip through on a generic read rule.
   const risk: ToolEffectKind =
@@ -830,10 +879,10 @@ export function decidePermission(
     effect,
     risk,
     paths,
-    command,
-    target: resultTarget(context, paths, command)
+    command: effectiveCommand,
+    target: resultTarget(context, paths, effectiveCommand)
   }
-  const hardReason = hardDenyReason(context, risk, paths, command)
+  const hardReason = hardDenyReason(context, risk, paths, effectiveCommand)
   if (hardReason) {
     return { ...base, decision: 'deny', reason: hardReason }
   }
@@ -841,10 +890,10 @@ export function decidePermission(
   // arg signature contains only path-like read fields and no command string)
   // may still fall through to the standard rules; fully opaque tools stay
   // ask/deny so an MCP or future tool cannot bypass review by being
-  // unregistered.
-  if (risk === 'unknown' && context.modeId !== 'bypass') {
+  // unregistered. Guarantees bypass >= auto >= default in permissiveness.
+  if (risk === 'unknown') {
     if (looksReadOnlyCall(context.args)) {
-      const decision = defaultDecision({ ...context, modeId: context.modeId }, 'read', paths, command)
+      const decision = defaultDecision(context, 'read', paths, effectiveCommand)
       return {
         ...base,
         decision,
@@ -861,22 +910,25 @@ export function decidePermission(
       reason: `工具 ${context.toolName} 未登记副作用；${context.interactive ? '需要用户确认。' : '当前无交互界面，按 fail-closed 处理。'}`
     }
   }
-  const decision = defaultDecision(context, risk, paths, command)
+  const decision = defaultDecision(context, risk, paths, effectiveCommand)
   const askReason = (() => {
     if (paths.some((p) => p.sensitive)) {
       return '目标涉及凭据或敏感文件，需要用户确认。'
     }
-    if (command?.networkWrite) {
+    if (risk === 'execute' && !effectiveCommand) {
+      return '执行类调用缺少命令参数，需要用户确认。'
+    }
+    if (effectiveCommand?.networkWrite) {
       return '命令涉及远端仓库或包发布等外部写入操作，需要用户确认。'
     }
     if (
       paths.some((p) => p.boundary === 'outside' || p.boundary === 'invalid') &&
-      (command?.astWriteOps || risk === 'write')
+      (effectiveCommand?.astWriteOps || risk === 'write')
     ) {
       return '写入目标位于工作区之外或路径无法静态解析，需要用户确认。'
     }
-    if (command?.reason) {
-      return command.reason
+    if (effectiveCommand?.reason) {
+      return effectiveCommand.reason
     }
     return `Mode ${context.modeId} 对 ${risk} 副作用要求用户确认。`
   })()

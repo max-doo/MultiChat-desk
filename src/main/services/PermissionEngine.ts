@@ -274,11 +274,11 @@ export class PermissionEngine {
         const parsed = await helper.analyze(cmd)
         if (!parsed) return null
         const v = analyzePowerShellAst(parsed)
-        return { readOnly: v.readOnly, writeOps: v.writeOps, pathArguments: v.pathArguments, commands: v.commands, rejectReason: v.rejectReason }
+        return { readOnly: v.readOnly, writeOps: v.writeOps, pathArguments: v.pathArguments, cdTargets: v.cdTargets, commands: v.commands, rejectReason: v.rejectReason }
       }
       if (normTool === 'bash') {
         const v = analyzeBashCommand(cmd)
-        return { readOnly: v.readOnly, pathArguments: v.pathArguments, commands: v.commands, rejectReason: v.rejectReason }
+        return { readOnly: v.readOnly, pathArguments: v.pathArguments, cdTargets: v.cdTargets, commands: v.commands, rejectReason: v.rejectReason }
       }
     } catch {
       return null

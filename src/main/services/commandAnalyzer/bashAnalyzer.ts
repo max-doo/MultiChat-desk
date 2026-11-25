@@ -9,13 +9,15 @@
  */
 
 import { parse as parseShellQuote } from 'shell-quote'
-import { gateExternalCommand, looksLikeInspectablePath } from './externalCommandGate'
+import { gateExternalCommand, looksLikeInspectablePath, validateStaticCdTarget } from './externalCommandGate'
 import { isSensitiveFilePath } from '../permissionPolicy'
 
 export interface BashVerdict {
   readOnly: boolean
   /** Path-shaped bare args extracted from whitelisted command segments. */
   pathArguments: string[]
+  /** Static `cd` directory targets — caller verifies workspace boundary. */
+  cdTargets?: string[]
   commands: string[]
   rejectReason?: string
 }
@@ -199,9 +201,26 @@ function judgeSegment(seg: Segment, verdict: BashVerdict): 'ok' | 'deny' {
   verdict.commands.push(head)
 
   if (DENIED_HEADS.has(head)) return 'deny'
-  if (!READ_ONLY_HEADS.has(head) && !GATED_HEADS.has(head)) return 'deny'
 
   const args = tokens.slice(1).map(stripQuotes)
+  if (head === 'cd') {
+    const target =
+      args.length === 1 && !args[0].startsWith('-')
+        ? validateStaticCdTarget(args[0])
+        : args.length === 2 && args[0] === '--'
+          ? validateStaticCdTarget(args[1])
+          : null
+    if (!target) {
+      verdict.rejectReason = 'unsafe cd target'
+      return 'deny'
+    }
+    verdict.cdTargets ??= []
+    verdict.cdTargets.push(target)
+    return 'ok'
+  }
+
+  if (!READ_ONLY_HEADS.has(head) && !GATED_HEADS.has(head)) return 'deny'
+
   const gated = gateExternalCommand(head, args, isSensitiveFilePath)
   if (gated) {
     if (!gated.allowed) return 'deny'
@@ -304,6 +323,6 @@ export function analyzeBashCommand(command: string): BashVerdict {
   const r = walk(command.trim(), 0, verdict)
   verdict.readOnly = r === 'ok'
   if (r === null) verdict.rejectReason = 'unparseable'
-  if (r === 'deny') verdict.rejectReason = 'denied segment'
+  if (r === 'deny' && !verdict.rejectReason) verdict.rejectReason = 'denied segment'
   return verdict
 }

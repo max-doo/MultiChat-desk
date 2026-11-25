@@ -15,7 +15,7 @@
  */
 
 import type { AstNodeInfo, AstParseResult } from './powershellAstHelper'
-import { gateExternalCommand, looksLikeInspectablePath } from './externalCommandGate'
+import { gateExternalCommand, looksLikeInspectablePath, validateStaticCdTarget } from './externalCommandGate'
 import { isSensitiveFilePath } from '../permissionPolicy'
 
 export interface PsAstVerdict {
@@ -25,6 +25,8 @@ export interface PsAstVerdict {
   writeOps?: boolean
   /** Path-shaped arguments pulled from CommandAst / FileRedirectionAst nodes. */
   pathArguments: string[]
+  /** Static `cd` / `Set-Location` directory targets — caller verifies workspace boundary. */
+  cdTargets?: string[]
   /** Executables invoked by CommandAst nodes (e.g. `powershell`, `git`). */
   commands: string[]
   /** First reason read-only was rejected (for logging/debug). */
@@ -217,7 +219,7 @@ const WRITE_COMMANDS = new Set([
 const DENIED_COMMANDS = new Set([
   'invoke-expression', 'iex', 'start-process', 'new-object', 'add-member',
   'remove-item', 'remove-variable', 'clear-content', 'clear-variable',
-  'clear-history', 'set-item', 'set-variable', 'set-location',
+  'clear-history', 'set-item', 'set-variable',
   'stop-process', 'stop-computer', 'restart-computer', 'restart-service',
   'stop-service', 'start-service', 'suspend-service', 'resume-service',
   'new-item', 'new-itemproperty', 'set-itemproperty', 'remove-itemproperty',
@@ -339,6 +341,34 @@ function extractCommandArgs(node: AstNodeInfo): string[] {
   return args
 }
 
+function extractStaticCdTarget(node: AstNodeInfo): string | null {
+  const elems = node.elems ?? []
+  let target: string | null = null
+  let expectPath = false
+  for (let i = 1; i < elems.length; i++) {
+    const elem = elems[i]
+    if (elem.kind === 'param') {
+      if (expectPath) return null
+      const pname = (elem.name || '').toLowerCase()
+      if (pname !== 'path' && pname !== 'literalpath') return null
+      if (elem.val != null) {
+        if (target !== null || elem.argType !== 'StringConstantExpressionAst') return null
+        target = elem.val
+      } else {
+        expectPath = true
+      }
+      continue
+    }
+    if (target !== null || elem.argType !== 'StringConstantExpressionAst' || !elem.val) {
+      return null
+    }
+    target = elem.val
+    expectPath = false
+  }
+  if (expectPath || !target) return null
+  return validateStaticCdTarget(target)
+}
+
 // ─── main walk ─────────────────────────────────────────────────────────────
 
 export function analyzePowerShellAst(result: AstParseResult): PsAstVerdict {
@@ -446,6 +476,17 @@ export function analyzePowerShellAst(result: AstParseResult): PsAstVerdict {
               verdict.pathArguments.push(t)
             }
           }
+        }
+        if (name === 'cd' || name === 'set-location') {
+          const cdTarget = extractStaticCdTarget(node)
+          if (!cdTarget) {
+            collectInspectableArgs()
+            verdict.rejectReason = 'unsafe cd target'
+            return verdict
+          }
+          verdict.cdTargets ??= []
+          verdict.cdTargets.push(cdTarget)
+          break
         }
         if (DENIED_COMMANDS.has(name)) {
           collectInspectableArgs()

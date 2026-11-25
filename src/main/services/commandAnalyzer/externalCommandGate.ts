@@ -11,6 +11,27 @@ const PATH_LIKE = /^(?:[A-Za-z]:[\\/]|\\\\|\/|\.{1,2}[\\/]|~[\\/])/
 const ENV_ANCHORED = /^(?:\$\{?env:|\$[A-Za-z_][A-Za-z0-9_]*|%[A-Za-z_][A-Za-z0-9_]*%)/i
 const SCRIPT_EXT = /\.(?:bat|cmd|cjs|js|jsx|mjs|ps1|py|sh|ts|tsx)$/i
 
+const NON_FILE_PS_DRIVES = new Set([
+  'alias', 'cert', 'env', 'function', 'hkcu', 'hklm', 'hkcr', 'hkcc', 'hku',
+  'hk_users', 'variable', 'wsman'
+])
+
+/**
+ * Validate a single directory-change (`cd` / `Set-Location`) target token.
+ * Accepts only static filesystem path literals; rejects `-`/`+`, home (`~`),
+ * env/variable expansions, placeholder tokens, and non-filesystem PSDrives.
+ */
+export function validateStaticCdTarget(raw: string): string | null {
+  const trimmed = raw.trim()
+  if (!trimmed || trimmed === '-' || trimmed === '+') return null
+  if (trimmed.startsWith('~') || /[$`]|%[^%]+%/.test(trimmed)) return null
+  if (/__SUB\d+__/.test(trimmed)) return null
+  if (/^[A-Za-z_][A-Za-z0-9_]*:$/.test(trimmed)) return null
+  const drive = trimmed.match(/^([A-Za-z_][A-Za-z0-9_]*):/)
+  if (drive && NON_FILE_PS_DRIVES.has(drive[1].toLowerCase())) return null
+  return trimmed
+}
+
 /**
  * Return true when a bare argument looks like a filesystem path, script file,
  * or credential-shaped file (`.env`, `id_rsa`, `*.pem`, ...) that MUST be
