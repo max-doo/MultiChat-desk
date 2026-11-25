@@ -141,11 +141,7 @@ body {
   -webkit-text-fill-color: transparent;
 }
 
-/* 模态弹窗入场动画（供 ui/Modal 使用） */
-@keyframes modal-fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
+/* 模态弹窗入场动画（供 ui/Modal 面板使用） */
 @keyframes modal-zoom-in {
   from { opacity: 0; transform: scale(0.95); }
   to { opacity: 1; transform: scale(1); }

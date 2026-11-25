@@ -4,6 +4,7 @@ import { AppIcon } from '../icons/AppIcon'
 
 export type ModalVariant = 'solid' | 'glass'
 export type ModalSize = 'sm' | 'md' | 'lg'
+export type ModalBackdrop = 'none' | 'dim'
 
 const SIZE_CLASS: Record<ModalSize, string> = {
   sm: 'max-w-sm',
@@ -17,8 +18,14 @@ const PANEL_CLASS: Record<ModalVariant, string> = {
   glass: 'glass-panel-heavy rounded-2xl shadow-float'
 }
 
-// 入场动画：遮罩淡入 + 面板缩放淡入（替代之前无效的 animate-in/zoom-in-95 类）
-const OVERLAY_ANIM = 'animate-[modal-fade-in_0.2s_ease-out]'
+const BACKDROP_CLASS: Record<ModalBackdrop, string> = {
+  // 保留透明全屏拦截层，避免点击穿透到底层 <webview> 并维持 closeOnBackdrop 语义
+  none: 'bg-transparent',
+  // 轻量纯色压暗，不使用 backdrop-blur / 透明度动画，避免 Electron 合成器重绘卡顿
+  dim: 'bg-black/25'
+}
+
+// 仅对弹窗面板做缩放淡入，不对全屏遮罩做淡入动画
 const PANEL_ANIM = 'animate-[modal-zoom-in_0.2s_ease-out]'
 
 export interface ModalProps {
@@ -26,6 +33,8 @@ export interface ModalProps {
   onClose: () => void
   variant?: ModalVariant
   size?: ModalSize
+  /** 背景遮罩模式：solid 默认 'none'（透明拦截层），glass 默认 'dim'（轻量压暗） */
+  backdrop?: ModalBackdrop
   /** 点遮罩是否关闭，默认 true */
   closeOnBackdrop?: boolean
   /** Escape 是否关闭，默认 true */
@@ -41,14 +50,15 @@ export interface ModalProps {
 /**
  * 统一模态弹窗基础组件。
  * - variant 'solid'：实色卡片（ConfirmModal / RenameModal / HtmlEditLeaveDialog 风格）
- * - variant 'glass'：玻璃拟态（ModelOrderModal / ProductModeOrderModal 风格）
- * 只负责遮罩 + 容器壳 + 层级 + 动画，不约束内部 header/body/footer 结构。
+ * - variant 'glass'：玻璃拟态（AgentSettingsDialog 风格）
+ * 只负责事件拦截层/轻量遮罩 + 容器壳 + 层级 + 动画，不约束内部 header/body/footer 结构。
  */
 export default function Modal({
   open,
   onClose,
   variant = 'solid',
   size = 'md',
+  backdrop,
   closeOnBackdrop = true,
   closeOnEscape = true,
   maxHeight = '85vh',
@@ -69,10 +79,12 @@ export default function Modal({
 
   if (!open) return null
 
+  const resolvedBackdrop: ModalBackdrop = backdrop ?? (variant === 'glass' ? 'dim' : 'none')
+
   return createPortal(
     <div className={`fixed inset-0 ${zIndexClass} flex items-center justify-center p-4`}>
       <div
-        className={`absolute inset-0 bg-black/60 backdrop-blur-sm ${OVERLAY_ANIM}`}
+        className={`absolute inset-0 ${BACKDROP_CLASS[resolvedBackdrop]}`}
         onClick={closeOnBackdrop ? onClose : undefined}
       />
       <div

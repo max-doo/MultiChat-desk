@@ -15,7 +15,7 @@ interface ConfirmModalProps {
 
 /**
  * 通用确认弹窗组件
- * 以全屏遮罩形式显示
+ * 以模态弹窗形式显示（默认无全屏视觉遮罩，仅保留透明点击拦截层）
  */
 function ConfirmModal({
   isOpen,

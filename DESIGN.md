@@ -179,8 +179,8 @@ MultiChat Desk 是一个 Electron 多模型聊天工作台，UI 属于 **Operate
 ```
 
 - `variant="solid"`：实色卡片（`bg-app` + `border-gray-200` + `rounded-xl` + `shadow-2xl`)，用于 ConfirmModal / RenameModal / HtmlEditLeaveDialog 风格——默认选这个
-- `variant="glass"`：玻璃拟态（`glass-panel-heavy` + `rounded-2xl` + `shadow-float`)，用于 ModelOrderModal / ProductModeOrderModal 这类"设置/管理"型弹窗
-- 自带遮罩 `bg-black/60 backdrop-blur-sm` + 入场动画（`modal-fade-in`/`modal-zoom-in`)
+- `variant="glass"`：玻璃拟态（`glass-panel-heavy` + `rounded-2xl` + `shadow-float`)，用于 AgentSettingsDialog 这类"设置/管理"型弹窗
+- `backdrop`：`solid` 默认 `'none'`（透明全屏事件拦截层，无视觉遮罩），`glass` 默认 `'dim'`（轻量 `bg-black/25` 压暗）；禁用全屏 `backdrop-blur` 与遮罩淡入动画，仅保留面板 `modal-zoom-in` 入场动画
 - `closeOnBackdrop`/`closeOnEscape` 默认 `true`；有 `busy` 状态的对话框传 `false`
 - `ModalFooter` 默认 `justify-end`，需要左右分布传 `className="justify-between"`
 
