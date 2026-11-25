@@ -3333,4 +3333,14 @@ export async function registerIpcHandlers(
         }
     })
 
+    ipcMain.handle('agent:remove-recent-models', async (_event, payload: { items: Array<{ providerId: string; modelId: string }> }) => {
+        try {
+            const data = agentSessionService.removeRecentModels(Array.isArray(payload?.items) ? payload.items : [])
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
 }

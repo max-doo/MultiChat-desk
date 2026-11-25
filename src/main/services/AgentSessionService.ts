@@ -122,6 +122,10 @@ const DISABLED_PROVIDERS_STORE_KEY = 'agent_disabled_providers'
 
 const FAVORITE_MODELS_STORE_KEY = 'agent_favorite_models'
 
+const RECENT_MODELS_STORE_KEY = 'agent_recent_models'
+
+const RECENT_MODELS_LIMIT = 8
+
 export interface CustomGatewaySpec {
   providerId: string
   name: string
@@ -1655,6 +1659,7 @@ export class AgentSessionService {
 
     this.store.set('agent_active_provider', prov)
     this.store.set('agent_active_model', modelId)
+    this.pushRecentModel(prov, modelId)
 
     const active = this.activeSessions.get(sessionId)
     if (active) {
@@ -1673,6 +1678,7 @@ export class AgentSessionService {
       providers,
       active,
       favorites: this.getFavoriteModels(),
+      recent: this.getRecentModels(),
       context: status?.context ?? null,
       stats: status?.stats ?? null
     }
@@ -2034,6 +2040,42 @@ export class AgentSessionService {
     )
   }
 
+  private getRecentModelKeys(): string[] {
+    const raw = this.store.get(RECENT_MODELS_STORE_KEY)
+    if (!Array.isArray(raw)) return []
+    const seen = new Set<string>()
+    const result: string[] = []
+    for (const value of raw) {
+      if (typeof value !== 'string' || !value.includes(':')) continue
+      if (seen.has(value)) continue
+      seen.add(value)
+      result.push(value)
+    }
+    return result
+  }
+
+  private getRecentModels(): AgentFavoriteModel[] {
+    const runtime = this.modelRuntime
+    if (!runtime) return []
+    const disabled = this.getDisabledProviderIds()
+    const result: AgentFavoriteModel[] = []
+    for (const key of this.getRecentModelKeys()) {
+      const sep = key.indexOf(':')
+      const providerId = key.slice(0, sep)
+      const modelId = key.slice(sep + 1)
+      if (!providerId || !modelId || disabled.has(providerId)) continue
+      if (!runtime.getModel(providerId, modelId)) continue
+      result.push({ providerId, modelId })
+    }
+    return result
+  }
+
+  private pushRecentModel(providerId: string, modelId: string): void {
+    const key = `${providerId}:${modelId}`
+    const next = [key, ...this.getRecentModelKeys().filter((entry) => entry !== key)]
+    this.store.set(RECENT_MODELS_STORE_KEY, next.slice(0, RECENT_MODELS_LIMIT))
+  }
+
   public getFavoriteModels(): AgentFavoriteModel[] {
     const runtime = this.modelRuntime
     if (!runtime) return []
@@ -2062,6 +2104,8 @@ export class AgentSessionService {
       // Drop the provider's models from favorites so the picker section stays clean.
       const favorites = [...this.getFavoriteModelKeys()].filter((key) => !key.startsWith(`${providerId}:`))
       this.store.set(FAVORITE_MODELS_STORE_KEY, favorites)
+      const recents = this.getRecentModelKeys().filter((key) => !key.startsWith(`${providerId}:`))
+      this.store.set(RECENT_MODELS_STORE_KEY, recents)
       const activeProvider = (this.store.get('agent_active_provider') as string) || this.defaultProvider
       if (activeProvider === providerId) {
         const fallback = this.firstEnabledModel()
@@ -2090,6 +2134,19 @@ export class AgentSessionService {
       keys.push(key)
     }
     this.store.set(FAVORITE_MODELS_STORE_KEY, keys)
+    this.sendRuntimeChanged('refresh')
+    return this.getRuntimeSnapshot()
+  }
+
+  public removeRecentModels(items: AgentFavoriteModel[]): AgentRuntimeSnapshot {
+    if (!Array.isArray(items)) return this.getRuntimeSnapshot()
+    const removals = new Set(
+      items
+        .filter((item) => item && typeof item.providerId === 'string' && typeof item.modelId === 'string')
+        .map((item) => `${item.providerId}:${item.modelId}`)
+    )
+    const next = this.getRecentModelKeys().filter((key) => !removals.has(key))
+    this.store.set(RECENT_MODELS_STORE_KEY, next)
     this.sendRuntimeChanged('refresh')
     return this.getRuntimeSnapshot()
   }

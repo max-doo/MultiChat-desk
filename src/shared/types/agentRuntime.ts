@@ -116,6 +116,7 @@ export interface AgentRuntimeSnapshot {
   providers: AgentProvider[]
   active: AgentActiveModel
   favorites: AgentFavoriteModel[]
+  recent: AgentFavoriteModel[]
   context: AgentContextUsage | null
   stats: AgentSessionStats | null
 }

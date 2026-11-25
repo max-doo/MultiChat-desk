@@ -214,6 +214,7 @@ interface AgentSessionState {
   setProviderBaseUrl: (providerId: string, baseUrl: string | null) => Promise<boolean>
   setProviderDisabled: (providerId: string, disabled: boolean) => Promise<boolean>
   setFavoriteModels: (favorites: AgentFavoriteModel[]) => Promise<boolean>
+  removeRecentModels: (items: AgentFavoriteModel[]) => Promise<boolean>
   openAgentSettings: () => void
   fetchConfig: () => Promise<void>
   setSkillDirs: (dirs: string[]) => Promise<boolean>
@@ -1224,6 +1225,19 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
       }
     } catch (err) {
       console.error('[agentSessionStore] setFavoriteModels error:', err)
+    }
+    return false
+  },
+
+  removeRecentModels: async (items) => {
+    try {
+      const res = await getAgentApi().agentRemoveRecentModels?.(items)
+      if (res?.success && res.data) {
+        set({ snapshot: res.data })
+        return true
+      }
+    } catch (err) {
+      console.error('[agentSessionStore] removeRecentModels error:', err)
     }
     return false
   },

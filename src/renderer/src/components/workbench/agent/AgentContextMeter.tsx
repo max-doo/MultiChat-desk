@@ -111,7 +111,7 @@ export function AgentContextMeter(): JSX.Element | null {
         <div className="flex flex-col text-label w-full select-none bg-white dark:bg-gray-800">
           {/* 统一 Header */}
           <div className="px-3.5 py-2.5 border-b border-gray-100 dark:border-white/10 flex items-center justify-between">
-            <div className="flex items-center gap-1.5 font-semibold text-slate-700 dark:text-gray-200 text-caption">
+            <div className="flex items-center gap-1.5 font-semibold text-slate-700 dark:text-gray-200 text-label">
               <AppIcon name="speed" size={14} className="text-primary" />
               <span>上下文与用量</span>
             </div>
@@ -136,7 +136,7 @@ export function AgentContextMeter(): JSX.Element | null {
           <div className="p-3 space-y-3">
             {known ? (
               <div className="space-y-1.5">
-                <div className="flex items-center justify-between text-caption">
+                <div className="flex items-center justify-between text-label">
                   <span className="text-text-secondary">窗口占用</span>
                   <span className="font-mono text-slate-800 dark:text-gray-200 font-medium">
                     {formatTokens(tokens)} / {formatTokens(context.contextWindow)}
@@ -153,19 +153,19 @@ export function AgentContextMeter(): JSX.Element | null {
                 </div>
               </div>
             ) : (
-              <div className="text-text-secondary leading-relaxed text-caption py-1">
+              <div className="text-text-secondary leading-relaxed text-label py-1">
                 上下文占用将在下次模型响应后更新
               </div>
             )}
 
             {compaction && (
-              <div className="flex items-center justify-between text-caption text-slate-600 dark:text-gray-300">
+              <div className="flex items-center justify-between text-label text-slate-600 dark:text-gray-300">
                 <span>上下文压缩</span>
                 <button
                   type="button"
                   disabled={isCompacting || !currentSessionId}
                   onClick={() => void compact()}
-                  className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-caption font-medium text-primary hover:bg-primary/10 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-label font-medium text-primary hover:bg-primary/10 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   title={isCompacting ? '压缩进行中' : '立即压缩上下文'}
                 >
                   <AppIcon name="compress_horizontal" size={12} />
@@ -176,7 +176,7 @@ export function AgentContextMeter(): JSX.Element | null {
 
             {/* 累计数据与成本卡片 */}
             {stats && (
-              <div className="p-2.5 rounded-lg bg-slate-50/80 border border-slate-100/80 dark:bg-white/5 dark:border-white/10 space-y-1.5 text-caption">
+              <div className="p-2.5 rounded-lg bg-slate-50/80 border border-slate-100/80 dark:bg-white/5 dark:border-white/10 space-y-1.5 text-label">
                 <div className="flex items-center justify-between text-slate-600 dark:text-gray-300">
                   <span>累计输入</span>
                   <span className="font-mono text-slate-800 dark:text-gray-100">{formatTokens(stats.input)}</span>

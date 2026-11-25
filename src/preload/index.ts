@@ -811,6 +811,8 @@ const api = {
     ipcRenderer.invoke('agent:set-provider-disabled', { providerId, disabled }),
   agentSetFavoriteModels: (favorites: AgentFavoriteModel[]): Promise<{ success: boolean; data?: AgentRuntimeSnapshot; error?: string }> =>
     ipcRenderer.invoke('agent:set-favorite-models', { favorites }),
+  agentRemoveRecentModels: (items: AgentFavoriteModel[]): Promise<{ success: boolean; data?: AgentRuntimeSnapshot; error?: string }> =>
+    ipcRenderer.invoke('agent:remove-recent-models', { items }),
   onAgentProviderAuthChanged: (cb: (payload: { operation: AgentAuthOperation }) => void): (() => void) => {
     const handler = (_event: Electron.IpcRendererEvent, payload: { operation: AgentAuthOperation }): void => cb(payload)
     ipcRenderer.on('agent:provider-auth-changed', handler)

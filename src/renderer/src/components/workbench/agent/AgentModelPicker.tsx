@@ -3,6 +3,7 @@ import { AppIcon } from '../../icons/AppIcon'
 import { useAgentSessionStore } from '../../../store/agentSessionStore'
 import {
   THINKING_LABELS,
+  type AgentFavoriteModel,
   type AgentProvider,
   type AgentProviderModel,
   type AgentThinkingLevel
@@ -22,6 +23,8 @@ export function AgentModelPicker({ onClose }: AgentModelPickerProps): JSX.Elemen
   const sessionStatus = useAgentSessionStore((s) => s.sessionStatus)
   const setModel = useAgentSessionStore((s) => s.setModel)
   const setThinkingLevel = useAgentSessionStore((s) => s.setThinkingLevel)
+  const setFavoriteModels = useAgentSessionStore((s) => s.setFavoriteModels)
+  const removeRecentModels = useAgentSessionStore((s) => s.removeRecentModels)
   const fetchSnapshot = useAgentSessionStore((s) => s.fetchSnapshot)
   const openAgentSettings = useAgentSessionStore((s) => s.openAgentSettings)
 
@@ -29,6 +32,9 @@ export function AgentModelPicker({ onClose }: AgentModelPickerProps): JSX.Elemen
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [collapsedProviders, setCollapsedProviders] = useState<Record<string, boolean>>({})
+  const [favBusy, setFavBusy] = useState<string | null>(null)
+  const [removingRecent, setRemovingRecent] = useState<string | null>(null)
+  const [hoveredRowKey, setHoveredRowKey] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const toggleProvider = (providerId: string): void => {
@@ -75,21 +81,64 @@ export function AgentModelPicker({ onClose }: AgentModelPickerProps): JSX.Elemen
 
   const total = groups.reduce((sum, group) => sum + group.items.length, 0)
 
-  const favoriteItems = useMemo(() => {
+  const favoriteKeys = useMemo(
+    () => new Set((snapshot?.favorites ?? []).map((f) => `${f.providerId}:${f.modelId}`)),
+    [snapshot]
+  )
+
+  const pinnedItems = useMemo(() => {
     const providers = snapshot?.providers ?? []
-    const favorites = snapshot?.favorites ?? []
     const q = query.trim().toLowerCase()
-    const items: PickerItem[] = []
-    for (const fav of favorites) {
+    const seen = new Set<string>()
+    const items: Array<PickerItem & { fromRecent: boolean }> = []
+    const push = (fav: AgentFavoriteModel): void => {
       const provider = providers.find((p) => p.id === fav.providerId)
-      if (!provider || provider.disabled) continue
+      if (!provider || provider.disabled) return
       const model = provider.models.find((m) => m.id === fav.modelId)
-      if (!model || !model.available) continue
-      if (!matchesQuery(provider, model, q)) continue
-      items.push({ provider, model })
+      if (!model || !model.available) return
+      if (!matchesQuery(provider, model, q)) return
+      const key = `${provider.id}:${model.id}`
+      if (seen.has(key)) return
+      seen.add(key)
+      items.push({ provider, model, fromRecent: !favoriteKeys.has(key) })
     }
+    for (const fav of snapshot?.favorites ?? []) push(fav)
+    for (const rec of snapshot?.recent ?? []) push(rec)
     return items
-  }, [snapshot, query])
+  }, [snapshot, query, favoriteKeys])
+
+  const handleToggleFavorite = async (
+    e: React.MouseEvent,
+    provider: AgentProvider,
+    model: AgentProviderModel
+  ): Promise<void> => {
+    e.stopPropagation()
+    const key = `${provider.id}:${model.id}`
+    if (favBusy === key) return
+    setFavBusy(key)
+    const next = new Set(favoriteKeys)
+    if (next.has(key)) next.delete(key)
+    else next.add(key)
+    const favorites = [...next].map((entry) => {
+      const sep = entry.indexOf(':')
+      return { providerId: entry.slice(0, sep), modelId: entry.slice(sep + 1) }
+    })
+    await setFavoriteModels(favorites)
+    setFavBusy(null)
+  }
+
+  const handleRemoveRecent = async (
+    e: React.MouseEvent,
+    provider: AgentProvider,
+    model: AgentProviderModel
+  ): Promise<void> => {
+    e.stopPropagation()
+    const key = `${provider.id}:${model.id}`
+    if (removingRecent === key) return
+    setRemovingRecent(key)
+    await removeRecentModels([{ providerId: provider.id, modelId: model.id }])
+    setRemovingRecent(null)
+  }
 
   const handleSelect = async (provider: AgentProvider, model: AgentProviderModel): Promise<void> => {
     if (saving) return
@@ -119,24 +168,36 @@ export function AgentModelPicker({ onClose }: AgentModelPickerProps): JSX.Elemen
   const renderModelRow = (
     key: string,
     provider: AgentProvider,
-    model: AgentProviderModel
+    model: AgentProviderModel,
+    showRemoveRecent = false
   ): JSX.Element => {
     const isActive = active?.providerId === provider.id && active.modelId === model.id
+    const modelKey = `${provider.id}:${model.id}`
+    const isFav = favoriteKeys.has(modelKey)
     return (
-      <button
+      <div
         key={key}
-        type="button"
+        role="button"
+        tabIndex={0}
         onClick={() => void handleSelect(provider, model)}
-        disabled={saving}
-        className={`w-full text-left px-2.5 py-2 rounded-lg flex items-center justify-between transition-colors ${
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            void handleSelect(provider, model)
+          }
+        }}
+        onMouseEnter={() => setHoveredRowKey(key)}
+        onMouseLeave={() => setHoveredRowKey((current) => (current === key ? null : current))}
+        aria-disabled={saving}
+        className={`relative w-full text-left px-2.5 py-2 rounded-lg flex items-center justify-between transition-colors cursor-pointer ${
           isActive
             ? 'bg-blue-50/80 dark:bg-primary/15'
             : 'hover:bg-black/[0.045] dark:hover:bg-white/[0.07]'
-        } disabled:opacity-60`}
+        } ${saving ? 'opacity-60 pointer-events-none' : ''}`}
       >
-        <div className="min-w-0 flex-1">
+        <div className={`min-w-0 flex-1 ${showRemoveRecent ? 'pr-14' : 'pr-7'}`}>
           <div
-            className={`text-body leading-tight truncate ${
+            className={`text-label leading-tight truncate ${
               isActive
                 ? 'text-slate-900 dark:text-white font-semibold'
                 : 'text-text-primary dark:text-gray-200 font-medium'
@@ -149,8 +210,40 @@ export function AgentModelPicker({ onClose }: AgentModelPickerProps): JSX.Elemen
             {model.contextWindow ? ` · ${Math.round(model.contextWindow / 1000)}k 上下文` : ''}
           </div>
         </div>
-        {isActive && <AppIcon name="check" size={16} className="text-primary shrink-0 ml-2" />}
-      </button>
+        {showRemoveRecent && (
+          <button
+            type="button"
+            onClick={(e) => void handleRemoveRecent(e, provider, model)}
+            disabled={removingRecent === modelKey}
+            title="移出常用模型"
+            aria-label="移出常用模型"
+            style={{ opacity: hoveredRowKey === key ? (removingRecent === modelKey ? 0.4 : 1) : 0 }}
+            className="absolute right-1.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full text-text-secondary transition-all hover:bg-black/5 hover:text-rose-500 disabled:opacity-40 dark:hover:bg-white/10"
+          >
+            <AppIcon name="close" size={13} />
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={(e) => void handleToggleFavorite(e, provider, model)}
+          disabled={favBusy === modelKey}
+          title={isFav ? '移出常用模型' : '加入常用模型'}
+          aria-label={isFav ? '移出常用模型' : '加入常用模型'}
+          style={{ opacity: hoveredRowKey === key ? (favBusy === modelKey ? 0.4 : 1) : 0 }}
+          className={`absolute top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full transition-all hover:bg-black/5 disabled:opacity-40 dark:hover:bg-white/10 ${
+            showRemoveRecent ? 'right-7' : 'right-1.5'
+          } ${
+            isFav
+              ? 'text-amber-500'
+              : 'text-gray-300 hover:text-amber-400 dark:text-gray-600'
+          }`}
+        >
+          <AppIcon name="star" size={13} fill={isFav ? 'currentColor' : 'none'} />
+        </button>
+        {isActive && !showRemoveRecent && (
+          <AppIcon name="check" size={16} className="absolute right-8 top-1/2 -translate-y-1/2 text-primary" />
+        )}
+      </div>
     )
   }
 
@@ -183,7 +276,7 @@ export function AgentModelPicker({ onClose }: AgentModelPickerProps): JSX.Elemen
 
       {/* 模型列表 */}
       <div className="max-h-[280px] overflow-y-auto px-2 py-2 space-y-2">
-        {total === 0 && favoriteItems.length === 0 && (
+        {total === 0 && pinnedItems.length === 0 && (
           <div className="px-3 py-6 text-center space-y-2">
             <div className="text-text-secondary text-label">没有可用模型</div>
             <button
@@ -198,19 +291,19 @@ export function AgentModelPicker({ onClose }: AgentModelPickerProps): JSX.Elemen
             </button>
           </div>
         )}
-        {favoriteItems.length > 0 && (
+        {pinnedItems.length > 0 && (
           <div className="space-y-0.5">
             <div className="px-2 pt-0.5 pb-1 flex items-center gap-1.5 text-label text-text-secondary font-medium">
               <AppIcon name="star" size={12} className="text-amber-500 shrink-0" fill="currentColor" />
               <span className="truncate">常用模型</span>
-              <span className="shrink-0 ml-auto text-caption tabular-nums">{favoriteItems.length}</span>
+              <span className="shrink-0 ml-auto text-caption tabular-nums">{pinnedItems.length}</span>
             </div>
-            {favoriteItems.map(({ provider, model }) =>
-              renderModelRow(`fav:${provider.id}:${model.id}`, provider, model)
+            {pinnedItems.map(({ provider, model, fromRecent }) =>
+              renderModelRow(`fav:${provider.id}:${model.id}`, provider, model, fromRecent)
             )}
           </div>
         )}
-        {favoriteItems.length > 0 && groups.length > 0 && (
+        {pinnedItems.length > 0 && groups.length > 0 && (
           <div className="border-t border-slate-100 dark:border-white/10 mx-1" />
         )}
         {groups.map(({ provider, items }) => {

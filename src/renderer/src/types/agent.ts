@@ -282,6 +282,9 @@ export interface AgentIpcApi {
   agentSetFavoriteModels?: (
     favorites: AgentFavoriteModel[]
   ) => Promise<{ success: boolean; data?: AgentRuntimeSnapshot; error?: string }>
+  agentRemoveRecentModels?: (
+    items: AgentFavoriteModel[]
+  ) => Promise<{ success: boolean; data?: AgentRuntimeSnapshot; error?: string }>
   onAgentProviderAuthChanged?: (cb: (payload: { operation: AgentAuthOperation }) => void) => () => void
   onAgentRuntimeChanged?: (cb: (payload: { reason: string }) => void) => () => void
   onAgentSessionStatus?: (
