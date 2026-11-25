@@ -14,6 +14,9 @@ import { AppIcon } from '../icons/AppIcon'
 interface WorkbenchHtmlAnnotationPreviewProps {
   filePath: string
   fileUrl: string
+  zoom?: number
+  onZoomStep?: (direction: -1 | 1) => void
+  onZoomReset?: () => void
 }
 
 interface CommentCardState {
@@ -30,6 +33,7 @@ const CARD_ESTIMATED_HEIGHT = 250
 const FRAME_READY_TIMEOUT_MS = 4500
 const CAPTURE_TIMEOUT_MS = 3500
 const RELOCATE_TIMEOUT_MS = 10_000
+const WHEEL_ZOOM_THRESHOLD = 60
 
 function buildResolutionFingerprint(items: Annotation[], unlocated: string[]): string {
   return `${items
@@ -58,7 +62,10 @@ const CAPTURE_ERRORS: Record<string, string> = {
 
 export default function WorkbenchHtmlAnnotationPreview({
   filePath,
-  fileUrl
+  fileUrl,
+  zoom = 1,
+  onZoomStep,
+  onZoomReset
 }: WorkbenchHtmlAnnotationPreviewProps): JSX.Element {
   const workspacePath = useWorkbenchStore((s) => s.workspacePath)
   const [src] = useState(() => buildAnnotationUrl(fileUrl))
@@ -94,11 +101,17 @@ export default function WorkbenchHtmlAnnotationPreview({
   const resolutionFingerprintRef = useRef('')
   const readyTimerRef = useRef<number | null>(null)
   const hintTimerRef = useRef<number | null>(null)
+  const zoomRef = useRef(zoom)
+  const onZoomStepRef = useRef(onZoomStep)
+  const onZoomResetRef = useRef(onZoomReset)
 
   cardRef.current = card
   draftRef.current = draft
   busyRef.current = busy
   cleanupIdsRef.current = cleanupIds
+  zoomRef.current = zoom
+  onZoomStepRef.current = onZoomStep
+  onZoomResetRef.current = onZoomReset
 
   const allAnnotations = useMemo(() => {
     if (!draft) return annotations
@@ -223,6 +236,46 @@ export default function WorkbenchHtmlAnnotationPreview({
     setError(null)
   }, [clearRelocateTimer, postToFrame])
 
+  useEffect(() => {
+    if (!frameReady) return
+    postToFrame({ type: 'zoom', zoom })
+    if (cardRef.current) closeCard()
+  }, [closeCard, frameReady, postToFrame, zoom])
+
+  useEffect(() => {
+    const stage = stageRef.current
+    if (!stage) return
+    let accumulatedDelta = 0
+
+    const handleWheel = (event: WheelEvent): void => {
+      if (!event.ctrlKey && !event.metaKey) return
+      event.preventDefault()
+
+      const deltaScale =
+        event.deltaMode === WheelEvent.DOM_DELTA_LINE
+          ? 16
+          : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+            ? 100
+            : 1
+      const delta = event.deltaY * deltaScale
+      if (delta === 0) return
+
+      if (Math.sign(delta) !== Math.sign(accumulatedDelta)) accumulatedDelta = 0
+      accumulatedDelta += delta
+      const steps = Math.trunc(accumulatedDelta / WHEEL_ZOOM_THRESHOLD)
+      if (steps === 0) return
+
+      accumulatedDelta =
+        Math.abs(delta) >= WHEEL_ZOOM_THRESHOLD
+          ? 0
+          : accumulatedDelta - steps * WHEEL_ZOOM_THRESHOLD
+      onZoomStepRef.current?.(steps > 0 ? -1 : 1)
+    }
+
+    stage.addEventListener('wheel', handleWheel, { passive: false })
+    return () => stage.removeEventListener('wheel', handleWheel)
+  }, [])
+
   const placeCard = useCallback(
     (rect: WorkbenchHtmlAnnotationRect): { left: number; top: number } => {
       const stage = stageRef.current
@@ -271,7 +324,18 @@ export default function WorkbenchHtmlAnnotationPreview({
           window.clearTimeout(readyTimerRef.current)
           readyTimerRef.current = null
         }
+        postToFrame({ type: 'zoom', zoom: zoomRef.current })
         syncFrame(annotationsRef.current)
+        return
+      }
+
+      if (data.type === 'zoom-step' && (data.direction === 1 || data.direction === -1)) {
+        onZoomStepRef.current?.(data.direction)
+        return
+      }
+
+      if (data.type === 'zoom-reset') {
+        onZoomResetRef.current?.()
         return
       }
 

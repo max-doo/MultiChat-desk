@@ -49,6 +49,62 @@ export const WORKBENCH_HTML_ANNOTATION_RUNTIME = String.raw`
   var observer = null;
   var resolveTimer = null;
   var lastDismissAt = 0;
+  var WHEEL_ZOOM_THRESHOLD = 60;
+  var accumulatedWheelDelta = 0;
+  var pendingWheelAnchor = null;
+  var currentZoom = 1;
+  var rootEl = document.documentElement;
+  var initialInlineZoom = rootEl ? rootEl.style.zoom : '';
+  var initialComputedZoom = (function () {
+    if (!rootEl) return 1;
+    try {
+      var parsed = parseFloat(window.getComputedStyle(rootEl).zoom);
+      return parsed > 0 && isFinite(parsed) ? parsed : 1;
+    } catch (err) {
+      return 1;
+    }
+  })();
+
+  function applyZoom(rawZoom) {
+    var root = document.documentElement;
+    if (!root) return;
+    var nextZoom = typeof rawZoom === 'number' && isFinite(rawZoom) && rawZoom > 0 ? rawZoom : 1;
+    if (Math.abs(nextZoom - currentZoom) < 1e-4) return;
+
+    var prevZoom = currentZoom;
+    var scroller = document.scrollingElement || root || document.body;
+    var prevTop = scroller ? scroller.scrollTop : window.scrollY || 0;
+    var prevLeft = scroller ? scroller.scrollLeft : window.scrollX || 0;
+    var anchor =
+      pendingWheelAnchor && Date.now() - pendingWheelAnchor.at < 500
+        ? pendingWheelAnchor
+        : null;
+    pendingWheelAnchor = null;
+
+    currentZoom = nextZoom;
+    root.style.zoom =
+      Math.abs(nextZoom - 1) < 1e-4
+        ? initialInlineZoom
+        : String(initialComputedZoom * nextZoom);
+
+    if (scroller && (prevTop > 0 || prevLeft > 0)) {
+      var ratio = nextZoom / prevZoom;
+      if (prevTop > 0) {
+        var anchorY = anchor ? anchor.y : 0;
+        scroller.scrollTop = Math.max(0, (prevTop + anchorY) * ratio - anchorY);
+      }
+      if (prevLeft > 0) {
+        var anchorX = anchor ? anchor.x : 0;
+        scroller.scrollLeft = Math.max(0, (prevLeft + anchorX) * ratio - anchorX);
+      }
+    }
+
+    if (activeId) {
+      activeId = '';
+      renderHighlights();
+      emitDismiss(true);
+    }
+  }
 
   function post(type, payload) {
     try {
@@ -545,7 +601,60 @@ export const WORKBENCH_HTML_ANNOTATION_RUNTIME = String.raw`
     emitDismiss(false);
   }
 
+  function onWheel(event) {
+    if (!event.ctrlKey && !event.metaKey) return;
+    event.preventDefault();
+    event.stopPropagation();
+
+    var deltaScale =
+      event.deltaMode === 1
+        ? 16
+        : event.deltaMode === 2
+          ? 100
+          : 1;
+    var delta = event.deltaY * deltaScale;
+    if (!delta) return;
+
+    if (
+      accumulatedWheelDelta !== 0 &&
+      (delta > 0) !== (accumulatedWheelDelta > 0)
+    ) {
+      accumulatedWheelDelta = 0;
+    }
+    accumulatedWheelDelta += delta;
+    var steps = Math.trunc(accumulatedWheelDelta / WHEEL_ZOOM_THRESHOLD);
+    if (!steps) return;
+
+    accumulatedWheelDelta =
+      Math.abs(delta) >= WHEEL_ZOOM_THRESHOLD
+        ? 0
+        : accumulatedWheelDelta - steps * WHEEL_ZOOM_THRESHOLD;
+    pendingWheelAnchor = {
+      x: event.clientX,
+      y: event.clientY,
+      at: Date.now()
+    };
+    post('zoom-step', { direction: steps > 0 ? -1 : 1 });
+  }
+
   function onKeyDown(event) {
+    if (event.ctrlKey || event.metaKey) {
+      if (event.key === '=' || event.key === '+' || event.code === 'NumpadAdd') {
+        event.preventDefault();
+        post('zoom-step', { direction: 1 });
+        return;
+      }
+      if (event.key === '-' || event.key === '–' || event.code === 'NumpadSubtract') {
+        event.preventDefault();
+        post('zoom-step', { direction: -1 });
+        return;
+      }
+      if (event.key === '0' || event.code === 'Numpad0') {
+        event.preventDefault();
+        post('zoom-reset');
+        return;
+      }
+    }
     if (event.key !== 'Escape' || !activeId) return;
     event.preventDefault();
     activeId = '';
@@ -560,6 +669,10 @@ export const WORKBENCH_HTML_ANNOTATION_RUNTIME = String.raw`
 
     if (data.type === 'ping') {
       post('ready');
+      return;
+    }
+    if (data.type === 'zoom') {
+      applyZoom(data.zoom);
       return;
     }
     if (data.type === 'sync') {
@@ -594,6 +707,7 @@ export const WORKBENCH_HTML_ANNOTATION_RUNTIME = String.raw`
   document.addEventListener('keyup', rememberSelection, true);
   document.addEventListener('click', onClick, true);
   document.addEventListener('keydown', onKeyDown, true);
+  window.addEventListener('wheel', onWheel, { passive: false, capture: true });
   document.addEventListener('scroll', onScroll, true);
   window.addEventListener('scroll', onScroll, true);
   window.addEventListener('message', onMessage);

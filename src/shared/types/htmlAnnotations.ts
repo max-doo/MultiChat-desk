@@ -24,4 +24,6 @@ export interface WorkbenchHtmlAnnotationFrameMessage {
   rect?: WorkbenchHtmlAnnotationRect
   unlocated?: string[]
   error?: string
+  zoom?: number
+  direction?: -1 | 1
 }

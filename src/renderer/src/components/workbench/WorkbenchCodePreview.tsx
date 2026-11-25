@@ -12,6 +12,20 @@ import WorkbenchHtmlEditLeaveDialog from './WorkbenchHtmlEditLeaveDialog'
 import WorkbenchHtmlAnnotationPreview from './WorkbenchHtmlAnnotationPreview'
 import { AppIcon } from '../icons/AppIcon'
 
+const HTML_ZOOM_LEVELS = [0.25, 0.33, 0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3]
+const HTML_ZOOM_MIN = HTML_ZOOM_LEVELS[0]
+const HTML_ZOOM_MAX = HTML_ZOOM_LEVELS[HTML_ZOOM_LEVELS.length - 1]
+
+function stepHtmlZoom(current: number, direction: -1 | 1): number {
+  if (direction > 0) {
+    return HTML_ZOOM_LEVELS.find((level) => level > current + 1e-4) ?? HTML_ZOOM_MAX
+  }
+  for (let i = HTML_ZOOM_LEVELS.length - 1; i >= 0; i -= 1) {
+    if (HTML_ZOOM_LEVELS[i] < current - 1e-4) return HTML_ZOOM_LEVELS[i]
+  }
+  return HTML_ZOOM_MIN
+}
+
 // 零依赖高性能单行语法高亮器
 function highlightCodeLine(line: string): React.ReactNode {
   if (!line) return ' '
@@ -71,18 +85,25 @@ export default function WorkbenchCodePreview(): JSX.Element {
   const setHtmlEditLeaveGuard = useWorkbenchStore((s) => s.setHtmlEditLeaveGuard)
   const openInSystem = useWorkbenchStore((s) => s.openInSystem)
   const revealFile = useWorkbenchStore((s) => s.revealFile)
+  const isHtmlFile = useMemo(() => {
+    const lower = (activeFilePath || '').toLowerCase()
+    return lower.endsWith('.html') || lower.endsWith('.htm')
+  }, [activeFilePath])
   const [isEditing, setIsEditing] = useState(false)
   const [copied, setCopied] = useState(false)
   const [findOpen, setFindOpen] = useState(false)
   const [findReplaceFocus, setFindReplaceFocus] = useState(false)
-  // HTML 文件支持渲染 / 可视化编辑 / 源码三态；源码态即文本编辑
-  const [viewMode, setViewMode] = useState<'render' | 'edit' | 'source'>('source')
+  // HTML 文件支持渲染 / 可视化编辑 / 源码三态；源码态即文本编辑（初值与文件类型对齐，避免源码态闪烁）
+  const [viewMode, setViewMode] = useState<'render' | 'edit' | 'source'>(() =>
+    isHtmlFile ? 'render' : 'source'
+  )
   const [visualDirty, setVisualDirty] = useState(false)
   const [leaveDialogOpen, setLeaveDialogOpen] = useState(false)
   const [leaveBusy, setLeaveBusy] = useState(false)
   const [editSession, setEditSession] = useState(0)
   // 渲染预览刷新：只重新挂载 iframe，不触发磁盘重读
   const [previewReloadKey, setPreviewReloadKey] = useState(0)
+  const [previewZoom, setPreviewZoom] = useState(1)
   const visualEditorRef = useRef<WorkbenchHtmlVisualEditorHandle | null>(null)
   const visualBaselineRef = useRef<string | null>(null)
   const visualDirtyRef = useRef(false)
@@ -91,11 +112,6 @@ export default function WorkbenchCodePreview(): JSX.Element {
     resolve: (decision: HtmlEditLeaveDecision) => void
   } | null>(null)
   const hadConflictRef = useRef(false)
-
-  const isHtmlFile = useMemo(() => {
-    const lower = (activeFilePath || '').toLowerCase()
-    return lower.endsWith('.html') || lower.endsWith('.htm')
-  }, [activeFilePath])
 
   // Git 行内标记：仅源码/文本编辑态需要；渲染/可视化编辑态仅保留顶栏状态提示
   const gitDiff = useGitLineDiff(activeFileContent)
@@ -125,6 +141,7 @@ export default function WorkbenchCodePreview(): JSX.Element {
     setLeaveBusy(false)
     setEditSession(0)
     setPreviewReloadKey(0)
+    setPreviewZoom(1)
     visualBaselineRef.current = null
     hadConflictRef.current = false
   }, [activeFilePath, isHtmlFile])
@@ -279,7 +296,15 @@ export default function WorkbenchCodePreview(): JSX.Element {
     }
   }, [])
 
-  // Ctrl+S 保存；Ctrl+F/H 在可视化编辑态不打开代码查找条
+  const handlePreviewZoomStep = useCallback((direction: -1 | 1) => {
+    setPreviewZoom((current) => stepHtmlZoom(current, direction))
+  }, [])
+
+  const handlePreviewZoomReset = useCallback(() => {
+    setPreviewZoom(1)
+  }, [])
+
+  // Ctrl+S 保存；Ctrl+F/H 在可视化编辑态不打开代码查找条；HTML 渲染态支持 Ctrl+加减/0 缩放
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (leaveDialogOpen) return
@@ -296,9 +321,37 @@ export default function WorkbenchCodePreview(): JSX.Element {
         e.preventDefault()
         setFindReplaceFocus(k === 'h')
         setFindOpen(true)
+      } else if (isHtmlFile && viewMode === 'render') {
+        const target = e.target as HTMLElement | null
+        const inEditable =
+          !!target &&
+          (target.tagName === 'INPUT' ||
+            target.tagName === 'TEXTAREA' ||
+            target.isContentEditable)
+        if (inEditable) return
+        if (e.key === '=' || e.key === '+' || e.code === 'NumpadAdd') {
+          e.preventDefault()
+          handlePreviewZoomStep(1)
+        } else if (e.key === '-' || e.key === '–' || e.code === 'NumpadSubtract') {
+          e.preventDefault()
+          handlePreviewZoomStep(-1)
+        } else if (e.key === '0' || e.code === 'Numpad0') {
+          e.preventDefault()
+          handlePreviewZoomReset()
+        }
       }
     },
-    [handleVisualSave, isVisualEditing, leaveDialogOpen, saveActiveFile, visualDirty]
+    [
+      handlePreviewZoomReset,
+      handlePreviewZoomStep,
+      handleVisualSave,
+      isHtmlFile,
+      isVisualEditing,
+      leaveDialogOpen,
+      saveActiveFile,
+      viewMode,
+      visualDirty
+    ]
   )
 
   // 切换文件时关闭查找条
@@ -419,7 +472,49 @@ export default function WorkbenchCodePreview(): JSX.Element {
             </div>
           )}
 
-          {/* 保存按钮位于模式分组之前，模式分组与右侧文件操作保持固定位置 */}
+          {/* 缩放控件与保存按钮位于模式分组之前，使模式分组与右侧文件操作保持固定位置 */}
+          {isHtmlFile && viewMode === 'render' && (
+            <>
+              <div className="flex items-center gap-0.5">
+                <button
+                  type="button"
+                  onClick={() => handlePreviewZoomStep(-1)}
+                  disabled={previewZoom <= HTML_ZOOM_MIN}
+                  className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-slate-700 text-slate-300 hover:text-white transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
+                  title="缩小 (Ctrl+滚轮 / Ctrl+-)"
+                >
+                  <AppIcon name="zoom_out" size={18} />
+                </button>
+                <button
+                  type="button"
+                  onClick={handlePreviewZoomReset}
+                  className="min-w-[44px] h-7 px-1 rounded-md text-xs font-medium tabular-nums text-slate-300 hover:bg-slate-700 hover:text-white transition-colors"
+                  title="恢复到 100% (Ctrl+0)"
+                >
+                  {Math.round(previewZoom * 100)}%
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handlePreviewZoomStep(1)}
+                  disabled={previewZoom >= HTML_ZOOM_MAX}
+                  className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-slate-700 text-slate-300 hover:text-white transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
+                  title="放大 (Ctrl+滚轮 / Ctrl+=)"
+                >
+                  <AppIcon name="zoom_in" size={18} />
+                </button>
+              </div>
+              {/* HTML 渲染预览：重新加载 iframe，获取外部修改后的磁盘版本 */}
+              <button
+                type="button"
+                onClick={() => setPreviewReloadKey((k) => k + 1)}
+                className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
+                title="刷新渲染预览"
+              >
+                <AppIcon name="refresh" size={19} />
+              </button>
+              <div className="h-4 w-px bg-slate-700/80" />
+            </>
+          )}
           {isVisualEditing && (
             <button
               type="button"
@@ -522,18 +617,6 @@ export default function WorkbenchCodePreview(): JSX.Element {
           >
             <AppIcon name={copied ? 'check' : 'content_copy'} size={19} />
           </button>
-
-          {/* HTML 渲染预览：重新加载 iframe，获取外部修改后的磁盘版本 */}
-          {isHtmlFile && viewMode === 'render' && (
-            <button
-              type="button"
-              onClick={() => setPreviewReloadKey((k) => k + 1)}
-              className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
-              title="刷新渲染预览"
-            >
-              <AppIcon name="refresh" size={19} />
-            </button>
-          )}
 
           {/* 系统默认编辑器打开 */}
           <button
