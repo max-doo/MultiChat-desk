@@ -7,7 +7,8 @@
 
 import { spawn } from 'child_process'
 import path from 'path'
-import { stat } from 'fs/promises'
+import { rename, stat } from 'fs/promises'
+import { shell } from 'electron'
 import { appendGitignorePatterns, DEFAULT_GITIGNORE_PATTERNS } from './gitignoreService'
 import type {
   GitActionResult,
@@ -813,6 +814,27 @@ export async function getStatus(workspaceRoot: string): Promise<GitStatus> {
  * `cat-file -p` 读原始字节 → 前 1024 字节 NUL 检测 → UTF-8 解码。
  * 冲突态（stage !== '0'）、未跟踪、unborn、非仓库均返回 none，不进入编辑器标记。
  */
+/**
+ * 校验工作区内相对路径，防范 .. 逃逸、NUL 字符与 .git 内部路径。
+ * 返回归一化后的 POSIX 相对路径；非法时返回 null。
+ */
+function normalizeSafeWorkspaceRelativePath(relativePath: string): string | null {
+  if (!relativePath || relativePath.includes('\0')) return null
+  const normalized = normalizeGitPath(relativePath).replace(/^\/+/, '').replace(/\/+$/, '')
+  if (
+    !normalized ||
+    normalized === '.' ||
+    normalized === '..' ||
+    normalized.startsWith('../') ||
+    normalized.includes('/../') ||
+    normalized.endsWith('/..') ||
+    normalized.split('/').includes('.git')
+  ) {
+    return null
+  }
+  return normalized
+}
+
 export async function getFileBaseline(
   workspaceRoot: string,
   relativePath: string
@@ -825,17 +847,8 @@ export async function getFileBaseline(
     const repo = await resolveRepo(workspaceRoot)
     if (!repo) return { status: 'none' }
 
-    // 防范 .. 逃逸与 .git 内部文件：与 assertSafePath 同思路的相对路径校验
-    const normalized = normalizeGitPath(relativePath).replace(/^\/+/, '')
-    if (
-      !normalized ||
-      normalized === '.' ||
-      normalized.startsWith('../') ||
-      normalized.includes('/../') ||
-      normalized.split('/').includes('.git')
-    ) {
-      return { status: 'none' }
-    }
+    const normalized = normalizeSafeWorkspaceRelativePath(relativePath)
+    if (!normalized) return { status: 'none' }
     const repoPath = toRepoPath(repo.prefix, normalized)
 
     const entries = await readIndexEntries(repo.repoRoot, [repoPath])
@@ -1305,6 +1318,294 @@ export async function initRepository(workspaceRoot: string): Promise<GitActionRe
       })
     }
     return { success: true }
+  })
+}
+
+async function hasHeadEntry(repoRoot: string, repoPath: string): Promise<boolean> {
+  const res = await runGit(repoRoot, [
+    '--literal-pathspecs',
+    'ls-tree',
+    '-z',
+    '--full-name',
+    'HEAD',
+    '--',
+    repoPath
+  ])
+  return res.ok && res.stdout.length > 0
+}
+
+/**
+ * 撤回单个已跟踪文件的改动（M / D / T / R / C / A）：
+ * - 对已在 HEAD 中的文件（M / D / T）：同时还原暂存区与工作区到 HEAD
+ * - 对首次提交前或尚未进 HEAD 的新增暂存文件（A / unborn）：仅移出待提交列表，保留本地文件
+ * - 对重命名（R）：在原位置未被占用时恢复原路径与 HEAD 内容，新路径若非 HEAD 文件则移入回收站
+ * - 对复制（C）：仅取消新增路径的暂存，保留原路径
+ */
+export async function discardChange(
+  workspaceRoot: string,
+  payload: { path: string; oldPath?: string }
+): Promise<GitActionResult> {
+  const safePath = normalizeSafeWorkspaceRelativePath(payload.path)
+  const safeOldPath = payload.oldPath ? normalizeSafeWorkspaceRelativePath(payload.oldPath) : null
+  if (!safePath || (payload.oldPath !== undefined && !safeOldPath)) {
+    return { success: false, failure: 'failed', error: '非法的相对路径' }
+  }
+
+  return serialize(workspaceRoot, async () => {
+    const status = await readStatus(workspaceRoot)
+    const blocked = blockedByState(status)
+    if (blocked) return blocked
+    if (status.merging) {
+      return {
+        success: false,
+        failure: 'conflict',
+        error: '当前有未完成的合并',
+        hint: '请先撤销本次合并或解决冲突'
+      }
+    }
+
+    const repo = await resolveRepo(workspaceRoot)
+    if (!repo) {
+      return { success: false, failure: 'not-repository', error: '当前工作区还不是 Git 仓库' }
+    }
+
+    const repoPath = toRepoPath(repo.prefix, safePath)
+    const oldRepoPath = safeOldPath ? toRepoPath(repo.prefix, safeOldPath) : null
+
+    // 仓库尚未有过任何提交：不存在 HEAD，只能把已暂存文件移出待提交列表，保留本地文件
+    if (status.unborn) {
+      const rmRes = await runGit(repo.repoRoot, [
+        '--literal-pathspecs',
+        'rm',
+        '--cached',
+        '--ignore-unmatch',
+        '-f',
+        '--quiet',
+        '--',
+        repoPath
+      ])
+      if (!rmRes.ok) {
+        return { success: false, failure: 'failed', error: explainGitError(rmRes.stderr || rmRes.stdout) }
+      }
+      return { success: true, hint: '已移出待提交列表，本地文件已保留' }
+    }
+
+    // 处理重命名 / 复制条目
+    if (oldRepoPath && oldRepoPath !== repoPath) {
+      const oldIndexEntries = await readIndexEntries(repo.repoRoot, [oldRepoPath])
+      const isCopy = oldIndexEntries.length > 0
+
+      if (isCopy) {
+        const newInHead = await hasHeadEntry(repo.repoRoot, repoPath)
+        const res = newInHead
+          ? await runGit(repo.repoRoot, ['--literal-pathspecs', 'checkout', 'HEAD', '--', repoPath])
+          : await runGit(repo.repoRoot, ['--literal-pathspecs', 'reset', '-q', 'HEAD', '--', repoPath])
+        if (!res.ok) {
+          return { success: false, failure: 'failed', error: explainGitError(res.stderr || res.stdout) }
+        }
+        return { success: true, hint: '已移出待提交列表，本地文件已保留' }
+      }
+
+      const isCaseOnlyWinRename =
+        process.platform === 'win32' && oldRepoPath.toLowerCase() === repoPath.toLowerCase()
+      const absOld = path.join(repo.repoRoot, oldRepoPath)
+      const absNew = path.join(repo.repoRoot, repoPath)
+
+      if (isCaseOnlyWinRename) {
+        const resetRes = await runGit(repo.repoRoot, [
+          '--literal-pathspecs',
+          'reset',
+          '-q',
+          'HEAD',
+          '--',
+          oldRepoPath,
+          repoPath
+        ])
+        if (!resetRes.ok) {
+          return { success: false, failure: 'failed', error: explainGitError(resetRes.stderr || resetRes.stdout) }
+        }
+        if (await pathExists(absNew)) {
+          await rename(absNew, absOld)
+        }
+        const checkoutRes = await runGit(repo.repoRoot, [
+          '--literal-pathspecs',
+          'checkout',
+          'HEAD',
+          '--',
+          oldRepoPath
+        ])
+        if (!checkoutRes.ok) {
+          return { success: false, failure: 'failed', error: explainGitError(checkoutRes.stderr || checkoutRes.stdout) }
+        }
+        return { success: true, hint: '已恢复原文件名与原内容' }
+      }
+
+      if (await pathExists(absOld)) {
+        return {
+          success: false,
+          failure: 'failed',
+          error: '原位置已有同名文件，无法直接恢复原位置'
+        }
+      }
+
+      const newInHead = await hasHeadEntry(repo.repoRoot, repoPath)
+      const resetRes = await runGit(repo.repoRoot, [
+        '--literal-pathspecs',
+        'reset',
+        '-q',
+        'HEAD',
+        '--',
+        oldRepoPath,
+        repoPath
+      ])
+      if (!resetRes.ok) {
+        return { success: false, failure: 'failed', error: explainGitError(resetRes.stderr || resetRes.stdout) }
+      }
+
+      if (newInHead) {
+        const restoreNew = await runGit(repo.repoRoot, [
+          '--literal-pathspecs',
+          'checkout',
+          'HEAD',
+          '--',
+          repoPath
+        ])
+        if (!restoreNew.ok) {
+          return { success: false, failure: 'failed', error: explainGitError(restoreNew.stderr || restoreNew.stdout) }
+        }
+      } else if (await pathExists(absNew)) {
+        await shell.trashItem(absNew)
+      }
+
+      const checkoutOld = await runGit(repo.repoRoot, [
+        '--literal-pathspecs',
+        'checkout',
+        'HEAD',
+        '--',
+        oldRepoPath
+      ])
+      if (!checkoutOld.ok) {
+        return { success: false, failure: 'failed', error: explainGitError(checkoutOld.stderr || checkoutOld.stdout) }
+      }
+      return { success: true, hint: '已恢复原位置与原内容' }
+    }
+
+    // 普通文件：检查是否存在于 HEAD 中
+    const inHead = await hasHeadEntry(repo.repoRoot, repoPath)
+    if (!inHead) {
+      const resetRes = await runGit(repo.repoRoot, [
+        '--literal-pathspecs',
+        'reset',
+        '-q',
+        'HEAD',
+        '--',
+        repoPath
+      ])
+      if (!resetRes.ok) {
+        return { success: false, failure: 'failed', error: explainGitError(resetRes.stderr || resetRes.stdout) }
+      }
+      return { success: true, hint: '已移出待提交列表，本地文件已保留' }
+    }
+
+    const existedBefore = await pathExists(path.join(repo.repoRoot, repoPath))
+    const checkoutRes = await runGit(repo.repoRoot, [
+      '--literal-pathspecs',
+      'checkout',
+      'HEAD',
+      '--',
+      repoPath
+    ])
+    if (!checkoutRes.ok) {
+      return { success: false, failure: 'failed', error: explainGitError(checkoutRes.stderr || checkoutRes.stdout) }
+    }
+    return {
+      success: true,
+      hint: existedBefore ? '已还原到上次提交的版本' : '已恢复删除的文件'
+    }
+  })
+}
+
+/**
+ * 回收站删除未跟踪或新增暂存文件后，清理未进入 HEAD 的暂存区条目，避免残留 AD 状态。
+ */
+export async function cleanupIndexAfterTrash(
+  workspaceRoot: string,
+  relativePath: string
+): Promise<GitActionResult> {
+  const safePath = normalizeSafeWorkspaceRelativePath(relativePath)
+  if (!safePath) {
+    return { success: false, failure: 'failed', error: '非法的相对路径' }
+  }
+
+  return serialize(workspaceRoot, async () => {
+    const status = await readStatus(workspaceRoot)
+    const blocked = blockedByState(status)
+    if (blocked) return blocked
+
+    const repo = await resolveRepo(workspaceRoot)
+    if (!repo) {
+      return { success: false, failure: 'not-repository', error: '当前工作区还不是 Git 仓库' }
+    }
+
+    const repoPath = toRepoPath(repo.prefix, safePath)
+    if (status.unborn || !(await hasHeadEntry(repo.repoRoot, repoPath))) {
+      const rmRes = await runGit(repo.repoRoot, [
+        '--literal-pathspecs',
+        'rm',
+        '--cached',
+        '--ignore-unmatch',
+        '-f',
+        '--quiet',
+        '--',
+        repoPath
+      ])
+      if (!rmRes.ok) {
+        return { success: false, failure: 'failed', error: explainGitError(rmRes.stderr || rmRes.stdout) }
+      }
+    }
+    return { success: true }
+  })
+}
+
+/**
+ * 将未跟踪文件或同扩展名规则追加到工作区 .gitignore。
+ */
+export async function ignorePath(
+  workspaceRoot: string,
+  target: { relativePath: string; mode: 'file' | 'extension' }
+): Promise<GitActionResult> {
+  const safePath = normalizeSafeWorkspaceRelativePath(target.relativePath)
+  if (!safePath) {
+    return { success: false, failure: 'failed', error: '非法的相对路径' }
+  }
+  if (safePath === '.gitignore') {
+    return { success: false, failure: 'failed', error: '不能忽略 .gitignore 文件本身' }
+  }
+
+  return serialize(workspaceRoot, async () => {
+    const status = await readStatus(workspaceRoot)
+    const blocked = blockedByState(status)
+    if (blocked) return blocked
+
+    let pattern: string
+    if (target.mode === 'extension') {
+      const baseName = safePath.split('/').pop() ?? ''
+      const dotIndex = baseName.lastIndexOf('.')
+      if (dotIndex <= 0) {
+        return { success: false, failure: 'failed', error: '该文件没有可用于批量忽略的扩展名' }
+      }
+      const ext = baseName.slice(dotIndex).replace(/([\\*?[\]])/g, '\\$1')
+      pattern = `*${ext}`
+    } else {
+      const escaped = safePath.replace(/([\\*?[\]])/g, '\\$1')
+      pattern = `/${escaped}`
+    }
+
+    const { added } = await appendGitignorePatterns(workspaceRoot, [pattern])
+    return {
+      success: true,
+      hint: added.length ? `已将 ${pattern} 加入忽略规则` : `${pattern} 已在忽略规则中`
+    }
   })
 }
 

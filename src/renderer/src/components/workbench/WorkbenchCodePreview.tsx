@@ -170,6 +170,21 @@ export default function WorkbenchCodePreview(): JSX.Element {
     }
   }, [saveStatus, isDirty, isVisualEditing])
 
+  // Git 撤回当前文件修改后，重建渲染预览与可视化编辑 iframe，确保画布与磁盘对齐。
+  useEffect(() => {
+    const handler = (event: Event): void => {
+      const detail = (event as CustomEvent<{ relativePath?: string }>).detail
+      if (!detail?.relativePath || detail.relativePath !== activeFilePath) return
+      setVisualDirty(false)
+      visualDirtyRef.current = false
+      visualBaselineRef.current = useWorkbenchStore.getState().activeFileContent
+      setEditSession((value) => value + 1)
+      setPreviewReloadKey((value) => value + 1)
+    }
+    window.addEventListener('workbench:git-file-reloaded', handler)
+    return () => window.removeEventListener('workbench:git-file-reloaded', handler)
+  }, [activeFilePath])
+
   const lines = useMemo(() => {
     return activeFileContent.split('\n')
   }, [activeFileContent])
@@ -653,9 +668,12 @@ export default function WorkbenchCodePreview(): JSX.Element {
           <div className="flex-1 h-full relative bg-white">
             {activeFileUrl ? (
               <WorkbenchHtmlAnnotationPreview
-                key={`${activeFilePath}-${saveStatus}-${isDirty}-${previewReloadKey}`}
+                key={`${activeFilePath}-${activeFileUrl}-${saveStatus}-${isDirty}-${previewReloadKey}`}
                 filePath={activeFilePath || ''}
                 fileUrl={activeFileUrl}
+                zoom={previewZoom}
+                onZoomStep={handlePreviewZoomStep}
+                onZoomReset={handlePreviewZoomReset}
               />
             ) : (
               <div className="w-full h-full flex flex-col items-center justify-center p-8 text-center bg-slate-900 text-slate-400">
@@ -671,7 +689,7 @@ export default function WorkbenchCodePreview(): JSX.Element {
           </div>
         ) : isVisualEditing && activeFileUrl ? (
           <WorkbenchHtmlVisualEditor
-            key={`${activeFilePath || 'html-visual-editor'}-${editSession}`}
+            key={`${activeFilePath || 'html-visual-editor'}-${activeFileUrl}-${editSession}`}
             ref={visualEditorRef}
             filePath={activeFilePath || ''}
             fileUrl={activeFileUrl}

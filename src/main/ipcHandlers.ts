@@ -127,7 +127,10 @@ import {
     listRemotes as gitListRemotes,
     setRemoteUrl as gitSetRemoteUrl,
     getLog as gitGetLog,
-    getFileBaseline as gitGetFileBaseline
+    getFileBaseline as gitGetFileBaseline,
+    discardChange as gitDiscardChange,
+    cleanupIndexAfterTrash as gitCleanupIndexAfterTrash,
+    ignorePath as gitIgnorePath
 } from './services/gitService'
 import {
     readGitignore as readWorkspaceGitignore,
@@ -2580,6 +2583,50 @@ export async function registerIpcHandlers(
     ipcMain.handle('workbench:git-baseline', async (_event, payload: { workspaceRoot: string; relativePath: string }) => {
         try {
             const data = await gitGetFileBaseline(payload.workspaceRoot, payload.relativePath)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('workbench:git-discard-file', async (_event, payload: { workspaceRoot: string; path: string; oldPath?: string }) => {
+        try {
+            assertActiveWorkspace(payload.workspaceRoot)
+            const data = await gitDiscardChange(payload.workspaceRoot, {
+                path: payload.path,
+                oldPath: payload.oldPath
+            })
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('workbench:git-trash-file', async (_event, payload: { workspaceRoot: string; relativePath: string }) => {
+        try {
+            assertActiveWorkspace(payload.workspaceRoot)
+            await workbenchDeleteNode(payload.workspaceRoot, payload.relativePath)
+            await removeDocumentAnnotations(payload.workspaceRoot, payload.relativePath)
+                .catch(error => console.warn('[Annotations] 文档标注清理失败:', error))
+            await noteManager.purgeWorkbenchSource(payload.workspaceRoot, [payload.relativePath])
+                .then(count => { if (count) notesChanged() })
+            const data = await gitCleanupIndexAfterTrash(payload.workspaceRoot, payload.relativePath)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('workbench:git-ignore-path', async (_event, payload: { workspaceRoot: string; relativePath: string; mode: 'file' | 'extension' }) => {
+        try {
+            assertActiveWorkspace(payload.workspaceRoot)
+            const data = await gitIgnorePath(payload.workspaceRoot, {
+                relativePath: payload.relativePath,
+                mode: payload.mode
+            })
             return { success: true, data }
         } catch (err: unknown) {
             const error = err instanceof Error ? err.message : String(err)

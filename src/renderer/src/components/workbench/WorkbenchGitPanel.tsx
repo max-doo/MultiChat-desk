@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useWorkbenchStore } from '../../store/workbenchStore'
 import type { GitFileChange, GitHistoryItem, GitStatus } from '../../../../shared/types/workbench'
 import { buildGitGraphLayout } from '../../utils/gitGraphLayout'
+import ConfirmModal from '../ConfirmModal'
 import { AppIcon } from '../icons/AppIcon'
 import GitHistoryGraph from './GitHistoryGraph'
 import WorkbenchFooterPopover, { WorkbenchFooterPopoverHeader } from './WorkbenchFooterPopover'
@@ -77,6 +79,21 @@ function isDeletedChange(change: GitFileChange): boolean {
   return change.staged === 'deleted' || change.unstaged === 'deleted'
 }
 
+type ChangeMenuEntry =
+  | { type: 'separator' }
+  | {
+      key: string
+      label: string
+      icon: string
+      danger?: boolean
+      action: () => void
+    }
+
+interface ConfirmChangeAction {
+  kind: 'discard' | 'trash'
+  change: GitFileChange
+}
+
 /**
  * 工作区版本管理：状态、提交与远程同步。
  * 入口由 footer 与仓库切换并排提供，这里只负责状态徽标与向上展开的面板。
@@ -98,8 +115,12 @@ export default function WorkbenchGitPanel({
   const gitAbortMerge = useWorkbenchStore((s) => s.gitAbortMerge)
   const gitPush = useWorkbenchStore((s) => s.gitPush)
   const gitInit = useWorkbenchStore((s) => s.gitInit)
+  const gitDiscardFile = useWorkbenchStore((s) => s.gitDiscardFile)
+  const gitTrashFile = useWorkbenchStore((s) => s.gitTrashFile)
+  const gitIgnorePath = useWorkbenchStore((s) => s.gitIgnorePath)
   const clearGitNotice = useWorkbenchStore((s) => s.clearGitNotice)
   const openFile = useWorkbenchStore((s) => s.openFile)
+  const revealFile = useWorkbenchStore((s) => s.revealFile)
 
   const [isOpen, setIsOpen] = useState(false)
   const [activeTab, setActiveTab] = useState<'changes' | 'history'>('changes')
@@ -110,8 +131,11 @@ export default function WorkbenchGitPanel({
   const [isSyncing, setIsSyncing] = useState(false)
   const [title, setTitle] = useState('')
   const [titleTouched, setTitleTouched] = useState(false)
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; change: GitFileChange } | null>(null)
+  const [confirmAction, setConfirmAction] = useState<ConfirmChangeAction | null>(null)
   const triggerRef = useRef<HTMLButtonElement | null>(null)
   const titleRef = useRef<HTMLInputElement | null>(null)
+  const contextMenuRef = useRef<HTMLDivElement | null>(null)
 
   const fetchLog = useCallback(async () => {
     if (!workspacePath) return
@@ -173,7 +197,41 @@ export default function WorkbenchGitPanel({
     setLogItems([])
     setLogLoaded(false)
     setLogError(null)
+    setContextMenu(null)
+    setConfirmAction(null)
   }, [workspacePath])
+
+  useEffect(() => {
+    if (!isOpen || activeTab !== 'changes') {
+      setContextMenu(null)
+    }
+  }, [isOpen, activeTab])
+
+  useEffect(() => {
+    if (!contextMenu) return
+    const handlePointerDown = (event: MouseEvent): void => {
+      const target = event.target
+      if (target instanceof Node && contextMenuRef.current?.contains(target)) return
+      setContextMenu(null)
+    }
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        event.stopPropagation()
+        setContextMenu(null)
+      }
+    }
+    const close = (): void => setContextMenu(null)
+    document.addEventListener('mousedown', handlePointerDown)
+    window.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('resize', close)
+    window.addEventListener('blur', close)
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+      window.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('resize', close)
+      window.removeEventListener('blur', close)
+    }
+  }, [contextMenu])
 
   const graphLayout = useMemo(() => buildGitGraphLayout(logItems), [logItems])
 
@@ -294,6 +352,216 @@ export default function WorkbenchGitPanel({
     if (confirmed) await gitInit()
   }
 
+  const buildChangeMenuItems = (change: GitFileChange): ChangeMenuEntry[] => {
+    const deleted = isDeletedChange(change)
+    const fileName = change.path.split('/').pop() ?? change.path
+    const dotIndex = fileName.lastIndexOf('.')
+    const ext = dotIndex > 0 ? fileName.slice(dotIndex) : ''
+    const isGitignore = change.path === '.gitignore'
+    const isRenameOrCopy = change.staged === 'renamed' || change.staged === 'copied'
+    const isStagedAdded = change.staged === 'added' && !deleted
+
+    const items: ChangeMenuEntry[] = []
+    if (!deleted) {
+      items.push(
+        {
+          key: 'open',
+          label: '打开文件',
+          icon: 'article',
+          action: () => {
+            void openFile(change.path)
+          }
+        },
+        {
+          key: 'reveal',
+          label: '在资源管理器中显示',
+          icon: 'folder',
+          action: () => {
+            void revealFile(change.path)
+          }
+        }
+      )
+    }
+
+    if (change.conflicted) {
+      return items
+    }
+
+    if (deleted) {
+      if (change.staged === 'added') {
+        items.push({
+          key: 'unstage',
+          label: '移出待提交列表',
+          icon: 'undo',
+          action: () => {
+            void gitDiscardFile({ path: change.path })
+          }
+        })
+      } else {
+        items.push({
+          key: 'restore-deleted',
+          label: '恢复已删除的文件',
+          icon: 'undo',
+          action: () => {
+            void gitDiscardFile({ path: change.path, oldPath: change.oldPath })
+          }
+        })
+      }
+      return items
+    }
+
+    if (change.untracked) {
+      items.push({ type: 'separator' })
+      if (!isGitignore) {
+        items.push({
+          key: 'ignore-file',
+          label: '忽略此文件',
+          icon: 'visibility_off',
+          action: () => {
+            void gitIgnorePath(change.path, 'file')
+          }
+        })
+        if (ext) {
+          items.push({
+            key: 'ignore-ext',
+            label: `忽略此类文件 (*${ext})`,
+            icon: 'visibility_off',
+            action: () => {
+              void gitIgnorePath(change.path, 'extension')
+            }
+          })
+        }
+        items.push({ type: 'separator' })
+      }
+      items.push({
+        key: 'trash',
+        label: '删除文件 (移入回收站)',
+        icon: 'delete',
+        danger: true,
+        action: () => {
+          setConfirmAction({ kind: 'trash', change })
+        }
+      })
+      return items
+    }
+
+    if (isRenameOrCopy) {
+      items.push({ type: 'separator' })
+      if (change.staged === 'renamed') {
+        items.push({
+          key: 'revert-rename',
+          label: '撤回重命名/移动',
+          icon: 'undo',
+          danger: true,
+          action: () => {
+            setConfirmAction({ kind: 'discard', change })
+          }
+        })
+      } else {
+        items.push({
+          key: 'unstage-copy',
+          label: '移出待提交列表 (保留文件)',
+          icon: 'undo',
+          action: () => {
+            void gitDiscardFile({ path: change.path, oldPath: change.oldPath })
+          }
+        })
+      }
+      return items
+    }
+
+    if (isStagedAdded) {
+      items.push(
+        { type: 'separator' },
+        {
+          key: 'unstage-added',
+          label: '移出待提交列表 (保留文件)',
+          icon: 'undo',
+          action: () => {
+            void gitDiscardFile({ path: change.path })
+          }
+        },
+        {
+          key: 'trash',
+          label: '删除文件 (移入回收站)',
+          icon: 'delete',
+          danger: true,
+          action: () => {
+            setConfirmAction({ kind: 'trash', change })
+          }
+        }
+      )
+      return items
+    }
+
+    items.push(
+      { type: 'separator' },
+      {
+        key: 'discard',
+        label: '撤回修改 (还原到上次提交)',
+        icon: 'undo',
+        danger: true,
+        action: () => {
+          setConfirmAction({ kind: 'discard', change })
+        }
+      }
+    )
+    return items
+  }
+
+  const contextMenuItems = contextMenu ? buildChangeMenuItems(contextMenu.change) : []
+  const contextMenuPosition = useMemo(() => {
+    if (!contextMenu) return null
+    const menuWidth = 224
+    const estimatedHeight =
+      contextMenuItems.reduce((acc, entry) => acc + ('type' in entry ? 9 : 34), 0) + 12
+    const left = Math.max(8, Math.min(contextMenu.x, window.innerWidth - menuWidth - 8))
+    const top = Math.max(8, Math.min(contextMenu.y, window.innerHeight - estimatedHeight - 8))
+    return { left, top }
+  }, [contextMenu, contextMenuItems])
+
+  const handleConfirmAction = async (): Promise<void> => {
+    const action = confirmAction
+    if (!action) return
+    try {
+      if (action.kind === 'trash') {
+        await gitTrashFile(action.change.path)
+      } else {
+        await gitDiscardFile({ path: action.change.path, oldPath: action.change.oldPath })
+      }
+    } finally {
+      setConfirmAction(null)
+    }
+  }
+
+  const confirmDialogCopy = useMemo(() => {
+    if (!confirmAction) return null
+    const { kind, change } = confirmAction
+    const fileName = change.path.split('/').pop() ?? change.path
+    if (kind === 'trash') {
+      const hasAssetsTip = fileName.toLowerCase().endsWith('.md')
+        ? '（同级关联附件也会一并移入回收站）'
+        : ''
+      return {
+        title: `删除文件「${fileName}」？`,
+        message: `将把该文件移至系统回收站${hasAssetsTip}，需要时可在回收站中找回。`,
+        confirmText: '移入回收站'
+      }
+    }
+    if (change.staged === 'renamed') {
+      return {
+        title: `撤回「${fileName}」的重命名/移动？`,
+        message: `将把文件恢复到原路径「${change.oldPath ?? ''}」并还原为上次提交时的内容，移动后对内容做的修改也将丢失。`,
+        confirmText: '确认恢复'
+      }
+    }
+    return {
+      title: `撤回「${fileName}」的修改？`,
+      message: '将丢弃当前未提交的修改并还原为上次提交的版本，此操作会覆盖磁盘文件内容且无法通过回收站找回。',
+      confirmText: '确认撤回'
+    }
+  }, [confirmAction])
+
   if (!workspacePath) return null
 
   const branchBadge = (
@@ -346,6 +614,7 @@ export default function WorkbenchGitPanel({
         <WorkbenchFooterPopover
           anchorRef={triggerRef}
           ariaLabel="版本管理"
+          disableDismiss={Boolean(confirmAction || contextMenu)}
           onRequestClose={() => {
             if (!useWorkbenchStore.getState().isGitBusy) setIsOpen(false)
           }}
@@ -481,22 +750,34 @@ export default function WorkbenchGitPanel({
                   )}
 
                   {changeCount > 0 ? (
-                    <div className="min-h-0 flex-1 overflow-y-auto px-1.5 py-1.5">
+                    <div
+                      onScroll={() => setContextMenu(null)}
+                      className="min-h-0 flex-1 overflow-y-auto px-1.5 py-1.5"
+                    >
                       {changes.map((change) => {
                         const badge = changeBadge(change)
                         const deleted = isDeletedChange(change)
+                        const isMenuTarget =
+                          contextMenu?.change.path === change.path &&
+                          contextMenu?.change.oldPath === change.oldPath
                         return (
                           <div
                             key={`${change.oldPath ?? ''}:${change.path}`}
                             onClick={deleted ? undefined : () => void openFile(change.path)}
+                            onContextMenu={(event) => {
+                              event.preventDefault()
+                              event.stopPropagation()
+                              if (isGitBusy) return
+                              setContextMenu({ x: event.clientX, y: event.clientY, change })
+                            }}
                             className={`flex items-center gap-2 rounded-md px-1.5 py-1 text-xs transition-colors ${
                               deleted
-                                ? 'cursor-default opacity-60'
-                                : 'cursor-pointer hover:bg-black/5 dark:hover:bg-white/5'
+                                ? `cursor-default opacity-60 ${isMenuTarget ? 'bg-black/5 dark:bg-white/5' : 'hover:bg-black/5 dark:hover:bg-white/5'}`
+                                : `cursor-pointer ${isMenuTarget ? 'bg-black/5 dark:bg-white/5' : 'hover:bg-black/5 dark:hover:bg-white/5'}`
                             }`}
                             title={
                               deleted
-                                ? `${change.path}（已删除，无法打开）`
+                                ? `${change.path}（已删除，右键可恢复）`
                                 : change.oldPath
                                   ? `${change.oldPath} → ${change.path}`
                                   : change.path
@@ -681,6 +962,60 @@ export default function WorkbenchGitPanel({
           )}
         </WorkbenchFooterPopover>
       )}
+
+      {contextMenu && contextMenuPosition && contextMenuItems.length > 0 && createPortal(
+        <div
+          ref={contextMenuRef}
+          data-footer-popover-portal="true"
+          role="menu"
+          style={{ left: contextMenuPosition.left, top: contextMenuPosition.top }}
+          onMouseDown={(event) => event.stopPropagation()}
+          onContextMenu={(event) => event.preventDefault()}
+          className="fixed z-[60] min-w-[208px] rounded-xl border border-black/10 bg-white/95 py-1 text-sm shadow-xl backdrop-blur-md animate-in fade-in zoom-in-95 duration-100 dark:border-white/10 dark:bg-gray-800/95"
+        >
+          {contextMenuItems.map((entry, idx) => {
+            if ('type' in entry) {
+              return <div key={`sep-${idx}`} className="my-1 border-t border-black/5 dark:border-white/5" role="separator" />
+            }
+            return (
+              <button
+                key={entry.key}
+                type="button"
+                role="menuitem"
+                disabled={isGitBusy}
+                onClick={() => {
+                  setContextMenu(null)
+                  entry.action()
+                }}
+                className={`flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors disabled:opacity-40 ${
+                  entry.danger
+                    ? 'text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/20'
+                    : 'text-text-primary hover:bg-black/5 dark:hover:bg-white/5'
+                }`}
+              >
+                <AppIcon
+                  name={entry.icon}
+                  size={17}
+                  className={entry.danger ? 'shrink-0 text-rose-500' : 'shrink-0 text-text-secondary'}
+                />
+                <span className="truncate">{entry.label}</span>
+              </button>
+            )
+          })}
+        </div>,
+        document.body
+      )}
+
+      <ConfirmModal
+        isOpen={Boolean(confirmAction && confirmDialogCopy)}
+        title={confirmDialogCopy?.title ?? ''}
+        message={confirmDialogCopy?.message ?? ''}
+        confirmText={confirmDialogCopy?.confirmText ?? '确认'}
+        cancelText="取消"
+        type="danger"
+        onConfirm={handleConfirmAction}
+        onCancel={() => setConfirmAction(null)}
+      />
     </div>
   )
 }

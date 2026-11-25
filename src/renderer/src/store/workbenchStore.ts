@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import {
   type WorkbenchFileNode,
+  type WorkbenchFileInfo,
   type WorkbenchSearchResult,
   type WorkbenchFileCategory,
   type WorkspaceTagInfo,
@@ -345,6 +346,9 @@ interface WorkbenchStoreActions {
   gitPush: (setUpstream?: boolean) => Promise<GitActionResult>
   gitInit: () => Promise<GitActionResult>
   gitSetRemote: (url: string, name?: string) => Promise<GitActionResult>
+  gitDiscardFile: (change: { path: string; oldPath?: string }) => Promise<GitActionResult>
+  gitTrashFile: (relativePath: string) => Promise<GitActionResult>
+  gitIgnorePath: (relativePath: string, mode: 'file' | 'extension') => Promise<GitActionResult>
   setGitNotice: (notice: WorkbenchStoreState['gitNotice']) => void
   clearGitNotice: () => void
 }
@@ -2829,6 +2833,229 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       await get().refreshGitStatus()
       if (!result.success) {
         set({ gitNotice: { tone: 'error', message: result.error || '保存远程地址失败' } })
+      }
+      return result
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      set({ gitNotice: { tone: 'error', message } })
+      return { success: false, failure: 'failed', error: message }
+    } finally {
+      set({ isGitBusy: false })
+    }
+  },
+
+  gitDiscardFile: async (change) => {
+    const { workspacePath, activeFilePath } = get()
+    if (!workspacePath) return { success: false, failure: 'not-repository', error: '未打开工作区' }
+    if (get().isGitBusy) return { success: false, failure: 'failed', error: '正在执行其他操作' }
+    set({ isGitBusy: true })
+    try {
+      // 若当前编辑器正打开目标文件，先刷清 Lexical 增量缓冲并取消自动保存定时器，
+      // 防止撤回磁盘内容后几百毫秒被残留的自动保存写回旧文本。
+      if (activeFilePath === change.path) {
+        get().flushMarkdownSync()
+        if (autoSaveTimer) {
+          clearTimeout(autoSaveTimer)
+          autoSaveTimer = null
+        }
+      }
+
+      const res = await window.api.workbench.gitDiscardFile(workspacePath, change)
+      const result =
+        res.success && res.data
+          ? res.data
+          : { success: false, failure: 'failed' as const, error: res.error || '撤回修改失败' }
+
+      if (!result.success) {
+        set({ gitNotice: { tone: 'error', message: result.error || '撤回修改失败' } })
+        return result
+      }
+
+      await get().loadFileTree()
+
+      const currentActive = get().activeFilePath
+      const reloadPath =
+        currentActive === change.path
+          ? change.path
+          : change.oldPath && currentActive === change.oldPath
+            ? change.oldPath
+            : null
+
+      if (reloadPath) {
+        let reloaded = false
+        try {
+          const fileRes = await window.api.workbench.readFile(workspacePath, reloadPath)
+          if (fileRes.success && fileRes.data) {
+            set(buildActiveFilePayload(reloadPath, fileRes.data))
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(
+                new CustomEvent('workbench:git-file-reloaded', { detail: { relativePath: reloadPath } })
+              )
+            }
+            reloaded = true
+          }
+        } catch {
+          reloaded = false
+        }
+
+        if (!reloaded) {
+          if (change.oldPath && currentActive === change.path) {
+            const opened = await get().openFile(change.oldPath)
+            if (!opened) void window.api.storeDelete('workbench_lastActiveFilePath')
+          } else {
+            set({
+              activeFilePath: null,
+              activeFileContent: '',
+              activeFileCategory: null,
+              activeFileDataUrl: null,
+              activeFileUrl: null,
+              activeFileMime: null,
+              activeFileSize: null,
+              activeFileOversized: false,
+              isDirty: false,
+              saveStatus: 'saved',
+              lastSavedAt: null,
+              conflictDiskContent: null
+            })
+            set({
+              gitBaselinePath: null,
+              gitBaselineStatus: 'idle',
+              gitBaselineSha: null,
+              gitBaselineContent: null
+            })
+            void window.api.storeDelete('workbench_lastActiveFilePath')
+          }
+        }
+        await get().refreshGitBaseline()
+      }
+
+      await get().refreshGitStatus()
+      set({ gitNotice: { tone: 'success', message: result.hint ?? '已撤回修改' } })
+      return result
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      set({ gitNotice: { tone: 'error', message } })
+      return { success: false, failure: 'failed', error: message }
+    } finally {
+      set({ isGitBusy: false })
+    }
+  },
+
+  gitTrashFile: async (relativePath) => {
+    const {
+      workspacePath,
+      activeFilePath,
+      activeFileContent,
+      activeFileCategory,
+      activeFileDataUrl,
+      activeFileUrl,
+      activeFileMime,
+      activeFileSize,
+      activeFileOversized,
+      isDirty,
+      saveStatus,
+      conflictDiskContent,
+      fileTree,
+      fileSort
+    } = get()
+    if (!workspacePath) return { success: false, failure: 'not-repository', error: '未打开工作区' }
+    if (get().isGitBusy) return { success: false, failure: 'failed', error: '正在执行其他操作' }
+    set({ isGitBusy: true })
+
+    const hitsActive = activeFilePath === relativePath
+    const nextFilePath = hitsActive && activeFilePath
+      ? pickNextActiveFile(flattenSortedFiles(fileTree, fileSort), activeFilePath, [relativePath])
+      : null
+    const activeSnapshot = {
+      activeFilePath,
+      activeFileContent,
+      activeFileCategory,
+      activeFileDataUrl,
+      activeFileUrl,
+      activeFileMime,
+      activeFileSize,
+      activeFileOversized,
+      isDirty,
+      saveStatus,
+      conflictDiskContent
+    }
+
+    if (hitsActive) {
+      get().flushMarkdownSync()
+      if (autoSaveTimer) {
+        clearTimeout(autoSaveTimer)
+        autoSaveTimer = null
+      }
+      set({
+        activeFilePath: null,
+        activeFileContent: '',
+        activeFileCategory: null,
+        activeFileDataUrl: null,
+        activeFileUrl: null,
+        activeFileMime: null,
+        activeFileSize: null,
+        activeFileOversized: false,
+        isDirty: false,
+        saveStatus: 'saved',
+        conflictDiskContent: null
+      })
+      set({
+        gitBaselinePath: null,
+        gitBaselineStatus: 'idle',
+        gitBaselineSha: null,
+        gitBaselineContent: null
+      })
+      void window.api.storeDelete('workbench_lastActiveFilePath')
+    }
+
+    try {
+      const res = await window.api.workbench.gitTrashFile(workspacePath, relativePath)
+      const result =
+        res.success && res.data
+          ? res.data
+          : { success: false, failure: 'failed' as const, error: res.error || '移入回收站失败' }
+
+      if (!result.success) {
+        if (hitsActive) restoreActiveFileState(activeSnapshot)
+        set({ gitNotice: { tone: 'error', message: result.error || '移入回收站失败' } })
+        return result
+      }
+
+      await get().loadFileTree()
+      await get().refreshGitStatus()
+      if (nextFilePath) {
+        const opened = await get().openFile(nextFilePath)
+        if (!opened) void window.api.storeDelete('workbench_lastActiveFilePath')
+      }
+      set({ gitNotice: { tone: 'info', message: '已移至系统回收站' } })
+      return result
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      if (hitsActive) restoreActiveFileState(activeSnapshot)
+      set({ gitNotice: { tone: 'error', message } })
+      return { success: false, failure: 'failed', error: message }
+    } finally {
+      set({ isGitBusy: false })
+    }
+  },
+
+  gitIgnorePath: async (relativePath, mode) => {
+    const { workspacePath } = get()
+    if (!workspacePath) return { success: false, failure: 'not-repository', error: '未打开工作区' }
+    if (get().isGitBusy) return { success: false, failure: 'failed', error: '正在执行其他操作' }
+    set({ isGitBusy: true })
+    try {
+      const res = await window.api.workbench.gitIgnorePath(workspacePath, relativePath, mode)
+      const result =
+        res.success && res.data
+          ? res.data
+          : { success: false, failure: 'failed' as const, error: res.error || '更新忽略规则失败' }
+      if (result.success) {
+        await get().loadFileTree()
+        await get().refreshGitStatus()
+        set({ gitNotice: { tone: 'success', message: result.hint ?? '已加入忽略规则' } })
+      } else {
+        set({ gitNotice: { tone: 'error', message: result.error || '更新忽略规则失败' } })
       }
       return result
     } catch (err) {

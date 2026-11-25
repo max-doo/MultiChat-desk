@@ -8,13 +8,16 @@ interface WorkbenchFooterPopoverProps {
   onRequestClose: () => void
   children: ReactNode
   ariaLabel: string
+  /** 存在二级右键菜单或确认弹窗时暂停外部点击与 Esc 关闭，避免底层浮层先一步消失 */
+  disableDismiss?: boolean
 }
 
 export default function WorkbenchFooterPopover({
   anchorRef,
   onRequestClose,
   children,
-  ariaLabel
+  ariaLabel,
+  disableDismiss = false
 }: WorkbenchFooterPopoverProps): JSX.Element | null {
   const panelRef = useRef<HTMLDivElement | null>(null)
   const [bottom, setBottom] = useState<number | null>(null)
@@ -35,12 +38,15 @@ export default function WorkbenchFooterPopover({
 
   useEffect(() => {
     const handlePointerDown = (event: MouseEvent): void => {
+      if (disableDismiss) return
       const target = event.target
       if (!(target instanceof Node)) return
+      if (target instanceof Element && target.closest('[data-footer-popover-portal="true"]')) return
       if (panelRef.current?.contains(target) || anchorRef.current?.contains(target)) return
       onRequestClose()
     }
     const handleKeyDown = (event: KeyboardEvent): void => {
+      if (disableDismiss) return
       if (event.key === 'Escape') onRequestClose()
     }
     document.addEventListener('mousedown', handlePointerDown)
@@ -49,7 +55,7 @@ export default function WorkbenchFooterPopover({
       document.removeEventListener('mousedown', handlePointerDown)
       document.removeEventListener('keydown', handleKeyDown)
     }
-  }, [anchorRef, onRequestClose])
+  }, [anchorRef, disableDismiss, onRequestClose])
 
   if (bottom === null) return null
 

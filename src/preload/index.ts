@@ -552,6 +552,12 @@ const api = {
       ipcRenderer.invoke('workbench:git-log', { workspaceRoot, limit }),
     gitBaseline: (workspaceRoot: string, relativePath: string): Promise<{ success: boolean; data?: GitBaselineResult; error?: string }> =>
       ipcRenderer.invoke('workbench:git-baseline', { workspaceRoot, relativePath }),
+    gitDiscardFile: (workspaceRoot: string, payload: { path: string; oldPath?: string }): Promise<{ success: boolean; data?: GitActionResult; error?: string }> =>
+      ipcRenderer.invoke('workbench:git-discard-file', { workspaceRoot, ...payload }),
+    gitTrashFile: (workspaceRoot: string, relativePath: string): Promise<{ success: boolean; data?: GitActionResult; error?: string }> =>
+      ipcRenderer.invoke('workbench:git-trash-file', { workspaceRoot, relativePath }),
+    gitIgnorePath: (workspaceRoot: string, relativePath: string, mode: 'file' | 'extension'): Promise<{ success: boolean; data?: GitActionResult; error?: string }> =>
+      ipcRenderer.invoke('workbench:git-ignore-path', { workspaceRoot, relativePath, mode }),
     readGitignore: (workspaceRoot: string): Promise<{ success: boolean; data?: GitignoreSnapshot; error?: string }> =>
       ipcRenderer.invoke('workbench:gitignore-read', { workspaceRoot }),
     writeGitignore: (workspaceRoot: string, content: string): Promise<{ success: boolean; error?: string }> =>
