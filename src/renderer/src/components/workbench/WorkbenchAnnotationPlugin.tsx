@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext'
 import { mergeRegister } from '@lexical/utils'
 import {
+  $addUpdateTag,
   $getRoot,
   $getSelection,
   $isElementNode,
@@ -1049,6 +1050,10 @@ export default function WorkbenchAnnotationPlugin({
         createdAt: now,
         updatedAt: now
       }
+      // 创建标注仅在富文本层投影 MarkNode，不应进入撤销栈、抢焦点或触发正文 Markdown 回写。
+      $addUpdateTag('annotation-sync')
+      $addUpdateTag(HISTORIC_TAG)
+      $addUpdateTag(SKIP_SELECTION_FOCUS_TAG)
       const wrapped = wrapRange(start, end, id, [blockText])
       if (!wrapped.ok) {
         showHint(

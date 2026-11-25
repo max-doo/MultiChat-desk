@@ -8,6 +8,20 @@ import type {
   PointType
 } from 'lexical'
 import {
+  $addUpdateTag,
+  $createTextNode,
+  $isParagraphNode,
+  $isTextNode,
+  $getRoot,
+  $getNodeByKey,
+  $getSelection,
+  $isRangeSelection,
+  $createRangeSelection,
+  CLEAR_HISTORY_COMMAND,
+  SELECTION_CHANGE_COMMAND,
+  COMMAND_PRIORITY_EDITOR
+} from 'lexical'
+import {
   $convertFromMarkdownString,
   $convertToMarkdownString,
   $generateNodesFromMarkdownString,
@@ -31,7 +45,6 @@ import {
   TableCellNode,
   TableNode
 } from '@lexical/table'
-import { $createTextNode, $isParagraphNode, $isTextNode } from 'lexical'
 import { $findMatchingParent } from '@lexical/utils'
 import {
   $createAutoLinkNode,
@@ -40,19 +53,14 @@ import {
   AutoLinkNode
 } from '@lexical/link'
 import {
-  $getRoot,
-  $getNodeByKey,
-  $getSelection,
-  $isRangeSelection,
-  $createRangeSelection,
-  SELECTION_CHANGE_COMMAND,
-  COMMAND_PRIORITY_EDITOR
-} from 'lexical'
-import {
-  HorizontalRuleNode,
-  $createHorizontalRuleNode,
   $isHorizontalRuleNode
 } from '@lexical/react/LexicalHorizontalRuleNode'
+import {
+  $createWorkbenchHorizontalRuleNode,
+  $isWorkbenchHorizontalRuleNode,
+  WorkbenchHorizontalRuleNode,
+  type HorizontalRuleMarkerStyle
+} from './WorkbenchHorizontalRuleNode'
 import { useWorkbenchStore } from '../../store/workbenchStore'
 import { upsertConversationFrontmatter } from '../../../../shared/utils/conversationFrontmatter'
 import {
@@ -85,15 +93,34 @@ import {
 } from './WorkbenchEquationNode'
 import { normalizeWorkbenchLocalFileLink } from './workbenchLinks'
 import { allMarks } from './workbenchAnnotationUtils'
+import {
+  assembleIncrementalMarkdown,
+  buildWorkbenchSourceState,
+  collectDirtyTopLevelBlocks,
+  extractMarkdownEnvelope,
+  parseMarkdownWithFrontmatter,
+  prepareBodyWithLineMap,
+  scanMarkdownSourceBlocks,
+  type WorkbenchSourceState
+} from './markdownSourceMap'
+
+export { parseMarkdownWithFrontmatter }
 
 export const HR_TRANSFORMER: ElementTransformer = {
-  dependencies: [HorizontalRuleNode],
+  dependencies: [WorkbenchHorizontalRuleNode],
   export: (node: LexicalNode) => {
-    return $isHorizontalRuleNode(node) ? '***' : null
+    if (!$isHorizontalRuleNode(node)) return null
+    if ($isWorkbenchHorizontalRuleNode(node)) {
+      return node.getMarkerStyle() ?? '***'
+    }
+    return '***'
   },
   regExp: /^(---|\*\*\*|___)\s?$/,
-  replace: (parentNode, _children, _match, isImport) => {
-    const line = $createHorizontalRuleNode()
+  replace: (parentNode, _children, match, isImport) => {
+    const markerStyle: HorizontalRuleMarkerStyle | null = isImport
+      ? ((match[0].trim() as HorizontalRuleMarkerStyle) ?? null)
+      : null
+    const line = $createWorkbenchHorizontalRuleNode(markerStyle)
 
     // 对齐 playground plugins/MarkdownTransformers 的 HR：
     // 末尾输入 --- 后 Enter 时，不能把最后一行替换成 hr，
@@ -114,18 +141,7 @@ export const HR_TRANSFORMER: ElementTransformer = {
 // 让表格在源码与富文本间以 `| a | b |` GFM 语法双向转换
 const TABLE_ROW_REG_EXP = /^(?:\|)(.+)(?:\|)\s?$/
 
-const HTML_TABLE_MARKER_PREFIX = '@@MC_WORKBENCH_HTML_TABLE_V1:'
-const HTML_TABLE_MARKER_SUFFIX = '@@'
 const HTML_TABLE_MARKER_REG_EXP = /^@@MC_WORKBENCH_HTML_TABLE_V1:([0-9a-f]+)@@$/
-
-function encodeHtmlTableMarker(html: string): string {
-  const bytes = new TextEncoder().encode(html)
-  let hex = ''
-  for (const byte of bytes) {
-    hex += byte.toString(16).padStart(2, '0')
-  }
-  return `${HTML_TABLE_MARKER_PREFIX}${hex}${HTML_TABLE_MARKER_SUFFIX}`
-}
 
 function decodeHtmlTableMarker(marker: string): string | null {
   const match = marker.match(HTML_TABLE_MARKER_REG_EXP)
@@ -150,60 +166,7 @@ function decodeHtmlTableMarker(marker: string): string | null {
  * 代码围栏内的内容保持原样，避免把示例 HTML 也渲染成表格。
  */
 export function prepareHtmlTablesForLexical(markdown: string): string {
-  const lines = markdown.replace(/\r\n?/g, '\n').split('\n')
-  const output: string[] = []
-  let fence: { char: string; length: number } | null = null
-
-  for (let index = 0; index < lines.length; index++) {
-    const line = lines[index]
-    const fenceMatch = line.match(/^\s{0,3}(`{3,}|~{3,})/)
-    if (fenceMatch) {
-      const marker = fenceMatch[1]
-      if (!fence) {
-        fence = { char: marker[0], length: marker.length }
-      } else if (marker[0] === fence.char && marker.length >= fence.length) {
-        fence = null
-      }
-      output.push(line)
-      continue
-    }
-    if (fence) {
-      output.push(line)
-      continue
-    }
-
-    if (!/^\s{0,3}<table(?:\s|>)/i.test(line)) {
-      output.push(line)
-      continue
-    }
-
-    let endLineIndex = -1
-    let closingIndex = -1
-    for (let cursor = index; cursor < lines.length; cursor++) {
-      const found = lines[cursor].toLowerCase().indexOf('</table>')
-      if (found >= 0) {
-        endLineIndex = cursor
-        closingIndex = found + '</table>'.length
-        break
-      }
-    }
-    if (endLineIndex < 0) {
-      output.push(line)
-      continue
-    }
-
-    const trailing = lines[endLineIndex].slice(closingIndex)
-    if (trailing.trim()) {
-      output.push(line)
-      continue
-    }
-
-    const html = lines.slice(index, endLineIndex + 1).join('\n')
-    output.push(encodeHtmlTableMarker(html))
-    index = endLineIndex
-  }
-
-  return output.join('\n')
+  return prepareBodyWithLineMap(markdown.replace(/\r\n?/g, '\n')).preparedMarkdown
 }
 
 export const HTML_TABLE_TRANSFORMER: ElementTransformer = {
@@ -514,40 +477,31 @@ export function serializeWorkbenchMarkdown(
   return shadow.read(() => $convertToMarkdownString(WORKBENCH_TRANSFORMERS))
 }
 
-/**
- * 分离 YAML Frontmatter 元数据与正文 Markdown
- */
-export function parseMarkdownWithFrontmatter(rawContent: string): {
-  frontmatter: string | null
-  markdownBody: string
-} {
-  const frontmatterRegex = /^---\s*\r?\n([\s\S]*?)\r?\n---\s*(?:\r?\n|$)/
-  const match = rawContent.match(frontmatterRegex)
-  if (match) {
-    return {
-      frontmatter: match[0],
-      markdownBody: rawContent.slice(match[0].length)
-    }
-  }
-  return { frontmatter: null, markdownBody: rawContent }
-}
+const SYNC_DEBOUNCE_MS = 250
 
 /**
  * Markdown 双向同步插件
- * 1. 切换文件或从源码模式切回富文本模式时，将 Markdown 解析为 Lexical AST
- * 2. 编辑器内容变化时，实时转换回 Markdown 字符串并保留 Frontmatter
+ * 1. 切换文件或从源码模式切回富文本模式时，将 Markdown 解析为 Lexical AST 并建立块级 Source Map
+ * 2. 编辑器内容变化时，按块增量序列化未改动块原文透传，保留 BOM / Frontmatter / EOL / 末尾换行
  */
 export default function MarkdownSyncPlugin(): null {
   const [editor] = useLexicalComposerContext()
   const activeFilePath = useWorkbenchStore((s) => s.activeFilePath)
   const activeFileContent = useWorkbenchStore((s) => s.activeFileContent)
   const updateActiveContent = useWorkbenchStore((s) => s.updateActiveContent)
+  const setMarkdownSyncFlusher = useWorkbenchStore((s) => s.setMarkdownSyncFlusher)
   const editorMode = useWorkbenchStore((s) => s.editorMode)
 
   const frontmatterRef = useRef<string | null>(null)
+  // 待确认 AI 插入暂存的 frontmatter（未点“✓ 采纳”前不写入正文信封）
+  const pendingFrontmatterRef = useRef<string | null | undefined>(undefined)
+  const sourceStateRef = useRef<WorkbenchSourceState | null>(null)
   const isSyncingFromExternalRef = useRef(false)
   const lastLoadedPathRef = useRef<string | null>(null)
   const lastSyncedContentRef = useRef<string>('')
+  const pendingSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const hasPendingSyncRef = useRef(false)
+  const wasDirtyBeforePendingRef = useRef(false)
   // 上次光标位置的序列化锚点（anchor key + offset + type），用于"插入到光标处"
   const lastAnchorRef = useRef<{ key: string; offset: number; type: PointType['type'] } | null>(null)
   // 当前待确认插入容器 key（单条 pending）
@@ -606,6 +560,8 @@ export default function MarkdownSyncPlugin(): null {
         const md = (replyMd || '').trim()
         if (!md) return false
 
+        // 预览态不进入正文写盘，等待用户显式“✓ 采纳”
+        $addUpdateTag('pending-insert-preview')
         clearPending()
 
         // 生成顶层 block 节点并包进待确认容器
@@ -664,6 +620,13 @@ export default function MarkdownSyncPlugin(): null {
     const unregisterConfirm = editor.registerCommand(
       CONFIRM_INSERT_COMMAND,
       () => {
+        if (pendingFrontmatterRef.current !== undefined) {
+          frontmatterRef.current = pendingFrontmatterRef.current
+          if (sourceStateRef.current) {
+            sourceStateRef.current.envelope.frontmatter = pendingFrontmatterRef.current
+          }
+          pendingFrontmatterRef.current = undefined
+        }
         const key = pendingKeyRef.current
         const node = key ? $getNodeByKey(key) : null
         if (node && $isPendingInsertNode(node)) {
@@ -685,6 +648,8 @@ export default function MarkdownSyncPlugin(): null {
     const unregisterCancel = editor.registerCommand(
       CANCEL_INSERT_COMMAND,
       () => {
+        $addUpdateTag('pending-insert-preview')
+        pendingFrontmatterRef.current = undefined
         const key = pendingKeyRef.current
         const node = key ? $getNodeByKey(key) : null
         if (node && $isPendingInsertNode(node)) {
@@ -712,8 +677,9 @@ export default function MarkdownSyncPlugin(): null {
       ).detail
       const md = detail?.replyMd
       if (!md) return
-      // 插入回复属于会话资料：先补 frontmatter，再让 Lexical 的后续回写带上它。
-      const upserted = upsertConversationFrontmatter(frontmatterRef.current ?? '', {
+      // 插入回复属于会话资料：先暂存待补的 frontmatter，待用户点击“✓ 采纳”后才写入。
+      const baseFrontmatter = frontmatterRef.current ?? ''
+      const upserted = upsertConversationFrontmatter(baseFrontmatter, {
         url: detail.conversationUrl,
         platform: detail.platform
       })
@@ -722,8 +688,10 @@ export default function MarkdownSyncPlugin(): null {
         useWorkbenchStore.setState({
           error: '当前文档已有来源属性，已保留原值，未自动关联本次来源'
         })
+        pendingFrontmatterRef.current = undefined
       } else {
-        frontmatterRef.current = upserted.content
+        pendingFrontmatterRef.current =
+          upserted.content !== baseFrontmatter ? upserted.content : undefined
       }
       editor.dispatchCommand(INSERT_REPLY_COMMAND, md)
     }
@@ -731,46 +699,79 @@ export default function MarkdownSyncPlugin(): null {
     return () => window.removeEventListener('workbench:insert-reply', handler)
   }, [editor])
 
-  // 桥接：FrontmatterPanel 编辑属性 → 同步 frontmatterRef，
+  // 桥接：FrontmatterPanel 编辑属性 → 同步 frontmatterRef 与 SourceState 信封，
   // 否则后续 Lexical 回写会用旧 frontmatter 覆盖面板改动
   useEffect(() => {
     const handler = (e: Event): void => {
       const detail = (e as CustomEvent<{ frontmatter?: string | null }>).detail
       if (!detail) return
       frontmatterRef.current = detail.frontmatter ?? null
-      // 对齐 lastSyncedContentRef，避免被当成"外部改动"又回灌一遍
-      const body = lastSyncedContentRef.current.replace(
-        /^---\r?\n[\s\S]*?\r?\n---\r?\n/,
-        ''
-      )
-      lastSyncedContentRef.current = (frontmatterRef.current || '') + body
+      if (sourceStateRef.current) {
+        sourceStateRef.current.envelope.frontmatter = frontmatterRef.current
+      }
+      // 对齐 lastSyncedContentRef（保留 BOM），避免被当成"外部改动"又回灌一遍
+      const parsed = parseMarkdownWithFrontmatter(lastSyncedContentRef.current)
+      lastSyncedContentRef.current =
+        parsed.bom + (frontmatterRef.current || '') + parsed.markdownBody
     }
     window.addEventListener('workbench:frontmatter-changed', handler)
     return () => window.removeEventListener('workbench:frontmatter-changed', handler)
   }, [])
 
-  // 当外部文件切换或从源码模式切回富文本时，更新 Lexical 编辑器内容
+  // 当外部文件切换或从源码模式切回富文本时，更新 Lexical 编辑器内容并建立块级 Source Map
   useEffect(() => {
     const isNewFile = activeFilePath !== lastLoadedPathRef.current
     const isReturningToWysiwyg =
       editorMode === 'wysiwyg' && activeFileContent !== lastSyncedContentRef.current
 
     if (isNewFile || isReturningToWysiwyg) {
+      // 若同文件下仅 frontmatter 发生变化（例如 saveActiveFile 归一化旧会话头），
+      // 只更新信封引用而不整篇重载 Lexical，避免打断当前编辑选区。
+      if (!isNewFile && sourceStateRef.current) {
+        const nextEnvelope = extractMarkdownEnvelope(activeFileContent)
+        const prevEnvelope = sourceStateRef.current.envelope
+        if (
+          nextEnvelope.bom === prevEnvelope.bom &&
+          nextEnvelope.body === prevEnvelope.body &&
+          nextEnvelope.frontmatter !== prevEnvelope.frontmatter
+        ) {
+          frontmatterRef.current = nextEnvelope.frontmatter
+          prevEnvelope.frontmatter = nextEnvelope.frontmatter
+          sourceStateRef.current.originalFullContent = activeFileContent
+          lastSyncedContentRef.current = activeFileContent
+          return
+        }
+      }
+
+      if (pendingSyncTimerRef.current) {
+        clearTimeout(pendingSyncTimerRef.current)
+        pendingSyncTimerRef.current = null
+      }
+      hasPendingSyncRef.current = false
+      wasDirtyBeforePendingRef.current = false
+      pendingFrontmatterRef.current = undefined
+
       lastLoadedPathRef.current = activeFilePath
       lastSyncedContentRef.current = activeFileContent
-      const { frontmatter, markdownBody } = parseMarkdownWithFrontmatter(activeFileContent)
-      frontmatterRef.current = frontmatter
+      const envelope = extractMarkdownEnvelope(activeFileContent)
+      frontmatterRef.current = envelope.frontmatter
+      const scanned = scanMarkdownSourceBlocks(envelope.body)
 
       isSyncingFromExternalRef.current = true
       editor.update(
         () => {
-          $convertFromMarkdownString(
-            prepareHtmlTablesForLexical(markdownBody),
-            WORKBENCH_TRANSFORMERS
+          $convertFromMarkdownString(scanned.preparedMarkdown, WORKBENCH_TRANSFORMERS)
+          sourceStateRef.current = buildWorkbenchSourceState(
+            activeFileContent,
+            envelope,
+            scanned
           )
         },
         { tag: 'sync-external', discrete: true }
       )
+      if (isNewFile) {
+        editor.dispatchCommand(CLEAR_HISTORY_COMMAND, undefined)
+      }
       isSyncingFromExternalRef.current = false
       // 正文导入完成后才允许标注应用；插件监听此事件，避免把上一份文档的标记套到新正文。
       requestAnimationFrame(() => {
@@ -783,27 +784,87 @@ export default function MarkdownSyncPlugin(): null {
     }
   }, [activeFilePath, activeFileContent, editorMode, editor])
 
-  // 监听 Lexical 内部改动，同步写回 workbenchStore
+  // 监听 Lexical 内部改动，按块增量拼装并通过 250ms 防抖同步回 workbenchStore
   useEffect(() => {
-    return editor.registerUpdateListener(({ editorState, dirtyElements, dirtyLeaves, tags }) => {
-      // 忽略由外部载入触发的更新或无内容变化的选区变动
-      if (tags.has('sync-external') || isSyncingFromExternalRef.current) return
-      // 标注应用是旁路投影：不能触发 Markdown 回写，否则会把正文改坏
-      if (tags.has('annotation-sync')) return
-      // 点击代码块外侧只为建立落点段落，不应把空段落写回 Markdown
-      if (tags.has('code-exit')) return
-      if (dirtyElements.size === 0 && dirtyLeaves.size === 0) return
+    const flushSync = (): void => {
+      if (pendingSyncTimerRef.current) {
+        clearTimeout(pendingSyncTimerRef.current)
+        pendingSyncTimerRef.current = null
+      }
+      if (!hasPendingSyncRef.current) return
+      hasPendingSyncRef.current = false
 
-      const bodyMarkdown = serializeWorkbenchMarkdown(editor, editorState)
-      const fullMarkdown = (frontmatterRef.current || '') + bodyMarkdown
+      const sourceState = sourceStateRef.current
+      if (!sourceState) return
 
-      // 仅在内容实质发生改变时通知 store
+      const fullMarkdown = assembleIncrementalMarkdown(
+        editor,
+        editor.getEditorState(),
+        sourceState,
+        WORKBENCH_TRANSFORMERS
+      )
+
       if (fullMarkdown !== lastSyncedContentRef.current) {
         lastSyncedContentRef.current = fullMarkdown
         updateActiveContent(fullMarkdown)
+      } else if (!wasDirtyBeforePendingRef.current) {
+        // 本次 update 未产生实际源码变化（如对齐、表宽、撤销回原状），恢复干净态
+        if (useWorkbenchStore.getState().isDirty) {
+          useWorkbenchStore.setState({ isDirty: false })
+        }
       }
-    })
-  }, [editor, updateActiveContent])
+    }
+
+    setMarkdownSyncFlusher(flushSync)
+
+    const unregister = editor.registerUpdateListener(
+      ({ editorState, prevEditorState, dirtyElements, dirtyLeaves, tags }) => {
+        // 忽略由外部载入、标注投影、代码块落点、表宽调整、待确认预览触发的更新及纯选区变动
+        if (tags.has('sync-external') || isSyncingFromExternalRef.current) return
+        if (tags.has('annotation-sync')) return
+        if (tags.has('code-exit')) return
+        if (tags.has('table-resize')) return
+        if (tags.has('pending-insert-preview')) return
+        if (dirtyElements.size === 0 && dirtyLeaves.size === 0) return
+
+        const sourceState = sourceStateRef.current
+        if (!sourceState) return
+
+        if (!hasPendingSyncRef.current) {
+          wasDirtyBeforePendingRef.current = useWorkbenchStore.getState().isDirty
+          hasPendingSyncRef.current = true
+          useWorkbenchStore.getState().markMarkdownPendingSync()
+        }
+
+        collectDirtyTopLevelBlocks(
+          editor,
+          editorState,
+          prevEditorState,
+          dirtyElements,
+          dirtyLeaves,
+          sourceState,
+          WORKBENCH_TRANSFORMERS
+        )
+
+        if (pendingSyncTimerRef.current) {
+          clearTimeout(pendingSyncTimerRef.current)
+        }
+        pendingSyncTimerRef.current = setTimeout(() => {
+          pendingSyncTimerRef.current = null
+          flushSync()
+        }, SYNC_DEBOUNCE_MS)
+      }
+    )
+
+    return () => {
+      unregister()
+      if (pendingSyncTimerRef.current) {
+        clearTimeout(pendingSyncTimerRef.current)
+        pendingSyncTimerRef.current = null
+      }
+      setMarkdownSyncFlusher(null)
+    }
+  }, [editor, setMarkdownSyncFlusher, updateActiveContent])
 
   return null
 }

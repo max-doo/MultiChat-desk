@@ -10,7 +10,6 @@ import { CheckListPlugin } from '@lexical/react/LexicalCheckListPlugin'
 import { LinkPlugin } from '@lexical/react/LexicalLinkPlugin'
 import { TablePlugin } from '@lexical/react/LexicalTablePlugin'
 import { HorizontalRulePlugin } from '@lexical/react/LexicalHorizontalRulePlugin'
-import { HorizontalRuleNode } from '@lexical/react/LexicalHorizontalRuleNode'
 import { TabIndentationPlugin } from '@lexical/react/LexicalTabIndentationPlugin'
 import { LexicalErrorBoundary } from '@lexical/react/LexicalErrorBoundary'
 
@@ -36,6 +35,7 @@ import { PendingBarNode } from './PendingBarNode'
 import { WorkbenchImageNode } from './WorkbenchImageNode'
 import { WorkbenchHtmlTableNode } from './WorkbenchHtmlTableNode'
 import { WorkbenchEquationNode } from './WorkbenchEquationNode'
+import { WorkbenchHorizontalRuleNode } from './WorkbenchHorizontalRuleNode'
 import WorkbenchImagePlugin from './WorkbenchImagePlugin'
 import WorkbenchSelectionMenuPlugin from './WorkbenchSelectionMenuPlugin'
 import WorkbenchFloatingToolbarPlugin from './WorkbenchFloatingToolbarPlugin'
@@ -198,6 +198,7 @@ export default function WorkbenchEditor(): JSX.Element {
       const k = e.key.toLowerCase()
       if (k === 'f' || k === 'h') {
         e.preventDefault()
+        useWorkbenchStore.getState().flushMarkdownSync()
         setFindReplaceFocus(k === 'h')
         setFindOpen(true)
       } else if (k === 's') {
@@ -303,12 +304,12 @@ export default function WorkbenchEditor(): JSX.Element {
     [activeFileContent]
   )
 
-  // 面板编辑 frontmatter 后：拼回正文 + 通知 MarkdownSyncPlugin 更新 frontmatterRef，
+  // 面板编辑 frontmatter 后：拼回正文（保留前导 BOM）+ 通知 MarkdownSyncPlugin 更新 frontmatterRef，
   // 否则 Lexical 下次回写会用旧 ref 把面板改动覆盖掉
   const handleFrontmatterChange = useCallback(
     (nextFrontmatter: string | null) => {
-      const { markdownBody } = parseMarkdownWithFrontmatter(activeFileContent)
-      const next = (nextFrontmatter || '') + markdownBody
+      const { bom, markdownBody } = parseMarkdownWithFrontmatter(activeFileContent)
+      const next = bom + (nextFrontmatter || '') + markdownBody
       if (next === activeFileContent) return
       window.dispatchEvent(
         new CustomEvent('workbench:frontmatter-changed', {
@@ -342,7 +343,7 @@ export default function WorkbenchEditor(): JSX.Element {
         CodeHighlightNode,
         LinkNode,
         AutoLinkNode,
-        HorizontalRuleNode,
+        WorkbenchHorizontalRuleNode,
         PendingInsertNode,
         PendingBarNode,
         WorkbenchImageNode,

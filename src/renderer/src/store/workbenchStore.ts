@@ -109,9 +109,11 @@ const LEGACY_CONVERSATION_KEYS = new Set([
 ])
 
 function normalizeMarkdownFrontmatter(content: string): string {
-  const normalized = normalizeConversationFrontmatter(content)
-  if (normalized !== content) return normalized
-  const frontmatter = content.match(/^---[ \t]*\r?\n([\s\S]*?)\r?\n---/)?.[1]
+  const bom = content.startsWith('\uFEFF') ? '\uFEFF' : ''
+  const raw = bom ? content.slice(1) : content
+  const normalized = normalizeConversationFrontmatter(raw)
+  if (normalized !== raw) return bom + normalized
+  const frontmatter = raw.match(/^---[ \t]*\r?\n([\s\S]*?)\r?\n---/)?.[1]
   if (!frontmatter) return content
   // 显式写了任何类型（包括 plain）都由文档自己决定，不再做旧会话升级；
   // 只有完全无类型标记的历史文档才进入兼容判定。
@@ -122,20 +124,20 @@ function normalizeMarkdownFrontmatter(content: string): string {
     match[1].toLowerCase()
   )
   if (keys.some(key => !LEGACY_CONVERSATION_KEYS.has(key))) return content
-  const raw = /^(?:source|source_url|source_key)\s*:\s*["']?(https:\/\/.+?)["']?\s*$/im.exec(
+  const sourceUrl = /^(?:source|source_url|source_key)\s*:\s*["']?(https:\/\/.+?)["']?\s*$/im.exec(
     frontmatter
   )?.[1]
-  if (!raw) return content
+  if (!sourceUrl) return content
   // 旧会话必须同时具备完整对话结构；只有来源链接、正文是单条回复或普通
   // 笔记时保持普通文档，避免把回复摘录升级成会话快照。
-  if (!looksLikeConversationTranscript(stripFrontmatter(content))) {
+  if (!looksLikeConversationTranscript(stripFrontmatter(raw))) {
     return content
   }
   const isConversation = Object.entries(defaultSelectors.models).some(([platformId, config]) =>
-    !!config.newConversationUrl && isConversationUrlForPlatform(platformId, raw, config.newConversationUrl)
+    !!config.newConversationUrl && isConversationUrlForPlatform(platformId, sourceUrl, config.newConversationUrl)
   )
   if (!isConversation) return content
-  return adoptLegacyConversationFrontmatter(content)
+  return bom + adoptLegacyConversationFrontmatter(raw)
 }
 
 function clampRightPaneWidth(
@@ -187,6 +189,8 @@ interface WorkbenchStoreState {
   htmlEditLeaveGuard: (() => Promise<HtmlEditLeaveDecision>) | null
   /** 当前是否处于 HTML 可视化编辑态；用于隐藏会遮挡浮层工具的通用状态胶囊。 */
   htmlVisualEditing: boolean
+  /** 富文本 Markdown 防抖同步注册的冲刷回调：切模式/保存/切文件前同步落入 activeFileContent */
+  markdownSyncFlusher: (() => void) | null
 
   // 搜索相关
   searchQuery: string
@@ -261,6 +265,9 @@ interface WorkbenchStoreActions {
     flusher: (() => Promise<DocumentAnnotationFlushResult>) | null
   ) => void
   flushDocumentAnnotations: () => Promise<DocumentAnnotationFlushResult>
+  setMarkdownSyncFlusher: (flusher: (() => void) | null) => void
+  flushMarkdownSync: () => void
+  markMarkdownPendingSync: () => void
   resolveExternalConflict: (choice: 'keep-mine' | 'take-disk') => Promise<boolean>
   updateActiveContent: (content: string) => void
   setHtmlEditFlusher: (flusher: (() => Promise<string>) | null) => void
@@ -586,6 +593,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   htmlEditFlusher: null,
   htmlEditLeaveGuard: null,
   htmlVisualEditing: false,
+  markdownSyncFlusher: null,
 
   searchQuery: '',
   isSearching: false,
@@ -878,6 +886,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       const decision = await leaveGuard()
       if (decision === 'cancelled') return
     }
+    get().flushMarkdownSync()
     const annotationFlush = await get().flushDocumentAnnotations()
     if (!annotationFlush.saved) {
       set({ error: annotationFlush.error || '标注同步未完成，无法关闭工作区' })
@@ -1026,6 +1035,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       if (decision === 'cancelled') return false
     }
 
+    get().flushMarkdownSync()
     const annotationFlush = await get().flushDocumentAnnotations()
     if (!annotationFlush.saved) {
       set({ error: annotationFlush.error || '标注同步未完成，无法安全切换文件' })
@@ -1130,6 +1140,9 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   },
 
   saveActiveFile: async () => {
+    // 富文本模式可能存在 250ms 防抖同步窗口，保存前先同步冲刷为最新 activeFileContent
+    get().flushMarkdownSync()
+
     // 可视化编辑只在保存时序列化 iframe DOM：平时不写盘，也不与源码自动保存抢状态。
     const flushHtmlEdit = get().htmlEditFlusher
     const pathBeforeFlush = get().activeFilePath
@@ -1242,6 +1255,20 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         error: error instanceof Error ? error.message : '标注同步失败'
       }
     }
+  },
+
+  setMarkdownSyncFlusher: (flusher) => set({ markdownSyncFlusher: flusher }),
+
+  flushMarkdownSync: () => {
+    const flusher = get().markdownSyncFlusher
+    if (!flusher) return
+    try {
+      flusher()
+    } catch { /* noop */ }
+  },
+
+  markMarkdownPendingSync: () => {
+    if (!get().isDirty) set({ isDirty: true })
   },
 
   updateActiveContent: (content: string) => {
@@ -1573,7 +1600,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     replyMd: string,
     meta?: { conversationUrl?: string; platformId?: string }
   ) => {
-    const { activeFilePath, activeFileCategory, editorMode, isDirty } = get()
+    const { activeFilePath, activeFileCategory, editorMode } = get()
     const fail = (error: string): { success: boolean; error: string } => {
       set({ error })
       return { success: false, error }
@@ -1587,7 +1614,8 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     if (!md) return fail('回复内容为空')
 
     // 先落盘清 dirty，避免防抖回写覆盖本次插入
-    if (isDirty) {
+    get().flushMarkdownSync()
+    if (get().isDirty) {
       const saved = await get().saveActiveFile()
       if (!saved.saved) return fail('当前文件保存未完成')
     }
@@ -2243,6 +2271,9 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   },
 
   setEditorMode: (mode: EditorMode) => {
+    if (get().editorMode === 'wysiwyg' && mode !== 'wysiwyg') {
+      get().flushMarkdownSync()
+    }
     // 2MB 以上文档固定源码模式：Lexical 整篇导入会卡死，且标注也无法安全映射。
     const size = get().activeFileSize ?? 0
     if (mode === 'wysiwyg' && size > 2 * 1024 * 1024) {

@@ -44,12 +44,26 @@ export default function WorkbenchMinimalToc({ scrollContainerRef }: Props): JSX.
             }
           }
         }
-        setHeadings(items)
+        setHeadings((prev) => {
+          if (
+            prev.length === items.length &&
+            prev.every(
+              (item, idx) =>
+                item.key === items[idx].key &&
+                item.level === items[idx].level &&
+                item.title === items[idx].title
+            )
+          ) {
+            return prev
+          }
+          return items
+        })
       })
     }
 
     updateHeadings()
-    return editor.registerUpdateListener(() => {
+    return editor.registerUpdateListener(({ dirtyElements, dirtyLeaves }) => {
+      if (dirtyElements.size === 0 && dirtyLeaves.size === 0) return
       updateHeadings()
     })
   }, [editor])

@@ -255,7 +255,7 @@ function TableCellResizer({editor}: {editor: LexicalEditor}): JSX.Element {
           const newHeight = Math.max(height + heightChange, MIN_ROW_HEIGHT);
           tableRow.setHeight(newHeight);
         },
-        {tag: SKIP_SCROLL_INTO_VIEW_TAG},
+        {tag: [SKIP_SCROLL_INTO_VIEW_TAG, 'table-resize']},
       );
     },
     [activeCell, editor],
@@ -318,7 +318,7 @@ function TableCellResizer({editor}: {editor: LexicalEditor}): JSX.Element {
           newColWidths[columnIndex] = newWidth;
           tableNode.setColWidths(newColWidths);
         },
-        {tag: SKIP_SCROLL_INTO_VIEW_TAG},
+        {tag: [SKIP_SCROLL_INTO_VIEW_TAG, 'table-resize']},
       );
     },
     [activeCell, editor],
