@@ -496,6 +496,8 @@ const api = {
       ipcRenderer.invoke('workbench:read-docx-bytes', { workspaceRoot, relativePath }),
     writeFile: (workspaceRoot: string, relativePath: string, content: string): Promise<{ success: boolean; data?: WorkbenchWriteResult; error?: string }> =>
       ipcRenderer.invoke('workbench:write-file', { workspaceRoot, relativePath, content }),
+    saveTextAs: (workspaceRoot: string, payload: { defaultFileName: string; content: string; title?: string; extensions?: string[] }): Promise<{ success: boolean; data?: boolean; error?: string }> =>
+      ipcRenderer.invoke('workbench:save-text-as', { workspaceRoot, ...payload }),
     createNode: (workspaceRoot: string, relativePath: string, type: WorkbenchNodeType): Promise<{ success: boolean; data?: WorkbenchFileNode; error?: string }> =>
       ipcRenderer.invoke('workbench:create-node', { workspaceRoot, relativePath, type }),
     renameNode: (workspaceRoot: string, oldRelativePath: string, newRelativePath: string): Promise<{ success: boolean; error?: string }> =>

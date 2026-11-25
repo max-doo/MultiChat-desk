@@ -2200,6 +2200,30 @@ export async function registerIpcHandlers(
         }
     })
 
+    ipcMain.handle('workbench:save-text-as', async (event, payload: { workspaceRoot: string; defaultFileName: string; content: string; title?: string; extensions?: string[] }) => {
+        try {
+            const owner = BrowserWindow.fromWebContents(event.sender)
+            if (!owner) return { success: false, error: '找不到当前窗口' }
+            assertActiveWorkspace(payload.workspaceRoot)
+            const result = await dialog.showSaveDialog(owner, {
+                title: payload.title ?? '另存为',
+                defaultPath: join(payload.workspaceRoot, payload.defaultFileName),
+                filters: [
+                    {
+                        name: 'Markdown',
+                        extensions: payload.extensions?.length ? payload.extensions : ['md']
+                    }
+                ]
+            })
+            if (result.canceled || !result.filePath) return { success: true, data: false }
+            await writeFile(result.filePath, payload.content, 'utf8')
+            return { success: true, data: true }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
     ipcMain.handle('workbench:create-node', async (_event, payload: string | { workspaceRoot: string; relativePath: string; type: WorkbenchNodeType }, relPath?: string, nodeType?: WorkbenchNodeType) => {
         try {
             const workspaceRoot = typeof payload === 'string' ? payload : payload?.workspaceRoot

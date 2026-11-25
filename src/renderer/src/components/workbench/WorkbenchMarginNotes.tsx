@@ -10,9 +10,10 @@ import { resolveSourceConversation } from '../../utils/noteSourceConversation'
 import { useAppStore } from '../../store/appStore'
 import { findMarkDom, removeMarkById } from './workbenchAnnotationUtils'
 import { AppIcon } from '../icons/AppIcon'
+import AnnotationExportFootnoteModal from './AnnotationExportFootnoteModal'
 
-const MARGIN_NOTES_WIDTH = 220
-const MARGIN_NOTES_MIN_WIDTH = 170
+const MARGIN_NOTES_WIDTH = 268
+const MARGIN_NOTES_MIN_WIDTH = 196
 const MARGIN_NOTES_GAP = 16
 const ANNOTATION_CLEANUP_THRESHOLD = 400
 
@@ -34,6 +35,7 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
   const [editor] = useLexicalComposerContext()
   const workspacePath = useWorkbenchStore(s => s.workspacePath)
   const activeFilePath = useWorkbenchStore(s => s.activeFilePath)
+  const activeFileContent = useWorkbenchStore(s => s.activeFileContent)
   const saveActiveFile = useWorkbenchStore(s => s.saveActiveFile)
   const showMarginNotes = useWorkbenchStore(s => s.showMarginNotes)
   const toggleMarginNotes = useWorkbenchStore(s => s.toggleMarginNotes)
@@ -83,6 +85,7 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
   const [showCleanup, setShowCleanup] = useState(false)
   const [cleanupIds, setCleanupIds] = useState<string[]>([])
   const [showCompactUnresolved, setShowCompactUnresolved] = useState(false)
+  const [showExportModal, setShowExportModal] = useState(false)
   const [compactMode, setCompactMode] = useState(false)
   const [notesBox, setNotesBox] = useState<{ left: number; width: number } | null>(null)
   const [anchorBox, setAnchorBox] = useState<{ marginTop: number; left: number } | null>(null)
@@ -96,6 +99,10 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
   const unresolvedCount = unresolvedDocumentNotes.length + unresolvedSourceNotes.length
   const totalCount = allNotes.length + unresolvedCount
   const documentAnnotationCount = annotationsReady ? documentAnnotations.length : 0
+  const anchoredDocumentNotes = useMemo(
+    () => allNotes.filter(item => item.scope === 'document'),
+    [allNotes]
+  )
   const showAnchorTrigger = totalCount > 0 && (compactMode || !showMarginNotes)
   const orderedNotes = useMemo(
     () =>
@@ -265,6 +272,7 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
     setEditingId(null)
     setDraftComment('')
     setShowCompactUnresolved(false)
+    setShowExportModal(false)
   }, [activeFilePath])
 
   useEffect(() => {
@@ -393,7 +401,7 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
         if (!saved.saved) {
           upsertLocal(annotation)
           setEditingId(id)
-          window.alert(saved.reason === 'oversized' ? '文档过大，注释未保存' : '正文未保存，注释未写入')
+          window.alert(saved.reason === 'oversized' ? '文档过大，标注未保存' : '正文未保存，标注未写入')
           return
         }
         const result = await window.api.annotations.updateDocumentComment(
@@ -406,7 +414,7 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
         if (!result.success) {
           upsertLocal(annotation)
           setEditingId(id)
-          window.alert(result.error || '注释保存失败')
+          window.alert(result.error || '标注保存失败')
           return
         }
         upsertLocal(result.data ?? next)
@@ -421,7 +429,7 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
       if (!result.success) {
         upsertLocal(annotation)
         setEditingId(id)
-        window.alert(result.error || '注释保存失败')
+        window.alert(result.error || '标注保存失败')
         return
       }
       upsertLocal(result.data ?? next)
@@ -449,7 +457,7 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
         result = await window.api.annotations.deleteSource(item.source.key, item.id)
       }
       if (!result.success) {
-        window.alert(result.error || '删除注释失败')
+        window.alert(result.error || '删除标注失败')
         return
       }
       removeLocal(item.id)
@@ -474,7 +482,7 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
       setShowCleanup(false)
       return
     }
-    if (!window.confirm(`删除选中的 ${ids.length} 条未解决文档注释？`)) return
+    if (!window.confirm(`删除选中的 ${ids.length} 条未解决文档标注？`)) return
     const failed: string[] = []
     for (const id of ids) {
       setBusyId(id)
@@ -497,7 +505,7 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
     setBusyId(null)
     setCleanupIds(failed)
     if (failed.length) {
-      window.alert(`${failed.length} 条未解决注释删除失败，已保留在列表中`)
+      window.alert(`${failed.length} 条未解决标注删除失败，已保留在列表中`)
     } else {
       setShowCleanup(false)
     }
@@ -540,8 +548,8 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
         type="button"
         onClick={compactMode ? handleOpenCompactNote : handleToggleMarginNotes}
         className="h-7 px-1.5 rounded-md text-amber-600 dark:text-amber-400 hover:text-amber-700 hover:bg-amber-500/10 dark:hover:bg-amber-400/10 flex items-center gap-1 transition-colors"
-        title={`${compactMode ? '打开' : '展开'}注释 (${totalCount})${unresolvedCount ? `，未解决 ${unresolvedCount}` : ''}`}
-        aria-label={`${compactMode ? '打开' : '展开'}注释，共 ${totalCount} 条，未解决 ${unresolvedCount} 条`}
+        title={`${compactMode ? '打开' : '展开'}标注 (${totalCount})${unresolvedCount ? `，未解决 ${unresolvedCount}` : ''}`}
+        aria-label={`${compactMode ? '打开' : '展开'}标注，共 ${totalCount} 条，未解决 ${unresolvedCount} 条`}
       >
         <AppIcon name="annotation" size={16} />
         <span className="text-label font-semibold">{allNotes.length}</span>
@@ -557,8 +565,8 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
             type="button"
             onClick={() => handleNavigateNote(-1)}
             className="h-7 w-6 rounded-md text-text-secondary/70 hover:text-text-primary hover:bg-black/5 dark:hover:bg-white/10 flex items-center justify-center transition-colors"
-            title="上一条注释"
-            aria-label="上一条注释"
+            title="上一条标注"
+            aria-label="上一条标注"
           >
             <AppIcon name="keyboard_arrow_up" size={14} />
           </button>
@@ -566,8 +574,8 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
             type="button"
             onClick={() => handleNavigateNote(1)}
             className="h-7 w-6 rounded-md text-text-secondary/70 hover:text-text-primary hover:bg-black/5 dark:hover:bg-white/10 flex items-center justify-center transition-colors"
-            title="下一条注释"
-            aria-label="下一条注释"
+            title="下一条标注"
+            aria-label="下一条标注"
           >
             <AppIcon name="keyboard_arrow_down" size={14} />
           </button>
@@ -645,12 +653,12 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
                 <div className="line-through decoration-rose-400/60 break-words text-text-secondary/70">
                   {item.originalQuote || item.quote}
                 </div>
-                <div className="mt-0.5 break-words text-text-primary">{item.comment || '点击添加注释...'}</div>
+                <div className="mt-0.5 break-words text-text-primary">{item.comment || '点击添加标注...'}</div>
                 <div className="mt-0.5 text-rose-600/90 dark:text-rose-400/90">
                   {resolution?.reason === 'cross-block'
                     ? '跨段落暂不支持'
                     : resolution?.reason === 'overlap'
-                      ? '与另一条注释重叠'
+                      ? '与另一条标注重叠'
                       : resolution?.state === 'ambiguous'
                         ? '存在多处相似文字'
                         : '原文未找到'}
@@ -691,10 +699,10 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
                 <div className="line-through decoration-amber-400/60 break-words text-text-secondary/70">
                   {item.originalQuote || item.quote}
                 </div>
-                <div className="mt-0.5 break-words text-text-primary">{item.comment || '点击添加注释...'}</div>
+                <div className="mt-0.5 break-words text-text-primary">{item.comment || '点击添加标注...'}</div>
                 <div className="mt-0.5 text-amber-700/90 dark:text-amber-400/90">
                   {resolution?.reason === 'overlap'
-                    ? '与另一条注释重叠；原文高亮仍有效'
+                    ? '与另一条标注重叠；原文高亮仍有效'
                     : '文档投影未找到；原文高亮仍有效'}
                 </div>
                 <div className="mt-1 flex gap-2">
@@ -734,6 +742,20 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
       </div>
     ) : null
 
+  const exportModalNode = showExportModal ? (
+    <AnnotationExportFootnoteModal
+      open={showExportModal}
+      onClose={() => setShowExportModal(false)}
+      editor={editor}
+      workspaceRoot={workspacePath}
+      anchoredAnnotations={anchoredDocumentNotes}
+      sourceCount={sourceAnnotations.length}
+      unresolvedCount={unresolvedDocumentNotes.length}
+      activeFileContent={activeFileContent}
+      activeFilePath={activeFilePath}
+    />
+  ) : null
+
   if (compactMode || !showMarginNotes) {
     if (!anchorBox || totalCount === 0) return null
     return (
@@ -762,6 +784,7 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
             </div>
           </div>
         </div>
+        {exportModalNode}
       </>
     )
   }
@@ -786,11 +809,11 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
                 type="button"
                 onClick={handleToggleMarginNotes}
                 className="h-7 px-1.5 rounded-md text-amber-600 dark:text-amber-400 hover:text-amber-700 hover:bg-amber-500/10 dark:hover:bg-amber-400/10 flex items-center gap-1 transition-colors"
-                title="收起注释"
-                aria-label="收起注释"
+                title="收起标注"
+                aria-label="收起标注"
               >
                 <AppIcon name="annotation" size={16} />
-                <span className="text-label font-semibold">注释</span>
+                <span className="text-label font-semibold">标注</span>
                 <span className="text-label font-semibold text-amber-600/70 dark:text-amber-400/70">
                   {totalCount}
                 </span>
@@ -802,8 +825,8 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
                       type="button"
                       onClick={() => handleNavigateNote(-1)}
                       className="h-7 w-6 rounded-md text-text-secondary/70 hover:text-text-primary hover:bg-black/5 dark:hover:bg-white/10 flex items-center justify-center transition-colors"
-                      title="上一条注释"
-                      aria-label="上一条注释"
+                      title="上一条标注"
+                      aria-label="上一条标注"
                     >
                       <AppIcon name="keyboard_arrow_up" size={14} />
                     </button>
@@ -811,19 +834,30 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
                       type="button"
                       onClick={() => handleNavigateNote(1)}
                       className="h-7 w-6 rounded-md text-text-secondary/70 hover:text-text-primary hover:bg-black/5 dark:hover:bg-white/10 flex items-center justify-center transition-colors"
-                      title="下一条注释"
-                      aria-label="下一条注释"
+                      title="下一条标注"
+                      aria-label="下一条标注"
                     >
                       <AppIcon name="keyboard_arrow_down" size={14} />
                     </button>
                   </>
                 )}
+                {anchoredDocumentNotes.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowExportModal(true)}
+                    className="h-7 w-6 rounded-md text-text-secondary/70 hover:text-text-primary hover:bg-black/5 dark:hover:bg-white/10 flex items-center justify-center transition-colors"
+                    title="导出标注为脚注"
+                    aria-label="导出标注为脚注"
+                  >
+                    <AppIcon name="download" size={14} />
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={handleToggleMarginNotes}
                   className="h-7 w-6 rounded-md text-text-secondary/70 hover:text-text-primary hover:bg-black/5 dark:hover:bg-white/10 flex items-center justify-center transition-colors"
-                  title="隐藏注释"
-                  aria-label="隐藏注释"
+                  title="隐藏标注"
+                  aria-label="隐藏标注"
                 >
                   <AppIcon name="close" size={12} />
                 </button>
@@ -844,13 +878,13 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
       >
       {totalCount === 0 && (
         <div className="pt-8 text-center text-label text-text-secondary/50 leading-relaxed px-2">
-          选中文本后点击“标注”<br />注释将直接停靠在文字右侧
+          选中文本后点击“标注”<br />标注将直接停靠在文字右侧
         </div>
       )}
 
       {documentAnnotationCount >= ANNOTATION_CLEANUP_THRESHOLD && (
         <div className="mb-2 rounded-lg border border-amber-500/30 bg-amber-50/80 p-2 text-caption text-amber-700 dark:border-amber-400/30 dark:bg-amber-950/40 dark:text-amber-300">
-          当前文档标注 {documentAnnotationCount} 条，建议清理未解决注释
+          当前文档标注 {documentAnnotationCount} 条，建议清理未解决标注
         </div>
       )}
 
@@ -875,11 +909,11 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
             }}
             style={{ top: `${top}px` }}
             onClick={() => handleSelectNote(item.id)}
-            className={`absolute left-0 w-full rounded-lg border border-black/10 border-l-[3px] border-l-amber-500/60 bg-white text-left shadow-sm transition-all duration-200 cursor-pointer dark:border-white/10 dark:border-l-amber-500/50 ${
+            className={`absolute left-0 w-full rounded-lg border border-amber-500/60 bg-white text-left shadow-sm transition-all duration-200 cursor-pointer dark:border-amber-500/50 ${
               isSelected
-                ? 'shadow-md ring-1 ring-black/10 dark:bg-gray-800 dark:ring-white/15'
+                ? 'border-amber-500 shadow-md ring-1 ring-amber-500/30 dark:border-amber-400 dark:bg-gray-800 dark:ring-amber-400/30'
                 : 'hover:shadow-md dark:bg-gray-800'
-            } p-2.5 z-10`}
+            } p-3 z-10`}
           >
             {isEditing ? (
               <div onClick={e => e.stopPropagation()} className="space-y-2">
@@ -897,23 +931,23 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
                       setEditingId(null)
                     }
                   }}
-                  className="w-full h-20 resize-none rounded-lg border border-black/10 bg-white p-2 text-label text-text-primary outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 dark:bg-gray-900 dark:border-white/10"
-                  placeholder="写下你的注释笔记 (Enter 保存)..."
+                  className="w-full h-24 resize-none rounded-lg border border-black/10 bg-white p-2.5 text-body text-text-primary outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 dark:bg-gray-900 dark:border-white/10"
+                  placeholder="写下你的标注笔记 (Enter 保存)..."
                 />
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2">
                   <span className="text-caption text-text-secondary/60">Enter 保存 / Esc 取消</span>
-                  <div className="flex gap-1.5">
+                  <div className="flex shrink-0 gap-2">
                     <button
                       type="button"
                       onClick={() => setEditingId(null)}
-                      className="px-2 py-0.5 text-caption rounded text-text-secondary hover:bg-black/5 dark:hover:bg-white/10"
+                      className="h-8 rounded-lg px-3 text-label text-text-secondary hover:bg-black/5 dark:hover:bg-white/10"
                     >
                       取消
                     </button>
                     <button
                       type="button"
                       onClick={() => void handleSaveComment(item.id, draftComment)}
-                      className="px-2.5 py-0.5 text-caption rounded-lg bg-primary hover:bg-primary/90 text-white font-medium shadow-sm"
+                      className="h-8 rounded-lg bg-primary px-4 text-label font-medium text-white hover:bg-primary/90 shadow-sm"
                     >
                       保存
                     </button>
@@ -922,10 +956,10 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
               </div>
             ) : (
               <div>
-                {/* 便签注释正文：点击可就地编辑 */}
+                {/* 便签标注正文：点击可就地编辑 */}
                 <div
                   className="text-body leading-relaxed text-text-primary break-words whitespace-pre-wrap"
-                  title="点击可编辑注释"
+                  title="点击可编辑标注"
                   onClick={e => {
                     e.stopPropagation()
                     setEditingId(item.id)
@@ -936,12 +970,12 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
                   {item.comment ? (
                     item.comment
                   ) : (
-                    <span className="text-text-secondary/50 italic">点击添加注释...</span>
+                    <span className="text-text-secondary/50 italic">点击添加标注...</span>
                   )}
                 </div>
 
                 {/* 底部信息与操作条 */}
-                <div className="mt-1.5 flex items-center justify-between text-tiny text-text-secondary/60">
+                <div className="mt-2 flex items-center justify-between text-caption text-text-secondary/60">
                   <span>{formatTime(item.updatedAt || item.createdAt)}</span>
                   <div className="flex items-center gap-1 opacity-60 hover:opacity-100 transition-opacity">
                     <button
@@ -952,8 +986,8 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
                         setDraftComment(item.comment || '')
                         setSelected(item.id)
                       }}
-                      className="p-1 rounded hover:bg-black/5 dark:hover:bg-white/10 text-text-secondary hover:text-text-primary"
-                      title="编辑注释"
+                      className="flex h-8 w-8 items-center justify-center rounded-lg hover:bg-black/5 dark:hover:bg-white/10 text-text-secondary hover:text-text-primary"
+                      title="编辑标注"
                     >
                       <AppIcon name="edit" size={12} />
                     </button>
@@ -961,8 +995,8 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
                       type="button"
                       disabled={busyId === item.id}
                       onClick={e => void handleDeleteNote(e, item)}
-                      className="p-1 rounded hover:bg-rose-100 dark:hover:bg-rose-900/40 text-text-secondary hover:text-rose-600"
-                      title="删除注释"
+                      className="flex h-8 w-8 items-center justify-center rounded-lg hover:bg-rose-100 dark:hover:bg-rose-900/40 text-text-secondary hover:text-rose-600"
+                      title="删除标注"
                     >
                       <AppIcon name="delete" size={12} />
                     </button>
@@ -974,6 +1008,7 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
         )
       })}
       </aside>
+      {exportModalNode}
     </>
   )
 }
