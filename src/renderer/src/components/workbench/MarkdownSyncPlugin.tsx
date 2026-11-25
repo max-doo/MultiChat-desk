@@ -98,6 +98,7 @@ import {
   buildWorkbenchSourceState,
   collectDirtyTopLevelBlocks,
   extractMarkdownEnvelope,
+  initializeCompositeGroupBaselines,
   parseMarkdownWithFrontmatter,
   prepareBodyWithLineMap,
   scanMarkdownSourceBlocks,
@@ -771,6 +772,14 @@ export default function MarkdownSyncPlugin(): null {
       )
       if (isNewFile) {
         editor.dispatchCommand(CLEAR_HISTORY_COMMAND, undefined)
+      }
+      if (sourceStateRef.current) {
+        initializeCompositeGroupBaselines(
+          editor,
+          editor.getEditorState(),
+          sourceStateRef.current,
+          WORKBENCH_TRANSFORMERS
+        )
       }
       isSyncingFromExternalRef.current = false
       // 正文导入完成后才允许标注应用；插件监听此事件，避免把上一份文档的标记套到新正文。

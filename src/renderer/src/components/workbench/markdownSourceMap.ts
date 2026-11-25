@@ -53,6 +53,10 @@ export interface SourceBlock {
   gapBefore: string
   textHint: string
   baselineExport?: string
+  /** 在 bodyRaw（LF 归一化）中的起始行号，0-indexed */
+  startLine?: number
+  /** 在 bodyRaw 中的结束行号（含），0-indexed */
+  endLine?: number
 }
 
 export interface CompositeSourceGroup {
@@ -62,6 +66,8 @@ export interface CompositeSourceGroup {
   gapBefore: string
   firstOriginalBlockId: string
   broken: boolean
+  /** 载入完成时各节点的单块序列化结果，用于区分“仅标脏”和真实内容变化 */
+  baselineExports?: Map<NodeKey, string>
 }
 
 export interface WorkbenchSourceState {
@@ -466,7 +472,9 @@ export function scanMarkdownSourceBlocks(bodyRaw: string): {
         spans.push({ kind: 'code', pStart: i, pEnd: i })
         continue
       }
-      const multiEnd = new RegExp(`^[ \\t]*\`{${fenceLen},}$`)
+      // CommonMark 允许闭合围栏后有尾随空格/制表符；若不接受，扫描器会把后续
+      // 整篇正文都吞进代码块，而 Lexical 仍按正常块解析，再次产生 1:N 错位。
+      const multiEnd = new RegExp(`^[ \\t]*\`{${fenceLen},}[ \\t]*$`)
       let endIdx = len - 1
       for (let j = i + 1; j < len; j++) {
         if (multiEnd.test(preparedLines[j].text)) {
@@ -607,7 +615,9 @@ export function scanMarkdownSourceBlocks(bodyRaw: string): {
       kind: span.kind,
       raw,
       gapBefore: idx === 0 ? '' : gap,
-      textHint: buildTextHint(span.kind, raw)
+      textHint: buildTextHint(span.kind, raw),
+      startLine: rawStartLine,
+      endLine: rawEndLine
     })
     prevRawEnd = rawEndLine
   })
@@ -641,13 +651,13 @@ export function getLexicalBlockKind(node: LexicalNode): SourceBlockKind {
   return 'other'
 }
 
-function getLexicalNodeHint(node: LexicalNode): string {
+export function getLexicalNodeHint(node: LexicalNode): string {
   if ($isWorkbenchHtmlTableNode(node)) return ''
   if ($isWorkbenchEquationNode(node)) return node.getEquation().replace(/\s+/g, ' ').trim().slice(0, 80)
   return node.getTextContent().replace(/\s+/g, ' ').trim().slice(0, 80)
 }
 
-function kindsCompatible(nodeKind: SourceBlockKind, blockKind: SourceBlockKind): boolean {
+export function kindsCompatible(nodeKind: SourceBlockKind, blockKind: SourceBlockKind): boolean {
   if (nodeKind === blockKind) return true
   if (nodeKind === 'paragraph' && blockKind === 'image') return true
   return false
@@ -657,7 +667,7 @@ function kindsCompatible(nodeKind: SourceBlockKind, blockKind: SourceBlockKind):
  * 对两个区间做 O(K log K) 唯一锚点耐心对齐（Patience LIS），
  * 仅将锚点之间真正无法 1:1 对应的局部小段包成 CompositeSourceGroup。
  */
-function alignWithPatienceAnchors(
+export function alignWithPatienceAnchors(
   nodeInfos: Array<{ key: NodeKey; kind: SourceBlockKind; hint: string }>,
   blocks: SourceBlock[]
 ): Array<{ cStart: number; cEnd: number; bStart: number; bEnd: number; matched: boolean }> {
@@ -726,6 +736,18 @@ function alignWithPatienceAnchors(
     let ce = cTo
     let bs = bCursor
     let be = bTo
+
+    // Lexical 的一个顶层源码块可能被解析成多个顶层节点（例如松散列表后的
+    // 续行段落）。两侧数量不等时，任何贪心的 1:1 前后缀绑定都会漏掉剩余节点，
+    // 拼装时便会先透传整块原文、再重复导出未绑定节点。此时必须把整个区间
+    // 交给 CompositeSourceGroup，保证要么整块原文输出一次，要么拆组逐节点导出。
+    if (ce - cs !== be - bs) {
+      if (cs < ce || bs < be) {
+        segments.push({ cStart: cs, cEnd: ce, bStart: bs, bEnd: be, matched: false })
+      }
+      return
+    }
+
     const prefixMatches: Array<{ c: number; b: number }> = []
     while (cs < ce && bs < be && kindsCompatible(nodeInfos[cs].kind, blocks[bs].kind)) {
       prefixMatches.push({ c: cs, b: bs })
@@ -903,6 +925,25 @@ export function exportSingleTopLevelNode(
   return shadow.read(() => $convertToMarkdownString(transformers))
 }
 
+/**
+ * 记录复合块内各节点的初始导出，供后续增量拼装判断节点是否真的发生内容变化。
+ */
+export function initializeCompositeGroupBaselines(
+  editor: LexicalEditor,
+  editorState: EditorState,
+  sourceState: WorkbenchSourceState,
+  transformers: Transformer[]
+): void {
+  for (const group of sourceState.compositeGroupsById.values()) {
+    const baselineExports = new Map<NodeKey, string>()
+    for (const nodeKey of group.nodeKeys) {
+      const exported = exportSingleTopLevelNode(editor, editorState, nodeKey, transformers)
+      if (exported !== null) baselineExports.set(nodeKey, exported)
+    }
+    group.baselineExports = baselineExports
+  }
+}
+
 function isTopLevelNodeEmptyParagraph(node: LexicalNode): boolean {
   if (!$isParagraphNode(node)) return false
   if (node.getTextContentSize() > 0) return false
@@ -1059,19 +1100,29 @@ export function assembleIncrementalMarkdown(
     if (group && !group.broken) {
       const expectedLen = group.nodeKeys.length
       let intact = i + expectedLen <= snapshots.length
+      const unchangedDirtyKeys: NodeKey[] = []
       if (intact) {
         for (let k = 0; k < expectedLen; k++) {
-          if (
-            snapshots[i + k].key !== group.nodeKeys[k] ||
-            sourceState.dirtyBlockKeys.has(snapshots[i + k].key)
-          ) {
+          const nodeKey = snapshots[i + k].key
+          if (nodeKey !== group.nodeKeys[k]) {
             intact = false
             break
           }
+          if (!sourceState.dirtyBlockKeys.has(nodeKey)) continue
+          const baselineExport = group.baselineExports?.get(nodeKey)
+          const currentExport = exportSingleTopLevelNode(editor, editorState, nodeKey, transformers)
+          if (baselineExport === undefined || currentExport === null || currentExport !== baselineExport) {
+            intact = false
+            break
+          }
+          unchangedDirtyKeys.push(nodeKey)
         }
       }
 
       if (intact) {
+        for (const nodeKey of unchangedDirtyKeys) {
+          sourceState.dirtyBlockKeys.delete(nodeKey)
+        }
         if (!hasEmittedAny) {
           if (sourceState.originalFirstBlockId === group.firstOriginalBlockId) {
             parts.push(sourceState.leadingGap)
