@@ -2,6 +2,72 @@
 
 ## 2026-11-25
 
+### 12:45 | Antigravity
+
+- done: 实现工作台版本管理列表右键菜单：支持 M/T 撤回修改、D 恢复删除、R/C 撤回重命名或移出待提交、A 移出待提交或移入回收站、U 一键加入 .gitignore 或移入回收站，并同步编辑器重载与浮层防误关
+- decision: 面向非编程用户隐藏暂存区术语；U/A 删除走系统回收站（workbenchDeleteNode + git rm --cached），M/D/R 还原走 HEAD，右键菜单与 ConfirmModal 使用 data-footer-popover-portal 避免触发父浮层失焦关闭
+- modified:
+  - `src/main/services/gitService.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/src/store/workbenchStore.ts`
+  - `src/renderer/src/components/workbench/WorkbenchCodePreview.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFooterPopover.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchGitPanel.tsx`
+- unresolved: 未在 pnpm run dev 桌面窗口内实际点击右键菜单与撤销交互，需手动启动验证
+
+### 12:32 | Antigravity
+
+- done: 排查 Ctrl+滚轮未触发 HTML 缩放的根因（运行中的主进程 11:29 启动未重启，且原 100 阈值在系统高 DPI 缩放下首格滚轮 deltaY<100 会被吞掉），并将滚轮阈值调优为 60 且整格滚动清零余量
+- modified:
+  - `src/shared/utils/workbenchHtmlAnnotations.ts`
+  - `src/renderer/src/components/workbench/WorkbenchHtmlAnnotationPreview.tsx`
+
+### 12:30 | Codex
+
+- done: 工作台 HTML 渲染预览顶栏：把刷新按钮移到缩放控件之后、分隔线之前
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchCodePreview.tsx`
+
+### 12:27 | Antigravity
+
+- done: 将 HTML 渲染预览顶栏缩放控件移至「渲染/编辑/源码」模式分段控件之前，保持切换模式时分段控件与右侧操作按钮位置固定
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchCodePreview.tsx`
+
+### 12:27 | Antigravity
+
+- done: 快捷窗口打开原生文件选择等模态对话框时阻止失焦自动隐藏
+- decision: 在 scheduleBlurHide 中检测 win.isEnabled() 与 macOS sheet-begin/sheet-end 模态状态，模态打开期间轮询保持显示，关闭后补等一个 150ms 周期再判定失焦
+- modified:
+  - `src/main/webviewManager.ts`
+
+### 12:25 | Antigravity
+
+- done: 为工作台 HTML 渲染预览增加网页缩放能力（Ctrl/Cmd+滚轮、Ctrl+加减/0 及顶栏缩放控件），通过 iframe 内 CSS zoom 实现与浏览器一致的流式排版缩放
+- modified:
+  - `src/shared/types/htmlAnnotations.ts`
+  - `src/shared/utils/workbenchHtmlAnnotations.ts`
+  - `src/renderer/src/components/workbench/WorkbenchHtmlAnnotationPreview.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchCodePreview.tsx`
+- lesson(promoted): HTML 渲染预览的 Ctrl+滚轮缩放需在 sandbox iframe 的标注运行时内以 { passive: false, capture: true } 拦截并设置 document.documentElement.style.zoom：在 Electron 42/Chromium 中 CSS zoom 会自动按视口重排文本与缩放 Range.getBoundingClientRect()/clientX，无需额外坐标换算，且不会污染编辑态源码或缩放整个宿主窗口。
+
+### 12:11 | Antigravity
+
+- done: 修复工作台重命名 HTML/预览文件后 activeFileUrl 未同步导致预览空白与标注脚本报错的问题，并优化文件树重命名与 HTML 预览首帧初始化
+- modified:
+  - `src/renderer/src/store/workbenchStore.ts`
+  - `src/renderer/src/components/workbench/WorkbenchCodePreview.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+- lesson(promoted): 工作台 renameNode 和 handleExternalFsChanged 更新 activeFilePath 时必须同步刷新 activeFileUrl 与 activeFileCategory（一次 set 原子提交），否则 HTML/图片预览会继续请求已失效的旧 workbench-file:// URL；WorkbenchCodePreview 需按文件类型直接初始化 viewMode 并把 activeFileUrl 纳入 iframe 预览组件 key。
+
+### 11:50 | Codex
+
+- done: 修复 Markdown 预览 Git Gutter：为同步层放弃映射的 1:N 复合段增加只读近似映射，并取消首帧对 rAF 的依赖；用污染文档完成不落盘高亮验证，并在干净 V3 的 1:5 复合段内编辑验证增量回写未复制。
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchGitGutterPlugin.tsx`
+- lesson(promoted): Markdown 预览高亮可对 1:N 复合段做只读近似映射，但不得进入回写路径；首次 DOM 测量不能依赖可能暂停的 rAF。
+
 ### 11:21 | Codex
 
 - done: Gemini 画布导出菜单「存为文档」改用与工作台回复按钮同款文件+加号图标，并加浅蓝底高亮以区分原生菜单项
