@@ -11,7 +11,6 @@ const PRODUCT_MODE_LABELS: Record<ProductMode, { label: string; title: string }>
 }
 import { useWorkbenchStore } from '../store/workbenchStore'
 import { useUpdateReminder } from '../hooks/useUpdateState'
-import SettingsDrawer from './SettingsDrawer'
 import CustomContextMenu from './CustomContextMenu'
 import CliAgentHint from './CliAgentHint'
 import { AgentSettingsDialog } from './workbench/agent/AgentSettingsDialog'
@@ -155,7 +154,7 @@ function WorkbenchPaneToggles(): JSX.Element {
 function Layout({ children }: LayoutProps): JSX.Element {
   const [isWindowMaximized, setIsWindowMaximized] = useState(false)
 
-  const { displayMode, setDisplayMode, resetPaneRatios, isSettingsOpen, setSettingsOpen, setHistoryOpen, setHistoryInitialTab, productMode, setProductMode, currentPage, isNewSession, textInserted, activeModels, debateState } = useAppStore()
+  const { displayMode, setDisplayMode, resetPaneRatios, openSettings, closeSettings, settingsReturnPage, setHistoryOpen, setHistoryInitialTab, productMode, setProductMode, currentPage, isNewSession, textInserted, activeModels, debateState } = useAppStore()
   const productModeConfig = useAppStore((s) => s.productModeConfig)
   const visibleProductModes = productModeConfig.order.filter(m => !productModeConfig.hidden.includes(m))
   const { hasUpdate } = useUpdateReminder()
@@ -272,9 +271,13 @@ function Layout({ children }: LayoutProps): JSX.Element {
     <div className="flex items-center gap-1 no-drag">
       <button
         type="button"
-        onClick={() => setSettingsOpen(true)}
-        className="relative h-7 px-2 flex items-center justify-center gap-1 text-text-secondary hover:text-primary hover:bg-white/60 rounded-lg transition-all duration-200"
-        title="设置"
+        onClick={() => (currentPage === 'settings' ? closeSettings() : openSettings())}
+        className={`relative h-7 px-2 flex items-center justify-center gap-1 rounded-lg transition-all duration-200 ${
+          currentPage === 'settings'
+            ? 'text-primary bg-white/75 dark:bg-white/10 shadow-xs'
+            : 'text-text-secondary hover:text-primary hover:bg-white/60 dark:hover:bg-white/10'
+        }`}
+        title={currentPage === 'settings' ? '返回' : '设置'}
       >
         <AppIcon name="settings" size={16} />
         <span className="text-xs font-normal">设置</span>
@@ -294,6 +297,18 @@ function Layout({ children }: LayoutProps): JSX.Element {
         <span className="text-xs font-normal">历史</span>
       </button>
     </div>
+  )
+
+  const settingsBackButton = (
+    <button
+      type="button"
+      onClick={closeSettings}
+      className="no-drag -ml-1.5 flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-body font-medium text-text-primary transition-all duration-200 hover:bg-white/75 hover:text-primary dark:hover:bg-white/10"
+      title={settingsReturnPage === 'summary' ? '返回总结页' : '返回主页'}
+    >
+      <AppIcon name="arrow_back" size={18} />
+      <span>{settingsReturnPage === 'summary' ? '返回总结页' : '返回主页'}</span>
+    </button>
   )
 
   return (
@@ -320,37 +335,41 @@ function Layout({ children }: LayoutProps): JSX.Element {
         }}
       >
         <div className="relative z-10 flex items-center gap-3 select-none drag-region h-full">
-          <div className="flex items-center gap-3 drag-region">
-            {/* 模式选择分段控件 */}
-            <div
-              className={`flex items-center p-0.5 bg-gray-200/60 dark:bg-gray-700/60 rounded-lg text-xs gap-0.5 no-drag ${currentPage === 'summary' || debateState.phase === 'running' || debateState.phase === 'paused' ? 'opacity-50 pointer-events-none' : ''}`}
-            >
-              {visibleProductModes.map(mode => {
-                const item = { key: mode, ...PRODUCT_MODE_LABELS[mode] }
-                return (
-                <button
-                  key={item.key}
-                  type="button"
-                  title={item.title}
-                  onClick={() => void handleProductModeChange(item.key as ProductMode)}
-                  className={`px-2.5 py-1 rounded-md font-medium transition-all duration-200 ${
-                    productMode === item.key 
-                      ? 'bg-white dark:bg-gray-800 text-primary shadow-xs' 
-                      : 'text-text-secondary hover:text-text-primary hover:bg-white/30'
-                  }`}
+          {currentPage === 'settings' ? settingsBackButton : (
+            <>
+              <div className="flex items-center gap-3 drag-region">
+                {/* 模式选择分段控件 */}
+                <div
+                  className={`flex items-center p-0.5 bg-gray-200/60 dark:bg-gray-700/60 rounded-lg text-xs gap-0.5 no-drag ${currentPage === 'summary' || debateState.phase === 'running' || debateState.phase === 'paused' ? 'opacity-50 pointer-events-none' : ''}`}
                 >
-                  {item.label}
-                </button>
-                )
-              })}
-            </div>
-          </div>
-          {window.api.platform !== 'darwin' && entryButtons}
+                  {visibleProductModes.map(mode => {
+                    const item = { key: mode, ...PRODUCT_MODE_LABELS[mode] }
+                    return (
+                    <button
+                      key={item.key}
+                      type="button"
+                      title={item.title}
+                      onClick={() => void handleProductModeChange(item.key as ProductMode)}
+                      className={`px-2.5 py-1 rounded-md font-medium transition-all duration-200 ${
+                        productMode === item.key
+                          ? 'bg-white dark:bg-gray-800 text-primary shadow-xs'
+                          : 'text-text-secondary hover:text-text-primary hover:bg-white/30'
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                    )
+                  })}
+                </div>
+              </div>
+              {window.api.platform !== 'darwin' && entryButtons}
+            </>
+          )}
         </div>
 
         {/* 居中的窗口布局或总结模式控件 */}
         <div className="relative z-10 flex justify-center drag-region h-full items-center">
-          {productMode === 'workbench' ? (
+          {currentPage === 'main' && productMode === 'workbench' ? (
             <WorkbenchTopBar />
           ) : currentPage === 'main' && productMode !== 'debate' ? (
             <div 
@@ -394,7 +413,7 @@ function Layout({ children }: LayoutProps): JSX.Element {
         
         {window.api.platform === 'win32' ? (
           <div className="relative z-20 -mr-4 flex h-full min-w-[138px] items-center justify-end drag-region">
-            {productMode === 'workbench' && (
+            {currentPage === 'main' && productMode === 'workbench' && (
               <div className="flex items-center gap-1 mr-2 no-drag">
                 <WorkbenchPaneToggles />
               </div>
@@ -431,13 +450,13 @@ function Layout({ children }: LayoutProps): JSX.Element {
           </div>
         ) : window.api.platform === 'darwin' ? (
           <div className="relative z-10 min-w-[120px] drag-region h-full flex items-center justify-end gap-1">
-            {productMode === 'workbench' && <WorkbenchPaneToggles />}
-            {entryButtons}
+            {currentPage === 'main' && productMode === 'workbench' && <WorkbenchPaneToggles />}
+            {currentPage !== 'settings' && entryButtons}
           </div>
         ) : (
           <div className="relative z-10 min-w-[120px] drag-region h-full flex items-center justify-end gap-1">
-            {productMode === 'workbench' && <WorkbenchPaneToggles />}
-            {entryButtons}
+            {currentPage === 'main' && productMode === 'workbench' && <WorkbenchPaneToggles />}
+            {currentPage !== 'settings' && entryButtons}
           </div>
         )}
       </div>
@@ -446,7 +465,6 @@ function Layout({ children }: LayoutProps): JSX.Element {
       </main>
       <CustomContextMenu />
       <CliAgentHint />
-      <SettingsDrawer isOpen={isSettingsOpen} onClose={() => setSettingsOpen(false)} />
       <AgentSettingsDialog isOpen={agentSettingsOpen} onClose={closeAgentSettings} />
     </div>
   )

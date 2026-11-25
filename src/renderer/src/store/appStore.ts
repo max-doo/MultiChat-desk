@@ -53,6 +53,7 @@ export interface ModelConfig {
   url: string
   logo: string
   enabled: boolean
+  hidden?: boolean
 }
 
 // 总结提示词配置类型
@@ -270,7 +271,9 @@ interface AppState {
   setMindmapPlatformId: (platformId: string) => Promise<void>
   updateModel: (id: string, config: Partial<ModelConfig>) => void
   toggleModel: (id: string) => void
+  toggleModelVisibility: (id: string) => void
   reorderModels: (newOrder: string[]) => void
+  resetModelsConfig: () => void
   swapModelInSlot: (slotIndex: number, newModelId: string) => void
 
   // Webview 引用（用于发送消息）
@@ -399,12 +402,13 @@ interface AppState {
   setCurrentConversationId: (id: string | null) => void
 
   // 页面导航状态
-  currentPage: 'main' | 'summary' | 'quick' | 'diagnostics'
-  setCurrentPage: (page: 'main' | 'summary' | 'quick' | 'diagnostics') => void
+  currentPage: 'main' | 'summary' | 'settings' | 'quick' | 'diagnostics'
+  setCurrentPage: (page: 'main' | 'summary' | 'settings' | 'quick' | 'diagnostics') => void
+  settingsReturnPage: 'main' | 'summary'
+  openSettings: () => void
+  closeSettings: () => void
 
   // UI 抽屉状态
-  isSettingsOpen: boolean
-  setSettingsOpen: (open: boolean) => void
   isHistoryOpen: boolean
   setHistoryOpen: (open: boolean) => void
   /** 打开历史抽屉时期望激活的初始 Tab */
@@ -453,28 +457,31 @@ export function getDisplayedModels(
     }
   }
 
+  const visibleModels = models.filter(m => !m.hidden)
+  const fallbackModels = visibleModels.length > 0 ? visibleModels : models
+
   if (productMode === 'debate' && debateSlots) {
     return Array.from({ length: 2 }, (_, index) => {
       const slotId = debateSlots[index]
-      return models.find(m => m.id === slotId) || models[index % models.length]
+      return models.find(m => m.id === slotId) || fallbackModels[index % fallbackModels.length]
     })
   }
 
   if (productMode === 'task_assignment' && taskAssignmentSlots) {
     return Array.from({ length: displayCount }, (_, index) => {
       const slotId = taskAssignmentSlots[index]
-      return models.find(m => m.id === slotId) || models[index % models.length]
+      return models.find(m => m.id === slotId) || fallbackModels[index % fallbackModels.length]
     })
   }
 
   if (multiAiSlots) {
     return Array.from({ length: displayCount }, (_, index) => {
       const slotId = multiAiSlots[index]
-      return models.find(m => m.id === slotId) || models[index % models.length]
+      return models.find(m => m.id === slotId) || fallbackModels[index % fallbackModels.length]
     })
   }
 
-  return models.slice(0, displayCount)
+  return fallbackModels.slice(0, displayCount)
 }
 
 export const DEEP_RESEARCH_SUPPORTED_MODEL_IDS = new Set([
@@ -952,6 +959,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (window.api?.storeSet) window.api.storeSet('models', newModels)
     return { models: newModels }
   }),
+  toggleModelVisibility: (id) => set((state) => {
+    const target = state.models.find((m) => m.id === id)
+    if (!target) return {}
+    const visibleCount = state.models.filter((m) => !m.hidden).length
+    if (!target.hidden && visibleCount <= 1) return {}
+    const newModels = state.models.map((model) =>
+      model.id === id ? { ...model, hidden: !model.hidden } : model
+    )
+    if (window.api?.storeSet) window.api.storeSet('models', newModels)
+    return { models: newModels }
+  }),
   reorderModels: (newOrder: string[]) => set((state) => {
     const modelMap = new Map(state.models.map(m => [m.id, m]))
     const reorderedModels = newOrder.map(id => modelMap.get(id)).filter(Boolean) as ModelConfig[]
@@ -960,6 +978,20 @@ export const useAppStore = create<AppState>((set, get) => ({
     })
     if (window.api?.storeSet) window.api.storeSet('models', reorderedModels)
     return { models: reorderedModels }
+  }),
+  resetModelsConfig: () => set((state) => {
+    const modelMap = new Map(state.models.map(m => [m.id, m]))
+    const resetList = DEFAULT_MODEL_ORDER
+      .map(id => modelMap.get(id))
+      .filter((m): m is ModelConfig => Boolean(m))
+      .map(m => ({ ...m, hidden: false }))
+    state.models.forEach(model => {
+      if (!DEFAULT_MODEL_ORDER.includes(model.id)) {
+        resetList.push({ ...model, hidden: false })
+      }
+    })
+    if (window.api?.storeSet) window.api.storeSet('models', resetList)
+    return { models: resetList }
   }),
   swapModelInSlot: (slotIndex: number, newModelId: string) => set((state) => {
     if (state.productMode === 'debate') {
@@ -1635,10 +1667,16 @@ export const useAppStore = create<AppState>((set, get) => ({
 
 
   currentPage: 'main',
-  setCurrentPage: (page: 'main' | 'summary' | 'quick' | 'diagnostics') => set({ currentPage: page }),
+  setCurrentPage: (page: 'main' | 'summary' | 'settings' | 'quick' | 'diagnostics') => set({ currentPage: page }),
+  settingsReturnPage: 'main',
+  openSettings: () => set((state) => ({
+    settingsReturnPage: state.currentPage === 'summary' ? 'summary' : 'main',
+    currentPage: 'settings'
+  })),
+  closeSettings: () => set((state) => ({
+    currentPage: state.currentPage === 'settings' ? state.settingsReturnPage : state.currentPage
+  })),
 
-  isSettingsOpen: false,
-  setSettingsOpen: (open: boolean) => set({ isSettingsOpen: open }),
   isHistoryOpen: false,
   setHistoryOpen: (open: boolean) => set({ isHistoryOpen: open }),
   historyInitialTab: 'conversation' as 'conversation' | 'summary' | 'agent',
@@ -2049,11 +2087,15 @@ export async function initializeStore(): Promise<void> {
     if (storedModels) {
       const mergedModels: ModelConfig[] = []
       const defaultModelMap = new Map(defaultModels.map(m => [m.id, m]))
-      // 以 storedModels 的用户自定义顺序为基准，保留 enabled 等配置
+      // 以 storedModels 的用户自定义顺序为基准，保留 enabled/hidden 等配置
       storedModels.forEach(storedModel => {
         const defaultModel = defaultModelMap.get(storedModel.id)
         if (defaultModel) {
-          mergedModels.push({ ...defaultModel, enabled: storedModel.enabled })
+          mergedModels.push({
+            ...defaultModel,
+            enabled: storedModel.enabled,
+            hidden: Boolean(storedModel.hidden)
+          })
           defaultModelMap.delete(storedModel.id)
         }
       })
@@ -2061,6 +2103,9 @@ export async function initializeStore(): Promise<void> {
       defaultModelMap.forEach(newModel => {
         mergedModels.push(newModel)
       })
+      if (mergedModels.length > 0 && mergedModels.every(m => m.hidden)) {
+        mergedModels[0] = { ...mergedModels[0], hidden: false }
+      }
       finalModels = mergedModels
     }
 

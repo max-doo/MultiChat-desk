@@ -292,11 +292,13 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
       [actions, methods, isReady]
     )
 
-    // 任务分配模式或隔离模式支持选择所有 AI，因此可选列表为全量模型；多 AI 模式下排除自身
+    // 任务分配模式或隔离模式支持选择所有可见 AI，因此可选列表为可见模型；多 AI 模式下排除自身
+    const visibleModels = models.filter((m) => !m.hidden)
+    const dropdownModels = visibleModels.length > 0 ? visibleModels : models
     const availableModels =
       productMode === 'task_assignment' || isolated || !!onModelChange
-        ? models
-        : models.filter((m) => m.id !== id)
+        ? dropdownModels
+        : dropdownModels.filter((m) => m.id !== id)
 
     // 将模型列表转换为下拉菜单选项格式
     const baseModelOptions: DropdownOption<string>[] = availableModels.map((m) => ({

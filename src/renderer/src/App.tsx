@@ -2,6 +2,7 @@ import { useState, useEffect, lazy, Suspense } from 'react'
 import Layout from './components/Layout'
 import MainPage from './pages/MainPage'
 import SummaryPage from './pages/SummaryPage'
+import SettingsPage from './pages/SettingsPage'
 import QuickPage from './pages/QuickPage'
 import ToolbarPage from './pages/ToolbarPage'
 import HistoryDrawer from './components/HistoryDrawer'
@@ -114,11 +115,21 @@ function MainApp(): JSX.Element {
     }
     window.api.notifyQuitGuardReady()
     return window.api.onAppQuitRequested(async () => {
-      const { htmlVisualEditing, htmlEditLeaveGuard, flushDocumentAnnotations } =
-        useWorkbenchStore.getState()
+      const store = useWorkbenchStore.getState()
+      store.flushMarkdownSync()
+      const { htmlVisualEditing, htmlEditLeaveGuard, flushDocumentAnnotations } = store
       if (!htmlVisualEditing) {
         const annotationFlush = await flushDocumentAnnotations()
-        window.api.respondAppQuit(annotationFlush.saved)
+        if (!annotationFlush.saved) {
+          window.api.respondAppQuit(false)
+          return
+        }
+        if (useWorkbenchStore.getState().isDirty) {
+          const saved = await useWorkbenchStore.getState().saveActiveFile()
+          window.api.respondAppQuit(saved.saved)
+          return
+        }
+        window.api.respondAppQuit(true)
         return
       }
       if (!htmlEditLeaveGuard) {
@@ -143,8 +154,19 @@ function MainApp(): JSX.Element {
   useEffect(() => {
     if (!window.api.onWindowCloseRequested || !window.api.respondWindowClose) return
     return window.api.onWindowCloseRequested(async () => {
-      const annotationFlush = await useWorkbenchStore.getState().flushDocumentAnnotations()
-      window.api.respondWindowClose(annotationFlush.saved)
+      const store = useWorkbenchStore.getState()
+      store.flushMarkdownSync()
+      const annotationFlush = await store.flushDocumentAnnotations()
+      if (!annotationFlush.saved) {
+        window.api.respondWindowClose(false)
+        return
+      }
+      if (!store.htmlVisualEditing && useWorkbenchStore.getState().isDirty) {
+        const saved = await useWorkbenchStore.getState().saveActiveFile()
+        window.api.respondWindowClose(saved.saved)
+        return
+      }
+      window.api.respondWindowClose(true)
     })
   }, [])
 
@@ -230,6 +252,11 @@ function MainApp(): JSX.Element {
             isActive={currentPage === 'summary'}
           />
         </div>
+      )}
+
+      {/* SettingsPage: 二级设置页面 */}
+      {currentPage === 'settings' && (
+        <SettingsPage />
       )}
 
       {/* 历史记录抽屉：渲染在页面容器外，两个页面均可显示 */}

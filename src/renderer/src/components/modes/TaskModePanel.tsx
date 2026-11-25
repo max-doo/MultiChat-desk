@@ -1,5 +1,9 @@
 import { useRef, useState } from 'react'
-import { useAppStore, waitForSavableUrl, captureResponseTargets } from '../../store/appStore'
+import {
+  useAppStore,
+  waitForSavableUrl,
+  captureResponseTargets
+} from '../../store/appStore'
 import { useTaskSplit } from '../../hooks/useTaskSplit'
 import SubtaskList from './SubtaskList'
 import CustomDropdown from '../CustomDropdown'
@@ -36,10 +40,12 @@ function TaskModePanel({ showNotification }: TaskModePanelProps): JSX.Element {
   const setApiConfig = useAppStore((s) => s.setApiConfig)
   const models = useAppStore((s) => s.models)
 
-  // 拆解平台：与 webview 顶部下拉一致可选全部 models；持久化到 apiConfig.taskSplitPlatform。
+  const visibleModels = models.filter(m => !m.hidden)
+  const dropdownModels = visibleModels.length > 0 ? visibleModels : models
+  // 拆解平台：与 webview 顶部下拉一致可选可见 models；持久化到 apiConfig.taskSplitPlatform。
   const platform = apiConfig.taskSplitPlatform && models.find(m => m.id === apiConfig.taskSplitPlatform)
     ? apiConfig.taskSplitPlatform
-    : (models.find(m => m.enabled)?.id || models[0]?.id || '')
+    : (dropdownModels.find(m => m.enabled)?.id || dropdownModels[0]?.id || '')
   const platformModel = models.find(m => m.id === platform)
   const splitting = isLoading && task && (task.phase === 'loading' || task.phase === 'generating')
 
@@ -278,7 +284,7 @@ function TaskModePanel({ showNotification }: TaskModePanelProps): JSX.Element {
               </button>
             )
           }}
-          options={models.map(m => ({ value: m.id, label: m.name, logo: m.logo }))}
+          options={dropdownModels.map(m => ({ value: m.id, label: m.name, logo: m.logo }))}
         />
         {/* 拆解进行中/结束后提供后台网页查看入口（导图同款排障） */}
         {task && (splitting || task.phase === 'error') && (

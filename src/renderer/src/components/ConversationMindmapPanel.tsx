@@ -753,6 +753,8 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
   const diff = useMemo(() => candidatePreview && activeMap ? diffMindmapLines(activeMap.markdown, candidatePreview.markdown) : marks, [candidatePreview, activeMap, marks])
   const candidateConflict = candidatePreview?.conflict
   const reload = async (): Promise<void> => { await refresh(true); setMarks(null); setEditorRevision(value => value + 1) }
+  const visibleModels = models.filter(model => !model.hidden)
+  const dropdownModels = visibleModels.length > 0 ? visibleModels : models
   const currentModel = models.find(model => model.id === platform)
   const platformName = currentModel?.name || platform
   const controls = (
@@ -1000,7 +1002,7 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
     {collapsed ? <button className="w-full text-xs text-text-secondary hover:text-primary py-1" onClick={() => setCollapsed(false)}>展开输入区 ↑</button> : <>
       <div className="flex items-end gap-1.5 p-1.5 bg-white/85 border border-gray-200/80 rounded-2xl shadow-sm focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/10 transition-colors">
         <CustomDropdown value={mode} disabled={busy || preparing || !!candidate} onChange={value => changeMode(value)} options={[...(activeMap ? [{ value: 'modify' as const, label: '调整当前图' }] : []), { value: 'generate' as const, label: '生成新图' }]} direction="up" dropdownWidth="min-w-max" className="shrink-0" buttonClassName="h-8 px-2 rounded-full text-xs font-medium flex items-center gap-1 bg-primary/10 border border-primary/30 text-primary hover:bg-primary/15 disabled:opacity-50" />
-        <CustomDropdown value={platform} disabled={busy || preparing} onChange={value => applyPlatform(String(value))} options={models.map(model => ({ value: model.id, label: model.name, logo: model.logo }))} direction="up" dropdownWidth="w-48" hideArrow className="shrink-0" buttonClassName="h-8 w-7 rounded-full flex items-center justify-center text-text-secondary hover:bg-gray-100 disabled:opacity-50" renderButton={() => <span title={`生成模型：${models.find(model => model.id === platform)?.name || platform}`} aria-label={`生成模型：${models.find(model => model.id === platform)?.name || platform}`}>
+        <CustomDropdown value={platform} disabled={busy || preparing} onChange={value => applyPlatform(String(value))} options={dropdownModels.map(model => ({ value: model.id, label: model.name, logo: model.logo }))} direction="up" dropdownWidth="w-48" hideArrow className="shrink-0" buttonClassName="h-8 w-7 rounded-full flex items-center justify-center text-text-secondary hover:bg-gray-100 disabled:opacity-50" renderButton={() => <span title={`生成模型：${models.find(model => model.id === platform)?.name || platform}`} aria-label={`生成模型：${models.find(model => model.id === platform)?.name || platform}`}>
           {models.find(model => model.id === platform)?.logo ? <img src={models.find(model => model.id === platform)?.logo} alt="生成模型" className="w-4 h-4 object-contain" /> : <AppIcon name="smart_toy" size={16} />}
         </span>} />
         <textarea ref={textareaRef} aria-label={mode === 'generate' ? '新图要求（选填）' : '导图修改要求'} rows={1} maxLength={mode === 'modify' ? MINDMAP_REQUIREMENTS_LIMIT : undefined} value={request} disabled={busy || preparing} onChange={event => changeRequest(event.target.value)} placeholder={mode === 'generate' ? '输入新图要求（可选）…' : adjustFromCurrent ? '基于当前图描述想调整的内容…' : candidate ? '继续调整候选稿…' : '描述想调整的内容…'} className="flex-1 min-w-0 resize-none bg-transparent text-sm text-text-primary placeholder:text-text-secondary/50 focus:outline-none leading-5 py-1.5 px-1 max-h-[72px] disabled:opacity-50" onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void submit() } }} />
@@ -1103,7 +1105,7 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
                 value={platform}
                 disabled={preparing || busy}
                 onChange={val => applyPlatform(val)}
-                options={models.map(m => ({ value: m.id, label: m.name, logo: m.logo }))}
+                options={dropdownModels.map(m => ({ value: m.id, label: m.name, logo: m.logo }))}
                 dropdownWidth="w-56"
                 buttonClassName="h-8.5 px-3 bg-white border border-gray-200/90 hover:border-gray-300 rounded-lg flex items-center gap-2 shadow-2xs transition-colors disabled:opacity-50 text-left"
                 renderButton={() => (

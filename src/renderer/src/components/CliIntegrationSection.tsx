@@ -12,6 +12,7 @@ export default function CliIntegrationSection(): JSX.Element | null {
   const [busy, setBusy] = useState(false)
   const [copied, setCopied] = useState(false)
   const [cliCopied, setCliCopied] = useState(false)
+  const [pathError, setPathError] = useState<string | null>(null)
 
   useEffect(() => {
     void window.api.cliGetStatus().then(res => {
@@ -28,10 +29,11 @@ export default function CliIntegrationSection(): JSX.Element | null {
 
   const handleAddToPath = async (): Promise<void> => {
     setBusy(true)
+    setPathError(null)
     try {
       const res = await window.api.cliAddToPath()
       if (!res.success) {
-        alert(res.error || '加入 PATH 失败')
+        setPathError(res.error || '加入 PATH 失败')
       }
       await refresh()
     } finally {
@@ -81,6 +83,12 @@ export default function CliIntegrationSection(): JSX.Element | null {
           </button>
         )}
       </div>
+
+      {pathError && (
+        <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-label text-rose-600">
+          {pathError}
+        </div>
+      )}
 
       {status.cliCmdPath && !status.onPath && (
         <div className="flex items-center gap-2 text-xs">

@@ -14,7 +14,7 @@ import { AppIcon } from './icons/AppIcon'
 function SummaryPanel({ selectedModels, modelResponses, restoreHistoryData, isActive = true, presetSummaryMode }: SummaryPanelProps): JSX.Element {
   const { apiConfig, models, setApiConfig, addSummaryHistory, updateSummaryHistory, removeSummaryHistory, history, currentConversationId, registerWebviewRef, unregisterWebviewRef } = useAppStore()
 
-  const firstEnabledModel = models.find(m => m.enabled)
+  const firstEnabledModel = models.find(m => !m.hidden && m.enabled) || models.find(m => !m.hidden) || models.find(m => m.enabled)
   const lastWebviewPlatform = apiConfig.lastWebviewSummaryPlatform ?? firstEnabledModel?.id ?? 'chatgpt'
   const [webviewPlatformId, setWebviewPlatformId] = useState<string>(lastWebviewPlatform)
   // Webview composer 锁定标记：首次注入后置 true，组件卸载或 phase 进入 error/aborted 时归零
