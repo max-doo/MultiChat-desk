@@ -3511,9 +3511,9 @@ export async function registerIpcHandlers(
         }
     })
 
-    ipcMain.handle('agent:set-favorite-models', async (_event, payload: { favorites: Array<{ providerId: string; modelId: string }> }) => {
+    ipcMain.handle('agent:set-model-favorite', async (_event, payload: { providerId: string; modelId: string; favored: boolean }) => {
         try {
-            const data = agentSessionService.setFavoriteModels(Array.isArray(payload?.favorites) ? payload.favorites : [])
+            const data = agentSessionService.setModelFavorite(payload?.providerId, payload?.modelId, payload?.favored === true)
             return { success: true, data }
         } catch (err: unknown) {
             const error = err instanceof Error ? err.message : String(err)

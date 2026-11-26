@@ -843,8 +843,8 @@ const api = {
   },
   agentSetProviderDisabled: (providerId: string, disabled: boolean): Promise<{ success: boolean; data?: AgentRuntimeSnapshot; error?: string }> =>
     ipcRenderer.invoke('agent:set-provider-disabled', { providerId, disabled }),
-  agentSetFavoriteModels: (favorites: AgentFavoriteModel[]): Promise<{ success: boolean; data?: AgentRuntimeSnapshot; error?: string }> =>
-    ipcRenderer.invoke('agent:set-favorite-models', { favorites }),
+  agentSetModelFavorite: (providerId: string, modelId: string, favored: boolean): Promise<{ success: boolean; data?: AgentRuntimeSnapshot; error?: string }> =>
+    ipcRenderer.invoke('agent:set-model-favorite', { providerId, modelId, favored }),
   agentRemoveRecentModels: (items: AgentFavoriteModel[]): Promise<{ success: boolean; data?: AgentRuntimeSnapshot; error?: string }> =>
     ipcRenderer.invoke('agent:remove-recent-models', { items }),
   onAgentProviderAuthChanged: (cb: (payload: { operation: AgentAuthOperation }) => void): (() => void) => {

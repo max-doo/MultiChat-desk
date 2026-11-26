@@ -603,6 +603,9 @@ export class AgentSessionService {
     const { models: enriched } = await this.catalogEnricher.enrichModels(models, {
       syncRemote
     })
+    // 本次 fetch 拿到的目录是权威的：刷新前先修剪收藏/最近中已消失的模型，
+    // 防止目录被覆盖后死键永久残留。
+    this.pruneCatalogedKeys(provider.providerId, new Set(enriched.map((m) => m.id)))
     this.modelRegistry.registerProvider(provider.providerId, {
       name: provider.name,
       baseUrl: provider.registrationBaseUrl,
@@ -2968,6 +2971,8 @@ export class AgentSessionService {
     const result = await runtime.refresh({ allowNetwork: true, force: true, providers: [providerId] })
     const error = result.errors.get(providerId)
     if (error) throw new Error(`刷新 ${providerId} 模型失败：${safeError(error)}`)
+    // 内置供应商手动刷新成功后，目录同样视为权威，修剪已消失模型的收藏/最近。
+    this.pruneCatalogedKeys(providerId, new Set(runtime.getModels(providerId).map((m) => m.id)))
     this.sendRuntimeChanged('refresh')
     return this.getRuntimeSnapshot()
   }
@@ -3347,10 +3352,8 @@ export class AgentSessionService {
     else set.delete(providerId)
     this.store.set(DISABLED_PROVIDERS_STORE_KEY, [...set])
     if (disabled) {
-      const favorites = [...this.getFavoriteModelKeys()].filter((key) => !key.startsWith(`${providerId}:`))
-      this.store.set(FAVORITE_MODELS_STORE_KEY, favorites)
-      const recents = this.getRecentModelKeys().filter((key) => !key.startsWith(`${providerId}:`))
-      this.store.set(RECENT_MODELS_STORE_KEY, recents)
+      // 停用只是视图开关，不触碰收藏/最近数据：它们是用户意图，重新启用后应原样恢复。
+      // 模型确实消失的清理由目录刷新成功后的 pruneCatalogedKeys 负责。
       const activeProvider = (this.store.get('agent_active_provider') as string) || this.defaultProvider
       if (activeProvider === providerId) {
         const fallback = this.firstEnabledModel()
@@ -3364,23 +3367,39 @@ export class AgentSessionService {
     return this.getRuntimeSnapshot()
   }
 
-  public setFavoriteModels(favorites: AgentFavoriteModel[]): AgentRuntimeSnapshot {
-    const runtime = this.modelRuntime
-    if (!runtime) throw new Error('Agent 运行时尚未初始化')
-    const disabled = this.getDisabledProviderIds()
-    const keys: string[] = []
-    const seen = new Set<string>()
-    for (const fav of favorites) {
-      if (!fav || disabled.has(fav.providerId)) continue
-      if (!runtime.getModel(fav.providerId, fav.modelId)) continue
-      const key = `${fav.providerId}:${fav.modelId}`
-      if (seen.has(key)) continue
-      seen.add(key)
-      keys.push(key)
-    }
-    this.store.set(FAVORITE_MODELS_STORE_KEY, keys)
+  /**
+   * 单键增量收藏开关。刻意的宽松写入：不按停用状态、也不按当前目录存在性过滤——
+   * 收藏是用户意图数据，只有「实时目录刷新成功」后的 pruneCatalogedKeys 才有权删除。
+   * 全量覆盖式写入会把停用供应商期间看不到的 key 静默冲掉，故不提供该语义。
+   */
+  public setModelFavorite(providerId: string, modelId: string, favored: boolean): AgentRuntimeSnapshot {
+    if (!providerId || !modelId) return this.getRuntimeSnapshot()
+    const key = `${providerId}:${modelId}`
+    const keys = this.getFavoriteModelKeys()
+    if (favored) keys.add(key)
+    else keys.delete(key)
+    this.store.set(FAVORITE_MODELS_STORE_KEY, [...keys])
     this.sendRuntimeChanged('refresh')
     return this.getRuntimeSnapshot()
+  }
+
+  /**
+   * 目录刷新权威成功后修剪死键：把该供应商已不在新目录中的收藏/最近删除。
+   * 仅在拿到真实成功目录的前提下调用——启动加载本地缓存、刷新失败、
+   * 空目录兜底都不允许触发，避免把"暂时拿不到"误判成"模型已消失"。
+   */
+  private pruneCatalogedKeys(providerId: string, validModelIds: Set<string>): void {
+    const prefix = `${providerId}:`
+    const keep = (key: string): boolean =>
+      !key.startsWith(prefix) || validModelIds.has(key.slice(prefix.length))
+    const favorites = [...this.getFavoriteModelKeys()].filter(keep)
+    if (favorites.length !== this.getFavoriteModelKeys().size) {
+      this.store.set(FAVORITE_MODELS_STORE_KEY, favorites)
+    }
+    const recents = this.getRecentModelKeys().filter(keep)
+    if (recents.length !== this.getRecentModelKeys().length) {
+      this.store.set(RECENT_MODELS_STORE_KEY, recents)
+    }
   }
 
   public removeRecentModels(items: AgentFavoriteModel[]): AgentRuntimeSnapshot {

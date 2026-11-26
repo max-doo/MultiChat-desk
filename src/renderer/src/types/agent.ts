@@ -305,8 +305,10 @@ export interface AgentIpcApi {
     providerId: string,
     disabled: boolean
   ) => Promise<{ success: boolean; data?: AgentRuntimeSnapshot; error?: string }>
-  agentSetFavoriteModels?: (
-    favorites: AgentFavoriteModel[]
+  agentSetModelFavorite?: (
+    providerId: string,
+    modelId: string,
+    favored: boolean
   ) => Promise<{ success: boolean; data?: AgentRuntimeSnapshot; error?: string }>
   agentRemoveRecentModels?: (
     items: AgentFavoriteModel[]

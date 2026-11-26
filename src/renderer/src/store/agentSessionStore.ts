@@ -288,7 +288,7 @@ interface AgentSessionState {
   refreshProviderModels: (providerId: string) => Promise<boolean>
   setProviderBaseUrl: (providerId: string, baseUrl: string | null) => Promise<boolean>
   setProviderDisabled: (providerId: string, disabled: boolean) => Promise<boolean>
-  setFavoriteModels: (favorites: AgentFavoriteModel[]) => Promise<boolean>
+  setModelFavorite: (providerId: string, modelId: string, favored: boolean) => Promise<boolean>
   removeRecentModels: (items: AgentFavoriteModel[]) => Promise<boolean>
   fetchProviderQuotas: (force?: boolean) => Promise<void>
   refreshProviderQuota: (providerId: string) => Promise<void>
@@ -1477,16 +1477,16 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
     return false
   },
 
-  setFavoriteModels: async (favorites) => {
+  setModelFavorite: async (providerId, modelId, favored) => {
     try {
-      const res = await getAgentApi().agentSetFavoriteModels?.(favorites)
+      const res = await getAgentApi().agentSetModelFavorite?.(providerId, modelId, favored)
       if (res?.success && res.data) {
         const snapshot = res.data
         set((s) => ({ snapshot: sanitizeSnapshotForSession(snapshot, s.currentSessionId) }))
         return true
       }
     } catch (err) {
-      console.error('[agentSessionStore] setFavoriteModels error:', err)
+      console.error('[agentSessionStore] setModelFavorite error:', err)
     }
     return false
   },

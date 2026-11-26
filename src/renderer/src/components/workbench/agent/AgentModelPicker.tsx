@@ -25,7 +25,7 @@ export function AgentModelPicker({ onClose }: AgentModelPickerProps): JSX.Elemen
   const sessionStatus = useAgentSessionStore((s) => s.sessionStatus)
   const setModel = useAgentSessionStore((s) => s.setModel)
   const setThinkingLevel = useAgentSessionStore((s) => s.setThinkingLevel)
-  const setFavoriteModels = useAgentSessionStore((s) => s.setFavoriteModels)
+  const setModelFavorite = useAgentSessionStore((s) => s.setModelFavorite)
   const removeRecentModels = useAgentSessionStore((s) => s.removeRecentModels)
   const fetchSnapshot = useAgentSessionStore((s) => s.fetchSnapshot)
   const fetchProviderQuotas = useAgentSessionStore((s) => s.fetchProviderQuotas)
@@ -125,14 +125,7 @@ export function AgentModelPicker({ onClose }: AgentModelPickerProps): JSX.Elemen
     const key = `${provider.id}:${model.id}`
     if (favBusy === key) return
     setFavBusy(key)
-    const next = new Set(favoriteKeys)
-    if (next.has(key)) next.delete(key)
-    else next.add(key)
-    const favorites = [...next].map((entry) => {
-      const sep = entry.indexOf(':')
-      return { providerId: entry.slice(0, sep), modelId: entry.slice(sep + 1) }
-    })
-    await setFavoriteModels(favorites)
+    await setModelFavorite(provider.id, model.id, !favoriteKeys.has(key))
     setFavBusy(null)
   }
 

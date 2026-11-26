@@ -68,7 +68,7 @@ function useAgentProviderSettingsState({ inlineAuth = false }: { inlineAuth?: bo
   const refreshProviderModels = useAgentSessionStore((s) => s.refreshProviderModels)
   const setProviderBaseUrl = useAgentSessionStore((s) => s.setProviderBaseUrl)
   const setProviderDisabled = useAgentSessionStore((s) => s.setProviderDisabled)
-  const setFavoriteModels = useAgentSessionStore((s) => s.setFavoriteModels)
+  const setModelFavorite = useAgentSessionStore((s) => s.setModelFavorite)
   const fetchProviderQuotas = useAgentSessionStore((s) => s.fetchProviderQuotas)
   const refreshProviderQuota = useAgentSessionStore((s) => s.refreshProviderQuota)
   const setCredential = useAgentSessionStore((s) => s.setCredential)
@@ -256,14 +256,7 @@ function useAgentProviderSettingsState({ inlineAuth = false }: { inlineAuth?: bo
     const key = `${providerId}:${modelId}`
     if (favBusy === key) return
     setFavBusy(key)
-    const next = new Set(favoriteKeys)
-    if (next.has(key)) next.delete(key)
-    else next.add(key)
-    const favorites = [...next].map((entry) => {
-      const sep = entry.indexOf(':')
-      return { providerId: entry.slice(0, sep), modelId: entry.slice(sep + 1) }
-    })
-    await setFavoriteModels(favorites)
+    await setModelFavorite(providerId, modelId, !favoriteKeys.has(key))
     setFavBusy(null)
   }
 
