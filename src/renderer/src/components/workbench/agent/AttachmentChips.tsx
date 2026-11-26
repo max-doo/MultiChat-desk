@@ -111,13 +111,13 @@ function renderFileChipIcon(absPath: string, name: string): JSX.Element {
   const dot = name.lastIndexOf('.')
   const ext = dot !== -1 ? name.slice(dot).toLowerCase() : ''
   if (BITMAP_EXTENSIONS.has(ext)) {
-    return <AppIcon name="image" size={14} className="shrink-0 text-violet-600 dark:text-violet-400" />
+    return <AppIcon name="image" size={14} className="shrink-0 text-purple-500 dark:text-purple-400" />
   }
   if (ext === '.svg') {
-    return <AppIcon name="draw" size={14} className="shrink-0 text-violet-600 dark:text-violet-400" />
+    return <AppIcon name="draw" size={14} className="shrink-0 text-purple-500 dark:text-purple-400" />
   }
-  if (MARKDOWN_EXTENSIONS.has(ext) || ext === '.txt') {
-    return <AppIcon name="description" size={14} className="shrink-0 text-slate-500 dark:text-slate-400" />
+  if (MARKDOWN_EXTENSIONS.has(ext)) {
+    return <AppIcon name="description" size={14} className="shrink-0 text-blue-500 dark:text-blue-400" />
   }
   return (
     <FileTypeIcon
@@ -401,7 +401,7 @@ export function InlineFileCode({ text, cwd }: InlineFileCodeProps): JSX.Element 
         handleClick()
       }}
       title={resolved.abs}
-      className="mx-0.5 inline-flex translate-y-px items-center gap-1 rounded-md border border-slate-200/80 bg-slate-100 px-1.5 py-0.5 align-baseline text-caption font-mono text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-200 dark:border-white/10 dark:bg-white/10 dark:text-gray-200 dark:hover:bg-white/15"
+      className="mx-0.5 inline-flex items-center gap-1 rounded px-1 -my-0.5 py-0.5 align-baseline text-body font-medium text-primary transition-colors hover:bg-primary/10 dark:text-blue-300 dark:hover:bg-primary/25"
     >
       {renderFileChipIcon(resolved.abs, resolved.name)}
       <span className="max-w-52 truncate">{resolved.name}</span>

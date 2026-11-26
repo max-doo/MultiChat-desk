@@ -95,15 +95,6 @@ function WorkbenchPaneToggles(): JSX.Element {
     <>
       <button
         type="button"
-        aria-label={rightPane === 'mindmap' ? '收起思维导图' : '打开思维导图'}
-        title={rightPane === 'mindmap' ? '收起思维导图' : '打开思维导图'}
-        onClick={() => rightPane === 'mindmap' ? closeRightPane() : openRightPane('mindmap')}
-        className={tone(rightPane === 'mindmap')}
-      >
-        <AppIcon name="diagram_flow_horizontal" size={16} />
-      </button>
-      <button
-        type="button"
         aria-label={rightPane === 'ai' || isAiSidebar2Open ? '收起 AI 侧边栏' : '打开 AI 侧边栏'}
         title={rightPane === 'ai' || isAiSidebar2Open ? '收起 AI 侧边栏' : '打开 AI 侧边栏'}
         onClick={() => {
@@ -117,6 +108,15 @@ function WorkbenchPaneToggles(): JSX.Element {
         className={tone(rightPane === 'ai' || isAiSidebar2Open)}
       >
         <AppIcon name={rightPane === 'ai' || isAiSidebar2Open ? 'right_panel_close' : 'right_panel_open'} size={16} />
+      </button>
+      <button
+        type="button"
+        aria-label={rightPane === 'mindmap' ? '收起思维导图' : '打开思维导图'}
+        title={rightPane === 'mindmap' ? '收起思维导图' : '打开思维导图'}
+        onClick={() => rightPane === 'mindmap' ? closeRightPane() : openRightPane('mindmap')}
+        className={tone(rightPane === 'mindmap')}
+      >
+        <AppIcon name="diagram_flow_horizontal" size={16} />
       </button>
     </>
   )
@@ -538,7 +538,7 @@ function Layout({ children }: LayoutProps): JSX.Element {
                   }}
                 >
                   <div className="flex-1 min-w-[4px] h-full drag-region" />
-                  <div className={`flex items-center gap-1 shrink-0 no-drag ${window.api.platform === 'win32' ? 'mr-2' : ''}`}>
+                  <div className="flex items-center gap-1 shrink-0 no-drag">
                     <WorkbenchPaneToggles />
                     {window.api.platform === 'darwin' && renderEntryButtons(rightPaneWidth < 360)}
                   </div>
@@ -551,7 +551,7 @@ function Layout({ children }: LayoutProps): JSX.Element {
                   window.api.platform === 'win32' ? '' : 'pr-4'
                 }`}
               >
-                <div className={`flex items-center gap-1 shrink-0 no-drag ${window.api.platform === 'win32' ? 'mr-2' : ''}`}>
+                <div className="flex items-center gap-1 shrink-0 no-drag">
                   <WorkbenchPaneToggles />
                   {window.api.platform === 'darwin' && renderEntryButtons(!isWideWindow)}
                 </div>
