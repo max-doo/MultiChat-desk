@@ -20,6 +20,7 @@ import type { CliIntegrationStatus } from '../shared/types/cli'
 const execFileAsync = promisify(execFile)
 
 const HINT_DISMISSED_KEY = 'cliAgentHintDismissed'
+const HINT_DISMISSED_VERSION_KEY = 'cliAgentHintDismissedVersion'
 const INSTALL_STAMP_FILE = '.install-stamp'
 
 function hasInstallStamp(): boolean {
@@ -81,12 +82,14 @@ export async function getCliStatus(store: Store<Record<string, unknown>>): Promi
   const cliCmdPath = getCliCmdPath(cliDir)
   const supported = process.platform === 'win32' && app.isPackaged && cliDir !== null
   const onPath = supported && cliDir ? pathContainsDir(await readUserPathValue(), cliDir) : false
+  const currentVersion = app.getVersion()
+  const dismissedForVersion = store.get(HINT_DISMISSED_VERSION_KEY) === currentVersion
   return {
     supported,
     platform: process.platform,
     isPackaged: app.isPackaged,
     onPath,
-    hintDismissed: store.get(HINT_DISMISSED_KEY, false) === true && !hasInstallStamp(),
+    hintDismissed: store.get(HINT_DISMISSED_KEY, false) === true && dismissedForVersion && !hasInstallStamp(),
     cliDir,
     cliCmdPath,
     skillDir: getSkillDir()
@@ -95,6 +98,7 @@ export async function getCliStatus(store: Store<Record<string, unknown>>): Promi
 
 export async function dismissCliHint(store: Store<Record<string, unknown>>): Promise<void> {
   store.set(HINT_DISMISSED_KEY, true)
+  store.set(HINT_DISMISSED_VERSION_KEY, app.getVersion())
   const cliDir = getCliDir()
   if (cliDir) {
     await rm(join(cliDir, INSTALL_STAMP_FILE), { force: true }).catch(() => undefined)
