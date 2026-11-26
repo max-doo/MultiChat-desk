@@ -2,24 +2,24 @@
 
 ## Project Overview
 
-MultiChat Desk 是基于 Electron 的桌面应用，通过多个 Webview 并行接入不同 AI 平台，提供统一发送、任务分配、辩论、Webview 总结、历史记录、本地笔记与思维导图能力。
-主要用户群体为多模型大语言模型的重度使用者，主要产品形态为 Electron 桌面端应用。
+MultiChat Desk 是基于 Electron 的桌面应用，通过多个 Webview 并行接入不同 AI 平台，提供统一发送、任务分配、辩论、Webview 总结、历史记录、笔记工作台（workbench，含内嵌 pi-coding-agent 的 Agent 助手）与思维导图能力。
 
 ## Tech Stack
 
 - Language/runtime: TypeScript (strict), Node.js, Electron 42
 - Frameworks: React 18, Tailwind CSS 3, Zustand 4
+- Key deps: `@earendil-works/pi-coding-agent`（Agent 运行时内核）、Lexical 0.53（workbench 富文本编辑器）、markmap（导图渲染）
 - Package manager: pnpm 10.x (禁止使用 npm / yarn 安装依赖；锁文件为 `pnpm-lock.yaml`)
 - Build Tool: electron-vite (HMR dev), electron-builder
 
 ## Project Structure & Module Organization
 
-- `src/main/`：Electron 主进程，负责窗口、Session、IPC、持久化、任务拆解 API 与后台自动化。关键入口：`index.ts`、`webviewManager.ts`、`ipcHandlers.ts`、`summaryPrompts.ts`；`services/` 管理后台会话、自动化与导图任务，`noteManager.ts` 管理笔记。
+- `src/main/`：Electron 主进程，负责窗口、Session、IPC、持久化与后台自动化。关键入口：`index.ts`、`webviewManager.ts`、`ipcHandlers.ts`、`summaryPrompts.ts`；`services/` 为领域服务层（Agent 会话/权限、Web AI 自动化、导图、任务拆解、workbench 文件与 Git、供应商鉴权等），`extensions/` 为 pi-agent 扩展，`updater/` 处理自动更新，`inputHookManager.ts`/`selectionToolbarManager.ts` 支撑全局划词工具栏。
 - `src/preload/`：仅做安全桥接，向渲染层暴露 `window.api`。`index.d.ts` 是 IPC 契约文件。
-- `src/renderer/src/`：React UI、状态、页面逻辑与 Webview 交互。包含 `pages/`、`components/`、`store/appStore.ts`、`hooks/useWebviewSummary.ts`、Webview 操作/生命周期/笔记 Hooks。`config/selectors.ts` 与 `utils/webviewScripts.ts` 从 `src/shared/` 重导出 Webview 选择器和注入脚本。
-- `src/shared/`：跨进程复用的选择器配置、Webview 注入脚本、导图/快照工具和类型。
-- `src/cli/`：CLI 命令与客户端；主进程 `daemon/` 和 `services/` 提供通信与执行能力。CLI 以 `resources/cli/index.js` 随包分发，入口 shim 为 `build/cli/multichat.cmd|multichat.sh`（安装目录 `cli/` 子目录，对外命令名 `multichat`）；`build/installer.nsh` 提供"加入 PATH"复选框、注册 `HKCU\Environment` Path 并在卸载时移除，主进程 `cliIntegration.ts` 负责状态查询/补挂 PATH/Agent Skill 目录定位，配套 Skill 随包落到 `resources/skill/multichat-cli`。
-- `docs/`：构建、打包、Windows 命令、API 配置等参考文档。
+- `src/renderer/src/`：React UI、状态、页面逻辑与 Webview 交互。包含 `pages/`（Main/Workbench/Settings 等）、`components/`（`workbench/` 与 `workbench/agent/` 为两大子系统）、`store/appStore.ts`、`hooks/`。`config/selectors.ts` 与 `utils/webviewScripts.ts` 从 `src/shared/` 重导出 Webview 选择器和注入脚本。
+- `src/shared/`：跨进程复用的选择器配置、Webview 注入脚本、导图/快照/笔记工具与类型（`types/` 含 agent、workbench、taskSplit 等契约）。
+- `src/cli/`：CLI 命令与客户端；主进程 `daemon/` 和 `services/` 提供通信与执行能力。CLI 以 `resources/cli/index.js` 随包分发，入口 shim 为 `build/cli/multichat.cmd|multichat.sh`（安装目录 `cli/` 子目录，对外命令名 `multichat`）；`build/installer.nsh` 提供"加入 PATH"复选框、注册 `HKCU\Environment` Path 并在卸载时移除，主进程 `cliIntegration.ts` 负责状态查询/补挂 PATH/Agent Skill 目录定位；Skill 源文件在 `.agents/skills/multichat-cli`，经 electron-builder `extraResources` 落到安装目录 `resources/skill/multichat-cli`。
+- `docs/`：常青指南在根（BUILD/USER/API 等），活跃设计稿按主题归档于 `agent/`、`workbench/`、`mindmap/`、`design/` 等子目录，索引见 `DOCS_INDEX.md`。
 - `out/`、`dist/`：构建产物，禁止手改;`scripts/`、`build/`：构建辅助脚本与资源。
 
 ## Build, Test, and Development Commands
@@ -50,8 +50,9 @@ MultiChat Desk 是基于 Electron 的桌面应用，通过多个 Webview 并行�
 - **分层边界**：`src/main` 主进程能力 / 窗口 / Session / IPC / 数据 / 总结链路；`src/preload` 仅做安全桥接;`src/renderer` 仅做 UI / 状态 / 页面逻辑 / Webview 交互。禁止跨层塞逻辑。
 - **IPC 约束**：新增或修改 IPC 必须同步 `src/main/ipcHandlers.ts`、`src/preload/index.ts` 及渲染层调用点，并核对 `src/preload/index.d.ts`、`src/renderer/src/env.d.ts`。两处全局声明均从 preload 导出的 `API` 类型派生，不维护重复接口；返回结构统一为 `{ success, data?, error? }`。
 - **Webview 自动化约束**: 站点选择器统一维护在 `src/shared/config/selectors.ts`，注入脚本统一在 `src/shared/utils/webviewScripts.ts`；渲染层对应路径只重导出。优先多候选选择器与可见性判断，避免脆弱 DOM 依赖。
-- **总结与任务拆解约束**：当前总结走 `SummaryPanel` / `useWebviewSummary` 的网页注入与长文本附件，不自动发送；已删除的 API 流式总结不作为当前修改入口。任务拆解 API 走 `config/requestBodyConfig.ts`、`api/taskSplitApi.ts`、`ipcHandlers.ts` 的 `split-task` / `abort-split-task`，供应商参数、reasoning/thinking、中止能力及 IPC 契约需与 preload 和前端调用同步。导图后台生成由 `services/MindmapService.ts` 管理，保持采集完整性、取消和会话清理兼容。
-- **业务数据持久化**：历史由主进程 HistoryManager 按会话 ID 保存为独立 JSON；正式目录为 `history/conversations`、`history/summaries`，开发目录为 `history/dev/` 下对应目录。配置仅记录 `historyStorageVersion` 迁移版本，不写回历史数组。笔记、共享快照和本地导图由 NoteManager 管理；列表摘要与正文读取分离。
+- **总结与任务拆解约束**：当前总结走 `SummaryPanel` / `useWebviewSummary` 的网页注入与长文本附件，不自动发送。任务拆解已迁移到后台 Web AI 会话：`services/TaskSplitService.ts`（基于 SessionManager + AutomationService，XML 标签输出契约），IPC 为 `tasksplit:*` 通道族，输出契约见 `src/shared/types/taskSplit.ts` 与 `src/shared/utils/taskSplit.ts`；旧的 API 拆解路径（`api/taskSplitApi.ts` 等）已删除，不要恢复。导图后台生成由 `services/MindmapService.ts` 管理（同一套 Web AI 后台会话模式），本地导图文件由 `mindmapFileService.ts` 管理。
+- **Agent 模式约束**：workbench 内嵌 Agent 以 `@earendil-works/pi-coding-agent` 为运行时内核，主进程侧为 `services/AgentSessionService.ts`（会话生命周期/rewind/fork）+ `PermissionEngine`/`permissionPolicy.ts`（权限判定）+ `commandAnalyzer/`（Shell 命令安全分析）+ `agentFileChangeTracker.ts`（按用户回合聚合文件变更与安全撤销），IPC 统一走 `agent:*` 通道族；供应商鉴权与额度走 `ProviderAuthController` / `ProviderQuotaService` / `customGatewayProvider.ts`。涉及 Shell 执行、文件写入、权限模式的改动必须回归安全判定链路。
+- **业务数据持久化**：历史由主进程 HistoryManager 按会话 ID 保存为独立 JSON；正式目录为 `history/conversations`、`history/summaries`，开发目录为 `history/dev/` 下对应目录。配置仅记录 `historyStorageVersion` 迁移版本，不写回历史数组。笔记、共享快照和本地导图由 NoteManager 管理；列表摘要与正文读取分离。workbench 会话文档另走 `conversationDocumentService.ts`（frontmatter Markdown 落盘，`src/shared/utils/conversationFrontmatter.ts` 为读写契约），与 JSON 历史并存、各司其职。
 - **回复采集**：多 AI、任务分配与辩论在发送后轮询回复并自动保存本地快照；问题先落盘，回复与会话地址随后更新。轮询绑定产品模式、会话与窗口实例，同模型多窗口按槽位区分；后台定时读取禁止重复执行点击复制等交互式采集。
 - **Session 约束**：所有 Webview 共享 `persist:shared` Session，登录态全局；任何涉及 Session / Cookie / 账户切换的改动必须评估全局影响。
 

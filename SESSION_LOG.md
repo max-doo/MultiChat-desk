@@ -2,6 +2,345 @@
 
 ## 2026-11-26
 
+### 21:03 | Codex
+
+- done: 按功能模块分三批提交本日工作:feat(agent)权限加固+工具状态修复+打捞链, feat(workbench)双链面板+内联chip+排版/图片预览, docs(memory)日志与约束;过程目录.tmp/ scratch/与调试脚本不入库
+- added:
+  - `src/renderer/src/components/workbench/WorkbenchLinkRelationsPanel.tsx;src/renderer/src/components/workbench/agent/AgentComposerEditor.tsx;src/renderer/src/components/workbench/agent/fileExistenceCache.ts;src/shared/utils/workbenchWikiLinks.ts`
+- modified:
+  - `AGENTS.md;.memory/INDEX.md;.memory/KNOWLEDGE.md;SESSION_LOG.md;DESIGN.md;src/main/ipcHandlers.ts;src/main/services;src/preload/index.ts;src/renderer/src/components/workbench;src/renderer/src/store;src/shared/types;src/shared/utils;tailwind.config.js`
+
+### 21:03 | Codex
+
+- done: 删除 Agent 回复文末附件胶囊（与行内 chip 冗余）：移除 AgentCard 的 AttachmentChips 渲染与 attachmentPaths 去重计算链路，删除 AttachmentChips.tsx 中胶囊组件、collectToolAttachmentPaths、extractInlineFilePaths、collectInlineCoveredPathKeys 及附件扩展名白名单；KNOWLEDGE.md 过期条目就地更新
+- modified:
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+  - `src/renderer/src/components/workbench/agent/AttachmentChips.tsx`
+  - `src/renderer/src/components/workbench/agent/markdownMath.ts`
+  - `src/renderer/src/store/agentSessionStore.ts`
+  - `.memory/KNOWLEDGE.md`
+
+### 20:56 | Codex
+
+- done: 修复双链元数据审查发现的缺陷:P1锚点链接解析([[doc#heading]]剥离锚点解析到文档+显示名doc>anchor);P1重命名/删除后快照竞态过期(watcher索引落盘后无条件推送workbench:links-changed快照,不受自写窗口抑制);P2系列:截断扫描不入缓存+预算提到8s、增量索引尊重gitignore、扫描/索引按工作区串行队列、fileName null整表作废进队列、自写抑制判定改在去抖触发时捕捉、缺失chip不再cursor-pointer;折叠联动(笔记属性折叠态提升到store共享);出链/反链字号对齐笔记属性text-body 14px
+- context: 独立worker验收报告P1x2+P2x7,用户确认'前端我验收了'后只做代码修复与逻辑验证;锚点修复后用户wiki中18/88个带#锚点的目标从琥珀缺失态恢复正常
+- modified:
+  - `src/renderer/src/components/workbench/workbenchWikiLinks.ts(锚点剥离+显示名); src/main/services/workbenchService.ts(links-changed广播+串行队列enqueueWorkspaceLinkScan+scanWorkspaceLinks拆分+截断不入缓存+gitignore过滤+自写抑制捕捉时点); src/preload/index.ts(onLinksChanged); src/renderer/src/store/workbenchStore.ts(onLinksChanged订阅+frontmatterPanelCollapsed+__workbenchStore dev钩子); src/renderer/src/components/workbench/FrontmatterPanel.tsx(折叠态上store); src/renderer/src/components/workbench/WorkbenchLinkRelationsPanel.tsx(折叠联动+text-body); src/renderer/src/components/workbench/WorkbenchFileChip.tsx(缺失态cursor-default)`
+- lesson(promoted): vite dev下页面内裸import()拿到的是幻影模块副本而非应用真实store实例(HMR带?t=参数加剧),CDP行为验证必须经应用真实加载路径暴露的同一实例——本次加import.meta.env.DEV守卫的window.__workbenchStore调试钩子(生产tree-shake);openFile等在workbench初始化完成前调用会静默返回,测试脚本必须轮询isInitialized+workspacePath
+- unresolved: main进程侧修复(队列/广播/gitignore)需要重启dev实例才生效,当前运行实例仍是旧main;[[doc#heading]]点击只打开文档不滚动到标题(Obsidian有,未实现,可作后续)
+
+### 20:53 | Codex
+
+- done: 工作台文件 inline chip 改为正常字重（去掉 font-medium）
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchFileChip.tsx`
+  - `src/renderer/src/components/workbench/agent/AttachmentChips.tsx`
+
+### 20:32 | Codex
+
+- done: 修复图片预览右键菜单回归：补回被顶掉的发送到 AI 侧边栏/复制图片/图片另存为三项，copyImageElementToClipboard 从 CustomContextMenu 导出复用，复制优先走主进程 copyImageAt 保留原编码
+- context: 用户发现回归后指出；复制图片依赖渲染出的 img 元素故仅在 canManipulateImage 时展示，超限图片仍可用另存为和发送到 AI（走文件路径管线）
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchImagePreview.tsx`
+  - `src/renderer/src/components/CustomContextMenu.tsx`
+- lesson(promoted): 接管已挂全局 CustomContextMenu 的 DOM 区域右键前，必须先盘点 e.defaultPrevented 退让后会被顶替的存量菜单项（图片三件套发送到AI/复制/另存），在新菜单中逐项保留或明确裁剪，不能只盯新需求项
+
+### 20:28 | Codex
+
+- done: 文件chip合并收尾：修复数学占位符还原的NaN缺陷（match[2]）与InlineFileChip磁盘兜底useMemo依赖缺失（existenceVersion未入deps导致stat到达后不重算），CDP实证unknown到exists升级、隐藏/树外路径chip化、点击行为与文末胶囊去重；tsc/eslint/build全绿
+- context: 承接上一轮chip合并工作；dev实例重启后agent:stat-file已注册
+- modified:
+  - `src/renderer/src/components/workbench/agent/markdownMath.ts`
+  - `src/renderer/src/components/workbench/agent/AttachmentChips.tsx`
+- lesson(promoted): useSyncExternalStore驱动的订阅版本号必须进入useMemo依赖数组，否则stat等异步结果到达后组件虽重渲染但memo缓存的null永不失效，升级链路静默断裂
+- lesson(promoted): 正则交替分支捕获组编号：(?:FP(\d+)|(\d+))中第一分支是group1、第二分支是group2，误用match[1]读第二分支得到undefined转NaN，占位符还原静默失败；写交替正则后必须用真实样本验证每个分支
+- lesson(promoted): CDP验证中把Windows路径字符串直接拼进evaluate的JS表达式时反斜杠会被浏览器JS解析器吞掉（\t变制表符），必须用JSON.stringify注入或正斜杠路径
+
+### 20:20 | Codex
+
+- done: 工作台中间预览面板图片右键菜单新增移动到功能：hover 展开二级菜单按层级列出工作区子目录（排除当前所在目录与 .multichat 内部目录），点击后复用 moveNode/renameNode 移动当前图片并自动同步标签页与预览路径；同时补充系统默认程序打开、资源管理器定位两个入口；菜单按真实尺寸钳位进视口，子菜单右侧不足时翻到左侧
+- context: 用户要求的是中间预览面板右键，不是 Markdown 文档内图片（WorkbenchImageNode）也不是 Lightbox
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchImagePreview.tsx`
+  - `src/renderer/src/components/workbench/workbenchImageUtils.ts`
+- lesson(promoted): 宿主 DOM 右键链路：全局 CustomContextMenu 按 e.defaultPrevented 退让，组件级右键菜单只需 preventDefault 即可共存，无需额外标记
+
+### 20:17 | Codex
+
+- done: Markdown h1 从 2em 降到 1.6em(25.6px)，与 32px 文档标题拉开层级，h2-h6 不动；参照 Craft/Logseq 有独立文档标题时 h1 压到 1.5-1.6em 的惯例
+- decision: 方案A最小改动：只压 h1，h2-h6 已是业界标准值不动；级差 标题32>h1 25.6>h2 24 靠分隔线有无进一步区分
+- modified:
+  - `src/renderer/src/assets/index.css`
+
+### 20:16 | Codex
+
+- done: 实现 Obsidian 风格双链元数据：编辑器元数据区显示出链/反链 chip 面板
+- context: 用户要求参照 Obsidian 实现文档元数据中的被引/反引(即出链/反链)。调研结论:Obsidian 的反链/出链不在笔记元数据里而是独立面板/底部区,由 metadata cache 计算、天然不可编辑;用户要求的'元数据不可编辑'与计算型展示天然契合,实现为编辑器元数据区(笔记属性面板下方)的纯计算只读区。
+- decision: 1)主进程缓存原始[[target]]串,解析统一在渲染层用文件树按最短路径语义完成,单一事实源;2)索引双保险:保存后extractFileLinks增量+watcher事件驱动按路径增量索引(覆盖导图后台生成等不经渲染层的写盘),目录级事件整表作废退化全扫;3)出链实时取编辑器内存内容(未保存也准确),反链取磁盘快照;4)出链按解析后路径去重(Obsidian语义),反链排除自引用;5)面板只在出链/反链非空时显示,纯只读不可编辑。
+- added:
+  - `src/shared/utils/workbenchWikiLinks.ts(extractWikiLinkTargets); src/renderer/src/components/workbench/WorkbenchLinkRelationsPanel.tsx(出链/反链面板)`
+- modified:
+  - `src/shared/types/workbench.ts(WorkspaceLinkEntry); src/main/services/workbenchService.ts(workspaceLinkCache+getWorkspaceLinks+extractFileLinks+watcher增量索引updateWorkspaceLinkCachePaths); src/main/ipcHandlers.ts(两个IPC); src/preload/index.ts(桥接); src/renderer/src/store/workbenchStore.ts(workspaceLinks状态+加载/保存联动); src/renderer/src/components/workbench/WorkbenchEditor.tsx(挂载面板)`
+- lesson(promoted): CDP自动化输入Lexical编辑器:Input.insertText整串输入不触发markdown快捷键转换,必须逐字符;document.execCommand('insertText')在页面eval内可用且走真实beforeinput管道;但insertText的'\\n'不会换行而是直接拼接文本。测试脚本打开文件应用store.openFile(vite下可import('/src/store/workbenchStore.ts')),不要用文件树DOM点击(折叠态节点不在DOM中)。绝不可以在未守卫activeFilePath的情况下向contenteditable输入——会污染用户真实文档。
+- unresolved: CDP验收曾误把测试文本写入用户论文文件thesis/4-夏热冬暖地区农房需求与案例启示.md末尾,已精确移除垃圾行并git diff核对干净(仅剩用户自己未提交的1行修改);dev实例是手动重启的(pnpm run dev在后台session 6141运行中)
+
+### 20:14 | Codex
+
+- done: workbench 文档大标题(WorkbenchTitleBar)字号 24px 提升到 32px 与 Markdown h1 同档，新增 text-title-xl token，title-lg 仍保留给设置页
+- decision: 文档标题用 32px 与 h1(2em) 视觉同档而非 Notion 式 40px——用户明确要求只与标题同大
+- modified:
+  - `tailwind.config.js`
+  - `src/renderer/src/components/workbench/WorkbenchTitleBar.tsx`
+  - `DESIGN.md`
+
+### 20:11 | Codex
+
+- done: Agent 输入框 chip 样式调整：背景改灰色 bg-slate-100/dark:bg-white/10，移除按钮从右上角悬浮改为同行常显小叉
+- modified:
+  - `src/renderer/src/components/workbench/agent/AgentComposerEditor.tsx`
+
+### 20:09 | Codex
+
+- done: Agent 侧栏文件 chip 合并：行内 chip 支持磁盘存在性兜底（区外/隐藏目录路径），正文裸绝对路径经 markdownMath 管线 chip 化，文末胶囊与行内 chip 去重合并
+- added:
+  - `src/renderer/src/components/workbench/agent/fileExistenceCache.ts`
+- modified:
+  - `src/renderer/src/components/workbench/agent/AttachmentChips.tsx`
+  - `src/renderer/src/components/workbench/agent/MarkdownRenderer.tsx`
+  - `src/renderer/src/components/workbench/agent/markdownMath.ts`
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+- lesson: react-markdown 裸文本 token 化可复用 markdownMath 的预处理占位符管线：扫描时跳过行内/围栏代码与链接目的地，rehype 阶段把占位符还原为 data-* 元素再在 components.span 分支渲染；占位符正则的多捕获组序号必须与交替分支顺序一致（先写的分支是 group 1）
+- unresolved: agent:stat-file IPC 需重启 dev 实例生效；重启后需验证 .multichat/区外路径 chip 升级链路（unknown→exists 视觉跳变）
+
+### 20:08 | Codex
+
+- done: 修复 Agent 运行中工具状态误判：image_gen 等长任务执行期间 UI 显示成功、标题停止闪烁。四层修复：①store mergeMessageParts 保留本地 tool-call（message_end/message_update 快照缺失 toolCall 时不再抹掉运行中的 part）；②tool_execution_start 强制消息回到 running、turn_end 不得越过未出结果的 tool-call；③AgentCard 把组级 isGroupRunning 传给 ToolGroup（组级 run 存活即权威，消息级只做辅助）；④resumeSession 按后端 isRunning 还原运行中状态 + toolResult 恢复归一化为 {content,details,isError}。新增 MM_AGENT_EVENTLOG=1 事件时间线日志（sessionsDir/<id>/event-timeline.jsonl）备查。中止/丢失的工具结果改显示'未返回结果'而非假'成功'。验证：tsc web/node 0 错误、eslint 目标文件 0 警告、build 通过、四种致病变体回放全部正确
+- modified:
+  - `src/main/services/AgentSessionService.ts`
+  - `src/renderer/src/store/agentSessionStore.ts`
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+  - `src/renderer/src/components/workbench/agent/ToolGroup.tsx`
+- lesson(promoted): Agent 工具状态链路三个权威信号各有盲区：消息级 status 会因 message_end 形态异常（不含 toolCall/空 content）提前翻转 complete；part.result 会因快照覆盖丢失；唯一可靠的是组级 agent run 存活信号（agent_start→agent_end）。渲染层运行态必须以组级为准、消息级为辅。pi 的 message_end 在 tool_execution_start 之前到达，不能作为完成信号；turn_end 兜底也不得越过未出结果的 tool-call
+- unresolved: 真实生产中触发该 bug 的确切事件形态未确认（四种变体均已防御）；如需实证：设 MM_AGENT_EVENTLOG=1 后复现一次 image_gen，检查 agent-sessions/<id>/event-timeline.jsonl
+
+### 20:08 | Codex
+
+- done: Agent 输入框 @ 文件引用改为内联 chip：新增 contenteditable 编辑器 AgentComposerEditor，已登记附件的 @token 在输入框内就地渲染为带背景的文件 chip（复用 WorkbenchFileChip + bg-primary/10），移除输入框上方独立的附件 chip 双轨行；目录 mention 的 chip 图标按文件树节点类型渲染为文件夹（输入框 chip、消息气泡 mention、回复附件 chip 三处同步）
+- added:
+  - `src/renderer/src/components/workbench/agent/AgentComposerEditor.tsx`
+- modified:
+  - `src/renderer/src/components/workbench/agent/AgentComposer.tsx`
+  - `src/renderer/src/components/workbench/agent/AttachmentChips.tsx`
+- lesson(promoted): contenteditable chip 编辑器的稳定模式：文本模型保持纯字符串，DOM 只作镜像；输入时序列化比对，文本一致即跳过重建从而保住光标与 IME；chip 宿主用 contenteditable=false 原子节点，React 内容经 createPortal 注入
+
+### 20:06 | Codex
+
+- done: workbench Markdown 标题字号体系对齐业界惯例：h1-h6 改 em 梯队(2/1.5/1.25/1.12/1/1)字重600，正文基准定 16px(text-body-lg)
+- decision: 标题用 em 相对单位而非 px，正文基准变化时梯队自动跟随；h5/h6 与正文同字号仅靠字重区分，参照 GitHub/Obsidian 惯例
+- modified:
+  - `src/renderer/src/assets/index.css`
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+
+### 20:00 | Codex
+
+- done: 审查并更新 AGENTS.md：修正任务拆解链路描述（API 路径已删，迁移至 TaskSplitService + tasksplit:* IPC），新增 Agent 模式架构约束（pi-coding-agent/PermissionEngine/commandAnalyzer/agent:* IPC），补充 workbench 与后台 Web AI 自动化链路，刷新目录结构（services 扩展、extensions/updater、划词工具栏）、Tech Stack 关键依赖、docs 主题化归档与 CLI Skill extraResources 来源
+- context: 用户要求控制整体长度只加最关键信息；最终 +8 行（119->127）
+- modified:
+  - `AGENTS.md`
+- lesson(promoted): apply_patch 必须整行精确匹配，含弯引号/全角标点时 substring 替换会静默失败；改前先用字节级读取确认原文
+
+### 19:41 | Antigravity
+
+- done: 加固 bash/macOS/Linux 权限审查并打通 Auto 模式工作区文件写放行
+- context: 用户确认不引入 OS 级沙箱、sudo 在 bypass 确认、pnpm install 等任意脚本执行在 Auto 保持确认
+- decision: POSIX 系统目录(/etc,/usr,/bin,/sbin,/boot,/lib,/System,/Library 等)采用写保护硬拒+读放行分离；bashAnalyzer 保留变量原文并识别 >/>>/2>/dev/null/2>&1 及 mkdir/touch/cp/mv/tee 写入；sudo/doas/su/持久化文件写/未解析变量目标在 bypass 仍触发确认
+- modified:
+  - `src/main/services/commandAnalyzer/bashAnalyzer.ts`
+  - `src/main/services/commandAnalyzer/externalCommandGate.ts`
+  - `src/main/services/commandAnalyzer/psAstAnalyzer.ts`
+  - `src/main/services/permissionPolicy.ts`
+  - `src/main/services/PermissionEngine.ts`
+- unresolved: Windows 主机完成 tsc/lint/build 与 64 条权限用例无头校验；macOS/Linux 真实路径与 pnpm run dev 桌面端烟雾测试待实机验证
+
+### 19:30 | Codex
+
+- done: 修正双链 chip 样式方向：对齐 Agent 侧栏模型回复正文内联 chip（图标+主题色文字、无背景无描边、字号继承），附件胶囊恢复独立样式；图标尺寸支持 em 字符串随上下文缩放（AppIcon 增加 em 分支，FileChipIcon 默认 1em，缺失态圆点改 em）
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchFileChip.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchWikiLinkNode.tsx`
+  - `src/renderer/src/components/workbench/agent/AttachmentChips.tsx`
+  - `src/renderer/src/components/icons/AppIcon.tsx`
+- lesson(promoted): chip 样式参照对象要区分：Agent 回复底部附件胶囊（描边 rounded-full）与回复正文内联 chip（无边框主题色文字）是两种形态，行内引用应以后者为准；AppIcon 数值 size 乘 0.85 光学系数，em 字符串分支保持同一系数
+
+### 19:25 | Codex
+
+- done: Markdown 编辑器支持 Obsidian 式双链：[[target]]/[[target|display]] 渲染为 chip，支持文件树拖拽插入、@ 与 [[ 唤起文件菜单（复用快速打开过滤与行样式）、点击打开目标文件、缺失目标琥珀色标记；行内 chip 样式抽为共享组件 WorkbenchFileChip（对齐 Agent 侧栏行内 chip：图标+主题色文字、无背景无描边、字号继承），AttachmentChips 回复胶囊样式原样保留
+- context: workbench Lexical 编辑器双链功能首版，CDP 9223 行为级验收通过（导入渲染/round-trip/点击打开/@菜单/[[转换/拖拽落点）
+- added:
+  - `src/renderer/src/components/workbench/workbenchWikiLinks.ts`
+  - `src/renderer/src/components/workbench/WorkbenchWikiLinkNode.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchWikiLinkPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFileChip.tsx`
+- modified:
+  - `src/renderer/src/components/workbench/MarkdownSyncPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchQuickOpenModal.tsx`
+  - `src/renderer/src/components/workbench/agent/AttachmentChips.tsx`
+  - `src/renderer/src/assets/index.css`
+- lesson(promoted): Lexical 行内 DecoratorNode + TextMatchTransformer 可实现 [[x]] 键入即转节点；@ 触发菜单用 LexicalTypeaheadMenuPlugin，多触发实例必须分开存 query 状态否则互相置 null；文件树拖入编辑器用 DROP_COMMAND + caretRangeFromPoint + setBaseAndExtent + createRangeSelectionFromDom 精确落点
+
+### 19:15 | Codex
+
+- done: 撤回提问弹窗的主按钮和图标从黄色改为主题色 primary
+- modified:
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+
+### 19:09 | Codex
+
+- done: Agent 侧边栏内容区与容器边缘 padding 过小，消息滚动区、回看提示条、底部输入框横向 padding 从 px-4/p-3 统一增大到 px-5
+- modified:
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentComposer.tsx`
+
+### 18:50 | Codex
+
+- done: docs 目录大整理：根目录 60+ 文档按主题归组（agent/workbench/mindmap/selectors），36 个历史文档归档至 archive/2026-08|2026-10|2026-11，重写 DOCS_INDEX 为新结构权威索引
+- decision: 归档按落地/取代年月分目录（archive/2026-08 等），常青指南保留根目录，归档规则写入 DOCS_INDEX
+- modified:
+  - `docs/DOCS_INDEX.md 重写`
+  - `docs/agent/* 12 篇迁入`
+  - `docs/workbench/* 13 篇迁入`
+  - `docs/mindmap/* 3 个迁入`
+  - `docs/selectors/* 方法论与三个 dom 目录迁入`
+  - `docs/archive/* 36 个归档`
+  - `src/renderer/src/components/icons/AppIcon.tsx 注释路径修正`
+  - `docs/agent/cli-image-generation-plan.md 与 agent-cli-dev-plan.md 跨目录链接修复`
+  - `docs/BUILD_GUIDE.md 与 QUICK_BUILD_REFERENCE.md 失效相对链接修复`
+- lesson: git mv 批量移动后需全局校验相对 Markdown 链接：跨簇引用仅 3 处，同簇整体移动不断链；BUILD_GUIDE 中 ../ 前缀的失效链接是历史遗留，整理时顺手修复
+
+### 18:42 | Codex
+
+- done: 补充同步：gitignoreService 忽略项 results→task-results；agentTask.ts 类型注释同步目录名
+- modified:
+  - `src/main/services/gitignoreService.ts`
+  - `src/shared/types/agentTask.ts`
+
+### 18:39 | Codex
+
+- done: web_search 打捞链打通 + 产物目录改名 task-results：web_search 返回带 replyFile/taskId 绝对路径与存档脚注；AgentTaskService 产物目录 results→task-results 并含旧数据一次性迁移（搬移 TXT+改写 JSON replyFile）；CLI Skill 文档同步目录名
+- modified:
+  - `src/main/services/webSearchTool.ts`
+  - `src/main/services/AgentTaskService.ts`
+  - `.agents/skills/multichat-cli/SKILL.md`
+- lesson(promoted): 中间产物(intermediates)按业界惯例(Claude Code/Codex/OpenCode/Amp)放用户级/应用级存储而非项目工作区，交付物(deliverables)才写工作区；可打捞性比存放位置更关键——产物路径必须一开始就暴露在工具返回中，不能依赖压缩占位符
+
+### 18:37 | Codex
+
+- done: 浏览器扩展深度调研：Obsidian Web Clipper 复刻 + 侧边栏嵌入 AI 网页可行性，产出 docs/research/browser-extension-deep-research.md
+- context: 用户想在浏览器插件里实现Obsidian Clipper式剪藏+侧边栏嵌入网页版AI
+- added:
+  - `docs/research/browser-extension-deep-research.md`
+- lesson: iframe嵌入的真正障碍不是frame头(扩展可用DNR剥离)而是SameSite会话Cookie;AI站实测约半数无frame封锁;ChatGPT CSP官方白名单了4个扩展ID
+
+### 18:35 | Codex
+
+- done: Agent 侧边栏右键菜单项「在聊天中提问」改名为「在侧边聊天中提问」，语义更明确指向侧边栏网页平台
+- modified:
+  - `src/renderer/src/components/CustomContextMenu.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
+
+### 18:31 | Codex
+
+- done: 修正气泡折叠遮罩圆角错误：误加rounded-br-sm，气泡小圆角只在右上，右下应为大圆角；遮罩改为rounded-b-2xl
+- modified:
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+
+### 18:29 | Codex
+
+- done: 修复用户气泡折叠态圆角丢失：裁剪在内层滚动容器但圆角在外壳，矩形容器overflow裁剪导致除左上外圆角消失；圆角移到裁剪容器本体，渐隐遮罩同步补底部圆角
+- modified:
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+- lesson(promoted): CSS裁剪容器必须自带圆角：rounded在父级、overflow在内层时圆角失效，因为裁剪边界取的是内层矩形容器的边框盒
+
+### 18:28 | Codex
+
+- done: Agent 撤回(rewind)复用文件回滚机制：图标改 undo；撤回弹窗按回合文件状态三态化（无修改/可回滚/不可回滚），支持'撤回文件修改和对话'与'仅撤回对话'；回滚机制加固——pre-shell 扫描预算内捕获内容使 shell 修改可回滚、edit 基线按 capturedAt<scanStartedAt 定真伪、原子写(tmp+rename)、幂等校验防重试死锁、逐文件错误收集、运行态服务端硬拒、缺失快照 fail-closed、撤回后删除匹配回合记录防错挂、undone 重试按基线校验
+- context: 用户要求撤回机制鲁棒、不损坏用户文件；验收：tsc双侧0错、lint目标文件0警告、build通过、扫描与 revert/reapply 无头测试 12/12 PASS
+- modified:
+  - `src/main/services/AgentSessionService.ts`
+  - `src/main/services/agentFileChangeTracker.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/src/types/agent.ts`
+  - `src/renderer/src/store/agentSessionStore.ts`
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+  - `.memory/KNOWLEDGE.md`
+- lesson: pi 并行批次所有 beforeToolCall 先于任何工具执行，pre-shell 扫描是严格回合前真值；回滚类操作必须幂等校验+原子写，否则中途失败会永久死锁或留下半个文件；PowerShell 管道 -replace 批量改文件会塌缩换行，文件编辑只用 apply_patch
+- unresolved: pnpm dev 桌面端手动验收未做：撤回弹窗三态交互、rewind+revert 端到端、工作台编辑器打开中被回滚文件的冲突重载行为
+
+### 18:26 | Codex
+
+- done: 用户气泡折叠补充：展开行为分层——中等长度全量展开，极端超长粘贴(>480px)封顶内嵌滚动，气泡外壳与滚动容器分离使chevron悬浮不随内容滚动
+- decision: 展开封顶值取固定480px而非视口比例，遵循固定档位避免逐帧动态计算
+- modified:
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+
+### 18:21 | Codex
+
+- done: Agent侧边栏用户气泡超长折叠：>180px(约8行)默认折叠至112px预览+渐隐遮罩+居中chevron，点击全量展开/收起，ResizeObserver按渲染高度评估
+- decision: 展开采用全量展示而非内嵌滚动条，避免聊天流嵌套滚轮劫持；按渲染高度而非行数判定，因换行宽度不定行数不可靠
+- modified:
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+
+### 18:15 | Codex
+
+- done: Agent 侧边栏消息区右键菜单新增两个动作：添加到对话（选中文字追加到 Agent 输入框并聚焦光标）与在聊天中提问（投到另一侧边栏的网页平台输入框，关闭时自动展开；目标栏停在 Agent 模式时自动切回网页平台）。新增 workbench:ask-webview 事件与 requestAskWebview 编排，修复第二侧边栏未挂载时同步派发事件丢失的时序问题；WorkbenchAiSidebar 抽出 insertPromptIntoWebview 复用注入逻辑。
+- decision: 在聊天中提问的目标取另一侧边栏实例（与既有 sidebar_ask 交叉投递一致），目标栏为 Agent 模式时优先沿用另一栏的网页平台，否则退回第一个可用平台
+- modified:
+  - `src/renderer/src/components/CustomContextMenu.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
+  - `src/renderer/src/components/workbench/workbenchAiEvents.ts`
+
+### 18:00 | Codex
+
+- done: 将文档四件套选型结论晋升至 KNOWLEDGE.md
+- modified:
+  - `.memory/KNOWLEDGE.md`
+
+### 18:00 | Codex
+
+- done: 专项调研文档四件套 skill 源选型：anthropics/skills 采用度断层第一(200k stars)且为 OpenAI Codex 官方改编上游，OpenAI 版许可证禁止再分发不可用作源，docx/pptx 已 JS 化降低依赖；更新研究报告
+- modified:
+  - `docs/research/agent-skills-research-2026-11.md`
+- lesson(promoted): OpenAI Codex 随包 skills（documents/spreadsheets/presentations/pdf）许可证为 All rights reserved 明确禁止提取分发，只能作设计参考；anthropics/skills 的 Office 四件套 2026-11 已迁 Apache-2.0 且 docx/pptx 创建路径已从 Python 切换为 npm 的 docx-js/pptxgenjs
+
+### 17:56 | Codex
+
+- done: Agent 侧栏文件 chip 打开语义对齐预览标签机制：普通点击进预览槽位复用，Ctrl/Cmd+点击或中键点击开常驻标签
+- decision: chip 点击默认 { preview: true } 复用 VS Code 式预览槽位；修饰键/中键走 forcePermanent；不改 store 逻辑，最小充分改动
+- modified:
+  - `src/renderer/src/components/workbench/agent/filePathUtils.ts`
+  - `src/renderer/src/components/workbench/agent/AttachmentChips.tsx`
+  - `src/renderer/src/components/workbench/agent/ToolGroup.tsx`
+  - `src/renderer/src/components/workbench/agent/ChangedFilesCard.tsx`
+- lesson(promoted): Agent 侧栏文件入口此前裸调 openFile(rel)，落入 syncTabsOnOpen 的无条件常驻分支，每点必开新标签；新增打开入口时必须先确认 preview/forcePermanent 语义归属
+
+### 17:50 | Codex
+
+- done: 将 pi 内核 MCP/Skills 生态事实晋升至 KNOWLEDGE.md 并同步 INDEX 路由触发词
+- modified:
+  - `.memory/KNOWLEDGE.md`
+  - `.memory/INDEX.md`
+
+### 17:49 | Codex
+
+- done: 深度调研侧边栏 Agent 默认 Skill/插件配置：盘点现状（内核已支持标准 Skills + 内置 MCP 但产品未接入）、分析受众场景、给出三层 Skill 建议与开源项目清单，产出 docs/research/agent-skills-research-2026-11.md
+- added:
+  - `docs/research/agent-skills-research-2026-11.md`
+- lesson(promoted): pi-coding-agent v1.6 fork 内核已内置 MCP（mcp.json + direct/deferred/codemode/hidden 暴露档位）且 Skills 遵循 Anthropic Agent Skills 开放标准——anthropics/skills 等公开仓库可直接套用；pi-mcp-adapter 已过时勿用
+
 ### 17:48 | Codex
 
 - done: 分模块提交本轮 Agent 安全与文件追踪、导图登录态、工作台图片预览与布局改动，共 7 笔 Conventional Commits
@@ -102,7 +441,7 @@
   - `src/renderer/src/components/workbench/workbenchImageUtils.ts`
   - `src/renderer/src/components/workbench/WorkbenchImageLightboxPlugin.tsx`
   - `src/renderer/src/components/workbench/WorkbenchImageNode.tsx`
-- lesson: Vite HMR 重载 Lexical 自定义 Node 模块时，已挂载编辑器持有的旧节点实例与新模块 class 的 instanceof 会返回 false；命令/插件识别节点应兼容 node.getType() 校验
+- lesson(promoted): Vite HMR 重载 Lexical 自定义 Node 模块时，已挂载编辑器持有的旧节点实例与新模块 class 的 instanceof 会返回 false；命令/插件识别节点应兼容 node.getType() 校验
 
 ### 17:09 | Antigravity
 
@@ -223,7 +562,7 @@
   - `src/renderer/src/components/Layout.tsx`
   - `src/renderer/src/components/workbench/WorkbenchTabBar.tsx`
   - `src/renderer/src/components/workbench/WorkbenchMindmapPanel.tsx`
-- lesson: 父容器是 display:flex(row) 时，内部 flex-col 子组件根元素若不声明 w-full min-w-0 会按内容最小宽度收缩，导致右侧面板出现大块空白且关闭按钮偏移
+- lesson(promoted): 父容器是 display:flex(row) 时，内部 flex-col 子组件根元素若不声明 w-full min-w-0 会按内容最小宽度收缩，导致右侧面板出现大块空白且关闭按钮偏移
 
 ### 16:19 | Antigravity
 
@@ -368,7 +707,7 @@
 - done: 修复设置页靠左不完全的问题:发现 Agent 配置分页使用独立容器 AgentSettingsPageSection 仍是 mx-auto max-w-3xl 居中(上一轮的漏改),已改 max-w-6xl 左对齐;同时内容区 lg:px-10 大内边距(48px)统一降为 px-6(24px)贴住导航,模型行 py-2 降 py-1.5 提升密度;eslint/tsc 通过
 - modified:
   - `src/renderer/src/pages/SettingsPage.tsx`
-- lesson: 分页布局若各页有独立容器(如 AgentSettingsPageSection 的固定头+独立滚动结构),改全局布局类时不能只改主滚动容器——rg 全量审计 max-w/mx-auto 命中点才能发现分页级逃逸
+- lesson(promoted): 分页布局若各页有独立容器(如 AgentSettingsPageSection 的固定头+独立滚动结构),改全局布局类时不能只改主滚动容器——rg 全量审计 max-w/mx-auto 命中点才能发现分页级逃逸
 
 ### 00:41 | Codex
 
@@ -429,7 +768,7 @@
 - done: 制作设置页宽屏布局对比原型 HTML:以 1:1 真实尺寸复刻四种业界方案(窄列居中现状/限宽通栏/描述+内容双列/通栏不限宽),含实时宽度占用统计条、方案 A 留白红色标注、方案 D 标签-控件距离标注,附横向对比表与落地清单(推荐 B:SettingsPage 容器 max-w-3xl 居中改 max-w-6xl 左对齐),已用无头 Edge 截图逐区块验证渲染
 - added:
   - `docs/prototypes/settings-layout-comparison.html`
-- lesson: edge 无头截图在沙箱内因 GPU 进程拦截失败,需提权运行;--screenshot 配合 --window-size 超大高度可截整页长图,System.Drawing 可按区域裁剪分块检查
+- lesson(promoted): edge 无头截图在沙箱内因 GPU 进程拦截失败,需提权运行;--screenshot 配合 --window-size 超大高度可截整页长图,System.Drawing 可按区域裁剪分块检查
 
 ### 00:24 | Codex
 
@@ -437,7 +776,7 @@
 - modified:
   - `src/renderer/src/components/workbench/agent/AgentProviderSettings.tsx`
   - `src/renderer/src/pages/SettingsPage.tsx`
-- lesson: sticky+半透明浮层方案被用户否掉后，正确解法是结构性布局（固定头+独立滚动区）；拆分组件时用状态 hook + state 对象整传（ReturnType 推导）可避免大量 props 枚举，组件必须定义在模块级防止重挂载
+- lesson(promoted): sticky+半透明浮层方案被用户否掉后，正确解法是结构性布局（固定头+独立滚动区）；拆分组件时用状态 hook + state 对象整传（ReturnType 推导）可避免大量 props 枚举，组件必须定义在模块级防止重挂载
 
 ### 00:07 | Codex
 
@@ -734,7 +1073,7 @@
 - modified:
   - `src/renderer/src/components/AnnotationCommentCard.tsx`
   - `src/renderer/src/components/workbench/WorkbenchMarginNotes.tsx`
-- lesson: 工作台局部浮层应优先使用 DESIGN.md 的语义字号和 32px 控件高度，避免用 text-caption/tiny 与 py-0.5 把 Operate 工具卡片做得过小。完整构建可能被工作区既有未提交语法错误阻断，需用定向类型检查区分责任边界。
+- lesson(promoted): 工作台局部浮层应优先使用 DESIGN.md 的语义字号和 32px 控件高度，避免用 text-caption/tiny 与 py-0.5 把 Operate 工具卡片做得过小。完整构建可能被工作区既有未提交语法错误阻断，需用定向类型检查区分责任边界。
 
 ### 18:20 | Codex
 
@@ -6389,5 +6728,5 @@
 - done: 修复 Windows 下 npm run dev 触发 EACCES 5173 端口排除冲突问题
 - modified:
   - `electron.vite.config.ts`
-- lesson: Windows 下 Hyper-V/WSL/WinNAT 动态排除端口范围（如 5141-5240）会导致 Vite 默认 5173 绑定报错 EACCES: permission denied；在 electron.vite.config.ts 中将 renderer.server.port 避开该区间（如 5300）并指定 host 127.0.0.1 即可彻底解决
+- lesson(promoted): Windows 下 Hyper-V/WSL/WinNAT 动态排除端口范围（如 5141-5240）会导致 Vite 默认 5173 绑定报错 EACCES: permission denied；在 electron.vite.config.ts 中将 renderer.server.port 避开该区间（如 5300）并指定 host 127.0.0.1 即可彻底解决
 

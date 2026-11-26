@@ -108,6 +108,10 @@ Long-term reusable lessons, durable decisions, and recurring project gotchas. Do
 
 - **可视化 HTML 编辑的撤销/重做用 post-mutation 快照 + 线性 index 移动**：无需记录反向操作——每次变更批结束后捕获 body innerHTML+attrs 快照（连续输入 250ms 防抖合并，离散命令执行前先冲刷批次），undo/redo 只是 index 前后移动并恢复快照。恢复期间必须 observer.disconnect() 再重连来吞掉回声变更，比时间窗口标志可靠（MutationObserver 微任务时序存在竞态）；快照要临时剥离 __mve_ 编辑器类、注入样式/脚本挪到 head，恢复用 innerHTML 替换 + 属性重放 + 保留滚动位。脏状态与快照基线比对双向报告，撤销回到保存点自动清脏。
 
+- **Vite HMR 重载 Lexical 自定义 Node 模块时 instanceof 会失真**：HMR 替换模块后，已挂载编辑器持有的旧节点实例与新模块导出的 class 不是同一引用，`instanceof` 判定返回 false，相关命令/插件对自定义节点全部"失灵"。节点识别应兼容 `node.getType()` 字符串校验，不要把 `instanceof` 作为唯一判据；排查此类问题先触发一次整页刷新确认是否 HMR 伪影。
+
+- **行内双链/提及类节点用 DecoratorNode + TextMatchTransformer 即可实现键入即转换**：`importRegExp` 与 `regExp` 共用同一非全局正则（脚注引用同款模式），splitText 后无需 `$` 锚定；@/[[ 唤起文件菜单用 LexicalTypeaheadMenuPlugin，多个触发实例必须分开保存 query 状态，否则无匹配实例会用 null 覆盖有匹配实例的查询；触发正则允许查询含空格且排除闭括号字符。文件树拖入编辑器在 DROP_COMMAND 中用 document.caretRangeFromPoint + domSelection.setBaseAndExtent + createRangeSelectionFromDom 精确落点，不用 current selection；chip 点击用 capture 阶段委托监听 preventDefault+stopPropagation。
+
 ### React 状态与组件生命周期
 
 - **跨页提升共享 UI 必须迁移实例与消费回调**：把抽屉、弹窗等共享 UI 提升到 App 层时，必须同时移除原页面实例，并把原页面回调接到新的 pending 状态消费点；只替换顶部状态变量会造成按钮可以触发，但没有实际恢复逻辑。
@@ -119,6 +123,10 @@ Long-term reusable lessons, durable decisions, and recurring project gotchas. Do
 - **React 初始化顺序与 TDZ**：渲染期执行的 `useMemo` 或派生表达式不能引用尚未初始化的 const/state，否则会触发 `ReferenceError`。`useEffect` 回调在提交后执行，不应笼统认定为渲染期立即执行；其依赖数组表达式仍在渲染期求值。被依赖状态先声明，递归树纯函数优先放模块作用域，避免初始化时自引用 `useCallback`。定向类型检查与实际页面触发应结合使用。
 
 - **ResizeObserver 必须追踪 DOM 节点和父级提交时序**：同一组件在不同模式分支下分别渲染挂载了同一个 ref 的 DOM 元素时，如果 effect 只监听 `isActive` 而不监听 DOM 节点，Observer 会滞留旧节点并上报 0 宽度，新节点则永久冻结在 0px；应使用 callback ref 追踪 DOM 节点变化，并在 CSS Grid 列宽处提供 `minmax(0, 1fr)` 安全保底。子组件的 `useLayoutEffect` 先于父组件 ref 挂载执行，读取父级 `stageRef.current` 会拿到 `null` 并直接返回；应改为 `useEffect` 初始化 ResizeObserver，或在 ref 回调里建立观察，断点同时按容器 `clientWidth` 判定，不要误用窗口宽度。
+
+- **浮层/面板组件必须定义在模块级，状态对象整传避免 props 枚举**：组件在父组件函数体内定义时每次渲染都是新引用，React 视为不同类型而整棵重挂载，输入焦点与内部状态丢失；拆分重构时把组件提升为模块级函数。跨层传递整组状态时，可用状态 hook 的 `ReturnType` 推导类型并将 state 对象整体下传，避免逐个枚举 props 导致的漏传与签名漂移。半透明 sticky 浮层类方案若被否决，结构性布局（固定头+独立滚动区）通常是正确方向，不要继续在浮层上叠加补丁。
+
+- **`useSyncExternalStore` 驱动的订阅版本号必须进入 `useMemo` 依赖数组**：订阅 bump 只触发重渲染，不会使 deps 未变的 `useMemo` 失效——异步结果（如磁盘 stat）到达后组件确实重渲染了，但 memo 缓存的 null 原样返回，"unknown→exists 升级"链路静默断裂且无任何报错。凡是在 memo 内消费的外部可变状态（模块级缓存、版本计数），其版本号必须入 deps。
 
 ### 工作台文件与上传
 
@@ -224,6 +232,16 @@ Long-term reusable lessons, durable decisions, and recurring project gotchas. Do
 
 - **宿主 UI 配色要跟随内容表面而非容器主题偏好**：工作台代码/文本预览容器曾无条件挂 dark 类，HTML 渲染白底页面上状态胶囊和「发送到 AI」按钮被 dark: 变体染成半透明暗色不可见；正确解法是按内容表面驱动——预览组件把『是否 HTML 渲染表面/是否可编辑』上报 store，宿主容器据此摘掉 dark 类、状态徽标按可编辑态显隐，比给单个组件加 forceLight 补丁更可扩展。PDF/DOCX 预览的深浅色由各自的 reader 主题偏好控制，不受此影响。
 
+- **flex(row) 容器内的 flex-col 子根元素必须声明 w-full min-w-0**：不声明时子元素按内容最小宽度收缩而不是填满分配宽度，右侧面板会出现大块空白、尾部的关闭/操作按钮随之偏移，视觉上像"布局整体失效"。三栏侧栏类布局改容器结构后，逐层核对每个 flex 子项的 width/shrink 约束。
+
+- **布局类方案评审与验收都以代码事实为准**：改全局布局前先 rg 全量审计目标 class（如 max-w/mx-auto）的命中点——各分页若有独立容器（固定头+独立滚动区）会逃逸主滚动容器的约束，只改主容器页面不变；反过来，方案中列出的"待改点"可能早已存在，落地清单要先核对现状，避免把存量样式当成新增改动重复实现。
+
+- **工作台局部浮层尺寸遵循 DESIGN.md 语义 token**：局部工具卡片/浮层优先用语义字号与 32px 控件高度，不要用 text-caption/tiny 配 py-0.5 把操作目标压得过小；违反时先查 DESIGN.md 的对应档位再局部对齐，不为单个浮层新造尺寸体系。
+
+- **CSS 裁剪容器必须自带圆角**：`rounded` 写在父级而 `overflow-hidden/auto` 在内层时圆角会失效——裁剪边界取的是内层矩形容器的边框盒，父级圆角管不到内层的溢出裁剪。圆角与 overflow 要落在同一元素上，或裁剪发生在已带圆角的那层。
+
+- **行内文件 chip 统一为 WorkbenchFileChip 形态（文末附件胶囊已删除）**：回复正文内联 chip 是图标+主题色文字（text-primary/hover 浅底）、无背景无描边、字号继承上下文，编辑器双链 chip 复用同一形态；用户消息气泡的 @mention chip 是白底半透明独立样式。曾经存在的"回复底部附件胶囊"（描边 rounded-full）因与行内 chip 冗余已整体删除，不要再恢复。图标尺寸用 em 字符串（AppIcon 支持 em 分支并与数值路径同乘 0.85 光学系数），FileChipIcon 默认 1em 随字号缩放。
+
 ### 窗口、划词与快捷键
 
 - **快捷窗口保持可聚焦，被动弹出不要抢焦点**：避免同时使用 `focusable: false` 和依赖完整 `click` 事件；用 `showInactive` 控制被动弹出时不抢焦点，让窗口保持可聚焦，并在 `pointerdown` 派发一次性动作。快捷窗口初始配置应为 `alwaysOnTop: false`、`skipTaskbar: false`，让用户通过 pin 按钮决定是否置顶；`skipTaskbar: true` 会让窗口被其他窗口遮挡后无法从任务栏找回。`isPinned` 由前端 toggle 驱动，通过 `quick:get-always-on-top` / `quick:set-always-on-top` IPC 控制。
@@ -261,6 +279,8 @@ Long-term reusable lessons, durable decisions, and recurring project gotchas. Do
 - **跨源 sandbox iframe 的划词右键要由主进程转发**：iframe 内的 DOM `contextmenu` 不会冒泡到宿主 renderer。主窗口 `webContents` 的 `context-menu` 事件能取得子 frame 的 `frameURL` 和 `selectionText`；仅对目标协议且存在选区的 frame 调用 `preventDefault()`，再用“屏幕光标坐标减窗口内容区坐标”定位并经 IPC 交给宿主菜单。这样不改变 iframe 的 sandbox 边界，也不影响普通 DOM 和独立 webview 的右键链路。
 
 - **图片右键「发送到 AI」复用既有上传管线，`workbench-file://` 要专用 resolve IPC**：右键菜单通过 `WORKBENCH_SEND_IMAGE_EVENT` 把 `srcURL` 交给 AI 侧边栏，上传走既有 `FileUploadData`/`uploadFilesToCurrentModel` 管线。`workbench-file://` 的真实路径只有主进程能在授权白名单内解析（`resolveWorkbenchFileRequest`），渲染层不自行解码 URL，需 `workbench:resolve-file-url` IPC 把真实路径交还后直接按磁盘文件上传，不复制临时文件；`blob:`/`data:`/`http(s):` 则 `fetch` 取字节经 `create-temp-upload-file` 落临时目录，上传完 `cleanupUploadTemp` 清理。
+
+- **组件级右键菜单只需 `preventDefault` 即可与全局 `CustomContextMenu` 共存，但接管前必须盘点存量菜单项**：Layout 里的全局 DOM 右键处理器先检查 `e.defaultPrevented` 退让，组件自建菜单（如图片预览画布、公式节点）不需要 `stopPropagation` 或额外标记；反过来如果忘了 `preventDefault`，自绘菜单之外还会叠加全局复制/粘贴菜单。**接管一个已走全局菜单的区域时，新建菜单会顶掉全部存量项**——`<img>` 上原本有「发送到 AI 侧边栏 / 复制图片 / 图片另存为」三件套（复制优先主进程 `copyImageAt` 保原编码，渲染层 `copyImageElementToClipboard` 兜底），曾因此造成用户可感知回归；接入前先按全局菜单的构造逻辑逐项迁移或明确裁剪。二级 hover 菜单（级联子菜单）与主菜单必须保持 DOM 嵌套（`position: fixed` 定位不影响 `contains` 命中），否则主菜单的 `mouseleave` 与外部点击关闭会在移向子菜单时误触发。
 
 - **托盘退出要经过渲染层未保存守卫时不能提前置 quitting**：主窗口关闭是本应用“隐藏到托盘”的正常路径，只有真正退出才应 `setQuitting(true)`。托盘和 `tray:quit-app` 统一调用 `app.quit()`，主进程在 `before-quit` 中先 `preventDefault()`，显示主窗口并通过 `app:quit-guard-ready` 确认渲染层已注册监听，再发送退出请求；渲染层复用编辑离开守卫后回传 allow/cancel，确认后才置 quitting 并再次 `app.quit()`。若在托盘入口提前置 quitting，用户取消后窗口关闭将不再隐藏，状态也会污染后续生命周期。
 
@@ -395,6 +415,8 @@ Long-term reusable lessons, durable decisions, and recurring project gotchas. Do
 
 - **落地页和宣传文案不是代码事实**：产品页里的数字、角色名、预设数量可能滞后于真实实现。改 README、方案文档或宣传页前，先 `ls`/`rg --files` 以实际预设目录和代码定义为准，不能照抄营销描述。
 
+- **apply_patch 的上下文行必须整行精确匹配**：patch 语法按整行处理，截取行内片段做替换（如只匹配 `docs/` 条目后半段）必然找不到预期行，报错信息不会提示这是截断问题。含全角标点、弯引号、CRLF 的长中文行，先用字节级读取（`[System.IO.File]::ReadAllBytes` + UTF8 解码）确认原文再整行粘贴；不要凭 PowerShell 控制台输出逐字手打，控制台可能吞字符或改引号。
+
 ### 构建、打包与验证
 
 - **Electron CommonJS 主进程与纯 ESM 依赖的兼容**：在 `electron.vite.config.ts` 中开启 `build.externalizeDeps: true` 时，Vite 会将 `import ... from 'esm-pkg'` 转换为 CommonJS 的 `require('esm-pkg')`。若外部依赖（如 `@earendil-works/pi-coding-agent`）为纯 ESM 且 `package.json` 的 `exports` 仅定义了 `import` 而无 `require`/`default`，会导致 Node CJS 加载器抛出 `ERR_PACKAGE_PATH_NOT_EXPORTED`。解决方法：主进程中仅保留该包的 `import type` 静态类型导入，并在异步生命周期（如 `init()`）中使用 `new Function('s', 'return import(s)')('esm-pkg')` 动态加载运行时符号，既规避 Vite 编译期的 require 改写，又保证在 Node/Electron 运行时正确通过 ESM 解析器加载。
@@ -411,9 +433,12 @@ Long-term reusable lessons, durable decisions, and recurring project gotchas. Do
 
 - **build 不等于类型检查或桌面验收**：electron-vite build 不执行 tsc。按 AGENTS 分别检查 `tsconfig.node.json` 与 `tsconfig.web.json`，根配置只有 references，单独 `npx tsc --noEmit` 不能代表两侧检查。验证时实时运行：
   `npx tsc --noEmit -p tsconfig.node.json --composite false --incremental false`
+
+- **CDP 自动化驱动 Lexical 编辑器输入的正确姿势**：`Input.insertText` 整串输入不触发 @lexical/markdown 快捷键转换（其按单字符 trigger 判定），必须逐字符发送；`document.execCommand('insertText')` 在页面 Runtime.evaluate 内可用且走真实 beforeinput 管道，但 `'\n'` 不会换行而是直接拼接文本（换行需 insertParagraph）。打开文件用 store 直调——vite dev 下页面内 `await import('/src/store/workbenchStore.ts')` 拿得到 useWorkbenchStore，比文件树 DOM 点击可靠（折叠态节点不在 DOM 中）。**向 contenteditable 输入前必须守卫 activeFilePath 是测试文件**，否则会污染用户真实文档（已发生过一次：测试文本被 autosave 写进论文文件，靠 git diff 精确切除恢复）。
   `npx tsc --noEmit -p tsconfig.web.json --composite false --incremental false`
   不要记录一次性错误数量作为长期基线；当前 `tsconfig.web.json` 已设置 `target: ES2020`，两侧均以实际输出为准。已有类型错误与当前改动的错误要明确区分，UI、站点 DOM 与 main 行为需在重启后的 dev 中实际触发。
 
+- **vite dev 下页面内裸 import() 拿到的是幻影模块副本而非应用真实 store 实例**（HMR 带 ?t= 参数会进一步分裂实例），CDP 行为验证必须经应用真实加载路径暴露的同一实例：已在 workbenchStore.ts 末尾加 import.meta.env.DEV 守卫的 window.__workbenchStore 调试钩子（生产 tree-shake 剔除）。openFile 等在 initWorkbench 完成前调用会静默 return，测试脚本必须轮询 isInitialized+workspacePath 再操作。
 - **dev server 端到端验收可走 remote-debugging-port=9223 CDP**：`pnpm run dev` 的 Electron 主进程对 renderer 暴露 `--remote-debugging-port=9223`。Node ≥22 用原生 `WebSocket` 连 `http://127.0.0.1:9223/json/list` 里 `type=page && url==='http://127.0.0.1:5300/'` 的目标，`Runtime.evaluate` 里 `await import('/src/store/workbenchStore.ts')`（Vite 模块路径）即可拿到真实 Zustand store 实例，直接驱动 `openFile`/`saveActiveFile`/`refreshGitStatus`/`searchFiles`/`handleExternalFsChanged` 等动作做行为级验收，无需 UI 自动化。注意 `WorkbenchFileNode` 字段是 `path`/`isDirectory`（非 `relativePath`/`type`）；改动的真实文件务必读后写回恢复原内容。IPC 也可走 `window.api.workbench.*`。
 
 - **Electron 系 IDE 终端的 `ELECTRON_RUN_AS_NODE=1` 必须清除**：Devin/VSCode 等 Electron 应用的集成终端会向子进程继承该变量，`npm run dev` 启动的 electron 退化为纯 Node，`require('electron').app` 为 undefined，main bundle 顶层 `app.isPackaged` 处即崩。bash 用 `env -u ELECTRON_RUN_AS_NODE npm run dev`，PowerShell 先 `Remove-Item Env:ELECTRON_RUN_AS_NODE` 再启动；该变量不是用户/系统环境变量，普通终端不受影响。
@@ -436,6 +461,12 @@ Long-term reusable lessons, durable decisions, and recurring project gotchas. Do
 
 - **注入式运行时可用 headless Edge + CDP 做行为级验收**：msedge --headless=new --remote-debugging-port=N --user-data-dir=临时目录 加载嵌入了运行时的 fixture.html，Node >=22 原生 WebSocket 连 /json/list 目标，Runtime.evaluate 驱动 DOM、Input.dispatchKeyEvent 模拟 Ctrl+Z/Y、Input.dispatchMouseEvent 模拟点击选中；沙箱内 localhost WebSocket 被拒需提权运行。注意 console.log 后 process.exit() 会截断 stdout，改赋 process.exitCode 自然退出。
 
+- **Edge headless 截图在沙箱内因 GPU 进程拦截失败，需提权运行**：`msedge --headless=new --screenshot` 配合 `--window-size` 的超大高度可一次性截整页长图，再用 `System.Drawing` 按区域裁剪分块检查细节；截图失败先区分是沙箱拦截还是页面问题，不要直接判定布局缺陷。
+
+- **完整构建失败先区分责任边界：脏工作区语法错误 vs 本次改动**：`pnpm run build` 可能被工作区既有的未提交语法错误（其他任务的半成品文件）阻断，报错文件与本次改动无关时不要顺手修，用定向 `tsc --noEmit`（node/web 两侧）确认本次改动自身的类型责任即可。
+
+- **CDP `Runtime.evaluate` 中 Windows 路径注入陷阱**：把 `D:\Project\tmp\x.png` 这类路径直接拼进 evaluate 的 JS 表达式文本时，反斜杠会被浏览器 JS 解析器当转义符吞掉（`\t` 变制表符、`\.` 变 `.`），被测代码拿到的是已损坏的串，表现为提取/匹配逻辑"没生效"的假阴性。必须用 `JSON.stringify` 注入路径字符串（外层模板插值也安全），或统一使用正斜杠路径。验证用例出意外结果时先核对输入是否完好到达被测代码。
+
 ### 历史架构与版本限定
 
 仅在追溯旧架构、旧版本或用户授权的隔离开发时读取。本项目当前使用 Electron 42 与 Webview；本节不授权迁移架构、修改分支或照搬旧兼容补丁。
@@ -447,6 +478,10 @@ Long-term reusable lessons, durable decisions, and recurring project gotchas. Do
 - **旧 API 流式总结的生命周期经验**：`summaryApi`、`useSummaryPanel` 和 `generate-summary` 已删除，旧共享控制器互斥方案不再代表当前调用关系。可复用原则是：覆盖控制器前中止旧请求，异步闭包捕获本次控制器，完成时只清理仍属于本次请求的引用；流式 reader 在异常或取消路径取消并释放，避免向已销毁 sender 发送或继续空转。当前 taskSplit 是 `stream: false`，没有 reader/onChunk；未来引入流式接口时按新接口实际生命周期设计，不能照搬旧 IPC。
 
 ### 本地 Agent 与 AI 侧边栏
+
+- **pi-coding-agent v1.6 fork 内核自带 MCP 与标准 Skills，无需外部适配器**：内核 `dist/core/mcp-servers.js` 已实现 `mcp.json` 配置校验与工具暴露分档（direct/deferred/codemode/hidden，deferred/codemode 是控制上下文成本的默认正确档位），OAuth 也在内核；`pi-mcp-adapter` 是内置支持落地前的过渡产物，已过时勿用。Skills 加载（`dist/core/skills.ts`）遵循 Anthropic Agent Skills 开放标准（name 小写连字符不超过 64 字符、description 不超过 1024 字符），anthropics/skills（文档类 Apache-2.0，各子目录自带 LICENSE）、vercel-labs/skills 等公开仓库的 Skill 目录拷进扫描根即可用。MultiChat 侧 Skills 链路（`agentDir/skills` + `agent_extra_skill_dirs` + AgentSkillsSettings UI）已完整存在，加 Skill 不需要架构改动，只需要内容与 extraResources 分发（照抄 multichat-cli 模式）；MCP 则需在会话创建路径上接 `mcp.json` 加载，属集成缺口而非能力缺失。
+
+- **文档四件套 Skill 源选型已定型：anthropics/skills 是唯一合规上游**：OpenAI Codex 随包的 documents/spreadsheets/presentations/pdf skills 虽是 anthropics 版的深度改编（质量更高，含逐页渲染验收、写作质量清单、模板蒸馏），但其 LICENSE 为 "Copyright 2026 OpenAI, All rights reserved" 明确禁止提取、复制分发与衍生转授，只能借鉴方法不能拷贝文本；公开 openai/skills 仓库无 LICENSE 且只有不完整的 pdf。anthropics/skills（约 20 万 stars，2.3 万 forks，社区实现全是其下游改编）2026-11-06 已将 Office 四件套统一迁 Apache-2.0（commit "Move Office skills to the Apache 2.0 license #2146"），且技术栈换代：docx/pptx 创建改用 npm 的 docx-js/pptxgenjs（Electron 直接受益），xlsx 仍用 openpyxl/pandas、pdf 仍用 pypdf，公式重算与视觉验证依赖 LibreOffice（应做探测式可选增强而非硬前置）。
 
 - **本地 Agent 交互UI避免引入外部重型聊天运行时库，优先采用 Zustand + 原生组件接管**：`@assistant-ui/react` 等库对消息格式有严苛的内部 schema 约束（例如 user 消息不可携带 status，或者子组件强制要求 AuiProvider 上下文），且与底层 Pi Coding Agent 的事件流模型存在语义分歧。采用 Zustand 统一维护消息、工具调用、思考过程与权限确认，直接驱动自定义组件（如 `BashToolUI`、`ThinkingBlock`），既解除了外部库崩溃风险，又能够与工作台 `WebviewCard` 保持完全一致的视觉与交互基线。
 
@@ -470,7 +505,7 @@ Long-term reusable lessons, durable decisions, and recurring project gotchas. Do
 
 - **pi 消息自带 `timestamp`/`durationMs`，直接透传不要自己计时**：`AssistantMessage`/`UserMessage` 都有 `timestamp`（请求/创建时间，毫秒）和 `durationMs`（该轮响应耗时，monotonic clock 测量）。`message_start`/`message_update`/`message_end` 事件的 `event.message` 以及 `resumeSession` 返回的 `rawData.messages` 都携带这两个字段，渲染层只需要在 `PiRawMessage`/`AgentMessage` 上加透传字段即可，不需要自己在 `turn_start`/`turn_end` 上打点。
 
-- **工作台 `image_gen` 落盘到哪个 `.multichat/image/` 取决于是否传 `artifactDir`**：`agentTaskService.submit` 不传 `artifactDir` 时回退到应用数据目录 `.multichat/`（`getDataPath()/.multichat/`）；只有显式传 `artifactDir`（绝对路径的产物根）才会落到该目录的 `image/`、`results/` 子目录。要让生图进用户工作区，需把会话 `cwd`（工作台 root）作为 `<cwd>/.multichat` 传给 `artifactDir`；注意 `artifactDir` 是产物根而不是图片目录本身，`AgentTaskService.artifactDirs()` 会再拼 `/image`、`/results`。`.multichat/image/` 已在 `gitignoreService` 的 `APP_STATE_PATTERNS` 中被忽略，不会污染工作区 git。
+- **任务产物目录已统一改名 esults/\ → \	ask-results/\，内嵌 Agent 的中间产物不落工作区（业界惯例）**：\AgentTaskService\ 产物子目录统一为 \	ask-results\（启动时一次性迁移旧 esults/\：搬移 TXT + 原子改写 agent-tasks JSON 里的 eplyFile\ 路径；CLI 项目里用户自己的旧目录不动）。大原则：搜索原文、压缩转储等中间产物(intermediates)放用户级/应用级存储（\getDataPath()/.multichat/\、\gentDir/compression/\），与 Claude Code/Codex CLI/OpenCode/Amp 一致，避免污染用户工作区 git status；只有用户显式索取的交付物(deliverables)才写工作区——CLI 场景 \rtifactDir\ 传 \<cwd>/.multichat\ 属后者，语义成立。\web_search\ 不传 \rtifactDir\，打捞链靠工具返回里直带 \	askId\/eplyFile\ 绝对路径 + 正文末尾 \[完整回复已存档: ...]\ 脚注（压缩掩码后仍可打捞，不依赖压缩占位符）；注意 reply TXT 落盘在 persist() 内异步完成，轮询终态可能早一拍，需短窗口重试 \getResult\ 兜底。
 
 - **会话列表项的运行态标注必须取"后端快照 ∪ 本地事件 set"的并集**：`agentSessionStore` 里 `sessions[].isRunning`（来自 `agentListSessions` IPC 快照）与 `runningSessionIds`（`agent_start`/`agent_end` 事件实时维护）是两个不同步的来源——`agent_start` 不触发 `fetchSessions`，而后端 `listSessions` 的 `active.isRunning` 也可能滞后于事件到达。合并规则：`item.isRunning = backend.isRunning || running.has(id)`，同时把后端报告 running 但本地 set 缺失的 id 回填进 set（否则 `setSessionId`/`resumeSession` 派生的顶层 `isRunning` 在"侧栏挂载前已在跑"的会话上会丢状态）。三个生命周期事件（`agent_start`/`agent_end`/`auto_retry_end`）还要同步刷 `sessions` 列表项，不等下一次 fetch。UI 侧打开历史菜单时主动 `fetchSessions()` 一次兜底"新跑起来但从未进过列表"的条目。
 
@@ -482,6 +517,16 @@ Long-term reusable lessons, durable decisions, and recurring project gotchas. Do
 - **Agent Shell 执行包装与权限硬拒的已知陷阱**：① `ShellTool.createBashOperations` 直接包装 `@earendil-works/pi-coding-agent` 的 `createLocalPowerShellOperations` / `createLocalBashOperations`，继承其秒级 `timeout`（无强制 30s 默认超时）、`killProcessTree` 进程树终止、`waitForChildProcess` 与 `timeout:<sec>`/`aborted` 标准错误，仅在外层做行缓冲 UTF-16LE（偶数偏移扫描 `0x0a 0x00`）/UTF-8/GBK 解码、`redactShellOutput` 脱敏与 `JSON.stringify` 单行审计日志；② `PermissionEngine` 优先走 PowerShell AST / bash segment 结构化硬拒（不可解析时回退正则，避免 `HARD_DENY_PATTERNS` 误杀 `Format-*`/`--format`/字符串字面量，并递归解析 `pwsh -Command` 内层）；③ `permissionPolicy.expandPathInput` 在 Windows 上做 `resolve(homedir(), suffix)` 前必须先剥离 `~` / `%USERPROFILE%` / `$env:` 后的前导 `/` 或 `\`（否则 `resolve(homedir(), '\\.ssh\\id_rsa')` 会退化为盘符根目录 `C:\.ssh\id_rsa` 漏过受保护根目录检查），且需兼容 `${env:...}`/`${HOME}` 花括号语法；④ `bashAnalyzer` 解析 `env`/`xargs` wrapper 时短参数必须区分大小写（`-P` vs `-p`、`-i` vs `-I`）并在重拼内层命令时重新加引号（`quoteBashToken`），避免吞掉嵌套 `bash -c "..."` 的引号或参数。
 - **Magpie 是本地聚合网关而非远端供应商，客户端不需要 API Key 与额度查询**：Magpie 运行在本机（默认 `http://127.0.0.1:3425/v1`），上游各厂商账号的凭据与额度都在网关自身管理界面中配置；MultiChat 连接它只用一个静态占位 key（`'magpie'`，因为 pi 注册模型目录时 `apiKey` 必填），因此设置页对 magpie 隐藏 Key 按钮是符合架构的，`setCredential` 对其也会拒绝（`provider.auth.apiKey?.login` 不存在）。同理额度链路要在 `buildQuotaTargets` 直接跳过 magpie——网关没有公开的额度接口语义，查询只会得到无意义错误。已废弃功能的教训：UI 删除入口时要把 IPC/服务/类型全链路一并删（如每模型 spec override 的 `agent:set-model-spec-override` → `ModelCatalogEnricher` overrides → `AgentModelSpecEditor` 组件），只藏按钮会留死代码与孤儿写盘逻辑。
 - **Agent 文件变更追踪必须按用户回合（`agent_start`→`agent_end`）聚合，且基线内容必须在写盘前捕获**：`pi-agent-core` 单次用户提问内每轮工具调用都会触发 `turn_start`/`turn_end`，若在 `turn_start` 重置累加器或在 `turn_end` 覆写 `file-changes/index.json`，多步编辑后卡片只会残留最后一个子轮的文件；同时 `.before` 基线字节必须在 `beforeToolCall` 写盘前读入，绝不能在结束落盘时再从修改后的磁盘补读。对非只读 shell 命令的变更识别采用“首条写命令前 + 回合结束最多 2 次元数据扫描（10k 文件 / 300ms 熔断）”，只读命令零扫描开销；缺少修改前基线快照的条目通过 `noBaselineBlob` 标记禁用不安全撤销。
+
+- **Agent 文件回滚/撤回的安全不变量（2026-11 加固后）**：① pi 并行批次中所有 `beforeToolCall`（权限+基线捕获+pre-shell 扫描）都先于任何工具执行，因此 pre-shell 扫描是严格的"回合前真值"——扫描在 32MiB 总预算/10MiB 单文件预算内捕获内容，shell 修改/删除的文件因此可回滚；合并时 edit 基线的可信判定是 `capturedAt < preShellScanStartedAt`（先于扫描=回合前真值），否则用扫描内容替换基线，两者皆不可得则 `noBaselineBlob` fail-closed，绝不允许"回滚后仍残留 shell 修改"的假回滚。② 回滚写入必须原子：`<file>.multichat-revert-<pid>-<ts>.tmp` 先写完整内容再同目录 rename 覆盖（Windows 下 rename 覆盖已验证原子），崩溃不可能留下半个文件。③ 校验必须幂等：文件"已是目标态"或"已是基线态"都算已满足，否则中途失败后重试会因已回滚的文件不匹配 target 而永久死锁。④ 会话运行中必须服务端硬拒 revert/reapply/rewind（UI 禁用不够，期间写盘会覆盖 agent 正在编辑的文件）。⑤ rewind 撤回需先 `waitForFileChangePersist` 再读记录；撤回成功且记录 turnIndex 匹配被弃回合时必须删除 `file-changes` 目录——重发会复用同一 turnIndex，不删会让旧卡片错误挂到新回合上。⑥ 用户显式选"回滚文件"时若无匹配记录必须让整个撤回失败，不能静默降级成仅撤回对话；`status==='undone'` 的重试路径要按 baseline 校验而非直接报错。无头测试法：esbuild 把 AgentSessionService 打成 cjs + `Module._load` stub electron，即可脱离 Electron 对 revert/reapply 做真实文件级测试。
+
+- **Agent 侧栏文件入口点击必须显式声明 preview/forcePermanent 语义**：`openFile(rel)` 裸调用会落入 `syncTabsOnOpen` 的无条件常驻分支（每点必开 `isPreview:false` 新标签），高频查看场景（chip、变更文件卡、工具文件名）会刷屏标签栏。正确语义：普通点击 `{ preview: true }` 复用 VS Code 式预览槽位（与文件树单击一致，编辑自动转正），Ctrl/Cmd+点击或中键点击 `{ forcePermanent: true }` 表达明确新标签意图；`agent/filePathUtils.ts` 的 `agentChipOpenOptions(e)` 统一封装该判定。新增任何打开入口时先确认语义归属，不要裸传路径。
+
+- **contenteditable chip 编辑器（AgentComposerEditor）的稳定模式是"纯文本模型 + DOM 镜像"，绝不反过来**：文本模型保持纯字符串 `@token`（发送链路与消息气泡零改动），chip 只是视觉替换。关键机制：① 输入时序列化 DOM 与模型比对，**文本一致即跳过 DOM 重建**——普通打字不动 DOM，光标与 IME 组合输入（`composingRef` 期间禁止重建）自然不受干扰；② chip 宿主是 `contenteditable=false` 的原子 span，退格/删除整体移除，React 内容经 `createPortal` 注入宿主；③ 需要重建时（外部 append、@菜单完成、chip 化状态翻转）先按纯文本偏移量度量光标，重建后按偏移恢复（命中 chip 内部则落到 chip 之后）；④ 粘贴统一 `execCommand('insertText')` 扁平化纯文本，Shift+Enter 统一 `insertLineBreak` 产 `<br>`，避免浏览器生成 `<div>` 块结构导致序列化分叉。已知边界：chip 化那一刻的 DOM 重建会清空浏览器 contenteditable 原生 undo 栈。chip 图标分派要查文件树节点 `isDirectory`（目录 → folder 图标），且输入框 chip、消息气泡 mention、回复附件 chip 三处需同步。
+
+- **Agent 工具运行态判定必须以"组级 agent run 存活"为权威，消息级 status 与 part.result 都不可信**：image_gen/web_search 这类 60–90s 长任务曾出现"仍在生成、UI 却显示成功且标题停止闪烁"的假成功，根因链上三个信号各有盲区：① pi 的 `message_end` 在 `tool_execution_start` **之前**到达，个别形态下其 content 快照不含 toolCall 或为空数组，`content.every(无未完成 tool)` 会 vacuous true 把消息误标 complete；② `message_update`/`message_end` 的整体覆盖式 merge 会把 `tool_execution_start` 已插入的本地 tool-call part 连同 result 抹掉；③ `resumeSession`（HMR/重载/切换会话 mid-flight）曾一律标 complete，且恢复的 toolResult 只存裸 content 数组丢失 details/structuredContent。防御四层缺一不可：merge 保留本地 orphan tool-call；`tool_execution_start` 强制 status 回 running；`turn_end` 兜底不得越过未出结果的 tool-call；渲染层 ToolGroup 的 isRunning 用组级（agent_start→agent_end 存活）而非消息级。resume 恢复运行中会话要靠后端 `isRunning` 权威标记还原 running。实证排查用 `MM_AGENT_EVENTLOG=1`（sessionsDir/\<id\>/event-timeline.jsonl）。会话已结束仍无 result 的工具要显示"未返回结果"而非"成功"。
+
+- **正则交替分支的捕获组编号：`(​?:FP(\d+)|(\d+))` 中第一分支是 group 1、第二分支是 group 2**——误用 `match[1]` 读第二分支得到 `undefined`，`Number(undefined)` 转 `NaN` 后索引静默失效，占位符还原整链失败且无任何报错（数学公式曾因此全部渲染为原始占位文本）。写完交替正则必须用两个分支的真实样本分别验证捕获组取值。markdownMath 的裸路径提取复用公式占位管线：同一遍扫描跳过行内/围栏代码与 `](...)` 链接目的地，`prefixFP{n}END` 占位符与数学 `prefix{n}END` 共享 restore，rehype 阶段还原为 `data-file-chip` 元素由 components.span 分支渲染成 InlineFileChip。
 
 ### 原型与视觉验收
 

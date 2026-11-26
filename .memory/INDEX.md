@@ -18,16 +18,16 @@
 | `notes-mindmap` | noteManager、noteIdentity、noteTranscript、快照、resolveId、mindmap、generationSession、迁移、frontmatter、标签 | ### 笔记、快照与导图 | 笔记身份、版本指纹、改名重连、迁移与导图绑定 |
 | `markmap` | Markmap、foreignObject、setData、fit、scrollWidth、节点按钮、中文竖排 | ### 导图渲染与交互 | 布局、视口、命中区域和编辑生命周期 |
 | `workbench-ui` | AppIcon、Lucide、APP_ICON_MAP、FileTypeIcon、三栏布局、scrollTop、旁注、评论卡、设置弹窗、正文居中、大纲轨道、Modal、backdrop-blur、弹窗卡顿、WorkbenchReaderThemePicker、WorkbenchSearch、文件树搜索、搜索退出、Esc | ### 工作台 UI 与图标 | 图标体系、三栏布局、滚动恢复、浮层定位、阅读背景主题、搜索交互与弹窗合成性能 |
-| `selection-windows` | quickWindow、划词、UIA、monio、shortcutManager、findInPage、tray、quit-guard-ready、before-quit、托盘退出、trafficLightPosition、Splitter、context-menu | ### 窗口、划词与快捷键 | 自动划词与主动快捷键分开；托盘退出与窗口经验按平台核对 |
+| `selection-windows` | quickWindow、划词、UIA、monio、shortcutManager、findInPage、tray、quit-guard-ready、before-quit、托盘退出、trafficLightPosition、Splitter、context-menu、右键菜单、CustomContextMenu | ### 窗口、划词与快捷键 | 自动划词与主动快捷键分开；托盘退出与窗口经验按平台核对 |
 | `runtime` | history、currentConversationId、urlMismatch、轮询、辩论、hibernate、about:blank、SummaryPanel、download、TUN | ### 历史、会话与运行时 | 会话边界、加载失败、轮询、休眠与内存；源码核对不等于桌面验收 |
 | `task-api` | taskSplitApi、requestBodyConfig、slotIndex、windowCount、IPC、API、summaryPrompts、debatePrompts | ### 任务分配、辩论与 API | 请求体、槽位、IPC 类型和提示词升级 |
 | `cli-daemon` | src/cli、src/main/daemon、Named Pipe、backgroundThrottling、commander、daemon.token、task.submit、cancel、waitMs | ### CLI、Daemon 与登录态 | 通信顺序、任务终态、输出协议和 CLI 退出码 |
 | `platform-auth` | 登录态、AUTH_REQUIRED、AUTH_LOST、platformAuthCookies、platformAuthCookieRules、localStorage、tongyi_sso_ticket、qianwen、selector version | ### CLI、Daemon 与登录态 | 游客与已登录要双通道判定；站点同源和主进程选择器版本也要核对 |
-| `git-workflow` | gitService、update-index、git mv、fetch、ahead/behind、rev-list、未推送、提交图、push -u、gitignore、remote set-url、worktree、文件树隐藏规则、落地页、README | ### Git 与开发工作流 | 索引写路径变化、同步策略、远程状态、忽略规则、worktree 授权与文档事实核对 |
-| `build-verify` | electron.vite.config、electron-builder、NSIS、installer.nsh、winCodeSign、混淆、is.dev、ELECTRON_RUN_AS_NODE、tsc、extraResources、Dock 图标、ERR_PACKAGE_PATH_NOT_EXPORTED、pi-coding-agent、pnpm install、EPERM、remote-debugging-port、9223、CDP 验收、Runtime.evaluate | ### 构建、打包与验证 | 构建不等于类型检查或桌面验收；平台和版本经验需核对当前环境 |
+| `git-workflow` | gitService、update-index、git mv、fetch、ahead/behind、rev-list、未推送、提交图、push -u、gitignore、remote set-url、worktree、文件树隐藏规则、落地页、README、apply_patch、整行匹配 | ### Git 与开发工作流 | 索引写路径变化、同步策略、远程状态、忽略规则、worktree 授权与文档事实核对 |
+| `build-verify` | electron.vite.config、electron-builder、NSIS、installer.nsh、winCodeSign、混淆、is.dev、ELECTRON_RUN_AS_NODE、tsc、extraResources、Dock 图标、ERR_PACKAGE_PATH_NOT_EXPORTED、pi-coding-agent、pnpm install、EPERM、remote-debugging-port、9223、CDP 验收、Runtime.evaluate、insertText、execCommand、store.openFile、__workbenchStore | ### 构建、打包与验证 | 构建不等于类型检查或桌面验收；平台和版本经验需核对当前环境 |
 | `historical` | Electron 28、Chromium 120、ScriptProcessorNode、WebContentsView、summaryApi、useSummaryPanel、generate-summary | ### 历史架构与版本限定 | 只在明确追溯旧架构或已授权工作中加载 |
 | `prototype-verification` | docs/prototypes、自包含 HTML、innerHTML、视觉验收、重渲染、截图 | ### 原型与视觉验收 | 首屏截图之外必须验证切换、重复渲染和窄屏分支 |
-| `agent-sidebar` | AgentCard、WorkbenchAiSidebar、assistant-ui、makeAssistantToolUI、pi-coding-agent、PermissionEngine、AgentSessionService、commandAnalyzer、powershellAstHelper、timestamp、durationMs、image_gen、artifactDir、magpie、供应商额度、API Key | ### 本地 Agent 与 AI 侧边栏 | 本地 Agent 运行时、工具渲染、权限引擎与 AuiProvider 上下文边界；magpie 网关凭据与额度归属 |
+| `agent-sidebar` | AgentCard、WorkbenchAiSidebar、assistant-ui、makeAssistantToolUI、pi-coding-agent、PermissionEngine、AgentSessionService、commandAnalyzer、powershellAstHelper、timestamp、durationMs、image_gen、artifactDir、magpie、供应商额度、API Key、mcp.json、skills 目录、AttachmentChips、ChangedFilesCard、file chip、agentChipOpenOptions、AgentComposerEditor | ### 本地 Agent 与 AI 侧边栏 | 本地 Agent 运行时、工具渲染、权限引擎与 AuiProvider 上下文边界；magpie 网关凭据与额度归属；内核 MCP/Skills 生态事实；文件 chip 打开语义 |
 
 需要近期上下文时读 SESSION_LOG；只有追溯更早会话才读 `.memory/sessions/` 对应日期。既有脚本只提示缺少路由的三级标题，不检查 INDEX 缺失、触发词质量或反向失效条目；维护时需确认章节标题与表格一致。
 
