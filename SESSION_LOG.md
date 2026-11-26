@@ -2,6 +2,130 @@
 
 ## 2026-11-26
 
+### 23:59 | root
+
+- done: 沉淀注释清理验收经验到记忆层
+- modified:
+  - `.memory/KNOWLEDGE.md`
+  - `.memory/INDEX.md`
+  - `SESSION_LOG.md`
+
+### 23:58 | root+workers
+
+- done: 全库注释精简：多 worker 并行清理、root 独立验收并完成安全契约返修
+- context: 基于当前代码继续执行；用户要求多 worker 并行修改、root 验收且必须确认实际代码未被夹带改动
+- decision: 保留 why 型安全/权限/迁移/竞态/平台 DOM/编码约束注释，删除复述代码、机械 JSDoc、JSX 标签、装饰横幅与过期矛盾注释；catch 空块保留有意忽略语义注释
+- modified:
+  - `src/main/**`
+  - `src/shared/**`
+  - `src/preload/**`
+  - `src/cli/**`
+  - `src/renderer/src/components/**`
+  - `src/renderer/src/hooks/**`
+  - `src/renderer/src/utils/**`
+  - `SESSION_LOG.md`
+- lesson(promoted): 空 catch 中的说明性注释会影响 ESLint no-empty：删除它们会把原本有注释的空块变成 error，注释清理必须保留有意忽略语义
+- lesson(promoted): TS interface 字段注释可能位于字段上一行；按注释行号删除时必须核对下一行不是字段声明，否则会误删可执行类型字段
+- lesson(promoted): 含注入脚本的 template literal 不能只做文本 diff；验收需用 token 级对比并对模板内容做注释/空白归一化
+- unresolved: src/main/extensions/systemPromptTrim.ts 存在基线既有的未转义反引号模板字符串错误（tsc TS2339/TS2363），与本次注释清理无关，未修复
+
+### 23:45 | Codex
+
+- done: 文件树顶部工具栏图标改为水平居中：WorkbenchFileTree.tsx 工具栏容器 justify-between 改为 justify-center
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+
+### 23:43 | Codex
+
+- done: 优化 Agent 历史对话分支连接线：竖线连通主对话图标
+- modified:
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+- lesson(promoted): AppIcon 有 0.85 光学缩放系数，size=16 实际渲染盒 13.6px，绝对定位对齐图标中心必须按渲染盒计算而非 size 参数
+
+### 23:37 | Codex
+
+- done: Agent 对话窗按钮字号放大：用户消息 编辑/复制、助手回复 分支/复制 四处按钮由 text-caption(11px) 改为 text-body(14px) 与正文输入一致，图标 14->16 保持配比
+- modified:
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+
+### 23:26 | Codex
+
+- done: 精简 src/shared、src/preload、src/cli 冗余注释：删机械 JSDoc/步骤旁白/章节横幅/复述代码注释，压缩冗长解释块，合计 1366→988 行 (-27.7%)；报告落盘 scratch/comment-cleanup-current/reports/shared-preload-cli.md
+- decision: frontmatter 契约/平台实测/CLI 协议类注释判定为高价值全部保留；conversationFrontmatter.ts 与 selectors.ts 实测块不压缩
+- modified:
+  - `src/shared/utils/webviewScripts.ts`
+  - `src/shared/utils/htmlToMarkdown.ts`
+  - `src/shared/utils/workbenchTags.ts`
+  - `src/shared/utils/workbenchWikiLinks.ts`
+  - `src/shared/utils/mindmapEdits.ts`
+  - `src/shared/types/workbench.ts`
+  - `src/shared/types/agentTask.ts`
+  - `src/shared/types/agentRuntime.ts`
+  - `src/shared/types/cli.ts`
+  - `src/shared/types/history.ts`
+  - `src/shared/config/selectors.ts`
+  - `src/preload/index.ts`
+  - `src/preload/index.d.ts`
+  - `src/cli/commands.ts`
+- unresolved: workbenchHtmlEditor/Annotations 未逐条处理（余量约 5-10 行），完整 build 由 root 统一验证
+
+### 23:25 | Codex
+
+- done: 精简 renderer workbench 注释：删除机械 JSX/JSDoc、重复 gutter 说明、步骤旁白，保留 Lexical/标注/写盘/HTML 安全约束；修正 textarea->CodeMirror 过期表述；报告写入 scratch/comment-cleanup-current/reports/renderer-workbench.md
+- added:
+  - `scratch/comment-cleanup-current/reports/renderer-workbench.md`
+- modified:
+  - `src/renderer/src/components/workbench/** comment cleanup`
+- lesson(promoted): 该范围大量注释是不可见的 Lexical/标注/写盘/安全约束，不能以行数指标硬压；暂停后需以新 git 事实为准，勿沿用旧工作区假设
+
+### 23:23 | Codex
+
+- done: 引文高亮两模式统一为同一色系的较浅蓝色（浅色 #5d84b8 / 深色 #a0bee2，同 hue 213°）
+- modified:
+  - `src/renderer/src/assets/index.css`
+  - `src/renderer/src/components/workbench/WorkbenchSourceEditor.tsx`
+
+### 23:23 | Codex
+
+- done: Agent 侧边栏模型选择器空态引导：分层空态（加载中/搜索无结果/未连接供应商/已连接无可用模型），新增图标+说明+主按钮引导至供应商设置，修复搜索误报'没有可用模型'
+- modified:
+  - `src/renderer/src/components/workbench/agent/AgentModelPicker.tsx`
+- lesson: 派生空态判断需放在所有依赖数据（pinnedItems/groups）声明之后，否则 TS 报 block-scoped use-before-declaration；快照 snapshotLoading 已存在于 store，可直接用于首载占位
+
+### 23:20 | Codex
+
+- done: workbench 引文 [@key] 高亮从亮青绿色改为低饱和灰蓝色，渲染模式与源码模式同步
+- modified:
+  - `src/renderer/src/assets/index.css`
+  - `src/renderer/src/components/workbench/WorkbenchSourceEditor.tsx`
+
+### 23:15 | Codex
+
+- done: 特殊文件夹图标移到名称前面（chevron 之后）：multichat 语义图标与 assets 的 attachment 以 15px 渲染在名称左侧；isAssetsDirRoot 判断改为从 path 派生 basename（适配 WorkbenchFileNode.name 字段移除的类型重构）
+- context: 工作区存在进行中的类型重构：WorkbenchFileNode 的 name/fileName 字段被移除，大量 node.name 引用点尚未迁移
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+- unresolved: WorkbenchFileTree.tsx 及其他多文件的 node.name 引用与类型重构不同步，tsc 存在存量错误，非本次改动范围
+
+### 22:57 | Codex
+
+- done: 附件图标只显示在名为 assets 的目录本身，其子文件夹不再显示（node.name === 'assets' 判断）；assets 子目录仍保留禁拖拽保护
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+
+### 22:56 | Codex
+
+- done: 按功能模块分六批提交本日工作:chore注释清理+gutter自适应, feat(agent)导出菜单+.tmp规范, feat(workbench)文件树剪切/双链缓存, feat(workbench)引文注释视觉+Lightbox右键, fix(webview)注入隐蔽性收敛, fix(workbench)受管文件夹彩色图标, docs(memory)日志;TODO.md删除入docs批(存疑待确认);scratch/与debug_gutter_width.cjs过程文件不入库
+- modified:
+  - `AGENTS.md;.memory/INDEX.md;.memory/KNOWLEDGE.md;SESSION_LOG.md;.gitignore;src/main;src/preload;src/renderer/src;src/shared/utils`
+
+### 22:56 | Codex
+
+- done: 特殊文件夹图标改为紧跟名称的行内标记：恢复 resolveMultichatFolderVisual 原始图标（folder_managed/image/diagram/annotation），与 assets 的 attachment 一起以 15px 渲染在名称后；名称去掉 flex-1 改为 min-w-0 使图标贴合文字，行尾留给 Git 徽标
+- decision: 图标紧跟名称而非行尾，避免与 Git 状态徽标位置冲突；缩小到 15px 弱化抢眼感
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+
 ### 22:51 | Codex
 
 - done: 特殊文件夹低调辨识方案：assets 行尾加 14px 半透 paperclip 图标；.multichat 及其受管子目录名称改用 text-text-secondary/70 淡化；两类目录加 title 悬停说明；恢复 chevron 后普通文件夹保持 纯箭头+名称

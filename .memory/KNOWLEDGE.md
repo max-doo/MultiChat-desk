@@ -108,6 +108,8 @@ Long-term reusable lessons, durable decisions, and recurring project gotchas. Do
 
 - **可视化 HTML 编辑的撤销/重做用 post-mutation 快照 + 线性 index 移动**：无需记录反向操作——每次变更批结束后捕获 body innerHTML+attrs 快照（连续输入 250ms 防抖合并，离散命令执行前先冲刷批次），undo/redo 只是 index 前后移动并恢复快照。恢复期间必须 observer.disconnect() 再重连来吞掉回声变更，比时间窗口标志可靠（MutationObserver 微任务时序存在竞态）；快照要临时剥离 __mve_ 编辑器类、注入样式/脚本挪到 head，恢复用 innerHTML 替换 + 属性重放 + 保留滚动位。脏状态与快照基线比对双向报告，撤销回到保存点自动清脏。
 
+- **workbench 注释精简不能按行数指标硬压**：该范围大量注释承载代码中不可见的约束（Lexical 节点生命周期/序列化边界、标注锚点对账、二进制写盘安全、iframe sandbox 隔离、性能取舍），机械 JSDoc 与步骤旁白删完后剩余多为高价值注释，强行凑百分比会丢失真实契约。可删的确定性冗余集中在：noise JSX 注释（`{/* Header */}` 类）、复述 props/类型的 JSDoc、重复的 gutter 说明、步骤编号旁白；过期表述（如 textarea 已换 CodeMirror）以代码事实为准改写或删除。有未提交功能改动的文件（如他人正在改 AgentModelPicker/FileTree）只做最小注释删改，绝不触碰功能代码。
+
 - **Vite HMR 重载 Lexical 自定义 Node 模块时 instanceof 会失真**：HMR 替换模块后，已挂载编辑器持有的旧节点实例与新模块导出的 class 不是同一引用，`instanceof` 判定返回 false，相关命令/插件对自定义节点全部"失灵"。节点识别应兼容 `node.getType()` 字符串校验，不要把 `instanceof` 作为唯一判据；排查此类问题先触发一次整页刷新确认是否 HMR 伪影。
 
 - **Lexical verbatim 行内容器节点（引文/注释类"原文保真"标记）的正确做法**：纯文本 ElementNode（isInline+extractWithChild+canIndent:false）+ TextMatchTransformer，xport 直接用 `node.getTextContent()` 回写原文可做到逐字节保真——xportChildren 会经 xportTextFormat 转义方括号/下划线，citekey 里的 `_` 会被改成 `\_` 造成假脏文件。
@@ -199,6 +201,7 @@ eplace 内手动 `append((match[0]))` 可阻断行内格式二次转换。TextMa
 ### 工作台 UI 与图标
 
 - **`AppIcon` 的 `size` 不是最终渲染像素**：组件会乘 `OPTICAL_SCALE = 0.85` 抵消 Lucide 相对 Material 字体图标的视觉膨胀。旧 Material `text-base` 对应的 `size={16}` 只是保持原视觉尺寸；要与 `WebviewCard` 中 `size={20}` 的前进/后退/刷新图标看齐，应用按钮也应传 `size={20}`。统一顶栏或侧边栏图标时先按最终视觉尺寸比较，不要只看 prop 数值。
+  用 absolute 定位元素对齐图标中心（如历史树的连接线、角标）时必须按渲染盒计算：`size={16}` 的实际盒是 13.6px 而非 16px，水平中心 = 左内边距 + 6.8px；直接用 `size` 数值假设会系统偏右约 1.2px。最稳的做法是让包壳宽度等于渲染盒宽（如 `w-[13.6px]` + `justify-center`），不要手算中心点写死 left。
 
 - **图标方向不能沿用 Material 的旋转角度**：`Paperclip` 默认是左下到右上的 45° 斜向，沿用 Material 字体图标时期的 `-rotate-90` 会变成另一条 45° 斜线；要垂直应使用 `-rotate-45`。重做按钮应使用成套的 `Undo2`/`Redo2`，`Repeat` 表示循环播放，不应作为编辑器的前进/重做图标。迁移同类图标时先核对 SVG 原始方向和图形语义，不要机械保留旧 rotate 类或按名称接近程度猜。
 
@@ -417,6 +420,8 @@ eplace 内手动 `append((match[0]))` 可阻断行内格式二次转换。TextMa
 
 - **执行旧计划前重新核对代码锚点**：行号、Find/Replace 块和函数签名可能随代码演进漂移。修改前用 `rg` 和文件读取核对实际入口；在原授权范围内调整实施细节，只有目标、范围或风险发生实质变化时才重新确认。不能盲套旧计划，也不为每次锚点漂移增设计划文件。
 
+- **暂停后被恢复的任务必须以新 git 事实为准**：并行协作期间其他 worker 或用户会持续提交，恢复时旧基线统计、旧文件内容、旧工作区假设全部失效。先重新 `git status`/`git diff` 核对他人未提交改动（这些文件只允许最小范围叠加自己的职责内修改，绝不能回退），重新读取当前文件内容再动手，不沿用暂停前的任何内容记忆。
+
 - **杀 dev 进程要杀 Electron 主进程而不是 npm 壳**：`kill_shell` 或 Ctrl+C 只终止 `npm run dev` 的 node 包装进程，`electron.exe` 主进程会变孤儿继续持有 Named Pipe 和端口，导致“新实例”实际仍是旧代码在响应。Windows 下用 `taskkill //PID <electron主进程PID> //T` 杀整棵树；在 git-bash 里，`node -e` 内联串和 heredoc 中的 `\\.\pipe\` 反斜杠会被 MSYS 二次坍缩，写管道测试应落盘为 `.mjs` 文件或用 `String.fromCharCode(92)` 构造路径。
 
 - **`session_log.py` 在 GBK 控制台打印 Unicode 会崩**：Windows GBK 终端无法编码 lesson 候选中的 `↔` 或 emoji，`main()` 打印 candidates 时抛 `UnicodeEncodeError`，日志本身已写入，崩在提示阶段。修复是在 `main()` 开头执行 `sys.stdout.reconfigure(encoding="utf-8", errors="replace")`。
@@ -474,6 +479,12 @@ eplace 内手动 `append((match[0]))` 可阻断行内格式二次转换。TextMa
 - **完整构建失败先区分责任边界：脏工作区语法错误 vs 本次改动**：`pnpm run build` 可能被工作区既有的未提交语法错误（其他任务的半成品文件）阻断，报错文件与本次改动无关时不要顺手修，用定向 `tsc --noEmit`（node/web 两侧）确认本次改动自身的类型责任即可。
 
 - **CDP `Runtime.evaluate` 中 Windows 路径注入陷阱**：把 `D:\Project\tmp\x.png` 这类路径直接拼进 evaluate 的 JS 表达式文本时，反斜杠会被浏览器 JS 解析器当转义符吞掉（`\t` 变制表符、`\.` 变 `.`），被测代码拿到的是已损坏的串，表现为提取/匹配逻辑"没生效"的假阴性。必须用 `JSON.stringify` 注入路径字符串（外层模板插值也安全），或统一使用正斜杠路径。验证用例出意外结果时先核对输入是否完好到达被测代码。
+
+- **批量注释精简不能按注释行号机械删除**：TypeScript interface/type 的字段注释常位于字段上一行，按“注释行”删除时若不核对下一行是字段声明，会把 `name`/`fileName`/`documentName` 这类可执行类型字段一并删掉；web 类型检查会立刻暴露，但根因不是类型问题而是文本编辑越界。先 token/AST 或逐 hunk 人工确认删除行只包含注释。
+
+- **空 catch 里的说明注释是 lint 语义的一部分**：`eslint:recommended` 的 `no-empty` 会把有注释的空块视为非空；清理时如果把 `catch { // JSON 解析失败时忽略 }` 中的注释删掉，原本合法的有意忽略会变成 error。保留一句短“有意忽略/兜底原因”注释即可，不要为满足空块规则改逻辑或吞掉语义。
+
+- **含注入脚本的 template literal 不能只做文本 diff 验收**：`webviewScripts.ts`/`htmlToMarkdown.ts` 这类字符串模板里的 `//`、`/* */` 不是宿主 TS 注释，但仍是运行时脚本注释；直接逐行 diff 会把注释删除误判成字符串内容改动。验收应先做排除 TS 注释的 token 序列对比，再对 template token 的嵌入 JS 做注释/空白归一化后比对，差异必须归因到纯注释或明确并行功能改动。
 
 ### 历史架构与版本限定
 
