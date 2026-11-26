@@ -140,6 +140,49 @@ function convertPiContentParts(rawContent?: string | PiRawPart[]): PiContentPart
   return parts
 }
 
+/**
+ * 用 incoming（pi 推送的消息内容快照）替换当前消息 parts，
+ * 但保留本地已有的 tool-call 运行信息（result/isError/durationMs）。
+ * 关键约束：本地存在而 incoming 缺失的 tool-call 也必须保留——
+ * 运行时 pi 的 message_end/message_update 快照在个别事件形态下不含 toolCall
+ * （此时整个数组为空、或 toolCall 尚未组装进去），而 tool_execution_start
+ * 已经先行在本地插入了对应 part。若直接整体覆盖，会把 tool-call part 抹掉，
+ * 后续 allToolsDone 判空为 true，正在执行的长任务（如 image_gen）被提前
+ * 标记 complete，UI 出现"仍在生成却显示成功、标题停止闪烁"。
+ */
+function mergeMessageParts(incoming: PiContentPart[], existing: PiContentPart[]): PiContentPart[] {
+  const existingTools = new Map<string, PiContentPart>()
+  for (const p of existing) {
+    if (p.type === 'tool-call' && p.toolCallId) {
+      existingTools.set(p.toolCallId, p)
+    }
+  }
+  const merged = incoming.map((p) => {
+    if (p.type === 'tool-call' && p.toolCallId && existingTools.has(p.toolCallId)) {
+      const prev = existingTools.get(p.toolCallId)!
+      existingTools.delete(p.toolCallId)
+      return {
+        ...p,
+        result: prev.result ?? p.result,
+        isError: prev.isError ?? p.isError,
+        durationMs: prev.durationMs ?? p.durationMs
+      }
+    }
+    return p
+  })
+  // incoming 里完全缺失的 tool-call：pi 的事件级 tool_execution_start 是权威来源，
+  // 不能丢。追加在末尾（内容顺序此时已不再重要，运行信息准确性优先）。
+  for (const orphan of existingTools.values()) {
+    merged.push(orphan)
+  }
+  return merged
+}
+
+/** 消息内是否还有未出结果（也未报错）的 tool-call。 */
+function hasUnresolvedToolCalls(content: PiContentPart[]): boolean {
+  return content.some((p) => p.type === 'tool-call' && p.result === undefined && !p.isError)
+}
+
 /** 待发送图片附件：dataUrl 用于缩略图渲染与上传，name 仅为展示兜底。 */
 export interface AgentImageAttachment {
   /** data URL（data:image/png;base64,...）或纯 base64，统一按 dataUrl 使用。 */
@@ -685,7 +728,14 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
           cwd?: string
           permissionMode?: string
           forkOrigin?: AgentForkOrigin
+          /** 主进程报告该会话是否仍在运行（恢复发生在长任务 mid-flight 时为 true） */
+          isRunning?: boolean
         } | null
+        // 后端权威运行态：resume 命中仍 active 的会话时为 true。
+        // 典型场景：渲染层 HMR/重载或切换会话时，image_gen 这类 60-90s 长任务
+        // 还在主进程里跑；此时恢复的 assistant 消息若有未出结果的 tool-call，
+        // 必须还原为 running，而不是 complete，否则 UI 出现假成功/停止闪烁。
+        const backendRunning = rawData?.isRunning === true
         const restoredMessages: AgentMessage[] = []
 
         if (rawData?.messages && Array.isArray(rawData.messages)) {
@@ -696,7 +746,14 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
             if (mRole === 'toolresult' || mRole === 'tool') {
               const tcId = (m as { toolCallId?: string }).toolCallId
               if (tcId) {
-                toolResultsMap.set(tcId, m.content)
+                // 归一为 tool_execution_end 事件里 result 的形状（{content, details, isError}），
+                // 否则恢复出来的会话里 extractToolResultText 无法区分空结果与结构缺失。
+                const details = (m as { details?: unknown }).details
+                toolResultsMap.set(tcId, {
+                  content: m.content,
+                  ...(details !== undefined ? { details } : {}),
+                  isError: Boolean((m as { isError?: boolean }).isError)
+                })
               }
             }
           }
@@ -728,7 +785,10 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
               id: m.id || `msg_restored_${i}`,
               role,
               content: enrichedParts,
-              status: 'complete',
+              status:
+                backendRunning && role === 'assistant' && hasUnresolvedToolCalls(enrichedParts)
+                  ? 'running'
+                  : 'complete',
               createdAt: m.timestamp ?? Date.now(),
               timestamp: m.timestamp,
               durationMs: m.durationMs
@@ -771,7 +831,10 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
           permissionMode: rawData?.permissionMode === 'auto' || rawData?.permissionMode === 'bypass'
             ? rawData.permissionMode
             : 'default',
-          isRunning: s.runningSessionIds.has(sessionId)
+          isRunning: backendRunning || s.runningSessionIds.has(sessionId),
+          runningSessionIds: backendRunning
+            ? new Set(s.runningSessionIds).add(sessionId)
+            : s.runningSessionIds
         }))
         // isRunning is derived from runningSessionIds — populated by live events.
         void get().fetchSnapshot(sessionId)
@@ -1772,25 +1835,7 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
             const msgs = [...s.messages]
             const lastIdx = msgs.length - 1
             if (lastIdx >= 0 && msgs[lastIdx].role === 'assistant') {
-              // Retain any tool execution details already merged in
-              const existingTools = new Map<string, PiContentPart>()
-              for (const p of msgs[lastIdx].content) {
-                if (p.type === 'tool-call' && p.toolCallId) {
-                  existingTools.set(p.toolCallId, p)
-                }
-              }
-              const mergedParts = parts.map((p) => {
-                if (p.type === 'tool-call' && p.toolCallId && existingTools.has(p.toolCallId)) {
-                  const prev = existingTools.get(p.toolCallId)!
-                  return {
-                    ...p,
-                    result: prev.result ?? p.result,
-                    isError: prev.isError ?? p.isError,
-                    durationMs: prev.durationMs ?? p.durationMs
-                  }
-                }
-                return p
-              })
+              const mergedParts = mergeMessageParts(parts, msgs[lastIdx].content)
               msgs[lastIdx] = {
                 ...msgs[lastIdx],
                 content: mergedParts,
@@ -1834,7 +1879,10 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
           } else {
             content.push(toolPart)
           }
-          msgs[msgs.length - 1] = { ...last, content }
+          // 收到 tool_execution_start 说明该消息的工具正在执行——无论此前
+          // message_end 的形态如何，状态必须回到 running，防止"长任务（如
+          // image_gen）运行中 UI 已显示完成"的假成功。
+          msgs[msgs.length - 1] = { ...last, content, status: 'running' }
           return { messages: msgs }
         })
         break
@@ -1881,9 +1929,7 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
               if (found) {
                 // 该消息内所有 tool-call 都拿到 result 后，才把消息标 complete。
                 // message_end 在工具执行开始前就会到达，不能作为完成信号。
-                const allToolsDone = content.every(
-                  (p) => p.type !== 'tool-call' || p.result !== undefined || p.isError
-                )
+                const allToolsDone = !hasUnresolvedToolCalls(content)
                 msgs[i] = {
                   ...m,
                   content,
@@ -1912,31 +1958,12 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
             // tool-call 时 allToolsDone 会 vacuous true，消息被误标 complete。
             if (event.message?.content) {
               const incoming = convertPiContentParts(event.message.content)
-              const prevToolMap = new Map<string, PiContentPart>()
-              for (const p of msgs[lastIdx].content) {
-                if (p.type === 'tool-call' && p.toolCallId) {
-                  prevToolMap.set(p.toolCallId, p)
-                }
-              }
-              const merged = incoming.map((p) => {
-                if (p.type === 'tool-call' && p.toolCallId && prevToolMap.has(p.toolCallId)) {
-                  const prev = prevToolMap.get(p.toolCallId)!
-                  return {
-                    ...p,
-                    result: prev.result ?? p.result,
-                    isError: prev.isError ?? p.isError,
-                    durationMs: prev.durationMs ?? p.durationMs
-                  }
-                }
-                return p
-              })
+              const merged = mergeMessageParts(incoming, msgs[lastIdx].content)
               msgs[lastIdx] = { ...msgs[lastIdx], content: merged }
             }
             // pi 在 tool_execution_start 之前就发 message_end——若消息里还有
             // 未完成 tool-call，保持 running，等 tool_execution_end 补齐。
-            const allToolsDone = msgs[lastIdx].content.every(
-              (p) => p.type !== 'tool-call' || p.result !== undefined || p.isError
-            )
+            const allToolsDone = !hasUnresolvedToolCalls(msgs[lastIdx].content)
             msgs[lastIdx] = {
               ...msgs[lastIdx],
               timestamp: msgs[lastIdx].timestamp ?? msgTimestamp,
@@ -1951,12 +1978,15 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
       case 'turn_end': {
         // 一个 turn 包含 assistant 消息 + 其所有 toolResult；turn_end 到达
         // 时该 turn 的工具调用必然都已结束（个别丢失的 end 事件也在此兜底）。
+        // 但兜底不能越过"还在等结果"的 tool-call：若 turn_end 因任何时序异常
+        // 提前到达，未完成 tool-call 的消息必须保持 running，否则长任务
+        // （image_gen/web_search）在运行中被误判完成。
         set((s) => {
           const msgs = [...s.messages]
           for (let i = msgs.length - 1; i >= 0; i--) {
             const m = msgs[i]
             if (m.role !== 'assistant') break
-            if (m.status === 'running') {
+            if (m.status === 'running' && !hasUnresolvedToolCalls(m.content)) {
               msgs[i] = { ...m, status: 'complete' }
             }
           }

@@ -417,6 +417,13 @@ function ToolItem({ part, isRunning = false, defaultExpanded = false, cwd }: Sin
               <span className="text-shimmer flex items-center gap-1">
                 执行中
               </span>
+            ) : part.result === undefined ? (
+              /* 会话已结束但工具没拿到任何结果：中止/事件丢失的未定状态。
+                 之前在这里一律显示"成功"，长任务（image_gen）运行中一旦
+                 运行态信号缺失，就会假报成功。 */
+              <span className="text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                <AppIcon name="help" size={12} /> 未返回结果
+              </span>
             ) : (
               <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
                 <AppIcon name="check" size={12} /> 成功

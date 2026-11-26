@@ -8,7 +8,7 @@
  */
 
 const PATH_LIKE = /^(?:[A-Za-z]:[\\/]|\\\\|\/|\.{1,2}[\\/]|~[\\/])/
-const ENV_ANCHORED = /^(?:\$\{?env:|\$[A-Za-z_][A-Za-z0-9_]*|%[A-Za-z_][A-Za-z0-9_]*%)/i
+const ENV_ANCHORED = /^(?:\$\{?(?:env:)?[A-Za-z_][A-Za-z0-9_]*\}?|%[A-Za-z_][A-Za-z0-9_]*%)/i
 const SCRIPT_EXT = /\.(?:bat|cmd|cjs|js|jsx|mjs|ps1|py|sh|ts|tsx)$/i
 
 const NON_FILE_PS_DRIVES = new Set([

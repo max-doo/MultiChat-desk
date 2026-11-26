@@ -131,7 +131,7 @@ export interface AgentTaskSubmitRequest {
   images?: string[]
   /** 开启平台 AI 生图模式并在生成完成后触发原生下载落盘（与 deep_research 互斥）。 */
   genImage?: boolean
-  /** 产物根目录（绝对路径）：图片落盘 `<dir>/image/`、回复 TXT 落盘 `<dir>/results/`。未传时回退应用数据目录 `.multichat/`。 */
+  /** 产物根目录（绝对路径）：图片落盘 `<dir>/image/`、回复 TXT 落盘 `<dir>/task-results/`。未传时回退应用数据目录 `.multichat/`。 */
   artifactDir?: string
   model?: string
   mode?: AgentTaskMode

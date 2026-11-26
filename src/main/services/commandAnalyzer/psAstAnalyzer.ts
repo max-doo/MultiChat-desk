@@ -373,16 +373,19 @@ function extractStaticCdTarget(node: AstNodeInfo): string | null {
 
 export function analyzePowerShellAst(result: AstParseResult): PsAstVerdict {
   const verdict: PsAstVerdict = { readOnly: false, pathArguments: [], commands: [] }
-  if (result.status !== 'ok') {
-    verdict.rejectReason = result.status === 'truncated' ? 'ast-truncated' : 'parse-error'
+  const reject = (reason: string): PsAstVerdict => {
+    verdict.rejectReason = reason
+    verdict.writeOps = false
     return verdict
+  }
+  if (result.status !== 'ok') {
+    return reject(result.status === 'truncated' ? 'ast-truncated' : 'parse-error')
   }
   const nodes = result.nodes
 
   for (const node of nodes) {
     if (DENIED_NODE_TYPES.has(node.type)) {
-      verdict.rejectReason = `denied node type: ${node.type}`
-      return verdict
+      return reject(`denied node type: ${node.type}`)
     }
     if (WRITE_REDIRECT_NODE_TYPES.has(node.type)) {
       verdict.writeOps = true
@@ -394,8 +397,7 @@ export function analyzePowerShellAst(result: AstParseResult): PsAstVerdict {
       continue
     }
     if (!ALLOWED_NODE_TYPES.has(node.type)) {
-      verdict.rejectReason = `unknown node type: ${node.type}`
-      return verdict
+      return reject(`unknown node type: ${node.type}`)
     }
   }
 
@@ -403,40 +405,33 @@ export function analyzePowerShellAst(result: AstParseResult): PsAstVerdict {
     switch (node.type) {
       case 'PipelineChainAst': {
         if (node.chainOp !== 'AndAnd' && node.chainOp !== 'OrOr') {
-          verdict.rejectReason = `unsupported pipeline chain: ${node.chainOp ?? 'unknown'}`
-          return verdict
+          return reject(`unsupported pipeline chain: ${node.chainOp ?? 'unknown'}`)
         }
         break
       }
       case 'InvokeMemberExpressionAst': {
         if (!node.member) {
-          verdict.rejectReason = `dynamic member invocation: ${node.text.slice(0, 60)}`
-          return verdict
+          return reject(`dynamic member invocation: ${node.text.slice(0, 60)}`)
         }
         const method = node.member.toLowerCase()
         if (node.static) {
           if (!node.targetType) {
-            verdict.rejectReason = `dynamic static target: ${node.text.slice(0, 60)}`
-            return verdict
+            return reject(`dynamic static target: ${node.text.slice(0, 60)}`)
           }
           const typeName = normalizeTypeName(node.targetType)
           if (STATIC_DENY_TYPES.has(typeName)) {
-            verdict.rejectReason = `denied static type: ${typeName}`
-            return verdict
+            return reject(`denied static type: ${typeName}`)
           }
           const allowed = STATIC_WHITELIST[typeName]
           if (!allowed) {
-            verdict.rejectReason = `unwhitelisted static type: ${typeName}`
-            return verdict
+            return reject(`unwhitelisted static type: ${typeName}`)
           }
           if (allowed !== '*' && !allowed.includes(method)) {
-            verdict.rejectReason = `unwhitelisted method: ${typeName}::${method}`
-            return verdict
+            return reject(`unwhitelisted method: ${typeName}::${method}`)
           }
         } else {
           if (!SAFE_INSTANCE_METHODS.has(method)) {
-            verdict.rejectReason = `unwhitelisted instance method: ${method}`
-            return verdict
+            return reject(`unwhitelisted instance method: ${method}`)
           }
         }
         break
@@ -445,26 +440,22 @@ export function analyzePowerShellAst(result: AstParseResult): PsAstVerdict {
       case 'TypeConstraintAst': {
         const err = checkTypeName(node.typeName)
         if (err) {
-          verdict.rejectReason = err
-          return verdict
+          return reject(err)
         }
         break
       }
       case 'AssignmentStatementAst': {
         if (node.assignOp !== 'Equals' || node.lhsUnqualified !== true) {
-          verdict.rejectReason = `non-local assignment lhs: ${node.text.slice(0, 40)}`
-          return verdict
+          return reject(`non-local assignment lhs: ${node.text.slice(0, 40)}`)
         }
         break
       }
       case 'CommandAst': {
         if (node.op && node.op !== 'Unknown') {
-          verdict.rejectReason = `denied invocation operator: ${node.op}`
-          return verdict
+          return reject(`denied invocation operator: ${node.op}`)
         }
         if (!node.cmd) {
-          verdict.rejectReason = `dynamic command: ${node.text.slice(0, 40)}`
-          return verdict
+          return reject(`dynamic command: ${node.text.slice(0, 40)}`)
         }
         const name = normalizeCommandName(node.cmd)
         verdict.commands.push(name)
@@ -481,8 +472,7 @@ export function analyzePowerShellAst(result: AstParseResult): PsAstVerdict {
           const cdTarget = extractStaticCdTarget(node)
           if (!cdTarget) {
             collectInspectableArgs()
-            verdict.rejectReason = 'unsafe cd target'
-            return verdict
+            return reject('unsafe cd target')
           }
           verdict.cdTargets ??= []
           verdict.cdTargets.push(cdTarget)
@@ -490,8 +480,7 @@ export function analyzePowerShellAst(result: AstParseResult): PsAstVerdict {
         }
         if (DENIED_COMMANDS.has(name)) {
           collectInspectableArgs()
-          verdict.rejectReason = `denied command: ${name}`
-          return verdict
+          return reject(`denied command: ${name}`)
         }
         if (WRITE_COMMANDS.has(name)) {
           verdict.writeOps = true
@@ -503,16 +492,14 @@ export function analyzePowerShellAst(result: AstParseResult): PsAstVerdict {
           if (!gated.allowed) {
             collectInspectableArgs()
             verdict.pathArguments.push(...gated.pathArgs)
-            verdict.rejectReason = `denied external command: ${name}`
-            return verdict
+            return reject(`denied external command: ${name}`)
           }
           verdict.pathArguments.push(...gated.pathArgs)
           break
         }
         if (!READ_ONLY_COMMANDS.has(name) && !READ_ONLY_EXTERNAL_PROGRAMS.has(name)) {
           collectInspectableArgs()
-          verdict.rejectReason = `unwhitelisted command: ${name}`
-          return verdict
+          return reject(`unwhitelisted command: ${name}`)
         }
         collectInspectableArgs()
         break

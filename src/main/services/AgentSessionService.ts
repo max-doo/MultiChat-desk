@@ -1,4 +1,4 @@
-import { mkdir, open, readFile, readdir, rm, stat, writeFile, unlink } from 'fs/promises'
+import { mkdir, open, readFile, readdir, rename, rm, stat, writeFile, unlink } from 'fs/promises'
 import { createReadStream, existsSync } from 'fs'
 import { createInterface } from 'readline'
 import { join, dirname, basename, resolve } from 'path'
@@ -94,6 +94,9 @@ export interface ActiveSessionEntry {
   fileChangeKeyMap?: Map<string, string>
   /** Canonical displayPath → pre-edit file bytes (`null` = file did not exist, `undefined` = oversized/unknown). */
   baselineContents?: Map<string, Buffer | null | undefined>
+  /** Canonical displayPath → capture timestamp (ms) of the corresponding baseline,
+   * used to order it against the pre-shell workspace scan. */
+  baselineCapturedAt?: Map<string, number>
   /** toolCallId → canonical displayPath, populated in beforeToolCall so
    * tool_execution_end (which lacks `args`) can resolve the touched path. */
   pendingToolFiles?: Map<string, string>
@@ -102,6 +105,8 @@ export interface ActiveSessionEntry {
   /** Lightweight workspace metadata snapshot taken before the first non-read-only shell command in this user turn.
    * `undefined` = no non-read-only shell command yet; `null` = scan hit circuit breaker and was skipped. */
   preShellWorkspaceSnapshot?: Map<string, WorkspaceFileMeta> | null
+  /** Timestamp (ms) captured just before the pre-shell workspace scan started. */
+  preShellScanStartedAt?: number
   /** True once at least one non-read-only shell command was allowed in the current user turn. */
   shellWriteExecuted?: boolean
   /** Persist is async (blob writes); the renderer may query before it lands.
@@ -671,6 +676,7 @@ export class AgentSessionService {
   }
 
   private forwardEvent(sessionId: string, event: AgentSessionEvent | LocalAgentEvent): void {
+    this.writeEventTimeline(sessionId, event)
     if (event.type === 'message_update') {
       const existing = this.pendingMessageUpdates.get(sessionId)
       if (existing) {
@@ -693,6 +699,38 @@ export class AgentSessionService {
     // Flush any buffered streaming snapshot before emitting message_end / agent_end / tool / lifecycle events
     this.flushPendingMessageUpdate(sessionId)
     this.emitEventImmediate(sessionId, event)
+  }
+
+  /**
+   * 事件时间线诊断日志：仅在 MM_AGENT_EVENTLOG=1 时启用，追加写入
+   * sessionsDir/<sessionId>/event-timeline.jsonl。用于排查"工具运行中 UI
+   * 却显示成功/停止闪烁"这类 message_end 时序与内容形态问题——重点记录
+   * assistant message_end 是否携带 toolCall、以及 tool 事件的相对顺序。
+   */
+  private writeEventTimeline(sessionId: string, event: AgentSessionEvent | LocalAgentEvent): void {
+    if (process.env.MM_AGENT_EVENTLOG !== '1') return
+    if (event.type === 'message_update') return
+    const entry: Record<string, unknown> = {
+      t: Date.now(),
+      type: event.type
+    }
+    const msg = (event as { message?: { role?: string; content?: unknown } }).message
+    if (msg?.role) {
+      entry.role = msg.role
+      if (Array.isArray(msg.content)) {
+        entry.parts = (msg.content as Array<{ type?: string; id?: string; name?: string }>).map((p) =>
+          p?.type === 'toolCall' ? `toolCall:${p.name}:${p.id ? 'id' : 'noid'}` : String(p?.type)
+        )
+      }
+    }
+    const toolName = (event as { toolName?: string }).toolName
+    if (toolName) entry.tool = toolName
+    if ((event as { isError?: boolean }).isError !== undefined) entry.isError = Boolean((event as { isError?: boolean }).isError)
+    const line = JSON.stringify(entry) + '\n'
+    const filePath = join(this.sessionsDir, sessionId, 'event-timeline.jsonl')
+    void mkdir(dirname(filePath), { recursive: true })
+      .then(() => writeFile(filePath, line, { flag: 'a' }))
+      .catch(() => undefined)
   }
 
   private sendAuthOperation(operation: AgentAuthOperation): void {
@@ -750,9 +788,11 @@ export class AgentSessionService {
     active.turnFileChanges = { files: [], baseline: {}, target: {}, status: 'applied' }
     active.fileChangeKeyMap = new Map()
     active.baselineContents = new Map()
+    active.baselineCapturedAt = new Map()
     active.pendingToolFiles = new Map()
     active.pendingCaptures = []
     active.preShellWorkspaceSnapshot = undefined
+    active.preShellScanStartedAt = undefined
     active.shellWriteExecuted = false
   }
 
@@ -776,7 +816,9 @@ export class AgentSessionService {
     const pending = active.pendingCaptures ?? []
     const keyMap = active.fileChangeKeyMap ?? new Map<string, string>()
     const baselineContents = active.baselineContents ?? new Map<string, Buffer | null | undefined>()
+    const baselineCapturedAt = active.baselineCapturedAt ?? new Map<string, number>()
     const preShell = active.preShellWorkspaceSnapshot
+    const preShellScanStartedAt = active.preShellScanStartedAt
     const shellWriteExecuted = Boolean(active.shellWriteExecuted)
     const turnIdx = active.turnCounter || this.getLiveUserTurnCount(active)
     const cwd = active.cwd
@@ -785,9 +827,11 @@ export class AgentSessionService {
     active.turnFileChanges = undefined
     active.fileChangeKeyMap = undefined
     active.baselineContents = undefined
+    active.baselineCapturedAt = undefined
     active.pendingToolFiles = undefined
     active.pendingCaptures = undefined
     active.preShellWorkspaceSnapshot = undefined
+    active.preShellScanStartedAt = undefined
     active.shellWriteExecuted = false
 
     const hasTrackedWork =
@@ -818,7 +862,9 @@ export class AgentSessionService {
           finalTfc,
           keyMap,
           baselineContents,
+          baselineCapturedAt,
           shellWriteExecuted ? preShell ?? null : null,
+          preShellScanStartedAt,
           turnIdx > 0 ? turnIdx : undefined
         )
       })
@@ -832,16 +878,58 @@ export class AgentSessionService {
     tfc: AgentTurnFileChanges,
     keyMap: Map<string, string>,
     baselineContents: Map<string, Buffer | null | undefined>,
+    baselineCapturedAt: Map<string, number>,
     preShell: Map<string, WorkspaceFileMeta> | null,
+    preShellScanStartedAt: number | undefined,
     turnIndex?: number
   ): Promise<void> {
     const resolvedCwd = resolve(cwd)
 
     // 1. Merge workspace mutations caused by non-read-only shell commands.
     if (preShell) {
-      const postShell = await scanWorkspaceMetadata(resolvedCwd)
+      const postShell = await scanWorkspaceMetadata(resolvedCwd, { captureContent: false })
       if (postShell) {
         const diff = diffWorkspaceMetadata(preShell, postShell)
+
+        // Derive the pre-turn baseline for a scan-relative path from the
+        // pre-shell scan. Returns revertible content when the scan captured
+        // the file bytes; otherwise marks the baseline unknown (never guesses).
+        const scanBaseline = (
+          relPath: string,
+          absPath: string
+        ): { snapshot: AgentFileSnapshot; content: Buffer | null | undefined; revertible: boolean } => {
+          const preMeta = preShell.get(relPath)
+          if (!preMeta) {
+            return {
+              snapshot: { path: absPath, mtimeMs: null, size: null, sha1: null },
+              content: null,
+              revertible: true
+            }
+          }
+          if (preMeta.content instanceof Buffer) {
+            return {
+              snapshot: {
+                path: absPath,
+                mtimeMs: preMeta.mtimeMs,
+                size: preMeta.size,
+                sha1: createHash('sha1').update(preMeta.content).digest('hex')
+              },
+              content: preMeta.content,
+              revertible: true
+            }
+          }
+          return {
+            snapshot: {
+              path: absPath,
+              mtimeMs: preMeta.mtimeMs,
+              size: preMeta.size,
+              sha1: UNKNOWN_SHELL_BASELINE_SHA1
+            },
+            content: undefined,
+            revertible: false
+          }
+        }
+
         const handleShellPath = async (
           relPath: string,
           kind: 'added' | 'modified' | 'deleted'
@@ -852,6 +940,28 @@ export class AgentSessionService {
             // Already tracked by an explicit file tool in this turn — refresh target snapshot
             // in case a subsequent shell command modified or deleted the same file.
             tfc.target[existingDisplay] = await this.captureFileSnapshot(norm.absPath)
+
+            // Decide whether the captured edit baseline predates the shell scan.
+            // Baselines captured before the scan started are by definition the
+            // pre-turn state. Baselines captured after the scan may have read
+            // content already rewritten by a shell command — trusting them
+            // would silently keep shell modifications across a revert, so
+            // fall back to scan content when available, or block the revert.
+            const capturedAt = baselineCapturedAt.get(existingDisplay)
+            const predatesScan =
+              capturedAt !== undefined &&
+              preShellScanStartedAt !== undefined &&
+              capturedAt < preShellScanStartedAt
+            if (!predatesScan && kind !== 'added') {
+              const fromScan = scanBaseline(relPath, norm.absPath)
+              const filesEntry = tfc.files.find((f) => f.path === existingDisplay)
+              if (fromScan.revertible && fromScan.content !== undefined) {
+                tfc.baseline[existingDisplay] = fromScan.snapshot
+                baselineContents.set(existingDisplay, fromScan.content)
+              } else if (filesEntry) {
+                filesEntry.noBaselineBlob = true
+              }
+            }
             return
           }
 
@@ -873,14 +983,9 @@ export class AgentSessionService {
               deleted: 0
             })
           } else if (kind === 'deleted') {
-            const prevMeta = preShell.get(relPath)
-            tfc.baseline[norm.displayPath] = {
-              path: norm.absPath,
-              mtimeMs: prevMeta?.mtimeMs ?? null,
-              size: prevMeta?.size ?? null,
-              sha1: UNKNOWN_SHELL_BASELINE_SHA1
-            }
-            baselineContents.set(norm.displayPath, undefined)
+            const fromScan = scanBaseline(relPath, norm.absPath)
+            tfc.baseline[norm.displayPath] = fromScan.snapshot
+            baselineContents.set(norm.displayPath, fromScan.content)
             tfc.target[norm.displayPath] = {
               path: norm.absPath,
               mtimeMs: null,
@@ -892,27 +997,22 @@ export class AgentSessionService {
               name: norm.name,
               isNew: false,
               isDeleted: true,
-              noBaselineBlob: true,
+              ...(fromScan.revertible ? {} : { noBaselineBlob: true }),
               added: 0,
               deleted: 0
             })
           } else {
-            const prevMeta = preShell.get(relPath)
             const snap = await this.captureFileSnapshot(norm.absPath)
             if (snap.sha1 === null) return
-            tfc.baseline[norm.displayPath] = {
-              path: norm.absPath,
-              mtimeMs: prevMeta?.mtimeMs ?? null,
-              size: prevMeta?.size ?? null,
-              sha1: UNKNOWN_SHELL_BASELINE_SHA1
-            }
-            baselineContents.set(norm.displayPath, undefined)
+            const fromScan = scanBaseline(relPath, norm.absPath)
+            tfc.baseline[norm.displayPath] = fromScan.snapshot
+            baselineContents.set(norm.displayPath, fromScan.content)
             tfc.target[norm.displayPath] = snap
             tfc.files.push({
               path: norm.displayPath,
               name: norm.name,
               isNew: false,
-              noBaselineBlob: true,
+              ...(fromScan.revertible ? {} : { noBaselineBlob: true }),
               added: 0,
               deleted: 0
             })
@@ -1065,6 +1165,33 @@ export class AgentSessionService {
     return current.sha1 === snapshot.sha1
   }
 
+  /**
+   * Crash-atomic file write: the content first lands in a sibling temp file,
+   * then a same-directory rename atomically replaces the target. On Windows,
+   * renaming over an existing file is atomic, so a crash mid-operation can
+   * never leave the user's file half-written — it is either fully old or
+   * fully new.
+   */
+  private async atomicWriteFile(absolutePath: string, content: Buffer): Promise<void> {
+    await mkdir(dirname(absolutePath), { recursive: true })
+    const tmp = `${absolutePath}.multichat-revert-${process.pid}-${Date.now()}.tmp`
+    try {
+      await writeFile(tmp, content)
+      await rename(tmp, absolutePath)
+    } catch (err) {
+      await unlink(tmp).catch(() => undefined)
+      throw err
+    }
+  }
+
+  /** Wait for any in-flight persist of the latest turn's file-change record. */
+  private async waitForFileChangePersist(sessionId: string): Promise<void> {
+    const pending = this.activeSessions.get(sessionId)?.pendingFileChangePersist
+    if (pending) {
+      await Promise.race([pending, new Promise<void>((r) => setTimeout(r, 3000))])
+    }
+  }
+
   /** Public IPC surface -------------------------------------------------- */
 
   /** Return the persisted file-change record for a session, or null. */
@@ -1072,10 +1199,7 @@ export class AgentSessionService {
     // Persist happens asynchronously after turn_end/agent_end; wait for the
     // in-flight write before reading, otherwise the renderer's mount-time query
     // races ahead of the disk write and the card never shows.
-    const pending = this.activeSessions.get(sessionId)?.pendingFileChangePersist
-    if (pending) {
-      await Promise.race([pending, new Promise<void>((r) => setTimeout(r, 3000))])
-    }
+    await this.waitForFileChangePersist(sessionId)
     const meta = await this.loadFileChanges(sessionId)
     if (!meta) return null
     const { blobs: _blobs, ...rest } = meta
@@ -1110,43 +1234,90 @@ export class AgentSessionService {
    * Returns an error string on validation failure, null on success.
    */
   public async revertFileChanges(sessionId: string): Promise<string | null> {
+    const active = this.activeSessions.get(sessionId)
+    if (active?.isRunning) {
+      return '任务正在运行，无法安全撤销，请先停止'
+    }
+    await this.waitForFileChangePersist(sessionId)
     const meta = await this.loadFileChanges(sessionId)
     if (!meta || meta.files.length === 0) return '没有可撤销的文件修改'
     if (meta.status === 'undone') return '本次修改已被撤销'
     if (meta.files.some((f) => f.noBaselineBlob)) {
       return '包含通过命令修改或超大文件，缺少修改前基线快照，无法安全撤销'
     }
-    const rawCwd = meta.cwd ?? this.activeSessions.get(sessionId)?.cwd ?? ''
+    const rawCwd = meta.cwd ?? active?.cwd ?? ''
     const cwd = rawCwd ? resolve(rawCwd) : ''
     if (!cwd) return '无法确定工作目录'
 
-    // Validate: every touched file must still match its target snapshot.
+    // Validate every file first, then apply. Files may legitimately already
+    // match their baseline (user reverted one manually, or a previous attempt
+    // failed partway) — treating that as satisfied instead of a conflict keeps
+    // retries idempotent and prevents a partial failure from deadlocking the
+    // user out of ever completing the revert.
+    interface PlannedWrite {
+      file: (typeof meta.files)[number]
+      abs: string
+      kind: 'write' | 'delete' | 'noop'
+      content?: Buffer
+    }
+    const plan: PlannedWrite[] = []
+    const blockers: string[] = []
     for (const file of meta.files) {
       const target = meta.target[file.path]
-      if (!target) continue
       const abs = resolveTrackedAbsolutePath(cwd, file.path)
-      const ok = await this.snapshotMatches(target, abs)
-      if (!ok) return `文件 "${file.name}" 在此期间被外部修改，无法安全撤销`
+      if (!target) {
+        // A file without its post-turn snapshot cannot be validated against
+        // the "unchanged since the turn" invariant — fail closed.
+        blockers.push(`"${file.name}" 缺少修改后快照`)
+        continue
+      }
+      const current = await this.captureFileSnapshot(abs)
+      const baseline = meta.baseline[file.path]
+      const baselineSha = baseline?.sha1 ?? null
+      if (current.sha1 === target.sha1) {
+        if (baselineSha === null) {
+          plan.push({ file, abs, kind: 'delete' })
+        } else {
+          const blobName = meta.blobs?.[`baseline:${file.path}`]
+          const content = blobName ? await this.readBlob(sessionId, blobName) : null
+          if (content === null) {
+            blockers.push(`缺少 "${file.name}" 的基线快照`)
+            continue
+          }
+          plan.push({ file, abs, kind: 'write', content })
+        }
+        continue
+      }
+      if (current.sha1 === baselineSha) {
+        plan.push({ file, abs, kind: 'noop' })
+        continue
+      }
+      blockers.push(`文件 "${file.name}" 在此期间被外部修改`)
+    }
+    if (blockers.length > 0) {
+      return `${blockers[0]}${blockers.length > 1 ? ` 等 ${blockers.length} 处问题` : ''}，无法安全撤销`
     }
 
-    // Apply baseline content.
-    for (const file of meta.files) {
-      const baseline = meta.baseline[file.path]
-      const abs = resolveTrackedAbsolutePath(cwd, file.path)
-      if (!baseline || baseline.sha1 === null) {
-        // File did not exist before this turn → delete it.
-        try {
-          await unlink(abs)
-        } catch {
-          // already gone
+    // Each write is crash-atomic (temp + rename); failures are collected per
+    // file so the user sees exactly what failed and can retry — idempotent
+    // validation above guarantees a retry is never deadlocked by files that
+    // already reverted.
+    const failures: string[] = []
+    for (const item of plan) {
+      try {
+        if (item.kind === 'noop') continue
+        if (item.kind === 'delete') {
+          await unlink(item.abs).catch(() => undefined)
+          continue
         }
-      } else {
-        const blobName = meta.blobs?.[`baseline:${file.path}`]
-        const content = blobName ? await this.readBlob(sessionId, blobName) : null
-        if (content === null) return `缺少 "${file.name}" 的基线快照，无法撤销`
-        await mkdir(dirname(abs), { recursive: true })
-        await writeFile(abs, content)
+        await this.atomicWriteFile(item.abs, item.content!)
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        failures.push(`"${item.file.name}": ${msg}`)
       }
+    }
+    if (failures.length > 0) {
+      return `部分文件撤销失败（${failures[0]}${failures.length > 1 ? ` 等 ${failures.length} 处` : ''}）。已成功的文件保持撤销状态，修复后可重试`
     }
 
     meta.status = 'undone'
@@ -1163,40 +1334,76 @@ export class AgentSessionService {
    * Validates that files have not been modified since the revert.
    */
   public async reapplyFileChanges(sessionId: string): Promise<string | null> {
+    const active = this.activeSessions.get(sessionId)
+    if (active?.isRunning) {
+      return '任务正在运行，无法安全恢复，请先停止'
+    }
+    await this.waitForFileChangePersist(sessionId)
     const meta = await this.loadFileChanges(sessionId)
     if (!meta || meta.files.length === 0) return '没有可恢复的文件修改'
     if (meta.status !== 'undone') return '本次修改尚未撤销'
-    const rawCwd = meta.cwd ?? this.activeSessions.get(sessionId)?.cwd ?? ''
+    const rawCwd = meta.cwd ?? active?.cwd ?? ''
     const cwd = rawCwd ? resolve(rawCwd) : ''
     if (!cwd) return '无法确定工作目录'
 
-    // Validate: every touched file must still match its baseline snapshot.
+    // Validate first, then apply — same idempotent semantics as revert:
+    // files already at target count as satisfied so partial retries complete.
+    interface PlannedWrite {
+      file: (typeof meta.files)[number]
+      abs: string
+      kind: 'write' | 'delete' | 'noop'
+      content?: Buffer
+    }
+    const plan: PlannedWrite[] = []
+    const blockers: string[] = []
     for (const file of meta.files) {
       const baseline = meta.baseline[file.path]
       const abs = resolveTrackedAbsolutePath(cwd, file.path)
-      const ok = baseline
-        ? await this.snapshotMatches(baseline, abs)
-        : (await this.captureFileSnapshot(abs)).sha1 === null
-      if (!ok) return `文件 "${file.name}" 在撤销后被外部修改，无法安全恢复`
+      const current = await this.captureFileSnapshot(abs)
+      const baselineSha = baseline?.sha1 ?? null
+      if (current.sha1 === baselineSha) {
+        const target = meta.target[file.path]
+        if (!target || target.sha1 === null) {
+          plan.push({ file, abs, kind: 'delete' })
+        } else {
+          const blobName = meta.blobs?.[`target:${file.path}`]
+          const content = blobName ? await this.readBlob(sessionId, blobName) : null
+          if (content === null) {
+            blockers.push(`缺少 "${file.name}" 的目标快照`)
+            continue
+          }
+          plan.push({ file, abs, kind: 'write', content })
+        }
+        continue
+      }
+      const target = meta.target[file.path]
+      const targetSha = target?.sha1 ?? null
+      if (target && current.sha1 === targetSha) {
+        plan.push({ file, abs, kind: 'noop' })
+        continue
+      }
+      blockers.push(`文件 "${file.name}" 在撤销后被外部修改`)
+    }
+    if (blockers.length > 0) {
+      return `${blockers[0]}${blockers.length > 1 ? ` 等 ${blockers.length} 处问题` : ''}，无法安全恢复`
     }
 
-    // Re-apply target content.
-    for (const file of meta.files) {
-      const target = meta.target[file.path]
-      const abs = resolveTrackedAbsolutePath(cwd, file.path)
-      if (!target || target.sha1 === null) {
-        try {
-          await unlink(abs)
-        } catch {
-          // already gone
+    const failures: string[] = []
+    for (const item of plan) {
+      try {
+        if (item.kind === 'noop') continue
+        if (item.kind === 'delete') {
+          await unlink(item.abs).catch(() => undefined)
+          continue
         }
-      } else {
-        const blobName = meta.blobs?.[`target:${file.path}`]
-        const content = blobName ? await this.readBlob(sessionId, blobName) : null
-        if (content === null) return `缺少 "${file.name}" 的目标快照，无法恢复`
-        await mkdir(dirname(abs), { recursive: true })
-        await writeFile(abs, content)
+        await this.atomicWriteFile(item.abs, item.content!)
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        failures.push(`"${item.file.name}": ${msg}`)
       }
+    }
+    if (failures.length > 0) {
+      return `部分文件恢复失败（${failures[0]}${failures.length > 1 ? ` 等 ${failures.length} 处` : ''}）。已成功的文件保持恢复状态，修复后可重试`
     }
 
     meta.status = 'applied'
@@ -1305,6 +1512,8 @@ export class AgentSessionService {
               const captured = await captureBaselineWithContent(norm.absPath)
               tfc.baseline[displayPath] = captured.snapshot
               active.baselineContents.set(displayPath, captured.content)
+              active.baselineCapturedAt ??= new Map()
+              active.baselineCapturedAt.set(displayPath, Date.now())
               tfc.files.push({
                 path: displayPath,
                 name: norm.name,
@@ -1324,6 +1533,7 @@ export class AgentSessionService {
           // Take at most one lightweight workspace metadata snapshot per user turn,
           // right before the first non-read-only shell command executes.
           if (active.preShellWorkspaceSnapshot === undefined) {
+            active.preShellScanStartedAt = Date.now()
             active.preShellWorkspaceSnapshot = await scanWorkspaceMetadata(active.cwd)
           }
           active.shellWriteExecuted = true
@@ -1526,6 +1736,10 @@ export class AgentSessionService {
         model: existing.modelId,
         provider: existing.providerId,
         cwd: existing.cwd,
+        // 会话是否仍在主进程内存中运行（如恢复发生在长任务 mid-flight）。
+        // 渲染层恢复消息时需要它来决定 assistant 条目该标 running 还是 complete，
+        // 否则运行中的 image_gen/web_search 工具会被恢复成"已完成但无结果"的假成功。
+        isRunning: existing.isRunning === true,
         forkOrigin
       }
     }
@@ -1582,6 +1796,7 @@ export class AgentSessionService {
       model: entry.modelId,
       provider: entry.providerId,
       cwd: entry.cwd,
+      isRunning: false,
       forkOrigin
     }
   }
@@ -1662,21 +1877,31 @@ export class AgentSessionService {
   /**
    * Rewind the conversation to just before the given user-message entry and
    * hand its text back to the composer. Pi stores the session as an append-only
-   * tree, so this only moves the leaf pointer — file edits already applied to
-   * the workspace are NOT rolled back. The abandoned branch stays in the
-   * session file and is still reachable via the tree.
+   * tree, so this only moves the leaf pointer — unless the caller explicitly
+   * opts in via `revertFiles`, file edits already applied to the workspace
+   * stay as they are. The abandoned branch stays in the session file and is
+   * still reachable via the tree.
    *
    * Only the most recent user message on the current branch is accepted, which
    * limits the operation to a single step back and keeps the behaviour
    * predictable while this feature settles.
+   *
+   * When the abandoned turn produced file changes, the caller chooses via
+   * `revertFiles` whether those changes are rolled back first (reusing the
+   * same validated revert path as the changed-files card). The rewind is
+   * aborted when a requested revert fails, so the conversation state never
+   * claims files were rolled back when they were not.
    */
   public async rewindToUserMessage(
     sessionId: string,
-    entryId?: string
+    options?: { entryId?: string; revertFiles?: boolean }
   ): Promise<{ editorText: string }> {
     const active = this.activeSessions.get(sessionId)
     if (!active) {
       throw new Error(`Session ${sessionId} is not active`)
+    }
+    if (active.isRunning) {
+      throw new Error('任务正在运行，无法撤回')
     }
     const session = active.session
     const sessionManager = session.sessionManager
@@ -1684,7 +1909,7 @@ export class AgentSessionService {
     // Resolve the target entry: explicit id, else the last user message on the
     // active branch. Restricting to the last user message enforces the
     // "one-step rewind only" contract.
-    let targetId = entryId
+    let targetId = options?.entryId
     let targetEntry = targetId ? sessionManager.getEntry(targetId) : undefined
     if (!targetEntry) {
       const branch = sessionManager.getBranch()
@@ -1711,10 +1936,76 @@ export class AgentSessionService {
       throw new Error('当前版本仅支持撤回最近一条用户消息')
     }
 
+    // The abandoned turn is the latest user turn: the count of user messages
+    // on the branch up to and including the target equals the turn index that
+    // the file-change tracker assigns to it. A new turn sent after the rewind
+    // reuses the same index, so the abandoned turn's record must be retired
+    // here — otherwise its card would resurface attached to the wrong turn.
+    const abandonedTurnIndex = branch
+      .slice(0, branch.indexOf(lastUserEntry) + 1)
+      .filter((e) => e.type === 'message' && e.message.role === 'user').length
+
+    // The record of the just-finished turn persists asynchronously; wait so
+    // the revert decision sees the final state instead of a stale record.
+    await this.waitForFileChangePersist(sessionId)
+
+    const record = await this.loadFileChanges(sessionId)
+    const recordMatchesAbandonedTurn =
+      record !== null &&
+      record.files.length > 0 &&
+      (record.turnIndex === undefined ? true : record.turnIndex === abandonedTurnIndex)
+
+    if (options?.revertFiles && !recordMatchesAbandonedTurn) {
+      // The caller explicitly asked for a file rollback — silently skipping it
+      // would leave the workspace in a state the user did not choose. Fail the
+      // rewind instead so they can pick conversation-only deliberately.
+      throw new Error('本轮没有可回滚的文件修改记录，已取消撤回')
+    }
+
+    if (options?.revertFiles && recordMatchesAbandonedTurn) {
+      if (record.status === 'undone') {
+        // Files were already reverted (e.g. an earlier rewind attempt reverted
+        // successfully but the tree navigation failed afterwards). The desired
+        // end state is "files at baseline" — validate it still holds instead
+        // of erroring out, so the retry is not deadlocked.
+        const rawCwd = record.cwd ?? active.cwd ?? ''
+        const cwd = rawCwd ? resolve(rawCwd) : ''
+        let mismatch: string | null = null
+        for (const file of record.files) {
+          const baseline = record.baseline[file.path]
+          const abs = resolveTrackedAbsolutePath(cwd, file.path)
+          const current = await this.captureFileSnapshot(abs)
+          if (current.sha1 !== (baseline?.sha1 ?? null)) {
+            mismatch = file.name
+            break
+          }
+        }
+        if (mismatch) {
+          throw new Error(`文件回滚失败，已取消撤回：文件 "${mismatch}" 在撤销后被外部修改`)
+        }
+      } else {
+        const revertError = await this.revertFileChanges(sessionId)
+        if (revertError) {
+          throw new Error(`文件回滚失败，已取消撤回：${revertError}`)
+        }
+      }
+    }
+
     const result = await session.navigateTree(targetId, {})
     if (result.cancelled) {
       throw new Error('撤回被取消')
     }
+
+    if (recordMatchesAbandonedTurn) {
+      // The abandoned turn is no longer part of the visible timeline, and a
+      // resent prompt would reuse its turn index — retire the record whether
+      // or not files were reverted, so its card can never attach itself to an
+      // unrelated future turn. Revert already restored the files when the
+      // user asked for it; when files were kept, the user accepted losing the
+      // undo record as part of abandoning the turn.
+      await rm(this.fileChangesDir(sessionId), { recursive: true, force: true }).catch(() => undefined)
+    }
+
     const editorText =
       result.editorText ??
       this.extractUserText((targetEntry as { message: { content: unknown } }).message.content)

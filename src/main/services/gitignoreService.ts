@@ -80,7 +80,7 @@ const APP_STATE_PATTERNS = [
   '.multichat/annotations/',
   '.multichat/frontmatter-backup/',
   '.multichat/image/',
-  '.multichat/results/',
+  '.multichat/task-results/',
   '.multichat/cache/',
   '.multichat/logs/'
 ]

@@ -164,7 +164,8 @@ export type PathBoundary = 'workspace' | 'allowed-read-root' | 'outside' | 'prot
 const SENSITIVE_FILE_BASENAMES = new Set([
   'id_rsa', 'id_dsa', 'id_ecdsa', 'id_ed25519', 'known_hosts', 'authorized_keys',
   'credentials', 'config.json.credentials', 'netrc', '.netrc', 'htpasswd', '.htpasswd',
-  'shadow', 'passwd', 'pgpass', '.pgpass', 'my.cnf', 'kubeconfig'
+  'shadow', 'passwd', 'pgpass', '.pgpass', 'my.cnf', 'kubeconfig',
+  'git-credentials', 'npmrc', 'yarnrc', 'pypirc'
 ])
 
 const SENSITIVE_FILE_SUFFIXES = [
@@ -173,7 +174,7 @@ const SENSITIVE_FILE_SUFFIXES = [
 ]
 
 const SENSITIVE_DIR_NAMES = new Set([
-  '.ssh', '.aws', '.gnupg', '.gpg', '.azure', '.kube', '.docker', '.config\\gcloud'
+  '.ssh', '.aws', '.gnupg', '.gpg', '.azure', '.kube', '.docker', '.config\\gcloud', '.config\\gh'
 ])
 
 export function isSensitiveFilePath(normalizedPath: string, input: string): boolean {
@@ -241,6 +242,8 @@ export interface CommandInspection {
   normalized: string
   executable?: string
   pathArguments?: string[]
+  /** Explicit write/delete targets when the analyzer separated reads from writes. */
+  writeTargets?: string[]
   /** Static `cd` / `Set-Location` directory targets verified downstream. */
   cdTargets?: string[]
   parseable: boolean
@@ -258,6 +261,9 @@ export interface CommandInspection {
   networkWrite?: boolean
   /** Contains destructive/opaque shell syntax that auto mode must confirm. */
   requiresApproval: boolean
+  /** High-risk construct (sudo, dynamic head/target) requiring confirmation even in bypass. */
+  bypassRequiresApproval?: boolean
+  bypassReason?: string
   highRisk: boolean
   reason?: string
 }
@@ -268,12 +274,17 @@ export interface CommandAnalyzerVerdict {
   /** Command writes file content to path args — caller boundary-checks them. */
   writeOps?: boolean
   pathArguments?: string[]
+  /** Explicit write/delete target paths when distinct from read-side pathArguments. */
+  writeTargets?: string[]
   /** Static `cd` / `Set-Location` directory targets — caller verifies workspace boundary. */
   cdTargets?: string[]
   /** Executables/wrapper heads observed during analysis. */
   commands?: string[]
   /** Why read-only was rejected (debug). */
   rejectReason?: string
+  /** Requires confirmation even in `bypass` mode. */
+  bypassRequiresApproval?: boolean
+  bypassReason?: string
 }
 
 export type PolicyDecision = 'allow' | 'ask' | 'deny'
@@ -323,14 +334,61 @@ const READ_ONLY_POWERSHELL_COMMANDS = new Set([
   'write-host', 'write-output', 'write-verbose', 'write-warning'
 ])
 
-function comparePath(value: string): string {
-  return value.replace(/[\\/]+/g, '\\').replace(/[\\/]$/, '').toLowerCase()
+function comparePath(value: string, platform: NodeJS.Platform = process.platform): string {
+  const norm = value.replace(/[\\/]+/g, '\\').replace(/[\\/]$/, '')
+  return platform === 'linux' ? norm : norm.toLowerCase()
 }
 
 function isWithin(root: string, target: string): boolean {
   const normalizedRoot = comparePath(root)
   const normalizedTarget = comparePath(target)
   return normalizedTarget === normalizedRoot || normalizedTarget.startsWith(`${normalizedRoot}\\`)
+}
+
+function defaultPosixWriteProtectedRoots(platform: NodeJS.Platform = process.platform): string[] {
+  if (platform === 'win32') return []
+  return [
+    '/etc', '/private/etc',
+    '/usr', '/bin', '/sbin', '/boot', '/lib', '/lib64',
+    '/System', '/Library',
+    '/var/db', '/var/root', '/private/var/db', '/private/var/root', '/private/var/run'
+  ].map((root) => resolve(root))
+}
+
+const PERSISTENCE_HOME_FILES = new Set([
+  '.bashrc', '.bash_profile', '.bash_login', '.profile',
+  '.zshrc', '.zprofile', '.zshenv', '.zlogin',
+  '.cshrc', '.tcshrc', '.kshrc',
+  '.ssh/rc', '.config/fish/config.fish'
+])
+
+const PERSISTENCE_HOME_DIRS = [
+  '.config/autostart',
+  '.config/systemd/user',
+  '.config/fish/conf.d',
+  'library/launchagents'
+]
+
+function isPersistenceWriteTarget(inspection: PathInspection): boolean {
+  const raw = inspection.input.trim().replace(/^["']|["']$/g, '')
+  const rawForward = raw.replace(/\\/g, '/').toLowerCase()
+  const homeTokenMatch = rawForward.match(/^(?:~|\$(?:\{)?(?:env:)?(?:home|userprofile)(?:\})?|%userprofile%)\/(.+)$/)
+  if (homeTokenMatch) {
+    const rel = homeTokenMatch[1].replace(/\/+$/, '')
+    if (PERSISTENCE_HOME_FILES.has(rel)) return true
+    if (PERSISTENCE_HOME_DIRS.some((dir) => rel === dir || rel.startsWith(`${dir}/`))) return true
+  }
+  const candidate = inspection.normalized ?? inspection.absolute
+  if (!candidate) return false
+  const home = canonicalExistingPath(resolve(homedir())) ?? resolve(homedir())
+  if (isWithin(home, candidate)) {
+    const rel = relative(home, candidate).replace(/\\/g, '/').toLowerCase()
+    if (PERSISTENCE_HOME_FILES.has(rel)) return true
+    if (PERSISTENCE_HOME_DIRS.some((dir) => rel === dir || rel.startsWith(`${dir}/`))) return true
+  }
+  const fwd = candidate.replace(/\\/g, '/').toLowerCase()
+  if (fwd.startsWith('/var/spool/cron') || fwd.startsWith('/private/var/at')) return true
+  return false
 }
 
 function canonicalExistingPath(candidate: string): string | undefined {
@@ -629,7 +687,8 @@ function readOnlyPowerShell(command: string): boolean {
 function formatRejectReason(rejectReason: string): string {
   if (rejectReason === 'ast-truncated') return '命令语法树过长，需要人工确认。'
   if (rejectReason === 'parse-error') return '命令存在语法解析错误，需要人工确认。'
-  if (rejectReason === 'unparseable') return '命令包含无法安全解析的语法结构（如重定向、复杂展开或注释），需要确认。'
+  if (rejectReason === 'unparseable') return '命令包含无法安全解析的语法结构（如控制流、复杂展开或注释），需要确认。'
+  if (rejectReason === 'unresolved redirect target') return '命令包含动态重定向目标，需要确认。'
   if (rejectReason === 'unsafe cd target') return '目录切换（cd）仅支持工作区内的静态文件系统路径，需要确认。'
   if (rejectReason === 'denied segment') return '命令包含非只读或未在白名单内的子命令，需要确认。'
   if (rejectReason.startsWith('denied command: ')) {
@@ -698,6 +757,7 @@ export function analyzeCommand(
     normalized,
     executable,
     pathArguments: [...pathArguments, ...(analyzerVerdict?.pathArguments ?? [])],
+    writeTargets: analyzerVerdict?.writeTargets,
     cdTargets: analyzerVerdict?.cdTargets,
     analyzer: analyzerVerdict == null ? 'unavailable' : toolName === 'powershell' ? 'powershell-ast' : 'bash-segments',
     astReadOnly: astReadOnly || undefined,
@@ -709,6 +769,8 @@ export function analyzeCommand(
     requiresApproval:
       !astReadOnly &&
       (astRejected || (!readOnly && (syntaxRisk || !executable || !KNOWN_COMMANDS.has(executable)))),
+    bypassRequiresApproval: analyzerVerdict?.bypassRequiresApproval || undefined,
+    bypassReason: analyzerVerdict?.bypassReason,
     highRisk,
     reason: astReadOnly
       ? undefined
@@ -764,7 +826,9 @@ function defaultDecision(
   context: PermissionContext,
   risk: ToolEffectKind,
   paths: readonly PathInspection[],
-  command?: CommandInspection
+  command?: CommandInspection,
+  persistenceWrite = false,
+  writePathSet?: ReadonlySet<PathInspection>
 ): PolicyDecision {
   // Sensitive files are credential-shaped regardless of where they live —
   // a read would ship the secret to the remote model platform, so they
@@ -774,6 +838,11 @@ function defaultDecision(
     return context.interactive ? 'ask' : 'deny'
   }
   if (risk === 'execute' && !command) {
+    return context.interactive ? 'ask' : 'deny'
+  }
+  // Persistence targets (~/.zshrc, LaunchAgents, ...) and high-risk dynamic/
+  // privilege-escalation shell constructs still ask even in bypass mode.
+  if (persistenceWrite || command?.bypassRequiresApproval) {
     return context.interactive ? 'ask' : 'deny'
   }
   if (context.modeId === 'bypass') return 'allow'
@@ -818,7 +887,15 @@ function defaultDecision(
     command?.astWriteOps &&
     command.pathArguments !== undefined &&
     command.pathArguments.length > 0 &&
-    paths.every((path) => path.boundary === 'workspace')
+    (writePathSet && command.writeTargets !== undefined
+      ? writePathSet.size > 0 &&
+        [...writePathSet].every((path) => path.boundary === 'workspace') &&
+        paths.every(
+          (path) =>
+            path.boundary === 'workspace' ||
+            (!writePathSet.has(path) && (path.boundary === 'outside' || path.boundary === 'allowed-read-root'))
+        )
+      : paths.every((path) => path.boundary === 'workspace'))
   ) {
     return 'allow'
   }
@@ -922,14 +999,51 @@ export function decidePermission(
   const isReadOnlyAccess =
     effectKinds(effect).every((kind) => kind === 'read' || kind === 'control') ||
     (highestRiskEffect(effect) === 'execute' && effectiveCommand?.readOnly === true)
-  const paths = rawPaths.map((p) =>
-    isReadOnlyAccess &&
-    p.boundary === 'protected' &&
-    p.normalized &&
-    isReadOnlyDiagnosticProtectedPath(p.normalized)
-      ? { ...p, boundary: 'outside' as const }
-      : p
-  )
+  const isWriteTool = context.toolName === 'write' || context.toolName === 'edit'
+  const isShellTool = context.toolName === 'bash' || context.toolName === 'powershell'
+  const explicitWriteTargets =
+    effectiveCommand?.astWriteOps && effectiveCommand.writeTargets !== undefined
+      ? new Set(effectiveCommand.writeTargets)
+      : undefined
+  const realPosixWriteProtected = defaultPosixWriteProtectedRoots()
+    .map((root) => canonicalExistingPath(resolve(root)))
+    .filter((root): root is string => !!root)
+
+  const cdInspectionSet = new Set<PathInspection>(cdInspections)
+  const isWriteCandidate = (p: PathInspection): boolean => {
+    if (isWriteTool) return true
+    if (isShellTool && effectiveCommand && !effectiveCommand.readOnly) {
+      if (explicitWriteTargets) {
+        return explicitWriteTargets.has(p.input) || cdInspectionSet.has(p)
+      }
+      return true
+    }
+    return false
+  }
+
+  const writePathSet = new Set<PathInspection>()
+  let persistenceWrite = false
+  const paths = rawPaths.map((p) => {
+    let next = p
+    if (
+      isReadOnlyAccess &&
+      next.boundary === 'protected' &&
+      next.normalized &&
+      isReadOnlyDiagnosticProtectedPath(next.normalized)
+    ) {
+      next = { ...next, boundary: 'outside' as const }
+    }
+    if (isWriteCandidate(p)) {
+      if (next.normalized && realPosixWriteProtected.some((root) => isWithin(root, next.normalized!))) {
+        next = { ...next, boundary: 'protected' as const }
+      }
+      if (isPersistenceWriteTarget(next)) {
+        persistenceWrite = true
+      }
+      writePathSet.add(next)
+    }
+    return next
+  })
   // A read/write targeting a credential-shaped file is escalated to the
   // `credential` tier so it can never slip through on a generic read rule.
   const risk: ToolEffectKind =
@@ -955,7 +1069,7 @@ export function decidePermission(
   // unregistered. Guarantees bypass >= auto >= default in permissiveness.
   if (risk === 'unknown') {
     if (looksReadOnlyCall(context.args)) {
-      const decision = defaultDecision(context, 'read', paths, effectiveCommand)
+      const decision = defaultDecision(context, 'read', paths, effectiveCommand, persistenceWrite, writePathSet)
       return {
         ...base,
         decision,
@@ -972,10 +1086,16 @@ export function decidePermission(
       reason: `工具 ${context.toolName} 未登记副作用；${context.interactive ? '需要用户确认。' : '当前无交互界面，按 fail-closed 处理。'}`
     }
   }
-  const decision = defaultDecision(context, risk, paths, effectiveCommand)
+  const decision = defaultDecision(context, risk, paths, effectiveCommand, persistenceWrite, writePathSet)
   const askReason = (() => {
     if (paths.some((p) => p.sensitive)) {
       return '目标涉及凭据或敏感文件，需要用户确认。'
+    }
+    if (persistenceWrite) {
+      return '目标涉及启动项或 Shell 持久化配置写入，需要用户确认。'
+    }
+    if (effectiveCommand?.bypassRequiresApproval && effectiveCommand.bypassReason) {
+      return effectiveCommand.bypassReason
     }
     if (risk === 'execute' && !effectiveCommand) {
       return '执行类调用缺少命令参数，需要用户确认。'

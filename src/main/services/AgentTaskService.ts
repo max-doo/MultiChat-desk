@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto'
 import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'fs/promises'
-import { isAbsolute, join } from 'path'
+import { basename, isAbsolute, join, sep } from 'path'
 import type { BrowserWindow, WebContents } from 'electron'
 import {
   AGENT_TASK_DEFAULT_TIMEOUT_MS,
@@ -151,8 +151,40 @@ export class AgentTaskService {
   public init(dataPath: string): void {
     this.persistDir = join(dataPath, 'agent-tasks')
     this.imageDir = join(dataPath, '.multichat', 'image')
-    this.resultsDir = join(dataPath, '.multichat', 'results')
+    this.resultsDir = join(dataPath, '.multichat', 'task-results')
+    void this.migrateLegacyResultsDir(dataPath).catch(err => console.warn('[AgentTask] 旧产物目录迁移失败:', err))
     void this.sweepPersisted().catch(err => console.warn('[AgentTask] 持久化目录清理失败:', err))
+  }
+
+  /** results/ → task-results/ 一次性迁移：搬移旧 TXT 并把 agent-tasks JSON 里的 replyFile 路径同步改写。 */
+  private async migrateLegacyResultsDir(dataPath: string): Promise<void> {
+    const legacyDir = join(dataPath, '.multichat', 'results')
+    if (legacyDir === this.resultsDir) return
+    const legacyPrefix = legacyDir + sep
+    const files = await readdir(legacyDir).catch(() => [] as string[])
+    if (files.length > 0) {
+      await mkdir(this.resultsDir, { recursive: true })
+      for (const name of files) {
+        await rename(join(legacyDir, name), join(this.resultsDir, name)).catch(() => undefined)
+      }
+    }
+    await rm(legacyDir, { recursive: true, force: true }).catch(() => undefined)
+    const jsonEntries = await readdir(this.persistDir).catch(() => [] as string[])
+    for (const name of jsonEntries) {
+      if (!name.endsWith('.json')) continue
+      const file = join(this.persistDir, name)
+      try {
+        const raw = await readFile(file, 'utf8')
+        const record = JSON.parse(raw) as PersistedAgentTaskRecord
+        if (!record.replyFile?.startsWith(legacyPrefix)) continue
+        record.replyFile = join(this.resultsDir, basename(record.replyFile))
+        const temporary = `${file}.${randomUUID()}.tmp`
+        await writeFile(temporary, JSON.stringify(record), 'utf8')
+        await rename(temporary, file)
+      } catch {
+        // 单条损坏/无权限不影响其余迁移；sweep 会兜底清理坏文件
+      }
+    }
   }
 
   /** 产物目录：优先任务级 artifactDir（CLI 传项目 cwd），回退应用数据目录。 */
@@ -160,7 +192,7 @@ export class AgentTaskService {
     const base = task.artifactDir && isAbsolute(task.artifactDir) ? task.artifactDir : ''
     return {
       imageDir: base ? join(base, 'image') : this.imageDir,
-      resultsDir: base ? join(base, 'results') : this.resultsDir
+      resultsDir: base ? join(base, 'task-results') : this.resultsDir
     }
   }
 

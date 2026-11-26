@@ -1,4 +1,6 @@
 import { randomUUID } from 'crypto'
+import { homedir } from 'node:os'
+import { posix as posixPath, resolve as pathResolve } from 'node:path'
 import type Store from 'electron-store'
 import { parse as parseShellQuote } from 'shell-quote'
 import {
@@ -57,20 +59,24 @@ const ALLOWLIST_STORE_KEY = 'agent_permission_allowlist'
 // Fallback hard-deny regex patterns used only when AST/segment analysis is
 // unavailable (parse failure, truncated AST, >MAX_ANALYZABLE_COMMAND_LENGTH, or non-shell tool)
 const HARD_DENY_PATTERNS: RegExp[] = [
-  /\brm\s+(?:-[a-z]*f[a-z]*\s+-[a-z]*r[a-z]*|-[a-z]*r[a-z]*\s+-[a-z]*f[a-z]*|--recursive(?:\s+(?:-f|--force))?|(?:-f|--force)\s+--recursive|-(?:r|rf|fr))\s+(?:--no-preserve-root\s+)?(?:\/|\/\*|~[\\/]\*?|[A-Za-z]:[\\/]\*?)/i,
+  /\brm\s+(?:-[a-z]*f[a-z]*\s+-[a-z]*r[a-z]*|-[a-z]*r[a-z]*\s+-[a-z]*f[a-z]*|--recursive(?:\s+(?:-f|--force))?|(?:-f|--force)\s+--recursive|-(?:r|rf|fr))\s+(?:--no-preserve-root\s+)?(?:\/+(?:\.\.)?(?:\*)?|\/(?:etc|usr|bin|sbin|boot|lib|lib64|System|Library)(?:[\\/]|$|\s)|~[\\/]\*?|\$\{?(?:env:)?(?:HOME|USERPROFILE)\}?[\\/]\*?|[A-Za-z]:[\\/]\*?)/i,
   /\b(?:rd|rmdir)\s+(?:\/s\s+\/q|\/s\/q|\/q\/s)\s+[A-Za-z]:[\\/]\*?/i,
   /\bdel\s+(?:\/s\s+\/q|\/s\/q|\/q\/s)\s+[A-Za-z]:[\\/]\*?/i,
-  /\b(?:remove-item|ri)\b[^\r\n]*(?:(?:-rec(?:u(?:r(?:s(?:e)?)?)?)?|-r\b)[^\r\n]*(?:[A-Za-z]:[\\/]\*?(?=[\s;&|]|$)|\/\*|~[\\/]\*?)|(?:[A-Za-z]:[\\/]\*?(?=[\s;&|]|$)|\/\*|~[\\/]\*?)[^\r\n]*(?:-rec(?:u(?:r(?:s(?:e)?)?)?)?|-r\b))/i,
-  /(?:^|[;&|(\r\n]\s*)format(?:\.(?:com|exe))?(?:\s+(?:\/|-)\S+)*\s+[A-Za-z]:|\b(?:format-volume|mkfs(?:\.[a-z0-9]+)?)\b/i,
+  /\b(?:remove-item|ri)\b[^\r\n]*(?:(?:-rec(?:u(?:r(?:s(?:e)?)?)?)?|-r\b)[^\r\n]*(?:[A-Za-z]:[\\/]\*?(?=[\s;&|]|$)|\/\*|~[\\/]\*?|\$\{?(?:env:)?(?:HOME|USERPROFILE)\}?)|(?:[A-Za-z]:[\\/]\*?(?=[\s;&|]|$)|\/\*|~[\\/]\*?|\$\{?(?:env:)?(?:HOME|USERPROFILE)\}?)[^\r\n]*(?:-rec(?:u(?:r(?:s(?:e)?)?)?)?|-r\b))/i,
+  /(?:^|[;&|(\r\n]\s*)format(?:\.(?:com|exe))?(?:\s+(?:\/|-)\S+)*\s+[A-Za-z]:|\b(?:format-volume|mkfs(?:\.[a-z0-9]+)?|wipefs|blkdiscard)\b/i,
+  /\bdiskutil\s+(?:eraseDisk|eraseVolume|partitionDisk|zeroDisk|randomDisk|secureErase|apfs\s+deleteContainer)\b/i,
   /\bdd\s+.*of=\/dev\//i,
   /\breg\s+delete\s+(?:hklm|hkey_local_machine)\b/i,
   /\b(?:shutdown|restart-computer|stop-computer|stop-process\s+-name\s+system)\b/i,
   /\b(?:init\s+0|reboot|halt|poweroff)\b/i,
-  /\|\s*(?:(?:env|xargs)\s+(?:[^\r\n|;&]*\s+)?)?(?:iex|invoke-expression|sh|bash)\b/i,
+  /\bcrontab\s+(?:[^|\r\n;&]*\s)?-r\b/i,
+  /\|\s*(?:(?:sudo|doas|env|xargs|nohup|command|time|nice|timeout(?:\s+\S+)?)\s+(?:[^\r\n|;&]*\s+)?)?(?:iex|invoke-expression|sh|bash|zsh|dash|fish|ksh|ash|powershell|pwsh)\b/i,
   /\b(?:iex|invoke-expression)\s*(?:\(|["'$])/i,
   /\b(?:powershell|pwsh)\b[^\r\n]*\s-(?:e|en|enc|encodedcommand)(?:\b|:)/i,
-  /(?:curl|wget)\s+.*\|\s*(?:(?:env|xargs)\s+(?:[^\r\n|;&]*\s+)?)?(?:sh|bash|iex|invoke-expression)\b/i,
-  /(?:\$\{?(?:env:)?(?:WINDIR|SystemRoot)\}?|System32|[\\/]Windows[\\/]System32|[\\/]etc[\\/]shadow|[\\/]etc[\\/]passwd|\.ssh[\\/])/i
+  /(?:curl|wget)\s+.*\|\s*(?:(?:sudo|doas|env|xargs|nohup|command|time|nice|timeout(?:\s+\S+)?)\s+(?:[^\r\n|;&]*\s+)?)?(?:sh|bash|zsh|dash|fish|ksh|ash|powershell|pwsh|iex|invoke-expression)\b/i,
+  /(?:^|[;&|(\r\n]\s*)(?:sh|bash|zsh|dash|fish|ksh|source|\.)\s+(?:<\(\s*(?:curl|wget)\b|-c\s+["']?\$\(\s*(?:curl|wget)\b)/i,
+  /\beval\s+["']?\$\(\s*(?:curl|wget)\b/i,
+  /(?:\$\{?(?:env:)?(?:WINDIR|SystemRoot)\}?|System32|[\\/]Windows[\\/]System32|[\\/]etc[\\/](?:shadow|gshadow|master\.passwd|passwd|sudoers(?:[\\/]|$))|\.ssh[\\/])/i
 ]
 
 const DISPLAY_OR_META_COMMANDS = new Set([
@@ -93,9 +99,42 @@ const PS_VALUE_FLAGS = new Set([
 const PS_FILE_PARAM_RX = /^(?:f|fi|fil|file)$/i
 const DRIVE_ROOT_TARGET_RX = /^(?:\/|\/\*|~(?:[\\/]\*?)?|[A-Za-z]:(?:[\\/]\*?)?)$/
 const WIN_DRIVE_TARGET_RX = /^[A-Za-z]:(?:[\\/].*)?$/
-const HARD_DENY_PATH_TOKEN_RX = /[\\/]etc[\\/](?:shadow|passwd)(?:$|[\\/])/i
+const HARD_DENY_PATH_TOKEN_RX = /[\\/]etc[\\/](?:shadow|gshadow|master\.passwd|passwd|sudoers(?:[\\/]|$))/i
 const ENV_WINDIR_RX = /(?:\$\{?(?:env:)?(?:WINDIR|SystemRoot)\}?|%(?:WINDIR|SystemRoot)%)/i
 const DRIVERS_HOSTS_TAIL_RX = /[\\/]System32[\\/]drivers[\\/]etc[\\/]hosts$/i
+const PIPED_SHELL_HEADS = new Set([
+  'sh', 'bash', 'zsh', 'dash', 'fish', 'ksh', 'ash', 'csh', 'tcsh', 'powershell', 'pwsh', 'cmd'
+])
+const SHELL_C_HEADS = new Set(['bash', 'sh', 'zsh', 'dash', 'fish', 'ksh'])
+const HOME_VAR_TARGET_RX = /^(?:\$\{?(?:env:)?(?:HOME|USERPROFILE)\}?|%USERPROFILE%)(?:[\\/]\*?)?$/i
+const POSIX_SYSTEM_ROOT_TARGETS = new Set([
+  '/etc', '/private/etc', '/usr', '/bin', '/sbin', '/boot', '/lib', '/lib64', '/system', '/library'
+])
+
+function isRootOrHomeDeleteTarget(raw: string): boolean {
+  const cleaned = stripHardDenyQuotes(raw.trim()).replace(/[\\/]\*$/, '')
+  if (!cleaned) return false
+  if (DRIVE_ROOT_TARGET_RX.test(cleaned) || HOME_VAR_TARGET_RX.test(cleaned)) return true
+  if (cleaned.startsWith('/')) {
+    const collapsed = cleaned.replace(/^\/+/, '/')
+    const resolved = posixPath.resolve('/', collapsed)
+    if (resolved === '/') return true
+    if (POSIX_SYSTEM_ROOT_TARGETS.has(resolved.toLowerCase())) return true
+  }
+  try {
+    if ((cleaned.startsWith('/') || /^[A-Za-z]:[\\/]/.test(cleaned)) && pathResolve(cleaned) === pathResolve(homedir())) {
+      return true
+    }
+  } catch {
+    // ignore invalid path syntax
+  }
+  return false
+}
+
+function isUnresolvedVarToken(raw: string): boolean {
+  if (HOME_VAR_TARGET_RX.test(raw) || ENV_WINDIR_RX.test(raw)) return false
+  return /\$\{?[A-Za-z_][A-Za-z0-9_]*\}?|%[A-Za-z_][A-Za-z0-9_]*%/.test(raw)
+}
 
 function normalizeHardDenyCommandName(raw: string): string {
   return raw.replace(/^.*[\\/]/, '').replace(/\.(?:exe|com|cmd|bat|ps1)$/i, '').toLowerCase()
@@ -335,8 +374,43 @@ export class PermissionEngine {
   ): Promise<boolean> {
     if (ALWAYS_HARD_DENIED_COMMANDS.has(cmdName)) return true
     if (/^mkfs(?:\.[a-z0-9]+)?$/i.test(cmdName)) return true
-    if ((cmdName === 'sh' || cmdName === 'bash') && piped) return true
+    if (PIPED_SHELL_HEADS.has(cmdName) && piped) return true
     if (cmdName === 'init' && args.some((a) => a === '0')) return true
+
+    if (cmdName === 'wipefs' || cmdName === 'blkdiscard') return true
+    if (cmdName === 'diskutil') {
+      const lowerArgs = args.map((a) => a.toLowerCase())
+      if (
+        lowerArgs.some((a) =>
+          ['erasedisk', 'erasevolume', 'partitiondisk', 'zerodisk', 'randomdisk', 'secureerase', 'deletecontainer'].includes(a)
+        )
+      ) {
+        return true
+      }
+    }
+    if (cmdName === 'fdisk') {
+      const lowerArgs = args.map((a) => a.toLowerCase())
+      if (!lowerArgs.some((a) => a === '-l' || a === '--list' || a === '-v' || a === '--version' || a === '-h' || a === '--help')) {
+        return true
+      }
+    }
+    if (cmdName === 'parted') {
+      const lowerArgs = args.map((a) => a.toLowerCase())
+      const readOnlyParted = lowerArgs.some((a) => a === '-l' || a === '--list' || a === '-v' || a === '--version' || a === 'print')
+      const mutatingParted = lowerArgs.some((a) =>
+        ['mklabel', 'mktable', 'mkpart', 'rm', 'resizepart', 'rescue', 'move', 'set', 'toggle'].includes(a)
+      )
+      if (mutatingParted || !readOnlyParted) return true
+    }
+    if (cmdName === 'crontab' && args.some((a) => /^-[a-z]*r[a-z]*$/i.test(a) || a === '--remove')) {
+      return true
+    }
+    if (cmdName === 'chmod' || cmdName === 'chown' || cmdName === 'chgrp') {
+      const hasRecursive = args.some((a) => a === '--recursive' || /^-[a-z]*R[a-z]*$/.test(a))
+      if (hasRecursive && args.some((a) => !a.startsWith('-') && isRootOrHomeDeleteTarget(a))) {
+        return true
+      }
+    }
 
     if (cmdName === 'stop-process' || cmdName === 'kill' || cmdName === 'spps') {
       const hasNameParam = params.some(
@@ -369,7 +443,7 @@ export class PermissionEngine {
     if (cmdName === 'rm') {
       const hasRecursive =
         hasPsRecurse || args.some((a) => /^-(?:[a-z]*r[a-z]*|-recursive)$/i.test(a))
-      if (hasRecursive && args.some((a) => DRIVE_ROOT_TARGET_RX.test(a))) return true
+      if (hasRecursive && args.some((a) => isRootOrHomeDeleteTarget(a))) return true
     }
 
     if (cmdName === 'rd' || cmdName === 'rmdir' || cmdName === 'del' || cmdName === 'erase') {
@@ -378,14 +452,14 @@ export class PermissionEngine {
       const hasSlashQ = lowerArgs.some((a) => /^\/(?:q|s\/q|q\/s)$/.test(a))
       if (
         ((hasSlashS && hasSlashQ) || hasPsRecurse) &&
-        args.some((a) => DRIVE_ROOT_TARGET_RX.test(a))
+        args.some((a) => isRootOrHomeDeleteTarget(a))
       ) {
         return true
       }
     }
 
     if (cmdName === 'remove-item' || cmdName === 'ri') {
-      if (hasPsRecurse && args.some((a) => DRIVE_ROOT_TARGET_RX.test(a))) return true
+      if (hasPsRecurse && args.some((a) => isRootOrHomeDeleteTarget(a))) return true
     }
 
     if (cmdName === 'powershell' || cmdName === 'pwsh') {
@@ -403,7 +477,7 @@ export class PermissionEngine {
       }
     }
 
-    if ((cmdName === 'bash' || cmdName === 'sh') && depth < 2) {
+    if (SHELL_C_HEADS.has(cmdName) && depth < 2) {
       for (let i = 0; i < args.length; i++) {
         if (args[i] === '-c' || /^-[a-z]*c[a-z]*$/i.test(args[i])) {
           const inner = args[i + 1]
@@ -461,20 +535,47 @@ export class PermissionEngine {
     return this.isHardDenied(inner)
   }
 
+  private async analyzeBashSegmentsSecurity(
+    segments: readonly BashParsedSegment[],
+    depth: number,
+    resolveShell: () => Promise<{ exe: string; args: string[] }>
+  ): Promise<{ hardDenied: boolean; bypassReason?: string }> {
+    let bypassReason: string | undefined
+    for (const seg of segments) {
+      if (seg.rceSub) return { hardDenied: true }
+      for (const p of [...seg.writeRedirects, ...seg.readRedirects]) {
+        if (this.isHardDeniedPathToken(p)) return { hardDenied: true }
+      }
+      if (seg.tokens.length === 0) continue
+      const rawHead = seg.tokens[0]
+      if (/^\$\{?[A-Za-z_]/.test(rawHead)) {
+        bypassReason ??= '命令包含未解析的动态变量命令头，需要确认。'
+      }
+      const cmdName = normalizeHardDenyCommandName(rawHead)
+      const args = seg.tokens.slice(1)
+      if (cmdName === 'sudo' || cmdName === 'doas' || cmdName === 'su') {
+        bypassReason ??= '提权命令（sudo/doas/su）在 bypass 模式下也需要确认。'
+      }
+      if (cmdName === 'rm') {
+        const hasRecursive = args.some((a) => /^-(?:[a-z]*r[a-z]*|-recursive)$/i.test(a))
+        if (hasRecursive && args.some((a) => !a.startsWith('-') && isUnresolvedVarToken(a))) {
+          bypassReason ??= '递归删除命令包含未解析变量目标，在 bypass 模式下也需要确认。'
+        }
+      }
+      if (await this.isHardDeniedCommandSegment(cmdName, args, [], seg.piped, depth, resolveShell)) {
+        return { hardDenied: true }
+      }
+    }
+    return { hardDenied: false, bypassReason }
+  }
+
   private async isHardDeniedBashSegments(
     segments: readonly BashParsedSegment[],
     depth: number,
     resolveShell: () => Promise<{ exe: string; args: string[] }>
   ): Promise<boolean> {
-    for (const seg of segments) {
-      if (seg.tokens.length === 0) continue
-      const cmdName = normalizeHardDenyCommandName(seg.tokens[0])
-      const args = seg.tokens.slice(1)
-      if (await this.isHardDeniedCommandSegment(cmdName, args, [], seg.piped, depth, resolveShell)) {
-        return true
-      }
-    }
-    return false
+    const res = await this.analyzeBashSegmentsSecurity(segments, depth, resolveShell)
+    return res.hardDenied
   }
 
   private async isHardDeniedPowerShellAst(
@@ -598,7 +699,17 @@ export class PermissionEngine {
       }
       if (normTool === 'bash') {
         const v = analyzeBashCommand(cmd)
-        return { readOnly: v.readOnly, pathArguments: v.pathArguments, cdTargets: v.cdTargets, commands: v.commands, rejectReason: v.rejectReason }
+        return {
+          readOnly: v.readOnly,
+          writeOps: v.writeOps,
+          pathArguments: v.pathArguments,
+          writeTargets: v.writeTargets,
+          cdTargets: v.cdTargets,
+          commands: v.commands,
+          rejectReason: v.rejectReason,
+          bypassRequiresApproval: v.bypassRequiresApproval,
+          bypassReason: v.bypassReason
+        }
       }
     } catch {
       return null
@@ -652,14 +763,26 @@ export class PermissionEngine {
       }
     } else if (cmd.trim() && cmd.length <= MAX_ANALYZABLE_COMMAND_LENGTH && normTool === 'bash') {
       const segments = parseBashCommandSegments(cmd)
+      let segBypassReason: string | undefined
       if (segments !== null) {
-        if (await this.isHardDeniedBashSegments(segments, 0, resolveShell)) {
+        const sec = await this.analyzeBashSegmentsSecurity(segments, 0, resolveShell)
+        if (sec.hardDenied) {
           return { allowed: false, reason: '命令命中硬性拒绝规则，任何模式都不能放行。' }
         }
+        segBypassReason = sec.bypassReason
       } else if (this.isHardDenied(cmd)) {
         return { allowed: false, reason: '命令命中硬性拒绝规则，任何模式都不能放行。' }
+      } else if (/\b(?:sudo|doas)\b|(?:^|[;&|(\r\n]\s*)su\s+-?(?:c\b|-command\b)/i.test(cmd)) {
+        segBypassReason = '提权命令（sudo/doas/su）在 bypass 模式下也需要确认。'
       }
       analyzerVerdict = await this.analyzeCommandVerdict(normTool, cmd, resolveShell)
+      if (analyzerVerdict && segBypassReason && !analyzerVerdict.bypassRequiresApproval) {
+        analyzerVerdict = {
+          ...analyzerVerdict,
+          bypassRequiresApproval: true,
+          bypassReason: segBypassReason
+        }
+      }
     } else {
       // Hard-deny gate runs in EVERY mode including bypass — `rm -rf /`,
       // `format-volume`, `reg delete hklm` are system-level damage that no

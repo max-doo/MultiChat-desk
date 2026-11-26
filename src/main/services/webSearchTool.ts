@@ -110,7 +110,8 @@ export async function createWebSearchTool() {
     promptGuidelines: [
       'Use web_search when the user asks for current/recent information, facts that may have changed, or explicit web lookup.',
       'Prefer the default platform="auto"; only pin a platform when the user names one.',
-      'research=true produces a long-form report (minutes); use it only when the user wants deep research, otherwise leave it off.'
+      'research=true produces a long-form report (minutes); use it only when the user wants deep research, otherwise leave it off.',
+      'The full reply is archived to the replyFile path; if the visible answer is truncated or later compressed away, re-read that file with shell/read tools.'
     ],
     parameters: Type.Object({
       query: Type.String({ description: '要搜索的关键词或问题' }),
@@ -131,6 +132,8 @@ export async function createWebSearchTool() {
       answer: Type.String(),
       sources: Type.Array(Type.String()),
       platform: Type.String(),
+      taskId: Type.Optional(Type.String()),
+      replyFile: Type.Optional(Type.String()),
       conversationUrl: Type.Optional(Type.String())
     }),
     async execute(_toolCallId: string, params: WebSearchParams, signal: AbortSignal | undefined): Promise<AgentToolResult<Record<string, unknown>>> {
@@ -171,13 +174,24 @@ export async function createWebSearchTool() {
       const result = await agentTaskService.getResult(view.taskId)
       const answer = result?.reply ?? ''
       const sources = extractSources(answer)
+      // reply TXT 落盘在 persist() 内异步完成；轮询终态可能早一拍，短窗口兜底拿到 replyFile。
+      let replyFile = result?.replyFile
+      if (!replyFile) {
+        for (let i = 0; i < 5 && !replyFile; i++) {
+          await new Promise((r) => setTimeout(r, 200))
+          replyFile = (await agentTaskService.getResult(view.taskId))?.replyFile
+        }
+      }
+      const archiveNote = replyFile ? `\n\n[完整回复已存档: ${replyFile}]` : ''
       return {
-        content: [{ type: 'text', text: answer }],
-        details: { platform: view.platform, taskId: view.taskId, sources },
+        content: [{ type: 'text', text: answer + archiveNote }],
+        details: { platform: view.platform, taskId: view.taskId, sources, ...(replyFile ? { replyFile } : {}) },
         structuredContent: {
           answer,
           sources,
           platform: view.platform,
+          taskId: view.taskId,
+          ...(replyFile ? { replyFile } : {}),
           ...(result?.conversationUrl ?? view.conversationUrl ? { conversationUrl: result?.conversationUrl ?? view.conversationUrl } : {})
         }
       }

@@ -25,6 +25,13 @@ const MAX_DIFF_BYTES = 512 * 1024
 /** Hard circuit breakers for lightweight workspace metadata scans (non-read-only shell only). */
 const MAX_WORKSPACE_SCAN_FILES = 10_000
 const MAX_WORKSPACE_SCAN_MS = 300
+/**
+ * Total bytes of file content the pre-shell scan may hold in memory for revert
+ * baselines. Per-file reads still obey `MAX_BASELINE_BLOB_BYTES`; files beyond
+ * the total budget fall back to metadata-only entries (unrevertible, never
+ * silently wrong).
+ */
+const MAX_WORKSPACE_SCAN_CONTENT_BYTES = 32 * 1024 * 1024
 
 /** Sentinel sha1 for pre-existing files modified/deleted by shell without a pre-edit content blob. */
 export const UNKNOWN_SHELL_BASELINE_SHA1 = '__shell_unknown_baseline__'
@@ -61,6 +68,12 @@ export interface NormalizedTrackedPath {
 export interface WorkspaceFileMeta {
   mtimeMs: number
   size: number
+  /**
+   * Pre-scan file bytes, captured only when the file fits the per-file and
+   * total scan budgets. `undefined` means "content unknown" — callers must
+   * never treat it as an empty file.
+   */
+  content?: Buffer
 }
 
 export interface SnapshotWithContent {
@@ -269,14 +282,21 @@ export function computeLineDiffCounts(
 /**
  * Lightweight recursive metadata scan (`relPath -> { mtimeMs, size }`) for `cwd`.
  * Only invoked when a turn runs at least one non-read-only shell command.
+ * With `captureContent` (used for the pre-scan), files within the size budgets
+ * also get their bytes captured, so mutations caused by shell commands can
+ * still be reverted from these pre-scan contents. The post-scan diff pass
+ * skips content capture — only metadata matters for detecting changes.
  * Aborts and returns `null` if file count or elapsed time hits the circuit breaker.
  */
 export async function scanWorkspaceMetadata(
-  cwd: string
+  cwd: string,
+  options?: { captureContent?: boolean }
 ): Promise<Map<string, WorkspaceFileMeta> | null> {
   const root = resolve(cwd)
   const startedAt = Date.now()
   const files = new Map<string, WorkspaceFileMeta>()
+  const captureContent = options?.captureContent !== false
+  let contentBytes = 0
   let aborted = false
 
   const walk = async (dir: string, relPrefix: string): Promise<void> => {
@@ -318,12 +338,42 @@ export async function scanWorkspaceMetadata(
         regularFiles.map(async (f) => {
           if (aborted) return
           try {
+            // Read content BEFORE stat when within the per-file budget window:
+            // the sha1 that proves identity at revert time is derived from the
+            // content, so content must be the authoritative snapshot. Reading
+            // first, then statting, guarantees both describe the same state —
+            // the reverse order could pair a pre-write stat with post-write
+            // bytes when an external process writes in between.
             const info = await stat(f.full)
             if (files.size >= MAX_WORKSPACE_SCAN_FILES) {
               aborted = true
               return
             }
-            files.set(f.rel, { mtimeMs: info.mtimeMs, size: info.size })
+            const meta: WorkspaceFileMeta = { mtimeMs: info.mtimeMs, size: info.size }
+            if (captureContent && info.size <= MAX_BASELINE_BLOB_BYTES) {
+              try {
+                const buf = await readFile(f.full)
+                const afterInfo = await stat(f.full).catch(() => null)
+                if (!afterInfo || afterInfo.size !== buf.length) {
+                  // File mutated mid-read — neither content nor metadata is a
+                  // trustworthy snapshot; leave content undefined (fail closed).
+                  files.set(f.rel, meta)
+                  return
+                }
+                // Cap retained bytes, not in-flight reads: concurrent reads in
+                // one directory batch may transiently overshoot, but only
+                // content within the total budget is kept for baselines.
+                if (contentBytes + buf.length <= MAX_WORKSPACE_SCAN_CONTENT_BYTES) {
+                  contentBytes += buf.length
+                  meta.content = buf
+                  meta.mtimeMs = afterInfo.mtimeMs
+                  meta.size = afterInfo.size
+                }
+              } catch {
+                // Unreadable content stays undefined — metadata-only entry.
+              }
+            }
+            files.set(f.rel, meta)
           } catch {
             // File vanished mid-scan; ignore.
           }
