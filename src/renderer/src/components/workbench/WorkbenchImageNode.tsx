@@ -143,8 +143,6 @@ export function $isWorkbenchImageNode(
   return node instanceof WorkbenchImageNode
 }
 
-// ---- React 组件：负责异步加载缩略图并渲染 ----
-
 interface WorkbenchImageComponentProps {
   src: string
   altText: string
@@ -201,7 +199,6 @@ function WorkbenchImageComponent({
     }
   }, [src, sourceKind, workspacePath, activeFilePath])
 
-  // 关闭右键菜单
   useEffect(() => {
     if (!menu) return
     const close = (): void => setMenu(null)

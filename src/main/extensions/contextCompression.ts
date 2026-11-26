@@ -177,7 +177,6 @@ export function createContextCompressionExtension(
     name: 'context-compression',
     hidden: true,
     factory: (pi) => {
-      // ── L1 · pre-append truncation (zero KV-cache cost) ─────────────────────
       // Runs the moment a tool result is produced, before it enters context. Only
       // this new message is shortened; earlier prefixes are untouched so the
       // KV-cache stays warm. Industry-preferred layer for re-fetchable results.
@@ -200,7 +199,6 @@ export function createContextCompressionExtension(
         }
       })
 
-      // ── L2 · persistent observation masking (context_edit, once per turn) ────
       // Fires once per turn_end. Masks OLD tool calls + results via durable
       // `context_edit` entries (appendContextEdit) so the projected context
       // shrinks for good — percent then drops and masking stops re-triggering.
@@ -315,7 +313,6 @@ export function createContextCompressionExtension(
         return drafts.length > 0 ? { entries: drafts } : undefined
       })
 
-      // ── L3 · global compaction (structured summary + program-pinned index) ──
       pi.on('session_before_compact', async (event: SessionBeforeCompactEvent, ctx) => {
         if (config.summarizerMode !== 'custom') return undefined
         const { preparation, signal } = event

@@ -123,9 +123,13 @@ function buildCodeEditorTheme(isEditable: boolean): Extension {
         border: 'none',
         borderRight: '1px solid rgba(255, 255, 255, 0.08)'
       },
+      '.cm-lineNumbers': {
+        fontVariantNumeric: 'tabular-nums'
+      },
       '.cm-lineNumbers .cm-gutterElement': {
         padding: '0 10px 0 6px',
-        minWidth: '3rem',
+        // 2 位数字保底 + 左右 padding(16px)，避免小文件过宽；3 位以上由 CM6 原生 spacer 自动撑开
+        minWidth: 'calc(2ch + 16px)',
         textAlign: 'right'
       },
       '.cm-gitGutter': {
@@ -712,11 +716,8 @@ export default function WorkbenchCodePreview({
       state: EditorState.create({
         doc: contentRef.current,
         extensions: [
-          // formatNumber 固定补齐 5 位宽（不换行空格），行号 gutter 宽度恒定，
-          // 避免滚动/编辑时因 spacer 重测导致的宽度抖动；超过 99999 行才会扩一次
-          lineNumbers({
-            formatNumber: (n) => String(n).padStart(5, ' ')
-          }),
+          // 依赖 CM6 原生 maxLineNumber spacer 按文档总行数自适应宽度，滚动时不重测、不抖动
+          lineNumbers(),
           gitGutterCompartment.of(initialGutter),
           highlightActiveLineGutter(),
           highlightActiveLine(),
@@ -1056,7 +1057,6 @@ export default function WorkbenchCodePreview({
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [handleKeyDown, isActive])
 
-  // 复制全文
   const handleCopy = async () => {
     try {
       let text = activeFileContent
@@ -1075,7 +1075,6 @@ export default function WorkbenchCodePreview({
 
   return (
     <div className="flex-1 h-full flex flex-col overflow-hidden bg-[#1E1E1E] text-[#E4E4E7] select-text">
-      {/* 顶部工具栏 */}
       <PreviewHeader
         theme="dark"
         compact
@@ -1245,7 +1244,6 @@ export default function WorkbenchCodePreview({
               )}
             </div>
 
-            {/* 复制按钮 */}
             <button
               type="button"
               onClick={() => void handleCopy()}
@@ -1255,7 +1253,6 @@ export default function WorkbenchCodePreview({
               <AppIcon name={copied ? 'check' : 'content_copy'} size={19} />
             </button>
 
-            {/* 系统默认编辑器打开 */}
             <button
               type="button"
               onClick={() => {
@@ -1267,7 +1264,6 @@ export default function WorkbenchCodePreview({
               <AppIcon name="open_in_new" size={19} />
             </button>
 
-            {/* 在资源管理器定位 */}
             <button
               type="button"
               onClick={() => {
@@ -1282,7 +1278,6 @@ export default function WorkbenchCodePreview({
         }
       />
 
-      {/* 代码内容区域 */}
       <div className="flex-1 flex overflow-hidden relative">
         {isHtmlFile && viewMode === 'render' ? (
           /* HTML 浏览器渲染预览：走 workbench-file:// 白名单协议，

@@ -109,8 +109,6 @@ function $getEquationNodeByKey(key: NodeKey): WorkbenchEquationNode | null {
   return $isWorkbenchEquationNode(node) ? node : null
 }
 
-// ---- React 组件：KaTeX 渲染 + 双击编辑 ----
-
 interface WorkbenchEquationComponentProps {
   equation: string
   inline: boolean

@@ -1356,7 +1356,6 @@ export async function push(workspaceRoot: string, setUpstream: boolean): Promise
   })
 }
 
-// ─── Git 历史记录 ───
 
 const LOG_FIELD_SEPARATOR = '\x1f'
 const LOG_RECORD_SEPARATOR = '\x1e'

@@ -252,7 +252,6 @@ export function AgentModelPicker({ onClose }: AgentModelPickerProps): JSX.Elemen
 
   return (
     <div className="flex flex-col text-label w-full select-none">
-      {/* 搜索 Header */}
       <div className="px-3.5 py-2.5 border-b border-black/[0.06] dark:border-white/10">
         <div className="flex items-center gap-2">
           <AppIcon
@@ -277,7 +276,6 @@ export function AgentModelPicker({ onClose }: AgentModelPickerProps): JSX.Elemen
         </div>
       </div>
 
-      {/* 模型列表 */}
       <div className="max-h-[280px] overflow-y-auto px-2 py-2 space-y-2">
         {total === 0 && pinnedItems.length === 0 && (
           <div className="px-3 py-6 text-center space-y-2">
@@ -361,7 +359,6 @@ export function AgentModelPicker({ onClose }: AgentModelPickerProps): JSX.Elemen
         </div>
       )}
 
-      {/* 底部 Footer: 思考强度设置 */}
       <div className="border-t border-black/[0.06] px-3.5 py-3 dark:border-white/10">
         {supportsThinking ? (
           <div className="space-y-2.5">
@@ -385,7 +382,6 @@ export function AgentModelPicker({ onClose }: AgentModelPickerProps): JSX.Elemen
                       'linear-gradient(90deg, #3b82f6 0%, #D2E8FF 35%, #FFC8DA 65%, #FFF5D6 100%)'
                   }}
                 />
-                {/* 档位刻度点 */}
                 {thinkingLevels.map((lvl, idx) => {
                   const ratio =
                     thinkingLevels.length > 1 ? idx / (thinkingLevels.length - 1) : 0
@@ -402,7 +398,6 @@ export function AgentModelPicker({ onClose }: AgentModelPickerProps): JSX.Elemen
                     />
                   )
                 })}
-                {/* 滑块圆点 */}
                 <div
                   className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-5 h-5 rounded-full bg-white shadow-md border border-slate-200/80 pointer-events-none transition-all duration-150 dark:border-white/20"
                   style={{ left: `calc(12px + (100% - 24px) * ${thinkingRatio})` }}

@@ -481,7 +481,6 @@ export default function WorkbenchToolbar(): JSX.Element {
             : 'bg-white/70 dark:bg-gray-800/70 border-black/5 dark:border-white/5'
         }`}
       >
-      {/* 左侧：格式化与排版工具组 */}
       <div className="flex items-center gap-0.5 overflow-x-auto no-scrollbar">
         {/* 撤销 / 重做：按 CAN_UNDO/CAN_REDO 命令动态禁用 */}
         <button
@@ -560,7 +559,6 @@ export default function WorkbenchToolbar(): JSX.Element {
 
         <div className="w-[1px] h-4 bg-black/10 dark:bg-white/10 mx-1 shrink-0" />
 
-        {/* 行内格式按钮：active 态跟随选区格式 */}
         <button
           type="button"
           onClick={() => applyFormat('bold')}
@@ -652,7 +650,6 @@ export default function WorkbenchToolbar(): JSX.Element {
 
         <div className="w-[1px] h-4 bg-black/10 dark:bg-white/10 mx-1 shrink-0" />
 
-        {/* 列表快捷按钮：active 态跟随块类型 */}
         <button
           type="button"
           onClick={formatBulletList}
@@ -688,7 +685,6 @@ export default function WorkbenchToolbar(): JSX.Element {
 
         <div className="w-[1px] h-4 bg-black/10 dark:bg-white/10 mx-1 shrink-0" />
 
-        {/* 插入组件：表格、水平分割线、超链接 */}
         <button
           type="button"
           onClick={applyInsertTable}
@@ -788,7 +784,6 @@ export default function WorkbenchToolbar(): JSX.Element {
         </WorkbenchDropDown>
       </div>
 
-      {/* 右侧：背景切换、正文宽度与富文本/源码切换（字数与保存状态悬浮在编辑区右下角） */}
       <div className="flex items-center gap-2 text-text-secondary text-body shrink-0">
         <WorkbenchReaderThemePicker
           value={markdownBackgroundTheme}

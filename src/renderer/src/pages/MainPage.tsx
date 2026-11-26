@@ -12,10 +12,6 @@ interface MainPageProps {
   isActive: boolean
 }
 
-/**
- * 主页面组件
- * 包含 Webview 卡片、控制栏和抽屉组件
- */
 function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element {
   const pendingHistoryRestore = useAppStore((state) => state.pendingHistoryRestore)
   const setPendingHistoryRestore = useAppStore((state) => state.setPendingHistoryRestore)
@@ -54,7 +50,6 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
     }
   }, [isNewSession])
 
-  // ControlBar 的 ref
   const controlBarRef = useRef<ControlBarRef>(null)
   const [containerEl, setContainerEl] = useState<HTMLDivElement | null>(null)
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -78,24 +73,20 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
   // 延迟跳转 SummaryPage 的定时器；重入与 unmount 时需清理，避免叠加跳转 / 卸载后触发
   const navigateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // ── 休眠调度器状态（片段 B）──
   // R1: 主页面切换模型后，被切走的旧模型 30 秒后真卸载（D1）
-  const HIBERNATE_DELAY_MS = 30 * 1000 // 30 秒
+  const HIBERNATE_DELAY_MS = 30 * 1000
   // R4: 主窗口关闭(托盘隐藏)后，显示中的模型 5 分钟后休眠（片段 B'）
-  const HIBERNATE_DELAY_HIDE_MS = 5 * 60 * 1000 // 5 分钟
-  // 各模型的休眠倒计时定时器；key = model.id
+  const HIBERNATE_DELAY_HIDE_MS = 5 * 60 * 1000
   const hibernateTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
   // 跟踪上一轮显示的模型 id，用于判定「被切走」启动倒计时 vs「仍显示」保持唤醒
   const prevDisplayedIdsRef = useRef<string[]>([])
 
-  // ── 模式感知休眠追踪 ──
   // 休眠专用 ref 追踪：key = `${mode}-${slotIndex}`，所有已挂载模式的 WebviewCard 都在此注册
   // 独立于 store.webviewRefs，确保后台模式（display: none）下的 webview 在被切走后仍能通过 ref 调用 suspend 进入休眠
   const hibernationRefsMap = useRef<Map<string, WebviewCardRef>>(new Map())
   const productModeRef = useRef<string>(productMode)
   const modeModelsRef = useRef<Record<string, ModelConfig[]>>({})
 
-  // 获取模式感知的休眠 ref 回调，使用 ref 缓存防止重复创建导致 react re-render 时冲突
   const hibernationRefCallbacks = useRef<Record<string, (ref: WebviewCardRef | null) => void>>({})
   const getHibernationRefCallback = useCallback((mode: string, slotIndex: number, modelId: string) => {
     const key = `${mode}-${slotIndex}-${modelId}`
@@ -171,8 +162,6 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
     }
   }, [])
 
-  // ── 休眠调度器（片段 B）──
-  // 清理某模型的休眠倒计时
   const clearHibernateTimer = useCallback((modelId: string) => {
     const timer = hibernateTimersRef.current.get(modelId)
     if (timer) {
@@ -181,11 +170,9 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
     }
   }, [])
 
-  // 执行休眠：白名单检查通过后调用 ref.suspend()（D1 真卸载）
   const executeHibernate = useCallback(async (modelId: string) => {
     const state = useAppStore.getState()
 
-    // 活动任务判断：发送中、抓取监控中、辩论运行中、上传文件进行中
     const isTaskRunning =
       state.isSending ||
       !!state.monitor?.isMonitoring ||
@@ -224,7 +211,6 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
     }
   }, [])
 
-  // 调度休眠：delayMs 后执行（默认 5min；主窗口关闭用 15min）
   const scheduleHibernate = useCallback((modelId: string, delayMs: number = HIBERNATE_DELAY_MS) => {
     clearHibernateTimer(modelId)
     const timer = setTimeout(() => {
@@ -234,7 +220,6 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
     console.log(`[MainPage] ${modelId} 休眠倒计时启动: ${delayMs}ms`)
   }, [clearHibernateTimer, executeHibernate])
 
-  // 唤醒 webview：清理倒计时并在确实休眠时 resume
   const wakeWebview = useCallback(async (modelId: string) => {
     clearHibernateTimer(modelId)
     const store = useAppStore.getState()
@@ -256,10 +241,8 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
     }
   }, [clearHibernateTimer])
 
-  // 各 mode-slot 的休眠倒计时定时器；key = `${mode}-${slotIndex}`
   const hibernateModeTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
 
-  // 清理指定 mode-slot 的休眠定时器
   const clearHibernateModeTimer = useCallback((modeSlotKey: string) => {
     const timer = hibernateModeTimersRef.current.get(modeSlotKey)
     if (timer) {
@@ -268,11 +251,9 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
     }
   }, [])
 
-  // 执行指定 mode-slot 的休眠（D1 真卸载）
   const executeHibernateByModeSlot = useCallback(async (modeSlotKey: string) => {
     const state = useAppStore.getState()
 
-    // 活动任务判断：发送中、抓取监控中、辩论运行中、上传文件进行中（跳过休眠）
     const isTaskRunning =
       state.isSending ||
       !!state.monitor?.isMonitoring ||
@@ -296,7 +277,6 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
     }
   }, [])
 
-  // 调度模式休眠
   const scheduleHibernateByModeSlot = useCallback((modeSlotKey: string, delayMs: number = HIBERNATE_DELAY_MS) => {
     clearHibernateModeTimer(modeSlotKey)
     const timer = setTimeout(() => {
@@ -306,7 +286,6 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
     console.log(`[MainPage] ${modeSlotKey} 模式休眠倒计时启动: ${delayMs}ms`)
   }, [clearHibernateModeTimer, executeHibernateByModeSlot])
 
-  // 唤醒模式 webview
   const wakeWebviewByModeSlot = useCallback(async (modeSlotKey: string) => {
     clearHibernateModeTimer(modeSlotKey)
     const ref = hibernationRefsMap.current.get(modeSlotKey)
@@ -421,7 +400,6 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
         }
       }
 
-      // 清除"正在爬取"通知
       if (controlBarRef.current) {
         controlBarRef.current.clearNotification()
       }
@@ -436,7 +414,6 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
           controlBarRef.current.showNotification('success', `成功获取 ${modelCount} 个模型的回答${snapshotNote}`)
         }
       } else {
-        // 没有获取到有效回复
         if (controlBarRef.current) {
           controlBarRef.current.showNotification('error', '未获取到有效的模型回复')
         }
@@ -452,7 +429,6 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
         presetSummaryMode: productMode === 'task_assignment' ? '4' : undefined // 成稿汇总：任务分配模式进入总结时默认选中
       })
 
-      // 延迟一下再跳转，让用户看到提示
       if (navigateTimerRef.current) {
         clearTimeout(navigateTimerRef.current)
       }
@@ -468,11 +444,9 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
         return
       }
       console.error('[MainPage] 生成报告失败:', error)
-      // 清除"正在爬取"通知
       if (controlBarRef.current) {
         controlBarRef.current.clearNotification()
       }
-      // 显示错误通知
       if (controlBarRef.current) {
         controlBarRef.current.showNotification('error', '爬取模型回答失败')
       }
@@ -493,7 +467,6 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
     }
   }
 
-  // 获取要显示的模型列表
   const displayedModels = useMemo(() => {
     return getDisplayedModels(availableModels, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots)
   }, [availableModels, displayMode, productMode, taskAssignmentSlots, multiAiSlots, debateSlots])
@@ -506,7 +479,6 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
     workbench: []
   }), [availableModels, taskAssignmentSlots, multiAiSlots, debateSlots])
 
-  // ── 单窗口侧边栏与思维导图 ──
   const activeSingleModel = displayedModels[0]
   const {
     sidebarOpen,
@@ -536,7 +508,6 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
     instancePrefix: 'main'
   })
 
-  // 多窗口模式自动收起并休眠侧边栏
   useEffect(() => {
     if (displayMode !== 'one') {
       if (sidebarOpen) {
@@ -546,7 +517,6 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
     }
   }, [displayMode, sidebarOpen, closeSidebar, hibernateSidebarAll])
 
-  // 划词在侧边栏提问
   useEffect(() => {
     const unsub = window.api.onMainAskSidebar?.(({ text }) => {
       if (useAppStore.getState().displayMode !== 'one') {
@@ -568,7 +538,6 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
     openMindmapSidebar()
   }), [productMode, sidebarOpen, sidebarMode, openMindmapSidebar, setSidebarError])
 
-  // ── 更新 productModeRef 和 modeModelsRef ──
   useEffect(() => {
     productModeRef.current = productMode
   }, [productMode])
@@ -582,7 +551,6 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
     const state = useAppStore.getState()
     const currentModeModels = modeModels[productMode as keyof typeof modeModels] || []
     
-    // 1. 注册当前活跃模式的所有 slots 实例
     for (let i = 0; i < currentModeModels.length; i++) {
       const ref = hibernationRefsMap.current.get(`${productMode}-${i}`)
       if (ref) {
@@ -592,7 +560,6 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
     }
 
     return () => {
-      // 2. 清理注销（在下一次切换模式前触发）
       const prevModeModels = modeModels[productMode as keyof typeof modeModels] || []
       for (let i = 0; i < prevModeModels.length; i++) {
         const ref = hibernationRefsMap.current.get(`${productMode}-${i}`)
@@ -604,7 +571,6 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
     }
   }, [productMode, modeModels])
 
-  // ── 模式切换休眠调度 ──
   const prevProductModeRef = useRef<string>(productMode)
 
   useEffect(() => {
@@ -613,7 +579,6 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
 
     if (prevMode === productMode) return
 
-    // 1. 旧模式的所有 webview 启动休眠倒计时
     const oldModeModels = modeModels[prevMode as keyof typeof modeModels]
     if (oldModeModels) {
       for (let i = 0; i < oldModeModels.length; i++) {
@@ -622,7 +587,6 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
       }
     }
 
-    // 2. 新模式的所有 webview 立即唤醒
     const newModeModels = modeModels[productMode as keyof typeof modeModels]
     if (newModeModels) {
       for (let i = 0; i < newModeModels.length; i++) {
@@ -664,7 +628,6 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
     const currentIds = displayedModels.map(m => m?.id ?? '').filter(Boolean)
     const prev = prevSlotModelIds.current
 
-    // 对每个插槽，若 modelId 变了，回收旧键
     currentIds.forEach((modelId, slotIndex) => {
       const oldId = prev[slotIndex]
       if (oldId && oldId !== modelId) {
@@ -678,7 +641,6 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
       }
     })
 
-    // 处理插槽数减少：prev 比 current 长的部分，回收所有旧键
     if (prev.length > currentIds.length) {
       for (let slotIndex = currentIds.length; slotIndex < prev.length; slotIndex++) {
         const oldId = prev[slotIndex]
@@ -695,22 +657,18 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
     prevSlotModelIds.current = currentIds
   }, [displayedModels, productMode])
 
-  // ── 休眠调度触发（片段 B）──
   // 显示模型变化：新显示的唤醒，被切走的启动 5min 倒计时（R1）
   useEffect(() => {
     const currentIds = displayedModels.map(m => m.id)
     const prevIds = prevDisplayedIdsRef.current
 
-    // 新显示的模型：唤醒（若曾休眠）
     for (const modelId of currentIds) {
       if (!prevIds.includes(modelId)) {
         void wakeWebview(modelId)
       } else {
-        // 仍显示，保持唤醒、清掉倒计时
         clearHibernateTimer(modelId)
       }
     }
-    // 不再显示的模型：启动 5min 休眠倒计时
     for (const modelId of prevIds) {
       if (!currentIds.includes(modelId)) {
         scheduleHibernate(modelId)
@@ -743,13 +701,11 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
       state.setMainWindowVisible(visible)
       
       if (visible) {
-        // 重新显示时：只唤醒当前模式下的显示模型
         const currentModels = modeModels[productMode as keyof typeof modeModels] || []
         for (let i = 0; i < currentModels.length; i++) {
           void wakeWebviewByModeSlot(`${productMode}-${i}`)
         }
       } else {
-        // 隐藏到托盘时：将所有挂载模式的所有 webview 均投入 5 分钟休眠倒计时
         for (const [modeSlotKey] of hibernationRefsMap.current.entries()) {
           scheduleHibernateByModeSlot(modeSlotKey, HIBERNATE_DELAY_HIDE_MS)
         }
@@ -1133,15 +1089,12 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
 
     const historyModels = item.models.map(id => availableModels.find(m => m.id === id)).filter(Boolean) as typeof availableModels
 
-    // 记录当前激活的历史记录 ID
     setActiveHistoryId(item.id)
 
-    // 1. 清空输入框（历史消息已存在于 turns 中，恢复后直接续写）
     if (controlBarRef.current) {
       controlBarRef.current.setMessage('')
     }
 
-    // 2. 自动恢复产品模式与窗口数量
     let targetProductMode = productMode
     let targetDisplayMode = displayMode
 
@@ -1176,7 +1129,7 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
     if (targetProductMode === 'task_assignment') appStore.setTaskAssignmentSlots(item.models)
     if (targetProductMode === 'multi_ai') setMultiAiSlots(item.models)
 
-    // —— 辩论模式专用恢复：先重填 debateSlots + debateState，再让下方 missingModelIds 用正确槽位判空 ——
+    // 辩论模式先重填 debateSlots + debateState，再让下方 missingModelIds 用正确槽位判空
     if (targetProductMode === 'debate') {
       // 恢复两 slot 模型（item.models 至少 2 个；不足则补空串，避免 as cast 越界）
       const slot0 = item.models[0] ?? ''
@@ -1203,22 +1156,18 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
       return
     }
 
-    // 3. 检查并切换模型到当前视图
     const currentDisplayedIds = getDisplayedModels(availableModels, targetDisplayMode, targetProductMode, taskAssignmentSlots, multiAiSlots, debateSlots).map(m => m.id)
     const missingModelIds = item.models.filter((id) => !currentDisplayedIds.includes(id))
 
     if (missingModelIds.length > 0) {
       console.log(`[MainPage] 历史记录：发现缺失模型 ${missingModelIds.join(', ')}，正在调整顺序`)
-      // 将历史记录中的模型排到前面
       const newOrder = [...item.models]
-      // 添加其他模型保持原样，填充可能剩下的槽位
       availableModels.forEach((m) => {
         if (!newOrder.includes(m.id)) {
           newOrder.push(m.id)
         }
       })
 
-      // 根据目标模式更新对应的槽位
       if (targetProductMode === 'task_assignment') {
         appStore.setTaskAssignmentSlots(newOrder)
       } else {
@@ -1226,7 +1175,6 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
       }
     }
 
-    // 4. 如果有保存的 URL，自动加载
     // 使用 setTimeout 确保模型切换后的 Webview 已加载并注册 ref
     setTimeout(
       () => {
@@ -1272,7 +1220,6 @@ function MainPage({ onNavigateToSummary, isActive }: MainPageProps): JSX.Element
                 try {
                   const u = new URL(url)
                   const parts = u.pathname.split('/').filter(Boolean)
-                  // 提取对话 ID
                   let conversationId: string | undefined
                   if (parts[0] === 'app' && parts[1]) {
                     conversationId = parts[1]

@@ -38,7 +38,6 @@ function CodeBlock({ language, code }: CodeBlockProps): JSX.Element {
 
   return (
     <div className="my-3 overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-sm select-text dark:border-white/10 dark:bg-gray-800/80">
-      {/* 顶部极简操作条 */}
       <div className="flex items-center justify-between px-3 py-1.5 border-b border-slate-200/80 bg-slate-50/80 select-none dark:border-white/10 dark:bg-white/[0.04]">
         <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
           <AppIcon name="code" size={14} className="shrink-0" />
@@ -67,7 +66,6 @@ function CodeBlock({ language, code }: CodeBlockProps): JSX.Element {
         </button>
       </div>
 
-      {/* 代码内容区域 */}
       <div className="p-3 bg-slate-50/40 overflow-x-auto text-caption font-mono text-slate-800 leading-relaxed selection:bg-blue-100 dark:bg-gray-900/50 dark:text-slate-200 dark:selection:bg-blue-500/30">
         <pre className="m-0 p-0 whitespace-pre font-mono text-caption leading-relaxed">
           <code>{code}</code>

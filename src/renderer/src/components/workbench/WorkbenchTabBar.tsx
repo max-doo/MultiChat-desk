@@ -791,7 +791,6 @@ export default function WorkbenchTabBar({ isActive }: WorkbenchTabBarProps): JSX
         }}
         className="flex-1 min-w-0 h-full flex items-center px-1.5 drag-region"
       >
-        {/* 固定标签区（不随普通标签横向滚走） */}
         {pinnedTabs.length > 0 && (
           <div className="flex items-center gap-1 mr-1 shrink-0 no-drag">
             {pinnedTabs.map(renderTabPill)}
@@ -801,7 +800,6 @@ export default function WorkbenchTabBar({ isActive }: WorkbenchTabBarProps): JSX
           </div>
         )}
 
-        {/* 左滚动微调箭头 */}
         {scrollEdge.canLeft && (
           <button
             type="button"
@@ -824,7 +822,6 @@ export default function WorkbenchTabBar({ isActive }: WorkbenchTabBarProps): JSX
           {normalTabs.map(renderTabPill)}
         </div>
 
-        {/* 右滚动微调箭头 */}
         {scrollEdge.canRight && (
           <button
             type="button"
@@ -837,12 +834,10 @@ export default function WorkbenchTabBar({ isActive }: WorkbenchTabBarProps): JSX
           </button>
         )}
 
-        {/* 末尾落位提示线 */}
         {dropHint?.kind === 'append' && (
           <span className="w-[2px] h-4 ml-0.5 rounded-full bg-primary shrink-0 pointer-events-none" />
         )}
 
-        {/* 新建空白标签页（紧跟末尾标签 / 右滚动箭头） */}
         <button
           type="button"
           onClick={() => void createNewTab()}
@@ -864,7 +859,6 @@ export default function WorkbenchTabBar({ isActive }: WorkbenchTabBarProps): JSX
           }`}
         />
 
-        {/* 全部打开标签下拉控件：始终对齐中间编辑区右侧边缘 */}
         {openTabs.length > 0 && (
           <button
             ref={overflowBtnRef}
@@ -890,7 +884,6 @@ export default function WorkbenchTabBar({ isActive }: WorkbenchTabBarProps): JSX
         )}
       </div>
 
-      {/* 溢出 / 全部已打开标签列表浮层 */}
       {overflowOpen && overflowAnchorRect &&
         createPortal(
           <div
@@ -1010,7 +1003,6 @@ export default function WorkbenchTabBar({ isActive }: WorkbenchTabBarProps): JSX
           document.body
         )}
 
-      {/* 标签右键上下文菜单 */}
       {contextMenu &&
         createPortal(
           <div
@@ -1142,7 +1134,6 @@ export default function WorkbenchTabBar({ isActive }: WorkbenchTabBarProps): JSX
           document.body
         )}
 
-      {/* Ctrl+Tab MRU 快速切换弹窗 */}
       <Modal
         open={mruModalOpen}
         onClose={() => setMruModalOpen(false)}
@@ -1195,7 +1186,6 @@ export default function WorkbenchTabBar({ isActive }: WorkbenchTabBarProps): JSX
         </div>
       </Modal>
 
-      {/* 外部冲突或未保存失败时的关闭确认弹窗 */}
       <Modal
         open={Boolean(confirmClosePath)}
         onClose={() => setConfirmClosePath(null)}

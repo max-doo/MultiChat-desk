@@ -663,7 +663,6 @@ export default function FrontmatterPanel({ frontmatter, filePath, onChange, gitM
                         role === 'identity' ? 'opacity-75' : ''
                       }`}
                     >
-                  {/* 左列：图标 + 点击可重命名的 key */}
                   <dt className="flex items-center gap-1.5 w-32 shrink-0 text-body text-gray-500 dark:text-gray-400">
                     <AppIcon name={icon(f)} size={15} className="opacity-60" />
                     {editingKeyIdx === idx && canEditKey ? (
@@ -696,7 +695,6 @@ export default function FrontmatterPanel({ frontmatter, filePath, onChange, gitM
                     )}
                   </dt>
 
-                  {/* 右列：值编辑区 */}
                   <dd className="flex-1 min-w-0 flex items-center gap-1.5 flex-wrap">
                     {isTagField(f.key) && !f.complex ? (
                       <>
@@ -803,7 +801,6 @@ export default function FrontmatterPanel({ frontmatter, filePath, onChange, gitM
                             className="w-full bg-transparent text-body text-text-primary placeholder:text-gray-400/70 focus:outline-none"
                           />
 
-                          {/* 标签自动补全下拉建议列表 */}
                           {activeTagInputIdx === idx &&
                             !dismissDropdown &&
                             (currentTagSuggestions.length > 0 ||

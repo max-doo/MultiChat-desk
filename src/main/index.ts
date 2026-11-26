@@ -65,8 +65,6 @@ protocol.registerSchemesAsPrivileged([
   }
 ])
 
-// ============ 便携模式支持 ============
-
 // 检测是否为便携版运行模式
 function isPortableMode(): boolean {
   try {
@@ -143,7 +141,6 @@ async function cleanupTempUploadDirs(): Promise<void> {
   }
 }
 
-// ============ 单实例锁定 ============
 const gotTheLock = app.requestSingleInstanceLock()
 
 if (!gotTheLock) {
@@ -164,8 +161,6 @@ if (!gotTheLock) {
     }
   })
 
-  // ============ 初始化 ============
-
   // 在应用启动前配置路径
   configureSessionPath()
 
@@ -176,7 +171,6 @@ if (!gotTheLock) {
   // 初始化数据目录（含旧 agent-prompts → summary-prompts 目录迁移）
   initSummaryPrompts(dataPath)
 
-  // 初始化 electron-store
   const store = new Store({
     name: is.dev ? 'config-dev' : 'config',
     cwd: dataPath
@@ -186,8 +180,6 @@ if (!gotTheLock) {
   if (!store.has('selectionToolbarEnabled')) {
     store.set('selectionToolbarEnabled', true)
   }
-
-  // ============ 应用生命周期 ============
 
   // 1. 禁用 Blink Automation 控制标识，避免被 Cloudflare Turnstile 等真人验证拦截
   app.commandLine.appendSwitch('disable-blink-features', 'AutomationControlled')
@@ -215,7 +207,6 @@ if (!gotTheLock) {
       optimizer.watchWindowShortcuts(window)
     })
 
-    // 注册所有 IPC 处理器
     // 注入依赖：Store 实例，获取主窗口函数，打开浏览器窗口函数
     await registerIpcHandlers(store, getMainWindow, openBrowserWindowInternal)
 
@@ -353,7 +344,6 @@ if (!gotTheLock) {
       console.error('[Main] 注册 workbench-file 协议失败:', err)
     }
 
-    // 创建主窗口
     createWindow()
     createQuickWindow(store)
     createTray(

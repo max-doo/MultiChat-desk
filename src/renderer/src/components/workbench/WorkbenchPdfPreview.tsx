@@ -68,7 +68,6 @@ export default function WorkbenchPdfPreview(): JSX.Element {
       }`}
       data-reader-theme={isDark ? 'dark' : undefined}
     >
-      {/* 顶部工具栏 */}
       <PreviewHeader
         theme={isDark ? 'dark' : 'light'}
         left={
@@ -132,7 +131,6 @@ export default function WorkbenchPdfPreview(): JSX.Element {
         }
       />
 
-      {/* PDF 渲染容器 */}
       <div className="flex-1 w-full h-full relative overflow-hidden bg-gray-200 dark:bg-[#141414]">
         {activeFileOversized ? (
           <PreviewFallbackState
@@ -177,7 +175,6 @@ export default function WorkbenchPdfPreview(): JSX.Element {
           />
         )}
 
-        {/* 右下角发送与状态 */}
         <div className="absolute bottom-3 right-3 z-dropdown flex items-center gap-2">
           <WorkbenchSendToAiButton />
           {formattedSize && (

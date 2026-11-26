@@ -153,7 +153,6 @@ export function AgentPopover({
 
   return (
     <>
-      {/* 外部遮罩：点击外部区域关闭 */}
       <div
         className="fixed inset-0 z-popover"
         onClick={(e) => {
@@ -161,7 +160,6 @@ export function AgentPopover({
           onClose()
         }}
       />
-      {/* 弹窗实体 */}
       <div
         ref={popoverRef}
         onClick={(e) => e.stopPropagation()}

@@ -73,7 +73,6 @@ export default function WorkbenchImagePreview(): JSX.Element {
     handleImageError
   } = useImageViewport()
 
-  // 当切换文件时，重置所有缩放旋转平移和加载状态
   useEffect(() => {
     resetAll()
   }, [activeFilePath, resetAll])
@@ -289,7 +288,6 @@ export default function WorkbenchImagePreview(): JSX.Element {
 
   return (
     <div className="flex-1 h-full flex flex-col overflow-hidden bg-slate-100 dark:bg-gray-900 select-none">
-      {/* 顶部工具栏：保持既有控件与位置不变 */}
       <PreviewHeader
         left={
           <>
@@ -301,7 +299,6 @@ export default function WorkbenchImagePreview(): JSX.Element {
         }
         right={
           <>
-            {/* 背景板切换 (透明棋盘 / 白色 / 深色) */}
             <button
               type="button"
               onClick={toggleBgTheme}
@@ -313,7 +310,6 @@ export default function WorkbenchImagePreview(): JSX.Element {
 
             <div className="w-[1px] h-4 bg-black/10 dark:bg-white/10 mx-1" />
 
-            {/* 在系统相册中打开 */}
             <button
               type="button"
               onClick={() => {
@@ -325,7 +321,6 @@ export default function WorkbenchImagePreview(): JSX.Element {
               <AppIcon name="open_in_new" size={19} />
             </button>
 
-            {/* 在资源管理器定位 */}
             <button
               type="button"
               onClick={() => {
@@ -401,7 +396,6 @@ export default function WorkbenchImagePreview(): JSX.Element {
           />
         )}
 
-        {/* 同文件夹左右切换悬浮箭头 */}
         {hasMultiple && (
           <>
             <button
@@ -425,7 +419,6 @@ export default function WorkbenchImagePreview(): JSX.Element {
           </>
         )}
 
-        {/* 底部居中悬浮胶囊工具条（仅承载顶部未提供的能力：同目录翻页与适应/200%切换） */}
         {(siblingImages.length > 0 || canManipulateImage) && (
           <div className="pointer-events-none absolute bottom-4 left-1/2 z-dropdown flex max-w-[92%] -translate-x-1/2 flex-col items-center gap-1.5">
             {canManipulateImage && (naturalDimensions || formattedSize) && (

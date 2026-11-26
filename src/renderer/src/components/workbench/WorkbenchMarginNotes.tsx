@@ -974,7 +974,6 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
         <div className="absolute left-0 w-full z-10">{unresolvedPanel}</div>
       )}
 
-      {/* 原位便签卡片列表 */}
       {allNotes.map(item => {
         const top = positions.get(item.id)
         // 正文里找不到锚点的标注不渲染卡片，避免堆在顶部。
@@ -1038,7 +1037,6 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
               </div>
             ) : (
               <div>
-                {/* 便签标注正文：点击可就地编辑 */}
                 <div
                   className="text-body leading-relaxed text-text-primary break-words whitespace-pre-wrap"
                   title="点击可编辑标注"
@@ -1056,7 +1054,6 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
                   )}
                 </div>
 
-                {/* 底部信息与操作条 */}
                 <div className="mt-2 flex items-center justify-between text-caption text-text-secondary/60">
                   <span>{formatTime(item.updatedAt || item.createdAt)}</span>
                   <div className="flex items-center gap-1 opacity-60 hover:opacity-100 transition-opacity">

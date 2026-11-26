@@ -196,8 +196,6 @@ export class AgentTaskService {
     }
   }
 
-  // ==================== 对外 API（daemon 调用） ====================
-
   public async submit(req: AgentTaskSubmitRequest): Promise<{ success: boolean; data?: { taskId: string; phase: AgentTaskPhase; queuedPosition?: number }; error?: string; code?: AgentTaskErrorCode }> {
     try {
       if (this.shuttingDown) throw new TaskError('SESSION_LOST', 'MultiChat 正在退出')
@@ -519,8 +517,6 @@ export class AgentTaskService {
     this.idleTimers.set(sessionKey, timer)
   }
 
-  // ==================== 队列与租约 ====================
-
   private queuedPosition(task: TaskEntry): number | undefined {
     if (task.phase !== 'queued') return undefined
     const queue = this.queues.get(task.sessionKey) ?? []
@@ -554,8 +550,6 @@ export class AgentTaskService {
       return
     }
   }
-
-  // ==================== 任务执行 ====================
 
   private async execute(task: TaskEntry): Promise<void> {
     const signal = task.abort.signal
@@ -891,8 +885,6 @@ export class AgentTaskService {
     }
   }
 
-  // ==================== 终态与持久化 ====================
-
   /** 终态顺序固定：① 写持久化结果 → ② emit（唤醒 wait 订阅）→ ③ 释放租约 + 出队下一个。 */
   private finalize(task: TaskEntry, phase: AgentTaskPhase, error?: AgentTaskError): void {
     if (isAgentTaskTerminal(task.phase)) return
@@ -990,8 +982,6 @@ export class AgentTaskService {
       ...(record.error ? { error: record.error } : {})
     }
   }
-
-  // ==================== 磁盘持久化 ====================
 
   private async persist(task: TaskEntry): Promise<void> {
     if (!this.persistDir) return

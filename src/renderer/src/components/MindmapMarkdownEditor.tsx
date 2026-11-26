@@ -34,6 +34,8 @@ const editorTheme = EditorView.theme({
   '.cm-content': { padding: '12px 0', caretColor: '#2563eb' },
   '.cm-line': { padding: '0 12px' },
   '.cm-gutters': { backgroundColor: '#f8fafc', color: '#94a3b8', border: 'none' },
+  '.cm-lineNumbers': { fontVariantNumeric: 'tabular-nums' },
+  '.cm-lineNumbers .cm-gutterElement': { minWidth: 'calc(2ch + 8px)' },
   '.cm-activeLine, .cm-activeLineGutter': { backgroundColor: '#eff6ff' },
   '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': { backgroundColor: '#dbeafe' },
   '.cm-content ::selection': { backgroundColor: '#dbeafe' }
@@ -57,10 +59,8 @@ export default function MindmapMarkdownEditor({ value, onChange, active, actions
         doc: valueRef.current,
         extensions: [
           editable.current.of(EditorState.readOnly.of(readOnly)),
-          // formatNumber 固定补齐 5 位宽（不换行空格），行号 gutter 宽度恒定
-          lineNumbers({
-            formatNumber: (n) => String(n).padStart(5, ' ')
-          }),
+          // 依赖 CM6 原生 maxLineNumber spacer 按文档总行数自适应宽度，滚动时不抖动
+          lineNumbers(),
           highlightActiveLineGutter(),
           highlightActiveLine(),
           drawSelection(),

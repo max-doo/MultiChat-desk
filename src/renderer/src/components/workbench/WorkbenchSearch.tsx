@@ -72,7 +72,6 @@ export default function WorkbenchSearch({ onClose }: WorkbenchSearchProps): JSX.
 
   return (
     <div className="flex flex-col h-full overflow-hidden text-body">
-      {/* 搜索输入框 */}
       <div className="p-2 border-b border-black/5 dark:border-white/5">
         <div className="relative flex items-center">
           <AppIcon name="search" size={19} className="text-text-secondary absolute left-2 pointer-events-none" />
@@ -102,7 +101,6 @@ export default function WorkbenchSearch({ onClose }: WorkbenchSearchProps): JSX.
         </div>
       </div>
 
-      {/* 搜索结果列表 */}
       <div className="flex-1 overflow-y-auto p-1.5 space-y-1">
         {searchQuery.trim() && !isSearching && searchResults.length === 0 && (
           <div className="py-8 px-4 flex flex-col items-center justify-center text-center text-text-secondary/70">

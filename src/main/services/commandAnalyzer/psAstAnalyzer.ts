@@ -37,7 +37,6 @@ export interface PsAstVerdict {
 // (fail-closed to `ask`) rather than resolving `(...)` relative to `cwd`.
 const UNRESOLVED_TARGET = '$__UNRESOLVED_TARGET__'
 
-// ─── node type allowlist ────────────────────────────────────────────────────
 const ALLOWED_NODE_TYPES = new Set([
   'ScriptBlockAst',
   'NamedBlockAst',
@@ -98,7 +97,6 @@ const DENIED_NODE_TYPES = new Set([
   'TernaryExpressionAst'
 ])
 
-// ─── .NET static type/method whitelist ──────────────────────────────────────
 const STATIC_WHITELIST: Readonly<Record<string, readonly string[] | '*'>> = {
   regex: ['matches', 'match', 'ismatch', 'split', 'escape', 'unescape'],
   math: '*',
@@ -191,7 +189,6 @@ const SAFE_INSTANCE_METHODS = new Set([
   'gettype', 'memberwiseclone'
 ])
 
-// ─── cmdlet / command wordlists ─────────────────────────────────────────────
 const READ_ONLY_COMMANDS = new Set([
   'get-childitem', 'get-content', 'get-item', 'get-location', 'get-process',
   'get-service', 'get-date', 'get-command', 'get-variable', 'get-psdrive',
@@ -369,7 +366,6 @@ function extractStaticCdTarget(node: AstNodeInfo): string | null {
   return validateStaticCdTarget(target)
 }
 
-// ─── main walk ─────────────────────────────────────────────────────────────
 
 export function analyzePowerShellAst(result: AstParseResult): PsAstVerdict {
   const verdict: PsAstVerdict = { readOnly: false, pathArguments: [], commands: [] }

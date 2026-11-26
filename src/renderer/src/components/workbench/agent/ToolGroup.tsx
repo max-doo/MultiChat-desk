@@ -334,7 +334,6 @@ function ToolItem({ part, isRunning = false, defaultExpanded = false, cwd }: Sin
 
   return (
     <div className="text-body select-none">
-      {/* 极简折叠行 */}
       <button
         type="button"
         onClick={() => setExpanded(!expanded)}
@@ -365,7 +364,6 @@ function ToolItem({ part, isRunning = false, defaultExpanded = false, cwd }: Sin
       {/* 点击展开后的内嵌视窗（命令 + 运行结果，绝不单独在外部展示） */}
       {expanded && (
         <div className="my-1.5 ml-5 rounded-lg border border-slate-200/90 bg-slate-50/70 select-text shadow-sm overflow-hidden dark:border-white/10 dark:bg-white/[0.03]">
-          {/* 顶栏：标签 + 复制按钮 */}
           <div className="flex items-center justify-between px-3 py-1.5 border-b border-slate-200/60 text-caption font-mono text-slate-500 select-none dark:border-white/10 dark:text-slate-400">
             <span className="font-medium uppercase tracking-wider text-caption text-slate-500 dark:text-slate-400">
               {toolName === 'bash' || toolName === 'powershell' || toolName === 'cmd' ? 'Shell' : toolName}
@@ -381,16 +379,13 @@ function ToolItem({ part, isRunning = false, defaultExpanded = false, cwd }: Sin
             </button>
           </div>
 
-          {/* 内容区：命令 + 输出，或 diff */}
           <div className="px-3 py-2">
-            {/* 如果是命令，首先显示执行的命令行 */}
             {command && (
               <div className="font-mono text-caption text-slate-800 dark:text-gray-200 font-semibold mb-2 select-text whitespace-pre-wrap break-all">
                 $ {command}
               </div>
             )}
 
-            {/* 如果是 Diff，展示差异（去掉内层卡片边框，直接渲染在容器里） */}
             {parsedDiff.length > 0 ? (
               <div className="max-h-72 overflow-y-auto overflow-x-auto font-mono text-caption">
                 {parsedDiff.map((file, i) => (
@@ -407,7 +402,6 @@ function ToolItem({ part, isRunning = false, defaultExpanded = false, cwd }: Sin
             )}
           </div>
 
-          {/* 状态反馈脚标 */}
           <div className="flex items-center justify-end gap-2 px-3 py-1.5 border-t border-slate-200/60 text-caption font-medium select-none dark:border-white/10">
             {isError ? (
               <span className="text-rose-600 dark:text-rose-400 flex items-center gap-1">
@@ -500,7 +494,6 @@ export function ToolGroup({ parts, isRunning = false, cwd }: ToolGroupProps): JS
   // 如果只有 1 个工具调用，也包装进极简折叠组，保持全链路风格 100% 统一
   return (
     <div className="my-2 select-none">
-      {/* 极简折叠组总头栏 */}
       <button
         type="button"
         tabIndex={0}
@@ -526,7 +519,6 @@ export function ToolGroup({ parts, isRunning = false, cwd }: ToolGroupProps): JS
         />
       </button>
 
-      {/* 展开后展示的内嵌列表 */}
       {groupExpanded && (
         <div className="mt-1 pl-3.5 border-l-2 border-slate-200/80 dark:border-white/10 space-y-0.5 py-0.5">
           {parts.map((part, idx) => (

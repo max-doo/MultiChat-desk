@@ -93,7 +93,6 @@ function normalizeHead(raw: string): string {
   return raw.toLowerCase().replace(/^.*[\\/]/, '').replace(/\.(?:exe|cmd|bat|ps1)$/i, '')
 }
 
-// ─── quote-aware $( ) / ` ` extractor & newline splitter ───────────────────
 // Returns subexpression texts plus the same command with subexpressions
 // replaced by a placeholder token, unquoted newlines turned into `;`, and
 // unquoted IO_NUMBER prefixes (e.g. `2>/dev/null`, `2>&1`) stripped so
@@ -196,7 +195,6 @@ function readBalanced(s: string, start: number, open: string, close: string): nu
   return null
 }
 
-// ─── segment walking ────────────────────────────────────────────────────────
 interface Segment {
   tokens: string[]
   piped: boolean
@@ -520,7 +518,6 @@ function judgeSegment(seg: Segment, verdict: BashVerdict): 'ok' | 'deny' {
   return 'ok'
 }
 
-// ─── wrapper unwrapping ─────────────────────────────────────────────────────
 const TRANSPARENT_WRAPPER_HEADS = new Set([
   'bash', 'sh', 'zsh', 'dash', 'fish', 'powershell', 'pwsh', 'cmd', 'env', 'xargs'
 ])

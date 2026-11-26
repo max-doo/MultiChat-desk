@@ -65,7 +65,6 @@ export function ApprovalCard({ request }: ApprovalCardProps): JSX.Element {
             </div>
           )}
 
-          {/* Action buttons */}
           <div className="mt-3 flex items-center flex-wrap gap-2">
             <button
               type="button"
@@ -101,7 +100,6 @@ export function ApprovalCard({ request }: ApprovalCardProps): JSX.Element {
             </button>
           </div>
 
-          {/* Expandable Pattern Input */}
           {showPatternInput && (
             <div className="mt-2.5 pt-2 border-t border-amber-200/80 dark:border-amber-500/20 flex items-center gap-2">
               <span className="text-text-secondary text-caption shrink-0">模式匹配:</span>

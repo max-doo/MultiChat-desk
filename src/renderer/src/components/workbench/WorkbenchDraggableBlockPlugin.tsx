@@ -208,7 +208,6 @@ export default function WorkbenchDraggableBlockPlugin({
     setHighlightedIndex((current) => Math.min(current, Math.max(options.length - 1, 0)))
   }, [isPickerOpen, options.length])
 
-  // 外部点击关闭
   useEffect(() => {
     if (!isPickerOpen || !anchorElem) return
     const handleClickOutside = (event: MouseEvent) => {
@@ -285,7 +284,6 @@ export default function WorkbenchDraggableBlockPlugin({
     [editor, pickerState]
   )
 
-  // 键盘导航
   useEffect(() => {
     if (!isPickerOpen) return
     const handleKeyDown = (event: KeyboardEvent) => {

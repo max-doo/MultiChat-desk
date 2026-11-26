@@ -13,7 +13,6 @@ import { homedir } from 'node:os'
 import { basename, relative, resolve } from 'node:path'
 import { gateExternalCommand, looksLikeInspectablePath } from './commandAnalyzer/externalCommandGate'
 
-// ─── modes ───────────────────────────────────────────────────────────────────
 
 export const MODE_IDS = ['default', 'auto', 'bypass'] as const
 export type ModeId = (typeof MODE_IDS)[number]
@@ -66,7 +65,6 @@ export function parseMode(value: string | undefined | null): ExtendedModeId {
   return 'default'
 }
 
-// ─── effect types ────────────────────────────────────────────────────────────
 
 export type ToolEffectKind =
   | 'read'
@@ -136,7 +134,6 @@ function getToolEffect(toolName: string): ToolEffect {
   return BUILTIN_TOOL_EFFECTS[toolName] ?? UNKNOWN_EFFECT
 }
 
-// ─── context & result types ─────────────────────────────────────────────────
 
 export interface PermissionContext {
   modeId: ExtendedModeId
@@ -299,7 +296,6 @@ export interface PermissionDecisionResult {
   target: string
 }
 
-// ─── command / path analysis ────────────────────────────────────────────────
 
 export const MAX_ANALYZABLE_COMMAND_LENGTH = 16_000
 
@@ -786,7 +782,6 @@ export function analyzeCommand(
   }
 }
 
-// ─── decision ───────────────────────────────────────────────────────────────
 
 function resultTarget(
   context: PermissionContext,

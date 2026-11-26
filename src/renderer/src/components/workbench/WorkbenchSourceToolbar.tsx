@@ -38,7 +38,7 @@ const TABLE_TEMPLATE = '|  |  |  |\n| --- | --- | --- |\n|  |  |  |\n|  |  |  |\
 /**
  * 源码模式工具栏：与富文本工具栏同一布局骨架，但操作对象是纯文本。
  * 行内格式通过 wrap 切换 **..** / *..* 等标记；块级格式通过行前缀切换；
- * 撤销/重做依赖 textarea 原生编辑栈；对齐在 Markdown 中无对应语法，不展示。
+ * 撤销/重做依赖源码编辑器的编辑历史；对齐在 Markdown 中无对应语法，不展示。
  */
 export default function WorkbenchSourceToolbar({
   editorRef
@@ -176,7 +176,6 @@ export default function WorkbenchSourceToolbar({
     })
   }
 
-  // 撤销/重做走浏览器 textarea 原生栈
   const handleUndo = (): void => {
     document.execCommand('undo')
   }

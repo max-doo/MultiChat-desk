@@ -388,7 +388,6 @@ function WorkbenchAiSidebar({ isActive = true, instanceId = 'primary' }: Workben
   // 防双击：同一条回复在短时间窗内只插入一次（撤回/采纳后重试已超过窗口，允许）
   const lastInsertRef = useRef<Map<string, { hash: string; at: number }>>(new Map())
 
-  // 拖拽与上传状态
   const [isExternalFileDragging, setIsExternalFileDragging] = useState(false)
   const [toast, setToast] = useState<{
     type: 'info' | 'success' | 'error'
@@ -1036,7 +1035,6 @@ function WorkbenchAiSidebar({ isActive = true, instanceId = 'primary' }: Workben
     [isAiSidebar2Open, isSecondary, rightPane, openAiSidebar2, openRightPane, saveReplyAsNewMarkdown]
   )
 
-  // 为每个已挂载的侧边栏 webview 注入按钮脚本 + 挂 console-message 监听
   useEffect(() => {
     if (!shouldMountBody) return
     const cleanups: Array<() => void> = []
@@ -1158,7 +1156,6 @@ function WorkbenchAiSidebar({ isActive = true, instanceId = 'primary' }: Workben
     [availableModels, beginSidebarActivity, endSidebarActivity, ensureSidebarLive, showToast]
   )
 
-  // 监听来自划词动作的文本注入事件
   useEffect(() => {
     const handleInsertPrompt = (e: Event) => {
       const customEvent = e as CustomEvent<{ prompt: string; target?: 'ai' | 'ai2' }>
@@ -1626,7 +1623,6 @@ function WorkbenchAiSidebar({ isActive = true, instanceId = 'primary' }: Workben
     return () => window.removeEventListener(WORKBENCH_SEND_IMAGE_EVENT, handleSendImage)
   }, [instanceKey, isSecondary, openAiSidebar2, openRightPane, showToast, uploadFilesToCurrentModel])
 
-  // 处理文件拖入释放并上传到当前 AI 对话框
   const handleDrop = useCallback(
     async (e: React.DragEvent) => {
       e.preventDefault()

@@ -41,7 +41,6 @@ export default function WorkbenchImagePlugin(): null {
       if (!$isRangeSelection(selection)) return
       const nodes = srcs.map(({ src, altText }) => $createWorkbenchImageNode(src, altText || ''))
       selection.insertNodes(nodes)
-      // 插入后光标移到末尾
       nodes[nodes.length - 1].selectNext()
     })
   }
@@ -70,7 +69,6 @@ export default function WorkbenchImagePlugin(): null {
     }
   }
 
-  // 从 File 读 dataUrl
   const fileToDataUrl = (file: File): Promise<string> =>
     new Promise((resolve, reject) => {
       const reader = new FileReader()
@@ -84,12 +82,11 @@ export default function WorkbenchImagePlugin(): null {
   // 是否已处理（Lexical 以返回值决定后续处理器是否继续执行），否则
   // 纯文本粘贴会被永远吞掉。图片处理本身在后台异步完成后插入节点。
   const handlePaste = (event: PasteCommandType): boolean => {
-    // 只有 ClipboardEvent 才带 files
     const files = event instanceof ClipboardEvent
       ? Array.from(event.clipboardData?.files ?? [])
       : []
     const images = files.filter((f) => ACCEPTED_IMAGE_TYPES.test(f.type))
-    if (!images.length) return false // 无图片 → 走默认粘贴
+    if (!images.length) return false
     event.preventDefault()
 
     void (async () => {

@@ -5,9 +5,13 @@ import {
   useImperativeHandle,
   forwardRef
 } from 'react'
-import { Annotation, Compartment, EditorState, type Extension } from '@codemirror/state'
+import { Annotation, Compartment, EditorState, type Extension, type Text } from '@codemirror/state'
 import {
   EditorView,
+  Decoration,
+  type DecorationSet,
+  ViewPlugin,
+  type ViewUpdate,
   drawSelection,
   highlightActiveLine,
   highlightActiveLineGutter,
@@ -34,6 +38,7 @@ import {
   collectFootnoteStateFromMarkdown,
   isValidFootnoteId
 } from './workbenchFootnotes'
+import { isCitationInner } from './workbenchCitations'
 
 /**
  * 源码模式编辑器：CodeMirror 6 内核。
@@ -57,6 +62,8 @@ const lightMarkdownHighlight = HighlightStyle.define([
   { tag: [tags.link, tags.url], color: '#2563eb' },
   { tag: tags.monospace, color: '#953800' },
   { tag: tags.quote, color: '#57606a' },
+  // HTML 注释（含行内 <!-- --> 与块级注释）：lezer-markdown 统一标记为 tags.comment
+  { tag: tags.comment, color: '#6a737d', fontStyle: 'italic' },
   { tag: tags.processingInstruction, color: '#64748b' }
 ])
 
@@ -68,8 +75,83 @@ const darkMarkdownHighlight = HighlightStyle.define([
   { tag: [tags.link, tags.url], color: '#79c0ff' },
   { tag: tags.monospace, color: '#ffa657' },
   { tag: tags.quote, color: '#a1a1aa' },
+  { tag: tags.comment, color: '#858585', fontStyle: 'italic' },
   { tag: tags.processingInstruction, color: '#858585' }
 ])
+
+// —— Pandoc 引文 [@key] 源码高亮 ——
+// lezer-markdown 不识别引文语法，用轻量 ViewPlugin 全文扫描补色；
+// 与渲染模式共用 workbenchCitations 的判定，跳过围栏代码块与行内代码。
+
+const CITATION_SCAN_GLOBAL_RE = /\[[^\]\n]*@[^\]\n]*\]/g
+const INLINE_CODE_SPAN_RE = /(`+)([^`\n]*?)\1/g
+const FENCE_LINE_RE = /^[ \t]{0,3}(`{3,}|~{3,})/
+
+const citationDecoration = Decoration.mark({ class: 'cm-citation' })
+
+function blankOut(text: string): string {
+  return ' '.repeat(text.length)
+}
+
+/** 若该引文括号后是 `(` 或 `[`，实为链接/图片语法的一部分，跳过不高亮 */
+function isCitationInsideLinkSyntax(maskedLine: string, matchEnd: number): boolean {
+  const next = maskedLine[matchEnd]
+  return next === '(' || next === '['
+}
+
+/** 扫描文档中的引文区间：逐行进行，围栏代码块整行剔除，行内代码片段按等长空格屏蔽 */
+function collectCitationRanges(doc: Text): Array<{ from: number; to: number }> {
+  const ranges: Array<{ from: number; to: number }> = []
+  let fence: { char: string; length: number } | null = null
+
+  for (let lineNo = 1; lineNo <= doc.lines; lineNo++) {
+    const line = doc.line(lineNo)
+    const fenceMatch = line.text.match(FENCE_LINE_RE)
+    if (fenceMatch) {
+      const marker = fenceMatch[1]
+      if (!fence) {
+        fence = { char: marker[0], length: marker.length }
+      } else if (marker[0] === fence.char && marker.length >= fence.length) {
+        fence = null
+      }
+      continue
+    }
+    if (fence) continue
+
+    const masked = line.text.replace(INLINE_CODE_SPAN_RE, (match) => blankOut(match))
+    CITATION_SCAN_GLOBAL_RE.lastIndex = 0
+    let match: RegExpExecArray | null
+    while ((match = CITATION_SCAN_GLOBAL_RE.exec(masked)) !== null) {
+      const inner = match[0].slice(1, -1)
+      if (!isCitationInner(inner)) continue
+      if (isCitationInsideLinkSyntax(masked, match.index + match[0].length)) continue
+      ranges.push({ from: line.from + match.index, to: line.from + match.index + match[0].length })
+    }
+  }
+  return ranges
+}
+
+function buildCitationDecorations(doc: Text): DecorationSet {
+  const ranges = collectCitationRanges(doc)
+  return Decoration.set(ranges.map((r) => citationDecoration.range(r.from, r.to)))
+}
+
+const citationHighlightPlugin = ViewPlugin.fromClass(
+  class {
+    decorations: DecorationSet
+
+    constructor(view: EditorView) {
+      this.decorations = buildCitationDecorations(view.state.doc)
+    }
+
+    update(update: ViewUpdate): void {
+      if (update.docChanged) {
+        this.decorations = buildCitationDecorations(update.state.doc)
+      }
+    }
+  },
+  { decorations: (value) => value.decorations }
+)
 
 function buildEditorTheme(isDark: boolean): Extension {
   return EditorView.theme({
@@ -96,9 +178,13 @@ function buildEditorTheme(isDark: boolean): Extension {
       border: 'none',
       borderRight: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid rgba(0, 0, 0, 0.05)'
     },
+    '.cm-lineNumbers': {
+      fontVariantNumeric: 'tabular-nums'
+    },
     '.cm-lineNumbers .cm-gutterElement': {
       padding: '0 10px 0 6px',
-      minWidth: '3.5rem',
+      // 2 位数字保底 + 左右 padding(16px)，避免小文件过宽；3 位以上由 CM6 原生 spacer 自动撑开
+      minWidth: 'calc(2ch + 16px)',
       textAlign: 'right'
     },
     '.cm-gitGutter': {
@@ -121,6 +207,10 @@ function buildEditorTheme(isDark: boolean): Extension {
     },
     '.cm-content ::selection': {
       backgroundColor: isDark ? 'rgba(59, 130, 246, 0.28)' : 'rgba(59, 130, 246, 0.16)'
+    },
+    '.cm-citation': {
+      // 与渲染模式引文同色：仅字体颜色区分，无背景装饰
+      color: isDark ? 'rgb(94, 234, 212)' : 'rgb(13, 148, 136)'
     }
   })
 }
@@ -292,11 +382,8 @@ const WorkbenchSourceEditor = forwardRef<
       state: EditorState.create({
         doc: valueRef.current,
         extensions: [
-          // formatNumber 固定补齐 5 位宽（不换行空格），行号 gutter 宽度恒定，
-          // 避免滚动/编辑时因 spacer 重测导致的宽度抖动；超过 99999 行才会扩一次
-          lineNumbers({
-            formatNumber: (n) => String(n).padStart(5, ' ')
-          }),
+          // 依赖 CM6 原生 maxLineNumber spacer 按文档总行数自适应宽度，滚动时不重测、不抖动
+          lineNumbers(),
           gitGutterCompartment.of(gitGutter),
           highlightActiveLineGutter(),
           highlightActiveLine(),
@@ -307,6 +394,7 @@ const WorkbenchSourceEditor = forwardRef<
           indentUnit.of('  '),
           EditorState.tabSize.of(2),
           EditorView.lineWrapping,
+          citationHighlightPlugin,
           themeCompartment.of(buildThemeExtensions(isDark)),
           placeholder('编写 Markdown 内容...'),
           EditorView.contentAttributes.of({

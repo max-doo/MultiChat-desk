@@ -6,8 +6,6 @@
 import { join } from 'path'
 import type { BrowserWindow } from 'electron'
 
-// ============ 类型定义 ============
-
 export type SummaryPromptFileItem = {
     id: string
     name: string
@@ -16,8 +14,6 @@ export type SummaryPromptFileItem = {
     isDefault?: boolean
     schemaVersion?: number
 }
-
-// ============ 模块状态 ============
 
 let summaryPromptsDir: string = ''
 let summaryPromptsWatcher: import('fs').FSWatcher | null = null
@@ -44,8 +40,6 @@ export function initSummaryPrompts(dataPath: string): void {
 export function getSummaryPromptsDir(): string {
     return summaryPromptsDir
 }
-
-// ============ 旧目录迁移 ============
 
 /**
  * 将旧的 agent-prompts 目录同步迁移到 summary-prompts。
@@ -93,8 +87,6 @@ function copyDirRecursiveSync(
     }
 }
 
-// ============ 工具函数 ============
-
 /**
  * 将字符串转换为安全的文件名
  */
@@ -134,8 +126,6 @@ function computeBodyHash(body: string): string {
     const normalized = (body || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim()
     return crypto.createHash('sha256').update(normalized, 'utf-8').digest('hex').slice(0, 16)
 }
-
-// ============ Markdown 解析/格式化 ============
 
 type SummaryPromptMeta = {
     id?: string
@@ -241,8 +231,6 @@ export function formatSummaryPromptMarkdown(prompt: SummaryPromptFileItem): stri
     const body = (prompt.prompt || '').trim()
     return `${lines.join('\n')}\n${body}\n`
 }
-
-// ============ 文件操作 ============
 
 /**
  * 列出所有 .md 文件
@@ -450,8 +438,6 @@ export async function deleteSummaryPrompt(promptId: string): Promise<void> {
     const filePath = join(summaryPromptsDir, fileName)
     await rm(filePath, { force: true })
 }
-
-// ============ 文件监听 ============
 
 /**
  * 启动文件监听器

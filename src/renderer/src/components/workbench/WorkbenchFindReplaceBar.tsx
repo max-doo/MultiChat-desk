@@ -5,9 +5,9 @@ import { AppIcon } from '../icons/AppIcon'
 /**
  * 编辑器内查找替换浮动条（Ctrl+F / Ctrl+H）。
  * 查找/替换统一作用于 store 中的 activeFileContent（Markdown/文本全文），
- * 因此对富文本（Lexical）与源码（textarea）两种编辑态一致生效：
+ * 因此对富文本（Lexical）与源码（CodeMirror）两种编辑态一致生效：
  * - Lexical 侧通过 MarkdownSyncPlugin 的外部内容同步重灌 AST；
- * - textarea 侧直接改字符串并恢复选区。
+ * - 源码侧直接改字符串并恢复选区。
  * 关闭时自动清除高亮选区。
  */
 
@@ -209,7 +209,6 @@ export default function WorkbenchFindReplaceBar({
 
   return (
     <div className="absolute top-2 right-3 z-dropdown flex flex-col gap-1 rounded-lg border border-black/10 dark:border-white/10 bg-white/95 dark:bg-gray-800/95 shadow-lg backdrop-blur px-1.5 py-1.5 select-none">
-      {/* 查找行 */}
       <div className="flex items-center gap-0.5">
         <input
           ref={findInputRef}
@@ -254,7 +253,6 @@ export default function WorkbenchFindReplaceBar({
         </button>
       </div>
 
-      {/* 替换行 */}
       <div className="flex items-center gap-0.5">
         <input
           ref={replaceInputRef}

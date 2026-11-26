@@ -71,7 +71,6 @@ export function decodeCommandOutput(buf: Buffer, fallback: TextDecoder | null): 
   return lines.join("\n");
 }
 
-// ─── code-page probing (Windows only; POSIX resolves null) ───────────────────
 
 let fallbackDecoderPromise: Promise<TextDecoder | null> | null = null;
 let fallbackDecoderSync: TextDecoder | null | undefined;

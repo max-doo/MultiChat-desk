@@ -46,17 +46,12 @@ interface ControlBarProps {
   onGenerateReport: () => void
 }
 
-// 暴露给父组件的方法
 export interface ControlBarRef {
   setMessage: (message: string) => void
   showNotification: (type: 'success' | 'error' | 'info', message: string, autoHide?: number) => void
   clearNotification: () => void
 }
 
-/**
- * 底部控制栏组件
- * 包含新对话、输入框和生成报告等按钮
- */
 const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
   function ControlBar({ onGenerateReport }, ref) {
     const [message, setMessage] = useState('')
@@ -96,7 +91,6 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
       webviewRefs
     } = useAppStore()
 
-    // 清除通知
     const clearNotification = () => {
       if (notificationTimeoutRef.current) {
         clearTimeout(notificationTimeoutRef.current)
@@ -105,16 +99,13 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
       setNotification(null)
     }
 
-    // 显示通知
     const showNotification = (type: 'success' | 'error' | 'info', msg: string, autoHide: number = 4000) => {
-      // 清除之前的定时器
       if (notificationTimeoutRef.current) {
         clearTimeout(notificationTimeoutRef.current)
       }
 
       setNotification({ type, message: msg })
 
-      // 如果 autoHide > 0，设置自动清除
       if (autoHide > 0) {
         notificationTimeoutRef.current = setTimeout(() => {
           setNotification(null)
@@ -214,11 +205,9 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
       }
     }
 
-    // 暴露方法给父组件
     useImperativeHandle(ref, () => ({
       setMessage: (msg: string) => {
         setMessage(msg)
-        // 聚焦输入框
         setTimeout(() => {
           textareaRef.current?.focus()
         }, 100)
@@ -231,21 +220,17 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
       }
     }))
 
-    // 监听粘贴事件，支持从剪贴板直接粘贴图片
     useEffect(() => {
       const handlePaste = async (event: ClipboardEvent): Promise<void> => {
-        // 如果当前正在发送或上传，忽略粘贴
         if (isSending || isUploading) return
 
         const clipboardData = event.clipboardData
         if (!clipboardData) return
 
-        // 检查剪贴板中是否有图片
         const items = Array.from(clipboardData.items)
         const imageItem = items.find((item) => item.type.startsWith('image/'))
 
         if (!imageItem) {
-          // 剪贴板中没有图片，让浏览器默认处理（文本粘贴等）
           return
         }
 
@@ -306,7 +291,6 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
       }
     }, [isSending, isUploading, uploadFileToAll, models, showNotification])
 
-    // 监听发送结果
     useEffect(() => {
       if (lastSendResults.length > 0 && !isSending) {
         const successCount = lastSendResults.filter(r => r.success).length
@@ -326,7 +310,6 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
       }
     }, [lastSendResults, isSending, models])
 
-    // 两步发送流程
     const handleSend = useCallback(async (): Promise<void> => {
       if (!message.trim() || isSending) return
 
@@ -335,27 +318,23 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
         messageToSend = `请严格按照以下要求生成一张或多张高质量图片：\n\n${messageToSend}`
       }
 
-      // 第一步：如果文字还未输入到 webview，先输入
       if (!textInserted) {
         const results = await insertTextToAll(messageToSend)
         const successCount = results.filter(r => r.success).length
 
         if (successCount > 0) {
           showNotification('success', `文字已输入到 ${successCount} 个模型的输入框，按 Enter 确认发送`)
-          // 自动聚焦到输入框，方便用户按 Enter 键
           setTimeout(() => {
             textareaRef.current?.focus()
           }, 100)
-          // 不清空输入框，让用户可以再次点击发送
         } else {
           showNotification('error', '输入文字失败，请重试')
         }
         return
       }
 
-      // 第二步：文字已输入，现在发送
-      setMessage('') // 清空输入框
-      setTextInserted(false) // 重置状态
+      setMessage('')
+      setTextInserted(false)
 
       await sendMessageToAll(messageToSend)
       textareaRef.current?.focus()
@@ -366,7 +345,6 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
     // ctx 必须先于点击建立，否则 will-download 早于 ctx 触发会放行弹系统框
     const handleDownloadAllImages = async () => {
       try {
-        // 1. dryRun：只校验配置 + 拿 wcId，不点击
         const readiness = await triggerNativeDownloads(true)
         const items = readiness
           .filter(r => r.clicked > 0 && r.wcId != null)
@@ -376,16 +354,13 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
           showNotification('info', '未检测到生图（或该平台不支持一键下载按钮）')
           return
         }
-        // 2. prepare：主进程弹目录 + 为每个 wcId 建 ctx（此刻起 will-download 会被拦截）
         const prep = await window.api?.triggerNativeDownloads?.({ items })
         if (!prep?.success) {
           showNotification('error', prep?.error || '下载失败')
           return
         }
         const wcIds = prep.data?.wcIds ?? []
-        // 3. 真点击：注入脚本点网页下载按钮（ctx 已就绪，will-download 命中标记位）
         await triggerNativeDownloads(false)
-        // 4. wait：等所有 will-download done 回执
         const res = await window.api?.waitNativeDownloads?.({ wcIds })
         if (!res?.success) {
           showNotification('error', res?.error || '下载失败')
@@ -405,15 +380,12 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
       }
     }
 
-    // 监听全局键盘事件，支持在确认发送状态下使用 Enter 键发送
     useEffect(() => {
-      // 只在确认发送状态下添加全局监听器
       if (!textInserted) {
         return
       }
 
       const handleGlobalKeyDown = (e: KeyboardEvent): void => {
-        // 检查输入框是否有焦点（包括 textarea 本身或其父容器）
         const activeElement = document.activeElement
         const isTextareaFocused = activeElement === textareaRef.current ||
           (textareaRef.current && textareaRef.current.contains(activeElement as Node))
@@ -422,7 +394,6 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
           return
         }
 
-        // 如果正在输入法组合中，不处理 Enter 键
         if (isComposingRef.current) {
           return
         }
@@ -441,9 +412,7 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
       }
     }, [textInserted, isSending, handleSend, message])
 
-    // 处理键盘事件
     const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
-      // 如果正在输入法组合中，不处理 Enter 键
       if (isComposingRef.current) {
         return
       }
@@ -456,26 +425,21 @@ const ControlBar = forwardRef<ControlBarRef, ControlBarProps>(
       }
     }
 
-    // 输入框内容变化时处理
     // 注意：完全禁用动态高度调整，使用固定高度，避免干扰 Electron 中的 IME
     const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>): void => {
-      // 如果文字已输入到 webview，不允许编辑
       if (textInserted) {
         return
       }
 
       const newValue = e.target.value
       setMessage(newValue)
-      // 不再调整高度，使用 CSS 固定高度 + overflow: auto
     }
 
-    // 取消操作
     const handleCancel = async (): Promise<void> => {
       setTextInserted(false)
 
       await clearInputToAll()
 
-      // 输入框重新获得焦点
       textareaRef.current?.focus()
 
       showNotification('info', '已取消，可以继续编辑')

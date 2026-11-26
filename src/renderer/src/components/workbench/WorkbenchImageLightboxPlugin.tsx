@@ -92,7 +92,6 @@ export default function WorkbenchImageLightboxPlugin(): JSX.Element | null {
     setItems([])
   }, [])
 
-  // 切换文档时关闭预览视窗
   useEffect(() => {
     closeLightbox()
   }, [activeFilePath, closeLightbox])

@@ -551,7 +551,6 @@ export default function WorkbenchWorkspaceSettings({
         onClose={requestClose}
       />
 
-      {/* 顶部标签栏 */}
       <div className="flex shrink-0 border-b border-black/5 px-3 dark:border-white/5">
         <button
           type="button"
@@ -634,7 +633,6 @@ export default function WorkbenchWorkspaceSettings({
                 </div>
               )}
 
-              {/* 远程仓库 */}
               <section>
                 <div className="mb-1.5 flex items-baseline justify-between gap-3">
                   <h3 className="text-label font-semibold text-text-primary">远程仓库</h3>
@@ -660,7 +658,6 @@ export default function WorkbenchWorkspaceSettings({
                 {isSavingRemote && <p className="mt-1 text-caption text-text-secondary">正在保存远程地址…</p>}
               </section>
 
-              {/* 忽略规则 */}
               <section>
                 <div className="mb-2 flex items-baseline justify-between gap-3">
                   <h3 className="text-label font-semibold text-text-primary">忽略规则</h3>
@@ -669,7 +666,6 @@ export default function WorkbenchWorkspaceSettings({
                   </span>
                 </div>
 
-                {/* 智能预设胶囊 */}
                 {categories.length > 0 && (
                   <div className="mb-2.5 flex flex-wrap gap-1.5">
                     {categories.map((category) => {
@@ -713,7 +709,6 @@ export default function WorkbenchWorkspaceSettings({
                   </div>
                 )}
 
-                {/* 直接可见的 .gitignore 编辑区 */}
                 <div className="overflow-hidden rounded-lg border border-slate-200 bg-slate-50/70 shadow-inner dark:border-slate-700/80 dark:bg-slate-950">
                   <div className="flex items-center justify-between border-b border-slate-200 bg-slate-100/80 px-2.5 py-1.5 font-mono text-caption text-text-secondary dark:border-slate-800 dark:bg-slate-900/80">
                     <span>规则源码</span>
@@ -737,7 +732,6 @@ export default function WorkbenchWorkspaceSettings({
             </>
           ) : (
             <>
-              {/* 会话归档 */}
               <section>
                 <div className="mb-1.5 flex items-baseline justify-between gap-3">
                   <h3 className="text-label font-semibold text-text-primary">会话归档目录</h3>
@@ -760,7 +754,6 @@ export default function WorkbenchWorkspaceSettings({
                 )}
               </section>
 
-              {/* 默认会话库 */}
               <section className="rounded-lg border border-slate-200/80 bg-slate-50/60 p-2.5 dark:border-slate-800 dark:bg-slate-800/40">
                 <div className="flex items-center justify-between">
                   <h3 className="text-label font-semibold text-text-primary">全局默认会话库</h3>
@@ -789,7 +782,6 @@ export default function WorkbenchWorkspaceSettings({
                 )}
               </section>
 
-              {/* 批量清除未引用照片 */}
               <section className="rounded-lg border border-slate-200/80 p-3 dark:border-slate-800">
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
@@ -1008,7 +1000,6 @@ export default function WorkbenchWorkspaceSettings({
           )}
         </div>
 
-        {/* 底部保存与状态操作栏 */}
         <div className="flex shrink-0 items-center justify-between border-t border-black/5 bg-black/[0.02] px-3.5 py-2.5 dark:border-white/5 dark:bg-white/[0.02]">
           <div className="text-caption text-text-secondary">
             {isDirty ? (

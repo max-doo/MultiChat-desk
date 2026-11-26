@@ -179,7 +179,6 @@ export class PowerShellAstHelper {
         try {
           child.kill()
         } catch {
-          // ignore
         }
         return false
       }

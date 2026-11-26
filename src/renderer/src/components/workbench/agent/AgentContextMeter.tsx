@@ -81,7 +81,6 @@ export function AgentContextMeter(): JSX.Element | null {
           className={`w-4 h-4 transform -rotate-90 ${isCompacting ? 'animate-spin' : ''}`}
           viewBox="0 0 20 20"
         >
-          {/* 背景底环 */}
           <circle
             cx="10"
             cy="10"
@@ -91,7 +90,6 @@ export function AgentContextMeter(): JSX.Element | null {
             strokeWidth="2.5"
             className="text-slate-200 dark:text-white/15"
           />
-          {/* 进度环（占比代表上下文） */}
           {known && clampedPercent > 0 && (
             <circle
               cx="10"
@@ -117,7 +115,6 @@ export function AgentContextMeter(): JSX.Element | null {
         className="w-72 max-w-[calc(100vw-48px)]"
       >
         <div className="flex flex-col text-label w-full select-none bg-white dark:bg-gray-800">
-          {/* 统一 Header */}
           <div className="px-3.5 py-2.5 border-b border-gray-100 dark:border-white/10 flex items-center justify-between">
             <div className="flex items-center gap-1.5 font-semibold text-slate-700 dark:text-gray-200 text-label">
               <AppIcon name="speed" size={14} className="text-primary" />
@@ -140,7 +137,6 @@ export function AgentContextMeter(): JSX.Element | null {
             )}
           </div>
 
-          {/* Body 内容 */}
           <div className="p-3 space-y-3">
             {known ? (
               <div className="space-y-1.5">
@@ -150,7 +146,6 @@ export function AgentContextMeter(): JSX.Element | null {
                     {formatTokens(tokens)} / {formatTokens(context.contextWindow)}
                   </span>
                 </div>
-                {/* 细进度条 */}
                 <div className="h-1.5 rounded-full bg-slate-100 dark:bg-white/10 overflow-hidden">
                   <div
                     className={`h-full rounded-full transition-all duration-300 ${
@@ -182,7 +177,6 @@ export function AgentContextMeter(): JSX.Element | null {
               </div>
             )}
 
-            {/* 累计数据与成本卡片 */}
             {stats && (
               <div className="p-2.5 rounded-lg bg-slate-50/80 border border-slate-100/80 dark:bg-white/5 dark:border-white/10 space-y-1.5 text-label">
                 <div className="flex items-center justify-between text-slate-600 dark:text-gray-300">
