@@ -15,37 +15,27 @@ import logo from '../assets/logo.png'
 import ShortcutRecorder from '../components/ShortcutRecorder'
 import AboutSection from '../components/AboutSection'
 import CliIntegrationSection from '../components/CliIntegrationSection'
-import { AgentProviderSettings } from '../components/workbench/agent/AgentProviderSettings'
+import {
+  useAgentProviderSettingsState,
+  AgentProviderToolbar,
+  AgentProviderContent
+} from '../components/workbench/agent/AgentProviderSettings'
 import { AgentSkillsSettings } from '../components/workbench/agent/AgentSkillsSettings'
 import { AppIcon, type AppIconName } from '../components/icons/AppIcon'
 
-type SettingsSectionId =
-  | 'interface'
-  | 'agent'
-  | 'summary'
-  | 'selection'
-  | 'shortcuts'
-  | 'storage'
-  | 'cli'
-  | 'about'
-  | 'dev'
+type SettingsPageId = 'interface' | 'agent' | 'efficiency' | 'system'
 
-interface NavSectionItem {
-  id: SettingsSectionId
+interface NavPageItem {
+  id: SettingsPageId
   label: string
   icon: AppIconName
-  group: 'general' | 'system'
 }
 
-const BASE_NAV_SECTIONS: NavSectionItem[] = [
-  { id: 'interface', label: '界面与模式', icon: 'web_asset', group: 'general' },
-  { id: 'agent', label: 'Agent 配置', icon: 'smart_toy', group: 'general' },
-  { id: 'summary', label: '任务与总结', icon: 'account_tree', group: 'general' },
-  { id: 'selection', label: '划词工具条', icon: 'text_select_start', group: 'general' },
-  { id: 'shortcuts', label: '全局快捷键', icon: 'keyboard', group: 'general' },
-  { id: 'storage', label: '数据与备份', icon: 'folder_special', group: 'system' },
-  { id: 'cli', label: '命令行集成', icon: 'terminal', group: 'system' },
-  { id: 'about', label: '关于与更新', icon: 'info', group: 'system' }
+const NAV_PAGES: NavPageItem[] = [
+  { id: 'interface', label: '界面与模式', icon: 'web_asset' },
+  { id: 'agent', label: 'Agent 配置', icon: 'smart_toy' },
+  { id: 'efficiency', label: '效率', icon: 'speed' },
+  { id: 'system', label: '系统', icon: 'settings' }
 ]
 
 const MODE_META: Record<ProductMode, { label: string; description: string; icon: AppIconName }> = {
@@ -507,7 +497,7 @@ function ModelOrderCard(): JSX.Element {
                 setDraggedIndex(null)
                 setDragOverIndex(null)
               }}
-              className={`flex cursor-grab items-center justify-between px-3.5 py-2 transition-colors active:cursor-grabbing ${
+              className={`flex cursor-grab items-center justify-between px-3.5 py-1.5 transition-colors active:cursor-grabbing ${
                 isDragging
                   ? 'bg-gray-100/80 opacity-40 dark:bg-white/10'
                   : isDragOver
@@ -579,127 +569,54 @@ function ModelOrderCard(): JSX.Element {
   )
 }
 
+/** Agent 配置分页：标题与供应商工具栏固定在顶部，内容区独立滚动 */
+function AgentSettingsPageSection({ active }: { active: boolean }): JSX.Element {
+  const agentState = useAgentProviderSettingsState({ inlineAuth: true })
+  return (
+    <div
+      className={`h-full min-h-0 flex-col ${active ? 'flex' : 'hidden'}`}
+      aria-hidden={!active}
+    >
+      <div className="shrink-0 px-6 pb-4 pt-3">
+        <div className="max-w-6xl space-y-4">
+          <SectionHeader
+            icon="smart_toy"
+            title="Agent 配置"
+            description="内置 Agent 模型、Skills 与命令权限"
+          />
+          <AgentProviderToolbar state={agentState} />
+        </div>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-6 pt-1">
+        <div className="max-w-6xl space-y-4 pb-10">
+          <div className="rounded-xl glass-panel p-4">
+            <AgentProviderContent state={agentState} />
+          </div>
+          <div className="rounded-xl glass-panel p-4">
+            <div className="mb-3 text-body font-medium text-text-primary">技能目录与命令权限</div>
+            <AgentSkillsSettings />
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /**
  * 二级设置页面
- * 所有配置项均在当前页内完成，无二级弹窗；左侧透明背景导航栏与右侧连续内容区双向滚动联动
+ * 所有配置项均在当前页内完成，无二级弹窗；左侧导航切换右侧分页，各分区块常驻 DOM，切换不丢失编辑状态
  */
 export default function SettingsPage(): JSX.Element {
   const { apiConfig, setApiConfig } = useAppStore()
   const { hasUpdate, releaseUrl } = useUpdateReminder()
 
-  const navSections = useMemo<NavSectionItem[]>(() => {
-    if (import.meta.env.DEV) {
-      return [
-        ...BASE_NAV_SECTIONS,
-        { id: 'dev', label: '开发工具', icon: 'build', group: 'system' }
-      ]
-    }
-    return BASE_NAV_SECTIONS
-  }, [])
-
-  const generalSections = useMemo(
-    () => navSections.filter((s) => s.group === 'general'),
-    [navSections]
-  )
-  const systemSections = useMemo(
-    () => navSections.filter((s) => s.group === 'system'),
-    [navSections]
-  )
-
-  // 导航与滚动联动状态
-  const [activeSection, setActiveSection] = useState<SettingsSectionId>('interface')
+  const [activePage, setActivePage] = useState<SettingsPageId>('interface')
   const scrollContainerRef = useRef<HTMLDivElement>(null)
-  const sectionRefs = useRef<Partial<Record<SettingsSectionId, HTMLElement | null>>>({})
-  const isProgrammaticScrollRef = useRef(false)
-  const scrollUnlockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const scrollRafRef = useRef<number | null>(null)
 
-  const clearProgrammaticLock = useCallback(() => {
-    isProgrammaticScrollRef.current = false
-    if (scrollUnlockTimerRef.current) {
-      clearTimeout(scrollUnlockTimerRef.current)
-      scrollUnlockTimerRef.current = null
-    }
+  const handleNavClick = useCallback((id: SettingsPageId) => {
+    setActivePage(id)
+    scrollContainerRef.current?.scrollTo({ top: 0 })
   }, [])
-
-  useEffect(() => {
-    return () => {
-      if (scrollUnlockTimerRef.current) clearTimeout(scrollUnlockTimerRef.current)
-      if (scrollRafRef.current !== null) cancelAnimationFrame(scrollRafRef.current)
-    }
-  }, [])
-
-  const updateActiveSectionFromScroll = useCallback(() => {
-    const container = scrollContainerRef.current
-    if (!container || isProgrammaticScrollRef.current) return
-
-    const { scrollTop, clientHeight, scrollHeight } = container
-    if (scrollTop <= 16) {
-      setActiveSection(navSections[0].id)
-      return
-    }
-    if (scrollTop + clientHeight >= scrollHeight - 24) {
-      setActiveSection(navSections[navSections.length - 1].id)
-      return
-    }
-
-    const containerTop = container.getBoundingClientRect().top
-    const anchorY = containerTop + 120
-    let matchedId: SettingsSectionId = navSections[0].id
-
-    for (const item of navSections) {
-      const el = sectionRefs.current[item.id]
-      if (!el) continue
-      if (el.getBoundingClientRect().top <= anchorY) {
-        matchedId = item.id
-      }
-    }
-    setActiveSection(matchedId)
-  }, [navSections])
-
-  const handleContentScroll = useCallback(() => {
-    if (isProgrammaticScrollRef.current) {
-      if (scrollUnlockTimerRef.current) clearTimeout(scrollUnlockTimerRef.current)
-      scrollUnlockTimerRef.current = setTimeout(() => {
-        isProgrammaticScrollRef.current = false
-        scrollUnlockTimerRef.current = null
-      }, 150)
-      return
-    }
-    if (scrollRafRef.current !== null) return
-    scrollRafRef.current = requestAnimationFrame(() => {
-      scrollRafRef.current = null
-      updateActiveSectionFromScroll()
-    })
-  }, [updateActiveSectionFromScroll])
-
-  const handleNavClick = useCallback((id: SettingsSectionId) => {
-    const container = scrollContainerRef.current
-    const targetEl = sectionRefs.current[id]
-    setActiveSection(id)
-    if (!container || !targetEl) return
-
-    isProgrammaticScrollRef.current = true
-    if (scrollUnlockTimerRef.current) clearTimeout(scrollUnlockTimerRef.current)
-    scrollUnlockTimerRef.current = setTimeout(() => {
-      isProgrammaticScrollRef.current = false
-      scrollUnlockTimerRef.current = null
-    }, 700)
-
-    const containerTop = container.getBoundingClientRect().top
-    const targetTop = container.scrollTop + (targetEl.getBoundingClientRect().top - containerTop) - 24
-    container.scrollTo({
-      top: Math.max(0, targetTop),
-      behavior: 'smooth'
-    })
-  }, [])
-
-  const setSectionRef = useCallback(
-    (id: SettingsSectionId) => (el: HTMLElement | null) => {
-      sectionRefs.current[id] = el
-    },
-    []
-  )
 
   // 总结提示词内联编辑 / 删除确认状态
   const [addingPrompt, setAddingPrompt] = useState(false)
@@ -964,14 +881,14 @@ export default function SettingsPage(): JSX.Element {
     })
   }
 
-  const renderNavItem = (item: NavSectionItem): JSX.Element => {
-    const isActive = activeSection === item.id
+  const renderNavItem = (item: NavPageItem): JSX.Element => {
+    const isActive = activePage === item.id
     return (
       <button
         key={item.id}
         type="button"
         onClick={() => handleNavClick(item.id)}
-        aria-current={isActive ? 'location' : undefined}
+        aria-current={isActive ? 'page' : undefined}
         className={`flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left text-body transition-all duration-150 ${
           isActive
             ? 'border-white/80 bg-white/75 font-medium text-primary shadow-xs dark:border-white/15 dark:bg-white/10'
@@ -986,7 +903,7 @@ export default function SettingsPage(): JSX.Element {
           />
           <span className="truncate">{item.label}</span>
         </span>
-        {item.id === 'about' && hasUpdate && (
+        {item.id === 'system' && hasUpdate && (
           <span className="shrink-0 rounded-full border border-red-200 bg-red-50 px-1.5 py-0.5 text-tiny font-bold leading-none text-red-500">
             NEW
           </span>
@@ -1003,20 +920,8 @@ export default function SettingsPage(): JSX.Element {
           <h1 className="text-title-lg font-bold tracking-tight text-text-primary">设置</h1>
         </div>
 
-        <nav aria-label="设置导航" className="flex-1 space-y-5 overflow-y-auto pr-1">
-          <div>
-            <div className="mb-1.5 px-3 text-caption font-medium text-text-secondary/80">
-              常用与交互
-            </div>
-            <div className="space-y-1">{generalSections.map(renderNavItem)}</div>
-          </div>
-
-          <div className="border-t border-black/[0.05] pt-4 dark:border-white/[0.08]">
-            <div className="mb-1.5 px-3 text-caption font-medium text-text-secondary/80">
-              数据与系统
-            </div>
-            <div className="space-y-1">{systemSections.map(renderNavItem)}</div>
-          </div>
+        <nav aria-label="设置导航" className="flex-1 overflow-y-auto pr-1">
+          <div className="space-y-1">{NAV_PAGES.map(renderNavItem)}</div>
         </nav>
 
         <div className="mt-4 flex items-center gap-2 px-2 pt-2">
@@ -1034,454 +939,450 @@ export default function SettingsPage(): JSX.Element {
         </div>
       </aside>
 
-      {/* 右侧连续配置内容区 */}
-      <div
-        ref={scrollContainerRef}
-        onScroll={handleContentScroll}
-        onWheel={clearProgrammaticLock}
-        onPointerDown={clearProgrammaticLock}
-        onTouchStart={clearProgrammaticLock}
-        className="h-full min-w-0 flex-1 overflow-y-auto px-6 pb-6 pt-3 lg:px-10"
-      >
-        <div className="mx-auto max-w-3xl space-y-8 pb-24">
-          {/* 1. 界面与模式 */}
-          <section ref={setSectionRef('interface')} data-section-id="interface">
-            <SectionHeader icon="web_asset" title="界面与模式" />
-            <div className="space-y-4">
-              <ProductModeOrderCard />
-              <ModelOrderCard />
-            </div>
-          </section>
-
-          {/* 2. Agent 配置 */}
-          <section ref={setSectionRef('agent')} data-section-id="agent">
-            <SectionHeader
-              icon="smart_toy"
-              title="Agent 配置"
-              description="内置 Agent 模型、Skills 与命令权限"
-            />
-            <div className="space-y-4">
-              <div className="rounded-xl glass-panel p-4">
-                <div className="mb-3 text-body font-medium text-text-primary">供应商与模型凭证</div>
-                <AgentProviderSettings inlineAuth />
-              </div>
-
-              <div className="rounded-xl glass-panel p-4">
-                <div className="mb-3 text-body font-medium text-text-primary">技能目录与命令权限</div>
-                <AgentSkillsSettings />
-              </div>
-            </div>
-          </section>
-
-          {/* 3. 任务与总结 */}
-          <section ref={setSectionRef('summary')} data-section-id="summary">
-            <SectionHeader icon="account_tree" title="任务与总结" />
-            <div className="rounded-xl glass-panel p-4">
-              <div className="mb-3 flex items-center justify-between gap-2">
-                <div className="flex min-w-0 items-baseline gap-2.5">
-                  <div className="shrink-0 text-body font-medium text-text-primary">总结提示词模板</div>
-                  <div className="truncate text-caption text-text-secondary">
-                    共 {sortedSummaryPrompts.length} 个模板
-                  </div>
+      {/* 右侧分页配置内容区 */}
+      <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
+        <AgentSettingsPageSection active={activePage === 'agent'} />
+        <div
+          ref={scrollContainerRef}
+          className={`min-h-0 flex-1 overflow-y-auto px-6 pb-6 pt-3 ${
+            activePage === 'agent' ? 'hidden' : ''
+          }`}
+        >
+        <div className="max-w-6xl pb-10">
+            <div
+              className={`space-y-8 ${activePage === 'interface' ? '' : 'hidden'}`}
+              aria-hidden={activePage !== 'interface'}
+            >
+              {/* 界面与模式 */}
+              <section>
+                <SectionHeader icon="web_asset" title="界面与模式" />
+                <div className="space-y-4">
+                  <ProductModeOrderCard />
+                  <ModelOrderCard />
                 </div>
-                <div className="flex shrink-0 items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => window.api?.summaryPromptsOpenFolder?.()}
-                    className="flex h-8 w-8 items-center justify-center rounded-full text-text-secondary transition-colors hover:bg-black/5 hover:text-text-primary dark:hover:bg-white/10"
-                    title="打开模板文件夹"
-                    aria-label="打开模板文件夹"
-                  >
-                    <AppIcon name="folder_open" size={16} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      void refreshSummaryPrompts().catch(() => {})
-                    }}
-                    className="flex h-8 w-8 items-center justify-center rounded-full text-text-secondary transition-colors hover:bg-black/5 hover:text-text-primary dark:hover:bg-white/10"
-                    title="刷新模板"
-                    aria-label="刷新模板"
-                  >
-                    <AppIcon name="refresh" size={16} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEditingPromptId(null)
-                      setDeletingPromptId(null)
-                      setAddingPrompt((prev) => !prev)
-                    }}
-                    className="flex h-8 items-center gap-1 rounded-lg bg-primary/10 px-2.5 text-label font-medium text-primary transition-colors hover:bg-primary/15"
-                  >
-                    <AppIcon name={addingPrompt ? 'close' : 'add'} size={14} />
-                    <span>{addingPrompt ? '收起' : '新增'}</span>
-                  </button>
-                </div>
-              </div>
+              </section>
+            </div>
 
-              <div className="space-y-2">
-                {addingPrompt && (
-                  <InlinePromptEditor
-                    prompt={null}
-                    isNew
-                    onSave={handleSavePrompt}
-                    onCancel={() => setAddingPrompt(false)}
-                  />
-                )}
-
-                {sortedSummaryPrompts.map((prompt) => {
-                  const isEditing = editingPromptId === prompt.id
-                  const isConfirmingDelete = deletingPromptId === prompt.id
-
-                  if (isEditing) {
-                    return (
-                      <InlinePromptEditor
-                        key={prompt.id}
-                        prompt={prompt}
-                        onSave={handleSavePrompt}
-                        onCancel={() => setEditingPromptId(null)}
-                      />
-                    )
-                  }
-
-                  return (
-                    <div
-                      key={prompt.id}
-                      className="group flex items-center justify-between gap-3 rounded-lg border border-white/70 bg-white/50 px-3 py-2.5 transition-colors hover:bg-blue-50/40 dark:border-white/10 dark:bg-white/5 dark:hover:bg-white/10"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div className="flex min-w-0 items-center gap-2">
-                          <span className="truncate text-body font-medium text-text-primary">
-                            {prompt.name}
-                          </span>
-                          {prompt.isDefault && (
-                            <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-tiny font-medium text-primary">
-                              预设
-                            </span>
-                          )}
-                        </div>
-                        {prompt.description && (
-                          <div className="mt-0.5 truncate text-caption text-text-secondary">
-                            {prompt.description}
-                          </div>
-                        )}
+            <div
+              className={`space-y-8 ${activePage === 'efficiency' ? '' : 'hidden'}`}
+              aria-hidden={activePage !== 'efficiency'}
+            >
+              {/* 任务与总结 */}
+              <section>
+                <SectionHeader icon="account_tree" title="任务与总结" />
+                <div className="rounded-xl glass-panel p-4">
+                  <div className="mb-3 flex items-center justify-between gap-2">
+                    <div className="flex min-w-0 items-baseline gap-2.5">
+                      <div className="shrink-0 text-body font-medium text-text-primary">总结提示词模板</div>
+                      <div className="truncate text-caption text-text-secondary">
+                        共 {sortedSummaryPrompts.length} 个模板
                       </div>
-
-                      {isConfirmingDelete ? (
-                        <div className="flex shrink-0 items-center gap-1.5">
-                          <span className="text-caption text-rose-600">确认删除？</span>
-                          <button
-                            type="button"
-                            disabled={deletingPromptBusy}
-                            onClick={() => {
-                              void handleConfirmDeletePrompt(prompt.id)
-                            }}
-                            className="rounded-lg bg-red-600 px-2.5 py-1 text-label font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-                          >
-                            {deletingPromptBusy ? '删除中' : '确认'}
-                          </button>
-                          <button
-                            type="button"
-                            disabled={deletingPromptBusy}
-                            onClick={() => setDeletingPromptId(null)}
-                            className="rounded-lg border border-gray-200 bg-sidebar px-2.5 py-1 text-label text-text-secondary transition-colors hover:bg-gray-100 dark:border-white/10 dark:bg-white/5"
-                          >
-                            取消
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setAddingPrompt(false)
-                              setDeletingPromptId(null)
-                              setEditingPromptId(prompt.id)
-                            }}
-                            className="flex h-8 w-8 items-center justify-center rounded-full text-text-secondary transition-colors hover:bg-black/5 hover:text-primary dark:hover:bg-white/10"
-                            title="编辑"
-                            aria-label={`编辑 ${prompt.name}`}
-                          >
-                            <AppIcon name="edit" size={16} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditingPromptId(null)
-                              setDeletingPromptId(prompt.id)
-                            }}
-                            className="flex h-8 w-8 items-center justify-center rounded-full text-text-secondary transition-colors hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-500/10"
-                            title="删除"
-                            aria-label={`删除 ${prompt.name}`}
-                          >
-                            <AppIcon name="delete" size={16} />
-                          </button>
-                        </div>
-                      )}
                     </div>
-                  )
-                })}
-              </div>
-            </div>
-          </section>
-
-          {/* 4. 划词工具条 */}
-          <section ref={setSectionRef('selection')} data-section-id="selection">
-            <SectionHeader icon="text_select_start" title="划词工具条" />
-            <div className="space-y-3 rounded-xl glass-panel p-4">
-              <div className="flex items-center justify-between gap-4">
-                <div className="min-w-0">
-                  <div className="text-body font-medium text-text-primary">启用划词悬浮工具条</div>
-                  <div className="mt-0.5 text-caption text-text-secondary">
-                    选中文本自动弹出快捷操作栏
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => window.api?.summaryPromptsOpenFolder?.()}
+                        className="flex h-8 w-8 items-center justify-center rounded-full text-text-secondary transition-colors hover:bg-black/5 hover:text-text-primary dark:hover:bg-white/10"
+                        title="打开模板文件夹"
+                        aria-label="打开模板文件夹"
+                      >
+                        <AppIcon name="folder_open" size={16} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void refreshSummaryPrompts().catch(() => {})
+                        }}
+                        className="flex h-8 w-8 items-center justify-center rounded-full text-text-secondary transition-colors hover:bg-black/5 hover:text-text-primary dark:hover:bg-white/10"
+                        title="刷新模板"
+                        aria-label="刷新模板"
+                      >
+                        <AppIcon name="refresh" size={16} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingPromptId(null)
+                          setDeletingPromptId(null)
+                          setAddingPrompt((prev) => !prev)
+                        }}
+                        className="flex h-8 items-center gap-1 rounded-lg bg-primary/10 px-2.5 text-label font-medium text-primary transition-colors hover:bg-primary/15"
+                      >
+                        <AppIcon name={addingPrompt ? 'close' : 'add'} size={14} />
+                        <span>{addingPrompt ? '收起' : '新增'}</span>
+                      </button>
+                    </div>
                   </div>
-                  {window.api.platform === 'darwin' && (
-                    <button
-                      type="button"
-                      className="mt-2 text-label text-primary hover:underline"
-                      onClick={async () => {
-                        const res = await window.api.selectionPermissionRequest()
-                        if (res.success && res.data) setSelectionPermission(res.data)
-                      }}
-                    >
-                      macOS 辅助功能权限：{selectionPermission}（点击请求；首次读取时可能还会请求“自动化”权限）
-                    </button>
-                  )}
-                </div>
-                <label className="relative inline-flex shrink-0 cursor-pointer items-center">
-                  <input
-                    type="checkbox"
-                    aria-label="启用划词悬浮工具条"
-                    checked={selectionToolbarEnabled}
-                    onChange={(e) => {
-                      void handleSelectionToolbarChange(e.target.checked)
-                    }}
-                    className="peer sr-only"
-                  />
-                  <div className="h-5 w-9 rounded-full bg-gray-200 transition-all after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-primary peer-checked:after:translate-x-full peer-checked:after:border-white peer-focus:outline-none dark:bg-gray-700" />
-                </label>
-              </div>
-              {selectionError && (
-                <InlineFeedback
-                  tone="error"
-                  message={selectionError}
-                  onDismiss={() => setSelectionError(null)}
-                />
-              )}
-            </div>
-          </section>
 
-          {/* 5. 全局快捷键 */}
-          <section ref={setSectionRef('shortcuts')} data-section-id="shortcuts">
-            <SectionHeader
-              icon="keyboard"
-              title="全局快捷键"
-              description="点击录制框按下组合键，Esc 取消"
-            />
-            <div className="space-y-3 rounded-xl glass-panel p-4">
-              {SHORTCUT_ITEMS.map(({ key, label, placeholder }) => (
-                <div key={key} className="flex items-center justify-between gap-4 py-0.5">
-                  <label className="text-body text-text-primary">{label}</label>
-                  <ShortcutRecorder
-                    value={shortcuts[key] || ''}
-                    onChange={(val) => {
-                      void handleShortcutChange(key, val)
-                    }}
-                    placeholder={placeholder}
-                    defaultShortcut={key === 'summon' ? 'CommandOrControl+Shift+Space' : ''}
-                  />
-                </div>
-              ))}
-              {shortcutNotice && (
-                <InlineFeedback
-                  tone="error"
-                  message={shortcutNotice}
-                  onDismiss={() => setShortcutNotice(null)}
-                />
-              )}
-            </div>
-          </section>
+                  <div className="space-y-2">
+                    {addingPrompt && (
+                      <InlinePromptEditor
+                        prompt={null}
+                        isNew
+                        onSave={handleSavePrompt}
+                        onCancel={() => setAddingPrompt(false)}
+                      />
+                    )}
 
-          {/* 6. 数据与备份 */}
-          <section ref={setSectionRef('storage')} data-section-id="storage">
-            <SectionHeader icon="folder_special" title="数据与备份" />
-            <div className="space-y-3 rounded-xl glass-panel p-4">
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                <div className="min-w-0">
-                  <div className="text-body font-medium text-text-primary">应用缓存与业务数据</div>
-                  <div className="mt-0.5 text-caption text-text-secondary">
-                    导出或恢复 JSON 备份（恢复前自动尝试备份）
-                  </div>
-                </div>
-                <div className="flex shrink-0 flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      void handleExportCache()
-                    }}
-                    className="flex h-9 items-center gap-1.5 rounded-lg border border-gray-200 bg-sidebar px-3.5 text-body font-medium text-text-primary transition-colors hover:border-primary/40 hover:text-primary dark:border-white/10 dark:bg-white/5"
-                  >
-                    <AppIcon name="download" size={14} />
-                    <span>备份数据</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      void handleImportCache()
-                    }}
-                    className="flex h-9 items-center gap-1.5 rounded-lg border border-gray-200 bg-sidebar px-3.5 text-body font-medium text-text-primary transition-colors hover:border-primary/40 hover:text-primary dark:border-white/10 dark:bg-white/5"
-                  >
-                    <AppIcon name="upload" size={14} />
-                    <span>恢复数据</span>
-                  </button>
-                </div>
-              </div>
+                    {sortedSummaryPrompts.map((prompt) => {
+                      const isEditing = editingPromptId === prompt.id
+                      const isConfirmingDelete = deletingPromptId === prompt.id
 
-              {storageFeedback && (
-                <InlineFeedback
-                  tone={storageFeedback.tone}
-                  message={storageFeedback.message}
-                  onDismiss={() => setStorageFeedback(null)}
-                />
-              )}
+                      if (isEditing) {
+                        return (
+                          <InlinePromptEditor
+                            key={prompt.id}
+                            prompt={prompt}
+                            onSave={handleSavePrompt}
+                            onCancel={() => setEditingPromptId(null)}
+                          />
+                        )
+                      }
 
-              {importPreview && (
-                <div className="space-y-3 rounded-lg border border-primary/25 bg-white/80 p-3.5 dark:border-white/15 dark:bg-white/5">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-body font-medium text-text-primary">确认恢复数据</span>
-                    <button
-                      type="button"
-                      onClick={() => setImportPreview(null)}
-                      className="text-caption text-text-secondary hover:text-text-primary"
-                    >
-                      取消
-                    </button>
-                  </div>
-                  <p className="text-label text-text-secondary">
-                    将从文件导入以下数据，<span className="font-medium text-amber-600">覆盖</span>
-                    现有同名配置；历史、笔记和导图按 ID 合并：
-                  </p>
-                  <div className="truncate text-caption text-text-secondary" title={importPreview.file}>
-                    来源：{importPreview.file}
-                  </div>
-                  <div className="space-y-1">
-                    {importPreview.keys.map((k) => {
-                      const isConflict = importPreview.conflicts.includes(k)
-                      const label = CACHE_KEY_LABELS[k] || k
-                      const counts = importPreview.businessCounts?.[k]
                       return (
                         <div
-                          key={k}
-                          className="flex items-center justify-between rounded-lg bg-sidebar/60 px-3 py-1.5 text-label dark:bg-white/5"
+                          key={prompt.id}
+                          className="group flex items-center justify-between gap-3 rounded-lg border border-white/70 bg-white/50 px-3 py-2.5 transition-colors hover:bg-blue-50/40 dark:border-white/10 dark:bg-white/5 dark:hover:bg-white/10"
                         >
-                          <span className="text-text-primary">{label}</span>
-                          <span className={`text-caption ${isConflict ? 'text-amber-600' : 'text-text-secondary'}`}>
-                            {counts
-                              ? `新增 ${counts.added} · 相同 ${counts.unchanged} · 冲突 ${counts.conflicts}`
-                              : isConflict
-                                ? '将覆盖现有配置'
-                                : '新增'}
-                          </span>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex min-w-0 items-center gap-2">
+                              <span className="truncate text-body font-medium text-text-primary">
+                                {prompt.name}
+                              </span>
+                              {prompt.isDefault && (
+                                <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-tiny font-medium text-primary">
+                                  预设
+                                </span>
+                              )}
+                            </div>
+                            {prompt.description && (
+                              <div className="mt-0.5 truncate text-caption text-text-secondary">
+                                {prompt.description}
+                              </div>
+                            )}
+                          </div>
+
+                          {isConfirmingDelete ? (
+                            <div className="flex shrink-0 items-center gap-1.5">
+                              <span className="text-caption text-rose-600">确认删除？</span>
+                              <button
+                                type="button"
+                                disabled={deletingPromptBusy}
+                                onClick={() => {
+                                  void handleConfirmDeletePrompt(prompt.id)
+                                }}
+                                className="rounded-lg bg-red-600 px-2.5 py-1 text-label font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                              >
+                                {deletingPromptBusy ? '删除中' : '确认'}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={deletingPromptBusy}
+                                onClick={() => setDeletingPromptId(null)}
+                                className="rounded-lg border border-gray-200 bg-sidebar px-2.5 py-1 text-label text-text-secondary transition-colors hover:bg-gray-100 dark:border-white/10 dark:bg-white/5"
+                              >
+                                取消
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setAddingPrompt(false)
+                                  setDeletingPromptId(null)
+                                  setEditingPromptId(prompt.id)
+                                }}
+                                className="flex h-8 w-8 items-center justify-center rounded-full text-text-secondary transition-colors hover:bg-black/5 hover:text-primary dark:hover:bg-white/10"
+                                title="编辑"
+                                aria-label={`编辑 ${prompt.name}`}
+                              >
+                                <AppIcon name="edit" size={16} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingPromptId(null)
+                                  setDeletingPromptId(prompt.id)
+                                }}
+                                className="flex h-8 w-8 items-center justify-center rounded-full text-text-secondary transition-colors hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-500/10"
+                                title="删除"
+                                aria-label={`删除 ${prompt.name}`}
+                              >
+                                <AppIcon name="delete" size={16} />
+                              </button>
+                            </div>
+                          )}
                         </div>
                       )
                     })}
                   </div>
-                  {importPreview.businessCounts && (
-                    <label className="flex items-center gap-2 text-label text-text-secondary">
+                </div>
+              </section>
+
+              {/* 划词工具条 */}
+              <section>
+                <SectionHeader icon="text_select_start" title="划词工具条" />
+                <div className="space-y-3 rounded-xl glass-panel p-4">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="min-w-0">
+                      <div className="text-body font-medium text-text-primary">启用划词悬浮工具条</div>
+                      <div className="mt-0.5 text-caption text-text-secondary">
+                        选中文本自动弹出快捷操作栏
+                      </div>
+                      {window.api.platform === 'darwin' && (
+                        <button
+                          type="button"
+                          className="mt-2 text-label text-primary hover:underline"
+                          onClick={async () => {
+                            const res = await window.api.selectionPermissionRequest()
+                            if (res.success && res.data) setSelectionPermission(res.data)
+                          }}
+                        >
+                          macOS 辅助功能权限：{selectionPermission}（点击请求；首次读取时可能还会请求“自动化”权限）
+                        </button>
+                      )}
+                    </div>
+                    <label className="relative inline-flex shrink-0 cursor-pointer items-center">
                       <input
                         type="checkbox"
-                        checked={overwriteBusiness}
-                        onChange={(e) => setOverwriteBusiness(e.target.checked)}
-                        className="rounded accent-primary"
+                        aria-label="启用划词悬浮工具条"
+                        checked={selectionToolbarEnabled}
+                        onChange={(e) => {
+                          void handleSelectionToolbarChange(e.target.checked)
+                        }}
+                        className="peer sr-only"
                       />
-                      <span>覆盖同 ID 的冲突业务记录（默认保留本地）</span>
+                      <div className="h-5 w-9 rounded-full bg-gray-200 transition-all after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-primary peer-checked:after:translate-x-full peer-checked:after:border-white peer-focus:outline-none dark:bg-gray-700" />
                     </label>
+                  </div>
+                  {selectionError && (
+                    <InlineFeedback
+                      tone="error"
+                      message={selectionError}
+                      onDismiss={() => setSelectionError(null)}
+                    />
                   )}
-                  <div className="flex justify-end gap-2 pt-1">
+                </div>
+              </section>
+
+              {/* 全局快捷键 */}
+              <section>
+                <SectionHeader
+                  icon="keyboard"
+                  title="全局快捷键"
+                  description="点击录制框按下组合键，Esc 取消"
+                />
+                <div className="space-y-3 rounded-xl glass-panel p-4">
+                  {SHORTCUT_ITEMS.map(({ key, label, placeholder }) => (
+                    <div key={key} className="flex items-center justify-between gap-4 py-0.5">
+                      <label className="text-body text-text-primary">{label}</label>
+                      <ShortcutRecorder
+                        value={shortcuts[key] || ''}
+                        onChange={(val) => {
+                          void handleShortcutChange(key, val)
+                        }}
+                        placeholder={placeholder}
+                        defaultShortcut={key === 'summon' ? 'CommandOrControl+Shift+Space' : ''}
+                      />
+                    </div>
+                  ))}
+                  {shortcutNotice && (
+                    <InlineFeedback
+                      tone="error"
+                      message={shortcutNotice}
+                      onDismiss={() => setShortcutNotice(null)}
+                    />
+                  )}
+                </div>
+              </section>
+            </div>
+
+            <div
+              className={`space-y-8 ${activePage === 'system' ? '' : 'hidden'}`}
+              aria-hidden={activePage !== 'system'}
+            >
+              {/* 数据与备份 */}
+              <section>
+                <SectionHeader icon="folder_special" title="数据与备份" />
+                <div className="space-y-3 rounded-xl glass-panel p-4">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                      <div className="text-body font-medium text-text-primary">应用缓存与业务数据</div>
+                      <div className="mt-0.5 text-caption text-text-secondary">
+                        导出或恢复 JSON 备份（恢复前自动尝试备份）
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void handleExportCache()
+                        }}
+                        className="flex h-9 items-center gap-1.5 rounded-lg border border-gray-200 bg-sidebar px-3.5 text-body font-medium text-text-primary transition-colors hover:border-primary/40 hover:text-primary dark:border-white/10 dark:bg-white/5"
+                      >
+                        <AppIcon name="download" size={14} />
+                        <span>备份数据</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void handleImportCache()
+                        }}
+                        className="flex h-9 items-center gap-1.5 rounded-lg border border-gray-200 bg-sidebar px-3.5 text-body font-medium text-text-primary transition-colors hover:border-primary/40 hover:text-primary dark:border-white/10 dark:bg-white/5"
+                      >
+                        <AppIcon name="upload" size={14} />
+                        <span>恢复数据</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {storageFeedback && (
+                    <InlineFeedback
+                      tone={storageFeedback.tone}
+                      message={storageFeedback.message}
+                      onDismiss={() => setStorageFeedback(null)}
+                    />
+                  )}
+
+                  {importPreview && (
+                    <div className="space-y-3 rounded-lg border border-primary/25 bg-white/80 p-3.5 dark:border-white/15 dark:bg-white/5">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-body font-medium text-text-primary">确认恢复数据</span>
+                        <button
+                          type="button"
+                          onClick={() => setImportPreview(null)}
+                          className="text-caption text-text-secondary hover:text-text-primary"
+                        >
+                          取消
+                        </button>
+                      </div>
+                      <p className="text-label text-text-secondary">
+                        将从文件导入以下数据，<span className="font-medium text-amber-600">覆盖</span>
+                        现有同名配置；历史、笔记和导图按 ID 合并：
+                      </p>
+                      <div className="truncate text-caption text-text-secondary" title={importPreview.file}>
+                        来源：{importPreview.file}
+                      </div>
+                      <div className="space-y-1">
+                        {importPreview.keys.map((k) => {
+                          const isConflict = importPreview.conflicts.includes(k)
+                          const label = CACHE_KEY_LABELS[k] || k
+                          const counts = importPreview.businessCounts?.[k]
+                          return (
+                            <div
+                              key={k}
+                              className="flex items-center justify-between rounded-lg bg-sidebar/60 px-3 py-1.5 text-label dark:bg-white/5"
+                            >
+                              <span className="text-text-primary">{label}</span>
+                              <span className={`text-caption ${isConflict ? 'text-amber-600' : 'text-text-secondary'}`}>
+                                {counts
+                                  ? `新增 ${counts.added} · 相同 ${counts.unchanged} · 冲突 ${counts.conflicts}`
+                                  : isConflict
+                                    ? '将覆盖现有配置'
+                                    : '新增'}
+                              </span>
+                            </div>
+                          )
+                        })}
+                      </div>
+                      {importPreview.businessCounts && (
+                        <label className="flex items-center gap-2 text-label text-text-secondary">
+                          <input
+                            type="checkbox"
+                            checked={overwriteBusiness}
+                            onChange={(e) => setOverwriteBusiness(e.target.checked)}
+                            className="rounded accent-primary"
+                          />
+                          <span>覆盖同 ID 的冲突业务记录（默认保留本地）</span>
+                        </label>
+                      )}
+                      <div className="flex justify-end gap-2 pt-1">
+                        <button
+                          type="button"
+                          disabled={importingCache}
+                          onClick={() => setImportPreview(null)}
+                          className="h-9 rounded-lg border border-gray-200 bg-sidebar px-3.5 text-body text-text-secondary transition-colors hover:bg-gray-100 disabled:opacity-50 dark:border-white/10 dark:bg-white/5"
+                        >
+                          取消
+                        </button>
+                        <button
+                          type="button"
+                          disabled={importingCache}
+                          onClick={() => {
+                            void handleConfirmImportCache()
+                          }}
+                          className="h-9 rounded-lg bg-primary px-4 text-body font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                        >
+                          {importingCache ? '导入中…' : '确认导入'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </section>
+
+              {/* 命令行集成 */}
+              <section>
+                <SectionHeader icon="terminal" title="命令行集成" />
+                <CliIntegrationSection />
+              </section>
+
+              {/* 关于与更新 */}
+              <section>
+                <SectionHeader icon="info" title="关于与更新" />
+                <div className="rounded-xl glass-panel p-4">
+                  <a
+                    href="https://github.com/max-doo/MultiChat-desk"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="group flex items-center justify-between rounded-lg border border-white/70 bg-white/50 p-3 transition-all hover:bg-blue-50/40 dark:border-white/10 dark:bg-white/5 dark:hover:bg-white/10"
+                  >
+                    <div className="flex items-center gap-3">
+                      <AppIcon name="help" size={20} className="text-primary" />
+                      <div className="flex flex-col">
+                        <span className="text-body font-medium text-text-primary">查看使用说明</span>
+                        <span className="text-caption text-text-secondary">
+                          GitHub 文档与常见问题
+                        </span>
+                      </div>
+                    </div>
+                    <AppIcon
+                      name="open_in_new"
+                      size={16}
+                      className="text-text-secondary transition-colors group-hover:text-primary"
+                    />
+                  </a>
+                  <AboutSection />
+                </div>
+              </section>
+
+              {/* Dev-only 诊断入口 */}
+              {import.meta.env.DEV && (
+                <section>
+                  <SectionHeader icon="build" title="开发工具" />
+                  <div className="flex items-center justify-between gap-4 rounded-xl glass-panel p-4">
+                    <div className="min-w-0">
+                      <div className="text-body font-medium text-text-primary">选择器诊断</div>
+                      <div className="mt-0.5 text-caption text-text-secondary">
+                        打开平台 DOM 与选择器诊断窗口
+                      </div>
+                    </div>
                     <button
                       type="button"
-                      disabled={importingCache}
-                      onClick={() => setImportPreview(null)}
-                      className="h-9 rounded-lg border border-gray-200 bg-sidebar px-3.5 text-body text-text-secondary transition-colors hover:bg-gray-100 disabled:opacity-50 dark:border-white/10 dark:bg-white/5"
-                    >
-                      取消
-                    </button>
-                    <button
-                      type="button"
-                      disabled={importingCache}
                       onClick={() => {
-                        void handleConfirmImportCache()
+                        void window.api.diagnosticsOpenWindow()
                       }}
-                      className="h-9 rounded-lg bg-primary px-4 text-body font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                      className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-gray-200 bg-sidebar px-3.5 text-body font-medium text-text-primary transition-colors hover:border-primary/40 hover:text-primary dark:border-white/10 dark:bg-white/5"
                     >
-                      {importingCache ? '导入中…' : '确认导入'}
+                      <AppIcon name="science" size={16} />
+                      <span>打开诊断窗口</span>
                     </button>
                   </div>
-                </div>
+                </section>
               )}
             </div>
-          </section>
-
-          {/* 7. 命令行集成 */}
-          <section ref={setSectionRef('cli')} data-section-id="cli">
-            <SectionHeader icon="terminal" title="命令行集成" />
-            <CliIntegrationSection />
-          </section>
-
-          {/* 8. 关于与更新 */}
-          <section ref={setSectionRef('about')} data-section-id="about">
-            <SectionHeader icon="info" title="关于与更新" />
-            <div className="rounded-xl glass-panel p-4">
-              <a
-                href="https://github.com/max-doo/MultiChat-desk"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="group flex items-center justify-between rounded-lg border border-white/70 bg-white/50 p-3 transition-all hover:bg-blue-50/40 dark:border-white/10 dark:bg-white/5 dark:hover:bg-white/10"
-              >
-                <div className="flex items-center gap-3">
-                  <AppIcon name="help" size={20} className="text-primary" />
-                  <div className="flex flex-col">
-                    <span className="text-body font-medium text-text-primary">查看使用说明</span>
-                    <span className="text-caption text-text-secondary">
-                      GitHub 文档与常见问题
-                    </span>
-                  </div>
-                </div>
-                <AppIcon
-                  name="open_in_new"
-                  size={16}
-                  className="text-text-secondary transition-colors group-hover:text-primary"
-                />
-              </a>
-              <AboutSection />
-            </div>
-          </section>
-
-          {/* 9. Dev-only 诊断入口 */}
-          {import.meta.env.DEV && (
-            <section ref={setSectionRef('dev')} data-section-id="dev">
-              <SectionHeader icon="build" title="开发工具" />
-              <div className="flex items-center justify-between gap-4 rounded-xl glass-panel p-4">
-                <div className="min-w-0">
-                  <div className="text-body font-medium text-text-primary">选择器诊断</div>
-                  <div className="mt-0.5 text-caption text-text-secondary">
-                    打开平台 DOM 与选择器诊断窗口
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    void window.api.diagnosticsOpenWindow()
-                  }}
-                  className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-gray-200 bg-sidebar px-3.5 text-body font-medium text-text-primary transition-colors hover:border-primary/40 hover:text-primary dark:border-white/10 dark:bg-white/5"
-                >
-                  <AppIcon name="science" size={16} />
-                  <span>打开诊断窗口</span>
-                </button>
-              </div>
-            </section>
-          )}
+          </div>
         </div>
       </div>
     </div>

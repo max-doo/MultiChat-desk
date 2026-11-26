@@ -29,6 +29,7 @@ interface InternalAuthOperation {
   controller: AbortController
   pending?: PendingPrompt
   cleanupTimer?: NodeJS.Timeout
+  waitTimeout?: NodeJS.Timeout
 }
 
 const AUTH_OPERATION_TTL_MS = 10 * 60 * 1000
@@ -72,7 +73,12 @@ export class ProviderAuthController {
     if (!runtime) throw new Error('Agent 运行时尚未初始化')
     const provider = runtime.getProvider(providerId)
     if (!provider) throw new Error(`供应商不存在：${providerId}`)
-    const auth = type === 'api_key' ? provider.auth.apiKey : provider.auth.oauth
+    if (type === 'api_key') {
+      // API key entry is a direct save via setCredential; the interactive
+      // dialog flow is reserved for OAuth where multi-step interaction is real.
+      throw new Error('API Key 请直接在供应商设置中输入保存')
+    }
+    const auth = provider.auth.oauth
     if (!auth?.login) throw new Error(`${provider.name || providerId} 不支持该认证方式`)
 
     const previous = [...this.operations.values()].find(
@@ -125,6 +131,19 @@ export class ProviderAuthController {
     return this.toView(operation)
   }
 
+  /** Silently cancel any active interactive auth for a provider (no-op when absent). */
+  public cancelActive(providerId: string): void {
+    for (const operation of this.operations.values()) {
+      if (operation.providerId !== providerId) continue
+      if (operation.status !== 'running' && operation.status !== 'waiting') continue
+      try {
+        this.cancel(operation.id)
+      } catch {
+        // Operation may have completed between the checks; nothing to do.
+      }
+    }
+  }
+
   public dispose(): void {
     for (const operation of this.operations.values()) {
       operation.controller.abort()
@@ -132,6 +151,7 @@ export class ProviderAuthController {
       operation.pending?.cleanup()
       operation.pending = undefined
       if (operation.cleanupTimer) clearTimeout(operation.cleanupTimer)
+      if (operation.waitTimeout) clearTimeout(operation.waitTimeout)
     }
     this.operations.clear()
   }
@@ -216,6 +236,10 @@ export class ProviderAuthController {
           operation.pending = undefined
           operation.prompt = undefined
           operation.status = 'running'
+          if (operation.waitTimeout) {
+            clearTimeout(operation.waitTimeout)
+            operation.waitTimeout = undefined
+          }
           cleanup()
           resolve(value)
           this.emit(operation)
@@ -224,6 +248,10 @@ export class ProviderAuthController {
           if (operation.pending?.id !== id) return
           operation.pending = undefined
           operation.prompt = undefined
+          if (operation.waitTimeout) {
+            clearTimeout(operation.waitTimeout)
+            operation.waitTimeout = undefined
+          }
           cleanup()
           reject(error)
           this.emit(operation)
@@ -232,6 +260,19 @@ export class ProviderAuthController {
       }
       operation.controller.signal.addEventListener('abort', abort, { once: true })
       if (operation.controller.signal.aborted) abort()
+      // An abandoned prompt must not pin the provider in "认证中" forever.
+      operation.waitTimeout = setTimeout(() => {
+        if (operation.pending?.id !== id) return
+        operation.pending = undefined
+        operation.prompt = undefined
+        operation.waitTimeout = undefined
+        cleanup()
+        operation.controller.abort()
+        operation.status = 'cancelled'
+        this.scheduleCleanup(operation)
+        this.emit(operation)
+      }, AUTH_OPERATION_TTL_MS)
+      operation.waitTimeout.unref?.()
     })
   }
 

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { AppIcon } from '../../icons/AppIcon'
 import { useAgentSessionStore } from '../../../store/agentSessionStore'
 import { AgentPopover } from './AgentPopover'
@@ -21,7 +21,15 @@ export function AgentContextMeter(): JSX.Element | null {
   const isCompacting = useAgentSessionStore((s) => s.isCompacting)
   const compact = useAgentSessionStore((s) => s.compact)
   const currentSessionId = useAgentSessionStore((s) => s.currentSessionId)
+  const hasMessages = useAgentSessionStore((s) => s.messages.length > 0)
   const [open, setOpen] = useState(false)
+
+  useEffect(() => {
+    setOpen(false)
+  }, [currentSessionId])
+
+  // 新建会话草稿态（尚未产生会话）不渲染上下文仪表
+  if (!currentSessionId) return null
 
   const stats = status ? status.stats : snapshot?.stats ?? null
   const cost = stats?.cost ?? 0
@@ -33,8 +41,8 @@ export function AgentContextMeter(): JSX.Element | null {
   const percentRounded = known ? Math.round(percent) : null
 
   // 新会话未开始时不渲染
-  if (known && tokens === 0 && (stats?.total ?? 0) === 0) return null
   if (!context || !context.contextWindow) return null
+  if ((stats?.total ?? 0) === 0 && ((known && tokens === 0) || !hasMessages)) return null
 
   const level =
     percentRounded !== null && percentRounded > 90

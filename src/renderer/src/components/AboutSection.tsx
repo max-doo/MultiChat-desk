@@ -2,6 +2,9 @@ import { useCallback, useEffect, useState } from 'react'
 import { openUpdateRelease, useUpdateState } from '../hooks/useUpdateState'
 import { AppIcon } from './icons/AppIcon'
 
+const secondaryActionClass =
+  'flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-gray-200 bg-sidebar px-3 text-label font-medium text-text-primary transition-colors hover:border-primary/40 hover:text-primary dark:border-white/10 dark:bg-white/5'
+
 export default function AboutSection(): JSX.Element {
   const [currentVersion, setCurrentVersion] = useState('')
   const state = useUpdateState()
@@ -42,10 +45,10 @@ export default function AboutSection(): JSX.Element {
           : '后台会定期检查更新'
 
   return (
-    <div className="mt-3 p-3 rounded-xl glass-panel flex items-center gap-3">
+    <div className="mt-3 flex items-center gap-3 rounded-xl glass-panel p-3">
       <AppIcon name="rocket_launch" size={20} className="text-primary shrink-0" />
       <div className="flex flex-col min-w-0 flex-1">
-        <span className="text-text-primary text-sm font-medium flex items-center gap-2 truncate">
+        <span className="flex items-center gap-2 truncate text-body font-medium text-text-primary">
           检查新版本
           {hasUpdate && (
             <span className="text-red-500 text-tiny bg-red-50 px-1.5 py-0.5 rounded-full border border-red-200 font-medium whitespace-nowrap">
@@ -53,7 +56,7 @@ export default function AboutSection(): JSX.Element {
             </span>
           )}
         </span>
-        <span className={`text-tiny truncate ${state.status === 'error' ? 'text-red-500' : 'text-text-secondary'}`}>
+        <span className={`truncate text-caption ${state.status === 'error' ? 'text-red-500' : 'text-text-secondary'}`}>
           当前版本 v{currentVersion || state.result?.currentVersion || '—'} · {statusText}
         </span>
       </div>
@@ -61,18 +64,20 @@ export default function AboutSection(): JSX.Element {
         <button
           type="button"
           onClick={handleOpenRelease}
-          className="px-3 py-1.5 text-xs rounded-full bg-primary text-white hover:opacity-90 transition-all font-medium shrink-0"
+          className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-primary px-4 text-body font-medium text-white transition-opacity hover:opacity-90"
         >
-          前往下载
+          <AppIcon name="download" size={14} />
+          <span>前往下载</span>
         </button>
       ) : (
         <button
           type="button"
           onClick={() => { void handleCheck() }}
           disabled={isChecking}
-          className="px-3 py-1.5 text-xs rounded-full glass-panel text-text-primary hover:text-primary hover:bg-blue-50/50 transition-all font-medium disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+          className={`${secondaryActionClass} disabled:cursor-not-allowed disabled:opacity-50`}
         >
-          {isChecking ? '检查中…' : state.status === 'error' ? '重试' : '检查更新'}
+          <AppIcon name="refresh" size={14} />
+          <span>{isChecking ? '检查中…' : state.status === 'error' ? '重试' : '检查更新'}</span>
         </button>
       )}
     </div>

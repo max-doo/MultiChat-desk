@@ -20,12 +20,14 @@ interface PickerItem {
 
 export function AgentModelPicker({ onClose }: AgentModelPickerProps): JSX.Element {
   const snapshot = useAgentSessionStore((s) => s.snapshot)
+  const providerQuotas = useAgentSessionStore((s) => s.providerQuotas)
   const sessionStatus = useAgentSessionStore((s) => s.sessionStatus)
   const setModel = useAgentSessionStore((s) => s.setModel)
   const setThinkingLevel = useAgentSessionStore((s) => s.setThinkingLevel)
   const setFavoriteModels = useAgentSessionStore((s) => s.setFavoriteModels)
   const removeRecentModels = useAgentSessionStore((s) => s.removeRecentModels)
   const fetchSnapshot = useAgentSessionStore((s) => s.fetchSnapshot)
+  const fetchProviderQuotas = useAgentSessionStore((s) => s.fetchProviderQuotas)
   const openAgentSettings = useAgentSessionStore((s) => s.openAgentSettings)
 
   const [query, setQuery] = useState('')
@@ -43,8 +45,9 @@ export function AgentModelPicker({ onClose }: AgentModelPickerProps): JSX.Elemen
 
   useEffect(() => {
     void fetchSnapshot()
+    void fetchProviderQuotas(false)
     inputRef.current?.focus()
-  }, [fetchSnapshot])
+  }, [fetchSnapshot, fetchProviderQuotas])
 
   const active = sessionStatus?.active ?? snapshot?.active
   const thinkingLevel: AgentThinkingLevel = active?.thinkingLevel ?? 'off'
@@ -309,6 +312,13 @@ export function AgentModelPicker({ onClose }: AgentModelPickerProps): JSX.Elemen
         {groups.map(({ provider, items }) => {
           const isSearching = query.trim().length > 0
           const isCollapsed = !isSearching && Boolean(collapsedProviders[provider.id])
+          const quota = providerQuotas[provider.id]
+          const firstWin = quota?.windows.find((w) => typeof w.remainingPercent === 'number')
+          const quotaBadge = quota?.balanceText
+            ? quota.balanceText
+            : firstWin && typeof firstWin.remainingPercent === 'number'
+              ? `余 ${Math.round(firstWin.remainingPercent)}%`
+              : null
           return (
             <div key={provider.id} className="space-y-0.5">
               <button
@@ -327,7 +337,14 @@ export function AgentModelPicker({ onClose }: AgentModelPickerProps): JSX.Elemen
                   />
                   <span className="truncate">{provider.name}</span>
                 </span>
-                <span className="shrink-0 text-caption tabular-nums ml-2">{items.length}</span>
+                <span className="shrink-0 flex items-center gap-1.5 ml-2">
+                  {quotaBadge && (
+                    <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 font-mono text-tiny text-emerald-700 dark:text-emerald-300">
+                      {quotaBadge}
+                    </span>
+                  )}
+                  <span className="text-caption tabular-nums">{items.length}</span>
+                </span>
               </button>
               {!isCollapsed &&
                 items.map(({ model }) =>

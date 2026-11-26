@@ -85,7 +85,8 @@ export function AgentAuthDialog({
       <div className="flex items-center gap-2 px-4 py-2.5 text-label">
         <span className={`font-medium ${statusColor}`}>{STATUS_LABELS[operation.status]}</span>
         <span className="text-text-secondary">{operation.type === 'oauth' ? 'OAuth' : 'API Key'}</span>
-        {isActive && <AppIcon name="progress_activity" size={15} className="ml-auto animate-spin text-primary" />}
+        {operation.status === 'running' && <AppIcon name="progress_activity" size={15} className="ml-auto animate-spin text-primary" />}
+        {operation.status === 'waiting' && <AppIcon name="keyboard" size={15} className="ml-auto text-text-secondary" />}
         {operation.status === 'success' && <AppIcon name="check" size={15} className="ml-auto text-emerald-600" />}
       </div>
 
@@ -174,6 +175,7 @@ export function AgentAuthDialog({
             <input
               type={operation.prompt.type === 'secret' ? 'password' : 'text'}
               value={value}
+              autoFocus
               autoComplete="off"
               placeholder={operation.prompt.placeholder}
               onChange={(e) => setValue(e.target.value)}
