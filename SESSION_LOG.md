@@ -2,6 +2,130 @@
 
 ## 2026-11-26
 
+### 17:41 | Codex
+
+- done: Agent 正文 inline 文件引用样式二次调整：markdown 图标对齐文件树蓝色 description，图片/矢量图标颜色与树一致，文件名由 caption 号改为与正文同号（body），负边距补偿行距
+- modified:
+  - `src/renderer/src/components/workbench/agent/AttachmentChips.tsx`
+
+### 17:39 | Antigravity
+
+- done: 修复 Agent 侧边栏弹窗溢出可视区域问题：在 AgentPopover 中增加基于祖先裁剪容器与视口交集的自动边界纠偏与最大宽高限制
+- context: 窄侧边栏中 AgentContextMeter 等右对齐/左对齐弹窗会超出 overflow-hidden 容器被裁剪
+- modified:
+  - `src/renderer/src/components/workbench/agent/AgentPopover.tsx`
+
+### 17:38 | Codex
+
+- done: Agent 正文 inline 文件引用从 chip 样式改为蓝色链接样式（图标+蓝色文件名，hover 才显示背景），与 inline code 视觉区分
+- modified:
+  - `src/renderer/src/components/workbench/agent/AttachmentChips.tsx`
+
+### 17:29 | Antigravity
+
+- done: 将独立图片预览（WorkbenchImagePreview）的缩放与旋转控件统一移至底部悬浮胶囊，顶部仅保留衬底切换、系统程序打开与资源管理器定位
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchImagePreview.tsx`
+
+### 17:27 | Antigravity
+
+- done: 完成 Agent Shell 执行链路与权限安全体系全量修复（委托 pi 原生进程树执行+流式解码/脱敏/审计、AST/Segment 感知硬拒、expandPathInput 路径展开修复、redact 误遮蔽收敛），并通过三轮独立 worker 审查与 E2E/lint/tsc/build 验证
+- decision: ShellTool.createBashOperations 改为直接包装 pi-coding-agent 的 createLocalPowerShellOperations/createLocalBashOperations，彻底消除进程树孤儿、30s 默认强杀与 stdin 挂起；PermissionEngine 先跑 AST/segment 判定再执行结构化硬拒（仅不可解析时回退正则）
+- modified:
+  - `src/main/services/ShellTool.ts`
+  - `src/main/services/PermissionEngine.ts`
+  - `src/main/services/permissionPolicy.ts`
+  - `src/main/services/commandAnalyzer/powershellAstHelper.ts`
+  - `src/main/services/commandAnalyzer/bashAnalyzer.ts`
+  - `src/main/services/redact.ts`
+- lesson(promoted): Windows 下 path.resolve(homedir(), '\\.ssh\\id_rsa') 会因前导反斜杠退化为盘符根目录 C:\\.ssh\\id_rsa，expandPathInput 对 ~/~/env 展开必须先剥离前导分隔符；bash wrapper 展开重拼命令时必须保留引号并区分短参数大小写
+- unresolved: 主进程改动未做 pnpm run dev 桌面端交互实测（需重启 dev 实例后在 Agent 侧栏触发 Format-Table 与 timeout 命令验收）
+
+### 17:26 | Codex
+
+- done: 将 ChangedFilesCard 已修改状态图标改为灰色并放大至 size=16，保留原折叠布局和交互
+- context: 用户先要求参考截图改折叠态，随后撤回该方案，明确保持原折叠方式，仅调整图标颜色和样式。
+- modified:
+  - `src/renderer/src/components/workbench/agent/ChangedFilesCard.tsx`
+
+### 17:25 | Codex
+
+- done: 将 ChangedFilesCard 已修改状态图标改为灰色并放大，保留原折叠布局
+- modified:
+  - `src/renderer/src/components/workbench/agent/ChangedFilesCard.tsx`
+
+### 17:24 | Antigravity
+
+- done: 移除 Lightbox 衬底开关并抽取共用图片视口 Hook；为 WorkbenchImagePreview 增加滚轮缩放、拖拽平移、双击切换、同文件夹上下张切换及底部不重复悬浮工具条
+- modified:
+  - `src/renderer/src/components/workbench/workbenchImageUtils.ts`
+  - `src/renderer/src/components/workbench/WorkbenchImageLightbox.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchImagePreview.tsx`
+
+### 17:18 | Antigravity
+
+- done: 在思维导图模型选择器中接入平台登录态实时检测与已登录标签展示，并为 localStorage 凭证平台（DeepSeek/Kimi）实现零额外建窗的被动采集与 electron-store 持久化记忆
+- decision: Cookie 平台直读 persist:shared 实时判态，DeepSeek/Kimi 在 Webview 正常加载或 SPA 导航时被动采集并写入 platformAuthStorageCache 持久化；导图面板挂载与打开模型下拉框时轻量刷新，不额外后台建窗
+- modified:
+  - `src/main/services/AuthStateService.ts`
+  - `src/main/index.ts`
+  - `src/main/webviewManager.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+
+### 17:16 | Antigravity
+
+- done: 将 Markdown 图片 Lightbox 改造为飞书风格的半透明遮罩 + 右上角关闭 + 底部居中悬浮胶囊工具栏，并将衬底切换收敛至图片自身边界
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchImageLightbox.tsx`
+
+### 17:13 | Codex
+
+- done: 调换工作台右上角侧边栏和思维导图按钮顺序，并减小与窗口控制按钮的间距
+- modified:
+  - `src/renderer/src/components/Layout.tsx`
+
+### 17:11 | Antigravity
+
+- done: 修复 HMR 后图片节点 instanceof 校验失效导致双击打不开 Lightbox 的问题，并附带节点信息兜底
+- modified:
+  - `src/renderer/src/components/workbench/workbenchImageUtils.ts`
+  - `src/renderer/src/components/workbench/WorkbenchImageLightboxPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchImageNode.tsx`
+- lesson: Vite HMR 重载 Lexical 自定义 Node 模块时，已挂载编辑器持有的旧节点实例与新模块 class 的 instanceof 会返回 false；命令/插件识别节点应兼容 node.getType() 校验
+
+### 17:09 | Antigravity
+
+- done: 修复 Agent 侧边栏文件变更追踪漏报、撤销基线损坏与 Shell 改文件盲区，改为按用户回合聚合并接入轻量熔断工作区扫描
+- added:
+  - `src/main/services/agentFileChangeTracker.ts`
+- modified:
+  - `src/shared/types/agentRuntime.ts`
+  - `src/main/services/PermissionEngine.ts`
+  - `src/main/services/AgentSessionService.ts`
+  - `src/renderer/src/components/workbench/agent/ChangedFilesCard.tsx`
+- lesson(promoted): pi-agent-core 中单次用户提问（agent_start→agent_end）内每轮工具调用都会触发 turn_start/turn_end，文件变更累加器不能在 turn_start 清空或在 turn_end 覆写 index.json；修改前基线内容必须在 beforeToolCall 写盘前捕获，绝不能在 turn_end 从修改后的磁盘补读 .before
+
+### 17:08 | Antigravity
+
+- done: 移除 Markdown 图片节点悬停时的放大镜指针，改为 cursor-default 避免误导单击行为
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchImageNode.tsx`
+
+### 17:05 | Antigravity
+
+- done: 为工作台 Markdown 预览模式图片节点实现应用内 Lightbox 查看视窗及多入口交互
+- decision: 保留单击选中与 Backspace/Delete 删除；以双击、悬停/选中态放大按钮、选中态 Space 键及右键菜单四路触发 Lightbox，并复用缩放与画布背景工具
+- added:
+  - `src/renderer/src/components/workbench/workbenchImageUtils.ts`
+  - `src/renderer/src/components/workbench/WorkbenchImageLightbox.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchImageLightboxPlugin.tsx`
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchImageNode.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchImagePreview.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+
 ### 16:51 | Antigravity
 
 - done: 实现侧边栏底栏响应式紧凑模式：leftPaneWidth < 320px 时隐藏 Git 分支名称仅保留图标与状态计数并收紧间距，保证窄窗下工作区名可读
