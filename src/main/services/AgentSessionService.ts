@@ -85,14 +85,10 @@ export interface ActiveSessionEntry {
   updatedAt: number
   title?: string
   isRunning?: boolean
-  /** Count of in-flight permission approval prompts for this session (never LRU-evict while > 0) */
   pendingApprovalCount?: number
   unsubscribe: () => void
-  /** User-turn-scoped file-change accumulator for the active agent run. */
   turnFileChanges?: AgentTurnFileChanges
-  /** Normalized path key → canonical displayPath stored in `turnFileChanges`. */
   fileChangeKeyMap?: Map<string, string>
-  /** Canonical displayPath → pre-edit file bytes (`null` = file did not exist, `undefined` = oversized/unknown). */
   baselineContents?: Map<string, Buffer | null | undefined>
   /** Canonical displayPath → capture timestamp (ms) of the corresponding baseline,
    * used to order it against the pre-shell workspace scan. */
@@ -100,14 +96,11 @@ export interface ActiveSessionEntry {
   /** toolCallId → canonical displayPath, populated in beforeToolCall so
    * tool_execution_end (which lacks `args`) can resolve the touched path. */
   pendingToolFiles?: Map<string, string>
-  /** In-flight target captures so turn finalization can wait for them before persisting. */
   pendingCaptures?: Promise<unknown>[]
   /** Lightweight workspace metadata snapshot taken before the first non-read-only shell command in this user turn.
    * `undefined` = no non-read-only shell command yet; `null` = scan hit circuit breaker and was skipped. */
   preShellWorkspaceSnapshot?: Map<string, WorkspaceFileMeta> | null
-  /** Timestamp (ms) captured just before the pre-shell workspace scan started. */
   preShellScanStartedAt?: number
-  /** True once at least one non-read-only shell command was allowed in the current user turn. */
   shellWriteExecuted?: boolean
   /** Persist is async (blob writes); the renderer may query before it lands.
    * Track the in-flight write so getFileChanges can wait instead of returning null. */
@@ -131,7 +124,6 @@ export interface SessionListItem {
   firstBranchMessage?: string
 }
 
-/** Events emitted by this service on top of pi's own AgentSessionEvent set. */
 type LocalAgentEvent = { type: 'queue_cleared'; texts: string[] }
 
 export interface ProviderListItem {
@@ -163,11 +155,8 @@ const FAVORITE_MODELS_STORE_KEY = 'agent_favorite_models'
 const RECENT_MODELS_STORE_KEY = 'agent_recent_models'
 
 const RECENT_MODELS_LIMIT = 8
-/** Max idle sessions retained in activeSessions (running / pending-approval sessions are exempt) */
 const MAX_IDLE_ACTIVE_SESSIONS = 4
-/** Trailing-edge throttle window (ms) for coalescing consecutive message_update events */
 const MESSAGE_UPDATE_THROTTLE_MS = 36
-/** Byte slice read from start of .jsonl when locating a session file by header.id */
 const SESSION_HEADER_PEEK_BYTES = 8192
 const FORK_ORIGIN_CUSTOM_TYPE = 'multichat:fork_origin'
 
@@ -215,17 +204,13 @@ export class AgentSessionService {
   private modelRuntime: ModelRuntimeType | null = null
   private modelRegistry: ModelRegistryType | null = null
   private activeSessions = new Map<string, ActiveSessionEntry>()
-  /** In-memory disk session metadata cache keyed by full .jsonl path + { size, mtimeMs } */
   private sessionMetaCache = new Map<string, SessionMetaCacheEntry>()
-  /** Fast sessionId → .jsonl filePath cache populated by findSessionFile / listSessions */
   private sessionFilePathCache = new Map<string, string>()
-  /** Trailing-edge pending message_update coalescing buffer per sessionId */
   private pendingMessageUpdates = new Map<
     string,
     { event: AgentSessionEvent | LocalAgentEvent; timer: ReturnType<typeof setTimeout> }
   >()
 
-  // Default fallback provider & model for local SWE-2 / Devin
   private defaultProvider = MAGPIE_PROVIDER.providerId
   private defaultModel = 'devin/swe-2'
 
@@ -347,7 +332,6 @@ export class AgentSessionService {
     return definition as any
   }
 
-  /** Resolve the real shell executable once via pi's own detector; caches the result. */
   private async resolveShellConfigForPrompt(): Promise<void> {
     if (this.piShellConfig !== null) return
     try {
@@ -371,14 +355,12 @@ export class AgentSessionService {
 
     const { ModelRuntime, ModelRegistry } = await this.getPi()
 
-    // Initialize ModelRuntime & ModelRegistry
     this.modelRuntime = await ModelRuntime.create({
       authPath: join(this.agentDir, 'auth.json'),
       modelsPath: join(this.agentDir, 'models.json')
     })
     this.modelRegistry = new ModelRegistry(this.modelRuntime)
 
-    // Record built-in default baseUrls before user overrides are checked.
     this.defaultBaseUrls.clear()
     for (const provider of this.modelRuntime.getProviders()) {
       if (provider.baseUrl) {
@@ -387,10 +369,8 @@ export class AgentSessionService {
     }
     this.defaultBaseUrls.set(MAGPIE_PROVIDER.providerId, MAGPIE_PROVIDER.baseUrl)
 
-    // Ensure the local magpie gateway provider is registered
     await this.ensureMagpieProvider()
 
-    // Restore user-defined OpenAI-compatible / Anthropic-compatible gateways saved from prior runs.
     for (const spec of this.listCustomGateways()) {
       await this.registerCustomGateway(spec).catch(() => undefined)
     }
@@ -466,7 +446,6 @@ export class AgentSessionService {
     } catch {
       // ignore if already removed
     }
-    // Remove provider-scoped favorites / recents / disabled state cleanly.
     const disabled = this.getDisabledProviderIds()
     if (disabled.delete(providerId)) {
       this.store.set(DISABLED_PROVIDERS_STORE_KEY, [...disabled])
@@ -581,7 +560,6 @@ export class AgentSessionService {
       models: enrichedStored
     })
     await this.modelRuntime.refresh({ allowNetwork: false, providers: [spec.providerId] })
-    // Fetch live catalog in the background; failure keeps stored/empty.
     void gateway
       .fetchModels()
       .then((models) => this.applyGatewayCatalog(gateway, models, options?.syncRemoteCatalog))
@@ -616,9 +594,6 @@ export class AgentSessionService {
       .catch(() => undefined)
   }
 
-  /**
-   * Re-register a custom gateway provider with the freshly fetched and enriched catalog.
-   */
   private async applyGatewayCatalog(
     provider: CustomGatewayProvider,
     models: ProviderModelConfig[],
@@ -696,7 +671,6 @@ export class AgentSessionService {
       return
     }
 
-    // Flush any buffered streaming snapshot before emitting message_end / agent_end / tool / lifecycle events
     this.flushPendingMessageUpdate(sessionId)
     this.emitEventImmediate(sessionId, event)
   }
@@ -759,10 +733,6 @@ export class AgentSessionService {
     return text
   }
 
-  /**
-   * Snapshot the current on-disk state of one file.
-   * `sha1` is null when the file does not exist (a "new file" baseline).
-   */
   private async captureFileSnapshot(absolutePath: string): Promise<AgentFileSnapshot> {
     try {
       const info = await stat(absolutePath)
@@ -823,7 +793,6 @@ export class AgentSessionService {
     const turnIdx = active.turnCounter || this.getLiveUserTurnCount(active)
     const cwd = active.cwd
 
-    // Detach current accumulator immediately so subsequent turns cannot mutate it.
     active.turnFileChanges = undefined
     active.fileChangeKeyMap = undefined
     active.baselineContents = undefined
@@ -885,7 +854,6 @@ export class AgentSessionService {
   ): Promise<void> {
     const resolvedCwd = resolve(cwd)
 
-    // 1. Merge workspace mutations caused by non-read-only shell commands.
     if (preShell) {
       const postShell = await scanWorkspaceMetadata(resolvedCwd, { captureContent: false })
       if (postShell) {
@@ -1025,7 +993,6 @@ export class AgentSessionService {
       }
     }
 
-    // 2. Finalize target snapshots, drop failed/no-op entries, and compute accurate net diffs.
     const finalFiles: AgentTurnFileChanges['files'] = []
     const finalBaseline: Record<string, AgentFileSnapshot> = {}
     const finalTarget: Record<string, AgentFileSnapshot> = {}
@@ -1037,7 +1004,6 @@ export class AgentSessionService {
       const abs = resolveTrackedAbsolutePath(resolvedCwd, entry.path)
       const targetSnap = tfc.target[entry.path] ?? (await this.captureFileSnapshot(abs))
 
-      // Drop failed tool calls or edits whose net effect is zero.
       if (baseSnap.sha1 === targetSnap.sha1) continue
 
       const isNew = baseSnap.sha1 === null && targetSnap.sha1 !== null
@@ -1085,7 +1051,6 @@ export class AgentSessionService {
     await this.persistFileChanges(sessionId, resolvedCwd, finalRecord, baselineContents, targetContents)
   }
 
-  /** Persist the latest turn's snapshot record + true pre-edit / post-edit content blobs. */
   private async persistFileChanges(
     sessionId: string,
     cwd: string,
@@ -1184,7 +1149,6 @@ export class AgentSessionService {
     }
   }
 
-  /** Wait for any in-flight persist of the latest turn's file-change record. */
   private async waitForFileChangePersist(sessionId: string): Promise<void> {
     const pending = this.activeSessions.get(sessionId)?.pendingFileChangePersist
     if (pending) {
@@ -1192,9 +1156,7 @@ export class AgentSessionService {
     }
   }
 
-  /** Public IPC surface -------------------------------------------------- */
 
-  /** Return the persisted file-change record for a session, or null. */
   public async getFileChanges(sessionId: string): Promise<AgentTurnFileChanges | null> {
     // Persist happens asynchronously after turn_end/agent_end; wait for the
     // in-flight write before reading, otherwise the renderer's mount-time query
@@ -1206,7 +1168,6 @@ export class AgentSessionService {
     return rest
   }
 
-  /** Check whether each listed path still matches its stored snapshot hash. */
   public async checkFilesStale(
     sessionId: string,
     paths: string[],
@@ -1229,10 +1190,6 @@ export class AgentSessionService {
     return result
   }
 
-  /**
-   * Revert all files touched in the latest turn back to their baseline state.
-   * Returns an error string on validation failure, null on success.
-   */
   public async revertFileChanges(sessionId: string): Promise<string | null> {
     const active = this.activeSessions.get(sessionId)
     if (active?.isRunning) {
@@ -1329,10 +1286,6 @@ export class AgentSessionService {
     return null
   }
 
-  /**
-   * Re-apply the target state after a successful revert.
-   * Validates that files have not been modified since the revert.
-   */
   public async reapplyFileChanges(sessionId: string): Promise<string | null> {
     const active = this.activeSessions.get(sessionId)
     if (active?.isRunning) {
@@ -1453,7 +1406,6 @@ export class AgentSessionService {
     cwd: string,
     permissionMode: PermissionMode = 'default'
   ): ActiveSessionEntry {
-    // Intercept tool calls for permission validation & approvals
     session.agent.beforeToolCall = async (context) => {
       const active = this.activeSessions.get(sessionId)
       const currentMode = active?.permissionMode ?? 'default'
@@ -1543,7 +1495,6 @@ export class AgentSessionService {
       return undefined
     }
 
-    // Subscribe to session events and forward to renderer
     const unsubscribe = session.subscribe((event: AgentSessionEvent) => {
       const active = this.activeSessions.get(sessionId)
       if (active) {
@@ -1558,7 +1509,6 @@ export class AgentSessionService {
         } else if (event.type === 'agent_end' || event.type === 'agent_settled') {
           active.isRunning = false
           if (event.type === 'agent_end' && active.providerId) {
-            // Refresh subscription / relay quota shortly after a turn finishes.
             this.quotaService.invalidate(active.providerId)
             void this.refreshProviderQuota(active.providerId, false).catch(() => undefined)
           }
@@ -1586,7 +1536,6 @@ export class AgentSessionService {
           }
         }
 
-        // Track tool completions within the current user turn
         if (event.type === 'turn_start') {
           // Do NOT reset `turnFileChanges` on `turn_start`: a single user prompt often
           // spans many LLM tool-call turns (`turn_start` → `turn_end`), and all edits
@@ -1661,10 +1610,12 @@ export class AgentSessionService {
       try {
         entry.unsubscribe()
       } catch {
+        // intentionally ignored
       }
       try {
         entry.session.dispose()
       } catch {
+        // intentionally ignored
       }
       this.activeSessions.delete(id)
       idleCount--
@@ -1723,7 +1674,6 @@ export class AgentSessionService {
       await this.init()
     }
 
-    // Check if session is already active in memory
     const existing = this.touchActiveSession(sessionId)
     if (existing) {
       const forkOrigin = await this.resolveForkOrigin(existing.session.sessionManager)
@@ -1744,7 +1694,6 @@ export class AgentSessionService {
 
     const { SessionManager, createAgentSession } = await this.getPi()
 
-    // Otherwise find session file on disk
     const sessionFile = await this.findSessionFile(sessionId)
 
     if (!sessionFile) {
@@ -1831,7 +1780,6 @@ export class AgentSessionService {
     const behavior =
       streamingBehavior ?? (active.session.isStreaming ? 'steer' : undefined)
 
-    // Execute session prompt asynchronously
     const imageParts =
       images && images.length > 0
         ? images.map((img) => ({ type: 'image' as const, data: img.data, mimeType: img.mimeType }))
@@ -2159,11 +2107,13 @@ export class AgentSessionService {
       try {
         await active.session.abort()
       } catch {
+        // intentionally ignored
       }
       active.unsubscribe()
       try {
         active.session.dispose()
       } catch {
+        // intentionally ignored
       }
       this.activeSessions.delete(sessionId)
     }
@@ -2340,7 +2290,6 @@ export class AgentSessionService {
 
     try {
       const files = (await readdir(this.sessionsDir)).filter((f) => f.endsWith('.jsonl'))
-      // Prioritize filenames containing sessionId (standard `<ts>_<sessionId>.jsonl`)
       files.sort((a, b) => {
         const aHit = a.includes(sessionId) ? 0 : 1
         const bHit = b.includes(sessionId) ? 0 : 1
@@ -2361,6 +2310,7 @@ export class AgentSessionService {
         }
       }
     } catch {
+      // intentionally ignored
     }
     return undefined
   }
@@ -2404,6 +2354,7 @@ export class AgentSessionService {
       const liveName = active.session.sessionManager.getSessionName()
       if (liveName && liveName.trim()) return liveName.trim().slice(0, 48)
     } catch {
+      // intentionally ignored
     }
     if (active.title && active.title.trim()) {
       return active.title.trim().slice(0, 48)
@@ -2417,6 +2368,7 @@ export class AgentSessionService {
         }
       }
     } catch {
+      // intentionally ignored
     }
     const cachedFile = this.sessionFilePathCache.get(sessionId)
     if (cachedFile) {
@@ -2739,7 +2691,6 @@ export class AgentSessionService {
       }
     }
 
-    // First include active sessions
     for (const [id, active] of this.activeSessions.entries()) {
       const messageCount = active.session.agent.state.messages?.length ?? 0
       if (messageCount === 0) continue
@@ -2783,7 +2734,6 @@ export class AgentSessionService {
       seen.add(id)
     }
 
-    // Then merge with disk sessions
     for (const item of diskSessions) {
       if (!seen.has(item.id)) {
         if (item.messageCount === 0) continue
@@ -3085,11 +3035,6 @@ export class AgentSessionService {
     }
   }
 
-  /**
-   * Set (or clear) the baseUrl for any API-key/gateway provider (built-in
-   * providers, magpie, or custom gateways). Persists the override in models.json
-   * so `refresh()` picks it up immediately.
-   */
   public async setProviderBaseUrl(providerId: string, baseUrl: string | null): Promise<AgentRuntimeSnapshot> {
     const runtime = this.modelRuntime
     if (!runtime) throw new Error('Agent 运行时尚未初始化')
@@ -3161,10 +3106,12 @@ export class AgentSessionService {
       try {
         entry.unsubscribe()
       } catch {
+        // intentionally ignored
       }
       try {
         entry.session.dispose()
       } catch {
+        // intentionally ignored
       }
     }
     this.activeSessions.clear()
@@ -3400,7 +3347,6 @@ export class AgentSessionService {
     else set.delete(providerId)
     this.store.set(DISABLED_PROVIDERS_STORE_KEY, [...set])
     if (disabled) {
-      // Drop the provider's models from favorites so the picker section stays clean.
       const favorites = [...this.getFavoriteModelKeys()].filter((key) => !key.startsWith(`${providerId}:`))
       this.store.set(FAVORITE_MODELS_STORE_KEY, favorites)
       const recents = this.getRecentModelKeys().filter((key) => !key.startsWith(`${providerId}:`))
@@ -3549,12 +3495,10 @@ export class AgentSessionService {
   }
 
 
-  /** The app's own agent dir; `<dir>/skills` is the always-on global skills root. */
   public getAgentDir(): string {
     return this.agentDir
   }
 
-  /** Skill-dir candidates discovered on disk (app dir + common agent-skill dirs). */
   public getSkillDirCandidates(): Array<{ path: string; exists: boolean; isDefault: boolean }> {
     return this.skillDirCandidates.map((path, i) => ({
       path,
@@ -3563,7 +3507,6 @@ export class AgentSessionService {
     }))
   }
 
-  /** Extra skill dirs the user has opted into (persisted). */
   public getExtraSkillDirs(): string[] {
     const list = this.store.get('agent_extra_skill_dirs')
     return Array.isArray(list) ? (list as string[]) : []

@@ -317,7 +317,6 @@ export default function FrontmatterPanel({ frontmatter, filePath, onChange, gitM
     return () => document.removeEventListener('mousedown', handleGlobalMouseDown)
   }, [])
 
-  // 当前活跃输入框过滤出的标签候选项
   const currentTagSuggestions = useMemo(() => {
     if (activeTagInputIdx === null || !fields[activeTagInputIdx]) return []
     const f = fields[activeTagInputIdx]

@@ -48,11 +48,6 @@ interface QwenDomReportResult {
   html: string
 }
 
-// ========== 注入到 Webview 的检测与 Hover 脚本 ==========
-
-/**
- * 检测复制按钮或 Hover 触发区域
- */
 const FIND_REPORT_ACTION_SCRIPT = `
   (function() {
     function isVisible(el) {
@@ -108,7 +103,6 @@ const FIND_REPORT_ACTION_SCRIPT = `
       return isCopyAction(el) || !!el.querySelector('svg path[fill-rule="evenodd"]');
     }
 
-    // 1. 先检索当前 DOM 中是否已经存在并显示了复制菜单项
     const itemSelectors = [
       '[role="menuitem"]',
       '[class*="more-menu-item"]',
@@ -148,7 +142,6 @@ const FIND_REPORT_ACTION_SCRIPT = `
       }
     }
 
-    // 2. 如果复制菜单项不可见，寻找 Hover 触发器
     const triggerSelectors = [
       '#qianwen-layout-right-panel [class*="right-tools"] [class*="item-icon"]:has(svg[width="12"][height="2"])',
       '#qianwen-layout-right-panel [class*="item-icon"]:has(svg[width="12"][height="2"])',
@@ -182,9 +175,6 @@ const FIND_REPORT_ACTION_SCRIPT = `
   })();
 `
 
-/**
- * Hover 后二次检测复制菜单项位置
- */
 const HOVER_AND_RECHECK_SCRIPT = `
   (function() {
     function isVisible(el) {
@@ -356,16 +346,6 @@ const QWEN_REPORT_DOM_FALLBACK_SCRIPT = `
   })();
 `
 
-// ========== 主函数 ==========
-
-/**
- * 从千问深度研究报告页提取内容
- *
- * @param webview    - Webview 实例
- * @param windowApi  - Window API（readClipboardHTML / readClipboardText / sendMouseClick / sendMouseMove）
- * @param turndownService - Turndown 实例，用于 HTML 转 Markdown
- * @returns Promise<string | null> - 提取的 Markdown 内容；未检测到报告页或复制失败则返回 null
- */
 export async function extractQwenReportContent(
   webview: WebviewAPI,
   windowApi: WindowAPI,
@@ -375,7 +355,6 @@ export async function extractQwenReportContent(
     const webContentsId = webview.getWebContentsId()
     console.log('[QwenReportExtractor] webContentsId:', webContentsId)
 
-    // 1. 查找复制按钮或 Hover 触发点
     const checkResult = (await webview.executeJavaScript(
       FIND_REPORT_ACTION_SCRIPT
     )) as CopyButtonResult
@@ -384,7 +363,6 @@ export async function extractQwenReportContent(
     let copyPos = checkResult?.pos
     let copyPosNeedsMouseMove = false
 
-    // 2. 如果需要 Hover，发送鼠标移动事件并重新查找复制按钮
     if (!copyPos && checkResult?.needHover && checkResult?.triggerPos) {
       const { x, y } = checkResult.triggerPos
       console.log('[QwenReportExtractor] 悬停触发器位置:', JSON.stringify({ x, y }))
@@ -420,14 +398,12 @@ export async function extractQwenReportContent(
       return { text, html }
     }
 
-    // 3. 记录复制前的剪贴板内容，避免把旧内容误当作本次报告。
     const clipboardBefore = await readClipboardSnapshot()
     console.log('[QwenReportExtractor] 复制前剪贴板长度:', JSON.stringify({
       text: clipboardBefore.text.length,
       html: clipboardBefore.html.length
     }))
 
-    // 4. 模拟真实鼠标点击复制按钮
     if (!windowApi.sendMouseClick) {
       console.error('[QwenReportExtractor] sendMouseClick API 不可用')
       return null
@@ -456,7 +432,6 @@ export async function extractQwenReportContent(
       return null
     }
 
-    // 5. 短轮询剪贴板，等待千问异步写入长报告完成。
     // 若用户重复复制同一份报告，剪贴板内容可能与点击前完全相同，不能仅按“内容变化”判定失败。
     const normalizeClipboardValue = (value: string): string => value.replace(/\u200B/g, '').trim()
     const isUsableClipboard = (value: string): boolean => normalizeClipboardValue(value).length > 50
@@ -514,7 +489,6 @@ export async function extractQwenReportContent(
       }
     }
 
-    // 6. 剪贴板仍无有效内容时，立即尝试当前报告 DOM，避免无意义地等待数秒。
     try {
       const domResult = (await webview.executeJavaScript(
         QWEN_REPORT_DOM_FALLBACK_SCRIPT

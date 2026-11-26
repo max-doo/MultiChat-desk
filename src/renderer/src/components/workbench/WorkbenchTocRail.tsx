@@ -17,17 +17,8 @@ interface Props {
 }
 
 /**
- * Workbench 极简原位变形大纲轨道（纯 UI 层）
- *
- * 特性：
- * 1. 100% 透明无边框容器，贴在编辑/预览区左边缘，零排版侵占；
- * 2. 静止态为左对齐精细横线，线长映射标题深度 (H1: 26px, H2: 18px, H3: 12px, H4+: 8px)；
- * 3. 鼠标 Hover 具体横线时，横线原位展开成胶囊呈现标题（无 portal、无多余蓝点）；
- * 4. 悬停只改变目录自身状态，正文与滚动位置保持不动；
- * 5. 滚动时 ScrollSpy 实时点亮当前阅读小节；
- * 6. 点击标题平滑滚动至对应锚点，并触发柔和聚焦高亮脉冲。
- *
- * 数据源由上层注入：Markdown 走 Lexical nodeKey，Word 走 docx-preview 段落索引。
+ * 原位变形大纲轨道：透明贴左缘、静止为深度横线、hover 原位展开标题；
+ * scrollspy 与点击定位依赖上层注入的 key → DOM 映射。
  */
 export default function WorkbenchTocRail({
   items,

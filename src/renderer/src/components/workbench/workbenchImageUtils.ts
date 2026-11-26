@@ -14,7 +14,6 @@ export interface OpenImageLightboxPayload {
   title?: string
 }
 
-/** 编辑器内双击/按钮/空格唤起图片查看视窗的 Lexical 命令。 */
 export const OPEN_WORKBENCH_IMAGE_LIGHTBOX_COMMAND: LexicalCommand<OpenImageLightboxPayload> =
   createCommand('OPEN_WORKBENCH_IMAGE_LIGHTBOX')
 
@@ -142,10 +141,8 @@ function findDirectoryChildren(
 }
 
 export interface MoveFolderTarget {
-  /** 目标目录的工作区相对路径；根目录为空字符串 */
   path: string
   name: string
-  /** 展示用层级缩进，根目录为 0 */
   depth: number
 }
 
@@ -187,7 +184,6 @@ export function collectMoveFolderTargets(
   return targets
 }
 
-/** 收集与当前文件同目录下的全部图片路径，排序规则与侧边栏文件树保持一致。 */
 export function getSiblingImagePaths(
   fileTree: WorkbenchFileNode[],
   activeFilePath: string | null,
@@ -219,7 +215,6 @@ export function getSiblingImagePaths(
   return images.map((node) => node.path)
 }
 
-/** Lightbox 与独立图片预览共用的缩放 / 旋转 / 拖拽平移状态与事件处理。 */
 export function useImageViewport() {
   const [scale, setScale] = useState(1)
   const [rotation, setRotation] = useState(0)

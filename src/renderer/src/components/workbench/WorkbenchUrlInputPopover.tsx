@@ -48,10 +48,6 @@ interface WorkbenchUrlInputPopoverProps {
   onClose: () => void
 }
 
-/**
- * 通用链接输入弹层：负责定位、输入校验、键盘提交和外部点击关闭，
- * 由富文本编辑器与 Markdown 源码工具栏共用。
- */
 export default function WorkbenchUrlInputPopover({
   anchorRect,
   initialUrl,

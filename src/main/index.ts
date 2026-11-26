@@ -65,7 +65,6 @@ protocol.registerSchemesAsPrivileged([
   }
 ])
 
-// 检测是否为便携版运行模式
 function isPortableMode(): boolean {
   try {
     const fs = require('fs')
@@ -76,7 +75,6 @@ function isPortableMode(): boolean {
   }
 }
 
-// 获取数据存储路径
 export function getDataPath(): string {
   if (isPortableMode()) {
     const portableDataPath = join(app.getAppPath(), '..', 'data')
@@ -94,7 +92,6 @@ export function getDataPath(): string {
   return app.getPath('userData')
 }
 
-// 配置 Session 数据路径
 function configureSessionPath(): void {
   if (isPortableMode()) {
     const sessionDataPath = join(getDataPath(), 'session')
@@ -103,13 +100,11 @@ function configureSessionPath(): void {
   }
 }
 
-// 清理应用遗留的临时上传目录
 async function cleanupTempUploadDirs(): Promise<void> {
   try {
     const tempRoot = tmpdir()
     const entries = await readdir(tempRoot, { withFileTypes: true })
 
-    // 1) multichat-uploads-* 与 multichat-paste-* 目录
     const multichatDirs = entries
       .filter(e => e.isDirectory() && (e.name.startsWith('multichat-uploads-') || e.name.startsWith('multichat-paste-')))
       .map(e => join(tempRoot, e.name))
@@ -123,7 +118,6 @@ async function cleanupTempUploadDirs(): Promise<void> {
       }
     }
 
-    // 2) 残留的 multichat-copy-*.vbs 文件（shortcutManager VBS，AV 锁定/崩溃残留）
     const multichatVbs = entries
       .filter(e => e.isFile() && e.name.startsWith('multichat-copy-') && e.name.endsWith('.vbs'))
       .map(e => join(tempRoot, e.name))
@@ -161,14 +155,12 @@ if (!gotTheLock) {
     }
   })
 
-  // 在应用启动前配置路径
   configureSessionPath()
 
   const dataPath = getDataPath()
   console.log('[Main] 数据目录:', dataPath)
   console.log('[Main] 运行模式:', isPortableMode() ? '🎒 便携版' : '💿 安装版')
 
-  // 初始化数据目录（含旧 agent-prompts → summary-prompts 目录迁移）
   initSummaryPrompts(dataPath)
 
   const store = new Store({
@@ -193,21 +185,16 @@ if (!gotTheLock) {
   }
 
   app.whenReady().then(async () => {
-    // 强制所有 Webview 和原生控件使用浅色模式，与应用 UI 保持一致
     nativeTheme.themeSource = 'light'
 
-    // 清理遗留的临时文件
     void cleanupTempUploadDirs()
 
-    // 设置应用 ID
     electronApp.setAppUserModelId('com.multichat.app')
 
-    // 优化快捷键
     app.on('browser-window-created', (_, window) => {
       optimizer.watchWindowShortcuts(window)
     })
 
-    // 注入依赖：Store 实例，获取主窗口函数，打开浏览器窗口函数
     await registerIpcHandlers(store, getMainWindow, openBrowserWindowInternal)
 
     ipcMain.on('app:quit-guard-ready', (event) => {
@@ -354,16 +341,13 @@ if (!gotTheLock) {
     // 启动低频更新检查：服务内部会延迟执行，并复用 24 小时缓存
     initUpdateChecker(store, getMainWindow)
 
-    // 初始化全局快捷键管理
     initShortcutManager(store)
 
-    // 初始化后台会话管理与自动化内核
     sessionManager.init()
     automationService.init(store)
     authStateService.init(store)
     agentTaskService.init(dataPath)
 
-    // 启动本地 CLI 守护服务
     startDaemonServer(dataPath)
     // 同目录写 cli.json 入口指示文件，供 PATH/注册表之外的进程定位 CLI
     void writeCliManifest(dataPath)
@@ -396,7 +380,6 @@ if (!gotTheLock) {
     powerMonitor.on('lock-screen', () => stopSelectionToolbarForLifecycle('lock screen'))
     powerMonitor.on('unlock-screen', () => restartSelectionToolbarForLifecycle('screen unlock'))
 
-    // 启动全局输入钩子（划词悬浮工具条）
     if (store.get('selectionToolbarEnabled', false) === true) {
       // 预建隐藏工具条窗口，避免首次触发时现场建窗的瞬时激活抖动（挤掉 Word 迷你工具条等）
       createToolbarWindow()

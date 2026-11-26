@@ -1,11 +1,9 @@
 export type ShellToolName = 'powershell' | 'bash'
 
-/** Pick the single shell tool exposed to the model for this platform. */
 export function shellToolForPlatform(platform: NodeJS.Platform = process.platform): ShellToolName {
   return platform === 'win32' ? 'powershell' : 'bash'
 }
 
-/** The platform counterpart that must be excluded so the model only sees one shell tool. */
 export function excludedShellTools(platform: NodeJS.Platform = process.platform): ShellToolName[] {
   return [shellToolForPlatform(platform) === 'powershell' ? 'bash' : 'powershell']
 }

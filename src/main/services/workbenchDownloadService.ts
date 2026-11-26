@@ -1,7 +1,3 @@
-/**
- * 工作台模式网页下载：AI Webview 触发的原生下载弹出系统保存框，默认打开当前工作区根目录。
- * 非工作台模式不接管，保持 Electron 默认的保存对话框行为。
- */
 import { session } from 'electron'
 import { existsSync } from 'fs'
 import { extname, join } from 'path'
@@ -19,7 +15,6 @@ const RESERVED_NAME = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i
 const reserveKey = (filePath: string): string =>
   process.platform === 'win32' ? filePath.toLowerCase() : filePath
 
-/** 取网页建议文件名；缺失时从 URL 末段兜底，并清掉路径分隔符与 Windows 非法字符。 */
 function safeFileName(rawName: string, url: string): string {
   let fromUrl = ''
   try {
@@ -40,7 +35,6 @@ function safeFileName(rawName: string, url: string): string {
   return `${safeStem}${ext}`
 }
 
-/** 同名不覆盖工作区已有文件，依次追加 (1)、(2)… */
 function uniquePath(dir: string, fileName: string): string {
   const available = (candidate: string): boolean =>
     !existsSync(candidate) && !reservedPaths.has(reserveKey(candidate))
@@ -57,10 +51,6 @@ function uniquePath(dir: string, fileName: string): string {
   return join(dir, `${stem} (${Date.now()})${ext}`)
 }
 
-/**
- * 注册 persist:shared 的 will-download 拦截。
- * provider 返回当前工作区根目录；返回 null 表示当前不在工作台模式、不接管下载。
- */
 export function initWorkbenchDownloadService(provider: WorkspaceProvider): void {
   workspaceProvider = provider
   if (registered) return

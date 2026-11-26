@@ -96,7 +96,6 @@ export interface AgentTaskView {
   error?: AgentTaskError
 }
 
-/** task.result 返回结构。 */
 export interface AgentTaskResult {
   taskId: string
   phase: AgentTaskPhase
@@ -109,7 +108,6 @@ export interface AgentTaskResult {
   error?: AgentTaskError
 }
 
-/** platforms 动作返回的平台能力标记。 */
 export interface AgentPlatformCapability {
   id: string
   deepResearch: boolean
@@ -123,7 +121,6 @@ export interface AgentPlatformCapability {
   loginRequired: boolean
 }
 
-/** task.submit 请求字段。 */
 export interface AgentTaskSubmitRequest {
   platform: string
   query: string

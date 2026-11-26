@@ -1,13 +1,4 @@
-/**
- * 标注 → 脚注 非破坏性导出工具
- *
- * 1. 深拷贝 EditorState JSON
- * 2. 遍历 mark 节点，为目标标注的子孙 TextNode 加 highlight format
- * 3. 解包所有 MarkNode，在原标记位置末尾插入 FootnoteRefNode
- * 4. 在文档尾部追加 FootnoteDefNode 定义行
- * 5. 用影子编辑器序列化为 Markdown（WORKBENCH_TRANSFORMERS）
- * 6. 可选后处理：==...== → <mark>...</mark>
- */
+/** 标注 → 脚注的非破坏性导出：在深拷贝 JSON AST 上变换，影子编辑器序列化。 */
 
 import type { LexicalEditor, ParsableSerializedNode, SerializedEditorState } from 'lexical'
 import { $convertToMarkdownString } from '@lexical/markdown'
@@ -28,8 +19,6 @@ const IS_HIGHLIGHT = 128
 
 type SerializedTextLikeNode = ParsableSerializedNode & { format?: number }
 type SerializedMarkLikeNode = ParsableSerializedNode & { ids?: unknown }
-
-// ----- JSON AST helpers -----
 
 /** 递归为所有 text 节点加 highlight format */
 function addHighlightFormat(node: ParsableSerializedNode): void {
@@ -91,7 +80,6 @@ function transformForExport(
   footnoteAssignment: Map<string, string>,
   lastMarkNode: Map<string, ParsableSerializedNode>
 ): void {
-  // 递归处理所有节点
   const processChildren = (node: ParsableSerializedNode): void => {
     if (!node.children) return
 
@@ -103,15 +91,12 @@ function transformForExport(
         const ids = markChild.ids.filter((id): id is string => typeof id === 'string')
         const matchingTargetIds = ids.filter(id => targetIds.has(id))
 
-        // 为目标标注的子孙添加 highlight
         if (matchingTargetIds.length > 0) {
           addHighlightFormat(child)
         }
 
-        // 先递归处理 mark 的子节点
         processChildren(child)
 
-        // 解包 MarkNode：把 children 提出来
         if (child.children) {
           newChildren.push(...child.children)
         }
@@ -131,7 +116,6 @@ function transformForExport(
           }
         }
       } else {
-        // 非 mark 节点：递归处理
         processChildren(child)
         newChildren.push(child)
       }
@@ -142,7 +126,6 @@ function transformForExport(
 
   processChildren(root)
 
-  // 在 root 末尾追加脚注定义行
   const sortedEntries = [...footnoteAssignment.entries()].sort((a, b) => {
     const numA = Number.parseInt(a[1], 10)
     const numB = Number.parseInt(b[1], 10)
@@ -157,7 +140,6 @@ function transformForExport(
     // 多行评论 → <br> 保持单行脚注定义
     const normalizedComment = commentText.replace(/\r?\n/g, '<br>')
 
-    // 构建脚注定义节点：[^id]: content
     const textNode: ParsableSerializedNode = {
       type: 'text',
       text: normalizedComment || '',
@@ -194,7 +176,6 @@ export function exportAnnotationsAsFootnotedMarkdown(
   format: FootnoteFormat = 'highlight-footnote'
 ): FootnoteExportResult {
   if (annotations.length === 0) {
-    // 没有目标标注时，直接序列化原文
     const markdown = editor.getEditorState().read(() =>
       $convertToMarkdownString(WORKBENCH_TRANSFORMERS)
     )
@@ -204,19 +185,15 @@ export function exportAnnotationsAsFootnotedMarkdown(
   const targetIds = new Set(annotations.map(a => a.id))
   const annotationMap = new Map(annotations.map(a => [a.id, a]))
 
-  // 1. 深拷贝 JSON AST
   const stateJson = editor.getEditorState().toJSON(true) as SerializedEditorState
   const root = JSON.parse(JSON.stringify(stateJson.root)) as ParsableSerializedNode
 
-  // 2. 收集出现顺序及最后片段位置
   const { order: encounterOrder, lastMarkNode } = collectEncounterInfo(root, targetIds)
 
-  // 3. 计算脚注编号——避免与文档已有脚注冲突
   const usedIds = editor.getEditorState().read(() => collectFootnoteStateFromLexical().usedIds)
   const footnoteAssignment = new Map<string, string>()
   const skippedIds: string[] = []
 
-  // 按出现顺序分配脚注编号
   const sortedByEncounter = [...encounterOrder.entries()].sort((a, b) => a[1] - b[1])
   for (const [annotationId] of sortedByEncounter) {
     const nextId = computeNextFootnoteId(usedIds)
@@ -224,21 +201,17 @@ export function exportAnnotationsAsFootnotedMarkdown(
     usedIds.add(nextId)
   }
 
-  // 未在正文找到 MarkNode 的标注
   for (const id of targetIds) {
     if (!encounterOrder.has(id)) {
       skippedIds.push(id)
     }
   }
 
-  // 4. 变换 JSON AST
   transformForExport(root, targetIds, annotationMap, footnoteAssignment, lastMarkNode)
 
-  // 5. 用影子编辑器序列化
   const shadow = editor.parseEditorState({ root })
   let markdown = shadow.read(() => $convertToMarkdownString(WORKBENCH_TRANSFORMERS))
 
-  // 6. 后处理：<mark> 格式
   if (format === 'mark-footnote') {
     markdown = markdown.replace(/==([^=]+)==/g, '<mark>$1</mark>')
   }

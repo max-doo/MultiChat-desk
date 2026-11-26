@@ -17,13 +17,11 @@ import { realpath } from 'fs/promises'
 type LegacyNote = ConversationNote & { snapshot?: string }
 type StoredConversation = Omit<Partial<NoteConversation>, 'notes'> & { id: string; notes: LegacyNote[] }
 
-/** 由导图文件派生的只读索引视图：文件是唯一权威，没有独立的索引文件。 */
 interface MindmapIndex {
   version: 1
   mindmaps: WorkbenchMindmapIndexEntry[]
 }
 
-/** 导图目录扫描缓存条目：结果 + 有效期。 */
 interface MindmapScanCache {
   scan: MindmapScanResult
   expiresAt: number
@@ -42,11 +40,9 @@ const workbenchSourceKey = (workspaceRoot: string, relativePath: string): string
   `workbench:${createHash('sha256').update(`${workbenchRootKey(workspaceRoot)}\n${relativePath}`).digest('hex')}`
 export const workbenchContentHash = (content: string): string =>
   createHash('sha256').update(content.replace(/\r\n?/g, '\n')).digest('hex')
-/** 二进制文档没有可读正文，用大小与 mtime 组成版本指纹。 */
 export const workbenchBinaryHash = (size: number, mtime: number): string =>
   `binary:${createHash('sha256').update(`${size}:${mtime}`).digest('hex')}`
 
-/** 导图文件被外部软件改过：保存必须由用户显式选择覆盖或载入，不能静默覆盖。 */
 export class MindmapFileChangedError extends Error {
   constructor(message = '导图文件已在外部修改') {
     super(message)
@@ -57,7 +53,6 @@ const BINARY_DOCUMENT_EXTENSIONS = /\.(?:pdf|docx?|docm|pptx?|pptm)$/i
 const isBinaryWorkbenchDocument = (relativePath: string): boolean => BINARY_DOCUMENT_EXTENSIONS.test(relativePath)
 const newPathFor = (path: string, oldRelativePath: string, newRelativePath: string): string =>
   path === oldRelativePath ? newRelativePath : `${newRelativePath}${path.slice(oldRelativePath.length)}`
-// 文档相对路径 → 导图文件基名（去掉目录与扩展名）。
 const docBaseOf = (relativePath: string): string =>
   relativePath.split('/').pop()?.replace(/\.[^.]+$/, '') || 'mindmap'
 const coverage = (snapshot: string, notes: ConversationNote[]): number => {
@@ -82,10 +77,8 @@ export class NoteManager {
   private readonly mindmapNotifyTimers = new Map<string, NodeJS.Timeout>()
   /** 应用自己写过的导图文件 → 写入后的文件指纹；null 表示应用刚删掉它。 */
   private readonly mindmapSelfWrites = new Map<string, Map<string, string | null>>()
-  /** 导图目录被外部改动时的回调，由 ipcHandlers 注入（用于广播 notes:changed 让面板刷新）。 */
   private onMindmapFilesChanged: (() => void) | null = null
 
-  /** 注入外部改动通知（ipcHandlers 用 notesChanged 广播刷新面板）。 */
   setMindmapFilesChangedHandler(handler: (() => void) | null): void {
     this.onMindmapFilesChanged = handler
   }
@@ -194,7 +187,6 @@ export class NoteManager {
     return result.sort((a, b) => a.conversation.updatedAt - b.conversation.updatedAt || a.conversation.id.localeCompare(b.conversation.id))
   }
 
-  /** 迁移/标记专用：只更新旧 JSON 的迁移字段，不触碰正文与标注。 */
   async markMigrated(id: string, patch: Pick<NoteConversation, 'migratedAt' | 'migratedTo' | 'migrationBlocked'>): Promise<void> {
     return this.serial(async () => {
       // 迁移首次写标记前保留一份原始 JSON；重复迁移不会覆盖已有备份。
@@ -207,7 +199,6 @@ export class NoteManager {
     })
   }
 
-  /** 用户确认后清除阻塞标记，让迁移器重新处理这条旧记录。 */
   async clearMigrationBlock(id: string): Promise<void> {
     return this.serial(async () => {
       await this.backup(id)
@@ -376,7 +367,6 @@ export class NoteManager {
     }
   }
 
-  /** 只读查找，不建记录；面板打开文档时用它判断是否需要显示空状态。 */
   findWorkbenchSource(workspaceRoot: string, relativePath: string): Promise<NoteConversation | undefined> {
     return this.serial(() => this.findWorkbenchUnlocked(workspaceRoot, relativePath))
   }
@@ -456,10 +446,6 @@ export class NoteManager {
 
   // ---- 工作台导图文件（.multichat/mindmaps/*.mindmap.md） ----
 
-  /**
-   * 取导图目录扫描结果：命中缓存直接返回，否则扫一次并缓存。
-   * 调用方需已持有 serial 队列。
-   */
   private async mindmapScan(workspaceRoot: string): Promise<MindmapScanResult> {
     const key = workbenchRootKey(workspaceRoot)
     const cached = this.mindmapScanCache.get(key)
@@ -470,7 +456,6 @@ export class NoteManager {
     return scan
   }
 
-  /** 丢弃扫描缓存，下次读取重新扫盘。watcher 事件与外部改动走这里。 */
   private invalidateMindmapScan(workspaceRoot: string): void {
     this.mindmapScanCache.delete(workbenchRootKey(workspaceRoot))
   }
@@ -505,7 +490,6 @@ export class NoteManager {
     }
   }
 
-  /** 关闭指定工作区的导图目录监听并清理对应缓存与改名映射（切换/关闭工作区时调用）。 */
   releaseWorkspace(workspaceRoot: string): void {
     if (!workspaceRoot) return
     const key = workbenchRootKey(workspaceRoot)
@@ -529,7 +513,6 @@ export class NoteManager {
     }
   }
 
-  /** 快速判断指定工作区是否有工作台导图/笔记记录；用于无记录工作区短路对账 IPC。 */
   async hasWorkbenchRecords(workspaceRoot: string): Promise<boolean> {
     if (!workspaceRoot) return false
     const root = workbenchRootKey(workspaceRoot)
@@ -549,7 +532,6 @@ export class NoteManager {
     })
   }
 
-  /** 关闭全部导图目录监听（应用退出时调用）。 */
   shutdownMindmapWatchers(): void {
     for (const timer of this.mindmapNotifyTimers.values()) clearTimeout(timer)
     this.mindmapNotifyTimers.clear()
@@ -561,7 +543,6 @@ export class NoteManager {
     this.mindmapSelfWrites.clear()
   }
 
-  /** 写导图文件并让扫描缓存失效（写后读必须看到新内容）。 */
   private async writeMindmap(workspaceRoot: string, fileName: string, fields: { id: string; source: string; title: string; updatedAt?: number }, body: string): Promise<string> {
     return this.withSelfWrite(workspaceRoot, async () => {
       const result = await writeMindmapFile(workspaceRoot, fileName, fields, body)
@@ -612,7 +593,6 @@ export class NoteManager {
     return result
   }
 
-  /** 记录本次应用写入的文件指纹；`'file'` 表示按磁盘实际内容读取。 */
   private async recordSelfWrite(workspaceRoot: string, relativePath: string, hash: string | null | 'file'): Promise<void> {
     const resolved = hash === 'file' ? await this.mindmapFileStamp(workspaceRoot, relativePath) : hash
     const key = workbenchRootKey(workspaceRoot)
@@ -766,7 +746,6 @@ export class NoteManager {
     )
   }
 
-  /** 按 source 从索引组装导图，供面板读取。 */
   private async workbenchMindmapsFor(workspaceRoot: string, relativePath: string): Promise<ConversationMindmap[]> {
     const { index } = await this.workbenchIndex(workspaceRoot)
     return index.mindmaps
@@ -992,7 +971,6 @@ export class NoteManager {
     })
   }
 
-  /** 应用内重命名/移动后改写绑定；目录按前缀批量迁移。 */
   rekeyWorkbenchSource(workspaceRoot: string, oldRelativePath: string, newRelativePath: string): Promise<number> {
     return this.serial(async () => {
       const root = workbenchRootKey(workspaceRoot)
@@ -1275,7 +1253,6 @@ export class NoteManager {
     })
   }
 
-  /** 为已复制到磁盘的文档建立来源记录；读不到文件时返回 null。 */
   private async createWorkbenchRecordUnlocked(workspaceRoot: string, relativePath: string): Promise<NoteConversation | null> {
     let content = ''
     let fingerprint: { size: number; mtime: number } | undefined
@@ -1340,7 +1317,6 @@ export class NoteManager {
     return cloned
   }
 
-  /** 删除前的确认信息：文档（含目录下的文档）关联了多少张导图。 */
   workbenchTrashImpact(workspaceRoot: string, relativePaths: string[]): Promise<{ documents: number; mindmaps: number }> {
     return this.serial(async () => {
       const { index } = await this.workbenchIndex(workspaceRoot)
@@ -1771,7 +1747,6 @@ export class NoteManager {
     return {}
   }
 
-  /** 读指定相对路径的导图文件；读不到或不是导图文件时返回 null。 */
   private async readFileAtPath(workspaceRoot: string, relativePath: string): Promise<Awaited<ReturnType<typeof readMindmapFile>> | null> {
     try {
       return await readMindmapFile(workspaceRoot, relativePath)
@@ -1780,7 +1755,6 @@ export class NoteManager {
     }
   }
 
-  /** 两份正文的一致性比对：两侧统一换行、忽略尾部空行后再比。 */
   private mindmapBodyEquals(entry: Pick<WorkbenchMindmapIndexEntry, 'markdown'>, body: string): boolean {
     // 尾部空行不构成内容差异：导出/回读链路对末尾换行的处理不完全对称，
     // 只差一个换行时不该被判成「正文冲突」而卡住绑定修复。

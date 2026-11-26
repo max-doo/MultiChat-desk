@@ -314,7 +314,6 @@ export function extractMathPlaceholders(content: string): PreparedMarkdownMath {
 
     const ch = content[i]
 
-    // 行内代码 `...`
     if (ch === '`') {
       let tickLen = 0
       while (i + tickLen < content.length && content[i + tickLen] === '`') {
@@ -331,7 +330,6 @@ export function extractMathPlaceholders(content: string): PreparedMarkdownMath {
       continue
     }
 
-    // 反斜杠转义及 \(...\), \[...\]
     if (ch === '\\') {
       if (i + 1 >= content.length) {
         out += ch
@@ -382,7 +380,6 @@ export function extractMathPlaceholders(content: string): PreparedMarkdownMath {
       continue
     }
 
-    // 块级 $$...$$ 与行内 $...$
     if (ch === '$') {
       if (content[i + 1] === '$') {
         const closeIdx = findClosingDoubleDollar(content, i + 2)

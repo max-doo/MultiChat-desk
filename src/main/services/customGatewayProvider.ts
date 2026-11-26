@@ -35,11 +35,8 @@ export interface GatewayModelEntry {
 
 export interface GatewayProviderOptions {
   providerId: string
-  /** Display name shown in the provider list. */
   name: string
-  /** Base URL including the version segment when applicable, e.g. `http://host:port/v1`. */
   baseUrl: string
-  /** Preferred protocol for models without explicit native_endpoints. */
   api?: AgentGatewayApiType
   /**
    * Base URL for models routed to the Anthropic messages API. The Anthropic
@@ -48,15 +45,9 @@ export interface GatewayProviderOptions {
    * stripped.
    */
   messagesBaseUrl?: string
-  /** Static API key the provider is registered with; defaults to a no-op. */
   apiKey?: string
-  /** Static models used before the first successful fetch. */
   seedModels?: ProviderModelConfig[]
   fetchTimeoutMs?: number
-  /**
-   * Optional hook that upgrades a generic model config when the gateway
-   * reports richer fields.
-   */
   enrichModel?: (
     model: ProviderModelConfig,
     entry: GatewayModelEntry,
@@ -228,7 +219,6 @@ export class CustomGatewayProvider {
     this.enrichModel = options.enrichModel
   }
 
-  /** Effective baseUrl passed to ModelRegistry.registerProvider(). */
   get registrationBaseUrl(): string {
     return this.api === 'anthropic-messages' ? this.messagesBaseUrl : this.baseUrl
   }
@@ -283,7 +273,6 @@ export class CustomGatewayProvider {
     return headers
   }
 
-  /** Fetch `/models` (authenticated when apiKey is set) and map each entry to a pi model config. */
   async fetchModels(signal?: AbortSignal): Promise<ProviderModelConfig[]> {
     const candidates = buildModelsEndpointCandidates(this.baseUrl, this.api)
     if (candidates.length === 0) {
@@ -368,7 +357,6 @@ export class CustomGatewayProvider {
   }
 }
 
-/** The local magpie gateway: the richest `/v1/models` we know about. */
 export const MAGPIE_PROVIDER = new CustomGatewayProvider({
   providerId: 'magpie',
   name: 'Magpie',

@@ -47,7 +47,6 @@ export function splitEquationPaste(text: string): EquationPasteSlice[] | null {
         flushText()
         const rest = line.slice(line.indexOf('$$') + 2)
         if (rest.trimEnd().endsWith('$$')) {
-          // 单行 $$...$$
           const equation = sanitizeLatexEquation(rest.slice(0, rest.lastIndexOf('$$')))
           if (equation !== '') {
             slices.push({ kind: 'equation', text: equation })

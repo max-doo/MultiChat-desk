@@ -35,7 +35,6 @@ export function initShortcutManager(store: Store): void {
 export function registerAllShortcuts(): void {
   globalShortcut.unregisterAll()
 
-  // 重新注册刷新快捷键
   const refreshShortcuts = ['CommandOrControl+R', 'F5']
   refreshShortcuts.forEach((shortcut) => {
     globalShortcut.register(shortcut, () => {
@@ -48,7 +47,6 @@ export function registerAllShortcuts(): void {
 
   const config = getShortcuts()
 
-  // Summon
   if (config.summon) {
     const ok = globalShortcut.register(config.summon, () => {
       const qw = getQuickWindow()
@@ -59,7 +57,6 @@ export function registerAllShortcuts(): void {
     if (!ok) console.warn(`[ShortcutManager] 召唤快捷键注册失败: ${config.summon}`)
   }
 
-  // Actions
   const actions = [
     { key: config.summarize, action: 'summarize' as const },
     { key: config.polish, action: 'polish' as const },
@@ -73,20 +70,16 @@ export function registerAllShortcuts(): void {
         const qw = getQuickWindow()
         if (!qw) return
 
-        // 1. 延迟等待 250ms，留给用户时间释放物理按键 (Ctrl, Shift 等)，避免修饰键冲突
         await sleep(250)
 
-        // 2. 模拟 Ctrl+C 获取当前选中文本（此时焦点仍在外部活动窗口）
         const text = await getSelectedTextAsync()
 
         // 未获取到选中文本时，不通过划词快捷键召唤弹窗
         if (!text) return
 
-        // 3. 展示并聚焦快捷窗口
         showAndFocusWindow(qw)
 
         if (text) {
-          // 4. 等待窗口加载就绪后注入文本
           setTimeout(() => {
             if (!qw.isDestroyed()) {
               qw.webContents.send('quick:inject-prompt', { text, action })
@@ -117,19 +110,14 @@ export async function getSelectedTextAsync(keepClipboard = true): Promise<string
     return clipboard.readText().trim()
   }
 
-  // 1. 备份剪贴板
   const prevText = clipboard.readText()
 
-  // 2. 清空剪贴板
   clipboard.clear()
 
-  // 3. 模拟 Ctrl+C
   await simulateCopyWin32VBS()
 
-  // 4. 等待 150ms 确保剪贴板数据就绪
   await sleep(150)
 
-  // 5. 读新剪贴板
   const newText = clipboard.readText().trim()
   if (newText) {
     if (!keepClipboard && prevText) {
@@ -138,7 +126,6 @@ export async function getSelectedTextAsync(keepClipboard = true): Promise<string
     return newText
   }
 
-  // 无新内容，还原旧剪贴板并返回空字符串
   if (prevText) {
     clipboard.writeText(prevText)
   }
@@ -153,10 +140,8 @@ function simulateCopyWin32VBS(): Promise<void> {
   return new Promise((resolve) => {
     const tempVbsPath = join(tmpdir(), `multichat-copy-${Date.now()}.vbs`)
     try {
-      // 写入 VBS 脚本内容
       writeFileSync(tempVbsPath, 'Set w = CreateObject("WScript.Shell")\nw.SendKeys "^c"\n')
 
-      // 使用 cscript 运行并隐藏窗口
       const child = execFile('cscript.exe', ['//NoLogo', tempVbsPath], { timeout: 1500, windowsHide: true }, (err) => {
         if (err) {
           console.warn('[ShortcutManager] VBS 模拟复制执行出错:', err.message)

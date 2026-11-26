@@ -23,7 +23,6 @@ export interface NativeDownloadResult {
 
 interface NativeDownloadCtx {
   dir: string
-  /** 文件名前缀（不含扩展名），seq 与扩展名由框架拼接 */
   filePrefix: string
   modelId: string
   seq: number
@@ -36,12 +35,10 @@ interface NativeDownloadCtx {
   arrived: number
 }
 
-// 活动上下文：will-download 命中这里即拦截 + setSavePath
 const nativeCtxByWcId = new Map<number, NativeDownloadCtx>()
 // 已完成结果暂存：finalize 后移到这里，wait 来取。消除"will-download 早于 wait 完成"的时序竞态。
 const nativeDoneByWcId = new Map<number, NativeDownloadResult>()
 
-/** 该 WebContents 是否已有生图/批量下载上下文，供通用下载拦截避让。 */
 export function hasActiveNativeDownloadContext(wcId: number): boolean {
   return nativeCtxByWcId.has(wcId)
 }
@@ -76,7 +73,6 @@ function finalizeForce(wcId: number): void {
 
 let willDownloadRegistered = false
 
-/** 幂等注册 persist:shared 的 will-download 拦截；App 启动或首个注册时调用一次。 */
 export function ensureWillDownloadListener(): void {
   if (willDownloadRegistered) return
   willDownloadRegistered = true
@@ -150,10 +146,6 @@ function registerContext(
   })
 }
 
-/**
- * UI 批量下载：dir 由调用方（对话框结果）提供；文件名 {modelId}-{ts}-{seq}.{ext}。
- * `timeoutMs` 沿用 UI 侧 30s 上限。
- */
 export function registerBatchDownload(
   wcId: number,
   opts: { modelId: string; dir: string; ts: string; expectedFromClick: number },
@@ -175,10 +167,6 @@ export function registerBatchDownload(
   )
 }
 
-/**
- * Agent 任务下载：dir 由 AgentTaskService 指定（.multichat/image），
- * 文件名 {platform}-{taskId[:8]}-{seq}.{ext}；clicked=1 时 expectedFromClick=1（一次只落一张）。
- */
 export async function registerAgentImageDownload(
   wcId: number,
   opts: { platform: string; taskId: string; dir: string; expectedFromClick: number; filePrefix?: string },
@@ -201,7 +189,6 @@ export async function registerAgentImageDownload(
   )
 }
 
-/** 等待该 wcId 的下载结果（done 暂存区命中即返回；ctx 消失兜底）。 */
 export async function awaitImageDownloadResult(wcId: number): Promise<NativeDownloadResult> {
   const done = nativeDoneByWcId.get(wcId)
   if (done) {

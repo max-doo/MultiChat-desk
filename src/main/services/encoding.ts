@@ -14,11 +14,10 @@ import { promisify, TextDecoder } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
-/** Mirrors the server's MAX_TEXT_CONTROL_CHAR_RATIO (multimodal.py). */
+/** 与 WebAI-to-API 服务端 multimodal.py 的文本控制字符比例保持一致。 */
 const TEXT_CONTROL_CHAR_RATIO = 0.01;
 const ENCODING_SNIFF_BYTES = 64 * 1024;
 
-/** Map a Windows code page number to a WHATWG encoding label. */
 export function codePageToLabel(cp: number): string | null {
   if (cp === 65001) return null; // UTF-8 console — fallback decoding adds nothing
   if (cp === 936 || cp === 54936) return "gbk"; // GB18030 superset shares the gbk decoder
@@ -75,13 +74,11 @@ export function decodeCommandOutput(buf: Buffer, fallback: TextDecoder | null): 
 let fallbackDecoderPromise: Promise<TextDecoder | null> | null = null;
 let fallbackDecoderSync: TextDecoder | null | undefined;
 
-/** Async probe — pre-fired by the bash tool so it overlaps the child. */
 export function getFallbackDecoder(): Promise<TextDecoder | null> {
   if (process.platform !== "win32") return Promise.resolve(null);
   return (fallbackDecoderPromise ??= probeFallbackDecoder());
 }
 
-/** Sync probe for the file tools — one ~40ms registry read, cached. */
 export function getFallbackDecoderSync(): TextDecoder | null {
   if (process.platform !== "win32") return null;
   if (fallbackDecoderSync === undefined) {
@@ -183,11 +180,6 @@ async function probeFallbackDecoder(): Promise<TextDecoder | null> {
   }
 }
 
-/**
- * Resolve a user-supplied `encoding` argument: WHATWG label ("gbk",
- * "utf-16le", "windows-1252") or a Windows code-page number ("936").
- * Returns null for unrecognized input.
- */
 export function resolveDecoder(encoding: string | undefined): TextDecoder | null {
   const raw = (encoding ?? "").trim().toLowerCase();
   if (raw === "") return null;
@@ -205,7 +197,6 @@ function isControlChar(code: number): boolean {
   return code < 32 || code === 127;
 }
 
-/** Binary heuristic on the DECODED text — mirrors isTextLike's contract. */
 export function looksBinary(text: string): boolean {
   if (text.includes("\x00")) return true;
   const probe = text.length > ENCODING_SNIFF_BYTES ? text.slice(0, ENCODING_SNIFF_BYTES) : text;

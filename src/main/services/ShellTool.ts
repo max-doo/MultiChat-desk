@@ -64,7 +64,6 @@ function safeFlushPrefixLength(buf: Buffer, hasNullBytes: boolean): number {
   }
 }
 
-/** Find the byte offset right after the last UTF-16LE `\n` (`0x0a 0x00` at an even index). */
 function lastUtf16LeLineEnd(buf: Buffer): number {
   const evenEnd = (buf.length & ~1) - 2
   for (let i = evenEnd; i >= 0; i -= 2) {

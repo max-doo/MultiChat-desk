@@ -41,7 +41,6 @@ function isLeftButton(button: unknown): boolean {
   return button === 0 || button === 'Left' || button === 'left'
 }
 
-// 处理单条输入事件。
 // 注意：monio-napi 的 d.ts 把 startListen 回调参数标注为单个 EventJs，
 // 但运行时实际按 EventJs[] 批量派发（NAPI-RS 侧用 Vec 派发）。
 // 历次"工具条不触发"的根因即在此：直接读 event.eventType / event.mouse 会得到 undefined。
@@ -49,7 +48,6 @@ function isLeftButton(button: unknown): boolean {
 function processEvent(event: EventJs): void {
   const type = event.eventType
 
-  // MousePressed (5)
   if (type === 5 && event.mouse) {
     if (isLeftButton(event.mouse.button)) {
       const activeWindow = getToolbarWindow()
@@ -71,7 +69,6 @@ function processEvent(event: EventJs): void {
       }
     }
   }
-  // MouseReleased (6)
   else if (type === 6 && event.mouse) {
     if (isLeftButton(event.mouse.button) && isMouseDown) {
       isMouseDown = false
@@ -89,7 +86,6 @@ function processEvent(event: EventJs): void {
       }
     }
   }
-  // MouseClicked (7)
   else if (type === 7 && event.mouse) {
     if (isLeftButton(event.mouse.button)) {
       const now = Date.now()
@@ -105,7 +101,6 @@ function processEvent(event: EventJs): void {
       }
     }
   }
-  // MouseMoved (8) or MouseDragged (9)
   else if ((type === 8 || type === 9) && event.mouse) {
     const activeWindow = getToolbarWindow()
     if (activeWindow && activeWindow.isVisible() && currentToolbarPhysX > 0) {
@@ -132,7 +127,6 @@ function processEvent(event: EventJs): void {
       }
     }, 120)
   }
-  // KeyPressed (2)
   else if (type === 2) {
     const activeWindow = getToolbarWindow()
     if (activeWindow && activeWindow.isVisible()) {
@@ -234,7 +228,6 @@ export function startInputHook(): boolean {
     hook = null
   }
 
-  // 启动 UIA 选区读取助手（随工具条开关与 before-quit 联动）
   startSelectionReader()
 
   try {
@@ -276,11 +269,9 @@ async function handleTextSelection(x: number, y: number, compareWithDownSnapshot
     // 松手后用 UIA 非侵入读取当前选区（不发 Ctrl+C，不杀终端进程、不抢 Word 工具条）
     const selAtUp = (await readPlatformSelection())?.text ?? ''
 
-    // 旧选区未变（如拖窗口标题栏，应用里旧选区仍在）→ 不弹
     if (compareWithDownSnapshot && selAtDown !== null && selAtUp === selAtDown) {
       return
     }
-    // 无选区（UIA 读不到，如 VS Code 编辑器/记事本）→ 不弹，安全降级
     if (!selAtUp || selAtUp.trim().length === 0) {
       return
     }

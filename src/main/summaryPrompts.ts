@@ -1,7 +1,3 @@
-/**
- * Summary Prompts 管理模块
- * 负责总结提示词的文件读写、解析、监听、迁移与 schema 升级等功能
- */
 
 import { join } from 'path'
 import type { BrowserWindow } from 'electron'
@@ -34,9 +30,6 @@ export function initSummaryPrompts(dataPath: string): void {
     migrateFromAgentPromptsDir(dataPath)
 }
 
-/**
- * 获取 summary-prompts 目录路径
- */
 export function getSummaryPromptsDir(): string {
     return summaryPromptsDir
 }
@@ -52,7 +45,6 @@ function migrateFromAgentPromptsDir(dataPath: string): void {
     if (fs.existsSync(summaryPromptsDir)) return
     if (!fs.existsSync(oldDir)) return
 
-    // 优先 rename（同卷下原子且快）
     try {
         fs.renameSync(oldDir, summaryPromptsDir)
         return
@@ -68,7 +60,6 @@ function migrateFromAgentPromptsDir(dataPath: string): void {
     }
 }
 
-/** 递归拷贝目录（同步） */
 function copyDirRecursiveSync(
     fs: typeof import('fs'),
     src: string,
@@ -87,9 +78,6 @@ function copyDirRecursiveSync(
     }
 }
 
-/**
- * 将字符串转换为安全的文件名
- */
 function toSafeFileStem(input: string): string {
     // 移除文件名中不安全的字符（包括 ASCII 控制字符 0x00-0x1F）
     // eslint-disable-next-line no-control-regex
@@ -102,17 +90,11 @@ function toSafeFileStem(input: string): string {
     return cleaned || 'prompt'
 }
 
-/**
- * 确保 summary-prompts 目录存在
- */
 export async function ensureSummaryPromptsDir(): Promise<void> {
     const { mkdir } = await import('fs/promises')
     await mkdir(summaryPromptsDir, { recursive: true })
 }
 
-/**
- * 移除 BOM 标记
- */
 function stripBOM(text: string): string {
     return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text
 }
@@ -135,9 +117,6 @@ type SummaryPromptMeta = {
     schemaVersion?: number
 }
 
-/**
- * 解析 Summary Prompt Markdown 文件
- */
 function parseSummaryPromptMarkdown(fileName: string, raw: string): SummaryPromptFileItem {
     const text = stripBOM(raw)
     const stem = fileName.replace(/\.md$/i, '')
@@ -149,9 +128,7 @@ function parseSummaryPromptMarkdown(fileName: string, raw: string): SummaryPromp
     // 循环剥离头部的所有 frontmatter 块（YAML 或 HTML 注释），仅保留最后解析成功的一个作为有效元数据
     // eslint-disable-next-line no-constant-condition
     while (true) {
-        // 尝试解析 YAML Frontmatter 格式
         const yamlMatch = body.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n/i)
-        // 尝试解析旧版 HTML 注释 JSON 格式
         const htmlMatch = body.match(/^<!--\s*(\{[\s\S]*?\})\s*-->\s*(?:\r?\n)?/i)
 
         if (yamlMatch) {
@@ -214,9 +191,6 @@ function parseSummaryPromptMarkdown(fileName: string, raw: string): SummaryPromp
     }
 }
 
-/**
- * 格式化 Summary Prompt 为 Markdown
- */
 export function formatSummaryPromptMarkdown(prompt: SummaryPromptFileItem): string {
     const lines: string[] = ['---']
     
@@ -232,9 +206,6 @@ export function formatSummaryPromptMarkdown(prompt: SummaryPromptFileItem): stri
     return `${lines.join('\n')}\n${body}\n`
 }
 
-/**
- * 列出所有 .md 文件
- */
 async function listSummaryPromptFiles(): Promise<string[]> {
     await ensureSummaryPromptsDir()
     const { readdir } = await import('fs/promises')
@@ -244,9 +215,6 @@ async function listSummaryPromptFiles(): Promise<string[]> {
         .map((d) => d.name)
 }
 
-/**
- * 列出所有 Summary Prompts
- */
 export async function listSummaryPrompts(): Promise<SummaryPromptFileItem[]> {
     const { readFile } = await import('fs/promises')
     const fileNames = await listSummaryPromptFiles()
@@ -274,9 +242,6 @@ export async function listSummaryPrompts(): Promise<SummaryPromptFileItem[]> {
     })
 }
 
-/**
- * 获取 prompt 索引（id 到文件名的映射）
- */
 export async function getSummaryPromptIndex(): Promise<{
     idToFileName: Map<string, string>
     usedStems: Set<string>
@@ -303,9 +268,6 @@ export async function getSummaryPromptIndex(): Promise<{
     return { idToFileName, usedStems }
 }
 
-/**
- * 生成唯一的文件名 stem
- */
 function pickUniqueStem(baseStem: string, usedStems: Set<string>): string {
     let stem = baseStem
     let counter = 2
@@ -328,12 +290,10 @@ function pickUniqueStem(baseStem: string, usedStems: Set<string>): string {
 export async function bootstrapSummaryPrompts(defaultPrompts: SummaryPromptFileItem[]): Promise<void> {
     const { writeFile, readFile } = await import('fs/promises')
     const seedById = new Map(defaultPrompts.map(p => [p.id, p]))
-    // 预设 body 的 hash 在此一并算出，避免循环内重复计算
     const seedHashById = new Map(defaultPrompts.map(p => [p.id, computeBodyHash(p.prompt)]))
 
     const existing = await listSummaryPromptFiles()
 
-    // 目录为空：种子全部预设
     if (existing.length === 0) {
         const usedStems = new Set<string>()
         for (const p of defaultPrompts) {
@@ -346,14 +306,12 @@ export async function bootstrapSummaryPrompts(defaultPrompts: SummaryPromptFileI
         return
     }
 
-    // 目录非空：逐个 id 升级 / 补种
     const index = await getSummaryPromptIndex()
     const usedStems = index.usedStems
 
     for (const [id, seed] of seedById.entries()) {
         const fileName = index.idToFileName.get(id)
 
-        // 本地不存在该预设 → 直接写入（如新增的“成稿汇总”）
         if (!fileName) {
             const baseStem = toSafeFileStem(seed.name || id)
             const stem = pickUniqueStem(baseStem, usedStems)
@@ -363,7 +321,6 @@ export async function bootstrapSummaryPrompts(defaultPrompts: SummaryPromptFileI
             continue
         }
 
-        // 本地已存在：比较 body hash 决定是否覆盖升级
         try {
             const filePath = join(summaryPromptsDir, fileName)
             const content = await readFile(filePath, 'utf-8')
@@ -372,19 +329,16 @@ export async function bootstrapSummaryPrompts(defaultPrompts: SummaryPromptFileI
             const seedHash = seedHashById.get(id) ?? computeBodyHash(seed.prompt)
 
             if (localHash === seedHash) {
-                // 用户未改 body → 用预设新版覆盖升级
                 await writeFile(
                     filePath,
                     formatSummaryPromptMarkdown({
                         ...seed,
-                        // 保留本地 id/name（防止用户改过文件名映射），其余取预设新版
                         id: parsed.id || seed.id,
                         name: parsed.name || seed.name
                     }),
                     'utf-8'
                 )
             } else {
-                // 用户改过 body → 仅回填 description（若无）
                 if (!parsed.description && seed.description) {
                     await writeFile(
                         filePath,
@@ -402,9 +356,6 @@ export async function bootstrapSummaryPrompts(defaultPrompts: SummaryPromptFileI
     }
 }
 
-/**
- * 写入单个 prompt
- */
 export async function writeSummaryPrompt(prompt: SummaryPromptFileItem): Promise<void> {
     await ensureSummaryPromptsDir()
     const { writeFile, rm } = await import('fs/promises')
@@ -427,9 +378,6 @@ export async function writeSummaryPrompt(prompt: SummaryPromptFileItem): Promise
     await writeFile(join(summaryPromptsDir, fileName), formatSummaryPromptMarkdown(finalPrompt), 'utf-8')
 }
 
-/**
- * 删除单个 prompt
- */
 export async function deleteSummaryPrompt(promptId: string): Promise<void> {
     await ensureSummaryPromptsDir()
     const { rm } = await import('fs/promises')
@@ -439,9 +387,6 @@ export async function deleteSummaryPrompt(promptId: string): Promise<void> {
     await rm(filePath, { force: true })
 }
 
-/**
- * 启动文件监听器
- */
 export function startSummaryPromptsWatcher(window: BrowserWindow): void {
     try {
         const fs = require('fs') as typeof import('fs')

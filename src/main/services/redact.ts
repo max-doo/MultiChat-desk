@@ -10,7 +10,6 @@ const SECRET_CAMEL_BOUNDARY_RX =
 const NON_SECRET_LITERAL_RX =
   /^(?:true|false|null|none|undefined|nil|nan|\*+|\[redacted\])$/i
 
-/** Keep enough of the value to correlate entries across output without exposing the secret. */
 function maskValue(value: string): string {
   const trimmed = value.trim()
   if (trimmed.length <= 8) return '[redacted]'

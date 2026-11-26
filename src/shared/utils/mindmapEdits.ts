@@ -4,7 +4,6 @@ export const normalizeMindmapNewlines = (text: string): string => text.replace(/
 export const MINDMAP_EDIT_TAGS = { begin: '<mindmap_edits>', end: '</mindmap_edits>' } as const
 export const MINDMAP_REWRITE_TAGS = { begin: '<mindmap_rewrite>', end: '</mindmap_rewrite>' } as const
 
-/** Locate one complete envelope without modifying its payload. */
 export function extractMindmapTaggedBlock(text: string, tags: { begin: string; end: string }):
   | { status: 'pending' }
   | { status: 'invalid'; error: string }

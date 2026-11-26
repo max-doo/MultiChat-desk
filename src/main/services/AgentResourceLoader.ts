@@ -15,9 +15,7 @@ export interface AgentResourceLoaderOptions {
   cwd: string
   agentDir?: string
   appendSystemPrompt?: string[]
-  /** Extra skill roots beyond `<agentDir>/skills` and the cwd's own skills dir. */
   extraSkillDirs?: string[]
-  /** Inline extensions (e.g. context compression) loaded without a file path. */
   extensionFactories?: InlineExtension[]
 }
 

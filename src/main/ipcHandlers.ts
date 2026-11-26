@@ -149,7 +149,6 @@ import {
     GITIGNORE_CATEGORIES
 } from './services/gitignoreService'
 
-// 诊断窗口 probe/run-research 透传请求挂起表
 const pendingProbeRequests = new Map<string, { resolve: (v: unknown) => void; timer: ReturnType<typeof setTimeout> }>()
 const pendingRunResearchRequests = new Map<string, { resolve: (v: unknown) => void; timer: ReturnType<typeof setTimeout> }>()
 
@@ -271,7 +270,6 @@ export async function registerIpcHandlers(
             return { success: false, error: '主窗口未就绪' }
         }
         const reqId = `probe-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-        // pick 模式需用户手动点选平台页元素，超时放宽到 60s（其余维持 5s）
         const timeoutMs = payload.type === 'pick' ? 60000 : 5000
         return new Promise((resolve) => {
             const timer = setTimeout(() => {
@@ -356,7 +354,6 @@ export async function registerIpcHandlers(
         // 避免最大化状态下单纯点击标题栏误触发还原。
         if (!dragState.restoredAfterStart) {
           restoreCustomMaximizedWindowForDrag(win, dragState.startMousePoint)
-          // 还原后窗口位置已切换为"跟随光标"语义，基准需重置为当前实际位置
           dragState.startContentBounds = win.getContentBounds()
           dragState.startMousePoint = screen.getCursorScreenPoint()
           dragState.restoredAfterStart = true
@@ -386,7 +383,6 @@ export async function registerIpcHandlers(
 
     ipcMain.handle('perform-contextmenu-action', async (_event, args: { wcId: number, action: 'copy' | 'paste' | 'save-image', data?: { url?: string } }) => {
         try {
-            // 使用 webContents.getAllWebContents() 获取所有 webContents，包括 webview 标签的
             const { webContents } = require('electron')
             const allWc = webContents.getAllWebContents()
             console.log('[ContextMenu] 查找 wcId:', args.wcId, '所有 webContents IDs:', allWc.map((w: Electron.WebContents) => w.id))
@@ -401,9 +397,7 @@ export async function registerIpcHandlers(
             console.log('[ContextMenu] 找到目标 webContents, action:', args.action)
 
             if (args.action === 'copy') {
-                // 先尝试让 webContents 获得焦点
                 target.focus()
-                // 使用 Electron 内置的 copy 命令
                 target.copy()
                 console.log('[ContextMenu] 执行 copy 完成')
                 return { success: true }
@@ -775,7 +769,6 @@ export async function registerIpcHandlers(
                 return { success: false, error: '未找到 webContents' }
             }
 
-            // 发送鼠标按下事件
             wc.sendInputEvent({
                 type: 'mouseDown',
                 x: Math.round(params.x),
@@ -784,7 +777,6 @@ export async function registerIpcHandlers(
                 clickCount: 1
             })
 
-            // 短暂延迟后发送鼠标释放事件
             await new Promise(r => setTimeout(r, 50))
 
             wc.sendInputEvent({
@@ -1271,7 +1263,6 @@ export async function registerIpcHandlers(
                 return { success: false, error: '非本应用缓存文件' }
             }
 
-            // 复用导出键列表，找出文件中存在哪些键
             const knownKeys = [
                 'displayMode', 'models', 'apiConfig', 'summaryModels',
                 'history', 'summaryHistory', 'notes', 'geminiAccountUrl'
@@ -1311,7 +1302,6 @@ export async function registerIpcHandlers(
                 businessCounts.notes = counts
             }
 
-            // 冲突 = 文件中存在且本地也非空的键（即会覆盖的键）
             const conflicts = keys.filter(k => {
                 if (businessCounts[k]) return businessCounts[k].conflicts > 0
                 const local = store.get(k)
@@ -1321,7 +1311,6 @@ export async function registerIpcHandlers(
                 return true
             })
 
-            // 返回校验后的预览数据；业务记录经专用接口按 ID 合并。
             const data: Record<string, unknown> = {}
             for (const k of keys) {
                 data[k] = parsed[k]
@@ -1373,7 +1362,6 @@ export async function registerIpcHandlers(
         try {
             const { writeFile } = await import('fs/promises')
 
-            // 读取所有相关 store 键
             const keys = [
                 'displayMode',
                 'models',
@@ -1610,7 +1598,6 @@ export async function registerIpcHandlers(
         if (!payload?.items?.length) {
           return { success: false, error: '无可下载的图片' }
         }
-        // 过滤无效 wcId（getWebContentsId 失败或 0）
         const valid = payload.items.filter(it => it.wcId && it.clicked)
         if (!valid.length) {
           return { success: false, error: '无效的 WebContents ID 或未成功触发点击' }
@@ -1627,7 +1614,6 @@ export async function registerIpcHandlers(
         const pad = (n: number) => String(n).padStart(2, '0')
         const ts = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`
 
-        // 为每个 wcId 建上下文（ctx 已建 → 后续 will-download 命中标记位 → setSavePath 跳弹窗）
         for (const it of valid) {
           registerBatchDownload(it.wcId!, { modelId: it.modelId, dir, ts, expectedFromClick: it.clicked })
         }
@@ -1721,13 +1707,11 @@ export async function registerIpcHandlers(
             return
         }
 
-        // 3. 召唤并聚焦快捷窗口
         const qw = getQuickWindow()
         if (!qw) return
 
         showAndFocusWindow(qw)
 
-        // 4. 延迟 300ms 注入 Prompt
         setTimeout(() => {
             if (!qw.isDestroyed()) {
                 qw.webContents.send('quick:inject-prompt', {
@@ -1755,7 +1739,6 @@ export async function registerIpcHandlers(
      * 参数：platformId, prompt, collectDelayMs（可选，默认 5000ms）
      * 返回：{ success, data?: string, error? }
      */
-    /** Default delay (ms) before collecting result after sending a prompt. */
     const AUTOMATION_COLLECT_DELAY_MS = 5000
 
     ipcMain.handle('automation:send-prompt', async (_event, platformId: string, prompt: string, collectDelayMs?: number) => {
@@ -1764,7 +1747,6 @@ export async function registerIpcHandlers(
             if (!execResult.success) {
                 return { success: false, error: execResult.error }
             }
-            // 等待模型响应生成（固定延迟，后续可改为轮询感知完成）
             const delay = typeof collectDelayMs === 'number' && collectDelayMs >= 0 ? collectDelayMs : AUTOMATION_COLLECT_DELAY_MS
             await new Promise<void>((resolve) => setTimeout(resolve, delay))
             const collectResult = await automationService.collectResult(platformId)
@@ -1827,7 +1809,6 @@ export async function registerIpcHandlers(
         }
     })
 
-    // 返回应用当前版本号（package.json version），供「关于」区块静态展示
     ipcMain.handle('app:get-version', () => {
         return { success: true, data: app.getVersion() }
     })

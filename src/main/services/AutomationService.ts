@@ -64,7 +64,6 @@ const MIME_BY_EXT: Record<string, string> = {
   '.csv': 'text/csv'
 }
 
-/** 前台总结与后台导图共享同一拖拽上传实现。 */
 export async function dispatchFileDrop(wc: WebContents, filePath: string, x: number, y: number, signal?: AbortSignal): Promise<AutomationResponse> {
   let attachedByUs = false
   try {
@@ -90,10 +89,6 @@ export async function dispatchFileDrop(wc: WebContents, filePath: string, x: num
   }
 }
 
-/**
- * 后台自动化执行内核服务
- * 负责在无头或长驻的会话 WebContents 中执行发送输入、点击按钮以及提取结果
- */
 export class AutomationService {
   /**
    * 输入框已有附件时，同名新文件可能被平台替换或无法区分新旧。
@@ -116,7 +111,6 @@ export class AutomationService {
     try {
       baseline = await read(fileName)
     } catch {
-      // 基线读取失败不阻断上传；后续仍要求出现新附件信号。
       baseline = { attachmentCount: 0, nameMatched: false }
     }
     // 只有同名附件已在输入框时才需要新名字：不同名时附件数变化已足够证明是本轮新增。
@@ -129,16 +123,10 @@ export class AutomationService {
 
   private store: Store<Record<string, unknown>> | null = null
 
-  /**
-   * 初始化自动化服务并注入 store
-   */
   public init(store: Store<Record<string, unknown>>): void {
     this.store = store
   }
 
-  /**
-   * 获取指定平台的选择器配置
-   */
   public async getPlatformSelectors(platformId: string): Promise<ModelSelector> {
     let customModelSelector: ModelSelector | undefined
 
@@ -164,9 +152,6 @@ export class AutomationService {
     return selectors
   }
 
-  /**
-   * 返回全部已配置平台 ID（store 自定义选择器与默认配置的并集）。
-   */
   public async listPlatformIds(): Promise<string[]> {
     let storedModels: Record<string, ModelSelector> | undefined
     if (this.store) {
@@ -180,9 +165,6 @@ export class AutomationService {
     return Array.from(new Set([...Object.keys(defaultSelectors.models), ...Object.keys(storedModels ?? {})])).sort()
   }
 
-  /**
-   * 获取指定平台的默认或初始加载网址
-   */
   public getPlatformUrl(platformId: string, selectors: ModelSelector): string {
     const url = selectors.newConversationUrl || PLATFORM_DEFAULT_URLS[platformId]
     if (!url) {
@@ -191,9 +173,6 @@ export class AutomationService {
     return url
   }
 
-  /**
-   * 确保平台的会话窗口已创建且完成初始页面加载
-   */
   public async ensureSessionReady(platformId: string, sessionKey = platformId, restoreUrl?: string): Promise<Electron.WebContents> {
     const selectors = await this.getPlatformSelectors(platformId)
     const url = restoreUrl || this.getPlatformUrl(platformId, selectors)
@@ -211,7 +190,6 @@ export class AutomationService {
         }
 
         const timeout = setTimeout(() => {
-          // 即使加载超时也尝试解析，某些动态网页可能在超时时已部分可用
           webContents.removeListener('did-finish-load', didFinishLoad)
           webContents.removeListener('did-fail-load', didFailLoad)
           resolve()
@@ -233,18 +211,12 @@ export class AutomationService {
         webContents.once('did-fail-load', didFailLoad)
       })
 
-      // 等待前端框架（React/Vue/Angular等）水合及 DOM 初始化
       await new Promise((resolve) => setTimeout(resolve, 1500))
     }
 
     return webContents
   }
 
-  /**
-   * 执行发送指令：在目标平台的 WebContents 注入脚本完成输入与提交
-   * @param platformId 平台 ID
-   * @param prompt 要发送的提示词内容
-   */
   public async executeCommand(platformId: string, prompt: string, sessionKey = platformId, options?: { attachmentFileName?: string; signal?: AbortSignal }): Promise<AutomationResponse> {
     try {
       if (!platformId || !prompt) {
@@ -335,9 +307,6 @@ export class AutomationService {
       for (const filePath of filePaths) {
         const originalName = basename(filePath)
         if (signal?.aborted) throw new Error('附件操作已中止')
-        // 优先走"粘贴式"上传：读文件 bytes → 页内 new File + ClipboardEvent('paste')。
-        // 不依赖页面是否监听 drop/落点坐标，主流 AI 输入框都监听 paste 处理附件。
-        // paste 派发失败（如页面拦截/不支持）才退回 CDP 拖拽兜底。
         let uploaded = false
         // 大文件（PDF/PPT 等）不走 Base64 粘贴：几十 MB 转字符串会占满渲染进程内存。
         const { fileName, baseline } = await this.resolveAttachmentName(wc, selectors, originalName, signal)
@@ -356,7 +325,6 @@ export class AutomationService {
         if (!uploaded) {
           const point = await abortable(wc.executeJavaScript(generateFileDropPointScript(selectors)) as Promise<{ found?: boolean; x: number; y: number }>, signal)
           if (!point || point.found === false) return { success: false, error: `未找到可接收附件「${fileName}」的输入区域` }
-          // 拖拽按磁盘真实文件名派发；改名场景复制到临时目录再拖。
           let dropPath = filePath
           if (fileName !== originalName) {
             const tempDir = await mkdtemp(join(tmpdir(), 'multichat-mindmap-attachment-'))
@@ -393,15 +361,10 @@ export class AutomationService {
     } catch (error) {
       return { success: false, error: signal?.aborted ? '附件上传已中止' : error instanceof Error ? error.message : String(error) }
     } finally {
-      // 平台读取拖入文件是异步的：必须等附件就绪后再清理临时副本。
       for (const dir of tempDirs) await rm(dir, { recursive: true, force: true }).catch(() => undefined)
     }
   }
 
-  /**
-   * 收集输出结果：执行查询脚本提取目标平台上最新的回复内容
-   * @param platformId 平台 ID
-   */
   public async collectResult(platformId: string, sessionKey = platformId): Promise<AutomationResponse<string>> {
     try {
       if (!platformId) {

@@ -22,12 +22,6 @@ export const INSERT_WORKBENCH_IMAGE_COMMAND: LexicalCommand<{
 
 const ACCEPTED_IMAGE_TYPES = /^image\//
 
-/**
- * 工作台图片插入插件
- * - 粘贴（PASTE_COMMAND）：clipboard 中的图片 File → IPC 写 assets → 插入节点
- * - 拖拽（DROP_COMMAND）：本地图片文件路径 → IPC 复制进 assets → 插入节点
- * - 工具栏（INSERT_WORKBENCH_IMAGE_COMMAND）：已知相对路径直接插入
- */
 export default function WorkbenchImagePlugin(): null {
   const [editor] = useLexicalComposerContext()
   const workspacePath = useWorkbenchStore((s) => s.workspacePath)

@@ -23,15 +23,11 @@ const FRONTMATTER_STRIP_RE = /^---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/
 const FENCE_RE = /^\s{0,3}(`{3,}|~{3,})/
 
 export interface FootnoteUsageSnapshot {
-  /** 正文中被引用的脚注编号集合 */
   refIds: Set<string>
-  /** 已有定义行的脚注编号集合 */
   defIds: Set<string>
-  /** 所有已占用的脚注编号集合（refIds ∪ defIds） */
   usedIds: Set<string>
   /** 已有定义的正文摘要（按 GFM First Definition Wins 保留首条定义） */
   definitions: Map<string, string>
-  /** 基于已有数字编号自动递增得到的下一个不冲突序号 */
   nextId: string
 }
 

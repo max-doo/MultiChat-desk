@@ -321,10 +321,6 @@ export class ModelCatalogEnricher {
     return undefined
   }
 
-  /**
-   * Enrich a gateway model entry using pi-ai's built-in model registry and
-   * optional models.dev metadata, preserving explicit upstream metadata when present.
-   */
   public async enrichModels(
     models: ProviderModelConfig[],
     options?: {

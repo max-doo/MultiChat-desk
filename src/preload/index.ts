@@ -64,7 +64,6 @@ import type {
   FrontmatterBackupClearResult
 } from '../shared/types/workbench'
 
-// 文件数据类型
 interface FileData {
   filePath: string
   fileName: string
@@ -96,18 +95,15 @@ interface UpdateState {
   error?: string
 }
 
-// 自定义 API
 const api = {
   platform: process.platform,
 
-  // 窗口控制
   minimizeWindow: (): void => ipcRenderer.send('window-minimize'),
   maximizeWindow: (): void => ipcRenderer.send('window-maximize'),
   closeWindow: (): void => ipcRenderer.send('window-close'),
   setWindowAlwaysOnTop: (pinned: boolean): Promise<{ success: boolean; data?: boolean; error?: string }> => ipcRenderer.invoke('window-set-always-on-top', pinned),
   setWindowDualAiMinWidth: (enabled: boolean): Promise<{ success: boolean }> => ipcRenderer.invoke('window-set-dual-ai-min-width', enabled),
 
-  // 系统托盘控制
   trayShowMain: () => ipcRenderer.invoke('tray:show-main'),
   trayHideMain: () => ipcRenderer.invoke('tray:hide-main'),
   trayQuitApp: () => ipcRenderer.invoke('tray:quit-app'),
@@ -126,7 +122,6 @@ const api = {
   respondWindowClose: (allow: boolean): void =>
     ipcRenderer.send('app:window-close-response', allow),
 
-  // 快捷弹窗控制
   quickShow: (opts?: { focus?: boolean }) => ipcRenderer.invoke('quick:show', opts),
   quickHide: () => ipcRenderer.invoke('quick:hide'),
   quickRegisterPrimaryWebview: (id: number): Promise<{ success: boolean }> => ipcRenderer.invoke('quick:register-primary-webview', id),
@@ -152,7 +147,6 @@ const api = {
     return () => { ipcRenderer.removeListener('quick:shown', handler) }
   },
 
-  // 诊断窗口 IPC
   diagnosticsOpenWindow: (): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('diagnostics:open-window'),
   diagnosticsProbe: (modelId: string, type: 'message' | 'research' | 'pick', options?: { ancestorDepth?: number; childDepth?: number }): Promise<{ success: boolean; data?: unknown; error?: string }> =>
@@ -182,7 +176,6 @@ const api = {
     return () => { ipcRenderer.removeListener('quick:inject-prompt', handler) }
   },
 
-  // 跨窗口同步
   stateSync: (partialState: Record<string, unknown>): void => ipcRenderer.send('state:sync', partialState),
   onStateChangedRemote: (cb: (state: Record<string, unknown>) => void) => {
     const handler = (_e: Electron.IpcRendererEvent, s: Record<string, unknown>): void => cb(s)
@@ -190,16 +183,13 @@ const api = {
     return () => { ipcRenderer.removeListener('state-changed-remote', handler) }
   },
 
-  // 快捷键管理
   shortcutGet: (): Promise<{ success: boolean; data?: Record<string, string>; error?: string }> => ipcRenderer.invoke('shortcut:get'),
   shortcutSet: (config: Record<string, string>): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('shortcut:set', config),
 
-  // 文件操作
   selectFile: (): Promise<string | null> => ipcRenderer.invoke('select-file'),
   getFileInfo: (filePath: string): Promise<GetFileInfoResult> =>
     ipcRenderer.invoke('get-file-info', filePath),
 
-  // 剪贴板操作
   readClipboardText: (): Promise<string> => ipcRenderer.invoke('read-clipboard-text'),
   readClipboardHTML: (): Promise<string> => ipcRenderer.invoke('read-clipboard-html'),
   readClipboardImage: (): Promise<GetFileInfoResult> => ipcRenderer.invoke('read-clipboard-image'),
@@ -217,7 +207,6 @@ const api = {
   dispatchFileDrop: (webContentsId: number, filePath: string, x: number, y: number): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('dispatch-file-drop', { webContentsId, filePath, x, y }),
 
-  // 存储操作
   storeGet: (key: string): Promise<unknown> => ipcRenderer.invoke('store-get', key),
   storeSet: (key: string, value: unknown): Promise<void> => ipcRenderer.invoke('store-set', key, value),
   storeDelete: (key: string): Promise<void> => ipcRenderer.invoke('store-delete', key),
@@ -330,7 +319,6 @@ const api = {
     }
   },
 
-  // 任务拆解（后台 Web AI）
   taskSplitStart: (goal: string, platform: string, windowCount: number): Promise<{ success: boolean; data?: TaskSplitTask; error?: string }> =>
     ipcRenderer.invoke('tasksplit:start', goal, platform, windowCount),
   taskSplitTask: (): Promise<{ success: boolean; data?: TaskSplitTask | null; error?: string }> =>
@@ -345,11 +333,9 @@ const api = {
     return () => ipcRenderer.removeListener('tasksplit:task-changed', handler)
   },
 
-  // 导出缓存数据
   exportCache: (): Promise<{ success: boolean; filePath?: string; error?: string }> =>
     ipcRenderer.invoke('export-cache'),
 
-  // 用系统资源管理器打开指定路径
   // 导入缓存数据（返回预览，不直接写入）
   importCache: (): Promise<{
     success: boolean
@@ -363,17 +349,14 @@ const api = {
     error?: string
   }> => ipcRenderer.invoke('import-cache'),
 
-  // 写入临时 markdown 文件
   writeTempMarkdown: (params: {
     content: string
     fileName?: string
   }): Promise<{ success: boolean; filePath?: string; error?: string }> =>
     ipcRenderer.invoke('write-temp-markdown', params),
 
-  // 打开新浏览器窗口
   openBrowserWindow: (url: string): Promise<void> => ipcRenderer.invoke('open-browser-window', url),
 
-  // 更新检查（后台提醒版）
   updateGetState: (): Promise<{ success: boolean; data?: UpdateState; error?: string }> =>
     ipcRenderer.invoke('update:get-state'),
   updateCheck: (): Promise<{ success: boolean; data?: UpdateState; error?: string }> =>
@@ -386,7 +369,6 @@ const api = {
     }
   },
 
-  // 应用当前版本号（package.json version）
   getAppVersion: (): Promise<{ success: boolean; data?: string; error?: string }> =>
     ipcRenderer.invoke('app:get-version'),
 
@@ -405,7 +387,6 @@ const api = {
   }): Promise<{ success: boolean; data?: { perModel: Array<{ modelId: string; saved: number; failed: number; errors: string[] }> }; error?: string }> =>
     ipcRenderer.invoke('image:download-via-native:wait', payload),
 
-  // 监听 Gemini 账号切换事件
   onGeminiAccountSwitched: (callback: (url: string) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, url: string) => callback(url)
     ipcRenderer.on('gemini-account-switched', listener)
@@ -414,7 +395,7 @@ const api = {
     }
   },
 
-  // 监听主窗口 hide/show 事件（片段 B'，决策 R4）：visible=true 表示窗口已显示
+  // 主窗口 hide/show 事件，visible=true 表示窗口已显示
   onWindowVisibility: (callback: (visible: boolean) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, visible: boolean): void => callback(visible)
     ipcRenderer.on('window-visibility', listener)
@@ -423,7 +404,6 @@ const api = {
     }
   },
 
-  // 窗口拖拽
   windowDragStart: (): void => {
     if (process.platform !== 'darwin') ipcRenderer.send('window-drag-start')
   },
@@ -434,13 +414,11 @@ const api = {
     if (process.platform !== 'darwin') ipcRenderer.send('window-drag-end')
   },
 
-  // 命令行工具（multichat）集成
   cliGetStatus: (): Promise<{ success: boolean; data?: CliIntegrationStatus; error?: string }> => ipcRenderer.invoke('cli:get-status'),
   cliAddToPath: (): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('cli:add-to-path'),
   cliDismissHint: (): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('cli:dismiss-hint'),
   cliOpenLocation: (target: 'cli' | 'skill'): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('cli:open-location', target),
 
-  // 悬浮工具条
   toolbarAction: (action: 'quick' | 'summarize' | 'translate' | 'copy' | 'search'): void => {
     ipcRenderer.send('toolbar:trigger-action', { action })
   },
@@ -452,7 +430,6 @@ const api = {
   selectionPermissionGet: (): Promise<{ success: boolean; data?: string; error?: string }> => ipcRenderer.invoke('selection-permission:get'),
   selectionPermissionRequest: (): Promise<{ success: boolean; data?: string; error?: string }> => ipcRenderer.invoke('selection-permission:request'),
 
-  // 自动化服务
   automationExecute: (platformId: string, prompt: string): Promise<{ success: boolean; data?: unknown; error?: string }> => ipcRenderer.invoke('automation:execute', platformId, prompt),
   automationCollectResult: (platformId: string): Promise<{ success: boolean; data?: string; error?: string }> => ipcRenderer.invoke('automation:collect-result', platformId),
   automationDevTestExec: (platformId: string, prompt: string): Promise<{ success: boolean; data?: unknown; error?: string }> => ipcRenderer.invoke('automation:dev-test-exec', platformId, prompt),
@@ -467,7 +444,6 @@ const api = {
     error?: string
   }> => ipcRenderer.invoke('auth:platform-states', platformIds),
 
-  // WebView 右键上下文菜单
   onWebviewContextMenu: (cb: (data: WebviewContextMenuData) => void): (() => void) => {
     const handler = (_e: Electron.IpcRendererEvent, data: WebviewContextMenuData): void => cb(data)
     ipcRenderer.on('webview:show-contextmenu', handler)
@@ -476,14 +452,12 @@ const api = {
   executeWebviewContextMenuAction: (params: WebviewContextMenuActionRequest): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('webview:execute-contextmenu-action', params),
 
-  // WebView 页面内查找快捷键通知
   onWebviewFindShortcut: (cb: (data: { wcId: number; action: 'open' | 'close' }) => void): (() => void) => {
     const handler = (_e: Electron.IpcRendererEvent, data: { wcId: number; action: 'open' | 'close' }): void => cb(data)
     ipcRenderer.on('webview:find-shortcut', handler)
     return () => { ipcRenderer.removeListener('webview:find-shortcut', handler) }
   },
 
-  // 工作台 (Workbench)
   workbench: {
     selectFolder: (): Promise<{ success: boolean; data?: WorkbenchSelectFolderResult | null; error?: string }> =>
       ipcRenderer.invoke('workbench:select-folder'),
@@ -750,7 +724,6 @@ const api = {
     }
   },
 
-  // Agent 会话控制
   agentPrompt: (sessionId: string, prompt: string, attachments?: string[], streamingBehavior?: 'steer' | 'followUp', images?: Array<{ data: string; mimeType: string }>): Promise<{ success: boolean; data?: unknown; error?: string }> =>
     ipcRenderer.invoke('agent:prompt', { sessionId, prompt, attachments, streamingBehavior, images }),
   agentAbort: (sessionId: string): Promise<{ success: boolean; error?: string }> =>
@@ -913,7 +886,6 @@ const api = {
     ipcRenderer.invoke('agent:check-files-stale', { sessionId, paths, kind })
 }
 
-// 暴露 API 到渲染进程
 if (process.contextIsolated) {
   try {
     contextBridge.exposeInMainWorld('electron', electronAPI)
@@ -922,9 +894,9 @@ if (process.contextIsolated) {
     console.error(error)
   }
 } else {
-  // @ts-ignore - 在非隔离上下文中直接挂载到 window，类型定义在 env.d.ts
+  // @ts-ignore - 非隔离上下文直接挂载 window，类型定义在 env.d.ts
   window.electron = electronAPI
-  // @ts-ignore - 在非隔离上下文中直接挂载到 window，类型定义在 env.d.ts
+  // @ts-ignore - 非隔离上下文直接挂载 window，类型定义在 env.d.ts
   window.api = api
 }
 

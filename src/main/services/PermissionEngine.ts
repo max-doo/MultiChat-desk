@@ -50,7 +50,6 @@ export interface ToolCheckResult {
   allowed: boolean
   needsApproval?: boolean
   reason?: string
-  /** True when a shell command was structurally verified as read-only. */
   readOnlyCommand?: boolean
 }
 
@@ -149,9 +148,6 @@ function stripHardDenyQuotes(value: string): string {
   return value
 }
 
-// Known safe/read-only command heads (fallback only — scriptblock cmdlets
-// like ForEach-Object/Where-Object are excluded because shell-quote cannot
-// inspect `{ ... }` bodies).
 const SAFE_COMMAND_HEADS = new Set([
   'dir', 'ls', 'cat', 'head', 'tail', 'more', 'less', 'wc',
   'grep', 'find', 'findstr', 'pwd', 'type', 'echo', 'printf',
@@ -165,19 +161,16 @@ const SAFE_COMMAND_HEADS = new Set([
   'write-output'
 ])
 
-// Safe git subcommands
 const SAFE_GIT_SUBCOMMANDS = new Set([
   'status', 'log', 'diff', 'branch', 'show', 'tag', 'rev-parse', 'remote', 'describe'
 ])
 
-// Safe npm subcommands
 const SAFE_NPM_SUBCOMMANDS = new Set([
   'ls', 'list', 'view', 'outdated', 'explain', 'doctor', 'help', 'prefix', 'root'
 ])
 
 function matchesWildcard(text: string, pattern: string): boolean {
   if (pattern === '*' || pattern === text) return true
-  // Normalize windows backslashes to forward slashes for path matching
   const normText = text.replace(/\\/g, '/')
   const normPattern = pattern.replace(/\\/g, '/')
   if (normPattern === normText) return true
@@ -195,7 +188,6 @@ export class PermissionEngine {
       timer: NodeJS.Timeout
     }
   >()
-  /** requestId → normalized tool name, used to scope "always allow" entries. */
   private requestToolNames = new Map<string, string>()
 
   constructor(
@@ -245,7 +237,6 @@ export class PermissionEngine {
     return false
   }
 
-  /** Allowlist match for a tool call — checks the command or file-path target. */
   private matchesUserAllowlist(normTool: string, args: Record<string, unknown>): boolean {
     if (normTool === 'bash' || normTool === 'powershell') {
       const cmd = String(args.command ?? args.cmd ?? args.script ?? '')
@@ -319,7 +310,6 @@ export class PermissionEngine {
     params: readonly { name: string; val?: string | null }[],
     quotedArgs?: readonly string[]
   ): string | null {
-    // 1. `-File` launches a script file, never an inline `-Command`.
     if (
       params.some((p) => PS_FILE_PARAM_RX.test(p.name)) ||
       args.some((a) => a.startsWith('-') && PS_FILE_PARAM_RX.test(a.slice(1).split(':')[0]))
@@ -335,7 +325,6 @@ export class PermissionEngine {
       if (all.length === 1) return args[startIdx] ?? prefixToken ?? null
       return all.join(' ')
     }
-    // 2. Explicit `-Command` (or prefix `-c`, `-co`, ...): take colon value or join trailing tokens
     const cmdFlagIdx = args.findIndex(
       (a) => a.startsWith('-') && PS_COMMAND_PARAM_RX.test(a.slice(1).split(':')[0])
     )
@@ -348,7 +337,6 @@ export class PermissionEngine {
     const cmdParam = params.find((p) => PS_COMMAND_PARAM_RX.test(p.name))
     if (cmdParam?.val) return cmdParam.val
 
-    // 3. Positional command (`pwsh "rm -rf /"` or `pwsh -NoProfile rm -rf /`)
     for (let i = 0; i < args.length; i++) {
       const a = args[i]
       if (a.startsWith('-')) {
@@ -658,17 +646,14 @@ export class PermissionEngine {
         const sub = seg[1]?.toLowerCase()
         if (!sub || !SAFE_NPM_SUBCOMMANDS.has(sub)) return false
       } else if (head === 'node' || head === 'python' || head === 'python3') {
-        // Only allow flag inquiries like node -v, node --version
         const flag = seg[1]?.toLowerCase()
         if (flag !== '-v' && flag !== '--version' && flag !== '-h' && flag !== '--help') {
           return false
         }
       } else if (head === 'tsc') {
-        // tsc --noEmit is read-only
         const hasNoEmit = seg.some((arg) => arg.toLowerCase() === '--noemit')
         if (!hasNoEmit) return false
       } else if (SAFE_COMMAND_HEADS.has(head)) {
-        // known safe head
         continue
       } else {
         return false
@@ -868,7 +853,6 @@ export class PermissionEngine {
       return { allowed: false, reason: check.reason, readOnlyCommand: check.readOnlyCommand }
     }
 
-    // Suspend for user approval
     const requestId = randomUUID()
     const request: ApprovalRequest = {
       requestId,
@@ -880,7 +864,6 @@ export class PermissionEngine {
     }
 
     return new Promise<{ allowed: boolean; reason?: string; readOnlyCommand?: boolean }>((resolve, reject) => {
-      // 10 minutes timeout
       const timer = setTimeout(() => {
         this.pendingApprovals.delete(requestId)
         this.requestToolNames.delete(requestId)
@@ -960,7 +943,6 @@ export class PermissionEngine {
     }
   }
 
-  /** Kill the resident PowerShell AST helper if one was spawned. */
   public dispose(): void {
     disposePowerShellAstHelper()
   }

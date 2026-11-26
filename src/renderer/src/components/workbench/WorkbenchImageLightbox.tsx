@@ -144,7 +144,6 @@ export default function WorkbenchImageLightbox({
     }
   }, [currentItem, openInSystem, resolvedPath, sourceKind])
 
-  // 键盘快捷键：Esc 关闭、左右翻页、+/- 缩放、0 复位、R 旋转、Space 关闭
   useEffect(() => {
     if (!open) return
     const onKeyDown = (event: KeyboardEvent): void => {

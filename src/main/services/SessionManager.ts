@@ -9,19 +9,11 @@ import { registerWebviewHandlers, setupSharedSessionUserAgent } from '../webview
 export class SessionManager {
   private sessions = new Map<string, BrowserWindow>()
 
-  /**
-   * 初始化会话管理器
-   */
   public init(): void {
     setupSharedSessionUserAgent()
     console.log('[SessionManager] Initialized')
   }
 
-  /**
-   * 获取或创建指定平台的后台长驻会话窗口
-   * @param platformId 平台标识，例如 'gemini', 'chatgpt'
-   * @param url 初始化加载的网址
-   */
   public getOrCreateSession(platformId: string, url?: string): BrowserWindow {
     let win = this.sessions.get(platformId)
     if (win && !win.isDestroyed()) {
@@ -32,7 +24,6 @@ export class SessionManager {
       return win
     }
 
-    // 确保 User-Agent 设置正确
     setupSharedSessionUserAgent()
 
     console.log(`[SessionManager] Creating headless session window for platform: ${platformId}`)
@@ -49,7 +40,6 @@ export class SessionManager {
       }
     })
 
-    // 挂载拦截与注入逻辑（链接拦截、Google Auth检测、脚本注入等）
     registerWebviewHandlers(win.webContents)
 
     win.on('closed', () => {
@@ -67,9 +57,6 @@ export class SessionManager {
     return win
   }
 
-  /**
-   * 获取指定平台的当前活跃会话窗口
-   */
   public getSession(platformId: string): BrowserWindow | undefined {
     const win = this.sessions.get(platformId)
     if (win && !win.isDestroyed()) {
@@ -81,9 +68,6 @@ export class SessionManager {
     return undefined
   }
 
-  /**
-   * 销毁指定平台的后台会话
-   */
   public destroySession(platformId: string): boolean {
     const win = this.sessions.get(platformId)
     if (win) {
@@ -97,9 +81,6 @@ export class SessionManager {
     return false
   }
 
-  /**
-   * 销毁所有后台会话窗口
-   */
   public destroyAllSessions(): void {
     console.log('[SessionManager] Destroying all active sessions')
     for (const win of this.sessions.values()) {
@@ -110,9 +91,6 @@ export class SessionManager {
     this.sessions.clear()
   }
 
-  /**
-   * 获取所有当前活跃的平台 ID 列表
-   */
   public getActivePlatforms(): string[] {
     const active: string[] = []
     for (const [platformId, win] of this.sessions.entries()) {

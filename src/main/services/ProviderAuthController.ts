@@ -131,7 +131,6 @@ export class ProviderAuthController {
     return this.toView(operation)
   }
 
-  /** Silently cancel any active interactive auth for a provider (no-op when absent). */
   public cancelActive(providerId: string): void {
     for (const operation of this.operations.values()) {
       if (operation.providerId !== providerId) continue

@@ -22,7 +22,6 @@ export function normalizePath(p: string | null | undefined): string {
   return p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
 }
 
-/** 按"绝对路径归一化"去重，保序返回首个出现的条目。 */
 export function dedupePathsByAbsolute(paths: string[], cwd?: string | null): string[] {
   const seen = new Set<string>()
   const out: string[] = []
@@ -58,8 +57,6 @@ export function dedupeByKey<T>(items: T[], mapKey: (item: T) => string, cwd?: st
   return out
 }
 
-/** Convert a tool-reported path to a workspace-relative POSIX path, or null
- *  when the file lives outside the current workspace. */
 export function toWorkspaceRelative(
   workspacePath: string,
   cwd: string,

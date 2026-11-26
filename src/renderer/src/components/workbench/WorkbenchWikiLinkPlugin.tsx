@@ -81,12 +81,6 @@ function extractDroppedFilePaths(dataTransfer: DataTransfer): string[] {
   }
 }
 
-/**
- * 工作台双链插件：
- * - chip 点击 → 在工作台打开目标文件；
- * - 键入 @ 或 [[ → 唤起文件选择菜单（复用快速打开的过滤逻辑与行样式）；
- * - 从文件树拖入编辑器 → 在落点插入双链 chip。
- */
 export default function WorkbenchWikiLinkPlugin(): JSX.Element | null {
   const [editor] = useLexicalComposerContext()
   const fileTree = useWorkbenchStore((s) => s.fileTree)
@@ -108,7 +102,6 @@ export default function WorkbenchWikiLinkPlugin(): JSX.Element | null {
   )
   const options = useMemo(() => filteredFiles.map((file) => new WikiFileOption(file)), [filteredFiles])
 
-  // —— chip 点击：普通点击直接打开目标文件（Obsidian Live Preview 语义）——
   useEffect(() => {
     const handleClick = (event: MouseEvent): void => {
       const target = event.target
@@ -143,7 +136,6 @@ export default function WorkbenchWikiLinkPlugin(): JSX.Element | null {
     }
   }, [editor])
 
-  // —— 文件树拖拽：在落点插入双链 chip ——
   useEffect(() => {
     return editor.registerCommand(
       DROP_COMMAND,

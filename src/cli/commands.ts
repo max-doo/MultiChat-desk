@@ -183,8 +183,6 @@ export function registerCommands(program: Command): void {
       handleCommandResponse(res, jsonMode)
     })
 
-  // ==================== Agent 任务命令组 ====================
-
   const taskCmd = program
     .command('task')
     .description('Submit and manage agent AI tasks')

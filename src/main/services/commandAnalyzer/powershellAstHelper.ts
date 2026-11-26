@@ -24,39 +24,39 @@ export interface AstCommandElem {
 }
 
 export interface AstNodeInfo {
-  /** AST node class name, e.g. `CommandAst`, `SubExpressionAst`. */
+  /** AST 节点类名，如 `CommandAst`、`SubExpressionAst`。 */
   type: string
-  /** `Extent.Text` truncated to 200 chars for diagnostics/debug. */
+  /** `Extent.Text` 截断到 200 字符，仅用于诊断。 */
   text: string
-  /** CommandAst: resolved command name from `GetCommandName()`. */
+  /** CommandAst：`GetCommandName()` 解析出的命令名。 */
   cmd?: string | null
-  /** CommandAst: invocation operator (`Unknown`, `Ampersand`, `Dot`). */
+  /** CommandAst：调用运算符（`Unknown`、`Ampersand`、`Dot`）。 */
   op?: string
-  /** CommandAst: true when this command receives pipeline input (`... | cmd`). */
+  /** CommandAst：是否接收管道输入（`... | cmd`）。 */
   piped?: boolean
-  /** CommandAst: structured elements (flags & args without truncation). */
+  /** CommandAst：结构化参数/开关元素，不再截断。 */
   elems?: AstCommandElem[]
-  /** FileRedirectionAst: unquoted target if constant, else raw extent. */
+  /** FileRedirectionAst：常量时去引号目标，否则为原始 extent。 */
   target?: string | null
-  /** FileRedirectionAst: AST type of `Location`. */
+  /** FileRedirectionAst：`Location` 的 AST 类型。 */
   locType?: string | null
-  /** MergingRedirectionAst: destination stream (`Output`, `Error`, ...). */
+  /** MergingRedirectionAst：目标流（`Output`、`Error` 等）。 */
   toStream?: string
-  /** InvokeMemberExpressionAst: whether static `::` call. */
+  /** InvokeMemberExpressionAst：是否为静态 `::` 调用。 */
   static?: boolean
-  /** InvokeMemberExpressionAst: literal method name, or null if dynamic. */
+  /** InvokeMemberExpressionAst：字面量方法名；动态调用为 null。 */
   member?: string | null
-  /** InvokeMemberExpressionAst: static type `FullName` if `TypeExpressionAst`. */
+  /** InvokeMemberExpressionAst：静态目标的 `TypeExpressionAst.FullName`。 */
   targetType?: string | null
-  /** TypeExpressionAst / TypeConstraintAst: `TypeName.FullName`. */
+  /** TypeExpressionAst / TypeConstraintAst：`TypeName.FullName`。 */
   typeName?: string | null
-  /** AssignmentStatementAst: operator (`Equals`, `PlusEquals`, ...). */
+  /** AssignmentStatementAst：赋值运算符（`Equals`、`PlusEquals` 等）。 */
   assignOp?: string
-  /** AssignmentStatementAst: LHS variable `UserPath`. */
+  /** AssignmentStatementAst：左侧变量 `UserPath`。 */
   lhsVar?: string | null
-  /** AssignmentStatementAst: true only for plain unqualified `$name`. */
+  /** AssignmentStatementAst：仅普通未限定 `$name` 时为 true。 */
   lhsUnqualified?: boolean
-  /** PipelineChainAst: `AndAnd` or `OrOr`. */
+  /** PipelineChainAst：`AndAnd` 或 `OrOr`。 */
   chainOp?: string
 }
 
@@ -179,6 +179,7 @@ export class PowerShellAstHelper {
         try {
           child.kill()
         } catch {
+          // intentionally ignored
         }
         return false
       }
@@ -291,10 +292,6 @@ export class PowerShellAstHelper {
     }
   }
 
-  /**
-   * Parse one command into a flattened AST node list. Serial queue — head
-   * timeout resolves `null` and releases the next request.
-   */
   public async analyze(command: string): Promise<AstParseResult | null> {
     const timeoutMs = this.child && !this.child.killed ? REQUEST_TIMEOUT_MS : COLD_START_TIMEOUT_MS
     return new Promise((resolve) => {
@@ -337,13 +334,11 @@ export class PowerShellAstHelper {
 
 let cachedHelper: PowerShellAstHelper | null = null
 
-/** Lazily shared helper so every analyzer call reuses one child process. */
 export function getPowerShellAstHelper(resolveShell: () => Promise<{ exe: string; args: string[] }>): PowerShellAstHelper {
   if (!cachedHelper) cachedHelper = new PowerShellAstHelper(resolveShell)
   return cachedHelper
 }
 
-/** Dispose the cached helper only if one has already been created. */
 export function disposePowerShellAstHelper(): void {
   cachedHelper?.dispose()
 }

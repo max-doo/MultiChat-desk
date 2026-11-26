@@ -21,19 +21,14 @@ export const isTagField = (key: string): boolean => TAG_FIELD_RE.test(key.trim()
 export function normalizeTag(raw: string): string {
   if (!raw) return ''
   let cleaned = raw.trim()
-  // 剥离开头的 # 号（Obsidian Frontmatter 标签不带 #）
+  // Obsidian Frontmatter 标签不带 #
   cleaned = cleaned.replace(/^#+/, '')
-  // 剔除前后斜杠
   cleaned = cleaned.replace(/^\/+|\/+$/g, '')
-  // 剔除单双引号
   cleaned = cleaned.replace(/^["']|["']$/g, '')
-  // 剔除首尾空白
   cleaned = cleaned.trim()
 
-  // 非法字符清洗：保留多语言 Unicode 字母、数字、下划线、短横线、层级斜杠
-  // 将 #、逗号、冒号、空格等非法标点去除
+  // 非法字符清洗：只保留 Unicode 字母、数字、下划线、短横线、层级斜杠
   cleaned = cleaned.replace(/[^\p{L}\p{N}_\-/]+/gu, '')
-  // 折叠连续斜杠
   cleaned = cleaned.replace(/\/+/g, '/')
   return cleaned
 }
@@ -48,13 +43,11 @@ export function isValidTag(tag: string): boolean {
   if (!tag) return false
   const trimmed = tag.trim().replace(/^#+/, '')
   if (!trimmed) return false
-  // 不能以斜杠开头或结尾
   if (trimmed.startsWith('/') || trimmed.endsWith('/')) return false
   const normalized = normalizeTag(tag)
   if (!normalized) return false
-  // 纯数字无效（对齐 Obsidian：纯数字如 1984 不视作标签）
+  // 对齐 Obsidian：纯数字（如 1984）不视作标签
   if (/^\p{N}+$/u.test(normalized)) return false
-  // 仅允许合法字符集（支持多语言 Unicode 字母）
   return /^[\p{L}\p{N}_\-/]+$/u.test(normalized)
 }
 
@@ -73,7 +66,6 @@ export function parseTagsFromFrontmatterValue(val: string): string[] {
     body = body.slice(1, -1)
   }
 
-  // 按逗号或空白分割
   const rawItems = body.split(/[,\s]+/)
   const result: string[] = []
   const seen = new Set<string>()
@@ -104,7 +96,6 @@ export function matchTag(candidateTag: string, queryTag: string): boolean {
   const q = normalizeTag(queryTag).toLowerCase()
   if (!c || !q) return false
   if (c === q) return true
-  // 层级子标签匹配
   if (c.startsWith(q + '/')) return true
   return false
 }
@@ -185,14 +176,12 @@ export function extractFrontmatterTags(content: string): {
     }
     if (!inFrontmatter) break
 
-    // 检测 key:
     const kvMatch = line.match(/^([A-Za-z0-9_\-一-龥]+)\s*:\s*(.*)$/)
     if (kvMatch) {
       const key = kvMatch[1]
       const restValue = kvMatch[2] || ''
       if (isTagField(key)) {
         currentKeyIsTag = true
-        // 可能是单行 tags: [a, b] 或 tags: a, b
         const parsed = parseTagsFromFrontmatterValue(restValue)
         for (const t of parsed) {
           const lower = t.toLowerCase()
@@ -208,7 +197,6 @@ export function extractFrontmatterTags(content: string): {
       continue
     }
 
-    // 检测多行列表 `- item`
     if (currentKeyIsTag) {
       const listMatch = line.match(/^\s*-\s+(.+)$/)
       if (listMatch) {
@@ -242,13 +230,11 @@ export function extractInlineTags(content: string): Array<{
   let inFencedCode = false
   let inFrontmatter = false
 
-  // 行内标签正则：以 # 引导，后接字母/中文（多语言 Unicode），可包含层级 /，不可全为纯数字，不可紧随标点
   const INLINE_TAG_RE = /(?:^|[^\p{L}\p{N}#])#([\p{L}_][\p{L}\p{N}_\-/]*)/gu
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
 
-    // Frontmatter 跳过
     if (i === 0 && line.trim() === '---') {
       inFrontmatter = true
       continue
@@ -258,14 +244,13 @@ export function extractInlineTags(content: string): Array<{
       continue
     }
 
-    // 代码块跳过
     if (/^\s*(```|~~~)/.test(line)) {
       inFencedCode = !inFencedCode
       continue
     }
     if (inFencedCode) continue
 
-    // Markdown 标题跳过 (如 `# 标题`，后跟空格)
+    // 跳过 Markdown 标题（`# 标题` 不是标签）
     if (/^\s*#{1,6}\s+/.test(line)) continue
 
     let match: RegExpExecArray | null

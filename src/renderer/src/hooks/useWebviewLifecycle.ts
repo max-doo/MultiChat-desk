@@ -444,16 +444,10 @@ export function useWebviewLifecycle({
   }, [webviewRef, url, enabled, name])
 
   const methods: WebviewLifecycleMethods = {
-    /**
-     * 重新加载 webview
-     */
     reload: (): void => {
       webviewRef.current?.reload()
     },
 
-    /**
-     * 跳转到初始 URL 并在加载完成后返回
-     */
     resetToInitial: async (): Promise<{ success: boolean; error?: string }> => {
       const webview = webviewRef.current
       if (!webview) {
@@ -515,16 +509,10 @@ export function useWebviewLifecycle({
       })
     },
 
-    /**
-     * 获取当前 webview 的 URL
-     */
     getCurrentUrl: (): string => {
       return webviewRef.current?.getURL() || ''
     },
 
-    /**
-     * 加载指定的 URL
-     */
     loadURL: (targetUrl: string): void => {
       if (webviewRef.current) {
         loadedUrlRef.current = targetUrl // 同步 ref
@@ -547,7 +535,6 @@ export function useWebviewLifecycle({
       }
 
       try {
-        // Phase 1: 保存输入框草稿
         let savedDraft = ''
         if (isReady && selectors) {
           try {
@@ -561,7 +548,6 @@ export function useWebviewLifecycle({
           }
         }
 
-        // Phase 2: 保存当前 URL（过滤 about:blank / 错误页，回退到已加载或初始 URL）
         let savedUrl = ''
         try {
           const current = webview.getURL() || ''
@@ -581,11 +567,11 @@ export function useWebviewLifecycle({
           savedUrl = fallback && fallback !== 'about:blank' ? fallback : url
         }
 
-        // Phase 3: 先保存状态再导航，避免导航事件回调读到已清空的状态
+        // 先保存状态再导航，避免导航事件回调读到已清空的状态
         hibernatedUrlRef.current = savedUrl
         hibernatedDraftRef.current = savedDraft
 
-        // Phase 4: 真卸载页面层 —— 导航到 about:blank 释放 V8 堆/DOM（D1）
+        // 真卸载页面层：导航到 about:blank 释放 V8 堆/DOM（D1）
         try {
           webview.loadURL('about:blank')
         } catch (e) {
@@ -609,9 +595,6 @@ export function useWebviewLifecycle({
       }
     },
 
-    /**
-     * 唤醒 webview：重新加载保存的 URL 并恢复输入草稿
-     */
     resume: async (): Promise<{ success: boolean; error?: string }> => {
       const webview = webviewRef.current
       if (!webview) {
@@ -673,7 +656,6 @@ export function useWebviewLifecycle({
           }
         }
 
-        // 清理休眠状态
         hibernatedUrlRef.current = null
         hibernatedDraftRef.current = ''
 
@@ -686,9 +668,6 @@ export function useWebviewLifecycle({
       }
     },
 
-    /**
-     * 查询是否处于休眠状态
-     */
     isHibernated: (): boolean => {
       return isHibernatedRef.current
     }

@@ -9,7 +9,6 @@ interface Props {
   open: boolean
   onClose: () => void
   editor: LexicalEditor
-  /** 当前工作空间根目录（用于另存为默认路径） */
   workspaceRoot: string | null
   /** 已定位的 document 标注（anchored / shifted） */
   anchoredAnnotations: Annotation[]
@@ -17,9 +16,7 @@ interface Props {
   sourceCount: number
   /** 未定位 document 标注数（仅用于提示） */
   unresolvedCount: number
-  /** 当前活跃文件的原始内容（用于提取 frontmatter） */
   activeFileContent: string
-  /** 当前活跃文件路径（用于另存为默认文件名） */
   activeFilePath: string | null
 }
 

@@ -57,7 +57,6 @@ const deterministicId = (conversationId: string, noteId: string | undefined, ind
 export class LegacyMigrationService {
   private snapshot: NoteConversation[] | null = null
   private frontmatterRepairDone = false
-  /** 正在执行的单条迁移数：放弃必须等它落盘后再清标记，否则会被迟到的阻塞写回。 */
   private inFlightRecords = 0
 
   constructor(
@@ -95,7 +94,6 @@ export class LegacyMigrationService {
     this.snapshot = null
   }
 
-  /** 等在途记录结束（最多 10s），避免放弃后的清理被迟到的迁移结果覆盖。 */
   private async waitForInFlightRecords(): Promise<void> {
     const deadline = Date.now() + 10_000
     while (this.inFlightRecords > 0 && Date.now() < deadline) {
@@ -108,7 +106,6 @@ export class LegacyMigrationService {
     return job?.status === 'running' || job?.status === 'paused'
   }
 
-  /** 迁移期旧读接口走只读快照；快照不可用时由调用方明确报错。 */
   async readOnlySnapshot(): Promise<NoteConversation[] | null> {
     if (!this.isActive()) return null
     if (this.snapshot) return this.snapshot.map(item => structuredClone(item))
@@ -120,7 +117,6 @@ export class LegacyMigrationService {
     }
   }
 
-  /** 只收敛旧迁移文档的 frontmatter；正文、旁路标注和旧 JSON 都不动。 */
   private async repairCompletedDocuments(
     records: Array<{ conversation: NoteConversation }>,
     fallbackRoot: string
@@ -175,7 +171,6 @@ export class LegacyMigrationService {
     }
   }
 
-  /** 阻塞记录的人工重试入口：清除标记后由下一次 migrate 重新处理。 */
   async retryBlocked(id: string): Promise<void> {
     if (this.job()?.status === 'running') throw new Error('迁移进行中，请先暂停')
     const record = (await this.notes.rawLegacyRecords()).find(item => item.conversation.id === id)?.conversation
@@ -193,7 +188,6 @@ export class LegacyMigrationService {
     this.emit(job, 0, 0, 0)
   }
 
-  /** 恢复暂停的任务：只把状态改回 running，真正执行仍由 migrate(jobId) 推进。 */
   async resume(jobId: string): Promise<{ jobId: string; targetWorkspaceRoot: string; targetConversationDir: string }> {
     const job = this.job()
     if (!job || job.jobId !== jobId) throw new Error('迁移任务不匹配')
@@ -215,7 +209,6 @@ export class LegacyMigrationService {
     this.saveJob(job)
     // 先等在途记录收尾：它可能仍会写入 migrationBlocked，清理必须排在后面。
     await this.waitForInFlightRecords()
-    // 放弃时清除所有记录的阻塞标记，让旧笔记回到待迁移状态
     await this.releaseBlockedRecords()
     // 这里不能再广播进度：前端收到事件会把刚清空的进度条重新画出来。
   }
@@ -317,7 +310,6 @@ export class LegacyMigrationService {
     if (startState && startState.jobId === job.jobId) {
       if (startState.status === 'paused' || startState.status === 'abandoned') {
         this.snapshot = null
-        // 暂停发生在启动读取阶段：沿用当前待处理统计，避免返回“阻塞 0”。
         const pending = records.map(item => item.conversation).filter(item => !item.migratedAt)
         return {
           jobId: startState.jobId,
@@ -670,9 +662,7 @@ export class LegacyMigrationService {
   ): Promise<LegacyMigrationReportEntry> {
     const target = await ensureDefaultWorkspace(this.store)
     const settings = await getWorkspaceSettings(target.path)
-    // 工作台记录的标题就是文件名，带扩展名时避免落成 `xxx.md.md`。
     const title = conversation.title.replace(/\.md$/i, '').trim() || conversation.title
-    // 没有来源身份，先按标题认领已落盘的同类文档，避免每次重试都新建副本。
     const untracked = await findUntrackedDocumentByTitle(target.path, title)
     const document = untracked
       ? { document: untracked }
@@ -932,7 +922,6 @@ export class LegacyMigrationService {
         return true
       }
       plannedIds.set(map.id, map.markdown.trim())
-      // 文件名冲突时分配 ` (2)` 后缀，不能覆盖用户已有导图。
       let fileName = await allocateMindmapFileName(root, map.title || '导图', map.id)
       while (plannedNames.has(fileName)) {
         const ext = '.mindmap.md'

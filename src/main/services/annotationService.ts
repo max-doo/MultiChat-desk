@@ -29,7 +29,6 @@ import { getFileCategory } from '../../shared/types/workbench'
 
 const ANNOTATION_DIR = '.multichat/annotations'
 const UUID_RE = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i
-/** 标注内容指纹读取上限（5MB）：避免大文本或二进制文件引发主进程 OOM/卡顿 */
 const MAX_ANNOTATION_TEXT_BYTES = 5 * 1024 * 1024
 
 export class AnnotationLimitError extends Error {}
@@ -54,7 +53,6 @@ function serial<T>(key: string, operation: () => Promise<T>): Promise<T> {
   return next
 }
 
-/** 轻量级内存索引：工作区 rootKey → (文档 relativePath → 标注文件名 .json) */
 const docPathIndex = new Map<string, Map<string, string>>()
 
 function setDocPathIndex(workspaceRoot: string, relativePath: string, fileName: string): void {
@@ -133,7 +131,6 @@ async function readJson<T>(filePath: string): Promise<T | null> {
 
 const sourceFile = (root: string, sourceKey: string): string =>
   path.join(root, ANNOTATION_DIR, 'sources', `${sha1(sourceKey)}.json`)
-/** 会话快照 sidecar：补文档时复用原始 XML 快照，避免把已转换的 Markdown 二次包装。 */
 const sourceSnapshotFile = (root: string, sourceKey: string): string =>
   path.join(root, ANNOTATION_DIR, 'sources', `${sha1(sourceKey)}.snapshot.md`)
 const documentFile = (root: string, relativePath: string): string =>
@@ -194,7 +191,6 @@ export async function listDocumentAnnotationsWithRecovery(
   return { annotations: found.annotations.filter(item => item.scope === 'document'), file: found }
 }
 
-/** 文档指纹：contentHash 判断“正文是否变过”，size/mtime 只用于外部改名预筛；二进制或超大文件跳过全文读取。 */
 async function fingerprintOf(
   workspaceRoot: string,
   relativePath: string
@@ -216,7 +212,6 @@ async function fingerprintOf(
       mtime
     }
   } catch {
-    // 文档暂时不可读时不认领，保留旁路文件
     return undefined
   }
 }
@@ -269,7 +264,6 @@ export async function createDocumentAnnotation(
   })
 }
 
-/** 评论编辑只 patch comment，禁止整条覆盖锚点状态。 */
 export async function updateDocumentAnnotationComment(
   ref: DocumentAnnotationRef,
   id: string,
@@ -301,7 +295,6 @@ export async function updateDocumentAnnotationComment(
   })
 }
 
-/** 用户显式重新选择范围后改写锚点；修订号不匹配时拒绝覆盖。 */
 export async function reanchorDocumentAnnotation(
   ref: DocumentAnnotationRef,
   id: string,
@@ -382,7 +375,6 @@ export async function deleteDocumentAnnotation(ref: DocumentAnnotationRef, id: s
   })
 }
 
-/** 文档重命名/移动时搬旁路文件；目标已存在时按 id 合并，不覆盖。 */
 export async function rekeyDocumentAnnotations(
   workspaceRoot: string,
   oldRelativePath: string,
@@ -409,7 +401,6 @@ export async function rekeyDocumentAnnotations(
   })
 }
 
-/** 删除文档时删除 document 旁路；source 不受影响。 */
 export async function removeDocumentAnnotations(
   workspaceRoot: string,
   relativePath: string
@@ -595,7 +586,6 @@ export async function findDocumentAnnotationFile(
   })
 }
 
-/** 重新对账：更新 document 标注的解析状态与锚点，不碰 source。 */
 export async function reconcileDocumentAnnotations(
   ref: DocumentAnnotationRef,
   resolutions: DocumentResolution[]
@@ -772,7 +762,6 @@ export async function upsertSourceAnnotation(
   })
 }
 
-/** 原文评论只 patch comment；原文锚点由原文页面维护，不跟随文档编辑。 */
 export async function updateSourceAnnotationComment(
   defaultWorkspaceRoot: string,
   sourceKey: string,
@@ -804,7 +793,6 @@ export async function updateSourceAnnotationComment(
   })
 }
 
-/** 扫描其他 source 文件是否已占用该标注 id；先做字符串预筛，命中后再解析。 */
 async function findSourceKeyForAnnotationId(
   defaultWorkspaceRoot: string,
   annotationId: string,
@@ -832,7 +820,6 @@ async function findSourceKeyForAnnotationId(
   return null
 }
 
-/** capture 时保存原始 XML 快照，供 ensureDocument 补文档时复用。 */
 export async function saveSourceSnapshot(
   defaultWorkspaceRoot: string,
   sourceKey: string,
@@ -844,7 +831,6 @@ export async function saveSourceSnapshot(
   await writeFile(filePath, snapshot, 'utf8')
 }
 
-/** 读取 capture 时保存的原始快照；没有 sidecar 返回空串。 */
 export async function readSourceSnapshot(defaultWorkspaceRoot: string, sourceKey: string): Promise<string> {
   try {
     return await readFile(sourceSnapshotFile(defaultWorkspaceRoot, sourceKey), 'utf8')
@@ -872,7 +858,6 @@ export async function deleteSourceAnnotation(
   })
 }
 
-/** 给 conversationDocumentService 用：source 文件是否存在，决定 ensureDocument 能否建文档。 */
 export async function hasSourceAnnotations(defaultWorkspaceRoot: string, sourceKey: string): Promise<boolean> {
   return stat(sourceFile(defaultWorkspaceRoot, sourceKey)).then(() => true, () => false)
 }

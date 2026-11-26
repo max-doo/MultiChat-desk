@@ -20,10 +20,6 @@ interface WorkbenchReaderThemePickerProps {
   onChange: (theme: ReaderBackgroundTheme) => void
 }
 
-/**
- * 预览/编辑区顶部工具栏共用的背景色切换器。
- * 仅在暗黑背景时同步切为暗色工具栏外观；纸白 / 羊皮纸 / 豆沙绿保持工具栏浅色一致。
- */
 export default function WorkbenchReaderThemePicker({
   value,
   onChange

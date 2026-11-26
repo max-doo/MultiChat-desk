@@ -16,20 +16,8 @@ import { $createWorkbenchEquationNode } from './WorkbenchEquationNode'
 import { splitEquationPaste } from './equationPaste'
 
 /**
- * 粘贴含 $...$ / $$...$$ 的纯文本时，按 markdown 重新生成节点，
- * 让公式立即转成 WorkbenchEquationNode，而不是以纯文本落进段落被 export 二次转义。
- *
- * 只在 text/plain 且确实含 $ 时拦截，含 HTML / 文件的剪贴板仍走 Lexical 默认粘贴；
- * 代码块/inline-code 内的粘贴放行原样插入（公式语法在代码里是字面量）。
- *
- * $$...$$ 块不走 markdown 导入：@lexical/markdown 按 CommonMark 把行尾落单 \
- * 视作硬换行剥掉、把 \f/\{ 等当成转义吃掉字符，LaTeX 会被破坏；这里手工切块
- * 直接建公式节点，LaTeX 源码逐字符保留。
- */
-
-/**
- * 把切块结果装配成 Lexical 节点：公式块直接建 WorkbenchEquationNode，
- * 文本块走标准 markdown 导入。返回 null 表示没有可识别的块级公式。
+ * 公式块直接建 WorkbenchEquationNode，文本块走标准 markdown 导入。
+ * $$ 块不走 markdown 导入：@lexical/markdown 会把 LaTeX 反斜杠与行尾硬换行吃掉。
  */
 export function $buildEquationPasteNodes(text: string): LexicalNode[] | null {
   const slices = splitEquationPaste(text)

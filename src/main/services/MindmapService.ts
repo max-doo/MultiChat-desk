@@ -21,13 +21,11 @@ const TEMPORARY_IDLE_TIMEOUT = 10 * 60_000
 
 export type { MindmapMaterial }
 
-/** 文本材料转附件时去掉原扩展名，避免生成 `报告.pdf.md` 这类名称。 */
 function attachmentBaseName(fileName: string): string {
   // 只剥常见文档扩展名，不能把所有点号后缀都当扩展名（标题里常有 `v1.2` 这类版本号）。
   return fileName.replace(/\.(?:pdf|docx?|docm|pptx?|pptm|html?|md|markdown|txt)$/i, '')
 }
 
-/** 对话附件优先使用首条提问，避免界面上出现无意义的 source-conversation 或平台占位标题。 */
 function conversationAttachmentName(source: NoteConversation): string {
   // 平台自动生成的会话标题常常就是「将 conversation 生成思维导图」这类占位名，
   // 不能直接当附件名。优先取 Markdown 里第一个用户提问的首行，标题只作兜底。
@@ -48,12 +46,10 @@ function conversationAttachmentName(source: NoteConversation): string {
   return `${source.workbench ? attachmentBaseName(title) : title.replace(/\.md$/i, '')}.md`
 }
 
-/** 平台自动生成的无意义会话名，出现在文件名里比没有名字更糟。 */
 function isPlaceholderTitle(title: string): boolean {
   return /^(?:将\s*)?conversation(?:\s*生成.*)?$/i.test(title.trim())
 }
 
-/** 文件材料统一在发送前校验存在性与大小，生成和修改都走同一规则。 */
 async function assertFileMaterial(filePath: string): Promise<void> {
   const info = await stat(filePath).catch(() => null)
   if (!info?.isFile()) throw new Error('文件不存在或无法读取，请重新选择文档')
@@ -62,7 +58,6 @@ async function assertFileMaterial(filePath: string): Promise<void> {
   }
 }
 
-/** 限制一次异步操作的等待时间；网页脚本迟到的返回值不会继续推进任务。 */
 function waitFor<T>(operation: Promise<T>, timeoutMs: number, stage: string, signal: AbortSignal): Promise<T> {
   return new Promise((resolve, reject) => {
     let settled = false
@@ -91,7 +86,6 @@ export class MindmapService {
   private lastPage: { taskId: string; key: string; mapId: string; initialized: boolean; binding: MindmapGenerationSession } | null = null
   private trackedWindows = new WeakSet<BrowserWindow>()
   private candidates = new Map<number, Map<string, MindmapCandidate>>()
-  /** 本次进程内每张导图最近使用的生成页；工作台文件本身不保存 generationSession。 */
   private generationSessions = new Map<string, MindmapGenerationSession>()
   private applying = new Set<string>()
 
@@ -99,7 +93,6 @@ export class MindmapService {
 
   getTask(): MindmapTask | null { return this.task ? { ...this.task } : null }
 
-  /** 工作台记录不再持久化正文；生成上下文从 Markdown 文件读取。 */
   private async hydrateWorkbenchSource(source: NoteConversation): Promise<NoteConversation> {
     if (!source.workbench) return source
     try {
@@ -165,7 +158,6 @@ export class MindmapService {
     })
   }
 
-  /** 只给已结束且隐藏的网页计时；保留地址，不保留网页进程。 */
   private async retainTerminalPage(task: MindmapTask, key: string): Promise<void> {
     if (this.task?.id !== task.id || !TERMINAL_PHASES.includes(task.phase) || this.idle?.key !== key) return
     const window = sessionManager.getSession(key)

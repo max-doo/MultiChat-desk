@@ -19,17 +19,11 @@ import { gateExternalCommand, looksLikeInspectablePath, validateStaticCdTarget }
 import { isSensitiveFilePath } from '../permissionPolicy'
 
 export interface PsAstVerdict {
-  /** Whole tree is read-only by the allowlist. */
   readOnly: boolean
-  /** Command writes to file paths — caller must boundary-check them. */
   writeOps?: boolean
-  /** Path-shaped arguments pulled from CommandAst / FileRedirectionAst nodes. */
   pathArguments: string[]
-  /** Static `cd` / `Set-Location` directory targets — caller verifies workspace boundary. */
   cdTargets?: string[]
-  /** Executables invoked by CommandAst nodes (e.g. `powershell`, `git`). */
   commands: string[]
-  /** First reason read-only was rejected (for logging/debug). */
   rejectReason?: string
 }
 
@@ -81,7 +75,6 @@ const ALLOWED_NODE_TYPES = new Set([
   'MergingRedirectionAst' // 2>&1 / *>&1 — merges output streams, does not write disk
 ])
 
-// File redirection `> out.txt` / `*> out.txt` — write-content semantics.
 const WRITE_REDIRECT_NODE_TYPES = new Set(['FileRedirectionAst'])
 
 // Node types that always poison read-only regardless of position.
@@ -125,7 +118,6 @@ const STATIC_WHITELIST: Readonly<Record<string, readonly string[] | '*'>> = {
   'collections.generic.dictionary`2': '*',
   'globalization.cultureinfo': '*',
   uri: '*',
-  // Safe primitive / value types for `[int]$x` casts and basic parsing
   int: ['parse', 'tryparse'],
   int32: ['parse', 'tryparse'],
   int64: ['parse', 'tryparse'],
@@ -175,17 +167,14 @@ const STATIC_DENY_TYPES = new Set([
 // Instance methods that are pure reads on any object. Note `copyto` is
 // intentionally excluded because `FileInfo.CopyTo()` writes files on disk.
 const SAFE_INSTANCE_METHODS = new Set([
-  // string
   'substring', 'tolower', 'tolowerinvariant', 'toupper', 'toupperinvariant',
   'trim', 'trimstart', 'trimend', 'replace', 'split', 'startswith',
   'endswith', 'contains', 'indexof', 'lastindexof', 'padleft', 'padright',
   'normalize', 'gethashcode', 'tostring', 'clone', 'concat',
   'join', 'format', 'compareto', 'equals', 'getenumerator',
-  // array / collection — pure read accessors only
   'get', 'getvalue', 'getlength', 'getlonglength',
   'getlowerbound', 'getupperbound', 'binarysearch',
   'count', 'getrange', 'capacity',
-  // reflection-free generic helpers
   'gettype', 'memberwiseclone'
 ])
 
@@ -271,7 +260,6 @@ function extractWriteTargets(node: AstNodeInfo): string[] {
   let expectPathNext = false
   let skipValueNext = false
 
-  // Element 0 is the command name itself.
   for (let i = 1; i < elems.length; i++) {
     const elem = elems[i]
     if (elem.kind === 'param') {

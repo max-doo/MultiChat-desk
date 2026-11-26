@@ -758,9 +758,7 @@ export default function MarkdownSyncPlugin(): null {
     }
   }, [editor])
 
-  // 处理 插入/采纳/撤回 三个命令
   useEffect(() => {
-    // 清掉当前已有 pending 容器（单条 pending）
     const clearPending = (): void => {
       const root = $getRoot()
       root.getChildren().forEach((child) => {
@@ -886,7 +884,6 @@ export default function MarkdownSyncPlugin(): null {
     }
   }, [editor])
 
-  // 桥接：store 派发的 workbench:insert-reply → Lexical INSERT_REPLY_COMMAND
   useEffect(() => {
     const handler = (e: Event): void => {
       const detail = (
@@ -1009,7 +1006,6 @@ export default function MarkdownSyncPlugin(): null {
     }
   }, [activeFilePath, activeFileContent, editorMode, editor])
 
-  // 监听 Lexical 内部改动，按块增量拼装并通过 250ms 防抖同步回 workbenchStore
   useEffect(() => {
     const flushSync = (): void => {
       if (pendingSyncTimerRef.current) {

@@ -145,7 +145,6 @@ export function AgentComposer(): JSX.Element {
     el?.scrollIntoView({ block: 'nearest' })
   }, [atIndex])
 
-  // Close the @ menu when the composer is cleared externally (e.g. after send).
   useEffect(() => {
     if (atMention && !composerInput.includes('@')) setAtMention(null)
   }, [composerInput, atMention])
@@ -236,7 +235,6 @@ export function AgentComposer(): JSX.Element {
       e.stopPropagation()
       setAtMention(null)
 
-      // 1) Workbench file-tree nodes carry a rich payload — preferred source.
       const customData = e.dataTransfer?.getData('application/x-multichat-workspace-files')
       if (customData) {
         try {
@@ -259,7 +257,6 @@ export function AgentComposer(): JSX.Element {
         }
       }
 
-      // 2) OS-level file drop (Explorer / other apps).
       const types = e.dataTransfer ? Array.from(e.dataTransfer.types) : []
       if (types.includes('Files') && e.dataTransfer?.files?.length) {
         const paths = Array.from(e.dataTransfer.files)
@@ -271,7 +268,6 @@ export function AgentComposer(): JSX.Element {
         }
       }
 
-      // 3) text/plain fallback: one or more absolute paths.
       const textPlain = e.dataTransfer?.getData('text/plain')
       if (textPlain) {
         const lines = textPlain

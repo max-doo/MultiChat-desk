@@ -21,11 +21,8 @@ export const INSERT_REPLY_COMMAND = createCommand<string>('INSERT_REPLY')
 export { COMMAND_PRIORITY_EDITOR }
 
 /**
- * 工作台「待确认插入」容器节点（块级）。
- * 把一条 AI 回复解析出的若干 block 包成一个容器，children 正常参与编辑与
- * markdown 导出；高亮样式由 className 提供。容器内最后一个 child 是
- * PendingBarNode（DecoratorNode），渲染 ✓ 采纳 / ✗ 撤回 工具条。
- * 采纳：children 提到原位后删容器；撤回：整体删容器。
+ * 「待确认插入」容器节点：children 正常参与编辑与 markdown 导出；
+ * 最后一个 child 是 ✓/✗ 工具条。采纳解包 children，撤回整体删除。
  */
 export class PendingInsertNode extends ElementNode {
   static getType(): string {

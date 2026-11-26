@@ -1,8 +1,3 @@
-/**
- * 工作台 (Workbench) 共享类型定义
- * 用于主进程、Preload 与渲染进程通信与状态管理
- */
-
 export type WorkbenchFileCategory =
   | 'markdown'
   | 'code'
@@ -90,7 +85,7 @@ export interface GitStatus {
   behind: number
   /** 仓库尚无任何提交 */
   unborn: boolean
-  /** 工作区内的改动总数（含未跟踪）；超过展示上限时仍然准确 */
+  /** 工作区内的改动总数（含未跟踪）；截断展示时此值仍为真实总数 */
   changeCount: number
   /** 已暂存的改动数 */
   stagedCount: number
@@ -253,9 +248,8 @@ export interface GitCommitDetail {
 /** 迁移前 frontmatter 备份：按工作区聚合，供设置面板展示与清理 */
 export interface FrontmatterBackupGroup {
   workspaceRoot: string
-  /** 备份文件数 */
+  /** 备份文件数与占用字节 */
   files: number
-  /** 备份占用字节 */
   bytes: number
   /** 原文档已不存在、清理时会保留的备份数 */
   orphans: number
@@ -360,32 +354,27 @@ export interface WorkbenchSelectFolderResult {
 export type WorkbenchNodeType = 'file' | 'folder'
 
 export interface WorkbenchState {
-  // 工作区基础配置
   workspacePath: string | null        // 根目录绝对路径 (持久化)
   workspaceName: string               // 工作区根文件夹名称
   fileTree: WorkbenchFileNode[]       // 文件树数据
   expandedFolderIds: Set<string>      // 展开的文件夹路径集合 (持久化)
   isLoadingTree: boolean
 
-  // 当前打开的文件
   activeFilePath: string | null       // 当前编辑的相对路径 (持久化)
-  activeFileContent: string           // 编辑器当前内存文本
-  isDirty: boolean                    // 是否包含未保存的修改
+  activeFileContent: string           // 编辑器内存中的未落盘文本
+  isDirty: boolean
   saveStatus: 'saved' | 'saving' | 'error'
   lastSavedAt: number | null
 
-  // 搜索与过滤
   searchQuery: string
   isSearching: boolean
   searchResults: WorkbenchSearchResult[]
 
-  // 界面布局尺寸与折叠状态
   leftPaneWidth: number               // 左栏宽度 (默认 260)
   rightPaneWidth: number              // 右栏宽度 (默认 420)
-  isLeftPaneCollapsed: boolean        // 左栏是否折叠
-  isRightPaneCollapsed: boolean       // 右栏是否折叠
-  editorMode: 'wysiwyg' | 'source'    // 编辑模式：富文本 / 纯源码
+  isLeftPaneCollapsed: boolean
+  isRightPaneCollapsed: boolean
+  editorMode: 'wysiwyg' | 'source'    // wysiwyg 富文本 / source 纯源码
 
-  // 侧边栏 AI 模型
   sidebarModelId: string              // 当前选中的 AI 平台 (持久化)
 }

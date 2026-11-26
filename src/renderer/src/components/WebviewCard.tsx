@@ -47,10 +47,8 @@ interface WebviewCardProps {
   extraModelOptions?: DropdownOption<string>[]
 }
 
-// 重新导出 FileUploadData 类型供其他组件使用
 export type { FileUploadData }
 
-// 暴露给父组件的方法
 export interface WebviewCardRef {
   getWebContentsId: () => number | null
   /** 只读暴露内部 webview 元素（Workbench 侧边栏注入按钮 / console-message 监听用） */
@@ -93,10 +91,6 @@ export interface WebviewCardRef {
   probeActionBar: () => Promise<import('../utils/selectorDiagnostics').ActionBarProbeReport>
 }
 
-/**
- * Webview 卡片组件
- * 嵌入 AI 平台的 Web 界面，支持消息发送和响应抓取
- */
 const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
   (
     {
@@ -127,7 +121,6 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
   ) => {
     const webviewRef = useRef<Electron.WebviewTag>(null)
 
-    // 从 store 获取所有模型、状态和切换方法
     const models = useAppStore((state) => state.models)
     const swapModelInSlot = useAppStore((state) => state.swapModelInSlot)
     const productMode = useAppStore((state) => state.productMode)
@@ -141,10 +134,8 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
     // 如果当前处于活动会话，且当前模型在活动阵容中，则当前窗口被锁死；处于隔离模式则不锁死
     const isLockedModel = !isolated && isSessionActive && activeModels.some((m) => m.id === id)
 
-    // 获取当前模型的选择器配置
     const selectors = defaultSelectors.models[id]
 
-    // 生命周期与导航控制
     const {
       isLoading,
       isReady,
@@ -172,7 +163,6 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
       onWebviewReady
     })
 
-    // 网页交互操作
     const { actions, sendStatus: _sendStatus } = useWebviewActions({
       webviewRef,
       id,
@@ -281,7 +271,6 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
       }
     }, [captureContext])
 
-    // 暴露给父组件的 Ref
     useImperativeHandle(
       ref,
       () => ({
@@ -300,7 +289,6 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
         ? dropdownModels
         : dropdownModels.filter((m) => m.id !== id)
 
-    // 将模型列表转换为下拉菜单选项格式
     const baseModelOptions: DropdownOption<string>[] = availableModels.map((m) => ({
       value: m.id,
       label: m.name,
@@ -367,7 +355,6 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
                 : undefined
             }
           >
-            {/* 左侧：模型信息和下拉选择器 */}
             <div
               className={draggableHeader ? 'no-drag' : ''}
               title={isSessionActive ? '当前对话进行中，需开启新对话才可更换模型' : ''}
@@ -443,7 +430,6 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
               />
             </div>
 
-            {/* 右侧：刷新按钮 + 状态指示器 */}
             <div className={`flex items-center gap-3 group ${draggableHeader ? 'no-drag' : ''}`}>
               <button
                 type="button"
@@ -492,7 +478,6 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
           </div>
         )}
 
-        {/* Webview 容器 */}
         <div className="flex-1 relative min-h-0">
           <WebviewFindBar
             webviewRef={webviewRef}

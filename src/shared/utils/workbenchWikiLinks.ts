@@ -18,7 +18,6 @@ export function extractWikiLinkTargets(content: string): string[] {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
 
-    // Frontmatter 跳过
     if (i === 0 && line.trim() === '---') {
       inFrontmatter = true
       continue
@@ -28,7 +27,6 @@ export function extractWikiLinkTargets(content: string): string[] {
       continue
     }
 
-    // 围栏代码块跳过
     if (/^\s*(```|~~~)/.test(line)) {
       inFencedCode = !inFencedCode
       continue

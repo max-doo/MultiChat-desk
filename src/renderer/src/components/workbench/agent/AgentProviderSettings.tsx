@@ -784,7 +784,6 @@ export type AgentProviderSettingsState = ReturnType<typeof useAgentProviderSetti
 
 export { useAgentProviderSettingsState }
 
-/** 供应商搜索与操作工具栏：设置页中作为固定头部，弹窗内随组合形态滚动 */
 export function AgentProviderToolbar({ state }: { state: AgentProviderSettingsState }): JSX.Element {
   const {
     query,
@@ -845,7 +844,6 @@ export function AgentProviderToolbar({ state }: { state: AgentProviderSettingsSt
   )
 }
 
-/** 供应商列表内容：默认模型集、分组列表、编辑弹窗与认证入口 */
 export function AgentProviderContent({ state }: { state: AgentProviderSettingsState }): JSX.Element {
   const {
     favoriteModels,
@@ -972,7 +970,6 @@ export function AgentProviderContent({ state }: { state: AgentProviderSettingsSt
   )
 }
 
-/** 组合形态：工具栏与内容上下排列，供弹窗内使用 */
 export function AgentProviderSettings({ inlineAuth = false }: { inlineAuth?: boolean } = {}): JSX.Element {
   const state = useAgentProviderSettingsState({ inlineAuth })
   return (

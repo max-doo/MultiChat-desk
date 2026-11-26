@@ -1,8 +1,3 @@
-/**
- * Webview 注入脚本工具
- * 将原本内联在 WebviewCard 中的注入脚本抽取到此文件，方便维护和修改
- */
-
 import type { ModelSelector } from '../config/selectors'
 import { getHtmlToMarkdownScript } from './htmlToMarkdown'
 import { noteMessageSelectors, generationStopSelectors, authWallSelectors, mindmapCodeSelectors, responseMessageSelectors, fileUploadSelectors, type AssistantReplyConfig } from '../config/selectors'
@@ -12,9 +7,6 @@ import { NOTE_CLICK_PREFIX, NOTE_DISMISS_PREFIX } from '../types/notes'
 
 const IS_DEV = process.env.NODE_ENV !== 'production'
 
-/**
- * 文件上传数据类型
- */
 export interface FileUploadData {
   filePath: string
   fileName: string
@@ -54,11 +46,9 @@ export function generateFileDropPointScript(selectors: ModelSelector): string {
 }
 
 /**
- * 粘贴式附件上传：把磁盘文件 bytes 注入页面，构造 File + DataTransfer，
- * 对输入框派发 paste 事件，走平台原生 paste→附件 解析链路。
- * 相比 CDP dispatchDragEvent 拖拽：不依赖页面是否监听 drop、不挑落点坐标，
- * 主流 AI 输入框（ProseMirror/Slate/Lexical/textarea）都监听 paste 处理附件。
- * 返回 { success, error? }——只确认事件已派发，附件就绪由 generateFileUploadStateScript 轮询确认。
+ * 粘贴式附件上传：注入 bytes 构造 File + DataTransfer 派发 paste，走平台原生解析链路。
+ * 优于 CDP 拖拽：不依赖 drop 监听、不挑落点；主流输入框都监听 paste 处理附件。
+ * 返回值只确认事件已派发，附件就绪由 generateFileUploadStateScript 轮询确认。
  */
 export function generatePasteFileUploadScript(selectors: ModelSelector, fileName: string, mime: string, base64: string): string {
   return `
@@ -77,7 +67,6 @@ export function generatePasteFileUploadScript(selectors: ModelSelector, fileName
         }
         if (!input) return { success: false, error: '未找到输入框' };
 
-        // base64 → File
         const byteChars = atob(base64);
         const bytes = new Uint8Array(byteChars.length);
         for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
@@ -267,11 +256,6 @@ export function generateFileUploadStateScript(
   })();`
 }
 
-// ==================== 内部辅助函数：生成脚本片段 ====================
-
-/**
- * 生成查找输入框的脚本片段
- */
 function buildFindTextareaScript(selectors: ModelSelector): string {
   return `
     const textareaSelectors = ${JSON.stringify(selectors.textarea)};
@@ -326,9 +310,6 @@ function buildFindTextareaScript(selectors: ModelSelector): string {
   `
 }
 
-/**
- * 生成处理 contenteditable 元素的脚本片段
- */
 function buildContentEditableInputScript(messageText: string): string {
   return `
     if (textarea.contentEditable === 'true' || textarea.getAttribute('contenteditable') === 'true') {
@@ -404,12 +385,9 @@ function buildContentEditableInputScript(messageText: string): string {
           textarea.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
         }
 
-        // 派发 paste 事件，让 Slate 的 paste handler 接管换行文本插入。
-        // 根因：execCommand('insertText') 对含 \\n 的文本走浏览器默认 contentEditable
-        // 行为，绕过 Slate 的 beforeinput/paste 拦截，破坏 Slate model 与 DOM 一致性，
-        // 触发 "Cannot resolve a Slate node from DOM node"。派发 paste 事件走 Slate
-        // 原生 paste 路径，Slate 会按 \\n 拆分并正确插入 block 节点。
-        // 返回 true 表示事件已派发且被 Slate 拦截（preventDefault）。
+        // execCommand('insertText') 插入含 \\n 文本会绕过 Slate 的 paste 拦截，
+        // 破坏 model/DOM 一致性（"Cannot resolve a Slate node from DOM node"）；
+        // 派发 paste 让 Slate 原生 handler 按 \\n 拆 block。返回 true = 事件被 Slate 拦截接管。
         function dispatchPasteEvent(textValue) {
           try {
             const dt = new DataTransfer();
@@ -443,7 +421,6 @@ function buildContentEditableInputScript(messageText: string): string {
             } catch (e) {}
           }
 
-          // 优先派发 paste 事件（Slate 能正确处理 \\n）
           const pasteHandled = dispatchPasteEvent(expectedText);
 
           // paste 未被接管时，退回 execCommand（单行可用，多行可能失败）
@@ -642,7 +619,8 @@ function buildTextareaInputScript(messageText: string, modelId: string): string 
         // 选中所有现有内容
         textarea.select();
 
-        // 1. 先触发 beforeinput 事件
+        // 完整输入序列缺一不可：beforeinput→原生 setter→input/change 同步 React/Semi/AntD
+        // 受控状态，compositionend 供 Semi 输入法收尾，blur/focus 强制框架重读值。
         const beforeInputEvent = new InputEvent('beforeinput', {
           bubbles: true,
           cancelable: true,
@@ -651,7 +629,6 @@ function buildTextareaInputScript(messageText: string, modelId: string): string 
         });
         textarea.dispatchEvent(beforeInputEvent);
 
-        // 2. 使用原生 setter 设置值
         const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
           window.HTMLTextAreaElement.prototype, 'value'
         )?.set;
@@ -662,7 +639,6 @@ function buildTextareaInputScript(messageText: string, modelId: string): string 
           textarea.value = ${JSON.stringify(messageText)};
         }
 
-        // 3. 触发 input 事件（React 监听这个）
         const inputEvent = new InputEvent('input', {
           bubbles: true,
           cancelable: false,
@@ -671,16 +647,12 @@ function buildTextareaInputScript(messageText: string, modelId: string): string 
         });
         textarea.dispatchEvent(inputEvent);
 
-        // 4. 触发 change 事件
         textarea.dispatchEvent(new Event('change', { bubbles: true }));
-
-        // 5. 模拟输入法结束（Semi UI 可能监听这个）
         textarea.dispatchEvent(new CompositionEvent('compositionend', {
           bubbles: true,
           data: ${JSON.stringify(messageText)}
         }));
 
-        // 6. 触发 blur 再 focus，强制 React 更新
         textarea.blur();
         await new Promise(resolve => setTimeout(resolve, 50));
         textarea.focus();
@@ -693,19 +665,14 @@ function buildTextareaInputScript(messageText: string, modelId: string): string 
   `
 }
 
-/**
- * 生成查找发送按钮的脚本片段
- */
 function buildFindSendButtonScript(selectors: ModelSelector): string {
   return `
-    // 查找发送按钮
     const buttonSelectors = ${JSON.stringify(selectors.sendButton)};
     let button = null;
     
     for (const selector of buttonSelectors) {
       const candidates = document.querySelectorAll(selector);
       for (const btn of candidates) {
-        // 检查按钮是否可见且未禁用
         const isVisible = btn.offsetParent !== null && 
                          btn.offsetWidth > 0 && 
                          btn.offsetHeight > 0;
@@ -722,16 +689,11 @@ function buildFindSendButtonScript(selectors: ModelSelector): string {
   `
 }
 
-/**
- * 生成模拟 Enter 键发送的脚本片段
- */
 function buildSimulateEnterKeyScript(modelId: string, selectors: ModelSelector, verifySubmission = false): string {
   return `
     if (!button) {
-      // 尝试模拟 Enter 键发送
       textarea.focus();
       
-      // 触发完整的键盘事件序列：keydown -> keypress -> keyup
       const keydownEvent = new KeyboardEvent('keydown', {
         key: 'Enter',
         code: 'Enter',
@@ -766,14 +728,12 @@ function buildSimulateEnterKeyScript(modelId: string, selectors: ModelSelector, 
       
       await new Promise(resolve => setTimeout(resolve, 200));
     } else {
-      // 点击发送按钮
-      // 对于 Angular Material 按钮，可能需要先触发 focus
+      // Angular Material 按钮需要先 focus
       button.focus();
       const clickDelay = (${JSON.stringify(modelId)} === 'doubao' || ${JSON.stringify(modelId)} === 'qwen' || ${JSON.stringify(modelId)} === 'deepseek') ? 500 : 50;
       await new Promise(resolve => setTimeout(resolve, clickDelay));
       button.click();
 
-      // 等待一下确保点击生效
       await new Promise(resolve => setTimeout(resolve, 200));
     }
 
@@ -795,13 +755,9 @@ function buildSimulateEnterKeyScript(modelId: string, selectors: ModelSelector, 
   `
 }
 
-/**
- * 生成清空 contenteditable 的脚本片段
- */
 function buildClearContentEditableScript(): string {
   return `
     if (textarea.contentEditable === 'true' || textarea.getAttribute('contenteditable') === 'true') {
-      // 对于 contenteditable 元素
       textarea.focus();
       
       const isLexical = textarea.getAttribute('data-lexical-editor') === 'true' || textarea.dataset?.lexicalEditor === 'true';
@@ -908,18 +864,13 @@ function buildClearContentEditableScript(): string {
   `
 }
 
-/**
- * 生成清空 textarea/input 的脚本片段
- */
 function buildClearTextareaScript(): string {
   return `
     else if (textarea.tagName === 'TEXTAREA' || textarea.tagName === 'INPUT') {
-      // 对于 textarea/input 元素
       textarea.value = '';
       textarea.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteContentBackward' }));
       textarea.dispatchEvent(new Event('change', { bubbles: true }));
     } else {
-      // 尝试通用方法
       if (textarea.textContent !== undefined) {
         textarea.textContent = '';
       }
@@ -928,12 +879,8 @@ function buildClearTextareaScript(): string {
   `
 }
 
-/**
- * 生成 Deep Research 辅助函数脚本片段
- */
 function buildDeepResearchHelperFunctions(): string {
   return `
-    // 辅助函数：标准化可点击元素
     function normalizeClickable(el, exact) {
       if (!el) return el;
       if (exact) return el;
@@ -946,7 +893,6 @@ function buildDeepResearchHelperFunctions(): string {
       }
     }
 
-    // 辅助函数：查找元素（策略二：regex + 单词边界 + exclude + 语义化兜底）
     function findElement(selector, text, opts) {
       // opts 兼容旧 boolean（exact）与新 step 对象
       var o = (opts && typeof opts === 'object') ? opts : { exact: !!opts };
@@ -996,7 +942,6 @@ function buildDeepResearchHelperFunctions(): string {
           continue;
         }
       
-        // 如果没有文本要求且无 regex，返回第一个可见元素
         if (!text && !o.regex) {
           for (var vi = 0; vi < elements.length; vi++) {
             var vel = elements[vi];
@@ -1008,7 +953,6 @@ function buildDeepResearchHelperFunctions(): string {
           continue;
         }
       
-        // 如果有文本/regex 要求
         for (var mi = 0; mi < elements.length; mi++) {
           var el = elements[mi];
           if (el.getBoundingClientRect().width === 0 && el.offsetParent === null) {
@@ -1022,7 +966,7 @@ function buildDeepResearchHelperFunctions(): string {
         }
       }
 
-      // 策略二降级：静态选择器全部失效且指定了目标文本时，遍历全局交互类语义元素
+      // 静态选择器全部失效且指定了目标文本时，遍历全局交互类语义元素兜底
       if (text || (o && o.regex)) {
         var semanticSelectors = 'button, [role="button"], [role="radio"], [role="switch"], [role="checkbox"], [role="menuitem"], [role="menuitemradio"], [role="tab"], label, input[type="checkbox"], input[type="radio"]';
         var semanticElements = [];
@@ -1074,7 +1018,7 @@ function buildDeepResearchHelperFunctions(): string {
       return false;
     }
 
-    // 跨步菜单兜底：按语义找开菜单按钮（策略二 Step 4）
+    // 跨步菜单兜底：按语义找开菜单按钮
     function findMenuOpener() {
       var openerRegex = /\\+|plus|more|tools?|menu|菜单|更多|工具|附加|添加/i;
       var all = document.querySelectorAll('[aria-haspopup="menu"], [aria-haspopup="true"], button, [role="button"]');
@@ -1095,19 +1039,14 @@ function buildDeepResearchHelperFunctions(): string {
   `
 }
 
-/**
- * 生成 Deep Research 步骤执行脚本片段
- */
 function buildDeepResearchStepsScript(_steps: unknown[]): string {
   return `
-    // 处理多步操作
     if (config.steps && config.steps.length > 0) {
       let didSuccessStep = false;
       for (const step of config.steps) {
-         // 尝试多次查找，因为可能是动态加载的
          let element = null;
          let attempts = 0;
-         const maxAttempts = 10; // 2秒超时
+         const maxAttempts = 10;
          
          while (!element && attempts < maxAttempts) {
            element = findElement(step.selector, step.text, step);
@@ -1127,7 +1066,6 @@ function buildDeepResearchStepsScript(_steps: unknown[]): string {
            return { success: false, error: '步骤执行失败: 未找到元素 ' + step.selector };
          }
 
-         // 开关已处于期望状态：无需点击，直接视为达成
          if (alreadyInState(step, element)) {
            if (!step || step.countsAsSuccess !== false) {
              didSuccessStep = true;
@@ -1142,7 +1080,6 @@ function buildDeepResearchStepsScript(_steps: unknown[]): string {
            didSuccessStep = true;
          }
          
-         // 等待下一步
          const delay = step.delay || 500;
          await new Promise(r => setTimeout(r, delay));
 
@@ -1162,24 +1099,14 @@ function buildDeepResearchStepsScript(_steps: unknown[]): string {
   `
 }
 
-/**
- * 生成获取最新回复的辅助函数脚本片段
- */
 function buildFindSourceListFunction(): string {
   return `
-    /**
-     * 查找元素相邻或父级中的引用来源列表（Gemini 特殊处理）
-     * @param {HTMLElement} element - 消息元素
-     * @returns {HTMLElement|null} 引用来源列表元素
-     */
     function findSourceList(element) {
       if (!element) return null;
       
-      // 1. 先在元素内部查找
       let sourceList = element.querySelector('.source-list, .used-sources');
       if (sourceList) return sourceList;
       
-      // 2. 在兄弟元素中查找
       let sibling = element.nextElementSibling;
       let searchCount = 0;
       while (sibling && searchCount < 5) {
@@ -1192,7 +1119,6 @@ function buildFindSourceListFunction(): string {
         searchCount++;
       }
       
-      // 3. 在父元素中查找
       let parent = element.parentElement;
       let parentCount = 0;
       while (parent && parentCount < 5) {
@@ -1204,7 +1130,6 @@ function buildFindSourceListFunction(): string {
         parentCount++;
       }
       
-      // 4. 全局查找最后一个 source-list（作为最后手段）
       const allSourceLists = document.querySelectorAll('.source-list, .used-sources');
       if (allSourceLists.length > 0) {
         return allSourceLists[allSourceLists.length - 1];
@@ -1215,17 +1140,11 @@ function buildFindSourceListFunction(): string {
   `
 }
 
-/**
- * 生成 Gemini 引用链接处理的脚本片段
- */
 function buildGeminiSourceLinksScript(): string {
   return `
-    // ========== Gemini 引用链接特殊处理 ==========
-    // 检查是否已经包含引用来源（避免重复）
     if (!content.includes('参考来源') && !content.includes('📚')) {
       const sourceList = findSourceList(lastMessage);
       if (sourceList) {
-        // 直接处理 source-list，提取引用链接
         const sourceItems = sourceList.querySelectorAll('browse-web-item');
         if (sourceItems.length > 0) {
           let sourcesMarkdown = '\\n\\n---\\n\\n**📚 参考来源：**\\n\\n';
@@ -1236,15 +1155,12 @@ function buildGeminiSourceLinksScript(): string {
             const href = link.getAttribute('href') || '';
             if (!href || href.startsWith('javascript:')) return;
 
-            // 获取网站域名
             const displayName = item.querySelector('.display-name, [data-test-id="domain-name"]');
             const domainText = displayName ? displayName.textContent.trim() : '';
 
-            // 获取文章标题
             const subTitle = item.querySelector('.sub-title, [data-test-id="sub-title"]');
             const titleText = subTitle ? subTitle.textContent.trim() : '';
 
-            // 组合链接
             const linkText = titleText || domainText || href;
             sourcesMarkdown += '- [' + linkText + '](' + href + ')' + (domainText && titleText ? ' - ' + domainText : '') + '\\n';
           });
@@ -1259,22 +1175,12 @@ function buildGeminiSourceLinksScript(): string {
 }
 
 /**
- * 千问(Qwen) 引用来源链接脚本
- *
- * 千问正文引用上标形如 <span data-index="6">6</span>，已在 htmlToMarkdown 中转成 [6]。
- * 来源详情只在用户悬停上标后才以 .source-card-item tooltip 形式渲染到 document（不在
- * 回复容器内），故需从 document 全局扫描 tooltip，按编号拼成来源列表追加到正文末尾。
- *
- * tooltip DOM 结构：
- *   .source-card-item > .content-title (文本: "6. 标题 - 站名")
- *                   > .hover-top-content > .content-url (文本: "www.kepu.gov.cn")
- * 编号从标题前缀 "N. " 解析，与正文 [N] 配对。
- *
- * 非千问页面没有 .source-card-item，自然 miss，零影响。
+ * 千问(Qwen) 引用来源链接脚本。正文上标 <span data-index="6"> 已在 htmlToMarkdown 转成 [6]；
+ * 来源详情只在悬停上标后以 .source-card-item tooltip 渲染到 document（不在回复容器内），
+ * 故全局扫描 tooltip、按标题前缀 "N. " 与正文 [N] 配对拼列表。非千问页面自然 miss。
  */
 function buildQwenSourceLinksScript(): string {
   return `
-    // ========== 千问(Qwen) 引用来源特殊处理 ==========
     // 正文已含 [N] 上标；此处扫描悬停 tooltip 补来源列表。仅在尚未追加时执行，避免重复。
     if (!content.includes('参考来源') && !content.includes('📚')) {
       try {
@@ -1282,7 +1188,6 @@ function buildQwenSourceLinksScript(): string {
         // 不能用精确 .source-card-item（会因 hash 后缀 miss），必须用 [class*="source-card-item"]。
         var tooltipItems = document.querySelectorAll('[class*="source-card-item"]');
         if (tooltipItems && tooltipItems.length > 0) {
-          // 收集并按编号去重排序
           var entries = {};
           var order = [];
           for (var ti = 0; ti < tooltipItems.length; ti++) {
@@ -1292,10 +1197,8 @@ function buildQwenSourceLinksScript(): string {
             var titleText = titleEl ? (titleEl.textContent || '').trim() : '';
             var domainText = urlEl ? (urlEl.textContent || '').trim() : '';
             if (!titleText && !domainText) continue;
-            // 从标题前缀解析编号，如 "6. 睡觉时..." -> "6"
             var numMatch = titleText.match(/^\\s*(\\d+)\\s*[.、)]?/);
             var num = numMatch ? numMatch[1] : '';
-            // 去掉标题里的编号前缀，得到纯标题
             var cleanTitle = titleText.replace(/^\\s*\\d+\\s*[.、)]?\\s*/, '').trim();
             var key = num || (cleanTitle || domainText);
             if (!entries[key]) {
@@ -1306,7 +1209,6 @@ function buildQwenSourceLinksScript(): string {
             }
           }
           if (order.length > 0) {
-            // 按编号数值排序（无编号的排后面）
             order.sort(function(a, b) {
               var na = parseInt(a, 10), nb = parseInt(b, 10);
               if (isNaN(na) && isNaN(nb)) return 0;
@@ -1338,14 +1240,6 @@ function buildQwenSourceLinksScript(): string {
   `
 }
 
-// ==================== 导出函数：生成完整脚本 ====================
-
-/**
- * 生成发送消息的注入脚本
- * @param message 要发送的消息
- * @param modelId 模型 ID
- * @param selectors 选择器配置
- */
 export function generateSendMessageScript(
   message: string,
   modelId: string,
@@ -1365,7 +1259,6 @@ export function generateSendMessageScript(
       try {
         const messageText = ${JSON.stringify(message)};
         const currentModelId = ${JSON.stringify(modelId)};
-        // 查找输入框
         ${findTextarea}
         
         textarea.focus();
@@ -1441,12 +1334,6 @@ export function generateSendMessageScript(
   `
 }
 
-/**
- * 生成插入文本的注入脚本（不发送）
- * @param message 要插入的消息
- * @param modelId 模型 ID
- * @param selectors 选择器配置
- */
 export function generateInsertTextScript(
   message: string,
   modelId: string,
@@ -1464,7 +1351,6 @@ export function generateInsertTextScript(
           return (s || '').replace(/\\u200B/g, '').trim();
         }
 
-        // 查找输入框
         ${findTextarea}
 
         textarea.focus();
@@ -1488,11 +1374,9 @@ export function generateInsertTextScript(
         const isRepeated = expected && current && current.length > expected.length && current.split(expected).join('') === '';
 
         if (!isAlreadySame || isRepeated) {
-          // 设置值（兼容 contenteditable 和 textarea）
           ${contentEditableInput}
           ${textareaInput}
           else {
-            // 尝试通用方法
             const textNode = document.createTextNode(messageText);
             textarea.appendChild(textNode);
             textarea.dispatchEvent(new Event('input', { bubbles: true }));
@@ -1521,11 +1405,7 @@ export function generateInsertTextScript(
  * - 不调用 buildSimulateEnterKeyScript：它含 Enter 回退分支且依赖
  *   textarea 变量；为避免扩散改动共享函数，改为内联"按钮存在即 click，
  *   否则失败"。
- * - clickDelay 与 buildSimulateEnterKeyScript 一致，保留
- *   doubao/qwen/deepseek 500ms、其他 50ms 的分平台策略。
- *
- * @param modelId 模型 ID
- * @param selectors 选择器配置
+ * - clickDelay 与 buildSimulateEnterKeyScript 一致。
  */
 export function generateSendOnlyScript(
   modelId: string,
@@ -1552,10 +1432,6 @@ export function generateSendOnlyScript(
   `
 }
 
-/**
- * 生成清空输入框的注入脚本
- * @param selectors 选择器配置
- */
 export function generateClearInputScript(selectors: ModelSelector): string {
   const findTextarea = buildFindTextareaScript(selectors)
   const clearContentEditable = buildClearContentEditableScript()
@@ -1564,10 +1440,8 @@ export function generateClearInputScript(selectors: ModelSelector): string {
   return `
     (async function() {
       try {
-        // 查找输入框
         ${findTextarea}
         
-        // 清空内容（兼容 contenteditable 和 textarea）
         ${clearContentEditable}
         ${clearTextarea}
         
@@ -1580,10 +1454,6 @@ export function generateClearInputScript(selectors: ModelSelector): string {
   `
 }
 
-/**
- * 生成读取输入框当前文本内容的注入脚本
- * @param selectors 选择器配置
- */
 export function generateGetInputTextScript(selectors: ModelSelector): string {
   const findTextarea = buildFindTextareaScript(selectors)
 
@@ -1607,7 +1477,6 @@ export function generateGetInputTextScript(selectors: ModelSelector): string {
           text = textarea.innerText || textarea.textContent || '';
         }
 
-        // 清理零宽字符
         text = (text || '').replace(/\\u200B/g, '').trim();
 
         return { success: true, text: text };
@@ -1647,10 +1516,6 @@ export function generateAppendMindmapQuestionScript(question: string, expectedUr
   })();`
 }
 
-/**
- * 生成启用 Deep Research 的注入脚本
- * @param config Deep Research 配置
- */
 export function generateEnableDeepResearchScript(config: any): string {
   const helpers = buildDeepResearchHelperFunctions()
   const steps = buildDeepResearchStepsScript(config.steps || [])
@@ -1663,14 +1528,12 @@ export function generateEnableDeepResearchScript(config: any): string {
         ${helpers}
         ${steps}
         
-        // 兼容旧的 button 配置
         if (config.button) {
           const button = document.querySelector(config.button);
           if (!button) {
             return { success: false, error: '未找到 Deep Research 按钮' };
           }
           
-          // 点击按钮启用 Deep Research
           button.click();
           
           return { success: true };
@@ -1684,10 +1547,6 @@ export function generateEnableDeepResearchScript(config: any): string {
   `
 }
 
-/**
- * 生成禁用 Deep Research 的注入脚本
- * @param config Deep Research 配置
- */
 export function generateDisableDeepResearchScript(config: any): string {
   const helpers = buildDeepResearchHelperFunctions()
 
@@ -1720,7 +1579,6 @@ export function generateDisableDeepResearchScript(config: any): string {
               }
               return { success: false, error: '步骤执行失败: 未找到元素 ' + step.selector };
             }
-            // 开关已处于期望状态：无需点击，直接视为达成
             if (alreadyInState(step, element)) {
               if (!step || step.countsAsSuccess !== false) {
                 didSuccessStep = true;
@@ -1750,10 +1608,6 @@ export function generateDisableDeepResearchScript(config: any): string {
   `
 }
 
-/**
- * 生成启用 AI 生图功能的注入脚本
- * @param config Image Generation 配置
- */
 export function generateEnableImageGenerationScript(config: any): string {
   const helpers = buildDeepResearchHelperFunctions()
   const steps = buildDeepResearchStepsScript(config.steps || [])
@@ -1774,10 +1628,6 @@ export function generateEnableImageGenerationScript(config: any): string {
   `
 }
 
-/**
- * 生成禁用 AI 生图功能的注入脚本
- * @param config Image Generation 配置
- */
 export function generateDisableImageGenerationScript(config: any): string {
   const helpers = buildDeepResearchHelperFunctions()
 
@@ -1969,9 +1819,9 @@ export function generateClickDownloadButtonsScript(selectors: ModelSelector): st
 }
 
 /**
- * 生成"提取当前 webview 最新回复中生图"的注入脚本。
- * 在页内把 img.src / canvas / a[download] / blob: 统一转成 {src, mime?} 数组返回。
- * @param selectors 平台选择器配置（用 messageContainer 定位最新回复气泡）
+ * 生成"提取当前 webview 最新回复中生图"的注入脚本：
+ * 在页内把 img.src / canvas / a[download] / blob: 统一转成 {src, mime?} 数组返回；
+ * selectors.messageContainer 用于定位最新回复气泡。
  */
 export function generateExtractImagesScript(selectors: ModelSelector, genImageOnly = false): string {
   const messageContainer = JSON.stringify(selectors.messageContainer || [])
@@ -2089,7 +1939,6 @@ export function generateExtractImagesScript(selectors: ModelSelector, genImageOn
           return false;
         }
 
-        // 1) img 元素
         var imgs = root.querySelectorAll('img');
         for (var i = 0; i < imgs.length; i++) {
           var img = imgs[i];
@@ -2105,7 +1954,6 @@ export function generateExtractImagesScript(selectors: ModelSelector, genImageOn
           images.push({ src: src, mime: inferMime(src) });
         }
 
-        // 2) canvas
         var canvases = root.querySelectorAll('canvas');
         for (var c = 0; c < canvases.length; c++) {
           try {
@@ -2117,7 +1965,6 @@ export function generateExtractImagesScript(selectors: ModelSelector, genImageOn
           } catch (e) { /* canvas 跨域 tainted，跳过 */ }
         }
 
-        // 3) a[download] / a[href$=图片]
         var anchors = root.querySelectorAll('a[download], a[href$=".png" i], a[href$=".jpg" i], a[href$=".jpeg" i], a[href$=".webp" i]');
         for (var a = 0; a < anchors.length; a++) {
           var href = anchors[a].href || '';
@@ -2147,13 +1994,7 @@ export function generateExtractImagesScript(selectors: ModelSelector, genImageOn
   `;
 }
 
-/**
- * 生成获取最新回复的注入脚本
- * 将 HTML 内容转换为 Markdown 格式
- * @param selectors 选择器配置
- */
 export function generateGetLatestResponseScript(selectors: ModelSelector, assistantOnly = false): string {
-  // 获取 HTML 转 Markdown 的函数定义
   const htmlToMarkdownScript = getHtmlToMarkdownScript()
   const findSourceList = buildFindSourceListFunction()
   const geminiSources = buildGeminiSourceLinksScript()
@@ -2162,7 +2003,6 @@ export function generateGetLatestResponseScript(selectors: ModelSelector, assist
   return `
     (async function() {
       try {
-        // 注入 HTML 转 Markdown 函数
         ${htmlToMarkdownScript}
         
         ${findSourceList}
@@ -2456,17 +2296,11 @@ export function generateGetLatestResponseScript(selectors: ModelSelector, assist
           return null;
         }
 
-        // 豆包(Doubao) 多块合并：豆包现在把一条助手回复拆成多个并列的渲染块
-        // （每个块形如 <div data-render-engine="node">...<div data-streaming>...），
-        // 末块常常只是"需要我帮你…"之类的收尾提示。取"最后一个可见候选"会命中末块
-        // 导致只抓到最后一句。这里在选定的 lastMessage 基础上向上找它的"最近公共
-        // 祖先"——第一个 querySelectorAll('[data-streaming],.md-box-root') >= 2 的
-        // 祖先即为单轮容器。关键：在最近公共祖先层就停，绝不再向上——更上层是跨多轮
-        // (含历史对话+用户query)的根容器，爬过去就会把全部对话抓下来。
-        // 不做长度守卫：最近公共祖先是"含 >=2 个本回复块的最近祖先"这一数学事实的
-        // 直接结果——更近的祖先只含 1 块(末块自己)，所以第一个 >=2 的层就是单轮容器，
-        // 跨轮根容器在它之上、永远不会被先命中。豆包每轮 block-v2 容器相互隔离，
-        // 末块不会落在一个"本就跨轮"的最近祖先里。
+        // 豆包(Doubao) 多块合并：一条助手回复被拆成多个并列渲染块，末块常只是收尾提示，
+        // 取"最后一个可见候选"会只抓到末块。解法：向上找第一个 querySelectorAll 命中
+        // >=2 个回复块的祖先（即单轮容器）并到此为止——更上层是跨多轮的根容器，
+        // 爬过去会把全部历史对话抓下来；更近的祖先只含末块自己，所以第一个 >=2 的层
+        // 就是单轮容器，无需长度守卫。
         function findDoubaoMultiBlockRoot(el) {
           try {
             const blockSel = '[data-streaming], .md-box-root';
@@ -2482,7 +2316,6 @@ export function generateGetLatestResponseScript(selectors: ModelSelector, assist
               } catch {
                 blockCount = 0;
               }
-              // 最近公共祖先：第一个 >=2 的层即返回，不再向上。
               if (blockCount >= 2) {
                 return cur;
               }
@@ -2503,7 +2336,6 @@ export function generateGetLatestResponseScript(selectors: ModelSelector, assist
           }
         } catch {}
 
-        // 豆包多块合并：若 markdown-content-N 合并未命中，尝试按"多回复块同轮容器"合并
         try {
           const dbRoot = findDoubaoMultiBlockRoot(lastMessage);
           if (dbRoot && dbRoot !== lastMessage) {
@@ -2511,10 +2343,8 @@ export function generateGetLatestResponseScript(selectors: ModelSelector, assist
           }
         } catch {}
 
-        // 尝试将 HTML 转换为 Markdown
         let content = htmlToMarkdown(lastMessage);
         
-        // 如果转换结果太短，尝试回退到更前一个候选
         if (content.trim().length < 20) {
           for (let i = unique.length - 2; i >= 0; i--) {
             const el = unique[i];
@@ -3188,7 +3018,6 @@ export const NOTE_DISPOSE_CALL_SCRIPT = "window[Symbol.for('__mm_nd')]?.()"
  * console-message 处理器也会显式丢弃 NETWORK_RESPONSE 前缀消息作为兜底。
  */
 export function getNetworkSnifferScript(): string {
-  // 仅 dev 环境允许注入；生产环境直接返回空脚本，避免内存泄漏
   if (!IS_DEV) return ''
   return `
     (function() {
@@ -3233,9 +3062,6 @@ export function getNetworkSnifferScript(): string {
  * 点击时把该条回复的 Markdown 通过 console.log 前缀回传给 renderer。
  * 仅在 WorkbenchAiSidebar 的 webview 注入，其他模式不调用本函数。
  *
- * @param platformId 平台 id（用于回传 payload 与日志标识）
- * @param replyCfg   该平台的回复容器 / 操作区配置
- * @param selectors  该平台的消息抓取选择器（createBar 兜底 / 正文提取用）
  */
 export function generateInsertReplyButtonScript(
   platformId: string,
@@ -3248,15 +3074,12 @@ export function generateInsertReplyButtonScript(
 
   return `
     (function() {
-      // 幂等：工作台每个平台是独立 webview，dom-ready/did-navigate-in-page 都会触发注入；
-      // dom-ready 时 window 还是顶层壳、did-navigate-in-page 才指向真实页面，
-      // 不能用 window 级 flag 早退——否则 SPA 路由后新页面永远没有注入脚本。
-      // 改用「已注入标记元素」+「observer 单例」双保险：标记元素随页面销毁失效，
-      // 同一页面内 MutationObserver 只建一次，scan 本身幂等（DOM 内已有按钮就跳过）。
+      // 幂等注入：dom-ready 时 window 还是顶层壳，不能用 window 级 flag 早退
+      // （否则 SPA 路由后新页面永远没有脚本）；标记元素随页面销毁失效，
+      // observer 同页只建一次，scan 本身幂等（已有按钮即跳过）。
       var BOUND_KEY = '__mcInsertBtnBoundV3';
       if (document.documentElement && document.documentElement[BOUND_KEY]) return;
       if (document.documentElement) document.documentElement[BOUND_KEY] = true;
-      // 同一页面只建一个 observer；重复注入只补挂按钮（scan 幂等）
       var OBS_KEY = '__mcInsertBtnObserver';
       var hasObserver = false;
       var oldObs = null;
@@ -3288,7 +3111,6 @@ export function generateInsertReplyButtonScript(
         } catch (e) { return false; }
       }
 
-      // 对单个元素做 HTML→Markdown（含 shadowRoot / iframe 兜底，与抓取链路一致）
       function elementToMarkdown(el) {
         if (!el) return '';
         // 提取前克隆清洗：删掉屏幕阅读器说话人标签（你说：/ChatGPT 说： 的 h4.sr-only）、
@@ -3352,7 +3174,6 @@ export function generateInsertReplyButtonScript(
         return last;
       }
 
-      // 找到所有「单条回复」容器
       function findReplyItems() {
         var items = [];
         if (CFG.replyItem && CFG.replyItem.length) {
@@ -3504,9 +3325,7 @@ export function generateInsertReplyButtonScript(
         try {
           var existing = replyEl.querySelector && replyEl.querySelector('.mc-workbench-btn');
           if (existing) {
-            // 按钮在真实 bar 里 → 完事。在 fallback 里且该平台本来就无原生 bar
-            // (createBar 或 actionBar 未配置) → 也算完事；只有「有原生 bar 但按钮还
-            // 停在 fallback」这种情况才继续往下走迁移。
+            // 已有按钮即跳过；只有「有原生 bar 但按钮还停在 fallback」才继续迁移。
             var inFallback = existing.closest && existing.closest('.mc-action-bar');
             var needsRealBar = !CFG.createBar && CFG.actionBar && CFG.actionBar.length;
             if (!inFallback || !needsRealBar) { replyEl.__mcBtnsAttached = true; return; }
@@ -3521,8 +3340,7 @@ export function generateInsertReplyButtonScript(
         if (!CFG.createBar && CFG.actionBar && CFG.actionBar.length) {
           var probe = firstMatch(replyEl, CFG.actionBar);
           if (probe) {
-            // 挂载点判定：命中元素本身是横向单行按钮行时直接用；
-            // 否则最多向上找一级合格的行容器，但绝不越过「高度翻倍」的块级父容器
+            // 挂载点判定：优先横向单行按钮行；上爬时绝不能越过「高度翻倍」的块级父容器
             // （Gemini 的 buttons-container 被包在 block footer 里，上爬会把按钮挤出可视行）。
             var candidate = probe;
             for (var up = 0; up < 4 && candidate; up++) {
@@ -3562,8 +3380,7 @@ export function generateInsertReplyButtonScript(
           }
         }
         if (!bar) {
-          // 复用已存在的 fallback bar，避免 MutationObserver 每次 scan 都新建一个
-          // （DeepSeek 无原生 actionBar 时会无限 append）
+          // 复用已存在的 fallback bar，避免每次 scan 都新建（DeepSeek 无原生 actionBar 时会无限 append）
           var existed = null;
           try { existed = replyEl.querySelector && replyEl.querySelector('.mc-action-bar'); } catch (e) {}
           if (existed) {
@@ -3572,12 +3389,11 @@ export function generateInsertReplyButtonScript(
             // createBar 或 actionBar 未命中：在回复容器末尾新建挂载点
             bar = document.createElement('div');
             bar.className = 'mc-action-bar';
-            // 注意不能用 all:initial——它会覆盖同条 cssText 里的 display，导致 0 高空容器
+            // 不能用 all:initial——会覆盖同条 cssText 里的 display，导致 0 高空容器
             bar.style.cssText = 'display:flex;gap:4px;justify-content:flex-end;margin-top:4px;background:none;border:none;padding:0;';
             replyEl.appendChild(bar);
-            // actionBar 是流式渲染完后才出现的（Gemini）：fallback bar 挂完不能给 replyEl
-            // 打 __mcBtnsAttached，否则原生 bar 出现后 ensureButtons 直接 return，按钮永远
-            // 停在 fallback 里。用专用标记只防 fallback 重复创建。
+            // actionBar 流式渲染完才出现（Gemini）：fallback 阶段不能给 replyEl 打
+            // __mcBtnsAttached，否则原生 bar 出现后 ensureButtons 直接 return，按钮永远停在 fallback。
             bar.__mcIsFallback = true;
           }
         }
@@ -3587,7 +3403,7 @@ export function generateInsertReplyButtonScript(
           if (stale && stale !== bar) {
             var moved = stale.querySelectorAll('.mc-workbench-btn');
             var anchor = bar.firstChild;
-            // 依次插到 firstNative 前保持原顺序（每次插 firstChild 前会把 insert/save 反转）
+            // 依次插到 firstChild 前保持原顺序（每次插 firstChild 前会把 insert/save 反转）
             for (var mv = 0; mv < moved.length; mv++) bar.insertBefore(moved[mv], anchor);
             try { stale.remove(); } catch (e) {}
           }
@@ -3617,7 +3433,6 @@ export function generateInsertReplyButtonScript(
         for (var i = 0; i < items.length; i++) ensureButtons(items[i]);
       }
 
-      // MutationObserver 监听消息流，自愈 + 新回复挂按钮
       var scheduled = false;
       function scheduleScan() {
         if (scheduled) return;
@@ -3655,13 +3470,11 @@ export function generateGeminiCanvasSaveButtonScript(): string {
       var PREFIX = '__MC_GEMINI_CANVAS_SAVE__';
       var ITEM_VALUE = 'mc-save-note';
       var ITEM_LABEL = '存为文档';
-      // 与对话框注入的「存为新文档」按钮同一套视觉：蓝图标 + 浅蓝底
       var ACCENT = '#2563eb';
       var ACCENT_HOVER = '#1d4ed8';
       // 菜单底色本身就是浅灰蓝，#eff6ff 在上面几乎看不出来，这里加深一档
       var CHIP = '#dbeafe';
       var CHIP_HOVER = '#bfdbfe';
-      // 与对话框注入的「存为新文档」按钮同一枚图标：文件 + 加号
       var SVG_NS = 'http://www.w3.org/2000/svg';
       var SAVE_ICON_PATHS = [
         ['path', { d: 'M11.35 22H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.706.706l3.588 3.588A2.4 2.4 0 0 1 20 8v5.35' }],
@@ -3750,7 +3563,6 @@ export function generateGeminiCanvasSaveButtonScript(): string {
         clone.addEventListener('click', function(ev) {
           ev.preventDefault();
           ev.stopPropagation();
-          // 找原生 copy 菜单项的坐标回传，由主进程 sendMouseClick 真实点击
           var nativeCopy = content.querySelector('gem-menu-item[value="copy"], gem-menu-item[data-test-id="copy-button"]');
           var rect = (nativeCopy || copyItem).getBoundingClientRect();
           try {

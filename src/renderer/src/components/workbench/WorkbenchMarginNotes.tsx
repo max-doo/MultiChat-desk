@@ -287,7 +287,6 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
     }
   }, [stageRef, compactMode, showMarginNotes, activeFilePath, asideEl])
 
-  // 监听外部触发的编辑请求（例如刚划词新建了标注）
   useEffect(() => {
     const handleStartEdit = (event: CustomEvent<{ id: string }>): void => {
       const id = event.detail?.id
@@ -305,7 +304,6 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
     }
   }, [allNotes, setSelected])
 
-  // 切文档时丢弃上一份文档的就地编辑草稿
   useEffect(() => {
     setEditingId(null)
     setDraftComment('')
@@ -317,7 +315,6 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
     if (unresolvedCount === 0) setShowCompactUnresolved(false)
   }, [unresolvedCount])
 
-  // 测量与避让布局计算
   // 折叠态也持续维护 positions：否则展开首帧 positions 为空、卡片 top=0
   // 会全部堆在 aside 顶部（文档开头）闪一帧才归位。
   const computeLayout = useCallback((): void => {
@@ -364,7 +361,6 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
       (entry): entry is { item: (typeof allNotes)[number]; desiredTop: number } =>
         entry.desiredTop !== null
     )
-    // 按期望垂直位置升序排序
     located.sort((a, b) => a.desiredTop - b.desiredTop)
 
     const nextPositions = new Map<string, number>()
@@ -444,7 +440,6 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
     }
   }, [allNotes.length, computeLayout, editor])
 
-  // 激活标注联动滚动
   const handleSelectNote = (id: string): void => {
     setSelected(id)
     const dom = findMarkDom(editor, id)
@@ -468,7 +463,6 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
     handleSelectNote(orderedNotes[nextIndex].id)
   }
 
-  // 保存就地修改
   const handleSaveComment = async (id: string, text: string): Promise<void> => {
     const annotation = allNotes.find(item => item.id === id)
     if (!annotation) return
@@ -522,7 +516,6 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
     }
   }
 
-  // 直接删除标注
   const handleDeleteNote = async (event: React.MouseEvent, item: Annotation): Promise<void> => {
     event.stopPropagation()
     if (busyId) return
@@ -623,7 +616,6 @@ export default function WorkbenchMarginNotes({ stageRef }: Props): JSX.Element |
     })
   }, [allNotes, editor, selectedId])
 
-  // 折叠入口：跟随正文第一行并在越过首行后吸附到视口顶部
   const anchorTrigger = (
     <div className="flex items-center gap-1 h-9 rounded-lg border border-black/10 bg-white/95 dark:bg-gray-800/95 dark:border-white/10 shadow-sm pl-1.5 pr-1 select-none">
       <button

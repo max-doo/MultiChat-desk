@@ -814,7 +814,6 @@ export default function WorkbenchAnnotationPlugin({
     applyAnnotations()
   }, [documentAnnotations, sourceAnnotations, editorMode, applyAnnotations, editor])
 
-  // 文档切换：并行拉取 document 与 source 两路标注。
   useEffect(() => {
     if (!workspacePath || !activeFilePath || editorMode !== 'wysiwyg') return
     const token = useAnnotationStore.getState().token + 1
@@ -913,7 +912,6 @@ export default function WorkbenchAnnotationPlugin({
     return () => window.removeEventListener('workbench:markdown-imported', handler)
   }, [workspacePath, activeFilePath, applyAnnotations])
 
-  // 侧栏卡片（或正文点击）选中后，定位并滚动到对应文本。
   useEffect(() => {
     if (!selectedId) return
     // 窄屏旁注入口已自行滚动定位；这里再建选区会让浮动格式条停在评论卡上方。
@@ -1200,7 +1198,6 @@ export default function WorkbenchAnnotationPlugin({
     }
   }, [editor, workspacePath, activeFilePath, saveActiveFile])
 
-  // 浮动工具栏“标注”：单 block 选区 → MarkNode → 评论框。
   useEffect(() => {
     const create = (): boolean => {
       const selection = $getSelection()

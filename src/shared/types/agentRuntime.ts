@@ -208,7 +208,6 @@ export interface AgentFileChange {
   deleted: number
 }
 
-/** Persisted snapshot of one file at a specific point in the turn lifecycle. */
 export interface AgentFileSnapshot {
   path: string
   /** File modification time in ms, or null when the file does not exist yet. */
@@ -219,7 +218,6 @@ export interface AgentFileSnapshot {
   sha1: string | null
 }
 
-/** Revert/redo lifecycle for one file within a turn. */
 export type AgentFileChangeStatus = 'applied' | 'undone'
 
 /** Turn-scoped record stored by the main process for undo/redo. */

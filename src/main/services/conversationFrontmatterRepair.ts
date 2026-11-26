@@ -27,15 +27,6 @@ export interface FrontmatterRepairResult {
 
 const FRONTMATTER_RE = /^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/
 
-/**
- * 修复旧迁移产生的会话文档。
- *
- * 两类目标：
- * - 带 workbench 路径的记录：精确指向该文档；
- * - 普通会话记录：只扫描迁移目标目录，要求 source URL 精确匹配，
- *   且同一 URL 只能有一个标题相同的候选，否则跳过。
- * 正文逐字保留，普通 Markdown 不参与。
- */
 export async function repairMigratedConversationFrontmatter(
   records: NoteConversation[],
   root: string,

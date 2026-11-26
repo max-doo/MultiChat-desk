@@ -17,12 +17,6 @@ interface WebSearchParams {
 
 const importEsm = new Function('s', 'return import(s)') as <T>(s: string) => Promise<T>
 
-/**
- * 工作台 Agent 的 web_search 工具定义。
- * pi 内核与 typebox 都经运行时动态 import（`new Function` 逃逸 bundler 解析），
- * 与 AgentSessionService.getPi()/ShellTool.resolveShell() 同一模式。
- * 每次会话创建时调用 createWebSearchTool() 取一个新的 ToolDefinition。
- */
 export async function createWebSearchTool() {
   const { defineTool } = await importEsm<typeof import('@earendil-works/pi-coding-agent')>(
     '@earendil-works/pi-coding-agent'
@@ -60,13 +54,11 @@ export async function createWebSearchTool() {
 
   const POLL_INTERVAL_MS = 2_000
 
-  /** platform=auto 时挑一个已登录且有深度研究能力的平台；research=false 时放宽到仅已登录。 */
   async function resolvePlatform(requested: string, research: boolean): Promise<string> {
     if (requested !== 'auto') return requested
     const caps = await agentTaskService.capabilities()
     const signedIn = caps.filter((c) => c.signedIn === true)
     const usable = signedIn.filter((c) => !research || c.deepResearch)
-    // 偏好带 busySignal 适配的平台，回复完成判定更可靠。
     usable.sort((a, b) => (a.busySignal === 'adapted' ? 0 : 1) - (b.busySignal === 'adapted' ? 0 : 1))
     const pick = usable[0]
     if (!pick) {
@@ -170,11 +162,9 @@ export async function createWebSearchTool() {
         }
       }
 
-      // getView() 不带正文（replyChars 才有长度）；done 后 reply 在 getResult() 里。
       const result = await agentTaskService.getResult(view.taskId)
       const answer = result?.reply ?? ''
       const sources = extractSources(answer)
-      // reply TXT 落盘在 persist() 内异步完成；轮询终态可能早一拍，短窗口兜底拿到 replyFile。
       let replyFile = result?.replyFile
       if (!replyFile) {
         for (let i = 0; i < 5 && !replyFile; i++) {

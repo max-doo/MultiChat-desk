@@ -34,7 +34,6 @@ export function getNoteManager(): NoteManager | null {
 // （re-attach / guest 重 parent / OAuth 重定向循环时避免监听线性累积）
 const registeredWebContentsSet = new WeakSet<Electron.WebContents>()
 
-// 主窗口引用
 // 主窗口最小宽度基线：工作台三栏（文件树260 + 编辑器~460 + AI侧边栏300）+ 分割条 ≈ 1100。
 const MAIN_MIN_WIDTH_SINGLE = 1100
 // 双 AI 侧栏并排时右侧至少 640（每栏 320），再叠加左栏 260 + 编辑器保底 380 + 分割条 10，下限提到 1360。
@@ -161,12 +160,10 @@ export function getMainWindow(): BrowserWindow | null {
     return mainWindow
 }
 
-// 获取应用图标路径
 function getIconPngPath(): string {
     return join(app.getAppPath(), 'assets', 'logo.png')
 }
 
-// Windows 图标优化
 function createWin32IconFromPng(pngPath: string): Electron.NativeImage {
     const src = nativeImage.createFromPath(pngPath)
     if (src.isEmpty()) return src
@@ -384,7 +381,6 @@ export function getWebviewClickInterceptorScript(): string {
         function onUserGesture(e) {
           const link = e.target && e.target.closest ? e.target.closest('a') : null;
           if (link && link.href) {
-            // 检查是否是 Google 账号相关链接
             const isGoogleAuth = isGoogleAuthUrl(link.href, true);
             
             if (isGoogleAuth) {
@@ -403,7 +399,6 @@ export function getWebviewClickInterceptorScript(): string {
             }
           }
         }
-        // 只监听 click 事件，避免 pointerdown + click 导致重复触发
         window.addEventListener('click', onUserGesture, true);
 
         mmLog('click interceptor injected');
@@ -498,7 +493,6 @@ export function setupSharedSessionUserAgent(): void {
 }
 
 export function createWindow(): void {
-    // 在窗口创建前伪装共享 Session 的 User-Agent，使所有 webview 自动继承
     setupSharedSessionUserAgent()
 
     mainWindow = new BrowserWindow({
@@ -551,7 +545,6 @@ export function createWindow(): void {
         }
     })
 
-    // 监听 Summary Prompts 文件变更
     startSummaryPromptsWatcher(mainWindow)
 
     mainWindow.on('ready-to-show', () => {
@@ -626,7 +619,6 @@ export function createWindow(): void {
     })
 
 
-    // ... 省略了 setWindowOpenHandler 等 ...
     mainWindow.webContents.setWindowOpenHandler((details) => {
         console.log('[Main] mainWindow setWindowOpenHandler:', logUrlHost(details.url))
         openBrowserWindowInternal(details.url)
@@ -644,7 +636,6 @@ export function createWindow(): void {
         })
     }
 
-    // 监听 webview 创建子窗口
     mainWindow.webContents.on('did-attach-webview', (_event, webContents) => {
         console.log('[Main] did-attach-webview 触发, wcId:', webContents.id)
         registerWebviewHandlers(webContents)
@@ -702,13 +693,11 @@ export function registerWebviewHandlers(webContents: Electron.WebContents): void
         }
     })
 
-    // 追踪是否正在进行 Google 认证流程
     // 当用户完成账号切换后，自动刷新页面以应用新的 session cookie
     let isInGoogleAuthFlow = false
     let authFlowStartTime = 0 // 进入认证流程的时间戳
     const AUTH_MIN_DURATION = 800 // 最少停留 800ms 才认为是真正的账号切换（立即重定向约 500ms）
 
-    // 监听导航开始，检测是否进入 Google 认证流程
     webContents.on('will-navigate', (_e, url) => {
         console.log('[Main][DEBUG] will-navigate:', logUrlHost(url), '| isInAuthFlow:', isInGoogleAuthFlow)
         if (parseHttpUrl(url)?.hostname === 'accounts.google.com') {
@@ -718,31 +707,24 @@ export function registerWebviewHandlers(webContents: Electron.WebContents): void
         }
     })
 
-    // 监听导航完成，检测认证流程结束
     webContents.on('did-navigate', (_e, url) => {
         console.log('[Main][DEBUG] did-navigate:', logUrlHost(url), '| isInAuthFlow:', isInGoogleAuthFlow)
-        // 检测从 Google 认证回到 Gemini
         if (isInGoogleAuthFlow && isGeminiUrl(url)) {
             const duration = Date.now() - authFlowStartTime
             console.log('[Main][DEBUG] Auth flow duration:', duration, 'ms')
 
-            // 只有在认证页面停留足够时间，才认为是真正完成了账号切换
             if (duration >= AUTH_MIN_DURATION) {
                 console.log('[Main] ✅ Auth flow completed! Duration:', duration, 'ms, reloading...')
                 isInGoogleAuthFlow = false
 
-                // 保存当前 URL（切换后的账号 URL），用于持久化
                 const switchedUrl = url
                 console.log('[Main] ✅ Switched account URL:', logUrlHost(switchedUrl))
 
-                // 延迟刷新，确保 cookie 完全写入
                 setTimeout(() => {
                     try {
                         console.log('[Main] ✅ Reloading now, wcId:', webContents.id)
                         webContents.reload()
 
-                        // 刷新后，通知渲染进程保存切换后的账号 URL
-                        // 延迟发送，确保页面刷新完成
                         setTimeout(() => {
                             if (mainWindow && !mainWindow.isDestroyed()) {
                                 console.log('[Main] ✅ Notifying renderer to save Gemini account URL:', logUrlHost(switchedUrl))
@@ -779,12 +761,10 @@ export function registerWebviewHandlers(webContents: Electron.WebContents): void
         }, 800)
     }
 
-    // 同时监听 did-navigate-in-page（单页应用内部导航）
     webContents.on('did-navigate-in-page', (_e, url, isMainFrame) => {
         if (isMainFrame) {
             scheduleAuthCapture()
             console.log('[Main][DEBUG] did-navigate-in-page:', logUrlHost(url), '| isInAuthFlow:', isInGoogleAuthFlow)
-            // 对于 SPA 内部导航，也检测是否从认证回到 Gemini
             if (isInGoogleAuthFlow && isGeminiUrl(url)) {
                 const duration = Date.now() - authFlowStartTime
                 if (duration >= AUTH_MIN_DURATION) {
@@ -891,7 +871,6 @@ export function registerWebviewHandlers(webContents: Electron.WebContents): void
         }
     })
 
-    // 处理 Webview 内部的窗口创建
     webContents.on('did-create-window', (childWindow, details) => {
         console.log('[Main] webview did-create-window:', logUrlHost(details?.url || ''))
         browserWindows.add(childWindow)
@@ -905,9 +884,7 @@ export function registerWebviewHandlers(webContents: Electron.WebContents): void
             if (isGoogleAuthUrl(url)) {
                 console.log('[Main] Intercepting Google Auth navigation in child window:', logUrlHost(url))
                 e.preventDefault()
-                // 在原 webview 中导航
                 void webContents.loadURL(url)
-                // 关闭弹窗
                 childWindow.close()
             }
         }
@@ -915,7 +892,6 @@ export function registerWebviewHandlers(webContents: Electron.WebContents): void
         childWindow.webContents.on('will-navigate', handleNavigation)
         childWindow.webContents.on('will-redirect', handleNavigation)
 
-        // 对于其他弹窗的链接请求
         childWindow.webContents.setWindowOpenHandler((d) => {
             openBrowserWindowInternal(d.url)
             return { action: 'deny' }
@@ -1133,7 +1109,6 @@ export function createQuickWindow(store: Store<Record<string, unknown>>): void {
     })
     quickWindow.on('closed', () => { quickWindow = null; quickSidebarExpanded = false; quickPrimaryWebviews.clear() })
 
-    // 为快捷窗口内的 Webview 注册相同的链接拦截与脚本注入处理器
     quickWindow.webContents.on('did-attach-webview', (_event, webContents) => {
         console.log('[Main] quickWindow did-attach-webview 触发, wcId:', webContents.id)
         registerWebviewHandlers(webContents)

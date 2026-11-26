@@ -1,7 +1,3 @@
-/**
- * 工作台文件系统服务 (Workbench Service)
- * 提供安全路径校验、工作区文件树扫描、文件读写、节点增删改查、全文搜索与系统集成
- */
 
 import { app, dialog, shell, BrowserWindow, nativeImage, clipboard } from 'electron'
 import { execFile } from 'child_process'
@@ -62,10 +58,8 @@ import type {
 // 应用与版本库内部目录：无论是否被 Git 忽略，都不参与文件树展示
 const INTERNAL_DIR_NAMES = new Set(['.git', '.trash'])
 
-// 外部导入或跨区移动时额外拦截的工作区元数据目录
 const BLOCKED_IMPORT_NAMES = new Set(['.git', '.multichat', '.trash'])
 
-// Git 元文件：属于版本控制配置而非工作区内容，不在文件树中展示
 const GIT_META_FILE_NAMES = new Set(['.gitignore', '.gitattributes', '.gitmodules'])
 
 // 依赖与缓存目录：无论 .gitignore 是否覆盖，都不参与文件树与搜索
@@ -82,10 +76,8 @@ const ALWAYS_HIDDEN_NAMES = new Set([
   '$RECYCLE.BIN'
 ])
 
-// 目录与文件自然排序复用的单例 Collator
 const NAME_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
 
-/** 限流并发执行文件系统操作，避免万级工作区同时打开过多句柄 */
 function createScanLimiter(concurrency: number) {
   let active = 0
   const waiters: Array<() => void> = []
@@ -111,7 +103,6 @@ function createScanLimiter(concurrency: number) {
   }
 }
 
-// 图片 MIME 类型映射
 const IMAGE_MIME_TYPES: Record<string, string> = {
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
@@ -176,7 +167,6 @@ async function ensureDefaultGitignore(workspaceRoot: string): Promise<void> {
   await fsWriteFile(target, DEFAULT_GITIGNORE, 'utf-8')
 }
 
-/** 目录是否为空（忽略系统生成文件）；用于判断是否属于“新工作区” */
 async function isDirectoryEmpty(dir: string): Promise<boolean> {
   try {
     const entries = await readdir(dir)
@@ -186,9 +176,6 @@ async function isDirectoryEmpty(dir: string): Promise<boolean> {
   }
 }
 
-/**
- * 生成 Obsidian 风格的粘贴图片名：`Pasted image YYYYMMDD-HHmmss`
- */
 function formatPastedImageName(): string {
   const d = new Date()
   const pad = (n: number): string => String(n).padStart(2, '0')
@@ -197,7 +184,6 @@ function formatPastedImageName(): string {
   return `Pasted image ${date}-${time}`
 }
 
-// Office 办公文档 MIME 类型映射
 const OFFICE_MIME_TYPES: Record<string, string> = {
   '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   '.doc': 'application/msword',
@@ -222,7 +208,6 @@ const OFFICE_MIME_TYPES: Record<string, string> = {
   '.odp': 'application/vnd.oasis.opendocument.presentation'
 }
 
-// 允许检索的文本与代码文件后缀与文件大小上限 (2MB)
 const SEARCHABLE_EXTENSIONS = new Set([
   ...MARKDOWN_EXTENSIONS,
   ...TEXT_EXTENSIONS,
@@ -232,17 +217,11 @@ const MAX_SEARCH_FILE_SIZE = 2 * 1024 * 1024
 const MAX_SEARCH_RESULTS = 100
 const MAX_SEARCH_TIME_MS = 1500
 
-/**
- * 将任意路径转换为 POSIX 风格相对路径 (使用 / 分隔)
- */
 function toPosixRelativePath(rootPath: string, targetPath: string): string {
   const rel = path.relative(rootPath, targetPath)
   return rel.split(path.sep).join('/')
 }
 
-/**
- * 检测字符串中是否包含 ASCII 控制字符 (0x00 - 0x1F)
- */
 function hasControlCharacters(str: string): boolean {
   for (let i = 0; i < str.length; i++) {
     const code = str.charCodeAt(i)
@@ -253,12 +232,10 @@ function hasControlCharacters(str: string): boolean {
   return false
 }
 
-/** 路径首段是否属于应用内部目录 */
 function isInternalPath(relativePosix: string): boolean {
   return INTERNAL_DIR_NAMES.has(relativePosix.split('/')[0])
 }
 
-/** 生成文件树/搜索共用的节点过滤函数：内部目录、依赖缓存与 Git 忽略路径不展示 */
 function createEntryFilter(
   ignoredPaths: Set<string> | null,
   gitignoreMatcher?: (relativePosix: string, isDirectory: boolean) => boolean
@@ -286,7 +263,6 @@ async function createWorkspaceFilter(safeRoot: string) {
   return createEntryFilter(null, gitignoreMatcher)
 }
 
-/** 外部导入时按名字拦截：源可能不在工作区内，拿不到 Git 忽略结果 */
 function isBlockedImportName(name: string): boolean {
   return (
     BLOCKED_IMPORT_NAMES.has(name) ||
@@ -296,13 +272,6 @@ function isBlockedImportName(name: string): boolean {
   )
 }
 
-/**
- * 校验并返回安全的物理绝对路径
- * 1. 规范化路径分隔符与 resolve
- * 2. 检查解析后的 targetPath 是否以 workspaceRoot 为前缀，防范逻辑路径越权 (Path Traversal)
- * 3. 校验控制字符与空字符
- * 4. 必须通过 realpath 校验真实物理路径，防止符号链接 (Symlink) 逃逸出工作区
- */
 export async function assertSafePath(workspaceRoot: string, relativePath: string = ''): Promise<string> {
   if (!workspaceRoot || typeof workspaceRoot !== 'string') {
     throw new Error('非法的工作区根路径')
@@ -320,17 +289,14 @@ export async function assertSafePath(workspaceRoot: string, relativePath: string
   const sep = path.sep
   const rootPrefix = rootCmp.endsWith(sep) ? rootCmp : rootCmp + sep
 
-  // 1. 基础逻辑路径前缀比对
   if (targetCmp !== rootCmp && !targetCmp.startsWith(rootPrefix)) {
     throw new Error('访问被拒绝：检测到逻辑路径越权 (Path Traversal Attempt)')
   }
 
-  // 2. 校验控制字符与空字符
   if (hasControlCharacters(targetPath)) {
     throw new Error('路径包含非法字符')
   }
 
-  // 3. 真实文件系统路径 (Realpath) 严格比对
   const realRoot = await realpath(normalizedRoot)
   const cmpRealRoot = isWin ? realRoot.toLowerCase() : realRoot
   const realRootPrefix = cmpRealRoot.endsWith(sep) ? cmpRealRoot : cmpRealRoot + sep
@@ -344,7 +310,6 @@ export async function assertSafePath(workspaceRoot: string, relativePath: string
     return realTarget
   } catch (err: unknown) {
     const nodeErr = err as NodeJS.ErrnoException
-    // 如果目标是尚未创建的新文件或新目录，校验其现存父目录的真实路径
     if (nodeErr.code === 'ENOENT') {
       let currentDir = path.dirname(targetPath)
       while ((isWin ? currentDir.toLowerCase() : currentDir).startsWith(rootCmp)) {
@@ -367,20 +332,17 @@ export async function assertSafePath(workspaceRoot: string, relativePath: string
   }
 }
 
-// ============ workbench-file:// 自定义流式协议 ============
 // 目的：图片与 HTML 资源不再走 base64 dataUrl（4-5× 内存放大），
 // 改为自定义协议流式回文件；PDF 另外通过受信 IPC Range 供 PDF.js 按需读取。
 // 安全：只允许读取曾被 readFile/selectFolder 授权过的 workspace 根目录内的文件。
 
 const authorizedWorkspaceRoots = new Set<string>()
 
-/** 登记一个已授权的工作区根目录（readFile / selectFolder 时调用）。 */
 export function authorizeWorkspaceRoot(workspaceRoot: string): void {
   if (!workspaceRoot || typeof workspaceRoot !== 'string') return
   authorizedWorkspaceRoots.add(path.resolve(workspaceRoot))
 }
 
-/** 校验 workspaceRoot 已被授权（selectFolder / readFile / ensureDefault 登记过）。 */
 export function isAuthorizedWorkspaceRoot(workspaceRoot: string): boolean {
   if (!workspaceRoot || typeof workspaceRoot !== 'string') return false
   return authorizedWorkspaceRoots.has(path.resolve(workspaceRoot))
@@ -428,7 +390,6 @@ export async function resolveWorkbenchFileRequest(requestUrl: string): Promise<s
       const sep = path.sep
       const rootPrefix = rootCmp.endsWith(sep) ? rootCmp : rootCmp + sep
       if (targetCmp === rootCmp || targetCmp.startsWith(rootPrefix)) {
-        // 复用 assertSafePath 的 realpath 校验，防符号链接逃逸
         const rel = path.relative(root, targetPath)
         try {
           return await assertSafePath(root, rel)
@@ -443,7 +404,6 @@ export async function resolveWorkbenchFileRequest(requestUrl: string): Promise<s
   }
 }
 
-// ============ 工作区文件系统监听 ============
 // 行业通行做法（VS Code / chokidar）：单递归 watcher + 事件聚合去抖后整树重扫，
 // 不做增量 patch —— rename 成对事件、目录递归事件顺序、ReadDirectoryChanges
 // 缓冲溢出丢事件都会让增量模型漂移，去抖后重扫保证最终一致。
@@ -457,7 +417,6 @@ interface WorkbenchWatcherState {
   watcher: fs.FSWatcher
   debounceTimer: NodeJS.Timeout | null
   selfWriteUntil: number
-  /** 去抖窗口内累积的变更相对路径（POSIX），驱动双链快照的按路径增量索引 */
   changedPaths: Set<string>
   /** ReadDirectoryChanges 缓冲溢出（fileName 为 null）时置位：双链快照整表作废 */
   linksFullInvalidate: boolean
@@ -508,10 +467,6 @@ function isWatchIgnoredPath(relativeOrName: string): boolean {
   return false
 }
 
-/**
- * 监听工作区目录的外部变更；变更去抖后向所有窗口广播 `workbench:fs-changed`。
- * 重复调用同一 root 是幂等的。
- */
 function broadcastFsChanged(resolvedRoot: string): void {
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed() && !win.webContents.isDestroyed()) {
@@ -632,9 +587,6 @@ export function markWorkspaceSelfWrite(workspaceRoot: string): void {
   }
 }
 
-/**
- * 唤起系统原生目录选择器对话框选择工作区
- */
 export async function selectFolder(browserWindow?: BrowserWindow | null): Promise<WorkbenchSelectFolderResult | null> {
   const win = browserWindow || BrowserWindow.getFocusedWindow() || null
   const options: Electron.OpenDialogOptions = {
@@ -662,7 +614,6 @@ export async function selectFolder(browserWindow?: BrowserWindow | null): Promis
 
 const DEFAULT_WORKSPACE_STORE_KEY = 'workbench_defaultWorkspacePath'
 const DEFAULT_WORKSPACE_DIR_NAME = 'MultiChat Vault'
-/** 渲染层维护的历史工作区列表（与 store 的 workbench_recentWorkspaces 同键）。 */
 const RECENT_WORKSPACES_STORE_KEY = 'workbench_recentWorkspaces'
 const WELCOME_NOTE_NAME = '欢迎使用.md'
 const WORKBENCH_LAST_WORKSPACE_KEY = 'workbench_lastWorkspacePath'
@@ -670,7 +621,6 @@ const WORKSPACE_SETTINGS_DIR = '.multichat'
 const WORKSPACE_SETTINGS_FILE = 'settings.json'
 const DEFAULT_CONVERSATION_DIR = 'conversations'
 
-/** 主进程唯一权威的当前工作区；渲染层传入的 root 只做一致性校验。 */
 let activeWorkspaceRoot: string | null = null
 let activeGeneration = 0
 /** 工作区切换串行化：activate/close 都要跨 await 校验再落盘，不能并发交错。 */
@@ -718,7 +668,6 @@ export function getActiveGeneration(): number {
   return activeGeneration
 }
 
-/** 文档类 IPC 只能操作当前 active root，避免跨工作区读写标注。 */
 export function assertActiveWorkspace(workspaceRoot: string): void {
   if (!activeWorkspaceRoot) throw new Error('工作台尚未激活工作区')
   if (rootKey(workspaceRoot) !== rootKey(activeWorkspaceRoot)) {
@@ -918,7 +867,6 @@ export async function getDefaultWorkspaceInfo(
   }
 }
 
-/** 原子切换当前工作区：校验 → 授权 → 停旧 watcher → 写 last path → 启新 watcher。 */
 export async function activateWorkspace(
   store: Store<Record<string, unknown>>,
   workspaceRoot: string
@@ -945,7 +893,6 @@ export async function activateWorkspace(
   })
 }
 
-/** 关闭自定义工作区：默认库不可用时保留旧 root，不产生无 active root 的中间态。 */
 export async function closeWorkspace(
   store: Store<Record<string, unknown>>,
   workspaceRoot: string,
@@ -1039,7 +986,6 @@ export async function readTree(workspaceRoot: string): Promise<WorkbenchFileNode
   // 限流并发后既能把等待重叠起来，又不会一次打开过多句柄。
   const withScanSlot = createScanLimiter(24)
 
-  /** 解析符号链接的真实路径；越界或无法解析时返回 null */
   async function resolveSymlink(fullPath: string): Promise<string | null> {
     const real = await realpath(fullPath).catch(() => null)
     if (!real) return null
@@ -1108,14 +1054,12 @@ export async function readTree(workspaceRoot: string): Promise<WorkbenchFileNode
           mtime: entryStat.mtimeMs
         }
       } catch {
-        // 忽略无法访问、已失效或越权的节点
         return null
       }
     }))
 
     const nodes = scanned.filter((node): node is WorkbenchFileNode => node !== null)
 
-    // 目录优先，自然排序
     nodes.sort((a, b) => {
       if (a.isDirectory && !b.isDirectory) return -1
       if (!a.isDirectory && b.isDirectory) return 1
@@ -1128,11 +1072,6 @@ export async function readTree(workspaceRoot: string): Promise<WorkbenchFileNode
   return scanDirectory(safeRoot, new Set([rootCmp]))
 }
 
-/**
- * 安全读取指定文件内容
- * - 支持 Markdown、纯文本、代码、图片、PDF 与 Word 文档元信息
- * - 图片通过 workbench-file:// 加载；PDF 由预览层通过 IPC Range 分段读取
- */
 export async function readFile(workspaceRoot: string, relativePath: string): Promise<WorkbenchFileInfo> {
   const safePath = await assertSafePath(workspaceRoot, relativePath)
   const fileStat = await stat(safePath)
@@ -1144,10 +1083,8 @@ export async function readFile(workspaceRoot: string, relativePath: string): Pro
   const ext = path.extname(baseName).toLowerCase()
   const category = getFileCategory(baseName)
 
-  // 登记当前 workspace 为已授权根，供 workbench-file:// 协议做白名单校验
   authorizeWorkspaceRoot(workspaceRoot)
 
-  // 图片文件处理 (最大 20MB)
   if (category === 'image') {
     const mime = IMAGE_MIME_TYPES[ext] || 'image/png'
     if (fileStat.size > 20 * 1024 * 1024) {
@@ -1173,7 +1110,6 @@ export async function readFile(workspaceRoot: string, relativePath: string): Pro
     }
   }
 
-  // PDF 文件处理：走 workbench-file:// 流式协议，零内存拷贝；200MB 安全阀
   if (category === 'pdf') {
     if (fileStat.size > 200 * 1024 * 1024) {
       return {
@@ -1196,7 +1132,6 @@ export async function readFile(workspaceRoot: string, relativePath: string): Pro
     }
   }
 
-  // Office 办公文档元信息（Word / Excel / PPT / ODF / RTF 等）
   if (category === 'document') {
     return {
       content: '',
@@ -1210,7 +1145,6 @@ export async function readFile(workspaceRoot: string, relativePath: string): Pro
     }
   }
 
-  // 纯文本、Markdown、代码文件与常规文本 (最大 5MB 文本保护)
   if (fileStat.size > 5 * 1024 * 1024) {
     return {
       content: '',
@@ -1222,7 +1156,6 @@ export async function readFile(workspaceRoot: string, relativePath: string): Pro
     }
   }
 
-  // 检查是否为未知二进制文件（扫描前 1024 字节是否存在空字节）
   const buffer = await fsReadFile(safePath)
   const isBinary = buffer.subarray(0, Math.min(1024, buffer.length)).includes(0)
 
@@ -1239,8 +1172,6 @@ export async function readFile(workspaceRoot: string, relativePath: string): Pro
   const content = buffer.toString('utf-8')
   return {
     content,
-    // HTML 文件附带 workbench-file:// URL，供渲染层 iframe 预览；
-    // 相对路径引用的本地资源（css/js/img）落在同一 workspace 白名单内可直接加载。
     fileUrl: ext === '.html' || ext === '.htm' ? toWorkbenchFileUrl(safePath) : undefined,
     mtime: fileStat.mtimeMs,
     size: fileStat.size,
@@ -1349,9 +1280,6 @@ export async function statFile(
   }
 }
 
-/**
- * 安全原子写入文件内容
- */
 export async function writeFile(
   workspaceRoot: string,
   relativePath: string,
@@ -1388,9 +1316,6 @@ export async function writeFile(
   }
 }
 
-/**
- * 在工作区内创建新文件或目录
- */
 export async function createNode(
   workspaceRoot: string,
   relativePath: string,
@@ -1458,7 +1383,6 @@ export async function renameNode(
     return
   }
 
-  // 守卫：禁止直接重命名/移动 assets 目录（只能由文档操作联动触发）
   const oldRelPosix = oldRelativePath.split(path.sep).join('/')
   const oldPathSegments = oldRelPosix.split('/').filter(Boolean)
   if (oldPathSegments.includes(ASSETS_DIR_NAME)) {
@@ -1489,7 +1413,6 @@ export async function renameNode(
     newRelativePath: toPosixRelativePath(path.resolve(workspaceRoot), safeNewPath)
   }]
 
-  // 文档级联动：.md 重命名/移动时，同步迁移 assets/<文件名>/ 附件目录
   if (
     MARKDOWN_EXTENSIONS.has(path.extname(safeOldPath).toLowerCase()) &&
     MARKDOWN_EXTENSIONS.has(path.extname(safeNewPath).toLowerCase())
@@ -1522,7 +1445,6 @@ async function syncAssetsOnRename(
   const oldAssetsDir = path.join(path.dirname(safeOldPath), ASSETS_DIR_NAME, oldName)
   const newAssetsDir = path.join(path.dirname(safeNewPath), ASSETS_DIR_NAME, newName)
 
-  // 1. 迁移附件目录（若存在且目标不冲突）
   let movedAssets: { oldPath: string; newPath: string } | null = null
   if (oldAssetsDir !== newAssetsDir) {
     let oldExists = false
@@ -1550,7 +1472,6 @@ async function syncAssetsOnRename(
     }
   }
 
-  // 2. 同目录下文档名变化：重写 markdown 内的 assets 相对路径
   if (oldName !== newName && path.dirname(safeOldPath) === path.dirname(safeNewPath)) {
     try {
       const content = await fsReadFile(safeNewPath, 'utf-8')
@@ -1599,7 +1520,6 @@ async function scanDocumentUnreferencedImages(
   let totalBytes = 0
 
   for (const name of assetFiles) {
-    // 宽松匹配：文档名或图片名可能带 URL 编码
     const encodedName = encodeURIComponent(name)
     const referenced =
       content.includes(prefix + name) ||
@@ -1618,10 +1538,6 @@ async function scanDocumentUnreferencedImages(
   return { unreferenced, total: assetFiles.length, totalBytes }
 }
 
-/**
- * 列出文档 assets/<文档名>/ 目录中未被 markdown 内容引用的文件
- * 返回相对工作区根的 POSIX 路径列表，供渲染层确认后批量 trash
- */
 export async function findUnreferencedImages(
   workspaceRoot: string,
   documentRelativePath: string
@@ -1631,9 +1547,6 @@ export async function findUnreferencedImages(
   return { unreferenced: result.unreferenced, total: result.total }
 }
 
-/**
- * 扫描整个工作区中所有 Markdown 文档的 assets/<文档名>/ 目录，汇总未引用的图片
- */
 export async function findWorkspaceUnreferencedImages(
   workspaceRoot: string
 ): Promise<WorkspaceUnreferencedImagesSummary> {
@@ -1664,7 +1577,6 @@ export async function findWorkspaceUnreferencedImages(
     const entries = await withScanSlot(() => readdir(currentDir, { withFileTypes: true })).catch(() => null)
     if (!entries) return
 
-    // 1. 仅当当前目录存在 assets/ 子目录时，才检查同级 Markdown 文档的附件引用
     const assetsEntry = entries.find((e) => e.name === ASSETS_DIR_NAME)
     if (assetsEntry) {
       const rawAssetsPath = path.join(currentDir, ASSETS_DIR_NAME)
@@ -1727,7 +1639,6 @@ export async function findWorkspaceUnreferencedImages(
       }
     }
 
-    // 2. 递归遍历子目录（跳过 assets/ 与被忽略目录）
     await Promise.all(
       entries.map(async (entry) => {
         if (entry.name === ASSETS_DIR_NAME) return
@@ -1774,10 +1685,6 @@ export async function findWorkspaceUnreferencedImages(
   }
 }
 
-/**
- * 批量将工作区内文件移入回收站
- * 返回成功与失败列表（失败项附原因）
- */
 export async function deleteNodes(
   workspaceRoot: string,
   relativePaths: string[]
@@ -1837,10 +1744,8 @@ export async function importExternalPaths(
   // 工作区内源文件的「源相对路径 → 目标相对路径」配对，供导图绑定克隆使用。
   const pairs: Array<{ source: string; target: string }> = []
 
-  /** 为目标名字在 targetDir 内寻找不冲突的新名（重名加 `-n` 后缀，保留扩展名） */
   const resolveFreeName = (baseName: string): Promise<string> => allocateFreeName(safeTargetDir, baseName)
 
-  /** 递归复制时过滤应用内部目录与常见依赖/缓存目录 */
   const copyFilter = (src: string): boolean => !isBlockedImportName(path.basename(src))
 
   // 临界区锁：按目标目录串行化"查空名→cp 落盘"，防止并发粘贴互相覆盖同名副本
@@ -1981,13 +1886,11 @@ export async function moveNodeAcrossWorkspaces(
   return { targetRelativePath: destName }
 }
 
-/** 可能是文本、且会引用同目录 assets/ 的格式。 */
 function isTextAssetReference(filePath: string): boolean {
   const ext = path.extname(filePath).toLowerCase()
   return MARKDOWN_EXTENSIONS.has(ext) || TEXT_EXTENSIONS.has(ext) || ['.html', '.htm'].includes(ext)
 }
 
-/** 为导入/移动的名字在目标根下寻找不冲突的新名（重名加 `-n` 后缀，保留扩展名）。 */
 async function allocateFreeName(targetDir: string, baseName: string): Promise<string> {
   const ext = path.extname(baseName)
   const stem = ext ? baseName.slice(0, -ext.length) : baseName
@@ -2058,7 +1961,6 @@ export async function deleteNode(workspaceRoot: string, relativePath: string): P
   markWorkspaceSelfWrite(workspaceRoot)
   await shell.trashItem(safePath)
 
-  // 删除 .md 时连带回收附件目录（走 trash，可恢复）
   if (MARKDOWN_EXTENSIONS.has(path.extname(safePath).toLowerCase())) {
     const assetsDir = path.join(
       path.dirname(safePath),
@@ -2092,7 +1994,6 @@ export async function saveImage(
   markWorkspaceSelfWrite(workspaceRoot)
   await mkdir(assetsDir, { recursive: true })
 
-  // 解析 base64 输入
   let buffer: Buffer
   let ext = '.png'
   if (payload.dataUrl) {
@@ -2114,9 +2015,6 @@ export async function saveImage(
   if (!buffer.length) throw new Error('图片数据为空')
   if (buffer.length > 50 * 1024 * 1024) throw new Error('图片超过 50MB 上限')
 
-  // 确定文件名：
-  // - 粘贴/未提供有效名 → `Pasted image YYYYMMDD-HHmmss`（Obsidian 风格，可读可排序）
-  // - 提供了文件名（拖入/工具栏插入）→ 保留原名（清洗非法字符）
   const rawName = payload.fileName?.trim()
   const isGenericPasteName = !rawName || /^(image|pasted|clipboard|unnamed)(\.|$)/i.test(rawName)
   const baseName = isGenericPasteName
@@ -2124,7 +2022,6 @@ export async function saveImage(
     : path.basename(rawName, path.extname(rawName)).replace(/[<>:"/\\|?*]/g, '') || 'image'
   let fileName = `${baseName}${ext}`
   let targetPath = path.join(assetsDir, fileName)
-  // 同名冲突自动加后缀
   let counter = 1
   for (;;) {
     try {
@@ -2139,7 +2036,6 @@ export async function saveImage(
 
   await fsWriteFile(targetPath, buffer)
 
-  // 生成编辑器内预览用缩略图（800px 宽 PNG）
   let thumbnailDataUrl = ''
   try {
     const img = nativeImage.createFromBuffer(buffer)
@@ -2157,20 +2053,15 @@ export async function saveImage(
     // 缩略图失败不阻断，编辑器可退化为按路径占位
   }
 
-  // 返回相对文档目录的 POSIX 路径，保证文档移动后 markdown 内相对路径仍有效
   const relPosix = toPosixRelativePath(docDir, targetPath)
   return { relativePath: relPosix, thumbnailDataUrl }
 }
 
-/**
- * 把图片文件复制进 assets 目录（拖拽本地文件时使用，避免 IPC 传 bytes）
- */
 export async function importImageFile(
   workspaceRoot: string,
   documentRelativePath: string,
   sourceAbsolutePath: string
 ): Promise<{ relativePath: string; thumbnailDataUrl: string }> {
-  // source 路径必须在工作区内，否则按普通文件处理
   const safeDocPath = await assertSafePath(workspaceRoot, documentRelativePath)
   const docDir = path.dirname(safeDocPath)
   const docBaseName = path.basename(safeDocPath)
@@ -2222,17 +2113,11 @@ export async function importImageFile(
   return { relativePath: relPosix, thumbnailDataUrl }
 }
 
-/**
- * 在系统文件管理器中高亮展示
- */
 export async function revealFile(workspaceRoot: string, relativePath: string): Promise<void> {
   const safePath = await assertSafePath(workspaceRoot, relativePath)
   shell.showItemInFolder(safePath)
 }
 
-/**
- * 使用操作系统默认关联程序打开文件
- */
 export async function openFileInSystem(workspaceRoot: string, relativePath: string): Promise<void> {
   const safePath = await assertSafePath(workspaceRoot, relativePath)
   const err = await shell.openPath(safePath)
@@ -2276,10 +2161,6 @@ function sortWorkspaceTags(tagCounts: Map<string, number>): WorkspaceTagInfo[] {
   return result
 }
 
-/**
- * 扫描工作区所有 Markdown 文件中的标签（包括 Frontmatter 与正文行内标签）
- * 返回聚合去重后的标签及其出现频次，按频次降序、字母升序排列
- */
 export async function getWorkspaceTags(workspaceRoot: string): Promise<WorkspaceTagInfo[]> {
   const safeRoot = await assertSafePath(workspaceRoot, '')
   const isFiltered = await createWorkspaceFilter(safeRoot)
@@ -2354,9 +2235,6 @@ export async function getWorkspaceTags(workspaceRoot: string): Promise<Workspace
   return sortWorkspaceTags(tagCounts)
 }
 
-/**
- * 增量提取单个 Markdown 文件的标签并更新工作区标签缓存，避免自动保存触发全量扫盘
- */
 export async function extractFileTags(
   workspaceRoot: string,
   relativePath: string,
@@ -2417,7 +2295,6 @@ export async function extractFileTags(
 const workspaceLinkCache = new Map<string, Map<string, string[]>>()
 const workspaceLinkScanChains = new Map<string, Promise<void>>()
 
-/** 双链索引操作按工作区串行化：扫描与增量更新互不交错，事件按序落盘 */
 function enqueueWorkspaceLinkScan<T>(workspaceRoot: string, job: () => Promise<T>): Promise<T> {
   const key = normalizeWatchKey(workspaceRoot)
   const previous = workspaceLinkScanChains.get(key) ?? Promise.resolve()
@@ -2489,7 +2366,6 @@ async function updateWorkspaceLinkCachePaths(workspaceRoot: string, changedPaths
       const fileContent = await fsReadFile(safePath, 'utf-8')
       cache.set(relPosix, extractWikiLinkTargets(fileContent))
     } catch {
-      // Markdown 文件已删除或暂时不可读：移除快照条目，后续事件或重扫会修复
       cache.delete(relPosix)
     }
   }
@@ -2501,10 +2377,6 @@ function sortWorkspaceLinkEntries(entries: Map<string, string[]>): WorkspaceLink
     .sort((a, b) => a.path.localeCompare(b.path))
 }
 
-/**
- * 扫描工作区所有 Markdown 文件中的双链目标，返回每文件的 [[target]] 原始串快照。
- * 结果按路径升序排列；缓存命中时直接返回。
- */
 export async function getWorkspaceLinks(workspaceRoot: string): Promise<WorkspaceLinkEntry[]> {
   const wsKey = normalizeWatchKey(workspaceRoot)
   const cached = workspaceLinkCache.get(wsKey)
@@ -2522,7 +2394,6 @@ export async function getWorkspaceLinks(workspaceRoot: string): Promise<Workspac
   })
 }
 
-/** 全量扫描本体（在串行队列内调用）；截断结果只返回不入缓存 */
 async function scanWorkspaceLinks(workspaceRoot: string, wsKey: string): Promise<WorkspaceLinkEntry[]> {
   const safeRoot = await assertSafePath(workspaceRoot, '')
   const isFiltered = await createWorkspaceFilter(safeRoot)
@@ -2620,7 +2491,6 @@ export async function extractFileLinks(
   }
 
   const normalizedRel = relativePath.split('\\').join('/').replace(/^\/+/, '')
-  // 进串行队列，避免与首扫/watcher 索引交错写出错序快照
   return enqueueWorkspaceLinkScan(workspaceRoot, async () => {
     const current = workspaceLinkCache.get(wsKey)
     if (!current) {
@@ -2735,7 +2605,6 @@ export async function search(workspaceRoot: string, query: string): Promise<Work
           const lines = fileContent.split(/\r?\n/)
           const isMarkdown = MARKDOWN_EXTENSIONS.has(ext)
 
-          // 1. 如果为标签搜索语法，优先做标签维度精准匹配（Frontmatter + 正文行内标签）
           if (tagQueryInfo.isTagQuery && isMarkdown) {
             const fm = extractFrontmatterTags(fileContent)
             for (const ft of fm.tags) {
@@ -2775,7 +2644,6 @@ export async function search(workspaceRoot: string, query: string): Promise<Work
             return
           }
 
-          // 2. 普通文本内容全文行匹配
           for (let i = 0; i < lines.length; i++) {
             if (isStopped()) break
 
@@ -2914,7 +2782,6 @@ export async function copyNodesToClipboard(
     return { copied: absPaths.length, imageCopied: isImage }
   }
 
-  // macOS / Linux 兜底：写入文本路径 + 图片位图
   const text = absPaths.join('\n')
   const image = isImage ? nativeImage.createFromPath(single) : null
   clipboard.write({
@@ -3028,7 +2895,6 @@ export async function moveExternalPaths(
           failed.push({ path: sourcePath, error: '不能将文件夹移动到其自身内部' })
           continue
         }
-        // 源已在目标目录 → 原地剪切粘贴，按资源管理器语义视为无操作。
         // Windows 大小写不敏感：比较前统一小写，避免剪贴板路径与工作区大小写错配导致原地改名
         if (path.dirname(resolvedSrc).toLowerCase() === safeTargetDir.toLowerCase()) {
           continue

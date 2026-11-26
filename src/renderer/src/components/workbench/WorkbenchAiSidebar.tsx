@@ -286,7 +286,6 @@ function WorkbenchAiSidebar({ isActive = true, instanceId = 'primary' }: Workben
   const instanceKey = isSecondary ? 'ai2' : 'ai'
   const visible = isSecondary ? isAiSidebar2Open : rightPane === 'ai'
 
-  // Agent 虚拟模型条目，用于侧边栏分叉渲染
   const localAgentModel = useMemo(
     () => ({
       id: 'local-agent',
@@ -1163,8 +1162,6 @@ function WorkbenchAiSidebar({ isActive = true, instanceId = 'primary' }: Workben
       if (!prompt) return
       const target = customEvent.detail?.target ?? 'ai'
       if (target !== instanceKey) return
-
-      // 若侧边栏当前处于折叠状态，则自动展开
       if (isSecondary) {
         if (!isAiSidebar2Open) openAiSidebar2()
       } else if (rightPane !== 'ai') {
@@ -1211,8 +1208,6 @@ function WorkbenchAiSidebar({ isActive = true, instanceId = 'primary' }: Workben
       if (!text) return
       const target = customEvent.detail?.target
       if (!target || target !== instanceKey) return
-
-      // 若侧边栏当前处于折叠状态，则自动展开
       if (isSecondary) {
         if (!isAiSidebar2Open) openAiSidebar2()
       } else if (rightPane !== 'ai') {
@@ -1292,7 +1287,6 @@ function WorkbenchAiSidebar({ isActive = true, instanceId = 'primary' }: Workben
     return () => unsubscribe?.()
   }, [currentModel, isSecondary, openAiSidebar2, openRightPane])
 
-  // 处理文件拖入释放并上传到当前 AI 对话框
   const uploadFilesToCurrentModel = useCallback(
     async (rawFiles: FileUploadData[], skippedFolders: string[] = []): Promise<void> => {
       if (rawFiles.length === 0) return

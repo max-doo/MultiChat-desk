@@ -1,7 +1,3 @@
-/**
- * 会话文档：把会话快照写成普通 Markdown。
- * 文档目标由 captureContext 决定；source 标注不归文档所有。
- */
 
 import { app } from 'electron'
 import type Store from 'electron-store'
@@ -70,7 +66,6 @@ interface FrontmatterInfo {
   sourceKind?: string
 }
 
-/** 无 source_kind 的历史会话文档：只有来源 URL 确实属于某平台的会话页才认。 */
 function isLegacyConversationSource(url: string): boolean {
   if (!/^https:\/\//i.test(url)) return false
   return Object.entries(defaultSelectors.models).some(([platformId, config]) => {
@@ -320,7 +315,6 @@ export async function createDocumentForSource(
     url: string
     sourceKey: string
     snapshot: string
-    /** 迁移任务固定归档目录；普通捕捉不传，按工作区当前设置解析。 */
     conversationDir?: string
   }
 ): Promise<{ document?: CapturedDocumentRef; error?: 'NO_ACTIVE_WORKSPACE' | 'WORKSPACE_UNAVAILABLE' | 'SCAN_INCOMPLETE' | 'OVERSIZE' | 'WRITE_FAILED' }> {
@@ -350,7 +344,6 @@ export async function createDocumentForSource(
   }
 }
 
-/** 摘录为独立文档：正文是引用块，不创建标注、不绑定来源。 */
 export async function captureExcerptDocument(
   store: Store<Record<string, unknown>>,
   input: {
@@ -489,7 +482,6 @@ async function findSnapshotForSource(store: Store<Record<string, unknown>>, sour
   return readSourceSnapshot(defaultWorkspace.path, sourceKey)
 }
 
-/** 默认会话库不可用时明确报错，禁止退回当前仓库。 */
 async function requireDefaultWorkspace(
   store: Store<Record<string, unknown>>
 ): Promise<Awaited<ReturnType<typeof ensureDefaultWorkspace>>> {

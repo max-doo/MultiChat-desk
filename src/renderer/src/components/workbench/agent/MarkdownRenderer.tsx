@@ -155,7 +155,6 @@ const MARKDOWN_COMPONENTS: Components = {
     }
     return <span {...props} />
   },
-  // 表格
   table({ children }) {
     return (
       <div className="my-3 overflow-hidden rounded-lg border border-slate-200/90 bg-white shadow-sm dark:border-white/10 dark:bg-gray-800/80">
@@ -203,14 +202,12 @@ const MARKDOWN_COMPONENTS: Components = {
     )
   },
 
-  // 代码与代码块
   code: MarkdownCode,
 
   pre({ children }) {
     return <>{children}</>
   },
 
-  // 段落：14px 正文字号与适度下边距
   p({ children }) {
     return (
       <p className="mb-2.5 last:mb-0 text-body text-slate-800 dark:text-gray-200 leading-relaxed">
@@ -219,7 +216,6 @@ const MARKDOWN_COMPONENTS: Components = {
     )
   },
 
-  // 标题体系
   h1({ children }) {
     return (
       <h1 className="mt-5 mb-2 text-title font-semibold text-slate-900 dark:text-white tracking-tight">
@@ -242,7 +238,6 @@ const MARKDOWN_COMPONENTS: Components = {
     )
   },
 
-  // 列表体系
   ul({ children }) {
     return (
       <ul className="my-2.5 pl-5 list-disc space-y-1.5 text-body text-slate-800 dark:text-gray-200 marker:text-slate-400">
@@ -261,7 +256,6 @@ const MARKDOWN_COMPONENTS: Components = {
     return <li className="leading-relaxed pl-0.5">{children}</li>
   },
 
-  // 引用块
   blockquote({ children }) {
     return (
       <blockquote className="my-3 pl-3.5 py-1.5 border-l-2 border-primary/50 text-slate-600 bg-slate-50/50 rounded-r-lg text-body italic dark:text-slate-300 dark:bg-white/5">
@@ -270,12 +264,10 @@ const MARKDOWN_COMPONENTS: Components = {
     )
   },
 
-  // 分割线
   hr() {
     return <hr className="my-4 border-slate-200/80 dark:border-white/10" />
   },
 
-  // 链接
   a({ href, children }) {
     return (
       <a

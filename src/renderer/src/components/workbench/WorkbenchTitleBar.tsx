@@ -47,7 +47,6 @@ export default function WorkbenchTitleBar(): JSX.Element | null {
     }
   }, [editing])
 
-  // 切文件时退出编辑态
   useEffect(() => {
     setEditing(false)
   }, [activeFilePath])

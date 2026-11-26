@@ -11,10 +11,6 @@ function getParentRelativeDir(relativePath: string): string {
   return idx === -1 ? '根目录' : relativePath.slice(0, idx)
 }
 
-/**
- * 工作台快速打开文件弹窗（Ctrl/Cmd+O 或空白页“打开文件”触发）。
- * 不依赖左侧文件树展开状态，支持按文件名与路径模糊过滤并用键盘快速打开。
- */
 export default function WorkbenchQuickOpenModal(): JSX.Element {
   const isQuickOpenOpen = useWorkbenchStore((s) => s.isQuickOpenOpen)
   const setQuickOpenOpen = useWorkbenchStore((s) => s.setQuickOpenOpen)

@@ -14,17 +14,16 @@ import { isSensitiveFilePath } from '../permissionPolicy'
 
 export interface BashVerdict {
   readOnly: boolean
-  /** Command writes file content to path args — caller boundary-checks them. */
+  /** 命令会向路径参数写入内容；边界校验由调用方完成。 */
   writeOps?: boolean
-  /** Path-shaped bare args extracted from whitelisted command segments. */
   pathArguments: string[]
-  /** Explicit write/delete target paths extracted from redirections and file-write commands. */
+  /** 从重定向与文件写入命令中提取的明确写入/删除目标。 */
   writeTargets?: string[]
-  /** Static `cd` directory targets — caller verifies workspace boundary. */
+  /** 静态 `cd` 目录目标；工作区边界由调用方验证。 */
   cdTargets?: string[]
   commands: string[]
   rejectReason?: string
-  /** High-risk construct that requires confirmation even in `bypass` mode. */
+  /** 高风险构造，即使在 bypass 模式也必须确认。 */
   bypassRequiresApproval?: boolean
   bypassReason?: string
 }
@@ -35,7 +34,6 @@ const MAX_DEPTH = 3
 const MAX_SEGMENTS = 200
 const UNRESOLVED_TARGET = '$__UNRESOLVED_TARGET__'
 
-/** Preserve `$VAR` / `${VAR}` literals instead of letting shell-quote replace them with `''`. */
 function preserveShellVar(key: string): string {
   return key ? `\${${key}}` : '$'
 }
@@ -53,7 +51,6 @@ const READ_ONLY_HEADS = new Set([
   'seq', 'sleep'
 ])
 
-/** Workspace-scoped file write commands allowed in `auto` when all targets stay in workspace. */
 const WRITE_HEADS = new Set(['mkdir', 'touch', 'cp', 'mv', 'tee'])
 
 const PRIVILEGE_ESCALATION_HEADS = new Set(['sudo', 'doas', 'su'])
@@ -901,7 +898,6 @@ export interface BashParsedSegment {
   piped: boolean
   writeRedirects: string[]
   readRedirects: string[]
-  /** True when a shell/eval head takes a `$(curl/wget ...)` subexpression. */
   rceSub?: boolean
 }
 

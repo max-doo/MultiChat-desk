@@ -114,14 +114,7 @@ function matchHeadingsToDom(
   return items
 }
 
-/**
- * Workbench 极简原位变形 Word 大纲导航（docx-preview 数据源）
- *
- * UI 复用 WorkbenchTocRail，本组件只负责：
- * 1. 从 WordDocument 树中提取 outlineLevel 段落；
- * 2. 按文档顺序把标题匹配到渲染后 DOM 的 <p>；
- * 3. 提供 key → DOM 的解析能力给 scrollspy 与点击定位。
- */
+/** UI 复用 WorkbenchTocRail；这里只负责 WordDocument 标题提取与 DOM 对齐。 */
 export default function WorkbenchDocxToc({
   document: docxDocument,
   contentRef,

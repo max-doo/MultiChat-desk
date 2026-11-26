@@ -446,7 +446,6 @@ export function scanMarkdownSourceBlocks(bodyRaw: string): {
       continue
     }
 
-    // 1. 块级公式 $$...$$
     if (BLOCK_EQUATION_START_REGEX.test(line)) {
       let endIdx = i
       let closed = false
@@ -468,7 +467,6 @@ export function scanMarkdownSourceBlocks(bodyRaw: string): {
       }
     }
 
-    // 2. 围栏代码块 ```...```
     const singleCode = CODE_SINGLE_LINE_REGEX.test(line)
     if (singleCode) {
       spans.push({ kind: 'code', pStart: i, pEnd: i })
@@ -498,7 +496,6 @@ export function scanMarkdownSourceBlocks(bodyRaw: string): {
       continue
     }
 
-    // 3. 标题 / 分隔线 / 独立图片
     if (HEADING_REGEX.test(line)) {
       spans.push({ kind: 'heading', pStart: i, pEnd: i })
       continue
@@ -516,7 +513,6 @@ export function scanMarkdownSourceBlocks(bodyRaw: string): {
       continue
     }
 
-    // 4. GFM 表格（连续 |...| 行）
     if (TABLE_ROW_REGEX.test(line)) {
       let endIdx = i
       while (endIdx + 1 < len && !preparedLines[endIdx + 1].isHtmlTable && TABLE_ROW_REGEX.test(preparedLines[endIdx + 1].text)) {
@@ -527,7 +523,6 @@ export function scanMarkdownSourceBlocks(bodyRaw: string): {
       continue
     }
 
-    // 5. 引用块（连续 > 或非特殊续行）
     if (QUOTE_REGEX.test(line)) {
       let endIdx = i
       while (endIdx + 1 < len) {
@@ -548,7 +543,6 @@ export function scanMarkdownSourceBlocks(bodyRaw: string): {
       continue
     }
 
-    // 6. 列表（含嵌套子项、非空续行、与松散列表间的空行）
     const listType = getListLineType(line)
     if (listType !== null) {
       let endIdx = i
@@ -593,7 +587,6 @@ export function scanMarkdownSourceBlocks(bodyRaw: string): {
       continue
     }
 
-    // 7. 普通段落（合并紧邻的非空非特殊续行）
     let endIdx = i
     while (endIdx + 1 < len) {
       const next = preparedLines[endIdx + 1]

@@ -317,7 +317,7 @@ export function useMindmapCanvas({
     mutationObserverRef.current?.takeRecords()
   }, [])
 
-  // ── 同步按钮尺寸和可见性；节点过小时隐藏整组操作按钮 ──
+  // 节点过小时隐藏整组操作按钮，避免固定尺寸按钮遮住导图文字
   const updateZoomCss = useCallback(() => {
     if (!svgRef.current) return
     const zoomData = (svgRef.current as unknown as { __zoom?: { k?: number } }).__zoom
@@ -337,7 +337,6 @@ export function useMindmapCanvas({
     }
   }, [])
 
-  // ── 提交正在就地编辑的节点 ──
   const commitCurrentEditing = useCallback(
     () => {
       if (readOnly) return
@@ -376,7 +375,6 @@ export function useMindmapCanvas({
     [commitTreeChange, readOnly]
   )
 
-  // ── 取消就地编辑 ──
   const cancelEditing = useCallback(() => {
     const currentId = editingNodeIdRef.current
     if (!currentId || !svgRef.current) return
@@ -401,7 +399,6 @@ export function useMindmapCanvas({
     editingNodeIdRef.current = null
   }, [])
 
-  // ── 在节点的形状内部开启就地编辑 ──
   const startEditingNode = useCallback(
     (nodeId: string, initialText?: string, selectAll = true) => {
       if (readOnly) return
@@ -471,7 +468,6 @@ export function useMindmapCanvas({
     [commitCurrentEditing, readOnly]
   )
 
-  // ── 添加子节点 (就地直接在形状内输入) ──
   const handleAddChild = useCallback(
     (parentId: string) => {
       let pendingText: string | undefined
@@ -544,7 +540,6 @@ export function useMindmapCanvas({
     [commitTreeChange, startEditingNode]
   )
 
-  // ── 删除节点 ──
   const handleDeleteSelection = useCallback(
     () => {
       const currentTree = treeRef.current
@@ -590,7 +585,6 @@ export function useMindmapCanvas({
     commitTreeChange(cloned)
   }, [commitCurrentEditing, commitTreeChange, readOnly])
 
-  // ── 折叠 / 展开单个节点 ──
   const handleToggleFoldNode = useCallback(
     (nodeId: string) => {
       const currentTree = treeRef.current
@@ -604,7 +598,6 @@ export function useMindmapCanvas({
     [commitTreeChange]
   )
 
-  // ── 全部展开 ──
   const handleExpandAll = useCallback(() => {
     const currentTree = treeRef.current
     const cloned = cloneTree(currentTree)
@@ -623,7 +616,6 @@ export function useMindmapCanvas({
     showToast('已展开所有节点')
   }, [commitTreeChange, fitCanvas, convertLinksToStep, updateZoomCss, showToast])
 
-  // ── 全部收起 ──
   const handleFoldAll = useCallback(() => {
     const currentTree = treeRef.current
     const cloned = cloneTree(currentTree)
@@ -644,7 +636,7 @@ export function useMindmapCanvas({
     showToast('已收起子节点')
   }, [commitTreeChange, fitCanvas, convertLinksToStep, updateZoomCss, showToast])
 
-  // ── 同步高亮选中状态类名（直接操作 DOM 避免重新渲染销毁输入状态） ──
+  // 直接操作 DOM，避免 React 重新渲染销毁输入状态
   const syncSelectionClass = useCallback(() => {
     if (!svgRef.current) return
     const selected = new Set(selectedNodeIdsRef.current)
@@ -668,7 +660,7 @@ export function useMindmapCanvas({
     })
   }, [])
 
-  // ── 渲染 Markmap（仅在 tree 或 active 变动时调用 setData，避免编辑时重绘 DOM） ──
+  // 仅在 tree 或 active 变动时调用 setData，避免编辑时重绘 DOM
   useEffect(() => {
     const svg = svgRef.current
     if (!active || !canvasVisible || !svg) return
@@ -722,12 +714,11 @@ export function useMindmapCanvas({
     return () => { cancelled = true }
   }, [active, canvasVisible, tree, fitCanvas, convertLinksToStep, syncSelectionClass, updateZoomCss, setSelection])
 
-  // ── 选中态变化时即时同步 DOM 类名 ──
   useEffect(() => {
     syncSelectionClass()
   }, [selectedNodeIds, changedLines, readOnly, syncSelectionClass])
 
-  // ── MutationObserver 监听 SVG 内部路径变化，在微任务末尾读写分离批处理转为直角折线 ──
+  // SVG 内部路径变化集中在微任务末尾读写分离，批量转为直角折线
   useEffect(() => {
     const svg = svgRef.current
     if (!svg || !active) return
@@ -787,7 +778,7 @@ export function useMindmapCanvas({
     }
   }, [active, convertLinksToStep, updateZoomCss])
 
-  // ── 监听尺寸变化，校准连线与按钮缩放，保留用户视口（rAF + 100ms 节流） ──
+  // 尺寸变化只校准连线与按钮缩放，保留用户视口
   useEffect(() => {
     const svg = svgRef.current
     if (!svg) return
@@ -868,7 +859,7 @@ export function useMindmapCanvas({
     }
   }, [convertLinksToStep, updateZoomCss, onNodeSelect])
 
-  // ── 捕获阶段代理鼠标交互（避免 Markmap 内部 stopPropagation 拦截双击与点击） ──
+  // 捕获阶段代理鼠标交互，避免 Markmap 内部 stopPropagation 拦截双击与点击
   useEffect(() => {
     const container = containerRef.current
     if (!container || !active) return
@@ -1278,7 +1269,6 @@ export function useMindmapCanvas({
     showToast
   ])
 
-  // ── 键盘交互（Tab 新增、Delete 删除、点击选中后直接输入覆盖、Enter 编辑/提交） ──
   useEffect(() => {
     if (!active || readOnly) return
 

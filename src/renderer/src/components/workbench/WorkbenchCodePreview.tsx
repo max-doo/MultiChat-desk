@@ -186,7 +186,6 @@ const CODE_MODIFIED_MARKER = new CodeGitGutterMarker('modified', false)
 const CODE_MODIFIED_DELETED_MARKER = new CodeGitGutterMarker('modified', true)
 const CODE_DELETED_MARKER = new CodeGitGutterMarker('deleted', false)
 
-// 空占位 marker：保证无 git 变化的行也渲染 gutterElement，防止 git gutter 列塌缩
 class EmptyCodeGitGutterMarker extends GutterMarker {
   override eq(other: GutterMarker): boolean {
     return other instanceof EmptyCodeGitGutterMarker
@@ -207,7 +206,6 @@ function buildCodeGitGutter(
       if (mark === 'added') return del ? CODE_ADDED_DELETED_MARKER : CODE_ADDED_MARKER
       if (mark === 'modified') return del ? CODE_MODIFIED_DELETED_MARKER : CODE_MODIFIED_MARKER
       if (del) return CODE_DELETED_MARKER
-      // 返回空占位 marker 而不是 null：保证该行 gutterElement 一定被创建，列宽恒定
       return CODE_EMPTY_MARKER
     },
     lineMarkerChange(update) {
@@ -531,7 +529,6 @@ export default function WorkbenchCodePreview({
   const [leaveDialogOpen, setLeaveDialogOpen] = useState(false)
   const [leaveBusy, setLeaveBusy] = useState(false)
   const [editSession, setEditSession] = useState(0)
-  // 渲染预览刷新：只重新挂载 iframe，不触发磁盘重读
   const [previewReloadKey, setPreviewReloadKey] = useState(0)
   const [previewZoom, setPreviewZoom] = useState(1)
   const visualEditorRef = useRef<WorkbenchHtmlVisualEditorHandle | null>(null)
@@ -587,7 +584,6 @@ export default function WorkbenchCodePreview({
   updateActiveContentRef.current = updateActiveContent
   isEditableRef.current = isEditable
 
-  // 切换文件重置编辑与菜单状态；HTML 默认进入渲染预览
   useEffect(() => {
     setIsEditing(false)
     setViewMode(isHtmlFile ? 'render' : 'source')
@@ -643,7 +639,6 @@ export default function WorkbenchCodePreview({
 
   const formattedSize = useMemo(() => formatFileSize(activeFileSize), [activeFileSize])
 
-  // 注册源码同步 flusher：保存、切换模式、切文件或 Ctrl+F 前同步落入 store
   useEffect(() => {
     const flushCodeSync = (): void => {
       if (pendingSyncTimerRef.current) {
@@ -676,7 +671,6 @@ export default function WorkbenchCodePreview({
     }
   }, [setSourceSyncFlusher, showCodeEditor])
 
-  // 决定当前文件是否需要语法高亮（.log/.txt/.csv 或超大/超长单行降级纯文本）
   const langKey = useMemo(() => {
     if (!showCodeEditor) return ''
     const ext = getFileExtension(activeFilePath)
@@ -690,7 +684,6 @@ export default function WorkbenchCodePreview({
     return mapped
   }, [activeFilePath, showCodeEditor])
 
-  // 挂载 CodeMirror 6 实例（仅在文件路径或视图进入代码态时重建）
   useEffect(() => {
     if (!showCodeEditor || !cmHostRef.current) return
 
@@ -789,7 +782,6 @@ export default function WorkbenchCodePreview({
     }
   }, [activeFilePath, showCodeEditor, langKey, workspacePath])
 
-  // 切换查看 / 编辑态时原位更新 readOnly 与光标显示，保留撤销历史与滚动位置
   useEffect(() => {
     const view = cmViewRef.current
     if (!view) return
@@ -804,7 +796,6 @@ export default function WorkbenchCodePreview({
     })
   }, [isEditable])
 
-  // Git Diff 变化时通过 Compartment 原位刷新 Gutter
   useEffect(() => {
     const view = cmViewRef.current
     if (!view) return
@@ -840,7 +831,6 @@ export default function WorkbenchCodePreview({
     })
   }, [activeFileContent])
 
-  // 进入或切回代码视图时恢复滚动位置
   useLayoutEffect(() => {
     const view = cmViewRef.current
     if (!view || !activeFilePath || !showCodeEditor) return
@@ -1046,7 +1036,6 @@ export default function WorkbenchCodePreview({
     ]
   )
 
-  // 切换文件时关闭查找条
   useEffect(() => {
     setFindOpen(false)
   }, [activeFilePath])

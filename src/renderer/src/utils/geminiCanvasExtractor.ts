@@ -7,7 +7,6 @@
 
 import TurndownService from 'turndown'
 
-// 类型定义
 interface CanvasCheckResult {
   isCanvas: boolean
   hasExportBtn?: boolean
@@ -43,11 +42,6 @@ interface WindowAPI {
   sendMouseClick?: (webContentsId: number, x: number, y: number) => Promise<{ success: boolean; error?: string }>
 }
 
-// ========== 注入到 Webview 的脚本 ==========
-
-/**
- * 检测 Canvas 模式并获取导出按钮位置
- */
 const CHECK_CANVAS_SCRIPT = `
   (function() {
     const canvasPanel = document.querySelector('immersive-panel, deep-research-immersive-panel, [class*="immersive-panel"]');
@@ -83,9 +77,6 @@ const CHECK_CANVAS_SCRIPT = `
   })();
 `
 
-/**
- * 查找复制按钮位置
- */
 const FIND_COPY_BUTTON_SCRIPT = `
   (function() {
     const copyBtnSelectors = [
@@ -121,9 +112,6 @@ const FIND_COPY_BUTTON_SCRIPT = `
   })();
 `
 
-/**
- * 等待复制完成的 Toast 消息
- */
 const WAIT_FOR_COPY_TOAST_SCRIPT = `
   (async function() {
     const toastKeywords = ['已复制', '复制', 'copied', 'clipboard'];
@@ -141,9 +129,6 @@ const WAIT_FOR_COPY_TOAST_SCRIPT = `
   })();
 `
 
-/**
- * 提取引用链接
- */
 const EXTRACT_LINKS_SCRIPT = `
   (function() {
     const links = [];
@@ -189,18 +174,10 @@ const EXTRACT_LINKS_SCRIPT = `
   })();
 `
 
-/**
- * 关闭菜单（按 Escape 键）
- */
 const CLOSE_MENU_SCRIPT = `
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
 `
 
-// ========== 辅助函数 ==========
-
-/**
- * 检测是否为 Canvas 模式
- */
 async function checkCanvasMode(webview: WebviewAPI): Promise<CanvasCheckResult | null> {
   try {
     const result = await webview.executeJavaScript(CHECK_CANVAS_SCRIPT)
@@ -212,9 +189,6 @@ async function checkCanvasMode(webview: WebviewAPI): Promise<CanvasCheckResult |
   }
 }
 
-/**
- * 点击导出按钮
- */
 async function clickExportButton(
   windowApi: WindowAPI,
   webContentsId: number,
@@ -236,29 +210,22 @@ async function clickExportButton(
   }
 }
 
-/**
- * 查找并点击复制按钮
- */
 async function findAndClickCopyButton(
   webview: WebviewAPI,
   windowApi: WindowAPI,
   webContentsId: number
 ): Promise<boolean> {
   try {
-    // 等待菜单出现
     await new Promise(r => setTimeout(r, 500))
 
-    // 查找复制按钮
     const copyBtnResult = await webview.executeJavaScript(FIND_COPY_BUTTON_SCRIPT) as CopyButtonResult
     console.log('[GeminiCanvasExtractor] 复制按钮查找结果:', copyBtnResult)
 
     if (!copyBtnResult?.found || !copyBtnResult?.pos) {
-      // 关闭可能打开的菜单
       await webview.executeJavaScript(CLOSE_MENU_SCRIPT)
       return false
     }
 
-    // 点击复制按钮
     if (!windowApi.sendMouseClick) {
       return false
     }
@@ -277,9 +244,6 @@ async function findAndClickCopyButton(
   }
 }
 
-/**
- * 等待复制完成的 Toast 消息
- */
 async function waitForCopyToast(webview: WebviewAPI): Promise<boolean> {
   try {
     const result = await webview.executeJavaScript(WAIT_FOR_COPY_TOAST_SCRIPT)
@@ -291,18 +255,13 @@ async function waitForCopyToast(webview: WebviewAPI): Promise<boolean> {
   }
 }
 
-/**
- * 读取剪贴板并转换为 Markdown
- */
 async function readClipboardAndConvert(
   windowApi: WindowAPI,
   turndownService: TurndownService,
   clipboardBefore: string
 ): Promise<string | null> {
-  // 额外等待确保剪贴板更新
   await new Promise(r => setTimeout(r, 300))
 
-  // 优先读取 HTML 格式
   if (windowApi.readClipboardHTML) {
     try {
       const clipboardHTML = await windowApi.readClipboardHTML()
@@ -321,7 +280,6 @@ async function readClipboardAndConvert(
     }
   }
 
-  // 备选：读取纯文本
   if (windowApi.readClipboardText) {
     try {
       const clipboardText = await windowApi.readClipboardText()
@@ -341,9 +299,6 @@ async function readClipboardAndConvert(
   return null
 }
 
-/**
- * 提取引用链接
- */
 async function extractReferenceLinks(webview: WebviewAPI): Promise<ReferenceLink[]> {
   try {
     const links = await webview.executeJavaScript(EXTRACT_LINKS_SCRIPT) as ReferenceLink[]
@@ -355,9 +310,6 @@ async function extractReferenceLinks(webview: WebviewAPI): Promise<ReferenceLink
   }
 }
 
-/**
- * 将引用链接格式化为 Markdown
- */
 function formatReferenceLinks(links: ReferenceLink[]): string {
   if (links.length === 0) {
     return ''
@@ -373,40 +325,26 @@ function formatReferenceLinks(links: ReferenceLink[]): string {
   return markdown
 }
 
-// ========== 主函数 ==========
-
-/**
- * 从 Gemini Canvas 模式提取内容
- * 
- * @param webview - Webview 实例，需要实现 executeJavaScript 和 getWebContentsId 方法
- * @param windowApi - Window API 对象，包含 readClipboardHTML、readClipboardText、sendMouseClick 方法
- * @param turndownService - Turndown 实例，用于 HTML 转 Markdown
- * @returns Promise<string | null> - 提取的 Markdown 内容，失败或非 Canvas 模式返回 null
- */
 export async function extractGeminiCanvasContent(
   webview: WebviewAPI,
   windowApi: WindowAPI,
   turndownService: TurndownService
 ): Promise<string | null> {
   try {
-    // 1. 检测 Canvas 模式
     const canvasCheck = await checkCanvasMode(webview)
     if (!canvasCheck?.isCanvas || !canvasCheck?.hasExportBtn || !canvasCheck?.exportBtnPos) {
       return null
     }
 
-    // 2. 记录复制前的剪贴板内容
     let clipboardBefore = ''
     if (windowApi.readClipboardText) {
       clipboardBefore = await windowApi.readClipboardText()
       console.log('[GeminiCanvasExtractor] 复制前剪贴板内容长度:', clipboardBefore?.length || 0)
     }
 
-    // 3. 获取 webContents ID
     const webContentsId = webview.getWebContentsId()
     console.log('[GeminiCanvasExtractor] webContentsId:', webContentsId)
 
-    // 4. 点击导出按钮
     const exportClicked = await clickExportButton(
       windowApi,
       webContentsId,
@@ -416,24 +354,20 @@ export async function extractGeminiCanvasContent(
       return null
     }
 
-    // 5. 查找并点击复制按钮
     const copyClicked = await findAndClickCopyButton(webview, windowApi, webContentsId)
     if (!copyClicked) {
       console.log('[GeminiCanvasExtractor] 复制按钮点击失败，回退到 DOM 爬取')
       return null
     }
 
-    // 6. 等待复制完成
     await waitForCopyToast(webview)
 
-    // 7. 读取剪贴板并转换为 Markdown
     const markdown = await readClipboardAndConvert(windowApi, turndownService, clipboardBefore)
     if (!markdown) {
       console.log('[GeminiCanvasExtractor] 剪贴板内容无效，回退到 DOM 爬取')
       return null
     }
 
-    // 8. 提取并拼接引用链接
     const links = await extractReferenceLinks(webview)
     if (links.length > 0) {
       const linksMarkdown = formatReferenceLinks(links)

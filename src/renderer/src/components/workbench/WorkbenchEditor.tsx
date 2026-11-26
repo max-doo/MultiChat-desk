@@ -302,7 +302,6 @@ function WorkbenchEditor({ isActive = true }: WorkbenchEditorProps): JSX.Element
     return () => window.removeEventListener('keydown', onKey)
   }, [isActive, activeFilePath, activeFileCategory, saveActiveFile])
 
-  // 切换文件或文件类别时关闭查找条
   useEffect(() => {
     setFindOpen(false)
   }, [activeFilePath, activeFileCategory])
@@ -432,7 +431,6 @@ function WorkbenchEditor({ isActive = true }: WorkbenchEditorProps): JSX.Element
     []
   )
 
-  // 统一极简空白页：复用于“新标签页”与“未打开任何文档”两种空状态
   if (!activeFilePath) {
     const isVirtualNewTab = isNewTabPath(activeTabPath)
     const actions = [
@@ -484,7 +482,6 @@ function WorkbenchEditor({ isActive = true }: WorkbenchEditorProps): JSX.Element
     )
   }
 
-  // 代码文件专属预览与编辑
   if (activeFileCategory === 'code') {
     return (
       <div
@@ -497,17 +494,14 @@ function WorkbenchEditor({ isActive = true }: WorkbenchEditorProps): JSX.Element
     )
   }
 
-  // 图片文件专属画布预览
   if (activeFileCategory === 'image') {
     return <WorkbenchImagePreview key={activeFilePath} />
   }
 
-  // PDF 文件专属文档预览
   if (activeFileCategory === 'pdf') {
     return <WorkbenchPdfPreview key={activeFilePath} />
   }
 
-  // Word 文档内嵌预览；老格式与 PPT 等仍走提示卡片
   if (activeFileCategory === 'document') {
     if (activeFilePath.toLowerCase().endsWith('.docx')) {
       return <WorkbenchDocxPreview key={activeFilePath} />
@@ -515,7 +509,6 @@ function WorkbenchEditor({ isActive = true }: WorkbenchEditorProps): JSX.Element
     return <WorkbenchDocxCard key={activeFilePath} />
   }
 
-  // 纯文本文件 (txt, log, csv 等)
   if (activeFileCategory === 'text') {
     return (
       <div
@@ -528,7 +521,6 @@ function WorkbenchEditor({ isActive = true }: WorkbenchEditorProps): JSX.Element
     )
   }
 
-  // 未识别格式的二进制文件处理
   if (
     activeFileCategory === 'other' &&
     !hasOtherTextContent &&
@@ -558,7 +550,6 @@ function WorkbenchEditor({ isActive = true }: WorkbenchEditorProps): JSX.Element
     )
   }
 
-  // 纯源码编辑模式
   if (editorMode === 'source') {
     return (
       <div
@@ -583,7 +574,6 @@ function WorkbenchEditor({ isActive = true }: WorkbenchEditorProps): JSX.Element
     )
   }
 
-  // 富文本编辑模式 (Meta Lexical)
   return (
     <div
       className={`relative flex-1 h-full flex flex-col overflow-hidden bg-white ${isMarkdownDark ? 'dark' : ''}`}

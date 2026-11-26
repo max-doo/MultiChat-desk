@@ -68,10 +68,6 @@ const BACKGROUND_PALETTE = [
   '#ede9fe'
 ]
 
-/**
- * 选中页面元素后浮出的工具条。容器、按钮态和图标与编辑器浮动格式条共用同一套
- * chrome 组件；这里只替换具体命令。
- */
 export default function WorkbenchHtmlEditToolbar({
   canReorder,
   textColor,

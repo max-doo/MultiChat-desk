@@ -15,7 +15,6 @@ const IDLE_TIMEOUT = 2 * 60_000
 const TEMPORARY_IDLE_TIMEOUT = 10 * 60_000
 const GENERATION_TIMEOUT = 120_000
 
-/** 限制一次异步操作的等待时间；网页脚本迟到的返回值不会继续推进任务。 */
 function waitFor<T>(operation: Promise<T>, timeoutMs: number, stage: string, signal: AbortSignal): Promise<T> {
   return new Promise((resolve, reject) => {
     let settled = false
@@ -94,7 +93,6 @@ export class TaskSplitService {
     })
   }
 
-  /** 只给已结束且隐藏的网页计时；保留地址，不保留网页进程。 */
   private async retainTerminalPage(task: TaskSplitTask, key: string): Promise<void> {
     if (this.task?.id !== task.id || !TERMINAL_PHASES.includes(task.phase) || this.idle?.key !== key) return
     const window = sessionManager.getSession(key)
@@ -128,7 +126,6 @@ export class TaskSplitService {
     this.notify({ ...task })
   }
 
-  /** 会话地址仅用于恢复查看；不是平台对话地址则返回 undefined。 */
   private async conversationBinding(platformId: string, currentUrl: string): Promise<string | undefined> {
     try {
       const selectors = await automationService.getPlatformSelectors(platformId)
@@ -216,9 +213,7 @@ export class TaskSplitService {
           this.idle = { key, platformId: task.platform, initialized: true }
           return
         }
-        // pending 或未稳定：继续等；invalid 需等空闲稳定后才报，避免流式中途误判。
         if (parsed.status !== 'ready' && !state.busy && stable >= 2) {
-          // 平台常回显提示词/松包裹——严格包络坏时，退到逐 <subtask> 兜底再判定。
           const loose = parseSubtasksLenient(captured.text, task.windowCount)
           if (loose.length >= Math.max(1, task.windowCount)) {
             clearTimeout(generationTimer); generationTimer = undefined

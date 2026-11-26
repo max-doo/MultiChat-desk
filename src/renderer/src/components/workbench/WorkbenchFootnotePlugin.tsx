@@ -314,7 +314,6 @@ export default function WorkbenchFootnotePlugin(): JSX.Element | null {
         const selection = editor.getEditorState().read(() => $getSelection())
         if ($isRangeSelection(selection) && !selection.isCollapsed()) return
 
-        // 1. 点击正文行内引用 → 平滑跳转到文末定义
         const refWrap = target.closest('.PlaygroundEditorTheme__footnoteRef[data-footnote-ref-id]')
         if (refWrap instanceof HTMLElement && root.contains(refWrap)) {
           const id = refWrap.getAttribute('data-footnote-ref-id') ?? ''
@@ -328,7 +327,6 @@ export default function WorkbenchFootnotePlugin(): JSX.Element | null {
           return
         }
 
-        // 2. 点击文末定义左侧序号徽章 → 循环跳回正文对应引用（支持 1 对多）
         const defEl = target.closest('.PlaygroundEditorTheme__footnoteDef[data-footnote-def-id]')
         if (defEl instanceof HTMLElement && root.contains(defEl) && isClickOnDefBadge(defEl, event)) {
           const id = defEl.getAttribute('data-footnote-def-id') ?? ''

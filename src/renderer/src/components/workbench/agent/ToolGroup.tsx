@@ -113,14 +113,12 @@ function ToolItem({ part, isRunning = false, defaultExpanded = false, cwd }: Sin
 
   const outputText = useMemo(() => extractToolResultText(part.result), [part.result])
 
-  // 命令提取
   const command = useMemo(() => {
     if (typeof part.args === 'string') return part.args
     const obj = part.args as { command?: string; cmd?: string } | undefined
     return obj?.command || obj?.cmd || ''
   }, [part.args])
 
-  // 文件路径提取
   const filePath = useMemo(() => {
     return extractArgPath(part.args)
   }, [part.args])
@@ -148,21 +146,18 @@ function ToolItem({ part, isRunning = false, defaultExpanded = false, cwd }: Sin
     handleFileNameClick(e)
   }
 
-  // 搜索/生成类工具的关键入参（单行尾随展示）
   const inlineArg = useMemo(() => {
     if (typeof part.args !== 'object' || part.args === null) return ''
     const obj = part.args as { query?: string; prompt?: string; pattern?: string }
     return obj.query || obj.prompt || obj.pattern || ''
   }, [part.args])
 
-  // write 工具：result 没有 details.diff，用 args.content 合成"全文新增"的 diff
   const writeDiff = useMemo(() => {
     if (toolName !== 'write' || typeof part.args !== 'object' || part.args === null) return ''
     const content = (part.args as { content?: unknown }).content
     return typeof content === 'string' ? buildWriteDiff(filePath, content) : ''
   }, [toolName, part.args, filePath])
 
-  // Diff 解析（针对 edit）
   const parsedDiff = useMemo(() => {
     if (!isEditTool) return []
     const resultDetails = (typeof part.result === 'object' && part.result !== null && 'details' in part.result)
@@ -215,7 +210,6 @@ function ToolItem({ part, isRunning = false, defaultExpanded = false, cwd }: Sin
     setTimeout(() => setCopied(false), 2000)
   }
 
-  // 渲染简短的单行标题
   const renderItemHeader = (): JSX.Element => {
     if (toolName === 'bash' || toolName === 'powershell' || toolName === 'cmd' || toolName === 'terminal' || toolName === 'shell') {
       return (
@@ -467,11 +461,9 @@ export function ToolGroup({ parts, isRunning = false, cwd }: ToolGroupProps): JS
     return segments.length > 0 ? segments.join('') : '工具操作'
   }, [parts])
 
-  // 判断整组中是否有正在运行或失败
   const hasRunning = isRunning && parts.some((p) => p.result === undefined && !p.isError)
   const hasError = parts.some((p) => p.isError)
 
-  // 决定主图标
   const mainIconName = useMemo(() => {
     const hasEdit = parts.some((p) => {
       const name = (p.toolName || '').toLowerCase()

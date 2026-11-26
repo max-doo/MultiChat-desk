@@ -3,7 +3,6 @@ import { readFile, readdir, stat } from 'fs/promises'
 import { basename, isAbsolute, join, relative, resolve } from 'path'
 import type { AgentFileSnapshot } from '../../shared/types/agentRuntime'
 
-/** Tools whose arguments directly name a mutated file path. */
 export const FILE_MUTATION_TOOLS = new Set([
   'edit',
   'write',
@@ -13,16 +12,12 @@ export const FILE_MUTATION_TOOLS = new Set([
   'apply_patch'
 ])
 
-/** Shell tools that may mutate arbitrary workspace files when non-read-only. */
 export const SHELL_TOOLS = new Set(['powershell', 'bash'])
 
-/** Max file size cached in memory / written to baseline blobs for undo (10 MiB). */
 export const MAX_BASELINE_BLOB_BYTES = 10 * 1024 * 1024
 
-/** Max single-file size for line-level diff calculation (512 KiB). */
 const MAX_DIFF_BYTES = 512 * 1024
 
-/** Hard circuit breakers for lightweight workspace metadata scans (non-read-only shell only). */
 const MAX_WORKSPACE_SCAN_FILES = 10_000
 const MAX_WORKSPACE_SCAN_MS = 300
 /**
@@ -33,7 +28,6 @@ const MAX_WORKSPACE_SCAN_MS = 300
  */
 const MAX_WORKSPACE_SCAN_CONTENT_BYTES = 32 * 1024 * 1024
 
-/** Sentinel sha1 for pre-existing files modified/deleted by shell without a pre-edit content blob. */
 export const UNKNOWN_SHELL_BASELINE_SHA1 = '__shell_unknown_baseline__'
 
 const SKIP_SCAN_DIRS = new Set([
@@ -55,13 +49,9 @@ const SKIP_SCAN_DIRS = new Set([
 ])
 
 export interface NormalizedTrackedPath {
-  /** Case-folded (on Windows) POSIX key for deduplicating paths in one turn. */
   key: string
-  /** Workspace-relative POSIX path when inside `cwd`, otherwise resolved absolute path. */
   displayPath: string
-  /** Absolute filesystem path for I/O. */
   absPath: string
-  /** File basename for compact display. */
   name: string
 }
 
@@ -78,16 +68,10 @@ export interface WorkspaceFileMeta {
 
 export interface SnapshotWithContent {
   snapshot: AgentFileSnapshot
-  /** Raw bytes captured before mutation, `null` if file did not exist, `undefined` if too large to cache. */
   content: Buffer | null | undefined
-  /** True when the file existed but exceeded `MAX_BASELINE_BLOB_BYTES`. */
   tooLarge: boolean
 }
 
-/**
- * Resolve a tool-reported file path against `cwd`.
- * Keeps UNC and `~` paths untouched (same convention as renderer `filePathUtils`).
- */
 export function resolveTrackedAbsolutePath(cwd: string, filePath: string): string {
   const trimmed = filePath.trim()
   if (/^[a-zA-Z]:[\\/]/.test(trimmed) || trimmed.startsWith('/')) {
@@ -104,10 +88,6 @@ export function resolveTrackedAbsolutePath(cwd: string, filePath: string): strin
   return resolve(cwd, trimmed)
 }
 
-/**
- * Normalize a tool-reported path so `./foo.md`, `foo.md`, and `C:\ws\foo.md`
- * all collapse to the exact same tracking key and display path.
- */
 export function normalizeTrackedFilePath(cwd: string, rawPath: string): NormalizedTrackedPath {
   const resolvedCwd = resolve(cwd)
   const absPath = resolveTrackedAbsolutePath(resolvedCwd, rawPath)
@@ -132,10 +112,6 @@ export function normalizeTrackedFilePath(cwd: string, rawPath: string): Normaliz
   return { key, displayPath, absPath, name }
 }
 
-/**
- * Capture both metadata/sha1 and (when within size budget) raw bytes of a file
- * BEFORE a mutating tool writes to disk.
- */
 export async function captureBaselineWithContent(absolutePath: string): Promise<SnapshotWithContent> {
   try {
     const info = await stat(absolutePath)
@@ -192,10 +168,6 @@ function splitTextLines(buf: Buffer | null): string[] {
   return lines
 }
 
-/**
- * Compute net added / deleted line counts between baseline and target buffers.
- * Returns `{ added: 0, deleted: 0 }` for binary or oversized files.
- */
 export function computeLineDiffCounts(
   before: Buffer | null | undefined,
   after: Buffer | null | undefined
@@ -402,7 +374,6 @@ export interface WorkspaceMetadataDiff {
   deleted: string[]
 }
 
-/** Compare pre-shell and post-shell workspace metadata maps. */
 export function diffWorkspaceMetadata(
   before: Map<string, WorkspaceFileMeta>,
   after: Map<string, WorkspaceFileMeta>

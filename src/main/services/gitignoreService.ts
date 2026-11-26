@@ -15,7 +15,7 @@ import type {
 } from '../../shared/types/workbench'
 export type { GitignoreEntry, GitignoreCategory, GitignoreSnapshot }
 
-/** 同目录临时文件 + rename，避免写入中途失败留下半个 .gitignore */
+/** 同目录临时文件 + rename，避免写入中途失败留下半个 .gitignore。 */
 async function writeTextFileSafely(filePath: string, content: string): Promise<void> {
   const tempPath = path.join(path.dirname(filePath), `.${path.basename(filePath)}.${randomUUID()}.tmp`)
   try {
@@ -191,7 +191,6 @@ export const GITIGNORE_CATEGORIES: GitignoreCategory[] = [
   }
 ]
 
-/** 新建工作区时写入的常规忽略项：只包含默认勾选的组 */
 export const DEFAULT_GITIGNORE_PATTERNS = GITIGNORE_CATEGORIES
   .filter(category => category.recommended)
   .flatMap(category => category.patterns)
@@ -216,7 +215,6 @@ export async function readGitignore(workspaceRoot: string): Promise<GitignoreSna
   return { exists: true, content, entries: parseGitignoreEntries(content) }
 }
 
-/** 解析规则行；整段文本编辑器以 content 为准，entries 仅用于分类勾选状态 */
 function parseGitignoreEntries(content: string): GitignoreEntry[] {
   const entries: GitignoreEntry[] = []
   let pendingComment: string | null = null
@@ -240,17 +238,12 @@ function parseGitignoreEntries(content: string): GitignoreEntry[] {
   return entries
 }
 
-/** 以整段文本写回 .gitignore；注释、空行和顺序都按用户输入保留 */
 export async function writeGitignoreText(workspaceRoot: string, content: string): Promise<void> {
   const filePath = path.join(workspaceRoot, '.gitignore')
   const normalized = content.replace(/\r\n?/g, '\n')
   await writeTextFileSafely(filePath, normalized)
 }
 
-/**
- * 追加缺失的规则，保留用户已有内容与顺序。
- * 已存在的模式不会重复写入，因此可以安全地在初始化仓库时补齐常规忽略项。
- */
 export async function appendGitignorePatterns(
   workspaceRoot: string,
   patterns: string[],

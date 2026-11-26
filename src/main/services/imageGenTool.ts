@@ -15,15 +15,10 @@ interface ImageGenParams {
   images?: string[]
 }
 
+// new Function 逃逸 bundler 静态解析，运行时再由 Node 解析 pi/typebox；
+// 与 webSearchTool / AgentSessionService.getPi() 同一模式。
 const importEsm = new Function('s', 'return import(s)') as <T>(s: string) => Promise<T>
 
-/**
- * 工作台 Agent 的 image_gen 工具定义。
- * 通过已登录的 AI 平台触发其原生"AI 生图"能力，等生成完成后由 AgentTaskService
- * 注入点击触发下载，落盘到 Agent 会话工作区的 `.multichat/image/`。
- * pi 内核与 typebox 都经运行时动态 import（`new Function` 逃逸 bundler 解析），
- * 与 webSearchTool / AgentSessionService.getPi() 同一模式。
- */
 export async function createImageGenTool(workspaceCwd?: string) {
   const { defineTool } = await importEsm<typeof import('@earendil-works/pi-coding-agent')>(
     '@earendil-works/pi-coding-agent'
@@ -61,7 +56,6 @@ export async function createImageGenTool(workspaceCwd?: string) {
 
   const POLL_INTERVAL_MS = 2_000
 
-  /** platform=auto 时挑一个已登录且生图/下载链路均适配的平台。 */
   async function resolvePlatform(requested: string): Promise<string> {
     if (requested !== 'auto') return requested
     const caps = await agentTaskService.capabilities()

@@ -7,12 +7,6 @@ const BITMAP_EXTENSIONS = new Set([
   '.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.avif', '.tiff', '.tif', '.ico'
 ])
 
-/**
- * 文件 chip 统一图标：位图 / SVG / Markdown 走 AppIcon 语义色，
- * 其余按扩展名映射到 material 文件图标。
- * 供 Agent 侧栏附件 chip、内联文件 chip 与编辑器双链 chip 共用。
- * size 默认 '1em'，随上下文字号缩放；传入数值则按像素固定。
- */
 export function FileChipIcon({
   absPath,
   name,
@@ -45,14 +39,7 @@ export function FileChipIcon({
   )
 }
 
-/**
- * 行内文件 chip 外壳：icon + 文字。
- * 样式与 Agent 侧栏模型回复正文中的内联文件 chip 一致：
- * 无背景、无描边，图标 + 主题色文字，字号继承上下文；
- * 缺失态（链接目标不存在）改用琥珀色文字与小圆点图标。
- *
- * 只承担视觉外壳，不绑定点击行为与打开语义。
- */
+/** 行内文件 chip 视觉外壳；不绑定点击行为与打开语义。 */
 export function WorkbenchFileChip({
   icon,
   label,

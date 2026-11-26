@@ -29,14 +29,6 @@ import { $createWorkbenchEquationNode } from './WorkbenchEquationNode'
 import WorkbenchEquationEditor from './WorkbenchEquationEditor'
 import { useWorkbenchStore } from '../../store/workbenchStore'
 
-/**
- * 移植 playground DraggableBlockPlugin + ComponentPickerPlugin：
- * - 左侧拖拽 handle 前加一个 "+" 按钮，点击弹出组件选择菜单（在该块下方插入新内容）
- * - 菜单带 "Filter blocks..." 搜索框、键盘上下/回车导航、Esc/外部点击关闭
- * - 按住 Alt/Ctrl 点击可在该块上方插入
- * - 输入 "3x3" 这类文本时提供动态表格尺寸选项
- */
-
 type PickerState = {
   insertBefore: boolean
   targetNodeKey: NodeKey

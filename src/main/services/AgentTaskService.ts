@@ -42,9 +42,7 @@ const SCRIPT_TIMEOUT_MS = 10_000
 const EMPTY_READS_LIMIT = 8
 /** 任务结束且无新排队任务后，无头浏览器窗口的空闲保活时间（3 分钟后销毁回收内存） */
 const IDLE_SESSION_TIMEOUT_MS = 3 * 60_000
-/** 内存中保留的终态任务与索引上限 */
 const MAX_IN_MEMORY_TERMINAL_TASKS = 100
-/** 内存中保留完整 reply 正文的最近终态任务数；更早任务按需从磁盘回读 */
 const INLINE_REPLY_KEEP_RECENT = 10
 
 class TaskError extends Error {
@@ -67,7 +65,6 @@ interface TaskEntry extends AgentTask {
   removeCloseListener?: () => void
 }
 
-/** taskId 经 randomUUID 生成，文件名仅做存在性拼接。 */
 interface PersistedAgentTaskRecord {
   version: 1
   savedAt: number
@@ -103,7 +100,6 @@ const delay = (ms: number, signal?: AbortSignal): Promise<void> =>
     if (signal?.aborted) aborted()
   })
 
-/** 限制一次异步操作的等待时间；与 MindmapService.waitFor 同范式。 */
 function waitFor<T>(operation: Promise<T>, timeoutMs: number, stage: string, signal: AbortSignal): Promise<T> {
   return new Promise((resolve, reject) => {
     let settled = false
@@ -131,10 +127,6 @@ function sameUrl(a: string, b: string): boolean {
   }
 }
 
-/**
- * Agent CLI 任务服务：任务注册表 + 状态机 + per-platform FIFO 租约 + 回复轮询 + 结果持久化。
- * 每平台一个后台会话（sessionKey = `__agent_${platform}`），与 UI 共享 persist:shared 登录态。
- */
 export class AgentTaskService {
   private tasks = new Map<string, TaskEntry>()
   private queues = new Map<string, string[]>()
@@ -147,7 +139,6 @@ export class AgentTaskService {
   private resultsDir = ''
   private shuttingDown = false
 
-  /** 注入数据根目录（便携版重定向后的 getDataPath()），启动时惰性清理过期记录。 */
   public init(dataPath: string): void {
     this.persistDir = join(dataPath, 'agent-tasks')
     this.imageDir = join(dataPath, '.multichat', 'image')
@@ -156,7 +147,6 @@ export class AgentTaskService {
     void this.sweepPersisted().catch(err => console.warn('[AgentTask] 持久化目录清理失败:', err))
   }
 
-  /** results/ → task-results/ 一次性迁移：搬移旧 TXT 并把 agent-tasks JSON 里的 replyFile 路径同步改写。 */
   private async migrateLegacyResultsDir(dataPath: string): Promise<void> {
     const legacyDir = join(dataPath, '.multichat', 'results')
     if (legacyDir === this.resultsDir) return
@@ -187,7 +177,6 @@ export class AgentTaskService {
     }
   }
 
-  /** 产物目录：优先任务级 artifactDir（CLI 传项目 cwd），回退应用数据目录。 */
   private artifactDirs(task: TaskEntry): { imageDir: string; resultsDir: string } {
     const base = task.artifactDir && isAbsolute(task.artifactDir) ? task.artifactDir : ''
     return {
@@ -313,7 +302,6 @@ export class AgentTaskService {
     }
   }
 
-  /** 任务视图：内存命中优先，miss 时读持久化记录返回历史终态视图。 */
   public async getView(taskId: string): Promise<AgentTaskView | null> {
     const task = this.tasks.get(taskId)
     if (task) return this.toView(task)
@@ -432,7 +420,6 @@ export class AgentTaskService {
     return result
   }
 
-  /** `auth.status`：按平台返回 cookie 判定的登录态；不传 platform 时返回全部平台。 */
   public async authStates(platform?: string): Promise<{
     success: boolean
     data?: Array<{ platform: string; signedIn?: boolean; matchedCookie?: string; loginRequired: boolean }>
@@ -465,7 +452,6 @@ export class AgentTaskService {
     }
   }
 
-  /** waitMs 长轮询原语：任意任务事件（phase/conversationUrl/queuedPosition 变化）或超时唤醒。 */
   public waitForChange(timeoutMs: number): Promise<void> {
     return new Promise(resolve => {
       const listener = (): void => {
@@ -478,7 +464,6 @@ export class AgentTaskService {
     })
   }
 
-  /** 应用退出：取消运行中任务并把 pending wait 以 SESSION_LOST 唤醒。 */
   public shutdown(): void {
     this.shuttingDown = true
     for (const timer of this.idleTimers.values()) {
@@ -525,7 +510,6 @@ export class AgentTaskService {
     return index + (this.running.has(task.sessionKey) ? 1 : 0)
   }
 
-  /** 会话空闲时出队队首并执行；同平台互斥、跨平台并行。 */
   private pump(sessionKey: string): void {
     if (this.shuttingDown || this.running.has(sessionKey)) return
     const queue = this.queues.get(sessionKey)
@@ -685,7 +669,6 @@ export class AgentTaskService {
     return waitFor(wc.executeJavaScript(script) as Promise<T>, timeoutMs, stage, signal)
   }
 
-  /** 生图产物抓取：等图片挂载 → 注册 will-download 上下文 → 注入点击 → 等落盘 → best-effort 关闭生图模式。 */
   private async captureGeneratedImage(task: TaskEntry, wc: WebContents, selectors: Awaited<ReturnType<typeof automationService.getPlatformSelectors>>, signal: AbortSignal): Promise<void> {
     try {
       // 图片 DOM 常晚于文本稳定数十秒才挂载（豆包实测 30-90s）。
@@ -794,14 +777,12 @@ export class AgentTaskService {
     return null
   }
 
-  /** 中止信号落地：按 abortReason 归约为 cancelled / failed，无原因则视为取消。 */
   private settleAborted(task: TaskEntry): void {
     if (isAgentTaskTerminal(task.phase)) return
     const reason = task.abortReason ?? { code: 'TASK_CANCELLED' as const, message: '任务已中止' }
     this.finalize(task, reason.code === 'TASK_CANCELLED' ? 'cancelled' : 'failed', reason)
   }
 
-  /** generating 轮询：停止按钮消失 + 内容稳定 N 轮判定完成。生图任务额外把"图片元素已挂载"作为内容信号——纯图片回复无 markdown 文本时 text 恒空。 */
   private async poll(task: TaskEntry, wc: WebContents, stateScript: string, replyScript: string, baseUrl: string, signal: AbortSignal, selectors?: Awaited<ReturnType<typeof automationService.getPlatformSelectors>>): Promise<void> {
     const isAdapted = !!generationStopSelectors[task.platform]?.length
     const stableThreshold = task.mode === 'chat' && isAdapted ? 3 : 8
@@ -1086,7 +1067,7 @@ export class AgentTaskService {
     }
   }
 
-  /** 启动惰性清理：加载索引 + 删除过期/超量记录（最多 200 条或 7 天），内存索引剥离大正文并限制 100 条。 */
+  /** 启动惰性清理：加载索引并删除过期/超量记录（最多 200 条或 7 天）。 */
   private async sweepPersisted(): Promise<void> {
     await mkdir(this.persistDir, { recursive: true })
     const entries = await readdir(this.persistDir, { withFileTypes: true })

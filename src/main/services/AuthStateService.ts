@@ -7,14 +7,10 @@ import {
   platformAuthStorage
 } from '../../shared/config/selectors'
 
-/** 单个平台的登录态判定结果。 */
 export interface PlatformAuthState {
   platform: string
-  /** true=已登录，false=明确未登录（游客），undefined=无法判定（名单未收录或页面不可读）。 */
   signedIn?: boolean
-  /** 命中的账号 cookie 名或 localStorage 键，便于排查；不返回任何凭证值。 */
   matchedCookie?: string
-  /** 判定来源：cookie、实时页面 localStorage 或持久化缓存。 */
   source?: 'cookie' | 'storage' | 'cache'
 }
 
@@ -43,14 +39,12 @@ interface StoredPlatformAuthEntry {
  * 一次性 nonce）、sid 类统计 cookie 误判成登录，实测已证伪，因此不采用。
  */
 export class AuthStateService {
-  /** 临时加载页面的上限；超时按"未知"处理，不阻塞调用方。 */
   private static readonly STORAGE_LOAD_TIMEOUT_MS = 12_000
   private static readonly STORAGE_CACHE_KEY = 'platformAuthStorageCache'
 
   private store: Store<Record<string, unknown>> | null = null
   private storageCache: Record<string, StoredPlatformAuthEntry> = {}
 
-  /** 注入配置存储，恢复 localStorage 类平台的上次已知登录态缓存。 */
   public init(store: Store<Record<string, unknown>>): void {
     this.store = store
     try {
@@ -145,7 +139,6 @@ export class AuthStateService {
     return this.readStorageFrom(target, keys)
   }
 
-  /** 在指定 WebContents 上求值 localStorage 名单；页面异常时返回 null。 */
   private async readStorageFrom(
     target: Electron.WebContents,
     keys: { signedInKeys?: string[]; signedOutMarkers?: string[] }
@@ -338,7 +331,6 @@ export class AuthStateService {
     return { platform, signedIn: true, matchedCookie: matched.name, source: 'cookie' }
   }
 
-  /** 名字命中但值是游客凭证时返回 true（见 platformAuthCookieRules）。 */
   private isGuestCookieValue(
     value: string,
     rule: { jwtGuestFlag?: string; valuePrefix?: string }
@@ -360,7 +352,6 @@ export class AuthStateService {
     return false
   }
 
-  /** 批量查询，供 `platforms` 能力表使用。 */
   public async getAll(states: Array<{ platform: string; baseUrl: string }>): Promise<PlatformAuthState[]> {
     const results: PlatformAuthState[] = []
     for (const item of states) {
@@ -369,7 +360,6 @@ export class AuthStateService {
     return results
   }
 
-  /** 批量查询并映射为字典，供渲染层模型选择器展示登录态（不触发额外网页加载）。 */
   public async getStatesMap(
     states: Array<{ platform: string; baseUrl: string }>,
     options?: { useCache?: boolean }

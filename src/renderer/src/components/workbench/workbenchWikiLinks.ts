@@ -6,7 +6,6 @@ export interface WikiLinkResolution {
   node: WorkbenchFileNode | null
 }
 
-/** 面向工作区文件集的 O(1) 双链解析索引（按 fileTree / files 引用缓存复用） */
 export interface WikiLinkIndex {
   byExactPath: Map<string, WorkbenchFileNode>
   byLowerPath: Map<string, WorkbenchFileNode>
@@ -52,7 +51,6 @@ function createEmptyWikiLinkIndex(): WikiLinkIndex {
   }
 }
 
-/** 从已拍平的文件数组获取或构建 O(1) 双链索引。 */
 function getWikiLinkIndexForFiles(files: readonly WorkbenchFileNode[]): WikiLinkIndex {
   const cached = flatIndexCache.get(files)
   if (cached) return cached
@@ -64,7 +62,6 @@ function getWikiLinkIndexForFiles(files: readonly WorkbenchFileNode[]): WikiLink
   return index
 }
 
-/** 从工作区文件树获取或构建 O(1) 双链索引（无需排序，随 fileTree 引用自动失效）。 */
 export function getWikiLinkIndexForTree(fileTree: readonly WorkbenchFileNode[]): WikiLinkIndex {
   const cached = treeIndexCache.get(fileTree)
   if (cached) return cached
@@ -83,10 +80,6 @@ export function getWikiLinkIndexForTree(fileTree: readonly WorkbenchFileNode[]):
   return index
 }
 
-/**
- * 基于预建索引解析 [[target]] 中的双链目标为工作区文件。
- * 保持 Obsidian 风格最短路径语义，单次查询 O(1) 并缓存目标串结果。
- */
 export function resolveWikiLinkFromIndex(
   target: string,
   index: WikiLinkIndex
@@ -139,7 +132,6 @@ export function resolveWikiLinkFromIndex(
   return resolved
 }
 
-/** 直接按工作区文件树解析双链目标（所有调用方共享同一份按 fileTree 缓存的索引）。 */
 export function resolveWikiLinkTargetFromTree(
   target: string,
   fileTree: readonly WorkbenchFileNode[]
@@ -147,15 +139,7 @@ export function resolveWikiLinkTargetFromTree(
   return resolveWikiLinkFromIndex(target, getWikiLinkIndexForTree(fileTree))
 }
 
-/**
- * 解析 [[target]] 中的双链目标为工作区文件。
- * Obsidian 风格的最短路径语义：
- * 1. 精确匹配工作区相对路径（含扩展名），无扩展名时先补 .md / .markdown / .txt；
- * 2. 唯一文件名匹配；
- * 3. 多歧义时取路径最短者。
- * 标题/块锚点（[[doc#heading]]、[[doc#^block]]）引用的是文档本身，
- * 解析前先剥离 # 及之后的锚点部分。
- */
+/** Obsidian 最短路径语义：精确相对路径 > 唯一文件名 > 歧义取最短；# 后锚点只定位文档。 */
 export function resolveWikiLinkTarget(
   target: string,
   files: readonly WorkbenchFileNode[]

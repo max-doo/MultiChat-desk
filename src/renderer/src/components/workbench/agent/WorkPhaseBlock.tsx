@@ -7,7 +7,6 @@ interface WorkPhaseBlockProps {
   durationMs?: number
   /** 进行中的当前动作描述（如"正在读取 xxx.md"）；为空时回落到"思考中" */
   activity?: string
-  /** 折叠区内的 reasoning / tool-group 内容 */
   children: ReactNode
 }
 
@@ -39,7 +38,6 @@ export function WorkPhaseBlock({
   const userToggled = useRef(false)
 
   useEffect(() => {
-    // 用户没手动点过时，状态切换保持收起；手动展开过就尊重用户选择。
     if (!userToggled.current) setExpanded(false)
   }, [isRunning])
 

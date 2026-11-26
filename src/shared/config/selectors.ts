@@ -1,23 +1,18 @@
-/**
- * AI 平台选择器配置
- * 用于定位各平台的输入框、发送按钮等 DOM 元素
- */
-
 export interface AutomationStep {
   selector: string | string[]
   text?: string | string[]      // 旧：部分匹配文本，向后兼容
-  regex?: string                // 新：正则模式，设定后优先于 text
-  exclude?: string[]            // 新：正则数组，命中任一则排除该元素（用于区分 Search/Research）
-  wordBoundary?: boolean        // 新：regex 为真时默认 true，自动加 \b 边界
-  caseSensitive?: boolean       // 新：默认 false（匹配不区分大小写）
+  regex?: string                // 设定后优先于 text
+  exclude?: string[]            // 命中任一则排除该元素（用于区分 Search/Research）
+  wordBoundary?: boolean        // regex 为真时默认 true，自动加 \b 边界
+  caseSensitive?: boolean       // 默认 false
   delay?: number
   exact?: boolean
   optional?: boolean
   countsAsSuccess?: boolean
-  menuOpenerFallback?: boolean  // 新：本步元素找不到时，按语义找"开菜单"按钮
-  hover?: boolean               // 新：本步不 click 而是 dispatch mouseenter/mouseover/mousemove 触发 hover 浮层
-  skipIfExists?: boolean        // 新：找到元素即视为已达成，跳过点击直接 continue（用于"状态已开"幂等）
-  // 新：幂等守卫。selector 命中的元素 aria-pressed 已为期望值时跳过本步，
+  menuOpenerFallback?: boolean  // 本步元素找不到时，按语义找"开菜单"按钮
+  hover?: boolean               // 不 click，改为派发 mouseenter/mouseover/mousemove 触发 hover 浮层
+  skipIfExists?: boolean        // 找到元素即视为已达成，跳过点击（用于"状态已开"幂等）
+  // 幂等守卫：selector 命中元素的 aria-pressed 已为期望值时跳过本步，
   // 用于"点击即取反"的开关按钮（如 qianwen.com 的"研究"），避免重复执行把状态翻回去。
   skipIfPressed?: string
   skipIfReleased?: string
@@ -208,33 +203,24 @@ export const mindmapCodeSelectors = {
 } as const
 
 export interface ModelSelector {
-  // 输入框选择器（按优先级排列）
+  // 数组均按优先级排列，取第一个可见命中
   textarea: string[]
-  // 发送按钮选择器（按优先级排列）
   sendButton: string[]
-  // 消息容器选择器（用于抓取回复）
   messageContainer: string[]
-  // 研究报告/结果容器选择器（用于抓取“生成总结/报告”的内容）
   reportContainer?: string[]
-  // Custom CSS
   customCSS: string
   /** 普通模式/卡片“新对话”按钮使用的 URL */
   newConversationUrl?: string
-  // Deep Research mode configuration
   researchMode?: {
-    // Steps to enable Deep Research
     steps: AutomationStep[]
     cancelSteps?: AutomationStep[]
-    // Backward compatibility (optional, can be removed if all updated)
+    // 旧配置兼容
     button?: string
   }
-  // AI Image Generation mode configuration
   imageGeneration?: {
-    // Steps to enable image generation
     steps: AutomationStep[]
     cancelSteps?: AutomationStep[]
   }
-  // 生图结果"下载"自动化步骤序列
   imageDownload?: {
     steps: AutomationStep[]
     closePreviewSelector?: string
@@ -746,10 +732,8 @@ export const defaultSelectors: SelectorsConfig = {
       ],
       customCSS: ``,
       newConversationUrl: 'https://www.kimi.com/',
-      // 2026-11 实测：Kimi 深度研究以独立路由 /deep-research 呈现。
-      // 首页有 a.publisher-shortcut__link[href="/deep-research"] 入口；
-      // 进入后 composer 出现 div.tool-switch.open（含"深度研究"）作为已开启态，
-      // 其中 svg.close-icon 是关闭按钮（仅 hover 可见，但 click 派发仍生效）。
+      // 2026-11 实测：Kimi 深度研究以独立路由 /deep-research 呈现；开启后 composer
+      // 出现 div.tool-switch.open 作为已开启态，其中 svg.close-icon 是关闭按钮。
       researchMode: {
         steps: [
           // step1：已开（.tool-switch.open 存在且文本匹配）→ skipIfExists 直接成功跳过
@@ -945,11 +929,9 @@ export const defaultSelectors: SelectorsConfig = {
         '#chat-input + button',
         '#chat-input ~ button'
       ],
-      // DeepSeek 单条 AI 回复即一个 div.ds-markdown.ds-assistant-message-main-content
-      // （内部直接含全部 p/h2/ul 段落），外层包 div.ds-message。
-      // 抓取逻辑取"最后一个可见候选"——若保留宽泛的 [class*="markdown"] 兜底，
-      // 正文之后的"思考过程"折叠块 / 推荐问题栏（class 含 markdown）会排在正文之后
-      // 被当成末候选抓走，表现为只抓到最后一段。故去掉宽泛兜底，只留正文容器级。
+      // 抓取取"最后一个可见候选"：宽泛的 [class*="markdown"] 兜底会命中正文之后的
+      // "思考过程"折叠块/推荐问题栏（class 也含 markdown），导致只抓到最后一段。
+      // 故只留正文容器级候选（div.ds-message / .ds-assistant-message-main-content）。
       messageContainer: [
         'div.ds-message',
         '.ds-markdown.ds-assistant-message-main-content',
@@ -974,10 +956,7 @@ function getStoreBridge(): StoreBridge | undefined {
   return (window as unknown as { api?: StoreBridge }).api
 }
 
-/**
- * 获取选择器配置
- * 优先使用本地存储的配置，否则使用默认配置
- */
+/** 优先读本地存储的配置，否则用默认配置。 */
 export async function getSelectors(): Promise<SelectorsConfig> {
   try {
     const bridge = getStoreBridge()
@@ -993,9 +972,6 @@ export async function getSelectors(): Promise<SelectorsConfig> {
   return defaultSelectors
 }
 
-/**
- * 保存选择器配置
- */
 export async function saveSelectors(config: SelectorsConfig): Promise<void> {
   const bridge = getStoreBridge()
   if (bridge) await bridge.storeSet('selectors', config)
@@ -1013,52 +989,30 @@ export async function saveSelectors(config: SelectorsConfig): Promise<void> {
  *  3. 全部缺省 → 通用回退：在 messageContainer 命中的容器尾部 createBar。
  */
 export interface AssistantReplyConfig {
-  /**
-   * 「单条回复」容器选择器（优先）。命中的每个元素视为一条独立回复，
-   * 按钮挂到其内部 actionBar。缺省时退化为「消息流容器 + 取最后一条」。
-   */
+  /** 「单条回复」容器（优先）；缺省时退化为「消息流容器 + 取最后一条」。 */
   replyItem?: string[]
-  /**
-   * replyItem 命中的是「整轮」容器（含用户消息）时，用该选择器在容器内
-   * 定位 AI 正文块；提取 Markdown 只取该块，避免把用户消息一并抓出。
-   */
+  /** replyItem 命中含用户消息的「整轮」容器时，用它定位 AI 正文块，避免连用户消息一起抓出。 */
   contentItem?: string[]
-  /**
-   * replyItem 可能同时命中用户消息与 AI 回复（如豆包共用容器）时，
-   * 用该选择器判断「这条命中的容器其实是用户消息」并跳过。
-   */
+  /** replyItem 同时命中用户消息与 AI 回复（如豆包共用容器）时，用它识别并跳过用户消息。 */
   userItemMarker?: string[]
   /** 注入按钮外框边长 px，缺省 30。原生操作按钮偏大的平台（Gemini 36px）可调大。 */
   btnSize?: number
   /** 注入按钮内 SVG 图标边长 px，缺省 16。 */
   iconSize?: number
-  /**
-   * 「消息流容器」选择器（replyItem 缺省时使用）。命中的是包含全部对话的容器，
-   * 脚本在其中定位最后一条可见回复。
-   */
+  /** 「消息流容器」（replyItem 缺省时使用），脚本在其中定位最后一条可见回复。 */
   messageRoot?: string[]
-  /**
-   * 在 replyItem（或最后一条回复）内部定位「底部操作区」的选择器，
-   * 按钮追加到该容器末尾。缺省或全部未命中时按 createBar 处理。
-   */
+  /** 回复内「底部操作区」，按钮追加到其末尾；缺省或未命中时按 createBar 处理。 */
   actionBar?: string[]
-  /**
-   * true 时不查找 actionBar，改为在 replyItem 末尾新建 div.mc-action-bar。
-   * 用于千问等无集中操作区的平台。
-   */
+  /** true 时不查找 actionBar，在 replyItem 末尾新建挂载点；用于千问等无集中操作区的平台。 */
   createBar?: boolean
-  /**
-   * actionBar 命中元素是 DIV 而非 BUTTON（如元宝）。注入按钮用 div[role=button]，
-   * 点击用 dispatchEvent 合成 MouseEvent 冒泡触发，而非 .click()。
-   */
+  /** actionBar 命中元素是 DIV 而非 BUTTON（如元宝）：按钮改用 div[role=button] + dispatchEvent 合成点击。 */
   actionBarIsDiv?: boolean
 }
 
 export const assistantReplyConfigs: Record<string, AssistantReplyConfig> = {
   chatgpt: {
-    // data-message-author-role 已失效；AI 回复容器是含 turn-action-controls 的 group，
-    // 但用户气泡与 AI 回复同属一个轮次容器，需用 contentItem 只取 AI 正文块，
-    // 否则提取 Markdown 会把用户消息一起抓出
+    // data-message-author-role 已失效；且用户气泡与 AI 回复同属一个轮次容器，
+    // 需用 contentItem 只取 AI 正文块，否则提取 Markdown 会把用户消息一起抓出
     replyItem: ['div.group.flex.flex-col:has(div.turn-action-controls):not([class~="group/user-message"])'],
     contentItem: [
       '[data-chatgpt-search-unit-key*=":assistant"]',
@@ -1077,10 +1031,8 @@ export const assistantReplyConfigs: Record<string, AssistantReplyConfig> = {
     iconSize: 18
   },
   deepseek: {
-    // 结构：ds-message(AI回复,含think+正文) 与 div.ds-flex(底部操作栏,6个div.ds-icon)
-    // 是兄弟节点，同属一个父容器。replyItem 须命中该父容器，actionBar 才能在
-    // 其内找到底部操作栏；命中 ds-message 本身会错挂到 think 上方的 _5ab5d64（那是
-    // "已思考"行的按钮组，非回复操作栏）。
+    // ds-message(AI回复) 与底部操作栏 div.ds-flex 是兄弟节点：replyItem 须命中两者
+    // 共同的父容器；命中 ds-message 本身会错挂到"已思考"行的按钮组（非回复操作栏）。
     replyItem: ['div:has(> div.ds-message + div.ds-flex)'],
     contentItem: ['div.ds-markdown.ds-assistant-message-main-content', 'div[class*="ds-assistant-message-main-content"]'],
     // 底部操作栏 = ds-flex 内含 ≥2 个平级 div.ds-button 的行容器（_965abe9，hash 会失效）

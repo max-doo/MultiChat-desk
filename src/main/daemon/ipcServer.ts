@@ -36,9 +36,7 @@ interface DaemonRequest {
   includeFinished?: boolean
   genImage?: boolean
   artifactDir?: string
-  /** exec-script 动作：要执行的 JS 字符串 */
   script?: string
-  /** exec-script 动作：会话 key（默认与 platform 相同） */
   sessionKey?: string
   [key: string]: unknown
 }
@@ -95,7 +93,6 @@ function normalizeWaitMs(value: unknown): number {
   return Math.min(waitMs, AGENT_TASK_MAX_TIMEOUT_MS)
 }
 
-/** waitMs 长轮询：任务进入终态立即返回；超时或 socket 断开返回当前视图/ null。 */
 async function waitForTaskView(socket: net.Socket, taskId: string, waitMs: number): Promise<AgentTaskView | null> {
   const deadline = Date.now() + waitMs
   const socketClosed = new Promise<void>(resolve => socket.once('close', resolve))
@@ -250,8 +247,6 @@ async function handleRequest(socket: net.Socket, line: string): Promise<void> {
     }
     sendResponse(socket, { success: true, data: result.data })
   } else if (action === 'exec-script') {
-    // dev/diagnostic：在指定平台的后台会话里执行一段 JS（executeJavaScript），返回其结果。
-    // script 由 CLI 侧完全构造，daemon 只做透传；主要用于 DOM 结构探针等一次性脚本。
     const platform = typeof req.platform === 'string' && req.platform ? req.platform : ''
     const sessionKey = typeof req.sessionKey === 'string' && req.sessionKey ? req.sessionKey : platform
     const script = typeof req.script === 'string' ? req.script : ''

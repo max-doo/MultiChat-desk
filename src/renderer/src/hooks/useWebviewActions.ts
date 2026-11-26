@@ -176,9 +176,6 @@ export function useWebviewActions({
       }
     },
 
-    /**
-     * 只输入文字到输入框，不发送
-     */
     insertText: async (message: string): Promise<{ success: boolean; error?: string }> => {
       const webview = webviewRef.current
       if (!webview) {
@@ -204,9 +201,6 @@ export function useWebviewActions({
       }
     },
 
-    /**
-     * 清空输入框内容
-     */
     clearInput: async (): Promise<{ success: boolean; error?: string }> => {
       const webview = webviewRef.current
       if (!webview || !isReady || !selectors) {
@@ -225,9 +219,6 @@ export function useWebviewActions({
       }
     },
 
-    /**
-     * 读取输入框中的当前文本内容（不清空、不发送）
-     */
     getInputText: async (): Promise<{ success: boolean; text?: string; error?: string }> => {
       const webview = webviewRef.current
       if (!webview || !isReady || !selectors) {
@@ -247,9 +238,6 @@ export function useWebviewActions({
       }
     },
 
-    /**
-     * 上传文件到 webview
-     */
     uploadFile: async (fileData: FileUploadData): Promise<{ success: boolean; error?: string }> => {
       const webview = webviewRef.current
       if (!webview || !isReady || !selectors) {
@@ -342,22 +330,17 @@ export function useWebviewActions({
       }
     },
 
-    /**
-     * 启用 Deep Research 模式
-     */
     enableDeepResearch: async (): Promise<{ success: boolean; error?: string }> => {
       const webview = webviewRef.current
       if (!webview || !isReady || !selectors) {
         return { success: false, error: 'Webview 未就绪' }
       }
 
-      // 检查是否有 Deep Research 配置
       if (!selectors.researchMode?.button && !selectors.researchMode?.steps) {
         return { success: false, error: '此模型不支持 Deep Research' }
       }
 
       try {
-        // 传递整个 researchMode 配置
         const code = generateEnableDeepResearchScript(selectors.researchMode)
         const result = await webview.executeJavaScript(code)
         return { success: result.success, error: result.error }
@@ -385,9 +368,6 @@ export function useWebviewActions({
       }
     },
 
-    /**
-     * 启用 AI 生图功能
-     */
     enableImageGeneration: async (): Promise<{ success: boolean; error?: string }> => {
       const webview = webviewRef.current
       if (!webview || !isReady || !selectors) {
@@ -407,9 +387,6 @@ export function useWebviewActions({
       }
     },
 
-    /**
-     * 禁用 AI 生图功能
-     */
     disableImageGeneration: async (): Promise<{ success: boolean; error?: string }> => {
       const webview = webviewRef.current
       if (!webview || !isReady || !selectors) {
@@ -429,9 +406,6 @@ export function useWebviewActions({
       }
     },
 
-    /**
-     * 提取当前 webview 最新回复中的生图（img/canvas/a[href]/blob→data），返回 src 列表与 wcId
-     */
     extractGeneratedImages: async () => {
       const webview = webviewRef.current
       if (!webview || !isReady || !selectors) {
@@ -476,10 +450,6 @@ export function useWebviewActions({
       }
     },
 
-    /**
-     * 获取最新的 AI 回复
-     * 对于 Gemini Canvas 模式，通过点击复制按钮并读取剪贴板获取内容
-     */
     getLatestResponse: async (options?: { interactive?: boolean }): Promise<string> => {
       const webview = webviewRef.current
       if (!webview || !isReady || !selectors) {
@@ -491,7 +461,6 @@ export function useWebviewActions({
           const state = await webview.executeJavaScript(generateMindmapPageStateScript(selectors, id))
           if (state?.busy) return '' // 页面仍在生成，不能用短暂稳定的旧文本推进任务。
         }
-        // 对于 Gemini，先尝试 Canvas 模式的复制方式（使用真实鼠标点击）
         if (id === 'gemini' && options?.interactive !== false) {
           const canvasContent = await extractGeminiCanvasContent(
             webview,
@@ -504,7 +473,6 @@ export function useWebviewActions({
           // Canvas 模式提取失败，回退到普通 DOM 爬取
         }
 
-        // 对于千问，若报告页已打开（复制按钮可见），优先通过点击复制按钮获取完整报告
         if (id === 'qwen' && options?.interactive !== false) {
           const reportContent = await extractQwenReportContent(
             webview,
@@ -517,7 +485,6 @@ export function useWebviewActions({
           // 报告页未打开或提取失败，回退到普通 DOM 爬取
         }
 
-        // 普通模式：使用 HTML 转 Markdown
         const code = generateGetLatestResponseScript(selectors)
         const content = await webview.executeJavaScript(code)
         if (typeof content === 'string' && content.trim()) {
@@ -531,9 +498,6 @@ export function useWebviewActions({
       }
     },
 
-    /**
-     * dev-only：对当前页面跑 messageContainer 探针，返回每候选命中报告
-     */
     probeMessageContainer: async (): Promise<ProbeReport> => {
       const webview = webviewRef.current
       if (!webview) {
@@ -551,9 +515,6 @@ export function useWebviewActions({
       }
     },
 
-    /**
-     * dev-only：对当前页面跑 researchMode 探针，返回每步命中报告（只读）
-     */
     probeResearchMode: async (): Promise<ResearchProbeReport> => {
       const webview = webviewRef.current
       if (!webview) {
@@ -589,9 +550,6 @@ export function useWebviewActions({
       }
     },
 
-    /**
-     * dev-only：探测「回复插入」按钮注入点命中情况（replyItem/actionBar/bar/已注入按钮分布）
-     */
     probeActionBar: async (): Promise<ActionBarProbeReport> => {
       const webview = webviewRef.current
       if (!webview) {

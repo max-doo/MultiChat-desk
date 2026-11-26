@@ -1,7 +1,7 @@
 /**
- * messageContainer 选择器诊断工具（dev-only）
- * 探针逻辑同源拷贝自 src/shared/utils/webviewScripts.ts:1509-1572，
- * 保证"探针命中 = 生产命中"。修改 webviewScripts.ts 的匹配逻辑时必须同步本文件。
+ * messageContainer 选择器诊断工具（dev-only）。
+ * 探针逻辑复刻 `src/shared/utils/webviewScripts.ts` 的生产匹配逻辑；
+ * 修改任一侧时必须同步另一侧，保证“探针命中 = 生产命中”。
  */
 import type { AutomationStep } from '../config/selectors'
 
@@ -14,7 +14,7 @@ export interface CandidateReport {
     className: string | null
     id: string | null
     dataTestid: string | null
-    /** 元素可见正文长度（脱敏：仅长度，不含正文内容） */
+/** 元素可见正文长度（脱敏，不含正文内容） */
     visibleTextLen: number
   } | null
   error?: string
@@ -26,17 +26,10 @@ export interface ProbeReport {
   error?: string
 }
 
-/**
- * 构建在平台页内执行的探针脚本字符串。
- * @param selectors 候选选择器数组（来自 selectors.models[id].messageContainer）
- * @returns 可传入 webview.executeJavaScript 的脚本字符串
- */
 export function buildProbeScript(selectors: string[]): string {
-  // 探针四函数同源拷贝自 webviewScripts.ts:1509-1572，注释行号对应原文件
   return `(function () {
     var containerSelectors = ${JSON.stringify(selectors)};
 
-    // 来源: webviewScripts.ts:1512
     function safeQueryAll(root, selector) {
       try {
         return Array.from(root.querySelectorAll(selector));
@@ -45,7 +38,6 @@ export function buildProbeScript(selectors: string[]): string {
       }
     }
 
-    // 来源: webviewScripts.ts:1553
     function isVisible(element) {
       try {
         if (!element || !element.isConnected) return false;
@@ -67,7 +59,6 @@ export function buildProbeScript(selectors: string[]): string {
       }
     }
 
-    // 来源: webviewScripts.ts:1524-1538（shadow root 兜底）
     function queryAllWithShadow(selector) {
       var hits = safeQueryAll(document, selector);
       if (hits.length > 0) return hits;
@@ -94,7 +85,6 @@ export function buildProbeScript(selectors: string[]): string {
       } catch (e) {
         text = '';
       }
-      // 脱敏：仅长度，不含正文
       return {
         tag: (el.tagName || '').toLowerCase(),
         className: (typeof el.className === 'string' ? el.className : null),
@@ -112,7 +102,6 @@ export function buildProbeScript(selectors: string[]): string {
       } catch (e) {
         err = String(e && e.message ? e.message : e);
       }
-      // 去重（来源: webviewScripts.ts:1545-1551，用 indexOf 实现以适配注入环境）
       var unique = [];
       for (var i = 0; i < hits.length; i++) {
         var h = hits[i];
@@ -141,10 +130,6 @@ export function buildProbeScript(selectors: string[]): string {
   })();`
 }
 
-/**
- * 解析 executeJavaScript 返回的探针结果。
- * 异常兜底返回 { ok: false, candidates: [], error }。
- */
 export function parseProbeResult(raw: unknown): ProbeReport {
   if (typeof raw !== 'string') {
     return { ok: false, candidates: [], error: '探针返回非字符串' }
@@ -173,7 +158,6 @@ export interface StepReport {
     className: string | null
     id: string | null
     dataTestid: string | null
-    /** 元素可见正文长度（脱敏：仅长度，不含正文内容） */
     visibleTextLen: number
   } | null
   error?: string
@@ -185,23 +169,15 @@ export interface ResearchProbeReport {
   error?: string
 }
 
-/**
- * 构建在平台页内执行的 researchMode 探针脚本字符串。
- * @param steps researchMode 步骤数组（来自 selectors.models[id].researchMode.steps）
- * @returns 可传入 webview.executeJavaScript 的脚本字符串
- */
 export function buildResearchProbeScript(steps: AutomationStep[]): string {
-  // 探针复刻 webviewScripts.ts:640-781 的 findElement+findMenuOpener（同源只读，不点击）
   return `(function () {
     var steps = ${JSON.stringify(steps)};
 
-    // 来源: webviewScripts.ts:640-748 findElement（只读复刻，去掉 normalizeClickable 的点击相关）
     function matchText(content, ariaLabel, o) {
       var flags = o.caseSensitive ? '' : 'i';
       var targets = o.regex
         ? [o.regex]
         : (o.text != null ? (Array.isArray(o.text) ? o.text : [o.text]) : []);
-      // 来源: webviewScripts.ts:662-665 exclude 命中任一即否（区分 Search/Research 的关键，同源）
       var excludeList = o.exclude || [];
       for (var exi = 0; exi < excludeList.length; exi++) {
         try { if (new RegExp(excludeList[exi], flags).test(content) || new RegExp(excludeList[exi], flags).test(ariaLabel)) return false; } catch (e) {}
@@ -235,7 +211,6 @@ export function buildResearchProbeScript(steps: AutomationStep[]): string {
       if (!el) return null;
       var text = '';
       try { text = (el.innerText || el.textContent || '') + ''; } catch (e) { text = ''; }
-      // 脱敏：仅长度，不含正文
       return {
         tag: (el.tagName || '').toLowerCase(),
         className: (typeof el.className === 'string' ? el.className : null),
@@ -272,7 +247,6 @@ export function buildResearchProbeScript(steps: AutomationStep[]): string {
           if (matchText(content, ariaLabel, o)) return { el: el, via: 'selector' };
         }
       }
-      // 来源: webviewScripts.ts:726-745 策略二降级（语义兜底）
       if (text || (o && o.regex)) {
         var semanticSelectors = 'button, [role="button"], [role="radio"], [role="switch"], [role="checkbox"], [role="menuitem"], [role="menuitemradio"], [role="tab"], label, input[type="checkbox"], input[type="radio"]';
         var semanticElements = [];
@@ -288,7 +262,6 @@ export function buildResearchProbeScript(steps: AutomationStep[]): string {
       return null;
     }
 
-    // 来源: webviewScripts.ts:765-781 findMenuOpener
     function findMenuOpener() {
       var openerRegex = /\\+|plus|more|tools?|menu|菜单|更多|工具|附加|添加/i;
       var all = document.querySelectorAll('[aria-haspopup="menu"], [aria-haspopup="true"], button, [role="button"]');
@@ -333,10 +306,6 @@ export function buildResearchProbeScript(steps: AutomationStep[]): string {
   })();`
 }
 
-/**
- * 解析 executeJavaScript 返回的 researchMode 探针结果。
- * 异常兜底返回 { ok: false, steps: [], error }。
- */
 export function parseResearchProbeResult(raw: unknown): ResearchProbeReport {
   if (typeof raw !== 'string') {
     return { ok: false, steps: [], error: '探针返回非字符串' }
@@ -352,10 +321,6 @@ export function parseResearchProbeResult(raw: unknown): ResearchProbeReport {
   }
 }
 
-// ─────────────────────────────────────────────────────────────
-// DOM 结构探测（dev-only 检拾模式）
-// ─────────────────────────────────────────────────────────────
-
 /** 序列化节点指纹：白名单属性 + 正文仅长度（脱敏，不含正文内容） */
 export interface NodeFingerprint {
   tag: string
@@ -365,33 +330,26 @@ export interface NodeFingerprint {
   /** 白名单属性：role/aria-label/aria-haspopup/name/type/href，其余丢弃 */
   attrs: Record<string, string | null>
   childCount: number
-  /** 元素可见正文长度（脱敏：仅长度，不含正文内容） */
   visibleTextLen: number
   isVisible: boolean
 }
 
-/** 子树节点：指纹 + 递归 children（截断到 childDepth 层） */
 export interface TreeNode extends NodeFingerprint {
   children: TreeNode[]
 }
 
 export interface DomProbeOptions {
-  /** 祖先链深度，默认 8 */
   ancestorDepth?: number
-  /** 子树深度，默认 3 */
   childDepth?: number
 }
 
 export interface DomProbeReport {
   ok: boolean
-  /** 命中元素的选择器（picker 模式下为构造的候选选择器） */
   selector?: string
   target?: NodeFingerprint
-  /** 从根方向 → 目标，最远祖先在前 */
   ancestors?: NodeFingerprint[]
   subtree?: TreeNode
   error?: string
-  /** 用户按 Esc 取消 */
   cancelled?: boolean
 }
 
@@ -399,13 +357,7 @@ const DOM_ATTR_WHITELIST = ['role', 'aria-label', 'aria-haspopup', 'name', 'type
 const DEFAULT_ANCESTOR_DEPTH = 8
 const DEFAULT_CHILD_DEPTH = 3
 
-/**
- * 构建在平台页内执行的 DOM 结构序列化脚本（选择器驱动，dev-only）。
- * querySelector(selector) 取首个命中，向上取 ancestorDepth 层祖先，向下取 childDepth 层子树。
- * @param opts.selector CSS 选择器（可逗号分隔多候选，取首个命中）
- * @param opts.ancestorDepth 祖先深度，默认 8
- * @param opts.childDepth 子树深度，默认 3
- */
+/** 选择器驱动：取首个命中，向上取 ancestorDepth 层祖先，向下取 childDepth 层子树。 */
 export function buildDomProbeScript(opts: { selector: string; ancestorDepth?: number; childDepth?: number }): string {
   const selector = opts.selector
   const ancestorDepth = opts.ancestorDepth ?? DEFAULT_ANCESTOR_DEPTH
@@ -512,7 +464,6 @@ export function buildDomProbeScript(opts: { selector: string; ancestorDepth?: nu
  * 同步脚本才返回 JSON 字符串。两种形态都接受。
  */
 export function parseDomProbeResult(raw: unknown): DomProbeReport {
-  // picker 路径：resolve 的是结构化对象，直接校验后返回
   if (raw && typeof raw === 'object') {
     return raw as DomProbeReport
   }
@@ -530,13 +481,7 @@ export function parseDomProbeResult(raw: unknown): DomProbeReport {
   }
 }
 
-/**
- * 构建在平台页内执行的检拾（picker）脚本字符串（dev-only）。
- * 注入全屏透明覆盖层 + 高亮框 + 浮标；mousemove 用 elementFromPoint 高亮，click 选中后序列化并回传，Esc 取消。
- * 单次 executeJavaScript 往返：注入即挂起监听，点选/取消/超时后 resolve。
- * @param opts.ancestorDepth 祖先深度，默认 8
- * @param opts.childDepth 子树深度，默认 3
- */
+/** 注入即挂起监听，点选/取消/超时后 resolve，单次 executeJavaScript 往返。 */
 export function buildPickerScript(opts: DomProbeOptions = {}): string {
   const ancestorDepth = opts.ancestorDepth ?? DEFAULT_ANCESTOR_DEPTH
   const childDepth = opts.childDepth ?? DEFAULT_CHILD_DEPTH
@@ -666,7 +611,6 @@ export function buildPickerScript(opts: DomProbeOptions = {}): string {
 
     function updateHighlight(e) {
       var el = document.elementFromPoint(e.clientX, e.clientY);
-      // 跳过注入物自身
       if (el && (el.id === 'mc-picker-overlay' || el.id === 'mc-picker-highlight' || el.id === 'mc-picker-tip')) {
         el = null;
       }
@@ -739,7 +683,6 @@ export function buildPickerScript(opts: DomProbeOptions = {}): string {
     document.addEventListener('click', onClick, true);
     document.addEventListener('keydown', onKey, true);
 
-    // 超时自清
     setTimeout(function () {
       var ol = document.getElementById('mc-picker-overlay');
       if (!ol) return; // 已通过 click/Esc 清理
@@ -751,16 +694,11 @@ export function buildPickerScript(opts: DomProbeOptions = {}): string {
     }, PICKER_TIMEOUT_MS);
 
     return new Promise(function (resolve) {
-      // 新 picker 重置已 resolve 标志，使本会话的 click/Esc/超时能正常 resolve
       window.__mcPickerResolved = false;
       window.__mcPickerResolve = resolve;
     });
   })();`
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 工作台「回复插入」按钮注入点探针（dev-only）
-// ─────────────────────────────────────────────────────────────────────────────
 
 export interface ActionBarProbeReport {
   ok: boolean

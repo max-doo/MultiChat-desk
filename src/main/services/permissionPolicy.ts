@@ -55,7 +55,6 @@ const MODE_LOOKUP = new Map<string, ModeId>(
   ])
 )
 
-/** Parse a mode or its alias; unknown values fall back to `default`. `readonly` is preserved. */
 export function parseMode(value: string | undefined | null): ExtendedModeId {
   const normalized = (value ?? 'default').trim().toLowerCase()
   if (!normalized) return 'default'
@@ -106,7 +105,6 @@ const UNKNOWN_EFFECT: ToolEffect = {
   description: '未登记副作用，无法确认工具安全边界。'
 }
 
-/** Built-in Pi tools known to the policy engine. */
 const BUILTIN_TOOL_EFFECTS: Readonly<Record<string, ToolEffect>> = {
   read: { kind: 'read', paths: 'declared', reversible: true, description: '读取文件内容。' },
   grep: { kind: 'read', paths: 'declared', reversible: true, description: '搜索文件内容。' },
@@ -143,9 +141,7 @@ export interface PermissionContext {
   cwd: string
   workspaceRoot: string
   interactive: boolean
-  /** Extra trusted read-only roots (profile resources, skill dirs). */
   allowedReadRoots?: readonly string[]
-  /** Extra protected roots beyond the defaults. */
   protectedRoots?: readonly string[]
 }
 
@@ -230,7 +226,7 @@ export interface PathInspection {
   normalized?: string
   relative?: string
   boundary: PathBoundary
-  /** File content is credential-shaped (.env, private key, cloud creds). */
+  /** 文件内容属于凭据形态（.env、私钥、云凭据）。 */
   sensitive?: boolean
 }
 
@@ -239,47 +235,41 @@ export interface CommandInspection {
   normalized: string
   executable?: string
   pathArguments?: string[]
-  /** Explicit write/delete targets when the analyzer separated reads from writes. */
+  /** analyzer 明确拆分出的写入/删除目标；与读取侧 pathArguments 分开校验。 */
   writeTargets?: string[]
-  /** Static `cd` / `Set-Location` directory targets verified downstream. */
+  /** 静态 `cd` / `Set-Location` 目录目标，由调用方校验工作区边界。 */
   cdTargets?: string[]
   parseable: boolean
-  /** Recognized as a read-only PowerShell pipeline. */
   readOnly: boolean
-  /** Which analyzer produced the verdict (for debugging/telemetry). */
+  /** 产出判定的 analyzer，供调试与遥测定位。 */
   analyzer?: 'powershell-ast' | 'bash-segments' | 'unavailable'
-  /** AST/segment analysis proved the whole command is read-only. */
   astReadOnly?: boolean
-  /** AST/segment analysis found write ops — caller boundary-checks paths. */
+  /** AST/分段分析发现写入操作；路径边界校验由调用方完成。 */
   astWriteOps?: boolean
-  /** Touches the network but only fetches data (git fetch/pull/clone). */
+  /** 访问网络但只拉取数据（git fetch/pull/clone）。 */
   networkRead?: boolean
-  /** Pushes/publishes to a remote (git push, npm publish, ...). */
+  /** 向远端推送/发布（git push、npm publish 等）。 */
   networkWrite?: boolean
-  /** Contains destructive/opaque shell syntax that auto mode must confirm. */
   requiresApproval: boolean
-  /** High-risk construct (sudo, dynamic head/target) requiring confirmation even in bypass. */
+  /** 高风险构造，即使在 bypass 模式也必须确认。 */
   bypassRequiresApproval?: boolean
   bypassReason?: string
   highRisk: boolean
   reason?: string
 }
 
-/** Per-shell AST/segment verdict plugged in by the caller. */
 export interface CommandAnalyzerVerdict {
   readOnly: boolean
-  /** Command writes file content to path args — caller boundary-checks them. */
+  /** 命令会向路径参数写入内容；边界校验由调用方完成。 */
   writeOps?: boolean
   pathArguments?: string[]
-  /** Explicit write/delete target paths when distinct from read-side pathArguments. */
+  /** 与读取侧 pathArguments 区分时，明确的写入/删除目标路径。 */
   writeTargets?: string[]
-  /** Static `cd` / `Set-Location` directory targets — caller verifies workspace boundary. */
+  /** 静态 `cd` / `Set-Location` 目录目标；工作区边界由调用方验证。 */
   cdTargets?: string[]
-  /** Executables/wrapper heads observed during analysis. */
   commands?: string[]
-  /** Why read-only was rejected (debug). */
   rejectReason?: string
-  /** Requires confirmation even in `bypass` mode. */
+  /** 即使在 bypass 模式也需要确认。 */
   bypassRequiresApproval?: boolean
   bypassReason?: string
 }
@@ -922,7 +912,6 @@ function defaultDecision(
   return context.interactive ? 'ask' : 'deny'
 }
 
-/** Pure policy calculation. Never opens UI and never executes a command. */
 export function decidePermission(
   context: PermissionContext,
   analyzerVerdict?: CommandAnalyzerVerdict | null

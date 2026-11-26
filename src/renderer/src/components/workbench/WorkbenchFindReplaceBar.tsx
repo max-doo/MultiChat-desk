@@ -51,11 +51,8 @@ function replaceMatch(
 }
 
 interface Props {
-  /** 是否展示（父组件控制快捷键开/关） */
   open: boolean
-  /** 初始聚焦查找输入框（true）还是替换输入框（false） */
   replaceFocus: boolean
-  /** 关闭回调 */
   onClose: () => void
   /** 当前文本是否可直接编辑（只读视图下替换禁用） */
   canReplace: boolean

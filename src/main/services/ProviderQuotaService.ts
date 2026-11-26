@@ -136,7 +136,6 @@ function formatDurationWindowName(seconds: number): string {
   return '周期额度'
 }
 
-/** Evaluate Magpie-style balance path expression like `$data.balance` or `$data.quota / 500000`. */
 function readBalanceByPath(payload: unknown, expr: string): number | undefined {
   const trimmed = expr.trim()
   if (!trimmed) return undefined
@@ -343,7 +342,6 @@ export class ProviderQuotaService {
         }
       }
 
-      // 1. User-configured explicit balance endpoint on a custom gateway
       if (target.customSpec?.balanceUrl) {
         return await this.fetchCustomBalanceUrl(
           target,
@@ -353,11 +351,9 @@ export class ProviderQuotaService {
         )
       }
 
-      // 2. Known vendor / coding-plan endpoints matched by baseUrl host or provider id
       const known = await this.fetchKnownVendorQuota(target, apiKey)
       if (known) return known
 
-      // 3. Automatic relay probing (Sub2API / New-API / One-API / legacy credit_grants)
       if (target.isCustom || target.baseUrl) {
         return await this.probeRelayQuota(target, apiKey)
       }
@@ -722,7 +718,6 @@ export class ProviderQuotaService {
   ): Promise<AgentProviderQuota | null> {
     const host = hostOf(target.baseUrl)
 
-    // DeepSeek
     if (host === 'api.deepseek.com' || target.id === 'deepseek') {
       const res = await fetch('https://api.deepseek.com/user/balance', {
         headers: { accept: 'application/json', authorization: `Bearer ${apiKey}` },
@@ -749,7 +744,6 @@ export class ProviderQuotaService {
       }
     }
 
-    // Moonshot
     if (host === 'api.moonshot.cn' || host === 'api.moonshot.ai' || target.id.startsWith('moonshotai')) {
       const endpointHost = host === 'api.moonshot.ai' ? 'api.moonshot.ai' : 'api.moonshot.cn'
       const sign = endpointHost.endsWith('.ai') ? '$' : '¥'
@@ -771,7 +765,6 @@ export class ProviderQuotaService {
       }
     }
 
-    // OpenRouter
     if (host === 'openrouter.ai' || target.id === 'openrouter') {
       const res = await fetch('https://openrouter.ai/api/v1/credits', {
         headers: { accept: 'application/json', authorization: `Bearer ${apiKey}` },
@@ -792,7 +785,6 @@ export class ProviderQuotaService {
       }
     }
 
-    // Zhipu / Z.ai (Coding Plan or Pay-as-you-go)
     if (host === 'open.bigmodel.cn' || host === 'api.z.ai' || target.id === 'zai' || target.id === 'zai-coding-cn') {
       const apiHost = host === 'api.z.ai' || target.id === 'zai' ? 'api.z.ai' : 'open.bigmodel.cn'
       const isCoding = Boolean(target.baseUrl?.includes('/api/coding/')) || target.id === 'zai-coding-cn'
@@ -861,7 +853,6 @@ export class ProviderQuotaService {
       }
     }
 
-    // MiniMax Coding Plan
     if (
       host === 'api.minimaxi.com' ||
       host === 'api.minimax.cn' ||
@@ -921,7 +912,6 @@ export class ProviderQuotaService {
       }
     }
 
-    // AiHubMix
     if (host === 'aihubmix.com') {
       const res = await fetch('https://aihubmix.com/dashboard/billing/remain', {
         headers: { accept: 'application/json', authorization: `Bearer ${apiKey}` },
@@ -941,7 +931,6 @@ export class ProviderQuotaService {
       }
     }
 
-    // Kimi Coding (API key fallback)
     if (host === 'api.kimi.com' && target.baseUrl?.includes('/coding')) {
       return await this.fetchKimiCodingQuota(target)
     }
@@ -1133,7 +1122,6 @@ export class ProviderQuotaService {
       }
     }
 
-    // /dashboard/billing/credit_grants
     const avail = readBalanceByPath(payload, '$total_available')
     if (avail === undefined) throw new Error('缺少 total_available')
     return {

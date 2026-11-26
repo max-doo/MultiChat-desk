@@ -32,19 +32,13 @@ type AgentMessage = SessionMessageEntry['message']
 const importEsm = new Function('s', 'return import(s)') as <T>(s: string) => Promise<T>
 
 export const DEFAULT_COMPRESSION_CONFIG: CompressionConfig = {
-  /** L1: a single tool result whose text exceeds this is truncated on append (zero cache cost). */
   toolResultHardCap: 8000,
-  /** L2: context usage percent that must be reached before observation masking runs. */
   triggerPercent: 70,
-  /** L2: number of most-recent tool call+result pairs always preserved verbatim. */
   keepRecentToolCalls: 4,
-  /** L2: chars above which an old tool-call argument field is masked. */
   toolCallMaxChars: 20000,
   /** L2: chars above which an old tool result is masked. Independent of L1's cap so it isn't dead code. */
   maskResultChars: 4000,
-  /** Tool names never compressed at any layer. */
   excludeTools: [],
-  /** L2: true = summarize masked old results with the current model; false = truncate. */
   toolResultUseModel: false,
   summarizerMode: 'sdk',
   modelOverride: null
@@ -99,7 +93,6 @@ function toolCallsOf(m: AssistantMessage): ToolCall[] {
   return (m.content ?? []).filter((c): c is ToolCall => c?.type === 'toolCall')
 }
 
-/** Ordered unique toolCall ids, newest last; the last `keep` are the protected fresh window. */
 function recentToolCallIds(messages: AgentMessage[], keep: number): Set<string> {
   const ordered: string[] = []
   const seen = new Set<string>()
@@ -271,7 +264,6 @@ export function createContextCompressionExtension(
             continue
           }
 
-          // Old tool results → replacement result content with a mask placeholder.
           // Old tool results → replacement result content with a mask placeholder.
           if (isToolResultMessage(m) && m.toolCallId && !keepIds.has(m.toolCallId)) {
             if (exclude.has(m.toolName)) continue

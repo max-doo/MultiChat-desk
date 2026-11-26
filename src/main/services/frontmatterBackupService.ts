@@ -16,7 +16,6 @@ import type {
 } from '../../shared/types/workbench'
 
 const BACKUP_DIR = path.join('.multichat', 'frontmatter-backup')
-/** 相对路径统一用 / 分隔，与工作区文件树和 IPC 契约一致。 */
 const BACKUP_DIR_POSIX = '.multichat/frontmatter-backup'
 const BACKUP_SUFFIX = '.bak'
 
@@ -27,14 +26,11 @@ const rootKey = (root: string): string => {
 
 interface BackupFile {
   workspaceRoot: string
-  /** 相对工作区根的 .bak 路径，统一用 / 分隔 */
   relativePath: string
-  /** 备份对应的原文档相对路径 */
   documentPath: string
   size: number
 }
 
-/** 递归收集某个工作区下的备份；目录不存在视为没有备份。 */
 async function collectWorkspaceBackups(workspaceRoot: string): Promise<BackupFile[]> {
   const backupRoot = path.join(workspaceRoot, BACKUP_DIR)
   const files: BackupFile[] = []
@@ -69,7 +65,6 @@ async function collectWorkspaceBackups(workspaceRoot: string): Promise<BackupFil
   return files
 }
 
-/** 原文档是否仍然存在（用于判断备份能否安全删除）。 */
 async function documentExists(workspaceRoot: string, documentPath: string): Promise<boolean> {
   const target = path.resolve(workspaceRoot, documentPath)
   const prefix = rootKey(workspaceRoot) + path.sep
@@ -153,13 +148,11 @@ export async function clearFrontmatterBackups(
         })
       }
     }
-    // 清空后移除空目录，避免留下一个空壳让用户以为还有备份。
     await removeEmptyDirs(backupRoot).catch(() => undefined)
   }
   return result
 }
 
-/** 自底向上删除空目录，只作用于备份根内部。 */
 async function removeEmptyDirs(dir: string): Promise<void> {
   let entries
   try {

@@ -175,7 +175,6 @@ function TableActionMenu({
     }
   }, [contextRef, editor])
 
-  // 外部点击关闭
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (

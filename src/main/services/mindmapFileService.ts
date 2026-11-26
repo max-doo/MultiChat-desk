@@ -1,9 +1,3 @@
-/**
- * 工作台导图文件服务
- *
- * 负责 `.multichat/mindmaps/` 目录的读写、单层扫描、回读校验与状态计算。
- * 导图文件 = frontmatter(id/source/title) + 导图正文；XMind、幕布可直接导入。
- */
 
 import path from 'path'
 import { lstat, mkdir, readdir, readFile, rename, rm, writeFile } from 'fs/promises'
@@ -31,7 +25,6 @@ export interface ScannedMindmapFile {
   source?: string
   title?: string
   updatedAt?: number
-  /** 文件修改时间，frontmatter 缺少 updatedAt 时作为版本戳兜底。 */
   mtimeMs?: number
   body: string
 }

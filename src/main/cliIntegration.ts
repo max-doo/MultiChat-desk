@@ -22,13 +22,11 @@ const execFileAsync = promisify(execFile)
 const HINT_DISMISSED_KEY = 'cliAgentHintDismissed'
 const INSTALL_STAMP_FILE = '.install-stamp'
 
-/** 覆盖安装标记：NSIS customInstall 每次安装写入，用户在应用内关闭引导时清除 */
 function hasInstallStamp(): boolean {
   const cliDir = getCliDir()
   return cliDir !== null && existsSync(join(cliDir, INSTALL_STAMP_FILE))
 }
 
-/** multichat shim 目录：仅打包版有实体文件（$INSTDIR\cli） */
 function getCliDir(): string | null {
   if (process.platform !== 'win32' || !app.isPackaged) return null
   const dir = join(dirname(process.execPath), 'cli')
@@ -41,19 +39,16 @@ function getCliCmdPath(cliDir: string | null): string | null {
       const cmd = join(cliDir, 'multichat.cmd')
       if (existsSync(cmd)) return cmd
     }
-    // dev 环境回退到仓库内的 CLI bundle
     const devBundle = join(app.getAppPath(), 'out', 'cli', 'index.js')
     return existsSync(devBundle) ? devBundle : null
   }
   if (process.platform === 'darwin' && app.isPackaged) {
-    // multichat.sh 位于 MultiChat.app/Contents/，与 MacOS/ 同级
     const sh = join(dirname(process.execPath), '..', 'multichat.sh')
     return existsSync(sh) ? sh : null
   }
   return null
 }
 
-/** 随包分发的 Agent Skill 目录（extraResources → resources/skill/multichat-cli） */
 function getSkillDir(): string | null {
   const candidates = app.isPackaged
     ? [join(process.resourcesPath, 'skill', 'multichat-cli')]
@@ -64,14 +59,12 @@ function getSkillDir(): string | null {
   return null
 }
 
-/** 读取 HKCU\Environment 的 Path 原始值（REG_EXPAND_SZ 不展开） */
 async function readUserPathValue(): Promise<string> {
   try {
     const { stdout } = await execFileAsync('reg', ['query', 'HKCU\\Environment', '/v', 'Path'], { windowsHide: true })
     const match = stdout.match(/^\s*Path\s+REG(?:_EXPAND)?_SZ\s+(.*)$/m)
     return match ? match[1].trimEnd() : ''
   } catch {
-    // Path 值不存在或 reg 查询失败
     return ''
   }
 }
@@ -110,7 +103,7 @@ export async function dismissCliHint(store: Store<Record<string, unknown>>): Pro
 
 /**
  * 在数据目录（daemon.token 同目录）写 cli.json 入口指示文件。
- * Agent/脚本进程无需 PATH 或注册表即可一步定位 CLI 与 Skill 目录；覆盖安装版、便携版与 dev。
+ * Agent/脚本进程无需 PATH 或注册表即可定位 CLI 与 Skill 目录；覆盖安装版、便携版与 dev。
  */
 export async function writeCliManifest(dataPath: string): Promise<void> {
   try {
@@ -167,7 +160,6 @@ export async function addCliDirToPath(): Promise<void> {
   }
 }
 
-/** 在文件管理器中定位 CLI 入口或 Skill 目录 */
 export async function openCliLocation(target: 'cli' | 'skill'): Promise<void> {
   if (target === 'cli') {
     const cliDir = getCliDir()

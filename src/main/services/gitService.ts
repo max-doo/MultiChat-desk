@@ -1,9 +1,3 @@
-/**
- * 工作区 Git 服务
- * - 直接调用系统 Git（不引入 Git 库）：知识库本身是普通仓库，交给用户已安装的 Git 处理最可靠
- * - 仅作用于工作区范围：状态、暂存与提交都以工作区为 pathspec，避免带上同仓库的其他目录
- * - 拉取默认只允许快进；分叉需要显式合并，冲突可整体撤销回操作前状态
- */
 
 import { spawn } from 'child_process'
 import path from 'path'
@@ -22,14 +16,11 @@ import type {
 } from '../../shared/types/workbench'
 
 const GIT_TIMEOUT_MS = 120_000
-/** 文件树扫描只读取忽略状态，超时远短于网络类操作，避免 Git 异常时卡住界面 */
 const IGNORED_PATHS_TIMEOUT_MS = 10_000
 const MAX_CHANGED_FILES = 500
 /** 超过此体积的未跟踪文件在提交前提示；GitHub 对单文件 50 MiB 开始警告 */
 const LARGE_FILE_WARN_BYTES = 50 * 1024 * 1024
-/** 大文件体积扫描的未跟踪文件上限，避免异常仓库拖慢状态刷新 */
 const MAX_UNTRACKED_SCAN = 2000
-/** 编辑器行内标记的基准内容上限：超过即熔断，不读入内存 */
 const GIT_BASELINE_MAX_BYTES = 1024 * 1024
 
 interface GitRunResult {
@@ -48,7 +39,6 @@ interface GitRunBufferResult {
   spawnError: NodeJS.ErrnoException | null
 }
 
-/** 同一工作区的 Git 写操作串行执行，避免索引锁冲突；只读查询不排队 */
 const writeQueues = new Map<string, Promise<unknown>>()
 
 function queueKey(workspaceRoot: string): string {
@@ -68,7 +58,6 @@ function serializeWrite<T>(workspaceRoot: string, task: () => Promise<T>): Promi
   return next
 }
 
-/** 进程级 git --version 可用性缓存：成功永久缓存，spawn 失败按 30s TTL 重试 */
 const GIT_UNAVAILABLE_RETRY_MS = 30_000
 let gitAvailableCache: { ok: boolean; checkedAt: number } | null = null
 let gitAvailableInFlight: Promise<boolean> | null = null
@@ -114,7 +103,6 @@ function runGit(
           ...process.env,
           // 禁止 Git 弹出凭据输入对话框：没有凭据时立即失败，交由界面提示
           GIT_TERMINAL_PROMPT: '0',
-          // 提交与拉取不进入交互式编辑器
           GIT_EDITOR: 'true',
           GIT_MERGE_AUTOEDIT: 'no'
         }
@@ -126,7 +114,6 @@ function runGit(
     let settled = false
     let spawnError: NodeJS.ErrnoException | null = null
     const timer = setTimeout(() => {
-      // 超时（常见于网络阻塞）主动结束进程，避免界面一直停在“处理中”
       child.kill()
     }, timeoutMs)
 
@@ -144,7 +131,6 @@ function runGit(
     }
 
     child.stdout?.on('data', (chunk: Buffer) => {
-      // 状态输出可能很大，保留上限防止异常仓库拖垮内存
       if (stdout.length < 16 * 1024 * 1024) stdout += chunk.toString('utf8')
     })
     child.stderr?.on('data', (chunk: Buffer) => {
@@ -257,7 +243,6 @@ export async function listIgnoredPaths(workspaceRoot: string): Promise<Set<strin
     undefined,
     IGNORED_PATHS_TIMEOUT_MS
   )
-  // 非 Git 仓库时 git 直接报错，调用方退回内置规则
   if (!result.ok) {
     if (isNotRepoError(result.stderr || result.stdout)) {
       invalidateRepoCache(workspaceRoot)
@@ -280,12 +265,10 @@ function firstMeaningfulLine(text: string): string {
   return lines[0] ?? ''
 }
 
-/** Git 输出里可能带远程地址中的凭据，回显前统一去掉 */
 function redactCredentials(text: string): string {
   return text.replace(/\/\/[^/@\s]+@/g, '//***@')
 }
 
-/** 远程地址回显前去掉 user:token@ 一类凭据 */
 function redactRemoteUrl(url: string): string {
   // 只隐藏密码/令牌，保留用户名：ssh://git@host 的 git 不是秘密，
   // 全量脱敏会让常见 SSH 地址无法回填；而 ssh://user:pass@host 仍要隐藏密码。
@@ -299,7 +282,6 @@ function redactRemoteUrl(url: string): string {
   )
 }
 
-/** 把 Git 的英文错误收敛成一句可执行的中文说明 */
 function explainGitError(text: string): string {
   const raw = redactCredentials(firstMeaningfulLine(text))
   if (!raw) return 'Git 操作失败'
@@ -336,7 +318,6 @@ function normalizeGitPath(raw: string): string {
 
 interface RepoContext {
   repoRoot: string
-  /** 工作区相对仓库根的路径，末尾带 /；工作区即仓库根时为空串 */
   prefix: string
   gitDir: string
 }
@@ -400,7 +381,6 @@ async function resolveRepo(workspaceRoot: string): Promise<RepoContext | null> {
   return probe
 }
 
-/** 快速读取 .git/HEAD 与 .git/index 的 mtime 指纹（无 Git 子进程开销），用于焦点冷却判断 */
 export async function getGitRepoStamp(workspaceRoot: string): Promise<string | null> {
   if (!workspaceRoot) return null
   if (!(await ensureGitAvailable(workspaceRoot))) return null
@@ -413,7 +393,6 @@ export async function getGitRepoStamp(workspaceRoot: string): Promise<string | n
   return `${headInfo?.mtimeMs ?? 0}:${indexInfo?.mtimeMs ?? 0}:${indexInfo?.size ?? 0}`
 }
 
-/** 读取远程地址；优先 origin，没有时按名称排序（只读操作，不进写队列） */
 export async function listRemotes(workspaceRoot: string): Promise<GitRemoteInfo[]> {
   if (!workspaceRoot) return []
   if (!(await ensureGitAvailable(workspaceRoot))) return []
@@ -480,13 +459,11 @@ export async function setRemoteUrl(
   })
 }
 
-/** 工作区相对路径 → 仓库根相对路径（Git 索引与 ls-files 都以此为准） */
 function toRepoPath(prefix: string, relativePath: string): string {
   const normalized = normalizeGitPath(relativePath).replace(/^\/+/, '')
   return prefix ? `${prefix}${normalized}` : normalized
 }
 
-/** 仓库根相对路径 → 工作区相对路径；不属于工作区时返回 null */
 function toWorkspacePath(prefix: string, repoPath: string): string | null {
   const normalized = normalizeGitPath(repoPath)
   if (!prefix) return normalized
@@ -665,7 +642,6 @@ function parsePorcelainV2(stdout: string, prefix: string): {
     if (kind === '?') {
       const filePath = toWorkspacePath(prefix, token.slice(2))
       if (filePath) {
-        // 大文件检查不能依赖展示列表：列表超过 500 项时仍要覆盖全部未跟踪文件
         if (untrackedPaths.length < MAX_UNTRACKED_SCAN) untrackedPaths.push(filePath)
         changeCount += 1
         unstagedCount += 1
@@ -680,7 +656,6 @@ function parsePorcelainV2(stdout: string, prefix: string): {
 
     const fields = token.split(' ')
     if (kind === 'u') {
-      // u <XY> <sub> <m1> <m2> <m3> <mW> <h1> <h2> <h3> <path>
       const filePath = toWorkspacePath(prefix, fields.slice(10).join(' '))
       if (filePath) {
         changeCount += 1
@@ -707,7 +682,6 @@ function parsePorcelainV2(stdout: string, prefix: string): {
     const unstaged = unstagedCode === 'M' ? 'modified' : unstagedCode === 'D' ? 'deleted' : unstagedCode === 'T' ? 'typechange' : null
 
     if (kind === '2') {
-      // 重命名条目后紧跟一个 NUL 分隔的原路径
       const newRepoPath = fields.slice(9).join(' ')
       const oldRepoPath = tokens[i + 1] ?? ''
       i += 1
@@ -842,7 +816,6 @@ async function mapWithConcurrency<T, R>(
   return results
 }
 
-/** 实际读取状态；使用 --no-optional-locks 只读执行，不阻塞在写队列之后 */
 async function readStatus(workspaceRoot: string): Promise<GitStatus> {
   if (!workspaceRoot) return emptyStatus('未打开工作区', false, false)
 
@@ -895,7 +868,6 @@ async function readStatus(workspaceRoot: string): Promise<GitStatus> {
     (await pathExists(path.join(repo.gitDir, 'rebase-merge'))) ||
     (await pathExists(path.join(repo.gitDir, 'rebase-apply')))
 
-  // 只检查未跟踪文件：已跟踪的大文件是历史遗留，提示也无法改变既成事实。
   // 使用独立收集的未跟踪路径，避免展示列表被截断时漏掉大文件；限流并发 stat 避免句柄风暴。
   if (parsed.untrackedPaths.length) {
     const sizes = await mapWithConcurrency(
@@ -919,10 +891,6 @@ async function readStatus(workspaceRoot: string): Promise<GitStatus> {
   return status
 }
 
-/**
- * 读取工作区 Git 状态；未安装 Git 或不是仓库时返回可展示的说明而不是抛错。
- * 只读操作（status 带 --no-optional-locks），不阻塞在慢速网络写操作之后。
- */
 export async function getStatus(workspaceRoot: string): Promise<GitStatus> {
   return readStatus(workspaceRoot)
 }
@@ -1011,7 +979,6 @@ export async function getFileBaseline(
     return { status: 'error', error: firstMeaningfulLine(contentResult.stderr) || '读取基准内容失败' }
   }
   const buffer = contentResult.stdout
-  // 与 readFile 一致的二进制判定：前 1024 字节含 NUL 即视为非文本
   if (buffer.subarray(0, Math.min(1024, buffer.length)).includes(0)) {
     return { status: 'binary', blobSha: entry.sha, byteLength }
   }
@@ -1055,13 +1022,10 @@ function hasBlockingLocalChanges(status: GitStatus): boolean {
 
 export interface CommitOptions {
   title: string
-  /** 提交信息正文，可选 */
   body?: string
-  /** 用户已确认要把超过建议体积的未跟踪文件一起提交 */
   allowLargeFiles?: boolean
 }
 
-/** 提交工作区内的全部改动；工作区是仓库子目录时不会带上仓库其他部分 */
 export async function commit(workspaceRoot: string, options: CommitOptions): Promise<GitActionResult> {
   return serializeWrite(workspaceRoot, async () => {
     const status = await readStatus(workspaceRoot)
@@ -1109,7 +1073,6 @@ export async function commit(workspaceRoot: string, options: CommitOptions): Pro
   })
 }
 
-/** 只允许快进：远程有新提交且本地无分叉时直接更新 */
 export async function pullFastForward(workspaceRoot: string): Promise<GitActionResult> {
   return serializeWrite(workspaceRoot, async () => {
     let status = await readStatus(workspaceRoot)
@@ -1185,7 +1148,6 @@ export async function pullFastForward(workspaceRoot: string): Promise<GitActionR
   })
 }
 
-/** 分叉时显式合并远程改动；失败会中止合并，回到操作前状态 */
 export async function mergeUpstream(workspaceRoot: string): Promise<GitActionResult> {
   return serializeWrite(workspaceRoot, async () => {
     let status = await readStatus(workspaceRoot)
@@ -1226,7 +1188,6 @@ export async function mergeUpstream(workspaceRoot: string): Promise<GitActionRes
     if (!status.upstream) {
       return { success: false, failure: 'no-upstream', error: '当前分支还没有关联远程分支' }
     }
-    // 使用 --no-edit 且不加 --no-ff：能快进就快进，分叉时生成合并提交
     const result = await runGit(workspaceRoot, ['merge', '--no-edit', status.upstream])
     if (result.ok) return { success: true }
 
@@ -1261,7 +1222,6 @@ export async function mergeUpstream(workspaceRoot: string): Promise<GitActionRes
   })
 }
 
-/** 撤销进行中的合并（pull/merge 冲突后），恢复操作前状态 */
 export async function abortMerge(workspaceRoot: string): Promise<GitActionResult> {
   return serializeWrite(workspaceRoot, async () => {
     const status = await readStatus(workspaceRoot)
@@ -1279,7 +1239,6 @@ export async function abortMerge(workspaceRoot: string): Promise<GitActionResult
   })
 }
 
-/** 推送当前分支；首次推送需要界面先确认，再传入 setUpstream */
 export async function push(workspaceRoot: string, setUpstream: boolean): Promise<GitActionResult> {
   return serializeWrite(workspaceRoot, async () => {
     let status = await readStatus(workspaceRoot)
@@ -1386,10 +1345,6 @@ function parseLogOutput(stdout: string, unpushedIds: Set<string>): GitHistoryIte
   return commits
 }
 
-/**
- * 读取 Git 提交历史；返回提交 DAG，泳道布局由渲染层计算。
- * 只读操作，不写索引，不走 serialize 队列。
- */
 export async function getLog(workspaceRoot: string, limit = 50): Promise<GitHistoryItem[]> {
   if (!workspaceRoot) return []
   if (!(await ensureGitAvailable(workspaceRoot))) return []
@@ -1483,8 +1438,6 @@ export async function getCommitDetail(
   ])
   if (!numstatResult.ok || !nameStatusResult.ok) return null
 
-  // 两种输出都遵循：<头部元信息>\0<记录>\0…；numstat 记录是 ins\tdel\tpath，
-  // name-status 记录是 STATUS\0path（R/C 为 STATUS\0new\0old）。
   const numTokens = numstatResult.stdout.split('\0')
   const nameTokens = nameStatusResult.stdout.split('\0')
   const numHeader = (numTokens.shift() ?? '').split(LOG_FIELD_SEPARATOR)
@@ -1672,7 +1625,6 @@ export async function discardChange(
       return { success: true, hint: '已移出待提交列表，本地文件已保留' }
     }
 
-    // 处理重命名 / 复制条目
     if (oldRepoPath && oldRepoPath !== repoPath) {
       const oldIndexEntries = await readIndexEntries(repo.repoRoot, [oldRepoPath])
       const isCopy = oldIndexEntries.length > 0
@@ -1772,7 +1724,6 @@ export async function discardChange(
       return { success: true, hint: '已恢复原位置与原内容' }
     }
 
-    // 普通文件：检查是否存在于 HEAD 中
     const inHead = await hasHeadEntry(repo.repoRoot, repoPath)
     if (!inHead) {
       const resetRes = await runGit(repo.repoRoot, [
@@ -1807,9 +1758,6 @@ export async function discardChange(
   })
 }
 
-/**
- * 回收站删除未跟踪或新增暂存文件后，清理未进入 HEAD 的暂存区条目，避免残留 AD 状态。
- */
 export async function cleanupIndexAfterTrash(
   workspaceRoot: string,
   relativePath: string
@@ -1849,9 +1797,6 @@ export async function cleanupIndexAfterTrash(
   })
 }
 
-/**
- * 将未跟踪文件或同扩展名规则追加到工作区 .gitignore。
- */
 export async function ignorePath(
   workspaceRoot: string,
   target: { relativePath: string; mode: 'file' | 'extension' }

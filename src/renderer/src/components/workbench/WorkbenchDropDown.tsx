@@ -182,7 +182,6 @@ export default function WorkbenchDropDown({
     }
   }, [showDropDown])
 
-  // 点击外部关闭；点击按钮自身切换开闭
   useEffect(() => {
     const button = buttonRef.current
     if (button !== null && showDropDown) {

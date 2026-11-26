@@ -227,10 +227,8 @@ function TaskModePanel({ showNotification }: TaskModePanelProps): JSX.Element {
 
   return (
     <div className="relative flex-grow min-w-0 flex items-center gap-4 p-3 rounded-[24px] glass-panel-heavy shadow-float focus-within:border-gray-200 focus-within:ring-1 focus-within:ring-gray-200" style={{ height: '96px', boxSizing: 'border-box' }}>
-      {/* 子任务弹层（split / inserted 阶段） */}
       {(isSplit || isInserted) && <SubtaskList subtasks={taskState.subtasks} collapsed={taskState.collapsed} />}
 
-      {/* 输入框 */}
       <textarea
         ref={textareaRef}
         value={taskState.query}
@@ -253,9 +251,7 @@ function TaskModePanel({ showNotification }: TaskModePanelProps): JSX.Element {
         style={{ lineHeight: '24px', height: '72px', overflowY: 'auto' }}
       />
 
-      {/* 按钮区 */}
       <div className="flex items-center gap-2 flex-shrink-0 self-end">
-        {/* 拆解平台选择器（放在「开启新对话」之后、拆解按钮之前），菜单向上展开 */}
         <CustomDropdown
           value={platform}
           onChange={(value) => setApiConfig({ ...apiConfig, taskSplitPlatform: value })}
@@ -286,7 +282,6 @@ function TaskModePanel({ showNotification }: TaskModePanelProps): JSX.Element {
           }}
           options={dropdownModels.map(m => ({ value: m.id, label: m.name, logo: m.logo }))}
         />
-        {/* 拆解进行中/结束后提供后台网页查看入口（导图同款排障） */}
         {task && (splitting || task.phase === 'error') && (
           <button
             onClick={() => { void show().then(r => { if (!r.success) showNotification('error', r.error || '无法打开拆解网页') }) }}
