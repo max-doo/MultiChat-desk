@@ -2,6 +2,28 @@
 
 ## 2026-11-27
 
+### 00:21 | Antigravity
+
+- done: 复用 CliAgentHint 实现 1.3.5 工作台与 Skill 安装双卡轮播引导弹窗（等高不增加高度、工作台页仅保留立即体验按钮、Hover 冻结进度条暂停轮播，并补充版本级 hintDismissed 重置）
+- decision: 将两页极简指示点嵌入底部操作按钮行右侧并用 CSS Grid 叠放锁定等高，不额外增高卡片；main 侧通过 cliAgentHintDismissedVersion 对齐当前版本，确保未入 PATH 用户升级 1.3.5 后也能看到工作台引导
+- modified:
+  - `src/main/cliIntegration.ts`
+  - `src/renderer/src/components/CliAgentHint.tsx`
+
+### 00:12 | Codex
+
+- done: Agent收藏/最近模型存储语义重构（方案B）：供应商停用不再销毁收藏/最近；唯一修剪时机=实时目录刷新成功（applyGatewayCatalog+内置refreshProviderModels），空目录/失败/启动缓存均不修剪；写入改单键增量agent:set-model-favorite替代全量覆盖setFavoriteModels，杜绝停用期间操作其他收藏静默冲掉隐藏key
+- decision: 采用方案B：停用期间picker隐藏该供应商收藏和最近（读取层既有disabled过滤即满足），数据保留，重新启用自动恢复
+- modified:
+  - `src/main/services/AgentSessionService.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/src/types/agent.ts`
+  - `src/renderer/src/store/agentSessionStore.ts`
+  - `src/renderer/src/components/workbench/agent/AgentModelPicker.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentProviderSettings.tsx`
+- lesson: 收藏/最近属于用户意图数据，供应商模型目录是发现型缓存：可用性状态不能反向修改意图数据；全量覆盖式收藏写入无法区分'用户取消星标'与'该key当前不可见'，跨进程收藏必须按key增量操作；权威目录变更（实时刷新成功）是修剪死键的唯一合法时机，启动缓存/网络失败/空返回都不算证据
+
 ### 00:03 | Codex
 
 - done: 提交本日全部改动：文件树图标/工具栏、引文高亮统一、Agent 按钮与模型选择器空态、全库注释精简、记忆文档，按模块分 6 笔；scratch 与 CDP 调试脚本为过程文件不入库
