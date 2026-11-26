@@ -94,7 +94,12 @@ export function ChangedFilesCard({
     () => rows.filter((r) => r.stale).length,
     [rows]
   )
-  const canUndo = interactive && record.status === 'applied' && staleCount === 0
+  const hasMissingBaseline = useMemo(
+    () => rows.some((r) => r.change.noBaselineBlob === true),
+    [rows]
+  )
+  const canUndo =
+    interactive && record.status === 'applied' && staleCount === 0 && !hasMissingBaseline
   const canRedo = interactive && record.status === 'undone' && staleCount === 0
 
   const handleUndo = async (): Promise<void> => {
@@ -162,21 +167,19 @@ export function ChangedFilesCard({
         >
           <span
             className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md ${
-              undone
-                ? 'bg-gray-100 text-gray-500 dark:bg-white/10 dark:text-gray-400'
-                : staleCount > 0
-                  ? 'bg-amber-50 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400'
-                  : 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400'
+              staleCount > 0 && !undone
+                ? 'bg-amber-50 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400'
+                : 'bg-gray-100 text-gray-500 dark:bg-white/10 dark:text-gray-400'
             }`}
           >
             {loading ? (
-              <AppIcon name="progress_activity" size={12} className="animate-spin" />
+              <AppIcon name="progress_activity" size={16} className="animate-spin" />
             ) : undone ? (
-              <AppIcon name="undo" size={12} />
+              <AppIcon name="undo" size={16} />
             ) : staleCount > 0 ? (
-              <AppIcon name="file_warning" size={12} />
+              <AppIcon name="file_warning" size={16} />
             ) : (
-              <AppIcon name="file_check" size={12} />
+              <AppIcon name="file_check" size={16} />
             )}
           </span>
           <span className="min-w-0 flex-1 text-caption text-text-primary">
@@ -211,14 +214,23 @@ export function ChangedFilesCard({
                     className="flex items-center gap-2 border-b border-gray-100 px-3 py-1.5 last:border-b-0 dark:border-white/5"
                   >
                     <div className="min-w-0 flex-1">
-                      <button
-                        type="button"
-                        onClick={() => void handleOpenInEditor(change.path)}
-                        title={abs}
-                        className="block max-w-full truncate text-left font-mono text-label text-text-primary transition-colors hover:text-primary"
-                      >
-                        {change.name}
-                      </button>
+                      {change.isDeleted ? (
+                        <div
+                          title={abs}
+                          className="truncate font-mono text-label text-text-secondary line-through"
+                        >
+                          {change.name}
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => void handleOpenInEditor(change.path)}
+                          title={abs}
+                          className="block max-w-full truncate text-left font-mono text-label text-text-primary transition-colors hover:text-primary"
+                        >
+                          {change.name}
+                        </button>
+                      )}
                       {hasDir && (
                         <div className="truncate text-caption text-text-secondary">
                           {dirPart}
@@ -229,12 +241,16 @@ export function ChangedFilesCard({
                       <span className="shrink-0 rounded-full bg-emerald-50 px-1.5 py-0.5 text-tiny font-semibold text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
                         新建
                       </span>
+                    ) : change.isDeleted ? (
+                      <span className="shrink-0 rounded-full bg-rose-50 px-1.5 py-0.5 text-tiny font-semibold text-rose-600 dark:bg-rose-500/15 dark:text-rose-300">
+                        已删除
+                      </span>
                     ) : stale ? (
                       <span className="shrink-0 rounded-full bg-gray-100 px-1.5 py-0.5 text-tiny font-semibold text-text-secondary dark:bg-white/10">
                         已变化
                       </span>
                     ) : null}
-                    {!change.isNew && (
+                    {!change.isNew && !change.isDeleted && (
                       <span className="shrink-0 font-mono text-caption text-text-secondary">
                         {change.added > 0 && (
                           <span className="text-emerald-600 dark:text-emerald-400">+{change.added}</span>
@@ -244,14 +260,16 @@ export function ChangedFilesCard({
                         )}
                       </span>
                     )}
-                    <button
-                      type="button"
-                      onClick={() => void window.api.agentRevealFile(abs)}
-                      title="打开所在文件夹"
-                      className="shrink-0 rounded p-1 text-text-secondary transition-colors hover:bg-gray-100 hover:text-text-primary dark:hover:bg-white/10"
-                    >
-                      <AppIcon name="folder_open" size={12} />
-                    </button>
+                    {!change.isDeleted && (
+                      <button
+                        type="button"
+                        onClick={() => void window.api.agentRevealFile(abs)}
+                        title="打开所在文件夹"
+                        className="shrink-0 rounded p-1 text-text-secondary transition-colors hover:bg-gray-100 hover:text-text-primary dark:hover:bg-white/10"
+                      >
+                        <AppIcon name="folder_open" size={12} />
+                      </button>
+                    )}
                   </div>
                 )
               })}
@@ -269,9 +287,11 @@ export function ChangedFilesCard({
                   title={
                     canUndo
                       ? '回滚到本次任务开始前的状态'
-                      : staleCount > 0
-                        ? '部分文件已被外部修改，无法安全撤销'
-                        : undefined
+                      : hasMissingBaseline
+                        ? '包含命令修改或超大文件，缺少基线快照，无法安全撤销'
+                        : staleCount > 0
+                          ? '部分文件已被外部修改，无法安全撤销'
+                          : undefined
                   }
                   className="rounded-md border border-gray-200 bg-white px-2.5 py-0.5 text-caption text-rose-600 transition-colors hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white dark:border-white/10 dark:bg-transparent dark:text-rose-400 dark:hover:bg-rose-500/10"
                 >

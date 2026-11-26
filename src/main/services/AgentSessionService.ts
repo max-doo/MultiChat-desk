@@ -52,6 +52,18 @@ import type {
 } from '../../shared/types/agentRuntime'
 import type { AgentFavoriteModel } from '../../shared/types/agentRuntime'
 import { createHash } from 'crypto'
+import {
+  FILE_MUTATION_TOOLS,
+  SHELL_TOOLS,
+  UNKNOWN_SHELL_BASELINE_SHA1,
+  captureBaselineWithContent,
+  computeLineDiffCounts,
+  diffWorkspaceMetadata,
+  normalizeTrackedFilePath,
+  resolveTrackedAbsolutePath,
+  scanWorkspaceMetadata,
+  type WorkspaceFileMeta
+} from './agentFileChangeTracker'
 
 const importEsm = new Function('s', 'return import(s)') as <T>(s: string) => Promise<T>
 
@@ -76,17 +88,26 @@ export interface ActiveSessionEntry {
   /** Count of in-flight permission approval prompts for this session (never LRU-evict while > 0) */
   pendingApprovalCount?: number
   unsubscribe: () => void
-  /** Turn id → file-change accumulator for the currently streaming turn. */
+  /** User-turn-scoped file-change accumulator for the active agent run. */
   turnFileChanges?: AgentTurnFileChanges
-  /** toolCallId → filePath, populated on tool_execution_start so
+  /** Normalized path key → canonical displayPath stored in `turnFileChanges`. */
+  fileChangeKeyMap?: Map<string, string>
+  /** Canonical displayPath → pre-edit file bytes (`null` = file did not exist, `undefined` = oversized/unknown). */
+  baselineContents?: Map<string, Buffer | null | undefined>
+  /** toolCallId → canonical displayPath, populated in beforeToolCall so
    * tool_execution_end (which lacks `args`) can resolve the touched path. */
   pendingToolFiles?: Map<string, string>
-  /** In-flight target captures so turn_end can wait for them before persisting. */
+  /** In-flight target captures so turn finalization can wait for them before persisting. */
   pendingCaptures?: Promise<unknown>[]
+  /** Lightweight workspace metadata snapshot taken before the first non-read-only shell command in this user turn.
+   * `undefined` = no non-read-only shell command yet; `null` = scan hit circuit breaker and was skipped. */
+  preShellWorkspaceSnapshot?: Map<string, WorkspaceFileMeta> | null
+  /** True once at least one non-read-only shell command was allowed in the current user turn. */
+  shellWriteExecuted?: boolean
   /** Persist is async (blob writes); the renderer may query before it lands.
    * Track the in-flight write so getFileChanges can wait instead of returning null. */
   pendingFileChangePersist?: Promise<void>
-  /** 1-based counter of turns seen via `turn_start`; persisted with the
+  /** 1-based user-turn index (count of user messages in live transcript); persisted with the
    * file-change record so the renderer can pin the card to the right turn. */
   turnCounter?: number
 }
@@ -701,22 +722,6 @@ export class AgentSessionService {
   }
 
   /**
-   * Resolve a file path from tool args to an absolute path.
-   * Accepts absolute paths unchanged; joins relative paths against `cwd`.
-   */
-  private resolveFilePath(cwd: string, filePath: string): string {
-    if (/^[a-zA-Z]:[\\/]/.test(filePath) || filePath.startsWith('/')) {
-      return filePath
-    }
-    // UNC paths and ~ expansion are intentionally NOT joined to cwd —
-    // they are returned as-is so the caller sees the literal value.
-    if (filePath.startsWith('\\\\') || filePath === '~' || filePath.startsWith('~/') || filePath.startsWith('~\\')) {
-      return filePath
-    }
-    return join(cwd, filePath)
-  }
-
-  /**
    * Snapshot the current on-disk state of one file.
    * `sha1` is null when the file does not exist (a "new file" baseline).
    */
@@ -731,83 +736,288 @@ export class AgentSessionService {
     }
   }
 
-  /** Extract +added/-deleted line counts from an edit/write tool result payload. */
-  private countDiffLines(result: unknown): { added: number; deleted: number } {
-    let diff = ''
-    if (result && typeof result === 'object') {
-      const det = (result as { details?: unknown }).details
-      if (det && typeof det === 'object') {
-        const d = det as { patch?: unknown; diff?: unknown }
-        if (typeof d.patch === 'string') diff = d.patch
-        else if (typeof d.diff === 'string') diff = d.diff
-      }
-      if (!diff && 'content' in (result as Record<string, unknown>)) {
-        const c = (result as { content?: unknown }).content
-        if (Array.isArray(c)) {
-          diff = c
-            .map((x) => (typeof x === 'string' ? x : (x as { text?: string })?.text ?? ''))
-            .filter(Boolean)
-            .join('\n')
-        } else if (typeof c === 'string') {
-          diff = c
-        }
-      }
-    }
-    if (!diff) return { added: 0, deleted: 0 }
-    let added = 0
-    let deleted = 0
-    for (const line of diff.split('\n')) {
-      if (line.startsWith('+') && !line.startsWith('+++')) added++
-      else if (line.startsWith('-') && !line.startsWith('---')) deleted++
-    }
-    return { added, deleted }
-  }
-
   private fileChangesDir(sessionId: string): string {
     return join(this.sessionsDir, sessionId, 'file-changes')
   }
 
-  /** Persist the turn-scoped snapshot record + baseline/target content blobs. */
+  private getLiveUserTurnCount(active: ActiveSessionEntry): number {
+    const msgs = active.session.agent.state.messages as Array<{ role?: string }>
+    return msgs.filter((m) => m.role === 'user').length
+  }
+
+  private resetTurnFileChangeState(active: ActiveSessionEntry, turnCounter?: number): void {
+    active.turnCounter = turnCounter ?? this.getLiveUserTurnCount(active)
+    active.turnFileChanges = { files: [], baseline: {}, target: {}, status: 'applied' }
+    active.fileChangeKeyMap = new Map()
+    active.baselineContents = new Map()
+    active.pendingToolFiles = new Map()
+    active.pendingCaptures = []
+    active.preShellWorkspaceSnapshot = undefined
+    active.shellWriteExecuted = false
+  }
+
+  private ensureTurnFileChangeState(active: ActiveSessionEntry): AgentTurnFileChanges {
+    if (!active.turnFileChanges) {
+      this.resetTurnFileChangeState(active)
+    } else if (!active.turnCounter) {
+      const count = this.getLiveUserTurnCount(active)
+      if (count > 0) active.turnCounter = count
+    }
+    return active.turnFileChanges!
+  }
+
+  /**
+   * Drain the active user-turn accumulator, merge any workspace changes from
+   * non-read-only shell commands, filter out no-op / failed edits, compute
+   * net line diffs, and persist the latest turn's record + blobs.
+   */
+  private scheduleFinalizeTurnFileChanges(sessionId: string, active: ActiveSessionEntry): void {
+    const tfc = active.turnFileChanges
+    const pending = active.pendingCaptures ?? []
+    const keyMap = active.fileChangeKeyMap ?? new Map<string, string>()
+    const baselineContents = active.baselineContents ?? new Map<string, Buffer | null | undefined>()
+    const preShell = active.preShellWorkspaceSnapshot
+    const shellWriteExecuted = Boolean(active.shellWriteExecuted)
+    const turnIdx = active.turnCounter || this.getLiveUserTurnCount(active)
+    const cwd = active.cwd
+
+    // Detach current accumulator immediately so subsequent turns cannot mutate it.
+    active.turnFileChanges = undefined
+    active.fileChangeKeyMap = undefined
+    active.baselineContents = undefined
+    active.pendingToolFiles = undefined
+    active.pendingCaptures = undefined
+    active.preShellWorkspaceSnapshot = undefined
+    active.shellWriteExecuted = false
+
+    const hasTrackedWork =
+      Boolean(tfc && (tfc.files.length > 0 || pending.length > 0)) ||
+      (shellWriteExecuted && preShell instanceof Map)
+    if (!hasTrackedWork) return
+
+    const finalTfc: AgentTurnFileChanges = tfc ?? {
+      files: [],
+      baseline: {},
+      target: {},
+      status: 'applied'
+    }
+
+    const prevPersist = active.pendingFileChangePersist ?? Promise.resolve()
+    active.pendingFileChangePersist = prevPersist
+      .catch(() => undefined)
+      .then(async () => {
+        if (pending.length > 0) {
+          await Promise.race([
+            Promise.all(pending),
+            new Promise<unknown[]>((r) => setTimeout(() => r([]), 1500))
+          ])
+        }
+        await this.finalizeAndPersistFileChanges(
+          sessionId,
+          cwd,
+          finalTfc,
+          keyMap,
+          baselineContents,
+          shellWriteExecuted ? preShell ?? null : null,
+          turnIdx > 0 ? turnIdx : undefined
+        )
+      })
+      .then(() => undefined)
+      .catch(() => undefined)
+  }
+
+  private async finalizeAndPersistFileChanges(
+    sessionId: string,
+    cwd: string,
+    tfc: AgentTurnFileChanges,
+    keyMap: Map<string, string>,
+    baselineContents: Map<string, Buffer | null | undefined>,
+    preShell: Map<string, WorkspaceFileMeta> | null,
+    turnIndex?: number
+  ): Promise<void> {
+    const resolvedCwd = resolve(cwd)
+
+    // 1. Merge workspace mutations caused by non-read-only shell commands.
+    if (preShell) {
+      const postShell = await scanWorkspaceMetadata(resolvedCwd)
+      if (postShell) {
+        const diff = diffWorkspaceMetadata(preShell, postShell)
+        const handleShellPath = async (
+          relPath: string,
+          kind: 'added' | 'modified' | 'deleted'
+        ): Promise<void> => {
+          const norm = normalizeTrackedFilePath(resolvedCwd, relPath)
+          const existingDisplay = keyMap.get(norm.key)
+          if (existingDisplay) {
+            // Already tracked by an explicit file tool in this turn — refresh target snapshot
+            // in case a subsequent shell command modified or deleted the same file.
+            tfc.target[existingDisplay] = await this.captureFileSnapshot(norm.absPath)
+            return
+          }
+
+          keyMap.set(norm.key, norm.displayPath)
+          if (kind === 'added') {
+            tfc.baseline[norm.displayPath] = {
+              path: norm.absPath,
+              mtimeMs: null,
+              size: null,
+              sha1: null
+            }
+            baselineContents.set(norm.displayPath, null)
+            tfc.target[norm.displayPath] = await this.captureFileSnapshot(norm.absPath)
+            tfc.files.push({
+              path: norm.displayPath,
+              name: norm.name,
+              isNew: true,
+              added: 0,
+              deleted: 0
+            })
+          } else if (kind === 'deleted') {
+            const prevMeta = preShell.get(relPath)
+            tfc.baseline[norm.displayPath] = {
+              path: norm.absPath,
+              mtimeMs: prevMeta?.mtimeMs ?? null,
+              size: prevMeta?.size ?? null,
+              sha1: UNKNOWN_SHELL_BASELINE_SHA1
+            }
+            baselineContents.set(norm.displayPath, undefined)
+            tfc.target[norm.displayPath] = {
+              path: norm.absPath,
+              mtimeMs: null,
+              size: null,
+              sha1: null
+            }
+            tfc.files.push({
+              path: norm.displayPath,
+              name: norm.name,
+              isNew: false,
+              isDeleted: true,
+              noBaselineBlob: true,
+              added: 0,
+              deleted: 0
+            })
+          } else {
+            const prevMeta = preShell.get(relPath)
+            const snap = await this.captureFileSnapshot(norm.absPath)
+            if (snap.sha1 === null) return
+            tfc.baseline[norm.displayPath] = {
+              path: norm.absPath,
+              mtimeMs: prevMeta?.mtimeMs ?? null,
+              size: prevMeta?.size ?? null,
+              sha1: UNKNOWN_SHELL_BASELINE_SHA1
+            }
+            baselineContents.set(norm.displayPath, undefined)
+            tfc.target[norm.displayPath] = snap
+            tfc.files.push({
+              path: norm.displayPath,
+              name: norm.name,
+              isNew: false,
+              noBaselineBlob: true,
+              added: 0,
+              deleted: 0
+            })
+          }
+        }
+
+        for (const p of diff.added) await handleShellPath(p, 'added')
+        for (const p of diff.modified) await handleShellPath(p, 'modified')
+        for (const p of diff.deleted) await handleShellPath(p, 'deleted')
+      }
+    }
+
+    // 2. Finalize target snapshots, drop failed/no-op entries, and compute accurate net diffs.
+    const finalFiles: AgentTurnFileChanges['files'] = []
+    const finalBaseline: Record<string, AgentFileSnapshot> = {}
+    const finalTarget: Record<string, AgentFileSnapshot> = {}
+    const targetContents = new Map<string, Buffer | null>()
+
+    for (const entry of tfc.files) {
+      const baseSnap = tfc.baseline[entry.path]
+      if (!baseSnap) continue
+      const abs = resolveTrackedAbsolutePath(resolvedCwd, entry.path)
+      const targetSnap = tfc.target[entry.path] ?? (await this.captureFileSnapshot(abs))
+
+      // Drop failed tool calls or edits whose net effect is zero.
+      if (baseSnap.sha1 === targetSnap.sha1) continue
+
+      const isNew = baseSnap.sha1 === null && targetSnap.sha1 !== null
+      const isDeleted = baseSnap.sha1 !== null && targetSnap.sha1 === null
+
+      let afterBuf: Buffer | null = null
+      if (!isDeleted) {
+        try {
+          afterBuf = await readFile(abs)
+        } catch {
+          afterBuf = null
+        }
+      }
+      targetContents.set(entry.path, afterBuf)
+
+      const beforeBuf = baselineContents.get(entry.path)
+      const counts =
+        beforeBuf !== undefined
+          ? computeLineDiffCounts(beforeBuf, afterBuf)
+          : { added: entry.added, deleted: entry.deleted }
+
+      finalBaseline[entry.path] = baseSnap
+      finalTarget[entry.path] = targetSnap
+      finalFiles.push({
+        path: entry.path,
+        name: entry.name,
+        isNew,
+        ...(isDeleted ? { isDeleted: true } : {}),
+        ...(entry.noBaselineBlob ? { noBaselineBlob: true } : {}),
+        added: counts.added,
+        deleted: counts.deleted
+      })
+    }
+
+    if (finalFiles.length === 0) return
+
+    const finalRecord: AgentTurnFileChanges = {
+      turnIndex: turnIndex ?? tfc.turnIndex,
+      files: finalFiles,
+      baseline: finalBaseline,
+      target: finalTarget,
+      status: 'applied'
+    }
+
+    await this.persistFileChanges(sessionId, resolvedCwd, finalRecord, baselineContents, targetContents)
+  }
+
+  /** Persist the latest turn's snapshot record + true pre-edit / post-edit content blobs. */
   private async persistFileChanges(
     sessionId: string,
     cwd: string,
     tfc: AgentTurnFileChanges,
-    turnIndex?: number
+    baselineContents: Map<string, Buffer | null | undefined>,
+    targetContents: Map<string, Buffer | null>
   ): Promise<void> {
     const resolvedCwd = resolve(cwd)
     const dir = this.fileChangesDir(sessionId)
+    // Only keep the latest turn's blobs — clear stale blobs from earlier turns
+    // so an old `.before` file can never be reused for a newer edit.
+    await rm(dir, { recursive: true, force: true }).catch(() => undefined)
     await mkdir(dir, { recursive: true })
+
     const blobName = (path: string, kind: 'before' | 'after'): string =>
       `${createHash('sha1').update(path).digest('hex').slice(0, 16)}.${kind}`
 
     const blobs: Record<string, string> = {}
     await Promise.all(
-      Object.entries(tfc.baseline).map(async ([path]) => {
-        const name = blobName(path, 'before')
-        const abs = join(dir, name)
-        if (!existsSync(abs)) {
-          try {
-            const content = await readFile(this.resolveFilePath(resolvedCwd, path))
-            await writeFile(abs, content)
-            blobs[`baseline:${path}`] = name
-          } catch {
-            // baseline for a new file = absent blob; nothing to write
-          }
-        } else {
-          blobs[`baseline:${path}`] = name
+      tfc.files.map(async (file) => {
+        const beforeBuf = baselineContents.get(file.path)
+        if (beforeBuf instanceof Buffer) {
+          const name = blobName(file.path, 'before')
+          await writeFile(join(dir, name), beforeBuf)
+          blobs[`baseline:${file.path}`] = name
         }
-      })
-    )
-    await Promise.all(
-      Object.entries(tfc.target).map(async ([path]) => {
-        const name = blobName(path, 'after')
-        const abs = join(dir, name)
-        try {
-          const content = await readFile(this.resolveFilePath(resolvedCwd, path))
-          await writeFile(abs, content)
-          blobs[`target:${path}`] = name
-        } catch {
-          // file was deleted after the turn → no after-blob
+
+        const afterBuf = targetContents.get(file.path)
+        if (afterBuf instanceof Buffer) {
+          const name = blobName(file.path, 'after')
+          await writeFile(join(dir, name), afterBuf)
+          blobs[`target:${file.path}`] = name
         }
       })
     )
@@ -815,7 +1025,7 @@ export class AgentSessionService {
     const metaPath = join(dir, 'index.json')
     const meta = {
       cwd: resolvedCwd,
-      turnIndex: turnIndex ?? tfc.turnIndex,
+      turnIndex: tfc.turnIndex,
       files: tfc.files,
       baseline: tfc.baseline,
       target: tfc.target,
@@ -889,7 +1099,7 @@ export class AgentSessionService {
         result[p] = false
         continue
       }
-      const abs = this.resolveFilePath(cwd, p)
+      const abs = resolveTrackedAbsolutePath(cwd, p)
       result[p] = !(await this.snapshotMatches(snap, abs))
     }
     return result
@@ -903,6 +1113,9 @@ export class AgentSessionService {
     const meta = await this.loadFileChanges(sessionId)
     if (!meta || meta.files.length === 0) return '没有可撤销的文件修改'
     if (meta.status === 'undone') return '本次修改已被撤销'
+    if (meta.files.some((f) => f.noBaselineBlob)) {
+      return '包含通过命令修改或超大文件，缺少修改前基线快照，无法安全撤销'
+    }
     const rawCwd = meta.cwd ?? this.activeSessions.get(sessionId)?.cwd ?? ''
     const cwd = rawCwd ? resolve(rawCwd) : ''
     if (!cwd) return '无法确定工作目录'
@@ -911,7 +1124,7 @@ export class AgentSessionService {
     for (const file of meta.files) {
       const target = meta.target[file.path]
       if (!target) continue
-      const abs = this.resolveFilePath(cwd, file.path)
+      const abs = resolveTrackedAbsolutePath(cwd, file.path)
       const ok = await this.snapshotMatches(target, abs)
       if (!ok) return `文件 "${file.name}" 在此期间被外部修改，无法安全撤销`
     }
@@ -919,7 +1132,7 @@ export class AgentSessionService {
     // Apply baseline content.
     for (const file of meta.files) {
       const baseline = meta.baseline[file.path]
-      const abs = this.resolveFilePath(cwd, file.path)
+      const abs = resolveTrackedAbsolutePath(cwd, file.path)
       if (!baseline || baseline.sha1 === null) {
         // File did not exist before this turn → delete it.
         try {
@@ -931,6 +1144,7 @@ export class AgentSessionService {
         const blobName = meta.blobs?.[`baseline:${file.path}`]
         const content = blobName ? await this.readBlob(sessionId, blobName) : null
         if (content === null) return `缺少 "${file.name}" 的基线快照，无法撤销`
+        await mkdir(dirname(abs), { recursive: true })
         await writeFile(abs, content)
       }
     }
@@ -959,7 +1173,7 @@ export class AgentSessionService {
     // Validate: every touched file must still match its baseline snapshot.
     for (const file of meta.files) {
       const baseline = meta.baseline[file.path]
-      const abs = this.resolveFilePath(cwd, file.path)
+      const abs = resolveTrackedAbsolutePath(cwd, file.path)
       const ok = baseline
         ? await this.snapshotMatches(baseline, abs)
         : (await this.captureFileSnapshot(abs)).sha1 === null
@@ -969,7 +1183,7 @@ export class AgentSessionService {
     // Re-apply target content.
     for (const file of meta.files) {
       const target = meta.target[file.path]
-      const abs = this.resolveFilePath(cwd, file.path)
+      const abs = resolveTrackedAbsolutePath(cwd, file.path)
       if (!target || target.sha1 === null) {
         try {
           await unlink(abs)
@@ -980,6 +1194,7 @@ export class AgentSessionService {
         const blobName = meta.blobs?.[`target:${file.path}`]
         const content = blobName ? await this.readBlob(sessionId, blobName) : null
         if (content === null) return `缺少 "${file.name}" 的目标快照，无法恢复`
+        await mkdir(dirname(abs), { recursive: true })
         await writeFile(abs, content)
       }
     }
@@ -1071,50 +1286,47 @@ export class AgentSessionService {
 
       // Capture baseline snapshots *after* the permission check passes and
       // *before* the tool mutates the file. The hook is awaited by pi-agent,
-      // so the write cannot start until the snapshot is on disk. Running
-      // after the check avoids capturing a baseline for a call that is then
-      // denied, and keeps the window between snapshot and write minimal.
-      if (
-        toolName === 'edit' ||
-        toolName === 'write' ||
-        toolName === 'edit_file' ||
-        toolName === 'str_replace' ||
-        toolName === 'multi_edit' ||
-        toolName === 'apply_patch'
-      ) {
-        const filePath =
-          (args.path as string | undefined) ??
-          (args.filePath as string | undefined)
-        if (filePath && active) {
-          // Lazily create the accumulator when turn_start hasn't fired yet
-          // (edge cases: resumed session, prompt without prior user turn).
-          active.turnFileChanges ??= {
-            files: [],
-            baseline: {},
-            target: {},
-            status: 'applied'
-          }
-          const tfc = active.turnFileChanges
-          const abs = this.resolveFilePath(active.cwd, filePath)
-          if (!tfc.baseline[filePath]) {
-            const snap = await this.captureFileSnapshot(abs)
-            tfc.baseline[filePath] = snap
-            const name = filePath.split(/[/\\]/).pop() || filePath
-            const exists = tfc.files.some((f) => f.path === filePath)
-            if (!exists) {
+      // so the write cannot start until the baseline bytes/metadata are captured.
+      if (active) {
+        if (FILE_MUTATION_TOOLS.has(toolName)) {
+          const rawFilePath =
+            (args.path as string | undefined) ??
+            (args.filePath as string | undefined) ??
+            (args.file_path as string | undefined)
+          if (rawFilePath) {
+            const tfc = this.ensureTurnFileChangeState(active)
+            active.fileChangeKeyMap ??= new Map()
+            active.baselineContents ??= new Map()
+            const norm = normalizeTrackedFilePath(active.cwd, rawFilePath)
+            let displayPath = active.fileChangeKeyMap.get(norm.key)
+            if (!displayPath) {
+              displayPath = norm.displayPath
+              active.fileChangeKeyMap.set(norm.key, displayPath)
+              const captured = await captureBaselineWithContent(norm.absPath)
+              tfc.baseline[displayPath] = captured.snapshot
+              active.baselineContents.set(displayPath, captured.content)
               tfc.files.push({
-                path: filePath,
-                name,
-                isNew: snap.sha1 === null,
+                path: displayPath,
+                name: norm.name,
+                isNew: captured.snapshot.sha1 === null,
+                ...(captured.tooLarge ? { noBaselineBlob: true } : {}),
                 added: 0,
                 deleted: 0
               })
             }
+            if (context.toolCall.id) {
+              active.pendingToolFiles ??= new Map()
+              active.pendingToolFiles.set(context.toolCall.id, displayPath)
+            }
           }
-          if (context.toolCall.id) {
-            active.pendingToolFiles ??= new Map()
-            active.pendingToolFiles.set(context.toolCall.id, filePath)
+        } else if (SHELL_TOOLS.has(toolName) && !check.readOnlyCommand) {
+          this.ensureTurnFileChangeState(active)
+          // Take at most one lightweight workspace metadata snapshot per user turn,
+          // right before the first non-read-only shell command executes.
+          if (active.preShellWorkspaceSnapshot === undefined) {
+            active.preShellWorkspaceSnapshot = await scanWorkspaceMetadata(active.cwd)
           }
+          active.shellWriteExecuted = true
         }
       }
 
@@ -1128,6 +1340,11 @@ export class AgentSessionService {
         active.updatedAt = Date.now()
         if (event.type === 'agent_start') {
           active.isRunning = true
+          // Flush any leftover accumulator from a previous abnormal run, then start fresh
+          // for this user prompt run. Individual LLM tool loops (`turn_start`/`turn_end`)
+          // accumulate into this same record instead of overwriting it.
+          this.scheduleFinalizeTurnFileChanges(sessionId, active)
+          this.resetTurnFileChangeState(active)
         } else if (event.type === 'agent_end' || event.type === 'agent_settled') {
           active.isRunning = false
           if (event.type === 'agent_end' && active.providerId) {
@@ -1135,110 +1352,56 @@ export class AgentSessionService {
             this.quotaService.invalidate(active.providerId)
             void this.refreshProviderQuota(active.providerId, false).catch(() => undefined)
           }
+          this.scheduleFinalizeTurnFileChanges(sessionId, active)
         }
-        if (!active.title && event.type === 'message_end' && event.message.role === 'user') {
-          const text = this.extractUserText(event.message.content)
-          if (text) {
-            active.title = text
+        if (event.type === 'message_end' && event.message.role === 'user') {
+          if (!active.title) {
+            const text = this.extractUserText(event.message.content)
+            if (text) {
+              active.title = text
+            }
+          }
+          // Keep turnCounter aligned with live user messages. If a steering/follow-up
+          // user message arrives mid-run after files were already mutated, finalize the
+          // previous user turn first so each user prompt owns its own change set.
+          const userCount = this.getLiveUserTurnCount(active)
+          const hasWork =
+            Boolean(active.turnFileChanges && active.turnFileChanges.files.length > 0) ||
+            Boolean(active.shellWriteExecuted)
+          if (hasWork && active.turnCounter && userCount > active.turnCounter) {
+            this.scheduleFinalizeTurnFileChanges(sessionId, active)
+            this.resetTurnFileChangeState(active, userCount)
+          } else if (userCount > 0) {
+            active.turnCounter = userCount
           }
         }
 
-        // Track turn lifecycle for file-change snapshots
+        // Track tool completions within the current user turn
         if (event.type === 'turn_start') {
-          // A previous turn's accumulator may still be alive when turn_start
-          // arrives (pi-agent does not await async listeners). Persist it now
-          // so its baseline/files aren't silently dropped before we reset.
-          const prevTfc = active.turnFileChanges
-          const prevPending = active.pendingCaptures ?? []
-          if (prevTfc && prevTfc.files.length > 0) {
-            const prevTurn = active.turnCounter
-            const flushPrev = Promise.race([
-              Promise.all(prevPending),
-              new Promise<unknown[]>((r) => setTimeout(() => r([]), 1500))
-            ])
-            active.pendingFileChangePersist = flushPrev
-              .then(() => this.persistFileChanges(sessionId, active.cwd, prevTfc, prevTurn))
-              .then(() => undefined)
-              .catch(() => undefined)
-          }
-          // Turn number = count of user messages in the live transcript at
-          // turn_start (turn N opens with user message #N). Using the actual
-          // message history keeps the index aligned across session resumes —
-          // a process-local counter would restart at 1 while the renderer's
-          // per-message turn index keeps counting historical turns.
-          const msgs = active.session.agent.state.messages as Array<{ role?: string }>
-          active.turnCounter = msgs.filter((m) => m.role === 'user').length
-          active.turnFileChanges = { files: [], baseline: {}, target: {}, status: 'applied' }
-          active.pendingToolFiles = new Map()
-          active.pendingCaptures = []
+          // Do NOT reset `turnFileChanges` on `turn_start`: a single user prompt often
+          // spans many LLM tool-call turns (`turn_start` → `turn_end`), and all edits
+          // across those sub-turns belong to the same user-visible reply.
+          this.ensureTurnFileChangeState(active)
         } else if (event.type === 'tool_execution_end' && active.turnFileChanges) {
           const toolName = (event.toolName || '').toLowerCase()
-          if (
-            toolName === 'edit' ||
-            toolName === 'write' ||
-            toolName === 'edit_file' ||
-            toolName === 'str_replace' ||
-            toolName === 'multi_edit' ||
-            toolName === 'apply_patch'
-          ) {
-            const filePath = event.toolCallId ? active.pendingToolFiles?.get(event.toolCallId) : undefined
-            if (filePath && active.turnFileChanges.baseline[filePath]) {
-              // Capture the tfc reference *now* — the async .then must not
-              // re-read active.turnFileChanges, which may have been reset by
-              // a following turn_start before the snapshot resolves.
+          if (FILE_MUTATION_TOOLS.has(toolName)) {
+            const displayPath = event.toolCallId
+              ? active.pendingToolFiles?.get(event.toolCallId)
+              : undefined
+            if (event.toolCallId) active.pendingToolFiles?.delete(event.toolCallId)
+            if (!event.isError && displayPath && active.turnFileChanges.baseline[displayPath]) {
+              // Capture the tfc reference *now* — the async .then must not re-read
+              // active.turnFileChanges, which may be detached on agent_end/abort.
               const tfc = active.turnFileChanges
-              const abs = this.resolveFilePath(active.cwd, filePath)
+              const abs = resolveTrackedAbsolutePath(active.cwd, displayPath)
               const capture = this.captureFileSnapshot(abs)
                 .then((snap) => {
-                  tfc.target[filePath] = snap
-                  const entry = tfc.files.find((f) => f.path === filePath)
-                  if (entry) {
-                    const counts = this.countDiffLines(event.result)
-                    entry.added += counts.added
-                    entry.deleted += counts.deleted
-                  }
+                  tfc.target[displayPath] = snap
                 })
                 .catch(() => undefined)
               active.pendingCaptures = active.pendingCaptures ?? []
               active.pendingCaptures.push(capture)
             }
-            if (event.toolCallId) active.pendingToolFiles?.delete(event.toolCallId)
-          }
-        } else if (event.type === 'turn_end' && active.turnFileChanges) {
-          const tfc = active.turnFileChanges
-          const pending = active.pendingCaptures ?? []
-          active.turnFileChanges = undefined
-          active.pendingToolFiles = undefined
-          active.pendingCaptures = undefined
-          if (tfc.files.length > 0) {
-            const turnIdx = active.turnCounter
-            const flush = Promise.race([
-              Promise.all(pending),
-              new Promise<unknown[]>((r) => setTimeout(() => r([]), 1500))
-            ])
-            active.pendingFileChangePersist = flush
-              .then(() => this.persistFileChanges(sessionId, active.cwd, tfc, turnIdx))
-              .then(() => undefined)
-              .catch(() => undefined)
-          }
-        } else if (event.type === 'agent_end' || event.type === 'agent_settled') {
-          // Safety net: if turn_end never fired (abort / missed event) the
-          // accumulator may still hold work. Flush it so the card isn't lost.
-          const tfc = active.turnFileChanges
-          const pending = active.pendingCaptures ?? []
-          if (tfc && (tfc.files.length > 0 || pending.length > 0)) {
-            active.turnFileChanges = undefined
-            active.pendingToolFiles = undefined
-            active.pendingCaptures = undefined
-            const turnIdx = active.turnCounter
-            const flush = Promise.race([
-              Promise.all(pending),
-              new Promise<unknown[]>((r) => setTimeout(() => r([]), 1500))
-            ])
-            active.pendingFileChangePersist = flush
-              .then(() => this.persistFileChanges(sessionId, active.cwd, tfc, turnIdx))
-              .then(() => undefined)
-              .catch(() => undefined)
           }
         }
       }
@@ -1475,26 +1638,8 @@ export class AgentSessionService {
     const active = this.activeSessions.get(sessionId)
     if (active) {
       // Flush any in-flight file-change record so the card still reflects
-      // the edits that already happened before the abort. pi-agent may not
-      // emit turn_end on abort, so pendingCaptures would otherwise leak.
-      const tfc = active.turnFileChanges
-      const pending = active.pendingCaptures ?? []
-      active.turnFileChanges = undefined
-      active.pendingToolFiles = undefined
-      active.pendingCaptures = undefined
-      if (tfc && tfc.files.length > 0) {
-        // Aborted captures may never settle; give them a short grace period
-        // then persist whatever baseline/target pairs we already have.
-        const turnIdx = active.turnCounter
-        const flush = Promise.race([
-          Promise.all(pending),
-          new Promise<unknown[]>((r) => setTimeout(() => r([]), 1500))
-        ])
-        active.pendingFileChangePersist = flush
-          .then(() => this.persistFileChanges(sessionId, active.cwd, tfc, turnIdx))
-          .then(() => undefined)
-          .catch(() => undefined)
-      }
+      // the edits that already happened before the abort.
+      this.scheduleFinalizeTurnFileChanges(sessionId, active)
       await active.session.abort()
 
       // Recover queued (not yet delivered) follow-up/steering texts back to

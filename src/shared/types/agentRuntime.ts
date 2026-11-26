@@ -195,11 +195,15 @@ export interface AgentSessionStatus {
   } | null
 }
 
-/** A single file touched by an edit/write tool call within one agent turn. */
+/** A single file touched by an edit/write tool call or shell command within one agent turn. */
 export interface AgentFileChange {
   path: string
   name: string
   isNew: boolean
+  /** True when the file existed before the turn and was deleted during the turn. */
+  isDeleted?: boolean
+  /** True when the file cannot be safely reverted (e.g. modified/deleted by shell without pre-edit blob, or >10MB). */
+  noBaselineBlob?: boolean
   added: number
   deleted: number
 }
