@@ -44,9 +44,17 @@ export const WORKBENCH_HTML_EDIT_RUNTIME = String.raw`
   var dropHintEl = null;
   var observer = null;
   var dirty = false;
-  var reportedDirty = false;
   var scrollFrame = 0;
   var observerStarted = false;
+  var history = [];
+  var historyIndex = -1;
+  var historyKeys = [];
+  var savedKey = '';
+  var checkpointTimer = 0;
+  var reportedCanUndo = false;
+  var reportedCanRedo = false;
+  var HISTORY_LIMIT = 60;
+  var CHECKPOINT_DEBOUNCE_MS = 250;
 
   function post(type, payload) {
     try {
@@ -63,17 +71,176 @@ export const WORKBENCH_HTML_EDIT_RUNTIME = String.raw`
     return !!node && node.nodeType === 1;
   }
 
-  function notifyDirty() {
-    if (!dirty) dirty = true;
-    if (dirty && !reportedDirty) {
-      reportedDirty = true;
-      post('dirty');
+  function reportDirtyState(next) {
+    if (dirty === next) return;
+    dirty = next;
+    post('dirty', { dirty: next });
+  }
+
+  /* ============ 撤销/重做：body 快照历史 ============
+   * 快照在每次变更批结束后捕获（post-mutation），用 index 线性移动实现
+   * undo/redo。连续输入和调色板拖动等高频变更按 250ms 防抖合并成一步；
+   * 工具栏命令、插入/删除/拖拽排序属于离散操作，执行前先冲刷上一个批次，
+   * 保证每一步都能单独撤销。捕获时临时剥离编辑器自身的选中/悬停类，
+   * 避免它们进入历史与序列化结果。 */
+
+  function captureState() {
+    var body = document.body;
+    if (!body) return null;
+    var removals = [];
+    var nodes = [];
+    if (typeof body.className === 'string' && body.className.indexOf('__mve_') >= 0) {
+      nodes.push(body);
+    }
+    var marked = body.querySelectorAll('[class*="__mve_"]');
+    for (var i = 0; i < marked.length; i += 1) nodes.push(marked[i]);
+    for (var j = 0; j < nodes.length; j += 1) {
+      var node = nodes[j];
+      var removed = [];
+      var classes = (node.getAttribute('class') || '').split(/\s+/);
+      for (var k = 0; k < classes.length; k += 1) {
+        if (classes[k] && classes[k].indexOf('__mve_') === 0) {
+          removed.push(classes[k]);
+          node.classList.remove(classes[k]);
+        }
+      }
+      if (removed.length) removals.push({ node: node, classes: removed });
+    }
+    var html;
+    try {
+      html = body.innerHTML;
+    } finally {
+      for (var m = 0; m < removals.length; m += 1) {
+        for (var n = 0; n < removals[m].classes.length; n += 1) {
+          removals[m].node.classList.add(removals[m].classes[n]);
+        }
+      }
+    }
+    var attrs = [];
+    for (var a = 0; a < body.attributes.length; a += 1) {
+      attrs.push([body.attributes[a].name, body.attributes[a].value]);
+    }
+    return { html: html, attrs: attrs };
+  }
+
+  function stateKey(state) {
+    var key = state.html;
+    for (var i = 0; i < state.attrs.length; i += 1) {
+      key += '' + state.attrs[i][0] + '=' + state.attrs[i][1];
+    }
+    return key;
+  }
+
+  function postHistoryState() {
+    var canUndo = historyIndex > 0;
+    var canRedo = historyIndex >= 0 && historyIndex < history.length - 1;
+    if (canUndo === reportedCanUndo && canRedo === reportedCanRedo) return;
+    reportedCanUndo = canUndo;
+    reportedCanRedo = canRedo;
+    post('history-state', { canUndo: canUndo, canRedo: canRedo });
+  }
+
+  function updateDirtyState() {
+    if (!savedKey || historyIndex < 0 || !history[historyIndex]) return;
+    reportDirtyState(historyKeys[historyIndex] !== savedKey);
+  }
+
+  function commitCapture() {
+    var state = captureState();
+    if (!state) return;
+    var key = stateKey(state);
+    if (historyIndex >= 0 && historyKeys[historyIndex] === key) {
+      // 与栈顶一致说明本轮净变更为零（如输入后删回），仍要回算脏状态。
+      postHistoryState();
+      updateDirtyState();
+      return;
+    }
+    if (historyIndex < history.length - 1) {
+      history.length = historyIndex + 1;
+      historyKeys.length = historyIndex + 1;
+    }
+    history.push(state);
+    historyKeys.push(key);
+    if (history.length > HISTORY_LIMIT) {
+      history.shift();
+      historyKeys.shift();
+    }
+    historyIndex = history.length - 1;
+    postHistoryState();
+    updateDirtyState();
+  }
+
+  function flushCheckpoint() {
+    if (!checkpointTimer) return;
+    clearTimeout(checkpointTimer);
+    checkpointTimer = 0;
+    commitCapture();
+  }
+
+  function scheduleCheckpoint() {
+    if (checkpointTimer) clearTimeout(checkpointTimer);
+    checkpointTimer = setTimeout(function () {
+      checkpointTimer = 0;
+      commitCapture();
+    }, CHECKPOINT_DEBOUNCE_MS);
+  }
+
+  function restoreState(state) {
+    var body = document.body;
+    if (!body || !state) return;
+    var x = window.scrollX;
+    var y = window.scrollY;
+    // 恢复期间断开观察器，避免整段 DOM 替换被误记为新的历史步骤。
+    if (observer) observer.disconnect();
+    deselect();
+    body.innerHTML = state.html;
+    // innerHTML 替换后 body 引用不变，但属性需整组重放。
+    while (body.attributes.length) body.removeAttribute(body.attributes[0].name);
+    for (var i = 0; i < state.attrs.length; i += 1) {
+      body.setAttribute(state.attrs[i][0], state.attrs[i][1]);
+    }
+    window.scrollTo(x, y);
+    if (observer) {
+      observer.observe(document.documentElement, {
+        childList: true,
+        characterData: true,
+        subtree: true
+      });
     }
   }
 
-  function resetDirty() {
-    dirty = false;
-    reportedDirty = false;
+  function undo() {
+    flushCheckpoint();
+    if (historyIndex <= 0) return;
+    historyIndex -= 1;
+    restoreState(history[historyIndex]);
+    postHistoryState();
+    updateDirtyState();
+  }
+
+  function redo() {
+    flushCheckpoint();
+    if (historyIndex < 0 || historyIndex >= history.length - 1) return;
+    historyIndex += 1;
+    restoreState(history[historyIndex]);
+    postHistoryState();
+    updateDirtyState();
+  }
+
+  function seedHistory() {
+    if (historyIndex >= 0) return;
+    var state = captureState();
+    if (!state) return;
+    history.push(state);
+    historyKeys.push(stateKey(state));
+    historyIndex = 0;
+    savedKey = historyKeys[0];
+    postHistoryState();
+  }
+
+  function notifyDirty() {
+    reportDirtyState(true);
+    scheduleCheckpoint();
   }
 
   function siblingsOf(el) {
@@ -283,10 +450,25 @@ export const WORKBENCH_HTML_EDIT_RUNTIME = String.raw`
       deselect();
       return;
     }
-    if ((e.ctrlKey || e.metaKey) && String(e.key).toLowerCase() === 's') {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    var key = String(e.key).toLowerCase();
+    if (key === 's') {
       e.preventDefault();
       e.stopPropagation();
       post('save-request');
+      return;
+    }
+    if (key === 'z' || key === 'y') {
+      // 表单控件保留浏览器原生输入撤销，designMode 正文全部走快照历史。
+      if (e.altKey) return;
+      var target = e.target;
+      if (isElement(target) && typeof target.closest === 'function') {
+        if (target.closest('input, textarea, select')) return;
+      }
+      e.preventDefault();
+      e.stopPropagation();
+      if (key === 'z' && !e.shiftKey) undo();
+      else redo();
     }
   }
 
@@ -368,6 +550,8 @@ export const WORKBENCH_HTML_EDIT_RUNTIME = String.raw`
   function runCommand(command, value, preserveFocus) {
     var el = selectedEl;
     if (!el) return;
+    // 命令属于离散操作：先结算上一批连续输入，保证每条命令可单独撤销。
+    flushCheckpoint();
     if (!preserveFocus) {
       try {
         window.focus();
@@ -487,6 +671,7 @@ export const WORKBENCH_HTML_EDIT_RUNTIME = String.raw`
     dragSrc = null;
     source.classList.remove(DRAGGING);
     if (hit && hit.target !== source) {
+      flushCheckpoint();
       if (hit.before) hit.target.parentNode.insertBefore(source, hit.target);
       else hit.target.insertAdjacentElement('afterend', source);
       notifyDirty();
@@ -583,7 +768,16 @@ export const WORKBENCH_HTML_EDIT_RUNTIME = String.raw`
     } else if (data.type === 'command') {
       runCommand(data.command, data.value, !!data.preserveFocus);
     } else if (data.type === 'saved') {
-      resetDirty();
+      flushCheckpoint();
+      // 以当前 DOM 重新建立干净基线；撤销回到该状态时父级可自动清除脏标记。
+      if (historyIndex >= 0 && historyKeys[historyIndex]) {
+        savedKey = historyKeys[historyIndex];
+      }
+      reportDirtyState(false);
+    } else if (data.type === 'undo') {
+      undo();
+    } else if (data.type === 'redo') {
+      redo();
     } else if (data.type === 'drag-start') {
       beginDrag();
     } else if (data.type === 'drag-move') {
@@ -617,7 +811,29 @@ export const WORKBENCH_HTML_EDIT_RUNTIME = String.raw`
   window.addEventListener('resize', scheduleSelectionRect, true);
   window.addEventListener('message', onMessage, false);
 
-  afterPageLoad(startObserver);
+  // 注入的样式/脚本可能落在 body（文档缺少 head 时）；移入 head 后它们
+  // 就不会出现在 body 快照里，innerHTML 恢复也不会误删样式。
+  try {
+    var injectedStyle = document.getElementById(STYLE_ID);
+    var injectedScript = document.getElementById(SCRIPT_ID);
+    if (document.head) {
+      if (injectedStyle && injectedStyle.parentNode !== document.head) {
+        document.head.appendChild(injectedStyle);
+      }
+      if (injectedScript && injectedScript.parentNode !== document.head) {
+        document.head.appendChild(injectedScript);
+      }
+    }
+  } catch (err) {
+    /* noop */
+  }
+
+  afterPageLoad(function () {
+    startObserver();
+    // 基线与观察器同一时刻建立：页面水合产生的变化不入历史，
+    // 撤销的第一步就是用户的第一次真实编辑。
+    seedHistory();
+  });
   post('ready');
 })();
 `

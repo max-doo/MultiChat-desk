@@ -5,11 +5,15 @@ import { AppIcon } from '../icons/AppIcon'
 export const WORKBENCH_FLOATING_TOOLBAR_BASE_CLASS =
   'flex items-center gap-0.5 p-1 rounded-xl bg-white dark:bg-gray-800 shadow-lg border border-black/10 dark:border-white/10'
 
+export const WORKBENCH_FLOATING_TOOLBAR_LIGHT_CLASS =
+  'flex items-center gap-0.5 p-1 rounded-xl bg-white shadow-lg border border-black/10'
+
 export function WorkbenchFloatingToolbarButton({
   icon,
   label,
   active = false,
   disabled = false,
+  forceLight = false,
   onClick,
   onPointerDown,
   buttonRef,
@@ -20,6 +24,7 @@ export function WorkbenchFloatingToolbarButton({
   label: string
   active?: boolean
   disabled?: boolean
+  forceLight?: boolean
   onClick?: () => void
   onPointerDown?: PointerEventHandler<HTMLButtonElement>
   buttonRef?: RefObject<HTMLButtonElement>
@@ -38,7 +43,9 @@ export function WorkbenchFloatingToolbarButton({
       className={`w-8 h-8 flex items-center justify-center rounded-md transition-colors disabled:cursor-default disabled:opacity-35 ${
         active
           ? 'bg-primary/20 text-primary'
-          : 'text-text-primary hover:bg-black/5 dark:hover:bg-white/10'
+          : forceLight
+            ? 'text-gray-800 hover:bg-black/5'
+            : 'text-text-primary hover:bg-black/5 dark:hover:bg-white/10'
       } ${className}`}
     >
       {icon ? <AppIcon name={icon} size={19} /> : children}
@@ -46,6 +53,16 @@ export function WorkbenchFloatingToolbarButton({
   )
 }
 
-export function WorkbenchFloatingToolbarDivider(): JSX.Element {
-  return <span className="mx-0.5 h-4 w-px shrink-0 bg-black/10 dark:bg-white/10" />
+export function WorkbenchFloatingToolbarDivider({
+  forceLight = false
+}: {
+  forceLight?: boolean
+}): JSX.Element {
+  return (
+    <span
+      className={`mx-0.5 h-4 w-px shrink-0 ${
+        forceLight ? 'bg-black/10' : 'bg-black/10 dark:bg-white/10'
+      }`}
+    />
+  )
 }

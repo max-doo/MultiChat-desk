@@ -10,7 +10,7 @@ import {
   parseComputedColor
 } from './WorkbenchHtmlColorPicker'
 import {
-  WORKBENCH_FLOATING_TOOLBAR_BASE_CLASS,
+  WORKBENCH_FLOATING_TOOLBAR_LIGHT_CLASS,
   WorkbenchFloatingToolbarButton,
   WorkbenchFloatingToolbarDivider
 } from './WorkbenchFloatingToolbarChrome'
@@ -143,14 +143,14 @@ export default function WorkbenchHtmlEditToolbar({
     `relative flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
       active
         ? 'bg-primary/15 text-primary'
-        : 'text-text-primary hover:bg-black/5 dark:hover:bg-white/10'
+        : 'text-gray-800 hover:bg-black/5'
     }`
 
   return (
     <div
       role="toolbar"
       aria-label="HTML 编辑工具栏"
-      className={`${WORKBENCH_FLOATING_TOOLBAR_BASE_CLASS} text-text-primary`}
+      className={`${WORKBENCH_FLOATING_TOOLBAR_LIGHT_CLASS} text-gray-800`}
       onMouseDown={(event) => {
         if ((event.target as HTMLElement).tagName !== 'INPUT') event.preventDefault()
       }}
@@ -158,21 +158,25 @@ export default function WorkbenchHtmlEditToolbar({
       <WorkbenchFloatingToolbarButton
         icon="format_bold"
         label="加粗"
+        forceLight
         onClick={() => onCommand('bold')}
       />
       <WorkbenchFloatingToolbarButton
         icon="format_italic"
         label="斜体"
+        forceLight
         onClick={() => onCommand('italic')}
       />
       <WorkbenchFloatingToolbarButton
         label="缩小字号"
+        forceLight
         onClick={() => onCommand('fontDown')}
       >
         <span className="text-label font-semibold leading-none">A-</span>
       </WorkbenchFloatingToolbarButton>
       <WorkbenchFloatingToolbarButton
         label="放大字号"
+        forceLight
         onClick={() => onCommand('fontUp')}
       >
         <span className="text-label font-semibold leading-none">A+</span>
@@ -192,7 +196,7 @@ export default function WorkbenchHtmlEditToolbar({
           <AppIcon name="format_color_text" size={19} />
           <ColorFill
             color={parsedTextColor.source}
-            className="absolute bottom-1 left-1.5 right-1.5 h-[3px] rounded-full border border-black/10 dark:border-white/20"
+            className="absolute bottom-1 left-1.5 right-1.5 h-[3px] rounded-full border border-black/10"
           />
         </button>
         {openPicker === 'text' && (
@@ -234,7 +238,7 @@ export default function WorkbenchHtmlEditToolbar({
           <AppIcon name="format_color_fill" size={19} />
           <ColorFill
             color={parsedBackgroundColor.source}
-            className="absolute bottom-1 left-1.5 right-1.5 h-[3px] rounded-full border border-black/10 dark:border-white/20"
+            className="absolute bottom-1 left-1.5 right-1.5 h-[3px] rounded-full border border-black/10"
           />
         </button>
         {openPicker === 'background' && (
@@ -259,24 +263,27 @@ export default function WorkbenchHtmlEditToolbar({
         )}
       </div>
 
-      <WorkbenchFloatingToolbarDivider />
+      <WorkbenchFloatingToolbarDivider forceLight />
 
       <WorkbenchFloatingToolbarButton
         icon="add"
         label="插入同款元素"
         disabled={!canReorder}
+        forceLight
         onClick={() => onCommand('add')}
       />
       <WorkbenchFloatingToolbarButton
         icon="file_copy"
         label="复制当前元素"
         disabled={!canReorder}
+        forceLight
         onClick={() => onCommand('duplicate')}
       />
       <WorkbenchFloatingToolbarButton
         icon="delete"
         label="删除当前元素"
         disabled={!canReorder}
+        forceLight
         onClick={() => onCommand('delete')}
       />
     </div>

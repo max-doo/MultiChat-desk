@@ -300,7 +300,7 @@ function ColorSlider({
           event.currentTarget.releasePointerCapture(event.pointerId)
         }
       }}
-      className="relative h-3.5 touch-none cursor-pointer rounded-full border border-black/10 outline-none focus-visible:ring-2 focus-visible:ring-primary/30 dark:border-white/10"
+      className="relative h-3.5 touch-none cursor-pointer rounded-full border border-black/10 outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
       style={style}
     >
       <span
@@ -376,7 +376,7 @@ function SaturationValueArea({
         }
       }}
       data-html-color-area
-      className="relative mt-2.5 h-[104px] w-full touch-none cursor-crosshair overflow-hidden rounded-lg border border-black/10 outline-none focus-visible:ring-2 focus-visible:ring-primary/30 dark:border-white/10"
+      className="relative mt-2.5 h-[104px] w-full touch-none cursor-crosshair overflow-hidden rounded-lg border border-black/10 outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
       style={{
         backgroundColor: `hsl(${hsv.h} 100% 50%)`,
         backgroundImage:
@@ -465,12 +465,12 @@ export function ColorPickerMenu({
     <div
       role="dialog"
       aria-label={`${label}选择器`}
-      className="w-[228px] liquid-glass-menu rounded-xl p-2.5 text-sm"
+      className="w-[228px] rounded-xl border border-black/10 bg-white p-2.5 text-sm text-gray-800 shadow-lg"
     >
       <div className="flex items-center gap-2">
         <ColorFill
           color={currentColor}
-          className="h-7 w-7 shrink-0 rounded-md border border-black/10 dark:border-white/15"
+          className="h-7 w-7 shrink-0 rounded-md border border-black/10"
         />
         <input
           type="text"
@@ -495,9 +495,9 @@ export function ColorPickerMenu({
               commitHex(draft, true)
             }
           }}
-          className="h-7 min-w-0 flex-1 rounded-md border border-black/10 bg-black/[0.02] px-2 font-mono text-caption uppercase text-text-primary outline-none focus:border-primary dark:border-white/10 dark:bg-white/[0.03]"
+          className="h-7 min-w-0 flex-1 rounded-md border border-black/10 bg-black/[0.02] px-2 font-mono text-caption uppercase text-gray-800 outline-none focus:border-primary"
         />
-        <span className="w-8 shrink-0 text-right font-mono text-tiny tabular-nums text-text-secondary">
+        <span className="w-8 shrink-0 text-right font-mono text-tiny tabular-nums text-gray-600">
           {Math.round(alpha * 100)}%
         </span>
       </div>
@@ -524,7 +524,7 @@ export function ColorPickerMenu({
 
       <div className="mt-2">
         <div
-          className="relative rounded-full border border-black/10 dark:border-white/10"
+          className="relative rounded-full border border-black/10"
         >
           <div
             className="absolute inset-0 overflow-hidden rounded-full"
@@ -562,8 +562,8 @@ export function ColorPickerMenu({
             onClick={() => onChoose('transparent')}
             className={`relative h-5 w-5 overflow-hidden rounded-sm border transition-transform hover:scale-110 ${
               alpha <= 0.001
-                ? 'border-primary ring-2 ring-primary/30 ring-offset-1 ring-offset-white dark:ring-offset-gray-800'
-                : 'border-black/15 dark:border-white/20'
+                ? 'border-primary ring-2 ring-primary/30 ring-offset-1 ring-offset-white'
+                : 'border-black/15'
             }`}
           >
             <span className="absolute inset-0" style={CHECKERBOARD_STYLE} />
@@ -582,8 +582,8 @@ export function ColorPickerMenu({
               onClick={() => onChoose(color)}
               className={`h-5 w-5 rounded-sm border transition-transform hover:scale-110 ${
                 selected
-                  ? 'border-primary ring-2 ring-primary/30 ring-offset-1 ring-offset-white dark:ring-offset-gray-800'
-                  : 'border-black/15 dark:border-white/20'
+                  ? 'border-primary ring-2 ring-primary/30 ring-offset-1 ring-offset-white'
+                  : 'border-black/15'
               }`}
               style={{ backgroundColor: color }}
             />

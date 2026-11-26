@@ -50,6 +50,9 @@ interface SerializedMessage {
   type?: string
   id?: string
   html?: string
+  dirty?: boolean
+  canUndo?: boolean
+  canRedo?: boolean
   rect?: SelectionRect
   crumb?: string
   textColor?: string
@@ -65,6 +68,7 @@ export interface WorkbenchHtmlVisualEditorHandle {
   hasChanges: () => boolean
   markSaved: () => void
   serializeCurrent: () => Promise<string>
+  requestHistory: (action: 'undo' | 'redo') => void
 }
 
 interface WorkbenchHtmlVisualEditorProps {
@@ -72,6 +76,7 @@ interface WorkbenchHtmlVisualEditorProps {
   fileUrl: string
   onDirtyChange: (dirty: boolean) => void
   onRequestSave: () => void
+  onHistoryStateChange?: (state: { canUndo: boolean; canRedo: boolean }) => void
 }
 
 const READY_TIMEOUT_MS = 4500
@@ -95,7 +100,7 @@ const WorkbenchHtmlVisualEditor = forwardRef<
   WorkbenchHtmlVisualEditorHandle,
   WorkbenchHtmlVisualEditorProps
 >(function WorkbenchHtmlVisualEditor(
-  { filePath, fileUrl, onDirtyChange, onRequestSave },
+  { filePath, fileUrl, onDirtyChange, onRequestSave, onHistoryStateChange },
   ref
 ): JSX.Element {
   const setHtmlEditFlusher = useWorkbenchStore((s) => s.setHtmlEditFlusher)
@@ -123,9 +128,11 @@ const WorkbenchHtmlVisualEditor = forwardRef<
   const pendingRef = useRef(new Map<string, PendingSerialization>())
   const onDirtyChangeRef = useRef(onDirtyChange)
   const onRequestSaveRef = useRef(onRequestSave)
+  const onHistoryStateChangeRef = useRef(onHistoryStateChange)
 
   onDirtyChangeRef.current = onDirtyChange
   onRequestSaveRef.current = onRequestSave
+  onHistoryStateChangeRef.current = onHistoryStateChange
 
   const postToFrame = useCallback((message: Record<string, unknown>) => {
     iframeRef.current?.contentWindow?.postMessage(
@@ -200,11 +207,22 @@ const WorkbenchHtmlVisualEditor = forwardRef<
         return
       }
       if (data.type === 'dirty') {
-        if (!dirtyRef.current) {
+        if (data.dirty === false) {
+          if (dirtyRef.current) {
+            dirtyRef.current = false
+            onDirtyChangeRef.current(false)
+            useWorkbenchStore.getState().unmarkActiveFileDirty()
+          }
+        } else if (!dirtyRef.current) {
           dirtyRef.current = true
           onDirtyChangeRef.current(true)
           markActiveFileDirty()
         }
+        return
+      }
+      if (data.type === 'history-state') {
+        const next = { canUndo: !!data.canUndo, canRedo: !!data.canRedo }
+        onHistoryStateChangeRef.current?.(next)
         return
       }
       if (data.type === 'selection' && data.rect && typeof data.crumb === 'string') {
@@ -442,9 +460,31 @@ const WorkbenchHtmlVisualEditor = forwardRef<
   const handleFrameLoad = useCallback(() => {
     readyRef.current = false
     setFailed(false)
+    const resetHistory = { canUndo: false, canRedo: false }
+    onHistoryStateChangeRef.current?.(resetHistory)
     armReadyTimer()
     postToFrame({ type: 'ping' })
   }, [armReadyTimer, postToFrame])
+
+  // iframe 沙盒独立接收键鼠，父窗口聚焦时（调色板、状态栏按钮）快捷键
+  // 也要能撤销；输入控件内的 Ctrl+Z 保留原生输入撤销，不转发。
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey) return
+      const key = event.key.toLowerCase()
+      if (key !== 'z' && key !== 'y') return
+      if (!readyRef.current) return
+      const target = event.target as HTMLElement | null
+      if (target && typeof target.closest === 'function') {
+        if (target.closest('input, textarea, select, [contenteditable="true"]')) return
+      }
+      event.preventDefault()
+      const type = key === 'z' && !event.shiftKey ? 'undo' : 'redo'
+      postToFrame({ type })
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [postToFrame])
 
   useImperativeHandle(
     ref,
@@ -457,7 +497,10 @@ const WorkbenchHtmlVisualEditor = forwardRef<
         postToFrame({ type: 'saved' })
         postToFrame({ type: 'deselect' })
       },
-      serializeCurrent: requestSerialization
+      serializeCurrent: requestSerialization,
+      requestHistory: (action) => {
+        postToFrame({ type: action })
+      }
     }),
     [postToFrame, requestSerialization]
   )
@@ -500,7 +543,7 @@ const WorkbenchHtmlVisualEditor = forwardRef<
             aria-label="拖动排序"
             data-html-drag-handle
             onPointerDown={handleBeginDrag}
-            className={`absolute z-dropdown flex h-6 w-6 items-center justify-center rounded-md border border-primary/40 bg-white/95 text-primary shadow-md backdrop-blur-sm transition-colors dark:bg-gray-800/95 ${
+            className={`absolute z-dropdown flex h-6 w-6 items-center justify-center rounded-md border border-primary/40 bg-white/95 text-primary shadow-md backdrop-blur-sm transition-colors ${
               isDragging
                 ? 'cursor-grabbing bg-primary text-white'
                 : 'cursor-grab hover:bg-primary hover:text-white'
@@ -521,7 +564,7 @@ const WorkbenchHtmlVisualEditor = forwardRef<
         )}
       </div>
 
-      <div className="h-8 px-3 bg-slate-800/90 border-t border-slate-700/60 flex items-center justify-between gap-4 shrink-0 select-none text-xs text-slate-400">
+      <div className="h-8 px-3 bg-[#252526]/95 border-t border-white/[0.08] flex items-center justify-between gap-4 shrink-0 select-none text-xs text-[#A1A1AA]">
         <span className="truncate">{selection?.crumb || '点击页面元素开始编辑'}</span>
         <span className="shrink-0">
           {failed
