@@ -210,7 +210,7 @@ function buildEditorTheme(isDark: boolean): Extension {
     },
     '.cm-citation': {
       // 与渲染模式引文同色：仅字体颜色区分，无背景装饰
-      color: isDark ? 'rgb(94, 234, 212)' : 'rgb(13, 148, 136)'
+      color: isDark ? 'rgb(160, 190, 226)' : 'rgb(93, 132, 184)'
     }
   })
 }
@@ -250,7 +250,6 @@ const MODIFIED_MARKER = new GitGutterMarker('modified', false)
 const MODIFIED_DELETED_MARKER = new GitGutterMarker('modified', true)
 const DELETED_MARKER = new GitGutterMarker('deleted', false)
 
-// 空占位 marker：保证无 git 变化的行也渲染 gutterElement，防止 git gutter 列塌缩
 class EmptyGitGutterMarker extends GutterMarker {
   override eq(other: GutterMarker): boolean {
     return other instanceof EmptyGitGutterMarker
@@ -273,7 +272,6 @@ function buildGitGutterExtension(
       if (mark === 'added') return del ? ADDED_DELETED_MARKER : ADDED_MARKER
       if (mark === 'modified') return del ? MODIFIED_DELETED_MARKER : MODIFIED_MARKER
       if (del) return DELETED_MARKER
-      // 返回空占位 marker 而不是 null：保证该行 gutterElement 一定被创建，列宽恒定
       return EMPTY_MARKER
     },
     // 仅在文档内容变更或 Compartment.reconfigure 刷新 diff 时重算 gutter marker，避免光标移动重建 DOM
@@ -332,7 +330,6 @@ const WorkbenchSourceEditor = forwardRef<
   const isDark = markdownBackgroundTheme === 'dark'
   const gitDiff = useGitLineDiff(value)
 
-  // 注册同步 flusher：保存、切换模式、切文件或 Ctrl+F 前同步落入 store
   useEffect(() => {
     const flushSync = (): void => {
       if (pendingSyncTimerRef.current) {
@@ -361,7 +358,6 @@ const WorkbenchSourceEditor = forwardRef<
     }
   }, [setSourceSyncFlusher])
 
-  // 保存滚动位置：用户滚动时实时记忆，组件卸载前由 store 兜底
   useEffect(() => {
     if (!hostRef.current) return
 
@@ -490,7 +486,6 @@ const WorkbenchSourceEditor = forwardRef<
     })
   }, [value])
 
-  // 从预览切回源码时恢复上次滚动位置
   useLayoutEffect(() => {
     const view = viewRef.current
     if (!view || !activeFilePath) return
@@ -512,7 +507,6 @@ const WorkbenchSourceEditor = forwardRef<
     view.focus()
   }
 
-  // 行内包裹：给选中文本加/去 before..after 标记（**、*、`、==、<u>…</u>）
   const applyWrap = (before: string, after: string, placeholder?: string): void => {
     const view = viewRef.current
     if (!view) return
@@ -534,7 +528,6 @@ const WorkbenchSourceEditor = forwardRef<
     commitEdit(from, to, wrapped, from + before.length, from + before.length + content.length)
   }
 
-  // 行前缀：对选区覆盖到的每一行加/去前缀（# 、- 、1. 、[ ]、> 、```）
   const applyLinePrefix = (prefix: string): void => {
     const view = viewRef.current
     if (!view) return
@@ -554,7 +547,6 @@ const WorkbenchSourceEditor = forwardRef<
     commitEdit(lineStart, lineEnd, nextBlock, lineStart, lineStart + nextBlock.length)
   }
 
-  // 字面量插入：表格模板、分割线等；ensureBlankLine 保证与前文之间有空行
   const applyInsert = (text: string, ensureBlankLine?: boolean): void => {
     const view = viewRef.current
     if (!view) {
@@ -624,7 +616,6 @@ const WorkbenchSourceEditor = forwardRef<
     view.focus()
   }
 
-  // 在光标处插入 markdown 图片语法，并同步调整光标位置
   const insertMarkdownAtCursor = (text: string): void => {
     const view = viewRef.current
     if (!view) {
@@ -670,7 +661,6 @@ const WorkbenchSourceEditor = forwardRef<
     []
   )
 
-  // 粘贴图片：clipboard 中的图片 File → 存 assets → 插入 ![](path)
   const handlePaste = async (e: React.ClipboardEvent<HTMLDivElement>): Promise<void> => {
     const files = Array.from(e.clipboardData?.files ?? [])
     const images = files.filter((f) => f.type.startsWith('image/'))
@@ -698,7 +688,6 @@ const WorkbenchSourceEditor = forwardRef<
     }
   }
 
-  // 拖拽图片：本地文件 → 存 assets → 插入 ![](path)
   const handleDrop = async (e: React.DragEvent<HTMLDivElement>): Promise<void> => {
     const files = Array.from(e.dataTransfer?.files ?? [])
     const images = files.filter((f) => f.type.startsWith('image/'))

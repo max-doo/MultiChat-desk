@@ -407,10 +407,10 @@ webview[tabindex="-1"] {
 }
 /* Pandoc 引文 [@key]：仅字体颜色区分，不做胶囊/徽章渲染，源码逐字节保真 */
 .PlaygroundEditorTheme__citation {
-  color: rgb(13, 148, 136);
+  color: rgb(93, 132, 184);
 }
 .dark .PlaygroundEditorTheme__citation {
-  color: rgb(94, 234, 212);
+  color: rgb(160, 190, 226);
 }
 /* HTML 注释：弱化灰 + 斜体，与源码模式注释高亮风格一致 */
 .PlaygroundEditorTheme__comment {
