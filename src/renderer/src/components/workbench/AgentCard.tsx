@@ -339,20 +339,20 @@ const AgentUserMessageItem = memo(function AgentUserMessageItem({
           <button
             type="button"
             onClick={onRewindClick}
-            className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-caption text-text-secondary transition-colors hover:bg-gray-100 hover:text-text-primary dark:hover:bg-white/10"
+            className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-body text-text-secondary transition-colors hover:bg-gray-100 hover:text-text-primary dark:hover:bg-white/10"
             title="编辑并撤回此条消息"
           >
-            <AppIcon name="undo" size={14} />
+            <AppIcon name="undo" size={16} />
             <span>编辑</span>
           </button>
         )}
         <button
           type="button"
           onClick={() => onCopy(message.id, userText)}
-          className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-caption text-text-secondary transition-colors hover:bg-gray-100 hover:text-text-primary dark:hover:bg-white/10"
+          className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-body text-text-secondary transition-colors hover:bg-gray-100 hover:text-text-primary dark:hover:bg-white/10"
           title="复制消息内容"
         >
-          <AppIcon name="content_copy" size={14} />
+          <AppIcon name="content_copy" size={16} />
           <span>{isCopied ? '已复制' : '复制'}</span>
         </button>
       </div>
@@ -545,10 +545,10 @@ const AgentWorkGroupItem = memo(function AgentWorkGroupItem({
           <button
             type="button"
             onClick={() => onToggleForkMenu(finalMsg.id)}
-            className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-caption text-text-secondary transition-colors hover:bg-gray-100 hover:text-text-primary dark:hover:bg-white/10"
+            className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-body text-text-secondary transition-colors hover:bg-gray-100 hover:text-text-primary dark:hover:bg-white/10"
             title="从当前位置创建分支会话"
           >
-            <AppIcon name="git_branch" size={14} />
+            <AppIcon name="git_branch" size={16} />
             <span>分支</span>
           </button>
           <AgentPopover
@@ -577,10 +577,10 @@ const AgentWorkGroupItem = memo(function AgentWorkGroupItem({
           <button
             type="button"
             onClick={() => onCopy(finalMsg.id, assistantText)}
-            className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-caption text-text-secondary transition-colors hover:bg-gray-100 hover:text-text-primary dark:hover:bg-white/10"
+            className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-body text-text-secondary transition-colors hover:bg-gray-100 hover:text-text-primary dark:hover:bg-white/10"
             title="复制本轮回复文本"
           >
-            <AppIcon name="content_copy" size={14} />
+            <AppIcon name="content_copy" size={16} />
             <span>{isCopied ? '已复制' : '复制'}</span>
           </button>
           {(finalMsg.timestamp || finalMsg.createdAt) && (
@@ -1418,11 +1418,19 @@ function AgentCard({
                         item: (typeof sessions)[number]
                         depth: number
                         isLastChild: boolean
+                        hasChildren: boolean
+                        ancestorLineContinuing: boolean
                       }
 
                       const buildTreeRows = (list: (typeof sessions)): HistoryTreeRow[] => {
                         if (query) {
-                          return list.map((item) => ({ item, depth: 0, isLastChild: true }))
+                          return list.map((item) => ({
+                            item,
+                            depth: 0,
+                            isLastChild: true,
+                            hasChildren: false,
+                            ancestorLineContinuing: false
+                          }))
                         }
                         const presentIds = new Set(list.map((s) => s.id))
                         const childrenByParent = new Map<string, (typeof sessions)>()
@@ -1438,16 +1446,27 @@ function AgentCard({
                         }
                         const rows: HistoryTreeRow[] = []
                         const visited = new Set<string>()
-                        const walk = (item: (typeof sessions)[number], depth: number, isLastChild: boolean) => {
+                        const walk = (
+                          item: (typeof sessions)[number],
+                          depth: number,
+                          isLastChild: boolean,
+                          ancestorLineContinuing: boolean
+                        ) => {
                           if (visited.has(item.id)) return
                           visited.add(item.id)
-                          rows.push({ item, depth, isLastChild })
                           const children = childrenByParent.get(item.id) ?? []
+                          rows.push({
+                            item,
+                            depth,
+                            isLastChild,
+                            hasChildren: children.length > 0,
+                            ancestorLineContinuing
+                          })
                           children.forEach((child, idx) => {
-                            walk(child, Math.min(depth + 1, 2), idx === children.length - 1)
+                            walk(child, Math.min(depth + 1, 2), idx === children.length - 1, !isLastChild)
                           })
                         }
-                        roots.forEach((root, idx) => walk(root, 0, idx === roots.length - 1))
+                        roots.forEach((root, idx) => walk(root, 0, idx === roots.length - 1, false))
                         return rows
                       }
 
@@ -1472,7 +1491,6 @@ function AgentCard({
                             ? (item.name || item.firstBranchMessage || item.title || '新对话')
                             : (item.title || '新对话')
                         const indentClass = depth === 0 ? 'px-3.5' : depth === 1 ? 'pl-8 pr-3.5' : 'pl-11 pr-3.5'
-                        const connectorLeftClass = depth === 1 ? 'left-5' : 'left-8'
 
                         return (
                           <div
@@ -1482,16 +1500,40 @@ function AgentCard({
                               isCurrent ? 'bg-blue-50/60 dark:bg-blue-900/20' : ''
                             }`}
                           >
+                            {/* 树形连接线：父行从自身图标底部向下引竖线，子行竖线与其对齐衔接，
+                                横向短线延伸到子图标边缘。AppIcon 有 0.85 光学缩放，size=16 的
+                                实际渲染盒为 13.6px，竖线包壳宽度与图标盒对齐保证中心重合。 */}
+                            {!isNested && row.hasChildren && (
+                              <span className="pointer-events-none absolute left-3.5 top-[25px] bottom-0 flex w-[13.6px] justify-center">
+                                <span className="w-px h-full bg-gray-200 dark:bg-white/15" />
+                              </span>
+                            )}
                             {isNested && (
                               <>
                                 <span
-                                  className={`absolute ${connectorLeftClass} top-0 ${
-                                    isLastChild ? 'h-4' : 'bottom-0'
-                                  } w-px bg-gray-200 dark:bg-white/15`}
-                                />
+                                  className={`pointer-events-none absolute top-0 flex w-[13.6px] justify-center ${
+                                    depth === 1 ? 'left-3.5' : 'left-8'
+                                  } ${
+                                    isLastChild ? 'h-[17px]' : 'bottom-0'
+                                  }`}
+                                >
+                                  <span className="w-px h-full bg-gray-200 dark:bg-white/15" />
+                                </span>
                                 <span
-                                  className={`absolute ${connectorLeftClass} top-4 w-2.5 h-px bg-gray-200 dark:bg-white/15`}
+                                  className={`pointer-events-none absolute top-4 h-px bg-gray-200 dark:bg-white/15 ${
+                                    depth === 1 ? 'left-[21px] w-[11px]' : 'left-[39px] w-[5px]'
+                                  }`}
                                 />
+                                {depth === 1 && row.hasChildren && (
+                                  <span className="pointer-events-none absolute left-8 top-[23px] bottom-0 flex w-[13.6px] justify-center">
+                                    <span className="w-px h-full bg-gray-200 dark:bg-white/15" />
+                                  </span>
+                                )}
+                                {depth === 2 && row.ancestorLineContinuing && (
+                                  <span className="pointer-events-none absolute left-3.5 top-0 bottom-0 flex w-[13.6px] justify-center">
+                                    <span className="w-px h-full bg-gray-200 dark:bg-white/15" />
+                                  </span>
+                                )}
                               </>
                             )}
                             <AppIcon
