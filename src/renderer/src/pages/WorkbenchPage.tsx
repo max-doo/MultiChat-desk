@@ -4,6 +4,7 @@ import WorkbenchFileTree from '../components/workbench/WorkbenchFileTree'
 import WorkbenchEditor from '../components/workbench/WorkbenchEditor'
 import WorkbenchAiSidebar from '../components/workbench/WorkbenchAiSidebar'
 import WorkbenchMindmapPanel from '../components/workbench/WorkbenchMindmapPanel'
+import WorkbenchQuickOpenModal from '../components/workbench/WorkbenchQuickOpenModal'
 import { requestUploadNodesToAi } from '../components/workbench/workbenchAiEvents'
 import { AppIcon } from '../components/icons/AppIcon'
 import { StatusBanner } from '../components/ui/FormControls'
@@ -195,6 +196,7 @@ export default function WorkbenchPage({ isActive = true }: WorkbenchPageProps): 
         >
           <WorkbenchEditor isActive={isActive} />
         </div>
+        <WorkbenchQuickOpenModal />
 
         {/* 右栏可拖拽 Splitter */}
         {(rightPane || isAiSidebar2Open) && (

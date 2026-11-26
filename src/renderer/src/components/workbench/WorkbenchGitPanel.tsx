@@ -105,8 +105,10 @@ interface ConfirmChangeAction {
  * 入口由 footer 与仓库切换并排提供，这里只负责状态徽标与向上展开的面板。
  */
 export default function WorkbenchGitPanel({
+  compact = false,
   onOpenWorkspaceSettings
 }: {
+  compact?: boolean
   onOpenWorkspaceSettings: () => void
 }): JSX.Element | null {
   const workspacePath = useWorkbenchStore((s) => s.workspacePath)
@@ -691,19 +693,30 @@ export default function WorkbenchGitPanel({
     </>
   )
 
+  const hasBranchBadge = Boolean(
+    status?.isRepository &&
+      (status.conflictCount > 0 || changeCount > 0 || status.behind > 0 || status.ahead > 0)
+  )
+
   return (
     <div className="shrink-0">
       <button
         ref={triggerRef}
         type="button"
         onClick={() => (isOpen ? closePopover() : open())}
-        className="flex h-10 shrink-0 items-center gap-1.5 rounded-md px-1.5 text-label font-medium text-text-secondary transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+        className={`flex h-8 shrink-0 items-center gap-1.5 rounded-lg text-label font-medium transition-colors ${
+          compact ? 'px-2' : 'px-2.5'
+        } ${
+          isOpen
+            ? 'bg-black/5 text-text-primary dark:bg-white/10'
+            : 'text-text-secondary hover:bg-black/5 hover:text-text-primary dark:hover:bg-white/5'
+        }`}
         title={footerTitle}
       >
-        <AppIcon name="git_branch" size={16} className="shrink-0" />
-        {/* 有界动态宽度：短分支自然占位，长分支到上限后截断；完整名称在 tooltip 与弹层标题中 */}
-        <span className="min-w-[2.5rem] max-w-[96px] shrink-0 truncate">{branchLabel}</span>
-        <span className="flex shrink-0 items-center gap-1">{branchBadge}</span>
+        <AppIcon name="git_branch" size={15} className="shrink-0" />
+        {/* 宽栏展示分支名，窄栏仅保留图标与状态计数以保证工作区名称可读 */}
+        {!compact && <span className="max-w-[84px] truncate">{branchLabel}</span>}
+        {hasBranchBadge && <span className="flex shrink-0 items-center gap-1">{branchBadge}</span>}
         {hasLargeUntracked && (
           <span className="shrink-0 text-amber-500" title="有较大的未跟踪文件">
             <AppIcon name="warning" size={12} />
@@ -748,21 +761,21 @@ export default function WorkbenchGitPanel({
           />
 
           {!status ? (
-            <div className="px-3 py-6 text-center text-body text-text-secondary">
+            <div className="px-3 py-6 text-center text-label text-text-secondary">
               {isGitLoading ? '读取中…' : '暂无状态'}
             </div>
           ) : !status.available ? (
-            <div className="px-3 py-5 text-body leading-relaxed text-text-secondary">
+            <div className="px-3 py-5 text-label leading-relaxed text-text-secondary">
               {status.error ?? '未检测到 Git'}
             </div>
           ) : !status.isRepository ? (
             <div className="flex flex-col gap-3 px-3 py-4">
-              <p className="text-body text-text-secondary">当前工作区还不是 Git 仓库</p>
+              <p className="text-label text-text-secondary">当前工作区还不是 Git 仓库</p>
               <button
                 type="button"
                 onClick={() => void handleInit()}
                 disabled={isGitBusy}
-                className="h-9 rounded-lg bg-primary text-body font-medium text-white hover:bg-primary/90 disabled:opacity-50"
+                className="h-8 rounded-lg bg-primary px-3 text-label font-medium text-white hover:bg-primary/90 disabled:opacity-50"
               >
                 初始化仓库
               </button>
@@ -773,10 +786,10 @@ export default function WorkbenchGitPanel({
                 <button
                   type="button"
                   onClick={() => setActiveTab('changes')}
-                  className={`relative flex items-center gap-1.5 px-3 py-2.5 text-body transition-colors ${
+                  className={`relative flex items-center gap-1.5 px-3 py-2 text-body transition-colors ${
                     activeTab === 'changes'
-                      ? 'font-medium text-primary'
-                      : 'text-text-secondary hover:text-text-primary'
+                      ? 'font-semibold text-primary'
+                      : 'font-medium text-text-secondary hover:text-text-primary'
                   }`}
                 >
                   <span>改动</span>
@@ -792,10 +805,10 @@ export default function WorkbenchGitPanel({
                 <button
                   type="button"
                   onClick={() => setActiveTab('history')}
-                  className={`relative flex items-center gap-1.5 px-3 py-2.5 text-body transition-colors ${
+                  className={`relative flex items-center gap-1.5 px-3 py-2 text-body transition-colors ${
                     activeTab === 'history'
-                      ? 'font-medium text-primary'
-                      : 'text-text-secondary hover:text-text-primary'
+                      ? 'font-semibold text-primary'
+                      : 'font-medium text-text-secondary hover:text-text-primary'
                   }`}
                 >
                   <span>历史</span>
@@ -907,7 +920,7 @@ export default function WorkbenchGitPanel({
                                 setBadgeTooltip(null)
                                 setContextMenu({ x: event.clientX, y: event.clientY, change })
                               }}
-                              className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-body transition-colors ${
+                              className={`flex items-center gap-2 rounded-md px-2 py-1 text-body transition-colors ${
                                 deleted
                                   ? `cursor-default opacity-60 ${isMenuTarget ? 'bg-black/5 dark:bg-white/5' : 'hover:bg-black/5 dark:hover:bg-white/5'}`
                                   : `cursor-pointer ${isMenuTarget ? 'bg-black/5 dark:bg-white/5' : 'hover:bg-black/5 dark:hover:bg-white/5'}`
@@ -927,7 +940,7 @@ export default function WorkbenchGitPanel({
                                 }}
                                 onMouseLeave={() => setBadgeTooltip(null)}
                                 aria-label={badge.tooltip}
-                                className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md font-mono text-caption font-semibold ${badge.bgClass} ${badge.colorClass}`}
+                                className={`flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded font-mono text-caption font-semibold ${badge.bgClass} ${badge.colorClass}`}
                               >
                                 {badge.letter}
                               </span>
@@ -945,7 +958,7 @@ export default function WorkbenchGitPanel({
                         )}
                       </div>
                     ) : (
-                      <div className="flex h-full flex-1 items-center justify-center px-3 py-5 text-body text-text-secondary">
+                      <div className="flex h-full flex-1 items-center justify-center px-3 py-5 text-label text-text-secondary">
                         没有未提交的改动
                       </div>
                     )}
@@ -953,13 +966,13 @@ export default function WorkbenchGitPanel({
                 ) : (
                   <div className="h-full min-h-0 flex-1 overflow-y-auto px-2 py-1.5">
                     {isLogLoading && logItems.length === 0 ? (
-                      <div className="flex h-full items-center justify-center px-3 py-6 text-body text-text-secondary">
+                      <div className="flex h-full items-center justify-center px-3 py-6 text-label text-text-secondary">
                         读取中…
                       </div>
                     ) : logError ? (
-                      <div className="flex h-full items-center justify-center px-3 py-5 text-rose-500">{logError}</div>
+                      <div className="flex h-full items-center justify-center px-3 py-5 text-label text-rose-500">{logError}</div>
                     ) : graphLayout.rows.length === 0 ? (
-                      <div className="flex h-full items-center justify-center px-3 py-6 text-body text-text-secondary">
+                      <div className="flex h-full items-center justify-center px-3 py-6 text-label text-text-secondary">
                         还没有提交记录
                       </div>
                     ) : (
@@ -1060,7 +1073,7 @@ export default function WorkbenchGitPanel({
                                             <div
                                               key={`${file.oldPath ?? ''}:${file.path}`}
                                               onClick={openable ? () => void openFile(wsPath) : undefined}
-                                              className={`flex items-center gap-2 rounded-md px-2 py-1 text-body ${
+                                              className={`flex items-center gap-2 rounded-md px-2 py-1 text-caption ${
                                                 openable
                                                   ? 'cursor-pointer hover:bg-black/5 dark:hover:bg-white/5'
                                                   : 'cursor-default opacity-70'
@@ -1147,15 +1160,15 @@ export default function WorkbenchGitPanel({
                       if (event.key === 'Enter') void handleCommit()
                       if (event.key === 'Escape') closePopover()
                     }}
-                    className="mb-2 h-9 w-full rounded-lg border border-black/15 bg-black/5 px-2.5 text-body text-text-primary placeholder:text-text-secondary/60 focus:border-primary focus:bg-white focus:outline-none dark:border-white/15 dark:bg-white/5 dark:focus:bg-gray-900"
+                    className="mb-2 h-8 w-full rounded-lg border border-black/15 bg-black/5 px-2.5 text-label text-text-primary placeholder:text-text-secondary/60 focus:border-primary focus:bg-white focus:outline-none dark:border-white/15 dark:bg-white/5 dark:focus:bg-gray-900"
                   />
                   <button
                     type="button"
                     onClick={() => void handleCommit()}
                     disabled={!canCommit || isGitBusy}
-                    className="mb-2 flex h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-primary text-body font-medium text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
+                    className="mb-2 flex h-8 w-full items-center justify-center gap-1.5 rounded-lg bg-primary text-label font-medium text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
                   >
-                    <AppIcon name="git_commit" size={16} />
+                    <AppIcon name="git_commit" size={15} />
                     <span>提交 {changeCount > 0 ? changeCount : ''} 项改动</span>
                   </button>
 

@@ -128,6 +128,11 @@ function buildCodeEditorTheme(isEditable: boolean): Extension {
         minWidth: '3rem',
         textAlign: 'right'
       },
+      '.cm-gitGutter': {
+        // 固定列宽 + 空占位 marker，保证无 marker 时该列不塌缩，.cm-gutters 整体宽度恒定
+        width: '8px',
+        flexShrink: '0'
+      },
       '.cm-gitGutter .cm-gutterElement': {
         display: 'flex',
         alignItems: 'stretch',
@@ -177,6 +182,14 @@ const CODE_MODIFIED_MARKER = new CodeGitGutterMarker('modified', false)
 const CODE_MODIFIED_DELETED_MARKER = new CodeGitGutterMarker('modified', true)
 const CODE_DELETED_MARKER = new CodeGitGutterMarker('deleted', false)
 
+// 空占位 marker：保证无 git 变化的行也渲染 gutterElement，防止 git gutter 列塌缩
+class EmptyCodeGitGutterMarker extends GutterMarker {
+  override eq(other: GutterMarker): boolean {
+    return other instanceof EmptyCodeGitGutterMarker
+  }
+}
+const CODE_EMPTY_MARKER = new EmptyCodeGitGutterMarker()
+
 function buildCodeGitGutter(
   lineMarks: Array<'added' | 'modified' | undefined>,
   deletedAfter: Map<number, number>
@@ -190,7 +203,8 @@ function buildCodeGitGutter(
       if (mark === 'added') return del ? CODE_ADDED_DELETED_MARKER : CODE_ADDED_MARKER
       if (mark === 'modified') return del ? CODE_MODIFIED_DELETED_MARKER : CODE_MODIFIED_MARKER
       if (del) return CODE_DELETED_MARKER
-      return null
+      // 返回空占位 marker 而不是 null：保证该行 gutterElement 一定被创建，列宽恒定
+      return CODE_EMPTY_MARKER
     },
     lineMarkerChange(update) {
       return update.docChanged || update.transactions.some((tr) => tr.reconfigured)
@@ -485,8 +499,6 @@ export default function WorkbenchCodePreview({
   const activeFileOversized = useWorkbenchStore((s) => s.activeFileOversized)
   const isDirty = useWorkbenchStore((s) => s.isDirty)
   const saveStatus = useWorkbenchStore((s) => s.saveStatus)
-  const isLeftCollapsed = useWorkbenchStore((s) => s.isLeftCollapsed)
-  const toggleLeftCollapse = useWorkbenchStore((s) => s.toggleLeftCollapse)
   const updateActiveContent = useWorkbenchStore((s) => s.updateActiveContent)
   const saveActiveFile = useWorkbenchStore((s) => s.saveActiveFile)
   const discardActiveFileChanges = useWorkbenchStore((s) => s.discardActiveFileChanges)
@@ -508,6 +520,10 @@ export default function WorkbenchCodePreview({
     isHtmlFile ? 'render' : 'source'
   )
   const [visualDirty, setVisualDirty] = useState(false)
+  const [visualHistory, setVisualHistory] = useState<{ canUndo: boolean; canRedo: boolean }>({
+    canUndo: false,
+    canRedo: false
+  })
   const [leaveDialogOpen, setLeaveDialogOpen] = useState(false)
   const [leaveBusy, setLeaveBusy] = useState(false)
   const [editSession, setEditSession] = useState(0)
@@ -525,6 +541,21 @@ export default function WorkbenchCodePreview({
 
   // HTML 源码模式即为可编辑状态；其他代码文件沿用查看/编辑分离
   const isEditable = isHtmlFile ? viewMode === 'source' : isEditing
+
+  // 同步表面状态到 store：浅色表面决定宿主 UI 配色，可编辑态决定状态徽标显隐。
+  useEffect(() => {
+    const store = useWorkbenchStore.getState()
+    store.setCodePreviewEditable(isEditable)
+    store.setHtmlRenderSurface(isHtmlFile && viewMode !== 'source')
+  }, [isEditable, isHtmlFile, viewMode])
+
+  useEffect(() => {
+    return () => {
+      const store = useWorkbenchStore.getState()
+      store.setCodePreviewEditable(false)
+      store.setHtmlRenderSurface(false)
+    }
+  }, [])
   const isVisualEditing = isHtmlFile && viewMode === 'edit'
   const showCodeEditor =
     !(isHtmlFile && viewMode === 'render') &&
@@ -681,7 +712,11 @@ export default function WorkbenchCodePreview({
       state: EditorState.create({
         doc: contentRef.current,
         extensions: [
-          lineNumbers(),
+          // formatNumber 固定补齐 5 位宽（不换行空格），行号 gutter 宽度恒定，
+          // 避免滚动/编辑时因 spacer 重测导致的宽度抖动；超过 99999 行才会扩一次
+          lineNumbers({
+            formatNumber: (n) => String(n).padStart(5, ' ')
+          }),
           gitGutterCompartment.of(initialGutter),
           highlightActiveLineGutter(),
           highlightActiveLine(),
@@ -1046,20 +1081,6 @@ export default function WorkbenchCodePreview({
         compact
         left={
           <>
-            {isLeftCollapsed && (
-              <>
-                <button
-                  type="button"
-                  onClick={toggleLeftCollapse}
-                  className="w-7 h-7 flex items-center justify-center rounded-full text-[#A1A1AA] hover:text-[#E4E4E7] hover:bg-white/10 transition-all duration-200 shrink-0"
-                  title="展开侧边栏"
-                  aria-label="展开侧边栏"
-                >
-                  <AppIcon name="left_panel_open" size={20} />
-                </button>
-                <div className="w-[1px] h-4 bg-white/10 shrink-0" />
-              </>
-            )}
             <AppIcon name="code" size={19} className="text-amber-400" />
             <span className="font-mono text-body text-[#E4E4E7] truncate" title={activeFilePath || ''}>
               {activeFilePath}
@@ -1077,39 +1098,7 @@ export default function WorkbenchCodePreview({
         }
         right={
           <>
-            {/* 保存状态提示 (文本编辑或可视化编辑时展示) */}
-            {(isEditable || isVisualEditing) && (
-              <div className="flex items-center gap-1 font-medium">
-                {saveStatus === 'conflict' ? (
-                  <span className="flex items-center gap-1 text-amber-400">
-                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-                    <span>冲突</span>
-                  </span>
-                ) : saveStatus === 'saving' ? (
-                  <span className="flex items-center gap-1 text-amber-400">
-                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-                    <span>保存中</span>
-                  </span>
-                ) : saveStatus === 'error' ? (
-                  <span className="flex items-center gap-1 text-rose-400">
-                    <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
-                    <span>保存失败</span>
-                  </span>
-                ) : isDirty ? (
-                  <span className="flex items-center gap-1 text-blue-400">
-                    <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />
-                    <span>未保存</span>
-                  </span>
-                ) : (
-                  <span className="flex items-center gap-1 text-emerald-400">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                    <span>已保存</span>
-                  </span>
-                )}
-              </div>
-            )}
-
-            {/* 缩放控件与保存按钮位于模式分组之前，使模式分组与右侧文件操作保持固定位置 */}
+            {/* 缩放控件位于模式分组之前，使模式分组与右侧文件操作保持固定位置 */}
             {isHtmlFile && viewMode === 'render' && (
               <>
                 <PreviewZoomControls
@@ -1132,6 +1121,33 @@ export default function WorkbenchCodePreview({
                   title="刷新渲染预览"
                 >
                   <AppIcon name="refresh" size={19} />
+                </button>
+                <div className="h-4 w-px bg-white/10" />
+              </>
+            )}
+            {isVisualEditing && (
+              <>
+                {/* 撤销/重做：与 Markdown 编辑一致放在编辑操作组前导位置，
+                    实际执行在 iframe 编辑运行时内，状态经 postMessage 同步。 */}
+                <button
+                  type="button"
+                  disabled={!visualHistory.canUndo || saveStatus === 'saving'}
+                  onClick={() => visualEditorRef.current?.requestHistory('undo')}
+                  className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-white/10 text-[#D4D4D4] hover:text-white transition-colors disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent"
+                  title="撤销 (Ctrl+Z)"
+                  aria-label="撤销"
+                >
+                  <AppIcon name="undo" size={19} />
+                </button>
+                <button
+                  type="button"
+                  disabled={!visualHistory.canRedo || saveStatus === 'saving'}
+                  onClick={() => visualEditorRef.current?.requestHistory('redo')}
+                  className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-white/10 text-[#D4D4D4] hover:text-white transition-colors disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent"
+                  title="重做 (Ctrl+Y)"
+                  aria-label="重做"
+                >
+                  <AppIcon name="redo" size={19} />
                 </button>
                 <div className="h-4 w-px bg-white/10" />
               </>
@@ -1301,6 +1317,7 @@ export default function WorkbenchCodePreview({
             filePath={activeFilePath || ''}
             fileUrl={activeFileUrl}
             onDirtyChange={handleVisualDirtyChange}
+            onHistoryStateChange={setVisualHistory}
             onRequestSave={() => {
               if (visualEditorRef.current?.hasChanges()) void handleVisualSave()
             }}

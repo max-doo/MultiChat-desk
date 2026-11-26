@@ -5,6 +5,7 @@ import {
   type WorkbenchSearchResult,
   type WorkbenchFileCategory,
   type WorkspaceTagInfo,
+  type WorkspaceUnreferencedImagesSummary,
   type GitStatus,
   type GitActionResult,
   type GitBaselineStatus,
@@ -55,8 +56,31 @@ export interface WorkbenchSortPreference {
   order: WorkbenchSortOrder
 }
 
+export interface WorkbenchTabItem {
+  path: string
+  isPinned: boolean
+  isPreview: boolean
+  editorMode?: EditorMode
+}
+
+export type WorkbenchTabInsertTarget =
+  | { kind: 'before' | 'after' | 'replace'; path: string }
+  | { kind: 'append' }
+
+export interface PersistedWorkspaceTabs {
+  tabs: WorkbenchTabItem[]
+  activePath: string | null
+}
+
 // 右侧 AI 侧边栏宽度限制：随窗口宽度分档，避免小窗下侧边栏过宽挤压编辑器
 export const WORKBENCH_MIN_EDITOR_WIDTH = 380
+export const WORKBENCH_BASE_MIN_LEFT_WIDTH = 260
+export const WORKBENCH_NEW_TAB_PREFIX = '__new_tab__:'
+
+export function isNewTabPath(path: string | null | undefined): boolean {
+  return Boolean(path && path.startsWith(WORKBENCH_NEW_TAB_PREFIX))
+}
+
 const RIGHT_PANE_MIN = 300
 // 双 AI 侧栏并排时整个右栏容器的下限：两栏各至少 320，避免挤压成窄条不可读。
 const RIGHT_PANE_DUAL_MIN = 640
@@ -76,7 +100,7 @@ export function getRightPaneMaxWidth(
   const winW = typeof window === 'undefined' ? 1400 : (windowWidth ?? window.innerWidth)
   const state = typeof useWorkbenchStore !== 'undefined' ? useWorkbenchStore.getState() : null
   const collapsed = isLeftCollapsed ?? state?.isLeftCollapsed ?? false
-  const leftW = collapsed ? 0 : (leftWidth ?? state?.leftPaneWidth ?? 260)
+  const leftW = collapsed ? 0 : (leftWidth ?? state?.leftPaneWidth ?? WORKBENCH_BASE_MIN_LEFT_WIDTH)
   const splitters = collapsed ? 5 : 10
   const dualAi = isDualAi ?? state?.isAiSidebar2Open ?? false
   const minPane = dualAi ? RIGHT_PANE_DUAL_MIN : RIGHT_PANE_MIN
@@ -177,6 +201,16 @@ interface WorkbenchStoreState {
 
   // 当前激活文档与预览元信息
   activeFilePath: string | null
+  /** 当前激活标签标识（文件标签等于 activeFilePath；新标签页为 __new_tab__:N，此时 activeFilePath 为 null） */
+  activeTabPath: string | null
+  /** 快速打开文件弹窗状态（Ctrl+O 或空白页“打开文件”触发） */
+  isQuickOpenOpen: boolean
+  /** 已打开的标签页集合（固定标签始终排在普通标签之前） */
+  openTabs: WorkbenchTabItem[]
+  /** 最近访问标签顺序（最新在前，用于 Ctrl+Tab 与关闭标签后智能回退） */
+  mruTabOrder: string[]
+  /** 最近关闭的标签路径栈（支持 Ctrl+Shift+T 恢复） */
+  closedTabHistory: string[]
   activeFileContent: string
   activeFileCategory: WorkbenchFileCategory | null
   activeFileDataUrl: string | null
@@ -197,6 +231,10 @@ interface WorkbenchStoreState {
   htmlEditLeaveGuard: (() => Promise<HtmlEditLeaveDecision>) | null
   /** 当前是否处于 HTML 可视化编辑态；用于隐藏会遮挡浮层工具的通用状态胶囊。 */
   htmlVisualEditing: boolean
+  /** 代码预览面板是否处于可编辑态（源码编辑/代码编辑）；只读查看态为 false。 */
+  codePreviewEditable: boolean
+  /** 当前是否为 HTML 渲染表面（渲染/可视化编辑模式）：内容区为白底，宿主 UI 必须浅色。 */
+  htmlRenderSurface: boolean
   /** 富文本 Markdown 防抖同步注册的冲刷回调：切模式/保存/切文件前同步落入 activeFileContent */
   markdownSyncFlusher: (() => void) | null
   /** 源码模式防抖同步注册的冲刷回调：切模式/保存/切文件/Git 操作前同步落入 activeFileContent */
@@ -215,6 +253,8 @@ interface WorkbenchStoreState {
 
   // 布局尺寸与折叠
   leftPaneWidth: number
+  /** 左侧栏动态最小宽度（随顶部模式标签与操作按钮所需宽度动态抬高，下限 WORKBENCH_BASE_MIN_LEFT_WIDTH） */
+  leftPaneMinWidth: number
   rightPaneWidth: number
   isLeftCollapsed: boolean
   rightPane: WorkbenchRightPane
@@ -278,8 +318,29 @@ interface WorkbenchStoreActions {
   expandAncestorsOf: (relativePath: string) => void
   openFile: (
     relativePath: string,
-    options?: { keepActiveOnMissing?: boolean }
+    options?: {
+      keepActiveOnMissing?: boolean
+      preview?: boolean
+      forcePermanent?: boolean
+      insertTarget?: WorkbenchTabInsertTarget
+    }
   ) => Promise<boolean>
+  createNewTab: () => Promise<void>
+  activateTab: (tabPath: string) => Promise<boolean>
+  createUntitledNote: () => Promise<string | null>
+  setQuickOpenOpen: (open: boolean) => void
+  promoteTab: (relativePath: string) => void
+  togglePinTab: (relativePath: string) => void
+  reorderTabs: (fromPath: string, toPath: string) => void
+  closeTab: (
+    relativePath: string,
+    options?: { force?: boolean }
+  ) => Promise<'closed' | 'cancelled' | 'needs-confirm'>
+  closeOtherTabs: (keepPath: string) => Promise<void>
+  closeRightTabs: (fromPath: string) => Promise<void>
+  closeSavedTabs: () => Promise<void>
+  closeAllTabs: () => Promise<void>
+  reopenLastClosedTab: () => Promise<boolean>
   saveActiveFile: () => Promise<SaveActiveFileResult>
   setDocumentAnnotationFlusher: (
     flusher: (() => Promise<DocumentAnnotationFlushResult>) | null
@@ -297,7 +358,11 @@ interface WorkbenchStoreActions {
   setHtmlEditFlusher: (flusher: (() => Promise<string>) | null) => void
   setHtmlEditLeaveGuard: (guard: (() => Promise<HtmlEditLeaveDecision>) | null) => void
   setHtmlVisualEditing: (editing: boolean) => void
+  setCodePreviewEditable: (editable: boolean) => void
+  setHtmlRenderSurface: (render: boolean) => void
   markActiveFileDirty: () => void
+  /** 可视化编辑撤销回到干净基线时回调，仅在该路径调用。 */
+  unmarkActiveFileDirty: () => void
   discardActiveFileChanges: (content?: string) => void
   createFile: (parentRelativeDir: string, fileName: string) => Promise<string | null>
   createFolder: (parentRelativeDir: string, folderName: string) => Promise<boolean>
@@ -316,6 +381,7 @@ interface WorkbenchStoreActions {
   revealFile: (relativePath: string) => Promise<void>
   openInSystem: (relativePath: string) => Promise<void>
   findUnreferencedImages: (documentRelativePath: string) => Promise<{ unreferenced: string[]; total: number } | null>
+  findWorkspaceUnreferencedImages: () => Promise<WorkspaceUnreferencedImagesSummary | null>
   deleteNodes: (relativePaths: string[]) => Promise<boolean>
   importExternalItems: (targetDirRelative: string, sourceAbsolutePaths: string[]) => Promise<{ imported: string[]; failed: { path: string; error: string }[] } | null>
   moveToWorkspace: (
@@ -328,6 +394,7 @@ interface WorkbenchStoreActions {
   loadWorkspaceTags: () => Promise<void>
   setFileSort: (pref: WorkbenchSortPreference) => void
   setLeftPaneWidth: (width: number, persist?: boolean) => number
+  setLeftPaneMinWidth: (minWidth: number) => void
   setRightPaneWidth: (width: number, persist?: boolean) => number
   toggleLeftCollapse: () => void
   toggleMarginNotes: () => void
@@ -408,6 +475,227 @@ const recentRelinks = new Map<string, string>()
 const relinkKey = (workspaceRoot: string, relativePath: string): string =>
   `${workspaceRoot.replace(/\\/g, '/').toLowerCase()}\n${relativePath}`
 
+/** 工作区维度缓存的标签页状态（持久化至 workbench_workspaceTabs） */
+const WORKSPACE_TABS_STORE_KEY = 'workbench_workspaceTabs'
+let workspaceTabsCache: Record<string, PersistedWorkspaceTabs> = {}
+let newTabSeq = 0
+
+function normalizeWorkspaceTabKey(root: string): string {
+  return root.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+}
+
+function orderPinnedTabs(tabs: WorkbenchTabItem[]): WorkbenchTabItem[] {
+  const pinned: WorkbenchTabItem[] = []
+  const normal: WorkbenchTabItem[] = []
+  for (const tab of tabs) {
+    if (tab.isPinned) pinned.push(tab)
+    else normal.push(tab)
+  }
+  return [...pinned, ...normal]
+}
+
+function sanitizePersistedTabs(raw: unknown): Record<string, PersistedWorkspaceTabs> {
+  if (!raw || typeof raw !== 'object') return {}
+  const out: Record<string, PersistedWorkspaceTabs> = {}
+  for (const [key, val] of Object.entries(raw as Record<string, unknown>)) {
+    if (!val || typeof val !== 'object') continue
+    const record = val as { tabs?: unknown; activePath?: unknown }
+    if (!Array.isArray(record.tabs)) continue
+    const seen = new Set<string>()
+    const cleanTabs: WorkbenchTabItem[] = []
+    for (const item of record.tabs) {
+      if (!item || typeof item !== 'object') continue
+      const candidate = item as Partial<WorkbenchTabItem>
+      if (typeof candidate.path !== 'string' || !candidate.path || seen.has(candidate.path)) continue
+      seen.add(candidate.path)
+      cleanTabs.push({
+        path: candidate.path,
+        isPinned: Boolean(candidate.isPinned),
+        isPreview: Boolean(candidate.isPreview) && !candidate.isPinned,
+        ...(candidate.editorMode === 'wysiwyg' || candidate.editorMode === 'source'
+          ? { editorMode: candidate.editorMode }
+          : {})
+      })
+    }
+    out[key] = {
+      tabs: orderPinnedTabs(cleanTabs),
+      activePath: typeof record.activePath === 'string' && record.activePath ? record.activePath : null
+    }
+  }
+  return out
+}
+
+function persistWorkspaceTabs(
+  workspacePath: string | null,
+  tabs: WorkbenchTabItem[],
+  activePath: string | null
+): void {
+  if (!workspacePath) return
+  const key = normalizeWorkspaceTabKey(workspacePath)
+  const fileTabs = tabs.filter((t) => !isNewTabPath(t.path))
+  const resolvedActive = activePath && !isNewTabPath(activePath) ? activePath : null
+  workspaceTabsCache = {
+    ...workspaceTabsCache,
+    [key]: {
+      tabs: fileTabs.map((t) => ({
+        path: t.path,
+        isPinned: t.isPinned,
+        isPreview: t.isPreview,
+        ...(t.editorMode ? { editorMode: t.editorMode } : {})
+      })),
+      activePath: resolvedActive
+    }
+  }
+  // 限制最多保留 12 个工作区的标签快照，防止配置膨胀
+  const keys = Object.keys(workspaceTabsCache)
+  if (keys.length > 12) {
+    const trimmed: Record<string, PersistedWorkspaceTabs> = {}
+    for (const k of keys.slice(keys.length - 12)) {
+      trimmed[k] = workspaceTabsCache[k]
+    }
+    workspaceTabsCache = trimmed
+  }
+  void window.api.storeSet(WORKSPACE_TABS_STORE_KEY, workspaceTabsCache)
+}
+
+function syncTabsOnOpen(
+  tabs: WorkbenchTabItem[],
+  mru: string[],
+  prevActiveFilePath: string | null,
+  prevActiveTabPath: string | null,
+  prevEditorMode: EditorMode,
+  nextPath: string,
+  options?: {
+    preview?: boolean
+    forcePermanent?: boolean
+    insertTarget?: WorkbenchTabInsertTarget
+  }
+): { openTabs: WorkbenchTabItem[]; mruTabOrder: string[]; restoredEditorMode?: EditorMode } {
+  let nextTabs = tabs.map((t) =>
+    prevActiveFilePath && t.path === prevActiveFilePath ? { ...t, editorMode: prevEditorMode } : t
+  )
+  let nextMru = [...mru]
+  const existingIdx = nextTabs.findIndex((t) => t.path === nextPath)
+  let restoredEditorMode: EditorMode | undefined
+  const insertTarget = options?.insertTarget
+
+  const replaceTargetIdx =
+    insertTarget?.kind === 'replace' && isNewTabPath(insertTarget.path)
+      ? nextTabs.findIndex((t) => t.path === insertTarget.path && !t.isPinned)
+      : -1
+
+  const outgoingNewTabIdx =
+    replaceTargetIdx !== -1
+      ? replaceTargetIdx
+      : prevActiveTabPath && isNewTabPath(prevActiveTabPath)
+        ? nextTabs.findIndex((t) => t.path === prevActiveTabPath && !t.isPinned)
+        : -1
+
+  if (existingIdx !== -1) {
+    const existing = nextTabs[existingIdx]
+    restoredEditorMode = existing.editorMode
+    if (options?.forcePermanent && existing.isPreview) {
+      nextTabs = nextTabs.map((t, i) => (i === existingIdx ? { ...t, isPreview: false } : t))
+    }
+    if (outgoingNewTabIdx !== -1) {
+      const droppedPath = nextTabs[outgoingNewTabIdx].path
+      nextTabs = nextTabs.filter((_, i) => i !== outgoingNewTabIdx)
+      nextMru = nextMru.filter((p) => p !== droppedPath)
+    }
+  } else if (outgoingNewTabIdx !== -1 && (!insertTarget || insertTarget.kind === 'replace' || insertTarget.kind === 'append')) {
+    // 若当前停留在空白“新标签页”或拖入“新标签页”槽位，打开或新建文件时就地替换该标签
+    const droppedPath = nextTabs[outgoingNewTabIdx].path
+    const replacement: WorkbenchTabItem = {
+      path: nextPath,
+      isPinned: false,
+      isPreview: !options?.forcePermanent && Boolean(options?.preview)
+    }
+    nextTabs = nextTabs.map((t, i) => (i === outgoingNewTabIdx ? replacement : t))
+    nextMru = nextMru.filter((p) => p !== droppedPath)
+  } else if (!insertTarget && options?.preview) {
+    const previewIdx = nextTabs.findIndex((t) => t.isPreview && !t.isPinned)
+    const fresh: WorkbenchTabItem = { path: nextPath, isPinned: false, isPreview: true }
+    if (previewIdx !== -1) {
+      nextTabs = nextTabs.map((t, i) => (i === previewIdx ? fresh : t))
+    } else {
+      nextTabs = orderPinnedTabs([...nextTabs, fresh])
+    }
+  } else {
+    if (outgoingNewTabIdx !== -1) {
+      const droppedPath = nextTabs[outgoingNewTabIdx].path
+      nextTabs = nextTabs.filter((_, i) => i !== outgoingNewTabIdx)
+      nextMru = nextMru.filter((p) => p !== droppedPath)
+    }
+    nextTabs = orderPinnedTabs([
+      ...nextTabs,
+      { path: nextPath, isPinned: false, isPreview: false }
+    ])
+  }
+
+  // 根据拖拽落位调整普通标签顺序（固定标签维持固定区位置）
+  if (insertTarget && insertTarget.kind !== 'replace') {
+    const targetTab = nextTabs.find((t) => t.path === nextPath)
+    if (targetTab && !targetTab.isPinned) {
+      if (insertTarget.kind === 'append') {
+        nextTabs = orderPinnedTabs([
+          ...nextTabs.filter((t) => t.path !== nextPath),
+          targetTab
+        ])
+      } else if (insertTarget.path !== nextPath) {
+        const withoutTarget = nextTabs.filter((t) => t.path !== nextPath)
+        const anchorIdx = withoutTarget.findIndex((t) => t.path === insertTarget.path)
+        if (anchorIdx !== -1) {
+          const anchor = withoutTarget[anchorIdx]
+          const insertIdx = anchor.isPinned
+            ? withoutTarget.filter((t) => t.isPinned).length
+            : insertTarget.kind === 'before'
+              ? anchorIdx
+              : anchorIdx + 1
+          const reordered = [...withoutTarget]
+          reordered.splice(insertIdx, 0, targetTab)
+          nextTabs = orderPinnedTabs(reordered)
+        }
+      }
+    }
+  }
+
+  nextMru = [nextPath, ...nextMru.filter((p) => p !== nextPath)]
+  return { openTabs: nextTabs, mruTabOrder: nextMru, restoredEditorMode }
+}
+
+function remapPathPrefix(target: string, oldPrefix: string, newPrefix: string): string {
+  if (target === oldPrefix) return newPrefix
+  if (target.startsWith(`${oldPrefix}/`)) return newPrefix + target.slice(oldPrefix.length)
+  return target
+}
+
+function dedupeTabsByPath(tabs: WorkbenchTabItem[]): WorkbenchTabItem[] {
+  const seen = new Set<string>()
+  const out: WorkbenchTabItem[] = []
+  for (const t of tabs) {
+    if (seen.has(t.path)) continue
+    seen.add(t.path)
+    out.push(t)
+  }
+  return orderPinnedTabs(out)
+}
+
+function isUnderAnyPath(target: string, prefixes: string[]): boolean {
+  return prefixes.some((p) => target === p || target.startsWith(`${p}/`))
+}
+
+function pickFallbackTabPath(tabs: WorkbenchTabItem[], mru: string[], closedIdx?: number): string | null {
+  const validSet = new Set(tabs.map((t) => t.path))
+  for (const p of mru) {
+    if (validSet.has(p)) return p
+  }
+  if (tabs.length === 0) return null
+  if (typeof closedIdx === 'number' && closedIdx >= 0) {
+    return tabs[Math.min(closedIdx, tabs.length - 1)]?.path ?? null
+  }
+  return tabs[0]?.path ?? null
+}
+
 // 收集树中所有相对路径（含目录），用于判断当前激活文件是否被外部删除/移走
 function collectTreePaths(nodes: WorkbenchFileNode[], out: Set<string>): Set<string> {
   for (const node of nodes) {
@@ -439,8 +727,8 @@ function findNode(nodes: WorkbenchFileNode[], target: string): WorkbenchFileNode
   return null
 }
 
-/** 按当前排序拍平文件列表（目录优先，与树渲染一致），用于删除后挑相邻文件 */
-function flattenSortedFiles(
+/** 按当前排序拍平文件列表（目录优先，与树渲染一致），用于删除后挑相邻文件及快速打开弹窗 */
+export function flattenSortedFiles(
   nodes: WorkbenchFileNode[],
   sort: WorkbenchSortPreference
 ): WorkbenchFileNode[] {
@@ -556,6 +844,7 @@ function restoreActiveFileState(
 ): void {
   useWorkbenchStore.setState({
     activeFilePath: snapshot.activeFilePath,
+    activeTabPath: snapshot.activeFilePath,
     activeFileContent: snapshot.activeFileContent,
     activeFileCategory: snapshot.activeFileCategory,
     activeFileDataUrl: snapshot.activeFileDataUrl,
@@ -641,7 +930,57 @@ async function reconcileActiveFileWithTree(
   const store = useWorkbenchStore.getState()
   if (store.workspacePath !== workspacePath) return
   store.flushActiveEditorSync()
-  const { activeFilePath, isDirty, lastSavedAt } = useWorkbenchStore.getState()
+  const { activeFilePath, isDirty, lastSavedAt, openTabs, mruTabOrder, closedTabHistory } =
+    useWorkbenchStore.getState()
+  const allPaths = collectTreePaths(nextTree, new Set<string>())
+
+  // 同步外部改名与删除到所有已打开标签页
+  if (openTabs.length > 0) {
+    const relinkMap = new Map(relinks.map((r) => [r.from, r.to]))
+    let tabsChanged = false
+    const nextOpenTabs: WorkbenchTabItem[] = []
+    const seenTabPaths = new Set<string>()
+    for (const tab of openTabs) {
+      if (isNewTabPath(tab.path)) {
+        if (!seenTabPaths.has(tab.path)) {
+          seenTabPaths.add(tab.path)
+          nextOpenTabs.push(tab)
+        }
+        continue
+      }
+      let nextPath = relinkMap.get(tab.path) ?? tab.path
+      if (!allPaths.has(nextPath)) {
+        const guessed = findRenamedNode(previousTree, nextTree, tab.path)
+        if (guessed && allPaths.has(guessed)) nextPath = guessed
+      }
+      if (!allPaths.has(nextPath)) {
+        tabsChanged = true
+        continue
+      }
+      if (nextPath !== tab.path) tabsChanged = true
+      if (!seenTabPaths.has(nextPath)) {
+        seenTabPaths.add(nextPath)
+        nextOpenTabs.push(nextPath === tab.path ? tab : { ...tab, path: nextPath })
+      } else {
+        tabsChanged = true
+      }
+    }
+    if (tabsChanged) {
+      const nextMru = mruTabOrder
+        .map((p) => relinkMap.get(p) ?? p)
+        .filter((p, i, arr) => seenTabPaths.has(p) && arr.indexOf(p) === i)
+      const nextClosed = closedTabHistory
+        .map((p) => relinkMap.get(p) ?? p)
+        .filter((p) => allPaths.has(p))
+      useWorkbenchStore.setState({
+        openTabs: orderPinnedTabs(nextOpenTabs),
+        mruTabOrder: nextMru,
+        closedTabHistory: nextClosed
+      })
+      persistWorkspaceTabs(workspacePath, orderPinnedTabs(nextOpenTabs), useWorkbenchStore.getState().activeTabPath)
+    }
+  }
+
   const renamedTo = activeFilePath
     ? relinks.find(link => link.from === activeFilePath)?.to ??
       (findNode(nextTree, activeFilePath) ? null : findRenamedNode(previousTree, nextTree, activeFilePath))
@@ -649,12 +988,13 @@ async function reconcileActiveFileWithTree(
   const currentPath = renamedTo ?? activeFilePath
   if (!currentPath) return
 
-  const allPaths = collectTreePaths(nextTree, new Set<string>())
-
-  // 文件被外部删除/移走（或被重命名成别的路径）：清空编辑器
+  // 文件被外部删除/移走（或被重命名成别的路径）：若还有其他打开的标签则切过去，否则清空编辑器
   if (!allPaths.has(currentPath)) {
+    const remaining = useWorkbenchStore.getState().openTabs.filter((t) => t.path !== activeFilePath)
+    const fallbackPath = pickFallbackTabPath(remaining, useWorkbenchStore.getState().mruTabOrder)
     useWorkbenchStore.setState({
       activeFilePath: null,
+      activeTabPath: null,
       activeFileContent: '',
       activeFileCategory: null,
       activeFileDataUrl: null,
@@ -665,7 +1005,8 @@ async function reconcileActiveFileWithTree(
       isDirty: false,
       saveStatus: 'saved',
       lastSavedAt: null,
-      conflictDiskContent: null
+      conflictDiskContent: null,
+      openTabs: remaining
     })
     useWorkbenchStore.setState({
       gitBaselinePath: null,
@@ -673,7 +1014,12 @@ async function reconcileActiveFileWithTree(
       gitBaselineSha: null,
       gitBaselineContent: null
     })
-    void window.api.storeDelete('workbench_lastActiveFilePath')
+    if (fallbackPath) {
+      void useWorkbenchStore.getState().activateTab(fallbackPath)
+    } else {
+      persistWorkspaceTabs(workspacePath, [], null)
+      void window.api.storeDelete('workbench_lastActiveFilePath')
+    }
     return
   }
 
@@ -780,6 +1126,11 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   isInitialized: false,
 
   activeFilePath: null,
+  activeTabPath: null,
+  isQuickOpenOpen: false,
+  openTabs: [],
+  mruTabOrder: [],
+  closedTabHistory: [],
   activeFileContent: '',
   activeFileCategory: null,
   activeFileDataUrl: null,
@@ -795,6 +1146,8 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   htmlEditFlusher: null,
   htmlEditLeaveGuard: null,
   htmlVisualEditing: false,
+  codePreviewEditable: false,
+  htmlRenderSurface: false,
   markdownSyncFlusher: null,
   sourceSyncFlusher: null,
 
@@ -805,7 +1158,8 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
 
   fileSort: { key: 'name', order: 'asc' },
 
-  leftPaneWidth: 260,
+  leftPaneWidth: WORKBENCH_BASE_MIN_LEFT_WIDTH,
+  leftPaneMinWidth: WORKBENCH_BASE_MIN_LEFT_WIDTH,
   rightPaneWidth: 420,
   isLeftCollapsed: false,
   rightPane: 'ai',
@@ -891,7 +1245,8 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         savedMarkdownBgTheme,
         savedPdfBgTheme,
         savedDocxBgTheme,
-        savedContentWidth
+        savedContentWidth,
+        savedWorkspaceTabs
       ] = await Promise.all([
         window.api.storeGet('workbench_lastWorkspacePath') as Promise<string | null>,
         window.api.storeGet('workbench_lastActiveFilePath') as Promise<string | null>,
@@ -910,22 +1265,25 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         window.api.storeGet('workbench_markdownBgTheme') as Promise<ReaderBackgroundTheme | null>,
         window.api.storeGet('workbench_pdfBgTheme') as Promise<ReaderBackgroundTheme | null>,
         window.api.storeGet('workbench_docxBgTheme') as Promise<ReaderBackgroundTheme | null>,
-        window.api.storeGet('workbench_contentWidth') as Promise<WorkbenchContentWidth | null>
+        window.api.storeGet('workbench_contentWidth') as Promise<WorkbenchContentWidth | null>,
+        window.api.storeGet(WORKSPACE_TABS_STORE_KEY) as Promise<unknown>
       ])
+      workspaceTabsCache = sanitizePersistedTabs(savedWorkspaceTabs)
 
       const updates: Partial<WorkbenchStoreState> = { isInitialized: true }
       const winW = typeof window !== 'undefined' ? window.innerWidth : 1400
-      if (typeof savedLeftWidth === 'number' && savedLeftWidth >= 260 && savedLeftWidth <= 480) {
-        updates.leftPaneWidth = savedLeftWidth
+      const currentMinLeft = get().leftPaneMinWidth
+      if (typeof savedLeftWidth === 'number' && savedLeftWidth >= WORKBENCH_BASE_MIN_LEFT_WIDTH && savedLeftWidth <= 480) {
+        updates.leftPaneWidth = Math.max(currentMinLeft, savedLeftWidth)
       }
       if (typeof savedLeftCollapsed === 'boolean') {
         updates.isLeftCollapsed = savedLeftCollapsed
       }
       const resolvedDualAi = typeof savedAiSidebar2Open === 'boolean' ? savedAiSidebar2Open : false
       const resolvedLeftCollapsed = updates.isLeftCollapsed ?? false
-      if (resolvedDualAi && !resolvedLeftCollapsed && winW >= 260 + WORKBENCH_MIN_EDITOR_WIDTH + RIGHT_PANE_DUAL_MIN + 10) {
-        const maxLeft = Math.max(260, winW - WORKBENCH_MIN_EDITOR_WIDTH - RIGHT_PANE_DUAL_MIN - 10)
-        if ((updates.leftPaneWidth ?? 260) > maxLeft) {
+      if (resolvedDualAi && !resolvedLeftCollapsed && winW >= currentMinLeft + WORKBENCH_MIN_EDITOR_WIDTH + RIGHT_PANE_DUAL_MIN + 10) {
+        const maxLeft = Math.max(currentMinLeft, winW - WORKBENCH_MIN_EDITOR_WIDTH - RIGHT_PANE_DUAL_MIN - 10)
+        if ((updates.leftPaneWidth ?? currentMinLeft) > maxLeft) {
           updates.leftPaneWidth = maxLeft
         }
       }
@@ -952,7 +1310,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         updates.rightPaneWidth = clampRightPaneWidth(
           savedRightWidth,
           winW,
-          updates.leftPaneWidth ?? 260,
+          updates.leftPaneWidth ?? currentMinLeft,
           resolvedLeftCollapsed,
           resolvedDualAi
         )
@@ -1028,14 +1386,11 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       if (savedPath && typeof savedPath === 'string') {
         await get().setWorkspaceFolder(savedPath)
         activated = Boolean(get().workspacePath)
-        if (activated) {
+        if (activated && get().openTabs.length === 0 && !get().activeFilePath) {
           if (savedActiveFile && typeof savedActiveFile === 'string') {
-            // 应用关闭期间文件可能被改名，对账刚记下新路径，恢复时跟着走。
+            // 兼容老版本无 workbench_workspaceTabs 快照时的单文件恢复
             const restorePath = recentRelinks.get(relinkKey(savedPath, savedActiveFile)) ?? savedActiveFile
-            // 先看文件树：应用关闭期间被删掉的文件不该再触发一次 readFile。
-            // 文件树节点可能处于折叠状态，这里用“路径集合”而不是 findNode。
             const tree = get().fileTree
-            // 读取失败时保留恢复点等下次启动；读取成功但为空说明工作区确实没有这个文件。
             if (tree.length === 0 && get().error) return
             if (collectTreePaths(tree, new Set<string>()).has(restorePath)) await get().openFile(restorePath)
             else void window.api.storeDelete('workbench_lastActiveFilePath')
@@ -1074,6 +1429,19 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       if (decision === 'cancelled') return 'cancelled'
     }
 
+    const prevWorkspace = get().workspacePath
+    if (prevWorkspace) {
+      get().flushActiveEditorSync()
+      if (get().isDirty && get().activeFilePath) {
+        if (autoSaveTimer) {
+          clearTimeout(autoSaveTimer)
+          autoSaveTimer = null
+        }
+        await get().saveActiveFile()
+      }
+      persistWorkspaceTabs(prevWorkspace, get().openTabs, get().activeFilePath)
+    }
+
     let activePath = dirPath
     let generation = get().workspaceGeneration
     try {
@@ -1102,6 +1470,11 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       workspaceName: name,
       recentWorkspaces: nextRecent,
       activeFilePath: null,
+      activeTabPath: null,
+      isQuickOpenOpen: false,
+      openTabs: [],
+      mruTabOrder: [],
+      closedTabHistory: [],
       activeFileContent: '',
       activeFileCategory: null,
       activeFileDataUrl: null,
@@ -1135,6 +1508,33 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     // 旧版本导图记录在全局笔记目录，先迁到 .multichat/mindmaps 文件。
     void window.api.workbench.mindmapMigrate(activePath).catch(() => undefined)
     await get().loadFileTree()
+
+    // 恢复该工作区上次打开的标签页与激活文档
+    const savedSnapshot = workspaceTabsCache[normalizeWorkspaceTabKey(activePath)]
+    if (savedSnapshot && savedSnapshot.tabs.length > 0) {
+      const validPaths = collectTreePaths(get().fileTree, new Set<string>())
+      const restoredTabs: WorkbenchTabItem[] = []
+      const seen = new Set<string>()
+      for (const tab of savedSnapshot.tabs) {
+        const relinked = recentRelinks.get(relinkKey(activePath, tab.path)) ?? tab.path
+        if (!validPaths.has(relinked) || seen.has(relinked)) continue
+        seen.add(relinked)
+        restoredTabs.push({ ...tab, path: relinked })
+      }
+      if (restoredTabs.length > 0) {
+        const ordered = orderPinnedTabs(restoredTabs)
+        const desiredActive = savedSnapshot.activePath
+          ? recentRelinks.get(relinkKey(activePath, savedSnapshot.activePath)) ?? savedSnapshot.activePath
+          : null
+        const targetActive =
+          desiredActive && seen.has(desiredActive) ? desiredActive : ordered[0].path
+        set({
+          openTabs: ordered,
+          mruTabOrder: [targetActive, ...ordered.map((t) => t.path).filter((p) => p !== targetActive)]
+        })
+        await get().openFile(targetActive)
+      }
+    }
     return 'switched'
   },
 
@@ -1159,6 +1559,9 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       if (!saved.saved) return
     }
     const closingPath = get().workspacePath
+    if (closingPath) {
+      persistWorkspaceTabs(closingPath, get().openTabs, get().activeFilePath)
+    }
     const defaultPath = get().defaultWorkspacePath
     // 默认工作区不可关闭：若当前就在默认工作区，直接返回
     if (closingPath && defaultPath && closingPath === defaultPath) {
@@ -1189,6 +1592,11 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       fileTree: [],
       expandedFolderIds: new Set<string>(),
       activeFilePath: null,
+      activeTabPath: null,
+      isQuickOpenOpen: false,
+      openTabs: [],
+      mruTabOrder: [],
+      closedTabHistory: [],
       activeFileContent: '',
       activeFileCategory: null,
       activeFileDataUrl: null,
@@ -1293,43 +1701,70 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     set({ expandedFolderIds: next })
   },
 
-  openFile: async (relativePath: string, options?: { keepActiveOnMissing?: boolean }) => {
-    const { workspacePath, activeFilePath } = get()
+  openFile: async (
+    relativePath: string,
+    options?: {
+      keepActiveOnMissing?: boolean
+      preview?: boolean
+      forcePermanent?: boolean
+      insertTarget?: WorkbenchTabInsertTarget
+    }
+  ) => {
+    const { workspacePath, activeFilePath, activeTabPath } = get()
     if (!workspacePath) return false
     if (activeFilePath === relativePath) {
-      // 已是激活文件时也保证祖先目录展开（外部定位入口点击同一文件仍可见）。
+      // 已是激活文件时：若本次要求常驻、转正或调整标签落位，确保标签同步并展开祖先目录
+      const existing = get().openTabs.find((t) => t.path === relativePath)
+      if (!existing || options?.insertTarget || (options?.forcePermanent && existing.isPreview)) {
+        const synced = syncTabsOnOpen(
+          get().openTabs,
+          get().mruTabOrder,
+          activeFilePath,
+          activeTabPath,
+          get().editorMode,
+          relativePath,
+          options
+        )
+        set({ openTabs: synced.openTabs, mruTabOrder: synced.mruTabOrder, activeTabPath: relativePath })
+        persistWorkspaceTabs(workspacePath, synced.openTabs, relativePath)
+      } else if (activeTabPath !== relativePath) {
+        set({ activeTabPath: relativePath })
+      }
       get().expandAncestorsOf(relativePath)
       return true
     }
 
-    // 可视化编辑的未保存内容必须先由用户决定保存或放弃，不能静默刷盘。
-    if (get().htmlVisualEditing) {
-      const leaveGuard = get().htmlEditLeaveGuard
-      if (!leaveGuard) {
-        set({ error: '可视化编辑尚未就绪，无法切换文件' })
+    // 离开当前文件前确保可视化编辑确认、防抖同步、标注落盘与自动保存完成
+    if (activeFilePath) {
+      // 可视化编辑的未保存内容必须先由用户决定保存或放弃，不能静默刷盘。
+      if (get().htmlVisualEditing) {
+        const leaveGuard = get().htmlEditLeaveGuard
+        if (!leaveGuard) {
+          set({ error: '可视化编辑尚未就绪，无法切换文件' })
+          return false
+        }
+        const decision = await leaveGuard()
+        if (decision === 'cancelled') return false
+      }
+
+      get().flushActiveEditorSync()
+      const annotationFlush = await get().flushDocumentAnnotations()
+      if (!annotationFlush.saved) {
+        set({ error: annotationFlush.error || '标注同步未完成，无法安全切换文件' })
         return false
       }
-      const decision = await leaveGuard()
-      if (decision === 'cancelled') return false
-    }
 
-    get().flushActiveEditorSync()
-    const annotationFlush = await get().flushDocumentAnnotations()
-    if (!annotationFlush.saved) {
-      set({ error: annotationFlush.error || '标注同步未完成，无法安全切换文件' })
-      return false
-    }
-
-    // 源码模式的既有行为：前一个文件有未保存改动时先落盘，再切换。
-    if (get().isDirty && activeFilePath) {
-      if (autoSaveTimer) {
-        clearTimeout(autoSaveTimer)
-        autoSaveTimer = null
-      }
-      const saved = await get().saveActiveFile()
-      if (!saved.saved) {
-        set({ error: '当前文件保存未完成，无法安全切换文件' })
-        return false
+      // 源码模式的既有行为：前一个文件有未保存改动时先落盘，再切换。
+      if (get().isDirty) {
+        if (autoSaveTimer) {
+          clearTimeout(autoSaveTimer)
+          autoSaveTimer = null
+        }
+        const saved = await get().saveActiveFile()
+        if (!saved.saved) {
+          set({ error: '当前文件保存未完成，无法安全切换文件' })
+          return false
+        }
       }
     }
 
@@ -1337,12 +1772,28 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       const res = await window.api.workbench.readFile(workspacePath, relativePath)
       if (res.success && res.data) {
         const oversizedForWysiwyg = res.data.size > 2 * 1024 * 1024
+        const synced = syncTabsOnOpen(
+          get().openTabs,
+          get().mruTabOrder,
+          activeFilePath,
+          get().activeTabPath,
+          get().editorMode,
+          relativePath,
+          options
+        )
+        const nextMode = oversizedForWysiwyg
+          ? 'source'
+          : (synced.restoredEditorMode ?? get().editorMode)
         set({
           ...buildActiveFilePayload(relativePath, res.data),
+          activeTabPath: relativePath,
+          openTabs: synced.openTabs,
+          mruTabOrder: synced.mruTabOrder,
           error: null,
-          // 2MB 以上固定源码模式；切回小文件时沿用用户上次的偏好。
-          editorMode: oversizedForWysiwyg ? 'source' : get().editorMode
+          // 2MB 以上固定源码模式；否则优先恢复该标签记忆的视图模式
+          editorMode: nextMode
         })
+        persistWorkspaceTabs(workspacePath, synced.openTabs, relativePath)
         void window.api.storeSet('workbench_lastActiveFilePath', relativePath)
         // 让侧边栏文件树能定位到该文件：展开所有祖先目录（id===path）。
         get().expandAncestorsOf(relativePath)
@@ -1356,8 +1807,10 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
             set({ error: `文件不存在: ${relativePath}` })
             return false
           }
+          const remaining = get().openTabs.filter((t) => t.path !== relativePath)
           set({
             activeFilePath: null,
+            activeTabPath: null,
             activeFileContent: '',
             activeFileCategory: null,
             activeFileDataUrl: null,
@@ -1369,6 +1822,8 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
             saveStatus: 'saved',
             lastSavedAt: null,
             conflictDiskContent: null,
+            openTabs: remaining,
+            mruTabOrder: get().mruTabOrder.filter((p) => p !== relativePath),
             error: null
           })
           set({
@@ -1377,6 +1832,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
             gitBaselineSha: null,
             gitBaselineContent: null
           })
+          persistWorkspaceTabs(workspacePath, remaining, null)
           void window.api.storeDelete('workbench_lastActiveFilePath')
           return false
         }
@@ -1390,8 +1846,10 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
           set({ error: `文件不存在: ${relativePath}` })
           return false
         }
+        const remaining = get().openTabs.filter((t) => t.path !== relativePath)
         set({
           activeFilePath: null,
+          activeTabPath: null,
           activeFileContent: '',
           activeFileCategory: null,
           activeFileDataUrl: null,
@@ -1403,6 +1861,8 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
           saveStatus: 'saved',
           lastSavedAt: null,
           conflictDiskContent: null,
+          openTabs: remaining,
+          mruTabOrder: get().mruTabOrder.filter((p) => p !== relativePath),
           error: null
         })
         set({
@@ -1411,12 +1871,379 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
           gitBaselineSha: null,
           gitBaselineContent: null
         })
+        persistWorkspaceTabs(workspacePath, remaining, null)
         void window.api.storeDelete('workbench_lastActiveFilePath')
         return false
       }
       set({ error: `打开文件失败: ${msg}` })
       return false
     }
+  },
+
+  createNewTab: async () => {
+    const { workspacePath, activeFilePath } = get()
+    if (!workspacePath) return
+    if (activeFilePath) {
+      if (get().htmlVisualEditing) {
+        const leaveGuard = get().htmlEditLeaveGuard
+        if (!leaveGuard) {
+          set({ error: '可视化编辑尚未就绪，无法新建标签页' })
+          return
+        }
+        const decision = await leaveGuard()
+        if (decision === 'cancelled') return
+      }
+      get().flushActiveEditorSync()
+      const annotationFlush = await get().flushDocumentAnnotations()
+      if (!annotationFlush.saved) {
+        set({ error: annotationFlush.error || '标注同步未完成，无法安全新建标签页' })
+        return
+      }
+      if (get().isDirty) {
+        if (autoSaveTimer) {
+          clearTimeout(autoSaveTimer)
+          autoSaveTimer = null
+        }
+        const saved = await get().saveActiveFile()
+        if (!saved.saved) {
+          set({ error: '当前文件保存未完成，无法安全新建标签页' })
+          return
+        }
+      }
+    }
+
+    const tabPath = `${WORKBENCH_NEW_TAB_PREFIX}${++newTabSeq}`
+    const prevEditorMode = get().editorMode
+    const baseTabs = get().openTabs.map((t) =>
+      activeFilePath && t.path === activeFilePath ? { ...t, editorMode: prevEditorMode } : t
+    )
+    const nextTabs = orderPinnedTabs([
+      ...baseTabs,
+      { path: tabPath, isPinned: false, isPreview: false }
+    ])
+    const nextMru = [tabPath, ...get().mruTabOrder.filter((p) => p !== tabPath)]
+    set({
+      openTabs: nextTabs,
+      mruTabOrder: nextMru,
+      activeTabPath: tabPath,
+      activeFilePath: null,
+      activeFileContent: '',
+      activeFileCategory: null,
+      activeFileDataUrl: null,
+      activeFileUrl: null,
+      activeFileMime: null,
+      activeFileSize: null,
+      activeFileOversized: false,
+      activeAnnotationCount: 0,
+      isDirty: false,
+      saveStatus: 'saved',
+      lastSavedAt: null,
+      conflictDiskContent: null,
+      gitBaselinePath: null,
+      gitBaselineStatus: 'idle',
+      gitBaselineSha: null,
+      gitBaselineContent: null,
+      error: null
+    })
+  },
+
+  activateTab: async (tabPath: string) => {
+    if (!isNewTabPath(tabPath)) {
+      return get().openFile(tabPath)
+    }
+    const { workspacePath, activeTabPath, activeFilePath, openTabs } = get()
+    if (!workspacePath || !openTabs.some((t) => t.path === tabPath)) return false
+    if (activeTabPath === tabPath) return true
+
+    if (activeFilePath) {
+      if (get().htmlVisualEditing) {
+        const leaveGuard = get().htmlEditLeaveGuard
+        if (!leaveGuard) {
+          set({ error: '可视化编辑尚未就绪，无法切换标签页' })
+          return false
+        }
+        const decision = await leaveGuard()
+        if (decision === 'cancelled') return false
+      }
+      get().flushActiveEditorSync()
+      const annotationFlush = await get().flushDocumentAnnotations()
+      if (!annotationFlush.saved) {
+        set({ error: annotationFlush.error || '标注同步未完成，无法安全切换标签页' })
+        return false
+      }
+      if (get().isDirty) {
+        if (autoSaveTimer) {
+          clearTimeout(autoSaveTimer)
+          autoSaveTimer = null
+        }
+        const saved = await get().saveActiveFile()
+        if (!saved.saved) {
+          set({ error: '当前文件保存未完成，无法安全切换标签页' })
+          return false
+        }
+      }
+    }
+
+    const prevEditorMode = get().editorMode
+    const syncedTabs = get().openTabs.map((t) =>
+      activeFilePath && t.path === activeFilePath ? { ...t, editorMode: prevEditorMode } : t
+    )
+    const nextMru = [tabPath, ...get().mruTabOrder.filter((p) => p !== tabPath)]
+    set({
+      openTabs: syncedTabs,
+      mruTabOrder: nextMru,
+      activeTabPath: tabPath,
+      activeFilePath: null,
+      activeFileContent: '',
+      activeFileCategory: null,
+      activeFileDataUrl: null,
+      activeFileUrl: null,
+      activeFileMime: null,
+      activeFileSize: null,
+      activeFileOversized: false,
+      activeAnnotationCount: 0,
+      isDirty: false,
+      saveStatus: 'saved',
+      lastSavedAt: null,
+      conflictDiskContent: null,
+      gitBaselinePath: null,
+      gitBaselineStatus: 'idle',
+      gitBaselineSha: null,
+      gitBaselineContent: null,
+      error: null
+    })
+    return true
+  },
+
+  createUntitledNote: async () => {
+    const { openTabs, fileTree } = get()
+    const taken = new Set<string>(openTabs.map((t) => t.path))
+    for (const node of fileTree) {
+      if (!node.isDirectory) taken.add(node.path)
+    }
+    let name = '未命名笔记.md'
+    if (taken.has(name)) {
+      let index = 2
+      while (taken.has(`未命名笔记-${index}.md`)) {
+        index += 1
+      }
+      name = `未命名笔记-${index}.md`
+    }
+    return get().createFile('', name)
+  },
+
+  setQuickOpenOpen: (open: boolean) => set({ isQuickOpenOpen: open }),
+
+  promoteTab: (relativePath: string) => {
+    const { openTabs, workspacePath, activeFilePath } = get()
+    const target = openTabs.find((t) => t.path === relativePath)
+    if (!target || !target.isPreview) return
+    const nextTabs = openTabs.map((t) =>
+      t.path === relativePath ? { ...t, isPreview: false } : t
+    )
+    set({ openTabs: nextTabs })
+    persistWorkspaceTabs(workspacePath, nextTabs, activeFilePath)
+  },
+
+  togglePinTab: (relativePath: string) => {
+    const { openTabs, workspacePath, activeFilePath } = get()
+    const target = openTabs.find((t) => t.path === relativePath)
+    if (!target) return
+    const nextPinned = !target.isPinned
+    const updated = openTabs.map((t) =>
+      t.path === relativePath
+        ? { ...t, isPinned: nextPinned, isPreview: nextPinned ? false : t.isPreview }
+        : t
+    )
+    const ordered = orderPinnedTabs(updated)
+    set({ openTabs: ordered })
+    persistWorkspaceTabs(workspacePath, ordered, activeFilePath)
+  },
+
+  reorderTabs: (fromPath: string, toPath: string) => {
+    if (fromPath === toPath) return
+    const { openTabs, workspacePath, activeFilePath } = get()
+    const srcIdx = openTabs.findIndex((t) => t.path === fromPath)
+    const dstIdx = openTabs.findIndex((t) => t.path === toPath)
+    if (srcIdx === -1 || dstIdx === -1) return
+    // 固定区与普通区隔离排序
+    if (openTabs[srcIdx].isPinned !== openTabs[dstIdx].isPinned) return
+    const next = [...openTabs]
+    const [moved] = next.splice(srcIdx, 1)
+    next.splice(dstIdx, 0, moved)
+    set({ openTabs: next })
+    persistWorkspaceTabs(workspacePath, next, activeFilePath)
+  },
+
+  closeTab: async (relativePath: string, options?: { force?: boolean }) => {
+    const { workspacePath, activeFilePath, activeTabPath, openTabs, mruTabOrder, closedTabHistory } = get()
+    const closedIdx = openTabs.findIndex((t) => t.path === relativePath)
+    if (closedIdx === -1) return 'closed'
+
+    const isVirtualNewTab = isNewTabPath(relativePath)
+    const closingActive = activeTabPath === relativePath
+    if (closingActive && !isVirtualNewTab && activeFilePath) {
+      if (!options?.force && get().saveStatus === 'conflict') {
+        return 'needs-confirm'
+      }
+      if (get().htmlVisualEditing) {
+        const leaveGuard = get().htmlEditLeaveGuard
+        if (!leaveGuard) {
+          set({ error: '可视化编辑尚未就绪，无法关闭标签页' })
+          return 'cancelled'
+        }
+        const decision = await leaveGuard()
+        if (decision === 'cancelled') return 'cancelled'
+      }
+      get().flushActiveEditorSync()
+      const annotationFlush = await get().flushDocumentAnnotations()
+      if (!annotationFlush.saved && !options?.force) {
+        set({ error: annotationFlush.error || '标注同步未完成，无法安全关闭标签页' })
+        return 'cancelled'
+      }
+      if (get().isDirty && !options?.force) {
+        if (autoSaveTimer) {
+          clearTimeout(autoSaveTimer)
+          autoSaveTimer = null
+        }
+        if (get().saveStatus === 'conflict') return 'needs-confirm'
+        const saved = await get().saveActiveFile()
+        if (!saved.saved) return 'needs-confirm'
+      }
+    }
+
+    const nextTabs = openTabs.filter((t) => t.path !== relativePath)
+    const nextMru = mruTabOrder.filter((p) => p !== relativePath)
+    const nextClosed = isVirtualNewTab
+      ? closedTabHistory
+      : [relativePath, ...closedTabHistory.filter((p) => p !== relativePath)].slice(0, 20)
+
+    set({
+      openTabs: nextTabs,
+      mruTabOrder: nextMru,
+      closedTabHistory: nextClosed
+    })
+
+    if (closingActive) {
+      const nextPath = pickFallbackTabPath(nextTabs, nextMru, closedIdx)
+      if (nextPath) {
+        // 清空当前脏状态再切走，避免 openFile/activateTab 再次保存刚关闭的文件
+        set({ isDirty: false, saveStatus: 'saved', conflictDiskContent: null })
+        const opened = await get().activateTab(nextPath)
+        if (opened) return 'closed'
+      }
+      set({
+        activeFilePath: null,
+        activeTabPath: null,
+        activeFileContent: '',
+        activeFileCategory: null,
+        activeFileDataUrl: null,
+        activeFileUrl: null,
+        activeFileMime: null,
+        activeFileSize: null,
+        activeFileOversized: false,
+        isDirty: false,
+        saveStatus: 'saved',
+        lastSavedAt: null,
+        conflictDiskContent: null,
+        gitBaselinePath: null,
+        gitBaselineStatus: 'idle',
+        gitBaselineSha: null,
+        gitBaselineContent: null
+      })
+      persistWorkspaceTabs(workspacePath, nextTabs, null)
+      void window.api.storeDelete('workbench_lastActiveFilePath')
+    } else {
+      persistWorkspaceTabs(workspacePath, nextTabs, activeTabPath)
+    }
+    return 'closed'
+  },
+
+  closeOtherTabs: async (keepPath: string) => {
+    const { openTabs, activeTabPath } = get()
+    const toClose = openTabs.filter((t) => t.path !== keepPath && !t.isPinned).map((t) => t.path)
+    if (!toClose.length) return
+    if (activeTabPath !== keepPath) {
+      const ok = await get().activateTab(keepPath)
+      if (!ok) return
+    }
+    const remaining = get().openTabs.filter((t) => t.path === keepPath || t.isPinned)
+    const closedFiles = toClose.filter((p) => !isNewTabPath(p))
+    const nextClosed = [
+      ...closedFiles.reverse(),
+      ...get().closedTabHistory.filter((p) => !toClose.includes(p))
+    ].slice(0, 20)
+    set({
+      openTabs: remaining,
+      mruTabOrder: get().mruTabOrder.filter((p) => remaining.some((t) => t.path === p)),
+      closedTabHistory: nextClosed
+    })
+    persistWorkspaceTabs(get().workspacePath, remaining, get().activeTabPath)
+  },
+
+  closeRightTabs: async (fromPath: string) => {
+    const { openTabs, activeTabPath } = get()
+    const idx = openTabs.findIndex((t) => t.path === fromPath)
+    if (idx === -1) return
+    const rightPaths = openTabs
+      .slice(idx + 1)
+      .filter((t) => !t.isPinned)
+      .map((t) => t.path)
+    if (!rightPaths.length) return
+    if (activeTabPath && rightPaths.includes(activeTabPath)) {
+      const ok = await get().activateTab(fromPath)
+      if (!ok) return
+    }
+    const rightSet = new Set(rightPaths)
+    const remaining = get().openTabs.filter((t) => !rightSet.has(t.path))
+    const closedFiles = rightPaths.filter((p) => !isNewTabPath(p))
+    const nextClosed = [
+      ...closedFiles.reverse(),
+      ...get().closedTabHistory.filter((p) => !rightSet.has(p))
+    ].slice(0, 20)
+    set({
+      openTabs: remaining,
+      mruTabOrder: get().mruTabOrder.filter((p) => !rightSet.has(p)),
+      closedTabHistory: nextClosed
+    })
+    persistWorkspaceTabs(get().workspacePath, remaining, get().activeTabPath)
+  },
+
+  closeSavedTabs: async () => {
+    const { openTabs, activeFilePath, activeTabPath, isDirty } = get()
+    const keepActiveBecauseDirty = Boolean(activeFilePath && isDirty)
+    const toClose = openTabs
+      .filter((t) => !t.isPinned && !(keepActiveBecauseDirty && t.path === activeTabPath))
+      .map((t) => t.path)
+    if (!toClose.length) return
+    for (const path of toClose) {
+      const res = await get().closeTab(path)
+      if (res === 'cancelled') break
+    }
+  },
+
+  closeAllTabs: async () => {
+    const { openTabs } = get()
+    const targets = openTabs.filter((t) => !t.isPinned).map((t) => t.path)
+    for (const path of targets) {
+      const res = await get().closeTab(path)
+      if (res === 'cancelled' || res === 'needs-confirm') break
+    }
+  },
+
+  reopenLastClosedTab: async () => {
+    const { workspacePath, closedTabHistory, fileTree } = get()
+    if (!workspacePath || !closedTabHistory.length) return false
+    const validPaths = collectTreePaths(fileTree, new Set<string>())
+    const nextHistory = [...closedTabHistory]
+    while (nextHistory.length > 0) {
+      const candidate = nextHistory.shift()!
+      if (!validPaths.has(candidate)) continue
+      set({ closedTabHistory: nextHistory })
+      return get().openFile(candidate, { forcePermanent: true })
+    }
+    set({ closedTabHistory: [] })
+    return false
   },
 
   saveActiveFile: async () => {
@@ -1583,10 +2410,24 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   },
 
   updateActiveContent: (content: string) => {
-    set({
-      activeFileContent: content,
-      isDirty: true
-    })
+    const { activeFilePath, openTabs, workspacePath } = get()
+    const activeTab = activeFilePath ? openTabs.find((t) => t.path === activeFilePath) : null
+    if (activeTab?.isPreview) {
+      const nextTabs = openTabs.map((t) =>
+        t.path === activeFilePath ? { ...t, isPreview: false } : t
+      )
+      set({
+        activeFileContent: content,
+        isDirty: true,
+        openTabs: nextTabs
+      })
+      persistWorkspaceTabs(workspacePath, nextTabs, activeFilePath)
+    } else {
+      set({
+        activeFileContent: content,
+        isDirty: true
+      })
+    }
 
     // 防抖 1200ms 自动落盘
     if (autoSaveTimer) {
@@ -1611,12 +2452,30 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
 
   setHtmlVisualEditing: (editing) => set({ htmlVisualEditing: editing }),
 
+  setCodePreviewEditable: (editable) => set({ codePreviewEditable: editable }),
+
+  setHtmlRenderSurface: (render) => set({ htmlRenderSurface: render }),
+
   markActiveFileDirty: () => {
     if (autoSaveTimer) {
       clearTimeout(autoSaveTimer)
       autoSaveTimer = null
     }
-    if (!get().isDirty) set({ isDirty: true })
+    const { activeFilePath, openTabs, workspacePath } = get()
+    const activeTab = activeFilePath ? openTabs.find((t) => t.path === activeFilePath) : null
+    if (activeTab?.isPreview) {
+      const nextTabs = openTabs.map((t) =>
+        t.path === activeFilePath ? { ...t, isPreview: false } : t
+      )
+      set({ isDirty: true, openTabs: nextTabs })
+      persistWorkspaceTabs(workspacePath, nextTabs, activeFilePath)
+    } else if (!get().isDirty) {
+      set({ isDirty: true })
+    }
+  },
+
+  unmarkActiveFileDirty: () => {
+    if (get().isDirty) set({ isDirty: false })
   },
 
   discardActiveFileChanges: (content) => {
@@ -1773,6 +2632,21 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
           set({ expandedFolderIds: nextExpanded })
         }
 
+        // 同步重命名所有受影响的标签页、MRU 与关闭恢复栈
+        const prevTabs = get().openTabs
+        const remappedTabs = dedupeTabsByPath(
+          prevTabs.map((t) => ({
+            ...t,
+            path: remapPathPrefix(t.path, oldRelativePath, newRelativePath)
+          }))
+        )
+        const remappedMru = get()
+          .mruTabOrder.map((p) => remapPathPrefix(p, oldRelativePath, newRelativePath))
+          .filter((p, i, arr) => arr.indexOf(p) === i)
+        const remappedClosed = get()
+          .closedTabHistory.map((p) => remapPathPrefix(p, oldRelativePath, newRelativePath))
+          .filter((p, i, arr) => arr.indexOf(p) === i)
+
         const currentActive = get().activeFilePath
         const nextActivePath =
           currentActive === oldRelativePath
@@ -1781,7 +2655,15 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
               ? newRelativePath + currentActive.slice(oldRelativePath.length)
               : null
 
+        set({
+          openTabs: remappedTabs,
+          mruTabOrder: remappedMru,
+          closedTabHistory: remappedClosed
+        })
+        persistWorkspaceTabs(workspacePath, remappedTabs, nextActivePath ?? currentActive)
+
         if (nextActivePath) {
+          set({ activeTabPath: nextActivePath })
           // 重新读取新路径的完整元数据与 URL（HTML/图片依赖 activeFileUrl，改扩展名需同步 category，
           // .md 可能被主进程替换 assets/ 路径），在一次 set 内原子更新避免预览加载旧路径。
           let refreshed = false
@@ -1913,6 +2795,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     if (hitsActive) {
       set({
         activeFilePath: null,
+        activeTabPath: null,
         activeFileContent: '',
         activeFileCategory: null,
         activeFileDataUrl: null,
@@ -1936,11 +2819,23 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     try {
       const res = await window.api.workbench.deleteNode(workspacePath, relativePath)
       if (res.success) {
+        const remainingTabs = get().openTabs.filter((t) => !isUnderAnyPath(t.path, deletedPaths))
+        const nextMru = get().mruTabOrder.filter((p) => !isUnderAnyPath(p, deletedPaths))
+        const nextClosed = get().closedTabHistory.filter((p) => !isUnderAnyPath(p, deletedPaths))
+        set({
+          openTabs: remainingTabs,
+          mruTabOrder: nextMru,
+          closedTabHistory: nextClosed
+        })
         await get().loadFileTree()
-        // 当前文件被删时自动切换到排序上的相邻文件；无任何文件则停在空状态
-        if (nextFilePath) {
-          const opened = await get().openFile(nextFilePath)
+        // 当前文件被删时优先切到剩余打开标签，其次相邻文件；无任何文件则停在空状态
+        const tabFallback = hitsActive ? pickFallbackTabPath(remainingTabs, nextMru) : null
+        const targetNext = tabFallback || nextFilePath
+        if (targetNext) {
+          const opened = await get().activateTab(targetNext)
           if (!opened) void window.api.storeDelete('workbench_lastActiveFilePath')
+        } else if (hitsActive) {
+          persistWorkspaceTabs(workspacePath, remainingTabs, null)
         }
         return true
       } else {
@@ -2133,6 +3028,28 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     }
   },
 
+  findWorkspaceUnreferencedImages: async () => {
+    const { workspacePath } = get()
+    if (!workspacePath) return null
+    // 扫描前先把当前编辑中的改动落盘，避免刚粘贴的图片被误判为未引用
+    get().flushActiveEditorSync()
+    if (get().isDirty) {
+      await get().saveActiveFile()
+    }
+    try {
+      const res = await window.api.workbench.findWorkspaceUnreferencedImages(workspacePath)
+      if (!res.success) {
+        if (res.error) set({ error: res.error })
+        return null
+      }
+      return res.data ?? null
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      set({ error: `扫描未引用图片失败: ${msg}` })
+      return null
+    }
+  },
+
   /**
    * 批量删除（移至回收站）。
    * 交互对齐 VSCode：确认后节点立即从树里消失，编辑器马上切到相邻文件，
@@ -2194,6 +3111,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     if (hitsActive) {
       set({
         activeFilePath: null,
+        activeTabPath: null,
         activeFileContent: '',
         activeFileCategory: null,
         activeFileDataUrl: null,
@@ -2234,10 +3152,28 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         set({ error: `${failedPaths.length} 项删除失败（${first.path}: ${first.error}）` })
       }
 
+      const deletedSuccessful = targets.filter((t) => !failedPaths.includes(t))
+      if (deletedSuccessful.length) {
+        const remainingTabs = get().openTabs.filter((t) => !isUnderAnyPath(t.path, deletedSuccessful))
+        const nextMru = get().mruTabOrder.filter((p) => !isUnderAnyPath(p, deletedSuccessful))
+        const nextClosed = get().closedTabHistory.filter((p) => !isUnderAnyPath(p, deletedSuccessful))
+        set({
+          openTabs: remainingTabs,
+          mruTabOrder: nextMru,
+          closedTabHistory: nextClosed
+        })
+      }
+
       await get().loadFileTree()
-      if (nextFilePath && !get().activeFilePath) {
-        const opened = await get().openFile(nextFilePath)
-        if (!opened) void window.api.storeDelete('workbench_lastActiveFilePath')
+      if (hitsActive && !get().activeFilePath) {
+        const tabFallback = pickFallbackTabPath(get().openTabs, get().mruTabOrder)
+        const targetNext = tabFallback || nextFilePath
+        if (targetNext) {
+          const opened = await get().activateTab(targetNext)
+          if (!opened) void window.api.storeDelete('workbench_lastActiveFilePath')
+        } else {
+          persistWorkspaceTabs(workspacePath, get().openTabs, null)
+        }
       }
       return failedPaths.length === 0
     } catch (err) {
@@ -2302,6 +3238,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       if (hitsActive) {
         set({
           activeFilePath: null,
+          activeTabPath: null,
           activeFileContent: '',
           activeFileCategory: null,
           activeFileDataUrl: null,
@@ -2321,6 +3258,27 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
           gitBaselineContent: null
         })
         void window.api.storeDelete('workbench_lastActiveFilePath')
+      }
+      if (res.data.moved.length) {
+        const movedSources = res.data.moved.map((m) => m.source)
+        const remainingTabs = get().openTabs.filter((t) => !isUnderAnyPath(t.path, movedSources))
+        const nextMru = get().mruTabOrder.filter((p) => !isUnderAnyPath(p, movedSources))
+        const nextClosed = get().closedTabHistory.filter((p) => !isUnderAnyPath(p, movedSources))
+        set({
+          openTabs: remainingTabs,
+          mruTabOrder: nextMru,
+          closedTabHistory: nextClosed
+        })
+        if (hitsActive) {
+          const tabFallback = pickFallbackTabPath(remainingTabs, nextMru)
+          if (tabFallback) {
+            void get().activateTab(tabFallback)
+          } else {
+            persistWorkspaceTabs(workspacePath, remainingTabs, null)
+          }
+        } else {
+          persistWorkspaceTabs(workspacePath, remainingTabs, get().activeTabPath)
+        }
       }
       await get().loadFileTree()
       if (res.data.failed.length) {
@@ -2447,12 +3405,13 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   setLeftPaneWidth: (width: number, persist = true) => {
     const winW = typeof window === 'undefined' ? 1400 : window.innerWidth
     const state = get()
+    const minLeft = state.leftPaneMinWidth
     const hasRight = !!state.rightPane || state.isAiSidebar2Open
     const rightReserve = hasRight
       ? (state.isAiSidebar2Open ? RIGHT_PANE_DUAL_MIN : RIGHT_PANE_MIN)
       : 0
-    const maxLeftAllowed = Math.max(260, winW - WORKBENCH_MIN_EDITOR_WIDTH - rightReserve - 10)
-    const clamped = Math.max(260, Math.min(480, Math.min(maxLeftAllowed, width)))
+    const maxLeftAllowed = Math.max(minLeft, winW - WORKBENCH_MIN_EDITOR_WIDTH - rightReserve - 10)
+    const clamped = Math.max(minLeft, Math.min(480, Math.min(maxLeftAllowed, width)))
     const nextState: Partial<WorkbenchStoreState> = { leftPaneWidth: clamped }
     if (hasRight) {
       const clampedRight = clampRightPaneWidth(state.rightPaneWidth, winW, clamped, state.isLeftCollapsed, state.isAiSidebar2Open)
@@ -2470,6 +3429,44 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     return clamped
   },
 
+  setLeftPaneMinWidth: (minWidth: number) => {
+    const resolvedMin = Math.max(
+      WORKBENCH_BASE_MIN_LEFT_WIDTH,
+      Math.min(480, Math.ceil(minWidth))
+    )
+    const state = get()
+    if (state.leftPaneMinWidth === resolvedMin && state.leftPaneWidth >= resolvedMin) {
+      return
+    }
+    const nextState: Partial<WorkbenchStoreState> = { leftPaneMinWidth: resolvedMin }
+    if (state.leftPaneWidth < resolvedMin) {
+      const winW = typeof window === 'undefined' ? 1400 : window.innerWidth
+      const hasRight = !!state.rightPane || state.isAiSidebar2Open
+      const rightReserve = hasRight
+        ? (state.isAiSidebar2Open ? RIGHT_PANE_DUAL_MIN : RIGHT_PANE_MIN)
+        : 0
+      const maxLeftAllowed = Math.max(
+        resolvedMin,
+        winW - WORKBENCH_MIN_EDITOR_WIDTH - rightReserve - 10
+      )
+      const bumpedLeft = Math.min(480, Math.min(maxLeftAllowed, resolvedMin))
+      nextState.leftPaneWidth = bumpedLeft
+      if (hasRight && !state.isLeftCollapsed) {
+        const clampedRight = clampRightPaneWidth(
+          state.rightPaneWidth,
+          winW,
+          bumpedLeft,
+          false,
+          state.isAiSidebar2Open
+        )
+        if (clampedRight !== state.rightPaneWidth) {
+          nextState.rightPaneWidth = clampedRight
+        }
+      }
+    }
+    set(nextState)
+  },
+
   setRightPaneWidth: (width: number, persist = true) => {
     const clamped = clampRightPaneWidth(width)
     set({ rightPaneWidth: clamped })
@@ -2485,12 +3482,13 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     const nextState: Partial<WorkbenchStoreState> = { isLeftCollapsed: next }
     if (!next) {
       const winW = typeof window === 'undefined' ? 1400 : window.innerWidth
+      const minLeft = state.leftPaneMinWidth
       const hasRight = !!state.rightPane || state.isAiSidebar2Open
       const rightReserve = hasRight
         ? (state.isAiSidebar2Open ? RIGHT_PANE_DUAL_MIN : RIGHT_PANE_MIN)
         : 0
-      const maxLeftAllowed = Math.max(260, winW - WORKBENCH_MIN_EDITOR_WIDTH - rightReserve - 10)
-      const clampedLeft = Math.max(260, Math.min(480, Math.min(maxLeftAllowed, state.leftPaneWidth)))
+      const maxLeftAllowed = Math.max(minLeft, winW - WORKBENCH_MIN_EDITOR_WIDTH - rightReserve - 10)
+      const clampedLeft = Math.max(minLeft, Math.min(480, Math.min(maxLeftAllowed, state.leftPaneWidth)))
       if (clampedLeft !== state.leftPaneWidth) {
         nextState.leftPaneWidth = clampedLeft
         void window.api.storeSet('workbench_leftPaneWidth', clampedLeft)
@@ -2533,8 +3531,9 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     const winW = typeof window === 'undefined' ? 1400 : window.innerWidth
     const width = Math.max(state.rightPaneWidth, RIGHT_PANE_DUAL_MIN)
     const nextState: Partial<WorkbenchStoreState> = { isAiSidebar2Open: true, rightPaneWidth: width }
-    if (!state.isLeftCollapsed && winW >= 260 + WORKBENCH_MIN_EDITOR_WIDTH + RIGHT_PANE_DUAL_MIN + 10) {
-      const maxLeft = Math.max(260, winW - WORKBENCH_MIN_EDITOR_WIDTH - RIGHT_PANE_DUAL_MIN - 10)
+    const minLeft = state.leftPaneMinWidth
+    if (!state.isLeftCollapsed && winW >= minLeft + WORKBENCH_MIN_EDITOR_WIDTH + RIGHT_PANE_DUAL_MIN + 10) {
+      const maxLeft = Math.max(minLeft, winW - WORKBENCH_MIN_EDITOR_WIDTH - RIGHT_PANE_DUAL_MIN - 10)
       if (state.leftPaneWidth > maxLeft) {
         nextState.leftPaneWidth = maxLeft
         void window.api.storeSet('workbench_leftPaneWidth', maxLeft)
@@ -2552,8 +3551,9 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     const winW = typeof window === 'undefined' ? 1400 : window.innerWidth
     const width = Math.max(state.rightPaneWidth, RIGHT_PANE_DUAL_MIN)
     const nextState: Partial<WorkbenchStoreState> = { isAiSidebar2Open: true, rightPaneWidth: width }
-    if (!state.isLeftCollapsed && winW >= 260 + WORKBENCH_MIN_EDITOR_WIDTH + RIGHT_PANE_DUAL_MIN + 10) {
-      const maxLeft = Math.max(260, winW - WORKBENCH_MIN_EDITOR_WIDTH - RIGHT_PANE_DUAL_MIN - 10)
+    const minLeft = state.leftPaneMinWidth
+    if (!state.isLeftCollapsed && winW >= minLeft + WORKBENCH_MIN_EDITOR_WIDTH + RIGHT_PANE_DUAL_MIN + 10) {
+      const maxLeft = Math.max(minLeft, winW - WORKBENCH_MIN_EDITOR_WIDTH - RIGHT_PANE_DUAL_MIN - 10)
       if (state.leftPaneWidth > maxLeft) {
         nextState.leftPaneWidth = maxLeft
         void window.api.storeSet('workbench_leftPaneWidth', maxLeft)
@@ -2602,6 +3602,14 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       return
     }
     set({ editorMode: mode })
+    const activePath = get().activeFilePath
+    if (activePath) {
+      const nextTabs = get().openTabs.map((t) =>
+        t.path === activePath ? { ...t, editorMode: mode } : t
+      )
+      set({ openTabs: nextTabs })
+      persistWorkspaceTabs(get().workspacePath, nextTabs, activePath)
+    }
     void window.api.storeSet('workbench_editorMode', mode)
   },
 
@@ -3133,6 +4141,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
           } else {
             set({
               activeFilePath: null,
+              activeTabPath: null,
               activeFileContent: '',
               activeFileCategory: null,
               activeFileDataUrl: null,
@@ -3216,6 +4225,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       }
       set({
         activeFilePath: null,
+        activeTabPath: null,
         activeFileContent: '',
         activeFileCategory: null,
         activeFileDataUrl: null,
@@ -3249,11 +4259,23 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         return result
       }
 
+      const remainingTabs = get().openTabs.filter((t) => t.path !== relativePath)
+      const nextMru = get().mruTabOrder.filter((p) => p !== relativePath)
+      const nextClosed = get().closedTabHistory.filter((p) => p !== relativePath)
+      set({
+        openTabs: remainingTabs,
+        mruTabOrder: nextMru,
+        closedTabHistory: nextClosed
+      })
+
       await get().loadFileTree({ skipGitStatus: true })
       await get().refreshGitStatus()
-      if (nextFilePath) {
-        const opened = await get().openFile(nextFilePath)
+      const targetNext = hitsActive ? (pickFallbackTabPath(remainingTabs, nextMru) || nextFilePath) : null
+      if (targetNext) {
+        const opened = await get().activateTab(targetNext)
         if (!opened) void window.api.storeDelete('workbench_lastActiveFilePath')
+      } else if (hitsActive) {
+        persistWorkspaceTabs(workspacePath, remainingTabs, null)
       }
       get().setGitNotice({ tone: 'info', message: '已移至系统回收站' })
       return result
@@ -3332,7 +4354,8 @@ if (typeof window !== 'undefined') {
       const nextState: Partial<WorkbenchStoreState> = {}
       let leftW = current.leftPaneWidth
       if (current.isAiSidebar2Open && !current.isLeftCollapsed) {
-        const maxLeft = Math.max(260, winW - WORKBENCH_MIN_EDITOR_WIDTH - RIGHT_PANE_DUAL_MIN - 10)
+        const minLeft = current.leftPaneMinWidth
+        const maxLeft = Math.max(minLeft, winW - WORKBENCH_MIN_EDITOR_WIDTH - RIGHT_PANE_DUAL_MIN - 10)
         if (leftW > maxLeft) {
           leftW = maxLeft
           nextState.leftPaneWidth = leftW

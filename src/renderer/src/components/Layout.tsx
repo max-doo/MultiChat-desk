@@ -9,12 +9,17 @@ const PRODUCT_MODE_LABELS: Record<ProductMode, { label: string; title: string }>
   debate: { label: '辩论', title: '辩论模式：支持2个AI交互对抗' },
   workbench: { label: '工作台', title: '工作台模式：本地 Markdown 知识库与 AI 深度协同' }
 }
-import { useWorkbenchStore } from '../store/workbenchStore'
+import {
+  useWorkbenchStore,
+  WORKBENCH_BASE_MIN_LEFT_WIDTH,
+  WORKBENCH_MIN_EDITOR_WIDTH
+} from '../store/workbenchStore'
 import { useUpdateReminder } from '../hooks/useUpdateState'
 import CustomContextMenu from './CustomContextMenu'
 import CliAgentHint from './CliAgentHint'
 import { AgentSettingsDialog } from './workbench/agent/AgentSettingsDialog'
 import { useAgentSettingsDialogStore } from '../store/agentSettingsDialogStore'
+import WorkbenchTabBar from './workbench/WorkbenchTabBar'
 
 type WindowsCaptionIconName = 'minimize' | 'maximize' | 'restore' | 'close'
 
@@ -63,36 +68,6 @@ function WindowsCaptionIcon({ name }: { name: WindowsCaptionIconName }): JSX.Ele
     <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true" focusable="false">
       <path d="M0 0l10 10M10 0L0 10" stroke="currentColor" strokeWidth="1" shapeRendering="crispEdges" />
     </svg>
-  )
-}
-
-function WorkbenchTopBar(): JSX.Element {
-  const workspaceName = useWorkbenchStore((s) => s.workspaceName)
-  const activeFilePath = useWorkbenchStore((s) => s.activeFilePath)
-  const isDirty = useWorkbenchStore((s) => s.isDirty)
-  const saveStatus = useWorkbenchStore((s) => s.saveStatus)
-
-  return (
-    <div className="flex items-center gap-2 text-xs select-none max-w-[420px] truncate">
-      <span className="font-semibold text-text-primary flex items-center gap-1">
-        <span>{workspaceName || '工作台'}</span>
-      </span>
-
-      {activeFilePath && (
-        <>
-          <span className="text-text-secondary/50">/</span>
-          <span className="text-text-secondary font-mono truncate" title={activeFilePath}>
-            {activeFilePath}
-          </span>
-          {isDirty && (
-            <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" title="未保存" />
-          )}
-          {saveStatus === 'saving' && (
-            <span className="text-xs text-amber-500 font-medium shrink-0">保存中...</span>
-          )}
-        </>
-      )}
-    </div>
   )
 }
 
@@ -160,10 +135,95 @@ function Layout({ children }: LayoutProps): JSX.Element {
   const { hasUpdate } = useUpdateReminder()
   const agentSettingsOpen = useAgentSettingsDialogStore((s) => s.isOpen)
   const closeAgentSettings = useAgentSettingsDialogStore((s) => s.close)
+  const leftPaneWidth = useWorkbenchStore((s) => s.leftPaneWidth)
+  const rightPaneWidth = useWorkbenchStore((s) => s.rightPaneWidth)
+  const isLeftCollapsed = useWorkbenchStore((s) => s.isLeftCollapsed)
+  const rightPane = useWorkbenchStore((s) => s.rightPane)
+  const isAiSidebar2Open = useWorkbenchStore((s) => s.isAiSidebar2Open)
+  const toggleLeftCollapse = useWorkbenchStore((s) => s.toggleLeftCollapse)
+  const setLeftPaneWidth = useWorkbenchStore((s) => s.setLeftPaneWidth)
+  const setLeftPaneMinWidth = useWorkbenchStore((s) => s.setLeftPaneMinWidth)
+  const setRightPaneWidth = useWorkbenchStore((s) => s.setRightPaneWidth)
+  const modeSwitcherRef = useRef<HTMLDivElement | null>(null)
+  const [leftFullLabelsThreshold, setLeftFullLabelsThreshold] = useState(370)
+  const [isWideWindow, setIsWideWindow] = useState(() =>
+    typeof window === 'undefined' ? true : window.innerWidth >= 1280
+  )
   const isFallbackDraggingRef = useRef(false)
   const dragFrameRef = useRef<number | null>(null)
   const dragMovePendingRef = useRef(false)
   const productModeSwitchRef = useRef(false)
+
+  const isWorkbenchView = currentPage === 'main' && productMode === 'workbench'
+  const hasWorkbenchRightPane = Boolean(rightPane || isAiSidebar2Open)
+
+  // 根据模式切换胶囊宽度 + 3 个操作按钮（设置、历史、收起左栏）动态计算左侧栏最小宽度与文字展开阈值
+  useEffect(() => {
+    if (!isWorkbenchView) {
+      setLeftPaneMinWidth(WORKBENCH_BASE_MIN_LEFT_WIDTH)
+      return
+    }
+    const isMac = window.api.platform === 'darwin'
+    const updateLeftBounds = () => {
+      const switcherWidth = modeSwitcherRef.current?.offsetWidth ?? 0
+      if (switcherWidth <= 0) return
+      const horizontalPad = isMac ? 94 : 20 // pl-[86px]/pl-3 + pr-2
+      // 非 macOS：设置(28) + 历史(28) + 折叠(28) + 间距与最小拖拽留白 ≈ 108；macOS：左侧仅折叠按钮 ≈ 40
+      const iconOnlyButtonsWidth = isMac ? 40 : 108
+      const fullLabelButtonsWidth = isMac ? 40 : 162
+      setLeftPaneMinWidth(switcherWidth + horizontalPad + iconOnlyButtonsWidth)
+      setLeftFullLabelsThreshold(Math.ceil(switcherWidth + horizontalPad + fullLabelButtonsWidth))
+    }
+
+    updateLeftBounds()
+    const el = modeSwitcherRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(updateLeftBounds)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [isWorkbenchView, isLeftCollapsed, visibleProductModes.length, setLeftPaneMinWidth])
+
+  useEffect(() => {
+    const onResize = () => setIsWideWindow(window.innerWidth >= 1280)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+
+  const startTopSplitterDrag = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>, side: 'left' | 'right') => {
+      e.preventDefault()
+      e.stopPropagation()
+      const splitter = e.currentTarget
+      const pointerId = e.pointerId
+      splitter.setPointerCapture(pointerId)
+      let currentWidth =
+        side === 'left'
+          ? useWorkbenchStore.getState().leftPaneWidth
+          : useWorkbenchStore.getState().rightPaneWidth
+      const handlePointerMove = (moveEvent: PointerEvent) => {
+        currentWidth =
+          side === 'left'
+            ? setLeftPaneWidth(moveEvent.clientX, false)
+            : setRightPaneWidth(window.innerWidth - moveEvent.clientX, false)
+      }
+      const handlePointerUp = () => {
+        try {
+          splitter.releasePointerCapture(pointerId)
+        } catch {
+          // ignore
+        }
+        window.removeEventListener('pointermove', handlePointerMove)
+        window.removeEventListener('pointerup', handlePointerUp)
+        void window.api.storeSet(
+          side === 'left' ? 'workbench_leftPaneWidth' : 'workbench_rightPaneWidth',
+          currentWidth
+        )
+      }
+      window.addEventListener('pointermove', handlePointerMove)
+      window.addEventListener('pointerup', handlePointerUp)
+    },
+    [setLeftPaneWidth, setRightPaneWidth]
+  )
 
   const handleProductModeChange = useCallback(
     async (nextMode: ProductMode) => {
@@ -267,20 +327,21 @@ function Layout({ children }: LayoutProps): JSX.Element {
   }, [])
 
 
-  const entryButtons = (
-    <div className="flex items-center gap-1 no-drag">
+  const renderEntryButtons = (compact = false): JSX.Element => (
+    <div className="flex items-center gap-1 no-drag shrink-0">
       <button
         type="button"
         onClick={() => (currentPage === 'settings' ? closeSettings() : openSettings())}
-        className={`relative h-7 px-2 flex items-center justify-center gap-1 rounded-lg transition-all duration-200 ${
+        className={`relative h-7 ${compact ? 'w-7 px-0' : 'px-2 gap-1'} flex items-center justify-center rounded-lg transition-all duration-200 ${
           currentPage === 'settings'
             ? 'text-primary bg-white/75 dark:bg-white/10 shadow-xs'
             : 'text-text-secondary hover:text-primary hover:bg-white/60 dark:hover:bg-white/10'
         }`}
         title={currentPage === 'settings' ? '返回' : '设置'}
+        aria-label={currentPage === 'settings' ? '返回' : '设置'}
       >
         <AppIcon name="settings" size={16} />
-        <span className="text-xs font-normal">设置</span>
+        {!compact && <span className="text-xs font-normal whitespace-nowrap">设置</span>}
         {hasUpdate && <span className="absolute right-0.5 top-0.5 w-1.5 h-1.5 rounded-full bg-red-500 ring-2 ring-white/80" />}
       </button>
       <button
@@ -290,11 +351,12 @@ function Layout({ children }: LayoutProps): JSX.Element {
           setHistoryInitialTab(currentPage === 'summary' ? 'summary' : 'conversation')
           setHistoryOpen(true)
         }}
-        className="h-7 px-2 flex items-center justify-center gap-1 text-text-secondary hover:text-primary hover:bg-white/60 rounded-lg transition-all duration-200"
+        className={`h-7 ${compact ? 'w-7 px-0' : 'px-2 gap-1'} flex items-center justify-center text-text-secondary hover:text-primary hover:bg-white/60 dark:hover:bg-white/10 rounded-lg transition-all duration-200`}
         title="历史记录"
+        aria-label="历史记录"
       >
         <AppIcon name="history" size={16} />
-        <span className="text-xs font-normal">历史</span>
+        {!compact && <span className="text-xs font-normal whitespace-nowrap">历史</span>}
       </button>
     </div>
   )
@@ -311,12 +373,78 @@ function Layout({ children }: LayoutProps): JSX.Element {
     </button>
   )
 
+  const modeSwitcher = (
+    <div
+      ref={modeSwitcherRef}
+      className={`flex items-center p-0.5 bg-gray-200/60 dark:bg-gray-700/60 rounded-lg text-xs gap-0.5 no-drag shrink-0 ${currentPage === 'summary' || debateState.phase === 'running' || debateState.phase === 'paused' ? 'opacity-50 pointer-events-none' : ''}`}
+    >
+      {visibleProductModes.map(mode => {
+        const item = { key: mode, ...PRODUCT_MODE_LABELS[mode] }
+        return (
+          <button
+            key={item.key}
+            type="button"
+            title={item.title}
+            onClick={() => void handleProductModeChange(item.key as ProductMode)}
+            className={`${isWorkbenchView ? 'px-2 py-1' : 'px-2.5 py-1'} rounded-md font-medium whitespace-nowrap transition-all duration-200 ${
+              productMode === item.key
+                ? 'bg-white dark:bg-gray-800 text-primary shadow-xs'
+                : 'text-text-secondary hover:text-text-primary hover:bg-white/30'
+            }`}
+          >
+            {item.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+
+  const windowsCaptionButtons = (
+    <div className="flex h-full items-stretch shrink-0 no-drag">
+      <button
+        type="button"
+        aria-label="最小化窗口"
+        title="最小化"
+        onClick={() => window.api.minimizeWindow()}
+        className="flex w-[46px] items-center justify-center text-[#202020] transition-colors duration-100 hover:bg-black/[0.05] active:bg-black/[0.08] dark:text-[#e5e5e5] dark:hover:bg-white/[0.06]"
+      >
+        <WindowsCaptionIcon name="minimize" />
+      </button>
+      <button
+        type="button"
+        aria-label={isWindowMaximized ? '还原窗口' : '最大化窗口'}
+        title={isWindowMaximized ? '还原' : '最大化'}
+        onClick={() => window.api.maximizeWindow()}
+        className="flex w-[46px] items-center justify-center text-[#202020] transition-colors duration-100 hover:bg-black/[0.05] active:bg-black/[0.08] dark:text-[#e5e5e5] dark:hover:bg-white/[0.06]"
+      >
+        <WindowsCaptionIcon name={isWindowMaximized ? 'restore' : 'maximize'} />
+      </button>
+      <button
+        type="button"
+        aria-label="关闭窗口"
+        title="关闭"
+        onClick={() => window.api.closeWindow()}
+        className="flex w-[46px] items-center justify-center text-[#202020] transition-colors duration-100 hover:bg-[#c42b1c] hover:text-white active:bg-[#a52a1e] dark:text-[#e5e5e5]"
+      >
+        <WindowsCaptionIcon name="close" />
+      </button>
+    </div>
+  )
+
   return (
     <div className="flex flex-col h-screen bg-transparent">
-      {/* 自定义标题栏 */}
-      <div 
-        className={`${window.api.platform === 'darwin' ? 'mac-titlebar' : 'h-[38px] px-4'} relative w-full shrink-0 grid items-center drag-region`}
-        style={{ gridTemplateColumns: '1fr auto 1fr' }}
+      {/* 自定义标题栏：工作台模式下切分为与下方三栏对齐的通顶顶栏 */}
+      <div
+        className={`${
+          isWorkbenchView
+            ? window.api.platform === 'darwin'
+              ? 'h-[52px]'
+              : 'h-[38px]'
+            : window.api.platform === 'darwin'
+              ? 'mac-titlebar'
+              : 'h-[38px] px-4'
+        } relative w-full shrink-0 ${isWorkbenchView ? 'flex items-center' : 'grid items-center'} drag-region`}
+        style={isWorkbenchView ? undefined : { gridTemplateColumns: '1fr auto 1fr' }}
         onPointerDown={(event) => {
           if (window.api.platform === 'darwin' || event.button !== 0 || isFallbackDraggingRef.current) return
           const target = event.target as HTMLElement
@@ -334,130 +462,169 @@ function Layout({ children }: LayoutProps): JSX.Element {
           window.api.maximizeWindow()
         }}
       >
-        <div className="relative z-10 flex items-center gap-3 select-none drag-region h-full">
-          {currentPage === 'settings' ? settingsBackButton : (
-            <>
-              <div className="flex items-center gap-3 drag-region">
-                {/* 模式选择分段控件 */}
+        {isWorkbenchView ? (
+          <>
+            {/* 左栏顶区：展开时与 leftPaneWidth 严格对齐；收起时保留模式切换、设置/历史与展开按钮 */}
+            {!isLeftCollapsed ? (
+              <>
                 <div
-                  className={`flex items-center p-0.5 bg-gray-200/60 dark:bg-gray-700/60 rounded-lg text-xs gap-0.5 no-drag ${currentPage === 'summary' || debateState.phase === 'running' || debateState.phase === 'paused' ? 'opacity-50 pointer-events-none' : ''}`}
+                  className={`h-full shrink-0 flex items-center gap-1.5 pr-2 drag-region ${
+                    window.api.platform === 'darwin' ? 'pl-[86px]' : 'pl-3'
+                  }`}
+                  style={{ width: `${leftPaneWidth}px` }}
                 >
-                  {visibleProductModes.map(mode => {
-                    const item = { key: mode, ...PRODUCT_MODE_LABELS[mode] }
+                  {modeSwitcher}
+                  {window.api.platform !== 'darwin' && renderEntryButtons(leftPaneWidth < leftFullLabelsThreshold)}
+                  <div className="flex-1 min-w-[4px] h-full drag-region" />
+                  <button
+                    type="button"
+                    onClick={toggleLeftCollapse}
+                    className="no-drag w-7 h-7 shrink-0 flex items-center justify-center rounded-lg text-text-secondary hover:text-text-primary hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
+                    title="收起侧边栏"
+                    aria-label="收起侧边栏"
+                  >
+                    <AppIcon name="left_panel_close" size={16} />
+                  </button>
+                </div>
+                <div
+                  onPointerDown={(e) => startTopSplitterDrag(e, 'left')}
+                  className="group relative w-[10px] -ml-[5px] h-full cursor-col-resize z-dropdown select-none shrink-0 no-drag"
+                  title="拖拽调整左栏宽度"
+                >
+                  <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-[4px] group-hover:bg-blue-500/40 transition-colors" />
+                </div>
+              </>
+            ) : (
+              <div
+                className={`h-full shrink-0 flex items-center gap-1.5 pr-1 drag-region ${
+                  window.api.platform === 'darwin' ? 'pl-[86px]' : 'pl-3'
+                }`}
+              >
+                {modeSwitcher}
+                {window.api.platform !== 'darwin' && renderEntryButtons(!isWideWindow)}
+                <button
+                  type="button"
+                  onClick={toggleLeftCollapse}
+                  className="no-drag w-7 h-7 shrink-0 flex items-center justify-center rounded-lg text-text-secondary hover:text-text-primary hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
+                  title="展开侧边栏"
+                  aria-label="展开侧边栏"
+                >
+                  <AppIcon name="left_panel_open" size={16} />
+                </button>
+                <div className="w-px h-4 bg-black/10 dark:bg-white/10 ml-0.5 shrink-0" />
+              </div>
+            )}
+
+            {/* 中栏顶区：极简标签栏（宽度严格跟随中间编辑区） */}
+            <WorkbenchTabBar isActive={isWorkbenchView} />
+
+            {/* 右栏顶区：展开时与 rightPaneWidth 对齐；收起时紧凑收拢于右上角 */}
+            {hasWorkbenchRightPane ? (
+              <>
+                <div
+                  onPointerDown={(e) => startTopSplitterDrag(e, 'right')}
+                  className="group relative w-[10px] -mr-[5px] h-full cursor-col-resize z-dropdown select-none shrink-0 no-drag"
+                  title="拖拽调整侧边栏宽度"
+                >
+                  <div className="absolute inset-y-0 right-0 w-[4px] group-hover:bg-blue-500/40 transition-colors" />
+                </div>
+                <div
+                  className={`h-full shrink-0 flex items-center gap-1 pl-2 drag-region ${
+                    window.api.platform === 'win32' ? '' : 'pr-4'
+                  }`}
+                  style={{
+                    width: `${rightPaneWidth}px`,
+                    maxWidth: `calc(100% - ${!isLeftCollapsed ? `${leftPaneWidth}px - 10px` : '5px'} - ${WORKBENCH_MIN_EDITOR_WIDTH}px)`
+                  }}
+                >
+                  <div className="flex-1 min-w-[4px] h-full drag-region" />
+                  <div className={`flex items-center gap-1 shrink-0 no-drag ${window.api.platform === 'win32' ? 'mr-2' : ''}`}>
+                    <WorkbenchPaneToggles />
+                    {window.api.platform === 'darwin' && renderEntryButtons(rightPaneWidth < 360)}
+                  </div>
+                  {window.api.platform === 'win32' && windowsCaptionButtons}
+                </div>
+              </>
+            ) : (
+              <div
+                className={`h-full shrink-0 flex items-center gap-1 pl-1.5 drag-region ${
+                  window.api.platform === 'win32' ? '' : 'pr-4'
+                }`}
+              >
+                <div className={`flex items-center gap-1 shrink-0 no-drag ${window.api.platform === 'win32' ? 'mr-2' : ''}`}>
+                  <WorkbenchPaneToggles />
+                  {window.api.platform === 'darwin' && renderEntryButtons(!isWideWindow)}
+                </div>
+                {window.api.platform === 'win32' && windowsCaptionButtons}
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            <div className="relative z-10 flex items-center gap-3 select-none drag-region h-full">
+              {currentPage === 'settings' ? settingsBackButton : (
+                <>
+                  <div className="flex items-center gap-3 drag-region">
+                    {modeSwitcher}
+                  </div>
+                  {window.api.platform !== 'darwin' && renderEntryButtons(false)}
+                </>
+              )}
+            </div>
+
+            {/* 居中的窗口布局或总结模式控件 */}
+            <div className="relative z-10 flex justify-center drag-region h-full items-center">
+              {currentPage === 'main' && productMode !== 'debate' ? (
+                <div
+                  className="flex items-center p-[2px] gap-[2px] glass-panel shadow-soft rounded-full transition-opacity no-drag"
+                  title="切换窗口数量"
+                >
+                  {((productMode === 'task_assignment' ? ['two', 'three', 'four'] : ['one', 'two', 'three', 'four']) as DisplayMode[]).map(mode => {
+                    const isSessionActive = !isNewSession || textInserted
+                    let isDisabled = false
+                    if (isSessionActive && activeModels.length > 0) {
+                      const modeCount = mode === 'one' ? 1 : mode === 'two' ? 2 : mode === 'three' ? 3 : 4
+                      if (modeCount > activeModels.length) {
+                        isDisabled = true
+                      }
+                    }
                     return (
-                    <button
-                      key={item.key}
-                      type="button"
-                      title={item.title}
-                      onClick={() => void handleProductModeChange(item.key as ProductMode)}
-                      className={`px-2.5 py-1 rounded-md font-medium transition-all duration-200 ${
-                        productMode === item.key
-                          ? 'bg-white dark:bg-gray-800 text-primary shadow-xs'
-                          : 'text-text-secondary hover:text-text-primary hover:bg-white/30'
-                      }`}
-                    >
-                      {item.label}
-                    </button>
+                      <button
+                        key={mode}
+                        type="button"
+                        disabled={isDisabled}
+                        title={isDisabled ? `当前会话锁定了 ${activeModels.length} 个模型，无法增加窗口` : ''}
+                        onClick={() => {
+                          setDisplayMode(mode)
+                          resetPaneRatios()
+                        }}
+                        className={`w-8 h-[22px] flex flex-col items-center justify-center rounded-full transition-all duration-200 border ${displayMode === mode
+                            ? 'bg-blue-50/80 text-primary border-blue-200 shadow-sm'
+                            : isDisabled ? 'opacity-30 cursor-not-allowed border-transparent text-text-secondary' : 'border-transparent text-text-secondary hover:text-primary hover:bg-white/50'
+                          }`}
+                      >
+                        <div className={`w-[18px] h-2.5 border-[1.5px] border-current rounded-[2px] ${mode === 'four' ? 'grid grid-cols-2 grid-rows-2' : mode === 'two' ? 'flex' : mode === 'three' ? 'flex' : ''}`}>
+                          {mode === 'two' && <><div className="flex-1 border-r-[1.5px] border-current" /><div className="flex-1" /></>}
+                          {mode === 'three' && <><div className="flex-1 border-r-[1.5px] border-current" /><div className="flex-1 border-r-[1.5px] border-current" /><div className="flex-1" /></>}
+                          {mode === 'four' && <><div className="border-r-[1.5px] border-b-[1.5px] border-current" /><div className="border-b-[1.5px] border-current" /><div className="border-r-[1.5px] border-current" /><div /></>}
+                        </div>
+                      </button>
                     )
                   })}
                 </div>
-              </div>
-              {window.api.platform !== 'darwin' && entryButtons}
-            </>
-          )}
-        </div>
-
-        {/* 居中的窗口布局或总结模式控件 */}
-        <div className="relative z-10 flex justify-center drag-region h-full items-center">
-          {currentPage === 'main' && productMode === 'workbench' ? (
-            <WorkbenchTopBar />
-          ) : currentPage === 'main' && productMode !== 'debate' ? (
-            <div 
-              className="flex items-center p-[2px] gap-[2px] glass-panel shadow-soft rounded-full transition-opacity no-drag"
-              title="切换窗口数量"
-            >
-              {((productMode === 'task_assignment' ? ['two', 'three', 'four'] : ['one', 'two', 'three', 'four']) as DisplayMode[]).map(mode => {
-                const isSessionActive = !isNewSession || textInserted
-                let isDisabled = false
-                if (isSessionActive && activeModels.length > 0) {
-                  const modeCount = mode === 'one' ? 1 : mode === 'two' ? 2 : mode === 'three' ? 3 : 4
-                  if (modeCount > activeModels.length) {
-                    isDisabled = true
-                  }
-                }
-                return (
-                <button
-                  key={mode}
-                  type="button"
-                  disabled={isDisabled}
-                  title={isDisabled ? `当前会话锁定了 ${activeModels.length} 个模型，无法增加窗口` : ''}
-                  onClick={() => {
-                    setDisplayMode(mode)
-                    resetPaneRatios()
-                  }}
-                  className={`w-8 h-[22px] flex flex-col items-center justify-center rounded-full transition-all duration-200 border ${displayMode === mode
-                      ? 'bg-blue-50/80 text-primary border-blue-200 shadow-sm'
-                      : isDisabled ? 'opacity-30 cursor-not-allowed border-transparent text-text-secondary' : 'border-transparent text-text-secondary hover:text-primary hover:bg-white/50'
-                    }`}
-                >
-                  <div className={`w-[18px] h-2.5 border-[1.5px] border-current rounded-[2px] ${mode === 'four' ? 'grid grid-cols-2 grid-rows-2' : mode === 'two' ? 'flex' : mode === 'three' ? 'flex' : ''}`}>
-                    {mode === 'two' && <><div className="flex-1 border-r-[1.5px] border-current" /><div className="flex-1" /></>}
-                    {mode === 'three' && <><div className="flex-1 border-r-[1.5px] border-current" /><div className="flex-1 border-r-[1.5px] border-current" /><div className="flex-1" /></>}
-                    {mode === 'four' && <><div className="border-r-[1.5px] border-b-[1.5px] border-current" /><div className="border-b-[1.5px] border-current" /><div className="border-r-[1.5px] border-current" /><div /></>}
-                  </div>
-                </button>
-              )})}
+              ) : null}
             </div>
-          ) : null}
-        </div>
-        
-        {window.api.platform === 'win32' ? (
-          <div className="relative z-20 -mr-4 flex h-full min-w-[138px] items-center justify-end drag-region">
-            {currentPage === 'main' && productMode === 'workbench' && (
-              <div className="flex items-center gap-1 mr-2 no-drag">
-                <WorkbenchPaneToggles />
+
+            {window.api.platform === 'win32' ? (
+              <div className="relative z-20 -mr-4 flex h-full min-w-[138px] items-center justify-end drag-region">
+                {windowsCaptionButtons}
+              </div>
+            ) : (
+              <div className="relative z-10 min-w-[120px] drag-region h-full flex items-center justify-end gap-1">
+                {currentPage !== 'settings' && renderEntryButtons(false)}
               </div>
             )}
-            <div className="flex h-full items-stretch">
-              <button
-                type="button"
-                aria-label="最小化窗口"
-                title="最小化"
-                onClick={() => window.api.minimizeWindow()}
-                className="flex w-[46px] items-center justify-center text-[#202020] transition-colors duration-100 hover:bg-black/[0.05] active:bg-black/[0.08] dark:text-[#e5e5e5] dark:hover:bg-white/[0.06]"
-              >
-                <WindowsCaptionIcon name="minimize" />
-              </button>
-              <button
-                type="button"
-                aria-label={isWindowMaximized ? '还原窗口' : '最大化窗口'}
-                title={isWindowMaximized ? '还原' : '最大化'}
-                onClick={() => window.api.maximizeWindow()}
-                className="flex w-[46px] items-center justify-center text-[#202020] transition-colors duration-100 hover:bg-black/[0.05] active:bg-black/[0.08] dark:text-[#e5e5e5] dark:hover:bg-white/[0.06]"
-              >
-                <WindowsCaptionIcon name={isWindowMaximized ? 'restore' : 'maximize'} />
-              </button>
-              <button
-                type="button"
-                aria-label="关闭窗口"
-                title="关闭"
-                onClick={() => window.api.closeWindow()}
-                className="flex w-[46px] items-center justify-center text-[#202020] transition-colors duration-100 hover:bg-[#c42b1c] hover:text-white active:bg-[#a52a1e] dark:text-[#e5e5e5]"
-              >
-                <WindowsCaptionIcon name="close" />
-              </button>
-            </div>
-          </div>
-        ) : window.api.platform === 'darwin' ? (
-          <div className="relative z-10 min-w-[120px] drag-region h-full flex items-center justify-end gap-1">
-            {currentPage === 'main' && productMode === 'workbench' && <WorkbenchPaneToggles />}
-            {currentPage !== 'settings' && entryButtons}
-          </div>
-        ) : (
-          <div className="relative z-10 min-w-[120px] drag-region h-full flex items-center justify-end gap-1">
-            {currentPage === 'main' && productMode === 'workbench' && <WorkbenchPaneToggles />}
-            {currentPage !== 'settings' && entryButtons}
-          </div>
+          </>
         )}
       </div>
       <main className="flex-1 overflow-hidden">

@@ -35,8 +35,12 @@ export default function WorkbenchStatusPill(): JSX.Element {
   const conflictDiskContent = useWorkbenchStore((s) => s.conflictDiskContent)
   const resolveExternalConflict = useWorkbenchStore((s) => s.resolveExternalConflict)
   const htmlVisualEditing = useWorkbenchStore((s) => s.htmlVisualEditing)
+  const codePreviewEditable = useWorkbenchStore((s) => s.codePreviewEditable)
 
   const isCodeView = activeFileCategory === 'code' || activeFileCategory === 'text'
+  // 保存徽标只在可编辑的表面上有意义：只读预览态不显示。
+  // Markdown 编辑器全程可编辑；代码/文本走预览组件上报的可编辑态。
+  const showSaveBadge = activeFileCategory === 'markdown' || codePreviewEditable
   const [stats, setStats] = useState<{ words: number; chars: number; lines: number }>(() =>
     computeStats(activeFileContent, isCodeView)
   )
@@ -112,22 +116,26 @@ export default function WorkbenchStatusPill(): JSX.Element {
             {wordCount} 字 · {charCount} 字符
           </span>
         )}
-        <span className="h-3 w-px bg-black/10 dark:bg-white/10" />
-        {saveStatus === 'saving' ? (
-          <span className="flex items-center gap-1 text-amber-500">
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" />
-            <span>保存中</span>
-          </span>
-        ) : saveStatus === 'error' ? (
-          <span className="flex items-center gap-1 text-rose-500">
-            <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />
-            <span>保存失败</span>
-          </span>
-        ) : (
-          <span className="flex items-center gap-1">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500/80" />
-            <span>已保存</span>
-          </span>
+        {showSaveBadge && (
+          <>
+            <span className="h-3 w-px bg-black/10 dark:bg-white/10" />
+            {saveStatus === 'saving' ? (
+              <span className="flex items-center gap-1 text-amber-500">
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" />
+                <span>保存中</span>
+              </span>
+            ) : saveStatus === 'error' ? (
+              <span className="flex items-center gap-1 text-rose-500">
+                <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />
+                <span>保存失败</span>
+              </span>
+            ) : (
+              <span className="flex items-center gap-1">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500/80" />
+                <span>已保存</span>
+              </span>
+            )}
+          </>
         )}
       </div>
     </div>

@@ -20,7 +20,7 @@ import { CodeNode, CodeHighlightNode } from '@lexical/code'
 import { LinkNode, AutoLinkNode } from '@lexical/link'
 import { MarkNode } from '@lexical/mark'
 
-import { useWorkbenchStore } from '../../store/workbenchStore'
+import { isNewTabPath, useWorkbenchStore } from '../../store/workbenchStore'
 import WorkbenchToolbar from './WorkbenchToolbar'
 import WorkbenchSourceToolbar from './WorkbenchSourceToolbar'
 import { AppIcon } from '../icons/AppIcon'
@@ -242,6 +242,7 @@ interface WorkbenchEditorProps {
 
 function WorkbenchEditor({ isActive = true }: WorkbenchEditorProps): JSX.Element {
   const activeFilePath = useWorkbenchStore((s) => s.activeFilePath)
+  const activeTabPath = useWorkbenchStore((s) => s.activeTabPath)
   const activeFileCategory = useWorkbenchStore((s) => s.activeFileCategory)
   const activeFileDataUrl = useWorkbenchStore((s) => s.activeFileDataUrl)
   const activeFileSize = useWorkbenchStore((s) => s.activeFileSize)
@@ -253,11 +254,11 @@ function WorkbenchEditor({ isActive = true }: WorkbenchEditorProps): JSX.Element
   const markdownBackgroundTheme = useWorkbenchStore((s) => s.markdownBackgroundTheme)
   const isMarkdownDark = markdownBackgroundTheme === 'dark'
   const workspacePath = useWorkbenchStore((s) => s.workspacePath)
-  const createFile = useWorkbenchStore((s) => s.createFile)
+  const createUntitledNote = useWorkbenchStore((s) => s.createUntitledNote)
+  const setQuickOpenOpen = useWorkbenchStore((s) => s.setQuickOpenOpen)
   const openInSystem = useWorkbenchStore((s) => s.openInSystem)
   const saveActiveFile = useWorkbenchStore((s) => s.saveActiveFile)
-  const isLeftCollapsed = useWorkbenchStore((s) => s.isLeftCollapsed)
-  const toggleLeftCollapse = useWorkbenchStore((s) => s.toggleLeftCollapse)
+  const htmlRenderSurface = useWorkbenchStore((s) => s.htmlRenderSurface)
 
   const [floatingAnchorElem, setFloatingAnchorElem] = useState<HTMLDivElement | null>(null)
   const wysiwygScrollRef = useRef<HTMLDivElement | null>(null)
@@ -417,33 +418,54 @@ function WorkbenchEditor({ isActive = true }: WorkbenchEditorProps): JSX.Element
     []
   )
 
-  // 空状态引导
+  // 统一极简空白页：复用于“新标签页”与“未打开任何文档”两种空状态
   if (!activeFilePath) {
+    const isVirtualNewTab = isNewTabPath(activeTabPath)
+    const actions = [
+      {
+        key: 'new',
+        icon: 'note_add',
+        label: '新建笔记',
+        shortcut: 'Ctrl+N',
+        onClick: () => void createUntitledNote()
+      },
+      {
+        key: 'open',
+        icon: 'search',
+        label: '打开文件',
+        shortcut: 'Ctrl+O',
+        onClick: () => setQuickOpenOpen(true)
+      }
+    ]
     return (
-      <div className="relative flex-1 h-full flex flex-col items-center justify-center p-8 text-center bg-white/40 dark:bg-gray-800/40 select-none">
-        {isLeftCollapsed && (
-          <button
-            type="button"
-            onClick={toggleLeftCollapse}
-            className="absolute top-3 left-3 w-7 h-7 flex items-center justify-center rounded-full text-text-secondary hover:text-text-primary hover:bg-black/5 dark:hover:bg-white/10 transition-all duration-200"
-            title="展开侧边栏"
-            aria-label="展开侧边栏"
-          >
-            <AppIcon name="left_panel_open" size={20} />
-          </button>
-        )}
-        <div className="w-16 h-16 mb-4 rounded-2xl bg-blue-500/10 dark:bg-blue-400/10 flex items-center justify-center text-blue-500 dark:text-blue-400">
-          <AppIcon name="edit_note" size={24} />
+      <div className="relative flex-1 h-full flex flex-col items-center justify-center p-8 bg-white dark:bg-gray-900 select-none">
+        <div className="flex flex-col items-center w-[224px] gap-2">
+          <p className="text-body font-medium text-text-secondary/80 mb-2">
+            {isVirtualNewTab ? '新标签页' : '未打开任何文档'}
+          </p>
+          {actions.map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              onClick={item.onClick}
+              className="group w-full h-10 px-3.5 rounded-xl border border-gray-200/80 dark:border-white/10 bg-gray-50/60 dark:bg-gray-800/50 hover:bg-blue-50/50 dark:hover:bg-primary/10 hover:border-primary/35 text-body text-text-primary flex items-center justify-between transition-all duration-150"
+            >
+              <span className="flex items-center gap-2.5">
+                <AppIcon
+                  name={item.icon}
+                  size={16}
+                  className="text-text-secondary group-hover:text-primary transition-colors"
+                />
+                <span className="font-medium group-hover:text-primary transition-colors">
+                  {item.label}
+                </span>
+              </span>
+              <span className="text-caption text-text-secondary/50 group-hover:text-primary/70 transition-colors">
+                {item.shortcut}
+              </span>
+            </button>
+          ))}
         </div>
-        <h3 className="text-body-lg font-semibold text-text-primary mb-1">未打开任何文档</h3>
-        <button
-          type="button"
-          onClick={() => void createFile('', '未命名笔记.md')}
-          className="h-9 mt-4 px-4 rounded-lg bg-primary text-white hover:opacity-90 text-body font-medium flex items-center gap-1.5 shadow-sm transition-all"
-        >
-          <AppIcon name="note_add" size={16} />
-          <span>新建笔记</span>
-        </button>
       </div>
     )
   }
@@ -452,8 +474,8 @@ function WorkbenchEditor({ isActive = true }: WorkbenchEditorProps): JSX.Element
   if (activeFileCategory === 'code') {
     return (
       <div
-        className="relative flex-1 h-full flex flex-col overflow-hidden dark"
-        data-reader-theme="dark"
+        className={`relative flex-1 h-full flex flex-col overflow-hidden ${htmlRenderSurface ? '' : 'dark'}`}
+        data-reader-theme={htmlRenderSurface ? undefined : 'dark'}
       >
         <WorkbenchCodePreview key={activeFilePath} isActive={isActive} />
         <WorkbenchStatusPill />

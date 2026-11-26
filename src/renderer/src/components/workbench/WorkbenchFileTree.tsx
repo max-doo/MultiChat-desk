@@ -1,4 +1,5 @@
-import { memo, useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import { memo, useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import { useWorkbenchStore } from '../../store/workbenchStore'
 import { getFileCategory, MARKDOWN_EXTENSIONS, type WorkbenchFileNode } from '../../../../shared/types/workbench'
 import {
@@ -18,9 +19,39 @@ import Modal from '../ui/Modal'
 import { Button } from '../ui/FormControls'
 import { requestUploadNodesToAi } from './workbenchAiEvents'
 
+/**
+ * 基于已加载文件树判断 Markdown 文档是否存在托管附件（`<同级>/assets/<文档名>/` 下至少有 1 个文件）。
+ * 零 I/O 且同步返回，避免右键菜单异步跳动；若用户主动在 `.gitignore` 中忽略了 `assets/`，仍可通过工作区设置批量扫描兜底。
+ */
+function hasManagedDocumentAssets(tree: WorkbenchFileNode[], node: WorkbenchFileNode): boolean {
+  if (node.isDirectory) return false
+  const ext = `.${node.name.split('.').pop()?.toLowerCase() ?? ''}`
+  if (!MARKDOWN_EXTENSIONS.has(ext)) return false
+  if (node.path.split('/').includes('assets')) return false
+
+  const slashIdx = node.path.lastIndexOf('/')
+  let siblings = tree
+  if (slashIdx !== -1) {
+    const dirSegments = node.path.slice(0, slashIdx).split('/')
+    for (const segment of dirSegments) {
+      const dirNode = siblings.find((item) => item.isDirectory && item.name === segment)
+      if (!dirNode?.children) return false
+      siblings = dirNode.children
+    }
+  }
+
+  const assetsDir = siblings.find((item) => item.isDirectory && item.name === 'assets')
+  const docAssetsDir = assetsDir?.children?.find(
+    (item) => item.isDirectory && item.name === node.name
+  )
+  return Boolean(docAssetsDir?.children?.some((item) => !item.isDirectory))
+}
+
 /** 新建节点输入框默认占位名，提交时若用户未修改则使用 */
 const DEFAULT_FILE_NAME = '未命名笔记.md'
 const DEFAULT_FOLDER_NAME = '新建文件夹'
+/** 左侧栏窄于该宽度时底栏切换为紧凑模式（隐藏 Git 分支名并收紧留白），确保工作区名称可读 */
+const COMPACT_FOOTER_WIDTH_THRESHOLD = 320
 
 function resolveMultichatFolderVisual(
   nodePath: string
@@ -341,6 +372,7 @@ interface FileTreeRowProps {
   isDropTarget: boolean
   gitBadge: GitBadge | null
   onNodeClick: (e: React.MouseEvent, node: WorkbenchFileNode) => void
+  onNodeDoubleClick: (node: WorkbenchFileNode) => void
   onContextMenu: (e: React.MouseEvent, node: WorkbenchFileNode) => void
   onDragStart: (e: React.DragEvent, node: WorkbenchFileNode) => void
   onDragEnd: () => void
@@ -364,6 +396,7 @@ const FileTreeRow = memo(function FileTreeRow({
   isDropTarget,
   gitBadge,
   onNodeClick,
+  onNodeDoubleClick,
   onContextMenu,
   onDragStart,
   onDragEnd,
@@ -474,6 +507,11 @@ const FileTreeRow = memo(function FileTreeRow({
         if (isRenaming) return
         onNodeClick(e, node)
       }}
+      onDoubleClick={(e) => {
+        if (isRenaming) return
+        e.stopPropagation()
+        onNodeDoubleClick(node)
+      }}
       style={{ paddingLeft: `${level * 14 + 24}px` }}
       className={`flex items-center gap-1.5 py-1 px-2 rounded-md cursor-pointer text-body transition-colors group select-none ${
         isActive
@@ -521,12 +559,13 @@ function WorkbenchFileTree(): JSX.Element {
   const expandedFolderIds = useWorkbenchStore((s) => s.expandedFolderIds)
   const isLoadingTree = useWorkbenchStore((s) => s.isLoadingTree)
   const activeFilePath = useWorkbenchStore((s) => s.activeFilePath)
+  const leftPaneWidth = useWorkbenchStore((s) => s.leftPaneWidth)
+  const isCompactFooter = leftPaneWidth < COMPACT_FOOTER_WIDTH_THRESHOLD
   const gitChanges = useWorkbenchStore((s) => (s.gitStatus?.isRepository ? s.gitStatus.changes : null))
 
   const loadFileTree = useWorkbenchStore((s) => s.loadFileTree)
   const toggleFolder = useWorkbenchStore((s) => s.toggleFolder)
   const collapseAllFolders = useWorkbenchStore((s) => s.collapseAllFolders)
-  const toggleLeftCollapse = useWorkbenchStore((s) => s.toggleLeftCollapse)
   const openFile = useWorkbenchStore((s) => s.openFile)
   const createFile = useWorkbenchStore((s) => s.createFile)
   const createFolder = useWorkbenchStore((s) => s.createFolder)
@@ -557,6 +596,8 @@ function WorkbenchFileTree(): JSX.Element {
   const [treeClipboard, setTreeClipboard] = useState<TreeClipboard | null>(null)
   const [isVaultMenuOpen, setIsVaultMenuOpen] = useState(false)
   const [isMoveMenuOpen, setIsMoveMenuOpen] = useState(false)
+  const [menuPos, setMenuPos] = useState<{ left: number; top: number; maxHeight?: number } | null>(null)
+  const [moveMenuPos, setMoveMenuPos] = useState<{ left: number; top: number; maxHeight: number } | null>(null)
 
   const [isWorkspaceSettingsOpen, setIsWorkspaceSettingsOpen] = useState(false)
   const [isSortMenuOpen, setIsSortMenuOpen] = useState(false)
@@ -569,6 +610,8 @@ function WorkbenchFileTree(): JSX.Element {
   const isRenamingBusyRef = useRef(false)
   const isCreatingRef = useRef(false)
   const menuRef = useRef<HTMLDivElement | null>(null)
+  const moveTriggerRef = useRef<HTMLDivElement | null>(null)
+  const moveMenuRef = useRef<HTMLDivElement | null>(null)
   const workspaceButtonRef = useRef<HTMLButtonElement | null>(null)
   const settingsButtonRef = useRef<HTMLButtonElement | null>(null)
   const sortMenuRef = useRef<HTMLDivElement | null>(null)
@@ -639,6 +682,54 @@ function WorkbenchFileTree(): JSX.Element {
       return { ...prev, paths }
     })
   }, [fileTree])
+
+  // 右键菜单定位：绘制前按真实尺寸裁剪到窗口安全边距内，靠底部时优先向上展开
+  useLayoutEffect(() => {
+    if (!contextMenu || !menuRef.current) {
+      setMenuPos(null)
+      return
+    }
+    const EDGE = 8
+    const rect = menuRef.current.getBoundingClientRect()
+    const maxH = Math.max(120, window.innerHeight - EDGE * 2)
+    const effectiveHeight = Math.min(rect.height, maxH)
+    const left = Math.max(EDGE, Math.min(contextMenu.x, window.innerWidth - rect.width - EDGE))
+    let top = contextMenu.y
+    if (top + effectiveHeight + EDGE > window.innerHeight) {
+      const flippedTop = contextMenu.y - effectiveHeight
+      top =
+        flippedTop >= EDGE
+          ? flippedTop
+          : Math.max(EDGE, window.innerHeight - effectiveHeight - EDGE)
+    }
+    setMenuPos({
+      left,
+      top,
+      maxHeight: rect.height > maxH ? maxH : undefined
+    })
+  }, [contextMenu])
+
+  // "移动到其他工作区"子菜单定位：同样按真实尺寸贴合触发项并防溢出视口
+  useLayoutEffect(() => {
+    if (!contextMenu || !isMoveMenuOpen || !moveTriggerRef.current || !moveMenuRef.current) {
+      setMoveMenuPos(null)
+      return
+    }
+    const EDGE = 8
+    const triggerRect = moveTriggerRef.current.getBoundingClientRect()
+    const subRect = moveMenuRef.current.getBoundingClientRect()
+    const maxHeight = Math.min(280, Math.max(120, window.innerHeight - EDGE * 2))
+    const effectiveHeight = Math.min(subRect.height, maxHeight)
+    const left =
+      triggerRect.right + subRect.width + EDGE <= window.innerWidth
+        ? triggerRect.right
+        : Math.max(EDGE, triggerRect.left - subRect.width)
+    const top = Math.max(
+      EDGE,
+      Math.min(triggerRect.top - 4, window.innerHeight - effectiveHeight - EDGE)
+    )
+    setMoveMenuPos({ left, top, maxHeight })
+  }, [contextMenu, isMoveMenuOpen, menuPos])
 
   // 关闭上下文菜单
   useEffect(() => {
@@ -820,10 +911,19 @@ function WorkbenchFileTree(): JSX.Element {
       if (node.isDirectory) {
         if (!isCtrl && !isShift) toggleFolder(node.id)
       } else {
-        if (!isCtrl && !isShift) void openFile(node.path)
+        if (!isCtrl && !isShift) void openFile(node.path, { preview: true })
       }
     },
     [toggleFolder, openFile]
+  )
+
+  const handleNodeDoubleClick = useCallback(
+    (node: WorkbenchFileNode) => {
+      if (!node.isDirectory) {
+        void openFile(node.path, { forcePermanent: true })
+      }
+    },
+    [openFile]
   )
 
   /** 展开 set 中的祖先目录，保证选中项/新建输入框可见 */
@@ -1205,10 +1305,10 @@ function WorkbenchFileTree(): JSX.Element {
       setSelectedPaths(new Set([node.path]))
       setAnchorPath(node.path)
     }
-    const x = Math.min(e.clientX, window.innerWidth - 180)
-    const y = Math.min(e.clientY, window.innerHeight - 200)
     setIsMoveMenuOpen(false)
-    setContextMenu({ x, y, node })
+    setMenuPos(null)
+    setMoveMenuPos(null)
+    setContextMenu({ x: e.clientX, y: e.clientY, node })
   }, [])
 
   const getUploadNodes = useCallback((): WorkbenchFileNode[] => {
@@ -1474,19 +1574,6 @@ function WorkbenchFileTree(): JSX.Element {
             <AppIcon name="refresh" size={20} className={`${isRefreshing || isLoadingTree ? 'animate-spin' : ''}`} />
           </button>
         </div>
-
-        {/* 折叠侧边栏开关 */}
-        <div className="flex items-center gap-0.5 text-text-secondary">
-          <button
-            type="button"
-            onClick={toggleLeftCollapse}
-            className="w-7 h-7 flex items-center justify-center rounded-full text-text-secondary hover:text-text-primary hover:bg-black/5 dark:hover:bg-white/10 transition-all duration-200"
-            title="收起侧边栏"
-            aria-label="收起侧边栏"
-          >
-            <AppIcon name="left_panel_close" size={20} />
-          </button>
-        </div>
       </div>
 
       {/* 搜索视图或树状文件列表 */}
@@ -1553,6 +1640,7 @@ function WorkbenchFileTree(): JSX.Element {
                   isDropTarget={node.isDirectory && dropTargetDir === node.path}
                   gitBadge={gitBadge}
                   onNodeClick={handleNodeClick}
+                  onNodeDoubleClick={handleNodeDoubleClick}
                   onContextMenu={handleContextMenu}
                   onDragStart={handleDragStart}
                   onDragEnd={handleDragEnd}
@@ -1572,7 +1660,7 @@ function WorkbenchFileTree(): JSX.Element {
 
       {/* 底部：工作区切换、版本管理、工作区设置 */}
       <div className="relative shrink-0 border-t border-black/5 dark:border-white/5">
-        <div className="flex h-10 items-center">
+        <div className={`flex h-10 items-center ${isCompactFooter ? 'gap-1 px-1.5' : 'gap-1.5 px-2'}`}>
           <button
             ref={workspaceButtonRef}
             type="button"
@@ -1580,26 +1668,40 @@ function WorkbenchFileTree(): JSX.Element {
               setIsWorkspaceSettingsOpen(false)
               setIsVaultMenuOpen((v) => !v)
             }}
-            className="flex h-10 min-w-0 flex-1 items-center gap-1.5 px-3 text-body font-medium text-text-primary transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+            className={`flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-lg text-body font-medium text-text-primary transition-colors ${
+              isCompactFooter ? 'px-1.5' : 'px-2'
+            } ${
+              isVaultMenuOpen ? 'bg-black/5 dark:bg-white/10' : 'hover:bg-black/5 dark:hover:bg-white/5'
+            }`}
             title={workspacePath || ''}
           >
             <AppIcon name="folder_open" size={19} className="shrink-0 text-amber-500" />
-            <span className="min-w-0 flex-1 truncate text-left">{workspaceName || '未选工作区'}</span>
-            <AppIcon name="unfold_more" size={19} className="shrink-0 text-text-secondary" />
+            <span className="min-w-0 truncate text-left">{workspaceName || '未选工作区'}</span>
+            <AppIcon name="unfold_more" size={16} className="shrink-0 text-text-secondary/70" />
           </button>
-          <WorkbenchGitPanel onOpenWorkspaceSettings={() => setIsWorkspaceSettingsOpen(true)} />
-          <button
-            ref={settingsButtonRef}
-            type="button"
-            onClick={() => {
-              setIsVaultMenuOpen(false)
-              setIsWorkspaceSettingsOpen((v) => !v)
-            }}
-            className="flex h-10 w-8 shrink-0 items-center justify-center text-text-secondary transition-colors hover:bg-black/5 hover:text-text-primary dark:hover:bg-white/5"
-            title="工作区设置"
-          >
-            <AppIcon name="settings" size={19} />
-          </button>
+          <div className="h-4 w-px shrink-0 bg-black/10 dark:bg-white/10" aria-hidden="true" />
+          <div className={`flex shrink-0 items-center ${isCompactFooter ? 'gap-1.5' : 'gap-2.5'}`}>
+            <WorkbenchGitPanel
+              compact={isCompactFooter}
+              onOpenWorkspaceSettings={() => setIsWorkspaceSettingsOpen(true)}
+            />
+            <button
+              ref={settingsButtonRef}
+              type="button"
+              onClick={() => {
+                setIsVaultMenuOpen(false)
+                setIsWorkspaceSettingsOpen((v) => !v)
+              }}
+              className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors ${
+                isWorkspaceSettingsOpen
+                  ? 'bg-black/5 text-text-primary dark:bg-white/10'
+                  : 'text-text-secondary hover:bg-black/5 hover:text-text-primary dark:hover:bg-white/5'
+              }`}
+              title="工作区设置"
+            >
+              <AppIcon name="settings_2" size={16} />
+            </button>
+          </div>
         </div>
 
         {isVaultMenuOpen && (
@@ -1611,11 +1713,15 @@ function WorkbenchFileTree(): JSX.Element {
       </div>
 
       {/* 右键上下文菜单 */}
-      {contextMenu && (
+      {contextMenu && createPortal(
         <div
           ref={menuRef}
           className="fixed z-popover min-w-[170px] py-1 liquid-glass-menu rounded-xl text-body"
-          style={{ left: contextMenu.x, top: contextMenu.y }}
+          style={{
+            left: menuPos?.left ?? contextMenu.x,
+            top: menuPos?.top ?? contextMenu.y,
+            ...(menuPos?.maxHeight ? { maxHeight: menuPos.maxHeight, overflowY: 'auto' } : {})
+          }}
         >
           {contextMenu.node && (
             <button
@@ -1723,14 +1829,23 @@ function WorkbenchFileTree(): JSX.Element {
               onClick={() => {
                 const node = contextMenu.node!
                 const root = (workspacePath ?? '').replace(/\\/g, '/').replace(/\/+$/, '')
-                const absolutePath = root ? `${root}/${node.path}` : node.path
-                void navigator.clipboard.writeText(absolutePath)
+                // 多选时复制整组路径，与 Windows 资源管理器一致：每个路径独立一行
+                const multi = selectedPaths.size > 1 && selectedPaths.has(node.path)
+                const relativePaths = multi ? Array.from(selectedPaths) : [node.path]
+                const text = relativePaths
+                  .map((p) => (root ? `${root}/${p}` : p))
+                  .join('\n')
+                void navigator.clipboard.writeText(text)
                 setContextMenu(null)
               }}
               className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-text-primary hover:bg-black/5 dark:hover:bg-white/5"
             >
               <AppIcon name="link" size={19} />
-              <span>复制文件路径</span>
+              <span>
+                {selectedPaths.size > 1 && contextMenu.node && selectedPaths.has(contextMenu.node.path)
+                  ? `复制 ${selectedPaths.size} 项路径`
+                  : '复制文件路径'}
+              </span>
             </button>
           )}
           {(contextMenu.node || treeClipboard) && (
@@ -1753,6 +1868,7 @@ function WorkbenchFileTree(): JSX.Element {
               </button>
               {!contextMenu.node.isDirectory && moveTargets.length > 0 && (
                 <div
+                  ref={moveTriggerRef}
                   className="relative"
                   onMouseEnter={() => setIsMoveMenuOpen(true)}
                   onMouseLeave={() => setIsMoveMenuOpen(false)}
@@ -1768,10 +1884,14 @@ function WorkbenchFileTree(): JSX.Element {
                   </button>
                   {isMoveMenuOpen && (
                     <div
+                      ref={moveMenuRef}
                       onMouseEnter={() => setIsMoveMenuOpen(true)}
-                      className={`absolute top-0 -mt-1 max-h-[280px] min-w-[190px] max-w-[240px] overflow-y-auto liquid-glass-menu rounded-xl py-1 text-body ${
-                        contextMenu.x + 170 + 200 > window.innerWidth ? 'right-full mr-0.5' : 'left-full ml-0.5'
-                      }`}
+                      style={{
+                        left: moveMenuPos?.left ?? contextMenu.x,
+                        top: moveMenuPos?.top ?? contextMenu.y,
+                        maxHeight: moveMenuPos?.maxHeight ?? 280
+                      }}
+                      className="fixed z-popover min-w-[190px] max-w-[240px] overflow-y-auto liquid-glass-menu rounded-xl py-1 text-body"
                     >
                       {moveTargets.map((target) => (
                         <button
@@ -1826,8 +1946,8 @@ function WorkbenchFileTree(): JSX.Element {
                   <span>使用系统默认程序打开</span>
                 </button>
               )}
-              {/* Markdown 文档：清理未引用图片 */}
-              {contextMenu.node && !contextMenu.node.isDirectory && MARKDOWN_EXTENSIONS.has(`.${contextMenu.node.name.split('.').pop()?.toLowerCase() ?? ''}`) && (
+              {/* Markdown 文档：仅当存在托管附件文件时显示“清理未引用图片” */}
+              {contextMenu.node && hasManagedDocumentAssets(fileTree, contextMenu.node) && (
                 <button
                   type="button"
                   disabled={isCleaningImages}
@@ -1902,7 +2022,8 @@ function WorkbenchFileTree(): JSX.Element {
               </button>
             </>
           )}
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* 删除 / 清理未引用图片 弹窗（重命名已改为 VSCode 式内联交互，不再弹窗） */}

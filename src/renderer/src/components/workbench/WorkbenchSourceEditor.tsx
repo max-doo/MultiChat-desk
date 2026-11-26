@@ -101,6 +101,11 @@ function buildEditorTheme(isDark: boolean): Extension {
       minWidth: '3.5rem',
       textAlign: 'right'
     },
+    '.cm-gitGutter': {
+      // 固定列宽 + 空占位 marker，保证无 marker 时该列不塌缩，.cm-gutters 整体宽度恒定
+      width: '8px',
+      flexShrink: '0'
+    },
     '.cm-gitGutter .cm-gutterElement': {
       display: 'flex',
       alignItems: 'stretch',
@@ -155,6 +160,14 @@ const MODIFIED_MARKER = new GitGutterMarker('modified', false)
 const MODIFIED_DELETED_MARKER = new GitGutterMarker('modified', true)
 const DELETED_MARKER = new GitGutterMarker('deleted', false)
 
+// 空占位 marker：保证无 git 变化的行也渲染 gutterElement，防止 git gutter 列塌缩
+class EmptyGitGutterMarker extends GutterMarker {
+  override eq(other: GutterMarker): boolean {
+    return other instanceof EmptyGitGutterMarker
+  }
+}
+const EMPTY_MARKER = new EmptyGitGutterMarker()
+
 const SOURCE_SYNC_DEBOUNCE_MS = 250
 
 function buildGitGutterExtension(
@@ -170,7 +183,8 @@ function buildGitGutterExtension(
       if (mark === 'added') return del ? ADDED_DELETED_MARKER : ADDED_MARKER
       if (mark === 'modified') return del ? MODIFIED_DELETED_MARKER : MODIFIED_MARKER
       if (del) return DELETED_MARKER
-      return null
+      // 返回空占位 marker 而不是 null：保证该行 gutterElement 一定被创建，列宽恒定
+      return EMPTY_MARKER
     },
     // 仅在文档内容变更或 Compartment.reconfigure 刷新 diff 时重算 gutter marker，避免光标移动重建 DOM
     lineMarkerChange(update) {
@@ -278,7 +292,11 @@ const WorkbenchSourceEditor = forwardRef<
       state: EditorState.create({
         doc: valueRef.current,
         extensions: [
-          lineNumbers(),
+          // formatNumber 固定补齐 5 位宽（不换行空格），行号 gutter 宽度恒定，
+          // 避免滚动/编辑时因 spacer 重测导致的宽度抖动；超过 99999 行才会扩一次
+          lineNumbers({
+            formatNumber: (n) => String(n).padStart(5, ' ')
+          }),
           gitGutterCompartment.of(gitGutter),
           highlightActiveLineGutter(),
           highlightActiveLine(),

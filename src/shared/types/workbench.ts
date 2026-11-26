@@ -39,6 +39,24 @@ export interface WorkspaceTagInfo {
   count: number           // 引用频次
 }
 
+/** 单个文档的未引用图片汇总 */
+export interface UnreferencedImageGroup {
+  documentPath: string      // 文档相对工作区根的 POSIX 路径
+  documentName: string      // 文档文件名
+  unreferenced: string[]    // 未引用图片相对工作区根的 POSIX 路径列表
+  totalAssets: number       // 该文档附件目录下的文件总数
+  totalBytes: number        // 未引用图片总字节数
+}
+
+/** 全工作区未引用图片扫描结果 */
+export interface WorkspaceUnreferencedImagesSummary {
+  scannedDocuments: number  // 含附件目录并参与扫描的文档数
+  totalAssets: number       // 附件目录内总文件数
+  totalUnreferenced: number // 未引用图片总数
+  totalBytes: number        // 可释放空间（字节）
+  groups: UnreferencedImageGroup[]
+}
+
 /** 工作区版本管理（Git）状态；主进程解析 porcelain v2 后提供给界面 */
 export interface GitFileChange {
   path: string

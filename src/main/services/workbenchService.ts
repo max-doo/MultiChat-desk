@@ -32,6 +32,8 @@ import {
   type WorkbenchSelectFolderResult,
   type WorkbenchNodeType,
   type WorkspaceTagInfo,
+  type UnreferencedImageGroup,
+  type WorkspaceUnreferencedImagesSummary,
   DOCX_PREVIEW_MAX_BYTES,
   getFileCategory,
   MARKDOWN_EXTENSIONS,
@@ -1512,6 +1514,58 @@ async function syncAssetsOnRename(
   return movedAssets
 }
 
+async function scanDocumentUnreferencedImages(
+  normalizedRoot: string,
+  safeDocPath: string,
+  includeBytes: boolean,
+  withScanSlot?: <T>(task: () => Promise<T>) => Promise<T>
+): Promise<{ unreferenced: string[]; total: number; totalBytes: number }> {
+  const runIO = withScanSlot ?? (<T>(task: () => Promise<T>): Promise<T> => task())
+  const docDir = path.dirname(safeDocPath)
+  const docBaseName = path.basename(safeDocPath)
+  const assetsDir = path.join(docDir, ASSETS_DIR_NAME, docBaseName)
+
+  let assetFiles: string[] = []
+  try {
+    const entries = await runIO(() => readdir(assetsDir, { withFileTypes: true }))
+    assetFiles = entries.filter((e) => e.isFile()).map((e) => e.name)
+  } catch {
+    return { unreferenced: [], total: 0, totalBytes: 0 } // 无 assets 目录
+  }
+  if (!assetFiles.length) return { unreferenced: [], total: 0, totalBytes: 0 }
+
+  let content = ''
+  try {
+    content = await runIO(() => fsReadFile(safeDocPath, 'utf-8'))
+  } catch {
+    return { unreferenced: [], total: assetFiles.length, totalBytes: 0 } // 文档读不出，保守认为全未引用
+  }
+
+  const prefix = `assets/${docBaseName}/`
+  const prefixEncoded = `assets/${encodeURIComponent(docBaseName)}/`
+  const unreferenced: string[] = []
+  let totalBytes = 0
+
+  for (const name of assetFiles) {
+    // 宽松匹配：文档名或图片名可能带 URL 编码
+    const encodedName = encodeURIComponent(name)
+    const referenced =
+      content.includes(prefix + name) ||
+      content.includes(prefix + encodedName) ||
+      content.includes(prefixEncoded + name) ||
+      content.includes(prefixEncoded + encodedName)
+    if (!referenced) {
+      const fullAssetPath = path.join(assetsDir, name)
+      unreferenced.push(toPosixRelativePath(normalizedRoot, fullAssetPath))
+      if (includeBytes) {
+        const assetStat = await runIO(() => stat(fullAssetPath)).catch(() => null)
+        if (assetStat?.isFile()) totalBytes += assetStat.size
+      }
+    }
+  }
+  return { unreferenced, total: assetFiles.length, totalBytes }
+}
+
 /**
  * 列出文档 assets/<文档名>/ 目录中未被 markdown 内容引用的文件
  * 返回相对工作区根的 POSIX 路径列表，供渲染层确认后批量 trash
@@ -1521,37 +1575,151 @@ export async function findUnreferencedImages(
   documentRelativePath: string
 ): Promise<{ unreferenced: string[]; total: number }> {
   const safeDocPath = await assertSafePath(workspaceRoot, documentRelativePath)
-  const docDir = path.dirname(safeDocPath)
-  const docBaseName = path.basename(safeDocPath)
-  const assetsDir = path.join(docDir, ASSETS_DIR_NAME, docBaseName)
+  const result = await scanDocumentUnreferencedImages(path.resolve(workspaceRoot), safeDocPath, false)
+  return { unreferenced: result.unreferenced, total: result.total }
+}
 
-  let assetFiles: string[] = []
-  try {
-    const entries = await readdir(assetsDir, { withFileTypes: true })
-    assetFiles = entries.filter((e) => e.isFile()).map((e) => e.name)
-  } catch {
-    return { unreferenced: [], total: 0 } // 无 assets 目录
+/**
+ * 扫描整个工作区中所有 Markdown 文档的 assets/<文档名>/ 目录，汇总未引用的图片
+ */
+export async function findWorkspaceUnreferencedImages(
+  workspaceRoot: string
+): Promise<WorkspaceUnreferencedImagesSummary> {
+  const safeRoot = await assertSafePath(workspaceRoot, '')
+  const isFiltered = await createWorkspaceFilter(safeRoot)
+  const rootCmp = process.platform === 'win32' ? safeRoot.toLowerCase() : safeRoot
+  const rootPrefix = rootCmp.endsWith(path.sep) ? rootCmp : rootCmp + path.sep
+  const withScanSlot = createScanLimiter(24)
+
+  async function resolveSymlink(fullPath: string): Promise<string | null> {
+    const real = await realpath(fullPath).catch(() => null)
+    if (!real) return null
+    const cmp = process.platform === 'win32' ? real.toLowerCase() : real
+    if (cmp !== rootCmp && !cmp.startsWith(rootPrefix)) return null
+    return real
   }
-  if (!assetFiles.length) return { unreferenced: [], total: 0 }
 
-  let content = ''
-  try {
-    content = await fsReadFile(safeDocPath, 'utf-8')
-  } catch {
-    return { unreferenced: [], total: assetFiles.length } // 文档读不出，保守认为全未引用
-  }
+  let scannedDocuments = 0
+  let totalAssets = 0
+  let totalUnreferenced = 0
+  let totalBytes = 0
+  const groups: UnreferencedImageGroup[] = []
 
-  const prefix = `assets/${docBaseName}/`
-  const unreferenced: string[] = []
-  for (const name of assetFiles) {
-    // 宽松匹配：文件名可能带 URL 编码或转义
-    const needle = prefix + name
-    const needleEncoded = prefix + encodeURIComponent(name)
-    if (!content.includes(needle) && !content.includes(needleEncoded)) {
-      unreferenced.push(toPosixRelativePath(path.resolve(workspaceRoot), path.join(assetsDir, name)))
+  async function walkDirectory(
+    currentDir: string,
+    ancestors: ReadonlySet<string>
+  ): Promise<void> {
+    const entries = await withScanSlot(() => readdir(currentDir, { withFileTypes: true })).catch(() => null)
+    if (!entries) return
+
+    // 1. 仅当当前目录存在 assets/ 子目录时，才检查同级 Markdown 文档的附件引用
+    const assetsEntry = entries.find((e) => e.name === ASSETS_DIR_NAME)
+    if (assetsEntry) {
+      const rawAssetsPath = path.join(currentDir, ASSETS_DIR_NAME)
+      const resolvedAssetsPath = assetsEntry.isSymbolicLink()
+        ? await resolveSymlink(rawAssetsPath)
+        : rawAssetsPath
+      if (resolvedAssetsPath) {
+        const assetsStat = await withScanSlot(() => stat(resolvedAssetsPath)).catch(() => null)
+        if (assetsStat?.isDirectory()) {
+          const assetsSubEntries = await withScanSlot(() =>
+            readdir(resolvedAssetsPath, { withFileTypes: true })
+          ).catch(() => null)
+          if (assetsSubEntries?.length) {
+            const assetDocDirNames = new Set(
+              assetsSubEntries.filter((e) => e.isDirectory()).map((e) => e.name)
+            )
+            const mdCandidates = entries.filter(
+              (e) =>
+                !e.isDirectory() &&
+                MARKDOWN_EXTENSIONS.has(path.extname(e.name).toLowerCase()) &&
+                assetDocDirNames.has(e.name)
+            )
+            await Promise.all(
+              mdCandidates.map(async (mdEntry) => {
+                const fullDocPath = path.join(currentDir, mdEntry.name)
+                const relDocPosix = toPosixRelativePath(safeRoot, fullDocPath)
+                if (isFiltered(relDocPosix, mdEntry.name, false)) return
+                const resolvedDocPath = mdEntry.isSymbolicLink()
+                  ? await resolveSymlink(fullDocPath)
+                  : fullDocPath
+                if (!resolvedDocPath) return
+                const docStat = await withScanSlot(() => stat(resolvedDocPath)).catch(() => null)
+                if (!docStat?.isFile()) return
+
+                const res = await scanDocumentUnreferencedImages(
+                  safeRoot,
+                  resolvedDocPath,
+                  true,
+                  withScanSlot
+                )
+                if (res.total > 0) {
+                  scannedDocuments += 1
+                  totalAssets += res.total
+                }
+                if (res.unreferenced.length > 0) {
+                  totalUnreferenced += res.unreferenced.length
+                  totalBytes += res.totalBytes
+                  groups.push({
+                    documentPath: toPosixRelativePath(safeRoot, resolvedDocPath),
+                    documentName: mdEntry.name,
+                    unreferenced: res.unreferenced,
+                    totalAssets: res.total,
+                    totalBytes: res.totalBytes
+                  })
+                }
+              })
+            )
+          }
+        }
+      }
     }
+
+    // 2. 递归遍历子目录（跳过 assets/ 与被忽略目录）
+    await Promise.all(
+      entries.map(async (entry) => {
+        if (entry.name === ASSETS_DIR_NAME) return
+        if (!entry.isDirectory() && !entry.isSymbolicLink()) return
+        const fullEntryPath = path.join(currentDir, entry.name)
+        const relPosix = toPosixRelativePath(safeRoot, fullEntryPath)
+        if (isFiltered(relPosix, entry.name, entry.isDirectory())) return
+
+        const entryPath = entry.isSymbolicLink()
+          ? await resolveSymlink(fullEntryPath)
+          : fullEntryPath
+        if (!entryPath) return
+        const entryStat = await withScanSlot(() => stat(entryPath)).catch(() => null)
+        if (!entryStat?.isDirectory()) return
+
+        const resolvedRelPosix = toPosixRelativePath(safeRoot, entryPath)
+        if (entry.isSymbolicLink() && isFiltered(resolvedRelPosix, entry.name, true)) return
+
+        const dirKey = process.platform === 'win32' ? entryPath.toLowerCase() : entryPath
+        if (entry.isSymbolicLink() && ancestors.has(dirKey)) return
+        const nextAncestors = new Set(ancestors)
+        nextAncestors.add(dirKey)
+        await walkDirectory(entryPath, nextAncestors)
+      })
+    )
   }
-  return { unreferenced, total: assetFiles.length }
+
+  const rootKey = process.platform === 'win32' ? safeRoot.toLowerCase() : safeRoot
+  await walkDirectory(safeRoot, new Set([rootKey]))
+
+  groups.sort(
+    (a, b) =>
+      b.unreferenced.length - a.unreferenced.length ||
+      b.totalBytes - a.totalBytes ||
+      NAME_COLLATOR.compare(a.documentPath, b.documentPath)
+  )
+
+  return {
+    scannedDocuments,
+    totalAssets,
+    totalUnreferenced,
+    totalBytes,
+    groups
+  }
 }
 
 /**

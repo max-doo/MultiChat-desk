@@ -58,6 +58,7 @@ import {
   importImageFile as workbenchImportImageFile,
   copyNodesToClipboard as workbenchCopyNodesToClipboard,
   findUnreferencedImages as workbenchFindUnreferencedImages,
+  findWorkspaceUnreferencedImages as workbenchFindWorkspaceUnreferencedImages,
   deleteNodes as workbenchDeleteNodes,
   importExternalPaths as workbenchImportExternalPaths,
   moveNodeAcrossWorkspaces as workbenchMoveNodeAcrossWorkspaces,
@@ -2416,6 +2417,17 @@ export async function registerIpcHandlers(
         }
     })
 
+    ipcMain.handle('workbench:find-workspace-unreferenced-images', async (_event, payload: { workspaceRoot: string }) => {
+        try {
+            assertActiveWorkspace(payload.workspaceRoot)
+            const data = await workbenchFindWorkspaceUnreferencedImages(payload.workspaceRoot)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
     ipcMain.handle('workbench:delete-nodes', async (_event, payload: { workspaceRoot: string; relativePaths: string[] }) => {
         try {
             assertActiveWorkspace(payload.workspaceRoot)
@@ -3342,7 +3354,7 @@ export async function registerIpcHandlers(
 
     ipcMain.handle('agent:list-custom-gateways', async () => {
         try {
-            const data = agentSessionService.listCustomGateways()
+            const data = agentSessionService.listCustomGateways().map(({ apiKey: _k, ...rest }) => rest)
             return { success: true, data }
         } catch (err: unknown) {
             const error = err instanceof Error ? err.message : String(err)
@@ -3350,7 +3362,16 @@ export async function registerIpcHandlers(
         }
     })
 
-    ipcMain.handle('agent:add-custom-gateway', async (_event, payload: { providerId: string; name: string; baseUrl: string; apiKey?: string }) => {
+    ipcMain.handle('agent:add-custom-gateway', async (_event, payload: {
+        providerId: string
+        name: string
+        baseUrl: string
+        apiKey?: string
+        api?: 'openai-completions' | 'openai-responses' | 'anthropic-messages'
+        presetId?: string
+        balanceUrl?: string
+        balancePath?: string
+    }) => {
         try {
             await agentSessionService.addCustomGateway(payload)
             const data = agentSessionService.getRuntimeSnapshot()
@@ -3365,6 +3386,44 @@ export async function registerIpcHandlers(
         try {
             await agentSessionService.removeCustomGateway(payload.providerId)
             const data = agentSessionService.getRuntimeSnapshot()
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('agent:test-gateway-connection', async (_event, payload: {
+        providerId?: string
+        name?: string
+        baseUrl: string
+        apiKey?: string
+        api?: 'openai-completions' | 'openai-responses' | 'anthropic-messages'
+        balanceUrl?: string
+        balancePath?: string
+    }) => {
+        try {
+            const data = await agentSessionService.testGatewayConnection(payload)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('agent:get-provider-quotas', async (_event, payload?: { providerIds?: string[]; force?: boolean }) => {
+        try {
+            const data = await agentSessionService.getProviderQuotas(payload?.providerIds, payload?.force === true)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('agent:refresh-provider-quota', async (_event, payload: { providerId: string }) => {
+        try {
+            const data = await agentSessionService.refreshProviderQuota(payload.providerId, true)
             return { success: true, data }
         } catch (err: unknown) {
             const error = err instanceof Error ? err.message : String(err)

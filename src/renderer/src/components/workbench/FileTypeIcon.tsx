@@ -2,7 +2,8 @@
  * 工作区文件类型图标统一入口。
  * 资源来自 vscode-material-icon-theme (material-extensions, MIT)，按扩展名映射。
  */
-import type { WorkbenchFileNode } from '../../../../shared/types/workbench'
+import { IMAGE_EXTENSIONS, MARKDOWN_EXTENSIONS, type WorkbenchFileNode } from '../../../../shared/types/workbench'
+import { AppIcon } from '../icons/AppIcon'
 import tsIcon from '../../assets/file-icons/typescript.svg'
 import jsIcon from '../../assets/file-icons/javascript.svg'
 import reactIcon from '../../assets/file-icons/react.svg'
@@ -162,4 +163,45 @@ export default function FileTypeIcon({ node, className = '' }: FileTypeIconProps
   const src = resolveIcon(node)
   if (!src) return null
   return <img src={src} alt="" draggable={false} className={`shrink-0 ${className}`} />
+}
+
+/** 工作台文档统一文件图标（Markdown/图片走 AppIcon，其余走 FileTypeIcon）。 */
+export function WorkbenchDocumentIcon({
+  node,
+  size = 15,
+  className = ''
+}: {
+  node: WorkbenchFileNode
+  size?: number
+  className?: string
+}): JSX.Element {
+  const ext = (node.extension || '').toLowerCase()
+  if (MARKDOWN_EXTENSIONS.has(ext)) {
+    return (
+      <AppIcon
+        name="description"
+        size={size}
+        className={`shrink-0 text-blue-500 dark:text-blue-400 ${className}`}
+      />
+    )
+  }
+  if (IMAGE_EXTENSIONS.has(ext)) {
+    return (
+      <AppIcon
+        name="image"
+        size={size}
+        className={`shrink-0 text-purple-500 dark:text-purple-400 ${className}`}
+      />
+    )
+  }
+  if (ext === '.svg') {
+    return (
+      <AppIcon
+        name="draw"
+        size={size}
+        className={`shrink-0 text-purple-500 dark:text-purple-400 ${className}`}
+      />
+    )
+  }
+  return <FileTypeIcon node={node} className={className} />
 }

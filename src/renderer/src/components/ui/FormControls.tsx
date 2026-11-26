@@ -1,9 +1,14 @@
 import type { ButtonHTMLAttributes, KeyboardEvent, ReactNode, Ref } from 'react'
 import { AppIcon } from '../icons/AppIcon'
 
+const WORKBENCH_INPUT_BASE =
+  'rounded-lg border border-slate-200 bg-slate-50/80 text-text-primary placeholder:text-gray-400 focus:border-primary focus:bg-white focus:outline-none disabled:bg-slate-100/70 disabled:text-text-secondary/70 dark:border-slate-700/80 dark:bg-slate-800/50 dark:disabled:bg-slate-800/30 dark:focus:bg-slate-800'
+
 /** DESIGN.md 统一输入框样式基准。 */
-export const WORKBENCH_INPUT_CLASS =
-  'h-9 rounded-lg border border-slate-200 bg-slate-50/80 px-3 text-body text-text-primary placeholder:text-gray-400 focus:border-primary focus:bg-white focus:outline-none disabled:bg-slate-100/70 disabled:text-text-secondary/70 dark:border-slate-700/80 dark:bg-slate-800/50 dark:disabled:bg-slate-800/30 dark:focus:bg-slate-800'
+export const WORKBENCH_INPUT_CLASS = `h-9 px-3 text-body ${WORKBENCH_INPUT_BASE}`
+
+/** 侧边栏窄浮层（如工作区设置）使用的紧凑输入框样式（12px）。 */
+export const WORKBENCH_COMPACT_INPUT_CLASS = `h-8 px-2.5 text-label ${WORKBENCH_INPUT_BASE}`
 
 export type UiButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost'
 export type UiButtonSize = 'sm' | 'md'

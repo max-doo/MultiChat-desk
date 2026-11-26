@@ -57,7 +57,10 @@ export default function MindmapMarkdownEditor({ value, onChange, active, actions
         doc: valueRef.current,
         extensions: [
           editable.current.of(EditorState.readOnly.of(readOnly)),
-          lineNumbers(),
+          // formatNumber 固定补齐 5 位宽（不换行空格），行号 gutter 宽度恒定
+          lineNumbers({
+            formatNumber: (n) => String(n).padStart(5, ' ')
+          }),
           highlightActiveLineGutter(),
           highlightActiveLine(),
           drawSelection(),

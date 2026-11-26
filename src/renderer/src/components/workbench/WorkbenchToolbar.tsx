@@ -95,8 +95,6 @@ export default function WorkbenchToolbar(): JSX.Element {
   const isDark = markdownBackgroundTheme === 'dark'
   const activeFileSize = useWorkbenchStore((s) => s.activeFileSize)
   const largeDocument = (activeFileSize ?? 0) > 2 * 1024 * 1024
-  const isLeftCollapsed = useWorkbenchStore((s) => s.isLeftCollapsed)
-  const toggleLeftCollapse = useWorkbenchStore((s) => s.toggleLeftCollapse)
 
   // 选区状态回显（对齐 playground ToolbarContext 中与本工具栏相关的子集）
   const [blockType, setBlockType] = useState<BlockType>('paragraph')
@@ -485,21 +483,6 @@ export default function WorkbenchToolbar(): JSX.Element {
       >
       {/* 左侧：格式化与排版工具组 */}
       <div className="flex items-center gap-0.5 overflow-x-auto no-scrollbar">
-        {isLeftCollapsed && (
-          <>
-            <button
-              type="button"
-              onClick={toggleLeftCollapse}
-              className="w-7 h-7 flex items-center justify-center rounded-full text-text-secondary hover:text-text-primary hover:bg-black/5 dark:hover:bg-white/10 transition-all duration-200"
-              title="展开侧边栏"
-              aria-label="展开侧边栏"
-            >
-              <AppIcon name="left_panel_open" size={20} />
-            </button>
-            <div className="w-[1px] h-4 bg-black/10 dark:bg-white/10 mx-1 shrink-0" />
-          </>
-        )}
-
         {/* 撤销 / 重做：按 CAN_UNDO/CAN_REDO 命令动态禁用 */}
         <button
           type="button"

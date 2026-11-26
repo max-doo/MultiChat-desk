@@ -32,7 +32,11 @@ import type {
   AgentActiveModel,
   AgentAuthOperation,
   AgentAuthType,
+  AgentCustomGatewaySpec,
   AgentFavoriteModel,
+  AgentForkOrigin,
+  AgentGatewayTestResult,
+  AgentProviderQuota,
   AgentRuntimeSnapshot,
   AgentSessionStatus,
   AgentThinkingLevel
@@ -46,6 +50,7 @@ import type {
   WorkbenchSelectFolderResult,
   WorkbenchNodeType,
   WorkspaceTagInfo,
+  WorkspaceUnreferencedImagesSummary,
   GitStatus,
   GitActionResult,
   GitHistoryItem,
@@ -523,6 +528,8 @@ const api = {
       ipcRenderer.invoke('workbench:copy-to-clipboard', { workspaceRoot, relativePaths }),
     findUnreferencedImages: (workspaceRoot: string, documentRelativePath: string): Promise<{ success: boolean; data?: { unreferenced: string[]; total: number }; error?: string }> =>
       ipcRenderer.invoke('workbench:find-unreferenced-images', { workspaceRoot, documentRelativePath }),
+    findWorkspaceUnreferencedImages: (workspaceRoot: string): Promise<{ success: boolean; data?: WorkspaceUnreferencedImagesSummary; error?: string }> =>
+      ipcRenderer.invoke('workbench:find-workspace-unreferenced-images', { workspaceRoot }),
     deleteNodes: (workspaceRoot: string, relativePaths: string[]): Promise<{ success: boolean; data?: { deleted: string[]; failed: { path: string; error: string }[] }; error?: string }> =>
       ipcRenderer.invoke('workbench:delete-nodes', { workspaceRoot, relativePaths }),
     importExternalPaths: (workspaceRoot: string, targetDirRelative: string, sourceAbsolutePaths: string[]): Promise<{ success: boolean; data?: { imported: string[]; failed: { path: string; error: string }[]; pairs: Array<{ source: string; target: string }> }; error?: string }> =>
@@ -728,8 +735,23 @@ const api = {
     ipcRenderer.invoke('agent:abort', { sessionId }),
   agentNewSession: (cwd?: string): Promise<{ success: boolean; data?: { sessionId: string }; error?: string }> =>
     ipcRenderer.invoke('agent:new-session', { cwd }),
-  agentListSessions: (): Promise<{ success: boolean; data?: Array<{ id: string; title: string; createdAt: number; updatedAt: number; cwd?: string; model?: string; isRunning?: boolean }>; error?: string }> =>
-    ipcRenderer.invoke('agent:list-sessions'),
+  agentListSessions: (): Promise<{
+    success: boolean
+    data?: Array<{
+      id: string
+      title: string
+      name?: string
+      createdAt: number
+      updatedAt: number
+      cwd?: string
+      model?: string
+      isRunning?: boolean
+      parentSessionId?: string
+      parentSessionTitle?: string
+      firstBranchMessage?: string
+    }>
+    error?: string
+  }> => ipcRenderer.invoke('agent:list-sessions'),
   agentResumeSession: (sessionId: string): Promise<{ success: boolean; data?: unknown; error?: string }> =>
     ipcRenderer.invoke('agent:resume-session', { sessionId }),
   agentDeleteSession: (sessionId: string): Promise<{ success: boolean; error?: string }> =>
@@ -738,7 +760,7 @@ const api = {
     ipcRenderer.invoke('agent:rename-session', { sessionId, name }),
   agentRewind: (sessionId: string, entryId?: string): Promise<{ success: boolean; data?: { editorText: string }; error?: string }> =>
     ipcRenderer.invoke('agent:rewind', { sessionId, entryId }),
-  agentForkSession: (sessionId: string, leafId?: string): Promise<{ success: boolean; data?: { sessionId: string }; error?: string }> =>
+  agentForkSession: (sessionId: string, leafId?: string): Promise<{ success: boolean; data?: { sessionId: string; forkOrigin?: AgentForkOrigin }; error?: string }> =>
     ipcRenderer.invoke('agent:fork-session', { sessionId, leafId }),
   agentListBranchUserEntries: (sessionId: string): Promise<{ success: boolean; data?: Array<{ entryId: string; text: string }>; error?: string }> =>
     ipcRenderer.invoke('agent:list-branch-user-entries', { sessionId }),
@@ -805,12 +827,23 @@ const api = {
     ipcRenderer.invoke('agent:refresh-provider-models', { providerId }),
   agentSetProviderBaseUrl: (providerId: string, baseUrl: string | null): Promise<{ success: boolean; data?: AgentRuntimeSnapshot; error?: string }> =>
     ipcRenderer.invoke('agent:set-provider-base-url', { providerId, baseUrl }),
-  agentListCustomGateways: (): Promise<{ success: boolean; data?: Array<{ providerId: string; name: string; baseUrl: string; apiKey?: string }>; error?: string }> =>
+  agentListCustomGateways: (): Promise<{ success: boolean; data?: Array<Omit<AgentCustomGatewaySpec, 'apiKey'>>; error?: string }> =>
     ipcRenderer.invoke('agent:list-custom-gateways'),
-  agentAddCustomGateway: (spec: { providerId: string; name: string; baseUrl: string; apiKey?: string }): Promise<{ success: boolean; data?: AgentRuntimeSnapshot; error?: string }> =>
+  agentAddCustomGateway: (spec: AgentCustomGatewaySpec): Promise<{ success: boolean; data?: AgentRuntimeSnapshot; error?: string }> =>
     ipcRenderer.invoke('agent:add-custom-gateway', spec),
   agentRemoveCustomGateway: (providerId: string): Promise<{ success: boolean; data?: AgentRuntimeSnapshot; error?: string }> =>
     ipcRenderer.invoke('agent:remove-custom-gateway', { providerId }),
+  agentTestGatewayConnection: (spec: Omit<AgentCustomGatewaySpec, 'providerId' | 'name'> & { providerId?: string; name?: string }): Promise<{ success: boolean; data?: AgentGatewayTestResult; error?: string }> =>
+    ipcRenderer.invoke('agent:test-gateway-connection', spec),
+  agentGetProviderQuotas: (options?: { providerIds?: string[]; force?: boolean }): Promise<{ success: boolean; data?: Record<string, AgentProviderQuota>; error?: string }> =>
+    ipcRenderer.invoke('agent:get-provider-quotas', options),
+  agentRefreshProviderQuota: (providerId: string): Promise<{ success: boolean; data?: AgentProviderQuota | null; error?: string }> =>
+    ipcRenderer.invoke('agent:refresh-provider-quota', { providerId }),
+  onAgentProviderQuotaUpdated: (cb: (payload: { quota: AgentProviderQuota }) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: { quota: AgentProviderQuota }): void => cb(payload)
+    ipcRenderer.on('agent:provider-quota-updated', handler)
+    return () => { ipcRenderer.removeListener('agent:provider-quota-updated', handler) }
+  },
   agentSetProviderDisabled: (providerId: string, disabled: boolean): Promise<{ success: boolean; data?: AgentRuntimeSnapshot; error?: string }> =>
     ipcRenderer.invoke('agent:set-provider-disabled', { providerId, disabled }),
   agentSetFavoriteModels: (favorites: AgentFavoriteModel[]): Promise<{ success: boolean; data?: AgentRuntimeSnapshot; error?: string }> =>

@@ -1510,4 +1510,26 @@ webview[tabindex="-1"] {
   filter: invert(1) hue-rotate(180deg);
 }
 
+/* 工作台顶部标签栏隐藏原生滚动条与溢出渐隐遮罩 */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.tab-fade-left {
+  mask-image: linear-gradient(to right, transparent 0px, black 16px);
+  -webkit-mask-image: linear-gradient(to right, transparent 0px, black 16px);
+}
+.tab-fade-right {
+  mask-image: linear-gradient(to left, transparent 0px, black 16px);
+  -webkit-mask-image: linear-gradient(to left, transparent 0px, black 16px);
+}
+.tab-fade-both {
+  mask-image: linear-gradient(to right, transparent 0px, black 16px, black calc(100% - 16px), transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, transparent 0px, black 16px, black calc(100% - 16px), transparent 100%);
+}
+
 
