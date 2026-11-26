@@ -76,6 +76,8 @@ Long-term reusable lessons, durable decisions, and recurring project gotchas. Do
 
 - **HTML 可视化编辑不要为了访问 DOM 放开 iframe 同源**：`workbench-file://` 可以在同一路径下按查询参数提供编辑文档、运行时和样式三份同源资源，iframe 继续使用 `sandbox="allow-scripts"`；父子页面只通过带来源标识的 `postMessage` 传递选区、脏状态、命令和序列化结果。跨 iframe 拖拽不要依赖事件冒泡，应由外层 Pointer Capture 加覆盖层保持指针归属，再把相对坐标下发 iframe。保存复用既有 `saveActiveFile()` 序列化后覆写原文件，不要为可视编辑另开一条没有冲突检测的写盘 IPC。
 
+- **代码文件预览里的强制浅色浮层不能使用语义文字类**：代码文件外层有意同时挂载 `.dark` 与 `data-reader-theme="dark"`，后者会把后代 `.text-text-primary` / `.text-text-secondary` 统一刷成浅色。HTML 可视化编辑工具条若要脱离预览主题固定为浅色，不能只在容器上移除 `dark:` 背景类，还必须用 `text-gray-800`、`text-gray-600` 等具体色值替代语义文字类；取色弹层同理需要避免继承 `liquid-glass-menu` 的暗色分支。
+
 - **iframe 编辑工具条的实时调色不能抢宿主焦点**：编辑运行时若无条件执行 `window.focus()`，颜色滑杆和 Hex 输入的每次完整色值更新都会把焦点从宿主工具条抢回 iframe，父层输入失焦后菜单随即关闭，连续输入也被打断。颜色菜单的实时预览命令应携带 `preserveFocus` 并让运行时跳过聚焦；使用 palette 或 Enter 确认并关闭菜单后可保留原聚焦行为。sandbox iframe 内的 `execCommand` 在宿主持有焦点时仍能作用于 iframe 已保存的文字 Range，但仍需用真实文字选区做回归。
 
 - **HTML 渲染预览标注不要把评论塞进 iframe**：`workbench-file://` 同一路径用标注 query 提供文档、CSS 与运行时三份同源资源，运行时只建立可见文本索引、CSS Highlight、选区与点击命中，`postMessage` 只传 `id` 与 anchor；评论正文、编辑卡和持久化留在宿主 renderer，iframe 仍保持 `sandbox="allow-scripts"`。空白点击、滚动和 Esc 必须由运行时主动发 `dismiss`，否则新建评论卡会在 iframe 内交互后残留；关闭编辑卡时还要发 `focus` 空 id 清掉聚焦高亮。
@@ -97,6 +99,14 @@ Long-term reusable lessons, durable decisions, and recurring project gotchas. Do
 - **HTML 渲染预览的 `Ctrl+滚轮` 缩放应在 iframe 运行时内设置 `documentElement.style.zoom`**：渲染预览由独立源 `sandbox="allow-scripts"` iframe 承载，滚轮事件不会冒泡到宿主；需在标注运行时内以 `{ passive: false, capture: true }` 拦截 `Ctrl/Cmd + wheel`（带阈值累加）并通过 `postMessage` 与宿主工具栏双向同步缩放比例。在 Electron 42（Chromium）中 `document.documentElement.style.zoom` 会随视口自然重排排版且 `Range.getBoundingClientRect()` 与 `clientX/Y` 已按缩放比同步，标注命中与评论卡定位无需额外换算，也不会污染可视编辑源码。
 
 - **Lexical `ElementNode` 承载块级 Markdown 前缀语法时需同步切分 Source Map、只匹配前缀并补齐粘贴转换**：当用自定义 `ElementNode`（如脚注定义 `WorkbenchFootnoteDefNode`）渲染 `[^id]: 内容` 时，`markdownSourceMap.ts` 的 `isSpecialBlockLine` 与 `scanMarkdownSourceBlocks` 必须同步识别该块边界，否则连续多条定义行会被扫描器合并成单段落并引发 1:N 错位；同时 `ElementTransformer.regExp` 只应匹配行首前缀（如 `[^id]: `），让 `@lexical/markdown` 对剩余文本节点继续执行加粗、链接等行内转换。此外 `MarkdownShortcutPlugin` 仅响应键入不拦截粘贴，手贴 `[^id]:` 或 `[^id]` 落入普通 `TextNode` 后会被 `exportTextFormat` 转义为 `&#91;^id&#93;`，需在 `PASTE_COMMAND`（`COMMAND_PRIORITY_HIGH`）跳过 `application/x-lexical-editor` 与代码上下文后用 `$generateNodesFromMarkdownString` 即时转换（单行纯行内片段需拆出段落子节点避免拆段）。
+
+- **CodeMirror 6 行号 gutter 宽度抖动源于 spacer 重测，不要用 `width` 硬锁**：`.cm-lineNumbers` gutter 内置一个 `visibility:hidden` 的 spacer 元素，内容按 `maxLineNumber(doc.lines)` 向上取整到全 9 数（9/99/999/9999…）预留最小宽度；gutter 实际宽度 = max(spacer 宽度, `minWidth`, 视口内最宽行号)，滚动/点击触发 `docChanged` 重测时会因 spacer 是否参与测量而产生几像素抖动。直接给 `.cm-gutterElement` 写 `width` 会让大文件行号被 `.cm-gutter` 的 `overflow:hidden` 截断；更稳的做法是 `lineNumbers({ formatNumber: n => String(n).padStart(N, ' ') })` 用不换行空格固定补齐到 N 位宽，gutter 宽度恒定、超过 N 位才扩一次。等宽字体下也可用 `minWidth: '4ch'` 让尺寸可预期且保留自适应。
+
+- **`.cm-gutters` 总宽 = 各 gutter 列宽度之和，任一列塌缩都会让整体抖动**：CM6 gutter 按 `renderEmptyElements` 决定空行是否渲染占位元素——`false` 时若视口内没有 marker 该列直接塌到 0 宽，行号 gutter 自身固定宽度也救不了旁边的自定义列（如 `cm-gitGutter`）。锁 gutter 宽度必须同时处理所有列：自定义列加 `renderEmptyElements: true` 让空行也渲染占位 + 给该列固定 `width` + `flexShrink: 0`，不能只改 `lineNumbers.formatNumber`。
+
+- **同一套 gutter 修复要同步给所有用 CodeMirror 的组件**：本项目有 3 处独立配置 `cm-lineNumbers`/`cm-gitGutter`——`WorkbenchSourceEditor.tsx`（Markdown 源码编辑）、`WorkbenchCodePreview.tsx`（代码文件预览/编辑）、`MindmapMarkdownEditor.tsx`（导图 Markdown）。修抖动时如果只改 SourceEditor 而用户实际看的是 CodePreview，症状照旧；改前先确认用户实际看到的组件路径（`lineNumbers` + `cm-gitGutter` 出现的位置就是入口），或者 grep 全量同步改。
+
+- **可视化 HTML 编辑的撤销/重做用 post-mutation 快照 + 线性 index 移动**：无需记录反向操作——每次变更批结束后捕获 body innerHTML+attrs 快照（连续输入 250ms 防抖合并，离散命令执行前先冲刷批次），undo/redo 只是 index 前后移动并恢复快照。恢复期间必须 observer.disconnect() 再重连来吞掉回声变更，比时间窗口标志可靠（MutationObserver 微任务时序存在竞态）；快照要临时剥离 __mve_ 编辑器类、注入样式/脚本挪到 head，恢复用 innerHTML 替换 + 属性重放 + 保留滚动位。脏状态与快照基线比对双向报告，撤销回到保存点自动清脏。
 
 ### React 状态与组件生命周期
 
@@ -211,6 +221,8 @@ Long-term reusable lessons, durable decisions, and recurring project gotchas. Do
 - **工作台局部阅读暗黑主题不能只靠 `.dark` 类名切换**：`tailwind.config.js` 的 `text-primary`（`#1f2937`）与 `text-secondary`（`#6b7280`）是静态 Hex 值，局部挂载 `.dark` 时这两类字色不会自动反转；必须配合容器属性选择器（如 `[data-reader-theme='dark']` / `[data-reader-toolbar='dark']`）显式覆写字色与下拉菜单容器（`WorkbenchDropDown`、块插入菜单等 portal 到 `body` 的浮层需单独透传暗黑状态）。HTML 原生 `<mark>` 元素在 Chromium UA 样式表默认带 `color: black`，暗黑模式下必须在 `.PlaygroundEditorTheme__mark` 显式声明 `color: inherit`。对 Word `section.docx` 施加 `invert(...) hue-rotate(180deg)` 暗化纸张时，需清除原有 `box-shadow` 改用细 `outline`（避免阴影反色成白光圈），并对内部 `img/svg/video/canvas` 做反向 `invert(1) hue-rotate(180deg)` 还原媒体原色；PDF 页面则用浅色 `mix-blend-mode: multiply` 着色、暗黑 `invert(0.882) hue-rotate(180deg)`。
 
 - **工作台文件树搜索是局部状态，不是独立模式**：工具栏搜索按钮首次点击只进入搜索态并聚焦输入框，已处于搜索态时再次点击应聚焦输入框，不应反向退出；退出统一收敛到输入框关闭按钮、`Esc` 和“打开结果成功”三条路径。`WorkbenchSearch` 不需要同时放“清空”和“返回”两个语义相近的按钮，退出时由文件树侧把焦点还给工具栏搜索按钮。点击搜索结果后调用 `openFile`，其返回值表示文档是否真正打开；成功后才退出搜索，`openFile` 自身已经展开祖先目录，文件树的 `activeFilePath` 跟随 effect 会完成滚动定位。
+
+- **宿主 UI 配色要跟随内容表面而非容器主题偏好**：工作台代码/文本预览容器曾无条件挂 dark 类，HTML 渲染白底页面上状态胶囊和「发送到 AI」按钮被 dark: 变体染成半透明暗色不可见；正确解法是按内容表面驱动——预览组件把『是否 HTML 渲染表面/是否可编辑』上报 store，宿主容器据此摘掉 dark 类、状态徽标按可编辑态显隐，比给单个组件加 forceLight 补丁更可扩展。PDF/DOCX 预览的深浅色由各自的 reader 主题偏好控制，不受此影响。
 
 ### 窗口、划词与快捷键
 
@@ -422,6 +434,8 @@ Long-term reusable lessons, durable decisions, and recurring project gotchas. Do
 
 - **Windows 签名工具解压与符号链接权限是历史版本经验**：历史 winCodeSign 包含 macOS 符号链接，Windows 7za 解压曾因权限不足失败；当时通过开发者模式或适当权限并在清缓存后重打验证。诊断先核对当前工具版本、实际 `ERROR: Cannot create symbolic link` 和系统权限，不把旧版本号或“必复现”当通用事实，也不擅自改系统设置。不要用 `.cmd` 包装 7za 吞错误码；缓存存在会掩盖解压失败，验证修复要区分缓存命中和新下载路径。
 
+- **注入式运行时可用 headless Edge + CDP 做行为级验收**：msedge --headless=new --remote-debugging-port=N --user-data-dir=临时目录 加载嵌入了运行时的 fixture.html，Node >=22 原生 WebSocket 连 /json/list 目标，Runtime.evaluate 驱动 DOM、Input.dispatchKeyEvent 模拟 Ctrl+Z/Y、Input.dispatchMouseEvent 模拟点击选中；沙箱内 localhost WebSocket 被拒需提权运行。注意 console.log 后 process.exit() 会截断 stdout，改赋 process.exitCode 自然退出。
+
 ### 历史架构与版本限定
 
 仅在追溯旧架构、旧版本或用户授权的隔离开发时读取。本项目当前使用 Electron 42 与 Webview；本节不授权迁移架构、修改分支或照搬旧兼容补丁。
@@ -465,6 +479,9 @@ Long-term reusable lessons, durable decisions, and recurring project gotchas. Do
 - **bash 命令分析的 wrapper 陷阱**：`bash -lc`/`bash -ic` 这类合并 flag 不会匹配独立的 `-c` token，unwrap 逻辑必须正则识别 `/^-[a-z]*c[a-z]*$/`；`env VAR=x cmd` 要跳过 `VAR=` 前缀对再判内层；`xargs` 参数本身就是新命令。`shell-quote` 对 `$(` 不产 op 且**把 `\n` 当普通空白而不是语句分隔符**，因此字符扫描阶段必须同时完成引号感知的 `$( )` 配平提取与未引号保护的 `\n`/`\r` 转 `;` 切分；无路径前缀的敏感文件名（`.env`/`id_rsa`/`*.pem`）也必须纳入路径提取送入 `inspectPath`。
 
 - **命令安全判定器的 fail-closed 分层**：仅当分析器不可用（`analyzerVerdict === null`，且仅限 `bash` 而不对 PowerShell 走 `shell-quote`）时才允许回退到 segment 白名单；无论是 `PermissionEngine` 二判还是 `permissionPolicy.analyzeCommand` 内的旧正则 `readOnlyPowerShell` / `simpleCommand`，只要 `analyzerVerdict` 存在且 `readOnly === false` 都绝对不能翻案为 `readOnly` 或 `!requiresApproval`。
+- **Agent shell 执行失败的排查入口与两处已修 bug**：`ShellTool` 的 `exitCode === -1` 只有 timedOut 和 spawn error 两个来源，配合 UI 计时（几十~几百毫秒）即可区分是超时误杀还是启动失败；pi 的 bash/powershell 工具契约中 `timeout` 单位是**秒**且默认无超时，自定义 `BashOperations` 注入时必须 ×1000 转毫秒，否则模型显式传 `timeout: 30` 会让命令 30ms 内被 SIGTERM（pwsh 自身启动就要 60–100ms），表现为 `-1` 无输出。`HARD_DENY_PATTERNS` 写磁盘格式化防护时 `\bformat\b` 会匹配 `Format-Table`/`Format-Wide`（`-` 不是单词字符），必须用 `format(?!-)` 排除 PowerShell 只读的 `Format-*` cmdlet。
+- **Magpie 是本地聚合网关而非远端供应商，客户端不需要 API Key 与额度查询**：Magpie 运行在本机（默认 `http://127.0.0.1:3425/v1`），上游各厂商账号的凭据与额度都在网关自身管理界面中配置；MultiChat 连接它只用一个静态占位 key（`'magpie'`，因为 pi 注册模型目录时 `apiKey` 必填），因此设置页对 magpie 隐藏 Key 按钮是符合架构的，`setCredential` 对其也会拒绝（`provider.auth.apiKey?.login` 不存在）。同理额度链路要在 `buildQuotaTargets` 直接跳过 magpie——网关没有公开的额度接口语义，查询只会得到无意义错误。已废弃功能的教训：UI 删除入口时要把 IPC/服务/类型全链路一并删（如每模型 spec override 的 `agent:set-model-spec-override` → `ModelCatalogEnricher` overrides → `AgentModelSpecEditor` 组件），只藏按钮会留死代码与孤儿写盘逻辑。
+
 ### 原型与视觉验收
 
 - **用 `innerHTML` 重建含 `id` 的子节点后，后续渲染不能再引用旧节点**：自包含 HTML 原型中，如果渲染函数先写入容器 `innerHTML`，之后再按旧 `id` 查询该容器内的节点，首次渲染可能成功，但切换文档、新增标注等第二次渲染会得到 `null` 并中断交互。修复应删除冗余的旧节点引用，或始终在重建完成后重新查询；验收不能只截首屏，还要实际触发一次文档切换或数据更新后的重渲染。

@@ -1,6 +1,401 @@
 # Session Log
 
+## 2026-11-26
+
+### 16:51 | Antigravity
+
+- done: 实现侧边栏底栏响应式紧凑模式：leftPaneWidth < 320px 时隐藏 Git 分支名称仅保留图标与状态计数并收紧间距，保证窄窗下工作区名可读
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchGitPanel.tsx`
+
+### 16:51 | Antigravity
+
+- done: 修复 Agent 侧边栏新建会话时底部上下文窗口图标未自动清空的问题
+- context: newSession/deleteSession 重置为草稿态时未清空 sessionStatus 与 snapshot.context/stats，且草稿态传 undefined 给 resolveSession 会回退读取旧会话上下文
+- decision: 在 store 会话切换/重置动作中同步清空 sessionStatus/isCompacting/snapshot 用量并拦截跨会话与草稿态回流，主进程 resolveSession 区分 undefined 与显式空/指定 sessionId，AgentContextMeter 对草稿态与空会话直接不渲染
+- modified:
+  - `src/main/services/AgentSessionService.ts`
+  - `src/renderer/src/store/agentSessionStore.ts`
+  - `src/renderer/src/components/workbench/agent/AgentContextMeter.tsx`
+
+### 16:51 | Antigravity
+
+- done: 为 Agent 侧边栏回复的 MarkdownRenderer 增加 KaTeX LaTeX 数学公式渲染支持
+- decision: 复用项目已有的 katex 依赖，采用预处理提取占位符 + rehype 插件还原节点 + React 端 KaTeX 渲染方案，未引入新生产依赖，避免 remark/rehypeRaw 误解析公式内的下划线、反斜杠、竖线与尖括号
+- added:
+  - `src/renderer/src/components/workbench/agent/markdownMath.ts`
+- modified:
+  - `src/renderer/src/components/workbench/agent/MarkdownRenderer.tsx`
+
+### 16:50 | Antigravity
+
+- done: 支持将文件直接拖放到工作台顶部标签栏打开并落位
+- modified:
+  - `src/renderer/src/store/workbenchStore.ts`
+  - `src/renderer/src/components/workbench/WorkbenchTabBar.tsx`
+
+### 16:50 | Antigravity
+
+- done: 采用方案1在文件树右键菜单动态识别含托管附件的 Markdown 文档再显示清理未引用图片
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+
+### 16:42 | Antigravity
+
+- done: 优化工作台新标签页与空白页双按钮质感，回归极简居中纵向布局
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+
+### 16:35 | Antigravity
+
+- done: 修复文件树右键菜单底部溢出，并在工作区设置中新增全工作区批量清除未引用照片功能
+- modified:
+  - `src/shared/types/workbench.ts`
+  - `src/main/services/workbenchService.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/src/store/workbenchStore.ts`
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchWorkspaceSettings.tsx`
+
+### 16:34 | Antigravity
+
+- done: 将工作台标签栏 + 按钮改为新建虚拟新标签页并复用极简空白页，提供新建笔记 (Ctrl+N) 与快速打开文件弹窗 (Ctrl+O)
+- added:
+  - `src/renderer/src/components/workbench/WorkbenchQuickOpenModal.tsx`
+- modified:
+  - `src/renderer/src/store/workbenchStore.ts`
+  - `src/renderer/src/components/workbench/WorkbenchTabBar.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+  - `src/renderer/src/pages/WorkbenchPage.tsx`
+
+### 16:24 | Antigravity
+
+- done: 移除 WorkbenchTabBar 拖拽留白区的 min-w-[16px] 与外层 gap-1，使标签溢出时 + 与 ⌄ 之间仅保留 2px 紧凑间距，同时保持 ⌄ 右边缘对齐中间编辑区
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchTabBar.tsx`
+
+### 16:21 | Antigravity
+
+- done: 进一步拉开工作台侧边栏底部 Git 与工作区设置按钮的间距（gap-2.5 与 px-2.5），增强视觉分隔
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchGitPanel.tsx`
+
+### 16:20 | Antigravity
+
+- done: 修复工作台顶部与右侧栏 4 处细节：1) 导图/AI 侧栏切换按钮靠右紧邻最小化按钮；2) 移除顶部左右分割线静止态灰线；3) 为 WorkbenchMindmapPanel 补全 w-full min-w-0 撑满右栏宽度；4) 标签栏 + 紧跟末个标签，全部标签下拉按钮 ⌄ 锚定在中间编辑区右侧边缘并留出 16px 保底拖拽区
+- modified:
+  - `src/renderer/src/components/Layout.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchTabBar.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchMindmapPanel.tsx`
+- lesson: 父容器是 display:flex(row) 时，内部 flex-col 子组件根元素若不声明 w-full min-w-0 会按内容最小宽度收缩，导致右侧面板出现大块空白且关闭按钮偏移
+
+### 16:19 | Antigravity
+
+- done: 优化工作台侧边栏底部三按钮空间配比：切换箭头紧跟工作区名、增加竖向分隔与统一 h-8 rounded-lg 热区并移除 Git 分支最小占位宽度
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchGitPanel.tsx`
+
+### 16:17 | Antigravity
+
+- done: 恢复工作区设置与版本管理弹窗顶部标签页字号为 text-body (14px) 并强化激活字重，区分标签页与 12px 表单小节
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchWorkspaceSettings.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchGitPanel.tsx`
+
+### 16:13 | Antigravity
+
+- done: 核验工作台侧边栏底栏浮层与文件树字号关系，并统一版本管理与工作区设置弹窗的字体层级与紧凑控件密度
+- context: 侧边栏文件名基准为 text-body (14px)；两弹窗内原混用或整体上调至 text-body 的 Tab、表单标签、胶囊、输入框与操作按钮收敛至 text-label (12px)，改动列表行高对齐 py-1
+- modified:
+  - `src/renderer/src/components/ui/FormControls.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchGitPanel.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchWorkspaceSettings.tsx`
+
+### 16:13 | Codex
+
+- done: 将工作区设置按钮从齿轮改为 Lucide Settings2（两条滑杆），新增 AppIcon 映射并替换文件树按钮调用
+- context: 用户确认采用截图中的 settings-2 图标；全局设置仍保留齿轮，工作区设置按钮改用两条滑杆以作区分。
+- modified:
+  - `src/renderer/src/components/icons/AppIcon.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+- lesson: Lucide 的 Settings2 对应 icons 站点 settings-2；工作区设置按钮可通过 APP_ICON_MAP 的 settings_2 名接入，保持 size=19 和原 title 不变。
+
+### 16:11 | Codex
+
+- done: 修复 Agent runtime shell 执行两个 bug：硬性拒绝误杀 Format-* cmdlet；timeout 秒被当毫秒导致显式超时命令 30ms 内被杀（exitCode -1 无输出）；spawn error 现通过 onData 透传给模型
+- modified:
+  - `src/main/services/PermissionEngine.ts`
+  - `src/main/services/ShellTool.ts`
+- lesson(promoted): pi-coding-agent bash/powershell 工具契约的 timeout 单位是秒且默认无超时，自定义 BashOperations 必须 x1000 转毫秒；HARD_DENY 正则中 \bformat\b 因 - 非单词字符会匹配 Format-Table/Format-Wide，写磁盘防护规则要用 format(?!-) 排除 PowerShell Format-* cmdlet；排查 agent 执行失败先看 ShellTool exitCode=-1 只有 timedOut/spawn error 两个来源
+
+### 16:09 | Antigravity
+
+- done: 将工作台设置与历史按钮放回顶部左侧原位，实现两级自适应（空间充裕时显示图标+文字、不足时收起为纯图标）与左侧栏动态最小宽度（按模式切换胶囊宽度+3个按钮所需宽度通过 ResizeObserver 实时计算并同步约束 leftPaneWidth）
+- decision: 使用两级阈值：图标+文字阈值控制设置/历史文字显隐，纯图标+模式切换阈值决定 leftPaneMinWidth，避免4种模式全开时左侧栏过窄挤压或溢出
+- modified:
+  - `src/renderer/src/components/Layout.tsx`
+  - `src/renderer/src/store/workbenchStore.ts`
+
+### 15:06 | Antigravity
+
+- done: 实现工作台 Obsidian 式通顶三栏重构与极简标签页功能：多标签状态管理与按工作区持久化、单击预览态与双击/编辑转正、固定标签、滚轮横滑与溢出搜索面板、同名路径消歧、拖拽排序及拖往 AI 侧栏、右键菜单与快捷键
+- decision: 工作台模式下将 38px/52px 顶栏拆分为与下方三栏（leftPaneWidth / flex-1 / rightPaneWidth）精确对齐的三段，标签栏宽度严格跟随中间编辑区，侧边栏折叠后保留模式切换与展开入口
+- added:
+  - `src/renderer/src/components/workbench/WorkbenchTabBar.tsx`
+- modified:
+  - `src/renderer/src/store/workbenchStore.ts`
+  - `src/renderer/src/components/Layout.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+  - `src/renderer/src/components/workbench/FileTypeIcon.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchToolbar.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchSourceToolbar.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchCodePreview.tsx`
+  - `src/renderer/src/components/icons/AppIcon.tsx`
+  - `src/renderer/src/assets/index.css`
+- unresolved: 需在 pnpm run dev 桌面窗口中手动验证通顶分割线拖拽、多标签溢出与 Ctrl+W 在 Windows 默认菜单下的表现
+
+### 15:06 | Antigravity
+
+- done: 实现工作台 Agent 侧边栏 Fork 交互提醒、无后缀前置分支徽标、消息流分叉点来源标注及历史树状分组摘要
+- decision: 不再为 Fork 会话追加'分支'标题后缀，改为复用 pi 内核 header.parentSession + multichat:fork_origin CustomEntry 记录分叉锚点与父会话信息，在前端实现 Header 前置分支徽标、顶部 Toast 提醒、分叉边界分隔线及历史列表树状首问摘要
+- modified:
+  - `src/shared/types/agentRuntime.ts`
+  - `src/main/services/AgentSessionService.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/src/types/agent.ts`
+  - `src/renderer/src/store/agentSessionStore.ts`
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+
+### 14:05 | Codex
+
+- done: 可视化编辑底部状态条配色对齐顶栏：slate-800 蓝灰改为 #252526 中性灰 + border-white/8 + #A1A1AA 文字，header/footer 实测同色 rgba(37,37,38)
+- context: visual editor footer header color unify
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchHtmlVisualEditor.tsx`
+
+### 12:21 | Codex
+
+- done: HTML 渲染/可视化编辑表面去除宿主 dark 类：状态胶囊与发送到 AI 按钮恢复浅色；保存徽标改为仅在可编辑表面显示（markdown 恒可编辑，代码/文本走 store 上报的 codePreviewEditable）；store 新增 codePreviewEditable/htmlRenderSurface 两个表面状态由 CodePreview 上报
+- context: html preview light surface status pill
+- modified:
+  - `src/renderer/src/store/workbenchStore.ts`
+  - `src/renderer/src/components/workbench/WorkbenchCodePreview.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchStatusPill.tsx`
+- lesson(promoted): 宿主 UI 配色不应与预览内容表面脱钩：HTML 渲染白底页面上的深色胶囊并非主题偏好，而是容器无条件 dark 类的副作用；按『内容表面是什么』驱动宿主配色（store 上报表面状态），比给单个组件加 forceLight 补丁更可扩展
+
+### 11:50 | Codex
+
+- done: HTML 编辑区撤销/重做按钮移至顶栏保存按钮之前（对齐 Markdown 编辑区布局），WorkbenchHtmlVisualEditor 暴露 requestHistory 命令与 onHistoryStateChange 回调，撤掉底部状态栏重复按钮
+- context: html visual editor undo redo toolbar placement
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchHtmlVisualEditor.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchCodePreview.tsx`
+
+### 11:43 | Codex
+
+- done: 工作台文件树右键'复制文件路径'支持多选：复制整组绝对路径，每行一个，与 Windows 资源管理器行为一致
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+
+### 10:33 | Codex
+
+- done: 提升撤销历史与 CDP 验收经验至 KNOWLEDGE（工作台编辑器/构建验证两节），SESSION_LOG 标记 promoted
+- modified:
+  - `.memory/KNOWLEDGE.md`
+  - `SESSION_LOG.md`
+
+### 10:32 | Codex
+
+- done: HTML 可视化编辑新增撤销/重做：iframe 运行时内建 body 快照历史（250ms 防抖合并连续输入、离散操作前冲刷批次、上限 60 步），Ctrl+Z/Y 与状态栏按钮双入口，父窗口聚焦时转发快捷键；撤销回到保存基线自动清除脏标记；恢复时断开 MutationObserver 避免回声入栈
+- context: workbench HTML visual editor undo
+- modified:
+  - `src/shared/utils/workbenchHtmlEditor.ts`
+  - `src/renderer/src/components/workbench/WorkbenchHtmlVisualEditor.tsx`
+  - `src/renderer/src/store/workbenchStore.ts`
+- lesson(promoted): 快照历史用 post-mutation 捕获 + index 线性移动即可同时得到 undo/redo，无需记录反向操作；恢复期间 observer.disconnect() 重连比时间窗口标志更可靠（微任务时序无竞态）；headless Edge + CDP 原生 WebSocket 可做注入运行时行为级验收，process.exit 会截断 stdout 要改 exitCode
+
+### 09:19 | codex
+
+- done: 修正 HTML 可视化编辑悬浮工具条、拖拽控件及取色弹层的浅色样式；避免代码预览暗色主题把图标文字刷白
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchFloatingToolbarChrome.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchHtmlEditToolbar.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchHtmlVisualEditor.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchHtmlColorPicker.tsx`
+- lesson(promoted): 代码文件预览容器有意挂载 .dark 与 data-reader-theme='dark'，其中强制浅色浮层不能复用 text-text-primary/text-text-secondary 等语义文字类；需改用具体浅色文字色值，否则会被全局阅读器主题覆盖为浅色。
+
+### 00:46 | Codex
+
+- done: 修复设置页靠左不完全的问题:发现 Agent 配置分页使用独立容器 AgentSettingsPageSection 仍是 mx-auto max-w-3xl 居中(上一轮的漏改),已改 max-w-6xl 左对齐;同时内容区 lg:px-10 大内边距(48px)统一降为 px-6(24px)贴住导航,模型行 py-2 降 py-1.5 提升密度;eslint/tsc 通过
+- modified:
+  - `src/renderer/src/pages/SettingsPage.tsx`
+- lesson: 分页布局若各页有独立容器(如 AgentSettingsPageSection 的固定头+独立滚动结构),改全局布局类时不能只改主滚动容器——rg 全量审计 max-w/mx-auto 命中点才能发现分页级逃逸
+
+### 00:41 | Codex
+
+- done: 移除代码预览器顶栏全部保存状态，保留底部状态显示
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchCodePreview.tsx`
+
+### 00:40 | Codex
+
+- done: 删除代码预览器顶栏已保存徽标，保留异常和未保存状态
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchCodePreview.tsx`
+
+### 00:39 | Codex
+
+- done: 按用户批准的 B1 方案落地设置页宽屏布局:SettingsPage 内容容器由 mx-auto max-w-3xl 改为 max-w-6xl 左对齐(Windows 设置范式);模型行控件右对齐(justify-between)与 hover 行高亮(hover:bg-white/80)为现状已具备,无需新增;eslint/tsc web 定向检查/build 全部通过
+- modified:
+  - `src/renderer/src/pages/SettingsPage.tsx`
+- lesson: 验收布局方案前先核对现状:className 审计发现模型行的 justify-between 右对齐与 hover 行高亮早已存在,B1 的'三件套'中两件是存量,实际落地只剩容器宽度一处改动——方案阶段的落地清单要以代码事实为准
+
+### 00:34 | Codex
+
+- done: 回应用户对限宽通栏方案行首尾距离过远的质疑:在设置页布局对比原型中新增 B1(右端列对齐+hover行高亮,Windows/iOS 范式)与 B2(操作组紧邻名称,Chrome 部分设置页范式)两个子变体区块,B 降级为对照基线,推荐项改为 B1,同步更新导航/统计条/对比表/结论,已用无头 Edge 截图验证 B1/B2 渲染
+- modified:
+  - `docs/prototypes/settings-layout-comparison.html`
+
+### 00:32 | Codex CLI
+
+- done: 将命令行路径行的打开目录入口恢复为纯图标样式
+- context: 用户评估后决定不在开发态隐藏或删除入口，只恢复原先图标按钮外观
+- modified:
+  - `src/renderer/src/components/CliIntegrationSection.tsx`
+
+### 00:30 | Codex
+
+- done: 基于半成品重构完成供应商设置页改造：补完 useAgentProviderSettingsState/AgentProviderToolbar/AgentProviderContent 拆分与设置页固定工具栏布局；Key 输入直连保存无取消环节（Key 按钮开关式切换）；取消 OAuth 立即关闭认证弹窗不再展示已取消终态
+- context: 用户连续反馈认证弹窗的等待/取消语义噪音；用户并行做了工具栏固定重构需在其基础上收尾
+- decision: API Key 走直连 setCredential 内联输入框；交互式 AgentAuthDialog 仅保留给多步 OAuth；等待态 10 分钟自动过期
+- modified:
+  - `src/renderer/src/components/workbench/agent/AgentProviderSettings.tsx`
+  - `src/renderer/src/pages/SettingsPage.tsx`
+  - `src/renderer/src/store/agentSessionStore.ts`
+  - `src/main/services/ProviderAuthController.ts`
+  - `src/main/services/AgentSessionService.ts`
+  - `src/renderer/src/components/workbench/agent/AgentAuthDialog.tsx`
+
+### 00:29 | Codex CLI
+
+- done: 统一设置页命令行集成与关于更新区域的操作按钮样式
+- context: 按截图反馈修正 CLI 配置按钮视觉混乱问题，保留目录入口的按钮形态并复用外链图标
+- decision: 复制安装命令、复制调用命令、打开目录和检查更新统一为 h-9 rounded-lg 次按钮，文字统一 text-label，打开目录使用 open_in_new 图标
+- modified:
+  - `src/renderer/src/components/CliIntegrationSection.tsx`
+  - `src/renderer/src/components/AboutSection.tsx`
+
+### 00:27 | Codex
+
+- done: 制作设置页宽屏布局对比原型 HTML:以 1:1 真实尺寸复刻四种业界方案(窄列居中现状/限宽通栏/描述+内容双列/通栏不限宽),含实时宽度占用统计条、方案 A 留白红色标注、方案 D 标签-控件距离标注,附横向对比表与落地清单(推荐 B:SettingsPage 容器 max-w-3xl 居中改 max-w-6xl 左对齐),已用无头 Edge 截图逐区块验证渲染
+- added:
+  - `docs/prototypes/settings-layout-comparison.html`
+- lesson: edge 无头截图在沙箱内因 GPU 进程拦截失败,需提权运行;--screenshot 配合 --window-size 超大高度可截整页长图,System.Drawing 可按区域裁剪分块检查
+
+### 00:24 | Codex
+
+- done: Agent 配置页重构为固定头部布局：AgentProviderSettings 拆分为 useAgentProviderSettingsState 状态 hook + AgentProviderToolbar + AgentProviderContent + 组合形态四个导出；设置页 Agent 分页改为独立 flex 列（固定头部=SectionHeader+搜索/刷新额度/添加供应商工具栏，内容区独立滚动含供应商列表与技能目录卡片）；共享滚动容器不再包含 Agent 页；弹窗内组合形态恢复原滚动行为，移除了半透明 sticky 吸附方案
+- modified:
+  - `src/renderer/src/components/workbench/agent/AgentProviderSettings.tsx`
+  - `src/renderer/src/pages/SettingsPage.tsx`
+- lesson: sticky+半透明浮层方案被用户否掉后，正确解法是结构性布局（固定头+独立滚动区）；拆分组件时用状态 hook + state 对象整传（ReturnType 推导）可避免大量 props 枚举，组件必须定义在模块级防止重挂载
+
+### 00:07 | Codex
+
+- done: 修复供应商认证弹窗状态指示误导：等待输入阶段不再转圈（改为静态输入图标+输入框自动聚焦），转圈仅表示后台真实处理中
+- context: 用户反馈 API Key 输入时弹窗一直转圈像卡住，实为 waiting 状态也渲染 spinner 导致的语义混淆
+- modified:
+  - `src/renderer/src/components/workbench/agent/AgentAuthDialog.tsx`
+
+### 00:06 | Codex
+
+- done: Agent供应商配置页移除内置订阅供应商名称后的「订阅」徽标（保留「订阅登录」按钮动作文案）
+- context: 界面文案规范：能用视觉样式/状态表达的信息不靠标签堆砌，订阅身份无需重复标记
+- modified:
+  - `src/renderer/src/components/workbench/agent/AgentProviderSettings.tsx`
+
+### 00:04 | Codex
+
+- done: 设置页从连续滚动联动重构为左侧导航分页切换：界面与模式、Agent 配置独立成页；任务与总结/划词工具条/全局快捷键合并为效率页；数据与备份/命令行集成/关于与更新/开发工具合并为系统页；各分区块常驻 DOM（hidden 切换），切页不丢失编辑状态，切页时滚动复位
+- modified:
+  - `src/renderer/src/pages/SettingsPage.tsx`
+- lesson: 语音输入会出现关键词转写错误（AA键=Agent），涉及专有名词时先对照现有代码语义确认再动手
+
+### 00:03 | Codex
+
+- done: Agent配置页简化：Magpie 不再查询/展示额度（本地网关聚合额度由网关自身管理），移除每模型单独配置项（上下文/思考档位覆盖编辑器）及其 IPC/服务/类型链路
+- context: 用户反馈配置页过度复杂：Magpie 额度接口报错无意义；每个模型的 tune 编辑器增加认知负担
+- decision: Magpie 在配额目标层直接跳过；模型规格覆盖功能全链路删除而非仅隐藏 UI，避免死代码
+- modified:
+  - `src/main/services/ProviderQuotaService.ts`
+  - `src/main/services/AgentSessionService.ts`
+  - `src/main/services/modelCatalogEnricher.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/shared/types/agentRuntime.ts`
+  - `src/renderer/src/types/agent.ts`
+  - `src/renderer/src/store/agentSessionStore.ts`
+  - `src/renderer/src/components/workbench/agent/AgentProviderSettings.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentProviderQuotaBar.tsx`
+- removed:
+  - `src/renderer/src/components/workbench/agent/AgentModelSpecEditor.tsx`
+- lesson(promoted): Magpie 是本地聚合网关（127.0.0.1:3425），上游账号凭据与额度由网关自身管理，客户端仅需占位 key 即可连接，无需用户配置 API Key
+
 ## 2026-11-25
+
+### 23:43 | Antigravity
+
+- done: 重构 Agent 供应商配置体验：新增第三方网关模型规格自动补全（pi-ai 内置库 + models.dev 同步 + 手动覆写）、pi 订阅与中转站额度查询服务、常用预设与 curl/环境变量粘贴导入及完整编辑弹窗
+- decision: 仅针对当前 pi-ai 内置订阅类型（openai-codex/openai/github-copilot/kimi-coding/anthropic/xai）、Magpie 网关聚合与主流中转/官方余额接口实现额度查询；list-custom-gateways IPC 剥离 apiKey 避免密钥跨进程泄露
+- added:
+  - `src/shared/config/providerPresets.ts`
+  - `src/main/services/modelCatalogEnricher.ts`
+  - `src/main/services/ProviderQuotaService.ts`
+  - `src/renderer/src/utils/providerPasteParser.ts`
+  - `src/renderer/src/components/workbench/agent/AgentProviderQuotaBar.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentGatewayEditorModal.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentModelSpecEditor.tsx`
+- modified:
+  - `src/shared/types/agentRuntime.ts`
+  - `src/main/services/customGatewayProvider.ts`
+  - `src/main/services/AgentSessionService.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/src/types/agent.ts`
+  - `src/renderer/src/store/agentSessionStore.ts`
+  - `src/renderer/src/components/workbench/agent/AgentProviderSettings.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentModelPicker.tsx`
+
+### 22:47 | Codex
+
+- done: 修复代码编辑器行号 gutter 宽度抖动（三轮）：找到用户实际看的是 WorkbenchCodePreview.tsx 不是 SourceEditor，同步补 formatNumber + 空占位 marker + gitGutter 列固定宽；顺带同步 MindmapMarkdownEditor
+- context: 之前两轮只改了 WorkbenchSourceEditor.tsx（Markdown 源码编辑器），用户实际看的代码文件预览在 WorkbenchCodePreview.tsx，根本没碰。第三轮 CDP 实测发现 ggEl 始终=1（activeLineGutter 而非空占位），意识到改错文件。
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchCodePreview.tsx; src/renderer/src/components/workbench/WorkbenchSourceEditor.tsx; src/renderer/src/components/MindmapMarkdownEditor.tsx`
+- lesson(promoted): 排查 UI bug 时必须确认用户实际看的组件路径：搜索到多个候选时不要假定第一个匹配的就是目标；WorkbenchSourceEditor 是 Markdown 源码编辑、WorkbenchCodePreview 才是看 .ts/.js/.py 等代码文件的 CodeMirror 实例。同名 cm-gitGutter/cm-lineNumbers 在三处独立配置。
+
+### 22:35 | Codex
+
+- done: 修复源码编辑器行号 gutter 宽度抖动（二轮）：补上 gitGutter renderEmptyElements + 固定列宽，配合第一轮 formatNumber 补齐 5 位宽
+- context: 第一轮只改 formatNumber 没修复，因为真正变量是旁边的 cm-gitGutter：视口内无 marker 时该列塌缩导致 .cm-gutters 整体宽度抖动。补 renderEmptyElements:true 让空行也渲染占位元素，并给 .cm-gitGutter 列固定 width:8px + flexShrink:0。
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchSourceEditor.tsx`
+- lesson(promoted): 调试 gutter 宽度类问题时要把所有 gutter 列都考虑进去：.cm-gutters 总宽 = 各列宽度之和，任一列塌缩（renderEmptyElements:false + 视口内无 marker）都会让总宽变化；formatNumber 锁的只是行号列自己的宽度。
+
+### 22:32 | Codex
+
+- done: 修复源码编辑器行号 gutter 宽度抖动：lineNumbers 用 formatNumber + padStart(5, NBSP) 锁死宽度
+- context: CM6 的 lineNumbers gutter 有一个 spacer 元素，按文档行数向上取整到全9数预留最小宽度；滚动/点击时 spacer 重测导致 gutter 宽度微抖。
+- decision: 用 formatNumber 把行号固定补齐到 5 位宽（不换行空格），gutter 宽度恒定；超过 99999 行才扩一次。
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchSourceEditor.tsx`
+- lesson: CM6 lineNumbers gutter 宽度 = spacer(按 maxLineNumber(9/99/999...) 预留) + 视口内最宽行号 + minWidth；width 固定会让大文件行号被 overflow:hidden 截断，formatNumber+padStart(NBSP) 是更稳的锁宽方式。
 
 ### 22:26 | Codex
 
@@ -5862,138 +6257,4 @@
 - modified:
   - `electron.vite.config.ts`
 - lesson: Windows 下 Hyper-V/WSL/WinNAT 动态排除端口范围（如 5141-5240）会导致 Vite 默认 5173 绑定报错 EACCES: permission denied；在 electron.vite.config.ts 中将 renderer.server.port 避开该区间（如 5300）并指定 host 127.0.0.1 即可彻底解决
-
-## 2026-11-19
-
-### 23:43 | Antigravity
-
-- done: 实现工作台本地Markdown知识库功能（Obsidian式文件树、三栏布局、Meta Lexical富文本编辑器、AI侧边栏与划词右键提问）
-- decision: 采用Meta Lexical作为Markdown富文本内核配合YAML Frontmatter保留管道；工作台顶层容器挂载彻底隔离MainPage底部ControlBar；右侧复用WebviewCard并打通划词注入
-- added:
-  - `docs/workbench_product_spec.md`
-  - `src/main/services/workbenchService.ts`
-  - `src/shared/types/workbench.ts`
-  - `src/renderer/src/store/workbenchStore.ts`
-  - `src/renderer/src/pages/WorkbenchPage.tsx`
-  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
-  - `src/renderer/src/components/workbench/WorkbenchSearch.tsx`
-  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
-  - `src/renderer/src/components/workbench/WorkbenchToolbar.tsx`
-  - `src/renderer/src/components/workbench/MarkdownSyncPlugin.tsx`
-  - `src/renderer/src/components/workbench/WorkbenchSelectionMenuPlugin.tsx`
-  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
-- modified:
-  - `package.json`
-  - `package-lock.json`
-  - `src/main/ipcHandlers.ts`
-  - `src/preload/index.ts`
-  - `src/renderer/src/App.tsx`
-  - `src/renderer/src/components/Layout.tsx`
-  - `src/renderer/src/components/CustomContextMenu.tsx`
-  - `src/shared/types/history.ts`
-
-### 23:42 | Antigravity
-
-- done: Conduct Phase 3 Acceptance Verification for Workbench feature
-- decision: Acceptance Verification PASSED: verified Layout entry, 3-column layout, Lexical kernel, YAML frontmatter preservation, auto-save, scoped AI contextual menu, isolated WebviewCard sidebar, assertSafePath realpath symlink defense, clean lint/build.
-- added:
-  - `docs/workbench_product_spec.md`
-  - `src/main/services/workbenchService.ts`
-  - `src/shared/types/workbench.ts`
-  - `src/renderer/src/store/workbenchStore.ts`
-  - `src/renderer/src/pages/WorkbenchPage.tsx`
-  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
-  - `src/renderer/src/components/workbench/WorkbenchSearch.tsx`
-  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
-  - `src/renderer/src/components/workbench/WorkbenchToolbar.tsx`
-  - `src/renderer/src/components/workbench/MarkdownSyncPlugin.tsx`
-  - `src/renderer/src/components/workbench/WorkbenchSelectionMenuPlugin.tsx`
-  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
-- modified:
-  - `src/renderer/src/components/Layout.tsx`
-  - `src/renderer/src/App.tsx`
-  - `src/main/ipcHandlers.ts`
-  - `src/preload/index.ts`
-  - `src/renderer/src/components/CustomContextMenu.tsx`
-  - `src/shared/types/history.ts`
-  - `package.json`
-  - `package-lock.json`
-
-### 23:36 | Antigravity
-
-- done: Implement MultiChat Desk Workbench UI, Lexical editor, Obsidian-like file tree, search, and AI Webview sidebar
-- decision: Decoupled WorkbenchPage in App.tsx with display:none to isolate ControlBar and chat monitors; preserved YAML frontmatter during Lexical AST sync; reused WebviewCard with isolated=true and unique instance ID
-- added:
-  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
-  - `src/renderer/src/components/workbench/WorkbenchSearch.tsx`
-  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
-  - `src/renderer/src/components/workbench/WorkbenchToolbar.tsx`
-  - `src/renderer/src/components/workbench/MarkdownSyncPlugin.tsx`
-  - `src/renderer/src/components/workbench/WorkbenchSelectionMenuPlugin.tsx`
-  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
-  - `src/renderer/src/pages/WorkbenchPage.tsx`
-  - `src/renderer/src/store/workbenchStore.ts`
-- modified:
-  - `src/renderer/src/App.tsx`
-  - `src/renderer/src/components/Layout.tsx`
-  - `src/renderer/src/components/CustomContextMenu.tsx`
-  - `src/shared/types/history.ts`
-
-### 23:24 | Antigravity
-
-- done: 实现工作台 (Workbench) 共享类型、文件系统服务与安全校验、IPC 处理器与 Preload 桥接
-- decision: IPC 支持对象与位置参数双重解构，兼容多种前端调用风格；Preload 同时暴露 api.workbench 命名空间与扁平别名；文件路径校验严格比对 realpath 双向解析以彻底阻断符号链接逃逸
-- added:
-  - `src/shared/types/workbench.ts`
-  - `src/main/services/workbenchService.ts`
-- modified:
-  - `src/main/ipcHandlers.ts`
-  - `src/preload/index.ts`
-
-### 23:13 | Antigravity
-
-- done: 根据评审意见修订工作台(Workbench)设计规范
-- decision: 在设计规范中完善realpath软链接防范、Frontmatter保护、App.tsx顶层挂载隔离、切文件脏数据保护、搜索300ms防抖与序列锁、右键菜单编辑器作用域隔离以及生产依赖审批说明
-- modified:
-  - `docs/workbench_product_spec.md`
-
-### 23:06 | Antigravity
-
-- done: 编写工作台(Workbench)产品与技术设计规范
-- decision: 采用Meta Lexical作为Markdown知识库编辑内核，三栏布局无缝复用WebviewCard与共享Session，主进程实现assertSafePath严格防范路径遍历
-- added:
-  - `docs/workbench_product_spec.md`
-
-### 21:37 | Codex
-
-- done: 修正 Client Hints 品牌一致性：sec-ch-ua 改用 Electron 实际发送的 Not/A)Brand+Chromium，与 navigator.userAgentData.brands 保持同源，避免请求头与页面 JS 品牌矛盾
-- context: 用户要求按最小方案实施浏览器伪装补强
-- decision: 只用 Electron 自身真实品牌值补齐主文档缺失的 Client Hints，不伪造 Google Chrome 品牌，避免引入跨层不一致
-- modified:
-  - `src/main/webviewManager.ts`
-- lesson: 伪造 Client Hints 时必须与 navigator.userAgentData.brands 同源：把 Google Chrome 写进 sec-ch-ua 而 JS 层只有 Chromium 会制造新矛盾；Electron 的 getHighEntropyValues 内部不读被覆盖的 brands，页面级 patch 不可靠
-- unresolved: window.chrome 空对象与 outerWidth/innerWidth 差值未处理；未在 npm run dev 真实站点端到端验证
-
-### 21:34 | Codex
-
-- done: 重建共享 Session 标准 Chrome UA 并补齐主文档 Client Hints，消除 Electron 指纹中的 UA 应用名泄漏与 sec-ch-ua 缺失
-- context: 用户询问浏览器伪装是否可能被识别为 Electron，先做审计后用独立 worker 复核并查外部文档，最终按'先补 sec-ch-ua、再重建 UA'的顺序实施
-- decision: 只改主进程 setupSharedSessionUserAgent，不动渲染层与 preload；不引入 window.chrome shim 等 stealth 手段，避免过度工程化
-- modified:
-  - `src/main/webviewManager.ts`
-- lesson: Electron 默认 UA 为 <平台段> <应用名>/<版本> Chrome/x Electron/x Safari/x，只删 Electron/ 仍留应用名 token，需整段重建；主文档导航请求默认不发 Client Hints，可用 session.webRequest.onBeforeSendHeaders 按 mainFrame/subFrame 补齐，子资源请求本身会发需判重避免覆盖
-- unresolved: 未在 npm run dev 中做真实站点端到端验证；window.chrome 空对象与 outerWidth/innerWidth 差值未处理
-
-### 15:56 | Codex
-
-- done: 审核 1.3.1 CHANGELOG 并修正 4 处过度承诺表述
-- context: 发版前审核：原生下载按钮改为'优先点击+兜底提取'，引导卡片补 PATH 前提，日期更新为实际发布日
-- modified:
-  - `CHANGELOG.md`
-
-### 00:12 | Codex
-
-- done: 按新模板简化 Agent Skill 安装指引文案：路径由运行时解析、去掉硬编码 .agents/skills 与 POSIX 家目录写法，天然兼容 macOS
-- modified:
-  - `src/renderer/src/utils/cliGuide.ts`
 
