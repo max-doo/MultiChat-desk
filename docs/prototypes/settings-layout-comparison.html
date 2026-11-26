@@ -1,0 +1,1002 @@
+<!DOCTYPE html>
+<!-- Created: 2026-11-26 00:15 (Asia/Shanghai) -->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>设置页宽屏布局对比 · MultiChat</title>
+<style>
+  * { box-sizing: border-box; -webkit-font-smoothing: antialiased; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    font-family: Roboto, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+    background: #eef1f6;
+    color: #1f2937;
+    font-size: 14px;
+    line-height: 1.55;
+  }
+
+  :root {
+    --primary: #3b82f6;
+    --tp: #1f2937;
+    --ts: #6b7280;
+    --card-border: rgba(255, 255, 255, .7);
+    --app-bg:
+      radial-gradient(1100px 620px at 88% 108%, rgba(255, 200, 218, .45), transparent 62%),
+      radial-gradient(820px 520px at 58% 112%, rgba(255, 245, 214, .5), transparent 58%),
+      radial-gradient(900px 640px at 102% -6%, rgba(210, 232, 255, .35), transparent 60%),
+      #fcfdff;
+  }
+
+  .ic { width: 16px; height: 16px; flex-shrink: 0; display: inline-block; vertical-align: middle; }
+
+  /* ============ 页面框架 ============ */
+  .topbar {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    height: 52px; display: flex; align-items: center; gap: 18px;
+    padding: 0 28px;
+    background: rgba(255, 255, 255, .82);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid rgba(15, 23, 42, .07);
+  }
+  .topbar .brand { font-weight: 700; font-size: 15px; letter-spacing: .2px; white-space: nowrap; }
+  .topbar nav { display: flex; gap: 4px; flex-wrap: wrap; }
+  .topbar nav a {
+    text-decoration: none; color: var(--ts); font-size: 12.5px; font-weight: 500;
+    padding: 5px 11px; border-radius: 8px; transition: all .15s; white-space: nowrap;
+  }
+  .topbar nav a:hover { background: rgba(59, 130, 246, .09); color: var(--primary); }
+  .topbar nav a.hot { color: var(--primary); background: rgba(59, 130, 246, .1); }
+
+  .wrap { max-width: 2400px; margin: 0 auto; padding: 52px 28px 40px; }
+
+  /* ============ 引言 ============ */
+  .intro { padding: 34px 6px 8px; max-width: 1080px; }
+  .intro h1 { font-size: 26px; margin: 0 0 6px; letter-spacing: -.3px; }
+  .intro .sub { color: var(--ts); font-size: 13.5px; margin: 0 0 4px; }
+  .intro .meta { color: #9ca3af; font-size: 11.5px; margin: 0 0 26px; }
+  .intro .sub b { color: var(--tp); }
+
+  .bars { display: flex; flex-direction: column; gap: 9px; margin: 18px 0 6px; max-width: 900px; }
+  .bar-row { display: flex; align-items: center; gap: 12px; font-size: 12px; }
+  .bar-row .bar-name { width: 178px; flex-shrink: 0; color: var(--tp); font-weight: 500; }
+  .bar-track { flex: 1; height: 16px; background: rgba(15, 23, 42, .055); border-radius: 5px; overflow: hidden; position: relative; }
+  .bar-fill { height: 100%; border-radius: 5px; background: #94a3b8; transition: width .3s ease; min-width: 2px; }
+  .bar-fill.rec { background: var(--primary); }
+  .bar-fill.warn { background: #f0a13c; }
+  .bar-val { width: 110px; flex-shrink: 0; color: var(--ts); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+  .bars-caption { font-size: 11.5px; color: #9ca3af; margin-top: 8px; }
+
+  /* ============ 方案区块 ============ */
+  .variant { scroll-margin-top: 66px; margin-top: 46px; }
+  .v-head { max-width: 1080px; padding: 0 6px; }
+  .v-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .v-title h2 { font-size: 20px; margin: 0; letter-spacing: -.2px; }
+  .v-badge {
+    font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 999px;
+    background: rgba(15, 23, 42, .07); color: var(--ts);
+  }
+  .v-badge.rec { background: var(--primary); color: #fff; }
+  .v-refs { font-size: 12.5px; color: var(--ts); margin: 6px 0 0; }
+  .v-refs b { color: var(--tp); font-weight: 600; }
+  .v-stats { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  .stat-chip {
+    font-size: 11.5px; color: var(--ts); background: rgba(255, 255, 255, .75);
+    border: 1px solid rgba(15, 23, 42, .07); border-radius: 7px; padding: 3px 10px;
+    font-variant-numeric: tabular-nums;
+  }
+  .stat-chip b { color: var(--tp); font-weight: 600; }
+  .v-proscons { display: flex; gap: 26px; margin-top: 12px; flex-wrap: wrap; }
+  .v-proscons .pc { flex: 1 1 340px; max-width: 560px; }
+  .pc h4 { margin: 0 0 4px; font-size: 12px; font-weight: 600; color: var(--ts); letter-spacing: .4px; }
+  .pc ul { margin: 0; padding-left: 17px; }
+  .pc li { font-size: 13px; color: var(--tp); margin: 2px 0; }
+  .pc.cons li { color: #57534e; }
+
+  /* ============ 模拟应用窗口 ============ */
+  .win {
+    margin-top: 20px;
+    border-radius: 14px;
+    overflow: hidden;
+    border: 1px solid rgba(15, 23, 42, .1);
+    box-shadow: 0 18px 55px -18px rgba(30, 41, 59, .28), 0 4px 14px -6px rgba(30, 41, 59, .12);
+    background: #fcfdff;
+  }
+  .titlebar {
+    height: 38px; display: flex; align-items: center; gap: 8px;
+    padding: 0 12px 0 14px;
+    background: rgba(255, 255, 255, .65);
+    border-bottom: 1px solid rgba(15, 23, 42, .06);
+    user-select: none;
+  }
+  .tb-back { display: flex; align-items: center; gap: 5px; color: var(--tp); font-size: 12.5px; font-weight: 500; }
+  .tb-back .ic { width: 14px; height: 14px; }
+  .tb-spacer { flex: 1; }
+  .tb-btns { display: flex; gap: 14px; align-items: center; color: #6b7280; }
+  .tb-btns svg { width: 13px; height: 13px; }
+
+  .app { display: flex; background: var(--app-bg); }
+
+  /* --- 侧边导航 --- */
+  .sidebar {
+    width: 238px; flex-shrink: 0;
+    border-right: 1px solid rgba(0, 0, 0, .05);
+    padding: 12px 12px 20px 20px;
+    display: flex; flex-direction: column;
+    user-select: none;
+  }
+  .sidebar h3 { font-size: 24px; font-weight: 700; margin: 4px 0 16px 4px; letter-spacing: -.3px; }
+  .snav { display: flex; flex-direction: column; gap: 4px; }
+  .snav-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px; border-radius: 9px;
+    font-size: 14px; color: var(--tp);
+  }
+  .snav-item .ic { color: var(--ts); width: 17px; height: 17px; }
+  .snav-item.active { background: rgba(255, 255, 255, .9); box-shadow: 0 1px 4px rgba(15, 23, 42, .08); font-weight: 500; }
+  .snav-item.active .ic { color: var(--primary); }
+  .sidebar-foot { margin-top: auto; display: flex; align-items: center; gap: 8px; padding: 8px 8px 0; font-size: 12px; color: var(--ts); font-weight: 500; }
+  .logo-dot {
+    width: 18px; height: 18px; border-radius: 5px;
+    background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+    display: inline-block;
+  }
+
+  /* --- 内容滚动区 --- */
+  .scroll { flex: 1; min-width: 0; padding: 12px 40px 26px; position: relative; }
+  .content-head { display: flex; align-items: center; gap: 8px; margin: 6px 0 14px; }
+  .content-head .ch-icon {
+    width: 28px; height: 28px; border-radius: 8px;
+    background: rgba(59, 130, 246, .1); color: var(--primary);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .content-head .ch-icon .ic { width: 15px; height: 15px; }
+  .content-head h4 { font-size: 19px; font-weight: 600; margin: 0; }
+  .sec-space > * + * { margin-top: 16px; }
+
+  /* 布局差异核心:容器宽度与对齐 */
+  .inner { position: relative; }
+  .win-a .inner { max-width: 768px; margin: 0 auto; }
+  .win-b .inner { max-width: 1152px; margin: 0; }
+  .win-b1 .inner { max-width: 1152px; margin: 0; }
+  .win-b2 .inner { max-width: 1152px; margin: 0; }
+  .win-c .inner { max-width: 1400px; margin: 0; }
+  .win-d .inner { max-width: none; margin: 0; }
+
+  /* --- 卡片 --- */
+  .glass {
+    background: rgba(255, 255, 255, .62);
+    border: 1px solid rgba(255, 255, 255, .75);
+    border-radius: 12px;
+    padding: 15px 16px;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, .04);
+  }
+  .card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+  .card-title-group { display: flex; align-items: baseline; gap: 10px; min-width: 0; flex-wrap: wrap; }
+  .card-title { font-size: 14px; font-weight: 500; color: var(--tp); white-space: nowrap; }
+  .card-sub { font-size: 11px; color: var(--ts); white-space: nowrap; }
+  .count-pill {
+    font-size: 10px; color: var(--ts); border: 1px solid rgba(255, 255, 255, .7);
+    background: rgba(255, 255, 255, .55); border-radius: 999px; padding: 2px 8px;
+  }
+  .head-right { display: flex; align-items: center; gap: 14px; flex-shrink: 0; }
+  .legend { display: flex; align-items: center; gap: 12px; font-size: 11px; color: var(--ts); }
+  .legend span { display: inline-flex; align-items: center; gap: 4px; }
+  .legend .ic { width: 13px; height: 13px; }
+  .reset-btn {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 12px; font-weight: 500; color: var(--ts);
+    padding: 5px 10px; border-radius: 8px; border: none; background: transparent; cursor: default;
+    font-family: inherit;
+  }
+  .reset-btn .ic { width: 13px; height: 13px; }
+
+  /* --- 模式入口卡片 --- */
+  .entries-grid { display: grid; gap: 8px; user-select: none; grid-template-columns: repeat(4, 1fr); }
+  @media (max-width: 1024px) { .entries-grid { grid-template-columns: repeat(2, 1fr); } }
+  .ecard {
+    display: flex; flex-direction: column; gap: 5px;
+    border: 1px solid rgba(255, 255, 255, .7);
+    background: rgba(255, 255, 255, .55);
+    border-radius: 9px; padding: 10px 12px;
+    min-width: 0;
+  }
+  .ecard.is-hidden { opacity: .55; }
+  .ecard-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+  .ecard-name { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .ic-drag { width: 13px; height: 13px; color: #c4c9d1; }
+  .eicon { color: var(--primary); display: inline-flex; }
+  .eicon.dim { color: #9ca3af; }
+  .eicon .ic { width: 15px; height: 15px; }
+  .elabel { font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .edesc { font-size: 11px; color: var(--ts); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .eyebtn {
+    width: 26px; height: 26px; border-radius: 999px; border: none; background: transparent;
+    display: inline-flex; align-items: center; justify-content: center; cursor: default; padding: 0;
+    color: var(--primary); flex-shrink: 0;
+  }
+  .eyebtn.off { color: #9ca3af; }
+  .eyebtn .ic { width: 15px; height: 15px; }
+
+  /* --- 模型列表 --- */
+  .mrows { position: relative; border-radius: 8px; overflow: visible; }
+  .mrow {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 7px 12px;
+    border-bottom: 1px solid rgba(15, 23, 42, .045);
+  }
+  .mrow:last-child { border-bottom: none; }
+  .mleft { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .mavatar {
+    width: 20px; height: 20px; border-radius: 6px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-size: 10px; font-weight: 700;
+  }
+  .mname { font-size: 14px; color: var(--tp); white-space: nowrap; }
+  .mactions { display: flex; align-items: center; gap: 5px; flex-shrink: 0; margin-left: 24px; }
+  .capbtn {
+    width: 24px; height: 24px; border-radius: 7px; border: none; background: transparent;
+    display: inline-flex; align-items: center; justify-content: center;
+    color: #94a3b8; padding: 0; cursor: default;
+  }
+  .capbtn .ic { width: 14px; height: 14px; }
+
+  /* --- 方案 C:描述+内容双列 --- */
+  .block { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 30px; }
+  .block + .block { margin-top: 34px; }
+  .rail { position: sticky; top: 12px; align-self: start; padding-top: 2px; }
+  .rail h5 { font-size: 15px; font-weight: 600; margin: 0 0 5px; }
+  .rail p { font-size: 12px; color: var(--ts); margin: 0 0 10px; line-height: 1.65; }
+  .rail .rail-meta { display: flex; flex-direction: column; gap: 4px; }
+  .rail .rail-meta span {
+    font-size: 11px; color: var(--ts); display: inline-flex; align-items: center; gap: 6px;
+  }
+  .rail .rail-meta span::before {
+    content: ""; width: 4px; height: 4px; border-radius: 99px; background: #c0c6d1; flex-shrink: 0;
+  }
+  .win-c .card-head.minimal { justify-content: flex-end; margin-bottom: 10px; }
+
+  /* --- 方案 D:斑马纹补偿演示 --- */
+  .win-d .mrow:nth-child(even) { background: rgba(15, 23, 42, .028); }
+
+  /* --- 方案 B1:Windows 范式 hover 行关联补偿 --- */
+  .win-b1 .mrow:hover { background: rgba(59, 130, 246, .045); }
+
+  /* --- 方案 B2:操作组紧邻名称 --- */
+  .win-b2 .mrow { justify-content: flex-start; }
+  .win-b2 .mactions { margin-left: 14px; }
+
+  /* --- 注解 --- */
+  .gutter {
+    position: absolute; top: 0; display: flex; align-items: center; justify-content: center;
+    background: repeating-linear-gradient(-45deg, rgba(239, 68, 68, .045) 0 7px, transparent 7px 14px);
+    outline: 1px dashed rgba(239, 68, 68, .35);
+    outline-offset: -1px;
+    border-radius: 4px;
+    z-index: 5; pointer-events: none;
+  }
+  .gutter span {
+    transform: rotate(90deg); white-space: nowrap;
+    font-size: 11px; font-weight: 600; color: rgba(220, 38, 38, .75); letter-spacing: 1px;
+    font-variant-numeric: tabular-nums;
+  }
+  .gutter.g-left { left: 0; }
+  .gutter.g-right { right: 0; }
+
+  .eye-badge {
+    position: absolute; z-index: 6; pointer-events: none;
+    display: flex; align-items: center; gap: 6px;
+    font-size: 11px; font-weight: 600; color: #b45309;
+    background: rgba(255, 251, 235, .95); border: 1px solid rgba(217, 119, 6, .35);
+    border-radius: 8px; padding: 4px 9px;
+    box-shadow: 0 4px 12px -4px rgba(180, 83, 9, .25);
+    white-space: nowrap;
+  }
+  .eye-badge::before {
+    content: ""; position: absolute; top: -5px; right: 26px; width: 8px; height: 8px;
+    background: inherit; border-left: 1px solid rgba(217, 119, 6, .35); border-top: 1px solid rgba(217, 119, 6, .35);
+    transform: rotate(45deg);
+  }
+  .eye-badge svg { width: 15px; height: 3px; flex-shrink: 0; }
+
+  /* ============ 对比表与结论 ============ */
+  .tablewrap { scroll-margin-top: 66px; margin-top: 52px; max-width: 1200px; padding: 0 6px; }
+  .tablewrap h2, .conclusion h2 { font-size: 20px; margin: 0 0 14px; letter-spacing: -.2px; }
+  table { width: 100%; border-collapse: collapse; background: rgba(255, 255, 255, .8); border-radius: 12px; overflow: hidden; box-shadow: 0 1px 4px rgba(15, 23, 42, .06); font-size: 13px; }
+  th, td { text-align: left; padding: 11px 16px; border-bottom: 1px solid rgba(15, 23, 42, .06); vertical-align: top; }
+  th { background: rgba(248, 250, 252, .9); font-size: 12px; color: var(--ts); font-weight: 600; letter-spacing: .3px; }
+  tr:last-child td { border-bottom: none; }
+  td .cell-title { font-weight: 600; display: block; margin-bottom: 1px; }
+  td .cell-sub { font-size: 11.5px; color: var(--ts); }
+  tr.hl td { background: rgba(59, 130, 246, .05); }
+  tr.hl td:first-child { box-shadow: inset 3px 0 0 var(--primary); }
+
+  .conclusion { scroll-margin-top: 66px; margin: 52px 0 30px; max-width: 1200px; padding: 0 6px; }
+  .concl-card {
+    background: rgba(255, 255, 255, .85); border-radius: 14px; padding: 22px 26px;
+    box-shadow: 0 1px 4px rgba(15, 23, 42, .06); border: 1px solid rgba(59, 130, 246, .15);
+  }
+  .concl-card p { margin: 0 0 10px; font-size: 13.5px; line-height: 1.75; }
+  .concl-card ol { margin: 8px 0 0; padding-left: 20px; }
+  .concl-card li { font-size: 13.5px; margin: 5px 0; line-height: 1.7; }
+  .concl-card code {
+    font-family: Consolas, "JetBrains Mono", monospace; font-size: 12px;
+    background: rgba(59, 130, 246, .08); color: #1d4ed8; padding: 1.5px 6px; border-radius: 5px;
+  }
+
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, .15); border-radius: 99px; }
+
+  @media (max-width: 1100px) {
+    .sidebar { width: 190px; }
+    .scroll { padding: 12px 24px 24px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ============ SVG 图标库 ============ -->
+<svg style="display:none" xmlns="http://www.w3.org/2000/svg">
+  <symbol id="i-drag" viewBox="0 0 24 24" fill="currentColor">
+    <circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/>
+    <circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/>
+    <circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/>
+  </symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>
+  </symbol>
+  <symbol id="i-eyeoff" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/><line x1="3" y1="3" x2="21" y2="21"/>
+  </symbol>
+  <symbol id="i-rocket" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 00-2.91-.09z"/>
+    <path d="M12 15l-3-3a22 22 0 012-3.95A12.88 12.88 0 0122 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 01-4 2z"/>
+    <path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"/><path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/>
+  </symbol>
+  <symbol id="i-image" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-3.1-3.1a2 2 0 00-2.8 0L6 21"/>
+  </symbol>
+  <symbol id="i-reset" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3 12a9 9 0 109-9 9.4 9.4 0 00-6.7 2.8L3 8"/><path d="M3 3v5h5"/>
+  </symbol>
+  <symbol id="i-grid" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/>
+    <rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>
+  </symbol>
+  <symbol id="i-work" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="2.5" y="7" width="19" height="13" rx="2"/><path d="M8.5 7V5a2 2 0 012-2h3a2 2 0 012 2v2"/><path d="M2.5 12.5h19"/>
+  </symbol>
+  <symbol id="i-tree" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="4.5" r="2.2"/><circle cx="5" cy="19.5" r="2.2"/><circle cx="19" cy="19.5" r="2.2"/>
+    <path d="M12 6.7v4.8m0 0l-6.2 6m6.2-6l6.2 6"/>
+  </symbol>
+  <symbol id="i-gavel" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="10.5" y="3.2" width="6.5" height="4.6" rx="1" transform="rotate(45 13.75 5.5)"/>
+    <path d="M9.7 9.7L3.2 19.4"/><path d="M2 21.5h7"/>
+  </symbol>
+  <symbol id="i-monitor" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="2.5" y="4" width="19" height="13" rx="2"/><path d="M8.5 21h7M12 17v4"/>
+  </symbol>
+  <symbol id="i-robot" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="4" y="8.5" width="16" height="11.5" rx="2.5"/><path d="M12 8.5V5"/><circle cx="12" cy="3.8" r="1.1"/>
+    <circle cx="9" cy="13.5" r="1.1" fill="currentColor" stroke="none"/><circle cx="15" cy="13.5" r="1.1" fill="currentColor" stroke="none"/>
+    <path d="M9 17h6"/><path d="M4 12H2.5M21.5 12H20"/>
+  </symbol>
+  <symbol id="i-speed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4 15a8 8 0 1116 0"/><path d="M12 15l4.2-4.2"/><path d="M3.5 19.5h17"/>
+  </symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12.22 2h-.44a2 2 0 00-2 2v.18a2 2 0 01-1 1.73l-.43.25a2 2 0 01-2 0l-.15-.08a2 2 0 00-2.73.73l-.22.38a2 2 0 00.73 2.73l.15.1a2 2 0 011 1.72v.51a2 2 0 01-1 1.74l-.15.09a2 2 0 00-.73 2.73l.22.38a2 2 0 002.73.73l.15-.08a2 2 0 012 0l.43.25a2 2 0 011 1.73V20a2 2 0 002 2h.44a2 2 0 002-2v-.18a2 2 0 011-1.73l.43-.25a2 2 0 012 0l.15.08a2 2 0 002.73-.73l.22-.39a2 2 0 00-.73-2.73l-.15-.08a2 2 0 01-1-1.74v-.5a2 2 0 011-1.74l.15-.09a2 2 0 00.73-2.73l-.22-.38a2 2 0 00-2.73-.73l-.15.08a2 2 0 01-2 0l-.43-.25a2 2 0 01-1-1.73V4a2 2 0 00-2-2z"/>
+    <circle cx="12" cy="12" r="3"/>
+  </symbol>
+  <symbol id="i-back" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M19 12H5m7-7l-7 7 7 7"/>
+  </symbol>
+  <symbol id="i-measure" viewBox="0 0 40 6" fill="none" stroke="currentColor" stroke-width="1.4">
+    <path d="M1 3h38M1 1v4M39 1v4"/>
+  </symbol>
+</svg>
+
+<!-- ============ 顶栏 ============ -->
+<header class="topbar">
+  <span class="brand">设置页宽屏布局对比</span>
+  <nav>
+    <a href="#v-a">A · 窄列居中(现状)</a>
+    <a href="#v-b">B · 限宽通栏</a>
+    <a href="#v-b1" class="hot">B1 · 右端列 ★</a>
+    <a href="#v-b2">B2 · 紧邻名称</a>
+    <a href="#v-c">C · 描述+内容双列</a>
+    <a href="#v-d">D · 通栏不限宽</a>
+    <a href="#cmp">对比表</a>
+    <a href="#concl">结论</a>
+  </nav>
+</header>
+
+<div class="wrap">
+
+  <!-- ============ 引言 ============ -->
+  <section class="intro">
+    <h1>全屏下的设置页,业界怎么排?</h1>
+    <p class="sub">现状根因:内容列 <b>max-w-3xl(768px)居中</b> —— 为长文阅读设计的排版,用在「行式设置项」上,宽屏必然显空。以下四个方案按真实尺寸与真实内容 1:1 复刻,内容宽度占比随浏览器窗口实时测算,可缩放窗口观察响应式表现。</p>
+    <p class="meta">制作时间 2026-11-26 · 还原对象:设置 → 界面与模式(主页模式入口 + 模型下拉列表)</p>
+    <div class="bars" id="bars">
+      <div class="bar-row"><span class="bar-name">A · 窄列居中(现状)</span><div class="bar-track"><div class="bar-fill" data-barfor="a"></div></div><span class="bar-val" data-valfor="a"></span></div>
+      <div class="bar-row"><span class="bar-name">B / B1 / B2 · 限宽通栏</span><div class="bar-track"><div class="bar-fill rec" data-barfor="b1"></div></div><span class="bar-val" data-valfor="b1"></span></div>
+      <div class="bar-row"><span class="bar-name">C · 描述+内容双列</span><div class="bar-track"><div class="bar-fill" data-barfor="c"></div></div><span class="bar-val" data-valfor="c"></span></div>
+      <div class="bar-row"><span class="bar-name">D · 通栏不限宽</span><div class="bar-track"><div class="bar-fill warn" data-barfor="d"></div></div><span class="bar-val" data-valfor="d"></span></div>
+    </div>
+    <p class="bars-caption">内容区可用宽度的实际占用率(内容列宽 ÷ 窗口减去侧边导航后的可用宽度),随窗口尺寸实时变化。</p>
+  </section>
+
+  <!-- ============ 方案 A ============ -->
+  <section class="variant" id="v-a">
+    <div class="v-head">
+      <div class="v-title">
+        <h2>方案 A · 窄列居中</h2>
+        <span class="v-badge">现状</span>
+      </div>
+      <p class="v-refs">代表产品:<b>Notion、Slack、Linear</b> 等 Web 应用 —— 内容列限宽 640~768px 并居中,接受两侧留白。</p>
+      <div class="v-stats">
+        <span class="stat-chip">内容列宽 <b data-statw="a">—</b></span>
+        <span class="stat-chip">宽度占用 <b data-statp="a">—</b></span>
+        <span class="stat-chip">容器 <b>max-w-3xl · mx-auto</b></span>
+      </div>
+      <div class="v-proscons">
+        <div class="pc"><h4>优势</h4><ul>
+          <li>行长适中,阅读舒适,实现最简单</li>
+          <li>任何窗口尺寸下都不会出错,「安全」</li>
+        </ul></div>
+        <div class="pc cons"><h4>局限</h4><ul>
+          <li>宽屏下大面积留白(见红色标注区),页面显得「空且不紧凑」</li>
+          <li>4 列模式入口被压缩到每列不足 180px,设计意图无法展开</li>
+          <li>已有左侧导航时再居中,形成「双重边距」,空洞感加倍</li>
+        </ul></div>
+      </div>
+    </div>
+    <div class="win win-a" data-variant="a">
+      <div class="titlebar">
+        <span class="tb-back"><svg class="ic"><use href="#i-back"/></svg>返回主页</span>
+        <span class="tb-spacer"></span>
+        <span class="tb-btns">
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M1 6h10"/></svg>
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="1.5" y="1.5" width="9" height="9" rx="1"/></svg>
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M1.5 1.5l9 9M10.5 1.5l-9 9"/></svg>
+        </span>
+      </div>
+      <div class="app">
+        <aside class="sidebar"></aside>
+        <div class="scroll">
+          <div class="gutter g-left" data-gutter="left"><span></span></div>
+          <div class="gutter g-right" data-gutter="right"><span></span></div>
+          <div class="inner" data-layout="a"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 方案 B ============ -->
+  <section class="variant" id="v-b">
+    <div class="v-head">
+      <div class="v-title">
+        <h2>方案 B · 限宽通栏</h2>
+        <span class="v-badge">基线</span>
+        <span class="v-badge">对照组</span>
+      </div>
+      <p class="v-refs">代表产品:<b>Windows 11 设置、JetBrains IDE、macOS 系统设置(宽窗口类)</b> —— 内容左对齐贴住导航,设宽松上限(~1152px),行式排列、控件右对齐。此区块展示未加任何补偿的基线形态,实际落地应选下方的 B1 或 B2 子模式。</p>
+      <div class="v-stats">
+        <span class="stat-chip">内容列宽 <b data-statw="b">—</b></span>
+        <span class="stat-chip">宽度占用 <b data-statp="b">—</b></span>
+        <span class="stat-chip">容器 <b>max-w-6xl · 左对齐</b></span>
+      </div>
+      <div class="v-proscons">
+        <div class="pc"><h4>优势</h4><ul>
+          <li>空间利用与可扫读性平衡最好:行长仍可控,留白减半</li>
+          <li>与现有结构零冲突 —— 核心改动只有容器宽度与对齐方式两行 CSS</li>
+          <li>模式入口 4 列恢复设计意图,每列约 270px 舒展排开</li>
+        </ul></div>
+        <div class="pc cons"><h4>局限</h4><ul>
+          <li>超宽屏(≥2000px)右侧仍有一块留白,但这是业界普遍接受的折中</li>
+          <li>卡片数量少的页面(如系统页)依旧偏空,需靠卡片本身排版消化</li>
+          <li>行首标签与行尾控件的距离需要二选一消解:右端列+hover 高亮(B1)或紧邻名称(B2),裸用本形态不推荐</li>
+        </ul></div>
+      </div>
+    </div>
+    <div class="win win-b" data-variant="b">
+      <div class="titlebar">
+        <span class="tb-back"><svg class="ic"><use href="#i-back"/></svg>返回主页</span>
+        <span class="tb-spacer"></span>
+        <span class="tb-btns">
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M1 6h10"/></svg>
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="1.5" y="1.5" width="9" height="9" rx="1"/></svg>
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M1.5 1.5l9 9M10.5 1.5l-9 9"/></svg>
+        </span>
+      </div>
+      <div class="app">
+        <aside class="sidebar"></aside>
+        <div class="scroll">
+          <div class="inner" data-layout="b"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 方案 B1:右端列对齐 ============ -->
+  <section class="variant" id="v-b1">
+    <div class="v-head">
+      <div class="v-title">
+        <h2>方案 B1 · 限宽通栏 + 控件右端列对齐</h2>
+        <span class="v-badge rec">推荐</span>
+        <span class="v-badge">B 的子模式</span>
+      </div>
+      <p class="v-refs">代表产品:<b>Windows 11 设置、iOS / Android 系统设置</b> —— 所有控件对齐在同一右边缘,配合 hover 行高亮维持行关联。</p>
+      <div class="v-stats">
+        <span class="stat-chip">内容列宽 <b data-statw="b1">—</b></span>
+        <span class="stat-chip">宽度占用 <b data-statp="b1">—</b></span>
+        <span class="stat-chip">容器 <b>max-w-6xl · 控件右端列 · hover 行高亮</b></span>
+      </div>
+      <div class="v-proscons">
+        <div class="pc"><h4>优势</h4><ul>
+          <li>控件 x 坐标恒定,扫过一次后肌肉落点固定,批量操作(连续开/关显隐)效率最高</li>
+          <li>行内图标列形成整齐的纵向「控制列」,视觉秩序感强</li>
+          <li>hover 行高亮后,标签-控件关联由整行容器承担,距离感的负面影响被大幅削弱</li>
+        </ul></div>
+        <div class="pc cons"><h4>局限</h4><ul>
+          <li>短标签行首与控件间仍有约 900px 空档,需要 hover 行高亮补偿(静态观感上最显「远」)</li>
+          <li>「距离」主要靠使用习惯消解,第一眼不如 B2 直觉</li>
+        </ul></div>
+      </div>
+    </div>
+    <div class="win win-b1" data-variant="b1">
+      <div class="titlebar">
+        <span class="tb-back"><svg class="ic"><use href="#i-back"/></svg>返回主页</span>
+        <span class="tb-spacer"></span>
+        <span class="tb-btns">
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M1 6h10"/></svg>
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="1.5" y="1.5" width="9" height="9" rx="1"/></svg>
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M1.5 1.5l9 9M10.5 1.5l-9 9"/></svg>
+        </span>
+      </div>
+      <div class="app">
+        <aside class="sidebar"></aside>
+        <div class="scroll">
+          <div class="inner" data-layout="b1"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 方案 B2:操作组紧邻名称 ============ -->
+  <section class="variant" id="v-b2">
+    <div class="v-head">
+      <div class="v-title">
+        <h2>方案 B2 · 限宽通栏 + 操作组紧邻名称</h2>
+        <span class="v-badge">B 的子模式</span>
+      </div>
+      <p class="v-refs">代表产品:<b>Chrome 设置部分页面、Web 紧凑管理列表</b> —— 操作组跟在名称后面,标签与控件零距离。</p>
+      <div class="v-stats">
+        <span class="stat-chip">内容列宽 <b data-statw="b2">—</b></span>
+        <span class="stat-chip">宽度占用 <b data-statp="b2">—</b></span>
+        <span class="stat-chip">容器 <b>max-w-6xl · 操作组紧跟名称</b></span>
+      </div>
+      <div class="v-proscons">
+        <div class="pc"><h4>优势</h4><ul>
+          <li>标签与控件距离最小(≈14px),零错行风险,第一眼最直觉</li>
+          <li>不需要任何斑马纹/hover 补偿</li>
+        </ul></div>
+        <div class="pc cons"><h4>局限</h4><ul>
+          <li>每行操作组 x 坐标漂移(名称长短不一),13 行没有任何两行对齐,批量操作要逐行重新瞄准</li>
+          <li>行右侧留出一条没有信息的长空白 —— 列表并未因此变紧凑,只是空白换了位置</li>
+          <li>控件挤在左半区,与拖拽把手、logo 混在一起,视觉噪音集中在同一区域</li>
+        </ul></div>
+      </div>
+    </div>
+    <div class="win win-b2" data-variant="b2">
+      <div class="titlebar">
+        <span class="tb-back"><svg class="ic"><use href="#i-back"/></svg>返回主页</span>
+        <span class="tb-spacer"></span>
+        <span class="tb-btns">
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M1 6h10"/></svg>
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="1.5" y="1.5" width="9" height="9" rx="1"/></svg>
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M1.5 1.5l9 9M10.5 1.5l-9 9"/></svg>
+        </span>
+      </div>
+      <div class="app">
+        <aside class="sidebar"></aside>
+        <div class="scroll">
+          <div class="inner" data-layout="b2"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 方案 C ============ -->
+  <section class="variant" id="v-c">
+    <div class="v-head">
+      <div class="v-title">
+        <h2>方案 C · 描述 + 内容双列</h2>
+        <span class="v-badge">重构级</span>
+      </div>
+      <p class="v-refs">代表产品:<b>Vercel、新版 GitHub 设置</b> —— 左列 sticky 的区块说明,右列配置卡片;说明文字从卡片头部剥离,形成稳定的信息架构。</p>
+      <div class="v-stats">
+        <span class="stat-chip">内容列宽 <b data-statw="c">—</b></span>
+        <span class="stat-chip">宽度占用 <b data-statp="c">—</b></span>
+        <span class="stat-chip">容器 <b>max-w-[1400px] · 250px 描述栏 + 内容</b></span>
+      </div>
+      <div class="v-proscons">
+        <div class="pc"><h4>优势</h4><ul>
+          <li>宽屏利用率最高,视觉结构层次最清晰</li>
+          <li>说明/规则有了独立位置,卡片头部更干净,内容区更紧凑</li>
+          <li>滚动时 sticky 描述栏提供持续的上下文定位</li>
+        </ul></div>
+        <div class="pc cons"><h4>局限</h4><ul>
+          <li>结构改动最大:每个设置区块都要拆出描述栏,所有页面同步重构</li>
+          <li>说明文字变多,与「界面文案克制」原则存在张力 —— 需要克制地写</li>
+          <li>设置项少时左栏反而显空,把稀疏感从横向转移到纵向</li>
+        </ul></div>
+      </div>
+    </div>
+    <div class="win win-c" data-variant="c">
+      <div class="titlebar">
+        <span class="tb-back"><svg class="ic"><use href="#i-back"/></svg>返回主页</span>
+        <span class="tb-spacer"></span>
+        <span class="tb-btns">
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M1 6h10"/></svg>
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="1.5" y="1.5" width="9" height="9" rx="1"/></svg>
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M1.5 1.5l9 9M10.5 1.5l-9 9"/></svg>
+        </span>
+      </div>
+      <div class="app">
+        <aside class="sidebar"></aside>
+        <div class="scroll">
+          <div class="inner" data-layout="c"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 方案 D ============ -->
+  <section class="variant" id="v-d">
+    <div class="v-head">
+      <div class="v-title">
+        <h2>方案 D · 通栏不限宽</h2>
+        <span class="v-badge">高密度取向</span>
+      </div>
+      <p class="v-refs">代表产品:<b>VS Code 设置、Chrome 设置</b> —— 内容区铺满全部可用宽度,不设上限;靠斑马纹、hover 高亮维持行内视觉关联。</p>
+      <div class="v-stats">
+        <span class="stat-chip">内容列宽 <b data-statw="d">—</b></span>
+        <span class="stat-chip">宽度占用 <b data-statp="d">—</b></span>
+        <span class="stat-chip">容器 <b>无 max-width · 铺满</b></span>
+      </div>
+      <div class="v-proscons">
+        <div class="pc"><h4>优势</h4><ul>
+          <li>信息密度最大,零留白争议</li>
+          <li>表格型设置页(大量同类行)滚动扫描效率高</li>
+        </ul></div>
+        <div class="pc cons"><h4>局限</h4><ul>
+          <li>超宽屏下行首标签与行尾控件距离过远(见标注),视觉关联断裂、易错行</li>
+          <li>必须引入斑马纹或 hover 整行高亮补偿,视觉噪音增加</li>
+          <li>模式入口卡片会被拉得极扁宽,比例失调</li>
+        </ul></div>
+      </div>
+    </div>
+    <div class="win win-d" data-variant="d">
+      <div class="titlebar">
+        <span class="tb-back"><svg class="ic"><use href="#i-back"/></svg>返回主页</span>
+        <span class="tb-spacer"></span>
+        <span class="tb-btns">
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M1 6h10"/></svg>
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="1.5" y="1.5" width="9" height="9" rx="1"/></svg>
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M1.5 1.5l9 9M10.5 1.5l-9 9"/></svg>
+        </span>
+      </div>
+      <div class="app">
+        <aside class="sidebar"></aside>
+        <div class="scroll">
+          <div class="inner" data-layout="d"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 对比表 ============ -->
+  <section class="tablewrap" id="cmp">
+    <h2>横向对比</h2>
+    <table>
+      <thead>
+        <tr><th style="width:170px">方案</th><th style="width:180px">代表产品</th><th>宽屏利用</th><th>可扫读性</th><th>改动成本</th><th>适用判断</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><span class="cell-title">A · 窄列居中</span><span class="cell-sub">现状</span></td>
+          <td>Notion / Slack / Linear</td>
+          <td>低,宽屏大量留白</td>
+          <td>行长舒适</td>
+          <td>—(当前实现)</td>
+          <td>以表单、长文为主的 Web 应用;桌面全屏应用不适用</td>
+        </tr>
+        <tr>
+          <td><span class="cell-title">B · 限宽通栏</span><span class="cell-sub">基线/对照</span></td>
+          <td>Windows 11 设置 / JetBrains</td>
+          <td>高,留白减半且行长可控</td>
+          <td>裸用有距离感,需配合 B1/B2 子模式</td>
+          <td>极小,容器两行 CSS</td>
+          <td>作为 B1/B2 的共同基础,不单独落地</td>
+        </tr>
+        <tr class="hl">
+          <td><span class="cell-title">B1 · 右端列对齐 ★</span><span class="cell-sub">推荐</span></td>
+          <td>Windows 11 / iOS / Android 设置</td>
+          <td>同 B,控制列整齐有序</td>
+          <td>控件落点恒定,hover 行高亮补偿关联</td>
+          <td>小,容器两行 CSS + hover 一行 CSS</td>
+          <td>系统级设置的主流答案;显隐/能力开关这类高频批量操作收益最大</td>
+        </tr>
+        <tr>
+          <td><span class="cell-title">B2 · 紧邻名称</span><span class="cell-sub">B 的子模式</span></td>
+          <td>Chrome 设置部分页 / Web 紧凑列表</td>
+          <td>同 B,但行右侧留一条无信息空白</td>
+          <td>零距离零错行,但控件逐行漂移、无纵向秩序</td>
+          <td>小,控件组左移一处改动</td>
+          <td>低频、行数少的列表;高频批量操作场景不适用</td>
+        </tr>
+        <tr>
+          <td><span class="cell-title">C · 描述+内容双列</span><span class="cell-sub">重构级</span></td>
+          <td>Vercel / 新版 GitHub</td>
+          <td>最高,结构层次分明</td>
+          <td>区块上下文清晰,但文字量上升</td>
+          <td>大,所有设置区块重构</td>
+          <td>设置信息架构复杂、说明需求多的产品;当前规模收益不抵成本</td>
+        </tr>
+        <tr>
+          <td><span class="cell-title">D · 通栏不限宽</span><span class="cell-sub">高密度取向</span></td>
+          <td>VS Code / Chrome</td>
+          <td>100%,零留白</td>
+          <td>超宽屏标签与控件失联,需斑马纹补偿</td>
+          <td>小,但需配套行高/斑马纹设计</td>
+          <td>行数极多的表格型设置;超宽屏下体验有损</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ============ 结论 ============ -->
+  <section class="conclusion" id="concl">
+    <h2>结论与落地清单</h2>
+    <div class="concl-card">
+      <p><b>推荐 B1 作为基底方案。</b>设置内容天然是「行」而非「文章」,居中窄列是为阅读优化的排版,用在设置页上注定显空;Windows 11 设置与移动系统设置的「限宽通栏 + 控件右端列 + hover 行高亮」是桌面端被验证最多的范式。<b>标签-控件距离是通栏行式的固有张力</b>:B1 用恒定落点和 hover 行关联消解它(适合显隐开关这类高频批量操作),若更在意第一眼的直觉距离,B2 紧邻名称是低成本的替代,代价是控件逐行漂移、失去纵向秩序。C 的描述栏思路保留为备选 —— 未来设置项信息架构膨胀(说明、规则、警告增多)时再引入,当前规模属于过度设计。D 的不限宽在 2000px 以上的屏幕上标签与控件距离超过 1800px,视觉关联断裂,不建议。</p>
+      <ol>
+        <li><code>src/renderer/src/pages/SettingsPage.tsx:910</code> —— <code>mx-auto max-w-3xl</code> 改为 <code>max-w-6xl</code> 并去掉居中,这是全部核心改动(B1/B2 共用)。</li>
+        <li>若选 B1:模型行加 <code>hover:bg-primary/5</code> 一类行高亮;若选 B2:把行内操作组从 <code>justify-between</code> 的右端移到名称后(去掉 between 改左排 + 固定间距)。</li>
+        <li>模型行操作区现状已是 <code>justify-between</code> 通栏右对齐,容器变宽后自然落位,无需改动。</li>
+        <li>模式入口 <code>lg:grid-cols-4</code> 在宽容器下恢复设计意图,每列从约 170px 舒展到约 270px,无需改动。</li>
+        <li>可选:宽屏下行距显稀时,模型行 padding 由 <code>py-2</code> 微调至 <code>py-1.5</code> 提升密度。</li>
+      </ol>
+    </div>
+  </section>
+
+</div>
+
+<script>
+/* ============ 数据 ============ */
+const MODELS = [
+  { name: 'ChatGPT',    abbr: 'C',  color: '#10a37f', tags: ['deep', 'img'] },
+  { name: '豆包',       abbr: '豆', color: '#375df9', tags: ['img'] },
+  { name: 'DeepSeek',   abbr: 'DS', color: '#4d6bfe', tags: [] },
+  { name: '元宝',       abbr: '宝', color: '#2fbf71', tags: ['deep', 'img'] },
+  { name: 'Gemini',     abbr: 'G',  color: '#1b72e8', tags: ['deep', 'img'] },
+  { name: 'Grok',       abbr: 'X',  color: '#111111', tags: ['img'] },
+  { name: 'Claude',     abbr: 'Cl', color: '#d97757', tags: [] },
+  { name: 'Perplexity', abbr: 'P',  color: '#22b8cd', tags: ['deep'] },
+  { name: 'Arena',      abbr: 'A',  color: '#7c3aed', tags: [] },
+  { name: '千问',       abbr: '千', color: '#615ced', tags: ['img'] },
+  { name: 'Kimi',       abbr: 'K',  color: '#1f2937', tags: ['deep'] },
+  { name: '智谱清言',   abbr: '智', color: '#3867f6', tags: ['deep', 'img'] },
+  { name: '文心一言',   abbr: '文', color: '#306ef2', tags: ['img'] }
+];
+
+const MODES = [
+  { label: '多AI',    desc: '多平台并排对话',   icon: 'grid',  hidden: false },
+  { label: '工作台',  desc: '知识库与 AI 协同', icon: 'work',  hidden: false },
+  { label: '任务分配', desc: '单 AI 多窗拆解',  icon: 'tree',  hidden: true },
+  { label: '辩论',    desc: '双 AI 对抗辩论',   icon: 'gavel', hidden: true }
+];
+
+/* ============ 渲染函数 ============ */
+function eyeSvg(off) {
+  return '<svg class="ic"><use href="#i-' + (off ? 'eyeoff' : 'eye') + '"/></svg>';
+}
+
+function entriesCardsHTML() {
+  return MODES.map(function (m) {
+    return '' +
+      '<div class="ecard' + (m.hidden ? ' is-hidden' : '') + '">' +
+        '<div class="ecard-top">' +
+          '<div class="ecard-name">' +
+            '<svg class="ic ic-drag"><use href="#i-drag"/></svg>' +
+            '<span class="eicon' + (m.hidden ? ' dim' : '') + '"><svg class="ic"><use href="#i-' + m.icon + '"/></svg></span>' +
+            '<span class="elabel">' + m.label + '</span>' +
+          '</div>' +
+          '<button class="eyebtn' + (m.hidden ? ' off' : '') + '" tabindex="-1">' + eyeSvg(m.hidden) + '</button>' +
+        '</div>' +
+        '<div class="edesc">' + m.desc + '</div>' +
+      '</div>';
+  }).join('');
+}
+
+function modelRowsHTML() {
+  return MODELS.map(function (m) {
+    var caps = m.tags.map(function (t) {
+      return '<button class="capbtn" tabindex="-1"><svg class="ic"><use href="#i-' + (t === 'deep' ? 'rocket' : 'image') + '"/></svg></button>';
+    }).join('');
+    var fs = m.abbr.length > 1 ? '8' : '10';
+    return '' +
+      '<div class="mrow">' +
+        '<div class="mleft">' +
+          '<svg class="ic ic-drag"><use href="#i-drag"/></svg>' +
+          '<span class="mavatar" style="background:' + m.color + ';font-size:' + fs + 'px">' + m.abbr + '</span>' +
+          '<span class="mname">' + m.name + '</span>' +
+        '</div>' +
+        '<div class="mactions">' + caps +
+          '<button class="eyebtn" tabindex="-1">' + eyeSvg(false) + '</button>' +
+        '</div>' +
+      '</div>';
+  }).join('');
+}
+
+function entriesCardHTML(minimal) {
+  return '' +
+    '<div class="glass">' +
+      '<div class="card-head' + (minimal ? ' minimal' : '') + '">' +
+        (minimal ? '' :
+        '<div class="card-title-group">' +
+          '<span class="card-title">主页模式入口</span>' +
+          '<span class="card-sub">拖拽排序 · 至少保留 2 个</span>' +
+        '</div>') +
+        '<button class="reset-btn" tabindex="-1"><svg class="ic"><use href="#i-reset"/></svg>恢复默认</button>' +
+      '</div>' +
+      '<div class="entries-grid">' + entriesCardsHTML() + '</div>' +
+    '</div>';
+}
+
+function modelsCardHTML(withBadge, minimal) {
+  return '' +
+    '<div class="glass">' +
+      '<div class="card-head' + (minimal ? ' minimal' : '') + '">' +
+        (minimal ? '' :
+        '<div class="card-title-group">' +
+          '<span class="card-title">模型下拉列表</span>' +
+          '<span class="card-sub">拖拽排序 · 显隐联动选择器</span>' +
+          '<span class="count-pill">13 / 13 可见</span>' +
+        '</div>') +
+        '<div class="head-right">' +
+          (minimal ? '<span class="count-pill">13 / 13 可见</span>' : '') +
+          '<div class="legend">' +
+            '<span><svg class="ic"><use href="#i-rocket"/></svg>深度研究</span>' +
+            '<span><svg class="ic"><use href="#i-image"/></svg>AI 生图</span>' +
+          '</div>' +
+          '<button class="reset-btn" tabindex="-1"><svg class="ic"><use href="#i-reset"/></svg>恢复默认</button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="mrows">' + modelRowsHTML() +
+        (withBadge ? '<div class="eye-badge" hidden><svg viewBox="0 0 40 6"><use href="#i-measure"/></svg><span class="eb-txt"></span></div>' : '') +
+      '</div>' +
+    '</div>';
+}
+
+function contentHeadHTML() {
+  return '' +
+    '<div class="content-head">' +
+      '<span class="ch-icon"><svg class="ic"><use href="#i-monitor"/></svg></span>' +
+      '<h4>界面与模式</h4>' +
+    '</div>';
+}
+
+function sidebarHTML() {
+  var items = [
+    { label: '界面与模式', icon: 'monitor', active: true },
+    { label: 'Agent 配置', icon: 'robot', active: false },
+    { label: '效率', icon: 'speed', active: false },
+    { label: '系统', icon: 'gear', active: false }
+  ];
+  return '<h3>设置</h3><div class="snav">' +
+    items.map(function (it) {
+      return '<div class="snav-item' + (it.active ? ' active' : '') + '"><svg class="ic"><use href="#i-' + it.icon + '"/></svg>' + it.label + '</div>';
+    }).join('') +
+    '</div><div class="sidebar-foot"><span class="logo-dot"></span>MultiChat</div>';
+}
+
+/* ============ 组装各方案内容 ============ */
+function renderContent(inner) {
+  var layout = inner.getAttribute('data-layout');
+  if (layout === 'c') {
+    inner.innerHTML = contentHeadHTML() +
+      '<div class="block">' +
+        '<div class="rail">' +
+          '<h5>主页模式入口</h5>' +
+          '<p>主页底部切换 AI 模式的入口卡片,可调整顺序或隐藏不常用的模式。</p>' +
+          '<div class="rail-meta"><span>拖拽卡片排序</span><span>至少保留 2 个可见</span></div>' +
+        '</div>' +
+        '<div>' + entriesCardHTML(true) + '</div>' +
+      '</div>' +
+      '<div class="block">' +
+        '<div class="rail">' +
+          '<h5>模型下拉列表</h5>' +
+          '<p>主界面模型选择器中的平台列表,顺序与显隐状态会同步到所有模式的选择器。</p>' +
+          '<div class="rail-meta"><span>拖拽行排序</span><span>能力图标标记深度研究与 AI 生图</span><span>13 个平台</span></div>' +
+        '</div>' +
+        '<div>' + modelsCardHTML(false, true) + '</div>' +
+      '</div>';
+  } else {
+    inner.innerHTML = contentHeadHTML() +
+      '<div class="sec-space">' + entriesCardHTML(false) + modelsCardHTML(layout === 'd', false) + '</div>';
+  }
+}
+
+document.querySelectorAll('.sidebar').forEach(function (el) { el.innerHTML = sidebarHTML(); });
+document.querySelectorAll('.inner').forEach(renderContent);
+
+/* ============ 动态标注与统计 ============ */
+function measure() {
+  document.querySelectorAll('.win').forEach(function (win) {
+    var v = win.getAttribute('data-variant');
+    var inner = win.querySelector('.inner');
+    var scroll = win.querySelector('.scroll');
+    var appW = scroll.clientWidth;
+    var innerW = inner.clientWidth;
+    var pct = appW ? Math.round(innerW / appW * 100) : 0;
+
+    var wEl = document.querySelector('[data-statw="' + v + '"]');
+    var pEl = document.querySelector('[data-statp="' + v + '"]');
+    if (wEl) wEl.textContent = innerW + 'px';
+    if (pEl) pEl.textContent = pct + '%';
+
+    var bar = document.querySelector('[data-barfor="' + v + '"]');
+    var val = document.querySelector('[data-valfor="' + v + '"]');
+    if (bar) bar.style.width = pct + '%';
+    if (val) val.textContent = innerW + 'px · ' + pct + '%';
+
+    if (v === 'a') {
+      var free = Math.max(0, Math.round((appW - innerW) / 2));
+      ['left', 'right'].forEach(function (side) {
+        var g = win.querySelector('[data-gutter="' + side + '"]');
+        if (!g) return;
+        if (free < 64) { g.style.display = 'none'; return; }
+        g.style.display = 'flex';
+        g.style.width = free + 'px';
+        g.style.top = inner.offsetTop + 'px';
+        g.style.height = inner.offsetHeight + 'px';
+        g.querySelector('span').textContent = '未使用 ' + free + 'px';
+      });
+    }
+
+    if (v === 'd') {
+      var badge = win.querySelector('.eye-badge');
+      var rows = win.querySelector('.mrows');
+      if (!badge || !rows) return;
+      var firstRow = rows.querySelector('.mrow');
+      var nameEl = firstRow.querySelector('.mname');
+      var eyeEl = firstRow.querySelector('.eyebtn');
+      var rowsRect = rows.getBoundingClientRect();
+      var eyeRect = eyeEl.getBoundingClientRect();
+      var nameRect = nameEl.getBoundingClientRect();
+      var dist = Math.round((eyeRect.left + eyeRect.width / 2) - nameRect.right);
+      if (dist < 640 || rowsRect.width < 900) { badge.hidden = true; return; }
+      badge.hidden = false;
+      badge.querySelector('.eb-txt').textContent = '标签 → 控件 ≈ ' + dist + 'px,易错行';
+      var x = eyeRect.left - rowsRect.left - badge.offsetWidth + eyeRect.width / 2 + 26;
+      badge.style.left = Math.max(8, x) + 'px';
+      badge.style.top = (firstRow.offsetHeight + 3) + 'px';
+    }
+  });
+}
+
+var raf = null;
+window.addEventListener('resize', function () {
+  if (raf) cancelAnimationFrame(raf);
+  raf = requestAnimationFrame(measure);
+});
+measure();
+setTimeout(measure, 150);
+</script>
+</body>
+</html>
