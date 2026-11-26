@@ -303,8 +303,7 @@ export function AgentComposer(): JSX.Element {
   const supportsThinking = Boolean(active?.supportsThinking && thinkingLevels.length > 1)
 
   return (
-    <footer className="px-5 pb-3 pt-0 shrink-0 bg-transparent relative">
-      {/* Queued instructions waiting to be delivered to the running agent */}
+    <footer className="agent-composer px-5 pb-3 pt-0 shrink-0 bg-transparent relative">
       {(queuedFollowUp.length > 0 || queuedSteering.length > 0) && (
         <div className="mb-2 flex flex-wrap items-center gap-1.5">
           {queuedFollowUp.map((text, i) => (
@@ -355,7 +354,6 @@ export function AgentComposer(): JSX.Element {
         </div>
       )}
 
-      {/* Main Capsule Container with Feathered Aura Flow */}
       <div
         onClick={() => editorRef.current?.focus()}
         onDragOver={(e) => {
@@ -380,7 +378,6 @@ export function AgentComposer(): JSX.Element {
 
         {/* 3. 输入框实体表面 */}
         <div className="composer-surface relative w-full flex flex-col justify-between">
-        {/* Skill Suggestions */}
         {skillMenuOpen && (
           <div className="absolute left-0 bottom-full mb-1.5 w-full liquid-glass-menu rounded-xl py-1 z-popover text-text-primary text-label max-h-56 overflow-y-auto">
             {skillSuggestions.map((skill) => (
@@ -400,7 +397,6 @@ export function AgentComposer(): JSX.Element {
           </div>
         )}
 
-        {/* @ File Mentions */}
         {atMenuOpen && (
           <div
             ref={atListRef}
@@ -450,11 +446,8 @@ export function AgentComposer(): JSX.Element {
           />
         </div>
 
-        {/* Bottom Tool Bar */}
         <div className="px-3 pb-2.5 pt-1 flex items-center justify-between text-label">
-          {/* Left: Attachment + Permission Mode */}
           <div className="flex items-center gap-1.5">
-            {/* Attachment Button */}
             <button
               type="button"
               disabled={!isWorkspaceReady}
@@ -465,22 +458,20 @@ export function AgentComposer(): JSX.Element {
               <AppIcon name="add" size={16} />
             </button>
 
-            {/* Permission Mode Selector */}
             <div className="relative inline-flex items-center">
               <button
                 type="button"
                 onClick={() => setAccessMenuOpen(!accessMenuOpen)}
-                className={`flex items-center gap-1 font-medium ${currentModeInfo.color} hover:opacity-80 transition-colors py-1 px-2 rounded-lg hover:bg-slate-200/50 dark:hover:bg-white/10 text-label ${
+                className={`flex items-center gap-1 font-medium whitespace-nowrap ${currentModeInfo.color} hover:opacity-80 transition-colors py-1 px-2 rounded-lg hover:bg-slate-200/50 dark:hover:bg-white/10 text-label ${
                   accessMenuOpen ? 'bg-slate-200/50 dark:bg-white/10' : ''
                 }`}
-                title="切换权限模式"
+                title={`${currentModeInfo.label} · ${currentModeInfo.desc}`}
               >
                 <AppIcon name={currentModeInfo.icon} size={14} />
-                <span>{currentModeInfo.label}</span>
-                <AppIcon name="expand_more" size={12} />
+                <span className="agent-composer-permission-label">{currentModeInfo.label}</span>
+                <AppIcon name="expand_more" size={12} className="agent-composer-permission-chevron shrink-0" />
               </button>
 
-              {/* Access Mode Menu 直接挂载在按钮上方 */}
               <AgentPopover
                 open={accessMenuOpen}
                 onClose={() => setAccessMenuOpen(false)}
@@ -488,7 +479,6 @@ export function AgentComposer(): JSX.Element {
                 className="w-72 max-w-[calc(100vw-48px)] p-1"
               >
                 <div className="flex flex-col text-label w-full select-none">
-                  {/* 模式列表 */}
                   <div className="space-y-0.5">
                     {(['default', 'auto', 'bypass'] as AgentPermissionMode[]).map((mode) => {
                       const item = permissionModeLabels[mode]
@@ -546,12 +536,10 @@ export function AgentComposer(): JSX.Element {
             </div>
           </div>
 
-          {/* Right: Context + Combined Model & Thinking Selector + Send */}
           <div className="flex items-center gap-2 min-w-0">
             {/* 上下文圆形仪表 */}
             <AgentContextMeter />
 
-            {/* 合并后的模型选择与思考强度 Selector */}
             <div className="relative inline-flex items-center min-w-0">
               <button
                 type="button"
@@ -583,7 +571,6 @@ export function AgentComposer(): JSX.Element {
                 />
               </button>
 
-              {/* 直接在选择器上面弹出的 Model + Thinking 弹窗 */}
               <AgentPopover
                 open={modelPickerOpen}
                 onClose={() => setModelPickerOpen(false)}

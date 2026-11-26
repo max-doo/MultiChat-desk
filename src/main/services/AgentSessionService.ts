@@ -1661,12 +1661,10 @@ export class AgentSessionService {
       try {
         entry.unsubscribe()
       } catch {
-        // ignore
       }
       try {
         entry.session.dispose()
       } catch {
-        // ignore
       }
       this.activeSessions.delete(id)
       idleCount--
@@ -2161,13 +2159,11 @@ export class AgentSessionService {
       try {
         await active.session.abort()
       } catch {
-        // ignore
       }
       active.unsubscribe()
       try {
         active.session.dispose()
       } catch {
-        // ignore
       }
       this.activeSessions.delete(sessionId)
     }
@@ -2183,6 +2179,104 @@ export class AgentSessionService {
     if (current === sessionId) {
       this.store.delete('agent_current_session')
     }
+  }
+
+  /**
+   * 从分支消息序列中生成"复制对话"用的精简文本：每个用户回合只保留
+   * 用户 query 与该回合内最后一个带非空文本的 assistant 消息（即 UI 中的
+   * final answer——中间过渡文本、思考与工具调用全部剔除）。
+   */
+  private buildExportTranscript(
+    title: string,
+    entries: Array<{ type?: string; message?: { role?: string; content?: unknown } }>
+  ): string {
+    const extractText = (content: unknown): string => {
+      if (typeof content === 'string') return content.trim()
+      if (!Array.isArray(content)) return ''
+      return content
+        .filter(
+          (part): part is { type: 'text'; text: string } =>
+            !!part && typeof part === 'object' && (part as { type?: string }).type === 'text'
+        )
+        .map((part) => part.text)
+        .join('')
+        .trim()
+    }
+
+    interface Turn {
+      query: string
+      answer: string
+    }
+    const turns: Turn[] = []
+    let current: Turn | null = null
+    for (const entry of entries) {
+      if (entry.type !== 'message') continue
+      const role = entry.message?.role
+      if (role === 'user') {
+        const query = extractText(entry.message?.content)
+        if (!query) continue
+        current = { query, answer: '' }
+        turns.push(current)
+      } else if (role === 'assistant' && current) {
+        const text = extractText(entry.message?.content)
+        // 同一回合内后面的非空文本覆盖前面的：最后一段才是 final answer，
+        // 之前的只是"我先看一下…"这类过渡叙述。
+        if (text) current.answer = text
+      }
+    }
+
+    const parts: string[] = [`<conversation title="${title || '新对话'}">`]
+    for (const turn of turns) {
+      parts.push(`<user_query>\n${turn.query}\n</user_query>`)
+      if (turn.answer) {
+        // final answer 保留原始 Markdown 结构，不做转义或改写。
+        parts.push(`<assistant_final_answer>\n${turn.answer}\n</assistant_final_answer>`)
+      }
+    }
+    parts.push('</conversation>')
+    return parts.join('\n\n')
+  }
+
+  /**
+   * 导出会话的精简对话文本（复制用）与原始 .jsonl 文件路径。
+   * 优先读取内存中的活动会话（含未落盘的最新状态），否则从磁盘打开。
+   * 新创建但尚未提问的会话可能没有落盘文件，此时 filePath 为 null。
+   */
+  public async getSessionExport(
+    sessionId: string
+  ): Promise<{ filePath: string | null; transcript: string }> {
+    const filePath = (await this.findSessionFile(sessionId)) ?? null
+
+    const active = this.activeSessions.get(sessionId)
+    let branch: Array<{ type?: string; message?: { role?: string; content?: unknown } }> = []
+    let title = '新对话'
+    if (active) {
+      title = this.resolveLiveSessionTitle(sessionId, active)
+      try {
+        branch = active.session.sessionManager.getBranch()
+      } catch {
+        branch = []
+      }
+    } else {
+      if (!filePath) {
+        return { filePath: null, transcript: '' }
+      }
+      const { SessionManager } = await this.getPi()
+      const manager = SessionManager.open(filePath, this.sessionsDir)
+      title = (manager.getSessionName() || '').trim() || title
+      if (title === '新对话') {
+        const cached = this.sessionMetaCache.get(filePath)?.meta
+        const metaTitle = cached?.name || cached?.firstMessage
+        if (metaTitle) title = metaTitle.slice(0, 48)
+      }
+      try {
+        branch = manager.getBranch()
+      } catch {
+        branch = []
+      }
+    }
+
+    return { filePath, transcript: this.buildExportTranscript(title, branch) }
   }
 
   /**
@@ -2267,7 +2361,6 @@ export class AgentSessionService {
         }
       }
     } catch {
-      // ignore
     }
     return undefined
   }
@@ -2311,7 +2404,6 @@ export class AgentSessionService {
       const liveName = active.session.sessionManager.getSessionName()
       if (liveName && liveName.trim()) return liveName.trim().slice(0, 48)
     } catch {
-      // ignore
     }
     if (active.title && active.title.trim()) {
       return active.title.trim().slice(0, 48)
@@ -2325,7 +2417,6 @@ export class AgentSessionService {
         }
       }
     } catch {
-      // ignore
     }
     const cachedFile = this.sessionFilePathCache.get(sessionId)
     if (cachedFile) {
@@ -3070,12 +3161,10 @@ export class AgentSessionService {
       try {
         entry.unsubscribe()
       } catch {
-        // ignore
       }
       try {
         entry.session.dispose()
       } catch {
-        // ignore
       }
     }
     this.activeSessions.clear()
@@ -3459,7 +3548,6 @@ export class AgentSessionService {
     }
   }
 
-  // ── Agent 配置读写（供设置弹窗）────────────────────────────────────────────
 
   /** The app's own agent dir; `<dir>/skills` is the always-on global skills root. */
   public getAgentDir(): string {

@@ -503,14 +503,12 @@ const AgentWorkGroupItem = memo(function AgentWorkGroupItem({
 
   return (
     <div className="group space-y-2.5 my-2">
-      {/* 发送后等待首个 part 的间隙：组内还没有任何 block */}
       {isGroupRunning && workBlocks.length === 0 && textBlocks.length === 0 && (
         <WorkPhaseBlock isRunning durationMs={undefined}>
           <ThinkingBlock thinking="" isRunning />
         </WorkPhaseBlock>
       )}
 
-      {/* final answer 之前的所有工作 → "思考中"折叠区 */}
       {workBlocks.length > 0 && (
         <WorkPhaseBlock
           isRunning={isGroupRunning}
@@ -523,7 +521,6 @@ const AgentWorkGroupItem = memo(function AgentWorkGroupItem({
         </WorkPhaseBlock>
       )}
 
-      {/* final answer */}
       {textBlocks.map((b) => (
         <div key={b.key}>{b.node}</div>
       ))}
@@ -691,6 +688,9 @@ function AgentCard({
   const [historySearchQuery, setHistorySearchQuery] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null)
   const [renameTarget, setRenameTarget] = useState<{ id: string; title: string } | null>(null)
+  /** 历史行"更多"菜单：锚定会话 id + 触发按钮的视口坐标。 */
+  const [historyMoreMenu, setHistoryMoreMenu] = useState<{ id: string; x: number; y: number; yUp: number } | null>(null)
+  const [historyListToast, setHistoryListToast] = useState<string | null>(null)
   /** 待确认的跨工作区会话：cwd 与当前工作区不一致时先弹窗再恢复。 */
   const [pendingForeignSession, setPendingForeignSession] = useState<{ id: string; cwd: string } | null>(null)
   const [rewindConfirmOpen, setRewindConfirmOpen] = useState(false)
@@ -869,7 +869,6 @@ function AgentCard({
     [copyText]
   )
 
-  // Initialize IPC listeners on mount
   useEffect(() => {
     const cleanup = initListeners()
     return () => cleanup()
@@ -973,7 +972,6 @@ function AgentCard({
     }
   }, [currentCwd, workspacePath, newSession, foreignReview, isVisible, setForeignReview])
 
-  // Model picker options
   const modelOptions = useMemo<DropdownOption<string>[]>(() => {
     const list: DropdownOption<string>[] = [
       {
@@ -1146,11 +1144,72 @@ function AgentCard({
     setDeleteTarget(null)
   }, [deleteTarget, deleteSession])
 
+  const historyToastTimerRef = useRef<number | null>(null)
+  const showHistoryToast = useCallback((text: string): void => {
+    setHistoryListToast(text)
+    if (historyToastTimerRef.current) window.clearTimeout(historyToastTimerRef.current)
+    historyToastTimerRef.current = window.setTimeout(() => setHistoryListToast(null), 2500)
+  }, [])
+
+  // 历史行"更多"菜单：点击外部 / Esc 关闭。
+  useEffect(() => {
+    if (!historyMoreMenu) return
+    const onPointerDown = (e: MouseEvent): void => {
+      // 菜单内部与"更多"触发按钮的按下不算"外部"：否则 capture 阶段先卸载菜单，
+      // 菜单项的 click 将落在已脱离文档的节点上而无法触发。
+      const target = e.target as HTMLElement | null
+      if (target?.closest?.('[data-history-more-menu], [data-history-more-trigger]')) return
+      setHistoryMoreMenu(null)
+    }
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        setHistoryMoreMenu(null)
+      }
+    }
+    window.addEventListener('mousedown', onPointerDown, true)
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => {
+      window.removeEventListener('mousedown', onPointerDown, true)
+      window.removeEventListener('keydown', onKeyDown, true)
+    }
+  }, [historyMoreMenu])
+
+  const handleCopySession = useCallback(
+    async (sessionId: string, kind: 'transcript' | 'path'): Promise<void> => {
+      setHistoryMoreMenu(null)
+      try {
+        const res = await window.api.agentGetSessionExport(sessionId)
+        if (!res.success || !res.data) {
+          showHistoryToast(res.error || '读取会话失败')
+          return
+        }
+        if (kind === 'transcript') {
+          if (!res.data.transcript.trim()) {
+            showHistoryToast('该会话还没有对话内容')
+            return
+          }
+          const ok = await copyText(res.data.transcript)
+          showHistoryToast(ok ? '对话已复制' : '复制失败')
+        } else {
+          if (!res.data.filePath) {
+            showHistoryToast('该会话还没有落盘文件')
+            return
+          }
+          const ok = await copyText(res.data.filePath)
+          showHistoryToast(ok ? '路径已复制' : '复制失败')
+        }
+      } catch (err) {
+        console.warn('[AgentCard] copy session export failed:', err)
+        showHistoryToast('复制失败')
+      }
+    },
+    [copyText, showHistoryToast]
+  )
+
   return (
     <div className="flex flex-col h-full bg-white dark:bg-gray-900 overflow-hidden">
-      {/* Header */}
       <div className="relative p-3 border-b border-gray-200/60 dark:border-white/10 bg-white dark:bg-gray-900 flex justify-between items-center shrink-0">
-        {/* Left: Model Picker Dropdown — matches WebviewCard CustomDropdown pattern */}
         <div>
           <CustomDropdown
             value="local-agent"
@@ -1208,7 +1267,6 @@ function AgentCard({
           />
         </div>
 
-        {/* Center: branch badge + current conversation title */}
         {(currentSessionTitle || effectiveForkOrigin) && (
           <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 max-w-[42%] px-2 flex items-center gap-1.5 justify-center">
             {effectiveForkOrigin && (
@@ -1246,9 +1304,7 @@ function AgentCard({
           </div>
         )}
 
-          {/* Right Header Actions — matches WebviewCard icon button pattern */}
           <div className="flex items-center gap-1">
-            {/* New Session */}
             <button
               type="button"
               onClick={handleNewSession}
@@ -1259,7 +1315,6 @@ function AgentCard({
               <AppIcon name="annotation" size={20} />
             </button>
 
-            {/* History Popover */}
             <div className="relative flex items-center justify-center">
               <button
                 type="button"
@@ -1290,7 +1345,6 @@ function AgentCard({
                 placement="bottom"
                 className="w-80 max-h-[80vh] flex flex-col text-text-primary"
               >
-                    {/* Header: 对话历史 + 强调的新对话按钮 */}
                     <div className="px-3.5 py-2.5 flex items-center justify-between border-b border-gray-100 dark:border-gray-700/60 shrink-0">
                       <span className="text-body font-semibold text-text-primary dark:text-gray-100 tracking-tight">
                         对话历史
@@ -1305,7 +1359,6 @@ function AgentCard({
                       </button>
                     </div>
 
-                    {/* Compact Search Bar (方案二：轻量搜索行) */}
                     <div className="px-3 py-2 border-b border-gray-100 dark:border-gray-700/60 bg-gray-50/50 dark:bg-slate-800/50 shrink-0">
                       <div className="flex items-center gap-2 px-2.5 py-1.5 bg-white dark:bg-slate-700/60 rounded-lg border border-gray-200/70 dark:border-gray-600/60 focus-within:border-primary/60 transition-colors">
                         <AppIcon name="search" size={14} className="text-text-secondary/60 shrink-0" />
@@ -1493,28 +1546,58 @@ function AgentCard({
                                 className="shrink-0 mt-0.5 text-primary animate-spin"
                               />
                             )}
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                setRenameTarget({ id: item.id, title: item.name || item.title || '' })
-                              }}
-                              className="shrink-0 mt-0.5 p-0.5 rounded text-gray-400 opacity-0 group-hover:opacity-100 hover:text-primary hover:bg-blue-50 dark:hover:bg-primary/20 transition-all"
-                              title="重命名"
+                            {/* 行内操作浮层：不占布局宽度，仅 hover 该行时浮现，盖住右侧长文本。 */}
+                            <div
+                              className={`absolute right-2 top-1/2 -translate-y-1/2 z-10 flex items-center gap-0.5 rounded-lg bg-white dark:bg-slate-800 shadow-sm border border-gray-200/70 dark:border-white/10 px-1 py-0.5 transition-opacity duration-150 ${
+                                historyMoreMenu?.id === item.id
+                                  ? 'opacity-100'
+                                  : 'opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto'
+                              }`}
                             >
-                              <AppIcon name="edit" size={15} />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                setDeleteTarget({ id: item.id, title: item.title || '新对话' })
-                              }}
-                              className="shrink-0 mt-0.5 p-0.5 rounded text-gray-400 opacity-0 group-hover:opacity-100 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 transition-all"
-                              title="删除会话"
-                            >
-                              <AppIcon name="delete" size={15} />
-                            </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setRenameTarget({ id: item.id, title: item.name || item.title || '' })
+                                }}
+                                className="p-1 rounded-md text-gray-400 hover:text-primary hover:bg-blue-50 dark:hover:bg-primary/20 transition-colors"
+                                title="重命名"
+                              >
+                                <AppIcon name="edit" size={14} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setDeleteTarget({ id: item.id, title: item.title || '新对话' })
+                                }}
+                                className="p-1 rounded-md text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors"
+                                title="删除会话"
+                              >
+                                <AppIcon name="delete" size={14} />
+                              </button>
+                              <button
+                                type="button"
+                                data-history-more-trigger
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  const rect = e.currentTarget.getBoundingClientRect()
+                                  setHistoryMoreMenu(
+                                    historyMoreMenu?.id === item.id
+                                      ? null
+                                      : { id: item.id, x: rect.right, y: rect.bottom + 4, yUp: rect.top - 4 }
+                                  )
+                                }}
+                                className={`p-1 rounded-md transition-colors ${
+                                  historyMoreMenu?.id === item.id
+                                    ? 'text-primary bg-blue-50 dark:bg-primary/20'
+                                    : 'text-gray-400 hover:text-primary hover:bg-blue-50 dark:hover:bg-primary/20'
+                                }`}
+                                title="更多"
+                              >
+                                <AppIcon name="more_horiz" size={14} />
+                              </button>
+                            </div>
                           </div>
                         )
                       }
@@ -1524,7 +1607,6 @@ function AgentCard({
 
                       return (
                         <>
-                          {/* Current Workspace Sessions (Scrollable) */}
                           <div className="max-h-[380px] overflow-y-auto py-1">
                             {currentRows.length === 0 ? (
                               <div className="px-3 py-4 text-center text-text-secondary text-caption">
@@ -1535,7 +1617,6 @@ function AgentCard({
                             )}
                           </div>
 
-                          {/* Foreign Workspace Sessions (Pinned Footer, Collapsed by Default) */}
                           {foreignRows.length > 0 && (
                             <div className="border-t border-gray-100 dark:border-gray-700/70 bg-gray-50/50 dark:bg-slate-800/80 shrink-0">
                               <button
@@ -1560,10 +1641,54 @@ function AgentCard({
                         </>
                       )
                     })()}
+
+                    {/* 复制结果反馈：吸附在列表底部，不占布局。 */}
+                    {historyListToast && (
+                      <div className="absolute bottom-2.5 left-1/2 -translate-x-1/2 z-10 px-3 py-1.5 rounded-full bg-gray-800/90 dark:bg-black/80 text-white text-caption whitespace-nowrap shadow-lg pointer-events-none">
+                        {historyListToast}
+                      </div>
+                    )}
               </AgentPopover>
             </div>
 
-            {/* Collapse Panel or Custom Header Actions */}
+            {/* 历史行"更多"菜单：fixed 定位避免被 popover 的 overflow 裁剪。 */}
+            {historyMoreMenu && (
+              <div
+                data-history-more-menu
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => e.stopPropagation()}
+                className="fixed z-modal liquid-glass-menu rounded-xl py-1 min-w-[148px] text-label text-text-primary shadow-float"
+                style={
+                  historyMoreMenu.y + 72 < window.innerHeight
+                    ? {
+                        top: historyMoreMenu.y,
+                        right: Math.max(8, window.innerWidth - historyMoreMenu.x)
+                      }
+                    : {
+                        bottom: Math.max(8, window.innerHeight - historyMoreMenu.yUp),
+                        right: Math.max(8, window.innerWidth - historyMoreMenu.x)
+                      }
+                }
+              >
+                <button
+                  type="button"
+                  onClick={() => void handleCopySession(historyMoreMenu.id, 'transcript')}
+                  className="w-full px-3 py-1.5 flex items-center gap-2 text-left hover:bg-gray-100/80 dark:hover:bg-slate-700/60 transition-colors"
+                >
+                  <AppIcon name="content_copy" size={14} className="text-text-secondary shrink-0" />
+                  <span>复制对话</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleCopySession(historyMoreMenu.id, 'path')}
+                  className="w-full px-3 py-1.5 flex items-center gap-2 text-left hover:bg-gray-100/80 dark:hover:bg-slate-700/60 transition-colors"
+                >
+                  <AppIcon name="link" size={14} className="text-text-secondary shrink-0" />
+                  <span>复制文件路径</span>
+                </button>
+              </div>
+            )}
+
             {headerActions || (
               <button
                 type="button"
@@ -1578,7 +1703,6 @@ function AgentCard({
           </div>
         </div>
 
-        {/* Main Thread Viewport */}
         <div className="flex-1 flex flex-col min-h-0 relative">
           {forkToast && forkToast.sessionId === currentSessionId && (
             <div
@@ -1626,20 +1750,16 @@ function AgentCard({
             onScroll={handleViewportScroll}
             className="flex-1 overflow-y-auto px-5 py-3 space-y-3"
           >
-            {/* Empty state */}
             {messages.length === 0 && (
               <div className="h-full flex flex-col items-center justify-center text-center p-6 my-auto select-none">
-                {/* Hero Icon */}
                 <div className="relative mb-4 flex items-center justify-center">
                   <img src={agentAvatar} alt="Agent" className="w-12 h-12 avatar-breathing select-none" />
                 </div>
 
-                {/* Title */}
                 <h3 className="font-semibold text-text-primary text-title tracking-tight mb-2">
                   今天想梳理或写点什么？
                 </h3>
 
-                {/* Vault Badge or Subtitle */}
                 {workspacePath ? (
                   <div
                     className="inline-flex items-center gap-1.5 text-caption text-text-secondary bg-gray-100 dark:bg-gray-800 hover:bg-gray-200/80 dark:hover:bg-gray-700 px-3 py-1 rounded-full border border-gray-200/60 dark:border-white/10 transition-colors mb-6 cursor-default"
@@ -1656,7 +1776,6 @@ function AgentCard({
                   </p>
                 )}
 
-                {/* 2x2 Suggestion Grid */}
                 <div className="grid grid-cols-2 gap-2.5 w-full max-w-sm">
                   {suggestions.map((item) => (
                     <button
@@ -1681,7 +1800,6 @@ function AgentCard({
               </div>
             )}
 
-            {/* Messages Stream */}
             {(() => {
               const totalRenderableCount = renderItems.reduce(
                 (sum, item) => sum + (item.kind === 'user' ? 1 : item.msgs.length),
@@ -1798,13 +1916,11 @@ function AgentCard({
                 </div>
               )}
 
-            {/* Pending Approvals */}
             {pendingApprovals.map((req) => (
               <ApprovalCard key={req.requestId} request={req} />
             ))}
           </div>
 
-          {/* Composer */}
           <AgentComposer />
         </div>
 
