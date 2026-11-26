@@ -459,6 +459,12 @@ const api = {
   automationSendPrompt: (platformId: string, prompt: string, collectDelayMs?: number): Promise<{ success: boolean; data?: string; error?: string }> => ipcRenderer.invoke('automation:send-prompt', platformId, prompt, collectDelayMs),
   /** 仅收集指定平台的最新回复 */
   automationCollect: (platformId: string): Promise<{ success: boolean; data?: string; error?: string }> => ipcRenderer.invoke('automation:collect', platformId),
+  /** 查询各平台当前登录态（不触发额外网页加载） */
+  getPlatformAuthStates: (platformIds?: string[]): Promise<{
+    success: boolean
+    data?: Record<string, { platform: string; signedIn?: boolean; matchedCookie?: string; source?: 'cookie' | 'storage' | 'cache' }>
+    error?: string
+  }> => ipcRenderer.invoke('auth:platform-states', platformIds),
 
   // WebView 右键上下文菜单
   onWebviewContextMenu: (cb: (data: WebviewContextMenuData) => void): (() => void) => {

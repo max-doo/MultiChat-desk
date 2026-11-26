@@ -757,6 +757,60 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
   const dropdownModels = visibleModels.length > 0 ? visibleModels : models
   const currentModel = models.find(model => model.id === platform)
   const platformName = currentModel?.name || platform
+  const modelIdsKey = dropdownModels.map(m => m.id).join(',')
+  const modelIds = useMemo(() => (modelIdsKey ? modelIdsKey.split(',') : []), [modelIdsKey])
+  const [authStates, setAuthStates] = useState<Record<string, { signedIn?: boolean }>>({})
+  const authRefreshSeq = useRef(0)
+  const refreshAuthStates = useCallback(() => {
+    if (modelIds.length === 0) return
+    const seq = ++authRefreshSeq.current
+    void window.api.getPlatformAuthStates(modelIds).then(result => {
+      if (seq !== authRefreshSeq.current || !result.success || !result.data) return
+      setAuthStates(result.data)
+    }).catch(() => {})
+  }, [modelIds])
+  useEffect(() => {
+    refreshAuthStates()
+  }, [refreshAuthStates])
+  const handleModelDropdownOpenChange = useCallback((open: boolean) => {
+    if (open) refreshAuthStates()
+  }, [refreshAuthStates])
+  const renderModelOption = (
+    option: { value: string; label: string; logo?: string },
+    isSelected: boolean,
+    onSelect: () => void
+  ): JSX.Element => {
+    const m = models.find(item => item.id === option.value)
+    const isSignedIn = authStates[option.value]?.signedIn === true
+    return (
+      <button
+        key={String(option.value)}
+        type="button"
+        onClick={onSelect}
+        className={`w-full flex items-center gap-2 px-3 py-2 hover:bg-black/[0.05] dark:hover:bg-white/[0.08] transition-colors text-left ${
+          isSelected ? 'bg-primary/5 text-primary font-medium' : 'text-gray-700 dark:text-gray-200'
+        }`}
+      >
+        {m?.logo ? (
+          <img src={m.logo} alt={m.name} className="w-4 h-4 object-contain rounded-xs shrink-0" />
+        ) : (
+          <AppIcon name="smart_toy" size={14} className="text-gray-400 shrink-0" />
+        )}
+        <span className="text-label truncate min-w-0 flex-1">{option.label}</span>
+        {isSignedIn && (
+          <span
+            className="shrink-0 rounded-full bg-emerald-50 px-1.5 py-0.5 text-tiny font-semibold text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300"
+            title="当前平台已登录"
+          >
+            已登录
+          </span>
+        )}
+        {isSelected && (
+          <AppIcon name="check" size={14} className="text-primary shrink-0" />
+        )}
+      </button>
+    )
+  }
   const controls = (
     <CustomDropdown
       value={null}
@@ -1002,7 +1056,7 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
     {collapsed ? <button className="w-full text-xs text-text-secondary hover:text-primary py-1" onClick={() => setCollapsed(false)}>展开输入区 ↑</button> : <>
       <div className="flex items-end gap-1.5 p-1.5 bg-white/85 border border-gray-200/80 rounded-2xl shadow-sm focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/10 transition-colors">
         <CustomDropdown value={mode} disabled={busy || preparing || !!candidate} onChange={value => changeMode(value)} options={[...(activeMap ? [{ value: 'modify' as const, label: '调整当前图' }] : []), { value: 'generate' as const, label: '生成新图' }]} direction="up" dropdownWidth="min-w-max" className="shrink-0" buttonClassName="h-8 px-2 rounded-full text-xs font-medium flex items-center gap-1 bg-primary/10 border border-primary/30 text-primary hover:bg-primary/15 disabled:opacity-50" />
-        <CustomDropdown value={platform} disabled={busy || preparing} onChange={value => applyPlatform(String(value))} options={dropdownModels.map(model => ({ value: model.id, label: model.name, logo: model.logo }))} direction="up" dropdownWidth="w-48" hideArrow className="shrink-0" buttonClassName="h-8 w-7 rounded-full flex items-center justify-center text-text-secondary hover:bg-gray-100 disabled:opacity-50" renderButton={() => <span title={`生成模型：${models.find(model => model.id === platform)?.name || platform}`} aria-label={`生成模型：${models.find(model => model.id === platform)?.name || platform}`}>
+        <CustomDropdown value={platform} disabled={busy || preparing} onChange={value => applyPlatform(String(value))} options={dropdownModels.map(model => ({ value: model.id, label: model.name, logo: model.logo }))} onOpenChange={handleModelDropdownOpenChange} renderOption={renderModelOption} direction="up" dropdownWidth="w-56" hideArrow className="shrink-0" buttonClassName="h-8 w-7 rounded-full flex items-center justify-center text-text-secondary hover:bg-gray-100 disabled:opacity-50" renderButton={() => <span title={`生成模型：${models.find(model => model.id === platform)?.name || platform}`} aria-label={`生成模型：${models.find(model => model.id === platform)?.name || platform}`}>
           {models.find(model => model.id === platform)?.logo ? <img src={models.find(model => model.id === platform)?.logo} alt="生成模型" className="w-4 h-4 object-contain" /> : <AppIcon name="smart_toy" size={16} />}
         </span>} />
         <textarea ref={textareaRef} aria-label={mode === 'generate' ? '新图要求（选填）' : '导图修改要求'} rows={1} maxLength={mode === 'modify' ? MINDMAP_REQUIREMENTS_LIMIT : undefined} value={request} disabled={busy || preparing} onChange={event => changeRequest(event.target.value)} placeholder={mode === 'generate' ? '输入新图要求（可选）…' : adjustFromCurrent ? '基于当前图描述想调整的内容…' : candidate ? '继续调整候选稿…' : '描述想调整的内容…'} className="flex-1 min-w-0 resize-none bg-transparent text-sm text-text-primary placeholder:text-text-secondary/50 focus:outline-none leading-5 py-1.5 px-1 max-h-[72px] disabled:opacity-50" onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void submit() } }} />
@@ -1106,6 +1160,7 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
                 disabled={preparing || busy}
                 onChange={val => applyPlatform(val)}
                 options={dropdownModels.map(m => ({ value: m.id, label: m.name, logo: m.logo }))}
+                onOpenChange={handleModelDropdownOpenChange}
                 dropdownWidth="w-56"
                 buttonClassName="h-8.5 px-3 bg-white border border-gray-200/90 hover:border-gray-300 rounded-lg flex items-center gap-2 shadow-2xs transition-colors disabled:opacity-50 text-left"
                 renderButton={() => (
@@ -1118,29 +1173,7 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
                     <span className="text-sm font-medium text-text-primary truncate max-w-[140px]">{currentModel?.name || platform}</span>
                   </div>
                 )}
-                renderOption={(option, isSelected, onSelect) => {
-                  const m = models.find(item => item.id === option.value)
-                  return (
-                    <button
-                      key={String(option.value)}
-                      type="button"
-                      onClick={onSelect}
-                      className={`w-full flex items-center gap-2.5 px-3 py-2 hover:bg-black/[0.05] dark:hover:bg-white/[0.08] transition-colors text-left ${
-                        isSelected ? 'bg-primary/5 text-primary font-medium' : 'text-gray-700'
-                      }`}
-                    >
-                      {m?.logo ? (
-                        <img src={m.logo} alt={m.name} className="w-4 h-4 object-contain rounded-xs shrink-0" />
-                      ) : (
-                        <AppIcon name="smart_toy" size={14} className="text-gray-400 shrink-0" />
-                      )}
-                      <span className="text-xs truncate flex-1">{option.label}</span>
-                      {isSelected && (
-                        <AppIcon name="check" size={14} className="text-primary ml-auto shrink-0" />
-                      )}
-                    </button>
-                  )
-                }}
+                renderOption={renderModelOption}
               />
               {request.trim().length > 0 && (
                 <button

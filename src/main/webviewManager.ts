@@ -17,6 +17,8 @@ import type { NoteDraft } from '../shared/types/notes'
 import type { AnnotationCaptureRequest } from '../shared/types/annotations'
 import type { ContextMenuEntry } from '../shared/types/contextMenu'
 import { WORKBENCH_FILE_SCHEME } from './services/workbenchService'
+import { authStateService } from './services/AuthStateService'
+import { platformAuthStorage } from '../shared/config/selectors'
 import type { NoteManager } from './noteManager'
 
 let noteManagerInstance: NoteManager | null = null
@@ -819,9 +821,29 @@ export function registerWebviewHandlers(webContents: Electron.WebContents): void
         }
     })
 
+    // 仅针对凭证在 localStorage 的平台（如 DeepSeek / Kimi），在已有页面加载/SPA 导航后
+    // 被动采集登录态并刷新持久化缓存，不额外建窗。
+    let authCaptureTimer: ReturnType<typeof setTimeout> | null = null
+    const scheduleAuthCapture = (): void => {
+        if (webContents.isDestroyed()) return
+        const url = webContents.getURL()
+        const isStorageAuthOrigin = Object.values(platformAuthStorage).some(cfg =>
+            cfg.origins.some(origin => url.startsWith(origin))
+        )
+        if (!isStorageAuthOrigin) return
+        if (authCaptureTimer) clearTimeout(authCaptureTimer)
+        authCaptureTimer = setTimeout(() => {
+            authCaptureTimer = null
+            if (!webContents.isDestroyed()) {
+                void authStateService.captureFromWebContents(webContents)
+            }
+        }, 800)
+    }
+
     // 同时监听 did-navigate-in-page（单页应用内部导航）
     webContents.on('did-navigate-in-page', (_e, url, isMainFrame) => {
         if (isMainFrame) {
+            scheduleAuthCapture()
             console.log('[Main][DEBUG] did-navigate-in-page:', logUrlHost(url), '| isInAuthFlow:', isInGoogleAuthFlow)
             // 对于 SPA 内部导航，也检测是否从认证回到 Gemini
             if (isInGoogleAuthFlow && isGeminiUrl(url)) {
@@ -894,11 +916,18 @@ export function registerWebviewHandlers(webContents: Electron.WebContents): void
     })
     webContents.on('did-finish-load', () => {
         void tryInject('did-finish-load')
+        scheduleAuthCapture()
     })
     const attachTimer = setTimeout(() => {
         void tryInject('attach-timeout')
     }, 3000)
-    webContents.once('destroyed', () => clearTimeout(attachTimer))
+    webContents.once('destroyed', () => {
+        clearTimeout(attachTimer)
+        if (authCaptureTimer) {
+            clearTimeout(authCaptureTimer)
+            authCaptureTimer = null
+        }
+    })
 
     webContents.on('console-message', (_e, _level, message) => {
         if (typeof message !== 'string') return

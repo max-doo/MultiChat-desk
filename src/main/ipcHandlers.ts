@@ -35,6 +35,7 @@ import {
     type SummaryPromptFileItem
 } from './summaryPrompts'
 import { automationService, dispatchFileDrop } from './services/AutomationService'
+import { authStateService } from './services/AuthStateService'
 import { checkForUpdate, getUpdateState } from './updater/checker'
 import { getSelectionToolbarEnabled, setSelectionToolbarEnabled } from './selectionToolbarManager'
 import { getCliStatus, dismissCliHint, addCliDirToPath, openCliLocation } from './cliIntegration'
@@ -1799,6 +1800,31 @@ export async function registerIpcHandlers(
     ipcMain.handle('automation:collect', async (_event, platformId: string) => {
         try {
             return await automationService.collectResult(platformId)
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    // 查询各 Webview 平台的当前登录态（Cookie 实时直读；localStorage 平台优先读存活页面，否则回退缓存）
+    ipcMain.handle('auth:platform-states', async (_event, platformIds?: unknown) => {
+        try {
+            const requested = Array.isArray(platformIds)
+                ? Array.from(new Set(platformIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0)))
+                : await automationService.listPlatformIds()
+            const items: Array<{ platform: string; baseUrl: string }> = []
+            for (const id of requested) {
+                const selectors = await automationService.getPlatformSelectors(id).catch(() => null)
+                if (!selectors) continue
+                try {
+                    const baseUrl = automationService.getPlatformUrl(id, selectors)
+                    items.push({ platform: id, baseUrl })
+                } catch {
+                    // 无可用 URL 的平台跳过
+                }
+            }
+            const data = await authStateService.getStatesMap(items, { useCache: true })
+            return { success: true, data }
         } catch (err: unknown) {
             const error = err instanceof Error ? err.message : String(err)
             return { success: false, error }

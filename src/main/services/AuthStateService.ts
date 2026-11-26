@@ -1,4 +1,5 @@
 import { BrowserWindow, session, webContents } from 'electron'
+import type Store from 'electron-store'
 import {
   platformAuthCookies,
   platformAuthCookieRules,
@@ -13,8 +14,14 @@ export interface PlatformAuthState {
   signedIn?: boolean
   /** 命中的账号 cookie 名或 localStorage 键，便于排查；不返回任何凭证值。 */
   matchedCookie?: string
-  /** 判定来源：cookie 或页面 localStorage。 */
-  source?: 'cookie' | 'storage'
+  /** 判定来源：cookie、实时页面 localStorage 或持久化缓存。 */
+  source?: 'cookie' | 'storage' | 'cache'
+}
+
+interface StoredPlatformAuthEntry {
+  signedIn: boolean
+  matchedCookie?: string
+  updatedAt: number
 }
 
 /**
@@ -38,6 +45,83 @@ export interface PlatformAuthState {
 export class AuthStateService {
   /** 临时加载页面的上限；超时按"未知"处理，不阻塞调用方。 */
   private static readonly STORAGE_LOAD_TIMEOUT_MS = 12_000
+  private static readonly STORAGE_CACHE_KEY = 'platformAuthStorageCache'
+
+  private store: Store<Record<string, unknown>> | null = null
+  private storageCache: Record<string, StoredPlatformAuthEntry> = {}
+
+  /** 注入配置存储，恢复 localStorage 类平台的上次已知登录态缓存。 */
+  public init(store: Store<Record<string, unknown>>): void {
+    this.store = store
+    try {
+      const raw = store.get(AuthStateService.STORAGE_CACHE_KEY)
+      if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+        const restored: Record<string, StoredPlatformAuthEntry> = {}
+        for (const [platform, entry] of Object.entries(raw as Record<string, unknown>)) {
+          if (!entry || typeof entry !== 'object') continue
+          const record = entry as Record<string, unknown>
+          if (typeof record.signedIn !== 'boolean') continue
+          restored[platform] = {
+            signedIn: record.signedIn,
+            ...(typeof record.matchedCookie === 'string' && record.matchedCookie
+              ? { matchedCookie: record.matchedCookie }
+              : {}),
+            updatedAt: typeof record.updatedAt === 'number' ? record.updatedAt : Date.now()
+          }
+        }
+        this.storageCache = restored
+      }
+    } catch (error) {
+      console.warn('[AuthState] 恢复登录态缓存失败:', error)
+    }
+  }
+
+  private updateStorageCache(platform: string, result: { signedIn: boolean; matched?: string }): void {
+    const prev = this.storageCache[platform]
+    const nextMatched = result.matched || undefined
+    if (prev && prev.signedIn === result.signedIn && prev.matchedCookie === nextMatched) {
+      return
+    }
+    this.storageCache[platform] = {
+      signedIn: result.signedIn,
+      ...(nextMatched ? { matchedCookie: nextMatched } : {}),
+      updatedAt: Date.now()
+    }
+    try {
+      this.store?.set(AuthStateService.STORAGE_CACHE_KEY, this.storageCache)
+    } catch (error) {
+      console.warn('[AuthState] 写入登录态缓存失败:', error)
+    }
+  }
+
+  private readStorageCache(platform: string): PlatformAuthState | null {
+    const entry = this.storageCache[platform]
+    if (!entry || typeof entry.signedIn !== 'boolean') return null
+    return {
+      platform,
+      signedIn: entry.signedIn,
+      ...(entry.matchedCookie ? { matchedCookie: entry.matchedCookie } : {}),
+      source: 'cache'
+    }
+  }
+
+  /**
+   * 被动采集：当已有 WebContents 加载/导航到 localStorage 类平台时，顺手读取一次
+   * localStorage 并更新持久化缓存，避免为了判登录额外在后台建窗。
+   */
+  public async captureFromWebContents(wc: Electron.WebContents): Promise<void> {
+    if (wc.isDestroyed()) return
+    const url = wc.getURL()
+    if (!url.startsWith('https://')) return
+
+    for (const [platform, storage] of Object.entries(platformAuthStorage)) {
+      if (!storage.origins.some(origin => url.startsWith(origin))) continue
+      const result = await this.readStorageFrom(wc, storage)
+      if (result) {
+        this.updateStorageCache(platform, result)
+      }
+    }
+  }
 
   private cookieUrl(platform: string, baseUrl: string): string {
     return baseUrl || `https://${platform}.com`
@@ -160,11 +244,12 @@ export class AuthStateService {
    * @param options.allowPageLoad 允许为读 localStorage 临时加载站点。默认关闭：
    *        `platforms` 列表与提交前快速失败都走默认值，不为判登录额外开窗（两者分别有
    *        能力表性能和页面侧兜底可用）。`auth.status` 显式查询时打开，才能读到 Kimi。
+   * @param options.useCache 当页面未打开且未允许临时加载时，回退读取持久化缓存（UI 展示用）。
    */
   public async getState(
     platform: string,
     baseUrl: string,
-    options?: { allowPageLoad?: boolean }
+    options?: { allowPageLoad?: boolean; useCache?: boolean }
   ): Promise<PlatformAuthState> {
     const storage = platformAuthStorage[platform]
     const names = platformAuthCookies[platform]
@@ -181,6 +266,7 @@ export class AuthStateService {
     if (storage) {
       const fromStorage = await this.readStorage(storage.origins, storage)
       if (fromStorage) {
+        this.updateStorageCache(platform, fromStorage)
         return {
           platform,
           signedIn: fromStorage.signedIn,
@@ -192,6 +278,7 @@ export class AuthStateService {
         for (const origin of storage.origins) {
           const loaded = await this.loadAndReadStorage(origin, storage)
           if (loaded) {
+            this.updateStorageCache(platform, loaded)
             return {
               platform,
               signedIn: loaded.signedIn,
@@ -200,6 +287,10 @@ export class AuthStateService {
             }
           }
         }
+      }
+      if (options?.useCache) {
+        const cached = this.readStorageCache(platform)
+        if (cached) return cached
       }
     }
     // 有 cookie 名单但没命中、也没有 storage 结论时，才是明确的游客态。
@@ -276,6 +367,22 @@ export class AuthStateService {
       results.push(await this.getState(item.platform, item.baseUrl))
     }
     return results
+  }
+
+  /** 批量查询并映射为字典，供渲染层模型选择器展示登录态（不触发额外网页加载）。 */
+  public async getStatesMap(
+    states: Array<{ platform: string; baseUrl: string }>,
+    options?: { useCache?: boolean }
+  ): Promise<Record<string, PlatformAuthState>> {
+    const entries = await Promise.all(
+      states.map(async item => [
+        item.platform,
+        await this.getState(item.platform, item.baseUrl, { useCache: options?.useCache ?? true }).catch(
+          () => ({ platform: item.platform } as PlatformAuthState)
+        )
+      ] as const)
+    )
+    return Object.fromEntries(entries)
   }
 }
 

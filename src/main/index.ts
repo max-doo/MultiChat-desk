@@ -13,6 +13,7 @@ import { createWindow, getMainWindow, openBrowserWindowInternal, setQuitting, cr
 import { startInputHook, stopInputHook } from './inputHookManager'
 import { sessionManager } from './services/SessionManager'
 import { automationService } from './services/AutomationService'
+import { authStateService } from './services/AuthStateService'
 import { agentTaskService } from './services/AgentTaskService'
 import { startDaemonServer, stopDaemonServer } from './daemon/ipcServer'
 import { writeCliManifest } from './cliIntegration'
@@ -369,6 +370,7 @@ if (!gotTheLock) {
     // 初始化后台会话管理与自动化内核
     sessionManager.init()
     automationService.init(store)
+    authStateService.init(store)
     agentTaskService.init(dataPath)
 
     // 启动本地 CLI 守护服务
