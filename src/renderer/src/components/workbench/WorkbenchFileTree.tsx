@@ -99,9 +99,6 @@ interface InlineCreateState {
   parentDir: string
 }
 
-/**
- * 树内联"重命名"输入框状态（VSCode 风格）
- */
 interface InlineRenameState {
   node: WorkbenchFileNode
 }
@@ -120,7 +117,6 @@ export function getRenameSelectionRange(name: string, isDirectory: boolean): [nu
   return [0, name.length]
 }
 
-/** 拖拽状态：记录被拖节点与当前悬停目标目录（null 表示根目录） */
 interface DragState {
   node: WorkbenchFileNode
   /** 参与拖拽的全部路径（多选时为整组，单选时仅自身） */
@@ -204,7 +200,6 @@ function sortTreeNodes(nodes: WorkbenchFileNode[], fileSort: TreeSortOption): Wo
   )
 }
 
-// Git 状态徽标映射与聚合逻辑统一由 ../../utils/gitStatusBadge 提供
 
 function getNodeIcon(node: WorkbenchFileNode): { icon: string; color: string } {
   if (node.isDirectory) {
@@ -426,11 +421,12 @@ const FileTreeRow = memo(function FileTreeRow({
   if (node.isDirectory) {
     // assets/ 目录受管：不可拖拽（避免与文档附件目录联动逻辑冲突）
     const isManagedAssetsDir = node.path.split('/').includes('assets')
-    const isManagedMultichat = isManagedMultichatFolder(node.path)
+    const isAssetsDirRoot = node.path.split('/').pop() === 'assets'
+    const multichatVisual = resolveMultichatFolderVisual(node.path)
 
     return (
       <div
-        draggable={!isManagedAssetsDir && !isManagedMultichat && !isRenaming}
+        draggable={!isManagedAssetsDir && !multichatVisual && !isRenaming}
         data-folder-node={node.path}
         onDragStart={(e) => onDragStart(e, node)}
         onDragEnd={onDragEnd}
@@ -448,7 +444,7 @@ const FileTreeRow = memo(function FileTreeRow({
         title={
           isManagedAssetsDir
             ? '附件目录：文档图片等资产由应用自动管理'
-            : isManagedMultichat
+            : multichatVisual
             ? '应用数据目录：导图、标注等数据由应用自动管理'
             : undefined
         }
@@ -476,17 +472,24 @@ const FileTreeRow = memo(function FileTreeRow({
           />
         ) : (
           <>
+            {multichatVisual && (
+              <AppIcon
+                name={multichatVisual.icon}
+                size={15}
+                className={`shrink-0 ${multichatVisual.colorClass}`}
+              />
+            )}
+            {isAssetsDirRoot && (
+              <AppIcon name="attachment" size={15} className="shrink-0 text-slate-400" />
+            )}
             <span
-              className={`truncate flex-1 font-medium ${cutDimClass} ${
-                isManagedMultichat ? 'text-text-secondary/70' : ''
+              className={`truncate min-w-0 font-medium ${cutDimClass} ${
+                multichatVisual ? 'text-text-secondary/70' : ''
               }`}
             >
               {node.name}
             </span>
             {gitBadgeElement}
-            {isManagedAssetsDir && (
-              <AppIcon name="attachment" size={14} className="ml-auto shrink-0 text-text-secondary/50" />
-            )}
           </>
         )}
       </div>
@@ -808,7 +811,6 @@ function WorkbenchFileTree(): JSX.Element {
 
   const sortedFileTree = useMemo(() => sortTreeNodes(fileTree, fileSort), [fileTree, fileSort])
 
-  /** 文件级 Git 徽标：改动路径 → 徽标；重命名旧路径也标记，便于看出改动来源 */
   const gitFileBadges = useMemo(() => {
     const map = new Map<string, GitBadge>()
     if (!gitChanges) return map
@@ -821,7 +823,6 @@ function WorkbenchFileTree(): JSX.Element {
     return map
   }, [gitChanges])
 
-  /** 目录级 Git 徽标：聚合全部后代文件状态，取优先级最高者（VSCode 语义） */
   const gitDirBadges = useMemo(() => {
     const dirCodes = new Map<string, Set<GitBadgeCode>>()
     for (const [filePath, badge] of gitFileBadges) {
@@ -847,7 +848,6 @@ function WorkbenchFileTree(): JSX.Element {
     return map
   }, [gitFileBadges])
 
-  /** 跨工作区移动的目标：最近工作区 + 默认库，排除当前工作区 */
   const moveTargets = useMemo(() => {
     const seen = new Set<string>()
     const normalize = (value: string): string => value.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
@@ -863,7 +863,6 @@ function WorkbenchFileTree(): JSX.Element {
     return out
   }, [defaultWorkspacePath, recentWorkspaces, workspacePath])
 
-  /** 可见节点扁平化（直接复用已排序的 sortedFileTree），用于 Shift 范围选择 */
   const flatVisibleNodes = useMemo(() => {
     const out: WorkbenchFileNode[] = []
     const walk = (nodes: WorkbenchFileNode[]) => {
@@ -913,7 +912,6 @@ function WorkbenchFileTree(): JSX.Element {
     return rows
   }, [sortedFileTree, expandedFolderIds, inlineCreate])
 
-  /** 节点点击（VSCode：普通点击单选、Ctrl/Cmd 切换、Shift 从锚点范围选择） */
   const handleNodeClick = useCallback(
     (e: React.MouseEvent, node: WorkbenchFileNode) => {
       const isCtrl = e.ctrlKey || e.metaKey
@@ -963,11 +961,9 @@ function WorkbenchFileTree(): JSX.Element {
     [openFile]
   )
 
-  /** 展开 set 中的祖先目录，保证选中项/新建输入框可见 */
   const expandAncestors = useCallback((dirPaths: Iterable<string>) => {
     const next = new Set(useWorkbenchStore.getState().expandedFolderIds)
     for (const dirPath of Array.from(dirPaths)) {
-      // dirPath 自身及其全部祖先目录均需展开
       let p: string | null = dirPath
       while (p) {
         next.add(p)
@@ -978,7 +974,6 @@ function WorkbenchFileTree(): JSX.Element {
     useWorkbenchStore.setState({ expandedFolderIds: next })
   }, [])
 
-  /** 依据上下文节点推断新建目标的父目录（VSCode 语义：文件→其父目录；文件夹→其内部） */
   const resolveParentDir = useCallback(
     (node: WorkbenchFileNode | null): string => {
       if (node) {
@@ -1095,7 +1090,6 @@ function WorkbenchFileTree(): JSX.Element {
     }
   }, [renameNode])
 
-  // ---- 拖拽移动（VSCode 风格） ----
   const handleDragStart = useCallback(
     (e: React.DragEvent, node: WorkbenchFileNode) => {
       e.dataTransfer.effectAllowed = 'copyMove'
@@ -1159,7 +1153,6 @@ function WorkbenchFileTree(): JSX.Element {
     setDraggingNodes(null)
   }, [setDraggingNodes])
 
-  /** 判断 node 是否可作为当前拖拽的有效目标目录 */
   const isValidDropDir = useCallback(
     (node: WorkbenchFileNode): boolean => {
       const currentDrag = dragStateRef.current
@@ -1172,7 +1165,6 @@ function WorkbenchFileTree(): JSX.Element {
     []
   )
 
-  /** 外部文件/文件夹拖入：目录节点 dragover（内部拖拽与外部文件共享高亮态） */
   const isExternalFileDrag = useCallback((e: React.DragEvent): boolean => {
     return !dragStateRef.current && e.dataTransfer.types.includes('Files')
   }, [])
@@ -1191,7 +1183,6 @@ function WorkbenchFileTree(): JSX.Element {
 
   const handleNodeDragOver = useCallback(
     (e: React.DragEvent, node: WorkbenchFileNode) => {
-      // 外部文件拖入：目录节点直接作为目标
       if (isExternalFileDrag(e)) {
         e.preventDefault()
         e.stopPropagation()
@@ -1218,7 +1209,6 @@ function WorkbenchFileTree(): JSX.Element {
     (e: React.DragEvent, node: WorkbenchFileNode) => {
       e.preventDefault()
       e.stopPropagation()
-      // 外部文件/文件夹 → 复制进该目录
       if (isExternalFileDrag(e)) {
         const paths = collectLocalPaths(e.dataTransfer.files)
         if (paths.length) {
@@ -1240,7 +1230,6 @@ function WorkbenchFileTree(): JSX.Element {
 
   const handleFileDragOver = useCallback(
     (e: React.DragEvent, node: WorkbenchFileNode) => {
-      // 外部文件拖到文件上 → 落入其父目录
       if (isExternalFileDrag(e)) {
         const idx = node.path.lastIndexOf('/')
         const parent = idx === -1 ? '' : node.path.slice(0, idx)
@@ -1406,7 +1395,6 @@ function WorkbenchFileTree(): JSX.Element {
     [resolveParentDir, expandAncestors, importExternalItems, moveExternalItems, workspacePath]
   )
 
-  /** 复制（Ctrl+C / 系统复制）：把选中节点记入树内剪贴板，不抢占文字复制 */
   const handleCopy = useCallback(
     (e: React.ClipboardEvent) => {
       // 正在输入（重命名/内联新建）或选中了文字时，保留原生文字复制行为
@@ -1424,7 +1412,6 @@ function WorkbenchFileTree(): JSX.Element {
     [selectedPaths, workspacePath]
   )
 
-  /** 剪切（Ctrl+X / 系统剪切）：记入树内剪贴板并标记剪切态，系统剪贴板按移动写入 */
   const handleCut = useCallback(
     (e: React.ClipboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
@@ -1479,7 +1466,6 @@ function WorkbenchFileTree(): JSX.Element {
     [treeClipboard, workspacePath, expandAncestors, importExternalItems, moveNodes]
   )
 
-  /** 树容器的键盘快捷键：容器已聚焦且未在输入框内时接管 F2（重命名）、Ctrl+C / Ctrl+X / Ctrl+V、Esc */
   const handleTreeKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
@@ -1586,7 +1572,7 @@ function WorkbenchFileTree(): JSX.Element {
       onCut={handleCut}
       onPaste={handlePaste}
     >
-      <div className="h-12 px-3 border-b border-black/5 dark:border-white/5 flex items-center justify-between gap-1 shrink-0">
+      <div className="h-12 px-3 border-b border-black/5 dark:border-white/5 flex items-center justify-center gap-1 shrink-0">
         <div className="flex items-center gap-0.5 text-text-secondary">
           <button
             ref={searchButtonRef}
