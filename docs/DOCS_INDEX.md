@@ -1,273 +1,117 @@
 # MultiChat 文档索引
 
-> 快速找到你需要的文档
+> Created: 2026-11-26 18:48 (+08:00)
+>
+> 本文档是 docs 目录结构的权威索引。新增或移动文档时同步更新本文件。
 
 ---
 
-## 📚 主要文档
+## 目录结构总览
 
-### 🏠 项目概览
-**[README.md](README.md)** - 项目主文档
-- 项目介绍和核心功能
-- 快速开始指南
-- 技术栈说明
-- 常见问题解答
-
-### 📦 构建与打包
-**[BUILD_GUIDE.md](BUILD_GUIDE.md)** - 完整打包指南（⭐ 推荐）
-- 环境准备
-- 构建命令详解
-- 两种打包模式对比
-- 完整打包流程
-- 验证构建结果
-- 发布流程
-- 常见问题解决
-
-**[PORTABLE_BUILD_GUIDE.md](PORTABLE_BUILD_GUIDE.md)** - 便携版详解
-- 便携模式工作原理
-- 实现细节
-- 数据存储机制
-- 配置文件说明
-
-**[QUICK_BUILD_REFERENCE.md](QUICK_BUILD_REFERENCE.md)** - 快速参考
-- 常用命令速查
-- 发布检查清单
-- 快速验证方法
-- 常见问题速查
-
-### ⚙️ 配置说明
-**[API_CONFIG_GUIDE.md](API_CONFIG_GUIDE.md)** - API 配置指南
-- API 供应商配置
-- 模型配置
-- 参数说明
-
-**[workbench-git-sync.md](workbench-git-sync.md)** - 工作台版本管理与大文件策略
-- 文件移动如何保留 Git 历史
-- 拉取、合并与推送的边界
-- 单文件体积限制与 `.gitignore` 预设
-
-**[workbench-mindmap-file-binding-design.md](workbench-mindmap-file-binding-design.md)** - 工作台导图文件化与绑定设计
-- 导图落成 `.multichat/mindmaps/*.mindmap.md`，XMind、幕布可导入
-- 索引按工作区存放，绑定用相对路径，换盘与改名不丢
-- 正文与绑定冲突不自动选边，迁移与对账的删除保护
-
-**[workbench-unified-notes-annotation-design.md](workbench-unified-notes-annotation-design.md)** - 工作台统一笔记与标注设计
-- 笔记、会话、摘录统一为工作区 Markdown 文档，旧 NotesPage 逐步收口
-- 标注共用一套记录结构，但分两个根：`source` 固定默认会话库，`document` 跟随文档所在工作区
-- 会话快照转标准 Markdown；工作台内捕捉写当前工作区，工作台外写默认会话库，归档目录默认 `conversations/`；捕捉按 `annotationId` 幂等
-- 旧笔记、旧标注和旧导图一次性迁移：普通会话到默认会话库，带 `workbench` 的记录按原工作区文档分流；原文高亮跨工作区共用，MarkNode 单 block 边界与验收标准齐全
-
-**[workbench-annotation-anchor-lifecycle-design.md](workbench-annotation-anchor-lifecycle-design.md)** - 注释锚点生命周期与未定位清理设计
-- 正文局部修改、完全删除、移动、重复文本和跨 block 时的锚点状态
-- 未解决标注（未定位/歧义/重叠）持久化、旁注栏入口、重新定位与按 scope 分区清理
-- MarkNode 当前范围优先、对账修订保护、写放大控制和 HTML 预览接入
-- 不按时间自动删除注释，只提供显式清理；后续归档与保留期单独立项
-
-### 💻 开发辅助
-**[WINDOWS_COMMANDS.md](WINDOWS_COMMANDS.md)** - Windows PowerShell 命令参考
-- Bash 与 PowerShell 命令对照
-- 常用开发命令
-- 实用技巧和自定义函数
-- 常见错误解决方案
-
-**[GITHUB_GUIDE.md](GITHUB_GUIDE.md)** - GitHub 仓库管理指南
-- 初始化与连接
-- 常用开发工作流 (Pull, Branch, Commit, Push)
-- 分支管理策略与提交规范
-- 版本发布流程
-
-**[PORTABLE_MODE_EXPLAINED.md](PORTABLE_MODE_EXPLAINED.md)** - 便携模式说明
-- 为什么改用 ZIP 格式
-- 使用方法和验证
-- 迁移指南
-
-**[WEBCONTENTSVIEW_MIGRATION_ASSESSMENT.md](WEBCONTENTSVIEW_MIGRATION_ASSESSMENT.md)** - WebView 到 WebContentsView 迁移评估
-- 架构对比（WebView vs BrowserView vs WebContentsView）
-- 项目现状及受影响文件
-- 升级收益与技术挑战（CSS布局转Bounds管理等）
-- 18-23天的工作量估算与分阶段推荐路径
-
----
-
-## 📖 按用途查找
-
-### 🎯 我想开始开发
-1. 阅读 [README.md](README.md) 了解项目
-2. 按照"快速开始"章节配置环境
-3. 运行 `npm run dev` 启动开发
-
-### 📦 我想打包发布
-1. 快速入门：[QUICK_BUILD_REFERENCE.md](QUICK_BUILD_REFERENCE.md)
-2. 详细指南：[BUILD_GUIDE.md](BUILD_GUIDE.md)
-3. 发布检查：使用 BUILD_GUIDE 中的检查清单
-
-### 🎒 我想了解便携版
-1. 原理说明：[PORTABLE_BUILD_GUIDE.md](PORTABLE_BUILD_GUIDE.md)
-2. 构建方法：[BUILD_GUIDE.md](BUILD_GUIDE.md) 第3章
-3. 快速构建：`npm run build:win:portable`
-
-### 🔧 我想配置 API
-1. 完整指南：[API_CONFIG_GUIDE.md](API_CONFIG_GUIDE.md)
-2. 快速配置：README.md 配置说明章节
-
-### ❓ 我遇到了问题
-1. 查看 [README.md](README.md#常见问题)
-2. 查看 [BUILD_GUIDE.md](BUILD_GUIDE.md#常见问题)
-3. 搜索 [GitHub Issues](https://github.com/max-doo/MultiChat-desk/issues)
-4. 提交新 Issue
-
----
-
-## 🔍 按主题查找
-
-### 开发相关
-- 项目结构：[README.md](README.md#项目结构)
-- 技术栈：[README.md](README.md#技术栈)
-- 开发环境：[README.md](README.md#快速开始)
-- **版本控制：[GITHUB_GUIDE.md](GITHUB_GUIDE.md)**
-
-### 构建相关
-- 构建命令：[BUILD_GUIDE.md](BUILD_GUIDE.md#构建命令详解)
-- 打包流程：[BUILD_GUIDE.md](BUILD_GUIDE.md#打包流程)
-- 便携模式：[PORTABLE_BUILD_GUIDE.md](PORTABLE_BUILD_GUIDE.md)
-
-### 配置相关
-- API 配置：[API_CONFIG_GUIDE.md](API_CONFIG_GUIDE.md)
-- 模型管理：[README.md](README.md#模型管理)
-- DOM 选择器：[README.md](README.md#dom-选择器配置)
-- Agent 供应商、模型与上下文：[agent-provider-model-context-design.md](agent-provider-model-context-design.md)
-
-### 发布相关
-- 发布流程：[BUILD_GUIDE.md](BUILD_GUIDE.md#发布流程)
-- Release 说明：[BUILD_GUIDE.md](BUILD_GUIDE.md#release-说明模板)
-- 版本管理：[BUILD_GUIDE.md](BUILD_GUIDE.md#版本管理)
-
----
-
-## 🗂️ 文件清单
-
-### 核心文档
 ```
-📄 README.md                      # 项目主文档
-📄 BUILD_GUIDE.md                 # 构建打包指南
-📄 PORTABLE_BUILD_GUIDE.md        # 便携版详解
-📄 QUICK_BUILD_REFERENCE.md       # 快速参考
-📄 API_CONFIG_GUIDE.md            # API 配置指南
-📄 GITHUB_GUIDE.md                # GitHub 仓库管理指南
-📄 USER_GUIDE.md                  # 用户指南
-📄 WINDOWS_COMMANDS.md            # Windows PowerShell 命令参考
-📄 WEBCONTENTSVIEW_MIGRATION_ASSESSMENT.md # WebContentsView 迁移可行性评估
-📄 DOCS_INDEX.md                  # 文档索引（本文件）
-```
-
-### 设计笔记与 DOM 选择器文档
-```
-📄 Gemini canvas dom.md           # Gemini Canvas DOM 结构
-📄 输入框dom.md                    # 输入框 DOM 选择器
-📄 输出内容dom.md                  # 输出内容 DOM 选择器
-📄 上传文件dom.md                  # 上传文件 DOM 选择器
-📄 深度研究dom.md                  # 深度研究 DOM 选择器
-📄 研究报告dom选择器.md            # 研究报告 DOM 选择器
-📄 gemin开启推理.md                # Gemini 开启推理说明
-📄 总结模块提示词架构方案.md        # 总结模块提示词架构
-📄 MultiChatPRD 3 simple.md       # 产品需求文档
-📄 清空开发服务器本地储存.md        # 清空本地存储方法
-```
-
-### 配置文件
-```
-⚙️ package.json                   # 项目配置与脚本
-⚙️ electron-builder.yml           # 通用打包配置
-⚙️ electron-builder-portable.yml  # 便携版配置
-⚙️ electron.vite.config.ts        # Vite 配置
-⚙️ tsconfig.json                  # TypeScript 配置
-⚙️ tailwind.config.js             # Tailwind CSS 配置
-```
-
-### 脚本文件
-```
-🔧 scripts/add-portable-marker.js # 便携版标记生成
-```
-
-### 标记文件
-```
-📋 build/portable.txt             # 便携版标记文件
+docs/
+├── *.md / screenshot.png     # 常青指南（构建、配置、用户手册）
+├── readme/                   # README 引用的产品截图
+├── agent/                    # Agent 模式设计稿（进行中）
+├── workbench/                # 工作台设计稿（进行中）
+├── mindmap/                  # 思维导图设计与原型
+├── selectors/                # Webview DOM 选择器调研（维护中）
+├── prototypes/               # UI 原型 HTML 与验收截图
+├── design/                   # 界面设计原型（设置页等）
+├── research/                 # 行业与技术调研报告
+└── archive/                  # 已落地或被取代的历史文档
+    ├── 2026-08/              # 早期文档 + superpowers 计划/规格全集
+    ├── 2026-10/              # 导图重写与数据治理（随 v1.3.0 落地）
+    └── 2026-11/              # 已完成迁移（Lucide 图标等）
 ```
 
 ---
 
-## 💡 推荐阅读顺序
+## 常青指南（根目录）
 
-### 新手入门
-1. **[README.md](README.md)** - 了解项目
-2. **[README.md#快速开始](README.md#快速开始)** - 配置环境
-3. 运行 `npm run dev` 体验开发
+面向所有使用者，长期有效、按需更新，不归档。
 
-### 准备发布
-1. **[QUICK_BUILD_REFERENCE.md](QUICK_BUILD_REFERENCE.md)** - 快速了解
-2. **[BUILD_GUIDE.md](BUILD_GUIDE.md)** - 详细学习
-3. 按照检查清单执行发布
-
-### 深入学习
-1. **[PORTABLE_BUILD_GUIDE.md](PORTABLE_BUILD_GUIDE.md)** - 便携模式原理
-2. **[项目结构](README.md#项目结构)** - 代码组织
-3. **源码阅读** - 理解实现细节
+| 文档 | 内容 |
+| --- | --- |
+| [BUILD_GUIDE.md](BUILD_GUIDE.md) | 完整打包指南：环境准备、构建命令、发布流程、常见问题 |
+| [PORTABLE_BUILD_GUIDE.md](PORTABLE_BUILD_GUIDE.md) | 便携版工作原理、数据存储机制、配置说明 |
+| [QUICK_BUILD_REFERENCE.md](QUICK_BUILD_REFERENCE.md) | 常用命令速查与发布检查清单 |
+| [API_CONFIG_GUIDE.md](API_CONFIG_GUIDE.md) | API 供应商与模型配置 |
+| [USER_GUIDE.md](USER_GUIDE.md) | 用户手册（README 引用） |
+| [GITHUB_GUIDE.md](GITHUB_GUIDE.md) | Git 工作流、分支与提交规范、版本发布 |
+| [WINDOWS_COMMANDS.md](WINDOWS_COMMANDS.md) | Bash 与 PowerShell 命令对照、开发常用命令 |
+| [MACOS_DEVELOPMENT_PLAN.md](MACOS_DEVELOPMENT_PLAN.md) | macOS 构建配置与适配说明 |
 
 ---
 
-## 📞 获取帮助
+## 活跃设计稿
 
-### 文档中找不到答案？
+进行中的功能设计与调研，落地完成后移入 `archive/`。
 
-1. **搜索文档**
-   - 使用 `Ctrl+F` 在文档中搜索关键词
-   - 查看相关章节的"常见问题"部分
+### agent/ — Agent 模式
 
-2. **搜索 Issues**
-   - [已有 Issues](https://github.com/max-doo/MultiChat-desk/issues?q=is%3Aissue)
-   - 可能已经有人遇到相同问题
+- [agent/agent-cli-dev-plan.md](agent/agent-cli-dev-plan.md) — CLI 任务链路总设计
+- [agent/cli-image-generation-plan.md](agent/cli-image-generation-plan.md) — CLI 图片生成
+- [agent/agent-sidebar-dev-plan.md](agent/agent-sidebar-dev-plan.md) / [agent-sidebar-dev-plan-review.md](agent/agent-sidebar-dev-plan-review.md) / [agent-sidebar-ui-research.md](agent/agent-sidebar-ui-research.md) — Agent 侧栏方案、评审与 UI 调研
+- [agent/agent-provider-model-context-design.md](agent/agent-provider-model-context-design.md) — 供应商、模型与上下文管理
+- [agent/agent-context-compression-plan.md](agent/agent-context-compression-plan.md) — 上下文压缩分层
+- [agent/agent-shell-encoding-design.md](agent/agent-shell-encoding-design.md) — Shell 编码处理
+- [agent/command-safety-ast-plan.md](agent/command-safety-ast-plan.md) — 命令安全 AST 化判定
+- [agent/web-ai-mode-design.md](agent/web-ai-mode-design.md) — Web AI 模式设计
+- [agent/task-split-web-backend-design.md](agent/task-split-web-backend-design.md) — 任务拆解改走后台 Web AI
+- [agent/pi-agent-ecosystem-research.md](agent/pi-agent-ecosystem-research.md) — π 系 Agent 生态调研
 
-3. **提问**
-   - [Discussions](https://github.com/max-doo/MultiChat-desk/discussions) - 一般性讨论
-   - [New Issue](https://github.com/max-doo/MultiChat-desk/issues/new) - 报告 Bug
+### workbench/ — 工作台
 
-4. **联系方式**
-   - Email: your-email@example.com
-   - GitHub: @your-username
+- [workbench/workbench_product_spec.md](workbench/workbench_product_spec.md) — 产品规格
+- [workbench/workbench-unified-notes-annotation-design.md](workbench/workbench-unified-notes-annotation-design.md) — 统一笔记与标注设计（核心）
+- [workbench/workbench-annotation-anchor-lifecycle-design.md](workbench/workbench-annotation-anchor-lifecycle-design.md) — 注释锚点生命周期
+- [workbench/workbench-performance-memory-optimization-plan.md](workbench/workbench-performance-memory-optimization-plan.md) — 性能与内存优化（P0/P1 已落地，后续阶段进行中）
+- [workbench/workbench-markdown-source-fidelity-fix.md](workbench/workbench-markdown-source-fidelity-fix.md) — Markdown 源码保真修复
+- [workbench/workbench-git-gutter-design.md](workbench/workbench-git-gutter-design.md) / [workbench/workbench-git-sync.md](workbench/workbench-git-sync.md) — Git 变更标记与版本同步策略
+- [workbench/workbench-mindmap-file-binding-design.md](workbench/workbench-mindmap-file-binding-design.md) — 导图文件化与绑定
+- [workbench/workbench-html-visual-edit-plan.md](workbench/workbench-html-visual-edit-plan.md) — HTML 可视化编辑
+- [workbench/workbench-office-preview-plan.md](workbench/workbench-office-preview-plan.md) — Office 预览
+- [workbench/workbench-tags-obsidian-parity-plan.md](workbench/workbench-tags-obsidian-parity-plan.md) — 标签能力对齐 Obsidian
+- [workbench/workbench-lexical-playground-parity.md](workbench/workbench-lexical-playground-parity.md) — 编辑器能力对齐
+- [workbench/reply-insert-into-workbench-design.md](workbench/reply-insert-into-workbench-design.md) — AI 回复插入工作台
 
----
+### mindmap/ — 思维导图
 
-## 🔄 文档更新
-
-- **最后更新**：2025-12-25
-- **版本**：1.0.0
-- **维护者**：MultiChat Team
-
-### 贡献文档
-
-如果你发现文档有误或需要改进：
-
-1. Fork 项目
-2. 修改文档
-3. 提交 Pull Request
-
-我们欢迎所有形式的文档改进！
-
----
-
-## ✅ 文档检查清单
-
-使用本索引前，请确保以下文档存在：
-
-- [x] README.md
-- [x] BUILD_GUIDE.md
-- [x] PORTABLE_BUILD_GUIDE.md
-- [x] QUICK_BUILD_REFERENCE.md
-- [x] API_CONFIG_GUIDE.md
-- [x] GITHUB_GUIDE.md
-- [x] WEBCONTENTSVIEW_MIGRATION_ASSESSMENT.md
-- [x] DOCS_INDEX.md
+- [mindmap/mindmap-selection-scope-design.md](mindmap/mindmap-selection-scope-design.md) / [mindmap-selection-scope-prototype.html](mindmap/mindmap-selection-scope-prototype.html) — 选区范围导图设计与原型
+- [mindmap/mindmap-mvp-prototype.html](mindmap/mindmap-mvp-prototype.html) — 早期 MVP 原型（参考）
 
 ---
 
-**Happy Building! 🚀**
+## 参考资料
+
+### selectors/ — DOM 选择器调研
+
+选择器维护的长期参考，站点改版时更新。
+
+- [selectors/选择器维护方法论.md](selectors/选择器维护方法论.md) — 选择器维护总方法论
+- `selectors/deep-research-dom/` — 各平台深度研究入口 DOM（13 平台 + README）
+- `selectors/image-download-dom/` — 各平台生图下载 DOM（8 平台适配 + README）
+- `selectors/reply-action-dom/` — 回复操作按钮 DOM（复制/重生成等）
+- [selectors/Gemini canvas dom.md](selectors/Gemini%20canvas%20dom.md) / [selectors/gemin开启推理.md](selectors/gemin开启推理.md) — Gemini 专项笔记
+
+### prototypes/ / design/ — UI 原型
+
+交互与视觉原型 HTML 及验收截图，按文件名对应到对应设计稿。`design/` 目前为设置页重设计原型。
+
+### research/ — 调研报告
+
+- `research/agent-skills-research-2026-11.md` — Agent Skills 生态调研
+- `research/browser-extension-deep-research.md` — 浏览器扩展方向调研
+
+---
+
+## 归档 archive/
+
+已落地、被取代或不再适用的历史文档，仅供回溯，不再更新。
+
+- **archive/2026-08/** — 项目早期文档：`superpowers/` 全套计划与规格（2026-03 ~ 2026-10）、早期 DOM 笔记（已被 selectors/ 取代）、`ModelMashPRD 3 simple.md`、早期评估报告（CLI 可行性、WebContentsView 迁移）、`settings-config-design.md`（旧版设置设计）等
+- **archive/2026-10/** — 导图重写与数据治理系列（随 v1.3.0 落地）：`mindmap-rewrite-design.md`、`single-conversation-mindmap-design/mvp-design.md`、`conversation-mindmap-prompt-optimization.md`、`data-governance-optimization-plan.md`
+- **archive/2026-11/** — 已完成的一次性迁移：`lucide-migration-plan.md`
+
+归档规则：设计稿对应功能落地并稳定后移入 `archive/<落地年月>/`；被新文档取代时移入 `archive/<取代年月>/`。归档文档不再维护，内容以代码事实为准。

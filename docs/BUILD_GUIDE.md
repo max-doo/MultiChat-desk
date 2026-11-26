@@ -777,8 +777,8 @@ xcopy /E /I "便携版路径\resources\data" "%APPDATA%\MultiChat"
 
 ### 项目文档
 - [README.md](../README.md) - 项目说明
-- [API_CONFIG_GUIDE.md](../API_CONFIG_GUIDE.md) - API 配置
-- [PORTABLE_BUILD_GUIDE.md](../PORTABLE_BUILD_GUIDE.md) - 便携版详解
+- [API_CONFIG_GUIDE.md](API_CONFIG_GUIDE.md) - API 配置
+- [PORTABLE_BUILD_GUIDE.md](PORTABLE_BUILD_GUIDE.md) - 便携版详解
 
 ### 工具
 - [NSIS](https://nsis.sourceforge.io/) - 安装包制作工具

@@ -147,7 +147,7 @@ Get-ChildItem dist
 
 - 📖 **详细打包指南**：[BUILD_GUIDE.md](BUILD_GUIDE.md)
 - 🎒 **便携版详解**：[PORTABLE_BUILD_GUIDE.md](PORTABLE_BUILD_GUIDE.md)
-- 📘 **项目说明**：[README.md](README.md)
+- 📘 **项目说明**：[README.md](../README.md)
 - 🔧 **API 配置**：[API_CONFIG_GUIDE.md](API_CONFIG_GUIDE.md)
 
 ---

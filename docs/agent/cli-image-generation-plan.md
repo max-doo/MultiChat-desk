@@ -2,7 +2,7 @@
 
 > Created: 2026-11-18 00:22 (Asia/Shanghai, UTC+08:00)
 
-关联文档：[agent-cli-dev-plan.md](agent-cli-dev-plan.md)（CLI 任务链路总设计）、[image-download-dom/README.md](image-download-dom/README.md)（各平台生图下载 DOM 调研，已完成 8 平台适配）。
+关联文档：[agent-cli-dev-plan.md](agent-cli-dev-plan.md)（CLI 任务链路总设计）、[../selectors/image-download-dom/README.md](../selectors/image-download-dom/README.md)（各平台生图下载 DOM 调研，已完成 8 平台适配）。
 
 ---
 

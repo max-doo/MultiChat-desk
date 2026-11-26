@@ -2,7 +2,7 @@
 
 > Created: 2026-11-16 14:51 (Asia/Shanghai, UTC+08:00)；Revised: 2026-11-16 15:00（经独立 worker 深审后修订）
 
-前置阅读：[CLI_FEASIBILITY_ASSESSMENT.md](CLI_FEASIBILITY_ASSESSMENT.md)（既有可行性评估，本方案是其 Phase 4 的具体化）。
+前置阅读：[CLI_FEASIBILITY_ASSESSMENT.md](../archive/2026-08/CLI_FEASIBILITY_ASSESSMENT.md)（既有可行性评估，本方案是其 Phase 4 的具体化）。
 
 ---
 
