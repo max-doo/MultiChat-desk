@@ -14,7 +14,7 @@ import FileTypeIcon from './FileTypeIcon'
 import WorkbenchGitPanel from './WorkbenchGitPanel'
 import WorkbenchVaultPopover from './WorkbenchVaultPopover'
 import WorkbenchWorkspaceSettings from './WorkbenchWorkspaceSettings'
-import { AppIcon } from '../icons/AppIcon'
+import { AppIcon, type AppIconName } from '../icons/AppIcon'
 import Modal from '../ui/Modal'
 import { Button } from '../ui/FormControls'
 import { requestUploadNodesToAi } from './workbenchAiEvents'
@@ -53,21 +53,23 @@ const DEFAULT_FOLDER_NAME = '新建文件夹'
 /** 左侧栏窄于该宽度时底栏切换为紧凑模式（隐藏 Git 分支名并收紧留白），确保工作区名称可读 */
 const COMPACT_FOOTER_WIDTH_THRESHOLD = 320
 
-function isManagedMultichatFolder(nodePath: string): boolean {
+function resolveMultichatFolderVisual(
+  nodePath: string
+): { icon: AppIconName; colorClass: string } | null {
   const normalized = nodePath.replace(/\\/g, '/').toLowerCase()
   if (normalized === '.multichat') {
-    return true
+    return { icon: 'folder_managed', colorClass: 'text-slate-500 dark:text-slate-400' }
   }
   if (normalized === '.multichat/image' || normalized === '.multichat/images') {
-    return true
+    return { icon: 'image', colorClass: 'text-sky-500' }
   }
   if (normalized === '.multichat/mindmap' || normalized === '.multichat/mindmaps') {
-    return true
+    return { icon: 'diagram_flow_horizontal', colorClass: 'text-indigo-500' }
   }
   if (normalized === '.multichat/annotation' || normalized === '.multichat/annotations') {
-    return true
+    return { icon: 'annotation', colorClass: 'text-emerald-500' }
   }
-  return false
+  return null
 }
 
 interface ContextMenuState {
