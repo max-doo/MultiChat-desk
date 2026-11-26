@@ -4,7 +4,7 @@ import 'react-diff-view/style/index.css'
 import { AppIcon } from '../../icons/AppIcon'
 import type { PiContentPart } from '../../../types/agent'
 import { useWorkbenchStore } from '../../../store/workbenchStore'
-import { resolveAbsolute, toWorkspaceRelative } from './filePathUtils'
+import { agentChipOpenOptions, resolveAbsolute, toWorkspaceRelative } from './filePathUtils'
 
 interface ToolGroupProps {
   parts: PiContentPart[]
@@ -134,12 +134,18 @@ function ToolItem({ part, isRunning = false, defaultExpanded = false, cwd }: Sin
     if (!filePath) return
     const rel = cwd && workspacePath ? toWorkspaceRelative(workspacePath, cwd, filePath) : null
     if (rel) {
-      void openFile(rel).then((opened) => {
+      void openFile(rel, agentChipOpenOptions(e)).then((opened) => {
         if (!opened) void window.api.agentRevealFile(resolveAbsolute(cwd!, filePath))
       })
     } else if (cwd) {
       void window.api.agentRevealFile(resolveAbsolute(cwd, filePath))
     }
+  }
+
+  const handleFileNameAuxClick = (e: React.MouseEvent): void => {
+    if (e.button !== 1) return
+    e.preventDefault()
+    handleFileNameClick(e)
   }
 
   // 搜索/生成类工具的关键入参（单行尾随展示）
@@ -230,6 +236,7 @@ function ToolItem({ part, isRunning = false, defaultExpanded = false, cwd }: Sin
           <button
             type="button"
             onClick={handleFileNameClick}
+            onAuxClick={handleFileNameAuxClick}
             title={filePath}
             className="font-mono text-body text-slate-700 dark:text-gray-300 truncate underline decoration-slate-300 dark:decoration-slate-600 underline-offset-2 hover:text-primary transition-colors"
           >
@@ -307,6 +314,7 @@ function ToolItem({ part, isRunning = false, defaultExpanded = false, cwd }: Sin
           <button
             type="button"
             onClick={handleFileNameClick}
+            onAuxClick={handleFileNameAuxClick}
             title={filePath}
             className="font-mono text-body text-slate-700 dark:text-gray-300 truncate underline decoration-slate-300 dark:decoration-slate-600 underline-offset-2 hover:text-primary transition-colors"
           >

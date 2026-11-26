@@ -6,9 +6,10 @@ import type {
 } from '../../../shared/types/contextMenu'
 import { WORKBENCH_HTML_ANNOTATION_EVENT } from '../../../shared/types/htmlAnnotations'
 import { useWorkbenchStore } from '../store/workbenchStore'
+import { useAgentSessionStore } from '../store/agentSessionStore'
 import { captureContextOf } from '../utils/annotationCaptureContext'
 import { AppIcon } from './icons/AppIcon'
-import { requestSendImageToAi } from './workbench/workbenchAiEvents'
+import { requestAskWebview, requestSendImageToAi } from './workbench/workbenchAiEvents'
 
 interface ExtendedMenuItem extends ContextMenuItem {
   action?: () => void
@@ -245,6 +246,38 @@ export default function CustomContextMenu(): JSX.Element | null {
       const isNonCodeWorkbenchEditor = isWorkbenchEditor && activeFileCategory !== 'code'
       if (isNonCodeWorkbenchEditor && selectionText) {
         appendWorkbenchAiItems(items, selectionText)
+        items.push({ type: 'separator' })
+      }
+
+      // Agent 侧边栏消息区：选中内容可以回填 Agent 输入框，或投到网页平台侧边栏提问。
+      // 输入控件（Composer）自身保留剪切/粘贴原生语义，不出现这两项。
+      const agentInstanceEl = target.closest('[data-agent-instance]') as HTMLElement | null
+      const agentInstance = agentInstanceEl?.dataset.agentInstance
+      if (selectionText && !editable && (agentInstance === 'ai' || agentInstance === 'ai2')) {
+        items.push({
+          key: 'append_to_agent',
+          label: '添加到对话',
+          icon: 'annotation',
+          color: 'text-emerald-500',
+          action: () => {
+            useAgentSessionStore.getState().appendPromptText(selectionText)
+            window.requestAnimationFrame(() => {
+              const textarea = agentInstanceEl?.querySelector('textarea')
+              if (!(textarea instanceof HTMLTextAreaElement)) return
+              textarea.focus()
+              textarea.setSelectionRange(textarea.value.length, textarea.value.length)
+            })
+          }
+        })
+        items.push({
+          key: 'ask_in_webview',
+          label: '在侧边聊天中提问',
+          icon: 'chat',
+          color: 'text-blue-500',
+          action: () => {
+            requestAskWebview({ text: selectionText, target: agentInstance === 'ai' ? 'ai2' : 'ai' })
+          }
+        })
         items.push({ type: 'separator' })
       }
 

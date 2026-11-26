@@ -399,6 +399,9 @@ webview[tabindex="-1"] {
 .PlaygroundEditorTheme__footnoteRef {
   cursor: pointer;
 }
+.workbench-wiki-link {
+  display: inline;
+}
 .workbench-footnote-ref-pill {
   font-size: 0.72em;
   color: rgb(37, 99, 235);

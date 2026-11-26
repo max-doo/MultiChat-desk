@@ -1,4 +1,4 @@
-import { Fragment, memo, useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import { Fragment, memo, useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from 'react'
 import { useAppStore, DEEP_RESEARCH_SUPPORTED_MODEL_IDS, IMAGE_GENERATION_SUPPORTED_MODEL_IDS } from '../../store/appStore'
 import agentAvatar from '../../assets/logos/agent.png'
 import { useWorkbenchStore } from '../../store/workbenchStore'
@@ -7,6 +7,7 @@ import CustomDropdown, { type DropdownOption } from '../CustomDropdown'
 import { AppIcon } from '../icons/AppIcon'
 import ConfirmModal from '../ConfirmModal'
 import RenameModal from '../RenameModal'
+import Modal from '../ui/Modal'
 import { AgentPopover } from './agent/AgentPopover'
 import { ToolGroup } from './agent/ToolGroup'
 import { ApprovalCard } from './agent/ApprovalCard'
@@ -222,6 +223,16 @@ interface AgentUserMessageItemProps {
   onRewindClick: () => void
 }
 
+// 用户气泡折叠策略（对齐主流 Agent 产品：Claude/ChatGPT 均为默认折叠+手动展开）：
+// 按渲染高度而非行数判断——引号/链接/mention 芯片换行宽度不定，行数不可靠。
+// 正文 14px × 1.6 行高 ≈ 22.4px/行：>8 行（180px）折叠；折叠后预览 5 行（112px）。
+// 展开分两层：中等长度全量展示；极端超长粘贴（>480px，约 21 行）封顶为内嵌滚动，
+// 否则一条消息能占满多个视口，聊天流彻底无法浏览。滚轮到底后自然链到外层聊天流。
+const USER_BUBBLE_COLLAPSE_THRESHOLD_PX = 180
+const USER_BUBBLE_COLLAPSED_HEIGHT_PX = 112
+const USER_BUBBLE_EXPANDED_MAX_HEIGHT_PX = 480
+const USER_BUBBLE_EXPANDED_PADDING_BOTTOM_PX = 22
+
 const AgentUserMessageItem = memo(function AgentUserMessageItem({
   message,
   cwd,
@@ -243,6 +254,29 @@ const AgentUserMessageItem = memo(function AgentUserMessageItem({
     [message.content]
   )
 
+  const contentRef = useRef<HTMLDivElement | null>(null)
+  const [collapsible, setCollapsible] = useState(false)
+  const [capScroll, setCapScroll] = useState(false)
+  const [expanded, setExpanded] = useState(false)
+
+  // 观察未裁剪内层内容高度，宽度变化引起重排时也会重新评估是否需要折叠。
+  useLayoutEffect(() => {
+    const el = contentRef.current
+    if (!el) return
+    const measure = (): void => {
+      const h = el.offsetHeight
+      setCollapsible(h > USER_BUBBLE_COLLAPSE_THRESHOLD_PX)
+      setCapScroll(h > USER_BUBBLE_EXPANDED_MAX_HEIGHT_PX)
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+
+  const isClipped = collapsible && !expanded
+  const scrollable = expanded && capScroll
+
   return (
     <div className="group my-1">
       {userImages.length > 0 && (
@@ -258,8 +292,48 @@ const AgentUserMessageItem = memo(function AgentUserMessageItem({
         </div>
       )}
       <div className="flex justify-end">
-        <div className="max-w-[85%] bg-primary text-white text-body leading-relaxed px-4 py-2.5 rounded-2xl rounded-tr-sm shadow-sm break-words whitespace-pre-wrap select-text">
-          <InlineMentionText text={userText} cwd={cwd} />
+        <div
+          className="relative max-w-[85%] rounded-2xl rounded-tr-sm bg-primary text-white text-body leading-relaxed shadow-sm"
+        >
+          <div
+            className={`px-4 py-2.5 rounded-2xl rounded-tr-sm break-words whitespace-pre-wrap select-text ${
+              isClipped ? 'overflow-hidden' : scrollable ? 'overflow-y-auto overflow-x-hidden' : ''
+            }`}
+            style={
+              isClipped
+                ? { maxHeight: USER_BUBBLE_COLLAPSED_HEIGHT_PX }
+                : scrollable
+                  ? { maxHeight: USER_BUBBLE_EXPANDED_MAX_HEIGHT_PX }
+                  : undefined
+            }
+          >
+            <div
+              ref={contentRef}
+              style={collapsible ? { paddingBottom: USER_BUBBLE_EXPANDED_PADDING_BOTTOM_PX } : undefined}
+            >
+              <InlineMentionText text={userText} cwd={cwd} />
+            </div>
+          </div>
+          {isClipped && (
+            <div
+              className="pointer-events-none absolute inset-x-0 bottom-0 h-10 rounded-b-2xl bg-gradient-to-t from-primary to-transparent"
+            />
+          )}
+          {collapsible && (
+            <button
+              type="button"
+              onClick={() => setExpanded((v) => !v)}
+              title={expanded ? '收起' : '展开'}
+              aria-expanded={expanded}
+              className="absolute bottom-1 left-1/2 flex h-4 w-8 -translate-x-1/2 items-center justify-center rounded-full bg-white/15 text-white/80 transition-colors hover:bg-white/30 hover:text-white"
+            >
+              <AppIcon
+                name="expand_more"
+                size={14}
+                className={`transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}
+              />
+            </button>
+          )}
         </div>
       </div>
       <div className="mt-1 flex items-center justify-end gap-0.5 pr-1 opacity-0 transition-opacity group-hover:opacity-100">
@@ -270,7 +344,7 @@ const AgentUserMessageItem = memo(function AgentUserMessageItem({
             className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-caption text-text-secondary transition-colors hover:bg-gray-100 hover:text-text-primary dark:hover:bg-white/10"
             title="编辑并撤回此条消息"
           >
-            <AppIcon name="edit" size={14} />
+            <AppIcon name="undo" size={14} />
             <span>编辑</span>
           </button>
         )}
@@ -347,6 +421,9 @@ const AgentWorkGroupItem = memo(function AgentWorkGroupItem({
   onConfirmFork
 }: AgentWorkGroupItemProps): JSX.Element {
   const finalMsg = groupMsgs[groupMsgs.length - 1]
+  // Session-level running state gates the file revert/redo buttons: writing
+  // files while the agent is mid-turn could overwrite in-flight edits.
+  const sessionIsRunning = useAgentSessionStore((s) => s.isRunning)
 
   // 先找组内"最后一个非空 text part"作为 final answer 外显；
   // 其余 text 视为中间过渡，进折叠区。
@@ -475,6 +552,7 @@ const AgentWorkGroupItem = memo(function AgentWorkGroupItem({
           sessionId={sessionId}
           cwd={cwd}
           record={turnFileChanges}
+          interactive={!sessionIsRunning}
         />
       )}
 
@@ -635,6 +713,15 @@ function AgentCard({
   /** 待确认的跨工作区会话：cwd 与当前工作区不一致时先弹窗再恢复。 */
   const [pendingForeignSession, setPendingForeignSession] = useState<{ id: string; cwd: string } | null>(null)
   const [rewindConfirmOpen, setRewindConfirmOpen] = useState(false)
+  /** Analysis of the turn about to be abandoned, driving the rewind dialog's choices. */
+  const [rewindAnalysis, setRewindAnalysis] = useState<{
+    fileCount: number
+    revertible: boolean
+    blockedReason: string | null
+    alreadyUndone: boolean
+  } | null>(null)
+  const [rewindError, setRewindError] = useState<string | null>(null)
+  const [rewindBusy, setRewindBusy] = useState(false)
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [forkMenuOpenFor, setForkMenuOpenFor] = useState<string | null>(null)
   const [isForking, setIsForking] = useState(false)
@@ -700,9 +787,93 @@ function AgentCard({
     setForkMenuOpenFor(null)
   }, [])
 
-  const handleRewindClick = useCallback((): void => {
+  const handleRewindClick = useCallback(async (): Promise<void> => {
+    setRewindError(null)
+    // Determine whether the turn about to be abandoned produced file changes.
+    // The tracker indexes turns by user-message count, so the count here must
+    // mirror it: number of user messages currently in the rendered timeline.
+    const state = useAgentSessionStore.getState()
+    const userTurnCount = state.messages.filter((m) => m.role === 'user').length
+    const record = state.fileChangesRecord
+    const recordMatchesTurn =
+      record !== null &&
+      record.files.length > 0 &&
+      (record.turnIndex === undefined ? true : record.turnIndex === userTurnCount)
+
+    if (!recordMatchesTurn || !record || !state.currentSessionId) {
+      setRewindAnalysis({ fileCount: 0, revertible: true, blockedReason: null, alreadyUndone: false })
+      setRewindConfirmOpen(true)
+      return
+    }
+
+    if (record.status === 'undone') {
+      setRewindAnalysis({ fileCount: record.files.length, revertible: true, blockedReason: null, alreadyUndone: true })
+      setRewindConfirmOpen(true)
+      return
+    }
+
+    if (record.files.some((f) => f.noBaselineBlob)) {
+      setRewindAnalysis({
+        fileCount: record.files.length,
+        revertible: false,
+        blockedReason: '包含通过命令修改或超大文件，缺少修改前快照',
+        alreadyUndone: false
+      })
+      setRewindConfirmOpen(true)
+      return
+    }
+
+    // Files may have been externally modified since the turn ended — a stale
+    // file makes a full revert unsafe, so the revert-all choice must be off.
+    try {
+      const staleRes = await window.api.agentCheckFilesStale(
+        state.currentSessionId,
+        record.files.map((f) => f.path),
+        'target'
+      )
+      const staleCount = Object.values(staleRes?.data ?? {}).filter(Boolean).length
+      if (staleCount > 0) {
+        setRewindAnalysis({
+          fileCount: record.files.length,
+          revertible: false,
+          blockedReason: `${staleCount} 个文件已被外部修改`,
+          alreadyUndone: false
+        })
+      } else {
+        setRewindAnalysis({ fileCount: record.files.length, revertible: true, blockedReason: null, alreadyUndone: false })
+      }
+    } catch {
+      // Staleness check failed — stay conservative and offer no file revert.
+      setRewindAnalysis({
+        fileCount: record.files.length,
+        revertible: false,
+        blockedReason: '无法确认文件当前状态',
+        alreadyUndone: false
+      })
+    }
     setRewindConfirmOpen(true)
   }, [])
+
+  const handleRewindConfirm = useCallback(
+    async (revertFiles: boolean): Promise<void> => {
+      if (rewindBusy) return
+      setRewindBusy(true)
+      setRewindError(null)
+      try {
+        const result = await rewindLastUserMessage({ revertFiles })
+        if (result.ok) {
+          setRewindConfirmOpen(false)
+        } else {
+          // Keep the dialog open so the failure (and its reason) stays visible
+          // and the user can pick the other option instead.
+          setRewindError(result.error ?? '撤回失败')
+        }
+      } finally {
+        setRewindBusy(false)
+      }
+    },
+    [rewindBusy, rewindLastUserMessage]
+  )
 
   const copyTimerRef = useRef<number | null>(null)
   const handleCopy = useCallback(
@@ -1463,7 +1634,7 @@ function AgentCard({
 
           {/* 失效工作区回看提示：cwd 已失效的会话恢复后，新消息会在当前工作区开新会话 */}
           {foreignReview && (
-            <div className="px-4 pt-2 shrink-0">
+            <div className="px-5 pt-2 shrink-0">
               <div className="text-caption text-text-secondary bg-gray-50 border border-gray-200/60 rounded-lg px-3 py-1.5 dark:bg-white/5 dark:border-white/10">
                 回看已失效工作区的对话 · 新消息将在当前工作区开始新对话
               </div>
@@ -1472,7 +1643,7 @@ function AgentCard({
           <div
             ref={viewportRef}
             onScroll={handleViewportScroll}
-            className="flex-1 overflow-y-auto px-4 py-3 space-y-3"
+            className="flex-1 overflow-y-auto px-5 py-3 space-y-3"
           >
             {/* Empty state */}
             {messages.length === 0 && (
@@ -1679,18 +1850,77 @@ function AgentCard({
           onCancel={() => setRenameTarget(null)}
         />
 
-        <ConfirmModal
-          isOpen={rewindConfirmOpen}
-          title="撤回并编辑"
-          message="将回到这条提问之前的状态，原提问会重新填入输入框供修改后重新发送。本轮 Agent 已修改的文件不会被还原（当前版本不支持代码回滚）。"
-          confirmText="撤回并编辑"
-          type="warning"
-          onConfirm={async () => {
-            setRewindConfirmOpen(false)
-            await rewindLastUserMessage()
-          }}
-          onCancel={() => setRewindConfirmOpen(false)}
-        />
+        <Modal open={rewindConfirmOpen} onClose={() => setRewindConfirmOpen(false)} size="sm" variant="glass">
+          <div className="p-5">
+            <div className="mb-4 flex items-center gap-3">
+              <AppIcon name="undo" size={20} className="text-primary" />
+              <h3 className="text-title font-semibold text-text-primary">撤回这条提问</h3>
+            </div>
+
+            <div className="mb-5 text-body leading-relaxed text-text-secondary">
+              {rewindAnalysis && rewindAnalysis.fileCount > 0 ? (
+                rewindAnalysis.alreadyUndone ? (
+                  <p>本轮修改的文件已回滚到修改前状态。撤回后回到这条提问之前，原提问会重新填入输入框。</p>
+                ) : (
+                  <>
+                    <p>这一轮 Agent 修改了 {rewindAnalysis.fileCount} 个文件。撤回后回到这条提问之前，原提问会重新填入输入框。</p>
+                    {rewindAnalysis.revertible ? (
+                      <p className="mt-2">可以同时把这些文件回滚到修改前的状态，或只撤回对话、保留文件现状。</p>
+                    ) : (
+                      <p className="mt-2">
+                        {rewindAnalysis.blockedReason}，无法安全回滚文件；只能选择保留文件、仅撤回对话。
+                      </p>
+                    )}
+                  </>
+                )
+              ) : (
+                <p>将回到这条提问之前的状态，原提问会重新填入输入框供修改后重新发送。本轮没有文件修改。</p>
+              )}
+              {rewindError && (
+                <p className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-caption text-rose-600 dark:bg-rose-500/10 dark:text-rose-400">
+                  {rewindError}
+                </p>
+              )}
+            </div>
+
+            <div className="flex flex-col-reverse gap-2">
+              <button
+                type="button"
+                onClick={() => setRewindConfirmOpen(false)}
+                disabled={rewindBusy}
+                className="h-9 rounded-lg border border-black/10 bg-black/[0.04] px-4 text-body font-medium text-text-secondary transition-colors hover:bg-black/[0.08] hover:text-text-primary disabled:opacity-50 dark:border-white/10 dark:bg-white/[0.06] dark:hover:bg-white/[0.12]"
+              >
+                取消
+              </button>
+              {rewindAnalysis && rewindAnalysis.fileCount > 0 && rewindAnalysis.revertible && !rewindAnalysis.alreadyUndone && (
+                <button
+                  type="button"
+                  onClick={() => void handleRewindConfirm(false)}
+                  disabled={rewindBusy}
+                  className="h-9 rounded-lg border border-black/10 px-4 text-body font-medium text-text-primary transition-colors hover:bg-black/[0.06] disabled:opacity-50 dark:border-white/15 dark:hover:bg-white/10"
+                >
+                  保留文件，仅撤回对话
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() =>
+                  void handleRewindConfirm(
+                    Boolean(rewindAnalysis && rewindAnalysis.fileCount > 0 && rewindAnalysis.revertible && !rewindAnalysis.alreadyUndone)
+                  )
+                }
+                disabled={rewindBusy}
+                className="h-9 rounded-lg bg-primary px-4 text-body font-medium text-white transition-colors hover:bg-primary/80 disabled:opacity-50"
+              >
+                {rewindBusy
+                  ? '正在撤回…'
+                  : rewindAnalysis && rewindAnalysis.fileCount > 0 && rewindAnalysis.revertible && !rewindAnalysis.alreadyUndone
+                    ? '撤回文件修改和对话'
+                    : '撤回对话'}
+              </button>
+            </div>
+          </div>
+        </Modal>
 
         <ConfirmModal
           isOpen={pendingForeignSession !== null}

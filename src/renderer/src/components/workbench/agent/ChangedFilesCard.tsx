@@ -3,7 +3,7 @@ import { AppIcon } from '../../icons/AppIcon'
 import ConfirmModal from '../../ConfirmModal'
 import { useWorkbenchStore } from '../../../store/workbenchStore'
 import { useAgentSessionStore } from '../../../store/agentSessionStore'
-import { resolveAbsolute, toWorkspaceRelative } from './filePathUtils'
+import { agentChipOpenOptions, resolveAbsolute, toWorkspaceRelative } from './filePathUtils'
 import type {
   AgentFileChange,
   AgentFileSnapshot,
@@ -133,13 +133,13 @@ export function ChangedFilesCard({
   }
 
   const handleOpenInEditor = useCallback(
-    async (filePath: string): Promise<void> => {
+    async (filePath: string, e: { ctrlKey: boolean; metaKey: boolean; button: number }): Promise<void> => {
       const abs = resolveAbsolute(cwd, filePath)
       const rel = workspacePath
         ? toWorkspaceRelative(workspacePath, cwd, filePath)
         : null
       if (rel) {
-        const opened = await openFile(rel)
+        const opened = await openFile(rel, agentChipOpenOptions(e))
         if (opened) return
       }
       // Outside the workspace (or open failed) → fall back to revealing the
@@ -224,7 +224,12 @@ export function ChangedFilesCard({
                       ) : (
                         <button
                           type="button"
-                          onClick={() => void handleOpenInEditor(change.path)}
+                          onClick={(e) => void handleOpenInEditor(change.path, e)}
+                          onAuxClick={(e) => {
+                            if (e.button !== 1) return
+                            e.preventDefault()
+                            void handleOpenInEditor(change.path, e)
+                          }}
                           title={abs}
                           className="block max-w-full truncate text-left font-mono text-label text-text-primary transition-colors hover:text-primary"
                         >

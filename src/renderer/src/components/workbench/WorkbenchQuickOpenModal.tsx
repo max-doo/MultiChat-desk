@@ -4,6 +4,7 @@ import type { WorkbenchFileNode } from '../../../../shared/types/workbench'
 import Modal from '../ui/Modal'
 import { AppIcon } from '../icons/AppIcon'
 import { WorkbenchDocumentIcon } from './FileTypeIcon'
+import { filterWorkspaceFiles } from './workbenchWikiLinks'
 
 function getParentRelativeDir(relativePath: string): string {
   const idx = relativePath.lastIndexOf('/')
@@ -36,19 +37,7 @@ export default function WorkbenchQuickOpenModal(): JSX.Element {
   const openPathSet = useMemo(() => new Set(openTabs.map((t) => t.path)), [openTabs])
 
   const filteredFiles = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    if (!q) return allFiles.slice(0, 80)
-    const nameStarts: WorkbenchFileNode[] = []
-    const nameContains: WorkbenchFileNode[] = []
-    const pathContains: WorkbenchFileNode[] = []
-    for (const file of allFiles) {
-      const nameLower = file.name.toLowerCase()
-      const pathLower = file.path.toLowerCase()
-      if (nameLower.startsWith(q)) nameStarts.push(file)
-      else if (nameLower.includes(q)) nameContains.push(file)
-      else if (pathLower.includes(q)) pathContains.push(file)
-    }
-    return [...nameStarts, ...nameContains, ...pathContains].slice(0, 80)
+    return filterWorkspaceFiles(allFiles, query)
   }, [allFiles, query])
 
   useEffect(() => {

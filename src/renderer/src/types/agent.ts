@@ -171,7 +171,8 @@ export interface AgentIpcApi {
   ) => Promise<{ success: boolean; error?: string }>
   agentRewind: (
     sessionId: string,
-    entryId?: string
+    entryId?: string,
+    revertFiles?: boolean
   ) => Promise<{ success: boolean; data?: { editorText: string }; error?: string }>
   agentForkSession: (
     sessionId: string,

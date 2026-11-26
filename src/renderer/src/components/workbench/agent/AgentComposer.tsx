@@ -314,7 +314,7 @@ export function AgentComposer(): JSX.Element {
   const supportsThinking = Boolean(active?.supportsThinking && thinkingLevels.length > 1)
 
   return (
-    <footer className="p-3 pt-0 shrink-0 bg-transparent relative">
+    <footer className="px-5 pb-3 pt-0 shrink-0 bg-transparent relative">
       {/* Queued instructions waiting to be delivered to the running agent */}
       {(queuedFollowUp.length > 0 || queuedSteering.length > 0) && (
         <div className="mb-2 flex flex-wrap items-center gap-1.5">

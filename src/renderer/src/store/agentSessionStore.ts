@@ -217,7 +217,7 @@ interface AgentSessionState {
   renameSession: (sessionId: string, name: string) => Promise<boolean>
   prompt: (text: string, attachments?: string[]) => Promise<void>
   abort: () => Promise<void>
-  rewindLastUserMessage: () => Promise<boolean>
+  rewindLastUserMessage: (options?: { revertFiles?: boolean }) => Promise<{ ok: boolean; error?: string }>
   forkSession: () => Promise<boolean>
   copyText: (text: string) => Promise<boolean>
   resolveApproval: (
@@ -1005,18 +1005,21 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
    * Rewind the conversation by one step: the leaf moves to the parent of the
    * most recent user message, that prompt text goes back into the composer,
    * and the local timeline is trimmed so the abandoned branch is no longer
-   * shown. File edits already applied by the agent are intentionally left
-   * alone — Pi does not snapshot the workspace, and silently reverting code
-   * would be destructive.
+   * shown. When the abandoned turn produced file changes, the caller passes
+   * `revertFiles: true` to roll them back through the same validated revert
+   * path as the changed-files card; a failed revert aborts the whole rewind
+   * so conversation and file state never disagree about what happened.
    */
-  rewindLastUserMessage: async () => {
+  rewindLastUserMessage: async (options?: { revertFiles?: boolean }) => {
     const sessionId = get().currentSessionId
-    if (!sessionId || get().runningSessionIds.has(sessionId)) return false
+    if (!sessionId || get().runningSessionIds.has(sessionId)) {
+      return { ok: false, error: '任务正在运行，无法撤回' }
+    }
     try {
-      const res = await getAgentApi().agentRewind(sessionId)
+      const res = await getAgentApi().agentRewind(sessionId, undefined, options?.revertFiles)
       if (!res.success || !res.data) {
         console.warn('[agentSessionStore] rewind failed:', res.error)
-        return false
+        return { ok: false, error: res.error || '撤回失败' }
       }
       const editorText = res.data.editorText ?? ''
       // Trim the local timeline back to just before the last user message so
@@ -1051,10 +1054,10 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
       })
       void get().fetchSessionStatus(sessionId)
       void get().fetchFileChanges(sessionId)
-      return true
+      return { ok: true }
     } catch (err) {
       console.warn('[agentSessionStore] rewind error:', err)
-      return false
+      return { ok: false, error: err instanceof Error ? err.message : '撤回失败' }
     }
   },
 

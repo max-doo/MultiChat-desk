@@ -1,10 +1,9 @@
 import { useCallback, useMemo, type ReactNode } from 'react'
-import { AppIcon } from '../../icons/AppIcon'
-import FileTypeIcon from '../FileTypeIcon'
+import { FileChipIcon, WorkbenchFileChip } from '../WorkbenchFileChip'
 import type { PiContentPart } from '../../../types/agent'
 import { useWorkbenchStore } from '../../../store/workbenchStore'
-import { resolveAbsolute, toWorkspaceRelative } from './filePathUtils'
-import { MARKDOWN_EXTENSIONS, type WorkbenchFileNode } from '../../../../../shared/types/workbench'
+import { agentChipOpenOptions, resolveAbsolute, toWorkspaceRelative } from './filePathUtils'
+import type { WorkbenchFileNode } from '../../../../../shared/types/workbench'
 
 /**
  * 最终回复附件 Chip：
@@ -103,29 +102,9 @@ export function collectToolAttachmentPaths(messages: { content: PiContentPart[] 
   return [...out]
 }
 
-const BITMAP_EXTENSIONS = new Set([
-  '.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.avif', '.tiff', '.tif', '.ico'
-])
-
-function renderFileChipIcon(absPath: string, name: string): JSX.Element {
-  const dot = name.lastIndexOf('.')
-  const ext = dot !== -1 ? name.slice(dot).toLowerCase() : ''
-  if (BITMAP_EXTENSIONS.has(ext)) {
-    return <AppIcon name="image" size={14} className="shrink-0 text-purple-500 dark:text-purple-400" />
-  }
-  if (ext === '.svg') {
-    return <AppIcon name="draw" size={14} className="shrink-0 text-purple-500 dark:text-purple-400" />
-  }
-  if (MARKDOWN_EXTENSIONS.has(ext)) {
-    return <AppIcon name="description" size={14} className="shrink-0 text-blue-500 dark:text-blue-400" />
-  }
-  return (
-    <FileTypeIcon
-      node={{ id: absPath, name, path: absPath, fullPath: absPath, isDirectory: false, extension: ext }}
-      className="w-3.5 h-3.5"
-    />
-  )
-}
+const renderFileChipIcon = (absPath: string, name: string): JSX.Element => (
+  <FileChipIcon absPath={absPath} name={name} />
+)
 
 /** 在文件树里按绝对路径（大小写不敏感）查找节点，返回树内真实相对 path。 */
 function findTreePathByAbs(
@@ -165,13 +144,13 @@ export function AttachmentChips({ paths, cwd }: AttachmentChipsProps): JSX.Eleme
   )
 
   const handleClick = useCallback(
-    (item: (typeof items)[number]) => {
+    (item: (typeof items)[number], e: { ctrlKey: boolean; metaKey: boolean; button: number }) => {
       // 优先用文件树里的真实 node.path 打开，保证 activeFilePath 与树高亮
       // 严格相等（rel 的字母大小写可能与磁盘不一致）。
       const treeRel = findTreePathByAbs(useWorkbenchStore.getState().fileTree, item.abs)
       const rel = treeRel ?? item.rel
       if (rel) {
-        void openFile(rel).then((opened) => {
+        void openFile(rel, agentChipOpenOptions(e)).then((opened) => {
           if (!opened) void window.api.agentRevealFile(item.abs)
         })
       } else {
@@ -189,7 +168,12 @@ export function AttachmentChips({ paths, cwd }: AttachmentChipsProps): JSX.Eleme
         <button
           key={item.raw}
           type="button"
-          onClick={() => handleClick(item)}
+          onClick={(e) => handleClick(item, e)}
+          onAuxClick={(e) => {
+            if (e.button !== 1) return
+            e.preventDefault()
+            handleClick(item, e)
+          }}
           title={item.abs}
           className="inline-flex items-center gap-1.5 max-w-60 rounded-full border border-slate-200/90 bg-slate-50/80 px-2.5 py-1 text-caption text-slate-700 transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary dark:border-white/10 dark:bg-white/5 dark:text-gray-200 dark:hover:border-primary/40 dark:hover:bg-primary/15"
         >
@@ -292,7 +276,7 @@ export function InlineMentionText({ text, cwd }: InlineMentionTextProps): JSX.El
   const segments = useMemo(() => splitMentionSegments(text, cwd), [text, cwd])
 
   const handleMentionClick = useCallback(
-    (resolved: string) => {
+    (resolved: string, e: { ctrlKey: boolean; metaKey: boolean; button: number }) => {
       // 优先用文件树里的真实 node.path 打开：token 大小写可能与磁盘不一致，
       // openFile 的 activeFilePath 与树高亮是严格相等匹配。
       const treeRel = findTreePathByAbs(useWorkbenchStore.getState().fileTree, resolved)
@@ -300,7 +284,7 @@ export function InlineMentionText({ text, cwd }: InlineMentionTextProps): JSX.El
         treeRel ??
         (cwd && workspacePath ? toWorkspaceRelative(workspacePath, cwd, resolved) : null)
       if (rel) {
-        void openFile(rel).then((opened) => {
+        void openFile(rel, agentChipOpenOptions(e)).then((opened) => {
           if (!opened) void window.api.agentRevealFile(resolved)
         })
       } else {
@@ -322,7 +306,13 @@ export function InlineMentionText({ text, cwd }: InlineMentionTextProps): JSX.El
         type="button"
         onClick={(e) => {
           e.stopPropagation()
-          handleMentionClick(abs)
+          handleMentionClick(abs, e)
+        }}
+        onAuxClick={(e) => {
+          if (e.button !== 1) return
+          e.preventDefault()
+          e.stopPropagation()
+          handleMentionClick(abs, e)
         }}
         title={abs}
         className="mx-0.5 inline-flex translate-y-px items-center gap-1 rounded-md bg-white/20 px-1.5 py-0.5 align-baseline text-caption font-medium text-white transition-colors hover:bg-white/30 [&_svg]:!text-white/85"
@@ -377,9 +367,9 @@ export function InlineFileCode({ text, cwd }: InlineFileCodeProps): JSX.Element 
     return { abs, treeRel, name }
   }, [text, cwd, fileTree])
 
-  const handleClick = useCallback(() => {
+  const handleClick = useCallback((e: { ctrlKey: boolean; metaKey: boolean; button: number }) => {
     if (!resolved) return
-    void openFile(resolved.treeRel).then((opened) => {
+    void openFile(resolved.treeRel, agentChipOpenOptions(e)).then((opened) => {
       if (!opened) void window.api.agentRevealFile(resolved.abs)
     })
   }, [resolved, openFile])
@@ -394,17 +384,20 @@ export function InlineFileCode({ text, cwd }: InlineFileCodeProps): JSX.Element 
   }
 
   return (
-    <button
-      type="button"
+    <WorkbenchFileChip
+      icon={renderFileChipIcon(resolved.abs, resolved.name)}
+      label={resolved.name}
       onClick={(e) => {
         e.stopPropagation()
-        handleClick()
+        handleClick(e)
+      }}
+      onAuxClick={(e) => {
+        if (e.button !== 1) return
+        e.preventDefault()
+        e.stopPropagation()
+        handleClick(e)
       }}
       title={resolved.abs}
-      className="mx-0.5 inline-flex items-center gap-1 rounded px-1 -my-0.5 py-0.5 align-baseline text-body font-medium text-primary transition-colors hover:bg-primary/10 dark:text-blue-300 dark:hover:bg-primary/25"
-    >
-      {renderFileChipIcon(resolved.abs, resolved.name)}
-      <span className="max-w-52 truncate">{resolved.name}</span>
-    </button>
+    />
   )
 }

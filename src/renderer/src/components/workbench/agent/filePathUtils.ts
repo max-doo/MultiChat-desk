@@ -177,3 +177,19 @@ export function mentionTokenMatchesPath(
   }
   return false
 }
+
+/**
+ * Agent 侧栏文件 chip 统一的点击打开语义：
+ * - 普通点击走预览标签（与文件树单击一致），连续查看多个文件复用同一个
+ *   预览槽位，不刷屏标签栏；编辑内容后预览自动转正。
+ * - Ctrl/Cmd+点击或中键点击表示明确的新标签意图，走常驻标签。
+ */
+export function agentChipOpenOptions(e: {
+  ctrlKey: boolean
+  metaKey: boolean
+  button: number
+}): { preview: true } | { forcePermanent: true } {
+  return e.ctrlKey || e.metaKey || e.button === 1
+    ? { forcePermanent: true }
+    : { preview: true }
+}

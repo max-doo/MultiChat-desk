@@ -1,6 +1,6 @@
 /**
  * 应用图标统一封装：Material Symbols 连字名 -> Lucide 组件。
- * 详见 docs/lucide-migration-plan.md。
+ * 详见 docs/archive/2026-11/lucide-migration-plan.md。
  * APP_ICON_MAP 用静态字面量映射保证 tree-shaking，只打包用到的图标。
  */
 import type { CSSProperties, SVGProps } from 'react'
@@ -433,6 +433,16 @@ export function AppIcon({ name, size, strokeWidth = 2.2, title, style, ...rest }
   const resolvedSize = Math.round(rawSize * OPTICAL_SCALE * 100) / 100
   // verticalAlign:middle 抵消 svg 与相邻文字的基线偏移；strokeWidth 2.2 校准 Lucide 线稿偏细
   const mergedStyle: CSSProperties = { flexShrink: 0, verticalAlign: 'middle', ...style }
+  // em 字符串尺寸（如 '1em'）：随上下文 font-size 缩放，乘同一光学系数
+  if (typeof size === 'string' && /^\d*\.?\d+em$/.test(size)) {
+    const em = parseFloat(size)
+    const emSize = `${Math.round(em * OPTICAL_SCALE * 100) / 100}em`
+    return (
+      <Comp width={emSize} height={emSize} strokeWidth={strokeWidth} data-icon={name} style={mergedStyle} aria-hidden="true" {...rest}>
+        {title ? <title>{title}</title> : null}
+      </Comp>
+    )
+  }
   return (
     <Comp width={resolvedSize} height={resolvedSize} strokeWidth={strokeWidth} data-icon={name} style={mergedStyle} aria-hidden="true" {...rest}>
       {title ? <title>{title}</title> : null}

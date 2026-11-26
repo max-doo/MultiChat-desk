@@ -102,6 +102,12 @@ import {
 } from './WorkbenchFootnoteNode'
 import { FOOTNOTE_DEF_PREFIX_RE, FOOTNOTE_REF_MATCH_RE } from './workbenchFootnotes'
 import { normalizeWorkbenchLocalFileLink } from './workbenchLinks'
+import {
+  $createWorkbenchWikiLinkNode,
+  $isWorkbenchWikiLinkNode,
+  WorkbenchWikiLinkNode
+} from './WorkbenchWikiLinkNode'
+import { composeWikiLinkMarkdown } from './workbenchWikiLinks'
 import { allMarks } from './workbenchAnnotationUtils'
 import {
   IMAGE_BLOCK_REGEX,
@@ -563,6 +569,29 @@ export const WORKBENCH_LINK_TRANSFORMER: TextMatchTransformer = {
   }
 }
 
+// —— 双链 [[target]] / [[target|display]]：行内装饰节点 ——
+// 显示名与默认（去扩展名的文件名）一致时省略别名，保持最短 markdown 形态。
+export const WIKI_LINK_TRANSFORMER: TextMatchTransformer = {
+  dependencies: [WorkbenchWikiLinkNode],
+  export: (node: LexicalNode) => {
+    if (!$isWorkbenchWikiLinkNode(node)) return null
+    return composeWikiLinkMarkdown(node.getTarget(), node.getDisplayText())
+  },
+  importRegExp: /\[\[([^\]\n]+)\]\]/,
+  regExp: /\[\[([^\]\n]+)\]\]/,
+  replace: (textNode, match) => {
+    const inner = match[1]
+    if (!inner) return
+    const pipeIndex = inner.indexOf('|')
+    const target = (pipeIndex === -1 ? inner : inner.slice(0, pipeIndex)).trim()
+    if (!target) return
+    const display = pipeIndex === -1 ? null : inner.slice(pipeIndex + 1).trim() || null
+    textNode.replace($createWorkbenchWikiLinkNode(target, display))
+  },
+  trigger: ']',
+  type: 'text-match'
+}
+
 export const WORKBENCH_TRANSFORMERS = [
   HTML_TABLE_TRANSFORMER,
   TABLE_TRANSFORMER,
@@ -573,6 +602,7 @@ export const WORKBENCH_TRANSFORMERS = [
   IMAGE_TRANSFORMER,
   INLINE_EQUATION_TRANSFORMER,
   FOOTNOTE_REF_TRANSFORMER,
+  WIKI_LINK_TRANSFORMER,
   SUPERSCRIPT_TRANSFORMER,
   SUBSCRIPT_TRANSFORMER,
   BARE_LINK_TRANSFORMER,

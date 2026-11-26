@@ -22,12 +22,14 @@ import {
   WORKBENCH_SEND_FILE_EVENT,
   WORKBENCH_SEND_IMAGE_EVENT,
   WORKBENCH_UPLOAD_NODES_EVENT,
+  WORKBENCH_ASK_WEBVIEW_EVENT,
   getSidebarTargetByWcId,
   registerSidebarWcId,
   unregisterSidebarWcId,
   type WorkbenchSendFileDetail,
   type WorkbenchSendImageDetail,
-  type WorkbenchUploadNodesDetail
+  type WorkbenchUploadNodesDetail,
+  type WorkbenchAskWebviewDetail
 } from './workbenchAiEvents'
 import { getFileCategory, type WorkbenchFileNode } from '../../../../shared/types/workbench'
 import { dedupeByKey } from './agent/filePathUtils'
@@ -1131,6 +1133,31 @@ function WorkbenchAiSidebar({ isActive = true, instanceId = 'primary' }: Workben
     }
   }, [conversationTarget, ensureSidebarLive, beginSidebarActivity, endSidebarActivity])
 
+  // 向本栏网页平台的输入框注入文本（不发送）；平台未就绪时按现有语义给出错误提示。
+  const insertPromptIntoWebview = useCallback(
+    async (modelId: string, prompt: string): Promise<void> => {
+      const modelName = availableModels.find((m) => m.id === modelId)?.name ?? modelId
+      beginSidebarActivity(modelId)
+      try {
+        const ref = await ensureSidebarLive(modelId)
+        if (!ref) {
+          showToast('error', `${modelName} 页面未就绪，请稍后重试`)
+          return
+        }
+        const result = await ref.insertText(prompt)
+        if (!result.success) {
+          showToast('error', `${modelName} 输入框未就绪，请稍后重试`)
+        }
+      } catch (error) {
+        console.warn(`[workbench-lifecycle] insert prompt failed ${modelId}:`, error)
+        showToast('error', `${modelName} 文本注入失败，请稍后重试`)
+      } finally {
+        endSidebarActivity(modelId)
+      }
+    },
+    [availableModels, beginSidebarActivity, endSidebarActivity, ensureSidebarLive, showToast]
+  )
+
   // 监听来自划词动作的文本注入事件
   useEffect(() => {
     const handleInsertPrompt = (e: Event) => {
@@ -1159,27 +1186,7 @@ function WorkbenchAiSidebar({ isActive = true, instanceId = 'primary' }: Workben
         return
       }
 
-      const modelId = currentModel.id
-      const modelName = currentModel.name
-      beginSidebarActivity(modelId)
-      void (async () => {
-        try {
-          const ref = await ensureSidebarLive(modelId)
-          if (!ref) {
-            showToast('error', `${modelName} 页面未就绪，请稍后重试`)
-            return
-          }
-          const result = await ref.insertText(prompt)
-          if (!result.success) {
-            showToast('error', `${modelName} 输入框未就绪，请稍后重试`)
-          }
-        } catch (error) {
-          console.warn(`[workbench-lifecycle] insert prompt failed ${modelId}:`, error)
-          showToast('error', `${modelName} 文本注入失败，请稍后重试`)
-        } finally {
-          endSidebarActivity(modelId)
-        }
-      })()
+      void insertPromptIntoWebview(currentModel.id, prompt)
     }
 
     window.addEventListener('workbench:insert-prompt', handleInsertPrompt)
@@ -1194,9 +1201,67 @@ function WorkbenchAiSidebar({ isActive = true, instanceId = 'primary' }: Workben
     instanceKey,
     openRightPane,
     openAiSidebar2,
-    ensureSidebarLive,
-    beginSidebarActivity,
-    endSidebarActivity,
+    insertPromptIntoWebview,
+    showToast
+  ])
+
+  // 监听 Agent 消息区右键「在侧边聊天中提问」：目标侧边栏必须是网页平台，
+  // 若目标栏停在 Agent 模式则切回网页平台（优先沿用另一栏的网页平台）再注入。
+  useEffect(() => {
+    const handleAskWebview = (e: Event) => {
+      const customEvent = e as CustomEvent<WorkbenchAskWebviewDetail>
+      const text = customEvent.detail?.text?.trim()
+      if (!text) return
+      const target = customEvent.detail?.target
+      if (!target || target !== instanceKey) return
+
+      // 若侧边栏当前处于折叠状态，则自动展开
+      if (isSecondary) {
+        if (!isAiSidebar2Open) openAiSidebar2()
+      } else if (rightPane !== 'ai') {
+        openRightPane('ai')
+      }
+
+      let model = availableModels.find((m) => m.id === sidebarModelId)
+      if (!model || model.id === 'local-agent') {
+        const workbench = useWorkbenchStore.getState()
+        const otherSidebarModelId = isSecondary ? workbench.sidebarModelId : workbench.sidebar2ModelId
+        const otherModel =
+          otherSidebarModelId !== 'local-agent'
+            ? availableModels.find((m) => m.id === otherSidebarModelId)
+            : undefined
+        // 与 currentModel 的回退保持一致：sidebarModelId 失效时取列表首个平台
+        const fallback =
+          otherModel ??
+          availableModels.find((m) => m.id !== 'local-agent') ??
+          availableModels[0]
+        if (!fallback || fallback.id === 'local-agent') {
+          showToast('error', '未选择 AI 模型')
+          return
+        }
+        setSidebarModelId(fallback.id)
+        setMountedSidebarModels((prev) => new Set(prev).add(fallback.id))
+        model = fallback
+      }
+
+      void insertPromptIntoWebview(model.id, text)
+    }
+
+    window.addEventListener(WORKBENCH_ASK_WEBVIEW_EVENT, handleAskWebview)
+    return () => {
+      window.removeEventListener(WORKBENCH_ASK_WEBVIEW_EVENT, handleAskWebview)
+    }
+  }, [
+    availableModels,
+    isAiSidebar2Open,
+    isSecondary,
+    instanceKey,
+    rightPane,
+    openRightPane,
+    openAiSidebar2,
+    setSidebarModelId,
+    sidebarModelId,
+    insertPromptIntoWebview,
     showToast
   ])
 
@@ -1797,6 +1862,7 @@ function WorkbenchAiSidebar({ isActive = true, instanceId = 'primary' }: Workben
         {/* Agent 界面卡片：首次使用后懒挂载，切回网页 AI 时隐藏保活局部滚动/折叠状态 */}
         {hasUsedAgent && (
           <div
+            data-agent-instance={instanceKey}
             className="h-full w-full"
             style={{ display: currentModel?.id === 'local-agent' ? 'block' : 'none' }}
           >

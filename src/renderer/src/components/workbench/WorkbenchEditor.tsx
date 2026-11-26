@@ -39,8 +39,10 @@ import {
   WorkbenchFootnoteDefNode,
   WorkbenchFootnoteRefNode
 } from './WorkbenchFootnoteNode'
+import { WorkbenchWikiLinkNode } from './WorkbenchWikiLinkNode'
 import { WorkbenchHorizontalRuleNode } from './WorkbenchHorizontalRuleNode'
 import WorkbenchImagePlugin from './WorkbenchImagePlugin'
+import WorkbenchWikiLinkPlugin from './WorkbenchWikiLinkPlugin'
 import WorkbenchImageLightboxPlugin from './WorkbenchImageLightboxPlugin'
 import WorkbenchFootnotePlugin from './WorkbenchFootnotePlugin'
 import WorkbenchSelectionMenuPlugin from './WorkbenchSelectionMenuPlugin'
@@ -173,7 +175,8 @@ const lexicalTheme = {
   hr: 'PlaygroundEditorTheme__hr',
   hrSelected: 'PlaygroundEditorTheme__hrSelected',
   footnoteRef: 'PlaygroundEditorTheme__footnoteRef',
-  footnoteDef: 'PlaygroundEditorTheme__footnoteDef'
+  footnoteDef: 'PlaygroundEditorTheme__footnoteDef',
+  wikiLink: 'workbench-wiki-link'
 }
 
 const selectFrontmatterSlice = (state: { activeFileContent: string }): string | null =>
@@ -410,6 +413,7 @@ function WorkbenchEditor({ isActive = true }: WorkbenchEditorProps): JSX.Element
         WorkbenchEquationNode,
         WorkbenchFootnoteRefNode,
         WorkbenchFootnoteDefNode,
+        WorkbenchWikiLinkNode,
         MarkNode
       ],
       onError: (error: Error) => {
@@ -676,6 +680,7 @@ function WorkbenchEditor({ isActive = true }: WorkbenchEditorProps): JSX.Element
         <WorkbenchFootnotePlugin />
         <WorkbenchLinkPastePlugin />
         <WorkbenchEquationPastePlugin />
+        <WorkbenchWikiLinkPlugin />
         <WorkbenchLinkClickPlugin />
         <WorkbenchSelectionMenuPlugin />
         <WorkbenchLinkHoverPlugin />
