@@ -33,7 +33,8 @@ module.exports = {
         body: ['14px', { lineHeight: '21px' }],
         'body-lg': ['16px', { lineHeight: '24px' }],
         title: ['19px', { lineHeight: '28px' }],
-        'title-lg': ['24px', { lineHeight: '32px' }]
+        'title-lg': ['24px', { lineHeight: '32px' }],
+        'title-xl': ['32px', { lineHeight: '40px' }]
       },
       zIndex: {
         dropdown: '30',

@@ -44,7 +44,7 @@ const cmdOrCtrl = isMac ? '⌘' : 'Ctrl+'
  * - ClipboardItem 只可靠支持 PNG/JPEG，BMP/WebP 等先经 canvas 转成 PNG 再写。
  * - workbench-file:// 与 blob: 对主进程不可见，必须在渲染层完成复制。
  */
-async function copyImageElementToClipboard(img: HTMLImageElement): Promise<void> {
+export async function copyImageElementToClipboard(img: HTMLImageElement): Promise<void> {
   const blob = await fetch(img.src).then((res) => {
     if (!res.ok) throw new Error(`下载失败: ${res.status}`)
     return res.blob()

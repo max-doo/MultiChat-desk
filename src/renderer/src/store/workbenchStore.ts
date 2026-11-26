@@ -5,6 +5,7 @@ import {
   type WorkbenchSearchResult,
   type WorkbenchFileCategory,
   type WorkspaceTagInfo,
+  type WorkspaceLinkEntry,
   type WorkspaceUnreferencedImagesSummary,
   type GitStatus,
   type GitActionResult,
@@ -248,6 +249,10 @@ interface WorkbenchStoreState {
   // 工作区标签集合（用于标签自动补全与防泛滥）
   workspaceTags: WorkspaceTagInfo[]
 
+  // 工作区双链快照：每个 Markdown 文件抽取出的 [[target]] 原始串，
+  // 供文档元数据区解析出链/反链；解析依赖文件树，渲染层按统一语义完成。
+  workspaceLinks: WorkspaceLinkEntry[]
+
   // 文件树排序偏好
   fileSort: WorkbenchSortPreference
 
@@ -274,6 +279,8 @@ interface WorkbenchStoreState {
   sidebar2ModelId: string
   isAiSidebar2Open: boolean
   editorMode: EditorMode
+  /** 笔记属性面板折叠态；出链/反链元数据属于笔记属性，跟随同一折叠 */
+  frontmatterPanelCollapsed: boolean
   /** WYSIWYG 预览模式正文栏宽：narrow≈640px / medium≈720px / wide≈880px */
   contentWidth: WorkbenchContentWidth
   /** 由 WorkbenchAnnotationPlugin 注册；切文件、关闭和退出前等待最后一次对账。 */
@@ -392,6 +399,7 @@ interface WorkbenchStoreActions {
   searchFiles: (query: string) => void
   clearSearch: () => void
   loadWorkspaceTags: () => Promise<void>
+  loadWorkspaceLinks: () => Promise<void>
   setFileSort: (pref: WorkbenchSortPreference) => void
   setLeftPaneWidth: (width: number, persist?: boolean) => number
   setLeftPaneMinWidth: (minWidth: number) => void
@@ -1155,6 +1163,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   isSearching: false,
   searchResults: [],
   workspaceTags: [],
+  workspaceLinks: [],
 
   fileSort: { key: 'name', order: 'asc' },
 
@@ -1174,6 +1183,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   sidebar2ModelId: 'gemini',
   isAiSidebar2Open: false,
   editorMode: 'wysiwyg',
+  frontmatterPanelCollapsed: false,
   contentWidth: 'medium',
   documentAnnotationFlusher: null,
 
@@ -1198,6 +1208,15 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         fsWatcherBound = true
         window.api.workbench.onFsChanged((payload) => {
           void get().handleExternalFsChanged(payload.workspaceRoot)
+        })
+        // 重命名/删除等自写操作不会广播 fs-changed；主进程索引落盘后
+        // 推来的快照是消除过期 path 键（幽灵反链）的唯一通道
+        window.api.workbench.onLinksChanged((payload) => {
+          const normalize = (p: string): string => p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+          const current = get().workspacePath
+          if (current && normalize(payload.workspaceRoot) === normalize(current)) {
+            set({ workspaceLinks: payload.links })
+          }
         })
         // 用户可能在终端或其他编辑器里改动过仓库：仅在处于工作台且冷却期已过或 .git/HEAD/.git/index 变化时同步
         window.addEventListener('focus', () => {
@@ -1640,6 +1659,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       if (res.success && res.data) {
         set({ fileTree: res.data, isLoadingTree: false })
         void get().loadWorkspaceTags()
+        void get().loadWorkspaceLinks()
         // 应用关闭期间的外部删除/改名，在重新载入工作区时补齐。
         // 等对账返回再结束载入，恢复上次打开的文档才能拿到改名映射。
         const reconciled = await reconcileMindmaps(workspacePath, res.data)
@@ -2333,6 +2353,14 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
             .then((tagRes) => {
               if (tagRes.success && tagRes.data && get().workspacePath === workspacePath) {
                 set({ workspaceTags: tagRes.data })
+              }
+            })
+            .catch(() => undefined)
+          // 双链快照同标签走增量更新；内存里是刚写盘的内容，直接交给主进程抽取
+          void window.api.workbench.extractFileLinks(workspacePath, activeFilePath, content)
+            .then((linkRes) => {
+              if (linkRes.success && linkRes.data && get().workspacePath === workspacePath) {
+                set({ workspaceLinks: linkRes.data })
               }
             })
             .catch(() => undefined)
@@ -3333,6 +3361,9 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         const previousTree = get().fileTree
         set({ fileTree: nextTree })
 
+        // 外部增删改会让双链快照缓存作废重扫；随文件树一起静默刷新
+        void get().loadWorkspaceLinks()
+
         const reconciled = await reconcileMindmaps(activeRoot, nextTree)
         if (get().workspacePath !== activeRoot) break
 
@@ -3394,6 +3425,22 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       }
     } catch (err) {
       console.error('[workbenchStore] loadWorkspaceTags failed:', err)
+    }
+  },
+
+  loadWorkspaceLinks: async () => {
+    const { workspacePath } = get()
+    if (!workspacePath) {
+      set({ workspaceLinks: [] })
+      return
+    }
+    try {
+      const res = await window.api.workbench.getWorkspaceLinks(workspacePath)
+      if (res.success && res.data && get().workspacePath === workspacePath) {
+        set({ workspaceLinks: res.data })
+      }
+    } catch (err) {
+      console.error('[workbenchStore] loadWorkspaceLinks failed:', err)
     }
   },
 
@@ -4339,6 +4386,13 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     set({ gitNotice: null })
   }
 }))
+
+// 开发态调试/验收钩子：vite 下裸 import() 会拿到幻影模块副本，
+// CDP 行为验证必须经由应用真实加载路径暴露的同一实例。
+// import.meta.env.DEV 在生产构建被静态替换为 false，分支被 tree-shake 剔除。
+if (import.meta.env.DEV && typeof window !== 'undefined') {
+  (window as unknown as { __workbenchStore?: typeof useWorkbenchStore }).__workbenchStore = useWorkbenchStore
+}
 
 // 窗口缩小时，已存的侧边栏宽度可能超过可用上限，监听 resize 被动收敛。
 // 使用 requestAnimationFrame 防抖，且仅在当前宽度真正超出可用上限时才 set，避免窗口放大或微调触发的多余渲染。

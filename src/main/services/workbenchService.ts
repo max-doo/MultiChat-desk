@@ -32,6 +32,7 @@ import {
   type WorkbenchSelectFolderResult,
   type WorkbenchNodeType,
   type WorkspaceTagInfo,
+  type WorkspaceLinkEntry,
   type UnreferencedImageGroup,
   type WorkspaceUnreferencedImagesSummary,
   DOCX_PREVIEW_MAX_BYTES,
@@ -46,6 +47,7 @@ import {
   extractFrontmatterTags,
   extractInlineTags
 } from '../../shared/utils/workbenchTags'
+import { extractWikiLinkTargets } from '../../shared/utils/workbenchWikiLinks'
 import { listIgnoredPaths, recordWorkspaceMove, invalidateRepoCache } from './gitService'
 import {
   appendGitignorePatterns,
@@ -455,6 +457,10 @@ interface WorkbenchWatcherState {
   watcher: fs.FSWatcher
   debounceTimer: NodeJS.Timeout | null
   selfWriteUntil: number
+  /** 去抖窗口内累积的变更相对路径（POSIX），驱动双链快照的按路径增量索引 */
+  changedPaths: Set<string>
+  /** ReadDirectoryChanges 缓冲溢出（fileName 为 null）时置位：双链快照整表作废 */
+  linksFullInvalidate: boolean
 }
 
 const workbenchWatchers = new Map<string, WorkbenchWatcherState>()
@@ -506,6 +512,14 @@ function isWatchIgnoredPath(relativeOrName: string): boolean {
  * 监听工作区目录的外部变更；变更去抖后向所有窗口广播 `workbench:fs-changed`。
  * 重复调用同一 root 是幂等的。
  */
+function broadcastFsChanged(resolvedRoot: string): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed() && !win.webContents.isDestroyed()) {
+      win.webContents.send('workbench:fs-changed', { workspaceRoot: resolvedRoot })
+    }
+  }
+}
+
 export function watchWorkspace(workspaceRoot: string): void {
   if (!workspaceRoot || typeof workspaceRoot !== 'string') return
   const key = normalizeWatchKey(workspaceRoot)
@@ -523,15 +537,51 @@ export function watchWorkspace(workspaceRoot: string): void {
       if (fileName && isWatchIgnoredPath(String(fileName))) return
       const state = workbenchWatchers.get(key)
       if (!state) return
+      if (fileName) {
+        state.changedPaths.add(String(fileName).split('\\').join('/'))
+      } else {
+        // ReadDirectoryChanges 缓冲溢出时 fileName 为 null：事件细节丢失，
+        // 双链快照无法按路径索引，保守整表作废退化为全量重扫
+        state.linksFullInvalidate = true
+      }
       if (state.debounceTimer) clearTimeout(state.debounceTimer)
       state.debounceTimer = setTimeout(() => {
         state.debounceTimer = null
-        if (Date.now() < state.selfWriteUntil) return
-        for (const win of BrowserWindow.getAllWindows()) {
-          if (!win.isDestroyed() && !win.webContents.isDestroyed()) {
-            win.webContents.send('workbench:fs-changed', { workspaceRoot: resolvedRoot })
-          }
+        // 双链快照与广播解耦：自写与外部改动都要落到索引，
+        // 覆盖导图后台生成等不经过渲染层保存链路的写盘路径。
+        const pendingPaths = [...state.changedPaths]
+        state.changedPaths.clear()
+        // 自写抑制判定在去抖回调触发时捕捉：索引耗时不应把自写回声放大成外部变更广播，
+        // 否则每次保存都会触发一次整树重扫
+        const suppressFsBroadcast = Date.now() < state.selfWriteUntil
+        if (state.linksFullInvalidate) {
+          state.linksFullInvalidate = false
+          // 进队列删，避免在途扫描完成后把过期快照写回缓存
+          void enqueueWorkspaceLinkScan(resolvedRoot, async () => {
+            workspaceLinkCache.delete(normalizeWatchKey(resolvedRoot))
+          })
         }
+        if (pendingPaths.length > 0) {
+          void enqueueWorkspaceLinkScan(resolvedRoot, () => updateWorkspaceLinkCachePaths(resolvedRoot, pendingPaths)).finally(() => {
+            // 索引落盘后无条件通知一次双链快照：重命名/删除这类自写操作
+            // 不会广播 fs-changed，渲染层靠这条消息消除过期快照，
+            // 否则会残留重命名前的 path 键（幽灵反链/自引用误列）。
+            const cache = workspaceLinkCache.get(normalizeWatchKey(resolvedRoot))
+            if (cache) {
+              const links = sortWorkspaceLinkEntries(cache)
+              for (const win of BrowserWindow.getAllWindows()) {
+                if (!win.isDestroyed() && !win.webContents.isDestroyed()) {
+                  win.webContents.send('workbench:links-changed', { workspaceRoot: resolvedRoot, links })
+                }
+              }
+            }
+            // fs-changed 广播必须在索引落盘之后：渲染层收到后会立刻拉取快照，
+            // 否则缓存更新还在途，拿到的是改动前的过期数据。
+            if (!suppressFsBroadcast) broadcastFsChanged(resolvedRoot)
+          })
+          return
+        }
+        if (!suppressFsBroadcast) broadcastFsChanged(resolvedRoot)
       }, WATCH_DEBOUNCE_MS)
     })
   } catch {
@@ -542,7 +592,7 @@ export function watchWorkspace(workspaceRoot: string): void {
     unwatchWorkspace(resolvedRoot)
   })
 
-  workbenchWatchers.set(key, { watcher, debounceTimer: null, selfWriteUntil: 0 })
+  workbenchWatchers.set(key, { watcher, debounceTimer: null, selfWriteUntil: 0, changedPaths: new Set(), linksFullInvalidate: false })
 }
 
 export function unwatchWorkspace(workspaceRoot: string): void {
@@ -883,6 +933,7 @@ export async function activateWorkspace(
       unwatchWorkspace(activeWorkspaceRoot)
       invalidateRepoCache(activeWorkspaceRoot)
       clearWorkspaceTagCache(activeWorkspaceRoot)
+      clearWorkspaceLinkCache(activeWorkspaceRoot)
     }
     invalidateRepoCache(resolved)
     activeWorkspaceRoot = resolved
@@ -915,6 +966,7 @@ export async function closeWorkspace(
     unwatchWorkspace(closingRoot)
     invalidateRepoCache(closingRoot)
     clearWorkspaceTagCache(closingRoot)
+    clearWorkspaceLinkCache(closingRoot)
     activeWorkspaceRoot = defaultWorkspace.path
     activeGeneration += 1
     store.set(WORKBENCH_LAST_WORKSPACE_KEY, defaultWorkspace.path)
@@ -2350,6 +2402,243 @@ export async function extractFileTags(
   }
 
   return sortWorkspaceTags(cache.tagCounts)
+}
+
+/**
+ * 工作区双链快照缓存：每个 Markdown 文件抽取出的 [[target]] 原始目标串。
+ * 解析成具体路径由渲染层用文件树按统一的最短路径语义完成，主进程只存原始串。
+ * 自身写盘走 extractFileLinks 增量更新；其余写盘路径（导图后台生成、外部编辑器、
+ * 重命名/删除）由 watcher 事件驱动的逐路径索引覆盖。
+ * 扫描与逐路径索引经按工作区的串行队列执行，否则首扫进行中到达的事件会被丢弃，
+ * 被改文件会以旧内容进缓存且之后无事件修复。
+ */
+const workspaceLinkCache = new Map<string, Map<string, string[]>>()
+const workspaceLinkScanChains = new Map<string, Promise<void>>()
+
+/** 双链索引操作按工作区串行化：扫描与增量更新互不交错，事件按序落盘 */
+function enqueueWorkspaceLinkScan<T>(workspaceRoot: string, job: () => Promise<T>): Promise<T> {
+  const key = normalizeWatchKey(workspaceRoot)
+  const previous = workspaceLinkScanChains.get(key) ?? Promise.resolve()
+  const run = previous.then(job, job)
+  workspaceLinkScanChains.set(
+    key,
+    run.then(
+      () => undefined,
+      () => undefined
+    )
+  )
+  return run
+}
+
+function clearWorkspaceLinkCache(workspaceRoot: string): void {
+  if (!workspaceRoot) return
+  workspaceLinkCache.delete(normalizeWatchKey(workspaceRoot))
+}
+
+/**
+ * watcher 事件驱动的双链快照增量索引：
+ * - Markdown 文件事件：按路径重读重抽（已删除/不可读则移除条目）；
+ * - 其他文件事件：确实是文件的跳过；不存在或是目录时视为目录级改动
+ *   （Windows 上目录重命名不保证子文件事件逐个到达），整表作废退化为全量重扫。
+ * - gitignore 过滤目录内的 Markdown 不入索引，否则会产生文件树无法解析的幻影反链；
+ *   目录级整表作废无此问题（全量重扫自带过滤口径）。
+ * 缓存尚未建立时不动：首次读取本来就是全量扫描。
+ */
+async function updateWorkspaceLinkCachePaths(workspaceRoot: string, changedPaths: string[]): Promise<void> {
+  const wsKey = normalizeWatchKey(workspaceRoot)
+  const cache = workspaceLinkCache.get(wsKey)
+  if (!cache) return
+  const safeRoot = await assertSafePath(workspaceRoot, '')
+  const isFiltered = await createWorkspaceFilter(safeRoot)
+  for (const changed of changedPaths) {
+    const relPosix = changed.split('\\').join('/').replace(/^\/+/, '')
+    if (!relPosix) continue
+    const ext = path.extname(relPosix).toLowerCase()
+    const isMarkdown = MARKDOWN_EXTENSIONS.has(ext)
+    if (isFiltered(relPosix, relPosix.split('/').pop() || relPosix, false)) {
+      // 过滤目录内的 md 变化可能命中缓存残留键；清掉比留着幻影数据强
+      if (isMarkdown) cache.delete(relPosix)
+      continue
+    }
+    // 非 Markdown 事件：确认是现存文件才与双链无关可跳过；
+    // 不存在或是目录时视为目录级改动（目录重命名/删除不保证子文件事件逐个到达，
+    // 且目录名可能带点导致 extname 非空），整表作废退化为全量重扫。
+    if (!isMarkdown) {
+      let isRegularFile = false
+      try {
+        const safePath = await assertSafePath(workspaceRoot, relPosix)
+        isRegularFile = (await stat(safePath)).isFile()
+      } catch {
+        // 路径已不存在：已删除的文件同样走到这里，代价是一次保守的重扫
+      }
+      if (isRegularFile) continue
+      workspaceLinkCache.delete(wsKey)
+      return
+    }
+    let isFile = false
+    try {
+      const safePath = await assertSafePath(workspaceRoot, relPosix)
+      const info = await stat(safePath)
+      isFile = info.isFile()
+      if (!isFile || info.size > MAX_SEARCH_FILE_SIZE) {
+        cache.delete(relPosix)
+        continue
+      }
+      const fileContent = await fsReadFile(safePath, 'utf-8')
+      cache.set(relPosix, extractWikiLinkTargets(fileContent))
+    } catch {
+      // Markdown 文件已删除或暂时不可读：移除快照条目，后续事件或重扫会修复
+      cache.delete(relPosix)
+    }
+  }
+}
+
+function sortWorkspaceLinkEntries(entries: Map<string, string[]>): WorkspaceLinkEntry[] {
+  return [...entries.entries()]
+    .map(([entryPath, targets]) => ({ path: entryPath, targets }))
+    .sort((a, b) => a.path.localeCompare(b.path))
+}
+
+/**
+ * 扫描工作区所有 Markdown 文件中的双链目标，返回每文件的 [[target]] 原始串快照。
+ * 结果按路径升序排列；缓存命中时直接返回。
+ */
+export async function getWorkspaceLinks(workspaceRoot: string): Promise<WorkspaceLinkEntry[]> {
+  const wsKey = normalizeWatchKey(workspaceRoot)
+  const cached = workspaceLinkCache.get(wsKey)
+  if (cached) {
+    return sortWorkspaceLinkEntries(cached)
+  }
+  // 扫描进串行队列：进行中到达的 watcher 事件排在扫描之后执行，不会丢失。
+  // 并发调用在入队后重查缓存，避免同一路径并发多次全扫。
+  return enqueueWorkspaceLinkScan(workspaceRoot, async () => {
+    const recheck = workspaceLinkCache.get(wsKey)
+    if (recheck) {
+      return sortWorkspaceLinkEntries(recheck)
+    }
+    return scanWorkspaceLinks(workspaceRoot, wsKey)
+  })
+}
+
+/** 全量扫描本体（在串行队列内调用）；截断结果只返回不入缓存 */
+async function scanWorkspaceLinks(workspaceRoot: string, wsKey: string): Promise<WorkspaceLinkEntry[]> {
+  const safeRoot = await assertSafePath(workspaceRoot, '')
+  const isFiltered = await createWorkspaceFilter(safeRoot)
+  const rootCmp = process.platform === 'win32' ? safeRoot.toLowerCase() : safeRoot
+  const rootPrefix = rootCmp.endsWith(path.sep) ? rootCmp : rootCmp + path.sep
+  const withScanSlot = createScanLimiter(16)
+  const fileTargetsByPath = new Map<string, string[]>()
+  const startTime = Date.now()
+  const MAX_SCAN_TIME_MS = 8000
+  let scanTruncated = false
+
+  async function resolveSymlink(fullPath: string): Promise<string | null> {
+    const real = await realpath(fullPath).catch(() => null)
+    if (!real) return null
+    const cmp = process.platform === 'win32' ? real.toLowerCase() : real
+    if (cmp !== rootCmp && !cmp.startsWith(rootPrefix)) return null
+    return real
+  }
+
+  async function scanDir(currentDir: string, ancestors: ReadonlySet<string>): Promise<void> {
+    if (Date.now() - startTime > MAX_SCAN_TIME_MS) {
+      scanTruncated = true
+      return
+    }
+    const entries = await withScanSlot(
+      () => readdir(currentDir, { withFileTypes: true })
+    ).catch(() => null)
+    if (!entries) return
+
+    await Promise.all(entries.map(async (entry) => {
+      if (Date.now() - startTime > MAX_SCAN_TIME_MS) {
+        scanTruncated = true
+        return
+      }
+      const fullEntryPath = path.join(currentDir, entry.name)
+      if (isFiltered(toPosixRelativePath(safeRoot, fullEntryPath), entry.name, entry.isDirectory())) return
+
+      try {
+        const entryPath = entry.isSymbolicLink()
+          ? await resolveSymlink(fullEntryPath)
+          : fullEntryPath
+        if (!entryPath) return
+        const relPosix = toPosixRelativePath(safeRoot, entryPath)
+        const entryStat = await withScanSlot(() => stat(entryPath))
+        const isDirectory = entryStat.isDirectory()
+        if (entry.isSymbolicLink() && isFiltered(relPosix, entry.name, isDirectory)) return
+
+        if (isDirectory) {
+          const dirKey = process.platform === 'win32' ? entryPath.toLowerCase() : entryPath
+          if (entry.isSymbolicLink() && ancestors.has(dirKey)) return
+          const nextAncestors = new Set(ancestors)
+          nextAncestors.add(dirKey)
+          await scanDir(entryPath, nextAncestors)
+        } else {
+          const ext = path.extname(entry.name).toLowerCase()
+          if (!MARKDOWN_EXTENSIONS.has(ext) || entryStat.size > MAX_SEARCH_FILE_SIZE) {
+            return
+          }
+          if (Date.now() - startTime > MAX_SCAN_TIME_MS) {
+            scanTruncated = true
+            return
+          }
+          const fileContent = await withScanSlot(() => fsReadFile(entryPath, 'utf-8'))
+          fileTargetsByPath.set(relPosix, extractWikiLinkTargets(fileContent))
+        }
+      } catch {
+        // 忽略无法访问或失效条目
+      }
+    }))
+  }
+
+  await scanDir(safeRoot, new Set([rootCmp]))
+  // 截断扫描的结果不完整：反链缺失是用户可见的错误，不能当权威缓存。
+  // 返回本次部分结果供界面先渲染，但缓存只在完整扫描时建立，
+  // 下次读取重扫直至收敛；watcher 的逐路径索引也不依赖它存在。
+  if (!scanTruncated) {
+    workspaceLinkCache.set(wsKey, fileTargetsByPath)
+  }
+  return sortWorkspaceLinkEntries(fileTargetsByPath)
+}
+
+/**
+ * 保存后增量更新单个文件的双链快照，避免自动保存触发全量扫盘。
+ * 无缓存时回退为全量扫描建立缓存。
+ */
+export async function extractFileLinks(
+  workspaceRoot: string,
+  relativePath: string,
+  content?: string
+): Promise<WorkspaceLinkEntry[]> {
+  const wsKey = normalizeWatchKey(workspaceRoot)
+  const cache = workspaceLinkCache.get(wsKey)
+  if (!cache) {
+    return getWorkspaceLinks(workspaceRoot)
+  }
+
+  const normalizedRel = relativePath.split('\\').join('/').replace(/^\/+/, '')
+  // 进串行队列，避免与首扫/watcher 索引交错写出错序快照
+  return enqueueWorkspaceLinkScan(workspaceRoot, async () => {
+    const current = workspaceLinkCache.get(wsKey)
+    if (!current) {
+      return scanWorkspaceLinks(workspaceRoot, wsKey)
+    }
+    let fileContent: string
+    if (typeof content === 'string') {
+      fileContent = content
+    } else {
+      const safePath = await assertSafePath(workspaceRoot, normalizedRel)
+      const info = await stat(safePath)
+      if (!info.isFile() || info.size > MAX_SEARCH_FILE_SIZE) {
+        return sortWorkspaceLinkEntries(current)
+      }
+      fileContent = await fsReadFile(safePath, 'utf-8')
+    }
+
+    current.set(normalizedRel, extractWikiLinkTargets(fileContent))
+    return sortWorkspaceLinkEntries(current)
+  })
 }
 
 /**

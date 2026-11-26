@@ -112,7 +112,7 @@ MultiChat Desk 是一个 Electron 多模型聊天工作台，UI 属于 **Operate
 
 ## Typography
 
-7 档语义字号（`tailwind.config.js` `fontSize` token)，对齐 Windows Fluent 7 档，适配桌面工具密度：
+8 档语义字号（`tailwind.config.js` `fontSize` token)，对齐 Windows Fluent 档级，适配桌面工具密度：
 
 | Token | px/lh | 用途 |
 |---|---|---|
@@ -122,7 +122,8 @@ MultiChat Desk 是一个 Electron 多模型聊天工作台，UI 属于 **Operate
 | `text-body` | 14/21 | **正文基准**（与已认可的 SettingsDrawer 一致） |
 | `text-body-lg` | 16/24 | 编辑器/大正文 |
 | `text-title` | 19/28 semibold | 弹窗/区块标题（专用） |
-| `text-title-lg` | 24/32 bold | 页面级标题（仅文档大标题） |
+| `text-title-lg` | 24/32 bold | 页面级标题（设置页等） |
+| `text-title-xl` | 32/40 bold | 文档大标题（仅 WorkbenchTitleBar，与 Markdown h1 的 2em 视觉同档） |
 
 **旧值迁移**:`text-xs`→`label`（表单语境）或 `caption`（说明文字）、`text-sm`→`body`、`text-base`→`body-lg`、`text-[10px]`→`tiny`、`text-[11px]`→`caption`、`text-[13px]`→`body`、`text-[18-20px]/xl`→`title`。
 

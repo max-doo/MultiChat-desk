@@ -141,6 +141,52 @@ function findDirectoryChildren(
   return null
 }
 
+export interface MoveFolderTarget {
+  /** 目标目录的工作区相对路径；根目录为空字符串 */
+  path: string
+  name: string
+  /** 展示用层级缩进，根目录为 0 */
+  depth: number
+}
+
+const MOVE_TARGET_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
+
+/**
+ * 收集图片右键「移动到」子菜单的目标目录：
+ * - 根目录始终作为 depth 0 的第一项；子目录按名称排序、先序扁平化；
+ * - 排除 `.multichat` 内部目录整棵子树与文件当前所在目录（原地移动无意义）。
+ */
+export function collectMoveFolderTargets(
+  fileTree: WorkbenchFileNode[],
+  activeFilePath: string | null
+): MoveFolderTarget[] {
+  if (!activeFilePath) return []
+  const parentDir = activeFilePath.includes('/')
+    ? activeFilePath.slice(0, activeFilePath.lastIndexOf('/'))
+    : ''
+
+  const targets: MoveFolderTarget[] = []
+  if (parentDir !== '') {
+    targets.push({ path: '', name: '工作区根目录', depth: 0 })
+  }
+
+  const walk = (nodes: WorkbenchFileNode[], depth: number): void => {
+    const dirs = nodes
+      .filter((node) => node.isDirectory && node.path !== '.multichat' && !node.path.startsWith('.multichat/'))
+      .sort((a, b) => MOVE_TARGET_COLLATOR.compare(a.name, b.name))
+    for (const dir of dirs) {
+      if (dir.path !== parentDir) {
+        targets.push({ path: dir.path, name: dir.name, depth })
+      }
+      if (dir.children?.length) {
+        walk(dir.children, depth + 1)
+      }
+    }
+  }
+  walk(fileTree, 1)
+  return targets
+}
+
 /** 收集与当前文件同目录下的全部图片路径，排序规则与侧边栏文件树保持一致。 */
 export function getSiblingImagePaths(
   fileTree: WorkbenchFileNode[],

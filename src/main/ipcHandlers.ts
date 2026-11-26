@@ -53,6 +53,8 @@ import {
     search as workbenchSearch,
     getWorkspaceTags as workbenchGetWorkspaceTags,
     extractFileTags as workbenchExtractFileTags,
+    getWorkspaceLinks as workbenchGetWorkspaceLinks,
+    extractFileLinks as workbenchExtractFileLinks,
     revealFile as workbenchRevealFile,
   openFileInSystem as workbenchOpenFileInSystem,
   saveImage as workbenchSaveImage,
@@ -2374,6 +2376,29 @@ export async function registerIpcHandlers(
         }
     })
 
+    ipcMain.handle('workbench:get-workspace-links', async (_event, payload: string | { workspaceRoot: string }) => {
+        try {
+            const workspaceRoot = typeof payload === 'string' ? payload : payload?.workspaceRoot
+            assertActiveWorkspace(workspaceRoot)
+            const data = await workbenchGetWorkspaceLinks(workspaceRoot)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('workbench:extract-file-links', async (_event, payload: { workspaceRoot: string; relativePath: string; content?: string }) => {
+        try {
+            assertActiveWorkspace(payload.workspaceRoot)
+            const data = await workbenchExtractFileLinks(payload.workspaceRoot, payload.relativePath, payload.content)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
     ipcMain.handle('workbench:reveal-file', async (_event, payload: string | { workspaceRoot: string; relativePath: string }, relPath?: string) => {
         try {
             const workspaceRoot = typeof payload === 'string' ? payload : payload?.workspaceRoot
@@ -3014,9 +3039,12 @@ export async function registerIpcHandlers(
         }
     })
 
-    ipcMain.handle('agent:rewind', async (_event, payload: { sessionId: string; entryId?: string }) => {
+    ipcMain.handle('agent:rewind', async (_event, payload: { sessionId: string; entryId?: string; revertFiles?: boolean }) => {
         try {
-            const data = await agentSessionService.rewindToUserMessage(payload.sessionId, payload.entryId)
+            const data = await agentSessionService.rewindToUserMessage(payload.sessionId, {
+                entryId: payload.entryId,
+                revertFiles: payload.revertFiles
+            })
             return { success: true, data }
         } catch (err: unknown) {
             const error = err instanceof Error ? err.message : String(err)
@@ -3242,6 +3270,19 @@ export async function registerIpcHandlers(
         } catch (err: unknown) {
             const error = err instanceof Error ? err.message : String(err)
             return { success: false, error }
+        }
+    })
+
+    // Agent 行内 chip 的磁盘存在性检查：面向工作区外/被文件树隐藏的绝对路径，
+    // 与 agent:reveal-file 同级信任边界（路径均来自本会话 agent 输出或用户输入）。
+    ipcMain.handle('agent:stat-file', async (_event, payload: { path: string }) => {
+        try {
+            const { stat } = await import('fs/promises')
+            const fileStat = await stat(payload.path)
+            if (!fileStat.isFile()) return { success: true, data: null }
+            return { success: true, data: { mtime: fileStat.mtimeMs, size: fileStat.size } }
+        } catch {
+            return { success: true, data: null }
         }
     })
 

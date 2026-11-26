@@ -1,13 +1,17 @@
-import { useMemo, useEffect, useCallback } from 'react'
+import { useMemo, useEffect, useLayoutEffect, useCallback, useState, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { useWorkbenchStore } from '../../store/workbenchStore'
 import { formatFileSize } from '../../utils/formatBytes'
 import { AppIcon } from '../icons/AppIcon'
+import { copyImageElementToClipboard } from '../CustomContextMenu'
+import { requestSendImageToAi } from './workbenchAiEvents'
 import {
   PreviewFallbackState,
   PreviewHeader
 } from './WorkbenchPreviewChrome'
 import {
   cycleImageBackgroundTheme,
+  collectMoveFolderTargets,
   getImageBackgroundClass,
   getImageBackgroundIcon,
   getImageBackgroundLabel,
@@ -16,6 +20,12 @@ import {
   IMAGE_SCALE_MIN,
   useImageViewport
 } from './workbenchImageUtils'
+
+/** 画布右键菜单状态，菜单尺寸由真实 DOM 测量后钳位进视口 */
+interface PreviewMenuState {
+  x: number
+  y: number
+}
 
 export default function WorkbenchImagePreview(): JSX.Element {
   const activeFilePath = useWorkbenchStore((s) => s.activeFilePath)
@@ -28,8 +38,18 @@ export default function WorkbenchImagePreview(): JSX.Element {
   const openFile = useWorkbenchStore((s) => s.openFile)
   const openInSystem = useWorkbenchStore((s) => s.openInSystem)
   const revealFile = useWorkbenchStore((s) => s.revealFile)
+  const moveNode = useWorkbenchStore((s) => s.moveNode)
   const bgTheme = useWorkbenchStore((s) => s.imageBackgroundTheme)
   const setBgTheme = useWorkbenchStore((s) => s.setImageBackgroundTheme)
+
+  const [menu, setMenu] = useState<PreviewMenuState | null>(null)
+  const [menuPos, setMenuPos] = useState<{ left: number; top: number } | null>(null)
+  const [submenuPos, setSubmenuPos] = useState<{ left: number; top: number; maxHeight: number } | null>(null)
+  const [isMoveMenuOpen, setIsMoveMenuOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement | null>(null)
+  const moveTriggerRef = useRef<HTMLDivElement | null>(null)
+  const moveMenuRef = useRef<HTMLDivElement | null>(null)
+  const imgRef = useRef<HTMLImageElement | null>(null)
 
   const {
     scale,
@@ -85,6 +105,125 @@ export default function WorkbenchImagePreview(): JSX.Element {
   const toggleBgTheme = (): void => {
     setBgTheme(cycleImageBackgroundTheme(bgTheme))
   }
+
+  /** 「移动到」候选目录：排除当前所在目录与 `.multichat` 内部目录 */
+  const moveTargets = useMemo(
+    () => collectMoveFolderTargets(fileTree, activeFilePath),
+    [fileTree, activeFilePath]
+  )
+
+  const closeMenu = useCallback(() => {
+    setMenu(null)
+    setIsMoveMenuOpen(false)
+  }, [])
+
+  const handleContextMenu = useCallback(
+    (event: React.MouseEvent) => {
+      if (!activeFilePath) return
+      event.preventDefault()
+      event.stopPropagation()
+      setIsMoveMenuOpen(false)
+      setMenu({ x: event.clientX, y: event.clientY })
+    },
+    [activeFilePath]
+  )
+
+  const handleMoveToFolder = useCallback(
+    (targetDir: string) => {
+      const path = activeFilePath
+      closeMenu()
+      if (!path) return
+      void moveNode(path, targetDir)
+    },
+    [activeFilePath, closeMenu, moveNode]
+  )
+
+  /** 图片源地址：workbench-file:// 优先，主进程侧可解析真实路径 */
+  const imageSrcUrl = activeFileUrl || activeFileDataUrl || ''
+
+  /** 复制图片：优先主进程 copyImageAt 保留原图编码，失败退化渲染层转码 */
+  const handleCopyImage = useCallback(() => {
+    closeMenu()
+    const img = imgRef.current
+    if (!img) return
+    void (async () => {
+      try {
+        if (img.src.startsWith('workbench-file://') && img.naturalWidth > 0) {
+          const rect = img.getBoundingClientRect()
+          const x = rect.left + rect.width / 2
+          const y = rect.top + rect.height / 2
+          const result = await window.api?.workbench?.copyHtmlImageAt?.(x, y)
+          if (result?.success) return
+        }
+        await copyImageElementToClipboard(img)
+      } catch (err) {
+        console.error('[ImagePreview] 复制图片失败:', err)
+      }
+    })()
+  }, [closeMenu])
+
+  // 主菜单按真实尺寸贴合光标并钳位进视口，避免右下角溢出
+  useLayoutEffect(() => {
+    if (!menu || !menuRef.current) {
+      setMenuPos(null)
+      return
+    }
+    const EDGE = 8
+    const rect = menuRef.current.getBoundingClientRect()
+    const left = Math.max(
+      EDGE,
+      Math.min(menu.x, Math.max(EDGE, window.innerWidth - rect.width - EDGE))
+    )
+    const top = Math.max(
+      EDGE,
+      Math.min(menu.y, Math.max(EDGE, window.innerHeight - rect.height - EDGE))
+    )
+    setMenuPos({ left, top })
+  }, [menu])
+
+  // 「移动到」子菜单贴合触发项，右侧放不下时翻到左侧，垂直方向防溢出
+  useLayoutEffect(() => {
+    if (!menu || !isMoveMenuOpen || !moveTriggerRef.current || !moveMenuRef.current) {
+      setSubmenuPos(null)
+      return
+    }
+    const EDGE = 8
+    const triggerRect = moveTriggerRef.current.getBoundingClientRect()
+    const subRect = moveMenuRef.current.getBoundingClientRect()
+    const maxHeight = Math.min(320, Math.max(120, window.innerHeight - EDGE * 2))
+    const effectiveHeight = Math.min(subRect.height, maxHeight)
+    const left =
+      triggerRect.right + subRect.width + EDGE <= window.innerWidth
+        ? triggerRect.right
+        : Math.max(EDGE, triggerRect.left - subRect.width)
+    const top = Math.max(
+      EDGE,
+      Math.min(triggerRect.top - 4, window.innerHeight - effectiveHeight - EDGE)
+    )
+    setSubmenuPos({ left, top, maxHeight })
+  }, [menu, isMoveMenuOpen, menuPos])
+
+  // 右键菜单：外部点击 / Esc / 失焦 / 缩放窗口关闭
+  useEffect(() => {
+    if (!menu) return
+    const handlePointerDown = (event: MouseEvent): void => {
+      if (menuRef.current?.contains(event.target as Node)) return
+      closeMenu()
+    }
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') closeMenu()
+    }
+    document.addEventListener('mousedown', handlePointerDown)
+    document.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('blur', closeMenu)
+    window.addEventListener('resize', closeMenu)
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+      document.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('blur', closeMenu)
+      window.removeEventListener('resize', closeMenu)
+    }
+  }, [menu, closeMenu])
 
   // 快捷键：同文件夹左右切换、+/- 缩放、0 复位、R 旋转（不抢占输入框/按钮/富文本焦点）
   useEffect(() => {
@@ -204,6 +343,7 @@ export default function WorkbenchImagePreview(): JSX.Element {
       {/* 画布视图主体：复刻 Lightbox 交互（滚轮缩放、拖拽平移、双击切换缩放）并保留衬底 */}
       <div
         onWheel={canManipulateImage ? handleWheel : undefined}
+        onContextMenu={handleContextMenu}
         className={`relative flex-1 overflow-hidden flex items-center justify-center px-16 pt-8 pb-24 transition-colors ${getImageBackgroundClass(
           bgTheme,
           'preview'
@@ -239,6 +379,7 @@ export default function WorkbenchImagePreview(): JSX.Element {
           />
         ) : (
           <img
+            ref={imgRef}
             src={activeFileUrl || activeFileDataUrl || undefined}
             alt={activeFilePath || 'image'}
             draggable={false}
@@ -387,6 +528,146 @@ export default function WorkbenchImagePreview(): JSX.Element {
           </div>
         )}
       </div>
+
+      {/* 画布右键菜单：发送到 AI / 复制图片 / 另存为 / 移动 / 外部打开 / 资源管理器定位 */}
+      {menu &&
+        createPortal(
+          <div
+            ref={menuRef}
+            role="menu"
+            className="fixed z-popover min-w-[176px] select-none liquid-glass-menu rounded-xl py-1.5 text-body"
+            style={{
+              left: menuPos?.left ?? menu.x,
+              top: menuPos?.top ?? menu.y,
+              visibility: menuPos ? 'visible' : 'hidden'
+            }}
+            onContextMenu={(e) => e.preventDefault()}
+          >
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                const src = imageSrcUrl
+                closeMenu()
+                if (src) requestSendImageToAi({ srcURL: src })
+              }}
+              className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left font-medium text-text-primary transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+            >
+              <AppIcon name="send" size={19} className="shrink-0 text-blue-500" />
+              发送到 AI 侧边栏
+            </button>
+            {canManipulateImage && (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={handleCopyImage}
+                className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left font-medium text-text-primary transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+              >
+                <AppIcon name="image" size={19} className="shrink-0 text-text-secondary" />
+                复制图片
+              </button>
+            )}
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                const src = imageSrcUrl
+                closeMenu()
+                if (src) void window.api?.saveImageFromURL?.(src)
+              }}
+              className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left font-medium text-text-primary transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+            >
+              <AppIcon name="download" size={19} className="shrink-0 text-text-secondary" />
+              图片另存为...
+            </button>
+            {moveTargets.length > 0 && (
+              <div className="my-1 border-t border-black/5 dark:border-white/5" role="separator" />
+            )}
+            {moveTargets.length > 0 && (
+              <div
+                ref={moveTriggerRef}
+                className="relative"
+                onMouseEnter={() => setIsMoveMenuOpen(true)}
+                onMouseLeave={() => setIsMoveMenuOpen(false)}
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => setIsMoveMenuOpen((v) => !v)}
+                  className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left font-medium text-text-primary transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+                >
+                  <AppIcon name="folder_output" size={19} className="shrink-0 text-amber-500" />
+                  <span className="flex-1">移动到</span>
+                  <AppIcon name="chevron_right" size={16} className="shrink-0 text-text-secondary" />
+                </button>
+                {isMoveMenuOpen && (
+                  <div
+                    ref={moveMenuRef}
+                    role="menu"
+                    onMouseEnter={() => setIsMoveMenuOpen(true)}
+                    style={{
+                      left: submenuPos?.left ?? menu.x,
+                      top: submenuPos?.top ?? menu.y,
+                      maxHeight: submenuPos?.maxHeight ?? 320,
+                      visibility: submenuPos ? 'visible' : 'hidden'
+                    }}
+                    className="fixed z-popover min-w-[190px] max-w-[260px] overflow-y-auto liquid-glass-menu rounded-xl py-1.5 text-body"
+                  >
+                    {moveTargets.map((target) => (
+                      <button
+                        key={target.path || '__root__'}
+                        type="button"
+                        role="menuitem"
+                        onClick={() => handleMoveToFolder(target.path)}
+                        className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left text-text-primary transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+                        title={target.path ? target.path : '移动到工作区根目录'}
+                      >
+                        <span
+                          className="flex min-w-0 flex-1 items-center gap-2"
+                          style={{ paddingLeft: `${target.depth * 12}px` }}
+                        >
+                          <AppIcon
+                            name={target.path ? 'folder' : 'home'}
+                            size={19}
+                            className={`shrink-0 ${target.path ? 'text-amber-500' : 'text-text-secondary'}`}
+                          />
+                          <span className="truncate">{target.name}</span>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                const path = activeFilePath
+                closeMenu()
+                if (path) void openInSystem(path)
+              }}
+              className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left font-medium text-text-primary transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+            >
+              <AppIcon name="open_in_new" size={19} className="shrink-0 text-text-secondary" />
+              使用系统默认程序打开
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                const path = activeFilePath
+                closeMenu()
+                if (path) void revealFile(path)
+              }}
+              className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left font-medium text-text-primary transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+            >
+              <AppIcon name="folder_open" size={19} className="shrink-0 text-text-secondary" />
+              在资源管理器中显示
+            </button>
+          </div>,
+          document.body
+        )}
     </div>
   )
 }

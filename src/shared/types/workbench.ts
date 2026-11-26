@@ -39,6 +39,12 @@ export interface WorkspaceTagInfo {
   count: number           // 引用频次
 }
 
+/** 单个 Markdown 文件的双链出链快照：渲染层据此解析出链与反链 */
+export interface WorkspaceLinkEntry {
+  path: string            // 文件相对工作区根的 POSIX 路径
+  targets: string[]       // 文中 [[target]] 原始目标串，按出现顺序去重
+}
+
 /** 单个文档的未引用图片汇总 */
 export interface UnreferencedImageGroup {
   documentPath: string      // 文档相对工作区根的 POSIX 路径

@@ -5,7 +5,7 @@ import rehypeRaw from 'rehype-raw'
 import katex from 'katex'
 import 'katex/dist/katex.min.css'
 import { AppIcon } from '../../icons/AppIcon'
-import { InlineFileCode } from './AttachmentChips'
+import { InlineFileChip, InlineFileCode } from './AttachmentChips'
 import { createRehypeRestoreMath, extractMathPlaceholders } from './markdownMath'
 
 const REMARK_PLUGINS = [remarkGfm]
@@ -149,6 +149,11 @@ const MARKDOWN_COMPONENTS: Components = {
       const tex = typeof record['data-katex-tex'] === 'string' ? record['data-katex-tex'] : ''
       const display = record['data-katex-display'] === '1'
       return <KatexMath tex={tex} display={display} />
+    }
+    if (record['data-file-chip'] !== undefined) {
+      const abs = typeof record['data-file-path'] === 'string' ? record['data-file-path'] : ''
+      // 裸文本路径：无反引号原文，识别失败时按原样文本渲染
+      return <InlineFileChip abs={abs} fallback={<span>{abs}</span>} />
     }
     return <span {...props} />
   },
@@ -295,8 +300,8 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
 
   const rehypePlugins = useMemo(
     () =>
-      prepared.entries.length > 0
-        ? [rehypeRaw, createRehypeRestoreMath(prepared.entries, prepared.prefix)]
+      prepared.entries.length > 0 || prepared.filePaths.length > 0
+        ? [rehypeRaw, createRehypeRestoreMath(prepared.entries, prepared.filePaths, prepared.prefix)]
         : BASE_REHYPE_PLUGINS,
     [prepared]
   )

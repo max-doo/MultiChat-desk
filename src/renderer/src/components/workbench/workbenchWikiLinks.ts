@@ -12,12 +12,20 @@ export interface WikiLinkResolution {
  * 1. 精确匹配工作区相对路径（含扩展名），无扩展名时先补 .md / .markdown / .txt；
  * 2. 唯一文件名匹配；
  * 3. 多歧义时取路径最短者。
+ * 标题/块锚点（[[doc#heading]]、[[doc#^block]]）引用的是文档本身，
+ * 解析前先剥离 # 及之后的锚点部分。
  */
 export function resolveWikiLinkTarget(
   target: string,
   files: readonly WorkbenchFileNode[]
 ): WikiLinkResolution {
-  const normalized = target.trim().replace(/\\/g, '/').replace(/^\.\/+/, '').replace(/^\/+/, '')
+  const normalized = target
+    .trim()
+    .split('#')[0]
+    .trim()
+    .replace(/\\/g, '/')
+    .replace(/^\.\/+/, '')
+    .replace(/^\/+/, '')
   if (!normalized) return { path: null, node: null }
 
   const lower = normalized.toLowerCase()
@@ -52,14 +60,21 @@ export function resolveWikiLinkTarget(
   return { path: best.path, node: best }
 }
 
-/** 双链目标的默认显示名：去 markdown 扩展名的文件名。 */
+/** 双链目标的默认显示名：去 markdown 扩展名的文件名；带锚点时为「文档名 > 锚点」（Obsidian 风格）。 */
 export function wikiLinkDefaultDisplay(target: string): string {
-  const baseName = target.replace(/\\/g, '/').split('/').pop() || target
+  const [docPart, ...anchorParts] = target.split('#')
+  const baseName = docPart.replace(/\\/g, '/').split('/').pop() || docPart
   const ext = baseName.match(/\.[^.]+$/)?.[0]?.toLowerCase()
-  if (ext && MARKDOWN_EXTENSIONS.has(ext)) {
-    return baseName.slice(0, baseName.length - ext.length)
+  const docDisplay = ext && MARKDOWN_EXTENSIONS.has(ext)
+    ? baseName.slice(0, baseName.length - ext.length)
+    : baseName
+  if (anchorParts.length > 0) {
+    const anchor = anchorParts.join('#').trim().replace(/^\^/, '')
+    if (anchor) {
+      return docDisplay ? `${docDisplay} > ${anchor}` : anchor
+    }
   }
-  return baseName
+  return docDisplay
 }
 
 /** 序列化双链：显示名与默认一致时省略别名，否则输出 [[target|display]]。 */

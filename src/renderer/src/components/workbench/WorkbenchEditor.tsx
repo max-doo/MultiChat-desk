@@ -29,6 +29,7 @@ import MarkdownSyncPlugin, {
   parseMarkdownWithFrontmatter
 } from './MarkdownSyncPlugin'
 import FrontmatterPanel from './FrontmatterPanel'
+import WorkbenchLinkRelationsPanel from './WorkbenchLinkRelationsPanel'
 import WorkbenchTitleBar from './WorkbenchTitleBar'
 import { PendingInsertNode } from './PendingInsertNode'
 import { PendingBarNode } from './PendingBarNode'
@@ -613,12 +614,15 @@ function WorkbenchEditor({ isActive = true }: WorkbenchEditorProps): JSX.Element
             {/* Obsidian 式笔记属性面板：frontmatter 与正文分离，不进入 Lexical */}
             <WorkbenchFrontmatterSection activeFilePath={activeFilePath} />
 
+            {/* 链接关系（出链/反链）：纯计算元数据，不可编辑，不属于 frontmatter */}
+            <WorkbenchLinkRelationsPanel />
+
             {/* placeholder 与正文同容器定位，避免标题/属性面板高度变化后漂移 */}
             <div className="relative">
               <RichTextPlugin
                 contentEditable={
                   <ContentEditable
-                    className="max-w-none min-h-[500px] focus:outline-none text-text-primary select-text"
+                    className="max-w-none min-h-[500px] focus:outline-none text-body-lg text-text-primary select-text"
                     spellCheck={false}
                   />
                 }

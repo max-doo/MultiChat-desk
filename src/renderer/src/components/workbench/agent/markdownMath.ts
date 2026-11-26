@@ -3,9 +3,14 @@ export interface MathEntry {
   display: boolean
 }
 
+export interface FilePathEntry {
+  path: string
+}
+
 export interface PreparedMarkdownMath {
   processed: string
   entries: MathEntry[]
+  filePaths: FilePathEntry[]
   prefix: string
 }
 
@@ -190,21 +195,74 @@ function makeUniquePrefix(content: string): string {
   return prefix
 }
 
+const PATH_TRAILING_PUNCT_RE = /[.,;:!?)\]'’”）】]+$/u
+const PATH_EXT_RE = /\.[A-Za-z0-9]{1,10}$/
+// 路径字符集排除项：空白、引号、markdown 结构符与常见中文标点
+const PATH_STOP_RE = /[\s`'"*()[\]{}<>|?，。；：！？、]/
+
+/**
+ * 在扫描位置尝试匹配一个绝对路径（Windows 盘符 / ~ / POSIX 开头）。
+ * 返回匹配到的原始串长度；不匹配返回 0。
+ * 边界规则与行内 chip 化的路径匹配口径一致：
+ * 前置字符不能是 \w /（Windows）、\w :（~）、\w / :（POSIX），避免 URL 命中。
+ */
+function matchAbsolutePathAt(text: string, index: number): number {
+  const ch = text[index]
+  const prev = index > 0 ? text[index - 1] : ''
+
+  let isWindows = false
+  let isTilde = false
+  let isPosix = false
+  let headLen = 0
+
+  if (/[A-Za-z]/.test(ch) && text[index + 1] === ':' && (text[index + 2] === '\\' || text[index + 2] === '/')) {
+    if (prev && /[\w/]/.test(prev)) return 0
+    isWindows = true
+    headLen = 3
+  } else if (ch === '~' && (text[index + 1] === '/' || text[index + 1] === '\\')) {
+    if (prev && /[\w:]/.test(prev)) return 0
+    isTilde = true
+    headLen = 2
+  } else if (ch === '/' && text[index + 1] !== '/') {
+    if (prev && /[\w/:]/.test(prev)) return 0
+    isPosix = true
+    headLen = 1
+  }
+  if (!isWindows && !isTilde && !isPosix) return 0
+
+  let end = index + headLen
+  while (end < text.length && !PATH_STOP_RE.test(text[end])) {
+    end++
+  }
+  let candidate = text.slice(index, end)
+  candidate = candidate.replace(PATH_TRAILING_PUNCT_RE, '')
+  if (candidate.length <= headLen) return 0
+  if (!PATH_EXT_RE.test(candidate)) return 0
+  return candidate.length
+}
+
 /**
  * 在 CommonMark / GFM 解析之前提取并屏蔽 LaTeX 数学公式，
  * 避免公式内部的 `_`、`*`、`\\`、`|`、`<`、`>` 被 Markdown 或 rehypeRaw 误解析；
  * 同时跳过围栏代码块、行内代码与转义符号 `\$`。
+ * 同一遍扫描顺带提取正文中的绝对路径（行内/围栏代码内除外），
+ * 供 rehype 阶段还原成可点击的文件 chip。
  */
 export function extractMathPlaceholders(content: string): PreparedMarkdownMath {
   if (
     !content ||
     (!content.includes('$') && !content.includes('\\(') && !content.includes('\\[') && !content.includes('\\begin{'))
   ) {
-    return { processed: content, entries: [], prefix: '' }
+    // 数学公式快速路径不命中时仍可能需要提取文件路径；
+    // POSIX 绝对路径无法用字符集预判，凡含 / 或 ~ 都进入一次扫描（O(n)，成本可忽略）。
+    if (!/[A-Za-z]:[\\/]/.test(content) && !content.includes('/') && !content.includes('~')) {
+      return { processed: content, entries: [], filePaths: [], prefix: '' }
+    }
   }
 
   const prefix = makeUniquePrefix(content)
   const entries: MathEntry[] = []
+  const filePaths: FilePathEntry[] = []
   let out = ''
   let i = 0
 
@@ -212,6 +270,12 @@ export function extractMathPlaceholders(content: string): PreparedMarkdownMath {
     const idx = entries.length
     entries.push({ tex, display })
     return `${prefix}${idx}END`
+  }
+
+  const pushFilePath = (path: string): string => {
+    const idx = filePaths.length
+    filePaths.push({ path })
+    return `${prefix}FP${idx}END`
   }
 
   while (i < content.length) {
@@ -355,6 +419,26 @@ export function extractMathPlaceholders(content: string): PreparedMarkdownMath {
       continue
     }
 
+    // Markdown 链接目的地 ](...)：括号内的路径属于链接语法，不能占位替换
+    if (ch === ']' && content[i + 1] === '(') {
+      const closeParen = content.indexOf(')', i + 2)
+      if (closeParen !== -1) {
+        out += content.slice(i, closeParen + 1)
+        i = closeParen + 1
+        continue
+      }
+    }
+
+    // 正文中的绝对路径 → 占位符，rehype 阶段还原为文件 chip。
+    // 行内/围栏代码在前述分支已被整体复制，不会走到这里。
+    const pathLen = matchAbsolutePathAt(content, i)
+    if (pathLen > 0) {
+      const candidate = content.slice(i, i + pathLen)
+      out += pushFilePath(candidate)
+      i += pathLen
+      continue
+    }
+
     out += ch
     i++
   }
@@ -362,6 +446,7 @@ export function extractMathPlaceholders(content: string): PreparedMarkdownMath {
   return {
     processed: out,
     entries,
+    filePaths,
     prefix
   }
 }
@@ -382,6 +467,7 @@ function isWhitespaceText(node: HastChild): boolean {
 function splitTextWithMathNodes(
   text: string,
   entries: MathEntry[],
+  filePaths: FilePathEntry[],
   tokenRegex: RegExp
 ): HastChild[] | null {
   tokenRegex.lastIndex = 0
@@ -395,21 +481,41 @@ function splitTextWithMathNodes(
     if (match.index > lastIndex) {
       nodes.push({ type: 'text', value: text.slice(lastIndex, match.index) })
     }
-    const entryIndex = Number(match[1])
-    const entry = entries[entryIndex]
-    if (entry) {
-      nodes.push({
-        type: 'element',
-        tagName: 'span',
-        properties: {
-          'data-katex-math': '1',
-          'data-katex-display': entry.display ? '1' : '0',
-          'data-katex-tex': entry.tex
-        },
-        children: []
-      })
+    if (match[1] !== undefined) {
+      // 文件路径占位符：prefixFP{n}END
+      const fpIndex = Number(match[1])
+      const fpEntry = filePaths[fpIndex]
+      if (fpEntry) {
+        nodes.push({
+          type: 'element',
+          tagName: 'span',
+          properties: {
+            'data-file-chip': '1',
+            'data-file-path': fpEntry.path
+          },
+          children: []
+        })
+      } else {
+        nodes.push({ type: 'text', value: match[0] })
+      }
     } else {
-      nodes.push({ type: 'text', value: match[0] })
+      // 数学占位符：prefix{n}END，正则第二分支 → match[2]
+      const entryIndex = Number(match[2])
+      const entry = entries[entryIndex]
+      if (entry) {
+        nodes.push({
+          type: 'element',
+          tagName: 'span',
+          properties: {
+            'data-katex-math': '1',
+            'data-katex-display': entry.display ? '1' : '0',
+            'data-katex-tex': entry.tex
+          },
+          children: []
+        })
+      } else {
+        nodes.push({ type: 'text', value: match[0] })
+      }
     }
     lastIndex = match.index + match[0].length
     match = tokenRegex.exec(text)
@@ -425,6 +531,7 @@ function splitTextWithMathNodes(
 function transformHastNode(
   node: HastChild,
   entries: MathEntry[],
+  filePaths: FilePathEntry[],
   tokenRegex: RegExp
 ): void {
   if (!('children' in node) || !Array.isArray(node.children)) return
@@ -437,14 +544,14 @@ function transformHastNode(
 
   for (const child of node.children) {
     if (child.type === 'text' && 'value' in child && typeof child.value === 'string') {
-      const replaced = splitTextWithMathNodes(child.value, entries, tokenRegex)
+      const replaced = splitTextWithMathNodes(child.value, entries, filePaths, tokenRegex)
       if (replaced) {
         nextChildren.push(...replaced)
         changed = true
         continue
       }
     } else {
-      transformHastNode(child, entries, tokenRegex)
+      transformHastNode(child, entries, filePaths, tokenRegex)
     }
     nextChildren.push(child)
   }
@@ -474,13 +581,14 @@ function transformHastNode(
 }
 
 /**
- * 创建 rehype 插件：在 rehypeRaw 之后把数学占位符还原为待 KaTeX 渲染的节点。
+ * 创建 rehype 插件：在 rehypeRaw 之后把数学占位符还原为待 KaTeX 渲染的节点，
+ * 文件路径占位符还原为待 chip 化的 data-file-chip 元素。
  */
-export function createRehypeRestoreMath(entries: MathEntry[], prefix: string) {
-  const tokenRegex = new RegExp(`${prefix}(\\d+)END`, 'g')
+export function createRehypeRestoreMath(entries: MathEntry[], filePaths: FilePathEntry[], prefix: string) {
+  const tokenRegex = new RegExp(`${prefix}(?:FP(\\d+)|(\\d+))END`, 'g')
   return function rehypeRestoreMath() {
     return function transformer(tree: HastRoot): void {
-      transformHastNode(tree, entries, tokenRegex)
+      transformHastNode(tree, entries, filePaths, tokenRegex)
     }
   }
 }

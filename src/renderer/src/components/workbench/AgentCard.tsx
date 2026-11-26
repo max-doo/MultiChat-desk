@@ -16,7 +16,7 @@ import { AgentComposer } from './agent/AgentComposer'
 import ChangedFilesCard from './agent/ChangedFilesCard'
 import { MarkdownRenderer } from './agent/MarkdownRenderer'
 import { WorkPhaseBlock } from './agent/WorkPhaseBlock'
-import { AttachmentChips, InlineMentionText, collectToolAttachmentPaths, extractInlineFilePaths } from './agent/AttachmentChips'
+import { InlineMentionText } from './agent/AttachmentChips'
 import type { AgentMessage, PiContentPart } from '../../types/agent'
 import type { AgentTurnFileChanges } from '../../../../shared/types/agentRuntime'
 
@@ -25,8 +25,6 @@ interface AgentCardProps {
   onModelChange?: (modelId: string) => void
   headerActions?: React.ReactNode
 }
-
-const EMPTY_PATHS: string[] = []
 
 /** 规范化路径用于工作区相等比较：统一分隔符、去尾斜杠；按 Windows 语义不区分大小写。 */
 function normalizePath(p: string | null | undefined): string {
@@ -435,24 +433,6 @@ const AgentWorkGroupItem = memo(function AgentWorkGroupItem({
   }
   const assistantText = lastTextPart?.text?.trim() ?? ''
 
-  // 附件 Chips：主数据源是工具结果（image_gen 的 imageFiles 等），
-  // 兜底是正文任意位置的绝对路径——仅在非流式运行态时计算，避免流式输出期间反复跑正则。
-  const attachmentPaths = useMemo(() => {
-    if (isGroupRunning) return EMPTY_PATHS
-    const merged = [
-      ...collectToolAttachmentPaths(groupMsgs),
-      ...extractInlineFilePaths(assistantText)
-    ]
-    if (merged.length === 0) return EMPTY_PATHS
-    const seen = new Set<string>()
-    return merged.filter((p) => {
-      const key = p.replace(/\\/g, '/').toLowerCase()
-      if (seen.has(key)) return false
-      seen.add(key)
-      return true
-    })
-  }, [isGroupRunning, groupMsgs, assistantText])
-
   // 折叠区内容：组内所有 reasoning + tool-group + 非 final 的 text
   const workBlocks: { key: string; node: JSX.Element }[] = []
   const textBlocks: { key: string; node: JSX.Element }[] = []
@@ -474,13 +454,18 @@ const AgentWorkGroupItem = memo(function AgentWorkGroupItem({
           )
         })
       } else if (block.type === 'tool-group') {
+        // 运行判定以组级信号为准（agent run 存活即权威），消息级 status 只做辅助。
+        // 根因背景：pi 的 message_end 在 tool_execution_start 之前到达，个别形态
+        // 下消息的 allToolsDone 会被误判/误翻转；长任务（image_gen 60-90s）期间
+        // 若只信消息级 running，工具行会提前停止闪烁并显示"成功"。
+        const toolGroupRunning = isGroupRunning || block.isRunning
         const running = block.parts.find(
-          (p) => block.isRunning && p.result === undefined && !p.isError
+          (p) => toolGroupRunning && p.result === undefined && !p.isError
         )
         if (running) activityPart = running
         workBlocks.push({
           key,
-          node: <ToolGroup parts={block.parts} isRunning={block.isRunning} cwd={cwd ?? undefined} />
+          node: <ToolGroup parts={block.parts} isRunning={toolGroupRunning} cwd={cwd ?? undefined} />
         })
       } else if (block.type === 'text') {
         if (block.part === lastTextPart) {
@@ -542,10 +527,6 @@ const AgentWorkGroupItem = memo(function AgentWorkGroupItem({
       {textBlocks.map((b) => (
         <div key={b.key}>{b.node}</div>
       ))}
-
-      {attachmentPaths.length > 0 && !isGroupRunning && (
-        <AttachmentChips paths={attachmentPaths} cwd={cwd ?? undefined} />
-      )}
 
       {turnFileChanges && sessionId && cwd && (
         <ChangedFilesCard

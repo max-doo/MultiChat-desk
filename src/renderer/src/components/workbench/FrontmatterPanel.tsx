@@ -281,7 +281,8 @@ export default function FrontmatterPanel({ frontmatter, filePath, onChange, gitM
       ),
     [fields, models, ownership.kind]
   )
-  const [collapsed, setCollapsed] = useState(false)
+  // 折叠态放在 store：出链/反链属于笔记属性，需跟随同一折叠联动显隐
+  const collapsed = useWorkbenchStore((s) => s.frontmatterPanelCollapsed)
   // 会话系统字段默认锁定；解锁只影响当前文件，切换文件后恢复锁定。
   const [systemUnlocked, setSystemUnlocked] = useState(false)
   const [convertConfirmOpen, setConvertConfirmOpen] = useState(false)
@@ -576,7 +577,7 @@ export default function FrontmatterPanel({ frontmatter, filePath, onChange, gitM
       <div className="w-full flex items-center gap-1.5 px-0 pt-0 pb-1.5 text-label font-medium text-gray-400 dark:text-gray-500">
         <button
           type="button"
-          onClick={() => setCollapsed((v) => !v)}
+          onClick={() => useWorkbenchStore.setState({ frontmatterPanelCollapsed: !collapsed })}
           className="flex flex-1 min-w-0 items-center gap-1.5 text-left hover:text-gray-500 dark:hover:text-gray-400 transition-colors select-none"
         >
           <AppIcon name={collapsed ? 'chevron_right' : 'expand_more'} size={16} />

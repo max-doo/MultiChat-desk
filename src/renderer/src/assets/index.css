@@ -315,10 +315,10 @@ webview[tabindex="-1"] {
   border-left-color: rgb(80, 83, 88);
 }
 .PlaygroundEditorTheme__h1 {
-  font-size: 28px;
+  font-size: 1.6em;
   line-height: 1.3;
   color: rgb(5, 5, 5);
-  font-weight: 700;
+  font-weight: 600;
   margin: 1.5em 0 0.5em 0;
   padding-bottom: 6px;
   border-bottom: 1px solid rgb(229, 231, 235);
@@ -328,10 +328,10 @@ webview[tabindex="-1"] {
   border-bottom-color: rgb(55, 57, 62);
 }
 .PlaygroundEditorTheme__h2 {
-  font-size: 22px;
+  font-size: 1.5em;
   line-height: 1.3;
   color: rgb(5, 5, 5);
-  font-weight: 700;
+  font-weight: 600;
   margin: 1.4em 0 0.5em 0;
   padding-bottom: 4px;
   border-bottom: 1px solid rgb(240, 242, 245);
@@ -341,18 +341,24 @@ webview[tabindex="-1"] {
   border-bottom-color: rgb(55, 57, 62);
 }
 .PlaygroundEditorTheme__h3 {
-  font-size: 18px;
+  font-size: 1.25em;
   line-height: 1.4;
-  font-weight: 700;
+  font-weight: 600;
   margin: 1.2em 0 0.4em 0;
 }
 .PlaygroundEditorTheme__h4,
 .PlaygroundEditorTheme__h5,
 .PlaygroundEditorTheme__h6 {
-  font-size: 16px;
   line-height: 1.4;
-  font-weight: 700;
+  font-weight: 600;
   margin: 1em 0 0.3em 0;
+}
+.PlaygroundEditorTheme__h4 {
+  font-size: 1.12em;
+}
+.PlaygroundEditorTheme__h5,
+.PlaygroundEditorTheme__h6 {
+  font-size: 1em;
 }
 /* 文档开头的标题不要段前间距 */
 .PlaygroundEditorTheme__h1:first-child,

@@ -104,7 +104,7 @@ export default function WorkbenchTitleBar(): JSX.Element | null {
             if (e.key === 'Enter') void commit()
             if (e.key === 'Escape') setEditing(false)
           }}
-          className="w-full bg-transparent text-title-lg font-bold leading-tight text-text-primary border-b border-primary/60 focus:outline-none focus:border-primary placeholder:text-gray-400/60"
+          className="w-full bg-transparent text-title-xl font-bold leading-tight text-text-primary border-b border-primary/60 focus:outline-none focus:border-primary placeholder:text-gray-400/60"
           placeholder="文件名"
           aria-label="重命名文档"
         />
@@ -114,7 +114,7 @@ export default function WorkbenchTitleBar(): JSX.Element | null {
             type="button"
             onClick={startEdit}
             title="点击重命名"
-            className="min-w-0 flex-1 text-left text-title-lg font-bold leading-tight text-text-primary hover:bg-gray-100/60 dark:hover:bg-gray-800/40 rounded-md -mx-1 px-1 transition-colors truncate"
+            className="min-w-0 flex-1 text-left text-title-xl font-bold leading-tight text-text-primary hover:bg-gray-100/60 dark:hover:bg-gray-800/40 rounded-md -mx-1 px-1 transition-colors truncate"
           >
             {baseName}
           </button>

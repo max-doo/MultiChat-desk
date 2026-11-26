@@ -50,6 +50,7 @@ import type {
   WorkbenchSelectFolderResult,
   WorkbenchNodeType,
   WorkspaceTagInfo,
+  WorkspaceLinkEntry,
   WorkspaceUnreferencedImagesSummary,
   GitStatus,
   GitActionResult,
@@ -522,6 +523,10 @@ const api = {
       ipcRenderer.invoke('workbench:get-workspace-tags', { workspaceRoot }),
     extractFileTags: (workspaceRoot: string, relativePath: string, content?: string): Promise<{ success: boolean; data?: WorkspaceTagInfo[]; error?: string }> =>
       ipcRenderer.invoke('workbench:extract-file-tags', { workspaceRoot, relativePath, content }),
+    getWorkspaceLinks: (workspaceRoot: string): Promise<{ success: boolean; data?: WorkspaceLinkEntry[]; error?: string }> =>
+      ipcRenderer.invoke('workbench:get-workspace-links', { workspaceRoot }),
+    extractFileLinks: (workspaceRoot: string, relativePath: string, content?: string): Promise<{ success: boolean; data?: WorkspaceLinkEntry[]; error?: string }> =>
+      ipcRenderer.invoke('workbench:extract-file-links', { workspaceRoot, relativePath, content }),
     revealFile: (workspaceRoot: string, relativePath: string): Promise<{ success: boolean; error?: string }> =>
       ipcRenderer.invoke('workbench:reveal-file', { workspaceRoot, relativePath }),
     openInSystem: (workspaceRoot: string, relativePath: string): Promise<{ success: boolean; error?: string }> =>
@@ -602,6 +607,11 @@ const api = {
       const handler = (_e: Electron.IpcRendererEvent, payload: { workspaceRoot: string }): void => cb(payload)
       ipcRenderer.on('workbench:fs-changed', handler)
       return () => { ipcRenderer.removeListener('workbench:fs-changed', handler) }
+    },
+    onLinksChanged: (cb: (payload: { workspaceRoot: string; links: WorkspaceLinkEntry[] }) => void) => {
+      const handler = (_e: Electron.IpcRendererEvent, payload: { workspaceRoot: string; links: WorkspaceLinkEntry[] }): void => cb(payload)
+      ipcRenderer.on('workbench:links-changed', handler)
+      return () => { ipcRenderer.removeListener('workbench:links-changed', handler) }
     },
     onHtmlContextMenu: (cb: (data: WorkbenchHtmlContextMenuData) => void): (() => void) => {
       const handler = (_e: Electron.IpcRendererEvent, data: WorkbenchHtmlContextMenuData): void => cb(data)
@@ -764,8 +774,8 @@ const api = {
     ipcRenderer.invoke('agent:delete-session', { sessionId }),
   agentRenameSession: (sessionId: string, name: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('agent:rename-session', { sessionId, name }),
-  agentRewind: (sessionId: string, entryId?: string): Promise<{ success: boolean; data?: { editorText: string }; error?: string }> =>
-    ipcRenderer.invoke('agent:rewind', { sessionId, entryId }),
+  agentRewind: (sessionId: string, entryId?: string, revertFiles?: boolean): Promise<{ success: boolean; data?: { editorText: string }; error?: string }> =>
+    ipcRenderer.invoke('agent:rewind', { sessionId, entryId, revertFiles }),
   agentForkSession: (sessionId: string, leafId?: string): Promise<{ success: boolean; data?: { sessionId: string; forkOrigin?: AgentForkOrigin }; error?: string }> =>
     ipcRenderer.invoke('agent:fork-session', { sessionId, leafId }),
   agentListBranchUserEntries: (sessionId: string): Promise<{ success: boolean; data?: Array<{ entryId: string; text: string }>; error?: string }> =>
@@ -889,6 +899,8 @@ const api = {
     ipcRenderer.invoke('agent:reapply-file-changes', { sessionId }),
   agentRevealFile: (absolutePath: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('agent:reveal-file', { path: absolutePath }),
+  agentStatFile: (absolutePath: string): Promise<{ success: boolean; data?: { mtime: number; size: number } | null; error?: string }> =>
+    ipcRenderer.invoke('agent:stat-file', { path: absolutePath }),
   agentCheckFilesStale: (sessionId: string, paths: string[], kind: 'baseline' | 'target'): Promise<{ success: boolean; data?: Record<string, boolean>; error?: string }> =>
     ipcRenderer.invoke('agent:check-files-stale', { sessionId, paths, kind })
 }

@@ -8,6 +8,7 @@ import FileTypeIcon from '../FileTypeIcon'
 import { extractLocalPath } from '../WorkbenchFileTree'
 import { AgentModelPicker } from './AgentModelPicker'
 import { AgentContextMeter } from './AgentContextMeter'
+import { AgentComposerEditor, type AgentComposerEditorHandle } from './AgentComposerEditor'
 import { AgentPopover } from './AgentPopover'
 import { isFileMentioned } from './filePathUtils'
 
@@ -38,7 +39,6 @@ export function AgentComposer(): JSX.Element {
   const attachments = useAgentSessionStore((s) => s.attachments)
   const addAttachment = useAgentSessionStore((s) => s.addAttachment)
   const mentionFile = useAgentSessionStore((s) => s.mentionFile)
-  const removeAttachment = useAgentSessionStore((s) => s.removeAttachment)
   const imageAttachments = useAgentSessionStore((s) => s.imageAttachments)
   const addImageAttachment = useAgentSessionStore((s) => s.addImageAttachment)
   const removeImageAttachment = useAgentSessionStore((s) => s.removeImageAttachment)
@@ -60,7 +60,7 @@ export function AgentComposer(): JSX.Element {
   const [modelPickerOpen, setModelPickerOpen] = useState(false)
   const [atMention, setAtMention] = useState<AtMention | null>(null)
   const [atIndex, setAtIndex] = useState(0)
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const editorRef = useRef<AgentComposerEditorHandle>(null)
   const atListRef = useRef<HTMLDivElement>(null)
 
   const isWorkspaceReady = Boolean(workspacePath)
@@ -92,7 +92,7 @@ export function AgentComposer(): JSX.Element {
       ? composerInput.slice(composerInput.indexOf(skill.name) + skill.name.length)
       : ''
     setComposerInput(`/skill:${skill.name}${rest.startsWith(' ') ? rest : ' '}`)
-    textareaRef.current?.focus()
+    editorRef.current?.focus()
   }
 
   // `@` file mention: suggest workspace files/directories, reusing the same
@@ -114,9 +114,7 @@ export function AgentComposer(): JSX.Element {
   }, [atMention, flatFiles])
   const atMenuOpen = atMention !== null && atSuggestions.length > 0
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>): void => {
-    const value = e.target.value
-    const cursor = e.target.selectionStart ?? value.length
+  const handleInputChange = (value: string, cursor: number): void => {
     setComposerInput(value)
 
     const before = value.slice(0, cursor)
@@ -139,7 +137,7 @@ export function AgentComposer(): JSX.Element {
     setComposerInput(`${before}${insert} ${after}`)
     addAttachment(node.fullPath)
     setAtMention(null)
-    textareaRef.current?.focus()
+    editorRef.current?.focus()
   }
 
   useEffect(() => {
@@ -152,18 +150,9 @@ export function AgentComposer(): JSX.Element {
     if (atMention && !composerInput.includes('@')) setAtMention(null)
   }, [composerInput, atMention])
 
-  // Auto-resize textarea height
-  useEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto'
-      const scrollHeight = textareaRef.current.scrollHeight
-      const minHeight = 44
-      const nextHeight = Math.max(minHeight, Math.min(scrollHeight || minHeight, 140))
-      textareaRef.current.style.height = `${nextHeight}px`
-    }
-  }, [composerInput])
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
+    // IME 组合输入期间的 Enter 用于上屏，不能拦截成发送。
+    if (e.nativeEvent.isComposing) return
     if (atMenuOpen) {
       if (e.key === 'ArrowDown') {
         e.preventDefault()
@@ -202,7 +191,7 @@ export function AgentComposer(): JSX.Element {
     }
   }
 
-  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>): void => {
+  const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>): void => {
     const items = e.clipboardData?.items
     if (!items?.length) return
     const imageFiles = Array.from(items)
@@ -340,8 +329,8 @@ export function AgentComposer(): JSX.Element {
           ))}
         </div>
       )}
-      {/* Attachment Chips */}
-      {(attachments.length > 0 || imageAttachments.length > 0) && (
+      {/* 图片附件缩略图：文件引用已经内联在输入框里，不再保留双轨 chip 行。 */}
+      {imageAttachments.length > 0 && (
         <div className="mb-1.5 flex flex-wrap gap-1.5 px-1">
           {imageAttachments.map((img, idx) => (
             <span
@@ -363,30 +352,12 @@ export function AgentComposer(): JSX.Element {
               </button>
             </span>
           ))}
-          {attachments.map((filePath, idx) => {
-            const fileName = filePath.split(/[/\\]/).pop() || filePath
-            return (
-              <span
-                key={idx}
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-50 border border-blue-200/70 text-blue-700 text-caption font-mono dark:bg-blue-500/15 dark:border-blue-400/25 dark:text-blue-300"
-              >
-                <span className="truncate max-w-[140px]">{fileName}</span>
-                <button
-                  type="button"
-                  onClick={() => removeAttachment(idx)}
-                  className="hover:text-blue-900 dark:hover:text-blue-100 rounded-full p-0.5"
-                >
-                  <AppIcon name="close" size={12} />
-                </button>
-              </span>
-            )
-          })}
         </div>
       )}
 
       {/* Main Capsule Container with Feathered Aura Flow */}
       <div
-        onClick={() => textareaRef.current?.focus()}
+        onClick={() => editorRef.current?.focus()}
         onDragOver={(e) => {
           e.preventDefault()
           e.stopPropagation()
@@ -458,14 +429,15 @@ export function AgentComposer(): JSX.Element {
           </div>
         )}
 
-        {/* Text Input Area */}
+        {/* Text Input Area：contenteditable 内联 chip 编辑器 */}
         <div className="px-3.5 pt-3 pb-1">
-          <textarea
-            ref={textareaRef}
-            rows={2}
-            disabled={!isWorkspaceReady}
+          <AgentComposerEditor
+            ref={editorRef}
             value={composerInput}
-            onChange={handleInputChange}
+            attachments={attachments}
+            workspacePath={workspacePath}
+            disabled={!isWorkspaceReady}
+            onInputChange={handleInputChange}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
             placeholder={
@@ -475,8 +447,6 @@ export function AgentComposer(): JSX.Element {
                 ? '补充要求，可粘贴图片，Enter 排队执行，Shift+Enter 换行'
                 : '和 Agent 一起工作（Enter 发送，可粘贴图片，@ 引用文件）...'
             }
-            className="w-full bg-transparent resize-none border-none outline-none text-body leading-relaxed placeholder:text-text-secondary/70 text-text-primary disabled:cursor-not-allowed font-normal select-text min-h-[48px]"
-            style={{ userSelect: 'text', minHeight: '48px' }}
           />
         </div>
 

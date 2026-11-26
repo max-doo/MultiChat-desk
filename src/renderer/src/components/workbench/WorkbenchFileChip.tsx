@@ -75,12 +75,15 @@ export function WorkbenchFileChip({
   const colorCls = missing
     ? 'text-amber-600 hover:bg-amber-500/10 dark:text-amber-400 dark:hover:bg-amber-400/15'
     : 'text-primary hover:bg-primary/10 dark:text-blue-300 dark:hover:bg-primary/25'
-  const cls = `mx-0.5 inline-flex items-center gap-1 rounded px-1 -my-0.5 py-0.5 align-baseline font-medium select-none cursor-pointer transition-colors ${colorCls} ${className}`
+  // 可交互判定：显式点击处理器，或可点击的非缺失 chip（正文行内 chip 的点击
+  // 走编辑器容器委托监听，不经 props）；缺失态不可打开，不展示手型光标
+  const interactive = Boolean(onClick || onAuxClick) || !missing
+  const cls = `mx-0.5 inline-flex items-center gap-1 rounded px-1 -my-0.5 py-0.5 align-baseline font-normal select-none ${interactive ? 'cursor-pointer' : 'cursor-default'} transition-colors ${colorCls} ${className}`
   const inner = (
     <>
       {icon}
       {label !== undefined && (
-        <span className="truncate font-medium max-w-52">{label}</span>
+        <span className="truncate max-w-52">{label}</span>
       )}
       {children}
     </>
