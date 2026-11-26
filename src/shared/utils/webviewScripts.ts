@@ -2583,7 +2583,8 @@ export function generateMindmapResponseScript(selectors: ModelSelector, mode: 'm
       const roots = Array.from(candidates).filter(el => !Array.from(candidates).some(other => other !== el && other.contains(el)));
       roots.sort((a, b) => a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1);
       const root = roots[roots.length - 1];
-      const tracker = window.__multichatMindmapReplies ||= { ids: new WeakMap(), sequence: 0, baseline: null };
+      const trackerKey = Symbol.for('__mm_mr');
+      const tracker = window[trackerKey] ||= { ids: new WeakMap(), sequence: 0, baseline: null };
       const idFor = el => {
         const owner = el.closest('[data-message-id],[data-turn-id],[data-testid^="conversation-turn-"],message-content');
         const stable = owner?.getAttribute('data-message-id') || owner?.getAttribute('data-turn-id') || owner?.getAttribute('data-testid') || owner?.id || el.id;
@@ -3023,7 +3024,9 @@ export function generateNoteHighlightScript(
       if (!CSS.highlights || !window.Highlight) return { matched: 0, supported: false };
       const notes = ${JSON.stringify(notes)};
       const focusedId = ${JSON.stringify(focusedNoteId ?? '')};
-      window.__multichatNoteDispose?.();
+      const noteRefreshKey = Symbol.for('__mm_nr');
+      const noteDisposeKey = Symbol.for('__mm_nd');
+      window[noteDisposeKey]?.();
       if (!notes.length) {
         CSS.highlights.delete('multichat-notes');
         CSS.highlights.delete('multichat-note-focus');
@@ -3132,7 +3135,7 @@ export function generateNoteHighlightScript(
       document.addEventListener('click', onClick, true);
       let redrawTimer = null;
       let scrollTimer = null;
-      window.__multichatNoteRefresh = () => {
+      window[noteRefreshKey] = () => {
         if (redrawTimer) { clearTimeout(redrawTimer); redrawTimer = null; }
         return render();
       };
@@ -3140,7 +3143,7 @@ export function generateNoteHighlightScript(
         if (redrawTimer) clearTimeout(redrawTimer);
         redrawTimer = setTimeout(() => {
           redrawTimer = null;
-          window.__multichatNoteRefresh?.();
+          window[noteRefreshKey]?.();
         }, 300);
       });
       observer.observe(document.body, { childList: true, subtree: true });
@@ -3148,11 +3151,11 @@ export function generateNoteHighlightScript(
         if (scrollTimer) clearTimeout(scrollTimer);
         scrollTimer = setTimeout(() => {
           scrollTimer = null;
-          window.__multichatNoteRefresh?.();
+          window[noteRefreshKey]?.();
         }, 200);
       };
       document.addEventListener('scroll', onScroll, true);
-      window.__multichatNoteDispose = () => {
+      window[noteDisposeKey] = () => {
         document.removeEventListener('click', onClick, true);
         document.removeEventListener('scroll', onScroll, true);
         observer.disconnect();
@@ -3162,7 +3165,7 @@ export function generateNoteHighlightScript(
         scrollTimer = null;
         targets = [];
         focused = null;
-        delete window.__multichatNoteRefresh;
+        delete window[noteRefreshKey];
         CSS.highlights.delete('multichat-notes');
         CSS.highlights.delete('multichat-note-focus');
       };
@@ -3171,6 +3174,9 @@ export function generateNoteHighlightScript(
     })();
   `
 }
+
+/** 清理页内标注高亮监听器与样式的注入调用脚本。 */
+export const NOTE_DISPOSE_CALL_SCRIPT = "window[Symbol.for('__mm_nd')]?.()"
 
 /**
  * 注入网络响应拦截脚本（策略三）
@@ -3186,8 +3192,9 @@ export function getNetworkSnifferScript(): string {
   if (!IS_DEV) return ''
   return `
     (function() {
-      if (window.__sniffer_injected) return;
-      window.__sniffer_injected = true;
+      const snifferKey = Symbol.for('__mm_sn');
+      if (window[snifferKey]) return;
+      window[snifferKey] = true;
       var originalFetch = window.fetch;
       window.fetch = async function(...args) {
         var response = await originalFetch.apply(this, args);

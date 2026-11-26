@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import type { Annotation, AnnotationAnchor } from '../../../shared/types/annotations'
 import { NOTE_CLICK_PREFIX, NOTE_DISMISS_PREFIX } from '../../../shared/types/notes'
-import { generateNoteHighlightScript } from '../utils/webviewScripts'
+import { generateNoteHighlightScript, NOTE_DISPOSE_CALL_SCRIPT } from '../utils/webviewScripts'
 import { notePositionInWindow } from '../utils/noteInteractions'
 
 const HIGHLIGHT_CSS =
@@ -103,7 +103,7 @@ export function useSourceAnnotations(
       if (injectedRef.current) {
         injectedRef.current = false
         try {
-          void webview.executeJavaScript('window.__multichatNoteDispose?.()').catch(() => undefined)
+          void webview.executeJavaScript(NOTE_DISPOSE_CALL_SCRIPT).catch(() => undefined)
         } catch {
           // guest 已销毁
         }
@@ -192,7 +192,7 @@ export function useSourceAnnotations(
       if (injectedRef.current) {
         injectedRef.current = false
         try {
-          void webview.executeJavaScript('window.__multichatNoteDispose?.()').catch(() => undefined)
+          void webview.executeJavaScript(NOTE_DISPOSE_CALL_SCRIPT).catch(() => undefined)
         } catch {
           // guest 已销毁
         }

@@ -30,8 +30,6 @@ export function getNoteManager(): NoteManager | null {
     return noteManagerInstance
 }
 
-// ============ 状态管理 ============
-
 // 已注册 handler 的 webContents 集合，用于幂等守卫
 // （re-attach / guest 重 parent / OAuth 重定向循环时避免监听线性累积）
 const registeredWebContentsSet = new WeakSet<Electron.WebContents>()
@@ -162,8 +160,6 @@ export function getIsQuitting(): boolean { return isQuitting }
 export function getMainWindow(): BrowserWindow | null {
     return mainWindow
 }
-
-// ============ 图标工具 ============
 
 // 获取应用图标路径
 function getIconPngPath(): string {
@@ -312,8 +308,6 @@ export function destroyTray(): void {
     selectionToolbarMenuItem = null
 }
 
-// ============ Browser Window 管理 ============
-
 function parseHttpUrl(value: string): URL | null {
     try {
         const url = new URL(value)
@@ -348,15 +342,13 @@ export function openBrowserWindowInternal(url: string): void {
     })
 }
 
-
-// ============ 注入脚本 ============
-
 export function getWebviewClickInterceptorScript(): string {
     return `
     (function() {
       try {
-        if (window.__mmClickInterceptorInjected) return 'skip';
-        window.__mmClickInterceptorInjected = true;
+        const guardKey = Symbol.for('__mm_ci');
+        if (window[guardKey]) return 'skip';
+        window[guardKey] = true;
 
         function mmLog(msg) {
           try { console.log('__MM_LOG__:' + msg); } catch {}
@@ -387,66 +379,9 @@ export function getWebviewClickInterceptorScript(): string {
           return false;
         }
 
-        const addAccountKeywords = ['Add account', '添加账号', '添加帐号'];
-        function textHit(s) {
-          if (!s || typeof s !== 'string') return false;
-          return addAccountKeywords.some(k => s.includes(k));
-        }
-
-        function tryHandleGeminiAddAccount(e) {
-          // 点击事件拦截已移至 window.open 拦截
-          return false;
-        }
-
-        // 拦截 window.open 调用
-        // 配合 setWindowOpenHandler，提供双重保障拦截弹窗
-        // 对于 Google 账号相关 URL，直接在 webview 中导航
-        (function() {
-          const originalOpen = window.open;
-          window.open = function(url, target, features) {
-            mmLog('window.open intercepted');
-            
-            const isCurrentGoogle = location.hostname === 'google.com' || location.hostname.endsWith('.google.com');
-            
-            // 检查是否是 Google 账号相关 URL
-            const isGoogleAuth = url && isGoogleAuthUrl(url, false);
-            
-            if (isCurrentGoogle && (isGoogleAuth || url === 'about:blank')) {
-              // 对于 Google 页面下的 about:blank 或 Google 账号页面，直接在当前页面导航
-              const currentUrl = location.href;
-              const continueUrl = encodeURIComponent(currentUrl);
-              const accountUrl = isGoogleAuth ? url : ('https://accounts.google.com/AccountChooser?continue=' + continueUrl);
-              mmLog('Redirecting Google Auth');
-              location.href = accountUrl;
-              return null;
-            }
-
-            // ChatGPT 的“新聊天中的分支”传入相对路径；在当前 Webview 中打开分支。
-            try {
-              const branchUrl = new URL(url, location.href);
-              if (location.origin === 'https://chatgpt.com' &&
-                  branchUrl.origin === location.origin &&
-                  /^[/]branch[/][^/]+[/][^/]+[/]?$/.test(branchUrl.pathname)) {
-                location.href = branchUrl.href;
-                return null;
-              }
-            } catch {}
-            
-            // 对于其他 URL，通过 IPC 打开（由主进程处理）
-            const externalUrl = url && getExternalHttpUrl(url);
-            if (externalUrl) {
-              openUrl(externalUrl);
-              return null;
-            }
-            
-            // 回退到原始行为
-            return originalOpen.call(this, url, target, features);
-          };
-          mmLog('window.open interceptor installed');
-        })();
-
+        // 弹窗拦截由主进程 webContents.setWindowOpenHandler 原生处理，不在页面内覆写 window.open，
+        // 避免 window.open.toString() 失去 [native code] 特征。
         function onUserGesture(e) {
-          if (tryHandleGeminiAddAccount(e)) return;
           const link = e.target && e.target.closest ? e.target.closest('a') : null;
           if (link && link.href) {
             // 检查是否是 Google 账号相关链接
@@ -480,8 +415,6 @@ export function getWebviewClickInterceptorScript(): string {
     })();
   `
 }
-
-// ============ 共享 Session 浏览器特征伪装 ============
 
 const SHARED_PARTITION = 'persist:shared'
 
@@ -527,12 +460,17 @@ export function setupSharedSessionUserAgent(): void {
     const sharedSession = session.fromPartition(SHARED_PARTITION)
     const { userAgent, chromeMajor, platform } = buildStandardChromeUserAgent()
     sharedSession.setUserAgent(userAgent)
+    if (chromeMajor) {
+        // 同步全局回退 UA，防止未绑定 persist:shared 的请求回落到含 Electron/ 的默认 UA。
+        app.userAgentFallback = userAgent
+    }
 
     if (sharedSessionHardened || !chromeMajor) return
     sharedSessionHardened = true
 
     // Electron 的主文档导航请求完全不发 Client Hints，子资源请求则会发；真实 Chrome 两者都发，
-    // 缺失首屏低熵提示本身就是明显特征。这里按子资源请求实际发送的品牌值补齐主文档。
+    // 缺失首屏低熵提示本身就是明显特征。这里仅在 mainFrame/subFrame 缺失对应请求头时补齐，
+    // 不覆盖 Chromium 已自行生成的子资源/高熵 Client Hints。
     // 品牌列表刻意与 navigator.userAgentData.brands 保持一致（不含 Google Chrome），
     // 避免请求头与页面 JS 给出互相矛盾的品牌信息。Client Hints 仅 HTTPS 发送，故不改写 http。
     // 品牌值在此硬编码而非运行时读取：读取 brands 需要额外建窗加载页面（异步、约 200ms），
@@ -545,15 +483,19 @@ export function setupSharedSessionUserAgent(): void {
     }
     sharedSession.webRequest.onBeforeSendHeaders({ urls: ['https://*/*'] }, (details, callback) => {
         const requestHeaders = details.requestHeaders || {}
-        for (const existingKey of Object.keys(requestHeaders)) {
-            if (existingKey.toLowerCase() in clientHints) delete requestHeaders[existingKey]
+        if (details.resourceType !== 'mainFrame' && details.resourceType !== 'subFrame') {
+            callback({ requestHeaders })
+            return
         }
-        Object.assign(requestHeaders, clientHints)
+        const existingLower = new Set(Object.keys(requestHeaders).map((key) => key.toLowerCase()))
+        for (const [key, value] of Object.entries(clientHints)) {
+            if (!existingLower.has(key)) {
+                requestHeaders[key] = value
+            }
+        }
         callback({ requestHeaders })
     })
 }
-
-// ============ 主窗口创建 ============
 
 export function createWindow(): void {
     // 在窗口创建前伪装共享 Session 的 User-Agent，使所有 webview 自动继承
@@ -709,8 +651,6 @@ export function createWindow(): void {
     })
 }
 
-// ============ Webview 通用事件处理器 ============
-
 /**
  * 为挂载到任意宿主窗口的 Webview 注册通用事件处理器：
  * - 右键上下文菜单
@@ -762,7 +702,6 @@ export function registerWebviewHandlers(webContents: Electron.WebContents): void
         }
     })
 
-    // ============ Google 账号切换检测 ============
     // 追踪是否正在进行 Google 认证流程
     // 当用户完成账号切换后，自动刷新页面以应用新的 session cookie
     let isInGoogleAuthFlow = false
@@ -1009,13 +948,19 @@ export function registerWebviewHandlers(webContents: Electron.WebContents): void
         }
 
         if (details.url === 'about:blank') {
-            console.log('[Main] Blocking about:blank popup, will navigate to Google account page in webview')
             const currentUrl = webContents.getURL()
-            const continueUrl = encodeURIComponent(currentUrl || 'https://gemini.google.com/app')
-            const accountUrl = `https://accounts.google.com/AccountChooser?continue=${continueUrl}`
-            setImmediate(() => {
-                webContents.loadURL(accountUrl)
-            })
+            const sourceHost = parseHttpUrl(currentUrl)?.hostname ?? ''
+            const isCurrentGoogle = sourceHost === 'google.com' || sourceHost.endsWith('.google.com')
+            if (isCurrentGoogle) {
+                console.log('[Main] Blocking about:blank popup, will navigate to Google account page in webview')
+                const continueUrl = encodeURIComponent(currentUrl || 'https://gemini.google.com/app')
+                const accountUrl = `https://accounts.google.com/AccountChooser?continue=${continueUrl}`
+                setImmediate(() => {
+                    if (!webContents.isDestroyed()) {
+                        void webContents.loadURL(accountUrl)
+                    }
+                })
+            }
             return { action: 'deny' }
         }
 
@@ -1032,8 +977,6 @@ export function registerWebviewHandlers(webContents: Electron.WebContents): void
         return { action: 'deny' }
     })
 }
-
-// ============ 快捷弹窗创建 ============
 
 export function createQuickWindow(store: Store<Record<string, unknown>>): void {
     if (quickWindow) return
@@ -1244,8 +1187,6 @@ export function openDiagnosticsWindow(): void {
         diagnosticsWindow?.show()
     })
 }
-
-// ============ 上下文菜单 ============
 
 interface PendingContextMenu {
     wc: Electron.WebContents
@@ -1592,8 +1533,6 @@ async function saveWebviewImage(wc: Electron.WebContents, owner: BrowserWindow, 
         throw error
     }
 }
-
-// ============ 悬浮工具条窗口 ============
 
 let toolbarWindow: BrowserWindow | null = null
 export function getToolbarWindow(): BrowserWindow | null { return toolbarWindow }
