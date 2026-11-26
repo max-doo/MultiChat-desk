@@ -2,9 +2,13 @@ import { useMemo } from 'react'
 import { AppIcon } from '../icons/AppIcon'
 import { MARKDOWN_EXTENSIONS } from '../../../../shared/types/workbench'
 import { extractWikiLinkTargets } from '../../../../shared/utils/workbenchWikiLinks'
-import { flattenSortedFiles, useWorkbenchStore } from '../../store/workbenchStore'
+import { useWorkbenchStore } from '../../store/workbenchStore'
 import { FileChipIcon, FileChipMissingIcon, WorkbenchFileChip } from './WorkbenchFileChip'
-import { resolveWikiLinkTarget, type WikiLinkResolution } from './workbenchWikiLinks'
+import {
+  getWikiLinkIndexForTree,
+  resolveWikiLinkFromIndex,
+  type WikiLinkResolution
+} from './workbenchWikiLinks'
 
 /** Markdown 文档显示去扩展名的文件名（与行内 chip 默认显示一致），其他文件用完整文件名 */
 function linkChipLabel(name: string): string {
@@ -100,25 +104,10 @@ export default function WorkbenchLinkRelationsPanel(): JSX.Element | null {
   const activeFileContent = useWorkbenchStore((s) => s.activeFileContent)
   const workspaceLinks = useWorkbenchStore((s) => s.workspaceLinks)
   const fileTree = useWorkbenchStore((s) => s.fileTree)
-  const fileSort = useWorkbenchStore((s) => s.fileSort)
   // 出链/反链属于笔记属性，折叠笔记属性时联动收起
   const frontmatterCollapsed = useWorkbenchStore((s) => s.frontmatterPanelCollapsed)
 
-  const files = useMemo(() => flattenSortedFiles(fileTree, fileSort), [fileTree, fileSort])
-
-  // 同一文件树下的解析结果可复用：反链需要把每个来源文件的每个目标串解到具体路径，
-  // 目标串级 memo 把复杂度从 文件数×目标数×文件数 降到 独立目标数×文件数。
-  const resolveTarget = useMemo(() => {
-    const cache = new Map<string, WikiLinkResolution>()
-    return (target: string): WikiLinkResolution => {
-      const key = target.toLowerCase()
-      const cached = cache.get(key)
-      if (cached) return cached
-      const resolution = resolveWikiLinkTarget(target, files)
-      cache.set(key, resolution)
-      return resolution
-    }
-  }, [files])
+  const linkIndex = useMemo(() => getWikiLinkIndexForTree(fileTree), [fileTree])
 
   const outgoing = useMemo<LinkChipData[]>(() => {
     // 按解析后的目标文件去重（Obsidian 语义）：
@@ -127,7 +116,7 @@ export default function WorkbenchLinkRelationsPanel(): JSX.Element | null {
     const seen = new Set<string>()
     const result: LinkChipData[] = []
     for (const target of extractWikiLinkTargets(activeFileContent)) {
-      const resolution = resolveTarget(target)
+      const resolution = resolveWikiLinkFromIndex(target, linkIndex)
       const dedupeKey = resolution.path
         ? `p:${resolution.path.toLowerCase()}`
         : `t:${target.toLowerCase()}`
@@ -136,7 +125,7 @@ export default function WorkbenchLinkRelationsPanel(): JSX.Element | null {
       result.push(toChipData(target, resolution))
     }
     return result
-  }, [activeFileContent, resolveTarget])
+  }, [activeFileContent, linkIndex])
 
   const backlinks = useMemo<LinkChipData[]>(() => {
     if (!activeFilePath) return []
@@ -144,13 +133,14 @@ export default function WorkbenchLinkRelationsPanel(): JSX.Element | null {
     for (const entry of workspaceLinks) {
       // 自引用已在出链行展示，反链行不再重复列出自己
       if (entry.path === activeFilePath) continue
-      const hits = entry.targets.some((target) => resolveTarget(target).path === activeFilePath)
+      const hits = entry.targets.some(
+        (target) => resolveWikiLinkFromIndex(target, linkIndex).path === activeFilePath
+      )
       if (hits) sources.push(entry.path)
     }
     sources.sort((a, b) => a.localeCompare(b))
-    const byPath = new Map(files.map((file) => [file.path, file]))
     return sources.map((sourcePath) => {
-      const node = byPath.get(sourcePath) ?? null
+      const node = linkIndex.byExactPath.get(sourcePath) ?? null
       return {
         key: sourcePath,
         label: node ? linkChipLabel(node.name) : sourcePath.split('/').pop() || sourcePath,
@@ -160,7 +150,7 @@ export default function WorkbenchLinkRelationsPanel(): JSX.Element | null {
         rawTarget: sourcePath
       }
     })
-  }, [workspaceLinks, activeFilePath, resolveTarget, files])
+  }, [workspaceLinks, activeFilePath, linkIndex])
 
   if (outgoing.length === 0 && backlinks.length === 0) return null
   if (frontmatterCollapsed) return null
@@ -169,10 +159,10 @@ export default function WorkbenchLinkRelationsPanel(): JSX.Element | null {
     <div className="mb-4" data-link-relations-panel="true">
       <div className="mb-1 border-t border-black/5 dark:border-white/5" />
       {outgoing.length > 0 && (
-        <RelationRow icon="arrow_outward" label="出链" items={outgoing} />
+        <RelationRow icon="arrow_outward" label="引用" items={outgoing} />
       )}
       {backlinks.length > 0 && (
-        <RelationRow icon="arrow_back" label="反链" items={backlinks} />
+        <RelationRow icon="arrow_back" label="被引" items={backlinks} />
       )}
     </div>
   )

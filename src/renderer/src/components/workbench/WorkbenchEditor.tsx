@@ -41,6 +41,10 @@ import {
   WorkbenchFootnoteRefNode
 } from './WorkbenchFootnoteNode'
 import { WorkbenchWikiLinkNode } from './WorkbenchWikiLinkNode'
+import {
+  WorkbenchCitationNode,
+  WorkbenchCommentNode
+} from './WorkbenchInlineMarkupNodes'
 import { WorkbenchHorizontalRuleNode } from './WorkbenchHorizontalRuleNode'
 import WorkbenchImagePlugin from './WorkbenchImagePlugin'
 import WorkbenchWikiLinkPlugin from './WorkbenchWikiLinkPlugin'
@@ -177,7 +181,9 @@ const lexicalTheme = {
   hrSelected: 'PlaygroundEditorTheme__hrSelected',
   footnoteRef: 'PlaygroundEditorTheme__footnoteRef',
   footnoteDef: 'PlaygroundEditorTheme__footnoteDef',
-  wikiLink: 'workbench-wiki-link'
+  wikiLink: 'workbench-wiki-link',
+  citation: 'PlaygroundEditorTheme__citation',
+  comment: 'PlaygroundEditorTheme__comment'
 }
 
 const selectFrontmatterSlice = (state: { activeFileContent: string }): string | null =>
@@ -301,7 +307,7 @@ function WorkbenchEditor({ isActive = true }: WorkbenchEditorProps): JSX.Element
     setFindOpen(false)
   }, [activeFilePath, activeFileCategory])
 
-  // 标注面板在源码模式点击卡片：按文本区间定位到 textarea 选区并滚动。
+  // 标注面板在源码模式点击卡片：按文本区间定位到源码编辑器选区并滚动。
   useEffect(() => {
     const handler = (event: Event): void => {
       const detail = (event as CustomEvent<{ start: number; end: number }>).detail
@@ -415,6 +421,8 @@ function WorkbenchEditor({ isActive = true }: WorkbenchEditorProps): JSX.Element
         WorkbenchFootnoteRefNode,
         WorkbenchFootnoteDefNode,
         WorkbenchWikiLinkNode,
+        WorkbenchCitationNode,
+        WorkbenchCommentNode,
         MarkNode
       ],
       onError: (error: Error) => {
@@ -583,10 +591,8 @@ function WorkbenchEditor({ isActive = true }: WorkbenchEditorProps): JSX.Element
       data-reader-theme={isMarkdownDark ? 'dark' : undefined}
     >
       <LexicalComposer initialConfig={initialConfig}>
-        {/* 顶部富文本格式工具栏 */}
         <WorkbenchToolbar />
 
-        {/* 编辑器画布可滚动容器 */}
         <div
           ref={wysiwygScrollRef}
           className="flex-1 overflow-y-auto relative wb-reader-canvas transition-colors duration-150"
@@ -608,7 +614,6 @@ function WorkbenchEditor({ isActive = true }: WorkbenchEditorProps): JSX.Element
                     : 'max-w-[848px]'
               }`}
             >
-            {/* Obsidian 式文档标题：点击行内重命名 */}
             <WorkbenchTitleBar />
 
             {/* Obsidian 式笔记属性面板：frontmatter 与正文分离，不进入 Lexical */}
@@ -635,37 +640,29 @@ function WorkbenchEditor({ isActive = true }: WorkbenchEditorProps): JSX.Element
               />
             </div>
 
-            {/* 文字块拖动 Handle + "+" 插入菜单（复刻 playground） */}
             {floatingAnchorElem && (
               <WorkbenchDraggableBlockPlugin anchorElem={floatingAnchorElem} />
             )}
 
-            {/* 选中文本时的浮动格式工具栏（复刻 playground） */}
             {floatingAnchorElem && (
               <WorkbenchFloatingToolbarPlugin anchorElem={floatingAnchorElem} />
             )}
 
-            {/* 文档标注：MarkNode 投影、评论框与定位 */}
             {floatingAnchorElem && (
               <WorkbenchAnnotationPlugin anchorElem={floatingAnchorElem} />
             )}
 
-            {/* 表格单元格操作按钮 + 菜单（复刻 playground） */}
             {floatingAnchorElem && (
               <WorkbenchTableActionMenuPlugin anchorElem={floatingAnchorElem} />
             )}
           </div>
 
-          {/* 右侧边距原位批注便签 */}
           <WorkbenchMarginNotes stageRef={stageRef} />
 
-          {/* 块级 Git Gutter 外挂覆盖层（不进入 ContentEditable） */}
           <WorkbenchGitGutterPlugin stageRef={stageRef} />
         </div>
         </div>
 
-        {/* 内部插件注入 */}
-        {/* 极简原位变形大纲导航 */}
         <WorkbenchMinimalToc scrollContainerRef={wysiwygScrollRef} />
 
         <HistoryPlugin />

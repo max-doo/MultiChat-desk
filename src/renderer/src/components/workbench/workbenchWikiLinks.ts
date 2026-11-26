@@ -6,6 +6,147 @@ export interface WikiLinkResolution {
   node: WorkbenchFileNode | null
 }
 
+/** 面向工作区文件集的 O(1) 双链解析索引（按 fileTree / files 引用缓存复用） */
+export interface WikiLinkIndex {
+  byExactPath: Map<string, WorkbenchFileNode>
+  byLowerPath: Map<string, WorkbenchFileNode>
+  byMdStem: Map<string, WorkbenchFileNode>
+  byBaseName: Map<string, WorkbenchFileNode>
+  resolutionCache: Map<string, WikiLinkResolution>
+}
+
+const EMPTY_RESOLUTION: WikiLinkResolution = { path: null, node: null }
+const WIKI_EXT_FALLBACKS = ['.md', '.markdown', '.txt'] as const
+const treeIndexCache = new WeakMap<readonly WorkbenchFileNode[], WikiLinkIndex>()
+const flatIndexCache = new WeakMap<readonly WorkbenchFileNode[], WikiLinkIndex>()
+
+function addFileToWikiLinkIndex(index: WikiLinkIndex, file: WorkbenchFileNode): void {
+  if (!index.byExactPath.has(file.path)) {
+    index.byExactPath.set(file.path, file)
+  }
+  const pathLower = file.path.toLowerCase()
+  if (!index.byLowerPath.has(pathLower)) {
+    index.byLowerPath.set(pathLower, file)
+  }
+  const nameLower = file.name.toLowerCase()
+  const prevBase = index.byBaseName.get(nameLower)
+  if (!prevBase || file.path.length < prevBase.path.length) {
+    index.byBaseName.set(nameLower, file)
+  }
+  if (MARKDOWN_EXTENSIONS.has((file.extension || '').toLowerCase())) {
+    const stem = nameLower.replace(/\.[^.]+$/, '')
+    const prevStem = index.byMdStem.get(stem)
+    if (!prevStem || file.path.length < prevStem.path.length) {
+      index.byMdStem.set(stem, file)
+    }
+  }
+}
+
+function createEmptyWikiLinkIndex(): WikiLinkIndex {
+  return {
+    byExactPath: new Map(),
+    byLowerPath: new Map(),
+    byMdStem: new Map(),
+    byBaseName: new Map(),
+    resolutionCache: new Map()
+  }
+}
+
+/** 从已拍平的文件数组获取或构建 O(1) 双链索引。 */
+function getWikiLinkIndexForFiles(files: readonly WorkbenchFileNode[]): WikiLinkIndex {
+  const cached = flatIndexCache.get(files)
+  if (cached) return cached
+  const index = createEmptyWikiLinkIndex()
+  for (const file of files) {
+    addFileToWikiLinkIndex(index, file)
+  }
+  flatIndexCache.set(files, index)
+  return index
+}
+
+/** 从工作区文件树获取或构建 O(1) 双链索引（无需排序，随 fileTree 引用自动失效）。 */
+export function getWikiLinkIndexForTree(fileTree: readonly WorkbenchFileNode[]): WikiLinkIndex {
+  const cached = treeIndexCache.get(fileTree)
+  if (cached) return cached
+  const index = createEmptyWikiLinkIndex()
+  const walk = (nodes: readonly WorkbenchFileNode[]): void => {
+    for (const node of nodes) {
+      if (node.isDirectory) {
+        if (node.children) walk(node.children)
+      } else {
+        addFileToWikiLinkIndex(index, node)
+      }
+    }
+  }
+  walk(fileTree)
+  treeIndexCache.set(fileTree, index)
+  return index
+}
+
+/**
+ * 基于预建索引解析 [[target]] 中的双链目标为工作区文件。
+ * 保持 Obsidian 风格最短路径语义，单次查询 O(1) 并缓存目标串结果。
+ */
+export function resolveWikiLinkFromIndex(
+  target: string,
+  index: WikiLinkIndex
+): WikiLinkResolution {
+  const normalized = target
+    .trim()
+    .split('#')[0]
+    .trim()
+    .replace(/\\/g, '/')
+    .replace(/^\.\/+/, '')
+    .replace(/^\/+/, '')
+  if (!normalized) return EMPTY_RESOLUTION
+
+  const lower = normalized.toLowerCase()
+  const cached = index.resolutionCache.get(lower)
+  if (cached) return cached
+
+  let resolved: WikiLinkResolution | null = null
+  const exact = index.byLowerPath.get(lower)
+  if (exact) {
+    resolved = { path: exact.path, node: exact }
+  } else {
+    const hasExt = /\.[^./]+$/.test(normalized)
+    if (!hasExt) {
+      for (const ext of WIKI_EXT_FALLBACKS) {
+        const withExt = index.byLowerPath.get(lower + ext)
+        if (withExt) {
+          resolved = { path: withExt.path, node: withExt }
+          break
+        }
+      }
+    }
+
+    if (!resolved) {
+      const baseName = lower.split('/').pop() || lower
+      if (!hasExt) {
+        const bestStem = index.byMdStem.get(baseName)
+        if (bestStem) {
+          resolved = { path: bestStem.path, node: bestStem }
+        }
+      }
+      if (!resolved) {
+        const bestBase = index.byBaseName.get(baseName)
+        resolved = bestBase ? { path: bestBase.path, node: bestBase } : EMPTY_RESOLUTION
+      }
+    }
+  }
+
+  index.resolutionCache.set(lower, resolved)
+  return resolved
+}
+
+/** 直接按工作区文件树解析双链目标（所有调用方共享同一份按 fileTree 缓存的索引）。 */
+export function resolveWikiLinkTargetFromTree(
+  target: string,
+  fileTree: readonly WorkbenchFileNode[]
+): WikiLinkResolution {
+  return resolveWikiLinkFromIndex(target, getWikiLinkIndexForTree(fileTree))
+}
+
 /**
  * 解析 [[target]] 中的双链目标为工作区文件。
  * Obsidian 风格的最短路径语义：
@@ -19,45 +160,7 @@ export function resolveWikiLinkTarget(
   target: string,
   files: readonly WorkbenchFileNode[]
 ): WikiLinkResolution {
-  const normalized = target
-    .trim()
-    .split('#')[0]
-    .trim()
-    .replace(/\\/g, '/')
-    .replace(/^\.\/+/, '')
-    .replace(/^\/+/, '')
-  if (!normalized) return { path: null, node: null }
-
-  const lower = normalized.toLowerCase()
-  const exact = files.find((f) => f.path.toLowerCase() === lower)
-  if (exact) return { path: exact.path, node: exact }
-
-  const hasExt = /\.[^./]+$/.test(normalized)
-  if (!hasExt) {
-    for (const ext of ['.md', '.markdown', '.txt']) {
-      const withExt = files.find((f) => f.path.toLowerCase() === lower + ext)
-      if (withExt) return { path: withExt.path, node: withExt }
-    }
-  }
-
-  const baseName = lower.split('/').pop() || lower
-  if (!hasExt) {
-    // 目标无扩展名时按 markdown 文档文件名（去扩展名）匹配
-    const stemMatches = files.filter((f) => {
-      if (!MARKDOWN_EXTENSIONS.has((f.extension || '').toLowerCase())) return false
-      const stem = f.name.toLowerCase().replace(/\.[^.]+$/, '')
-      return stem === baseName
-    })
-    if (stemMatches.length > 0) {
-      const best = stemMatches.reduce((a, b) => (a.path.length <= b.path.length ? a : b))
-      return { path: best.path, node: best }
-    }
-  }
-
-  const baseCandidates = files.filter((f) => f.name.toLowerCase() === baseName)
-  if (baseCandidates.length === 0) return { path: null, node: null }
-  const best = baseCandidates.reduce((a, b) => (a.path.length <= b.path.length ? a : b))
-  return { path: best.path, node: best }
+  return resolveWikiLinkFromIndex(target, getWikiLinkIndexForFiles(files))
 }
 
 /** 双链目标的默认显示名：去 markdown 扩展名的文件名；带锚点时为「文档名 > 锚点」（Obsidian 风格）。 */

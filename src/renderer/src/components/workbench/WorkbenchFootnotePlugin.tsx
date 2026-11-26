@@ -38,6 +38,10 @@ import {
 import { WORKBENCH_TRANSFORMERS } from './MarkdownSyncPlugin'
 import { splitEquationPaste } from './equationPaste'
 import type { FootnoteInsertMode } from './WorkbenchFootnotePopover'
+import {
+  $isWorkbenchCitationNode,
+  $isWorkbenchCommentNode
+} from './WorkbenchInlineMarkupNodes'
 
 export const INSERT_FOOTNOTE_COMMAND: LexicalCommand<{
   id: string
@@ -118,10 +122,29 @@ function containsFootnoteNode(nodes: LexicalNode[]): boolean {
   return false
 }
 
+/** 引文/注释与脚注共用同一粘贴转换管线：命中任一自定义行内节点即接管粘贴 */
+function containsInlineMarkupNode(nodes: LexicalNode[]): boolean {
+  for (const node of nodes) {
+    if ($isWorkbenchCitationNode(node) || $isWorkbenchCommentNode(node)) {
+      return true
+    }
+    if ($isElementNode(node) && containsInlineMarkupNode(node.getChildren())) {
+      return true
+    }
+  }
+  return false
+}
+
 function hasFootnoteSyntax(text: string): boolean {
   if (!text.includes('[^')) return false
   if (FOOTNOTE_REF_MATCH_RE.test(text)) return true
   return text.split(/\r?\n/).some((line) => FOOTNOTE_DEF_LINE_RE.test(line))
+}
+
+/** 引文/注释语法粗筛：命中即进入转换管线，最终仍以转换产物是否真的生成节点为准 */
+function hasInlineMarkupSyntax(text: string): boolean {
+  if (text.includes('<!--') && text.includes('-->')) return true
+  return /\[[^\]\n]*@[^\]\n]*\]/.test(text)
 }
 
 /**
@@ -362,7 +385,7 @@ export default function WorkbenchFootnotePlugin(): JSX.Element | null {
           if (event.clipboardData.types.includes('application/x-lexical-editor')) return false
 
           const text = event.clipboardData.getData('text/plain')
-          if (!hasFootnoteSyntax(text)) return false
+          if (!hasFootnoteSyntax(text) && !hasInlineMarkupSyntax(text)) return false
           // 含块级 $$ 公式时交由 WorkbenchEquationPastePlugin 一并处理（其同样使用 WORKBENCH_TRANSFORMERS）
           if (text.includes('$$') && splitEquationPaste(text)) return false
 
@@ -379,7 +402,12 @@ export default function WorkbenchFootnotePlugin(): JSX.Element | null {
           }
 
           const nodes = $generateNodesFromMarkdownString(text, WORKBENCH_TRANSFORMERS)
-          if (nodes.length === 0 || !containsFootnoteNode(nodes)) return false
+          if (
+            nodes.length === 0 ||
+            (!containsFootnoteNode(nodes) && !containsInlineMarkupNode(nodes))
+          ) {
+            return false
+          }
 
           // 单行纯行内粘贴（例如只粘贴 `[^2]` 或含引用的短句）：拆出子节点行内插入，不打断当前段落
           if (!text.includes('\n') && nodes.length === 1 && $isParagraphNode(nodes[0])) {

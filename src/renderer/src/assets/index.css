@@ -405,6 +405,21 @@ webview[tabindex="-1"] {
 .PlaygroundEditorTheme__footnoteRef {
   cursor: pointer;
 }
+/* Pandoc 引文 [@key]：仅字体颜色区分，不做胶囊/徽章渲染，源码逐字节保真 */
+.PlaygroundEditorTheme__citation {
+  color: rgb(13, 148, 136);
+}
+.dark .PlaygroundEditorTheme__citation {
+  color: rgb(94, 234, 212);
+}
+/* HTML 注释：弱化灰 + 斜体，与源码模式注释高亮风格一致 */
+.PlaygroundEditorTheme__comment {
+  color: #6a737d;
+  font-style: italic;
+}
+.dark .PlaygroundEditorTheme__comment {
+  color: #858585;
+}
 .workbench-wiki-link {
   display: inline;
 }
@@ -1539,6 +1554,19 @@ webview[tabindex="-1"] {
 .tab-fade-both {
   mask-image: linear-gradient(to right, transparent 0px, black 16px, black calc(100% - 16px), transparent 100%);
   -webkit-mask-image: linear-gradient(to right, transparent 0px, black 16px, black calc(100% - 16px), transparent 100%);
+}
+
+/* Agent 输入框（footer 即容器）：面板过窄时权限模式按钮退化为纯图标，
+   避免文字在拥挤空间里逐字换行撑高按钮。阈值按面板最小宽 300px 下
+   右侧"仪表 + 长模型名 + 思考强度 + 发送钮"仍占满的场景估算。 */
+.agent-composer {
+  container-type: inline-size;
+}
+@container (max-width: 380px) {
+  .agent-composer-permission-label,
+  .agent-composer-permission-chevron {
+    display: none;
+  }
 }
 
 

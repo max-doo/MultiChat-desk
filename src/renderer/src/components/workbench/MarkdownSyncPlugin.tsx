@@ -108,6 +108,21 @@ import {
   WorkbenchWikiLinkNode
 } from './WorkbenchWikiLinkNode'
 import { composeWikiLinkMarkdown } from './workbenchWikiLinks'
+import {
+  $createWorkbenchCitationNode,
+  $createWorkbenchCommentNode,
+  $isWorkbenchCitationNode,
+  $isWorkbenchCommentNode,
+  WorkbenchCitationNode,
+  WorkbenchCommentNode
+} from './WorkbenchInlineMarkupNodes'
+import {
+  CITATION_BRACKET_AT_END_RE,
+  CITATION_BRACKET_RE,
+  HTML_COMMENT_AT_END_RE,
+  HTML_COMMENT_RE,
+  isCitationInner
+} from './workbenchCitations'
 import { allMarks } from './workbenchAnnotationUtils'
 import {
   IMAGE_BLOCK_REGEX,
@@ -569,6 +584,49 @@ export const WORKBENCH_LINK_TRANSFORMER: TextMatchTransformer = {
   }
 }
 
+// —— Pandoc 引文 [@key] / [see @key1; @key2, p. 3]：行内原子装饰节点 ——
+// inner 必须包含至少一个合法 citekey（@ 后跟字母/数字/下划线起始的键），
+// 否则按普通方括号文本处理，避免误吞 "[参考 @ 附录]" 这类日常文本。
+export const CITATION_TRANSFORMER: TextMatchTransformer = {
+  dependencies: [WorkbenchCitationNode],
+  export: (node: LexicalNode) => {
+    if (!$isWorkbenchCitationNode(node)) return null
+    // 子节点 verbatim 保存含方括号的原文，直接回写保证逐字节保真
+    return node.getTextContent()
+  },
+  importRegExp: CITATION_BRACKET_RE,
+  regExp: CITATION_BRACKET_AT_END_RE,
+  replace: (textNode, match) => {
+    const inner = match[0].slice(1, -1)
+    if (!isCitationInner(inner)) return
+    const citationNode = $createWorkbenchCitationNode()
+    citationNode.append($createTextNode(match[0]))
+    textNode.replace(citationNode)
+  },
+  trigger: ']',
+  type: 'text-match'
+}
+
+// —— HTML 注释 <!-- 内容 -->：行内纯文本容器节点 ——
+// 编辑器等价于一段弱化样式的普通文本（含定界符 verbatim），不做额外装饰渲染；
+// 导出原样回写，保证逐字节保真。
+export const COMMENT_TRANSFORMER: TextMatchTransformer = {
+  dependencies: [WorkbenchCommentNode],
+  export: (node: LexicalNode) => {
+    if (!$isWorkbenchCommentNode(node)) return null
+    return node.getTextContent()
+  },
+  importRegExp: HTML_COMMENT_RE,
+  regExp: HTML_COMMENT_AT_END_RE,
+  replace: (textNode, match) => {
+    const commentNode = $createWorkbenchCommentNode()
+    commentNode.append($createTextNode(match[0]))
+    textNode.replace(commentNode)
+  },
+  trigger: '>',
+  type: 'text-match'
+}
+
 // —— 双链 [[target]] / [[target|display]]：行内装饰节点 ——
 // 显示名与默认（去扩展名的文件名）一致时省略别名，保持最短 markdown 形态。
 export const WIKI_LINK_TRANSFORMER: TextMatchTransformer = {
@@ -608,7 +666,11 @@ export const WORKBENCH_TRANSFORMERS = [
   BARE_LINK_TRANSFORMER,
   ...TRANSFORMERS.map((transformer) =>
     transformer === LINK ? WORKBENCH_LINK_TRANSFORMER : transformer
-  )
+  ),
+  // 引文与注释放在内置 transformer 之后：同位置候选冲突时让链接优先，
+  // 避免 [text @x](url) 这类链接文本被引文规则抢先转换
+  CITATION_TRANSFORMER,
+  COMMENT_TRANSFORMER
 ]
 
 function stripMarkNodesForSerialization(node: ParsableSerializedNode): ParsableSerializedNode[] {

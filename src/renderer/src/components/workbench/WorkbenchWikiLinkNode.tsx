@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { memo, useMemo } from 'react'
 import type { JSX } from 'react'
 import type {
   EditorConfig,
@@ -8,9 +8,9 @@ import type {
   Spread
 } from 'lexical'
 import { $applyNodeReplacement, DecoratorNode } from 'lexical'
-import { flattenSortedFiles, useWorkbenchStore } from '../../store/workbenchStore'
+import { useWorkbenchStore } from '../../store/workbenchStore'
 import { FileChipIcon, FileChipMissingIcon, WorkbenchFileChip } from './WorkbenchFileChip'
-import { resolveWikiLinkTarget, wikiLinkDefaultDisplay } from './workbenchWikiLinks'
+import { resolveWikiLinkTargetFromTree, wikiLinkDefaultDisplay } from './workbenchWikiLinks'
 
 export type SerializedWorkbenchWikiLinkNode = Spread<
   {
@@ -90,12 +90,17 @@ export class WorkbenchWikiLinkNode extends DecoratorNode<JSX.Element> {
   }
 }
 
-function WikiLinkChip({ target, display }: { target: string; display: string }): JSX.Element {
+const WikiLinkChip = memo(function WikiLinkChip({
+  target,
+  display
+}: {
+  target: string
+  display: string
+}): JSX.Element {
   const fileTree = useWorkbenchStore((s) => s.fileTree)
-  const fileSort = useWorkbenchStore((s) => s.fileSort)
   const resolution = useMemo(
-    () => resolveWikiLinkTarget(target, flattenSortedFiles(fileTree, fileSort)),
-    [target, fileTree, fileSort]
+    () => resolveWikiLinkTargetFromTree(target, fileTree),
+    [target, fileTree]
   )
   const missing = resolution.path === null
 
@@ -113,7 +118,7 @@ function WikiLinkChip({ target, display }: { target: string; display: string }):
       }
     />
   )
-}
+})
 
 export function $createWorkbenchWikiLinkNode(
   target: string,

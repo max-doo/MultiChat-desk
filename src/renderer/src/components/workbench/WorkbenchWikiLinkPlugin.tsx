@@ -21,7 +21,7 @@ import { $createWorkbenchWikiLinkNode } from './WorkbenchWikiLinkNode'
 import {
   computeWikiLinkTarget,
   filterWorkspaceFiles,
-  resolveWikiLinkTarget
+  resolveWikiLinkTargetFromTree
 } from './workbenchWikiLinks'
 
 const WORKSPACE_FILES_MIME = 'application/x-multichat-workspace-files'
@@ -120,8 +120,7 @@ export default function WorkbenchWikiLinkPlugin(): JSX.Element | null {
       const wikiTarget = host.getAttribute('data-wiki-target')
       if (!wikiTarget) return
       const state = useWorkbenchStore.getState()
-      const files = flattenSortedFiles(state.fileTree, state.fileSort)
-      const resolution = resolveWikiLinkTarget(wikiTarget, files)
+      const resolution = resolveWikiLinkTargetFromTree(wikiTarget, state.fileTree)
       if (resolution.path) {
         void state.openFile(resolution.path, { forcePermanent: true })
       }

@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useWorkbenchStore } from '../../store/workbenchStore'
 import { AppIcon } from '../icons/AppIcon'
+import { copyImageElementToClipboard } from '../CustomContextMenu'
 import { PreviewFallbackState } from './WorkbenchPreviewChrome'
+import { requestSendImageToAi } from './workbenchAiEvents'
 import {
   IMAGE_SCALE_MAX,
   IMAGE_SCALE_MIN,
@@ -73,13 +75,22 @@ export default function WorkbenchImageLightbox({
   const [sourceKind, setSourceKind] = useState<ImageSourceKind>('local')
   const [resolvedPath, setResolvedPath] = useState<string | null>(null)
 
-  // 切换图片或重新打开时复位视口状态
+  // 图片右键菜单：菜单尺寸由真实 DOM 测量后钳位进视口
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  const [menuPos, setMenuPos] = useState<{ left: number; top: number } | null>(null)
+  const menuRef = useRef<HTMLDivElement | null>(null)
+  const imgRef = useRef<HTMLImageElement | null>(null)
+
+  const closeMenu = useCallback(() => {
+    setMenu(null)
+  }, [])
+
   useEffect(() => {
     if (!open) return
+    closeMenu()
     resetAll()
-  }, [open, activeIndex, currentItem?.nodeKey, currentItem?.src, resetAll])
+  }, [open, activeIndex, currentItem?.nodeKey, currentItem?.src, resetAll, closeMenu])
 
-  // 异步解析当前图片真实地址
   useEffect(() => {
     if (!open || !currentItem) {
       setResolvedUrl(null)
@@ -140,6 +151,11 @@ export default function WorkbenchImageLightbox({
       if (event.key === 'Escape') {
         event.preventDefault()
         event.stopPropagation()
+        // 菜单打开时优先关闭菜单，不连带退出查看器
+        if (menu) {
+          closeMenu()
+          return
+        }
         onClose()
         return
       }
@@ -197,6 +213,8 @@ export default function WorkbenchImageLightbox({
     return () => window.removeEventListener('keydown', onKeyDown, true)
   }, [
     open,
+    menu,
+    closeMenu,
     items.length,
     onClose,
     handlePrev,
@@ -216,6 +234,79 @@ export default function WorkbenchImageLightbox({
     const name = clean.split('/').pop()
     return name || raw
   }, [currentItem])
+
+  // 右键菜单：图片与暗色画布共用一份菜单，阻止冒泡以免叠加全局菜单
+  const handleContextMenu = useCallback(
+    (event: React.MouseEvent) => {
+      if (!currentItem) return
+      event.preventDefault()
+      event.stopPropagation()
+      setMenu({ x: event.clientX, y: event.clientY })
+    },
+    [currentItem]
+  )
+
+  const handleCopySrc = useCallback(() => {
+    closeMenu()
+    if (currentItem) void navigator.clipboard.writeText(currentItem.src)
+  }, [closeMenu, currentItem])
+
+  // 复制图片：优先主进程 copyImageAt 保留原图编码，失败退化渲染层转码
+  const handleCopyImage = useCallback(() => {
+    closeMenu()
+    const img = imgRef.current
+    if (!img) return
+    void (async () => {
+      try {
+        if (img.src.startsWith('workbench-file://') && img.naturalWidth > 0) {
+          const rect = img.getBoundingClientRect()
+          const x = rect.left + rect.width / 2
+          const y = rect.top + rect.height / 2
+          const result = await window.api?.workbench?.copyHtmlImageAt?.(x, y)
+          if (result?.success) return
+        }
+        await copyImageElementToClipboard(img)
+      } catch (err) {
+        console.error('[ImageLightbox] 复制图片失败:', err)
+      }
+    })()
+  }, [closeMenu])
+
+  // 主菜单按真实尺寸贴合光标并钳位进视口，避免右下角溢出
+  useLayoutEffect(() => {
+    if (!menu || !menuRef.current) {
+      setMenuPos(null)
+      return
+    }
+    const EDGE = 8
+    const rect = menuRef.current.getBoundingClientRect()
+    const left = Math.max(
+      EDGE,
+      Math.min(menu.x, Math.max(EDGE, window.innerWidth - rect.width - EDGE))
+    )
+    const top = Math.max(
+      EDGE,
+      Math.min(menu.y, Math.max(EDGE, window.innerHeight - rect.height - EDGE))
+    )
+    setMenuPos({ left, top })
+  }, [menu])
+
+  // 右键菜单：外部点击 / 失焦 / 缩放窗口关闭；Esc 由上方 capture 阶段快捷键统一处理
+  useEffect(() => {
+    if (!menu) return
+    const handlePointerDown = (event: MouseEvent): void => {
+      if (menuRef.current?.contains(event.target as Node)) return
+      closeMenu()
+    }
+    document.addEventListener('mousedown', handlePointerDown)
+    window.addEventListener('blur', closeMenu)
+    window.addEventListener('resize', closeMenu)
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+      window.removeEventListener('blur', closeMenu)
+      window.removeEventListener('resize', closeMenu)
+    }
+  }, [menu, closeMenu])
 
   if (!open || !currentItem) return null
 
@@ -239,15 +330,16 @@ export default function WorkbenchImageLightbox({
       aria-label={`图片查看器: ${displayTitle}`}
       onWheel={handleWheel}
       onClick={handleBackdropClick}
+      onContextMenu={handleContextMenu}
       className="fixed inset-0 z-modal flex items-center justify-center bg-black/70 px-16 pt-12 pb-24 select-none"
     >
-      {/* 右上角轻量关闭按钮 */}
       <button
         type="button"
         onClick={(e) => {
           e.stopPropagation()
           onClose()
         }}
+        onContextMenu={(e) => e.stopPropagation()}
         className="absolute top-4 right-4 z-dropdown flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-black/55 text-white/90 shadow-lg transition-colors hover:bg-black/80 hover:text-white"
         title="关闭 (Esc / 空格)"
         aria-label="关闭图片查看器"
@@ -272,6 +364,7 @@ export default function WorkbenchImageLightbox({
         </div>
       ) : resolvedUrl ? (
         <img
+          ref={imgRef}
           src={resolvedUrl}
           alt={currentItem.altText}
           draggable={false}
@@ -302,7 +395,6 @@ export default function WorkbenchImageLightbox({
         </div>
       )}
 
-      {/* 多图左右悬浮箭头 */}
       {hasMultiple && (
         <>
           <button
@@ -332,7 +424,6 @@ export default function WorkbenchImageLightbox({
         </>
       )}
 
-      {/* 底部居中悬浮胶囊工具栏（参照飞书文档样式） */}
       <div className="pointer-events-none fixed bottom-4 left-1/2 z-dropdown flex max-w-[92vw] -translate-x-1/2 flex-col items-center gap-1.5">
         {!loadError && (displayTitle || naturalDimensions) && (
           <div className="flex max-w-md items-center gap-2 rounded-full bg-black/50 px-3 py-0.5 text-caption text-white/80">
@@ -351,6 +442,7 @@ export default function WorkbenchImageLightbox({
 
         <div
           onClick={(e) => e.stopPropagation()}
+          onContextMenu={(e) => e.stopPropagation()}
           className="pointer-events-auto flex items-center gap-0.5 rounded-xl border border-white/15 bg-neutral-900/90 px-2 py-1.5 text-white shadow-2xl"
         >
           {hasMultiple && (
@@ -461,6 +553,105 @@ export default function WorkbenchImageLightbox({
           )}
         </div>
       </div>
+
+      {/* 图片右键菜单：发送到 AI / 复制图片 / 另存为 / 复制地址 / 外部打开 / 资源管理器定位。
+          按 DESIGN.md 特例，右键菜单需压在 z-modal(100) 的查看器之上，故用 z-[110] */}
+      {menu &&
+        createPortal(
+          <div
+            ref={menuRef}
+            role="menu"
+            className="fixed z-[110] min-w-[176px] select-none liquid-glass-menu rounded-xl py-1.5 text-body"
+            style={{
+              left: menuPos?.left ?? menu.x,
+              top: menuPos?.top ?? menu.y,
+              visibility: menuPos ? 'visible' : 'hidden'
+            }}
+            onContextMenu={(e) => e.preventDefault()}
+          >
+            {!loadError && Boolean(resolvedUrl) && (
+              <>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    const src = resolvedUrl
+                    closeMenu()
+                    if (src) requestSendImageToAi({ srcURL: src })
+                  }}
+                  className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left font-medium text-text-primary transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+                >
+                  <AppIcon name="send" size={19} className="shrink-0 text-blue-500" />
+                  发送到 AI 侧边栏
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={handleCopyImage}
+                  className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left font-medium text-text-primary transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+                >
+                  <AppIcon name="image" size={19} className="shrink-0 text-text-secondary" />
+                  复制图片
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    const src = resolvedUrl
+                    closeMenu()
+                    if (src) void window.api?.saveImageFromURL?.(src)
+                  }}
+                  className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left font-medium text-text-primary transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+                >
+                  <AppIcon name="download" size={19} className="shrink-0 text-text-secondary" />
+                  图片另存为...
+                </button>
+              </>
+            )}
+            <button
+              type="button"
+              role="menuitem"
+              onClick={handleCopySrc}
+              className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left font-medium text-text-primary transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+            >
+              <AppIcon name="content_copy" size={19} className="shrink-0 text-text-secondary" />
+              复制图片地址
+            </button>
+            {(canOpenExternal || canRevealLocal) && (
+              <div className="my-1 border-t border-black/5 dark:border-white/5" role="separator" />
+            )}
+            {canOpenExternal && (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  closeMenu()
+                  handleOpenExternal()
+                }}
+                className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left font-medium text-text-primary transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+              >
+                <AppIcon name="open_in_new" size={19} className="shrink-0 text-text-secondary" />
+                {sourceKind === 'remote' ? '在浏览器中打开' : '在系统程序中打开'}
+              </button>
+            )}
+            {canRevealLocal && (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  const path = resolvedPath
+                  closeMenu()
+                  if (path) void revealFile(path)
+                }}
+                className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left font-medium text-text-primary transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+              >
+                <AppIcon name="folder_open" size={19} className="shrink-0 text-text-secondary" />
+                在资源管理器中定位
+              </button>
+            )}
+          </div>,
+          document.body
+        )}
     </div>,
     document.body
   )

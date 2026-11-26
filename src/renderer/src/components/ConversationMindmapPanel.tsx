@@ -799,7 +799,7 @@ export default function ConversationMindmapPanel({ source, conversation: fixedCo
         <span className="text-label truncate min-w-0 flex-1">{option.label}</span>
         {isSignedIn && (
           <span
-            className="shrink-0 rounded-full bg-emerald-50 px-1.5 py-0.5 text-tiny font-semibold text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300"
+            className="shrink-0 rounded-full bg-gray-100 px-1.5 py-0.5 text-tiny font-semibold text-text-secondary dark:bg-white/10 dark:text-gray-400"
             title="当前平台已登录"
           >
             已登录
