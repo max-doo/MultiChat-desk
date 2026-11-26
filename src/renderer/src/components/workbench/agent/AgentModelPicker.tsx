@@ -20,6 +20,7 @@ interface PickerItem {
 
 export function AgentModelPicker({ onClose }: AgentModelPickerProps): JSX.Element {
   const snapshot = useAgentSessionStore((s) => s.snapshot)
+  const snapshotLoading = useAgentSessionStore((s) => s.snapshotLoading)
   const providerQuotas = useAgentSessionStore((s) => s.providerQuotas)
   const sessionStatus = useAgentSessionStore((s) => s.sessionStatus)
   const setModel = useAgentSessionStore((s) => s.setModel)
@@ -109,6 +110,11 @@ export function AgentModelPicker({ onClose }: AgentModelPickerProps): JSX.Elemen
     for (const rec of snapshot?.recent ?? []) push(rec)
     return items
   }, [snapshot, query, favoriteKeys])
+
+  const providerList = snapshot?.providers ?? []
+  const hasConfiguredProvider = providerList.some((provider) => provider.configured && !provider.disabled)
+  const isSearching = query.trim().length > 0
+  const showEmptyState = total === 0 && pinnedItems.length === 0
 
   const handleToggleFavorite = async (
     e: React.MouseEvent,
@@ -277,21 +283,74 @@ export function AgentModelPicker({ onClose }: AgentModelPickerProps): JSX.Elemen
       </div>
 
       <div className="max-h-[280px] overflow-y-auto px-2 py-2 space-y-2">
-        {total === 0 && pinnedItems.length === 0 && (
-          <div className="px-3 py-6 text-center space-y-2">
-            <div className="text-text-secondary text-label">没有可用模型</div>
-            <button
-              type="button"
-              onClick={() => {
-                onClose()
-                openAgentSettings()
-              }}
-              className="text-primary hover:opacity-80 transition-opacity font-medium text-label"
-            >
-              打开供应商设置
-            </button>
-          </div>
-        )}
+        {showEmptyState && (() => {
+          if (snapshotLoading && providerList.length === 0) {
+            return (
+              <div className="flex items-center justify-center gap-2 px-3 py-6 text-label text-text-secondary">
+                <AppIcon name="sync" size={14} className="animate-spin shrink-0" />
+                <span>正在读取模型目录…</span>
+              </div>
+            )
+          }
+          if (isSearching) {
+            return (
+              <div className="px-3 py-6 text-center space-y-2">
+                <div className="text-text-secondary text-label">没有匹配的模型</div>
+                <button
+                  type="button"
+                  onClick={() => setQuery('')}
+                  className="text-primary hover:opacity-80 transition-opacity font-medium text-label"
+                >
+                  清除搜索
+                </button>
+              </div>
+            )
+          }
+          if (!hasConfiguredProvider) {
+            return (
+              <div className="px-3 py-6 flex flex-col items-center text-center">
+                <div className="w-9 h-9 rounded-full bg-primary/10 text-primary flex items-center justify-center mb-2.5">
+                  <AppIcon name="key" size={16} />
+                </div>
+                <div className="text-body font-medium text-text-primary">尚未连接模型供应商</div>
+                <div className="mt-1 text-caption text-text-secondary leading-relaxed">
+                  连接一个供应商后，它的模型会显示在这里供选择
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose()
+                    openAgentSettings()
+                  }}
+                  className="mt-3 h-8 rounded-lg bg-primary px-4 text-label font-medium text-white transition-opacity hover:opacity-90"
+                >
+                  去连接供应商
+                </button>
+              </div>
+            )
+          }
+          return (
+            <div className="px-3 py-6 flex flex-col items-center text-center">
+              <div className="w-9 h-9 rounded-full bg-black/[0.05] text-text-secondary flex items-center justify-center mb-2.5 dark:bg-white/10">
+                <AppIcon name="smart_toy" size={16} />
+              </div>
+              <div className="text-body font-medium text-text-primary">暂无可用模型</div>
+              <div className="mt-1 text-caption text-text-secondary leading-relaxed">
+                在供应商设置中检查登录状态，或刷新模型目录
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  onClose()
+                  openAgentSettings()
+                }}
+                className="mt-3 h-8 rounded-lg bg-primary px-4 text-label font-medium text-white transition-opacity hover:opacity-90"
+              >
+                打开供应商设置
+              </button>
+            </div>
+          )
+        })()}
         {pinnedItems.length > 0 && (
           <div className="space-y-0.5">
             <div className="px-2 pt-0.5 pb-1 flex items-center gap-1.5 text-label text-text-secondary font-medium">
