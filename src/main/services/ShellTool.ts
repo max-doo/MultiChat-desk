@@ -1,233 +1,190 @@
-import { spawn } from 'child_process'
 import { appendFile, mkdir } from 'fs/promises'
 import { dirname } from 'path'
 import type { BashOperations } from '@earendil-works/pi-coding-agent'
 import { decodeCommandOutput, getFallbackDecoder } from './encoding'
 import { redactShellOutput } from './redact'
 
-export interface ShellExecuteOptions {
-  cwd: string
-  env?: NodeJS.ProcessEnv
-  timeout?: number
-  signal?: AbortSignal
-  onData?: (chunk: string) => void
-  auditLogPath?: string
-}
-
-export interface ShellExecutionResult {
-  output: string
-  exitCode: number | null
-  durationMs: number
-  timedOut?: boolean
-  aborted?: boolean
-}
-
-const DEFAULT_TIMEOUT_MS = 30_000
-const MAX_OUTPUT_BYTES = 200 * 1024 // 200KB limit for inline display
-
-/**
- * Match pi's powershell tool: switch the .NET console output encoding to UTF-8
- * so the whole command chain — including nested `cmd`/`Write-Output` and most
- * native executables inheriting the console — emits UTF-8 instead of the OEM
- * code page (GBK on zh-CN). Verified on this repo's dev machine.
- */
-const UTF8_OUTPUT_PREFIX =
-  'try { [Console]::OutputEncoding=[System.Text.Encoding]::UTF8 } catch {}\n'
-
 const importEsm = new Function('s', 'return import(s)') as <T>(s: string) => Promise<T>
 
-let cachedShellConfig: { exe: string; args: string[] } | null = null
+const MAX_LINE_BUFFER_BYTES = 64 * 1024
+
+let cachedLocalOperations: BashOperations | null = null
+
+async function getLocalShellOperations(): Promise<BashOperations> {
+  if (cachedLocalOperations) return cachedLocalOperations
+  const mod = await importEsm<typeof import('@earendil-works/pi-coding-agent')>(
+    '@earendil-works/pi-coding-agent'
+  )
+  cachedLocalOperations =
+    process.platform === 'win32'
+      ? mod.createLocalPowerShellOperations()
+      : mod.createLocalBashOperations()
+  return cachedLocalOperations
+}
 
 /**
- * Resolve the platform shell through pi's own detector so we inherit its
- * probing (Git Bash locations → PATH → WSL stdin transport on Windows;
- * /bin/bash → PATH bash → sh on Unix; pwsh preferred over powershell.exe).
- * Falls back to hardcoded defaults if the pi module cannot be loaded.
+ * Find the largest byte prefix length <= buf.length that does not split a
+ * trailing multi-byte UTF-8 sequence, GBK double-byte sequence, or odd
+ * UTF-16LE code unit.
  */
-async function resolveShell(): Promise<{ exe: string; args: string[] }> {
-  if (cachedShellConfig) return cachedShellConfig
-  try {
-    const mod = await importEsm<typeof import('@earendil-works/pi-coding-agent')>(
-      '@earendil-works/pi-coding-agent'
-    )
-    const isWindows = process.platform === 'win32'
-    const config = isWindows ? mod.getPowerShellConfig() : mod.getShellConfig()
-    const args = [...(config.args ?? [])]
-    if (isWindows) {
-      // pi's powershell tool prepends the UTF-8 prefix to every command — do
-      // the same here so our own spawn channel matches its behavior.
-      cachedShellConfig = { exe: config.shell, args }
-    } else {
-      cachedShellConfig = { exe: config.shell, args }
-    }
-    return cachedShellConfig
-  } catch {
-    const isWindows = process.platform === 'win32'
-    cachedShellConfig = isWindows
-      ? {
-          exe: 'powershell.exe',
-          args: ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command']
-        }
-      : { exe: '/bin/sh', args: ['-c'] }
-    return cachedShellConfig
+function safeFlushPrefixLength(buf: Buffer, hasNullBytes: boolean): number {
+  if (buf.length === 0) return 0
+  if (hasNullBytes) {
+    return buf.length % 2 === 0 ? buf.length : buf.length - 1
   }
+  // Check trailing incomplete UTF-8 sequence first
+  let utf8Cut = buf.length
+  const minCheck = Math.max(0, buf.length - 3)
+  for (let i = buf.length - 1; i >= minCheck; i--) {
+    const b = buf[i]
+    if (b < 0x80) break
+    if ((b & 0xc0) === 0xc0) {
+      const expectedLen = (b & 0xe0) === 0xc0 ? 2 : (b & 0xf0) === 0xe0 ? 3 : 4
+      if (buf.length - i < expectedLen) utf8Cut = i
+      break
+    }
+  }
+  // If the candidate prefix isn't valid strict UTF-8, walk ANSI/GBK 2-byte pairs
+  // from index 0 so we don't cleave a trailing GBK lead byte (`0x81..0xFE`).
+  try {
+    new TextDecoder('utf-8', { fatal: true }).decode(buf.subarray(0, utf8Cut))
+    return utf8Cut
+  } catch {
+    let i = 0
+    while (i < buf.length) {
+      if (buf[i] < 0x80) {
+        i += 1
+      } else if (i + 1 < buf.length) {
+        i += 2
+      } else {
+        return i
+      }
+    }
+    return buf.length
+  }
+}
+
+/** Find the byte offset right after the last UTF-16LE `\n` (`0x0a 0x00` at an even index). */
+function lastUtf16LeLineEnd(buf: Buffer): number {
+  const evenEnd = (buf.length & ~1) - 2
+  for (let i = evenEnd; i >= 0; i -= 2) {
+    if (buf[i] === 0x0a && buf[i + 1] === 0x00) {
+      return i + 2
+    }
+  }
+  return -1
 }
 
 export class ShellTool {
   /**
-   * Execute a shell command using child_process.spawn.
-   * On Windows, uses the detected PowerShell (pwsh preferred) with
-   * -NoProfile -NonInteractive -ExecutionPolicy Bypass and a UTF-8 output
-   * prefix. On Unix, uses the detected bash/sh.
-   */
-  public static async execute(
-    command: string,
-    options: ShellExecuteOptions
-  ): Promise<ShellExecutionResult> {
-    const isWindows = process.platform === 'win32'
-    const cwd = options.cwd
-    const env = { ...process.env, ...options.env }
-    const timeout = options.timeout ?? DEFAULT_TIMEOUT_MS
-    const startTime = Date.now()
-
-    // Pre-fire the ANSI code-page probe so it overlaps the child process.
-    const fallbackDecoderPromise = isWindows ? getFallbackDecoder() : Promise.resolve(null)
-
-    const { exe, args: baseArgs } = await resolveShell()
-    const finalCommand = isWindows ? `${UTF8_OUTPUT_PREFIX}${command}` : command
-    const args = [...baseArgs, finalCommand]
-
-    return new Promise<ShellExecutionResult>((resolve) => {
-      let outputBuffer = ''
-      let pendingPreview = ''
-      const rawChunks: Buffer[] = []
-      let timedOut = false
-      let aborted = false
-      let timeoutTimer: NodeJS.Timeout | null = null
-
-      const child = spawn(exe, args, {
-        cwd,
-        env,
-        windowsHide: true,
-        shell: false
-      })
-
-      if (timeout > 0) {
-        timeoutTimer = setTimeout(() => {
-          timedOut = true
-          child.kill('SIGTERM')
-          setTimeout(() => {
-            if (!child.killed) child.kill('SIGKILL')
-          }, 1000)
-        }, timeout)
-      }
-
-      if (options.signal) {
-        options.signal.addEventListener('abort', () => {
-          aborted = true
-          child.kill('SIGTERM')
-        })
-      }
-
-      const flushDecoded = async (): Promise<void> => {
-        const fallback = await fallbackDecoderPromise
-        const text = decodeCommandOutput(Buffer.concat(rawChunks), fallback)
-        const redacted = redactShellOutput(text)
-        outputBuffer = redacted.length > MAX_OUTPUT_BYTES ? redacted.slice(0, MAX_OUTPUT_BYTES) : redacted
-      }
-
-      const handleChunk = (data: Buffer): void => {
-        rawChunks.push(data)
-        if (options.onData) {
-          // Incremental preview of just this chunk. A GBK or split multi-byte
-          // tail renders as replacement chars here but never as mojibake; the
-          // close handler re-decodes the full buffer with the ANSI code-page
-          // fallback for the authoritative result. We hold back the last
-          // incomplete line so a secret split across two chunks doesn't leak
-          // one fragment in the preview before the redactor can see the
-          // whole `NAME=value` pair.
-          const text = decodeCommandOutput(data, null)
-          pendingPreview = (pendingPreview + text).replace(/\r\n/g, '\n')
-          const lastNewline = pendingPreview.lastIndexOf('\n')
-          if (lastNewline !== -1) {
-            const safe = pendingPreview.slice(0, lastNewline + 1)
-            pendingPreview = pendingPreview.slice(lastNewline + 1)
-            options.onData(redactShellOutput(safe))
-          }
-        }
-      }
-
-      child.stdout?.on('data', handleChunk)
-      child.stderr?.on('data', handleChunk)
-
-      child.on('close', async (exitCode) => {
-        if (timeoutTimer) clearTimeout(timeoutTimer)
-        const durationMs = Date.now() - startTime
-
-        if (pendingPreview && options.onData) {
-          options.onData(redactShellOutput(pendingPreview))
-          pendingPreview = ''
-        }
-
-        await flushDecoded()
-
-        // Audit log
-        if (options.auditLogPath) {
-          try {
-            await mkdir(dirname(options.auditLogPath), { recursive: true })
-            const logLine = `[${new Date().toISOString()}] cwd="${cwd}" code=${exitCode} dur=${durationMs}ms cmd="${command.replace(/"/g, '\\"')}"\n`
-            await appendFile(options.auditLogPath, logLine, 'utf-8')
-          } catch {
-            // Ignore audit log write failure
-          }
-        }
-
-        resolve({
-          output: outputBuffer,
-          exitCode: timedOut ? -1 : (exitCode ?? (aborted ? 130 : null)),
-          durationMs,
-          timedOut,
-          aborted
-        })
-      })
-
-      child.on('error', (err) => {
-        if (timeoutTimer) clearTimeout(timeoutTimer)
-        const durationMs = Date.now() - startTime
-        if (options.onData) {
-          options.onData(`Spawn error: ${err.message}\n`)
-        }
-        resolve({
-          output: `Spawn error: ${err.message}`,
-          exitCode: -1,
-          durationMs,
-          timedOut,
-          aborted
-        })
-      })
-    })
-  }
-
-  /**
-   * Creates a BashOperations instance compatible with Pi's createBashTool
+   * Wrap pi's built-in local shell operations (`createLocalPowerShellOperations`
+   * on Windows, `createLocalBashOperations` on Unix) so we inherit process-tree
+   * termination, pipe/descendant handling (`waitForChildProcess`), timeout
+   * validation/errors (`timeout:<seconds>`), and no forced default timeout,
+   * while adding line-buffered GBK/UTF-8 decoding, secret redaction, and audit logging.
    */
   public static createBashOperations(auditLogPath?: string): BashOperations {
     return {
       exec: async (command, cwd, opts) => {
-        const res = await ShellTool.execute(command, {
-          cwd,
-          env: opts.env,
-          // pi's tool contract passes timeout in seconds ("Timeout in seconds");
-          // ShellTool works in milliseconds. Without this conversion a model
-          // asking for 30 seconds got killed after 30 milliseconds.
-          timeout: opts.timeout === undefined ? undefined : opts.timeout * 1000,
-          signal: opts.signal,
-          onData: (chunk) => {
-            opts.onData(Buffer.from(chunk, 'utf-8'))
-          },
-          auditLogPath
-        })
-        return { exitCode: res.exitCode }
+        const isWindows = process.platform === 'win32'
+        const fallbackPromise = isWindows ? getFallbackDecoder() : Promise.resolve(null)
+        const baseOps = await getLocalShellOperations()
+
+        let fallback: Awaited<ReturnType<typeof getFallbackDecoder>> = null
+        let fallbackReady = !isWindows
+        let pendingBytes: Buffer = Buffer.alloc(0)
+        let settled = false
+
+        const emitDecoded = (buf: Buffer): void => {
+          if (buf.length === 0) return
+          const decoded = decodeCommandOutput(buf, fallback).replace(/\r\n/g, '\n')
+          const redacted = redactShellOutput(decoded)
+          if (redacted) {
+            opts.onData(Buffer.from(redacted, 'utf-8'))
+          }
+        }
+
+        const flushBuffer = (forceAll: boolean): void => {
+          if (pendingBytes.length === 0) return
+          if (forceAll) {
+            const rest = pendingBytes
+            pendingBytes = Buffer.alloc(0)
+            emitDecoded(rest)
+            return
+          }
+
+          const hasNull = pendingBytes.includes(0)
+          const splitAt = hasNull
+            ? lastUtf16LeLineEnd(pendingBytes)
+            : (() => {
+                const lastLf = pendingBytes.lastIndexOf(0x0a)
+                return lastLf !== -1 ? lastLf + 1 : -1
+              })()
+          if (splitAt > 0) {
+            const complete = pendingBytes.subarray(0, splitAt)
+            pendingBytes = pendingBytes.subarray(splitAt)
+            emitDecoded(complete)
+          }
+
+          if (pendingBytes.length >= MAX_LINE_BUFFER_BYTES) {
+            const safeLen = safeFlushPrefixLength(pendingBytes, pendingBytes.includes(0))
+            if (safeLen > 0) {
+              const chunk = pendingBytes.subarray(0, safeLen)
+              pendingBytes = pendingBytes.subarray(safeLen)
+              emitDecoded(chunk)
+            }
+          }
+        }
+
+        if (isWindows) {
+          void fallbackPromise.then((decoder) => {
+            fallback = decoder
+            fallbackReady = true
+            if (!settled && pendingBytes.length > 0) {
+              flushBuffer(false)
+            }
+          })
+        }
+
+        const startTime = Date.now()
+        let auditStatus = 'null'
+        try {
+          const res = await baseOps.exec(command, cwd, {
+            ...opts,
+            onData: (chunk) => {
+              pendingBytes = pendingBytes.length === 0 ? chunk : Buffer.concat([pendingBytes, chunk])
+              if (fallbackReady) {
+                flushBuffer(false)
+              }
+            }
+          })
+          auditStatus = String(res.exitCode)
+          return res
+        } catch (err) {
+          auditStatus = err instanceof Error ? err.message : String(err)
+          throw err
+        } finally {
+          settled = true
+          if (pendingBytes.length > 0) {
+            if (!fallbackReady) {
+              fallback = await fallbackPromise
+              fallbackReady = true
+            }
+            flushBuffer(true)
+          }
+          if (auditLogPath) {
+            const durationMs = Date.now() - startTime
+            try {
+              await mkdir(dirname(auditLogPath), { recursive: true })
+              const safeStatus = auditStatus.replace(/[\r\n]+/g, ' ')
+              const redactedCmd = redactShellOutput(command)
+              const logLine = `[${new Date().toISOString()}] cwd=${JSON.stringify(cwd)} code=${safeStatus} dur=${durationMs}ms cmd=${JSON.stringify(redactedCmd)}\n`
+              await appendFile(auditLogPath, logLine, 'utf-8')
+            } catch {
+              // Ignore audit log write failure
+            }
+          }
+        }
       }
     }
   }

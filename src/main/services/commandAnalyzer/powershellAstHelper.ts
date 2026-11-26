@@ -32,6 +32,8 @@ export interface AstNodeInfo {
   cmd?: string | null
   /** CommandAst: invocation operator (`Unknown`, `Ampersand`, `Dot`). */
   op?: string
+  /** CommandAst: true when this command receives pipeline input (`... | cmd`). */
+  piped?: boolean
   /** CommandAst: structured elements (flags & args without truncation). */
   elems?: AstCommandElem[]
   /** FileRedirectionAst: unquoted target if constant, else raw extent. */
@@ -99,6 +101,7 @@ while ($true) {
     if ($tn -eq 'CommandAst') {
       $info.cmd = $n.GetCommandName()
       $info.op = $n.InvocationOperator.ToString()
+      if ($n.Parent -is [System.Management.Automation.Language.PipelineAst] -and $n.Parent.PipelineElements.Count -gt 1 -and $n.Parent.PipelineElements[0] -ne $n) { $info.piped = $true }
       $elems = @()
       foreach ($e in $n.CommandElements) {
         if ($e -is [System.Management.Automation.Language.CommandParameterAst]) {
@@ -157,11 +160,13 @@ export class PowerShellAstHelper {
   private epoch = 0
   private queue: Array<{ id: number; cmd: string; resolve: PendingResolve; timer: NodeJS.Timeout }> = []
   private busy = false
+  private disposing = false
 
   constructor(private resolveShell: () => Promise<{ exe: string; args: string[] }>) {}
 
   private async ensureChild(expectedEpoch: number): Promise<boolean> {
     if (this.child && !this.child.killed) return true
+    this.disposing = false
     try {
       const { exe, args } = await this.resolveShell()
       if (this.epoch !== expectedEpoch) return false
@@ -181,17 +186,30 @@ export class PowerShellAstHelper {
       this.child = child
       this.rl = readline.createInterface({ input: child.stdout! })
       this.rl.on('line', (line) => this.onLine(line))
-      child.stdin?.on('error', () => this.onChildExit())
-      child.on('exit', () => this.onChildExit())
-      child.on('error', () => this.onChildExit())
+      child.stdin?.on('error', (err) => {
+        console.warn('[PowerShellAstHelper] stdin error, failing closed:', err.message)
+        this.onChildExit(child)
+      })
+      child.on('exit', (code, signal) => {
+        if (!this.disposing && (code !== 0 || signal || this.queue.length > 0)) {
+          console.warn(`[PowerShellAstHelper] Helper exited unexpectedly (code=${code}, signal=${signal}, pending=${this.queue.length})`)
+        }
+        this.onChildExit(child)
+      })
+      child.on('error', (err) => {
+        console.warn('[PowerShellAstHelper] Child process error, failing closed:', err.message)
+        this.onChildExit(child)
+      })
       return true
-    } catch {
+    } catch (err) {
+      console.warn('[PowerShellAstHelper] Failed to start AST helper, failing closed:', err instanceof Error ? err.message : String(err))
       this.child = null
       return false
     }
   }
 
-  private onChildExit(): void {
+  private onChildExit(exitedChild: ChildProcess): void {
+    if (this.child !== exitedChild) return
     this.epoch++
     this.child = null
     this.rl = null
@@ -209,13 +227,15 @@ export class PowerShellAstHelper {
     if (idx === -1) return
     const json = line.slice(idx + SENTINEL.length)
     if (json.length > MAX_AST_JSON_BYTES) {
+      console.warn(`[PowerShellAstHelper] AST response exceeded ${MAX_AST_JSON_BYTES} bytes, failing closed`)
       this.finishCurrent(null)
       return
     }
     let payload: AstParseResult & { id?: number }
     try {
       payload = JSON.parse(json)
-    } catch {
+    } catch (err) {
+      console.warn('[PowerShellAstHelper] Malformed AST JSON line, failing closed:', err instanceof Error ? err.message : String(err))
       this.finishCurrent(null)
       return
     }
@@ -285,6 +305,7 @@ export class PowerShellAstHelper {
         if (idx === -1) return
         const isHead = idx === 0
         this.queue.splice(idx, 1)
+        console.warn(`[PowerShellAstHelper] AST parse timed out after ${timeoutMs}ms (len=${command.length})`)
         resolve(null)
         if (isHead) {
           this.busy = false
@@ -297,6 +318,7 @@ export class PowerShellAstHelper {
   }
 
   public dispose(): void {
+    this.disposing = true
     this.epoch++
     const pending = this.queue.splice(0)
     for (const item of pending) {

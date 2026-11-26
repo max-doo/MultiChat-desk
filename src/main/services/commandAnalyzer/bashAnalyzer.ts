@@ -91,7 +91,7 @@ function extractSubexpressions(cmd: string): { outer: string; subs: string[] } |
       i++
       continue
     }
-    if (ch === "'") {
+    if (!inDouble && ch === "'") {
       inSingle = true
       out += ch
       i++
@@ -145,7 +145,7 @@ function readBalanced(s: string, start: number, open: string, close: string): nu
       if (ch === "'") inSingle = false
       continue
     }
-    if (ch === "'") {
+    if (!inDouble && ch === "'") {
       inSingle = true
       continue
     }
@@ -165,6 +165,7 @@ function readBalanced(s: string, start: number, open: string, close: string): nu
 // ─── segment walking ────────────────────────────────────────────────────────
 interface Segment {
   tokens: string[]
+  piped: boolean
 }
 
 function segment(command: string): Segment[] | null {
@@ -176,6 +177,7 @@ function segment(command: string): Segment[] | null {
   }
   const segs: Segment[] = []
   let current: string[] = []
+  let nextPiped = false
   for (const t of tokens) {
     if (typeof t === 'string') {
       current.push(t)
@@ -183,14 +185,15 @@ function segment(command: string): Segment[] | null {
       const op = (t as { op: string }).op
       if (!SEPARATOR_OPS.has(op)) return null
       if (current.length) {
-        segs.push({ tokens: current })
+        segs.push({ tokens: current, piped: nextPiped })
         current = []
       }
+      nextPiped = op === '|'
     } else {
       return null
     }
   }
-  if (current.length) segs.push({ tokens: current })
+  if (current.length) segs.push({ tokens: current, piped: nextPiped })
   return segs
 }
 
@@ -241,6 +244,31 @@ function judgeSegment(seg: Segment, verdict: BashVerdict): 'ok' | 'deny' {
 }
 
 // ─── wrapper unwrapping ─────────────────────────────────────────────────────
+const WRAPPER_HEADS = new Set([
+  'bash', 'sh', 'zsh', 'dash', 'fish', 'powershell', 'pwsh', 'cmd', 'env', 'xargs'
+])
+
+const ENV_ZERO_ARG_FLAGS = new Set(['-i', '--ignore-environment', '-0', '--null'])
+const ENV_VALUE_FLAGS = new Set(['-u', '-C', '--unset', '--chdir'])
+const XARGS_ZERO_ARG_FLAGS = new Set([
+  '-0', '--null', '-r', '--no-run-if-empty', '-t', '--verbose', '-p', '--interactive', '-x', '--exit', '-i'
+])
+const XARGS_VALUE_FLAGS = new Set([
+  '-n', '-P', '-L', '-I', '-d', '-E', '-s',
+  '--max-args', '--max-procs', '--max-lines', '--replace', '--delimiter', '--eof', '--max-chars'
+])
+
+function quoteBashToken(token: string): string {
+  if (token === '' || /[\s"'\\$`|;&<>()!*?~{}[\]]/.test(token)) {
+    return `'${token.replace(/'/g, "'\\''")}'`
+  }
+  return token
+}
+
+function joinBashTokens(tokens: readonly string[]): string {
+  return tokens.map(quoteBashToken).join(' ')
+}
+
 function unwrapInner(tokens: string[]): string | null {
   const head = tokens[0]?.toLowerCase().replace(/^.*[\\/]/, '').replace(/\.(?:exe|cmd|bat|ps1)$/i, '')
   const args = tokens.slice(1).map(stripQuotes)
@@ -273,18 +301,75 @@ function unwrapInner(tokens: string[]): string | null {
     case 'cmd': {
       for (let i = 0; i < args.length; i++) {
         const v = args[i].toLowerCase()
-        if (v === '/c' || v === '/k') return args.slice(i + 1).join(' ')
+        if (v === '/c' || v === '/k') return joinBashTokens(args.slice(i + 1))
       }
       return null
     }
     case 'env': {
       let i = 0
-      while (i < args.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(args[i])) i++
-      return i < args.length ? args.slice(i).join(' ') : null
+      while (i < args.length) {
+        const v = args[i]
+        const lower = v.toLowerCase()
+        if (v === '--') {
+          i++
+          break
+        }
+        if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(v) || ENV_ZERO_ARG_FLAGS.has(v.startsWith('--') ? lower : v)) {
+          i++
+          continue
+        }
+        if (lower.startsWith('--unset=') || lower.startsWith('--chdir=')) {
+          i++
+          continue
+        }
+        if (ENV_VALUE_FLAGS.has(v.startsWith('--') ? lower : v)) {
+          if (i + 1 >= args.length) return null
+          i += 2
+          continue
+        }
+        if (v.startsWith('-')) return null
+        break
+      }
+      return i < args.length ? joinBashTokens(args.slice(i)) : null
     }
     case 'xargs': {
-      const rest = args.filter((a) => !a.startsWith('-'))
-      return rest.length ? rest.join(' ') : null
+      let i = 0
+      while (i < args.length) {
+        const v = args[i]
+        const lower = v.toLowerCase()
+        if (v === '--') {
+          i++
+          break
+        }
+        if (XARGS_ZERO_ARG_FLAGS.has(v.startsWith('--') ? lower : v) || /^-i.+$/.test(v)) {
+          i++
+          continue
+        }
+        if (
+          lower.startsWith('--max-args=') ||
+          lower.startsWith('--max-procs=') ||
+          lower.startsWith('--max-lines=') ||
+          lower.startsWith('--replace=') ||
+          lower.startsWith('--delimiter=') ||
+          lower.startsWith('--eof=') ||
+          lower.startsWith('--max-chars=')
+        ) {
+          i++
+          continue
+        }
+        if (XARGS_VALUE_FLAGS.has(v.startsWith('--') ? lower : v)) {
+          if (i + 1 >= args.length) return null
+          i += 2
+          continue
+        }
+        if (/^-[nPLIdsE].+/.test(v)) {
+          i++
+          continue
+        }
+        if (v.startsWith('-')) return null
+        break
+      }
+      return i < args.length ? joinBashTokens(args.slice(i)) : null
     }
     default:
       return null
@@ -316,6 +401,58 @@ function walk(command: string, depth: number, verdict: BashVerdict): 'ok' | 'den
     if (judgeSegment(seg, verdict) === 'deny') return 'deny'
   }
   return 'ok'
+}
+
+export interface BashParsedSegment {
+  tokens: string[]
+  piped: boolean
+}
+
+function collectSegments(
+  command: string,
+  depth: number,
+  out: BashParsedSegment[],
+  inheritedPiped = false
+): boolean {
+  if (depth > MAX_DEPTH) return false
+  const extracted = extractSubexpressions(command)
+  if (!extracted) return false
+  const { outer, subs } = extracted
+
+  for (const sub of subs) {
+    if (!collectSegments(sub, depth + 1, out)) return false
+  }
+
+  const segs = segment(outer)
+  if (!segs || segs.length > MAX_SEGMENTS) return false
+
+  let isFirst = true
+  for (const seg of segs) {
+    const effectivePiped = seg.piped || (isFirst && inheritedPiped)
+    isFirst = false
+    out.push({ tokens: seg.tokens.map(stripQuotes), piped: effectivePiped })
+    const inner = unwrapInner(seg.tokens)
+    if (inner !== null) {
+      if (!collectSegments(inner, depth + 1, out, effectivePiped)) return false
+    } else if (seg.tokens.length > 1) {
+      const head = seg.tokens[0]?.toLowerCase().replace(/^.*[\\/]/, '').replace(/\.(?:exe|cmd|bat|ps1)$/i, '')
+      if (head && WRAPPER_HEADS.has(head)) {
+        // Fail closed when a wrapper carries unrecognized flags so callers fall back to regex checks
+        return false
+      }
+    }
+  }
+  return true
+}
+
+/**
+ * Parse a bash command into normalized token segments (including unwrapped
+ * wrapper subcommands and `$(...)` / backtick subexpressions). Returns `null`
+ * when the command cannot be safely segmented.
+ */
+export function parseBashCommandSegments(command: string): BashParsedSegment[] | null {
+  const out: BashParsedSegment[] = []
+  return collectSegments(command.trim(), 0, out) ? out : null
 }
 
 export function analyzeBashCommand(command: string): BashVerdict {

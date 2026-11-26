@@ -290,6 +290,8 @@ export interface PermissionDecisionResult {
 
 // ─── command / path analysis ────────────────────────────────────────────────
 
+export const MAX_ANALYZABLE_COMMAND_LENGTH = 16_000
+
 const TOOL_PATH_ARGUMENTS = new Set(['read', 'grep', 'find', 'ls', 'write', 'edit'])
 const KNOWN_COMMANDS = new Set([
   'bash', 'cat', 'cd', 'cp', 'dir', 'echo', 'find', 'git', 'grep', 'head', 'ls', 'node', 'npm',
@@ -308,11 +310,17 @@ const NETWORK_READ_GIT = new Set(['fetch', 'ls-remote'])
 // worktree from remote data (pull merges; clone materializes a new tree).
 const NETWORK_WRITE_SUBCOMMANDS = new Set(['push', 'pull', 'clone', 'publish', 'deploy', 'release', 'unpublish'])
 const READ_ONLY_POWERSHELL_COMMANDS = new Set([
-  'compare-object', 'convertto-csv', 'convertto-html', 'convertto-json', 'format-list',
-  'format-table', 'foreach-object', 'get-childitem', 'get-content', 'get-item',
-  'get-location', 'group-object', 'measure-object', 'out-string', 'resolve-path',
-  'select-object', 'select-string', 'sort-object', 'split-path', 'test-path',
-  'where-object', 'write-output'
+  'compare-object', 'convertto-csv', 'convertto-html', 'convertto-json', 'convertto-xml',
+  'format-custom', 'format-hex', 'format-list', 'format-table', 'format-wide',
+  'foreach-object', 'get-alias', 'get-childitem', 'get-command', 'get-content',
+  'get-culture', 'get-date', 'get-executionpolicy', 'get-filehash', 'get-help',
+  'get-history', 'get-host', 'get-item', 'get-job', 'get-location', 'get-member',
+  'get-module', 'get-process', 'get-psdrive', 'get-pssnapin', 'get-random',
+  'get-service', 'get-uiculture', 'get-unique', 'get-variable', 'get-verb',
+  'group-object', 'join-string', 'measure-object', 'out-default', 'out-host',
+  'out-null', 'out-string', 'resolve-path', 'select-object', 'select-string',
+  'sort-object', 'split-path', 'test-path', 'where-object', 'write-debug',
+  'write-host', 'write-output', 'write-verbose', 'write-warning'
 ])
 
 function comparePath(value: string): string {
@@ -364,17 +372,60 @@ function defaultProtectedRoots(): string[] {
   return roots.filter((root): root is string => !!root).map((root) => resolve(root))
 }
 
+function lookupEnvVar(name: string): string | undefined {
+  const lower = name.toLowerCase()
+  for (const [k, v] of Object.entries(process.env)) {
+    if (k.toLowerCase() === lower && v) return v
+  }
+  return undefined
+}
+
 function expandPathInput(input: string): string | undefined {
   const value = input.trim()
-  if (/^~(?:[\\/]|$)/.test(value)) return resolve(homedir(), value.slice(1))
+  if (/^~(?:[\\/]|$)/.test(value)) {
+    const suffix = value.slice(1).replace(/^[\\/]+/, '')
+    return suffix ? resolve(homedir(), suffix) : resolve(homedir())
+  }
   if (/^%USERPROFILE%(?:[\\/]|$)/i.test(value)) {
-    return resolve(homedir(), value.slice('%USERPROFILE%'.length))
+    const suffix = value.slice('%USERPROFILE%'.length).replace(/^[\\/]+/, '')
+    return suffix ? resolve(homedir(), suffix) : resolve(homedir())
   }
-  if (/^\$(?:HOME|USERPROFILE)(?:[\\/]|$)/i.test(value)) {
-    return resolve(homedir(), value.replace(/^\$(?:HOME|USERPROFILE)/i, ''))
+  if (/^(?:\$(?:env:)?(?:HOME|USERPROFILE)|\$\{(?:env:)?(?:HOME|USERPROFILE)\})(?:[\\/]|$)/i.test(value)) {
+    const suffix = value
+      .replace(/^(?:\$(?:env:)?(?:HOME|USERPROFILE)|\$\{(?:env:)?(?:HOME|USERPROFILE)\})/i, '')
+      .replace(/^[\\/]+/, '')
+    return suffix ? resolve(homedir(), suffix) : resolve(homedir())
   }
-  if (/^(?:%[^%]+%|\$[A-Za-z_][A-Za-z0-9_:]*)/.test(value)) return undefined
+  const winEnvMatch = value.match(
+    /^(?:%(WINDIR|SystemRoot|ProgramFiles|ProgramFiles\(x86\))%|\$(?:env:)?(WINDIR|SystemRoot|ProgramFiles)|\$\{(?:env:)?(WINDIR|SystemRoot|ProgramFiles|ProgramFiles\(x86\))\})([\\/].*)?$/i
+  )
+  if (winEnvMatch) {
+    const varName = winEnvMatch[1] || winEnvMatch[2] || winEnvMatch[3]
+    const resolvedRoot = varName ? lookupEnvVar(varName) : undefined
+    if (resolvedRoot) {
+      const suffix = winEnvMatch[4] ? winEnvMatch[4].replace(/^[\\/]+/, '') : ''
+      return suffix ? resolve(resolvedRoot, suffix) : resolve(resolvedRoot)
+    }
+    return undefined
+  }
+  if (/^(?:%[^%]+%|\$\{[^}]+\}|\$[A-Za-z_][A-Za-z0-9_:]*)/.test(value)) return undefined
   return value
+}
+
+/**
+ * Known diagnostic/config files inside protected roots that are safe to read
+ * (not write) without triggering an unconditional hard-deny:
+ *  - Windows `drivers\etc\hosts`: non-secret DNS mapping file (allowed read)
+ *  - `~/.ssh/config`: still flagged `sensitive: true` so reading requires explicit
+ *    user approval (`ask`) in every mode, while private keys & writes stay denied.
+ */
+function isReadOnlyDiagnosticProtectedPath(normalizedPath: string): boolean {
+  const cmp = comparePath(normalizedPath)
+  const winRoot = lookupEnvVar('SystemRoot') || lookupEnvVar('WINDIR') || 'C:\\Windows'
+  const hostsPath = comparePath(resolve(winRoot, 'System32', 'drivers', 'etc', 'hosts'))
+  if (cmp === hostsPath) return true
+  const sshConfigPath = comparePath(resolve(homedir(), '.ssh', 'config'))
+  return cmp === sshConfigPath
 }
 
 export function inspectPath(
@@ -615,7 +666,7 @@ export function analyzeCommand(
   if (!normalized) {
     return { command, normalized, parseable: false, readOnly: false, requiresApproval: true, highRisk: true, reason: '命令为空。' }
   }
-  if (normalized.length > 4000) {
+  if (normalized.length > MAX_ANALYZABLE_COMMAND_LENGTH) {
     return { command, normalized, executable, pathArguments, parseable: false, readOnly: false, requiresApproval: true, highRisk: true, reason: '命令过长，无法安全审查。' }
   }
   const highRiskPattern =
@@ -856,7 +907,7 @@ export function decidePermission(
       }
     }
   }
-  const paths = [...basePathInspections, ...cdInspections, ...extraPathInspections]
+  const rawPaths = [...basePathInspections, ...cdInspections, ...extraPathInspections]
   const effectiveCommand: CommandInspection | undefined =
     command && cdTargets.length > 0 && !allCdInWorkspace
       ? {
@@ -868,6 +919,17 @@ export function decidePermission(
           reason: command.reason ?? '目录切换（cd）目标位于工作区之外或无法静态解析，需要确认。'
         }
       : command
+  const isReadOnlyAccess =
+    effectKinds(effect).every((kind) => kind === 'read' || kind === 'control') ||
+    (highestRiskEffect(effect) === 'execute' && effectiveCommand?.readOnly === true)
+  const paths = rawPaths.map((p) =>
+    isReadOnlyAccess &&
+    p.boundary === 'protected' &&
+    p.normalized &&
+    isReadOnlyDiagnosticProtectedPath(p.normalized)
+      ? { ...p, boundary: 'outside' as const }
+      : p
+  )
   // A read/write targeting a credential-shaped file is escalated to the
   // `credential` tier so it can never slip through on a generic read rule.
   const risk: ToolEffectKind =

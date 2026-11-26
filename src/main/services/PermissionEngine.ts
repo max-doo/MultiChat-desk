@@ -3,13 +3,22 @@ import type Store from 'electron-store'
 import { parse as parseShellQuote } from 'shell-quote'
 import {
   decidePermission,
+  MAX_ANALYZABLE_COMMAND_LENGTH,
   parseMode,
   type CommandAnalyzerVerdict,
   type ModeId
 } from './permissionPolicy'
-import { disposePowerShellAstHelper, getPowerShellAstHelper } from './commandAnalyzer/powershellAstHelper'
+import {
+  disposePowerShellAstHelper,
+  getPowerShellAstHelper,
+  type AstParseResult
+} from './commandAnalyzer/powershellAstHelper'
 import { analyzePowerShellAst } from './commandAnalyzer/psAstAnalyzer'
-import { analyzeBashCommand } from './commandAnalyzer/bashAnalyzer'
+import {
+  analyzeBashCommand,
+  parseBashCommandSegments,
+  type BashParsedSegment
+} from './commandAnalyzer/bashAnalyzer'
 
 /**
  * Permission modes as accepted at the boundary. Canonical modes are
@@ -39,27 +48,67 @@ export interface ToolCheckResult {
   allowed: boolean
   needsApproval?: boolean
   reason?: string
+  /** True when a shell command was structurally verified as read-only. */
+  readOnlyCommand?: boolean
 }
 
 const ALLOWLIST_STORE_KEY = 'agent_permission_allowlist'
 
-// Hard-deny regex patterns that are ALWAYS blocked across ALL modes (including bypass mode)
+// Fallback hard-deny regex patterns used only when AST/segment analysis is
+// unavailable (parse failure, truncated AST, >MAX_ANALYZABLE_COMMAND_LENGTH, or non-shell tool)
 const HARD_DENY_PATTERNS: RegExp[] = [
-  /\brm\s+(?:-[a-z]*f[a-z]*\s+-[a-z]*r[a-z]*|-[a-z]*r[a-z]*\s+-[a-z]*f[a-z]*|-(?:r|rf|fr))\s+(?:--no-preserve-root\s+)?(?:\/|\/\*|~\/|[A-Za-z]:[\\/])/i,
-  /\b(?:rd|rmdir)\s+\/s\s+\/q\s+[A-Za-z]:[\\/]/i,
-  /\bdel\s+\/s\s+\/q\s+[A-Za-z]:[\\/]/i,
-  /\bremove-item\b[^\r\n]*(?:-recurse|-r\b)[^\r\n]*(?:[A-Za-z]:[\\/]\s|[A-Za-z]:[\\/]$|\/\*|~\/)/i,
-  /\b(?:format(?!-)|format-volume|mkfs)\b/i,
+  /\brm\s+(?:-[a-z]*f[a-z]*\s+-[a-z]*r[a-z]*|-[a-z]*r[a-z]*\s+-[a-z]*f[a-z]*|--recursive(?:\s+(?:-f|--force))?|(?:-f|--force)\s+--recursive|-(?:r|rf|fr))\s+(?:--no-preserve-root\s+)?(?:\/|\/\*|~[\\/]\*?|[A-Za-z]:[\\/]\*?)/i,
+  /\b(?:rd|rmdir)\s+(?:\/s\s+\/q|\/s\/q|\/q\/s)\s+[A-Za-z]:[\\/]\*?/i,
+  /\bdel\s+(?:\/s\s+\/q|\/s\/q|\/q\/s)\s+[A-Za-z]:[\\/]\*?/i,
+  /\b(?:remove-item|ri)\b[^\r\n]*(?:(?:-rec(?:u(?:r(?:s(?:e)?)?)?)?|-r\b)[^\r\n]*(?:[A-Za-z]:[\\/]\*?(?=[\s;&|]|$)|\/\*|~[\\/]\*?)|(?:[A-Za-z]:[\\/]\*?(?=[\s;&|]|$)|\/\*|~[\\/]\*?)[^\r\n]*(?:-rec(?:u(?:r(?:s(?:e)?)?)?)?|-r\b))/i,
+  /(?:^|[;&|(\r\n]\s*)format(?:\.(?:com|exe))?(?:\s+(?:\/|-)\S+)*\s+[A-Za-z]:|\b(?:format-volume|mkfs(?:\.[a-z0-9]+)?)\b/i,
   /\bdd\s+.*of=\/dev\//i,
-  /\breg\s+delete\s+hklm/i,
-  /\b(?:shutdown|restart-computer|stop-process\s+-name\s+system)\b/i,
+  /\breg\s+delete\s+(?:hklm|hkey_local_machine)\b/i,
+  /\b(?:shutdown|restart-computer|stop-computer|stop-process\s+-name\s+system)\b/i,
   /\b(?:init\s+0|reboot|halt|poweroff)\b/i,
-  /\|\s*(?:iex|invoke-expression|sh|bash)\b/i,
+  /\|\s*(?:(?:env|xargs)\s+(?:[^\r\n|;&]*\s+)?)?(?:iex|invoke-expression|sh|bash)\b/i,
   /\b(?:iex|invoke-expression)\s*(?:\(|["'$])/i,
-  /\b(?:powershell|pwsh)\b[^\r\n]*\s-(?:e|en|enc|encodedcommand)\b/i,
-  /(?:curl|wget)\s+.*\|\s*(?:sh|bash|iex|invoke-expression)\b/i,
-  /(?:\$env:WINDIR|System32|[\\/]Windows[\\/]System32|[\\/]etc[\\/]shadow|[\\/]etc[\\/]passwd|\.ssh[\\/])/i
+  /\b(?:powershell|pwsh)\b[^\r\n]*\s-(?:e|en|enc|encodedcommand)(?:\b|:)/i,
+  /(?:curl|wget)\s+.*\|\s*(?:(?:env|xargs)\s+(?:[^\r\n|;&]*\s+)?)?(?:sh|bash|iex|invoke-expression)\b/i,
+  /(?:\$\{?(?:env:)?(?:WINDIR|SystemRoot)\}?|System32|[\\/]Windows[\\/]System32|[\\/]etc[\\/]shadow|[\\/]etc[\\/]passwd|\.ssh[\\/])/i
 ]
+
+const DISPLAY_OR_META_COMMANDS = new Set([
+  'write-host', 'write-output', 'echo', 'printf',
+  'write-warning', 'write-verbose', 'write-debug',
+  'get-help', 'get-command', 'gcm'
+])
+const ALWAYS_HARD_DENIED_COMMANDS = new Set([
+  'format-volume', 'shutdown', 'restart-computer', 'stop-computer',
+  'reboot', 'halt', 'poweroff', 'iex', 'invoke-expression'
+])
+const ENCODED_COMMAND_PARAM_RX = /^(?:e|en|enc|enco|encod|encode|encoded|encodedc|encodedco|encodedcom|encodedcomm|encodedcomma|encodedcomman|encodedcommand)$/i
+const PS_RECURSE_PARAM_RX = /^(?:r|re|rec|recu|recur|recurs|recurse)$/i
+const PS_COMMAND_PARAM_RX = /^(?:c|co|com|comm|comma|comman|command)$/i
+const PS_VALUE_FLAGS = new Set([
+  'executionpolicy', 'ep', 'workingdirectory', 'wd', 'windowstyle', 'w',
+  'outputformat', 'of', 'inputformat', 'if', 'version', 'v',
+  'configurationname', 'settingsfile', 'custompipename', 'file', 'f'
+])
+const PS_FILE_PARAM_RX = /^(?:f|fi|fil|file)$/i
+const DRIVE_ROOT_TARGET_RX = /^(?:\/|\/\*|~(?:[\\/]\*?)?|[A-Za-z]:(?:[\\/]\*?)?)$/
+const WIN_DRIVE_TARGET_RX = /^[A-Za-z]:(?:[\\/].*)?$/
+const HARD_DENY_PATH_TOKEN_RX = /[\\/]etc[\\/](?:shadow|passwd)(?:$|[\\/])/i
+const ENV_WINDIR_RX = /(?:\$\{?(?:env:)?(?:WINDIR|SystemRoot)\}?|%(?:WINDIR|SystemRoot)%)/i
+const DRIVERS_HOSTS_TAIL_RX = /[\\/]System32[\\/]drivers[\\/]etc[\\/]hosts$/i
+
+function normalizeHardDenyCommandName(raw: string): string {
+  return raw.replace(/^.*[\\/]/, '').replace(/\.(?:exe|com|cmd|bat|ps1)$/i, '').toLowerCase()
+}
+
+function stripHardDenyQuotes(value: string): string {
+  if (value.length >= 2) {
+    const a = value[0]
+    const b = value[value.length - 1]
+    if ((a === '"' && b === '"') || (a === "'" && b === "'")) return value.slice(1, -1)
+  }
+  return value
+}
 
 // Known safe/read-only command heads (fallback only — scriptblock cmdlets
 // like ForEach-Object/Where-Object are excluded because shell-quote cannot
@@ -220,6 +269,277 @@ export class PermissionEngine {
     return false
   }
 
+  private isHardDeniedPathToken(token: string): boolean {
+    if (HARD_DENY_PATH_TOKEN_RX.test(token)) return true
+    if (ENV_WINDIR_RX.test(token) && !DRIVERS_HOSTS_TAIL_RX.test(token)) return true
+    return false
+  }
+
+  private extractPwshInnerCommand(
+    args: readonly string[],
+    params: readonly { name: string; val?: string | null }[],
+    quotedArgs?: readonly string[]
+  ): string | null {
+    // 1. `-File` launches a script file, never an inline `-Command`.
+    if (
+      params.some((p) => PS_FILE_PARAM_RX.test(p.name)) ||
+      args.some((a) => a.startsWith('-') && PS_FILE_PARAM_RX.test(a.slice(1).split(':')[0]))
+    ) {
+      return null
+    }
+    const joinTokens = (startIdx: number, prefixToken?: string): string | null => {
+      const rest = (quotedArgs ?? args).slice(startIdx)
+      const all = prefixToken ? [prefixToken, ...rest] : rest
+      if (all.length === 0) return null
+      // A single unquoted string arg like `"Remove-Item C:\ -Recurse"` is already complete script text;
+      // multiple tokens (`Write-Host "a; rm -rf /"`) use `quotedArgs` so string args stay quoted.
+      if (all.length === 1) return args[startIdx] ?? prefixToken ?? null
+      return all.join(' ')
+    }
+    // 2. Explicit `-Command` (or prefix `-c`, `-co`, ...): take colon value or join trailing tokens
+    const cmdFlagIdx = args.findIndex(
+      (a) => a.startsWith('-') && PS_COMMAND_PARAM_RX.test(a.slice(1).split(':')[0])
+    )
+    if (cmdFlagIdx !== -1) {
+      const flag = args[cmdFlagIdx]
+      const colonIdx = flag.indexOf(':')
+      const inlineVal = colonIdx !== -1 ? flag.slice(colonIdx + 1) || undefined : undefined
+      return joinTokens(cmdFlagIdx + 1, inlineVal)
+    }
+    const cmdParam = params.find((p) => PS_COMMAND_PARAM_RX.test(p.name))
+    if (cmdParam?.val) return cmdParam.val
+
+    // 3. Positional command (`pwsh "rm -rf /"` or `pwsh -NoProfile rm -rf /`)
+    for (let i = 0; i < args.length; i++) {
+      const a = args[i]
+      if (a.startsWith('-')) {
+        const pname = a.slice(1).split(':')[0].toLowerCase()
+        if (!a.includes(':') && PS_VALUE_FLAGS.has(pname)) {
+          i++
+        }
+        continue
+      }
+      return joinTokens(i)
+    }
+    return null
+  }
+
+  private async isHardDeniedCommandSegment(
+    cmdName: string,
+    args: readonly string[],
+    params: readonly { name: string; val?: string | null }[],
+    piped: boolean,
+    depth: number,
+    resolveShell: () => Promise<{ exe: string; args: string[] }>,
+    quotedArgs?: readonly string[]
+  ): Promise<boolean> {
+    if (ALWAYS_HARD_DENIED_COMMANDS.has(cmdName)) return true
+    if (/^mkfs(?:\.[a-z0-9]+)?$/i.test(cmdName)) return true
+    if ((cmdName === 'sh' || cmdName === 'bash') && piped) return true
+    if (cmdName === 'init' && args.some((a) => a === '0')) return true
+
+    if (cmdName === 'stop-process' || cmdName === 'kill' || cmdName === 'spps') {
+      const hasNameParam = params.some(
+        (p) => (p.name === 'name' || p.name === 'n') && p.val?.toLowerCase() === 'system'
+      )
+      if (hasNameParam) return true
+      for (let i = 0; i < args.length; i++) {
+        const lower = args[i].toLowerCase()
+        if ((lower === '-name' || lower === '-n') && args[i + 1]?.toLowerCase() === 'system') {
+          return true
+        }
+      }
+    }
+
+    if (
+      cmdName === 'reg' &&
+      args.some((a) => a.toLowerCase() === 'delete') &&
+      args.some((a) => /^(?:hklm|hkey_local_machine)(?:[\\/]|$)/i.test(a))
+    ) {
+      return true
+    }
+
+    if (cmdName === 'dd' && args.some((a) => /^of=\/dev\//i.test(a))) return true
+    if (cmdName === 'format' && args.some((a) => WIN_DRIVE_TARGET_RX.test(a))) return true
+
+    const hasPsRecurse =
+      params.some((p) => PS_RECURSE_PARAM_RX.test(p.name)) ||
+      args.some((a) => a.startsWith('-') && PS_RECURSE_PARAM_RX.test(a.slice(1).split(':')[0]))
+
+    if (cmdName === 'rm') {
+      const hasRecursive =
+        hasPsRecurse || args.some((a) => /^-(?:[a-z]*r[a-z]*|-recursive)$/i.test(a))
+      if (hasRecursive && args.some((a) => DRIVE_ROOT_TARGET_RX.test(a))) return true
+    }
+
+    if (cmdName === 'rd' || cmdName === 'rmdir' || cmdName === 'del' || cmdName === 'erase') {
+      const lowerArgs = args.map((a) => a.toLowerCase())
+      const hasSlashS = lowerArgs.some((a) => /^\/(?:s|s\/q|q\/s)$/.test(a))
+      const hasSlashQ = lowerArgs.some((a) => /^\/(?:q|s\/q|q\/s)$/.test(a))
+      if (
+        ((hasSlashS && hasSlashQ) || hasPsRecurse) &&
+        args.some((a) => DRIVE_ROOT_TARGET_RX.test(a))
+      ) {
+        return true
+      }
+    }
+
+    if (cmdName === 'remove-item' || cmdName === 'ri') {
+      if (hasPsRecurse && args.some((a) => DRIVE_ROOT_TARGET_RX.test(a))) return true
+    }
+
+    if (cmdName === 'powershell' || cmdName === 'pwsh') {
+      if (
+        params.some((p) => ENCODED_COMMAND_PARAM_RX.test(p.name)) ||
+        args.some((a) => a.startsWith('-') && ENCODED_COMMAND_PARAM_RX.test(a.slice(1).split(':')[0]))
+      ) {
+        return true
+      }
+      if (depth < 2) {
+        const inner = this.extractPwshInnerCommand(args, params, quotedArgs)
+        if (inner && (await this.isHardDeniedInnerCommand(inner, 'powershell', depth + 1, resolveShell))) {
+          return true
+        }
+      }
+    }
+
+    if ((cmdName === 'bash' || cmdName === 'sh') && depth < 2) {
+      for (let i = 0; i < args.length; i++) {
+        if (args[i] === '-c' || /^-[a-z]*c[a-z]*$/i.test(args[i])) {
+          const inner = args[i + 1]
+          if (inner && (await this.isHardDeniedInnerCommand(inner, 'bash', depth + 1, resolveShell))) {
+            return true
+          }
+          break
+        }
+      }
+    }
+
+    if (cmdName === 'cmd' && depth < 2) {
+      for (let i = 0; i < args.length; i++) {
+        const lower = args[i].toLowerCase()
+        if (lower === '/c' || lower === '/k') {
+          const inner = args.slice(i + 1).join(' ')
+          if (inner && this.isHardDenied(inner)) return true
+          break
+        }
+      }
+    }
+
+    if (!DISPLAY_OR_META_COMMANDS.has(cmdName)) {
+      for (const a of args) {
+        if (this.isHardDeniedPathToken(a)) return true
+      }
+      for (const p of params) {
+        if (p.val && this.isHardDeniedPathToken(p.val)) return true
+      }
+    }
+
+    return false
+  }
+
+  private async isHardDeniedInnerCommand(
+    inner: string,
+    toolHint: 'powershell' | 'bash',
+    depth: number,
+    resolveShell: () => Promise<{ exe: string; args: string[] }>
+  ): Promise<boolean> {
+    if (toolHint === 'bash') {
+      const segs = parseBashCommandSegments(inner)
+      return segs ? this.isHardDeniedBashSegments(segs, depth, resolveShell) : this.isHardDenied(inner)
+    }
+    if (inner.trim() && inner.length <= MAX_ANALYZABLE_COMMAND_LENGTH) {
+      try {
+        const parsed = await getPowerShellAstHelper(resolveShell).analyze(inner)
+        if (parsed && parsed.status === 'ok') {
+          return this.isHardDeniedPowerShellAst(parsed, depth, resolveShell)
+        }
+      } catch {
+        // fall through to regex fallback
+      }
+    }
+    return this.isHardDenied(inner)
+  }
+
+  private async isHardDeniedBashSegments(
+    segments: readonly BashParsedSegment[],
+    depth: number,
+    resolveShell: () => Promise<{ exe: string; args: string[] }>
+  ): Promise<boolean> {
+    for (const seg of segments) {
+      if (seg.tokens.length === 0) continue
+      const cmdName = normalizeHardDenyCommandName(seg.tokens[0])
+      const args = seg.tokens.slice(1)
+      if (await this.isHardDeniedCommandSegment(cmdName, args, [], seg.piped, depth, resolveShell)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  private async isHardDeniedPowerShellAst(
+    parsed: AstParseResult,
+    depth: number,
+    resolveShell: () => Promise<{ exe: string; args: string[] }>
+  ): Promise<boolean> {
+    for (const node of parsed.nodes) {
+      if (node.type === 'FileRedirectionAst' && node.target) {
+        if (this.isHardDeniedPathToken(node.target)) return true
+      }
+      if (node.type !== 'CommandAst' || !node.cmd) continue
+      const cmdName = normalizeHardDenyCommandName(node.cmd)
+      const elems = node.elems ?? []
+      const params: { name: string; val?: string | null }[] = []
+      const args: string[] = []
+      const quotedArgs: string[] = []
+      const requoteStringArg = (val: string, argType?: string | null): string => {
+        if (argType === 'ExpandableStringExpressionAst') return val
+        const clean = stripHardDenyQuotes(val)
+        if (argType === 'StringConstantExpressionAst' && /[\s;|&'"]/.test(clean)) {
+          return `'${clean.replace(/'/g, "''")}'`
+        }
+        return clean
+      }
+      for (let i = 1; i < elems.length; i++) {
+        const elem = elems[i]
+        if (elem.kind === 'param') {
+          const pname = (elem.name ?? '').toLowerCase()
+          const nextElem = elem.val == null ? elems[i + 1] : undefined
+          const resolvedVal =
+            elem.val != null
+              ? stripHardDenyQuotes(elem.val)
+              : nextElem?.kind === 'arg' && nextElem.val != null
+                ? stripHardDenyQuotes(nextElem.val)
+                : null
+          params.push({ name: pname, val: resolvedVal })
+          args.push(`-${pname}`)
+          quotedArgs.push(`-${pname}`)
+          if (elem.val != null) {
+            args.push(stripHardDenyQuotes(elem.val))
+            quotedArgs.push(requoteStringArg(elem.val, elem.argType))
+          }
+        } else if (elem.val != null) {
+          args.push(stripHardDenyQuotes(elem.val))
+          quotedArgs.push(requoteStringArg(elem.val, elem.argType))
+        }
+      }
+      if (
+        await this.isHardDeniedCommandSegment(
+          cmdName,
+          args,
+          params,
+          node.piped === true,
+          depth,
+          resolveShell,
+          quotedArgs
+        )
+      ) {
+        return true
+      }
+    }
+    return false
+  }
+
   public isSafeShellCommand(command: string): boolean {
     const segments = this.segmentedShellCommands(command)
     if (!segments) return false
@@ -267,7 +587,7 @@ export class PermissionEngine {
     cmd: string,
     resolveShell: () => Promise<{ exe: string; args: string[] }> = this.resolveShell
   ): Promise<CommandAnalyzerVerdict | null> {
-    if (!cmd.trim() || cmd.length > 4000) return null
+    if (!cmd.trim() || cmd.length > MAX_ANALYZABLE_COMMAND_LENGTH) return null
     try {
       if (normTool === 'powershell') {
         const helper = getPowerShellAstHelper(resolveShell)
@@ -287,8 +607,10 @@ export class PermissionEngine {
   }
 
   /**
-   * Async policy check — shell commands go through the AST analyzer first;
-   * unavailable analyzer fails closed to the regex/segment path.
+   * Async policy check — shell commands go through the AST/segment analyzer first;
+   * hard-deny inspects parsed commands/redirections when available (so string
+   * literals like `Write-Host "format"` or `Write-Host "rm -rf /"` are not
+   * falsely blocked) and falls back to regex when analysis is unavailable.
    */
   public async checkToolPermissionAsync(
     mode: PermissionMode,
@@ -302,18 +624,55 @@ export class PermissionEngine {
 
     const cmd = String(args.command ?? args.cmd ?? args.script ?? '')
 
-    // Hard-deny gate runs in EVERY mode including bypass — `rm -rf /`,
-    // `format-volume`, `reg delete hklm` are system-level damage that no
-    // permission mode should execute. This precedes the user allowlist so
-    // an "always allow" entry cannot bless a hard-denied string.
-    if (cmd && this.isHardDenied(cmd)) {
-      return { allowed: false, reason: '命令命中硬性拒绝规则，任何模式都不能放行。' }
+    let analyzerVerdict: CommandAnalyzerVerdict | null = null
+    if (cmd.trim() && cmd.length <= MAX_ANALYZABLE_COMMAND_LENGTH && normTool === 'powershell') {
+      let parsed: AstParseResult | null = null
+      try {
+        parsed = await getPowerShellAstHelper(resolveShell).analyze(cmd)
+      } catch {
+        parsed = null
+      }
+      if (parsed && parsed.status === 'ok') {
+        if (await this.isHardDeniedPowerShellAst(parsed, 0, resolveShell)) {
+          return { allowed: false, reason: '命令命中硬性拒绝规则，任何模式都不能放行。' }
+        }
+      } else if (this.isHardDenied(cmd)) {
+        return { allowed: false, reason: '命令命中硬性拒绝规则，任何模式都不能放行。' }
+      }
+      if (parsed) {
+        const v = analyzePowerShellAst(parsed)
+        analyzerVerdict = {
+          readOnly: v.readOnly,
+          writeOps: v.writeOps,
+          pathArguments: v.pathArguments,
+          cdTargets: v.cdTargets,
+          commands: v.commands,
+          rejectReason: v.rejectReason
+        }
+      }
+    } else if (cmd.trim() && cmd.length <= MAX_ANALYZABLE_COMMAND_LENGTH && normTool === 'bash') {
+      const segments = parseBashCommandSegments(cmd)
+      if (segments !== null) {
+        if (await this.isHardDeniedBashSegments(segments, 0, resolveShell)) {
+          return { allowed: false, reason: '命令命中硬性拒绝规则，任何模式都不能放行。' }
+        }
+      } else if (this.isHardDenied(cmd)) {
+        return { allowed: false, reason: '命令命中硬性拒绝规则，任何模式都不能放行。' }
+      }
+      analyzerVerdict = await this.analyzeCommandVerdict(normTool, cmd, resolveShell)
+    } else {
+      // Hard-deny gate runs in EVERY mode including bypass — `rm -rf /`,
+      // `format-volume`, `reg delete hklm` are system-level damage that no
+      // permission mode should execute. This precedes the user allowlist so
+      // an "always allow" entry cannot bless a hard-denied string.
+      if (cmd && this.isHardDenied(cmd)) {
+        return { allowed: false, reason: '命令命中硬性拒绝规则，任何模式都不能放行。' }
+      }
+      analyzerVerdict =
+        normTool === 'powershell' || normTool === 'bash'
+          ? await this.analyzeCommandVerdict(normTool, cmd, resolveShell)
+          : null
     }
-
-    const analyzerVerdict =
-      normTool === 'powershell' || normTool === 'bash'
-        ? await this.analyzeCommandVerdict(normTool, cmd, resolveShell)
-        : null
 
     let result = decidePermission({
       modeId,
@@ -326,6 +685,8 @@ export class PermissionEngine {
       protectedRoots: this.extraProtectedRoots
     }, analyzerVerdict)
 
+    const readOnlyCommand = analyzerVerdict?.readOnly === true
+
     // User allowlist may promote an `ask` (except protected or sensitive targets),
     // never override a hard/readonly `deny`.
     if (
@@ -333,7 +694,7 @@ export class PermissionEngine {
       !result.paths.some((path) => path.boundary === 'protected' || path.sensitive) &&
       this.matchesUserAllowlist(normTool, args)
     ) {
-      return { allowed: true }
+      return { allowed: true, readOnlyCommand }
     }
 
     // Structural second opinion: bash-only fallback when the analyzer was
@@ -352,15 +713,16 @@ export class PermissionEngine {
     }
 
     if (result.decision === 'allow') {
-      return { allowed: true }
+      return { allowed: true, readOnlyCommand }
     }
     if (result.decision === 'deny') {
-      return { allowed: false, reason: result.reason }
+      return { allowed: false, reason: result.reason, readOnlyCommand }
     }
     return {
       allowed: false,
       needsApproval: true,
-      reason: result.reason
+      reason: result.reason,
+      readOnlyCommand
     }
   }
 
@@ -371,16 +733,16 @@ export class PermissionEngine {
     toolName: string
     args: Record<string, unknown>
     cwd: string
-  }): Promise<{ allowed: boolean; reason?: string }> {
+  }): Promise<{ allowed: boolean; reason?: string; readOnlyCommand?: boolean }> {
     const { sessionId, mode, toolCallId, toolName, args, cwd } = params
     const check = await this.checkToolPermissionAsync(mode, toolName, args, cwd, this.resolveShell)
 
     if (check.allowed) {
-      return { allowed: true }
+      return { allowed: true, readOnlyCommand: check.readOnlyCommand }
     }
 
     if (!check.needsApproval) {
-      return { allowed: false, reason: check.reason }
+      return { allowed: false, reason: check.reason, readOnlyCommand: check.readOnlyCommand }
     }
 
     // Suspend for user approval
@@ -394,12 +756,12 @@ export class PermissionEngine {
       reason: check.reason || `Tool execution requires confirmation: ${toolName}`
     }
 
-    return new Promise<{ allowed: boolean; reason?: string }>((resolve, reject) => {
+    return new Promise<{ allowed: boolean; reason?: string; readOnlyCommand?: boolean }>((resolve, reject) => {
       // 10 minutes timeout
       const timer = setTimeout(() => {
         this.pendingApprovals.delete(requestId)
         this.requestToolNames.delete(requestId)
-        resolve({ allowed: false, reason: 'Approval request timed out after 10 minutes' })
+        resolve({ allowed: false, reason: 'Approval request timed out after 10 minutes', readOnlyCommand: check.readOnlyCommand })
       }, 10 * 60 * 1000)
 
       this.requestToolNames.set(requestId, toolName.toLowerCase())
@@ -408,7 +770,11 @@ export class PermissionEngine {
         resolve: (allowed: boolean) => {
           clearTimeout(timer)
           this.requestToolNames.delete(requestId)
-          resolve(allowed ? { allowed: true } : { allowed: false, reason: 'Action denied by user' })
+          resolve(
+            allowed
+              ? { allowed: true, readOnlyCommand: check.readOnlyCommand }
+              : { allowed: false, reason: 'Action denied by user', readOnlyCommand: check.readOnlyCommand }
+          )
         },
         reject: (err: Error) => {
           clearTimeout(timer)
