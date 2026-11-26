@@ -41,6 +41,7 @@ import {
 } from './WorkbenchFootnoteNode'
 import { WorkbenchHorizontalRuleNode } from './WorkbenchHorizontalRuleNode'
 import WorkbenchImagePlugin from './WorkbenchImagePlugin'
+import WorkbenchImageLightboxPlugin from './WorkbenchImageLightboxPlugin'
 import WorkbenchFootnotePlugin from './WorkbenchFootnotePlugin'
 import WorkbenchSelectionMenuPlugin from './WorkbenchSelectionMenuPlugin'
 import WorkbenchFloatingToolbarPlugin from './WorkbenchFloatingToolbarPlugin'
@@ -671,6 +672,7 @@ function WorkbenchEditor({ isActive = true }: WorkbenchEditorProps): JSX.Element
         <MarkdownSyncPlugin />
         <WorkbenchCodeHighlightPlugin />
         <WorkbenchImagePlugin />
+        <WorkbenchImageLightboxPlugin />
         <WorkbenchFootnotePlugin />
         <WorkbenchLinkPastePlugin />
         <WorkbenchEquationPastePlugin />
