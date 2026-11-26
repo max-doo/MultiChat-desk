@@ -2,6 +2,15 @@
 
 ## 2026-11-26
 
+### 17:48 | Codex
+
+- done: 分模块提交本轮 Agent 安全与文件追踪、导图登录态、工作台图片预览与布局改动，共 7 笔 Conventional Commits
+- context: 提交前执行 pnpm run lint 与 pnpm run build；提交时因 .git 索引写权限不足申请提权；排除 .tmp、scratch 与 scripts/debug_gutter_width.cjs 临时调试文件
+- modified:
+  - `SESSION_LOG.md`
+  - `.memory/KNOWLEDGE.md`
+- unresolved: 提交完成后工作区仍有 AgentCard.tsx 编辑图标微调、临时目录与调试脚本未提交；Agent Shell 主进程改动未做 pnpm run dev 桌面端交互实测
+
 ### 17:41 | Codex
 
 - done: Agent 正文 inline 文件引用样式二次调整：markdown 图标对齐文件树蓝色 description，图片/矢量图标颜色与树一致，文件名由 caption 号改为与正文同号（body），负边距补偿行距
