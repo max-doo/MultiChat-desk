@@ -23,7 +23,9 @@ import { excludedShellTools, shellEnvironmentPrompt, shellToolForPlatform, shell
 import { createWebSearchTool } from './webSearchTool'
 import { createImageGenTool } from './imageGenTool'
 import { ShellTool } from './ShellTool'
-import { CustomGatewayProvider, MAGPIE_PROVIDER } from './customGatewayProvider'
+import { CustomGatewayProvider, MAGPIE_PROVIDER, classifyGatewayFetchError } from './customGatewayProvider'
+import { ModelCatalogEnricher } from './modelCatalogEnricher'
+import { ProviderQuotaService, type QuotaTargetProvider } from './ProviderQuotaService'
 import { ProviderAuthController } from './ProviderAuthController'
 import { safeError, redactCredential } from './redact'
 import { createContextCompressionExtension, DEFAULT_COMPRESSION_CONFIG, type CompressionConfig } from '../extensions/contextCompression'
@@ -33,8 +35,12 @@ import type {
   AgentAuthOperation,
   AgentAuthType,
   AgentContextUsage,
+  AgentCustomGatewaySpec,
+  AgentForkOrigin,
+  AgentGatewayTestResult,
   AgentProvider,
   AgentProviderModel,
+  AgentProviderQuota,
   AgentRuntimeSnapshot,
   AgentSessionStats,
   AgentSessionStatus,
@@ -94,6 +100,9 @@ export interface SessionListItem {
   cwd?: string
   model?: string
   isRunning?: boolean
+  parentSessionId?: string
+  parentSessionTitle?: string
+  firstBranchMessage?: string
 }
 
 /** Events emitted by this service on top of pi's own AgentSessionEvent set. */
@@ -134,6 +143,14 @@ const MAX_IDLE_ACTIVE_SESSIONS = 4
 const MESSAGE_UPDATE_THROTTLE_MS = 36
 /** Byte slice read from start of .jsonl when locating a session file by header.id */
 const SESSION_HEADER_PEEK_BYTES = 8192
+const FORK_ORIGIN_CUSTOM_TYPE = 'multichat:fork_origin'
+
+interface ForkOriginCustomData {
+  parentSessionId?: string
+  parentSessionTitle?: string
+  forkAfterEntryId?: string
+  forkedAt?: number
+}
 
 interface DiskSessionMeta {
   id: string
@@ -141,6 +158,10 @@ interface DiskSessionMeta {
   cwd: string
   name?: string
   firstMessage: string
+  parentSessionPath?: string
+  forkParentId?: string
+  forkParentTitle?: string
+  firstBranchMessage?: string
   messageCount: number
   createdAt: number
   updatedAt: number
@@ -153,12 +174,7 @@ interface SessionMetaCacheEntry {
   meta: DiskSessionMeta | null
 }
 
-export interface CustomGatewaySpec {
-  providerId: string
-  name: string
-  baseUrl: string
-  apiKey?: string
-}
+export type CustomGatewaySpec = AgentCustomGatewaySpec
 
 export class AgentSessionService {
   private sessionsDir: string
@@ -166,6 +182,9 @@ export class AgentSessionService {
   private skillDirCandidates: string[]
   private permissionEngine: PermissionEngine
   private authController: ProviderAuthController
+  private catalogEnricher: ModelCatalogEnricher
+  private quotaService: ProviderQuotaService
+  private defaultBaseUrls = new Map<string, string>()
   private pi: PiModule | null = null
   private modelRuntime: ModelRuntimeType | null = null
   private modelRegistry: ModelRegistryType | null = null
@@ -242,6 +261,12 @@ export class AgentSessionService {
     this.authController = new ProviderAuthController(
       () => this.modelRuntime,
       (operation: AgentAuthOperation) => this.sendAuthOperation(operation)
+    )
+    this.catalogEnricher = new ModelCatalogEnricher(this.agentDir)
+    this.quotaService = new ProviderQuotaService(
+      this.agentDir,
+      () => this.modelRuntime,
+      (quota) => this.sendProviderQuotaUpdated(quota)
     )
   }
 
@@ -327,10 +352,19 @@ export class AgentSessionService {
     })
     this.modelRegistry = new ModelRegistry(this.modelRuntime)
 
+    // Record built-in default baseUrls before user overrides are checked.
+    this.defaultBaseUrls.clear()
+    for (const provider of this.modelRuntime.getProviders()) {
+      if (provider.baseUrl) {
+        this.defaultBaseUrls.set(provider.id, provider.baseUrl)
+      }
+    }
+    this.defaultBaseUrls.set(MAGPIE_PROVIDER.providerId, MAGPIE_PROVIDER.baseUrl)
+
     // Ensure the local magpie gateway provider is registered
     await this.ensureMagpieProvider()
 
-    // Restore user-defined OpenAI-compatible gateways saved from prior runs.
+    // Restore user-defined OpenAI-compatible / Anthropic-compatible gateways saved from prior runs.
     for (const spec of this.listCustomGateways()) {
       await this.registerCustomGateway(spec).catch(() => undefined)
     }
@@ -339,57 +373,192 @@ export class AgentSessionService {
   public listCustomGateways(): CustomGatewaySpec[] {
     const raw = this.store.get(CUSTOM_GATEWAYS_STORE_KEY)
     if (!Array.isArray(raw)) return []
-    return raw.filter(
-      (item): item is CustomGatewaySpec =>
-        Boolean(item) &&
-        typeof item === 'object' &&
-        typeof (item as CustomGatewaySpec).providerId === 'string' &&
-        typeof (item as CustomGatewaySpec).baseUrl === 'string'
-    )
+    return raw
+      .filter(
+        (item): item is CustomGatewaySpec =>
+          Boolean(item) &&
+          typeof item === 'object' &&
+          typeof (item as CustomGatewaySpec).providerId === 'string' &&
+          typeof (item as CustomGatewaySpec).baseUrl === 'string'
+      )
+      .map((item) => {
+        if (item.apiKey) redactCredential(item.apiKey)
+        return item
+      })
+  }
+
+  private createCustomGateway(spec: CustomGatewaySpec): CustomGatewayProvider {
+    return new CustomGatewayProvider({
+      providerId: spec.providerId,
+      name: spec.name || spec.providerId,
+      baseUrl: spec.baseUrl,
+      api: spec.api ?? 'openai-completions',
+      apiKey: spec.apiKey
+    })
   }
 
   /**
-   * Register a user-supplied OpenAI-compatible gateway. Persists the spec so
-   * the provider comes back on next launch. Idempotent by providerId.
+   * Register or update a user-supplied gateway. Persists the spec so
+   * the provider comes back on next launch. If `apiKey` is omitted (`undefined`)
+   * when updating an existing custom gateway, the existing stored key is preserved.
    */
   public async addCustomGateway(spec: CustomGatewaySpec): Promise<void> {
     const id = spec.providerId.trim()
     if (!id) throw new Error('providerId 不能为空')
     if (id === MAGPIE_PROVIDER.providerId) throw new Error('该 providerId 已被内置占用')
-    const list = this.listCustomGateways().filter((item) => item.providerId !== id)
-    list.push({ ...spec, providerId: id })
+    const existingList = this.listCustomGateways()
+    const previous = existingList.find((item) => item.providerId === id)
+    if (!previous && this.modelRuntime?.getProvider(id)) {
+      throw new Error(`供应商 ID "${id}" 与内置供应商冲突，请换一个 ID`)
+    }
+    const resolvedKey = spec.apiKey === undefined ? previous?.apiKey : spec.apiKey.trim() || undefined
+    if (resolvedKey) redactCredential(resolvedKey)
+    const nextSpec: CustomGatewaySpec = {
+      providerId: id,
+      name: spec.name.trim() || id,
+      baseUrl: spec.baseUrl.trim(),
+      apiKey: resolvedKey,
+      api: spec.api ?? previous?.api ?? 'openai-completions',
+      presetId: spec.presetId ?? previous?.presetId,
+      balanceUrl: spec.balanceUrl === undefined ? previous?.balanceUrl : spec.balanceUrl.trim() || undefined,
+      balancePath: spec.balancePath === undefined ? previous?.balancePath : spec.balancePath.trim() || undefined
+    }
+    const list = existingList.filter((item) => item.providerId !== id)
+    list.push(nextSpec)
     this.store.set(CUSTOM_GATEWAYS_STORE_KEY, list)
-    await this.registerCustomGateway({ ...spec, providerId: id })
+    this.quotaService.invalidate(id)
+    await this.registerCustomGateway(nextSpec, { syncRemoteCatalog: true })
+    this.sendRuntimeChanged('refresh')
   }
 
   public async removeCustomGateway(providerId: string): Promise<void> {
     const list = this.listCustomGateways().filter((item) => item.providerId !== providerId)
     this.store.set(CUSTOM_GATEWAYS_STORE_KEY, list)
-    // ModelRuntime does not expose an unregister for extension providers;
-    // a restart drops the registration. Flag the change so the UI can hint.
+    this.quotaService.invalidate(providerId)
+    try {
+      this.modelRegistry?.unregisterProvider(providerId)
+    } catch {
+      // ignore if already removed
+    }
+    // Remove provider-scoped favorites / recents / disabled state cleanly.
+    const disabled = this.getDisabledProviderIds()
+    if (disabled.delete(providerId)) {
+      this.store.set(DISABLED_PROVIDERS_STORE_KEY, [...disabled])
+    }
+    this.store.set(
+      FAVORITE_MODELS_STORE_KEY,
+      [...this.getFavoriteModelKeys()].filter((k) => !k.startsWith(`${providerId}:`))
+    )
+    this.store.set(
+      RECENT_MODELS_STORE_KEY,
+      this.getRecentModelKeys().filter((k) => !k.startsWith(`${providerId}:`))
+    )
     this.sendRuntimeChanged('refresh')
   }
 
-  private async registerCustomGateway(spec: CustomGatewaySpec): Promise<void> {
-    if (!this.modelRegistry || !this.modelRuntime) return
+  public async testGatewayConnection(spec: {
+    providerId?: string
+    name?: string
+    baseUrl: string
+    apiKey?: string
+    api?: CustomGatewaySpec['api']
+    balanceUrl?: string
+    balancePath?: string
+  }): Promise<AgentGatewayTestResult> {
+    const baseUrl = spec.baseUrl.trim()
+    if (!baseUrl || !/^https?:\/\//i.test(baseUrl)) {
+      return {
+        ok: false,
+        modelCount: 0,
+        enrichedCount: 0,
+        sampleModels: [],
+        error: 'Base URL 需要以 http:// 或 https:// 开头'
+      }
+    }
+    const providerId = spec.providerId?.trim() || 'preview-gateway'
+    const previous = this.listCustomGateways().find((item) => item.providerId === providerId)
+    const effectiveKey = spec.apiKey === undefined ? previous?.apiKey : spec.apiKey.trim() || undefined
+    if (effectiveKey) redactCredential(effectiveKey)
+
     const gateway = new CustomGatewayProvider({
-      providerId: spec.providerId,
-      name: spec.name || spec.providerId,
-      baseUrl: spec.baseUrl,
-      apiKey: spec.apiKey
+      providerId,
+      name: spec.name?.trim() || providerId,
+      baseUrl,
+      api: spec.api ?? 'openai-completions',
+      apiKey: effectiveKey
     })
+
+    try {
+      const rawModels = await gateway.fetchModels()
+      const { models, enrichedCount } = await this.catalogEnricher.enrichModels(rawModels, {
+        syncRemote: true
+      })
+
+      let quota: AgentProviderQuota | undefined
+      if (effectiveKey || spec.balanceUrl) {
+        quota = await this.quotaService
+          .fetchForProvider(
+            {
+              id: providerId,
+              name: spec.name?.trim() || providerId,
+              baseUrl,
+              configured: true,
+              isCustom: true,
+              customSpec: {
+                providerId,
+                name: spec.name?.trim() || providerId,
+                baseUrl,
+                apiKey: effectiveKey,
+                api: spec.api,
+                balanceUrl: spec.balanceUrl,
+                balancePath: spec.balancePath
+              }
+            },
+            { force: true }
+          )
+          .catch(() => undefined)
+      }
+
+      return {
+        ok: true,
+        modelCount: models.length,
+        enrichedCount,
+        sampleModels: models.slice(0, 6).map((m) => m.id),
+        quota
+      }
+    } catch (err) {
+      const classified = classifyGatewayFetchError(err, baseUrl)
+      return {
+        ok: false,
+        modelCount: 0,
+        enrichedCount: 0,
+        sampleModels: [],
+        error: classified.message,
+        hint: classified.hint
+      }
+    }
+  }
+
+  private async registerCustomGateway(
+    spec: CustomGatewaySpec,
+    options?: { syncRemoteCatalog?: boolean }
+  ): Promise<void> {
+    if (!this.modelRegistry || !this.modelRuntime) return
+    const gateway = this.createCustomGateway(spec)
     const stored = await gateway.loadStoredModels(this.agentDir)
+    const { models: enrichedStored } = await this.catalogEnricher.enrichModels(stored)
     this.modelRegistry.registerProvider(spec.providerId, {
       name: spec.name || spec.providerId,
-      baseUrl: spec.baseUrl,
+      baseUrl: gateway.registrationBaseUrl,
       apiKey: spec.apiKey ?? 'custom-gateway',
-      models: stored
+      api: gateway.api,
+      models: enrichedStored
     })
     await this.modelRuntime.refresh({ allowNetwork: false, providers: [spec.providerId] })
     // Fetch live catalog in the background; failure keeps stored/empty.
     void gateway
       .fetchModels()
-      .then((models) => this.applyGatewayCatalog(gateway, models))
+      .then((models) => this.applyGatewayCatalog(gateway, models, options?.syncRemoteCatalog))
       .catch(() => undefined)
   }
 
@@ -401,11 +570,13 @@ export class AgentSessionService {
       // Seed the catalog from the last persisted fetch so a cold start with
       // the gateway offline still exposes the full model list.
       const stored = await provider.loadStoredModels(this.agentDir)
+      const initial = stored.length > 0 ? stored : provider.seedModels
+      const { models: enrichedInitial } = await this.catalogEnricher.enrichModels(initial)
       this.modelRegistry.registerProvider(provider.providerId, {
         name: provider.name,
         baseUrl: provider.baseUrl,
         apiKey: provider.apiKey,
-        models: stored.length > 0 ? stored : provider.seedModels
+        models: enrichedInitial
       })
     }
     // registerProvider kicks off an async availability refresh; wait for it so
@@ -420,27 +591,26 @@ export class AgentSessionService {
   }
 
   /**
-   * Re-register a custom gateway provider with the freshly fetched catalog.
-   * registerProvider merges into extensionProviders and recomposes, so the
-   * provider's getModels projection picks the new list up immediately —
-   * no reliance on pi's refreshModels/publish extension pipeline.
+   * Re-register a custom gateway provider with the freshly fetched and enriched catalog.
    */
   private async applyGatewayCatalog(
     provider: CustomGatewayProvider,
-    models: ProviderModelConfig[]
+    models: ProviderModelConfig[],
+    syncRemote = false
   ): Promise<void> {
     if (!this.modelRegistry || !this.modelRuntime || models.length === 0) return
-    // registerProvider validates the incoming config on its own (not the
-    // merged result), so baseUrl must be passed again or the custom-model
-    // definitions fail the "baseUrl is required" check.
+    const { models: enriched } = await this.catalogEnricher.enrichModels(models, {
+      syncRemote
+    })
     this.modelRegistry.registerProvider(provider.providerId, {
       name: provider.name,
-      baseUrl: provider.baseUrl,
+      baseUrl: provider.registrationBaseUrl,
       apiKey: provider.apiKey,
-      models
+      api: provider.api,
+      models: enriched
     })
     await this.modelRuntime.refresh({ allowNetwork: false, providers: [provider.providerId] })
-    await provider.persistModels(this.agentDir, models).catch(() => undefined)
+    await provider.persistModels(this.agentDir, enriched).catch(() => undefined)
     this.sendRuntimeChanged('refresh')
   }
 
@@ -960,6 +1130,11 @@ export class AgentSessionService {
           active.isRunning = true
         } else if (event.type === 'agent_end' || event.type === 'agent_settled') {
           active.isRunning = false
+          if (event.type === 'agent_end' && active.providerId) {
+            // Refresh subscription / relay quota shortly after a turn finishes.
+            this.quotaService.invalidate(active.providerId)
+            void this.refreshProviderQuota(active.providerId, false).catch(() => undefined)
+          }
         }
         if (!active.title && event.type === 'message_end' && event.message.role === 'user') {
           const text = this.extractUserText(event.message.content)
@@ -1180,13 +1355,15 @@ export class AgentSessionService {
     // Check if session is already active in memory
     const existing = this.touchActiveSession(sessionId)
     if (existing) {
+      const forkOrigin = await this.resolveForkOrigin(existing.session.sessionManager)
       return {
         sessionId,
         messages: existing.session.agent.state.messages,
         permissionMode: existing.permissionMode,
         model: existing.modelId,
         provider: existing.providerId,
-        cwd: existing.cwd
+        cwd: existing.cwd,
+        forkOrigin
       }
     }
 
@@ -1233,6 +1410,7 @@ export class AgentSessionService {
 
     const entry = this.wireSession(sessionId, session, cwd, this.getStoredPermissionMode())
     this.store.set('agent_current_session', sessionId)
+    const forkOrigin = await this.resolveForkOrigin(session.sessionManager)
 
     return {
       sessionId,
@@ -1240,7 +1418,8 @@ export class AgentSessionService {
       permissionMode: entry.permissionMode,
       model: entry.modelId,
       provider: entry.providerId,
-      cwd: entry.cwd
+      cwd: entry.cwd,
+      forkOrigin
     }
   }
 
@@ -1412,7 +1591,7 @@ export class AgentSessionService {
   public async forkSessionAtLeaf(
     sessionId: string,
     leafId?: string
-  ): Promise<{ sessionId: string }> {
+  ): Promise<{ sessionId: string; forkOrigin: AgentForkOrigin }> {
     const active = this.activeSessions.get(sessionId)
     if (!active) {
       throw new Error(`Session ${sessionId} is not active`)
@@ -1474,7 +1653,7 @@ export class AgentSessionService {
     })
 
     const newSessionId = forkedManager.getSessionId()
-    this.wireSession(newSessionId, forkedSession, cwd, active.permissionMode)
+    const forkedEntry = this.wireSession(newSessionId, forkedSession, cwd, active.permissionMode)
     this.store.set('agent_current_session', newSessionId)
 
     // Carry over the parent's file-change record so the fork can undo/redo
@@ -1491,34 +1670,32 @@ export class AgentSessionService {
       // Best-effort; fork still succeeds without file-change history.
     }
 
-    // Name the fork "<source name> 分支" and keep incrementing the suffix
-    // until it is unique among existing sessions.
+    // Keep the forked session title clean (do not append a "分支" suffix that
+    // gets clipped by narrow headers/48-char truncation); lineage is tracked via
+    // pi's header.parentSession + a non-context custom entry.
+    const sourceTitle = this.resolveLiveSessionTitle(sessionId, active)
+    forkedEntry.title = sourceTitle
+
     try {
-      const sourceName = (() => {
-        try {
-          return liveManager.getSessionName() ?? active.title
-        } catch {
-          return active.title
-        }
-      })()
-      const base = (sourceName && sourceName.trim()) || '新会话'
-      const existing = new Set(
-        (await this.listSessions()).map((s) => (s.name ?? s.title).trim())
-      )
-      let candidate = `${base} 分支`
-      let counter = 2
-      while (existing.has(candidate)) {
-        candidate = `${base} 分支${counter}`
-        counter++
-      }
-      forkedSession.setSessionName(candidate)
-      const forkedEntry = this.activeSessions.get(newSessionId)
-      if (forkedEntry) forkedEntry.title = candidate
+      forkedSession.sessionManager.appendCustomEntry(FORK_ORIGIN_CUSTOM_TYPE, {
+        parentSessionId: sessionId,
+        parentSessionTitle: sourceTitle,
+        forkAfterEntryId: targetLeafId ?? undefined,
+        forkedAt: Date.now()
+      } satisfies ForkOriginCustomData)
     } catch {
-      // Naming is best-effort; the fork itself must succeed regardless.
+      // Best-effort; header.parentSession still preserves lineage.
     }
 
-    return { sessionId: newSessionId }
+    const inheritedMessageCount = this.countRenderableContextMessages(forkedSession.sessionManager)
+    const forkOrigin: AgentForkOrigin = {
+      parentSessionId: sessionId,
+      parentSessionTitle: sourceTitle,
+      inheritedMessageCount,
+      parentExists: true
+    }
+
+    return { sessionId: newSessionId, forkOrigin }
   }
 
   /**
@@ -1689,6 +1866,159 @@ export class AgentSessionService {
     manager.appendSessionInfo(sanitized)
   }
 
+  private normalizeSessionPath(p: string): string {
+    return resolve(p).replace(/\\/g, '/').toLowerCase()
+  }
+
+  private resolveLiveSessionTitle(sessionId: string, active: ActiveSessionEntry): string {
+    try {
+      const liveName = active.session.sessionManager.getSessionName()
+      if (liveName && liveName.trim()) return liveName.trim().slice(0, 48)
+    } catch {
+      // ignore
+    }
+    if (active.title && active.title.trim()) {
+      return active.title.trim().slice(0, 48)
+    }
+    try {
+      const branch = active.session.sessionManager.getBranch()
+      for (const entry of branch) {
+        if (entry.type === 'message' && entry.message.role === 'user') {
+          const text = this.extractUserText(entry.message.content)
+          if (text) return text.slice(0, 48)
+        }
+      }
+    } catch {
+      // ignore
+    }
+    const cachedFile = this.sessionFilePathCache.get(sessionId)
+    if (cachedFile) {
+      const meta = this.sessionMetaCache.get(cachedFile)?.meta
+      const metaTitle = meta?.name || meta?.firstMessage
+      if (metaTitle) return metaTitle.slice(0, 48)
+    }
+    return '新会话'
+  }
+
+  private countRenderableContextMessages(sessionManager: SessionManagerType): number {
+    try {
+      const entries = sessionManager.buildContextEntries()
+      let count = 0
+      for (const entry of entries) {
+        if (entry.type === 'message' && (entry.message.role === 'user' || entry.message.role === 'assistant')) {
+          count++
+        }
+      }
+      return count
+    } catch {
+      return 0
+    }
+  }
+
+  private inspectBranchForkState(sessionManager: SessionManagerType): {
+    forkOriginEntryId?: string
+    forkData?: ForkOriginCustomData
+    firstBranchMessage?: string
+  } {
+    const branch = sessionManager.getBranch()
+    let forkOriginEntryId: string | undefined
+    let forkData: ForkOriginCustomData | undefined
+    let firstBranchMessage: string | undefined
+
+    for (const entry of branch) {
+      if (entry.type === 'custom' && entry.customType === FORK_ORIGIN_CUSTOM_TYPE) {
+        forkOriginEntryId = entry.id
+        forkData = (entry.data as ForkOriginCustomData | undefined) ?? undefined
+        firstBranchMessage = undefined
+        continue
+      }
+      if (forkOriginEntryId && !firstBranchMessage && entry.type === 'message' && entry.message.role === 'user') {
+        const text = this.extractUserText(entry.message.content)
+        if (text) firstBranchMessage = text
+      }
+    }
+
+    return { forkOriginEntryId, forkData, firstBranchMessage }
+  }
+
+  private async resolveForkOrigin(sessionManager: SessionManagerType): Promise<AgentForkOrigin | undefined> {
+    const header = sessionManager.getHeader()
+    const parentSessionPath = header?.parentSession
+    const { forkOriginEntryId, forkData, firstBranchMessage: _unused } = this.inspectBranchForkState(sessionManager)
+
+    if (!parentSessionPath && !forkData) {
+      return undefined
+    }
+
+    let inheritedMessageCount: number | undefined
+    if (forkOriginEntryId) {
+      const contextEntries = sessionManager.buildContextEntries()
+      const idx = contextEntries.findIndex((entry) => entry.id === forkOriginEntryId)
+      if (idx >= 0) {
+        let count = 0
+        for (let i = 0; i < idx; i++) {
+          const entry = contextEntries[i]
+          if (entry.type === 'message' && (entry.message.role === 'user' || entry.message.role === 'assistant')) {
+            count++
+          }
+        }
+        inheritedMessageCount = count
+      } else {
+        // Compaction occurred after the fork marker; anchor at top of retained context.
+        inheritedMessageCount = 0
+      }
+    }
+
+    let parentSessionId = forkData?.parentSessionId
+    let parentSessionTitle = forkData?.parentSessionTitle
+    let parentExists = false
+
+    if (parentSessionId && this.activeSessions.has(parentSessionId)) {
+      const parentActive = this.activeSessions.get(parentSessionId)!
+      parentExists = true
+      parentSessionTitle = this.resolveLiveSessionTitle(parentSessionId, parentActive)
+    } else {
+      let resolvedParentPath: string | undefined
+      if (parentSessionId) {
+        resolvedParentPath = await this.findSessionFile(parentSessionId)
+      }
+      if (!resolvedParentPath && parentSessionPath && existsSync(parentSessionPath)) {
+        resolvedParentPath = parentSessionPath
+      }
+      if (resolvedParentPath) {
+        try {
+          const info = await stat(resolvedParentPath)
+          if (info.isFile()) {
+            const cached = this.sessionMetaCache.get(resolvedParentPath)
+            const meta =
+              cached && cached.size === info.size && cached.mtimeMs === info.mtimeMs
+                ? cached.meta
+                : await this.parseDiskSessionFile(resolvedParentPath, info.mtimeMs)
+            if (meta) {
+              this.sessionMetaCache.set(resolvedParentPath, { size: info.size, mtimeMs: info.mtimeMs, meta })
+              this.sessionFilePathCache.set(meta.id, resolvedParentPath)
+              parentSessionId = meta.id
+              const activeParent = this.activeSessions.get(meta.id)
+              parentSessionTitle = activeParent
+                ? this.resolveLiveSessionTitle(meta.id, activeParent)
+                : (meta.name || meta.firstMessage || '新会话').slice(0, 48)
+              parentExists = true
+            }
+          }
+        } catch {
+          // ignore unreadable parent
+        }
+      }
+    }
+
+    return {
+      parentSessionId,
+      parentSessionTitle: parentSessionTitle || '原对话',
+      inheritedMessageCount,
+      parentExists
+    }
+  }
+
   /**
    * Stream-parse a single .jsonl session file once to build both list metadata and model.
    * Cached by { filePath, size, mtimeMs } so unchanged files are never re-read.
@@ -1696,11 +2026,15 @@ export class AgentSessionService {
   private async parseDiskSessionFile(filePath: string, fallbackMtimeMs: number): Promise<DiskSessionMeta | null> {
     const stream = createReadStream(filePath, { encoding: 'utf8' })
     const rl = createInterface({ input: stream, crlfDelay: Infinity })
-    let header: { id?: string; cwd?: string; timestamp?: string } | null = null
+    let header: { id?: string; cwd?: string; timestamp?: string; parentSession?: string } | null = null
     let name: string | undefined
     let model: string | undefined
     let messageCount = 0
     let firstMessage = ''
+    let sawForkOrigin = false
+    let forkParentId: string | undefined
+    let forkParentTitle: string | undefined
+    let firstBranchMessage = ''
     let lastActivityTime = 0
 
     try {
@@ -1719,13 +2053,24 @@ export class AgentSessionService {
           header = {
             id: entry.id,
             cwd: typeof entry.cwd === 'string' ? entry.cwd : '',
-            timestamp: typeof entry.timestamp === 'string' ? entry.timestamp : undefined
+            timestamp: typeof entry.timestamp === 'string' ? entry.timestamp : undefined,
+            parentSession: typeof entry.parentSession === 'string' ? entry.parentSession : undefined
           }
           continue
         }
         if (entry.type === 'session_info') {
           const rawName = typeof entry.name === 'string' ? entry.name.trim() : ''
           name = rawName || undefined
+          continue
+        }
+        if (entry.type === 'custom' && entry.customType === FORK_ORIGIN_CUSTOM_TYPE) {
+          const data = entry.data as ForkOriginCustomData | undefined
+          sawForkOrigin = true
+          forkParentId = typeof data?.parentSessionId === 'string' ? data.parentSessionId : forkParentId
+          forkParentTitle = typeof data?.parentSessionTitle === 'string' ? data.parentSessionTitle : forkParentTitle
+          // Nested forks inherit ancestor fork markers; reset so we capture the
+          // first prompt after the latest fork boundary.
+          firstBranchMessage = ''
           continue
         }
         if (entry.type === 'model_change') {
@@ -1748,9 +2093,12 @@ export class AgentSessionService {
             lastActivityTime = Math.max(lastActivityTime, parsed)
           }
         }
-        if (!firstMessage && msg?.role === 'user') {
+        if (msg?.role === 'user') {
           const text = this.extractUserText(msg.content)
-          if (text) firstMessage = text
+          if (text) {
+            if (!firstMessage) firstMessage = text
+            if (sawForkOrigin && !firstBranchMessage) firstBranchMessage = text
+          }
         }
       }
     } catch {
@@ -1776,6 +2124,10 @@ export class AgentSessionService {
       cwd: header.cwd ?? '',
       name,
       firstMessage: firstMessage || '(no messages)',
+      parentSessionPath: header.parentSession,
+      forkParentId,
+      forkParentTitle,
+      firstBranchMessage: firstBranchMessage || undefined,
       messageCount,
       createdAt,
       updatedAt,
@@ -1833,12 +2185,30 @@ export class AgentSessionService {
     const seen = new Set<string>()
     const diskTitleById = new Map<string, string>()
     const diskNameById = new Map<string, string>()
+    const pathToId = new Map<string, string>()
+    const diskMetaById = new Map<string, DiskSessionMeta>()
+
     for (const item of diskSessions) {
+      diskMetaById.set(item.id, item)
+      pathToId.set(this.normalizeSessionPath(item.filePath), item.id)
       if (item.firstMessage) {
         diskTitleById.set(item.id, item.firstMessage)
       }
       if (item.name) {
         diskNameById.set(item.id, item.name)
+      }
+    }
+
+    const titleById = new Map<string, string>()
+    for (const item of diskSessions) {
+      titleById.set(item.id, (item.name || item.firstMessage || '新会话').slice(0, 48))
+    }
+    for (const [id, active] of this.activeSessions.entries()) {
+      const liveTitle = this.resolveLiveSessionTitle(id, active)
+      titleById.set(id, liveTitle)
+      const sessionFile = active.session.sessionManager.getSessionFile()
+      if (sessionFile) {
+        pathToId.set(this.normalizeSessionPath(sessionFile), id)
       }
     }
 
@@ -1853,6 +2223,19 @@ export class AgentSessionService {
           return undefined
         }
       })()
+      const headerParentPath = active.session.sessionManager.getHeader()?.parentSession
+      const branchState = this.inspectBranchForkState(active.session.sessionManager)
+      const diskMeta = diskMetaById.get(id)
+      const resolvedParentId =
+        branchState.forkData?.parentSessionId ??
+        (headerParentPath ? pathToId.get(this.normalizeSessionPath(headerParentPath)) : undefined) ??
+        diskMeta?.forkParentId
+      const isFork = Boolean(resolvedParentId || headerParentPath || branchState.forkData || diskMeta?.parentSessionPath)
+      const resolvedParentTitle = resolvedParentId
+        ? (titleById.get(resolvedParentId) ?? branchState.forkData?.parentSessionTitle ?? diskMeta?.forkParentTitle)
+        : (branchState.forkData?.parentSessionTitle ?? diskMeta?.forkParentTitle)
+      const rawBranchMsg = branchState.firstBranchMessage ?? diskMeta?.firstBranchMessage
+
       result.push({
         id,
         title: (liveName || active.title || diskTitleById.get(id) || '新会话').slice(0, 48),
@@ -1861,7 +2244,14 @@ export class AgentSessionService {
         updatedAt: active.updatedAt,
         cwd: active.cwd,
         model: active.modelId,
-        isRunning: active.isRunning ?? false
+        isRunning: active.isRunning ?? false,
+        ...(isFork
+          ? {
+              parentSessionId: resolvedParentId,
+              parentSessionTitle: resolvedParentTitle,
+              firstBranchMessage: rawBranchMsg ? rawBranchMsg.slice(0, 64) : undefined
+            }
+          : {})
       })
       seen.add(id)
     }
@@ -1870,6 +2260,14 @@ export class AgentSessionService {
     for (const item of diskSessions) {
       if (!seen.has(item.id)) {
         if (item.messageCount === 0) continue
+        const resolvedParentId =
+          item.forkParentId ??
+          (item.parentSessionPath ? pathToId.get(this.normalizeSessionPath(item.parentSessionPath)) : undefined)
+        const isFork = Boolean(resolvedParentId || item.parentSessionPath || item.forkParentTitle)
+        const resolvedParentTitle = resolvedParentId
+          ? (titleById.get(resolvedParentId) ?? item.forkParentTitle)
+          : item.forkParentTitle
+
         result.push({
           id: item.id,
           title: (item.name || item.firstMessage || '新会话').slice(0, 48),
@@ -1877,7 +2275,14 @@ export class AgentSessionService {
           createdAt: item.createdAt,
           updatedAt: item.updatedAt,
           cwd: item.cwd,
-          model: item.model
+          model: item.model,
+          ...(isFork
+            ? {
+                parentSessionId: resolvedParentId,
+                parentSessionTitle: resolvedParentTitle,
+                firstBranchMessage: item.firstBranchMessage ? item.firstBranchMessage.slice(0, 64) : undefined
+              }
+            : {})
         })
         seen.add(item.id)
       }
@@ -2068,24 +2473,19 @@ export class AgentSessionService {
     if (!runtime) throw new Error('Agent 运行时尚未初始化')
     if (providerId === MAGPIE_PROVIDER.providerId) {
       const models = await MAGPIE_PROVIDER.fetchModels()
-      await this.applyGatewayCatalog(MAGPIE_PROVIDER, models)
+      await this.applyGatewayCatalog(MAGPIE_PROVIDER, models, true)
       return this.getRuntimeSnapshot()
     }
-    // User-defined OpenAI-compatible gateways go through the same catalog flow
-    // as the built-in magpie provider so /v1/models results get persisted.
+    // User-defined gateways go through the same catalog flow as the built-in
+    // magpie provider so /models results get enriched and persisted.
     const custom = this.listCustomGateways().find((item) => item.providerId === providerId)
     if (custom) {
-      const gateway = new CustomGatewayProvider({
-        providerId: custom.providerId,
-        name: custom.name || custom.providerId,
-        baseUrl: custom.baseUrl,
-        apiKey: custom.apiKey
-      })
+      const gateway = this.createCustomGateway(custom)
       const models = await gateway.fetchModels()
       if (models.length === 0) {
         throw new Error(`刷新 ${providerId} 模型失败：未获取到任何模型`)
       }
-      await this.applyGatewayCatalog(gateway, models)
+      await this.applyGatewayCatalog(gateway, models, true)
       return this.getRuntimeSnapshot()
     }
     const result = await runtime.refresh({ allowNetwork: true, force: true, providers: [providerId] })
@@ -2095,37 +2495,106 @@ export class AgentSessionService {
     return this.getRuntimeSnapshot()
   }
 
+  public async getProviderQuotas(
+    providerIds?: string[],
+    force = false
+  ): Promise<Record<string, AgentProviderQuota>> {
+    const targets = this.buildQuotaTargets(providerIds)
+    return this.quotaService.fetchAll(targets, { force })
+  }
+
+  public async refreshProviderQuota(
+    providerId: string,
+    force = true
+  ): Promise<AgentProviderQuota | null> {
+    const [target] = this.buildQuotaTargets([providerId])
+    if (!target) return null
+    return this.quotaService.fetchForProvider(target, { force })
+  }
+
+  private buildQuotaTargets(filterIds?: string[]): QuotaTargetProvider[] {
+    const runtime = this.modelRuntime
+    if (!runtime) return []
+    const filter = filterIds ? new Set(filterIds) : null
+    const customMap = new Map(this.listCustomGateways().map((c) => [c.providerId, c]))
+    const disabledSet = this.getDisabledProviderIds()
+    const targets: QuotaTargetProvider[] = []
+
+    for (const provider of runtime.getProviders()) {
+      // Magpie is a local pass-through gateway: upstream account quotas are
+      // managed inside the gateway itself, so there is nothing meaningful to query here.
+      if (provider.id === MAGPIE_PROVIDER.providerId) continue
+      if (filter && !filter.has(provider.id)) continue
+      if (disabledSet.has(provider.id)) continue
+      const status = runtime.getProviderAuthStatus(provider.id)
+      const isCustom = customMap.has(provider.id)
+      const configured =
+        status.configured ||
+        isCustom ||
+        runtime.getModels(provider.id).length > 0
+      const authType = status.configured
+        ? runtime.isUsingOAuth(provider.id)
+          ? 'oauth'
+          : 'api_key'
+        : undefined
+      targets.push({
+        id: provider.id,
+        name: provider.name || provider.id,
+        baseUrl: provider.baseUrl,
+        configured,
+        isCustom,
+        isSubscription: Boolean(provider.auth.oauth?.isSubscription),
+        authType,
+        customSpec: customMap.get(provider.id)
+      })
+    }
+    return targets
+  }
+
+  private sendProviderQuotaUpdated(quota: AgentProviderQuota): void {
+    const wc = this.getWebContents()
+    if (wc && !wc.isDestroyed()) {
+      wc.send('agent:provider-quota-updated', { quota })
+    }
+  }
+
   /**
-   * Set (or clear) the baseUrl for a provider the user owns — the built-in
-   * magpie gateway or a custom gateway. Persists the override in models.json
-   * so `refresh()` picks it up on the next compose pass; no restart needed.
-   * Returns the new snapshot so the renderer updates immediately.
+   * Set (or clear) the baseUrl for any API-key/gateway provider (built-in
+   * providers, magpie, or custom gateways). Persists the override in models.json
+   * so `refresh()` picks it up immediately.
    */
   public async setProviderBaseUrl(providerId: string, baseUrl: string | null): Promise<AgentRuntimeSnapshot> {
     const runtime = this.modelRuntime
     if (!runtime) throw new Error('Agent 运行时尚未初始化')
+    const provider = runtime.getProvider(providerId)
+    if (!provider) throw new Error(`供应商不存在：${providerId}`)
 
-    const isCustom = this.listCustomGateways().some((item) => item.providerId === providerId)
+    const customList = this.listCustomGateways()
+    const isCustom = customList.some((item) => item.providerId === providerId)
     const isMagpie = providerId === MAGPIE_PROVIDER.providerId
-    if (!isCustom && !isMagpie) {
+    const canEdit = isCustom || isMagpie || Boolean(provider.auth.apiKey)
+    if (!canEdit) {
       throw new Error('该供应商不支持修改端点')
     }
 
-    const trimmed = (baseUrl ?? '').trim()
+    const trimmed = (baseUrl ?? '').trim().replace(/\/+$/, '')
     if (trimmed && !/^https?:\/\//i.test(trimmed)) {
       throw new Error('baseUrl 需要以 http:// 或 https:// 开头')
     }
 
-    // Custom gateways persist their endpoint in the gateway spec itself so a
-    // cold start re-registers with the right address.
     if (isCustom) {
-      const list = this.listCustomGateways().map((item) =>
+      const list = customList.map((item) =>
         item.providerId === providerId ? { ...item, baseUrl: trimmed || item.baseUrl } : item
       )
       this.store.set(CUSTOM_GATEWAYS_STORE_KEY, list)
+      const updated = list.find((item) => item.providerId === providerId)
+      if (updated) {
+        await this.registerCustomGateway(updated, { syncRemoteCatalog: false })
+      }
     }
 
     await this.writeProviderBaseUrlOverride(providerId, trimmed || null)
+    this.quotaService.invalidate(providerId)
     await runtime.refresh({ allowNetwork: false, force: true, providers: [providerId] })
     this.sendRuntimeChanged('refresh')
     return this.getRuntimeSnapshot()
@@ -2182,9 +2651,8 @@ export class AgentSessionService {
   }
 
   private resolveSession(sessionId?: string): AgentSession | null {
-    if (sessionId) {
-      const entry = this.activeSessions.get(sessionId)
-      if (entry) return entry.session
+    if (sessionId !== undefined) {
+      return sessionId ? (this.activeSessions.get(sessionId)?.session ?? null) : null
     }
     const current = this.store.get('agent_current_session')
     if (typeof current === 'string') {
@@ -2246,9 +2714,13 @@ export class AgentSessionService {
     if (!runtime) return []
     const disabledSet = this.getDisabledProviderIds()
     const availableKeys = new Set(runtime.getAvailableSnapshot().map((model) => `${model.provider}:${model.id}`))
+    const customMap = new Map(this.listCustomGateways().map((c) => [c.providerId, c]))
+
     return runtime.getProviders().map((provider) => {
       const disabled = disabledSet.has(provider.id)
       const status = runtime.getProviderAuthStatus(provider.id)
+      const custom = customMap.get(provider.id)
+      const isCustom = Boolean(custom)
       const models: AgentProviderModel[] = runtime.getModels(provider.id).map((model) => ({
         providerId: model.provider,
         id: model.id,
@@ -2266,10 +2738,22 @@ export class AgentSessionService {
           ? 'oauth'
           : 'api_key'
         : undefined
+      const defaultBaseUrl = this.defaultBaseUrls.get(provider.id)
+      const effectiveBaseUrl = custom?.baseUrl ?? provider.baseUrl
+      const endpointEditable =
+        isCustom || provider.id === MAGPIE_PROVIDER.providerId || Boolean(provider.auth.apiKey)
       return {
         id: provider.id,
         name: provider.name || provider.id,
-        ...(provider.baseUrl ? { baseUrl: provider.baseUrl } : {}),
+        ...(effectiveBaseUrl ? { baseUrl: effectiveBaseUrl } : {}),
+        ...(defaultBaseUrl ? { defaultBaseUrl } : {}),
+        ...(custom?.api ? { api: custom.api } : {}),
+        ...(isCustom ? { isCustom: true } : {}),
+        ...(custom?.presetId ? { presetId: custom.presetId } : {}),
+        ...(endpointEditable ? { endpointEditable: true } : {}),
+        ...(custom?.balanceUrl ? { balanceUrl: custom.balanceUrl } : {}),
+        ...(custom?.balancePath ? { balancePath: custom.balancePath } : {}),
+        ...(custom?.apiKey && custom.apiKey !== 'custom-gateway' ? { hasStoredApiKey: true } : {}),
         configured,
         ...(authType ? { authType } : {}),
         ...(status.source ? { authSource: status.source } : {}),
@@ -2497,6 +2981,10 @@ export class AgentSessionService {
     if (!provider.auth.apiKey?.login) throw new Error(`${provider.name || providerId} 不支持 API Key 登录`)
     const key = cred.key.trim()
     if (!key) throw new Error('API Key 不能为空')
+
+    // Direct key entry replaces the legacy interactive key dialog; clear any
+    // abandoned auth flow for this provider so it stops showing as 认证中.
+    this.authController.cancelActive(providerId)
 
     redactCredential(key)
     await runtime.login(providerId, 'api_key', {

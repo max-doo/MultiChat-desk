@@ -50,6 +50,58 @@ export interface AgentAuthOperation {
   error?: string
 }
 
+export type AgentGatewayApiType =
+  | 'openai-completions'
+  | 'openai-responses'
+  | 'anthropic-messages'
+
+export interface AgentQuotaWindow {
+  id: string
+  name: string
+  usedPercent?: number
+  remainingPercent?: number
+  unlimited?: boolean
+  amount?: number
+  limit?: number
+  unit?: string
+  resetsAt?: number
+  text?: string
+}
+
+export interface AgentProviderQuota {
+  providerId: string
+  kind: 'subscription' | 'plan' | 'balance'
+  plan?: string
+  account?: string
+  balanceText?: string
+  windows: AgentQuotaWindow[]
+  fetchedAt: number
+  error?: string
+  stale?: boolean
+  sourceLabel?: string
+}
+
+export interface AgentCustomGatewaySpec {
+  providerId: string
+  name: string
+  baseUrl: string
+  apiKey?: string
+  api?: AgentGatewayApiType
+  presetId?: string
+  balanceUrl?: string
+  balancePath?: string
+}
+
+export interface AgentGatewayTestResult {
+  ok: boolean
+  modelCount: number
+  enrichedCount: number
+  sampleModels: string[]
+  quota?: AgentProviderQuota
+  error?: string
+  hint?: string
+}
+
 export interface AgentProviderModel {
   providerId: string
   id: string
@@ -65,8 +117,18 @@ export interface AgentProviderModel {
 export interface AgentProvider {
   id: string
   name: string
-  /** Effective request baseUrl after any user override; gateway providers only. */
+  /** Effective request baseUrl after any user override; gateway or overridden providers. */
   baseUrl?: string
+  /** Default baseUrl before override, when known. */
+  defaultBaseUrl?: string
+  /** Configured protocol for custom gateways. */
+  api?: AgentGatewayApiType
+  isCustom?: boolean
+  presetId?: string
+  endpointEditable?: boolean
+  balanceUrl?: string
+  balancePath?: string
+  hasStoredApiKey?: boolean
   configured: boolean
   authType?: AgentAuthType
   authSource?: 'stored' | 'runtime' | 'environment' | 'fallback' | 'models_json_key' | 'models_json_command'
@@ -132,17 +194,6 @@ export interface AgentSessionStatus {
     keepRecentTokens: number
   } | null
 }
-export interface AgentSessionStatus {
-  active: AgentActiveModel
-  context: AgentContextUsage | null
-  stats: AgentSessionStats | null
-  compaction: {
-    enabled: boolean
-    isCompacting: boolean
-    reserveTokens: number
-    keepRecentTokens: number
-  } | null
-}
 
 /** A single file touched by an edit/write tool call within one agent turn. */
 export interface AgentFileChange {
@@ -180,5 +231,15 @@ export interface AgentTurnFileChanges {
   /** Path → snapshot taken after the last write in this turn. */
   target: Record<string, AgentFileSnapshot>
   status: AgentFileChangeStatus
+}
+
+/** Provenance metadata for a forked Agent session. */
+export interface AgentForkOrigin {
+  parentSessionId?: string
+  parentSessionTitle?: string
+  /** Number of inherited user/assistant messages preceding the fork boundary. */
+  inheritedMessageCount?: number
+  /** Whether the source session still exists in memory or on disk. */
+  parentExists?: boolean
 }
 

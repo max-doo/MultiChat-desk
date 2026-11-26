@@ -12,6 +12,7 @@ import {
 } from '../components/workbench/agent/filePathUtils'
 import type {
   AgentFileChangeStatus,
+  AgentForkOrigin,
   AgentTurnFileChanges
 } from '../../../shared/types/agentRuntime'
 import type {
@@ -28,6 +29,7 @@ import type {
   AgentAuthOperation,
   AgentAuthType,
   AgentFavoriteModel,
+  AgentProviderQuota,
   AgentRuntimeSnapshot,
   AgentSessionStatus,
   AgentThinkingLevel
@@ -98,6 +100,17 @@ function normalizeWorkspaceKey(p?: string | null): string {
   return p ? normalizePath(p) : ''
 }
 
+function clearSnapshotUsage(snapshot: AgentRuntimeSnapshot | null): AgentRuntimeSnapshot | null {
+  return snapshot ? { ...snapshot, context: null, stats: null } : null
+}
+
+function sanitizeSnapshotForSession(
+  snapshot: AgentRuntimeSnapshot,
+  currentSessionId: string | null
+): AgentRuntimeSnapshot {
+  return currentSessionId === null ? { ...snapshot, context: null, stats: null } : snapshot
+}
+
 function convertPiContentParts(rawContent?: string | PiRawPart[]): PiContentPart[] {
   if (!rawContent) return []
   if (typeof rawContent === 'string') {
@@ -153,6 +166,8 @@ interface AgentSessionState {
   activeProvider: string
   providers: AgentProviderInfo[]
   snapshot: AgentRuntimeSnapshot | null
+  providerQuotas: Record<string, AgentProviderQuota>
+  quotasLoading: boolean
   authOperations: Record<string, AgentAuthOperation>
   sessionStatus: AgentSessionStatus | null
   isCompacting: boolean
@@ -165,6 +180,7 @@ interface AgentSessionState {
   settingsOpen: boolean
   branchUserEntries: Array<{ entryId: string; text: string }>
   fileChangesRecord: AgentTurnFileChanges | null
+  forkOrigin: AgentForkOrigin | null
   /**
    * 失效工作区回看态：resume 一条 cwd 已失效（目录删除/改名/脱机）的会话后置位。
    * 置位期间 AgentCard 的工作区同步 effect 不得因 cwd !== workspacePath 清空消息；
@@ -214,7 +230,7 @@ interface AgentSessionState {
   setCredential: (
     providerId: string,
     cred: { type: 'api_key'; key: string; env?: string; baseUrl?: string }
-  ) => Promise<boolean>
+  ) => Promise<{ ok: boolean; error?: string }>
   deleteCredential: (providerId: string) => Promise<boolean>
   setModel: (model: string, provider?: string) => Promise<boolean>
   fetchSnapshot: (sessionId?: string) => Promise<void>
@@ -231,6 +247,8 @@ interface AgentSessionState {
   setProviderDisabled: (providerId: string, disabled: boolean) => Promise<boolean>
   setFavoriteModels: (favorites: AgentFavoriteModel[]) => Promise<boolean>
   removeRecentModels: (items: AgentFavoriteModel[]) => Promise<boolean>
+  fetchProviderQuotas: (force?: boolean) => Promise<void>
+  refreshProviderQuota: (providerId: string) => Promise<void>
   openAgentSettings: () => void
   fetchConfig: () => Promise<void>
   setSkillDirs: (dirs: string[]) => Promise<boolean>
@@ -257,6 +275,8 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
   activeProvider: 'magpie',
   providers: [],
   snapshot: null,
+  providerQuotas: {},
+  quotasLoading: false,
   authOperations: {},
   sessionStatus: null,
   isCompacting: false,
@@ -269,6 +289,7 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
   settingsOpen: false,
   branchUserEntries: [],
   fileChangesRecord: null,
+  forkOrigin: null,
   foreignReview: false,
 
   setSessionId: (id) => {
@@ -276,7 +297,7 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
     set((s) => ({
       currentSessionId: id,
       isRunning: id ? s.runningSessionIds.has(id) : false,
-      ...(id !== prevId ? { fileChangesRecord: null } : {})
+      ...(id !== prevId ? { fileChangesRecord: null, forkOrigin: null } : {})
     }))
     if (id && id !== prevId) {
       void get().fetchFileChanges(id)
@@ -471,6 +492,7 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
     let cleanupAuth: (() => void) | undefined
     let cleanupRuntime: (() => void) | undefined
     let cleanupStatus: (() => void) | undefined
+    let cleanupQuota: (() => void) | undefined
 
     if (typeof api.onAgentEvent === 'function') {
       cleanupEvent = api.onAgentEvent(({ sessionId, event }) => {
@@ -502,8 +524,16 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
     if (typeof api.onAgentSessionStatus === 'function') {
       cleanupStatus = api.onAgentSessionStatus(({ sessionId, status }) => {
         const current = get().currentSessionId
-        if (current && sessionId !== current) return
+        if (!current || sessionId !== current) return
         set({ sessionStatus: status })
+      })
+    }
+
+    if (typeof api.onAgentProviderQuotaUpdated === 'function') {
+      cleanupQuota = api.onAgentProviderQuotaUpdated(({ quota }) => {
+        set((s) => ({
+          providerQuotas: { ...s.providerQuotas, [quota.providerId]: quota }
+        }))
       })
     }
 
@@ -527,6 +557,7 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
       cleanupAuth?.()
       cleanupRuntime?.()
       cleanupStatus?.()
+      cleanupQuota?.()
     }
     ipcListenerTeardown = teardown
 
@@ -582,11 +613,15 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
       state.messages.length === 0 &&
       state.pendingApprovals.length === 0 &&
       state.fileChangesRecord === null &&
+      state.sessionStatus === null &&
+      !state.isCompacting &&
+      (state.snapshot?.context ?? null) === null &&
+      (state.snapshot?.stats ?? null) === null &&
       !state.foreignReview
     ) {
       return null
     }
-    set({
+    set((s) => ({
       currentSessionId: null,
       currentCwd: targetCwd,
       messages: [],
@@ -596,8 +631,12 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
       attachments: [],
       branchUserEntries: [],
       fileChangesRecord: null,
-      foreignReview: false
-    })
+      forkOrigin: null,
+      foreignReview: false,
+      sessionStatus: null,
+      isCompacting: false,
+      snapshot: clearSnapshotUsage(s.snapshot)
+    }))
     return null
   },
 
@@ -608,7 +647,7 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
       const res = await getAgentApi().agentNewSession(targetCwd)
       if (res.success && res.data?.sessionId) {
         const sessionId = res.data.sessionId
-        set({
+        set((s) => ({
           currentSessionId: sessionId,
           currentCwd: targetCwd || null,
           messages: [],
@@ -618,8 +657,12 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
           attachments: [],
           branchUserEntries: [],
           fileChangesRecord: null,
-          foreignReview: false
-        })
+          forkOrigin: null,
+          foreignReview: false,
+          sessionStatus: null,
+          isCompacting: false,
+          snapshot: clearSnapshotUsage(s.snapshot)
+        }))
         void get().fetchSessions()
         void get().fetchSnapshot(sessionId)
         void get().fetchSessionStatus(sessionId)
@@ -641,6 +684,7 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
           provider?: string
           cwd?: string
           permissionMode?: string
+          forkOrigin?: AgentForkOrigin
         } | null
         const restoredMessages: AgentMessage[] = []
 
@@ -712,19 +756,23 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
           }
         }
 
-        set({
+        set((s) => ({
           currentSessionId: sessionId,
           currentCwd: rawData?.cwd || null,
           messages: restoredMessages,
           pendingApprovals: [],
           fileChangesRecord: null,
-          activeModel: rawData?.model || get().activeModel,
-          activeProvider: rawData?.provider || get().activeProvider,
+          forkOrigin: rawData?.forkOrigin ?? null,
+          sessionStatus: null,
+          isCompacting: false,
+          snapshot: clearSnapshotUsage(s.snapshot),
+          activeModel: rawData?.model || s.activeModel,
+          activeProvider: rawData?.provider || s.activeProvider,
           permissionMode: rawData?.permissionMode === 'auto' || rawData?.permissionMode === 'bypass'
             ? rawData.permissionMode
             : 'default',
-          isRunning: get().runningSessionIds.has(sessionId)
-        })
+          isRunning: s.runningSessionIds.has(sessionId)
+        }))
         // isRunning is derived from runningSessionIds — populated by live events.
         void get().fetchSnapshot(sessionId)
         void get().fetchSessionStatus(sessionId)
@@ -746,17 +794,27 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
       }
 
       const wasCurrent = get().currentSessionId === sessionId
-      set({ sessions: get().sessions.filter((s) => s.id !== sessionId) })
+      const currentForkOrigin = get().forkOrigin
+      set({
+        sessions: get().sessions.filter((s) => s.id !== sessionId),
+        ...(currentForkOrigin?.parentSessionId === sessionId
+          ? { forkOrigin: { ...currentForkOrigin, parentExists: false } }
+          : {})
+      })
 
       if (wasCurrent) {
         // Back to a draft state; a fresh session is created lazily on next prompt.
-        set({
+        set((s) => ({
           currentSessionId: null,
           messages: [],
           isRunning: false,
           pendingApprovals: [],
-          fileChangesRecord: null
-        })
+          fileChangesRecord: null,
+          forkOrigin: null,
+          sessionStatus: null,
+          isCompacting: false,
+          snapshot: clearSnapshotUsage(s.snapshot)
+        }))
       }
       return true
     } catch (err) {
@@ -776,9 +834,15 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
       }
       const title = trimmed.slice(0, 48)
       set((s) => ({
-        sessions: s.sessions.map((item) =>
-          item.id === sessionId ? { ...item, title, name: trimmed } : item
-        )
+        sessions: s.sessions.map((item) => {
+          if (item.id === sessionId) return { ...item, title, name: trimmed }
+          if (item.parentSessionId === sessionId) return { ...item, parentSessionTitle: title }
+          return item
+        }),
+        forkOrigin:
+          s.forkOrigin?.parentSessionId === sessionId
+            ? { ...s.forkOrigin, parentSessionTitle: title }
+            : s.forkOrigin
       }))
       return true
     } catch (err) {
@@ -967,8 +1031,20 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
             break
           }
         }
+        const nextMessages = cut >= 0 ? msgs.slice(0, cut) : msgs
+        const remainingRenderable = nextMessages.filter(
+          (m) => m.role === 'user' || m.role === 'assistant'
+        ).length
+        const nextForkOrigin =
+          s.forkOrigin && s.forkOrigin.inheritedMessageCount !== undefined
+            ? {
+                ...s.forkOrigin,
+                inheritedMessageCount: Math.min(s.forkOrigin.inheritedMessageCount, remainingRenderable)
+              }
+            : s.forkOrigin
         return {
-          messages: cut >= 0 ? msgs.slice(0, cut) : msgs,
+          messages: nextMessages,
+          forkOrigin: nextForkOrigin,
           composerInput: editorText,
           pendingApprovals: []
         }
@@ -998,6 +1074,9 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
       }
       const ok = await get().resumeSession(res.data.sessionId)
       if (!ok) return false
+      if (res.data.forkOrigin) {
+        set({ forkOrigin: res.data.forkOrigin })
+      }
       void get().fetchSessions()
       return true
     } catch (err) {
@@ -1083,12 +1162,13 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
       const res = await getAgentApi().agentSetCredential(providerId, cred)
       if (res.success) {
         await get().fetchProviders()
-        return true
+        return { ok: true }
       }
+      return { ok: false, error: res.error || '保存 API Key 失败' }
     } catch (err) {
       console.error('[agentSessionStore] setCredential error:', err)
+      return { ok: false, error: err instanceof Error ? err.message : '保存 API Key 失败' }
     }
-    return false
   },
 
   deleteCredential: async (providerId) => {
@@ -1125,14 +1205,26 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
 
   fetchSnapshot: async (sessionId) => {
     set({ snapshotLoading: true })
+    const requestedSessionId = sessionId ?? get().currentSessionId ?? ''
     try {
-      const res = await getAgentApi().agentGetRuntimeSnapshot(sessionId ?? get().currentSessionId ?? undefined)
+      const res = await getAgentApi().agentGetRuntimeSnapshot(requestedSessionId)
       if (res.success && res.data) {
-        set({
-          snapshot: res.data,
-          activeModel: res.data.active.modelId,
-          activeProvider: res.data.active.providerId,
-          snapshotLoading: false
+        const snapshotData = res.data
+        set((s) => {
+          const activeSessionId = s.currentSessionId ?? ''
+          const sameSession = activeSessionId === requestedSessionId
+          return {
+            snapshot: sameSession
+              ? sanitizeSnapshotForSession(snapshotData, s.currentSessionId)
+              : { ...snapshotData, context: null, stats: null },
+            ...(sameSession
+              ? {
+                  activeModel: snapshotData.active.modelId,
+                  activeProvider: snapshotData.active.providerId
+                }
+              : {}),
+            snapshotLoading: false
+          }
         })
       } else {
         set({ snapshotLoading: false })
@@ -1144,9 +1236,14 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
   },
 
   fetchSessionStatus: async (sessionId) => {
+    const requestedSessionId = sessionId ?? get().currentSessionId
+    if (!requestedSessionId) {
+      set({ sessionStatus: null })
+      return
+    }
     try {
-      const res = await getAgentApi().agentGetSessionStatus(sessionId ?? get().currentSessionId ?? undefined)
-      if (res.success) {
+      const res = await getAgentApi().agentGetSessionStatus(requestedSessionId)
+      if (res.success && get().currentSessionId === requestedSessionId) {
         set({ sessionStatus: res.data ?? null })
       }
     } catch (err) {
@@ -1160,7 +1257,10 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
       const res = await getAgentApi().agentSetThinkingLevel(sessionId, level)
       if (res.success && res.data) {
         set((s) => ({
-          sessionStatus: s.sessionStatus ? { ...s.sessionStatus, active: res.data as AgentActiveModel } : s.sessionStatus
+          sessionStatus:
+            s.currentSessionId === (sessionId || null) && s.sessionStatus
+              ? { ...s.sessionStatus, active: res.data as AgentActiveModel }
+              : s.sessionStatus
         }))
         void get().fetchSnapshot()
         return true
@@ -1258,7 +1358,8 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
     try {
       const res = await getAgentApi().agentLogoutProvider(providerId)
       if (res.success && res.data) {
-        set({ snapshot: res.data })
+        const snapshot = res.data
+        set((s) => ({ snapshot: sanitizeSnapshotForSession(snapshot, s.currentSessionId) }))
         return true
       }
     } catch (err) {
@@ -1271,7 +1372,8 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
     try {
       const res = await getAgentApi().agentRefreshProviderModels(providerId)
       if (res.success && res.data) {
-        set({ snapshot: res.data })
+        const snapshot = res.data
+        set((s) => ({ snapshot: sanitizeSnapshotForSession(snapshot, s.currentSessionId) }))
         return true
       }
     } catch (err) {
@@ -1284,7 +1386,8 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
     try {
       const res = await getAgentApi().agentSetProviderBaseUrl?.(providerId, baseUrl)
       if (res?.success && res.data) {
-        set({ snapshot: res.data })
+        const snapshot = res.data
+        set((s) => ({ snapshot: sanitizeSnapshotForSession(snapshot, s.currentSessionId) }))
         return true
       }
     } catch (err) {
@@ -1297,7 +1400,8 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
     try {
       const res = await getAgentApi().agentSetProviderDisabled?.(providerId, disabled)
       if (res?.success && res.data) {
-        set({ snapshot: res.data })
+        const snapshot = res.data
+        set((s) => ({ snapshot: sanitizeSnapshotForSession(snapshot, s.currentSessionId) }))
         void get().fetchSessionStatus()
         return true
       }
@@ -1311,7 +1415,8 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
     try {
       const res = await getAgentApi().agentSetFavoriteModels?.(favorites)
       if (res?.success && res.data) {
-        set({ snapshot: res.data })
+        const snapshot = res.data
+        set((s) => ({ snapshot: sanitizeSnapshotForSession(snapshot, s.currentSessionId) }))
         return true
       }
     } catch (err) {
@@ -1324,13 +1429,41 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
     try {
       const res = await getAgentApi().agentRemoveRecentModels?.(items)
       if (res?.success && res.data) {
-        set({ snapshot: res.data })
+        const snapshot = res.data
+        set((s) => ({ snapshot: sanitizeSnapshotForSession(snapshot, s.currentSessionId) }))
         return true
       }
     } catch (err) {
       console.error('[agentSessionStore] removeRecentModels error:', err)
     }
     return false
+  },
+
+  fetchProviderQuotas: async (force = false) => {
+    set({ quotasLoading: true })
+    try {
+      const res = await getAgentApi().agentGetProviderQuotas?.({ force })
+      if (res?.success && res.data) {
+        set({ providerQuotas: res.data })
+      }
+    } catch (err) {
+      console.error('[agentSessionStore] fetchProviderQuotas error:', err)
+    } finally {
+      set({ quotasLoading: false })
+    }
+  },
+
+  refreshProviderQuota: async (providerId) => {
+    try {
+      const res = await getAgentApi().agentRefreshProviderQuota?.(providerId)
+      if (res?.success && res.data) {
+        set((s) => ({
+          providerQuotas: { ...s.providerQuotas, [providerId]: res.data! }
+        }))
+      }
+    } catch (err) {
+      console.error('[agentSessionStore] refreshProviderQuota error:', err)
+    }
   },
 
   openAgentSettings: () => {

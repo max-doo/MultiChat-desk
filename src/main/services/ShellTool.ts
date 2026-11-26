@@ -194,6 +194,9 @@ export class ShellTool {
       child.on('error', (err) => {
         if (timeoutTimer) clearTimeout(timeoutTimer)
         const durationMs = Date.now() - startTime
+        if (options.onData) {
+          options.onData(`Spawn error: ${err.message}\n`)
+        }
         resolve({
           output: `Spawn error: ${err.message}`,
           exitCode: -1,
@@ -214,7 +217,10 @@ export class ShellTool {
         const res = await ShellTool.execute(command, {
           cwd,
           env: opts.env,
-          timeout: opts.timeout,
+          // pi's tool contract passes timeout in seconds ("Timeout in seconds");
+          // ShellTool works in milliseconds. Without this conversion a model
+          // asking for 30 seconds got killed after 30 milliseconds.
+          timeout: opts.timeout === undefined ? undefined : opts.timeout * 1000,
           signal: opts.signal,
           onData: (chunk) => {
             opts.onData(Buffer.from(chunk, 'utf-8'))

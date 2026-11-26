@@ -49,7 +49,7 @@ const HARD_DENY_PATTERNS: RegExp[] = [
   /\b(?:rd|rmdir)\s+\/s\s+\/q\s+[A-Za-z]:[\\/]/i,
   /\bdel\s+\/s\s+\/q\s+[A-Za-z]:[\\/]/i,
   /\bremove-item\b[^\r\n]*(?:-recurse|-r\b)[^\r\n]*(?:[A-Za-z]:[\\/]\s|[A-Za-z]:[\\/]$|\/\*|~\/)/i,
-  /\b(?:format|format-volume|mkfs)\b/i,
+  /\b(?:format(?!-)|format-volume|mkfs)\b/i,
   /\bdd\s+.*of=\/dev\//i,
   /\breg\s+delete\s+hklm/i,
   /\b(?:shutdown|restart-computer|stop-process\s+-name\s+system)\b/i,

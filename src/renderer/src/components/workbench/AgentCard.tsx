@@ -1,4 +1,4 @@
-import { memo, useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import { Fragment, memo, useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useAppStore, DEEP_RESEARCH_SUPPORTED_MODEL_IDS, IMAGE_GENERATION_SUPPORTED_MODEL_IDS } from '../../store/appStore'
 import agentAvatar from '../../assets/logos/agent.png'
 import { useWorkbenchStore } from '../../store/workbenchStore'
@@ -500,19 +500,22 @@ const AgentWorkGroupItem = memo(function AgentWorkGroupItem({
             onClose={onCloseForkMenu}
             align="left"
             placement="top"
-            className="w-32 py-1"
+            className="w-36 py-1"
           >
             <button
               type="button"
               disabled={isForking}
               onClick={() => {
-                onCloseForkMenu()
-                void onConfirmFork()
+                void onConfirmFork().finally(() => onCloseForkMenu())
               }}
               className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-caption text-text-primary transition-colors hover:bg-gray-50 dark:hover:bg-white/5 disabled:opacity-50"
             >
-              <AppIcon name="git_branch" size={14} className="text-primary" />
-              <span>{isForking ? '创建中…' : '创建分支'}</span>
+              <AppIcon
+                name={isForking ? 'progress_activity' : 'git_branch'}
+                size={14}
+                className={`text-primary ${isForking ? 'animate-spin' : ''}`}
+              />
+              <span>{isForking ? '正在创建分支…' : '创建分支'}</span>
             </button>
           </AgentPopover>
           <button
@@ -544,6 +547,52 @@ const AgentWorkGroupItem = memo(function AgentWorkGroupItem({
   )
 }, areWorkGroupPropsEqual)
 
+interface ForkOriginDividerProps {
+  parentSessionId?: string
+  parentSessionTitle?: string
+  parentExists: boolean
+  onJumpToParent: (sessionId: string) => void
+}
+
+function ForkOriginDivider({
+  parentSessionId,
+  parentSessionTitle,
+  parentExists,
+  onJumpToParent
+}: ForkOriginDividerProps): JSX.Element {
+  const titleText = parentSessionTitle || '原对话'
+  const canJump = Boolean(parentExists && parentSessionId)
+
+  return (
+    <div className="my-2 flex items-center gap-2 select-none" data-fork-origin-divider>
+      <div className="h-px flex-1 bg-gradient-to-r from-transparent via-gray-200 to-gray-200 dark:via-white/15 dark:to-white/15" />
+      <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gray-50/90 dark:bg-white/[0.04] border border-gray-200/80 dark:border-white/10 text-caption text-text-secondary dark:text-gray-400 max-w-[90%]">
+        <AppIcon name="git_branch" size={12} className="text-primary shrink-0" />
+        <span className="shrink-0">分支自</span>
+        {canJump ? (
+          <button
+            type="button"
+            onClick={() => onJumpToParent(parentSessionId!)}
+            className="inline-flex items-center gap-0.5 font-medium text-text-primary dark:text-gray-200 hover:text-primary dark:hover:text-blue-400 underline decoration-gray-300 dark:decoration-white/25 underline-offset-2 transition-colors max-w-[160px] truncate"
+            title={`点击返回原对话：${titleText}`}
+          >
+            <span className="truncate">「{titleText}」</span>
+            <AppIcon name="arrow_outward" size={12} className="shrink-0" />
+          </button>
+        ) : (
+          <span
+            className="truncate max-w-[160px] text-text-secondary/80 dark:text-gray-500"
+            title={`原对话已删除：${titleText}`}
+          >
+            「{titleText}」(原对话已删除)
+          </span>
+        )}
+      </div>
+      <div className="h-px flex-1 bg-gradient-to-l from-transparent via-gray-200 to-gray-200 dark:via-white/15 dark:to-white/15" />
+    </div>
+  )
+}
+
 function AgentCard({
   isVisible = true,
   onModelChange,
@@ -574,6 +623,7 @@ function AgentCard({
   const foreignReview = useAgentSessionStore((s) => s.foreignReview)
   const setForeignReview = useAgentSessionStore((s) => s.setForeignReview)
   const fileChangesRecord = useAgentSessionStore((s) => s.fileChangesRecord)
+  const forkOrigin = useAgentSessionStore((s) => s.forkOrigin)
   const setResumeAfterSwitchCwd = useAgentSessionStore((s) => s.setResumeAfterSwitchCwd)
   const consumeResumeAfterSwitchCwd = useAgentSessionStore((s) => s.consumeResumeAfterSwitchCwd)
 
@@ -588,22 +638,59 @@ function AgentCard({
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [forkMenuOpenFor, setForkMenuOpenFor] = useState<string | null>(null)
   const [isForking, setIsForking] = useState(false)
+  const [forkToast, setForkToast] = useState<{
+    sessionId: string
+    parentSessionId?: string
+    parentSessionTitle?: string
+  } | null>(null)
   const isForkingRef = useRef(false)
+  const forkToastTimerRef = useRef<number | null>(null)
   const viewportRef = useRef<HTMLDivElement>(null)
   const autoFollowRef = useRef(true)
   const scrollRafRef = useRef<number | null>(null)
+
+  const clearForkToastTimer = useCallback((): void => {
+    if (forkToastTimerRef.current !== null) {
+      window.clearTimeout(forkToastTimerRef.current)
+      forkToastTimerRef.current = null
+    }
+  }, [])
+
+  const scheduleForkToastDismiss = useCallback((): void => {
+    clearForkToastTimer()
+    forkToastTimerRef.current = window.setTimeout(() => {
+      forkToastTimerRef.current = null
+      setForkToast(null)
+    }, 4500)
+  }, [clearForkToastTimer])
+
+  const dismissForkToast = useCallback((): void => {
+    clearForkToastTimer()
+    setForkToast(null)
+  }, [clearForkToastTimer])
 
   const handleConfirmFork = useCallback(async (): Promise<void> => {
     if (isForkingRef.current) return
     isForkingRef.current = true
     setIsForking(true)
     try {
-      await forkSession()
+      const ok = await forkSession()
+      if (ok) {
+        const nextState = useAgentSessionStore.getState()
+        if (nextState.currentSessionId) {
+          setForkToast({
+            sessionId: nextState.currentSessionId,
+            parentSessionId: nextState.forkOrigin?.parentSessionId,
+            parentSessionTitle: nextState.forkOrigin?.parentSessionTitle
+          })
+          scheduleForkToastDismiss()
+        }
+      }
     } finally {
       isForkingRef.current = false
       setIsForking(false)
     }
-  }, [forkSession])
+  }, [forkSession, scheduleForkToastDismiss])
 
   const handleToggleForkMenu = useCallback((msgId: string): void => {
     setForkMenuOpenFor((cur) => (cur === msgId ? null : msgId))
@@ -694,8 +781,13 @@ function AgentCard({
         window.clearTimeout(copyTimerRef.current)
         copyTimerRef.current = null
       }
+      clearForkToastTimer()
     }
-  }, [])
+  }, [clearForkToastTimer])
+
+  useEffect(() => {
+    setForkToast((prev) => (prev && prev.sessionId !== currentSessionId ? null : prev))
+  }, [currentSessionId])
 
   // Sync workspacePath to AgentSession (only active/visible instance acts to avoid dual-sidebar double resets)
   const prevWorkspaceRef = useRef<string | null>(workspacePath)
@@ -766,6 +858,47 @@ function AgentCard({
     const title = sessions.find((s) => s.id === currentSessionId)?.title || ''
     return title === '新会话' ? '' : title
   }, [currentSessionId, sessions])
+
+  const activeSessionSummary = useMemo(
+    () => (currentSessionId ? sessions.find((s) => s.id === currentSessionId) : undefined),
+    [currentSessionId, sessions]
+  )
+
+  const branchNumberById = useMemo(() => {
+    const grouped = new Map<string, Array<{ id: string; createdAt: number }>>()
+    for (const s of sessions) {
+      if (!s.parentSessionId) continue
+      const list = grouped.get(s.parentSessionId) ?? []
+      list.push({ id: s.id, createdAt: s.createdAt })
+      grouped.set(s.parentSessionId, list)
+    }
+    const map = new Map<string, number>()
+    for (const list of grouped.values()) {
+      list.sort((a, b) => a.createdAt - b.createdAt)
+      list.forEach((item, idx) => map.set(item.id, idx + 1))
+    }
+    return map
+  }, [sessions])
+
+  const effectiveForkOrigin = useMemo(() => {
+    if (forkOrigin) return forkOrigin
+    if (activeSessionSummary?.parentSessionId || activeSessionSummary?.parentSessionTitle) {
+      const parentExists = activeSessionSummary.parentSessionId
+        ? sessions.some((s) => s.id === activeSessionSummary.parentSessionId)
+        : false
+      return {
+        parentSessionId: activeSessionSummary.parentSessionId,
+        parentSessionTitle: activeSessionSummary.parentSessionTitle,
+        parentExists
+      }
+    }
+    return null
+  }, [forkOrigin, activeSessionSummary, sessions])
+
+  const currentBranchNumber = currentSessionId ? branchNumberById.get(currentSessionId) : undefined
+  const canJumpToParent = Boolean(
+    effectiveForkOrigin?.parentSessionId && effectiveForkOrigin.parentExists !== false
+  )
 
   const suggestions = useMemo(
     () => [
@@ -923,15 +1056,41 @@ function AgentCard({
           />
         </div>
 
-        {/* Center: current conversation title */}
-        {currentSessionTitle && (
-          <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 max-w-[42%] px-2 pointer-events-none">
-            <span
-              className="block truncate text-label text-text-secondary"
-              title={currentSessionTitle}
-            >
-              {currentSessionTitle}
-            </span>
+        {/* Center: branch badge + current conversation title */}
+        {(currentSessionTitle || effectiveForkOrigin) && (
+          <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 max-w-[42%] px-2 flex items-center gap-1.5 justify-center">
+            {effectiveForkOrigin && (
+              <button
+                type="button"
+                disabled={!canJumpToParent}
+                onClick={() => {
+                  if (effectiveForkOrigin.parentSessionId && canJumpToParent) {
+                    handleSelectSession(effectiveForkOrigin.parentSessionId)
+                  }
+                }}
+                className={`shrink-0 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-blue-50 dark:bg-primary/20 text-primary dark:text-blue-300 text-tiny font-semibold border border-blue-200/70 dark:border-primary/30 transition-colors ${
+                  canJumpToParent
+                    ? 'hover:bg-blue-100 dark:hover:bg-primary/30 cursor-pointer'
+                    : 'cursor-default opacity-80'
+                }`}
+                title={
+                  canJumpToParent
+                    ? `分支自「${effectiveForkOrigin.parentSessionTitle || '原对话'}」· 点击返回原对话`
+                    : `分支自「${effectiveForkOrigin.parentSessionTitle || '原对话'}」(原对话已删除)`
+                }
+              >
+                <AppIcon name="git_branch" size={12} />
+                <span>{currentBranchNumber ? `分支 #${currentBranchNumber}` : '分支'}</span>
+              </button>
+            )}
+            {currentSessionTitle && (
+              <span
+                className="block truncate text-label text-text-secondary min-w-0 pointer-events-none"
+                title={currentSessionTitle}
+              >
+                {currentSessionTitle}
+              </span>
+            )}
           </div>
         )}
 
@@ -1022,9 +1181,19 @@ function AgentCard({
                       const matchesQuery = (item: (typeof sessions)[number]) => {
                         if (!query) return true
                         const title = (item.title || '').toLowerCase()
+                        const name = (item.name || '').toLowerCase()
+                        const branchPrompt = (item.firstBranchMessage || '').toLowerCase()
+                        const parentTitle = (item.parentSessionTitle || '').toLowerCase()
                         const model = (item.model || '').toLowerCase()
                         const cwd = (item.cwd || '').toLowerCase()
-                        return title.includes(query) || model.includes(query) || cwd.includes(query)
+                        return (
+                          title.includes(query) ||
+                          name.includes(query) ||
+                          branchPrompt.includes(query) ||
+                          parentTitle.includes(query) ||
+                          model.includes(query) ||
+                          cwd.includes(query)
+                        )
                       }
 
                       const currentWorkspaceSessions = sessions
@@ -1040,9 +1209,49 @@ function AgentCard({
 
                       const isForeignSectionOpen = foreignHistoryOpen || Boolean(query)
 
-                      const renderSessionItem = (item: (typeof sessions)[number], isForeign: boolean) => {
+                      interface HistoryTreeRow {
+                        item: (typeof sessions)[number]
+                        depth: number
+                        isLastChild: boolean
+                      }
+
+                      const buildTreeRows = (list: (typeof sessions)): HistoryTreeRow[] => {
+                        if (query) {
+                          return list.map((item) => ({ item, depth: 0, isLastChild: true }))
+                        }
+                        const presentIds = new Set(list.map((s) => s.id))
+                        const childrenByParent = new Map<string, (typeof sessions)>()
+                        const roots: (typeof sessions) = []
+                        for (const s of list) {
+                          if (s.parentSessionId && presentIds.has(s.parentSessionId)) {
+                            const arr = childrenByParent.get(s.parentSessionId) ?? []
+                            arr.push(s)
+                            childrenByParent.set(s.parentSessionId, arr)
+                          } else {
+                            roots.push(s)
+                          }
+                        }
+                        const rows: HistoryTreeRow[] = []
+                        const visited = new Set<string>()
+                        const walk = (item: (typeof sessions)[number], depth: number, isLastChild: boolean) => {
+                          if (visited.has(item.id)) return
+                          visited.add(item.id)
+                          rows.push({ item, depth, isLastChild })
+                          const children = childrenByParent.get(item.id) ?? []
+                          children.forEach((child, idx) => {
+                            walk(child, Math.min(depth + 1, 2), idx === children.length - 1)
+                          })
+                        }
+                        roots.forEach((root, idx) => walk(root, 0, idx === roots.length - 1))
+                        return rows
+                      }
+
+                      const renderSessionRow = (row: HistoryTreeRow, isForeign: boolean) => {
+                        const { item, depth, isLastChild } = row
                         const isCurrent = item.id === currentSessionId
                         const isItemRunning = item.isRunning ?? false
+                        const isFork = Boolean(item.parentSessionId || item.parentSessionTitle)
+                        const branchNo = branchNumberById.get(item.id)
                         const foreignWorkspace = isForeign && item.cwd ? baseName(item.cwd) : null
                         const dateStr = item.updatedAt
                           ? new Date(item.updatedAt).toLocaleTimeString([], {
@@ -1050,23 +1259,62 @@ function AgentCard({
                               minute: '2-digit'
                             })
                           : ''
+                        const isNested = depth > 0
+                        const isPendingBranch = isFork && !item.name && !item.firstBranchMessage
+                        const primaryLabel = isNested
+                          ? (item.name || item.firstBranchMessage || '待继续提问…')
+                          : isFork
+                            ? (item.name || item.firstBranchMessage || item.title || '新对话')
+                            : (item.title || '新对话')
+                        const indentClass = depth === 0 ? 'px-3.5' : depth === 1 ? 'pl-8 pr-3.5' : 'pl-11 pr-3.5'
+                        const connectorLeftClass = depth === 1 ? 'left-5' : 'left-8'
 
                         return (
                           <div
                             key={item.id}
                             onClick={() => handleSelectSession(item.id)}
-                            className={`group px-3.5 py-2.5 hover:bg-gray-100/70 dark:hover:bg-slate-700/50 cursor-pointer flex items-start gap-2.5 transition-colors ${
+                            className={`relative group ${indentClass} ${isNested ? 'py-2' : 'py-2.5'} hover:bg-gray-100/70 dark:hover:bg-slate-700/50 cursor-pointer flex items-start gap-2.5 transition-colors ${
                               isCurrent ? 'bg-blue-50/60 dark:bg-blue-900/20' : ''
                             }`}
                           >
+                            {isNested && (
+                              <>
+                                <span
+                                  className={`absolute ${connectorLeftClass} top-0 ${
+                                    isLastChild ? 'h-4' : 'bottom-0'
+                                  } w-px bg-gray-200 dark:bg-white/15`}
+                                />
+                                <span
+                                  className={`absolute ${connectorLeftClass} top-4 w-2.5 h-px bg-gray-200 dark:bg-white/15`}
+                                />
+                              </>
+                            )}
                             <AppIcon
-                              name="chat"
+                              name={isFork ? 'git_branch' : 'chat'}
                               size={16}
-                              className="shrink-0 mt-0.5 text-text-secondary dark:text-gray-400"
+                              className={`shrink-0 mt-0.5 ${
+                                isFork ? 'text-primary' : 'text-text-secondary dark:text-gray-400'
+                              }`}
                             />
                             <div className="min-w-0 flex-1">
-                              <div className="font-medium text-text-primary dark:text-gray-100 truncate text-body leading-snug">
-                                {item.title || '新对话'}
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                {isFork && (
+                                  <span className="shrink-0 px-1.5 rounded-full bg-blue-50 dark:bg-primary/20 text-primary dark:text-blue-300 text-tiny font-semibold">
+                                    {branchNo ? `#${branchNo}` : '分支'}
+                                  </span>
+                                )}
+                                <span
+                                  className={`truncate leading-snug ${
+                                    isNested ? 'text-label font-medium' : 'text-body font-medium'
+                                  } ${
+                                    isPendingBranch
+                                      ? 'text-text-secondary dark:text-gray-400 italic font-normal'
+                                      : 'text-text-primary dark:text-gray-100'
+                                  }`}
+                                  title={primaryLabel}
+                                >
+                                  {primaryLabel}
+                                </span>
                               </div>
                               <div className="text-caption font-mono text-text-secondary dark:text-gray-400 mt-1 flex items-center gap-1.5">
                                 <span>{[dateStr, item.model].filter(Boolean).join(' · ')}</span>
@@ -1080,6 +1328,11 @@ function AgentCard({
                                   </span>
                                 )}
                               </div>
+                              {isFork && !isNested && item.parentSessionTitle && (
+                                <div className="text-caption text-text-secondary/80 dark:text-gray-400 mt-0.5 truncate">
+                                  分支自「{item.parentSessionTitle}」
+                                </div>
+                              )}
                             </div>
                             {isItemRunning && (
                               <AppIcon
@@ -1114,21 +1367,24 @@ function AgentCard({
                         )
                       }
 
+                      const currentRows = buildTreeRows(currentWorkspaceSessions)
+                      const foreignRows = buildTreeRows(foreignWorkspaceSessions)
+
                       return (
                         <>
                           {/* Current Workspace Sessions (Scrollable) */}
                           <div className="max-h-[380px] overflow-y-auto py-1">
-                            {currentWorkspaceSessions.length === 0 ? (
+                            {currentRows.length === 0 ? (
                               <div className="px-3 py-4 text-center text-text-secondary text-caption">
                                 {query ? '无匹配对话' : '暂无历史对话'}
                               </div>
                             ) : (
-                              currentWorkspaceSessions.map((item) => renderSessionItem(item, false))
+                              currentRows.map((row) => renderSessionRow(row, false))
                             )}
                           </div>
 
                           {/* Foreign Workspace Sessions (Pinned Footer, Collapsed by Default) */}
-                          {foreignWorkspaceSessions.length > 0 && (
+                          {foreignRows.length > 0 && (
                             <div className="border-t border-gray-100 dark:border-gray-700/70 bg-gray-50/50 dark:bg-slate-800/80 shrink-0">
                               <button
                                 type="button"
@@ -1144,7 +1400,7 @@ function AgentCard({
                               </button>
                               {isForeignSectionOpen && (
                                 <div className="border-t border-gray-100 dark:border-gray-700/60 max-h-60 overflow-y-auto py-1 bg-white dark:bg-slate-800">
-                                  {foreignWorkspaceSessions.map((item) => renderSessionItem(item, true))}
+                                  {foreignRows.map((row) => renderSessionRow(row, true))}
                                 </div>
                               )}
                             </div>
@@ -1172,6 +1428,39 @@ function AgentCard({
 
         {/* Main Thread Viewport */}
         <div className="flex-1 flex flex-col min-h-0 relative">
+          {forkToast && forkToast.sessionId === currentSessionId && (
+            <div
+              onMouseEnter={clearForkToastTimer}
+              onMouseLeave={scheduleForkToastDismiss}
+              className="pointer-events-auto absolute top-3 left-1/2 -translate-x-1/2 z-popover max-w-[92%] liquid-glass-menu rounded-full pl-3 pr-2 py-1.5 flex items-center gap-2 text-caption text-text-primary dark:text-gray-100 shadow-float"
+            >
+              <span className="w-4 h-4 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+                <AppIcon name="check" size={12} />
+              </span>
+              <span className="truncate">已创建并切换至新分支</span>
+              {forkToast.parentSessionId && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    dismissForkToast()
+                    handleSelectSession(forkToast.parentSessionId!)
+                  }}
+                  className="px-2 py-0.5 rounded-full bg-primary/10 hover:bg-primary/20 text-primary dark:text-blue-300 font-medium transition-colors shrink-0"
+                >
+                  回原对话
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={dismissForkToast}
+                className="p-0.5 rounded-full text-text-secondary hover:text-text-primary dark:hover:text-gray-200 transition-colors shrink-0"
+                aria-label="关闭提示"
+              >
+                <AppIcon name="close" size={12} />
+              </button>
+            </div>
+          )}
+
           {/* 失效工作区回看提示：cwd 已失效的会话恢复后，新消息会在当前工作区开新会话 */}
           {foreignReview && (
             <div className="px-4 pt-2 shrink-0">
@@ -1241,58 +1530,112 @@ function AgentCard({
             )}
 
             {/* Messages Stream */}
-            {renderItems.map((item) => {
-              if (item.kind === 'user') {
-                const canRewind = !isRunning && item.isLastUserMessage
-                return (
-                  <AgentUserMessageItem
-                    key={item.msg.id}
-                    message={item.msg}
-                    cwd={currentCwd ?? undefined}
-                    canRewind={canRewind}
-                    isCopied={copiedId === item.msg.id}
-                    onCopy={handleCopy}
-                    onRewindClick={handleRewindClick}
-                  />
-                )
+            {(() => {
+              const totalRenderableCount = renderItems.reduce(
+                (sum, item) => sum + (item.kind === 'user' ? 1 : item.msgs.length),
+                0
+              )
+              const inheritedCount = effectiveForkOrigin?.inheritedMessageCount
+              const hasKnownBoundary = inheritedCount !== undefined
+              const targetBoundaryCount = hasKnownBoundary
+                ? Math.min(Math.max(0, inheritedCount), totalRenderableCount)
+                : undefined
+
+              let cumulativeCount = 0
+              let dividerInserted = false
+              const forkDividerEl = effectiveForkOrigin ? (
+                <ForkOriginDivider
+                  key="fork-origin-divider"
+                  parentSessionId={effectiveForkOrigin.parentSessionId}
+                  parentSessionTitle={effectiveForkOrigin.parentSessionTitle}
+                  parentExists={canJumpToParent}
+                  onJumpToParent={handleSelectSession}
+                />
+              ) : null
+
+              const showDividerAtTop =
+                Boolean(forkDividerEl) &&
+                ((hasKnownBoundary && targetBoundaryCount === 0) ||
+                  (!hasKnownBoundary && renderItems.length > 0))
+              if (showDividerAtTop) {
+                dividerInserted = true
               }
 
-              const finalMsg = item.msgs[item.msgs.length - 1]
-              const isGroupRunning =
-                item.hasRunningMsg || (item.isLatestGroup && (isRunning || hasPendingApproval))
-              const turnFileChanges =
-                !isGroupRunning &&
-                item.isTurnFinal &&
-                currentSessionId &&
-                currentCwd &&
-                fileChangesRecord &&
-                fileChangesRecord.files.length > 0 &&
-                (fileChangesRecord.turnIndex !== undefined
-                  ? fileChangesRecord.turnIndex === item.messageTurnIndex
-                  : item.isLastTurnFinal)
-                  ? fileChangesRecord
-                  : null
-              const isForkMenuOpen = forkMenuOpenFor === finalMsg.id
-
               return (
-                <AgentWorkGroupItem
-                  key={item.firstMsgId}
-                  msgs={item.msgs}
-                  sessionId={currentSessionId}
-                  cwd={currentCwd}
-                  isGroupRunning={isGroupRunning}
-                  isTurnFinal={item.isTurnFinal}
-                  turnFileChanges={turnFileChanges}
-                  isCopied={copiedId === finalMsg.id}
-                  isForkMenuOpen={isForkMenuOpen}
-                  isForking={isForkMenuOpen ? isForking : false}
-                  onCopy={handleCopy}
-                  onToggleForkMenu={handleToggleForkMenu}
-                  onCloseForkMenu={handleCloseForkMenu}
-                  onConfirmFork={handleConfirmFork}
-                />
+                <>
+                  {showDividerAtTop && forkDividerEl}
+                  {renderItems.map((item) => {
+                    const prevCount = cumulativeCount
+                    cumulativeCount += item.kind === 'user' ? 1 : item.msgs.length
+                    const insertDividerAfter =
+                      Boolean(forkDividerEl) &&
+                      !dividerInserted &&
+                      targetBoundaryCount !== undefined &&
+                      targetBoundaryCount > 0 &&
+                      prevCount < targetBoundaryCount &&
+                      cumulativeCount >= targetBoundaryCount
+                    if (insertDividerAfter) {
+                      dividerInserted = true
+                    }
+
+                    if (item.kind === 'user') {
+                      const canRewind = !isRunning && item.isLastUserMessage
+                      return (
+                        <Fragment key={item.msg.id}>
+                          <AgentUserMessageItem
+                            message={item.msg}
+                            cwd={currentCwd ?? undefined}
+                            canRewind={canRewind}
+                            isCopied={copiedId === item.msg.id}
+                            onCopy={handleCopy}
+                            onRewindClick={handleRewindClick}
+                          />
+                          {insertDividerAfter && forkDividerEl}
+                        </Fragment>
+                      )
+                    }
+
+                    const finalMsg = item.msgs[item.msgs.length - 1]
+                    const isGroupRunning =
+                      item.hasRunningMsg || (item.isLatestGroup && (isRunning || hasPendingApproval))
+                    const turnFileChanges =
+                      !isGroupRunning &&
+                      item.isTurnFinal &&
+                      currentSessionId &&
+                      currentCwd &&
+                      fileChangesRecord &&
+                      fileChangesRecord.files.length > 0 &&
+                      (fileChangesRecord.turnIndex !== undefined
+                        ? fileChangesRecord.turnIndex === item.messageTurnIndex
+                        : item.isLastTurnFinal)
+                        ? fileChangesRecord
+                        : null
+                    const isForkMenuOpen = forkMenuOpenFor === finalMsg.id
+
+                    return (
+                      <Fragment key={item.firstMsgId}>
+                        <AgentWorkGroupItem
+                          msgs={item.msgs}
+                          sessionId={currentSessionId}
+                          cwd={currentCwd}
+                          isGroupRunning={isGroupRunning}
+                          isTurnFinal={item.isTurnFinal}
+                          turnFileChanges={turnFileChanges}
+                          isCopied={copiedId === finalMsg.id}
+                          isForkMenuOpen={isForkMenuOpen}
+                          isForking={isForkMenuOpen ? isForking : false}
+                          onCopy={handleCopy}
+                          onToggleForkMenu={handleToggleForkMenu}
+                          onCloseForkMenu={handleCloseForkMenu}
+                          onConfirmFork={handleConfirmFork}
+                        />
+                        {insertDividerAfter && forkDividerEl}
+                      </Fragment>
+                    )
+                  })}
+                </>
               )
-            })}
+            })()}
 
             {/* 用户消息已发出、assistant message_start 还没到的间隙 */}
             {isRunning &&

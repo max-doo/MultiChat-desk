@@ -3,9 +3,15 @@ import type {
   AgentAuthOperation,
   AgentAuthType,
   AgentContextUsage,
+  AgentCustomGatewaySpec,
   AgentFavoriteModel,
+  AgentForkOrigin,
+  AgentGatewayApiType,
+  AgentGatewayTestResult,
   AgentProvider,
   AgentProviderModel,
+  AgentProviderQuota,
+  AgentQuotaWindow,
   AgentRuntimeSnapshot,
   AgentSessionStats,
   AgentSessionStatus,
@@ -18,9 +24,15 @@ export type {
   AgentAuthOperation,
   AgentAuthType,
   AgentContextUsage,
+  AgentCustomGatewaySpec,
   AgentFavoriteModel,
+  AgentForkOrigin,
+  AgentGatewayApiType,
+  AgentGatewayTestResult,
   AgentProvider,
   AgentProviderModel,
+  AgentProviderQuota,
+  AgentQuotaWindow,
   AgentRuntimeSnapshot,
   AgentSessionStats,
   AgentSessionStatus,
@@ -80,6 +92,9 @@ export interface AgentSessionSummary {
   cwd?: string
   model?: string
   isRunning?: boolean
+  parentSessionId?: string
+  parentSessionTitle?: string
+  firstBranchMessage?: string
 }
 
 export interface AgentApprovalRequest {
@@ -161,7 +176,7 @@ export interface AgentIpcApi {
   agentForkSession: (
     sessionId: string,
     leafId?: string
-  ) => Promise<{ success: boolean; data?: { sessionId: string }; error?: string }>
+  ) => Promise<{ success: boolean; data?: { sessionId: string; forkOrigin?: AgentForkOrigin }; error?: string }>
   agentListBranchUserEntries: (
     sessionId: string
   ) => Promise<{ success: boolean; data?: Array<{ entryId: string; text: string }>; error?: string }>
@@ -259,18 +274,28 @@ export interface AgentIpcApi {
   ) => Promise<{ success: boolean; data?: AgentRuntimeSnapshot; error?: string }>
   agentListCustomGateways?: () => Promise<{
     success: boolean
-    data?: Array<{ providerId: string; name: string; baseUrl: string; apiKey?: string }>
+    data?: Array<Omit<AgentCustomGatewaySpec, 'apiKey'>>
     error?: string
   }>
-  agentAddCustomGateway?: (spec: {
-    providerId: string
-    name: string
-    baseUrl: string
-    apiKey?: string
-  }) => Promise<{ success: boolean; data?: AgentRuntimeSnapshot; error?: string }>
+  agentAddCustomGateway?: (spec: AgentCustomGatewaySpec) => Promise<{
+    success: boolean
+    data?: AgentRuntimeSnapshot
+    error?: string
+  }>
   agentRemoveCustomGateway?: (
     providerId: string
   ) => Promise<{ success: boolean; data?: AgentRuntimeSnapshot; error?: string }>
+  agentTestGatewayConnection?: (
+    spec: Omit<AgentCustomGatewaySpec, 'providerId' | 'name'> & { providerId?: string; name?: string }
+  ) => Promise<{ success: boolean; data?: AgentGatewayTestResult; error?: string }>
+  agentGetProviderQuotas?: (options?: {
+    providerIds?: string[]
+    force?: boolean
+  }) => Promise<{ success: boolean; data?: Record<string, AgentProviderQuota>; error?: string }>
+  agentRefreshProviderQuota?: (
+    providerId: string
+  ) => Promise<{ success: boolean; data?: AgentProviderQuota | null; error?: string }>
+  onAgentProviderQuotaUpdated?: (cb: (payload: { quota: AgentProviderQuota }) => void) => () => void
   agentSetProviderBaseUrl?: (
     providerId: string,
     baseUrl: string | null

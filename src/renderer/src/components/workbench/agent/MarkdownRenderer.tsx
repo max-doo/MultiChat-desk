@@ -1,12 +1,15 @@
-import { createContext, memo, useContext, useState } from 'react'
+import { createContext, memo, useContext, useMemo, useState } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeRaw from 'rehype-raw'
+import katex from 'katex'
+import 'katex/dist/katex.min.css'
 import { AppIcon } from '../../icons/AppIcon'
 import { InlineFileCode } from './AttachmentChips'
+import { createRehypeRestoreMath, extractMathPlaceholders } from './markdownMath'
 
 const REMARK_PLUGINS = [remarkGfm]
-const REHYPE_PLUGINS = [rehypeRaw]
+const BASE_REHYPE_PLUGINS = [rehypeRaw]
 const MarkdownCwdContext = createContext<string | undefined>(undefined)
 
 interface MarkdownRendererProps {
@@ -92,7 +95,63 @@ const MarkdownCode: NonNullable<Components['code']> = ({ className, children }) 
   return <InlineFileCode text={codeText} cwd={cwd} />
 }
 
+interface KatexMathProps {
+  tex: string
+  display: boolean
+}
+
+const KatexMath = memo(function KatexMath({ tex, display }: KatexMathProps): JSX.Element {
+  const rendered = useMemo(() => {
+    try {
+      return {
+        html: katex.renderToString(tex, {
+          displayMode: display,
+          throwOnError: false,
+          strict: 'ignore',
+          errorColor: '#ef4444'
+        }),
+        failed: false
+      }
+    } catch {
+      return { html: '', failed: true }
+    }
+  }, [tex, display])
+
+  if (rendered.failed) {
+    return (
+      <code className="font-mono text-caption text-rose-500 dark:text-rose-400">
+        {display ? `$$${tex}$$` : `$${tex}$`}
+      </code>
+    )
+  }
+
+  if (display) {
+    return (
+      <span
+        className="block my-2.5 overflow-x-auto overflow-y-hidden max-w-full [&_.katex-display]:my-0 [&_.katex-display]:py-0.5"
+        dangerouslySetInnerHTML={{ __html: rendered.html }}
+      />
+    )
+  }
+
+  return (
+    <span
+      className="align-baseline"
+      dangerouslySetInnerHTML={{ __html: rendered.html }}
+    />
+  )
+})
+
 const MARKDOWN_COMPONENTS: Components = {
+  span({ node: _node, ...props }) {
+    const record = props as Record<string, unknown>
+    if (record['data-katex-math'] !== undefined) {
+      const tex = typeof record['data-katex-tex'] === 'string' ? record['data-katex-tex'] : ''
+      const display = record['data-katex-display'] === '1'
+      return <KatexMath tex={tex} display={display} />
+    }
+    return <span {...props} />
+  },
   // 表格
   table({ children }) {
     return (
@@ -232,15 +291,25 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
   content,
   cwd
 }: MarkdownRendererProps): JSX.Element {
+  const prepared = useMemo(() => extractMathPlaceholders(content), [content])
+
+  const rehypePlugins = useMemo(
+    () =>
+      prepared.entries.length > 0
+        ? [rehypeRaw, createRehypeRestoreMath(prepared.entries, prepared.prefix)]
+        : BASE_REHYPE_PLUGINS,
+    [prepared]
+  )
+
   return (
     <MarkdownCwdContext.Provider value={cwd}>
       <div className="text-body text-slate-800 dark:text-gray-200 leading-relaxed select-text space-y-2.5">
         <ReactMarkdown
           remarkPlugins={REMARK_PLUGINS}
-          rehypePlugins={REHYPE_PLUGINS}
+          rehypePlugins={rehypePlugins}
           components={MARKDOWN_COMPONENTS}
         >
-          {content}
+          {prepared.processed}
         </ReactMarkdown>
       </div>
     </MarkdownCwdContext.Provider>
