@@ -100,7 +100,7 @@ Long-term reusable lessons, durable decisions, and recurring project gotchas. Do
 
 - **Lexical `ElementNode` 承载块级 Markdown 前缀语法时需同步切分 Source Map、只匹配前缀并补齐粘贴转换**：当用自定义 `ElementNode`（如脚注定义 `WorkbenchFootnoteDefNode`）渲染 `[^id]: 内容` 时，`markdownSourceMap.ts` 的 `isSpecialBlockLine` 与 `scanMarkdownSourceBlocks` 必须同步识别该块边界，否则连续多条定义行会被扫描器合并成单段落并引发 1:N 错位；同时 `ElementTransformer.regExp` 只应匹配行首前缀（如 `[^id]: `），让 `@lexical/markdown` 对剩余文本节点继续执行加粗、链接等行内转换。此外 `MarkdownShortcutPlugin` 仅响应键入不拦截粘贴，手贴 `[^id]:` 或 `[^id]` 落入普通 `TextNode` 后会被 `exportTextFormat` 转义为 `&#91;^id&#93;`，需在 `PASTE_COMMAND`（`COMMAND_PRIORITY_HIGH`）跳过 `application/x-lexical-editor` 与代码上下文后用 `$generateNodesFromMarkdownString` 即时转换（单行纯行内片段需拆出段落子节点避免拆段）。
 
-- **CodeMirror 6 行号 gutter 宽度抖动源于 spacer 重测，不要用 `width` 硬锁**：`.cm-lineNumbers` gutter 内置一个 `visibility:hidden` 的 spacer 元素，内容按 `maxLineNumber(doc.lines)` 向上取整到全 9 数（9/99/999/9999…）预留最小宽度；gutter 实际宽度 = max(spacer 宽度, `minWidth`, 视口内最宽行号)，滚动/点击触发 `docChanged` 重测时会因 spacer 是否参与测量而产生几像素抖动。直接给 `.cm-gutterElement` 写 `width` 会让大文件行号被 `.cm-gutter` 的 `overflow:hidden` 截断；更稳的做法是 `lineNumbers({ formatNumber: n => String(n).padStart(N, ' ') })` 用不换行空格固定补齐到 N 位宽，gutter 宽度恒定、超过 N 位才扩一次。等宽字体下也可用 `minWidth: '4ch'` 让尺寸可预期且保留自适应。
+- **CodeMirror 6 行号 gutter 宽度自适应与防抖动**：CM6 原生 `lineNumbers()` 通过隐藏的 `spacer`（按 `maxLineNumber(doc.lines)` 向上取整到 `9/99/999…`）计算宽度，滚动时不重测、不会抖动；真正易引发滚动/点击跳动的是旁边的自定义 gutter 列塌缩（见下条）。不要用 `formatNumber` 固定 `padStart(N, '\u00a0')` 锁死位数（会导致小文件过宽），也不要对 `.cm-gutterElement` 硬写 `width`（大文件会被 `.cm-gutter` 的 `overflow:hidden` 截断）；应恢复原生 `lineNumbers()`，在 `.cm-lineNumbers` 加 `fontVariantNumeric: 'tabular-nums'`，并在 `.cm-lineNumbers .cm-gutterElement` 设带 padding 的轻量下限（`minWidth: 'calc(2ch + 16px)'`，无额外 padding 的编辑器如 `MindmapMarkdownEditor` 用 `'calc(2ch + 8px)'`），兼顾小文件紧凑与大文件自适应。
 
 - **`.cm-gutters` 总宽 = 各 gutter 列宽度之和，任一列塌缩都会让整体抖动**：CM6 gutter 按 `renderEmptyElements` 决定空行是否渲染占位元素——`false` 时若视口内没有 marker 该列直接塌到 0 宽，行号 gutter 自身固定宽度也救不了旁边的自定义列（如 `cm-gitGutter`）。锁 gutter 宽度必须同时处理所有列：自定义列加 `renderEmptyElements: true` 让空行也渲染占位 + 给该列固定 `width` + `flexShrink: 0`，不能只改 `lineNumbers.formatNumber`。
 
@@ -110,7 +110,8 @@ Long-term reusable lessons, durable decisions, and recurring project gotchas. Do
 
 - **Vite HMR 重载 Lexical 自定义 Node 模块时 instanceof 会失真**：HMR 替换模块后，已挂载编辑器持有的旧节点实例与新模块导出的 class 不是同一引用，`instanceof` 判定返回 false，相关命令/插件对自定义节点全部"失灵"。节点识别应兼容 `node.getType()` 字符串校验，不要把 `instanceof` 作为唯一判据；排查此类问题先触发一次整页刷新确认是否 HMR 伪影。
 
-- **行内双链/提及类节点用 DecoratorNode + TextMatchTransformer 即可实现键入即转换**：`importRegExp` 与 `regExp` 共用同一非全局正则（脚注引用同款模式），splitText 后无需 `$` 锚定；@/[[ 唤起文件菜单用 LexicalTypeaheadMenuPlugin，多个触发实例必须分开保存 query 状态，否则无匹配实例会用 null 覆盖有匹配实例的查询；触发正则允许查询含空格且排除闭括号字符。文件树拖入编辑器在 DROP_COMMAND 中用 document.caretRangeFromPoint + domSelection.setBaseAndExtent + createRangeSelectionFromDom 精确落点，不用 current selection；chip 点击用 capture 阶段委托监听 preventDefault+stopPropagation。
+- **Lexical verbatim 行内容器节点（引文/注释类"原文保真"标记）的正确做法**：纯文本 ElementNode（isInline+extractWithChild+canIndent:false）+ TextMatchTransformer，xport 直接用 `node.getTextContent()` 回写原文可做到逐字节保真——xportChildren 会经 xportTextFormat 转义方括号/下划线，citekey 里的 `_` 会被改成 `\_` 造成假脏文件。
+eplace 内手动 `append((match[0]))` 可阻断行内格式二次转换。TextMatch 同位置候选冲突由 transformers 数组顺序决定（先注册者赢），自定义引文必须放在内置 LINK 之后，否则 `[see @x](url)` 的链接文本被抢先转换；Pandoc key 判定须校验 `@` 前置字符非字母数字下划线，否则邮箱 `[联系 a@b.com]` 被误转换。lezer-markdown 把 HTML 注释（行内/块级）标记为 `tags.comment` 而非 `tags.processingInstruction`，HighlightStyle 缺该条目即"注释无高亮"；lezer 不识别的语法（如 Pandoc 引文）用 ViewPlugin+Decoration.mark 全文扫描补色即可，须按行扫描跳过围栏代码块、用等长空格屏蔽行内代码、并排除后随 `(`/`[` 的链接语法。CDP 验证渲染层 DOM 时注意 `contenteditable` 选择器会先命中 CodeMirror（源码模式），必须先确认 `editorMode` 再取 DOM。- **行内双链/提及类节点用 DecoratorNode + TextMatchTransformer 即可实现键入即转换**：`importRegExp` 与 `regExp` 共用同一非全局正则（脚注引用同款模式），splitText 后无需 `$` 锚定；@/[[ 唤起文件菜单用 LexicalTypeaheadMenuPlugin，多个触发实例必须分开保存 query 状态，否则无匹配实例会用 null 覆盖有匹配实例的查询；触发正则允许查询含空格且排除闭括号字符。文件树拖入编辑器在 DROP_COMMAND 中用 document.caretRangeFromPoint + domSelection.setBaseAndExtent + createRangeSelectionFromDom 精确落点，不用 current selection；chip 点击用 capture 阶段委托监听 preventDefault+stopPropagation。
 
 ### React 状态与组件生命周期
 
@@ -129,6 +130,7 @@ Long-term reusable lessons, durable decisions, and recurring project gotchas. Do
 - **`useSyncExternalStore` 驱动的订阅版本号必须进入 `useMemo` 依赖数组**：订阅 bump 只触发重渲染，不会使 deps 未变的 `useMemo` 失效——异步结果（如磁盘 stat）到达后组件确实重渲染了，但 memo 缓存的 null 原样返回，"unknown→exists 升级"链路静默断裂且无任何报错。凡是在 memo 内消费的外部可变状态（模块级缓存、版本计数），其版本号必须入 deps。
 
 ### 工作台文件与上传
+- **文件树剪切（Ctrl+X）与系统剪贴板互操作**：剪切语义靠 Windows 剪贴板 `Preferred DropEffect` 位掩码 `DROPEFFECT_MOVE=2`（PowerShell `DataObject.SetFileDropList` + `SetData('Preferred DropEffect', MemoryStream(int32))` 写入，读取时 `BinaryReader.ReadInt32() -band 2`）。**PowerShell 5.1 的 `ConvertFrom-Json` 会把 JSON 数组作为单个 Object[] 元素返回**，`@()` 包裹后元素被空格拼接成整串（多文件复制因此被拼成单路径的存量 bug），必须用 `[string[]]($json | ConvertFrom-Json)` 强转逐元素展开；ps1 脚本传数组参数都要走这个模式。粘贴完成后要清空剪贴板剪切态，但仅在文件列表与预期完全一致时清，避免误清用户随后复制的内容；清空时机统一在 store 层全部移动成功零失败时，不在 main handler 分叉。**移动语义的跨盘 cp 绝不能带 `isBlockedImportName` 排除过滤**——那是复制/导入的规则（跳过 .git/node_modules 等），移动时源会被整体删除，被排除内容直接数据丢失。内部剪切粘贴走 `moveNode→renameNode` 联动链（assets 目录/导图绑定/标注/标签页重映射全保留）；外部源走 `moveExternalPaths`（同盘 rename、跨盘复制后删除回滚），store 按小写归一化分流内外路径。原地剪切粘贴为无操作（Explorer 语义，不产生 -n 副本）；原地判定与防自我包含比较在 Windows 必须 `toLowerCase()` 归一（Explorer 剪贴板路径大小写不保证与工作区一致）。剪切项用 opacity-50 半透明（只作用图标与名称，不影响选中高亮），Esc 取消剪切态；paste 事件必须有 input/textarea 守卫——移动不可撤销，重命名输入框内的 Ctrl+V 不能接管。CDP 行为验收文件树可用 `window.__workbenchStore` 钩子 + dispatchEvent 合成 KeyboardEvent（React 合成事件不校验 isTrusted），但 paste 事件的 clipboardData 无法合成，外部粘贴链需直接驱动 store 动作验证。
 
 - **外部文件导入不能信任 renderer 的 `File.path`**：Electron 32+ 已移除 `File.path`，本地路径用 `window.electron.webUtils.getPathForFile(file)`，`@electron-toolkit/preload` 的 `electronAPI` 已自带 `webUtils`。拖入目录也会作为条目出现在 `dataTransfer.files`，`getPathForFile` 返回目录路径，主进程 `stat.isDirectory` 区分后 `fs.cp recursive`。区分内部移动与外部导入看 `dataTransfer.types.includes('Files')`；paste 事件只派发到焦点元素，文件树容器需 `tabIndex={-1}` 并在 `onMouseDown` 里聚焦（跳过 `HTMLInputElement`）才能接 `onPaste`；`clipboardData.files` 为空时放行给编辑器。
 
@@ -242,6 +244,10 @@ Long-term reusable lessons, durable decisions, and recurring project gotchas. Do
 
 - **行内文件 chip 统一为 WorkbenchFileChip 形态（文末附件胶囊已删除）**：回复正文内联 chip 是图标+主题色文字（text-primary/hover 浅底）、无背景无描边、字号继承上下文，编辑器双链 chip 复用同一形态；用户消息气泡的 @mention chip 是白底半透明独立样式。曾经存在的"回复底部附件胶囊"（描边 rounded-full）因与行内 chip 冗余已整体删除，不要再恢复。图标尺寸用 em 字符串（AppIcon 支持 em 分支并与数值路径同乘 0.85 光学系数），FileChipIcon 默认 1em 随字号缩放。
 
+- **下拉菜单的"点击外部关闭"不能在 capture 阶段无条件卸载菜单**：window 上 capture 阶段的 `mousedown` 监听先于菜单项的 `click` 触发，直接卸载会让 click 落在已脱离文档的节点上不触发（菜单看似点了没反应）。外部判定必须排除菜单本体与触发按钮（如用 `data-*` 属性 + `closest` 检查），React 18 根监听是 bubble 阶段的 `click`，节点提前脱链后事件不会再派发到根。
+
+- **`backdrop-filter` 元素会劫持所有 `position: fixed` 后代的定位**：Chromium/Electron 中，元素带 `backdrop-filter`（含 `-webkit-` 前缀，如 `liquid-glass-menu` 毛玻璃菜单）时，其 fixed 后代的包含块变为该元素的 padding box 而非视口——按视口坐标算好的 left/top 会被二次偏移，浮层渲染到视口外（实测 fixed 子元素坐标 = 视口坐标 + 祖先偏移，absolute 后代不受影响）。菜单内嵌套子菜单/fixed 浮层必须 `createPortal` 到 `document.body`；portal 后 DOM 父子断开，`mouseenter/leave` 的层级语义失效，hover 展开要用可取消的短延迟关闭定时器（约 250ms），并把"点击外部关闭"的 contains 判定扩展到 portal 出去的浮层节点。
+
 ### 窗口、划词与快捷键
 
 - **快捷窗口保持可聚焦，被动弹出不要抢焦点**：避免同时使用 `focusable: false` 和依赖完整 `click` 事件；用 `showInactive` 控制被动弹出时不抢焦点，让窗口保持可聚焦，并在 `pointerdown` 派发一次性动作。快捷窗口初始配置应为 `alwaysOnTop: false`、`skipTaskbar: false`，让用户通过 pin 按钮决定是否置顶；`skipTaskbar: true` 会让窗口被其他窗口遮挡后无法从任务栏找回。`isPinned` 由前端 toggle 驱动，通过 `quick:get-always-on-top` / `quick:set-always-on-top` IPC 控制。
@@ -281,6 +287,8 @@ Long-term reusable lessons, durable decisions, and recurring project gotchas. Do
 - **图片右键「发送到 AI」复用既有上传管线，`workbench-file://` 要专用 resolve IPC**：右键菜单通过 `WORKBENCH_SEND_IMAGE_EVENT` 把 `srcURL` 交给 AI 侧边栏，上传走既有 `FileUploadData`/`uploadFilesToCurrentModel` 管线。`workbench-file://` 的真实路径只有主进程能在授权白名单内解析（`resolveWorkbenchFileRequest`），渲染层不自行解码 URL，需 `workbench:resolve-file-url` IPC 把真实路径交还后直接按磁盘文件上传，不复制临时文件；`blob:`/`data:`/`http(s):` 则 `fetch` 取字节经 `create-temp-upload-file` 落临时目录，上传完 `cleanupUploadTemp` 清理。
 
 - **组件级右键菜单只需 `preventDefault` 即可与全局 `CustomContextMenu` 共存，但接管前必须盘点存量菜单项**：Layout 里的全局 DOM 右键处理器先检查 `e.defaultPrevented` 退让，组件自建菜单（如图片预览画布、公式节点）不需要 `stopPropagation` 或额外标记；反过来如果忘了 `preventDefault`，自绘菜单之外还会叠加全局复制/粘贴菜单。**接管一个已走全局菜单的区域时，新建菜单会顶掉全部存量项**——`<img>` 上原本有「发送到 AI 侧边栏 / 复制图片 / 图片另存为」三件套（复制优先主进程 `copyImageAt` 保原编码，渲染层 `copyImageElementToClipboard` 兜底），曾因此造成用户可感知回归；接入前先按全局菜单的构造逻辑逐项迁移或明确裁剪。二级 hover 菜单（级联子菜单）与主菜单必须保持 DOM 嵌套（`position: fixed` 定位不影响 `contains` 命中），否则主菜单的 `mouseleave` 与外部点击关闭会在移向子菜单时误触发。
+
+- **模态层（`z-modal`=100）内的右键不能依赖全局 `CustomContextMenu`**：全局菜单浮层是 `z-50`，即使 contextmenu 事件链正常走完，菜单也会被模态遮罩盖住而不可见，表现为“右键完全无反应”（图片 Lightbox 曾因此失效）。正确做法是在模态组件内自建接管式右键菜单，层级按 DESIGN.md 特例用 `z-[110+]` 并在注释说明；菜单 Esc 关闭要防模态 capture 阶段的快捷键监听先一步吞掉事件（Lightbox 是 Esc 先关菜单、无菜单才关查看器），切换内容（翻页/换文档）时应联动收菜单避免陈旧上下文。
 
 - **托盘退出要经过渲染层未保存守卫时不能提前置 quitting**：主窗口关闭是本应用“隐藏到托盘”的正常路径，只有真正退出才应 `setQuitting(true)`。托盘和 `tray:quit-app` 统一调用 `app.quit()`，主进程在 `before-quit` 中先 `preventDefault()`，显示主窗口并通过 `app:quit-guard-ready` 确认渲染层已注册监听，再发送退出请求；渲染层复用编辑离开守卫后回传 allow/cancel，确认后才置 quitting 并再次 `app.quit()`。若在托盘入口提前置 quitting，用户取消后窗口关闭将不再隐藏，状态也会污染后续生命周期。
 

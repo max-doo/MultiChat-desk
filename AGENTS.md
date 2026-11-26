@@ -74,6 +74,7 @@ MultiChat Desk 是基于 Electron 的桌面应用，通过多个 Webview 并行�
 - 项目未配置自动化测试运行器，所有的测试都必须在 `pnpm run dev` 桌面环境下手动进行验证。
 - 验证流程需要遵循：`pnpm run lint` -> `pnpm run build` -> `pnpm run dev` 运行测试流程。
 - 如果某项功能无法在当前开发机独立完成测试，必须在任务结束时清楚说明原因并列出最小等价验证步骤。
+- 端到端验收可用 Chrome DevTools Protocol（CDP）：连接已运行 Electron/浏览器实例的调试端口，直接检查页面状态、交互与控制台输出，比纯代码审查更接近真实运行效果。
 
 ## Done Criteria
 

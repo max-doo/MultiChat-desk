@@ -2,6 +2,163 @@
 
 ## 2026-11-26
 
+### 22:51 | Codex
+
+- done: 特殊文件夹低调辨识方案：assets 行尾加 14px 半透 paperclip 图标；.multichat 及其受管子目录名称改用 text-text-secondary/70 淡化；两类目录加 title 悬停说明；恢复 chevron 后普通文件夹保持 纯箭头+名称
+- decision: 特殊文件夹不用行首图标，改用更弱的视觉通道：assets=行尾小图标、.multichat=名称淡化，避免图标抢眼
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+
+### 22:48 | Codex
+
+- done: Agent 输入框权限模式按钮在面板过窄时退化为纯图标：footer 加 container-type: inline-size，@container (max-width: 380px) 隐藏文字与下拉箭头；按钮加 whitespace-nowrap 修复逐字换行撑高；title 提示补全模式名+说明
+- context: 用户截图反馈窄侧栏下权限模式文字竖排挤压
+- modified:
+  - `src/renderer/src/components/workbench/agent/AgentComposer.tsx`
+  - `src/renderer/src/assets/index.css`
+- lesson: Tailwind 3 无容器查询插件时可直接手写原生 @container CSS（Electron 42/Chromium 完全支持），不必为此引入依赖；元素自身作容器用 container-type: inline-size 不影响块级布局宽度
+
+### 22:46 | Codex
+
+- done: 导图面板平台下拉中的已登录徽标由亮绿(emerald)改为低调灰色
+- context: 用户反馈下拉里绿色已登录徽标太辣眼睛,要求改灰;全仓仅此一处登录态徽标使用 emerald,其余 emerald 均为 git/鉴权成功等语义场景,不在本次范围
+- modified:
+  - `src/renderer/src/components/ConversationMindmapPanel.tsx`
+
+### 22:46 | Codex
+
+- done: workbench 文件树实现业界常规剪切（Ctrl+X）：树内剪贴板带 copy/cut 模式、剪切项半透明、Esc 取消、移动粘贴走 rename 联动链；系统剪贴板写入 Preferred DropEffect 实现与 Windows 资源管理器双向剪切互操作；外部剪切粘贴走 moveExternalPaths（同盘 rename、跨盘复制后删除），修复跨盘 cp 排除过滤导致 .git/node_modules 数据丢失的存量隐患；顺带修复 PowerShell ConvertFrom-Json 数组解包 bug 导致的多文件复制路径串连问题
+- decision: 剪切清空剪贴板时机统一在 store moveExternalItems 尾部（全部成功零失败时），内部/外部移动不分叉；原地剪切粘贴为无操作（不产生 -n 副本，Explorer 语义）
+- modified:
+  - `src/main/services/workbenchService.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/src/store/workbenchStore.ts`
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+- lesson(promoted): PowerShell 5.1 的 ConvertFrom-Json 会把 JSON 数组作为单个 Object[] 元素返回，@() 包裹后元素被空格拼接成整串，必须用 [string[]] 强转逐元素展开——本项目所有 ps1 脚本传 JSON 数组参数都受此坑影响；移动语义的跨盘 cp 绝不能带 isBlockedImportName 排除过滤（那是复制/导入的规则），否则被排除内容随源删除直接数据丢失；Explorer 剪切互操作靠剪贴板 Preferred DropEffect 位掩码 DROPEFFECT_MOVE=2，粘贴完成后要清空剪贴板但仅在内容与预期完全一致时清避免误清用户新复制内容；CDP 行为验收文件树可用 window.__workbenchStore 钩子 + dispatchEvent 合成 KeyboardEvent（React 合成事件不校验 isTrusted），paste 事件 clipboardData 无法合成需直接驱动 store 逻辑链
+- unresolved: 已知限制（低概率）：Explorer 剪贴板路径与工作区大小写错配时内部源误入 moveExternalPaths 会缺 assets 联动与标签页重映射，后果可恢复；剪切粘贴脏文件依赖 renameNode 存量 save 守卫链未单独实测
+
+### 22:36 | Codex
+
+- done: 在 AGENTS.md Testing Guidelines 中补充端到端验收可用 CDP
+- modified:
+  - `AGENTS.md`
+
+### 22:28 | Codex
+
+- done: 晋升 verbatim 行内节点经验至 KNOWLEDGE 并更新路由
+- modified:
+  - `.memory/KNOWLEDGE.md`
+  - `.memory/INDEX.md`
+
+### 22:27 | Codex
+
+- done: 将 Markdown 预览链接关系面板的'出链/反链'标签改为更易懂的'引用/被引'
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchLinkRelationsPanel.tsx`
+
+### 22:27 | Codex
+
+- done: 工作台 Markdown 编辑器支持 Pandoc 引文 [@key] 与 HTML 注释的视觉区分：渲染模式（Lexical）新增两个 verbatim 行内 ElementNode 容器 + TextMatchTransformer，仅字体样式区分（引文 teal、注释灰斜体），导入/键入/粘贴三条链路自动转换，导出逐字节保真；源码模式（CodeMirror）补齐 lezer tags.comment 配色（此前样式表缺失导致注释无高亮的根因），并新增 ViewPlugin 扫描引文补色，跳过围栏/行内代码与链接语法；email 误伤通过 key 前置字符校验规避
+- decision: 按用户要求不做胶囊徽章等复杂渲染，引文注释仅字体颜色/斜体区分且保留原始定界符可见；键入即时转换沿用 wikilink/footnote 同款行为（无撤销性），引文后接 (url) 的链接歧义场景接受为已知边界
+- added:
+  - `src/renderer/src/components/workbench/WorkbenchInlineMarkupNodes.tsx`
+  - `src/renderer/src/components/workbench/workbenchCitations.ts`
+- modified:
+  - `src/renderer/src/components/workbench/MarkdownSyncPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFootnotePlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchSourceEditor.tsx`
+  - `src/renderer/src/assets/index.css`
+- lesson(promoted): Lexical verbatim 行内容器节点模式：纯文本 ElementNode（isInline+extractWithChild）+ TextMatchTransformer，export 用 node.getTextContent() 直出原文可做到逐字节保真（exportChildren 会经 exportTextFormat 转义方括号/下划线）；TextMatch 同位置候选冲突由 transformers 数组顺序决定，自定义引文必须放在内置 LINK 之后让链接优先；lezer-markdown 把 HTML 注释标记为 tags.comment 而非 processingInstruction，HighlightStyle 缺该条目即无高亮；CDP 验证 contenteditable 会先命中 CodeMirror（它也是 contenteditable），必须先确认 editorMode 再查 DOM
+
+### 22:21 | Antigravity
+
+- done: 优化三处 CodeMirror 6 编辑器行号 Gutter 宽度：移除 formatNumber 5位空格补齐，恢复原生 maxLineNumber spacer 自适应，并添加 tabular-nums 与 2ch+padding 轻量下限
+- context: 此前已通过 .cm-gitGutter 固定 width:8px 与空占位 marker 根治滚动/点击跳动；5位 padStart 与 3rem/3.5rem minWidth 导致小文件行号列过宽
+- decision: 使用 lineNumbers() 原生 spacer + fontVariantNumeric: tabular-nums + calc(2ch + 16px/8px) minWidth；同步更新 .memory/KNOWLEDGE.md
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchCodePreview.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchSourceEditor.tsx`
+  - `src/renderer/src/components/MindmapMarkdownEditor.tsx`
+  - `.memory/KNOWLEDGE.md`
+
+### 22:11 | Codex
+
+- done: 修正上一轮误删：恢复文件夹行的展开/收起 chevron 箭头与 isExpanded prop、新建文件夹输入框的箭头占位；保持仅移除文件夹图标本身
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+- lesson: 用户说'去掉文件夹前面的图标'时，chevron 展开箭头不属于'文件夹图标'范畴，应保留；动手前先区分状态指示符与类型图标
+
+### 22:00 | Codex
+
+- done: 复制对话导出格式调整：Markdown 标题结构改为 XML 标签隔离（conversation/user_query/assistant_final_answer），final answer 保留原始 Markdown
+- modified:
+  - `src/main/services/AgentSessionService.ts`
+
+### 21:56 | Codex
+
+- done: 修复工作台文件树'移动到其他工作区'子菜单失效：根因是 79cd3fda 将右键菜单 portal 化后，子菜单仍以 fixed 定位嵌在带 backdrop-filter 的菜单 DOM 内，Chromium 中 backdrop-filter 会成为 fixed 后代的包含块，按视口算的 left/top 被二次偏移渲染到视口外；修复为子菜单独立 portal 到 document.body，配 hover 延迟关闭（250ms 可取消定时器）与外部点击判定扩展
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+- lesson(promoted): Chromium/Electron 中，元素带 backdrop-filter（含 -webkit- 前缀）时，其所有 position:fixed 后代的包含块变为该元素而非视口，且该行为不依赖 DOM 父子关系的视觉效果，无法用 getBoundingClientRect 自动修正；浮层套浮层必须 portal 到 body 或改用 absolute
+
+### 21:49 | Codex
+
+- done: 工作台文件树：文件夹行去掉 chevron 和文件夹图标，只保留名称；新建文件夹输入框同步去图标；resolveMultichatFolderVisual 精简为 isManagedMultichatFolder 布尔判断
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+
+### 21:41 | Codex
+
+- done: 修复 Markdown 双击全屏图片查看器（Lightbox）右键无菜单：z-modal(100) 遮罩盖住全局菜单 z-50，按知识库约束在 Lightbox 内实现接管式自定义右键菜单（发送到 AI/复制图片/另存为/复制地址/外部打开/资源管理器定位），z-[110] 按 DESIGN.md 特例压 modal；Esc capture 拦截先关菜单再关查看器，翻页/换图自动收菜单
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchImageLightbox.tsx`
+- lesson(promoted): 模态层内的右键菜单不能依赖全局 CustomContextMenu（z-50 会被 z-modal 遮罩盖住且事件链正常但不可见），必须在模态内自建接管式菜单并按 DESIGN.md 特例用 z-[110+] 加注释说明；接管前逐项盘点全局菜单对 <img> 的存量三件套（发送AI/copyImageAt复制/另存为）避免能力回退
+
+### 21:40 | Codex
+
+- done: Agent对话历史菜单：行内编辑/删除按钮改为hover浮层不占布局；新增更多菜单含复制对话（仅用户query+各回合final answer，剔除trace）与复制原始文件路径；主进程新增 agent:get-session-export IPC 与 getSessionExport 导出逻辑
+- modified:
+  - `src/main/services/AgentSessionService.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+- lesson(promoted): React capture 阶段的外部点击监听若在菜单项 click 前卸载菜单，click 会落在已 detached 的节点上不触发；外部关闭判定需排除菜单内部与触发器
+
+### 21:32 | Codex
+
+- done: 在侧边 Agent 系统提示词(MIAO_PREAMBLE)的 Operating Principles 中新增规范：临时脚本与临时文件一律放入 .tmp/ 目录（不存在则创建），禁止放在工作区根目录
+- modified:
+  - `src/main/extensions/systemPromptTrim.ts`
+
+### 21:23 | Codex
+
+- done: 将 .tmp/ 加入 .gitignore
+- modified:
+  - `.gitignore`
+
+### 21:10 | Antigravity
+
+- done: 优化工作台双链 chip 与出链/反链面板的目录树解析性能：按 fileTree 引用 WeakMap 缓存 O(1) WikiLinkIndex 与目标串解析结果，flattenSortedFiles 复用 Intl.Collator 并按 (tree, sort) 缓存，移除 WikiLinkChip 与 WorkbenchLinkRelationsPanel 的重复全树排序与线性扫描
+- modified:
+  - `src/renderer/src/store/workbenchStore.ts`
+  - `src/renderer/src/components/workbench/workbenchWikiLinks.ts`
+  - `src/renderer/src/components/workbench/WorkbenchWikiLinkNode.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchLinkRelationsPanel.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchWikiLinkPlugin.tsx`
+- lesson: Lexical DecoratorNode 内渲染双链 chip（以及随切文档重建的出链/反链面板）时，切忌在每个节点组件内部调用全树拍平排序和线性扫描；应基于不可变 fileTree 引用建立 WeakMap 共享索引（含路径/stem/basename Map 与目标串级解析缓存），将单节点解析从 O(N log N) 降为 O(1)。
+
+### 21:10 | Antigravity
+
+- done: 优化 Webview 浏览器伪装与页面注入隐蔽性：补齐 app.userAgentFallback、收窄 Client Hints 改写范围至 mainFrame/subFrame 缺失头、移除页面内 window.open 覆写并将注入全局标记迁移至 Symbol.for
+- decision: 保留 DOM 注入发送消息链路，不做高风险重构；Google about:blank 弹窗拦截收窄至 Google 域名且完全由主进程 setWindowOpenHandler 处理
+- modified:
+  - `src/main/webviewManager.ts`
+  - `src/shared/utils/webviewScripts.ts`
+  - `src/renderer/src/hooks/useSourceAnnotations.ts`
+- unresolved: 未在 pnpm run dev 中对 Google Auth、ChatGPT branch 与各 AI 站点做端到端桌面手测
+
 ### 21:03 | Codex
 
 - done: 按功能模块分三批提交本日工作:feat(agent)权限加固+工具状态修复+打捞链, feat(workbench)双链面板+内联chip+排版/图片预览, docs(memory)日志与约束;过程目录.tmp/ scratch/与调试脚本不入库
