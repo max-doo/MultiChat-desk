@@ -2021,7 +2021,9 @@ async function movePath(sourcePath: string, targetPath: string): Promise<void> {
   }
   const temporary = `${targetPath}.${randomUUID()}.moving`
   try {
-    await cp(sourcePath, temporary, { recursive: true, filter: (src) => !isBlockedImportName(path.basename(src)) })
+    // 移动语义必须内容完整：不带 isBlockedImportName 排除过滤（那是导入/复制的规则），
+    // 否则 .git/node_modules 等被跳过而源被整体删除，数据直接丢失
+    await cp(sourcePath, temporary, { recursive: true })
     await rename(temporary, targetPath)
   } finally {
     await rm(temporary, { recursive: true, force: true }).catch(() => undefined)
@@ -2810,16 +2812,27 @@ const execFileAsync = promisify(execFile)
 const WINDOWS_CLIPBOARD_SCRIPT = `
 param(
   [Parameter(Mandatory=$true)][string]$PathsJson,
-  [string]$ImagePath = ''
+  [string]$ImagePath = '',
+  [switch]$Move
 )
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-$paths = @($PathsJson | ConvertFrom-Json)
+# PowerShell 5.1 的 ConvertFrom-Json 会把 JSON 数组作为单个 Object[] 元素返回，
+# 直接 @() 包一层会得到 space-join 的整串，必须显式转 [string[]] 逐元素展开
+$paths = [string[]]($PathsJson | ConvertFrom-Json)
 if ($paths.Count -eq 0) { exit 0 }
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 $data = New-Object System.Windows.Forms.DataObject
 $data.SetFileDropList([string[]]$paths)
+if ($Move) {
+  # Preferred DropEffect = DROPEFFECT_MOVE(2)：资源管理器/目标应用按"剪切"处理这批文件
+  $ms = New-Object System.IO.MemoryStream
+  $bw = New-Object System.IO.BinaryWriter($ms)
+  $bw.Write([int]2)
+  $bw.Flush()
+  $data.SetData('Preferred DropEffect', $false, $ms)
+}
 if ($ImagePath -ne '' -and (Test-Path -LiteralPath $ImagePath -PathType Leaf)) {
   try {
     $bmp = New-Object System.Drawing.Bitmap($ImagePath)
@@ -2827,6 +2840,35 @@ if ($ImagePath -ne '' -and (Test-Path -LiteralPath $ImagePath -PathType Leaf)) {
   } catch {}
 }
 [System.Windows.Forms.Clipboard]::SetDataObject($data, $true)
+`
+
+const WINDOWS_READ_CLIPBOARD_SCRIPT = `
+$ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+Add-Type -AssemblyName System.Windows.Forms
+$move = $false
+$paths = @()
+try {
+  if ([System.Windows.Forms.Clipboard]::ContainsFileDropList()) {
+    $drop = [System.Windows.Forms.Clipboard]::GetFileDropList()
+    foreach ($p in $drop) { $paths += $p }
+    $data = [System.Windows.Forms.Clipboard]::GetDataObject()
+    if ($data -ne $null -and $data.GetDataPresent('Preferred DropEffect')) {
+      $stream = $data.GetData('Preferred DropEffect')
+      if ($stream -ne $null) {
+        $br = New-Object System.IO.BinaryReader($stream)
+        try { $move = ($br.ReadInt32() -band 2) -eq 2 } catch {}
+      }
+    }
+  }
+} catch {}
+@{ paths = @($paths); move = $move } | ConvertTo-Json -Compress
+`
+
+const WINDOWS_CLEAR_CLIPBOARD_SCRIPT = `
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.Windows.Forms
+[System.Windows.Forms.Clipboard]::Clear()
 `
 
 /**
@@ -2837,7 +2879,8 @@ if ($ImagePath -ne '' -and (Test-Path -LiteralPath $ImagePath -PathType Leaf)) {
  */
 export async function copyNodesToClipboard(
   workspaceRoot: string,
-  relativePaths: string[]
+  relativePaths: string[],
+  options?: { move?: boolean }
 ): Promise<{ copied: number; imageCopied: boolean }> {
   const safeRoot = await assertSafePath(workspaceRoot, '')
   const absPaths: string[] = []
@@ -2856,11 +2899,13 @@ export async function copyNodesToClipboard(
     const scriptPath = path.join(tmpDir, 'copy-files.ps1')
     try {
       await fsWriteFile(scriptPath, WINDOWS_CLIPBOARD_SCRIPT, 'utf8')
+      const args = ['-Sta', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath,
+        '-PathsJson', JSON.stringify(absPaths),
+        '-ImagePath', isImage && !options?.move ? single : '']
+      if (options?.move) args.push('-Move')
       await execFileAsync(
         'powershell',
-        ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath,
-          '-PathsJson', JSON.stringify(absPaths),
-          '-ImagePath', isImage ? single : ''],
+        args,
         { windowsHide: true, timeout: 15000 }
       )
     } finally {
@@ -2877,4 +2922,135 @@ export async function copyNodesToClipboard(
     image: image && !image.isEmpty() ? image : undefined
   })
   return { copied: absPaths.length, imageCopied: isImage && image !== null && !image.isEmpty() }
+}
+
+/**
+ * 读取系统剪贴板中的文件列表与"剪切"标记（Windows）。
+ * 粘贴语义与资源管理器一致：Preferred DropEffect 带 DROPEFFECT_MOVE 时按移动处理。
+ * 非 Windows 平台返回空列表，由渲染层按复制兜底。
+ */
+export async function readClipboardFileDrop(): Promise<{ paths: string[]; move: boolean }> {
+  if (process.platform !== 'win32') return { paths: [], move: false }
+  const tmpDir = await mkdtemp(path.join(tmpdir(), 'multichat-clip-'))
+  const scriptPath = path.join(tmpDir, 'read-clipboard.ps1')
+  try {
+    await fsWriteFile(scriptPath, WINDOWS_READ_CLIPBOARD_SCRIPT, 'utf8')
+    const { stdout } = await execFileAsync(
+      'powershell',
+      ['-Sta', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath],
+      { windowsHide: true, timeout: 10000 }
+    )
+    const parsed = JSON.parse(stdout.trim() || '{}') as { paths?: unknown; move?: unknown }
+    const paths = Array.isArray(parsed.paths)
+      ? parsed.paths.filter((p): p is string => typeof p === 'string' && p.length > 0)
+      : typeof parsed.paths === 'string' && parsed.paths.length > 0
+      ? [parsed.paths]
+      : []
+    return { paths, move: parsed.move === true }
+  } catch {
+    return { paths: [], move: false }
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true }).catch(() => undefined)
+  }
+}
+
+/**
+ * 清空系统剪贴板中的文件列表（剪切粘贴完成后调用，防止对失效路径重复执行移动）。
+ * 仅当当前文件列表与期望路径完全一致时才清，避免误清用户之后复制的内容。
+ */
+export async function clearClipboardFileDropIfMatches(expectedAbsPaths: string[]): Promise<void> {
+  if (process.platform !== 'win32') return
+  try {
+    const { paths } = await readClipboardFileDrop()
+    if (!paths.length || paths.length !== expectedAbsPaths.length) return
+    const normalize = (p: string) => path.resolve(p).toLowerCase()
+    const current = new Set(paths.map(normalize))
+    if (!expectedAbsPaths.every((p) => current.has(normalize(p)))) return
+    const tmpDir = await mkdtemp(path.join(tmpdir(), 'multichat-clip-'))
+    const scriptPath = path.join(tmpDir, 'clear-clipboard.ps1')
+    try {
+      await fsWriteFile(scriptPath, WINDOWS_CLEAR_CLIPBOARD_SCRIPT, 'utf8')
+      await execFileAsync(
+        'powershell',
+        ['-Sta', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath],
+        { windowsHide: true, timeout: 10000 }
+      )
+    } finally {
+      await rm(tmpDir, { recursive: true, force: true }).catch(() => undefined)
+    }
+  } catch {
+    // 清空失败不影响移动结果
+  }
+}
+
+/**
+ * 把外部绝对路径列表"移动"进工作区目标目录（剪切粘贴语义）：
+ * - 同盘 rename，跨盘退回 cp + rm（movePath 已处理 EXDEV 与回滚）
+ * - 重名自动追加 `-n` 后缀，不覆盖目标侧既有节点
+ * - 源已在目标目录（原地剪切粘贴）时静默跳过
+ * - 返回工作区内发生的移动配对，供导图绑定/标注迁移
+ */
+export async function moveExternalPaths(
+  workspaceRoot: string,
+  targetDirRelative: string,
+  sourceAbsolutePaths: string[]
+): Promise<{ moved: string[]; failed: { path: string; error: string }[]; movePairs: Array<{ source: string; target: string }> }> {
+  const safeTargetDir = await assertSafePath(workspaceRoot, targetDirRelative)
+  const normalizedRoot = path.resolve(workspaceRoot)
+  markWorkspaceSelfWrite(workspaceRoot)
+  const moved: string[] = []
+  const failed: { path: string; error: string }[] = []
+  const movePairs: Array<{ source: string; target: string }> = []
+
+  const release = await lockCopyTarget(safeTargetDir)
+  try {
+    for (const sourcePath of sourceAbsolutePaths) {
+      try {
+        if (!sourcePath || typeof sourcePath !== 'string' || hasControlCharacters(sourcePath)) {
+          failed.push({ path: String(sourcePath), error: '非法的源路径' })
+          continue
+        }
+        const resolvedSrc = path.resolve(sourcePath)
+        const srcStat = await stat(resolvedSrc)
+        const srcBase = path.basename(resolvedSrc)
+        if (isBlockedImportName(srcBase)) {
+          failed.push({ path: sourcePath, error: '已忽略的系统目录/文件' })
+          continue
+        }
+        // 目标位于源目录内部 → 禁止（防自我包含；Windows 比较统一小写）
+        if (
+          srcStat.isDirectory() &&
+          (
+            safeTargetDir.toLowerCase() === resolvedSrc.toLowerCase() ||
+            safeTargetDir.toLowerCase().startsWith(resolvedSrc.toLowerCase() + path.sep)
+          )
+        ) {
+          failed.push({ path: sourcePath, error: '不能将文件夹移动到其自身内部' })
+          continue
+        }
+        // 源已在目标目录 → 原地剪切粘贴，按资源管理器语义视为无操作。
+        // Windows 大小写不敏感：比较前统一小写，避免剪贴板路径与工作区大小写错配导致原地改名
+        if (path.dirname(resolvedSrc).toLowerCase() === safeTargetDir.toLowerCase()) {
+          continue
+        }
+
+        const freeName = await allocateFreeName(safeTargetDir, srcBase)
+        const destPath = path.join(safeTargetDir, freeName)
+        markWorkspaceSelfWrite(workspaceRoot)
+        await movePath(resolvedSrc, destPath)
+        const targetRelative = toPosixRelativePath(normalizedRoot, destPath)
+        moved.push(targetRelative)
+        const sourceRelative = path.relative(normalizedRoot, resolvedSrc)
+        if (!sourceRelative.startsWith('..') && !path.isAbsolute(sourceRelative)) {
+          movePairs.push({ source: toPosixRelativePath(normalizedRoot, resolvedSrc), target: targetRelative })
+        }
+      } catch (err) {
+        failed.push({ path: sourcePath, error: err instanceof Error ? err.message : String(err) })
+      }
+    }
+  } finally {
+    release()
+  }
+
+  return { moved, failed, movePairs }
 }

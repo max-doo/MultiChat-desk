@@ -14,7 +14,7 @@ import FileTypeIcon from './FileTypeIcon'
 import WorkbenchGitPanel from './WorkbenchGitPanel'
 import WorkbenchVaultPopover from './WorkbenchVaultPopover'
 import WorkbenchWorkspaceSettings from './WorkbenchWorkspaceSettings'
-import { AppIcon, type AppIconName } from '../icons/AppIcon'
+import { AppIcon } from '../icons/AppIcon'
 import Modal from '../ui/Modal'
 import { Button } from '../ui/FormControls'
 import { requestUploadNodesToAi } from './workbenchAiEvents'
@@ -53,23 +53,21 @@ const DEFAULT_FOLDER_NAME = '新建文件夹'
 /** 左侧栏窄于该宽度时底栏切换为紧凑模式（隐藏 Git 分支名并收紧留白），确保工作区名称可读 */
 const COMPACT_FOOTER_WIDTH_THRESHOLD = 320
 
-function resolveMultichatFolderVisual(
-  nodePath: string
-): { icon: AppIconName; colorClass: string } | null {
+function isManagedMultichatFolder(nodePath: string): boolean {
   const normalized = nodePath.replace(/\\/g, '/').toLowerCase()
   if (normalized === '.multichat') {
-    return { icon: 'folder_managed', colorClass: 'text-slate-500 dark:text-slate-400' }
+    return true
   }
   if (normalized === '.multichat/image' || normalized === '.multichat/images') {
-    return { icon: 'image', colorClass: 'text-sky-500' }
+    return true
   }
   if (normalized === '.multichat/mindmap' || normalized === '.multichat/mindmaps') {
-    return { icon: 'diagram_flow_horizontal', colorClass: 'text-indigo-500' }
+    return true
   }
   if (normalized === '.multichat/annotation' || normalized === '.multichat/annotations') {
-    return { icon: 'annotation', colorClass: 'text-emerald-500' }
+    return true
   }
-  return null
+  return false
 }
 
 interface ContextMenuState {
@@ -127,9 +125,10 @@ interface DragState {
   paths: string[]
 }
 
-/** 树内复制剪贴板：记录待复制的节点相对路径与快照签名，用于失效检测 */
+/** 树内剪贴板：记录待粘贴节点的相对路径与剪切/复制模式，用于失效检测 */
 interface TreeClipboard {
   paths: string[]
+  mode: 'copy' | 'cut'
 }
 
 /** 从拖拽/粘贴的 File 对象提取本地绝对路径（Electron：.path 或 webUtils.getPathForFile） */
@@ -260,11 +259,9 @@ const InlineCreateInput = memo(function InlineCreateInput({
       className="flex items-center gap-1.5 py-1 px-2"
     >
       {!isFile && <span className="w-[19px] h-[19px] shrink-0" />}
-      <AppIcon
-        name={isFile ? 'description' : 'folder'}
-        size={19}
-        className={`shrink-0 ${isFile ? 'text-blue-500 dark:text-blue-400' : 'text-amber-500'}`}
-      />
+      {isFile && (
+        <AppIcon name="description" size={19} className="shrink-0 text-blue-500 dark:text-blue-400" />
+      )}
       <input
         ref={inputRef}
         type="text"
@@ -370,6 +367,7 @@ interface FileTreeRowProps {
   isRenaming: boolean
   isRenamingBusy: boolean
   isDropTarget: boolean
+  isCut: boolean
   gitBadge: GitBadge | null
   onNodeClick: (e: React.MouseEvent, node: WorkbenchFileNode) => void
   onNodeDoubleClick: (node: WorkbenchFileNode) => void
@@ -394,6 +392,7 @@ const FileTreeRow = memo(function FileTreeRow({
   isRenaming,
   isRenamingBusy,
   isDropTarget,
+  isCut,
   gitBadge,
   onNodeClick,
   onNodeDoubleClick,
@@ -410,6 +409,8 @@ const FileTreeRow = memo(function FileTreeRow({
 }: FileTreeRowProps): JSX.Element {
   // 仅当前激活文件行订阅 isDirty，编辑器变脏/保存不再重渲染整棵树
   const isDirty = useWorkbenchStore((s) => (isActive && !node.isDirectory ? s.isDirty : false))
+  // 剪切中的条目半透明（业界惯例），选择高亮不受影响
+  const cutDimClass = isCut && !isRenaming ? 'opacity-50' : ''
 
   const gitBadgeElement = gitBadge ? (
     <span
@@ -421,25 +422,13 @@ const FileTreeRow = memo(function FileTreeRow({
   ) : null
 
   if (node.isDirectory) {
-    // assets/ 目录受管：显示特殊图标且不可拖拽（避免与文档附件目录联动逻辑冲突）
+    // assets/ 目录受管：不可拖拽（避免与文档附件目录联动逻辑冲突）
     const isManagedAssetsDir = node.path.split('/').includes('assets')
-    const multichatVisual = resolveMultichatFolderVisual(node.path)
-    const folderIconName: AppIconName = isManagedAssetsDir
-      ? 'attachment'
-      : multichatVisual
-      ? multichatVisual.icon
-      : isExpanded
-      ? 'folder_open'
-      : 'folder'
-    const folderIconColorClass = isManagedAssetsDir
-      ? 'text-slate-400'
-      : multichatVisual
-      ? multichatVisual.colorClass
-      : 'text-amber-500'
+    const isManagedMultichat = isManagedMultichatFolder(node.path)
 
     return (
       <div
-        draggable={!isManagedAssetsDir && !multichatVisual && !isRenaming}
+        draggable={!isManagedAssetsDir && !isManagedMultichat && !isRenaming}
         data-folder-node={node.path}
         onDragStart={(e) => onDragStart(e, node)}
         onDragEnd={onDragEnd}
@@ -454,6 +443,13 @@ const FileTreeRow = memo(function FileTreeRow({
           if (isRenaming) return
           onNodeClick(e, node)
         }}
+        title={
+          isManagedAssetsDir
+            ? '附件目录：文档图片等资产由应用自动管理'
+            : isManagedMultichat
+            ? '应用数据目录：导图、标注等数据由应用自动管理'
+            : undefined
+        }
         style={{ paddingLeft: `${level * 14 + 8}px` }}
         className={`select-none flex items-center gap-1.5 py-1 px-2 rounded-md cursor-pointer text-body transition-colors group ${
           isDropTarget
@@ -468,7 +464,6 @@ const FileTreeRow = memo(function FileTreeRow({
           size={19}
           className="text-text-secondary transition-transform duration-150 shrink-0"
         />
-        <AppIcon name={folderIconName} size={19} className={`shrink-0 ${folderIconColorClass}`} />
         {isRenaming ? (
           <InlineRenameInput
             initialName={node.name}
@@ -479,8 +474,17 @@ const FileTreeRow = memo(function FileTreeRow({
           />
         ) : (
           <>
-            <span className="truncate flex-1 font-medium">{node.name}</span>
+            <span
+              className={`truncate flex-1 font-medium ${cutDimClass} ${
+                isManagedMultichat ? 'text-text-secondary/70' : ''
+              }`}
+            >
+              {node.name}
+            </span>
             {gitBadgeElement}
+            {isManagedAssetsDir && (
+              <AppIcon name="attachment" size={14} className="ml-auto shrink-0 text-text-secondary/50" />
+            )}
           </>
         )}
       </div>
@@ -522,9 +526,11 @@ const FileTreeRow = memo(function FileTreeRow({
       }`}
     >
       {iconVisual ? (
-        <AppIcon name={iconVisual.icon} size={19} className={`shrink-0 ${iconVisual.color}`} />
+        <AppIcon name={iconVisual.icon} size={19} className={`shrink-0 ${iconVisual.color} ${cutDimClass}`} />
       ) : (
-        <FileTypeIcon node={node} className="w-[19px] h-[19px] shrink-0" />
+        <span className={cutDimClass}>
+          <FileTypeIcon node={node} className="w-[19px] h-[19px] shrink-0" />
+        </span>
       )}
       {isRenaming ? (
         <InlineRenameInput
@@ -536,7 +542,7 @@ const FileTreeRow = memo(function FileTreeRow({
         />
       ) : (
         <>
-          <span className="truncate flex-1">{node.name}</span>
+          <span className={`truncate flex-1 ${cutDimClass}`}>{node.name}</span>
           {isActive && isDirty && (
             <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" title="未保存的修改" />
           )}
@@ -579,6 +585,7 @@ function WorkbenchFileTree(): JSX.Element {
   const findUnreferencedImages = useWorkbenchStore((s) => s.findUnreferencedImages)
   const deleteNodes = useWorkbenchStore((s) => s.deleteNodes)
   const importExternalItems = useWorkbenchStore((s) => s.importExternalItems)
+  const moveExternalItems = useWorkbenchStore((s) => s.moveExternalItems)
   const moveToWorkspace = useWorkbenchStore((s) => s.moveToWorkspace)
   const recentWorkspaces = useWorkbenchStore((s) => s.recentWorkspaces)
   const defaultWorkspacePath = useWorkbenchStore((s) => s.defaultWorkspacePath)
@@ -612,9 +619,32 @@ function WorkbenchFileTree(): JSX.Element {
   const menuRef = useRef<HTMLDivElement | null>(null)
   const moveTriggerRef = useRef<HTMLDivElement | null>(null)
   const moveMenuRef = useRef<HTMLDivElement | null>(null)
+  // 子菜单 portal 到 body 后与触发项不再是 DOM 父子，移出触发项用短延迟关闭；
+  // 指针斜向进入子菜单或穿过间隙时，由子菜单/触发项的 mouseenter 取消这次关闭
+  const moveCloseTimerRef = useRef<number | null>(null)
   const workspaceButtonRef = useRef<HTMLButtonElement | null>(null)
   const settingsButtonRef = useRef<HTMLButtonElement | null>(null)
   const sortMenuRef = useRef<HTMLDivElement | null>(null)
+
+  const cancelMoveMenuClose = useCallback(() => {
+    if (moveCloseTimerRef.current !== null) {
+      window.clearTimeout(moveCloseTimerRef.current)
+      moveCloseTimerRef.current = null
+    }
+  }, [])
+
+  const closeMoveMenuNow = useCallback(() => {
+    cancelMoveMenuClose()
+    setIsMoveMenuOpen(false)
+  }, [cancelMoveMenuClose])
+
+  const scheduleMoveMenuClose = useCallback(() => {
+    cancelMoveMenuClose()
+    moveCloseTimerRef.current = window.setTimeout(() => {
+      moveCloseTimerRef.current = null
+      setIsMoveMenuOpen(false)
+    }, 250)
+  }, [cancelMoveMenuClose])
 
   const fileTreeRef = useRef(fileTree)
   fileTreeRef.current = fileTree
@@ -731,13 +761,19 @@ function WorkbenchFileTree(): JSX.Element {
     setMoveMenuPos({ left, top, maxHeight })
   }, [contextMenu, isMoveMenuOpen, menuPos])
 
-  // 关闭上下文菜单
+  // 右键菜单关闭或组件卸载时，清掉子菜单挂起的延迟关闭
+  useEffect(() => {
+    if (!contextMenu) cancelMoveMenuClose()
+    return cancelMoveMenuClose
+  }, [contextMenu, cancelMoveMenuClose])
+
   useEffect(() => {
     if (!contextMenu) return
     const handleClickOutside = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setContextMenu(null)
-      }
+      const target = e.target as Node
+      const inMenu = menuRef.current?.contains(target)
+      const inSubmenu = moveMenuRef.current?.contains(target)
+      if (!inMenu && !inSubmenu) setContextMenu(null)
     }
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setContextMenu(null)
@@ -750,7 +786,6 @@ function WorkbenchFileTree(): JSX.Element {
     }
   }, [contextMenu])
 
-  // 关闭排序菜单
   useEffect(() => {
     if (!isSortMenuOpen) return
     const handleClickOutside = (e: MouseEvent) => {
@@ -1330,19 +1365,43 @@ function WorkbenchFileTree(): JSX.Element {
     return nodes.length > 0 ? nodes : [node]
   }, [contextMenu, fileTree, selectedPaths])
 
-  /** 粘贴（Ctrl+V / 系统粘贴）：把剪贴板中的本地文件复制进上下文目录（VSCode 语义） */
+  /**
+   * 粘贴（Ctrl+V / 系统粘贴）：把剪贴板中的本地文件放进上下文目录（VSCode 语义）。
+   * 剪贴板带"剪切"标记时按移动处理（Windows 资源管理器 Ctrl+X 或应用内剪切）。
+   */
   const handlePaste = useCallback(
     (e: React.ClipboardEvent) => {
+      // 重命名/内联新建输入框内粘贴不接管：移动语义不可撤销，必须避免误触发
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
       const files = e.clipboardData?.files
       if (!files || files.length === 0) return // 文本/图片粘贴不接管（图片走编辑器插件）
-      const paths = collectLocalPaths(files)
-      if (!paths.length) return
+      const collected = collectLocalPaths(files)
+      if (!collected.length) return
       e.preventDefault()
       const parentDir = resolveParentDir(null)
       expandAncestors(parentDir ? [parentDir] : [])
-      void importExternalItems(parentDir, paths)
+      if (!workspacePath) return
+      void (async () => {
+        // 系统剪贴板是权威来源：优先用它判定剪切态，没有文件列表时退回事件里的文件
+        let paths = collected
+        let isMove = false
+        try {
+          const res = await window.api.workbench.readClipboardFileDrop()
+          if (res.success && res.data) {
+            if (res.data.paths.length) paths = res.data.paths
+            isMove = res.data.move === true
+          }
+        } catch {
+          // 读取失败按复制兜底
+        }
+        if (isMove) {
+          await moveExternalItems(parentDir, paths, paths)
+        } else {
+          await importExternalItems(parentDir, paths)
+        }
+      })()
     },
-    [resolveParentDir, expandAncestors, importExternalItems]
+    [resolveParentDir, expandAncestors, importExternalItems, moveExternalItems, workspacePath]
   )
 
   /** 复制（Ctrl+C / 系统复制）：把选中节点记入树内剪贴板，不抢占文字复制 */
@@ -1355,7 +1414,7 @@ function WorkbenchFileTree(): JSX.Element {
       if (!selectedPaths.size) return
       e.preventDefault()
       const paths = Array.from(selectedPaths)
-      setTreeClipboard({ paths })
+      setTreeClipboard({ paths, mode: 'copy' })
       if (workspacePath) {
         void window.api.workbench.copyToClipboard(workspacePath, paths)
       }
@@ -1363,33 +1422,77 @@ function WorkbenchFileTree(): JSX.Element {
     [selectedPaths, workspacePath]
   )
 
-  /** 应用内粘贴：把树内剪贴板的节点复制到目标目录，生成 `-n` 副本 */
+  /** 剪切（Ctrl+X / 系统剪切）：记入树内剪贴板并标记剪切态，系统剪贴板按移动写入 */
+  const handleCut = useCallback(
+    (e: React.ClipboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      const selection = window.getSelection()
+      if (selection && !selection.isCollapsed && selection.toString()) return
+      if (!selectedPaths.size) return
+      e.preventDefault()
+      const paths = Array.from(selectedPaths)
+      setTreeClipboard({ paths, mode: 'cut' })
+      if (workspacePath) {
+        void window.api.workbench.copyToClipboard(workspacePath, paths, { move: true })
+      }
+    },
+    [selectedPaths, workspacePath]
+  )
+
+  /**
+   * 应用内粘贴：
+   * - 复制模式：节点复制到目标目录，生成 `-n` 副本
+   * - 剪切模式：移动节点到目标目录（原地粘贴为无操作），成功后清空剪贴板
+   */
   const pasteTreeClipboard = useCallback(
     (targetDir: string) => {
       if (!treeClipboard || !workspacePath || !treeClipboard.paths.length) return
       const root = workspacePath.replace(/\\/g, '/').replace(/\/+$/, '')
-      // 过滤会把目录复制进自身内部的源（target 等于源或位于源之下），与后端校验一致
-      const targetPrefix = targetDir ? `${targetDir}/` : ''
       const paths = treeClipboard.paths.filter((p) => {
         if (p === targetDir) return false
-        return !targetPrefix.startsWith(`${p}/`)
+        // 剪切：原地粘贴为无操作（与资源管理器一致）；复制：允许生成 `-n` 副本
+        if (treeClipboard.mode === 'cut') {
+          const idx = p.lastIndexOf('/')
+          const parent = idx === -1 ? '' : p.slice(0, idx)
+          if (parent === targetDir) return false
+        }
+        // 过滤会把目录放进自身内部的源（target 位于源之下），与后端校验一致
+        return targetDir === '' || !targetDir.startsWith(`${p}/`)
       })
       if (!paths.length) return
-      const absPaths = paths.map((p) => `${root}/${p}`)
       expandAncestors(targetDir ? [targetDir] : [])
+      if (treeClipboard.mode === 'cut') {
+        void moveNodes(paths, targetDir).then((ok) => {
+          if (!ok) return
+          setTreeClipboard(null)
+          // 剪贴板里的绝对路径已失效，阻止之后在资源管理器里误粘贴。
+          // 注意传过滤前的全量路径：部分项原地无操作仍在剪贴板里，数量不一致会导致清空被跳过
+          void window.api.workbench.clearClipboardFileDrop(treeClipboard.paths.map((p) => `${root}/${p}`))
+        })
+        return
+      }
+      const absPaths = paths.map((p) => `${root}/${p}`)
       void importExternalItems(targetDir, absPaths)
     },
-    [treeClipboard, workspacePath, expandAncestors, importExternalItems]
+    [treeClipboard, workspacePath, expandAncestors, importExternalItems, moveNodes]
   )
 
-  /** 树容器的键盘快捷键：容器已聚焦且未在输入框内时接管 F2（重命名）、Ctrl+C / Ctrl+V */
+  /** 树容器的键盘快捷键：容器已聚焦且未在输入框内时接管 F2（重命名）、Ctrl+C / Ctrl+X / Ctrl+V、Esc */
   const handleTreeKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
 
-      if (e.key === 'Escape' && isSearchMode) {
-        e.preventDefault()
-        closeSearch()
+      if (e.key === 'Escape') {
+        if (isSearchMode) {
+          e.preventDefault()
+          closeSearch()
+          return
+        }
+        // 与资源管理器一致：Esc 取消剪切态
+        if (treeClipboard?.mode === 'cut') {
+          e.preventDefault()
+          setTreeClipboard(null)
+        }
         return
       }
 
@@ -1414,14 +1517,22 @@ function WorkbenchFileTree(): JSX.Element {
       const mod = e.ctrlKey || e.metaKey
       if (!mod) return
       const k = e.key.toLowerCase()
-      if (k !== 'c' && k !== 'v') return
+      if (k !== 'c' && k !== 'x' && k !== 'v') return
       if (k === 'c') {
         if (!selectedPaths.size) return
         e.preventDefault()
         const paths = Array.from(selectedPaths)
-        setTreeClipboard({ paths })
+        setTreeClipboard({ paths, mode: 'copy' })
         if (workspacePath) {
           void window.api.workbench.copyToClipboard(workspacePath, paths)
+        }
+      } else if (k === 'x') {
+        if (!selectedPaths.size) return
+        e.preventDefault()
+        const paths = Array.from(selectedPaths)
+        setTreeClipboard({ paths, mode: 'cut' })
+        if (workspacePath) {
+          void window.api.workbench.copyToClipboard(workspacePath, paths, { move: true })
         }
       } else {
         if (!treeClipboard) return
@@ -1470,9 +1581,9 @@ function WorkbenchFileTree(): JSX.Element {
       }}
       onKeyDown={handleTreeKeyDown}
       onCopy={handleCopy}
+      onCut={handleCut}
       onPaste={handlePaste}
     >
-      {/* 头部：核心操作（左对齐）+ 侧边栏折叠开关（最右） */}
       <div className="h-12 px-3 border-b border-black/5 dark:border-white/5 flex items-center justify-between gap-1 shrink-0">
         <div className="flex items-center gap-0.5 text-text-secondary">
           <button
@@ -1576,7 +1687,6 @@ function WorkbenchFileTree(): JSX.Element {
         </div>
       </div>
 
-      {/* 搜索视图或树状文件列表 */}
       <div
         className={`flex-1 overflow-y-auto p-1.5 ${isRootDropActive ? 'bg-primary/5' : ''}`}
         onContextMenu={(e) => handleContextMenu(e, null)}
@@ -1638,6 +1748,7 @@ function WorkbenchFileTree(): JSX.Element {
                   isRenaming={isRenaming}
                   isRenamingBusy={isRenaming && isRenamingBusy}
                   isDropTarget={node.isDirectory && dropTargetDir === node.path}
+                  isCut={treeClipboard?.mode === 'cut' && treeClipboard.paths.includes(node.path)}
                   gitBadge={gitBadge}
                   onNodeClick={handleNodeClick}
                   onNodeDoubleClick={handleNodeDoubleClick}
@@ -1658,7 +1769,6 @@ function WorkbenchFileTree(): JSX.Element {
         )}
       </div>
 
-      {/* 底部：工作区切换、版本管理、工作区设置 */}
       <div className="relative shrink-0 border-t border-black/5 dark:border-white/5">
         <div className={`flex h-10 items-center ${isCompactFooter ? 'gap-1 px-1.5' : 'gap-1.5 px-2'}`}>
           <button
@@ -1712,7 +1822,6 @@ function WorkbenchFileTree(): JSX.Element {
         )}
       </div>
 
-      {/* 右键上下文菜单 */}
       {contextMenu && createPortal(
         <div
           ref={menuRef}
@@ -1768,28 +1877,52 @@ function WorkbenchFileTree(): JSX.Element {
 
           {/* 复制/粘贴：无上下文节点时仅"粘贴"可用；有节点时提供复制与单节点创建副本 */}
           {contextMenu.node ? (
-            <button
-              type="button"
-              onClick={() => {
-                const paths =
-                  selectedPaths.size > 1 && selectedPaths.has(contextMenu.node!.path)
-                    ? Array.from(selectedPaths)
-                    : [contextMenu.node!.path]
-                setTreeClipboard({ paths })
-                if (workspacePath) {
-                  void window.api.workbench.copyToClipboard(workspacePath, paths)
-                }
-                setContextMenu(null)
-              }}
-              className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-text-primary hover:bg-black/5 dark:hover:bg-white/5"
-            >
-              <AppIcon name="content_copy" size={19} />
-              <span>
-                {selectedPaths.size > 1 && contextMenu.node && selectedPaths.has(contextMenu.node.path)
-                  ? `复制 ${selectedPaths.size} 项`
-                  : '复制'}
-              </span>
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  const paths =
+                    selectedPaths.size > 1 && selectedPaths.has(contextMenu.node!.path)
+                      ? Array.from(selectedPaths)
+                      : [contextMenu.node!.path]
+                  setTreeClipboard({ paths, mode: 'cut' })
+                  if (workspacePath) {
+                    void window.api.workbench.copyToClipboard(workspacePath, paths, { move: true })
+                  }
+                  setContextMenu(null)
+                }}
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-text-primary hover:bg-black/5 dark:hover:bg-white/5"
+              >
+                <AppIcon name="content_cut" size={19} />
+                <span>
+                  {selectedPaths.size > 1 && contextMenu.node && selectedPaths.has(contextMenu.node.path)
+                    ? `剪切 ${selectedPaths.size} 项`
+                    : '剪切'}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const paths =
+                    selectedPaths.size > 1 && selectedPaths.has(contextMenu.node!.path)
+                      ? Array.from(selectedPaths)
+                      : [contextMenu.node!.path]
+                  setTreeClipboard({ paths, mode: 'copy' })
+                  if (workspacePath) {
+                    void window.api.workbench.copyToClipboard(workspacePath, paths)
+                  }
+                  setContextMenu(null)
+                }}
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-text-primary hover:bg-black/5 dark:hover:bg-white/5"
+              >
+                <AppIcon name="content_copy" size={19} />
+                <span>
+                  {selectedPaths.size > 1 && contextMenu.node && selectedPaths.has(contextMenu.node.path)
+                    ? `复制 ${selectedPaths.size} 项`
+                    : '复制'}
+                </span>
+              </button>
+            </>
           ) : null}
           {treeClipboard && (
             <button
@@ -1870,56 +2003,24 @@ function WorkbenchFileTree(): JSX.Element {
                 <div
                   ref={moveTriggerRef}
                   className="relative"
-                  onMouseEnter={() => setIsMoveMenuOpen(true)}
-                  onMouseLeave={() => setIsMoveMenuOpen(false)}
+                  onMouseEnter={() => {
+                    cancelMoveMenuClose()
+                    setIsMoveMenuOpen(true)
+                  }}
+                  onMouseLeave={scheduleMoveMenuClose}
                 >
                   <button
                     type="button"
-                    onClick={() => setIsMoveMenuOpen((v) => !v)}
+                    onClick={() => {
+                      cancelMoveMenuClose()
+                      setIsMoveMenuOpen((v) => !v)
+                    }}
                     className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-text-primary hover:bg-black/5 dark:hover:bg-white/5"
                   >
                     <AppIcon name="folder_output" size={19} />
                     <span className="flex-1">移动到其他工作区</span>
                     <AppIcon name="chevron_right" size={16} />
                   </button>
-                  {isMoveMenuOpen && (
-                    <div
-                      ref={moveMenuRef}
-                      onMouseEnter={() => setIsMoveMenuOpen(true)}
-                      style={{
-                        left: moveMenuPos?.left ?? contextMenu.x,
-                        top: moveMenuPos?.top ?? contextMenu.y,
-                        maxHeight: moveMenuPos?.maxHeight ?? 280
-                      }}
-                      className="fixed z-popover min-w-[190px] max-w-[240px] overflow-y-auto liquid-glass-menu rounded-xl py-1 text-body"
-                    >
-                      {moveTargets.map((target) => (
-                        <button
-                          key={target.path}
-                          type="button"
-                          onClick={() => {
-                            const node = contextMenu.node
-                            setContextMenu(null)
-                            setIsMoveMenuOpen(false)
-                            if (!node) return
-                            const multi = selectedPaths.size > 1 && selectedPaths.has(node.path)
-                            const paths = (multi ? Array.from(selectedPaths) : [node.path]).filter(p => {
-                              const item = flatVisibleNodes.find(n => n.path === p)
-                              return item ? !item.isDirectory : true
-                            })
-                            if (!paths.length) return
-                            void moveToWorkspace(target.path, paths)
-                            setSelectedPaths(new Set())
-                          }}
-                          className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-text-primary hover:bg-black/5 dark:hover:bg-white/5"
-                          title={target.path}
-                        >
-                          <AppIcon name="folder" size={19} />
-                          <span className="truncate">{target.name}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
                 </div>
               )}
               <button
@@ -2026,7 +2127,50 @@ function WorkbenchFileTree(): JSX.Element {
         document.body
       )}
 
-      {/* 删除 / 清理未引用图片 弹窗（重命名已改为 VSCode 式内联交互，不再弹窗） */}
+      {/* "移动到其他工作区"子菜单：必须脱离主菜单 DOM 单独 portal。
+          主菜单的 liquid-glass-menu 带 backdrop-filter，Chromium 里它会成为
+          fixed 后代的包含块，导致子菜单按视口算好的坐标被二次偏移、渲染到视口外。 */}
+      {contextMenu && isMoveMenuOpen && createPortal(
+        <div
+          ref={moveMenuRef}
+          onMouseEnter={cancelMoveMenuClose}
+          onMouseLeave={scheduleMoveMenuClose}
+          style={{
+            left: moveMenuPos?.left ?? contextMenu.x,
+            top: moveMenuPos?.top ?? contextMenu.y,
+            maxHeight: moveMenuPos?.maxHeight ?? 280
+          }}
+          className="fixed z-popover min-w-[190px] max-w-[240px] overflow-y-auto liquid-glass-menu rounded-xl py-1 text-body"
+        >
+          {moveTargets.map((target) => (
+            <button
+              key={target.path}
+              type="button"
+              onClick={() => {
+                const node = contextMenu.node
+                closeMoveMenuNow()
+                setContextMenu(null)
+                if (!node) return
+                const multi = selectedPaths.size > 1 && selectedPaths.has(node.path)
+                const paths = (multi ? Array.from(selectedPaths) : [node.path]).filter(p => {
+                  const item = flatVisibleNodes.find(n => n.path === p)
+                  return item ? !item.isDirectory : true
+                })
+                if (!paths.length) return
+                void moveToWorkspace(target.path, paths)
+                setSelectedPaths(new Set())
+              }}
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-text-primary hover:bg-black/5 dark:hover:bg-white/5"
+              title={target.path}
+            >
+              <AppIcon name="folder" size={19} />
+              <span className="truncate">{target.name}</span>
+            </button>
+          ))}
+        </div>,
+        document.body
+      )}
+
       <Modal
         open={actionModal !== null}
         onClose={() => setActionModal(null)}
@@ -2119,7 +2263,6 @@ function WorkbenchFileTree(): JSX.Element {
         )}
       </Modal>
 
-      {/* 管理仓库弹窗：列出最近工作区、切换/移除、打开新目录、关闭当前工作区 */}
       {isWorkspaceSettingsOpen && (
         <WorkbenchWorkspaceSettings
           anchorRef={settingsButtonRef}

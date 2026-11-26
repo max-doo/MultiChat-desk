@@ -60,10 +60,13 @@ import {
   saveImage as workbenchSaveImage,
   importImageFile as workbenchImportImageFile,
   copyNodesToClipboard as workbenchCopyNodesToClipboard,
+  readClipboardFileDrop as workbenchReadClipboardFileDrop,
+  clearClipboardFileDropIfMatches as workbenchClearClipboardFileDropIfMatches,
   findUnreferencedImages as workbenchFindUnreferencedImages,
   findWorkspaceUnreferencedImages as workbenchFindWorkspaceUnreferencedImages,
   deleteNodes as workbenchDeleteNodes,
   importExternalPaths as workbenchImportExternalPaths,
+  moveExternalPaths as workbenchMoveExternalPaths,
   moveNodeAcrossWorkspaces as workbenchMoveNodeAcrossWorkspaces,
   watchWorkspace as workbenchWatchWorkspace,
   unwatchWorkspace as workbenchUnwatchWorkspace,
@@ -377,12 +380,10 @@ export async function registerIpcHandlers(
       })
     }
 
-    // IPC 处理器：WebView 右键菜单操作
     ipcMain.handle('webview:execute-contextmenu-action', async (_event, args: WebviewContextMenuActionRequest) => {
         return await handleWebviewContextMenuAction(args.wcId, args.actionKey, args.data)
     })
 
-    // IPC 处理器：右键菜单操作
     ipcMain.handle('perform-contextmenu-action', async (_event, args: { wcId: number, action: 'copy' | 'paste' | 'save-image', data?: { url?: string } }) => {
         try {
             // 使用 webContents.getAllWebContents() 获取所有 webContents，包括 webview 标签的
@@ -503,7 +504,6 @@ export async function registerIpcHandlers(
         }
     })
 
-    // IPC 处理器：窗口控制
     ipcMain.on('window-minimize', () => {
         getMainWindow()?.minimize()
     })
@@ -545,7 +545,6 @@ export async function registerIpcHandlers(
         }
     })
 
-    // IPC 处理器：文件选择
     ipcMain.handle('select-file', async () => {
         const result = await dialog.showOpenDialog({
             properties: ['openFile']
@@ -643,17 +642,14 @@ export async function registerIpcHandlers(
         }
     })
 
-    // IPC 处理器：读取剪贴板文本
     ipcMain.handle('read-clipboard-text', () => {
         return clipboard.readText()
     })
 
-    // IPC 处理器：读取剪贴板 HTML（用于获取富文本格式）
     ipcMain.handle('read-clipboard-html', () => {
         return clipboard.readHTML()
     })
 
-    // IPC 处理器：读取剪贴板图片并保存为临时文件
     ipcMain.handle('read-clipboard-image', async () => {
         try {
             const image = clipboard.readImage()
@@ -680,7 +676,6 @@ export async function registerIpcHandlers(
         }
     })
 
-    // IPC 处理器：将渲染层拖入的文件内容写入本地临时文件。
     // 不直接信任 renderer 中 File.path，避免虚拟文件/浏览器拖拽产生不可用路径。
     ipcMain.handle('create-temp-upload-file', async (_event, params: {
         fileName: string
@@ -725,7 +720,6 @@ export async function registerIpcHandlers(
         }
     })
 
-    // IPC 处理器：清理拖拽上传创建的临时目录。
     ipcMain.handle('cleanup-upload-temp', async (_event, filePath: string) => {
         if (!filePath || typeof filePath !== 'string') {
             return { success: false, error: 'invalid filePath' }
@@ -747,7 +741,6 @@ export async function registerIpcHandlers(
         }
     })
 
-    // IPC 处理器：清理粘贴图片产生的临时目录（multichat-paste-*）
     // 渲染层传入 readClipboardImage 返回的 filePath，main 层自行 dirname 取目录
     ipcMain.handle('cleanup-paste-temp', async (_event, filePath: string) => {
         if (!filePath || typeof filePath !== 'string') {
@@ -769,7 +762,6 @@ export async function registerIpcHandlers(
         }
     })
 
-    // IPC 处理器：向 webview 发送鼠标点击事件（用于触发 Gemini 复制按钮）
     ipcMain.handle('send-mouse-click', async (_event, params: {
         webContentsId: number,
         x: number,
@@ -809,7 +801,6 @@ export async function registerIpcHandlers(
         }
     })
 
-    // IPC 处理器：向 webview 发送鼠标移动事件（用于悬停触发 Hover 菜单）
     ipcMain.handle('send-mouse-move', async (_event, params: {
         webContentsId: number,
         x: number,
@@ -855,7 +846,6 @@ export async function registerIpcHandlers(
         }
     })
 
-    // IPC 处理器：存储操作
     const noteManager = new NoteManager(store)
     setNoteManager(noteManager)
     // 每个窗口仅保留最近一次采集，启动/创建时取走；窗口释放后可随之回收。
@@ -1233,7 +1223,6 @@ export async function registerIpcHandlers(
     ipcMain.handle('history:remove', (_event, kind: 'conversation' | 'summary', ids: string[]) => historyResult(() => historyManager.remove(kind, ids), true))
     ipcMain.handle('history:import', (_event, kind: 'conversation' | 'summary', values: unknown, overwrite = false) => historyResult(() => historyManager.import(kind, values, overwrite), true))
 
-    // Summary Prompts 相关
     ipcMain.handle('summary-prompts-bootstrap', async (_event, prompts: SummaryPromptFileItem[]) => {
         await bootstrapSummaryPrompts(Array.isArray(prompts) ? prompts : [])
     })
@@ -1347,7 +1336,6 @@ export async function registerIpcHandlers(
         }
     })
 
-    // IPC 处理器：任务拆解（后台 Web AI，复用导图后台会话方式）
     const broadcastTaskSplit = (task: unknown): void => {
         BrowserWindow.getAllWindows().forEach(window => {
             try {
@@ -1381,7 +1369,6 @@ export async function registerIpcHandlers(
         catch (error) { return { success: false, error: String(error) } }
     })
 
-    // IPC 处理器：导出缓存数据到 JSON 文件
     ipcMain.handle('export-cache', async () => {
         try {
             const { writeFile } = await import('fs/promises')
@@ -1665,13 +1652,11 @@ export async function registerIpcHandlers(
       }
     })
 
-    // IPC 处理器：打开新浏览器窗口
     ipcMain.handle('open-browser-window', (_event, url: string) => {
         console.log('[Main] Request to open new window:', url)
         openBrowserWindowInternal(url)
     })
 
-    // IPC 处理器：将内容写入临时 markdown 文件
     ipcMain.handle('write-temp-markdown', async (_event, params: {
         content: string
         fileName?: string
@@ -1686,8 +1671,6 @@ export async function registerIpcHandlers(
             return { success: false, error: String(error) }
         }
     })
-
-    // ============ 悬浮工具条 IPC 处理器 ============
 
     ipcMain.handle('selection-toolbar:get', () => {
         return { success: true, data: getSelectionToolbarEnabled(store) }
@@ -1755,7 +1738,6 @@ export async function registerIpcHandlers(
         }, 300)
     })
 
-    // 自动化执行内核接口
     ipcMain.handle('automation:execute', async (_event, platformId: string, prompt: string) => {
         return await automationService.executeCommand(platformId, prompt)
     })
@@ -1798,7 +1780,6 @@ export async function registerIpcHandlers(
      * 高层接口：仅收集指定平台的最新回复（automation:collect-result 的语义别名）
      * 适合 appStore 在分步轮询场景中调用
      */
-    // TODO: Consider merging automation:collect and automation:collect-result in a future refactor.
     ipcMain.handle('automation:collect', async (_event, platformId: string) => {
         try {
             return await automationService.collectResult(platformId)
@@ -1833,7 +1814,6 @@ export async function registerIpcHandlers(
         }
     })
 
-    // ============ 更新检查 IPC（后台提醒版） ============
     ipcMain.handle('update:get-state', () => {
         return { success: true, data: getUpdateState() }
     })
@@ -1851,8 +1831,6 @@ export async function registerIpcHandlers(
     ipcMain.handle('app:get-version', () => {
         return { success: true, data: app.getVersion() }
     })
-
-    // ============ 命令行工具（multichat）集成 ============
 
     ipcMain.handle('cli:get-status', async () => {
         try {
@@ -1887,8 +1865,6 @@ export async function registerIpcHandlers(
             return { success: false, error }
         }
     })
-
-    // ============ 工作台 (Workbench) 文件系统与检索 IPC ============
 
     ipcMain.handle('workbench:select-folder', async () => {
         try {
@@ -2423,10 +2399,53 @@ export async function registerIpcHandlers(
         }
     })
 
-    ipcMain.handle('workbench:copy-to-clipboard', async (_event, payload: { workspaceRoot: string; relativePaths: string[] }) => {
+    ipcMain.handle('workbench:copy-to-clipboard', async (_event, payload: { workspaceRoot: string; relativePaths: string[]; move?: boolean }) => {
         try {
             assertActiveWorkspace(payload.workspaceRoot)
-            const data = await workbenchCopyNodesToClipboard(payload.workspaceRoot, payload.relativePaths)
+            const data = await workbenchCopyNodesToClipboard(payload.workspaceRoot, payload.relativePaths, { move: payload.move === true })
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    ipcMain.handle('workbench:read-clipboard-file-drop', async () => {
+        try {
+            const data = await workbenchReadClipboardFileDrop()
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    // 剪切粘贴完成后清空剪贴板剪切态：仅在文件列表与预期一致时清，避免误清用户新复制的内容
+    ipcMain.handle('workbench:clear-clipboard-file-drop', async (_event, payload: { expectedAbsPaths?: string[] }) => {
+        try {
+            await workbenchClearClipboardFileDropIfMatches(Array.isArray(payload?.expectedAbsPaths) ? payload.expectedAbsPaths : [])
+            return { success: true }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
+    // 剪切粘贴外部文件：movePairs 对应工作区内的 rename，迁移导图绑定与标注旁路。
+    // 文件已落盘再改绑定；旁路迁移失败不回滚移动，避免用户文件状态不一致。
+    ipcMain.handle('workbench:move-external-paths', async (_event, payload: { workspaceRoot: string; targetDirRelative: string; sourceAbsolutePaths: string[] }) => {
+        try {
+            assertActiveWorkspace(payload.workspaceRoot)
+            const data = await workbenchMoveExternalPaths(payload.workspaceRoot, payload.targetDirRelative, payload.sourceAbsolutePaths)
+            if (data.movePairs.length) {
+                for (const pair of data.movePairs) {
+                    await rekeyDocumentAnnotations(payload.workspaceRoot, pair.source, pair.target)
+                        .catch(error => console.warn('[Annotations] 剪切迁移标注失败:', error))
+                    await noteManager.rekeyWorkbenchSource(payload.workspaceRoot, pair.source, pair.target)
+                        .then(movedCount => { if (movedCount) notesChanged() })
+                        .catch(error => console.warn('[Workbench] 剪切迁移导图绑定失败:', error))
+                }
+            }
             return { success: true, data }
         } catch (err: unknown) {
             const error = err instanceof Error ? err.message : String(err)
@@ -2606,7 +2625,6 @@ export async function registerIpcHandlers(
         }
     })
 
-    // ============ 工作台版本管理 (Git) ============
     // 只操作工作区范围；提交、拉取、推送的状态判断都在主进程完成，渲染层只负责展示与确认。
 
     ipcMain.handle('workbench:git-status', async (_event, payload: { workspaceRoot: string }) => {
@@ -2965,10 +2983,6 @@ export async function registerIpcHandlers(
         }
     })
 
-    // ==========================================
-    // Local Agent Sidebar IPC Handlers
-    // ==========================================
-
     ipcMain.handle('agent:prompt', async (_event, payload: { sessionId: string; prompt: string; attachments?: string[]; streamingBehavior?: 'steer' | 'followUp'; images?: Array<{ data: string; mimeType: string }> }) => {
         try {
             await agentSessionService.prompt(payload.sessionId, payload.prompt, payload.attachments, payload.streamingBehavior, payload.images)
@@ -3072,6 +3086,16 @@ export async function registerIpcHandlers(
         }
     })
 
+    ipcMain.handle('agent:get-session-export', async (_event, payload: { sessionId: string }) => {
+        try {
+            const data = await agentSessionService.getSessionExport(payload.sessionId)
+            return { success: true, data }
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { success: false, error }
+        }
+    })
+
     ipcMain.handle('agent:resolve-approval', async (_event, payload: { requestId: string; decision: 'allow' | 'always' | 'deny'; pattern?: string }) => {
         try {
             const resolved = agentSessionService.resolveApproval(payload.requestId, payload.decision, payload.pattern)
@@ -3131,8 +3155,6 @@ export async function registerIpcHandlers(
             return { success: false, error }
         }
     })
-
-    // ── Agent 配置（设置弹窗）──────────────────────────────────────────────
 
     ipcMain.handle('agent:get-config', async () => {
         try {

@@ -535,8 +535,12 @@ const api = {
       ipcRenderer.invoke('workbench:save-image', { workspaceRoot, documentRelativePath, ...payload }),
     importImageFile: (workspaceRoot: string, documentRelativePath: string, sourceAbsolutePath: string): Promise<{ success: boolean; data?: { relativePath: string; thumbnailDataUrl: string }; error?: string }> =>
       ipcRenderer.invoke('workbench:import-image-file', { workspaceRoot, documentRelativePath, sourceAbsolutePath }),
-    copyToClipboard: (workspaceRoot: string, relativePaths: string[]): Promise<{ success: boolean; data?: { copied: number; imageCopied: boolean }; error?: string }> =>
-      ipcRenderer.invoke('workbench:copy-to-clipboard', { workspaceRoot, relativePaths }),
+    copyToClipboard: (workspaceRoot: string, relativePaths: string[], options?: { move?: boolean }): Promise<{ success: boolean; data?: { copied: number; imageCopied: boolean }; error?: string }> =>
+      ipcRenderer.invoke('workbench:copy-to-clipboard', { workspaceRoot, relativePaths, move: options?.move === true }),
+    readClipboardFileDrop: (): Promise<{ success: boolean; data?: { paths: string[]; move: boolean }; error?: string }> =>
+      ipcRenderer.invoke('workbench:read-clipboard-file-drop'),
+    clearClipboardFileDrop: (expectedAbsPaths: string[]): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('workbench:clear-clipboard-file-drop', { expectedAbsPaths }),
     findUnreferencedImages: (workspaceRoot: string, documentRelativePath: string): Promise<{ success: boolean; data?: { unreferenced: string[]; total: number }; error?: string }> =>
       ipcRenderer.invoke('workbench:find-unreferenced-images', { workspaceRoot, documentRelativePath }),
     findWorkspaceUnreferencedImages: (workspaceRoot: string): Promise<{ success: boolean; data?: WorkspaceUnreferencedImagesSummary; error?: string }> =>
@@ -545,6 +549,8 @@ const api = {
       ipcRenderer.invoke('workbench:delete-nodes', { workspaceRoot, relativePaths }),
     importExternalPaths: (workspaceRoot: string, targetDirRelative: string, sourceAbsolutePaths: string[]): Promise<{ success: boolean; data?: { imported: string[]; failed: { path: string; error: string }[]; pairs: Array<{ source: string; target: string }> }; error?: string }> =>
       ipcRenderer.invoke('workbench:import-external-paths', { workspaceRoot, targetDirRelative, sourceAbsolutePaths }),
+    moveExternalPaths: (workspaceRoot: string, targetDirRelative: string, sourceAbsolutePaths: string[]): Promise<{ success: boolean; data?: { moved: string[]; failed: { path: string; error: string }[] }; error?: string }> =>
+      ipcRenderer.invoke('workbench:move-external-paths', { workspaceRoot, targetDirRelative, sourceAbsolutePaths }),
     moveToWorkspace: (workspaceRoot: string, targetWorkspaceRoot: string, relativePaths: string[]): Promise<{ success: boolean; data?: { moved: Array<{ source: string; target: string }>; failed: Array<{ path: string; error: string }> }; error?: string }> =>
       ipcRenderer.invoke('workbench:move-to-workspace', { workspaceRoot, targetWorkspaceRoot, relativePaths }),
     watch: (workspaceRoot: string): Promise<{ success: boolean; error?: string }> =>
@@ -780,6 +786,8 @@ const api = {
     ipcRenderer.invoke('agent:fork-session', { sessionId, leafId }),
   agentListBranchUserEntries: (sessionId: string): Promise<{ success: boolean; data?: Array<{ entryId: string; text: string }>; error?: string }> =>
     ipcRenderer.invoke('agent:list-branch-user-entries', { sessionId }),
+  agentGetSessionExport: (sessionId: string): Promise<{ success: boolean; data?: { filePath: string | null; transcript: string }; error?: string }> =>
+    ipcRenderer.invoke('agent:get-session-export', { sessionId }),
   agentResolveApproval: (requestId: string, decision: 'allow' | 'always' | 'deny', pattern?: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('agent:resolve-approval', { requestId, decision, pattern }),
   agentSetPermissionMode: (sessionId: string, mode: 'default' | 'auto' | 'bypass' | 'full' | 'restricted' | 'readonly'): Promise<{ success: boolean; error?: string }> =>

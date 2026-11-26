@@ -391,6 +391,7 @@ interface WorkbenchStoreActions {
   findWorkspaceUnreferencedImages: () => Promise<WorkspaceUnreferencedImagesSummary | null>
   deleteNodes: (relativePaths: string[]) => Promise<boolean>
   importExternalItems: (targetDirRelative: string, sourceAbsolutePaths: string[]) => Promise<{ imported: string[]; failed: { path: string; error: string }[] } | null>
+  moveExternalItems: (targetDirRelative: string, sourceAbsolutePaths: string[], expectedClipboardPaths?: string[]) => Promise<{ moved: string[]; failed: { path: string; error: string }[] } | null>
   moveToWorkspace: (
     targetWorkspaceRoot: string,
     relativePaths: string[]
@@ -735,11 +736,19 @@ function findNode(nodes: WorkbenchFileNode[], target: string): WorkbenchFileNode
   return null
 }
 
+const FLATTEN_NAME_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
+const flattenedFilesCache = new WeakMap<WorkbenchFileNode[], Map<string, WorkbenchFileNode[]>>()
+
 /** 按当前排序拍平文件列表（目录优先，与树渲染一致），用于删除后挑相邻文件及快速打开弹窗 */
 export function flattenSortedFiles(
   nodes: WorkbenchFileNode[],
   sort: WorkbenchSortPreference
 ): WorkbenchFileNode[] {
+  const sortKey = `${sort.key}:${sort.order}`
+  let bySort = flattenedFilesCache.get(nodes)
+  const cached = bySort?.get(sortKey)
+  if (cached) return cached
+
   const dir = sort.order === 'asc' ? 1 : -1
   const flat: WorkbenchFileNode[] = []
   const walk = (list: WorkbenchFileNode[]): void => {
@@ -747,13 +756,13 @@ export function flattenSortedFiles(
       if (a.isDirectory && !b.isDirectory) return -1
       if (!a.isDirectory && b.isDirectory) return 1
       if (sort.key === 'name' || a.isDirectory || b.isDirectory) {
-        return dir * a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
+        return dir * FLATTEN_NAME_COLLATOR.compare(a.name, b.name)
       }
       if (sort.key === 'mtime') return dir * ((a.mtime ?? 0) - (b.mtime ?? 0))
       const diff = (a.size ?? 0) - (b.size ?? 0)
       return diff !== 0
         ? dir * diff
-        : a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
+        : FLATTEN_NAME_COLLATOR.compare(a.name, b.name)
     })
     for (const node of sorted) {
       if (node.isDirectory) {
@@ -764,6 +773,12 @@ export function flattenSortedFiles(
     }
   }
   walk(nodes)
+
+  if (!bySort) {
+    bySort = new Map()
+    flattenedFilesCache.set(nodes, bySort)
+  }
+  bySort.set(sortKey, flat)
   return flat
 }
 
@@ -3236,6 +3251,77 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       set({ error: `导入异常: ${msg}` })
       return null
     }
+  },
+
+  /**
+   * 剪切粘贴外部文件进工作区（移动语义）：
+   * - 工作区内的源改走 moveNode（rename 路径），保留 assets 目录/导图绑定/标注与标签页的全部联动
+   * - 工作区外的源走 moveExternalPaths（同盘 rename、跨盘复制后删除）
+   */
+  moveExternalItems: async (targetDirRelative: string, sourceAbsolutePaths: string[], expectedClipboardPaths?: string[]) => {
+    const { workspacePath } = get()
+    if (!workspacePath || !sourceAbsolutePaths.length) return null
+    const normalizedRoot = workspacePath.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+    const rootPrefix = `${normalizedRoot}/`
+    const internal: string[] = []
+    const external: string[] = []
+    for (const abs of sourceAbsolutePaths) {
+      const posix = abs.replace(/\\/g, '/').toLowerCase()
+      if (posix.startsWith(rootPrefix)) {
+        internal.push(abs)
+      } else {
+        external.push(abs)
+      }
+    }
+    const moved: string[] = []
+    const failed: { path: string; error: string }[] = []
+    // 工作区内的源：逐个 rename 移动，跳过原地剪切粘贴（原地移动为无操作）
+    for (const abs of internal) {
+      const posixOriginal = abs.replace(/\\/g, '/')
+      const rel = posixOriginal.slice(normalizedRoot.length + 1)
+      const idx = rel.lastIndexOf('/')
+      const parent = idx === -1 ? '' : rel.slice(0, idx)
+      // Windows 大小写不敏感：比较前统一小写，避免剪贴板路径与工作区大小写错配导致原地改名
+      if (parent.toLowerCase() === targetDirRelative.toLowerCase()) continue
+      const relKey = rel.toLowerCase()
+      const targetKey = targetDirRelative.toLowerCase()
+      if (targetKey === relKey || targetKey.startsWith(`${relKey}/`)) {
+        failed.push({ path: abs, error: '不能将文件夹移动到其自身内部' })
+        continue
+      }
+      const ok = await get().moveNode(rel, targetDirRelative)
+      if (ok) {
+        const name = rel.split('/').pop() ?? ''
+        moved.push(targetDirRelative ? `${targetDirRelative}/${name}` : name)
+      } else {
+        failed.push({ path: abs, error: get().error || '移动失败' })
+      }
+    }
+    // 工作区外的源：走主进程移动（复制后删除兜底）
+    if (external.length) {
+      try {
+        const res = await window.api.workbench.moveExternalPaths(workspacePath, targetDirRelative, external)
+        if (res.success && res.data) {
+          moved.push(...res.data.moved)
+          failed.push(...res.data.failed)
+        } else {
+          failed.push(...external.map((p) => ({ path: p, error: res.error || '移动失败' })))
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        failed.push(...external.map((p) => ({ path: p, error: `移动异常: ${msg}` })))
+      }
+    }
+    await get().loadFileTree()
+    if (failed.length > 0) {
+      const first = failed[0]
+      set({ error: `${failed.length} 项移动失败（${first.path}: ${first.error}）` })
+    } else if (moved.length && expectedClipboardPaths?.length) {
+      // 与资源管理器一致：全部移动成功后清空剪贴板剪切态，防止对失效路径重复执行移动。
+      // 仅当剪贴板内容未被覆盖（与预期路径一致）时清，内部/外部移动统一在此收尾。
+      void window.api.workbench.clearClipboardFileDrop(expectedClipboardPaths)
+    }
+    return { moved, failed }
   },
 
   /**
