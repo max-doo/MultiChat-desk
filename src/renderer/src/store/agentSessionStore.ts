@@ -55,6 +55,20 @@ interface PiRawMessage {
   content?: string | PiRawPart[]
   timestamp?: number
   durationMs?: number
+  /** pi AssistantMessage 终止原因：stop/length/toolUse/error/aborted 等 */
+  stopReason?: string
+  /** stopReason 为 error 时的失败描述（如 ECONNREFUSED） */
+  errorMessage?: string
+}
+
+/** 连接类错误提炼为可读提示，其余原样展示。 */
+function describeAgentError(errorMessage?: string): string {
+  if (!errorMessage) return '请求失败，请检查供应商连接后重试'
+  if (/ECONNREFUSED|ETIMEDOUT|ENETUNREACH|EHOSTUNREACH|ECONNRESET|fetch failed|Connection error/i.test(errorMessage)) {
+    const detail = errorMessage.replace(/^Connection error\.?:\s*/i, '')
+    return `无法连接到供应商服务（${detail}），请检查供应商配置或网络后重试`
+  }
+  return errorMessage
 }
 
 interface PiEventPayload {
@@ -781,14 +795,25 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
               return p
             })
 
+            // 落盘的 stopReason 必须还原到 status：错误消息重载后若标 complete，
+            // 用户回看历史时失败轮次与成功轮次无法区分（内容为空且无错误提示）。
+            const restoredStatus: AgentMessage['status'] =
+              role === 'assistant' && m.stopReason === 'error'
+                ? 'error'
+                : role === 'assistant' && m.stopReason === 'aborted'
+                  ? 'aborted'
+                  : backendRunning && role === 'assistant' && hasUnresolvedToolCalls(enrichedParts)
+                    ? 'running'
+                    : 'complete'
+
             restoredMessages.push({
               id: m.id || `msg_restored_${i}`,
               role,
               content: enrichedParts,
-              status:
-                backendRunning && role === 'assistant' && hasUnresolvedToolCalls(enrichedParts)
-                  ? 'running'
-                  : 'complete',
+              status: restoredStatus,
+              ...(restoredStatus === 'error'
+                ? { error: describeAgentError(m.errorMessage) }
+                : {}),
               createdAt: m.timestamp ?? Date.now(),
               timestamp: m.timestamp,
               durationMs: m.durationMs
@@ -1963,11 +1988,24 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
             }
             // pi 在 tool_execution_start 之前就发 message_end——若消息里还有
             // 未完成 tool-call，保持 running，等 tool_execution_end 补齐。
+            // stopReason 优先于工具完成判定：供应商连接失败（重试耗尽）时
+            // pi 也会发 message_end，此时 content 为空、allToolsDone 为真，
+            // 若不读 stopReason 错误消息会被误标 complete，UI 静默无提示。
+            const stopReason = event.message?.stopReason
             const allToolsDone = !hasUnresolvedToolCalls(msgs[lastIdx].content)
             msgs[lastIdx] = {
               ...msgs[lastIdx],
               timestamp: msgs[lastIdx].timestamp ?? msgTimestamp,
-              ...(allToolsDone ? { status: 'complete' as const } : {})
+              ...(stopReason === 'error'
+                ? {
+                    status: 'error' as const,
+                    error: describeAgentError(event.message?.errorMessage)
+                  }
+                : stopReason === 'aborted'
+                  ? { status: 'aborted' as const }
+                  : allToolsDone
+                    ? { status: 'complete' as const }
+                    : {})
             }
             return { messages: msgs }
           }
