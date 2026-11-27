@@ -447,7 +447,9 @@ function Layout({ children }: LayoutProps): JSX.Element {
         style={isWorkbenchView ? undefined : { gridTemplateColumns: '1fr auto 1fr' }}
         onPointerDown={(event) => {
           if (window.api.platform === 'darwin' || event.button !== 0 || isFallbackDraggingRef.current) return
-          const target = event.target as HTMLElement
+          const target = event.target
+          // 排除通过 createPortal 挂到 document.body 的浮层/菜单（React 事件仍按组件树冒泡到此）
+          if (!(target instanceof Element) || !event.currentTarget.contains(target)) return
           if (target.closest('.no-drag, button, a, input, select, textarea')) return
 
           // Windows/Linux 由 PointerCapture + IPC 负责拖动；macOS 使用原生 app-region。
@@ -457,7 +459,8 @@ function Layout({ children }: LayoutProps): JSX.Element {
         }}
         onDoubleClick={(event) => {
           if (window.api.platform !== 'win32') return
-          const target = event.target as HTMLElement
+          const target = event.target
+          if (!(target instanceof Element) || !event.currentTarget.contains(target)) return
           if (target.closest('.no-drag, button, a, input, select, textarea')) return
           window.api.maximizeWindow()
         }}

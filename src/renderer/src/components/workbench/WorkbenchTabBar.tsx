@@ -892,7 +892,7 @@ export default function WorkbenchTabBar({ isActive }: WorkbenchTabBarProps): JSX
               top: overflowAnchorRect.bottom + 6,
               left: Math.max(8, Math.min(window.innerWidth - 296, overflowAnchorRect.right - 288))
             }}
-            className="fixed z-popover w-[288px] max-h-[400px] liquid-glass-menu rounded-xl flex flex-col overflow-hidden select-none context-menu-animate context-menu-origin-top-right"
+            className="no-drag fixed z-popover w-[288px] max-h-[400px] liquid-glass-menu rounded-xl flex flex-col overflow-hidden select-none context-menu-animate context-menu-origin-top-right"
           >
             <div className="p-2 border-b border-black/5 dark:border-white/10">
               <div className="h-8 px-2.5 rounded-lg border border-black/10 dark:border-white/10 bg-white/70 dark:bg-gray-900/60 flex items-center gap-1.5">
@@ -1012,7 +1012,7 @@ export default function WorkbenchTabBar({ isActive }: WorkbenchTabBarProps): JSX
               left: Math.max(8, Math.min(window.innerWidth - 216, contextMenu.x)),
               top: Math.max(8, Math.min(window.innerHeight - 280, contextMenu.y))
             }}
-            className={`fixed z-popover w-[208px] py-1.5 liquid-glass-menu rounded-xl text-label select-none context-menu-animate ${
+            className={`no-drag fixed z-popover w-[208px] py-1.5 liquid-glass-menu rounded-xl text-label select-none context-menu-animate ${
               window.innerHeight - 280 < contextMenu.y - 8 ? 'context-menu-animate-up' : ''
             }`}
           >
