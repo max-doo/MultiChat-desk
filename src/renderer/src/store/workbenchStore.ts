@@ -1539,8 +1539,6 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       gitBaselineSha: null,
       gitBaselineContent: null
     })
-    // 旧版本导图记录在全局笔记目录，先迁到 .multichat/mindmaps 文件。
-    void window.api.workbench.mindmapMigrate(activePath).catch(() => undefined)
     await get().loadFileTree()
 
     // 恢复该工作区上次打开的标签页与激活文档

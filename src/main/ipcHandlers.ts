@@ -2914,20 +2914,6 @@ export async function registerIpcHandlers(
         }
     })
 
-    // 打开工作区时一次性迁移旧全局导图记录到 .multichat/mindmaps 文件。
-    ipcMain.handle('workbench:mindmap-migrate', async (_event, payload: { workspaceRoot: string }) => {
-        try {
-            if (legacyMigration.isActive()) return { success: true, data: { migrated: 0 } }
-            assertActiveWorkspace(payload.workspaceRoot)
-            const data = await noteManager.migrateWorkspace(payload.workspaceRoot)
-            if (data.migrated) notesChanged()
-            return { success: true, data }
-        } catch (err: unknown) {
-            const error = err instanceof Error ? err.message : String(err)
-            return { success: false, error }
-        }
-    })
-
     ipcMain.handle('workbench:mindmap-file-status', async (_event, payload: { workspaceRoot: string; relativePath: string }) => {
         try {
             if (!isAuthorizedWorkspaceRoot(payload.workspaceRoot)) return { success: false, error: '工作区未授权' }

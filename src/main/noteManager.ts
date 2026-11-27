@@ -2,7 +2,7 @@ import { randomUUID, createHash } from 'crypto'
 import { isDeepStrictEqual } from 'util'
 import type { DataImportResult } from '../shared/types/history'
 import { constants } from 'fs'
-import { realpathSync, watch, type FSWatcher } from 'fs'
+import { watch, type FSWatcher } from 'fs'
 import { copyFile, mkdir, open, readFile, readdir, rename, rm, stat, writeFile } from 'fs/promises'
 import { dirname, join, parse as parsePath } from 'path'
 import type Store from 'electron-store'
@@ -12,8 +12,6 @@ import { normalizeNoteTranscriptMarkdown } from '../shared/utils/noteTranscript'
 import { scanMindmapFiles, readMindmapFile, writeMindmapFile, removeMindmapFile, allocateMindmapFileName, renameMindmapFile, rewriteMindmapFileSource, validateImportedBody, mindmapFileNameOf, type MindmapScanResult } from './services/mindmapFileService'
 import { MINDMAPS_DIR, MINDMAP_FILE_SUFFIX } from '../shared/utils/mindmapFile'
 import { normalizeMindmapNewlines } from '../shared/utils/mindmapEdits'
-import { realpath } from 'fs/promises'
-
 type LegacyNote = ConversationNote & { snapshot?: string }
 type StoredConversation = Omit<Partial<NoteConversation>, 'notes'> & { id: string; notes: LegacyNote[] }
 
@@ -371,79 +369,6 @@ export class NoteManager {
     return this.serial(() => this.findWorkbenchUnlocked(workspaceRoot, relativePath))
   }
 
-  /**
-   * 工作区打开时一次性迁移旧全局记录（§12.1）：
-   * 把 `workbench.workspaceRoot` 与当前根 realpath 相同的记录里的导图，
-   * 先落成 `.multichat/mindmaps/` 文件、再写入索引、最后清掉全局记录的 mindmaps。
-   * 每一步都可重入；正文不一致时保留全局记录，两份内容都不丢。
-   */
-  migrateWorkspace(workspaceRoot: string): Promise<{ migrated: number }> {
-    return this.serial(async () => {
-      let rootReal: string
-      try {
-        rootReal = await realpath(workspaceRoot)
-      } catch {
-        return { migrated: 0 }
-      }
-      const candidates = (await this.cachedValues()).filter(value => {
-        if (!value.workbench || !value.mindmaps.length) return false
-        try {
-          return workbenchRootKey(realpathSync(value.workbench.workspaceRoot)) === workbenchRootKey(rootReal)
-        } catch {
-          return false
-        }
-      })
-      if (!candidates.length) return { migrated: 0 }
-      let migrated = 0
-      for (const item of candidates) {
-        const source = item.workbench!
-        const carried: ConversationMindmap[] = []
-        for (const map of item.mindmaps) {
-          // 每轮重取扫描：同一条旧记录里若有多个同 id 的脏数据，
-          // 用循环外的旧快照会把第二张也判成「磁盘没有」，再写一份重复文件。
-          this.invalidateMindmapScan(workspaceRoot)
-          const scan = await this.mindmapScan(workspaceRoot)
-          // 按 id 判断是否已落盘，不能只看按文档名分配的目标路径：
-          // 用户可能已经把文件改成别的名字，再按目标名写一份会产生同 id 两份文件。
-          const sameId = scan.files.filter(file => file.id === map.id)
-          if (sameId.length > 1) {
-            // 已有重复副本：不写第三份，留给用户清理。
-            console.warn('[MindmapIndex] 迁移跳过同 id 不同正文导图:', map.id)
-            carried.push(map)
-            continue
-          }
-          if (sameId.length === 1) {
-            if (!this.mindmapBodyEquals(map, sameId[0].body) || sameId[0].source !== source.relativePath) {
-              // 正文不同（可能在外部改过）或绑定已指向别的文档：两份都保留，不清理全局记录，
-              // 否则清掉记录后这篇文档就再也找不到自己的导图。
-              console.warn('[MindmapIndex] 迁移保留未收敛的导图:', map.id)
-              carried.push(map)
-            } else {
-              migrated++
-            }
-            continue
-          }
-          const fileName = await allocateMindmapFileName(workspaceRoot, docBaseOf(source.relativePath), map.id)
-          await this.writeMindmap(
-            workspaceRoot,
-            fileName,
-            { id: map.id, source: source.relativePath, title: map.title, updatedAt: map.updatedAt },
-            map.markdown
-          )
-          migrated++
-        }
-        item.mindmaps = carried
-        if (!item.mindmaps.length && !item.notes.length) {
-          await rm(this.file(item.id), { force: true })
-          this.cache?.delete(item.id)
-        } else {
-          await this.write(item)
-        }
-      }
-      return { migrated }
-    })
-  }
-
   // ---- 工作台导图文件（.multichat/mindmaps/*.mindmap.md） ----
 
   private async mindmapScan(workspaceRoot: string): Promise<MindmapScanResult> {
@@ -721,19 +646,12 @@ export class NoteManager {
   private async materializeMindmap(
     workspaceRoot: string,
     entry: { id: string; source: string; title: string; markdown: string; updatedAt?: number },
-    options?: { preserveExternalBody?: boolean }
   ): Promise<string> {
     // 低频率操作（生成、复制、迁移）直接读盘，避免缓存里漏掉刚由外部软件写入的同 id 文件。
     this.invalidateMindmapScan(workspaceRoot)
     const scan = await this.mindmapScan(workspaceRoot)
     const sameId = scan.files.filter(file => file.id === entry.id)
     if (sameId.length > 1) throw new Error('目录里有多份同 id 导图文件，请先清理')
-    // 迁移旧记录时，同 id 文件可能是用户在外部软件里改过、或已改绑到另一篇文档的版本；
-    // 正文不同、绑定不同都不覆盖，保留记录交给用户裁决。
-    if (options?.preserveExternalBody && sameId.length === 1 &&
-      (!this.mindmapBodyEquals(entry, sameId[0].body) || sameId[0].source !== entry.source)) {
-      throw new Error('同 id 导图文件已被外部修改或改绑')
-    }
     const fileName = sameId.length === 1
       ? mindmapFileNameOf(sameId[0].relativePath)
       : null
@@ -898,27 +816,9 @@ export class NoteManager {
         // Phase 2 起工作台记录不再保存第二份正文；正文以 Markdown 文件为准。
         const contentChanged = previous.contentHash !== hash
         const titleChanged = existing.title !== title
-        // 工作台导图以文件为唯一权威；清空持久化 mindmaps，避免旧记录覆盖文件。
-        const legacyMindmaps = existing.mindmaps
-        existing.mindmaps = []
-        // 旧记录里残留的导图落成文件；迁完后这段就是空操作。
-        if (legacyMindmaps.length) {
-          const carried: ConversationMindmap[] = []
-          for (const map of legacyMindmaps) {
-            try {
-              await this.materializeMindmap(
-                workspaceRoot,
-                { id: map.id, source: relativePath, title: map.title, markdown: map.markdown, updatedAt: map.updatedAt },
-                // 同 id 文件可能是外部软件改过的版本：正文不同就不覆盖，保留记录等用户裁决。
-                { preserveExternalBody: true }
-              )
-            } catch (error) {
-              console.warn('[MindmapIndex] 迁移保留未覆盖的导图:', map.id, error)
-              carried.push(map)
-            }
-          }
-          existing.mindmaps = carried
-        }
+        // 工作台导图以文件为唯一权威；持久化 mindmaps 只可能来自从未发布版本的
+        // 开发期残留，不再参与任何读取，直接清空避免脏数据影响对账。
+        if (existing.mindmaps.length) existing.mindmaps = []
         // 大小与 mtime 也参与比对：生成导图时会带 stat 进来，值没变就不重复落盘。
         const metaChanged =
           previous.contentHash !== hash ||
@@ -1098,78 +998,31 @@ export class NoteManager {
       const { index } = await this.workbenchIndex(workspaceRoot)
       const sourceMaps = index.mindmaps.filter(entry =>
         entry.source === sourceRelativePath || entry.source.startsWith(prefix))
-      if (sourceMaps.length) {
-        // 按来源文档分组：复制目录时，每篇子文档各自建记录、各自克隆导图。
-        const groups = new Map<string, typeof sourceMaps>()
-        for (const entry of sourceMaps) {
-          const bucket = groups.get(entry.source)
-          if (bucket) bucket.push(entry)
-          else groups.set(entry.source, [entry])
-        }
-        // 记录里尚未迁移的残留导图也参与克隆：否则「文件 + 残留」混合状态会漏图。
-        const legacy = (await this.cachedValues()).filter(value =>
-          value.workbench &&
-          workbenchRootKey(value.workbench.workspaceRoot) === workbenchRootKey(workspaceRoot) &&
-          value.mindmaps.length &&
-          (value.workbench.relativePath === sourceRelativePath || value.workbench.relativePath.startsWith(prefix)))
-        let cloned = 0
-        for (const [sourceDoc, maps] of groups) {
-          const targetDoc = newPathFor(sourceDoc, sourceRelativePath, targetRelativePath)
-          if (await this.findWorkbenchUnlocked(workspaceRoot, targetDoc)) continue
-          const record = await this.createWorkbenchRecordUnlocked(workspaceRoot, targetDoc)
-          if (!record) continue
-          for (const entry of maps) {
-            await this.materializeMindmap(workspaceRoot, {
-              id: randomUUID(),
-              source: targetDoc,
-              title: entry.title,
-              markdown: entry.markdown
-            })
-            cloned++
-          }
-          for (const item of legacy.filter(value => value.workbench!.relativePath === sourceDoc)) {
-            for (const map of item.mindmaps) {
-              if (maps.some(entry => entry.id === map.id)) continue
-              await this.materializeMindmap(workspaceRoot, {
-                id: randomUUID(),
-                source: targetDoc,
-                title: map.title,
-                markdown: map.markdown
-              })
-              cloned++
-            }
-          }
-        }
-        // 只有 legacy 导图、还没有落成文件的子文档：也要建副本记录并克隆，
-        // 否则目录复制会静默漏掉这些图。
-        // 同一来源可能有多条 legacy 记录：按来源分组，只建一次副本记录，
-        // 所有记录里的导图合并后克隆。
-        const legacyOnly = new Map<string, ConversationMindmap[]>()
-        for (const item of legacy) {
-          const sourceDoc = item.workbench!.relativePath
-          if (groups.has(sourceDoc)) continue
-          legacyOnly.set(sourceDoc, [...(legacyOnly.get(sourceDoc) ?? []), ...item.mindmaps])
-        }
-        for (const [sourceDoc, maps] of legacyOnly) {
-          const targetDoc = newPathFor(sourceDoc, sourceRelativePath, targetRelativePath)
-          if (await this.findWorkbenchUnlocked(workspaceRoot, targetDoc)) continue
-          const record = await this.createWorkbenchRecordUnlocked(workspaceRoot, targetDoc)
-          if (!record) continue
-          for (const map of maps) {
-            await this.materializeMindmap(workspaceRoot, {
-              id: randomUUID(),
-              source: targetDoc,
-              title: map.title,
-              markdown: map.markdown
-            })
-            cloned++
-          }
-        }
-        return cloned
+      if (!sourceMaps.length) return 0
+      // 按来源文档分组：复制目录时，每篇子文档各自建记录、各自克隆导图。
+      const groups = new Map<string, typeof sourceMaps>()
+      for (const entry of sourceMaps) {
+        const bucket = groups.get(entry.source)
+        if (bucket) bucket.push(entry)
+        else groups.set(entry.source, [entry])
       }
-      const source = await this.findWorkbenchUnlocked(workspaceRoot, sourceRelativePath)
-      if (!source) return 0
-      return this.duplicateOne(workspaceRoot, source, targetRelativePath)
+      let cloned = 0
+      for (const [sourceDoc, maps] of groups) {
+        const targetDoc = newPathFor(sourceDoc, sourceRelativePath, targetRelativePath)
+        if (await this.findWorkbenchUnlocked(workspaceRoot, targetDoc)) continue
+        const record = await this.createWorkbenchRecordUnlocked(workspaceRoot, targetDoc)
+        if (!record) continue
+        for (const entry of maps) {
+          await this.materializeMindmap(workspaceRoot, {
+            id: randomUUID(),
+            source: targetDoc,
+            title: entry.title,
+            markdown: entry.markdown
+          })
+          cloned++
+        }
+      }
+      return cloned
     })
   }
 
@@ -1189,17 +1042,9 @@ export class NoteManager {
       const sourceRootKey = workbenchRootKey(sourceWorkspaceRoot)
       const { index } = await this.workbenchIndex(sourceWorkspaceRoot)
       const sourceMaps = index.mindmaps.filter(entry => entry.source === sourceRelativePath)
-      // 尚未落成文件的旧记录同样参与迁移，避免移动后导图丢失。
-      const legacy = (await this.cachedValues()).filter(value =>
-        value.workbench &&
-        workbenchRootKey(value.workbench.workspaceRoot) === sourceRootKey &&
-        value.workbench.relativePath === sourceRelativePath &&
-        value.mindmaps.length)
-      const legacyMaps = legacy.flatMap(value => value.mindmaps)
-        .filter(map => !sourceMaps.some(entry => entry.id === map.id))
 
       let moved = 0
-      if (sourceMaps.length || legacyMaps.length) {
+      if (sourceMaps.length) {
         const record = await this.findWorkbenchUnlocked(targetWorkspaceRoot, targetRelativePath) ??
           await this.createWorkbenchRecordUnlocked(targetWorkspaceRoot, targetRelativePath)
         if (!record) throw new Error('目标工作区文档不可读，导图未能迁移')
@@ -1215,20 +1060,6 @@ export class NoteManager {
             moved++
           } catch (error) {
             console.warn('[MindmapIndex] 跨工作区导图迁移失败:', entry.fileSync?.relativePath, error)
-          }
-        }
-        for (const map of legacyMaps) {
-          try {
-            await this.materializeMindmap(targetWorkspaceRoot, {
-              id: map.id,
-              source: targetRelativePath,
-              title: map.title,
-              markdown: map.markdown,
-              updatedAt: map.updatedAt
-            })
-            moved++
-          } catch (error) {
-            console.warn('[MindmapIndex] 跨工作区旧导图迁移失败:', map.id, error)
           }
         }
       }
@@ -1281,40 +1112,6 @@ export class NoteManager {
     }
     await this.write(conversation)
     return conversation
-  }
-
-  private async duplicateOne(workspaceRoot: string, source: NoteConversation, targetRelativePath: string): Promise<number> {
-    const existing = await this.findWorkbenchUnlocked(workspaceRoot, targetRelativePath)
-    if (existing) return 0
-    // 工作台导图以文件为准：按来源查文件。记录里的 mindmaps 只可能是尚未迁移的残留，
-    // 与文件导图合并去重后一起克隆，避免复制时漏掉任何一张。
-    const { index } = await this.workbenchIndex(workspaceRoot)
-    const maps = index.mindmaps.filter(entry => entry.source === source.workbench?.relativePath)
-    // 没有导图就不建记录：复制普通文档不该在笔记库里留下空条目。
-    if (!maps.length && !source.mindmaps.length) return 0
-    const conversation = await this.createWorkbenchRecordUnlocked(workspaceRoot, targetRelativePath)
-    if (!conversation) return 0
-    let cloned = 0
-    for (const entry of maps) {
-      await this.materializeMindmap(workspaceRoot, {
-        id: randomUUID(),
-        source: targetRelativePath,
-        title: entry.title,
-        markdown: entry.markdown
-      })
-      cloned++
-    }
-    for (const map of source.mindmaps) {
-      if (maps.some(entry => entry.id === map.id)) continue
-      await this.materializeMindmap(workspaceRoot, {
-        id: randomUUID(),
-        source: targetRelativePath,
-        title: map.title,
-        markdown: map.markdown
-      })
-      cloned++
-    }
-    return cloned
   }
 
   workbenchTrashImpact(workspaceRoot: string, relativePaths: string[]): Promise<{ documents: number; mindmaps: number }> {
@@ -1527,8 +1324,8 @@ export class NoteManager {
 
   /**
    * notes:get 专用读路径：工作台记录的导图不持久化在 JSON 里，
-   * 只在这条只读路径按索引组装返回；写路径仍用 read()，避免组装值被写回磁盘
-   * （写回后 prepareWorkbenchSource 会把已删导图当「未迁移残留」复活）。
+   * 只在这条只读路径按索引组装返回；写路径仍用 read()，避免文件导图被
+   * 重新塞进 JSON 持久化（导图的唯一权威是 .multichat/mindmaps 文件）。
    */
   private async readWithMindmaps(id: string): Promise<NoteConversation> {
     const conversation = await this.read(id)

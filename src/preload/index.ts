@@ -577,8 +577,6 @@ const api = {
       ipcRenderer.invoke('workbench:reconcile-mindmaps', { workspaceRoot, index, force: options?.force, targets: options?.targets }),
     mindmapImpact: (workspaceRoot: string, relativePaths: string[]): Promise<{ success: boolean; data?: { documents: number; mindmaps: number }; error?: string }> =>
       ipcRenderer.invoke('workbench:mindmap-impact', { workspaceRoot, relativePaths }),
-    mindmapMigrate: (workspaceRoot: string): Promise<{ success: boolean; data?: { migrated: number }; error?: string }> =>
-      ipcRenderer.invoke('workbench:mindmap-migrate', { workspaceRoot }),
     mindmapFileStatus: (workspaceRoot: string, relativePath: string): Promise<{ success: boolean; data?: { files: Record<string, { state: MindmapFileState; reason?: MindmapFileReason; relativePath?: string }>; unreadable: string[]; overflow: boolean }; error?: string }> =>
       ipcRenderer.invoke('workbench:mindmap-file-status', { workspaceRoot, relativePath }),
     mindmapFileReveal: (workspaceRoot: string, relativePath: string, mindmapId: string): Promise<{ success: boolean; error?: string }> =>
