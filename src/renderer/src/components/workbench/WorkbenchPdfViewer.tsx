@@ -1,7 +1,6 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import * as pdfjsLib from 'pdfjs-dist'
 import type { PDFDocumentProxy, PDFPageProxy, PageViewport } from 'pdfjs-dist'
-import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import {
   useWorkbenchStore,
   type ReaderBackgroundTheme,
@@ -9,7 +8,9 @@ import {
 } from '../../store/workbenchStore'
 import WorkbenchSelectionMenu, { WORKBENCH_AI_SELECTION_ACTIONS } from './WorkbenchSelectionMenu'
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
+// worker 走 pdfjs 运行时资源的原始字节直出路径（dev 中间件 / 打包时 out/renderer/pdfjs），
+// 不能经 vite 模块管线——import 分析注入会破坏 worker 内 emscripten glue 的 wasm 实例化链路
+pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs/pdf.worker.min.mjs', location.href).href
 
 const PDF_INITIAL_CHUNK_BYTES = 256 * 1024
 const PDF_RANGE_CHUNK_BYTES = 256 * 1024
@@ -17,6 +18,8 @@ const PDF_WHEEL_ZOOM_THRESHOLD = 100
 const PDF_RESIZE_DEBOUNCE_MS = 120
 const PDF_PAGE_CLEANUP_BUFFER = 6
 const DEFAULT_PDF_ASPECT_RATIO = 1.414
+// 图片覆盖页面面积超过该比例时视为整页扫描件，深色模式下随页面一起反色而不是原样保留
+const PDF_FULL_PAGE_IMAGE_AREA_RATIO = 0.85
 
 interface ImageBox {
   x: number
@@ -37,6 +40,7 @@ function extractPdfImageBoxes(
   const stack: number[][] = []
   let ctm: number[] = [...viewport.transform]
   const { OPS, Util } = pdfjsLib
+  const pageArea = viewport.width * viewport.height
 
   for (let i = 0; i < opList.fnArray.length; i += 1) {
     const fn = opList.fnArray[i]
@@ -55,7 +59,9 @@ function extractPdfImageBoxes(
     } else if (fn === OPS.paintFormXObjectEnd) {
       if (stack.length > 0) ctm = stack.pop()!
     } else if (fn === OPS.paintImageXObject || fn === OPS.paintInlineImageXObject) {
-      const bounds = [0, 0, 0, 0]
+      // axialAlignedBoundingBox 会把结果与 output 既有值做并集，必须用极值初始化而不是 [0,0,0,0]，
+      // 否则每个图片框都会被错误地扩展到页面左上角
+      const bounds = [Infinity, Infinity, -Infinity, -Infinity]
       Util.axialAlignedBoundingBox([0, 0, 1, 1], ctm, bounds)
       const x0 = Math.max(0, Math.floor(bounds[0]))
       const y0 = Math.max(0, Math.floor(bounds[1]))
@@ -64,7 +70,10 @@ function extractPdfImageBoxes(
       const width = x1 - x0
       const height = y1 - y0
       if (width >= 4 && height >= 4) {
-        boxes.push({ x: x0, y: y0, width, height })
+        const coversPage = width * height >= pageArea * PDF_FULL_PAGE_IMAGE_AREA_RATIO
+        if (!coversPage) {
+          boxes.push({ x: x0, y: y0, width, height })
+        }
       }
     }
   }
@@ -363,9 +372,11 @@ export default function WorkbenchPdfViewer({
   onLoadState
 }: WorkbenchPdfViewerProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null)
+  const pagesGridRef = useRef<HTMLDivElement | null>(null)
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null)
   const [defaultAspectRatio, setDefaultAspectRatio] = useState(DEFAULT_PDF_ASPECT_RATIO)
   const [fitWidth, setFitWidth] = useState(720)
+  const [availableWidth, setAvailableWidth] = useState(720)
   const displayWidth = Math.round(fitWidth * zoom)
   const [renderWidth, setRenderWidth] = useState(displayWidth)
   const prevPdfRef = useRef<PDFDocumentProxy | null>(null)
@@ -388,6 +399,7 @@ export default function WorkbenchPdfViewer({
     let rafId: number | null = null
     const update = (): void => {
       const available = element.clientWidth - 48
+      setAvailableWidth(Math.max(0, available))
       setFitWidth(Math.max(320, Math.min(available, 1100)))
     }
     update()
@@ -598,11 +610,14 @@ export default function WorkbenchPdfViewer({
       loadingTask = pdfjsLib.getDocument({
         range: transport,
         rangeChunkSize: PDF_RANGE_CHUNK_BYTES,
-        cMapUrl: 'pdfjs/cmaps/',
+        // pdf.js 的资源 fetch 可能发生在 worker 内部（useWorkerFetch），
+        // worker 中相对 URL 是相对 worker 脚本路径解析而不是页面——必须传绝对 URL，
+        // 否则 pdfjs/wasm 会变成 pdfjs/pdfjs/wasm 404，JBIG2 扫描件解码静默卡死
+        cMapUrl: new URL('pdfjs/cmaps/', location.href).href,
         cMapPacked: true,
-        standardFontDataUrl: 'pdfjs/standard_fonts/',
-        wasmUrl: 'pdfjs/wasm/',
-        iccUrl: 'pdfjs/iccs/'
+        standardFontDataUrl: new URL('pdfjs/standard_fonts/', location.href).href,
+        wasmUrl: new URL('pdfjs/wasm/', location.href).href,
+        iccUrl: new URL('pdfjs/iccs/', location.href).href
       })
       document = await loadingTask.promise
       if (cancelled) {
@@ -711,11 +726,24 @@ export default function WorkbenchPdfViewer({
   return (
     <div
       ref={containerRef}
-      className="w-full h-full overflow-auto bg-gray-200 dark:bg-[#141414] py-6 wb-pdf-viewport transition-colors duration-150"
+      className="w-full h-full overflow-auto bg-gray-200 dark:bg-[#141414] py-6 px-6 wb-pdf-viewport transition-colors duration-150"
       data-pdf-theme={backgroundTheme}
     >
       {pdf && (
-        <div className="flex flex-col gap-6">
+        <div
+          ref={pagesGridRef}
+          className="grid gap-6 justify-center justify-items-center content-start items-start mx-auto w-fit"
+          style={{
+            // 列数由缩放后的页宽除以容器宽度显式计算，缩小时自动排成多列，
+            // 与 Word 阅读版式的多页视图一致；不依赖 flex/grid 的内在宽度推断。
+            gridTemplateColumns: `repeat(${Math.max(
+              1,
+              Math.floor(
+                (availableWidth + 24) / (displayWidth + 24)
+              )
+            )}, ${displayWidth}px)`
+          }}
+        >
           {Array.from({ length: pdf.numPages }, (_, index) => {
             const pageNumber = index + 1
             return (
