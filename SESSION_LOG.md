@@ -2,6 +2,97 @@
 
 ## 2026-11-27
 
+### 15:35 | Codex
+
+- done: 提交本日全部改动：编辑器Tab缩进与@菜单修复、工作台导图迁移机制移除、旧笔记迁移死分支清理、扫描版PDF渲染修复、Word预览分页与WMF/EMF转换，按模块分5笔；scratch与CDP调试脚本为过程文件不入库
+- modified:
+  - `SESSION_LOG.md`
+
+### 14:32 | Codex
+
+- done: 修复扫描版 PDF 完全空白的三重根因：1) pdf.js worker 经 vite /@fs/ 提供时被 import 分析注入 @vite/client 与 injectQuery 改写，emscripten glue 的动态 import 链路被破坏——worker 改为经中间件原始字节直出 pdfjs/pdf.worker.min.mjs，打包时同样复制到 out/renderer/pdfjs；2) 关键发现：module worker 内 fetch/动态 import 的相对 URL 是相对 worker 脚本路径解析（实测 /sub/dir/worker.js 里 fetch('x') 解析为 /sub/dir/x），pdf.js 传相对路径 pdfjs/wasm 会被解析为 pdfjs/pdfjs/wasm 404，wasm 实例化与 nowasm fallback 双双失败导致 jbig2 decode 永久 pending、render promise 永不 resolve——cMapUrl/standardFontDataUrl/wasmUrl/iccUrl/workerSrc 全部改为 new URL(..., location.href) 绝对化；3) dev server 此前未重启导致中间件未生效。CDP 端到端验证：应用实例中扫描书前三页 canvas 暗像素占比 2.4%-3.6%（文字真实渲染），lint/tsc/build 全绿
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchPdfViewer.tsx`
+  - `electron.vite.config.ts`
+- lesson(promoted): module worker 中 fetch(relativeUrl) 与动态 import 都相对 worker 脚本 URL 解析而不是 document base——凡 pdf.js/worker 类库传资源路径必须绝对化，否则 worker 位于子路径时资源被解析到错误前缀；且此类失败完全静默（worker console 不进主控制台），只能通过 CDP Target.attachToTarget + 非 flatten 模式 + receivedMessageFromTarget 隧道观察
+- lesson(promoted): vite dev 对 /@fs/ 模块做 import 分析会注入 @vite/client（DOM 环境代码）并改写动态 import——Web worker bundle 绝不能经此管线，必须以原始字节直出（中间件或构建复制）
+
+### 14:30 | Codex
+
+- done: Word 预览分页+多列排版+浮动表格错位修复+rAF 死锁修复；PDF 预览多列排版
+- context: 高校论文模板分页验证：无 lastRenderedPageBreak 标记的文档需要基于渲染流做近似分页引擎（行级表格拆分+纵合并表格不拆），实测页数与 Word 导出 PDF 真值完全一致（11页）
+- added:
+  - `src/renderer/src/utils/docxPagination.ts`
+  - `src/renderer/src/utils/docxMetafileImages.ts`
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchDocxPreview.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchPdfViewer.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchPdfPreview.tsx`
+  - `package.json`
+  - `pnpm-lock.yaml`
+- lesson: 三个高价值教训：(1) Chromium zoom 缩放与 flex-wrap/fit-content 组合对复杂内容换行判定不可靠（亚像素+内在宽度推断双重坑），多列排版必须用 JS 显式计算列数并配合 CSS Grid 定宽轨道；(2) Electron 窗口隐藏时 rAF 完全停发，渲染管线里裸 await requestAnimationFrame 必死锁，必须带 setTimeout 兜底；(3) pnpm build 与 dev server 共用 out/ 会互相干扰导致 vite deps 优化循环，验证期间不要并行构建
+
+### 13:40 | Codex
+
+- done: 端到端复现验证 PDF 扫描件解码链路：用 vite+Electron 真实 Chromium 环境加载 pdf.js 渲染扫描书第 2/3 页，jbig2.wasm 正确获取（200+application/wasm）、渲染完成、暗像素占比 3-5%（文字清晰存在）。证明修复后的管线本身正确，用户端仍空白的原因是 dev server 未重启（端口 5300 探测 /pdfjs/wasm/jbig2.wasm 仍返回 text/html）。vite dev server 默认绑 localhost 在 Windows 解析为 IPv6 ::1，127.0.0.1 会被拒——electron.vite.config 已显式 host 127.0.0.1 不受影响
+- context: 用户反馈扫描书在浅色/深色模式下仍不可读，排查发现 dev server 未重启导致中间件未生效
+
+### 13:33 | Codex
+
+- done: docx 预览支持 WMF/EMF 图元文件转换渲染（封面校徽等图片裂图修复）
+- context: 高校论文模板封面校徽几乎都是 WMF 格式（WPS 制作），该格式在浏览器环境普遍无法显示
+- added:
+  - `src/renderer/src/utils/docxMetafileImages.ts`
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchDocxPreview.tsx`
+  - `package.json`
+  - `pnpm-lock.yaml`
+- lesson: docx-preview 对 WMF/EMF 只做 blob 透传，Chromium 无图元解码器必裂图；@mlightcad/emf-converter(163KB) 可 canvas 重放转 PNG，但必须用 maxWidth/maxHeight 钉死最终位图尺寸——矢量图元逻辑坐标系可能极大，不设上限一张封面图会渲出 8000px 宽位图。vite dev 中途新增依赖会让 optimizeDeps 陷入 deps_temp 重优化循环，需重启 dev server 恢复
+
+### 13:19 | Codex
+
+- done: 修复 PDF 深色模式两个缺陷：1) 图片包围盒提取误用 axialAlignedBoundingBox 的并集语义（output 用 [0,0,0,0] 初始化导致所有图片框被并集扩展到页面左上角，简历照片行整行发白），改用极值初始化后照片框精确为 82x115px；2) dev 环境下 vite SPA fallback 把 /pdfjs/* 全部返回 index.html，jbig2/cmap/字体资源静默失效导致 JBIG2 扫描件整页空白，electron.vite.config.ts 增加 dev 中间件从 node_modules/pdfjs-dist 按正确 MIME 提供资源并拦截路径穿越。新增整页扫描判定：覆盖页面面积>=85% 的图片不再原样保留而是随页面反色（扫描件深色模式可读）。验证：中间件全项 PASS（wasm magic/字节数/MIME/404/403/index.html），lint/tsc 干净，build 成功且产物 pdfjs 资源就位。用户需重启 pnpm dev 一次使中间件生效
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchPdfViewer.tsx`
+  - `electron.vite.config.ts`
+- lesson(promoted): pdf.js Util.axialAlignedBoundingBox(rect, ctm, output) 的 output 参数是并集累加语义：把结果与 output 既有值取 min/max 合并，必须初始化为 [Infinity,Infinity,-Infinity,-Infinity]；用 [0,0,0,0] 初始化会让每个框都并集扩展到原点
+- lesson(promoted): vite dev server 对未匹配路径返回 text/html 的 index.html（SPA fallback），fetch 状态 200 但内容错误——排查 dev 环境资源加载问题时应先查 Content-Type 而非状态码；打包环境 file:// 协议在 Electron 中 fetch/XHR 均可正常读取同目录文件
+
+### 11:43 | Codex
+
+- done: 清理 LegacyMigrationService 的 workbench 死分支：工作台旧格式记录只存在于从未发布的 v1.3.5 开发版，真实用户不可能有，删除 migrateWorkbenchRecord/临时工作区抢救/陈旧记录重开逻辑，迁移范围改为排除全部 workbench 记录，类型与 UI 同步移除 workbench-unresolved 阻塞原因
+- decision: 旧笔记迁移范围限定为 v1.3.1 及更早的普通会话记录；workbench 记账记录不是旧格式，从迁移统计和执行中整体排除
+- modified:
+  - `src/main/services/legacyMigrationService.ts`
+  - `src/shared/types/annotations.ts`
+  - `src/shared/types/notes.ts`
+  - `src/renderer/src/components/workbench/WorkbenchWorkspaceSettings.tsx`
+
+### 11:34 | Codex
+
+- done: 删除工作台导图自动迁移机制：v1.3.5 从未发布，不存在真实用户的旧格式工作台导图数据，migrateWorkspace 及配套 legacy 分支属纯开发期残留，全部移除；普通会话旧笔记手动迁移保留
+- decision: 工作台导图以 .multichat/mindmaps 文件为唯一权威，NoteConversation.mindmaps 在工作台记录中的残留直接清空不再收养
+- modified:
+  - `src/main/noteManager.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/src/store/workbenchStore.ts`
+- lesson(promoted): 判断迁移机制是否必要前，先用 git log/tag/merge-base 核实对应数据格式是否真的进入过已发布版本
+
+### 10:23 | Codex
+
+- done: 修复 Markdown 编辑器 @ 文件匹配菜单的误触发：触发会话仅在刚敲下 @/[[（空查询）时激活，光标移经正文中已有的 @ 不再弹菜单；查询串排除空白字符，输入空格即结束会话，修复引用键（如 @fig-platform-v-model）后继续写正文时菜单悬挂在‘未找到匹配文件’的问题；Esc 可提前终止当前会话
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchWikiLinkPlugin.tsx`
+- lesson(promoted): LexicalTypeaheadMenuPlugin 的 triggerFn 在每次 update（含单纯光标移动）都会被调用，是纯文本模式匹配；要实现‘输入行为’语义需在 triggerFn 闭包内维护会话状态（armed/dismissed），用空查询匹配作为激活信号
+
+### 10:22 | Codex
+
+- done: 修复 workbench 富文本编辑器 Tab 键假缩进问题：Markdown 无段落块缩进语义，原 TabIndentationPlugin 产生的视觉缩进无法序列化落盘；给插件传入 =\ 谓词，Tab 缩进仅对列表项生效（嵌套列表，无损序列化），其余块不再产生假缩进；CDP(9223) 行为验证全过
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+- lesson(promoted): Lexical 嵌套列表 DOM 中父级包装 li 的 textContent 会包含所有子孙列表文本，验证/选择器取叶子 li 必须过滤 !li.querySelector('li')；Lexical KEY_TAB 的 \ 仅在光标位于块起始或跨块选择时走 INDENT/OUTDENT，行中按 Tab 由 rich-text 的 INSERT_TAB 插入字面 TabNode
+
 ### 00:21 | Antigravity
 
 - done: 复用 CliAgentHint 实现 1.3.5 工作台与 Skill 安装双卡轮播引导弹窗（等高不增加高度、工作台页仅保留立即体验按钮、Hover 冻结进度条暂停轮播，并补充版本级 hintDismissed 重置）
