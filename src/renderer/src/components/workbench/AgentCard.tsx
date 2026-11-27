@@ -17,6 +17,7 @@ import ChangedFilesCard from './agent/ChangedFilesCard'
 import { MarkdownRenderer } from './agent/MarkdownRenderer'
 import { WorkPhaseBlock } from './agent/WorkPhaseBlock'
 import { InlineMentionText } from './agent/AttachmentChips'
+import WorkbenchImageLightbox, { type LightboxImageItem } from './WorkbenchImageLightbox'
 import type { AgentMessage, PiContentPart } from '../../types/agent'
 import type { AgentTurnFileChanges } from '../../../../shared/types/agentRuntime'
 
@@ -219,6 +220,7 @@ interface AgentUserMessageItemProps {
   isCopied: boolean
   onCopy: (key: string, text: string) => void
   onRewindClick: () => void
+  onPreviewImage: (messageId: string, imageIndex: number) => void
 }
 
 // 用户气泡折叠策略（对齐主流 Agent 产品：Claude/ChatGPT 均为默认折叠+手动展开）：
@@ -237,7 +239,8 @@ const AgentUserMessageItem = memo(function AgentUserMessageItem({
   canRewind,
   isCopied,
   onCopy,
-  onRewindClick
+  onRewindClick,
+  onPreviewImage
 }: AgentUserMessageItemProps): JSX.Element {
   const userText = useMemo(
     () =>
@@ -248,7 +251,7 @@ const AgentUserMessageItem = memo(function AgentUserMessageItem({
     [message.content]
   )
   const userImages = useMemo(
-    () => message.content.filter((c) => c.type === 'image'),
+    () => message.content.filter((c) => c.type === 'image' && Boolean(c.data)),
     [message.content]
   )
 
@@ -278,14 +281,23 @@ const AgentUserMessageItem = memo(function AgentUserMessageItem({
   return (
     <div className="group my-1">
       {userImages.length > 0 && (
-        <div className="mb-1 flex flex-wrap justify-end gap-1.5">
+        <div data-agent-history-images="true" className="mb-1 flex flex-wrap justify-end gap-1.5">
           {userImages.map((img, i) => (
-            <img
+            <button
               key={i}
-              src={img.data ?? ''}
-              alt="粘贴的图片"
-              className="max-h-32 max-w-[220px] rounded-lg border border-slate-200/70 dark:border-white/10 object-cover shadow-sm"
-            />
+              type="button"
+              onClick={() => onPreviewImage(message.id, i)}
+              className="group/hist-img relative overflow-hidden rounded-lg border border-slate-200/70 shadow-sm transition-transform hover:scale-[1.02] cursor-zoom-in dark:border-white/10"
+              title="点击查看大图"
+              aria-label="查看大图"
+            >
+              <img
+                src={img.data ?? ''}
+                alt=""
+                draggable={false}
+                className="max-h-32 max-w-[220px] object-cover"
+              />
+            </button>
           ))}
         </div>
       )}
@@ -875,6 +887,48 @@ function AgentCard({
   }, [initListeners])
 
   const renderItems = useMemo(() => computeRenderItems(messages), [messages])
+  const [lightboxIndex, setLightboxIndex] = useState(-1)
+  const conversationImages = useMemo(
+    () =>
+      messages.flatMap((m) => {
+        if (m.role !== 'user') return []
+        return m.content
+          .filter((c) => c.type === 'image' && Boolean(c.data))
+          .map((c, idx) => ({
+            key: `${m.id}:${idx}`,
+            src: c.data!,
+            mimeType: c.mimeType || 'image/png'
+          }))
+      }),
+    [messages]
+  )
+  const conversationLightboxItems = useMemo<LightboxImageItem[]>(
+    () =>
+      conversationImages.map((img) => ({
+        nodeKey: img.key,
+        src: img.src,
+        altText: '',
+        hideTitle: true
+      })),
+    [conversationImages]
+  )
+  const handlePreviewUserImage = useCallback(
+    (messageId: string, imageIndex: number) => {
+      const targetKey = `${messageId}:${imageIndex}`
+      const idx = conversationImages.findIndex((img) => img.key === targetKey)
+      if (idx >= 0) setLightboxIndex(idx)
+    },
+    [conversationImages]
+  )
+  const handleAttachLightboxImage = useCallback((item: LightboxImageItem) => {
+    const mimeMatch = item.src.match(/^data:([^;]+);/i)
+    const mimeType = mimeMatch?.[1] || 'image/png'
+    useAgentSessionStore.getState().addImageAttachment({
+      dataUrl: item.src,
+      mimeType,
+      name: 'image'
+    })
+  }, [])
   const lastUserMsgId = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
       if (messages[i].role === 'user') return messages[i].id
@@ -938,6 +992,7 @@ function AgentCard({
 
   useEffect(() => {
     setForkToast((prev) => (prev && prev.sessionId !== currentSessionId ? null : prev))
+    setLightboxIndex(-1)
   }, [currentSessionId])
 
   // Sync workspacePath to AgentSession (only active/visible instance acts to avoid dual-sidebar double resets)
@@ -1312,7 +1367,7 @@ function AgentCard({
               title="新建会话"
               aria-label="新建会话"
             >
-              <AppIcon name="annotation" size={20} />
+              <AppIcon name="new_session" size={20} />
             </button>
 
             <div className="relative flex items-center justify-center">
@@ -1496,8 +1551,10 @@ function AgentCard({
                           <div
                             key={item.id}
                             onClick={() => handleSelectSession(item.id)}
-                            className={`relative group ${indentClass} ${isNested ? 'py-2' : 'py-2.5'} hover:bg-gray-100/70 dark:hover:bg-slate-700/50 cursor-pointer flex items-start gap-2.5 transition-colors ${
-                              isCurrent ? 'bg-blue-50/60 dark:bg-blue-900/20' : ''
+                            className={`relative group ${indentClass} ${isNested ? 'py-2' : 'py-2.5'} cursor-pointer flex items-start gap-2.5 transition-colors ${
+                              isCurrent
+                                ? 'bg-primary/10 hover:bg-primary/15 dark:bg-primary/15 dark:hover:bg-primary/20'
+                                : 'hover:bg-black/[0.05] dark:hover:bg-white/[0.08]'
                             }`}
                           >
                             {/* 树形连接线：父行从自身图标底部向下引竖线，子行竖线与其对齐衔接，
@@ -1664,7 +1721,7 @@ function AgentCard({
                               <button
                                 type="button"
                                 onClick={() => setForeignHistoryOpen(!foreignHistoryOpen)}
-                                className="w-full px-3.5 py-2.5 flex items-center gap-2 text-text-secondary hover:text-text-primary hover:bg-gray-100/60 dark:hover:bg-slate-700/40 cursor-pointer select-none transition-colors"
+                                className="w-full px-3.5 py-2.5 flex items-center gap-2 text-text-secondary hover:text-text-primary hover:bg-black/[0.05] dark:hover:bg-white/[0.08] cursor-pointer select-none transition-colors"
                               >
                                 <AppIcon
                                   name={isForeignSectionOpen ? 'expand_more' : 'chevron_right'}
@@ -1720,7 +1777,7 @@ function AgentCard({
                 <button
                   type="button"
                   onClick={() => void handleCopySession(historyMoreMenu.id, 'transcript')}
-                  className="w-full px-3 py-1.5 flex items-center gap-2 text-left hover:bg-gray-100/80 dark:hover:bg-slate-700/60 transition-colors"
+                  className="w-full px-3 py-1.5 flex items-center gap-2 text-left hover:bg-black/[0.05] dark:hover:bg-white/[0.08] transition-colors"
                 >
                   <AppIcon name="content_copy" size={14} className="text-text-secondary shrink-0" />
                   <span>复制对话</span>
@@ -1728,7 +1785,7 @@ function AgentCard({
                 <button
                   type="button"
                   onClick={() => void handleCopySession(historyMoreMenu.id, 'path')}
-                  className="w-full px-3 py-1.5 flex items-center gap-2 text-left hover:bg-gray-100/80 dark:hover:bg-slate-700/60 transition-colors"
+                  className="w-full px-3 py-1.5 flex items-center gap-2 text-left hover:bg-black/[0.05] dark:hover:bg-white/[0.08] transition-colors"
                 >
                   <AppIcon name="link" size={14} className="text-text-secondary shrink-0" />
                   <span>复制文件路径</span>
@@ -1792,62 +1849,13 @@ function AgentCard({
               </div>
             </div>
           )}
-          <div
-            ref={viewportRef}
-            onScroll={handleViewportScroll}
-            className="flex-1 overflow-y-auto px-5 py-3 space-y-3"
-          >
-            {messages.length === 0 && (
-              <div className="h-full flex flex-col items-center justify-center text-center p-6 my-auto select-none">
-                <div className="relative mb-4 flex items-center justify-center">
-                  <img src={agentAvatar} alt="Agent" className="w-12 h-12 avatar-breathing select-none" />
-                </div>
-
-                <h3 className="font-semibold text-text-primary text-title tracking-tight mb-2">
-                  今天想梳理或写点什么？
-                </h3>
-
-                {workspacePath ? (
-                  <div
-                    className="inline-flex items-center gap-1.5 text-caption text-text-secondary bg-gray-100 dark:bg-gray-800 hover:bg-gray-200/80 dark:hover:bg-gray-700 px-3 py-1 rounded-full border border-gray-200/60 dark:border-white/10 transition-colors mb-6 cursor-default"
-                    title={workspacePath}
-                  >
-                    <AppIcon name="folder_open" size={14} className="text-primary/80 shrink-0" />
-                    <span className="font-medium text-text-primary truncate max-w-[200px]">
-                      {vaultName}
-                    </span>
-                  </div>
-                ) : (
-                  <p className="text-body text-text-secondary mb-6">
-                    在左侧工作台打开文件夹以启用知识库
-                  </p>
-                )}
-
-                <div className="grid grid-cols-2 gap-2.5 w-full max-w-sm">
-                  {suggestions.map((item) => (
-                    <button
-                      key={item.label}
-                      type="button"
-                      disabled={!workspacePath}
-                      onClick={() => handleFillPrompt(item.prompt)}
-                      className="group flex flex-col items-start p-3.5 rounded-xl border border-gray-200/80 dark:border-white/10 bg-white dark:bg-gray-800/80 hover:border-primary/40 hover:shadow-sm hover:-translate-y-0.5 transition-all text-left disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                      <div className="flex items-center justify-between w-full mb-2.5">
-                        <div className="w-7 h-7 rounded-lg bg-gray-50 dark:bg-gray-700/60 border border-gray-200/60 dark:border-white/10 flex items-center justify-center text-text-secondary group-hover:text-primary group-hover:bg-blue-50/80 dark:group-hover:bg-primary/15 transition-colors shadow-sm">
-                          <AppIcon name={item.icon} size={16} />
-                        </div>
-                        <AppIcon name="arrow_outward" size={14} className="text-gray-300 dark:text-gray-600 opacity-0 group-hover:opacity-100 group-hover:text-primary transition-all -translate-x-0.5 group-hover:translate-x-0" />
-                      </div>
-                      <span className="text-body font-medium text-text-primary group-hover:text-primary transition-colors leading-snug">
-                        {item.label}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {(() => {
+          <div className="flex-1 flex flex-col min-h-0 relative">
+            <div
+              ref={viewportRef}
+              onScroll={handleViewportScroll}
+              className="flex-1 overflow-y-auto px-5 py-3 space-y-3"
+            >
+              {(() => {
               const totalRenderableCount = renderItems.reduce(
                 (sum, item) => sum + (item.kind === 'user' ? 1 : item.msgs.length),
                 0
@@ -1906,6 +1914,7 @@ function AgentCard({
                             isCopied={copiedId === item.msg.id}
                             onCopy={handleCopy}
                             onRewindClick={handleRewindClick}
+                            onPreviewImage={handlePreviewUserImage}
                           />
                           {insertDividerAfter && forkDividerEl}
                         </Fragment>
@@ -1966,9 +1975,63 @@ function AgentCard({
             {pendingApprovals.map((req) => (
               <ApprovalCard key={req.requestId} request={req} />
             ))}
-          </div>
+            </div>
 
-          <AgentComposer />
+            {/* 空态欢迎区脱离 flex-1 高度流，避免底部输入框粘贴图片或换行增高时挤压居中偏移 */}
+            {messages.length === 0 && pendingApprovals.length === 0 && (
+              <div className="absolute inset-x-0 top-0 bottom-[124px] overflow-y-auto px-5 py-3">
+                <div className="min-h-full flex flex-col items-center justify-center text-center p-6 select-none">
+                  <div className="relative mb-4 flex items-center justify-center">
+                    <img src={agentAvatar} alt="Agent" className="w-12 h-12 avatar-breathing select-none" />
+                  </div>
+
+                  <h3 className="font-semibold text-text-primary text-title tracking-tight mb-2">
+                    今天想梳理或写点什么？
+                  </h3>
+
+                  {workspacePath ? (
+                    <div
+                      className="inline-flex items-center gap-1.5 text-caption text-text-secondary bg-gray-100 dark:bg-gray-800 hover:bg-gray-200/80 dark:hover:bg-gray-700 px-3 py-1 rounded-full border border-gray-200/60 dark:border-white/10 transition-colors mb-6 cursor-default"
+                      title={workspacePath}
+                    >
+                      <AppIcon name="folder_open" size={14} className="text-primary/80 shrink-0" />
+                      <span className="font-medium text-text-primary truncate max-w-[200px]">
+                        {vaultName}
+                      </span>
+                    </div>
+                  ) : (
+                    <p className="text-body text-text-secondary mb-6">
+                      在左侧工作台打开文件夹以启用知识库
+                    </p>
+                  )}
+
+                  <div className="grid grid-cols-2 gap-2.5 w-full max-w-sm">
+                    {suggestions.map((item) => (
+                      <button
+                        key={item.label}
+                        type="button"
+                        disabled={!workspacePath}
+                        onClick={() => handleFillPrompt(item.prompt)}
+                        className="group flex flex-col items-start p-3.5 rounded-xl border border-gray-200/80 dark:border-white/10 bg-white dark:bg-gray-800/80 hover:border-primary/40 hover:shadow-sm hover:-translate-y-0.5 transition-all text-left disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        <div className="flex items-center justify-between w-full mb-2.5">
+                          <div className="w-7 h-7 rounded-lg bg-gray-50 dark:bg-gray-700/60 border border-gray-200/60 dark:border-white/10 flex items-center justify-center text-text-secondary group-hover:text-primary group-hover:bg-blue-50/80 dark:group-hover:bg-primary/15 transition-colors shadow-sm">
+                            <AppIcon name={item.icon} size={16} />
+                          </div>
+                          <AppIcon name="arrow_outward" size={14} className="text-gray-300 dark:text-gray-600 opacity-0 group-hover:opacity-100 group-hover:text-primary transition-all -translate-x-0.5 group-hover:translate-x-0" />
+                        </div>
+                        <span className="text-body font-medium text-text-primary group-hover:text-primary transition-colors leading-snug">
+                          {item.label}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <AgentComposer />
+          </div>
         </div>
 
         <ConfirmModal
@@ -2078,6 +2141,16 @@ function AgentCard({
           type="info"
           onConfirm={handleConfirmForeignSession}
           onCancel={() => setPendingForeignSession(null)}
+        />
+
+        <WorkbenchImageLightbox
+          open={lightboxIndex >= 0 && lightboxIndex < conversationLightboxItems.length}
+          items={conversationLightboxItems}
+          activeIndex={lightboxIndex}
+          onSelectIndex={setLightboxIndex}
+          onClose={() => setLightboxIndex(-1)}
+          hideSendToAi
+          onAttachToComposer={handleAttachLightboxImage}
         />
       </div>
   )

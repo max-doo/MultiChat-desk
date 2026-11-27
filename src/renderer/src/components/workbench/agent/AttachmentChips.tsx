@@ -4,7 +4,7 @@ import { AppIcon } from '../../icons/AppIcon'
 import { useWorkbenchStore } from '../../../store/workbenchStore'
 import { agentChipOpenOptions, resolveAbsolute, toWorkspaceRelative } from './filePathUtils'
 import { peekFileExistence, useFileExistenceVersion } from './fileExistenceCache'
-import type { WorkbenchFileNode } from '../../../../../shared/types/workbench'
+import { MARKDOWN_EXTENSIONS, type WorkbenchFileNode } from '../../../../../shared/types/workbench'
 
 /**
  * Agent 消息内的行内文件 chip：
@@ -16,13 +16,29 @@ import type { WorkbenchFileNode } from '../../../../../shared/types/workbench'
 
 const TRAILING_PUNCT_RE = /[.,;:!?)\]'’”）】]+$/u
 
-/** 目录 chip 用文件夹图标（与 @ 菜单一致），文件按扩展名走 FileChipIcon。 */
-const renderFileChipIcon = (absPath: string, name: string, isDirectory?: boolean): JSX.Element =>
-  isDirectory ? (
-    <AppIcon name="folder" size="1em" className="shrink-0 text-amber-500" />
-  ) : (
-    <FileChipIcon absPath={absPath} name={name} />
-  )
+/**
+ * 目录 chip 用文件夹图标（与 @ 菜单一致），文件按扩展名走 FileChipIcon。
+ * onPrimary 用于蓝色用户气泡场景：文件树的 md 图标本色 text-blue-500(#3b82f6)
+ * 与气泡底色完全相同会直接隐形，取同色系浅蓝保持色调一致又能在蓝底上辨识。
+ */
+const renderFileChipIcon = (
+  absPath: string,
+  name: string,
+  isDirectory?: boolean,
+  onPrimary?: boolean
+): JSX.Element => {
+  if (isDirectory) {
+    return <AppIcon name="folder" size="1em" className="shrink-0 text-amber-500" />
+  }
+  if (onPrimary) {
+    const dot = name.lastIndexOf('.')
+    const ext = dot !== -1 ? name.slice(dot).toLowerCase() : ''
+    if (MARKDOWN_EXTENSIONS.has(ext)) {
+      return <AppIcon name="description" size="1em" className="shrink-0 text-blue-200" />
+    }
+  }
+  return <FileChipIcon absPath={absPath} name={name} />
+}
 
 /** 在文件树里按绝对路径（大小写不敏感）查找节点，返回树内真实相对 path。 */
 function findTreeNodeByAbs(
@@ -180,10 +196,10 @@ export function InlineMentionText({ text, cwd }: InlineMentionTextProps): JSX.El
           handleMentionClick(abs, e)
         }}
         title={abs}
-        className="mx-0.5 inline-flex translate-y-px items-center gap-1 rounded-md bg-white/20 px-1.5 py-0.5 align-baseline text-caption font-normal text-white transition-colors hover:bg-white/30 [&_svg]:!text-white/85"
+        className="group mx-0.5 -my-0.5 inline-flex items-center gap-1 rounded px-1 py-0.5 align-baseline font-normal text-white transition-colors hover:bg-white/[0.12] [&_img]:saturate-[1.1]"
       >
-        {renderFileChipIcon(abs, name, isDirectory)}
-        <span className="max-w-52 truncate">{name}</span>
+        {renderFileChipIcon(abs, name, isDirectory, true)}
+        <span className="max-w-52 truncate underline decoration-white/[0.45] decoration-1 underline-offset-[3px] group-hover:decoration-white/[0.85]">{name}</span>
       </button>
     )
   })

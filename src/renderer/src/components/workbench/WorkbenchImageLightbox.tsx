@@ -28,6 +28,12 @@ interface WorkbenchImageLightboxProps {
   activeIndex: number
   onSelectIndex: (index: number) => void
   onClose: () => void
+  /** 隐藏「发送到 AI 侧边栏」（如已在侧边栏输入框里预览时避免重复投递）。 */
+  hideSendToAi?: boolean
+  /** 将当前查看的图片重新添加到 Agent 输入框（适用于对话历史中的图片）。 */
+  onAttachToComposer?: (item: LightboxImageItem) => void
+  /** 移除当前查看的图片（适用于输入框缩略图预览）。 */
+  onRemoveAt?: (index: number, item: LightboxImageItem) => void
 }
 
 /**
@@ -40,7 +46,10 @@ export default function WorkbenchImageLightbox({
   items,
   activeIndex,
   onSelectIndex,
-  onClose
+  onClose,
+  hideSendToAi = false,
+  onAttachToComposer,
+  onRemoveAt
 }: WorkbenchImageLightboxProps): JSX.Element | null {
   const workspacePath = useWorkbenchStore((s) => s.workspacePath)
   const activeFilePath = useWorkbenchStore((s) => s.activeFilePath)
@@ -373,7 +382,7 @@ export default function WorkbenchImageLightbox({
     <div
       role="dialog"
       aria-modal="true"
-      aria-label={`图片查看器: ${displayTitle}`}
+      aria-label={displayTitle ? `图片查看器: ${displayTitle}` : '图片查看器'}
       onWheel={handleWheel}
       onClick={handleBackdropClick}
       onContextMenu={handleContextMenu}
@@ -568,6 +577,60 @@ export default function WorkbenchImageLightbox({
             <AppIcon name="rotate_right" size={16} />
           </button>
 
+          {!loadError && Boolean(resolvedUrl) && (
+            <>
+              <div className="mx-1 h-4 w-[1px] bg-white/15" />
+              <button
+                type="button"
+                onClick={handleCopyImage}
+                className={toolBtnClass}
+                title={copiedImage ? '已复制图片' : '复制图片'}
+                aria-label="复制图片"
+              >
+                <AppIcon
+                  name={copiedImage ? 'check' : 'content_copy'}
+                  size={16}
+                  className={copiedImage ? 'text-emerald-400' : undefined}
+                />
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveImage}
+                className={toolBtnClass}
+                title="图片另存为..."
+                aria-label="图片另存为"
+              >
+                <AppIcon name="download" size={16} />
+              </button>
+              {onAttachToComposer && (
+                <button
+                  type="button"
+                  onClick={handleAttachToComposer}
+                  className={toolBtnClass}
+                  title={attachedToComposer ? '已添加到输入框' : '添加到当前输入框'}
+                  aria-label="添加到当前输入框"
+                >
+                  <AppIcon
+                    name={attachedToComposer ? 'check' : 'annotation'}
+                    size={16}
+                    className={attachedToComposer ? 'text-emerald-400' : undefined}
+                  />
+                </button>
+              )}
+              {onRemoveAt && (
+                <button
+                  type="button"
+                  onClick={handleRemoveCurrent}
+                  className="flex h-7 w-7 items-center justify-center rounded-lg text-white/85 transition-colors hover:bg-rose-500/30 hover:text-rose-200"
+                  title="从输入框移除"
+                  aria-label="从输入框移除"
+                >
+                  <AppIcon name="delete" size={16} />
+                </button>
+              )}
+            </>
+          )}
+
           {(canOpenExternal || canRevealLocal) && (
             <>
               <div className="mx-1 h-4 w-[1px] bg-white/15" />
@@ -600,7 +663,7 @@ export default function WorkbenchImageLightbox({
         </div>
       </div>
 
-      {/* 图片右键菜单：发送到 AI / 复制图片 / 另存为 / 复制地址 / 外部打开 / 资源管理器定位。
+      {/* 图片右键菜单：按图片来源与上下文只展示实际可用的操作。
           按 DESIGN.md 特例，右键菜单需压在 z-modal(100) 的查看器之上，故用 z-[110] */}
       {menu &&
         createPortal(
@@ -624,19 +687,31 @@ export default function WorkbenchImageLightbox({
           >
             {!loadError && Boolean(resolvedUrl) && (
               <>
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    const src = resolvedUrl
-                    closeMenu()
-                    if (src) requestSendImageToAi({ srcURL: src })
-                  }}
-                  className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left font-medium text-text-primary transition-colors hover:bg-black/5 dark:hover:bg-white/5"
-                >
-                  <AppIcon name="send" size={19} className="shrink-0 text-blue-500" />
-                  发送到 AI 侧边栏
-                </button>
+                {onAttachToComposer ? (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={handleAttachToComposer}
+                    className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left font-medium text-text-primary transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+                  >
+                    <AppIcon name="annotation" size={19} className="shrink-0 text-blue-500" />
+                    添加到当前输入框
+                  </button>
+                ) : !hideSendToAi ? (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      const src = resolvedUrl
+                      closeMenu()
+                      if (src) requestSendImageToAi({ srcURL: src })
+                    }}
+                    className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left font-medium text-text-primary transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+                  >
+                    <AppIcon name="send" size={19} className="shrink-0 text-blue-500" />
+                    发送到 AI 侧边栏
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   role="menuitem"
@@ -649,11 +724,7 @@ export default function WorkbenchImageLightbox({
                 <button
                   type="button"
                   role="menuitem"
-                  onClick={() => {
-                    const src = resolvedUrl
-                    closeMenu()
-                    if (src) void window.api?.saveImageFromURL?.(src)
-                  }}
+                  onClick={handleSaveImage}
                   className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left font-medium text-text-primary transition-colors hover:bg-black/5 dark:hover:bg-white/5"
                 >
                   <AppIcon name="download" size={19} className="shrink-0 text-text-secondary" />
@@ -661,15 +732,31 @@ export default function WorkbenchImageLightbox({
                 </button>
               </>
             )}
-            <button
-              type="button"
-              role="menuitem"
-              onClick={handleCopySrc}
-              className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left font-medium text-text-primary transition-colors hover:bg-black/5 dark:hover:bg-white/5"
-            >
-              <AppIcon name="content_copy" size={19} className="shrink-0 text-text-secondary" />
-              复制图片地址
-            </button>
+            {sourceKind !== 'data' && (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={handleCopySrc}
+                className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left font-medium text-text-primary transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+              >
+                <AppIcon name="content_copy" size={19} className="shrink-0 text-text-secondary" />
+                复制图片地址
+              </button>
+            )}
+            {onRemoveAt && (
+              <>
+                <div className="my-1 border-t border-black/5 dark:border-white/5" role="separator" />
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={handleRemoveCurrent}
+                  className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left font-medium text-rose-500 transition-colors hover:bg-rose-500/10"
+                >
+                  <AppIcon name="delete" size={19} className="shrink-0" />
+                  从输入框移除
+                </button>
+              </>
+            )}
             {(canOpenExternal || canRevealLocal) && (
               <div className="my-1 border-t border-black/5 dark:border-white/5" role="separator" />
             )}

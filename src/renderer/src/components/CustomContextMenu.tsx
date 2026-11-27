@@ -348,15 +348,34 @@ export default function CustomContextMenu(): JSX.Element | null {
 
       if (imgEl?.src) {
         if (items.length > 0) items.push({ type: 'separator' })
-        items.push({
-          key: 'send_image_to_ai',
-          label: '发送到 AI 侧边栏',
-          icon: 'send',
-          color: 'text-blue-500',
-          action: () => {
-            requestSendImageToAi({ srcURL: imgEl.src })
-          }
-        })
+        const inComposerImages = Boolean(imgEl.closest('[data-agent-composer-images]'))
+        const inHistoryImages = Boolean(imgEl.closest('[data-agent-history-images]'))
+        if (inHistoryImages) {
+          items.push({
+            key: 'attach_image_to_agent',
+            label: '添加到当前输入框',
+            icon: 'annotation',
+            color: 'text-blue-500',
+            action: () => {
+              const mimeMatch = imgEl.src.match(/^data:([^;]+);/i)
+              useAgentSessionStore.getState().addImageAttachment({
+                dataUrl: imgEl.src,
+                mimeType: mimeMatch?.[1] || 'image/png',
+                name: 'image'
+              })
+            }
+          })
+        } else if (!inComposerImages) {
+          items.push({
+            key: 'send_image_to_ai',
+            label: '发送到 AI 侧边栏',
+            icon: 'send',
+            color: 'text-blue-500',
+            action: () => {
+              requestSendImageToAi({ srcURL: imgEl.src })
+            }
+          })
+        }
         items.push({
           key: 'copy_image',
           label: '复制图片',

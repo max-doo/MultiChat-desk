@@ -11,6 +11,7 @@ import { AgentContextMeter } from './AgentContextMeter'
 import { AgentComposerEditor, type AgentComposerEditorHandle } from './AgentComposerEditor'
 import { AgentPopover } from './AgentPopover'
 import { isFileMentioned } from './filePathUtils'
+import WorkbenchImageLightbox, { type LightboxImageItem } from '../WorkbenchImageLightbox'
 
 interface AtMention {
   query: string
@@ -58,6 +59,27 @@ export function AgentComposer(): JSX.Element {
 
   const [accessMenuOpen, setAccessMenuOpen] = useState(false)
   const [modelPickerOpen, setModelPickerOpen] = useState(false)
+  const [lightboxIndex, setLightboxIndex] = useState(-1)
+
+  const composerLightboxItems = useMemo<LightboxImageItem[]>(
+    () =>
+      imageAttachments.map((img, idx) => ({
+        nodeKey: `composer-img-${idx}`,
+        src: img.dataUrl,
+        altText: '',
+        hideTitle: true
+      })),
+    [imageAttachments]
+  )
+
+  useEffect(() => {
+    if (lightboxIndex < 0) return
+    if (imageAttachments.length === 0) {
+      setLightboxIndex(-1)
+    } else if (lightboxIndex >= imageAttachments.length) {
+      setLightboxIndex(imageAttachments.length - 1)
+    }
+  }, [imageAttachments.length, lightboxIndex])
   const [atMention, setAtMention] = useState<AtMention | null>(null)
   const [atIndex, setAtIndex] = useState(0)
   const editorRef = useRef<AgentComposerEditorHandle>(null)
@@ -329,20 +351,26 @@ export function AgentComposer(): JSX.Element {
       )}
       {/* 图片附件缩略图：文件引用已经内联在输入框里，不再保留双轨 chip 行。 */}
       {imageAttachments.length > 0 && (
-        <div className="mb-1.5 flex flex-wrap gap-1.5 px-1">
+        <div data-agent-composer-images="true" className="mb-1.5 flex flex-wrap gap-1.5 px-1">
           {imageAttachments.map((img, idx) => (
             <span
               key={`img-${idx}`}
-              className="group/img relative inline-flex h-12 w-12 items-center justify-center overflow-hidden rounded-lg border border-blue-200/70 bg-blue-50 dark:border-blue-400/25 dark:bg-blue-500/10"
+              onClick={() => setLightboxIndex(idx)}
+              className="group/img relative inline-flex h-12 w-12 cursor-zoom-in items-center justify-center overflow-hidden rounded-lg border border-blue-200/70 bg-blue-50 transition-transform hover:scale-[1.03] dark:border-blue-400/25 dark:bg-blue-500/10"
+              title="点击查看大图"
             >
               <img
                 src={img.dataUrl}
-                alt={img.name || '粘贴的图片'}
+                alt=""
+                draggable={false}
                 className="h-full w-full object-cover"
               />
               <button
                 type="button"
-                onClick={() => removeImageAttachment(idx)}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  removeImageAttachment(idx)
+                }}
                 className="absolute right-0.5 top-0.5 rounded-full bg-black/55 p-0.5 text-white opacity-0 transition-opacity group-hover/img:opacity-100"
                 title="移除图片"
               >
@@ -634,6 +662,18 @@ export function AgentComposer(): JSX.Element {
         </div>
       </div>
     </div>
+
+    <WorkbenchImageLightbox
+      open={lightboxIndex >= 0 && lightboxIndex < composerLightboxItems.length}
+      items={composerLightboxItems}
+      activeIndex={lightboxIndex}
+      onSelectIndex={setLightboxIndex}
+      onClose={() => setLightboxIndex(-1)}
+      hideSendToAi
+      onRemoveAt={(idx) => {
+        removeImageAttachment(idx)
+      }}
+    />
   </footer>
   )
 }
