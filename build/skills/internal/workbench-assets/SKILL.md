@@ -1,6 +1,6 @@
 ---
 name: workbench-assets
-description: 工作台资产整理。当需要把结论、研究成果、评审产出沉淀为 MultiChat 工作台的持久资产——写笔记、建思维导图、检索引用历史会话、管理提示词模板库——时使用。覆盖两类资产的落盘位置、frontmatter 与标签规范、检索方法。Use when persisting agent output into the MultiChat workbench (notes/mindmaps/prompt templates) or searching conversation history. 不用于：一次性对话回答（直接回复即可）、用户明确要求的临时文件、与 MultiChat 工作台无关的通用文件操作。
+description: 工作台资产整理。当需要把结论、研究成果、评审产出沉淀为 MultiChat 工作台的持久资产——写笔记、建思维导图、检索引用历史会话——时使用。覆盖资产的落盘位置、frontmatter 与标签规范、检索方法。Use when persisting agent output into the MultiChat workbench (notes/mindmaps) or searching conversation history. 不用于：一次性对话回答（直接回复即可）、用户明确要求的临时文件、与 MultiChat 工作台无关的通用文件操作。
 ---
 
 # 工作台资产整理
@@ -19,7 +19,6 @@ MultiChat 的工作台是用户的本地 Markdown 知识库（工作区 = 用户
 | --- | --- | --- |
 | 知识笔记 | 工作区内的 `.md` 文件（按用户既有目录习惯归档） | Markdown + frontmatter |
 | 思维导图 | `<工作区>/.multichat/mindmaps/<名称>.mindmap.md` | 特殊 Markdown 大纲（契约见下） |
-| 提示词模板 | `<工作区>/prompts/`（没有就创建） | Markdown 模板，含变量插槽 |
 | 会话历史（只读检索） | `<MULTICHAT_AGENT_DIR>/../history/conversations/*.json`（dev 版在 `history/dev/conversations/`） | 应用自己的 JSON，**只读，绝不写入** |
 
 环境变量 `MULTICHAT_AGENT_DIR` 指向应用数据下的 `agent` 目录，历史/笔记目录都是它的邻居；变量缺失时 Windows 正式版 fallback 为 `%APPDATA%\multichat\`、dev 版为 `%APPDATA%\multichat-dev\` 或 `multichat` 下的 dev 子目录。
@@ -76,34 +75,6 @@ title: 产品功能体系
 1. 历史存于 `<MULTICHAT_AGENT_DIR>/../history/conversations/*.json`（dev 在 `history/dev/conversations/`），每个会话一个 JSON 文件；
 2. 用 grep 按关键词扫文件名内容（`rg -l "关键词"`），命中后读 JSON 提取用户/助手消息（结构里有 messages/turns 类字段，读一份样本就懂）；
 3. **只读不写**——这是应用自身的存储，改写会破坏应用状态。需要引用结论时，把摘录整理成工作区笔记（带上 `source` 会话 URL 如果 JSON 里有），而不是修改历史文件。
-
-## 提示词模板库
-
-**位置**：`<工作区>/prompts/`，一个模板一个 `.md` 文件。
-
-**模板格式**：
-
-```markdown
----
-title: 代码评审（严格视角）
-tags: [模板, 代码]
-platforms: [claude, chatgpt]   # 可选：实测效果好的平台
-updated: 2026-11-27
----
-
-你是严格的代码评审者。请评审以下{{语言}}代码的{{关注点}}……
-
-【代码】
-{{代码}}
-
-## 使用备注
-- 实测记录：claude 对长 diff 表现稳定（2026-11-27）
-- 变量：{{语言}} {{关注点}} {{代码}}
-```
-
-- **变量插槽**用 `{{中文名}}`（双花括号），实例化时替换；插槽清单在末尾"使用备注"里列全；
-- `platforms` 与"使用备注"记录实测反馈——哪个平台效果好、什么场景翻车，用一次更新一次，模板会越用越准；
-- 用户要求"把这个提示词存下来/以后还要用"时落成模板；用户说"用 xx 模板"时先到这里检索。
 
 ## 纪律
 

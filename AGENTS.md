@@ -18,7 +18,7 @@ MultiChat Desk 是基于 Electron 的桌面应用，通过多个 Webview 并行�
 - `src/preload/`：仅做安全桥接，向渲染层暴露 `window.api`。`index.d.ts` 是 IPC 契约文件。
 - `src/renderer/src/`：React UI、状态、页面逻辑与 Webview 交互。包含 `pages/`（Main/Workbench/Settings 等）、`components/`（`workbench/` 与 `workbench/agent/` 为两大子系统）、`store/appStore.ts`、`hooks/`。`config/selectors.ts` 与 `utils/webviewScripts.ts` 从 `src/shared/` 重导出 Webview 选择器和注入脚本。
 - `src/shared/`：跨进程复用的选择器配置、Webview 注入脚本、导图/快照/笔记工具与类型（`types/` 含 agent、workbench、taskSplit 等契约）。
-- `src/cli/`：CLI 命令与客户端；主进程 `daemon/` 和 `services/` 提供通信与执行能力。CLI 以 `resources/cli/index.js` 随包分发，入口 shim 为 `build/cli/multichat.cmd|multichat.sh`（安装目录 `cli/` 子目录，对外命令名 `multichat`）；`build/installer.nsh` 提供"加入 PATH"复选框、注册 `HKCU\Environment` Path 并在卸载时移除，主进程 `cliIntegration.ts` 负责状态查询/补挂 PATH/Agent Skill 目录定位；Skill 源文件在 `.agents/skills/multichat-cli`，经 electron-builder `extraResources` 落到安装目录 `resources/skill/multichat-cli`。
+- `src/cli/`：CLI 命令与客户端；主进程 `daemon/` 和 `services/` 提供通信与执行能力。CLI 以 `resources/cli/index.js` 随包分发，入口 shim 为 `build/cli/multichat.cmd|multichat.sh`（安装目录 `cli/` 子目录，对外命令名 `multichat`）；`build/installer.nsh` 提供"加入 PATH"复选框、注册 `HKCU\Environment` Path 并在卸载时移除，主进程 `cliIntegration.ts` 负责状态查询/补挂 PATH/Agent Skill 目录定位；Agent Skill 源文件在 `build/skills/`，经 electron-builder `extraResources` 整目录落到安装目录 `resources/skill/`。目录分两层：`build/skills/internal/`（docx/xlsx/pptx/pdf/skill-creator/multi-ai-review/workbench-assets/html-report）是侧边 Agent 的扫描根；根部的 `multichat-cli` 是外部 agent 专属 skill，不挂载给侧边 Agent（内核扫描是递归的，分层目录是唯一的隔离手段）。skill 源不得放在 `.agents/skills`——那是 agent 生态的自动扫描约定目录，会污染本仓库的开发上下文。
 - `docs/`：常青指南在根（BUILD/USER/API 等），活跃设计稿按主题归档于 `agent/`、`workbench/`、`mindmap/`、`design/` 等子目录，索引见 `DOCS_INDEX.md`。
 - `out/`、`dist/`：构建产物，禁止手改;`scripts/`、`build/`：构建辅助脚本与资源。
 

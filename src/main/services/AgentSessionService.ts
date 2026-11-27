@@ -20,7 +20,7 @@ import { PermissionEngine, type PermissionMode, type ApprovalRequest } from './P
 import { parseMode } from './permissionPolicy'
 import { AgentResourceLoader } from './AgentResourceLoader'
 import { getBundledSkillsRoot } from './bundledSkills'
-import { getBundledNodeHostExe } from './agentRuntimeEnv'
+import { getBundledNodeHostExe, getCliBundlePath } from './agentRuntimeEnv'
 import { excludedShellTools, shellEnvironmentPrompt, shellToolForPlatform, shellToolModifiers } from './shell'
 import { createWebSearchTool } from './webSearchTool'
 import { createImageGenTool } from './imageGenTool'
@@ -329,18 +329,40 @@ export class AgentSessionService {
     // 主进程 process.env（会被 Chromium 子进程继承导致应用退化）。
     // dev 用系统 node，不注入。
     const nodeHostExe = getBundledNodeHostExe()
-    const spawnHook = nodeHostExe
+    // multichat CLI 入口注入：dev 与打包统一——host 是 process.execPath（dev 下即
+    // electron 二进制，同为 ELECTRON_RUN_AS_NODE 宿主），bundle 是 resources/cli/index.js
+    // 或 out/cli/index.js。CLI 是应用内部能力的命令行形态，multi-ai-review 的
+    // 扇出战法依赖 shell 里 multichat 可达；multichat-cli skill 文档不挂载给侧边
+    // Agent（外部 agent 专属），但入口接线与文档归属是两件事。
+    const cliBundle = getCliBundlePath()
+    const multichatHostExe = cliBundle && existsSync(process.execPath) ? process.execPath : null
+    const needsHook = nodeHostExe !== null || (multichatHostExe !== null && cliBundle !== null)
+    const spawnHook = needsHook
       ? (context: { command: string; cwd: string; env: NodeJS.ProcessEnv }) => {
+          const lines: string[] = []
           if (shellToolForPlatform() === 'powershell') {
-            const escapedExe = nodeHostExe.replace(/'/g, "''")
-            const prelude =
-              `function node { $env:ELECTRON_RUN_AS_NODE='1'; & '${escapedExe}' @args }\n`
-            return { ...context, command: prelude + context.command }
+            if (nodeHostExe) {
+              const escapedExe = nodeHostExe.replace(/'/g, "''")
+              lines.push(`function node { $env:ELECTRON_RUN_AS_NODE='1'; & '${escapedExe}' @args }`)
+            }
+            if (multichatHostExe && cliBundle) {
+              const escapedExe = multichatHostExe.replace(/'/g, "''")
+              const escapedBundle = cliBundle.replace(/'/g, "''")
+              lines.push(`function multichat { $env:ELECTRON_RUN_AS_NODE='1'; & '${escapedExe}' '${escapedBundle}' @args }`)
+            }
+          } else {
+            if (nodeHostExe) {
+              const escapedExe = nodeHostExe.replace(/'/g, `'\\''`)
+              lines.push(`node() { ELECTRON_RUN_AS_NODE=1 '${escapedExe}' "$@"; }`)
+            }
+            if (multichatHostExe && cliBundle) {
+              const escapedExe = multichatHostExe.replace(/'/g, `'\\''`)
+              const escapedBundle = cliBundle.replace(/'/g, `'\\''`)
+              lines.push(`multichat() { ELECTRON_RUN_AS_NODE=1 '${escapedExe}' '${escapedBundle}' "$@"; }`)
+            }
           }
-          const escapedExe = nodeHostExe.replace(/'/g, `'\\''`)
-          const prelude =
-            `node() { ELECTRON_RUN_AS_NODE=1 '${escapedExe}' "$@"; }\n`
-          return { ...context, command: prelude + context.command }
+          if (lines.length === 0) return context
+          return { ...context, command: lines.join('\n') + '\n' + context.command }
         }
       : undefined
     // createPowerShellToolDefinition returns a ToolDefinition specialized to the

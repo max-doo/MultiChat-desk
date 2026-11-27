@@ -26,7 +26,7 @@
 
 以下事实决定了方案形态，均为当前代码核验结果：
 
-- **内核扫描链路与优先级**：pi 内核 `resource-loader.js` 按 project（rank 0-1）→ user（rank 2-3）→ additionalSkillPaths（最后）的顺序合并 skill 路径，`loadSkills` 按序"先扫描者获胜"做同名去重。`agentDir/skills`（即 `<userData>/agent/skills`）是 user scope 全局目录，天然压过随包目录；dev 环境下 cwd 在仓库内时 `.agents/skills` 会以 project scope 压过一切——这与调研文档的预期完全一致。
+- **内核扫描链路与优先级**：pi 内核 `resource-loader.js` 按 project（rank 0-1）→ user（rank 2-3）→ additionalSkillPaths（最后）的顺序合并 skill 路径，`loadSkills` 按序"先扫描者获胜"做同名去重。`agentDir/skills`（即 `<userData>/agent/skills`）是 user scope 全局目录，天然压过随包目录。仓库内 skill 源选址 `build/skills` 后，dev 环境不再有 project scope 抢先问题（选址理由见第四节末尾）。
 - **当前缺口**：`AgentSessionService` 创建会话时 `extraSkillDirs` 只传用户勾选的目录，**随包的 `resources/skill/` 从未进入扫描链**——这就是 `multichat-cli` 至今需要用户手动复制的根因（`src/main/services/AgentSessionService.ts` 会话创建处）。
 - **shell 环境继承**：内核 `getShellEnv()`（`dist/utils/shell.js`）以 `process.env` 为底展开 PATH，主进程在启动早期修改 `process.env`（注入 PATH 与自定义变量）即可通达所有 Agent shell，无需改内核。
 - **体积实测（2026-11-27 本机实测）**：Node v26.13.1 LTS win-x64 zip 39.3MB、解压 107.7MB（node.exe 95.5MB + npm 树 12MB）；node.exe 经 deflate-optimal 压缩 37MB，说明其已是高熵二进制、二次压缩收益有限；`docx@9.16.1 + pptxgenjs@4.0.1` npm 依赖解压 29.6MB、压缩后仅 7.4MB。
@@ -52,13 +52,13 @@
 
 ## 四、分发链路改造（开发项 S1）
 
-1. **新增 `src/main/services/bundledSkills.ts`**：导出 `getBundledSkillsRoot()`——`app.isPackaged` 时返回 `join(process.resourcesPath, 'skill')`；dev 时返回 `join(app.getAppPath(), '.agents', 'skills')`。目录不存在时返回 null（防御构建缺漏）。
+1. **新增 `src/main/services/bundledSkills.ts`**：导出 `getBundledSkillsRoot()`——`app.isPackaged` 时返回 `join(process.resourcesPath, 'skill')`；dev 时返回 `join(app.getAppPath(), 'build', 'skills')`。目录不存在时返回 null（防御构建缺漏）。
 2. **会话创建接线**：`AgentSessionService` 中**全部四处** `AgentResourceLoader` 构造点（`newSession`、`resumeSession`、`forkSessionAtLeaf`、`listSkills`——独立评审发现方案初稿漏掉 fork 路径，漏接会导致 fork 出的分支会话丢失全部随包 skill 且常规验收测不到）统一改为 `[...this.getExtraSkillDirs(), ...bundled]`（用户附加目录在前、随包在后，保证用户目录在 additional 序列里也优先）。实现上收敛为一个私有方法 `resolveSkillDirs()` 供四处调用，避免逐处改数组再次漏点。这是**追加而非替换**：用户勾选目录语义不变。
 3. **设置页展示**：`AgentSkillsSettings` 目录列表末尾追加一行随包目录（只读、标注"随包内置"），并在区块内写清覆盖优先级一句话：同名 skill 以用户目录中的版本优先于随包版本。
-4. **打包配置**：`electron-builder.yml` 的 `extraResources` 把 `.agents/skills/multichat-cli` 单条改为 `.agents/skills → skill`（整目录），`electron-builder-portable.yml` 同步重复声明（extends 数组是覆盖语义，这是已踩过的坑）。整目录拷贝的前提是 `.agents/skills` 不混入非分发内容——本期新增的 7 个 skill 全部是分发内容，成立。
+4. **打包配置**：`electron-builder.yml` 的 `extraResources` 把 `.agents/skills/multichat-cli` 单条改为 `build/skills → skill`（整目录），`electron-builder-portable.yml` 同步重复声明（extends 数组是覆盖语义，这是已踩过的坑）。整目录拷贝的前提是 `build/skills` 不混入非分发内容——本期新增的 7 个 skill 全部是分发内容，成立。
 5. **`cliIntegration` 保持不动**：它的 `getSkillDir()` 服务的是"复制安装命令给外部 agent"流程，与侧边栏 Agent 的自动加载互不冲突，继续指向 `resources/skill/multichat-cli`。
 
-**dev 环境注意**：dev 时 cwd 若在仓库内，`.agents/skills` 会因祖先目录扫描以 project scope 命中，与挂载路径指向同一批文件，内核按 realPath 去重，无副作用；但"用户目录优先于随包"的验收必须在 cwd 非仓库根的会话进行，否则结果失真（调研文档已有同样警告）。
+**仓库内路径选址（2026-11-27 用户反馈后修订）**：skill 源放 `build/skills/` 而非 `.agents/skills/`——`.agents/skills` 是 agent 生态的自动扫描约定目录（pi 内核扫描 cwd 祖先的 `.agents/skills`，其他宿主 agent 同惯例），仓库根存在该目录会让任何在仓库内工作的 agent 自动加载全部随包 skill，污染开发上下文（已实证发生）。`build/skills` 与 `build/cli`、`build/installer.nsh` 同属打包资源的家，dev 模式经 `getBundledSkillsRoot()` 显式挂载，行为与生产一致。
 
 ## 五、关键决策二：Node 供给——复用 Electron 本体做解释器，零体积增量
 
@@ -80,7 +80,7 @@
 - bash shim 不做：Windows 上 Agent shell 是 PowerShell 专属（bash 被 excludeTools 排除），Git Bash 兼容不是验收项。
 - dev 环境：直接用系统 node（开发机必有），spawnHook 注入与 shim 都只在打包版生效。
 
-**npm 依赖仍然是打包期预装**：新增 `scripts/prepare-runtime.mjs`，对每个含 `package.json` 的 skill（`.agents/skills/*/package.json`）执行 `npm install --omit=dev`（用开发机的系统 npm，与用户机器无关），生成的 `node_modules` 随 skill 目录一起进包。**运行时完全不需要 npm/npx 命令**，skill 脚本一律 `node xxx.js` 直调，依赖经 node 的相对路径解析命中同目录 `node_modules`。npm 依赖压缩后约 7.4MB（docx+pptxgenjs 合计实测），是本期唯一的体积增量，远小于嵌入 Node 的 37MB。
+**npm 依赖仍然是打包期预装**：新增 `scripts/prepare-runtime.mjs`，对每个含 `package.json` 的 skill（`build/skills/*/package.json`）执行 `npm install --omit=dev`（用开发机的系统 npm，与用户机器无关），生成的 `node_modules` 随 skill 目录一起进包。**运行时完全不需要 npm/npx 命令**，skill 脚本一律 `node xxx.js` 直调，依赖经 node 的相对路径解析命中同目录 `node_modules`。npm 依赖压缩后约 7.4MB（docx+pptxgenjs 合计实测），是本期唯一的体积增量，远小于嵌入 Node 的 37MB。
 
 **构建接线（评审指出的遗漏）**：`.gitignore` 全局忽略 `node_modules/`，预装产物不进 git——**每次打包都必须先跑 prepare-runtime**，手工步骤必然被遗忘，因此把 `prepare-runtime` 直接接线进 `package.json` 的 `build:win`/`build:win:all`/`build:win:portable` 脚本链（mac/linux 见下方范围声明）。dev 前置条件同步明确：dev 模式的 python/node skill 链路要求先跑过一次 `node scripts/prepare-runtime.mjs`（生成 `build/runtime/`），否则 `MULTICHAT_RUNTIME_DIR` 指向不存在目录、bootstrap 不可验——写进 S1/S2 验收前置。
 
@@ -128,7 +128,7 @@
 | `multi-ai-review` | 主 agent | 自研：初稿 → 评审视角拆分 → 多平台分发 → 意见归类（采纳/驳回/存疑）→ 修订版与纪要；分批落盘约定 |
 | `workbench-assets` | 主 agent | 自研：知识资产（笔记/frontmatter/导图/历史检索）+ 提示词资产（模板库格式/实例化/修订）共用工作台目录约定 |
 
-**流水线**：worker 在 `scratch/skill-workshop/skills/` staging 产出 → 主 agent 逐个验收（规范合规、description 质量、license 文件齐全、脚本实测证据、与宿主契约一致性）→ 不合格打回返修 → 验收通过后落到 `.agents/skills/`、统一替换 ensure-python 调用约定、补齐 `package.json` 与 ORIGIN 记录 → 独立 worker 做终验（对照调研文档逐条核对 + 真实运行抽查）。
+**流水线**：worker 在 `scratch/skill-workshop/skills/` staging 产出 → 主 agent 逐个验收（规范合规、description 质量、license 文件齐全、脚本实测证据、与宿主契约一致性）→ 不合格打回返修 → 验收通过后落到 `build/skills/`、统一替换 ensure-python 调用约定、补齐 `package.json` 与 ORIGIN 记录 → 独立 worker 做终验（对照调研文档逐条核对 + 真实运行抽查）。
 
 **许可证纪律**：anthropics Apache-2.0、MiniMax MIT 的 LICENSE 文件随各 skill 目录分发；OpenAI 仅 `.system/skill-creator`（Apache-2.0）可用，**documents/spreadsheets/presentations/pdf 四件套任何文本不得进包**（worker 简报已明示）；上游 commit 记录进各 skill 的 ORIGIN.md。
 
@@ -149,7 +149,7 @@
 **S2 运行时供给**（与 S1 同批）：`prepare-runtime.mjs` + `ensure-python.mjs` + 打包配置。
 验收：干净 Windows 环境（无系统 Node/Python，或用 PATH 隔离的子 shell 模拟）→ spawnHook 注入后 `node -e` 可用且含 `&`/空格/引号的参数无损到达 argv；触发"创建中文 pptx"任务跑通 npm 依赖链路；触发"读取 xlsx"任务自动完成 python bootstrap 且二次触发不重复安装；**两个并行会话同时首触 python 链路时锁生效、环境不损坏**；商店 stub 环境下探测不弹 Microsoft Store 窗口；NSIS 打包体积增量实测记录（预期仅 npm 依赖约 7-8MB 压缩）。
 
-**S3 skill 内容集成**（worker 产出验收后）：落 `.agents/skills/` + 自研两 skill 编写。
+**S3 skill 内容集成**（worker 产出验收后）：落 `build/skills/` + 自研两 skill 编写。
 集成硬指标：staging skill 全文检索 `npm`/`npx` 运行时指引命中清零（依赖一律命中随包 node_modules）；`ensure-python.mjs` 统一替换为共享调用约定（含锁与 venv 逻辑）；pptx 图标链改写为探测式降级。
 
 验收（对照调研文档第八节，每格式三个真实任务）：xlsx=存量表加列加公式/从零建财务模型/读取分析现有表格；docx=从零写中文公文/填表单模板/改稿留红线；pptx=从零中文演示/模板替换文本/视觉验证回路；pdf=表单填写/合并拆分/渲染验收。**产出文件必须打开人眼检查排版**，不能只看生成成功；验收机预装 LibreOffice + poppler，否则视觉验证被静默降级、验收失真。`multi-ai-review` 用一次真实多平台评审流程验收扇出-回收-修订链路；`workbench-assets` 用真实笔记/模板沉淀任务验收；`skill-creator` 用"把一个真实工作流固化成 skill 并成功触发"验收。
@@ -184,5 +184,11 @@ S1/S2/S3 实施完成并经独立验收 worker 终审通过（一轮返修闭环
 - **python 三级回退全量实测**：system-venv 转化、managed 幂等复用、PATH 隔离下 embeddable bootstrap（含 sha256 校验、`_pth` 修正、get-pip、pip 装包）全链路通过；负向篡改 hash 后正确 fail-closed。
 - **体积**：skill 全量未压缩 18.4MB（裁剪后），实测 solid-deflate 约 4.2MB 净增量，远低于 40MB 预算红线。
 - **附带修复**：`systemPromptTrim.ts` 模板字符串未转义反引号导致 `MIAO_PREAMBLE` 运行时求值为 `NaN` 的生产缺陷（esbuild 静默通过、只有 tsc 暴露）。
+
+**后续修订（2026-11-27 用户反馈）**：skill 仓库内源目录从 `.agents/skills` 迁至 `build/skills`（避免 agent 生态自动扫描污染开发上下文，详见第四节末尾修订说明），`bundledSkills.ts`/`cliIntegration.ts`/extraResources/prepare-runtime 全部同步；NSIS 重打验证 8 skill 落位正确。workbench-assets 移除"提示词模板库"章节（该功能在产品中不存在，属虚构功能引用——教训：skill 写作必须逐功能对照代码核实，不可按常识推断宿主能力）。
+
+**第二次修订（2026-11-27 用户两条反馈后）**：
+1. **multichat-cli 与侧边 Agent 分离**：该 skill 定位是外部 agent 驾驶本产品 CLI 的文档，不挂载给侧边 Agent（避免与内部 web_search/评审工具的能力重叠）。内核扫描是递归的，唯一可靠隔离是目录分层——仓库与打包布局同构为 `build/skills/internal/`（侧边 Agent 扫描根，7+1 个内部 skill）+ 根部 `multichat-cli`（外部专属，保持 `resources/skill/multichat-cli` 安装路径不变、cliIntegration 零改动）。multi-ai-review 的扇出战法仍走 CLI 命令但不再依赖该 skill 文档，已内联自洽的 CLI 使用契约；`multichat` 命令入口经 spawnHook 注入函数（dev/打包统一 ELECTRON_RUN_AS_NODE + CLI bundle），实测 daemon status 连通。
+2. **新增 html-report 为第 8 个内部 skill**（用户提供的 max-doo/html-report 快照）：剔除 README/.gitignore/.git，四脚本补 UTF-8 stdout 重配（scaffold.py 补 import sys），SKILL.md 接入 ensure-python 契约（纯标准库无需 packages）；scaffold→validate→build_report 端到端实测通过。**许可风险：上游无 LICENSE 文件**，ORIGIN.md 已如实标注，分发前需用户确认权属。
 
 未竟项（归属后续专项，本期验收不阻断）：S3 内容级人眼验收（每格式 3 个真实任务 + 打开产出物检查排版，需预装 LibreOffice/poppler 的验收机）；触发回归任务集（`docs/agent/skill-trigger-regression-set.md`）的实跑——执行会消耗 Agent 供应商额度，需用户授权后进行；soffice 真实渲染链路未验证（开发机无 LibreOffice）。

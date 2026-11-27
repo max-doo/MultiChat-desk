@@ -9,7 +9,7 @@
  *    - node.cmd（Windows，嵌套 shell 兜底；顶层 PowerShell 的 node 由 spawnHook 注入，
  *      不依赖此 shim）。%* 转发的 cmd 二次分词局限已知，仅作兜底。
  *    - node（POSIX sh，mac/linux）。
- * 3. 对 .agents/skills/ 下每个含 package.json 的 skill 执行 npm install --omit=dev，
+ * 3. 对 build/skills/ 下每个含 package.json 的 skill 执行 npm install --omit=dev，
  *    node_modules 随 skill 目录一起进包；用户机器运行时无 npm，依赖必须打包期就位。
  * 4. 输出体积报告。
  *
@@ -105,7 +105,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
 const runtimeDir = path.join(repoRoot, "build", "runtime");
 const sharedDir = path.join(runtimeDir, "shared");
 const binDir = path.join(runtimeDir, "bin");
-const skillsRoot = path.join(repoRoot, ".agents", "skills");
+const skillsRoot = path.join(repoRoot, "build", "skills");
 
 function sizeOf(dir) {
   let total = 0;
@@ -165,13 +165,38 @@ try {
 }
 console.log("[prepare-runtime] bin/node.cmd + bin/node generated");
 
-// 3. skill npm 依赖预装（幂等：package.json mtime 未变且 node_modules 存在则跳过）
+// 3. skill npm 依赖预装（幂等：package.json mtime 未变且 node_modules 存在则跳过）。
+// 目录分层：internal/ 下是侧边 Agent 的挂载根，multichat-cli 在根部（外部 agent 专属），
+// 两者都是 skill——预装扫描必须递归一层找到所有含 package.json 的 skill 目录。
+function collectSkillDirs(root) {
+  const out = [];
+  const scan = (dir, depth) => {
+    if (depth > 2) return;
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory() || entry.name === "node_modules" || entry.name.startsWith(".")) continue;
+      const full = path.join(dir, entry.name);
+      if (fs.existsSync(path.join(full, "SKILL.md"))) {
+        out.push(full);
+      } else {
+        scan(full, depth + 1);
+      }
+    }
+  };
+  scan(root, 0);
+  return out;
+}
+
 let installed = 0;
 let skipped = 0;
 if (fs.existsSync(skillsRoot)) {
-  for (const entry of fs.readdirSync(skillsRoot, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
-    const skillDir = path.join(skillsRoot, entry.name);
+  for (const skillDir of collectSkillDirs(skillsRoot)) {
+    const relName = path.relative(skillsRoot, skillDir).split(path.sep).join("/");
     const pkgPath = path.join(skillDir, "package.json");
     if (!fs.existsSync(pkgPath)) continue;
     const stampPath = path.join(skillDir, "node_modules", ".prepare-stamp");
@@ -186,14 +211,14 @@ if (fs.existsSync(skillsRoot)) {
       skipped++;
       continue;
     }
-    console.log(`[prepare-runtime] npm install --omit=dev in .agents/skills/${entry.name}`);
+    console.log(`[prepare-runtime] npm install --omit=dev in build/skills/${relName}`);
     // Windows 上 execFile 无法直接 spawn npm.cmd（Node CVE-2024-27980 修复后 EINVAL），
     // 参数全部是固定字面量，走 shell 字符串没有注入面。
     const installCmd = "npm install --omit=dev --no-audit --no-fund --loglevel=error";
     execSync(installCmd, { cwd: skillDir, stdio: "inherit", shell: true });
     const pruned = pruneNodeModules(skillDir);
     console.log(
-      `[prepare-runtime] pruned ${pruned.removed} files (${mb(pruned.bytes)} MB) from ${entry.name}/node_modules`
+      `[prepare-runtime] pruned ${pruned.removed} files (${mb(pruned.bytes)} MB) from ${relName}/node_modules`
     );
     fs.writeFileSync(stampPath, String(Date.now()), "utf8");
     installed++;
@@ -209,5 +234,5 @@ if (fs.existsSync(skillsRoot)) {
     skillTotal += sizeOf(path.join(skillsRoot, entry.name));
   }
 }
-console.log(`[prepare-runtime] .agents/skills total: ${mb(skillTotal)} MB (uncompressed, incl. node_modules)`);
+console.log(`[prepare-runtime] build/skills total: ${mb(skillTotal)} MB (uncompressed, incl. node_modules)`);
 console.log(`[prepare-runtime] build/runtime total: ${mb(sizeOf(runtimeDir))} MB`);

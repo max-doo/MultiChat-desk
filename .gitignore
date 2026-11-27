@@ -60,3 +60,6 @@ __pycache__/
 # MultiChat CLI task artifacts (generated images + reply TXT)
 .multichat/
 
+# Local scratch & verification fixtures
+scratch/
+

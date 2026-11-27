@@ -53,7 +53,7 @@ function getCliCmdPath(cliDir: string | null): string | null {
 function getSkillDir(): string | null {
   const candidates = app.isPackaged
     ? [join(process.resourcesPath, 'skill', 'multichat-cli')]
-    : [join(app.getAppPath(), '.agents', 'skills', 'multichat-cli')]
+    : [join(app.getAppPath(), 'build', 'skills', 'multichat-cli')]
   for (const dir of candidates) {
     if (existsSync(dir)) return dir
   }

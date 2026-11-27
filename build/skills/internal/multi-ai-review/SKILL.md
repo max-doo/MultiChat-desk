@@ -1,11 +1,43 @@
 ---
 name: multi-ai-review
-description: 多模型评审合成。当用户要求对文档、方案、代码、设计稿做多平台/多模型评审、交叉评审、集思广益式审稿，或明确提到"让几个 AI 都看看""多模型评审""multi-AI review"时使用。流程：按评审视角拆分提示词 → multichat CLI 扇出到多个平台 → 收集意见按采纳/驳回/存疑归类 → 输出修订版与评审纪要。Use for multi-model/multi-platform review orchestration of documents, plans, designs or code via the multichat CLI fan-out. 不用于：单平台普通问答（直接本地回答或用 multichat-cli 单发）、无评审对象的任务、深度研究报告编排。
+description: 多模型评审合成。当用户要求对文档、方案、代码、设计稿做多平台/多模型评审、交叉评审、集思广益式审稿，或明确提到"让几个 AI 都看看""多模型评审""multi-AI review"时使用。流程：按评审视角拆分提示词 → multichat CLI 扇出到多个平台 → 收集意见按采纳/驳回/存疑归类 → 输出修订版与评审纪要。Use for multi-model/multi-platform review orchestration of documents, plans, designs or code via the multichat CLI fan-out. 不用于：单平台普通问答（直接本地回答或用 multichat 单发）、无评审对象的任务、深度研究报告编排。
 ---
 
 # 多模型评审合成
 
-把一份待评审材料分发给多个 AI 平台的不同"评审视角"，把分散的意见合成为一份可执行的修订结论。底层通道是 `multichat-cli` skill——本 skill 教的是**战法与合成方法**，CLI 的具体语法、入口解析、错误码以 `multichat-cli` skill 为准，本文不复述。
+把一份待评审材料分发给多个 AI 平台的不同"评审视角"，把分散的意见合成为一份可执行的修订结论。底层通道是 `multichat` CLI——本 skill 教的是**战法与合成方法**，下面是够用的 CLI 契约全文，没有外部依赖。
+
+## multichat CLI 使用契约
+
+`multichat` 在当前 shell 中直接可用（宿主已注入入口），**不要**花时间解析安装路径或检查 PATH。CLI 是 MultiChat 应用内部能力的命令行形态：每个命令经本地 daemon 驾驶应用内已登录的 AI 平台网页会话。以下是评审场景需要的全部要点：
+
+**预检（每次评审流程开始时做一次）**：
+
+```powershell
+multichat daemon status   # 应用未运行会报 DAEMON_UNAVAILABLE——让用户启动 MultiChat，不要重试循环
+multichat platforms       # 已适配平台与能力矩阵
+```
+
+`platforms` 返回 `[{id, deepResearch, signedIn?, loginRequired, ...}]`：`loginRequired=true` 且 `signedIn=false` 的平台提交即失败（`AUTH_REQUIRED`），扇出前直接排除；`signedIn` 省略表示未知（页面未读），不视为未登录。
+
+**任务模型**：任务是异步的，`submit` 立即返回 `taskId`，daemon 在后台做页面自动化。
+
+```powershell
+# 提交不带 --wait，一个往返拿到 taskId；
+# 中文提示词必须走 --query-file（命令行参数经 shim 转发会损坏引号/非 ASCII 字符）
+multichat task submit --platform gemini --query-file prompt.md --idempotency-key <稳定key> --json
+# 然后逐个后台轮询终态
+multichat task status <taskId> --wait 300 --json
+```
+
+**判定完成的唯一依据是 `data.phase` 到达终态**（`done`/`failed`/`cancelled`）——`--wait` 超时返回的仍是 `success:true`，绝不能凭 success 或退出码判断。`phase=done` 时 `data.reply` 是完整 Markdown 回复、`data.conversationUrl` 可用于同会话追问、`data.replyFile` 是落盘的回复全文路径。
+
+**关键语义**：
+- 杀掉 CLI 调用不会取消 daemon 侧任务——恢复用 `multichat task list --all` 核对真实状态，`task cancel <id>` 停止；盲目重提会在同平台 FIFO 排队造成双倍等待，恢复时务必先核对或用相同 `--idempotency-key`（重提同 key 返回已有任务而非重复排队）
+- 同平台任务串行（FIFO），跨平台并行
+- 提交上限 10 万字符（`--query`/`--query-file`/stdin 任一）；stdin 仅在两者都未给时读取
+- 错误处理：`AUTH_REQUIRED`/`AUTH_LOST` 让用户到应用里重新登录该平台；`PLATFORM_UNKNOWN` 换 `platforms` 里的其他 id；`TASK_TIMEOUT` 重提时加大 `--timeout`；其他错误重试一次仍失败则该平台按失败处理（评审不因单平台失败终止）
+- **不要在评审任务上使用 `--research`**——那是 deepResearch 长报告模式，与评审场景无关且慢得多
 
 ## 什么时候用、什么时候不用
 

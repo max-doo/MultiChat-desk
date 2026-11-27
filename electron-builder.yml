@@ -28,7 +28,7 @@ extraResources:
     to: cli/index.js
   # Agent 随包 skill：整目录拷贝，内核扫描挂载（同名 skill 用户目录优先覆盖）。
   # node_modules 已随 prepare-runtime 预装在其中，内核扫描时会跳过 node_modules，无副作用。
-  - from: .agents/skills
+  - from: build/skills
     to: skill
   # 运行时供给：ensure-python 共享脚本 + node 入口 shim（build/runtime 由 prepare-runtime 生成）
   - from: build/runtime

@@ -54,3 +54,18 @@ export function getBundledNodeHostExe(): string | null {
   if (!app.isPackaged) return null
   return existsSync(process.execPath) ? process.execPath : null
 }
+
+/**
+ * multichat CLI bundle（resources/cli/index.js 或 dev 的 out/cli/index.js）路径。
+ * 侧边 Agent 的 spawnHook 用它注入 multichat 函数——CLI 本体是应用内部能力的
+ * 命令行形态，multichat-cli skill（外部 agent 的文档）不在侧边 Agent 挂载范围，
+ * 但命令入口必须在 shell 中可达，multi-ai-review 的扇出战法依赖它。
+ * dev 与打包统一走 ELECTRON_RUN_AS_NODE + process.execPath（dev 下它就是
+ * electron 二进制，本身就是 node 宿主），不存在时返回 null。
+ */
+export function getCliBundlePath(): string | null {
+  const candidate = app.isPackaged
+    ? join(process.resourcesPath, 'cli', 'index.js')
+    : join(app.getAppPath(), 'out', 'cli', 'index.js')
+  return existsSync(candidate) ? candidate : null
+}

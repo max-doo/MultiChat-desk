@@ -16,7 +16,7 @@ extraResources:
     to: portable.txt
   - from: out/cli/index.js
     to: cli/index.js
-  - from: .agents/skills
+  - from: build/skills
     to: skill
   - from: build/runtime
     to: runtime
