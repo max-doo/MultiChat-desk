@@ -169,6 +169,14 @@ eplace 内手动 `append((match[0]))` 可阻断行内格式二次转换。TextMa
 
 - **Office 预览三件坑**：(1) Chromium Web Worker 无 DOMParser/DOM API，worker 内解析 OOXML 必须自研定向 XML 解析器（OOXML 输入域规整：预定义实体、固定前缀、无 DOCTYPE，150 行足够）；(2) IPC 返回的 Uint8Array 可能是共享池视图（byteOffset≠0），transferable 传 .buffer 会把视图外字节带进 worker，必须 slice 精确副本；(3) @e965/xlsx 对非 zip 输入静默降级 CSV 解析不报错，损坏/加密文件必须靠 PK 魔数前置校验拒绝。office 解析库放 worker chunk 天然与主 chunk 隔离（xlsx 160KB gzip/pptx 37KB gzip），无需 manualChunks。
 
+- **pptx 预览高保真路线实测结论（2026-11）**：当前 officePptx.worker 定位"内容预览"，对设计型 PPT 失真根因是架构性缺失——schemeClr 主题色/solidFill 形状填充/prstGeom 几何/母版与版式合成/组合 chExt→ext 缩放/文本排版属性（lnSpc、anchor、insets、buChar、字体族）全部丢弃。npm 生态无可直接采用的开源高保真 pptx 渲染器（pptxjs 系失修、pptxtojson 只解析不渲染且 PPTist 是 AGPL）。高保真现实路径是 MS Office COM 后台转 PDF：`New-Object -ComObject PowerPoint.Application` 启动 ~1s，`Presentations.Open(copy, -1, 0, 0)` 只读无窗口 + `SaveAs(pdf, 32)`，29 页 6.6MB 实测全程 5.4s（PNG 逐页路线 3.2s），文字可选中、可复用 WorkbenchPdfViewer；COM 是 attach 语义，必须以文档路径跟踪自己开的 Presentation，只 Close 自己开的、只在自己拉起的进程上 Quit。分析 zip 类文件用 node_repl + jszip 比 PowerShell 传中文路径参数稳（pwsh 策略常拦截含中文/复合删除的直传命令）。
+
+- **pptx 高保真预览落地经验（2026-11 方案 B 实施）**：(1) `Kwpp.Application` 与 `PowerPoint.Application` 都可能被 WPS 接管——本机两个 ProgID 产出的 PDF 完全一致且 creator 均为 WPS，探测顺序按优先级排列即可、不必区分；(2) COM 脚本内自探测 ProgID + 转换前快照 POWERPNT/wpp 进程，只有进程是自己拉起的才 Quit；(3) 缓存键用 `sha1(绝对路径) + size-mtime` 指纹命名，命中 4ms vs 转换 5s 级；(4) PdfViewer 泛化 `readRange` 回调供数 + `invertContent` 开关是 PPT 复用的关键——幻灯片等彩色版面暗色主题只许改画布衬底，`isDark` 传 false 后连图片叠加层提取（getOperatorList）都跳过；(5) 主题配置按格式独立持久化（pptxBackgroundTheme 与 pdfBackgroundTheme 互不干扰），picker 加 options 过滤子集；(6) CDP 验收跨应用重启后 node_repl 内核绑定丢失，WS 客户端需重建。
+
+- **工作区搜索要把取消判断与扫描预算分开**：`workbenchService.search` 的停止条件分两层——`isCancelled`（同工作区新搜索到达，一切立即停止）与 `isContentStopped`（内容扫描额外受条数/1500ms 预算约束）。文件名匹配不受时间预算截断（纯字符串比对开销极小），否则大工作区里排在后面的目录文件名永远搜不到；文件名结果独立收集后按"前缀命中 > 名称包含 > 路径包含"排序并整体排在内容结果前，最后统一截断到 MAX_SEARCH_RESULTS。验证时可用 esbuild `--alias:electron=<stub>` 把 service bundle 成 cjs 在纯 Node 下跑真搜索，不必起 Electron。
+
+- **`data:` base64 图片在渲染层复制与上传的三个坑**：(1) CSP `connect-src` 不含 `data:` 时 `fetch(dataUrl)` 直接被拦，应直接解析 `data:` URL 解码字节或放行 `data:`；(2) `new URL(dataUrl).pathname.split('/').pop()` 会把整段 base64 荷载当成文件名，传给 `create-temp-upload-file` 触发 `ENAMETOOLONG`，`data:`/`blob:` 必须跳过 `URL.pathname` 取名；(3) 跨源 `sandbox="allow-scripts"` iframe 内 `webContents.copyImageAt` 与 `navigator.clipboard.write`（受聚焦/SVG/JPEG 限制）不可靠，统一在渲染层解码/canvas 栅格化 SVG/WebP 为 PNG 后走主进程 `nativeImage.createFromBuffer` + `clipboard.writeImage` 写剪贴板。
+
 ### 笔记、快照与导图
 
 - **来源会话键保留完整规范化 URL 路径**：截取第一个 chat 片段会把 `chat/s/id1` 和 `chat/s/id2` 错误分到同一会话。来源会话入口的 UI 判定必须用 `isPlatformConversationPage` 的逐平台真实路径枚举，不能复用后台恢复用的宽松 `isConversationUrlForPlatform`，后者会命中同域名的设置页、搜索页和文档页。新增平台或路径时同步补 `scripts/agent-cli-acceptance.mjs` 的正负样例，负例至少覆盖同域名非会话页和非 AI 站点。
@@ -215,8 +223,9 @@ eplace 内手动 `append((match[0]))` 可阻断行内格式二次转换。TextMa
 - **图标方向不能沿用 Material 的旋转角度**：`Paperclip` 默认是左下到右上的 45° 斜向，沿用 Material 字体图标时期的 `-rotate-90` 会变成另一条 45° 斜线；要垂直应使用 `-rotate-45`。重做按钮应使用成套的 `Undo2`/`Redo2`，`Repeat` 表示循环播放，不应作为编辑器的前进/重做图标。迁移同类图标时先核对 SVG 原始方向和图形语义，不要机械保留旧 rotate 类或按名称接近程度猜。
 
 - **未映射的 `AppIcon` 名称会静默回退成警告三角**：`AppIcon` 对不在 `APP_ICON_MAP` 中的名称使用 `AlertTriangle` 兜底，主进程右键菜单传入的新图标名必须在映射表中同步登记，否则用户看到的是看似业务警告的三角形。来源会话入口应使用会话语义图标（如 `forum`），不要用文档图标表达打开会话。
+- **新增 toast/提示条必须复用 `StatusBanner`（ui/FormControls.tsx）**：项目统一的顶部居中悬浮条，`absolute top-3 left-1/2 -translate-x-1/2 z-popover`，支持 tone（error/success/warning/info）+ actions + onClose（内建 x 图标按钮）。不要在组件里另写 fixed 定位的私造提示条样式——fixed 在视觉上虽然等同视口，但既偏离统一外观，位置也容易偏离居中惯例。操作类 CTA 按钮样式对齐 `px-2 py-1 bg-white/20 hover:bg-white/30 rounded`。
 
-- **同一业务图标只能保留一个语义名**：标注图标统一用 `annotation` 映射到 `MessageSquarePlus`，不要再保留 `add_comment`、`sticky_note_2` 等多个名字指向同一或相近图形。修改图标时全局替换调用点并删除旧映射；右键菜单传入的 `icon` 字符串也要与 `APP_ICON_MAP` 使用同一个名字。
+- **同一业务图标只能保留一个语义名，不同业务不要共用语义名**：标注图标统一用 `annotation` 映射，当前图形为 `MessageSquareText`（message-square-text），不要再保留 `add_comment`、`sticky_note_2` 等多个名字指向同一或相近图形；Agent 新建会话必须使用独立的 `new_session` 语义名映射 `MessageSquarePlus`。修改单个业务图标前先检查 `AppIcon name` 是否被别处复用，被复用时先拆分语义名再改映射；右键菜单传入的 `icon` 字符串也要与 `APP_ICON_MAP` 使用同一个名字。
 
 - **文件类型图标收敛时保留 Markdown/TXT 与图片原图标**：Material Symbols/Lucide 是通用操作图标体系，vscode-material-icon-theme 是按扩展名显示语言或文件品牌的另一体系，不能把后者当作 Lucide 迁移残留。工作台的 PDF、Word、Excel、PPT、代码与压缩包可以统一走 `FileTypeIcon` 本地 SVG；`.md`、`.markdown`、`.txt` 继续沿用原来的 `description` AppIcon，位图继续用 `image`，`.svg` 用 `draw`，不纳入这次 SVG 统一范围。
 
@@ -261,6 +270,9 @@ eplace 内手动 `append((match[0]))` 可阻断行内格式二次转换。TextMa
 - **`backdrop-filter` 元素会劫持所有 `position: fixed` 后代的定位**：Chromium/Electron 中，元素带 `backdrop-filter`（含 `-webkit-` 前缀，如 `liquid-glass-menu` 毛玻璃菜单）时，其 fixed 后代的包含块变为该元素的 padding box 而非视口——按视口坐标算好的 left/top 会被二次偏移，浮层渲染到视口外（实测 fixed 子元素坐标 = 视口坐标 + 祖先偏移，absolute 后代不受影响）。菜单内嵌套子菜单/fixed 浮层必须 `createPortal` 到 `document.body`；portal 后 DOM 父子断开，`mouseenter/leave` 的层级语义失效，hover 展开要用可取消的短延迟关闭定时器（约 250ms），并把"点击外部关闭"的 contains 判定扩展到 portal 出去的浮层节点。
 
 - **拖选类交互的 elementFromPoint hit-test 必须用探针式夹紧**：指针位于滚动条带（`clientWidth/clientHeight` 之外的 8px 条带）或网格内容以外的空白区时，`elementFromPoint` 命中的是滚动容器而非内容元素，焦点会冻结。正确做法是把探针坐标先夹紧到「内容矩形 ∩ 滚动容器客户区（`scroller.clientWidth/clientHeight` 换算的右/下边界）」的交集内再 hit-test，命中最近边缘元素——这正是 Excel 拖选的钳制语义，还能让帧驱动的边缘自动滚动在双向（正反向）都成立。配套教训：`element.style.boxShadow` 读回被浏览器序列化为 `rgb(16, 124, 65)` 而非 hex，验收断言必须兼容两种形式。
+
+
+- **Tailwind 同一属性的多个类共存时生效方由编译产物排序决定**：g-white 与 g-[#e9e9e9] 同时挂在一个元素上时，谁生效取决于 CSS 文件里两个类的先后位置而非 className 书写顺序，且 dev JIT 增量追加与 build 全量排序的结果可能不一致（曾导致表格选区灰色遮罩在构建产物中被 bg-white 覆盖丢失）。互斥状态的样式必须保证每种状态只输出一个类；验证这类视觉属性要用 getComputedStyle 计算样式断言，className 存在性断言在级联被覆盖时照样通过。
 
 ### 窗口、划词与快捷键
 
@@ -403,6 +415,8 @@ eplace 内手动 `append((match[0]))` 可阻断行内格式二次转换。TextMa
 
 ### Git 与开发工作流
 
+- **永不使用 PowerShell 管道重写数据文件**：`Get-Content | -replace | Set-Content` 这条链有三个叠加的坑——`-replace` 塌缩换行、`Set-Content` 引入 BOM/CRLF、`Get-Content -TotalCount N` 或任何只读头部的用法都会把文件静默截断。SESSION_LOG.md 曾因此被截断到 100 行，靠 git blob 拼接才无损恢复。小范围行级编辑一律用 apply_patch（含 SESSION_LOG/KNOWLEDGE 这类记忆文件），shell 只用于读取和搜索。
+
 - **文件改名用 `update-index` 写路径变化，不用 `git mv`**：Git 不存储重命名，普通 `fs.rename` 后执行 `git add -A` 同样会被识别为 rename；根因是路径变化没有进暂存区。文件改名后先用 `git ls-files -s -z --full-name` 取原 blob，再用一次 `git update-index -z --index-info` 同时写入“删除旧路径 + 原 blob 写入新路径”，只记录路径变化，不会把内容改动一并暂存。路径基准不统一：`ls-files` 与 `update-index` 需要仓库根相对路径，`status --porcelain=v1 -z` 也输出根相对路径，而 `status --porcelain=v2` 输出工作区相对路径，因此要先 `rev-parse --show-prefix` 补前缀。仅大小写改名在 Windows 上也可直接用同一套 `update-index`。变基或合并进行中（`.git/rebase-merge`、`rebase-apply`、`MERGE_HEAD` 存在）要跳过写索引，否则破坏可恢复性。
 
 - **目录移动必须逐文件映射，索引查询按仓库根执行**：只对“被移动的目录路径”执行 `update-index` 不会命中目录内文件，Git 仍显示删除加新增。读取旧目录前缀下的全部索引条目，按“新前缀 + 旧路径剩余部分”逐个写入删除旧路径和原 blob 到新路径；目标前缀已有索引条目时跳过，避免覆盖未提交的同名文件。查询统一在 `repoRoot` 下执行并加 `--literal-pathspecs`：在子目录 cwd 下 `ls-files` 会把 pathspec 当成工作区相对路径，`[draft].md` 这类文件名还会被当通配符而漏匹配；literal 目录 pathspec 即使目录已从磁盘移走仍能命中索引。
@@ -467,6 +481,7 @@ eplace 内手动 `append((match[0]))` 可阻断行内格式二次转换。TextMa
   不要记录一次性错误数量作为长期基线；当前 `tsconfig.web.json` 已设置 `target: ES2020`，两侧均以实际输出为准。已有类型错误与当前改动的错误要明确区分，UI、站点 DOM 与 main 行为需在重启后的 dev 中实际触发。
 
 - **vite dev 下页面内裸 import() 拿到的是幻影模块副本而非应用真实 store 实例**（HMR 带 ?t= 参数会进一步分裂实例），CDP 行为验证必须经应用真实加载路径暴露的同一实例：已在 workbenchStore.ts 末尾加 import.meta.env.DEV 守卫的 window.__workbenchStore 调试钩子（生产 tree-shake 剔除）。openFile 等在 initWorkbench 完成前调用会静默 return，测试脚本必须轮询 isInitialized+workspacePath 再操作。
+- **跨窗口跳转工作台文档时不能只看 isInitialized 标志**：initWorkbench 把 isInitialized 连同偏好快照一起提前 set，随后才异步执行 setWorkspaceFolder/恢复标签页。此时调用方若直接切换工作区或 openFile，恢复流程完成后会把目标状态覆盖掉；必须先 `await initWorkbench()`（模块级单例守卫，重复调用是同一 Promise 语义）再操作工作区。openFile 本身读盘不依赖文件树，文件树陈旧不影响打开。
 - **dev server 端到端验收可走 remote-debugging-port=9223 CDP**：`pnpm run dev` 的 Electron 主进程对 renderer 暴露 `--remote-debugging-port=9223`。Node ≥22 用原生 `WebSocket` 连 `http://127.0.0.1:9223/json/list` 里 `type=page && url==='http://127.0.0.1:5300/'` 的目标，`Runtime.evaluate` 里 `await import('/src/store/workbenchStore.ts')`（Vite 模块路径）即可拿到真实 Zustand store 实例，直接驱动 `openFile`/`saveActiveFile`/`refreshGitStatus`/`searchFiles`/`handleExternalFsChanged` 等动作做行为级验收，无需 UI 自动化。注意 `WorkbenchFileNode` 字段是 `path`/`isDirectory`（非 `relativePath`/`type`）；改动的真实文件务必读后写回恢复原内容。IPC 也可走 `window.api.workbench.*`。
 
 - **Electron 系 IDE 终端的 `ELECTRON_RUN_AS_NODE=1` 必须清除**：Devin/VSCode 等 Electron 应用的集成终端会向子进程继承该变量，`npm run dev` 启动的 electron 退化为纯 Node，`require('electron').app` 为 undefined，main bundle 顶层 `app.isPackaged` 处即崩。bash 用 `env -u ELECTRON_RUN_AS_NODE npm run dev`，PowerShell 先 `Remove-Item Env:ELECTRON_RUN_AS_NODE` 再启动；该变量不是用户/系统环境变量，普通终端不受影响。
@@ -521,7 +536,7 @@ eplace 内手动 `append((match[0]))` 可阻断行内格式二次转换。TextMa
 - **pi-coding-agent v1.6 fork 内核自带 MCP 与标准 Skills，无需外部适配器**：内核 `dist/core/mcp-servers.js` 已实现 `mcp.json` 配置校验与工具暴露分档（direct/deferred/codemode/hidden，deferred/codemode 是控制上下文成本的默认正确档位），OAuth 也在内核；`pi-mcp-adapter` 是内置支持落地前的过渡产物，已过时勿用。Skills 加载（`dist/core/skills.ts`）遵循 Anthropic Agent Skills 开放标准（name 小写连字符不超过 64 字符、description 不超过 1024 字符），anthropics/skills（文档类 Apache-2.0，各子目录自带 LICENSE）、vercel-labs/skills 等公开仓库的 Skill 目录拷进扫描根即可用。MultiChat 侧 Skills 链路（`agentDir/skills` + `agent_extra_skill_dirs` + AgentSkillsSettings UI）已完整存在，加 Skill 不需要架构改动，只需要内容与 extraResources 分发（照抄 multichat-cli 模式）；MCP 则需在会话创建路径上接 `mcp.json` 加载，属集成缺口而非能力缺失。
 
 - **文档四件套 Skill 源选型已定型：anthropics/skills 是唯一合规上游**：OpenAI Codex 随包的 documents/spreadsheets/presentations/pdf skills 虽是 anthropics 版的深度改编（质量更高，含逐页渲染验收、写作质量清单、模板蒸馏），但其 LICENSE 为 "Copyright 2026 OpenAI, All rights reserved" 明确禁止提取、复制分发与衍生转授，只能借鉴方法不能拷贝文本；公开 openai/skills 仓库无 LICENSE 且只有不完整的 pdf。anthropics/skills（约 20 万 stars，2.3 万 forks，社区实现全是其下游改编）2026-11-06 已将 Office 四件套统一迁 Apache-2.0（commit "Move Office skills to the Apache 2.0 license #2146"），且技术栈换代：docx/pptx 创建改用 npm 的 docx-js/pptxgenjs（Electron 直接受益），xlsx 仍用 openpyxl/pandas、pdf 仍用 pypdf，公式重算与视觉验证依赖 LibreOffice（应做探测式可选增强而非硬前置）。
-- **文档四件套 skill 定稿方案（2026-11-27 两轮独立评审后）**：xlsx 用 MiniMax 主干（`libreoffice_recalc.py` 自带无需移植）；pptx/pdf 用 anthropics；docx 用 anthropics 主干 + 移植 MiniMax 的 MIT 文本资产（cjk_typography/scenario_c_apply_template/openxml_element_order/openxml_units/troubleshooting 五件成套，少移植排错类就等于丢掉"怎么不出错"），**不引入 .NET**——MiniMax 套模板核心知识是 XML 级运行时无关文本，.NET 独有的只是编译样本库/确定性 CLI/门禁纪律三样，不值得 200MB SDK 成本。关键纠偏：① OpenAI 限制性许可只覆盖文档四件套，`skills/.system/skill-creator` 实为 **Apache-2.0 可直接改编**；② anthropics docx 读取路径硬编码 `pandoc`，改编必须换 `markitdown`（随 Python bootstrap 走）；③ minimax-xlsx 自带公式重算，与 anthropics 能力等价。运行时供给：Agent shell PATH 无 node，"Electron 自带 Node"够不着——Node 随包嵌入 `resources/runtime/`（npm 目录树必须全量保留否则 npx 失效）+ 主进程 prepend `process.env.PATH` 即可继承（内核 `getShellEnv()` 展开 process.env）；embeddable Python 两坑：不带 pip 需 get-pip 引导、`python*._pth` 的 `import site` 必须取消注释。分发链路：内核扫描候选**不含** `resources/skill/`，multichat-cli 目前靠用户手动复制——需在 `skillDirCandidates` 追加；内核同名去重"先扫描者获胜"且 additionalSkillPaths 排在自动扫描之后，"用户目录优先"规则零额外开发，但 dev 环境 cwd 在仓库根时 `.agents/skills` 会以 project 身份抢先生效，验收须换 cwd。skill-creator 定稿：OpenAI 版改编（宿主无关渐进式披露框架）+ Anthropic 评测方法论作进阶章节。**核验 skill 仓库必须读 README 确认是否独立实现**——tfriedel/claude-office-skills（850 星）实为 anthropics 下游镜像且作者已废弃。
+- **文档四件套 skill 定稿方案（2026-11-27 两轮独立评审后）**：xlsx 用 MiniMax 主干（`libreoffice_recalc.py` 自带无需移植）；pptx/pdf 用 anthropics；docx 用 anthropics 主干 + 移植 MiniMax 的 MIT 文本资产（cjk_typography/scenario_c_apply_template/openxml_element_order/openxml_units/troubleshooting 五件成套，少移植排错类就等于丢掉"怎么不出错"），**不引入 .NET**——MiniMax 套模板核心知识是 XML 级运行时无关文本，.NET 独有的只是编译样本库/确定性 CLI/门禁纪律三样，不值得 200MB SDK 成本。关键纠偏：① OpenAI 限制性许可只覆盖文档四件套，`skills/.system/skill-creator` 实为 **Apache-2.0 可直接改编**；② anthropics docx 读取路径硬编码 `pandoc`，改编必须换 `markitdown`（随 Python bootstrap 走）；③ minimax-xlsx 自带公式重算，与 anthropics 能力等价。运行时供给：Agent shell PATH 无 node，"Electron 自带 Node"够不着——Node 随包嵌入 `resources/runtime/`（npm 目录树必须全量保留否则 npx 失效）+ 主进程 prepend `process.env.PATH` 即可继承（内核 `getShellEnv()` 展开 process.env）；embeddable Python 两坑：不带 pip 需 get-pip 引导、`python*._pth` 的 `import site` 必须取消注释。分发链路：内核扫描候选**不含** `resources/skill/`，已通过 `additionalSkillPaths` 追加挂载（`bundledSkills.ts` + `AgentSessionService.resolveSkillDirs` 四处构造点统一）；内核同名去重"先扫描者获胜"且 additionalSkillPaths 排在自动扫描之后，"用户目录优先"规则零额外开发。**仓库内 skill 源必须放 `build/skills/` 而非 `.agents/skills/`**（扫描隔离补充：pi 内核 skill 扫描是递归的，仅跳过 node_modules 与点号目录——同一扫描树内无法排除单个 skill，唯一可靠隔离是目录分层：`build/skills/internal/` 作侧边 Agent 扫描根，外部专属 skill 放根部不进入扫描根；为脚本类 skill 打补丁后 py_compile 不足以验证（NameError 编译期不报错），必须真实执行一次）（skill 写作纪律：必须逐功能对照代码核实宿主能力，不可按 agentskills 生态常识推断——workbench-assets 曾虚构"提示词模板库"章节被用户指出；标签系统、导图契约等引用前必须 grep 验证存在性）——后者是 agent 生态自动扫描约定目录（pi 内核扫描 cwd 祖先的 `.agents/skills`，其他宿主 agent 同惯例），会污染本仓库的开发上下文（已实证：Codex 类 agent 在仓库内工作时自动加载了全部随包 skill）。skill-creator 定稿：OpenAI 版改编（宿主无关渐进式披露框架）+ Anthropic 评测方法论作进阶章节。**核验 skill 仓库必须读 README 确认是否独立实现**——tfriedel/claude-office-skills（850 星）实为 anthropics 下游镜像且作者已废弃。
 
 - **本地 Agent 交互UI避免引入外部重型聊天运行时库，优先采用 Zustand + 原生组件接管**：`@assistant-ui/react` 等库对消息格式有严苛的内部 schema 约束（例如 user 消息不可携带 status，或者子组件强制要求 AuiProvider 上下文），且与底层 Pi Coding Agent 的事件流模型存在语义分歧。采用 Zustand 统一维护消息、工具调用、思考过程与权限确认，直接驱动自定义组件（如 `BashToolUI`、`ThinkingBlock`），既解除了外部库崩溃风险，又能够与工作台 `WebviewCard` 保持完全一致的视觉与交互基线。
 
@@ -574,8 +589,12 @@ eplace 内手动 `append((match[0]))` 可阻断行内格式二次转换。TextMa
 
   实测补充（2026-11-27 全链路真跑验证）：`py` launcher 装在 `C:\Windows` 而非 `C:\Windows\System32`——模拟"无 python 环境"测试剥离 PATH 时**不能保留 `C:\Windows`**，否则 system-venv 分支被误命中掩盖 bootstrap 分支。ensure-python 三级回退全部实测通过：system python→venv 转化（`reused:false,source:"system-venv"`）、二次运行幂等复用（`source:"managed"`）、PATH 只剩 System32 时 embeddable 下载→get-pip→pip 安装全链（`source:"bootstrapped"`）。
 
+- **右键发送 `blob:`/`data:`/`http(s):` 图片到 `local-agent` 必须走 `addImageAttachment`**：`handleSendImage` 原先先落盘 `multichat-uploads-*` 临时文件、调 `uploadFilesToCurrentModel`，在 `finally` 里立刻 `cleanupUploadTemp` 删目录；网页平台在 `uploadFile` 完成时已完成上传，但 `local-agent` 分支只调 `mentionFile` 插入 `@path` 并立即返回，导致用户发送前文件已被删（`ENOENT`）。对 `local-agent` 应把非 `workbench-file://` 图片直接转为 `dataUrl` 注入 `addImageAttachment`；同时主进程 `save-image-from-url` 对 `data:` URL 需按 MIME 推导 `image.<ext>` 默认文件名，避免 `new URL(dataUrl).pathname` 把 base64 串写进保存对话框。
+
 ### 原型与视觉验收
 
 - **用 `innerHTML` 重建含 `id` 的子节点后，后续渲染不能再引用旧节点**：自包含 HTML 原型中，如果渲染函数先写入容器 `innerHTML`，之后再按旧 `id` 查询该容器内的节点，首次渲染可能成功，但切换文档、新增标注等第二次渲染会得到 `null` 并中断交互。修复应删除冗余的旧节点引用，或始终在重建完成后重新查询；验收不能只截首屏，还要实际触发一次文档切换或数据更新后的重渲染。
 
 - **静态原型验收要覆盖交互状态和重复渲染**：首屏截图只能证明初始布局，不能证明切换、重复渲染、空态、错误态和窄屏分支。验收时应实际触发关键路径，并把浏览器截图与 DOM 状态一起作为证据；具体样式数值是视觉取舍，不升级为通用规则。
+
+- **彩色文件图标搬上品牌色背景前必须逐色相检查对比度**：文件树的 md 图标本色 `text-blue-500`(#3b82f6) 与 primary 用户气泡底色完全相同，取消图标强制刷白后会直接隐形；TS/TSX 图标 #0288d1 与气泡蓝也只有弱对比。可行做法是 md 类单色 AppIcon 取同色系浅色（如 text-blue-200）保持色调又保证辨识，多色 FileTypeIcon 位图可用 `saturate(1.1)` 做低成本分离补偿。

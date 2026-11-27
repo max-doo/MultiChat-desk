@@ -2,6 +2,128 @@
 
 ## 2026-11-27
 
+### 23:14 | Antigravity
+
+- done: 将 .agents/skills 至 build/skills 的 185 个移动文件重新在 Git 暂存区关联为 rename，并将本地调试/验收样本目录 scratch/ 加入 .gitignore
+- modified:
+  - `.gitignore`
+
+### 23:07 | Codex
+
+- done: StatusBanner 新增 variant=soft 浅色变体（白底细边框+彩色图标+深色文字），成功/部分成功的轻提示不再用刺眼实心彩色底；采集 toast 的成功与 notice 改用 soft 变体，打开 CTA 改为 bg-primary/10 浅色 chip；错误提示保持实心红。修复 SESSION_LOG.md 被 PowerShell 重定向截断事故：从 git blob 拼接恢复全部历史（今日 43 条无重复无丢失）
+- modified:
+  - `src/renderer/src/components/ui/FormControls.tsx`
+  - `src/renderer/src/components/NoteCaptureModal.tsx`
+  - `SESSION_LOG.md`
+- lesson(promoted): PowerShell 管道 -replace 批量改文件会塌缩换行已知的坑之外，更致命的是 Get-Content -TotalCount N 配合 Set-Content 会把文件截断到 N 行；小范围行级编辑一律用 apply_patch，永不 shell 重写用户数据文件
+
+### 23:02 | Antigravity
+
+- done: 修复标注弹窗（AnnotationCommentCard）在窄窗口或边界位置溢出窗口的问题
+- modified:
+  - `src/renderer/src/utils/noteInteractions.ts`
+  - `src/renderer/src/components/AnnotationCommentCard.tsx`
+  - `src/renderer/src/components/NoteCaptureModal.tsx`
+  - `src/renderer/src/components/WebviewCard.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchAnnotationPlugin.tsx`
+
+### 22:59 | Codex
+
+- done: 采集 toast 改用项目统一的 StatusBanner 组件（顶部居中、z-popover）：成功=success 绿色带打开CTA，notice 改 warning 琥珀色，error 保持 error 红色；关闭按钮从文字改为组件内建 x 图标；CTA 按钮样式对齐 WorkbenchPage 的 bg-white/20 惯例
+- modified:
+  - `src/renderer/src/components/NoteCaptureModal.tsx`
+- lesson(promoted): 项目已有 StatusBanner(ui/FormControls.tsx) 是统一的顶部居中悬浮提示条（tone+actions+onClose x 图标），新增任何 toast/提示条前先复用它，不要另起 fixed 定位的私造样式
+
+### 22:57 | Antigravity
+
+- done: 抽离共用搜索框组件 WorkbenchSidebarSearchBar 统一文件搜索、全部标注与历史记录抽屉的搜索框样式，并移除搜索框下方分隔线
+- added:
+  - `src/renderer/src/components/workbench/WorkbenchSidebarSearchBar.tsx`
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchSearch.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchAnnotationsPanel.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+  - `src/renderer/src/components/HistoryDrawer.tsx`
+
+### 22:54 | Codex
+
+- done: 工作台左侧栏在全部标注与文件操作按钮之间添加竖线分隔；Agent 新建会话按钮改用独立 new_session 图标映射并恢复 MessageSquarePlus，标注图标继续保留 MessageSquareText
+- context: 用户截图要求：搜索/全部标注与新建、排序等文件操作逻辑不同，用竖线分组；Agent 新建对话按钮沿用原图标，避免被全局标注图标替换影响
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+  - `src/renderer/src/components/icons/AppIcon.tsx`
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+- lesson: 同一 AppIcon 语义名被不同业务复用时，换一个业务图标会误伤别处；应先拆分独立语义名（如 new_session）再改映射，避免全局替换副作用。
+
+### 22:52 | Antigravity
+
+- done: 将全部标注面板顶栏替换为搜索框（支持搜索标注评论与引用文字并高亮匹配项），并统一字号与文件树对齐
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchAnnotationsPanel.tsx`
+
+### 22:51 | Codex
+
+- done: 标注/摘录保存交互：保存按钮按采集上下文显示去向（global=存入默认工作区，workbench=保存标注/保存文档）；global 场景保存成功后弹 5s 自动消失 toast（已存入默认工作区+打开CTA），工作台场景不弹；新增 annotations:open-captured-document IPC（主进程聚焦主窗口并转发事件），App.tsx 监听后切工作台、必要时切换工作区并打开目标文档；UI 术语默认会话库统一为默认工作区
+- decision: 成功提示只在 global 采集场景出现：工作台内标注回显+文档落当前工作区，反馈已自足
+- modified:
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/src/components/NoteCaptureModal.tsx`
+  - `src/renderer/src/App.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchWorkspaceSettings.tsx`
+  - `src/renderer/src/components/WebviewCard.tsx`
+- lesson(promoted): 跨窗口跳转工作台文档：initWorkbench 的 isInitialized 标志在异步恢复完成前置位，调用方必须 await initWorkbench() 再操作工作区，否则恢复流程会覆盖目标状态
+
+### 22:49 | Codex
+
+- done: 将全局 annotation 标注图标从 MessageSquarePlus 更换为 MessageSquareText（message-square-text），保留所有调用点不变
+- context: 用户提供 message-square-text 图标截图，要求替换当前所有标注图标
+- modified:
+  - `src/renderer/src/components/icons/AppIcon.tsx`
+
+### 22:46 | Antigravity
+
+- done: 工作台文件侧边栏新增全部标注视图入口，按文档分组卡片展示并支持点击定位到文件及标注位置
+- added:
+  - `src/renderer/src/components/workbench/WorkbenchAnnotationsPanel.tsx`
+- modified:
+  - `src/shared/types/annotations.ts`
+  - `src/main/services/annotationService.ts`
+  - `src/main/services/conversationDocumentService.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/src/store/annotationStore.ts`
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchAnnotationPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchCodePreview.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchHtmlAnnotationPreview.tsx`
+  - `src/shared/utils/workbenchHtmlAnnotations.ts`
+
+### 22:44 | Antigravity
+
+- done: 统一工作区排序菜单样式为 liquid-glass-menu
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+
+### 22:40 | Antigravity
+
+- done: 固定 Agent 对话空态欢迎区位置，防止粘贴图片或输入增高底部输入框时发生位移
+- modified:
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+
+### 22:37 | Antigravity
+
+- done: 修复工作台 HTML 内嵌 base64 图片复制与发送侧边栏失败问题，并支持 HTML/Agent 图片另存为默认定位到当前工作空间
+- added:
+  - `src/renderer/src/utils/imageClipboard.ts`
+- modified:
+  - `src/renderer/index.html`
+  - `src/preload/index.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/renderer/src/components/CustomContextMenu.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchAiSidebar.tsx`
+
 ### 21:10 | Codex
 
 - done: 提交本日全部改动：Office xlsx/pptx/CSV 预览、随包技能分发与运行时供给、菜单方向性弹出动画，按模块分3笔+hunk级拆分共享文件；scratch与CDP调试探针为过程文件不入库

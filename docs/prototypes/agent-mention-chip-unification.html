@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent 用户气泡 @mention chip 统一方案 v2（无背景文字化）</title>
+<!-- Created: 2026-11-27 21:30 (+08:00) — v2：取消 chip 背景，文字化融入气泡，与无背景行内 chip 同源 -->
+<style>
+  :root {
+    --primary: #3b82f6;
+    --slate-100: #f1f5f9;
+    --text-primary: #1f2937;
+    --text-secondary: #6b7280;
+    --app-bg: #fcfdff;
+    --border: rgba(148, 163, 184, 0.25);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+    background: var(--app-bg);
+    color: var(--text-primary);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  .page { max-width: 1080px; margin: 0 auto; padding: 32px 28px 80px; }
+  h1 { font-size: 24px; line-height: 32px; font-weight: 600; margin-bottom: 6px; }
+  .subtitle { color: var(--text-secondary); font-size: 14px; margin-bottom: 28px; }
+  h2 {
+    font-size: 19px; line-height: 28px; font-weight: 600;
+    margin: 40px 0 4px; padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  .section-note { color: var(--text-secondary); font-size: 12px; margin-bottom: 16px; }
+
+  .scene-row { display: flex; gap: 20px; align-items: stretch; flex-wrap: wrap; }
+  .scene {
+    flex: 1 1 460px; min-width: 420px;
+    border: 1px solid var(--border); border-radius: 12px;
+    padding: 20px 20px 24px; background: #fff;
+  }
+  .scene-label {
+    font-size: 11px; color: var(--text-secondary); letter-spacing: 0.04em;
+    margin-bottom: 14px;
+  }
+  .scene.dark { background: #1e2430; border-color: rgba(255,255,255,0.08); }
+  .scene.dark .scene-label { color: rgba(255,255,255,0.45); }
+
+  /* ---- 用户气泡（1:1 还原 AgentCard：rounded-2xl rounded-tr-sm bg-primary，px-4 py-2.5，text-body 14px/21px） ---- */
+  .bubble-wrap { display: flex; justify-content: flex-end; }
+  .bubble {
+    max-width: 85%;
+    border-radius: 16px; border-top-right-radius: 4px;
+    background: var(--primary); color: #fff;
+    font-size: 14px; line-height: 21px;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+    padding: 10px 16px;
+    white-space: pre-wrap; word-break: break-word;
+  }
+
+  /* ---- chip 统一几何（对齐 WorkbenchFileChip：gap-1 mx-0.5 px-1 py-0.5 -my-0.5 rounded(12px) align-baseline） ----
+     v2 核心：常态透明无背景，文字化融入气泡；hover 时才浮现 white/10 微光底色（圆角仅此时可见） */
+  .chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    margin: -2px 2px 0; padding: 2px 4px;
+    border-radius: 12px;
+    vertical-align: baseline;
+    font-weight: 400; user-select: none; cursor: pointer;
+    transition: background-color .15s ease;
+  }
+  .chip:hover { background: rgba(255,255,255,0.12); }
+  .chip .label {
+    max-width: 208px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .chip svg, .chip img { width: 1em; height: 1em; flex-shrink: 0; display: block; }
+  /* 彩色文件类型图标统一去色为白的模拟（实现上走 [&_svg]:!text-white 类机制） */
+  .white-icon svg, .white-icon img { filter: grayscale(1) brightness(3.2); color: #fff !important; }
+
+  /* ---- 现状（参照组）：带半透明白底、11px 小字 ---- */
+  .chip-bubble-current {
+    display: inline-flex; align-items: center; gap: 4px;
+    margin: 0 2px; padding: 2px 6px;
+    border-radius: 6px;
+    background: rgba(255,255,255,0.20);
+    color: #fff;
+    font-size: 11px; line-height: 16px;
+    vertical-align: baseline;
+    transform: translateY(1px);
+    cursor: pointer; user-select: none;
+  }
+  .chip-bubble-current svg, .chip-bubble-current img {
+    width: 1em; height: 1em; flex-shrink: 0; color: rgba(255,255,255,0.85) !important;
+    filter: grayscale(1) brightness(2.6);
+  }
+  .chip-bubble-current .label {
+    max-width: 208px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+
+  /* ---- 方案①：轻图标 + 白文 ---- */
+  .v1 .chip svg, .v1 .chip img { opacity: 0.72; }
+  .v1 .chip .label { color: #fff; }
+
+  /* ---- 方案②：弱图标 + 淡文（最融入） ---- */
+  .v2 .chip svg, .v2 .chip img { opacity: 0.55; }
+  .v2 .chip .label { color: rgba(255,255,255,0.88); }
+
+  /* ---- 方案③：白图标 + 白文 + 文件名细下划线（链接语义最强） ---- */
+  .v3 .chip img { filter: saturate(1.1); }
+  .v3 .chip .label {
+    color: #fff;
+    text-decoration: underline;
+    text-decoration-color: rgba(255,255,255,0.45);
+    text-underline-offset: 3px;
+    text-decoration-thickness: 1px;
+  }
+  .v3 .chip:hover .label { text-decoration-color: rgba(255,255,255,0.85); }
+
+  /* ---- 方案④：轻图标 + 中等字重文件名（字重区分） ---- */
+  .v4 .chip svg, .v4 .chip img { opacity: 0.72; }
+  .v4 .chip .label { color: #fff; font-weight: 500; }
+
+  /* ---- 对照：模型回复区无背景行内 chip（白底上的蓝字，证明无背景是仓库既有语言） ---- */
+  .assistant-pane {
+    border: 1px solid var(--border); border-radius: 12px;
+    padding: 10px 14px; font-size: 14px; line-height: 21px;
+    background: #fff; color: var(--text-primary);
+  }
+  .assistant-pane .chip-inline-ref {
+    display: inline-flex; align-items: center; gap: 4px;
+    margin: -2px 2px 0; padding: 2px 4px;
+    border-radius: 12px; color: var(--primary);
+    vertical-align: baseline; cursor: pointer; user-select: none;
+    transition: background-color .15s ease;
+  }
+  .assistant-pane .chip-inline-ref:hover { background: rgba(59,130,246,0.10); }
+  .assistant-pane .chip-inline-ref svg, .assistant-pane .chip-inline-ref img { width: 1em; height: 1em; flex-shrink: 0; }
+  .assistant-pane .chip-inline-ref .label { max-width: 208px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .variant-head { display: flex; align-items: baseline; gap: 10px; margin: 26px 0 10px; flex-wrap: wrap; }
+  .variant-tag {
+    font-size: 12px; font-weight: 600; color: var(--primary);
+    background: rgba(59,130,246,0.1); border-radius: 6px; padding: 1px 8px;
+  }
+  .variant-tag.recommended { background: var(--primary); color: #fff; }
+  .variant-name { font-size: 14px; font-weight: 600; }
+  .variant-desc { font-size: 12px; color: var(--text-secondary); }
+  .spec {
+    margin-top: 10px; font-size: 11px; color: var(--text-secondary);
+    font-family: Consolas, "Courier New", monospace;
+    background: #f8fafc; border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 12px; line-height: 1.7;
+  }
+  .spec b { color: var(--text-primary); font-weight: 600; }
+
+  table.compare {
+    width: 100%; border-collapse: collapse; margin-top: 14px;
+    font-size: 12px;
+  }
+  table.compare th, table.compare td {
+    text-align: left; padding: 7px 10px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  table.compare th { color: var(--text-secondary); font-weight: 500; font-size: 11px; }
+  table.compare td:first-child { color: var(--text-secondary); white-space: nowrap; }
+  .good { color: #059669; }
+  .bad { color: #dc2626; }
+  .mid { color: #d97706; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <h1>Agent 用户气泡 @mention chip 统一方案 v2</h1>
+  <div class="subtitle">v2 方向：<b>取消 chip 背景</b>，文字化融入气泡 —— 与模型回复正文里既有的无背景行内 chip 同源。几何全部对齐统一外壳（gap 4px / 内边距 2·4px / 继承气泡 14px / 图标 1em），常态透明，hover 时才浮现 white/12% 微光。可实际悬停查看效果。</div>
+
+  <!-- ============ 依据 ============ -->
+  <h2>设计依据：无背景是仓库既有的 chip 语言</h2>
+  <div class="section-note">模型回复正文中的行内文件 chip（WorkbenchFileChip 默认形态）本来就是透明底 + 彩色图标 + 主题蓝文字，只有 hover 浮现底色。用户气泡因蓝底无法沿用蓝字，但"无背景"这一核心应当继承。</div>
+  <div class="scene-row">
+    <div class="scene">
+      <div class="scene-label">模型回复正文 · 既有行内 chip（无背景）</div>
+      <div class="assistant-pane">入口在<span class="chip-inline-ref"><img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHhtbDpzcGFjZT0icHJlc2VydmUiIHZpZXdCb3g9IjAgMCAxNiAxNiI+PHBhdGggZmlsbD0iIzAyODhkMSIgZD0iTTIgMnYxMmgxMlYyem00IDZoM3YxSDh2NEg3VjlINnptNSAwaDJ2MWgtMnYxaDFhMS4wMDMgMS4wMDMgMCAwIDEgMSAxdjFhMS4wMDMgMS4wMDMgMCAwIDEtMSAxaC0ydi0xaDJ2LTFoLTFhMS4wMDMgMS4wMDMgMCAwIDEtMS0xVjlhMS4wMDMgMS4wMDMgMCAwIDEgMS0xIi8+PC9zdmc+" alt=""><span class="label">AttachmentChips.tsx</span></span>里，点击可直接预览文件。</div>
+    </div>
+    <div class="scene">
+      <div class="scene-label">用户气泡 · 现状（带底色，参照组）</div>
+      <div class="bubble-wrap">
+        <div class="bubble"><span class="chip-bubble-current"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 19V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2zM8.5 11l2.5 3.01L14.5 10l4.5 6H5l3.5-5z"/></svg><span class="label">681950adf17de8fff015baa35154d75…</span></span>解释一下这张图片</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 方案① ============ -->
+  <h2>候选方案（均无背景，仅图标透明度 / 文字处理不同）</h2>
+
+  <div class="variant-head">
+    <span class="variant-tag">①</span>
+    <span class="variant-name">轻图标 + 白文</span>
+    <span class="variant-desc">图标降到 72% 透明度作类型提示，文件名纯白与正文一致 —— 最克制</span>
+  </div>
+  <div class="scene-row v1">
+    <div class="scene">
+      <div class="scene-label">浅色主题气泡</div>
+      <div class="bubble-wrap">
+        <div class="bubble"><span class="chip white-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 19V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2zM8.5 11l2.5 3.01L14.5 10l4.5 6H5l3.5-5z"/></svg><span class="label">681950adf17de8fff015baa35154d75…</span></span>解释一下这张图片</div>
+      </div>
+      <div class="bubble-wrap" style="margin-top:14px">
+        <div class="bubble">帮我分析一下<span class="chip white-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg><span class="label">design-spec.md</span></span>这个文档，并检查<span class="chip white-icon"><img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHhtbDpzcGFjZT0icHJlc2VydmUiIHZpZXdCb3g9IjAgMCAxNiAxNiI+PHBhdGggZmlsbD0iIzAyODhkMSIgZD0iTTIgMnYxMmgxMlYyem00IDZoM3YxSDh2NEg3VjlINnptNSAwaDJ2MWgtMnYxaDFhMS4wMDMgMS4wMDMgMCAwIDEgMSAxdjFhMS4wMDMgMS4wMDMgMCAwIDEtMSAxaC0ydi0xaDJ2LTFoLTFhMS4wMDMgMS4wMDMgMCAwIDEtMS0xVjlhMS4wMDMgMS4wMDMgMCAwIDEgMS0xIi8+PC9zdmc+" alt=""><span class="label">AttachmentChips.tsx</span></span>的实现</div>
+      </div>
+    </div>
+    <div class="scene dark">
+      <div class="scene-label">深色主题气泡</div>
+      <div class="bubble-wrap">
+        <div class="bubble">附件在<span class="chip white-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z"/></svg><span class="label">产品需求文档</span></span>目录下，参考<span class="chip white-icon"><img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0iI2VmNTM1MCIgZD0iTTEzIDloNS41TDEzIDMuNXpNNiAyaDhsNiA2djEyYTIgMiAwIDAgMS0yIDJINmEyIDIgMCAwIDEtMi0yVjRhMiAyIDAgMCAxIDItMm00LjkzIDEwLjQ0Yy40MS45LjkzIDEuNjQgMS41MyAyLjE1bC40MS4zMmMtLjg3LjE2LTIuMDcuNDQtMy4zNC45M2wtLjExLjA0LjUtMS4wNGMuNDUtLjg3Ljc4LTEuNjYgMS4wMS0yLjRtNi40OCAzLjgxYy4xOC0uMTguMjctLjQxLjI4LS42Ni4wMy0uMi0uMDItLjM5LS4xMi0uNTUtLjI5LS40Ny0xLjA0LS42OS0yLjI4LS42OWwtMS4yOS4wNy0uODctLjU4Yy0uNjMtLjUyLTEuMi0xLjQzLTEuNi0yLjU2bC4wNC0uMTRjLjMzLTEuMzMuNjQtMi45NC0uMDItMy42YS44NS44NSAwIDAgMC0uNjEtLjI0aC0uMjRjLS4zNyAwLS43LjM5LS43OS43Ny0uMzcgMS4zMy0uMTUgMi4wNi4yMiAzLjI3di4wMWMtLjI1Ljg4LS41NyAxLjktMS4wOCAyLjkzbC0uOTYgMS44LS44OS40OWMtMS4yLjc1LTEuNzcgMS41OS0xLjg4IDIuMTItLjA0LjE5LS4wMi4zNi4wNS41NGwuMDMuMDUuNDguMzEuNDQuMTFjLjgxIDAgMS43My0uOTUgMi45Ny0zLjA3bC4xOC0uMDdjMS4wMy0uMzMgMi4zMS0uNTYgNC4wMy0uNzUgMS4wMy41MSAyLjI0Ljc0IDMgLjc0LjQ0IDAgLjc0LS4xMS45MS0uM20tLjQxLS43MS4wOS4xMWMtLjAxLjEtLjA0LjExLS4wOS4xM2gtLjA0bC0uMTkuMDJjLS40NiAwLTEuMTctLjE5LTEuOS0uNTEuMDktLjEuMTMtLjEuMjMtLjEgMS40IDAgMS44LjI1IDEuOS4zNU03LjgzIDE3Yy0uNjUgMS4xOS0xLjI0IDEuODUtMS42OSAyIC4wNS0uMzguNS0xLjA0IDEuMjEtMS42OXptMy4wMi02LjkxYy0uMjMtLjktLjI0LTEuNjMtLjA3LTIuMDVsLjA3LS4xMi4xNS4wNWMuMTcuMjQuMTkuNTYuMDkgMS4xbC0uMDMuMTYtLjE2LjgyeiIvPjwvc3ZnPg==" alt=""><span class="label">681950adf17de8fff015baa35154d75335.pdf</span></span></div>
+      </div>
+    </div>
+  </div>
+  <div class="spec">
+    图标 <b>白 72%</b> · 文件名 <b>白 100%</b> · 无下划线 · 无背景，hover 浮现 white/12%。文件名与正文同为纯白，靠前置图标提示"这是文件"。
+  </div>
+
+  <!-- ============ 方案② ============ -->
+  <div class="variant-head">
+    <span class="variant-tag">②</span>
+    <span class="variant-name">弱图标 + 淡文</span>
+    <span class="variant-desc">整体再退半档，几乎与正文融为一体 —— 最安静，但辨识度最低</span>
+  </div>
+  <div class="scene-row v2">
+    <div class="scene">
+      <div class="scene-label">浅色主题气泡</div>
+      <div class="bubble-wrap">
+        <div class="bubble"><span class="chip white-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 19V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2zM8.5 11l2.5 3.01L14.5 10l4.5 6H5l3.5-5z"/></svg><span class="label">681950adf17de8fff015baa35154d75…</span></span>解释一下这张图片</div>
+      </div>
+      <div class="bubble-wrap" style="margin-top:14px">
+        <div class="bubble">帮我分析一下<span class="chip white-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg><span class="label">design-spec.md</span></span>这个文档，并检查<span class="chip white-icon"><img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHhtbDpzcGFjZT0icHJlc2VydmUiIHZpZXdCb3g9IjAgMCAxNiAxNiI+PHBhdGggZmlsbD0iIzAyODhkMSIgZD0iTTIgMnYxMmgxMlYyem00IDZoM3YxSDh2NEg3VjlINnptNSAwaDJ2MWgtMnYxaDFhMS4wMDMgMS4wMDMgMCAwIDEgMSAxdjFhMS4wMDMgMS4wMDMgMCAwIDEtMSAxaC0ydi0xaDJ2LTFoLTFhMS4wMDMgMS4wMDMgMCAwIDEtMS0xVjlhMS4wMDMgMS4wMDMgMCAwIDEgMS0xIi8+PC9zdmc+" alt=""><span class="label">AttachmentChips.tsx</span></span>的实现</div>
+      </div>
+    </div>
+    <div class="scene dark">
+      <div class="scene-label">深色主题气泡</div>
+      <div class="bubble-wrap">
+        <div class="bubble">附件在<span class="chip white-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z"/></svg><span class="label">产品需求文档</span></span>目录下，参考<span class="chip white-icon"><img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0iI2VmNTM1MCIgZD0iTTEzIDloNS41TDEzIDMuNXpNNiAyaDhsNiA2djEyYTIgMiAwIDAgMS0yIDJINmEyIDIgMCAwIDEtMi0yVjRhMiAyIDAgMCAxIDItMm00LjkzIDEwLjQ0Yy40MS45LjkzIDEuNjQgMS41MyAyLjE1bC40MS4zMmMtLjg3LjE2LTIuMDcuNDQtMy4zNC45M2wtLjExLjA0LjUtMS4wNGMuNDUtLjg3Ljc4LTEuNjYgMS4wMS0yLjRtNi40OCAzLjgxYy4xOC0uMTguMjctLjQxLjI4LS42Ni4wMy0uMi0uMDItLjM5LS4xMi0uNTUtLjI5LS40Ny0xLjA0LS42OS0yLjI4LS42OWwtMS4yOS4wNy0uODctLjU4Yy0uNjMtLjUyLTEuMi0xLjQzLTEuNi0yLjU2bC4wNC0uMTRjLjMzLTEuMzMuNjQtMi45NC0uMDItMy42YS44NS44NSAwIDAgMC0uNjEtLjI0aC0uMjRjLS4zNyAwLS43LjM5LS43OS43Ny0uMzcgMS4zMy0uMTUgMi4wNi4yMiAzLjI3di4wMWMtLjI1Ljg4LS41NyAxLjktMS4wOCAyLjkzbC0uOTYgMS44LS44OS40OWMtMS4yLjc1LTEuNzcgMS41OS0xLjg4IDIuMTItLjA0LjE5LS4wMi4zNi4wNS41NGwuMDMuMDUuNDguMzEuNDQuMTFjLjgxIDAgMS43My0uOTUgMi45Ny0zLjA3bC4xOC0uMDdjMS4wMy0uMzMgMi4zMS0uNTYgNC4wMy0uNzUgMS4wMy41MSAyLjI0Ljc0IDMgLjc0LjQ0IDAgLjc0LS4xMS45MS0uM20tLjQxLS43MS4wOS4xMWMtLjAxLjEtLjA0LjExLS4wOS4xM2gtLjA0bC0uMTkuMDJjLS40NiAwLTEuMTctLjE5LTEuOS0uNTEuMDktLjEuMTMtLjEuMjMtLjEgMS40IDAgMS44LjI1IDEuOS4zNU03LjgzIDE3Yy0uNjUgMS4xOS0xLjI0IDEuODUtMS42OSAyIC4wNS0uMzguNS0xLjA0IDEuMjEtMS42OXptMy4wMi02LjkxYy0uMjMtLjktLjI0LTEuNjMtLjA3LTIuMDVsLjA3LS4xMi4xNS4wNWMuMTcuMjQuMTkuNTYuMDkgMS4xbC0uMDMuMTYtLjE2LjgyeiIvPjwvc3ZnPg==" alt=""><span class="label">681950adf17de8fff015baa35154d75335.pdf</span></span></div>
+      </div>
+    </div>
+  </div>
+  <div class="spec">
+    图标 <b>白 55%</b> · 文件名 <b>白 88%</b> · 无下划线。最融入，但"这里有个可点文件"的信号最弱。
+  </div>
+
+  <!-- ============ 方案③ ============ -->
+  <div class="variant-head">
+    <span class="variant-tag recommended">③ · 已采用</span>
+    <span class="variant-name">白文 + 文件名细下划线</span>
+    <span class="variant-desc">链接语义最强，一眼识别可点击 —— 代价是多一条线</span>
+  </div>
+  <div class="scene-row v3">
+    <div class="scene">
+      <div class="scene-label">浅色主题气泡</div>
+      <div class="bubble-wrap">
+        <div class="bubble"><span class="chip"><svg viewBox="0 0 24 24" fill="#a855f7"><path d="M21 19V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2zM8.5 11l2.5 3.01L14.5 10l4.5 6H5l3.5-5z"/></svg><span class="label">681950adf17de8fff015baa35154d75…</span></span>解释一下这张图片</div>
+      </div>
+      <div class="bubble-wrap" style="margin-top:14px">
+        <div class="bubble">帮我分析一下<span class="chip"><svg viewBox="0 0 24 24" fill="#bfdbfe"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg><span class="label">design-spec.md</span></span>这个文档，并检查<span class="chip"><img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHhtbDpzcGFjZT0icHJlc2VydmUiIHZpZXdCb3g9IjAgMCAxNiAxNiI+PHBhdGggZmlsbD0iIzAyODhkMSIgZD0iTTIgMnYxMmgxMlYyem00IDZoM3YxSDh2NEg3VjlINnptNSAwaDJ2MWgtMnYxaDFhMS4wMDMgMS4wMDMgMCAwIDEgMSAxdjFhMS4wMDMgMS4wMDMgMCAwIDEtMSAxaC0ydi0xaDJ2LTFoLTFhMS4wMDMgMS4wMDMgMCAwIDEtMS0xVjlhMS4wMDMgMS4wMDMgMCAwIDEgMS0xIi8+PC9zdmc+" alt=""><span class="label">AttachmentChips.tsx</span></span>的实现</div>
+      </div>
+    </div>
+    <div class="scene dark">
+      <div class="scene-label">深色主题气泡</div>
+      <div class="bubble-wrap">
+        <div class="bubble">附件在<span class="chip"><svg viewBox="0 0 24 24" fill="#f59e0b"><path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z"/></svg><span class="label">产品需求文档</span></span>目录下，参考<span class="chip"><img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0iI2VmNTM1MCIgZD0iTTEzIDloNS41TDEzIDMuNXpNNiAyaDhsNiA2djEyYTIgMiAwIDAgMS0yIDJINmEyIDIgMCAwIDEtMi0yVjRhMiAyIDAgMCAxIDItMm00LjkzIDEwLjQ0Yy40MS45LjkzIDEuNjQgMS41MyAyLjE1bC40MS4zMmMtLjg3LjE2LTIuMDcuNDQtMy4zNC45M2wtLjExLjA0LjUtMS4wNGMuNDUtLjg3Ljc4LTEuNjYgMS4wMS0yLjRtNi40OCAzLjgxYy4xOC0uMTguMjctLjQxLjI4LS42Ni4wMy0uMi0uMDItLjM5LS4xMi0uNTUtLjI5LS40Ny0xLjA0LS42OS0yLjI4LS42OWwtMS4yOS4wNy0uODctLjU4Yy0uNjMtLjUyLTEuMi0xLjQzLTEuNi0yLjU2bC4wNC0uMTRjLjMzLTEuMzMuNjQtMi45NC0uMDItMy42YS44NS44NSAwIDAgMC0uNjEtLjI0aC0uMjRjLS4zNyAwLS43LjM5LS43OS43Ny0uMzcgMS4zMy0uMTUgMi4wNi4yMiAzLjI3di4wMWMtLjI1Ljg4LS41NyAxLjktMS4wOCAyLjkzbC0uOTYgMS44LS44OS40OWMtMS4yLjc1LTEuNzcgMS41OS0xLjg4IDIuMTItLjA0LjE5LS4wMi4zNi4wNS41NGwuMDMuMDUuNDguMzEuNDQuMTFjLjgxIDAgMS43My0uOTUgMi45Ny0zLjA3bC4xOC0uMDdjMS4wMy0uMzMgMi4zMS0uNTYgNC4wMy0uNzUgMS4wMy41MSAyLjI0Ljc0IDMgLjc0LjQ0IDAgLjc0LS4xMS45MS0uM20tLjQxLS43MS4wOS4xMWMtLjAxLjEtLjA0LjExLS4wOS4xM2gtLjA0bC0uMTkuMDJjLS40NiAwLTEuMTctLjE5LTEuOS0uNTEuMDktLjEuMTMtLjEuMjMtLjEgMS40IDAgMS44LjI1IDEuOS4zNU03LjgzIDE3Yy0uNjUgMS4xOS0xLjI0IDEuODUtMS42OSAyIC4wNS0uMzguNS0xLjA0IDEuMjEtMS42OXptMy4wMi02LjkxYy0uMjMtLjktLjI0LTEuNjMtLjA3LTIuMDVsLjA3LS4xMi4xNS4wNWMuMTcuMjQuMTkuNTYuMDkgMS4xbC0uMDMuMTYtLjE2LjgyeiIvPjwvc3ZnPg==" alt=""><span class="label">681950adf17de8fff015baa35154d75335.pdf</span></span></div>
+      </div>
+    </div>
+  </div>
+  <div class="spec">
+    图标 <b>彩色（与文件树一致，md 用浅蓝 blue-200 适配蓝底，位图 saturate 1.1）</b> · 文件名 <b>白 100% + 1px 下划线（white/45%，offset 3px）</b>，hover 时下划线加深到 85%。—— 最终实现版本。
+  </div>
+
+  <!-- ============ 方案④ ============ -->
+  <div class="variant-head">
+    <span class="variant-tag">④</span>
+    <span class="variant-name">轻图标 + 中字重文件名</span>
+    <span class="variant-desc">用字重而非颜色区分文件名 —— 无下划线也有辨识度</span>
+  </div>
+  <div class="scene-row v4">
+    <div class="scene">
+      <div class="scene-label">浅色主题气泡</div>
+      <div class="bubble-wrap">
+        <div class="bubble"><span class="chip white-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 19V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2zM8.5 11l2.5 3.01L14.5 10l4.5 6H5l3.5-5z"/></svg><span class="label">681950adf17de8fff015baa35154d75…</span></span>解释一下这张图片</div>
+      </div>
+      <div class="bubble-wrap" style="margin-top:14px">
+        <div class="bubble">帮我分析一下<span class="chip white-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg><span class="label">design-spec.md</span></span>这个文档，并检查<span class="chip white-icon"><img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHhtbDpzcGFjZT0icHJlc2VydmUiIHZpZXdCb3g9IjAgMCAxNiAxNiI+PHBhdGggZmlsbD0iIzAyODhkMSIgZD0iTTIgMnYxMmgxMlYyem00IDZoM3YxSDh2NEg3VjlINnptNSAwaDJ2MWgtMnYxaDFhMS4wMDMgMS4wMDMgMCAwIDEgMSAxdjFhMS4wMDMgMS4wMDMgMCAwIDEtMSAxaC0ydi0xaDJ2LTFoLTFhMS4wMDMgMS4wMDMgMCAwIDEtMS0xVjlhMS4wMDMgMS4wMDMgMCAwIDEgMS0xIi8+PC9zdmc+" alt=""><span class="label">AttachmentChips.tsx</span></span>的实现</div>
+      </div>
+    </div>
+    <div class="scene dark">
+      <div class="scene-label">深色主题气泡</div>
+      <div class="bubble-wrap">
+        <div class="bubble">附件在<span class="chip white-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z"/></svg><span class="label">产品需求文档</span></span>目录下，参考<span class="chip white-icon"><img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0iI2VmNTM1MCIgZD0iTTEzIDloNS41TDEzIDMuNXpNNiAyaDhsNiA2djEyYTIgMiAwIDAgMS0yIDJINmEyIDIgMCAwIDEtMi0yVjRhMiAyIDAgMCAxIDItMm00LjkzIDEwLjQ0Yy40MS45LjkzIDEuNjQgMS41MyAyLjE1bC40MS4zMmMtLjg3LjE2LTIuMDcuNDQtMy4zNC45M2wtLjExLjA0LjUtMS4wNGMuNDUtLjg3Ljc4LTEuNjYgMS4wMS0yLjRtNi40OCAzLjgxYy4xOC0uMTguMjctLjQxLjI4LS42Ni4wMy0uMi0uMDItLjM5LS4xMi0uNTUtLjI5LS40Ny0xLjA0LS42OS0yLjI4LS42OWwtMS4yOS4wNy0uODctLjU4Yy0uNjMtLjUyLTEuMi0xLjQzLTEuNi0yLjU2bC4wNC0uMTRjLjMzLTEuMzMuNjQtMi45NC0uMDItMy42YS44NS44NSAwIDAgMC0uNjEtLjI0aC0uMjRjLS4zNyAwLS43LjM5LS43OS43Ny0uMzcgMS4zMy0uMTUgMi4wNi4yMiAzLjI3di4wMWMtLjI1Ljg4LS41NyAxLjktMS4wOCAyLjkzbC0uOTYgMS44LS44OS40OWMtMS4yLjc1LTEuNzcgMS41OS0xLjg4IDIuMTItLjA0LjE5LS4wMi4zNi4wNS41NGwuMDMuMDUuNDguMzEuNDQuMTFjLjgxIDAgMS43My0uOTUgMi45Ny0zLjA3bC4xOC0uMDdjMS4wMy0uMzMgMi4zMS0uNTYgNC4wMy0uNzUgMS4wMy41MSAyLjI0Ljc0IDMgLjc0LjQ0IDAgLjc0LS4xMS45MS0uM20tLjQxLS43MS4wOS4xMWMtLjAxLjEtLjA0LjExLS4wOS4xM2gtLjA0bC0uMTkuMDJjLS40NiAwLTEuMTctLjE5LTEuOS0uNTEuMDktLjEuMTMtLjEuMjMtLjEgMS40IDAgMS44LjI1IDEuOS4zNU03LjgzIDE3Yy0uNjUgMS4xOS0xLjI0IDEuODUtMS42OSAyIC4wNS0uMzguNS0xLjA0IDEuMjEtMS42OXptMy4wMi02LjkxYy0uMjMtLjktLjI0LTEuNjMtLjA3LTIuMDVsLjA3LS4xMi4xNS4wNWMuMTcuMjQuMTkuNTYuMDkgMS4xbC0uMDMuMTYtLjE2LjgyeiIvPjwvc3ZnPg==" alt=""><span class="label">681950adf17de8fff015baa35154d75335.pdf</span></span></div>
+      </div>
+    </div>
+  </div>
+  <div class="spec">
+    图标 <b>白 72%</b> · 文件名 <b>白 100% / font-weight 500</b> · 无下划线。文件名比正文略粗，形成"引用了某个实体"的视觉重量。
+  </div>
+
+  <!-- ============ 对比表 ============ -->
+  <h2>方案对比</h2>
+  <table class="compare">
+    <tr><th>维度</th><th>① 轻图标+白文（推荐）</th><th>② 弱图标+淡文</th><th>③ 下划线</th><th>④ 中字重</th></tr>
+    <tr>
+      <td>突兀感</td>
+      <td class="good">低：无背景，仅前置小图标</td><td class="good">最低：几乎融入正文</td><td class="mid">中下：下划线增加视觉元素</td><td class="good">低：无背景仅字重变化</td>
+    </tr>
+    <tr>
+      <td>"这是文件"的辨识度</td>
+      <td class="good">图标 + 文件名组合可辨</td><td class="bad">弱，可能被当作普通文本</td><td class="good">最强，链接语义直白</td><td class="mid">中等，字重差异较微妙</td>
+    </tr>
+    <tr>
+      <td>与既有行内 chip 的统一性</td>
+      <td class="good">同透明底、同几何、同 hover 浮现逻辑，仅文字色随气泡反白</td><td class="good">同左</td><td class="mid">多了下划线这一独有元素</td><td class="mid">多了字重这一独有元素</td>
+    </tr>
+    <tr>
+      <td>文件类型图标语义</td>
+      <td class="mid">白色剪影保留形状（md/ts/pdf/文件夹可辨），失去色彩</td><td class="mid">同左且更弱</td><td class="mid">同①</td><td class="mid">同①</td>
+    </tr>
+    <tr>
+      <td>实现成本</td>
+      <td class="good">删背景类 + 调透明度</td><td class="good">同左</td><td class="mid">加下划线样式与 hover 加深</td><td class="good">加 font-medium</td>
+    </tr>
+  </table>
+  <div class="spec" style="margin-top:16px">
+    <b>推荐 ① 的理由</b>：蓝气泡上彩色图标不可行（红 PDF、蓝 TS 压在品牌蓝上杂乱），白色剪影图标在 72% 透明度下既能暗示"文件类型"又不抢戏；文件名保持与正文同纯白， chip 读起来就是句子的自然组成部分，只有前置小图标和 hover 微光提示它可点击。若觉得"可点"信号还不够，③ 的下划线是最直白的加强版；若嫌下划线多余，④ 用字重压中。<br><br>
+    <b>共同的统一点</b>：四个方案都已对齐行内 chip 的核心 —— 透明常态底、hover 才浮现底色、gap 4px、内边距 2·4px、字号继承正文 14px、文件名 208px 截断。差异只在气泡反白环境下的文字/图标处理。
+  </div>
+
+</div>
+</body>
+</html>
