@@ -8,6 +8,7 @@ import RenameModal from './RenameModal'
 import logo from '../assets/logo.png'
 import { openUpdateRelease, useUpdateReminder } from '../hooks/useUpdateState'
 import { AppIcon } from './icons/AppIcon'
+import WorkbenchSidebarSearchBar from './workbench/WorkbenchSidebarSearchBar'
 import type { AgentSessionSummary } from '../types/agent'
 
 type HistoryTab = 'conversation' | 'summary' | 'agent'
@@ -319,18 +320,14 @@ function HistoryDrawer({ isOpen, onClose, onSelectHistory, onSelectSummaryHistor
           </div>
 
         {/* 搜索框 */}
-        <div className="p-3 pb-2">
-          <div className="flex items-center gap-2.5 px-3 py-2 bg-sidebar rounded-lg border border-gray-200 focus-within:border-primary/50 transition-colors">
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="搜索历史记录..."
-              className="flex-1 bg-transparent border-0 focus:outline-none text-body text-text-primary placeholder:text-text-secondary/70"
-            />
-            <AppIcon name="search" size={16} className="text-text-secondary flex-shrink-0" />
-          </div>
-        </div>
+        <WorkbenchSidebarSearchBar
+          value={searchQuery}
+          onChange={setSearchQuery}
+          placeholder="搜索历史记录..."
+          onClose={searchQuery ? () => setSearchQuery('') : undefined}
+          closeLabel="清空搜索"
+          className="p-3 pb-2 shrink-0"
+        />
 
         {/* 标签页 */}
         <div className="flex px-4 gap-6 border-b border-gray-200">

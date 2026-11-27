@@ -2552,10 +2552,10 @@ export async function extractFileLinks(
 /**
  * 工作区全文与标签搜索
  * - 支持标签语法检索：`tag:#xxx`、`tag:xxx`、`#xxx`，自动支持父子层级嵌套继承匹配（如 parent 命中 parent/child）
- * - 检索 .md, .markdown, .txt 且大小 < 2MB 的文件
+ * - 文件名/路径匹配覆盖所有类型文件（含 pdf/docx/xlsx 等二进制），内容检索限 .md/.txt/代码类且大小 < 2MB 的文件
  * - 逐行匹配，截取前后各 30 个字符作为上下文预览
- * - 最多返回 100 条匹配结果
- * - 超过 1500ms 主动截断让渡；同工作区新搜索到达时取消前序扫描
+ * - 最多返回 100 条匹配结果，文件名匹配优先排在内容匹配之前
+ * - 目录遍历与文件名匹配不受时间截断影响（纯字符串比对开销小）；内容读取超过 1500ms 主动截断让渡；同工作区新搜索到达时取消前序扫描
  */
 export async function search(workspaceRoot: string, query: string): Promise<WorkbenchSearchResult[]> {
   const wsKey = normalizeWatchKey(workspaceRoot)
@@ -2579,10 +2579,13 @@ export async function search(workspaceRoot: string, query: string): Promise<Work
   const lowerQuery = trimmed.toLowerCase()
   const tagQueryInfo = parseTagSearchQuery(trimmed)
   const results: WorkbenchSearchResult[] = []
+  const filenameResults: WorkbenchSearchResult[] = []
 
-  const isStopped = (): boolean =>
+  // 被取消时一切立即停止；内容扫描额外受结果数与时间预算约束，文件名匹配不受此限
+  const isCancelled = (): boolean => searchGenerations.get(wsKey) !== gen
+  const isContentStopped = (): boolean =>
     searchGenerations.get(wsKey) !== gen ||
-    results.length >= MAX_SEARCH_RESULTS ||
+    results.length + filenameResults.length >= MAX_SEARCH_RESULTS ||
     Date.now() - startTime > MAX_SEARCH_TIME_MS
 
   async function resolveSymlink(fullPath: string): Promise<string | null> {
@@ -2594,15 +2597,15 @@ export async function search(workspaceRoot: string, query: string): Promise<Work
   }
 
   async function searchDir(currentDir: string, ancestors: ReadonlySet<string>): Promise<void> {
-    if (isStopped()) return
+    if (isCancelled()) return
 
     const entries = await withScanSlot(
       () => readdir(currentDir, { withFileTypes: true })
     ).catch(() => null)
-    if (!entries || isStopped()) return
+    if (!entries || isCancelled()) return
 
     await Promise.all(entries.map(async (entry) => {
-      if (isStopped()) return
+      if (isCancelled()) return
 
       const fullEntryPath = path.join(currentDir, entry.name)
       if (isFiltered(toPosixRelativePath(safeRoot, fullEntryPath), entry.name, entry.isDirectory())) {
@@ -2613,7 +2616,7 @@ export async function search(workspaceRoot: string, query: string): Promise<Work
         const entryPath = entry.isSymbolicLink()
           ? await resolveSymlink(fullEntryPath)
           : fullEntryPath
-        if (!entryPath || isStopped()) return
+        if (!entryPath || isCancelled()) return
 
         const relPosix = toPosixRelativePath(safeRoot, entryPath)
         const entryStat = await withScanSlot(() => stat(entryPath))
@@ -2630,13 +2633,32 @@ export async function search(workspaceRoot: string, query: string): Promise<Work
           await searchDir(entryPath, nextAncestors)
         } else {
           const ext = path.extname(entry.name).toLowerCase()
+
+          // 文件名/路径匹配：不限扩展名与大小，二进制文件（pdf/docx/pptx 等）也能被搜到；
+          // 标签查询语义上只针对正文标签，不参与文件名匹配
+          if (!tagQueryInfo.isTagQuery) {
+            const nameLower = entry.name.toLowerCase()
+            const pathLower = relPosix.toLowerCase()
+            const matched = nameLower.includes(lowerQuery) || pathLower.includes(lowerQuery)
+            if (matched) {
+              filenameResults.push({
+                filePath: relPosix,
+                fileName: entry.name,
+                line: 0,
+                content: entry.name,
+                preview: relPosix,
+                matchType: 'filename'
+              })
+            }
+          }
+
+          if (isContentStopped()) return
           if (!SEARCHABLE_EXTENSIONS.has(ext) || entryStat.size > MAX_SEARCH_FILE_SIZE) {
             return
           }
-          if (isStopped()) return
 
           const fileContent = await withScanSlot(() => fsReadFile(entryPath, 'utf-8'))
-          if (isStopped()) return
+          if (isCancelled()) return
 
           const lines = fileContent.split(/\r?\n/)
           const isMarkdown = MARKDOWN_EXTENSIONS.has(ext)
@@ -2681,7 +2703,7 @@ export async function search(workspaceRoot: string, query: string): Promise<Work
           }
 
           for (let i = 0; i < lines.length; i++) {
-            if (isStopped()) break
+            if (isContentStopped()) break
 
             const lineText = lines[i]
             const matchIndex = lineText.toLowerCase().indexOf(lowerQuery)
@@ -2708,7 +2730,17 @@ export async function search(workspaceRoot: string, query: string): Promise<Work
   }
 
   await searchDir(safeRoot, new Set([rootCmp]))
-  return results
+  // 文件名匹配排序：前缀命中 > 名称包含 > 路径包含，同级保持扫描顺序；整体排在内容匹配之前
+  const nameLowerQ = lowerQuery
+  filenameResults.sort((a, b) => rankFilename(a) - rankFilename(b))
+  return [...filenameResults, ...results].slice(0, MAX_SEARCH_RESULTS)
+
+  function rankFilename(r: WorkbenchSearchResult): number {
+    const nameLower = r.fileName.toLowerCase()
+    if (nameLower.startsWith(nameLowerQ)) return 0
+    if (nameLower.includes(nameLowerQ)) return 1
+    return 2
+  }
 }
 
 const execFileAsync = promisify(execFile)

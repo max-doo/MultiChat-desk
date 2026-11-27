@@ -2,6 +2,8 @@ import { useRef, useEffect } from 'react'
 import { useWorkbenchStore } from '../../store/workbenchStore'
 import type { WorkbenchFileNode, WorkbenchSearchResult } from '../../../../shared/types/workbench'
 import { AppIcon } from '../icons/AppIcon'
+import { WorkbenchDocumentIcon } from './FileTypeIcon'
+import WorkbenchSidebarSearchBar from './WorkbenchSidebarSearchBar'
 
 interface WorkbenchSearchProps {
   onClose?: () => void
@@ -70,36 +72,26 @@ export default function WorkbenchSearch({ onClose }: WorkbenchSearchProps): JSX.
     )
   }
 
+  const buildResultIconNode = (result: WorkbenchSearchResult): WorkbenchFileNode => ({
+    id: result.filePath,
+    name: result.fileName,
+    path: result.filePath,
+    fullPath: result.filePath,
+    isDirectory: false
+  })
+
   return (
     <div className="flex flex-col h-full overflow-hidden text-body">
-      <div className="p-2 border-b border-black/5 dark:border-white/5">
-        <div className="relative flex items-center">
-          <AppIcon name="search" size={19} className="text-text-secondary absolute left-2 pointer-events-none" />
-          <input
-            ref={inputRef}
-            data-workbench-search-input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => searchFiles(e.target.value)}
-            placeholder="全文搜索或搜索标签 (#tag, tag:#tag)..."
-            className="w-full h-8 pl-8 pr-9 rounded-lg bg-black/5 dark:bg-white/5 border border-transparent focus:border-primary/40 focus:bg-white dark:focus:bg-gray-800 text-text-primary text-body placeholder:text-text-secondary/60 focus:outline-none transition-all"
-          />
-          <div className="absolute right-1.5 flex items-center gap-1">
-            {isSearching ? (
-              <span className="w-3.5 h-3.5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-            ) : null}
-            <button
-              type="button"
-              onClick={onClose}
-              className="w-5 h-5 flex items-center justify-center rounded-full text-text-secondary hover:text-text-primary hover:bg-black/10 dark:hover:bg-white/10"
-              title="退出搜索"
-              aria-label="退出搜索"
-            >
-              <AppIcon name="close" size={16} />
-            </button>
-          </div>
-        </div>
-      </div>
+      <WorkbenchSidebarSearchBar
+        ref={inputRef}
+        value={searchQuery}
+        onChange={searchFiles}
+        placeholder="搜索文件名、内容或标签 (#tag)..."
+        isLoading={isSearching}
+        onClose={onClose}
+        closeLabel="退出搜索"
+        inputProps={{ 'data-workbench-search-input': true }}
+      />
 
       <div className="flex-1 overflow-y-auto p-1.5 space-y-1">
         {searchQuery.trim() && !isSearching && searchResults.length === 0 && (
@@ -166,18 +158,27 @@ export default function WorkbenchSearch({ onClose }: WorkbenchSearchProps): JSX.
             className="w-full text-left p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 transition-colors group flex flex-col gap-1 border border-transparent hover:border-black/5 dark:hover:border-white/5 cursor-pointer select-none"
           >
             <div className="flex items-center justify-between gap-2 text-text-primary">
-              <span
-                className="font-medium truncate min-w-0 flex-1 group-hover:text-primary transition-colors"
-                title={result.fileName}
-              >
-                {result.fileName}
-              </span>
-              <span className="text-caption font-mono text-text-secondary/70 bg-black/5 dark:bg-white/5 px-1.5 py-0.5 rounded shrink-0 whitespace-nowrap select-none">
-                第 {result.line} 行
-              </span>
+              <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                <WorkbenchDocumentIcon node={buildResultIconNode(result)} size={14} className="w-3.5 h-3.5 shrink-0" />
+                <span
+                  className="font-medium truncate min-w-0 flex-1 group-hover:text-primary transition-colors"
+                  title={result.fileName}
+                >
+                  {result.matchType === 'filename'
+                    ? renderHighlightedSnippet(result.fileName, searchQuery)
+                    : result.fileName}
+                </span>
+              </div>
+              {result.matchType !== 'filename' && (
+                <span className="text-caption font-mono text-text-secondary/70 bg-black/5 dark:bg-white/5 px-1.5 py-0.5 rounded shrink-0 whitespace-nowrap select-none">
+                  第 {result.line} 行
+                </span>
+              )}
             </div>
             <div className="text-label text-text-secondary/80 truncate font-mono">
-              {renderHighlightedSnippet(result.preview || result.content, searchQuery)}
+              {result.matchType === 'filename'
+                ? renderHighlightedSnippet(result.filePath, searchQuery)
+                : renderHighlightedSnippet(result.preview || result.content, searchQuery)}
             </div>
           </div>
         ))}

@@ -26,6 +26,7 @@ export interface WorkbenchSearchResult {
   line: number            // 所在行号 (1-indexed)
   content: string         // 匹配行文本
   preview: string         // 前后上下文摘要
+  matchType?: 'content' | 'filename'  // 匹配类型；缺省视为内容匹配（历史结构兼容）
 }
 
 /** 工作区标签聚合信息（支持标签自动补全与防泛滥） */

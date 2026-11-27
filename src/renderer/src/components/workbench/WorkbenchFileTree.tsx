@@ -10,6 +10,7 @@ import {
   type GitStatusBadgeMeta as GitBadge
 } from '../../utils/gitStatusBadge'
 import WorkbenchSearch from './WorkbenchSearch'
+import WorkbenchAnnotationsPanel from './WorkbenchAnnotationsPanel'
 import FileTypeIcon from './FileTypeIcon'
 import WorkbenchGitPanel from './WorkbenchGitPanel'
 import WorkbenchVaultPopover from './WorkbenchVaultPopover'
@@ -596,7 +597,9 @@ function WorkbenchFileTree(): JSX.Element {
   const defaultWorkspacePath = useWorkbenchStore((s) => s.defaultWorkspacePath)
   const setDraggingNodes = useWorkbenchStore((s) => s.setDraggingNodes)
 
-  const [isSearchMode, setIsSearchMode] = useState(false)
+  const [sidebarMode, setSidebarMode] = useState<'tree' | 'search' | 'annotations'>('tree')
+  const isSearchMode = sidebarMode === 'search'
+  const isAnnotationsMode = sidebarMode === 'annotations'
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   const [actionModal, setActionModal] = useState<ActionModalState | null>(null)
   const [inlineCreate, setInlineCreate] = useState<InlineCreateState | null>(null)
@@ -619,6 +622,7 @@ function WorkbenchFileTree(): JSX.Element {
   const [isRenamingBusy, setIsRenamingBusy] = useState(false)
   const [isCleaningImages, setIsCleaningImages] = useState(false)
   const searchButtonRef = useRef<HTMLButtonElement | null>(null)
+  const annotationsButtonRef = useRef<HTMLButtonElement | null>(null)
   const isRenamingBusyRef = useRef(false)
   const isCreatingRef = useRef(false)
   const menuRef = useRef<HTMLDivElement | null>(null)
@@ -675,7 +679,7 @@ function WorkbenchFileTree(): JSX.Element {
 
   const handleSearchToggle = useCallback(() => {
     if (!isSearchMode) {
-      setIsSearchMode(true)
+      setSidebarMode('search')
       return
     }
 
@@ -684,20 +688,29 @@ function WorkbenchFileTree(): JSX.Element {
   }, [isSearchMode])
 
   const closeSearch = useCallback(() => {
-    setIsSearchMode(false)
+    setSidebarMode('tree')
     requestAnimationFrame(() => searchButtonRef.current?.focus())
+  }, [])
+
+  const handleAnnotationsToggle = useCallback(() => {
+    setSidebarMode((prev) => (prev === 'annotations' ? 'tree' : 'annotations'))
+  }, [])
+
+  const closeAnnotations = useCallback(() => {
+    setSidebarMode('tree')
+    requestAnimationFrame(() => annotationsButtonRef.current?.focus())
   }, [])
 
   // 外部动作（修改摘要卡片 / 工具调用文件名）打开文件后，让树跟随定位：
   // openFile 已展开祖先目录，这里等 DOM 更新后把节点滚进视野。
   useEffect(() => {
-    if (!activeFilePath || isSearchMode) return
+    if (!activeFilePath || sidebarMode !== 'tree') return
     const raf = requestAnimationFrame(() => {
       const el = document.querySelector(`[data-file-node="${CSS.escape(activeFilePath)}"]`)
       el?.scrollIntoView({ block: 'nearest' })
     })
     return () => cancelAnimationFrame(raf)
-  }, [activeFilePath, isSearchMode, fileTree])
+  }, [activeFilePath, sidebarMode, fileTree])
 
   // 文件树重扫后校验剪贴板快照：复制过的节点可能已被删除/移动，逐条剔除失效项
   useEffect(() => {
@@ -1004,6 +1017,7 @@ function WorkbenchFileTree(): JSX.Element {
 
   const beginInlineCreate = useCallback(
     (type: 'file' | 'folder', contextNode: WorkbenchFileNode | null) => {
+      setSidebarMode('tree')
       setInlineRename(null)
       const parentDir = resolveParentDir(contextNode)
       if (parentDir) {
@@ -1477,6 +1491,11 @@ function WorkbenchFileTree(): JSX.Element {
           closeSearch()
           return
         }
+        if (isAnnotationsMode) {
+          e.preventDefault()
+          closeAnnotations()
+          return
+        }
         // 与资源管理器一致：Esc 取消剪切态
         if (treeClipboard?.mode === 'cut') {
           e.preventDefault()
@@ -1529,7 +1548,7 @@ function WorkbenchFileTree(): JSX.Element {
         pasteTreeClipboard(resolveParentDir(null))
       }
     },
-    [selectedPaths, treeClipboard, pasteTreeClipboard, resolveParentDir, anchorPath, flatVisibleNodes, activeFilePath, beginInlineRename, workspacePath, isSearchMode, closeSearch]
+    [selectedPaths, treeClipboard, pasteTreeClipboard, resolveParentDir, anchorPath, flatVisibleNodes, activeFilePath, beginInlineRename, workspacePath, isSearchMode, closeSearch, isAnnotationsMode, closeAnnotations]
   )
 
   const handleModalSubmit = async (e: React.FormEvent) => {
@@ -1573,7 +1592,7 @@ function WorkbenchFileTree(): JSX.Element {
       onCut={handleCut}
       onPaste={handlePaste}
     >
-      <div className="h-12 px-3 border-b border-black/5 dark:border-white/5 flex items-center justify-center gap-1 shrink-0">
+      <div className="h-12 px-2.5 border-b border-black/5 dark:border-white/5 flex items-center justify-center gap-1 shrink-0">
         <div className="flex items-center gap-0.5 text-text-secondary">
           <button
             ref={searchButtonRef}
@@ -1587,6 +1606,19 @@ function WorkbenchFileTree(): JSX.Element {
           >
             <AppIcon name="search" size={20} />
           </button>
+          <button
+            ref={annotationsButtonRef}
+            type="button"
+            onClick={handleAnnotationsToggle}
+            className={`w-8 h-8 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10 transition-colors ${
+              isAnnotationsMode ? 'text-primary bg-black/5 dark:bg-white/10' : ''
+            }`}
+            title="全部标注"
+            aria-label="全部标注"
+          >
+            <AppIcon name="annotation" size={20} />
+          </button>
+          <div className="h-4 w-px mx-0.5 bg-black/10 dark:bg-white/10 shrink-0" aria-hidden="true" />
           <button
             type="button"
             onClick={() => beginInlineCreate('file', null)}
@@ -1617,7 +1649,7 @@ function WorkbenchFileTree(): JSX.Element {
             {isSortMenuOpen && (
               <div
                 ref={sortMenuRef}
-                className="absolute top-full left-0 mt-1 z-popover min-w-[150px] py-1 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-black/10 dark:border-white/10 text-body context-menu-animate"
+                className="absolute top-full left-0 mt-1 z-popover min-w-[150px] py-1 liquid-glass-menu rounded-xl text-body context-menu-animate"
               >
                 {(Object.keys(SORT_LABELS) as SortMenuKey[]).map((key) => (
                   <button
@@ -1677,8 +1709,15 @@ function WorkbenchFileTree(): JSX.Element {
       </div>
 
       <div
-        className={`flex-1 overflow-y-auto p-1.5 ${isRootDropActive ? 'bg-primary/5' : ''}`}
-        onContextMenu={(e) => handleContextMenu(e, null)}
+        className={
+          isSearchMode || isAnnotationsMode
+            ? 'flex-1 overflow-hidden'
+            : `flex-1 overflow-y-auto p-1.5 ${isRootDropActive ? 'bg-primary/5' : ''}`
+        }
+        onContextMenu={(e) => {
+          if (isAnnotationsMode || isSearchMode) return
+          handleContextMenu(e, null)
+        }}
         onDragOver={handleRootDragOver}
         onDrop={handleRootDrop}
         onDragLeave={(e) => {
@@ -1689,6 +1728,8 @@ function WorkbenchFileTree(): JSX.Element {
       >
         {isSearchMode ? (
           <WorkbenchSearch onClose={closeSearch} />
+        ) : isAnnotationsMode ? (
+          <WorkbenchAnnotationsPanel onClose={closeAnnotations} />
         ) : (
           <>
             {fileTree.length === 0 && !isLoadingTree && (
