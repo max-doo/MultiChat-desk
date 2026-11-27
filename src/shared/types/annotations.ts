@@ -210,7 +210,6 @@ export type MigrationBlockedReason =
   | 'unlocatable-source'
   | 'annotation-overflow'
   | 'mindmap-conflict'
-  | 'workbench-unresolved'
   | 'verify-failed'
 
 export type LegacyMigrationStatus = 'running' | 'paused' | 'completed' | 'abandoned'
@@ -275,8 +274,6 @@ export interface LegacyMigrationPendingSummary {
     id: string
     title: string
     reason: MigrationBlockedReason
-    targetWorkspaceRoot?: string
-    relativePath?: string
   }>
   pendingAnnotations: number
   pendingMindmaps: number

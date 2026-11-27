@@ -32,7 +32,7 @@ export interface NoteConversation {
   /** 旧记录实际迁移到的根，仅用于旧页展示。 */
   migratedTo?: string
   /** 迁移被阻塞的首要原因；阻塞记录旧页只读。 */
-  migrationBlocked?: 'oversize' | 'empty-snapshot' | 'unlocatable-source' | 'annotation-overflow' | 'mindmap-conflict' | 'workbench-unresolved' | 'verify-failed'
+  migrationBlocked?: 'oversize' | 'empty-snapshot' | 'unlocatable-source' | 'annotation-overflow' | 'mindmap-conflict' | 'verify-failed'
   /** 工作台文档来源；存在时该记录不属于对话笔记，只在工作台导图中使用。 */
   workbench?: WorkbenchNoteSource
 }

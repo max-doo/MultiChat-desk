@@ -45,7 +45,6 @@ const BLOCKED_REASON_LABELS: Record<MigrationBlockedReason, string> = {
   'unlocatable-source': '标注无法定位',
   'annotation-overflow': '标注过多',
   'mindmap-conflict': '导图冲突',
-  'workbench-unresolved': '原工作区文档不可用',
   'verify-failed': '目标文件校验失败'
 }
 const blockedReasonLabel = (reason: MigrationBlockedReason): string =>

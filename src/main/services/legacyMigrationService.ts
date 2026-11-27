@@ -7,7 +7,6 @@ import type Store from 'electron-store'
 import { randomUUID } from 'crypto'
 import { constants } from 'fs'
 import { access, readFile, stat } from 'fs/promises'
-import os from 'os'
 import path from 'path'
 import type {
   Annotation,
@@ -39,11 +38,6 @@ const UUID_RE = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-
 const rootKey = (root: string): string => {
   const resolved = path.resolve(root)
   return process.platform === 'win32' ? resolved.toLowerCase() : resolved
-}
-/** 系统临时目录下的工作区属于一次性会话，不能按“用户主动删除工作区”处理。 */
-const isEphemeralWorkspace = (root: string): boolean => {
-  const relative = path.relative(os.tmpdir(), path.resolve(root))
-  return relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative)
 }
 const deterministicId = (conversationId: string, noteId: string | undefined, index: number): string => {
   if (noteId && UUID_RE.test(noteId)) return noteId
@@ -147,25 +141,26 @@ export class LegacyMigrationService {
       records = await this.notes.rawLegacyRecords()
     }
     const pending = records.map(item => item.conversation).filter(item => !item.migratedAt)
+    // workbench 记录属于新一代工作台记账（旧格式只存在于从未发布的开发版本），
+    // 不参与旧笔记迁移统计。
+    const legacyPending = pending.filter(item => !item.workbench)
     const defaultWorkspace = await ensureDefaultWorkspace(this.store)
     // 迁移入口打开时顺手收敛旧版迁移文档的头部。已经完成迁移的用户不会
     // 再跑一次迁移，否则 id/source_url/updated_at 会一直留在默认库里。
     // 该操作幂等，只改 frontmatter，失败不影响迁移统计。
     if (!this.isActive()) void this.repairCompletedDocuments(records, defaultWorkspace.path)
     return {
-      pendingConversations: pending.filter(item => !item.migrationBlocked).length,
-      blockedConversations: pending.filter(item => item.migrationBlocked).length,
-      blockedRecords: pending
+      pendingConversations: legacyPending.filter(item => !item.migrationBlocked).length,
+      blockedConversations: legacyPending.filter(item => item.migrationBlocked).length,
+      blockedRecords: legacyPending
         .filter(item => item.migrationBlocked)
         .map(item => ({
           id: item.id,
           title: item.title,
-          reason: item.migrationBlocked!,
-          targetWorkspaceRoot: item.workbench?.workspaceRoot,
-          relativePath: item.workbench?.relativePath
+          reason: item.migrationBlocked!
         })),
-      pendingAnnotations: pending.reduce((sum, item) => sum + item.notes.length, 0),
-      pendingMindmaps: pending.reduce((sum, item) => sum + item.mindmaps.length, 0),
+      pendingAnnotations: legacyPending.reduce((sum, item) => sum + item.notes.length, 0),
+      pendingMindmaps: legacyPending.reduce((sum, item) => sum + item.mindmaps.length, 0),
       defaultWorkspacePath: defaultWorkspace.path,
       job: this.job() ?? undefined
     }
@@ -226,46 +221,6 @@ export class LegacyMigrationService {
     })
   }
 
-  /**
-   * 历史上“工作台记录 + 无批注/无导图”会被无条件标记完成，但目标文档可能早已随
-   * 临时工作区一起删除。只有系统临时目录下的工作区、且文档已不存在时才重开；
-   * 普通工作区里用户主动删除文档视为已处理，避免每次迁移都反复打扰。
-   */
-  private async reopenStaleWorkbenchRecords(
-    records: Array<{ conversation: NoteConversation }>
-  ): Promise<void> {
-    for (const { conversation } of records) {
-      const workbench = conversation.workbench
-      if (!conversation.migratedAt || !workbench) continue
-      // 工作台正文以 Markdown 文件为准，snapshot 只是历史副本；只有批注或导图
-      // 才算需要保住的内容，否则会把没有资产的记录重新标成阻塞。
-      const hasContent =
-        conversation.notes.length > 0 ||
-        conversation.mindmaps.length > 0
-      if (!hasContent) continue
-      // 旧版在写入标记时不校验目标文档；新版正常迁移也会先校验。这里只处理
-      // “标记存在但目标已随临时工作区消失”的历史数据；正常文档被用户删除时不复活。
-      const documentAvailable = await stat(path.join(workbench.workspaceRoot, workbench.relativePath)).then(
-        info => info.isFile(),
-        () => false
-      )
-      if (documentAvailable) continue
-      // 父目录不存在通常意味着整个卷没挂载（移动盘/网络盘离线），
-      // 不能把这种临时不可达当成“用户删了工作区”而反复重开已完成记录。
-      const parentAvailable = await stat(path.dirname(workbench.workspaceRoot)).then(
-        info => info.isDirectory(),
-        () => false
-      )
-      if (!parentAvailable) continue
-      // 只有系统临时目录下的一次性工作区才自动重开：这类目录被清理时，
-      // 旧快照往往是唯一副本。用户主动删除普通工作区或文档时不复活。
-      if (!isEphemeralWorkspace(workbench.workspaceRoot)) continue
-      await this.notes.clearMigrationBlock(conversation.id)
-      delete conversation.migratedAt
-      delete conversation.migratedTo
-    }
-  }
-
   async migrate(jobId?: string): Promise<LegacyMigrationResult> {
     const defaultWorkspace = await ensureDefaultWorkspace(this.store)
     const settings = await getWorkspaceSettings(defaultWorkspace.path)
@@ -278,11 +233,9 @@ export class LegacyMigrationService {
         throw new Error('默认库路径不一致，迁移已暂停')
       }
     }
-    const records = await this.notes.rawLegacyRecords()
-    // 早期版本对没有批注/导图的工作台记录直接写了 migratedAt，没有校验目标文档。
-    // 如果整个工作区已不存在（典型是临时目录被清理），旧快照就是唯一副本；
-    // 重新纳入迁移，让下面的分支把它标成阻塞，而不是继续显示“已完成”。
-    await this.reopenStaleWorkbenchRecords(records)
+    // workbench 记录属于新一代工作台记账（旧格式只存在于从未发布的开发版本），
+    // 不属于旧笔记迁移范围，全部排除。
+    const records = (await this.notes.rawLegacyRecords()).filter(item => !item.conversation.workbench)
     const total = records.length
     // 早期迁移只写了标记，没有留下备份；开跑前为这些记录补齐迁移前快照。
     for (const { conversation } of records) {
@@ -484,9 +437,6 @@ export class LegacyMigrationService {
     conversation: NoteConversation,
     job: LegacyMigrationJob
   ): Promise<LegacyMigrationReportEntry> {
-    if (conversation.workbench) {
-      return this.migrateWorkbenchRecord(conversation)
-    }
     let sourceKey = ''
     try {
       if (conversation.url) sourceKey = noteConversationKey(conversation.url, conversation.title)
@@ -650,231 +600,6 @@ export class LegacyMigrationService {
       status: 'migrated',
       targetWorkspaceRoot: document.document.workspaceRoot,
       relativePath: document.document.relativePath
-    }
-  }
-
-  /**
-   * 一次性临时工作区已被系统清理、原文档不可能恢复时，把旧快照落到默认会话库。
-   * 这条记录没有批注和导图，快照就是全部内容；继续标记阻塞会让它永远无法解除。
-   */
-  private async salvageEphemeralWorkbenchRecord(
-    conversation: NoteConversation
-  ): Promise<LegacyMigrationReportEntry> {
-    const target = await ensureDefaultWorkspace(this.store)
-    const settings = await getWorkspaceSettings(target.path)
-    const title = conversation.title.replace(/\.md$/i, '').trim() || conversation.title
-    const untracked = await findUntrackedDocumentByTitle(target.path, title)
-    const document = untracked
-      ? { document: untracked }
-      : await createDocumentForSource(this.store, {
-        captureContext: 'global',
-        platform: conversation.platform || '工作台',
-        title,
-        url: '',
-        sourceKey: '',
-        snapshot: conversation.snapshot,
-        conversationDir: settings.conversationDir
-      })
-    if (!document.document) {
-      await this.notes.markMigrated(conversation.id, { migrationBlocked: 'workbench-unresolved' })
-      return {
-        id: conversation.id,
-        title: conversation.title,
-        status: 'blocked',
-        reason: 'workbench-unresolved',
-        targetWorkspaceRoot: target.path,
-        message: document.error || '原临时工作区已清理，快照落盘失败'
-      }
-    }
-    await this.notes.markMigrated(conversation.id, {
-      migratedAt: Date.now(),
-      migratedTo: document.document.workspaceRoot
-    })
-    return {
-      id: conversation.id,
-      title: conversation.title,
-      status: 'migrated',
-      targetWorkspaceRoot: document.document.workspaceRoot,
-      relativePath: document.document.relativePath
-    }
-  }
-
-  private async migrateWorkbenchRecord(conversation: NoteConversation): Promise<LegacyMigrationReportEntry> {
-    const workbench = conversation.workbench
-    if (!workbench) return { id: conversation.id, title: conversation.title, status: 'failed' }
-    if (!conversation.notes.length) {
-      // 纯导图/无旁路来源：不创建文档、不写默认库，导图按文件化方案留在原工作区。
-      // 但目标文档是否还在决定这条记录能否算“完成”：文档已消失且仍有快照时，
-      // 快照是用户内容的唯一副本，不能静默丢掉。
-      const info = await stat(path.join(workbench.workspaceRoot, workbench.relativePath)).catch(() => null)
-      if (!conversation.mindmaps.length) {
-        if (!info?.isFile()) {
-          // 一次性临时工作区被系统清理后，原文档不可能再恢复；继续标记阻塞只会
-          // 让这条记录永远停在“1 条阻塞”且没有任何可执行的解除路径。
-          // 快照是唯一副本，改为落到默认会话库，保住正文。
-          if (isEphemeralWorkspace(workbench.workspaceRoot) && conversation.snapshot.trim()) {
-            return this.salvageEphemeralWorkbenchRecord(conversation)
-          }
-          if (conversation.snapshot.trim()) {
-            await this.notes.markMigrated(conversation.id, { migrationBlocked: 'workbench-unresolved' })
-            return {
-              id: conversation.id,
-              title: conversation.title,
-              status: 'blocked',
-              reason: 'workbench-unresolved',
-              targetWorkspaceRoot: workbench.workspaceRoot,
-              relativePath: workbench.relativePath,
-              message: '目标文档不存在，旧记录仍有正文快照'
-            }
-          }
-        }
-        await this.notes.markMigrated(conversation.id, {
-          migratedAt: Date.now(),
-          migratedTo: workbench.workspaceRoot
-        })
-        return {
-          id: conversation.id,
-          title: conversation.title,
-          status: 'migrated',
-          targetWorkspaceRoot: workbench.workspaceRoot,
-          relativePath: workbench.relativePath
-        }
-      }
-      if (!info?.isFile()) {
-        await this.notes.markMigrated(conversation.id, { migrationBlocked: 'workbench-unresolved' })
-        return {
-          id: conversation.id,
-          title: conversation.title,
-          status: 'blocked',
-          reason: 'workbench-unresolved',
-          targetWorkspaceRoot: workbench.workspaceRoot,
-          relativePath: workbench.relativePath
-        }
-      }
-      const conflict = await this.migrateMindmaps(
-        workbench.workspaceRoot,
-        workbench.relativePath,
-        conversation.mindmaps
-      )
-      if (conflict) {
-        await this.notes.markMigrated(conversation.id, { migrationBlocked: 'mindmap-conflict' })
-        return { id: conversation.id, title: conversation.title, status: 'blocked', reason: 'mindmap-conflict' }
-      }
-      if (!(await this.verifyMigratedTargets(
-        { workspaceRoot: workbench.workspaceRoot, relativePath: workbench.relativePath },
-        conversation,
-        { mindmapIds: conversation.mindmaps.map(item => item.id) }
-      ))) {
-        await this.notes.markMigrated(conversation.id, { migrationBlocked: 'workbench-unresolved' })
-        return {
-          id: conversation.id,
-          title: conversation.title,
-          status: 'blocked',
-          reason: 'workbench-unresolved',
-          targetWorkspaceRoot: workbench.workspaceRoot,
-          relativePath: workbench.relativePath,
-          message: '导图回读校验失败'
-        }
-      }
-      await this.notes.markMigrated(conversation.id, {
-        migratedAt: Date.now(),
-        migratedTo: workbench.workspaceRoot
-      })
-      return {
-        id: conversation.id,
-        title: conversation.title,
-        status: 'migrated',
-        targetWorkspaceRoot: workbench.workspaceRoot,
-        relativePath: workbench.relativePath
-      }
-    }
-    const documentPath = path.join(workbench.workspaceRoot, workbench.relativePath)
-    const info = await stat(documentPath).catch(() => null)
-    if (!info?.isFile()) {
-      await this.notes.markMigrated(conversation.id, { migrationBlocked: 'workbench-unresolved' })
-      return { id: conversation.id, title: conversation.title, status: 'blocked', reason: 'workbench-unresolved' }
-    }
-    const content = await readFile(documentPath, 'utf8')
-    let unlocated = 0
-    for (const note of conversation.notes) {
-      const resolved = resolveAnchors(content, [{ id: note.id, anchor: note.anchor }])[0]
-      if (!resolved) {
-        unlocated += 1
-        continue
-      }
-      const annotation: Annotation = {
-        id: note.id,
-        scope: 'document',
-        quote: note.quote,
-        anchor: note.anchor,
-        comment: note.comment,
-        createdAt: note.createdAt,
-        updatedAt: note.updatedAt
-      }
-      await upsertDocumentAnnotation(
-        { workspaceRoot: workbench.workspaceRoot, relativePath: workbench.relativePath },
-        annotation
-      )
-    }
-    // 有批注在正文里定位不到时不能宣称迁移完成：旧页一旦只读，这条评论就没有其它入口。
-    if (unlocated > 0) {
-      await this.notes.markMigrated(conversation.id, { migrationBlocked: 'unlocatable-source' })
-      return {
-        id: conversation.id,
-        title: conversation.title,
-        status: 'blocked',
-        reason: 'unlocatable-source',
-        targetWorkspaceRoot: workbench.workspaceRoot,
-        relativePath: workbench.relativePath,
-        message: `${unlocated}/${conversation.notes.length} 条批注在文档中未找到`
-      }
-    }
-    const mindmapConflict = await this.migrateMindmaps(
-      workbench.workspaceRoot,
-      workbench.relativePath,
-      conversation.mindmaps
-    )
-    if (mindmapConflict) {
-      await this.notes.markMigrated(conversation.id, { migrationBlocked: 'mindmap-conflict' })
-      return {
-        id: conversation.id,
-        title: conversation.title,
-        status: 'blocked',
-        reason: 'mindmap-conflict',
-        targetWorkspaceRoot: workbench.workspaceRoot,
-        relativePath: workbench.relativePath
-      }
-    }
-    // workbench 记录要验证文档、documents/ 旁路和导图三项都真的存在。
-    if (!(await this.verifyMigratedTargets(
-      { workspaceRoot: workbench.workspaceRoot, relativePath: workbench.relativePath },
-      conversation,
-      {
-        documentIds: conversation.notes.map(note => note.id),
-        mindmapIds: conversation.mindmaps.map(item => item.id)
-      }
-    ))) {
-      await this.notes.markMigrated(conversation.id, { migrationBlocked: 'workbench-unresolved' })
-      return {
-        id: conversation.id,
-        title: conversation.title,
-        status: 'blocked',
-        reason: 'workbench-unresolved',
-        targetWorkspaceRoot: workbench.workspaceRoot,
-        relativePath: workbench.relativePath,
-        message: '文档旁路回读校验失败'
-      }
-    }
-    await this.notes.markMigrated(conversation.id, {
-      migratedAt: Date.now(),
-      migratedTo: workbench.workspaceRoot
-    })
-    return {
-      id: conversation.id,
-      title: conversation.title,
-      status: 'migrated',
-      targetWorkspaceRoot: workbench.workspaceRoot,
-      relativePath: workbench.relativePath
     }
   }
 
