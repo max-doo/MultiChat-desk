@@ -270,6 +270,34 @@
   - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
 - lesson(promoted): Lexical 嵌套列表 DOM 中父级包装 li 的 textContent 会包含所有子孙列表文本，验证/选择器取叶子 li 必须过滤 !li.querySelector('li')；Lexical KEY_TAB 的 \ 仅在光标位于块起始或跨块选择时走 INDENT/OUTDENT，行中按 Tab 由 rich-text 的 INSERT_TAB 插入字面 TabNode
 
+### 02:21 | agent
+
+- done: 恢复 magpie 内置网关供应商（无硬编码种子模型，目录实时拉取+缓存兜底）；model picker 空态显示选择模型文字入口
+- context: 用户澄清：magpie 是本地 AI 网关需内置支持，仅去除硬编码 swe 默认模型；picker 空态需文字入口
+- modified:
+  - `src/main/services/customGatewayProvider.ts`
+  - `src/main/services/AgentSessionService.ts`
+  - `src/renderer/src/components/workbench/agent/AgentProviderSettings.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentComposer.tsx`
+
+### 02:13 | agent
+
+- done: 移除硬编码内置 Magpie 供应商（127.0.0.1:3425 / SWE-2·Devin），默认模型回退改为 firstEnabledModel 动态解析
+- modified:
+  - `src/main/services/customGatewayProvider.ts`
+  - `src/main/services/AgentSessionService.ts`
+  - `src/renderer/src/components/workbench/agent/AgentProviderSettings.tsx`
+  - `src/renderer/src/store/agentSessionStore.ts`
+- lesson: 内置供应商深度耦合时移除需同步清理：默认值字段/刷新分支/quota 跳过/端点编辑特权/渲染层初值；fallback 全走 firstEnabledModel，空态由 UI 引导层兜底
+
+### 01:54 | agent
+
+- done: 修复 Agent 供应商连接失败 UI 静默：message_end/会话恢复读取 stopReason，错误上屏
+- context: BUG-1 修复：连接失败错误透传到 UI，dev 实测 ECONNREFUSED 场景红框可见且重载后保留
+- modified:
+  - `src/renderer/src/store/agentSessionStore.ts`
+- lesson: pi 重试耗尽后 assistant message_end 的 content 为空且 stopReason=error；不读 stopReason 时 allToolsDone 空真值把错误误标 complete 导致静默
+
 ### 00:21 | Antigravity
 
 - done: 复用 CliAgentHint 实现 1.3.5 工作台与 Skill 安装双卡轮播引导弹窗（等高不增加高度、工作台页仅保留立即体验按钮、Hover 冻结进度条暂停轮播，并补充版本级 hintDismissed 重置）
