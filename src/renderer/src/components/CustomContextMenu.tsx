@@ -507,7 +507,10 @@ export default function CustomContextMenu(): JSX.Element | null {
 
       {/* 自绘上下文菜单浮层 */}
       <div
-        className={`fixed z-50 select-none animate-in fade-in zoom-in-95 duration-100 ${
+        key={`${menuState.x}-${menuState.y}-${menuState.items.length}`}
+        className={`fixed z-50 select-none context-menu-animate ${
+          menuPosition.y < menuState.y - 8 ? 'context-menu-animate-up ' : ''
+        }${
           menuState.workbenchStyle
             ? 'min-w-[190px] py-1.5 liquid-glass-menu rounded-xl text-sm'
             : 'w-52 rounded-2xl liquid-glass-menu p-1.5'

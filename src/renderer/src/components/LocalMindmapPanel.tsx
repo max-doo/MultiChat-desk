@@ -257,7 +257,7 @@ const LocalMindmapPanel = forwardRef<LocalMindmapPanelRef, { initialMarkdown?: s
       {/* Markmap 基础样式与幕布风格黑白灰折线高质感样式 */}
       <style>{globalCSS}</style>
       <style>{mindmapCSS}</style>
-      {nodeMenu && createPortal(<div role="menu" className="fixed z-[110] min-w-48 p-1 liquid-glass-menu rounded-xl text-sm" style={{ left: Math.max(8, Math.min(nodeMenu.x, window.innerWidth - 240)), top: Math.max(8, Math.min(nodeMenu.y, window.innerHeight - 185)) }} onPointerDown={event => event.stopPropagation()}>
+      {nodeMenu && createPortal(<div key={`${nodeMenu.x}-${nodeMenu.y}`} role="menu" className={`fixed z-[110] min-w-48 p-1 liquid-glass-menu rounded-xl text-sm context-menu-animate ${window.innerHeight - 185 < nodeMenu.y - 8 ? 'context-menu-animate-up' : ''}`} style={{ left: Math.max(8, Math.min(nodeMenu.x, window.innerWidth - 240)), top: Math.max(8, Math.min(nodeMenu.y, window.innerHeight - 185)) }} onPointerDown={event => event.stopPropagation()}>
         <button role="menuitem" className="w-full px-3 py-2 text-left rounded-lg hover:bg-black/[0.05] dark:hover:bg-white/[0.08] disabled:opacity-40" disabled={!onAskNode} title={!onAskNode ? '请先打开来源主会话' : undefined} onClick={() => { onAskNode?.(nodeMenu.path); setNodeMenu(null) }}>在主会话中追问</button>
         <div className="border-t border-gray-100 my-1" />
         <button role="menuitem" disabled={readOnly} className="w-full px-3 py-2 text-left rounded-lg hover:bg-black/[0.05] dark:hover:bg-white/[0.08] disabled:opacity-40" onClick={() => { canvas.addChild(nodeMenu.id); setNodeMenu(null) }}>添加子节点</button>

@@ -215,6 +215,60 @@ body {
   to { opacity: 1; transform: scale(1); }
 }
 
+/* 右键菜单弹出动画：160ms Expo Out + 微缩放 + 方向微位移（仅动画 transform/opacity，避免 backdrop-filter 重绘卡顿） */
+@keyframes context-menu-in {
+  from {
+    opacity: 0;
+    transform: translate3d(var(--cm-tx, 0px), var(--cm-ty, -4px), 0) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+.context-menu-animate {
+  transform-origin: var(--cm-origin, top left);
+  animation: context-menu-in 0.16s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  will-change: transform, opacity;
+}
+
+.context-menu-animate-up {
+  --cm-origin: bottom left;
+  --cm-ty: 4px;
+}
+
+.context-menu-animate-right {
+  --cm-origin: top left;
+  --cm-tx: -4px;
+  --cm-ty: 0px;
+}
+
+.context-menu-animate-left {
+  --cm-origin: top right;
+  --cm-tx: 4px;
+  --cm-ty: 0px;
+}
+
+.context-menu-origin-top-right {
+  --cm-origin: top right;
+}
+
+.context-menu-origin-bottom-right {
+  --cm-origin: bottom right;
+}
+
+.context-menu-origin-top-center {
+  --cm-origin: top center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .context-menu-animate {
+    animation: none;
+    will-change: auto;
+  }
+}
+
 /* 抽屉动画（保留旧类，兼容） */
 .drawer-enter {
   transform: translateX(-100%);

@@ -339,7 +339,7 @@ export default function WorkbenchDraggableBlockPlugin({
             <div
               ref={pickerRef}
               data-reader-dropdown={isDark ? 'dark' : 'light'}
-              className={`absolute z-popover w-max min-w-40 max-w-64 whitespace-nowrap rounded-xl shadow-lg border overflow-hidden text-body ${
+              className={`absolute z-popover w-max min-w-40 max-w-64 whitespace-nowrap rounded-xl shadow-lg border overflow-hidden text-body context-menu-animate ${
                 isDark
                   ? 'dark liquid-glass-menu border-white/15'
                   : 'bg-white dark:bg-gray-800 border-black/10 dark:border-white/10'

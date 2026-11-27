@@ -130,7 +130,9 @@ export default function WorkbenchEquationEditor({
         ref={popoverRef}
         role="dialog"
         aria-label="公式"
-        className="fixed z-[120] liquid-glass-menu rounded-xl p-2.5"
+        className={`fixed z-[120] liquid-glass-menu rounded-xl p-2.5 context-menu-animate ${
+          position.top < anchorRect.top ? 'context-menu-animate-up' : ''
+        }`}
         style={{ width: position.width, left: position.left, top: position.top }}
       >
         {/* KaTeX 实时预览区 */}

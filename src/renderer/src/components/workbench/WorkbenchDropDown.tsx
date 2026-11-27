@@ -132,7 +132,7 @@ function DropDownItems({
         ref={dropDownRef as React.RefObject<HTMLDivElement>}
         onKeyDown={handleKeyDown}
         data-reader-dropdown={isDark ? 'dark' : 'light'}
-        className={`fixed z-popover py-1 liquid-glass-menu rounded-xl text-body ${isDark ? 'dark' : ''}`}
+        className={`fixed z-popover py-1 liquid-glass-menu rounded-xl text-body context-menu-animate ${isDark ? 'dark' : ''}`}
         style={{ top: -10000, left: -10000 }}
         role="menu"
       >

@@ -132,7 +132,9 @@ export default function WorkbenchFootnotePopover({
       role="dialog"
       aria-label="插入脚注"
       /* z-[120] 压在编辑器工具栏与普通 popover 之上，确保不透明遮挡 */
-      className="fixed z-[120] liquid-glass-menu rounded-xl p-3"
+      className={`fixed z-[120] liquid-glass-menu rounded-xl p-3 context-menu-animate ${
+        position.top < anchorRect.top ? 'context-menu-animate-up' : ''
+      }`}
       style={{ width: position.width, left: position.left, top: position.top }}
     >
       <div className="flex items-center gap-2">

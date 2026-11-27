@@ -375,7 +375,7 @@ export function AgentComposer(): JSX.Element {
         {/* 3. 输入框实体表面 */}
         <div className="composer-surface relative w-full flex flex-col justify-between">
         {skillMenuOpen && (
-          <div className="absolute left-0 bottom-full mb-1.5 w-full liquid-glass-menu rounded-xl py-1 z-popover text-text-primary text-label max-h-56 overflow-y-auto">
+          <div className="absolute left-0 bottom-full mb-1.5 w-full liquid-glass-menu rounded-xl py-1 z-popover text-text-primary text-label max-h-56 overflow-y-auto context-menu-animate context-menu-animate-up">
             {skillSuggestions.map((skill) => (
               <button
                 key={skill.filePath}
@@ -396,7 +396,7 @@ export function AgentComposer(): JSX.Element {
         {atMenuOpen && (
           <div
             ref={atListRef}
-            className="absolute left-0 bottom-full mb-1.5 w-full liquid-glass-menu rounded-xl py-1 z-popover text-text-primary text-label max-h-56 overflow-y-auto"
+            className="absolute left-0 bottom-full mb-1.5 w-full liquid-glass-menu rounded-xl py-1 z-popover text-text-primary text-label max-h-56 overflow-y-auto context-menu-animate context-menu-animate-up"
           >
             {atSuggestions.map((node, idx) => (
               <button

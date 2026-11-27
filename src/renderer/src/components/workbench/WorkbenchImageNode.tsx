@@ -380,8 +380,9 @@ function WorkbenchImageComponent({
           createPortal(
             <div
               ref={menuRef}
+              key={`${menu.x}-${menu.y}`}
               role="menu"
-              className="liquid-glass-menu fixed z-popover min-w-[192px] select-none rounded-xl py-1.5 text-body"
+              className="liquid-glass-menu fixed z-popover min-w-[192px] select-none rounded-xl py-1.5 text-body context-menu-animate"
               style={{ left: menu.x, top: menu.y }}
               onContextMenu={(e) => e.preventDefault()}
             >

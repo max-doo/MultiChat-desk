@@ -1261,12 +1261,15 @@ export default function WorkbenchGitPanel({
       {contextMenu && contextMenuPosition && contextMenuItems.length > 0 && createPortal(
         <div
           ref={contextMenuRef}
+          key={`${contextMenu.x}-${contextMenu.y}`}
           data-footer-popover-portal="true"
           role="menu"
           style={{ left: contextMenuPosition.left, top: contextMenuPosition.top }}
           onMouseDown={(event) => event.stopPropagation()}
           onContextMenu={(event) => event.preventDefault()}
-          className="fixed z-popover min-w-[208px] liquid-glass-menu rounded-xl py-1 text-body"
+          className={`fixed z-popover min-w-[208px] liquid-glass-menu rounded-xl py-1 text-body context-menu-animate ${
+            contextMenuPosition.top < contextMenu.y - 8 ? 'context-menu-animate-up' : ''
+          }`}
         >
           {contextMenuItems.map((entry, idx) => {
             if ('type' in entry) {
@@ -1344,7 +1347,7 @@ export default function WorkbenchGitPanel({
             aria-label="状态符号说明"
             style={{ left, top, width }}
             onMouseDown={(event) => event.stopPropagation()}
-            className="fixed z-popover liquid-glass-menu rounded-xl p-3"
+            className="fixed z-popover liquid-glass-menu rounded-xl p-3 context-menu-animate context-menu-origin-top-right"
           >
             <div className="mb-2 flex items-center justify-between">
               <span className="text-label font-semibold text-text-primary">状态说明</span>

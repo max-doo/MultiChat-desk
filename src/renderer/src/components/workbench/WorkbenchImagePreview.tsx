@@ -43,8 +43,8 @@ export default function WorkbenchImagePreview(): JSX.Element {
   const setBgTheme = useWorkbenchStore((s) => s.setImageBackgroundTheme)
 
   const [menu, setMenu] = useState<PreviewMenuState | null>(null)
-  const [menuPos, setMenuPos] = useState<{ left: number; top: number } | null>(null)
-  const [submenuPos, setSubmenuPos] = useState<{ left: number; top: number; maxHeight: number } | null>(null)
+  const [menuPos, setMenuPos] = useState<{ left: number; top: number; flippedY?: boolean } | null>(null)
+  const [submenuPos, setSubmenuPos] = useState<{ left: number; top: number; maxHeight: number; flippedX?: boolean } | null>(null)
   const [isMoveMenuOpen, setIsMoveMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement | null>(null)
   const moveTriggerRef = useRef<HTMLDivElement | null>(null)
@@ -122,6 +122,8 @@ export default function WorkbenchImagePreview(): JSX.Element {
       event.preventDefault()
       event.stopPropagation()
       setIsMoveMenuOpen(false)
+      setMenuPos(null)
+      setSubmenuPos(null)
       setMenu({ x: event.clientX, y: event.clientY })
     },
     [activeFilePath]
@@ -177,7 +179,7 @@ export default function WorkbenchImagePreview(): JSX.Element {
       EDGE,
       Math.min(menu.y, Math.max(EDGE, window.innerHeight - rect.height - EDGE))
     )
-    setMenuPos({ left, top })
+    setMenuPos({ left, top, flippedY: top < menu.y - 8 })
   }, [menu])
 
   // 「移动到」子菜单贴合触发项，右侧放不下时翻到左侧，垂直方向防溢出
@@ -191,15 +193,15 @@ export default function WorkbenchImagePreview(): JSX.Element {
     const subRect = moveMenuRef.current.getBoundingClientRect()
     const maxHeight = Math.min(320, Math.max(120, window.innerHeight - EDGE * 2))
     const effectiveHeight = Math.min(subRect.height, maxHeight)
-    const left =
-      triggerRect.right + subRect.width + EDGE <= window.innerWidth
-        ? triggerRect.right
-        : Math.max(EDGE, triggerRect.left - subRect.width)
+    const flippedX = triggerRect.right + subRect.width + EDGE > window.innerWidth
+    const left = !flippedX
+      ? triggerRect.right
+      : Math.max(EDGE, triggerRect.left - subRect.width)
     const top = Math.max(
       EDGE,
       Math.min(triggerRect.top - 4, window.innerHeight - effectiveHeight - EDGE)
     )
-    setSubmenuPos({ left, top, maxHeight })
+    setSubmenuPos({ left, top, maxHeight, flippedX })
   }, [menu, isMoveMenuOpen, menuPos])
 
   // 右键菜单：外部点击 / Esc / 失焦 / 缩放窗口关闭
@@ -527,8 +529,15 @@ export default function WorkbenchImagePreview(): JSX.Element {
         createPortal(
           <div
             ref={menuRef}
+            key={`${menu.x}-${menu.y}`}
             role="menu"
-            className="fixed z-popover min-w-[176px] select-none liquid-glass-menu rounded-xl py-1.5 text-body"
+            className={`fixed z-popover min-w-[176px] select-none liquid-glass-menu rounded-xl py-1.5 text-body ${
+              menuPos
+                ? menuPos.flippedY
+                  ? 'context-menu-animate context-menu-animate-up'
+                  : 'context-menu-animate'
+                : ''
+            }`}
             style={{
               left: menuPos?.left ?? menu.x,
               top: menuPos?.top ?? menu.y,
@@ -604,7 +613,13 @@ export default function WorkbenchImagePreview(): JSX.Element {
                       maxHeight: submenuPos?.maxHeight ?? 320,
                       visibility: submenuPos ? 'visible' : 'hidden'
                     }}
-                    className="fixed z-popover min-w-[190px] max-w-[260px] overflow-y-auto liquid-glass-menu rounded-xl py-1.5 text-body"
+                    className={`fixed z-popover min-w-[190px] max-w-[260px] overflow-y-auto liquid-glass-menu rounded-xl py-1.5 text-body ${
+                      submenuPos
+                        ? submenuPos.flippedX
+                          ? 'context-menu-animate context-menu-animate-left'
+                          : 'context-menu-animate context-menu-animate-right'
+                        : ''
+                    }`}
                   >
                     {moveTargets.map((target) => (
                       <button

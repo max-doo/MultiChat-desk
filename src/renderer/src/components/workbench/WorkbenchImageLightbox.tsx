@@ -77,7 +77,7 @@ export default function WorkbenchImageLightbox({
 
   // 图片右键菜单：菜单尺寸由真实 DOM 测量后钳位进视口
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
-  const [menuPos, setMenuPos] = useState<{ left: number; top: number } | null>(null)
+  const [menuPos, setMenuPos] = useState<{ left: number; top: number; flippedY?: boolean } | null>(null)
   const menuRef = useRef<HTMLDivElement | null>(null)
   const imgRef = useRef<HTMLImageElement | null>(null)
 
@@ -240,6 +240,7 @@ export default function WorkbenchImageLightbox({
       if (!currentItem) return
       event.preventDefault()
       event.stopPropagation()
+      setMenuPos(null)
       setMenu({ x: event.clientX, y: event.clientY })
     },
     [currentItem]
@@ -287,7 +288,7 @@ export default function WorkbenchImageLightbox({
       EDGE,
       Math.min(menu.y, Math.max(EDGE, window.innerHeight - rect.height - EDGE))
     )
-    setMenuPos({ left, top })
+    setMenuPos({ left, top, flippedY: top < menu.y - 8 })
   }, [menu])
 
   // 右键菜单：外部点击 / 失焦 / 缩放窗口关闭；Esc 由上方 capture 阶段快捷键统一处理
@@ -559,8 +560,15 @@ export default function WorkbenchImageLightbox({
         createPortal(
           <div
             ref={menuRef}
+            key={`${menu.x}-${menu.y}`}
             role="menu"
-            className="fixed z-[110] min-w-[176px] select-none liquid-glass-menu rounded-xl py-1.5 text-body"
+            className={`fixed z-[110] min-w-[176px] select-none liquid-glass-menu rounded-xl py-1.5 text-body ${
+              menuPos
+                ? menuPos.flippedY
+                  ? 'context-menu-animate context-menu-animate-up'
+                  : 'context-menu-animate'
+                : ''
+            }`}
             style={{
               left: menuPos?.left ?? menu.x,
               top: menuPos?.top ?? menu.y,

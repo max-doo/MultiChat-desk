@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 export interface AgentPopoverProps {
   open: boolean
@@ -73,9 +73,13 @@ export function AgentPopover({
   children
 }: AgentPopoverProps): JSX.Element | null {
   const popoverRef = useRef<HTMLDivElement>(null)
+  const [positioned, setPositioned] = useState(false)
 
   useEffect(() => {
-    if (!open) return
+    if (!open) {
+      setPositioned(false)
+      return
+    }
     const onKeyDown = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') onClose()
     }
@@ -91,7 +95,7 @@ export function AgentPopover({
     let observedContainers: HTMLElement[] = []
 
     const clampPosition = (): void => {
-      el.style.transform = ''
+      el.style.translate = ''
       el.style.maxWidth = ''
       el.style.maxHeight = ''
       el.style.overflowY = ''
@@ -126,11 +130,13 @@ export function AgentPopover({
         if (rect.left + shiftX < bounds.left) {
           shiftX = bounds.left - rect.left
         }
-        el.style.transform = `translateX(${Math.round(shiftX)}px)`
+        // 使用独立 CSS translate 属性避免与入场动画的 transform: scale() 互相覆盖
+        el.style.translate = `${Math.round(shiftX)}px 0`
       }
     }
 
     clampPosition()
+    setPositioned(true)
 
     const ro = new ResizeObserver(() => {
       clampPosition()
@@ -165,7 +171,17 @@ export function AgentPopover({
         onClick={(e) => e.stopPropagation()}
         className={`absolute ${positionClass} ${
           align === 'left' ? 'left-0' : 'right-0'
-        } liquid-glass-menu rounded-xl z-popover overflow-hidden text-label ${className}`}
+        } liquid-glass-menu rounded-xl z-popover overflow-hidden text-label ${
+          positioned
+            ? placement === 'top'
+              ? align === 'right'
+                ? 'context-menu-animate context-menu-animate-up context-menu-origin-bottom-right'
+                : 'context-menu-animate context-menu-animate-up'
+              : align === 'right'
+                ? 'context-menu-animate context-menu-origin-top-right'
+                : 'context-menu-animate'
+            : ''
+        } ${className}`}
       >
         {children}
       </div>

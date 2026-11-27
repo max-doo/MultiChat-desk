@@ -465,7 +465,7 @@ export function ColorPickerMenu({
     <div
       role="dialog"
       aria-label={`${label}选择器`}
-      className="w-[228px] rounded-xl border border-black/10 bg-white p-2.5 text-sm text-gray-800 shadow-lg"
+      className="w-[228px] rounded-xl border border-black/10 bg-white p-2.5 text-sm text-gray-800 shadow-lg context-menu-animate context-menu-origin-top-center"
     >
       <div className="flex items-center gap-2">
         <ColorFill

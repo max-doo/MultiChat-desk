@@ -806,7 +806,7 @@ export default function FrontmatterPanel({ frontmatter, filePath, onChange, gitM
                               (tagDrafts[idx] && normalizeTag(tagDrafts[idx]))) && (
                               <div
                                 ref={tagDropdownRef}
-                                className="absolute left-0 top-full mt-1.5 z-popover min-w-[210px] max-w-[320px] max-h-60 overflow-y-auto rounded-lg shadow-xl border border-black/10 dark:border-white/10 bg-white dark:bg-gray-800 py-1 text-label select-none"
+                                className="absolute left-0 top-full mt-1.5 z-popover min-w-[210px] max-w-[320px] max-h-60 overflow-y-auto rounded-lg shadow-xl border border-black/10 dark:border-white/10 bg-white dark:bg-gray-800 py-1 text-label select-none context-menu-animate"
                               >
                                 {currentTagSuggestions.length > 0 && (
                                   <>

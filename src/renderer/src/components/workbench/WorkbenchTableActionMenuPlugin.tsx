@@ -114,6 +114,7 @@ function TableActionMenu({
   const [selectionCounts, updateSelectionCounts] = useState({ columns: 1, rows: 1 })
   const [canMergeCells, setCanMergeCells] = useState(false)
   const [canUnmergeCell, setCanUnmergeCell] = useState(false)
+  const [menuAnimClass, setMenuAnimClass] = useState('')
 
   useEffect(() => {
     return editor.registerMutationListener(
@@ -172,6 +173,11 @@ function TableActionMenu({
         topPosition = position < 0 ? margin : position
       }
       dropDownElement.style.top = `${topPosition}px`
+      setMenuAnimClass(
+        topPosition < menuButtonRect.top - 8
+          ? 'context-menu-animate context-menu-animate-up'
+          : 'context-menu-animate'
+      )
     }
   }, [contextRef, editor])
 
@@ -323,7 +329,7 @@ function TableActionMenu({
   return createPortal(
     <div
       ref={dropDownRef}
-      className="fixed z-popover w-56 py-1 liquid-glass-menu rounded-xl opacity-0"
+      className={`fixed z-popover w-56 py-1 liquid-glass-menu rounded-xl opacity-0 ${menuAnimClass}`}
       style={{ top: -10000, left: -10000 }}
       role="menu"
     >

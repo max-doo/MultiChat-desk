@@ -145,7 +145,17 @@ function CustomDropdown<T = string>({
             onPointerDown={() => setIsOpen(false)}
             onClick={() => setIsOpen(false)}
           />
-          <div className={`absolute ${dropdownPositionClass} left-0 ${dropdownWidth} liquid-glass-menu rounded-xl z-30 py-1 max-h-64 overflow-y-auto`}>
+          <div
+            className={`absolute ${dropdownPositionClass} left-0 ${dropdownWidth} liquid-glass-menu rounded-xl z-30 py-1 max-h-64 overflow-y-auto context-menu-animate ${
+              direction === 'up'
+                ? dropdownWidth.includes('right-0')
+                  ? 'context-menu-animate-up context-menu-origin-bottom-right'
+                  : 'context-menu-animate-up'
+                : dropdownWidth.includes('right-0')
+                  ? 'context-menu-origin-top-right'
+                  : ''
+            }`}
+          >
             {renderContent ? (
               renderContent(() => setIsOpen(false))
             ) : options.length > 0 ? (

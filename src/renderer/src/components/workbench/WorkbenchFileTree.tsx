@@ -608,8 +608,8 @@ function WorkbenchFileTree(): JSX.Element {
   const [treeClipboard, setTreeClipboard] = useState<TreeClipboard | null>(null)
   const [isVaultMenuOpen, setIsVaultMenuOpen] = useState(false)
   const [isMoveMenuOpen, setIsMoveMenuOpen] = useState(false)
-  const [menuPos, setMenuPos] = useState<{ left: number; top: number; maxHeight?: number } | null>(null)
-  const [moveMenuPos, setMoveMenuPos] = useState<{ left: number; top: number; maxHeight: number } | null>(null)
+  const [menuPos, setMenuPos] = useState<{ left: number; top: number; maxHeight?: number; flippedY?: boolean } | null>(null)
+  const [moveMenuPos, setMoveMenuPos] = useState<{ left: number; top: number; maxHeight: number; flippedX?: boolean } | null>(null)
 
   const [isWorkspaceSettingsOpen, setIsWorkspaceSettingsOpen] = useState(false)
   const [isSortMenuOpen, setIsSortMenuOpen] = useState(false)
@@ -740,7 +740,8 @@ function WorkbenchFileTree(): JSX.Element {
     setMenuPos({
       left,
       top,
-      maxHeight: rect.height > maxH ? maxH : undefined
+      maxHeight: rect.height > maxH ? maxH : undefined,
+      flippedY: top < contextMenu.y - 8
     })
   }, [contextMenu])
 
@@ -755,15 +756,15 @@ function WorkbenchFileTree(): JSX.Element {
     const subRect = moveMenuRef.current.getBoundingClientRect()
     const maxHeight = Math.min(280, Math.max(120, window.innerHeight - EDGE * 2))
     const effectiveHeight = Math.min(subRect.height, maxHeight)
-    const left =
-      triggerRect.right + subRect.width + EDGE <= window.innerWidth
-        ? triggerRect.right
-        : Math.max(EDGE, triggerRect.left - subRect.width)
+    const flippedX = triggerRect.right + subRect.width + EDGE > window.innerWidth
+    const left = !flippedX
+      ? triggerRect.right
+      : Math.max(EDGE, triggerRect.left - subRect.width)
     const top = Math.max(
       EDGE,
       Math.min(triggerRect.top - 4, window.innerHeight - effectiveHeight - EDGE)
     )
-    setMoveMenuPos({ left, top, maxHeight })
+    setMoveMenuPos({ left, top, maxHeight, flippedX })
   }, [contextMenu, isMoveMenuOpen, menuPos])
 
   // 右键菜单关闭或组件卸载时，清掉子菜单挂起的延迟关闭
@@ -1616,7 +1617,7 @@ function WorkbenchFileTree(): JSX.Element {
             {isSortMenuOpen && (
               <div
                 ref={sortMenuRef}
-                className="absolute top-full left-0 mt-1 z-popover min-w-[150px] py-1 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-black/10 dark:border-white/10 text-body"
+                className="absolute top-full left-0 mt-1 z-popover min-w-[150px] py-1 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-black/10 dark:border-white/10 text-body context-menu-animate"
               >
                 {(Object.keys(SORT_LABELS) as SortMenuKey[]).map((key) => (
                   <button
@@ -1813,7 +1814,14 @@ function WorkbenchFileTree(): JSX.Element {
       {contextMenu && createPortal(
         <div
           ref={menuRef}
-          className="fixed z-popover min-w-[170px] py-1 liquid-glass-menu rounded-xl text-body"
+          key={`${contextMenu.x}-${contextMenu.y}`}
+          className={`fixed z-popover min-w-[170px] py-1 liquid-glass-menu rounded-xl text-body ${
+            menuPos
+              ? menuPos.flippedY
+                ? 'context-menu-animate context-menu-animate-up'
+                : 'context-menu-animate'
+              : ''
+          }`}
           style={{
             left: menuPos?.left ?? contextMenu.x,
             top: menuPos?.top ?? contextMenu.y,
@@ -2128,7 +2136,13 @@ function WorkbenchFileTree(): JSX.Element {
             top: moveMenuPos?.top ?? contextMenu.y,
             maxHeight: moveMenuPos?.maxHeight ?? 280
           }}
-          className="fixed z-popover min-w-[190px] max-w-[240px] overflow-y-auto liquid-glass-menu rounded-xl py-1 text-body"
+          className={`fixed z-popover min-w-[190px] max-w-[240px] overflow-y-auto liquid-glass-menu rounded-xl py-1 text-body ${
+            moveMenuPos
+              ? moveMenuPos.flippedX
+                ? 'context-menu-animate context-menu-animate-left'
+                : 'context-menu-animate context-menu-animate-right'
+              : ''
+          }`}
         >
           {moveTargets.map((target) => (
             <button

@@ -118,7 +118,9 @@ export default function WorkbenchUrlInputPopover({
         ref={popoverRef}
         role="dialog"
         aria-label="链接"
-        className="fixed z-[120] flex items-center gap-1 liquid-glass-menu rounded-xl p-1.5"
+        className={`fixed z-[120] flex items-center gap-1 liquid-glass-menu rounded-xl p-1.5 context-menu-animate ${
+          position.top < anchorRect.top ? 'context-menu-animate-up' : ''
+        }`}
         style={{ width: position.width, left: position.left, top: position.top }}
       >
         <AppIcon name="link" size={16} className="ml-1 shrink-0 text-text-secondary" />

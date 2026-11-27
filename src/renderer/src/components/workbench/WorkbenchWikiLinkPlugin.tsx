@@ -285,7 +285,7 @@ export default function WorkbenchWikiLinkPlugin(): JSX.Element | null {
       : createPortal(
           <div
             id="typeahead-menu"
-            className="workbench-wiki-typeahead min-w-[280px] max-w-[360px] max-h-[300px] overflow-y-auto rounded-xl border border-black/10 dark:border-white/15 bg-white/95 dark:bg-gray-900/95 shadow-float backdrop-blur-xl p-1.5 space-y-0.5 select-none"
+            className="workbench-wiki-typeahead min-w-[280px] max-w-[360px] max-h-[300px] overflow-y-auto rounded-xl border border-black/10 dark:border-white/15 bg-white/95 dark:bg-gray-900/95 shadow-float backdrop-blur-xl p-1.5 space-y-0.5 select-none context-menu-animate"
           >
             {options.length === 0 ? (
               <div className="py-6 text-center text-label text-text-secondary">未找到匹配文件</div>

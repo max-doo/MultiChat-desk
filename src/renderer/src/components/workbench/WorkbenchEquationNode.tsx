@@ -274,8 +274,9 @@ function WorkbenchEquationComponent({
         createPortal(
           <div
             ref={menuRef}
+            key={`${menu.x}-${menu.y}`}
             role="menu"
-            className="fixed z-popover min-w-[176px] select-none liquid-glass-menu rounded-xl py-1.5 text-body"
+            className="fixed z-popover min-w-[176px] select-none liquid-glass-menu rounded-xl py-1.5 text-body context-menu-animate"
             style={{ left: menu.x, top: menu.y }}
             onContextMenu={(e) => e.preventDefault()}
           >

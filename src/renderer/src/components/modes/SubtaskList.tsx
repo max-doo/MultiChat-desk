@@ -34,7 +34,7 @@ function SubtaskList({ subtasks, collapsed }: SubtaskListProps): JSX.Element | n
   }
 
   return (
-    <div className="absolute bottom-full left-0 right-0 mb-2 z-40 max-h-[280px] overflow-y-auto rounded-2xl glass-panel-heavy shadow-float border border-gray-200 p-3">
+    <div className="absolute bottom-full left-0 right-0 mb-2 z-40 max-h-[280px] overflow-y-auto rounded-2xl glass-panel-heavy shadow-float border border-gray-200 p-3 context-menu-animate context-menu-animate-up">
       <div className="flex items-center justify-between mb-2 px-1">
         <span className="text-xs font-bold text-text-secondary flex items-center gap-1.5">
           <AppIcon name="checklist" size={16} className="text-primary" />

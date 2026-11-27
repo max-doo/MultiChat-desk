@@ -849,7 +849,7 @@ export default function WorkbenchDocxPreview(): JSX.Element {
                 </span>
               </button>
               {statsOpen && (
-                <div className="absolute bottom-full right-0 mb-2 w-52 rounded-xl border border-black/10 bg-white/95 p-3 text-label shadow-float backdrop-blur-md dark:border-white/10 dark:bg-gray-900/95">
+                <div className="absolute bottom-full right-0 mb-2 w-52 rounded-xl border border-black/10 bg-white/95 p-3 text-label shadow-float backdrop-blur-md dark:border-white/10 dark:bg-gray-900/95 context-menu-animate context-menu-animate-up context-menu-origin-bottom-right">
                   <dl className="space-y-1.5">
                     <div className="flex justify-between">
                       <dt className="text-text-secondary">字数</dt>

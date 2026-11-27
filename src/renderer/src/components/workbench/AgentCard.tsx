@@ -1696,10 +1696,15 @@ function AgentCard({
             {/* 历史行"更多"菜单：fixed 定位避免被 popover 的 overflow 裁剪。 */}
             {historyMoreMenu && (
               <div
+                key={historyMoreMenu.id}
                 data-history-more-menu
                 onMouseDown={(e) => e.stopPropagation()}
                 onClick={(e) => e.stopPropagation()}
-                className="fixed z-modal liquid-glass-menu rounded-xl py-1 min-w-[148px] text-label text-text-primary shadow-float"
+                className={`fixed z-modal liquid-glass-menu rounded-xl py-1 min-w-[148px] text-label text-text-primary shadow-float context-menu-animate ${
+                  historyMoreMenu.y + 72 < window.innerHeight
+                    ? 'context-menu-origin-top-right'
+                    : 'context-menu-animate-up context-menu-origin-bottom-right'
+                }`}
                 style={
                   historyMoreMenu.y + 72 < window.innerHeight
                     ? {
