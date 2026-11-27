@@ -32,12 +32,14 @@ import {
 import { useGitLineDiff } from '../../hooks/useGitLineDiff'
 import { readEditorScroll, rememberEditorScroll } from './workbenchEditorScroll'
 import WorkbenchFindReplaceBar from './WorkbenchFindReplaceBar'
+import WorkbenchDataTable from './WorkbenchDataTable'
 import WorkbenchHtmlVisualEditor, {
   type WorkbenchHtmlVisualEditorHandle
 } from './WorkbenchHtmlVisualEditor'
 import WorkbenchHtmlEditLeaveDialog from './WorkbenchHtmlEditLeaveDialog'
 import WorkbenchHtmlAnnotationPreview from './WorkbenchHtmlAnnotationPreview'
 import { formatFileSize } from '../../utils/formatBytes'
+import { parseCsvText } from '../../utils/csvTable'
 import { AppIcon } from '../icons/AppIcon'
 import {
   PreviewFallbackState,
@@ -63,6 +65,27 @@ const externalChange = Annotation.define<boolean>()
 const CODE_SYNC_DEBOUNCE_MS = 250
 const LONG_LINE_HIGHLIGHT_LIMIT = 2_000
 const LARGE_FILE_HIGHLIGHT_BYTES = 1024 * 1024
+
+/**
+ * CSV/TSV 表格视图：解析只在文本真正变化时重跑（useMemo 按引用），
+ * 网格化与渲染全部复用 WorkbenchDataTable（与 xlsx 预览同源的两档渲染与划词链路）。
+ */
+function CsvTableView(): JSX.Element {
+  const activeFileContent = useWorkbenchStore((s) => s.activeFileContent)
+  const grid = useMemo(() => parseCsvText(activeFileContent ?? ''), [activeFileContent])
+  if (grid.rows.length === 0) {
+    return (
+      <div className="flex-1 h-full flex items-center justify-center text-[#A1A1AA] text-body bg-white dark:bg-gray-900 select-none">
+        空文件
+      </div>
+    )
+  }
+  return (
+    <div className="flex-1 h-full relative overflow-hidden">
+      <WorkbenchDataTable rows={grid.rows} colCount={grid.colCount} />
+    </div>
+  )
+}
 
 const readOnlyCompartment = new Compartment()
 const languageCompartment = new Compartment()
@@ -513,13 +536,19 @@ export default function WorkbenchCodePreview({
     const lower = (activeFilePath || '').toLowerCase()
     return lower.endsWith('.html') || lower.endsWith('.htm')
   }, [activeFilePath])
+  // CSV/TSV 走表格/源码双视图：表格是只读结构化预览，源码即文本编辑态（同 HTML 源码）
+  const isCsvFile = useMemo(() => {
+    const lower = (activeFilePath || '').toLowerCase()
+    return lower.endsWith('.csv') || lower.endsWith('.tsv')
+  }, [activeFilePath])
   const [isEditing, setIsEditing] = useState(false)
   const [copied, setCopied] = useState(false)
   const [findOpen, setFindOpen] = useState(false)
   const [findReplaceFocus, setFindReplaceFocus] = useState(false)
   // HTML 文件支持渲染 / 可视化编辑 / 源码三态；源码态即文本编辑（初值与文件类型对齐，避免源码态闪烁）
-  const [viewMode, setViewMode] = useState<'render' | 'edit' | 'source'>(() =>
-    isHtmlFile ? 'render' : 'source'
+  // CSV 支持 表格 / 源码 双态，落在同一个 viewMode 状态机里复用离开守卫与 flush 链路
+  const [viewMode, setViewMode] = useState<'render' | 'edit' | 'source' | 'table'>(() =>
+    isHtmlFile ? 'render' : isCsvFile ? 'table' : 'source'
   )
   const [visualDirty, setVisualDirty] = useState(false)
   const [visualHistory, setVisualHistory] = useState<{ canUndo: boolean; canRedo: boolean }>({
@@ -540,26 +569,32 @@ export default function WorkbenchCodePreview({
   } | null>(null)
   const hadConflictRef = useRef(false)
 
-  // HTML 源码模式即为可编辑状态；其他代码文件沿用查看/编辑分离
-  const isEditable = isHtmlFile ? viewMode === 'source' : isEditing
+  // HTML 源码模式即为可编辑状态；CSV 同理（源码态可编辑，表格态只读）；其他代码文件沿用查看/编辑分离
+  const isEditable = isHtmlFile || isCsvFile ? viewMode === 'source' : isEditing
 
-  // 同步表面状态到 store：浅色表面决定宿主 UI 配色，可编辑态决定状态徽标显隐。
+  // 同步表面状态到 store：浅色表面决定宿主 UI 配色（HTML 渲染/可视化编辑、CSV 表格），
+  // 可编辑态决定状态徽标显隐。
+  const isLightSurface = (isHtmlFile && viewMode !== 'source') || (isCsvFile && viewMode === 'table')
+  // CSV 表格预览全套浅色 chrome（用户明确要求浅色模式）；HTML 渲染态沿用深色顶栏（既有惯例），
+  // 其余代码/源码态保持深色编辑器 chrome。chromeLight 仅在 CSV 表格态为真。
+  const chromeLight = isCsvFile && viewMode === 'table'
   useEffect(() => {
     const store = useWorkbenchStore.getState()
     store.setCodePreviewEditable(isEditable)
-    store.setHtmlRenderSurface(isHtmlFile && viewMode !== 'source')
-  }, [isEditable, isHtmlFile, viewMode])
+    store.setLightPreviewSurface(isLightSurface)
+  }, [isEditable, isLightSurface])
 
   useEffect(() => {
     return () => {
       const store = useWorkbenchStore.getState()
       store.setCodePreviewEditable(false)
-      store.setHtmlRenderSurface(false)
+      store.setLightPreviewSurface(false)
     }
   }, [])
   const isVisualEditing = isHtmlFile && viewMode === 'edit'
   const showCodeEditor =
     !(isHtmlFile && viewMode === 'render') &&
+    !(isCsvFile && viewMode === 'table') &&
     !(isVisualEditing && activeFileUrl) &&
     !activeFileOversized
 
@@ -586,7 +621,7 @@ export default function WorkbenchCodePreview({
 
   useEffect(() => {
     setIsEditing(false)
-    setViewMode(isHtmlFile ? 'render' : 'source')
+    setViewMode(isHtmlFile ? 'render' : isCsvFile ? 'table' : 'source')
     setVisualDirty(false)
     visualDirtyRef.current = false
     setLeaveDialogOpen(false)
@@ -596,7 +631,7 @@ export default function WorkbenchCodePreview({
     setPreviewZoom(1)
     visualBaselineRef.current = null
     hadConflictRef.current = false
-  }, [activeFilePath, isHtmlFile])
+  }, [activeFilePath, isHtmlFile, isCsvFile])
 
   useEffect(() => {
     if (isVisualEditing) setFindOpen(false)
@@ -892,7 +927,7 @@ export default function WorkbenchCodePreview({
   }, [saveActiveFile, saveStatus])
 
   const handleModeClick = useCallback(
-    async (nextMode: 'render' | 'edit' | 'source') => {
+    async (nextMode: 'render' | 'edit' | 'source' | 'table') => {
       if (nextMode === viewMode || saveStatus === 'saving' || leaveDialogOpen) return
 
       useWorkbenchStore.getState().flushActiveEditorSync()
@@ -997,7 +1032,7 @@ export default function WorkbenchCodePreview({
           useWorkbenchStore.getState().flushActiveEditorSync()
           void saveActiveFile()
         }
-      } else if ((k === 'f' || k === 'h') && !isVisualEditing) {
+      } else if ((k === 'f' || k === 'h') && !isVisualEditing && !(isCsvFile && viewMode === 'table')) {
         e.preventDefault()
         useWorkbenchStore.getState().flushActiveEditorSync()
         setFindReplaceFocus(k === 'h')
@@ -1027,6 +1062,7 @@ export default function WorkbenchCodePreview({
       handlePreviewZoomStep,
       handleVisualSave,
       isActive,
+      isCsvFile,
       isHtmlFile,
       isVisualEditing,
       leaveDialogOpen,
@@ -1062,15 +1098,37 @@ export default function WorkbenchCodePreview({
     }
   }
 
+  // 浅色 chrome 的样式切换（仅 CSV 表格态激活）：分段控件、按钮、文字色三族，
+  // 与 xlsx 预览的浅色惯例（bg-black/5 hover、text-text-primary/secondary）对齐。
+  const iconBtnClass = chromeLight
+    ? 'w-8 h-8 flex items-center justify-center rounded-md hover:bg-black/5 text-text-secondary hover:text-text-primary transition-colors'
+    : 'w-8 h-8 flex items-center justify-center rounded-md hover:bg-white/10 text-[#D4D4D4] hover:text-white transition-colors'
+  const segmentedTrackClass = chromeLight
+    ? 'flex items-center p-0.5 bg-black/[0.05] rounded-lg border border-black/10'
+    : 'flex items-center p-0.5 bg-[#181818] rounded-lg border border-white/10'
+  const viewActiveClass = chromeLight
+    ? 'bg-white text-text-primary font-medium shadow-sm'
+    : 'bg-[#323236] text-white font-medium'
+  const viewIdleClass = chromeLight
+    ? 'text-text-secondary hover:text-text-primary'
+    : 'text-[#A1A1AA] hover:text-[#E4E4E7]'
+
   return (
-    <div className="flex-1 h-full flex flex-col overflow-hidden bg-[#1E1E1E] text-[#E4E4E7] select-text">
+    <div
+      className={`flex-1 h-full flex flex-col overflow-hidden select-text ${
+        chromeLight ? 'bg-slate-100 text-text-primary' : 'bg-[#1E1E1E] text-[#E4E4E7]'
+      }`}
+    >
       <PreviewHeader
-        theme="dark"
+        theme={chromeLight ? 'light' : 'dark'}
         compact
         left={
           <>
             <AppIcon name="code" size={19} className="text-amber-400" />
-            <span className="font-mono text-body text-[#E4E4E7] truncate" title={activeFilePath || ''}>
+            <span
+              className={`font-mono text-body truncate ${chromeLight ? 'text-text-primary' : 'text-[#E4E4E7]'}`}
+              title={activeFilePath || ''}
+            >
               {activeFilePath}
             </span>
             {/* HTML 渲染/可视化编辑态保留顶栏状态提示，不做行级 DOM 映射 */}
@@ -1157,8 +1215,8 @@ export default function WorkbenchCodePreview({
               </button>
             )}
 
-            {/* 模式切换：HTML 为 渲染/编辑/源码；其他代码为 查看/编辑 */}
-            <div className="flex items-center p-0.5 bg-[#181818] rounded-lg border border-white/10">
+            {/* 模式切换：HTML 为 渲染/编辑/源码；CSV 为 表格/源码；其他代码为 查看/编辑 */}
+            <div className={segmentedTrackClass}>
               {isHtmlFile ? (
                 <>
                   <button
@@ -1166,8 +1224,8 @@ export default function WorkbenchCodePreview({
                     onClick={() => void handleModeClick('render')}
                     className={`px-2 py-0.5 rounded text-body transition-colors ${
                       viewMode === 'render'
-                        ? 'bg-[#323236] text-white font-medium'
-                        : 'text-[#A1A1AA] hover:text-[#E4E4E7]'
+                        ? viewActiveClass
+                        : viewIdleClass
                     }`}
                     title="浏览器渲染预览（磁盘已保存版本）"
                   >
@@ -1180,7 +1238,7 @@ export default function WorkbenchCodePreview({
                     className={`px-2 py-0.5 rounded text-body transition-colors disabled:cursor-default disabled:opacity-40 ${
                       viewMode === 'edit'
                         ? 'bg-primary text-white font-medium'
-                        : 'text-[#A1A1AA] hover:text-[#E4E4E7]'
+                        : viewIdleClass
                     }`}
                     title={
                       activeFileOversized
@@ -1196,7 +1254,7 @@ export default function WorkbenchCodePreview({
                     className={`px-2 py-0.5 rounded text-body transition-colors ${
                       viewMode === 'source'
                         ? 'bg-blue-600 text-white font-medium'
-                        : 'text-[#A1A1AA] hover:text-[#E4E4E7]'
+                        : viewIdleClass
                     }`}
                     title="源码编辑模式（Ctrl+S 保存）"
                   >
@@ -1205,13 +1263,42 @@ export default function WorkbenchCodePreview({
                 </>
               ) : (
                 <>
+                  {isCsvFile ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => void handleModeClick('table')}
+                        className={`px-2 py-0.5 rounded text-body transition-colors ${
+                          viewMode === 'table'
+                            ? viewActiveClass
+                            : viewIdleClass
+                        }`}
+                        title="结构化表格预览（只读）"
+                      >
+                        表格
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleModeClick('source')}
+                        className={`px-2 py-0.5 rounded text-body transition-colors ${
+                          viewMode === 'source'
+                            ? 'bg-blue-600 text-white font-medium'
+                            : viewIdleClass
+                        }`}
+                        title="源码编辑模式（Ctrl+S 保存）"
+                      >
+                        源码
+                      </button>
+                    </>
+                  ) : (
+                    <>
                   <button
                     type="button"
                     onClick={() => setIsEditing(false)}
                     className={`px-2 py-0.5 rounded text-body transition-colors ${
                       !isEditing
-                        ? 'bg-[#323236] text-white font-medium'
-                        : 'text-[#A1A1AA] hover:text-[#E4E4E7]'
+                        ? viewActiveClass
+                        : viewIdleClass
                     }`}
                     title="只读代码高亮视图"
                   >
@@ -1223,12 +1310,14 @@ export default function WorkbenchCodePreview({
                     className={`px-2 py-0.5 rounded text-body transition-colors ${
                       isEditing
                         ? 'bg-blue-600 text-white font-medium'
-                        : 'text-[#A1A1AA] hover:text-[#E4E4E7]'
+                        : viewIdleClass
                     }`}
                     title="代码编辑模式 (可保存)"
                   >
                     编辑
                   </button>
+                    </>
+                  )}
                 </>
               )}
             </div>
@@ -1236,7 +1325,7 @@ export default function WorkbenchCodePreview({
             <button
               type="button"
               onClick={() => void handleCopy()}
-              className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-white/10 text-[#D4D4D4] hover:text-white transition-colors"
+              className={iconBtnClass}
               title="复制代码全文"
             >
               <AppIcon name={copied ? 'check' : 'content_copy'} size={19} />
@@ -1247,7 +1336,7 @@ export default function WorkbenchCodePreview({
               onClick={() => {
                 if (activeFilePath) void openInSystem(activeFilePath)
               }}
-              className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-white/10 text-[#D4D4D4] hover:text-white transition-colors"
+              className={iconBtnClass}
               title="在系统默认编辑器中打开 (如 VSCode)"
             >
               <AppIcon name="open_in_new" size={19} />
@@ -1258,7 +1347,7 @@ export default function WorkbenchCodePreview({
               onClick={() => {
                 if (activeFilePath) void revealFile(activeFilePath)
               }}
-              className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-white/10 text-[#D4D4D4] hover:text-white transition-colors"
+              className={iconBtnClass}
               title="在资源管理器中显示"
             >
               <AppIcon name="folder_open" size={19} />
@@ -1306,6 +1395,10 @@ export default function WorkbenchCodePreview({
               if (visualEditorRef.current?.hasChanges()) void handleVisualSave()
             }}
           />
+        ) : isCsvFile && viewMode === 'table' ? (
+          /* CSV 表格预览：activeFileContent 已是 debounce 同步后的最新文本；
+             切换瞬间 handleModeClick 先 flush 掉 pending 同步，网格即用户当下编辑态 */
+          <CsvTableView key={activeFilePath || 'csv'} />
         ) : activeFileOversized ? (
           <PreviewFallbackState
             theme="dark"
@@ -1334,7 +1427,7 @@ export default function WorkbenchCodePreview({
 
         {/* 编辑器内查找替换（Ctrl+F / Ctrl+H）；只读/渲染预览下禁用替换 */}
         <WorkbenchFindReplaceBar
-          open={findOpen && !activeFileOversized && !isVisualEditing}
+          open={findOpen && !activeFileOversized && !isVisualEditing && !(isCsvFile && viewMode === 'table')}
           replaceFocus={findReplaceFocus}
           onClose={() => setFindOpen(false)}
           canReplace={isEditable && !(isHtmlFile && viewMode === 'render')}

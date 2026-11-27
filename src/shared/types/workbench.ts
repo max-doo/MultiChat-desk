@@ -288,11 +288,11 @@ export const IMAGE_EXTENSIONS = new Set([
 export const PDF_EXTENSIONS = new Set(['.pdf'])
 
 /**
- * Word 内嵌预览上限。
- * docx-preview 需要完整解压 OOXML 包并在 renderer 构建 DOM，
+ * Office 内嵌预览统一上限。
+ * docx / xlsx / pptx 都需要完整解压 OOXML 包并在 renderer 构建 DOM，
  * 超过该体积后峰值内存与渲染耗时都不适合常驻工作台，改走卡片兜底。
  */
-export const DOCX_PREVIEW_MAX_BYTES = 10 * 1024 * 1024
+export const OFFICE_PREVIEW_MAX_BYTES = 10 * 1024 * 1024
 
 export const DOCUMENT_EXTENSIONS = new Set([
   '.docx', '.doc', '.dotx', '.dot', '.rtf', '.odt',

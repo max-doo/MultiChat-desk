@@ -45,7 +45,7 @@ import {
     readTree as workbenchReadTree,
     readFile as workbenchReadFile,
     readPdfRange as workbenchReadPdfRange,
-    readDocxBytes as workbenchReadDocxBytes,
+    readOfficeBytes as workbenchReadOfficeBytes,
     writeFile as workbenchWriteFile,
     createNode as workbenchCreateNode,
     renameNode as workbenchRenameNode,
@@ -2191,12 +2191,12 @@ export async function registerIpcHandlers(
         }
     })
 
-    // Word 内嵌预览：整份字节走 IPC 二进制，跳过 base64 dataUrl 的字符串膨胀；
-    // 10MB 上限在 service 内校验，渲染层解析完成后不把 buffer 放进全局 store。
-    ipcMain.handle('workbench:read-docx-bytes', async (_event, payload: { workspaceRoot: string; relativePath: string }) => {
+    // Office 内嵌预览：整份字节走 IPC 二进制，跳过 base64 dataUrl 的字符串膨胀；
+    // 10MB 上限与格式白名单在 service 内校验，渲染层解析完成后不把 buffer 放进全局 store。
+    ipcMain.handle('workbench:read-office-bytes', async (_event, payload: { workspaceRoot: string; relativePath: string }) => {
         try {
             assertActiveWorkspace(payload.workspaceRoot)
-            const data = await workbenchReadDocxBytes(payload.workspaceRoot, payload.relativePath)
+            const data = await workbenchReadOfficeBytes(payload.workspaceRoot, payload.relativePath)
             return { success: true, data }
         } catch (err: unknown) {
             const error = err instanceof Error ? err.message : String(err)

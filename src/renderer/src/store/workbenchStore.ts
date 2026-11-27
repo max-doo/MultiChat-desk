@@ -234,8 +234,8 @@ interface WorkbenchStoreState {
   htmlVisualEditing: boolean
   /** 代码预览面板是否处于可编辑态（源码编辑/代码编辑）；只读查看态为 false。 */
   codePreviewEditable: boolean
-  /** 当前是否为 HTML 渲染表面（渲染/可视化编辑模式）：内容区为白底，宿主 UI 必须浅色。 */
-  htmlRenderSurface: boolean
+  /** 当前是否为浅色内容表面（HTML 渲染/可视化编辑、CSV 表格预览）：宿主 UI 必须浅色。 */
+  lightPreviewSurface: boolean
   /** 富文本 Markdown 防抖同步注册的冲刷回调：切模式/保存/切文件前同步落入 activeFileContent */
   markdownSyncFlusher: (() => void) | null
   /** 源码模式防抖同步注册的冲刷回调：切模式/保存/切文件/Git 操作前同步落入 activeFileContent */
@@ -366,7 +366,7 @@ interface WorkbenchStoreActions {
   setHtmlEditLeaveGuard: (guard: (() => Promise<HtmlEditLeaveDecision>) | null) => void
   setHtmlVisualEditing: (editing: boolean) => void
   setCodePreviewEditable: (editable: boolean) => void
-  setHtmlRenderSurface: (render: boolean) => void
+  setLightPreviewSurface: (render: boolean) => void
   markActiveFileDirty: () => void
   /** 可视化编辑撤销回到干净基线时回调，仅在该路径调用。 */
   unmarkActiveFileDirty: () => void
@@ -1170,7 +1170,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   htmlEditLeaveGuard: null,
   htmlVisualEditing: false,
   codePreviewEditable: false,
-  htmlRenderSurface: false,
+  lightPreviewSurface: false,
   markdownSyncFlusher: null,
   sourceSyncFlusher: null,
 
@@ -2495,7 +2495,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
 
   setCodePreviewEditable: (editable) => set({ codePreviewEditable: editable }),
 
-  setHtmlRenderSurface: (render) => set({ htmlRenderSurface: render }),
+  setLightPreviewSurface: (render) => set({ lightPreviewSurface: render }),
 
   markActiveFileDirty: () => {
     if (autoSaveTimer) {

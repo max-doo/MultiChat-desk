@@ -479,8 +479,8 @@ const api = {
       ipcRenderer.invoke('workbench:read-file', { workspaceRoot, relativePath }),
     readPdfRange: (workspaceRoot: string, relativePath: string, start: number, end: number): Promise<{ success: boolean; data?: { bytes: Uint8Array; size: number; mtime: number }; error?: string }> =>
       ipcRenderer.invoke('workbench:read-pdf-range', { workspaceRoot, relativePath, start, end }),
-    readDocxBytes: (workspaceRoot: string, relativePath: string): Promise<{ success: boolean; data?: { bytes: Uint8Array; size: number; mtime: number }; error?: string }> =>
-      ipcRenderer.invoke('workbench:read-docx-bytes', { workspaceRoot, relativePath }),
+    readOfficeBytes: (workspaceRoot: string, relativePath: string): Promise<{ success: boolean; data?: { bytes: Uint8Array; size: number; mtime: number }; error?: string }> =>
+      ipcRenderer.invoke('workbench:read-office-bytes', { workspaceRoot, relativePath }),
     writeFile: (workspaceRoot: string, relativePath: string, content: string): Promise<{ success: boolean; data?: WorkbenchWriteResult; error?: string }> =>
       ipcRenderer.invoke('workbench:write-file', { workspaceRoot, relativePath, content }),
     saveTextAs: (workspaceRoot: string, payload: { defaultFileName: string; content: string; title?: string; extensions?: string[] }): Promise<{ success: boolean; data?: boolean; error?: string }> =>

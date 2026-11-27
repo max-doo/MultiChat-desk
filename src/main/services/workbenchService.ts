@@ -19,7 +19,9 @@ import {
   open
 } from 'fs/promises'
 import { randomUUID } from 'crypto'
+import { isUtf8 } from 'buffer'
 import { tmpdir } from 'os'
+import iconv from 'iconv-lite'
 import {
   type WorkbenchFileNode,
   type WorkbenchSearchResult,
@@ -31,7 +33,7 @@ import {
   type WorkspaceLinkEntry,
   type UnreferencedImageGroup,
   type WorkspaceUnreferencedImagesSummary,
-  DOCX_PREVIEW_MAX_BYTES,
+  OFFICE_PREVIEW_MAX_BYTES,
   getFileCategory,
   MARKDOWN_EXTENSIONS,
   TEXT_EXTENSIONS,
@@ -207,6 +209,12 @@ const OFFICE_MIME_TYPES: Record<string, string> = {
   '.pps': 'application/vnd.ms-powerpoint',
   '.odp': 'application/vnd.oasis.opendocument.presentation'
 }
+
+/**
+ * 允许内嵌预览读取字节的 Office zip 容器格式（OOXML 家族）。
+ * 老 OLE 二进制（.doc/.xls/.ppt 等）不是 zip，jszip/xlsx 解析链不开放，继续落卡片。
+ */
+const OFFICE_PREVIEW_EXTENSIONS = new Set(['.docx', '.xlsx', '.xlsm', '.xltx', '.pptx', '.pptm', '.ppsx'])
 
 const SEARCHABLE_EXTENSIONS = new Set([
   ...MARKDOWN_EXTENSIONS,
@@ -1140,8 +1148,9 @@ export async function readFile(workspaceRoot: string, relativePath: string): Pro
       size: fileStat.size,
       category: 'document',
       isBinary: true,
-      // .docx 超过上限时提前标记，渲染层直接走卡片兜底，不再发起字节读取。
-      isOversized: ext === '.docx' && fileStat.size > DOCX_PREVIEW_MAX_BYTES
+      // 可内嵌预览的 Office zip 格式超过上限时提前标记，
+      // 渲染层直接走卡片兜底，不再发起字节读取。
+      isOversized: OFFICE_PREVIEW_EXTENSIONS.has(ext) && fileStat.size > OFFICE_PREVIEW_MAX_BYTES
     }
   }
 
@@ -1169,7 +1178,7 @@ export async function readFile(workspaceRoot: string, relativePath: string): Pro
     }
   }
 
-  const content = buffer.toString('utf-8')
+  const content = decodeTextBuffer(buffer, ext)
   return {
     content,
     fileUrl: ext === '.html' || ext === '.htm' ? toWorkbenchFileUrl(safePath) : undefined,
@@ -1182,12 +1191,39 @@ export async function readFile(workspaceRoot: string, relativePath: string): Pro
 
 const PDF_RANGE_MAX_BYTES = 4 * 1024 * 1024
 
+// GBK 回退只对 CSV/TSV 启用：这类文件在中文 Windows 上大量来自 Excel 导出的 ANSI(GBK) 编码，
+// 不做检测就是大面积乱码。其余文本类型维持原 UTF-8 直读行为，避免误转码的风险面扩大。
+const GBK_FALLBACK_EXTENSIONS = new Set(['.csv', '.tsv'])
+
 /**
- * 读取 docx 原始字节供 renderer 内嵌渲染。
+ * 文本解码：UTF-8/UTF-16 BOM 优先；无 BOM 的 csv/tsv 做 UTF-8 严格性检测，
+ * 含非法 UTF-8 序列时按 GBK 解码（Excel 中文导出默认编码）。
+ * 已知取舍：写回统一 UTF-8——读 GBK 编辑保存后文件编码转换，优于乱码下保存造成的内容损坏。
+ */
+function decodeTextBuffer(buffer: Buffer, ext: string): string {
+  if (buffer.length >= 3 && buffer[0] === 0xef && buffer[1] === 0xbb && buffer[2] === 0xbf) {
+    return buffer.subarray(3).toString('utf-8')
+  }
+  if (buffer.length >= 2 && buffer[0] === 0xff && buffer[1] === 0xfe) {
+    return buffer.subarray(2).toString('utf16le')
+  }
+  if (buffer.length >= 2 && buffer[0] === 0xfe && buffer[1] === 0xff) {
+    return iconv.decode(buffer.subarray(2), 'utf16be')
+  }
+  if (GBK_FALLBACK_EXTENSIONS.has(ext) && buffer.length > 0) {
+    if (!isUtf8(buffer)) {
+      return iconv.decode(buffer, 'gbk')
+    }
+  }
+  return buffer.toString('utf-8')
+}
+
+/**
+ * 读取 Office（docx/xlsx/pptx 家族）原始字节供 renderer 内嵌渲染。
  * 走 IPC 二进制而不是 base64 dataUrl：避免字符串膨胀与多次拷贝，
  * 渲染完成后 renderer 即可释放这段 ArrayBuffer，不进入全局 store。
  */
-export async function readDocxBytes(
+export async function readOfficeBytes(
   workspaceRoot: string,
   relativePath: string
 ): Promise<{ bytes: Uint8Array; size: number; mtime: number }> {
@@ -1196,11 +1232,11 @@ export async function readDocxBytes(
   if (fileStat.isDirectory()) {
     throw new Error('目标是目录，无法作为文件读取')
   }
-  if (path.extname(safePath).toLowerCase() !== '.docx') {
-    throw new Error('仅支持读取 .docx 文件')
+  if (!OFFICE_PREVIEW_EXTENSIONS.has(path.extname(safePath).toLowerCase())) {
+    throw new Error('仅支持读取 OOXML 格式（.docx/.xlsx/.pptx 家族）文件')
   }
-  if (fileStat.size > DOCX_PREVIEW_MAX_BYTES) {
-    throw new Error('DOCX 文件超过 10MB 内嵌预览上限')
+  if (fileStat.size > OFFICE_PREVIEW_MAX_BYTES) {
+    throw new Error('文件超过 10MB 内嵌预览上限')
   }
   const buffer = await fsReadFile(safePath)
   return {

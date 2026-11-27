@@ -70,6 +70,8 @@ import WorkbenchCodePreview from './WorkbenchCodePreview'
 import WorkbenchImagePreview from './WorkbenchImagePreview'
 import WorkbenchPdfPreview from './WorkbenchPdfPreview'
 import WorkbenchDocxPreview from './WorkbenchDocxPreview'
+import WorkbenchXlsxPreview from './WorkbenchXlsxPreview'
+import WorkbenchPptxPreview from './WorkbenchPptxPreview'
 import WorkbenchDocxCard from './WorkbenchDocxCard'
 import WorkbenchStatusPill from './WorkbenchStatusPill'
 import WorkbenchFindReplaceBar from './WorkbenchFindReplaceBar'
@@ -269,7 +271,7 @@ function WorkbenchEditor({ isActive = true }: WorkbenchEditorProps): JSX.Element
   const setQuickOpenOpen = useWorkbenchStore((s) => s.setQuickOpenOpen)
   const openInSystem = useWorkbenchStore((s) => s.openInSystem)
   const saveActiveFile = useWorkbenchStore((s) => s.saveActiveFile)
-  const htmlRenderSurface = useWorkbenchStore((s) => s.htmlRenderSurface)
+  const lightPreviewSurface = useWorkbenchStore((s) => s.lightPreviewSurface)
 
   const [floatingAnchorElem, setFloatingAnchorElem] = useState<HTMLDivElement | null>(null)
   const wysiwygScrollRef = useRef<HTMLDivElement | null>(null)
@@ -485,8 +487,8 @@ function WorkbenchEditor({ isActive = true }: WorkbenchEditorProps): JSX.Element
   if (activeFileCategory === 'code') {
     return (
       <div
-        className={`relative flex-1 h-full flex flex-col overflow-hidden ${htmlRenderSurface ? '' : 'dark'}`}
-        data-reader-theme={htmlRenderSurface ? undefined : 'dark'}
+        className={`relative flex-1 h-full flex flex-col overflow-hidden ${lightPreviewSurface ? '' : 'dark'}`}
+        data-reader-theme={lightPreviewSurface ? undefined : 'dark'}
       >
         <WorkbenchCodePreview key={activeFilePath} isActive={isActive} />
         <WorkbenchStatusPill />
@@ -503,8 +505,17 @@ function WorkbenchEditor({ isActive = true }: WorkbenchEditorProps): JSX.Element
   }
 
   if (activeFileCategory === 'document') {
-    if (activeFilePath.toLowerCase().endsWith('.docx')) {
+    const officeExt = activeFilePath.toLowerCase().match(/\.[a-z0-9]+$/)?.[0] ?? ''
+    if (officeExt === '.docx') {
       return <WorkbenchDocxPreview key={activeFilePath} />
+    }
+    // xlsx 家族（xlsm/xltx 同为 zip 容器）走表格预览；pptx 家族走内容预览。
+    // 老 OLE 格式（.doc/.xls/.ppt/.xlsb 等）不是 zip，jszip/xlsx 解析链不开放，落卡片。
+    if (officeExt === '.xlsx' || officeExt === '.xlsm' || officeExt === '.xltx') {
+      return <WorkbenchXlsxPreview key={activeFilePath} />
+    }
+    if (officeExt === '.pptx' || officeExt === '.pptm' || officeExt === '.ppsx') {
+      return <WorkbenchPptxPreview key={activeFilePath} />
     }
     return <WorkbenchDocxCard key={activeFilePath} />
   }
@@ -512,8 +523,8 @@ function WorkbenchEditor({ isActive = true }: WorkbenchEditorProps): JSX.Element
   if (activeFileCategory === 'text') {
     return (
       <div
-        className="relative flex-1 h-full flex flex-col overflow-hidden dark"
-        data-reader-theme="dark"
+        className={`relative flex-1 h-full flex flex-col overflow-hidden ${lightPreviewSurface ? '' : 'dark'}`}
+        data-reader-theme={lightPreviewSurface ? undefined : 'dark'}
       >
         <WorkbenchCodePreview key={activeFilePath} isActive={isActive} />
         <WorkbenchStatusPill />

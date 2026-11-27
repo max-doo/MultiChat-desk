@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Options } from 'docx-preview'
-import { DOCX_PREVIEW_MAX_BYTES } from '../../../../shared/types/workbench'
+import { OFFICE_PREVIEW_MAX_BYTES } from '../../../../shared/types/workbench'
 import { useWorkbenchStore, type WorkbenchAiAction } from '../../store/workbenchStore'
 import { formatFileSize } from '../../utils/formatBytes'
 import { convertMetafileImages } from '../../utils/docxMetafileImages'
@@ -225,7 +225,7 @@ export default function WorkbenchDocxPreview(): JSX.Element {
   }, [])
 
   const oversized =
-    activeFileOversized || (typeof activeFileSize === 'number' && activeFileSize > DOCX_PREVIEW_MAX_BYTES)
+    activeFileOversized || (typeof activeFileSize === 'number' && activeFileSize > OFFICE_PREVIEW_MAX_BYTES)
 
   const formattedSize = useMemo(() => formatFileSize(activeFileSize), [activeFileSize])
 
@@ -320,7 +320,7 @@ export default function WorkbenchDocxPreview(): JSX.Element {
     clearDocxContainer(container)
 
     const render = async (): Promise<void> => {
-      const result = await window.api.workbench.readDocxBytes(workspacePath, activeFilePath)
+      const result = await window.api.workbench.readOfficeBytes(workspacePath, activeFilePath)
       if (cancelled) return
       if (!result.success || !result.data) {
         throw new Error(result.error || '读取 Word 文档失败')
