@@ -29,6 +29,7 @@ import {
   useWorkbenchStore,
   type HtmlEditLeaveDecision
 } from '../../store/workbenchStore'
+import { useAnnotationStore } from '../../store/annotationStore'
 import { useGitLineDiff } from '../../hooks/useGitLineDiff'
 import { readEditorScroll, rememberEditorScroll } from './workbenchEditorScroll'
 import WorkbenchFindReplaceBar from './WorkbenchFindReplaceBar'
@@ -989,6 +990,19 @@ export default function WorkbenchCodePreview({
     if (leaveBusy) return
     finishLeaveRequest('cancelled')
   }, [finishLeaveRequest, leaveBusy])
+
+  const workspacePathForReveal = useWorkbenchStore((s) => s.workspacePath)
+  const pendingReveal = useAnnotationStore((s) => s.pendingReveal)
+  useEffect(() => {
+    if (!pendingReveal || !isHtmlFile || viewMode === 'render') return
+    if (
+      pendingReveal.workspaceRoot !== workspacePathForReveal ||
+      pendingReveal.relativePath !== activeFilePath
+    ) {
+      return
+    }
+    void handleModeClick('render')
+  }, [activeFilePath, handleModeClick, isHtmlFile, pendingReveal, viewMode, workspacePathForReveal])
 
   const handleVisualDirtyChange = useCallback((dirty: boolean) => {
     visualDirtyRef.current = dirty

@@ -21,6 +21,7 @@ import { LinkNode, AutoLinkNode } from '@lexical/link'
 import { MarkNode } from '@lexical/mark'
 
 import { isNewTabPath, useWorkbenchStore } from '../../store/workbenchStore'
+import { useAnnotationStore } from '../../store/annotationStore'
 import WorkbenchToolbar from './WorkbenchToolbar'
 import WorkbenchSourceToolbar from './WorkbenchSourceToolbar'
 import { AppIcon } from '../icons/AppIcon'
@@ -322,6 +323,10 @@ function WorkbenchEditor({ isActive = true }: WorkbenchEditorProps): JSX.Element
   // 预览与源码切换会卸载当前编辑器；重新进入预览后，等 Markdown 解析完成再恢复滚动位置
   useEffect(() => {
     if (editorMode !== 'wysiwyg' || !activeFilePath) return
+    const pending = useAnnotationStore.getState().pendingReveal
+    if (pending && pending.workspaceRoot === workspacePath && pending.relativePath === activeFilePath) {
+      return
+    }
     const container = wysiwygScrollRef.current
     if (!container) return
     const target = readEditorScroll(workspacePath, activeFilePath, 'wysiwyg')

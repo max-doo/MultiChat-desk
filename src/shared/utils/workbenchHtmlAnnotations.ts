@@ -49,6 +49,7 @@ export const WORKBENCH_HTML_ANNOTATION_RUNTIME = String.raw`
   var observer = null;
   var resolveTimer = null;
   var lastDismissAt = 0;
+  var ignoreScrollUntil = 0;
   var WHEEL_ZOOM_THRESHOLD = 60;
   var accumulatedWheelDelta = 0;
   var pendingWheelAnchor = null;
@@ -323,7 +324,26 @@ export const WORKBENCH_HTML_ANNOTATION_RUNTIME = String.raw`
     }
   }
 
-  function updateFocusHighlight() {
+  function scrollRangeIntoView(range) {
+    if (!range) return;
+    ignoreScrollUntil = Date.now() + 700;
+    try {
+      var node = range.startContainer;
+      var el = node && node.nodeType === 1 ? node : node && node.parentElement;
+      if (el && el.scrollIntoView) {
+        el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        return;
+      }
+      var rect = range.getBoundingClientRect();
+      if (rect) {
+        window.scrollBy({ top: rect.top - window.innerHeight / 2, behavior: 'smooth' });
+      }
+    } catch (err) {
+      /* noop */
+    }
+  }
+
+  function updateFocusHighlight(shouldScroll) {
     if (!SUPPORTED) return;
     try {
       CSS.highlights.delete(FOCUS_NAME);
@@ -341,6 +361,9 @@ export const WORKBENCH_HTML_ANNOTATION_RUNTIME = String.raw`
     if (focusTarget) {
       try {
         CSS.highlights.set(FOCUS_NAME, new Highlight(focusTarget.range));
+        if (shouldScroll) {
+          scrollRangeIntoView(focusTarget.range);
+        }
       } catch (err) {
         /* noop */
       }
@@ -630,6 +653,7 @@ export const WORKBENCH_HTML_ANNOTATION_RUNTIME = String.raw`
   }
 
   function onScroll() {
+    if (Date.now() < ignoreScrollUntil) return;
     if (activeId) {
       activeId = '';
       updateFocusHighlight();
@@ -736,7 +760,7 @@ export const WORKBENCH_HTML_ANNOTATION_RUNTIME = String.raw`
     }
     if (data.type === 'focus') {
       activeId = typeof data.id === 'string' ? data.id : '';
-      updateFocusHighlight();
+      updateFocusHighlight(Boolean(data.scroll));
     }
   }
 

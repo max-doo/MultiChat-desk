@@ -106,9 +106,11 @@ import {
 import {
     captureSourceAnnotation,
     ensureDocumentForSource,
-    captureExcerptDocument
+    captureExcerptDocument,
+    listWorkspaceAnnotations
 } from './services/conversationDocumentService'
 import { AgentSessionService } from './services/AgentSessionService'
+import { convertPptx as convertPptxDocument, readConvertedPdfRange } from './services/pptxConvertService'
 import { getBundledSkillsRoot } from './services/bundledSkills'
 import { LegacyMigrationService } from './services/legacyMigrationService'
 import {
@@ -120,6 +122,7 @@ import type {
     AnnotationSource,
     AnnotationChangedEvent,
     AnnotationAnchor,
+    CapturedDocumentRef,
     CaptureExcerptInput,
     CaptureSourceInput,
     DocumentResolution,
@@ -1921,6 +1924,13 @@ export async function registerIpcHandlers(
         } catch (err: unknown) { return { success: false, error: err instanceof Error ? err.message : String(err) } }
     })
 
+    ipcMain.handle('annotations:list-workspace', async (_event, payload: { workspaceRoot: string }) => {
+        try {
+            assertActiveWorkspace(payload.workspaceRoot)
+            return { success: true, data: await listWorkspaceAnnotations(store, payload.workspaceRoot) }
+        } catch (err: unknown) { return { success: false, error: err instanceof Error ? err.message : String(err) } }
+    })
+
     ipcMain.handle('annotations:list-source', async (_event, payload: { sourceKey: string }) => {
         try {
             const workspace = await workbenchEnsureDefaultWorkspace(store)
@@ -2100,6 +2110,32 @@ export async function registerIpcHandlers(
                 })
             }
             return { success: true, data }
+        }
+        catch (err: unknown) { return { success: false, error: err instanceof Error ? err.message : String(err) } }
+    })
+
+    ipcMain.handle('annotations:open-captured-document', async (_event, payload: CapturedDocumentRef) => {
+        try {
+            const relativePath = typeof payload?.relativePath === 'string' ? payload.relativePath : ''
+            const invalid =
+                !payload ||
+                typeof payload.workspaceRoot !== 'string' ||
+                !payload.workspaceRoot ||
+                !relativePath ||
+                relativePath.includes('\\') ||
+                relativePath.includes(':') ||
+                relativePath.startsWith('/') ||
+                relativePath.split('/').some(seg => seg === '..' || seg === '')
+            if (invalid) return { success: false, error: '文档定位信息无效' }
+            const win = getMainWindow()
+            if (!win || win.isDestroyed()) return { success: false, error: '主窗口不可用' }
+            showAndFocusWindow(win)
+            getQuickWindow()?.hide()
+            win.webContents.send('annotations:open-captured-document', {
+                workspaceRoot: payload.workspaceRoot,
+                relativePath
+            })
+            return { success: true }
         }
         catch (err: unknown) { return { success: false, error: err instanceof Error ? err.message : String(err) } }
     })

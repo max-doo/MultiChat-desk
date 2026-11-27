@@ -861,3 +861,87 @@ export async function deleteSourceAnnotation(
 export async function hasSourceAnnotations(defaultWorkspaceRoot: string, sourceKey: string): Promise<boolean> {
   return stat(sourceFile(defaultWorkspaceRoot, sourceKey)).then(() => true, () => false)
 }
+
+function isSafeRelativeDocPath(workspaceRoot: string, relativePath: string): boolean {
+  if (!relativePath || path.isAbsolute(relativePath)) return false
+  const resolvedRoot = path.resolve(workspaceRoot)
+  const resolvedTarget = path.resolve(resolvedRoot, relativePath)
+  const rel = path.relative(resolvedRoot, resolvedTarget)
+  return Boolean(rel) && !rel.startsWith('..') && !path.isAbsolute(rel)
+}
+
+/**
+ * 扫描当前工作区下所有存在文档的 document 标注并按 relativePath 分组。
+ * 损坏或目标文件已不存在的旁路条目自动跳过。
+ */
+export async function listWorkspaceDocumentAnnotations(
+  workspaceRoot: string
+): Promise<Map<string, Annotation[]>> {
+  const grouped = new Map<string, Annotation[]>()
+  const dir = path.join(workspaceRoot, ANNOTATION_DIR, 'documents')
+  let names: string[]
+  try {
+    names = (await readdir(dir)).filter(name => name.endsWith('.json'))
+  } catch {
+    return grouped
+  }
+
+  for (const name of names) {
+    try {
+      const file = await readJson<DocumentAnnotationFile>(path.join(dir, name))
+      if (!file || !Array.isArray(file.annotations)) continue
+      const relativePath = posix(String(file.document?.relativePath ?? '').trim())
+      if (!isSafeRelativeDocPath(workspaceRoot, relativePath)) continue
+      const annotations = file.annotations.filter(item => item && item.scope === 'document')
+      if (!annotations.length) continue
+      const targetInfo = await stat(path.join(workspaceRoot, relativePath)).catch(() => null)
+      if (!targetInfo?.isFile()) continue
+      setDocPathIndex(workspaceRoot, relativePath, name)
+      const prev = grouped.get(relativePath)
+      if (!prev) {
+        grouped.set(relativePath, annotations)
+      } else {
+        const byId = new Map(prev.map(item => [item.id, item]))
+        for (const item of annotations) {
+          const existing = byId.get(item.id)
+          if (!existing || item.updatedAt >= existing.updatedAt) {
+            byId.set(item.id, item)
+          }
+        }
+        grouped.set(relativePath, [...byId.values()])
+      }
+    } catch {
+      // 单个损坏文件不影响其余标注聚合
+    }
+  }
+  return grouped
+}
+
+/**
+ * 读取默认库内全部按 sourceKey 归类的原文标注；无原文标注时返回空 Map。
+ */
+export async function listAllSourceAnnotations(
+  defaultWorkspaceRoot: string
+): Promise<Map<string, Annotation[]>> {
+  const bySourceKey = new Map<string, Annotation[]>()
+  const dir = path.join(defaultWorkspaceRoot, ANNOTATION_DIR, 'sources')
+  let names: string[]
+  try {
+    names = (await readdir(dir)).filter(name => name.endsWith('.json'))
+  } catch {
+    return bySourceKey
+  }
+
+  for (const name of names) {
+    try {
+      const file = await readJson<SourceAnnotationFile>(path.join(dir, name))
+      if (!file || !file.source?.key || !Array.isArray(file.annotations)) continue
+      const annotations = file.annotations.filter(item => item && item.scope === 'source')
+      if (!annotations.length) continue
+      bySourceKey.set(file.source.key, annotations)
+    } catch {
+      // 单个损坏文件不影响其他来源
+    }
+  }
+  return bySourceKey
+}

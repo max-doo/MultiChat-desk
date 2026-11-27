@@ -128,12 +128,21 @@ const BANNER_TONE_ICON: Record<StatusBannerTone, string> = {
   info: 'info'
 }
 
+const BANNER_TONE_ICON_SOFT_CLASS: Record<StatusBannerTone, string> = {
+  error: 'text-rose-500',
+  success: 'text-emerald-500',
+  warning: 'text-amber-500',
+  info: 'text-primary'
+}
+
 export interface StatusBannerProps {
   tone: StatusBannerTone
   message: ReactNode
   onClose?: () => void
   actions?: ReactNode
   showIcon?: boolean
+  /** soft：浅色底 + 彩色图标，用于成功等不需要强提醒的轻提示；默认实心彩色底用于错误/警告类强提醒。 */
+  variant?: 'solid' | 'soft'
   className?: string
 }
 
@@ -144,20 +153,30 @@ export function StatusBanner({
   onClose,
   actions,
   showIcon = true,
+  variant = 'solid',
   className = ''
 }: StatusBannerProps): JSX.Element {
+  const surfaceClass =
+    variant === 'soft'
+      ? 'bg-white text-text-primary border border-black/10 dark:border-white/10 dark:bg-gray-800 dark:text-gray-100'
+      : BANNER_TONE_CLASS[tone]
+  const iconClass = variant === 'soft' ? BANNER_TONE_ICON_SOFT_CLASS[tone] : ''
+  const closeClass =
+    variant === 'soft'
+      ? 'hover:bg-black/5 dark:hover:bg-white/10 text-text-secondary'
+      : 'hover:bg-white/20'
   return (
     <div
-      className={`absolute top-3 left-1/2 -translate-x-1/2 z-popover px-4 py-2 rounded-xl shadow-xl flex items-center gap-2 text-label font-medium ${BANNER_TONE_CLASS[tone]} ${className}`}
+      className={`absolute top-3 left-1/2 -translate-x-1/2 z-popover px-4 py-2 rounded-xl shadow-xl flex items-center gap-2 text-label font-medium ${surfaceClass} ${className}`}
     >
-      {showIcon && <AppIcon name={BANNER_TONE_ICON[tone]} size={16} />}
+      {showIcon && <AppIcon name={BANNER_TONE_ICON[tone]} size={16} className={iconClass} />}
       <span>{message}</span>
       {actions}
       {onClose && (
         <button
           type="button"
           onClick={onClose}
-          className="w-4 h-4 flex items-center justify-center hover:bg-white/20 rounded-full"
+          className={`w-4 h-4 flex items-center justify-center rounded-full ${closeClass}`}
           aria-label="关闭提示"
         >
           <AppIcon name="close" size={12} />

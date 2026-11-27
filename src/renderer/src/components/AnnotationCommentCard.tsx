@@ -1,4 +1,12 @@
-import type { CSSProperties, ReactNode } from 'react'
+import {
+  forwardRef,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode
+} from 'react'
+import { clampPopoverPosition } from '../utils/noteInteractions'
 import { AppIcon } from './icons/AppIcon'
 
 interface Props {
@@ -17,31 +25,94 @@ interface Props {
   footerStart?: ReactNode
   className?: string
   style?: CSSProperties
+  clampBounds?: 'viewport' | 'parent'
+  clampMargin?: number
+  clampMinTop?: number
 }
 
 /** 原文采集、正文高亮和原文高亮共用的评论卡。 */
-export default function AnnotationCommentCard({
-  title,
-  quote,
-  value,
-  onChange,
-  onCancel,
-  onSave,
-  saveLabel = '保存标注',
-  busy = false,
-  error,
-  placeholder = '添加评论…',
-  showInput = true,
-  autoFocus = true,
-  footerStart,
-  className = '',
-  style
-}: Props): JSX.Element {
+const AnnotationCommentCard = forwardRef<HTMLDivElement, Props>(function AnnotationCommentCard(
+  {
+    title,
+    quote,
+    value,
+    onChange,
+    onCancel,
+    onSave,
+    saveLabel = '保存标注',
+    busy = false,
+    error,
+    placeholder = '添加评论…',
+    showInput = true,
+    autoFocus = true,
+    footerStart,
+    className = '',
+    style,
+    clampBounds,
+    clampMargin = 8,
+    clampMinTop = clampMargin
+  },
+  forwardedRef
+): JSX.Element {
+  const innerRef = useRef<HTMLDivElement | null>(null)
+  const [clamped, setClamped] = useState<{ left: number; top: number } | null>(null)
+
+  const setRef = (node: HTMLDivElement | null): void => {
+    innerRef.current = node
+    if (typeof forwardedRef === 'function') forwardedRef(node)
+    else if (forwardedRef) forwardedRef.current = node
+  }
+
+  const rawLeft = typeof style?.left === 'number' ? style.left : null
+  const rawTop = typeof style?.top === 'number' ? style.top : null
+
+  useLayoutEffect(() => {
+    if (!clampBounds || rawLeft === null || rawTop === null) {
+      setClamped(null)
+      return
+    }
+    const el = innerRef.current
+    if (!el) return
+
+    const update = (): void => {
+      const rect = el.getBoundingClientRect()
+      const parent = el.offsetParent as HTMLElement | null
+      const bounds =
+        clampBounds === 'parent' && parent
+          ? { width: parent.clientWidth, height: parent.clientHeight }
+          : { width: window.innerWidth, height: window.innerHeight }
+      const next = clampPopoverPosition(
+        rawLeft,
+        rawTop,
+        bounds,
+        { width: rect.width, height: rect.height },
+        clampMargin,
+        clampMinTop
+      )
+      setClamped(prev =>
+        prev && prev.left === next.left && prev.top === next.top ? prev : next
+      )
+    }
+
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(el)
+    window.addEventListener('resize', update)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('resize', update)
+    }
+  }, [clampBounds, clampMargin, clampMinTop, rawLeft, rawTop])
+
+  const mergedStyle: CSSProperties | undefined =
+    clamped && style ? { ...style, left: clamped.left, top: clamped.top } : style
+
   return (
     <div
+      ref={setRef}
       data-annotation-popover="true"
-      className={`w-[360px] liquid-glass-menu rounded-xl border-amber-500/70 p-4 text-text-primary no-drag dark:border-amber-400/70 ${className}`}
-      style={style}
+      className={`w-[360px] max-w-[calc(100vw-16px)] liquid-glass-menu rounded-xl border-amber-500/70 p-4 text-text-primary no-drag dark:border-amber-400/70 ${className}`}
+      style={mergedStyle}
     >
       <div className="flex items-center justify-between gap-2">
         <strong className="text-body font-semibold">{title}</strong>
@@ -89,4 +160,6 @@ export default function AnnotationCommentCard({
       </div>
     </div>
   )
-}
+})
+
+export default AnnotationCommentCard

@@ -14,6 +14,7 @@ import { useWebviewActions } from '../hooks/useWebviewActions'
 import { useSourceAnnotations } from '../hooks/useSourceAnnotations'
 import WebviewFindBar from './WebviewFindBar'
 import AnnotationCommentCard from './AnnotationCommentCard'
+import { clampPopoverPosition } from '../utils/noteInteractions'
 import { AppIcon } from './icons/AppIcon'
 import agentAvatar from '../assets/logos/agent.png'
 
@@ -173,7 +174,7 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
       isHibernated
     })
 
-    // 原文标注：只认默认会话库的 sources/，不读写当前仓库
+    // 原文标注：只认默认工作区的 sources/，不读写当前仓库
     const [sourceKey, setSourceKey] = useState<string | null>(null)
     useEffect(() => {
       if (!enabled) return
@@ -607,10 +608,12 @@ const WebviewCard = forwardRef<WebviewCardRef, WebviewCardProps>(
             createPortal(
               <AnnotationCommentCard
                 className="fixed z-[60]"
-                style={{
-                  left: Math.max(8, Math.min(sourceAnnotations.hit.x - 20, window.innerWidth - 336)),
-                  top: Math.max(8, Math.min(sourceAnnotations.hit.y - 20, window.innerHeight - 320))
-                }}
+                style={clampPopoverPosition(
+                  sourceAnnotations.hit.x - 20,
+                  sourceAnnotations.hit.y - 20,
+                  { width: window.innerWidth, height: window.innerHeight }
+                )}
+                clampBounds="viewport"
                 title="修改评论"
                 quote={sourceAnnotations.hit.quote}
                 value={hitComment}

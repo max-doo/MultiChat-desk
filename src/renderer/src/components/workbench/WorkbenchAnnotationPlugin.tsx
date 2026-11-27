@@ -42,8 +42,9 @@ import { readConversationSource } from '../../../../shared/utils/conversationSou
 import { useWorkbenchStore } from '../../store/workbenchStore'
 import { useAnnotationStore } from '../../store/annotationStore'
 import AnnotationCommentCard from '../AnnotationCommentCard'
+import { clampPopoverPosition } from '../../utils/noteInteractions'
 import { serializeWorkbenchMarkdown } from './MarkdownSyncPlugin'
-import { allMarks, markAtTarget, unwrapAllMarks, unwrapMark } from './workbenchAnnotationUtils'
+import { allMarks, findMarkDom, markAtTarget, unwrapAllMarks, unwrapMark } from './workbenchAnnotationUtils'
 
 export const WORKBENCH_ANNOTATE_COMMAND: LexicalCommand<void> = createCommand(
   'WORKBENCH_ANNOTATE_COMMAND'
@@ -509,6 +510,7 @@ export default function WorkbenchAnnotationPlugin({
   const editorMode = useWorkbenchStore(s => s.editorMode)
   const saveActiveFile = useWorkbenchStore(s => s.saveActiveFile)
   const selectedId = useAnnotationStore(s => s.selectedId)
+  const pendingReveal = useAnnotationStore(s => s.pendingReveal)
   const documentAnnotations = useAnnotationStore(s => s.documentAnnotations)
   const sourceAnnotations = useAnnotationStore(s => s.sourceAnnotations)
   const [popover, setPopover] = useState<CommentPopover | null>(null)
@@ -662,6 +664,10 @@ export default function WorkbenchAnnotationPlugin({
         appliedRef.current = { token, version: importedRef.current.version }
         lastProjectedSnapshotRef.current = { token, editorMode, items: snapshotItems }
         useAnnotationStore.getState().setResolutions([], token)
+        const reveal = state.pendingReveal
+        if (reveal && reveal.workspaceRoot === workspacePath && reveal.relativePath === activeFilePath) {
+          state.clearReveal(reveal.nonce)
+        }
         return
       }
     }
@@ -722,6 +728,25 @@ export default function WorkbenchAnnotationPlugin({
       })),
       token
     )
+    const reveal = useAnnotationStore.getState().pendingReveal
+    if (reveal && reveal.workspaceRoot === workspacePath && reveal.relativePath === activeFilePath) {
+      const exists = [...state.documentAnnotations, ...state.sourceAnnotations].some(
+        item => item.id === reveal.annotationId
+      )
+      useAnnotationStore.getState().clearReveal(reveal.nonce)
+      if (exists) {
+        useAnnotationStore.getState().setSelected(reveal.annotationId)
+        requestAnimationFrame(() => {
+          const dom = findMarkDom(editor, reveal.annotationId)
+          if (!dom) return
+          try {
+            dom.scrollIntoView({ block: 'center', behavior: 'smooth' })
+          } catch {
+            // ignore
+          }
+        })
+      }
+    }
   }, [activeFilePath, editor, editorMode, showHint, workspacePath])
 
   // 标注增删改后重新投影：删除要清掉正文残留，评论保存和撤销重做要重算未定位；
@@ -911,6 +936,31 @@ export default function WorkbenchAnnotationPlugin({
     window.addEventListener('workbench:markdown-imported', handler)
     return () => window.removeEventListener('workbench:markdown-imported', handler)
   }, [workspacePath, activeFilePath, applyAnnotations])
+
+  useEffect(() => {
+    if (!pendingReveal || editorMode !== 'wysiwyg') return
+    if (pendingReveal.workspaceRoot !== workspacePath || pendingReveal.relativePath !== activeFilePath) return
+    const state = useAnnotationStore.getState()
+    if (state.workspaceRoot !== workspacePath || state.relativePath !== activeFilePath) return
+    if (!readyRef.current.document || !readyRef.current.source) return
+    if (readyRef.current.token !== state.token || appliedRef.current.token !== state.token) return
+
+    const exists = [...state.documentAnnotations, ...state.sourceAnnotations].some(
+      item => item.id === pendingReveal.annotationId
+    )
+    state.clearReveal(pendingReveal.nonce)
+    if (!exists) return
+    state.setSelected(pendingReveal.annotationId)
+    requestAnimationFrame(() => {
+      const dom = findMarkDom(editor, pendingReveal.annotationId)
+      if (!dom) return
+      try {
+        dom.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      } catch {
+        // ignore
+      }
+    })
+  }, [activeFilePath, editor, editorMode, pendingReveal, workspacePath])
 
   useEffect(() => {
     if (!selectedId) return
@@ -1275,12 +1325,16 @@ export default function WorkbenchAnnotationPlugin({
       // 先弹评论卡，保存时才落盘；取消则撤回这条临时标注。
       if (rect && anchorElem) {
         const anchorRect = anchorElem.getBoundingClientRect()
+        const pos = clampPopoverPosition(
+          rect.left - anchorRect.left,
+          rect.bottom - anchorRect.top + 8,
+          { width: anchorRect.width, height: anchorRect.height }
+        )
         setPopover({
           id,
           documentKey,
           quote,
-          left: Math.max(8, rect.left - anchorRect.left),
-          top: rect.bottom - anchorRect.top + 8,
+          ...pos,
           mode: 'create'
         })
       } else {
@@ -1417,18 +1471,20 @@ export default function WorkbenchAnnotationPlugin({
         discardDraft(previous.id)
       }
       const anchorRect = anchorElem?.getBoundingClientRect()
-      const left = anchorRect
-        ? Math.max(8, Math.min(clientX - anchorRect.left - 24, anchorRect.width - 328))
-        : 8
-      const top = anchorRect ? Math.max(8, clientY - anchorRect.top + 12) : 8
+      const pos = anchorRect
+        ? clampPopoverPosition(
+            clientX - anchorRect.left - 24,
+            clientY - anchorRect.top + 12,
+            { width: anchorRect.width, height: anchorRect.height }
+          )
+        : { left: 8, top: 8 }
       setComment(annotation.comment)
       setCommentError(null)
       setPopover({
         id: annotation.id,
         documentKey,
         quote: annotation.quote,
-        left,
-        top,
+        ...pos,
         mode: 'edit'
       })
     },
@@ -1545,6 +1601,7 @@ export default function WorkbenchAnnotationPlugin({
           <AnnotationCommentCard
             className="absolute z-popover"
             style={{ left: popover.left, top: popover.top }}
+            clampBounds="parent"
             title={popover.mode === 'create' ? '标注' : '修改评论'}
             quote={popover.quote}
             value={comment}

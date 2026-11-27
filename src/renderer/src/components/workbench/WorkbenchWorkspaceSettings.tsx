@@ -162,12 +162,12 @@ export default function WorkbenchWorkspaceSettings({
         setDefaultWorkspaceError(null)
       } else {
         setDefaultWorkspace(null)
-        setDefaultWorkspaceError(result.error || '默认会话库不可用')
+        setDefaultWorkspaceError(result.error || '默认工作区不可用')
       }
     }).catch(error => {
       if (!alive) return
       setDefaultWorkspace(null)
-      setDefaultWorkspaceError(error instanceof Error ? error.message : '默认会话库不可用')
+      setDefaultWorkspaceError(error instanceof Error ? error.message : '默认工作区不可用')
     })
     void window.api.notesMigrationPending().then(result => {
       if (!alive) return
@@ -276,7 +276,7 @@ export default function WorkbenchWorkspaceSettings({
     if (!jobId) return
     if (
       !window.confirm(
-        '放弃本次迁移？已完成记录会留在实际目标（普通会话在默认会话库，工作台记录在原工作区）。'
+        '放弃本次迁移？已完成记录会留在实际目标（普通会话在默认工作区，工作台记录在原工作区）。'
       )
     ) {
       return
@@ -755,7 +755,7 @@ export default function WorkbenchWorkspaceSettings({
 
               <section className="rounded-lg border border-slate-200/80 bg-slate-50/60 p-2.5 dark:border-slate-800 dark:bg-slate-800/40">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-label font-semibold text-text-primary">全局默认会话库</h3>
+                  <h3 className="text-label font-semibold text-text-primary">全局默认工作区</h3>
                   {defaultWorkspaceError ? (
                     <span className="flex items-center gap-1 text-caption font-medium text-rose-600 dark:text-rose-400">
                       <AppIcon name="warning" size={14} />

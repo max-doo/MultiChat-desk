@@ -93,6 +93,12 @@ export interface DocumentAnnotationRef {
   relativePath: string
 }
 
+export interface WorkspaceAnnotationDocumentGroup {
+  relativePath: string
+  updatedAt: number
+  annotations: Annotation[]
+}
+
 export interface CapturedDocumentRef {
   workspaceRoot: string
   relativePath: string

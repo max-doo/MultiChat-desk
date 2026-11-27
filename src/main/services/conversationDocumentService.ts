@@ -12,7 +12,8 @@ import type {
   CapturedDocumentRef,
   ConversationScanResult,
   EnsureDocumentResult,
-  SourceAnnotationFile
+  SourceAnnotationFile,
+  WorkspaceAnnotationDocumentGroup
 } from '../../shared/types/annotations'
 import { noteConversationKey } from '../../shared/utils/noteIdentity'
 import { isConversationUrlForPlatform } from '../../shared/utils/conversationUrl'
@@ -31,7 +32,9 @@ import {
 } from './workbenchService'
 import {
   hasSourceAnnotations,
+  listAllSourceAnnotations,
   listSourceAnnotations,
+  listWorkspaceDocumentAnnotations,
   readSourceSnapshot,
   upsertSourceAnnotation
 } from './annotationService'
@@ -502,4 +505,66 @@ export async function readConversationSourceFile(filePath: string): Promise<Sour
 
 export function defaultConversationDir(): string {
   return path.join(app.getPath('documents'), 'MultiChat Vault', 'conversations')
+}
+
+function sortWorkspaceGroupAnnotations(items: Annotation[]): Annotation[] {
+  return [...items].sort((a, b) => {
+    const offsetA =
+      typeof a.anchor?.offsetHint === 'number' && Number.isFinite(a.anchor.offsetHint)
+        ? a.anchor.offsetHint
+        : Number.MAX_SAFE_INTEGER
+    const offsetB =
+      typeof b.anchor?.offsetHint === 'number' && Number.isFinite(b.anchor.offsetHint)
+        ? b.anchor.offsetHint
+        : Number.MAX_SAFE_INTEGER
+    if (offsetA !== offsetB) return offsetA - offsetB
+    return a.createdAt - b.createdAt || a.id.localeCompare(b.id)
+  })
+}
+
+/**
+ * 汇总当前工作区下全部标注（含本地 document 标注及投射到工作区会话文档的 source 标注），
+ * 按文档路径分组并按文档最近标注更新时间倒序排列。
+ */
+export async function listWorkspaceAnnotations(
+  store: Store<Record<string, unknown>>,
+  workspaceRoot: string
+): Promise<WorkspaceAnnotationDocumentGroup[]> {
+  const grouped = await listWorkspaceDocumentAnnotations(workspaceRoot)
+
+  try {
+    const defaultWorkspace = await ensureDefaultWorkspace(store)
+    const sourceByKey = await listAllSourceAnnotations(defaultWorkspace.path)
+    if (sourceByKey.size > 0) {
+      const scan = await scanConversationDocuments(workspaceRoot)
+      for (const doc of scan.documents) {
+        if (!doc.sourceKey) continue
+        const sourceItems = sourceByKey.get(doc.sourceKey)
+        if (!sourceItems?.length) continue
+        const rel = posix(doc.relativePath)
+        const existing = grouped.get(rel) ?? []
+        const byId = new Map(existing.map(item => [item.id, item]))
+        for (const item of sourceItems) {
+          if (!byId.has(item.id)) byId.set(item.id, item)
+        }
+        grouped.set(rel, [...byId.values()])
+      }
+    }
+  } catch {
+    // 默认库不可用时仍返回当前工作区内的 document 标注
+  }
+
+  const groups: WorkspaceAnnotationDocumentGroup[] = []
+  for (const [relativePath, items] of grouped) {
+    if (!items.length) continue
+    const annotations = sortWorkspaceGroupAnnotations(items)
+    let updatedAt = 0
+    for (const item of annotations) {
+      const ts = item.updatedAt || item.createdAt || 0
+      if (ts > updatedAt) updatedAt = ts
+    }
+    groups.push({ relativePath, updatedAt, annotations })
+  }
+
+  return groups.sort((a, b) => b.updatedAt - a.updatedAt || a.relativePath.localeCompare(b.relativePath))
 }

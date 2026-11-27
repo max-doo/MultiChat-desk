@@ -8,6 +8,7 @@ import {
   type WorkbenchHtmlAnnotationRect
 } from '../../../../shared/types/htmlAnnotations'
 import { useWorkbenchStore } from '../../store/workbenchStore'
+import { useAnnotationStore } from '../../store/annotationStore'
 import AnnotationCommentCard from '../AnnotationCommentCard'
 import { AppIcon } from '../icons/AppIcon'
 
@@ -68,8 +69,10 @@ export default function WorkbenchHtmlAnnotationPreview({
   onZoomReset
 }: WorkbenchHtmlAnnotationPreviewProps): JSX.Element {
   const workspacePath = useWorkbenchStore((s) => s.workspacePath)
+  const pendingReveal = useAnnotationStore((s) => s.pendingReveal)
   const [src] = useState(() => buildAnnotationUrl(fileUrl))
   const [annotations, setAnnotations] = useState<Annotation[]>([])
+  const [annotationsReady, setAnnotationsReady] = useState(false)
   const [draft, setDraft] = useState<Annotation | null>(null)
   const [card, setCard] = useState<CommentCardState | null>(null)
   const [comment, setComment] = useState('')
@@ -167,6 +170,7 @@ export default function WorkbenchHtmlAnnotationPreview({
   const loadAnnotations = useCallback(async (): Promise<void> => {
     if (!workspacePath || !filePath) {
       setAnnotations([])
+      setAnnotationsReady(true)
       return
     }
     const seq = ++loadSeqRef.current
@@ -175,13 +179,16 @@ export default function WorkbenchHtmlAnnotationPreview({
       if (seq !== loadSeqRef.current) return
       if (result.success) {
         setAnnotations(result.data ?? [])
+        setAnnotationsReady(true)
         return
       }
       setAnnotations([])
+      setAnnotationsReady(true)
       showHint(result.error || '标注读取失败')
     } catch {
       if (seq !== loadSeqRef.current) return
       setAnnotations([])
+      setAnnotationsReady(true)
       showHint('标注读取失败')
     }
   }, [filePath, showHint, workspacePath])
@@ -208,6 +215,7 @@ export default function WorkbenchHtmlAnnotationPreview({
     setComment('')
     setError(null)
     setDraft(null)
+    setAnnotationsReady(false)
     setUnlocatedIds([])
     setShowUnresolved(false)
     setShowCleanup(false)
@@ -221,6 +229,17 @@ export default function WorkbenchHtmlAnnotationPreview({
     if (!frameReady) return
     syncFrame(allAnnotations)
   }, [allAnnotations, frameReady, syncFrame])
+
+  useEffect(() => {
+    if (!frameReady || !annotationsReady || !pendingReveal) return
+    if (pendingReveal.workspaceRoot !== workspacePath || pendingReveal.relativePath !== filePath) return
+    const exists = annotations.some((item) => item.id === pendingReveal.annotationId)
+    useAnnotationStore.getState().clearReveal(pendingReveal.nonce)
+    if (!exists) return
+    requestAnimationFrame(() => {
+      postToFrame({ type: 'focus', id: pendingReveal.annotationId, scroll: true })
+    })
+  }, [annotations, annotationsReady, filePath, frameReady, pendingReveal, postToFrame, workspacePath])
 
   const closeCard = useCallback((discardDraft = true) => {
     const current = cardRef.current

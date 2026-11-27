@@ -8,6 +8,7 @@ import type {
   AnnotationCaptureRequest,
   AnnotationChangedEvent,
   AnnotationSource,
+  CapturedDocumentRef,
   CaptureExcerptInput,
   CaptureExcerptResult,
   CaptureSourceInput,
@@ -19,7 +20,8 @@ import type {
   WorkbenchWorkspaceSession,
   LegacyMigrationPendingSummary,
   LegacyMigrationProgress,
-  LegacyMigrationResult
+  LegacyMigrationResult,
+  WorkspaceAnnotationDocumentGroup
 } from '../shared/types/annotations'
 import type {
   WebviewContextMenuData,
@@ -636,6 +638,8 @@ const api = {
   annotations: {
     listDocument: (workspaceRoot: string, relativePath: string): Promise<{ success: boolean; data?: Annotation[]; error?: string }> =>
       ipcRenderer.invoke('annotations:list-document', { workspaceRoot, relativePath }),
+    listWorkspace: (workspaceRoot: string): Promise<{ success: boolean; data?: WorkspaceAnnotationDocumentGroup[]; error?: string }> =>
+      ipcRenderer.invoke('annotations:list-workspace', { workspaceRoot }),
     listSource: (sourceKey: string): Promise<{ success: boolean; data?: { source: AnnotationSource | null; annotations: Annotation[] }; error?: string }> =>
       ipcRenderer.invoke('annotations:list-source', { sourceKey }),
     upsertDocument: (workspaceRoot: string, relativePath: string, annotation: Annotation): Promise<{ success: boolean; data?: Annotation; error?: string }> =>
@@ -715,6 +719,13 @@ const api = {
       ipcRenderer.invoke('annotations:ensure-document', input),
     captureExcerpt: (input: CaptureExcerptInput): Promise<{ success: boolean; data?: CaptureExcerptResult; error?: string }> =>
       ipcRenderer.invoke('annotations:capture-excerpt', input),
+    openCapturedDocument: (ref: CapturedDocumentRef): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('annotations:open-captured-document', ref),
+    onOpenCapturedDocument: (cb: (ref: CapturedDocumentRef) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, payload: CapturedDocumentRef): void => cb(payload)
+      ipcRenderer.on('annotations:open-captured-document', handler)
+      return () => { ipcRenderer.removeListener('annotations:open-captured-document', handler) }
+    },
     onChanged: (cb: (event: AnnotationChangedEvent) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, payload: AnnotationChangedEvent): void => cb(payload)
       ipcRenderer.on('annotations:changed', handler)

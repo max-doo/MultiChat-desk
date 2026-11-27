@@ -38,6 +38,28 @@ function MainApp(): JSX.Element {
     }
   }, [productMode, hasWorkbenchOpened])
 
+  // 摘录取自其他窗口的「打开」跳转：聚焦主窗口后由这里负责切到工作台并打开目标文档。
+  // 事件只发往主窗口，因此仅在主窗口挂载监听（#quick 等窗口不加载工作台状态）。
+  useEffect(() => {
+    if (window.location.hash === '#quick' || window.location.hash === '#toolbar') return
+    return window.api.annotations.onOpenCapturedDocument((ref) => {
+      void (async () => {
+        useAppStore.getState().setCurrentPage('main')
+        useAppStore.getState().setProductMode('workbench')
+        const workbench = useWorkbenchStore.getState()
+        // 首次进入工作台时初始化尚未完成：await 整个 init 结束再操作，避免恢复流程覆盖本次打开
+        await workbench.initWorkbench()
+        const normalize = (p?: string | null) =>
+          (p || '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+        if (normalize(ref.workspaceRoot) !== normalize(useWorkbenchStore.getState().workspacePath)) {
+          const result = await useWorkbenchStore.getState().setWorkspaceFolder(ref.workspaceRoot)
+          if (result !== 'switched') return
+        }
+        await useWorkbenchStore.getState().openFile(ref.relativePath, { forcePermanent: true })
+      })()
+    })
+  }, [])
+
   // 监听 location hash 自动进入 quick 页
   useEffect(() => {
     const checkHash = () => {

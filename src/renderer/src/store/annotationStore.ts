@@ -13,6 +13,13 @@ export interface AnnotationResolution {
   reason?: AnnotationAnchorReason
 }
 
+export interface PendingAnnotationReveal {
+  workspaceRoot: string
+  relativePath: string
+  annotationId: string
+  nonce: number
+}
+
 interface AnnotationState {
   workspaceRoot: string | null
   relativePath: string | null
@@ -22,6 +29,7 @@ interface AnnotationState {
   unlocatedIds: string[]
   resolutionById: Record<string, AnnotationResolution>
   selectedId: string | null
+  pendingReveal: PendingAnnotationReveal | null
   filter: AnnotationFilter
   loading: boolean
   error: string | null
@@ -39,6 +47,8 @@ interface AnnotationActions {
   upsertLocal: (annotation: Annotation) => void
   removeLocal: (id: string) => void
   setSelected: (id: string | null) => void
+  requestReveal: (workspaceRoot: string, relativePath: string, annotationId: string) => void
+  clearReveal: (nonce?: number) => void
   setFilter: (filter: AnnotationFilter) => void
   setLoading: (loading: boolean) => void
   setError: (error: string | null) => void
@@ -55,6 +65,7 @@ export const useAnnotationStore = create<AnnotationStore>((set, get) => ({
   unlocatedIds: [],
   resolutionById: {},
   selectedId: null,
+  pendingReveal: null,
   filter: 'all',
   loading: false,
   error: null,
@@ -179,6 +190,19 @@ export const useAnnotationStore = create<AnnotationStore>((set, get) => ({
     selectedId: state.selectedId === id ? null : state.selectedId
   })),
   setSelected: (id) => set({ selectedId: id }),
+  requestReveal: (workspaceRoot, relativePath, annotationId) => set(state => ({
+    pendingReveal: {
+      workspaceRoot,
+      relativePath,
+      annotationId,
+      nonce: (state.pendingReveal?.nonce ?? 0) + 1
+    }
+  })),
+  clearReveal: (nonce) => set(state => {
+    if (!state.pendingReveal) return state
+    if (nonce !== undefined && state.pendingReveal.nonce !== nonce) return state
+    return { pendingReveal: null }
+  }),
   setFilter: (filter) => set({ filter }),
   setLoading: (loading) => set({ loading }),
   setError: (error) => set({ error })

@@ -1,9 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { AnnotationCaptureRequest } from '../../../shared/types/annotations'
+import type { AnnotationCaptureRequest, CapturedDocumentRef } from '../../../shared/types/annotations'
 import { useWorkbenchStore } from '../store/workbenchStore'
 import { captureContextOf } from '../utils/annotationCaptureContext'
-import { notePositionInWindow } from '../utils/noteInteractions'
+import {
+  ANNOTATION_CARD_WIDTH,
+  clampPopoverPosition,
+  notePositionInWindow
+} from '../utils/noteInteractions'
 import AnnotationCommentCard from './AnnotationCommentCard'
+import { StatusBanner } from './ui/FormControls'
 
 interface PendingCapture {
   request: AnnotationCaptureRequest
@@ -20,6 +25,7 @@ export default function NoteCaptureModal(): JSX.Element | null {
   const [comment, setComment] = useState('')
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
+  const [success, setSuccess] = useState<{ document?: CapturedDocumentRef } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const boxRef = useRef<HTMLDivElement>(null)
   const workspaceRoot = useWorkbenchStore(s => s.workspacePath)
@@ -27,6 +33,8 @@ export default function NoteCaptureModal(): JSX.Element | null {
   useEffect(() => {
     const onCapture = (request: AnnotationCaptureRequest): void => {
       setError(null)
+      setNotice(null)
+      setSuccess(null)
       setComment('')
       const webview = Array.from(document.querySelectorAll('webview')).find(element => {
         try {
@@ -38,11 +46,18 @@ export default function NoteCaptureModal(): JSX.Element | null {
       const position =
         webview && request.rect
           ? notePositionInWindow(webview, request.rect.right, request.rect.bottom)
-          : { x: window.innerWidth - 340, y: 80 }
+          : { x: window.innerWidth - ANNOTATION_CARD_WIDTH - 12, y: 80 }
+      const clamped = clampPopoverPosition(
+        position.x + 8,
+        position.y + 8,
+        { width: window.innerWidth, height: window.innerHeight },
+        {},
+        12,
+        48
+      )
       setPending({
         request,
-        left: Math.max(12, Math.min(position.x + 8, window.innerWidth - 332)),
-        top: Math.max(48, Math.min(position.y + 8, window.innerHeight - 290))
+        ...clamped
       })
     }
     const offCapture = window.api.onAnnotationCapture(onCapture)
@@ -70,12 +85,19 @@ export default function NoteCaptureModal(): JSX.Element | null {
     }
   }, [pending])
 
+  useEffect(() => {
+    if (!success) return
+    const timer = setTimeout(() => setSuccess(null), 5000)
+    return () => clearTimeout(timer)
+  }, [success])
+
   const save = useCallback(
     async (saveToLibrary = false): Promise<void> => {
       if (!pending || busy) return
       const { request } = pending
       setBusy(true)
       setError(null)
+      setNotice(null)
       try {
         const captureContext = saveToLibrary ? 'global' : captureContextOf(request.webContentsId)
         if (request.mode === 'excerpt') {
@@ -97,6 +119,7 @@ export default function NoteCaptureModal(): JSX.Element | null {
             return
           }
           setPending(null)
+          if (captureContext === 'global') setSuccess({ document: result.data.document })
           return
         }
 
@@ -120,6 +143,7 @@ export default function NoteCaptureModal(): JSX.Element | null {
           setNotice(documentErrorMessage(result.data.documentError))
         } else {
           setPending(null)
+          if (captureContext === 'global') setSuccess({ document: result.data?.document })
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : '保存失败')
@@ -130,56 +154,85 @@ export default function NoteCaptureModal(): JSX.Element | null {
     [busy, comment, pending, workspaceRoot]
   )
 
-  if (!pending && !error && !notice) return null
+  if (!pending && !error && !notice && !success) return null
+
+  const pendingIsWorkbench = pending ? captureContextOf(pending.request.webContentsId) === 'workbench' : false
 
   return (
     <>
       {pending && (
-        <div ref={boxRef} className="fixed z-[95]" style={{ left: pending.left, top: pending.top }}>
-          <AnnotationCommentCard
-            title={pending.request.mode === 'excerpt' ? '摘录为文档' : '标注'}
-            quote={pending.request.quote}
-            value={comment}
-            onChange={setComment}
-            onCancel={() => setPending(null)}
-            onSave={() => void save(false)}
-            saveLabel={pending.request.mode === 'excerpt' ? '保存文档' : '保存标注'}
-            busy={busy}
-            error={error}
-            showInput={pending.request.mode === 'annotate'}
-            footerStart={
-              pending.request.mode === 'annotate' &&
-              captureContextOf(pending.request.webContentsId) === 'workbench' ? (
-                <button
-                  type="button"
-                  disabled={busy}
-                  className="text-caption text-text-secondary hover:text-primary disabled:opacity-40"
-                  onClick={() => void save(true)}
-                >
-                  保存到默认会话库
-                </button>
-              ) : null
-            }
-          />
-        </div>
+        <AnnotationCommentCard
+          ref={boxRef}
+          className="fixed z-[95]"
+          style={{ left: pending.left, top: pending.top }}
+          clampBounds="viewport"
+          clampMargin={12}
+          clampMinTop={48}
+          title={pending.request.mode === 'excerpt' ? '摘录为文档' : '标注'}
+          quote={pending.request.quote}
+          value={comment}
+          onChange={setComment}
+          onCancel={() => setPending(null)}
+          onSave={() => void save(false)}
+          saveLabel={pendingIsWorkbench
+            ? (pending.request.mode === 'excerpt' ? '保存文档' : '保存标注')
+            : '存入默认工作区'}
+          busy={busy}
+          error={error}
+          showInput={pending.request.mode === 'annotate'}
+          footerStart={
+            pending.request.mode === 'annotate' &&
+            pendingIsWorkbench ? (
+              <button
+                type="button"
+                disabled={busy}
+                className="text-caption text-text-secondary hover:text-primary disabled:opacity-40"
+                onClick={() => void save(true)}
+              >
+                存入默认工作区
+              </button>
+            ) : null
+          }
+        />
       )}
-      {!pending && (error || notice) && (
-        <div
-          className="fixed right-4 top-12 z-[95] max-w-sm rounded-lg border border-black/10 bg-white px-4 py-2 text-sm shadow-lg dark:border-white/10 dark:bg-gray-800"
-          role="alert"
-        >
-          <span className={error ? 'text-rose-600' : 'text-text-primary'}>{error || notice}</span>
-          <button
-            type="button"
-            className="ml-3 text-text-secondary"
-            onClick={() => {
-              setError(null)
-              setNotice(null)
-            }}
-          >
-            关闭
-          </button>
-        </div>
+      {!pending && error && (
+        <StatusBanner
+          tone="error"
+          message={error}
+          onClose={() => setError(null)}
+        />
+      )}
+      {!pending && !error && notice && (
+        <StatusBanner
+          tone="warning"
+          variant="soft"
+          message={notice}
+          onClose={() => setNotice(null)}
+        />
+      )}
+      {!pending && success && (
+        <StatusBanner
+          tone="success"
+          variant="soft"
+          message="已存入默认工作区"
+          onClose={() => setSuccess(null)}
+          actions={
+            success.document ? (
+              <button
+                type="button"
+                className="px-2 py-0.5 rounded-md bg-primary/10 text-primary hover:bg-primary/15"
+                onClick={() => {
+                  const ref = success.document
+                  if (!ref) return
+                  setSuccess(null)
+                  void window.api.annotations.openCapturedDocument(ref)
+                }}
+              >
+                打开
+              </button>
+            ) : undefined
+          }
+        />
       )}
     </>
   )
@@ -188,7 +241,7 @@ export default function NoteCaptureModal(): JSX.Element | null {
 function documentErrorMessage(error?: string): string {
   switch (error) {
     case 'NO_ACTIVE_WORKSPACE':
-      return '当前没有活动工作区，标注已保存，可改存默认会话库'
+      return '当前没有活动工作区，标注已保存，可改存默认工作区'
     case 'WORKSPACE_UNAVAILABLE':
       return '当前工作区暂不可用，标注已保存，文档未生成'
     case 'SCAN_INCOMPLETE':
@@ -196,7 +249,7 @@ function documentErrorMessage(error?: string): string {
     case 'OVERSIZE':
       return '会话过大，无法生成可打开的工作台文档'
     case 'SOURCE_NOT_FOUND':
-      return '默认会话库里没有这段会话的标注'
+      return '默认工作区里没有这段会话的标注'
     case 'WRITE_FAILED':
       return '文档写入失败，标注已保存'
     default:
