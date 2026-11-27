@@ -1,166 +1,189 @@
-> Created: 2026-11-26 17:50 (UTC+8)
+> Created: 2026-11-26 17:50 (UTC+8)，2026-11-27 整理定稿
 
-# 侧边栏 Agent 默认 Skill / 插件深度调研
+# 侧边栏 Agent 默认 Skill / 插件配置方案
 
-## 一、结论摘要
+本文是侧边栏 Agent 默认 Skill 与插件配置的定稿方案，可直接指导开发。内容综合了两轮调研：2026-11-26 的产品现状盘点与开源生态调研，以及 2026-11-27 的 X 平台社区核验与 MiniMax 办公四件套专项对比。所有许可证、星数、技术栈事实的核验时间为 2026-11-26 至 2026-11-27。
 
-侧边栏 Agent 的内核（`@earendil-works/pi-coding-agent` v1.6.0，pi-mono 的分支）本身是一套相当完整的生态载体：Skills 遵循 Anthropic 公开的 Agent Skills 标准（`SKILL.md` + frontmatter），**整个开源 Skills 生态的产物可以直接套用**；内核还内置 MCP 支持（`mcp.json` 配置，工具暴露分 direct/deferred/codemode/hidden 四档）和 extensions 插件机制。目前产品的问题不在"能不能用"，而在于"完全没配"：
+## 一、最终方案总览
 
-1. 随包分发的 Skill 只有 `multichat-cli` 一个，且它只是工具说明书（CLI 用法），**没有任何方法论型 Skill**（什么时候扇出、怎么提问、怎么汇总、结果怎么落盘）。
-2. 内核的 MCP 能力在产品里完全未接入（没有 `mcp.json` 的生成、管理、UI），等于放弃了整个 MCP 服务器生态。
-3. 产品自身的独有资产——工作台（Workbench 文件树）、笔记、思维导图、历史会话、自动化（AutomationService）——对 Agent 没有任何暴露或方法论引导。
+默认包共 **9 个 Skill + MCP 集成**，分三层：
 
-建议分三层建设：**第一层产品独有能力**（多模型调度方法论、知识整理、提示词库）自己写，数量少而精，这是竞对抄不走的部分；**第二层通用知识工作 Skill**（文档生产、研究、写作）直接从开源仓库改编打包；**第三层 MCP 插件层**打通内核已有能力，用配置而不是代码换来生态规模。
+| 层 | Skill | 来源 | 作用 |
+| --- | --- | --- | --- |
+| 一、产品独有方法论（自研） | `multi-ai-research` | 自研 | 多平台深度研究编排：拆题、扇出、回收、去重、引用归并 |
+| | `multi-ai-review` | 自研 | 多模型评审合成：分发评审视角、归类合并意见、输出修订版 |
+| | `workbench-assets` | 自研 | 工作台资产整理：笔记/导图/历史/提示词模板的落盘约定与检索 |
+| 二、通用文档处理（改编开源） | `docx` | anthropics 版为主干，吸收 MiniMax 中文排版参考 | Word 新建/编辑/套模板/红线修订，中文排版 |
+| | `xlsx` | MiniMax 版为主干 | Excel 零损失编辑、从零创建、公式校验 |
+| | `pptx` | anthropics 版改编 | PPT 创建/编辑/视觉验证 |
+| | `pdf` | anthropics 版改编 | PDF 读取/表单/合并/生成 |
+| | `skill-creator` | OpenAI 版改编，吸收 Anthropic 评测方法论 | 用户把私藏工作流固化成自己的 Skill |
+| 三、MCP 插件层 | 内核能力接线 | 产品集成开发 | 打通内核已有的 MCP 客户端，预置少量 deferred 服务器 |
 
-## 二、产品现状盘点
+**每个格式只进一套主实现**，避免同格式多 Skill 稀释触发准确度。anthropics 完整四件套与其余候选 skill 作为可选增强包（见第八节阶段 5）。
 
-以下事实均来自当前代码，是后续建议的边界条件。
+实施顺序与验收标准见第八节。环境依赖（Node/Python/LibreOffice 的运行时供给与 bootstrap 策略）见第七节，是所有打包工作的前置。
 
-**Agent 会话的构成**（`src/main/services/AgentSessionService.ts` 三处 `createAgentSession` 调用）：
+## 二、目标与非目标
 
-- 基础工具为 pi 默认集 read / bash / edit / write（Windows 用 powershell 替换 bash，见 `src/main/services/shell.ts`），另有 find/grep/ls 等。
-- 自定义工具三个：`web_search`（`src/main/services/webSearchTool.ts`）、`image_gen`（`src/main/services/imageGenTool.ts`）、shell 自定义工具。
-- Inline extensions 两个：上下文压缩（`src/main/extensions/contextCompression.ts`）与系统提示词裁剪（`src/main/extensions/systemPromptTrim.ts`）。
-- `agentDir` 指向应用数据目录 `multichat/agent/`（不用 pi 默认的 `~/.pi/agent`），`agentDir/skills` 是内核自动扫描的全局 Skills 根。
+**目标**：让侧边栏 Agent 对产品的目标用户（多模型重度用户，含大量非程序员）开箱即用——能编排多平台研究、能产出 docx/xlsx/pptx/pdf 成品、能把工作流沉淀为知识资产。
 
-**Skills 加载链路已经完整存在**：`AgentResourceLoader` 支持 `additionalSkillPaths`；`AgentSessionService.ts` 预置了五个候选目录（`agentDir/skills`、`~/.agents/skills`、`~/.claude/skills`、`~/.pi/agent/skills`、`~/.mu/skills`）；设置页 `AgentSkillsSettings.tsx` 提供目录勾选与自定义目录。也就是说，**"加 Skill"不需要任何架构改动，只需要内容和分发**。
+**非目标**：不做 Skill 市场/商店（用可选包 + 自定义目录过渡）；不追求 MCP 服务器数量（预置严格收敛）；不把 Agent 变成通用 coding agent 的复制品——它的独特性在于同时持有本地文件系统、自动化执行力和 multichat CLI 的多平台调度能力。
 
-**目前唯一的随包 Skill**：`resources/skill/multichat-cli`（源文件 `.agents/skills/multichat-cli/SKILL.md`），内容是 multichat CLI 的调用手册——提交任务、等待、收结果、平台能力与登录态探测。它覆盖"怎么调"，但不覆盖"什么时候该调、调完怎么处理"。
+## 三、产品现状（边界条件）
 
-**内核版本生态事实**（核验自 `node_modules/@earendil-works/pi-coding-agent` dist 与上游 pi-mono 文档）：
+以下事实均核验自当前代码，是方案的边界条件。
 
-- Skills 加载遵循 Agent Skills 开放标准（`dist/core/skills.ts` 中有明确的标准校验逻辑：name 小写连字符、不超过 64 字符、description 不超过 1024 字符）。这意味着 anthropics/skills、openai/skills、vercel-labs/skills 等公开仓库的 Skill 目录拷进扫描根即可用。
-- MCP 支持内置：`dist/core/mcp-servers.js` 实现了 `mcp.json` 配置的校验，工具暴露支持 direct（直接注入）/ deferred（按需激活）/ codemode（代码模式）/ hidden 四档，OAuth（含 loopback redirect）在内核实现。**当前 createAgentSession 路径未加载 MCP 配置，这是纯集成缺口，不是能力缺失**。
-- pi 生态原生的扩展形态是 extensions（TypeScript 单文件或包，`pi.registerMcpServer()`、`registerTool` 等 API），而非常规意义的"插件市场"；上游 `pi install` 走 npm/git 包分发。公开社区内容（awesome-pi-coding-agent 收录）目前以配置、主题、示例扩展为主，体量远小于 Skills 生态。老生态里的 `pi-mcp-adapter` 已过时——本 fork 内核自带 MCP，不需要它。
+**Agent 会话构成**（`src/main/services/AgentSessionService.ts`）：基础工具为 pi 默认集 read/bash/edit/write 加 find/grep/ls（Windows 用 powershell 替换 bash）；自定义工具 web_search、image_gen；inline extensions 为上下文压缩与系统提示词裁剪；`agentDir` 指向应用数据目录 `multichat/agent/`。
 
-## 三、用户与使用场景推断
+**Skills 加载链路已完整存在**：`AgentResourceLoader` 支持 `additionalSkillPaths`，预置五个候选扫描目录，设置页 `AgentSkillsSettings.tsx` 提供勾选 UI。加载机制本身零架构改动，但**随包分发落位存在缺口**——扫描候选不含安装目录 `resources/skill/`，需要一处小改动补齐（见第八节阶段 0）。
 
-产品面向多模型大模型重度用户。从现有功能反推，这类用户的核心工作流是：把同一个问题或多个子问题分发到多个网页 AI 平台（统一发送、任务拆解）、组织多模型互评（辩论）、汇总多平台回答（Webview 总结）、沉淀结果（历史记录、本地笔记、思维导图）。他们的典型诉求可以归为四类：
+**内核生态事实**（核验自 `node_modules/@earendil-works/pi-coding-agent` dist）：Skills 遵循 Anthropic Agent Skills 开放标准（name 小写连字符不超 64 字符、description 不超 1024 字符），整个开源 Skills 生态拷进扫描目录即可用；内核已内置完整 MCP 客户端（`mcp.json` 配置 + direct/deferred/codemode/hidden 四档暴露 + OAuth），但**当前会话创建路径完全未接 MCP 配置——这是集成缺口，不是能力缺失**。社区的 `pi-mcp-adapter` 与内核内置 MCP 重复，勿用。
 
-1. **深度研究**：用各家平台的 Deep Research 能力做多源调研，然后交叉验证、去重、合成一份带引用的报告。这类用户手上往往同时开着 ChatGPT Deep Research、Gemini Deep Research、Perplexity，痛点是"每家给一份，合成靠手工"。
-2. **多模型质量把关**：一个重要产出（方案、文章、代码）先让一个模型产出，再分发多家评审挑错，最后合并修订意见。辩论模式是这个诉求的产品化雏形。
-3. **内容生产**：调研结果最终要变成交付物——报告、文章、PPT、表格。重度用户里有大量非程序员（咨询、运营、学生、创作者），他们要的是 docx/pptx/xlsx 成品，不是 markdown。
-4. **知识沉淀**：调研结论、会话精华进入笔记和思维导图，可检索、可复用。
+**目前唯一的随包 Skill** `multichat-cli` 只是 CLI 调用手册，覆盖"怎么调"但不覆盖"什么时候该调、调完怎么处理"——第一层自研 Skill 正是补这个缺口。
 
-侧边栏 Agent 的独特位置在于：它是**唯一同时持有本地文件系统、自动化执行力和 multichat CLI（多平台调度能力）的角色**。网页里的单个 AI 做不到跨平台调度，普通 coding agent 拿不到各平台登录态。默认 Skill 的设计应当围绕这个独特性展开，而不是把 Agent 做成又一个通用 coding agent。
+## 四、第一层：产品独有方法论 Skill（自研，最高优先级）
 
-## 四、推荐的默认 Skill 配置
+这层是竞对抄不走的差异化核心：别家没有 13 个平台的登录态会话，也没有工作台文件系统。每个都是 100-400 行纯 Markdown，内容工作量为主，写完即可用 dev 实测。
 
-按"差异化程度 × 复用成本"分三层。每层标注了内容来源和实施成本。
+**1. `multi-ai-research`（多平台深度研究编排）**——最高优先级。教的是战法而非语法：什么规模的问题值得扇出到多平台 Deep Research；如何按 `multichat platforms` 的能力位把调研目标拆成各家擅长的子问题；并发提交后轮询节奏；多份报告的去重、冲突标记、引用归并流程；最终产出落盘到工作台目录的约定（文件名、frontmatter 标签规范，衔接工作台全文搜索）。
 
-### 第一层：产品独有方法论 Skill（必须自己写，各 100-400 行 Markdown）
+**2. `multi-ai-review`（多模型评审合成）**。固定套路：产出初稿 → 按评审视角（事实核查/逻辑/表达/合规）拆分提示词分发多平台 → 收集意见 → 按"采纳/驳回/存疑"归类合并 → 输出修订版与评审纪要。辩论模式的 CLI 化延展。
 
-**1. `multi-ai-research`（多平台深度研究编排）** — 最高优先级
+**3. `workbench-assets`（工作台资产整理）**。把产品已有的文件约定教给 Agent，一个 skill 覆盖两类资产：知识类——什么时候该把结论写成笔记而不是只在对话里说完，目录组织与 frontmatter 标签规范，思维导图何时创建，历史会话（`history/conversations`）如何检索引用；提示词类——Markdown 模板库格式（变量插槽、适用平台标注、效果备注），放工作台约定目录，Agent 负责检索、实例化、按使用反馈修订。两者共用同一套工作台目录约定，合并为一个 skill 可减少默认包数量、缓解触发准确度稀释。
 
-`multichat-cli` 教的是语法，这个 Skill 教的是战法：什么规模的问题值得扇出到多平台 Deep Research；如何把调研目标拆成各家平台擅长的子问题（依据 `multichat platforms` 的能力位选择 deepResearch 平台）；并发提交后轮询的节奏；回收多份报告后的去重、冲突标记、引用归并流程；最终产出落盘到工作台目录的约定（文件名、frontmatter 标签规范，衔接工作台的全文搜索）。它是"多模型重度用户"这个定位的直接兑现，也是竞对无法复制的——因为他们没有 13 个平台的登录态会话。
+**编写约束**：第一层 skill 的 fan-out 编排依赖 multichat CLI 的后台轮询，会话中断后的恢复能力有限，skill 内应写明长任务的分批与进度落盘约定（每完成一个子任务就把中间结果写入工作台），不假设 Agent 能一口气跑完整个编排。
 
-**2. `multi-ai-review`（多模型评审合成）**
+## 五、第二层：文档四件套的选型与改造方案
 
-固定套路的评审工作流：产出初稿（本地或某平台）→ 按评审视角拆分提示词（事实核查/逻辑/表达/合规）分发多平台 → 收集意见 → 按"采纳/驳回/存疑"归类合并 → 输出修订版与评审纪要。辩论模式的 CLI 化延展，实现成本极低（纯方法论 Markdown + 复用 multichat-cli 调用）。
+### 选型结论（含完整证据链）
 
-**3. `workbench-knowledge`（工作台知识整理）**
+四件套存在两个合规上游，按格式分工取用：
 
-工作台已是带 frontmatter 标签、全文搜索、git 集成的文件系统（`workbenchService.ts`），但 Agent 不知道这些约定。这个 Skill 定义：什么时候该把结论写成笔记而不是只在对话里说完；目录组织与标签规范；思维导图文件（NoteManager 管理）何时创建、结构约定；历史会话 JSON（`history/conversations`）如何检索引用。成本极低，因为它只是"把产品已有的文件约定教给 Agent"。
+**anthropics/skills**（约 20 万 stars、2.3 万 forks，文档四件套 Apache-2.0）是社区事实标准。X 平台核验（Simon Willison 2137 赞、jerryjliu 402 赞、多篇数百至数千赞盘点帖）显示几乎所有"最佳 skill"清单最终都指向它；OpenAI 自家 Codex 产品随包的四个文档 skill 也是它的深度改编。技术上 2026-11 已完成换代：docx/pptx 创建改用 npm 的 docx-js/pptxgenjs（Electron 直接受益），工程深度独有——unpack→编辑 XML→zip 重打包的编辑路径、validate.py XSD 校验、tracked-changes 红线工作流、soffice 渲染的视觉验证回路。
 
-**4. `prompt-library`（提示词资产库）**
+**MiniMax-AI/skills**（约 1.39 万 stars，整仓 MIT，Beta 阶段）是唯一独立的重量级竞争者，2026-03 随官方文章《Open-Sourcing Our Office Skills》发布。它不是 anthropics 的下游，在两个关键场景更强：**中文排版**（`minimax-docx` 有专门的 CJK 排版参考，引用 GB/T 9704 公文标准与主流学术格式规范，是公开生态唯一系统处理中文排版的实现）和**存量文件零损失编辑**（`minimax-xlsx` 用 XML 直接编辑且明确禁止 openpyxl 往返——往返会破坏 VBA、数据透视表、迷你图）。
 
-重度多模型用户手里都有私藏提示词。Skill 定义一套 Markdown 模板库格式（变量插槽、适用平台标注、效果备注），放在工作台约定目录，Agent 负责检索、实例化、按使用反馈修订。这是典型的"轻量约定换长期粘性"。
+被核验后排除的候选：tfriedel/claude-office-skills（850 星，实为 anthropics 下游镜像，作者已宣告废弃并指向官方仓库）；glebis/claude-skills 与 daymade/claude-code-skills 的文档 skill 均为 HTML/Pandoc 路线，产出不是原生可编辑 Office 文件；OpenAI 版许可证（Copyright 2026 OpenAI, All rights reserved）明确禁止提取、复制分发与衍生转授，只能借鉴方法不能拷贝文本；公开 openai/skills 仓库无 LICENSE 且只有不完整的 pdf。
 
-### 第二层：通用知识工作 Skill（直接改编开源，按优先级排序）
+### 逐格式采纳方案
 
-> 文档四件套的源选型在 2026-11-26 做过专项对比调研（见本节末尾），结论：anthropics/skills 是当前唯一可选的合规上游，且本身就是社区事实标准。
+**`docx`：以 anthropics 版为主干，吸收 MiniMax 的文本知识资产——不引入 .NET 依赖**
 
-以下按目标用户的相关度排序，仓库出处见第五节。实施成本主要在运行时依赖（见第六节）。
+关键转折：MiniMax 版相对 anthropics 版的真实增量不是 XSD 校验（anthropics 自带 validate.py XSD 校验与 `--auto-repair`，且校验本身不依赖 .NET），而是三样：(1) 编译验证过的 `Samples/*.cs` 模式库；(2) 套模板场景的确定性 CLI（`apply-template`/`merge-runs`/`fix-order` 把多步 XML 操作固化成命令，对比 Agent 手工即兴编辑 XML 的高方差）；(3) gate-check"不过门禁不交付"的流程纪律。这三样都绑定 .NET OpenXML SDK，而 .NET SDK 首次安装 200MB+ 下载伴随 UAC 弹窗——为套模板的高阶场景让全体普通用户承担这个成本，代价不成比例。
 
-- **文档生产三件套 `docx` / `xlsx` / `pptx`**（来源：anthropics/skills，Apache-2.0）：调研报告和数据分析的最终交付形态。重度用户的非编程场景几乎都会落到这里。**这是第二层里最值得打包的一组**。
-- **`pdf`**（同上）：合同、论文、报告的读取、填写、生成。
-- **`skill-creator`**（anthropics/skills 与 openai/skills 均有）：让用户把私藏工作流固化成自己的 Skill。它是生态飞轮的种子——重度用户一旦开始攒自己的 Skill，迁移成本就建立了。打包成本为零，优先级很高。
-- **`webapp-testing`**（anthropics/skills，Playwright 驱动）：对产品内用户而言价值在于验收自动化产出物（如让 Agent 生成 HTML 报告后自检渲染），通用性中等，可后置。
-- **`frontend-design` / `canvas-design` / `theme-factory`**（anthropics/skills）：面向做演示、海报、简单前端的用户，属于锦上添花，建议作为"可选 Skill 包"而不是默认。
-- **`find-skills` / Skills 目录检索类**（vercel-labs/skills 生态）：一个元 Skill，教 Agent 按需检索公共 Skills 目录，是"内容市场"的轻量替代。可在自有技能市场成熟前作为过渡。
+但独立评审核实了一个关键事实：MiniMax 套模板能力的**核心知识不绑定 .NET**——`scenario_c_apply_template.md` 中风格映射三层级、Zone B 边界定位、Overlay vs Base-Replace 决策、禁止复制直接格式等规则全部是 XML 级、运行时无关的知识。因此定稿为：anthropics 版为主干（docx-js npm 创建 + unpack/XML 编辑 + validate.py XSD 校验 + tracked-changes 红线修订全套，全部 Node/Python 依赖），**移植 MiniMax 的 MIT 文本资产补齐中文排版与模板方法**：
 
-不建议默认打包的：`claude-api`、`mcp-builder` 等面向 Anthropic 生态开发的 Skill（与最终用户无关）；`brand-guidelines`（Anthropic 品牌资产，许可证和适用性都不合适）；`internal-comms`、`slack-gif-creator`（场景不符）。
+- `references/cjk_typography.md`（10.7KB）：CJK 排版完整指南，含 GB/T 9704 公文配方与学术格式规范——覆盖"写什么"
+- `references/scenario_c_apply_template.md`：套模板决策与方法——覆盖"怎么做"
+- `references/openxml_element_order.md`、`openxml_units.md`：XML 元素顺序与单位换算——覆盖"怎么不出错"
+- `references/troubleshooting.md`：症状索引排错——覆盖"出错了怎么办"
 
-#### 文档四件套的源选型专项对比（2026-11-26 核验）
+只移植排版指南会拿到"写什么"却丢掉"怎么不出错"，后者恰是 XML 手工编辑路线最大的失败源，四个文件必须成套移植。
 
-结论先行：**anthropics/skills 是唯一合规且社区事实标准的上游**，"用 Anthropic 版"不是将就而是当前唯一正确的答案。证据链：
+**场景边界要划清**：docx 的主场景精确定义为**从零创建中文文档、表单/占位符填充、简单模板重排**（覆盖用户高频需求，docx-js 与移植资产完全够用）；**降级弱项限定为多模板合并、逐节页眉页脚等结构性套版**——发生时 Agent 依据移植的 scenario_c 知识直接操作 XML 尽力处理，不为它引入 .NET 运行时。track changes 指南 MiniMax 版与 anthropics 版重叠度高，不单独移植。
 
-1. **采用度断层第一**：anthropics/skills 约 20.1 万 stars、2.3 万 forks（作为参照 facebook/react 约 25.3 万 stars）；同生态的 openai/skills 约 2.9 万、vercel-labs/skills 约 4.1 万。2.3 万+ forks 意味着几乎所有文档类 Skill 的"社区实现"本质都是它的下游改编，不存在独立的竞品实现。社区星数最高的 obra/superpowers（约 32.7 万）是纯工程方法论库，不含任何文档处理 Skill。
-2. **官方背书最强**：OpenAI 自家 Codex 产品随包分发的 documents/spreadsheets/presentations/pdf 四个 Skill 就是 anthropics 版的深度改编（本地缓存可对照），覆盖 redline、评论、模板蒸馏等场景——说明行业另一家头部厂商也认它是最佳上游。
-3. **OpenAI 版不能用作分发源**：其 LICENSE.txt 明确"Copyright 2026 OpenAI, All rights reserved"，禁止提取出 OpenAI 服务、禁止复制分发、禁止衍生作品转授——只能作设计参考，**绝不可拷贝进本产品**。公开的 openai/skills GitHub 仓库本身无 LICENSE 文件，且只放出不完整的 pdf skill，没有 docx/xlsx/pptx，本来就不构成替代源。
-4. **Anthropic 版许可证是刻意放开**：2026-11-06 的提交"Move Office skills to the Apache 2.0 license (#2146)"把 docx/pptx/xlsx/pdf 四件套统一迁到 Apache-2.0（各子目录附 LICENSE.txt），这是官方明确鼓励再分发的姿态。
-5. **维护极活跃且近期有大升级**：2026-11-14/16 连续更新四件套（validate.py、soffice.py、zip 处理修复），且**技术栈已换代**：docx 创建从 python-docx 改为 docx-js（npm），pptx 创建改为 pptxgenjs（npm），xlsx 仍用 openpyxl/pandas，pdf 仍用 pypdf。JS 化对 Electron 产品极有利——docx/pptx 两个最高频场景不再依赖 Python。
-6. **工程深度是其他实现没有的**：unpack→编辑 XML→zip 重打包的编辑路径、merge_runs.py 解决 run 碎片化、validate.py XSD 校验与 --auto-repair、tracked-changes 红线工作流、视觉验证回路（soffice 转 PDF→pdftoppm 渲染→看图验收）——这些 footgun 文档（docx-js 的表格双宽度、标题样式必须显式声明等）是大量实战沉淀，重写成本远高于改编。
+**依赖修正**：anthropics 版的文档读取路径默认走 `pandoc -t markdown`，而 pandoc 不在第七节任何一类供给里——改编时必须把读取路径替换为 `markitdown`（已随 Python bootstrap 安装），否则干净机器上"读取现有文档"这个编辑前置步骤第一天就是坏的。
 
-**遗留的依赖风险（需在打包方案中解决）**：
+**`xlsx`：以 MiniMax 版为主干**
 
-- xlsx/pdf 仍是 Python 依赖（openpyxl/pandas/pypdf），且公式重算依赖 LibreOffice（recalc.py 通过 soffice 实现）。LibreOffice 对 Windows 用户是重依赖，策略上应做成"有则启用、无则降级跳过公式重算验证"的可选增强，而不是硬前置。
-- 视觉验证回路（soffice + pdftoppm）同样依赖外部工具，可降级为"生成后提示用户在 Word 中检查"，或探测到本机装了 Office/WPS/LibreOffice 时启用。
-- OpenAI 版有一些值得借鉴的**方法**（逐页渲染验收闭环、写作质量编辑清单、模板蒸馏流程），借鉴的是思路而非文本，不涉及其许可证限制。
+存量表格零损失编辑（改预算表、填模板）是重度用户最高频场景，MiniMax 的 XML 编辑路径（unpack→edit→pack + xlsx_insert_row/xlsx_add_column/xlsx_pack 成套辅助脚本 + 金融格式规范）是唯一可靠方案。公式重算无需额外移植——`minimax-xlsx` 自带 `libreoffice_recalc.py` 动态重算与 `formula_check.py` 静态校验，与 anthropics 的 recalc.py 能力等价（都依赖 LibreOffice headless，同样做探测式可选增强）。批量数据读写保留 pandas 路径（两家一致）。anthropics 版在此格式上无需吸收任何组件。
 
-### 第三层：MCP 插件层（打通内核已有能力）
+**`pptx`：anthropics 版改编，中文场景适配**
 
-内核已实现完整的 MCP 客户端（stdio + HTTP + OAuth，含工具暴露分档），产品只需做三件事：启动会话时把 `agentDir/mcp.json` 接入加载链路、设置页加服务器管理 UI、用内核的 deferred/codemode 档位控制上下文成本。配置面板无需发明格式——直接采用 `mcp.json` 标准（与 Claude Code / Cursor 同构），用户可以从任何 MCP 目录站抄配置。
+两家同为 PptxGenJS 技术栈，anthropics 版工程更成熟：模板重排/文本替换的编辑路径、HTML-to-PPTX 转换、soffice 渲染缩略图网格的视觉验证回路（能抓住文字溢出和布局问题）。MiniMax 版的设计系统（配色/字体/样式配方）可作为内容参考借鉴到适配改写中。适配重点是中文演示场景：中文字体回退、中文排版的字数密度经验。
 
-打通后建议预置引导（而非强装）的 MCP 服务器，按用户价值排序：
+**`pdf`：anthropics 版改编**
 
-- **`fetch` / 网页抓取类**：补齐 web_search 只能"搜"不能"精读"的短板，研究工作流刚需。官方 mcp-servers 仓库有参考实现。
-- **浏览器自动化（Playwright MCP）**：让 Agent 能操作无适配器覆盖的网页，与产品自身的 webview 自动化形成互补（产品自动化走登录态页面，Playwright 走独立实例，适合无需登录的抓取与验收）。
-- **记忆类（memory/knowledge-graph）**：跨会话持久记忆的参考实现，在自家知识管理成熟前可作为过渡；长期看应与 `workbench-knowledge` 合并为一套。
-- **Obsidian / 文件系统类**：对已有个人知识库的重度用户是直接卖点——他们很多人笔记就在 Obsidian 里，这类集成本质是"读取用户已有资产"，风险低价值高。
+读取、表单填写、合并拆分、生成的完整覆盖，poppler 渲染验收回路。jerryjliu 在 X 上的批评（"PDF skill 偏简单"）针对的是 2025-10 的旧版，该 skill 在 2026-11 已经历多轮升级，批评不再成立。MiniMax 的 token 化设计系统（按文档类型推导排版、15 种封面风格）仅作为"从零生成设计感 PDF 报告"的参考思路，不合并进默认包。如后续发现 PDF 文本/图片抽取质量不足，可将解析层替换为 PyMuPDF（社区方向，验证过优于 pypdf），届时再评估。
 
-注意上下文成本：MCP 工具全量 direct 注入会显著抬高每轮 token 消耗。内核的 deferred 档位（模型按需激活）正是为此设计，**默认服务器应一律用 deferred 或 codemode 注册**，这是集成方案里最容易做错的一点。
+### 打包与路由纪律
 
-## 五、可直接套用的开源项目清单
+- 每个格式默认只进上述一套主实现。改编时**必须在 description 中写清触发边界**，尤其 docx（主场景为从零创建中文文档、表单填充与简单模板重排；结构性套版为降级弱项，见前述场景边界）——description 是触发准确度的唯一杠杆，system prompt 里每个 skill 的 description 都占 token。
+- anthropics 上游固定 commit 打包，不跟踪 main；MiniMax 仓库处于 Beta（README 自述格式可能变动），同样固定 commit，并记录上游版本号便于后续核对更新。
+- 所有 skill 内的英文流程说明做中文场景适配改写；许可证文件（Apache-2.0 / MIT 的 LICENSE）随 skill 目录一并分发，保留版权声明。
 
-按"拿来即用程度"排序。许可核验时间为 2026-11-26。
+## 六、skill-creator 的选型与实现方案
 
-**可直接复制 Skill 目录进包的：**
+**结论：直接改编 OpenAI 版为主干（Apache-2.0 可合法再分发），吸收 Anthropic 版的评测方法论作为进阶章节。**
 
-- **`anthropics/skills`**（github.com/anthropics/skills）：Anthropic 官方 Skills 合集。文档类 Skill（docx/pptx/xlsx/pdf）为 Apache-2.0（各子目录自带 LICENSE.txt，可合法随包分发，保留版权声明即可），包含完整脚本资产（python-docx 等）和经过实战打磨的流程说明。质量是公开生态里最高的，很多社区 Skill 是它的改写版。
-- **`vercel-labs/skills`**：Vercel 维护的开放目录，主打 `find-skills` 元 Skill 与工程最佳实践类，格式同标准。
-- **`openai/skills`**：OpenAI 官方"Skills Catalog for Codex"，含 imagegen、documents、spreadsheets、presentations、pdf 等。**注意：GitHub API 返回的 license 字段为空，打包前必须核验各 Skill 子目录的许可条款**；在核验通过前只作格式参考，不作分发源。
-- **`obra/superpowers`**：高星社区库，强在工程方法论型 Skill（brainstorming、systematic-debugging、test-driven-development 等"教 Agent 怎么干活"的 Skill）。对产品内的开发者用户价值高；其方法论 Skill 的写作方式本身也是第一层自研 Skill 的最好范文。打包前复核其仓库许可。
-- **`hesreallyhim/awesome-claude-code`**（及其子资源）：不是 Skill 库而是最大规模的 Skill/插件索引站，适合作为"可选 Skill 市场"的内容源持续选品。
+许可证事实需要特别澄清，这是本方案返修过的点：OpenAI 的"Copyright 2026, All rights reserved"限制性许可**只覆盖其随包分发的文档四件套**（documents/spreadsheets/presentations/pdf），而 `openai/skills` 仓库 `skills/.system/skill-creator/LICENSE.txt` 与本机安装版 `~/.codex/skills/.system/skill-creator/license.txt` **均为完整 Apache-2.0**，无任何附加限制——可以合法改编再分发。因此原定的"自研重写"失去必要性，改为直接改编，省去数天工期。
 
-**用于打通插件层的：**
+两个上游的对比：
 
-- **pi-mono**（github.com/badlogic/pi-mono）：上游母项目。本 fork 已内置 MCP，**不需要** `pi-mcp-adapter`（那是内置支持落地前的过渡方案，上游 awesome 列表仍收录它，属过时信息）。需要的是把内核已有的 `mcp.json` 加载链路接到产品会话创建路径上。awesome-pi-coding-agent 索引可用于跟踪生态动向。
-- **`modelcontextprotocol/servers`**：MCP 官方参考服务器合集（fetch、memory、filesystem 等），TypeScript 实现，MIT 许可。既是预置服务器来源，也是自研服务器的模板。
-- **`microsoft/playwright-mcp`**：浏览器自动化 MCP，是目前生态里最成熟的浏览器服务器。
-- **MCP 目录站**（mcp.so、smithery 等）：第三方索引数千服务器，供选品，不建议无脑接入——大多数质量参差，预置清单应严格收敛。
+| 维度 | Anthropic 版 | OpenAI 版 |
+| --- | --- | --- |
+| 核心方法论 | 评测闭环驱动：访谈 → 草稿 → 测试用例 → eval-viewer 人工评审 → 量化 evals → 迭代 → 触发率优化 | 渐进式披露写作框架：三阶段信息披露、脚本/参考/资产结构规范、init/validate 脚手架 |
+| 宿主耦合 | 深耦合 claude CLI 子进程、子代理并行等机制，在 pi-coding-agent 上无法直接执行 | 宿主无关，纯写作与结构规范 |
+| 体量 | 约 33KB，流程重，强制评测循环 | 约 18.6KB，按需深入，符合最小充分复杂度 |
+| 许可证 | Apache-2.0 | Apache-2.0（仅限 skill-creator 等 .system 目录；文档四件套仍为限制性许可，禁止拷贝） |
 
-**不建议引入的（针对本产品受众）：**
+**实现方式**：以 OpenAI 版 skill-creator 为骨架改编——保留渐进式披露三阶段、description 触发边界、脚本/参考/资产目录规范、"假设 Agent 已有能力、只写改变决策的信息"的写作纪律，剥离其中 Codex/openai.yaml 等宿主专属机制（pi 运行时无此概念），做中文场景适配。Anthropic 版独有的资产是评测方法论（断言评分、盲测 A/B 对比、方差分析、description 触发率优化），这部分概念可自由吸收，但 eval 回路要用 pi-coding-agent 自己的会话能力重新设计，不照抄 claude CLI 的调用方式；产品的 skill-creator 面向终端用户而非专职 skill 开发者，评测闭环做成可选进阶章节而非强制流程。
 
-- **`bmad-code-org/BMAD-METHOD`**：完整的敏捷团队角色扮演框架（分析师/PM/架构师/开发/测试多角色长流程），面向软件项目全生命周期。对非研发用户过重，对研发用户又与产品的多平台调度定位无关。可作为高阶可选，不进默认包。
-- **`github/spec-kit`**：规格驱动开发（spec → plan → tasks → implement），同上，纯研发流程，且与第一层方法论 Skill 思路冲突（一个是重型仪式，一个是轻量战法）。
-- **`pi-mcp-adapter`**：已过时，内核自带 MCP（见上）。
+skill-creator 是生态飞轮的种子：重度用户一旦开始攒自己的 Skill，迁移成本就建立了。改编成本低、用户价值高，优先级高。
 
-## 六、实施路径与关键风险
+## 七、运行时供给与依赖策略（所有打包工作的前置）
 
-按依赖关系和投入产出，建议的顺序是：
+运行时依赖分四类，供给方式各不相同。这里有一个必须正视的事实：Agent 的执行环境是普通 PowerShell shell，**PATH 里不保证有 node**——"Electron 自带 Node"只存在于主进程内部，shell 工具够不着。因此 docx-js/pptxgenjs 的 npm 依赖链和 MCP 生态主流的 `npx` 启动方式，都需要先解决 Node 供给，否则 npm 系 skill 和绝大多数 MCP 服务器在非程序员机器上集体不可达。
 
-1. **第一层 Skill 编写**（纯内容工作，无架构改动）：`multi-ai-research` → `workbench-knowledge` → `multi-ai-review` → `prompt-library`。每个都是 Markdown 文件进 `.agents/skills/`，并加入 `electron-builder.yml` 的 extraResources（照抄 multichat-cli 的现有模式）。写完即可用 dev 环境实测。
-2. **`skill-creator` + 文档三件套打包**（改编 anthropics/skills）：主要工作是依赖问题的解决（见下）和中文场景的适配改写（原版流程说明以英文写作习惯为前提）。
-3. **MCP 集成**（唯一的真开发工作）：加载链路接线 + 设置 UI + deferred 默认策略。这是中期最大的生态杠杆。
-4. **可选 Skill 包 / 市场**：用 `find-skills` 或自建索引做"按需安装"，默认包保持克制——默认 Skill 过多会稀释触发准确度，且每个 Skill 的 description 都占用系统提示词。
+**Node：随包嵌入 + 预装依赖，不走 bootstrap。** Node 单文件运行时体积小、无安装向导、无 UAC、位数单一（只发 x64），是四类依赖里唯一"随包嵌入"成本低于 bootstrap 的。具体做法：打包时把 node.exe 与四件套所需 npm 依赖放入 `resources/runtime/`，主进程启动时把它 prepend 到 `process.env.PATH`——内核 shell spawn 经 `getShellEnv()` 继承 `process.env`，所有 Agent shell 自然获得 node/npx。两个体积账目要点：(1) zip 发行版的 npm/npx 依赖 `node_modules/npm` 目录树，必须全量保留（解压约 8-10MB、压缩后约 2-3MB），否则 `npx` 不可用、MCP 供给分档失效；(2) node.exe 本身是已压缩二进制，NSIS 的 LZMA 二次压缩收益有限，若总增量超 40MB，Plan B 是改为首启时从 nodejs.org 官方 zip 下载解压（固定 LTS 版本号），而不是裁剪 npm 依赖树。
 
-关键风险与对策：
+**Python：Agent 首次使用时自动 bootstrap，不随包预装。** embeddable 发行版（约 10MB 级解压）不带 pip，需要 get-pip.py 引导链，skill 内写清幂等步骤：检测 → 下载 embeddable 解压到应用数据目录 → get-pip 引导 → pip 安装 openpyxl/pandas/pypdf/markitdown。winget 路径存在 UAC 与源协议确认的交互弹窗，不作为主路径，只作为用户手动安装时的提示文案。不选"随包分发 embeddable Python"（体积 + pip 引导链仍需在线，收益小）；不把 xlsx 改写为 SheetJS 等 Node 实现（丢失 openpyxl 格式保真度与校验脚本，不划算）。
 
-- **Python 依赖范围已缩小但仍存在**：2026-11 升级后 docx/pptx 创建走 npm（docx-js/pptxgenjs），Electron 自带 Node 可直接承接；xlsx（openpyxl/pandas）与 pdf（pypdf）仍是 Python 依赖。Windows 目标用户大多没有 Python 环境，三个选项：(a) Skill 内写清 bootstrap 步骤让 Agent 自动装（winget 或内嵌式 Python 解压到应用目录）——成本最低；(b) 随包分发 embeddable Python——体积代价约 15-30MB；(c) xlsx 改写为 SheetJS 等 Node 实现——会丢失 openpyxl 的公式/格式保真度和现成校验脚本，不划算。建议 (a) 并把 bootstrap 做成幂等检测；LibreOffice 相关的公式重算与视觉验证做成探测式可选增强（见第二节末的专项对比）。
-- **Web AI 模式的约束**：第一层 Skill 必须同时兼容 API 与网页 AI 内核。网页 AI 模式下工具调用走文本协议（WAA），长流程 fan-out 的稳定性弱于 API 模式——Skill 里应明确标注"深度研究编排建议在 API 模式下进行"之类的模式提示，而不是假设两种内核等价。
-- **MCP 默认暴露档位**：前文已述，全量 direct 是上下文成本灾难，集成方案必须把 deferred/codemode 作为默认。
-- **许可证**：anthropics/skills 文档类 Apache-2.0 已核验；`brand-guidelines` 等含品牌资产的子目录许可不同，不打包即可；openai/skills 许可证未明，核验前不分发。
+**.NET：不引入。** docx 选型已在第五节改走无 .NET 依赖的轻路径，.NET 从依赖清单中移除。
 
-## 七、参考来源
+**LibreOffice 与 poppler：探测式可选增强。** 公式重算（recalc）和视觉验证（soffice 渲染 + pdftoppm 缩略图）只在探测到本机已安装时启用；未安装时降级为"生成后提示用户在 Excel/Word 中检查"。绝不做硬前置——LibreOffice 对普通用户是数百 MB 的重依赖。
 
-- anthropics/skills 仓库与各 Skill 子目录 LICENSE（Apache-2.0）：https://github.com/anthropics/skills
-- openai/skills（Skills Catalog for Codex）：https://github.com/openai/skills
-- vercel-labs/skills：https://github.com/vercel-labs/skills
-- obra/superpowers：https://github.com/obra/superpowers
+**MCP 服务器供给随之分两档**：纯远程 HTTP 服务器（无需本地运行时）预置进默认 `mcp.json` 模板但 `enabled` 默认为关，用户在设置页显式开启；依赖 `npx`/`uvx` 的服务器在 Node 环境就绪前在 UI 标注为不可用或引导完成初始化。
+
+## 八、实施路径与验收标准
+
+按依赖关系排序，共五个阶段。阶段 0 的两项前置（分发链路 + Node 供给）不完成，后续所有 skill 都落不到用户机器上，工期按里程碑交付物计而不按天数硬估。
+
+**阶段 0：分发链路与运行时供给（前置，唯一必须先做的开发）**
+
+两件事，都是小改动但缺一不可：
+
+（a）**随包 skill 分发落位**。现状缺口：内核扫描目录是 `agentDir/skills` + `~/.agents/skills` 等五个候选，**不含安装目录的 `resources/skill/`**——multichat-cli 目前是打包后靠用户手动复制，对"开箱即用"目标不成立。方案：在 `AgentSessionService` 的 `skillDirCandidates` 中追加 `resources/skill/` 路径（安装版经 `process.resourcesPath` 解析，dev 版指向仓库 `.agents/skills/`），扫描链路零改动。冲突规则：**同名 skill 以用户目录优先于随包目录**——内核同名去重是"先扫描者获胜"，`additionalSkillPaths` 排在自动扫描目录之后，该规则与内核行为天然吻合、零额外开发；规则写进设置页 skill 管理 UI 的说明。验收：干净安装后打开 Agent 会话，随包 skill 无需任何手动操作即可触发；用户在 `agentDir/skills` 放同名 skill 后触发的是用户版本。注意 dev 环境差异：内核会自动扫描 cwd 祖先目录的 `.agents/skills`，在仓库根目录跑 dev 时仓库内 skill 会以 project 身份先于 user 身份加载，"用户目录优先"的验收必须在 cwd 非仓库根的会话中进行，否则结果失真。
+
+（b）**Node 运行时随包嵌入**（做法见第七节）。验收：干净 Windows 环境（无系统 Node/Python）触发 pptx 创建任务能跑通 npm 依赖链。
+
+**阶段 1：Python bootstrap 基础设施**
+统一的幂等安装脚本与检测逻辑（embeddable + get-pip 引导链），做成 skill 可复用的公共资产。验收：干净环境触发 xlsx 任务，Agent 自动完成 bootstrap 并产出文件；二次触发不重复安装。
+
+**阶段 2：第一层自研 Skill**
+第 0 个交付物是**触发回归任务集与 description 语言决策**：构造 10 个该触发 + 10 个不该触发的真实任务集，实测中文/英文/双语 description 的触发准确度并定版——这套任务集同时成为后续所有 skill 的触发回归基线。然后按 `multi-ai-research` → `workbench-assets` → `multi-ai-review` 顺序编写，每个进 `.agents/skills/` 并加入 `electron-builder.yml` 的 extraResources（照抄 multichat-cli 模式）。验收：让 Agent 执行一次多平台深度研究，验证扇出、回收、落盘全链路符合 skill 约定；触发回归任务集通过。
+
+**阶段 3：文档四件套 + skill-creator**
+顺序：`xlsx` → `docx` → `pptx` → `pdf` → `skill-creator`（按用户使用频率排）。改编工作含三块：中文场景适配改写、依赖 bootstrap 接线、上游固定 commit 快照进包（固定 commit 并记录版本号，MiniMax 上游处于 Beta 必做）。docx 改编时**必须把 pandoc 读取路径替换为 markitdown**（见第五节）。验收标准：**每个格式三个真实任务端到端验收**——xlsx 做"存量表格加列加公式"、"从零建财务模型"、"读取分析现有表格"；docx 做"从零写中文公文/报告"、"填表单模板"、"改稿留红线"；pptx 做"从零创建中文演示"、"基于模板替换文本"、"跑视觉验证回路抓排版问题"；pdf 做"表单填写"、"合并拆分"、"渲染验收"。**验收机须预装 LibreOffice + poppler**，否则视觉验证与公式重算任务会被静默降级跳过、验收失真。验收必须打开产出文件人工确认排版质量，不能只看文件生成成功；skill-creator 用"把一个真实工作流固化成 skill 并触发使用"验收。
+
+**阶段 4：MCP 集成（最后，唯一的较大开发工作）**
+三件事：会话创建路径接入 `agentDir/mcp.json` 加载；设置页加服务器管理 UI；**默认服务器的暴露档位按类型定**：单工具服务器（如 fetch）可 direct——它只有一个工具，direct 成本低；多工具服务器一律 deferred 或 codemode——全量 direct 注入会显著抬高每轮 token 成本。配置格式直接采用 `mcp.json` 标准（与 Claude Code/Cursor 同构），预置服务器的初始 enabled 默认为关（用户显式开启，避免静默扩大攻击面与 token 消耗）。验收：开启 fetch 服务器后，Agent 能精读给定 URL 内容；上下文占用对比验证 deferred 生效。
+
+**预置引导（而非强装）的 MCP 服务器**，按用户价值排序：`fetch` 网页抓取类（补齐 web_search 只能搜不能精读的短板，研究刚需）；浏览器自动化（Playwright MCP，操作无适配器覆盖的网页，与产品自身 webview 自动化互补）；记忆类（memory/knowledge-graph，跨会话持久记忆过渡方案）；Obsidian/文件系统类（对已有个人知识库的用户是直接卖点）。
+
+**阶段 5（后续，非本方案范围）**：可选 Skill 包/市场，用 find-skills 元 skill 或自建索引做按需安装。anthropics 完整四件套、`webapp-testing`、`frontend-design`/`canvas-design`、obra/superpowers 的工程方法论 skill（brainstorming/systematic-debugging 等，MIT，同时也是第一层自研 skill 的写作范文）进入可选包候选。
+
+**全局验收纪律**：skill 修改后必须重新打包并在 dev 实测；文档类 skill 的验收以打开产出物的人眼检查为准；触发准确度用阶段 2 建立的回归任务集持续回归。
+
+## 九、关键风险与对策
+
+- **触发准确度稀释**：默认 skill 越多，description 噪音越大。对策：默认包收敛在 9 个；每个 description 写清触发与排除边界；同格式不留两套实现。description 语言（中文/英文/双语）在阶段 2 开工前用回归任务集实测定夺。
+- **同名 skill 冲突**：用户从公开渠道自装的 skill 可能与随包同名。对策：第八节阶段 0 的用户目录优先规则 + 设置页明示。
+- **Beta 上游变动**：MiniMax 仓库自述 Beta，固定 commit + 记录版本号，升级作为独立任务评估。
+- **首次 bootstrap 失败**：下载超时或网络受限时 bootstrap 会失败。对策：skill 内写清降级路径（提示用户手动安装并给出链接），Agent 不得静默重试超过两次。embeddable Python 的两个已知坑 bootstrap 脚本必须覆盖：发行版不带 pip 需要 get-pip 引导链，且 `python*._pth` 文件中的 `import site` 必须取消注释否则 pip 无法生效。
+- **Node 嵌入体积失控**：`resources/runtime/` 的 node + npm 依赖若超 40MB 会显著增大安装包。对策：阶段 0 验收时实测，超标则裁剪依赖（如 pptxgenjs 按需打包）或重评估。
+- **许可证合规**：anthropics 部分 Apache-2.0、MiniMax 整仓 MIT、OpenAI .system 目录（skill-creator 等）Apache-2.0，均可再分发但需保留版权声明；**OpenAI 文档四件套（documents/spreadsheets/presentations/pdf）为限制性许可，任何文本都不得拷贝进包**；`brand-guidelines` 等含品牌资产的 anthropics 子目录不打包。
+
+## 十、参考来源
+
+- anthropics/skills（文档四件套 Apache-2.0）：https://github.com/anthropics/skills
+- MiniMax-AI/skills（整仓 MIT）：https://github.com/MiniMax-AI/skills ；官方发布文章：https://x.com/MiniMax_AI/status/2036888404890378258
+- openai/skills（仅作方法参考，禁止复制）：https://github.com/openai/skills
+- vercel-labs/skills：https://github.com/vercel-labs/skills ；obra/superpowers：https://github.com/obra/superpowers
 - awesome-claude-code 索引：https://github.com/hesreallyhim/awesome-claude-code
 - pi-mono：https://github.com/badlogic/pi-mono ；awesome-pi-coding-agent：https://github.com/breatheinthefrost/awesome-pi-coding-agent
-- pi-skills（社区维护的跨 agent skill 源）：https://github.com/zellelin/pi-skills
 - MCP 参考服务器：https://github.com/modelcontextprotocol/servers ；Playwright MCP：https://github.com/microsoft/playwright-mcp
-- BMAD-METHOD：https://github.com/bmad-code-org/BMAD-METHOD ；spec-kit：https://github.com/github/spec-kit （评估后排除）
+- X 平台社区核验：Simon Willison https://x.com/simonw/status/1976799855701000552 ；jerryjliu https://x.com/jerryjliu0/status/1979340893850341569 （针对旧版，已不成立）；zodchiii/Mr_Buzzoni/humzaakhalid/KanikaBK 等盘点帖
+- 已排除候选：tfriedel/claude-office-skills（anthropics 下游镜像，作者已废弃）；glebis/claude-skills、daymade/claude-code-skills（HTML/Pandoc 路线，非原生 Office 格式）；BMAD-METHOD、github/spec-kit（重型研发流程，与产品定位不符）
 - 产品内事实：`src/main/services/AgentSessionService.ts`、`src/main/services/AgentResourceLoader.ts`、`src/main/services/shell.ts`、`src/main/cliIntegration.ts`、`src/renderer/src/components/workbench/agent/AgentSkillsSettings.tsx`、`electron-builder.yml`、`node_modules/@earendil-works/pi-coding-agent` dist 产物

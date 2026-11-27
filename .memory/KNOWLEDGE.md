@@ -167,6 +167,8 @@ eplace 内手动 `append((match[0]))` 可阻断行内格式二次转换。TextMa
 
 - **docx 大纲识别要走 `WordDocument` 树，不能按渲染 className 匹配**：`docx-preview` 0.4.1 的 `renderAsync` 直接返回 `parseAsync` 产出的 `WordDocument`，不必拆成 `parseAsync + renderDocument` 两步。OOXML 大纲层级在 `paragraph.outlineLevel` 顶层字段和 `style.paragraphProps.outlineLevel` 样式继承上；渲染输出只把 styleId escape 成 `docx_<id>` class，中文论文模板的自定义 styleId（如 `a7`、`a0`）按 className 正则识别完全失效。悬浮大纲 UI 抽成 `WorkbenchTocRail` 公共组件，Lexical 与 docx 各自只做数据源适配（`items` + `resolveElement` 回调），避免平行复制交互。
 
+- **Office 预览三件坑**：(1) Chromium Web Worker 无 DOMParser/DOM API，worker 内解析 OOXML 必须自研定向 XML 解析器（OOXML 输入域规整：预定义实体、固定前缀、无 DOCTYPE，150 行足够）；(2) IPC 返回的 Uint8Array 可能是共享池视图（byteOffset≠0），transferable 传 .buffer 会把视图外字节带进 worker，必须 slice 精确副本；(3) @e965/xlsx 对非 zip 输入静默降级 CSV 解析不报错，损坏/加密文件必须靠 PK 魔数前置校验拒绝。office 解析库放 worker chunk 天然与主 chunk 隔离（xlsx 160KB gzip/pptx 37KB gzip），无需 manualChunks。
+
 ### 笔记、快照与导图
 
 - **来源会话键保留完整规范化 URL 路径**：截取第一个 chat 片段会把 `chat/s/id1` 和 `chat/s/id2` 错误分到同一会话。来源会话入口的 UI 判定必须用 `isPlatformConversationPage` 的逐平台真实路径枚举，不能复用后台恢复用的宽松 `isConversationUrlForPlatform`，后者会命中同域名的设置页、搜索页和文档页。新增平台或路径时同步补 `scripts/agent-cli-acceptance.mjs` 的正负样例，负例至少覆盖同域名非会话页和非 AI 站点。
@@ -257,6 +259,8 @@ eplace 内手动 `append((match[0]))` 可阻断行内格式二次转换。TextMa
 - **下拉菜单的"点击外部关闭"不能在 capture 阶段无条件卸载菜单**：window 上 capture 阶段的 `mousedown` 监听先于菜单项的 `click` 触发，直接卸载会让 click 落在已脱离文档的节点上不触发（菜单看似点了没反应）。外部判定必须排除菜单本体与触发按钮（如用 `data-*` 属性 + `closest` 检查），React 18 根监听是 bubble 阶段的 `click`，节点提前脱链后事件不会再派发到根。
 
 - **`backdrop-filter` 元素会劫持所有 `position: fixed` 后代的定位**：Chromium/Electron 中，元素带 `backdrop-filter`（含 `-webkit-` 前缀，如 `liquid-glass-menu` 毛玻璃菜单）时，其 fixed 后代的包含块变为该元素的 padding box 而非视口——按视口坐标算好的 left/top 会被二次偏移，浮层渲染到视口外（实测 fixed 子元素坐标 = 视口坐标 + 祖先偏移，absolute 后代不受影响）。菜单内嵌套子菜单/fixed 浮层必须 `createPortal` 到 `document.body`；portal 后 DOM 父子断开，`mouseenter/leave` 的层级语义失效，hover 展开要用可取消的短延迟关闭定时器（约 250ms），并把"点击外部关闭"的 contains 判定扩展到 portal 出去的浮层节点。
+
+- **拖选类交互的 elementFromPoint hit-test 必须用探针式夹紧**：指针位于滚动条带（`clientWidth/clientHeight` 之外的 8px 条带）或网格内容以外的空白区时，`elementFromPoint` 命中的是滚动容器而非内容元素，焦点会冻结。正确做法是把探针坐标先夹紧到「内容矩形 ∩ 滚动容器客户区（`scroller.clientWidth/clientHeight` 换算的右/下边界）」的交集内再 hit-test，命中最近边缘元素——这正是 Excel 拖选的钳制语义，还能让帧驱动的边缘自动滚动在双向（正反向）都成立。配套教训：`element.style.boxShadow` 读回被浏览器序列化为 `rgb(16, 124, 65)` 而非 hex，验收断言必须兼容两种形式。
 
 ### 窗口、划词与快捷键
 
@@ -439,6 +443,10 @@ eplace 内手动 `append((match[0]))` 可阻断行内格式二次转换。TextMa
 
 ### 构建、打包与验证
 
+- **Node `execFile`/`execFileSync` 在 Windows 无法直接 spawn `.cmd`/`.bat`（EINVAL）**：CVE-2024-27980 安全修复后，spawn 批处理文件不经 `cmd.exe` 中介会被直接拒绝；打包期脚本里跑 `npm install` 必须 `execSync(cmdString, { shell: true })`（参数全为字面量时无注入面）或显式 `cmd.exe /c`。这不影响 PowerShell 侧直接调用 `npm`——PowerShell 会自己解析 `npm.cmd`。
+
+- **TypeScript 模板字符串内的行内代码反引号必须转义，esbuild 不报错但运行时静默产出 NaN**：`systemPromptTrim.ts` 曾在模板字面量里写裸 `` `.tmp/` ``，模板提前闭合后整段变成 `string.tmp / string.tmp / string` 除法链——语法合法、esbuild 静默通过、运行时 `MIAO_PREAMBLE` 求值为 `NaN`（`string.tmp` 是 `undefined`，`undefined/undefined` 为 `NaN`），只有 tsc 的类型检查（"Property 'tmp' does not exist on type string"）能暴露。构建链不跑 tsc 的项目这类 bug 会直进生产且表象离奇（替换注入的是字面量 "NaN"），这是"build 不等于类型检查"教训的实证强化版；在模板字面量正文里引用 Markdown 行内代码时统一写 `\`...\``。
+
 - **Electron CommonJS 主进程与纯 ESM 依赖的兼容**：在 `electron.vite.config.ts` 中开启 `build.externalizeDeps: true` 时，Vite 会将 `import ... from 'esm-pkg'` 转换为 CommonJS 的 `require('esm-pkg')`。若外部依赖（如 `@earendil-works/pi-coding-agent`）为纯 ESM 且 `package.json` 的 `exports` 仅定义了 `import` 而无 `require`/`default`，会导致 Node CJS 加载器抛出 `ERR_PACKAGE_PATH_NOT_EXPORTED`。解决方法：主进程中仅保留该包的 `import type` 静态类型导入，并在异步生命周期（如 `init()`）中使用 `new Function('s', 'return import(s)')('esm-pkg')` 动态加载运行时符号，既规避 Vite 编译期的 require 改写，又保证在 Node/Electron 运行时正确通过 ESM 解析器加载。
 
 - **pnpm 接管 npm 安装的 `node_modules` 前必须关闭运行中的 Electron 实例**：`pnpm install` 会把旧包迁移到 `node_modules/.ignored`；若本 worktree 的 `node_modules/electron/dist/electron.exe` 仍被 dev 进程占用，重命名会报 `EPERM`。先按命令行中的 worktree 路径找到并关闭对应的 `npm run dev`/Electron 进程，再执行 `pnpm install`，安装后确认 `install-electron` 已下载二进制再重新启动。
@@ -493,6 +501,11 @@ eplace 内手动 `append((match[0]))` 可阻断行内格式二次转换。TextMa
 
 - **含注入脚本的 template literal 不能只做文本 diff 验收**：`webviewScripts.ts`/`htmlToMarkdown.ts` 这类字符串模板里的 `//`、`/* */` 不是宿主 TS 注释，但仍是运行时脚本注释；直接逐行 diff 会把注释删除误判成字符串内容改动。验收应先做排除 TS 注释的 token 序列对比，再对 template token 的嵌入 JS 做注释/空白归一化后比对，差异必须归因到纯注释或明确并行功能改动。
 
+ - **真实窗口 CDP 验收的完整链路**：未打包态 main/index.ts 自动暴露 remote-debugging-port 9223（MULTICHAT_DEBUG_PORT 可覆盖），electron 二进制直跑（node_modules/electron/dist/electron.exe <appPath>）即加载 out/ 生产构建渲染层；--user-data-dir 可隔离验收 profile，预置 config.json 的 workbench_lastWorkspacePath 直接免 UI 进入目标工作区（store 名按 is.dev 分 config/config-dev）；__workbenchStore 仅 import.meta.env.DEV 暴露且会被 tree-shake，生产构建不可用——验收驱动工作区要靠预置 config 或 UI 路径。同一 dev/prod 构建混合会导致 main 卡死 CDP 监听但 /json 无响应，先杀干净 electron 进程再启动。
+   - 端口生效细节：端口由应用自身 appendSwitch 控制，**CLI 传 --remote-debugging-port 无效**，必须用 MULTICHAT_DEBUG_PORT 环境变量；9223 常被用户自己的 dev 实例占用，隔离实例要用别的端口。
+   - **僵尸实例持单例锁时新实例静默退出不报错**：launch 后 CDP 连不上先按命令行（live-profile 等特征）杀干净既有 electron 进程再启动，杀漏一个主进程就会一直无窗口无端口。
+   - **连接后先核对目标实例身份**：枚举文件树节点内容确认是隔离工作区再操作（用户的 dev 实例同样开着 CDP，连错会往真实数据里发输入）；页面选择排除 #toolbar/#quick 锚点小窗页，取无锚点的 index.html 主页面。
+
 ### 历史架构与版本限定
 
 仅在追溯旧架构、旧版本或用户授权的隔离开发时读取。本项目当前使用 Electron 42 与 Webview；本节不授权迁移架构、修改分支或照搬旧兼容补丁。
@@ -508,6 +521,7 @@ eplace 内手动 `append((match[0]))` 可阻断行内格式二次转换。TextMa
 - **pi-coding-agent v1.6 fork 内核自带 MCP 与标准 Skills，无需外部适配器**：内核 `dist/core/mcp-servers.js` 已实现 `mcp.json` 配置校验与工具暴露分档（direct/deferred/codemode/hidden，deferred/codemode 是控制上下文成本的默认正确档位），OAuth 也在内核；`pi-mcp-adapter` 是内置支持落地前的过渡产物，已过时勿用。Skills 加载（`dist/core/skills.ts`）遵循 Anthropic Agent Skills 开放标准（name 小写连字符不超过 64 字符、description 不超过 1024 字符），anthropics/skills（文档类 Apache-2.0，各子目录自带 LICENSE）、vercel-labs/skills 等公开仓库的 Skill 目录拷进扫描根即可用。MultiChat 侧 Skills 链路（`agentDir/skills` + `agent_extra_skill_dirs` + AgentSkillsSettings UI）已完整存在，加 Skill 不需要架构改动，只需要内容与 extraResources 分发（照抄 multichat-cli 模式）；MCP 则需在会话创建路径上接 `mcp.json` 加载，属集成缺口而非能力缺失。
 
 - **文档四件套 Skill 源选型已定型：anthropics/skills 是唯一合规上游**：OpenAI Codex 随包的 documents/spreadsheets/presentations/pdf skills 虽是 anthropics 版的深度改编（质量更高，含逐页渲染验收、写作质量清单、模板蒸馏），但其 LICENSE 为 "Copyright 2026 OpenAI, All rights reserved" 明确禁止提取、复制分发与衍生转授，只能借鉴方法不能拷贝文本；公开 openai/skills 仓库无 LICENSE 且只有不完整的 pdf。anthropics/skills（约 20 万 stars，2.3 万 forks，社区实现全是其下游改编）2026-11-06 已将 Office 四件套统一迁 Apache-2.0（commit "Move Office skills to the Apache 2.0 license #2146"），且技术栈换代：docx/pptx 创建改用 npm 的 docx-js/pptxgenjs（Electron 直接受益），xlsx 仍用 openpyxl/pandas、pdf 仍用 pypdf，公式重算与视觉验证依赖 LibreOffice（应做探测式可选增强而非硬前置）。
+- **文档四件套 skill 定稿方案（2026-11-27 两轮独立评审后）**：xlsx 用 MiniMax 主干（`libreoffice_recalc.py` 自带无需移植）；pptx/pdf 用 anthropics；docx 用 anthropics 主干 + 移植 MiniMax 的 MIT 文本资产（cjk_typography/scenario_c_apply_template/openxml_element_order/openxml_units/troubleshooting 五件成套，少移植排错类就等于丢掉"怎么不出错"），**不引入 .NET**——MiniMax 套模板核心知识是 XML 级运行时无关文本，.NET 独有的只是编译样本库/确定性 CLI/门禁纪律三样，不值得 200MB SDK 成本。关键纠偏：① OpenAI 限制性许可只覆盖文档四件套，`skills/.system/skill-creator` 实为 **Apache-2.0 可直接改编**；② anthropics docx 读取路径硬编码 `pandoc`，改编必须换 `markitdown`（随 Python bootstrap 走）；③ minimax-xlsx 自带公式重算，与 anthropics 能力等价。运行时供给：Agent shell PATH 无 node，"Electron 自带 Node"够不着——Node 随包嵌入 `resources/runtime/`（npm 目录树必须全量保留否则 npx 失效）+ 主进程 prepend `process.env.PATH` 即可继承（内核 `getShellEnv()` 展开 process.env）；embeddable Python 两坑：不带 pip 需 get-pip 引导、`python*._pth` 的 `import site` 必须取消注释。分发链路：内核扫描候选**不含** `resources/skill/`，multichat-cli 目前靠用户手动复制——需在 `skillDirCandidates` 追加；内核同名去重"先扫描者获胜"且 additionalSkillPaths 排在自动扫描之后，"用户目录优先"规则零额外开发，但 dev 环境 cwd 在仓库根时 `.agents/skills` 会以 project 身份抢先生效，验收须换 cwd。skill-creator 定稿：OpenAI 版改编（宿主无关渐进式披露框架）+ Anthropic 评测方法论作进阶章节。**核验 skill 仓库必须读 README 确认是否独立实现**——tfriedel/claude-office-skills（850 星）实为 anthropics 下游镜像且作者已废弃。
 
 - **本地 Agent 交互UI避免引入外部重型聊天运行时库，优先采用 Zustand + 原生组件接管**：`@assistant-ui/react` 等库对消息格式有严苛的内部 schema 约束（例如 user 消息不可携带 status，或者子组件强制要求 AuiProvider 上下文），且与底层 Pi Coding Agent 的事件流模型存在语义分歧。采用 Zustand 统一维护消息、工具调用、思考过程与权限确认，直接驱动自定义组件（如 `BashToolUI`、`ThinkingBlock`），既解除了外部库崩溃风险，又能够与工作台 `WebviewCard` 保持完全一致的视觉与交互基线。
 
@@ -553,6 +567,12 @@ eplace 内手动 `append((match[0]))` 可阻断行内格式二次转换。TextMa
 - **Agent 工具运行态判定必须以"组级 agent run 存活"为权威，消息级 status 与 part.result 都不可信**：image_gen/web_search 这类 60–90s 长任务曾出现"仍在生成、UI 却显示成功且标题停止闪烁"的假成功，根因链上三个信号各有盲区：① pi 的 `message_end` 在 `tool_execution_start` **之前**到达，个别形态下其 content 快照不含 toolCall 或为空数组，`content.every(无未完成 tool)` 会 vacuous true 把消息误标 complete；② `message_update`/`message_end` 的整体覆盖式 merge 会把 `tool_execution_start` 已插入的本地 tool-call part 连同 result 抹掉；③ `resumeSession`（HMR/重载/切换会话 mid-flight）曾一律标 complete，且恢复的 toolResult 只存裸 content 数组丢失 details/structuredContent。防御四层缺一不可：merge 保留本地 orphan tool-call；`tool_execution_start` 强制 status 回 running；`turn_end` 兜底不得越过未出结果的 tool-call；渲染层 ToolGroup 的 isRunning 用组级（agent_start→agent_end 存活）而非消息级。resume 恢复运行中会话要靠后端 `isRunning` 权威标记还原 running。实证排查用 `MM_AGENT_EVENTLOG=1`（sessionsDir/\<id\>/event-timeline.jsonl）。会话已结束仍无 result 的工具要显示"未返回结果"而非"成功"。
 
 - **正则交替分支的捕获组编号：`(​?:FP(\d+)|(\d+))` 中第一分支是 group 1、第二分支是 group 2**——误用 `match[1]` 读第二分支得到 `undefined`，`Number(undefined)` 转 `NaN` 后索引静默失效，占位符还原整链失败且无任何报错（数学公式曾因此全部渲染为原始占位文本）。写完交替正则必须用两个分支的真实样本分别验证捕获组取值。markdownMath 的裸路径提取复用公式占位管线：同一遍扫描跳过行内/围栏代码与 `](...)` 链接目的地，`prefixFP{n}END` 占位符与数学 `prefix{n}END` 共享 restore，rehype 阶段还原为 `data-file-chip` 元素由 components.span 分支渲染成 InlineFileChip。
+
+- **给 Agent shell 提供 `node` 入口的正确机制是 pi spawnHook 注入函数，`.ps1`/`.cmd` shim 都有致命缺陷**：`.ps1` shim 完全不可用——PowerShell 对 `.ps1` 脚本做参数绑定，`node -e` 的 `-e` 会被当作脚本参数（歧义匹配 `-ErrorAction`）而非转发；`.cmd` shim 的 `%*` 转发经 cmd 二次分词，含 `&` 的参数即使加引号也会被截断，且 libuv 的 `\"` 内嵌引号转义 cmd 不理解（对 JSON-in-argv 类调用是真实威胁）。正确做法：pi `createPowerShellToolDefinition` 支持 `spawnHook`（`bash.d.ts` 已核型），hook 改写后的 command 确定流经自定义 ops（`bash.js` spawnContext 链），注入 `function node { $env:ELECTRON_RUN_AS_NODE='1'; & '<exe路径>' @args }`——`@args` 是 PowerShell 原生转发无二次分词、零随包文件、不占 PATH、变量不污染主进程。注意 spawnHook 函数不进嵌套 shell（脚本内再 `powershell -Command`），极端场景可用 `.cmd` 兜底但接受 `%*` 元字符局限。
+
+- **Electron 本体即 Node 解释器，面向消费者的 agent 应用应自供运行时**：`ELECTRON_RUN_AS_NODE=1` 环境下 electron.exe/打包后的应用 exe 就是完整 Node 解释器（electron 42 → node v24，实测退出码透传、stdout 管道正常、spawn 开销约 125ms）——skill 的 JS 脚本链路零体积增量可用，但该变量绝不能写进主进程 `process.env`（会被 Chromium GPU/renderer 子进程继承导致整个应用退化崩溃，只能存在于 shim/hook 的子进程作用域）。业界分界：面向消费者的 agent 桌面应用自供运行时（Codex 桌面应用为文档四件套在 `~/.cache/codex-runtimes/` 预置 node 350MB+python 226MB+native 依赖共约 3GB 实证；SkillsBench 论文同样记录"provide a clean, dependency-free skill that already bundles the correct runtime"），面向开发者的 CLI agent 才依赖宿主环境。"用户已有 Node/Python"对开发者成立、对非程序员目标用户不成立；折中策略是三级回退（managed→安全探测 system python 转 venv→embeddable bootstrap），system python 探测严禁裸调（Windows 商店 stub 会弹窗），只允许带 `--version` 解析 stdout 加超时。
+
+  实测补充（2026-11-27 全链路真跑验证）：`py` launcher 装在 `C:\Windows` 而非 `C:\Windows\System32`——模拟"无 python 环境"测试剥离 PATH 时**不能保留 `C:\Windows`**，否则 system-venv 分支被误命中掩盖 bootstrap 分支。ensure-python 三级回退全部实测通过：system python→venv 转化（`reused:false,source:"system-venv"`）、二次运行幂等复用（`source:"managed"`）、PATH 只剩 System32 时 embeddable 下载→get-pip→pip 安装全链（`source:"bootstrapped"`）。
 
 ### 原型与视觉验收
 

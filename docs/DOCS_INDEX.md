@@ -72,6 +72,7 @@ docs/
 - [workbench/workbench-mindmap-file-binding-design.md](workbench/workbench-mindmap-file-binding-design.md) — 导图文件化与绑定
 - [workbench/workbench-html-visual-edit-plan.md](workbench/workbench-html-visual-edit-plan.md) — HTML 可视化编辑
 - [workbench/workbench-office-preview-plan.md](workbench/workbench-office-preview-plan.md) — Office 预览
+- [workbench/workbench-office-editing-plan.md](workbench/workbench-office-editing-plan.md) — Office 预览与编辑（本期：xlsx/pptx 预览+划词 AI；编辑设计存附录）
 - [workbench/workbench-tags-obsidian-parity-plan.md](workbench/workbench-tags-obsidian-parity-plan.md) — 标签能力对齐 Obsidian
 - [workbench/workbench-lexical-playground-parity.md](workbench/workbench-lexical-playground-parity.md) — 编辑器能力对齐
 - [workbench/reply-insert-into-workbench-design.md](workbench/reply-insert-into-workbench-design.md) — AI 回复插入工作台

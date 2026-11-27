@@ -2,6 +2,183 @@
 
 ## 2026-11-27
 
+### 21:10 | Codex
+
+- done: 提交本日全部改动：Office xlsx/pptx/CSV 预览、随包技能分发与运行时供给、菜单方向性弹出动画，按模块分3笔+hunk级拆分共享文件；scratch与CDP调试探针为过程文件不入库
+- context: 共享文件用 git apply --cached 按 hunk 拆分：package.json 依赖归 Office、构建接线归运行时；ipcHandlers/preload 的 read-office-bytes 归 Office、bundledSkillDir 归运行时；WorkbenchDocxPreview 字节读取重命名归 Office、动画 className 归 UI
+- modified:
+  - `SESSION_LOG.md`
+
+### 20:13 | Codex
+
+- done: 表格预览 Excel 化：WorkbenchDataTable 重写为数据驱动单元格范围选区（弃 DOM 文本选区）；列字母/行号/全选角 chrome sticky 冻结；拖选矩形/行列头整选横扫/Shift扩选/合并扩张/边缘自动滚选（帧驱动 hit-test）/右键改选/Ctrl+C TSV；合并复制锚点语义；独立 worker 验收抓出 hit-test 滚动条带+空白区冻结与 Escape 状态脱节，返修探针式夹紧后复核放行
+- added:
+  - `scripts 无新增`
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchDataTable.tsx|src/renderer/src/utils/workbenchTableSelection.ts|src/renderer/src/components/workbench/useWorkbenchSelectionAi.tsx|scripts/verify_office_previews.py|docs/workbench/workbench-office-editing-plan.md`
+- lesson(promoted): elementFromPoint hit-test 在滚动条带（clientWidth 之外）与网格空白区必然失效：拖选类交互必须用探针式夹紧（表格矩形 ∩ scroller 客户区交集）命中最近边缘单元格，符合 Excel 钳制语义；element.style.boxShadow 读回被浏览器序列化为 rgb() 而非 hex，验收断言要兼容两种形式
+
+### 19:32 | Codex
+
+- done: 随包 skill 分发实施经独立验收 worker 终审通过（返修闭环）：设置页补覆盖优先级说明文案、ensure-python 嵌入 sha256 校验（负向篡改 fail-closed 实测+正向 bootstrap 全链路实测）；打包版端到端实测：NSIS 构建后 win-unpacked 直跑（隔离 profile+CDP 9224），干净环境 8 skill 自动挂载、bundledSkillDir 正确解析、打包 exe 本体 spawnHook 链路 a&b 参数无损；回归集笔误修正；实施文档补记验收结果
+- modified:
+  - `src/renderer/src/components/workbench/agent/AgentSkillsSettings.tsx`
+  - `scripts/shared/ensure-python.mjs`
+  - `docs/agent/agent-skills-distribution-impl-plan.md`
+  - `docs/agent/skill-trigger-regression-set.md`
+- lesson: 验收 worker 报告中的构建产物过期陷阱：dist/win-unpacked 是时间快照，修复源码后不重打包就用它验收会得出失真结论——凡涉及打包产物验证必须确认产物构建时间晚于最后源码改动
+
+### 19:13 | Codex
+
+- done: CSV/TSV 表格预览：表格/源码双视图 + 浅色模式；共享抽取 WorkbenchDataTable（xlsx 重构复用）；手写 csvTable 解析器（引号转义/分隔符探测/BOM）；GBK 解码回退；lightPreviewSurface 泛化重命名；T12-T17 静态验收 + L1-L8 实机 CDP 全过
+- added:
+  - `src/renderer/src/utils/csvTable.ts|src/renderer/src/components/workbench/WorkbenchDataTable.tsx|.tmp/launch-devapp.ps1|.tmp/live-accept-csv.py`
+- modified:
+  - `src/renderer/src/components/workbench/WorkbenchCodePreview.tsx|src/renderer/src/components/workbench/WorkbenchXlsxPreview.tsx|src/renderer/src/components/workbench/WorkbenchEditor.tsx|src/renderer/src/store/workbenchStore.ts|src/main/services/workbenchService.ts|scripts/verify_office_previews.py|docs/workbench/workbench-office-editing-plan.md`
+- lesson(promoted): dev 模式 CDP 端口被应用自身 appendSwitch 强制覆盖（MULTICHAT_DEBUG_PORT || 9223），CLI 传参无效；僵尸 electron 实例持单例锁时新实例静默退出不报错；连接 CDP 后必须先核对文件树内容确认是隔离实例再操作
+
+### 18:53 | Codex
+
+- done: 随包 skill 分发实施完成主体链路：prepare-runtime 打包链接线（package.json build 钩子+双 electron-builder yml extraResources）、node_modules 体积裁剪（umd/iife/d.ts 删除，压缩后省 3.5MB）、spawnHook node 函数注入实测通过（a&b.txt 参数无损）、ensure-python 三级回退全量实测（system-venv/managed/bootstrapped）、内核扫描挂载无头验证（同名用户覆盖随包）、dev 实机 8 skill 挂载+会话创建无回归；顺手修复 systemPromptTrim.ts 反引号未转义导致 MIAO_PREAMBLE 运行时求值为 NaN 的生产缺陷（卡住 tsc 全绿）
+- added:
+  - `docs/agent/skill-trigger-regression-set.md`
+- modified:
+  - `package.json`
+  - `electron-builder.yml`
+  - `electron-builder-portable.yml`
+  - `.gitignore`
+  - `scripts/prepare-runtime.mjs`
+  - `src/main/extensions/systemPromptTrim.ts`
+- lesson(promoted): Node execFile 无法直接 spawn .cmd（CVE-2024-27980 修复后 EINVAL），打包期 npm install 必须走 shell:true；模板字符串里的行内代码反引号（`.tmp/`）必须转义，否则 esbuild 静默产出 NaN 而只有 tsc 能发现——构建链不跑 tsc 的项目这类 bug 会直进生产
+- lesson(promoted): py launcher 装在 C:\Windows 而非 System32，模拟无 Python 环境剥离 PATH 时不能只留 System32+C:\Windows
+
+### 18:42 | Antigravity
+
+- done: 为全局与工作台所有非右键弹出菜单、下拉菜单及浮层接入统一 160ms Expo Out 方向性弹出动画
+- modified:
+  - `src/renderer/src/assets/index.css`
+  - `src/renderer/src/components/CustomDropdown.tsx`
+  - `src/renderer/src/components/modes/SubtaskList.tsx`
+  - `src/renderer/src/components/workbench/AgentCard.tsx`
+  - `src/renderer/src/components/workbench/FrontmatterPanel.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchDocxPreview.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchDraggableBlockPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchDropDown.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchEquationEditor.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFooterPopover.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFootnotePopover.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchGitPanel.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchHtmlColorPicker.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchTabBar.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchTableActionMenuPlugin.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchUrlInputPopover.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchWikiLinkPlugin.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentComposer.tsx`
+  - `src/renderer/src/components/workbench/agent/AgentPopover.tsx`
+
+### 18:32 | Antigravity
+
+- done: 为全局及工作台所有右键菜单接入 160ms Expo Out 方向性微缩弹出动画
+- modified:
+  - `src/renderer/src/assets/index.css`
+  - `src/renderer/src/components/CustomContextMenu.tsx`
+  - `src/renderer/src/components/LocalMindmapPanel.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchEquationNode.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchFileTree.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchGitPanel.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchImageLightbox.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchImageNode.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchImagePreview.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchSelectionMenu.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchTabBar.tsx`
+
+### 18:16 | Codex
+
+- done: 工作台 Office 预览（xlsx/pptx）开发并验收完成：字节通道泛化 readOfficeBytes + 共享划词 hook + 双 worker 并行开发（xlsx 两档渲染/pptx HTML 绝对定位），Playwright harness 12 项验收 + 真实窗口 CDP 验收全过
+- decision: office 解析库隔离在独立 worker chunk（xlsx 160KB gzip/pptx 37KB gzip），不加 manualChunks——vite worker 构建天然与主 chunk 隔离，manualChunks 只影响主图无意义
+- added:
+  - `scripts/verify_office_previews.py`
+- modified:
+  - `src/shared/types/workbench.ts`
+  - `src/main/services/workbenchService.ts`
+  - `src/main/ipcHandlers.ts`
+  - `src/preload/index.ts`
+  - `src/renderer/src/components/workbench/WorkbenchEditor.tsx`
+  - `src/renderer/src/components/workbench/WorkbenchDocxPreview.tsx`
+  - `package.json`
+- lesson(promoted): Electron 未打包态天然暴露 CDP 9223 端口且 electron 二进制直跑=out/生产渲染+userData 可经 --user-data-dir 隔离出验收 profile，预置 config.json 的 workbench_lastWorkspacePath 可免 UI 直达目标工作区；Chromium Web Worker 无 DOMParser，worker 内 XML 解析必须自研定向解析器；IPC 返回的 Uint8Array 可能是共享池视图 byteOffset 非 0，transferable 传 buffer 前必须 slice 精确副本
+
+### 17:59 | Codex
+
+- done: Agent 预设 skill 实施方案撰写与评审修订：读取调研定稿后核验内核加载/优先级/env 继承机制，撰写 docs/agent/agent-skills-distribution-impl-plan.md 并派独立 worker 评审；实测 ELECTRON_RUN_AS_NODE 可行性后砍掉嵌入 Node（37MB→零增量），改为 spawnHook 函数注入主链路 + .cmd shim 兜底；Python 改三级回退（managed→system venv→embeddable bootstrap）；评审发现并修订 fork 第四构造点、cmd %* 参数破坏、ps1 参数绑定缺陷、prepare-runtime 构建接线、ensure-python 并发锁、商店 stub 探测、图标链排除等问题；派发两个 worker 并行改编 docx/xlsx/pptx/pdf/skill-creator（staging），自研 multi-ai-review/workbench-assets 完成 staging 草稿
+- decision: 分发机制采用扫描挂载（additionalSkillPaths）而非复制安装：内核 project>user>additional 优先级天然实现用户覆盖随包，零状态；ELECTRON_RUN_AS_NODE 绝不全局 export（Chromium 子进程会退化崩溃），只在 spawnHook 子进程作用域设置
+- added:
+  - `docs/agent/agent-skills-distribution-impl-plan.md`
+  - `scratch/skill-workshop/skills/multi-ai-review/SKILL.md`
+  - `scratch/skill-workshop/skills/workbench-assets/SKILL.md`
+- lesson(promoted): ps1 shim 不可行：PowerShell 对 .ps1 脚本做参数绑定，node -e 会被当脚本参数（-e 歧义 ErrorAction）；.cmd shim 的 %* 经 cmd 二次分词破坏含 & 的参数；正确入口是 pi spawnHook 注入 powershell function node { & exe @args }，零文件零 cmd 再解析
+- lesson(promoted): Electron 本体即 Node：ELECTRON_RUN_AS_NODE=1 下 electron.exe/MultiChat.exe 就是完整 Node 解释器（v24），面向消费者的 agent 应用自供运行时（Codex 桌面 3GB 依赖缓存实证），开发者向 agent 才依赖宿主环境
+- unresolved: 方案待用户审核批准后才实施；worker B（pptx/pdf/skill-creator）尚未交付；worker A 已交付待主 agent 集成验收
+
+### 17:32 | Codex
+
+- done: xlsx 内嵌预览 worker 侧实现：officeXlsx.worker + WorkbenchXlsxPreview + 表格选区 Markdown 转换器 + 验收样本
+- added:
+  - `src/renderer/src/workers/officeXlsx.worker.ts`
+  - `src/renderer/src/components/workbench/WorkbenchXlsxPreview.tsx`
+  - `src/renderer/src/utils/workbenchTableSelection.ts`
+  - `scratch/office-preview-samples/generate-samples.cjs`
+
+### 16:53 | Codex
+
+- done: 重整 agent-skills 调研文档为定稿方案：合并两轮调研结论为十节连贯结构，经两轮独立评审返修——skill-creator 许可证纠错(Apache-2.0可直接改编)、补充 skill 分发链路阶段0与 Node 随包嵌入运行时供给、docx 改走 anthropics 主干+移植 MiniMax 中文排版/模板文本资产的轻路径(弃 .NET)、xlsx 纯 MiniMax 主干、pandoc 依赖换 markitdown
+- modified:
+  - `docs/research/agent-skills-research-2026-11.md`
+- lesson(promoted): 评审驱动的事实核查价值极高：OpenAI 限制性许可只覆盖文档四件套,.system/skill-creator 实为 Apache-2.0;MiniMax 套模板核心知识(scenario_c/openxml_element_order)是 XML 级运行时无关文本,不绑定 .NET 可移植;anthropics docx 读取路径硬编码 pandoc 需换 markitdown;embeddable Python 的 ._pth 文件 import site 必须取消注释否则 pip 不生效
+
+### 16:48 | Codex
+
+- done: Office 预览文档补 Excel 选中转 Markdown 表格设计：新增 workbenchTableSelection.ts 定向工具（range.cloneContents 遍历 tr/td 重建网格，首行表头、管道符转义、合并单元格矩形化填充），只作用于发送 AI 三动作，复制动作保留系统 TSV 富格式；同步验收标准与文件清单
+- context: 用户要求 Excel 选中内容发送 AI 时转 Markdown 表格
+- decision: 不复用 shared htmlToMarkdown（webview 注入形态不可 import），新写表格选区专用定向转换器约80行；Markdown 只用于 AI 发送不用于剪贴板复制
+- modified:
+  - `docs/workbench/workbench-office-editing-plan.md`
+
+### 16:46 | Codex
+
+- done: 按用户决策重构 Office 开发文档：本期范围收缩为只做 xlsx/pptx 预览补齐+选中发送 AI，编辑功能整体延后；编辑调研与设计（含 hybrid 注入式保存路线 D、双 tab 模型、保存链改造）压缩为附录 A 存档备续用。Excel 预览=@e965/xlsx Worker 解析+大小表两档渲染（小表补合并、大表 virtuoso 忽略合并）；PPT 预览=jszip 提取+HTML 绝对定位（为原生文本选中放弃 SVG）；划词链路复用 docx askAi 模式；体积预算降至约170KB gzip
+- context: 用户担心有损重写破坏原格式，决策本期不做编辑只做预览，要求 Excel/PPT 预览支持选中并发送 AI
+- decision: PPT 预览用 HTML 绝对定位而非 SVG，决定性理由是 HTML 文本原生可选中而 SVG text 跨元素选区不可靠；Excel 合并单元格按大小表分档处理
+- modified:
+  - `docs/workbench/workbench-office-editing-plan.md`
+  - `docs/DOCS_INDEX.md`
+
+### 16:36 | Codex
+
+- done: 独立 worker 评审 Office 编辑开发文档并按评审意见修订：补 xlsx/pptx 字节读取 IPC 泛化（readOfficeBytes）、离开守卫保存路径需字节 flusher 分叉、二进制冲突 UI 简化设计、原子写+自写抑制、老格式/加密三级分发；Word 导入 spike 扩为三路线（新增 docx-preview 渲染产物路线 C）+具名样式/列表语义独立判定行；FortuneSheet undo 表述降级为实测验证、有损清单列全图表等、xlsx-js-style 入 spike；pptx sidecar 改内嵌 customXml 防孤儿化；预览编辑切换不销毁编辑会话；保存前备份 .multichat/office-backup/；验收补真实 Office 无修复对话框
+- context: 独立评审 worker 对照代码实证给出 5 阻塞+5 重要+5 建议，全部采纳修订
+- decision: 评审发现的复用表述过于乐观问题通过显式区分交互状态机复用与保存路径改造来修正；pptx 源 JSON 用内嵌 customXml 而非 sidecar
+- modified:
+  - `docs/workbench/workbench-office-editing-plan.md`
+
+### 16:27 | Codex
+
+- done: 整理 Office（Word/Excel/PPT）编辑功能开发文档：基于库选型实测结论（docx/pptxgenjs 只写不读、FortuneSheet 导入导出断链、pptx 无成熟读入器），设计预览/编辑双 tab 架构，Word 走 Lexical+mammoth transformDocument+docx 有损重写，Excel FortuneSheet 实验性+降级自研网格，PPT 仅闭环生成，新建二进制写 IPC 与离开守卫泛化，含分期/风险/验收标准
+- context: 用户要求整理开发文档，预览和编辑分开成两个 tab（对齐 HTML 编辑器双态）
+- decision: 不引入 TipTap 复用 Lexical；存量 pptx 不做可视化编辑仅闭环生成；FortuneSheet 标记实验性留自研网格降级方案；docx 预览全链保留为预览 tab
+- added:
+  - `docs/workbench/workbench-office-editing-plan.md`
+- modified:
+  - `docs/DOCS_INDEX.md`
+
+### 16:00 | Codex
+
+- done: X平台补充调研办公skill生态：确认anthropics/skills事实标准地位，新发现MiniMax官方办公四件套(minimax-docx/xlsx/pptx-generator/pdf, MIT许可)在中文排版与存量零损失编辑上更优，skill-creator建议以OpenAI版框架为主干吸收Anthropic版评测闭环方法，结论已补充进调研文档第八节
+- modified:
+  - `docs/research/agent-skills-research-2026-11.md`
+- lesson(promoted): tfriedel/claude-office-skills(850星)是anthropics/skills的下游镜像且作者已宣告废弃——核验skill仓库时必须读README确认是否独立实现而非镜像；MiniMax minimax-xlsx的XML直接编辑明确禁止openpyxl往返(破坏VBA/透视表/迷你图)，存量Excel编辑应走unpack-edit-pack路径
+
 ### 15:35 | Codex
 
 - done: 提交本日全部改动：编辑器Tab缩进与@菜单修复、工作台导图迁移机制移除、旧笔记迁移死分支清理、扫描版PDF渲染修复、Word预览分页与WMF/EMF转换，按模块分5笔；scratch与CDP调试脚本为过程文件不入库
